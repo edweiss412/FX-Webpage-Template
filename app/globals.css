@@ -16,8 +16,16 @@
 @source not "../docs";
 @source not "../tests";
 @source not "../lib";
-/* admin dev surface — disabled in production builds (ADMIN_DEV_PANEL_ENABLED). */
-@source not "../app/admin/dev";
+/* admin dev surface — the dev PANEL + dim harnesses are disabled in production
+   builds (ADMIN_DEV_PANEL_ENABLED), so exclude ONLY those dev-only route dirs
+   from Tailwind scanning. NOT the whole `app/admin/dev` tree: `/admin/dev/telemetry`
+   is PROD-available (developer-gated at runtime) and its classes must be scanned.
+   (A parent `@source not` + a child `@source` include does NOT compose in Tailwind
+   v4 — the exclusion always wins — so we narrow the exclusion instead.) */
+@source not "../app/admin/dev/page.tsx";
+@source not "../app/admin/dev/actions.ts";
+@source not "../app/admin/dev/source-link-dim";
+@source not "../app/admin/dev/telemetry-dim";
 
 /*
  * Token surface for FXAV Crew Pages — pairs with DESIGN.md.

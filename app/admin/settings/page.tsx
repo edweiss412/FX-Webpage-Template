@@ -276,7 +276,7 @@ export default async function AdminSettingsPage() {
 
         {/* developer-tier Task 16 (spec §6): Diagnostics is developer-only. */}
         {/* Diagnostics — the mobile reachability path into the desktop-only
-            "Activity" nav destination (/admin/observability). Activity is a
+            "Telemetry" nav destination (/admin/dev/telemetry). Telemetry is a
             desktopOnly nav item (absent from the mobile bottom tab bar), so this
             link is how Doug reaches the app-event log + cron-health on mobile. */}
         {isDeveloper && (
@@ -297,8 +297,8 @@ export default async function AdminSettingsPage() {
               className="rounded-md border border-border bg-surface p-tile-pad"
             >
               <Link
-                href="/admin/observability"
-                data-testid="admin-settings-observability-link"
+                href="/admin/dev/telemetry"
+                data-testid="admin-settings-telemetry-link"
                 className="flex min-h-tap-min items-start gap-3 rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
               >
                 <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center text-text-subtle [&>svg]:size-5">
@@ -306,7 +306,7 @@ export default async function AdminSettingsPage() {
                 </span>
                 <span className="flex flex-col gap-1">
                   <span className="text-sm font-medium text-text-strong underline">
-                    Activity: app event log &amp; cron health
+                    Telemetry: app event log &amp; cron health
                   </span>
                   <span className="text-sm text-text-subtle">
                     Browse recent app events and per-job cron run health for troubleshooting.

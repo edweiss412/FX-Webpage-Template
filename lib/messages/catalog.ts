@@ -2141,7 +2141,7 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → retry; if persistent, check Supabase admin_emails RPC + grants",
     helpfulContext:
-      "addAdminAction / revokeAdminAction caught an AdminEmailsInfraError from addAdminEmail / revokeAdminEmail (after the requireAdminIdentity gate) and returned { kind: 'infra_error' }. Rendered inline by AddAdminForm + RevokeRowButton instead of tearing down the settings section.",
+      "addAdminAction / revokeAdminAction caught an AdminEmailsInfraError from addAdminEmail / revokeAdminEmail (after the requireDeveloperIdentity gate) and returned { kind: 'infra_error' }. Rendered inline by AddAdminForm + RevokeRowButton instead of tearing down the settings section.",
     title: "Couldn't update administrators",
     longExplanation:
       "We couldn't add or revoke that administrator, usually a transient database or permissions issue. Try again in a moment; if it keeps failing, the developer needs to check the database connection.",
@@ -2556,14 +2556,14 @@ export const MESSAGE_CATALOG = {
   SELF_REVOKE_FORBIDDEN: {
     code: "SELF_REVOKE_FORBIDDEN",
     dougFacing:
-      "You can't revoke your own administrator access. Ask another admin to do it if you need to be removed.",
+      "You can't revoke your own administrator access. Ask another developer to do it if you need to be removed.",
     crewFacing: null,
-    followUp: "Doug → ask another admin to revoke you",
+    followUp: "Doug → ask another developer to revoke you",
     helpfulContext:
-      "revoke_admin_email_rpc refuses a self-revoke unconditionally inside its SECURITY DEFINER body — comparing the canonical target email to public.auth_email_canonical() — so an admin can never revoke their own access even via a hand-forged PostgREST rpc() call that bypasses the Server Action. This is defense-in-depth behind the M12.5 Server-Action guard. Other-revoke (a rogue admin revoking a peer, including the last peer) stays allowed by design; see amendment §5.5 + §11 anti-goal.",
+      "revoke_admin_email_rpc refuses a self-revoke unconditionally inside its SECURITY DEFINER body — comparing the canonical target email to public.auth_email_canonical() — so an admin can never revoke their own access even via a hand-forged PostgREST rpc() call that bypasses the Server Action. This is defense-in-depth behind the M12.5 Server-Action guard. Other-revoke is now developer-only (this milestone closes the §5.5 rogue-revoke risk); a non-developer actor is refused (42501 at the RPC / forbidden() at the Server Action).",
     title: "Can't revoke your own access",
     longExplanation:
-      "An administrator can never revoke their own access — the database refuses it directly, behind the Server Action guard. If you need to be removed, ask another admin to revoke you.",
+      "An administrator can never revoke their own access — the database refuses it directly, behind the Server Action guard. If you need to be removed, ask another developer to revoke you.",
     helpHref: "/help/errors#SELF_REVOKE_FORBIDDEN",
   },
   SESSION_NOT_FOUND: {

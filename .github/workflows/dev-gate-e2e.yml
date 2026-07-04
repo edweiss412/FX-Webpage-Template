@@ -7,6 +7,9 @@ name: Dev-gate e2e (build-vs-runtime)
 #   prod-build (:3002)       — built UNSET                         → /admin/dev 404, no settings link
 #   prod-runtime-flip (:3003) — built UNSET, started runtime=true   → /admin/dev STILL 404, no link
 #                              (artifact-time gate wins over runtime env — the M3 build-vs-runtime class)
+# CARVE-OUT: the "/admin/dev 404 in prod" claims above cover the dev PANEL +
+# source-link-dim + telemetry-dim only; /admin/dev/telemetry is the deliberate
+# PROD-available exception (developer-gated at runtime, not build-gated).
 #
 # The three projects are chained via Playwright `dependencies` (prod-runtime-flip
 # → prod-build → dev-build), so they run sequentially. DEV_GATE_ONLY=1 boots ONLY

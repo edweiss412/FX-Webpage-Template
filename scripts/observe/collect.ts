@@ -1,5 +1,5 @@
 // scripts/observe/collect.ts
-import type { AppEventFilters, AppEventCursor, AppEventRow } from "@/lib/admin/observabilityTypes";
+import type { AppEventFilters, AppEventCursor, AppEventRow } from "@/lib/admin/telemetryTypes";
 import type { QueryEventsResult } from "@/lib/observe/query";
 
 function sameCursor(a: AppEventCursor, b: AppEventCursor): boolean {

@@ -61,6 +61,16 @@ const nextConfig: NextConfig = {
         destination: "/admin",
         permanent: false,
       },
+      {
+        // /admin/observability was relocated to /admin/dev/telemetry (Part-A
+        // rename). permanent:true (308) — this URL shape is settled, so old
+        // bookmarks get a durable redirect. The redirect is unauthenticated; the
+        // destination page's requireDeveloperIdentity() enforces access (matching
+        // the "/" → /auth/sign-in pattern).
+        source: "/admin/observability",
+        destination: "/admin/dev/telemetry",
+        permanent: true,
+      },
     ];
   },
   // M12.13 secret-hygiene (HIGH finding): the unpublish confirm route is reached

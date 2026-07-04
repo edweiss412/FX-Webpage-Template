@@ -8,9 +8,9 @@
  * The four developer surfaces (spec §6):
  *   1. Settings → Maintenance section        (data-testid admin-settings-maintenance-section)
  *   2. Settings → Diagnostics section        (data-testid admin-settings-diagnostics-section)
- *   3. Developer-tools row + Activity nav     (admin-dev-tools-row [DEV_PANEL_PRESENT-gated]; "Activity" nav link)
+ *   3. Developer-tools row + Telemetry nav     (admin-dev-tools-row [DEV_PANEL_PRESENT-gated]; "Telemetry" nav link)
  *   4. Administrators → Developer toggle       (data-testid developer-toggle)
- *   + the developer-only ROUTES /admin/observability and /admin/dev.
+ *   + the developer-only ROUTES /admin/dev/telemetry and /admin/dev.
  *
  * Fixtures (test-only session minter, app/api/test-auth/set-session/route.ts):
  *   - NORMAL_ADMIN_FIXTURE = fxav-admin@example.com — app_metadata { role:"admin" },
@@ -23,7 +23,7 @@
  *
  * Runs in the desktop-chromium project (1280×800) against the :3000 baseline
  * webServer (ADMIN_DEV_PANEL_ENABLED=true + ENABLE_TEST_AUTH=true +
- * TEST_AUTH_SECRET). Desktop is required: "Activity" is a desktopOnly nav item
+ * TEST_AUTH_SECRET). Desktop is required: "Telemetry" is a desktopOnly nav item
  * (navConfig.ts) that never appears in the mobile bottom tab bar.
  *
  * Note on direct-nav denial (status vs content): the admin LAYOUT (requireAdmin)
@@ -53,8 +53,8 @@ const DEVELOPER_FIXTURE: TestAuthFixture = {
   label: "developer (admin + developer)",
 };
 
-function activityNavLink(page: import("@playwright/test").Page) {
-  return page.getByTestId("admin-nav-topbar").getByRole("link", { name: "Activity" });
+function telemetryNavLink(page: import("@playwright/test").Page) {
+  return page.getByTestId("admin-nav-topbar").getByRole("link", { name: "Telemetry" });
 }
 
 /**
@@ -97,16 +97,16 @@ test.describe("developer-tier gating — normal admin sees NONE of the four surf
     await expect(page.getByTestId("developer-toggle")).toHaveCount(0);
   });
 
-  test("nav has no Activity item", async ({ page }) => {
+  test("nav has no Telemetry item", async ({ page }) => {
     await page.goto("/admin/settings");
     await expect(page.getByTestId("admin-nav-topbar")).toBeVisible();
-    await expect(activityNavLink(page)).toHaveCount(0);
+    await expect(telemetryNavLink(page)).toHaveCount(0);
   });
 
-  test("direct-nav /admin/observability is denied (http-access-fallback, no observability content)", async ({
+  test("direct-nav /admin/dev/telemetry is denied (http-access-fallback, no telemetry content)", async ({
     page,
   }) => {
-    await page.goto("/admin/observability");
+    await page.goto("/admin/dev/telemetry");
     await expectDeveloperRouteDenied(page, "App event log & cron health");
   });
 
@@ -169,18 +169,18 @@ test.describe("developer-tier gating — table-backed developer sees all four su
     }
   });
 
-  test("nav has the Activity item", async ({ page }) => {
+  test("nav has the Telemetry item", async ({ page }) => {
     await page.goto("/admin/settings");
-    await expect(activityNavLink(page)).toBeVisible();
+    await expect(telemetryNavLink(page)).toBeVisible();
   });
 
-  test("direct-nav /admin/observability renders the real page (not a fallback)", async ({
+  test("direct-nav /admin/dev/telemetry renders the real page (not a fallback)", async ({
     page,
   }) => {
-    const res = await page.goto("/admin/observability");
+    const res = await page.goto("/admin/dev/telemetry");
     expect(res?.status()).toBe(200);
-    expect(new URL(page.url()).pathname).toBe("/admin/observability");
-    // The real Activity page content renders (anti-tautology vs the normal-admin
+    expect(new URL(page.url()).pathname).toBe("/admin/dev/telemetry");
+    // The real Telemetry page content renders (anti-tautology vs the normal-admin
     // denial: developer SEES the content, no http-access-fallback).
     await expect(page.getByText("App event log & cron health")).toBeVisible();
     await expect(page.locator("h1.next-error-h1")).toHaveCount(0);

@@ -49,7 +49,7 @@ const ALLOWED_TOKEN_NAMES = new Set([
   "auditProjectNoGlobalCursor",
   "no_global_cursor_columns",
   "reject_global_watermark_columns",
-  // Observability Phase 2 (/admin/observability) — these are NOT global sync cursors:
+  // Observability Phase 2 (/admin/dev/telemetry) — these are NOT global sync cursors:
   //  • lastRunAt: per-job DISPLAY of the latest CRON_RUN_SUMMARY row's occurred_at (read-only
   //    cron-health header). Sync progress is still per-show shows.last_seen_modified_time (§4).
   //  • AppEventCursor / cursorAt / occurredAt: the read-only event timeline's KEYSET PAGINATION

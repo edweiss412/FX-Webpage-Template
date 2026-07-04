@@ -232,10 +232,12 @@ describe("public.admin_emails table + replacement is_admin() (M9 C9 / M2-D1)", (
   });
 
   test("R6 fix: upsert RPC returns invalid_email for non-email strings (not check_violation)", () => {
+    const actor = `c9-actor-${randomUUID()}@example.com`;
     const out = runPsql(`
       begin;
+      ${seedDevActor(actor)}
       set local role authenticated;
-      set local request.jwt.claims = '${jwtAdmin()}';
+      set local request.jwt.claims = '${jwtAdmin(actor)}';
       select 'status_x=' || ((public.upsert_admin_email_rpc('x', null, false))->>'status');
       select 'status_noat=' || ((public.upsert_admin_email_rpc('no-at-sign', null, false))->>'status');
       select 'status_emptylocal=' || ((public.upsert_admin_email_rpc('@example.com', null, false))->>'status');
@@ -355,12 +357,28 @@ function jwtAdmin(email?: string): string {
   return JSON.stringify(claims);
 }
 
+// Part B (§4.1): admin-roster mutation now requires a TABLE-BACKED developer
+// actor (is_admin() → active is_developer row). Every happy-path RPC test seeds
+// its actor as an active developer BEFORE `set local role authenticated`
+// (authenticated has admin_emails DML REVOKE'd), then authenticates as that actor
+// via jwtAdmin(actor) — so auth_email_canonical() matches the developer row. This
+// is setup invariant-consistency (the developer gate replaced the is_admin() gate);
+// the asserted RPC branch (validation / canonicalization / re-add / self-revoke) is
+// unchanged.
+function seedDevActor(email: string): string {
+  return `insert into public.admin_emails (email, added_by, added_at, is_developer)
+      values (${sqlString(email)}, null, now(), true)
+      on conflict (email) do update set is_developer = true, revoked_at = null, revoked_by = null;`;
+}
+
 describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 + R2 fixes)", () => {
   test("upsert_admin_email_rpc: invalid_email branch on empty input", () => {
+    const actor = `c9-actor-${randomUUID()}@example.com`;
     const out = runPsql(`
       begin;
+      ${seedDevActor(actor)}
       set local role authenticated;
-      set local request.jwt.claims = '${jwtAdmin()}';
+      set local request.jwt.claims = '${jwtAdmin(actor)}';
       select 'status=' || ((public.upsert_admin_email_rpc('', null, false))->>'status');
       rollback;
     `);
@@ -369,11 +387,13 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 + R2 fixes)"
 
   test("upsert_admin_email_rpc: canonicalizes mixed-case input", () => {
     const suffix = randomUUID();
+    const actor = `c9-actor-${suffix}@example.com`;
     const lowered = `c9-upsert-canon-${suffix}@example.com`;
     const out = runPsql(`
       begin;
+      ${seedDevActor(actor)}
       set local role authenticated;
-      set local request.jwt.claims = '${jwtAdmin()}';
+      set local request.jwt.claims = '${jwtAdmin(actor)}';
       select 'status=' || ((public.upsert_admin_email_rpc(
         '  C9-Upsert-CANON-${suffix}@Example.COM  ', null, false
       ))->>'status');
@@ -387,14 +407,16 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 + R2 fixes)"
 
   test("upsert_admin_email_rpc: re_add_required on existing revoked row WITHOUT confirm", () => {
     const suffix = randomUUID();
+    const actor = `c9-actor-${suffix}@example.com`;
     const email = `c9-readd-${suffix}@example.com`;
     const out = runPsql(`
       begin;
+      ${seedDevActor(actor)}
       insert into public.admin_emails (email, added_by, added_at, revoked_at, revoked_by)
       values (${sqlString(email)}, null, now() - interval '7 days',
               now() - interval '1 day', '00000000-0000-0000-0000-000000000004');
       set local role authenticated;
-      set local request.jwt.claims = '${jwtAdmin()}';
+      set local request.jwt.claims = '${jwtAdmin(actor)}';
       select 'status=' || ((public.upsert_admin_email_rpc(${sqlString(email)}, null, false))->>'status');
       rollback;
     `);
@@ -403,13 +425,15 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 + R2 fixes)"
 
   test("upsert_admin_email_rpc: already_active branch on existing active row", () => {
     const suffix = randomUUID();
+    const actor = `c9-actor-${suffix}@example.com`;
     const email = `c9-active-existing-${suffix}@example.com`;
     const out = runPsql(`
       begin;
+      ${seedDevActor(actor)}
       insert into public.admin_emails (email, added_by, added_at)
       values (${sqlString(email)}, null, now() - interval '1 day');
       set local role authenticated;
-      set local request.jwt.claims = '${jwtAdmin()}';
+      set local request.jwt.claims = '${jwtAdmin(actor)}';
       select 'status=' || ((public.upsert_admin_email_rpc(${sqlString(email)}, null, false))->>'status');
       rollback;
     `);
@@ -418,11 +442,13 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 + R2 fixes)"
 
   test("upsert_admin_email_rpc: duplicate fresh-add returns already_active (idempotent retry)", () => {
     const suffix = randomUUID();
+    const actor = `c9-actor-${suffix}@example.com`;
     const email = `c9-dup-add-${suffix}@example.com`;
     const out = runPsql(`
       begin;
+      ${seedDevActor(actor)}
       set local role authenticated;
-      set local request.jwt.claims = '${jwtAdmin()}';
+      set local request.jwt.claims = '${jwtAdmin(actor)}';
       select 'first=' || ((public.upsert_admin_email_rpc(${sqlString(email)}, null, false))->>'status');
       select 'second=' || ((public.upsert_admin_email_rpc(${sqlString(email)}, null, false))->>'status');
       rollback;
@@ -433,15 +459,17 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 + R2 fixes)"
 
   test("upsert_admin_email_rpc: re-add with confirm reactivates the revoked row", () => {
     const suffix = randomUUID();
+    const actor = `c9-actor-${suffix}@example.com`;
     const email = `c9-readd-confirm-${suffix}@example.com`;
     const out = runPsql(`
       begin;
+      ${seedDevActor(actor)}
       insert into public.admin_emails (email, added_by, added_at, revoked_at, revoked_by, note)
       values (${sqlString(email)}, null, now() - interval '7 days',
               now() - interval '1 day', '00000000-0000-0000-0000-000000000005',
               'Q1 contractor');
       set local role authenticated;
-      set local request.jwt.claims = '${jwtAdmin()}';
+      set local request.jwt.claims = '${jwtAdmin(actor)}';
       select 'status=' || ((public.upsert_admin_email_rpc(${sqlString(email)}, 'back for Q3', true))->>'status');
       select 'row_revoked_null=' || (revoked_at is null)
         from public.admin_emails where email = ${sqlString(email)};
@@ -454,10 +482,12 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 + R2 fixes)"
   });
 
   test("revoke_admin_email_rpc: invalid_email branch on empty input", () => {
+    const actor = `c9-actor-${randomUUID()}@example.com`;
     const out = runPsql(`
       begin;
+      ${seedDevActor(actor)}
       set local role authenticated;
-      set local request.jwt.claims = '${jwtAdmin()}';
+      set local request.jwt.claims = '${jwtAdmin(actor)}';
       select 'status=' || ((public.revoke_admin_email_rpc(''))->>'status');
       rollback;
     `);
@@ -475,8 +505,10 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 + R2 fixes)"
       begin;
       update public.admin_emails set revoked_at = now(), revoked_by = '00000000-0000-0000-0000-000000000008', is_developer = false
         where revoked_at is null;
-      insert into public.admin_emails (email, added_by, added_at)
-      values (${sqlString(email)}, null, now());
+      -- Part B (§4.1): actor IS the target; seed it as an active developer AFTER the
+      -- revoke-all so it passes the developer actor gate, then hits the self-revoke refusal.
+      insert into public.admin_emails (email, added_by, added_at, is_developer)
+      values (${sqlString(email)}, null, now(), true);
       set local role authenticated;
       set local request.jwt.claims = '${jwtAdmin(email)}';
       select 'status=' || ((public.revoke_admin_email_rpc(${sqlString(email)}))->>'status');
@@ -485,20 +517,44 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 + R2 fixes)"
     expect(out).toContain("status=self_revoke_forbidden");
   });
 
-  test("revoke_admin_email_rpc: other-revoke of last admin is ALLOWED (rogue revoke per §5.5)", () => {
+  test("revoke_admin_email_rpc: non-developer rogue revoke is now REFUSED (Part B closes §5.5); developer revoke succeeds", () => {
     const suffix = randomUUID();
-    const email = `c9-rogue-victim-${suffix}@example.com`;
-    // Actor JWT email is DIFFERENT from target — rogue revoke per §5.5.
+    const victim = `c9-rogue-victim-${suffix}@example.com`;
+    // Part B (§3.4) SUPERSEDES the developer-tier §5.5 "any admin can revoke any
+    // admin" posture: admin-roster mutation is now developer-only. This test splits
+    // into two contracts.
+    //
+    // (a) A NON-developer rogue actor (role=admin JWT, but NO active is_developer
+    //     row) is REFUSED at the RPC's table-backed developer actor check (42501).
+    expect(() =>
+      runPsql(`
+        begin;
+        update public.admin_emails set revoked_at = now(), revoked_by = '00000000-0000-0000-0000-00000000000a', is_developer = false
+          where revoked_at is null;
+        insert into public.admin_emails (email, added_by, added_at)
+        values (${sqlString(victim)}, null, now());
+        set local role authenticated;
+        set local request.jwt.claims = '${jwtAdmin("rogue@example.com")}';
+        select public.revoke_admin_email_rpc(${sqlString(victim)});
+        rollback;
+      `),
+    ).toThrow(/permission denied|requires developer|42501/i);
+
+    // (b) A seeded active-developer actor revoking a DIFFERENT admin still SUCCEEDS
+    //     (the gate is developer, not blanket-deny; other-revoke by a developer is
+    //     the only remaining path to the last-developer-lockout risk, out of scope).
+    const devActor = `c9-rogue-dev-${suffix}@example.com`;
     const out = runPsql(`
       begin;
       update public.admin_emails set revoked_at = now(), revoked_by = '00000000-0000-0000-0000-00000000000a', is_developer = false
         where revoked_at is null;
+      ${seedDevActor(devActor)}
       insert into public.admin_emails (email, added_by, added_at)
-      values (${sqlString(email)}, null, now());
+      values (${sqlString(victim)}, null, now());
       set local role authenticated;
-      set local request.jwt.claims = '${jwtAdmin("rogue@example.com")}';
-      select 'status=' || ((public.revoke_admin_email_rpc(${sqlString(email)}))->>'status');
-      select 'is_revoked=' || (revoked_at is not null) from public.admin_emails where email = ${sqlString(email)};
+      set local request.jwt.claims = '${jwtAdmin(devActor)}';
+      select 'status=' || ((public.revoke_admin_email_rpc(${sqlString(victim)}))->>'status');
+      select 'is_revoked=' || (revoked_at is not null) from public.admin_emails where email = ${sqlString(victim)};
       rollback;
     `);
     expect(out).toContain("status=ok");
@@ -515,8 +571,10 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 + R2 fixes)"
     // The row stays active.
     const out = runPsql(`
       begin;
-      insert into public.admin_emails (email, added_by, added_at)
-      values (${sqlString(self)}, null, now()), (${sqlString(peer)}, null, now());
+      -- Part B (§4.1): the self-revoking actor must be an active developer to pass the
+      -- new actor gate before the self-revoke refusal fires.
+      insert into public.admin_emails (email, added_by, added_at, is_developer)
+      values (${sqlString(self)}, null, now(), true), (${sqlString(peer)}, null, now(), false);
       set local role authenticated;
       set local request.jwt.claims = '${jwtAdmin(self)}';
       select 'status=' || ((public.revoke_admin_email_rpc(${sqlString(self)}))->>'status');
@@ -609,13 +667,15 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 + R2 fixes)"
     const beta = `c9-concurrent-beta-${suffix}@example.com`;
 
     // Setup: revoke all baseline actives + insert the two test admins.
+    // Part B (§4.1): both self-revoking actors must be active developers to pass the
+    // new actor gate before the (unconditional) self-revoke refusal fires.
     runPsql(`
       begin;
       update public.admin_emails set revoked_at = now(),
         revoked_by = '00000000-0000-0000-0000-000000000010', is_developer = false
         where revoked_at is null;
-      insert into public.admin_emails (email, added_by, added_at)
-      values (${sqlString(alpha)}, null, now()), (${sqlString(beta)}, null, now());
+      insert into public.admin_emails (email, added_by, added_at, is_developer)
+      values (${sqlString(alpha)}, null, now(), true), (${sqlString(beta)}, null, now(), true);
       commit;
     `);
 
@@ -650,8 +710,11 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 + R2 fixes)"
       );
       // Restore the seed admin as active (edweiss412@gmail.com is the
       // only deploy seed; dlarson@fxav.net is intentionally not restored).
+      // Part B (§4.1): the setup revoke-all cleared is_developer; restore the
+      // bootstrap developer bit so this teardown leaves the seed's invariant intact
+      // (20260703230100 bootstraps edweiss412 as is_developer=true).
       runPsql(
-        `update public.admin_emails set revoked_at = null, revoked_by = null where email = 'edweiss412@gmail.com';`,
+        `update public.admin_emails set revoked_at = null, revoked_by = null, is_developer = true where email = 'edweiss412@gmail.com';`,
       );
     }
   });

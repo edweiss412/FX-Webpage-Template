@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { parseAppEventFilters, escapeIlike } from "@/lib/admin/observabilityTypes";
+import { parseAppEventFilters, escapeIlike } from "@/lib/admin/telemetryTypes";
 
 const sp = (o: Record<string, string>) => new URLSearchParams(o);
 const UUID = "00000000-0000-0000-0000-000000000001";

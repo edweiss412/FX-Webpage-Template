@@ -6,7 +6,7 @@ import type {
   CronHealthRow,
   CronRunOutcomeRead,
   LoadCronHealthResult,
-} from "@/lib/admin/observabilityTypes";
+} from "@/lib/admin/telemetryTypes";
 
 const OUTCOMES: CronRunOutcomeRead[] = ["ok", "partial", "infra", "threw"];
 

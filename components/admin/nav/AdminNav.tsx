@@ -40,7 +40,7 @@ export function AdminNav({
   initialBadgeCount?: number | null;
   /**
    * developer-tier Task 15 (spec §6 row 8): gates `developerOnly` NavItems
-   * (currently Activity/observability). Absent → `false` (safe default), so a
+   * (currently Telemetry). Absent → `false` (safe default), so a
    * normal admin never sees developer destinations in either nav.
    */
   viewerIsDeveloper?: boolean;
@@ -49,7 +49,7 @@ export function AdminNav({
   const badgeCount = useNeedsAttentionBadge(initialBadgeCount);
   // developerOnly items are hidden from non-developers in BOTH navs.
   const visibleNav = NAV.filter((item) => !item.developerOnly || viewerIsDeveloper);
-  // The mobile bottom tab bar shows only non-desktopOnly items (Activity is a
+  // The mobile bottom tab bar shows only non-desktopOnly items (Telemetry is a
   // desktop-nav destination). Overflow is derived from the mobile-visible count.
   const mobileItems = visibleNav.filter((item) => !item.desktopOnly);
   const overflow = shouldRenderOverflow(mobileItems.length);

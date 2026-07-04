@@ -54,7 +54,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "Couldn't update administrators right now. Try again in a moment.",
     "followUp": "Doug → retry; if persistent, check Supabase admin_emails RPC + grants",
-    "helpfulContext": "addAdminAction / revokeAdminAction caught an AdminEmailsInfraError from addAdminEmail / revokeAdminEmail (after the requireAdminIdentity gate) and returned { kind: 'infra_error' }. Rendered inline by AddAdminForm + RevokeRowButton instead of tearing down the settings section.",
+    "helpfulContext": "addAdminAction / revokeAdminAction caught an AdminEmailsInfraError from addAdminEmail / revokeAdminEmail (after the requireDeveloperIdentity gate) and returned { kind: 'infra_error' }. Rendered inline by AddAdminForm + RevokeRowButton instead of tearing down the settings section.",
   },
   "ADMIN_FORBIDDEN": {
     "crewFacing": null,
@@ -1000,9 +1000,9 @@ export const SPEC_CODES = {
   },
   "SELF_REVOKE_FORBIDDEN": {
     "crewFacing": null,
-    "dougFacing": "You can't revoke your own administrator access. Ask another admin to do it if you need to be removed.",
-    "followUp": "Doug → ask another admin to revoke you",
-    "helpfulContext": "revoke_admin_email_rpc refuses a self-revoke unconditionally inside its SECURITY DEFINER body — comparing the canonical target email to public.auth_email_canonical() — so an admin can never revoke their own access even via a hand-forged PostgREST rpc() call that bypasses the Server Action. This is defense-in-depth behind the M12.5 Server-Action guard. Other-revoke (a rogue admin revoking a peer, including the last peer) stays allowed by design; see amendment §5.5 + §11 anti-goal.",
+    "dougFacing": "You can't revoke your own administrator access. Ask another developer to do it if you need to be removed.",
+    "followUp": "Doug → ask another developer to revoke you",
+    "helpfulContext": "revoke_admin_email_rpc refuses a self-revoke unconditionally inside its SECURITY DEFINER body — comparing the canonical target email to public.auth_email_canonical() — so an admin can never revoke their own access even via a hand-forged PostgREST rpc() call that bypasses the Server Action. This is defense-in-depth behind the M12.5 Server-Action guard. Other-revoke is now developer-only (this milestone closes the §5.5 rogue-revoke risk); a non-developer actor is refused (42501 at the RPC / forbidden() at the Server Action).",
   },
   "SESSION_ABSOLUTE_TIMEOUT": {
     "crewFacing": "Your session has expired. Open the original link Doug shared again.",

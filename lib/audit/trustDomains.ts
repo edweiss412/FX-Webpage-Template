@@ -35,10 +35,10 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   { path: "app/admin/show/staged/[stagedId]/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/show/[slug]/preview/[crewId]/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/needs-attention/page.tsx", chain: ["requireAdmin"] },
-  // Observability "Activity" — service-role app-event log + cron-health page;
+  // Telemetry — service-role app-event log + cron-health page;
   // developer-gated (developer-tier §6 row 5: the page's own
   // requireDeveloperIdentity chain; the admin layout still admin-gates the shell).
-  { path: "app/admin/observability/page.tsx", chain: ["requireDeveloper"] },
+  { path: "app/admin/dev/telemetry/page.tsx", chain: ["requireDeveloper"] },
   // (Removed: app/admin/ignored-sheets/page.tsx — the standalone Ignored-sheets
   // view was folded into the dashboard's collapsed disclosure. The un-ignore API
   // route below is the surviving admin-gated surface.)
@@ -48,9 +48,9 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   // Dev-only dimensional-invariant harness for the source-sheet links feature
   // (build-renamed-aside in prod); same requireDeveloper chokepoint as /admin/dev.
   { path: "app/admin/dev/source-link-dim/page.tsx", chain: ["requireDeveloper"] },
-  // Dev-only dimensional-invariant harness for the observability timeline (spec §8
+  // Dev-only dimensional-invariant harness for the telemetry timeline (spec §8
   // + G7); build-renamed-aside in prod; same requireDeveloper chokepoint as /admin/dev.
-  { path: "app/admin/dev/observability-dim/page.tsx", chain: ["requireDeveloper"] },
+  { path: "app/admin/dev/telemetry-dim/page.tsx", chain: ["requireDeveloper"] },
   { path: "app/admin/settings/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/settings/admins/page.tsx", chain: ["requireAdmin"] },
   // Onboarding-fixups F3 — /admin/onboarding is a redirect-only alias for the

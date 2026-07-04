@@ -23,10 +23,11 @@
  *          Supabase-client construction) before it (so DeveloperInfraError is
  *          caught and returned as a cataloged typed inline error — §6.1 R4 fix).
  *      Set-equality: discovered exported server actions == registry action rows.
- *   2. Admin-gate assertion (Codex spec R6): admins/actions.ts's addAdminAction +
- *      revokeAdminAction stay requireAdminIdentity-gated (NOT developer, NOT
- *      ungated) — normal-admin management must remain admin-usable.
- *   3. Route/page coverage: the dev page + 2 harnesses + observability page +
+ *   2. Developer-gate assertion (Part B §3.1): admins/actions.ts's addAdminAction +
+ *      revokeAdminAction are requireDeveloperIdentity-gated (NOT admin, NOT
+ *      ungated) — admin-roster management is now developer-only (this milestone
+ *      supersedes the developer-tier's "any admin can revoke any admin" §5.5 risk).
+ *   3. Route/page coverage: the dev page + 2 harnesses + telemetry page +
  *      reap route are in PROTECTED_ROUTES with a chain starting requireDeveloper.
  *   4. Mutation-RPC SQL guard (Codex spec R9+R10): set_admin_developer_rpc's
  *      actor authorization is a table-backed `exists(... from public.admin_emails
@@ -35,7 +36,7 @@
  *      membership mutation).
  *
  * These assertions are anti-tautological: each fails against a real regression —
- * a removed/moved gate (1), a swapped admin gate (2), a dropped route row (3),
+ * a removed/moved gate (1), a reverted developer gate (2), a dropped route row (3),
  * or an `exists`-check → `public.is_developer()` swap in the RPC (4).
  */
 import { readFileSync } from "node:fs";
@@ -106,15 +107,15 @@ const DEVELOPER_GATED_SURFACES: readonly DeveloperGatedSurface[] = [
     declaredPosture: "boundary-500",
   },
   {
-    id: "observability-dim",
-    file: "app/admin/dev/observability-dim/page.tsx",
+    id: "telemetry-dim",
+    file: "app/admin/dev/telemetry-dim/page.tsx",
     consumerKind: "route",
     gate: "requireDeveloper",
     declaredPosture: "boundary-500",
   },
   {
-    id: "observability-page",
-    file: "app/admin/observability/page.tsx",
+    id: "telemetry-page",
+    file: "app/admin/dev/telemetry/page.tsx",
     consumerKind: "route",
     gate: "requireDeveloperIdentity",
     declaredPosture: "boundary-500",
@@ -128,12 +129,17 @@ const DEVELOPER_GATED_SURFACES: readonly DeveloperGatedSurface[] = [
   },
 ];
 
-const ADMIN_GATED_ACTION_FILE = "app/admin/settings/admins/actions.ts";
-const ADMIN_GATED_ACTIONS = ["addAdminAction", "revokeAdminAction"] as const;
-const ADMIN_GATE = "requireAdminIdentity";
+const DEVELOPER_GATED_ACTION_FILE = "app/admin/settings/admins/actions.ts";
+const DEVELOPER_GATED_ACTIONS = ["addAdminAction", "revokeAdminAction"] as const;
+const DEVELOPER_GATE = "requireDeveloperIdentity";
 
 const DEVELOPER_TIER_MIGRATION =
   "supabase/migrations/20260703230100_admin_emails_developer_tier.sql";
+
+// Part B (2026-07-04 §3.2): re-created upsert/revoke RPCs with a table-backed
+// developer actor check (pre-lock fast-reject + post-lock TOCTOU re-check).
+const ADMIN_MGMT_DEVELOPER_MIGRATION =
+  "supabase/migrations/20260704000000_admin_mgmt_requires_developer.sql";
 
 function loadSourceFile(path: string): SourceFile {
   return new Project({ useInMemoryFileSystem: true }).createSourceFile(
@@ -213,9 +219,13 @@ function getActionBody(sf: SourceFile, name: string): Block | undefined {
 }
 
 /** Isolate the `$$ ... $$` body of one plpgsql function by name from a migration. */
-function extractRpcBody(migrationSource: string, fnName: string): string {
+function extractRpcBody(
+  migrationSource: string,
+  fnName: string,
+  migrationPath: string = DEVELOPER_TIER_MIGRATION,
+): string {
   const sigIdx = migrationSource.indexOf(`function public.${fnName}`);
-  expect(sigIdx, `${fnName} must be defined in ${DEVELOPER_TIER_MIGRATION}`).toBeGreaterThan(-1);
+  expect(sigIdx, `${fnName} must be defined in ${migrationPath}`).toBeGreaterThan(-1);
   const afterSig = migrationSource.slice(sigIdx);
   const bodyOpen = afterSig.indexOf("$$");
   const bodyClose = afterSig.indexOf("$$", bodyOpen + 2);
@@ -285,26 +295,29 @@ describe("developerGatingContract (structural defense — developer-tier §6.1)"
     );
   });
 
-  describe("enforcement 2: admins/actions.ts stays admin-gated (Codex spec R6)", () => {
-    test("addAdminAction + revokeAdminAction are requireAdminIdentity-gated (not developer, not ungated)", () => {
-      const sf = loadSourceFile(ADMIN_GATED_ACTION_FILE);
+  describe("enforcement 2: admins/actions.ts is developer-gated (Part B §3.1)", () => {
+    test("addAdminAction + revokeAdminAction are requireDeveloperIdentity-gated (not admin, not ungated)", () => {
+      const sf = loadSourceFile(DEVELOPER_GATED_ACTION_FILE);
       expect(hasFileLevelUseServer(sf)).toBe(true);
 
       const discovered = getExportedAsyncActionNames(sf);
       expect(
         discovered,
-        `${ADMIN_GATED_ACTION_FILE}: exported server actions must equal the admin-gated pair`,
-      ).toEqual([...ADMIN_GATED_ACTIONS].sort());
+        `${DEVELOPER_GATED_ACTION_FILE}: exported server actions must equal the developer-gated pair`,
+      ).toEqual([...DEVELOPER_GATED_ACTIONS].sort());
 
-      for (const name of ADMIN_GATED_ACTIONS) {
+      for (const name of DEVELOPER_GATED_ACTIONS) {
         const body = getActionBody(sf, name);
-        expect(body, `${ADMIN_GATED_ACTION_FILE}#${name}: must have a block body`).toBeDefined();
+        expect(
+          body,
+          `${DEVELOPER_GATED_ACTION_FILE}#${name}: must have a block body`,
+        ).toBeDefined();
         const first = body!.getStatements()[0];
         const gate = awaitCalleeNameOf(first);
         expect(
           gate,
-          `${ADMIN_GATED_ACTION_FILE}#${name}: must stay ${ADMIN_GATE}-gated (a swap to requireDeveloper* or an ungated first statement fails here); got ${gate ?? first?.getKindName() ?? "none"}`,
-        ).toBe(ADMIN_GATE);
+          `${DEVELOPER_GATED_ACTION_FILE}#${name}: must stay ${DEVELOPER_GATE}-gated (a revert to requireAdminIdentity or an ungated first statement fails here); got ${gate ?? first?.getKindName() ?? "none"}`,
+        ).toBe(DEVELOPER_GATE);
       }
     });
   });
@@ -350,5 +363,42 @@ describe("developerGatingContract (structural defense — developer-tier §6.1)"
         "set_admin_developer_rpc must NOT call public.is_developer() — its JWT arm cannot authorize a membership mutation (§3.5 / §11)",
       ).not.toMatch(/public\.is_developer\s*\(/i);
     });
+
+    // Part B (2026-07-04 §3.2): the re-created upsert_admin_email_rpc +
+    // revoke_admin_email_rpc must table-back their actor authorization exactly like
+    // set_admin_developer_rpc — a ≥2× table-backed exists(...ae.is_developer) check
+    // (pre-lock fast-reject + post-lock TOCTOU re-check), NO JWT-armed
+    // public.is_developer(), and NO trace of the OLD public.is_admin() gate. Each
+    // assertion fails against a real regression: dropping the post-lock re-check
+    // (count → 1), swapping the exists() for public.is_developer() (JWT-arm bypass),
+    // or reverting to the is_admin() gate.
+    test.each(["upsert_admin_email_rpc", "revoke_admin_email_rpc"])(
+      "%s actor check is a table-backed exists(...ae.is_developer) ≥2× with no public.is_developer()/public.is_admin()",
+      (fnName) => {
+        const migration = readFileSync(ADMIN_MGMT_DEVELOPER_MIGRATION, "utf8");
+        const body = extractRpcBody(migration, fnName, ADMIN_MGMT_DEVELOPER_MIGRATION);
+
+        // (a) table-backed actor check appears ≥2× (pre-lock fast-reject + post-lock re-check).
+        const actorCheckRe =
+          /exists\s*\(\s*select\s+1\s+from\s+public\.admin_emails\s+ae\b[\s\S]*?\bae\.is_developer\b/gi;
+        const actorChecks = body.match(actorCheckRe) ?? [];
+        expect(
+          actorChecks.length,
+          `${fnName} must table-back its actor check (exists ... from public.admin_emails ae ... and ae.is_developer) at BOTH the pre-lock fast-reject and the post-lock re-check`,
+        ).toBeGreaterThanOrEqual(2);
+
+        // (b) the JWT-armed public.is_developer() must NEVER authorize the mutation.
+        expect(
+          body,
+          `${fnName} must NOT call public.is_developer() — its JWT arm cannot authorize a membership mutation (§3.2)`,
+        ).not.toMatch(/public\.is_developer\s*\(/i);
+
+        // (c) the OLD is_admin() actor gate must be fully gone from the body.
+        expect(
+          body,
+          `${fnName} must NOT use the old public.is_admin() actor gate — Part B replaced it with the table-backed developer check`,
+        ).not.toMatch(/public\.is_admin\s*\(/i);
+      },
+    );
   });
 });

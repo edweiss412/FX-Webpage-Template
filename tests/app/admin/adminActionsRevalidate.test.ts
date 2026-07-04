@@ -19,12 +19,13 @@ const mockState = vi.hoisted(() => ({
 
 const revalidatePath = vi.hoisted(() => vi.fn());
 
-vi.mock("@/lib/auth/requireAdmin", async () => {
-  const actual =
-    await vi.importActual<typeof import("@/lib/auth/requireAdmin")>("@/lib/auth/requireAdmin");
+vi.mock("@/lib/auth/requireDeveloper", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/auth/requireDeveloper")>(
+    "@/lib/auth/requireDeveloper",
+  );
   return {
     ...actual,
-    requireAdminIdentity: async () => ({ email: "test-admin@example.com" }),
+    requireDeveloperIdentity: async () => ({ email: "test-admin@example.com" }),
   };
 });
 

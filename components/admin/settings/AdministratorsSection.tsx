@@ -90,8 +90,9 @@ export function AdministratorsSection({
         learnMore={{ href: "/help/admin/settings#administrators" }}
       >
         <p>
-          People who can sign in and manage shows here. Add or revoke access. You can&rsquo;t revoke
-          your own.
+          {viewerIsDeveloper
+            ? "People who can sign in and manage shows here. Add or revoke access. You can’t revoke your own."
+            : "People who can sign in and manage shows here. Roster changes are managed by a developer."}
         </p>
       </HoverHelp>
     </div>
@@ -132,7 +133,12 @@ export function AdministratorsSection({
           </summary>
           <ul className="flex flex-col gap-2 px-3 pb-3">
             {revoked.map((row) => (
-              <RevokedRow key={row.email} row={row} now={now} />
+              <RevokedRow
+                key={row.email}
+                row={row}
+                now={now}
+                viewerIsDeveloper={viewerIsDeveloper}
+              />
             ))}
           </ul>
         </details>
@@ -146,7 +152,24 @@ export function AdministratorsSection({
       aria-labelledby="admin-settings-admins-heading"
       className="flex flex-col gap-3"
     >
-      <AddAdminDisclosure heading={heading} list={list} />
+      {/* Part B §3.3: admin-roster MANAGEMENT is developer-only. Developers get
+          the AddAdminDisclosure (trigger + disclosed form); non-developers get an
+          equivalent READ-ONLY card — the SAME heading + list, no trigger/form —
+          mirroring AddAdminDisclosure.tsx:54-62 minus the AddAdminTrigger/AddAdminForm.
+          The row-level Revoke/Re-add controls gate independently (below). */}
+      {viewerIsDeveloper ? (
+        <AddAdminDisclosure heading={heading} list={list} />
+      ) : (
+        <>
+          <header className="flex flex-wrap items-center justify-between gap-3">{heading}</header>
+          <div
+            data-testid="admin-settings-admins-card"
+            className="flex flex-col gap-3 rounded-md border border-border bg-surface p-4"
+          >
+            {list}
+          </div>
+        </>
+      )}
     </section>
   );
 }
@@ -191,7 +214,10 @@ function AdminRow({
           <p className="mt-1 text-xs italic text-text-subtle">&ldquo;{row.note?.trim()}&rdquo;</p>
         )}
       </div>
-      {isActor ? null : <RevokeRowButton email={row.email} disabled={false} />}
+      {/* Part B §3.3: Revoke is developer-only (and never on the actor's own row). */}
+      {isActor || !viewerIsDeveloper ? null : (
+        <RevokeRowButton email={row.email} disabled={false} />
+      )}
       {/* developer-tier Task 18 (spec §7): the Developer toggle, developer-only.
           Locked on the actor's own row (you cannot demote yourself); interactive
           on every other active row. Absent entirely for non-developer viewers. */}
@@ -206,7 +232,15 @@ function AdminRow({
   );
 }
 
-function RevokedRow({ row, now }: { row: AdminEmailRow; now: Date }) {
+function RevokedRow({
+  row,
+  now,
+  viewerIsDeveloper,
+}: {
+  row: AdminEmailRow;
+  now: Date;
+  viewerIsDeveloper: boolean;
+}) {
   const revokedRelative = row.revoked_at ? formatRelative(row.revoked_at, now) : "";
   return (
     <li
@@ -217,7 +251,8 @@ function RevokedRow({ row, now }: { row: AdminEmailRow; now: Date }) {
       <span className="text-text-subtle">{row.email}</span>
       <span className="flex items-center gap-3 text-xs text-text-faint">
         <span>Revoked {revokedRelative}</span>
-        <ReAddRowButton email={row.email} />
+        {/* Part B §3.3: Re-add is developer-only. */}
+        {viewerIsDeveloper ? <ReAddRowButton email={row.email} /> : null}
       </span>
     </li>
   );

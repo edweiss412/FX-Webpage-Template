@@ -2,18 +2,18 @@
  * tests/admin/admins-actions.test.ts (M9 C9 R3 regression)
  *
  * Pins the R3 contract: app/admin/settings/admins/actions.ts MUST
- * propagate AdminInfraError when the auth gate fails (requireAdminIdentity
+ * propagate DeveloperInfraError when the auth gate fails (requireDeveloperIdentity
  * throws). The Server Action MUST NOT swallow infra faults into a
  * benign result kind (`invalid_email` or `ok`).
  *
  * Pre-R3 code path (the failing pattern this test pins against):
- *   getActorUid() → requireAdminIdentity() + supabase.auth.getUser()
+ *   getActorUid() → requireDeveloperIdentity() + supabase.auth.getUser()
  *   The second getUser() call returned `{ uid: null, identity }` on
  *   error — addAdminAction proceeded with uid=null (silent mutation),
  *   revokeAdminAction mapped uid=null to `invalid_email` (user-input
  *   signal masquerading as infra fault).
  *
- * R3 fix: actions call requireAdminIdentity() directly. Any throw
+ * R3 fix: actions call requireDeveloperIdentity() directly. Any throw
  * propagates to Next's error boundary (cataloged 500 path).
  */
 import { describe, expect, test, vi } from "vitest";
@@ -21,18 +21,19 @@ import { describe, expect, test, vi } from "vitest";
 // Hoisted mock control — set before importing actions so the vi.mock
 // factories can reach it via vi.hoisted scope.
 const mockState = vi.hoisted(() => ({
-  requireAdminIdentityImpl: null as null | (() => Promise<{ email: string }>),
+  requireDeveloperIdentityImpl: null as null | (() => Promise<{ email: string }>),
   addAdminEmailImpl: null as null | ((opts: unknown) => Promise<unknown>),
   revokeAdminEmailImpl: null as null | ((opts: unknown) => Promise<unknown>),
 }));
 
-vi.mock("@/lib/auth/requireAdmin", async () => {
-  const actual =
-    await vi.importActual<typeof import("@/lib/auth/requireAdmin")>("@/lib/auth/requireAdmin");
+vi.mock("@/lib/auth/requireDeveloper", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/auth/requireDeveloper")>(
+    "@/lib/auth/requireDeveloper",
+  );
   return {
     ...actual,
-    requireAdminIdentity: async () => {
-      if (mockState.requireAdminIdentityImpl) return mockState.requireAdminIdentityImpl();
+    requireDeveloperIdentity: async () => {
+      if (mockState.requireDeveloperIdentityImpl) return mockState.requireDeveloperIdentityImpl();
       return { email: "test-admin@example.com" };
     },
   };
@@ -54,31 +55,31 @@ vi.mock("next/cache", () => ({
 }));
 
 const { addAdminAction, revokeAdminAction } = await import("@/app/admin/settings/admins/actions");
-const { AdminInfraError } = await import("@/lib/auth/requireAdmin");
+const { DeveloperInfraError } = await import("@/lib/auth/requireDeveloper");
 
 describe("admin allow-list Server Actions — R3 infra-fault propagation", () => {
-  test("addAdminAction: AdminInfraError from requireAdminIdentity propagates (not swallowed)", async () => {
-    mockState.requireAdminIdentityImpl = async () => {
-      throw new AdminInfraError("simulated supabase server-client construction fault");
+  test("addAdminAction: DeveloperInfraError from requireDeveloperIdentity propagates (not swallowed)", async () => {
+    mockState.requireDeveloperIdentityImpl = async () => {
+      throw new DeveloperInfraError("simulated supabase server-client construction fault");
     };
     const fd = new FormData();
     fd.set("email", "x@example.com");
-    await expect(addAdminAction(null, fd)).rejects.toBeInstanceOf(AdminInfraError);
+    await expect(addAdminAction(null, fd)).rejects.toBeInstanceOf(DeveloperInfraError);
   });
 
-  test("revokeAdminAction: AdminInfraError from requireAdminIdentity propagates", async () => {
-    mockState.requireAdminIdentityImpl = async () => {
-      throw new AdminInfraError("simulated getUser fault");
+  test("revokeAdminAction: DeveloperInfraError from requireDeveloperIdentity propagates", async () => {
+    mockState.requireDeveloperIdentityImpl = async () => {
+      throw new DeveloperInfraError("simulated getUser fault");
     };
     const fd = new FormData();
     fd.set("email", "x@example.com");
-    await expect(revokeAdminAction(null, fd)).rejects.toBeInstanceOf(AdminInfraError);
+    await expect(revokeAdminAction(null, fd)).rejects.toBeInstanceOf(DeveloperInfraError);
   });
 
-  test("addAdminAction does NOT call addAdminEmail when requireAdmin throws (no silent mutation)", async () => {
+  test("addAdminAction does NOT call addAdminEmail when requireDeveloper throws (no silent mutation)", async () => {
     let dataLayerCalled = false;
-    mockState.requireAdminIdentityImpl = async () => {
-      throw new AdminInfraError("auth gate failed");
+    mockState.requireDeveloperIdentityImpl = async () => {
+      throw new DeveloperInfraError("auth gate failed");
     };
     mockState.addAdminEmailImpl = async () => {
       dataLayerCalled = true;
@@ -86,14 +87,14 @@ describe("admin allow-list Server Actions — R3 infra-fault propagation", () =>
     };
     const fd = new FormData();
     fd.set("email", "attacker@example.com");
-    await expect(addAdminAction(null, fd)).rejects.toBeInstanceOf(AdminInfraError);
+    await expect(addAdminAction(null, fd)).rejects.toBeInstanceOf(DeveloperInfraError);
     expect(dataLayerCalled).toBe(false);
   });
 
-  test("revokeAdminAction does NOT call revokeAdminEmail when requireAdmin throws", async () => {
+  test("revokeAdminAction does NOT call revokeAdminEmail when requireDeveloper throws", async () => {
     let dataLayerCalled = false;
-    mockState.requireAdminIdentityImpl = async () => {
-      throw new AdminInfraError("auth gate failed");
+    mockState.requireDeveloperIdentityImpl = async () => {
+      throw new DeveloperInfraError("auth gate failed");
     };
     mockState.revokeAdminEmailImpl = async () => {
       dataLayerCalled = true;
@@ -101,7 +102,7 @@ describe("admin allow-list Server Actions — R3 infra-fault propagation", () =>
     };
     const fd = new FormData();
     fd.set("email", "victim@example.com");
-    await expect(revokeAdminAction(null, fd)).rejects.toBeInstanceOf(AdminInfraError);
+    await expect(revokeAdminAction(null, fd)).rejects.toBeInstanceOf(DeveloperInfraError);
     expect(dataLayerCalled).toBe(false);
   });
 
@@ -110,8 +111,8 @@ describe("admin allow-list Server Actions — R3 infra-fault propagation", () =>
     // result) to { kind: "invalid_email" } — a user-input signal
     // masquerading as an infra fault. Verify the post-fix code throws
     // instead.
-    mockState.requireAdminIdentityImpl = async () => {
-      throw new AdminInfraError("getUser threw");
+    mockState.requireDeveloperIdentityImpl = async () => {
+      throw new DeveloperInfraError("getUser threw");
     };
     const fd = new FormData();
     fd.set("email", "x@example.com");
@@ -121,7 +122,7 @@ describe("admin allow-list Server Actions — R3 infra-fault propagation", () =>
     } catch (err) {
       caught = err;
     }
-    expect(caught).toBeInstanceOf(AdminInfraError);
+    expect(caught).toBeInstanceOf(DeveloperInfraError);
   });
 });
 
@@ -134,8 +135,8 @@ describe("addAdminAction — R14 re-add confirmation binding", () => {
     // R14 fix: server-side guard rejects the mismatch.
     let dataLayerCalled = false;
     // Reset prior-test mock state — earlier suite sets the throwing
-    // requireAdminIdentityImpl which would fire AdminInfraError here.
-    mockState.requireAdminIdentityImpl = null;
+    // requireDeveloperIdentityImpl which would fire DeveloperInfraError here.
+    mockState.requireDeveloperIdentityImpl = null;
     mockState.addAdminEmailImpl = async () => {
       dataLayerCalled = true;
       return { kind: "ok", row: null };
@@ -154,7 +155,7 @@ describe("addAdminAction — R14 re-add confirmation binding", () => {
   test("R14: confirm_re_add=true with matching emails proceeds normally", async () => {
     let dataLayerCalled = false;
     let receivedConfirmReAdd = false;
-    mockState.requireAdminIdentityImpl = null;
+    mockState.requireDeveloperIdentityImpl = null;
     mockState.addAdminEmailImpl = async (opts: unknown) => {
       dataLayerCalled = true;
       const o = opts as { confirmReAdd?: boolean };
@@ -173,7 +174,7 @@ describe("addAdminAction — R14 re-add confirmation binding", () => {
 
   test("R14: confirm_re_add=true with case-mismatch is ACCEPTED (canonicalize before compare)", async () => {
     let dataLayerCalled = false;
-    mockState.requireAdminIdentityImpl = null;
+    mockState.requireDeveloperIdentityImpl = null;
     mockState.addAdminEmailImpl = async () => {
       dataLayerCalled = true;
       return { kind: "ok", row: null };
@@ -197,7 +198,7 @@ describe("revokeAdminAction — M12.5 self-revoke is enforced server-side", () =
   // guard is a misleading trust boundary (adversarial R5).
   test("self-targeted revoke is refused and does NOT reach the data layer", async () => {
     let dataLayerCalled = false;
-    mockState.requireAdminIdentityImpl = async () => ({ email: "self@example.com" });
+    mockState.requireDeveloperIdentityImpl = async () => ({ email: "self@example.com" });
     mockState.revokeAdminEmailImpl = async () => {
       dataLayerCalled = true;
       return { kind: "ok", row: null };
@@ -211,7 +212,7 @@ describe("revokeAdminAction — M12.5 self-revoke is enforced server-side", () =
 
   test("self-revoke is refused even via case/space-drifted self email (canonicalized comparison)", async () => {
     let dataLayerCalled = false;
-    mockState.requireAdminIdentityImpl = async () => ({ email: "self@example.com" });
+    mockState.requireDeveloperIdentityImpl = async () => ({ email: "self@example.com" });
     mockState.revokeAdminEmailImpl = async () => {
       dataLayerCalled = true;
       return { kind: "ok", row: null };
@@ -231,7 +232,7 @@ describe("revokeAdminAction — M12.5 self-revoke is enforced server-side", () =
     let dataLayerCalled = false;
     // Actor identity that won't equal the target, so the action-level guard
     // does NOT short-circuit and the data layer is actually consulted.
-    mockState.requireAdminIdentityImpl = async () => ({ email: "actor@example.com" });
+    mockState.requireDeveloperIdentityImpl = async () => ({ email: "actor@example.com" });
     mockState.revokeAdminEmailImpl = async () => {
       dataLayerCalled = true;
       return { kind: "self_revoke_forbidden", email: "target@example.com" };
@@ -245,7 +246,7 @@ describe("revokeAdminAction — M12.5 self-revoke is enforced server-side", () =
 
   test("revoking a PEER (different admin) still flows through to the data layer", async () => {
     let dataLayerCalled = false;
-    mockState.requireAdminIdentityImpl = async () => ({ email: "self@example.com" });
+    mockState.requireDeveloperIdentityImpl = async () => ({ email: "self@example.com" });
     mockState.revokeAdminEmailImpl = async () => {
       dataLayerCalled = true;
       return { kind: "ok", row: null };
