@@ -271,4 +271,68 @@ describe("POST /api/admin/staged/[fileId]/discard", () => {
       expect(sink.some((r) => r.code === "STAGE_DISCARDED")).toBe(false);
     });
   });
+
+  // S1: bare `await requireAdmin()` surfaced an AdminInfraError (infra fault resolving
+  // admin identity) as a generic framework 500. Wrap it to mirror the sibling
+  // handleLivePendingIngestionRetry route: an ADMIN_SESSION_LOOKUP_FAILED code → typed
+  // 500 + a fail-open LIVE_STAGED_DISCARD_AUTH_INFRA forensic breadcrumb; any other
+  // throw (forbidden/redirect control-flow) → re-throw so behavior is byte-preserved.
+  describe("admin identity infra fault (S1)", () => {
+    afterEach(() => resetLogSink());
+    function capture(): LogRecord[] {
+      const sink: LogRecord[] = [];
+      setLogSink((r) => {
+        sink.push(r);
+      });
+      return sink;
+    }
+
+    test("AdminInfraError → typed 500 + LIVE_STAGED_DISCARD_AUTH_INFRA breadcrumb, no discard", async () => {
+      const infra = Object.assign(new Error("admin session lookup failed"), {
+        code: "ADMIN_SESSION_LOOKUP_FAILED",
+      });
+      adminMock.requireAdmin.mockRejectedValueOnce(infra);
+      const sink = capture();
+      const response = await POST(
+        request({
+          source_scope: "live",
+          staged_id: "11111111-1111-4111-8111-111111111111",
+          variant: "try_again",
+        }),
+        { params: Promise.resolve({ fileId: "drive-file-1" }) },
+      );
+      expect(response.status).toBe(500);
+      await expect(response.json()).resolves.toEqual({
+        ok: false,
+        error: "ADMIN_SESSION_LOOKUP_FAILED",
+      });
+      const rec = sink.filter((r) => r.code === "LIVE_STAGED_DISCARD_AUTH_INFRA");
+      expect(rec).toHaveLength(1);
+      expect(rec[0]!.level).toBe("error");
+      expect(rec[0]!.source).toBe("api.admin.staged.discard");
+      // The parse/discard pipeline must not run when identity resolution faulted.
+      expect(discardMock.discardStaged).not.toHaveBeenCalled();
+    });
+
+    test("non-infra admin throw (forbidden/redirect) re-throws unchanged", async () => {
+      const forbidden = Object.assign(new Error("forbidden"), {
+        digest: "NEXT_HTTP_ERROR_FALLBACK;403",
+      });
+      adminMock.requireAdmin.mockRejectedValueOnce(forbidden);
+      const sink = capture();
+      await expect(
+        POST(
+          request({
+            source_scope: "live",
+            staged_id: "11111111-1111-4111-8111-111111111111",
+            variant: "try_again",
+          }),
+          { params: Promise.resolve({ fileId: "drive-file-1" }) },
+        ),
+      ).rejects.toBe(forbidden);
+      // Control-flow throw is NOT mistaken for an infra fault → no breadcrumb, no discard.
+      expect(sink.some((r) => r.code === "LIVE_STAGED_DISCARD_AUTH_INFRA")).toBe(false);
+      expect(discardMock.discardStaged).not.toHaveBeenCalled();
+    });
+  });
 });

@@ -15,6 +15,7 @@ import { acquireReportLease, type ReportLeaseDb } from "@/lib/reports/leaseProto
 import { enforceQuota, type QuotaResult, type ReportQuotaKind } from "@/lib/reports/rateLimit";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { log } from "@/lib/log";
 
 export type ReporterRoleSnapshot = string | null;
 
@@ -940,6 +941,14 @@ async function expiredLeaseRetry(
     );
   }
 
+  // S3: request→outcome breadcrumb on a genuine 201-created (fail-open, invariant 9).
+  // Recovered / duplicate / in-flight / error paths do NOT reach here, so no false trace.
+  void log.info("report submitted", {
+    source: "reports.submit",
+    code: "CREW_REPORT_SUBMITTED",
+    showId: ageRow.show_id ?? body.show_id,
+    issueUrl: issue.htmlUrl,
+  });
   return { status: 201, body: successBody(auth, "created", issue.htmlUrl) };
 }
 
@@ -1063,6 +1072,14 @@ export async function submitReport(
         );
       }
 
+      // S3: request→outcome breadcrumb on a genuine 201-created (fail-open, invariant 9).
+      // Duplicate / in-flight / recovered / 429 / 502 paths return earlier, so no false trace.
+      void log.info("report submitted", {
+        source: "reports.submit",
+        code: "CREW_REPORT_SUBMITTED",
+        showId: body.show_id,
+        issueUrl: issue.htmlUrl,
+      });
       return { status: 201, body: successBody(auth, "created", issue.htmlUrl) };
     } catch (cause) {
       if (cause instanceof ReportSubmitInfraError) throw cause;
