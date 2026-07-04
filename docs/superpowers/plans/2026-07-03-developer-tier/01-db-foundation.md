@@ -418,15 +418,27 @@ Implements spec §4.4 R8/R9 concurrency requirement + §10.7. Separate task: it 
 - [ ] **Step 1: Write the test** — drive two overlapping transactions with real lock contention. Use two `psql` processes with an advisory-lock rendezvous so txn A holds the row while B blocks, then A commits a demotion of B and B resumes.
 
 ```ts
-import { execFile } from "node:child_process";
+import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { promisify } from "node:util";
 import { describe, expect, test } from "vitest";
-const pexec = promisify(execFile);
 const url = process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
-const psql = (sql: string) => pexec("psql", [url, "-v", "ON_ERROR_STOP=1", "-qAt"], { input: sql })
-  .then(r => ({ ok: true, out: r.stdout.trim() }))
-  .catch(e => ({ ok: false, out: String(e.stderr ?? e) }));
+// Async `execFile`/`exec` ignore the `input` option (only *Sync variants accept it),
+// so `pexec("psql", …, { input: sql })` leaves psql blocking on stdin until the
+// vitest timeout kills it. Use a genuinely-concurrent spawn runner (mirrors
+// `runPsqlAsync` in tests/db/admin-emails.test.ts) writing SQL to stdin, so the
+// two racing transactions actually overlap for the lock-contention assertion.
+const psql = (sql: string) =>
+  new Promise<{ ok: boolean; out: string }>((resolve) => {
+    const p = spawn("psql", [url, "-v", "ON_ERROR_STOP=1", "-qAt"]);
+    let so = "";
+    let se = "";
+    p.stdout.on("data", (d) => (so += String(d)));
+    p.stderr.on("data", (d) => (se += String(d)));
+    p.on("error", (e) => resolve({ ok: false, out: String(e) }));
+    p.on("close", (c) => resolve(c === 0 ? { ok: true, out: so.trim() } : { ok: false, out: se.trim() || so.trim() }));
+    p.stdin.write(sql);
+    p.stdin.end();
+  });
 const claims = (o: Record<string, unknown>) => JSON.stringify(o).replaceAll("'", "''");
 
 describe("set_admin_developer_rpc cross-demotion race", () => {
