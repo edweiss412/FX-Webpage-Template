@@ -68,7 +68,11 @@ export function projectIdentityContext(
     out.display.repo = sanitizeIdentityString(ctx.repo, opts);
   }
   if (isPlainString(ctx.attempted_action) && WIZARD_ACTION_ENUM.has(ctx.attempted_action)) {
-    out.display.attempted_action = ctx.attempted_action;
+    // Enum-gated, but still route through the sanitizer so EVERY group-(B)
+    // display string goes through the single chokepoint (spec §3.1) — a no-op
+    // on the clean fixed enum values, but keeps the §8.3 meta-test invariant
+    // that no display field bypasses sanitizeIdentityString.
+    out.display.attempted_action = sanitizeIdentityString(ctx.attempted_action, opts);
   }
   if (opts.includePii) {
     if (isPlainString(ctx.email)) out.display.email = sanitizeIdentityString(ctx.email, opts);
