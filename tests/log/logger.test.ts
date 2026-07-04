@@ -63,6 +63,20 @@ describe("logger", () => {
     ]);
   });
 
+  test("debug never persists even with { persist:true } — pins the intentional no-op", async () => {
+    // Finding #1: log.debug(msg, { persist:true }) cannot persist because app_events
+    // has no 'debug' level (the level CHECK allows only info/warn/error). This pins
+    // that the persist flag is deliberately a NO-OP on debug (not silently coerced to
+    // info), so the contract is documented rather than a silent surprise.
+    const calls = capture();
+    await log.debug("c", { source: "s", persist: true });
+    await log.debug("d", { source: "s", code: "C", persist: true });
+    expect(calls.map((c) => `${c.record.level}:${c.persist}`)).toEqual([
+      "debug:false",
+      "debug:false",
+    ]);
+  });
+
   test("auto-attaches requestId/showId from ALS; explicit fields win", async () => {
     const calls = capture();
     await runWithRequestContext({ requestId: "req-7", showId: "show-als" }, async () => {

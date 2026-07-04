@@ -21,6 +21,11 @@ const RESERVED = new Set([
 function shouldPersist(level: LogLevel, code: string | null, persist: boolean): boolean {
   if (level === "error" || level === "warn") return true;
   if (level === "info") return code != null || persist === true;
+  // debug NEVER persists — not even with { persist:true } or a code. The app_events
+  // level CHECK allows only info/warn/error, so no 'debug' row is writable; debug is a
+  // console-only level by contract. `persist:true` on a debug call is intentionally a
+  // NO-OP (NOT coerced to info — that would change level semantics). Pinned by
+  // tests/log/logger.test.ts "debug never persists even with { persist:true }".
   return false; // debug
 }
 
