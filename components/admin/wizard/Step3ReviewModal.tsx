@@ -473,7 +473,7 @@ export function Step3ReviewModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby={h2Id}
-      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
+      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6"
     >
       {/* Scrim — tap-out closes. A labelled close button kept OUT of the tab
           order (tabIndex -1) so the focus trap never lands on it; Escape + the
@@ -576,8 +576,19 @@ export function Step3ReviewModal({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            {/* §11 T10: instant — deliberate (chip swaps with flaggedCount; no animation on rescan) */}
-            {flaggedCount > 0 ? (
+            {/* §11 T10: instant — deliberate (chip swaps with flaggedCount/isDirtyRescan; no animation on rescan) */}
+            {isDirtyRescan ? (
+              /* Dirty re-scan wins over the clean/flagged derivation: an
+                 "All clean" chip would contradict the footer's review-required
+                 note (§9.2), so the chip mirrors it instead. */
+              <span
+                data-testid={`wizard-step3-card-${dfid}-review-chip`}
+                className="inline-flex items-center gap-1.5 rounded-pill bg-warning-bg px-2.5 py-1 text-xs font-semibold whitespace-nowrap text-warning-text"
+              >
+                <span aria-hidden="true" className="size-2 rounded-pill bg-status-review" />
+                Sheet changed
+              </span>
+            ) : flaggedCount > 0 ? (
               <span
                 data-testid={`wizard-step3-card-${dfid}-review-chip`}
                 className="inline-flex items-center gap-1.5 rounded-pill bg-warning-bg px-2.5 py-1 text-xs font-semibold whitespace-nowrap text-warning-text"
@@ -802,7 +813,15 @@ export function Step3ReviewModal({
                 onClick={handlePublish}
                 disabled={publishState === "pending"}
                 aria-busy={publishState === "pending" || undefined}
-                className="inline-flex min-h-tap-min flex-1 items-center justify-center gap-2 rounded-sm bg-accent px-4 text-sm font-semibold whitespace-nowrap text-accent-text transition-colors duration-fast hover:bg-accent-hover disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface sm:flex-none"
+                className={`inline-flex min-h-tap-min flex-1 items-center justify-center gap-2 rounded-sm px-4 text-sm font-semibold whitespace-nowrap transition-colors duration-fast disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface sm:flex-none ${
+                  /* Checked resting state demotes to a quiet positive
+                     treatment (spec §9.1, ratified via impeccable critique
+                     2026-07-03); unchecked + pending keep the accent CTA.
+                     Click behavior is identical in both states. */
+                  checked && publishState !== "pending"
+                    ? "border border-border-strong bg-surface text-status-positive-text hover:bg-surface-sunken"
+                    : "bg-accent text-accent-text hover:bg-accent-hover"
+                }`}
               >
                 {/* §11 T7/C7: instant — deliberate (check icon swaps with checked; no animation) */}
                 {checked && publishState !== "pending" ? (

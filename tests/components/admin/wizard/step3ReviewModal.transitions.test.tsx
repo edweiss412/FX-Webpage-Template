@@ -271,6 +271,13 @@ describe("§11 T7/T7b: checked + publish-state swaps are instant — no animatio
     const { q } = renderModal();
     const btn = q.getByTestId(tid("publish"));
     expect(btn.className).not.toMatch(/\banimate-|transition-\[|duration-normal\b/);
+    cleanup();
+    // The checked resting state has its own (demoted quiet-positive) class
+    // string — the instant-swap contract holds for it too.
+    const { q: q2 } = renderModal({ checked: true });
+    expect(q2.getByTestId(tid("publish")).className).not.toMatch(
+      /\banimate-|transition-\[|duration-normal\b/,
+    );
   });
 
   test("T7: label swaps instantly between unchecked/checked across separate mounts (no animation)", () => {

@@ -259,6 +259,28 @@ describe("Step3ReviewModal — overall status chip (spec §7)", () => {
     expect(chip.className).toMatch(/\bbg-surface-sunken\b/);
     expect(chip.className).toMatch(/\btext-status-positive-text\b/);
   });
+
+  test("dirty rescan → chip reads 'Sheet changed' with review treatment, never 'All clean' (footer-note consistency)", () => {
+    // Zero-warning fixture: without the dirty branch this would render "All
+    // clean", contradicting the footer's review-required note.
+    const d = sectionData();
+    expect(expectedFlagged(d)).toBe(0);
+    const { q } = renderModal({ d, isDirtyRescan: true });
+    const chip = q.getByTestId(tid("chip"));
+    expect(chip.textContent).toBe("Sheet changed");
+    expect(chip.className).toMatch(/\bbg-warning-bg\b/);
+    expect(chip.className).toMatch(/\btext-warning-text\b/);
+    expect(chip.querySelector(".bg-status-review")).not.toBeNull();
+    expect(q.queryByText("All clean")).toBeNull();
+  });
+
+  test("dirty rescan wins over flagged counts: chip never reads '{N} need a look' when the sheet changed", () => {
+    const d = sectionData({ warnings: [warning("crew"), warning("rooms")] });
+    expect(expectedFlagged(d)).toBeGreaterThan(0);
+    const { q } = renderModal({ d, isDirtyRescan: true });
+    expect(q.getByTestId(tid("chip")).textContent).toBe("Sheet changed");
+    expect(q.queryByText(/need(s)? a look/)).toBeNull();
+  });
 });
 
 // ── Focus management (retired: initial focus; new: trap wrap + restore) ─────
@@ -359,6 +381,14 @@ describe("Step3ReviewModal — shell (spec §5)", () => {
     expect(dialog.className).toMatch(/\bsm:items-center\b/);
   });
 
+  test("overlay gutter: ≥sm gets sm:p-6 breathing room; sheet mode stays full-bleed (no unprefixed padding)", () => {
+    renderModal();
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    expect(dialog.className).toMatch(/\bsm:p-6\b/);
+    // Full-bleed below sm: no base (unprefixed) padding utility on the overlay.
+    expect(dialog.className).not.toMatch(/(^|\s)p[xytrbl]?-/);
+  });
+
   test("dialog root (role=dialog) has data-testid = wizard-step3-card-<dfid>-review-modal", () => {
     const { q } = renderModal();
     const dialog = q.getByTestId(tid("modal"));
@@ -441,6 +471,39 @@ describe("Step3ReviewModal — footer note + buttons (spec §9.1)", () => {
     cleanup();
     const { q: q2 } = renderModal({ checked: true });
     expect(q2.getByTestId(tid("publish")).textContent).toBe("Selected to publish");
+  });
+
+  test("publish CTA styling: unchecked keeps the accent treatment; checked resting state demotes to quiet positive (border/surface)", () => {
+    const { q } = renderModal({ checked: false });
+    const unchecked = q.getByTestId(tid("publish"));
+    expect(unchecked.className).toMatch(/\bbg-accent\b/);
+    expect(unchecked.className).toMatch(/\btext-accent-text\b/);
+    cleanup();
+    const { q: q2 } = renderModal({ checked: true });
+    const checkedBtn = q2.getByTestId(tid("publish"));
+    expect(checkedBtn.className).toMatch(/\bborder\b/);
+    expect(checkedBtn.className).toMatch(/\bborder-border-strong\b/);
+    expect(checkedBtn.className).toMatch(/\bbg-surface\b/);
+    expect(checkedBtn.className).toMatch(/\btext-status-positive-text\b/);
+    expect(checkedBtn.className).not.toMatch(/\bbg-accent\b/);
+    expect(checkedBtn.className).toMatch(/\bmin-h-tap-min\b/);
+    // The Check icon stays.
+    expect(checkedBtn.querySelector("svg")).not.toBeNull();
+  });
+
+  test("publish CTA styling: pending keeps the accent treatment even when checked", async () => {
+    let settle!: (v: boolean) => void;
+    const onRequestSetChecked = vi.fn(
+      () => new Promise<boolean>((resolve) => (settle = resolve)),
+    );
+    const { q } = renderModal({ checked: true, onRequestSetChecked });
+    fireEvent.click(q.getByTestId(tid("publish")));
+    await waitFor(() => expect(q.getByTestId(tid("publish")).textContent).toBe("Selecting…"));
+    const pending = q.getByTestId(tid("publish"));
+    expect(pending.className).toMatch(/\bbg-accent\b/);
+    expect(pending.className).toMatch(/\btext-accent-text\b/);
+    expect(pending.className).not.toMatch(/\bborder-border-strong\b/);
+    await act(async () => settle(true));
   });
 
   test("dirty-rescan: NO publish button, NO rescan button; review-required note + reapply link (RescanReviewBanner copy/target)", () => {
