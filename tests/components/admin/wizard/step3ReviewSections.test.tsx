@@ -27,8 +27,8 @@
  * label scans are scoped `within(...)` the section's own testid container so a
  * sibling can never satisfy an assertion by accident.
  */
-import { afterEach, describe, expect, test, vi } from "vitest";
-import { cleanup, render, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { isMessageCode } from "@/lib/messages/lookup";
 import type {
@@ -1026,5 +1026,100 @@ describe("RoomsBreakdown — redesigned per-room cards", () => {
   test("no side-stripe: no border-l class anywhere in the rooms body HTML (impeccable + §F ban)", () => {
     const { container } = renderBody(roomsData([FULL_ROOM]), "rooms");
     expect(container.innerHTML).not.toContain("border-l");
+  });
+});
+
+// ── ReportIssueSection — §D progressive disclosure (T-D1 / T-D3) ─────────────
+// The form subtree is gated behind a disclosure trigger; `draft`/`status` and
+// the submit flow live at component level so they SURVIVE collapse/re-expand.
+// Failure modes: disclosure missing, focus lost on expand, draft wiped,
+// status/submit state moved into the conditionally-mounted subtree, or the
+// pending POST orphaned by a mid-flight collapse.
+
+describe("ReportIssueSection — §D disclosure (collapsed by default; state survives collapse)", () => {
+  const TOGGLE = `wizard-step3-card-${DFID}-report-toggle`;
+  const TEXTAREA = `wizard-step3-card-${DFID}-report-textarea`;
+  const SUBMIT = `wizard-step3-card-${DFID}-report-submit`;
+  const STATUS = `wizard-step3-card-${DFID}-report-status`;
+  // Mirrors reportAttemptStorageKey (step3ReviewSections.tsx) — deliberately
+  // restated so a key-format drift fails here.
+  const STORAGE_KEY = `fxav-report-attempt-wizard-${WSID}-${DFID}`;
+  const SUCCESS_COPY = "Sent — thanks. The developer will take a look.";
+
+  beforeEach(() => window.sessionStorage.clear());
+  afterEach(() => vi.unstubAllGlobals());
+
+  test("T-D1: collapsed by default — toggle 'Write a report' with aria-expanded=false, textarea ABSENT; expand mounts the form (aria-controls wired) + focuses the textarea; a typed draft survives collapse → re-expand", async () => {
+    const q = renderBody(sectionData(), "report");
+    const toggle = q.getByTestId(TOGGLE);
+    expect(toggle.textContent).toBe("Write a report");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(q.queryByTestId(TEXTAREA)).toBeNull();
+
+    fireEvent.click(toggle); // expand
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    const textarea = q.getByTestId(TEXTAREA) as HTMLTextAreaElement;
+    const controls = toggle.getAttribute("aria-controls");
+    expect(controls).toBeTruthy();
+    const form = document.getElementById(controls!)!;
+    expect(form.tagName).toBe("FORM");
+    expect(form.contains(textarea)).toBe(true);
+    // Async focus contract (§D1) — poll, never assert synchronously.
+    await waitFor(() => expect(document.activeElement).toBe(textarea));
+
+    fireEvent.change(textarea, { target: { value: "the crew list is wrong" } });
+    fireEvent.click(toggle); // collapse — subtree unmounts, state persists
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(q.queryByTestId(TEXTAREA)).toBeNull();
+    fireEvent.click(toggle); // re-expand
+    expect((q.getByTestId(TEXTAREA) as HTMLTextAreaElement).value).toBe("the crew list is wrong");
+  });
+
+  test("T-D3a: submit → success, collapse, re-expand — the sent confirmation still renders (status lives OUTSIDE the conditional subtree)", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: async () => ({ ok: true, status: "created" }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const q = renderBody(sectionData(), "report");
+    fireEvent.click(q.getByTestId(TOGGLE));
+    fireEvent.change(q.getByTestId(TEXTAREA), { target: { value: "something broke" } });
+    fireEvent.click(q.getByTestId(SUBMIT));
+    await waitFor(() => expect(q.getByTestId(STATUS).textContent).toBe(SUCCESS_COPY));
+
+    fireEvent.click(q.getByTestId(TOGGLE)); // collapse
+    expect(q.queryByTestId(STATUS)).toBeNull();
+    fireEvent.click(q.getByTestId(TOGGLE)); // re-expand
+    expect(q.getByTestId(STATUS).textContent).toBe(SUCCESS_COPY);
+  });
+
+  test("T-D3b: collapse while pending — the in-flight POST settles fire-and-forget; re-expand renders success and the sessionStorage attempt key is rotated (removed)", async () => {
+    let resolveFetch!: (r: unknown) => void;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        () =>
+          new Promise((resolve) => {
+            resolveFetch = resolve;
+          }),
+      ),
+    );
+    const q = renderBody(sectionData(), "report");
+    fireEvent.click(q.getByTestId(TOGGLE));
+    fireEvent.change(q.getByTestId(TEXTAREA), { target: { value: "mid-flight collapse" } });
+    fireEvent.click(q.getByTestId(SUBMIT));
+    expect(q.getByTestId(STATUS).textContent).toBe("Sending…");
+    expect(window.sessionStorage.getItem(STORAGE_KEY)).toBeTruthy(); // key persisted for the attempt
+
+    fireEvent.click(q.getByTestId(TOGGLE)); // collapse mid-flight — allowed (§D1 guards)
+    expect(q.queryByTestId(STATUS)).toBeNull();
+    await act(async () => {
+      resolveFetch({ ok: true, status: 201, json: async () => ({ ok: true, status: "created" }) });
+    });
+    // Rotate-on-success is observable while collapsed (spec T-D3).
+    expect(window.sessionStorage.getItem(STORAGE_KEY)).toBeNull();
+    fireEvent.click(q.getByTestId(TOGGLE)); // re-expand
+    expect(q.getByTestId(STATUS).textContent).toBe(SUCCESS_COPY);
   });
 });

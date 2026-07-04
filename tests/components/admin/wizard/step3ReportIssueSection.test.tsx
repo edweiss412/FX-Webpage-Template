@@ -86,9 +86,22 @@ function stubFetch(...responses: Array<ReturnType<typeof jsonResponse>>) {
   return fetchMock;
 }
 
-/** Render the section inside the modal chrome provider (the production mount). */
+function ttid(name: string): string {
+  return `wizard-step3-card-${DFID}-report-${name}`;
+}
+
+/** Follow-ups-b2 §D (T-D2): the form is collapsed behind the disclosure
+ *  trigger, so every test querying textarea/submit/status expands first.
+ *  Disclosure semantics themselves are pinned in step3ReviewSections.test.tsx
+ *  (T-D1/T-D3) — here the expand is purely mechanical setup. */
+function expandReport(q: ReturnType<typeof render>) {
+  fireEvent.click(q.getByTestId(ttid("toggle")));
+}
+
+/** Render the section inside the modal chrome provider (the production mount),
+ *  expanded (§D T-D2) so the pre-existing form assertions keep their teeth. */
 function renderInChrome(d: SectionData, getActiveSection: () => SectionId) {
-  return render(
+  const q = render(
     <Step3SectionChromeContext.Provider
       value={{
         Icon: MessageSquareWarning,
@@ -100,10 +113,8 @@ function renderInChrome(d: SectionData, getActiveSection: () => SectionId) {
       <ReportIssueSection data={d} />
     </Step3SectionChromeContext.Provider>,
   );
-}
-
-function ttid(name: string): string {
-  return `wizard-step3-card-${DFID}-report-${name}`;
+  expandReport(q);
+  return q;
 }
 
 function fillAndSubmit(q: ReturnType<typeof render>, text = "Something broke") {
@@ -230,6 +241,7 @@ describe("ReportIssueSection — viewerVisibleSection (spec §D3a)", () => {
     );
     // handleNavClick sets shared `active` BEFORE the jsdom scrollTo guard.
     fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-review-rail-item-crew`));
+    expandReport(q); // §D T-D2 — the modal mounts the section collapsed
     fireEvent.change(q.getByTestId(ttid("textarea")), { target: { value: "modal report" } });
     fireEvent.click(q.getByTestId(ttid("submit")));
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
@@ -240,6 +252,7 @@ describe("ReportIssueSection — viewerVisibleSection (spec §D3a)", () => {
     const d = sectionData();
     const fetchMock = stubFetch();
     const q = render(<ReportIssueSection data={d} />);
+    expandReport(q); // §D T-D2 — collapsed by default outside the chrome too
     fillAndSubmit(q);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
     expect(postedBody(fetchMock)).not.toHaveProperty("viewerVisibleSection");

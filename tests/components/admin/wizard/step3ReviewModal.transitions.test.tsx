@@ -807,6 +807,8 @@ describe("§H N7: report status idle→pending→success/error — instant text 
       ),
     );
     const { q } = renderModal();
+    // Follow-ups-b2 §D (T-D2): the form is collapsed by default — expand first.
+    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-report-toggle`));
     const statusEl = q.getByTestId(`wizard-step3-card-${DFID}-report-status`);
     expect(statusEl.getAttribute("role")).toBe("status");
     expect(statusEl.getAttribute("aria-live")).toBe("polite");
