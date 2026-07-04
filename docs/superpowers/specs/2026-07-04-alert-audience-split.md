@@ -119,6 +119,19 @@ amber alarm.
 > is crew-retriable. None represents a standing broken subsystem, so they do not push
 > the dot red.
 
+> **`EMAIL_NOT_CONFIGURED` / `EMAIL_DELIVERY_FAILED` are developer-owned (R16).** Their
+> remediation is **deployment/env config** — the provider API key, verified sending address,
+> and public site address are environment variables set on the deployment, structurally
+> identical to `GITHUB_BOT_LOGIN_MISSING` (already health/"Eric"). Doug has NO in-app control
+> for them (the settings page only has email *toggles* — whether to send — not provider
+> config). So `health` is correct. **But their existing §12.4 catalog copy addresses
+> "Doug → check email provider key…"**, which would contradict routing them to a
+> "no action needed from you" health surface. This spec therefore **reconciles that copy**
+> to developer-owned framing in the §12.4 three-way lockstep (§7 / §10) — `followUp` becomes
+> `Eric → …` and the `dougFacing`/summary no longer instruct Doug — proving Doug is no
+> longer the actor (Codex R16 option 2). The Doug-facing email *toggles* on the settings page
+> are unaffected.
+
 Counts cross-check: 16 doug + (16 degraded + 10 notice) health = 16 + 26 = **42** =
 `ADMIN_ALERTS_CODES.length` (`tests/messages/_metaAdminAlertCatalog.test.ts:57-100`).
 
@@ -466,15 +479,29 @@ tests: a non-developer admin cannot resolve a global OR show-scoped health alert
 any legacy surface (`resolved_at` stays null); a `doug` alert still resolves through them
 unchanged.
 
-## 7. `WATCH_CHANNEL_ORPHANED` demotion
+## 7. Catalog copy edits (§12.4 three-way lockstep)
 
-Stays `audience:"doug"` (keeps the Retry button in `AlertBanner`), but its catalog copy is
-reworded to drop amber-urgency framing (it already says "Shows still sync automatically
-every few minutes"). No new severity field is introduced; the demotion is copy-only +
-the existing watch panel treatment (`AlertBanner.tsx:416-440`). **This is the one Doug code
-whose spec change is copy, not routing.** Any `dougFacing` edit here obeys the
-§12.4-catalog-parity three-way lockstep (spec §12.4 prose + `pnpm gen:spec-codes` +
-`lib/messages/catalog.ts`) — see §10.
+Three catalog rows have their §12.4 copy edited. Each edit obeys the §12.4-catalog-parity
+three-way lockstep — master spec §12.4 prose + `pnpm gen:spec-codes`
+(`lib/messages/__generated__/spec-codes.ts`) + `lib/messages/catalog.ts` — all in the same
+commit, or the `x1-catalog-parity` gate fails. **Never `prettier --write` the master spec.**
+
+1. **`WATCH_CHANNEL_ORPHANED`** (stays `audience:"doug"`) — reworded to drop amber-urgency
+   framing (it already says "Shows still sync automatically every few minutes"); keeps the
+   Retry button + existing watch panel treatment (`AlertBanner.tsx:416-440`). Copy-only, not
+   routing.
+2. **`EMAIL_NOT_CONFIGURED`** (`audience:"health"`, degraded) — `followUp` changes from
+   `Doug → check email provider key…` to **`Eric → configure email env (provider key /
+   sending address / site address) on the deployment`**, and the `dougFacing` drops the
+   "Check that … are all configured" instruction to Doug (it becomes dev-panel detail read by
+   Eric). Doug-facing signal is now the `dougSummary` health line (§6.4). (R16.)
+3. **`EMAIL_DELIVERY_FAILED`** (`audience:"health"`, degraded) — `followUp` changes from
+   `Doug → check email settings if this persists` to **`Eric → check provider key / verified
+   sending domain`**; `dougFacing` reframed as developer-owned. (R16.)
+
+The two `EMAIL_*` rows also gain `audience`/`healthWeight`/`dougSummary` like every other
+health code (§4). These are the ONLY routing-plus-copy changes; all other codes are
+metadata-only.
 
 ## 8. Dimensional invariants (Tailwind v4 — no default `flex` `items-stretch`)
 
@@ -549,7 +576,8 @@ on the next full render (no mid-open mutation). No `AnimatePresence` on the dot 
   awaits the outcome; no-row/error/throw paths do NOT log a success outcome. Its
   `requireDeveloper` producer path is already covered by the `_metaInfraContract`
   requireDeveloper registration.
-- If any `dougFacing` prose changes (only `WATCH_CHANNEL_ORPHANED`, §7): the §12.4
+- `dougFacing`/`followUp` prose changes on **three** rows (§7 — `WATCH_CHANNEL_ORPHANED`,
+  `EMAIL_NOT_CONFIGURED`, `EMAIL_DELIVERY_FAILED`): each obeys the §12.4
   three-way lockstep — master spec §12.4 prose + `pnpm gen:spec-codes`
   (`lib/messages/__generated__/spec-codes.ts`) + `lib/messages/catalog.ts` — all in the
   same commit, or the `x1-catalog-parity` gate fails. `dougSummary` is **new copy, not a
@@ -662,6 +690,12 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
   `fetchHealthRollup()` read), not only the nav dot. Clicking a show-scoped health alert's
   Resolve control on `/admin/observability#health` stays on `#health`, removes the row, and
   never renders raw JSON.
+- AC14: `EMAIL_NOT_CONFIGURED` and `EMAIL_DELIVERY_FAILED` are `audience:"health"`
+  (degraded): absent from `AlertBanner`/`NotifBell`/`PerShowAlertSection`, present in the
+  health rollup + `HealthAlertsPanel`; their reconciled §12.4 copy `followUp` names **Eric**
+  (not Doug) and the `dougFacing` no longer instructs Doug to configure email; `x1-catalog-parity`
+  passes (three-way lockstep). The Doug-facing email *toggles* on the settings page are
+  unchanged.
 - AC13: With `inOnboarding === true` and a seeded unresolved health alert, the
   `AppHealthIndicator` is still rendered in the onboarding chrome (`OnboardingTopBar`) — a
   health alert is never invisible under the onboarding layout state (R15 finding 2).
