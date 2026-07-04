@@ -545,6 +545,18 @@ forces any NEW admin surface, route or action, to ship one).
   the seeded surfaces call existing lock-governed RPCs/wrappers unchanged, and telemetry emits
   are post-commit, outside those locks (§9 advisory-lock topology).
 
+**Invariant-8 (impeccable UI dual-gate) applies — Codex R17.** This change edits files under
+`app/` (non-`api`) and `components/` (`app/admin/settings/_actions/*`, `app/admin/actions.ts`,
+`app/admin/dev/actions.ts`, `app/show/[slug]/unpublish/actions.ts`, `components/auth/IdentityChip.tsx`),
+which AGENTS.md invariant 8 classifies as **UI surfaces by file path** — even though every edit
+is server-action `logAdminOutcome` instrumentation or a `// no-telemetry:`/allowlist comment,
+with **zero rendered-output / layout / token change**. Invariant 8 is non-negotiable and
+file-path-based (no "non-visual change" carve-out), so at close-out (before Codex whole-diff
+review) run `/impeccable critique` AND `/impeccable audit` on the affected diff and record the
+dispositions in the handoff §12. Because the diff has no visual surface, no HIGH/CRITICAL
+visual findings are expected; if the tools surface any, fix or defer via `DEFERRED.md` per the
+invariant. This is enumerated in the verification/close-out steps (§11).
+
 ## 9. Meta-test inventory (per writing-plans rule)
 
 - **CREATES:** `tests/log/_metaMutationSurfaceObservability.test.ts` (this spec's deliverable).
@@ -699,3 +711,6 @@ forces any NEW admin surface, route or action, to ship one).
 - `pnpm typecheck`
 - `pnpm format:check`
 - Full suite in CI.
+- **Invariant-8 close-out (Codex R17):** `/impeccable critique` AND `/impeccable audit` on the
+  affected diff (UI-surface files touched — §8); record dispositions in the handoff §12. No
+  visual diff ⇒ expect no HIGH/CRITICAL; fix or `DEFERRED.md`-defer any that appear.
