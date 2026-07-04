@@ -49,14 +49,23 @@ function emptyClient() {
       builder.range = pass;
       (builder as { then: unknown }).then = (onf: (v: unknown) => unknown) => {
         if (table === "shows_internal") {
-          if (dgState.errorShowsInternal) return onf({ data: null, count: null, error: { message: "boom" } });
+          if (dgState.errorShowsInternal)
+            return onf({ data: null, count: null, error: { message: "boom" } });
           return onf({ data: [], count: null, error: null });
         }
         if (table === "shows" && !ctx.head && dgState.errorShowsInternal) {
           // Seed one show so wave-2 readDataGaps actually runs (and then faults).
           return onf({
             data: [
-              { id: "s1", slug: "s1", title: "S1", dates: null, venue: null, published: true, archived_at: null },
+              {
+                id: "s1",
+                slug: "s1",
+                title: "S1",
+                dates: null,
+                venue: null,
+                published: true,
+                archived_at: null,
+              },
             ],
             count: null,
             error: null,
@@ -269,7 +278,9 @@ describe("Dashboard composition", () => {
     await renderDashboard();
     const notice = screen.getByTestId("dashboard-data-quality-degraded");
     expect(notice).toBeInTheDocument();
-    expect(notice.textContent).not.toMatch(/FIELD_UNREADABLE|UNKNOWN_SECTION_HEADER|BLOCK_DISAPPEARED/);
+    expect(notice.textContent).not.toMatch(
+      /FIELD_UNREADABLE|UNKNOWN_SECTION_HEADER|BLOCK_DISAPPEARED/,
+    );
   });
 
   it("T3b: no degraded notice on a healthy read (instant unmount, no animation wrapper)", async () => {

@@ -705,7 +705,12 @@ describe("ShowsTable", () => {
       classes: { FIELD_UNREADABLE: 2, UNKNOWN_SECTION_HEADER: 1, BLOCK_DISAPPEARED: 0 },
     };
     render(
-      <ShowsTable rows={[row({ slug: "gaps", dataGaps: summary })]} now={now} activeCount={1} overflowCount={0} />,
+      <ShowsTable
+        rows={[row({ slug: "gaps", dataGaps: summary })]}
+        now={now}
+        activeCount={1}
+        overflowCount={0}
+      />,
     );
     const badge = screen.getByRole("img", { name: expectedBadgeName(summary) }); // fails if role="img" dropped
     expect(badge).toHaveAttribute("data-testid", "shows-data-quality-gaps");
@@ -722,7 +727,10 @@ describe("ShowsTable", () => {
           row({ slug: "clean" }),
           row({
             slug: "zero",
-            dataGaps: { total: 0, classes: { FIELD_UNREADABLE: 0, UNKNOWN_SECTION_HEADER: 0, BLOCK_DISAPPEARED: 0 } },
+            dataGaps: {
+              total: 0,
+              classes: { FIELD_UNREADABLE: 0, UNKNOWN_SECTION_HEADER: 0, BLOCK_DISAPPEARED: 0 },
+            },
           }),
         ]}
         now={now}
@@ -739,7 +747,14 @@ describe("ShowsTable", () => {
       total: 1,
       classes: { FIELD_UNREADABLE: 1, UNKNOWN_SECTION_HEADER: 0, BLOCK_DISAPPEARED: 0 },
     };
-    render(<ShowsTable rows={[row({ slug: "one", dataGaps: summary })]} now={now} activeCount={1} overflowCount={0} />);
+    render(
+      <ShowsTable
+        rows={[row({ slug: "one", dataGaps: summary })]}
+        now={now}
+        activeCount={1}
+        overflowCount={0}
+      />,
+    );
     expect(screen.getByRole("img", { name: expectedBadgeName(summary) })).toHaveAccessibleName(
       expectedBadgeName(summary),
     );

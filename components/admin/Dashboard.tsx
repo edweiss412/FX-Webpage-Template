@@ -422,7 +422,9 @@ export async function fetchDashboardData(
   const ignoredDegraded = ignoredResult.kind === "infra_error";
   // Data-quality read degrades VISIBLE, NOT a dashboard-wide short-circuit (spec §2.2).
   const dataGapsDegraded = isInfra(dataGapsResult);
-  const dataGapsByShow: Map<string, DataGapsSummary> = dataGapsDegraded ? new Map() : dataGapsResult;
+  const dataGapsByShow: Map<string, DataGapsSummary> = dataGapsDegraded
+    ? new Map()
+    : dataGapsResult;
 
   let liveCount = 0;
   const rows: ActiveShowRow[] = showsRows.map((s) => {

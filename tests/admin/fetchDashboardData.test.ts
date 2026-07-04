@@ -681,7 +681,9 @@ describe("fetchDashboardData parallelization (nav-perf phase 1)", () => {
   // ── parse-data-quality-warnings badge (spec §2) ──────────────────────────
   it("T1: populates row.dataGaps from shows_internal.parse_warnings (data-source)", async () => {
     state.seed = {
-      showsList: [{ id: "s1", slug: "rpas", title: "RPAS", dates: null, venue: null, published: true }],
+      showsList: [
+        { id: "s1", slug: "rpas", title: "RPAS", dates: null, venue: null, published: true },
+      ],
       showsActiveCount: 1,
       showsInternalRows: [
         {
@@ -706,10 +708,15 @@ describe("fetchDashboardData parallelization (nav-perf phase 1)", () => {
 
   it("T2: a clean show OMITS the dataGaps key (exactOptional-safe)", async () => {
     state.seed = {
-      showsList: [{ id: "s1", slug: "clean", title: "Clean", dates: null, venue: null, published: true }],
+      showsList: [
+        { id: "s1", slug: "clean", title: "Clean", dates: null, venue: null, published: true },
+      ],
       showsActiveCount: 1,
       showsInternalRows: [
-        { show_id: "s1", parse_warnings: [{ severity: "info", code: "FIELD_UNREADABLE", message: "i" }] },
+        {
+          show_id: "s1",
+          parse_warnings: [{ severity: "info", code: "FIELD_UNREADABLE", message: "i" }],
+        },
       ],
     };
     const { fetchDashboardData } = await import("@/components/admin/Dashboard");
@@ -720,7 +727,9 @@ describe("fetchDashboardData parallelization (nav-perf phase 1)", () => {
 
   it("T3: a RETURNED { error } on shows_internal degrades VISIBLE (no infra_error, dataGapsDegraded true)", async () => {
     state.seed = {
-      showsList: [{ id: "s1", slug: "rpas", title: "RPAS", dates: null, venue: null, published: true }],
+      showsList: [
+        { id: "s1", slug: "rpas", title: "RPAS", dates: null, venue: null, published: true },
+      ],
       showsActiveCount: 1,
       showsInternalError: { message: "boom" },
     };
@@ -742,7 +751,10 @@ describe("fetchDashboardData parallelization (nav-perf phase 1)", () => {
       showsInternalRows: [
         { show_id: "s1", parse_warnings: { not: "an array" } },
         { show_id: "s2", parse_warnings: [null] },
-        { show_id: "s3", parse_warnings: [{ severity: "warn", code: "BLOCK_DISAPPEARED", message: "d" }] },
+        {
+          show_id: "s3",
+          parse_warnings: [{ severity: "warn", code: "BLOCK_DISAPPEARED", message: "d" }],
+        },
       ],
     };
     const { fetchDashboardData } = await import("@/components/admin/Dashboard");
