@@ -52,21 +52,25 @@ summarizing `shows_internal.parse_warnings`; (2) render the badge in `ShowsTable
 ### 2.1 New read: `readDataGaps`
 
 Add a wave-2 concurrent read that mirrors the existing `readCrewCounts` /
-`loadIgnoredSheets` structure (`Dashboard.tsx:270`, `:353-362`):
+`loadIgnoredSheets` structure (`Dashboard.tsx:270`, `:353-362`). It returns a typed `InfraResult`
+on any fault — the boundary stays invariant-9 compliant exactly like every sibling registered in
+`tests/admin/_metaInfraContract.test.ts`; the **caller** (§2.2) decides how to degrade:
 
 ```ts
 const readDataGaps = async (): Promise<Map<string, DataGapsSummary> | InfraResult> => {
   const byShow = new Map<string, DataGapsSummary>();
   if (activeShowIds.length === 0) return byShow; // short-circuit — no .in([]) (R28 precedent, :245)
   try {
-    const q = await supabase
+    // invariant 9: destructure { data, error } (NOT bare `data`, AGENTS.md:21). Returned-error
+    // and thrown-error are distinct paths; both surface a typed infra_error.
+    const { data, error } = await supabase
       .from("shows_internal")
       .select("show_id, parse_warnings")
       .in("show_id", activeShowIds);
-    if (q.error) {
-      return { kind: "infra_error", message: `shows_internal data-gaps query failed: ${q.error.message}` };
+    if (error) {
+      return { kind: "infra_error", message: `shows_internal data-gaps query failed: ${error.message}` };
     }
-    for (const r of (q.data ?? []) as ReadonlyArray<{ show_id: string; parse_warnings: unknown }>) {
+    for (const r of (data ?? []) as ReadonlyArray<{ show_id: string; parse_warnings: unknown }>) {
       const summary = summarizeDataGaps(r.parse_warnings as ParseWarning[] | null);
       if (summary.total > 0) byShow.set(r.show_id, summary); // store only non-empty (§2.3)
     }
@@ -91,9 +95,12 @@ const readDataGaps = async (): Promise<Map<string, DataGapsSummary> | InfraResul
   `crew_members`, `pending_ingestions`, `pending_syncs` only), so no `.limit()` is required and no
   meta-test violation is introduced. (This is a genuine 1:1 parent lookup, not a one-to-many child
   fetch — no pagination needed.)
-- **invariant 9 (Supabase call-boundary discipline):** destructures `{ data, error }`; returned-error
-  → typed `infra_error`; thrown-error → typed `infra_error` via the `try/catch`. Never a silent
-  `continue`. The `InfraResult` sentinel is the existing dashboard pattern (`Dashboard.tsx:238`).
+- **invariant 9 (Supabase call-boundary discipline):** destructures `{ data, error }` (not bare
+  `data`, `AGENTS.md:21`); returned-error → typed `infra_error`; thrown-error → typed `infra_error`
+  via the `try/catch`. Never a silent `continue`. The `InfraResult` sentinel is the existing
+  dashboard pattern (`Dashboard.tsx:238`). The read is **registered** in the admin infra-contract
+  meta-test — see §5 "Meta-test inventory" — so the boundary discipline is pinned structurally, not
+  just described here.
 
 ### 2.2 Wire into wave-2 + degrade in place (fail-soft)
 
@@ -105,23 +112,33 @@ const [crewTotalResult, crewCountsResult, na, finalizeOwnedIds, ignoredResult, d
   await Promise.all([ readCrewTotal(), readCrewCounts(), loadNeedsAttention(…), readFinalizeOwned(), loadIgnoredSheets(…), readDataGaps() ]);
 ```
 
-At the call site, **degrade in place** — an `infra_error` from this read must **NOT**
-short-circuit the whole dashboard (mirrors `ignoredSheets`/`ignoredDegraded`,
-`Dashboard.tsx:373-374`):
+At the call site, **degrade in place with a VISIBLE signal** — an `infra_error` from this read must
+**NOT** short-circuit the whole dashboard (mirrors `ignoredSheets`/`ignoredDegraded`,
+`Dashboard.tsx:373-374`), but it must **NOT** silently vanish either:
 
 ```ts
-const dataGapsByShow = isInfra(dataGapsResult) ? new Map<string, DataGapsSummary>() : dataGapsResult;
+const dataGapsDegraded = isInfra(dataGapsResult);
+const dataGapsByShow = dataGapsDegraded ? new Map<string, DataGapsSummary>() : dataGapsResult;
 ```
 
-**Disagreement-loop preempt (fail-open vs fail-closed).** This read is **fail-soft by design**:
-a `shows_internal` read fault degrades to an empty map (no badges rendered) and the dashboard
-still renders. Precedent: `loadIgnoredSheets` is handled identically — "Its infra_error is handled
-locally (degrade) — NOT the dashboard-wide short-circuit" (`Dashboard.tsx:359-361`,
-`:373-374`). The data-quality badge is a **secondary at-a-glance signal**, not a correctness gate;
-the per-show page remains the source of truth. A degraded read is therefore intentionally
-**indistinguishable from "all clean"** (no badge either way). We deliberately do **not** add a
-"data quality unknown" banner (YAGNI — the ignored-sheets disclosure needs one because its whole
-section would otherwise read as empty; a per-row badge's absence is not misleading in the same way).
+Add `dataGapsDegraded: boolean` to the returned `DashboardData` (alongside `ignoredDegraded`,
+`Dashboard.tsx:78`), and render a **visible calm notice** in the shows `<section>` of `Dashboard()`
+when it is true (§3.5) — plain language, no raw code (invariant 5).
+
+**Disagreement-loop preempt — degrade-VISIBLE, not silent (invariant 9).** The read is fail-soft
+(a `shows_internal` fault does not blank the whole dashboard — the badge is a secondary at-a-glance
+hint, and the per-show page is the source of truth) **but the fault is surfaced, never hidden**.
+This is the **established contract on this exact surface**: the per-show Data-Quality panel's
+`shows_internal.parse_warnings` read "degrades VISIBLE on returned-error OR thrown (failed → calm
+notice), NEVER a silent empty panel (invariant 9, R10 F1)"
+(`tests/admin/_metaInfraContract.test.ts:322`); and the needs-attention badge helper
+`loadNeedsAttentionCount` returns a typed `infra_error` at its boundary and the caller collapses it
+to a visible degraded badge state (`tests/admin/_metaInfraContract.test.ts:642-668`). A **silent**
+degrade "indistinguishable from all clean" would violate invariant 9's "infra faults surface as
+discriminable results, never silent" (`AGENTS.md:21`) — the earlier draft's YAGNI argument was
+wrong on this surface. `loadIgnoredSheets` is **not** a silent precedent: it sets `ignoredDegraded`
+and the disclosure renders a degraded warning chip (`IgnoredSheetsDisclosure.tsx:36-39,76-80`) —
+exactly the visible-degrade shape adopted here.
 
 ### 2.3 Populate the row
 
@@ -249,6 +266,32 @@ insertion covers it.
 (`summarizeDataGaps` always returns the full shape). No NaN path — counts are integers from a
 `for` loop.
 
+### 3.5 Degraded-read notice (`Dashboard.tsx`)
+
+When `result.dataGapsDegraded` is true (§2.2 — the `shows_internal` read faulted), render a single
+**calm inline notice** in the shows `<section>` (the one at `Dashboard.tsx:497-568` that wraps both
+the active `<ShowsTable>` and the archived `<ArchivedShowRow>` list), placed just above the
+table/list so it covers **both** buckets from one site:
+
+```tsx
+{result.dataGapsDegraded ? (
+  <p
+    data-testid="dashboard-data-quality-degraded"
+    className="rounded-md border border-border bg-surface-sunken p-3 text-sm text-text-subtle"
+  >
+    Data-quality checks are temporarily unavailable — some shows may not show their data-quality badge.
+  </p>
+) : null}
+```
+
+- **Plain language, no raw code** (invariant 5) — bespoke copy, **not** a §12.4 catalog code (like
+  the ignored-degraded chip and the per-show panel's calm notice; no catalog/`spec-codes` change).
+- Honest: it tells the operator badges may be **missing** due to a read fault, so an absent badge is
+  not silently misread as "clean." This is the visible-degrade half of the invariant-9 contract
+  (§2.2).
+- Guard: renders **only** when `dataGapsDegraded === true`; instant mount/unmount, no animation
+  (§4.2).
+
 ---
 
 ## 4. Dimensional invariants, transitions, mode boundaries
@@ -278,12 +321,24 @@ The badge has **two** visual states: **present** (`total > 0`) and **absent** (`
 | present → absent | **Instant — no animation.** Same branch. |
 | present → present (count changes across a re-fetch) | **Instant** — text in `aria-label`/`title` updates; no animated count. |
 
+The **degraded notice** (§3.5) is a third instant conditional: `dataGapsDegraded ? … : null`, no
+animation.
+
 Compound transition: a row's badge state is independent of the Live/Held pill, the sync cell, and
 the Find/sort state. Toggling bucket (active↔archived), typing in Find, or sorting re-renders the
 list; the badge simply renders per its row's `dataGaps` each time — **instant**, no wrapper. This
 matches the surrounding table's no-animation posture (`ShowsTable.tsx:236-239` DataGapsChip is also
-instant; the transition-audit test at `tests/components/admin/showsTableTransitionAudit.test.ts` is
-the existing guard for this file).
+instant).
+
+**Guard (correct test target).** The purpose-built guard for data-gap surfaces is
+`tests/components/admin/dataGapsTransitionAudit.test.tsx` (NOT
+`showsTableTransitionAudit.test.tsx`, which audits the **status pills** and is a `.tsx`, not `.ts`).
+That audit greps a `DATA_GAP_SOURCE_FILES` list (`dataGapsTransitionAudit.test.tsx:43-52`) for any
+framer-motion / `AnimatePresence` import and carries a transition-inventory comment table. This
+feature must **extend** it: add `components/admin/DataQualityBadge.tsx`,
+`components/admin/ArchivedShowRow.tsx`, and `components/admin/Dashboard.tsx` (degraded notice) to
+`DATA_GAP_SOURCE_FILES`, and add inventory rows for (a) the badge early-return-null, (b) the archived
+insertion, (c) the `dataGapsDegraded` notice — each declared INSTANT.
 
 ### 4.3 Mode boundaries
 
@@ -325,10 +380,15 @@ container that also renders the count elsewhere. Expected label strings are **de
 - **T2 — clean show omits the field.** A `shows_internal` row with only `severity:"info"` warnings
   (or `[]`) → the returned row has **no** `dataGaps` key (absent, not `undefined`) → `toEqual`-safe.
   Failure mode: a clean row rendering a badge.
-- **T3 — fail-soft degrade.** When the `shows_internal` read returns `{ error }` (or throws),
-  `fetchDashboardData` still returns `kind`-less `DashboardData` with all rows and **no** `dataGaps`
-  on any row — it does **not** return `infra_error`. Failure mode: a warnings read fault blanking the
-  whole dashboard.
+- **T3 — degrade-VISIBLE (both fault paths).** When the `shows_internal` read returns `{ error }`
+  **and** (separate case) when it **throws**, `fetchDashboardData` still returns `kind`-less
+  `DashboardData` with all rows and **no** `dataGaps` on any row, **and** `dataGapsDegraded === true`
+  — it does **not** return `infra_error` (no dashboard blank). This is the caller-side behavioral
+  half; the boundary half (the read returns a typed `infra_error`) is pinned by the meta-test below.
+  Failure mode: a warnings read fault blanking the whole dashboard, **or** silently hiding with no
+  degraded signal (invariant 9).
+- **T3b — degraded notice renders.** A `Dashboard` render with `dataGapsDegraded:true` shows
+  `dashboard-data-quality-degraded` (plain copy, no raw code literal); with `false`, it is absent.
 - **T4 — badge renders + accessible name (component).** `tests/components/admin/ShowsTable.test.tsx`:
   a row with `dataGaps:{ total:3, classes:{FIELD_UNREADABLE:2, UNKNOWN_SECTION_HEADER:1,
   BLOCK_DISAPPEARED:0} }` renders `shows-data-quality-<slug>` whose accessible name (queried via
@@ -346,32 +406,59 @@ container that also renders the count elsewhere. Expected label strings are **de
   gappy row shows `shows-data-quality-<slug>`. Proves the active/archived parity is real (the two
   buckets use **different** components — §4.3 — so both need direct coverage; an active-only test
   would silently miss the archived path).
-- **T-transition — extend the existing transition audit.** `showsTableTransitionAudit.test.ts` already
-  enumerates every `AnimatePresence`/ternary/`&&` in the file; confirm the new
-  `DataQualityBadge` conditional (`!dataGaps || total===0 → null`) is deliberately **instant** (no
-  animation props) and the audit still passes with the new conditional counted.
+- **T-transition — extend the data-gaps transition audit.** Extend
+  `tests/components/admin/dataGapsTransitionAudit.test.tsx` (§4.2): add `DataQualityBadge.tsx`,
+  `ArchivedShowRow.tsx`, and `Dashboard.tsx` to its `DATA_GAP_SOURCE_FILES` and add the three
+  inventory rows (badge, archived insertion, degraded notice), each INSTANT. The audit's blanket grep
+  then fails if any of these grows a framer-motion/`AnimatePresence` wrapper. (Do **not** use
+  `showsTableTransitionAudit.test.tsx` — that guards status pills, a different surface.)
 - **T-L — layout (real browser).** See §6 Task L: assert (a) `shows-data-quality-<slug>` is inside the
   Show-cell title container and vertically centered with the title, and (b) a badge-bearing row's
   height equals a badge-less row's height within 0.5px (the badge must not inflate row height). Real
   browser (Playwright), not jsdom.
 
-**Meta-test inventory:** No new meta-test is created. The read is registered by the **existing**
-`tests/admin/_metaBoundedReads.test.ts` scan of `Dashboard.tsx` (it is auto-scanned; the new
-`shows_internal` read is a non-`UNBOUNDED_TABLES` table so it is scanned-and-skipped, not a
-violation — confirmed §2.1). No `_metaInfraContract` row (that registry is for **auth** helpers;
-this is a dashboard read using the established `InfraResult` sentinel + `loadIgnoredSheets`
-fail-soft precedent). No new §12.4 code → no catalog/`spec-codes`/`codes-coverage` touchpoints.
+**Meta-test inventory:** this milestone **EXTENDS** two existing structural meta-tests and creates
+none.
+
+1. **`tests/admin/_metaInfraContract.test.ts` (admin Supabase call-boundary contract) — EXTEND.**
+   `fetchDashboardData` is already registered here (`:170-178`) with a per-table throw matrix
+   (`:562-587`). The new `shows_internal` read is a boundary this contract governs, so:
+   - **Update the `fetchDashboardData` registry contract string** (`:175`) to name the
+     `shows_internal.parse_warnings` read and its **degrade-VISIBLE** behavior, mirroring the
+     wording already used for the per-show panel read (`:322`, "degrades VISIBLE … NEVER a silent
+     empty panel (invariant 9, R10 F1)").
+   - **Add a behavioral test** in the `describe("fetchDashboardData")` block (`:537`): seed one
+     `shows` row (so the helper proceeds past the empty-shows short-circuit into wave-2, per the
+     `crew_members` test at `:577-587`), set `infraMock.throwOnFromTable = "shows_internal"` (and a
+     second case with a **returned** `{ error }` if the mock supports it — it does, per the ignored
+     read at `:234`), and assert the result is **NOT** `infra_error`, that `dataGapsDegraded === true`,
+     and that rows are present with no `dataGaps`. This pins BOTH the boundary discipline (the read
+     itself returns a typed `infra_error`) AND the caller's degrade-visible posture. **Note:** do
+     **not** add `"shows_internal"` to the existing `test.each` throw-matrix at `:562` (those assert
+     → `infra_error`; `shows_internal` degrades, so it needs its own assertion).
+   This EXTEND is the direct fix for the round-1 finding that the inventory wrongly claimed
+   `_metaInfraContract` was auth-only.
+2. **`tests/components/admin/dataGapsTransitionAudit.test.tsx` — EXTEND.** Add the three new source
+   files to `DATA_GAP_SOURCE_FILES` + three inventory rows (see T-transition / §4.2).
+3. **`tests/admin/_metaBoundedReads.test.ts` — no change required.** It auto-scans `Dashboard.tsx`;
+   the new `shows_internal` read is a non-`UNBOUNDED_TABLES` table (`:32`) so it is
+   scanned-and-skipped, not a violation (confirmed §2.1).
+
+No new §12.4 code → no catalog / `spec-codes` / `codes-coverage` touchpoints.
 
 ---
 
 ## 6. Task shape (for the plan — not the plan itself)
 
-1. **Task D (data layer, TDD):** T1/T2/T3 red → add `readDataGaps` + wave-2 wiring + row population
-   → green. Commit `feat(admin): populate per-show dataGaps in dashboard loader`.
+1. **Task D (data layer, TDD):** T1/T2/T3/T3b red + the `_metaInfraContract` extension (§5.1) red →
+   add `readDataGaps` (typed `infra_error` boundary) + wave-2 wiring + `dataGapsDegraded` flag + row
+   population + the §3.5 degraded notice in `Dashboard()` → green. Commit
+   `feat(admin): populate per-show dataGaps + degraded signal in dashboard loader`.
 2. **Task U (UI badge, TDD, Opus + impeccable):** T4/T5/T6/T7 red → add the shared
    `components/admin/DataQualityBadge.tsx` + wire it into **both** `ShowsTable` (Site A) and
    `ArchivedShowRow` (Site B) → green. Commit `feat(admin): data-quality badge on shows-table + archived rows`.
-3. **Task T (transition audit):** extend/confirm `showsTableTransitionAudit.test.ts`.
+3. **Task T (transition audit):** extend `tests/components/admin/dataGapsTransitionAudit.test.tsx`
+   (§4.2 / §5.2) — the three new source files + inventory rows.
 4. **Task L (layout, real browser):** the badge does not inflate row height / stays in the title
    cell; Playwright `getBoundingClientRect`, not jsdom.
 5. **Invariant-8 impeccable dual-gate** (`/impeccable critique` + `/impeccable audit`) on the UI diff
@@ -389,7 +476,12 @@ fail-soft precedent). No new §12.4 code → no catalog/`spec-codes`/`codes-cove
 - **`file:line` citations:** every named symbol/column/token/policy cited to the live worktree at
   draft time; the plan's pre-draft pass re-verifies before any task names them.
 - **Guard conditions:** §3.4 covers null/undefined/empty/populated for both props.
-- **Fail-open posture:** §2.2 cites the `loadIgnoredSheets` precedent explicitly (disagreement-loop
-  preempt).
-- **Flag lifecycle:** N/A — no new boolean config field or toggle is introduced.
+- **Fail-open posture:** §2.2 resolves to **degrade-VISIBLE** (typed `infra_error` at the boundary →
+  `dataGapsDegraded` flag → calm notice), citing the per-show panel + `loadNeedsAttentionCount`
+  precedents (`_metaInfraContract.test.ts:322`, `:642-668`) — NOT a silent degrade. Disagreement-loop
+  preempt for the reviewer.
+- **Flag lifecycle (`dataGapsDegraded`):** storage = in-memory `DashboardData` field (not persisted);
+  write path = `fetchDashboardData` sets it `true` iff `readDataGaps` returns `infra_error` (§2.2);
+  read path = `Dashboard()` renders the §3.5 notice when true; effect on output = the visible
+  degraded notice. Not a persisted config toggle — no DB column, no CHECK.
 - **Tier×domain matrix:** N/A — no DB-touching (write) change; a single read of an existing column.
