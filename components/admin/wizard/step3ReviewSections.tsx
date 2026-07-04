@@ -276,7 +276,7 @@ function ModalSectionChrome({
           {label}
         </h3>
         {count !== null ? (
-          <span className="shrink-0 text-sm tabular-nums text-text-faint">({count})</span>
+          <span className="shrink-0 text-sm tabular-nums text-text-subtle">({count})</span>
         ) : null}
         <span className="flex-1" />
         {flagged ? (
@@ -323,7 +323,7 @@ export function BreakdownSection({
   return (
     <section data-testid={testId} className="flex flex-col gap-1.5">
       <h4 className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
-        {label} <span className="tabular-nums text-text-faint">({count})</span>
+        {label} <span className="tabular-nums text-text-subtle">({count})</span>
       </h4>
       {children}
     </section>
@@ -959,7 +959,7 @@ export function PackListBreakdown({ dfid, cases }: { dfid: string; cases: PullSh
                         {packItemLabel(item)}
                       </li>
                     ))}
-                    {itemsNote ? <li className="text-text-faint">{itemsNote}</li> : null}
+                    {itemsNote ? <li className="text-text-subtle">{itemsNote}</li> : null}
                   </ul>
                 </details>
               </li>
@@ -1158,7 +1158,7 @@ export function WarningsBreakdown({ dfid, warnings }: { dfid: string; warnings: 
                           href={href}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                          className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
                         >
                           Open in Sheet <span aria-hidden="true">↗</span>
                         </a>
@@ -1330,7 +1330,7 @@ function AgendaItemRow({
           href={item.href}
           target="_blank"
           rel="noopener noreferrer"
-          className="self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
         >
           Open PDF <span aria-hidden="true">↗</span>
         </a>
@@ -1528,7 +1528,7 @@ export function AgendaBreakdown({
           href={sourceHref}
           target="_blank"
           rel="noopener noreferrer"
-          className="self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
         >
           Open the source sheet <span aria-hidden="true">↗</span>
         </a>

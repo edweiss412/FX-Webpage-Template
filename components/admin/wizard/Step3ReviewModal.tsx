@@ -528,7 +528,7 @@ export function Step3ReviewModal({
           className="flex shrink-0 items-start gap-3 border-b border-border bg-surface px-tile-pad py-3 sm:py-4"
         >
           <div className="min-w-0 flex-1">
-            <div className="text-xs font-medium uppercase tracking-eyebrow text-text-faint">
+            <div className="text-xs font-medium uppercase tracking-eyebrow text-text-subtle">
               Review before publishing
             </div>
             {/* Heading-safe title split: the h2 holds ONLY the plain title;
@@ -682,7 +682,7 @@ export function Step3ReviewModal({
                         </span>
                         {/* §11: instant — deliberate (rail count follows the static registry definition) */}
                         {s.railCount !== null ? (
-                          <span className="shrink-0 text-xs font-medium tabular-nums text-text-faint">
+                          <span className="shrink-0 text-xs font-medium tabular-nums text-text-subtle">
                             {s.railCount(data)}
                           </span>
                         ) : null}
@@ -802,7 +802,7 @@ export function Step3ReviewModal({
               </span>
               {/* §11 T7b: instant — deliberate (error note appears instantly, no animation) */}
               {publishState === "error" ? (
-                <span className="min-w-0 text-sm font-medium text-warning-text">
+                <span role="status" className="min-w-0 text-sm font-medium text-warning-text">
                   Couldn&apos;t update the publish selection. Try again.
                 </span>
               ) : null}

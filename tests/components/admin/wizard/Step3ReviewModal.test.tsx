@@ -569,6 +569,9 @@ describe("Step3ReviewModal — publish click (spec §9.1)", () => {
       "Couldn't update the publish selection. Try again.",
     );
     expect(errorNote.className).toMatch(/\btext-warning-text\b/);
+    // Inside the aria-modal dialog, the failure must be announced by AT —
+    // role="status" makes the inline note a live region (impeccable audit P2).
+    expect(errorNote.getAttribute("role")).toBe("status");
     // Prior (state-derived) label restored — not stuck on "Selecting…".
     expect(q.getByTestId(tid("publish")).textContent).toBe("Publish this show");
   });
