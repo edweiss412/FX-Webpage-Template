@@ -113,6 +113,8 @@ describe("reset_crew_member_selection RPC", () => {
     // Bob.selections_reset_at is still null. Guards against: returning clock_timestamp()
     // without updating; updating the wrong row; updating ALL rows.
     const driveFileId = `reset-crew-${randomUUID()}`;
+    // Every read is scoped to THIS show's id (crew_members uniqueness is per (show_id, name),
+    // NOT global — a bare name filter could match pre-existing rows from other shows).
     const out = runPsql(`
       begin;
       ${seedShowSql(driveFileId)};
@@ -126,8 +128,10 @@ describe("reset_crew_member_selection RPC", () => {
            and show_id = (select id from public.shows where drive_file_id = ${sqlString(driveFileId)}))
       )::text, 'null');
       reset role;
-      select 'alice=' || coalesce(selections_reset_at::text,'null') from public.crew_members where name = 'Alice';
-      select 'bob=' || coalesce(selections_reset_at::text,'null') from public.crew_members where name = 'Bob';
+      select 'alice=' || coalesce(selections_reset_at::text,'null') from public.crew_members
+        where name = 'Alice' and show_id = (select id from public.shows where drive_file_id = ${sqlString(driveFileId)});
+      select 'bob=' || coalesce(selections_reset_at::text,'null') from public.crew_members
+        where name = 'Bob' and show_id = (select id from public.shows where drive_file_id = ${sqlString(driveFileId)});
       rollback;
     `);
     const result = out.match(/result=(\S+)/)?.[1];
@@ -148,7 +152,8 @@ describe("reset_crew_member_selection RPC", () => {
       set local request.jwt.claims = ${sqlString(CREW_JWT)};
       select public.reset_crew_member_selection(
         (select id from public.shows where drive_file_id = ${sqlString(driveFileId)}),
-        (select id from public.crew_members limit 1));
+        (select id from public.crew_members
+           where show_id = (select id from public.shows where drive_file_id = ${sqlString(driveFileId)}) limit 1));
       rollback;
     `)).toThrow(/admin role required|42501|permission denied/i);
   });
