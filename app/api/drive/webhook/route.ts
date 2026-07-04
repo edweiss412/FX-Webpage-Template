@@ -46,6 +46,7 @@ export type DriveWebhookTx = {
     code: typeof WEBHOOK_TOKEN_INVALID;
     context: Record<string, unknown>;
   }): Promise<void>;
+  resolveWebhookTokenInvalidForChannel(channelId: string): Promise<void>;
 };
 
 export type DriveWebhookDeps = {
@@ -131,6 +132,18 @@ class PostgresDriveWebhookTx implements DriveWebhookTx {
       return;
     }
     await defaultUpsertAdminAlert({ showId: null, code: input.code, context: input.context });
+  }
+
+  async resolveWebhookTokenInvalidForChannel(channelId: string): Promise<void> {
+    await this.sql.unsafe(
+      `
+        update public.admin_alerts
+           set resolved_at = now()
+         where show_id is null and code = 'WEBHOOK_TOKEN_INVALID' and resolved_at is null
+           and context->>'channel_id' = $1
+      `,
+      [channelId],
+    );
   }
 }
 
@@ -305,6 +318,14 @@ export async function handleDriveWebhook(
       );
       return NextResponse.json({ ok: false, code: WEBHOOK_TOKEN_INVALID }, { status: 401 });
     }
+
+    // Both checks passed: this delivery proves the channel's token+resource are
+    // currently valid, so any previously-raised WEBHOOK_TOKEN_INVALID alert for
+    // THIS channel is stale — resolve it here (before the dispatch-state branch)
+    // so even ignored resourceStates (sync/exists/…) count as recovery proof.
+    await callWebhookTx("admin_alerts.resolve_webhook_token_invalid", () =>
+      tx.resolveWebhookTokenInvalidForChannel(channelId),
+    );
 
     if (!isDispatchingState(resourceState)) {
       return NextResponse.json({ ok: true, ignored: resourceState });

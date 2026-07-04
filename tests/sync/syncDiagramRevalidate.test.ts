@@ -193,6 +193,8 @@ describe("applyStaged live post-commit revalidate", () => {
         upsertLivePendingIngestion: vi.fn(async () => undefined),
         bumpReviewerAuthFloors: vi.fn(async () => undefined),
         upsertAdminAlert: vi.fn(async () => undefined),
+        resolveAdminAlerts: vi.fn(async () => undefined),
+        readLandedSnapshotStatus: vi.fn(async () => null),
         withPipelineLock: vi.fn(async (_driveFileId, fn) => {
           const r = await fn(tx);
           order.push("committed");

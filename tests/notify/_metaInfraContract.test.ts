@@ -203,6 +203,35 @@ describe("notify + app-settings infra-contract (structural)", () => {
     ).rejects.toThrow(/query fault/);
   });
 
+  test("resolveAdminAlerts throws for returned DB errors and thrown query faults", async () => {
+    const { resolveAdminAlerts } = await import("@/lib/adminAlerts/resolveAdminAlert");
+    const returnedErrorClient = {
+      from: () => ({
+        update: () => ({
+          in: () => ({
+            is: () => ({
+              is: () => ({
+                select: async () => ({ error: { message: "boom" } }),
+              }),
+            }),
+          }),
+        }),
+      }),
+    };
+    const thrownClient = {
+      from: () => {
+        throw new Error("query fault");
+      },
+    };
+
+    await expect(
+      resolveAdminAlerts({ showId: null, codes: ["SYNC_STALLED"] }, returnedErrorClient as never),
+    ).rejects.toThrow(/admin alert bulk resolve failed/);
+    await expect(
+      resolveAdminAlerts({ showId: null, codes: ["SYNC_STALLED"] }, thrownClient as never),
+    ).rejects.toThrow(/query fault/);
+  });
+
   test("deliverRealtimeCandidates returns infra_error for thrown query faults", async () => {
     const { deliverRealtimeCandidates } = await import("@/lib/notify/deliver");
     const sql = vi.fn(() => Promise.reject(new Error("db down")));

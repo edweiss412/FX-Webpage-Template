@@ -267,6 +267,7 @@ const NEW_FORENSIC_CODES = new Set([
   "ADMIN_SHOW_INTERNAL_PARSE_WARNINGS_READ_FAILED",
   "ADMIN_SHOW_INTERNAL_PARSE_WARNINGS_READ_THREW",
   "CREW_PROJECTION_ALERT_UPSERT_FAILED",
+  "CREW_PROJECTION_ALERT_RESOLVE_FAILED",
   "PICKER_IDENTITY_CLAIMED_TAMPER",
   "APP_EVENTS_READ_RETURNED_ERROR",
   "APP_EVENTS_READ_THREW",
@@ -362,7 +363,7 @@ describe("_metaAdminOutcomeContract", () => {
 const REPO_ROOT = join(__dirname, "..", "..");
 
 // {file, code, level, anchor} — anchor is a substring UNIQUE WITHIN THE FILE that
-// identifies the intended call. For 34 string-message sites it is the FULL QUOTED
+// identifies the intended call. For 35 string-message sites it is the FULL QUOTED
 // message literal (incl. both quotes) so a prefix-overlapping sibling (finalize-cas
 // non-stream vs stream) is distinguished. selectIdentity uses a unique JSON-blob token.
 const NULLCODE_BATCH2_STAMPS: ReadonlyArray<{
@@ -552,6 +553,12 @@ const NULLCODE_BATCH2_STAMPS: ReadonlyArray<{
     anchor: '"projection-alert upsert failed (fail-quiet):"',
   },
   {
+    file: "app/show/[slug]/[shareToken]/_CrewShell.tsx",
+    code: "CREW_PROJECTION_ALERT_RESOLVE_FAILED",
+    level: "warn",
+    anchor: '"projection-alert resolve failed (fail-quiet):"',
+  },
+  {
     file: "lib/auth/picker/selectIdentity.ts",
     code: "PICKER_IDENTITY_CLAIMED_TAMPER",
     level: "warn",
@@ -634,9 +641,9 @@ function findLogErrorWarnCalls(
 describe("BL-NULLCODE-STAMP-BATCH-2 forensic stamps", () => {
   const codes = NULLCODE_BATCH2_STAMPS.map((r) => r.code);
 
-  test("35 rows, all codes distinct + all in NEW_FORENSIC_CODES", () => {
-    expect(NULLCODE_BATCH2_STAMPS.length).toBe(35);
-    expect(new Set(codes).size).toBe(35);
+  test("36 rows, all codes distinct + all in NEW_FORENSIC_CODES", () => {
+    expect(NULLCODE_BATCH2_STAMPS.length).toBe(36);
+    expect(new Set(codes).size).toBe(36);
     for (const c of codes) expect(NEW_FORENSIC_CODES.has(c), `${c} must be registered`).toBe(true);
   });
 
