@@ -111,6 +111,26 @@ A pushed admin alert (an `AdminAlertCode`, which is also a §12.4 catalog code).
 
 **Admin-facing copy (recovery-oriented):** title "Re-sync held — sheet lost data" / body "This sheet's latest version dropped crew or a whole section, so the update was held and the last good version is still live. If the change is intentional, re-sync the show to apply it; otherwise fix the sheet." (`dougFacing` = this admin copy; `crewFacing` = null — crew never see it.)
 
+## 5b. Alert surfaces & the re-sync action
+
+**Surface — Needs Attention (not Data Quality).** `adminSurface: "inbox"` routes `RESYNC_SHRINK_HELD` into the **Needs Attention** inbox aggregator (`isInboxRouted` from `lib/messages/adminSurface.ts`, computed from the catalog `adminSurface` field), exactly like its peers `PARSE_ERROR_LAST_GOOD` / `SHEET_UNAVAILABLE`. It also renders on the per-show alert card (`components/admin/PerShowAlertSection.tsx`) and pushes via the notify digest. It is deliberately **NOT** the passive `DataQualityBadge` — that quiet band is the exact gap audit finding #3 calls out.
+
+**Re-sync action on the alert.** The alert carries an action link so the admin can accept (apply) the held shrink directly from the alert, without hunting for the control. Register `RESYNC_SHRINK_HELD` in the action-link registry (`lib/adminAlerts/alertActions.ts` — `ALERT_ACTION_CODES` + `ALERT_ACTIONS`), reusing the existing `shareAccess`-style slug builder:
+
+```ts
+// lib/adminAlerts/alertActions.ts
+RESYNC_SHRINK_HELD: (_context, opts) => {
+  const slug = typeof opts.slug === "string" ? opts.slug.trim() : "";
+  return slug
+    ? { label: "Review & re-sync", href: `/admin/show/${encodeURIComponent(slug)}`, external: false }
+    : null; // fail-quiet when slug missing (registry contract)
+},
+```
+
+The link lands the admin at the top of the per-show page, where the existing **`ReSyncButton`** (`components/admin/ReSyncButton.tsx`, mounted at the top of `/admin/show/[slug]`, POSTs `/api/admin/sync/[slug]` → `runManualSyncForShow(driveFileId, "manual")`) applies the held parse (the D4 accept path) and the resolve-site (§4c) clears the alert. **No new re-sync UI is built** — the action link reuses the existing button; the manual re-sync (`mode: "manual"`) is exactly the hold-override accept path.
+
+**Registry lockstep:** add the code to `ALERT_ACTION_CODES` + `ALERT_ACTIONS`, and a row to the pinning meta-test `tests/adminAlerts/alertActions.test.ts` (slug-present → link; slug-missing → null, fail-quiet). `resolveAlertAction` returns null for unregistered codes, so this is additive.
+
 ## 6. Data flow
 
 ```
@@ -118,13 +138,14 @@ cron/push re-sync (existing published show)
   → parseSheet → runInvariants(prior, next)
      ├─ MI-6 crewDrop>1 OR MI-7 section shrink (mode != manual)
      │     → phase1 outcome "shrink_held" — NO applyParseResult (last-good served)
-     │     → caller raises RESYNC_SHRINK_HELD (upsertAdminAlert, dedupe per show)
-     │        → pushed to admin alerts surface + notify digest
+     │     → caller raises RESYNC_SHRINK_HELD (upsertAdminAlert, DEDUPE per show → one open row)
+     │        → Needs Attention inbox (adminSurface:"inbox") + per-show alert card + digest push
+     │        → alert carries "Review & re-sync" action link → per-show ReSyncButton
      │     ── ADMIN RESOLVES ──
-     │        accept (legit shrink) → manual re-sync (mode "manual") → hold skipped → applies
-     │                                → resolve-site clears the alert
-     │        mistake → wait; Doug fixes sheet → clean cron re-sync applies
-     │                                → resolve-site clears the alert
+     │        accept (legit shrink) → click through → ReSyncButton (mode "manual") → hold skipped
+     │                                → applies → resolve-site AUTO-CLEARS the alert
+     │        mistake → do nothing; Doug fixes sheet → clean cron re-sync applies
+     │                                → resolve-site AUTO-CLEARS the alert (no manual dismiss)
      ├─ MI-6/MI-7 present AND mode == manual → applies (accept; MI-11 still held if present)
      └─ MI-11 only / asset drift / MI-7b / crewDrop==1 → auto-apply (unchanged)
 ```
@@ -155,7 +176,8 @@ Derive expectations from fixture dimensions (not hardcoded).
 5. **phase1: benign drift unchanged.** (a) MI-11-only + crew growth → `auto_apply_with_holds`, no hold (matches `cutover.retireLivePendingSyncs.test.ts:57`, stays green). (b) MI-7b rename stable count → applies. (c) `crewDrop==1` → applies. Catches: over-holding benign edits / off-by-one.
 6. **DB-backed: hold retains last-good + raises alert.** Seed published show + 5 crew; run cron pipeline with a 2-crew parse; assert (a) the 5 live `crew_members` rows are **still present** (no clobber), (b) an open `admin_alerts` row `code=RESYNC_SHRINK_HELD` for the show, (c) `shows.last_sync_status` unchanged (`ok`). Catches: the core data-loss bug + missing signal.
 7. **DB-backed: resolution on apply.** After a hold, run a clean re-sync (crew restored) OR a manual re-sync (accept); assert the open `RESYNC_SHRINK_HELD` alert is resolved (`resolved_at` set). Catches: a stuck-open alert (lifecycle `auto` contract).
-8. **Meta-tests stay green:** `_metaAdminAlertCatalog` (new code registered: union + `ADMIN_ALERTS_CODES` + `WRITE_SITES` + `LIFECYCLE` class `auto` + resolveSite; non-null `dougFacing`); x1 catalog parity; x2 no-raw-codes; `cutover.retireLivePendingSyncs.test.ts` (unchanged — this design never inserts a live `pending_sync`).
+8. **Alert action link.** `resolveAlertAction("RESYNC_SHRINK_HELD", ctx, {slug})` → `{label:"Review & re-sync", href:"/admin/show/<slug>"}`; slug missing → `null` (fail-quiet). (`tests/adminAlerts/alertActions.test.ts`.) Catches: an unregistered code (no link) or a link that renders with a broken/empty slug.
+9. **Meta-tests stay green:** `_metaAdminAlertCatalog` (new code registered: union + `ADMIN_ALERTS_CODES` + `WRITE_SITES` + `LIFECYCLE` class `auto` + resolveSite; non-null `dougFacing`); x1 catalog parity; x2 no-raw-codes; `alertActions.test.ts` registry row; `cutover.retireLivePendingSyncs.test.ts` (unchanged — this design never inserts a live `pending_sync`).
 
 ## 9. Disagreement-loop preempt (for adversarial review)
 
@@ -174,7 +196,7 @@ Phase 6 (resolution #21 cutover) removed the whole-parse review mount from the p
 
 ## 11. Meta-test inventory
 
-- **Extends:** `tests/messages/_metaAdminAlertCatalog.test.ts` (new `RESYNC_SHRINK_HELD` across union / `ADMIN_ALERTS_CODES` / `WRITE_SITES` / `ADMIN_ALERTS_LIFECYCLE`), and the §12.4 three-way lockstep (x1/x2/codes-coverage).
+- **Extends:** `tests/messages/_metaAdminAlertCatalog.test.ts` (new `RESYNC_SHRINK_HELD` across union / `ADMIN_ALERTS_CODES` / `WRITE_SITES` / `ADMIN_ALERTS_LIFECYCLE`), `tests/adminAlerts/alertActions.test.ts` (new action-link registry row), and the §12.4 three-way lockstep (x1/x2/codes-coverage).
 - **Must stay green:** `tests/sync/cutover.retireLivePendingSyncs.test.ts` (no live `pending_sync` written), `tests/app/admin/perShowPage.test.tsx` (unchanged — no review UI added), `tests/auth/advisoryLockRpcDeadlock.test.ts` (no new lock holder; the raise runs inside the already-locked cron tx), `tests/auth/_metaInfraContract.test.ts` (reuses the existing tx-bound `upsertAdminAlert` helper — no new call boundary).
 - **Advisory-lock topology:** unchanged; the shrink-hold branch and the alert raise both run inside the existing per-show `withShowLock` cron tx.
 
@@ -182,7 +204,7 @@ Phase 6 (resolution #21 cutover) removed the whole-parse review mount from the p
 
 - `MI-6` threshold `crewDrop > 1`; `MI-7` `nc < pc/2 || pc <= 2` (transportation populated→null) — reused verbatim from `invariants.ts:251,266,284,302,317`.
 - Held invariant tags: exactly 2 (`MI-6`, `MI-7`).
-- New production edit sites: `phase1.ts` (hold branch + `Phase1Result` variant), `runScheduledCronSync.ts` (caller branch + resolve-site), `upsertAdminAlert.ts` (union). Plus the §12.4/admin-alert lockstep (catalog.ts, spec §12.4, 2 regens, `_families.ts`, meta-test registry rows). New admin-alert codes: 1 (`RESYNC_SHRINK_HELD`). New DB schema: 0. New `last_sync_status` values: 0.
+- New production edit sites: `phase1.ts` (hold branch + `Phase1Result` variant), `runScheduledCronSync.ts` (caller branch + resolve-site), `upsertAdminAlert.ts` (union), `lib/adminAlerts/alertActions.ts` (action-link row). Plus the §12.4/admin-alert lockstep (catalog.ts, spec §12.4, 2 regens, `_families.ts`, meta-test registry rows). New admin-alert codes: 1 (`RESYNC_SHRINK_HELD`). New DB schema: 0. New `last_sync_status` values: 0. New UI component files: 0 (reuses `PerShowAlertSection` rendering + `ReSyncButton`).
 
 ## 13. Backlog
 
