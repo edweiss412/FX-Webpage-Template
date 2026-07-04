@@ -34,9 +34,9 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   // Observability "Activity" — service-role app-event log + cron-health page;
   // admin-gated (the admin layout + the page's own requireAdminIdentity chain).
   { path: "app/admin/observability/page.tsx", chain: ["requireAdmin"] },
-  // Step-3 redesign — Ignored-sheets admin view. Calls requireAdminIdentity()
-  // defensively (layout also admin-gates).
-  { path: "app/admin/ignored-sheets/page.tsx", chain: ["requireAdmin"] },
+  // (Removed: app/admin/ignored-sheets/page.tsx — the standalone Ignored-sheets
+  // view was folded into the dashboard's collapsed disclosure. The un-ignore API
+  // route below is the surviving admin-gated surface.)
   { path: "app/admin/dev/page.tsx", chain: ["requireAdmin"] },
   // Dev-only dimensional-invariant harness for the source-sheet links feature
   // (build-renamed-aside in prod); same requireAdmin chokepoint as /admin/dev.

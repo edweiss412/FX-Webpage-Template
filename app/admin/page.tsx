@@ -99,14 +99,20 @@ function CheckpointInfraErrorPlaceholder() {
  * target. AlertBanner is async and self-fetches admin_alerts, rendering null
  * when the queue is empty — the slot is invisible in clean state.
  */
-function DashboardWithHeader({ bucket }: { bucket?: "active" | "archived" }) {
+function DashboardWithHeader({
+  bucket,
+  folderName,
+}: {
+  bucket?: "active" | "archived";
+  folderName?: string | null;
+}) {
   return (
     <>
       <AdminPageHeader title="Dashboard" sub="Your live shows and anything that needs review." />
       <div id="alerts">
         <AlertBanner />
       </div>
-      <Dashboard {...(bucket ? { bucket } : {})} />
+      <Dashboard {...(bucket ? { bucket } : {})} folderName={folderName ?? null} />
     </>
   );
 }
@@ -178,7 +184,9 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
         // inconsistent snapshot. Render Dashboard explicitly per plan
         // §M10 Task 10.1 finding 2 dispatch logic rather than strand the
         // operator on a wizard surface.
-        return <DashboardWithHeader bucket={dashboardBucket} />;
+        return (
+          <DashboardWithHeader bucket={dashboardBucket} folderName={settings.watched_folder_name} />
+        );
       }
     }
     // No checkpoint yet → wizard pre-finalize (steps 1/2/3, possibly mid-Apply).

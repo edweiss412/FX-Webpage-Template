@@ -26,4 +26,18 @@ describe("root-collapse §4.1 — config-layer root redirect", () => {
       }),
     );
   });
+
+  // The standalone /admin/ignored-sheets page was folded into the dashboard's
+  // collapsed disclosure; a config-layer 307 keeps old/bookmarked links landing
+  // on the dashboard (a true first-hop redirect) instead of a hard 404.
+  test('redirects() includes { source: "/admin/ignored-sheets", destination: "/admin", permanent: false }', async () => {
+    const redirects = await nextConfig.redirects!();
+    expect(redirects).toContainEqual(
+      expect.objectContaining({
+        source: "/admin/ignored-sheets",
+        destination: "/admin",
+        permanent: false,
+      }),
+    );
+  });
 });
