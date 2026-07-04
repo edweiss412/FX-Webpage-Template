@@ -763,6 +763,7 @@ describe("runPushSyncForShow", () => {
 
     const result = await runPushSyncForShow("file-1", {
       fileMeta,
+      isShowArchived: vi.fn(async () => false), // hermetic: the default preflight reads Supabase
       readPushDuplicatePreflight: vi.fn(async () => ({ outcome: "proceed" as const })),
       processOneFile,
     });
