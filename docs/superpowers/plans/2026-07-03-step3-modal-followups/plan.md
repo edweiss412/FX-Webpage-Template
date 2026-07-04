@@ -1143,6 +1143,7 @@ useEffect(() => clearWarningHighlight, []); // unmount hygiene (§H compound)
     - Click a far rail item → `aria-current` on the clicked item immediately; then dispatch `scroll` events with INTERMEDIATE `scrollTop` values → `aria-current` NEVER visits any id other than {pre-click, clicked} (§H N1 — the reported flicker).
     - **Settled release:** set `scrollTop` within `NAV_SCROLL_SETTLE_EPSILON_PX` of the clamped target, dispatch `scroll` → the spy falls through to normal derivation on the SAME frame.
     - **Bottom-clamp release:** target beyond max scroll; set `scrollTop + clientHeight >= scrollHeight - 1`, dispatch → released.
+    - **Upward-from-bottom HOLD:** scroller parked at the bottom, click a target well ABOVE max scroll, dispatch a `scroll` event with `scrollTop` still at the bottom (glide barely started) → suppression HOLDS (`active` stays the clicked id; catches: bottom-clamp releasing for a non-bottom target and re-deriving the bottom section — the reported flicker's edge case).
     - **Timeout release:** `vi.advanceTimersByTime(NAV_SCROLL_SETTLE_TIMEOUT_MS)` then a scroll at an unrelated position → spy re-derives (covers zero-event/interrupted glides).
     - **User-input release:** dispatch `wheel` (and separately `touchstart`, `pointerdown`) on the scroller mid-suppression → next scroll re-derives instantly.
     - **Pre-scroll immediate release:** scroller already within epsilon of the target BEFORE `scrollTo` → suppression never engages (no scroll event will fire; a subsequent scroll re-derives).
@@ -1193,7 +1194,15 @@ if (spySuppressedRef.current) {
   const targetTop = spyTargetTopRef.current;
   const settled =
     targetTop !== null && Math.abs(el.scrollTop - targetTop) <= NAV_SCROLL_SETTLE_EPSILON_PX;
-  const bottomClamped = el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
+  // Bottom-clamp releases ONLY when the pending target is itself the bottom —
+  // otherwise an upward click made while parked at the bottom would release on
+  // the first barely-moved frame and re-derive the bottom section (the exact
+  // flicker this fix removes; plan-review R3 LOW).
+  const maxScrollTop = el.scrollHeight - el.clientHeight;
+  const targetIsBottom =
+    targetTop !== null && targetTop >= maxScrollTop - NAV_SCROLL_SETTLE_EPSILON_PX;
+  const bottomClamped =
+    targetIsBottom && el.scrollTop + el.clientHeight >= el.scrollHeight - 1;
   if (settled || bottomClamped) releaseSpySuppression(); // fall through same frame
   else return; // hold active constant (§H N1)
 }
