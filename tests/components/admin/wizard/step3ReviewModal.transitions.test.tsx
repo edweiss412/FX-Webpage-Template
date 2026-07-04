@@ -55,10 +55,7 @@ import type { SectionData } from "@/components/admin/wizard/step3ReviewSections"
 import { buildParseResult, stagedRow } from "./_step3ReviewFixture";
 
 const ROOT = join(__dirname, "..", "..", "..", "..");
-const MODAL_SRC = readFileSync(
-  join(ROOT, "components/admin/wizard/Step3ReviewModal.tsx"),
-  "utf8",
-);
+const MODAL_SRC = readFileSync(join(ROOT, "components/admin/wizard/Step3ReviewModal.tsx"), "utf8");
 const GLOBALS_CSS = readFileSync(join(ROOT, "app/globals.css"), "utf8");
 
 const DFID = "drive-abc-123";
@@ -237,9 +234,7 @@ describe("§11 T6: activeSection change — transition-colors duration-fast on b
       q.getByTestId(tid("rail")).querySelectorAll<HTMLElement>('[data-testid*="-rail-item-"]'),
     );
     const chipItems = Array.from(
-      q
-        .getByTestId(tid("chiprail"))
-        .querySelectorAll<HTMLElement>('[data-testid*="-chip-item-"]'),
+      q.getByTestId(tid("chiprail")).querySelectorAll<HTMLElement>('[data-testid*="-chip-item-"]'),
     );
     expect(railItems.length).toBeGreaterThan(0);
     expect(chipItems.length).toBeGreaterThan(0);
@@ -440,7 +435,10 @@ function findConditionalLines(src: string): number[] {
 /** True if the line immediately preceding `lineIndex` (skipping nothing — the
  *  marker/animation annotation must sit directly above the conditional) either
  *  declares the deliberate-instant marker or documents an animation treatment. */
-function isClassified(lines: string[], lineIndex: number): { classified: boolean; instant: boolean } {
+function isClassified(
+  lines: string[],
+  lineIndex: number,
+): { classified: boolean; instant: boolean } {
   const prev = lines[lineIndex - 1] ?? "";
   const instant = prev.includes("§11") && prev.includes("instant — deliberate");
   const animated = /animate-|transition-\[|duration-(fast|normal)\b|ease-out-quart\b/.test(prev);

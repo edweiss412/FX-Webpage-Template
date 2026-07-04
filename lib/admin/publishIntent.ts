@@ -13,13 +13,13 @@
 export async function postPublishIntent(
   wizardSessionId: string,
   driveFileId: string,
-  next: boolean
+  next: boolean,
 ): Promise<boolean> {
   const action = next ? "approve" : "unapprove";
   try {
     const res = await fetch(
       `/api/admin/onboarding/staged/${wizardSessionId}/${driveFileId}/${action}`,
-      { method: "POST" }
+      { method: "POST" },
     );
     if (!res.ok) return false;
     // The server returns HTTP 200 with `{ ok: false }` when it SAFELY refuses an

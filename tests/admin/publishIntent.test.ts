@@ -24,7 +24,7 @@ describe("postPublishIntent", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       `/api/admin/onboarding/staged/${wizardSessionId}/${driveFileId}/approve`,
-      { method: "POST" }
+      { method: "POST" },
     );
   });
 
@@ -39,7 +39,7 @@ describe("postPublishIntent", () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       `/api/admin/onboarding/staged/${wizardSessionId}/${driveFileId}/unapprove`,
-      { method: "POST" }
+      { method: "POST" },
     );
   });
 

@@ -886,11 +886,7 @@ export function Step3Review({ wizardSessionId, rows, onCountsChange }: Step3Revi
   // checkbox click path deliberately ignores it (fire-and-forget, current UX
   // preserved); only the review modal awaits it (§9.2.5: the modal closes only
   // on its OWN waiter resolving true).
-  function toggleOne(
-    driveFileId: string,
-    next: boolean,
-    serverApplied: boolean,
-  ): Promise<boolean> {
+  function toggleOne(driveFileId: string, next: boolean, serverApplied: boolean): Promise<boolean> {
     // The RETURNED promise is the waiter itself — never chained through flush.
     // Chaining would tie termination to the POST's fate; the waiter instead
     // terminates through §9.2.6's lifecycle (settlement, unmount cleanup, or

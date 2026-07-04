@@ -49,10 +49,7 @@ const WSID = "99999999-2222-4333-8444-555555555555";
 const ROOT = join(__dirname, "..", "..");
 const CARD_SRC = readFileSync(join(ROOT, "components/admin/wizard/Step3SheetCard.tsx"), "utf8");
 const REVIEW_SRC = readFileSync(join(ROOT, "components/admin/wizard/Step3Review.tsx"), "utf8");
-const MODAL_SRC = readFileSync(
-  join(ROOT, "components/admin/wizard/Step3ReviewModal.tsx"),
-  "utf8",
-);
+const MODAL_SRC = readFileSync(join(ROOT, "components/admin/wizard/Step3ReviewModal.tsx"), "utf8");
 
 function parseResult(title: string): ParseResult {
   return { show: { title } } as unknown as ParseResult;

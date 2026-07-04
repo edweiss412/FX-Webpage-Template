@@ -45,8 +45,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 // hold the returned promise.
 const capturedToggles = new Map<string, (next: boolean) => Promise<boolean>>();
 vi.mock("@/components/admin/wizard/Step3SheetCard", async (importOriginal) => {
-  const mod =
-    await importOriginal<typeof import("@/components/admin/wizard/Step3SheetCard")>();
+  const mod = await importOriginal<typeof import("@/components/admin/wizard/Step3SheetCard")>();
   const RealCard = mod.Step3SheetCard;
   function RecordingCard(props: Parameters<typeof RealCard>[0]) {
     if (props.onToggleChecked) {
@@ -208,9 +207,7 @@ describe("Step3Review — result-bearing publish settlement (spec §9.2 cases a�
   it("(d) false then true (applied row): false-waiter resolves false, true-waiter true; final POST is approve", async () => {
     const d = deferredFetch();
     vi.stubGlobal("fetch", d.mock);
-    render(
-      <Step3Review wizardSessionId={WSID} rows={[rowA({ status: "applied" }), rowB()]} />,
-    );
+    render(<Step3Review wizardSessionId={WSID} rows={[rowA({ status: "applied" }), rowB()]} />);
 
     let pFalse!: Promise<boolean>;
     let pTrue!: Promise<boolean>;
@@ -275,9 +272,7 @@ describe("Step3Review — result-bearing publish settlement (spec §9.2 cases a�
   it("(g) idempotent no-op: an already-applied row requested true sends NO POST and still resolves true", async () => {
     const d = deferredFetch();
     vi.stubGlobal("fetch", d.mock);
-    render(
-      <Step3Review wizardSessionId={WSID} rows={[rowA({ status: "applied" }), rowB()]} />,
-    );
+    render(<Step3Review wizardSessionId={WSID} rows={[rowA({ status: "applied" }), rowB()]} />);
 
     let p!: Promise<boolean>;
     await act(async () => {
@@ -308,9 +303,9 @@ describe("Step3SheetCard — modal publish + live region (spec §9.1/§9.3)", ()
     fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID_A}-review-publish`));
     await waitFor(() => expect(modal()).toBeNull()); // closes ONLY on success
     // The card checkbox reflects the settled checked state.
-    expect(
-      (q.getByTestId(`wizard-step3-checkbox-${DFID_A}`) as HTMLInputElement).checked,
-    ).toBe(true);
+    expect((q.getByTestId(`wizard-step3-checkbox-${DFID_A}`) as HTMLInputElement).checked).toBe(
+      true,
+    );
     // Persistent polite live region (FinalizeButton pattern) announces success.
     const region = liveRegion(q);
     expect(region.getAttribute("role")).toBe("status");
@@ -340,9 +335,9 @@ describe("Step3SheetCard — modal publish + live region (spec §9.1/§9.3)", ()
     expect(q.queryByTestId(`wizard-step3-card-${DFID_A}-review-modal`)).not.toBeNull();
     expect(liveRegion(q).textContent).toBe("Couldn't update the publish selection.");
     // The checkbox reverted to server truth (staged = unchecked).
-    expect(
-      (q.getByTestId(`wizard-step3-checkbox-${DFID_A}`) as HTMLInputElement).checked,
-    ).toBe(false);
+    expect((q.getByTestId(`wizard-step3-checkbox-${DFID_A}`) as HTMLInputElement).checked).toBe(
+      false,
+    );
   });
 
   it("checkbox click stays fire-and-forget: optimistic flip, NO pending UI on the box while the POST is in flight", async () => {

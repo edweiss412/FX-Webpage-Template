@@ -493,9 +493,7 @@ describe("Step3ReviewModal — footer note + buttons (spec §9.1)", () => {
 
   test("publish CTA styling: pending keeps the accent treatment even when checked", async () => {
     let settle!: (v: boolean) => void;
-    const onRequestSetChecked = vi.fn(
-      () => new Promise<boolean>((resolve) => (settle = resolve)),
-    );
+    const onRequestSetChecked = vi.fn(() => new Promise<boolean>((resolve) => (settle = resolve)));
     const { q } = renderModal({ checked: true, onRequestSetChecked });
     fireEvent.click(q.getByTestId(tid("publish")));
     await waitFor(() => expect(q.getByTestId(tid("publish")).textContent).toBe("Selecting…"));

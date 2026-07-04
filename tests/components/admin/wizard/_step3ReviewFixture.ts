@@ -124,10 +124,7 @@ export function buildParseResult(overrides: Partial<ParseResult> = {}): ParseRes
   };
 }
 
-export function stagedRow(
-  pr: ParseResult | null,
-  overrides: Partial<Step3Row> = {},
-): Step3Row {
+export function stagedRow(pr: ParseResult | null, overrides: Partial<Step3Row> = {}): Step3Row {
   return {
     driveFileId: DFID,
     driveFileName: "asset-mgmt-summit.sheet",
