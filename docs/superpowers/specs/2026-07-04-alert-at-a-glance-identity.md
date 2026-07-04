@@ -79,15 +79,19 @@ IdentityContext = {
 
 ### 3.2 `lib/adminAlerts/resolveAlertIdentities.ts` — batched resolution (read-only DB)
 
-`resolveAlertIdentities(rows, supabase): Promise<Map<alertId, AlertIdentity>>`. Each input row carries `{ id, code, show_id, occurrence_count, identityContext }` where `identityContext` is the **already-projected** sanitized shape (§3.1) — resolution never sees raw context.
+`resolveAlertIdentities(rows, supabase): Promise<AlertIdentitiesResult>` where `AlertIdentitiesResult = { kind: "ok"; identities: Map<alertId, AlertIdentity> } | { kind: "infra_error"; identities: Map<alertId, AlertIdentity> }` (resolves Codex F9 — infra faults are a **discriminable** typed result per invariant 9, never silently indistinguishable from "no identity"). On an infra fault the partial `identities` map is still returned (rows whose reads succeeded resolve; the rest are absent) AND `kind: "infra_error"` signals the degraded state so callers can log it. Each input row carries `{ id, code, show_id, occurrence_count, identityContext }` where `identityContext` is the **already-projected** sanitized shape (§3.1) — resolution never sees raw context.
 
 1. Walk `rows`, consult `ALERT_IDENTITY_MAP[code]`, and collect the set of `crew_member_id`s, `drive_file_id`s, and `show_id`s that need name resolution.
-2. Issue **at most three batched, bounded `.select().in(...).limit(...)` reads**: `crew_members(id,show_id,name,email)`, `shows(id,title,slug)`, `shows(drive_file_id,title,slug)`. Skip any query whose id-set is empty. (`crew_members.email` is fetched for the OAuth email legacy fallback; `crew_members.show_id` for the show-scoping check below.)
+2. Issue **at most three batched, bounded `.select().in(...).limit(...)` reads**: `crew_members(id,show_id,name)`, `shows(id,title,slug)`, `shows(drive_file_id,title,slug)`. Skip any query whose id-set is empty. (`crew_members.show_id` is fetched for the show-scoping check below.)
 3. For each row, run its segment producers against the resolved lookups + the row's projected `identityContext`, producing an `AlertIdentity`. If the code is not `global`, ≥1 entity segment was produced, and `row.occurrence_count > 1`, append a final disclosure segment `{ label: null, value: "(most recent of N)" }` (§6.4a).
 
-**Show-scoped crew resolution (resolves Codex F7).** A crew segment (name) and the OAuth email legacy fallback (`crew_members.email`) are emitted **only when the resolved crew row's `show_id` equals the alert's effective show** — `row.show_id`, or the show resolved from `identityContext.drive_file_id` when `row.show_id` is null. A `crew_member_id`/`stale_crew_member_id` that points at a different show (stale, malformed, or producer-bugged context) yields **no** crew/email segment — preventing a wrong-show crew name or, worse, a wrong-show `crew_members.email` being presented as the claimed Google account. This is the concrete mechanism behind the §8.1 "cross-show id → segment dropped" guard.
+**Show-scoped crew resolution (resolves Codex F7).** A crew segment (name) is emitted **only when the resolved crew row's `show_id` equals the alert's effective show** — `row.show_id`, or the show resolved from `identityContext.drive_file_id` when `row.show_id` is null. A `crew_member_id`/`stale_crew_member_id` that points at a different show (stale, malformed, or producer-bugged context) yields **no** crew segment, preventing a wrong-show crew name from being attributed to the alert. This is the concrete mechanism behind the §8.1 "cross-show id → segment dropped" guard. (The OAuth email is never sourced from the crew row — §5 — so there is no cross-show email-leak vector.)
 
-**OAuth email — legacy-row fallback (resolves F1).** The email segment's value is `context.user_email ?? resolvedCrewMember.email`. `claim_oauth_identity(p_email)` stamps a crew row precisely because its canonical email **equals** the signed-in user's canonical email, so the claimed row's `crew_members.email` **is** the OAuth email at claim time. New rows carry `user_email` authoritatively (robust against later crew-email edits); pre-change rows (which have only `crew_member_id` + `user_email_hash`) fall back to the resolved `crew_members.email` — so the alert in the motivating screenshot shows crew + email + show after ship **without** a re-raise or a data backfill. If both are absent/empty (crew row deleted), the email segment is dropped (guard §8.1). This fallback is scoped to `OAUTH_IDENTITY_CLAIMED` and `AMBIGUOUS_EMAIL_BINDING` (the only email-bearing identities).
+**OAuth email — authoritative source only, no misleading fallback (resolves Codex F1 + F10).** The email segment is rendered ONLY from an email that authoritatively records the signing-in account:
+- `OAUTH_IDENTITY_CLAIMED` → `context.user_email` (the canonical OAuth email, added by this spec's one producer edit). **Legacy pre-change rows have no `user_email`** — only a `user_email_hash` — and the raw OAuth email was never persisted, so it **cannot** be truthfully recovered. Those rows render crew name + show and **omit** the email segment. We deliberately do NOT substitute `crew_members.email`: crew email is a mutable field that merely *happened* to match at claim time, and presenting it as "the Google account that signed in" would be a PII misstatement if the crew row was edited after the claim (Codex F10). Consequence: the specific alert in the motivating screenshot (a legacy row) shows crew + show but not email; every claim raised **after** ship shows the full crew + email + show. This is the honest ceiling given legacy rows stored only a hash.
+- `AMBIGUOUS_EMAIL_BINDING` → `context.email` (the canonical email already written by its producer, `validateGoogleSession.ts`). Authoritative; no fallback needed.
+
+If the email source is absent/empty, the email segment is simply dropped (guard §8.1); other segments still render.
 
 ```ts
 type AlertIdentitySegment = { label: string | null; value: string; pii?: boolean };
@@ -96,9 +100,9 @@ type AlertIdentity = { segments: AlertIdentitySegment[]; global: boolean };
 
 The email segment is tagged `pii: true` so a consumer can withhold it (the CLI default) without the resolver knowing about surface policy.
 
-- **Read-only:** only `.select(...)`; the module never imports `lib/log`. (It is NOT under `lib/observe/query/**`, so it is not bound by that subtree's meta-test, but it follows the same discipline.)
+- **Read-only:** only `.select(...)`; the resolver module itself does not import `lib/log` (the *callers* log the `infra_error` kind with proper surface context — §6). (It is NOT under `lib/observe/query/**`, so it is not bound by that subtree's meta-test, but it follows the same read-only discipline.)
 - **Bounded:** every `.in()` read carries a `.limit()` (satisfies `_metaBoundedReads` discipline).
-- **Supabase call-boundary (invariant 9):** every call destructures `{ data, error }`; a returned/thrown infra error degrades to "no identity resolved for the affected rows" (segments that could not resolve are dropped), never a throw that takes down the admin layout.
+- **Supabase call-boundary (invariant 9):** every call destructures `{ data, error }`; a **returned** error and a **thrown** error are both caught and mapped to `kind: "infra_error"` (discriminable), never a silent success. The resolver never throws out to the admin layout. Registered in the applicable call-boundary meta-test (§8.3).
 
 ### 3.3 `describeAlert(identity, opts?): string | null` — formatting (pure)
 
@@ -131,7 +135,7 @@ Legend — **Source:** `ctx:key` = literal in `context`; `→show` = resolve `sh
 | # | Code | Identity segments (ordered) | Source | Producer change |
 |---|------|------------------------------|--------|-----------------|
 | 1 | AMBIGUOUS_EMAIL_BINDING | Show · email · "N crew rows" | →show, `email`(email-fallback), `crew_member_count` | none |
-| 2 | **OAUTH_IDENTITY_CLAIMED** | Crew · email · Show | →crew `ctx:crew_member_id`, `ctx:user_email ?? crew.email`, →show | **add `user_email` (canonical)** |
+| 2 | **OAUTH_IDENTITY_CLAIMED** | Crew · email (new rows) · Show | →crew `crew_member_id`, `user_email` (authoritative only; legacy rows omit email), →show | **add `user_email` (canonical)** |
 | 3 | PICKER_BOOTSTRAP_RPC_FAILED | Show (if `show_id` present) | →show | none |
 | 4 | PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED | **global** (show unresolved by definition; only diagnostic in ctx) | — | none |
 | 5 | CALLBACK_CLAIM_THREW | **global** (`show_id` null; only `error_name` diagnostic in ctx) | — | none |
@@ -209,6 +213,7 @@ Add `user_email: canonicalEmail`. **Keep `user_email_hash`** (logs/forensics sti
 - Apply `projectIdentityContext(alert.context, { includePii: true })` (web is admin-only → PII allowed), then call `resolveAlertIdentities([{ ...alert, identityContext }], supabase)` for the single top alert (limit 1 → ≤3 tiny reads). Build the `AlertIdentity`.
 - **Collapsed view (the at-a-glance surface):** render the identity as a second line directly beneath the collapsed one-liner (`data-testid="admin-alert-identity"`), styled `text-sm text-text-subtle`, label muted / value `text-text-strong`. This is what makes the screenshot's banner answer "who / which show" without expanding.
 - **Panel:** the same identity line also renders inside the expanded panel (above `helpful-context`) so the detail survives when collapsed truncation elides it.
+- **Infra-fault handling (Codex F9):** if `resolveAlertIdentities` returns `kind: "infra_error"`, the banner renders any partial identity that resolved, keeps the alert copy fully intact, and logs the degraded read via `lib/log` (the caller, not the resolver, logs — with `source`/`code` context). The banner never crashes or hides the alert on a resolver fault.
 - **Guard:** if `describeAlert` returns `null` (global code, or nothing resolved) → render no identity line (no empty element, no `undefined`).
 
 ### 6.2 `pnpm observe alerts` CLI (`lib/observe/query/alerts.ts` read-core + `scripts/observe.ts` adapter)
@@ -259,7 +264,8 @@ The read-core comment (`lib/observe/query/alerts.ts:4-6`) states context is "int
 |-----------|----------|
 | `context` is `null`/`{}` | Identity line suppressed; copy renders unchanged. |
 | A referenced id (`crew_member_id`, `drive_file_id`, `show_id`) resolves to no row (deleted, cross-show) | That segment is dropped; remaining segments still render. If none resolve → line suppressed. |
-| Legacy `OAUTH_IDENTITY_CLAIMED` row (no `user_email` in context) | Email segment falls back to resolved `crew_members.email` (§3.2). If the crew row is also gone → email segment dropped; crew name (if resolvable) + show still render. |
+| Legacy `OAUTH_IDENTITY_CLAIMED` row (no `user_email` in context) | Email segment **omitted** (raw OAuth email was never persisted; `crew_members.email` is NOT substituted — §3.2/§5, Codex F10). Crew name (if resolvable) + show still render. |
+| Resolver returns `kind: "infra_error"` | Callers render whatever partial identities resolved, keep the alert copy intact, and **log** the degraded read (invariant 9); never a silent disappearance mistaken for "no entity". |
 | `context[key]` present but wrong type (non-string email, non-array count) | Segment dropped (defensive coercion, mirrors `readDataGapsDigest` at `PerShowAlertSection.tsx:62`). |
 | Unknown/uncataloged `code` (DB string not in map) | Identity line suppressed (mirror `isMessageCode` guard at `AlertBanner.tsx`); never throw on the persistent admin layout. |
 | Resolver DB read errors (infra fault) | Degrade to no identity for affected rows; alert copy still renders; never throw. |
@@ -292,7 +298,7 @@ A **code × context** table test. For each of the 42 codes, feed a representativ
 - **Anti-tautology:** derive expected names from the fixture (`crew_members.name`, `shows.title` in a seeded map), never hardcode a name the formatter could echo by accident. Assert against the resolved-lookup fixture, not the rendered container.
 - **Concrete failure modes each case catches:** missing context key → segment dropped; unresolvable id → segment dropped; global code → `null`; already-in-copy code → suppressed/complement only; wrong-type value → dropped.
 - **OAUTH_IDENTITY_CLAIMED end-to-end:** `context = { crew_member_id: X, show_id: Y, user_email: "jane@gmail.com" }` + a lookup fixture where `X→"Jane Doe"`, `Y→"II — FinTech…"` → `describeAlert` = `"Crew: Jane Doe · jane@gmail.com · Show: II — FinTech…"`.
-- **Legacy OAUTH row (Codex F1):** `context = { crew_member_id: X, user_email_hash: "…" }` (NO `user_email`), lookup `X→{ name:"Jane Doe", email:"jane@gmail.com" }` → email segment falls back to `crew.email` → identity still shows `Crew: Jane Doe · jane@gmail.com · Show: …`. A second case where the crew row is deleted → email + crew dropped, show still shown.
+- **Legacy OAUTH row (Codex F1 + F10):** `context = { crew_member_id: X, user_email_hash: "…" }` (NO `user_email`) → identity shows `Crew: Jane Doe · Show: …` with **no email segment** (assert no `@` / no `crew_members.email` value appears). New-row case with `user_email` present → email segment renders.
 - **Invariant-5 raw-code suppression (Codex F3):** for `PICKER_BOOTSTRAP_RPC_FAILED`/`CALLBACK_CLAIM_THREW`/`WEBHOOK_TOKEN_INVALID` with `context` carrying `rpc_error_code: "42501"`, `error_name`, `reason` → the rendered identity contains **none** of those strings (assert `42501`/`PGRST`/error-class substrings absent).
 - **Nested-field sanitization (Codex F5):** `projectIdentityContext` on `ROLE_FLAGS_NOTICE` context `{ drive_file_id, changes: [{crew_name:"Jane", prior_flags:["X"], new_flags:["Y"]}] }` → output has `role_change_crew_names: ["Jane"]` + `role_change_count: 1` and **no** `changes`, `prior_flags`, or `new_flags` key; a planted `error_message`/`orphan_url` under any code is absent from the projection.
 - **Coalescing disclosure (Codex F4):** an `OAUTH_IDENTITY_CLAIMED` row with `occurrence_count: 2` renders the latest crew/email/show + a "(most recent of 2)" segment; the same code with `occurrence_count: 1` has no disclosure segment; a `global` code with `occurrence_count: 5` shows no identity line at all.
@@ -300,7 +306,8 @@ A **code × context** table test. For each of the 42 codes, feed a representativ
 ### 9.2 `resolveAlertIdentities` — batching & guards
 
 - Asserts ≤3 DB reads for a mixed batch; empty id-sets skip their query; infra error on one read degrades gracefully (other segments still resolve); each read is bounded (`.limit`).
-- **Show-scoped crew resolution (Codex F7):** a row with `show_id: A` and `identityContext.crew_member_id` pointing at a crew row whose `show_id: B` → crew AND email segments suppressed (assert the other-show name and `crew_members.email` do NOT appear); the matching-show case renders them.
+- **Show-scoped crew resolution (Codex F7):** a row with `show_id: A` and `identityContext.crew_member_id` pointing at a crew row whose `show_id: B` → crew segment suppressed (assert the other-show name does NOT appear); the matching-show case renders it.
+- **Infra-fault discriminability (Codex F9):** a resolver DB read that returns an error → result is `{ kind: "infra_error" }` (not `"ok"`); a read that throws → also `{ kind: "infra_error" }`; both still return a (possibly empty/partial) `identities` map. A clean run → `{ kind: "ok" }`.
 
 ### 9.3 Render tests
 
