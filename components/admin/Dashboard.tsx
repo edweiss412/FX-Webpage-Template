@@ -555,6 +555,19 @@ export async function Dashboard(
           aria-label={result.bucket === "archived" ? "Archived shows" : "Active shows"}
           className="flex min-w-0 flex-col gap-3 min-[1240px]:flex-1"
         >
+          {/* parse-data-quality-warnings badge (spec §3.5) — visible degraded-read
+              notice, rendered once for BOTH buckets when the shows_internal
+              data-gaps read faulted (badges may be missing). Plain language, no
+              raw §12.4 code (invariant 5). Instant ternary — no animation. */}
+          {result.dataGapsDegraded ? (
+            <p
+              data-testid="dashboard-data-quality-degraded"
+              className="rounded-md border border-border bg-surface-sunken p-3 text-sm text-text-subtle"
+            >
+              Data-quality checks are temporarily unavailable — some shows may not show their
+              data-quality badge.
+            </p>
+          ) : null}
           {/* M12.4 item D4: for the ACTIVE bucket the "Active shows" title, the
               Find input, AND the segmented control share ONE header row, owned by
               <ShowsTable> (the Find client-state lives there). The ARCHIVED bucket

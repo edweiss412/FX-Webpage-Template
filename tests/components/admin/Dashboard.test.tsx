@@ -8,6 +8,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 
 const state = vi.hoisted(() => ({ throwOnConstruct: false }));
+// Data-quality badge (Task 2): when set, the mocked client errors on the
+// shows_internal read and seeds one show so readDataGaps runs and faults →
+// dataGapsDegraded → the degraded notice renders.
+const dgState = vi.hoisted(() => ({ errorShowsInternal: false }));
 // Mobile needs-attention Task 7 (R6-F1) — when set, loadNeedsAttention returns
 // this instead of running against the (empty) mocked client, so the summary
 // card can be fed stream totals that EXCEED every rendered row-array length.
@@ -29,18 +33,37 @@ function emptyClient() {
     async rpc() {
       return { data: false, error: null };
     },
-    from() {
+    from(table: string) {
+      const ctx = { head: false };
       const builder: Record<string, unknown> = {};
       const pass = () => builder;
-      builder.select = () => builder;
+      builder.select = (_c?: unknown, opts?: { head?: boolean }) => {
+        if (opts?.head) ctx.head = true;
+        return builder;
+      };
       builder.eq = pass;
       builder.is = pass;
       builder.order = pass;
       builder.limit = pass;
       builder.in = pass;
       builder.range = pass;
-      (builder as { then: unknown }).then = (onf: (v: unknown) => unknown) =>
-        onf({ data: [], count: 0, error: null });
+      (builder as { then: unknown }).then = (onf: (v: unknown) => unknown) => {
+        if (table === "shows_internal") {
+          if (dgState.errorShowsInternal) return onf({ data: null, count: null, error: { message: "boom" } });
+          return onf({ data: [], count: null, error: null });
+        }
+        if (table === "shows" && !ctx.head && dgState.errorShowsInternal) {
+          // Seed one show so wave-2 readDataGaps actually runs (and then faults).
+          return onf({
+            data: [
+              { id: "s1", slug: "s1", title: "S1", dates: null, venue: null, published: true, archived_at: null },
+            ],
+            count: null,
+            error: null,
+          });
+        }
+        return onf({ data: ctx.head ? null : [], count: 0, error: null });
+      };
       return builder;
     },
   };
@@ -61,6 +84,7 @@ vi.mock("next/navigation", () => ({
 beforeEach(() => {
   state.throwOnConstruct = false;
   naState.override = null;
+  dgState.errorShowsInternal = false;
 });
 afterEach(() => {
   cleanup();
@@ -237,5 +261,20 @@ describe("Dashboard composition", () => {
     expect(within(errorMain).queryByText(/^admin$/i)).toBeNull();
     // The error message itself still renders — content, not chrome.
     expect(within(errorMain).getByText(/we could not load your dashboard/i)).toBeInTheDocument();
+  });
+
+  // parse-data-quality-warnings badge (spec §3.5) — visible degraded-read notice.
+  it("T3b: renders the degraded notice when the shows_internal read faults (no raw code)", async () => {
+    dgState.errorShowsInternal = true;
+    await renderDashboard();
+    const notice = screen.getByTestId("dashboard-data-quality-degraded");
+    expect(notice).toBeInTheDocument();
+    expect(notice.textContent).not.toMatch(/FIELD_UNREADABLE|UNKNOWN_SECTION_HEADER|BLOCK_DISAPPEARED/);
+  });
+
+  it("T3b: no degraded notice on a healthy read (instant unmount, no animation wrapper)", async () => {
+    dgState.errorShowsInternal = false;
+    await renderDashboard();
+    expect(screen.queryByTestId("dashboard-data-quality-degraded")).toBeNull();
   });
 });
