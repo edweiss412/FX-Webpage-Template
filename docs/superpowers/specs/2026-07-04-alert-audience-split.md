@@ -90,7 +90,7 @@ amber alarm.
 | `REEL_DRIFTED` | re-edit sheet |
 | `EMBEDDED_ASSET_DRIFTED` | re-edit sheet |
 | `ASSET_RECOVERY_BYTES_EXCEEDED` | trim gallery |
-| `SHOW_FIRST_PUBLISHED` | info confirmation (already `severity:"info"`) |
+| `SHOW_FIRST_PUBLISHED` | info confirmation — `audience:"doug"` BUT `severity:"info"`, so it stays excluded from the amber banner/count by the **pre-existing** info rule (see AC2) |
 | `SHOW_UNPUBLISHED` | republish when ready |
 | `LIVE_ROW_CONFLICT` | resolve live row from dashboard |
 | `PICKER_EPOCH_RESET` | re-share show link if needed |
@@ -339,6 +339,16 @@ on the next full render (no mid-open mutation). No `AnimatePresence` on the dot 
 
 ## 10. Meta-tests & CI touchpoints
 
+- **EXTEND** `tests/admin/_metaInfraContract.test.ts` (invariant 9 — the registry where
+  `fetchUnresolvedAlertCount` is already pinned at `:244`): add registry rows for the two
+  NEW Supabase read surfaces — `fetchHealthRollup` (`lib/admin/healthRollup.ts`) and the
+  `HealthAlertsPanel` unresolved-alert loader (`app/admin/observability/page.tsx` or its
+  loader module). Each row asserts the same call-boundary contract as `alertCount`:
+  construction throw → `infra_error`; returned `{error}` → `infra_error`; awaited throw →
+  `infra_error`; non-array `data` with no error (integrity failure) → `infra_error` (never
+  silent green/empty). Without these rows the destructure-`{data,error}` discipline (AC8)
+  is not structurally pinned and can regress silently. (No `not-subject-to-meta` waiver —
+  both are genuine infra reads.)
 - **CREATE** `tests/messages/_metaAlertAudienceContract.test.ts` (mirrors
   `_metaAdminAlertCatalog.test.ts`): for every `ADMIN_ALERTS_CODES` entry — asserts
   `audience ∈ {"doug","health"}`; `health` codes declare `healthWeight ∈ {"degraded","notice"}`
@@ -381,7 +391,12 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
 
 - AC1: A `health`-audience unresolved alert never appears in `AlertBanner`, the `NotifBell`
   count, or `PerShowAlertSection`.
-- AC2: A `doug`-audience unresolved alert appears in `AlertBanner` exactly as today.
+- AC2: A **non-info** `doug`-audience unresolved alert appears in `AlertBanner` exactly as
+  today. The exclusion is `INFO_SEVERITY_CODES ∪ HEALTH_CODES`, so the one `doug`+`info`
+  code (`SHOW_FIRST_PUBLISHED`) stays excluded from the amber banner/count by the
+  **pre-existing info rule** (not by the new audience rule) — a specific assertion pins
+  `SHOW_FIRST_PUBLISHED` as banner-excluded. Tests that iterate "all doug codes appear in
+  the banner" MUST scope to non-info doug codes.
 - AC3: With ≥1 unresolved `degraded` health alert, the nav indicator is red; with only
   `notice`, amber; with none, green; on rollup infra_error, neutral "unknown".
 - AC4: Doug (non-developer) clicking the indicator sees the plain-language popover
@@ -456,3 +471,9 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
   global-only (`.is("show_id", null)`); show-scoped health rows resolve via the existing
   `POST /api/admin/show/<slug>/alerts/<id>/resolve`. Both reuse existing code; the split is
   mandatory (a single global action would be a dead control for show-scoped rows). Settled.
+- **Exclusion union is `INFO_SEVERITY_CODES ∪ HEALTH_CODES` (R4).** `SHOW_FIRST_PUBLISHED`
+  is `doug`+`info`; it stays banner-excluded by the pre-existing info rule, NOT the audience
+  rule. AC2's "doug appears in banner" is scoped to non-info doug codes. Not a contradiction.
+- **New reads pinned by `_metaInfraContract` (R4).** `fetchHealthRollup` + the
+  `HealthAlertsPanel` loader get registry rows in `tests/admin/_metaInfraContract.test.ts`
+  (invariant 9), same as `fetchUnresolvedAlertCount:244`. No waiver.
