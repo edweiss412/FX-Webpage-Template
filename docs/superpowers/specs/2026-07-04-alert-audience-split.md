@@ -275,10 +275,20 @@ a scoped health-alert detail list **into scope** on the already-`requireDevelope
   `AlertBanner`), the `healthWeight` chip (degraded/notice), a **show link** when
   `show_id` is set (`/admin/show/<slug>`), `raised_at` (relative + absolute title), and
   `occurrence_count`.
-- Each row carries a **Resolve** affordance reusing the existing
-  `resolveAdminAlertFormAction` (`app/admin/actions.ts`) — developers can clear a resolved
-  health condition. (This is the resolve path health alerts otherwise lost by leaving the
-  banner.) The form is dev-gated by the page.
+- Each row carries a **Resolve** affordance, and the path depends on `show_id` because the
+  existing global action only resolves global rows (R3 finding):
+  - **Global rows** (`show_id === null`) → `resolveAdminAlertFormAction`
+    (`app/admin/actions.ts:118-124`, whose UPDATE is `.is("show_id", null)` — global-only).
+  - **Show-scoped rows** (`show_id` set — e.g. `TILE_PROJECTION_FETCH_FAILED`,
+    `PENDING_SNAPSHOT_*`) → a form POSTing to the existing per-show resolve route
+    `POST /api/admin/show/<slug>/alerts/<id>/resolve`
+    (`app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts:169`, whose UPDATE is
+    `where id = $1 and show_id = $2`). The panel already loads `shows(slug)` for the show
+    link, so `<slug>` is available. A show-scoped row whose `slug` failed to load hides the
+    Resolve control (never renders a dead button) and keeps the show link degraded state.
+  Reusing `resolveAdminAlertFormAction` for a show-scoped row would be a **dead control**
+  (the UPDATE would not match), so the split is mandatory. The forms are dev-gated by the
+  page.
 - Deep-link anchor: `/admin/observability#health` (or a query token) so the indicator link
   scrolls to the panel; the panel wrapper has `id="health"` + a stable `data-testid`.
 - Empty state: "No open system-health alerts." (quiet, not an error).
@@ -396,8 +406,12 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
 - AC9: A developer at `/admin/observability` sees the `HealthAlertsPanel` listing each
   unresolved health alert with its lookup-rendered copy (no raw code), `healthWeight` chip,
   show link (when `show_id` set), `raised_at`, `occurrence_count`, and a working Resolve
-  control (reusing `resolveAdminAlertFormAction`). The developer indicator link targets
-  `/admin/observability#health`. Seeding a health alert makes it identifiable in this UI.
+  control. **Resolve actually resolves in BOTH cases:** a global health row resolves via
+  `resolveAdminAlertFormAction`; a show-scoped health row (e.g. `TILE_PROJECTION_FETCH_FAILED`)
+  resolves via `POST /api/admin/show/<slug>/alerts/<id>/resolve`. A test seeds a
+  show-scoped health alert, resolves it from the panel, and asserts the row is resolved AND
+  drops out of the health rollup. The developer indicator link targets
+  `/admin/observability#health`.
 - AC10: An **uncataloged** `admin_alerts.code` (neither info nor health) remains visible in
   `AlertBanner`, is counted by `alertCount`, appears in `PerShowAlertSection` (if
   show-scoped), and is **absent** from the health rollup — proving the exclusion-not-allowlist
@@ -437,4 +451,8 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
   fail-visible posture — do not "simplify" to a doug-allowlist (it would hide unknowns).
 - **Developer detail is IN scope (R2).** `HealthAlertsPanel` on `/admin/observability`
   (§6.6) is the real deep-link target with per-row lookup copy + Resolve. The deep-link is
-  not hollow. Reuses the existing resolve action — no new RPC/DML lockdown surface.
+  not hollow. Reuses the existing resolve actions/routes — no new RPC/DML lockdown surface.
+- **Resolve splits global vs show-scoped (R3).** `resolveAdminAlertFormAction` is
+  global-only (`.is("show_id", null)`); show-scoped health rows resolve via the existing
+  `POST /api/admin/show/<slug>/alerts/<id>/resolve`. Both reuse existing code; the split is
+  mandatory (a single global action would be a dead control for show-scoped rows). Settled.
