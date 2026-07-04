@@ -1,5 +1,5 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { BANNER_EXCLUDED_CODES } from "@/lib/messages/adminSurface";
+import { DOUG_SURFACE_EXCLUDED_CODES } from "@/lib/messages/adminSurface";
 
 export type AlertCountResult = { kind: "ok"; count: number } | { kind: "infra_error" };
 
@@ -15,8 +15,8 @@ export async function fetchUnresolvedAlertCount(): Promise<AlertCountResult> {
       .from("admin_alerts")
       .select("id", { count: "exact", head: true })
       .is("resolved_at", null);
-    if (BANNER_EXCLUDED_CODES.length > 0) {
-      q = q.not("code", "in", `(${BANNER_EXCLUDED_CODES.map((c) => `"${c}"`).join(",")})`);
+    if (DOUG_SURFACE_EXCLUDED_CODES.length > 0) {
+      q = q.not("code", "in", `(${DOUG_SURFACE_EXCLUDED_CODES.map((c) => `"${c}"`).join(",")})`);
     }
     const { data: _countData, count, error } = await q; // invariant 9: destructure { data, error }, not bare
     void _countData;

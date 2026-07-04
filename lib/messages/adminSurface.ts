@@ -9,6 +9,7 @@
 // Keeping this computed (not hand-listed) means adding `adminSurface:"inbox"`
 // to a catalog entry automatically wires every consumer.
 import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalog";
+import { HEALTH_CODES } from "@/lib/adminAlerts/audience";
 
 const entries = Object.values(MESSAGE_CATALOG) as MessageCatalogEntry[];
 
@@ -25,6 +26,20 @@ export const INBOX_ROUTED_CODES: string[] = entries
 /** Codes the AlertBanner + bell count must NOT surface (union, de-duped). */
 export const BANNER_EXCLUDED_CODES: string[] = [
   ...new Set([...INFO_SEVERITY_CODES, ...INBOX_ROUTED_CODES]),
+];
+
+/**
+ * Codes excluded from Doug's amber surfaces (global banner + bell count):
+ * the existing banner exclusion (info-severity ∪ inbox-routed) PLUS the
+ * `audience: "health"` set (spec 2026-07-04-alert-audience-split §5 —
+ * "exclude HEALTH_CODES ∪ existing info exclusion"). Health codes now flow
+ * to the app-health indicator instead. De-duped.
+ *
+ * Exclusion-not-allowlist: an uncataloged code is in NONE of the arms and
+ * therefore stays fail-visible on the banner + counted in the bell.
+ */
+export const DOUG_SURFACE_EXCLUDED_CODES: string[] = [
+  ...new Set([...BANNER_EXCLUDED_CODES, ...HEALTH_CODES]),
 ];
 
 const INBOX_ROUTED_SET = new Set(INBOX_ROUTED_CODES);

@@ -17,6 +17,7 @@ vi.mock("@/lib/supabase/server", () => ({
       builder.select = pass;
       builder.eq = pass;
       builder.is = pass;
+      builder.not = pass;
       builder.order = pass;
       (builder as { then: unknown }).then = (onf: (v: unknown) => unknown) =>
         onf({ data: rows.value, error: null });
