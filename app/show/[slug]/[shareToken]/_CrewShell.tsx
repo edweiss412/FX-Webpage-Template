@@ -190,12 +190,16 @@ export async function CrewShell({
         });
       }
     };
-    // Outside a request scope (unit tests) after() throws synchronously — fall
-    // back to a plain fire-and-forget, mirroring WrappedSection.tsx:117-121.
+    // Outside a request scope after() throws synchronously. Unlike
+    // WrappedSection's failure-path raise, this fires on EVERY healthy render,
+    // so a fire-and-forget fallback leaks a pending promise past test teardown
+    // (CI shard flake: EnvironmentTeardownError via pending onUserConsoleLog).
+    // The write is best-effort by contract and every real crew render has a
+    // request scope, so outside one we skip — the next healthy request resolves.
     try {
       after(doResolve);
     } catch {
-      void doResolve();
+      // no request scope: skip (best-effort; see comment above)
     }
   }
 
