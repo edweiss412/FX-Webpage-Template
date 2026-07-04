@@ -304,8 +304,10 @@ const NEW_FORENSIC_CODES = new Set([
   "PENDING_INGESTION_RETRY_DRIVE_FETCH_FAILED",
   // Cleanup tail (2026-07-03) — final logging-audit stragglers (all inside log.* spans;
   // NOT cataloged). S1: live-staged discard bare-requireAdmin AdminInfraError → typed 500
-  // forensic breadcrumb.
+  // forensic breadcrumb. S3: report-submission 201-created success breadcrumb (crew/user
+  // submit — NOT an admin mutation, so a plain log.info not logAdminOutcome).
   "LIVE_STAGED_DISCARD_AUTH_INFRA",
+  "REPORT_SUBMITTED",
 ]);
 
 const read = (f: string) => readFileSync(f, "utf8");
