@@ -84,16 +84,17 @@ describe("Dashboard composition", () => {
     expect(screen.getByTestId("help-affordance--dashboard-footer--tour")).toBeInTheDocument();
   });
 
-  it("titles the shows table with the watched Drive folder name (falls back to 'Active shows')", async () => {
+  it("titles the shows table with the watched Drive folder name under a 'Watched folder' eyebrow (falls back to 'Active shows')", async () => {
     await renderDashboard({ folderName: "fxav-test-shows" });
     const table = screen.getByTestId("shows-table");
     expect(within(table).getByRole("heading", { name: "fxav-test-shows" })).toBeInTheDocument();
+    expect(within(table).getByTestId("shows-heading-eyebrow")).toHaveTextContent("Watched folder");
     expect(within(table).queryByRole("heading", { name: "Active shows" })).toBeNull();
     cleanup();
     await renderDashboard({ folderName: null });
-    expect(
-      within(screen.getByTestId("shows-table")).getByRole("heading", { name: "Active shows" }),
-    ).toBeInTheDocument();
+    const fallback = screen.getByTestId("shows-table");
+    expect(within(fallback).getByRole("heading", { name: "Active shows" })).toBeInTheDocument();
+    expect(within(fallback).queryByTestId("shows-heading-eyebrow")).toBeNull();
   });
 
   it("renders the ignored-sheets disclosure (collapsed) below the split, with its help affordance", async () => {
