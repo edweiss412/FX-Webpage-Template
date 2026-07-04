@@ -89,9 +89,12 @@ function runCanonicalBuild(flagSet: boolean): string {
   // line for /admin/dev is present-or-absent as expected. This catches the
   // case where the build succeeds with NO routes (e.g. wrapper disabled
   // app/ entirely or NEXT_DIST_DIR pointed somewhere unexpected).
-  if (flagSet && !stdout.includes("/admin/dev")) {
+  // Check a DEV-ONLY route (source-link-dim), NOT the bare "/admin/dev" prefix:
+  // /admin/dev/telemetry is now always present (prod-available), so "/admin/dev"
+  // would match even if the flag failed to restore the dev panel/harnesses.
+  if (flagSet && !stdout.includes("/admin/dev/source-link-dim")) {
     throw new Error(
-      `pnpm build (flagSet=true) did NOT mention /admin/dev in stdout — wrapper may have disabled the route despite flag being set. STDOUT:\n${stdout}\nSTDERR:\n${stderr}`,
+      `pnpm build (flagSet=true) did NOT mention /admin/dev/source-link-dim in stdout — wrapper may have disabled the dev-only routes despite the flag being set. STDOUT:\n${stdout}\nSTDERR:\n${stderr}`,
     );
   }
   return distDir;
@@ -160,17 +163,24 @@ describe.skipIf(!RUN)("Round 2 Finding 1 — pnpm build canonical-path artifact 
     // primary assertion trivially.
     const distDir = runCanonicalBuild(true);
 
-    const compiledRouteDir = join(distDir, "server", "app", "admin", "dev");
+    const adminDevDir = join(distDir, "server", "app", "admin", "dev");
     const serverAppDir = join(distDir, "server", "app");
-    const exists = existsSync(compiledRouteDir);
     let serverAppListing = "(missing)";
     if (existsSync(serverAppDir)) {
       serverAppListing = readdirSync(serverAppDir).join(", ");
     }
-    expect(
-      exists,
-      `control: expected ${compiledRouteDir} to exist when flag is set; if absent, the wrapper script is incorrectly disabling files even with the flag enabled. server/app/ contents: [${serverAppListing}]`,
-    ).toBe(true);
+    // Non-vacuous control: /admin/dev/telemetry is ALWAYS present (prod-available),
+    // so `existsSync(server/app/admin/dev)` alone proves nothing now. Assert the
+    // DEV-ONLY surfaces (the panel page + BOTH dim harnesses) — the exact set the
+    // flag-unset primary test asserts ABSENT — ARE compiled back in when the flag
+    // is set. If any is missing, the wrapper is disabling dev routes despite the flag.
+    for (const devOnly of ["page.js", "source-link-dim", "telemetry-dim"]) {
+      const restored = join(adminDevDir, devOnly);
+      expect(
+        existsSync(restored),
+        `control: expected ${restored} to EXIST when ADMIN_DEV_PANEL_ENABLED=true; the wrapper is disabling a dev-only /admin/dev surface even with the flag set. server/app/ contents: [${serverAppListing}]`,
+      ).toBe(true);
+    }
 
     rmSync(distDir, { recursive: true, force: true });
   }, 300_000);
