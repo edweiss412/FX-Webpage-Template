@@ -10,7 +10,7 @@ Implements spec §5.
 
 **Files:**
 - Create: `lib/auth/requireDeveloper.ts`
-- Modify: `lib/auth/constants.ts` (add `DEVELOPER_SESSION_LOOKUP_FAILED` to the `AuthFailureCode` union at `:1-4`)
+- `lib/auth/constants.ts` — **NOT modified** (see Step 3): `DEVELOPER_SESSION_LOOKUP_FAILED` is a forensic-only log/error code, not an `AuthFailureCode`.
 - Create: `tests/auth/requireDeveloper.test.ts`
 
 **Interfaces:**
@@ -45,15 +45,13 @@ test("confirmed non-developer calls forbidden()", async () => {
 
 - [ ] **Step 2: Run to verify it fails** — `pnpm vitest run tests/auth/requireDeveloper.test.ts` → FAIL (module missing).
 
-- [ ] **Step 3: Add the union member** — `lib/auth/constants.ts`, extend `AuthFailureCode`:
+- [ ] **Step 3: Do NOT touch `AuthFailureCode` — `DEVELOPER_SESSION_LOOKUP_FAILED` is forensic-only.**
 
-```ts
-export type AuthFailureCode =
-  | "GOOGLE_NO_CREW_MATCH"
-  | "AMBIGUOUS_EMAIL_BINDING"
-  | "ADMIN_SESSION_LOOKUP_FAILED"
-  | "DEVELOPER_SESSION_LOOKUP_FAILED";
-```
+  Leave `lib/auth/constants.ts` unchanged. Rationale (verified against live code — do not relitigate at whole-diff review):
+  - `AuthFailureCode` carries an **enforced** `AuthFailureCode ⊆ MessageCode` invariant: `AuthFailure.code` values are **rendered** to users via `htmlResponse(<code>, …)` (e.g. `app/api/auth/picker-bootstrap/route.ts:180` renders `validateGoogleSession`'s `terminal_failure.code`, typed `AuthFailureCode`). `MessageCode = keyof typeof MESSAGE_CATALOG` (`lib/messages/catalog.ts`), so every `AuthFailureCode` must be a registered §12.4 catalog code.
+  - `ADMIN_SESSION_LOOKUP_FAILED` **is** in the union **and** registered (`catalog.ts:2213`, `spec-codes.ts:71`, `internal-code-enums.ts:8`) precisely because it is the shared `.code` of the `AuthFailure`-**returning** validators (`validateGoogleSession.ts`, `isAdminSession.ts`, `validateGoogleIdentity.ts`) whose values reach a render path.
+  - `requireDeveloper`/`requireDeveloperIdentity` have **no** rendered `AuthFailure` path: they only **throw** `DeveloperInfraError` (→ 500) or call `forbidden()` (→ 403); `isCurrentUserDeveloper()` returns a boolean. `DEVELOPER_SESSION_LOOKUP_FAILED` is therefore ONLY (a) the `DeveloperInfraError.code` class-field literal and (b) a `log.error` structured `code` field (`LogFields.code?: string` is loose — no registration required; `tests/auth/_metaInfraContract`'s `assertEmits` pins the **log string**, not `AuthFailureCode` membership).
+  - So adding it to `AuthFailureCode` would break `pnpm typecheck` (`DEVELOPER_SESSION_LOOKUP_FAILED ∉ MessageCode`) AND is semantically wrong — it registers a never-rendered code. Not registering it is the faithful clone **given requireDeveloper's control flow**, and matches this milestone's meta-test inventory (`00-overview.md` registers only `SELF_DEVELOPER_DEMOTE_FORBIDDEN` for §12.4). `DeveloperInfraError.code = "DEVELOPER_SESSION_LOOKUP_FAILED"` (Step 4) stays a plain string literal — no annotation, no union.
 
 - [ ] **Step 4: Write `lib/auth/requireDeveloper.ts`** — clone `requireAdmin.ts`, swapping the RPC `is_admin`→`is_developer`, the error class, and the log code. Structure:
 
@@ -158,7 +156,7 @@ export async function requireDeveloper(opts?: RequireDeveloperOpts): Promise<voi
 - [ ] **Step 6: Commit**
 
 ```bash
-git add lib/auth/requireDeveloper.ts lib/auth/constants.ts tests/auth/requireDeveloper.test.ts
+git add lib/auth/requireDeveloper.ts tests/auth/requireDeveloper.test.ts
 git commit --no-verify -m "feat(auth): requireDeveloper/requireDeveloperIdentity chokepoint"
 ```
 
