@@ -3,6 +3,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { serializeError } from "./serializeError";
 import { sanitizeContext } from "./sanitize";
 import { recordPersistFailure, recordPersistSuccess } from "./persistHealth";
+import { getRequestContext } from "./requestContext";
 import type { LogRecord } from "./types";
 
 // not-subject-to-meta: best-effort log sink — swallows + degrades to console,
@@ -64,14 +65,19 @@ export async function persistAppEventStrict(
     // runs sanitizeContext before persistAppEvent; this writer bypasses buildRecord,
     // so it must sanitize itself.
     const { message, context } = sanitizeContext(record.message, record.context);
+    // Additive ALS correlation (finding #4): buildRecord auto-fills requestId/showId
+    // from the ambient request-context for the logger path, but this writer bypasses
+    // buildRecord. Mirror the logger's precedence — an explicit value (INCLUDING an
+    // explicit null = "no correlation") wins; only undefined/absent falls to ALS.
+    const ctx = getRequestContext();
     const supabase = createSupabaseServiceRoleClient();
     const { error } = await supabase.from("app_events").insert({
       level: record.level,
       source: record.source,
       message,
       code: record.code ?? null,
-      request_id: record.requestId ?? null,
-      show_id: record.showId ?? null,
+      request_id: record.requestId !== undefined ? record.requestId : (ctx?.requestId ?? null),
+      show_id: record.showId !== undefined ? record.showId : (ctx?.showId ?? null),
       drive_file_id: record.driveFileId ?? null,
       actor_hash: record.actorHash ?? null,
       context,
