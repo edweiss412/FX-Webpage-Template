@@ -27,7 +27,7 @@ recorded as known observability debt.
 
 | Decision | Resolution |
 | --- | --- |
-| **Surface** | All `route.ts` files exporting a mutating HTTP method (`POST`/`PUT`/`PATCH`/`DELETE`) **plus** every module-level `"use server"` server-action file — repo-wide (`app/`, `lib/`, `components/`), not only `app/`. |
+| **Surface** | All `route.ts` files exporting a mutating HTTP method (`POST`/`PUT`/`PATCH`/`DELETE`) **plus** every server action — both **module-level** `"use server"` files AND **function-scoped** inline `"use server"` actions (a function/arrow whose body opens with the directive) — repo-wide (`app/`, `lib/`, `components/`), not only `app/`. |
 | **Acceptance predicate** | Floor guard — file contains ≥1 code-carrying telemetry emit (see §4). Proves a coded emit *exists in the file*, NOT that the success path specifically is covered. |
 | **Seeding** | Instrument all **admin-tier** genuine gaps now via `logAdminOutcome`; exempt true non-mutations/delegators inline; grandfather **crew-facing** `lib/auth/picker/*` actions into a debt-ledger with a backlog ref (their telemetry taxonomy is a separate design). |
 | **Governance** | New plan-wide invariant **#10** in `AGENTS.md`, backed structurally by the discovery meta-test (same tier as invariants 2/3/9). |
@@ -35,14 +35,17 @@ recorded as known observability debt.
 ## 3. Ground-truth surface (measured 2026-07-04, `origin/main` @ `4fddcff1`)
 
 A prototype of the exact predicate (§4), run against the live worktree, classifies
-**56 surface files** with **18 currently uninstrumented**. The predicate correctly passes
+**59 surface files** with **21 currently uninstrumented**. The predicate correctly passes
 all 32 already-instrumented routes — including the 7 that use the human-readable-message +
 `code:`-field style (`drive/webhook`, `realtime/subscriber-token`, `report`, `sign-out`,
 `reap-stale-sessions`, `manifest/ignore`, `observe/client-error`) — and correctly *fails*
 `validationReset.ts` (whose only `code:` literals are in return bodies, not `log.*` calls),
-proving AST scoping is required and a plain grep is insufficient.
+proving AST scoping is required and a plain grep is insufficient. The surface includes the
+three function-scoped inline actions (`_PickerInterstitial.tsx`, `_SignInOrSkipGate.tsx`,
+`components/auth/IdentityChip.tsx`) — added after Codex R1 flagged that excluding
+function-scoped actions left a real hole (the codebase actively uses them).
 
-### 3.1 The 18 failures and their dispositions
+### 3.1 The 21 failures and their dispositions
 
 **A. Instrument now — admin-tier (via `logAdminOutcome`; add rows to `_metaAdminOutcomeContract`):**
 
@@ -66,6 +69,9 @@ proving AST scoping is required and a plain grep is insufficient.
 | `app/api/test-auth/set-session/route.ts` | Test-only auth scaffolding; not a product mutation surface. |
 | `app/api/admin/onboarding/pending_ingestions/[id]/defer_until_modified/route.ts` | Thin `POST` delegates to the already-instrumented `handleWizardPendingIngestionAction` (see `…/retry/route.ts`); the shim itself emits nothing. |
 | `app/api/admin/onboarding/pending_ingestions/[id]/permanent_ignore/route.ts` | Same delegating shim. |
+| `app/show/[slug]/[shareToken]/_PickerInterstitial.tsx` | Thin inline form-action wrapper; delegates to `selectIdentity` (instrumented, `lib/auth/picker/selectIdentity.ts`). |
+| `app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx` | Thin inline form-action wrapper; delegates to `clearIdentityAndSkip` (grandfathered — `BL-CREW-PICKER-OBSERVABILITY`). |
+| `components/auth/IdentityChip.tsx` | Thin inline form-action wrapper; delegates to `clearIdentity` (grandfathered — `BL-CREW-PICKER-OBSERVABILITY`). |
 
 **C. Grandfather — crew-facing picker actions (debt-ledger, `BL-CREW-PICKER-OBSERVABILITY`):**
 
@@ -92,11 +98,19 @@ Walk `app/`, `lib/`, `components/` for `.ts`/`.tsx` files (skipping `node_module
   (`export { POST } from "./x"` / `export { handler as POST } from …`). All three forms are
   handled so a route cannot escape the surface by aliasing or re-exporting its handler
   (no current file uses the re-export form, but the guard must not have that hole); **or**
-- **Server action:** the module has a **leading** `"use server"` directive — an
-  `ExpressionStatement` whose expression is the string literal `"use server"`, appearing
+- **Module-level server action:** the module has a **leading** `"use server"` directive —
+  an `ExpressionStatement` whose expression is the string literal `"use server"`, appearing
   among the leading directive prologue (before the first non-directive statement). This
   auto-excludes barrels/shared helpers without the directive (`_actions/index.ts`,
-  `_actions/shared.ts`) — no exemption needed.
+  `_actions/shared.ts`) — no exemption needed; **or**
+- **Function-scoped server action:** a `FunctionDeclaration`/`FunctionExpression`/
+  `ArrowFunction` whose **block body** opens with a leading `"use server"` directive
+  (the inline-action form React emits as a Server Action, e.g. the `selectIdentityFormAction`
+  wrapper in `_PickerInterstitial.tsx:72`). Detection mirrors the existing auth-audit
+  primitive `hasDirective(node, "use server")` (`lib/audit/authPrimitives.ts:151`, which
+  distinguishes `directiveKind: "module" | "function-scoped"` at lines 198/209-216); the
+  meta-test SHOULD reuse that shared primitive rather than re-implement directive scanning,
+  so the two audits cannot drift.
 
 ### 4.2 Acceptance predicate (the floor)
 
@@ -104,7 +118,17 @@ A surface file passes iff its AST contains at least one **code-carrying emit** �
 `CallExpression` matching **any** of:
 
 - **(a)** callee is the identifier `logAdminOutcome` (code-carrying by type contract —
-  `AdminOutcome.code` is required); **or**
+  `AdminOutcome.code` is required) **AND the call is the operand of an `AwaitExpression`**.
+  A fire-and-forget `void logAdminOutcome(...)` or bare unawaited call does **NOT** satisfy
+  the floor: in a Server Action the instance can freeze/terminate after return before the
+  async persist completes, dropping the audit row (the sibling `_metaAdminOutcomeContract`
+  already warns of this exact hazard). Requiring `await` matches `logAdminOutcome`'s own
+  durability contract ("`await`ed for durability", `lib/log/logAdminOutcome.ts:24`) and
+  breaks no current surface — every existing callsite already awaits (verified: no
+  `void logAdminOutcome(`/bare call exists in `app/` or `lib/`). This await requirement
+  applies to `logAdminOutcome` only; `log.<info|warn|error>` (clauses b/c) may be
+  `void`-prefixed, matching the established best-effort convention (`void log.warn(...)` in
+  `app/api/drive/webhook/route.ts`). **or**
 - **(b)** callee is `log.<info|warn|error>` (property access on identifier `log`) whose
   **first argument** is a string literal matching `/^[A-Z][A-Z0-9_]+$/` (the
   message-is-code convention, e.g. `log.info("OAUTH_SIGN_IN_SUCCEEDED", …)`); **or**
@@ -141,8 +165,10 @@ backlog ref). No hidden truncation — every offender is printed.
 
 A dedicated test step temporarily strips a known-good emit from a fixture string (or asserts
 against an in-memory source string with and without an emit) and asserts the predicate flips
-`false`. The test must prove it can go red — an always-green structural test is worthless
-(mirrors `_metaAdminOutcomeContract`'s "Non-tautology proven by the negative-regression step").
+`false`. It also asserts the await-sensitivity flip: the same source with `await
+logAdminOutcome(...)` passes but with `void logAdminOutcome(...)` fails. The test must prove
+it can go red — an always-green structural test is worthless (mirrors
+`_metaAdminOutcomeContract`'s "Non-tautology proven by the negative-regression step").
 
 ## 5. Seeding details (instrumentation contract)
 
@@ -204,9 +230,10 @@ or effect. No zombie-flag risk introduced.
 Add to the "Plan-wide invariants (non-negotiable)" list:
 
 > **10. Every mutation surface is observable.** Any HTTP route that exports a mutating
-> method (`POST`/`PUT`/`PATCH`/`DELETE`) and any module-level `"use server"` server action
-> MUST emit at least one code-carrying telemetry event (`logAdminOutcome(...)`, or
-> `log.<info|warn|error>` with a `SHOUTY_SNAKE` code as the message or a `code:` field),
+> method (`POST`/`PUT`/`PATCH`/`DELETE`) and any server action — module-level `"use server"`
+> file OR function-scoped inline `"use server"` action — MUST emit at least one
+> code-carrying telemetry event (`await logAdminOutcome(...)`, or `log.<info|warn|error>`
+> with a `SHOUTY_SNAKE` code as the message or a `code:` field),
 > OR carry an inline `// no-telemetry: <reason>` exemption, OR be recorded in the
 > `KNOWN_UNINSTRUMENTED` debt-ledger with a backlog ref. This is a **floor** (a coded emit
 > exists on the surface), not a guarantee the success path is covered — that remains the
@@ -233,8 +260,6 @@ crew-picker telemetry taxonomy (the 5 grandfathered `lib/auth/picker/*` actions)
 
 ## 8. Out of scope
 
-- Inline function-level `"use server"` (non-module-level) actions — the repo convention is
-  module-level action files; function-level is rare and detection is materially harder.
 - `lib/`-helper-only instrumentation satisfying a route's floor — the floor is deliberately
   file-local so each surface carries its own outcome emit (a delegator uses `// no-telemetry:`
   pointing at the helper).
@@ -253,8 +278,11 @@ crew-picker telemetry taxonomy (the 5 grandfathered `lib/auth/picker/*` actions)
 
 1. **Predicate unit tests** — in-memory source strings exercising each accept-clause (a/b/c),
    each reject case (no emit; `code:` in a non-`log` object; `"use client"` directive;
-   GET-only route), the `"use server"` directive detection (leading vs after-import), and the
-   negative-regression flip (§4.5).
+   GET-only route; **`void logAdminOutcome(...)` and bare unawaited `logAdminOutcome(...)`
+   must NOT satisfy clause (a)**, while `await logAdminOutcome(...)` must), both directive
+   detections (module-level leading vs function-scoped inline `"use server"` in a `.tsx`
+   component, including a mutating inline action that fails without a code-carrying emit),
+   and the negative-regression flip (§4.5).
 2. **Live-surface test** — the walk runs against the repo and asserts zero unresolved
    failures. After seeding, this is green.
 3. **Ledger hygiene** — a `KNOWN_UNINSTRUMENTED` entry for a now-passing or non-existent file
