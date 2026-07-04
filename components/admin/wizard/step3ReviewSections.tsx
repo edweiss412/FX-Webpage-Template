@@ -1910,7 +1910,7 @@ export const REPORT_MESSAGE_MAX_CHARS = 2000;
 export const REPORT_PARSE_WARNINGS_CAP = 50;
 /** Rendered whenever a failure code resolves to no usable dougFacing copy —
  *  the status line is never empty and never a raw code (invariant 5). */
-export const REPORT_GENERIC_ERROR_COPY = "Couldn't send the report. Try again in a moment.";
+export const REPORT_GENERIC_ERROR_COPY = "Couldn’t send the report. Try again in a moment.";
 
 type ReportSectionStatus =
   | { kind: "idle" }
