@@ -240,10 +240,17 @@ exact `count:"exact", head:true` probe (no row scan anywhere):
    NOT a row read). Map each code with `perCodeCount > 0` → its catalog `dougSummary`, dedupe
    by text (summing `perCodeCount` into a per-text `count`), sort **degraded-weighted first**
    then count desc, take the first `POPOVER_SUMMARY_CAP` (4) as `summaries`; `overflowCount`
-   = distinct-summary count beyond the cap. Because every count is exact, a degraded code's
-   summary can NEVER be omitted by truncation and `overflowCount` is exact (R14 finding 1).
-   The per-code aggregate runs ONLY in the (rare) non-healthy state, so steady-state render
-   cost stays at 1–2 count probes.
+   = distinct-summary count beyond the cap. Because every count is exact, **no summary is
+   omitted from the DATA SOURCE by sample truncation** and `overflowCount` is exact (R14
+   finding 1). Note the distinction (R17 finding 2): the exact aggregate guarantees the
+   `summaries` LIST is complete before the cap; the 4-line **display cap** on the Doug nav
+   popover can still overflow extra distinct summaries into "+N more" — and with >4 distinct
+   degraded summaries active (there are 16 degraded codes), some degraded summary CAN land in
+   overflow on the popover. That is acceptable because (a) degraded summaries sort FIRST so
+   the 4 shown are the most severe, and (b) the **dev `HealthAlertsPanel` lists every degraded
+   row uncapped** (§6.6), so no degraded issue is ever unreachable — the popover is a Doug
+   glance, not the exhaustive surface. The per-code aggregate runs ONLY in the (rare)
+   non-healthy state, so steady-state render cost stays at 1–2 count probes.
 
 `lib/admin/healthRollup.ts` is added to the **`tests/admin/_metaBoundedReads.test.ts`**
 coverage so a bare `.from("admin_alerts").select(...)` without count-head/`.limit`/`.range`
@@ -538,12 +545,18 @@ on the next full render (no mid-open mutation). No `AnimatePresence` on the dot 
 
 - **EXTEND** `tests/admin/_metaInfraContract.test.ts` (invariant 9 — the registry where
   `fetchUnresolvedAlertCount` is already pinned at `:244`): add registry rows for the two
-  NEW Supabase read surfaces — `fetchHealthRollup` (`lib/admin/healthRollup.ts`) and the
-  `HealthAlertsPanel` unresolved-alert loader (`app/admin/observability/page.tsx` or its
-  loader module). Each row asserts the same call-boundary contract as `alertCount`:
-  construction throw → `infra_error`; returned `{error}` → `infra_error`; awaited throw →
-  `infra_error`; non-array `data` with no error (integrity failure) → `infra_error` (never
-  silent green/empty). Without these rows the destructure-`{data,error}` discipline (AC8)
+  NEW Supabase read surfaces, **with per-reader-type contracts** (R17 finding 1 — the two
+  readers validate DIFFERENT success shapes):
+  - `fetchHealthRollup` (`lib/admin/healthRollup.ts`) uses only `count:"exact", head:true`
+    probes, so its contract MIRRORS `fetchUnresolvedAlertCount` (`:244`): construction throw
+    → `infra_error`; returned `{error}` → `infra_error`; awaited throw → `infra_error`; a
+    **non-number `count`** → `infra_error`. `data === null` is NORMAL for head probes and is
+    NOT an integrity failure (the row must NOT require array-shaped `data`).
+  - the `HealthAlertsPanel` row-list loader (`app/admin/observability/page.tsx` or its loader
+    module) returns ROWS, so ITS contract requires **array-shaped `data`**: construction/
+    returned-error/awaited-throw → `infra_error`; non-array `data` with no error (integrity
+    failure) → degraded panel.
+  Without these rows the destructure-`{data,error}` discipline (AC8)
   is not structurally pinned and can regress silently. (No `not-subject-to-meta` waiver —
   both are genuine infra reads.)
 - **CREATE** `tests/messages/_metaAlertAudienceContract.test.ts` (mirrors
@@ -635,9 +648,14 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
   background items" note when distinct summaries exceed `POPOVER_SUMMARY_CAP` (4) — asserted
   against `HealthStatus.summaries`/`overflowCount` (the data source), NOT by scraping a
   container that also renders sibling copy (anti-tautology). Seeding two rows of the SAME
-  code collapses to one line with `count: 2`. **Truncation test: seeding a large volume of a
-  `notice` code plus one `degraded` code still surfaces the degraded summary line and an
-  exact `overflowCount`** (a degraded summary is never omitted, per R14 finding 1).
+  code collapses to one line with `count: 2`. **Sample-completeness test: seeding a large
+  volume of a `notice` code plus one `degraded` code still surfaces the degraded summary
+  line with an exact `overflowCount`** — no summary is dropped from the data source by
+  row-sample truncation (R14). **Display-cap test (R17 finding 2):** with >4 distinct
+  degraded summaries active, the popover shows the top 4 (degraded-first) + an exact
+  "+N more", AND the dev `HealthAlertsPanel` lists ALL degraded rows uncapped — so the
+  4-line popover cap never makes a degraded issue unreachable. ("No degraded summary omitted"
+  means the summaries LIST/data source, not the ≤4 popover display.)
 - AC4c: The popover closing line reads "No action needed from you — the developer can see
   this in system health." and never contains the word "notified" (no false outbound-alert
   claim).
