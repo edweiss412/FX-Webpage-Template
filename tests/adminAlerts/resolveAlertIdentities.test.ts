@@ -358,6 +358,44 @@ describe("resolveAlertIdentities", () => {
     });
   });
 
+  it("role_change_crew_names caps at 3 with a '+N more' disclosure derived from role_change_count (>3 changes)", async () => {
+    const showId = "60606060-6060-6060-6060-606060606060";
+    const { client } = makeFakeSupabase({
+      showByIdRows: [{ id: showId, title: "Role Change Show", slug: "role-change" }],
+    });
+
+    // 5 changes exceeds ROLE_CHANGE_NAMES_CAP (resolveAlertIdentities.ts:74,
+    // =3): the resolver must render only the first 3 names plus a
+    // "+N more" suffix where N = role_change_count - 3. N below is derived
+    // from the fixture's own length, not hardcoded to echo the resolver.
+    const names = ["Ann Lee", "Ben Ford", "Cid Ortiz", "Dee Park", "Eve Ng"];
+    const changes = names.map((crew_name) => ({
+      crew_name,
+      prior_flags: ["LEAD"],
+      new_flags: [],
+    }));
+    const identityContext = projectIdentityContext(
+      { show_id: showId, changes },
+      { includePii: true },
+    );
+    const rows = [
+      row({ id: "role-many", code: "ROLE_FLAGS_NOTICE", show_id: showId, identityContext }),
+    ];
+
+    const result = await resolveAlertIdentities(rows, client, { includePii: true });
+    const identity = result.identities.get("role-many")!;
+    const cap = 3;
+    const expectedExtra = names.length - cap;
+    const expectedCrewValue = `${names.slice(0, cap).join(", ")} +${expectedExtra} more`;
+    const crewSegment = identity.segments.find((s) => s.label === "Crew")!;
+    expect(crewSegment.value).toBe(expectedCrewValue);
+    expect(identity.segments).toEqual([
+      { label: "Sheet", value: "Role Change Show" },
+      { label: "Crew", value: expectedCrewValue },
+      { label: null, value: `${names.length} role changes` },
+    ]);
+  });
+
   it("global code -> describeAlert returns null", async () => {
     const { client } = makeFakeSupabase({});
     const rows = [

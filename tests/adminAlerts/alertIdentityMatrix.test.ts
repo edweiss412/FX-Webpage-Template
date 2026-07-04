@@ -375,6 +375,59 @@ function assertMapReadsAtLeastOneFixtureKey(fixture: Fixture, entry: { segments:
   ).toBe(true);
 }
 
+// Derives, from the fixture's OWN context/showId shape (never from the
+// resolver's implementation), which literal substrings a correctly-working
+// resolver MUST surface for a non-global, entity-bearing fixture. Used to
+// assert against the rendered describeAlert() string so a regression that
+// drops ALL resolved segments (e.g. resolveShowSegment/resolveCrewSegment
+// always returning null) fails this test — an empty string trivially
+// clears `not.toContain`, so that assertion alone cannot catch this class.
+function deriveExpectedTokens(fixture: Fixture, entry: { segments: SegmentSpec[] }): string[] {
+  const ctx = fixture.context;
+  const tokens: string[] = [];
+  for (const seg of entry.segments) {
+    if (seg.kind === "showName" || seg.kind === "sheetName") {
+      const showIdCtx = typeof ctx.show_id === "string" ? ctx.show_id : undefined;
+      const driveFileIdCtx = typeof ctx.drive_file_id === "string" ? ctx.drive_file_id : undefined;
+      if (fixture.showId === SHOW_ID || showIdCtx === SHOW_ID || driveFileIdCtx === DRIVE_FILE_ID) {
+        tokens.push(SHOW_TITLE);
+      }
+    } else if (seg.kind === "crewName") {
+      if (ctx[seg.key] === CREW_ID) tokens.push(CREW_NAME);
+    } else if (seg.kind === "contextField") {
+      if (seg.key === "role_change_crew_names" && Array.isArray(ctx.changes)) {
+        const names = ctx.changes
+          .map((c) =>
+            c && typeof c === "object" ? (c as Record<string, unknown>).crew_name : undefined,
+          )
+          .filter((n): n is string => typeof n === "string")
+          .slice(0, 3);
+        if (names.length > 0) tokens.push(names.join(", "));
+      } else {
+        const raw = ctx[seg.key];
+        if (typeof raw === "string") tokens.push(raw);
+      }
+    } else if (seg.kind === "count") {
+      // Mirrors formatCount's label convention (resolveAlertIdentities.ts:108-115)
+      // closely enough for a substring match — exact pluralization is
+      // covered by the dedicated ROLE_FLAGS_NOTICE test.
+      if (seg.key === "role_change_count" && Array.isArray(ctx.changes)) {
+        tokens.push(`${ctx.changes.length} role change`);
+      }
+      if (seg.key === "crew_member_count" && Array.isArray(ctx.crew_member_ids)) {
+        tokens.push(`${ctx.crew_member_ids.length} crew row`);
+      }
+    } else if (seg.kind === "email") {
+      // Mirrors resolveAlertIdentities.ts:70-72 EMAIL_FIELD_BY_CODE: OAuth
+      // email is authoritative only for OAUTH_IDENTITY_CLAIMED.
+      const field = fixture.code === "OAUTH_IDENTITY_CLAIMED" ? "user_email" : "email";
+      const raw = ctx[field];
+      if (typeof raw === "string") tokens.push(raw);
+    }
+  }
+  return tokens;
+}
+
 describe("ALERT_IDENTITY_MAP x context (spec §9.1 exhaustive matrix)", () => {
   it("covers exactly the 42 registered codes (numeric-sweep anchor)", () => {
     expect(FIXTURES.map((f) => f.code).sort()).toEqual([...ADMIN_ALERTS_CODES].sort());
@@ -418,6 +471,26 @@ describe("ALERT_IDENTITY_MAP x context (spec §9.1 exhaustive matrix)", () => {
     const rendered = describeAlert(identity) ?? "";
     for (const banned of ["42501", "PGRST116", "TypeError", "rpc_error", "error_name", "reason"]) {
       expect(rendered).not.toContain(banned);
+    }
+
+    // Anti-tautology armor (Finding 1): every non-global fixture above
+    // supplies resolvable context, so a regression that silently drops all
+    // resolved segments must fail here, not pass because an empty string
+    // trivially clears `not.toContain`.
+    expect(
+      identity.segments.length,
+      `${fixture.code}: expected >=1 resolved segment for this entity-bearing fixture`,
+    ).toBeGreaterThan(0);
+    expect(
+      rendered.length,
+      `${fixture.code}: expected a non-empty rendered identity`,
+    ).toBeGreaterThan(0);
+    const expectedTokens = deriveExpectedTokens(fixture, entry);
+    for (const token of expectedTokens) {
+      expect(
+        rendered,
+        `${fixture.code}: rendered output missing expected token "${token}" (derived from the fixture, not the implementation)`,
+      ).toContain(token);
     }
   });
 
