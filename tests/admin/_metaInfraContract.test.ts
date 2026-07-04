@@ -174,7 +174,8 @@ const infraRegistry = [
   {
     helper: "fetchDashboardData",
     path: "components/admin/Dashboard.tsx",
-    contract: "shows/crew/pending_ingestions/pending_syncs await throws → infra_error",
+    contract:
+      "shows/crew/pending_ingestions/pending_syncs await throws → infra_error; the shows_internal.parse_warnings data-gaps read (readDataGaps) destructures { data, error } and returns a typed infra_error at the boundary, which the caller degrades VISIBLE (dataGapsDegraded → calm notice), NEVER a silent empty — mirrors the per-show panel read at :322 (invariant 9)",
   },
   {
     helper: "fetchLiveFirstSeenRow",
@@ -609,6 +610,18 @@ describe("META §B Supabase call-boundary contract", () => {
       const result = await fetchDashboardData();
       expect(result).toMatchObject({ kind: "infra_error" });
       expect((result as { kind: string; message: string }).message).toMatch(/crew_members.*threw/);
+    });
+
+    test("from('shows_internal') throw → degrades VISIBLE (NOT infra_error): dataGapsDegraded, no rows dropped", async () => {
+      // Seed a shows row so wave-2 (readDataGaps) runs past the empty-shows
+      // short-circuit (same shape as the crew_members test above).
+      infraMock.dataByTable = { shows: [{ id: "s1", slug: "rpas", drive_file_id: "df-1" }] };
+      infraMock.throwOnFromTable = "shows_internal";
+      const { fetchDashboardData } = await import("@/components/admin/Dashboard");
+      const result = await fetchDashboardData();
+      expect((result as { kind?: string }).kind).toBeUndefined(); // NOT a dashboard-wide infra_error
+      expect((result as { dataGapsDegraded: boolean }).dataGapsDegraded).toBe(true);
+      expect((result as { rows: unknown[] }).rows.length).toBe(1);
     });
   });
 
