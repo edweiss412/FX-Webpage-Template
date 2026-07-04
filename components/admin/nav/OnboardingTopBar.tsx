@@ -16,7 +16,23 @@
  */
 import Image from "next/image";
 
-export function OnboardingTopBar({ email }: { email: string }) {
+import type { HealthStatus } from "@/lib/admin/healthRollup";
+import { AppHealthIndicator } from "@/components/admin/nav/AppHealthIndicator";
+
+export function OnboardingTopBar({
+  email,
+  healthRollup,
+  isDeveloper = false,
+}: {
+  email: string;
+  /**
+   * alert-audience-split §5.1 (onboarding chrome): the escalating app-health
+   * rollup, rendered so an active health alert during first-run onboarding is
+   * never dark. Absent → the indicator is not rendered.
+   */
+  healthRollup?: HealthStatus;
+  isDeveloper?: boolean;
+}) {
   const hasEmail = email.trim().length > 0;
 
   return (
@@ -45,6 +61,9 @@ export function OnboardingTopBar({ email }: { email: string }) {
       <div className="flex-1" />
 
       <div className="flex items-center gap-3">
+        {healthRollup ? (
+          <AppHealthIndicator rollup={healthRollup} isDeveloper={isDeveloper} />
+        ) : null}
         {hasEmail && (
           <span className="hidden max-w-48 truncate text-sm text-text-subtle sm:inline-block">
             {email}

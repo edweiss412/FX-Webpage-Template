@@ -23,8 +23,10 @@ import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { AlertCountResult } from "@/lib/admin/alertCount";
+import type { HealthStatus } from "@/lib/admin/healthRollup";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { NAV, isNavItemActive, shouldRenderOverflow } from "./navConfig";
+import { AppHealthIndicator } from "./AppHealthIndicator";
 import { NotifBell } from "./NotifBell";
 import { useNeedsAttentionBadge } from "./useNeedsAttentionBadge";
 import { UserMenu } from "./UserMenu";
@@ -34,6 +36,7 @@ export function AdminNav({
   alertCount,
   initialBadgeCount = null,
   viewerIsDeveloper = false,
+  healthRollup,
 }: {
   email: string;
   alertCount: AlertCountResult;
@@ -44,6 +47,14 @@ export function AdminNav({
    * normal admin never sees developer destinations in either nav.
    */
   viewerIsDeveloper?: boolean;
+  /**
+   * alert-audience-split §5.1: the escalating app-health rollup, rendered as
+   * `<AppHealthIndicator>` beside `<NotifBell>`. Absent → the indicator is not
+   * rendered (health codes still route through the dashboard panel). The
+   * indicator's Doug-popover-vs-dev-deep-link presentation reuses
+   * `viewerIsDeveloper`.
+   */
+  healthRollup?: HealthStatus;
 }) {
   const pathname = usePathname();
   const badgeCount = useNeedsAttentionBadge(initialBadgeCount);
@@ -111,6 +122,9 @@ export function AdminNav({
         <div className="flex-1" />
 
         <div className="flex items-center gap-2">
+          {healthRollup ? (
+            <AppHealthIndicator rollup={healthRollup} isDeveloper={viewerIsDeveloper} />
+          ) : null}
           <NotifBell alertCount={alertCount} />
           <ThemeToggle />
           <UserMenu email={email} />
