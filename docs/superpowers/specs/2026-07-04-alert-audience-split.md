@@ -189,17 +189,33 @@ export type HealthStatus =
 
 `fetchHealthRollup()` mirrors `fetchUnresolvedAlertCount` (`lib/admin/alertCount.ts`):
 construct client in try/catch → returns `{kind:"infra_error"}` on throw; destructure
-`{ data, error }` (invariant 9); a non-array `data` with no error → `infra_error`
-(integrity failure, not silent green). It selects `id, code` of unresolved rows whose
-code is in the `health` set (computed from `MESSAGE_CATALOG` at module load, like
-`INFO_SEVERITY_CODES`), then:
+`{ data, error }` (invariant 9); a non-array `data`/`count` with no error → `infra_error`
+(integrity failure, not silent green). Three code sets are computed from `MESSAGE_CATALOG`
+at module load (like `INFO_SEVERITY_CODES`): `HEALTH_CODES`, `DEGRADED_HEALTH_CODES`,
+`NOTICE_HEALTH_CODES`.
 
-1. `count` = number of unresolved health rows.
-2. worst `healthWeight` over the rows → `kind` (`degraded` if any degraded, else `notice`).
-3. `summaries` = map each row's `code` → its catalog `dougSummary`, dedupe by text
-   (accumulating a per-text `count`), sort **degraded-weighted texts first** then by count
-   desc, then cap at `POPOVER_SUMMARY_CAP` (4). `overflowCount` = distinct-summary count
-   minus what remains after the cap.
+**Bounded/aggregate design (R12 finding 1 — this read runs on EVERY admin layout render, so
+it must never be an unbounded row fetch that PostgREST can silently truncate and thereby
+miss a degraded row beyond the page → wrong dot color).** The load-bearing signals (dot
+color + total) come from EXACT head counts, never a truncatable row read:
+
+1. `count` = **exact head count** (`count:"exact", head:true`) of unresolved rows with
+   `code ∈ HEALTH_CODES` — not truncatable.
+2. `degradedCount` = **exact head count** of unresolved rows with
+   `code ∈ DEGRADED_HEALTH_CODES`. Worst weight → `kind`: `degraded` if `degradedCount > 0`,
+   else `notice` if `count > 0`, else `ok`. (Color can NEVER miss a red beyond a page — it
+   is an exact count, not a row scan.)
+3. `summaries` = a **bounded** `.select("code").in("code", HEALTH_CODES).is("resolved_at",
+   null).limit(HEALTH_ROLLUP_ROW_CAP)` read (CAP e.g. 500), mapping each `code` → its catalog
+   `dougSummary`, deduped by text (per-text `count`), sorted **degraded-weighted first** then
+   count desc, capped at `POPOVER_SUMMARY_CAP` (4). `overflowCount` = distinct-summary count
+   beyond the cap. The summary list is a **best-effort display detail** (the popover shows ≤4
+   lines regardless); the authoritative signals (color, total) are the exact counts above, so
+   a truncated summary read can never produce a wrong dot color or total.
+
+`lib/admin/healthRollup.ts` is added to the **`tests/admin/_metaBoundedReads.test.ts`**
+coverage so a bare `.from("admin_alerts").select(...)` without `.limit`/`.range`/count-head
+cannot land.
 
 The payload feeds `AppHealthIndicator` (uses `kind`/`count`), the popover (uses
 `summaries`/`overflowCount`), and the dashboard `AppHealthPanel`. **Data path (R5 finding
@@ -309,11 +325,15 @@ a scoped health-alert detail list **into scope** on the already-`requireDevelope
     `requireAdmin()` (`app/admin/actions.ts:43`) and the per-show route only
     `requireAdminIdentity()` — so a **non-developer admin** (Doug) who obtained a health
     alert id could resolve a developer-owned health alert directly, hiding degradation from
-    the developer. The new action gates **`requireDeveloper()`** (mutation-authorized, not
-    just page-visible) and additionally verifies the target row's `code ∈ HEALTH_CODES`
-    before writing (a developer cannot use it to resolve a `doug` alert through the wrong
-    door). Direct-POST tests assert a non-developer is denied and `resolved_at` is
-    unchanged, for both a global and a show-scoped health alert.
+    the developer. The new action gates **`requireDeveloperIdentity()`**
+    (`lib/auth/requireDeveloper.ts:220` — returns the canonical developer identity/email, not
+    just void, so the resolve is **attributable**; R12 finding 2) and additionally verifies
+    the target row's `code ∈ HEALTH_CODES` before writing (a developer cannot use it to
+    resolve a `doug` alert through the wrong door). The UPDATE sets
+    **`resolved_by = <canonical developer email>`** (matching the existing resolve paths'
+    attribution) and the outcome breadcrumb carries the actor. Direct-POST tests assert a
+    non-developer is denied and `resolved_at` is unchanged, for both a global and a
+    show-scoped health alert; a successful resolve persists `resolved_by` and logs the actor.
   - **Navigation (R5 finding 3):** the per-show route
     (`app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts`) returns **JSON**, so a plain
     `<form action="/api/…">` would navigate the developer to a raw JSON document. A Server
@@ -333,7 +353,8 @@ a scoped health-alert detail list **into scope** on the already-`requireDevelope
     success and must NOT log a success outcome** — they throw to the error boundary
     (mirrors `actions.ts:127` I1: a failed UPDATE never revalidates). On genuine success it
     **awaits** the post-commit `logAdminOutcome` breadcrumb reusing the existing
-    **`ADMIN_ALERT_RESOLVED`** outcome code (same as `resolveAdminAlertFormAction`) and
+    **`ADMIN_ALERT_RESOLVED`** outcome code (same as `resolveAdminAlertFormAction`), passing
+    the canonical developer **actor email** from `requireDeveloperIdentity()`, and
     revalidates BOTH surfaces the health state feeds: **`revalidatePath("/admin", "layout")`
     AND `revalidatePath("/admin/observability")`** (R11 finding 1). The `/admin` layout
     revalidation is REQUIRED because the nav health indicator's rollup is read in the admin
@@ -464,6 +485,9 @@ on the next full render (no mid-open mutation). No `AnimatePresence` on the dot 
   the doug/health partition counts are 16/26; the degraded/notice split is 16/10. New codes
   cannot land without declaring audience.
 - **EXTEND** `_metaAdminAlertCatalog.test.ts` if needed so the two registries stay set-equal.
+- **EXTEND** `tests/admin/_metaBoundedReads.test.ts` (R12 finding 1): register
+  `lib/admin/healthRollup.ts` so its `admin_alerts` reads must be bounded (`.limit`/`.range`
+  or count-head) — a bare unbounded `.select` cannot land.
 - **CREATE/EXTEND** a health-resolve-guard structural test (§6.7): pins that the three
   pre-existing resolve surfaces reject `HEALTH_CODES` and that `resolveHealthAlertFormAction`
   is the sole health-resolve entry point (may extend `developerGatingContract.test.ts`).
@@ -569,8 +593,9 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
 - AC11: `resolveHealthAlertFormAction` requires **developer** identity: a non-developer
   admin invoking it directly (global AND show-scoped health alert) is denied and
   `resolved_at` stays null. A developer resolving a health alert (global or show-scoped)
-  clears it and it drops from the rollup. Attempting to resolve a `doug`-audience code
-  through this action is rejected (`code ∉ HEALTH_CODES`).
+  clears it, persists `resolved_by = <developer email>`, logs `ADMIN_ALERT_RESOLVED` with
+  the developer actor, and it drops from the rollup. Attempting to resolve a `doug`-audience
+  code through this action is rejected (`code ∉ HEALTH_CODES`).
 - AC11b: Health resolution is developer-gated at every **product surface** (§6.7): a
   non-developer admin (or any caller) invoking each of the three pre-existing resolve
   surfaces (`resolveAdminAlertFormAction`, `/api/admin/admin-alerts/[id]/resolve`,
@@ -609,11 +634,13 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
   `TILE_PROJECTION_FETCH_FAILED`) rolls into the global rollup (which reads all unresolved
   health rows regardless of `show_id`); it is not lost, just not shown in Doug's per-show
   section. Accepted scope decision.
-- **Third count query per admin render.** `fetchHealthRollup()` is added to the existing
-  `Promise.all` in `app/admin/layout.tsx:145` alongside `fetchUnresolvedAlertCount` +
-  `needsAttentionCount`; it is a single lightweight select of `id,code` for unresolved
-  health rows (same shape as the bell count). No per-render regression beyond one more
-  parallel read already inside the existing batch.
+- **Rollup query cost per admin render (R12).** `fetchHealthRollup()` joins the existing
+  `Promise.all` in `app/admin/layout.tsx:145` (alongside `fetchUnresolvedAlertCount` +
+  `needsAttentionCount`). It is **bounded** (§6.1): two exact head counts (total + degraded)
+  drive color/total, plus one `.limit(HEALTH_ROLLUP_ROW_CAP)` row read for the best-effort
+  summaries — never an unbounded row scan. Pinned by `_metaBoundedReads`. The three
+  sub-queries run within the one helper; the color/total signals are exact and
+  truncation-proof.
 - **`isCurrentUserDeveloper` drives presentation only.** The rows are already admin-gated
   in RLS (developer ⟹ admin); the developer check picks popover-vs-deep-link, never
   access. Not a security boundary — do not treat it as one (`requireDeveloper.ts:258`
