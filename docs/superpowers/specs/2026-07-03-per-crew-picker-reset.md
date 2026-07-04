@@ -3,7 +3,7 @@
 **Date:** 2026-07-03
 **Slug:** `per-crew-picker-reset`
 **Author:** Opus 4.8 (autonomous ship pipeline)
-**Status:** Draft → self-review → Codex adversarial-review → APPROVE
+**Status:** APPROVED — Codex adversarial review, 6 rounds (R1–R5 findings fixed + re-verified; R6 VERDICT: APPROVE, no blocking findings).
 
 ---
 
