@@ -475,6 +475,14 @@ async function readRequestBody(req: Request): Promise<RequestBody | null> {
   }
 }
 ```
+  - **Route-layer crew-path narrowing (`app/api/report/route.ts`)** — once `RequestBody.show_id` widens, the crew auth path still calls string-only APIs: `resolvePickerSelection({ showId: body.show_id })` (route.ts:126-128), `readCrewRoleFlags(body.show_id, ...)` (route.ts:131), and crew `ReportAuthContext.showId: string` (route.ts:138 / `submit.ts:44-47`). `readRequestBody` already 400s `null` for non-admin surfaces, but TS control flow can't see that across the function boundary — add an explicit narrow at the top of the crew branch:
+```ts
+// readRequestBody already rejects show_id null for non-admin surfaces;
+// this narrow is unreachable-but-typed for the string-only crew APIs below.
+const crewShowId = body.show_id;
+if (crewShowId === null) return errorJson(400, { ok: false });
+```
+    and use `crewShowId` at all three sites. The admin branch keeps `body.show_id` (nullable) untouched.
   - `submit.ts` call sites — `readReportShowContext` stays `(showId: string)` (do NOT widen it or route null through it):
 ```ts
 // submit.ts:1034-1039 becomes:
@@ -511,7 +519,7 @@ function showContextLine(body: RequestBody, showContext?: ReportShowContextInput
 ```
   - `issueSummaryLine` (`submit.ts:361-393`): already show_id-free (it reads only `body.showTitle` via `pickString`, which the §D3 payload feeds; the null-null terminal falls to `` `${pickString(body.surface) ?? "report"} report` ``) — no code change expected; the §K6 fixture (b) test PINS this.
   - `buildCrewIssueBody` (`submit.ts:447`): `` `crew member of \`${show?.slug ?? body.showSlug ?? body.show_id ?? "staged wizard sheet (no show record)"}\` `` (same fallback family).
-  - **Typecheck-driven sweep:** `rg -n 'show_id' lib/reports/` and widen every internal pass-through param that now receives `string | null` (verified consumer inventory: `handleTailUpdateMiss`'s trailing `body.show_id` arg at `submit.ts:1062` — widen its param to `string | null`; `acquireReportLease`/`ReportLeaseDb` already take `showId: string | null`, `lib/reports/leaseProtocol.ts:10`; the `admin_alerts` upsert already coalesces, `submit.ts:645-647`). postgres.js nullable-bind discipline: the value is always an explicit `null` (never `undefined`) because validation requires the field present.
+  - **Typecheck-driven sweep:** `rg -n 'show_id' lib/reports/ app/api/report/ components/shared/ReportModal.tsx` and widen every internal pass-through param that now receives `string | null` (verified consumer inventory: `handleTailUpdateMiss`'s trailing `body.show_id` arg at `submit.ts:1062` — widen its param to `string | null`; `acquireReportLease`/`ReportLeaseDb` already take `showId: string | null`, `lib/reports/leaseProtocol.ts:10`; the `admin_alerts` upsert already coalesces, `submit.ts:645-647`). postgres.js nullable-bind discipline: the value is always an explicit `null` (never `undefined`) because validation requires the field present.
 - [ ] **Step 4:** `pnpm test tests/reports/ && pnpm typecheck` → PASS (the reports suite hits the local DB — run from the main checkout env contract if `TEST_DATABASE_URL`-dependent tests complain; see `feedback_validation_creds_in_main_env_local`).
 - [ ] **Step 5:** commit `feat(report): admin surface accepts show_id null for staged wizard rows (formatters null-hardened)`
 
