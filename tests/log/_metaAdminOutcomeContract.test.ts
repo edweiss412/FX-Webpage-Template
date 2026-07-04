@@ -198,6 +198,14 @@ const NEW_FORENSIC_CODES = new Set([
   "DRIVE_WEBHOOK_INFRA_FAULT",
   "DRIVE_WATCH_RENEWAL_FAILED",
   "DRIVE_WATCH_INFRA_FAULT",
+  // Drive-webhook telemetry completeness (2026-07-03): findings #17/#18/#19/#6 —
+  // token-invalid per-event forensic warn on the security-relevant 401 ingress,
+  // channel activation + stop-failure lifecycle events, and the stale-pending
+  // sweep downgraded warn→info-with-code (inside log.* spans; NOT cataloged).
+  "DRIVE_WEBHOOK_TOKEN_INVALID",
+  "DRIVE_WATCH_ACTIVATED",
+  "DRIVE_WATCH_STOP_FAILED",
+  "DRIVE_WATCH_STALE_PENDING_SWEPT",
   "MANUAL_RESYNC_CLEARED_STANDING_IGNORE",
   // Observability PR-2 (2026-07-03) forensic infra codes (inside log.* spans; NOT cataloged).
   "UNPUBLISH_INFRA_FAILED",

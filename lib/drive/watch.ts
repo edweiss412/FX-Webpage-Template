@@ -459,7 +459,19 @@ export async function subscribeToWatchedFolder(
   }
 
   try {
-    return await runTx((tx) => activateWithTx(tx, folderId, watch));
+    const activated = await runTx((tx) => activateWithTx(tx, folderId, watch));
+    // Finding #19: durable per-channel lifecycle event on the single activation-
+    // success chokepoint. Every activation route (initial subscribe, refresh
+    // renewal, reconcile recovery, admin manual-retry) funnels through here, so
+    // one fail-open emit correlates channel creation across all callers.
+    void log.info("drive watch activated", {
+      source: "drive.watch",
+      code: "DRIVE_WATCH_ACTIVATED",
+      channelId: watch.id,
+      watchedFolderId: folderId,
+      expiresAt: watch.expiration,
+    });
+    return activated;
   } catch (err) {
     const errorClass = classifyWatchError(err);
     const errorMessage = redactWatchError(String((err as { message?: unknown })?.message ?? err), {
@@ -577,8 +589,17 @@ export async function gcWatchChannels(deps: GcDeps = {}): Promise<{ stopped: str
     for (const channel of candidates) {
       try {
         await stopChannel({ id: channel.id, resourceId: channel.resourceId });
-      } catch {
+      } catch (error) {
         // Best-effort cleanup: Drive may already have dropped an orphaned channel.
+        // Finding #18: the swallowed error left GC failures untraceable. Emit a
+        // fail-open forensic warn but stay non-fatal — still mark the row stopped
+        // below (control flow UNCHANGED).
+        void log.warn("drive watch channel stop failed", {
+          source: "drive.watch",
+          code: "DRIVE_WATCH_STOP_FAILED",
+          channelId: channel.id,
+          error,
+        });
       }
       await runTx((tx) =>
         callWatchTx("drive_watch_channels.mark_stopped", () => tx.markStopped(channel.id)),
@@ -642,8 +663,12 @@ export async function reconcileWatchChannels(
     );
     sweptPending = swept.length;
     if (swept.length > 0) {
-      await log.warn("stale pending watch channels swept", {
+      // Finding #6: this is routine, non-actionable hygiene (spec §3.2.1 — silent
+      // sweep, ZERO admin_alerts). Downgraded warn→info to move it off the warn
+      // stream; info-WITH-code still persists to app_events for forensic history.
+      await log.info("stale pending watch channels swept", {
         source: "drive.watch.reconcile",
+        code: "DRIVE_WATCH_STALE_PENDING_SWEPT",
         sweptIds: swept,
       });
     }

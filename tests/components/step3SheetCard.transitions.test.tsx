@@ -1,33 +1,36 @@
 // @vitest-environment jsdom
 /**
- * tests/components/step3SheetCard.transitions.test.tsx (spec §4.5, post "More"-dialog)
+ * tests/components/step3SheetCard.transitions.test.tsx (spec §4.5, post "More"-modal)
  *
  * Transition inventory audit for the step-3 card + review header after the
- * inline height-morph breakdown was replaced by the "More" details overlay
- * (<Step3DetailsDialog>: a bottom sheet on mobile, a centered popup on desktop).
+ * inline height-morph breakdown was replaced by the "More" review modal
+ * (<Step3ReviewModal>: a bottom sheet on mobile, a centered panel on desktop;
+ * it retired <Step3DetailsDialog> in Task 8 of the 2026-07-02 redesign).
  *
  * | Transition | Treatment |
  * |---|---|
- * | closed → details open / open → closed | dialog rise (mobile) / pop (desktop) + scrim fade — CSS, reduced-motion: instant |
+ * | closed → modal open / open → closed | panel rise (mobile) / pop (desktop) + scrim fade — CSS, reduced-motion: instant |
  * | unchecked → checked / checked → unchecked | checkbox state + count update; INSTANT (no animation) |
  * | Select all toggled | each card's checkbox updates; INSTANT; count morphs (tabular-nums, no layout shift) |
- * | compound: toggle Select-all while the details dialog is open | INDEPENDENT — dialog stays open, checkbox flips instantly |
+ * | compound: toggle Select-all while the review modal is open | INDEPENDENT — modal stays open, checkbox flips instantly |
  * | list length change | row removal: INSTANT in v1 (declared instant) |
  *
- * The card/review/dialog use NO framer-motion / AnimatePresence: the only
- * animated surfaces are the dialog panel + scrim, animated purely in globals.css
- * ([data-step3-details-panel] / [data-step3-details-scrim], reduced-motion:
- * instant). Every other conditional render (checkbox, badges, warning chip,
- * count line, the whole breakdown's mount/unmount) is a bare ternary/`&&` with
- * NO motion wrapper → instant by construction.
+ * The card/review/modal use NO framer-motion / AnimatePresence: the only
+ * ENTRANCE-animated surfaces are the modal panel + scrim, animated purely in
+ * globals.css ([data-step3-review-panel] / [data-step3-review-scrim],
+ * reduced-motion: instant); the modal's drag-to-dismiss manipulates inline
+ * transform/transition directly (its own §11 audit lives in the modal suite).
+ * Every other conditional render (checkbox, badges, warning chip, count line,
+ * the whole section body's mount/unmount) is a bare ternary/`&&` with NO
+ * motion wrapper → instant by construction.
  *
  * This audit asserts:
- *   1. No AnimatePresence / framer-motion import in the card, review, OR dialog.
- *   2. The animation lives on the dialog's CSS hooks (not the card); the card no
+ *   1. No AnimatePresence / framer-motion import in the card, review, OR modal.
+ *   2. The animation lives on the modal's CSS hooks (not the card); the card no
  *      longer ships the retired [data-step3-breakdown] height-morph region.
- *   3. The checkbox is INSTANT and lives OUTSIDE the details dialog.
+ *   3. The checkbox is INSTANT and lives OUTSIDE the review modal.
  *   4. The count line carries tabular-nums (no layout shift) and no motion wrapper.
- *   5. Compound: toggling Select-all while the dialog is open keeps it open and
+ *   5. Compound: toggling Select-all while the modal is open keeps it open and
  *      does not animate the checkbox (the regions are independent).
  */
 import { readFileSync } from "node:fs";
@@ -46,10 +49,7 @@ const WSID = "99999999-2222-4333-8444-555555555555";
 const ROOT = join(__dirname, "..", "..");
 const CARD_SRC = readFileSync(join(ROOT, "components/admin/wizard/Step3SheetCard.tsx"), "utf8");
 const REVIEW_SRC = readFileSync(join(ROOT, "components/admin/wizard/Step3Review.tsx"), "utf8");
-const DIALOG_SRC = readFileSync(
-  join(ROOT, "components/admin/wizard/Step3DetailsDialog.tsx"),
-  "utf8",
-);
+const MODAL_SRC = readFileSync(join(ROOT, "components/admin/wizard/Step3ReviewModal.tsx"), "utf8");
 
 function parseResult(title: string): ParseResult {
   return { show: { title } } as unknown as ParseResult;
@@ -78,37 +78,39 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-describe("§4.5 transition audit — only the details dialog animates; checkbox/count are instant", () => {
-  it("neither the card, the review, nor the dialog imports framer-motion / AnimatePresence", () => {
-    for (const src of [CARD_SRC, REVIEW_SRC, DIALOG_SRC]) {
+describe("§4.5 transition audit — only the review modal animates; checkbox/count are instant", () => {
+  it("neither the card, the review, nor the modal imports framer-motion / AnimatePresence", () => {
+    for (const src of [CARD_SRC, REVIEW_SRC, MODAL_SRC]) {
       expect(src).not.toMatch(/framer-motion/);
       expect(src).not.toMatch(/AnimatePresence/);
       expect(src).not.toMatch(/\bmotion\./);
     }
   });
 
-  it("the animated surface is the dialog's CSS hooks; the card no longer ships the height-morph region", () => {
-    // The dialog carries the rise/pop/scrim hooks (animated in globals.css).
-    expect(DIALOG_SRC).toMatch(/data-step3-details-panel/);
-    expect(DIALOG_SRC).toMatch(/data-step3-details-scrim/);
-    // The retired inline height-morph region is gone from the card.
+  it("the animated surface is the modal's CSS hooks; the card no longer ships the height-morph region", () => {
+    // The modal carries the rise/pop/scrim hooks (animated in globals.css).
+    expect(MODAL_SRC).toMatch(/data-step3-review-panel/);
+    expect(MODAL_SRC).toMatch(/data-step3-review-scrim/);
+    // The retired inline height-morph region is gone from the card, along with
+    // the retired dialog's CSS aliases (Task 8: one overlay, one set of hooks).
     expect(CARD_SRC).not.toMatch(/data-step3-breakdown/);
+    expect(CARD_SRC).not.toMatch(/data-step3-details/);
   });
 
-  it("the checkbox is INSTANT: it lives OUTSIDE the details dialog (and there is no dialog until 'More')", () => {
+  it("the checkbox is INSTANT: it lives OUTSIDE the review modal (and there is no modal until 'More')", () => {
     const dfid = "df-tr-1";
     const { getByTestId, queryByTestId } = render(
       <Step3SheetCard row={stagedRow(dfid, "Tr")} wizardSessionId={WSID} />,
     );
     const box = getByTestId(`wizard-step3-checkbox-${dfid}`);
-    // Closed: no dialog in the DOM at all.
-    expect(queryByTestId(`wizard-step3-card-${dfid}-details-dialog`)).toBeNull();
+    // Closed: no modal in the DOM at all.
+    expect(queryByTestId(`wizard-step3-card-${dfid}-review-modal`)).toBeNull();
     // No CSS transition/animation utility on the checkbox input itself.
     expect(box.className).not.toMatch(/transition|animate|duration/);
-    // Open the dialog → the checkbox stays in the always-visible header, not inside it.
+    // Open the modal → the checkbox stays in the always-visible header, not inside it.
     fireEvent.click(getByTestId(`wizard-step3-card-${dfid}-more`));
-    const dialog = getByTestId(`wizard-step3-card-${dfid}-details-dialog`);
-    expect(dialog.contains(box)).toBe(false);
+    const modal = getByTestId(`wizard-step3-card-${dfid}-review-modal`);
+    expect(modal.contains(box)).toBe(false);
   });
 
   it("the count line uses tabular-nums (no layout shift) and carries no motion wrapper", () => {
@@ -120,7 +122,7 @@ describe("§4.5 transition audit — only the details dialog animates; checkbox/
     expect(count.className).not.toMatch(/animate|transition-\[height\]|motion/);
   });
 
-  it("compound: toggling Select-all while the details dialog is open keeps it open (independent regions)", async () => {
+  it("compound: toggling Select-all while the review modal is open keeps it open (independent regions)", async () => {
     const fetchMock = vi.fn(
       async () => new Response(JSON.stringify({ status: "approved" }), { status: 200 }),
     );
@@ -130,9 +132,9 @@ describe("§4.5 transition audit — only the details dialog animates; checkbox/
       <Step3Review wizardSessionId={WSID} rows={[stagedRow(dfid, "Comp")]} />,
     );
 
-    // Open the details dialog first.
+    // Open the review modal first.
     fireEvent.click(getByTestId(`wizard-step3-card-${dfid}-more`));
-    expect(getByTestId(`wizard-step3-card-${dfid}-details-dialog`)).not.toBeNull();
+    expect(getByTestId(`wizard-step3-card-${dfid}-review-modal`)).not.toBeNull();
 
     // The Select-all visual flips instantly to checked (its own optimistic state),
     // proving the count/select-all region animates nothing and never gates on the
@@ -144,9 +146,9 @@ describe("§4.5 transition audit — only the details dialog animates; checkbox/
     expect(selectAll.className).not.toMatch(/transition|animate|duration/);
 
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
-    // The dialog is UNTOUCHED by the Select-all toggle — the regions are
+    // The modal is UNTOUCHED by the Select-all toggle — the regions are
     // independent; the publish toggle never closes or animates the overlay.
-    expect(getByTestId(`wizard-step3-card-${dfid}-details-dialog`)).not.toBeNull();
+    expect(getByTestId(`wizard-step3-card-${dfid}-review-modal`)).not.toBeNull();
     // The per-card checkbox itself carries no animation utilities (instant §4.5).
     const box = getByTestId(`wizard-step3-checkbox-${dfid}`) as HTMLInputElement;
     expect(box.className).not.toMatch(/transition|animate|duration/);

@@ -1249,4 +1249,109 @@ describe("Drive watch telemetry", () => {
     expect(fault.context.operation).toBe("drive_watch_channels.list_gc_candidates");
     expect(fault.context.error).toMatchObject({ message: "gc candidate query failed" });
   });
+
+  test("subscribeToWatchedFolder logs one DRIVE_WATCH_ACTIVATED info on activation success", async () => {
+    const tx = new FakeWatchTx();
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+
+    const result = await subscribeToWatchedFolder("folder-1", {
+      tx,
+      uuid: () => "new-channel",
+      webhookSecret: () => "secret-1",
+      watchFolder: vi.fn(async () => ({
+        id: "new-channel",
+        resourceId: "resource-1",
+        expiration: "2026-05-10T13:00:00.000Z",
+      })),
+    });
+
+    expect(result).toEqual({ outcome: "active", channelId: "new-channel" });
+    const activated = records().filter((r) => r.code === "DRIVE_WATCH_ACTIVATED");
+    expect(activated).toHaveLength(1);
+    expect(activated[0]!.level).toBe("info");
+    expect(activated[0]!.source).toBe("drive.watch");
+    expect(activated[0]!.context).toMatchObject({
+      channelId: "new-channel",
+      watchedFolderId: "folder-1",
+      expiresAt: "2026-05-10T13:00:00.000Z",
+    });
+  });
+
+  test("subscribeToWatchedFolder does NOT log DRIVE_WATCH_ACTIVATED when activation orphans", async () => {
+    const tx = new FakeWatchTx();
+    const { subscribeToWatchedFolder } = await import("@/lib/drive/watch");
+
+    await subscribeToWatchedFolder("folder-1", {
+      tx,
+      uuid: () => "new-channel",
+      webhookSecret: () => "secret-1",
+      watchFolder: vi.fn(async () => {
+        throw new Error("Drive unavailable");
+      }),
+    });
+
+    expect(records().filter((r) => r.code === "DRIVE_WATCH_ACTIVATED")).toEqual([]);
+  });
+
+  test("gcWatchChannels logs DRIVE_WATCH_STOP_FAILED but still marks the channel stopped (control flow unchanged)", async () => {
+    const tx = new FakeWatchTx();
+    tx.rows.push({
+      id: "orphaned-channel",
+      status: "orphaned",
+      watchedFolderId: "folder-1",
+      webhookSecret: "secret-1",
+      resourceId: "resource-1",
+      expiresAt: null,
+    });
+    const { gcWatchChannels } = await import("@/lib/drive/watch");
+    const stopChannel = vi.fn(async () => {
+      throw new Error("channels.stop 404");
+    });
+
+    const result = await gcWatchChannels({ tx, stopChannel });
+
+    // Non-fatal: the row is STILL marked stopped and returned despite the Drive fault.
+    expect(result).toEqual({ stopped: ["orphaned-channel"] });
+    expect(tx.rows.map((row) => row.status)).toEqual(["stopped"]);
+
+    const warns = records().filter((r) => r.code === "DRIVE_WATCH_STOP_FAILED");
+    expect(warns).toHaveLength(1);
+    expect(warns[0]!.level).toBe("warn");
+    expect(warns[0]!.source).toBe("drive.watch");
+    expect(warns[0]!.context).toMatchObject({ channelId: "orphaned-channel" });
+    expect(warns[0]!.context.error).toMatchObject({ message: "channels.stop 404" });
+  });
+
+  test("stale-pending sweep persists as DRIVE_WATCH_STALE_PENDING_SWEPT info, off the warn stream", async () => {
+    const tx = new FakeWatchTx();
+    const cutoff = tx.now.getTime() - STALE_PENDING_MAX_AGE_MS;
+    tx.rows.push({
+      id: "stale-1",
+      status: "pending",
+      watchedFolderId: "folder-1",
+      webhookSecret: "s1",
+      resourceId: null,
+      expiresAt: null,
+      createdAt: new Date(cutoff - 1000).toISOString(),
+    });
+    const { reconcileWatchChannels } = await import("@/lib/drive/watch");
+    const deps = reconcileDeps(tx, {
+      getActiveWatchedFolder: vi.fn().mockResolvedValue({ kind: "no_folder_configured" }),
+    });
+
+    const result = await reconcileWatchChannels(NO_REFRESH, deps);
+
+    expect(result.sweptPending).toBe(1);
+    const swept = records().filter((r) => r.code === "DRIVE_WATCH_STALE_PENDING_SWEPT");
+    expect(swept).toHaveLength(1);
+    expect(swept[0]!.level).toBe("info");
+    expect(swept[0]!.source).toBe("drive.watch.reconcile");
+    expect(swept[0]!.context).toMatchObject({ sweptIds: ["stale-1"] });
+    // Downgraded off the warn stream: no warn-level record for this hygiene action.
+    expect(
+      records().filter(
+        (r) => r.message === "stale pending watch channels swept" && r.level === "warn",
+      ),
+    ).toEqual([]);
+  });
 });
