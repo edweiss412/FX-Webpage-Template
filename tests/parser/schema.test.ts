@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { classifyVersion, detectVersion, MIN_ABS, MIN_MARGIN, MIN_BLOCKS } from "@/lib/parser/schema";
+import {
+  classifyVersion,
+  detectVersion,
+  MIN_ABS,
+  MIN_MARGIN,
+  MIN_BLOCKS,
+} from "@/lib/parser/schema";
 
 // Fixture paths (all paths relative to project root, loaded at test time)
 const FIXTURE_V4 = "fixtures/shows/raw/2026-03-rpas-central-four-seasons.md";
@@ -156,7 +162,9 @@ describe("classifyVersion", () => {
   });
 
   it("does NOT score a marker embedded as a substring of a larger col-0 cell", () => {
-    const v = classifyVersion("| NOTES: GS SET TIME WAS LATE | x |\n| ALSO BO SETUP HAPPENED | y |");
+    const v = classifyVersion(
+      "| NOTES: GS SET TIME WAS LATE | x |\n| ALSO BO SETUP HAPPENED | y |",
+    );
     expect(v.status).toBe("ambiguous");
   });
 
