@@ -23,4 +23,22 @@ describe("logAdminOutcome (real logger integration)", () => {
       logAdminOutcome({ code: "SHOW_ARCHIVED", source: "api.admin.show.archive" }),
     ).resolves.toBeUndefined();
   });
+
+  // Failure mode caught (finding #5): an email accidentally placed in extra{} leaking
+  // to app_events unredacted. extra{} passes through the logger's sanitizeContext
+  // email-redaction net — this pins that the net actually fires on extra{} values.
+  test("email placed in extra{} is redacted by sanitizeContext", async () => {
+    let captured: LogRecord | undefined;
+    setLogSink((record) => {
+      captured = record;
+    });
+    await logAdminOutcome({
+      code: "SHOW_ARCHIVED",
+      source: "api.admin.show.archive",
+      extra: { note: "reach doug@example.com asap" },
+    });
+    expect(captured).toBeDefined();
+    expect(JSON.stringify(captured!.context)).not.toContain("doug@example.com");
+    expect(captured!.context.note).toBe("reach [email-redacted] asap");
+  });
 });

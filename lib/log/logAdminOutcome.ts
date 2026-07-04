@@ -13,7 +13,12 @@ export interface AdminOutcome {
   wizardSessionId?: string;
   showId?: string;
   result?: string; // sub-outcome, e.g. "reapplied" | "all_batches_complete"
-  extra?: Record<string, unknown>; // spreads into app_events.context
+  // Spreads into app_events.context. actorEmail above is hashed; extra{} is NOT — it
+  // passes only through the logger's sanitizeContext EMAIL-redaction net (proven by
+  // tests/log/logAdminOutcomeIntegration.test.ts). That net redacts emails ONLY, so
+  // callers MUST NOT put other PII here (phone numbers, tokens, raw crew names, IPs).
+  // Keep extra{} to low-cardinality forensic detail.
+  extra?: Record<string, unknown>;
 }
 
 // The message IS the code (a stable, low-cardinality event name); detail lives in
