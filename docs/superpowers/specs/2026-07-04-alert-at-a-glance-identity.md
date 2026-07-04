@@ -59,17 +59,31 @@ The map is the single authoring surface for "what identifies this alert." No cop
 
 **Entity-identity only — never diagnostics (invariant 5).** Segment producers surface **entity identifiers** (crew/show/sheet **names**, counts, safe descriptive tokens like a repo slug or a wizard action name) and the OAuth **email**. They MUST NOT surface raw error codes, SQLSTATEs, PostgREST codes, JS error-class names, or free-form error messages (`rpc_error_code`, `rpc_error_message`, `error_name`, `error_message`, `reason`) — those are diagnostics, not identity, and rendering them on the admin web UI would violate invariant 5 (no raw error codes in user-visible UI). A code whose only distinguishing context is a diagnostic (and whose show/sheet is not resolvable) is therefore `global`. Existing diagnostic rendering that predates this spec (e.g. `WATCH_CHANNEL_ORPHANED`'s `error_message` `<code>` block at `AlertBanner.tsx`) is untouched — it is not part of the identity line.
 
-**Allowlisted context keys.** The only `context` keys the identity map is permitted to read are the curated set
-`IDENTITY_CONTEXT_KEYS = { crew_member_id, stale_crew_member_id, show_id, drive_file_id, file_name, sheet_name, email, user_email, crew_member_ids, changes, repo, attempted_action }`.
-This allowlist is the projection the observe read-core emits (§6.2, resolving F2) and the exhaustive input surface the unit tests enumerate. Adding a new segment source requires adding its key here (pinned by the §8.3 meta-test).
+**Sanitized identity projection (`projectIdentityContext`).** The identity map never reads raw `context`. A pure function `projectIdentityContext(rawContext, { includePii }): IdentityContext` sanitizes the arbitrary producer jsonb into a **curated, scalar-only** shape and is applied at **every** surface (web AND CLI) before resolution — so the identity map has one uniform input contract and no raw/composite field ever reaches a renderer or the CLI. The output shape (`IDENTITY_CONTEXT_KEYS`):
+
+```
+IdentityContext = {
+  crew_member_id?, stale_crew_member_id?, show_id?, drive_file_id?,  // UUIDs — for name resolution (not sensitive)
+  file_name?, sheet_name?,          // sheet titles (strings)
+  repo?, attempted_action?,         // safe descriptive tokens (strings)
+  email?, user_email?,              // PII — present ONLY when includePii
+  role_change_crew_names?: string[],// DERIVED from changes[].crew_name (cap 3) — NEVER the raw `changes` objects
+  role_change_count?: number,       // DERIVED from changes.length
+  crew_member_count?: number,       // DERIVED from crew_member_ids.length
+}
+```
+
+- **Composite keys are sanitized, not passed through** (resolves Codex F5): `changes: Array<{crew_name, prior_flags, new_flags}>` (`phase2.ts:120-126`) is reduced to `role_change_crew_names` + `role_change_count` — the `prior_flags`/`new_flags` deltas NEVER leave `projectIdentityContext`. `crew_member_ids: string[]` becomes `crew_member_count`. Any key not in the output shape (`error_message`, `orphan_url`, `rpc_error_code`, `reason`, ids, hashes, `failedKeys`, `data_gaps`, …) is dropped.
+- **`includePii`** gates the `email`/`user_email` fields only. Web passes `true`; the CLI defaults `false`.
+- This is the projection the observe read-core emits (§6.2, resolving F2) and the exhaustive input surface the unit tests enumerate. Adding a new segment source requires extending `IdentityContext` + `projectIdentityContext` (pinned by the §8.3 meta-test).
 
 ### 3.2 `lib/adminAlerts/resolveAlertIdentities.ts` — batched resolution (read-only DB)
 
-`resolveAlertIdentities(rows, supabase): Promise<Map<alertId, AlertIdentity>>`:
+`resolveAlertIdentities(rows, supabase): Promise<Map<alertId, AlertIdentity>>`. Each input row carries `{ id, code, show_id, occurrence_count, identityContext }` where `identityContext` is the **already-projected** sanitized shape (§3.1) — resolution never sees raw context.
 
 1. Walk `rows`, consult `ALERT_IDENTITY_MAP[code]`, and collect the set of `crew_member_id`s, `drive_file_id`s, and `show_id`s that need name resolution.
 2. Issue **at most three batched, bounded `.select().in(...).limit(...)` reads**: `crew_members(id,name,email)`, `shows(id,title,slug)`, `shows(drive_file_id,title,slug)`. Skip any query whose id-set is empty. (`crew_members.email` is fetched for the OAuth email legacy fallback — see below.)
-3. For each row, run its segment producers against the resolved lookups + the row's own `context`, producing an `AlertIdentity`.
+3. For each row, run its segment producers against the resolved lookups + the row's projected `identityContext`, producing an `AlertIdentity`. If the code is not `global`, ≥1 entity segment was produced, and `row.occurrence_count > 1`, append a final disclosure segment `{ label: null, value: "(most recent of N)" }` (§6.4a).
 
 **OAuth email — legacy-row fallback (resolves F1).** The email segment's value is `context.user_email ?? resolvedCrewMember.email`. `claim_oauth_identity(p_email)` stamps a crew row precisely because its canonical email **equals** the signed-in user's canonical email, so the claimed row's `crew_members.email` **is** the OAuth email at claim time. New rows carry `user_email` authoritatively (robust against later crew-email edits); pre-change rows (which have only `crew_member_id` + `user_email_hash`) fall back to the resolved `crew_members.email` — so the alert in the motivating screenshot shows crew + email + show after ship **without** a re-raise or a data backfill. If both are absent/empty (crew row deleted), the email segment is dropped (guard §8.1). This fallback is scoped to `OAUTH_IDENTITY_CLAIMED` and `AMBIGUOUS_EMAIL_BINDING` (the only email-bearing identities).
 
@@ -114,7 +128,7 @@ Legend — **Source:** `ctx:key` = literal in `context`; `→show` = resolve `sh
 
 | # | Code | Identity segments (ordered) | Source | Producer change |
 |---|------|------------------------------|--------|-----------------|
-| 1 | AMBIGUOUS_EMAIL_BINDING | Show · email · "N crew rows" | →show, `ctx:email`(email-fallback), count `ctx:crew_member_ids` | none |
+| 1 | AMBIGUOUS_EMAIL_BINDING | Show · email · "N crew rows" | →show, `email`(email-fallback), `crew_member_count` | none |
 | 2 | **OAUTH_IDENTITY_CLAIMED** | Crew · email · Show | →crew `ctx:crew_member_id`, `ctx:user_email ?? crew.email`, →show | **add `user_email` (canonical)** |
 | 3 | PICKER_BOOTSTRAP_RPC_FAILED | Show (if `show_id` present) | →show | none |
 | 4 | PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED | **global** (show unresolved by definition; only diagnostic in ctx) | — | none |
@@ -128,7 +142,7 @@ Legend — **Source:** `ctx:key` = literal in `context`; `→show` = resolve `sh
 | 12 | WEBHOOK_TOKEN_INVALID | **global** (only `channel_id`/`reason` diagnostics; sheet not resolvable) | — | none |
 | 13 | EMBEDDED_RECOVERY_REQUIRES_RESTAGE | Sheet | →show (via `ctx:drive_file_id`) | none |
 | 14 | LIVE_ROW_CONFLICT | Sheet `file_name` | `ctx:file_name` | none |
-| 15 | ROLE_FLAGS_NOTICE | Sheet · crew name(s) from `changes[].crew_name` (cap 3, "+N more") · "N role change(s)" | →show (via `ctx:drive_file_id`), `ctx:changes[].crew_name` (already present, `phase2.ts:125`), count `ctx:changes` | none |
+| 15 | ROLE_FLAGS_NOTICE | Sheet · crew name(s) (cap 3, "+N more") · "N role change(s)" | →show (via `drive_file_id`), `role_change_crew_names` + `role_change_count` (derived from `changes[].crew_name` by the projection — raw flag deltas dropped) | none |
 | 16 | DRIVE_FETCH_FAILED | Sheet `sheet_name` | `ctx:sheet_name` | none |
 | 17 | PARSE_ERROR_LAST_GOOD | *(already SPECIFIC — sheet in copy)* | n/a — global entry (no added segment) | none |
 | 18 | SHEET_UNAVAILABLE | *(already SPECIFIC — sheet in copy)* | n/a — global entry | none |
@@ -189,8 +203,8 @@ Add `user_email: canonicalEmail`. **Keep `user_email_hash`** (logs/forensics sti
 
 ### 6.1 `AlertBanner` (`components/admin/AlertBanner.tsx`)
 
-- **SELECT change:** add `title` to the `shows(slug)` join → `shows(slug, title)`. (`show_id`, `context` already selected.)
-- Call `resolveAlertIdentities([alert], supabase)` for the single top alert (limit 1 → ≤3 tiny reads). Build the `AlertIdentity`.
+- **SELECT change:** add `title` to the `shows(slug)` join → `shows(slug, title)`, and add `occurrence_count` (`show_id`, `context` already selected).
+- Apply `projectIdentityContext(alert.context, { includePii: true })` (web is admin-only → PII allowed), then call `resolveAlertIdentities([{ ...alert, identityContext }], supabase)` for the single top alert (limit 1 → ≤3 tiny reads). Build the `AlertIdentity`.
 - **Collapsed view (the at-a-glance surface):** render the identity as a second line directly beneath the collapsed one-liner (`data-testid="admin-alert-identity"`), styled `text-sm text-text-subtle`, label muted / value `text-text-strong`. This is what makes the screenshot's banner answer "who / which show" without expanding.
 - **Panel:** the same identity line also renders inside the expanded panel (above `helpful-context`) so the detail survives when collapsed truncation elides it.
 - **Guard:** if `describeAlert` returns `null` (global code, or nothing resolved) → render no identity line (no empty element, no `undefined`).
@@ -206,8 +220,14 @@ There is **no web alerts feed** — `/admin#alerts` scrolls to `AlertBanner`; `N
 
 ### 6.3 `PerShowAlertSection` (`components/admin/PerShowAlertSection.tsx`)
 
-- `context` already selected (`PerShowAlertSection.tsx:121`), `slug`/show known from props. Call `resolveAlertIdentities` (crew names still need resolution; show is already in scope but pass through the resolver uniformly).
+- `context` already selected (`PerShowAlertSection.tsx:121`); the query must also select `occurrence_count`. Apply `projectIdentityContext(context, { includePii: true })` then `resolveAlertIdentities` (crew names still need resolution; show is already in scope but pass through the resolver uniformly).
 - Render the identity line under each alert's copy (near the existing `failedKeys` / `data_gaps` sub-lines), `data-testid="per-show-alert-identity"`.
+
+### 6.4a Coalescing / recurrence semantics for entity-bearing alerts (resolves Codex F4)
+
+`admin_alerts` keeps **one unresolved row per `(coalesce(show_id,''), code)`** (partial unique index, `20260501001000_internal_and_admin.sql:279`), and `upsert_admin_alert` overwrites `context = p_context` while incrementing `occurrence_count` for every non-`failedKeys` producer (verified in `20260505000000_upsert_admin_alert.sql`). So if two crew members claim identities for the **same show** before Doug resolves the alert, they collapse into one row whose stored `context` reflects only the **latest** claim, with `occurrence_count = 2`.
+
+**Contract (no lifecycle/RPC change):** the identity line renders the **latest** sighting's entity (that is what `context` holds), and when a row's `occurrence_count > 1` it appends a muted disclosure segment **"(most recent of N)"**. A coalesced multi-entity row is therefore never presented as a single definitive identity — the operator sees "the most recent claim was Jane Doe · jane@… · Show X, and there were N claims." This is honest and proportionate for an informational, low-frequency alert; enumerating every coalesced claim would require a bounded-array merge in the RPC (out of scope, and a read-modify-write race on the un-locked admin_alerts write path). The disclosure is applied by `describeAlert`/the surfaces uniformly for **any** entity-bearing code with `occurrence_count > 1` (not OAuth-specific). `global` codes never show it.
 
 ### 6.4 Interaction with already-interpolated copy
 
@@ -243,6 +263,8 @@ The read-core comment (`lib/observe/query/alerts.ts:4-6`) states context is "int
 | Resolver DB read errors (infra fault) | Degrade to no identity for affected rows; alert copy still renders; never throw. |
 | `global` code | Line suppressed by design. |
 | Email present but empty string | Segment dropped. |
+| Coalesced row (`occurrence_count > 1`, entity-bearing) | Latest entity rendered + muted "(most recent of N)" disclosure appended (§6.4a). Never for `global` codes. |
+| Composite context key (`changes`, `crew_member_ids`) | Sanitized to scalar derived fields by `projectIdentityContext`; raw objects/deltas never reach a renderer or the CLI (§3.1). |
 
 ### 8.2 Plan-wide invariants touched
 
@@ -270,6 +292,8 @@ A **code × context** table test. For each of the 42 codes, feed a representativ
 - **OAUTH_IDENTITY_CLAIMED end-to-end:** `context = { crew_member_id: X, show_id: Y, user_email: "jane@gmail.com" }` + a lookup fixture where `X→"Jane Doe"`, `Y→"II — FinTech…"` → `describeAlert` = `"Crew: Jane Doe · jane@gmail.com · Show: II — FinTech…"`.
 - **Legacy OAUTH row (Codex F1):** `context = { crew_member_id: X, user_email_hash: "…" }` (NO `user_email`), lookup `X→{ name:"Jane Doe", email:"jane@gmail.com" }` → email segment falls back to `crew.email` → identity still shows `Crew: Jane Doe · jane@gmail.com · Show: …`. A second case where the crew row is deleted → email + crew dropped, show still shown.
 - **Invariant-5 raw-code suppression (Codex F3):** for `PICKER_BOOTSTRAP_RPC_FAILED`/`CALLBACK_CLAIM_THREW`/`WEBHOOK_TOKEN_INVALID` with `context` carrying `rpc_error_code: "42501"`, `error_name`, `reason` → the rendered identity contains **none** of those strings (assert `42501`/`PGRST`/error-class substrings absent).
+- **Nested-field sanitization (Codex F5):** `projectIdentityContext` on `ROLE_FLAGS_NOTICE` context `{ drive_file_id, changes: [{crew_name:"Jane", prior_flags:["X"], new_flags:["Y"]}] }` → output has `role_change_crew_names: ["Jane"]` + `role_change_count: 1` and **no** `changes`, `prior_flags`, or `new_flags` key; a planted `error_message`/`orphan_url` under any code is absent from the projection.
+- **Coalescing disclosure (Codex F4):** an `OAUTH_IDENTITY_CLAIMED` row with `occurrence_count: 2` renders the latest crew/email/show + a "(most recent of 2)" segment; the same code with `occurrence_count: 1` has no disclosure segment; a `global` code with `occurrence_count: 5` shows no identity line at all.
 
 ### 9.2 `resolveAlertIdentities` — batching & guards
 
@@ -289,7 +313,7 @@ The identity line is a normal text node in an existing flex/stack; no fixed-dime
 
 ## 10. Files touched (projection)
 
-**New:** `lib/adminAlerts/alertIdentityMap.ts`, `lib/adminAlerts/resolveAlertIdentities.ts`, `lib/adminAlerts/describeAlert.ts`, `tests/adminAlerts/_metaAlertIdentityMap.test.ts`, `tests/adminAlerts/describeAlert.test.ts`, `tests/adminAlerts/resolveAlertIdentities.test.ts`.
+**New:** `lib/adminAlerts/alertIdentityMap.ts`, `lib/adminAlerts/projectIdentityContext.ts` (sanitizer), `lib/adminAlerts/resolveAlertIdentities.ts`, `lib/adminAlerts/describeAlert.ts`, `tests/adminAlerts/_metaAlertIdentityMap.test.ts`, `tests/adminAlerts/projectIdentityContext.test.ts`, `tests/adminAlerts/describeAlert.test.ts`, `tests/adminAlerts/resolveAlertIdentities.test.ts`.
 
 **Edited:** `app/auth/callback/route.ts` (one field), `components/admin/AlertBanner.tsx` (select `shows(slug,title)` + render identity), `components/admin/PerShowAlertSection.tsx` (render identity), `lib/observe/query/alerts.ts` (select context → allowlisted `identityContext` projection + `includePii` + comment), `lib/observe/query/types.ts` (`AlertRow.identityContext`, `AlertFilters.includePii`), `scripts/observe.ts` (`--reveal-email` flag + identity line), `AGENTS.md` (redaction posture + observe command table), `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (redaction amendment note), `tests/observe/queryAlerts.test.ts` (allowlist-projection + PII tests), possibly `tests/cross-cutting/email-canonicalization.test.ts` (only if the new field needs a fixture — expected: no change, guard already accepts canonicalized).
 
