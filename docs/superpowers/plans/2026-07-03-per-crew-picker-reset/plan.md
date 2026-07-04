@@ -1,7 +1,8 @@
 # Per-crew Picker Reset — Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
+>
+> **Status:** APPROVED — Codex plan-stage adversarial review, 5 rounds (R1–R4 findings fixed + verified; R5 VERDICT: APPROVE). Spec APPROVED separately (6 rounds).
 **Goal:** Let an admin reset **one** crew member's picker selection (forcing only that member to re-pick) without the existing global reset that re-prompts the entire roster.
 
 **Architecture:** New nullable `crew_members.selections_reset_at timestamptz`, stamped only by a new admin-gated `SECURITY DEFINER` RPC `reset_crew_member_selection` (per-show advisory lock, single in-RPC holder). The picker resolver gains a per-member staleness check mirroring the existing `claimed_via_oauth_at` check, producing a new internal union member `selection_reset` that maps to the **existing** crew banner `PICKER_EPOCH_STALE_BANNER`. A unified admin control adds per-member reset (default) alongside the existing global reset-all. Correctness nudge, not access control.
