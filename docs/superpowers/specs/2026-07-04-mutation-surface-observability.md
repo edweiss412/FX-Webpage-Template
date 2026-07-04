@@ -36,19 +36,21 @@ recorded as known observability debt.
 
 A prototype of the exact **per-function** predicate (§4), run against the live worktree,
 enumerates **74 surface units** — 35 route handlers (one `POST` each), 36 exported
-module-action functions, 3 function-scoped inline actions — of which **35 are currently
-unaccounted** (3 route + 29 module-function + 3 inline). The predicate correctly passes the
-already-instrumented admin routes (incl. the 7 human-message + `code:`-field style —
-`drive/webhook`, `realtime/subscriber-token`, `report`, `sign-out`, `reap-stale-sessions`,
-`manifest/ignore`, `observe/client-error`) and correctly *fails* each uninstrumented action,
-proving AST scoping is required (a plain grep passes `validationReset.ts`, whose only `code:`
-literals are in return bodies, not `log.*` calls). Two measurement corrections from the
-adversarial rounds: R2 per-function scoping (file-level under-counted by letting actions ride
-a sibling's emit); R3 the admin-gate rule (§4.2) reclassifies `app/admin/actions.ts`'s two
-`requireAdmin()`-gated actions from "passing on a failure `log.error` code" to unaccounted,
-since an admin mutation must carry a success outcome (`+2` module-function failures: 27 → 29).
+module-action functions, 3 function-scoped inline actions — of which **37 are currently
+unaccounted** (5 route + 29 module-function + 3 inline). The predicate correctly passes the
+already-instrumented admin routes (incl. non-admin infra routes that use the human-message +
+`code:`-field style — `drive/webhook`, `realtime/subscriber-token`, `report`, `sign-out`,
+`observe/client-error`) and correctly *fails* each uninstrumented mutation, proving AST
+scoping is required (a plain grep passes `validationReset.ts`, whose only `code:` literals
+are in return bodies, not `log.*` calls). Three measurement corrections from the adversarial
+rounds: **R2** per-function scoping (file-level under-counted by letting actions ride a
+sibling's emit); **R3** the admin-gate action rule (§4.2) reclassified `app/admin/actions.ts`'s
+two `requireAdmin()`-gated actions from "passing on a failure code" to unaccounted (27 → 29
+module-function); **R6** the admin-*route* rule (§4.2, path `app/api/admin/**`) reclassified
+`manifest/…/ignore` + `reap-stale-sessions` likewise (3 → 5 route). An admin mutation —
+action or route — must carry a success outcome.
 
-### 3.1 The 35 unaccounted surface units and their dispositions
+### 3.1 The 37 unaccounted surface units and their dispositions
 
 **A. Instrument now — admin-tier (in-body `await logAdminOutcome`; add rows to
 `_metaAdminOutcomeContract`). One emit per mutating function:**
@@ -74,9 +76,13 @@ since an admin mutation must carry a success outcome (`+2` module-function failu
 | `lib/auth/picker/resetPickerEpoch.ts` :: `resetPickerEpoch` | `PICKER_EPOCH_RESET_BY_ADMIN` |
 | `lib/auth/picker/rotateShareToken.ts` :: `rotateShareToken` | `SHARE_TOKEN_ROTATED_BY_ADMIN` |
 | `lib/auth/picker/resetCrewMemberSelection.ts` :: `resetCrewMemberSelection` | `CREW_SELECTION_RESET_BY_ADMIN` |
+| `app/api/admin/onboarding/manifest/[wizardSessionId]/[driveFileId]/ignore/route.ts` (route, file-level emit) | `MANIFEST_SHEET_IGNORED` |
+| `app/api/admin/onboarding/reap-stale-sessions/route.ts` (route, file-level emit) | `STALE_SESSIONS_REAPED` |
 
-(19 in-body success emits — 17 new codes + 2 reuses: `SHOW_UNPUBLISHED_VIA_EMAILED_LINK`,
-`ADMIN_ALERT_RESOLVED`.) The last three are **admin-gated** picker mutations
+(21 success emits — 19 new codes + 2 reuses: `SHOW_UNPUBLISHED_VIA_EMAILED_LINK`,
+`ADMIN_ALERT_RESOLVED`. The last two are **admin routes** under `app/api/admin/**` that
+today log only failure codes; per §4.2 they must carry an `await logAdminOutcome` success
+outcome in the route file — Codex R6. `reap-stale-sessions` emits `result: "reaped_" + count`.) The last three are **admin-gated** picker mutations
 (`requireAdmin`/`requireAdminIdentity`) that mutate security state (`shows.picker_epoch`,
 `shows.share_token`, `crew_members.selections_reset_at`) — they are NOT crew debt and per
 §4.2 MUST carry an `await logAdminOutcome` success outcome (Codex R5). **`rotateShareToken`
@@ -211,24 +217,32 @@ AST scoping is load-bearing for (c): a `code:` literal in an unrelated object (a
 body, a type, a config) does **not** count — it must be the argument to a `log.*` call.
 This is what makes `validationReset.ts` (pre-instrumentation) correctly fail.
 
-**Admin-gated actions require a success outcome, not merely a failure log (Codex R3 HIGH).**
-A bare `log.*` emit satisfies the floor for routes and crew/system actions (heterogeneous
-telemetry — infra endpoints and crew flows legitimately log anomalies/failures). But a
-mutating **admin action can pass with a failure-only `log.error("X_FAILED")` while its
-successful mutation is silent** — exactly the "observable in name only" hole. So the floor
-is **tightened for admin-gated server actions**: a module-level or inline server action
-whose body calls an admin gate — an identifier in
-`{requireAdmin, requireAdminIdentity, requireDeveloper, requireDeveloperIdentity}` (the
-static, greppable admin-tier signal) — satisfies the floor **only via clause (a)**
-(`await logAdminOutcome(...)`, a post-commit success outcome by its own contract), **not**
-via (b)/(c). This forces every admin-gated mutation to carry a success-outcome emit. It
-flips exactly one currently-passing surface — `app/admin/actions.ts` (both actions call
-`requireAdmin()` but emit only failure `log.error` codes) — which is a genuine gap this
-change closes (see §3.1 A). Crew actions (e.g. `selectIdentity`, no admin gate) keep the
-broad floor; reads are exempt (§4.3). Rationale for scoping to *actions* and not routes:
-server actions are pure mutations, whereas the route surface mixes admin mutations (already
-success-emitting + registry-pinned) with infra endpoints where anomaly logging is the
-correct telemetry — forcing `logAdminOutcome` on a webhook/token route would be wrong.
+**Admin mutations require a success outcome, not merely a failure log (Codex R3 + R6 HIGH).**
+A bare `log.*` emit satisfies the floor for *non-admin* surfaces — crew/system actions and
+infra routes (webhook, realtime-token, sign-out, crew `report`) legitimately log
+anomalies/failures. But an admin mutation that logs only `log.error("X_FAILED")` while its
+successful mutation is silent is "observable in name only." So the floor is **tightened for
+every admin mutation surface — action OR route — to satisfy only via clause (a)**
+(`await logAdminOutcome(...)`, a post-commit success outcome), never (b)/(c). Two admin
+signals, each chosen to avoid false positives:
+
+- **Admin action** = a module-level or inline server action whose **body calls an admin
+  gate** — an identifier in `{requireAdmin, requireAdminIdentity, requireDeveloper,
+  requireDeveloperIdentity}`. Reliable for actions (they gate at the top; crew actions like
+  `selectIdentity` call no gate). Flips `app/admin/actions.ts` (both actions `requireAdmin()`
+  but emit only failure codes) — a genuine gap (§3.1 A).
+- **Admin route** = a mutating `route.ts` under **`app/api/admin/**`** (path-based, NOT
+  `require*`-detection). Path is the correct signal here because `app/api/report/route.ts`
+  calls `requireAdminIdentity()` for *conditional role-detection* (a crew bug-report route
+  reading whether the submitter is an admin), not as a gate — a `require*` scan would
+  false-positive on it, but the path signal correctly excludes it. Flips the two admin
+  onboarding routes that log only failures — `manifest/…/ignore` (flips a manifest row to
+  `permanent_ignore`) and `reap-stale-sessions` (developer-gated stale-session reap) — both
+  genuine success-path gaps (§3.1 A). The two delegating shims under `app/api/admin` are
+  exempt (§3.1 B). Infra routes (webhook, realtime, report, sign-out) are NOT under
+  `app/api/admin` and keep the broad floor — forcing `logAdminOutcome` on them would be wrong.
+
+Reads are exempt (§4.3).
 
 ### 4.3 Escape hatches (two, by intent)
 
@@ -258,10 +272,11 @@ correct telemetry — forcing `logAdminOutcome` on a webhook/token route would b
    ledger** for surfaces we intend to instrument later, each carrying a backlog ref.
    **Entries are always per-function `{ file, fn, backlog }` — there is no file-only /
    whole-file form (Codex R4 F1):** a file-only entry would silently exempt a *future*
-   action added to that file, recreating the default-fail hole. So the 5 crew-picker files
-   are ledgered as **9 explicit per-function rows** (each exported picker action +
-   `*Core`). A newly-added exported action in a ledgered file is not in the ledger → it
-   FAILS as a new dark surface, exactly as intended. Distinct intent from `// no-telemetry:`
+   action added to that file, recreating the default-fail hole. So the crew-picker debt is
+   ledgered as **6 explicit per-function rows** — the non-admin crew/system functions
+   enumerated in §3.1 C (the canonical list; the 3 admin-gated picker mutations are
+   instrumented in §3.1 A, not ledgered). A newly-added exported action in a ledgered file is
+   not in the ledger → it FAILS as a new dark surface, exactly as intended. Distinct intent from `// no-telemetry:`
    (permanent) — a reviewer reading the ledger sees all deferred observability debt in one
    place. Hygiene: every entry's `file` must exist and `fn` must still be a discovered
    surface in it; a ledgered function that now emits, or no longer exists, fails — forcing
@@ -339,6 +354,12 @@ committed mutation (invariant 9). Emits carry:
 - **`dev/actions`** emit on the success return of `parseAndStage` / `resetDevSchema`.
 - **onboarding** actions are `Promise<never>` (they `redirect`); the emit fires **before**
   the `redirect()` throw, after `purgeAndRotateOnboardingSession()` resolves.
+- **Admin routes** (`manifest/…/ignore`, `reap-stale-sessions`) emit the success outcome in
+  the route file after the delegated helper reports success, before the JSON response.
+  `manifest/…/ignore` → `MANIFEST_SHEET_IGNORED` on the committed-transition branch (NOT on a
+  CAS-miss rollback); `reap-stale-sessions` → `STALE_SESSIONS_REAPED`, `result: "reaped_" +
+  count`. Both already resolve an admin/developer identity (`requireAdminIdentity` /
+  `requireDeveloperIdentity`) → use it for `actorEmail`.
 - **Admin picker actions** emit only on `{ ok: true }`. `resetPickerEpoch` →
   `result: "epoch_" + new_epoch`; `resetCrewMemberSelection` → `result: "reset"` (the
   returned `reset_at` timestamp may go in `extra`, not the crew member's PII);
@@ -443,7 +464,10 @@ the 3 admin-gated picker mutations are instrumented now, not deferred).
    with no emit MUST fail — Codex R3 F1), **admin-gate tightening** (an action whose body
    calls `requireAdmin` passes with `await logAdminOutcome` but FAILS with only
    `log.error("X_FAILED", { code })` — Codex R3 F2; a non-admin action with the same
-   `log.error` passes), **nested-emitter rejection** (an action with an unused nested
+   `log.error` passes), **admin-route tightening** (a mutating `route.ts` under
+   `app/api/admin/**` with only a failure `log.error("X_FAILED", { code })` FAILS; the same
+   route with `await logAdminOutcome` passes; a route with the same failure log OUTSIDE
+   `app/api/admin/**` — e.g. `app/api/report/route.ts` — passes — Codex R6), **nested-emitter rejection** (an action with an unused nested
    `async function u(){ await logAdminOutcome(...) }` and a silent return MUST fail — Codex
    R4 F3; a live emit in an `if`/`try` block passes), **file-leading exemption rejection**
    (a file-leading `// no-telemetry:` in a `"use server"` module errors; a per-function one
