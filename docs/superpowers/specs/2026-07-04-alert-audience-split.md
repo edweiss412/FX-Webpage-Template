@@ -296,12 +296,20 @@ a scoped health-alert detail list **into scope** on the already-`requireDevelope
 
 - `HealthAlertsPanel` renders ABOVE the existing cron-health/event-timeline content
   (a new section; the page keeps `CronHealthHeader` + `EventTimeline`).
-- Loads unresolved `admin_alerts` rows whose `code ∈ HEALTH_CODES`, ordered `raised_at`
-  desc, capped (e.g. 50 rows, honest "+N more" note beyond the cap). **Selects
-  `id, code, show_id, context, occurrence_count, raised_at, shows(slug)`** — `context` and
-  `slug` are REQUIRED to rebuild the per-code action links (below). Typed read: destructure
-  `{ data, error }`; a returned/thrown error → a cataloged degraded panel (invariant 9),
-  never a silent empty.
+- Loads unresolved `admin_alerts` rows whose `code ∈ HEALTH_CODES`, **ordered
+  degraded-weight FIRST, then `raised_at` desc** (R13 finding 1 — a plain `raised_at desc`
+  cap could bury an older *degraded* row behind newer notices, making the row that turned
+  the dot red unreachable in the only surface that shows it → "nothing goes dark" violated).
+  Because health codes partition into `DEGRADED_HEALTH_CODES` / `NOTICE_HEALTH_CODES`
+  (module-load sets), ordering is expressed as: degraded rows before notice rows, each group
+  `raised_at` desc. The list is **paginated with load-more (`.range`)**, page size
+  `HEALTH_PANEL_PAGE_SIZE` (e.g. 50) with an honest "+N more" / "Load more" control — the cap
+  is a page size, NOT a hard ceiling, so **every** health row (including every degraded row)
+  is reachable and resolvable. **Selects `id, code, show_id, context, occurrence_count,
+  raised_at, shows(slug)`** — `context` and `slug` are REQUIRED to rebuild the per-code
+  action links (below). Typed read: destructure `{ data, error }`; a returned/thrown error
+  → a cataloged degraded panel (invariant 9), never a silent empty. (Bounded per
+  `_metaBoundedReads` via `.range`.)
 - Per row: the alert **title/copy via `lib/messages/lookup.ts`** (dev-facing `dougFacing`
   + `followUp`; NO raw code string in the DOM — invariant 5; unknown-code guard like
   `AlertBanner`), the `healthWeight` chip (degraded/notice), a **show link** when
@@ -348,10 +356,17 @@ a scoped health-alert detail list **into scope** on the already-`requireDevelope
     (`app/admin/actions.ts:63`, which carries `// not-subject-to-meta: server action with
     no typed-result contract` + the "propagation IS the contract" rule):** the new action
     carries the SAME inline `not-subject-to-meta` waiver. The **code lookup** destructures
-    `{ data, error }`; the **UPDATE** destructures `{ error }` and checks affected rows.
-    Construction/select/update **returned-errors AND throws must NOT `revalidatePath` as
-    success and must NOT log a success outcome** — they throw to the error boundary
-    (mirrors `actions.ts:127` I1: a failed UPDATE never revalidates). On genuine success it
+    `{ data, error }`. The **UPDATE returns row evidence** so a zero-row update is
+    detectable (R13 finding 2 — a Supabase UPDATE that affects zero rows returns NO error,
+    so `{ error }` alone cannot tell a real resolve from an already-resolved/concurrent
+    no-op, which would falsely emit `ADMIN_ALERT_RESOLVED` + revalidate success): the UPDATE
+    is `...update({resolved_at, resolved_by}).eq("id",id).is("resolved_at",null).select("id")`
+    → destructure `{ data, error }` and treat **`data.length === 1` as the only success**;
+    `data.length === 0` (no-op / already resolved / concurrent) logs NOTHING and revalidates
+    NOTHING (idempotent no-op, not a false success). Construction/select/update
+    **returned-errors AND throws must NOT `revalidatePath` as success and must NOT log a
+    success outcome** — they throw to the error boundary (mirrors `actions.ts:127` I1: a
+    failed UPDATE never revalidates). On genuine success it
     **awaits** the post-commit `logAdminOutcome` breadcrumb reusing the existing
     **`ADMIN_ALERT_RESOLVED`** outcome code (same as `resolveAdminAlertFormAction`), passing
     the canonical developer **actor email** from `requireDeveloperIdentity()`, and
@@ -580,7 +595,10 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
   show link (when `show_id` set), `raised_at`, `occurrence_count`, a working Resolve
   control, and — for the 6 health codes in `ALERT_ACTION_CODES` — its per-code
   `resolveAlertAction` deep link (so no action affordance goes dark when the code leaves the
-  banner; the panel selects `context` + `slug` to build them). **Resolve goes through the single dev-gated `resolveHealthAlertFormAction` for
+  banner; the panel selects `context` + `slug` to build them). With
+  >`HEALTH_PANEL_PAGE_SIZE` health rows including an OLDER degraded row behind newer notices,
+  that degraded row is still reachable (degraded-first ordering + load-more) and resolvable —
+  no degraded row is buried by the page cap (R13 finding 1). **Resolve goes through the single dev-gated `resolveHealthAlertFormAction` for
   BOTH global and show-scoped rows** (§6.6) — NOT `resolveAdminAlertFormAction` and NOT the
   per-show JSON route (both admin-only + the JSON route navigates away). A test seeds a
   show-scoped health alert, resolves it from the panel via that action, and asserts the row
@@ -595,7 +613,9 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
   `resolved_at` stays null. A developer resolving a health alert (global or show-scoped)
   clears it, persists `resolved_by = <developer email>`, logs `ADMIN_ALERT_RESOLVED` with
   the developer actor, and it drops from the rollup. Attempting to resolve a `doug`-audience
-  code through this action is rejected (`code ∉ HEALTH_CODES`).
+  code through this action is rejected (`code ∉ HEALTH_CODES`). A **zero-row** UPDATE
+  (already-resolved / concurrent) is detected via `.select("id")` → `data.length === 0`:
+  it logs NO `ADMIN_ALERT_RESOLVED` and revalidates NOTHING (no false success — R13 finding 2).
 - AC11b: Health resolution is developer-gated at every **product surface** (§6.7): a
   non-developer admin (or any caller) invoking each of the three pre-existing resolve
   surfaces (`resolveAdminAlertFormAction`, `/api/admin/admin-alerts/[id]/resolve`,
