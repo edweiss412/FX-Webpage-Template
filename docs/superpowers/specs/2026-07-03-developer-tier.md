@@ -59,16 +59,37 @@ alter table public.admin_emails
 - `add column if not exists` + `drop constraint if exists ... add constraint` → **apply-twice idempotent**.
 - The column defaults `false`; the seed (below) is the only row set `true`, and it is active → the CHECK cannot be violated at apply time.
 
-### 4.2 Bootstrap seed (same migration)
+### 4.2 Bootstrap seed (same migration) — must guarantee ≥1 active developer
+
+The seed **force-activates** the bootstrap identity to an active developer (clearing any revoked state), then a **hard tripwire** aborts the migration if — for any reason — no active developer remains. This closes the deploy-time hazard where a pre-existing *revoked* seed row would otherwise leave zero developers and lock every admin out of the now-gated surfaces with no in-app recovery (Codex spec-review R2 HIGH).
 
 ```sql
+-- Force the bootstrap identity to an ACTIVE developer. On a fresh row this
+-- inserts active+developer; on an existing row (active OR revoked) it clears
+-- revoked_* and sets is_developer=true, so a revoked seed row cannot silently
+-- leave the deployment with zero developers. Satisfies the CHECK (active row).
 insert into public.admin_emails (email, added_by, added_at, is_developer)
 values ('edweiss412@gmail.com', null, now(), true)
-on conflict (email) do update set is_developer = true
-  where public.admin_emails.revoked_at is null;
+on conflict (email) do update
+  set is_developer = true,
+      revoked_at   = null,
+      revoked_by   = null;
+
+-- Hard tripwire: abort the migration (and any CI/validation apply) if the
+-- bootstrap did not leave at least one active developer. Fail loud, never
+-- silently ship a zero-developer state.
+do $$
+begin
+  if not exists (
+    select 1 from public.admin_emails
+    where revoked_at is null and is_developer
+  ) then
+    raise exception 'developer-tier bootstrap left zero active developers';
+  end if;
+end $$;
 ```
 
-`DO UPDATE ... WHERE revoked_at is null` promotes the existing seed row (which the 20260514 migration already inserted) to developer only if it is active — never resurrects a revoked row (that would violate the CHECK). Idempotent.
+**Why force-activate rather than `DO NOTHING`/conditional update:** In the live DB the seed row (`edweiss412@gmail.com`, inserted active by `20260514000000:122-125`) is already active, so the `DO UPDATE` merely sets `is_developer = true` (a no-op on `revoked_*`). The `revoked_at = null` clause is purely defensive — it makes the *revoked-seed-row* edge case impossible rather than a silent zero-developer deploy. This resurrection is a one-time **bootstrap** action for the deploy-owner identity (distinct from the post-deploy revoke rules in §14) and is idempotent (apply-twice yields the same active-developer row). The `do $$ … raise exception … $$` guard aborts the surrounding transaction on failure (a `RAISE` — unlike a bare `RETURN` in a top-level `DO` — does abort the psql apply), so a zero-developer state can never reach production or the validation project.
 
 ### 4.3 `is_developer()` SECURITY DEFINER function (same migration)
 
@@ -260,7 +281,7 @@ Declared meta-test inventory (created or extended):
 4. **`tests/db/postgrest-dml-lockdown.test.ts`** (satisfied, not edited): `admin_emails` stays write-REVOKE'd for `authenticated` (verified `20260514000000:97-98`), so `is_developer` cannot be self-set via a direct PostgREST `PATCH`. No new RPC-gated *table* is introduced, so no new registry row.
 5. **`tests/auth/advisoryLockRpcDeadlock.test.ts`** (satisfied, may auto-include): `set_admin_developer_rpc` follows advisory-then-row-lock and holds the same key at a single layer. The test derives lock-taking RPCs from migration files; confirm the new RPC is recognized and passes.
 6. **`tests/messages/codes.test.ts`** (satisfied by the §8 lockstep): x1 catalog-parity.
-7. **New behavioral tests:** `set_admin_developer_rpc` (promote, demote-other, self-demote-refused, non-developer caller 42501, active-rows-only, revoke-clears-bit); `is_developer()` (email arm true; JWT arm true only when `role='admin'` AND `developer='true'`; **JWT `developer:true` WITHOUT `role='admin'` → FALSE** (Codex spec R1 HIGH); revoked row excluded); the toggle UI (visible only to developers, locked on self, outcome copy routed through `getDougFacing`); a Playwright e2e proving a normal-admin fixture sees none of the four surfaces and a developer fixture sees all four.
+7. **New behavioral tests:** `set_admin_developer_rpc` (promote, demote-other, self-demote-refused, non-developer caller 42501, active-rows-only, revoke-clears-bit); `is_developer()` (email arm true; JWT arm true only when `role='admin'` AND `developer='true'`; **JWT `developer:true` WITHOUT `role='admin'` → FALSE** (Codex spec R1 HIGH); revoked row excluded); the toggle UI (visible only to developers, locked on self, outcome copy routed through `getDougFacing`); a Playwright e2e proving a normal-admin fixture sees none of the four surfaces and a developer fixture sees all four; a **bootstrap-invariant test** asserting the migration leaves ≥1 active developer even when the seed row pre-exists in a *revoked* state — i.e. applying the migration against a DB whose `edweiss412@gmail.com` row is revoked yields an active `is_developer=true` row and does NOT raise (Codex spec R2 HIGH).
 
 ## 11. Flag lifecycle table (`is_developer`)
 
