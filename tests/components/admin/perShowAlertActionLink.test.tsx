@@ -72,7 +72,12 @@ describe("PerShowAlertSection action links", () => {
 
   it("ROLE_FLAGS_NOTICE without drive_file_id renders no action link", async () => {
     rows.value = [
-      { id: "a2", code: "ROLE_FLAGS_NOTICE", context: { changes: [] }, raised_at: "2026-07-04T10:00:00.000Z" },
+      {
+        id: "a2",
+        code: "ROLE_FLAGS_NOTICE",
+        context: { changes: [] },
+        raised_at: "2026-07-04T10:00:00.000Z",
+      },
     ];
     await renderSection();
     const row = screen.getByTestId("per-show-alert-a2");

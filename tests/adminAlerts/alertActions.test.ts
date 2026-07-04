@@ -55,7 +55,9 @@ describe("sheet links (spec §4 #4-#5)", () => {
     expect(resolveAlertAction("ROLE_FLAGS_NOTICE", null, noSlug)).toBeNull();
     expect(resolveAlertAction("ROLE_FLAGS_NOTICE", {}, noSlug)).toBeNull();
     expect(resolveAlertAction("ROLE_FLAGS_NOTICE", { drive_file_id: 42 }, noSlug)).toBeNull();
-    expect(resolveAlertAction("ROLE_FLAGS_NOTICE", { drive_file_id: { id: "x" } }, noSlug)).toBeNull();
+    expect(
+      resolveAlertAction("ROLE_FLAGS_NOTICE", { drive_file_id: { id: "x" } }, noSlug),
+    ).toBeNull();
     expect(resolveAlertAction("ROLE_FLAGS_NOTICE", { drive_file_id: "  " }, noSlug)).toBeNull();
   });
   it("LIVE_ROW_CONFLICT prefers the sheet link when drive_file_id present", () => {
@@ -88,7 +90,11 @@ describe("sheet links (spec §4 #4-#5)", () => {
     const folder_id = "fold-9";
     // Wrong-type or empty drive_file_id is IGNORED (str → null) → folder fallback.
     for (const badDrive of [42, { id: "x" }, "  "]) {
-      const action = resolveAlertAction("LIVE_ROW_CONFLICT", { drive_file_id: badDrive, folder_id }, noSlug);
+      const action = resolveAlertAction(
+        "LIVE_ROW_CONFLICT",
+        { drive_file_id: badDrive, folder_id },
+        noSlug,
+      );
       expect(action?.href).toBe(
         `https://drive.google.com/drive/folders/${encodeURIComponent(folder_id)}`,
       );

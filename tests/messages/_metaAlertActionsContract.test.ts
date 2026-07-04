@@ -37,7 +37,8 @@ const RAISE_SITE_PINS: RaiseSitePin[] = [
     file: "lib/sync/phase2.ts",
     // `as const` anchors the CONSTRUCTOR (:422-431) — the bare literal also
     // matches the roleFlagsNotice TYPE definition at :120-127 (2 matches).
-    pattern: /code: "ROLE_FLAGS_NOTICE" as const,[\s\S]{0,160}?context: \{[\s\S]{0,60}?drive_file_id:/g,
+    pattern:
+      /code: "ROLE_FLAGS_NOTICE" as const,[\s\S]{0,160}?context: \{[\s\S]{0,60}?drive_file_id:/g,
     expectedMatches: 1,
     pins: "drive_file_id enters the notice context at the constructor",
   },
@@ -115,7 +116,7 @@ describe("alert-action registry ↔ raise-site fidelity", () => {
 });
 
 describe("alert-action internal link targets exist", () => {
-  test('the #share-access anchor exists on the show page (spec §4 #1-#3)', () => {
+  test("the #share-access anchor exists on the show page (spec §4 #1-#3)", () => {
     expect(read("app/admin/show/[slug]/page.tsx")).toMatch(/id="share-access"/);
   });
   test("the onboarding wizard route exists (spec §4 #6)", () => {
@@ -148,9 +149,7 @@ describe("alert-action registry parity (spec §6.3)", () => {
     const block = source.match(/const ADMIN_ALERTS_CODES = \[([\s\S]*?)\] as const;/);
     const body = block?.[1] ?? "";
     expect(body.length).toBeGreaterThan(0);
-    const universe = new Set(
-      Array.from(body.matchAll(/"([A-Z0-9_]+)"/g), (m) => m[1] ?? ""),
-    );
+    const universe = new Set(Array.from(body.matchAll(/"([A-Z0-9_]+)"/g), (m) => m[1] ?? ""));
     for (const code of ALERT_ACTION_CODES) {
       expect(universe.has(code), `${code} missing from ADMIN_ALERTS_CODES`).toBe(true);
     }

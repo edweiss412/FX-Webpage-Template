@@ -80,9 +80,7 @@ describe("AlertBanner global action links", () => {
     // broken `actionLink ? <a> : <form>` implementation must fail here.
     const idInput = getByTestId("admin-alert-id-input");
     expect(idInput).toBeInTheDocument();
-    expect(
-      link.compareDocumentPosition(idInput) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(link.compareDocumentPosition(idInput) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("per-show row with a registered code renders Check it and NO action link (split rule)", async () => {
