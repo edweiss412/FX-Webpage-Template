@@ -27,6 +27,14 @@
  *   5. every `…-review-section-<id>`: width === content.clientWidth −
  *      computed paddingLeft − paddingRight (getComputedStyle — NO token
  *      literals in the test).
+ * Follow-ups Task 14 (spec 2026-07-03 §I/§K15): the harness fixture now ships
+ * cap+3 null-contentUrl diagram stubs + a linked folder + 5 crew-kind warn
+ * warnings, so the per-section sweep covers `section-diagrams`/`section-report`
+ * automatically and a dedicated test pins the diagrams grid (no horizontal
+ * scroll in the content pane; on-screen tiles === the spec cap; fixture-derived
+ * "+N more" note). Tap-target audit adds the report submit button, a crew
+ * callout "View details" button, and the diagrams folder link.
+ *
  * Plus (§15/§16): tap-target audit (grab strip, every visible chip, every
  * visible rail item, footer buttons ≥44px tall; a crew tel anchor ≥44×44);
  * nav exclusivity (exactly one of rail/chip rail visible per mode; exactly
@@ -84,10 +92,17 @@ const MODES = [
   { mode: "two-pane", width: 1280, height: 800, maxRatio: 0.8 },
 ] as const;
 
+// §B3 tile cap, duplicated as a SPEC literal (same deliberately-NOT-imported
+// rationale as HARNESS_DFID above): the harness renders cap+3 placeholder
+// stubs, so a component whose cap drifts from 12 shows a wrong on-screen tile
+// count and fails §K15 here, correctly.
+const DIAGRAM_TILE_CAP = 12;
+
 let server: Server;
 let baseUrl: string;
 let workDir: string;
 let compiledCss: string;
+let diagramStubCount: number;
 
 function pageHtml(cssHref: string, modalMarkup: string): string {
   return `<!doctype html>
@@ -110,10 +125,18 @@ test.beforeAll(async () => {
   );
   const pages = JSON.parse(readFileSync(pagesJson, "utf8")) as {
     dfid: string;
+    diagramStubCount: number;
     normal: string;
     long: string;
   };
   expect(pages.dfid, "spec-local dfid matches the harness fixture").toBe(HARNESS_DFID);
+  // §K15 anti-tautology: expected tile/overflow numbers derive from the
+  // FIXTURE's stub count (harness JSON), never from the rendered page.
+  diagramStubCount = pages.diagramStubCount;
+  expect(
+    diagramStubCount,
+    "fixture exceeds the tile cap (otherwise the cap assertion is vacuous)",
+  ).toBeGreaterThan(DIAGRAM_TILE_CAP);
 
   // Two harness pages: the default fixture, and the §9.1 long-content header
   // case (long unbroken title + long client + maximal dates summary).
@@ -293,15 +316,67 @@ for (const { mode, width, height, maxRatio } of MODES) {
     // agendaBaseline is empty in the fixture → 11 always-rendered sections
     // (registry contract, §6.1). Pin ≥ 11 so the loop can't pass vacuously.
     expect(count, "all registry sections render").toBeGreaterThanOrEqual(11);
+    const sweptIds: string[] = [];
     for (let i = 0; i < count; i++) {
       const s = sections.nth(i);
       const id = await s.getAttribute("data-testid");
+      if (id) sweptIds.push(id);
       const w = await s.evaluate((el) => el.getBoundingClientRect().width);
       expect(
         Math.abs(w - inner),
         `${id} width ${w} === content inner width ${inner} @ ${mode}`,
       ).toBeLessThanOrEqual(TOL);
     }
+    // Follow-ups Task 14 non-vacuity: the sweep really covers the two NEW
+    // sections (diagrams renders via the §B2 gate on the harness fixture;
+    // report is unconditional-last) — no assertion exemptions.
+    expect(sweptIds, `sweep covers the diagrams section @ ${mode}`).toContain(
+      tid("section-diagrams"),
+    );
+    expect(sweptIds, `sweep covers the report section @ ${mode}`).toContain(tid("section-report"));
+  });
+
+  test(`§K15 diagrams grid: no horizontal overflow, cap + fixture-derived overflow note @ ${mode} ${width}px`, async ({
+    page,
+  }) => {
+    await openHarness(page, { width, height });
+
+    // §I: tiles never overflow the detail pane — the content scroller gains
+    // NO horizontal scroll from the > cap grid.
+    const scroll = await page.locator(`[data-testid="${tid("content")}"]`).evaluate((el) => ({
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+    }));
+    expect(
+      scroll.scrollWidth,
+      `content scrollWidth ${scroll.scrollWidth} ≤ clientWidth ${scroll.clientWidth} @ ${mode}`,
+    ).toBeLessThanOrEqual(scroll.clientWidth);
+
+    // Every visible tile fits the content pane's width.
+    const tiles = page.locator(`[data-testid^="wizard-step3-card-${HARNESS_DFID}-diagram-tile-"]`);
+    const tileCount = await tiles.count();
+    for (let i = 0; i < tileCount; i++) {
+      const r = await tiles.nth(i).evaluate((el) => el.getBoundingClientRect().width);
+      expect(r, `diagram tile ${i} width ${r} > 0 @ ${mode}`).toBeGreaterThan(0);
+      expect(
+        r,
+        `diagram tile ${i} width ${r} ≤ content width ${scroll.clientWidth} @ ${mode}`,
+      ).toBeLessThanOrEqual(scroll.clientWidth + TOL);
+    }
+
+    // Cap + overflow note, DERIVED from the fixture (harness JSON): the
+    // fixture holds cap+3 valid stubs → exactly DIAGRAM_TILE_CAP tiles render
+    // and the note reads "+3 more". A component cap that drifts from the spec
+    // value renders a different count and fails here.
+    expect(tileCount, `on-screen tile count === spec cap @ ${mode}`).toBe(DIAGRAM_TILE_CAP);
+    const expectedExtra = diagramStubCount - DIAGRAM_TILE_CAP;
+    const sectionText = await page
+      .locator(`[data-testid="${tid("section-diagrams")}"]`)
+      .innerText();
+    expect(
+      sectionText,
+      `diagrams section carries the "+${expectedExtra} more" overflow note @ ${mode}`,
+    ).toContain(`+${expectedExtra} more`);
   });
 
   test(`§15 tap-target audit @ ${mode} ${width}px`, async ({ page }) => {
@@ -320,6 +395,27 @@ for (const { mode, width, height, maxRatio } of MODES) {
     if (mode === "sheet") {
       const grab = await rect(page, `[data-testid="${tid("grab")}"]`);
       expect(grab.height, "grab strip height ≥ 44").toBeGreaterThanOrEqual(TAP_MIN - TOL);
+    }
+
+    // Follow-ups Task 14 additions: the report submit button, a crew-callout
+    // "View details" jump button (§E3), and the diagrams folder link (§B3) are
+    // all new interactive targets — each ≥44px tall (parent-spec §15 rule).
+    for (const [label, sel] of [
+      ["report submit", `[data-testid="wizard-step3-card-${HARNESS_DFID}-report-submit"]`],
+      [
+        "callout View details",
+        `[data-testid="wizard-step3-card-${HARNESS_DFID}-section-crew-flag-callout"] button`,
+      ],
+      [
+        "diagrams folder link",
+        `[data-testid="wizard-step3-card-${HARNESS_DFID}-diagram-folder-link"]`,
+      ],
+    ] as const) {
+      const h = await page
+        .locator(sel)
+        .first()
+        .evaluate((el) => el.getBoundingClientRect().height);
+      expect(h, `${label} height ≥ 44 @ ${mode}`).toBeGreaterThanOrEqual(TAP_MIN - TOL);
     }
 
     // The VISIBLE nav's items (chips below lg, rail items at lg).

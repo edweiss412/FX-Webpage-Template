@@ -52,7 +52,11 @@ import { venueDisplay } from "@/lib/venue/venueLocation";
 // (Task 3, spec §4/§6.1) and are rendered by the review modal's registry.
 // Dependency is ONE-WAY: the card imports the helpers; the section module
 // never imports the card.
-import { arr, dateSummarySegments } from "@/components/admin/wizard/step3ReviewSections";
+import {
+  arr,
+  dateSummarySegments,
+  NotPublishableNote,
+} from "@/components/admin/wizard/step3ReviewSections";
 import { Step3ReviewModal } from "@/components/admin/wizard/Step3ReviewModal";
 import { postPublishIntent } from "@/lib/admin/publishIntent";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
@@ -196,29 +200,6 @@ function RescanReviewBanner({ dfid, wizardSessionId }: { dfid: string; wizardSes
         Review this sheet
         <ChevronRight aria-hidden="true" className="size-4" />
       </Link>
-    </div>
-  );
-}
-
-/**
- * audit idx39/#180: the minimal "needs attention — not publishable" indicator for a
- * row demoted by a NON-RESCAN finalize failure code (DRIVE_FETCH_FAILED,
- * STAGED_PARSE_SOURCE_OUT_OF_SCOPE, WIZARD_SESSION_SUPERSEDED, …). The publish checkbox
- * is suppressed for these (matching Step3Review.selectableRows + the server /approve
- * refusal), so this note replaces it and tells the operator the row can't be published
- * as-is. Plain-English only (invariant 5 — never the raw §12.4 code). Shares the warm
- * warning treatment (warning-bg + strong border + icon) with RescanReviewBanner; no
- * reapply link, since recovery for these codes flows through the next scan, not a
- * per-item reapply choice.
- */
-function NotPublishableNote({ dfid }: { dfid: string }) {
-  return (
-    <div
-      data-testid={`wizard-step3-card-${dfid}-not-publishable`}
-      className="flex items-start gap-2 rounded-md border border-border-strong bg-warning-bg p-tile-pad text-warning-text"
-    >
-      <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-      <p className="text-sm font-medium">This sheet needs attention before it can be published.</p>
     </div>
   );
 }

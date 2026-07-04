@@ -25,12 +25,65 @@ import {
 } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { Step3ReviewModal } from "@/components/admin/wizard/Step3ReviewModal";
 import type { SectionData } from "@/components/admin/wizard/step3ReviewSections";
-import type { CrewMemberRow, ParseResult } from "@/lib/parser/types";
+import type { CrewMemberRow, ParseResult, ParseWarning } from "@/lib/parser/types";
 import { buildParseResult, stagedRow } from "@/tests/components/admin/wizard/_step3ReviewFixture";
 
 /** Matches the fixture builders' fixed driveFileId (_step3ReviewFixture.ts). */
 export const HARNESS_DFID = "drive-abc-123";
 export const HARNESS_WSID = "00000000-1111-4222-8333-444444444444";
+
+/** Spec §B3 tile cap, duplicated as the SPEC value (12). This harness COULD
+ *  import DIAGRAM_TILE_CAP from step3ReviewSections safely (it is itself
+ *  tsx-subprocess/esbuild-compiled, never spec-imported), but the value is
+ *  pinned locally so a component whose cap drifts from the spec renders a
+ *  wrong tile count and FAILS the §K15 layout assertions, correctly. */
+const HARNESS_DIAGRAM_TILE_CAP = 12;
+/** §K15 fixture size: cap + 3 → the grid renders exactly the cap and the
+ *  overflow note reads "+3 more". Exported via the main-guard JSON (below) so
+ *  the layout spec derives tile expectations from the fixture, not literals. */
+export const HARNESS_DIAGRAM_STUB_COUNT = HARNESS_DIAGRAM_TILE_CAP + 3;
+/** Spec §E3 callout row cap, duplicated (same rationale as the tile cap):
+ *  CALLOUT_MAX_ENTRIES + 2 crew warnings → a callout with "View details" rows
+ *  AND a "+2 more in Parse warnings" overflow row both render (§K13). */
+const HARNESS_CALLOUT_MAX_ENTRIES = 3;
+export const HARNESS_CREW_WARNING_COUNT = HARNESS_CALLOUT_MAX_ENTRIES + 2;
+
+/** §K15 diagrams fixture: > cap valid stubs, ALL `contentUrl: null` so every
+ *  tile renders the deterministic placeholder (zero network, stable geometry),
+ *  plus a trusted linked-folder row so the folder link renders for the §15
+ *  tap-target audit. */
+function harnessDiagrams(): ParseResult["diagrams"] {
+  return {
+    linkedFolder: {
+      driveFolderId: "harness-diagram-folder",
+      driveFolderUrl: "https://drive.google.com/drive/folders/harness-diagram-folder",
+    },
+    embeddedImages: Array.from({ length: HARNESS_DIAGRAM_STUB_COUNT }, (_, i) => ({
+      sheetTab: "DIAGRAMS",
+      objectId: `harness-diagram-${i}`,
+      mimeType: "image/png",
+      alt: `Harness diagram ${i + 1}`,
+      contentUrl: null,
+      sheetsRevisionId: "harness-rev-1",
+      embeddedFingerprint: null,
+      recovery_disposition: "restage_required" as const,
+      snapshotPath: null,
+    })),
+    linkedFolderItems: [],
+  };
+}
+
+/** §K13 warnings fixture: warn-severity `crew`-kind warnings (mapped → the
+ *  crew section's flag callout). Messages are human-readable (no code token)
+ *  so `reviewWarningTitle` passes them through. */
+function harnessWarnings(): ParseWarning[] {
+  return Array.from({ length: HARNESS_CREW_WARNING_COUNT }, (_, i) => ({
+    severity: "warn" as const,
+    code: "HARNESS_CREW_WARNING",
+    message: `Crew assignment ${i + 1} could not be fully read.`,
+    blockRef: { kind: "crew", index: i },
+  }));
+}
 
 /** §9.1 long-content header case: a single UNBREAKABLE token (no spaces, no
  *  hyphens — hyphens are CSS soft-break opportunities), plus a long client and
@@ -69,7 +122,13 @@ export function buildSectionData(
   prOverrides: Partial<ParseResult> = {},
   showOverrides: Partial<ParseResult["show"]> = {},
 ): SectionData {
-  const base = buildParseResult(prOverrides);
+  // Harness defaults (diagrams + crew warnings, above) layer UNDER the
+  // caller's prOverrides so existing override-driven cases stay authoritative.
+  const base = buildParseResult({
+    diagrams: harnessDiagrams(),
+    warnings: harnessWarnings(),
+    ...prOverrides,
+  });
   const pr: ParseResult = {
     ...base,
     show: { ...base.show, ...showOverrides },
@@ -150,6 +209,8 @@ if (typeof require !== "undefined" && typeof module !== "undefined" && require.m
     outPath,
     JSON.stringify({
       dfid: HARNESS_DFID,
+      diagramStubCount: HARNESS_DIAGRAM_STUB_COUNT,
+      crewWarningCount: HARNESS_CREW_WARNING_COUNT,
       normal: renderModalHtml(),
       long: renderModalHtml({
         showOverrides: { title: LONG_TITLE, client_label: LONG_CLIENT, dates: LONG_DATES },

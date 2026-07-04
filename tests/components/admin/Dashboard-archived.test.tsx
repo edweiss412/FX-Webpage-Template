@@ -8,6 +8,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { ArchivedShowRow } from "@/components/admin/ArchivedShowRow";
 import { UnarchiveShowButton } from "@/components/admin/UnarchiveShowButton";
+import { dataGapClassDetails, type DataGapsSummary } from "@/lib/parser/dataGaps";
+
+// Derived badge accessible name from the single source of truth (anti-tautology).
+function expectedBadgeName(s: DataGapsSummary): string {
+  const breakdown = dataGapClassDetails(s)
+    .map((d) => `${d.count} ${d.label}`)
+    .join(", ");
+  return `${s.total} data ${s.total === 1 ? "gap" : "gaps"}: ${breakdown}`;
+}
 
 type ShowRow = Record<string, unknown> & { archived?: boolean };
 type Seed = {
@@ -57,6 +66,7 @@ function makeClient() {
         return builder;
       };
       builder.is = () => builder;
+      builder.not = () => builder;
       builder.order = () => builder;
       builder.limit = () => builder;
       builder.in = (col: string) => {
@@ -250,5 +260,38 @@ describe("Dashboard segmented Active/Archived bucket (§3.1)", () => {
     // a self-disable cancels the dispatch); it is type=submit, enabled at rest.
     expect((btn as HTMLButtonElement).type).toBe("submit");
     expect((btn as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  // parse-data-quality-warnings badge (spec §3.2 site B) — archived rows.
+  it("T7: archived row shows the data-quality badge (role=img, derived name)", () => {
+    const summary: DataGapsSummary = {
+      total: 2,
+      classes: { FIELD_UNREADABLE: 0, UNKNOWN_SECTION_HEADER: 0, BLOCK_DISAPPEARED: 2 },
+    };
+    render(
+      <ArchivedShowRow
+        row={{
+          id: "arch1",
+          slug: "arch1",
+          title: "Archived One",
+          showDateStart: null,
+          showDateEnd: null,
+          crewCount: 0,
+          lastSyncedAt: null,
+          lastSyncStatus: null,
+          published: false,
+          isLive: false,
+          finalizeOwned: false,
+          archivedAt: "2026-06-01T00:00:00.000Z",
+          dataGaps: summary,
+        }}
+        now={new Date("2026-06-03T12:00:00.000Z")}
+        unarchiveAction={async () => {}}
+      />,
+    );
+    expect(screen.getByRole("img", { name: expectedBadgeName(summary) })).toHaveAttribute(
+      "data-testid",
+      "shows-data-quality-arch1",
+    );
   });
 });

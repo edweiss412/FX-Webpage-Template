@@ -16,6 +16,8 @@ type Seed = {
   ingestionCount?: number;
   syncRows?: Record<string, unknown>[];
   syncCount?: number;
+  showsInternalRows?: Record<string, unknown>[]; // { show_id, parse_warnings }[]
+  showsInternalError?: { message: string }; // returned-{error} injection for the degrade path
 };
 
 const state = vi.hoisted(() => ({
@@ -104,6 +106,10 @@ function makeClient() {
         }
         if (table === "pending_ingestions") return { data: seed.ingestionRows ?? [], error: null };
         if (table === "pending_syncs") return { data: seed.syncRows ?? [], error: null };
+        if (table === "shows_internal") {
+          if (seed.showsInternalError) return { data: null, error: seed.showsInternalError };
+          return { data: seed.showsInternalRows ?? [], error: null };
+        }
         return { data: [], error: null };
       };
       const builder: Record<string, unknown> = {};
@@ -114,6 +120,7 @@ function makeClient() {
       };
       builder.eq = pass;
       builder.is = pass;
+      builder.not = pass;
       builder.order = pass;
       builder.limit = pass;
       builder.in = (col: string, args: unknown[]) => {
@@ -168,6 +175,7 @@ function makeDeferredClient() {
       };
       builder.eq = pass;
       builder.is = pass;
+      builder.not = pass;
       builder.order = pass;
       builder.limit = pass;
       builder.in = (col: string) => {
@@ -670,5 +678,93 @@ describe("fetchDashboardData parallelization (nav-perf phase 1)", () => {
     nowDateSpy.mockClear();
     await Dashboard();
     expect(nowDateSpy).toHaveBeenCalledTimes(1);
+  });
+
+  // ── parse-data-quality-warnings badge (spec §2) ──────────────────────────
+  it("T1: populates row.dataGaps from shows_internal.parse_warnings (data-source)", async () => {
+    state.seed = {
+      showsList: [
+        { id: "s1", slug: "rpas", title: "RPAS", dates: null, venue: null, published: true },
+      ],
+      showsActiveCount: 1,
+      showsInternalRows: [
+        {
+          show_id: "s1",
+          parse_warnings: [
+            { severity: "warn", code: "FIELD_UNREADABLE", message: "x" },
+            { severity: "warn", code: "FIELD_UNREADABLE", message: "y" },
+            { severity: "warn", code: "UNKNOWN_SECTION_HEADER", message: "z" },
+          ],
+        },
+      ],
+    };
+    const { fetchDashboardData } = await import("@/components/admin/Dashboard");
+    const result = await fetchDashboardData();
+    if ("kind" in result) throw new Error("unexpected infra_error");
+    expect(result.rows.find((r) => r.slug === "rpas")!.dataGaps).toEqual({
+      total: 3,
+      classes: { FIELD_UNREADABLE: 2, UNKNOWN_SECTION_HEADER: 1, BLOCK_DISAPPEARED: 0 },
+    });
+    expect(result.dataGapsDegraded).toBe(false);
+  });
+
+  it("T2: a clean show OMITS the dataGaps key (exactOptional-safe)", async () => {
+    state.seed = {
+      showsList: [
+        { id: "s1", slug: "clean", title: "Clean", dates: null, venue: null, published: true },
+      ],
+      showsActiveCount: 1,
+      showsInternalRows: [
+        {
+          show_id: "s1",
+          parse_warnings: [{ severity: "info", code: "FIELD_UNREADABLE", message: "i" }],
+        },
+      ],
+    };
+    const { fetchDashboardData } = await import("@/components/admin/Dashboard");
+    const result = await fetchDashboardData();
+    if ("kind" in result) throw new Error("unexpected infra_error");
+    expect("dataGaps" in result.rows.find((r) => r.slug === "clean")!).toBe(false);
+  });
+
+  it("T3: a RETURNED { error } on shows_internal degrades VISIBLE (no infra_error, dataGapsDegraded true)", async () => {
+    state.seed = {
+      showsList: [
+        { id: "s1", slug: "rpas", title: "RPAS", dates: null, venue: null, published: true },
+      ],
+      showsActiveCount: 1,
+      showsInternalError: { message: "boom" },
+    };
+    const { fetchDashboardData } = await import("@/components/admin/Dashboard");
+    const result = await fetchDashboardData();
+    if ("kind" in result) throw new Error("must NOT blank the dashboard");
+    expect(result.dataGapsDegraded).toBe(true);
+    expect(result.rows.every((r) => !("dataGaps" in r))).toBe(true);
+  });
+
+  it("T3c: malformed parse_warnings (non-array + bad element) skips only that row, never throws", async () => {
+    state.seed = {
+      showsList: [
+        { id: "s1", slug: "nonarray", title: "N", dates: null, venue: null, published: true },
+        { id: "s2", slug: "badel", title: "B", dates: null, venue: null, published: true },
+        { id: "s3", slug: "valid", title: "V", dates: null, venue: null, published: true },
+      ],
+      showsActiveCount: 3,
+      showsInternalRows: [
+        { show_id: "s1", parse_warnings: { not: "an array" } },
+        { show_id: "s2", parse_warnings: [null] },
+        {
+          show_id: "s3",
+          parse_warnings: [{ severity: "warn", code: "BLOCK_DISAPPEARED", message: "d" }],
+        },
+      ],
+    };
+    const { fetchDashboardData } = await import("@/components/admin/Dashboard");
+    const result = await fetchDashboardData();
+    if ("kind" in result) throw new Error("malformed data must not blank the dashboard");
+    expect(result.dataGapsDegraded).toBe(false);
+    expect("dataGaps" in result.rows.find((r) => r.slug === "nonarray")!).toBe(false);
+    expect("dataGaps" in result.rows.find((r) => r.slug === "badel")!).toBe(false);
+    expect(result.rows.find((r) => r.slug === "valid")!.dataGaps?.total).toBe(1);
   });
 });

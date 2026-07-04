@@ -6,11 +6,13 @@ export function NeedsAttentionSummaryCard({
   totalCount,
   ingestionTotal,
   syncTotal,
+  syncProblemTotal,
   className,
 }: {
   totalCount: number;
   ingestionTotal: number;
   syncTotal: number;
+  syncProblemTotal: number;
   className?: string;
 }) {
   const zero = totalCount === 0;
@@ -40,6 +42,11 @@ export function NeedsAttentionSummaryCard({
               {syncTotal > 0 && (
                 <span data-testid="summary-chip-syncs" className="tabular-nums">
                   {syncTotal} to review
+                </span>
+              )}
+              {syncProblemTotal > 0 && (
+                <span data-testid="summary-chip-sync-problems" className="tabular-nums">
+                  {syncProblemTotal} sync problem{syncProblemTotal === 1 ? "" : "s"}
                 </span>
               )}
             </span>

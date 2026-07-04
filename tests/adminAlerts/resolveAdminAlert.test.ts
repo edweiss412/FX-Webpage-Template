@@ -48,9 +48,19 @@ describe("resolveAdminAlert", () => {
   test("resolves a show-scoped alert by show_id and code", async () => {
     const { client, calls } = fakeResolveClient({ data: [{ id: "alert-1" }], error: null });
 
-    await resolveAdminAlert({ showId: "show-1", code: "SHEET_UNAVAILABLE" }, client);
+    // A non-inbox per-show code (SHEET_UNAVAILABLE is now inbox-routed → auto-clear only).
+    await resolveAdminAlert({ showId: "show-1", code: "TILE_PROJECTION_FETCH_FAILED" }, client);
 
     expect(calls).toContainEqual({ method: "eq", column: "show_id", value: "show-1" });
+  });
+
+  test("rejects an inbox-routed code (auto-clear only) without touching the client", async () => {
+    const { client, from } = fakeResolveClient({ error: null });
+
+    await expect(
+      resolveAdminAlert({ showId: "show-1", code: "SHEET_UNAVAILABLE" }, client),
+    ).rejects.toThrow(/auto-resolve-only/i);
+    expect(from).not.toHaveBeenCalled();
   });
 
   test("throws on a returned DB error", async () => {
@@ -134,5 +144,17 @@ describe("resolveAdminAlerts (bulk)", () => {
     await expect(
       resolveAdminAlerts({ showId: null, codes: ["SYNC_STALLED"] }, client as never),
     ).rejects.toThrow(/network down/);
+  });
+
+  test("rejects when any code in the batch is inbox-routed", async () => {
+    const { client, from } = fakeResolveClient({ error: null });
+
+    await expect(
+      resolveAdminAlerts(
+        { showId: "show-1", codes: ["SYNC_STALLED", "PARSE_ERROR_LAST_GOOD"] },
+        client,
+      ),
+    ).rejects.toThrow(/auto-resolve-only/i);
+    expect(from).not.toHaveBeenCalled();
   });
 });

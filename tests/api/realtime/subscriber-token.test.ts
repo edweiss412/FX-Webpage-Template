@@ -78,6 +78,19 @@ describe("POST /api/realtime/subscriber-token", () => {
     expect(body.error).toBe("SHOW_REALTIME_BROADCAST_AUTH_FAILED");
   });
 
+  test("selection_reset (per-member reset) denies with 401, like epoch_stale", async () => {
+    state.picker = {
+      kind: "selection_reset",
+      expectedEpoch: 4,
+      expectedCrewMemberId: "22222222-2222-4222-8222-222222222222",
+    };
+    const res = await POST(makeReq({ slug: "test-show" }, "__Host-fxav_picker=signed"));
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { error?: string; reason?: string };
+    expect(body.error).toBe("SHOW_REALTIME_BROADCAST_AUTH_FAILED");
+    expect(body.reason).toBe("selection_reset");
+  });
+
   test("valid picker cookie mints crew realtime JWT without legacy crew claims", async () => {
     state.picker = { kind: "resolved", crewMemberId: "22222222-2222-4222-8222-222222222222" };
 

@@ -34,6 +34,8 @@ function lockTakingRpcNames(): string[] {
     "supabase/migrations/20260502000000_dev_schema_clone.sql",
     "supabase/migrations/20260523000003_reset_picker_epoch_atomic.sql",
     "supabase/migrations/20260523000004_rotate_show_share_token.sql",
+    // Per-crew picker reset (2026-07-03) — self-locking admin RPC.
+    "supabase/migrations/20260703000001_reset_crew_member_selection.sql",
     "supabase/migrations/20260523000007_select_identity_atomic.sql",
     "supabase/migrations/20260524000002_claim_oauth_identity.sql",
     // M12 Phase 0.C Task 0.C.4 — validation tooling mint RPC.
@@ -88,6 +90,7 @@ describe("advisory-lock RPC deadlock guard", () => {
     const lockTakingNames = lockTakingRpcNames();
     expect(lockTakingNames).toContain("reset_picker_epoch_atomic");
     expect(lockTakingNames).toContain("rotate_show_share_token");
+    expect(lockTakingNames).toContain("reset_crew_member_selection");
     expect(lockTakingNames).toContain("select_identity_atomic");
     expect(lockTakingNames).toContain("claim_oauth_identity");
     // M12 Phase 0.C Task 0.C.4 — validation reseed mint RPC is the sole
@@ -126,6 +129,9 @@ describe("advisory-lock RPC deadlock guard", () => {
       "app/admin/dev/actions.ts",
       "lib/auth/picker/resetPickerEpoch.ts",
       "lib/auth/picker/rotateShareToken.ts",
+      // Per-crew picker reset (2026-07-03) — awaits the self-locking reset_crew_member_selection
+      // RPC bare (no JS-side withShowAdvisoryLock); nesting would deadlock (M5 R20 class).
+      "lib/auth/picker/resetCrewMemberSelection.ts",
       "lib/auth/picker/selectIdentity.ts",
       // Sync changes-feed Phase 3 — the MI-11 gate server actions await the self-locking RPCs
       // bare (no JS-side withShowAdvisoryLock); nesting would deadlock under burst (M5 R20 class).
@@ -184,6 +190,7 @@ describe("advisory-lock RPC deadlock guard", () => {
     const lockTakingMigrations = [
       "supabase/migrations/20260523000003_reset_picker_epoch_atomic.sql",
       "supabase/migrations/20260523000004_rotate_show_share_token.sql",
+      "supabase/migrations/20260703000001_reset_crew_member_selection.sql",
       "supabase/migrations/20260523000007_select_identity_atomic.sql",
       "supabase/migrations/20260524000002_claim_oauth_identity.sql",
       "supabase/migrations/20260527210000_mint_validation_fixture_atomic.sql",

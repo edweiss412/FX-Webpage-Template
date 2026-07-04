@@ -88,9 +88,9 @@ export const AFFORDANCE_MATRIX: ReadonlyArray<AffordanceRow> = [
   },
   {
     kind: "concrete",
-    sourceSurface: "Dashboard footer - Take the tour",
+    sourceSurface: "Dashboard footer - New here?",
     sourceRoute: "/admin",
-    affordance: "Take the tour",
+    affordance: "New here?",
     testid: "help-affordance--dashboard-footer--tour",
     target: "/help/tour",
     visibleAt: "both",

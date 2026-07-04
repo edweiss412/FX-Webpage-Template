@@ -24,7 +24,7 @@ const TOKEN = "a".repeat(64);
 const COOKIE_NAME = "__Host-fxav_picker";
 
 type ShowRow = { id: string; published: boolean; archived: boolean };
-type CrewClaimRow = { claimed_via_oauth_at: string | null };
+type CrewClaimRow = { claimed_via_oauth_at: string | null; selections_reset_at: string | null };
 
 let resolvedShowId: string | null;
 let resolveError: unknown;
@@ -74,7 +74,7 @@ beforeEach(() => {
   resolveError = null;
   showRow = { id: SHOW_ID, published: true, archived: false };
   showError = null;
-  crewClaimRow = { claimed_via_oauth_at: "2025-01-15T12:00:00.123Z" };
+  crewClaimRow = { claimed_via_oauth_at: "2025-01-15T12:00:00.123Z", selections_reset_at: null };
   crewError = null;
 
   vi.mocked(isAdminSession).mockReset();
@@ -150,6 +150,29 @@ describe("resolveShowPageAccess", () => {
     expect(resolvePickerSelection).not.toHaveBeenCalled();
   });
 
+  test("google-success: a reset marker after the pick routes to picker bootstrap (companion surface)", async () => {
+    vi.mocked(validateGoogleSession).mockResolvedValue({
+      kind: "success",
+      viewer: { kind: "crew", email: "crew@example.com", showId: SHOW_ID, crewMemberId: CREW_ID },
+    });
+    // Claimed BEFORE the pick (so the claim check passes), but a reset stamped AFTER the pick.
+    crewClaimRow = {
+      claimed_via_oauth_at: "2025-01-15T12:00:00.123Z",
+      selections_reset_at: "2026-07-03T12:00:00.000Z",
+    };
+    const resetMillis = new Date("2026-07-03T12:00:00.000Z").getTime();
+
+    const result = await resolveShowPageAccess({
+      slug: SLUG,
+      shareToken: TOKEN,
+      req: req(pickerCookie({ t: resetMillis - 1000 })), // picked before the reset
+    });
+
+    expect(result.kind).toBe("needs_picker_bootstrap");
+    // The cookie resolver is never reached — the google branch re-bootstraps first.
+    expect(resolvePickerSelection).not.toHaveBeenCalled();
+  });
+
   test("keeps a same-user post-claim cookie on the cookie resolver path", async () => {
     vi.mocked(validateGoogleSession).mockResolvedValue({
       kind: "success",
@@ -213,6 +236,15 @@ describe("resolveShowPageAccess", () => {
       },
     ],
     [
+      { kind: "selection_reset" as const, expectedEpoch: 7, expectedCrewMemberId: CREW_ID },
+      {
+        kind: "selection_reset",
+        showId: SHOW_ID,
+        expectedEpoch: 7,
+        expectedCrewMemberId: CREW_ID,
+      },
+    ],
+    [
       {
         kind: "identity_invalidated" as const,
         expectedEpoch: 7,
@@ -247,6 +279,7 @@ describe("resolveShowPageAccess", () => {
       | "no_auth"
       | "epoch_stale"
       | "removed_from_roster"
+      | "selection_reset"
       | "identity_invalidated";
     type TerminalKind = Exclude<ResolveShowPageAccessResult["kind"], PageRenderingKind>;
     type PageRenderingArm = Extract<ResolveShowPageAccessResult, { kind: PageRenderingKind }>;
