@@ -5,7 +5,9 @@ import {
   type NeedsAttentionSyncProblemInput,
 } from "@/lib/admin/needsAttention";
 
-const sp = (over: Partial<NeedsAttentionSyncProblemInput> = {}): NeedsAttentionSyncProblemInput => ({
+const sp = (
+  over: Partial<NeedsAttentionSyncProblemInput> = {},
+): NeedsAttentionSyncProblemInput => ({
   alertId: "a1",
   showId: "s1",
   slug: "east-coast",
@@ -95,9 +97,9 @@ describe("resolveSyncProblemCopy", () => {
     expect(
       resolveSyncProblemCopy({ code: "SHEET_UNAVAILABLE", sheetName: null, title: "RPAS" }),
     ).toContain("RPAS");
-    expect(resolveSyncProblemCopy({ code: "SHEET_UNAVAILABLE", sheetName: null, title: null })).toBe(
-      "Sheet no longer in folder",
-    );
+    expect(
+      resolveSyncProblemCopy({ code: "SHEET_UNAVAILABLE", sheetName: null, title: null }),
+    ).toBe("Sheet no longer in folder");
     expect(
       resolveSyncProblemCopy({ code: "PARSE_ERROR_LAST_GOOD", sheetName: null, title: null }),
     ).toBe("Latest edit didn't parse");

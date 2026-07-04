@@ -150,7 +150,10 @@ describe("resolveAdminAlerts (bulk)", () => {
     const { client, from } = fakeResolveClient({ error: null });
 
     await expect(
-      resolveAdminAlerts({ showId: "show-1", codes: ["SYNC_STALLED", "PARSE_ERROR_LAST_GOOD"] }, client),
+      resolveAdminAlerts(
+        { showId: "show-1", codes: ["SYNC_STALLED", "PARSE_ERROR_LAST_GOOD"] },
+        client,
+      ),
     ).rejects.toThrow(/auto-resolve-only/i);
     expect(from).not.toHaveBeenCalled();
   });

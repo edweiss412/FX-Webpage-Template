@@ -78,9 +78,10 @@ describe("META manual-resolve lockdown for inbox-routed codes", () => {
         continue; // caller path drifted; the helper throw still protects at runtime
       }
       for (const code of INBOX_ROUTED_CODES) {
-        expect(src, `${p} must not pass inbox-routed code ${code} to a manual resolver`).not.toMatch(
-          new RegExp(`resolveAdminAlert[\\s\\S]{0,200}"${code}"`),
-        );
+        expect(
+          src,
+          `${p} must not pass inbox-routed code ${code} to a manual resolver`,
+        ).not.toMatch(new RegExp(`resolveAdminAlert[\\s\\S]{0,200}"${code}"`));
       }
     }
   });
