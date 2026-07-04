@@ -269,12 +269,13 @@ pre-existing admin action functions** (`archiveShowAction`, `unarchiveShowAction
 `setShowPublishedAction`, `mi11ApproveAction`, `mi11RejectAction`, `undoChangeAction`) — is a
 FROZEN `{ file, fn }`-keyed baseline whose behavioral backfill is `BL-ADMIN-OUTCOME-BEHAVIOR`.
 The meta-test asserts the baseline set is exactly that frozen list and **never grows**. Every
-admin surface NOT in the baseline — the
-~19 seeded by this change (settings, validation, admin-management, dev, onboarding, the 3
-admin picker mutations, `manifest/…/ignore`, `reap-stale-sessions`) and every future one —
-MUST be in the executable recorder set (a real sink-spy success-branch test, §10.7), never the
-grandfather list. That is the structural, uniform closure of the wrong-branch hole for both
-surface kinds. Reads are exempt (§4.3).
+admin surface NOT in the baseline — the **exactly 20 admin surfaces seeded by this change**
+(the §3.1 A canonical list minus the one non-admin `confirmUnpublishAction`: settings ×4,
+validation ×2, admin-management ×3, dev ×2, onboarding ×2, the 3 admin picker mutations,
+`resolveAdminAlertFormAction`, `retryWatchSubscriptionFormAction`, `manifest/…/ignore`,
+`reap-stale-sessions`) and every future one — MUST be in the executable recorder set (a real
+sink-spy success-branch test, §10.7), never the grandfather list. That is the structural,
+uniform closure of the wrong-branch hole for both surface kinds. Reads are exempt (§4.3).
 
 ### 4.3 Escape hatches (three, by intent)
 
@@ -526,12 +527,19 @@ forces any NEW admin surface, route or action, to ship one).
 - **EXTENDS:** `tests/log/_metaAdminOutcomeContract.test.ts` — new `AUDITABLE_MUTATIONS` rows
   (incl. `MANIFEST_SHEET_IGNORED`, `STALE_SESSIONS_REAPED`, the settings/admin/dev/onboarding
   action codes, and the 3 admin picker codes) + `SANCTIONED_CODES`/`NEW_FORENSIC_CODES`.
-- **REFACTORS (Codex R8):** extract the `AUDITABLE_MUTATIONS` array (and the sanctioned-code
-  sets) from `_metaAdminOutcomeContract.test.ts` into a shared non-test module (e.g.
-  `tests/log/_auditableMutations.ts`) that BOTH `_metaAdminOutcomeContract.test.ts` and the
-  new discovery test import — so the discovery test's admin-route registry-membership check
-  reads the single source of truth, not a duplicated list. Pure move; the existing contract
-  test's behavior is unchanged.
+- **REFACTORS (Codex R8/R14):** extract the `AUDITABLE_MUTATIONS` array (and the
+  sanctioned-code sets) from `_metaAdminOutcomeContract.test.ts` into a shared non-test module
+  (e.g. `tests/log/_auditableMutations.ts`) that BOTH `_metaAdminOutcomeContract.test.ts` and
+  the new discovery test import — single source of truth. **During the extraction each row
+  gains a surface key `fn` → the registry is `{ file, fn, code }` (Codex R14 F1):** `fn:
+  "POST"` for route rows, the exported action name for action rows (a multi-action file thus
+  has one row per function, e.g. `admins/actions.ts` → `{fn:"addAdminAction",code:"ADMIN_GRANTED"}`
+  and `{fn:"revokeAdminAction",code:"ADMIN_REVOKED"}`). `_metaAdminOutcomeContract` still keys
+  its static emit-check on `{ file, code }` (adding `fn` is backward-compatible extra data);
+  the discovery + behavioral coverage use the full `{ file, fn, code }` tuple, so a new admin
+  action in a registered file has NO registry binding until its own `{ file, fn, code }` row is
+  added. The coverage assertion (§10.5) requires the behavioral record's tuple to **exactly
+  match** the surface's registry tuple.
 - **CREATES (Codex R9/R10): the executable `ADMIN_OUTCOME_BEHAVIOR` proof, in ONE
   self-contained test file** `tests/log/adminOutcomeBehavior.test.ts` (Codex R11 F2 — a
   cross-file in-memory recorder is unreliable under Vitest's per-file isolation / workers /
@@ -543,8 +551,11 @@ forces any NEW admin surface, route or action, to ship one).
   for every non-grandfathered admin surface (route OR action) that drives the committed-success
   path and, **only after** the spy observes the expected code, calls
   `recordAdminOutcomeBehavior({ file, fn, code })`; (3) ends with a coverage assertion that
-  imports the pure per-function admin-surface enumerator and asserts every non-grandfathered
-  admin surface `{ file, fn }` has a matching `recorded` entry. Because population and
+  imports the pure per-function admin-surface enumerator + the shared `{ file, fn, code }`
+  registry and asserts every non-grandfathered admin surface `{ file, fn }` has a `recorded`
+  entry whose **full `{ file, fn, code }` tuple exactly matches its registry row** (Codex R14
+  F1 — a record with the wrong/absent code, or a registry row with no matching record, fails).
+  Because population and
   assertion live in the same module scope, order is deterministic and immune to sharding. The
   frozen `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER` set (also `{ file, fn }`-keyed) is exactly the
   **30 pre-existing surface units — 24 route `POST`s + 6 pre-existing admin action functions**
@@ -579,12 +590,16 @@ forces any NEW admin surface, route or action, to ship one).
 3. **Route-multiplicity assertion** — a dedicated assertion that no `route.ts` exports >1
    mutating method (the tripwire that keeps route file-level scoping equivalent to
    per-handler); prove it can fail via an in-memory two-mutating-method route string.
-4. **Admin registry-linkage — routes AND actions (Codex R8/R10)** — every discovered admin
-   surface (route under `app/api/admin/**` OR action whose body calls a `require*` gate) must
-   be in `AUDITABLE_MUTATIONS` or exempt (assert against the live tree). Negative fixtures: a
+4. **Admin registry-linkage — routes AND actions, per surface key (Codex R8/R10/R14)** — every
+   discovered admin surface `{ file, fn }` (route under `app/api/admin/**`, `fn:"POST"`; OR
+   action whose body calls a `require*` gate) must have a matching `{ file, fn, code }` row in
+   the shared registry or be exempt (assert against the live tree). Negative fixtures: a
    synthetic admin route whose only `await logAdminOutcome(...)` sits in an **unused nested
-   helper** and which is NOT registered MUST fail; likewise a synthetic admin action with the
-   emit on a catch branch and no registry row MUST fail. **Admin-exemption hygiene (Codex R11
+   helper** and which has no registry row MUST fail; a synthetic admin action with the emit on
+   a catch branch and no registry row MUST fail; **a new admin action added to an
+   already-registered multi-action file (a fixture with a 3rd export) MUST fail because its
+   `{ file, fn }` has no registry row, even though the file already has sibling rows** (Codex
+   R14 F1). **Admin-exemption hygiene (Codex R11
    F1):** an admin surface carrying a bare `// no-telemetry:` (no `ADMIN_SURFACE_EXEMPTIONS`
    row) MUST fail; an `ADMIN_SURFACE_EXEMPTIONS` `delegator` row whose `delegatesTo` is NOT in
    `AUDITABLE_MUTATIONS` MUST fail; a `read-only` row on a function that contains a
