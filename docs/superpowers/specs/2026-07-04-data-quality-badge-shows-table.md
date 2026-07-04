@@ -323,10 +323,17 @@ the title container uses `items-center` (flex), so the badge is vertically cente
 and the state pill. `shrink-0` prevents the badge from being compressed when a long title wraps
 (Tailwind v4 has **no** default `align-items: stretch` and no default `flex-shrink` surprise here —
 `shrink-0` is explicit). There is **no** fixed-height parent → child-fills-parent relationship
-introduced by this feature (the badge is intrinsically sized), so **no** new Playwright
-`getBoundingClientRect` height-equality assertion is required. A layout test **is** still warranted
-to confirm the badge does not force the title row taller than a badge-less row and does not overflow
-its cell (see §6, Task L).
+introduced by this feature (the badge is intrinsically sized), so the AGENTS.md real-browser
+`getBoundingClientRect` height-equality mandate — which targets a **fixed-height/width parent with
+stretch-dependent flex/grid children** — is **NOT triggered** here. This is the SAME determination
+the repo already made for every existing data-gap surface: the layout guard
+`tests/components/admin/dataGapsChipRowLayout.test.tsx` (a **jsdom structural** test) documents the
+trigger assessment, and `DEFERRED.md` entry **DQ-1** records the real-browser height-equality
+assertion as **N/A / deferred** for content-height `items-center` data-gap surfaces (re-triggered
+only if a surface is ever moved into a fixed-height parent). The badge is the same shape
+(content-height `flex items-center gap-2` container, intrinsic `size-3.5` glyph), so the layout guard
+for it is likewise a **jsdom structural** assertion (placement + `items-center` + `shrink-0`), and
+DQ-1's surface list is extended to name it (see §6, Task L).
 
 ### 4.2 Transition inventory
 
@@ -438,10 +445,15 @@ container that also renders the count elsewhere. Expected label strings are **de
   inventory rows (badge, archived insertion, degraded notice), each INSTANT. The audit's blanket grep
   then fails if any of these grows a framer-motion/`AnimatePresence` wrapper. (Do **not** use
   `showsTableTransitionAudit.test.tsx` — that guards status pills, a different surface.)
-- **T-L — layout (real browser).** See §6 Task L: assert (a) `shows-data-quality-<slug>` is inside the
-  Show-cell title container and vertically centered with the title, and (b) a badge-bearing row's
-  height equals a badge-less row's height within 0.5px (the badge must not inflate row height). Real
-  browser (Playwright), not jsdom.
+- **T-L — layout (jsdom structural; real-browser N/A per DQ-1).** The AGENTS.md real-browser
+  height-equality mandate is **not triggered** (§4.1 — the badge's parent is a content-height
+  `items-center` container, not a fixed-dimension parent with stretch-dependent children). Mirror the
+  existing data-gap layout guard: **extend** `tests/components/admin/dataGapsChipRowLayout.test.tsx`
+  (jsdom) to assert the badge (a) is a child of the Show-cell **title container** (sibling of the
+  title span, ordered **before** the inline status pill), (b) carries `shrink-0`, and (c) sits in a
+  container with `items-center`. Additionally **extend `DEFERRED.md` DQ-1** to name the two badge
+  surfaces (ShowsTable title row, ArchivedShowRow title row) as covered by the N/A determination. No
+  new Playwright spec — consistent with §4.1 and the DQ-1 precedent.
 
 **Meta-test inventory:** this milestone **EXTENDS** two existing structural meta-tests and creates
 none.
@@ -493,8 +505,10 @@ No new §12.4 code → no catalog / `spec-codes` / `codes-coverage` touchpoints.
    `ArchivedShowRow` (Site B) → green. Commit `feat(admin): data-quality badge on shows-table + archived rows`.
 3. **Task T (transition audit):** extend `tests/components/admin/dataGapsTransitionAudit.test.tsx`
    (§4.2 / §5.2) — the three new source files + inventory rows.
-4. **Task L (layout, real browser):** the badge does not inflate row height / stays in the title
-   cell; Playwright `getBoundingClientRect`, not jsdom.
+4. **Task L (layout, jsdom structural + DQ-1 N/A):** extend `dataGapsChipRowLayout.test.tsx` with the
+   badge placement / `items-center` / `shrink-0` structural assertions, and extend `DEFERRED.md` DQ-1
+   to name the badge surfaces. Real-browser height-equality is N/A here (§4.1 — not a fixed-dimension
+   parent), matching the repo's existing determination for every data-gap surface.
 5. **Invariant-8 impeccable dual-gate** (`/impeccable critique` + `/impeccable audit`) on the UI diff
    — `DataQualityBadge.tsx` + `ShowsTable.tsx` + `ArchivedShowRow.tsx` + `Dashboard.tsx` (the §3.5
    degraded notice makes `Dashboard.tsx` a user-visible UI surface under invariant 8, `AGENTS.md:20`)
