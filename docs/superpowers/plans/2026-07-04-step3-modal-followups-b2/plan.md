@@ -167,8 +167,13 @@ Failure mode: the second shipped bug — default path never wires `fetchXlsxByte
 - [ ] **Step 5: implement** — in the route module:
 
 ```ts
+// The route's full import block becomes (extending route.ts:3-7's existing named imports):
 import { fetchCurrentSheetXlsxBytes } from "@/lib/drive/fetch";
-import { hasStagedPreviewSource, /* existing imports */ } from "@/lib/admin/stagedDiagramGuards";
+import {
+  hasStagedPreviewSource,
+  isRenderableDiagramStub,
+  isTrustedDiagramContentUrl,
+} from "@/lib/admin/stagedDiagramGuards";
 
 export function defaultStagedDiagramFetchImageBytes(
   stub: EmbeddedImageStub,
@@ -308,12 +313,21 @@ Branch at `:1122` uses `showCheckedSlot`; both buttons use `disabled={isPending}
 
 ### Task 8: Transition audit (spec §B3 + §D2 inventories)
 
-**Files:** read-only audit of `Step3ReviewModal.tsx` footer + `ReportIssueSection`; assertions land in Task 4/7 test files if gaps found.
+**Files:** Modify `tests/components/admin/wizard/step3ReviewModal.transitions.test.tsx` (extend the existing §11 source-marker audit, `:1004-1075`); Modify `components/admin/wizard/step3ReviewSections.tsx` (marker comments only).
 
-- [ ] **Step 1:** list every conditional render touched by this branch: footer slot ternary (`showCheckedSlot`), error-note conditional, disclosure `{expanded ? … : null}`. For each, confirm the treatment matches the spec inventory (ALL pairs instant-by-design; no `AnimatePresence`/exit props needed — the modal's existing animated surfaces are untouched).
-- [ ] **Step 2:** confirm compound coverage exists: checked-settlement-during-pending (T-B1's harness IS this compound), error-note + new-op (T-B2), collapse-during-pending (T-D3b). If any is missing from the written tests, add it in the corresponding test file now.
-- [ ] **Step 3:** run `pnpm vitest run tests/components/admin/wizard/step3ReviewModal.transitions.test.tsx` → PASS (existing §11 transition-contract pins unaffected).
-- [ ] **Step 4:** commit only if Step 2 added tests: `test(admin): transition-audit gap coverage for footer slot / report disclosure`
+Spec inventories this task pins (from §B3/§D2 — every pair instant or N/A-unreachable; NO animated pairs are added by this branch):
+
+| Surface | Pairs |
+|---|---|
+| Footer slot (§B3) | P-idle↔P-pending instant; P-idle↔U-idle instant; U-pending→P-idle instant (reverse unreachable); P-pending↔U-idle N/A; P-pending↔U-pending N/A; U-idle↔U-pending instant; error-note hidden↔visible instant |
+| Report disclosure (§D2) | collapsed↔expanded instant; status idle→pending / pending↔success / pending↔error instant; idle↔success, idle↔error, success↔error N/A (always via pending) |
+
+Compound coverage mapping (already TDD'd in earlier tasks — verify, don't duplicate): checked-settlement-during-pending = T-B1's harness; error-note + new-op = T-B2; collapse-during-pending = T-D3(b).
+
+- [ ] **Step 1: failing structural test** — add a describe to `step3ReviewModal.transitions.test.tsx` that reads the `ReportIssueSection` source region (slice `step3ReviewSections.tsx` from `"export function ReportIssueSection"` to the next top-level `export`), runs the file's existing `findConditionalLines` over it, and asserts every conditional-render hit carries a deliberate-instant marker on the line above (reuse `isClassified`; marker text `§D2: instant — deliberate`). Run → FAIL (Task 7's new `{expanded ? (` conditional has no marker).
+- [ ] **Step 2: implement** — add the `{/* §D2: instant — deliberate (spec §D2 collapsed↔expanded) */}` marker line above the disclosure conditional in `ReportIssueSection` (and any other unmarked conditional-render hit the scan finds in that region).
+- [ ] **Step 3:** run the whole file: `pnpm vitest run tests/components/admin/wizard/step3ReviewModal.transitions.test.tsx` → PASS, INCLUDING the existing curated-count assertion (`exactly 10 conditional-render sites` in `Step3ReviewModal.tsx`, `:1038-1041`) — Task 4 changed the slot ternary's CONDITION but must not have added/removed conditional sites; if the count did shift, reconcile the curated list + markers here, not by loosening the test.
+- [ ] **Step 4:** commit `test(admin): §D2 source-marker audit covers ReportIssueSection conditionals`
 
 ### Task 9: Close-out verification
 
