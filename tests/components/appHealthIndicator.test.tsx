@@ -3,7 +3,7 @@
 // app-health indicator + Doug popover.
 //   - dot color+label pairing per state (AC3 exact class mapping);
 //   - Doug renders a <button> opening the popover; developer renders a <Link>
-//     deep-linking to /admin/observability#health;
+//     deep-linking to /admin/dev/telemetry#health;
 //   - popover lists the plain-language summaries, a "+N more" overflow note,
 //     and the literally-true closing reassurance line — never "notified".
 import { afterEach, describe, expect, test, vi } from "vitest";
@@ -79,11 +79,11 @@ describe("AppHealthIndicator — Doug button vs developer deep-link", () => {
     expect(getByTestId("app-health-popover")).toBeTruthy();
   });
 
-  test("developer (isDeveloper=true) renders an anchor to /admin/observability#health", () => {
+  test("developer (isDeveloper=true) renders an anchor to /admin/dev/telemetry#health", () => {
     const { getByTestId } = render(<AppHealthIndicator rollup={degraded} isDeveloper={true} />);
     const trigger = getByTestId("app-health-indicator");
     expect(trigger.tagName).toBe("A");
-    expect(trigger.getAttribute("href")).toBe("/admin/observability#health");
+    expect(trigger.getAttribute("href")).toBe("/admin/dev/telemetry#health");
   });
 });
 

@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * components/admin/observability/HealthAlertResolveButton.tsx
+ * components/admin/telemetry/HealthAlertResolveButton.tsx
  * (alert-audience-split Task 9, spec §6.6)
  *
  * The per-row Resolve control on the developer HealthAlertsPanel, bound to the

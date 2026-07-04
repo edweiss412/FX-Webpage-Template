@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // tests/components/healthAlertsPanel.test.tsx (alert-audience-split Task 8, spec §6.6)
 //
-// The developer detail panel on /admin/observability#health. Task 8 proves rows
+// The developer detail panel on /admin/dev/telemetry#health. Task 8 proves rows
 // are REACHABLE (per-partition SSR pagination + action links + copy). The Resolve
 // control (RESOLVABILITY) is wired in Task 9.
 import "@testing-library/jest-dom/vitest";
@@ -36,7 +36,7 @@ function row(overrides: Partial<HealthAlertRow> & { id: string; code: string }):
 }
 
 async function renderPanel(searchParams: Record<string, string | string[] | undefined> = {}) {
-  const { HealthAlertsPanel } = await import("@/components/admin/observability/HealthAlertsPanel");
+  const { HealthAlertsPanel } = await import("@/components/admin/telemetry/HealthAlertsPanel");
   render(await HealthAlertsPanel({ searchParams }));
 }
 

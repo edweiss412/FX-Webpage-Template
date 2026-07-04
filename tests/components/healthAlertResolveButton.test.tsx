@@ -45,7 +45,7 @@ afterEach(cleanup);
 describe("HealthAlertResolveButton (Task 9 wiring)", () => {
   test("renders a Server-Action <form> with a hidden id + submit button (no JSON-route href)", async () => {
     const { HealthAlertResolveButton } =
-      await import("@/components/admin/observability/HealthAlertResolveButton");
+      await import("@/components/admin/telemetry/HealthAlertResolveButton");
     render(<HealthAlertResolveButton alertId="abc" />);
     const form = screen.getByTestId("health-alert-resolve-form-abc");
     expect(form.tagName).toBe("FORM");
@@ -62,8 +62,7 @@ describe("HealthAlertResolveButton (Task 9 wiring)", () => {
       weight === "degraded" && page === 1
         ? { kind: "ok", rows: [row("row51", "WEBHOOK_TOKEN_INVALID")], hasMore: false }
         : { kind: "ok", rows: [], hasMore: false };
-    const { HealthAlertsPanel } =
-      await import("@/components/admin/observability/HealthAlertsPanel");
+    const { HealthAlertsPanel } = await import("@/components/admin/telemetry/HealthAlertsPanel");
     render(await HealthAlertsPanel({ searchParams: { dpage: "1" } }));
     expect(screen.getByTestId("health-alert-resolve-row51")).toBeInTheDocument();
   });
@@ -73,8 +72,7 @@ describe("HealthAlertResolveButton (Task 9 wiring)", () => {
       weight === "notice" && page === 1
         ? { kind: "ok", rows: [row("n51", "PICKER_SELECTION_RACE")], hasMore: false }
         : { kind: "ok", rows: [], hasMore: false };
-    const { HealthAlertsPanel } =
-      await import("@/components/admin/observability/HealthAlertsPanel");
+    const { HealthAlertsPanel } = await import("@/components/admin/telemetry/HealthAlertsPanel");
     render(await HealthAlertsPanel({ searchParams: { npage: "1" } }));
     expect(screen.getByTestId("health-alert-resolve-n51")).toBeInTheDocument();
   });

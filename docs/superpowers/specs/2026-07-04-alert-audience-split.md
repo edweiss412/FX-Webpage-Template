@@ -24,7 +24,7 @@ We split alerts by **audience**:
   but **not made invisible**: it rolls up into a single **app-health indicator** that
   escalates green → amber → red by worst-active severity. Doug clicks it for a
   plain-language "system status" summary; a developer clicks it to deep-link into the
-  already-dev-gated `/admin/observability` feed.
+  already-dev-gated `/admin/dev/telemetry` feed.
 
 Nothing goes dark. Doug keeps an ambient, honest health read without an actionable-noise
 amber alarm.
@@ -160,7 +160,7 @@ the meta-test asserts presence + that non-`health` codes do **not** carry `healt
 | **NEW** health rollup | `lib/admin/healthRollup.ts` | `.in("code", HEALTH_CODES)` on unresolved rows → worst-active `HealthStatus` |
 | **NEW** nav indicator | `components/admin/nav/AppHealthIndicator.tsx` | escalating dot beside `NotifBell` (`AdminNav.tsx:114`) |
 | **NEW** dashboard breakdown + popover | `components/admin/AppHealthPanel.tsx` | fuller breakdown on `/admin`; Doug popover vs dev deep-link |
-| **NEW** developer detail | `app/admin/observability/page.tsx` + `components/admin/observability/HealthAlertsPanel.tsx` | dev-gated unresolved-health-alert detail list (§6.6) — the real target of the developer deep-link |
+| **NEW** developer detail | `app/admin/dev/telemetry/page.tsx` + `components/admin/telemetry/HealthAlertsPanel.tsx` | dev-gated unresolved-health-alert detail list (§6.6) — the real target of the developer deep-link |
 
 ### 5.1 Threading the rollup
 
@@ -298,7 +298,7 @@ avoids an unstated client provider. Each read is independently pinned by the
 - `min-h-tap-min min-w-tap-min` (44px tap target), matching `NotifBell`.
 - **Doug** (`isDeveloper === false`): the indicator is a `<button>` that opens the popover
   (§6.4). **Developer** (`isDeveloper === true`): it is a
-  `<Link href="/admin/observability#health">` targeting the `HealthAlertsPanel` (§6.6).
+  `<Link href="/admin/dev/telemetry#health">` targeting the `HealthAlertsPanel` (§6.6).
 
 ### 6.4 Doug popover — `AppHealthPopover`
 
@@ -322,17 +322,17 @@ avoids an unstated client provider. Each read is independently pinned by the
 - Rendered on `/admin` near the header (a `StatusIndicator`-style row), below `AlertBanner`
   inside the existing `<div id="alerts">` region or as a sibling status strip.
 - Shows the same worst-active state as the nav dot, with the count and (for developers) a
-  "View details →" link to `/admin/observability`; for Doug, the same popover trigger.
+  "View details →" link to `/admin/dev/telemetry`; for Doug, the same popover trigger.
 - Green/clean state: renders a quiet "All systems normal" `StatusIndicator` (positive hue)
   — this surface is allowed to show the healthy state explicitly (unlike the banner, which
   is invisible when clean), because it is the ambient health read.
 
-### 6.6 Developer detail — `HealthAlertsPanel` on `/admin/observability` (R2 finding 1)
+### 6.6 Developer detail — `HealthAlertsPanel` on `/admin/dev/telemetry` (R2 finding 1)
 
 The developer deep-link MUST land on a surface that actually shows the underlying health
 alerts — otherwise "nothing goes dark" is violated for the person who can act. This brings
 a scoped health-alert detail list **into scope** on the already-`requireDeveloper`-gated
-`/admin/observability` page (`page.tsx:20` `requireDeveloperIdentity()`).
+`/admin/dev/telemetry` page (`page.tsx:20` `requireDeveloperIdentity()`).
 
 - `HealthAlertsPanel` renders ABOVE the existing cron-health/event-timeline content
   (a new section; the page keeps `CronHealthHeader` + `EventTimeline`).
@@ -392,7 +392,7 @@ a scoped health-alert detail list **into scope** on the already-`requireDevelope
   - **Navigation (R5 finding 3):** the per-show route
     (`app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts`) returns **JSON**, so a plain
     `<form action="/api/…">` would navigate the developer to a raw JSON document. A Server
-    Action instead revalidates in place (`revalidatePath("/admin/observability")`) and
+    Action instead revalidates in place (`revalidatePath("/admin/dev/telemetry")`) and
     stays on `#health`. `PerShowAlertResolveButton.tsx:42-63` shows the alternative
     (client `fetch` + `router.refresh()`); the Server Action is simpler and avoids the
     JSON-nav trap entirely.
@@ -418,13 +418,13 @@ a scoped health-alert detail list **into scope** on the already-`requireDevelope
     **`ADMIN_ALERT_RESOLVED`** outcome code (same as `resolveAdminAlertFormAction`), passing
     the canonical developer **actor email** from `requireDeveloperIdentity()`, and
     revalidates BOTH surfaces the health state feeds: **`revalidatePath("/admin", "layout")`
-    AND `revalidatePath("/admin/observability")`** (R11 finding 1). The `/admin` layout
+    AND `revalidatePath("/admin/dev/telemetry")`** (R11 finding 1). The `/admin` layout
     revalidation is REQUIRED because the nav health indicator's rollup is read in the admin
-    layout (§5.1) — revalidating only `/admin/observability` would clear the panel row while
+    layout (§5.1) — revalidating only `/admin/dev/telemetry` would clear the panel row while
     leaving the persistent nav dot stale (red/amber) until the next navigation. A
     no-row/already-resolved UPDATE is an idempotent no-op (no false success outcome, no
     `logAdminOutcome`).
-- Deep-link anchor: `/admin/observability#health` so the indicator link scrolls to the
+- Deep-link anchor: `/admin/dev/telemetry#health` so the indicator link scrolls to the
   panel; the panel wrapper has `id="health"` + a stable `data-testid`. Clicking Resolve
   stays on `#health` (Server Action revalidate), removes the resolved row, and never
   renders raw JSON (browser test).
@@ -553,7 +553,7 @@ on the next full render (no mid-open mutation). No `AnimatePresence` on the dot 
     → `infra_error`; returned `{error}` → `infra_error`; awaited throw → `infra_error`; a
     **non-number `count`** → `infra_error`. `data === null` is NORMAL for head probes and is
     NOT an integrity failure (the row must NOT require array-shaped `data`).
-  - the `HealthAlertsPanel` row-list loader (`app/admin/observability/page.tsx` or its loader
+  - the `HealthAlertsPanel` row-list loader (`app/admin/dev/telemetry/page.tsx` or its loader
     module) returns ROWS, so ITS contract requires **array-shaped `data`**: construction/
     returned-error/awaited-throw → `infra_error`; non-array `data` with no error (integrity
     failure) → degraded panel.
@@ -636,7 +636,7 @@ light/dark contrast. The plan's Task 0 implements it and Task 5 consumes `bg-sta
   This feature's health-resolve gating is app-surface defense-in-depth only.
 - Realtime/live push of the indicator (it updates on normal admin navigation /
   server re-render, like the bell).
-- Reworking `/admin/observability`'s existing app_events + cron-health content. This
+- Reworking `/admin/dev/telemetry`'s existing app_events + cron-health content. This
   feature ADDS a `HealthAlertsPanel` (§6.6) above that content but does not touch it.
 
 ## 13. Acceptance criteria
@@ -653,7 +653,7 @@ light/dark contrast. The plan's Task 0 implements it and Task 5 consumes `bg-sta
   `notice`, amber; with none, green; on rollup infra_error, neutral "unknown".
 - AC4: Doug (non-developer) clicking the indicator sees the plain-language popover
   (catalog `dougSummary` lines, capped at 4 + overflow note, no raw codes, no action
-  controls). A developer clicking it lands on `/admin/observability`.
+  controls). A developer clicking it lands on `/admin/dev/telemetry`.
 - AC4b: Seeding **multiple distinct** health codes with distinct `dougSummary` text
   renders each deduped line with its **exact** per-text count (from the per-code head-count
   aggregate, §6.1 — NOT a capped row sample), in worst-weight-first order, and a "+N more
@@ -678,7 +678,7 @@ light/dark contrast. The plan's Task 0 implements it and Task 5 consumes `bg-sta
 - AC7: No raw error code string reaches the DOM on any surface (invariant 5).
 - AC8: All new Supabase reads destructure `{ data, error }` and surface infra faults as
   typed results (invariant 9).
-- AC9: A developer at `/admin/observability` sees the `HealthAlertsPanel` listing each
+- AC9: A developer at `/admin/dev/telemetry` sees the `HealthAlertsPanel` listing each
   unresolved health alert with its lookup-rendered copy (no raw code), `healthWeight` chip,
   show link (when `show_id` set), `raised_at`, `occurrence_count`, a working Resolve
   control, and — for the 6 health codes in `ALERT_ACTION_CODES` — its per-code
@@ -691,7 +691,7 @@ light/dark contrast. The plan's Task 0 implements it and Task 5 consumes `bg-sta
   per-show JSON route (both admin-only + the JSON route navigates away). A test seeds a
   show-scoped health alert, resolves it from the panel via that action, and asserts the row
   is resolved AND drops out of the health rollup. The developer indicator link targets
-  `/admin/observability#health`.
+  `/admin/dev/telemetry#health`.
 - AC10: An **uncataloged** `admin_alerts.code` (neither info nor health) remains visible in
   `AlertBanner`, is counted by `alertCount`, appears in `PerShowAlertSection` (if
   show-scoped), and is **absent** from the health rollup — proving the exclusion-not-allowlist
@@ -718,7 +718,7 @@ light/dark contrast. The plan's Task 0 implements it and Task 5 consumes `bg-sta
   `BL-ADMIN-POSTGREST-DML-LOCKDOWN`); the spec does not claim otherwise.
 - AC12: `/admin` renders the `AppHealthPanel` from seeded health rows (its own pinned
   `fetchHealthRollup()` read), not only the nav dot. Clicking a show-scoped health alert's
-  Resolve control on `/admin/observability#health` stays on `#health`, removes the row, and
+  Resolve control on `/admin/dev/telemetry#health` stays on `#health`, removes the row, and
   never renders raw JSON.
 - AC14: `EMAIL_NOT_CONFIGURED` and `EMAIL_DELIVERY_FAILED` are `audience:"health"`
   (degraded): absent from `AlertBanner`/`NotifBell`/`PerShowAlertSection`, present in the
@@ -731,7 +731,7 @@ light/dark contrast. The plan's Task 0 implements it and Task 5 consumes `bg-sta
   health alert is never invisible under the onboarding layout state (R15 finding 2).
 - AC12 (cont.): **Resolving the LAST unresolved health alert also clears the
   persistent nav indicator** (the action revalidates `/admin` layout, §6.6) — asserted by
-  mocking `revalidatePath` (both `/admin` layout + `/admin/observability`) and a browser
+  mocking `revalidatePath` (both `/admin` layout + `/admin/dev/telemetry`) and a browser
   check that the nav dot returns to green after the resolve, no manual refresh.
 
 ## 14. Watchpoints (disagreement-loop preempts — do not relitigate)
@@ -768,7 +768,7 @@ light/dark contrast. The plan's Task 0 implements it and Task 5 consumes `bg-sta
 - **Exclusion, not allowlist (R2).** Doug surfaces `.not("code","in", INFO ∪ HEALTH)`;
   unknown codes stay Doug-visible. The rollup `.in("code", HEALTH)`. This is the settled
   fail-visible posture — do not "simplify" to a doug-allowlist (it would hide unknowns).
-- **Developer detail is IN scope (R2).** `HealthAlertsPanel` on `/admin/observability`
+- **Developer detail is IN scope (R2).** `HealthAlertsPanel` on `/admin/dev/telemetry`
   (§6.6) is the real deep-link target with per-row lookup copy + Resolve. The deep-link is
   not hollow. Resolution uses the NEW dev-gated `resolveHealthAlertFormAction` (§6.6), and
   the legacy resolve surfaces are guarded to reject health codes (§6.7) — NOT a reuse of

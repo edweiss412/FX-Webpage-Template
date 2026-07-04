@@ -255,11 +255,11 @@ export async function resolveHealthAlertFormAction(formData: FormData): Promise<
     ...(showId ? { showId } : {}),
     extra: { alertId: id },
   });
-  // BOTH surfaces the health state feeds (R11 finding 1): the observability panel
+  // BOTH surfaces the health state feeds (R11 finding 1): the telemetry panel
   // AND the /admin layout (the nav health indicator's rollup is read in the layout,
   // §5.1) — revalidating only the panel would leave the persistent nav dot stale.
   revalidatePath("/admin", "layout");
-  revalidatePath("/admin/observability");
+  revalidatePath("/admin/dev/telemetry");
 }
 
 // Admin self-service retry for the Drive push subscription (spec §3.6).

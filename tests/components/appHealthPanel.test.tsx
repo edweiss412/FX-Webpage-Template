@@ -12,7 +12,7 @@
  *     surface IS allowed to show the healthy state explicitly (unlike the amber
  *     banner, which is invisible when clean).
  *   - active (notice/degraded) → the worst-active state + the count, plus a
- *     developer "View details →" deep-link to /admin/observability#health OR
+ *     developer "View details →" deep-link to /admin/dev/telemetry#health OR
  *     (for Doug) the same popover trigger.
  *   - infra_error → a quiet "status unknown" row (never a raw error code).
  *
@@ -80,12 +80,12 @@ describe("AppHealthPanel (Task 7 / AC12)", () => {
     expect(panel).toHaveTextContent("3");
   });
 
-  test("developer + active → 'View details →' deep-link to /admin/observability#health", async () => {
+  test("developer + active → 'View details →' deep-link to /admin/dev/telemetry#health", async () => {
     rollupState.result = degraded;
     devState.isDeveloper = true;
     await renderPanel();
     const link = screen.getByRole("link", { name: /View details/i });
-    expect(link).toHaveAttribute("href", "/admin/observability#health");
+    expect(link).toHaveAttribute("href", "/admin/dev/telemetry#health");
   });
 
   test("Doug + active → a popover trigger button (no deep-link)", async () => {

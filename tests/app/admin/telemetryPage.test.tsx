@@ -12,7 +12,7 @@ vi.mock("@/lib/auth/requireDeveloper", () => ({
 vi.mock("@/lib/time/now", () => ({ nowDate: async () => new Date("2026-06-29T12:00:00.000Z") }));
 // HealthAlertsPanel is an async Server Component (own loadHealthAlerts reads);
 // stub it here so the page-render test doesn't hit Supabase (alert-audience-split §6.6).
-vi.mock("@/components/admin/observability/HealthAlertsPanel", () => ({
+vi.mock("@/components/admin/telemetry/HealthAlertsPanel", () => ({
   HealthAlertsPanel: () => null,
 }));
 // The page renders client children (EventFilters, AutoRefreshControl) that call App Router

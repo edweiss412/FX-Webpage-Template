@@ -107,7 +107,7 @@ describe("resolveHealthAlertFormAction", () => {
       }),
     );
     expect(revalidatePath).toHaveBeenCalledWith("/admin", "layout");
-    expect(revalidatePath).toHaveBeenCalledWith("/admin/observability");
+    expect(revalidatePath).toHaveBeenCalledWith("/admin/dev/telemetry");
   });
 
   it("AC11/AC12 show-scoped health row → outcome carries showId; BOTH revalidate paths", async () => {
@@ -118,7 +118,7 @@ describe("resolveHealthAlertFormAction", () => {
       expect.objectContaining({ code: "ADMIN_ALERT_RESOLVED", showId: "show-1" }),
     );
     expect(revalidatePath).toHaveBeenCalledWith("/admin", "layout");
-    expect(revalidatePath).toHaveBeenCalledWith("/admin/observability");
+    expect(revalidatePath).toHaveBeenCalledWith("/admin/dev/telemetry");
   });
 
   it("code ∉ HEALTH_CODES → rejected, no write, no log, no revalidate", async () => {

@@ -1,10 +1,10 @@
 /**
- * components/admin/observability/HealthAlertsPanel.tsx
+ * components/admin/telemetry/HealthAlertsPanel.tsx
  * (alert-audience-split Task 8/9, spec §6.6)
  *
  * The developer-only detail list of unresolved health-audience `admin_alerts`,
  * rendered ABOVE the cron-health/event-timeline content on the already-
- * `requireDeveloper`-gated /admin/observability page. Health-audience alerts no
+ * `requireDeveloper`-gated /admin/dev/telemetry page. Health-audience alerts no
  * longer surface on Doug's amber banner/bell/per-show; the developer deep-link
  * lands HERE so "nothing goes dark" holds for the person who can act.
  *
@@ -28,7 +28,7 @@ import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { renderCatalogEmphasis } from "@/components/messages/renderEmphasis";
 import { formatRelative } from "@/lib/time/relative";
 import { nowDate } from "@/lib/time/now";
-import { HealthAlertResolveButton } from "@/components/admin/observability/HealthAlertResolveButton";
+import { HealthAlertResolveButton } from "@/components/admin/telemetry/HealthAlertResolveButton";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -50,7 +50,7 @@ function loadMoreHref(
     qs.set(k, Array.isArray(v) ? (v[0] ?? "") : v);
   }
   qs.set(param, String(nextPage));
-  return `/admin/observability?${qs.toString()}#health`;
+  return `/admin/dev/telemetry?${qs.toString()}#health`;
 }
 
 const PANEL_CLASS = "flex flex-col gap-section-gap";

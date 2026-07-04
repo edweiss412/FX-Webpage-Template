@@ -6,7 +6,7 @@
  * Presentation split mirrors `AppHealthIndicator` (§6.3), but as a text control
  * rather than the nav dot:
  *   - developer → a "View details →" deep-link to the uncapped
- *     `HealthAlertsPanel` on /admin/observability#health;
+ *     `HealthAlertsPanel` on /admin/dev/telemetry#health;
  *   - Doug (`isDeveloper === false`) → a button that opens the same
  *     plain-language `AppHealthPopover`.
  * `isDeveloper` drives ONLY presentation, never access (rows are admin-gated).
@@ -33,7 +33,7 @@ export function AppHealthPanelAction({
   if (isDeveloper) {
     return (
       <Link
-        href="/admin/observability#health"
+        href="/admin/dev/telemetry#health"
         data-testid="app-health-panel-details"
         className={LINK_CLASS}
       >

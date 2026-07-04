@@ -1,7 +1,7 @@
 // lib/admin/healthAlerts.ts
 //
 // Paginated developer-detail loader for the HealthAlertsPanel on
-// /admin/observability (spec 2026-07-04-alert-audience-split §6.6).
+// /admin/dev/telemetry (spec 2026-07-04-alert-audience-split §6.6).
 //
 // Health weight lives in the CATALOG, not a DB column, so the panel orders
 // "degraded before notice" via TWO partitioned queries — this loader runs ONE

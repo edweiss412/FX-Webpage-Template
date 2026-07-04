@@ -16,7 +16,7 @@
  *
  * Presentation split (§6.3): Doug (`isDeveloper === false`) gets a <button>
  * that opens the plain-language `AppHealthPopover`; the developer gets a
- * <Link href="/admin/observability#health"> deep-link to the uncapped
+ * <Link href="/admin/dev/telemetry#health"> deep-link to the uncapped
  * `HealthAlertsPanel`. `isDeveloper` drives ONLY presentation, never access
  * (rows are already admin-gated).
  *
@@ -86,7 +86,7 @@ export function AppHealthIndicator({
   if (isDeveloper) {
     return (
       <Link
-        href="/admin/observability#health"
+        href="/admin/dev/telemetry#health"
         data-testid="app-health-indicator"
         aria-label={LABEL[kind]}
         title={TITLE[kind]}
