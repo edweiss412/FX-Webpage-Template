@@ -30,17 +30,15 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import { ShowsTable } from "@/components/admin/ShowsTable";
 import { ArchivedShowRow } from "@/components/admin/ArchivedShowRow";
 import type { ActiveShowRow } from "@/lib/admin/showDisplay";
-import type { DataGapsSummary } from "@/lib/parser/dataGaps";
+import { formatDataGapBreakdown, type DataGapsSummary } from "@/lib/parser/dataGaps";
+import { mkDataGaps } from "../../helpers/dataGapsFixture";
 
 afterEach(cleanup);
 
 const now = new Date("2026-06-03T12:00:00.000Z");
 
 function gaps(total: number): DataGapsSummary {
-  return {
-    total,
-    classes: { FIELD_UNREADABLE: total, UNKNOWN_SECTION_HEADER: 0, BLOCK_DISAPPEARED: 0 },
-  };
+  return mkDataGaps({ FIELD_UNREADABLE: total });
 }
 
 function row(over: Partial<ActiveShowRow> & { slug: string }): ActiveShowRow {
@@ -87,6 +85,33 @@ describe("data-gaps chip row — layout structure (no fixed-dimension-parent ris
     // …and the chip comes BEFORE the action in document order.
     expect(chip.compareDocumentPosition(action) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(bar.firstElementChild).toBe(chip);
+  });
+
+  it("the held-row chip title is bounded to 4 classes + '+N more' via the shared cap helper", () => {
+    // 6 distinct classes → the chip `title` must be the bounded helper output, not
+    // the unbounded 6-class join (Codex plan R2 MEDIUM: chip is a third cap surface).
+    const summary = mkDataGaps({
+      FIELD_UNREADABLE: 1,
+      UNKNOWN_SECTION_HEADER: 1,
+      BLOCK_DISAPPEARED: 1,
+      UNKNOWN_FIELD: 1,
+      SCHEDULE_TIME_UNPARSED: 1,
+      UNKNOWN_ROLE_TOKEN: 1,
+    });
+    render(
+      <ShowsTable
+        rows={[row({ slug: "cap", dataGaps: summary })]}
+        now={now}
+        activeCount={1}
+        overflowCount={0}
+        rowAction={(r) => <button data-testid={`publish-${r.slug}`}>Publish</button>}
+      />,
+    );
+    const chip = screen.getByTestId("shows-data-gaps-chip-cap");
+    const expected = formatDataGapBreakdown(summary); // derived from the data source
+    expect(chip.getAttribute("title")).toBe(expected);
+    expect(expected).toMatch(/\+2 more$/);
+    expect(chip.getAttribute("title")).not.toMatch(/unrecognized role/); // 6th class not shown
   });
 
   it("the row-action bar pins items-center + flex-wrap (the stretch/overflow guards)", () => {

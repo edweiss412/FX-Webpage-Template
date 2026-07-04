@@ -30,7 +30,7 @@ import {
 import { StatusIndicator } from "@/components/admin/StatusIndicator";
 import { HoverHelp } from "@/components/admin/HoverHelp";
 import { syncStatusBucket, type SyncBucket } from "@/lib/admin/syncStatus";
-import { dataGapClassDetails, type DataGapsSummary } from "@/lib/parser/dataGaps";
+import { formatDataGapBreakdown, type DataGapsSummary } from "@/lib/parser/dataGaps";
 import { DataQualityBadge } from "@/components/admin/DataQualityBadge";
 
 type ShowsTableProps = {
@@ -240,8 +240,9 @@ function rowTitle(row: ActiveShowRow): string {
 // raw §12.4 code literal (invariant 5).
 function DataGapsChip({ slug, dataGaps }: { slug: string; dataGaps: DataGapsSummary | undefined }) {
   if (!dataGaps || dataGaps.total === 0) return null;
-  const details = dataGapClassDetails(dataGaps);
-  const breakdown = details.map((d) => `${d.count} ${d.label}`).join(", ");
+  // Bounded (≤4 classes + "+N more") via the shared cap helper so the hover
+  // title never grows unbounded across the 22 gap classes.
+  const breakdown = formatDataGapBreakdown(dataGaps);
   return (
     <span
       data-testid={`shows-data-gaps-chip-${slug}`}
