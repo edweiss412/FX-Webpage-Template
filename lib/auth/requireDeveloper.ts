@@ -247,3 +247,21 @@ export async function requireDeveloper(opts?: RequireDeveloperOpts): Promise<voi
 
   await resolveDeveloperIdentity();
 }
+
+/**
+ * VISIBILITY-ONLY developer probe. Fail-to-false: any infra fault or non-true
+ * value returns false, so a blip HIDES dev tools (never reveals them to a
+ * normal admin). Deliberately NOT error-first — the opposite posture from
+ * requireDeveloper, correct for visibility (spec §3.4/§5.1).
+ * not-subject-to-meta: visibility-only fail-to-false, not an access gate.
+ */
+export async function isCurrentUserDeveloper(): Promise<boolean> {
+  try {
+    const supabase = await createSupabaseServerClient();
+    const { data, error } = await supabase.rpc("is_developer");
+    if (error) return false;
+    return data === true;
+  } catch {
+    return false;
+  }
+}
