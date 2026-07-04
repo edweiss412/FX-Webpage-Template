@@ -84,15 +84,15 @@ Context-field citations (verified at HEAD 9fe749a7):
 
 - **All `class: "auto"` codes** (21, per the `ADMIN_ALERTS_LIFECYCLE` registry at `tests/messages/_metaAdminAlertCatalog.test.ts:312-484` — that registry is the single source of truth for the list; this spec deliberately does not re-enumerate it): N/A. Auto-resolution (PR #283) removes the row when the condition clears; an action link on a self-healing alert adds nothing.
 - **`AMBIGUOUS_EMAIL_BINDING`**: remedy is fixing the duplicate binding in the source sheet's crew grid (Google-side edit); context carries the canonicalized `email` plus `crew_member_ids` (`lib/auth/validateGoogleSession.ts:40-46`) — no `drive_file_id`, so no sheet to link, and a `mailto:` on the ambiguous address is not a remediation affordance.
-- **`OAUTH_IDENTITY_CLAIMED`**: awareness notice; no destination.
-- **`CALLBACK_CLAIM_THREW`**: forensic notice; context is internal state; remedy is log investigation.
-- **`PICKER_BOOTSTRAP_RPC_FAILED`**: infra failure; no destination.
+- **`OAUTH_IDENTITY_CLAIMED`**: awareness notice; context `{ crew_member_id, show_id, claimed_at_millis, user_email_hash }` (`app/auth/callback/route.ts:133-142`) — internal ids and a hash, no destination.
+- **`CALLBACK_CLAIM_THREW`**: forensic notice; context `{ error_name }` only (`app/auth/callback/route.ts:162-166`); remedy is log investigation.
+- **`PICKER_BOOTSTRAP_RPC_FAILED`**: infra failure; context `{ attempted_email_hash, rpc_error_code, rpc_error_message, route }` (`app/api/auth/picker-bootstrap/route.ts:95-104`) — no destination.
 - **`PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED`**: raised only when the `resolve_show_by_slug_and_token` RPC returns an error or throws (`app/api/auth/picker-bootstrap/route.ts:163-174`) — an infra failure, not a bad slug (the no-match path returns `PICKER_INVALID_SHARE_TOKEN` without raising this alert, `:176`). Context carries `slug` (`:75-80`), but the remedy is log/infra investigation; at raise time the resolve itself failed, so whether `/admin/show/<slug>` is a live destination is unknown. No link.
 - **`REPORT_LOOKUP_INCONCLUSIVE` / `REPORT_DUPLICATE_LIVE_MATCHES` / `REPORT_OPEN_ORPHAN_LABEL`**: context is `{ idempotency_key, reason, code }` (`lib/reports/submit.ts:772-776`) — no URL. (When a `github_issue_url` exists, the code path returns success instead of raising: `:801-803`.)
 - **`REPORT_LEASE_THRASHING`**: context `{ idempotency_key, depth }` (`lib/reports/submit.ts:851-854`) — no URL.
 - **`STALE_ORPHAN_REPORT`**: reaper-side notice; context `{ report_id, idempotency_key, created_at, lease_holder }` (`app/api/cron/report-reaper/route.ts:72-88`). The row is reaped precisely because `github_issue_url IS NULL` (DELETE predicate at `:58-64`) — a linkable target cannot exist.
 - **`TILE_SERVER_RENDER_FAILED`** (state-manual): remedy is tile-server ops; producers write `tileId` and render-failure fields with no URL form (`components/shared/TileServerFallback.tsx:86-96`, `components/crew/WrappedSection.tsx:95-102`). (Per-tile keying rework tracked as BL-ALERT-TILE-RENDER-PER-TILE-KEYING.)
-- **`GITHUB_BOT_LOGIN_MISSING`** (deferred): remedy is setting a Vercel env var; no stable URL (org-specific dashboard).
+- **`GITHUB_BOT_LOGIN_MISSING`** (deferred): raised with context `{ idempotency_key, reason, code }` (`lib/reports/submit.ts:772-780`); remedy is setting a Vercel env var — no stable URL (org-specific dashboard).
 
 Count check: 9 entries + 12 manual/deferred N/A = the 21 non-auto codes; 21 auto codes N/A by class; 42 total, matching `ADMIN_ALERTS_CODES` (`tests/messages/_metaAdminAlertCatalog.test.ts:57-100`).
 
