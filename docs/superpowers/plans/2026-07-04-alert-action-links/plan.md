@@ -177,7 +177,10 @@ describe("branch settings links (spec §4 #8-#9) — segment guard", () => {
       });
     },
   );
-  // The four spec-mandated null-case literals (§8.1) + structural rejects.
+  // The four spec-mandated null-case literals (§8.1) + structural rejects —
+  // asserted against BOTH branch-protection codes (spec §4 gives #9 the same
+  // guards as #8; a drift-only guard must fail here).
+  const BRANCH_CODES = ["BRANCH_PROTECTION_DRIFT", "BRANCH_PROTECTION_MONITOR_AUTH_FAILED"];
   it.each([
     ["owner/.."],
     ["owner/."],
@@ -188,11 +191,15 @@ describe("branch settings links (spec §4 #8-#9) — segment guard", () => {
     ["own er/repo"],
     ["owner./repo"], // dot in owner segment — GitHub owner charset has no dots
     [""],
-  ])("rejects %s", (bad) => {
-    expect(resolveAlertAction("BRANCH_PROTECTION_DRIFT", { repo: bad }, noSlug)).toBeNull();
+  ])("both codes reject %s", (bad) => {
+    for (const code of BRANCH_CODES) {
+      expect(resolveAlertAction(code, { repo: bad }, noSlug), code).toBeNull();
+    }
   });
-  it("non-string repo → null", () => {
-    expect(resolveAlertAction("BRANCH_PROTECTION_DRIFT", { repo: ["a", "b"] }, noSlug)).toBeNull();
+  it("non-string repo → null for both codes", () => {
+    for (const code of BRANCH_CODES) {
+      expect(resolveAlertAction(code, { repo: ["a", "b"] }, noSlug), code).toBeNull();
+    }
   });
 });
 
@@ -848,6 +855,19 @@ describe("AlertBanner global action links", () => {
     rows.value = [globalRow("GITHUB_BOT_LOGIN_MISSING", { reason: "x" })];
     const { queryByTestId } = await renderBanner();
     expect(queryByTestId("admin-alert-action-link")).toBeNull();
+  });
+
+  it("global WIZARD_SESSION_SUPERSEDED_RACE renders an INTERNAL link — no target/rel/icon", async () => {
+    rows.value = [globalRow("WIZARD_SESSION_SUPERSEDED_RACE", { drive_file_id: "df-1" })];
+    const { getByTestId } = await renderBanner();
+    const link = getByTestId("admin-alert-action-link");
+    expect(link).toHaveAttribute("href", "/admin/onboarding");
+    // Spec §2 decision 4: internal links get NO external treatment — an
+    // implementation that unconditionally adds target/_blank/↗ must fail here.
+    expect(link).not.toHaveAttribute("target");
+    expect(link).not.toHaveAttribute("rel");
+    expect(link.textContent).toContain("Go to setup wizard");
+    expect(link.textContent).not.toContain("↗");
   });
 
   it("global REPORT_ORPHANED_LOST_LEASE: valid URL renders verbatim; javascript: renders NO anchor", async () => {
