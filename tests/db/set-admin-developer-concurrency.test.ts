@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { describe, expect, test } from "vitest";
-const url = process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const url =
+  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 // Async `execFile`/`exec` ignore the `input` option (only *Sync variants accept it),
 // so `pexec("psql", …, { input: sql })` leaves psql blocking on stdin until the
 // vitest timeout kills it. Use a genuinely-concurrent spawn runner (mirrors
@@ -15,7 +16,9 @@ const psql = (sql: string) =>
     p.stdout.on("data", (d) => (so += String(d)));
     p.stderr.on("data", (d) => (se += String(d)));
     p.on("error", (e) => resolve({ ok: false, out: String(e) }));
-    p.on("close", (c) => resolve(c === 0 ? { ok: true, out: so.trim() } : { ok: false, out: se.trim() || so.trim() }));
+    p.on("close", (c) =>
+      resolve(c === 0 ? { ok: true, out: so.trim() } : { ok: false, out: se.trim() || so.trim() }),
+    );
     p.stdin.write(sql);
     p.stdin.end();
   });
