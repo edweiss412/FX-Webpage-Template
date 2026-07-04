@@ -2,6 +2,7 @@
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { serializeError } from "./serializeError";
 import { sanitizeContext } from "./sanitize";
+import { recordPersistFailure, recordPersistSuccess } from "./persistHealth";
 import type { LogRecord } from "./types";
 
 // not-subject-to-meta: best-effort log sink — swallows + degrades to console,
@@ -23,9 +24,16 @@ export async function persistAppEvent(record: LogRecord): Promise<void> {
       context: record.context,
     });
     if (error) {
+      // ADDITIVE observability (finding #9): record the fault for /api/health. Does
+      // NOT change the swallow-and-continue behavior below — the write still degrades
+      // to console, never throwing over the caller (invariant 9).
+      recordPersistFailure(error);
       console.error("[log/persist] app_events write failed", { error: serializeError(error) });
+    } else {
+      recordPersistSuccess();
     }
   } catch (e) {
+    recordPersistFailure(e);
     console.error("[log/persist] app_events write threw", { error: serializeError(e) });
   }
 }
