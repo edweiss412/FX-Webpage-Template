@@ -160,6 +160,12 @@ beside `<NotifBell>`. `isCurrentUserDeveloper()` (`lib/auth/requireDeveloper.ts:
 it drives ONLY presentation (Doug popover vs dev deep-link), never access (the rows are
 already admin-gated).
 
+The **dashboard `AppHealthPanel`** (rendered inside the `/admin` page, not the layout)
+does NOT receive the layout's rollup — a layout cannot pass props into page `children`
+(R5 finding 2). It performs its own `fetchHealthRollup()` read in `app/admin/page.tsx` and
+resolves `isCurrentUserDeveloper()` there. Two independent reads through one helper; both
+pinned by `_metaInfraContract` (§10).
+
 ## 6. Component contracts
 
 ### 6.1 `HealthStatus` type (`lib/admin/healthRollup.ts`)
@@ -195,9 +201,17 @@ code is in the `health` set (computed from `MESSAGE_CATALOG` at module load, lik
    desc, then cap at `POPOVER_SUMMARY_CAP` (4). `overflowCount` = distinct-summary count
    minus what remains after the cap.
 
-The **payload is threaded into both** `AppHealthIndicator` (uses `kind`/`count`) **and**
-`AppHealthPopover`/`AppHealthPanel` (use `summaries`/`overflowCount`) — see §5.1. There is
-no second server fetch; the one rollup carries everything.
+The payload feeds `AppHealthIndicator` (uses `kind`/`count`), the popover (uses
+`summaries`/`overflowCount`), and the dashboard `AppHealthPanel`. **Data path (R5 finding
+2):** a Next layout cannot pass arbitrary props into its page `children`, so:
+- the **nav indicator** gets the rollup from `app/admin/layout.tsx`'s existing `Promise.all`
+  (threaded through `AdminNav`);
+- the **dashboard `AppHealthPanel`** performs **its own pinned `fetchHealthRollup()` read**
+  in `app/admin/page.tsx` (a server component).
+Both call the SAME registered helper (`lib/admin/healthRollup.ts`) — two cheap reads, not
+one shared object. This is an explicit, accepted second read (not "no second fetch"); it
+avoids an unstated client provider. Each read is independently pinned by the
+`_metaInfraContract` registry row (§10).
 
 ### 6.2 Guard conditions
 
@@ -275,22 +289,36 @@ a scoped health-alert detail list **into scope** on the already-`requireDevelope
   `AlertBanner`), the `healthWeight` chip (degraded/notice), a **show link** when
   `show_id` is set (`/admin/show/<slug>`), `raised_at` (relative + absolute title), and
   `occurrence_count`.
-- Each row carries a **Resolve** affordance, and the path depends on `show_id` because the
-  existing global action only resolves global rows (R3 finding):
-  - **Global rows** (`show_id === null`) → `resolveAdminAlertFormAction`
-    (`app/admin/actions.ts:118-124`, whose UPDATE is `.is("show_id", null)` — global-only).
-  - **Show-scoped rows** (`show_id` set — e.g. `TILE_PROJECTION_FETCH_FAILED`,
-    `PENDING_SNAPSHOT_*`) → a form POSTing to the existing per-show resolve route
-    `POST /api/admin/show/<slug>/alerts/<id>/resolve`
-    (`app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts:169`, whose UPDATE is
-    `where id = $1 and show_id = $2`). The panel already loads `shows(slug)` for the show
-    link, so `<slug>` is available. A show-scoped row whose `slug` failed to load hides the
-    Resolve control (never renders a dead button) and keeps the show link degraded state.
-  Reusing `resolveAdminAlertFormAction` for a show-scoped row would be a **dead control**
-  (the UPDATE would not match), so the split is mandatory. The forms are dev-gated by the
-  page.
-- Deep-link anchor: `/admin/observability#health` (or a query token) so the indicator link
-  scrolls to the panel; the panel wrapper has `id="health"` + a stable `data-testid`.
+- Each row carries a **Resolve** affordance backed by ONE NEW **dev-gated Server Action**
+  `resolveHealthAlertFormAction` (`app/admin/actions.ts`). Reusing the existing resolve
+  paths is wrong on two counts (R5 findings 1 + 3):
+  - **Authorization (R5 finding 1):** `resolveAdminAlertFormAction` gates only
+    `requireAdmin()` (`app/admin/actions.ts:43`) and the per-show route only
+    `requireAdminIdentity()` — so a **non-developer admin** (Doug) who obtained a health
+    alert id could resolve a developer-owned health alert directly, hiding degradation from
+    the developer. The new action gates **`requireDeveloper()`** (mutation-authorized, not
+    just page-visible) and additionally verifies the target row's `code ∈ HEALTH_CODES`
+    before writing (a developer cannot use it to resolve a `doug` alert through the wrong
+    door). Direct-POST tests assert a non-developer is denied and `resolved_at` is
+    unchanged, for both a global and a show-scoped health alert.
+  - **Navigation (R5 finding 3):** the per-show route
+    (`app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts`) returns **JSON**, so a plain
+    `<form action="/api/…">` would navigate the developer to a raw JSON document. A Server
+    Action instead revalidates in place (`revalidatePath("/admin/observability")`) and
+    stays on `#health`. `PerShowAlertResolveButton.tsx:42-63` shows the alternative
+    (client `fetch` + `router.refresh()`); the Server Action is simpler and avoids the
+    JSON-nav trap entirely.
+  - **Both global and show-scoped** health rows resolve through this one action: because it
+    is developer-authorized and code-verified, it resolves `WHERE id = $1 AND resolved_at
+    IS NULL` (no `show_id` predicate needed), so there is no dead-control split. It follows
+    the existing resolve actions' **post-commit `logAdminOutcome`** breadcrumb pattern
+    (`app/admin/actions.ts`) and destructures `{ error }` (invariant 9); a failed UPDATE
+    does NOT revalidate (mirrors `actions.ts` I1) — it throws so the row stays visibly
+    unresolved.
+- Deep-link anchor: `/admin/observability#health` so the indicator link scrolls to the
+  panel; the panel wrapper has `id="health"` + a stable `data-testid`. Clicking Resolve
+  stays on `#health` (Server Action revalidate), removes the resolved row, and never
+  renders raw JSON (browser test).
 - Empty state: "No open system-health alerts." (quiet, not an error).
 
 Because this reuses the resolve action, no new RPC / DML surface is introduced (no
@@ -356,6 +384,12 @@ on the next full render (no mid-open mutation). No `AnimatePresence` on the dot 
   the doug/health partition counts are 16/26; the degraded/notice split is 16/10. New codes
   cannot land without declaring audience.
 - **EXTEND** `_metaAdminAlertCatalog.test.ts` if needed so the two registries stay set-equal.
+- **VERIFY at plan time** whether `resolveHealthAlertFormAction` (the new dev-gated resolve
+  Server Action) must register in `tests/admin/_metaAdminOutcomeContract.test.ts` — the
+  existing resolve actions emit a post-commit `logAdminOutcome` breadcrumb; if the new
+  action reuses/introduces an outcome `code`, follow the same registry discipline (forensic
+  codes are §12.4-free, registry-only). Its `requireDeveloper` producer path is already
+  covered by the `_metaInfraContract` requireDeveloper registration.
 - If any `dougFacing` prose changes (only `WATCH_CHANNEL_ORPHANED`, §7): the §12.4
   three-way lockstep — master spec §12.4 prose + `pnpm gen:spec-codes`
   (`lib/messages/__generated__/spec-codes.ts`) + `lib/messages/catalog.ts` — all in the
@@ -431,6 +465,15 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
   `AlertBanner`, is counted by `alertCount`, appears in `PerShowAlertSection` (if
   show-scoped), and is **absent** from the health rollup — proving the exclusion-not-allowlist
   contract (§2 decision 2). Tests seed such a row for all four surfaces.
+- AC11: `resolveHealthAlertFormAction` requires **developer** identity: a non-developer
+  admin invoking it directly (global AND show-scoped health alert) is denied and
+  `resolved_at` stays null. A developer resolving a health alert (global or show-scoped)
+  clears it and it drops from the rollup. Attempting to resolve a `doug`-audience code
+  through this action is rejected (`code ∉ HEALTH_CODES`).
+- AC12: `/admin` renders the `AppHealthPanel` from seeded health rows (its own pinned
+  `fetchHealthRollup()` read), not only the nav dot. Clicking a show-scoped health alert's
+  Resolve control on `/admin/observability#health` stays on `#health`, removes the row, and
+  never renders raw JSON.
 
 ## 14. Watchpoints (disagreement-loop preempts — do not relitigate)
 
@@ -477,3 +520,12 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
 - **New reads pinned by `_metaInfraContract` (R4).** `fetchHealthRollup` + the
   `HealthAlertsPanel` loader get registry rows in `tests/admin/_metaInfraContract.test.ts`
   (invariant 9), same as `fetchUnresolvedAlertCount:244`. No waiver.
+- **Health resolve is dev-gated at the mutation, not just the page (R5).** ONE new Server
+  Action `resolveHealthAlertFormAction` (`requireDeveloper()` + `code ∈ HEALTH_CODES`
+  verify) handles both global and show-scoped health rows. It exists BECAUSE the shared
+  `resolveAdminAlertFormAction` (requireAdmin, global-only) and the per-show JSON route
+  (requireAdminIdentity, JSON response) are both wrong for health rows (authz + JSON-nav).
+  Do not "simplify" back to reusing them. Settled.
+- **Two rollup reads is intended (R5).** Nav gets the layout read; dashboard panel does its
+  own `fetchHealthRollup()` — a layout can't prop-thread into page children. Both cheap,
+  both `_metaInfraContract`-pinned. Not a "no-second-fetch" violation.
