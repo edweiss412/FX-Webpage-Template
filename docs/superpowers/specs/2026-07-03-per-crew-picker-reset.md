@@ -264,7 +264,9 @@ Because no §12.4 row is added or edited, the `x1-catalog-parity` / `gen:spec-co
   - `tests/auth/advisoryLockRpcDeadlock.test.ts` — new RPC registration (§7.6).
   - `tests/auth/_metaInfraContract.test.ts` — new helper file registration (§6.3).
   - `tests/messages/_metaAdminAlertCatalog.test.ts` — **register the SECOND `PICKER_EPOCH_RESET` producer** (finding #2). The new server action `resetCrewMemberSelection.ts` is an additional `upsertAdminAlert` write-site for the existing code `PICKER_EPOCH_RESET`. Convert that code's registry entry (currently `path: "lib/auth/picker/resetPickerEpoch.ts"`, `:135-138`) to a multi-site form covering both files (the test already supports a `sites` array and iterates each — the `SHOW_UNPUBLISHED` two-producer precedent at `:205-211` is the pattern). This does **not** add a §12.4 catalog code; it registers a second producer of an existing one.
-- **UNCHANGED (declared, with reason):** `tests/db/postgrest-dml-lockdown.test.ts` — `crew_members` already gated + registered (§2.5); no new RPC-gated table.
+- **UNCHANGED (declared, with reason):**
+  - `tests/db/postgrest-dml-lockdown.test.ts` — `crew_members` already gated + registered (§2.5); no new RPC-gated table.
+  - `tests/cross-cutting/picker-resolver-outcome-prose-guard.test.ts` — its `SCAN_ROOTS` (`:11-14`) is deliberately scoped to the M12 solo-dev-ux spec/plan tree (where the R6/R7 misattribution recurrence occurred). This spec is **out of scope** and I will NOT extend `SCAN_ROOTS` to include it: the guard's F3/F4/F5/paranoia regexes are tuned to M12 prose and would false-positive on this spec's (correct but differently-phrased) resolver-ordering prose. **Attribution correctness is nonetheless asserted and self-checked:** epoch reset → `epoch_stale` (never `session_mismatch`); rotate → `PICKER_SHOW_UNAVAILABLE`/`epoch_stale` (never `claimed_after_pick`); `session_mismatch` is API-route-only (page-route forecloses it, `resolveShowPageAccess.ts:174-212`); the new `selection_reset` → `PICKER_EPOCH_STALE_BANNER`. None of these is misattributed anywhere in this spec.
 
 ## 10. Advisory-lock holder topology (mandatory — plan touches `pg_advisory*`)
 
