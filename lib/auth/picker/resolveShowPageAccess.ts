@@ -24,6 +24,12 @@ export type ResolveShowPageAccessResult =
       expectedCrewMemberId: string;
     }
   | {
+      kind: "selection_reset";
+      showId: string;
+      expectedEpoch: number;
+      expectedCrewMemberId: string;
+    }
+  | {
       kind: "identity_invalidated";
       showId: string;
       expectedEpoch: number;
@@ -41,6 +47,7 @@ type ShowRow = {
 
 type CrewClaimRow = {
   claimed_via_oauth_at: string | null;
+  selections_reset_at: string | null;
 };
 
 const COOKIE_NAME = "__Host-fxav_picker";
@@ -95,6 +102,13 @@ function toPageResult(
         expectedEpoch: result.expectedEpoch,
         expectedCrewMemberId: result.expectedCrewMemberId,
       };
+    case "selection_reset":
+      return {
+        kind: "selection_reset",
+        showId,
+        expectedEpoch: result.expectedEpoch,
+        expectedCrewMemberId: result.expectedCrewMemberId,
+      };
     case "identity_invalidated":
       return {
         kind: "identity_invalidated",
@@ -134,7 +148,7 @@ async function readCrewClaimRow(
   try {
     const { data, error } = (await serviceRole
       .from("crew_members")
-      .select("claimed_via_oauth_at")
+      .select("claimed_via_oauth_at, selections_reset_at")
       .eq("id", crewMemberId)
       .maybeSingle()) as { data: CrewClaimRow | null; error: unknown };
     if (error) return "infra_error";
@@ -226,6 +240,20 @@ export async function resolveShowPageAccess(_input: {
           key,
         ),
       };
+    }
+    // Per-member admin reset (companion surface — mirrors the claim check above). A claimed member
+    // whose pick predates the reset re-bootstraps (re-confirms the same identity). NaN fails open.
+    if (crewClaimRow.selections_reset_at !== null) {
+      const resetAtMillis = Math.floor(new Date(crewClaimRow.selections_reset_at).getTime());
+      if (entry.t <= resetAtMillis) {
+        return {
+          kind: "needs_picker_bootstrap",
+          intentToken: signIntentToken(
+            { slug, shareToken, exp: Math.floor(Date.now() / 1000) + 60 },
+            key,
+          ),
+        };
+      }
     }
   }
 
