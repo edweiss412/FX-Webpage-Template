@@ -96,7 +96,7 @@ Only the **crew (booking-adjacent)** tier is touched; there is no user/client/sh
 | Frontend form | Reworked admin control (§6) |
 | Audit page | N/A — no dedicated audit surface; admin alert `PICKER_EPOCH_RESET` covers forensics |
 | Tests | §7 |
-| Schema manifest | Regenerate `pnpm gen:schema-manifest` → `supabase/__generated__/schema-manifest.json` crew_members block (currently `:73-86`, 11 cols → 12) |
+| Schema manifest | Regenerate `pnpm gen:schema-manifest` → `supabase/__generated__/schema-manifest.json` crew_members block (currently `:73-86`, **12 cols → 13** — the current 12 already include `claimed_via_oauth_at`) |
 | Validation project | Apply migration surgically (`supabase db query --linked`) per `validation-schema-parity` gate |
 
 ---
@@ -107,11 +107,11 @@ Only the **crew (booking-adjacent)** tier is touched; there is no user/client/sh
 
 New migration `supabase/migrations/20260703000001_reset_crew_member_selection.sql`, mirroring `20260523000003_reset_picker_epoch_atomic.sql`.
 
-- **Signature:** `public.reset_crew_member_selection(p_show_id uuid, p_crew_member_id uuid) returns timestamptz` — returns the stamped `selections_reset_at` (the new marker), or raises on not-found (see §4.3).
+- **Signature:** `public.reset_crew_member_selection(p_show_id uuid, p_crew_member_id uuid) returns timestamptz` — returns the stamped `selections_reset_at` (the new marker), **or NULL if no matching `(id, show_id)` row exists** (bad id / wrong show / removed member). It does **NOT** raise on not-found; the NULL return is the discriminable not-found signal consumed by the server action (§4.2). (An admin-gate failure and an infra fault DO raise/error; not-found does not.)
 - **Admin gate:** `if not public.is_admin() then raise exception ...` (mirror `20260523000003:15`).
 - **Advisory lock:** look up `v_drive_file_id` from `shows` (`:21-24` pattern), then `perform pg_advisory_xact_lock(hashtext('show:' || v_drive_file_id));` (mirror `:30`). **Single holder** — the JS server action must NOT wrap it in `withShowAdvisoryLock` (invariant 2).
 - **Write:** `update public.crew_members set selections_reset_at = clock_timestamp() where id = p_crew_member_id and show_id = p_show_id returning selections_reset_at into v_reset_at;` — the `and show_id = p_show_id` guard prevents cross-show resets.
-- **Invalidation broadcast:** `perform public.publish_show_invalidation(p_show_id);` (mirror `20260523000003:38`) so open crew tabs re-resolve via realtime.
+- **Invalidation broadcast — NONE (deliberate; finding #6).** `public.crew_members` already carries a statement-level `AFTER UPDATE` trigger `crew_members_publish_invalidation` → `publish_show_invalidation_after_statement()` (`supabase/migrations/20260501001000_internal_and_admin.sql:95-99`), so the `UPDATE` above auto-publishes the realtime invalidation. The RPC must **NOT** also call `publish_show_invalidation(p_show_id)` — that helper exists specifically for `shows` mutations, which lack the trigger (`supabase/migrations/20260503000000_publish_show_invalidation_helper.sql:5-15`). This is why the epoch RPC (which mutates `shows`) calls the helper but this RPC (which mutates `crew_members`) does not. A test asserts the RPC body does not call the helper (§7.2).
 - **Grants:** `revoke all on function ... from public, anon, authenticated, service_role; grant execute on function ... to authenticated;` (mirror `:44-45`).
 
 ### 4.2 Return / not-found semantics
@@ -176,6 +176,20 @@ Rationale: for an OAuth-claimed member the reset routes to re-bootstrap (same as
 
 ---
 
+### 5.6 ALL `resolvePickerSelection` consumers must handle `selection_reset` (finding #1 — HIGH)
+
+`resolvePickerSelection` is consumed by **five** surfaces, not just the crew page. Adding a union member forces every consumer to handle it. Three are `switch` statements with **no `default`**, so omitting the new kind is a **typecheck failure** (good — it forces the edit, but the spec must enumerate the required change and its semantics). In every case `selection_reset` is handled **identically to `epoch_stale`**: the pick is not valid, deny / re-prompt.
+
+| Consumer | File:line | Current handling of `epoch_stale` group | Required `selection_reset` handling |
+|---|---|---|---|
+| Crew page | `app/show/[slug]/[shareToken]/page.tsx:232-266` (via `resolveShowPageAccess.toPageResult`) | shared stale case → `PICKER_EPOCH_STALE_BANNER` + cleanup hint | Add to the shared case group + banner map → `PICKER_EPOCH_STALE_BANNER` (§5.4) |
+| Version API | `app/api/show/[slug]/version/route.ts:100-104` | grouped `no_selection`/`epoch_stale`/`removed_from_roster` → `401 SHOW_VERSION_AUTH_FAILED` | Add `case "selection_reset":` to that group → same 401 |
+| Realtime subscriber-token | `app/api/realtime/subscriber-token/route.ts:167-173` | grouped → `401 SHOW_REALTIME_BROADCAST_AUTH_FAILED` | Add to that group → same 401 |
+| Asset session | `lib/auth/picker/validatePickerAssetSession.ts:53-56` | grouped → `unauthorized()` | Add to that group → `unauthorized()` |
+| Report API | `app/api/report/route.ts:126-160` | if-chain: `resolved`→ok; `identity_invalidated`/`show_unavailable`→410; `infra_error`→500; **all other kinds fall through** to the admin-auth path → denied for crew | **No code change required** — `selection_reset` falls through exactly like `epoch_stale`/`removed_from_roster` today → non-admin crew denied. A test pins this (§7). Documented so a reviewer does not read the absence as an omission. |
+
+Note: `lib/audit/authPrimitives.ts` lists `lib/auth/picker/resolvePickerSelection.ts` as an auth-chain surface (registry only — not a kind-consumer; no change). Each of the four code-changed consumers gets a test (§7).
+
 ## 6. Admin UI — unified reset control
 
 **This is a UI surface → Opus-only + invariant 8 impeccable dual-gate.**
@@ -215,7 +229,7 @@ Mirror `resetPickerEpoch.ts`:
 Every task: failing test → minimal impl → green → commit. Each test states the failure mode it catches.
 
 1. **Migration apply + column presence** (`tests/db/...` or the schema-manifest test): asserts `crew_members.selections_reset_at` exists as nullable timestamptz. *Catches: migration not applied / wrong type.*
-2. **RPC unit** (against local DB): admin stamps a member → `selections_reset_at` set; non-admin → exception; wrong `(show_id, member_id)` pair → NULL return; advisory lock held (assert via the topology test, task 6). *Catches: missing admin gate, cross-show leak, no lock.*
+2. **RPC unit** (against local DB): admin stamps a member → `selections_reset_at` set + returned; non-admin → exception; wrong `(show_id, member_id)` pair → **NULL return (no raise)**; advisory lock held (assert via the topology test, task 6); **RPC body does NOT call `publish_show_invalidation`** (finding #6 — grep the migration SQL for the helper name, assert absent, since the `crew_members` AFTER UPDATE trigger already publishes). *Catches: missing admin gate, cross-show leak, no lock, redundant double-invalidation.*
 3. **Resolver `selection_reset` branch** (`tests/auth/resolvePickerSelection...`): entry with `t` before `selections_reset_at` → `selection_reset` with `{expectedEpoch: entry.e, expectedCrewMemberId: entry.id}`; entry with `t` after → `resolved`; `selections_reset_at === null` → `resolved`; malformed marker (NaN) → does NOT force reset (fails open). Order test: reset wins over claimed_after_pick. *Catches: wrong branch, guard holes, NaN fail-closed regression, wrong precedence.*
 4. **`resolveShowPageAccess` google-branch parity**: OAuth session + reset marker after pick → `needs_picker_bootstrap`. *Catches: companion-surface omission.*
 5. **Page banner mapping** (component test): `selection_reset` result → renders `PICKER_EPOCH_STALE_BANNER` crew copy (assert against `getCrewFacing("PICKER_EPOCH_STALE_BANNER")`, NOT a hardcoded string — anti-tautology) and mounts the stale-cleanup form with `expectedEpoch`/`expectedCrewMemberId`. *Catches: wrong/misleading banner, missing cleanup.*
@@ -225,6 +239,8 @@ Every task: failing test → minimal impl → green → commit. Each test states
 9. **Admin UI** (component + real-browser where layout matters): unified control renders member selector from roster; empty roster → only "reset everyone" + helper text; per-member reset calls `resetCrewMemberSelection` with the selected id; "reset everyone" calls `resetPickerEpoch`; failure codes render via `lookup.ts` (no raw code). *Catches: wrong action wiring, empty-roster crash, raw-code leak (invariant 5).*
 10. **Meta-infra contract** (`tests/auth/_metaInfraContract.test.ts`): passes with the new file registered. *Catches: unregistered Supabase constructor.*
 11. **Schema-parity** (`tests/db/validation-schema-parity.test.ts`): regenerated manifest ⊆ validation project. *Catches: manifest not regenerated / migration not applied to validation.*
+12. **Resolver-consumer parity** (finding #1): four tests, one per code-changed consumer, asserting a `selection_reset` result is denied/re-prompted like `epoch_stale`: version route → `401 SHOW_VERSION_AUTH_FAILED`; realtime subscriber-token → `401 SHOW_REALTIME_BROADCAST_AUTH_FAILED`; `validatePickerAssetSession` → `unauthorized()`; report route → non-admin crew denied (falls through admin path). *Catches: an unhandled union member silently granting or 500-ing on a reset cookie in a non-page auth surface.*
+13. **Admin-alert 2nd-producer registration** (finding #2): `tests/messages/_metaAdminAlertCatalog.test.ts` passes with `resetCrewMemberSelection.ts` registered as a second `PICKER_EPOCH_RESET` write-site. *Catches: an unregistered admin_alerts producer (documented meta-discipline).*
 
 No fixed-dimension-parent layout invariant is introduced (the control is flow-layout text + a select + buttons); therefore **no dedicated Playwright getBoundingClientRect layout task** is required. **Transition inventory:** the control has states idle → confirm → resolving → (success | error) for each of two actions; these reuse the existing `ResetPickerEpochButton` two-tap pattern (instant text swaps, no animated layout morph). A transition-audit checklist entry is included in the plan, but no compound cross-fade transitions exist (state changes are button-label swaps).
 
@@ -244,14 +260,17 @@ Because no §12.4 row is added or edited, the `x1-catalog-parity` / `gen:spec-co
 ## 9. Meta-test inventory (declared per project rule)
 
 - **CREATES:** none.
-- **EXTENDS:** `tests/auth/advisoryLockRpcDeadlock.test.ts` (new RPC registration, §7.6); `tests/auth/_metaInfraContract.test.ts` (new helper file registration, §6.3).
-- **UNCHANGED (declared, with reason):** `tests/db/postgrest-dml-lockdown.test.ts` — `crew_members` already gated + registered (§2.5); no new RPC-gated table. `tests/messages/_metaAdminAlertCatalog.test.ts` — no new/edited admin-alert code (reusing `PICKER_EPOCH_RESET`).
+- **EXTENDS:**
+  - `tests/auth/advisoryLockRpcDeadlock.test.ts` — new RPC registration (§7.6).
+  - `tests/auth/_metaInfraContract.test.ts` — new helper file registration (§6.3).
+  - `tests/messages/_metaAdminAlertCatalog.test.ts` — **register the SECOND `PICKER_EPOCH_RESET` producer** (finding #2). The new server action `resetCrewMemberSelection.ts` is an additional `upsertAdminAlert` write-site for the existing code `PICKER_EPOCH_RESET`. Convert that code's registry entry (currently `path: "lib/auth/picker/resetPickerEpoch.ts"`, `:135-138`) to a multi-site form covering both files (the test already supports a `sites` array and iterates each — the `SHOW_UNPUBLISHED` two-producer precedent at `:205-211` is the pattern). This does **not** add a §12.4 catalog code; it registers a second producer of an existing one.
+- **UNCHANGED (declared, with reason):** `tests/db/postgrest-dml-lockdown.test.ts` — `crew_members` already gated + registered (§2.5); no new RPC-gated table.
 
 ## 10. Advisory-lock holder topology (mandatory — plan touches `pg_advisory*`)
 
 - Hashkey: `hashtext('show:' || drive_file_id)`.
-- **Existing holders** for this key: `reset_picker_epoch_atomic` (in-RPC), `rotate_show_share_token` (in-RPC), `select_identity_atomic`, `claim_oauth_identity` (all in-RPC, self-locking). JS callers (`resetPickerEpoch.ts`, `rotateShareToken.ts`) do NOT wrap in `withShowAdvisoryLock`.
-- **New holder:** `reset_crew_member_selection` acquires the lock **in-RPC** (single layer). The JS server action `resetCrewMemberSelection.ts` MUST NOT wrap it in `withShowAdvisoryLock`. This matches every sibling picker RPC and is pinned by `advisoryLockRpcDeadlock.test.ts` once registered (§7.6).
+- **Existing holders for this key (complete set — finding #3).** Every current holder acquires the lock **in-RPC** (self-locking SECURITY DEFINER); there is **no** JS-side `withShowAdvisoryLock` wrapper for this key, and no double-holder. The authoritative, CI-pinned list is `tests/auth/advisoryLockRpcDeadlock.test.ts:80-98`: `reset_picker_epoch_atomic`, `rotate_show_share_token`, `select_identity_atomic`, `claim_oauth_identity`, `mint_validation_fixture_atomic`, `validation_finalize_all_atomic`, `mi11_approve_hold`, `mi11_reject_hold`, `undo_change`, `reset_validation_data` — plus the `show:`-key holders in the b2 show-lifecycle set (`20260601000000`, `20260601000001`, `20260602000000`, `20260602000002`, `20260701000000_published_toggle_unpublish_show`), the signed-link RPCs (`20260504000004_revoke_leaked_link_atomic`, `20260505000001_redeem_link_locked_rpcs`, `20260505000003_recheck_link_session*`, `20260520000000_signed_link_admin_rpcs`), `20260608000004_retire_live_pending_syncs`, `20260611000001_onboarding_fixups_remediation`, and `20260612000003_m12_13_token_context_scrub`. (Grep of record: `rg "pg_advisory_xact_lock\(hashtext\('show:" supabase/migrations`.) The single-holder invariant holds across all of them.
+- **New holder:** `reset_crew_member_selection` acquires the lock **in-RPC** (single layer), joining this in-RPC-only set. The JS server action `resetCrewMemberSelection.ts` MUST NOT wrap it in `withShowAdvisoryLock`. Pinned by `advisoryLockRpcDeadlock.test.ts` once registered (§7.6).
 
 ---
 
@@ -267,7 +286,7 @@ Exact copy drafted in the plan; must not introduce raw error codes.
 
 ## 12. Numeric / self-consistency sweep
 
-- Crew columns: 11 → **12** after migration (manifest `:73-86`). Single source: §3.3.
+- Crew columns: 12 → **13** after migration (the current 12 already include `claimed_via_oauth_at`; manifest `:73-86`). Single source: §3.3.
 - Result-kind union members in `resolvePickerSelection`: 7 → **8** (add `selection_reset`). Single source: §5.1.
 - New files: 2 migrations, 1 server action, 1 UI control component, plus edits. No literal reused across sections that isn't cross-referenced.
 - "No new §12.4 codes" asserted in §0, §2.4, §8 — consistent.
