@@ -221,6 +221,7 @@ describe("Dashboard composition", () => {
       overflowCount: 76,
       ingestionTotal: 31,
       syncTotal: 47,
+      syncProblemTotal: 0,
     };
     await renderDashboard();
 
