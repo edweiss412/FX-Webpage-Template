@@ -50,9 +50,11 @@ import {
   DURATION_NORMAL_FALLBACK_MS,
   SCROLL_SPY_OFFSET_PX,
   Step3ReviewModal,
+  WARNING_HIGHLIGHT_MS,
 } from "@/components/admin/wizard/Step3ReviewModal";
 import {
   __resetAgendaThrottleForTests,
+  CALLOUT_MAX_ENTRIES,
   contactBlocks,
   dateSummarySegments,
   step3Sections,
@@ -1591,5 +1593,235 @@ describe("Step3ReviewModal — sheet drag-to-dismiss (Task 7, spec §10)", () =>
     // Step3ReviewModal.tsx's DURATION_NORMAL_FALLBACK_MS/DURATION_FAST_FALLBACK_MS.
     expect(DURATION_NORMAL_FALLBACK_MS).toBe(Number(normalMatch[1]));
     expect(DURATION_FAST_FALLBACK_MS).toBe(Number(fastMatch[1]));
+  });
+});
+
+// ── Task 9: flag callouts + warning jump-links + one-shot highlight ──────────
+// (follow-ups spec §E3/§E4, §H N2/N3, §K9)
+
+describe("Step3ReviewModal — section flag callouts (Task 9, spec §E3)", () => {
+  /** N warn-severity crew-kind warnings (N derived from the cap, never a
+   *  hardcoded row count — anti-tautology). */
+  function crewWarnings(n: number): ParseWarning[] {
+    return Array.from({ length: n }, () => warning("crew"));
+  }
+
+  function calloutTid(sectionId: string): string {
+    return `wizard-step3-card-${DFID}-section-${sectionId}-flag-callout`;
+  }
+
+  test("callout renders as the FIRST child inside the flagged section's panel card, capped at CALLOUT_MAX_ENTRIES rows + overflow line", () => {
+    // Failure mode caught: an unbounded callout (every warning gets a row) or
+    // a callout mounted outside/after the panel-card body.
+    const d = sectionData({ warnings: crewWarnings(CALLOUT_MAX_ENTRIES + 2) });
+    const { q } = renderModal({ d });
+
+    const callout = q.getByTestId(calloutTid("crew"));
+    // First child INSIDE the §5.2 panel card (the card div carries bg-surface;
+    // the heading row sits before the card, not inside it).
+    const card = callout.parentElement!;
+    expect(card.className).toContain("bg-surface");
+    expect(card.firstElementChild).toBe(callout);
+    // The crew section panel contains the callout (container-scoped).
+    expect(q.getByTestId(tid("section-crew")).contains(callout)).toBe(true);
+
+    // Exactly CALLOUT_MAX_ENTRIES title rows, each with a jump button.
+    const jumpButtons = within(callout).getAllByRole("button", { name: /View details/ });
+    expect(jumpButtons).toHaveLength(CALLOUT_MAX_ENTRIES);
+
+    // Overflow line derived from the fixture length, itself a button.
+    const total = d.warnings.filter((w) => w.severity === "warn").length;
+    expect(total).toBeGreaterThan(CALLOUT_MAX_ENTRIES);
+    const more = within(callout).getByRole("button", {
+      name: `+${total - CALLOUT_MAX_ENTRIES} more in Parse warnings`,
+    });
+    expect(more).toBeTruthy();
+  });
+
+  test("at or under the cap: no overflow line", () => {
+    const d = sectionData({ warnings: crewWarnings(CALLOUT_MAX_ENTRIES) });
+    const { q } = renderModal({ d });
+    const callout = q.getByTestId(calloutTid("crew"));
+    expect(within(callout).getAllByRole("button", { name: /View details/ })).toHaveLength(
+      CALLOUT_MAX_ENTRIES,
+    );
+    expect(within(callout).queryByText(/more in Parse warnings/)).toBeNull();
+  });
+
+  test("the warnings section itself NEVER gets a callout (circular-callout guard)", () => {
+    // An unmapped warn flags the `warnings` bucket (§E2) — flagged, but its
+    // body IS the warning list, so no callout may render there.
+    const unmapped: ParseWarning = { severity: "warn", code: "SOME_CODE", message: "" };
+    const d = sectionData({ warnings: [unmapped] });
+    const { q } = renderModal({ d });
+    // The warnings section is flagged (sanity: the chip shows 1)…
+    expect(q.getByTestId(tid("chip")).textContent).toBe("1 needs a look");
+    // …but carries no callout, and no other section does either.
+    expect(q.queryByTestId(calloutTid("warnings"))).toBeNull();
+    expect(document.querySelector('[data-testid$="-flag-callout"]')).toBeNull();
+  });
+
+  test("unflagged sections render no callout", () => {
+    const d = sectionData({ warnings: crewWarnings(1) });
+    const { q } = renderModal({ d });
+    expect(q.getByTestId(calloutTid("crew"))).toBeTruthy();
+    expect(q.queryByTestId(calloutTid("schedule"))).toBeNull();
+    expect(q.queryByTestId(calloutTid("contacts"))).toBeNull();
+  });
+
+  test("titles are hardened: a token-shaped message renders the generic fallback, never the raw token (§E3 → reviewWarningTitle transitivity)", () => {
+    // Failure mode caught: the callout bypassing reviewWarningTitle and
+    // echoing w.message (raw-code leak, invariant 5).
+    const tokenWarning: ParseWarning = {
+      severity: "warn",
+      code: "SOME_CODE",
+      message: "OPENING_REEL_UNREADABLE",
+      blockRef: { kind: "crew" },
+    };
+    const d = sectionData({ warnings: [tokenWarning] });
+    const { q } = renderModal({ d });
+    const callout = q.getByTestId(calloutTid("crew"));
+    expect(within(callout).getByText("A parse issue was recorded for this sheet.")).toBeTruthy();
+    expect(callout.textContent).not.toContain("OPENING_REEL_UNREADABLE");
+  });
+});
+
+describe("Step3ReviewModal — warning jump-links + one-shot highlight (Task 9, spec §E4)", () => {
+  /** jsdom has no Element#scrollTo — stub it on the prototype for the jump
+   *  path's `typeof scroller.scrollTo === "function"` guard. */
+  let scrollToStub: ReturnType<typeof vi.fn>;
+  let originalScrollTo: PropertyDescriptor | undefined;
+
+  function stubScrollTo() {
+    originalScrollTo = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo");
+    scrollToStub = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+      value: scrollToStub,
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  afterEach(() => {
+    if (originalScrollTo) {
+      Object.defineProperty(HTMLElement.prototype, "scrollTo", originalScrollTo);
+    } else {
+      delete (HTMLElement.prototype as { scrollTo?: unknown }).scrollTo;
+    }
+    originalScrollTo = undefined;
+    vi.useRealTimers();
+  });
+
+  function calloutTid(sectionId: string): string {
+    return `wizard-step3-card-${DFID}-section-${sectionId}-flag-callout`;
+  }
+
+  /** One info warning FIRST so warn indices exercise the FULL-array index
+   *  contract (§E2: index = position in the full warnings array, info rows
+   *  included in the numbering). */
+  function warningsWithInfoPrefix(warnCount: number): ParseWarning[] {
+    const info: ParseWarning = {
+      severity: "info",
+      code: "SOME_CODE",
+      message: "",
+      blockRef: { kind: "crew" },
+    };
+    return [info, ...Array.from({ length: warnCount }, () => warning("crew"))];
+  }
+
+  test("jump: click 'View details' → aria-current moves to the warnings rail item; the li located via data-warning-index gets the flash attribute; cleared after WARNING_HIGHLIGHT_MS; no id attributes anywhere", () => {
+    stubScrollTo();
+    vi.useFakeTimers();
+    const d = sectionData({ warnings: warningsWithInfoPrefix(1) });
+    const { q } = renderModal({ d });
+
+    // Index derived from the fixture (full-array position of the warn row).
+    const warnIndex = d.warnings.findIndex((w) => w.severity === "warn");
+    expect(warnIndex).toBeGreaterThan(0); // the info prefix shifts it — full-array contract
+
+    const callout = q.getByTestId(calloutTid("crew"));
+    fireEvent.click(within(callout).getByRole("button", { name: /View details/ }));
+
+    // aria-current moved to the warnings item on the rail (container-scoped).
+    const rail = q.getByTestId(tid("rail"));
+    expect(within(rail).getByTestId(tid("rail-item-warnings")).getAttribute("aria-current")).toBe(
+      "true",
+    );
+    expect(rail.querySelectorAll('[aria-current="true"]')).toHaveLength(1);
+
+    // The target li — located EXACTLY the way the component must locate it:
+    // container-scoped data-warning-index query, NO id attributes.
+    const content = q.getByTestId(tid("content"));
+    const li = content.querySelector<HTMLElement>(`[data-warning-index="${warnIndex}"]`);
+    expect(li).not.toBeNull();
+    expect(li).toBe(q.getByTestId(`wizard-step3-card-${DFID}-warning-${warnIndex}`));
+    expect(li!.hasAttribute("data-step3-warning-flash")).toBe(true);
+    expect(scrollToStub).toHaveBeenCalled();
+
+    // Twin-nav id ban (§9.4): the jump added no id anywhere in either nav or
+    // on the li.
+    expect(rail.querySelectorAll("[id]")).toHaveLength(0);
+    expect(q.getByTestId(tid("chiprail")).querySelectorAll("[id]")).toHaveLength(0);
+    expect(li!.hasAttribute("id")).toBe(false);
+
+    // One-shot: attribute removed after WARNING_HIGHLIGHT_MS (timer hygiene).
+    act(() => {
+      vi.advanceTimersByTime(WARNING_HIGHLIGHT_MS);
+    });
+    expect(li!.hasAttribute("data-step3-warning-flash")).toBe(false);
+  });
+
+  test("one highlight at a time: a second jump moves the attribute; unmount mid-highlight clears timers", () => {
+    stubScrollTo();
+    vi.useFakeTimers();
+    const d = sectionData({ warnings: warningsWithInfoPrefix(2) });
+    const { q } = renderModal({ d });
+
+    const warnIndices = d.warnings
+      .map((w, i) => (w.severity === "warn" ? i : -1))
+      .filter((i) => i >= 0);
+    expect(warnIndices).toHaveLength(2);
+
+    const callout = q.getByTestId(calloutTid("crew"));
+    const buttons = within(callout).getAllByRole("button", { name: /View details/ });
+    const content = q.getByTestId(tid("content"));
+    const liA = content.querySelector<HTMLElement>(`[data-warning-index="${warnIndices[0]}"]`)!;
+    const liB = content.querySelector<HTMLElement>(`[data-warning-index="${warnIndices[1]}"]`)!;
+
+    fireEvent.click(buttons[0]!);
+    expect(liA.hasAttribute("data-step3-warning-flash")).toBe(true);
+
+    // Immediately jump to B: A's attribute removed, ONLY B carries it.
+    fireEvent.click(buttons[1]!);
+    expect(liA.hasAttribute("data-step3-warning-flash")).toBe(false);
+    expect(liB.hasAttribute("data-step3-warning-flash")).toBe(true);
+    expect(document.querySelectorAll("[data-step3-warning-flash]")).toHaveLength(1);
+
+    // Unmount mid-highlight: teardown clears the timer — no late errors.
+    q.unmount();
+    expect(() => vi.runAllTimers()).not.toThrow();
+  });
+
+  test("'+N more' targets the warnings section top: plain nav-click semantics, NO highlight anywhere", () => {
+    stubScrollTo();
+    vi.useFakeTimers();
+    const d = sectionData({ warnings: warningsWithInfoPrefix(CALLOUT_MAX_ENTRIES + 2) });
+    const { q } = renderModal({ d });
+
+    const total = d.warnings.filter((w) => w.severity === "warn").length;
+    const callout = q.getByTestId(calloutTid("crew"));
+    fireEvent.click(
+      within(callout).getByRole("button", {
+        name: `+${total - CALLOUT_MAX_ENTRIES} more in Parse warnings`,
+      }),
+    );
+
+    const rail = q.getByTestId(tid("rail"));
+    expect(within(rail).getByTestId(tid("rail-item-warnings")).getAttribute("aria-current")).toBe(
+      "true",
+    );
+    // §A2 nav-click semantics only — no row highlight.
+    expect(document.querySelectorAll("[data-step3-warning-flash]")).toHaveLength(0);
+    expect(scrollToStub).toHaveBeenCalled();
   });
 });

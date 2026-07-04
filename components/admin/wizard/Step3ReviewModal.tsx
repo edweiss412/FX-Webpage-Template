@@ -47,7 +47,11 @@ import Link from "next/link";
 import { AlertTriangle, Check, ChevronRight, ExternalLink, X } from "lucide-react";
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
-import { deriveSectionStatuses, type SectionId } from "@/lib/admin/step3SectionStatus";
+import {
+  deriveSectionStatuses,
+  warningsBySection,
+  type SectionId,
+} from "@/lib/admin/step3SectionStatus";
 import {
   dateSummarySegments,
   NotPublishableNote,
@@ -76,6 +80,11 @@ export const DURATION_NORMAL_FALLBACK_MS = 220;
  *  mirrors `--duration-fast: 120ms` (app/globals.css). Same drift-guard
  *  rationale as DURATION_NORMAL_FALLBACK_MS above. */
 export const DURATION_FAST_FALLBACK_MS = 120;
+/** §E4 one-shot warning-row highlight duration (follow-ups spec §2/§H N3).
+ *  MUST equal the 1600ms literal in app/globals.css's
+ *  `[data-step3-warning-flash]` keyframe (the transitions test pins the
+ *  pairing — same drift-guard rationale as the fallback constants above). */
+export const WARNING_HIGHLIGHT_MS = 1600;
 
 /**
  * Pure scroll-spy rule (spec §6.3a): the active section is the LAST one whose
@@ -145,6 +154,14 @@ export function Step3ReviewModal({
     const rendered = new Set<SectionId>(sections.map((s) => s.id));
     return deriveSectionStatuses(data.warnings, rendered);
   }, [sections, data.warnings]);
+  // §E3 callout map: warn-severity warnings keyed by section (index = FULL
+  // warnings-array position — the §E4 jump-target key). Derived from the SAME
+  // helper deriveSectionStatuses refactored onto (§E2), so flags and callouts
+  // can never disagree.
+  const bySection = useMemo(
+    () => warningsBySection(data.warnings, new Set(sections.map((s) => s.id))),
+    [sections, data.warnings],
+  );
   // Row-local warnings dot (§6.2): red iff ≥1 warn-severity warning exists,
   // MAPPED OR NOT — the checks row summarizes the whole list. Deliberately
   // different from the §7 flagged-set rule (which only adds `warnings` for
@@ -187,6 +204,50 @@ export function Step3ReviewModal({
     if (!scroller || !target || typeof scroller.scrollTo !== "function") return;
     scroller.scrollTo({ top: sectionTopFor(scroller, target) - 8 });
   }
+
+  // ── §E4 warning jump + one-shot highlight (§H N3) ──────────────────────────
+  const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const highlightedElRef = useRef<HTMLElement | null>(null);
+
+  /** One highlight at a time: cancel the pending timer and strip the
+   *  attribute from whichever row currently carries it. */
+  function clearWarningHighlight() {
+    if (highlightTimerRef.current !== null) {
+      clearTimeout(highlightTimerRef.current);
+      highlightTimerRef.current = null;
+    }
+    highlightedElRef.current?.removeAttribute("data-step3-warning-flash");
+    highlightedElRef.current = null;
+  }
+
+  /** §E4 jump: `index` = FULL warnings-array position (the callout entry's
+   *  key); `null` = the "+N more" section-top jump (plain nav-click
+   *  semantics, no highlight). */
+  function jumpToWarning(index: number | null) {
+    if (index === null) {
+      handleNavClick("warnings"); // "+N more": plain nav-click semantics, no highlight
+      return;
+    }
+    setActive("warnings");
+    const scroller = contentRef.current;
+    // Container-scoped attribute query — NO id attributes (twin-nav rule §9.4).
+    const target = scroller?.querySelector<HTMLElement>(`[data-warning-index="${index}"]`);
+    if (scroller && target && typeof scroller.scrollTo === "function") {
+      // Task 10 threads beginSuppressedScroll(scroller, top) through here so a
+      // jump engages the same §A2 suppression as a rail click.
+      scroller.scrollTo({ top: Math.max(0, sectionTopFor(scroller, target) - 8) });
+    }
+    clearWarningHighlight(); // one highlight at a time
+    if (target) {
+      target.setAttribute("data-step3-warning-flash", "");
+      highlightedElRef.current = target;
+      highlightTimerRef.current = setTimeout(clearWarningHighlight, WARNING_HIGHLIGHT_MS);
+    }
+  }
+
+  // Unmount hygiene (§H compound: drag-dismiss or unmount during highlight →
+  // timer cleared in effect teardown).
+  useEffect(() => clearWarningHighlight, []);
 
   // Deterministic scroll-spy (§6.3a): a rAF-throttled PASSIVE `scroll`
   // listener on the content pane recomputes every rendered section's
@@ -796,6 +857,14 @@ export function Step3ReviewModal({
                     label: s.label,
                     flagged: flagged.has(s.id),
                     getActiveSection,
+                    dfid,
+                    sectionId: s.id,
+                    // §E3: callout entries for every flagged section EXCEPT
+                    // `warnings` (its body IS the warning list — circular).
+                    // exactOptional discipline: ABSENT, never undefined.
+                    ...(s.id !== "warnings" && bySection.has(s.id)
+                      ? { calloutEntries: bySection.get(s.id)!, onJumpToWarning: jumpToWarning }
+                      : {}),
                   }}
                 >
                   {s.render(data)}

@@ -261,8 +261,85 @@ export type Step3SectionChrome = {
    * a fresh inline object each render).
    */
   getActiveSection?: () => SectionId;
+  /**
+   * Follow-ups spec §E3: the section's warn-severity warning entries from
+   * `warningsBySection` (index = position in the FULL warnings array — the
+   * jump-target key). Passed by the modal for every flagged section EXCEPT
+   * `warnings` (its body IS the warning list — a callout would be circular).
+   * Optional/ABSENT everywhere else (exactOptionalPropertyTypes).
+   */
+  calloutEntries?: readonly { warning: ParseWarning; index: number }[];
+  /**
+   * Follow-ups spec §E4: jump callback — a full-array warning index scrolls
+   * to that row + flashes it; `null` is the "+N more" section-top jump
+   * (plain §A2 nav-click semantics, no highlight).
+   */
+  onJumpToWarning?: (index: number | null) => void;
+  /** Testid parts for the §E3 callout (`-section-${id}-flag-callout`) — the
+   *  modal (sole provider) always passes both; optional so existing provider
+   *  mounts in section tests stay valid. */
+  dfid?: string;
+  sectionId?: SectionId;
 };
 export const Step3SectionChromeContext = createContext<Step3SectionChrome | null>(null);
+
+// §E3 callout row cap (spec §2 named constant): at most this many warning
+// titles render inline; the remainder collapses to "+N more in Parse warnings".
+export const CALLOUT_MAX_ENTRIES = 3;
+
+/**
+ * §E3 inline flag callout: a compact warning-tone block at the top of a
+ * flagged section's panel card linking each mapped warning to its row in the
+ * Parse-warnings section. Titles go through `reviewWarningTitle` — the §8
+ * hardening (invariant 5, no raw machine tokens) applies transitively.
+ */
+function SectionFlagCallout({
+  dfid,
+  sectionId,
+  entries,
+  onJump,
+}: {
+  dfid: string;
+  sectionId: SectionId;
+  entries: readonly { warning: ParseWarning; index: number }[];
+  onJump: (index: number | null) => void;
+}) {
+  const shown = entries.slice(0, CALLOUT_MAX_ENTRIES);
+  const extra = entries.length - shown.length;
+  return (
+    <div
+      data-testid={`wizard-step3-card-${dfid}-section-${sectionId}-flag-callout`}
+      className="flex flex-col gap-1 rounded-md border border-border-strong bg-warning-bg px-3 py-2 text-xs text-warning-text"
+    >
+      {shown.map(({ warning, index }) => {
+        const title = reviewWarningTitle(warning); // §8 hardening applies transitively
+        return (
+          <div key={index} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <AlertTriangle aria-hidden="true" className="size-3.5 shrink-0" />
+            <span className="min-w-0 wrap-break-word font-medium">{title}</span>
+            <button
+              type="button"
+              onClick={() => onJump(index)}
+              className="inline-flex min-h-tap-min items-center font-semibold underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            >
+              View details<span className="sr-only"> for {title}</span>
+            </button>
+          </div>
+        );
+      })}
+      {/* §H N2: instant — deliberate (overflow line follows the entry count; static with section render) */}
+      {extra > 0 ? (
+        <button
+          type="button"
+          onClick={() => onJump(null)}
+          className="inline-flex min-h-tap-min items-center self-start font-semibold underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+        >
+          +{extra} more in Parse warnings
+        </button>
+      ) : null}
+    </div>
+  );
+}
 
 /** §6.4 heading row + §5.2 panel card (shared by BreakdownSection + agenda). */
 function ModalSectionChrome({
@@ -305,6 +382,20 @@ function ModalSectionChrome({
           flagged ? "border-border-strong" : "border-border"
         }`}
       >
+        {/* §H N2: instant — deliberate (callout presence is static with the
+            section render — no mount animation; spec §E3 first child) */}
+        {chrome.calloutEntries &&
+        chrome.calloutEntries.length > 0 &&
+        chrome.onJumpToWarning &&
+        chrome.dfid !== undefined &&
+        chrome.sectionId !== undefined ? (
+          <SectionFlagCallout
+            dfid={chrome.dfid}
+            sectionId={chrome.sectionId}
+            entries={chrome.calloutEntries}
+            onJump={chrome.onJumpToWarning}
+          />
+        ) : null}
         {children}
       </div>
     </>
@@ -1119,6 +1210,9 @@ export function WarningsBreakdown({ dfid, warnings }: { dfid: string; warnings: 
                 <li
                   key={`${w.code}-${i}`}
                   data-testid={`wizard-step3-card-${dfid}-warning-${i}`}
+                  // §E4 jump-target key: same FULL-array index as the testid —
+                  // the modal's container-scoped query hook (no `id`s, §9.4).
+                  data-warning-index={i}
                   className="flex gap-3"
                 >
                   {/* §8 severity icon chip: warn = warm chip, info = neutral. */}
