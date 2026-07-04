@@ -31,6 +31,7 @@
 import { useActionState } from "react";
 import { Lock } from "lucide-react";
 import { getDougFacing } from "@/lib/messages/lookup";
+import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import type { MessageCode } from "@/lib/messages/catalog";
 import {
   setDeveloperAction,
@@ -167,7 +168,7 @@ function InteractiveDeveloperToggle({ email, checked }: { email: string; checked
           data-testid="developer-toggle-error"
           className="max-w-prose rounded-sm bg-warning-bg px-2 py-1 text-right text-xs text-warning-text"
         >
-          {errorCopy}
+          {renderEmphasis(errorCopy)}
         </p>
       ) : null}
     </div>
