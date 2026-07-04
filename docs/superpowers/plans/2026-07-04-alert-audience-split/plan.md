@@ -1,0 +1,370 @@
+# Alert Audience Split + App-Health Indicator — Implementation Plan
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Split the 42 admin-alert codes into `doug` (actionable, stays in the amber banner) and `health` (app/dev concerns) audiences, remove `health` codes from Doug's amber surfaces, and surface them through an escalating app-health indicator (nav + dashboard) with a Doug plain-language popover and a developer detail panel — so nothing goes dark.
+
+**Architecture:** Catalog metadata (`audience`/`healthWeight`/`dougSummary`) is the single source; the existing `INFO_SEVERITY_CODES` exclusion pattern is extended to also exclude `HEALTH_CODES` from Doug surfaces (exclusion, not allowlist → unknown codes stay fail-visible). A bounded, exact `fetchHealthRollup()` (count-head probes + healthy-state short-circuit) drives the indicator; a dev-gated `resolveHealthAlertFormAction` plus guards on the three legacy resolve surfaces make health resolution developer-only at the product layer.
+
+**Tech Stack:** Next.js 16 App Router (RSC + Server Actions), Supabase (`admin_alerts` via `createSupabaseServerClient`), Tailwind v4 `@theme` tokens, Vitest, Playwright (real-browser layout/transition assertions), lucide-react icons.
+
+## Global Constraints
+
+- **No DB migration, no RLS change, no advisory locks.** `audience`/`healthWeight`/`dougSummary` are catalog metadata only.
+- **Invariant 5:** no raw error-code strings in the DOM — all copy via `lib/messages/lookup.ts` / catalog.
+- **Invariant 9:** every Supabase call destructures `{ data, error }`; infra faults surface as typed results; new reads registered in `tests/admin/_metaInfraContract.test.ts`; new `admin_alerts` reads registered in `tests/admin/_metaBoundedReads.test.ts`.
+- **Exclusion, not allowlist:** Doug surfaces exclude `INFO_SEVERITY_CODES ∪ HEALTH_CODES`; unknown codes stay Doug-visible.
+- **Health resolution is app-surface defense-in-depth, NOT a DB boundary** (deferred to `BL-HEALTH-RESOLVE-DB-LOCKDOWN`).
+- **TDD per task; one conventional-commit per task** (`feat(...)`/`test(...)`/`chore(...)`), `--no-verify` (shared hook); run `pnpm typecheck` + `pnpm format:check` before any push.
+- **UI-token discipline (invariant 8):** UI surfaces ship only after `/impeccable critique` AND `/impeccable audit` pass (Task 13), HIGH/CRITICAL fixed or DEFERRED.md'd, before the whole-diff Codex review.
+- **Audience partition (verbatim from spec §3):** 16 doug / 26 health (16 degraded + 10 notice). Full lists in spec §3.1/§3.2 — copy them exactly.
+- **Catalog copy edits (spec §7):** `WATCH_CHANNEL_ORPHANED`, `EMAIL_NOT_CONFIGURED`, `EMAIL_DELIVERY_FAILED` each require the §12.4 three-way lockstep (master spec §12.4 prose + `pnpm gen:spec-codes` + `lib/messages/catalog.ts`, same commit). Never `prettier --write` the master spec.
+
+## Meta-test inventory (declared per AGENTS.md writing-plans additions)
+
+- **CREATE** `tests/messages/_metaAlertAudienceContract.test.ts` — every `ADMIN_ALERTS_CODES` entry declares `audience`; health codes declare `healthWeight` + non-empty `dougSummary`; doug codes carry NEITHER; partition counts 16/26 and 16/10.
+- **CREATE** `tests/admin/healthResolveGuard.test.ts` — the 3 legacy resolve surfaces reject `HEALTH_CODES`; `resolveHealthAlertFormAction` is the sole health-resolve entry point.
+- **EXTEND** `tests/admin/_metaInfraContract.test.ts` — register `fetchHealthRollup` (count-head contract) + the `HealthAlertsPanel` loader (array-shape contract).
+- **EXTEND** `tests/admin/_metaBoundedReads.test.ts` — register `lib/admin/healthRollup.ts` (count-head) + the `HealthAlertsPanel` loader (`.range`).
+- **EXTEND** `tests/log/_metaAdminOutcomeContract.test.ts` — register `resolveHealthAlertFormAction` reusing `ADMIN_ALERT_RESOLVED`.
+- No advisory-lock topology (this plan touches no `pg_advisory*`).
+
+## File structure
+
+- `lib/messages/catalog.ts` — add 3 fields to `MessageCatalogEntry`; set them on 42 codes; reconcile 3 rows' copy.
+- `lib/adminAlerts/audience.ts` (NEW) — `HEALTH_CODES`, `DEGRADED_HEALTH_CODES`, `NOTICE_HEALTH_CODES`, `DOUG_EXCLUDED_CODES` (= info ∪ health), `dougSummaryFor(code)`.
+- `lib/admin/healthRollup.ts` (NEW) — `HealthStatus`, `HealthSummaryLine`, `fetchHealthRollup()`.
+- `lib/admin/healthAlerts.ts` (NEW) — `loadHealthAlerts({ weight, page })` (the paginated dev panel loader).
+- `components/admin/nav/AppHealthIndicator.tsx` (NEW) — nav dot; Doug `<button>`+popover vs dev `<Link>`.
+- `components/admin/AppHealthPopover.tsx` (NEW) — Doug plain-language sheet/popover.
+- `components/admin/AppHealthPanel.tsx` (NEW) — dashboard breakdown (own read).
+- `components/admin/observability/HealthAlertsPanel.tsx` (NEW) — dev detail rows + action links + resolve.
+- `components/admin/observability/HealthAlertResolveButton.tsx` (NEW) — client button bound to the Server Action.
+- `app/admin/actions.ts` — add `resolveHealthAlertFormAction`; guard `resolveAdminAlertFormAction` against health codes.
+- `app/api/admin/admin-alerts/[id]/resolve/route.ts`, `app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts` — reject health codes.
+- `components/admin/nav/AdminNav.tsx`, `components/admin/nav/OnboardingTopBar.tsx`, `app/admin/layout.tsx` — thread rollup + render indicator.
+- `app/admin/page.tsx`, `app/admin/observability/page.tsx` — render `AppHealthPanel` / `HealthAlertsPanel`.
+- `app/globals.css` — `--color-status-degraded` (+ text) token.
+
+---
+
+### Task 0: Add the `status-degraded` (red) theme token
+
+**Files:**
+- Modify: `app/globals.css` (`@theme` block near `:82` + light/dark runtime blocks near `:254/:296/:331`)
+
+**Interfaces:**
+- Produces: Tailwind utility `bg-status-degraded` + `text-status-degraded-text` for the red (degraded) indicator state. `status-warn` = amber (notice), `status-positive` = green (ok), `status-idle` = neutral (unknown) already exist.
+
+- [ ] **Step 1: Write the failing test** — `tests/design/statusDegradedToken.test.ts`
+
+```ts
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { describe, expect, test } from "vitest";
+// Guards the token exists so bg-status-degraded resolves (Tailwind v4 emits it
+// only if the @theme var is declared). Mirrors the status-warn token shape.
+describe("status-degraded token", () => {
+  const css = readFileSync(join(process.cwd(), "app/globals.css"), "utf8");
+  test("declares --color-status-degraded + text in @theme", () => {
+    expect(css).toMatch(/--color-status-degraded:\s*var\(--color-status-degraded-runtime\)/);
+    expect(css).toMatch(/--color-status-degraded-text:\s*var\(--color-status-degraded-text-runtime\)/);
+  });
+  test("provides light + dark runtime values (a red hue, distinct from amber warn)", () => {
+    // two runtime declarations (base/light + dark override) minimum
+    const decls = css.match(/--color-status-degraded-runtime:\s*#[0-9a-fA-F]{6}/g) ?? [];
+    expect(decls.length).toBeGreaterThanOrEqual(2);
+  });
+});
+```
+
+- [ ] **Step 2: Run to verify FAIL** — `pnpm vitest run tests/design/statusDegradedToken.test.ts` → FAIL (token absent).
+- [ ] **Step 3: Implement** — in `app/globals.css`, add to the `@theme` block: `--color-status-degraded: var(--color-status-degraded-runtime); --color-status-degraded-text: var(--color-status-degraded-text-runtime);`. Add runtime values in the base/light block (`--color-status-degraded-runtime: #b3261e; --color-status-degraded-text-runtime: #ffffff;`) and dark block (`--color-status-degraded-runtime: #e5534b; --color-status-degraded-text-runtime: #1a1a1a;`). Match the existing runtime-var placement pattern.
+- [ ] **Step 4: Run to verify PASS**. Also `pnpm typecheck`.
+- [ ] **Step 5: Commit** — `chore(admin): add status-degraded red theme token for health indicator`
+
+---
+
+### Task 1: Catalog metadata fields + populate 42 codes + reconcile 3 copy rows + audience meta-test
+
+**Files:**
+- Modify: `lib/messages/catalog.ts` (`MessageCatalogEntry` at `:1-11`; the 42 admin-alert entries; `WATCH_CHANNEL_ORPHANED`, `EMAIL_NOT_CONFIGURED` `:1982`, `EMAIL_DELIVERY_FAILED` `:1968` copy)
+- Modify: master spec `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` §12.4 (the 3 reworded rows only)
+- Create: `tests/messages/_metaAlertAudienceContract.test.ts`
+- Run: `pnpm gen:spec-codes`
+
+**Interfaces:**
+- Produces: `MessageCatalogEntry.audience?: "doug" | "health"`, `.healthWeight?: "degraded" | "notice"`, `.dougSummary?: string | null`. All 42 `ADMIN_ALERTS_CODES` carry `audience`; the 26 health codes carry `healthWeight` + non-empty `dougSummary`; the 16 doug codes carry neither.
+
+- [ ] **Step 1: Write the failing meta-test** — `tests/messages/_metaAlertAudienceContract.test.ts`:
+
+```ts
+import { describe, expect, test } from "vitest";
+import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
+
+// The 42 admin-alert codes (spec §3; keep in sync with _metaAdminAlertCatalog ADMIN_ALERTS_CODES).
+const DOUG = [
+  "SHEET_UNAVAILABLE","DRIVE_FETCH_FAILED","PARSE_ERROR_LAST_GOOD","AMBIGUOUS_EMAIL_BINDING",
+  "EMBEDDED_RECOVERY_REQUIRES_RESTAGE","OPENING_REEL_PERMISSION_DENIED","OPENING_REEL_NOT_VIDEO",
+  "REEL_DRIFTED","EMBEDDED_ASSET_DRIFTED","ASSET_RECOVERY_BYTES_EXCEEDED","SHOW_FIRST_PUBLISHED",
+  "SHOW_UNPUBLISHED","LIVE_ROW_CONFLICT","PICKER_EPOCH_RESET","SYNC_STALLED","WATCH_CHANNEL_ORPHANED",
+] as const;
+const DEGRADED = [
+  "PENDING_SNAPSHOT_PROMOTE_STUCK","PENDING_SNAPSHOT_ROLLBACK_STUCK","PENDING_SNAPSHOT_DELETE_STUCK",
+  "WEBHOOK_TOKEN_INVALID","GITHUB_BOT_LOGIN_MISSING","REPORT_DUPLICATE_LIVE_MATCHES",
+  "REPORT_OPEN_ORPHAN_LABEL","REPORT_LEASE_THRASHING","BRANCH_PROTECTION_DRIFT",
+  "BRANCH_PROTECTION_MONITOR_AUTH_FAILED","EMAIL_NOT_CONFIGURED","EMAIL_DELIVERY_FAILED",
+  "TILE_SERVER_RENDER_FAILED","TILE_PROJECTION_FETCH_FAILED","PICKER_BOOTSTRAP_RPC_FAILED",
+  "PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED",
+] as const;
+const NOTICE = [
+  "PICKER_SELECTION_RACE","ASSET_RECOVERY_REVISION_DRIFT","ASSET_RECOVERY_DRIFT_COOLDOWN",
+  "WIZARD_SESSION_SUPERSEDED_RACE","OAUTH_IDENTITY_CLAIMED","ROLE_FLAGS_NOTICE","CALLBACK_CLAIM_THREW",
+  "REPORT_ORPHANED_LOST_LEASE","REPORT_LOOKUP_INCONCLUSIVE","STALE_ORPHAN_REPORT",
+] as const;
+const HEALTH = [...DEGRADED, ...NOTICE];
+const cat = MESSAGE_CATALOG as Record<string, { audience?: string; healthWeight?: string; dougSummary?: string | null }>;
+
+describe("alert audience contract", () => {
+  test("partition counts: 16 doug + 26 health = 42; 16 degraded + 10 notice", () => {
+    expect(DOUG.length).toBe(16);
+    expect(HEALTH.length).toBe(26);
+    expect(DEGRADED.length).toBe(16);
+    expect(NOTICE.length).toBe(10);
+  });
+  test.each(DOUG)("%s is audience:doug with NO healthWeight/dougSummary", (c) => {
+    expect(cat[c]?.audience).toBe("doug");
+    expect(cat[c]?.healthWeight).toBeUndefined();
+    expect(cat[c]?.dougSummary == null).toBe(true);
+  });
+  test.each(HEALTH)("%s is audience:health with weight + non-empty dougSummary", (c) => {
+    expect(cat[c]?.audience).toBe("health");
+    expect(cat[c]?.healthWeight).toBe(DEGRADED.includes(c as never) ? "degraded" : "notice");
+    expect((cat[c]?.dougSummary ?? "").length).toBeGreaterThan(0);
+  });
+});
+```
+
+- [ ] **Step 2: Run to verify FAIL** — `pnpm vitest run tests/messages/_metaAlertAudienceContract.test.ts` → FAIL (fields absent).
+- [ ] **Step 3: Implement.** (a) Add the 3 optional fields to `MessageCatalogEntry`. (b) On each of the 42 entries set `audience`; on the 26 health entries add `healthWeight` + a `dougSummary` (plain-language, reassuring, non-actionable — e.g. `WEBHOOK_TOKEN_INVALID` → `"A Google Drive push notification failed a security check. Instant updates keep working through the regular sync."`; write one per health code). (c) Reconcile the 3 copy rows per spec §7: `WATCH_CHANNEL_ORPHANED` (drop amber-urgency); `EMAIL_NOT_CONFIGURED` `followUp` → `"Eric → configure email env (provider key / sending address / site address) on the deployment"`, `dougFacing` drops the Doug instruction; `EMAIL_DELIVERY_FAILED` `followUp` → `"Eric → check provider key / verified sending domain"`. Mirror the §12.4 prose in the master spec for these 3, then `pnpm gen:spec-codes`.
+- [ ] **Step 4: Run to verify PASS** — the new meta-test + `pnpm vitest run tests/messages/` (x1-catalog-parity, _metaAdminAlertCatalog, codes-coverage) + `pnpm typecheck`.
+- [ ] **Step 5: Commit** — `feat(messages): add alert audience/healthWeight/dougSummary + reconcile EMAIL_*/WATCH copy`
+
+---
+
+### Task 2: Audience code-set derivations + Doug-exclusion helper
+
+**Files:**
+- Create: `lib/adminAlerts/audience.ts`
+- Create: `tests/adminAlerts/audience.test.ts`
+
+**Interfaces:**
+- Produces: `HEALTH_CODES: string[]`, `DEGRADED_HEALTH_CODES: string[]`, `NOTICE_HEALTH_CODES: string[]`, `DOUG_EXCLUDED_CODES: string[]` (= info-severity ∪ health), `dougSummaryFor(code: string): string | null`. All derived from `MESSAGE_CATALOG` at module load (mirrors `AlertBanner.tsx:71-73` `INFO_SEVERITY_CODES`).
+
+- [ ] **Step 1: Failing test** — assert `HEALTH_CODES` contains `WEBHOOK_TOKEN_INVALID`, excludes `SHEET_UNAVAILABLE`; `DEGRADED_HEALTH_CODES` contains `EMAIL_NOT_CONFIGURED`, excludes `PICKER_SELECTION_RACE`; `DOUG_EXCLUDED_CODES` contains a known info code (`ROLE_FLAGS_NOTICE`) AND a health code (`WEBHOOK_TOKEN_INVALID`) but NOT `SHEET_UNAVAILABLE`; `dougSummaryFor("WEBHOOK_TOKEN_INVALID")` is non-empty, `dougSummaryFor("SHEET_UNAVAILABLE")` is null, `dougSummaryFor("NOT_A_CODE")` is null.
+- [ ] **Step 2: Run → FAIL.**
+- [ ] **Step 3: Implement** — compute from `Object.values(MESSAGE_CATALOG)`: `HEALTH_CODES` = `audience==="health"`; degraded/notice by `healthWeight`; `DOUG_EXCLUDED_CODES` = union of `severity==="info"` codes and `HEALTH_CODES` (dedup); `dougSummaryFor` reads `MESSAGE_CATALOG[code]?.dougSummary ?? null`.
+- [ ] **Step 4: Run → PASS** + typecheck.
+- [ ] **Step 5: Commit** — `feat(admin-alerts): derive HEALTH_CODES + Doug-exclusion sets from catalog`
+
+---
+
+### Task 3: `fetchHealthRollup` (bounded, exact, short-circuit) + infra/bounded meta-test rows
+
+**Files:**
+- Create: `lib/admin/healthRollup.ts`
+- Create: `tests/admin/healthRollup.test.ts`
+- Modify: `tests/admin/_metaInfraContract.test.ts`, `tests/admin/_metaBoundedReads.test.ts`
+
+**Interfaces:**
+- Produces: `type HealthSummaryLine = { text: string; count: number }`; `type HealthStatus = { kind:"ok" } | { kind:"notice"|"degraded"; count:number; summaries:HealthSummaryLine[]; overflowCount:number } | { kind:"infra_error" }`; `async function fetchHealthRollup(): Promise<HealthStatus>`; `const POPOVER_SUMMARY_CAP = 4`.
+- Consumes: `createSupabaseServerClient` (`@/lib/supabase/server`); `HEALTH_CODES`/`DEGRADED_HEALTH_CODES`/`NOTICE_HEALTH_CODES`/`dougSummaryFor` (Task 2).
+
+- [ ] **Step 1: Failing tests** (`tests/admin/healthRollup.test.ts`, mock the supabase client like `tests/admin/alertCount.test.ts`):
+  - zero unresolved health rows → `{kind:"ok"}` (only the total head count issued — short-circuit).
+  - ≥1 degraded row → `kind:"degraded"`, `count` = exact total.
+  - only notice rows → `kind:"notice"`.
+  - construction throw / returned `{error}` / non-number count → `{kind:"infra_error"}`; `data===null` on a head probe is NOT infra_error.
+  - summaries: seed 3 rows of code A (dougSummary "X") + 1 of code B ("Y") → `summaries` has `{text:"X",count:3}` before `{text:"Y",count:1}` when both same weight, degraded-first when weights differ; `overflowCount` exact when >4 distinct summaries.
+  - truncation-proof: a large `notice` volume + one degraded code still yields `kind:"degraded"` and the degraded summary present (per-code exact counts).
+- [ ] **Step 2: Run → FAIL.**
+- [ ] **Step 3: Implement** per spec §6.1: (1) exact head count over `HEALTH_CODES` → `count`; if 0 return `{kind:"ok"}`. (2) exact head count over `DEGRADED_HEALTH_CODES` → `degradedCount`; kind = degraded if >0 else notice. (3) `Promise.all` of per-code exact head counts over `HEALTH_CODES` (each `.select("id",{count:"exact",head:true}).is("resolved_at",null).eq("code",c)`), map codes with count>0 → `dougSummaryFor`, dedupe by text summing counts, sort degraded-first then count desc, slice `POPOVER_SUMMARY_CAP`, `overflowCount` = distinctCount - shown. All `{data,error}` destructured; success on `typeof count === "number"`.
+- [ ] **Step 4: Register meta rows** — add `fetchHealthRollup` to `_metaInfraContract` (count-head contract, mirror `fetchUnresolvedAlertCount:244`; `data:null` normal) and `lib/admin/healthRollup.ts` to `_metaBoundedReads` (all count-head).
+- [ ] **Step 5: Run → PASS** (new test + both meta-tests) + typecheck. **Commit** — `feat(admin): bounded exact fetchHealthRollup + infra/bounded meta rows`
+
+---
+
+### Task 4: Exclude `HEALTH_CODES` from Doug surfaces (banner, bell count, per-show)
+
+**Files:**
+- Modify: `components/admin/AlertBanner.tsx` (`:71-73` `INFO_SEVERITY_CODES`, `:116-127` query), `lib/admin/alertCount.ts` (`:6-27`), `components/admin/PerShowAlertSection.tsx` (`:119-122`)
+- Modify/Create tests: `tests/components/alertBanner.*`, `tests/admin/alertCount.test.ts`, `tests/components/perShowAlertSection.*`
+
+**Interfaces:**
+- Consumes: `DOUG_EXCLUDED_CODES` (Task 2).
+
+- [ ] **Step 1: Failing tests** — (a) `alertCount` excludes a seeded `WEBHOOK_TOKEN_INVALID` row from the count but still counts a `SHEET_UNAVAILABLE` row AND an uncataloged `TOTALLY_UNKNOWN_CODE` row (exclusion-not-allowlist, AC10). (b) `AlertBanner` does not render a top `WEBHOOK_TOKEN_INVALID` but renders `SHEET_UNAVAILABLE`; a seeded uncataloged code still renders. (c) `PerShowAlertSection` filters a show-scoped `TILE_PROJECTION_FETCH_FAILED` out but keeps a show-scoped `PARSE_ERROR_LAST_GOOD` and an unknown code.
+- [ ] **Step 2: Run → FAIL.**
+- [ ] **Step 3: Implement** — replace the `INFO_SEVERITY_CODES`-only exclusion with `DOUG_EXCLUDED_CODES` in all three (`.not("code","in", \`(${DOUG_EXCLUDED_CODES.map(c=>`"${c}"`).join(",")})\`)`). `SHOW_FIRST_PUBLISHED` remains excluded via the info membership (already in the union). Keep the empty-list guard.
+- [ ] **Step 4: Run → PASS** + `pnpm vitest run tests/components tests/admin` + typecheck.
+- [ ] **Step 5: Commit** — `feat(admin): exclude health codes from Doug alert surfaces (exclusion, unknowns stay visible)`
+
+---
+
+### Task 5: `AppHealthIndicator` (nav dot) + `AppHealthPopover` (Doug) / dev deep-link
+
+**Files:**
+- Create: `components/admin/nav/AppHealthIndicator.tsx`, `components/admin/AppHealthPopover.tsx`
+- Create: `tests/components/appHealthIndicator.test.tsx`
+
+**Interfaces:**
+- Consumes: `HealthStatus` (Task 3).
+- Produces: `AppHealthIndicator({ rollup: HealthStatus; isDeveloper: boolean })`. Doug → `<button data-testid="app-health-indicator">` opening `AppHealthPopover`; dev → `<Link href="/admin/observability#health">`. Dot classes: `degraded`→`bg-status-degraded`, `notice`→`bg-status-warn`, `ok`→`bg-status-positive`, `infra_error`→`bg-status-idle`. Always paired with an `aria-label`/`title` naming the state (color-blind floor). `min-h-tap-min min-w-tap-min inline-flex items-center justify-center` (matches `NotifBell.tsx:34`). `data-testid` on the dot: `app-health-dot-{kind}`.
+
+- [ ] **Step 1: Failing tests** (jsdom render): each kind renders the right dot testid + aria-label text ("System health: needs attention" for degraded/notice, "All systems normal" for ok, "System health status unknown" for infra_error); Doug renders a button, dev renders an anchor to `/admin/observability#health`; popover lists `summaries` lines + "+N more" when `overflowCount>0` + the exact closing line "No action needed from you — the developer can see this in system health." and never contains "notified".
+- [ ] **Step 2: Run → FAIL.**
+- [ ] **Step 3: Implement** — `AppHealthIndicator` (client component; icon `Activity` from lucide). `AppHealthPopover` reuses the responsive sheet/popover pattern (`reference_responsive_modal_sheet_pattern`: bottom-sheet mobile / anchored desktop, `useDialogFocus` + scrim); title "System status"; body = `summaries.map(s => \`${s.text}\` + (s.count>1?` ×${s.count}`:""))`; overflow note; closing reassurance line; fallback line when summaries empty but count>0.
+- [ ] **Step 4: Run → PASS** + typecheck.
+- [ ] **Step 5: Commit** — `feat(admin): AppHealthIndicator nav dot + Doug system-status popover`
+
+---
+
+### Task 6: Thread the rollup into `AdminNav` + `OnboardingTopBar` (incl. onboarding chrome)
+
+**Files:**
+- Modify: `app/admin/layout.tsx` (`:145` Promise.all; compute `fetchHealthRollup()` + `isCurrentUserDeveloper()` BEFORE the `inOnboarding` branch at `:113-134`; pass to both bars at `:134` and `:163`), `components/admin/nav/AdminNav.tsx` (`:34-39` props, `:114` render), `components/admin/nav/OnboardingTopBar.tsx`
+- Modify tests: `tests/admin/adminLayout.*` (or component tests for the two bars)
+
+**Interfaces:**
+- Consumes: `fetchHealthRollup` (Task 3), `isCurrentUserDeveloper` (`lib/auth/requireDeveloper.ts:258`), `AppHealthIndicator` (Task 5).
+
+- [ ] **Step 1: Failing tests** — `AdminNav` renders `<AppHealthIndicator>` beside `<NotifBell>` given a rollup prop; `OnboardingTopBar` renders it too; with `inOnboarding===true` + a degraded rollup, the indicator appears (AC13).
+- [ ] **Step 2: Run → FAIL.**
+- [ ] **Step 3: Implement** — hoist `const [alertCount, needsAttentionCount, healthRollup, isDeveloper] = await Promise.all([...])` above the `inOnboarding` return (rollup short-circuits cheap); add `healthRollup`/`isDeveloper` props to `AdminNav` + `OnboardingTopBar`; render `<AppHealthIndicator rollup={healthRollup} isDeveloper={isDeveloper} />`.
+- [ ] **Step 4: Run → PASS** + typecheck.
+- [ ] **Step 5: Commit** — `feat(admin): render app-health indicator in admin nav + onboarding chrome`
+
+---
+
+### Task 7: `AppHealthPanel` on the dashboard (own pinned read)
+
+**Files:**
+- Create: `components/admin/AppHealthPanel.tsx`
+- Modify: `app/admin/page.tsx` (render below `AlertBanner` in `DashboardWithHeader`, `:110-118`)
+- Create test: `tests/components/appHealthPanel.test.tsx`
+
+**Interfaces:**
+- Consumes: `fetchHealthRollup` (Task 3), `isCurrentUserDeveloper`.
+- Produces: `AppHealthPanel` (async server component) doing its OWN `fetchHealthRollup()` read; renders a `StatusIndicator`-style row: ok → "All systems normal" (positive), else the worst-active state + count; Doug → popover trigger, dev → "View details →" `/admin/observability#health`.
+
+- [ ] **Step 1: Failing test** — `/admin` renders `data-testid="app-health-panel"` from a seeded degraded rollup (mock `fetchHealthRollup`); shows "All systems normal" on ok (AC12 first clause).
+- [ ] **Step 2: Run → FAIL.** **Step 3: Implement.** **Step 4: PASS** + typecheck.
+- [ ] **Step 5: Commit** — `feat(admin): dashboard app-health panel (own rollup read)`
+
+---
+
+### Task 8: `HealthAlertsPanel` dev detail (partitioned paginated queries + rows + action links)
+
+**Files:**
+- Create: `lib/admin/healthAlerts.ts` (loader), `components/admin/observability/HealthAlertsPanel.tsx`
+- Modify: `app/admin/observability/page.tsx` (render above `CronHealthHeader`, `:20` already `requireDeveloperIdentity()`), `tests/admin/_metaInfraContract.test.ts` + `tests/admin/_metaBoundedReads.test.ts` (register the loader — already declared Task 3 inventory; add here if not).
+- Create tests: `tests/admin/healthAlerts.test.ts`, `tests/components/healthAlertsPanel.test.tsx`
+
+**Interfaces:**
+- Produces: `loadHealthAlerts({ weight: "degraded"|"notice", page: number }): Promise<{ kind:"ok"; rows: HealthAlertRow[]; hasMore: boolean } | { kind:"infra_error" }>` where `HealthAlertRow = { id; code; show_id; slug: string|null; context: Record<string,unknown>|null; occurrence_count; raised_at }`. Two partitioned queries (degraded set, notice set), each `.in("code", set).is("resolved_at",null).order("raised_at",{ascending:false}).range(page*SIZE,(page+1)*SIZE-1)` selecting `id, code, show_id, context, occurrence_count, raised_at, shows(slug)`. `HEALTH_PANEL_PAGE_SIZE = 50`.
+- Consumes: `DEGRADED_HEALTH_CODES`/`NOTICE_HEALTH_CODES` (Task 2), `resolveAlertAction` (`lib/adminAlerts/alertActions.ts`), `messageFor`/`isMessageCode` (`lib/messages/lookup.ts`), `resolveHealthAlertFormAction` (Task 9 — wire the button in Task 9's step).
+
+- [ ] **Step 1: Failing tests** — (a) loader: array-shape typed read; returned/thrown error → `infra_error`; degraded query separate from notice; `.range` present. (b) panel renders per-row lookup copy (no raw code), a `healthWeight` chip, a show link when `show_id`, `raised_at`, `occurrence_count`; renders `resolveAlertAction` link for each of the 6 action-link health codes (`PICKER_SELECTION_RACE`, `ROLE_FLAGS_NOTICE`, `WIZARD_SESSION_SUPERSEDED_RACE`, `REPORT_ORPHANED_LOST_LEASE`, `BRANCH_PROTECTION_DRIFT`, `BRANCH_PROTECTION_MONITOR_AUTH_FAILED`) given appropriate `context`/`slug`; degraded section renders before notice; with >PAGE_SIZE notices + an older degraded row, the degraded row is in the degraded section (reachable) (AC9 R13). (c) empty → "No open system-health alerts.".
+- [ ] **Step 2: Run → FAIL.** **Step 3: Implement** the loader + panel + wrapper `id="health"` + `data-testid="health-alerts-panel"`. **Step 4: Register** loader in `_metaInfraContract` (array-shape) + `_metaBoundedReads` (`.range`) if not already. **Step 5: PASS** + typecheck.
+- [ ] **Step 6: Commit** — `feat(admin): dev HealthAlertsPanel (partitioned paginated detail + action links)`
+
+---
+
+### Task 9: `resolveHealthAlertFormAction` (dev-gated, attributable, zero-row-safe) + outcome registry
+
+**Files:**
+- Modify: `app/admin/actions.ts` (add the action)
+- Create: `components/admin/observability/HealthAlertResolveButton.tsx` (client button bound to the action; wire into `HealthAlertsPanel`)
+- Modify: `tests/log/_metaAdminOutcomeContract.test.ts` (register), `tests/admin/_metaInfraContract.test.ts` producer note
+- Create test: `tests/admin/resolveHealthAlert.test.ts`
+
+**Interfaces:**
+- Produces: `async function resolveHealthAlertFormAction(formData: FormData): Promise<void>` (reads `id`). Gates `requireDeveloperIdentity()`; fetches row `{code, show_id}` (`{data,error}`); rejects `code ∉ HEALTH_CODES` (throw/deny, no write); UPDATE `.update({resolved_at, resolved_by: devEmail}).eq("id",id).is("resolved_at",null).select("id")` → success only if `data.length===1`; on success awaits `logAdminOutcome({code:"ADMIN_ALERT_RESOLVED", actorEmail: devEmail, target:id})` then `revalidatePath("/admin","layout")` + `revalidatePath("/admin/observability")`; zero-row / error / throw → no log, no revalidate (throw to boundary on error). Carries `// not-subject-to-meta: server action with no typed-result contract`.
+
+- [ ] **Step 1: Failing tests** — non-developer → denied, `resolved_at` unchanged, no log (mock `requireDeveloperIdentity` throwing `forbidden`); developer + health id → row resolved, `resolved_by` set, one awaited `ADMIN_ALERT_RESOLVED` with actor; `code ∉ HEALTH_CODES` → rejected, no write; zero-row UPDATE (already resolved) → no log, no revalidate; UPDATE error → throws, no revalidate.
+- [ ] **Step 2: Run → FAIL.** **Step 3: Implement** the action + client button; wire button into `HealthAlertsPanel` rows (Task 8). **Step 4: Register** in `_metaAdminOutcomeContract` (reuse `ADMIN_ALERT_RESOLVED`). **Step 5: PASS** + typecheck.
+- [ ] **Step 6: Commit** — `feat(admin): dev-gated resolveHealthAlertFormAction (attributable, zero-row-safe)`
+
+---
+
+### Task 10: Close the legacy resolve bypass (3 endpoints reject health codes) + guard meta-test
+
+**Files:**
+- Modify: `app/admin/actions.ts` (`resolveAdminAlertFormAction` — fetch row code, reject if `∈ HEALTH_CODES`), `app/api/admin/admin-alerts/[id]/resolve/route.ts` (add `a.code` to the SELECT `:103`, reject health), `app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts` (add `code` to select `:109`, reject health)
+- Create: `tests/admin/healthResolveGuard.test.ts`
+
+**Interfaces:**
+- Consumes: `HEALTH_CODES` (Task 2).
+
+- [ ] **Step 1: Failing tests** — direct-invoke each of the 3 legacy surfaces on a health-code row (global + show-scoped) → rejected, `resolved_at` null; a `doug`-code row still resolves through each unchanged; a structural assertion that each surface references `HEALTH_CODES` in its reject path. Documentation test: a raw direct `admin_alerts` UPDATE is NOT blocked at the DB (records the accepted escape hatch, `BL-HEALTH-RESOLVE-DB-LOCKDOWN`).
+- [ ] **Step 2: Run → FAIL.** **Step 3: Implement** the three guards. **Step 4: PASS** + run `tests/admin tests/messages` + typecheck.
+- [ ] **Step 5: Commit** — `feat(admin): reject health codes on legacy resolve surfaces (dev-only health resolve)`
+
+---
+
+### Task 11: Layout-dimensions real-browser assertion (mandatory — fixed-height nav)
+
+**Files:**
+- Create: `tests/e2e/appHealthIndicator.layout.spec.ts` (Playwright) or a chrome-devtools `evaluate_script` harness per `reference_standalone_realbrowser_layout_harness`.
+
+**Dimensional invariants (from spec §8, verbatim):**
+- nav action cluster → `AppHealthIndicator`: `inline-flex items-center justify-center min-h-tap-min min-w-tap-min` — the icon box is 44×44 and vertically centered.
+- indicator button → dot+icon: `items-center gap-2`.
+
+- [ ] **Step 1: Write the real-browser assertion** — render the admin nav (or a harness mounting `AppHealthIndicator` beside `NotifBell` with Tailwind built), `getBoundingClientRect()` on `[data-testid="app-health-indicator"]` and `[data-testid="admin-notif-bell"]`: assert both heights ≥44px and equal within 0.5px, and both vertically centered in the nav bar within 0.5px. Jsdom is NOT sufficient.
+- [ ] **Step 2: Run → FAIL** (before styling finalized / if invariant broken).
+- [ ] **Step 3: Ensure the component classes satisfy it** (already from Task 5). **Step 4: Run → PASS.**
+- [ ] **Step 5: Commit** — `test(admin): real-browser layout invariant for app-health indicator vs bell`
+
+---
+
+### Task 12: Transition-audit test (mandatory — multi-state indicator + popover)
+
+**Transition inventory (spec §9, verbatim):** indicator states ok/notice/degraded/unknown — all 6 pairs INSTANT (SSR re-render, no animation). Popover closed→open / open→closed: shared sheet/popover enter/exit, disabled under `prefers-reduced-motion`. Compound: rollup change mid-open reads the opened snapshot (no mid-open mutation).
+
+**Files:**
+- Create: `tests/components/appHealthIndicator.transitions.test.tsx`
+
+- [ ] **Step 1: Write the audit** — enumerate every conditional render in `AppHealthIndicator`/`AppHealthPopover`: assert the dot has NO animation props across the 4 kinds (instant); the popover open/close uses the sheet pattern's enter/exit and respects `prefers-reduced-motion` (`motion-reduce`); compound: changing `rollup` prop while the popover is open does not remount/mutate the open panel's content mid-flight.
+- [ ] **Step 2–4: FAIL → implement/verify → PASS.** **Step 5: Commit** — `test(admin): transition audit for app-health indicator + popover`
+
+---
+
+### Task 13: Impeccable dual-gate (invariant 8) — UI surfaces
+
+- [ ] Run `/impeccable critique` on the diff (all new components + globals.css token + nav/dashboard/observability changes).
+- [ ] Run `/impeccable audit` on the same diff.
+- [ ] Fix all HIGH/CRITICAL findings, or defer via `DEFERRED.md` entries. Record findings + dispositions in the plan's close-out notes.
+- [ ] Commit any fixes: `fix(admin): impeccable dual-gate findings for app-health UI`
+
+---
+
+### Task 14: Whole-diff cross-model adversarial review (Codex)
+
+- [ ] Fetch + rebase onto latest `origin/main`; re-diff (guard against stale-base phantom files).
+- [ ] Run the codex-companion `adversarial-review --wait` (fresh-eyes, REVIEWER ONLY) on the whole implementation diff; iterate to APPROVE (no round budget). Triage findings via deferral discipline (land-now / DEFERRED.md / BACKLOG.md).
+
+---
+
+### Task 15: Verification + close-out
+
+- [ ] `pnpm typecheck` + `pnpm format:check` (fix + `prettier --write` changed files if needed) + FULL `pnpm vitest run` green locally (call out any pre-existing failures verified at merge-base).
+- [ ] Push branch; open PR; confirm **real CI green** (`gh pr checks <PR#> --watch`; mergeStateStatus CLEAN).
+- [ ] `gh pr merge --merge`; fast-forward local `main`; verify `git rev-list --left-right --count main...origin/main` == `0  0`.
+- [ ] Add BACKLOG entry `BL-HEALTH-RESOLVE-DB-LOCKDOWN` (cross-ref `BL-ADMIN-POSTGREST-DML-LOCKDOWN`).
+
+## Self-review notes
+
+- Spec coverage: AC1–AC14 map to Tasks 4 (AC1/AC2/AC10), 1 (AC6/AC14), 3+5+7 (AC3/AC4/AC4b/AC4c/AC12), 8 (AC9/action links/R13), 9+10 (AC11/AC11b), 6 (AC13), 11 (AC5), 3 (AC8). §6.7 → Task 10. §7 copy → Task 1.
+- Type consistency: `HealthStatus`/`HealthSummaryLine` defined Task 3, consumed Tasks 5/6/7. `HealthAlertRow` defined Task 8, consumed Task 9's button wiring. `resolveHealthAlertFormAction` defined Task 9, wired in Task 8/9.
+- No placeholders: each task carries concrete test intent + implementation shape + exact paths/line anchors.
