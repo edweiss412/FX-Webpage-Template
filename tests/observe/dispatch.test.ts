@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { runObserve } from "@/scripts/observe";
+import { runObserve, tailErrorLine, isNewerEvent } from "@/scripts/observe";
 
 const okEvents = async () => ({
   kind: "ok" as const,
@@ -113,6 +113,18 @@ describe("runObserve", () => {
     expect(r.exitCode).toBe(0);
     // tail --json emits NDJSON; count lines
     expect(r.stdout.trim().split("\n").length).toBe(20);
+  });
+  test("tailErrorLine: JSON object when --json, prefixed line otherwise", () => {
+    expect(JSON.parse(tailErrorLine("down", true))).toEqual({ error: "down" });
+    expect(tailErrorLine("down", false)).toBe("[tail] down");
+  });
+  test("isNewerEvent: keyset (occurredAt,id) comparison + null high", () => {
+    const high = { occurredAt: "2026-07-03T00:00:00.000Z", id: "m" };
+    expect(isNewerEvent({ occurredAt: "2026-07-03T00:00:00.000Z", id: "m" }, null)).toBe(true); // no high → newer
+    expect(isNewerEvent({ occurredAt: "2026-07-04T00:00:00.000Z", id: "a" }, high)).toBe(true); // later ts
+    expect(isNewerEvent({ occurredAt: "2026-07-03T00:00:00.000Z", id: "z" }, high)).toBe(true); // same ts, id>
+    expect(isNewerEvent({ occurredAt: "2026-07-03T00:00:00.000Z", id: "m" }, high)).toBe(false); // equal → not newer
+    expect(isNewerEvent({ occurredAt: "2026-07-02T00:00:00.000Z", id: "z" }, high)).toBe(false); // earlier ts
   });
   test("--help and no-args → usage on stdout, exit 0", async () => {
     const help = await runObserve(["--help"], deps);

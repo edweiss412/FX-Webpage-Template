@@ -16,6 +16,7 @@ import { getCronHealth as realGetCronHealth } from "@/lib/observe/query/cronHeal
 import { queryAlerts as realQueryAlerts } from "@/lib/observe/query/alerts";
 import { queryChangeLog as realQueryChangeLog } from "@/lib/observe/query/changeLog";
 import { clampLimit } from "@/lib/observe/query";
+import type { AppEventRow } from "@/lib/admin/observabilityTypes";
 
 // Infra/usage errors: JSON object on stderr when --json (agent-parseable), else plain text.
 function fail(
@@ -23,6 +24,24 @@ function fail(
   json: boolean,
 ): { stdout: string; stderr: string; exitCode: number } {
   return { stdout: "", stderr: json ? JSON.stringify({ error: message }) : message, exitCode: 1 };
+}
+
+// Pure: how `tail` renders an infra error mid-stream — JSON object when --json (so an
+// agent piping NDJSON still gets a parseable error line), else the human-prefixed form.
+export function tailErrorLine(message: string, json: boolean): string {
+  return json ? JSON.stringify({ error: message }) : `[tail] ${message}`;
+}
+
+type TailCursor = { occurredAt: string; id: string };
+
+// Pure: is event `e` strictly newer than the high-water cursor? (keyset order occurred_at,id)
+export function isNewerEvent(
+  e: { occurredAt: string; id: string },
+  high: TailCursor | null,
+): boolean {
+  return (
+    !high || e.occurredAt > high.occurredAt || (e.occurredAt === high.occurredAt && e.id > high.id)
+  );
 }
 
 export function resolveCodeText(code: string | undefined): string {
@@ -167,34 +186,38 @@ async function runTailFollow(argv: string[], deps: ObserveDeps): Promise<void> {
   let high: { occurredAt: string; id: string } | null = null;
   const intervalMs = parsed.interval * 1000;
   // First poll prints the most-recent `limit` rows as the baseline (default 20 for tail);
-  // thereafter only genuinely-new rows (Codex whole-diff finding — was printing the full page).
+  // thereafter only genuinely-new rows.
   const baseline = clampLimit(parsed.limit, 20);
+
+  const emit = (e: AppEventRow): void => {
+    process.stdout.write(parsed.json ? formatEventLineNdjson(e) : formatEvents([e], false) + "\n");
+    seen.add(e.id);
+    if (seen.size > 1000) seen.delete(seen.values().next().value as string);
+    if (isNewerEvent(e, high)) high = { occurredAt: e.occurredAt, id: e.id };
+  };
+
   let first = true;
   // eslint-disable-next-line no-constant-condition
   while (true) {
-    const r = await deps.queryEvents(parsed.eventFilters);
-    if (r.kind === "infra_error") {
-      process.stderr.write(`[tail] ${r.message}\n`);
+    if (first) {
+      // Baseline honors --limit across pages via collectEvents (Codex whole-diff R2:
+      // the --follow path was capped at one queryEvents page), then chrono order.
+      const r = await collectEvents(deps.queryEvents, parsed.eventFilters, baseline);
+      if (r.kind === "infra_error")
+        process.stderr.write(tailErrorLine(r.message, parsed.json) + "\n");
+      else for (const e of [...r.events].reverse()) if (!seen.has(e.id)) emit(e);
+      first = false;
     } else {
-      const chrono = [...r.events].reverse();
-      const rows = first ? chrono.slice(-baseline) : chrono;
-      for (const e of rows) {
-        if (seen.has(e.id)) continue;
-        const newer =
-          !high ||
-          e.occurredAt > high.occurredAt ||
-          (e.occurredAt === high.occurredAt && e.id > high.id);
-        if (first || newer) {
-          process.stdout.write(
-            parsed.json ? formatEventLineNdjson(e) : formatEvents([e], false) + "\n",
-          );
-          seen.add(e.id);
-          if (seen.size > 1000) seen.delete(seen.values().next().value as string);
-          high = { occurredAt: e.occurredAt, id: e.id };
+      const r = await deps.queryEvents(parsed.eventFilters);
+      // JSON-aware error (Codex whole-diff R2: --follow bypassed the fail() JSON format).
+      if (r.kind === "infra_error")
+        process.stderr.write(tailErrorLine(r.message, parsed.json) + "\n");
+      else
+        for (const e of [...r.events].reverse()) {
+          if (seen.has(e.id)) continue;
+          if (isNewerEvent(e, high)) emit(e);
         }
-      }
     }
-    first = false;
     await new Promise((res) => setTimeout(res, intervalMs));
   }
 }
