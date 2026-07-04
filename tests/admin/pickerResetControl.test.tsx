@@ -203,18 +203,21 @@ describe("PickerResetControl", () => {
     expect(screen.queryByTestId("picker-reset-ok")).toBeNull();
   });
 
-  test("(a) the success banner mounts INSIDE the pre-existing status region", async () => {
+  test("(a) the success text populates the SAME status region node captured at mount", async () => {
     mockMember.mockResolvedValue({ ok: true, reset_at: "2026-07-03T12:00:00Z" });
     const { container } = render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
+    // Capture the region node BEFORE any action; it must be empty and stable.
     const region = container.querySelector('[role="status"][aria-live="polite"]');
+    expect(region).not.toBeNull();
+    expect(region!.textContent).toBe("");
     fireEvent.click(screen.getByTestId("picker-reset-member-button"));
     await act(async () => {
       fireEvent.click(screen.getByTestId("picker-reset-confirm-button"));
-      await flush();
+      await vi.advanceTimersByTimeAsync(0);
     });
-    await waitFor(() => {
-      const ok = screen.getByTestId("picker-reset-ok");
-      expect(region!.contains(ok)).toBe(true);
-    });
+    // The announcement swaps INTO the pre-existing node (proves it was not a
+    // freshly mounted region), and the visible banner renders separately.
+    expect(region!.textContent).toMatch(/pick again/i);
+    expect(screen.getByTestId("picker-reset-ok")).toBeTruthy();
   });
 });

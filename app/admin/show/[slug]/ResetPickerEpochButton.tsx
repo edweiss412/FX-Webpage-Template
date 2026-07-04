@@ -154,26 +154,29 @@ export function ResetPickerEpochButton({
     </button>
   );
 
-  // PCR-1 (a): stable, pre-mounted polite live region present in EVERY UI state
-  // (idle + confirm) so it is one stable node across the resolving → idle
-  // transition; the success banner mounts INTO it rather than mounting region
-  // and content together, so SRs that skip insert-time announcements on a
-  // freshly mounted region still fire. display:contents keeps layout unchanged.
+  // PCR-1 (a): persistent, visually-hidden polite live region present in EVERY
+  // UI state (idle + confirm) so it is one stable node across the resolving →
+  // idle transition; the success text swaps INTO a pre-existing region, so SRs
+  // that skip insert-time announcements on a freshly mounted region still fire.
+  // A real sr-only element (NOT display:contents, whose live-region semantics
+  // can be dropped from the a11y tree in Safari/VoiceOver) that is out of layout
+  // flow (position:absolute), so it adds no flex gap. Visible banner is separate.
   const liveRegion = (
-    <div role="status" aria-live="polite" className="contents">
-      {okMessage && (
-        <p
-          data-testid="admin-reset-picker-epoch-ok"
-          className="rounded-sm bg-surface-raised px-2 py-1 text-sm text-text-strong"
-        >
-          <span aria-hidden="true" className="mr-1 font-semibold text-accent">
-            ✓
-          </span>
-          {okMessage}
-        </p>
-      )}
+    <div className="sr-only" role="status" aria-live="polite">
+      {okMessage ?? ""}
     </div>
   );
+  const okBanner = okMessage ? (
+    <p
+      data-testid="admin-reset-picker-epoch-ok"
+      className="rounded-sm bg-surface-raised px-2 py-1 text-sm text-text-strong"
+    >
+      <span aria-hidden="true" className="mr-1 font-semibold text-accent">
+        ✓
+      </span>
+      {okMessage}
+    </p>
+  ) : null;
   const errorBanner = refusedMessage ? (
     <p
       data-testid="admin-reset-picker-epoch-refused"
@@ -249,6 +252,7 @@ export function ResetPickerEpochButton({
     >
       {stateBody}
       {liveRegion}
+      {okBanner}
       {errorBanner}
     </div>
   );

@@ -159,24 +159,26 @@ export function PickerResetControl({
 
   const banners = (
     <>
-      {/* PCR-1 (a): stable, pre-mounted polite live region — the success banner
-          mounts INTO it (rather than mounting the region and its content at once)
-          so screen readers that skip insert-time announcements on a freshly
-          mounted region still announce the reset. display:contents keeps layout
-          unchanged when the region is empty. */}
-      <div role="status" aria-live="polite" className="contents">
-        {outcome?.kind === "ok" && (
-          <p
-            data-testid="picker-reset-ok"
-            className="rounded-sm bg-surface-raised px-2 py-1 text-sm text-text-strong"
-          >
-            <span aria-hidden="true" className="mr-1 font-semibold text-accent">
-              ✓
-            </span>
-            {outcome.message}
-          </p>
-        )}
+      {/* PCR-1 (a): persistent, visually-hidden polite live region. A real
+          element (NOT display:contents — whose live-region semantics can be
+          dropped from the a11y tree in Safari/VoiceOver) that is always in the
+          a11y tree and out of layout flow (sr-only ⇒ position:absolute, so no
+          flex gap), so the success text swaps INTO a pre-existing region and
+          SRs reliably announce it. The visible banner below is decorative. */}
+      <div className="sr-only" role="status" aria-live="polite">
+        {outcome?.kind === "ok" ? outcome.message : ""}
       </div>
+      {outcome?.kind === "ok" && (
+        <p
+          data-testid="picker-reset-ok"
+          className="rounded-sm bg-surface-raised px-2 py-1 text-sm text-text-strong"
+        >
+          <span aria-hidden="true" className="mr-1 font-semibold text-accent">
+            ✓
+          </span>
+          {outcome.message}
+        </p>
+      )}
       {outcome?.kind === "error" && (
         <p
           data-testid="picker-reset-error"
