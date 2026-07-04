@@ -127,7 +127,33 @@ test("default fetcher serves DIAGRAMS media bytes for the route-param driveFileI
   expect(result).toBeInstanceOf(Uint8Array);
   expect(sha256Base64Url(result as Uint8Array)).toBe(stub.embeddedFingerprint);
 });
+
+test("ROUTE default path (no fetchImageBytes injection) serves media bytes end-to-end", async () => {
+  const { handleStagedDiagramGet } = await import(
+    "@/app/api/admin/onboarding/staged-diagram/[wizardSessionId]/[driveFileId]/[objectId]/route"
+  );
+  fetchCurrentSheetXlsxBytes.mockResolvedValue(sampleXlsx());
+  const ex = extractEmbeddedObjects(sampleXlsx());
+  const obj = ex.objectsByTab.get("DIAGRAMS")![0]!;
+  const bytes = ex.bytesByObjectId.get(obj.objectId)!;
+  const stub = { /* same media stub shape as above, objectId: obj.objectId */ };
+  const WSID = "00000000-1111-4222-8333-444444444444";
+  const res = await handleStagedDiagramGet(
+    new Request("http://x"),
+    { params: Promise.resolve({ wizardSessionId: WSID, driveFileId: "df-123", objectId: obj.objectId }) },
+    {
+      requireAdminIdentity: async () => ({ email: "a@b.c" }),
+      queryOne: async () => ({ parse_result: { diagrams: { embeddedImages: [stub], linkedFolderItems: [], linkedFolder: null } } }),
+      // NO fetchImageBytes — the route must bind defaultStagedDiagramFetchImageBytes itself
+    },
+  );
+  expect(res.status).toBe(200);
+  expect(new Uint8Array(await res.arrayBuffer())).toEqual(bytes);
+  expect(fetchCurrentSheetXlsxBytes).toHaveBeenCalledWith("df-123", expect.anything());
+});
 ```
+
+The second test is the spec's actual T-A3 contract (route-level, no injection): it catches a broken default binding or a call site that drops `{ driveFileId }` — the direct-helper test alone cannot.
 
 (`EmbeddedObject.mediaPartName: string` is exposed — `lib/drive/embeddedObjects.ts:26-30` — so `obj.mediaPartName` is valid as written.)
 Failure mode: the second shipped bug — default path never wires `fetchXlsxBytes`, so media stubs return null.
@@ -186,15 +212,24 @@ and pass `(stub, { driveFileId })` at the call site (`route.ts:158`).
 - [ ] **Step 1: failing tests (spec T-B1/T-B2)** — stateful wrapper per spec §T:
 
 ```tsx
-function OptimisticHarness(props: { initialChecked: boolean; deferred: { promise: Promise<boolean>; resolve: (v: boolean) => void } }) {
+// Mirrors renderModal's exact prop set (Step3ReviewModal.test.tsx:122-144) with
+// stateful checked — the modal takes 5 props: data/checked/isDirtyRescan/
+// onRequestSetChecked/onClose.
+function OptimisticHarness(props: {
+  initialChecked: boolean;
+  request: (next: boolean) => Promise<boolean>;
+  onClose?: () => void;
+}) {
   const [checked, setChecked] = useState(props.initialChecked);
   return (
     <Step3ReviewModal
-      {...defaultModalProps /* derive from the file's existing renderModal helper (Step3ReviewModal.test.tsx:122) — extract its default props or add an override-taking variant */}
+      data={sectionData() /* the file's existing builder */}
+      isDirtyRescan={false}
+      onClose={props.onClose ?? vi.fn()}
       checked={checked}
       onRequestSetChecked={(next) => {
         setChecked(next); // the card's optimistic flip (Step3SheetCard.tsx:289-292)
-        return props.deferred.promise;
+        return props.request(next);
       }}
     />
   );
@@ -203,7 +238,7 @@ function OptimisticHarness(props: { initialChecked: boolean; deferred: { promise
 
   - publish: `initialChecked=false`, click `…-review-publish` → assert (while unresolved) label "Selecting…" AND `className` contains `bg-accent`; resolve `true` → `onClose` called.
   - unpublish: `initialChecked=true`, click → label "Removing…" AND `className` contains `border-border-strong` (quiet recipe), NOT `bg-accent`; resolve `true` → label becomes "Publish this show".
-  - T-B2: publish deferred resolves `false` → error note visible, label back to "Publish this show", button enabled.
+  - T-B2: publish deferred resolves `false` → error note visible, label back to "Publish this show", button enabled. AND publish deferred REJECTS → same outcome (spec §B2: `pendingOp` clears on success, error, AND caught throw — `handlePublish` already try/catches at `Step3ReviewModal.tsx:686-690`).
   - Rework the existing static-prop pending assertions at `:624-635` and `:717-724` into this harness (supersede, don't duplicate).
   These MUST FAIL against current code (renders the flipped branch's label). State the observed failing label in the test name if helpful.
 - [ ] **Step 2:** run → FAIL with "Removing…" where "Selecting…" expected (and vice versa).
@@ -241,7 +276,7 @@ Branch at `:1122` uses `showCheckedSlot`; both buttons use `disabled={isPending}
 
 ### Task 7: Report-an-issue progressive disclosure
 
-**Files:** Modify `components/admin/wizard/step3ReviewSections.tsx:1968-2092`; Test `tests/components/admin/wizard/step3ReviewSections.test.tsx`.
+**Files:** Modify `components/admin/wizard/step3ReviewSections.tsx:1968-2092`; Tests `tests/components/admin/wizard/step3ReviewSections.test.tsx`, `tests/components/admin/wizard/step3ReportIssueSection.test.tsx` (the dedicated report file — queries textarea/submit directly at `:109-112,:140-142`; every such test gains an expand-first click), `tests/e2e/step3-review-modal.layout.spec.ts:400-418` (tap-target audit: the report-submit row changes to the always-present `…-report-toggle` — the STATIC harness cannot expand), `tests/e2e/step3-review-modal.interactions.spec.ts` (live bundle: new step — click the toggle, then measure the submit button ≥44px; spec §T e2e note).
 
 - [ ] **Step 1: failing tests (spec T-D1/T-D3)** —
   - default: toggle button (`wizard-step3-card-<dfid>-report-toggle`, accessible name "Write a report") present with `aria-expanded="false"`; textarea testid ABSENT.
@@ -251,8 +286,9 @@ Branch at `:1122` uses `showCheckedSlot`; both buttons use `disabled={isPending}
   - T-D3(b): deferred fetch → submit → collapse while pending → resolve success → re-expand → success status rendered; sessionStorage attempt key removed (rotate-on-success observable via `window.sessionStorage.getItem(...) === null`).
 - [ ] **Step 2:** run → FAIL (no toggle; form always mounted).
 - [ ] **Step 3: implement** — `const [expanded, setExpanded] = useState(false);` + `const formId = useId();` + a focus effect or ref-callback that focuses the textarea when `expanded` flips true. Toggle button between the intro `<p>` and the form: quiet secondary recipe (copy the submit button's classes `:2069`), `aria-expanded={expanded}`, `aria-controls={formId}`, onClick `setExpanded((v) => !v)`. Wrap the existing `<form>` in `{expanded ? (<form id={formId} …existing…>) : null}`. `draft`/`status`/`handleSubmit` stay OUTSIDE the conditional (component-level state — T-D3 pins this). No other form changes.
-- [ ] **Step 4:** `pnpm vitest run tests/components/admin/wizard/step3ReviewSections.test.tsx` → PASS (T-D2: expand-first updates to existing report tests, mechanical).
-- [ ] **Step 5:** commit `feat(admin): report-an-issue form collapses behind a disclosure trigger`
+- [ ] **Step 4:** `pnpm vitest run tests/components/admin/wizard/step3ReviewSections.test.tsx tests/components/admin/wizard/step3ReportIssueSection.test.tsx` → PASS (T-D2: expand-first updates to BOTH files' existing report tests, mechanical).
+- [ ] **Step 5:** e2e adaptations per the Files list — layout spec swaps the report-submit tap-target row for the toggle; interactions spec adds expand-then-measure (submit ≥44px). Run `pnpm test:e2e step3-review-modal` (`test:e2e` = `playwright test`, `package.json:45`; positional arg filters by file name) → PASS.
+- [ ] **Step 6:** commit `feat(admin): report-an-issue form collapses behind a disclosure trigger`
 
 ### Task 8: Transition audit (spec §B3 + §D2 inventories)
 
