@@ -145,10 +145,18 @@ declare
   v_canonical text := public.canonicalize_email(p_email);
   v_found record;
 begin
-  -- Gate on is_developer(), NOT is_admin(): only a developer may grant/revoke
-  -- developer. This first check is a FAST REJECT (no lock held) for a plain
-  -- non-developer caller.
-  if not public.is_developer() then
+  -- WRITE AUTHORIZATION uses a TABLE-BACKED developer check on the ACTOR
+  -- (v_actor_canonical), NOT the OR-based public.is_developer() (Codex spec R9
+  -- HIGH). is_developer()'s JWT arm (app_metadata.developer=true — test-harness
+  -- only) would (a) let a JWT-only developer mutate the bit despite having no
+  -- persisted row, and (b) survive the post-lock re-check unchanged (demoting a
+  -- table row never touches a JWT), bypassing the cross-demotion guard.
+  -- Mutating WHO is a developer must require a REAL persisted developer.
+  -- Fast-reject (no lock held) for a plain non-developer caller:
+  if not exists (
+    select 1 from public.admin_emails ae
+    where ae.email = v_actor_canonical and ae.revoked_at is null and ae.is_developer
+  ) then
     raise exception 'not authorized' using errcode = '42501';
   end if;
 
@@ -160,14 +168,17 @@ begin
   -- pinned by advisoryLockRpcDeadlock.test.ts). SAME key as upsert/revoke.
   perform pg_advisory_xact_lock(hashtextextended('admin_emails', 0));
 
-  -- RE-CHECK is_developer() UNDER the serializing advisory lock, before any
-  -- write (Codex spec R8 HIGH — TOCTOU race). A concurrent demotion may have
-  -- stripped THIS actor's developer bit while we blocked on the lock. Under
-  -- READ COMMITTED the second txn resumes only after the first commits+releases
-  -- the lock, so this re-evaluated is_developer() now sees the actor demoted →
-  -- 42501. Without it, two developers could cross-demote and reach ZERO
-  -- developers via the toggle path (NOT the accepted §14 revoke risk).
-  if not public.is_developer() then
+  -- RE-CHECK the TABLE-BACKED actor developer status UNDER the serializing
+  -- advisory lock, before any write (Codex spec R8 + R9). A concurrent demotion
+  -- may have stripped THIS actor's table bit while we blocked on the lock.
+  -- Under READ COMMITTED the second txn resumes only after the first
+  -- commits+releases the lock, so this re-read sees the actor demoted → 42501.
+  -- Table-backed (NOT is_developer()) so the JWT arm cannot bypass it. This
+  -- guarantees the toggle path cannot reach zero table-backed developers.
+  if not exists (
+    select 1 from public.admin_emails ae
+    where ae.email = v_actor_canonical and ae.revoked_at is null and ae.is_developer
+  ) then
     raise exception 'not authorized' using errcode = '42501';
   end if;
 
@@ -197,7 +208,9 @@ grant execute on function public.set_admin_developer_rpc(text, boolean) to authe
 
 **Advisory-lock single-holder rule (invariant 2):** this RPC acquires `hashtextextended('admin_emails', 0)` at exactly one layer — its own body. It is **never** invoked from inside `upsert_admin_email_rpc` / `revoke_admin_email_rpc` (which already hold that key), so there is no nested holder. Lock is acquired **before** the `SELECT ... FOR UPDATE` (advisory-then-row-lock), matching the existing RPCs (`20260514000000:218`, `20260621000000:71`).
 
-Returned statuses: `ok`, `not_found`, `self_developer_demote_forbidden`, `invalid_email`. `not authorized` is a raised `42501` (never an envelope) — a non-developer caller.
+Returned statuses: `ok`, `not_found`, `self_developer_demote_forbidden`, `invalid_email`. `not authorized` is a raised `42501` (never an envelope) — a caller who is not a **table-backed** developer.
+
+> **View-vs-mutate authorization split (Codex spec R9).** Two different developer predicates, deliberately: (1) **Viewing** dev surfaces (`requireDeveloper*`) uses the OR-based `is_developer()`, so a JWT-arm developer (test-harness fixture) can exercise the surfaces in e2e. (2) **Mutating** who is a developer (`set_admin_developer_rpc`) uses a **table-backed-only** actor check (`exists(admin_emails … is_developer)`), because a JWT claim must never confer the right to change persisted developer membership, and because only a table-backed check is affected by a concurrent demotion (making the post-lock re-check race-safe). **Consequence for tests:** developer-toggle *mutation* tests must seed the actor as an `admin_emails` row with `is_developer=true` (a JWT-only developer fixture is correctly rejected `42501` by the mutation RPC); JWT fixtures remain valid for *view/access* tests.
 
 ### 4.5 `revoke_admin_email_rpc` — clear the bit on revoke (supersede current def)
 
@@ -258,7 +271,7 @@ Swapping a gate from `requireAdmin*` to `requireDeveloper*` changes the thrown i
 | `/admin/observability` page (RSC) | RSC render → admin error boundary | throw → generic 500 boundary | none |
 | dev server actions (`parseAndStage` … 6) | dev-panel client (build-gated); form-actions → boundary | form-action throw → boundary | plan verifies no dev-panel client `catch` swallows gate infra (low-stakes — build-gated, developer-only) |
 | reap route (API) | `ReapStaleSessionsButton` reads `body.code` via `lookupDougFacing` | route JSON **500** for infra code | **R3 fix:** catch treats `DEVELOPER_SESSION_LOOKUP_FAILED` as 500 (reuse cataloged `ADMIN_SESSION_LOOKUP_FAILED` copy); non-developer → 403 `ADMIN_FORBIDDEN` |
-| validationReset/reseed actions | `MaintenanceResetButtons` (client) `await`s action in `try`, catch-all (`:131/:154`) swallows throw → inline copy; reads `result.kind` | action **catches** gate infra + **returns** cataloged `{kind:'error',code}` inline (documented §3.4 exception) | **R4 fix** (below) |
+| validationReset/reseed actions | `MaintenanceResetButtons` (client) `await`s action in `try`; on `!result.ok` renders `lookupDougFacing(result.code)` (`:121-129/:144-152`), on an uncaught throw its `catch {}` → `GENERIC_ERROR` | action **catches** gate `DeveloperInfraError` + **returns** existing cataloged `{ ok: false, code: "VALIDATION_RESET_FAILED" }` (reseed: `"VALIDATION_RESEED_FAILED"`) inline (documented §3.4 exception; no `ValidationActionResult` type change) | **R4 fix** (below) |
 | `setDeveloperAction` (new toggle) | `AdministratorsSection` toggle via `useActionState`; gate **outside** `try` (mirror `addAdminAction:76`) | throw propagates via `useActionState` → boundary → 500 | none new (follows admin precedent) |
 
 **Reap route fix (R3, + R7 body-code pin):** the catch (`route.ts:43-49`) returns 500-class when the thrown `.code` is `ADMIN_SESSION_LOOKUP_FAILED` **or** `DEVELOPER_SESSION_LOOKUP_FAILED`. **The JSON response body's `code` MUST be the cataloged `ADMIN_SESSION_LOOKUP_FAILED`, NOT the raw `DEVELOPER_SESSION_LOOKUP_FAILED`** (Codex spec R7 MEDIUM): `ReapStaleSessionsButton` renders `body.code` only if it resolves in `MESSAGE_CATALOG` (via `lookupDougFacing`), else falls back to generic copy — `DEVELOPER_SESSION_LOOKUP_FAILED` is an `AuthFailureCode`/log code, **not** a §12.4 catalog entry, so emitting it would silently lose the cataloged UX. Mapping the developer infra `.code` → the cataloged `ADMIN_SESSION_LOOKUP_FAILED` in the response body keeps the generic "couldn't verify your session" 500 copy and avoids a second §12.4 code. Non-developer still → `403 ADMIN_FORBIDDEN`.
@@ -328,7 +341,7 @@ Declared meta-test inventory (created or extended):
 5. **`tests/auth/advisoryLockRpcDeadlock.test.ts`** (satisfied, may auto-include): `set_admin_developer_rpc` follows advisory-then-row-lock and holds the same key at a single layer. The test derives lock-taking RPCs from migration files; confirm the new RPC is recognized and passes.
 6. **`tests/messages/codes.test.ts`** (satisfied by the §8 lockstep): x1 catalog-parity.
 7. **`tests/auth/developerGatingContract.test.ts`** (NEW structural meta-test): (a) AST set-equality gate-coverage over the server-action files — every exported `"use server"` action in `app/admin/dev/actions.ts` + `validationReset.ts` + the `setDeveloperAction` file is gated by `requireDeveloper*` (closes the R5 non-route audit gap); (b) `PROTECTED_ROUTES` route/page coverage with `chain:["requireDeveloper"]`; (c) `DEVELOPER_GATED_SURFACES` error-posture registry + explicit `inline-typed-exception` enumeration (§6.1, Codex spec R4+R5).
-8. **New behavioral tests:** the **reap route error-mapping test** — force `requireDeveloperIdentity` to throw `DeveloperInfraError` → assert HTTP **500** AND **`body.code === "ADMIN_SESSION_LOOKUP_FAILED"`** (the cataloged code, NOT the raw `DEVELOPER_SESSION_LOOKUP_FAILED` — Codex spec R7 MEDIUM); force a confirmed-non-developer → assert 403 `ADMIN_FORBIDDEN` (§6.1, Codex spec R3); the **validationReset error-posture test** — force `requireDeveloper` to throw `DeveloperInfraError` in `resetValidationDataAction` and `reseedValidationFixturesAction` → assert each **returns** `{ ok: false, code: "VALIDATION_RESET_FAILED" }` / `"VALIDATION_RESEED_FAILED"` (NOT an uncaught throw) AND `MaintenanceResetButtons` renders `lookupDougFacing(code)` cataloged copy, not `GENERIC_ERROR` (§6.1, Codex spec R4+R8); `set_admin_developer_rpc` (promote, demote-other, self-demote-refused, non-developer caller 42501, active-rows-only, revoke-clears-bit); the **cross-demotion concurrency test** (Codex spec R8 HIGH) — two developers each attempt to demote the other in concurrent transactions; assert the second txn resuming after the first commits gets `42501` (its actor lost developer status under the lock) and that **≥1 active developer always remains** (zero-developer state unreachable via the toggle path); `is_developer()` (email arm true; JWT arm true only when `role='admin'` AND `developer='true'`; **JWT `developer:true` WITHOUT `role='admin'` → FALSE** (Codex spec R1 HIGH); revoked row excluded); the toggle UI (visible only to developers, locked on self, outcome copy routed through `getDougFacing`; **visibility verified on BOTH `/admin/settings` and the `/admin/settings/admins` deep link** — Codex spec R6 MEDIUM); a Playwright e2e proving a normal-admin fixture sees none of the four surfaces and a developer fixture sees all four; a **bootstrap-invariant test** asserting the migration leaves ≥1 active developer even when the seed row pre-exists in a *revoked* state — i.e. applying the migration against a DB whose `edweiss412@gmail.com` row is revoked yields an active `is_developer=true` row and does NOT raise (Codex spec R2 HIGH).
+8. **New behavioral tests:** the **reap route error-mapping test** — force `requireDeveloperIdentity` to throw `DeveloperInfraError` → assert HTTP **500** AND **`body.code === "ADMIN_SESSION_LOOKUP_FAILED"`** (the cataloged code, NOT the raw `DEVELOPER_SESSION_LOOKUP_FAILED` — Codex spec R7 MEDIUM); force a confirmed-non-developer → assert 403 `ADMIN_FORBIDDEN` (§6.1, Codex spec R3); the **validationReset error-posture test** — force `requireDeveloper` to throw `DeveloperInfraError` in `resetValidationDataAction` and `reseedValidationFixturesAction` → assert each **returns** `{ ok: false, code: "VALIDATION_RESET_FAILED" }` / `"VALIDATION_RESEED_FAILED"` (NOT an uncaught throw) AND `MaintenanceResetButtons` renders `lookupDougFacing(code)` cataloged copy, not `GENERIC_ERROR` (§6.1, Codex spec R4+R8); `set_admin_developer_rpc` (promote, demote-other, self-demote-refused, non-developer caller 42501, active-rows-only, revoke-clears-bit); the **cross-demotion concurrency test** (Codex spec R8+R9 HIGH) — two **table-backed** developers each attempt to demote the other in concurrent transactions; assert the second txn resuming after the first commits gets `42501` (its actor lost table-backed developer status under the lock) and that **≥1 active developer always remains**. **Also (R9):** run the same race with actors that additionally carry `app_metadata.developer=true` JWT claims, and assert the JWT arm does NOT bypass the guard (the demoted actor's second txn still gets `42501`, because mutation authorizes table-backed, not `is_developer()`); and a test that a **JWT-only** developer (no `admin_emails` row) calling `set_admin_developer_rpc` is rejected `42501`; `is_developer()` (email arm true; JWT arm true only when `role='admin'` AND `developer='true'`; **JWT `developer:true` WITHOUT `role='admin'` → FALSE** (Codex spec R1 HIGH); revoked row excluded); the toggle UI (visible only to developers, locked on self, outcome copy routed through `getDougFacing`; **visibility verified on BOTH `/admin/settings` and the `/admin/settings/admins` deep link** — Codex spec R6 MEDIUM); a Playwright e2e proving a normal-admin fixture sees none of the four surfaces and a developer fixture sees all four; a **bootstrap-invariant test** asserting the migration leaves ≥1 active developer even when the seed row pre-exists in a *revoked* state — i.e. applying the migration against a DB whose `edweiss412@gmail.com` row is revoked yields an active `is_developer=true` row and does NOT raise (Codex spec R2 HIGH).
 
 ## 11. Flag lifecycle table (`is_developer`)
 
@@ -369,7 +382,7 @@ Compound transition: toggling row A while row B's toggle is mid-pending — each
 
 ## 14. Accepted inherited risk (do NOT "fix" — disagreement-loop preempt)
 
-**Any admin can revoke any admin** — including the last developer — because other-revoke is intentionally allowed (ratified amendment §5.5/§11; only *self*-revoke is refused, `20260621000000`). So a normal admin *could* revoke the last developer's admin row, which clears the developer bit (§4.5), leaving zero developers until a re-seed migration/manual DB edit. This is the **existing** admin posture, inherited unchanged — it is **not** a regression introduced here and we deliberately add no new protection. The **toggle path cannot reach zero developers**: self-demote is refused (§3.6) AND concurrent cross-demotion is race-guarded by the post-lock `is_developer()` re-check (§4.4, Codex spec R8) — so the *only* way to reach zero developers is the accepted last-developer-via-**other-admin-revoke** path, which is out of scope and consistent with how last-admin-via-other-revoke already behaves. Reviewers: do not relitigate — cite this section.
+**Any admin can revoke any admin** — including the last developer — because other-revoke is intentionally allowed (ratified amendment §5.5/§11; only *self*-revoke is refused, `20260621000000`). So a normal admin *could* revoke the last developer's admin row, which clears the developer bit (§4.5), leaving zero developers until a re-seed migration/manual DB edit. This is the **existing** admin posture, inherited unchanged — it is **not** a regression introduced here and we deliberately add no new protection. The **toggle path cannot reach zero table-backed developers**: self-demote is refused (§3.6) AND concurrent cross-demotion is race-guarded by the post-lock **table-backed** actor re-check (§4.4, Codex spec R8+R9 — the JWT arm cannot authorize a mutation) — so the *only* way to reach zero developers is the accepted last-developer-via-**other-admin-revoke** path, which is out of scope and consistent with how last-admin-via-other-revoke already behaves. Reviewers: do not relitigate — cite this section.
 
 ## 15. Out of scope
 
