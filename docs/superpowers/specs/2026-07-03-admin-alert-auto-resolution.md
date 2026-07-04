@@ -1,6 +1,6 @@
 # Admin-alert auto-resolution for state-based codes
 
-**Date:** 2026-07-03 · **Status:** Draft (autonomous-ship pipeline; user gates waived 2026-07-03)
+**Date:** 2026-07-03 · **Status:** Implemented (2026-07-03)
 **Master spec:** `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` §4.6 (alert workflow), §12.4 (codes)
 
 ## 1. Problem
