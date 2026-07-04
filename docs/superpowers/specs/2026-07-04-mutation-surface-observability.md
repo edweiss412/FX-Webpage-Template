@@ -242,14 +242,24 @@ signals, each chosen to avoid false positives:
   scan descends — could be fooled by an unused or wrong-branch nested emit, Codex R8) but by
   membership in the shared `AUDITABLE_MUTATIONS` registry** (the `_metaAdminOutcomeContract`
   success-outcome registry, extracted to a module both tests import — §9), OR a
-  `// no-telemetry:` exemption. That registry is **behavior-backed**: every row is proven by
-  a sink-spy test asserting the code fires on the *committed success branch* (§10.5) — a
-  guarantee a static scan cannot give. This makes future admin-route success coverage
-  **discovery-enforced**: a new `app/api/admin/**/route.ts` not in `AUDITABLE_MUTATIONS`
-  (and not exempt) FAILS. Current state: 24 of 28 admin routes are already registered; the 2
-  gaps `manifest/…/ignore` + `reap-stale-sessions` are added to `AUDITABLE_MUTATIONS` with
-  `MANIFEST_SHEET_IGNORED` / `STALE_SESSIONS_REAPED` (§3.1 A); the 2 delegating shims are
-  exempt (§3.1 B).
+  `// no-telemetry:` exemption. This makes admin-route coverage **discovery-enforced**: a new
+  `app/api/admin/**/route.ts` not in `AUDITABLE_MUTATIONS` (and not exempt) FAILS. Current
+  state: 24 of 28 admin routes are already registered; the 2 gaps `manifest/…/ignore` +
+  `reap-stale-sessions` are added with `MANIFEST_SHEET_IGNORED` / `STALE_SESSIONS_REAPED`
+  (§3.1 A); the 2 delegating shims are exempt (§3.1 B).
+
+  **Registry membership is a static emit-check — it does NOT prove the *success branch* fires
+  (Codex R9).** Only a behavioral sink-spy test does. So membership is paired with a
+  **mandatory behavioral-coverage guard** (`ADMIN_ROUTE_OUTCOME_BEHAVIOR` registry +
+  meta-test, §9/§10.4a): every admin-route `AUDITABLE_MUTATIONS` row must map to a sink-spy
+  test that drives the route and asserts the code fires on the committed-success branch. To
+  bound this change's scope, the **24 pre-existing admin routes are a FROZEN grandfather
+  baseline** (`BL-ADMIN-ROUTE-OUTCOME-BEHAVIOR` audits/backfills their behavioral coverage in
+  a follow-up); the meta-test asserts that baseline is exactly those 24 and never grows.
+  **Any admin route NOT in the frozen baseline — the 2 seeded now, and every future one — MUST
+  carry a real sink-spy success-branch test** (it cannot use the grandfather list). That is
+  the structural closure of R9's "future admin route + wrong-branch emit passes" hole: a new
+  admin route needs both a registry row AND behavioral proof its success path emits.
 
 Reads are exempt (§4.3). (The admin-**action** rule stays a per-function non-descending body
 scan for `await logAdminOutcome` — §4.1/F3 already blocks an unused nested emitter there; the
@@ -412,9 +422,11 @@ Add to the "Plan-wide invariants (non-negotiable)" list:
 > Enforced by `tests/log/_metaMutationSurfaceObservability.test.ts`. New mutation surfaces are
 > uninstrumented-by-default failures, not silent omissions.
 
-Also add a `BL-CREW-PICKER-OBSERVABILITY` entry to `BACKLOG.md` describing the deferred
-crew-picker telemetry taxonomy (the 6 grandfathered non-admin `lib/auth/picker/*` functions;
-the 3 admin-gated picker mutations are instrumented now, not deferred).
+Add two `BACKLOG.md` entries: `BL-CREW-PICKER-OBSERVABILITY` (the 6 grandfathered non-admin
+`lib/auth/picker/*` functions; the 3 admin-gated picker mutations are instrumented now, not
+deferred) and `BL-ADMIN-ROUTE-OUTCOME-BEHAVIOR` (audit/backfill sink-spy success-branch tests
+for the 24 frozen-baseline pre-existing admin routes — the new behavioral-coverage meta-test
+already forces any NEW admin route to ship one).
 
 ## 7. Relationship to existing guards (disagreement-loop preempt)
 
@@ -431,10 +443,15 @@ the 3 admin-gated picker mutations are instrumented now, not deferred).
   **non-admin** surfaces — crew/system actions and infra routes (webhook, realtime, `report`,
   sign-out) — accept any coded emit, by design (heterogeneous telemetry: they legitimately
   log anomalies). *Which branch* the emit sits on is verified per-surface by the sink-spy
-  tests (§10.5), not statically. This boundary is the product of R2/R3/R6; do not relitigate
-  "failure-only passes for admin surfaces" (closed for both actions and routes) or "make
-  discovery a full static success-branch verifier" (infeasible — the sink-spy tests +
-  registry are that verifier).
+  tests (§10.7), not statically — and for admin **routes** that behavioral coverage is
+  enforced **structurally** by the `ADMIN_ROUTE_OUTCOME_BEHAVIOR` meta-test (§10.5): every
+  admin route outside the frozen 24-route grandfather baseline (i.e. every new one) must ship
+  a success-branch sink-spy test. This boundary is the product of R2/R3/R6/R8/R9; do not
+  relitigate "failure-only passes for admin surfaces" (closed) or "static discovery must
+  verify the success branch" (statically infeasible — the behavioral sink-spy meta-test is
+  that verifier, structural not per-instance). The 24 pre-existing admin routes' behavioral
+  backfill is `BL-ADMIN-ROUTE-OUTCOME-BEHAVIOR` — a scoped follow-up, not a hole this change
+  widens.
 - **Routes are checked file-level, and that is per-handler here (not a weaker check).** Every
   `route.ts` in this repo exports exactly one mutating handler (measured: 35/35 single `POST`),
   and the meta-test asserts this invariant, so file-level scoping is equivalent to
@@ -475,6 +492,12 @@ the 3 admin-gated picker mutations are instrumented now, not deferred).
   new discovery test import — so the discovery test's admin-route registry-membership check
   reads the single source of truth, not a duplicated list. Pure move; the existing contract
   test's behavior is unchanged.
+- **CREATES (Codex R9): `ADMIN_ROUTE_OUTCOME_BEHAVIOR`** — a registry mapping each admin-route
+  `AUDITABLE_MUTATIONS` row to either (a) a sink-spy success-branch test reference, or (b) the
+  frozen `BL-ADMIN-ROUTE-OUTCOME-BEHAVIOR` grandfather marker (only the 24 pre-existing
+  routes). A meta-test asserts: every admin-route registry row is covered by (a) or (b); the
+  grandfather set is exactly the frozen 24 (fails if it grows or drifts); the 2 seeded routes
+  and any future admin route are covered by (a) — a real behavioral test, not the marker.
 - **Advisory-lock topology:** N/A — no `pg_advisory*` surface is touched (declared explicitly).
 
 ## 10. Test plan (TDD)
@@ -510,14 +533,21 @@ the 3 admin-gated picker mutations are instrumented now, not deferred).
    `AUDITABLE_MUTATIONS` MUST fail — proving a file-scan emit cannot substitute for a
    registry row. Also assert the two seeded gaps (`manifest/ignore`, `reap-stale-sessions`)
    are present in `AUDITABLE_MUTATIONS` after seeding.
-5. **Ledger default-fail + hygiene** — a `"use server"` module with a ledgered function plus a
+5. **Admin-route behavioral-coverage meta-test (Codex R9)** — assert every admin-route
+   `AUDITABLE_MUTATIONS` row is covered by `ADMIN_ROUTE_OUTCOME_BEHAVIOR` (a real sink-spy
+   test reference OR the frozen grandfather marker); the grandfather set equals exactly the 24
+   pre-existing routes and FAILS if it grows; a non-grandfathered admin route (the 2 seeded +
+   any future) that lacks a real behavioral-test reference FAILS. This is the structural proof
+   that a future admin route cannot pass with a registry row + wrong-branch emit — it must
+   ship a success-branch sink-spy test.
+6. **Ledger default-fail + hygiene** — a `"use server"` module with a ledgered function plus a
    NEW un-ledgered silent action fails on the new action (Codex R4 F1); a `{ file, fn }` row
    whose function now emits, or no longer exists, or whose `file` is gone, fails (forces
    cleanup). **Admin-gated-cannot-be-ledgered (Codex R5):** a `KNOWN_UNINSTRUMENTED` row whose
    `fn` body calls a `require{Admin,Developer}[Identity]` gate fails the test — prove it with
    an in-memory admin-gated fixture and by asserting the live ledger's 6 functions are all
    non-admin-gated.
-6. **Per-surface instrumentation tests (actions AND routes) — Codex R7.** For **every**
+7. **Per-surface instrumentation tests (actions AND routes) — Codex R7.** For **every**
    newly-instrumented surface — all 19 success emits, including the two admin **routes** — a
    behavioral sink-spy test asserting the **committed-success branch** emits the expected
    `code` and that non-success branches emit nothing. Static floor checks cannot tell which
@@ -527,7 +557,7 @@ the 3 admin-gated picker mutations are instrumented now, not deferred).
    count) and not on the infra-fault branch; each admin toggle emits on `{ ok: true }` only;
    `rotateShareToken` never includes the `share_token` secret. Derive expectations from the
    surface's own result shape; do not assert against a container that also renders the value.
-7. **`_metaAdminOutcomeContract` still green** — the new registry rows are consistent
+8. **`_metaAdminOutcomeContract` still green** — the new registry rows are consistent
    (file emits the registered code; code stays out of §12.4); the shared-module extraction
    (§9) does not change its behavior.
 
