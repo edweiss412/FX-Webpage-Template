@@ -224,6 +224,14 @@ AST scoping is load-bearing for (c): a `code:` literal in an unrelated object (a
 body, a type, a config) does **not** count — it must be the argument to a `log.*` call.
 This is what makes `validationReset.ts` (pre-instrumentation) correctly fail.
 
+**Import-binding validation (Codex R16 MED).** Clauses (a)/(b)/(c) count only when the callee
+resolves to the REAL logger: the file must import `log` from `@/lib/log` (or `logAdminOutcome`
+from `@/lib/log/logAdminOutcome`) and the call must use that import binding — a locally
+declared/shadowed `log` (`const log = { info(){} }`) or a `log`/`logAdminOutcome` imported from
+another module does NOT satisfy the floor. The meta-test checks the import declarations of the
+surface file for the expected specifier+source and confirms the called identifier is not
+re-bound in a nearer scope.
+
 **Admin mutations require a proven success outcome — ONE uniform contract for actions AND
 routes (Codex R3 / R6 / R9 / R10).** A bare `log.*` emit satisfies the floor for *non-admin*
 surfaces — crew/system actions and infra routes (webhook, realtime-token, sign-out, crew
@@ -533,7 +541,9 @@ forces any NEW admin surface, route or action, to ship one).
   call-graph tracing of emits is explicitly NOT attempted.
 - Crew-picker telemetry taxonomy (`BL-CREW-PICKER-OBSERVABILITY`).
 - Any §12.4 / catalog / message-code change.
-- Any DB, migration, RLS, advisory-lock, or UI-layout change (none of those surfaces are touched).
+- Any DB, migration, RLS, or UI-layout change. No advisory-lock **topology** change either —
+  the seeded surfaces call existing lock-governed RPCs/wrappers unchanged, and telemetry emits
+  are post-commit, outside those locks (§9 advisory-lock topology).
 
 ## 9. Meta-test inventory (per writing-plans rule)
 
@@ -576,7 +586,27 @@ forces any NEW admin surface, route or action, to ship one).
   (`archiveShowAction`, `unarchiveShowAction`, `setShowPublishedAction`, `mi11ApproveAction`,
   `mi11RejectAction`, `undoChangeAction`); the assertion fails if that set grows. Executable,
   not referential; covers routes AND actions uniformly (Codex R10 F1).
-- **Advisory-lock topology:** N/A — no `pg_advisory*` surface is touched (declared explicitly).
+- **Advisory-lock topology (mandatory — Codex R16 HIGH).** Several seeded surfaces mutate
+  through advisory-lock-governed paths. This change adds **no new lock acquisition**: every
+  `logAdminOutcome` emit fires **post-commit, strictly outside the lock transaction** (matching
+  `logAdminOutcome`'s own contract, `lib/log/logAdminOutcome.ts:24` — "emitted AFTER the
+  mutating tx commits, never inside the advisory-lock tx"), so the single-holder rule (AGENTS.md
+  invariant 2) is preserved and no deadlock surface is introduced. Enumerated holders (each is
+  the sole holder for its hashkey; the emit is outside it):
+
+  | Seeded surface | Existing lock holder (unchanged) | Emit placement |
+  | --- | --- | --- |
+  | `resetPickerEpoch` | `reset_picker_epoch_atomic` (in-RPC SECURITY DEFINER) | after the RPC resolves |
+  | `rotateShareToken` | `rotate_show_share_token` (in-RPC) | after the RPC resolves |
+  | `resetCrewMemberSelection` | `reset_crew_member_selection` (in-RPC) | after the RPC resolves |
+  | `resetValidationDataAction` / `reseedValidationFixturesAction` | `reset_validation_data` / reseed serialize behind sync via advisory lock (in-RPC, service-role) | after the RPC resolves, before `revalidatePath` |
+  | `manifest/…/ignore` route | `withPostgresSyncPipelineLock` (JS-side wrapper) | after the locked section commits, before the JSON response |
+  | `reap-stale-sessions` route | `reapStaleOnboardingSessions` session locks | after the reap returns |
+
+  The settings toggles / admin-management / onboarding-redirect surfaces write via RLS
+  UPDATE or non-locked helpers (no advisory lock). No `tests/auth/advisoryLockRpcDeadlock.test.ts`
+  change is needed — the topology (one holder per hashkey) is unchanged; this section documents
+  that the added telemetry does not become a second holder.
 
 ## 10. Test plan (TDD)
 
@@ -598,7 +628,10 @@ forces any NEW admin surface, route or action, to ship one).
    `async function u(){ await logAdminOutcome(...) }` and a silent return MUST fail — Codex
    R4 F3; a live emit in an `if`/`try` block passes), **file-leading exemption rejection**
    (a file-leading `// no-telemetry:` in a `"use server"` module errors; a per-function one
-   works and does NOT cover a sibling — Codex R4 F2), and the negative-regression flip (§4.5).
+   works and does NOT cover a sibling — Codex R4 F2), **import-binding validation** (a locally
+   shadowed `const log = {...}` or a `log`/`logAdminOutcome` from the wrong module does NOT
+   satisfy the floor; only the real `@/lib/log` / `@/lib/log/logAdminOutcome` binding does —
+   Codex R16), and the negative-regression flip (§4.5).
 2. **Live-surface test** — the walk runs against the repo and asserts zero unaccounted
    surface units. After seeding, this is green.
 3. **Route-multiplicity assertion** — a dedicated assertion that no `route.ts` exports >1
