@@ -71,7 +71,9 @@ test.describe("admin onboarding wizard — Step 1 (mobile-safari)", () => {
     // prod-available exception (developer-gated), so it is excluded from the
     // forbidden set.
     const adminDevLinks = await page
-      .locator("a[href*='/admin/dev']:not([href*='/admin/dev/telemetry'])")
+      .locator(
+        "a[href*='/admin/dev']:not([href='/admin/dev/telemetry']):not([href^='/admin/dev/telemetry/'])",
+      )
       .count();
     expect(adminDevLinks).toBe(0);
   });

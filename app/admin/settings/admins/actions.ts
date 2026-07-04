@@ -104,7 +104,7 @@ export async function addAdminAction(
   }
 
   // Task 6.4: wrap ONLY the data call (the gate above stays OUTSIDE the
-  // try so its AdminInfraError propagates to the catalog 500 boundary).
+  // try so its DeveloperInfraError propagates to the catalog 500 boundary).
   // An AdminEmailsInfraError → retryable inline { kind: "infra_error" };
   // anything else (Next control-flow digests, unknown) rethrows.
   let outcome;
