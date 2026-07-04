@@ -163,6 +163,7 @@ async function resolveRealtimeViewer(request: NextRequest, slug: string): Promis
     case "no_selection":
     case "epoch_stale":
     case "removed_from_roster":
+    case "selection_reset":
       return {
         ok: false,
         status: 401,
