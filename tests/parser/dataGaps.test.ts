@@ -96,7 +96,10 @@ describe("summarizeDataGaps", () => {
   });
 
   it("excludes severity:'info' warnings even when the code is a gap class", () => {
-    const out = summarizeDataGaps([warn("FIELD_UNREADABLE", "info"), warn("UNKNOWN_SECTION_HEADER")]);
+    const out = summarizeDataGaps([
+      warn("FIELD_UNREADABLE", "info"),
+      warn("UNKNOWN_SECTION_HEADER"),
+    ]);
     expect(out.total).toBe(1);
     expect(out.classes.FIELD_UNREADABLE).toBe(0);
     expect(out.classes.UNKNOWN_SECTION_HEADER).toBe(1);
@@ -130,7 +133,10 @@ describe("dataGapClassDetails — per-class breakdown for the UI surfaces", () =
   });
 
   it("orders by registry position and pluralizes acronym labels correctly", () => {
-    const summary = summarizeDataGaps([warn("AGENDA_PDF_UNREADABLE"), warn("AGENDA_PDF_UNREADABLE")]);
+    const summary = summarizeDataGaps([
+      warn("AGENDA_PDF_UNREADABLE"),
+      warn("AGENDA_PDF_UNREADABLE"),
+    ]);
     expect(dataGapClassDetails(summary)).toEqual([
       { key: "AGENDA_PDF_UNREADABLE", count: 2, label: "unreadable agenda PDFs" },
     ]);
@@ -170,10 +176,7 @@ describe("formatDataGapBreakdown — bounded, single-sourced breakdown string", 
 
   it("breaks count ties by registry order (deterministic)", () => {
     // FIELD_UNREADABLE precedes UNKNOWN_SECTION_HEADER in GAP_CLASSES; equal counts
-    const summary = summarizeDataGaps([
-      warn("UNKNOWN_SECTION_HEADER"),
-      warn("FIELD_UNREADABLE"),
-    ]);
+    const summary = summarizeDataGaps([warn("UNKNOWN_SECTION_HEADER"), warn("FIELD_UNREADABLE")]);
     expect(formatDataGapBreakdown(summary)).toBe("1 unreadable field, 1 unknown section");
   });
 

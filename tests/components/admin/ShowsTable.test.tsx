@@ -720,10 +720,7 @@ describe("ShowsTable", () => {
   it("T5: renders NO badge when dataGaps is absent or total 0 (instant unmount)", () => {
     render(
       <ShowsTable
-        rows={[
-          row({ slug: "clean" }),
-          row({ slug: "zero", dataGaps: mkDataGaps({}) }),
-        ]}
+        rows={[row({ slug: "clean" }), row({ slug: "zero", dataGaps: mkDataGaps({}) })]}
         now={now}
         activeCount={2}
         overflowCount={0}

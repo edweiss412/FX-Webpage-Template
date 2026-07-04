@@ -74,7 +74,9 @@ function readDataGapsDigest(context: Record<string, unknown> | null): DataGapsSu
   // as-is (point-in-time snapshot — never retroactively recounted).
   return {
     total: candidate.total,
-    classes: Object.fromEntries(GAP_CLASSES.map((g) => [g.code, num(c[g.code])])) as DataGapsSummary["classes"],
+    classes: Object.fromEntries(
+      GAP_CLASSES.map((g) => [g.code, num(c[g.code])]),
+    ) as DataGapsSummary["classes"],
   };
 }
 

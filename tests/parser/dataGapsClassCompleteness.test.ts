@@ -163,10 +163,7 @@ function collectCodeLiterals(path: string, into: Set<string>): void {
   const src = readFileSync(path, "utf8");
   const sf = ts.createSourceFile(path, src, ts.ScriptTarget.Latest, true);
   const visit = (n: ts.Node): void => {
-    if (
-      (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) &&
-      CODE_RE.test(n.text)
-    ) {
+    if ((ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) && CODE_RE.test(n.text)) {
       into.add(n.text);
     }
     ts.forEachChild(n, visit);
@@ -194,7 +191,13 @@ describe("data-gap class completeness (drift guard)", () => {
     expect(ALL_PERSISTED_WARNING_CODES.size).toBe(42); // Set dedups → proves pairwise-disjoint
 
     // explicit pairwise-disjoint (also vs the ignore-list)
-    const buckets = [DATA_GAP_CODES, BENIGN_WARN_CODES, BENIGN_INFO_CODES, ASSET_WARN_CODES, NON_PARSE_WARNING_CODES_IN_SYNC];
+    const buckets = [
+      DATA_GAP_CODES,
+      BENIGN_WARN_CODES,
+      BENIGN_INFO_CODES,
+      ASSET_WARN_CODES,
+      NON_PARSE_WARNING_CODES_IN_SYNC,
+    ];
     for (let i = 0; i < buckets.length; i++) {
       for (let j = i + 1; j < buckets.length; j++) {
         const overlap = [...buckets[i]!].filter((c) => buckets[j]!.has(c));
@@ -224,7 +227,11 @@ describe("data-gap class completeness (drift guard)", () => {
 
   it("NEGATIVE — the guard bites: a catalog code in neither partition nor ignore-list is flagged", () => {
     // Simulate the scan surfacing an unclassified real catalog code.
-    const fakeCollected = [...collectedRealCodes, "SHOW_FIRST_PUBLISHED", "WEBHOOK_NOOP_ALREADY_SYNCED"];
+    const fakeCollected = [
+      ...collectedRealCodes,
+      "SHOW_FIRST_PUBLISHED",
+      "WEBHOOK_NOOP_ALREADY_SYNCED",
+    ];
     // sanity: those two ARE in the ignore-list, so they don't trip it
     let unclassified = fakeCollected.filter(
       (c) => !ALL_PERSISTED_WARNING_CODES.has(c) && !NON_PARSE_WARNING_CODES_IN_SYNC.has(c),
