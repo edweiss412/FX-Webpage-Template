@@ -77,7 +77,11 @@ import type {
 import type { Step3Row } from "@/components/admin/wizard/Step3Review";
 import type { SectionId } from "@/lib/admin/step3SectionStatus";
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
-import { isRenderableDiagramStub, trustedDriveFolderHref } from "@/lib/admin/stagedDiagramGuards";
+import {
+  hasStagedPreviewSource,
+  isRenderableDiagramStub,
+  trustedDriveFolderHref,
+} from "@/lib/admin/stagedDiagramGuards";
 import type { MessageCode } from "@/lib/messages/catalog";
 import { humanizeDate, humanizeDayRange } from "@/lib/dates/humanize";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
@@ -1876,14 +1880,14 @@ function DiagramTile({
   src,
   alt,
   testId,
-  hasContentUrl,
+  hasPreviewSource,
 }: {
   src: string;
   alt: string;
   testId: string;
-  hasContentUrl: boolean;
+  hasPreviewSource: boolean;
 }) {
-  const [failed, setFailed] = useState(!hasContentUrl);
+  const [failed, setFailed] = useState(!hasPreviewSource);
   if (failed) {
     return (
       <span
@@ -1973,7 +1977,10 @@ export function DiagramsBreakdown({
               // rendered a nameless link (impeccable audit P2); blank/space
               // alts fall back to the generic sheet-tab string too.
               alt={stub.alt?.trim() || `Diagram from ${stub.sheetTab}`}
-              hasContentUrl={stub.contentUrl != null}
+              // Shared servability predicate (spec §A4): the tile and the
+              // preview route can never disagree on what's fetchable —
+              // trusted legacy contentUrl OR fingerprint-addressable media.
+              hasPreviewSource={hasStagedPreviewSource(stub)}
             />
           ))}
         </div>

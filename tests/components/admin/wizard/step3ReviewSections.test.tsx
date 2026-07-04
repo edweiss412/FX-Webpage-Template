@@ -737,6 +737,35 @@ describe("DiagramsBreakdown body (follow-ups spec §B3 + §K8)", () => {
     expect(container.querySelectorAll("img").length).toBe(0);
   });
 
+  test("XLSX-media stub (null contentUrl + media pair) mounts the <img>; null-fingerprint stub keeps the placeholder; BOTH count in the summary (spec §A4 / T-A5 — catches: pre-failing every stub without a legacy contentUrl)", () => {
+    const mediaStub = diagramStub({
+      objectId: "obj-media",
+      contentUrl: null,
+      mediaPartName: "xl/media/image1.png",
+      embeddedFingerprint: "fp-media",
+    });
+    // Restage-only entry (lib/parser/types.ts:258): fingerprint null → not
+    // servable by the preview route → placeholder upfront, no fetch attempt.
+    const restageStub = diagramStub({
+      objectId: "obj-restage",
+      contentUrl: null,
+      mediaPartName: "xl/media/image2.png",
+      embeddedFingerprint: null,
+    });
+    const { scoped } = renderDiagrams(diagramsOf({ embeddedImages: [mediaStub, restageStub] }));
+    // Queries scoped to each tile's own testid (anti-tautology): the sibling
+    // tile also renders one of the two outcomes.
+    const mediaTile = scoped.getByTestId(`${TILE_PREFIX}0`);
+    expect(mediaTile.tagName).toBe("A");
+    expect(mediaTile.querySelector("img")).not.toBeNull();
+    expect(within(mediaTile).queryByText("Preview unavailable")).toBeNull();
+    const restageTile = scoped.getByTestId(`${TILE_PREFIX}1`);
+    expect(within(restageTile).getByText("Preview unavailable")).toBeTruthy();
+    expect(restageTile.querySelector("img")).toBeNull();
+    // Guard condition (§A4): non-servable stubs still count in summary/cap math.
+    expect(scoped.getByText("2 embedded images")).toBeTruthy();
+  });
+
   test("folder-only: folder-link anchor (target/rel), file count derived from fixture, NO grid", () => {
     const items = [folderItem(1), folderItem(2)];
     const { container, scoped } = renderDiagrams(
