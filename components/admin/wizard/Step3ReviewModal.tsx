@@ -50,6 +50,7 @@ import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { deriveSectionStatuses, type SectionId } from "@/lib/admin/step3SectionStatus";
 import {
   dateSummarySegments,
+  NotPublishableNote,
   step3Sections,
   STEP3_SECTION_GROUPS,
   Step3SectionChromeContext,
@@ -453,9 +454,13 @@ export function Step3ReviewModal({
   const client = data.pr.show.client_label || null;
   const segs = dateSummarySegments(data.pr.show.dates);
   const sheetLink = buildSheetDeepLink(dfid);
+  // Finalize-demoted gate (spec §C3): derived from data the modal already
+  // receives — no new prop. Dirty rescan is the RESCAN_REVIEW_REQUIRED subtype
+  // (⇒ lastFinalizeFailureCode != null), so the footer branches dirty first.
+  const isFinalizeDemoted = data.row.lastFinalizeFailureCode != null;
 
-  // Result-bearing publish (spec §9.1): ALWAYS request true (idempotent
-  // approve, never a toggle); close only on a true resolution.
+  // Result-bearing publish (spec §9.1): the unchecked slot requests true;
+  // close only on a true resolution.
   async function handlePublish() {
     setPublishState("pending");
     let ok = false;
@@ -471,12 +476,27 @@ export function Step3ReviewModal({
     setPublishState("error");
   }
 
-  const publishLabel =
-    publishState === "pending"
-      ? "Selecting…"
-      : checked
-        ? "Selected to publish"
-        : "Publish this show";
+  // Unpublish (spec §C2): request false, stay open on success — the checked
+  // prop flips via the card's settlement (§9.2 waiter queue, untouched), so
+  // the slot swaps to "Publish this show" (instant, §H N5).
+  async function handleUnpublish() {
+    setPublishState("pending");
+    let ok = false;
+    try {
+      ok = await onRequestSetChecked(false);
+    } catch {
+      ok = false;
+    }
+    if (ok) {
+      setPublishState("idle");
+      return;
+    }
+    setPublishState("error"); // same affordance as the publish failure path
+  }
+
+  // The checked slot owns its own labels ("Unpublish" / "Removing…") below —
+  // this pair is the unchecked publish CTA's only.
+  const publishLabel = publishState === "pending" ? "Selecting…" : "Publish this show";
 
   return (
     <div
@@ -812,6 +832,21 @@ export function Step3ReviewModal({
                 <ChevronRight aria-hidden="true" className="size-4" />
               </Link>
             </>
+          ) : isFinalizeDemoted ? (
+            /* §11: instant — deliberate (demoted slot follows server truth;
+               spec §C2). Non-rescan finalize demotion (spec §C3): the row
+               cannot be published as-is — no publish/unpublish button; the
+               card's NotPublishableNote copy replaces it (recovery flows
+               through the next scan, so Re-scan still renders). */
+            <>
+              <div className="min-w-0 flex-1">
+                <NotPublishableNote
+                  dfid={dfid}
+                  testId={`wizard-step3-card-${dfid}-review-not-publishable`}
+                />
+              </div>
+              <RescanSheetButton driveFileId={dfid} wizardSessionId={wizardSessionId} />
+            </>
           ) : (
             <>
               <span
@@ -829,28 +864,32 @@ export function Step3ReviewModal({
                 </span>
               ) : null}
               <RescanSheetButton driveFileId={dfid} wizardSessionId={wizardSessionId} />
-              <button
-                type="button"
-                data-testid={`wizard-step3-card-${dfid}-review-publish`}
-                onClick={handlePublish}
-                disabled={publishState === "pending"}
-                aria-busy={publishState === "pending" || undefined}
-                className={`inline-flex min-h-tap-min flex-1 items-center justify-center gap-2 rounded-sm px-4 text-sm font-semibold whitespace-nowrap transition-colors duration-fast disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface sm:flex-none ${
-                  /* Checked resting state demotes to a quiet positive
-                     treatment (spec §9.1, ratified via impeccable critique
-                     2026-07-03); unchecked + pending keep the accent CTA.
-                     Click behavior is identical in both states. */
-                  checked && publishState !== "pending"
-                    ? "border border-border-strong bg-surface text-status-positive-text hover:bg-surface-sunken"
-                    : "bg-accent text-accent-text hover:bg-accent-hover"
-                }`}
-              >
-                {/* §11 T7/C7: instant — deliberate (check icon swaps with checked; no animation) */}
-                {checked && publishState !== "pending" ? (
-                  <Check aria-hidden="true" className="size-4" />
-                ) : null}
-                {publishLabel}
-              </button>
+              {/* §11 N5: instant — deliberate (publish ↔ unpublish slot follows the checked prop; spec §C2/§H N5) */}
+              {checked ? (
+                <button
+                  type="button"
+                  data-testid={`wizard-step3-card-${dfid}-review-publish`}
+                  onClick={handleUnpublish}
+                  disabled={publishState === "pending"}
+                  aria-busy={publishState === "pending" || undefined}
+                  className="inline-flex min-h-tap-min flex-1 items-center justify-center gap-2 rounded-sm border border-border-strong bg-surface px-4 text-sm font-semibold whitespace-nowrap text-text transition-colors duration-fast hover:bg-surface-sunken disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface sm:flex-none"
+                >
+                  {/* Quiet/secondary treatment, no Check icon (spec §C2); exact
+                      weights design-stage-tunable under impeccable. */}
+                  {publishState === "pending" ? "Removing…" : "Unpublish"}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  data-testid={`wizard-step3-card-${dfid}-review-publish`}
+                  onClick={handlePublish}
+                  disabled={publishState === "pending"}
+                  aria-busy={publishState === "pending" || undefined}
+                  className="inline-flex min-h-tap-min flex-1 items-center justify-center gap-2 rounded-sm bg-accent px-4 text-sm font-semibold whitespace-nowrap text-accent-text transition-colors duration-fast hover:bg-accent-hover disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface sm:flex-none"
+                >
+                  {publishLabel}
+                </button>
+              )}
             </>
           )}
         </footer>

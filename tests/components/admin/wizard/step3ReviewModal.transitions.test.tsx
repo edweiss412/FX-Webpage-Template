@@ -31,8 +31,13 @@
  * class or the `§11: instant — deliberate` marker comment on the line
  * immediately above it. The scan ALSO asserts the total conditional-render
  * count equals the curated list length (10 — Task 5 added the two hideDot
- * dot-span conditionals, one per nav, spec §D2), so a new conditional added later
- * without classification fails this test until marked.
+ * dot-span conditionals, one per nav, spec §D2; Task 8 swapped one site for
+ * another, net 0: the checked Check-icon conditional was REMOVED with the
+ * "Selected to publish" slot and the `{checked ?` publish↔unpublish slot swap
+ * was ADDED, §11 N5. The footer's demoted arm is a chained ternary
+ * (`) : isFinalizeDemoted ? (`) covered by the head site's T10 marker — same
+ * convention as the header chip's chained `flaggedCount` arm), so a new
+ * conditional added later without classification fails this test until marked.
  *
  * Anti-tautology: T10/C7 assertions read the rerendered DOM via the SAME
  * dfid-scoped testids the component itself defines (no sibling decoy can
@@ -268,20 +273,20 @@ describe("§11 T7/T7b: checked + publish-state swaps are instant — no animatio
     const btn = q.getByTestId(tid("publish"));
     expect(btn.className).not.toMatch(/\banimate-|transition-\[|duration-normal\b/);
     cleanup();
-    // The checked resting state has its own (demoted quiet-positive) class
-    // string — the instant-swap contract holds for it too.
+    // The checked slot is the quiet/secondary Unpublish button (spec §C2) —
+    // the instant-swap contract holds for it too.
     const { q: q2 } = renderModal({ checked: true });
     expect(q2.getByTestId(tid("publish")).className).not.toMatch(
       /\banimate-|transition-\[|duration-normal\b/,
     );
   });
 
-  test("T7: label swaps instantly between unchecked/checked across separate mounts (no animation)", () => {
+  test("T7/N5: label swaps instantly between unchecked/checked across separate mounts (no animation)", () => {
     const { q } = renderModal({ checked: false });
     expect(q.getByTestId(tid("publish")).textContent).toBe("Publish this show");
     cleanup();
     const { q: q2 } = renderModal({ checked: true });
-    expect(q2.getByTestId(tid("publish")).textContent).toBe("Selected to publish");
+    expect(q2.getByTestId(tid("publish")).textContent).toBe("Unpublish");
   });
 
   test("T7b: pending → error note appears instantly, no animation on the note or button", async () => {
@@ -407,7 +412,7 @@ describe("§11 C7: checked flips via the card checkbox while the modal is open �
       />,
     );
 
-    expect(q.getByTestId(tid("publish")).textContent).toBe("Selected to publish");
+    expect(q.getByTestId(tid("publish")).textContent).toBe("Unpublish");
     expect(q.getByTestId(tid("publish")).className).not.toMatch(/\banimate-|transition-\[/);
   });
 });

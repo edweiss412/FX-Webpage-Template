@@ -60,6 +60,7 @@ import {
   type SectionData,
 } from "@/components/admin/wizard/step3ReviewSections";
 import { deriveSectionStatuses, type SectionId } from "@/lib/admin/step3SectionStatus";
+import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { buildParseResult, stagedRow } from "./_step3ReviewFixture";
 
@@ -465,42 +466,43 @@ describe("Step3ReviewModal — footer note + buttons (spec §9.1)", () => {
     expect(within(q.getByTestId(tid("footer"))).getByText("Re-scan this sheet")).toBeTruthy();
   });
 
-  test("publish button label: 'Publish this show' unchecked, 'Selected to publish' checked", () => {
+  test("primary-slot label: 'Publish this show' unchecked, 'Unpublish' checked (spec §C2 — supersedes the 'Selected to publish' pin)", () => {
     const { q } = renderModal({ checked: false });
     expect(q.getByTestId(tid("publish")).textContent).toBe("Publish this show");
     cleanup();
     const { q: q2 } = renderModal({ checked: true });
-    expect(q2.getByTestId(tid("publish")).textContent).toBe("Selected to publish");
+    expect(within(q2.getByTestId(tid("footer"))).getByTestId(tid("publish")).textContent).toBe(
+      "Unpublish",
+    );
   });
 
-  test("publish CTA styling: unchecked keeps the accent treatment; checked resting state demotes to quiet positive (border/surface)", () => {
+  test("primary-slot styling: unchecked keeps the accent CTA; checked renders the quiet/secondary Unpublish (border/surface, never accent) with NO Check icon (spec §C2)", () => {
     const { q } = renderModal({ checked: false });
     const unchecked = q.getByTestId(tid("publish"));
     expect(unchecked.className).toMatch(/\bbg-accent\b/);
     expect(unchecked.className).toMatch(/\btext-accent-text\b/);
     cleanup();
     const { q: q2 } = renderModal({ checked: true });
-    const checkedBtn = q2.getByTestId(tid("publish"));
-    expect(checkedBtn.className).toMatch(/\bborder\b/);
-    expect(checkedBtn.className).toMatch(/\bborder-border-strong\b/);
-    expect(checkedBtn.className).toMatch(/\bbg-surface\b/);
-    expect(checkedBtn.className).toMatch(/\btext-status-positive-text\b/);
-    expect(checkedBtn.className).not.toMatch(/\bbg-accent\b/);
-    expect(checkedBtn.className).toMatch(/\bmin-h-tap-min\b/);
-    // The Check icon stays.
-    expect(checkedBtn.querySelector("svg")).not.toBeNull();
+    const unpublish = within(q2.getByTestId(tid("footer"))).getByTestId(tid("publish"));
+    expect(unpublish.className).toMatch(/\bborder\b/);
+    expect(unpublish.className).toMatch(/\bborder-border-strong\b/);
+    expect(unpublish.className).toMatch(/\bbg-surface\b/);
+    expect(unpublish.className).not.toMatch(/\bbg-accent\b/);
+    expect(unpublish.className).toMatch(/\bmin-h-tap-min\b/);
+    // No Check icon inside the Unpublish button (the checked slot is no longer
+    // the idempotent-approve CTA) — no svg at all.
+    expect(unpublish.querySelector("svg")).toBeNull();
   });
 
-  test("publish CTA styling: pending keeps the accent treatment even when checked", async () => {
+  test("Unpublish pending: label 'Removing…', quiet treatment kept (never flips to accent while pending)", async () => {
     let settle!: (v: boolean) => void;
     const onRequestSetChecked = vi.fn(() => new Promise<boolean>((resolve) => (settle = resolve)));
     const { q } = renderModal({ checked: true, onRequestSetChecked });
     fireEvent.click(q.getByTestId(tid("publish")));
-    await waitFor(() => expect(q.getByTestId(tid("publish")).textContent).toBe("Selecting…"));
+    await waitFor(() => expect(q.getByTestId(tid("publish")).textContent).toBe("Removing…"));
     const pending = q.getByTestId(tid("publish"));
-    expect(pending.className).toMatch(/\bbg-accent\b/);
-    expect(pending.className).toMatch(/\btext-accent-text\b/);
-    expect(pending.className).not.toMatch(/\bborder-border-strong\b/);
+    expect(pending.className).toMatch(/\bborder-border-strong\b/);
+    expect(pending.className).not.toMatch(/\bbg-accent\b/);
     await act(async () => settle(true));
   });
 
@@ -523,23 +525,28 @@ describe("Step3ReviewModal — footer note + buttons (spec §9.1)", () => {
 // ── Publish click semantics (spec §9.1 idempotent approve) ──────────────────
 
 describe("Step3ReviewModal — publish click (spec §9.1)", () => {
-  test("click calls onRequestSetChecked with EXACTLY true in BOTH states (never a toggle)", async () => {
+  test("click requests EXACTLY the state-appropriate value: unchecked → true (closes), checked → false (stays open) — spec §C2 supersedes the idempotent-approve pin", async () => {
     const onRequestSetChecked = vi.fn(async () => true);
     const { q, onClose } = renderModal({ checked: false, onRequestSetChecked });
     fireEvent.click(q.getByTestId(tid("publish")));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(onRequestSetChecked).toHaveBeenCalledWith(true);
+    expect(onRequestSetChecked).not.toHaveBeenCalledWith(false);
     cleanup();
+    // CHECKED state (§C2): the slot is a real Unpublish — requests EXACTLY
+    // false (catches: unpublish wired to true) and never closes on success.
     const onRequestSetChecked2 = vi.fn(async () => true);
     const { q: q2, onClose: onClose2 } = renderModal({
       checked: true,
       onRequestSetChecked: onRequestSetChecked2,
     });
     fireEvent.click(q2.getByTestId(tid("publish")));
-    await waitFor(() => expect(onClose2).toHaveBeenCalledTimes(1));
-    // CHECKED state still requests true — idempotent approve, not a toggle.
-    expect(onRequestSetChecked2).toHaveBeenCalledWith(true);
-    expect(onRequestSetChecked2).not.toHaveBeenCalledWith(false);
+    await waitFor(() => expect(onRequestSetChecked2).toHaveBeenCalledTimes(1));
+    expect(onRequestSetChecked2).toHaveBeenCalledWith(false);
+    expect(onRequestSetChecked2).not.toHaveBeenCalledWith(true);
+    // Success stays open — settlement flips the checked prop instead.
+    await waitFor(() => expect(q2.getByTestId(tid("publish")).textContent).toBe("Unpublish"));
+    expect(onClose2).not.toHaveBeenCalled();
   });
 
   test("resolved true → onClose called exactly once", async () => {
@@ -593,6 +600,144 @@ describe("Step3ReviewModal — publish click (spec §9.1)", () => {
       resolveReq(true);
     });
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+});
+
+// ── Task 8: footer Unpublish + finalize-demoted gate (spec §C2/§C3) ─────────
+
+describe("Step3ReviewModal — footer Unpublish + demoted gate (spec §C2/§C3)", () => {
+  /** SectionData whose row is finalize-demoted by `code` (dirty rescan is the
+   *  RESCAN_REVIEW_REQUIRED subtype — spec §C3). */
+  function demotedData(code: string): SectionData {
+    const pr = buildParseResult();
+    return sectionData({}, { row: stagedRow(pr, { lastFinalizeFailureCode: code }) });
+  }
+
+  test("unpublish success stays open: promise resolves true → onClose NOT called, button back to idle; checked=false rerender swaps the slot instantly", async () => {
+    let settle!: (v: boolean) => void;
+    const onRequestSetChecked = vi.fn(() => new Promise<boolean>((resolve) => (settle = resolve)));
+    const onClose = vi.fn();
+    const d = sectionData();
+    const q = render(
+      <Step3ReviewModal
+        data={d}
+        checked={true}
+        isDirtyRescan={false}
+        onRequestSetChecked={onRequestSetChecked}
+        onClose={onClose}
+      />,
+    );
+    const footer = q.getByTestId(tid("footer"));
+    const btn = within(footer).getByTestId(tid("publish")) as HTMLButtonElement;
+    expect(btn.textContent).toBe("Unpublish");
+    fireEvent.click(btn);
+    await waitFor(() => expect(btn.textContent).toBe("Removing…"));
+    await act(async () => settle(true));
+    // Modal STAYS OPEN; publishState back to idle (button re-enabled).
+    expect(onClose).not.toHaveBeenCalled();
+    await waitFor(() => expect(btn.textContent).toBe("Unpublish"));
+    expect(btn.disabled).toBe(false);
+    // The card's settlement flips the checked prop — the slot swaps to the
+    // publish CTA instantly (§H N5: no animation utility on the slot).
+    q.rerender(
+      <Step3ReviewModal
+        data={d}
+        checked={false}
+        isDirtyRescan={false}
+        onRequestSetChecked={onRequestSetChecked}
+        onClose={onClose}
+      />,
+    );
+    const swapped = within(q.getByTestId(tid("footer"))).getByTestId(tid("publish"));
+    expect(swapped.textContent).toBe("Publish this show");
+    expect(swapped.className).not.toMatch(/\banimate-|transition-\[/);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  test("unpublish failure: resolves false → the EXISTING publish-error affordance (role=status note in the footer), modal open, label restored", async () => {
+    const { q, onClose } = renderModal({
+      checked: true,
+      onRequestSetChecked: vi.fn(async () => false),
+    });
+    const footer = q.getByTestId(tid("footer"));
+    fireEvent.click(within(footer).getByTestId(tid("publish")));
+    await waitFor(() =>
+      expect(
+        within(footer).getByText("Couldn't update the publish selection. Try again."),
+      ).toBeTruthy(),
+    );
+    const errorNote = within(footer).getByText("Couldn't update the publish selection. Try again.");
+    expect(errorNote.getAttribute("role")).toBe("status");
+    expect(errorNote.className).toMatch(/\btext-warning-text\b/);
+    expect(onClose).not.toHaveBeenCalled();
+    // Not stuck on "Removing…" — the state-derived label is restored.
+    expect(within(footer).getByTestId(tid("publish")).textContent).toBe("Unpublish");
+  });
+
+  test("unpublish pending: 'Removing…', disabled, aria-busy; a rapid second click fires NO second request", async () => {
+    let settle!: (v: boolean) => void;
+    const onRequestSetChecked = vi.fn(() => new Promise<boolean>((resolve) => (settle = resolve)));
+    const { q, onClose } = renderModal({ checked: true, onRequestSetChecked });
+    const footer = q.getByTestId(tid("footer"));
+    const btn = within(footer).getByTestId(tid("publish")) as HTMLButtonElement;
+    fireEvent.click(btn);
+    await waitFor(() => expect(btn.textContent).toBe("Removing…"));
+    expect(btn.disabled).toBe(true);
+    expect(btn.getAttribute("aria-busy")).toBe("true");
+    // Rapid double-click guard: the disabled button fires no second request.
+    fireEvent.click(btn);
+    expect(onRequestSetChecked).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => settle(true));
+  });
+
+  test("demoted gate (§C3): non-rescan finalize failure → NO publish/unpublish button; NotPublishableNote copy + Re-scan still render in the footer (even when checked)", () => {
+    const d = demotedData("DRIVE_FETCH_FAILED");
+    // checked=true is the stronger fixture: the gate must win over checked.
+    const { q } = renderModal({ d, checked: true, isDirtyRescan: false });
+    const footer = q.getByTestId(tid("footer"));
+    expect(within(footer).queryByTestId(tid("publish"))).toBeNull();
+    expect(q.queryByTestId(tid("publish"))).toBeNull();
+    // The shared NotPublishableNote copy, verbatim from the card (spec §C2),
+    // with the modal-scoped testid.
+    const note = within(footer).getByTestId(tid("not-publishable"));
+    expect(
+      within(note).getByText("This sheet needs attention before it can be published."),
+    ).toBeTruthy();
+    // RescanSheetButton still renders (recovery flows through the next scan).
+    expect(within(footer).getByText("Re-scan this sheet")).toBeTruthy();
+  });
+
+  test("branch order (§C3): dirty rescan wins over demoted — RESCAN_REVIEW_REQUIRED + isDirtyRescan renders the dirty branch, not NotPublishableNote", () => {
+    const d = demotedData(RESCAN_REVIEW_REQUIRED);
+    const { q } = renderModal({ d, checked: false, isDirtyRescan: true });
+    const footer = q.getByTestId(tid("footer"));
+    // The dirty branch (unchanged): review-required note + reapply link.
+    expect(
+      within(footer).getByText(
+        "This sheet changed since you reviewed it. Review it before publishing.",
+      ),
+    ).toBeTruthy();
+    expect(within(footer).getByText("Review this sheet").closest("a")).not.toBeNull();
+    // NOT the demoted branch: no NotPublishableNote, no publish, no re-scan.
+    expect(within(footer).queryByTestId(tid("not-publishable"))).toBeNull();
+    expect(
+      within(footer).queryByText("This sheet needs attention before it can be published."),
+    ).toBeNull();
+    expect(within(footer).queryByTestId(tid("publish"))).toBeNull();
+    expect(within(footer).queryByText("Re-scan this sheet")).toBeNull();
+  });
+
+  test("unchecked publish path unchanged: 'Publish this show' → onRequestSetChecked(true) → onClose exactly once on success", async () => {
+    const onRequestSetChecked = vi.fn(async () => true);
+    const { q, onClose } = renderModal({ checked: false, onRequestSetChecked });
+    const footer = q.getByTestId(tid("footer"));
+    const btn = within(footer).getByTestId(tid("publish"));
+    expect(btn.textContent).toBe("Publish this show");
+    fireEvent.click(btn);
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(onRequestSetChecked).toHaveBeenCalledWith(true);
+    expect(onRequestSetChecked).not.toHaveBeenCalledWith(false);
   });
 });
 
