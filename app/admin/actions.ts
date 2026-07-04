@@ -172,10 +172,17 @@ export async function retryWatchSubscriptionFormAction(_formData: FormData): Pro
     // Info-WITH-code so this deliberate no-op PERSISTS (lib/log shouldPersist:
     // info persists only with a code). Otherwise a "retry did nothing" report
     // has no durable server-side trace of the no-folder skip.
-    await log.info("watch retry skipped: no folder configured", {
-      source: "admin.watchRetry",
-      code: "WATCH_RETRY_NO_FOLDER_SKIPPED",
-    });
+    // Invariant 9 (Codex PR7 R2): adding the code makes this emit hit the persist
+    // path; keep it AWAITED for durability but fail-open (try/catch) so a sink /
+    // build throw can never reject over this no-op skip and turn it into an error.
+    try {
+      await log.info("watch retry skipped: no folder configured", {
+        source: "admin.watchRetry",
+        code: "WATCH_RETRY_NO_FOLDER_SKIPPED",
+      });
+    } catch {
+      /* best-effort: logging must never throw over the caller */
+    }
     return;
   }
 
