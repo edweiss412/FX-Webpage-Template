@@ -31,7 +31,7 @@ export default async function TelemetryPage({
   return (
     <div className="flex flex-col gap-section-gap">
       <AdminPageHeader
-        title="Activity"
+        title="Telemetry"
         sub="App event log & cron health"
         rightSlot={<AutoRefreshControl />}
       />

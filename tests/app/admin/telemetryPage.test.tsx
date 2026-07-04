@@ -31,7 +31,7 @@ describe("TelemetryPage", () => {
     }));
     const { default: Page } = await import("@/app/admin/dev/telemetry/page");
     render(await Page({ searchParams: Promise.resolve({}) }));
-    expect(screen.getByText("Activity")).toBeInTheDocument();
+    expect(screen.getByText("Telemetry")).toBeInTheDocument();
     expect(screen.getByTestId("cron-health-degraded")).toBeInTheDocument();
     expect(screen.getByText(/No events/i)).toBeInTheDocument(); // timeline still rendered
   });

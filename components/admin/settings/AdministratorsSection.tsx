@@ -90,8 +90,9 @@ export function AdministratorsSection({
         learnMore={{ href: "/help/admin/settings#administrators" }}
       >
         <p>
-          People who can sign in and manage shows here. Add or revoke access. You can&rsquo;t revoke
-          your own.
+          {viewerIsDeveloper
+            ? "People who can sign in and manage shows here. Add or revoke access. You can’t revoke your own."
+            : "People who can sign in and manage shows here. Roster changes are managed by a developer."}
         </p>
       </HoverHelp>
     </div>
