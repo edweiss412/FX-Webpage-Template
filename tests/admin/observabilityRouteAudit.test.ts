@@ -4,10 +4,11 @@ import { join } from "node:path";
 import { PROTECTED_ROUTES } from "@/lib/audit/trustDomains";
 
 describe("observability route is auth-chain registered", () => {
-  test("PROTECTED_ROUTES has the page with requireAdmin chain", () => {
+  test("PROTECTED_ROUTES has the page with requireDeveloper chain", () => {
+    // developer-tier §6 row 5: Activity/observability swapped requireAdmin → requireDeveloper.
     const row = PROTECTED_ROUTES.find((r) => r.path === "app/admin/observability/page.tsx");
     expect(row).toBeTruthy();
-    expect(row!.chain).toContain("requireAdmin");
+    expect(row!.chain).toContain("requireDeveloper");
   });
   test("settings page links to /admin/observability (the ONLY mobile route into desktopOnly Activity)", () => {
     // Activity is desktopOnly (absent from mobile bottom tabs), so the Settings link is the
