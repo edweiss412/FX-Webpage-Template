@@ -294,6 +294,8 @@ const NEW_FORENSIC_CODES = new Set([
   // Finalize + finalize-cas non-convergent 409 precondition refusals → ONE code
   // with a `result` discriminator (ONBOARDING_NOT_RESOLVED / ONBOARDING_LEGACY_ROW_AMBIGUOUS).
   "FINALIZE_PRECONDITION_REFUSED",
+  // Wizard staged-approve dirty-rescan refusal (returns 200 + cataloged code, was unlogged).
+  "STAGE_APPROVE_RESCAN_REQUIRED",
 ]);
 
 const read = (f: string) => readFileSync(f, "utf8");

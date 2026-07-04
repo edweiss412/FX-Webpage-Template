@@ -5,6 +5,7 @@ import type { AdminOutcome } from "@/lib/log/logAdminOutcome";
 import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
 import { canonicalize } from "@/lib/email/canonicalize";
+import { hashForLog } from "@/lib/email/hashForLog";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
 
@@ -241,6 +242,16 @@ export async function handleWizardStagedApprove(
       // the card route Doug to the reapply page, which exposes the real per-item choice
       // controls. EVERY other demotion code keeps the one-click checkbox recovery.
       if (pending.lastFinalizeFailureCode === RESCAN_REVIEW_REQUIRED) {
+        // Durable breadcrumb: this dirty-rescan refusal returns 200 with a
+        // cataloged code but wrote no server trace of who was routed back to the
+        // reapply page. Fail-open, hashed actor; never changes the refusal.
+        void log.warn("stage approve refused: dirty rescan requires re-review", {
+          source: "api.admin.onboarding.staged.approve",
+          code: "STAGE_APPROVE_RESCAN_REQUIRED",
+          wizardSessionId,
+          driveFileId,
+          actorHash: hashForLog(approverEmail),
+        });
         return errorResponse(200, RESCAN_REVIEW_REQUIRED);
       }
       const approved = await approvePendingSync(
