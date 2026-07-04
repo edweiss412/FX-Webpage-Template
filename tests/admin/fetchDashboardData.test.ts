@@ -120,6 +120,7 @@ function makeClient() {
       };
       builder.eq = pass;
       builder.is = pass;
+      builder.not = pass;
       builder.order = pass;
       builder.limit = pass;
       builder.in = (col: string, args: unknown[]) => {
@@ -174,6 +175,7 @@ function makeDeferredClient() {
       };
       builder.eq = pass;
       builder.is = pass;
+      builder.not = pass;
       builder.order = pass;
       builder.limit = pass;
       builder.in = (col: string) => {

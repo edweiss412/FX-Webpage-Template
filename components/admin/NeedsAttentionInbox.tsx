@@ -110,6 +110,35 @@ function ItemCard({ item, now }: { item: NeedsAttentionItem; now: Date }) {
     );
   }
 
+  if (item.variant === "sync_problem") {
+    return (
+      <li
+        data-testid={`needs-attention-item-sync-problem-${item.alertId}`}
+        className="flex flex-col gap-2 rounded-md border border-border bg-surface p-tile-pad shadow-tile"
+      >
+        <CardHeader item={item} now={now} status="warn" label="Sync problem" />
+        <p className="text-sm font-semibold text-text-strong">{item.title ?? item.slug}</p>
+        <p className="text-sm text-text-subtle">{item.copy}</p>
+        {/* Deep-links the specific alert (matches AlertBanner behavior + the per-show
+            ?alert_id highlight). Row-specific aria-label with the unique slug
+            discriminator (WCAG 2.4.4) so repeated cards have distinct accessible
+            names. No resolve/retry/discard button — these clear automatically. */}
+        <Link
+          data-testid={`needs-attention-link-sync-problem-${item.alertId}`}
+          href={`/admin/show/${encodeURIComponent(item.slug)}?alert_id=${encodeURIComponent(item.alertId)}`}
+          aria-label={
+            item.title
+              ? `Check sync problem for ${item.title} (${item.slug})`
+              : `Check sync problem for ${item.slug}`
+          }
+          className={reviewLinkClass}
+        >
+          Check it →
+        </Link>
+      </li>
+    );
+  }
+
   // existing_staged
   return (
     <li

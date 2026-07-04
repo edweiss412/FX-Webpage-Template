@@ -48,12 +48,29 @@ export type ShowExistence = {
   archived: boolean;
 };
 
+// A per-show sync-problem alert (SHEET_UNAVAILABLE / PARSE_ERROR_LAST_GOOD)
+// routed into the inbox instead of the AlertBanner (spec §4.3). Sourced from an
+// unresolved admin_alerts row joined to its show; `raisedAt` is the sort key.
+export type NeedsAttentionSyncProblemInput = {
+  alertId: string;
+  showId: string;
+  slug: string | null;
+  title: string | null;
+  code: string;
+  sheetName: string | null;
+  raisedAt: string | null;
+};
+
 export type BuildNeedsAttentionInput = {
   ingestions: NeedsAttentionIngestionInput[];
   syncs: NeedsAttentionSyncInput[];
+  // OPTIONAL (spec §4.3): the digest caller (lib/notify/digest.ts) passes neither
+  // `syncProblems` nor `totalCounts.syncProblems`; both default to []/0 so the
+  // digest produces zero sync_problem items (byte-identical behavior).
+  syncProblems?: NeedsAttentionSyncProblemInput[];
   // keyed by drive_file_id; spans ALL shows (published/unpublished/archived)
   existence: Record<string, ShowExistence>;
-  totalCounts: { ingestions: number; syncs: number };
+  totalCounts: { ingestions: number; syncs: number; syncProblems?: number };
   // Render cap for the merged slice; defaults to RENDER_CAP (dashboard inbox).
   // The needs-attention page threads PAGE_RENDER_CAP (spec §4.1).
   cap?: number;
@@ -89,6 +106,17 @@ export type NeedsAttentionItem =
       slug: string; // routes to /admin/show/{slug} (per-show review, archived-safe)
       title: string | null;
       activityAt: string | null;
+    }
+  | {
+      variant: "sync_problem";
+      key: string;
+      alertId: string; // deep-links /admin/show/{slug}?alert_id={alertId}
+      showId: string;
+      slug: string; // non-null (null-slug rows are skipped at build time)
+      title: string | null;
+      code: string; // SHEET_UNAVAILABLE | PARSE_ERROR_LAST_GOOD (unconstrained DB string)
+      copy: string; // catalog-safe, already resolved
+      activityAt: string | null;
     };
 
 export type NeedsAttention = {
@@ -100,7 +128,37 @@ export type NeedsAttention = {
   // row arrays; underivable from `items` once either stream exceeds the cap.
   ingestionTotal: number;
   syncTotal: number;
+  syncProblemTotal: number;
 };
+
+// Per-code generic fallbacks for a sync-problem card when no sheet name is
+// available (spec §4.3). These mirror the catalog `title` strings.
+const SYNC_PROBLEM_GENERIC: Record<string, string> = {
+  SHEET_UNAVAILABLE: "Sheet no longer in folder",
+  PARSE_ERROR_LAST_GOOD: "Latest edit didn't parse",
+};
+
+/**
+ * Catalog-safe copy for a sync-problem inbox card (spec §4.3). Interpolates the
+ * sheet name into the code's dougFacing and strips Markdown emphasis (the inbox
+ * renders the string raw). Falls back sheetName → title → a fixed per-code
+ * generic when the code is uncataloged, has null dougFacing, or an unfilled
+ * `<…>` placeholder survives interpolation. Never returns a raw code.
+ */
+export function resolveSyncProblemCopy(input: {
+  code: string;
+  sheetName: string | null;
+  title: string | null;
+}): string {
+  const generic = SYNC_PROBLEM_GENERIC[input.code] ?? "Needs your attention";
+  if (!(input.code in MESSAGE_CATALOG)) return generic;
+  const template = messageFor(input.code as MessageCode).dougFacing;
+  if (!template) return generic;
+  const name = input.sheetName ?? input.title ?? undefined;
+  const doug = plainCatalogText(template, name ? { sheet_name: name } : undefined);
+  if (UNRESOLVED_PLACEHOLDER_RE.test(doug)) return generic;
+  return doug;
+}
 
 /**
  * Catalog-safe copy for a pending-ingestion item (spec §7). NEVER renders a
@@ -157,6 +215,17 @@ type MergedEntry =
       id: string;
       driveFileId: string;
       candidateTitle: string | null;
+    }
+  | {
+      kind: "sync_problem";
+      sortKey: string;
+      id: string; // alertId (tie-break + card key)
+      alertId: string;
+      showId: string;
+      slug: string;
+      title: string | null;
+      code: string;
+      sheetName: string | null;
     };
 
 export function buildNeedsAttention(input: BuildNeedsAttentionInput): NeedsAttention {
@@ -180,6 +249,23 @@ export function buildNeedsAttention(input: BuildNeedsAttentionInput): NeedsAtten
         candidateTitle: s.candidateTitle,
       }),
     ),
+    // Skip any sync-problem with a null slug (defensive — the loader's shows!inner
+    // guarantees a slug; a null here would produce a dead /admin/show/undefined link).
+    ...(input.syncProblems ?? [])
+      .filter((sp): sp is NeedsAttentionSyncProblemInput & { slug: string } => sp.slug !== null)
+      .map(
+        (sp): MergedEntry => ({
+          kind: "sync_problem",
+          sortKey: sp.raisedAt ?? "",
+          id: sp.alertId,
+          alertId: sp.alertId,
+          showId: sp.showId,
+          slug: sp.slug,
+          title: sp.title,
+          code: sp.code,
+          sheetName: sp.sheetName,
+        }),
+      ),
   ];
 
   // Newest-first by activity time; tie-break by id ascending for determinism.
@@ -206,6 +292,23 @@ export function buildNeedsAttention(input: BuildNeedsAttentionInput): NeedsAtten
         activityAt,
       };
     }
+    if (entry.kind === "sync_problem") {
+      return {
+        variant: "sync_problem",
+        key: `alert:${entry.alertId}`,
+        alertId: entry.alertId,
+        showId: entry.showId,
+        slug: entry.slug,
+        title: entry.title,
+        code: entry.code,
+        copy: resolveSyncProblemCopy({
+          code: entry.code,
+          sheetName: entry.sheetName,
+          title: entry.title,
+        }),
+        activityAt,
+      };
+    }
     const existing = input.existence[entry.driveFileId];
     if (existing) {
       return {
@@ -228,7 +331,8 @@ export function buildNeedsAttention(input: BuildNeedsAttentionInput): NeedsAtten
     };
   });
 
-  const totalCount = input.totalCounts.ingestions + input.totalCounts.syncs;
+  const syncProblemsTotal = input.totalCounts.syncProblems ?? 0;
+  const totalCount = input.totalCounts.ingestions + input.totalCounts.syncs + syncProblemsTotal;
   const renderedCount = items.length;
   return {
     items,
@@ -237,5 +341,6 @@ export function buildNeedsAttention(input: BuildNeedsAttentionInput): NeedsAtten
     overflowCount: Math.max(0, totalCount - renderedCount),
     ingestionTotal: input.totalCounts.ingestions,
     syncTotal: input.totalCounts.syncs,
+    syncProblemTotal: syncProblemsTotal,
   };
 }
