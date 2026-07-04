@@ -235,14 +235,26 @@ signals, each chosen to avoid false positives:
   `require*`-detection). Path is the correct signal here because `app/api/report/route.ts`
   calls `requireAdminIdentity()` for *conditional role-detection* (a crew bug-report route
   reading whether the submitter is an admin), not as a gate — a `require*` scan would
-  false-positive on it, but the path signal correctly excludes it. Flips the two admin
-  onboarding routes that log only failures — `manifest/…/ignore` (flips a manifest row to
-  `permanent_ignore`) and `reap-stale-sessions` (developer-gated stale-session reap) — both
-  genuine success-path gaps (§3.1 A). The two delegating shims under `app/api/admin` are
-  exempt (§3.1 B). Infra routes (webhook, realtime, report, sign-out) are NOT under
-  `app/api/admin` and keep the broad floor — forcing `logAdminOutcome` on them would be wrong.
+  false-positive on it, but the path signal correctly excludes it. Infra routes (webhook,
+  realtime, report, sign-out) are NOT under `app/api/admin` and keep the broad floor.
+  **A mutating `app/api/admin/**` route satisfies the floor NOT by a file-scan for
+  `logAdminOutcome` (which — because route files legitimately delegate to helpers and the
+  scan descends — could be fooled by an unused or wrong-branch nested emit, Codex R8) but by
+  membership in the shared `AUDITABLE_MUTATIONS` registry** (the `_metaAdminOutcomeContract`
+  success-outcome registry, extracted to a module both tests import — §9), OR a
+  `// no-telemetry:` exemption. That registry is **behavior-backed**: every row is proven by
+  a sink-spy test asserting the code fires on the *committed success branch* (§10.5) — a
+  guarantee a static scan cannot give. This makes future admin-route success coverage
+  **discovery-enforced**: a new `app/api/admin/**/route.ts` not in `AUDITABLE_MUTATIONS`
+  (and not exempt) FAILS. Current state: 24 of 28 admin routes are already registered; the 2
+  gaps `manifest/…/ignore` + `reap-stale-sessions` are added to `AUDITABLE_MUTATIONS` with
+  `MANIFEST_SHEET_IGNORED` / `STALE_SESSIONS_REAPED` (§3.1 A); the 2 delegating shims are
+  exempt (§3.1 B).
 
-Reads are exempt (§4.3).
+Reads are exempt (§4.3). (The admin-**action** rule stays a per-function non-descending body
+scan for `await logAdminOutcome` — §4.1/F3 already blocks an unused nested emitter there; the
+registry-linkage is needed only for routes, whose file-level descent cannot approximate
+reachability. Seeded admin actions are additionally registered + sink-spy-tested.)
 
 ### 4.3 Escape hatches (two, by intent)
 
@@ -432,7 +444,9 @@ the 3 admin-gated picker mutations are instrumented now, not deferred).
   caught. Do not relitigate as "routes must be per-function"; the multiplicity assertion is
   the tripwire that keeps the equivalence honest. Module/inline **actions** ARE per-function
   (that is the R2 fix), because multi-action modules are real and appending an export is the
-  live vector.
+  live vector. For **admin** routes the file-scan is not even the success-outcome check —
+  registry membership is (previous bullet + §4.2), so a delegated/unreachable emit cannot
+  fake compliance.
 - **`KNOWN_UNINSTRUMENTED` is a debt ledger, not a bypass.** Grandfathering the crew picker
   actions is a ratified scope decision (crew telemetry taxonomy is separate design work),
   not an oversight. Each entry carries a backlog ref, and hygiene rules fail on stale entries.
@@ -453,7 +467,14 @@ the 3 admin-gated picker mutations are instrumented now, not deferred).
 
 - **CREATES:** `tests/log/_metaMutationSurfaceObservability.test.ts` (this spec's deliverable).
 - **EXTENDS:** `tests/log/_metaAdminOutcomeContract.test.ts` — new `AUDITABLE_MUTATIONS` rows
-  + `SANCTIONED_CODES`/`NEW_FORENSIC_CODES` entries for the newly-instrumented admin surfaces.
+  (incl. `MANIFEST_SHEET_IGNORED`, `STALE_SESSIONS_REAPED`, the settings/admin/dev/onboarding
+  action codes, and the 3 admin picker codes) + `SANCTIONED_CODES`/`NEW_FORENSIC_CODES`.
+- **REFACTORS (Codex R8):** extract the `AUDITABLE_MUTATIONS` array (and the sanctioned-code
+  sets) from `_metaAdminOutcomeContract.test.ts` into a shared non-test module (e.g.
+  `tests/log/_auditableMutations.ts`) that BOTH `_metaAdminOutcomeContract.test.ts` and the
+  new discovery test import — so the discovery test's admin-route registry-membership check
+  reads the single source of truth, not a duplicated list. Pure move; the existing contract
+  test's behavior is unchanged.
 - **Advisory-lock topology:** N/A — no `pg_advisory*` surface is touched (declared explicitly).
 
 ## 10. Test plan (TDD)
@@ -482,14 +503,21 @@ the 3 admin-gated picker mutations are instrumented now, not deferred).
 3. **Route-multiplicity assertion** — a dedicated assertion that no `route.ts` exports >1
    mutating method (the tripwire that keeps route file-level scoping equivalent to
    per-handler); prove it can fail via an in-memory two-mutating-method route string.
-4. **Ledger default-fail + hygiene** — a `"use server"` module with a ledgered function plus a
+4. **Admin-route registry-linkage (Codex R8)** — every discovered mutating
+   `app/api/admin/**` route must be in `AUDITABLE_MUTATIONS` or exempt (assert against the
+   live tree). Negative fixture: a synthetic `app/api/admin/.../route.ts` whose only
+   `await logAdminOutcome(...)` sits in an **unused nested helper** and which is NOT in
+   `AUDITABLE_MUTATIONS` MUST fail — proving a file-scan emit cannot substitute for a
+   registry row. Also assert the two seeded gaps (`manifest/ignore`, `reap-stale-sessions`)
+   are present in `AUDITABLE_MUTATIONS` after seeding.
+5. **Ledger default-fail + hygiene** — a `"use server"` module with a ledgered function plus a
    NEW un-ledgered silent action fails on the new action (Codex R4 F1); a `{ file, fn }` row
    whose function now emits, or no longer exists, or whose `file` is gone, fails (forces
    cleanup). **Admin-gated-cannot-be-ledgered (Codex R5):** a `KNOWN_UNINSTRUMENTED` row whose
    `fn` body calls a `require{Admin,Developer}[Identity]` gate fails the test — prove it with
    an in-memory admin-gated fixture and by asserting the live ledger's 6 functions are all
    non-admin-gated.
-5. **Per-surface instrumentation tests (actions AND routes) — Codex R7.** For **every**
+6. **Per-surface instrumentation tests (actions AND routes) — Codex R7.** For **every**
    newly-instrumented surface — all 19 success emits, including the two admin **routes** — a
    behavioral sink-spy test asserting the **committed-success branch** emits the expected
    `code` and that non-success branches emit nothing. Static floor checks cannot tell which
@@ -499,8 +527,9 @@ the 3 admin-gated picker mutations are instrumented now, not deferred).
    count) and not on the infra-fault branch; each admin toggle emits on `{ ok: true }` only;
    `rotateShareToken` never includes the `share_token` secret. Derive expectations from the
    surface's own result shape; do not assert against a container that also renders the value.
-6. **`_metaAdminOutcomeContract` still green** — the new registry rows are consistent
-   (file emits the registered code; code stays out of §12.4).
+7. **`_metaAdminOutcomeContract` still green** — the new registry rows are consistent
+   (file emits the registered code; code stays out of §12.4); the shared-module extraction
+   (§9) does not change its behavior.
 
 ## 11. Verification commands
 
