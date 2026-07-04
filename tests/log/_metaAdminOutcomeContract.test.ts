@@ -283,6 +283,24 @@ const NEW_FORENSIC_CODES = new Set([
   // reel/diagram/agenda asset proxy routes so a crew-reported broken asset leaves
   // a server trace of which show/asset/why.
   "ASSET_UNAVAILABLE",
+  // Correlation/coverage tail (2026-07-03) — low/info correlation + genuinely-silent
+  // branches given forensic codes (all inside log.* spans; NOT cataloged).
+  // ADMIN_ALERT_RESOLVE_FAILED is REUSED (already registered above) by the
+  // resolveAdminAlertFormAction throws; not re-listed.
+  "WATCH_RETRY_NO_FOLDER_SKIPPED",
+  // Per-show admin page (page.tsx) two silent catch blocks → fail-open warns.
+  "ADMIN_SHOW_TOKEN_READ_FAILED",
+  "ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED",
+  // Finalize + finalize-cas non-convergent 409 precondition refusals → ONE code
+  // with a `result` discriminator (ONBOARDING_NOT_RESOLVED / ONBOARDING_LEGACY_ROW_AMBIGUOUS).
+  "FINALIZE_PRECONDITION_REFUSED",
+  // Wizard staged-approve dirty-rescan refusal (returns 200 + cataloged code, was unlogged).
+  "STAGE_APPROVE_RESCAN_REQUIRED",
+  // OAuth callback: exchange succeeded but getUser resolved no email → silent no-op → anomaly warn.
+  "OAUTH_NO_EMAIL_RESOLVED",
+  // Live pending-ingestion retry: the two inner route-level Drive-fetch catches that
+  // return 502 (distinct from the PR-1 outer PENDING_INGESTION_RETRY_FAILED throw guard).
+  "PENDING_INGESTION_RETRY_DRIVE_FETCH_FAILED",
 ]);
 
 const read = (f: string) => readFileSync(f, "utf8");

@@ -90,7 +90,16 @@ async function stampOauthClaim(
     }
 
     const canonicalEmail = canonicalize(userResult.user?.email);
-    if (!canonicalEmail) return;
+    if (!canonicalEmail) {
+      // Anomaly: the exchange committed and getUser resolved without error, yet
+      // no canonicalizable email came back — a silent no-op pre-change. Record a
+      // bare anomaly marker (no PII / no user id). Fail-open at the callsite.
+      void log.warn("OAuth exchange succeeded but resolved no canonical email", {
+        source: "auth.callback",
+        code: "OAUTH_NO_EMAIL_RESOLVED",
+      });
+      return;
+    }
 
     // S4 forensic: durable record of a SUCCESSFUL session establishment — the exchange committed
     // and getUser resolved a signed-in identity. Persists via info+code (lib/log shouldPersist).

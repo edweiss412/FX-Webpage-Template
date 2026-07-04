@@ -380,7 +380,17 @@ export async function handleLivePendingIngestionRetry(
         let metadata: DriveListedFile;
         try {
           metadata = await deps.fetchDriveFileMetadata(row.drive_file_id);
-        } catch {
+        } catch (err) {
+          // The route-level Drive metadata fetch faulted → 502. Distinct from the
+          // PR-1 outer PENDING_INGESTION_RETRY_FAILED guard (which wraps THROWS);
+          // this catch returns 502 and previously swallowed the cause. Fail-open,
+          // 502 unchanged (invariant 9).
+          void log.warn("pending-ingestion retry: Drive metadata fetch failed", {
+            source: "api.admin.pending-ingestions.retry",
+            code: "PENDING_INGESTION_RETRY_DRIVE_FETCH_FAILED",
+            driveFileId: row.drive_file_id,
+            error: err,
+          });
           return errorResponse(502, "DRIVE_FETCH_FAILED");
         }
         const watchedFolderId = await readWatchedFolderId(tx);
@@ -414,7 +424,15 @@ export async function handleLivePendingIngestionRetry(
       let metadata: DriveListedFile;
       try {
         metadata = await deps.fetchDriveFileMetadata(row.drive_file_id);
-      } catch {
+      } catch (err) {
+        // First-seen branch's route-level Drive metadata fetch → 502; same
+        // fail-open breadcrumb as the existing-show branch above. 502 unchanged.
+        void log.warn("pending-ingestion retry: Drive metadata fetch failed", {
+          source: "api.admin.pending-ingestions.retry",
+          code: "PENDING_INGESTION_RETRY_DRIVE_FETCH_FAILED",
+          driveFileId: row.drive_file_id,
+          error: err,
+        });
         return errorResponse(502, "DRIVE_FETCH_FAILED");
       }
       const watchedFolderId = await readWatchedFolderId(tx);
