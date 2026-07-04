@@ -172,11 +172,16 @@ kinds:
   `selectIdentityFormAction` in `_PickerInterstitial.tsx:72`). The emit must be in that
   function's body, or the function/file is exempted.
 
-Directive detection (module-level leading directive AND function-scoped body-leading
-directive) mirrors the existing auth-audit primitive `hasDirective(node, "use server")`
-(`lib/audit/authPrimitives.ts:151`, which distinguishes `directiveKind: "module" |
-"function-scoped"` at lines 198/209-216); the meta-test SHOULD reuse that shared primitive
-rather than re-implement directive scanning, so the two audits cannot drift.
+**AST stack (Codex R13 F2): the `typescript` compiler API throughout** — matching the sibling
+`_metaAdminOutcomeContract.test.ts:4` (`import ts from "typescript"`) and the validated
+prototype. Directive detection (module-level leading directive AND function-scoped
+body-leading directive) mirrors the *logic* of the auth-audit primitive
+`hasDirective(node, "use server")` (`lib/audit/authPrimitives.ts:151`, which distinguishes
+`directiveKind: "module" | "function-scoped"` at lines 198/209-216) but is **reimplemented on
+`ts.Node`** — that helper is `ts-morph`-based (`authPrimitives.ts:4`) and unexported, so it
+cannot be imported into a `typescript`-API test. The reimplementation is ~10 lines
+(leading-`ExpressionStatement`-string-literal check on the source file's statements, and on
+each function/arrow/method block body); the prototype in this session already implements it.
 
 ### 4.2 Acceptance predicate (the floor)
 
@@ -246,20 +251,25 @@ actions and routes:
    delegated, or wrong-branch emit (Codex R8/R10). A new admin surface not in the registry
    (and not exempt) FAILS discovery. (This supersedes the earlier per-function-scan rule for
    admin actions — actions and routes are now identical here.)
-3. **Executable behavioral proof, not a paper reference (Codex R10 F3).** Registry membership
-   is static; only a behavioral test proves the *committed success branch* emits. So every
-   admin surface must be covered by an **executable** proof: its sink-spy test drives the
-   success path and, **only after** the spy observes the expected code, calls a shared
-   recorder `recordAdminOutcomeBehavior({ file, code })` (a runtime-collected set). The
-   `ADMIN_OUTCOME_BEHAVIOR` meta-test (§9/§10.5) then asserts every non-grandfathered admin
-   surface's `{ file, code }` is in that recorded set — a nominal/paper reference cannot
-   satisfy it; the test must actually run and observe the emit.
+3. **Executable behavioral proof, not a paper reference (Codex R10 F3), keyed per surface
+   (Codex R13 F1).** Registry membership is static; only a behavioral test proves the
+   *committed success branch* emits. So every admin surface must be covered by an
+   **executable** proof: its sink-spy test drives the success path and, **only after** the spy
+   observes the expected code, calls a shared recorder
+   `recordAdminOutcomeBehavior({ file, fn, code })` — keyed by **surface identity** (`fn` = the
+   exported action name, or `"POST"` for a route), NOT `{ file, code }`, so a new admin action
+   in an already-registered multi-action file needs its OWN behavioral proof. The
+   `ADMIN_OUTCOME_BEHAVIOR` meta-test (§9/§10.5) asserts every non-grandfathered admin surface
+   `{ file, fn }` has a recorder entry — a nominal/paper reference cannot satisfy it; the test
+   must actually run and observe the emit.
 
 **Scope bound (frozen grandfather baseline).** Every admin mutation surface that exists at
-`origin/main` HEAD — the 24 pre-existing admin routes AND the pre-existing admin actions that
-already emit (`archive`, `unarchive`, `setPublished`, `feed`) — is a FROZEN baseline whose
-behavioral backfill is `BL-ADMIN-OUTCOME-BEHAVIOR`. The meta-test asserts the baseline set is
-exactly that frozen list and **never grows**. Every admin surface NOT in the baseline — the
+`origin/main` HEAD — the **30 surface units: 24 pre-existing admin route `POST`s + 6
+pre-existing admin action functions** (`archiveShowAction`, `unarchiveShowAction`,
+`setShowPublishedAction`, `mi11ApproveAction`, `mi11RejectAction`, `undoChangeAction`) — is a
+FROZEN `{ file, fn }`-keyed baseline whose behavioral backfill is `BL-ADMIN-OUTCOME-BEHAVIOR`.
+The meta-test asserts the baseline set is exactly that frozen list and **never grows**. Every
+admin surface NOT in the baseline — the
 ~19 seeded by this change (settings, validation, admin-management, dev, onboarding, the 3
 admin picker mutations, `manifest/…/ignore`, `reap-stale-sessions`) and every future one —
 MUST be in the executable recorder set (a real sink-spy success-branch test, §10.7), never the
@@ -268,10 +278,11 @@ surface kinds. Reads are exempt (§4.3).
 
 ### 4.3 Escape hatches (three, by intent)
 
-1. **`// no-telemetry: <reason>`** — an inline line comment (matched
-   `/^\s*\/\/\s*no-telemetry:/` per-line, mirroring the `canonicalize-exempt` precedent in
+1. **`// no-telemetry: <reason>`** — an inline line comment matched
+   `/^\s*\/\/\s*no-telemetry:\s*\S/` per-line (the trailing `\s*\S` **requires non-empty
+   reason text** — Codex R13 F3; mirrors the `canonicalize-exempt` precedent in
    `tests/admin/no-inline-email-normalization.test.ts`). For **permanent** non-mutations and
-   delegators. Reason text is required (the regex demands a trailing `:`). **Scope — no
+   delegators. **Scope — no
    whole-file exemption for action-bearing files (Codex R4 F2):**
    - For a **route file** or a file with **no server-action surfaces** (e.g.
      `test-auth/set-session/route.ts`), a **file-leading** `// no-telemetry:` (before the
@@ -456,9 +467,9 @@ Add to the "Plan-wide invariants (non-negotiable)" list:
 Add two `BACKLOG.md` entries: `BL-CREW-PICKER-OBSERVABILITY` (the 6 grandfathered non-admin
 `lib/auth/picker/*` functions; the 3 admin-gated picker mutations are instrumented now, not
 deferred) and `BL-ADMIN-OUTCOME-BEHAVIOR` (audit/backfill executable sink-spy success-branch
-proofs for the frozen-baseline pre-existing admin surfaces — 24 routes + the 4 pre-existing
-admin actions — the new `ADMIN_OUTCOME_BEHAVIOR` meta-test already forces any NEW admin
-surface, route or action, to ship one).
+proofs for the 30 frozen-baseline pre-existing admin surface units — 24 route `POST`s + 6
+pre-existing admin action functions — the new `ADMIN_OUTCOME_BEHAVIOR` meta-test already
+forces any NEW admin surface, route or action, to ship one).
 
 ## 7. Relationship to existing guards (disagreement-loop preempt)
 
@@ -470,9 +481,10 @@ surface, route or action, to ship one).
   guarantee is not left to any static scan: admin surfaces — **actions** (`require*` in body)
   AND **routes** (`app/api/admin/**`) — are governed by one uniform contract (§4.2): registry
   membership in `AUDITABLE_MUTATIONS` PLUS an **executable** behavioral proof
-  (`ADMIN_OUTCOME_BEHAVIOR`, §9/§10.5) — a sink-spy test that records `{ file, code }` only
-  after observing the code on the committed-success branch. The frozen grandfather baseline
-  (24 routes + 4 pre-existing actions) is the only exception, backlogged as
+  (`ADMIN_OUTCOME_BEHAVIOR`, §9/§10.5) — a sink-spy test that records `{ file, fn, code }`
+  (surface-keyed, R13 F1) only after observing the code on the committed-success branch. The
+  frozen grandfather baseline (30 units: 24 routes + 6 pre-existing action functions) is the
+  only exception, backlogged as
   `BL-ADMIN-OUTCOME-BEHAVIOR`; every non-grandfathered admin surface (seeded + future) must be
   executably proven. **Non-admin** surfaces — crew/system actions and infra routes (webhook,
   realtime, `report`, sign-out) — keep the broad coded-emit floor by design (heterogeneous
@@ -523,17 +535,22 @@ surface, route or action, to ship one).
 - **CREATES (Codex R9/R10): the executable `ADMIN_OUTCOME_BEHAVIOR` proof, in ONE
   self-contained test file** `tests/log/adminOutcomeBehavior.test.ts` (Codex R11 F2 — a
   cross-file in-memory recorder is unreliable under Vitest's per-file isolation / workers /
-  sharding). That single file: (1) declares a file-local `recorded` set; (2) contains a
-  sink-spy behavioral case for every non-grandfathered admin surface (route OR action) that
-  drives the committed-success path and, **only after** the spy observes the expected code,
-  calls `recordAdminOutcomeBehavior({ file, code })`; (3) ends with a coverage assertion that
-  imports the pure admin-surface enumerator + `AUDITABLE_MUTATIONS` and asserts every
-  non-grandfathered admin surface's `{ file, code }` is in `recorded`. Because population and
-  assertion live in the same module scope and file, order is deterministic and immune to
-  sharding. A frozen `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER` set (24 routes +
-  `archive`/`unarchive`/`setPublished`/`feed`) is the only exception; the assertion also fails
-  if that set grows. Executable, not referential — a paper reference can't satisfy it (the
-  test must run and observe). Covers routes AND actions uniformly (Codex R10 F1).
+  sharding). **Keyed by surface identity `{ file, fn, code }` — NOT `{ file, code }` (Codex
+  R13 F1)** — so a new admin action added to an already-registered multi-action file
+  (`feed.ts`, `admins/actions.ts`, `validationReset.ts`) cannot ride a sibling's row; `fn` is
+  the exported action name (or `"POST"` for a route). That single file: (1) declares a
+  file-local `recorded` set of `{ file, fn, code }`; (2) contains a sink-spy behavioral case
+  for every non-grandfathered admin surface (route OR action) that drives the committed-success
+  path and, **only after** the spy observes the expected code, calls
+  `recordAdminOutcomeBehavior({ file, fn, code })`; (3) ends with a coverage assertion that
+  imports the pure per-function admin-surface enumerator and asserts every non-grandfathered
+  admin surface `{ file, fn }` has a matching `recorded` entry. Because population and
+  assertion live in the same module scope, order is deterministic and immune to sharding. The
+  frozen `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER` set (also `{ file, fn }`-keyed) is exactly the
+  **30 pre-existing surface units — 24 route `POST`s + 6 pre-existing admin action functions**
+  (`archiveShowAction`, `unarchiveShowAction`, `setShowPublishedAction`, `mi11ApproveAction`,
+  `mi11RejectAction`, `undoChangeAction`); the assertion fails if that set grows. Executable,
+  not referential; covers routes AND actions uniformly (Codex R10 F1).
 - **Advisory-lock topology:** N/A — no `pg_advisory*` surface is touched (declared explicitly).
 
 ## 10. Test plan (TDD)
@@ -574,16 +591,20 @@ surface, route or action, to ship one).
    write-builder or `logAdminOutcome` MUST fail. Assert the seeded gaps (settings, validation,
    admins, developer, dev, onboarding, 3 picker, `manifest/ignore`, `reap-stale-sessions`) are
    all present in `AUDITABLE_MUTATIONS` after seeding.
-5. **Executable admin behavioral-coverage — single file (Codex R9/R10/R11 F2)** — all of it
-   in `tests/log/adminOutcomeBehavior.test.ts`: the per-surface sink-spy cases populate a
-   file-local `recorded` set (only after observing the code on the committed-success branch),
-   and a final coverage `test()` in the same file asserts every non-grandfathered admin surface
-   in `AUDITABLE_MUTATIONS` is in `recorded`, the grandfather set equals exactly the frozen
-   pre-existing surfaces (24 routes + 4 actions) and FAILS if it grows. No cross-file in-memory
-   state; deterministic under Vitest isolation/sharding. Negative checks: a non-grandfathered
-   surface whose behavioral case is missing (or whose spy never observed the emit) FAILS the
-   coverage `test()`; the whole file is one Vitest unit so `pnpm vitest run
-   tests/log/adminOutcomeBehavior.test.ts` both populates and asserts.
+5. **Executable admin behavioral-coverage — single file (Codex R9/R10/R11 F2), keyed
+   `{ file, fn, code }` (Codex R13 F1)** — all of it in `tests/log/adminOutcomeBehavior.test.ts`:
+   the per-surface sink-spy cases populate a file-local `recorded` set of `{ file, fn, code }`
+   (only after observing the code on the committed-success branch), and a final coverage
+   `test()` in the same file asserts every non-grandfathered admin surface `{ file, fn }`
+   (from the pure per-function enumerator) has a `recorded` entry; the grandfather set equals
+   exactly the frozen 30 pre-existing surface units (24 route `POST`s + 6 admin action
+   functions) and FAILS if it grows. No cross-file in-memory state; deterministic under Vitest
+   isolation/sharding. Negative checks: a non-grandfathered surface whose behavioral case is
+   missing (or whose spy never observed the emit) FAILS the coverage `test()`; **and a new
+   admin action added to an already-registered multi-action file (e.g. a 4th export in
+   `admins/actions.ts`) FAILS until its OWN `{ file, fn }` behavioral entry exists** (Codex R13
+   F1 — the per-function key is what prevents riding a sibling). The whole file is one Vitest
+   unit so `pnpm vitest run tests/log/adminOutcomeBehavior.test.ts` both populates and asserts.
 6. **Ledger default-fail + hygiene** — a `"use server"` module with a ledgered function plus a
    NEW un-ledgered silent action fails on the new action (Codex R4 F1); a `{ file, fn }` row
    whose function now emits, or no longer exists, or whose `file` is gone, fails (forces
@@ -594,7 +615,7 @@ surface, route or action, to ship one).
 7. **Per-surface instrumentation tests (actions AND routes) — Codex R7/R10.** The **20 admin**
    surfaces' sink-spy cases live in the single `tests/log/adminOutcomeBehavior.test.ts` (§10.5)
    — each asserts the committed-success branch emits the expected `code`, that non-success
-   branches emit nothing, then calls `recordAdminOutcomeBehavior({ file, code })`. Explicitly
+   branches emit nothing, then calls `recordAdminOutcomeBehavior({ file, fn, code })`. Explicitly
    cover: `MANIFEST_SHEET_IGNORED` on the committed manifest-transition branch and **not** on a
    CAS-miss rollback; `STALE_SESSIONS_REAPED` on the successful-reap branch (with count) not the
    infra-fault branch; each admin toggle on `{ ok: true }` only; admin-management
