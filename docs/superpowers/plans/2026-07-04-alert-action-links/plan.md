@@ -129,6 +129,20 @@ describe("sheet links (spec §4 #4-#5)", () => {
     expect(resolveAlertAction("LIVE_ROW_CONFLICT", {}, noSlug)).toBeNull();
     expect(resolveAlertAction("LIVE_ROW_CONFLICT", null, noSlug)).toBeNull();
   });
+  it("LIVE_ROW_CONFLICT per-field guards (§7.3): wrong-type/empty drive_file_id falls back; bad folder_id → null", () => {
+    const folder_id = "fold-9";
+    // Wrong-type or empty drive_file_id is IGNORED (str → null) → folder fallback.
+    for (const badDrive of [42, { id: "x" }, "  "]) {
+      const action = resolveAlertAction("LIVE_ROW_CONFLICT", { drive_file_id: badDrive, folder_id }, noSlug);
+      expect(action?.href).toBe(
+        `https://drive.google.com/drive/folders/${encodeURIComponent(folder_id)}`,
+      );
+    }
+    // Bad folder_id with no drive_file_id → no link at all.
+    for (const badFolder of [7, ["a"], "   "]) {
+      expect(resolveAlertAction("LIVE_ROW_CONFLICT", { folder_id: badFolder }, noSlug)).toBeNull();
+    }
+  });
 });
 
 describe("wizard link (spec §4 #6)", () => {
@@ -348,7 +362,7 @@ Expected: ALL PASS (the messages suite hosts the M8 namespace scanner and catalo
 
 - [ ] **Step 6: Negative-verification (prove the raise-site pins bite)**
 
-Temporarily rename `drive_file_id` → `driveFileId` inside the `LIVE_ROW_CONFLICT` context in `lib/sync/runOnboardingScan.ts` (NOT the sibling `logSync` payload above it), run the meta-test, and confirm the `LIVE_ROW_CONFLICT` row FAILS. Revert (`git checkout -- lib/sync/runOnboardingScan.ts`), re-run to green, and confirm a clean tree with `git status`. Record the result in the handoff doc.
+FIRST confirm the target file has no local modifications (`git status --porcelain lib/sync/runOnboardingScan.ts` must print nothing — if it does not, stop and resolve before mutating). Then temporarily rename `drive_file_id` → `driveFileId` inside the `LIVE_ROW_CONFLICT` context (NOT the sibling `logSync` payload above it), run the meta-test, and confirm the `LIVE_ROW_CONFLICT` row FAILS. Restore by applying the exact reverse edit (`driveFileId` → `drive_file_id` at the same spot), re-run to green, and confirm `git status --porcelain lib/sync/runOnboardingScan.ts` is again empty. Record the result in the handoff doc.
 
 - [ ] **Step 7: Typecheck and commit**
 
@@ -951,36 +965,10 @@ git commit --no-verify -m "feat(admin): per-code action links for global alerts 
 
 ---
 
-### Task 4: Full-suite sweep, format, handoff scaffold
+### Close-out (Stage 3→4 gates, run by the orchestrator — NOT a TDD task: no product code changes, only verification and pipeline bookkeeping; AGENTS invariant 1 governs tasks that produce implementation, which ends with Task 3)
 
-**Files:**
-- Create: `docs/superpowers/plans/2026-07-04-alert-action-links/handoff.md`
-
-- [ ] **Step 1: Full test suite**
-
-Run: `pnpm vitest run`
-Expected: green (same pass/fail set as the merge-base — if a failure appears, verify it exists at `origin/main` before diagnosing; see the pre-existing-failure discipline).
-
-- [ ] **Step 2: Typecheck + format**
-
-Run: `pnpm typecheck && pnpm format:check`
-If format:check flags the new/edited files, run `pnpm prettier --write <files>` and amend into the relevant task commit or a `chore(admin): prettier` commit. NEVER run prettier on `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`.
-
-- [ ] **Step 3: Handoff doc**
-
-Write `handoff.md` recording: task→commit map, test evidence (suite counts), the meta-test's negative-verification result (Task 1 step 6), and a §12 placeholder for impeccable critique/audit dispositions (filled at close-out).
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add docs/superpowers/plans/2026-07-04-alert-action-links/handoff.md
-git commit --no-verify -m "docs(handoff): alert-action-links implementation handoff"
-```
-
----
-
-### Close-out (Stage 3→4 gates, run by the orchestrator — not a TDD task)
-
-1. **Impeccable dual-gate** (invariant 8): `/impeccable critique` AND `/impeccable audit` on the diff to `components/admin/PerShowAlertSection.tsx` + `components/admin/AlertBanner.tsx`. HIGH/CRITICAL findings fixed or DEFERRED.md'd BEFORE Codex review. Dispositions → handoff §12.
-2. **Whole-diff Codex adversarial review** (fresh-eyes, REVIEWER ONLY) to APPROVE.
-3. Fetch + rebase onto latest `origin/main`, re-run affected suites, push, open PR, real CI green (check `mergeStateStatus == CLEAN`, pass PR number to `gh pr checks --watch`), `gh pr merge --merge`, fast-forward local main (`rev-list --left-right --count main...origin/main` → `0  0`).
+1. **Full-suite sweep:** `pnpm vitest run` — green (same pass/fail set as the merge-base; if a failure appears, verify it exists at `origin/main` before diagnosing). Then `pnpm typecheck && pnpm format:check`; if format:check flags the new/edited files, `pnpm prettier --write <files>` in a `chore(admin): prettier` commit. NEVER run prettier on `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`.
+2. **Handoff doc:** write `docs/superpowers/plans/2026-07-04-alert-action-links/handoff.md` recording the task→commit map, test evidence (suite counts), the meta-test's negative-verification result (Task 1 step 6), and a §12 placeholder for impeccable dispositions. Commit as `docs(handoff): alert-action-links implementation handoff`.
+3. **Impeccable dual-gate** (invariant 8): `/impeccable critique` AND `/impeccable audit` on the diff to `components/admin/PerShowAlertSection.tsx` + `components/admin/AlertBanner.tsx`. HIGH/CRITICAL findings fixed or DEFERRED.md'd BEFORE Codex review. Dispositions → handoff §12.
+4. **Whole-diff Codex adversarial review** (fresh-eyes, REVIEWER ONLY) to APPROVE.
+5. Fetch + rebase onto latest `origin/main`, re-run affected suites, push, open PR, real CI green (check `mergeStateStatus == CLEAN`, pass PR number to `gh pr checks --watch`), `gh pr merge --merge`, fast-forward local main (`rev-list --left-right --count main...origin/main` → `0  0`).
