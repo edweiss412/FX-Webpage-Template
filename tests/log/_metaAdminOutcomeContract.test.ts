@@ -305,9 +305,12 @@ const NEW_FORENSIC_CODES = new Set([
   // Cleanup tail (2026-07-03) — final logging-audit stragglers (all inside log.* spans;
   // NOT cataloged). S1: live-staged discard bare-requireAdmin AdminInfraError → typed 500
   // forensic breadcrumb. S3: report-submission 201-created success breadcrumb (crew/user
-  // submit — NOT an admin mutation, so a plain log.info not logAdminOutcome).
+  // submit — NOT an admin mutation, so a plain log.info not logAdminOutcome). S4:
+  // ambiguous-email terminal (alert-SUCCEEDED path) durable warn — DISTINCT from the §12.4
+  // user-facing AMBIGUOUS_EMAIL_BINDING catalog code (kept as the return value).
   "LIVE_STAGED_DISCARD_AUTH_INFRA",
   "REPORT_SUBMITTED",
+  "AMBIGUOUS_EMAIL_BINDING_DETECTED",
 ]);
 
 const read = (f: string) => readFileSync(f, "utf8");
