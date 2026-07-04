@@ -26,7 +26,7 @@ View-layer only: `components/admin/OnboardingWizard.tsx` (StepIndicator, BackLin
 ### Explicitly OUT of scope (do NOT relitigate)
 - The **modal** (`Step3ReviewModal`, `step3ReviewSections.tsx` section bodies) — already shipped; unchanged except being opened from the new Review/View buttons.
 - The **finalize server contract** — `/api/admin/onboarding/finalize`, `/finalize-cas`, the NDJSON streaming protocol, advisory locks, RPCs, DB schema. Zero backend change (§13).
-- Adding a **green/success color** — the design system has **no success token** (`app/globals.css` @theme has only `--color-warning-bg/-text`, `--color-info-bg`, and `--color-status-{live,positive,review,warn,idle}` dots; `StatusIndicator` `components/admin/StatusIndicator.tsx:15`). The mock's green stepper-check and green "clean" chip are **intentionally not** reproduced; done/ready use neutral treatment + the sanctioned `status-review`/`warning` hues for the needs-a-look signal only. This is a ratified deviation (§6).
+- Adding a **green/success color** — the design system has **no success token** (`app/globals.css` @theme has only `--color-warning-bg/-text`, `--color-info-bg`, and `--color-status-{live,positive,review,warn,idle}` dots; `StatusIndicator` `components/admin/StatusIndicator.tsx:15`). The mock's green stepper-check and green "clean" chip are **intentionally not** reproduced; done/ready use neutral treatment + the sanctioned `bg-status-review` dot / `warning` pill hues for the needs-a-look signal only. This is a ratified deviation (§6).
 - Doug-facing **copy semantics** already governed by `lib/messages/lookup.ts` — reused verbatim (invariant 5).
 
 ---
@@ -117,7 +117,7 @@ Let `cleanCount = cleanRows.length` (= `readyCount + needsLookCount`).
 
 | `rows.length === 0` | *(no summary paragraph — the empty card at §4.5 renders instead)* |
 | `cleanCount === 0` (only blocking / set-aside) | "**{sheetCount} sheet{s}** parsed from your Drive folder." *(readiness clause omitted; blocking handled by the resolution line below)* |
-| `cleanCount > 0`, `needsLookCount === 0` | "**{sheetCount} sheet{s}** parsed from your Drive folder. **All {readyCount} ready** to publish. Nothing publishes until you say so." |
+| `cleanCount > 0`, `needsLookCount === 0` | "**{sheetCount} sheet{s}** parsed from your Drive folder. {readyClause} Nothing publishes until you say so." — where `readyClause = readyCount===1 ? "**It's ready** to publish." : "**All {readyCount} are ready** to publish."` (never "All 1") |
 | `cleanCount > 0`, `needsLookCount > 0`, `readyCount > 0` | "**{sheetCount} sheet{s}** parsed from your Drive folder. **{readyCount} ready** to publish — *{needsLookCount} {needsVerb} a quick look* before {needsLookCount===1?"it goes":"they go"} live. Nothing publishes until you say so." |
 | `cleanCount > 0`, `readyCount === 0` (all clean need a look) | "**{sheetCount} sheet{s}** parsed from your Drive folder. *{needsLookCount} {needsVerb} a quick look* before {needsLookCount===1?"it goes":"they go"} live. Nothing publishes until you say so." |
 
@@ -200,7 +200,7 @@ A new bottom bar, `position: sticky; bottom: 0`, full-width within the Step-3 co
 | Needs-a-look chip / warn plate | `bg-warning-bg text-warning-text` pill + a `bg-status-review` dot | globals.css:61-62; `bg-status-review` utility globals.css:88 / `StatusIndicator.tsx:18` |
 | Info / set-aside quiet | `bg-surface-sunken text-text` (info tone) | toneClasses `Step3Review.tsx:156-163` |
 | Radii | `rounded-sm/md/lg/pill` (6/12/16/999) | :189-192 |
-| Shadow | `shadow-(--shadow-tile)` | :231 |
+| Shadow | `shadow-tile` (canonical utility — NOT the `shadow-(--shadow-tile)` arrow form, which `eslint-plugin-better-tailwindcss` forbids per globals.css:223-227) | :232 |
 | Spacing | `p-tile-pad`(20) `gap-section-gap`(32) `min-h-tap-min`(44) | :163,165,155 |
 | Focus | `ring-focus-ring` `duration-fast` | :64,196 |
 
@@ -233,7 +233,7 @@ The page has few animated states; most are instant. Enumerated:
 | FinalizeButton idle → running (ProgressPanel morph) | Existing instant swap; native `<progress>` value animates. Bar grows upward — height change is instant (no morph animation), acceptable. |
 | FinalizeButton running → error/race/cas/complete | Existing instant panel swap + focus move. |
 | Needs-a-look chip present ↔ absent | Determined at render by warning count; no live toggle within a render (data is server-fetched). Instant. |
-| **Compound:** open modal while a publish is running | Not reachable — the bar's Publish morphs to the progress panel and the operator is committed; the Review/View buttons remain but opening the modal mid-publish is the existing modal's concern (unchanged). No new compound animation. |
+| **Compound:** open a card modal while a publish is running | **Reachable** (unchanged from today): `Step3Review` and `FinalizeButton` are independent siblings (`Step3ReviewWithFinalize.tsx:51-59`); the card's Review/View button stays active (`Step3SheetCard.tsx:521-530`) and `FinalizeButton` morphs only its own region (`FinalizeButton.tsx:431-447`) — it does not raise a scrim over the list. So the operator can open the read-only review modal mid-publish. This is **existing behavior the redesign does not change or newly prevent** — the modal is its own overlay and the publish stream continues underneath, exactly as in the current grid layout (the card→modal wiring and `FinalizeButton` coexistence are unchanged; the modal's own internals are out of scope, already shipped). No new animation; the two surfaces animate independently via their own components. Recorded here so the inventory is complete and does not falsely claim the state is unreachable. |
 
 No new `AnimatePresence`/ternary animations are introduced; every state swap above is deliberately instant or owned by existing components.
 
