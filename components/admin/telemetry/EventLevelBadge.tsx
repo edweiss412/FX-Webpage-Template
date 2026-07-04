@@ -1,5 +1,5 @@
-// components/admin/observability/EventLevelBadge.tsx
-import type { AppEventLevel } from "@/lib/admin/observabilityTypes";
+// components/admin/telemetry/EventLevelBadge.tsx
+import type { AppEventLevel } from "@/lib/admin/telemetryTypes";
 
 const BADGE: Record<AppEventLevel, { label: string; className: string }> = {
   info: { label: "Info", className: "bg-surface-sunken text-text-subtle" },

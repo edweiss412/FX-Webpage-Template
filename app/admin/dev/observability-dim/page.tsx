@@ -36,15 +36,11 @@
 import { Suspense } from "react";
 import { requireDeveloper } from "@/lib/auth/requireDeveloper";
 import { CRON_JOBS, CRON_RUN_SUMMARY } from "@/lib/cron/runSummary";
-import type {
-  AppEventRow,
-  CronHealthRow,
-  LoadAppEventsResult,
-} from "@/lib/admin/observabilityTypes";
-import { CronHealthHeader } from "@/components/admin/observability/CronHealthHeader";
-import { EventFilters } from "@/components/admin/observability/EventFilters";
-import { EventTimeline } from "@/components/admin/observability/EventTimeline";
-import { AutoRefreshControl } from "@/components/admin/observability/AutoRefreshControl";
+import type { AppEventRow, CronHealthRow, LoadAppEventsResult } from "@/lib/admin/telemetryTypes";
+import { CronHealthHeader } from "@/components/admin/telemetry/CronHealthHeader";
+import { EventFilters } from "@/components/admin/telemetry/EventFilters";
+import { EventTimeline } from "@/components/admin/telemetry/EventTimeline";
+import { AutoRefreshControl } from "@/components/admin/telemetry/AutoRefreshControl";
 
 export const dynamic = "force-dynamic";
 

@@ -16,7 +16,7 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(spHolder.value),
 }));
 
-import { EventFilters, buildFilterHref } from "@/components/admin/observability/EventFilters";
+import { EventFilters, buildFilterHref } from "@/components/admin/telemetry/EventFilters";
 
 describe("buildFilterHref drops cursor on every mutation", () => {
   test("changing a filter removes cursorAt/cursorId", () => {

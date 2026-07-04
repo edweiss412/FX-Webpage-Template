@@ -16,7 +16,7 @@ import { getCronHealth as realGetCronHealth } from "@/lib/observe/query/cronHeal
 import { queryAlerts as realQueryAlerts } from "@/lib/observe/query/alerts";
 import { queryChangeLog as realQueryChangeLog } from "@/lib/observe/query/changeLog";
 import { clampLimit } from "@/lib/observe/query";
-import type { AppEventRow } from "@/lib/admin/observabilityTypes";
+import type { AppEventRow } from "@/lib/admin/telemetryTypes";
 
 // Infra/usage errors: JSON object on stderr when --json (agent-parseable), else plain text.
 function fail(

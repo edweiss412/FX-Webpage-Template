@@ -1,5 +1,5 @@
 // scripts/observe/format.ts
-import type { AppEventRow, CronHealthRow } from "@/lib/admin/observabilityTypes";
+import type { AppEventRow, CronHealthRow } from "@/lib/admin/telemetryTypes";
 import type { AlertRow, ChangeRow } from "@/lib/observe/query";
 
 const trunc = (s: string, n = 80) => (s.length > n ? s.slice(0, n - 1) + "…" : s);

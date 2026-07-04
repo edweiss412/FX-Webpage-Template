@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 
 export const AUTO_REFRESH_MS = 20_000;
 export const AUTO_REFRESH_TOP_PX = 200;
-const KEY = "fxav.observability.autorefresh";
+const KEY = "fxav.telemetry.autorefresh";
 
 export function AutoRefreshControl() {
   const router = useRouter();

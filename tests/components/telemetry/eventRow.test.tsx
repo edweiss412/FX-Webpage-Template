@@ -3,8 +3,8 @@
 import { afterEach, describe, expect, test } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen, fireEvent } from "@testing-library/react";
-import { EventRow } from "@/components/admin/observability/EventRow";
-import type { AppEventRow } from "@/lib/admin/observabilityTypes";
+import { EventRow } from "@/components/admin/telemetry/EventRow";
+import type { AppEventRow } from "@/lib/admin/telemetryTypes";
 
 afterEach(cleanup);
 

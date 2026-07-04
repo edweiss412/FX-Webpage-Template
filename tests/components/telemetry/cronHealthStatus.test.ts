@@ -1,7 +1,7 @@
 // tests/components/observability/cronHealthStatus.test.ts
 import { describe, expect, test } from "vitest";
-import { effectiveCronStatus } from "@/components/admin/observability/cronHealthStatus";
-import type { CronHealthRow } from "@/lib/admin/observabilityTypes";
+import { effectiveCronStatus } from "@/components/admin/telemetry/cronHealthStatus";
+import type { CronHealthRow } from "@/lib/admin/telemetryTypes";
 
 const base: CronHealthRow = {
   jobName: "sync",

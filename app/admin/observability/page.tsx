@@ -2,13 +2,13 @@ import { Suspense } from "react";
 import { requireDeveloperIdentity } from "@/lib/auth/requireDeveloper";
 import { nowDate } from "@/lib/time/now";
 import { AdminPageHeader } from "@/components/admin/nav/AdminPageHeader";
-import { parseAppEventFilters } from "@/lib/admin/observabilityTypes";
+import { parseAppEventFilters } from "@/lib/admin/telemetryTypes";
 import { loadAppEvents } from "@/lib/admin/loadAppEvents";
 import { loadCronHealth } from "@/lib/admin/loadCronHealth";
-import { CronHealthHeader } from "@/components/admin/observability/CronHealthHeader";
-import { EventFilters } from "@/components/admin/observability/EventFilters";
-import { EventTimeline } from "@/components/admin/observability/EventTimeline";
-import { AutoRefreshControl } from "@/components/admin/observability/AutoRefreshControl";
+import { CronHealthHeader } from "@/components/admin/telemetry/CronHealthHeader";
+import { EventFilters } from "@/components/admin/telemetry/EventFilters";
+import { EventTimeline } from "@/components/admin/telemetry/EventTimeline";
+import { AutoRefreshControl } from "@/components/admin/telemetry/AutoRefreshControl";
 
 export const dynamic = "force-dynamic";
 

@@ -1,5 +1,5 @@
-// components/admin/observability/cronHealthStatus.ts
-import type { CronHealthRow } from "@/lib/admin/observabilityTypes";
+// components/admin/telemetry/cronHealthStatus.ts
+import type { CronHealthRow } from "@/lib/admin/telemetryTypes";
 import { formatRelative } from "@/lib/admin/showDisplay";
 
 export type CronStatusVisual = {

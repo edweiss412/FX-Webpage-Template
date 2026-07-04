@@ -1,6 +1,6 @@
-// components/admin/observability/CronRunSummaryCard.tsx
+// components/admin/telemetry/CronRunSummaryCard.tsx
 import { KeyValue } from "@/components/atoms/KeyValue";
-import type { AppEventRow } from "@/lib/admin/observabilityTypes";
+import type { AppEventRow } from "@/lib/admin/telemetryTypes";
 
 function jobLabel(ev: AppEventRow): string {
   const jn = ev.context?.jobName;

@@ -1,5 +1,5 @@
 import { EmptyState } from "@/components/atoms/EmptyState";
-import type { LoadAppEventsResult } from "@/lib/admin/observabilityTypes";
+import type { LoadAppEventsResult } from "@/lib/admin/telemetryTypes";
 import { EventRow } from "./EventRow";
 
 export function EventTimeline({

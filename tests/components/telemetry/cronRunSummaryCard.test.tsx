@@ -3,8 +3,8 @@
 import { afterEach, describe, expect, test } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { CronRunSummaryCard } from "@/components/admin/observability/CronRunSummaryCard";
-import type { AppEventRow } from "@/lib/admin/observabilityTypes";
+import { CronRunSummaryCard } from "@/components/admin/telemetry/CronRunSummaryCard";
+import type { AppEventRow } from "@/lib/admin/telemetryTypes";
 
 afterEach(cleanup);
 

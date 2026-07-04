@@ -1,6 +1,6 @@
-// components/admin/observability/CronHealthHeader.tsx
+// components/admin/telemetry/CronHealthHeader.tsx
 import { StatusIndicator } from "@/components/admin/StatusIndicator";
-import type { CronHealthRow } from "@/lib/admin/observabilityTypes";
+import type { CronHealthRow } from "@/lib/admin/telemetryTypes";
 import { effectiveCronStatus } from "./cronHealthStatus";
 
 export function CronHealthHeader({ jobs, now }: { jobs: CronHealthRow[]; now: Date }) {

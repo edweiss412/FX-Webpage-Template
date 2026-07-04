@@ -3,7 +3,7 @@
 import { afterEach, describe, expect, test } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { EventLevelBadge } from "@/components/admin/observability/EventLevelBadge";
+import { EventLevelBadge } from "@/components/admin/telemetry/EventLevelBadge";
 
 afterEach(cleanup);
 

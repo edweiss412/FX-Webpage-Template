@@ -7,7 +7,7 @@ import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 
-import { AutoRefreshControl } from "@/components/admin/observability/AutoRefreshControl";
+import { AutoRefreshControl } from "@/components/admin/telemetry/AutoRefreshControl";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -62,7 +62,7 @@ describe("AutoRefreshControl", () => {
     expect(screen.getByTestId("autorefresh-updated")).toBeInTheDocument();
   });
   test("persisted OFF: initial localStorage=off → no tick, toggle shows off", () => {
-    localStorage.setItem("fxav.observability.autorefresh", "off");
+    localStorage.setItem("fxav.telemetry.autorefresh", "off");
     render(<AutoRefreshControl />);
     vi.advanceTimersByTime(40_000);
     expect(refresh).not.toHaveBeenCalled();

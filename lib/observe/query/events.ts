@@ -6,7 +6,7 @@ import {
   type AppEventFilters,
   type AppEventRow,
   type AppEventCursor,
-} from "@/lib/admin/observabilityTypes";
+} from "@/lib/admin/telemetryTypes";
 
 export type QueryEventsResult =
   | { kind: "ok"; events: AppEventRow[]; hasMore: boolean; nextCursor: AppEventCursor | null }

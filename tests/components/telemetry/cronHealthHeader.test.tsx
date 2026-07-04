@@ -3,9 +3,9 @@
 import { afterEach, describe, expect, test } from "vitest";
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { CronHealthHeader } from "@/components/admin/observability/CronHealthHeader";
+import { CronHealthHeader } from "@/components/admin/telemetry/CronHealthHeader";
 import { CRON_JOBS } from "@/lib/cron/runSummary";
-import type { CronHealthRow } from "@/lib/admin/observabilityTypes";
+import type { CronHealthRow } from "@/lib/admin/telemetryTypes";
 
 afterEach(cleanup);
 

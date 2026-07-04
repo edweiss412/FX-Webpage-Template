@@ -1,11 +1,11 @@
-// components/admin/observability/EventRow.tsx
+// components/admin/telemetry/EventRow.tsx
 "use client";
 import { useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { formatRelative } from "@/lib/admin/showDisplay";
 import { CRON_RUN_SUMMARY } from "@/lib/cron/runSummary";
-import type { AppEventRow } from "@/lib/admin/observabilityTypes";
+import type { AppEventRow } from "@/lib/admin/telemetryTypes";
 import { EventLevelBadge } from "./EventLevelBadge";
 import { ContextDetail } from "./ContextDetail";
 import { CronRunSummaryCard } from "./CronRunSummaryCard";

@@ -4,12 +4,12 @@ import { afterEach, describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
-import { EventRow } from "@/components/admin/observability/EventRow";
-import type { AppEventRow } from "@/lib/admin/observabilityTypes";
+import { EventRow } from "@/components/admin/telemetry/EventRow";
+import type { AppEventRow } from "@/lib/admin/telemetryTypes";
 
 afterEach(cleanup);
 
-const DIR = join(__dirname, "..", "..", "..", "components/admin/observability");
+const DIR = join(__dirname, "..", "..", "..", "components/admin/telemetry");
 const read = (f: string) => readFileSync(join(DIR, f), "utf8");
 const INSTANT = [
   "CronHealthHeader.tsx",

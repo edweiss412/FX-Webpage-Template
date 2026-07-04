@@ -1,6 +1,6 @@
-// components/admin/observability/ContextDetail.tsx
+// components/admin/telemetry/ContextDetail.tsx
 import { KeyValue } from "@/components/atoms/KeyValue";
-import type { AppEventRow } from "@/lib/admin/observabilityTypes";
+import type { AppEventRow } from "@/lib/admin/telemetryTypes";
 
 export function ContextDetail({ event }: { event: AppEventRow }) {
   const ctx = event.context ?? {};
