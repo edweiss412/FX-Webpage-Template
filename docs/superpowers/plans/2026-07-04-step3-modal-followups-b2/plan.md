@@ -45,6 +45,7 @@ describe("hasStagedPreviewSource", () => {
   test.each([
     [{ ...base, contentUrl: "https://lh3.googleusercontent.com/x" }, true],
     [{ ...base, contentUrl: "https://google.com.evil.net/x" }, false], // untrusted string URL — must match the route's 404
+    [{ ...base, contentUrl: "https://google.com.evil.net/x", mediaPartName: "xl/media/image1.png", embeddedFingerprint: "fp" }, false], // corrupt mixed shape — string contentUrl is authoritative
     [{ ...base, contentUrl: null, mediaPartName: "xl/media/image1.png", embeddedFingerprint: "fp" }, true],
     [{ ...base, contentUrl: null, mediaPartName: "xl/media/image1.png", embeddedFingerprint: null }, false], // restage-only
     [{ ...base, contentUrl: null, embeddedFingerprint: "fp" }, false], // no part name
