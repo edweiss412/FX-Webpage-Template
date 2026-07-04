@@ -111,6 +111,32 @@ The claimed-row recovery control is `<form action={signInRecoveryUrl} method="GE
 
 ---
 
+## BL-ALERT-GITHUB-BOT-LOGIN-AUTORESOLVE — auto-resolve GITHUB_BOT_LOGIN_MISSING on successful bot auth
+
+**Status:** OPEN · **Severity:** low · **Class:** DEFERRAL (spec §3: GITHUB_BOT_LOGIN_MISSING / DEFER)
+
+The `GITHUB_BOT_LOGIN_MISSING` alert tracks that the bot login env is unset (`lib/reports/submit.ts:778`). This is config state observable inside the M8 report pipeline, but the review discipline for report features requires live GitHub integration probes. Auto-resolution deferred pending M8 shipping and validation-environment gates. See `docs/superpowers/specs/2026-07-03-admin-alert-auto-resolution.md` §3 line 94.
+
+## BL-ALERT-BRANCH-PROTECTION-AUTORESOLVE — auto-resolve branch-protection alerts on policy sync
+
+**Status:** OPEN · **Severity:** low · **Class:** DEFERRAL (spec §3: BRANCH_PROTECTION_DRIFT / BRANCH_PROTECTION_MONITOR_AUTH_FAILED / DEFER)
+
+`BRANCH_PROTECTION_DRIFT` and `BRANCH_PROTECTION_MONITOR_AUTH_FAILED` track state of the GitHub branch-protection CI monitor (`scripts/verify-branch-protection.ts`). Both are raised outside app runtime (CI-side ops script), making auto-resolution a separate ops-pipeline concern orthogonal to the app's admin-alert infrastructure. Deferred to a future branch-protection monitoring redesign. See `docs/superpowers/specs/2026-07-03-admin-alert-auto-resolution.md` §3 lines 95–96.
+
+## BL-ALERT-REPORT-FAMILY-AUTORESOLVE — evaluate manual-by-design posture for report-family incidents
+
+**Status:** OPEN · **Severity:** low · **Class:** DEFERRAL (spec §3: REPORT\_\* codes / EVENT)
+
+The six report-family codes (`REPORT_ORPHANED_LOST_LEASE`, `REPORT_LOOKUP_INCONCLUSIVE`, `REPORT_DUPLICATE_LIVE_MATCHES`, `REPORT_OPEN_ORPHAN_LABEL`, `REPORT_LEASE_THRASHING`, `STALE_ORPHAN_REPORT`) are all incident notices and observational audit records (external GitHub state changes, impossible-state alarms). They're event-shaped by design and cannot auto-resolve on condition recovery because there is no recoverable condition — a manual acknowledgment is the correct workflow. Revisit post-M8 if new incident classes emerge that blur the event/state boundary. See `docs/superpowers/specs/2026-07-03-admin-alert-auto-resolution.md` §3 lines 88–93.
+
+## BL-ALERT-TILE-RENDER-PER-TILE-KEYING — per-tile keyed auto-resolution for TILE_SERVER_RENDER_FAILED
+
+**Status:** OPEN · **Severity:** low · **Class:** DEFERRAL (spec §3: TILE_SERVER_RENDER_FAILED / EVENT\*)
+
+`TILE_SERVER_RENDER_FAILED` is state-shaped (a tile's render threw) but has no aggregation point: tiles stream independently per-request, and the alert row is deduped per (show, code) with `context.tileId` replaced on re-raise. Tile A's successful render cannot prove tile B is healthy; auto-resolving on any tile success masks ongoing failures. A per-tile-keyed redesign (persist `tileId` in the alert row, auto-resolve on that tile's next success) closes this structurally but requires schema change. See `docs/superpowers/specs/2026-07-03-admin-alert-auto-resolution.md` §3 line 76.
+
+---
+
 ## BL-KNOWN-SECTIONS-WALKER — real auto-drift enforcement for the known-section-header registry
 
 **Status:** OPEN · **Severity:** low (defense-in-depth; today's guard is a hand-maintained pin) · **Class:** TEST-ENFORCEMENT GAP
