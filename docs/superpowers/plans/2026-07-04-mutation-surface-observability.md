@@ -29,8 +29,7 @@
 - `tests/log/mutationSurface/exemptions.ts` — `ADMIN_SURFACE_EXEMPTIONS`, `KNOWN_UNINSTRUMENTED`, `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER`, `NO_TELEMETRY_RE`, hygiene predicates.
 - `tests/log/mutationSurface/enumerate.test.ts` — unit tests for the AST helpers (fixture strings).
 - `tests/log/_metaMutationSurfaceObservability.test.ts` — the static discovery meta-test.
-- `tests/log/adminOutcomeBehavior.test.ts` — single-file executable behavioral recorder + 20 sink-spy cases + coverage assertion.
-- `tests/log/mutationSurface/recorder.ts` — the shared `recordAdminOutcomeBehavior` + `getRecorded` (imported ONLY by `adminOutcomeBehavior.test.ts`; kept out of the test file only so it can be a plain module — but population+assertion stay in the one test file).
+- `tests/log/adminOutcomeBehavior.test.ts` — single-file executable behavioral coverage: the `recorded` set, `recordAdminOutcomeBehavior`, the 20 sink-spy cases, AND the coverage assertion all **inline in this one file** (spec R11 F2 requires file-local recorder state — no separate module).
 
 **Modify (instrument — 21 surfaces):** `app/admin/settings/_actions/{setAutoPublish,setAlertOnAutoPublish,setAlertOnSyncProblems,setDailyReviewDigest,validationReset}.ts`, `app/admin/settings/admins/{actions,developerActions}.ts`, `app/admin/dev/actions.ts`, `app/admin/actions.ts`, `app/show/[slug]/unpublish/actions.ts`, `lib/onboarding/serverActions.ts`, `lib/auth/picker/{resetPickerEpoch,rotateShareToken,resetCrewMemberSelection}.ts`, `app/api/admin/onboarding/manifest/[wizardSessionId]/[driveFileId]/ignore/route.ts`, `app/api/admin/onboarding/reap-stale-sessions/route.ts`.
 
@@ -88,7 +87,8 @@ Expected: PASS (pure refactor; behavior unchanged).
   - `export function moduleHasUseServer(sf: ts.SourceFile): boolean`
   - `export function functionBodyHasUseServer(node: ts.FunctionLikeDeclaration): boolean`
   - `export function scanBody(node: ts.Node, opts: { descend: boolean }): { adminOutcome: boolean; codedLog: boolean; adminGated: boolean; rpc: boolean; writeBuilder: boolean }`
-  - `export function importBindingOk(sf: ts.SourceFile): { log: boolean; logAdminOutcome: boolean }`
+  - `export function importBindingOk(sf: ts.SourceFile): { log: boolean; logAdminOutcome: boolean }` (file-level: the module imports the real binding)
+  - `export function isLocallyRebound(callNode: ts.Node, name: string): boolean` (call-site: any enclosing function/block scope of `callNode` declares a `VariableDeclaration`/`Parameter`/`FunctionDeclaration`/`import` named `name` — i.e. a shadow). A `log.*`/`logAdminOutcome` call counts toward the predicate ONLY when the file `importBindingOk` for that name AND NOT `isLocallyRebound` at the call. `scanBody` applies both checks before setting `adminOutcome`/`codedLog`.
   - `const SHOUTY = /^[A-Z][A-Z0-9_]+$/`, `const ADMIN_GATES = new Set(["requireAdmin","requireAdminIdentity","requireDeveloper","requireDeveloperIdentity"])`
 
 - [ ] **Step 1: Write failing unit tests** in `enumerate.test.ts` for the predicate & directive helpers (parse in-memory via `ts.createSourceFile`). Cover, per spec §4.2 / §10.1:
@@ -144,11 +144,33 @@ describe("importBindingOk", () => {
   test("real imports", () => {
     const r = importBindingOk(sf(IMP + 'export async function m(){}')); expect(r.log && r.logAdminOutcome).toBe(true);
   });
-  test("shadowed log rejected", () => {
+  test("module-level shadow: no real import", () => {
     const r = importBindingOk(sf('const log = { info(){} };\nexport async function m(){}')); expect(r.log).toBe(false);
+  });
+  test("wrong-source import rejected", () => {
+    const r = importBindingOk(sf('import { log } from "./fake";\nexport async function m(){}')); expect(r.log).toBe(false);
+  });
+});
+
+describe("call-site binding (Codex plan-R1 F2): local shadow does NOT satisfy the floor", () => {
+  test("real import but log rebound in the fn body → codedLog false", () => {
+    const src = IMP + 'async function m(){ const log = { warn(){} }; log.warn("x", { code:"FOO" }); }';
+    // scanBody must reject because the call's `log` is locally rebound
+    expect(scanBody(firstFn(src), { descend: false }).codedLog).toBe(false);
+  });
+  test("real import but logAdminOutcome rebound → adminOutcome false", () => {
+    const src = IMP + 'async function m(){ const logAdminOutcome = async () => {}; await logAdminOutcome({ code:"X" }); }';
+    expect(scanBody(firstFn(src), { descend: false }).adminOutcome).toBe(false);
   });
 });
 ```
+
+`scanBody` keeps its signature `scanBody(root, { descend })` and derives the import binding
+internally: `const imports = importBindingOk(root.getSourceFile())` (parent pointers are set via
+`setParentNodes: true`). Before crediting a `log.*`/`logAdminOutcome` call it confirms
+`imports[name] === true` AND `isLocallyRebound(call, name) === false`. `isLocallyRebound` walks
+`callNode.parent` up to the SourceFile, returning true if any enclosing `Block`/function/params
+declares `name`.
 
 - [ ] **Step 2: Run — FAIL** (`enumerate.ts` empty). Run: `pnpm vitest run tests/log/mutationSurface/enumerate.test.ts` → FAIL.
 
@@ -180,19 +202,39 @@ export function moduleHasUseServer(sf: ts.SourceFile) { return leadingDirective(
 export function functionBodyHasUseServer(node: ts.FunctionLikeDeclaration) {
   return !!node.body && ts.isBlock(node.body) && leadingDirective(node.body.statements, "use server");
 }
+export function isLocallyRebound(callNode: ts.Node, name: string): boolean {
+  let n: ts.Node | undefined = callNode.parent;
+  while (n && !ts.isSourceFile(n)) {
+    if (ts.isBlock(n) || isFnLike(n)) {
+      let found = false;
+      ts.forEachChild(n, (ch) => {
+        if (ts.isVariableStatement(ch)) for (const d of ch.declarationList.declarations)
+          if (ts.isIdentifier(d.name) && d.name.text === name) found = true;
+        if (ts.isFunctionDeclaration(ch) && ch.name?.text === name) found = true;
+      });
+      if (isFnLike(n)) for (const p of (n as ts.FunctionLikeDeclaration).parameters ?? [])
+        if (ts.isIdentifier(p.name) && p.name.text === name) found = true;
+      if (found) return true;
+    }
+    n = n.parent;
+  }
+  return false;
+}
 export function scanBody(root: ts.Node, opts: { descend: boolean }) {
   const res = { adminOutcome: false, codedLog: false, adminGated: false, rpc: false, writeBuilder: false };
   const WRITE = new Set(["insert", "update", "delete", "upsert"]);
+  const imports = importBindingOk(root.getSourceFile());
+  const realBinding = (call: ts.Node, name: "log" | "logAdminOutcome") => imports[name] && !isLocallyRebound(call, name);
   const visit = (n: ts.Node, isRoot: boolean) => {
     if (!isRoot && !opts.descend && isFnLike(n)) return; // action scope: don't descend into nested fns
     if (ts.isCallExpression(n)) {
       const c = n.expression;
-      if (ts.isIdentifier(c) && c.text === "logAdminOutcome" && n.parent && ts.isAwaitExpression(n.parent)) res.adminOutcome = true;
+      if (ts.isIdentifier(c) && c.text === "logAdminOutcome" && n.parent && ts.isAwaitExpression(n.parent) && realBinding(n, "logAdminOutcome")) res.adminOutcome = true;
       if (ts.isIdentifier(c) && ADMIN_GATES.has(c.text)) res.adminGated = true;
       if (ts.isPropertyAccessExpression(c) && ts.isIdentifier(c.name)) {
         if (WRITE.has(c.name.text)) res.writeBuilder = true;
         if (c.name.text === "rpc") res.rpc = true;
-        if (ts.isIdentifier(c.expression) && c.expression.text === "log" && ["info", "warn", "error"].includes(c.name.text)) {
+        if (ts.isIdentifier(c.expression) && c.expression.text === "log" && ["info", "warn", "error"].includes(c.name.text) && realBinding(n, "log")) {
           const a1 = n.arguments[1];
           if (a1 && ts.isObjectLiteralExpression(a1)) for (const p of a1.properties)
             if (ts.isPropertyAssignment(p) && ((ts.isIdentifier(p.name) && p.name.text === "code") || (ts.isStringLiteral(p.name) && p.name.text === "code")) && ts.isStringLiteral(p.initializer) && SHOUTY.test(p.initializer.text)) res.codedLog = true;
@@ -265,8 +307,16 @@ export function importBindingOk(sf: ts.SourceFile) {
 
 **Files:** Create `tests/log/_metaMutationSurfaceObservability.test.ts`.
 
-- [ ] **Step 1: Write the meta-test** composing Tasks 2–4. It implements the per-surface decision:
-  - non-admin surface passes iff `scanBody(node,{descend: kind!=="route"})` satisfies predicate (a `adminOutcome` OR b `codedLog`) with `importBindingOk`, OR a `// no-telemetry:` (function-span for actions/inline; file-leading only for routes/non-action files), OR a `KNOWN_UNINSTRUMENTED` `{file,fn}` row;
+- [ ] **Step 1: Write the meta-test** composing Tasks 2–4. It implements the per-surface decision.
+  **Scan scope (Codex plan-R1 F1 — get the recursion direction right):** for a **route**, scan the
+  whole `SourceFile` with `scanBody(sf, { descend: true })` (the emit legitimately lives in a
+  file-level helper the handler delegates to). For an **action/inline** surface, scan the
+  function `node` with `scanBody(node, { descend: false })` (per-function body, do NOT descend
+  into nested fns — the R4 F3 unused-nested-emitter guard). Equivalently `descend: kind === "route"`,
+  with routes scanning the SourceFile and actions scanning the function node. Add fixtures proving:
+  a route whose emit is in a file-level helper PASSES; an action with an unused nested
+  `logAdminOutcome` FAILS; an action with the emit in an `if`/`try` block PASSES.
+  - non-admin surface passes iff its scan satisfies predicate (a `adminOutcome` OR b `codedLog`) with call-site import binding valid (Task 2), OR a `// no-telemetry:` (function-span for actions/inline; file-leading only for routes/non-action files), OR a `KNOWN_UNINSTRUMENTED` `{file,fn}` row;
   - admin surface passes iff its `{file,fn}` has a matching `{file,fn,code}` in `AUDITABLE_MUTATIONS`, OR an `ADMIN_SURFACE_EXEMPTIONS` row (delegator's `delegatesTo` ∈ `AUDITABLE_MUTATIONS`; read-only has no write-builder/`.rpc`/`logAdminOutcome`);
   - a bare `// no-telemetry:` on an admin surface → FAIL; a file-leading `// no-telemetry:` in a `"use server"`/inline-action file → error; a `"use server"` module with a default export → FAIL; `KNOWN_UNINSTRUMENTED` entry naming an admin-gated fn → FAIL.
   Include the fixture/negative tests from spec §10.1/§10.4/§10.5-hygiene using in-memory strings written to a tmp dir (or a `describe` over synthetic `SourceFile`s that bypass the FS walk). **Route-multiplicity assertion:** no `route.ts` in the live tree exports >1 mutating method (prove-it-fails fixture: a two-method route string).
@@ -277,24 +327,24 @@ export function importBindingOk(sf: ts.SourceFile) {
 
 ---
 
-## Task 6: Behavioral recorder + single-file scaffold
+## Task 6: Single-file behavioral scaffold (recorder + sink-spy) — TDD
 
-**Files:** Create `tests/log/mutationSurface/recorder.ts`, `tests/log/adminOutcomeBehavior.test.ts`.
+**Files:** Create `tests/log/adminOutcomeBehavior.test.ts` (all state INLINE — no separate recorder module, per spec R11 F2 / Codex plan-R1 F3).
 
-**Interfaces:**
-- Produces: `recorder.ts` → `export function recordAdminOutcomeBehavior(x: { file: string; fn: string; code: string }): void`, `export function getRecorded(): ReadonlySet<string>` (keyed `file::fn::code`), `export function resetRecorded(): void`.
-
-- [ ] **Step 1: Implement `recorder.ts`** (module-local `Set<string>`; `record` adds `file::fn::code`; `getRecorded` returns it).
-
-- [ ] **Step 2: Scaffold `adminOutcomeBehavior.test.ts`** with the sink-spy helper that every case reuses:
+- [ ] **Step 1: Write the failing smoke test FIRST** (Codex plan-R1 F4 — test before impl). The file's inline recorder does not exist yet, so this is red:
 
 ```ts
 import { afterEach, describe, expect, test } from "vitest";
-import { setLogSink, resetLogSink } from "@/lib/log";
+import { setLogSink, resetLogSink, logAdminOutcome } from "@/lib/log"; // logAdminOutcome re-exported? if not, import from "@/lib/log/logAdminOutcome"
 import type { LogRecord } from "@/lib/log";
-import { recordAdminOutcomeBehavior } from "./mutationSurface/recorder";
 
-/** Drive a server action / route success path with a sink spy; return the codes observed. */
+// ── inline file-local recorder (single-file contract; no cross-file state) ──
+const recorded = new Set<string>(); // "file::fn::code"
+function recordAdminOutcomeBehavior(x: { file: string; fn: string; code: string }) {
+  recorded.add(`${x.file}::${x.fn}::${x.code}`);
+}
+
+/** Drive a success path with a sink spy; return the codes observed. */
 async function observeCodes(run: () => Promise<unknown>): Promise<string[]> {
   const codes: string[] = [];
   setLogSink((r: LogRecord) => { if (r.code) codes.push(r.code); });
@@ -302,9 +352,20 @@ async function observeCodes(run: () => Promise<unknown>): Promise<string[]> {
   return codes;
 }
 afterEach(() => resetLogSink());
+
+describe("behavioral scaffold smoke", () => {
+  test("sink spy captures a logAdminOutcome code and the recorder records it", async () => {
+    const codes = await observeCodes(() => logAdminOutcome({ code: "TEST_SMOKE", source: "t" }));
+    expect(codes).toContain("TEST_SMOKE");
+    recordAdminOutcomeBehavior({ file: "x", fn: "y", code: "TEST_SMOKE" });
+    expect(recorded.has("x::y::TEST_SMOKE")).toBe(true);
+  });
+});
 ```
 
-- [ ] **Step 3: A smoke test** proving the spy captures a `logAdminOutcome` code (call `logAdminOutcome({code:"TEST_SMOKE", source:"t"})` inside `observeCodes`, assert `codes` includes `"TEST_SMOKE"`). **Step 4: Run — PASS. Step 5: commit** `test(log): admin behavioral recorder + single-file sink-spy scaffold`.
+- [ ] **Step 2: Run — verify it fails first** (e.g. wrong `logAdminOutcome` import path). Run: `pnpm vitest run tests/log/adminOutcomeBehavior.test.ts` → FAIL, then fix the import (confirm whether `logAdminOutcome` is re-exported from `@/lib/log` or must come from `@/lib/log/logAdminOutcome`).
+
+- [ ] **Step 3: Run — PASS.** **Step 4: typecheck + commit** `test(log): single-file behavioral sink-spy scaffold + inline recorder`.
 
 ---
 
@@ -385,7 +446,7 @@ Emit in the route file, post-commit, before the JSON response. Commit: `feat(adm
 **Files:** `_metaMutationSurfaceObservability.test.ts` (un-skip), `adminOutcomeBehavior.test.ts` (add coverage `test()`).
 
 - [ ] **Step 1: Un-skip** the live-surface `test()` — asserts `collectSurfaceUnits([...]).filter(unaccounted).length === 0` against the live tree.
-- [ ] **Step 2: Add the coverage `test()`** at the end of `adminOutcomeBehavior.test.ts`: import `collectSurfaceUnits`, `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER`, `AUDITABLE_MUTATIONS`, `getRecorded`; assert every admin surface `{file,fn}` NOT in the grandfather set has a `recorded` entry whose `{file,fn,code}` matches its `AUDITABLE_MUTATIONS` row; assert the grandfather set equals exactly the frozen 30 and is a subset of the live admin surfaces (fails if it grows).
+- [ ] **Step 2: Add the coverage `test()`** at the end of `adminOutcomeBehavior.test.ts` (uses the file-local `recorded` set — all 20 cases above have run and populated it within this one file's module scope): import `collectSurfaceUnits`, `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER`, `AUDITABLE_MUTATIONS`; assert every admin surface `{file,fn}` NOT in the grandfather set has a `recorded` entry `${file}::${fn}::${code}` matching its `AUDITABLE_MUTATIONS` row; assert the grandfather set equals exactly the frozen 30 and each grandfather entry is a live admin surface (fails if it grows or an entry disappears).
 - [ ] **Step 3: Run both** `pnpm vitest run tests/log/_metaMutationSurfaceObservability.test.ts tests/log/adminOutcomeBehavior.test.ts` → **PASS** (seeding complete). If red, the failing surface is unaccounted — fix its seeding, not the assertion.
 - [ ] **Step 4: Run the fragility sweep** `pnpm vitest run tests/admin tests/log tests/auth` → PASS. **typecheck + format:check.** **Commit** `test(log): enable live mutation-surface + admin behavioral coverage assertions`.
 
