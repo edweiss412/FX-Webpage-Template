@@ -88,9 +88,8 @@ describe("requireDeveloper", () => {
 
   test("createSupabaseServerClient throws → DeveloperInfraError (emits structured error)", async () => {
     server.createSupabaseServerClient.mockRejectedValue(new Error("boom-construct"));
-    const { requireDeveloperIdentity, DeveloperInfraError } = await import(
-      "@/lib/auth/requireDeveloper"
-    );
+    const { requireDeveloperIdentity, DeveloperInfraError } =
+      await import("@/lib/auth/requireDeveloper");
 
     await expect(requireDeveloperIdentity()).rejects.toBeInstanceOf(DeveloperInfraError);
     expect(logMock.error).toHaveBeenCalledWith(
@@ -105,9 +104,8 @@ describe("requireDeveloper", () => {
 
   test("getClaims throws → DeveloperInfraError", async () => {
     server.client.auth.getClaims.mockRejectedValue(new Error("getClaims threw"));
-    const { requireDeveloperIdentity, DeveloperInfraError } = await import(
-      "@/lib/auth/requireDeveloper"
-    );
+    const { requireDeveloperIdentity, DeveloperInfraError } =
+      await import("@/lib/auth/requireDeveloper");
 
     await expect(requireDeveloperIdentity()).rejects.toBeInstanceOf(DeveloperInfraError);
     expect(logMock.error).toHaveBeenCalledWith(
@@ -124,9 +122,8 @@ describe("requireDeveloper", () => {
       data: null,
       error: { name: "AuthApiError", message: "jwks fetch failed", status: 500 },
     });
-    const { requireDeveloperIdentity, DeveloperInfraError } = await import(
-      "@/lib/auth/requireDeveloper"
-    );
+    const { requireDeveloperIdentity, DeveloperInfraError } =
+      await import("@/lib/auth/requireDeveloper");
 
     await expect(requireDeveloperIdentity()).rejects.toBeInstanceOf(DeveloperInfraError);
     expect(nav.redirect).not.toHaveBeenCalled();
@@ -141,9 +138,8 @@ describe("requireDeveloper", () => {
           : { data: true, error: null },
       ),
     );
-    const { requireDeveloperIdentity, DeveloperInfraError } = await import(
-      "@/lib/auth/requireDeveloper"
-    );
+    const { requireDeveloperIdentity, DeveloperInfraError } =
+      await import("@/lib/auth/requireDeveloper");
 
     await expect(requireDeveloperIdentity()).rejects.toBeInstanceOf(DeveloperInfraError);
     expect(nav.forbidden).not.toHaveBeenCalled();
@@ -158,9 +154,8 @@ describe("requireDeveloper", () => {
           : { data: null, error: new Error("META: developer db outage") }, // infra MUST win
       ),
     );
-    const { requireDeveloperIdentity, DeveloperInfraError } = await import(
-      "@/lib/auth/requireDeveloper"
-    );
+    const { requireDeveloperIdentity, DeveloperInfraError } =
+      await import("@/lib/auth/requireDeveloper");
 
     await expect(requireDeveloperIdentity()).rejects.toBeInstanceOf(DeveloperInfraError);
     expect(nav.redirect).not.toHaveBeenCalled();
@@ -168,9 +163,8 @@ describe("requireDeveloper", () => {
 
   test("Promise.all([rpc,rpc]) throws → DeveloperInfraError", async () => {
     server.client.rpc.mockRejectedValue(new Error("rpc transport threw"));
-    const { requireDeveloperIdentity, DeveloperInfraError } = await import(
-      "@/lib/auth/requireDeveloper"
-    );
+    const { requireDeveloperIdentity, DeveloperInfraError } =
+      await import("@/lib/auth/requireDeveloper");
 
     await expect(requireDeveloperIdentity()).rejects.toBeInstanceOf(DeveloperInfraError);
     expect(logMock.error).toHaveBeenCalledWith(
@@ -187,9 +181,8 @@ describe("requireDeveloper", () => {
       data: null,
       error: { name: "AuthSessionMissingError", message: "Auth session missing!", status: 400 },
     });
-    const { requireDeveloperIdentity, DeveloperInfraError } = await import(
-      "@/lib/auth/requireDeveloper"
-    );
+    const { requireDeveloperIdentity, DeveloperInfraError } =
+      await import("@/lib/auth/requireDeveloper");
 
     await expect(requireDeveloperIdentity()).rejects.toThrow(/^redirect\(\/auth\/sign-in\?next=/);
     await expect(requireDeveloperIdentity()).rejects.not.toBeInstanceOf(DeveloperInfraError);
@@ -253,9 +246,8 @@ describe("requireDeveloper", () => {
         fn === "is_session_live" ? { data: true, error: null } : { data: null, error: null },
       ),
     );
-    const { requireDeveloperIdentity, DeveloperInfraError } = await import(
-      "@/lib/auth/requireDeveloper"
-    );
+    const { requireDeveloperIdentity, DeveloperInfraError } =
+      await import("@/lib/auth/requireDeveloper");
 
     await expect(requireDeveloperIdentity()).rejects.toThrow("forbidden()");
     await expect(requireDeveloperIdentity()).rejects.not.toBeInstanceOf(DeveloperInfraError);
