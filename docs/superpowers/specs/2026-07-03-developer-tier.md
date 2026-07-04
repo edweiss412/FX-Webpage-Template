@@ -20,9 +20,9 @@ This is a UI + DB + advisory-lock change → all plan-wide invariants apply (TDD
 A developer is always also an admin. This holds in both auth paths and is what lets `requireDeveloper` **replace** (not stack on top of) `requireAdmin` on gated surfaces:
 
 - **Prod (email-table path):** `is_developer` is a column on `public.admin_emails`; a developer is an *active* row with `is_developer = true`. `is_admin()` matches any active row, so a developer's row satisfies `is_admin()` too. A CHECK (§4) guarantees `is_developer` is only ever `true` on an active (non-revoked) row.
-- **Test (JWT path, test-harness only):** the test-only session minter always sets `role: "admin"` when it sets the developer claim (§9), so a developer fixture satisfies `is_admin()` (`role = 'admin'`) as well as `is_developer()`.
+- **Test (JWT path, test-harness only):** `is_developer()`'s JWT arm **requires `role = 'admin'` AND `developer = 'true'` together** (§4.3), so any token that satisfies the JWT arm of `is_developer()` also satisfies `is_admin()` by construction — the axiom is enforced in the primitive, not merely by the minter. The minter co-setting both claims (§9) is defense-in-depth.
 
-Because `is_developer() = true ⟹ is_admin() = true` always, `requireDeveloper()` is strictly stronger than `requireAdmin()` and subsumes it. We do **not** call both.
+Because `is_developer() = true ⟹ is_admin() = true` **holds at the SQL level in both arms** (email arm = active admin row; JWT arm = ANDs `role = 'admin'`), `requireDeveloper()` is strictly stronger than `requireAdmin()` and subsumes it. We do **not** call both. A stray `{ developer: true }` token without `role = 'admin'` can never pass `is_developer()`.
 
 ## 3. Resolved decisions (canonical — every later section references these)
 
@@ -83,7 +83,15 @@ security definer
 set search_path = public, pg_temp
 as $$
   select
-    coalesce((auth.jwt() -> 'app_metadata' ->> 'developer') = 'true', false)
+    -- JWT arm (test-harness-only): requires BOTH developer=true AND role=admin,
+    -- so the primitive itself enforces developer ⟹ admin (§2) — it never depends
+    -- on the minter's discipline. A stray { developer: true } without role=admin
+    -- can never satisfy is_developer().
+    coalesce(
+      (auth.jwt() -> 'app_metadata' ->> 'developer') = 'true'
+      and (auth.jwt() -> 'app_metadata' ->> 'role') = 'admin',
+      false
+    )
     or exists (
       select 1 from public.admin_emails ae
       where ae.email = public.auth_email_canonical()
@@ -95,7 +103,7 @@ revoke all on function public.is_developer() from public;
 grant execute on function public.is_developer() to anon, authenticated, service_role;
 ```
 
-> **Design note — the JWT arm uses a dedicated `developer` claim, NOT `role = 'developer'`.** `is_admin()` keys on `role = 'admin'`; a JWT carries a single `role`. If a developer fixture set `role = 'developer'` it would *fail* `is_admin()` and break the developer⟹admin axiom. Using a separate `app_metadata.developer = true` claim (set alongside `role = 'admin'` by the test minter) keeps `is_admin()` **completely untouched** and preserves the axiom. This arm is **test-harness-only**; it is dormant in prod exactly as `is_admin()`'s `role='admin'` arm is (no production writer). The prod path is the email column.
+> **Design note — the JWT arm uses a dedicated `developer` claim AND requires `role = 'admin'`.** `is_admin()` keys on `role = 'admin'`; a JWT carries a single `role`. Using a separate `app_metadata.developer = true` claim (rather than `role = 'developer'`) keeps `is_admin()` **completely untouched**. Crucially, the JWT arm ANDs `developer = 'true'` with `role = 'admin'`, so the **primitive itself** enforces developer ⟹ admin (§2) — a stray or buggy `{ developer: true }` token *without* `role = 'admin'` can never satisfy `is_developer()`. The minter co-setting both claims (§9) is then defense-in-depth, not the only guard. This arm is **test-harness-only**; it is dormant in prod exactly as `is_admin()`'s `role='admin'` arm is (no production writer). The prod path is the email column, which already implies an active admin row.
 
 `SECURITY DEFINER` is required to read `admin_emails` without tripping RLS recursion (same reason `is_admin()` is definer).
 
@@ -252,7 +260,7 @@ Declared meta-test inventory (created or extended):
 4. **`tests/db/postgrest-dml-lockdown.test.ts`** (satisfied, not edited): `admin_emails` stays write-REVOKE'd for `authenticated` (verified `20260514000000:97-98`), so `is_developer` cannot be self-set via a direct PostgREST `PATCH`. No new RPC-gated *table* is introduced, so no new registry row.
 5. **`tests/auth/advisoryLockRpcDeadlock.test.ts`** (satisfied, may auto-include): `set_admin_developer_rpc` follows advisory-then-row-lock and holds the same key at a single layer. The test derives lock-taking RPCs from migration files; confirm the new RPC is recognized and passes.
 6. **`tests/messages/codes.test.ts`** (satisfied by the §8 lockstep): x1 catalog-parity.
-7. **New behavioral tests:** `set_admin_developer_rpc` (promote, demote-other, self-demote-refused, non-developer caller 42501, active-rows-only, revoke-clears-bit); `is_developer()` (email arm, JWT arm, revoked row excluded); the toggle UI (visible only to developers, locked on self, outcome copy routed through `getDougFacing`); a Playwright e2e proving a normal-admin fixture sees none of the four surfaces and a developer fixture sees all four.
+7. **New behavioral tests:** `set_admin_developer_rpc` (promote, demote-other, self-demote-refused, non-developer caller 42501, active-rows-only, revoke-clears-bit); `is_developer()` (email arm true; JWT arm true only when `role='admin'` AND `developer='true'`; **JWT `developer:true` WITHOUT `role='admin'` → FALSE** (Codex spec R1 HIGH); revoked row excluded); the toggle UI (visible only to developers, locked on self, outcome copy routed through `getDougFacing`); a Playwright e2e proving a normal-admin fixture sees none of the four surfaces and a developer fixture sees all four.
 
 ## 11. Flag lifecycle table (`is_developer`)
 
@@ -318,7 +326,7 @@ Items the plan's mandatory pre-draft code-verification pass must pin, and contra
 
 1. **Nav renderer location.** §6 row 8 adds `developerOnly?: true` to `NavItem` and filters it. The consumer of the `NAV` array (the component that renders the admin nav / bottom tab bar from `navConfig.ts`) was NOT located during spec verification — the plan MUST grep for the `NAV` import and thread `viewerIsDeveloper` into that renderer (mobile bottom bar + desktop rail). Filtering only `navConfig` without touching the renderer is a no-op.
 2. **`requireDeveloper` replaces `requireAdmin` — verify the audit precedence logic accepts it.** Extending `authPrimitives.ts` is more than a data edit: the ordering/precedence/validator-recognition logic (`~:135`, `~:622-671`) must treat `requireDeveloper` as a legitimate first-line gate, else `auth-chain-audit` fails for every switched route. This is a known 3+-round vector class (auth-chain); do the full-surface audit up front, not per-instance.
-3. **`is_developer()`⟹`is_admin()` axiom is the linchpin.** If any future path could set `is_developer` without the row also satisfying `is_admin` (e.g. a JWT `developer:true` without `role:"admin"`), `requireDeveloper` would grant access to a non-admin. The test minter (§9) is the ONLY writer of the JWT arm and MUST always co-set `role:"admin"`. The plan adds a test asserting a `developer:true` + no-`role` token is NOT treated as admin-or-developer through the app gates (defense-in-depth).
+3. **`is_developer()`⟹`is_admin()` axiom is the linchpin — now enforced in the primitive.** The JWT arm ANDs `role = 'admin'` with `developer = 'true'` (§4.3), and the email arm requires an active admin row, so `is_developer()` cannot return true for a non-admin regardless of how a token was minted. The test minter (§9) still co-sets `role:"admin"` as defense-in-depth. **The plan MUST include a DB-level test asserting a `{ developer: true }`-only JWT (no `role:"admin"`) makes `is_developer()` return FALSE** — this pins the fix at the SQL layer, not just the app layer (Codex spec-review R1 HIGH).
 4. **Other links to `/admin/observability`.** Moving Activity to developer-only 403s any *other* entrypoint (email digests, alert deep-links) for a normal admin. The plan greps for `"/admin/observability"` references beyond the nav + Diagnostics link and confirms none is a normal-admin-facing link; if one exists, it is hidden/guarded consistently.
 5. **`42501` (non-developer RPC caller) is an authorization refusal, not infra.** The `setAdminDeveloper` data-layer wrapper must map a PostgREST `42501` from `set_admin_developer_rpc` to a `not_authorized`/`forbidden` outcome, NOT to `AdminEmailsInfraError`/`infra_error` (which is reserved for transient faults). This is defense-in-depth (the toggle is never shown to non-developers), but the mapping must be explicit and tested.
 6. **Settings-page read parallelism.** `isCurrentUserDeveloper()` adds one RPC to the settings page. Run it in parallel with the existing `Promise.all` loaders (the page already batches reads for nav-perf), not as a serial extra await.
