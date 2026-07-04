@@ -23,8 +23,9 @@
 import Link from "next/link";
 import { loadHealthAlerts, type HealthAlertRow } from "@/lib/admin/healthAlerts";
 import { resolveAlertAction } from "@/lib/adminAlerts/alertActions";
-import { messageFor } from "@/lib/messages/lookup";
+import { messageFor, type MessageParams } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
+import { renderCatalogEmphasis } from "@/components/messages/renderEmphasis";
 import { formatRelative } from "@/lib/time/relative";
 import { nowDate } from "@/lib/time/now";
 import { HealthAlertResolveButton } from "@/components/admin/observability/HealthAlertResolveButton";
@@ -64,16 +65,15 @@ function HealthAlertRowItem({
   now: Date;
 }) {
   const cataloged = row.code in MESSAGE_CATALOG;
-  const entry = cataloged
-    ? messageFor(
-        row.code as MessageCode,
-        (row.context as Record<string, string> | null) ?? undefined,
-      )
-    : null;
-  // Invariant 5: NEVER the raw code — fall back to neutral copy for unknowns.
-  const heading = entry?.title ?? entry?.dougFacing ?? "A system-health item needs attention.";
-  const detail = entry?.title ? entry.dougFacing : null;
-  const followUp = entry?.followUp ?? null;
+  // RAW catalog templates (uninterpolated) — rendered via renderCatalogEmphasis so
+  // catalog Markdown markers (`*em*`) become styled <em>/<strong> and context params
+  // insert as opaque text, never leaking literal markers or the raw code (invariant 5).
+  const raw = cataloged ? messageFor(row.code as MessageCode) : null;
+  const params = (row.context as MessageParams | null) ?? undefined;
+  // title is pinned marker-free; dougFacing carries the developer detail.
+  const headingTemplate = raw?.title ?? raw?.dougFacing ?? null;
+  const detailTemplate = raw?.title ? raw.dougFacing : null;
+  const followUpTemplate = raw?.followUp ?? null;
   const action = resolveAlertAction(row.code, row.context, { slug: row.slug });
 
   return (
@@ -82,7 +82,11 @@ function HealthAlertRowItem({
       className="flex flex-col gap-2 rounded-md border border-border bg-surface p-tile-pad text-text"
     >
       <div className="flex items-start justify-between gap-3">
-        <p className="min-w-0 text-sm font-semibold text-text-strong">{heading}</p>
+        <p className="min-w-0 text-sm font-semibold text-text-strong">
+          {headingTemplate
+            ? renderCatalogEmphasis(headingTemplate, params)
+            : "A system-health item needs attention."}
+        </p>
         <span
           data-testid={`health-alert-weight-${row.id}`}
           className={`shrink-0 rounded-pill px-2 py-0.5 text-xs font-medium ${
@@ -94,8 +98,16 @@ function HealthAlertRowItem({
           {weight === "degraded" ? "Degraded" : "Notice"}
         </span>
       </div>
-      {detail ? <p className="max-w-prose text-sm text-text-subtle">{detail}</p> : null}
-      {followUp ? <p className="text-xs text-text-subtle">{followUp}</p> : null}
+      {detailTemplate ? (
+        <p className="max-w-prose text-sm text-text-subtle">
+          {renderCatalogEmphasis(detailTemplate, params)}
+        </p>
+      ) : null}
+      {followUpTemplate ? (
+        <p className="text-xs text-text-subtle">
+          {renderCatalogEmphasis(followUpTemplate, params)}
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-center gap-3 text-xs text-text-subtle">
         <span className="tabular-nums">
           Raised{" "}

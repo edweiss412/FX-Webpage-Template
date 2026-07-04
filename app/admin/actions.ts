@@ -111,6 +111,25 @@ export async function resolveAdminAlertFormAction(formData: FormData): Promise<v
   }
   const resolvedBy = adminEmail;
 
+  // alert-audience-split §6.7: HEALTH-audience alerts resolve ONLY through the
+  // dev-gated resolveHealthAlertFormAction. This user-facing (requireAdmin) door
+  // categorically REJECTS them — a non-developer admin must not resolve a
+  // developer-owned health alert here. Fetch the row's code first; on a health
+  // code, no-op (do NOT revalidate a false success), leaving resolved_at null.
+  const { data: guardRow, error: guardError } = await supabase
+    .from("admin_alerts")
+    .select("code")
+    .eq("id", id)
+    .maybeSingle();
+  if (guardError) {
+    throw new Error(
+      `[resolveAdminAlertFormAction] admin_alerts code lookup failed: ${guardError.message}`,
+    );
+  }
+  if (guardRow && HEALTH_CODES.includes(guardRow.code as string)) {
+    return;
+  }
+
   // RLS-gated UPDATE. The admin_only policy on admin_alerts requires
   // public.is_admin() to be true, which we've already verified. The
   // WHERE clause additionally requires the row to be still unresolved
