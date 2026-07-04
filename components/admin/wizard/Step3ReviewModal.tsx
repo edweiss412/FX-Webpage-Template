@@ -35,6 +35,7 @@
  */
 import {
   Fragment,
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -157,6 +158,16 @@ export function Step3ReviewModal({
   const [active, setActive] = useState<SectionId>(() => step3Sections(data)[0]?.id ?? "warnings");
   const contentRef = useRef<HTMLDivElement | null>(null);
   const sectionElsRef = useRef(new Map<SectionId, HTMLElement>());
+
+  // §D3a active-section plumbing: a stable-identity reader over a ref kept in
+  // sync with `active`, so ReportIssueSection gets a stale-free read AT SUBMIT
+  // TIME. NOT render optimization — the chrome provider below keeps passing a
+  // fresh inline object each render (unchanged, spec §D3a).
+  const activeRef = useRef(active);
+  useEffect(() => {
+    activeRef.current = active;
+  }, [active]);
+  const getActiveSection = useCallback((): SectionId => activeRef.current, []);
 
   /** Rail/chip status-dot tone (§6.2/§6.3). */
   function dotToneClass(id: SectionId): string {
@@ -760,7 +771,12 @@ export function Step3ReviewModal({
                     §5.2 panel card (see step3ReviewSections.tsx) — the body's
                     own count can never drift from the heading. */}
                 <Step3SectionChromeContext.Provider
-                  value={{ Icon: s.Icon, label: s.label, flagged: flagged.has(s.id) }}
+                  value={{
+                    Icon: s.Icon,
+                    label: s.label,
+                    flagged: flagged.has(s.id),
+                    getActiveSection,
+                  }}
                 >
                   {s.render(data)}
                 </Step3SectionChromeContext.Provider>

@@ -28,6 +28,7 @@ import {
   Fragment,
   useContext,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -251,6 +252,15 @@ export type Step3SectionChrome = {
   label: string;
   /** §7 flagged-set membership (drives icon-chip tone, chip, panel border). */
   flagged: boolean;
+  /**
+   * Follow-ups spec §D3a: stable-identity reader for the modal's shared
+   * `active` nav section, consumed by `ReportIssueSection` AT SUBMIT TIME for
+   * a stale-free `viewerVisibleSection`. Optional — existing provider mounts
+   * stay valid; exactOptionalPropertyTypes: present or ABSENT, never
+   * `undefined`. NOT a render-stability contract (the provider keeps passing
+   * a fresh inline object each render).
+   */
+  getActiveSection?: () => SectionId;
 };
 export const Step3SectionChromeContext = createContext<Step3SectionChrome | null>(null);
 
@@ -312,7 +322,8 @@ export function BreakdownSection({
 }: {
   testId: string;
   label: string;
-  count: number;
+  /** null → no count (non-list-shaped bodies, e.g. report — Task 7). */
+  count: number | null;
   children: React.ReactNode;
 }) {
   const chrome = useContext(Step3SectionChromeContext);
@@ -328,7 +339,8 @@ export function BreakdownSection({
   return (
     <section data-testid={testId} className="flex flex-col gap-1.5">
       <h4 className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
-        {label} <span className="tabular-nums text-text-subtle">({count})</span>
+        {label}{" "}
+        {count !== null ? <span className="tabular-nums text-text-subtle">({count})</span> : null}
       </h4>
       {children}
     </section>
@@ -1765,44 +1777,183 @@ export function DiagramsBreakdown({
   );
 }
 
+/** Report message textarea cap (spec §D3). */
+export const REPORT_MESSAGE_MAX_CHARS = 2000;
+/** Payload parse-warnings cap (spec §D3). */
+export const REPORT_PARSE_WARNINGS_CAP = 50;
+/** Rendered whenever a failure code resolves to no usable dougFacing copy —
+ *  the status line is never empty and never a raw code (invariant 5). */
+export const REPORT_GENERIC_ERROR_COPY = "Couldn't send the report. Try again in a moment.";
+
+type ReportSectionStatus =
+  | { kind: "idle" }
+  | { kind: "pending" }
+  | { kind: "success" }
+  | { kind: "error"; copy: string };
+
+function reportAttemptStorageKey(wizardSessionId: string, driveFileId: string): string {
+  // Scoped to wizard session AND drive file (spec §D3): a later wizard session
+  // for the same file is a DIFFERENT report and must not be swallowed as a
+  // duplicate of a stale attempt (mirrors ReportModal's surfaceId-validated
+  // reuse, components/shared/ReportModal.tsx:110-133; rotate-on-success :327).
+  return `fxav-report-attempt-wizard-${wizardSessionId}-${driveFileId}`;
+}
+
+function mintOrReuseAttemptKey(storageKey: string): string {
+  try {
+    const existing = window.sessionStorage.getItem(storageKey);
+    if (existing) return existing;
+    const minted = crypto.randomUUID();
+    window.sessionStorage.setItem(storageKey, minted);
+    return minted;
+  } catch {
+    return crypto.randomUUID(); // storage unavailable — still send, just unlinkable
+  }
+}
+
+function rotateAttemptKey(storageKey: string): void {
+  try {
+    window.sessionStorage.removeItem(storageKey);
+  } catch {
+    /* storage unavailable — nothing persisted to rotate */
+  }
+}
+
+/** Single resolution rule for EVERY failure (spec §D3): cataloged dougFacing
+ *  if non-null/non-empty after trim, else the exported generic fallback. */
+function reportErrorCopy(code: string | null): string {
+  if (code !== null && isMessageCode(code)) {
+    const copy = messageFor(code as MessageCode).dougFacing;
+    if (copy != null && copy.trim().length > 0) return copy;
+  }
+  return REPORT_GENERIC_ERROR_COPY;
+}
+
 /**
- * Report-an-issue section body (follow-ups spec §D3).
- * Task 7 (this plan) completes this body — the report form, submit pipeline,
- * and status line. This Task-5 shell renders the chrome (no count — the
- * section is not list-shaped) + the §D3 explainer line only, with the final
- * testid already in place. Chrome-context handling mirrors AgendaBreakdown's
- * count-less shape above.
+ * Report-an-issue section body (follow-ups spec §D3): explainer + labeled
+ * textarea + idempotent submit to `POST /api/report` + copy-only status line.
+ * `viewerVisibleSection` is read from the chrome context's `getActiveSection`
+ * AT SUBMIT TIME (§D3a); outside the chrome context the field is omitted.
+ * Modal unmount mid-flight is fire-and-forget by construction — the persisted
+ * key makes a retry after reopen a duplicate → success (§D3 guards). Draft
+ * persistence is mount-local only (spec-accepted).
  */
 export function ReportIssueSection({ data }: { data: SectionData }) {
+  const { dfid, wizardSessionId, row, warnings } = data;
   const chrome = useContext(Step3SectionChromeContext);
-  const body = (
-    <p className="text-sm text-text">
-      Spotted something wrong or missing that the checks above didn’t flag? Send it to the
-      developer.
-    </p>
-  );
-  if (chrome) {
-    return (
-      <section
-        data-testid={`wizard-step3-card-${data.dfid}-section-report`}
-        className="flex min-w-0 flex-col"
-      >
-        <ModalSectionChrome chrome={chrome} count={null}>
-          {body}
-        </ModalSectionChrome>
-      </section>
-    );
+  const [draft, setDraft] = useState("");
+  const [status, setStatus] = useState<ReportSectionStatus>({ kind: "idle" });
+  const textareaId = useId();
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const message = draft.trim();
+    if (message.length === 0 || status.kind === "pending") return;
+    setStatus({ kind: "pending" });
+    const storageKey = reportAttemptStorageKey(wizardSessionId, dfid);
+    const idempotency_key = mintOrReuseAttemptKey(storageKey);
+    const payload = {
+      surface: "admin",
+      show_id: null,
+      showTitle: row.stagedShowTitle ?? row.driveFileName ?? null,
+      showSlug: null,
+      idempotency_key,
+      message,
+      reporterUrl: window.location.href,
+      ...(chrome?.getActiveSection ? { viewerVisibleSection: chrome.getActiveSection() } : {}),
+      userAgent: navigator.userAgent,
+      parseWarnings: warnings.slice(0, REPORT_PARSE_WARNINGS_CAP),
+      fieldRef: {
+        kind: "wizard-step3",
+        driveFileId: dfid,
+        wizardSessionId,
+        driveFileName: row.driveFileName ?? null,
+        stagedShowTitle: row.stagedShowTitle ?? null,
+      },
+    };
+    try {
+      // not-subject-to-meta: internal Next API fetch, not a Supabase client call
+      const res = await fetch("/api/report", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      let parsed: { ok?: boolean; code?: string } = {};
+      try {
+        parsed = (await res.json()) as typeof parsed;
+      } catch {
+        parsed = {};
+      }
+      if (res.ok && parsed.ok === true) {
+        // created / duplicate / recovered all count as success (spec §D3).
+        rotateAttemptKey(storageKey);
+        setDraft("");
+        setStatus({ kind: "success" });
+        return;
+      }
+      if (res.status === 410 && parsed.code === "REPORT_HORIZON_EXPIRED") {
+        rotateAttemptKey(storageKey); // terminal — a retry is a NEW report
+        setStatus({ kind: "error", copy: reportErrorCopy("REPORT_HORIZON_EXPIRED") });
+        return;
+      }
+      const code = parsed.code ?? (res.status >= 500 ? "REPORT_PIPELINE_FAILED" : null);
+      setStatus({ kind: "error", copy: reportErrorCopy(code) });
+    } catch {
+      setStatus({ kind: "error", copy: reportErrorCopy("NETWORK_UNREACHABLE") });
+    }
   }
+
   return (
-    <section
-      data-testid={`wizard-step3-card-${data.dfid}-section-report`}
-      className="flex flex-col gap-2"
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-section-report`}
+      label="Report an issue"
+      count={null}
     >
-      <p className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
-        Report an issue
+      <p className="text-sm text-text-subtle">
+        Spotted something wrong or missing that the checks above didn&rsquo;t flag? Send it to the
+        developer.
       </p>
-      {body}
-    </section>
+      <form onSubmit={handleSubmit} className="flex flex-col gap-2">
+        <label htmlFor={textareaId} className="text-sm font-medium text-text-strong">
+          What&rsquo;s wrong or missing?
+        </label>
+        <textarea
+          id={textareaId}
+          data-testid={`wizard-step3-card-${dfid}-report-textarea`}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          maxLength={REPORT_MESSAGE_MAX_CHARS}
+          rows={3}
+          className="w-full rounded-sm border border-border bg-bg p-2 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+        />
+        <div className="flex items-center gap-3">
+          <button
+            type="submit"
+            data-testid={`wizard-step3-card-${dfid}-report-submit`}
+            disabled={draft.trim().length === 0 || status.kind === "pending"}
+            aria-busy={status.kind === "pending" || undefined}
+            className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-accent px-4 text-sm font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          >
+            Send report
+          </button>
+          <span
+            data-testid={`wizard-step3-card-${dfid}-report-status`}
+            role="status"
+            aria-live="polite"
+            className={`min-w-0 text-sm ${status.kind === "error" ? "font-medium text-warning-text" : "text-text-subtle"}`}
+          >
+            {/* §D3 status line — instant text swaps (spec §H N7) */}
+            {status.kind === "pending"
+              ? "Sending…"
+              : status.kind === "success"
+                ? "Sent — thanks. The developer will take a look."
+                : status.kind === "error"
+                  ? status.copy
+                  : ""}
+          </span>
+        </div>
+      </form>
+    </BreakdownSection>
   );
 }
 

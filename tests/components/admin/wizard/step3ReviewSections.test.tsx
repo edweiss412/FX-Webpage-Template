@@ -44,6 +44,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 // (vi.mock is hoisted above imports, so plain import order is safe here.)
 import { Step3ReviewModal } from "@/components/admin/wizard/Step3ReviewModal";
 import {
+  BreakdownSection,
   DIAGRAM_TILE_CAP,
   DiagramsBreakdown,
   reviewWarningTitle,
@@ -630,6 +631,33 @@ describe("section bodies — empty-state copy preserved (registry render)", () =
     expect(region.textContent).toContain("CASE-12");
     expect(region.textContent).not.toContain("CASE-13");
     expect(region.textContent).toContain(`…and ${cases.length - 12} more cases`);
+  });
+});
+
+// ── BreakdownSection count widening (Task 7 — count: number | null) ─────────
+
+describe("BreakdownSection — count={null} on the legacy (no-chrome) path", () => {
+  test("label renders with NO count span — catches the legacy h4 rendering '(null)' or '()'", () => {
+    const q = render(
+      <BreakdownSection testId="x-breakdown-null-count" label="Report an issue" count={null}>
+        <span>body</span>
+      </BreakdownSection>,
+    );
+    const h4 = q.getByTestId("x-breakdown-null-count").querySelector("h4")!;
+    expect(h4).not.toBeNull();
+    expect(h4.textContent).toContain("Report an issue");
+    expect(h4.textContent).not.toContain("(");
+  });
+
+  test("numeric count still renders on the legacy path (widening is source-compatible)", () => {
+    const q = render(
+      <BreakdownSection testId="x-breakdown-num-count" label="Crew" count={7}>
+        <span>body</span>
+      </BreakdownSection>,
+    );
+    expect(q.getByTestId("x-breakdown-num-count").querySelector("h4")!.textContent).toContain(
+      "(7)",
+    );
   });
 });
 
