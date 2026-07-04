@@ -54,6 +54,7 @@ const DATA_GAP_SOURCE_FILES = [
   "app/admin/show/[slug]/page.tsx",
   "components/admin/Dashboard.tsx",
   "components/admin/DataQualityBadge.tsx",
+  "components/admin/ArchivedShowRow.tsx",
 ] as const;
 
 const now = new Date("2026-06-03T12:00:00.000Z");
