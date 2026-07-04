@@ -161,8 +161,14 @@ kinds:
   checked where it is declared.) The emit must be reachable **within that function's own
   body** (or the function is exempted/ledgered — §4.3). This is what closes the R2 hole: a
   new mutating export appended to `admins/actions.ts` or `dev/actions.ts` — in any export
-  form — cannot ride a sibling's emit. Modules without the directive (barrels
-  `_actions/index.ts`, helpers `_actions/shared.ts`) are not surfaces — no exemption needed.
+  form — cannot ride a sibling's emit. **Default exports are BANNED in `"use server"` modules
+  (Codex R19 F2):** rather than enumerate `export default async function` / `export default
+  mutate` (`ExportAssignment`) forms, the meta-test FAILS if a `"use server"` module has any
+  default export — a default-exported action would otherwise be an un-named surface that
+  evades the per-function keying. Verified: zero current `"use server"` modules use a default
+  export, so the ban is free; if one is ever added it fails with "use a named export."
+  Modules without the directive (barrels `_actions/index.ts`, helpers `_actions/shared.ts`)
+  are not surfaces — no exemption needed.
   (This per-function code-carrying-emit check is the floor for **non-admin** actions; an
   **admin-gated** action is instead governed by §4.2's registry-membership + executable
   behavioral contract — the static emit-scan does not by itself buy it a pass.)
@@ -476,10 +482,11 @@ Add to the "Plan-wide invariants (non-negotiable)" list:
 > admin surface:
 >
 > - **Non-admin surfaces** (crew/system actions; infra routes NOT under `app/api/admin`) MUST
->   carry at least one code-carrying emit (`await logAdminOutcome(...)`, or
->   `log.<info|warn|error>` with a `SHOUTY_SNAKE` code as the message or a `code:` field), OR
->   an inline `// no-telemetry: <reason>` exemption, OR a `KNOWN_UNINSTRUMENTED` debt-ledger
->   row with a backlog ref. Checked per function for actions, per file for routes.
+>   carry at least one code-carrying emit — `await logAdminOutcome(...)`, or
+>   `log.<info|warn|error>(…, { code: "SHOUTY_SNAKE" })` (the durable `code:` **field**; a
+>   SHOUTY *message* alone does NOT count — it is not the persisted code, §4.2) — OR an inline
+>   `// no-telemetry: <reason>` exemption, OR a `KNOWN_UNINSTRUMENTED` debt-ledger row with a
+>   backlog ref. Checked per function for actions, per file for routes.
 > - **Admin mutations** — **admin-gated actions** (body calls
 >   `require{Admin,Developer}[Identity]`) AND **mutating routes under `app/api/admin/**`**
 >   (path-based; `require*`-detection is not used for routes, to avoid a false positive on crew
@@ -640,7 +647,9 @@ invariant. This is enumerated in the verification/close-out steps (§11).
    component, including a mutating inline action that fails without a code-carrying emit),
    **per-function sibling isolation** (two-action module: A emits/passes, B silent/fails),
    **export-list collection** (`"use server"; async function mutate(){…} export { mutate }`
-   with no emit MUST fail — Codex R3 F1), **admin surface ⇒ registry, not scan (Codex
+   with no emit MUST fail — Codex R3 F1), **default-export ban** (a `"use server"` module with
+   `export default async function mutate(){…}` or `export default mutate` MUST fail with "use a
+   named export" — Codex R19 F2), **admin surface ⇒ registry, not scan (Codex
    R3/R6/R8/R10 F2, unified)** — an **admin action** (body calls `requireAdmin`) OR an **admin
    route** (`app/api/admin/**`) that is NOT in `AUDITABLE_MUTATIONS` and NOT exempt **FAILS
    even with `await logAdminOutcome` in the file/body** (a wrong-branch/unused emit must not
