@@ -36,6 +36,7 @@ import type {
   ParseResult,
   ParseWarning,
   PullSheetCase,
+  RoomRow,
 } from "@/lib/parser/types";
 
 // The review modal (rendered by the hideDot nav tests below) mounts
@@ -887,83 +888,155 @@ describe("DiagramsBreakdown body (follow-ups spec §B3 + §K8)", () => {
   });
 });
 
-// ── RoomsBreakdown — room notes visual separation (spec §F, Task 11) ────────
-// The room-detail list currently blends into the gear-scope grid above it.
-// This inset container (mt-2 rounded-md bg-surface-sunken px-3 py-2) + "Room
-// notes" eyebrow gives it a distinct visual scope. Concrete failure modes:
-//  - inset container missing → notes still flush against the scope grid.
-//  - eyebrow missing/mis-scoped → operator can't tell where "scope" ends and
-//    "notes" begins.
-//  - pl-7 retained → double-indent (old scheme relied on padding, not a box).
-//  - a border-l side-stripe sneaking in → spec §F absolute ban.
-//  - the sibling gear-scope grid's class string drifting → accidental
-//    restyle of L768-793 while touching the neighboring detail block.
-describe("RoomsBreakdown — room notes inset separation (spec §F, Task 11)", () => {
-  function detailRoomData(): SectionData {
-    return sectionData({
-      rooms: [
-        {
-          kind: "gs",
-          name: "GRAND BALLROOM",
-          dimensions: "60' x 45'",
-          floor: null,
-          setup: "18 tables of 7",
-          set_time: null,
-          show_time: null,
-          strike_time: null,
-          audio: "(1) QU32",
-          video: null,
-          lighting: null,
-          scenic: null,
-          power: null,
-          digital_signage: null,
-          other: null,
-          notes: null,
-        },
-      ],
-    });
+// ── RoomsBreakdown — redesigned per-room cards ──────────────────────────────
+// Mock: "Step 3 Review - Publish (B)" (docs/superpowers/specs/
+// 2026-07-04-rooms-scope-cards-redesign-mock). Each room is a self-contained
+// bordered card: an accent-tinted header (name + humanized kind pill + floor,
+// then Set·Show·Strike meta with Show emphasized, Setup, Room Dimensions) over
+// a fixed 5-row discipline scope list. Empty disciplines read "Not specified".
+describe("RoomsBreakdown — redesigned per-room cards", () => {
+  const FULL_ROOM: RoomRow = {
+    kind: "gs",
+    name: "GRAND BALLROOM",
+    dimensions: "82' x 94' x 14'",
+    floor: "8th Floor",
+    setup: "17 tables of 8, center aisle",
+    set_time: "Sep 9 · 8:00 AM",
+    show_time: "Sep 10 · 7:45 AM",
+    strike_time: "Sep 12 · 5:00 PM",
+    audio: "L-Acoustics K2",
+    video: "7.6m LED 2.9mm",
+    lighting: "48x spot",
+    scenic: null,
+    power: null,
+    digital_signage: null,
+    other: null,
+    notes: null,
+  };
+
+  function roomsData(rooms: RoomRow[]): SectionData {
+    return sectionData({ rooms });
   }
 
-  test("detail <ul> keeps its testid and sits inside a rounded-md bg-surface-sunken px-3 py-2 inset container", () => {
-    const { getByTestId } = renderBody(detailRoomData(), "rooms");
-    const detail = getByTestId(`wizard-step3-card-${DFID}-room-0-detail`);
-    const container = detail.closest(".bg-surface-sunken");
-    expect(container).not.toBeNull();
-    expect(container!.className).toContain("rounded-md");
-    expect(container!.className).toContain("px-3");
-    expect(container!.className).toContain("py-2");
+  function card(i: number, q: ReturnType<typeof renderBody>): HTMLElement {
+    const scope = q.getByTestId(`wizard-step3-card-${DFID}-room-${i}-scope`);
+    const li = scope.closest("li");
+    if (!li) throw new Error(`room ${i} card <li> not found`);
+    return li as HTMLElement;
+  }
+
+  test("each room is a bordered card with an accent-tinted header holding name, kind pill, and floor", () => {
+    const q = renderBody(roomsData([FULL_ROOM]), "rooms");
+    const li = card(0, q);
+    expect(li.className).toContain("rounded-md");
+    expect(li.className).toContain("border");
+
+    const header = q.getByTestId(`wizard-step3-card-${DFID}-room-0-header`);
+    // Accent-tinted header panel (mock --accent-tint → bg-accent/… opacity).
+    expect(header.className).toMatch(/bg-accent\//);
+    const scoped = within(header);
+    expect(scoped.getByText("GRAND BALLROOM")).toBeTruthy();
+    expect(scoped.getByText("General session")).toBeTruthy(); // humanized kind
+    expect(scoped.getByText("8th Floor")).toBeTruthy();
   });
 
-  test('an eyebrow reading "Room notes" precedes the detail <ul> inside the inset container', () => {
-    const { getByTestId } = renderBody(detailRoomData(), "rooms");
-    const detail = getByTestId(`wizard-step3-card-${DFID}-room-0-detail`);
-    const container = detail.closest(".bg-surface-sunken") as HTMLElement;
-    const scoped = within(container);
-    const eyebrow = scoped.getByText("Room notes");
-    expect(container.textContent!.indexOf("Room notes")).toBeLessThan(
-      container.textContent!.indexOf("Dimensions:"),
+  test("kind pill is humanized, never the raw enum", () => {
+    const q = renderBody(
+      roomsData([
+        { ...FULL_ROOM, kind: "gs", name: "GS Room" },
+        { ...FULL_ROOM, kind: "breakout", name: "BO Room" },
+        { ...FULL_ROOM, kind: "additional", name: "Add Room" },
+      ]),
+      "rooms",
     );
-    expect(container.contains(eyebrow)).toBe(true);
+    expect(within(card(0, q)).getByText("General session")).toBeTruthy();
+    expect(within(card(1, q)).getByText("Breakout")).toBeTruthy();
+    expect(within(card(2, q)).getByText("Additional")).toBeTruthy();
+    // Raw enum tokens must not leak as visible pill text.
+    expect(q.container.textContent).not.toContain("gs");
+    expect(q.container.textContent).not.toContain("additional");
   });
 
-  test("detail <ul> no longer carries pl-7; label spans are font-medium text-text-strong, values render in text-text", () => {
-    const { getByTestId } = renderBody(detailRoomData(), "rooms");
-    const detail = getByTestId(`wizard-step3-card-${DFID}-room-0-detail`);
-    expect(detail.className).not.toContain("pl-7");
-    expect(detail.className).toContain("text-text");
-    const labelSpan = within(detail).getByText("Dimensions:");
-    expect(labelSpan.className).toContain("font-medium");
-    expect(labelSpan.className).toContain("text-text-strong");
+  test("Set·Show·Strike meta renders all three, with Show emphasized in the accent color", () => {
+    const q = renderBody(roomsData([FULL_ROOM]), "rooms");
+    const times = q.getByTestId(`wizard-step3-card-${DFID}-room-0-times`);
+    const scoped = within(times);
+    expect(scoped.getByText("Set")).toBeTruthy();
+    expect(scoped.getByText("Show")).toBeTruthy();
+    expect(scoped.getByText("Strike")).toBeTruthy();
+    expect(scoped.getByText("Sep 9 · 8:00 AM")).toBeTruthy();
+    expect(scoped.getByText("Sep 12 · 5:00 PM")).toBeTruthy();
+    // The Show value is the emphasized one (accent-on-bg), Set/Strike are not.
+    const showVal = scoped.getByText("Sep 10 · 7:45 AM");
+    expect(showVal.className).toContain("text-accent-on-bg");
+    expect(scoped.getByText("Sep 9 · 8:00 AM").className).not.toContain("text-accent-on-bg");
   });
 
-  test("gear-scope grid is unchanged (L768-793 sibling, byte-pinned class string)", () => {
-    const { getByTestId } = renderBody(detailRoomData(), "rooms");
-    const scope = getByTestId(`wizard-step3-card-${DFID}-room-0-scope`);
-    expect(scope.className).toBe("mt-1.5 flex flex-col gap-1 text-xs text-text-subtle");
+  test("Setup and Room Dimensions render their labels + values", () => {
+    const q = renderBody(roomsData([FULL_ROOM]), "rooms");
+    const li = card(0, q);
+    const scoped = within(li);
+    expect(scoped.getByText("Setup")).toBeTruthy();
+    expect(scoped.getByText(/17 tables of 8/)).toBeTruthy();
+    expect(scoped.getByText("Room Dimensions")).toBeTruthy();
+    expect(scoped.getByText("82' x 94' x 14'")).toBeTruthy();
   });
 
-  test("no side-stripe: no border-l class anywhere in the rooms body HTML (spec §F absolute ban)", () => {
-    const { container } = renderBody(detailRoomData(), "rooms");
+  test("scope list always shows all 5 disciplines in order; parsed values as-parsed", () => {
+    const q = renderBody(roomsData([FULL_ROOM]), "rooms");
+    const scope = q.getByTestId(`wizard-step3-card-${DFID}-room-0-scope`);
+    const rows = scope.querySelectorAll("li");
+    expect(rows).toHaveLength(5);
+    const keys = Array.from(scope.querySelectorAll("li")).map(
+      (li) => within(li as HTMLElement).getByTestId("room-scope-key").textContent,
+    );
+    expect(keys).toEqual(["Audio", "Video", "Lighting", "Scenic", "Other"]);
+    // Parsed values shown as-parsed (review surface).
+    expect(within(scope).getByText("L-Acoustics K2")).toBeTruthy();
+    expect(within(scope).getByText("48x spot")).toBeTruthy();
+  });
+
+  test('empty disciplines read "Not specified" (muted italic), never "Not needed"', () => {
+    const q = renderBody(roomsData([FULL_ROOM]), "rooms");
+    const scope = q.getByTestId(`wizard-step3-card-${DFID}-room-0-scope`);
+    // FULL_ROOM has scenic + other null → exactly two "Not specified" rows.
+    const naVals = within(scope).getAllByText("Not specified");
+    expect(naVals).toHaveLength(2);
+    for (const v of naVals) {
+      expect(v.className).toContain("italic");
+      // Muted but WCAG-AA legible (subtle, not faint) — impeccable audit P2.
+      expect(v.className).toContain("text-text-subtle");
+    }
+    expect(scope.textContent).not.toContain("Not needed");
+  });
+
+  test("scope values are shown as-parsed on this review surface (sentinels visible, not hidden)", () => {
+    const q = renderBody(roomsData([{ ...FULL_ROOM, audio: "TBD" }]), "rooms");
+    const scope = q.getByTestId(`wizard-step3-card-${DFID}-room-0-scope`);
+    expect(within(scope).getByText("TBD")).toBeTruthy();
+  });
+
+  test("a room with no header detail fields still renders its 5 scope rows and no dangling divider", () => {
+    const bare: RoomRow = {
+      ...FULL_ROOM,
+      floor: null,
+      setup: null,
+      dimensions: null,
+      set_time: null,
+      show_time: null,
+      strike_time: null,
+    };
+    const q = renderBody(roomsData([bare]), "rooms");
+    // No times row when no times parsed.
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-room-0-times`)).toBeNull();
+    const scope = q.getByTestId(`wizard-step3-card-${DFID}-room-0-scope`);
+    expect(scope.querySelectorAll("li")).toHaveLength(5);
+    // Header still shows name + kind pill.
+    expect(within(card(0, q)).getByText("GRAND BALLROOM")).toBeTruthy();
+  });
+
+  test("no side-stripe: no border-l class anywhere in the rooms body HTML (impeccable + §F ban)", () => {
+    const { container } = renderBody(roomsData([FULL_ROOM]), "rooms");
     expect(container.innerHTML).not.toContain("border-l");
   });
 });
