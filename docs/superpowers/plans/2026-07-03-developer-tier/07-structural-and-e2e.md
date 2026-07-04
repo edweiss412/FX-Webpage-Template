@@ -2,24 +2,21 @@
 
 ---
 
-### Task 19: Extend `auth-chain-audit` for developer routes/pages
+### Task 19: Verify + pin `auth-chain-audit` developer-route coverage
 
-Spec §10.2. `lib/audit/trustDomains.ts`: `ChainStep` union (`:12`), `PROTECTED_ROUTES` (`:26`, dev page row `:40` `chain:["requireAdmin"]`). `lib/audit/authPrimitives.ts`: `auditProjectAuthChains` (`:813-823`, skips `non-route`), recognizer (`~:135`), precedence `chain[0]==="requireAdmin"` (`~:622`). **Routes/pages only** — non-route server actions are Task 20.
+Spec §10.2. **The recognizer capability + all `PROTECTED_ROUTES` chain flips already landed in Phase 5** (Task 10 added `requireDeveloper` to `ChainStep`/`normalizeValidator`/`kindChecked`/`AUTH_LIB_ALLOWLIST` + flipped the 3 dev-route rows; Tasks 11/12 flipped the observability + reap rows — each atomic with its gate swap to keep `x3-trust-domain` green per commit). This task is the VERIFICATION + a durable regression pin, NOT a re-implementation. `auditProjectAuthChains` (`lib/audit/authPrimitives.ts:813-823`) skips `non-route`, so this covers routes/pages only — non-route server actions (dev `actions.ts`, `developerActions.ts`, `validationReset.ts`) are Task 20's `developerGatingContract`.
 
-**Files:** Modify `lib/audit/trustDomains.ts`, `lib/audit/authPrimitives.ts`, `tests/cross-cutting/auth-chain-audit.test.ts`.
+**Files:** Modify `tests/cross-cutting/auth-chain-audit.test.ts` (add the regression assertion). No `lib/audit/**` edits expected here — if any are needed, a Phase-5 commit left x3 red and that is a Phase-5 regression to fix there.
 
-- [ ] **Step 1: Failing test** — extend `auth-chain-audit.test.ts` to assert `auditProjectAuthChains()` returns zero findings when the dev page + `source-link-dim` + `observability-dim` pages + observability page + reap route declare `chain:["requireDeveloper"]` and their sources gate on `requireDeveloper*`. First it fails because `ChainStep` has no `requireDeveloper` and the recognizer rejects it.
+- [ ] **Step 1: Confirm green baseline** — run `pnpm test:audit:x3-trust-domain` → GREEN (Phase 5 already made `auditProjectAuthChains()` return `[]` with the 5 developer routes gating on `requireDeveloper*` and their `PROTECTED_ROUTES` chains = `["requireDeveloper"]`). If it is RED, STOP — a Phase-5 commit regressed x3; fix the offending Phase-5 surface, do not patch it here.
 
-- [ ] **Step 2: Fails → Step 3: implement**
-  - `ChainStep`: add `"requireDeveloper"`.
-  - `PROTECTED_ROUTES`: change the rows for `app/admin/dev/page.tsx`, `app/admin/dev/source-link-dim/page.tsx`, `app/admin/dev/observability-dim/page.tsx`, `app/admin/observability/page.tsx`, `app/api/admin/onboarding/reap-stale-sessions/route.ts` from `chain:["requireAdmin"]`/`["requireAdminIdentity"]` to `chain:["requireDeveloper"]`/`["requireDeveloperIdentity"]` as appropriate.
-  - `authPrimitives.ts`: teach the validator recognizer (`~:135`) to accept `requireDeveloper`/`requireDeveloperIdentity`, and the precedence/first-line check (`~:622`) to treat them as valid first-line gates (mirror the `requireAdmin` handling).
+- [ ] **Step 2: Add a focused regression assertion** — in `auth-chain-audit.test.ts`, add a test that pins the developer surfaces explicitly: assert `PROTECTED_ROUTES` contains each of `app/admin/dev/page.tsx`, `app/admin/dev/source-link-dim/page.tsx`, `app/admin/dev/observability-dim/page.tsx`, `app/admin/observability/page.tsx`, `app/api/admin/onboarding/reap-stale-sessions/route.ts` with a `chain` whose first step is `"requireDeveloper"` (so a future accidental revert to `requireAdmin`, or a dropped row, fails here with a developer-specific message — not just the generic `auditProjectAuthChains()` toEqual([])). This is the durable pin that survives even if someone edits the recognizer.
 
-- [ ] **Step 4: Green + Commit**
+- [ ] **Step 3: Green + Commit** — `pnpm test:audit:x3-trust-domain` GREEN.
 
 ```bash
-git add lib/audit/trustDomains.ts lib/audit/authPrimitives.ts tests/cross-cutting/auth-chain-audit.test.ts
-git commit --no-verify -m "test(auth): auth-chain-audit recognizes requireDeveloper for dev routes/pages"
+git add tests/cross-cutting/auth-chain-audit.test.ts
+git commit --no-verify -m "test(auth): pin auth-chain-audit developer-route coverage (regression guard)"
 ```
 
 ---
