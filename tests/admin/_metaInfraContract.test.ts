@@ -301,6 +301,30 @@ const infraRegistry = [
     contract:
       "cron health: Promise.all of 9 per-job app_events limit(1) reads (service-role) in one try/catch; a per-result RETURNED {error} → infra_error('app_events read returned error') (distinct path, behaviorally tested in tests/admin/loadCronHealth.test.ts); a genuine THROW (network/construction) → infra_error('app_events read threw'); construction throw → infra_error.",
   },
+  {
+    helper: "queryEvents",
+    path: "lib/observe/query/events.ts",
+    contract:
+      "app_events timeline read (service-role); fresh NON-LOGGING copy of loadAppEvents — one try/catch; returned-error → infra_error('app_events read failed'); thrown → infra_error('app_events read threw'); NO lib/log import.",
+  },
+  {
+    helper: "getCronHealth",
+    path: "lib/observe/query/cronHealth.ts",
+    contract:
+      "cron health: Promise.all of per-job app_events limit(1) reads (service-role) in one try/catch; returned {error} → infra_error('app_events read returned error'); thrown → infra_error('app_events read threw'); fresh NON-LOGGING copy of loadCronHealth.",
+  },
+  {
+    helper: "queryAlerts",
+    path: "lib/observe/query/alerts.ts",
+    contract:
+      "admin_alerts list read (service-role, context EXCLUDED); one try/catch; returned {error} → infra_error('admin_alerts read failed'); thrown → infra_error('admin_alerts read threw'); .limit-bounded.",
+  },
+  {
+    helper: "queryChangeLog",
+    path: "lib/observe/query/changeLog.ts",
+    contract:
+      "show_change_log read (service-role, images EXCLUDED); one try/catch; returned {error} → infra_error('show_change_log read failed'); thrown → infra_error('show_change_log read threw'); .limit-bounded.",
+  },
 ];
 
 // Every helper file gets a grep-shape assertion that EVERY supabase-derived
@@ -713,6 +737,63 @@ describe("META §B Supabase call-boundary contract", () => {
       const r = await loadCronHealth();
       expect(r).toMatchObject({ kind: "infra_error" });
       expect((r as { message: string }).message).toMatch(/app_events.*threw/);
+    });
+  });
+
+  // Read-only telemetry access-layer core (lib/observe/query/**) — fresh
+  // NON-LOGGING copies of loadAppEvents/loadCronHealth plus the new
+  // admin_alerts/show_change_log reads. Same call-boundary contract:
+  // service-role construction throw AND per-table .from() throw both
+  // surface the typed infra_error result (never propagate).
+  describe("queryEvents (observe read-core)", () => {
+    test("service-role construction throw → typed infra_error", async () => {
+      infraMock.throwOnConstruct = true;
+      const { queryEvents } = await import("@/lib/observe/query/events");
+      expect(await queryEvents({})).toMatchObject({ kind: "infra_error" });
+    });
+    test("from('app_events') throw → typed infra_error", async () => {
+      infraMock.throwOnFromTable = "app_events";
+      const { queryEvents } = await import("@/lib/observe/query/events");
+      expect(await queryEvents({})).toMatchObject({ kind: "infra_error" });
+    });
+  });
+
+  describe("getCronHealth (observe read-core)", () => {
+    test("service-role construction throw → typed infra_error", async () => {
+      infraMock.throwOnConstruct = true;
+      const { getCronHealth } = await import("@/lib/observe/query/cronHealth");
+      expect(await getCronHealth()).toMatchObject({ kind: "infra_error" });
+    });
+    test("from('app_events') throw → typed infra_error", async () => {
+      infraMock.throwOnFromTable = "app_events";
+      const { getCronHealth } = await import("@/lib/observe/query/cronHealth");
+      expect(await getCronHealth()).toMatchObject({ kind: "infra_error" });
+    });
+  });
+
+  describe("queryAlerts (observe read-core)", () => {
+    test("service-role construction throw → typed infra_error", async () => {
+      infraMock.throwOnConstruct = true;
+      const { queryAlerts } = await import("@/lib/observe/query/alerts");
+      expect(await queryAlerts({})).toMatchObject({ kind: "infra_error" });
+    });
+    test("from('admin_alerts') throw → typed infra_error", async () => {
+      infraMock.throwOnFromTable = "admin_alerts";
+      const { queryAlerts } = await import("@/lib/observe/query/alerts");
+      expect(await queryAlerts({})).toMatchObject({ kind: "infra_error" });
+    });
+  });
+
+  describe("queryChangeLog (observe read-core)", () => {
+    test("service-role construction throw → typed infra_error", async () => {
+      infraMock.throwOnConstruct = true;
+      const { queryChangeLog } = await import("@/lib/observe/query/changeLog");
+      expect(await queryChangeLog({})).toMatchObject({ kind: "infra_error" });
+    });
+    test("from('show_change_log') throw → typed infra_error", async () => {
+      infraMock.throwOnFromTable = "show_change_log";
+      const { queryChangeLog } = await import("@/lib/observe/query/changeLog");
+      expect(await queryChangeLog({})).toMatchObject({ kind: "infra_error" });
     });
   });
 
