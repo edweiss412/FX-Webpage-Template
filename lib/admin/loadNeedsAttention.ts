@@ -19,8 +19,11 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 import {
   buildNeedsAttention,
   type NeedsAttention,
+  type NeedsAttentionSyncProblemInput,
   type ShowExistence,
 } from "@/lib/admin/needsAttention";
+import { INBOX_ROUTED_CODES } from "@/lib/messages/adminSurface";
+import { log } from "@/lib/log";
 
 export type LoadNeedsAttentionResult = NeedsAttention | { kind: "infra_error"; message: string };
 
@@ -192,6 +195,99 @@ export async function loadNeedsAttention(opts: {
     }
   }
 
+  // ── Third stream (spec §4.4): unresolved per-show inbox-routed alerts ──
+  // Sourced from admin_alerts (the same row the email/digest pipeline reads),
+  // joined to a NON-archived show via shows!inner. Empty-set short-circuit: when
+  // INBOX_ROUTED_CODES is empty we emit nothing WITHOUT querying — an inclusion
+  // query with the .in() dropped would select every unresolved per-show alert.
+  let syncProblemRows: ReadonlyArray<Record<string, unknown>> = [];
+  let syncProblemCount = 0;
+  if (INBOX_ROUTED_CODES.length > 0) {
+    try {
+      const { data: syncProblemData, error: syncProblemRowsError } = await supabase
+        .from("admin_alerts")
+        .select("id, code, raised_at, show_id, context, shows!inner(slug, title)")
+        .is("resolved_at", null)
+        .in("code", INBOX_ROUTED_CODES)
+        .not("show_id", "is", null)
+        .eq("shows.archived", false)
+        .order("raised_at", { ascending: false })
+        .limit(opts.cap + 1);
+      if (syncProblemRowsError) {
+        return {
+          kind: "infra_error",
+          message: `sync-problem query failed: ${syncProblemRowsError.message}`,
+        };
+      }
+      syncProblemRows = (syncProblemData ?? []) as ReadonlyArray<Record<string, unknown>>;
+    } catch (err) {
+      return {
+        kind: "infra_error",
+        message: `sync-problem query threw: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+
+    try {
+      const {
+        data: _syncProblemCountData,
+        count: syncProblemHeadCount,
+        error: syncProblemCountError,
+      } = await supabase
+        .from("admin_alerts")
+        .select("id, shows!inner(id)", { count: "exact", head: true })
+        .is("resolved_at", null)
+        .in("code", INBOX_ROUTED_CODES)
+        .not("show_id", "is", null)
+        .eq("shows.archived", false);
+      void _syncProblemCountData;
+      if (syncProblemCountError) {
+        return {
+          kind: "infra_error",
+          message: `sync-problem count query failed: ${syncProblemCountError.message}`,
+        };
+      }
+      if (typeof syncProblemHeadCount !== "number") {
+        return { kind: "infra_error", message: "sync-problem head-count returned non-number" };
+      }
+      syncProblemCount = syncProblemHeadCount;
+    } catch (err) {
+      return {
+        kind: "infra_error",
+        message: `sync-problem count query threw: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  }
+
+  // Map rows → sync-problem inputs; skip (with a warn) any row whose shows!inner
+  // embed is missing a slug — a defensive guard against an FK-integrity gap that
+  // would otherwise produce a dead /admin/show/undefined link.
+  const syncProblems: NeedsAttentionSyncProblemInput[] = syncProblemRows.flatMap((r) => {
+    const embed = r.shows as
+      | { slug?: string; title?: string | null }
+      | Array<{ slug?: string; title?: string | null }>
+      | null;
+    const show = Array.isArray(embed) ? embed[0] : embed;
+    if (!show?.slug) {
+      void log.warn("sync-problem alert missing show slug", {
+        source: "admin.loadNeedsAttention",
+        alertId: r.id as string,
+      });
+      return [];
+    }
+    const ctx = r.context as Record<string, unknown> | null;
+    return [
+      {
+        alertId: r.id as string,
+        showId: r.show_id as string,
+        slug: show.slug,
+        title: (show.title as string | null) ?? null,
+        code: r.code as string,
+        sheetName: typeof ctx?.sheet_name === "string" ? ctx.sheet_name : null,
+        raisedAt: (r.raised_at as string | null) ?? null,
+      },
+    ];
+  });
+
   return buildNeedsAttention({
     ingestions: ingestionRows.map((r) => ({
       id: r.id as string,
@@ -209,8 +305,9 @@ export async function loadNeedsAttention(opts: {
         stagedModifiedTime: (r.staged_modified_time as string | null) ?? null,
       };
     }),
+    syncProblems,
     existence,
-    totalCounts: { ingestions: ingestionCount, syncs: syncCount },
+    totalCounts: { ingestions: ingestionCount, syncs: syncCount, syncProblems: syncProblemCount },
     cap: opts.cap,
   });
 }
