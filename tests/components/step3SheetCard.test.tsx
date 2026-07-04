@@ -519,8 +519,9 @@ describe("Step3SheetCard — data-gap detail (P3 primary, §6.2a)", () => {
       { severity: "warn" as const, code: "FIELD_UNREADABLE", message: "phone unreadable" },
       { severity: "warn" as const, code: "FIELD_UNREADABLE", message: "phone 2 unreadable" },
       { severity: "warn" as const, code: "BLOCK_DISAPPEARED", message: "hotel block gone" },
-      // a non-data-quality warn → NO summary chip; it lives only in the "More" details
-      { severity: "warn" as const, code: "SECTION_HEADER_NO_FIELDS", message: "x" },
+      // a non-data-quality warn (benign autocorrect) → NO summary chip; it lives
+      // only in the "More" details.
+      { severity: "warn" as const, code: "STAGE_WORD_AUTOCORRECTED", message: "x" },
     ];
     // An applied (checked) row at the publish decision point.
     const FIX = parseResult({ warnings: w });
