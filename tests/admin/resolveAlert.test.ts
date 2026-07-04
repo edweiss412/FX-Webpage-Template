@@ -278,7 +278,7 @@ describe("resolveAdminAlertFormAction", () => {
     expect(revalidatePathSpy).not.toHaveBeenCalled();
 
     const emit = consoleErrorSpy.mock.calls.find(
-      (c) => (c[1] as { code?: string })?.code === "ADMIN_ALERT_RESOLVE_FAILED",
+      (c: unknown[]) => (c[1] as { code?: string })?.code === "ADMIN_ALERT_RESOLVE_FAILED",
     );
     if (!emit) throw new Error("expected an ADMIN_ALERT_RESOLVE_FAILED emit");
     const fields = emit[1] as { code?: string; stage?: string; alertId?: string };
@@ -296,7 +296,7 @@ describe("resolveAdminAlertFormAction", () => {
     expect(revalidatePathSpy).not.toHaveBeenCalled();
 
     const emit = consoleErrorSpy.mock.calls.find(
-      (c) => (c[1] as { code?: string })?.code === "ADMIN_ALERT_RESOLVE_FAILED",
+      (c: unknown[]) => (c[1] as { code?: string })?.code === "ADMIN_ALERT_RESOLVE_FAILED",
     );
     if (!emit) throw new Error("expected an ADMIN_ALERT_RESOLVE_FAILED emit");
     const fields = emit[1] as {
