@@ -117,7 +117,7 @@ function LockedDeveloperIndicator({ checked }: { checked: boolean }) {
           aria-checked={checked}
           aria-disabled="true"
           disabled
-          aria-label="Developer access (your own — locked)"
+          aria-label="Developer access (your own, locked)"
           data-testid="developer-toggle"
           className={TAP_TARGET}
         >
