@@ -738,3 +738,11 @@ git commit --no-verify -m "test(sync): pin VERSION_AMBIGUOUS first-seen + existi
 ## Execution Handoff
 
 Autonomous mode — execute inline via `superpowers:executing-plans` after Codex adversarial-review of THIS plan reaches APPROVE.
+
+## Execution deviations (discovered during full-suite verification)
+
+Two things surfaced only when the FULL suite ran (the plan's per-task gates ran scoped subsets):
+
+1. **Design revert: ambiguous parses best-effort, not a stub.** The plan's Task 2 had `parseSheet` return a *minimal stub* on `ambiguous` (mirroring MI-1). Running the full `tests/parser/` dir revealed this broke 34 tests across 11 files — every block-parser unit test that feeds a minimal (v1-shaped) synthetic fixture, because the stub skips the block parsers. Root cause: the stub **violated the codebase convention** — only MI-1 (`not_a_sheet`) stubs; MI-2..MI-5b return a full best-effort parse and let `runInvariants` flag the code. `VERSION_AMBIGUOUS` is a *parseable-sheet* concern like MI-2..5, not an unparseable one like MI-1. Fix: for `ambiguous`, push the hardError, set `version = bestGuess`, and continue the normal parse. Those fixtures already parsed as v1 under the old `detectVersion`, so best-guess-parse reproduces their behavior exactly while adding the hardError; `runInvariants` still hard_fails (fail-closed preserved). Spec D3/§4.2/§6/§7/§8 updated to match. `buildMinimalParsedSheet` is now used only for the MI-1 path. The Task 2 parseSheet test was updated to assert best-effort parse (crew populated), not stub emptiness.
+
+2. **Missing touchpoint: `app/help/errors/_families.ts`.** `tests/help/errors-grouping.test.tsx` asserts every renderable code maps to a named family (the "Other" bucket must be empty). The plan omitted this. Fix: add the `VERSION` prefix to the `crew-schedule` family (where its sibling `MI-1_VERSION_DETECTION_FAILED`'s `MI` prefix already lives). One-token taxonomy edit, no visual/design change — see spec D7 for the invariant-8 disposition.

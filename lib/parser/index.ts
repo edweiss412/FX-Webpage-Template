@@ -528,11 +528,15 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
     // Minimal-but-valid ParsedSheet; "v4" placeholder (version unknown). Phase-1 gates on hardErrors.
     return buildMinimalParsedSheet("v4", hardErrors);
   }
+  // Markers present but confidence below threshold (too few, too close, or single-block).
+  // Mirror the MI-2..MI-5b convention: parse the sheet best-effort under the best-guess
+  // version and ATTACH the VERSION_AMBIGUOUS hardError — do NOT return a stub (only the
+  // truly-unparseable MI-1 / not_a_sheet case stubs). runInvariants maps the hardError to
+  // hard_fail, so the sheet is still held for review and never applied (fail-closed). The
+  // message carries the best guess + marker scores — the operator's recovery evidence,
+  // forwarded through runInvariants into last_error_message/last_sync_error (spec §4.3).
+  let version: "v1" | "v2" | "v4";
   if (verdict.status === "ambiguous") {
-    // Markers present but confidence below threshold (too few, too close, or single-block).
-    // Fail-closed: emit VERSION_AMBIGUOUS + minimal stub (mirrors MI-1). The message carries
-    // the best guess + marker scores — the operator's evidence for recovery, forwarded through
-    // runInvariants into last_error_message/last_sync_error (spec §4.3).
     hardErrors.push({
       code: "VERSION_AMBIGUOUS",
       message:
@@ -540,9 +544,10 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
         `scores v4=${verdict.scores.v4}, v2=${verdict.scores.v2}). ` +
         "Fix the sheet's version markers so it is recognizable again.",
     });
-    return buildMinimalParsedSheet(verdict.bestGuess, hardErrors);
+    version = verdict.bestGuess;
+  } else {
+    version = verdict.version;
   }
-  const version = verdict.version;
 
   // Step 2: Initialize aggregator for warnings + raw_unrecognized.
   const agg = newAggregator();
