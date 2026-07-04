@@ -332,9 +332,15 @@ a scoped health-alert detail list **into scope** on the already-`requireDevelope
     Construction/select/update **returned-errors AND throws must NOT `revalidatePath` as
     success and must NOT log a success outcome** — they throw to the error boundary
     (mirrors `actions.ts:127` I1: a failed UPDATE never revalidates). On genuine success it
-    fires the post-commit `logAdminOutcome` breadcrumb (same pattern as the existing
-    resolve action) and `revalidatePath("/admin/observability")`. A no-row/already-resolved
-    UPDATE is an idempotent no-op (no false success outcome).
+    **awaits** the post-commit `logAdminOutcome` breadcrumb reusing the existing
+    **`ADMIN_ALERT_RESOLVED`** outcome code (same as `resolveAdminAlertFormAction`) and
+    revalidates BOTH surfaces the health state feeds: **`revalidatePath("/admin", "layout")`
+    AND `revalidatePath("/admin/observability")`** (R11 finding 1). The `/admin` layout
+    revalidation is REQUIRED because the nav health indicator's rollup is read in the admin
+    layout (§5.1) — revalidating only `/admin/observability` would clear the panel row while
+    leaving the persistent nav dot stale (red/amber) until the next navigation. A
+    no-row/already-resolved UPDATE is an idempotent no-op (no false success outcome, no
+    `logAdminOutcome`).
 - Deep-link anchor: `/admin/observability#health` so the indicator link scrolls to the
   panel; the panel wrapper has `id="health"` + a stable `data-testid`. Clicking Resolve
   stays on `#health` (Server Action revalidate), removes the resolved row, and never
@@ -468,11 +474,14 @@ on the next full render (no mid-open mutation). No `AnimatePresence` on the dot 
   asserted by AC11/AC11b behavioral tests (code lookup + update; error/throw ⇒ no
   revalidate-as-success, no success outcome; success ⇒ resolve + revalidate). No read
   registry row (it is a mutation, not a typed-result read), matching the existing sibling.
-- **VERIFY at plan time** whether `resolveHealthAlertFormAction` must register in
-  `tests/admin/_metaAdminOutcomeContract.test.ts` — the existing resolve actions emit a
-  post-commit `logAdminOutcome` breadcrumb; if the new action reuses/introduces an outcome
-  `code`, follow the same registry discipline (forensic codes are §12.4-free, registry-only).
-  Its `requireDeveloper` producer path is already covered by the `_metaInfraContract`
+- **REGISTER (mandatory) in `tests/log/_metaAdminOutcomeContract.test.ts` (R11 finding 2 —
+  correct registry path):** `resolveHealthAlertFormAction` is an admin mutation that emits a
+  post-commit `logAdminOutcome`, so it MUST be added to that registry reusing the existing
+  **`ADMIN_ALERT_RESOLVED`** outcome code (registered at
+  `tests/log/_metaAdminOutcomeContract.test.ts:63,143`; no NEW code, no §12.4 touch). The
+  registry asserts the action imports + AWAITS `logAdminOutcome`. Behavioral tests: success
+  awaits the outcome; no-row/error/throw paths do NOT log a success outcome. Its
+  `requireDeveloper` producer path is already covered by the `_metaInfraContract`
   requireDeveloper registration.
 - If any `dougFacing` prose changes (only `WATCH_CHANNEL_ORPHANED`, §7): the §12.4
   three-way lockstep — master spec §12.4 prose + `pnpm gen:spec-codes`
@@ -577,7 +586,10 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
 - AC12: `/admin` renders the `AppHealthPanel` from seeded health rows (its own pinned
   `fetchHealthRollup()` read), not only the nav dot. Clicking a show-scoped health alert's
   Resolve control on `/admin/observability#health` stays on `#health`, removes the row, and
-  never renders raw JSON.
+  never renders raw JSON. **Resolving the LAST unresolved health alert also clears the
+  persistent nav indicator** (the action revalidates `/admin` layout, §6.6) — asserted by
+  mocking `revalidatePath` (both `/admin` layout + `/admin/observability`) and a browser
+  check that the nav dot returns to green after the resolve, no manual refresh.
 
 ## 14. Watchpoints (disagreement-loop preempts — do not relitigate)
 
