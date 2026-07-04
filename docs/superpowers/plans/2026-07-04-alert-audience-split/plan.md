@@ -125,12 +125,26 @@ const NOTICE = [
 const HEALTH = [...DEGRADED, ...NOTICE];
 const cat = MESSAGE_CATALOG as Record<string, { audience?: string; healthWeight?: string; dougSummary?: string | null }>;
 
+// Canonical registry — the SAME 42-code list the _metaAdminAlertCatalog registry pins.
+// Extract `ADMIN_ALERTS_CODES` into an importable module (e.g.
+// `tests/messages/adminAlertsRegistry.ts`) and have BOTH meta-tests import it, so the
+// audience test enforces the FULL registered set, not a private copy (plan-R3 finding 2).
+import { ADMIN_ALERTS_CODES } from "@/tests/messages/adminAlertsRegistry";
+
 describe("alert audience contract", () => {
   test("partition counts: 16 doug + 26 health = 42; 16 degraded + 10 notice", () => {
     expect(DOUG.length).toBe(16);
     expect(HEALTH.length).toBe(26);
     expect(DEGRADED.length).toBe(16);
     expect(NOTICE.length).toBe(10);
+  });
+  test("DOUG ∪ HEALTH is EXACTLY the canonical ADMIN_ALERTS_CODES registry (set-equality both ways)", () => {
+    // A newly-registered admin-alert code with no audience metadata fails HERE (it is in
+    // ADMIN_ALERTS_CODES but not in DOUG∪HEALTH), and a stale local entry fails too.
+    expect(new Set([...DOUG, ...HEALTH])).toEqual(new Set(ADMIN_ALERTS_CODES));
+  });
+  test.each(ADMIN_ALERTS_CODES)("every registered code %s carries valid audience metadata", (c) => {
+    expect(["doug", "health"]).toContain(cat[c]?.audience);
   });
   test.each(DOUG)("%s is audience:doug with NO healthWeight/dougSummary", (c) => {
     expect(cat[c]?.audience).toBe("doug");
@@ -146,6 +160,7 @@ describe("alert audience contract", () => {
 ```
 
 - [ ] **Step 2: Run to verify FAIL** — `pnpm vitest run tests/messages/_metaAlertAudienceContract.test.ts` → FAIL (fields absent).
+- [ ] **Step 2b: Extract the canonical registry** — create `tests/messages/adminAlertsRegistry.ts` exporting `export const ADMIN_ALERTS_CODES = [...] as const` (the 42 codes currently inline in `tests/messages/_metaAdminAlertCatalog.test.ts:57-100`), and refactor `_metaAdminAlertCatalog.test.ts` to IMPORT it (so both meta-tests + the lifecycle registry share ONE source; no drift — plan-R3 finding 2). Keep `_metaAdminAlertCatalog`'s existing tests green.
 - [ ] **Step 3: Implement.** (a) Add the 3 optional fields to `MessageCatalogEntry`. (b) On each of the 42 entries set `audience`; on the 26 health entries add `healthWeight` + a `dougSummary` (plain-language, reassuring, non-actionable — e.g. `WEBHOOK_TOKEN_INVALID` → `"A Google Drive push notification failed a security check. Instant updates keep working through the regular sync."`; write one per health code). (c) Reconcile the 3 copy rows per spec §7: `WATCH_CHANNEL_ORPHANED` (drop amber-urgency); `EMAIL_NOT_CONFIGURED` `followUp` → `"Eric → configure email env (provider key / sending address / site address) on the deployment"`, `dougFacing` drops the Doug instruction; `EMAIL_DELIVERY_FAILED` `followUp` → `"Eric → check provider key / verified sending domain"`. Mirror the §12.4 prose in the master spec for these 3, then `pnpm gen:spec-codes`.
 - [ ] **Step 4: Run to verify PASS** — the new meta-test + `pnpm vitest run tests/messages/` (x1-catalog-parity, _metaAdminAlertCatalog, codes-coverage) + `pnpm typecheck`.
 - [ ] **Step 5: Commit** — `feat(messages): add alert audience/healthWeight/dougSummary + reconcile EMAIL_*/WATCH copy`
@@ -282,7 +297,9 @@ describe("alert audience contract", () => {
 - Produces: `loadHealthAlerts({ weight: "degraded"|"notice", page: number }): Promise<{ kind:"ok"; rows: HealthAlertRow[]; hasMore: boolean } | { kind:"infra_error" }>` where `HealthAlertRow = { id; code; show_id; slug: string|null; context: Record<string,unknown>|null; occurrence_count; raised_at }`. Two partitioned queries (degraded set, notice set), each `.in("code", set).is("resolved_at",null).order("raised_at",{ascending:false}).range(page*SIZE, page*SIZE + SIZE)` — i.e. requests **`SIZE + 1` rows** (plan-R2 finding 2): `hasMore = data.length > SIZE`; return `rows = data.slice(0, SIZE)`. A bare `.range(page*SIZE,(page+1)*SIZE-1)` (exactly SIZE) CANNOT distinguish a full page from a larger partition, so the `+1` sentinel is REQUIRED. `HEALTH_PANEL_PAGE_SIZE = 50`. Selects `id, code, show_id, context, occurrence_count, raised_at, shows(slug)`.
 - Consumes: `DEGRADED_HEALTH_CODES`/`NOTICE_HEALTH_CODES` (Task 2), `resolveAlertAction` (`lib/adminAlerts/alertActions.ts`), `messageFor`/`isMessageCode` (`lib/messages/lookup.ts`), `resolveHealthAlertFormAction` (Task 9 — wire the button in Task 9's step).
 
-- [ ] **Step 1: Failing tests** — (a) loader: array-shape typed read; returned/thrown error → `infra_error`; degraded query separate from notice; requests `SIZE+1`; **`hasMore` is true for exactly `PAGE_SIZE+1` rows and false for exactly `PAGE_SIZE` rows, in BOTH the degraded and notice partitions**, and `rows` is trimmed to `PAGE_SIZE`. (b) panel renders per-row lookup copy (no raw code), a `healthWeight` chip, a show link when `show_id`, `raised_at`, `occurrence_count`; renders `resolveAlertAction` link for each of the 6 action-link health codes (`PICKER_SELECTION_RACE`, `ROLE_FLAGS_NOTICE`, `WIZARD_SESSION_SUPERSEDED_RACE`, `REPORT_ORPHANED_LOST_LEASE`, `BRANCH_PROTECTION_DRIFT`, `BRANCH_PROTECTION_MONITOR_AUTH_FAILED`) given appropriate `context`/`slug`; degraded section renders before notice; with >PAGE_SIZE notices + an older degraded row, the degraded row is in the degraded section (reachable) (AC9 R13). (c) empty → "No open system-health alerts.".
+**UI pagination contract (plan-R3 finding 1 — loader `hasMore` is not enough; the extra rows must be REACHABLE + RESOLVABLE through the UI):** `HealthAlertsPanel` reads per-partition page indices from the observability page's `searchParams` (`?dpage=N` degraded, `?npage=N` notice — the page already `await`s `searchParams` at `page.tsx:16`). Each partition renders its page's rows; when `loadHealthAlerts(...).hasMore`, it renders a **"Load more" `<Link>`** to the same URL with the partition's page param incremented (preserving other params + the `#health` anchor). SSR-native (no client fetch). Page params default to 0; a non-numeric/negative param clamps to 0.
+
+- [ ] **Step 1: Failing tests** — (a) loader: array-shape typed read; returned/thrown error → `infra_error`; degraded query separate from notice; requests `SIZE+1`; **`hasMore` is true for exactly `PAGE_SIZE+1` rows and false for exactly `PAGE_SIZE` rows, in BOTH the degraded and notice partitions**, and `rows` is trimmed to `PAGE_SIZE`. (b) panel renders per-row lookup copy (no raw code), a `healthWeight` chip, a show link when `show_id`, `raised_at`, `occurrence_count`; renders `resolveAlertAction` link for each of the 6 action-link health codes (`PICKER_SELECTION_RACE`, `ROLE_FLAGS_NOTICE`, `WIZARD_SESSION_SUPERSEDED_RACE`, `REPORT_ORPHANED_LOST_LEASE`, `BRANCH_PROTECTION_DRIFT`, `BRANCH_PROTECTION_MONITOR_AUTH_FAILED`) given appropriate `context`/`slug`; degraded section renders before notice; with >PAGE_SIZE notices + an older degraded row, the degraded row is in the degraded section (reachable) (AC9 R13). (c) empty → "No open system-health alerts.". (d) **UI pagination (plan-R3):** seeding `PAGE_SIZE+1` degraded rows renders a "Load more" link to `?dpage=1`; rendering the panel with `?dpage=1` shows the 51st degraded row AND its Resolve control (reachable + resolvable); same for `?npage=1` with `PAGE_SIZE+1` notice rows; a non-numeric `dpage` clamps to page 0.
 - [ ] **Step 2: Run → FAIL.** **Step 3: Implement** the loader + panel + wrapper `id="health"` + `data-testid="health-alerts-panel"`. **Step 4: Register** loader in `_metaInfraContract` (array-shape) + `_metaBoundedReads` (`.range`) if not already. **Step 5: PASS** + typecheck.
 - [ ] **Step 6: Commit** — `feat(admin): dev HealthAlertsPanel (partitioned paginated detail + action links)`
 
