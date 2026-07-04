@@ -75,7 +75,7 @@ Because `legacyBestGuess` is the old match verbatim, `detectVersion`'s existing 
 - `ambiguous` → push `{ code: "VERSION_AMBIGUOUS", message }` to `hardErrors` and **return a minimal stub** with the same shape as the MI-1 path (empty crew/rooms/etc.; `template_version` set to `verdict.bestGuess`, a valid enum value, for diagnostics). The block parsers do **not** run. This mirrors MI-1 exactly (D3).
 - `confident` → parse normally with `verdict.version` (today's behavior).
 
-`message` names the best guess and the failing signal, e.g. `"Could not confidently determine sheet template version (best guess v4; markers too close: v4=1, v2=1). Fix the sheet's version markers so it is recognizable again."`
+`message` **must** name the best guess **and both marker scores** (`v4=…, v2=…`) — this is the operator's evidence for §7.1 recovery and it is the string persisted to `last_error_message`/`last_sync_error` (§4.3). Canonical form: `"Could not confidently determine sheet template version (best guess v4; scores v4=1, v2=1). Fix the sheet's version markers so it is recognizable again."` The scores are formatted from the `verdict.scores` object so the test can assert both are present.
 
 (Because the ambiguous stub is empty, `runInvariants` will also raise MI-2..MI-5 on it — exactly as it already does for the MI-1 stub. §4.3 orders the `VERSION_AMBIGUOUS` check ahead of MI-2 so it is `failedCodes[0]`, the code that routes and renders.)
 
@@ -83,14 +83,15 @@ Because `legacyBestGuess` is the old match verbatim, `detectVersion`'s existing 
 
 The cron path derives its outcome solely from `runInvariants(prior, parseResult).failedCodes[0]` (`phase1.ts:286-289`); it does **not** inspect `hardErrors.length` generically, and the MI-1 gate matches only `code === "MI-1_VERSION_DETECTION_FAILED"` (`invariants.ts:111`). So a new dedicated check is required or `VERSION_AMBIGUOUS` would not hard-fail in production cron.
 
-Add, immediately after the MI-1 block (so `VERSION_AMBIGUOUS` sorts to `failedCodes[0]` ahead of the MI-2..5 codes the empty ambiguous stub also trips — exactly as the MI-1 stub does today):
+Add, immediately after the MI-1 block (so `VERSION_AMBIGUOUS` sorts to `failedCodes[0]` ahead of the MI-2..5 codes the empty ambiguous stub also trips — exactly as the MI-1 stub does today). **Forward the parser's original hardError message** (which carries the best guess + both marker scores) rather than a generic string — the cron path persists `invariant.messages.join("; ")` (`phase1.ts:289-290`), so this is the only way the diagnostic reaches `last_error_message` / `last_sync_error` (Codex R5 HIGH):
 ```ts
-if (next.hardErrors.some((e) => e.code === "VERSION_AMBIGUOUS")) {
+const versionAmbiguous = next.hardErrors.find((e) => e.code === "VERSION_AMBIGUOUS");
+if (versionAmbiguous) {
   failedCodes.push("VERSION_AMBIGUOUS");
-  messages.push("Version detection confidence below threshold; staged for review");
+  messages.push(versionAmbiguous.message); // e.g. "…best guess v4; scores v4=1, v2=1…"
 }
 ```
-`hardErrors` reaches `runInvariants` intact: `enrichWithDrivePins.ts:403` copies `parsed.hardErrors` onto the enriched `ParseResult` that becomes `args.parseResult`. The dev-actions path (`app/admin/dev/actions.ts:167-168`) already OR-s `parsed.hardErrors.length > 0` and takes `parsed.hardErrors[0]?.code` as canonical, so it routes without further change.
+`hardErrors` reaches `runInvariants` intact: `enrichWithDrivePins.ts:403` copies `parsed.hardErrors` onto the enriched `ParseResult` that becomes `args.parseResult`. The dev-actions path (`app/admin/dev/actions.ts:167-168`) already OR-s `parsed.hardErrors.length > 0` and takes `parsed.hardErrors[0]?.code` as canonical (and surfaces `parsed.hardErrors[0].message`), so it routes and shows the diagnostic without further change.
 
 ### 4.4 `lib/messages` + spec §12.4 — the new code (three-way lockstep)
 
@@ -173,7 +174,7 @@ This round-trip (ambiguous → operator makes the sheet recognizable → confide
 - **`detectVersion` backward-compat** — the existing `schema.test.ts` suite must still pass unchanged (v4/v2/v1-fallback/null). *Catches:* breaking the ~15 block-parser helper call sites.
 - **`parseSheet` integration** — feed an ambiguous markdown → `hardErrors` contains `VERSION_AMBIGUOUS` and the return is a minimal stub (empty crew/rooms) with a valid best-guess `template_version`. Feed a confident v4 markdown → no `VERSION_AMBIGUOUS`, fully-populated parse, `template_version==="v4"`. *Catches:* the flag firing on clean sheets, or the ambiguous path leaking a partial parse.
 - **`runInvariants` routing** — a `ParseResult` carrying a `VERSION_AMBIGUOUS` hardError → `outcome==="hard_fail"`, `failedCodes[0]==="VERSION_AMBIGUOUS"` (ahead of the MI-2..5 the empty stub also raises). *Catches:* the cron-path gap (flag not reaching hard_fail via invariants) **and** wrong `failedCodes` ordering.
-- **Sync end-to-end (mirror `tests/sync/dev-routing.test.ts:69`)** — ambiguous parse on a first-seen file lands in `pending_ingestions` with `last_error_code="VERSION_AMBIGUOUS"`; on an existing show retains last-good and does not apply. *Catches:* mis-routing between wizard and last-good.
+- **Sync end-to-end (mirror `tests/sync/dev-routing.test.ts:69`)** — ambiguous parse on a first-seen file lands in `pending_ingestions` with `last_error_code="VERSION_AMBIGUOUS"` **and `last_error_message` containing the best guess and both marker scores** (`v4=…, v2=…`); on an existing show retains last-good, does not apply, and `last_sync_error` carries the same diagnostic. *Catches:* mis-routing between wizard and last-good, **and** the diagnostic being dropped on the cron persistence path (Codex R5 HIGH — the message must survive `invariant.messages.join`).
 - **Resolution round-trip** — the same source sheet, first ambiguous (markers stripped) → hard_fail; then with markers restored → `confident` → applies cleanly. *Catches:* a gate that flags but can never clear (proves the §7.1 resolution path is real, not just that the code is stored — Codex R1 HIGH #2).
 - **Message catalog** — `messageFor("VERSION_AMBIGUOUS")` returns non-null dougFacing/title (no raw code leaks to UI); x1 parity green. *Catches:* invariant-5 violation, lockstep drift.
 - **x2 internal-code-enum parity** — after regenerating, `tests/cross-cutting/no-raw-codes.test.ts` is green with `VERSION_AMBIGUOUS` present in the committed `internal-code-enums.ts`. *Catches:* the missed-regeneration CI break (Codex R1 HIGH #1).
