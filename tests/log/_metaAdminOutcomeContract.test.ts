@@ -302,6 +302,10 @@ const NEW_FORENSIC_CODES = new Set([
   // Live pending-ingestion retry: the two inner route-level Drive-fetch catches that
   // return 502 (distinct from the PR-1 outer PENDING_INGESTION_RETRY_FAILED throw guard).
   "PENDING_INGESTION_RETRY_DRIVE_FETCH_FAILED",
+  // Cleanup tail (2026-07-03) — final logging-audit stragglers (all inside log.* spans;
+  // NOT cataloged). S1: live-staged discard bare-requireAdmin AdminInfraError → typed 500
+  // forensic breadcrumb.
+  "LIVE_STAGED_DISCARD_AUTH_INFRA",
 ]);
 
 const read = (f: string) => readFileSync(f, "utf8");

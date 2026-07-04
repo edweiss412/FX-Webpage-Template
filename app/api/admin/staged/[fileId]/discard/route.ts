@@ -72,7 +72,31 @@ async function readAdminEmail(): Promise<{ kind: "ok"; email: string } | { kind:
 }
 
 export async function POST(request: NextRequest, context: RouteContext): Promise<Response> {
-  await requireAdmin();
+  // S1: a bare `await requireAdmin()` let an AdminInfraError (infra fault resolving
+  // admin identity — DB outage / RPC failure / missing env, coded
+  // ADMIN_SESSION_LOOKUP_FAILED) surface as a generic framework 500. Mirror the sibling
+  // handleLivePendingIngestionRetry route: map the typed infra code to a typed 500 +
+  // a fail-open forensic breadcrumb; any other throw (forbidden/redirect control-flow)
+  // is re-thrown so existing behavior is byte-preserved. The happy path (requireAdmin
+  // resolves) falls straight through — unchanged.
+  try {
+    await requireAdmin();
+  } catch (error) {
+    const code =
+      typeof error === "object" && error !== null ? (error as { code?: unknown }).code : null;
+    if (code === "ADMIN_SESSION_LOOKUP_FAILED") {
+      void log.error("live staged discard: admin identity infra fault", {
+        source: "api.admin.staged.discard",
+        code: "LIVE_STAGED_DISCARD_AUTH_INFRA",
+        error,
+      });
+      return NextResponse.json(
+        { ok: false, error: "ADMIN_SESSION_LOOKUP_FAILED" },
+        { status: 500 },
+      );
+    }
+    throw error;
+  }
   const { fileId } = await context.params;
 
   let body: DiscardRequestBody;
