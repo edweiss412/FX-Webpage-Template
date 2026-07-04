@@ -246,9 +246,11 @@ describe("alert audience contract", () => {
 
 - [ ] **Step 1: Failing tests** (jsdom render): each kind renders the right dot testid + aria-label text ("System health: needs attention" for degraded/notice, "All systems normal" for ok, "System health status unknown" for infra_error); Doug renders a button, dev renders an anchor to `/admin/observability#health`; popover lists `summaries` lines + "+N more" when `overflowCount>0` + the exact closing line "No action needed from you — the developer can see this in system health." and never contains "notified".
 - [ ] **Step 2: Run → FAIL.**
+- [ ] **Step 2b: Write the real-browser layout assertion FAIL-FIRST (mandatory — fixed-height nav; fold of former Task 11).** `tests/e2e/appHealthIndicator.layout.spec.ts` (Playwright) or a chrome-devtools `evaluate_script` harness per `reference_standalone_realbrowser_layout_harness` (Tailwind CLI build + static HTML mounting `AppHealthIndicator` beside `NotifBell`). **Dimensional invariants (spec §8 verbatim):** nav action cluster → `AppHealthIndicator` is `inline-flex items-center justify-center min-h-tap-min min-w-tap-min` (44×44, vertically centered); indicator button → dot+icon `items-center gap-2`. Assert `getBoundingClientRect()` on `[data-testid="app-health-indicator"]` and `[data-testid="admin-notif-bell"]`: both height ≥44px, equal within 0.5px, both vertically centered within 0.5px. Jsdom NOT sufficient. Run → FAIL (component absent).
+- [ ] **Step 2c: Write the transition-audit test FAIL-FIRST (mandatory — multi-state; fold of former Task 12).** `tests/components/appHealthIndicator.transitions.test.tsx`. **Transition inventory (spec §9 verbatim):** indicator states ok/notice/degraded/unknown — all 6 pairs INSTANT (no animation props on the dot across the 4 kinds); popover closed→open / open→closed use the sheet pattern's enter/exit and respect `prefers-reduced-motion` (`motion-reduce`); compound: changing `rollup` while the popover is open does not remount/mutate the open panel mid-flight. Run → FAIL.
 - [ ] **Step 3: Implement** — `AppHealthIndicator` (client component; icon `Activity` from lucide). `AppHealthPopover` reuses the responsive sheet/popover pattern (`reference_responsive_modal_sheet_pattern`: bottom-sheet mobile / anchored desktop, `useDialogFocus` + scrim); title "System status"; body = `summaries.map(s => \`${s.text}\` + (s.count>1?` ×${s.count}`:""))`; overflow note; closing reassurance line; fallback line when summaries empty but count>0.
-- [ ] **Step 4: Run → PASS** + typecheck.
-- [ ] **Step 5: Commit** — `feat(admin): AppHealthIndicator nav dot + Doug system-status popover`
+- [ ] **Step 4: Run → PASS** — jsdom behavior + real-browser layout + transition audit all green; + typecheck.
+- [ ] **Step 5: Commit** — `feat(admin): AppHealthIndicator nav dot + popover (+ layout & transition gates)`
 
 ---
 
@@ -338,40 +340,18 @@ describe("alert audience contract", () => {
 - Consumes: `HEALTH_CODES` (Task 2).
 
 - [ ] **Step 1: Failing tests** — direct-invoke each of the 3 legacy surfaces on a health-code row (global + show-scoped) → rejected, `resolved_at` null; a `doug`-code row still resolves through each unchanged; a structural assertion that each surface references `HEALTH_CODES` in its reject path. Documentation test: a raw direct `admin_alerts` UPDATE is NOT blocked at the DB (records the accepted escape hatch, `BL-HEALTH-RESOLVE-DB-LOCKDOWN`).
-- [ ] **Step 2: Run → FAIL.** **Step 3: Implement** the three guards. **Step 4: PASS** + run `tests/admin tests/messages` + typecheck.
-- [ ] **Step 5: Commit** — `feat(admin): reject health codes on legacy resolve surfaces (dev-only health resolve)`
+- [ ] **Step 2: Run → FAIL.** **Step 3: Implement** the three guards. **Step 3b: Add the BACKLOG entry NOW (plan-R5 finding 2 — the spec accepts the direct-PostgREST bypass ONLY because this tracks it, so it MUST land in the PR, not post-merge):** append `BL-HEALTH-RESOLVE-DB-LOCKDOWN` to `BACKLOG.md` (revoke direct `admin_alerts` UPDATE + route resolution through `SECURITY DEFINER` RPCs with `is_developer()` for health codes; cross-ref `BL-ADMIN-POSTGREST-DML-LOCKDOWN`). Use `printf` append (never `echo >>` — newline discipline) and verify. **Step 4: PASS** + run `tests/admin tests/messages` + typecheck.
+- [ ] **Step 5: Commit** — `feat(admin): reject health codes on legacy resolve surfaces + BL-HEALTH-RESOLVE-DB-LOCKDOWN`
 
 ---
 
-### Task 11: Layout-dimensions real-browser assertion (mandatory — fixed-height nav)
+> **NOTE (plan-R5 finding 1):** the mandatory **layout-dimensions** and **transition-audit**
+> tests are FOLDED INTO Task 5 (Steps 2b/2c) as FAIL-FIRST tests written before the component
+> implementation — not standalone post-hoc tasks (which would pass first-run and violate
+> fail-first TDD). Their exact spec §8 invariant list and §9 transition inventory live in
+> Task 5.
 
-**Files:**
-- Create: `tests/e2e/appHealthIndicator.layout.spec.ts` (Playwright) or a chrome-devtools `evaluate_script` harness per `reference_standalone_realbrowser_layout_harness`.
-
-**Dimensional invariants (from spec §8, verbatim):**
-- nav action cluster → `AppHealthIndicator`: `inline-flex items-center justify-center min-h-tap-min min-w-tap-min` — the icon box is 44×44 and vertically centered.
-- indicator button → dot+icon: `items-center gap-2`.
-
-- [ ] **Step 1: Write the real-browser assertion** — render the admin nav (or a harness mounting `AppHealthIndicator` beside `NotifBell` with Tailwind built), `getBoundingClientRect()` on `[data-testid="app-health-indicator"]` and `[data-testid="admin-notif-bell"]`: assert both heights ≥44px and equal within 0.5px, and both vertically centered in the nav bar within 0.5px. Jsdom is NOT sufficient.
-- [ ] **Step 2: Run → FAIL** (before styling finalized / if invariant broken).
-- [ ] **Step 3: Ensure the component classes satisfy it** (already from Task 5). **Step 4: Run → PASS.**
-- [ ] **Step 5: Commit** — `test(admin): real-browser layout invariant for app-health indicator vs bell`
-
----
-
-### Task 12: Transition-audit test (mandatory — multi-state indicator + popover)
-
-**Transition inventory (spec §9, verbatim):** indicator states ok/notice/degraded/unknown — all 6 pairs INSTANT (SSR re-render, no animation). Popover closed→open / open→closed: shared sheet/popover enter/exit, disabled under `prefers-reduced-motion`. Compound: rollup change mid-open reads the opened snapshot (no mid-open mutation).
-
-**Files:**
-- Create: `tests/components/appHealthIndicator.transitions.test.tsx`
-
-- [ ] **Step 1: Write the audit** — enumerate every conditional render in `AppHealthIndicator`/`AppHealthPopover`: assert the dot has NO animation props across the 4 kinds (instant); the popover open/close uses the sheet pattern's enter/exit and respects `prefers-reduced-motion` (`motion-reduce`); compound: changing `rollup` prop while the popover is open does not remount/mutate the open panel's content mid-flight.
-- [ ] **Step 2–4: FAIL → implement/verify → PASS.** **Step 5: Commit** — `test(admin): transition audit for app-health indicator + popover`
-
----
-
-### Task 13: Impeccable dual-gate (invariant 8) — UI surfaces
+### Task 11: Impeccable dual-gate (invariant 8) — UI surfaces
 
 - [ ] Run `/impeccable critique` on the diff (all new components + globals.css token + nav/dashboard/observability changes).
 - [ ] Run `/impeccable audit` on the same diff.
@@ -380,22 +360,22 @@ describe("alert audience contract", () => {
 
 ---
 
-### Task 14: Whole-diff cross-model adversarial review (Codex)
+### Task 12: Whole-diff cross-model adversarial review (Codex)
 
 - [ ] Fetch + rebase onto latest `origin/main`; re-diff (guard against stale-base phantom files).
 - [ ] Run the codex-companion `adversarial-review --wait` (fresh-eyes, REVIEWER ONLY) on the whole implementation diff; iterate to APPROVE (no round budget). Triage findings via deferral discipline (land-now / DEFERRED.md / BACKLOG.md).
 
 ---
 
-### Task 15: Verification + close-out
+### Task 13: Verification + close-out
 
 - [ ] `pnpm typecheck` + `pnpm format:check` (fix + `prettier --write` changed files if needed) + FULL `pnpm vitest run` green locally (call out any pre-existing failures verified at merge-base).
 - [ ] Push branch; open PR; confirm **real CI green** (`gh pr checks <PR#> --watch`; mergeStateStatus CLEAN).
 - [ ] `gh pr merge --merge`; fast-forward local `main`; verify `git rev-list --left-right --count main...origin/main` == `0  0`.
-- [ ] Add BACKLOG entry `BL-HEALTH-RESOLVE-DB-LOCKDOWN` (cross-ref `BL-ADMIN-POSTGREST-DML-LOCKDOWN`).
+- [ ] Confirm the `BL-HEALTH-RESOLVE-DB-LOCKDOWN` BACKLOG entry (committed in Task 10) is present in the merged diff.
 
 ## Self-review notes
 
-- Spec coverage: AC1–AC14 map to Tasks 4 (AC1/AC2/AC10), 1 (AC6/AC14), 3+5+7 (AC3/AC4/AC4b/AC4c/AC12), 8 (AC9/action links/R13), 9+10 (AC11/AC11b), 6 (AC13), 11 (AC5), 3 (AC8). §6.7 → Task 10. §7 copy → Task 1.
-- Type consistency: `HealthStatus`/`HealthSummaryLine` defined Task 3, consumed Tasks 5/6/7. `HealthAlertRow` defined Task 8, consumed Task 9's button wiring. `resolveHealthAlertFormAction` defined Task 9, wired in Task 8/9.
+- Spec coverage: AC1–AC14 map to Tasks 4 (AC1/AC2/AC10), 1 (AC6/AC14), 3+5+7 (AC3/AC4/AC4b/AC4c/AC12), 8 (AC9/action links/R13), 9+10 (AC11/AC11b), 6 (AC13), 5 (AC5 layout), 3 (AC8). §6.7 → Task 10. §7 copy → Task 1. Layout/transition gates → Task 5 (folded, fail-first).
+- Type consistency: `HealthStatus`/`HealthSummaryLine` defined Task 3, consumed Tasks 5/6/7. `HealthAlertRow` defined Task 8, consumed Task 9's button wiring. `resolveHealthAlertFormAction` defined Task 9, wired into the Task-8 panel in Task 9.
 - No placeholders: each task carries concrete test intent + implementation shape + exact paths/line anchors.
