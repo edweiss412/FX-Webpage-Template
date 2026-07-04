@@ -40,12 +40,13 @@ function toCronHealthRow(job: CronJobSpec, result: { data: unknown }): CronHealt
 export async function getCronHealth(): Promise<QueryCronHealthResult> {
   try {
     const supabase = createSupabaseServiceRoleClient();
+    // Each per-job read carries count:"exact" (the bound token _metaBoundedReads looks for)
+    // AND an inline .limit(1) row cap. Keep supabase/.from adjacent and this comment ABOVE the
+    // statement (no interleaved comment, no ";") so the two structural meta-tests both match.
     const results = await Promise.all(
       CRON_JOBS.map((job) =>
         supabase
           .from("app_events")
-          // count:"exact" mirrors the other three read-core reads for uniformity; the real
-          // row bound is the inline .limit(1) below (this read was already bounded).
           .select("occurred_at, level, context", { count: "exact" })
           .eq("code", CRON_RUN_SUMMARY)
           .eq("source", `cron.${job.jobName}`)
