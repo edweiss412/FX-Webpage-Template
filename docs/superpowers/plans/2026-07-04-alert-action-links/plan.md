@@ -757,9 +757,13 @@ vi.mock("@/lib/admin/alertCount", () => ({
   fetchUnresolvedAlertCount: async () => ({ kind: "ok", count: 1 }),
 }));
 vi.mock("@/lib/time/now", () => ({ nowDate: async () => new Date("2026-07-04T12:00:00.000Z") }));
+// AlertBanner wraps rendered content in AlertBannerRouteBoundary, whose client
+// hook calls useSearchParams() — the mock MUST provide it (the repo pattern,
+// cf. tests/components/admin/AlertBannerRouteBoundary.test.tsx:10-14).
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
   usePathname: () => "/admin",
+  useSearchParams: () => new URLSearchParams(""),
 }));
 
 const rows = vi.hoisted(() => ({
