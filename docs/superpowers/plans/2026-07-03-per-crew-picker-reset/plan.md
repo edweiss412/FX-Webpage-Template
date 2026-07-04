@@ -107,25 +107,35 @@ function seedCrewSql(driveFileId: string, name = "Alice") {
 }
 
 describe("reset_crew_member_selection RPC", () => {
-  test("admin stamps one member's selections_reset_at and returns it", () => {
+  test("admin stamps ONLY the target member; returned value equals the stamped row; bystander untouched", () => {
+    // Seed two crew (Alice = target, Bob = bystander). Assert: after the reset,
+    // Alice.selections_reset_at is non-null AND equals the RPC return value, and
+    // Bob.selections_reset_at is still null. Guards against: returning clock_timestamp()
+    // without updating; updating the wrong row; updating ALL rows.
     const driveFileId = `reset-crew-${randomUUID()}`;
     const out = runPsql(`
       begin;
       ${seedShowSql(driveFileId)};
-      with c as (${seedCrewSql(driveFileId)})
-      select 'before=' || coalesce(selections_reset_at::text,'null') from public.crew_members
-        where id = (select id from c);
+      ${seedCrewSql(driveFileId, "Alice")};
+      ${seedCrewSql(driveFileId, "Bob")};
       set local role authenticated;
       set local request.jwt.claims = ${sqlString(ADMIN_JWT)};
       select 'result=' || coalesce(public.reset_crew_member_selection(
         (select id from public.shows where drive_file_id = ${sqlString(driveFileId)}),
-        (select id from public.crew_members where show_id = (select id from public.shows where drive_file_id = ${sqlString(driveFileId)}))
+        (select id from public.crew_members where name = 'Alice'
+           and show_id = (select id from public.shows where drive_file_id = ${sqlString(driveFileId)}))
       )::text, 'null');
       reset role;
+      select 'alice=' || coalesce(selections_reset_at::text,'null') from public.crew_members where name = 'Alice';
+      select 'bob=' || coalesce(selections_reset_at::text,'null') from public.crew_members where name = 'Bob';
       rollback;
     `);
-    expect(out).toContain("before=null");
-    expect(out).not.toContain("result=null"); // a timestamp was returned
+    const result = out.match(/result=(\S+)/)?.[1];
+    const alice = out.match(/alice=(\S+)/)?.[1];
+    const bob = out.match(/bob=(\S+)/)?.[1];
+    expect(result).not.toBe("null");        // a timestamp was returned
+    expect(alice).toBe(result);             // the TARGET row actually holds the returned stamp
+    expect(bob).toBe("null");               // the bystander was NOT touched
   });
 
   test("non-admin caller rejected via is_admin() (42501)", () => {
