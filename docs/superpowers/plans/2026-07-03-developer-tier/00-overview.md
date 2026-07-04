@@ -34,9 +34,10 @@ This milestone **EXTENDS**:
 - `tests/auth/_metaInfraContract.test.ts` — add `requireDeveloper`, `requireDeveloperIdentity` producers + behavioral rows.
 - `tests/cross-cutting/auth-chain-audit.test.ts` (via `lib/audit/trustDomains.ts` + `lib/audit/authPrimitives.ts`) — `ChainStep` gains `requireDeveloper`; `PROTECTED_ROUTES` rows for the dev page + 2 harness pages + observability page + reap route change to `chain:["requireDeveloper"]`; recognizer accepts `requireDeveloper*` as a first-line gate. **Routes/pages only** — non-route server actions are covered by `developerGatingContract`.
 - `tests/messages/codes.test.ts` (x1 catalog parity) — satisfied by the §12.4 lockstep for `SELF_DEVELOPER_DEMOTE_FORBIDDEN`.
+- `tests/auth/advisoryLockRpcDeadlock.test.ts` (Task 2c) — add the new migration to the hardcoded `migrationFiles` list so `set_admin_developer_rpc`'s advisory-then-row-lock ordering + single-holder is pinned (the list is NOT auto-scanned).
 
 This milestone **SATISFIES (no edit, must stay green)**:
-- `tests/db/validation-schema-parity.test.ts`, `tests/db/postgrest-dml-lockdown.test.ts`, `tests/auth/advisoryLockRpcDeadlock.test.ts`, `tests/admin/build-artifact-gate.test.ts`.
+- `tests/db/validation-schema-parity.test.ts`, `tests/db/postgrest-dml-lockdown.test.ts`, `tests/admin/build-artifact-gate.test.ts`.
 
 ## Advisory-lock holder topology (mandatory — plan touches `pg_advisory*`)
 
@@ -61,7 +62,7 @@ Hashkey: `hashtextextended('admin_emails', 0)`. Existing holders (each a single 
 ## Task index
 
 Tasks are in separate files by phase for context economy:
-- `01-db-foundation.md` — Tasks 1–2 (migration, RPCs, DB tests, manifest, validation apply)
+- `01-db-foundation.md` — Tasks 1–2c (migration, RPCs, DB tests, concurrency, advisory-lock topology, manifest, validation apply)
 - `02-auth-primitives.md` — Tasks 3–5 (requireDeveloper, visibility helper, _metaInfraContract)
 - `03-minter-datalayer.md` — Tasks 6–7 (test minter, adminEmails data layer)
 - `04-action-and-catalog.md` — Tasks 8–9 (§12.4 code, setDeveloperAction)

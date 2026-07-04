@@ -43,21 +43,25 @@ describe("developer-tier: admin_emails.is_developer + is_developer()", () => {
     expect(out).toContain("false");
   });
 
-  test("CHECK forbids is_developer on a revoked row", () => {
+  test("CHECK forbids is_developer on a revoked row (admin_emails_developer_requires_active specifically)", () => {
     const email = `dev-check-${randomUUID()}@example.com`;
+    // revoked_by is NON-NULL so admin_emails_revoke_atomicity is SATISFIED and
+    // the ONLY constraint that can fire is admin_emails_developer_requires_active.
+    // Assert the specific constraint name (SQLERRM), not any check_violation.
     const out = runPsql(`
       begin;
       set local role postgres;
       do $$ begin
         begin
           insert into public.admin_emails(email, is_developer, revoked_at, revoked_by)
-          values ('${email}', true, now(), null);
+          values ('${email}', true, now(), gen_random_uuid());
           raise notice 'INSERTED_BAD';
-        exception when check_violation then raise notice 'CHECK_BLOCKED';
+        exception when check_violation then raise notice 'CHECK_BLOCKED:%', SQLERRM;
         end;
       end $$;
       rollback;`);
     expect(out).toContain("CHECK_BLOCKED");
+    expect(out).toContain("admin_emails_developer_requires_active");
   });
 
   test("is_developer() email arm: active is_developer row => true; revoked => false", () => {
@@ -74,8 +78,7 @@ describe("developer-tier: admin_emails.is_developer + is_developer()", () => {
     const revoked = runPsql(`
       begin;
       insert into public.admin_emails(email, is_developer, revoked_at, revoked_by)
-        values ('${email}', false, now(), null);
-      update public.admin_emails set is_developer=false where email='${email}';
+        values ('${email}', false, now(), gen_random_uuid());
       set local role authenticated;
       set local request.jwt.claims = '${claims({ email })}';
       select public.is_developer();
@@ -102,7 +105,7 @@ describe("developer-tier: admin_emails.is_developer + is_developer()", () => {
     // Simulate the seed statement + tripwire against a pre-revoked seed row in a txn.
     const out = runPsql(`
       begin;
-      update public.admin_emails set revoked_at=now(), revoked_by=null, is_developer=false
+      update public.admin_emails set revoked_at=now(), revoked_by=gen_random_uuid(), is_developer=false
         where email='edweiss412@gmail.com';
       insert into public.admin_emails (email, added_by, added_at, is_developer)
         values ('edweiss412@gmail.com', null, now(), true)
@@ -236,14 +239,19 @@ function tryPsql(sql: string): { ok: boolean; out: string } {
   catch (e) { return { ok: false, out: String((e as { stderr?: string }).stderr ?? e) }; }
 }
 const claims = (o: Record<string, unknown>) => JSON.stringify(o).replaceAll("'", "''");
-// A table-backed developer actor: seed an active is_developer row, act as that email.
-function asDeveloper(email: string, body: string): string {
+// A table-backed developer actor. ALL admin_emails fixture INSERTs happen BEFORE
+// `set local role authenticated` — authenticated has INSERT/UPDATE/DELETE REVOKE'd
+// on admin_emails (verified 20260514000000:97-98). Only the RPC-under-test + reads
+// (SELECT is granted to authenticated, RLS-gated by is_admin(); the actor is a
+// table-backed developer ⟹ is_admin() true) run under the authed role.
+function asDeveloper(actorEmail: string, setupSql: string, actSql: string): string {
   return `begin;
-    insert into public.admin_emails(email, is_developer) values ('${email}', true)
+    insert into public.admin_emails(email, is_developer) values ('${actorEmail}', true)
       on conflict (email) do update set is_developer=true, revoked_at=null, revoked_by=null;
+    ${setupSql}
     set local role authenticated;
-    set local request.jwt.claims = '${claims({ email })}';
-    ${body}
+    set local request.jwt.claims = '${claims({ email: actorEmail })}';
+    ${actSql}
     rollback;`;
 }
 
@@ -251,22 +259,24 @@ describe("set_admin_developer_rpc", () => {
   test("promote another admin => ok, is_developer true", () => {
     const actor = `actor-${randomUUID()}@example.com`;
     const target = `target-${randomUUID()}@example.com`;
-    const out = runPsql(asDeveloper(actor, `
-      insert into public.admin_emails(email, is_developer) values ('${target}', false);
-      select (public.set_admin_developer_rpc('${target}', true))->>'status';
-      select 'flag=' || is_developer from public.admin_emails where email='${target}';`));
+    const out = runPsql(asDeveloper(actor,
+      `insert into public.admin_emails(email, is_developer) values ('${target}', false);`,
+      `select (public.set_admin_developer_rpc('${target}', true))->>'status';
+       select 'flag=' || is_developer from public.admin_emails where email='${target}';`));
     expect(out).toContain("ok");
     expect(out).toContain("flag=t");
   });
 
   test("self-demote refused unconditionally", () => {
     const actor = `selfdemote-${randomUUID()}@example.com`;
-    const out = runPsql(asDeveloper(actor, `
-      select (public.set_admin_developer_rpc('${actor}', false))->>'status';`));
+    const out = runPsql(asDeveloper(actor, ``,
+      `select (public.set_admin_developer_rpc('${actor}', false))->>'status';`));
     expect(out).toContain("self_developer_demote_forbidden");
   });
 
   test("JWT-only developer (no admin_emails row) is rejected 42501 by the mutation RPC", () => {
+    // target seeded BEFORE the role switch; actor has NO row (JWT-only) — the
+    // table-backed auth check must reject it despite the developer JWT claim.
     const actor = `jwtonly-${randomUUID()}@example.com`;
     const target = `t-${randomUUID()}@example.com`;
     const res = tryPsql(`begin;
@@ -281,9 +291,9 @@ describe("set_admin_developer_rpc", () => {
 
   test("target not an active admin => not_found; empty email => invalid_email", () => {
     const actor = `nf-${randomUUID()}@example.com`;
-    const out = runPsql(asDeveloper(actor, `
-      select 'nf=' || ((public.set_admin_developer_rpc('nobody-${randomUUID()}@example.com', true))->>'status');
-      select 'inv=' || ((public.set_admin_developer_rpc('', true))->>'status');`));
+    const out = runPsql(asDeveloper(actor, ``,
+      `select 'nf=' || ((public.set_admin_developer_rpc('nobody-${randomUUID()}@example.com', true))->>'status');
+       select 'inv=' || ((public.set_admin_developer_rpc('', true))->>'status');`));
     expect(out).toContain("nf=not_found");
     expect(out).toContain("inv=invalid_email");
   });
@@ -291,10 +301,10 @@ describe("set_admin_developer_rpc", () => {
   test("revoke_admin_email_rpc clears is_developer", () => {
     const actor = `rev-actor-${randomUUID()}@example.com`;
     const target = `rev-target-${randomUUID()}@example.com`;
-    const out = runPsql(asDeveloper(actor, `
-      insert into public.admin_emails(email, is_developer) values ('${target}', true);
-      select (public.revoke_admin_email_rpc('${target}'))->>'status';
-      select 'flag=' || coalesce(is_developer::text,'null') from public.admin_emails where email='${target}';`));
+    const out = runPsql(asDeveloper(actor,
+      `insert into public.admin_emails(email, is_developer) values ('${target}', true);`,
+      `select (public.revoke_admin_email_rpc('${target}'))->>'status';
+       select 'flag=' || coalesce(is_developer::text,'null') from public.admin_emails where email='${target}';`));
     expect(out).toContain("ok");
     expect(out).toContain("flag=f");
   });
@@ -453,4 +463,23 @@ describe("set_admin_developer_rpc cross-demotion race", () => {
 ```bash
 git add tests/db/set-admin-developer-concurrency.test.ts
 git commit --no-verify -m "test(db): cross-demotion race — >=1 developer always remains"
+```
+
+---
+
+### Task 2c: Register the new migration in `advisoryLockRpcDeadlock`
+
+Codex plan-review R1 HIGH. `tests/auth/advisoryLockRpcDeadlock.test.ts` builds its lock-taker set from a **hardcoded** `migrationFiles` array in `lockTakingRpcNames()` (`:33-56`), then scans each file's function bodies for `pg_advisory_xact_lock` and asserts advisory-before-row-lock ordering (`assertAdvisoryBeforeRowLock`, `:22-30`). The new migration is NOT in that list, so `set_admin_developer_rpc` would go uncovered — the single-holder / advisory-then-row-lock invariant for the new RPC must be pinned here.
+
+**Files:** Modify `tests/auth/advisoryLockRpcDeadlock.test.ts`.
+
+- [ ] **Step 1: Add the migration to the list + assert the new RPC is covered** — add `"supabase/migrations/20260703230100_admin_emails_developer_tier.sql"` to the `migrationFiles` array (with a comment: `set_admin_developer_rpc` + the re-created `revoke_admin_email_rpc` each take `hashtextextended('admin_emails',0)` before their row lock, single-holder). Add an explicit assertion that the derived `lockTakingRpcNames()` set INCLUDES `"set_admin_developer_rpc"`, and that `assertAdvisoryBeforeRowLock` passes for it (advisory `perform pg_advisory_xact_lock(...)` precedes the `for update`).
+
+- [ ] **Step 2: Run to verify it fails then passes** — before adding the migration to the list, add ONLY the `expect(lockTakingRpcNames()).toContain("set_admin_developer_rpc")` assertion and run: `pnpm vitest run tests/auth/advisoryLockRpcDeadlock.test.ts` → FAIL (RPC not discovered). Then add the migration file to the array → run again → PASS.
+
+- [ ] **Step 3: Commit**
+
+```bash
+git add tests/auth/advisoryLockRpcDeadlock.test.ts
+git commit --no-verify -m "test(auth): pin set_admin_developer_rpc advisory-lock topology"
 ```

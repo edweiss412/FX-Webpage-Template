@@ -16,10 +16,14 @@ Implements spec §5.
 **Interfaces:**
 - Produces: `DeveloperInfraError` (`code="DEVELOPER_SESSION_LOOKUP_FAILED"`), `requireDeveloper(opts?: RequireDeveloperOpts): Promise<void>`, `requireDeveloperIdentity(opts?): Promise<DeveloperIdentity>` where `DeveloperIdentity = { email: string }`, `isCurrentUserDeveloper(): Promise<boolean>` (Task 4).
 
-- [ ] **Step 1: Write the failing test** — `tests/auth/requireDeveloper.test.ts`. Mirror `tests/auth/requireAdmin.test.ts`'s mocking of `createSupabaseServerClient` / `getClaims` / `rpc`. Assert:
-  - infra fault on `getClaims` (returned error) → throws `DeveloperInfraError`;
-  - `rpc("is_developer")` returns error → throws `DeveloperInfraError` (BEFORE any verdict);
-  - `is_session_live!==true` → calls `redirect` to `/auth/sign-in?next=...`;
+- [ ] **Step 1: Write the failing test** — `tests/auth/requireDeveloper.test.ts`. Mirror `tests/auth/requireAdmin.test.ts`'s mocking of `createSupabaseServerClient` / `getClaims` / `rpc`. Assert BOTH thrown AND returned infra paths (invariant 9 — the live `requireAdmin` wraps `getClaims()` and `Promise.all([rpc,rpc])` in try/catch; `requireAdmin.ts:181-193` thrown-getClaims, `:222-235` thrown-rpc):
+  - `getClaims` **returns** `{ error }` (non-session-missing) → throws `DeveloperInfraError`;
+  - `getClaims` **throws** → throws `DeveloperInfraError`;
+  - `createSupabaseServerClient()` throws → throws `DeveloperInfraError`;
+  - `rpc("is_developer")` **returns** `{ error }` → throws `DeveloperInfraError` (BEFORE any verdict);
+  - `Promise.all([rpc,rpc])` **throws** → throws `DeveloperInfraError`;
+  - `getClaims` returns an `AuthSessionMissingError` → `redirect` to `/auth/sign-in?next=...`;
+  - `is_session_live!==true` → `redirect` to sign-in;
   - `is_developer!==true` (confirmed non-developer, session live) → calls `forbidden()`;
   - both true → returns `{ email }`.
 
@@ -75,23 +79,39 @@ export type RequireDeveloperOpts = { layer?: "layout" | "page" };
 // (:44-116), changing the thrown class to DeveloperInfraError in the force hook.
 
 const resolveDeveloperIdentity = cache(async (): Promise<DeveloperIdentity> => {
-  let supabase; try { supabase = await createSupabaseServerClient(); }
+  let supabase;
+  try { supabase = await createSupabaseServerClient(); }
   catch (e) { throw new DeveloperInfraError(`client construction failed: ${String(e)}`); }
 
-  const { data: claimsData, error: claimsError } = await supabase.auth.getClaims();
+  // getClaims() can THROW (network/JWKS/decode) in addition to returning {error};
+  // BOTH arms -> DeveloperInfraError except the AuthSessionMissing redirect.
+  // Mirrors requireAdmin.ts:181-208.
+  let claimsData; let claimsError;
+  try { const r = await supabase.auth.getClaims(); claimsData = r.data; claimsError = r.error; }
+  catch (e) { throw new DeveloperInfraError(`getClaims threw: ${String(e)}`); }
   if (claimsError) {
     if (isAuthSessionMissingError(claimsError)) return redirectToSignIn();
-    throw new DeveloperInfraError(`getClaims failed: ${claimsError.message}`);
+    throw new DeveloperInfraError(`getClaims failed: ${String(claimsError.message)}`);
   }
-  const rawEmail = claimsData?.claims?.email;
-  if (!rawEmail || typeof rawEmail !== "string") return redirectToSignIn();
-  const email = canonicalize(rawEmail);
+  const email = canonicalize(
+    (claimsData as { claims?: { email?: string } } | null)?.claims?.email,
+  );
   if (!email) return redirectToSignIn();
 
-  const [{ data: sessionLive, error: sessionError }, { data: isDev, error: devError }] =
-    await Promise.all([supabase.rpc("is_session_live"), supabase.rpc("is_developer")]);
-  if (sessionError) throw new DeveloperInfraError(`is_session_live failed: ${sessionError.message}`);
-  if (devError) throw new DeveloperInfraError(`is_developer failed: ${devError.message}`);
+  // Promise.all the QUERY promises (they resolve, not reject) but ALSO wrap in
+  // try/catch for a thrown transport fault -> DeveloperInfraError. Never
+  // allSettled (invariant 9). Mirrors requireAdmin.ts:222-235.
+  let sessionRpc; let devRpc;
+  try {
+    [sessionRpc, devRpc] = await Promise.all([
+      supabase.rpc("is_session_live"),
+      supabase.rpc("is_developer"),
+    ]);
+  } catch (e) { throw new DeveloperInfraError(`session/developer RPC threw: ${String(e)}`); }
+  const { data: sessionLive, error: sessionError } = sessionRpc;
+  const { data: isDev, error: devError } = devRpc;
+  if (sessionError) throw new DeveloperInfraError(`is_session_live failed: ${String(sessionError.message)}`);
+  if (devError) throw new DeveloperInfraError(`is_developer failed: ${String(devError.message)}`);
   if (sessionLive !== true) return redirectToSignIn();
   if (isDev !== true) {
     log.warn("developer access denied", { code: "DEVELOPER_ACCESS_DENIED", emailHash: hashForLog(email) });
