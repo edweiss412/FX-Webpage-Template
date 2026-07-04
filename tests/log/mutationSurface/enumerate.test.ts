@@ -1,6 +1,18 @@
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
 import { describe, expect, test } from "vitest";
 import ts from "typescript";
-import { scanBody, moduleHasUseServer, functionBodyHasUseServer, importBindingOk } from "./enumerate";
+import {
+  scanBody,
+  moduleHasUseServer,
+  functionBodyHasUseServer,
+  importBindingOk,
+  parse,
+  collectSurfaceUnits,
+  moduleDefaultExports,
+  routeMutatingMethods,
+} from "./enumerate";
 
 const sf = (src: string) =>
   ts.createSourceFile("t.tsx", src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
@@ -135,5 +147,109 @@ describe("call-site binding (Codex plan-R1 F2): local shadow does NOT satisfy th
   test("param shadow (log) → codedLog false", () => {
     const src = IMP + 'async function m(log){ log.info("x", { code:"FOO" }); }';
     expect(scanBody(firstFn(src), { descend: false }).codedLog).toBe(false);
+  });
+});
+
+function makeFixture(relPath: string, contents: string): string {
+  const root = mkdtempSync(join(tmpdir(), "mutation-surface-"));
+  const full = join(root, relPath);
+  mkdirSync(dirname(full), { recursive: true });
+  writeFileSync(full, contents, "utf8");
+  return root;
+}
+
+describe("collectSurfaceUnits — module-level server actions", () => {
+  test("2 exported async fns → 2 module-action units, correct fn names", () => {
+    const root = makeFixture(
+      "lib/x/actions.ts",
+      '"use server";\nexport async function alpha(){}\nexport async function beta(){}\n',
+    );
+    const units = collectSurfaceUnits([root]);
+    expect(units.length).toBe(2);
+    expect(units.every((u) => u.kind === "module-action")).toBe(true);
+    expect(new Set(units.map((u) => u.fn))).toEqual(new Set(["alpha", "beta"]));
+  });
+
+  test("export-list `export { mutate }` is collected", () => {
+    const root = makeFixture(
+      "lib/x/actions.ts",
+      '"use server";\nasync function mutate(){}\nexport { mutate };\n',
+    );
+    const units = collectSurfaceUnits([root]);
+    expect(units.map((u) => u.fn)).toEqual(["mutate"]);
+  });
+
+  test("aliased export-list `export { local as mutate }` binds to local's declaration/body", () => {
+    const root = makeFixture(
+      "lib/x/actions.ts",
+      '"use server";\nasync function local(){ await doIt(); }\nexport { local as mutate };\n',
+    );
+    const units = collectSurfaceUnits([root]);
+    expect(units.length).toBe(1);
+    expect(units[0]!.fn).toBe("mutate");
+  });
+
+  test("'use server' module with export default → moduleDefaultExports true", () => {
+    const relPath = "lib/x/default-actions.ts";
+    const root = makeFixture(relPath, '"use server";\nexport default async function mutate(){}\n');
+    const sf = parse(join(root, relPath));
+    expect(moduleDefaultExports(sf)).toBe(true);
+  });
+});
+
+describe("collectSurfaceUnits — routes", () => {
+  test("route file exporting POST → one route unit (fn: POST)", () => {
+    const root = makeFixture("app/api/x/route.ts", "export async function POST(){}\n");
+    const units = collectSurfaceUnits([root]);
+    expect(units.length).toBe(1);
+    expect(units[0]!.kind).toBe("route");
+    expect(units[0]!.fn).toBe("POST");
+  });
+
+  test("route re-export `export { POST } from './x'` is detected by routeMutatingMethods", () => {
+    const root = makeFixture("app/api/x/route.ts", 'export { POST } from "./impl";\n');
+    const sf = parse(join(root, "app/api/x/route.ts"));
+    expect(routeMutatingMethods(sf).length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("route re-export with rename `export { handler as POST } from './x'` is detected", () => {
+    const root = makeFixture("app/api/y/route.ts", 'export { handler as POST } from "./impl";\n');
+    const sf = parse(join(root, "app/api/y/route.ts"));
+    expect(routeMutatingMethods(sf).length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("route with POST + DELETE → routeMutatingMethods length 2", () => {
+    const root = makeFixture(
+      "app/api/z/route.ts",
+      "export async function POST(){}\nexport async function DELETE(){}\n",
+    );
+    const sf = parse(join(root, "app/api/z/route.ts"));
+    expect(routeMutatingMethods(sf).length).toBe(2);
+  });
+});
+
+describe("collectSurfaceUnits — admin classification", () => {
+  test("module action calling requireAdmin in-body → admin:true", () => {
+    const root = makeFixture(
+      "lib/x/actions.ts",
+      '"use server";\nexport async function mutate(){ await requireAdmin(); doIt(); }\n',
+    );
+    const units = collectSurfaceUnits([root]);
+    expect(units[0]!.admin).toBe(true);
+  });
+
+  test("route under app/api/admin/** → admin:true (path-based)", () => {
+    const root = makeFixture("app/api/admin/x/route.ts", "export async function POST(){}\n");
+    const units = collectSurfaceUnits([root]);
+    expect(units[0]!.admin).toBe(true);
+  });
+
+  test("app/api/report/route.ts-style path → admin:false (not path-matched, not scanned for require*)", () => {
+    const root = makeFixture(
+      "app/api/report/route.ts",
+      'export async function POST(){ await requireAdminIdentity(); doIt(); }\n',
+    );
+    const units = collectSurfaceUnits([root]);
+    expect(units[0]!.admin).toBe(false);
   });
 });
