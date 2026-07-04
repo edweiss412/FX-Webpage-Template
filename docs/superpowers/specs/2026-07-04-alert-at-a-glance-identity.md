@@ -16,7 +16,9 @@ This is not unique to that one code. A full sweep of the admin-alert catalog fou
 ### Goal
 
 1. **Immediate:** `OAUTH_IDENTITY_CLAIMED` shows crew member name + OAuth email (raw canonical) + show title, at a glance.
-2. **Full sweep:** every generic code that identifies a concrete entity surfaces that entity (crew / show / sheet / count), rendered on all three admin alert surfaces. Identity is entity names/counts only — never diagnostic strings like `reason`/error messages/codes (§3.1, invariant 5). Codes that are genuinely global carry an explicit "no per-entity identity" declaration — no fabricated entities, no silent gaps.
+2. **Full sweep:** every generic code that identifies a concrete entity surfaces that entity (crew / show / sheet / count), rendered on **the surfaces where that code actually appears** (see the surface-scope note below). Identity is entity names/counts only — never diagnostic strings like `reason`/error messages/codes (§3.1, invariant 5). Codes that are genuinely global carry an explicit "no per-entity identity" declaration — no fabricated entities, no silent gaps.
+
+**Surface scope — info-severity codes are per-show + CLI only (resolves Codex F11).** `AlertBanner` deliberately excludes `severity:"info"` codes via `INFO_SEVERITY_CODES` (`AlertBanner.tsx:71-73`, derived from catalog `severity:"info"` entries; pinned by existing banner tests). The two info-severity entity-bearing codes — `ROLE_FLAGS_NOTICE` (catalog:749) and `SHOW_FIRST_PUBLISHED` (catalog:950, already-SPECIFIC) — **never reach the banner and this spec does not change that**. Their identity renders on `PerShowAlertSection` and the `pnpm observe alerts` CLI only. "All three surfaces" therefore means "all surfaces on which the code is eligible to render." No banner info-exclusion contract or test is modified.
 
 ### Non-goals
 
@@ -148,7 +150,7 @@ Legend — **Source:** `ctx:key` = literal in `context`; `→show` = resolve `sh
 | 12 | WEBHOOK_TOKEN_INVALID | **global** (only `channel_id`/`reason` diagnostics; sheet not resolvable) | — | none |
 | 13 | EMBEDDED_RECOVERY_REQUIRES_RESTAGE | Sheet | →show (via `ctx:drive_file_id`) | none |
 | 14 | LIVE_ROW_CONFLICT | Sheet `file_name` | `ctx:file_name` | none |
-| 15 | ROLE_FLAGS_NOTICE | Sheet · crew name(s) (cap 3, "+N more") · "N role change(s)" | →show (via `drive_file_id`), `role_change_crew_names` + `role_change_count` (derived from `changes[].crew_name` by the projection — raw flag deltas dropped) | none |
+| 15 | ROLE_FLAGS_NOTICE | Sheet · crew name(s) (cap 3, "+N more") · "N role change(s)" — **info-severity: per-show + CLI only, NOT banner** | →show (via `drive_file_id`), `role_change_crew_names` + `role_change_count` (derived from `changes[].crew_name` by the projection — raw flag deltas dropped) | none |
 | 16 | DRIVE_FETCH_FAILED | Sheet `sheet_name` | `ctx:sheet_name` | none |
 | 17 | PARSE_ERROR_LAST_GOOD | *(already SPECIFIC — sheet in copy)* | n/a — global entry (no added segment) | none |
 | 18 | SHEET_UNAVAILABLE | *(already SPECIFIC — sheet in copy)* | n/a — global entry | none |
@@ -315,9 +317,14 @@ A **code × context** table test. For each of the 42 codes, feed a representativ
 - **PerShowAlertSection:** identity line renders per alert; clone-and-remove sibling nodes before scanning for a name to avoid self-satisfying assertions (anti-tautology rule). **Show-only code with no `drive_file_id` (Codex F6):** an `EMAIL_DELIVERY_FAILED`/`PENDING_SNAPSHOT_PROMOTE_STUCK` alert on a show page renders the show-name identity segment (proving the parent `showId` was injected — it would be blank if not).
 - **CLI / read-core allowlist (Codex F2):** `queryAlerts` on a row whose `admin_alerts.context` carries an arbitrary non-identity field (e.g. `error_message: "secret"`, `orphan_url`) returns an `identityContext` containing ONLY `IDENTITY_CONTEXT_KEYS` — the arbitrary field is absent. Email withheld by default, present with `includePii: true`. `scripts/observe.ts` shows `describeAlert(…, { includePii:false })` per row (no email); `--reveal-email` shows it. A `--json` snapshot asserts no `user_email` and no non-allowlisted key by default.
 
-### 9.4 No layout-dimensions / transition-audit tasks
+### 9.4 Real-browser layout task for the AlertBanner identity line (mandatory — resolves Codex F12)
 
-The identity line is a normal text node in an existing flex/stack; no fixed-dimension parent with flex/grid children is introduced, and no new animated/multi-state component. (If implementation places the identity inside a fixed-height row, add the real-browser layout assertion per the writing-plans rule — decide at plan time.)
+The collapsed banner row is a **constrained grid/flex** layout (`min-h-tap-min`, icon/summary/action alignment, the `col-span-full` panel invariant — `AlertBanner.tsx:380+`). Adding an identity line beneath the collapsed one-liner changes row height, wrapping, and icon/action alignment — a class jsdom cannot evaluate (per this project's Tailwind-v4-no-default-`items-stretch` and layout-gate discipline). A **Playwright** task must, with an identity line present, at **mobile (375px) and desktop (≥1024px)** widths, for both **collapsed and expanded** states:
+- assert the identity element (`data-testid="admin-alert-identity"`) is visible, does not overlap or overflow the banner, and wraps rather than clipping;
+- assert the first-row icon + summary + "Check it"/action alignment is preserved (the identity line sits below the summary, not colliding with the action cell);
+- assert the `+N more` chip and raised-at row remain correctly placed.
+
+jsdom render tests (§9.3) verify content/presence; this task verifies the geometry. No transition-audit task is needed (the identity line is static — no animated/multi-state component; it appears/absent with the alert, an instant server re-render).
 
 ---
 
