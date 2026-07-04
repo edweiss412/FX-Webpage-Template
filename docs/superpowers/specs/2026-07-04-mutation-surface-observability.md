@@ -388,9 +388,13 @@ Add to the "Plan-wide invariants (non-negotiable)" list:
 > message or a `code:` field), OR an inline `// no-telemetry: <reason>` exemption, OR a
 > `KNOWN_UNINSTRUMENTED` debt-ledger row with a backlog ref. Checked **per function** for
 > actions (an emit in one exported action does not satisfy a sibling) and per file for routes
-> (each route file has exactly one mutating handler, asserted). **Admin-gated actions** (body
-> calls `require{Admin,Developer}[Identity]`) must satisfy this via `await logAdminOutcome`
-> specifically — a success outcome, not a failure-only log. Beyond this floor, success-path
+> (each route file has exactly one mutating handler, asserted). **Admin mutations must
+> satisfy this via `await logAdminOutcome` specifically** — a success outcome, not a
+> failure-only log — for both **admin-gated actions** (body calls
+> `require{Admin,Developer}[Identity]`) AND **mutating routes under `app/api/admin/**`**
+> (path-based; `require*`-detection is not used for routes, to avoid a false positive on
+> crew routes that read admin identity for role-detection, e.g. `app/api/report`). Beyond
+> this floor, success-path
 > outcome *precision* for named admin mutations (which code, which branch) remains the
 > registry guard's (`_metaAdminOutcomeContract`) and audits' job — the two are complementary.
 > Enforced by `tests/log/_metaMutationSurfaceObservability.test.ts`. New mutation surfaces are
@@ -405,19 +409,20 @@ the 3 admin-gated picker mutations are instrumented now, not deferred).
 - **Complement, not replace.** `_metaAdminOutcomeContract` is the *precision* guard (named
   file → named code, codes kept out of §12.4). This is the *floor* guard (no silent surface).
   Both stay. Do not relitigate merging them.
-- **Floor vs success-path, and where the line sits (Codex R2/R3 vector).** The floor is a
+- **Floor vs success-path, and where the line sits (Codex R2/R3/R6 vector).** The floor is a
   static check; it cannot verify *which branch* an emit sits on across arbitrary control
   flow. So the guarantee is stated precisely (§6): "instrumented / no dark surface," not
   "every success is logged." The gap Codex named — an admin mutation logging only a failure
-  code — is closed **structurally** for the surface where it matters: admin-gated actions
-  must emit `await logAdminOutcome` (a post-commit success outcome), enforced by §4.2, not
-  left to the opt-in registry. For routes and crew/system actions the floor accepts any coded
-  emit by design (heterogeneous telemetry: infra endpoints legitimately log anomalies).
-  Success-path *precision* for named admin mutations (exact code/branch) stays the registry's
-  job — and every admin mutation *route* is already registered. This boundary is the product
-  of three adversarial rounds; do not relitigate "failure-only passes" (closed for admin
-  actions) or "make discovery a full success-branch verifier" (statically infeasible — the
-  registry + sink-spy tests are that verifier).
+  code — is closed **structurally for every admin mutation surface**: admin-gated **actions**
+  (require\* in body) AND admin **routes** (under `app/api/admin/**`) satisfy the floor only
+  via `await logAdminOutcome` (a post-commit success outcome), enforced by §4.2. Only
+  **non-admin** surfaces — crew/system actions and infra routes (webhook, realtime, `report`,
+  sign-out) — accept any coded emit, by design (heterogeneous telemetry: they legitimately
+  log anomalies). *Which branch* the emit sits on is verified per-surface by the sink-spy
+  tests (§10.5), not statically. This boundary is the product of R2/R3/R6; do not relitigate
+  "failure-only passes for admin surfaces" (closed for both actions and routes) or "make
+  discovery a full static success-branch verifier" (infeasible — the sink-spy tests +
+  registry are that verifier).
 - **Routes are checked file-level, and that is per-handler here (not a weaker check).** Every
   `route.ts` in this repo exports exactly one mutating handler (measured: 35/35 single `POST`),
   and the meta-test asserts this invariant, so file-level scoping is equivalent to
@@ -484,10 +489,16 @@ the 3 admin-gated picker mutations are instrumented now, not deferred).
    `fn` body calls a `require{Admin,Developer}[Identity]` gate fails the test — prove it with
    an in-memory admin-gated fixture and by asserting the live ledger's 6 functions are all
    non-admin-gated.
-5. **Per-surface instrumentation tests** — for each newly-instrumented action, a sink-spy
-   test asserting the success path emits the expected `code` (and no emit on the failure
-   branch). Derive expectations from the action's own result shape; do not assert against a
-   container that also renders the value.
+5. **Per-surface instrumentation tests (actions AND routes) — Codex R7.** For **every**
+   newly-instrumented surface — all 19 success emits, including the two admin **routes** — a
+   behavioral sink-spy test asserting the **committed-success branch** emits the expected
+   `code` and that non-success branches emit nothing. Static floor checks cannot tell which
+   branch an emit sits on, so these branch-level tests are the guarantee. Explicitly cover:
+   `MANIFEST_SHEET_IGNORED` fires on the committed manifest-transition branch and **not** on
+   a CAS-miss rollback; `STALE_SESSIONS_REAPED` fires on the successful-reap branch (with the
+   count) and not on the infra-fault branch; each admin toggle emits on `{ ok: true }` only;
+   `rotateShareToken` never includes the `share_token` secret. Derive expectations from the
+   surface's own result shape; do not assert against a container that also renders the value.
 6. **`_metaAdminOutcomeContract` still green** — the new registry rows are consistent
    (file emits the registered code; code stays out of §12.4).
 
