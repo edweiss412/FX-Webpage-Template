@@ -862,3 +862,84 @@ describe("DiagramsBreakdown body (follow-ups spec §B3 + §K8)", () => {
     expect(tile.getAttribute("href")).toBe(expected);
   });
 });
+
+// ── RoomsBreakdown — room notes visual separation (spec §F, Task 11) ────────
+// The room-detail list currently blends into the gear-scope grid above it.
+// This inset container (mt-2 rounded-md bg-surface-sunken px-3 py-2) + "Room
+// notes" eyebrow gives it a distinct visual scope. Concrete failure modes:
+//  - inset container missing → notes still flush against the scope grid.
+//  - eyebrow missing/mis-scoped → operator can't tell where "scope" ends and
+//    "notes" begins.
+//  - pl-7 retained → double-indent (old scheme relied on padding, not a box).
+//  - a border-l side-stripe sneaking in → spec §F absolute ban.
+//  - the sibling gear-scope grid's class string drifting → accidental
+//    restyle of L768-793 while touching the neighboring detail block.
+describe("RoomsBreakdown — room notes inset separation (spec §F, Task 11)", () => {
+  function detailRoomData(): SectionData {
+    return sectionData({
+      rooms: [
+        {
+          kind: "gs",
+          name: "GRAND BALLROOM",
+          dimensions: "60' x 45'",
+          floor: null,
+          setup: "18 tables of 7",
+          set_time: null,
+          show_time: null,
+          strike_time: null,
+          audio: "(1) QU32",
+          video: null,
+          lighting: null,
+          scenic: null,
+          power: null,
+          digital_signage: null,
+          other: null,
+          notes: null,
+        },
+      ],
+    });
+  }
+
+  test("detail <ul> keeps its testid and sits inside a rounded-md bg-surface-sunken px-3 py-2 inset container", () => {
+    const { getByTestId } = renderBody(detailRoomData(), "rooms");
+    const detail = getByTestId(`wizard-step3-card-${DFID}-room-0-detail`);
+    const container = detail.closest(".bg-surface-sunken");
+    expect(container).not.toBeNull();
+    expect(container!.className).toContain("rounded-md");
+    expect(container!.className).toContain("px-3");
+    expect(container!.className).toContain("py-2");
+  });
+
+  test('an eyebrow reading "Room notes" precedes the detail <ul> inside the inset container', () => {
+    const { getByTestId } = renderBody(detailRoomData(), "rooms");
+    const detail = getByTestId(`wizard-step3-card-${DFID}-room-0-detail`);
+    const container = detail.closest(".bg-surface-sunken") as HTMLElement;
+    const scoped = within(container);
+    const eyebrow = scoped.getByText("Room notes");
+    expect(container.textContent!.indexOf("Room notes")).toBeLessThan(
+      container.textContent!.indexOf("Dimensions:"),
+    );
+    expect(container.contains(eyebrow)).toBe(true);
+  });
+
+  test("detail <ul> no longer carries pl-7; label spans are font-medium text-text-strong, values render in text-text", () => {
+    const { getByTestId } = renderBody(detailRoomData(), "rooms");
+    const detail = getByTestId(`wizard-step3-card-${DFID}-room-0-detail`);
+    expect(detail.className).not.toContain("pl-7");
+    expect(detail.className).toContain("text-text");
+    const labelSpan = within(detail).getByText("Dimensions:");
+    expect(labelSpan.className).toContain("font-medium");
+    expect(labelSpan.className).toContain("text-text-strong");
+  });
+
+  test("gear-scope grid is unchanged (L768-793 sibling, byte-pinned class string)", () => {
+    const { getByTestId } = renderBody(detailRoomData(), "rooms");
+    const scope = getByTestId(`wizard-step3-card-${DFID}-room-0-scope`);
+    expect(scope.className).toBe("mt-1.5 flex flex-col gap-1 text-xs text-text-subtle");
+  });
+
+  test("no side-stripe: no border-l class anywhere in the rooms body HTML (spec §F absolute ban)", () => {
+    const { container } = renderBody(detailRoomData(), "rooms");
+    expect(container.innerHTML).not.toContain("border-l");
+  });
+});

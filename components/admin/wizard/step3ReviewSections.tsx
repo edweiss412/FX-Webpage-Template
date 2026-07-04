@@ -908,16 +908,22 @@ export function RoomsBreakdown({ dfid, rooms }: { dfid: string; rooms: RoomRow[]
                     value: String(r[f.key] ?? "").trim(),
                   })).filter((d) => d.value.length > 0);
                   return detail.length > 0 ? (
-                    <ul
-                      data-testid={`wizard-step3-card-${dfid}-room-${i}-detail`}
-                      className="mt-1 flex flex-col gap-0.5 pl-7 text-xs text-text-subtle"
-                    >
-                      {detail.map((d) => (
-                        <li key={d.label} className="wrap-break-word">
-                          <span className="font-medium text-text">{d.label}:</span> {d.value}
-                        </li>
-                      ))}
-                    </ul>
+                    <div className="mt-2 rounded-md bg-surface-sunken px-3 py-2">
+                      <p className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
+                        Room notes
+                      </p>
+                      <ul
+                        data-testid={`wizard-step3-card-${dfid}-room-${i}-detail`}
+                        className="mt-1 flex flex-col gap-0.5 text-xs text-text"
+                      >
+                        {detail.map((d) => (
+                          <li key={d.label} className="wrap-break-word">
+                            <span className="font-medium text-text-strong">{d.label}:</span>{" "}
+                            {d.value}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
                   ) : null;
                 })()}
               </li>
