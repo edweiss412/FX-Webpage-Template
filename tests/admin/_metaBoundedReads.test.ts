@@ -30,6 +30,7 @@ import { describe, expect, it } from "vitest";
 const READ_MODULES = [
   "components/admin/Dashboard.tsx",
   "lib/admin/healthRollup.ts",
+  "lib/admin/healthAlerts.ts",
   "lib/admin/loadNeedsAttention.ts",
   "lib/observe/query/events.ts",
   "lib/observe/query/cronHealth.ts",

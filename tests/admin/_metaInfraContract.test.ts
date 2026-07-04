@@ -255,6 +255,12 @@ const infraRegistry = [
       "admin_alerts app-health rollup: exact count:'exact', head:true probes ONLY (total over HEALTH_CODES → short-circuit {kind:'ok'} at 0; degraded head count → worst weight; parallel per-code head counts for the popover summaries). Every await destructures { data, count, error }; construction throw / returned {error} / non-number count / any await throw → { kind:'infra_error' }; data:null is NORMAL for a head probe (validated solely on typeof count === 'number', never array-shape)",
   },
   {
+    helper: "loadHealthAlerts",
+    path: "lib/admin/healthAlerts.ts",
+    contract:
+      "admin_alerts health-detail loader (spec §6.6): ONE partition per call (weight → DEGRADED_HEALTH_CODES | NOTICE_HEALTH_CODES), .in('code', set).is('resolved_at',null).order('raised_at',desc).range(page*SIZE, page*SIZE+SIZE) requesting SIZE+1 rows; destructure { data, error }; construction throw / returned {error} / any await throw → { kind:'infra_error' } (array-shape read; the panel degrades VISIBLE, never a silent empty). Bounded via .range.",
+  },
+  {
     helper: "getActiveWatchedFolder",
     path: "lib/appSettings/getWatchedFolderId.ts",
     contract:
@@ -815,6 +821,26 @@ describe("META §B Supabase call-boundary contract", () => {
       infraMock.throwOnFromTable = "show_change_log";
       const { queryChangeLog } = await import("@/lib/observe/query/changeLog");
       expect(await queryChangeLog({})).toMatchObject({ kind: "infra_error" });
+    });
+  });
+
+  // Health-detail loader (alert-audience-split Task 8, spec §6.6). Array-shape
+  // read: construction throw AND per-table .from() throw both surface the typed
+  // infra_error (never propagate). The panel degrades VISIBLE on it.
+  describe("loadHealthAlerts", () => {
+    test("server-client construction throw → { kind: 'infra_error' }", async () => {
+      infraMock.throwOnConstruct = true;
+      const { loadHealthAlerts } = await import("@/lib/admin/healthAlerts");
+      expect(await loadHealthAlerts({ weight: "degraded", page: 0 })).toEqual({
+        kind: "infra_error",
+      });
+    });
+    test("from('admin_alerts') throw → { kind: 'infra_error' }", async () => {
+      infraMock.throwOnFromTable = "admin_alerts";
+      const { loadHealthAlerts } = await import("@/lib/admin/healthAlerts");
+      expect(await loadHealthAlerts({ weight: "notice", page: 0 })).toEqual({
+        kind: "infra_error",
+      });
     });
   });
 

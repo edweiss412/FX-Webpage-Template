@@ -6,6 +6,7 @@ import { parseAppEventFilters } from "@/lib/admin/telemetryTypes";
 import { loadAppEvents } from "@/lib/admin/loadAppEvents";
 import { loadCronHealth } from "@/lib/admin/loadCronHealth";
 import { CronHealthHeader } from "@/components/admin/telemetry/CronHealthHeader";
+import { HealthAlertsPanel } from "@/components/admin/telemetry/HealthAlertsPanel";
 import { EventFilters } from "@/components/admin/telemetry/EventFilters";
 import { EventTimeline } from "@/components/admin/telemetry/EventTimeline";
 import { AutoRefreshControl } from "@/components/admin/telemetry/AutoRefreshControl";
@@ -35,6 +36,9 @@ export default async function TelemetryPage({
         sub="App event log & cron health"
         rightSlot={<AutoRefreshControl />}
       />
+      {/* Developer health-alert detail (alert-audience-split §6.6) — ABOVE the
+          cron/event content; the nav/dashboard deep-links scroll to #health. */}
+      <HealthAlertsPanel searchParams={sp} />
       {health.kind === "ok" ? (
         <CronHealthHeader jobs={health.jobs} now={now} />
       ) : (
