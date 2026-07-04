@@ -148,7 +148,7 @@ Legend — **Source:** `ctx:key` = literal in `context`; `→show` = resolve `sh
 | 8 | ASSET_RECOVERY_BYTES_EXCEEDED | Sheet | →show | none |
 | 9 | ASSET_RECOVERY_REVISION_DRIFT | Sheet | →show | none |
 | 10 | ASSET_RECOVERY_DRIFT_COOLDOWN | Sheet | →show | none |
-| 11 | WATCH_CHANNEL_ORPHANED | Sheet | →show | none (existing `error_message` `<code>` block unchanged, NOT part of identity) |
+| 11 | WATCH_CHANNEL_ORPHANED | **global** (justified) | — | none — see note (`watch.ts:193` writes `showId:null`; context has `watched_folder_id`/`channel_id`/`error_*` only — folder-scoped, no resolvable show/sheet; existing `error_message` `<code>` block unchanged) |
 | 12 | WEBHOOK_TOKEN_INVALID | **global** (only `channel_id`/`reason` diagnostics; sheet not resolvable) | — | none |
 | 13 | EMBEDDED_RECOVERY_REQUIRES_RESTAGE | Sheet | →show (via `ctx:drive_file_id`) | none |
 | 14 | LIVE_ROW_CONFLICT | Sheet `file_name` | `ctx:file_name` | none |
@@ -189,7 +189,7 @@ Every other identifier is ID-resolvable at render time or already in `context`. 
 
 **PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED stays `global` (justified, Codex F13).** This alert fires precisely because the share-token URL **could not be resolved to a show** — so no show entity exists to name. The `context.slug` is the raw, unresolved URL fragment, not a resolvable entity identifier; rendering it would present an unresolved token as if it were a show. Intentionally out of scope: a failed resolution has no entity. (`rpc_error_code`/`rpc_error_message` remain diagnostics, excluded by §3.1.)
 
-**Codes classified `global` (identity line suppressed), 12 total:** the three truly system-wide (19 SYNC_STALLED, 21 EMAIL_NOT_CONFIGURED, 33 GITHUB_BOT_LOGIN_MISSING); the three diagnostic-only with no resolvable entity (4 PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED, 5 CALLBACK_CLAIM_THREW, 12 WEBHOOK_TOKEN_INVALID); and the six already-SPECIFIC-in-copy (17, 18, 22, 23, 38, 39) whose entity is already interpolated into the copy so the identity line adds nothing. **12 global entries, 30 with an identity segment, 42 total.** (Numeric-sweep anchor — the §8.3 meta-test enforces every code is present as either `global` or with ≥1 segment.)
+**Codes classified `global` (identity line suppressed), 13 total:** the three truly system-wide (19 SYNC_STALLED, 21 EMAIL_NOT_CONFIGURED, 33 GITHUB_BOT_LOGIN_MISSING); the four folder-/diagnostic-scoped with no resolvable per-show entity (4 PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED, 5 CALLBACK_CLAIM_THREW, 11 WATCH_CHANNEL_ORPHANED, 12 WEBHOOK_TOKEN_INVALID); and the six already-SPECIFIC-in-copy (17, 18, 22, 23, 38, 39) whose entity is already interpolated into the copy so the identity line adds nothing. **13 global entries, 29 with an identity segment, 42 total.** (Numeric-sweep anchor — the §8.3 meta-test enforces every code is present as either `global` or with ≥1 segment.)
 
 **Already-SPECIFIC codes** (17, 18, 22, 23, 38, 39): declared `global` in the identity map (their entity is already interpolated into `dougFacing`; the identity line must never restate the copy — §6.4). The completeness meta-test still requires their presence.
 
@@ -313,7 +313,7 @@ The read-core comment (`lib/observe/query/alerts.ts:4-6`) states context is "int
 
 ### 9.1 `describeAlert` / identity-map unit matrix (`lib/adminAlerts`)
 
-A **code × context** table test. For each of the 42 codes, feed a representative `context` fixture and assert the produced `AlertIdentity`:
+A **code × context** table test. For each of the 42 codes, feed a `context` fixture and assert the produced `AlertIdentity`. **Fixtures must mirror the real producer's context shape** (resolves the broader Codex F16 point) — each non-`global` entry's fixture uses the exact keys its raise site actually writes (e.g. `ROLE_FLAGS_NOTICE` → `{ drive_file_id, changes:[{crew_name,prior_flags,new_flags}] }` per `phase2.ts`; `PICKER_BOOTSTRAP_RPC_FAILED` → `{ show_id, attempted_email_hash, rpc_error_code, rpc_error_message, route }` per `picker-bootstrap/route.ts`), never a synthetic `drive_file_id` a producer never emits. A helper cross-checks that every key a producer fixture relies on is one the identity map reads, so a code marked entity-bearing but whose producer writes no resolvable field fails the test (the WATCH_CHANNEL_ORPHANED trap).
 - **Anti-tautology:** derive expected names from the fixture (`crew_members.name`, `shows.title` in a seeded map), never hardcode a name the formatter could echo by accident. Assert against the resolved-lookup fixture, not the rendered container.
 - **Concrete failure modes each case catches:** missing context key → segment dropped; unresolvable id → segment dropped; global code → `null`; already-in-copy code → suppressed/complement only; wrong-type value → dropped.
 - **OAUTH_IDENTITY_CLAIMED end-to-end:** `context = { crew_member_id: X, show_id: Y, user_email: "jane@gmail.com" }` + a lookup fixture where `X→"Jane Doe"`, `Y→"II — FinTech…"` → `describeAlert` = `"Crew: Jane Doe · jane@gmail.com · Show: II — FinTech…"`.
