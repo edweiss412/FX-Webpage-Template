@@ -69,6 +69,49 @@ function harnessHtml(cssHref: string): string {
 </body></html>`;
 }
 
+// ── Full-topbar overflow harness (Codex R1) ────────────────────────────
+// The real risk of adding a FOURTH 44px action control is horizontal overflow
+// of the WHOLE mobile topbar, not the indicator in isolation. This harness
+// mirrors AdminNav's real topbar verbatim — brand (icon + FXAV wordmark +
+// collapsible "Admin" pill) + flex-1 spacer + the four-control action cluster
+// (health, bell, theme, user) — inside the layout's 16px page padding, so we can
+// assert the bar never exceeds the viewport at the narrowest supported width.
+const PAGE_PAD_MOBILE = 16; // --spacing-page-pad-mobile: 16px (app/globals.css)
+// Brand progressive-collapse classes — MUST match AdminNav.tsx (Codex R1). The
+// FXAV wordmark returns at >=360px, the decorative "Admin" pill at >=440px.
+const BRAND_WORDMARK_CLASS =
+  "hidden text-lg font-semibold tracking-tight text-text-strong min-[360px]:inline";
+const ADMIN_PILL_CLASS =
+  "hidden rounded-pill border border-border bg-surface-raised px-2 text-xs font-semibold text-text-subtle min-[440px]:inline-block";
+// ThemeToggle + UserMenu render as 44px icon/avatar buttons on mobile (email
+// lives only in the UserMenu popover) — transcribed from their real class lists.
+const THEME_TOGGLE = `<button type="button" data-testid="theme-toggle" class="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border bg-surface text-text-subtle">${ICON}</button>`;
+const USER_MENU = `<div class="relative"><button type="button" data-testid="user-menu" class="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-pill border border-border bg-surface text-sm font-semibold text-text-subtle"><span aria-hidden="true">EW</span></button></div>`;
+
+function fullTopbarHtml(cssHref: string): string {
+  return `<!doctype html>
+<html data-theme="light">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="${cssHref}"></head>
+<body class="bg-bg">
+  <div style="padding:0 ${PAGE_PAD_MOBILE}px;">
+    <nav data-testid="admin-nav-topbar" class="mb-4 flex items-center gap-3 border-b border-border pb-3">
+      <a href="/admin" data-testid="admin-nav-brand" class="flex items-center gap-2 rounded-sm">
+        <span class="size-7 shrink-0 inline-block" style="width:28px;height:28px;"></span>
+        <span class="${BRAND_WORDMARK_CLASS}">FXAV</span>
+        <span class="${ADMIN_PILL_CLASS}">Admin</span>
+      </a>
+      <div class="flex-1"></div>
+      <div class="flex items-center gap-2">
+        ${appHealthIndicator()}
+        ${notifBell()}
+        ${THEME_TOGGLE}
+        ${USER_MENU}
+      </div>
+    </nav>
+  </div>
+</body></html>`;
+}
+
 let server: Server;
 let baseUrl: string;
 let workDir: string;
@@ -81,16 +124,30 @@ test.beforeAll(async () => {
     "utf8",
   );
   const notifBellSrc = readFileSync(join(REPO_ROOT, "components/admin/nav/NotifBell.tsx"), "utf8");
+  const adminNavSrc = readFileSync(join(REPO_ROOT, "components/admin/nav/AdminNav.tsx"), "utf8");
   expect(notifBellSrc, "NotifBell tap-target class drifted").toContain(TAP_TARGET);
   expect(indicatorSrc, "indicator tap-target class must match NotifBell").toContain(TAP_TARGET);
   expect(indicatorSrc, "indicator inner cluster class (§8)").toContain(INNER_CLUSTER);
+  // FIDELITY (Codex R1): the brand's progressive narrow-viewport collapse is what
+  // keeps the four-control topbar within the viewport — the harness must render
+  // the SAME class lists AdminNav ships, so drift fails the overflow test's premise.
+  expect(adminNavSrc, "brand wordmark narrow-collapse class drifted from AdminNav").toContain(
+    BRAND_WORDMARK_CLASS,
+  );
+  expect(adminNavSrc, "Admin pill narrow-collapse class drifted from AdminNav").toContain(
+    ADMIN_PILL_CLASS,
+  );
 
   workDir = mkdtempSync(join(tmpdir(), "app-health-dim-"));
   writeFileSync(join(workDir, "harness.html"), harnessHtml("out.css"));
+  writeFileSync(join(workDir, "fulltopbar.html"), fullTopbarHtml("out.css"));
 
   const entryCss = join(workDir, "entry.css");
   const globals = readFileSync(join(REPO_ROOT, "app", "globals.css"), "utf8");
-  writeFileSync(entryCss, `@source "${join(workDir, "harness.html")}";\n${globals}`);
+  writeFileSync(
+    entryCss,
+    `@source "${join(workDir, "harness.html")}";\n@source "${join(workDir, "fulltopbar.html")}";\n${globals}`,
+  );
 
   execFileSync(
     "pnpm",
@@ -158,5 +215,58 @@ test.describe("AppHealthIndicator nav layout invariants (spec §8)", () => {
     expect(Math.abs(indicatorCenter - bellCenter)).toBeLessThanOrEqual(TOL);
     expect(Math.abs(indicatorCenter - barCenter)).toBeLessThanOrEqual(TOL);
     expect(Math.abs(bellCenter - barCenter)).toBeLessThanOrEqual(TOL);
+  });
+});
+
+test.describe("Admin topbar mobile overflow with the health indicator (Codex R1)", () => {
+  test.setTimeout(120_000);
+
+  async function navScroll(page: Page) {
+    return page.locator('[data-testid="admin-nav-topbar"]').evaluate((el) => ({
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+    }));
+  }
+
+  // The four action controls are ALWAYS present (each at the 44px a11y floor);
+  // the topbar must never horizontally scroll them, at any supported width.
+  async function assertNoOverflow(page: Page) {
+    await expect(page.locator('[data-testid="app-health-indicator"]')).toBeVisible();
+    await expect(page.locator('[data-testid="admin-notif-bell"]')).toBeVisible();
+    await expect(page.locator('[data-testid="theme-toggle"]')).toBeVisible();
+    await expect(page.locator('[data-testid="user-menu"]')).toBeVisible();
+    const { scrollWidth, clientWidth } = await navScroll(page);
+    expect(
+      scrollWidth,
+      `topbar scrollWidth(${scrollWidth}) <= clientWidth(${clientWidth})`,
+    ).toBeLessThanOrEqual(clientWidth + TOL);
+  }
+
+  const wordmark = () => `[data-testid="admin-nav-brand"] >> text=FXAV`;
+  const pill = () => `[data-testid="admin-nav-brand"] >> text=Admin`;
+
+  test("(320px) icon-only brand; four controls fit with no overflow", async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 640 });
+    await page.goto(`${baseUrl}fulltopbar.html`);
+    // Below 360px BOTH the wordmark and the pill collapse; only the icon anchors.
+    await expect(page.locator(wordmark())).toBeHidden();
+    await expect(page.locator(pill())).toBeHidden();
+    await assertNoOverflow(page);
+  });
+
+  test("(390px) wordmark returns, pill stays collapsed, still fits", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 640 });
+    await page.goto(`${baseUrl}fulltopbar.html`);
+    await expect(page.locator(wordmark())).toBeVisible();
+    await expect(page.locator(pill())).toBeHidden();
+    await assertNoOverflow(page);
+  });
+
+  test("(480px) wordmark and pill both present, still fits", async ({ page }) => {
+    await page.setViewportSize({ width: 480, height: 640 });
+    await page.goto(`${baseUrl}fulltopbar.html`);
+    await expect(page.locator(wordmark())).toBeVisible();
+    await expect(page.locator(pill())).toBeVisible();
+    await assertNoOverflow(page);
   });
 });

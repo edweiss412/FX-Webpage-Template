@@ -87,8 +87,19 @@ export function AdminNav({
             height={28}
             className="size-7 shrink-0"
           />
-          <span className="text-lg font-semibold tracking-tight text-text-strong">FXAV</span>
-          <span className="rounded-pill border border-border bg-surface-raised px-2 text-xs font-semibold text-text-subtle">
+          {/* alert-audience-split §8 (Codex R1): the action cluster grew to four
+              44px controls (health + bell + theme + user), each at the 44px a11y
+              tap-target floor — that width is irreducible. So on narrow phones the
+              brand block yields progressively (the least-essential elements first)
+              to keep the whole topbar within the viewport (no horizontal scroll of
+              critical controls). The icon always anchors the /admin link; the FXAV
+              wordmark returns at ≥360px and the decorative "Admin" pill at ≥440px.
+              Both show on desktop. Verified in a real browser at 320/360/390/480
+              (tests/e2e/appHealthIndicator.layout.spec.ts). */}
+          <span className="hidden text-lg font-semibold tracking-tight text-text-strong min-[360px]:inline">
+            FXAV
+          </span>
+          <span className="hidden rounded-pill border border-border bg-surface-raised px-2 text-xs font-semibold text-text-subtle min-[440px]:inline-block">
             Admin
           </span>
         </Link>
