@@ -57,9 +57,9 @@ export function hasStagedPreviewSource(stub: EmbeddedImageStub): boolean {
   - `contentUrl` is a string → existing path byte-for-byte: `isTrustedDiagramContentUrl` check then fetch (lines 149-161 unchanged).
   - else if `hasStagedPreviewSource(stub)` → media path: fetch via the injected `fetchImageBytes` whose DEFAULT wires `snapshotFetchEmbeddedImageBytesTimed(stub, { fetchXlsxBytes })` with `fetchXlsxBytes = () => fetchCurrentSheetXlsxBytes(driveFileId, {})` (`lib/drive/fetch.ts:510-514`; default Drive client resolved inside).
   - else → `jsonError(404)` (fingerprint null / no media part — same fail-soft posture).
-- Deps seam: `StagedDiagramRouteDeps.fetchImageBytes` signature becomes `(stub: EmbeddedImageStub, ctx: { driveFileId: string }) => Promise<SnapshotAssetBytes | null>` so the default can construct `fetchXlsxBytes` from the VALIDATED route param. All existing injected-test call sites update mechanically.
+- Deps seam: `StagedDiagramRouteDeps.fetchImageBytes` signature becomes `(stub: EmbeddedImageStub, ctx: { driveFileId: string }) => Promise<SnapshotAssetBytes | null>` so the default can construct `fetchXlsxBytes` from the VALIDATED route param. All existing injected-test call sites update mechanically. The default implementation is a NAMED EXPORT of the route module (e.g. `defaultStagedDiagramFetchImageBytes`) — not an inline closure — so T-A3 can exercise the real default wiring with only the Drive network edge module-mocked.
 - Error posture unchanged: helper `null`/throw → 404 `{ok:false}` no-code (lines 154-162 pattern); `findMediaByFingerprint` returns `null` for null fingerprint or no match (`lib/drive/embeddedObjects.ts:146-152`), which the same mapping absorbs.
-- **Trust boundary (do not relitigate, §N):** the media path performs NO fetch to any JSONB-derived URL. The only outbound request is the Drive export for `driveFileId` — a route param already validated against `DRIVE_FILE_ID_PATTERN` (`route.ts:25,98`) and row-matched against `pending_syncs` + active-session guard (`route.ts:111-125`) before any Drive call. `isTrustedDiagramContentUrl` and the legacy path are untouched. The bearer token goes only to URLs constructed by `lib/drive/fetch.ts` or (legacy path) trust-checked contentUrls.
+- **Trust boundary (stated precisely; do not relitigate, §N):** the media path performs NO fetch to any URL derived from the untrusted `parse_result` JSONB. The helper's media branch never touches `entry.contentUrl` (it is null by definition; `defaultSnapshotAssetsForApply.ts:48-58`) — its only outbound requests are made by `fetchCurrentSheetXlsxBytes` for the VALIDATED route param `driveFileId` (`DRIVE_FILE_ID_PATTERN`, `route.ts:25,98`; row-matched against `pending_syncs` + active-session guard, `route.ts:111-125`, before any Drive call): (a) a `files.get` metadata read via the authenticated googleapis client (`lib/drive/fetch.ts:515-520`), and (b) the xlsx `exportLinks` URL RETURNED BY that Drive metadata response (`lib/drive/fetch.ts:521-527`), fetched with the bearer token (`lib/drive/fetch.ts:276-279`). The `exportLinks` destination is Google-API-provided (server-to-server response for a validated file id), NOT attacker-influenceable JSONB — the same trust class the Apply snapshot pipeline (`defaultSnapshotAssetsForApply.ts:136-138`) and asset recovery have relied on since the helper shipped. No new host assertion is added for it: hardening the export-URL destination belongs in the shared `fetchXlsxExportBytes`, would change cron/Apply behavior, and is out of scope. `isTrustedDiagramContentUrl` and the legacy contentUrl path are untouched.
 - Union normalization at line 164 already handles `Uint8Array` (media path returns `Uint8Array` from `findMediaByFingerprint`) — unchanged.
 
 ### A4 Client changes (`step3ReviewSections.tsx`)
@@ -88,16 +88,26 @@ export function hasStagedPreviewSource(stub: EmbeddedImageStub): boolean {
 
 ### B3 Transition inventory (slot states)
 
-States: publish-idle (accent CTA), publish-pending (accent, "Selecting…"), unpublish-idle (quiet), unpublish-pending (quiet, "Removing…"), error-note-visible (either idle state + note).
+Slot state space (4 states → all 6 pairs enumerated): **P-idle** (accent "Publish this show"), **P-pending** (accent "Selecting…"), **U-idle** (quiet "Unpublish"), **U-pending** (quiet "Removing…"). The error note (`Step3ReviewModal.tsx:1111-1115`) is a separate binary surface (hidden/visible), enumerated after.
 
-| Pair | Treatment |
+| Pair | Reachability + treatment |
 |---|---|
-| publish-idle ↔ publish-pending | instant label swap — deliberate (matches parent §H N5/T7b posture) |
-| unpublish-idle ↔ unpublish-pending | instant label swap — deliberate |
-| publish-pending → unpublish-idle (unpublish never follows publish-pending; publish success closes modal) | N/A — unreachable |
-| unpublish-pending → publish-idle (success) | instant slot swap — deliberate (unchanged parent N5) |
-| any-pending → same-idle + error note | instant — deliberate (unchanged parent T7b) |
-| Compound: rescan overlay open while slot pending | independent siblings; no interaction (overlay is out-of-flow, parent §G) |
+| P-idle ↔ P-pending | forward on Publish click; backward on failure. Instant label swap both ways — deliberate (parent §H posture) |
+| P-idle ↔ U-idle | forward via external `checked` settlement while no op is in flight (parent §9.2 waiter, e.g. grid-driven flip); backward on unpublish success. Instant slot swap both ways — deliberate (unchanged parent N5) |
+| P-idle ↔ U-pending | forward unreachable (U-pending only enters from U-idle click); backward = unpublish success → P-idle. Instant slot swap — deliberate |
+| P-pending ↔ U-idle | N/A — unreachable both ways (publish success closes the modal, `:691-694`; publish failure lands P-idle) |
+| P-pending ↔ U-pending | N/A — unreachable both ways (single slot button, disabled while pending, `:1127/:1140`) |
+| U-idle ↔ U-pending | forward on Unpublish click; backward on failure. Instant label swap both ways — deliberate |
+
+Error-note surface: hidden ↔ visible — instant both ways, deliberate (unchanged parent T7b); starting ANY new op hides it (pending state clears the error, matching today's `setPublishState("pending")` behavior at `:684/:702`).
+
+Compound transitions:
+
+| Compound | Treatment |
+|---|---|
+| Error note visible + user clicks the slot button | note hides instantly at op start (above); slot enters the clicked op's pending state |
+| Rescan overlay open while slot in any state | independent siblings; no interaction (overlay is out-of-flow, parent §G) |
+| `checked` settlement lands while an op is pending | slot ignores `checked` until `pendingOp` clears (§B2 selection rule); on clear it renders the settled `checked` branch — instant |
 
 Footer no-shift invariant (parent §K14) must keep holding: the slot renders exactly one `min-h-tap-min` button in every state (label width may vary; K14 pins footer HEIGHT).
 
@@ -162,12 +172,25 @@ storage: none (response-only, derived per request) | write: `rescanWizardSheet.t
 
 ### D2 Transition inventory
 
-States: collapsed, expanded (× status idle/pending/success/error inside the form — those pairs are unchanged parent §H N7 instant swaps).
+Two surfaces: **disclosure** ∈ {collapsed, expanded} (1 pair) and **status** ∈ {idle, pending, success, error} (`step3ReviewSections.tsx:2073-2087`; 4 states → all 6 pairs enumerated; status state persists while collapsed, it just isn't rendered).
 
-| Pair | Treatment |
+| Pair | Reachability + treatment |
 |---|---|
-| collapsed ↔ expanded | instant mount/unmount — deliberate (matches parent §H posture; no height morph) |
-| Compound: collapse while status pending | allowed; form unmounts, POST continues; re-expand shows the settled status |
+| collapsed ↔ expanded | trigger click, both ways. Instant mount/unmount — deliberate (parent §H posture; no height morph) |
+| idle ↔ pending | forward on submit; backward N/A — unreachable (pending always resolves to success or error; no cancel) |
+| idle ↔ success | N/A — unreachable both ways directly (always via pending) |
+| idle ↔ error | N/A — unreachable both ways directly (always via pending) |
+| pending ↔ success | forward on 2xx `ok:true`; backward on next submit (new report). Instant text swap both ways — deliberate (unchanged parent §H N7) |
+| pending ↔ error | forward on failure; backward on retry submit. Instant text swap both ways — deliberate (unchanged parent N7) |
+| success ↔ error | N/A — unreachable both ways directly (always via pending) |
+
+Compound transitions:
+
+| Compound | Treatment |
+|---|---|
+| collapse while status = pending | allowed; form unmounts, POST continues fire-and-forget; re-expand renders the settled status |
+| collapse while status = success/error | allowed; status persists; re-expand re-renders it |
+| expand at any status | instant; focus moves to textarea regardless of status |
 
 ---
 
@@ -179,7 +202,7 @@ Every test names the concrete failure mode it catches. Anti-tautology: tile/sect
 |---|---|---|---|
 | T-A1 | `tests/api/staged-diagram-route.test.ts` | media stub (contentUrl null, mediaPartName + string fingerprint) → 200, body bytes = injected fixture bytes, Content-Type = stub.mimeType | route still 404s XLSX-media stubs (the shipped bug) |
 | T-A2 | same | fingerprint `null` → 404; mediaPartName absent → 404; helper resolves null → 404; helper throws → 404 | fail-soft regression / restage-only stubs served |
-| T-A3 | same | default-deps wiring: the media path invokes the xlsx fetch with the ROUTE-PARAM driveFileId (injected `fetchImageBytes` ctx assertion) and legacy contentUrl path is byte-unchanged (trust check still 404s untrusted URL) | trust-boundary regression; deps never wired (the second shipped bug) |
+| T-A3 | same | DEFAULT-path wiring, no `fetchImageBytes` injection: `vi.mock("@/lib/drive/fetch")` replaces ONLY `fetchCurrentSheetXlsxBytes` (returning `tests/fixtures/diagrams/embedded-sample.xlsx` bytes — exact mock + fixture pattern precedent at `tests/sync/snapshotAssetsXlsxMedia.test.ts:7-37`); a media stub whose `mediaPartName`/`embeddedFingerprint` come from `extractEmbeddedObjects(fixture)` → route returns 200 with the exact DIAGRAMS media-part bytes, AND `fetchCurrentSheetXlsxBytes` was called with the route-param driveFileId. Separately: legacy contentUrl path byte-unchanged (untrusted URL still 404s, zero fetches) | the shipped bug itself — default path never wires `fetchXlsxBytes` (`route.ts:78-80` + `defaultSnapshotAssetsForApply.ts:52` return null); wrong id passed to the export fetch; trust-boundary regression |
 | T-A4 | `tests/admin/stagedDiagramGuards.test.ts` | `hasStagedPreviewSource` truth table (string contentUrl / media pair / null fingerprint / missing part / malformed types) + `isRenderableDiagramStub` rejects non-string `mediaPartName`, non-(absent\|null\|string) `embeddedFingerprint` | route and tile disagreeing on servability; unguarded JSONB dereference |
 | T-A5 | `tests/components/admin/wizard/step3ReviewSections.test.tsx` | media stub renders `<img>` (tile testid), not placeholder; `embeddedFingerprint: null` stub renders placeholder; both still count in the summary line | tile pre-fails servable stubs (the shipped client bug) |
 | T-B1 | `tests/components/admin/wizard/Step3ReviewModal.test.tsx` (jsdom, deferred-promise `onRequestSetChecked`) | click Publish → while unresolved, the slot button (single testid `…-review-publish`) has label "Selecting…" and the ACCENT class; resolve true → `onClose` called. Click Unpublish → pending label "Removing…" with the quiet class; resolve true → slot label "Publish this show" | swapped labels/styling mid-flight (the reported bug) |
@@ -198,7 +221,7 @@ Real-browser (Playwright, existing step3-review-modal e2e harness): extend the i
 
 - **Read-only route, no advisory lock** — parent spec §B1 ratified; `route.ts:11-17`.
 - **404-no-code posture** for all route failures — `route.ts:59-62` (consumer is `<img>` onError).
-- **Media-path trust boundary**: no JSONB-derived URL is fetched; export URL built from the validated route param (§A3). `isTrustedDiagramContentUrl` scope unchanged.
+- **Media-path trust boundary**: no JSONB-derived URL is fetched; the bearer token's only media-path destinations are the authenticated Drive `files.get` for the validated route param and the Google-API-returned `exportLinks` URL — the Apply/recovery pipeline's existing trust class (§A3, with citations). No new host assertion on the export URL; that hardening belongs in the shared `fetchXlsxExportBytes` and is out of scope.
 - **Per-request workbook export cost** — accepted per D6.
 - **`needsReview` semantics at `rescanWizardSheet.ts:445`** (fresh-unchecked) are UNCHANGED — §C is presentational plus a response-only discriminator. No approval/manifest behavior changes.
 - **Stacked rescan placement byte-parity**: the §C copy change alters `resultFor` OUTPUT (both placements equally); the byte-pinned STACKED MARKUP/classes are untouched. Tests pinning the old false-positive string update to the truth table — that is the point of the change, not drift.
