@@ -229,10 +229,15 @@ describe("RescanSheetButton — resultPlacement (spec §G, Task 12)", () => {
     "flex flex-col gap-1 rounded-sm border border-border-strong bg-warning-bg p-3 text-sm text-warning-text";
   const STACKED_INFO =
     "rounded-sm border border-border bg-info-bg px-3 py-2 text-sm text-text-strong";
+  // Mobile-safe anchor (impeccable audit P1): left-anchored below sm (the
+  // footer is the positioning context there — the root wrapper is sm:relative
+  // only), wrapper-anchored right-0 at ≥sm.
   const OVERLAY_CLASSES = [
     "absolute",
     "bottom-full",
-    "right-0",
+    "left-0",
+    "sm:left-auto",
+    "sm:right-0",
     "mb-2",
     "z-10",
     "w-max",
@@ -273,15 +278,23 @@ describe("RescanSheetButton — resultPlacement (spec §G, Task 12)", () => {
     expect(container.querySelector('button[aria-label="Dismiss"]')).toBeNull();
   });
 
-  test("overlay: root wrapper is relative; result keeps role=status aria-live=polite + tone classes AND the absolute out-of-flow classes + animation hook (catches: result back in flow → footer growth)", async () => {
+  test("overlay: root wrapper is sm:relative (NOT relative — below sm the footer anchors the overlay); result keeps an INNER role=status aria-live=polite live region + tone classes AND the absolute out-of-flow classes + animation hook (catches: result back in flow → footer growth; 390px left-edge clip)", async () => {
     const { getByTestId, container } = await driveResult(INFO_BODY, {
       resultPlacement: "overlay",
     });
     const root = container.firstElementChild as HTMLElement;
-    expect(root.className.split(/\s+/)).toContain("relative");
+    const rootClasses = root.className.split(/\s+/);
+    expect(rootClasses).toContain("sm:relative");
+    // A base `relative` would re-anchor the <sm overlay to the wrapper and
+    // reintroduce the 390px viewport clip (impeccable audit P1).
+    expect(rootClasses).not.toContain("relative");
     const result = getByTestId(`rescan-sheet-result-${DFID}`);
-    expect(result.getAttribute("role")).toBe("status");
-    expect(result.getAttribute("aria-live")).toBe("polite");
+    // The live region is an INNER element (dual-gate P1: no interactive
+    // content inside role="status"), not the positioned wrapper itself.
+    expect(result.getAttribute("role")).toBeNull();
+    const live = result.querySelector('[role="status"]');
+    expect(live).not.toBeNull();
+    expect(live!.getAttribute("aria-live")).toBe("polite");
     const classes = result.className.split(/\s+/);
     for (const cls of STACKED_INFO.split(" ")) expect(classes).toContain(cls);
     for (const cls of OVERLAY_CLASSES) expect(classes).toContain(cls);
@@ -307,6 +320,33 @@ describe("RescanSheetButton — resultPlacement (spec §G, Task 12)", () => {
     expect(dismiss.className.split(/\s+/)).toContain("size-tap-min");
     fireEvent.click(dismiss);
     expect(queryByTestId(`rescan-sheet-result-${DFID}`)).toBeNull();
+  });
+
+  test("overlay: dismiss returns focus to the Re-scan trigger — never dropped to body inside the focus-trapped dialog (WCAG 2.4.3, dual-gate P1)", async () => {
+    const { getByTestId, queryByTestId, container } = await driveResult(INFO_BODY, {
+      resultPlacement: "overlay",
+    });
+    const dismiss = container.querySelector('button[aria-label="Dismiss"]') as HTMLButtonElement;
+    // A keyboard user tabs to Dismiss (it holds focus) and activates it.
+    dismiss.focus();
+    expect(document.activeElement).toBe(dismiss);
+    fireEvent.click(dismiss);
+    expect(queryByTestId(`rescan-sheet-result-${DFID}`)).toBeNull();
+    expect(document.activeElement).toBe(getByTestId(`rescan-sheet-button-${DFID}`));
+  });
+
+  test("overlay: live region contains ONLY the status copy — no button/link/details inside role=status; Dismiss + HelpAffordance are siblings in the wrapper (dual-gate P1)", async () => {
+    const { getByTestId } = await driveResult(CODED_BODY, { resultPlacement: "overlay" });
+    const result = getByTestId(`rescan-sheet-result-${DFID}`);
+    const live = result.querySelector('[role="status"]');
+    expect(live).not.toBeNull();
+    expect(live!.getAttribute("aria-live")).toBe("polite");
+    // Announcement purity: no interactive content inside the live region.
+    expect(live!.querySelector("button, a, details, summary")).toBeNull();
+    expect(live!.textContent ?? "").toContain(MESSAGE_CATALOG.STAGED_PARSE_FAILED.dougFacing!);
+    // The controls still exist — as SIBLINGS inside the overlay wrapper.
+    expect(result.querySelector('button[aria-label="Dismiss"]')).not.toBeNull();
+    expect(result.querySelector("details")).not.toBeNull();
   });
 
   test("globals.css wires the overlay animation hook: step3-details-pop-in at --duration-fast, reduced-motion → none (spec §G / §H N4)", () => {

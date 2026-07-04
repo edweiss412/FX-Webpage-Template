@@ -1049,10 +1049,14 @@ export function Step3ReviewModal({
 
         {/* Footer (spec §9.1). Sheet-mode bottom padding adds the device safe
             area so the controls are never covered by the iOS home indicator;
-            ≥sm restores the plain token padding. */}
+            ≥sm restores the plain token padding. `relative` is load-bearing:
+            below sm the RescanSheetButton overlay result anchors to the FOOTER
+            (its own wrapper is `sm:relative` only) so a coded result spans
+            from the footer's left edge instead of clipping off-screen at
+            390px (impeccable audit P1 — see RescanSheetButton.tsx). */}
         <footer
           data-testid={`wizard-step3-card-${dfid}-review-footer`}
-          className="flex shrink-0 flex-wrap items-center gap-3 border-t border-border bg-surface px-tile-pad pt-3 pb-[calc(--spacing(3)+env(safe-area-inset-bottom,0))] sm:pb-3"
+          className="relative flex shrink-0 flex-wrap items-center gap-3 border-t border-border bg-surface px-tile-pad pt-3 pb-[calc(--spacing(3)+env(safe-area-inset-bottom,0))] sm:pb-3"
         >
           {/* §11 T10: instant — deliberate (footer swaps on isDirtyRescan/props change; server truth) */}
           {isDirtyRescan ? (

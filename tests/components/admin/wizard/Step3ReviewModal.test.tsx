@@ -491,8 +491,19 @@ describe("Step3ReviewModal — footer note + buttons (spec §9.1)", () => {
     expect(result.hasAttribute("data-rescan-overlay-result")).toBe(true);
     // Structural out-of-flow pin (pixel constancy is Task 14's Playwright): the
     // overlay result is absolutely positioned above the button, not stacked in flow.
-    expect(result.className.split(/\s+/)).toContain("absolute");
-    expect(result.className.split(/\s+/)).toContain("bottom-full");
+    const resultClasses = result.className.split(/\s+/);
+    expect(resultClasses).toContain("absolute");
+    expect(resultClasses).toContain("bottom-full");
+    // Mobile-safe anchor contract (impeccable audit P1): below sm the overlay
+    // is LEFT-anchored against the FOOTER (the footer carries `relative`; the
+    // button wrapper is only `sm:relative`), so a 312px coded result can never
+    // extend past the left viewport edge at 390px; ≥sm restores the
+    // wrapper-anchored right-0. Real-pixel proof is the §K14 390px Playwright
+    // assertion (tests/e2e/step3-review-modal.interactions.spec.ts).
+    expect(resultClasses).toContain("left-0");
+    expect(resultClasses).toContain("sm:left-auto");
+    expect(resultClasses).toContain("sm:right-0");
+    expect(footer.className.split(/\s+/)).toContain("relative");
   });
 
   test("primary-slot label: 'Publish this show' unchecked, 'Unpublish' checked (spec §C2 — supersedes the 'Selected to publish' pin)", () => {

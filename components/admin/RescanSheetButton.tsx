@@ -23,7 +23,7 @@
  * Double-click is guarded by the loading state (disabled while in flight) — NOT a
  * self-disabling form action (see feedback_react_form_action_synchronous_disable).
  */
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { messageFor } from "@/lib/messages/lookup";
@@ -102,6 +102,7 @@ export function RescanSheetButton({
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [result, setResult] = useState<ResultState | null>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
   async function handleClick() {
     if (pending) return;
@@ -133,15 +134,26 @@ export function RescanSheetButton({
     result?.kind === "coded"
       ? "flex flex-col gap-1 rounded-sm border border-border-strong bg-warning-bg p-3 text-sm text-warning-text"
       : "rounded-sm border border-border bg-info-bg px-3 py-2 text-sm text-text-strong";
+  // Mobile-safe anchoring (impeccable audit P1): below sm the wrapper is NOT
+  // the positioning context (root drops `relative` via `sm:relative`), so the
+  // overlay anchors `left-0` against the nearest positioned ancestor — the
+  // modal footer, which carries `relative` for exactly this contract
+  // (Step3ReviewModal.tsx footer). Anchoring to the wrapper (`right-0`) at
+  // 390px clipped coded results past the left viewport edge in the normal
+  // footer branch (and `left-0` on the wrapper would mirror-clip the demoted
+  // right-aligned branch). ≥sm restores today's wrapper-anchored `right-0`.
   const overlayClass =
-    "absolute bottom-full right-0 mb-2 z-10 w-max max-w-[min(20rem,80vw)] shadow-(--shadow-tile) pr-10";
+    "absolute bottom-full left-0 sm:left-auto sm:right-0 mb-2 z-10 w-max max-w-[min(20rem,80vw)] shadow-(--shadow-tile) pr-10";
 
   return (
     <div
-      className={placement === "overlay" ? "relative flex flex-col gap-2" : "flex flex-col gap-2"}
+      className={
+        placement === "overlay" ? "sm:relative flex flex-col gap-2" : "flex flex-col gap-2"
+      }
     >
       <button
         type="button"
+        ref={triggerRef}
         data-testid={`rescan-sheet-button-${driveFileId}`}
         onClick={handleClick}
         disabled={pending}
@@ -152,29 +164,53 @@ export function RescanSheetButton({
       </button>
 
       {result ? (
-        <div
-          role="status"
-          aria-live="polite"
-          data-testid={`rescan-sheet-result-${driveFileId}`}
-          {...(placement === "overlay" ? { "data-rescan-overlay-result": "" } : {})}
-          className={placement === "overlay" ? `${toneClass} ${overlayClass}` : toneClass}
-        >
-          {/* Overlay-only dismiss (spec §G): a floating layer must be closable.
-              Exit is instant (§H N4). Stacked stays dismissless — it persists
-              until the next click clears it (handleClick's setResult(null)). */}
-          {placement === "overlay" ? (
+        placement === "overlay" ? (
+          /* Overlay (impeccable dual-gate P1): the positioned wrapper is NOT
+             the live region — interactive content inside `role="status"` is an
+             ARIA authoring anti-pattern (SRs announce the Dismiss/Learn-more
+             controls as status noise). The live region is the inner <p> with
+             ONLY the status copy; Dismiss + HelpAffordance are siblings. */
+          <div
+            data-testid={`rescan-sheet-result-${driveFileId}`}
+            data-rescan-overlay-result=""
+            className={`${toneClass} ${overlayClass}`}
+          >
+            {/* Overlay-only dismiss (spec §G): a floating layer must be
+                closable. Exit is instant (§H N4). Focus returns to the
+                Re-scan trigger BEFORE the overlay unmounts so it never drops
+                to body inside the focus-trapped dialog (WCAG 2.4.3). Stacked
+                stays dismissless — it persists until the next click clears it
+                (handleClick's setResult(null)). */}
             <button
               type="button"
               aria-label="Dismiss"
-              onClick={() => setResult(null)}
+              onClick={() => {
+                triggerRef.current?.focus();
+                setResult(null);
+              }}
               className="absolute -right-2 -top-2 inline-flex size-tap-min items-center justify-center rounded-pill text-text-subtle hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
             >
               <X aria-hidden="true" className="size-4" />
             </button>
-          ) : null}
-          <p>{renderEmphasis(result.copy)}</p>
-          {result.kind === "coded" ? <HelpAffordance code={result.code} /> : null}
-        </div>
+            <p role="status" aria-live="polite">
+              {renderEmphasis(result.copy)}
+            </p>
+            {result.kind === "coded" ? <HelpAffordance code={result.code} /> : null}
+          </div>
+        ) : (
+          /* Stacked stays byte-identical to the pre-overlay markup (the two
+             Step3SheetCard call sites pass no prop) — pinned by the
+             default-placement byte-parity tests. */
+          <div
+            role="status"
+            aria-live="polite"
+            data-testid={`rescan-sheet-result-${driveFileId}`}
+            className={toneClass}
+          >
+            <p>{renderEmphasis(result.copy)}</p>
+            {result.kind === "coded" ? <HelpAffordance code={result.code} /> : null}
+          </div>
+        )
       ) : null}
     </div>
   );

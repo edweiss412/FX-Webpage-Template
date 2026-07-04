@@ -390,4 +390,28 @@ describe("ReportIssueSection — form mechanics (spec §D3)", () => {
     const submit = q.getByTestId(ttid("submit"));
     expect(submit.className).toMatch(/\bmin-h-tap-min\b/);
   });
+
+  test("impeccable dual-gate P2 pins: quiet secondary submit (never accent — one accent CTA per view), ring-offset matches the bg pane, textarea boundary uses border-strong + surface fill (WCAG 1.4.11)", () => {
+    stubFetch();
+    const q = renderInChrome(sectionData(), () => "venue");
+    const submit = q.getByTestId(ttid("submit"));
+    const submitClasses = submit.className.split(/\s+/);
+    // Quiet/secondary recipe (same as the footer Unpublish button) — the
+    // accent CTA belongs to Publish alone (critique P2).
+    expect(submitClasses).not.toContain("bg-accent");
+    expect(submitClasses).not.toContain("text-accent-text");
+    expect(submitClasses).toContain("border");
+    expect(submitClasses).toContain("border-border-strong");
+    expect(submitClasses).toContain("bg-surface");
+    expect(submitClasses).toContain("hover:bg-surface-sunken");
+    // Ring-offset color present so the focus halo isn't white in dark mode.
+    expect(submitClasses).toContain("focus-visible:ring-offset-bg");
+    // Textarea boundary ≥3:1-capable pairing: border-strong + surface fill
+    // (border-border on bg-bg computed 1.22:1 — audit P2).
+    const textarea = q.getByTestId(ttid("textarea"));
+    const textareaClasses = textarea.className.split(/\s+/);
+    expect(textareaClasses).toContain("border-border-strong");
+    expect(textareaClasses).toContain("bg-surface");
+    expect(textareaClasses).not.toContain("bg-bg");
+  });
 });

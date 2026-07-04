@@ -698,7 +698,9 @@ describe("§H N4: rescan overlay result — fast pop-in on appear; instant (sync
     await waitFor(() => expect(q.getByTestId(`rescan-sheet-result-${DFID}`)).toBeTruthy());
     const result = q.getByTestId(`rescan-sheet-result-${DFID}`);
     expect(result.hasAttribute("data-rescan-overlay-result")).toBe(true); // CSS hook wired
-    expect(result.getAttribute("role")).toBe("status");
+    // Live region is the INNER copy-only element (dual-gate P1) — the
+    // positioned wrapper itself carries no role.
+    expect(result.querySelector('[role="status"]')).not.toBeNull();
     // Instant exit: the dismiss click removes the node within the SAME act —
     // no waitFor, no exit animation to linger through.
     fireEvent.click(within(result).getByRole("button", { name: "Dismiss" }));

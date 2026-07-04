@@ -1808,7 +1808,17 @@ function DiagramTile({
     );
   }
   return (
-    <a href={src} target="_blank" rel="noreferrer" data-testid={testId} className="block">
+    /* aria-label mirrors the img alt (impeccable audit P2): the anchor's
+       accessible name must never be empty even if the alt computation ever
+       regresses to "" (nameless-link guard, WCAG 2.4.4/4.1.2). */
+    <a
+      href={src}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={alt}
+      data-testid={testId}
+      className="block"
+    >
       {/* eslint-disable-next-line @next/next/no-img-element -- staged-diagram
           preview route is admin-cookie-authed; next/image drops cookies (same
           documented revert as components/diagrams/Gallery.tsx). */}
@@ -1871,7 +1881,10 @@ export function DiagramsBreakdown({
               key={`${stub.objectId}-${i}`}
               testId={`wizard-step3-card-${dfid}-diagram-tile-${i}`}
               src={`/api/admin/onboarding/staged-diagram/${wizardSessionId}/${dfid}/${encodeURIComponent(stub.objectId)}`}
-              alt={stub.alt ?? `Diagram from ${stub.sheetTab}`}
+              // `?? ` only catches null/undefined — a persisted `alt: ""`
+              // rendered a nameless link (impeccable audit P2); blank/space
+              // alts fall back to the generic sheet-tab string too.
+              alt={stub.alt?.trim() || `Diagram from ${stub.sheetTab}`}
               hasContentUrl={stub.contentUrl != null}
             />
           ))}
@@ -1890,7 +1903,7 @@ export function DiagramsBreakdown({
               href={folderHref}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex min-h-tap-min items-center gap-1 font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+              className="inline-flex min-h-tap-min items-center gap-1 font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
             >
               Open diagrams folder in Drive <ExternalLink aria-hidden="true" className="size-3.5" />
             </a>
@@ -2051,7 +2064,10 @@ export function ReportIssueSection({ data }: { data: SectionData }) {
           onChange={(e) => setDraft(e.target.value)}
           maxLength={REPORT_MESSAGE_MAX_CHARS}
           rows={3}
-          className="w-full rounded-sm border border-border bg-bg p-2 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          /* border-border on bg-bg was 1.22:1 — far under the 3:1 non-text
+             minimum (impeccable audit P2, WCAG 1.4.11). border-strong + the
+             surface fill together make the field read as a field. */
+          className="w-full rounded-sm border border-border-strong bg-surface p-2 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
         />
         <div className="flex items-center gap-3">
           <button
@@ -2059,7 +2075,11 @@ export function ReportIssueSection({ data }: { data: SectionData }) {
             data-testid={`wizard-step3-card-${dfid}-report-submit`}
             disabled={draft.trim().length === 0 || status.kind === "pending"}
             aria-busy={status.kind === "pending" || undefined}
-            className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-accent px-4 text-sm font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+            /* Quiet secondary treatment (impeccable critique P2): the report
+               path must not compete with the footer's accent Publish CTA —
+               same border/surface recipe as the footer Unpublish button.
+               ring-offset-bg matches the content pane surface. */
+            className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-surface px-4 text-sm font-semibold text-text transition-colors duration-fast hover:bg-surface-sunken disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
           >
             Send report
           </button>

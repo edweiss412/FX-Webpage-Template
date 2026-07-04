@@ -722,6 +722,40 @@ test("§K14: overlay rescan result keeps the footer height constant; floats abov
   await expect(page.locator(MODAL), "modal itself stays open").toHaveCount(1);
 });
 
+test("§K14 at 390px (sheet mode): overlay rescan result stays fully on-screen — footer-anchored left below sm (impeccable audit P1: right-0 on the left-positioned wrapper clipped ~139px off the left viewport edge)", async ({
+  page,
+}) => {
+  const VIEWPORT_W = 390;
+  await openLive(page, { width: VIEWPORT_W, height: 844 });
+  await page.locator(`[data-testid="rescan-sheet-button-${HARNESS_DFID}"]`).click();
+  const overlay = page.locator("[data-rescan-overlay-result]");
+  await expect(overlay, "overlay result appears").toBeVisible();
+  const box = await overlay.boundingBox();
+  expect(box, "overlay has a bounding box").not.toBeNull();
+  if (!box) return;
+  expect(box.width, "overlay has real width").toBeGreaterThan(0);
+  // Both horizontal edges inside the viewport (WCAG 1.4.10 reflow): pre-fix,
+  // the wrapper-anchored right-0 overlay started at x < 0 even for this short
+  // clean-info body (wrapper right edge ≈ 173px, overlay ≈ 250px wide).
+  expect(box.x, `overlay left edge ${box.x} on-screen`).toBeGreaterThanOrEqual(-TOL);
+  expect(
+    box.x + box.width,
+    `overlay right edge ${box.x + box.width} inside the ${VIEWPORT_W}px viewport`,
+  ).toBeLessThanOrEqual(VIEWPORT_W + TOL);
+  // Still floats above the footer (out of flow — §I height constancy is
+  // pinned by the 1280px §K14 test above).
+  const footerTop = await page
+    .locator(`[data-testid="${tid("footer")}"]`)
+    .evaluate((el) => el.getBoundingClientRect().top);
+  expect(
+    box.y + box.height,
+    `overlay bottom ${box.y + box.height} at/above the footer top ${footerTop}`,
+  ).toBeLessThanOrEqual(footerTop + TOL);
+  // Dismiss still works at this viewport.
+  await overlay.locator('button[aria-label="Dismiss"]').click();
+  await expect(overlay, "dismiss removes the overlay").toHaveCount(0);
+});
+
 // ── §K11/§K12 — MOTION ENABLED (deliberately NOT inheriting the file's
 // reduced-motion emulation): the content pane's glide is `motion-safe:
 // scroll-smooth` and the rail indicator's slide is `motion-reduce:

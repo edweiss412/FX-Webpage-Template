@@ -792,6 +792,9 @@ describe("DiagramsBreakdown body (follow-ups spec §B3 + §K8)", () => {
     expect(link.tagName).toBe("A");
     expect(link.getAttribute("target")).toBe("_blank");
     expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+    // Focus ring-offset color matches the bg-bg content pane (impeccable
+    // critique P2 — Tailwind's default offset is white → dark-mode halo).
+    expect(link.className.split(/\s+/)).toContain("focus-visible:ring-offset-bg");
     expect(container.querySelectorAll(`[data-testid^="${TILE_PREFIX}"]`).length).toBe(0);
     expect(scoped.getByText(`${items.length} files`)).toBeTruthy();
   });
@@ -849,6 +852,27 @@ describe("DiagramsBreakdown body (follow-ups spec §B3 + §K8)", () => {
     const { container } = renderDiagrams(diagramsOf({ embeddedImages: [stub] }));
     const img = container.querySelector("img");
     expect(img?.getAttribute("alt")).toBe(`Diagram from ${stub.sheetTab}`);
+  });
+
+  test("alt: '' (and whitespace-only) falls back for BOTH the img alt and the anchor aria-label — a persisted empty alt must never yield a nameless link (impeccable audit P2, WCAG 2.4.4/4.1.2)", () => {
+    for (const empty of ["", "   "]) {
+      const stub = diagramStub({ alt: empty });
+      const { container, scoped } = renderDiagrams(diagramsOf({ embeddedImages: [stub] }));
+      const fallback = `Diagram from ${stub.sheetTab}`;
+      const tile = scoped.getByTestId(`${TILE_PREFIX}0`);
+      expect(tile.tagName).toBe("A");
+      expect(tile.getAttribute("aria-label")).toBe(fallback);
+      expect(container.querySelector("img")?.getAttribute("alt")).toBe(fallback);
+      cleanup();
+    }
+  });
+
+  test("a real alt names both the img and the wrapping anchor (aria-label mirrors alt)", () => {
+    const stub = diagramStub({ alt: "Stage plot" });
+    const { scoped } = renderDiagrams(diagramsOf({ embeddedImages: [stub] }));
+    const tile = scoped.getByTestId(`${TILE_PREFIX}0`);
+    expect(tile.getAttribute("aria-label")).toBe("Stage plot");
+    expect(tile.querySelector("img")?.getAttribute("alt")).toBe("Stage plot");
   });
 
   test("tile img src (and wrapping anchor href) is the Task-3 staged-diagram route URL derived from the fixture", () => {
