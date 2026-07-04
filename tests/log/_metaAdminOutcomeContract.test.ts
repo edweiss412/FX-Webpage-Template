@@ -298,6 +298,9 @@ const NEW_FORENSIC_CODES = new Set([
   "STAGE_APPROVE_RESCAN_REQUIRED",
   // OAuth callback: exchange succeeded but getUser resolved no email → silent no-op → anomaly warn.
   "OAUTH_NO_EMAIL_RESOLVED",
+  // Live pending-ingestion retry: the two inner route-level Drive-fetch catches that
+  // return 502 (distinct from the PR-1 outer PENDING_INGESTION_RETRY_FAILED throw guard).
+  "PENDING_INGESTION_RETRY_DRIVE_FETCH_FAILED",
 ]);
 
 const read = (f: string) => readFileSync(f, "utf8");
