@@ -52,7 +52,9 @@ git commit --no-verify -m "test(auth): developerGatingContract — AST gate cove
 
 Spec §10.7 e2e. Uses the test-only session minter (Task 6): a normal-admin fixture (`{ isAdmin: true }`) and a developer fixture (`{ isAdmin: true, isDeveloper: true }`). Reuse the picker/e2e env pattern (env copy minus `TEST_DATABASE_URL` + local `db:seed`).
 
-**Files:** Create `tests/e2e/developer-tier.spec.ts`.
+**Files:** Modify `app/api/test-auth/set-session/route.ts` (add the normal-admin fixture — see Step 0); Create `tests/e2e/developer-tier.spec.ts`.
+
+- [ ] **Step 0: Add a normal-admin minter fixture (prerequisite; plan-gap fix).** The e2e needs an admin-but-NOT-developer persona, and none is mintable: `edweiss412@gmail.com` is bootstrapped `is_developer=true` by the migration, `fxav-developer@example.com` carries the developer JWT bit, and the real normal admin `dlarson@fxav.net` is not in `FIXTURE_ALLOWLIST`. Add `"fxav-admin@example.com": { isAdmin: true }` (no `isDeveloper`) to `FIXTURE_ALLOWLIST` in `app/api/test-auth/set-session/route.ts` (the allowlist type was already widened to `{ isAdmin; isDeveloper? }` in Task 6), and add a `fxav-admin@example.com` fixture const mirroring the developer one. This is the symmetric companion to Task 6's developer fixture. Re-run the minter's own tests (`tests/auth/set-session-developer-fixture.test.ts` + any FIXTURE_ALLOWLIST exhaustiveness test) → still green. Commit separately: `feat(auth): normal-admin fixture in test-only session minter`. (JWT role=admin with no developer claim ⇒ `is_admin()` true so the admin layout admits it, but `isCurrentUserDeveloper()` false ⇒ sees none of the four dev surfaces — exactly the normal-admin persona.)
 
 - [ ] **Step 1: Write the e2e** — 
   - Sign in as the **normal-admin** fixture → on `/admin/settings`: assert NO Maintenance section, NO Diagnostics section, NO Developer-tools row, and (Administrators) NO developer toggle; nav has NO "Activity" item; direct-nav to `/admin/observability` → 403; direct-nav to `/admin/dev` → 404 (build-gated) or 403.
