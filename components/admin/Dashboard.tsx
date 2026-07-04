@@ -566,8 +566,8 @@ export async function Dashboard(
               data-testid="dashboard-data-quality-degraded"
               className="rounded-md border border-border bg-surface-sunken p-3 text-sm text-text-subtle"
             >
-              Data-quality checks are temporarily unavailable — some shows may not show their
-              data-quality badge.
+              Data-quality checks are temporarily unavailable. Some shows may not show a
+              data-quality warning.
             </p>
           ) : null}
           {/* M12.4 item D4: for the ACTIVE bucket the "Active shows" title, the
