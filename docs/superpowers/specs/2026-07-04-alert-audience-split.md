@@ -291,9 +291,10 @@ avoids an unstated client provider. Each read is independently pinned by the
 - Icon: `Activity` (lucide) — distinct from `NotifBell`'s `Bell`.
 - Color+label pairing (never color-only — the §1 color-blind floor, per `StatusIndicator`):
   the dot has an `aria-label`/`title` naming the state ("System health: needs attention").
-- Hues from status tokens (`StatusIndicator.tsx:18-24`): red = `bg-status-warn` (project's
-  strongest status hue; there is no separate "danger" token — see §11 note), amber =
-  a distinct lower-emphasis treatment, green = `bg-status-positive`, unknown = `bg-status-idle`.
+- Hues from status tokens: degraded (red) = **`bg-status-degraded`** (NEW token, §11),
+  notice (amber) = `bg-status-warn`, ok (green) = `bg-status-positive`, unknown (neutral) =
+  `bg-status-idle`. (`status-warn` is amber, not red, in the palette — a genuine red is
+  required for the user's green/amber/red escalation, so §11 adopts the new token.)
 - `min-h-tap-min min-w-tap-min` (44px tap target), matching `NotifBell`.
 - **Doug** (`isDeveloper === false`): the indicator is a `<button>` that opens the popover
   (§6.4). **Developer** (`isDeveloper === true`): it is a
@@ -602,13 +603,24 @@ on the next full render (no mid-open mutation). No `AnimatePresence` on the dot 
 
 ## 11. Design tokens
 
-Existing status tokens (`StatusIndicator.tsx`): `status-live/positive/review/warn/idle`.
-There is no dedicated `danger`/red token beyond `warn`. Options for the plan:
-(a) map degraded→`status-warn` and notice→a lower-emphasis amber derived from `warning-bg`;
-(b) introduce a `status-degraded` `@theme` token in `app/globals.css`. **Decision:** prefer
-(a) to avoid a token-system change in this feature (invariant 8 UI-token discipline); if the
-critique/audit finds warn↔notice indistinguishable, add the token in the plan as a scoped
-follow-up. The plan's impeccable dual-gate adjudicates this.
+Existing status tokens (`StatusIndicator.tsx` / `app/globals.css:76-85`):
+`status-live/positive/review/warn/idle`. Verified runtime values: `status-positive` is
+teal-green (`#3f8a83`), `status-warn` is **amber/orange** (`#b26a16`), `status-review` gold
+(`#a87716`), `status-idle` neutral — **there is no red hue anywhere in the status palette.**
+
+**Decision (ratified — this supersedes the earlier "prefer reuse" hedge).** The user's
+requirement is a three-level green/amber/**red** escalation (AskUserQuestion answer). Mapping
+degraded→`status-warn` would make degraded and notice both amber (indistinguishable), failing
+AC3. Therefore this feature **adds a new `--color-status-degraded` (+ `-text`) `@theme` token**
+(red) in `app/globals.css` (light + dark runtime values), used for the degraded state:
+- `degraded` → `bg-status-degraded` (red, NEW)
+- `notice` → `bg-status-warn` (amber, existing)
+- `ok` → `bg-status-positive` (green, existing)
+- `unknown` → `bg-status-idle` (neutral, existing)
+
+This is a scoped, single-token addition; the impeccable dual-gate (invariant 8) validates its
+light/dark contrast. The plan's Task 0 implements it and Task 5 consumes `bg-status-degraded`
+— spec and plan reference the same token contract.
 
 ## 12. Out of scope
 
