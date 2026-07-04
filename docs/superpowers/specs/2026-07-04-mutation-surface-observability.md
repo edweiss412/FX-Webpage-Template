@@ -164,6 +164,9 @@ kinds:
   new mutating export appended to `admins/actions.ts` or `dev/actions.ts` — in any export
   form — cannot ride a sibling's emit. Modules without the directive (barrels
   `_actions/index.ts`, helpers `_actions/shared.ts`) are not surfaces — no exemption needed.
+  (This per-function code-carrying-emit check is the floor for **non-admin** actions; an
+  **admin-gated** action is instead governed by §4.2's registry-membership + executable
+  behavioral contract — the static emit-scan does not by itself buy it a pass.)
 - **Function-scoped inline action** (**per-function** check): a
   `FunctionDeclaration`/`FunctionExpression`/`ArrowFunction` whose **block body** opens with
   a leading `"use server"` directive (the inline form React emits as a Server Action, e.g.
@@ -217,54 +220,51 @@ AST scoping is load-bearing for (c): a `code:` literal in an unrelated object (a
 body, a type, a config) does **not** count — it must be the argument to a `log.*` call.
 This is what makes `validationReset.ts` (pre-instrumentation) correctly fail.
 
-**Admin mutations require a success outcome, not merely a failure log (Codex R3 + R6 HIGH).**
-A bare `log.*` emit satisfies the floor for *non-admin* surfaces — crew/system actions and
-infra routes (webhook, realtime-token, sign-out, crew `report`) legitimately log
-anomalies/failures. But an admin mutation that logs only `log.error("X_FAILED")` while its
-successful mutation is silent is "observable in name only." So the floor is **tightened for
-every admin mutation surface — action OR route — to satisfy only via clause (a)**
-(`await logAdminOutcome(...)`, a post-commit success outcome), never (b)/(c). Two admin
-signals, each chosen to avoid false positives:
+**Admin mutations require a proven success outcome — ONE uniform contract for actions AND
+routes (Codex R3 / R6 / R9 / R10).** A bare `log.*` emit satisfies the floor for *non-admin*
+surfaces — crew/system actions and infra routes (webhook, realtime-token, sign-out, crew
+`report`) legitimately log anomalies/failures. But an admin mutation that logs only
+`log.error("X_FAILED")`, or puts `await logAdminOutcome(...)` on a catch/refusal/pre-mutation
+branch while the committed success branch stays silent, is "observable in name only." No
+*static* scan (file-level or per-function, descending or not) can prove *which branch* an emit
+sits on. So admin mutations are governed by a single **three-part contract**, identical for
+actions and routes:
 
-- **Admin action** = a module-level or inline server action whose **body calls an admin
-  gate** — an identifier in `{requireAdmin, requireAdminIdentity, requireDeveloper,
-  requireDeveloperIdentity}`. Reliable for actions (they gate at the top; crew actions like
-  `selectIdentity` call no gate). Flips `app/admin/actions.ts` (both actions `requireAdmin()`
-  but emit only failure codes) — a genuine gap (§3.1 A).
-- **Admin route** = a mutating `route.ts` under **`app/api/admin/**`** (path-based, NOT
-  `require*`-detection). Path is the correct signal here because `app/api/report/route.ts`
-  calls `requireAdminIdentity()` for *conditional role-detection* (a crew bug-report route
-  reading whether the submitter is an admin), not as a gate — a `require*` scan would
-  false-positive on it, but the path signal correctly excludes it. Infra routes (webhook,
-  realtime, report, sign-out) are NOT under `app/api/admin` and keep the broad floor.
-  **A mutating `app/api/admin/**` route satisfies the floor NOT by a file-scan for
-  `logAdminOutcome` (which — because route files legitimately delegate to helpers and the
-  scan descends — could be fooled by an unused or wrong-branch nested emit, Codex R8) but by
-  membership in the shared `AUDITABLE_MUTATIONS` registry** (the `_metaAdminOutcomeContract`
-  success-outcome registry, extracted to a module both tests import — §9), OR a
-  `// no-telemetry:` exemption. This makes admin-route coverage **discovery-enforced**: a new
-  `app/api/admin/**/route.ts` not in `AUDITABLE_MUTATIONS` (and not exempt) FAILS. Current
-  state: 24 of 28 admin routes are already registered; the 2 gaps `manifest/…/ignore` +
-  `reap-stale-sessions` are added with `MANIFEST_SHEET_IGNORED` / `STALE_SESSIONS_REAPED`
-  (§3.1 A); the 2 delegating shims are exempt (§3.1 B).
+1. **Identify the admin surface.** An **admin action** = a module-level/inline server action
+   whose body calls an admin gate `{requireAdmin, requireAdminIdentity, requireDeveloper,
+   requireDeveloperIdentity}` (reliable: actions gate at the top; crew actions like
+   `selectIdentity` call no gate). An **admin route** = a mutating `route.ts` under
+   **`app/api/admin/**`** (path-based, NOT `require*`-detection — `app/api/report/route.ts`
+   calls `requireAdminIdentity()` for *conditional role-detection*, not gating, so a
+   `require*` scan would false-positive on it; the path signal correctly excludes it). Infra
+   routes (webhook, realtime, report, sign-out) are not under `app/api/admin` and keep the
+   broad floor.
+2. **Registry membership, not a file/body scan.** An admin surface satisfies the floor ONLY by
+   membership in the shared `AUDITABLE_MUTATIONS` registry (extracted to a module both tests
+   import — §9), OR a `// no-telemetry:` exemption. It does **NOT** pass merely because the
+   file/body contains an `await logAdminOutcome(...)` — that is defeatable by an unused,
+   delegated, or wrong-branch emit (Codex R8/R10). A new admin surface not in the registry
+   (and not exempt) FAILS discovery. (This supersedes the earlier per-function-scan rule for
+   admin actions — actions and routes are now identical here.)
+3. **Executable behavioral proof, not a paper reference (Codex R10 F3).** Registry membership
+   is static; only a behavioral test proves the *committed success branch* emits. So every
+   admin surface must be covered by an **executable** proof: its sink-spy test drives the
+   success path and, **only after** the spy observes the expected code, calls a shared
+   recorder `recordAdminOutcomeBehavior({ file, code })` (a runtime-collected set). The
+   `ADMIN_OUTCOME_BEHAVIOR` meta-test (§9/§10.5) then asserts every non-grandfathered admin
+   surface's `{ file, code }` is in that recorded set — a nominal/paper reference cannot
+   satisfy it; the test must actually run and observe the emit.
 
-  **Registry membership is a static emit-check — it does NOT prove the *success branch* fires
-  (Codex R9).** Only a behavioral sink-spy test does. So membership is paired with a
-  **mandatory behavioral-coverage guard** (`ADMIN_ROUTE_OUTCOME_BEHAVIOR` registry +
-  meta-test, §9/§10.4a): every admin-route `AUDITABLE_MUTATIONS` row must map to a sink-spy
-  test that drives the route and asserts the code fires on the committed-success branch. To
-  bound this change's scope, the **24 pre-existing admin routes are a FROZEN grandfather
-  baseline** (`BL-ADMIN-ROUTE-OUTCOME-BEHAVIOR` audits/backfills their behavioral coverage in
-  a follow-up); the meta-test asserts that baseline is exactly those 24 and never grows.
-  **Any admin route NOT in the frozen baseline — the 2 seeded now, and every future one — MUST
-  carry a real sink-spy success-branch test** (it cannot use the grandfather list). That is
-  the structural closure of R9's "future admin route + wrong-branch emit passes" hole: a new
-  admin route needs both a registry row AND behavioral proof its success path emits.
-
-Reads are exempt (§4.3). (The admin-**action** rule stays a per-function non-descending body
-scan for `await logAdminOutcome` — §4.1/F3 already blocks an unused nested emitter there; the
-registry-linkage is needed only for routes, whose file-level descent cannot approximate
-reachability. Seeded admin actions are additionally registered + sink-spy-tested.)
+**Scope bound (frozen grandfather baseline).** Every admin mutation surface that exists at
+`origin/main` HEAD — the 24 pre-existing admin routes AND the pre-existing admin actions that
+already emit (`archive`, `unarchive`, `setPublished`, `feed`) — is a FROZEN baseline whose
+behavioral backfill is `BL-ADMIN-OUTCOME-BEHAVIOR`. The meta-test asserts the baseline set is
+exactly that frozen list and **never grows**. Every admin surface NOT in the baseline — the
+~19 seeded by this change (settings, validation, admin-management, dev, onboarding, the 3
+admin picker mutations, `manifest/…/ignore`, `reap-stale-sessions`) and every future one —
+MUST be in the executable recorder set (a real sink-spy success-branch test, §10.7), never the
+grandfather list. That is the structural, uniform closure of the wrong-branch hole for both
+surface kinds. Reads are exempt (§4.3).
 
 ### 4.3 Escape hatches (two, by intent)
 
@@ -424,34 +424,31 @@ Add to the "Plan-wide invariants (non-negotiable)" list:
 
 Add two `BACKLOG.md` entries: `BL-CREW-PICKER-OBSERVABILITY` (the 6 grandfathered non-admin
 `lib/auth/picker/*` functions; the 3 admin-gated picker mutations are instrumented now, not
-deferred) and `BL-ADMIN-ROUTE-OUTCOME-BEHAVIOR` (audit/backfill sink-spy success-branch tests
-for the 24 frozen-baseline pre-existing admin routes — the new behavioral-coverage meta-test
-already forces any NEW admin route to ship one).
+deferred) and `BL-ADMIN-OUTCOME-BEHAVIOR` (audit/backfill executable sink-spy success-branch
+proofs for the frozen-baseline pre-existing admin surfaces — 24 routes + the 4 pre-existing
+admin actions — the new `ADMIN_OUTCOME_BEHAVIOR` meta-test already forces any NEW admin
+surface, route or action, to ship one).
 
 ## 7. Relationship to existing guards (disagreement-loop preempt)
 
 - **Complement, not replace.** `_metaAdminOutcomeContract` is the *precision* guard (named
   file → named code, codes kept out of §12.4). This is the *floor* guard (no silent surface).
   Both stay. Do not relitigate merging them.
-- **Floor vs success-path, and where the line sits (Codex R2/R3/R6 vector).** The floor is a
-  static check; it cannot verify *which branch* an emit sits on across arbitrary control
-  flow. So the guarantee is stated precisely (§6): "instrumented / no dark surface," not
-  "every success is logged." The gap Codex named — an admin mutation logging only a failure
-  code — is closed **structurally for every admin mutation surface**: admin-gated **actions**
-  (require\* in body) AND admin **routes** (under `app/api/admin/**`) satisfy the floor only
-  via `await logAdminOutcome` (a post-commit success outcome), enforced by §4.2. Only
-  **non-admin** surfaces — crew/system actions and infra routes (webhook, realtime, `report`,
-  sign-out) — accept any coded emit, by design (heterogeneous telemetry: they legitimately
-  log anomalies). *Which branch* the emit sits on is verified per-surface by the sink-spy
-  tests (§10.7), not statically — and for admin **routes** that behavioral coverage is
-  enforced **structurally** by the `ADMIN_ROUTE_OUTCOME_BEHAVIOR` meta-test (§10.5): every
-  admin route outside the frozen 24-route grandfather baseline (i.e. every new one) must ship
-  a success-branch sink-spy test. This boundary is the product of R2/R3/R6/R8/R9; do not
-  relitigate "failure-only passes for admin surfaces" (closed) or "static discovery must
-  verify the success branch" (statically infeasible — the behavioral sink-spy meta-test is
-  that verifier, structural not per-instance). The 24 pre-existing admin routes' behavioral
-  backfill is `BL-ADMIN-ROUTE-OUTCOME-BEHAVIOR` — a scoped follow-up, not a hole this change
-  widens.
+- **Floor vs success-path, and where the line sits (Codex R2/R3/R6/R8/R9/R10 vector).** The
+  static floor cannot verify *which branch* an emit sits on. So for **admin mutations** the
+  guarantee is not left to any static scan: admin surfaces — **actions** (`require*` in body)
+  AND **routes** (`app/api/admin/**`) — are governed by one uniform contract (§4.2): registry
+  membership in `AUDITABLE_MUTATIONS` PLUS an **executable** behavioral proof
+  (`ADMIN_OUTCOME_BEHAVIOR`, §9/§10.5) — a sink-spy test that records `{ file, code }` only
+  after observing the code on the committed-success branch. The frozen grandfather baseline
+  (24 routes + 4 pre-existing actions) is the only exception, backlogged as
+  `BL-ADMIN-OUTCOME-BEHAVIOR`; every non-grandfathered admin surface (seeded + future) must be
+  executably proven. **Non-admin** surfaces — crew/system actions and infra routes (webhook,
+  realtime, `report`, sign-out) — keep the broad coded-emit floor by design (heterogeneous
+  telemetry). Do not relitigate: "failure-only / wrong-branch passes for admin surfaces"
+  (closed uniformly for actions and routes), "static discovery must verify the success branch"
+  (infeasible — the executable sink-spy recorder is that verifier), or "the behavior registry
+  is a paper reference" (it is executable — the helper only records post-observation).
 - **Routes are checked file-level, and that is per-handler here (not a weaker check).** Every
   `route.ts` in this repo exports exactly one mutating handler (measured: 35/35 single `POST`),
   and the meta-test asserts this invariant, so file-level scoping is equivalent to
@@ -461,9 +458,9 @@ already forces any NEW admin route to ship one).
   caught. Do not relitigate as "routes must be per-function"; the multiplicity assertion is
   the tripwire that keeps the equivalence honest. Module/inline **actions** ARE per-function
   (that is the R2 fix), because multi-action modules are real and appending an export is the
-  live vector. For **admin** routes the file-scan is not even the success-outcome check —
-  registry membership is (previous bullet + §4.2), so a delegated/unreachable emit cannot
-  fake compliance.
+  live vector. For **admin** surfaces (routes AND actions) the static scan is not the
+  success-outcome check at all — registry membership + executable behavioral proof is
+  (§4.2, previous bullet), so a delegated/unreachable/wrong-branch emit cannot fake compliance.
 - **`KNOWN_UNINSTRUMENTED` is a debt ledger, not a bypass.** Grandfathering the crew picker
   actions is a ratified scope decision (crew telemetry taxonomy is separate design work),
   not an oversight. Each entry carries a backlog ref, and hygiene rules fail on stale entries.
@@ -492,12 +489,18 @@ already forces any NEW admin route to ship one).
   new discovery test import — so the discovery test's admin-route registry-membership check
   reads the single source of truth, not a duplicated list. Pure move; the existing contract
   test's behavior is unchanged.
-- **CREATES (Codex R9): `ADMIN_ROUTE_OUTCOME_BEHAVIOR`** — a registry mapping each admin-route
-  `AUDITABLE_MUTATIONS` row to either (a) a sink-spy success-branch test reference, or (b) the
-  frozen `BL-ADMIN-ROUTE-OUTCOME-BEHAVIOR` grandfather marker (only the 24 pre-existing
-  routes). A meta-test asserts: every admin-route registry row is covered by (a) or (b); the
-  grandfather set is exactly the frozen 24 (fails if it grows or drifts); the 2 seeded routes
-  and any future admin route are covered by (a) — a real behavioral test, not the marker.
+- **CREATES (Codex R9/R10): the executable `ADMIN_OUTCOME_BEHAVIOR` proof** — a shared runtime
+  recorder `recordAdminOutcomeBehavior({ file, code })` (in a shared module) that a sink-spy
+  behavioral test calls **only after** the spy observes the expected code on the committed
+  success branch, plus a frozen `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER` set of the pre-existing
+  admin surfaces (24 routes + `archive`/`unarchive`/`setPublished`/`feed` actions). The
+  `ADMIN_OUTCOME_BEHAVIOR` meta-test (running after the behavioral suite) asserts: for every
+  admin surface (route OR action) in `AUDITABLE_MUTATIONS`, its `{ file, code }` is EITHER in
+  the recorder set (executable proof) OR in the frozen grandfather set; the grandfather set is
+  exactly the frozen list and never grows; every non-grandfathered admin surface (the seeded
+  set + any future) is in the recorder set. This is executable, not referential — a paper
+  reference can't satisfy it (the test must run and observe). Covers routes AND actions
+  uniformly (Codex R10 F1).
 - **Advisory-lock topology:** N/A — no `pg_advisory*` surface is touched (declared explicitly).
 
 ## 10. Test plan (TDD)
@@ -510,13 +513,13 @@ already forces any NEW admin route to ship one).
    component, including a mutating inline action that fails without a code-carrying emit),
    **per-function sibling isolation** (two-action module: A emits/passes, B silent/fails),
    **export-list collection** (`"use server"; async function mutate(){…} export { mutate }`
-   with no emit MUST fail — Codex R3 F1), **admin-gate tightening** (an action whose body
-   calls `requireAdmin` passes with `await logAdminOutcome` but FAILS with only
-   `log.error("X_FAILED", { code })` — Codex R3 F2; a non-admin action with the same
-   `log.error` passes), **admin-route tightening** (a mutating `route.ts` under
-   `app/api/admin/**` with only a failure `log.error("X_FAILED", { code })` FAILS; the same
-   route with `await logAdminOutcome` passes; a route with the same failure log OUTSIDE
-   `app/api/admin/**` — e.g. `app/api/report/route.ts` — passes — Codex R6), **nested-emitter rejection** (an action with an unused nested
+   with no emit MUST fail — Codex R3 F1), **admin surface ⇒ registry, not scan (Codex
+   R3/R6/R8/R10 F2, unified)** — an **admin action** (body calls `requireAdmin`) OR an **admin
+   route** (`app/api/admin/**`) that is NOT in `AUDITABLE_MUTATIONS` and NOT exempt **FAILS
+   even with `await logAdminOutcome` in the file/body** (a wrong-branch/unused emit must not
+   buy a pass); the same surface once registered passes the discovery predicate; a **non-admin**
+   surface (crew action / `app/api/report` route) with only a coded `log.error` **passes** (broad
+   floor). **nested-emitter rejection** (a *non-admin* action with an unused nested
    `async function u(){ await logAdminOutcome(...) }` and a silent return MUST fail — Codex
    R4 F3; a live emit in an `if`/`try` block passes), **file-leading exemption rejection**
    (a file-leading `// no-telemetry:` in a `"use server"` module errors; a per-function one
@@ -526,20 +529,25 @@ already forces any NEW admin route to ship one).
 3. **Route-multiplicity assertion** — a dedicated assertion that no `route.ts` exports >1
    mutating method (the tripwire that keeps route file-level scoping equivalent to
    per-handler); prove it can fail via an in-memory two-mutating-method route string.
-4. **Admin-route registry-linkage (Codex R8)** — every discovered mutating
-   `app/api/admin/**` route must be in `AUDITABLE_MUTATIONS` or exempt (assert against the
-   live tree). Negative fixture: a synthetic `app/api/admin/.../route.ts` whose only
-   `await logAdminOutcome(...)` sits in an **unused nested helper** and which is NOT in
-   `AUDITABLE_MUTATIONS` MUST fail — proving a file-scan emit cannot substitute for a
-   registry row. Also assert the two seeded gaps (`manifest/ignore`, `reap-stale-sessions`)
-   are present in `AUDITABLE_MUTATIONS` after seeding.
-5. **Admin-route behavioral-coverage meta-test (Codex R9)** — assert every admin-route
-   `AUDITABLE_MUTATIONS` row is covered by `ADMIN_ROUTE_OUTCOME_BEHAVIOR` (a real sink-spy
-   test reference OR the frozen grandfather marker); the grandfather set equals exactly the 24
-   pre-existing routes and FAILS if it grows; a non-grandfathered admin route (the 2 seeded +
-   any future) that lacks a real behavioral-test reference FAILS. This is the structural proof
-   that a future admin route cannot pass with a registry row + wrong-branch emit — it must
-   ship a success-branch sink-spy test.
+4. **Admin registry-linkage — routes AND actions (Codex R8/R10)** — every discovered admin
+   surface (route under `app/api/admin/**` OR action whose body calls a `require*` gate) must
+   be in `AUDITABLE_MUTATIONS` or exempt (assert against the live tree). Negative fixtures: a
+   synthetic admin route whose only `await logAdminOutcome(...)` sits in an **unused nested
+   helper** and which is NOT registered MUST fail; likewise a synthetic admin action with the
+   emit on a catch branch and no registry row MUST fail. Assert the seeded gaps (settings,
+   validation, admins, developer, dev, onboarding, 3 picker, `manifest/ignore`,
+   `reap-stale-sessions`) are all present in `AUDITABLE_MUTATIONS` after seeding.
+5. **Executable admin behavioral-coverage meta-test (Codex R9/R10)** — the
+   `ADMIN_OUTCOME_BEHAVIOR` meta-test runs after the behavioral suite and asserts every admin
+   surface (route OR action) in `AUDITABLE_MUTATIONS` has its `{ file, code }` either in the
+   runtime recorder set (populated by `recordAdminOutcomeBehavior` — called by a sink-spy test
+   ONLY after it observes the code on the committed-success branch) OR in the frozen
+   `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER` set. The grandfather set equals exactly the pre-existing
+   surfaces (24 routes + 4 actions) and FAILS if it grows; every non-grandfathered admin
+   surface (the seeded set + any future) MUST be in the recorder set — a paper reference cannot
+   satisfy it. Negative fixture: a recorder entry written WITHOUT an observed emit is rejected
+   (the helper only records post-observation), and a non-grandfathered surface with no recorder
+   entry FAILS.
 6. **Ledger default-fail + hygiene** — a `"use server"` module with a ledgered function plus a
    NEW un-ledgered silent action fails on the new action (Codex R4 F1); a `{ file, fn }` row
    whose function now emits, or no longer exists, or whose `file` is gone, fails (forces
@@ -547,16 +555,21 @@ already forces any NEW admin route to ship one).
    `fn` body calls a `require{Admin,Developer}[Identity]` gate fails the test — prove it with
    an in-memory admin-gated fixture and by asserting the live ledger's 6 functions are all
    non-admin-gated.
-7. **Per-surface instrumentation tests (actions AND routes) — Codex R7.** For **every**
-   newly-instrumented surface — all 19 success emits, including the two admin **routes** — a
-   behavioral sink-spy test asserting the **committed-success branch** emits the expected
-   `code` and that non-success branches emit nothing. Static floor checks cannot tell which
-   branch an emit sits on, so these branch-level tests are the guarantee. Explicitly cover:
-   `MANIFEST_SHEET_IGNORED` fires on the committed manifest-transition branch and **not** on
-   a CAS-miss rollback; `STALE_SESSIONS_REAPED` fires on the successful-reap branch (with the
+7. **Per-surface instrumentation tests (actions AND routes) — Codex R7/R10.** For **every**
+   newly-instrumented surface — all 21 success emits (the 20 admin surfaces + the non-admin
+   crew `confirmUnpublishAction`) — a behavioral sink-spy test asserting the
+   **committed-success branch** emits the expected `code` and that non-success branches emit
+   nothing. Each of the **20 admin** surfaces additionally calls
+   `recordAdminOutcomeBehavior({ file, code })` immediately after the success-emit assertion
+   (so §10.5's meta-test observes executable coverage; the non-admin confirm action is on the
+   broad floor and need not record). Explicitly cover:
+   `MANIFEST_SHEET_IGNORED` fires on the committed manifest-transition branch and **not** on a
+   CAS-miss rollback; `STALE_SESSIONS_REAPED` fires on the successful-reap branch (with the
    count) and not on the infra-fault branch; each admin toggle emits on `{ ok: true }` only;
-   `rotateShareToken` never includes the `share_token` secret. Derive expectations from the
-   surface's own result shape; do not assert against a container that also renders the value.
+   admin-management (`ADMIN_GRANTED`/`ADMIN_REVOKED`/`ADMIN_DEVELOPER_SET`) on the `kind: "ok"`
+   branch only; `rotateShareToken` never includes the `share_token` secret. Derive expectations
+   from the surface's own result shape; do not assert against a container that also renders the
+   value.
 8. **`_metaAdminOutcomeContract` still green** — the new registry rows are consistent
    (file emits the registered code; code stays out of §12.4); the shared-module extraction
    (§9) does not change its behavior.
