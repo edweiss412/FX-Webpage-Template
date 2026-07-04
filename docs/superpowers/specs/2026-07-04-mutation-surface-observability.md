@@ -263,11 +263,13 @@ actions and routes:
    `{ file, fn }` has a recorder entry — a nominal/paper reference cannot satisfy it; the test
    must actually run and observe the emit.
 
-**Scope bound (frozen grandfather baseline).** Every admin mutation surface that exists at
-`origin/main` HEAD — the **30 surface units: 24 pre-existing admin route `POST`s + 6
+**Scope bound (frozen grandfather baseline).** The behavioral grandfather is NOT "every admin
+surface at HEAD" (the 20 seeded surfaces also exist at HEAD and must NOT be grandfathered —
+Codex R15 F3); it is exactly the **admin surfaces that ALREADY emitted a success outcome at
+`origin/main` HEAD — 30 `{ file, fn }` units: 24 pre-existing admin route `POST`s + 6
 pre-existing admin action functions** (`archiveShowAction`, `unarchiveShowAction`,
-`setShowPublishedAction`, `mi11ApproveAction`, `mi11RejectAction`, `undoChangeAction`) — is a
-FROZEN `{ file, fn }`-keyed baseline whose behavioral backfill is `BL-ADMIN-OUTCOME-BEHAVIOR`.
+`setShowPublishedAction`, `mi11ApproveAction`, `mi11RejectAction`, `undoChangeAction`). Their
+executable behavioral backfill is deferred to `BL-ADMIN-OUTCOME-BEHAVIOR`.
 The meta-test asserts the baseline set is exactly that frozen list and **never grows**. Every
 admin surface NOT in the baseline — the **exactly 20 admin surfaces seeded by this change**
 (the §3.1 A canonical list minus the one non-admin `confirmUnpublishAction`: settings ×4,
@@ -319,8 +321,11 @@ uniform closure of the wrong-branch hole for both surface kinds. Reads are exemp
      `resetDevSchemaFormAction` → `resetDevSchema`).
    - **`read-only`** (an admin-gated exported action that performs no mutation): today
      `dev/actions.ts` :: `getStagedResult`, `listFixtures`. The meta-test asserts the function
-     contains no Supabase write-builder / `logAdminOutcome` (a cheap "looks like a read"
-     guard, so a mutation can't hide here).
+     contains no Supabase write-builder (`.insert/.update/.delete/.upsert`), **no `.rpc(` call
+     (a SECURITY DEFINER RPC can mutate, e.g. `dev_truncate_all` — Codex R15)**, and no
+     `logAdminOutcome`. Verified: both current read accessors use `.from().select()` /
+     `readdir` only, so the `.rpc(` ban breaks neither. (If a future read-only genuinely needs
+     a read-only RPC, add its RPC name to a small cited read-RPC allowlist — not a bare skip.)
    The list is frozen: a NEW admin-gated function cannot dodge by appending a `read-only` row
    without a reviewed change, and a `delegator` row is only valid if its target is registered.
    This replaces the bare `// no-telemetry:` the shims/reads previously carried (§3.1 B).
@@ -414,6 +419,15 @@ committed mutation (invariant 9). Emits carry:
 - **`dev/actions`** emit on the success return of `parseAndStage` / `resetDevSchema`.
 - **onboarding** actions are `Promise<never>` (they `redirect`); the emit fires **before**
   the `redirect()` throw, after `purgeAndRotateOnboardingSession()` resolves.
+- **`resolveAdminAlertFormAction`** (Codex R15): emit `ADMIN_ALERT_RESOLVED` only after the
+  `admin_alerts` UPDATE commits (the `revalidatePath("/admin","layout")` branch, mirroring the
+  resolve-route). Emit NOTHING on the invalid/absent-id early return, the `getUser`
+  returned-error branch, the null-canonical-email branch, or the UPDATE-error branch (each
+  already carries its own failure `log.error`).
+- **`retryWatchSubscriptionFormAction`** (Codex R15): emit `WATCH_SUBSCRIPTION_RETRIED` only on
+  the successful watch-renewal branch (before its `revalidatePath`). Emit NOTHING on the
+  "no folder configured" skip (which keeps its existing forensic `log.info`) or the
+  renewal-failure branch.
 - **Admin routes** (`manifest/…/ignore`, `reap-stale-sessions`) emit the success outcome in
   the route file after the delegated helper reports success, before the JSON response.
   `manifest/…/ignore` → `MANIFEST_SHEET_IGNORED` on the committed-transition branch (NOT on a
@@ -603,7 +617,8 @@ forces any NEW admin surface, route or action, to ship one).
    F1):** an admin surface carrying a bare `// no-telemetry:` (no `ADMIN_SURFACE_EXEMPTIONS`
    row) MUST fail; an `ADMIN_SURFACE_EXEMPTIONS` `delegator` row whose `delegatesTo` is NOT in
    `AUDITABLE_MUTATIONS` MUST fail; a `read-only` row on a function that contains a
-   write-builder or `logAdminOutcome` MUST fail. Assert the seeded gaps (settings, validation,
+   write-builder, **a `.rpc(` call** (negative fixture: a `read-only`-exempted action calling
+   a mutating RPC like `dev_truncate_all` MUST fail — Codex R15), or `logAdminOutcome` MUST fail. Assert the seeded gaps (settings, validation,
    admins, developer, dev, onboarding, 3 picker, `manifest/ignore`, `reap-stale-sessions`) are
    all present in `AUDITABLE_MUTATIONS` after seeding.
 5. **Executable admin behavioral-coverage — single file (Codex R9/R10/R11 F2), keyed
