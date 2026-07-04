@@ -335,7 +335,7 @@ A meta-test (`tests/messages/_metaErrorCatalogDocs.test.ts`) asserts the catalog
 | Section header "?" tooltip | §9.0.1 | Trailing "Learn more →" link to the relevant `/help/...` page. Conditional on `helpHref` presence; degrades cleanly when absent. |
 | Parse warning row | §9.2 | Sibling `Learn more →` button next to "Report this to Eric"; resolves to `/help/admin/parse-warnings#<code>` via `messageFor(code).helpHref`. |
 | Error toast / banner | §12.4 | Inline `Learn more →` when `messageFor(code).helpHref` is non-null. Single change point in the rendering helper. |
-| Dashboard footer "Take the tour" | §9.0.1 | `<Link href="/help/tour">Take the tour →</Link>`. |
+| Dashboard footer "New here?" | §9.0.1 | `<Link href="/help/tour">New here? →</Link>` (the prompt itself is the affordance; the separate "Take the tour →" link was retired as redundant). |
 | "What does this mean?" expansion on errors | §9.0.1 | Body text stays as the M9/M10-shipped copy; appended `Learn more →` link to `/help/errors#<code>`. |
 
 The retrofit is **link-only**. This milestone does not change the text content of any tooltip, error message, or expansion shipped by M4/M9/M10.
@@ -372,7 +372,7 @@ Every `?` tooltip / "Learn more" / "What does this mean?" / "Take the tour" link
 | Needs attention page header (`/admin/needs-attention`) | `/admin/needs-attention` | `?` tooltip | `help-affordance--needs-attention-page--tooltip` | `/help/admin/review-queues#first-seen` | both | M12.12 |
 | Dashboard - Review staged changes legend link | `/admin` | legend link | `help-affordance--dashboard-restage--legend` | `/help/admin/review-queues#re-stage` | both | M12.12 |
 | Dashboard - Archived shows bucket header (`?bucket=archived`) | `/admin?bucket=archived` | `?` tooltip | `help-affordance--dashboard-archived-shows--tooltip` | `/help/admin/dashboard#archived` | both | M12.12 |
-| Dashboard footer - Take the tour | `/admin` | Take the tour | `help-affordance--dashboard-footer--tour` | `/help/tour` | both | M9 |
+| Dashboard footer - New here? | `/admin` | New here? | `help-affordance--dashboard-footer--tour` | `/help/tour` | both | M9 |
 | Per-show - Sync health footer strip | `/admin/show/rpas-central-2026` | `?` tooltip | `help-affordance--per-show-sync-footer--tooltip` | `/help/admin/per-show-panel#sync-health` | both | M12.12 |
 | Per-show - Alerts section header | `/admin/show/rpas-central-2026` | `?` tooltip | `help-affordance--per-show-alerts--tooltip` | `/help/admin/parse-warnings` | both | M12.12 |
 | Per-show - Crew section header | `/admin/show/rpas-central-2026` | `?` tooltip | `help-affordance--per-show-crew--tooltip` | `/help/admin/preview-as-crew` | both | M12.12 |
@@ -705,7 +705,7 @@ All citations in this table cite `file:line` as required by AGENTS.md self-revie
 | **AC-11.7** | The build-time anchor resolver passes — every `helpHref` resolves to a real `<RefAnchor>` on a real page. |
 | **AC-11.8** | Parse-warning rows in the §9.2 panel render a `Learn more →` link when `helpHref` is present. |
 | **AC-11.9** | Dashboard tooltips per §9.0.1 render a trailing `Learn more →` link when their mapped page exists. |
-| **AC-11.10** | Dashboard footer renders `Take the tour →` linking to `/help/tour`. |
+| **AC-11.10** | Dashboard footer renders `New here? →` linking to `/help/tour` (the "New here?" prompt is itself the affordance; the separate "Take the tour →" link was retired as redundant). |
 | **AC-11.11** | `/help/errors` iterates the catalog and renders one anchored section per entry matching the AC-11.6 predicate — `severity !== "info"` AND `dougFacing != null`. Each section's visible heading is `entry.title` (NOT the code — invariant #5). Body is `entry.longExplanation`. **Trailing call-to-action (r10 corrected per round-8 finding 5):** the trailing link is "If this keeps happening, tell Eric →". The original AC text named "the bug-report flow (per §4.3)" as the target; the Phase I Codex R1 review (2026-05-22) surfaced that master-spec §13.1 defines four SHOW-SCOPED bug-report surfaces and no non-show-scoped recurrence-report surface exists. **r11 amendment (Phase I Codex R1):** for v1, the trailing CTA is a `mailto:edweiss412@gmail.com` link with subject/body pre-populated for the recurrence-report use case. The non-show-scoped report surface is deferred per `docs/superpowers/plans/v1-pre-deployment-amendments/2026-05-12-user-facing-docs/DEFERRED.md` `M11-I-D-1` + speculative future surface tracked at `docs/superpowers/plans/BACKLOG.md` `BL-HELP-NON-SHOW-REPORT-SURFACE`. The `Learn more →` affordance lives on the SOURCE surfaces (admin pages where the error renders) per §5.6 matrix — `/help/errors` is the destination, not a hop. |
 | **AC-11.12** | All 17 unit/integration tests in §7.1 (items 1–10 plus 12 + 13 + 14 + 15 + 16 + 17 + 18) pass; nav-consistency, anchor-resolver, screenshot-coverage, manifest-integrity, `<picture>`-contract, error-renderer-gate (4 contexts), deep-link-walker, fixture-range-parser, `lib/time/now.ts`-gate, server-time grep-guard, catalog-alignment meta-test, and end-to-end clock-pipeline proof are red on the conditions they guard. CI drift gate (§7.1 item 11) is wired and fails on uncommitted screenshot drift. |
 | **AC-11.13** | `/impeccable critique` and `/impeccable audit` pass on every `app/help/*` page (per invariant #8). |
