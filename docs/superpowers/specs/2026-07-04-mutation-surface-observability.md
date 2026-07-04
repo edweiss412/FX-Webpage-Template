@@ -36,17 +36,19 @@ recorded as known observability debt.
 
 A prototype of the exact **per-function** predicate (§4), run against the live worktree,
 enumerates **74 surface units** — 35 route handlers (one `POST` each), 36 exported
-module-action functions, 3 function-scoped inline actions — of which **33 are currently
-unaccounted** (3 route + 27 module-function + 3 inline). The predicate correctly passes all
-32 already-instrumented routes — including the 7 human-message + `code:`-field style
-(`drive/webhook`, `realtime/subscriber-token`, `report`, `sign-out`, `reap-stale-sessions`,
-`manifest/ignore`, `observe/client-error`) — and correctly *fails* each uninstrumented
-action, proving AST scoping is required (a plain grep passes `validationReset.ts`, whose only
-`code:` literals are in return bodies, not `log.*` calls). The per-function measurement is
-the R2 correction: file-level scoping reported only 21 failures because it let uninstrumented
-actions ride a sibling's emit in the same file.
+module-action functions, 3 function-scoped inline actions — of which **35 are currently
+unaccounted** (3 route + 29 module-function + 3 inline). The predicate correctly passes the
+already-instrumented admin routes (incl. the 7 human-message + `code:`-field style —
+`drive/webhook`, `realtime/subscriber-token`, `report`, `sign-out`, `reap-stale-sessions`,
+`manifest/ignore`, `observe/client-error`) and correctly *fails* each uninstrumented action,
+proving AST scoping is required (a plain grep passes `validationReset.ts`, whose only `code:`
+literals are in return bodies, not `log.*` calls). Two measurement corrections from the
+adversarial rounds: R2 per-function scoping (file-level under-counted by letting actions ride
+a sibling's emit); R3 the admin-gate rule (§4.2) reclassifies `app/admin/actions.ts`'s two
+`requireAdmin()`-gated actions from "passing on a failure `log.error` code" to unaccounted,
+since an admin mutation must carry a success outcome (`+2` module-function failures: 27 → 29).
 
-### 3.1 The 33 unaccounted surface units and their dispositions
+### 3.1 The 35 unaccounted surface units and their dispositions
 
 **A. Instrument now — admin-tier (in-body `await logAdminOutcome`; add rows to
 `_metaAdminOutcomeContract`). One emit per mutating function:**
@@ -67,8 +69,11 @@ actions ride a sibling's emit in the same file.
 | `show/[slug]/unpublish/actions.ts` :: `confirmUnpublishAction` | **reuse** `SHOW_UNPUBLISHED_VIA_EMAILED_LINK` |
 | `lib/onboarding/serverActions.ts` :: `startOverServerAction` | `ONBOARDING_STARTED_OVER` |
 | `lib/onboarding/serverActions.ts` :: `rerunSetupServerAction` | `ONBOARDING_SETUP_RERUN` |
+| `app/admin/actions.ts` :: `resolveAdminAlertFormAction` | **reuse** `ADMIN_ALERT_RESOLVED` (matches the resolve-route code) |
+| `app/admin/actions.ts` :: `retryWatchSubscriptionFormAction` | `WATCH_SUBSCRIPTION_RETRIED` |
 
-(14 in-body emits.)
+(16 in-body success emits — 14 new codes + 2 reuses: `SHOW_UNPUBLISHED_VIA_EMAILED_LINK`,
+`ADMIN_ALERT_RESOLVED`.)
 
 **B. Exempt per-function/file (`// no-telemetry: <reason>`) — non-mutations / delegators:**
 
@@ -127,13 +132,19 @@ kinds:
   disproportionate, and a *new mutating endpoint is always a new `route.ts` file*, caught by
   the file-level floor.
 - **Module-level server action** (**per-exported-function** check): a module with a leading
-  `"use server"` directive. **Each exported async function** (`FunctionDeclaration` or
-  `VariableStatement` whose initializer is an arrow/function expression) is an individual
-  surface; the emit must be reachable **within that function's own body** (or the function
-  is exempted/ledgered — §4.3). This is what closes the R2 hole: a new mutating export
-  appended to `admins/actions.ts` or `dev/actions.ts` cannot ride a sibling's emit. Modules
-  without the directive (barrels `_actions/index.ts`, helpers `_actions/shared.ts`) are not
-  surfaces — no exemption needed.
+  `"use server"` directive. **Each exported async function is an individual surface**,
+  collected from **all** export forms so none can hide (Codex R3 HIGH): (i) an
+  `export`-modified `FunctionDeclaration`; (ii) an `export`-modified `VariableStatement`
+  whose initializer is an arrow/function expression; **and (iii) an `ExportDeclaration`
+  export-list** (`export { mutate }` / `export { local as mutate }`) whose specifier
+  resolves to a locally-declared function or arrow/function `const` in the same module —
+  the specifier is resolved to its declaration and that declaration's body is the checked
+  scope. (Re-exports `export { x } from "./y"` name another module's symbol; that symbol is
+  checked where it is declared.) The emit must be reachable **within that function's own
+  body** (or the function is exempted/ledgered — §4.3). This is what closes the R2 hole: a
+  new mutating export appended to `admins/actions.ts` or `dev/actions.ts` — in any export
+  form — cannot ride a sibling's emit. Modules without the directive (barrels
+  `_actions/index.ts`, helpers `_actions/shared.ts`) are not surfaces — no exemption needed.
 - **Function-scoped inline action** (**per-function** check): a
   `FunctionDeclaration`/`FunctionExpression`/`ArrowFunction` whose **block body** opens with
   a leading `"use server"` directive (the inline form React emits as a Server Action, e.g.
@@ -175,6 +186,25 @@ least one **code-carrying emit** — a `CallExpression` matching **any** of:
 AST scoping is load-bearing for (c): a `code:` literal in an unrelated object (a return
 body, a type, a config) does **not** count — it must be the argument to a `log.*` call.
 This is what makes `validationReset.ts` (pre-instrumentation) correctly fail.
+
+**Admin-gated actions require a success outcome, not merely a failure log (Codex R3 HIGH).**
+A bare `log.*` emit satisfies the floor for routes and crew/system actions (heterogeneous
+telemetry — infra endpoints and crew flows legitimately log anomalies/failures). But a
+mutating **admin action can pass with a failure-only `log.error("X_FAILED")` while its
+successful mutation is silent** — exactly the "observable in name only" hole. So the floor
+is **tightened for admin-gated server actions**: a module-level or inline server action
+whose body calls an admin gate — an identifier in
+`{requireAdmin, requireAdminIdentity, requireDeveloper, requireDeveloperIdentity}` (the
+static, greppable admin-tier signal) — satisfies the floor **only via clause (a)**
+(`await logAdminOutcome(...)`, a post-commit success outcome by its own contract), **not**
+via (b)/(c). This forces every admin-gated mutation to carry a success-outcome emit. It
+flips exactly one currently-passing surface — `app/admin/actions.ts` (both actions call
+`requireAdmin()` but emit only failure `log.error` codes) — which is a genuine gap this
+change closes (see §3.1 A). Crew actions (e.g. `selectIdentity`, no admin gate) keep the
+broad floor; reads are exempt (§4.3). Rationale for scoping to *actions* and not routes:
+server actions are pure mutations, whereas the route surface mixes admin mutations (already
+success-emitting + registry-pinned) with infra endpoints where anomaly logging is the
+correct telemetry — forcing `logAdminOutcome` on a webhook/token route would be wrong.
 
 ### 4.3 Escape hatches (two, by intent)
 
@@ -281,16 +311,20 @@ or effect. No zombie-flag risk introduced.
 
 Add to the "Plan-wide invariants (non-negotiable)" list:
 
-> **10. Every mutation surface is observable.** Any HTTP route that exports a mutating
-> method (`POST`/`PUT`/`PATCH`/`DELETE`) and any server action — module-level `"use server"`
-> file OR function-scoped inline `"use server"` action — MUST emit at least one
-> code-carrying telemetry event (`await logAdminOutcome(...)`, or `log.<info|warn|error>`
-> with a `SHOUTY_SNAKE` code as the message or a `code:` field),
-> OR carry an inline `// no-telemetry: <reason>` exemption, OR be recorded in the
-> `KNOWN_UNINSTRUMENTED` debt-ledger with a backlog ref. This is a **floor** (a coded emit
-> exists on the surface), not a guarantee the success path is covered — that remains the
-> registry guard's (`_metaAdminOutcomeContract`) and audits' job. Enforced by
-> `tests/log/_metaMutationSurfaceObservability.test.ts`. New mutation surfaces are
+> **10. Every mutation surface is instrumented — no surface is silently dark.** Every
+> mutation surface unit — each mutating HTTP route handler (`POST`/`PUT`/`PATCH`/`DELETE`),
+> each exported action in a module-level `"use server"` file, and each function-scoped inline
+> `"use server"` action — MUST carry at least one code-carrying telemetry emit
+> (`await logAdminOutcome(...)`, or `log.<info|warn|error>` with a `SHOUTY_SNAKE` code as the
+> message or a `code:` field), OR an inline `// no-telemetry: <reason>` exemption, OR a
+> `KNOWN_UNINSTRUMENTED` debt-ledger row with a backlog ref. Checked **per function** for
+> actions (an emit in one exported action does not satisfy a sibling) and per file for routes
+> (each route file has exactly one mutating handler, asserted). **Admin-gated actions** (body
+> calls `require{Admin,Developer}[Identity]`) must satisfy this via `await logAdminOutcome`
+> specifically — a success outcome, not a failure-only log. Beyond this floor, success-path
+> outcome *precision* for named admin mutations (which code, which branch) remains the
+> registry guard's (`_metaAdminOutcomeContract`) and audits' job — the two are complementary.
+> Enforced by `tests/log/_metaMutationSurfaceObservability.test.ts`. New mutation surfaces are
 > uninstrumented-by-default failures, not silent omissions.
 
 Also add a `BL-CREW-PICKER-OBSERVABILITY` entry to `BACKLOG.md` describing the deferred
@@ -301,11 +335,19 @@ crew-picker telemetry taxonomy (the 5 grandfathered `lib/auth/picker/*` actions)
 - **Complement, not replace.** `_metaAdminOutcomeContract` is the *precision* guard (named
   file → named code, codes kept out of §12.4). This is the *floor* guard (no silent surface).
   Both stay. Do not relitigate merging them.
-- **Floor ≠ success-path guarantee is intentional** (§4.2). A function whose only emit is on
-  its failure branch passes the floor. Closing "logs failures only" is the registry's job,
-  not this test's. This is a deliberate scope boundary, cited in the invariant text; do not
-  relitigate. (Per-function scoping does guarantee *each* mutating function carries an emit —
-  it does not guarantee *which branch*.)
+- **Floor vs success-path, and where the line sits (Codex R2/R3 vector).** The floor is a
+  static check; it cannot verify *which branch* an emit sits on across arbitrary control
+  flow. So the guarantee is stated precisely (§6): "instrumented / no dark surface," not
+  "every success is logged." The gap Codex named — an admin mutation logging only a failure
+  code — is closed **structurally** for the surface where it matters: admin-gated actions
+  must emit `await logAdminOutcome` (a post-commit success outcome), enforced by §4.2, not
+  left to the opt-in registry. For routes and crew/system actions the floor accepts any coded
+  emit by design (heterogeneous telemetry: infra endpoints legitimately log anomalies).
+  Success-path *precision* for named admin mutations (exact code/branch) stays the registry's
+  job — and every admin mutation *route* is already registered. This boundary is the product
+  of three adversarial rounds; do not relitigate "failure-only passes" (closed for admin
+  actions) or "make discovery a full success-branch verifier" (statically infeasible — the
+  registry + sink-spy tests are that verifier).
 - **Routes are checked file-level, and that is per-handler here (not a weaker check).** Every
   `route.ts` in this repo exports exactly one mutating handler (measured: 35/35 single `POST`),
   and the meta-test asserts this invariant, so file-level scoping is equivalent to
@@ -348,7 +390,11 @@ crew-picker telemetry taxonomy (the 5 grandfathered `lib/auth/picker/*` actions)
    detections (module-level leading vs function-scoped inline `"use server"` in a `.tsx`
    component, including a mutating inline action that fails without a code-carrying emit),
    **per-function sibling isolation** (two-action module: A emits/passes, B silent/fails),
-   and the negative-regression flip (§4.5).
+   **export-list collection** (`"use server"; async function mutate(){…} export { mutate }`
+   with no emit MUST fail — Codex R3 F1), **admin-gate tightening** (an action whose body
+   calls `requireAdmin` passes with `await logAdminOutcome` but FAILS with only
+   `log.error("X_FAILED", { code })` — Codex R3 F2; a non-admin action with the same
+   `log.error` passes), and the negative-regression flip (§4.5).
 2. **Live-surface test** — the walk runs against the repo and asserts zero unaccounted
    surface units. After seeding, this is green.
 3. **Route-multiplicity assertion** — a dedicated assertion that no `route.ts` exports >1
