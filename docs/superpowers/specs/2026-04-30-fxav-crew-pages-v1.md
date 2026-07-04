@@ -2613,7 +2613,7 @@ If the unresolved set is non-empty → `ONBOARDING_NOT_RESOLVED` 409. If empty �
 Once the dashboard is active, contextual help is available everywhere:
 
 - A "?" icon next to every section header that opens a small tooltip with one paragraph of explanation in plain language.
-- A "Take the tour" link in the dashboard footer that walks through the dashboard, a per-show parse panel, and the preview-as flow.
+- A "New here?" link in the dashboard footer (the prompt itself is the affordance) that walks through the dashboard, a per-show parse panel, and the preview-as flow.
 - Every error message links to "What does this mean?" with a one-paragraph plain-language explanation.
 
 These are first-class spec requirements, not "nice-to-have polish." The error catalog in §12.4 is the source of truth for every text string a non-technical user sees.
