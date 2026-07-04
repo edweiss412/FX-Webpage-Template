@@ -22,15 +22,22 @@
  * The 44px tap floor (DESIGN §10) is met by min-h-tap-min on the trigger.
  */
 import { useState } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, TriangleAlert } from "lucide-react";
 import type { ReactNode } from "react";
 
 export function IgnoredSheetsDisclosure({
   count,
+  degraded = false,
   help,
   children,
 }: {
   count: number;
+  /**
+   * The ignored-sheets read failed. The collapsed header must NOT show a numeric
+   * count (a false "0" reads as "no ignored sheets" and hides the fault until
+   * expansion) — it shows a visible "Couldn't load" warning chip instead.
+   */
+  degraded?: boolean;
   help: ReactNode;
   children: ReactNode;
 }) {
@@ -66,12 +73,22 @@ export function IgnoredSheetsDisclosure({
             <span className="min-w-0 wrap-break-word text-lg font-semibold text-text-strong">
               Ignored sheets
             </span>
-            <span
-              data-testid="ignored-sheets-count-chip"
-              className="inline-flex items-center rounded-pill border border-border bg-surface-sunken px-2 py-0.5 text-xs font-semibold tabular-nums text-text-subtle"
-            >
-              {count}
-            </span>
+            {degraded ? (
+              <span
+                data-testid="ignored-sheets-degraded-chip"
+                className="inline-flex items-center gap-1 rounded-pill border border-border-strong bg-warning-bg px-2 py-0.5 text-xs font-semibold text-warning-text"
+              >
+                <TriangleAlert aria-hidden="true" className="size-3 shrink-0" />
+                Couldn&apos;t load
+              </span>
+            ) : (
+              <span
+                data-testid="ignored-sheets-count-chip"
+                className="inline-flex items-center rounded-pill border border-border bg-surface-sunken px-2 py-0.5 text-xs font-semibold tabular-nums text-text-subtle"
+              >
+                {count}
+              </span>
+            )}
           </button>
         </h3>
         {help}

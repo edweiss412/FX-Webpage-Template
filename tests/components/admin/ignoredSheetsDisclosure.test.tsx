@@ -20,9 +20,13 @@ import { IgnoredSheetsDisclosure } from "@/components/admin/IgnoredSheetsDisclos
 
 afterEach(() => cleanup());
 
-function renderDisclosure(count = 2) {
+function renderDisclosure(count = 2, degraded = false) {
   return render(
-    <IgnoredSheetsDisclosure count={count} help={<span data-testid="help-slot">?</span>}>
+    <IgnoredSheetsDisclosure
+      count={count}
+      degraded={degraded}
+      help={<span data-testid="help-slot">?</span>}
+    >
       <ul data-testid="ignored-sheets-list">
         <li>East Coast.gsheet</li>
       </ul>
@@ -45,6 +49,14 @@ describe("IgnoredSheetsDisclosure", () => {
     const help = screen.getByTestId("help-slot");
     // help must NOT be nested inside the toggle button (no interactive nesting).
     expect(screen.getByTestId("ignored-sheets-toggle")).not.toContainElement(help);
+  });
+
+  it("degraded: shows a visible 'Couldn't load' warning chip while collapsed, never a false '0'", () => {
+    renderDisclosure(0, true);
+    // The fault must be visible WITHOUT expanding — a numeric count chip (a "0")
+    // would read as "no ignored sheets" and hide the failed load.
+    expect(screen.getByTestId("ignored-sheets-degraded-chip")).toHaveTextContent(/Couldn.t load/);
+    expect(screen.queryByTestId("ignored-sheets-count-chip")).not.toBeInTheDocument();
   });
 
   it("exposes a real heading wrapping the toggle button (valid content model, WAI accordion)", () => {

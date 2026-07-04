@@ -636,6 +636,7 @@ export async function Dashboard(
           Collapsed it is a single calm row: "▸ Ignored sheets (N)". */}
       <IgnoredSheetsDisclosure
         count={result.ignoredSheets.length}
+        degraded={result.ignoredDegraded}
         help={
           <HoverHelp
             label="Help: Ignored sheets"
