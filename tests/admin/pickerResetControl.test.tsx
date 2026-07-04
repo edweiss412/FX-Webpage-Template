@@ -135,4 +135,30 @@ describe("PickerResetControl", () => {
     // the stale Alice confirm must NOT remain
     expect(screen.queryByTestId("picker-reset-confirm-button")).toBeNull();
   });
+
+  // PCR-1 item (a): the success announcement must live in a live region that is
+  // ALREADY mounted (and empty) before the success occurs, so SRs that skip
+  // insert-time announcements on a freshly-mounted region still announce it.
+  test("(a) a persistent, empty aria-live=polite status region exists at mount", () => {
+    const { container } = render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
+    const region = container.querySelector('[role="status"][aria-live="polite"]');
+    expect(region).not.toBeNull();
+    // no success banner yet — the region is present but empty
+    expect(screen.queryByTestId("picker-reset-ok")).toBeNull();
+  });
+
+  test("(a) the success banner mounts INSIDE the pre-existing status region", async () => {
+    mockMember.mockResolvedValue({ ok: true, reset_at: "2026-07-03T12:00:00Z" });
+    const { container } = render(<PickerResetControl showId={SHOW_ID} crew={roster} />);
+    const region = container.querySelector('[role="status"][aria-live="polite"]');
+    fireEvent.click(screen.getByTestId("picker-reset-member-button"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("picker-reset-confirm-button"));
+      await flush();
+    });
+    await waitFor(() => {
+      const ok = screen.getByTestId("picker-reset-ok");
+      expect(region!.contains(ok)).toBe(true);
+    });
+  });
 });

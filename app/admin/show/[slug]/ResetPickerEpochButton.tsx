@@ -140,13 +140,16 @@ export function ResetPickerEpochButton({
     </button>
   );
 
-  const banners = (
-    <>
+  // PCR-1 (a): stable, pre-mounted polite live region present in EVERY UI state
+  // (idle + confirm) so it is one stable node across the resolving → idle
+  // transition; the success banner mounts INTO it rather than mounting region
+  // and content together, so SRs that skip insert-time announcements on a
+  // freshly mounted region still fire. display:contents keeps layout unchanged.
+  const liveRegion = (
+    <div role="status" aria-live="polite" className="contents">
       {okMessage && (
         <p
           data-testid="admin-reset-picker-epoch-ok"
-          role="status"
-          aria-live="polite"
           className="rounded-sm bg-surface-raised px-2 py-1 text-sm text-text-strong"
         >
           <span aria-hidden="true" className="mr-1 font-semibold text-accent">
@@ -155,38 +158,21 @@ export function ResetPickerEpochButton({
           {okMessage}
         </p>
       )}
-      {refusedMessage && (
-        <p
-          data-testid="admin-reset-picker-epoch-refused"
-          role="alert"
-          className="rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
-        >
-          {refusedMessage}
-        </p>
-      )}
-    </>
+    </div>
   );
-
-  if (ui === "idle") {
-    return compact && rowLabel ? (
-      <div className="flex flex-col gap-2 py-3">
-        <div className="flex items-start justify-between gap-3">
-          {labelHeader}
-          {idleButton}
-        </div>
-        {banners}
-      </div>
-    ) : (
-      <div className="flex flex-col items-end gap-2">
-        {idleButton}
-        {banners}
-      </div>
-    );
-  }
+  const errorBanner = refusedMessage ? (
+    <p
+      data-testid="admin-reset-picker-epoch-refused"
+      role="alert"
+      className="rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
+    >
+      {refusedMessage}
+    </p>
+  ) : null;
 
   // M11.5-IMP-5 item 4: aria-describedby links the destructive Confirm button to
   // the warning paragraph's id (tighter SR experience). data-testid + role=group
-  // stay on the outer container so the existing test contract holds.
+  // stay on the confirm-row container so the existing test contract holds.
   const warningP = (
     <p id="admin-reset-picker-epoch-warning" className="text-sm text-text-subtle">
       Every device&rsquo;s picker re-prompts on next visit.
@@ -217,28 +203,39 @@ export function ResetPickerEpochButton({
     </div>
   );
 
+  // Single return so {liveRegion} sits at a stable tree position across states.
   // Compact confirm: label is its OWN top row; warning + Confirm/Cancel render
   // FULL-WIDTH below it (adversarial M12.7 — not cramped beside the label).
-  return compact && rowLabel ? (
+  const stateBody =
+    ui === "idle" ? (
+      compact && rowLabel ? (
+        <div className="flex items-start justify-between gap-3">
+          {labelHeader}
+          {idleButton}
+        </div>
+      ) : (
+        idleButton
+      )
+    ) : (
+      <div
+        data-testid="admin-reset-picker-epoch-confirm-row"
+        role="group"
+        aria-label="Confirm resetting picker selections for this show"
+        className={compact && rowLabel ? "flex flex-col gap-2" : "flex flex-col items-end gap-2"}
+      >
+        {compact && rowLabel ? labelHeader : null}
+        {warningP}
+        {confirmCancelButtons}
+      </div>
+    );
+
+  return (
     <div
-      data-testid="admin-reset-picker-epoch-confirm-row"
-      role="group"
-      aria-label="Confirm resetting picker selections for this show"
-      className="flex flex-col gap-2 py-3"
+      className={compact && rowLabel ? "flex flex-col gap-2 py-3" : "flex flex-col items-end gap-2"}
     >
-      {labelHeader}
-      {warningP}
-      {confirmCancelButtons}
-    </div>
-  ) : (
-    <div
-      data-testid="admin-reset-picker-epoch-confirm-row"
-      role="group"
-      aria-label="Confirm resetting picker selections for this show"
-      className="flex flex-col items-end gap-2"
-    >
-      {warningP}
-      {confirmCancelButtons}
+      {stateBody}
+      {liveRegion}
+      {errorBanner}
     </div>
   );
 }

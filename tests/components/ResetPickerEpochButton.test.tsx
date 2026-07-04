@@ -39,6 +39,37 @@ describe("ResetPickerEpochButton — two-tap state machine", () => {
     expect(idleBtn().textContent).toContain("Reset picker selections");
   });
 
+  // PCR-1 item (a): the OK banner announces from a live region that is ALREADY
+  // mounted (and empty) before the success — SRs that skip insert-time announces
+  // on a freshly-mounted region still fire. Present in idle AND confirm so the
+  // region is a stable node across the resolving → idle transition.
+  test("(a) a persistent, empty aria-live=polite status region exists at mount (compact)", () => {
+    const { container } = render(
+      <ResetPickerEpochButton
+        showId={SHOW_ID}
+        compact
+        rowLabel="Reset name picker"
+        rowDescription="Everyone re-picks who they are on their next visit."
+      />,
+    );
+    const region = container.querySelector('[role="status"][aria-live="polite"]');
+    expect(region).not.toBeNull();
+    expect(screen.queryByTestId("admin-reset-picker-epoch-ok")).toBeNull();
+  });
+
+  test("(a) the status region persists through the confirm state (stable node)", () => {
+    const { container } = render(
+      <ResetPickerEpochButton
+        showId={SHOW_ID}
+        compact
+        rowLabel="Reset name picker"
+        rowDescription="Everyone re-picks who they are on their next visit."
+      />,
+    );
+    fireEvent.click(idleBtn()); // → confirm
+    expect(container.querySelector('[role="status"][aria-live="polite"]')).not.toBeNull();
+  });
+
   // M12.6 — compact share-card variant: visible text "Reset" → needs a
   // descriptive accessible name + aria-describedby (adversarial review). aria-label
   // contains the visible "Reset" (WCAG 2.5.3 Label-in-Name).
