@@ -44,7 +44,9 @@ export async function getCronHealth(): Promise<QueryCronHealthResult> {
       CRON_JOBS.map((job) =>
         supabase
           .from("app_events")
-          .select("occurred_at, level, context")
+          // count:"exact" mirrors the other three read-core reads for uniformity; the real
+          // row bound is the inline .limit(1) below (this read was already bounded).
+          .select("occurred_at, level, context", { count: "exact" })
           .eq("code", CRON_RUN_SUMMARY)
           .eq("source", `cron.${job.jobName}`)
           .order("occurred_at", { ascending: false })
