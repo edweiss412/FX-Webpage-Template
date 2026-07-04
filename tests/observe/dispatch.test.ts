@@ -1,0 +1,48 @@
+import { describe, expect, test } from "vitest";
+import { runObserve } from "@/scripts/observe";
+
+const okEvents = async () => ({ kind: "ok" as const, events: [], hasMore: false, nextCursor: null });
+const deps = {
+  queryEvents: okEvents,
+  getCronHealth: async () => ({ kind: "ok" as const, jobs: [] }),
+  queryAlerts: async () => ({ kind: "ok" as const, alerts: [] }),
+  queryChangeLog: async () => ({ kind: "ok" as const, changes: [] }),
+  env: { SUPABASE_URL: "http://127.0.0.1:54321", SUPABASE_SECRET_KEY: "k" },
+  nowMs: 0,
+};
+
+describe("runObserve", () => {
+  test("events ok → exit 0, table", async () => {
+    const r = await runObserve(["events"], deps);
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("(no rows)");
+  });
+  test("infra_error → exit 1", async () => {
+    const r = await runObserve(["events"], {
+      ...deps,
+      queryEvents: async () => ({ kind: "infra_error" as const, message: "down" }),
+    });
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain("down");
+  });
+  test("codes never touches DB and ignores --env", async () => {
+    let called = false;
+    const r = await runObserve(["codes", "--env", "prod"], {
+      ...deps,
+      queryEvents: async () => {
+        called = true;
+        return okEvents();
+      },
+    });
+    expect(called).toBe(false);
+    expect(r.exitCode).toBe(0);
+  });
+  test("ambient prod URL without --env → refuse (exit 1)", async () => {
+    const r = await runObserve(["events"], {
+      ...deps,
+      env: { SUPABASE_URL: "https://x.supabase.co", SUPABASE_SECRET_KEY: "k" },
+    });
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr.toLowerCase()).toContain("refusing non-local");
+  });
+});
