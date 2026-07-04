@@ -41,7 +41,11 @@ describe("active-state matrix: exactly one active id per path", () => {
     ["/admin", "dashboard"],
     ["/admin/needs-attention", "attention"],
     ["/admin/needs-attention/x", "attention"],
-    // The former ignored-sheets route was removed; its URL now falls to Dashboard.
+    // The former ignored-sheets route was removed (folded into a dashboard
+    // disclosure). /admin/ignored-sheets now 307-redirects to /admin via
+    // next.config redirects() (pinned by tests/config/rootRedirect.test.ts); if
+    // any stray sub-path still resolves, isNavItemActive classifies it as
+    // Dashboard (it is not settings/attention/observability).
     ["/admin/ignored-sheets", "dashboard"],
     ["/admin/ignored-sheets/x", "dashboard"],
     ["/admin/settings", "settings"],
