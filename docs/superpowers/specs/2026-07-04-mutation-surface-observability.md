@@ -71,9 +71,16 @@ since an admin mutation must carry a success outcome (`+2` module-function failu
 | `lib/onboarding/serverActions.ts` :: `rerunSetupServerAction` | `ONBOARDING_SETUP_RERUN` |
 | `app/admin/actions.ts` :: `resolveAdminAlertFormAction` | **reuse** `ADMIN_ALERT_RESOLVED` (matches the resolve-route code) |
 | `app/admin/actions.ts` :: `retryWatchSubscriptionFormAction` | `WATCH_SUBSCRIPTION_RETRIED` |
+| `lib/auth/picker/resetPickerEpoch.ts` :: `resetPickerEpoch` | `PICKER_EPOCH_RESET_BY_ADMIN` |
+| `lib/auth/picker/rotateShareToken.ts` :: `rotateShareToken` | `SHARE_TOKEN_ROTATED_BY_ADMIN` |
+| `lib/auth/picker/resetCrewMemberSelection.ts` :: `resetCrewMemberSelection` | `CREW_SELECTION_RESET_BY_ADMIN` |
 
-(16 in-body success emits — 14 new codes + 2 reuses: `SHOW_UNPUBLISHED_VIA_EMAILED_LINK`,
-`ADMIN_ALERT_RESOLVED`.)
+(19 in-body success emits — 17 new codes + 2 reuses: `SHOW_UNPUBLISHED_VIA_EMAILED_LINK`,
+`ADMIN_ALERT_RESOLVED`.) The last three are **admin-gated** picker mutations
+(`requireAdmin`/`requireAdminIdentity`) that mutate security state (`shows.picker_epoch`,
+`shows.share_token`, `crew_members.selections_reset_at`) — they are NOT crew debt and per
+§4.2 MUST carry an `await logAdminOutcome` success outcome (Codex R5). **`rotateShareToken`
+must never log the new `share_token`** (a secret) — emit `result: "epoch_" + new_epoch` only.
 
 **B. Exempt per-function/file (`// no-telemetry: <reason>`) — non-mutations / delegators:**
 
@@ -88,25 +95,26 @@ since an admin mutation must carry a success outcome (`+2` module-function failu
 | `_SignInOrSkipGate.tsx` (inline) | Thin form-action wrapper; delegates to `clearIdentityAndSkip` (grandfathered). |
 | `components/auth/IdentityChip.tsx` (inline) | Thin form-action wrapper; delegates to `clearIdentity` (grandfathered). |
 
-**C. Grandfather — crew-facing picker actions (`KNOWN_UNINSTRUMENTED`, 9 per-function rows,
-`BL-CREW-PICKER-OBSERVABILITY`):**
+**C. Grandfather — crew/system picker actions only (`KNOWN_UNINSTRUMENTED`, 6 per-function
+rows, `BL-CREW-PICKER-OBSERVABILITY`):**
 
-Nine explicit `{ file, fn, backlog }` rows (no file-only form — §4.3):
+Six explicit `{ file, fn, backlog }` rows — **only non-admin-gated crew/system functions**
+(no file-only form — §4.3; admin-gated picker functions were moved to §3.1 A per Codex R5):
 
-| File :: function |
-| --- |
-| `lib/auth/picker/cleanupStaleEntry.ts` :: `cleanupStaleEntry`, `cleanupStaleEntryCore` |
-| `lib/auth/picker/clearIdentity.ts` :: `clearIdentity`, `clearIdentityAndSkip`, `clearIdentityCore` |
-| `lib/auth/picker/resetCrewMemberSelection.ts` :: `resetCrewMemberSelection` |
-| `lib/auth/picker/resetPickerEpoch.ts` :: `resetPickerEpoch` |
-| `lib/auth/picker/rotateShareToken.ts` :: `rotateShareToken` |
-| `lib/auth/picker/selectIdentity.ts` :: `selectIdentityCore` |
+| File :: function | Gate |
+| --- | --- |
+| `lib/auth/picker/cleanupStaleEntry.ts` :: `cleanupStaleEntry`, `cleanupStaleEntryCore` | none (system) |
+| `lib/auth/picker/clearIdentity.ts` :: `clearIdentity`, `clearIdentityAndSkip`, `clearIdentityCore` | none (crew self-clear) |
+| `lib/auth/picker/selectIdentity.ts` :: `selectIdentityCore` | none (crew self-select) |
 
-`selectIdentity` itself already emits in-body (`log.warn` at `selectIdentity.ts:56`) and is
-deliberately **not** ledgered, so a regression removing its emit still fails. A *new*
-exported action added to any of these files is not in the ledger → it fails as a new dark
-surface. These are crew/system operations, not admin actions; `logAdminOutcome` is
-semantically wrong for them and a crew-telemetry taxonomy is out of scope for this change.
+Verified: none of these call a `require{Admin,Developer}[Identity]` gate (they are crew
+cookie/identity + system-cleanup operations). `selectIdentity` itself already emits in-body
+(`log.warn` at `selectIdentity.ts:56`) and is deliberately **not** ledgered, so a regression
+removing its emit still fails. A *new* exported action added to any of these files is not in
+the ledger → it fails as a new dark surface. `logAdminOutcome` is semantically wrong for
+these crew/system operations; a crew-telemetry taxonomy is out of scope. **The ledger
+structurally cannot hold an admin-gated function** — §4.3 hygiene fails the test if one is
+listed, so a future admin picker mutation can never be grandfathered here.
 
 ## 4. The discovery meta-test
 
@@ -257,7 +265,11 @@ correct telemetry — forcing `logAdminOutcome` on a webhook/token route would b
    (permanent) — a reviewer reading the ledger sees all deferred observability debt in one
    place. Hygiene: every entry's `file` must exist and `fn` must still be a discovered
    surface in it; a ledgered function that now emits, or no longer exists, fails — forcing
-   cleanup.
+   cleanup. **A ledger entry naming an admin-gated function (its body calls a
+   `require{Admin,Developer}[Identity]` gate) FAILS the test (Codex R5):** admin mutations
+   must be instrumented with `await logAdminOutcome`, never deferred as crew debt — this
+   structurally prevents a security-state admin mutation (share-token rotation, epoch reset,
+   crew-selection reset) from being hidden behind the ledger.
 
 ### 4.4 Failure output
 
@@ -327,6 +339,14 @@ committed mutation (invariant 9). Emits carry:
 - **`dev/actions`** emit on the success return of `parseAndStage` / `resetDevSchema`.
 - **onboarding** actions are `Promise<never>` (they `redirect`); the emit fires **before**
   the `redirect()` throw, after `purgeAndRotateOnboardingSession()` resolves.
+- **Admin picker actions** emit only on `{ ok: true }`. `resetPickerEpoch` →
+  `result: "epoch_" + new_epoch`; `resetCrewMemberSelection` → `result: "reset"` (the
+  returned `reset_at` timestamp may go in `extra`, not the crew member's PII);
+  `rotateShareToken` → `result: "epoch_" + new_epoch` and **MUST NOT** put `new_share_token`
+  (a secret) in `code`/`result`/`extra`. `actorEmail` from `requireAdminIdentity()` where
+  available (`resetPickerEpoch` already resolves `adminCtx`); `resetCrewMemberSelection` /
+  `rotateShareToken` call `requireAdmin()` — add a cached `requireAdminIdentity()` for the
+  actor (same pattern as the settings toggles). `showId: input.showId` on all three.
 
 ### 5.3 Flag-lifecycle note (settings toggles)
 
@@ -356,7 +376,8 @@ Add to the "Plan-wide invariants (non-negotiable)" list:
 > uninstrumented-by-default failures, not silent omissions.
 
 Also add a `BL-CREW-PICKER-OBSERVABILITY` entry to `BACKLOG.md` describing the deferred
-crew-picker telemetry taxonomy (the 9 grandfathered `lib/auth/picker/*` functions).
+crew-picker telemetry taxonomy (the 6 grandfathered non-admin `lib/auth/picker/*` functions;
+the 3 admin-gated picker mutations are instrumented now, not deferred).
 
 ## 7. Relationship to existing guards (disagreement-loop preempt)
 
@@ -435,7 +456,10 @@ crew-picker telemetry taxonomy (the 9 grandfathered `lib/auth/picker/*` function
 4. **Ledger default-fail + hygiene** — a `"use server"` module with a ledgered function plus a
    NEW un-ledgered silent action fails on the new action (Codex R4 F1); a `{ file, fn }` row
    whose function now emits, or no longer exists, or whose `file` is gone, fails (forces
-   cleanup).
+   cleanup). **Admin-gated-cannot-be-ledgered (Codex R5):** a `KNOWN_UNINSTRUMENTED` row whose
+   `fn` body calls a `require{Admin,Developer}[Identity]` gate fails the test — prove it with
+   an in-memory admin-gated fixture and by asserting the live ledger's 6 functions are all
+   non-admin-gated.
 5. **Per-surface instrumentation tests** — for each newly-instrumented action, a sink-spy
    test asserting the success path emits the expected `code` (and no emit on the failure
    branch). Derive expectations from the action's own result shape; do not assert against a
