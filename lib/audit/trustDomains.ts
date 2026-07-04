@@ -9,7 +9,11 @@ export type TrustDomain =
   | "non-route"
   | "unclassified";
 
-export type ChainStep = "validateGoogleSession" | "validateGoogleIdentity" | "requireAdmin";
+export type ChainStep =
+  | "validateGoogleSession"
+  | "validateGoogleIdentity"
+  | "requireAdmin"
+  | "requireDeveloper";
 
 export type ValidPath = readonly ChainStep[];
 export type ExpectedChain = ValidPath | { anyOf: readonly ValidPath[] };
@@ -37,13 +41,15 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   // Step-3 redesign — Ignored-sheets admin view. Calls requireAdminIdentity()
   // defensively (layout also admin-gates).
   { path: "app/admin/ignored-sheets/page.tsx", chain: ["requireAdmin"] },
-  { path: "app/admin/dev/page.tsx", chain: ["requireAdmin"] },
+  // Developer-tier §6: /admin/dev + its two dim harnesses are developer-gated
+  // (requireDeveloper REPLACES requireAdmin; developer ⟹ admin, spec §2).
+  { path: "app/admin/dev/page.tsx", chain: ["requireDeveloper"] },
   // Dev-only dimensional-invariant harness for the source-sheet links feature
-  // (build-renamed-aside in prod); same requireAdmin chokepoint as /admin/dev.
-  { path: "app/admin/dev/source-link-dim/page.tsx", chain: ["requireAdmin"] },
+  // (build-renamed-aside in prod); same requireDeveloper chokepoint as /admin/dev.
+  { path: "app/admin/dev/source-link-dim/page.tsx", chain: ["requireDeveloper"] },
   // Dev-only dimensional-invariant harness for the observability timeline (spec §8
-  // + G7); build-renamed-aside in prod; same requireAdmin chokepoint as /admin/dev.
-  { path: "app/admin/dev/observability-dim/page.tsx", chain: ["requireAdmin"] },
+  // + G7); build-renamed-aside in prod; same requireDeveloper chokepoint as /admin/dev.
+  { path: "app/admin/dev/observability-dim/page.tsx", chain: ["requireDeveloper"] },
   { path: "app/admin/settings/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/settings/admins/page.tsx", chain: ["requireAdmin"] },
   // Onboarding-fixups F3 — /admin/onboarding is a redirect-only alias for the

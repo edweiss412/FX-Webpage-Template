@@ -1,8 +1,9 @@
 /**
  * app/admin/dev/page.tsx (M3 Task 3.1)
  *
- * The /admin/dev panel. Server Component — requireAdmin() runs as the very
- * first line per AGENTS.md §1.6 and spec §7.3. The panel is intentionally
+ * The /admin/dev panel. Server Component — requireDeveloper() runs as the very
+ * first line per AGENTS.md §1.6 and spec §7.3 (developer-tier §6: this surface
+ * swapped its gate requireAdmin → requireDeveloper). The panel is intentionally
  * the smallest viable surface for the §15 demo flow:
  *   - Fixture picker (select from fixtures/shows/raw/*.md)
  *   - "Parse and stage" button → calls parseAndStage server action
@@ -19,18 +20,18 @@
  * UI is functional, not styled — M4 owns DESIGN.md and tile chrome. The
  * panel uses semantic HTML + minimal Tailwind utility classes for layout.
  *
- * PERF: a `?fixture=...` page load triggers public.is_admin() three times —
- * once at page render (requireAdmin call below), once inside listFixtures()
- * (its requireAdmin call), and once inside getStagedResult() (its requireAdmin
- * call). The form-submission POST adds one more (parseAndStageFormAction's
- * gate, plus the inner parseAndStage's gate = 2 per submit). Accepted as
- * defense-in-depth per AGENTS.md §1.6: every Server Action MUST gate
- * independently of its caller, since X.3's chain audit catches missing gates
- * as a CI failure. Acceptable cost on a low-volume admin surface; M5 can
- * revisit (e.g. a request-scoped admin cache or a cookie-bound server-context
- * value) when admin volume grows.
+ * PERF: a `?fixture=...` page load triggers public.is_developer() three times —
+ * once at page render (requireDeveloper call below), once inside listFixtures()
+ * (its requireDeveloper call), and once inside getStagedResult() (its
+ * requireDeveloper call). The form-submission POST adds one more
+ * (parseAndStageFormAction's gate, plus the inner parseAndStage's gate = 2 per
+ * submit). Accepted as defense-in-depth per AGENTS.md §1.6: every Server Action
+ * MUST gate independently of its caller, since X.3's chain audit catches missing
+ * gates as a CI failure. Acceptable cost on a low-volume developer surface; a
+ * request-scoped cache (requireDeveloper already memoizes per request via
+ * React cache()) keeps the RPC count bounded.
  */
-import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { requireDeveloper } from "@/lib/auth/requireDeveloper";
 import {
   getStagedResult,
   listFixtures,
@@ -56,8 +57,8 @@ export default async function AdminDevPage({
 }: {
   searchParams: Promise<{ fixture?: string }>;
 }) {
-  // FIRST LINE — admin-only gate (404 if build-time flag off, 403 if not admin).
-  await requireAdmin();
+  // FIRST LINE — developer-only gate (redirect if unauthed, 403 if not a developer).
+  await requireDeveloper();
 
   const params = await searchParams;
   const fixtures = await listFixtures();

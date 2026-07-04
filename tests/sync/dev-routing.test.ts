@@ -43,20 +43,20 @@ import { mockDriveClient } from "@/lib/sync/mocks/mockDriveClient";
 import { enrichWithDrivePins } from "@/lib/sync/enrichWithDrivePins";
 import type { ParseResult } from "@/lib/parser/types";
 
-// requireAdmin's build-flag gate must accept this Vitest run before we can
-// reach the action body. See tests/admin/parseAndStage-auth.test.ts:34 for the
-// established pattern. We also need to mark the caller as admin; the simplest
-// path is to monkey-patch the requireAdmin module (similar to what the
-// auth-defense suite leverages: it relies on the gate firing). Here we need
-// the OPPOSITE — the gate must NOT fire because we're testing the routing
-// path that runs after auth. We do this by mocking requireAdmin to a no-op.
+// The build-time file gate must accept this Vitest run before we can reach the
+// action body. See tests/admin/parseAndStage-auth.test.ts for the established
+// pattern. We also need to mark the caller as a developer; the simplest path is
+// to monkey-patch the requireDeveloper module (developer-tier §6: the /admin/dev
+// gate swapped requireAdmin → requireDeveloper). Here we need the gate to NOT
+// fire because we're testing the routing path that runs after auth. We do this
+// by mocking requireDeveloper to a no-op.
 process.env.ADMIN_DEV_PANEL_ENABLED = "true";
 import { vi } from "vitest";
-vi.mock("@/lib/auth/requireAdmin", () => ({
-  requireAdmin: async () => ({ id: "test-admin", email: "admin@fxav.test" }),
+vi.mock("@/lib/auth/requireDeveloper", () => ({
+  requireDeveloper: async () => ({ id: "test-admin", email: "admin@fxav.test" }),
 }));
 
-// Import AFTER the mock is set so the action picks up the no-op requireAdmin.
+// Import AFTER the mock is set so the action picks up the no-op requireDeveloper.
 import { parseAndStage } from "@/app/admin/dev/actions";
 
 // Real fixture with hotelReservations.length === 1 (verified by parser probe).
