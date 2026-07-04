@@ -47,6 +47,12 @@ export type AdminEmailRow = {
   revoked_by: string | null;
   revoked_at: string | null;
   note: string | null;
+  /**
+   * Developer sub-role bit (spec §2). `true` → this admin also sees the
+   * dev/debug tooling. Mutated only via `set_admin_developer_rpc` (never a
+   * direct PostgREST write — the table stays DML-REVOKE'd from `authenticated`).
+   */
+  is_developer: boolean;
 };
 
 /** Discriminated outcome for write paths. */
@@ -64,6 +70,21 @@ export type AdminEmailWriteOutcome =
   | { kind: "invalid_email"; raw: string };
 
 /**
+ * Discriminated outcome for the developer-bit mutation (spec §7). The
+ * write delegates to `set_admin_developer_rpc`, whose actor is authorized
+ * by a table-backed `exists` check (NOT the OR-based `is_developer()`), so
+ * a non-developer caller gets a PostgREST 42501 the wrapper surfaces as the
+ * discriminable `not_authorized` result (invariant 9 — an authorization
+ * signal, never a benign no-op and never a transient infra fault).
+ */
+export type SetDeveloperOutcome =
+  | { kind: "ok"; email: string; isDeveloper: boolean }
+  | { kind: "self_developer_demote_forbidden"; email: string }
+  | { kind: "not_found"; email: string }
+  | { kind: "invalid_email" }
+  | { kind: "not_authorized" };
+
+/**
  * List all admin_emails rows the caller is authorized to read.
  * RLS gates this — non-admins get an empty array.
  */
@@ -72,7 +93,7 @@ export async function listAdminEmails(): Promise<AdminEmailRow[]> {
     const supabase = await createSupabaseServerClient();
     const { data, error } = await supabase
       .from("admin_emails")
-      .select("email, added_by, added_at, revoked_by, revoked_at, note")
+      .select("email, added_by, added_at, revoked_by, revoked_at, note, is_developer")
       .order("revoked_at", { ascending: true, nullsFirst: true })
       .order("added_at", { ascending: false });
     if (error) {
@@ -152,6 +173,46 @@ export async function revokeAdminEmail(opts: {
   });
 }
 
+/**
+ * Set (or clear) the developer sub-role bit on an admin row. Delegates to
+ * `public.set_admin_developer_rpc` so the actor-authorization check, the
+ * self-demote guard, and the update all happen atomically under the shared
+ * `admin_emails` advisory lock. This JS wrapper does NOT acquire any
+ * advisory lock — the RPC is the sole holder (plan advisory-lock topology).
+ *
+ * Error posture (invariant 9): a PostgREST `42501` (insufficient_privilege)
+ * is the RPC's table-backed actor check rejecting a non-developer caller —
+ * a DISCRIMINABLE authorization result (`not_authorized`), NOT a transient
+ * infra fault. Any other returned error, sync throw, or malformed envelope
+ * surfaces as `AdminEmailsInfraError`.
+ */
+export async function setAdminDeveloper(opts: {
+  rawEmail: string;
+  isDeveloper: boolean;
+}): Promise<SetDeveloperOutcome> {
+  const email = canonicalize(opts.rawEmail);
+  if (email === null) return { kind: "invalid_email" };
+
+  return wrapInfra("setAdminDeveloper", async () => {
+    const supabase = await createSupabaseServerClient();
+    const { data, error } = await supabase.rpc("set_admin_developer_rpc", {
+      p_email: email,
+      p_is_developer: opts.isDeveloper,
+    });
+    if (error) {
+      // 42501 = insufficient_privilege: the caller is not an active
+      // developer, so the RPC's `execute`/table-backed guard refused.
+      // Surface it as a discriminable authorization result rather than
+      // an infra fault so the action can render the right Doug-facing copy.
+      if ((error as { code?: string }).code === "42501") {
+        return { kind: "not_authorized" };
+      }
+      throw new AdminEmailsInfraError(`setAdminDeveloper.rpc: ${error.message}`);
+    }
+    return translateSetDeveloperResult(data, email);
+  });
+}
+
 // ---- private translation helpers ----------------------------------------
 
 type RpcEnvelope = {
@@ -183,6 +244,15 @@ const REVOKE_STATUS_SET = new Set([
   "ok",
   "last_admin_lockout",
   "self_revoke_forbidden",
+  "invalid_email",
+]);
+// Developer-bit RPC status whitelist — an envelope status outside this set
+// (schema-cache skew, a response routed from the wrong RPC) throws rather
+// than translating to a benign success (invariant 9).
+const SET_DEVELOPER_STATUS_SET = new Set([
+  "ok",
+  "self_developer_demote_forbidden",
+  "not_found",
   "invalid_email",
 ]);
 
@@ -259,6 +329,44 @@ function translateRevokeResult(
     default:
       throw new AdminEmailsInfraError(
         `revokeAdminEmail: switch fell through on status '${env.status}'`,
+      );
+  }
+}
+
+type SetDeveloperEnvelope = {
+  status: "ok" | "self_developer_demote_forbidden" | "not_found" | "invalid_email";
+  email?: string;
+  is_developer?: boolean;
+};
+
+function translateSetDeveloperResult(data: unknown, canonicalEmail: string): SetDeveloperOutcome {
+  const env = data as SetDeveloperEnvelope | null;
+  if (!env || typeof env.status !== "string") {
+    throw new AdminEmailsInfraError(
+      `setAdminDeveloper: malformed RPC envelope: ${JSON.stringify(data)}`,
+    );
+  }
+  if (!SET_DEVELOPER_STATUS_SET.has(env.status)) {
+    throw new AdminEmailsInfraError(
+      `setAdminDeveloper: unexpected RPC status '${env.status}' (envelope: ${JSON.stringify(env)})`,
+    );
+  }
+  switch (env.status) {
+    case "ok":
+      return {
+        kind: "ok",
+        email: env.email ?? canonicalEmail,
+        isDeveloper: env.is_developer ?? false,
+      };
+    case "self_developer_demote_forbidden":
+      return { kind: "self_developer_demote_forbidden", email: env.email ?? canonicalEmail };
+    case "not_found":
+      return { kind: "not_found", email: env.email ?? canonicalEmail };
+    case "invalid_email":
+      return { kind: "invalid_email" };
+    default:
+      throw new AdminEmailsInfraError(
+        `setAdminDeveloper: switch fell through on status '${env.status}'`,
       );
   }
 }

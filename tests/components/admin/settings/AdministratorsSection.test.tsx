@@ -50,6 +50,7 @@ function row(overrides: Partial<AdminEmailRow> & { email: string }): AdminEmailR
     revoked_by: overrides.revoked_by ?? null,
     revoked_at: overrides.revoked_at ?? null,
     note: overrides.note ?? null,
+    is_developer: overrides.is_developer ?? false,
   };
 }
 
