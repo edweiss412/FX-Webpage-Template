@@ -41,7 +41,10 @@ function mapChange(r: RawChange): ChangeRow {
 export async function queryChangeLog(filters: ChangeLogFilters): Promise<QueryChangeLogResult> {
   try {
     const supabase = createSupabaseServiceRoleClient();
-    let query = supabase.from("show_change_log").select(SELECT);
+    // count: "exact" is a truthful bound token (satisfies _metaBoundedReads);
+    // the real page bound is .limit(clampLimit(...)) on the terminal await. The
+    // returned count is intentionally ignored.
+    let query = supabase.from("show_change_log").select(SELECT, { count: "exact" });
     if (filters.showId && isUuid(filters.showId)) query = query.eq("show_id", filters.showId);
     const sinceHours = filters.sinceHours === undefined ? 24 : filters.sinceHours;
     if (sinceHours != null && !Number.isNaN(sinceHours) && sinceHours > 0) {

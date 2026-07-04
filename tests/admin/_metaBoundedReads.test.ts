@@ -27,9 +27,24 @@ import { describe, expect, it } from "vitest";
 // needs-attention, spec §4.1): the pending-stream .limit(cap+1) reads, the
 // head:true exact counts, and the existence .in("drive_file_id") lookup moved
 // there from Dashboard.tsx; Dashboard keeps its shows/crew reads.
-const READ_MODULES = ["components/admin/Dashboard.tsx", "lib/admin/loadNeedsAttention.ts"];
+const READ_MODULES = [
+  "components/admin/Dashboard.tsx",
+  "lib/admin/loadNeedsAttention.ts",
+  "lib/observe/query/events.ts",
+  "lib/observe/query/cronHealth.ts",
+  "lib/observe/query/alerts.ts",
+  "lib/observe/query/changeLog.ts",
+];
 
-const UNBOUNDED_TABLES = ["shows", "crew_members", "pending_ingestions", "pending_syncs"];
+const UNBOUNDED_TABLES = [
+  "shows",
+  "crew_members",
+  "pending_ingestions",
+  "pending_syncs",
+  "app_events",
+  "admin_alerts",
+  "show_change_log",
+];
 
 function statements(src: string): string[] {
   // One Supabase query chain == one statement (terminated by `;`).

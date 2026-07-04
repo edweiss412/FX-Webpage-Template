@@ -41,7 +41,10 @@ function mapAlert(r: RawAlert): AlertRow {
 export async function queryAlerts(filters: AlertFilters): Promise<QueryAlertsResult> {
   try {
     const supabase = createSupabaseServiceRoleClient();
-    let query = supabase.from("admin_alerts").select(SELECT);
+    // count: "exact" is a truthful bound token (satisfies _metaBoundedReads);
+    // the real page bound is .limit(clampLimit(...)) on the terminal await. The
+    // returned count is intentionally ignored.
+    let query = supabase.from("admin_alerts").select(SELECT, { count: "exact" });
     if (filters.openOnly) query = query.is("resolved_at", null);
     const code = filters.code?.trim();
     if (code) query = query.eq("code", code);

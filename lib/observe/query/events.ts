@@ -56,7 +56,8 @@ function mapRow(r: RawRow): AppEventRow {
 export async function queryEvents(filters: AppEventFilters): Promise<QueryEventsResult> {
   try {
     const supabase = createSupabaseServiceRoleClient();
-    let query = supabase.from("app_events").select(SELECT);
+    // count:"exact" = truthful bound (satisfies _metaBoundedReads); real page bound is .limit below.
+    let query = supabase.from("app_events").select(SELECT, { count: "exact" });
     if (filters.levels?.length) query = query.in("level", filters.levels);
     if (filters.source) query = query.eq("source", filters.source);
     if (filters.code) query = query.eq("code", filters.code);
