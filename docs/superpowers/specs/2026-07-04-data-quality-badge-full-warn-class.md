@@ -9,7 +9,7 @@
 
 ## 1. Problem & intent
 
-The admin data-quality badge (and the `summarizeDataGaps` helper it shares with the per-show Data-Quality panel, the Step-3 review card, the changes feed, and the `SHOW_FIRST_PUBLISHED` digest) counts **only 3 hardcoded parser codes**: `FIELD_UNREADABLE`, `UNKNOWN_SECTION_HEADER`, `BLOCK_DISAPPEARED`. The parser (and a few `lib/sync` producers) emit **18 more "data didn't land" codes** that never light the badge — bringing the counted set to **21** (§2.1). Empirically (validation DB, 2026-07-04): East Coast Family Office has 4× `UNKNOWN_FIELD` and RFI & PC Chicago has 1× `SCHEDULE_TIME_UNPARSED` — real gaps the operator can't see because the badge stays dark.
+The admin data-quality badge (and the `summarizeDataGaps` helper it shares with the per-show Data-Quality panel, the Step-3 review card, the changes feed, and the `SHOW_FIRST_PUBLISHED` digest) counts **only 3 hardcoded parser codes**: `FIELD_UNREADABLE`, `UNKNOWN_SECTION_HEADER`, `BLOCK_DISAPPEARED`. The parser (and a few `lib/sync` producers) emit **19 more "data didn't land" codes** that never light the badge — bringing the counted set to **22** (§2.1). Empirically (validation DB, 2026-07-04): East Coast Family Office has 4× `UNKNOWN_FIELD` and RFI & PC Chicago has 1× `SCHEDULE_TIME_UNPARSED` — real gaps the operator can't see because the badge stays dark.
 
 **Intent:** count the **genuine data-quality gap class** — every code that means "sheet data didn't land / couldn't be resolved" and reaches `shows_internal.parse_warnings` — single-sourced as a **curated allow-list** (`DATA_GAP_CODES.has(code)`), with plain-language labels (invariant 5 — never a raw code), and a drift-guard meta-test so a future warn code can't silently go uncounted.
 
@@ -29,7 +29,7 @@ The admin data-quality badge (and the `summarizeDataGaps` helper it shares with 
 
 Every row below is verified at its emit `file:line`. **Counting is by allow-list membership, not severity** — the `sev` column is documentation + meta-test input. "Reaches PW" = emitted as a persisted `ParseWarning` (vs `log.warn`-only).
 
-### 2.1 GAP codes (counted — 21) — `DATA_GAP_CODES`
+### 2.1 GAP codes (counted — 22) — `DATA_GAP_CODES`
 
 | Code | Label (invariant 5) | sev | producer | emit `file:line` |
 | --- | --- | --- | --- | --- |
@@ -51,16 +51,17 @@ Every row below is verified at its emit `file:line`. **Counting is by allow-list
 | AGENDA_DAY_TRUNCATED | truncated agenda day | warn | parser | agenda.ts (agendaWarnings.ts:30) |
 | AGENDA_DAY_EMPTIED | empty agenda day | warn | sync (parser factory) | agendaWarnings.ts:39 ← applyParseResult.ts |
 | AGENDA_PDF_UNREADABLE | unreadable agenda PDF | warn | sync | enrichAgenda.ts:217/254/327/417 |
+| AGENDA_LINK_NOT_CLICKABLE | unreachable agenda link | warn | sync | enrichAgenda.ts:160/170 |
 | PULL_SHEET_PARSE_PARTIAL | partial pull sheet | warn | parser | pull-sheet.ts:343 |
 | PULL_SHEET_AMBIGUOUS_FORMAT | ambiguous pull sheet | warn | parser | pull-sheet.ts:252 |
 | PULL_SHEET_UNKNOWN_VARIANT | unrecognized pull sheet | warn | parser | pull-sheet.ts:293 |
 
-Net vs #289: **+18** codes. Editorial calls documented: `SCHEDULE_STRIKE_DATE_OFF_SCHEDULE` counts (operator-actionable data inconsistency — a strike date outside the schedule); `AGENDA_PDF_UNREADABLE`/`AGENDA_DAY_EMPTIED` count despite sync origin (genuine "agenda content missing").
+Net vs #289: **+19** codes. Editorial calls documented: `SCHEDULE_STRIKE_DATE_OFF_SCHEDULE` counts (operator-actionable data inconsistency — a strike date outside the schedule); `AGENDA_PDF_UNREADABLE`/`AGENDA_DAY_EMPTIED` count despite sync origin (genuine "agenda content missing"); `AGENDA_LINK_NOT_CLICKABLE` counts (Codex R1 HIGH — the live producer at `enrichAgenda.ts:160` labels it a "User-facing data-quality warning" meaning crew can't reach the agenda; a genuine access gap, NOT presentation degradation — distinct from its log-only forensic sibling `AGENDA_LINK_UNRESOLVED`).
 
 ### 2.2 BENIGN codes (NOT counted, pinned) — `BENIGN_WARN_CODES` + info
 
 - **Warn-severity autocorrects (surprising — see §1 correction):** `STAGE_WORD_AUTOCORRECTED` (crew.ts:312), `ROLE_TOKEN_AUTOCORRECTED` (personalization.ts:345), `COLUMN_HEADER_AUTOCORRECTED` (crew.ts:126/transport.ts:578), `SECTION_HEADER_AUTOCORRECTED` (sectionHeaderNormalize.ts:87), `FIELD_LABEL_AUTOCORRECTED` (venue.ts:155/event.ts:238/transport.ts:413).
-- **Warn-severity sync-enrich notices:** `AGENDA_SCHEDULE_TIME_ADJUSTED` (enrichAgenda.ts:433), `AGENDA_SCHEDULE_LOW_CONFIDENCE`, `AGENDA_LINK_NOT_CLICKABLE` (enrichAgenda.ts).
+- **Warn-severity sync-enrich notices:** `AGENDA_SCHEDULE_TIME_ADJUSTED` (enrichAgenda.ts:433 — best-effort time adjustment, data landed), `AGENDA_SCHEDULE_LOW_CONFIDENCE` (enrichAgenda.ts — parser's own confidence note, data landed). NOTE: `AGENDA_LINK_NOT_CLICKABLE` was reclassified to GAP (§2.1) per Codex R1 — it is NOT benign.
 - **Info-severity:** `TYPO_NORMALIZED` (venue.ts:134), `DAY_RESTRICTION_DOUBLE_LOCATION` (personalization.ts:103 — contradicted my gap guess; it's `info`).
 
 ### 2.3 EXCLUDED — asset (non-sheet) + log-only
@@ -120,10 +121,10 @@ Verified 2026-07-04 against the worktree. `classes` generalization ripples only 
 | Consumer | Uses | Effect of generalization | Action |
 | --- | --- | --- | --- |
 | `lib/parser/dataGaps.ts` | source | — | **Change** (§3.1) |
-| `components/admin/PerShowAlertSection.tsx` `readDataGapsDigest` | reconstructs literal 3-key `classes` from persisted jsonb | would drop new classes from the per-show alert sub-line | **Change** — reconstruct all `GAP_CLASSES` keys via `num(c[code])`; old 3-key contexts default missing keys to 0 |
+| `components/admin/PerShowAlertSection.tsx` `readDataGapsDigest` + sub-line | reconstructs literal 3-key `classes` from persisted jsonb; renders `dataGapClassDetails` unbounded (line ~301) | would drop new classes from the alert sub-line AND render an unbounded breakdown | **Change** — reconstruct all `GAP_CLASSES` keys via `num(c[code])` (old 3-key contexts default missing keys to 0); render the breakdown through the shared §5 cap helper |
+| `components/admin/DataQualityBadge.tsx` | joins ALL `dataGapClassDetails` entries into `aria-label`/`title` | **unbounded** aria-label at 22 possible classes | **Change** — build the accessible name via the shared §5 cap helper (≤4 classes + "+N more"). (Codex R1 MEDIUM: §4 previously said "none", contradicting §5.) |
 | `lib/onboarding/rescanDecision.ts` | `.classes` via `Object.keys(newGaps).some(...)`, `priorGaps?.[cls] ?? 0` | **already generic** — regression check auto-covers every gap code | none (add a test asserting a newly-counted code triggers `gapRegressed`) |
 | `lib/sync/runScheduledCronSync.ts` | spreads whole summary into `data_gaps`, gates `.total` | auto-persists full shape | none |
-| `components/admin/DataQualityBadge.tsx` | `dataGapClassDetails` + `.total` | auto-generalizes | none |
 | `components/admin/ShowsTable.tsx`, `ArchivedShowRow.tsx` | render `DataQualityBadge` | auto | none |
 | `components/admin/StagedReviewCard.tsx`, `wizard/Step3SheetCard.tsx` | `summarizeDataGaps` + `dataGapClassDetails` | auto | none |
 | `components/admin/Dashboard.tsx` `readDataGaps` | re-summarizes fresh | auto | none |
@@ -131,13 +132,35 @@ Verified 2026-07-04 against the worktree. `classes` generalization ripples only 
 | `app/admin/show/staged/[stagedId]/page.tsx` | `summarizeDataGaps().total`/details | auto | none |
 | `lib/onboarding/rescanWizardSheet.ts`, `lib/admin/showDisplay.ts` | `DataGapsSummary` type only | auto | none |
 
-**Guard conditions (helper inputs):** `summarizeDataGaps(null|undefined|[])` → `{total:0, classes:{all keys→0}}`; a warning with an unknown code or `severity:"info"` → not counted; a warning object missing `severity` → treated as non-`warn` → not counted (defensive: only `severity === "warn"` … actually count when NOT info; confirm the existing contract — #289 uses `if (severity==="info") continue`, so a missing severity counts. Preserve the existing contract exactly; changing it is out of scope). `dataGapClassDetails` on all-zero → `[]`.
+**Guard conditions (helper inputs) — PRESERVE the #289 contract EXACTLY, do not change it:**
+- `summarizeDataGaps(null | undefined | [])` → `{ total: 0, classes: { every GAP_CLASSES key → 0 } }`.
+- A warning whose code ∉ `DATA_GAP_CODES` → not counted (this is the discriminator).
+- A warning with `severity === "info"` → skipped by the existing `if (w.severity === "info") continue` guard, even if its code were in the set (defensive belt-and-suspenders).
+- **A warning missing `severity` (or any value ≠ `"info"`) → COUNTED iff its code ∈ `DATA_GAP_CODES`.** This is the exact #289 behavior (`dataGaps.ts:63-68` gates only on `=== "info"`, never on `=== "warn"`). The spec does NOT change this; there is no "treat missing severity as non-warn" rule. (Codex R1 MEDIUM: an earlier draft contradicted itself here.)
+- `dataGapClassDetails` on an all-zero summary → `[]`.
 
 ---
 
 ## 5. Cap / truncation behavior (badge & aria-label)
 
-A single show can now surface many classes. The badge glyph is unchanged (one triangle). The **hover title + `aria-label`** enumerate present classes via `dataGapClassDetails`. Cap: list up to **4** classes by count desc then registry order; if more, append `"+N more"`. Total count phrasing unchanged (`"7 data gaps: …"`). This keeps the accessible name bounded regardless of how many classes co-occur. (Realistically ≤3–4 co-occur, but the cap is specified so an adversarial fixture can't produce an unbounded label.)
+A single show can now surface up to 22 classes. The badge glyph is unchanged (one triangle). The breakdown copy is **single-sourced** in a new pure helper in `lib/parser/dataGaps.ts`:
+
+```ts
+// Bounded, human breakdown string for a summary. Ordering: count desc, then
+// GAP_CLASSES registry order (stable tiebreak). Caps at `cap` classes; the
+// remainder collapses to "+N more". Used by BOTH the badge aria-label/title
+// AND the per-show alert sub-line so neither is ever unbounded.
+export function formatDataGapBreakdown(summary: DataGapsSummary, cap = 4): string
+// e.g. → "2 unreadable fields, 1 unknown section"  (≤cap)
+//      → "3 unreadable fields, 2 unknown sections, 1 removed section, 1 empty section, +2 more"  (>cap)
+```
+
+- **Badge** (`DataQualityBadge`): `aria-label`/`title` = `"${total} data gap(s): ${formatDataGapBreakdown(summary)}"` — bounded accessible name regardless of how many classes co-occur.
+- **Per-show sub-line** (`PerShowAlertSection`): renders through the same helper.
+- Cap default **4**; count desc then registry order. Total-count phrasing unchanged.
+- **Guard:** `cap ≤ 0` or a summary with `total === 0` → empty string (caller already gates on `total > 0`). Ties broken deterministically by registry order so the test is stable.
+
+(Realistically ≤3–4 co-occur, but the cap is specified + tested so an adversarial fixture with all 22 classes can't produce an unbounded label.)
 
 ---
 
