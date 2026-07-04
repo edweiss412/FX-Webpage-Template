@@ -473,7 +473,7 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 + R2 fixes)"
     // previously the last_admin_lockout branch.
     const out = runPsql(`
       begin;
-      update public.admin_emails set revoked_at = now(), revoked_by = '00000000-0000-0000-0000-000000000008'
+      update public.admin_emails set revoked_at = now(), revoked_by = '00000000-0000-0000-0000-000000000008', is_developer = false
         where revoked_at is null;
       insert into public.admin_emails (email, added_by, added_at)
       values (${sqlString(email)}, null, now());
@@ -491,7 +491,7 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 + R2 fixes)"
     // Actor JWT email is DIFFERENT from target — rogue revoke per §5.5.
     const out = runPsql(`
       begin;
-      update public.admin_emails set revoked_at = now(), revoked_by = '00000000-0000-0000-0000-00000000000a'
+      update public.admin_emails set revoked_at = now(), revoked_by = '00000000-0000-0000-0000-00000000000a', is_developer = false
         where revoked_at is null;
       insert into public.admin_emails (email, added_by, added_at)
       values (${sqlString(email)}, null, now());
@@ -612,7 +612,7 @@ describe("upsert_admin_email_rpc + revoke_admin_email_rpc (M9 C9 R1 + R2 fixes)"
     runPsql(`
       begin;
       update public.admin_emails set revoked_at = now(),
-        revoked_by = '00000000-0000-0000-0000-000000000010'
+        revoked_by = '00000000-0000-0000-0000-000000000010', is_developer = false
         where revoked_at is null;
       insert into public.admin_emails (email, added_by, added_at)
       values (${sqlString(alpha)}, null, now()), (${sqlString(beta)}, null, now());
