@@ -28,7 +28,7 @@ Only 2 files need a shape change; everything else auto-generalizes (`.total` / `
 ### Task 1 — `dataGaps.ts`: single-source registry + generalized helper + `formatDataGapBreakdown`
 
 **RED** (`tests/parser/dataGaps.test.ts` — extend existing):
-- Assert `GAP_CLASSES.length === 22` and every entry has a non-empty lowercase `label` with no raw-code characters (`/^[a-z][a-z0-9 ]*$/`, no `_`/uppercase).
+- Assert `GAP_CLASSES.length === 22` and every entry has a non-empty `label` that (a) starts lowercase, (b) contains **no underscore**, (c) contains **no screaming-snake token** (`!/[A-Z0-9]{2,}_/`), and (d) `!== its code`. This is the invariant-5 property — a raw §12.4 CODE token must never render; plain-language acronyms like `"PDF"` ARE allowed (`AGENDA_PDF_UNREADABLE` → `"unreadable agenda PDF"`). Do NOT assert lowercase-only (Codex plan R1 HIGH: that would reject the legitimate "PDF" acronym and contradict the pluralization assertion below).
 - **Derive from registry, not hardcoded:** build a fixture with one `warn` warning per `GAP_CLASSES.code`; assert `summarizeDataGaps(fixture).total === GAP_CLASSES.length` and every `classes[code] === 1`.
 - Add one `info` autocorrect (`DAY_RESTRICTION_DOUBLE_LOCATION`), one `warn` autocorrect (`STAGE_WORD_AUTOCORRECTED`), one asset warn (`REEL_DRIFTED`): assert none increments `total` (allow-list discriminator, not severity). **Failure mode caught:** counting by severity would count the warn autocorrect.
 - Guard conditions: `summarizeDataGaps(null|undefined|[])` → `{total:0, classes:{all 22 keys→0}}`; a `warn` warning with an unknown code → not counted; a warning MISSING `severity` whose code ∈ set → **counted** (preserve #289 contract). `dataGapClassDetails(all-zero)` → `[]`.
@@ -78,7 +78,7 @@ Only 2 files need a shape change; everything else auto-generalizes (`.total` / `
 
 ### Task 7 — Impeccable dual-gate (invariant 8) — UI surfaces
 
-Run `/impeccable critique` AND `/impeccable audit` on the diff (touched UI: `DataQualityBadge.tsx`, `ShowsTable.tsx` chip, `PerShowAlertSection.tsx`, the 18 new `DATA_GAP_CLASS_LABELS` copy strings). Fix HIGH/CRITICAL or defer via `DEFERRED.md`. Copy focus: the 18 labels are plain-language, lowercase, mid-sentence, pluralize under `+s`, no jargon, **no em dash** (absolute ban). Record findings + dispositions.
+Run `/impeccable critique` AND `/impeccable audit` on the diff (touched UI: `DataQualityBadge.tsx`, `ShowsTable.tsx` chip, `PerShowAlertSection.tsx`, the **19** new `DATA_GAP_CLASS_LABELS` copy strings — 22 counted − 3 reused from #289). Fix HIGH/CRITICAL or defer via `DEFERRED.md`. Copy focus: the 18 labels are plain-language, lowercase, mid-sentence, pluralize under `+s`, no jargon, **no em dash** (absolute ban). Record findings + dispositions.
 **Commit:** `fix(admin): impeccable dual-gate — data-gap label copy + badge/chip polish` (only if changes)
 
 ### Task 8 — Full verification + adversarial review (cross-model)
