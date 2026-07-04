@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- **TDD per task:** failing test → run-fail → minimal impl → run-pass → commit. Never impl before its test.
+- **TDD per task:** failing test → run-fail → minimal impl → run-pass → commit. Never impl before its test. **Two explicit exceptions** (declared, not drift): (a) **regression-pin tests** that encode an invariant over *existing* code with no new implementation — Task 7 (sync preserves the marker); these may pass on first run (that confirms the invariant holds) and only require a fix if they fail. (b) **prose/docs tasks** — Task 10 (help copy) is verified by MDX build/compile + lockstep updates to any guard test that pins the old copy, not red-green. Every other task is strict red-green.
 - **Commit per task**, conventional commits: `feat(auth):` / `test(auth):` / `feat(admin):` / `feat(db):` / `docs(help):`. Use `--no-verify` (shared hooks belong to the main checkout); run `pnpm format:check` before pushing.
 - **Advisory lock single-holder:** the new RPC self-locks in-RPC; the JS server action MUST NOT wrap it in `withShowAdvisoryLock`. Register both surfaces in `tests/auth/advisoryLockRpcDeadlock.test.ts` (Task 2).
 - **No raw error codes in UI** (invariant 5). The admin control renders admin-authored inline copy (spec §6.2), NOT the crew-facing picker catalog copy.
@@ -436,10 +436,10 @@ test("report route denies a selection_reset crew cookie (non-admin falls through
 
 ## Task 7: Sync-preserves-marker guard
 
-Implements spec §4.4, §7.8. **Files:** Test `tests/sync/selectionsResetAtPreserved.test.ts` (follow the existing `applyParseResult` crew round-trip harness). No source change expected — this pins that sync does not clobber the marker.
+Implements spec §4.4, §7.8. **Files:** Test `tests/sync/selectionsResetAtPreserved.test.ts` (follow the existing `applyParseResult` crew round-trip harness). **This is a regression-pin task (Global Constraints TDD exception a), not red-green** — it encodes an invariant over existing sync code; no new implementation is expected.
 
-- [ ] **Step 1: Write the failing test:** set `selections_reset_at` on a crew row, run an `applyParseResult` round-trip that updates that row (e.g. a name change), assert `selections_reset_at` is unchanged afterward.
-- [ ] **Step 2: Run.** If it PASSES immediately (sync already column-scoped), that is the expected outcome — keep it as a regression pin. If it FAILS (sync overwrites/nulls the column), fix `applyParseResult` to preserve `selections_reset_at` (column-scoped update, mirroring how `claimed_via_oauth_at` is preserved), then re-run.
+- [ ] **Step 1: Write the invariant test:** set `selections_reset_at` on a crew row, run an `applyParseResult` round-trip that updates that row (e.g. a name change), assert `selections_reset_at` is unchanged afterward.
+- [ ] **Step 2: Run.** Expected: **PASS** (sync updates are column-scoped and don't touch `selections_reset_at`, exactly as `claimed_via_oauth_at` is preserved). This confirms the invariant and guards against future regression. If it **FAILS**, that's a real bug — fix `applyParseResult` to preserve `selections_reset_at` (column-scoped update mirroring `claimed_via_oauth_at`), then re-run to green.
 - [ ] **Step 3: Commit:** `git commit --no-verify -m "test(sync): pin selections_reset_at survives a crew-row sync round-trip"`
 
 ---
@@ -538,7 +538,7 @@ Implements spec §6.1, §6.2. **UI SURFACE — Opus-only; invariant 8 applies.**
 - success (member): "Reset {name}'s picker selection."
 - not-found (`PICKER_CREW_MEMBER_NOT_FOUND`): "That crew member is no longer on the roster — nothing to reset. Refresh to see the current roster."
 - infra/invalid (`PICKER_RESOLVER_LOOKUP_FAILED` / `PICKER_INVALID_INPUT`): "Couldn't reset the picker — please try again."
-Guards (spec §6.2): empty roster → only the reset-everyone affordance + "No crew to reset yet."; empty `name` → fall back to `role`; empty `name`+`role` → `(unnamed · <id.slice(0,8)>)`.
+Guards (spec §6.2): empty roster (`crew.length === 0`) → **no member selector**, and the reset-everyone affordance rendered **`disabled`** with helper text "No crew to reset yet." (nothing to reset when there is no crew); empty `name` → fall back to `role`; empty `name`+`role` → `(unnamed · <id.slice(0,8)>)`.
 
 - [ ] **Step 1: Write failing tests** (`tests/admin/pickerResetControl.test.tsx`):
 
@@ -547,10 +547,11 @@ test("renders a member selector from the roster", () => {
   render(<PickerResetControl showId={SHOW_ID} crew={[{ id: "a…", name: "Alice", role: "A2" }]} />);
   expect(screen.getByRole("option", { name: /Alice/ })).toBeInTheDocument();
 });
-test("empty roster → only reset-everyone + helper text, no selector", () => {
+test("empty roster → no selector; reset-everyone rendered DISABLED + helper text", () => {
   render(<PickerResetControl showId={SHOW_ID} crew={[]} />);
   expect(screen.queryByRole("combobox")).toBeNull();
   expect(screen.getByText(/No crew to reset yet/)).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: /reset everyone/i })).toBeDisabled(); // spec §6.2
 });
 test("empty name+role → id-derived placeholder label", () => {
   render(<PickerResetControl showId={SHOW_ID} crew={[{ id: "abcdef12-0000-0000-0000-000000000000", name: "", role: "" }]} />);
@@ -602,11 +603,12 @@ test("reset-everyone calls resetPickerEpoch", async () => {
 
 ## Task 10: Help-doc copy
 
-Implements spec §11. **Files:** Modify `app/help/admin/sharing-links/page.mdx` (`:24-27,44-50`), `app/help/admin/per-show-panel/page.mdx` (`:64`), `app/help/tour/page.mdx` (`:93`). Test: extend the existing help-doc guard test if one asserts on this copy; otherwise a lightweight presence test.
+Implements spec §11. **Files:** Modify `app/help/admin/sharing-links/page.mdx` (`:24-27,44-50`), `app/help/admin/per-show-panel/page.mdx` (`:64`), `app/help/tour/page.mdx` (`:93`). **Prose/docs task (Global Constraints TDD exception b), not red-green.**
 
-- [ ] **Step 1:** Update the three docs so "Reset picker selections" describes **choosing a crew member to reset** (primary) with **reset everyone** as the broad option. No raw error codes; keep prose accurate (per-member reset = re-pick for one; reset-all = whole roster). Example (`per-show-panel:64`): "…a **Rotate share-token** control, and a **picker reset** — reset one crew member's pick, or everyone's — for when someone picked the wrong identity."
-- [ ] **Step 2:** Run any help-doc guard tests + `pnpm build` (MDX compiles): `pnpm vitest run tests/help 2>/dev/null; pnpm typecheck`.
-- [ ] **Step 3: Commit:** `git commit --no-verify -m "docs(help): describe per-crew + reset-all picker reset"`
+- [ ] **Step 1: Check for a guard test that pins the OLD copy first.** `rg -l "Reset picker selections|reset picker selections" tests/` — if a test asserts on the current copy, update its expectation IN LOCKSTEP (this becomes the red step: the updated test fails against the old doc). If no such test exists, proceed (verification is MDX compile).
+- [ ] **Step 2:** Update the three docs so "Reset picker selections" describes **choosing a crew member to reset** (primary) with **reset everyone** as the broad option. No raw error codes; keep prose accurate (per-member reset = re-pick for one; reset-all = whole roster). Example (`per-show-panel:64`): "…a **Rotate share-token** control, and a **picker reset** — reset one crew member's pick, or everyone's — for when someone picked the wrong identity."
+- [ ] **Step 3:** Verify — MDX compiles and any guard test passes: `pnpm vitest run tests/help && pnpm typecheck` (use `&&` so a failing help test fails the command; if `tests/help` does not exist, run `pnpm typecheck` alone). Optionally `pnpm build` to confirm the MDX routes compile.
+- [ ] **Step 4: Commit:** `git commit --no-verify -m "docs(help): describe per-crew + reset-all picker reset"`
 
 ---
 
