@@ -152,16 +152,18 @@ describe("queryEvents", () => {
   test("maps rows and applies filters", async () => {
     state.rows = [seedRow()];
     const { queryEvents } = await import("@/lib/observe/query/events");
-    const r = await queryEvents({ levels: ["error"], showId: "abc", code: "SOME_CODE" });
+    // queryEvents mirrors loadAppEvents: it TRUSTS pre-validated AppEventFilters (the CLI's
+    // parseObserveArgs / the UI's parseAppEventFilters UUID-guard showId upstream). Unlike
+    // queryChangeLog, queryEvents does NOT self-guard showId. So a truthy showId is applied.
+    const r = await queryEvents({ levels: ["error"], showId: "11111111-1111-1111-1111-111111111111", code: "SOME_CODE" });
     expect(r.kind).toBe("ok");
     if (r.kind !== "ok") throw new Error("unreachable");
     expect(state.captured.table).toBe("app_events");
     expect(r.events[0]).toMatchObject({ id: seedRow().id, level: "error", message: "boom happened" });
-    // levels/code applied; showId "abc" is non-UUID so must NOT be applied
     const keys = state.captured.filters.map((f) => f[0]);
     expect(keys).toContain("in:level");
     expect(keys).toContain("eq:code");
-    expect(keys).not.toContain("eq:show_id");
+    expect(keys).toContain("eq:show_id");
   });
 
   test("hasMore + nextCursor when a full page + 1 returns", async () => {
@@ -629,26 +631,33 @@ import { describe, expect, test } from "vitest";
 
 const DIR = join(process.cwd(), "lib/observe/query");
 const WRITE = /\.(insert|update|delete|upsert|rpc)\s*\(/;
-const LOG_IMPORT = /from\s+["']@\/lib\/log/;
+// Matches @/lib/log AND any subpath (@/lib/log/persist) — the char class after
+// requires a `/` or the closing quote, so it can't false-match @/lib/logger.
+const LOG_IMPORT = /from\s+["']@\/lib\/log(\/|["'])/;
 
-function tsFiles(): string[] {
-  return readdirSync(DIR).filter((f) => f.endsWith(".ts"));
+// RECURSIVE walk so a future subdirectory under lib/observe/query is not missed.
+function tsFiles(dir = DIR): string[] {
+  const out: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) out.push(...tsFiles(full));
+    else if (entry.name.endsWith(".ts")) out.push(full);
+  }
+  return out;
 }
 
 describe("read-only query core", () => {
   test("has files", () => {
     expect(tsFiles().length).toBeGreaterThanOrEqual(5);
   });
-  test("no write builders in lib/observe/query/**", () => {
+  test("no write builders anywhere under lib/observe/query/**", () => {
     for (const f of tsFiles()) {
-      const src = readFileSync(join(DIR, f), "utf8");
-      expect(src, `${f} contains a write builder`).not.toMatch(WRITE);
+      expect(readFileSync(f, "utf8"), `${f} contains a write builder`).not.toMatch(WRITE);
     }
   });
-  test("no lib/log import (blocks transitive app_events write on fault)", () => {
+  test("no lib/log import anywhere under lib/observe/query/** (blocks transitive app_events write on fault)", () => {
     for (const f of tsFiles()) {
-      const src = readFileSync(join(DIR, f), "utf8");
-      expect(src, `${f} imports lib/log`).not.toMatch(LOG_IMPORT);
+      expect(readFileSync(f, "utf8"), `${f} imports lib/log`).not.toMatch(LOG_IMPORT);
     }
   });
 });
@@ -664,6 +673,7 @@ export { queryEvents, type QueryEventsResult } from "./events";
 export { getCronHealth, type QueryCronHealthResult } from "./cronHealth";
 export { queryAlerts } from "./alerts";
 export { queryChangeLog } from "./changeLog";
+export { isUuid, clampLimit } from "./types";
 export type {
   AlertFilters,
   AlertRow,
@@ -1104,11 +1114,13 @@ describe("collectEvents", () => {
     if (r.kind !== "ok") throw new Error("infra");
     expect(r.events.map((e) => e.id)).toEqual(["a", "b", "c"]);
   });
-  test("(a) truncates at limit", async () => {
+  test("(a) truncates at limit AND nextCursor points at last RETURNED row (not past dropped rows)", async () => {
     const q = pages({ kind: "ok", events: [ev("a"), ev("b"), ev("c")], hasMore: true, nextCursor: { occurredAt: "t", id: "c" } });
     const r = await collectEvents(q, {}, 2);
     if (r.kind !== "ok") throw new Error("infra");
     expect(r.events.map((e) => e.id)).toEqual(["a", "b"]);
+    // must resume from "b" (the last returned), NOT "c" (which we never emitted)
+    expect(r.nextCursor).toEqual({ occurredAt: "2026-07-03T00:00:00.000Z", id: "b" });
   });
   test("(d) non-advancing cursor stops (no infinite loop)", async () => {
     // Every page claims hasMore + returns the SAME cursor it was called with.
@@ -1159,11 +1171,15 @@ describe("collectEvents", () => {
 
 ```ts
 // scripts/observe/collect.ts
-import type { AppEventFilters, AppEventCursor } from "@/lib/admin/observabilityTypes";
+import type { AppEventFilters, AppEventCursor, AppEventRow } from "@/lib/admin/observabilityTypes";
 import type { QueryEventsResult } from "@/lib/observe/query";
 
 function sameCursor(a: AppEventCursor, b: AppEventCursor): boolean {
   return a.occurredAt === b.occurredAt && a.id === b.id;
+}
+function cursorOf(rows: AppEventRow[]): AppEventCursor | null {
+  const last = rows[rows.length - 1];
+  return last ? { occurredAt: last.occurredAt, id: last.id } : null;
 }
 
 export async function collectEvents(
@@ -1171,27 +1187,30 @@ export async function collectEvents(
   base: AppEventFilters,
   limit: number,
 ): Promise<QueryEventsResult> {
-  const acc: QueryEventsResult extends { events: infer E } ? E : never = [] as never;
+  const acc: AppEventRow[] = [];
   let cursor: AppEventCursor | null = base.cursor ?? null;
   let pages = 0;
   // eslint-disable-next-line no-constant-condition
   while (true) {
     pages += 1;
     const r = await queryFn({ ...base, ...(cursor ? { cursor } : {}) });
-    if (r.kind !== "ok") return r; // surface fault
-    (acc as unknown[]).push(...r.events);
-    if (acc.length >= limit) return { kind: "ok", events: (acc as never[]).slice(0, limit), hasMore: true, nextCursor: r.nextCursor };
-    if (!r.hasMore) return { kind: "ok", events: acc, hasMore: false, nextCursor: null };
-    if (r.nextCursor == null) return { kind: "ok", events: acc, hasMore: false, nextCursor: null };
-    if (r.events.length === 0) return { kind: "ok", events: acc, hasMore: false, nextCursor: null };
-    if (cursor != null && sameCursor(r.nextCursor, cursor)) return { kind: "ok", events: acc, hasMore: false, nextCursor: null };
-    if (pages >= 6) return { kind: "ok", events: acc, hasMore: true, nextCursor: r.nextCursor };
+    if (r.kind !== "ok") return r; // (fault) surface it
+    acc.push(...r.events);
+    if (acc.length >= limit) {
+      const trimmed = acc.slice(0, limit); // (a) reached limit
+      // nextCursor must point after the LAST RETURNED row, not r.nextCursor
+      // (r.nextCursor points past rows we dropped → would skip data on resume).
+      return { kind: "ok", events: trimmed, hasMore: true, nextCursor: cursorOf(trimmed) };
+    }
+    if (!r.hasMore) return { kind: "ok", events: acc, hasMore: false, nextCursor: null }; // (b)
+    if (r.nextCursor == null) return { kind: "ok", events: acc, hasMore: false, nextCursor: null }; // (c)
+    if (r.events.length === 0) return { kind: "ok", events: acc, hasMore: false, nextCursor: null }; // (e)
+    if (cursor != null && sameCursor(r.nextCursor, cursor)) return { kind: "ok", events: acc, hasMore: false, nextCursor: null }; // (d) non-advancing
+    if (pages >= 6) return { kind: "ok", events: acc, hasMore: true, nextCursor: r.nextCursor }; // (f) page cap
     cursor = r.nextCursor;
   }
 }
 ```
-
-> Simplify the `acc` typing to `AppEventRow[]` (import the type) if the conditional-type expression trips `typecheck` — the intent is a plain `AppEventRow[]` accumulator.
 
 - [ ] **Step 4: Run to verify pass.** `pnpm vitest run tests/observe/collect.test.ts` — PASS (7 tests).
 
