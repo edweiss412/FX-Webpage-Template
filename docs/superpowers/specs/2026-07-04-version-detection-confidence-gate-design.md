@@ -28,7 +28,7 @@ Non-goals (explicitly deferred — see §10): pushing an admin alert on *first-s
 |---|----------|-----------|
 | D1 | **Emit `VERSION_AMBIGUOUS` as a parser hard-fail (Approach A), reusing the existing `MI-1` hard-error machinery** — not a new `pending_syncs` stage path. | The audit already credits "existing-show hard failure retains last-good + raises `PARSE_ERROR_LAST_GOOD`" as good behavior (audit §2). Reusing it means: existing shows retain last-good and get the existing admin alert; first-seen shows route to the onboarding wizard (`pending_ingestions`); zero new sync-routing surgery. hard_fail is the codebase's "don't trust this parse" contract and version-ambiguity is exactly that. (Alternative B — inject a `triggeredReviewItems` stage at `phase1.ts:345` — was rejected: more delicate sync-routing surface, and it does not retain last-good as cleanly.) |
 | D2 | **Score only v2 and v4** (the positively-defined templates); **v1 is not positively scored.** A table-bearing sheet that clears neither v2 nor v4's confidence bar is `ambiguous`, not silent-v1. | v1 is defined purely by absence (`schema.ts:53`); the corpus contains **zero** v1 sheets (all 10 fixtures are v2/v4, 2024–2026); the sole v1-*shaped* fixture classifies v2 because it carries `Hotal Contact Info`. Eliminating silent auto-v1 *is* the audit's finding #1 goal. |
-| D3 | **The ambiguous path still runs the block parsers with the best-guess version, then attaches the hard-error** — it does not return a minimal stub. | Fail-closed (hard_fail → never auto-applied) but the review surface / wizard sees a real best-guess parse. This also closes the v1-legacy gap: a genuine legacy-v1 sheet gets a real v1 parse a human can confirm-and-approve once, rather than an empty stub. (MI-1 — *not a sheet at all* — keeps its minimal-stub early return, since there is nothing to parse.) |
+| D3 | **The ambiguous path returns a minimal stub mirroring MI-1** (`index.ts:494-522`) — it does *not* run the block parsers under a version we do not trust. | Fail-closed and identical to the proven MI-1 sibling. The `VERSION_AMBIGUOUS` hard-error *message* names the best-guess version and the per-version marker scores, which is the diagnostic the operator needs. (An earlier draft ran a best-guess parse to make it "approvable," but the hard_fail route never persists that parse for approval — `pending_ingestions` stores only `last_error_code`/message/warnings, and existing-show hard_fail retains last-good — so a best-guess parse would be computed and discarded. Minimal stub is simpler and honest.) See §7.1 for the (MI-1-identical) resolution path. |
 | D4 | **`detectVersion` keeps its signature** `(markdown) => "v1"|"v2"|"v4"|null` as a thin best-guess wrapper; a new `classifyVersion` returns the richer verdict. | ~15 block-parser tests call `detectVersion` as a helper with `?? "v2"`/`?? "v4"` fallbacks (`tests/parser/*`). Preserving it avoids churn; `parseSheet` and the new tests consume `classifyVersion`. |
 | D5 | **`VERSION_AMBIGUOUS` is a §12.4 catalog code of the same class as `MI-1..MI-5b`** (parser hard-fail staging reason written to `pending_ingestions.last_error_code`) — **not** an `AdminAlertCode`. | MI-1..5b are not admin alerts (`upsertAdminAlert.ts:3-37` union excludes them). Existing shows already get the `PARSE_ERROR_LAST_GOOD` *admin alert* via the shared hard_fail path; the specific reason travels in the error-code field. Adding a first-seen admin alert is finding #14 / item #4. |
 | D6 | **Thresholds `MIN_ABS = 2`, `MIN_MARGIN = 2`, derived from fixture marker counts**, not hand-tuned. | Every v4 fixture scores 7-vs-0; every v2 fixture 4-vs-0 (§5). A 2/2 bar leaves 5+ markers of headroom on every real fixture (no false staging) while forcing a sheet to lose ≥4 discriminating markers before it flags. |
@@ -72,16 +72,18 @@ Because `legacyBestGuess` is the old match verbatim, `detectVersion`'s existing 
 ### 4.2 `lib/parser/index.ts` — `parseSheet` integration
 
 - `not_a_sheet` → **unchanged** MI-1 minimal-stub early return (`index.ts:486-523`).
-- `ambiguous` → push `{ code: "VERSION_AMBIGUOUS", message }` to `hardErrors`, then **continue the normal parse** with `verdict.bestGuess` as `version`. The existing success-path return (`index.ts:~676`) already includes `hardErrors`, so the ambiguous flag rides out with a best-guess parse.
+- `ambiguous` → push `{ code: "VERSION_AMBIGUOUS", message }` to `hardErrors` and **return a minimal stub** with the same shape as the MI-1 path (empty crew/rooms/etc.; `template_version` set to `verdict.bestGuess`, a valid enum value, for diagnostics). The block parsers do **not** run. This mirrors MI-1 exactly (D3).
 - `confident` → parse normally with `verdict.version` (today's behavior).
 
-`message` names the best guess and the failing signal, e.g. `"Could not confidently determine sheet template version (best guess v4; markers too close: v4=1, v2=1). Staged for review."`
+`message` names the best guess and the failing signal, e.g. `"Could not confidently determine sheet template version (best guess v4; markers too close: v4=1, v2=1). Fix the sheet's version markers so it is recognizable again."`
+
+(Because the ambiguous stub is empty, `runInvariants` will also raise MI-2..MI-5 on it — exactly as it already does for the MI-1 stub. §4.3 orders the `VERSION_AMBIGUOUS` check ahead of MI-2 so it is `failedCodes[0]`, the code that routes and renders.)
 
 ### 4.3 `lib/parser/invariants.ts` — `runInvariants` routing (the load-bearing cron hook)
 
 The cron path derives its outcome solely from `runInvariants(prior, parseResult).failedCodes[0]` (`phase1.ts:286-289`); it does **not** inspect `hardErrors.length` generically, and the MI-1 gate matches only `code === "MI-1_VERSION_DETECTION_FAILED"` (`invariants.ts:111`). So a new dedicated check is required or `VERSION_AMBIGUOUS` would not hard-fail in production cron.
 
-Add, immediately after the MI-1 block (so `VERSION_AMBIGUOUS` sorts to `failedCodes[0]` ahead of MI-2..5 noise from any empty best-guess parse):
+Add, immediately after the MI-1 block (so `VERSION_AMBIGUOUS` sorts to `failedCodes[0]` ahead of the MI-2..5 codes the empty ambiguous stub also trips — exactly as the MI-1 stub does today):
 ```ts
 if (next.hardErrors.some((e) => e.code === "VERSION_AMBIGUOUS")) {
   failedCodes.push("VERSION_AMBIGUOUS");
@@ -92,13 +94,19 @@ if (next.hardErrors.some((e) => e.code === "VERSION_AMBIGUOUS")) {
 
 ### 4.4 `lib/messages` + spec §12.4 — the new code (three-way lockstep)
 
-New code `VERSION_AMBIGUOUS`, catalog entry modeled on `MI-1_VERSION_DETECTION_FAILED` (`catalog.ts:561-573`): `dougFacing` (non-null), `crewFacing: null`, `followUp`, `helpfulContext`, `title`, `longExplanation`, `helpHref: "/help/errors#VERSION_AMBIGUOUS"`. Because `dougFacing` is non-null it also needs a `helpfulContext` appendix entry in the spec. Lockstep set (all in one commit):
-1. `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` — §12.4 catalog table row (after the MI-1 row ~L2840) **+** the `helpfulContext` appendix entry (~L3112) **+** a companion note in the §6.8/invariant narrative (~L2729) that ambiguity, not just total-miss, now hard-flags.
+New code `VERSION_AMBIGUOUS`, catalog entry modeled on `MI-1_VERSION_DETECTION_FAILED` (`catalog.ts:561-573`): `dougFacing` (non-null), `crewFacing: null`, `followUp`, `helpfulContext`, `title`, `longExplanation`, `helpHref: "/help/errors#VERSION_AMBIGUOUS"`. Because `dougFacing` is non-null it also needs a `helpfulContext` appendix entry in the spec.
+
+**Full touchpoint set — every item lands in ONE commit** (this is a §12.4 code; per the "New §12.4 code = 4 CI gates beyond the 3-way lockstep" rule, x2 and the full-suite run are NOT optional):
+
+1. `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` — §12.4 catalog table row (after the MI-1 row ~L2840) **+** the `helpfulContext` appendix entry (~L3112) **+** a companion note in the §6.8/invariant narrative (~L2729) that ambiguity, not just total-miss, now hard-flags. (Never run prettier on the master spec — it mangles §12.4 cells → x1 divergence.)
 2. `pnpm gen:spec-codes` → regenerates `lib/messages/__generated__/spec-codes.ts` (never hand-edited).
 3. `lib/messages/catalog.ts` — hand-authored `MESSAGE_CATALOG["VERSION_AMBIGUOUS"]` entry.
-4. Producer literal `code: "VERSION_AMBIGUOUS"` exists under `lib/` (in `index.ts` and/or `invariants.ts`) — satisfies the x1 producer-reachability assertion.
+4. Producer literal `code: "VERSION_AMBIGUOUS"` under `lib/parser/` (the `hardErrors.push` in `index.ts`) — satisfies x1 producer-reachability **and** is scanned by the x2 generator.
+5. **`pnpm gen:internal-code-enums` → regenerate and commit `lib/messages/__generated__/internal-code-enums.ts`.** `scripts/extract-internal-code-enums.ts` scans `lib/parser` files containing `hardErrors` for `code:` literals and records them as `pending_ingestions.last_error_code` values; `tests/cross-cutting/no-raw-codes.test.ts` (**x2**) asserts the committed generated file matches a fresh extraction. Skipping this leaves x2 red. (Codex R1 HIGH.)
 
-The `x1` parity gate (`tests/cross-cutting/codes.test.ts`) asserts `MESSAGE_CATALOG` keys ≡ `SPEC_CODES` keys ≡ `CODE_SCENARIOS` keys with field-by-field deep-compare; `code-scenarios.ts` auto-derives. `app/help/errors/_families.ts` — `VERSION_AMBIGUOUS` has no matching family prefix → falls into "Other" (pinned by `tests/help/errors-grouping.test.tsx`); acceptable, matches how standalone codes group.
+**Gate verification before push:** run the FULL suite, not just the touched dir — at minimum `tests/cross-cutting/codes.test.ts` (x1), `tests/cross-cutting/no-raw-codes.test.ts` (x2), `tests/help/errors-grouping.test.tsx`, and `pnpm typecheck`.
+
+`app/help/errors/_families.ts` — `VERSION_AMBIGUOUS` has no matching family prefix → falls into "Other" (pinned by `tests/help/errors-grouping.test.tsx`); acceptable, matches how standalone codes group. No new admin route → `TRUST_DOMAINS` unaffected.
 
 ## 5. Marker sets (verified against the fixture corpus)
 
@@ -127,8 +135,8 @@ Matched as **case-insensitive substrings of the raw markdown** — deliberately 
 |-------|-------------------|--------------|--------------|
 | `""` / no pipe-table row | `not_a_sheet` | MI-1 minimal stub (unchanged) | MI-1 hard_fail (unchanged) |
 | Table, ≥2 markers of one version, margin ≥2 | `confident` | parse with that version | apply / normal (unchanged for all 10 fixtures) |
-| Table, best version has <2 markers (e.g. novel template, 0/0) | `ambiguous` (bestGuess `v1`) | best-guess parse + `VERSION_AMBIGUOUS` | hard_fail → retain last-good (existing) / wizard (first-seen) |
-| Table, v4=1 & v2=1 (margin <2) | `ambiguous` | best-guess parse + flag | hard_fail |
+| Table, best version has <2 markers (e.g. novel template, 0/0) | `ambiguous` (bestGuess `v1`) | minimal stub + `VERSION_AMBIGUOUS` | hard_fail → retain last-good (existing) / wizard ingestion (first-seen) |
+| Table, v4=1 & v2=1 (margin <2) | `ambiguous` | minimal stub + flag | hard_fail |
 | Table, v4=6 & v2=0 (Contact Office renamed on a v4 sheet) | `confident` v4 | parse v4 | **correct** — resilient; no silent v2 downgrade (fixes #2) |
 | Exactly at threshold: score_top=2, margin=2 | `confident` | parse | `>=` is inclusive — 2/2 is confident, not ambiguous |
 
@@ -138,6 +146,18 @@ Matched as **case-insensitive substrings of the raw markdown** — deliberately 
 |---|---|---|---|
 | **First-seen** | `pending_ingestions`, `last_error_code=MI-1…`, no admin alert (finding #14, unchanged) | `pending_ingestions`, `last_error_code=VERSION_AMBIGUOUS`, no admin alert (finding #14 — item #4) | staged for review or auto-published per `getAutoPublishCleanFirstSeen` (unchanged) |
 | **Existing** | retain last-good, `last_sync_status=parse_error`, `PARSE_ERROR_LAST_GOOD` admin alert | retain last-good, `PARSE_ERROR_LAST_GOOD` admin alert, error-code field = `VERSION_AMBIGUOUS` | apply (unchanged) |
+
+Note the ambiguous column is **byte-for-byte the MI-1 column with a different code** — that is the point of D1/D3: no new routing, no new persistence, identical operator surfaces.
+
+### 7.1 Resolution path (identical to MI-1's today)
+
+`VERSION_AMBIGUOUS` is resolved the same way MI-1 already is — there is deliberately **no in-app "approve the ambiguous parse as-is" affordance**, because approving a parse we are not confident about would defeat the gate. Concretely:
+
+- **A renamed/dropped marker (the finding-#2 case):** the operator restores the sheet's version markers (e.g. renames the row back to `Contact Office`). The next sync re-runs `classifyVersion`, scores confidently, and applies. Multi-marker redundancy means only a *badly* degraded sheet reaches ambiguity in the first place.
+- **A genuinely new-but-valid template (the finding-#1 case):** the developer registers the new template's markers (extend `V4_MARKERS`/`V2_MARKERS` or add a version entry) — exactly the `followUp` MI-1 already prescribes ("Eric → add new version detector if real"). Next sync parses confidently.
+- **A genuine legacy-v1 sheet:** none exist in the corpus; it would flag ambiguous and require one of the two actions above. An admin "force-classify as v1" override is **not** built here (deferred — `BL-VERSION-AMBIGUOUS-V1-OVERRIDE`, §10), because building an approve-ambiguous path is precisely what the gate is designed to avoid.
+
+This round-trip (ambiguous → operator makes the sheet recognizable → confident → applies) is an explicit test in §8.
 
 ## 8. Testing plan (TDD; each test names the failure mode it catches)
 
@@ -149,14 +169,16 @@ Matched as **case-insensitive substrings of the raw markdown** — deliberately 
   - `""` and non-table text → `not_a_sheet`. *Catches:* MI-1 regression.
   - Threshold boundary: hand-built markdown scoring exactly 2/margin-2 → `confident`; 2/margin-1 → `ambiguous`. *Catches:* off-by-one in the inequality.
 - **`detectVersion` backward-compat** — the existing `schema.test.ts` suite must still pass unchanged (v4/v2/v1-fallback/null). *Catches:* breaking the ~15 block-parser helper call sites.
-- **`parseSheet` integration** — feed an ambiguous markdown → `hardErrors` contains `VERSION_AMBIGUOUS`, and the parse still populated a best-guess `show.template_version`. Feed a confident v4 markdown → no `VERSION_AMBIGUOUS`, `template_version==="v4"`. *Catches:* the ambiguous path returning a stub, or the flag firing on clean sheets.
-- **`runInvariants` routing** — a `ParseResult` carrying a `VERSION_AMBIGUOUS` hardError → `outcome==="hard_fail"`, `failedCodes[0]==="VERSION_AMBIGUOUS"`. *Catches:* the cron-path gap (flag not reaching hard_fail via invariants).
-- **Sync end-to-end (mirror `tests/sync/dev-routing.test.ts:69`)** — ambiguous parse on a first-seen file lands in `pending_ingestions` with `last_error_code="VERSION_AMBIGUOUS"`; on an existing show retains last-good. *Catches:* mis-routing between wizard and last-good.
+- **`parseSheet` integration** — feed an ambiguous markdown → `hardErrors` contains `VERSION_AMBIGUOUS` and the return is a minimal stub (empty crew/rooms) with a valid best-guess `template_version`. Feed a confident v4 markdown → no `VERSION_AMBIGUOUS`, fully-populated parse, `template_version==="v4"`. *Catches:* the flag firing on clean sheets, or the ambiguous path leaking a partial parse.
+- **`runInvariants` routing** — a `ParseResult` carrying a `VERSION_AMBIGUOUS` hardError → `outcome==="hard_fail"`, `failedCodes[0]==="VERSION_AMBIGUOUS"` (ahead of the MI-2..5 the empty stub also raises). *Catches:* the cron-path gap (flag not reaching hard_fail via invariants) **and** wrong `failedCodes` ordering.
+- **Sync end-to-end (mirror `tests/sync/dev-routing.test.ts:69`)** — ambiguous parse on a first-seen file lands in `pending_ingestions` with `last_error_code="VERSION_AMBIGUOUS"`; on an existing show retains last-good and does not apply. *Catches:* mis-routing between wizard and last-good.
+- **Resolution round-trip** — the same source sheet, first ambiguous (markers stripped) → hard_fail; then with markers restored → `confident` → applies cleanly. *Catches:* a gate that flags but can never clear (proves the §7.1 resolution path is real, not just that the code is stored — Codex R1 HIGH #2).
 - **Message catalog** — `messageFor("VERSION_AMBIGUOUS")` returns non-null dougFacing/title (no raw code leaks to UI); x1 parity green. *Catches:* invariant-5 violation, lockstep drift.
+- **x2 internal-code-enum parity** — after regenerating, `tests/cross-cutting/no-raw-codes.test.ts` is green with `VERSION_AMBIGUOUS` present in the committed `internal-code-enums.ts`. *Catches:* the missed-regeneration CI break (Codex R1 HIGH #1).
 
 ## 9. Structural defenses / meta-test inventory
 
-- **Extends** `tests/cross-cutting/codes.test.ts` (x1) coverage by adding the new code — no new registry file, but the code participates in the existing parity gate.
+- **Extends** `tests/cross-cutting/codes.test.ts` (x1) and `tests/cross-cutting/no-raw-codes.test.ts` (x2) coverage by adding the new code — no new registry file, but the code participates in both existing parity gates (x1 catalog↔spec, x2 producer↔internal-code-enums).
 - **New** golden-corpus confidence test (§8 first bullet) is itself the structural guard against corpus-shaped false-staging: it walks *all* fixtures and asserts every one classifies confidently, so any future marker-set narrowing that would start flagging real shows fails CI.
 - Marker sets + thresholds are single-sourced exported constants; the test imports them (no independent restatement of `2`).
 
@@ -169,7 +191,8 @@ Matched as **case-insensitive substrings of the raw markdown** — deliberately 
 
 ## 11. Watchpoints (disagreement-loop preempts for adversarial review)
 
-- **"You removed the v1 fallback / v1 shows will break."** v1 remains a valid *extraction* template (block parsers unchanged); only *silent auto-classification* as v1 is removed. The corpus has zero v1 sheets (all 10 are v2/v4). A genuine legacy-v1 sheet gets a real best-guess v1 parse (D3), staged once for human confirmation — the fail-closed posture the audit's finding #1 demands. Cite: `schema.ts:53,116`; audit §3 finding #1.
+- **"You removed the v1 fallback / v1 shows will break."** v1 remains a valid *extraction* template (block parsers unchanged); only *silent auto-classification* as v1 is removed. The corpus has zero v1 sheets (all 10 are v2/v4). A genuine legacy-v1 sheet flags ambiguous and is resolved via §7.1 (restore a marker, or the developer registers it) — the fail-closed posture the audit's finding #1 demands. Cite: `schema.ts:53,116`; audit §3 finding #1.
+- **"The gate should let the operator approve the ambiguous parse in-app."** Deliberately not built — approving a parse we are not confident about defeats the gate (§7.1). Resolution is making the sheet recognizable again (the MI-1 pattern), not rubber-stamping an untrusted parse. A force-classify override for a genuinely-new template is deferred (`BL-VERSION-AMBIGUOUS-V1-OVERRIDE`). The hard_fail route also cannot persist a best-guess parse for approval anyway (`pending_ingestions` has no `parse_result` column) — Codex R1 confirmed this.
 - **"Existing v1 shows will re-flag on every sync (noise)."** Only if a pure-v1 published show exists — none do (corpus evidence). Documented risk + backlog override (§10). Not a regression of any real show.
 - **"Why hard_fail and not a pending_syncs stage?"** D1 — reuses the last-good-retention + admin-alert path the audit itself credits (audit §2); Approach B was considered and rejected.
 - **"VERSION_AMBIGUOUS should be an admin alert."** D5 — it is the same class as MI-1..5b (not admin alerts); existing shows already get `PARSE_ERROR_LAST_GOOD`. First-seen alerting is finding #14 / item #4, deliberately out of scope.
