@@ -141,12 +141,12 @@ describe("alert-action registry parity (spec §6.3)", () => {
     expect([...ALERT_ACTION_CODES].sort()).toEqual(SPEC_CODES);
   });
   test("every registry key is in the 42-code ADMIN_ALERTS_CODES universe", () => {
-    // Parse the sibling meta-test's source — do NOT import it (its top level
-    // registers tests; importing would re-register them in this suite).
+    // Parse the shared registry module's source — do NOT import a meta-test
+    // (its top level registers tests; importing would re-register them here).
     // noUncheckedIndexedAccess: index accesses stay string | undefined, so
     // narrow via ?? "" after the runtime assertion.
-    const source = read("tests/messages/_metaAdminAlertCatalog.test.ts");
-    const block = source.match(/const ADMIN_ALERTS_CODES = \[([\s\S]*?)\] as const;/);
+    const source = read("tests/messages/adminAlertsRegistry.ts");
+    const block = source.match(/export const ADMIN_ALERTS_CODES = \[([\s\S]*?)\] as const;/);
     const body = block?.[1] ?? "";
     expect(body.length).toBeGreaterThan(0);
     const universe = new Set(Array.from(body.matchAll(/"([A-Z0-9_]+)"/g), (m) => m[1] ?? ""));
