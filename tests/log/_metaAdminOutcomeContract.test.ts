@@ -288,6 +288,9 @@ const NEW_FORENSIC_CODES = new Set([
   // ADMIN_ALERT_RESOLVE_FAILED is REUSED (already registered above) by the
   // resolveAdminAlertFormAction throws; not re-listed.
   "WATCH_RETRY_NO_FOLDER_SKIPPED",
+  // Per-show admin page (page.tsx) two silent catch blocks → fail-open warns.
+  "ADMIN_SHOW_TOKEN_READ_FAILED",
+  "ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED",
 ]);
 
 const read = (f: string) => readFileSync(f, "utf8");

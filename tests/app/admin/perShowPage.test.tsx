@@ -7,6 +7,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
+import type { LogRecord } from "@/lib/log/types";
 
 const state = vi.hoisted(() => ({
   show: {} as Record<string, unknown>,
@@ -38,6 +39,9 @@ const state = vi.hoisted(() => ({
   errorOnFromTable: null as string | null,
   // ignored_warnings.fingerprint rows returned by loadIgnoredWarnings (data-quality ignore).
   ignoredFingerprints: [] as string[],
+  // Correlation-tail: the two silent catch blocks (readToken + readfinalizeowned_b2 rpc).
+  tokenThrows: false as boolean,
+  finalizeRpcThrows: false as boolean,
 }));
 
 // Async Server Component children can't be client-rendered by RTL — stub them.
@@ -85,6 +89,7 @@ vi.mock("@/lib/time/now", () => ({ nowDate: async () => new Date("2026-06-03T12:
 vi.mock("@/lib/data/loadShowShareToken", () => ({
   loadShowShareToken: async () => {
     state.tokenReadCalls += 1;
+    if (state.tokenThrows) throw new Error("META: token read fault");
     return state.token;
   },
 }));
@@ -139,10 +144,13 @@ vi.mock("@/lib/supabase/server", () => ({
       };
       return builder;
     },
-    rpc: async (fn: string) =>
-      fn === "readfinalizeowned_b2"
-        ? { data: state.finalizeOwned, error: null }
-        : { data: null, error: null },
+    rpc: async (fn: string) => {
+      if (fn === "readfinalizeowned_b2") {
+        if (state.finalizeRpcThrows) throw new Error("META: readfinalizeowned_b2 fault");
+        return { data: state.finalizeOwned, error: null };
+      }
+      return { data: null, error: null };
+    },
   }),
 }));
 
@@ -200,6 +208,8 @@ beforeEach(() => {
   state.throwOnFromTable = null;
   state.errorOnFromTable = null;
   state.ignoredFingerprints = [];
+  state.tokenThrows = false;
+  state.finalizeRpcThrows = false;
 });
 afterEach(() => {
   cleanup();
@@ -875,5 +885,65 @@ describe("per-show Data quality: bulk Ignore all of a type (DQIGNORE-2)", () => 
     state.showsInternal = { show_id: "s1", parse_warnings: [uf("Storage | dock")] };
     await renderPage();
     expect(screen.queryByTestId("dq-bulk-ignore")).toBeNull();
+  });
+});
+
+// Correlation/coverage tail (2026-07-03): the per-show read-fault emits gain
+// slug/showId correlation, and the two previously-silent catch blocks (share-token
+// read + readfinalizeowned_b2 rpc) now emit a fail-open forensic warn WITHOUT
+// changing the fallback (token=null / NOT-finalize-owned). setLogSink capture.
+describe("per-show page read-fault correlation + silent-catch coverage", () => {
+  let sink: LogRecord[] = [];
+  beforeEach(async () => {
+    sink = [];
+    const log = await import("@/lib/log");
+    log.setLogSink((r) => {
+      sink.push(r);
+    });
+  });
+  afterEach(async () => {
+    const log = await import("@/lib/log");
+    log.resetLogSink();
+  });
+
+  it("crew_members lookup returned error → ADMIN_SHOW_CREW_LOOKUP_FAILED carries slug + showId", async () => {
+    state.errorOnFromTable = "crew_members";
+    await renderPage();
+    // fallback UNCHANGED: the calm crew-lookup-failed notice still renders.
+    expect(screen.getByTestId("per-show-crew-lookup-failed")).toBeInTheDocument();
+    const rec = sink.find((r) => r.code === "ADMIN_SHOW_CREW_LOOKUP_FAILED");
+    if (!rec) throw new Error("expected ADMIN_SHOW_CREW_LOOKUP_FAILED emit");
+    expect(rec.level).toBe("error");
+    expect(rec.showId).toBe("s1"); // showId is a reserved field → promoted to the record column
+    expect((rec.context as { slug?: string })?.slug).toBe("rpas");
+  });
+
+  it("readToken failure → ADMIN_SHOW_TOKEN_READ_FAILED warn (slug+showId), crew-link hidden (token=null)", async () => {
+    // Silent-before proof: pre-change the readToken catch returned null with NO log.
+    state.tokenThrows = true;
+    await renderPage();
+    // Fallback UNCHANGED: token=null → the token-dependent crew-link surfaces hide.
+    expect(screen.queryByTestId("admin-show-open-crew")).toBeNull();
+    const rec = sink.find((r) => r.code === "ADMIN_SHOW_TOKEN_READ_FAILED");
+    if (!rec) throw new Error("expected ADMIN_SHOW_TOKEN_READ_FAILED emit");
+    expect(rec.level).toBe("warn");
+    expect(rec.showId).toBe("s1");
+    expect((rec.context as { slug?: string })?.slug).toBe("rpas");
+  });
+
+  it("readfinalizeowned_b2 rpc throw → ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED warn (slug+showId), fails toward Held", async () => {
+    // Silent-before proof: the rpc catch swallowed the throw with no log.
+    state.show = { ...baseShow, published: false, archived: false };
+    state.finalizeRpcThrows = true;
+    await renderPage();
+    // Fallback UNCHANGED: finalizeOwned stays false → the neutral "Held" pill (NOT "Publishing…").
+    const pill = screen.getByTestId("admin-show-status-pill").textContent ?? "";
+    expect(pill).toMatch(/Held/);
+    expect(pill).not.toMatch(/Publishing/);
+    const rec = sink.find((r) => r.code === "ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED");
+    if (!rec) throw new Error("expected ADMIN_SHOW_FINALIZE_OWNED_RPC_FAILED emit");
+    expect(rec.level).toBe("warn");
+    expect(rec.showId).toBe("s1");
+    expect((rec.context as { slug?: string })?.slug).toBe("rpas");
   });
 });
