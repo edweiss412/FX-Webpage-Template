@@ -947,3 +947,79 @@ describe("per-show page read-fault correlation + silent-catch coverage", () => {
     expect((rec.context as { slug?: string })?.slug).toBe("rpas");
   });
 });
+
+// Structural anti-regression guard (Codex PR7 R2): the behavioral tests above drive
+// three representative branches, but the page has ~10 ADMIN_SHOW_* read-fault emits and
+// the others are hard to drive individually (some fire before `show` resolves). This
+// parses the page source and asserts EVERY log.error/log.warn call whose 2nd-arg
+// top-level `code` starts with "ADMIN_SHOW_" carries a top-level `slug` field — so a
+// future edit that drops slug correlation from any of them fails here, not silently.
+// (Mirrors the AST approach in tests/log/_metaAdminOutcomeContract.test.ts; `typescript`
+// is a dep. showId is NOT asserted structurally — the pre-`show`-resolution emits
+// legitimately can't carry it; slug is the invariant correlator on all of them.)
+describe("per-show page — ADMIN_SHOW_* emits all carry slug (structural)", () => {
+  it("every ADMIN_SHOW_* read-fault log call has a top-level slug field", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { join } = await import("node:path");
+    const ts = (await import("typescript")).default;
+    const file = join(process.cwd(), "app/admin/show/[slug]/page.tsx");
+    const src = readFileSync(file, "utf8");
+    const sf = ts.createSourceFile(file, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX);
+
+    const offenders: string[] = [];
+    const visit = (node: import("typescript").Node): void => {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        ts.isIdentifier(node.expression.expression) &&
+        node.expression.expression.text === "log" &&
+        (node.expression.name.text === "error" || node.expression.name.text === "warn")
+      ) {
+        const arg2 = node.arguments[1];
+        if (arg2 && ts.isObjectLiteralExpression(arg2)) {
+          let code: string | null = null;
+          let hasSlug = false;
+          for (const p of arg2.properties) {
+            // `code: "..."` is a PropertyAssignment; `slug` (shorthand for `slug: slug`)
+            // is a ShorthandPropertyAssignment — accept BOTH forms for the slug field.
+            if (ts.isPropertyAssignment(p) && ts.isIdentifier(p.name)) {
+              if (p.name.text === "code" && ts.isStringLiteralLike(p.initializer)) {
+                code = p.initializer.text;
+              }
+              if (p.name.text === "slug") hasSlug = true;
+            } else if (ts.isShorthandPropertyAssignment(p) && p.name.text === "slug") {
+              hasSlug = true;
+            }
+          }
+          if (code && code.startsWith("ADMIN_SHOW_") && !hasSlug) offenders.push(code);
+        }
+      }
+      ts.forEachChild(node, visit);
+    };
+    visit(sf);
+
+    // Sanity: the scan actually found the ADMIN_SHOW_* family (guards against a
+    // vacuous pass if the file is renamed or the codes change shape).
+    const allCodes: string[] = [];
+    const collect = (node: import("typescript").Node): void => {
+      if (
+        ts.isPropertyAssignment(node) &&
+        ts.isIdentifier(node.name) &&
+        node.name.text === "code"
+      ) {
+        if (
+          ts.isStringLiteralLike(node.initializer) &&
+          node.initializer.text.startsWith("ADMIN_SHOW_")
+        )
+          allCodes.push(node.initializer.text);
+      }
+      ts.forEachChild(node, collect);
+    };
+    collect(sf);
+    expect(allCodes.length).toBeGreaterThanOrEqual(7);
+    expect(
+      offenders,
+      `these ADMIN_SHOW_* emits are missing a slug field: ${offenders.join(", ")}`,
+    ).toEqual([]);
+  });
+});

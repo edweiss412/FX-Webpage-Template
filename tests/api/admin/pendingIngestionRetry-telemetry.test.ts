@@ -111,4 +111,42 @@ describe("live pending-ingestion retry telemetry", () => {
     // The inner 502 catch returns normally, so the outer throw-guard never fires.
     expect(sink.some((r) => r.code === "PENDING_INGESTION_RETRY_FAILED")).toBe(false);
   });
+
+  test("FIRST-SEEN branch: Drive metadata fetch throws → 502 + PENDING_INGESTION_RETRY_DRIVE_FETCH_FAILED (warn)", async () => {
+    const sink = capture();
+    // Same fault but the FIRST-SEEN path (show does NOT yet exist) → the second,
+    // distinct inner Drive-fetch catch. Covers the branch the existing-show test can't reach.
+    const fakeTx = {
+      async queryOne(sqlText: string): Promise<unknown> {
+        if (/for update/i.test(sqlText)) {
+          return {
+            id: "pi-2",
+            drive_file_id: "df-2",
+            wizard_session_id: null,
+            last_seen_modified_time: null,
+          };
+        }
+        if (/exists/i.test(sqlText)) return { exists: false }; // first-seen: no live show yet
+        throw new Error(`unexpected SQL in fakeTx: ${sqlText}`);
+      },
+    };
+    const res = await handleLivePendingIngestionRetry(retryReq(), ctx(), {
+      requireAdminIdentity: admin,
+      readDriveFileIdForPendingIngestion: async () => "df-2",
+      withRowTryLock: async (_d: string, fn: (tx: unknown) => unknown) => fn(fakeTx),
+      readFinalizeOwnershipGuardUnlocked: async () => false,
+      fetchDriveFileMetadata: async () => {
+        throw new Error("drive down");
+      },
+    } as never);
+
+    expect(res.status).toBe(502);
+    expect(await res.json()).toEqual({ ok: false, code: "DRIVE_FETCH_FAILED" });
+
+    const rec = sink.filter((r) => r.code === "PENDING_INGESTION_RETRY_DRIVE_FETCH_FAILED");
+    expect(rec).toHaveLength(1);
+    expect(rec[0]!.level).toBe("warn");
+    expect(rec[0]!.driveFileId).toBe("df-2");
+    expect(sink.some((r) => r.code === "PENDING_INGESTION_RETRY_FAILED")).toBe(false);
+  });
 });
