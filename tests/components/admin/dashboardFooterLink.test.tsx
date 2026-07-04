@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-// Phase 2 (nav-perf) Workstream C2 — DashboardFooter "Take the tour" affordance
+// Phase 2 (nav-perf) Workstream C2 — DashboardFooter "New here?" affordance
 // must be a next/link <Link> (client soft-nav) rather than a bare <a> (which is a
 // full document reload that re-runs the force-dynamic /help layout). The visible
-// single text run "Take the tour →", aria-label, and data-testid are preserved
+// single text run "New here? →", aria-label, and data-testid are preserved
 // (byte-stable screenshot rationale, DashboardFooter.tsx:31-34).
 import "@testing-library/jest-dom/vitest";
 import type { ReactNode } from "react";
@@ -23,7 +23,7 @@ import { DashboardFooter } from "@/components/admin/DashboardFooter";
 
 afterEach(cleanup);
 
-describe("DashboardFooter — Take the tour (Phase 2 C2)", () => {
+describe("DashboardFooter — New here? (Phase 2 C2)", () => {
   it("renders the tour affordance via next/link (client nav, not a full-reload anchor)", () => {
     const { getByTestId } = render(<DashboardFooter />);
     const el = getByTestId("help-affordance--dashboard-footer--tour");
@@ -31,8 +31,8 @@ describe("DashboardFooter — Take the tour (Phase 2 C2)", () => {
     // proves it came from next/link (the mock marks it); a bare <a> would not.
     expect(el).toHaveAttribute("data-mocked-next-link", "true");
     expect(el).toHaveAttribute("href", "/help/tour");
-    expect(el).toHaveAttribute("aria-label", "Take the tour");
+    expect(el).toHaveAttribute("aria-label", "New here?");
     // single text run preserved — no split (flex would drop the space + shift paint).
-    expect(el.textContent).toBe("Take the tour →");
+    expect(el.textContent).toBe("New here? →");
   });
 });
