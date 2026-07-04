@@ -33,3 +33,17 @@ export const NON_ADMIN_CREW_FIXTURE: TestAuthFixture = {
   isAdmin: false,
   label: "non-admin crew",
 };
+
+/**
+ * Normal-admin fixture: admin but NOT developer (developer-tier §10.7 e2e).
+ * Mints app_metadata `{ role: "admin" }` (no developer claim) and is
+ * intentionally NOT bootstrapped into admin_emails, so `is_developer()` is
+ * false in BOTH arms — this is the e2e's normal-admin arm that must see NONE of
+ * the four developer surfaces. Distinct from ADMIN_FIXTURE (edweiss412@gmail.com),
+ * which the developer-tier migration bootstraps to `is_developer=true`.
+ */
+export const NORMAL_ADMIN_FIXTURE: TestAuthFixture = {
+  email: "fxav-admin@example.com",
+  isAdmin: true,
+  label: "normal admin (admin, not developer)",
+};

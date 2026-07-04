@@ -70,6 +70,13 @@ const FIXTURE_ALLOWLIST: Readonly<Record<string, { isAdmin: boolean; isDeveloper
   Object.freeze({
     "edweiss412@gmail.com": { isAdmin: true },
     "crew-non-admin@fxav.test": { isAdmin: false },
+    // Normal-admin (admin but NOT developer) e2e fixture (developer-tier §10.7).
+    // Mints app_metadata { role: "admin" } (no developer bit) and is
+    // intentionally NOT bootstrapped into admin_emails, so is_developer() is
+    // false in BOTH arms — the developer-tier e2e's normal-admin arm. Distinct
+    // from edweiss412@gmail.com, which the developer-tier migration bootstraps to
+    // is_developer=true (a developer, NOT a normal admin).
+    "fxav-admin@example.com": { isAdmin: true },
     "fxav-developer@example.com": { isAdmin: true, isDeveloper: true },
   });
 
