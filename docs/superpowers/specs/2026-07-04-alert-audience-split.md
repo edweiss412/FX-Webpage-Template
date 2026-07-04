@@ -331,15 +331,34 @@ a scoped health-alert detail list **into scope** on the already-`requireDevelope
 Because this reuses the resolve action, no new RPC / DML surface is introduced (no
 PostgREST-lockdown obligation).
 
-### 6.7 Closing the legacy resolve bypass (R7 finding)
+### 6.7 Health resolve is developer-gated at the product surfaces (defense-in-depth, NOT a DB-hard boundary)
 
-Adding `resolveHealthAlertFormAction` gates the PANEL's button, but the pre-existing
-admin-gated resolve surfaces still resolve any row by id with no code check — so a
-non-developer admin with a health alert id could resolve a developer-owned health alert
-through an old endpoint, exactly the failure mode §6.6 says must be prevented. To make
-"health resolution is developer-only" a **true invariant** (not just the panel's affordance),
-every pre-existing user-facing resolve surface must **categorically reject rows whose
-`code ∈ HEALTH_CODES`** — health rows resolve ONLY through `resolveHealthAlertFormAction`.
+**Scope of the guarantee (R9 finding — read this first).** This feature makes health-alert
+resolution developer-gated **at every product surface** (the panel's action + the
+pre-existing user-facing resolve endpoints), as **defense-in-depth and UI coherence**. It
+is explicitly **NOT** a database-enforced trust boundary: `admin_alerts` today GRANTs
+`UPDATE` to `authenticated` and its RLS policy allows any `public.is_admin()` caller to
+update rows (`supabase/migrations/20260501002000_rls_policies.sql:147-153`), so a
+non-developer admin could in principle `PATCH admin_alerts.resolved_at` directly through
+PostgREST, bypassing the app layer. **We accept this**, because:
+- `admin_alerts` is not an RPC-gated table — **all** admins already resolve **all** alerts
+  directly today; this feature does not change that DB posture (no migration, no RLS change).
+- A non-developer admin (Doug) is the **trusted business owner**, not an adversary. The
+  developer sub-tier is a UI-decluttering + operator-safety-rail, consistent with the
+  project's "role filtering is UX not security" precedent — not a hard boundary against a
+  malicious admin.
+- Full DB lockdown (revoke `UPDATE` + route ALL resolution — doug alerts included — through
+  `SECURITY DEFINER` RPCs + `is_developer()` checks) is a materially larger,
+  whole-resolve-path change disproportionate to a presentation-decluttering feature. It is
+  deliberately deferred to the existing **`BL-ADMIN-POSTGREST-DML-LOCKDOWN`** backlog item
+  (which already tracks locking down `admin_alerts`-class DML) — a new **`BL-HEALTH-RESOLVE-DB-LOCKDOWN`**
+  note cross-references it.
+
+So the guarantee is: **the product offers no non-developer a way to resolve a health alert.**
+Every pre-existing user-facing resolve surface **categorically rejects rows whose
+`code ∈ HEALTH_CODES`** (health rows resolve ONLY through `resolveHealthAlertFormAction`);
+tests exercise the app surfaces, and a direct-PostgREST test **documents** the known
+trusted-operator escape hatch rather than asserting it is blocked.
 
 The three surfaces to guard (each already reads or can cheaply read the target row's code):
 
@@ -470,7 +489,10 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
   `resolveHealthAlertFormAction` (§6.6), and the three pre-existing user-facing resolve
   surfaces are guarded to reject `HEALTH_CODES` (§6.7). `doug`-alert resolution is unchanged.
 - No new alert codes.
-- No DB migration; no RLS change.
+- No DB migration; no RLS change. **DB-enforced** health-resolve authorization (revoke
+  direct `admin_alerts` UPDATE + SECURITY DEFINER RPC resolve path) is explicitly deferred
+  (§6.7) to `BL-HEALTH-RESOLVE-DB-LOCKDOWN` (cross-refs `BL-ADMIN-POSTGREST-DML-LOCKDOWN`).
+  This feature's health-resolve gating is app-surface defense-in-depth only.
 - Realtime/live push of the indicator (it updates on normal admin navigation /
   server re-render, like the bell).
 - Reworking `/admin/observability`'s existing app_events + cron-health content. This
@@ -525,13 +547,18 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
   `resolved_at` stays null. A developer resolving a health alert (global or show-scoped)
   clears it and it drops from the rollup. Attempting to resolve a `doug`-audience code
   through this action is rejected (`code ∉ HEALTH_CODES`).
-- AC11b: The legacy resolve bypass is closed (§6.7): a non-developer admin (or any caller)
-  invoking each of the three pre-existing resolve surfaces (`resolveAdminAlertFormAction`,
-  `/api/admin/admin-alerts/[id]/resolve`, `/api/admin/show/[slug]/alerts/[id]/resolve`) on a
-  health-code row (global AND show-scoped) is rejected and `resolved_at` stays null; a
-  `doug`-code row still resolves through those surfaces unchanged; the auto-resolution
-  helper `resolveAdminAlert()` still resolves health codes programmatically. A structural
-  meta-test pins that health codes resolve only via `resolveHealthAlertFormAction`.
+- AC11b: Health resolution is developer-gated at every **product surface** (§6.7): a
+  non-developer admin (or any caller) invoking each of the three pre-existing resolve
+  surfaces (`resolveAdminAlertFormAction`, `/api/admin/admin-alerts/[id]/resolve`,
+  `/api/admin/show/[slug]/alerts/[id]/resolve`) on a health-code row (global AND
+  show-scoped) is rejected and `resolved_at` stays null; a `doug`-code row still resolves
+  through those surfaces unchanged; the auto-resolution helper `resolveAdminAlert()` still
+  resolves health codes programmatically. A structural meta-test pins that the product
+  surfaces resolve health codes only via `resolveHealthAlertFormAction`. **This is
+  defense-in-depth, not a DB boundary** — a documentation test records that a direct
+  PostgREST `PATCH admin_alerts` by a non-developer admin is NOT blocked at the DB (the
+  known trusted-operator escape hatch, deferred to `BL-HEALTH-RESOLVE-DB-LOCKDOWN` /
+  `BL-ADMIN-POSTGREST-DML-LOCKDOWN`); the spec does not claim otherwise.
 - AC12: `/admin` renders the `AppHealthPanel` from seeded health rows (its own pinned
   `fetchHealthRollup()` read), not only the nav dot. Clicking a show-scoped health alert's
   Resolve control on `/admin/observability#health` stays on `#health`, removes the row, and
@@ -596,3 +623,12 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
 - **Two rollup reads is intended (R5).** Nav gets the layout read; dashboard panel does its
   own `fetchHealthRollup()` — a layout can't prop-thread into page children. Both cheap,
   both `_metaInfraContract`-pinned. Not a "no-second-fetch" violation.
+- **Health-resolve gating is app-surface defense-in-depth, NOT a DB boundary (R9).**
+  `admin_alerts` GRANTs UPDATE to `authenticated` and RLS allows any `is_admin()` caller;
+  this feature does NOT lock that down (no migration). The guarantee is "the product offers
+  no non-developer a resolve path for health codes"; a direct-PostgREST escape hatch by a
+  trusted admin is knowingly accepted and deferred to `BL-HEALTH-RESOLVE-DB-LOCKDOWN`
+  (cross-ref `BL-ADMIN-POSTGREST-DML-LOCKDOWN`). This matches the project's "role filtering
+  is UX not security" posture and the fact that all admins already resolve all alerts today.
+  Do not escalate this to a full DB-lockdown of the whole resolve path — that is a separate,
+  larger backlog item and out of scope here. Settled.
