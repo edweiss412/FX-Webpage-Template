@@ -135,6 +135,11 @@ const ADMIN_GATE = "requireAdminIdentity";
 const DEVELOPER_TIER_MIGRATION =
   "supabase/migrations/20260703230100_admin_emails_developer_tier.sql";
 
+// Part B (2026-07-04 §3.2): re-created upsert/revoke RPCs with a table-backed
+// developer actor check (pre-lock fast-reject + post-lock TOCTOU re-check).
+const ADMIN_MGMT_DEVELOPER_MIGRATION =
+  "supabase/migrations/20260704000000_admin_mgmt_requires_developer.sql";
+
 function loadSourceFile(path: string): SourceFile {
   return new Project({ useInMemoryFileSystem: true }).createSourceFile(
     path,
@@ -213,9 +218,13 @@ function getActionBody(sf: SourceFile, name: string): Block | undefined {
 }
 
 /** Isolate the `$$ ... $$` body of one plpgsql function by name from a migration. */
-function extractRpcBody(migrationSource: string, fnName: string): string {
+function extractRpcBody(
+  migrationSource: string,
+  fnName: string,
+  migrationPath: string = DEVELOPER_TIER_MIGRATION,
+): string {
   const sigIdx = migrationSource.indexOf(`function public.${fnName}`);
-  expect(sigIdx, `${fnName} must be defined in ${DEVELOPER_TIER_MIGRATION}`).toBeGreaterThan(-1);
+  expect(sigIdx, `${fnName} must be defined in ${migrationPath}`).toBeGreaterThan(-1);
   const afterSig = migrationSource.slice(sigIdx);
   const bodyOpen = afterSig.indexOf("$$");
   const bodyClose = afterSig.indexOf("$$", bodyOpen + 2);
@@ -350,5 +359,42 @@ describe("developerGatingContract (structural defense — developer-tier §6.1)"
         "set_admin_developer_rpc must NOT call public.is_developer() — its JWT arm cannot authorize a membership mutation (§3.5 / §11)",
       ).not.toMatch(/public\.is_developer\s*\(/i);
     });
+
+    // Part B (2026-07-04 §3.2): the re-created upsert_admin_email_rpc +
+    // revoke_admin_email_rpc must table-back their actor authorization exactly like
+    // set_admin_developer_rpc — a ≥2× table-backed exists(...ae.is_developer) check
+    // (pre-lock fast-reject + post-lock TOCTOU re-check), NO JWT-armed
+    // public.is_developer(), and NO trace of the OLD public.is_admin() gate. Each
+    // assertion fails against a real regression: dropping the post-lock re-check
+    // (count → 1), swapping the exists() for public.is_developer() (JWT-arm bypass),
+    // or reverting to the is_admin() gate.
+    test.each(["upsert_admin_email_rpc", "revoke_admin_email_rpc"])(
+      "%s actor check is a table-backed exists(...ae.is_developer) ≥2× with no public.is_developer()/public.is_admin()",
+      (fnName) => {
+        const migration = readFileSync(ADMIN_MGMT_DEVELOPER_MIGRATION, "utf8");
+        const body = extractRpcBody(migration, fnName, ADMIN_MGMT_DEVELOPER_MIGRATION);
+
+        // (a) table-backed actor check appears ≥2× (pre-lock fast-reject + post-lock re-check).
+        const actorCheckRe =
+          /exists\s*\(\s*select\s+1\s+from\s+public\.admin_emails\s+ae\b[\s\S]*?\bae\.is_developer\b/gi;
+        const actorChecks = body.match(actorCheckRe) ?? [];
+        expect(
+          actorChecks.length,
+          `${fnName} must table-back its actor check (exists ... from public.admin_emails ae ... and ae.is_developer) at BOTH the pre-lock fast-reject and the post-lock re-check`,
+        ).toBeGreaterThanOrEqual(2);
+
+        // (b) the JWT-armed public.is_developer() must NEVER authorize the mutation.
+        expect(
+          body,
+          `${fnName} must NOT call public.is_developer() — its JWT arm cannot authorize a membership mutation (§3.2)`,
+        ).not.toMatch(/public\.is_developer\s*\(/i);
+
+        // (c) the OLD is_admin() actor gate must be fully gone from the body.
+        expect(
+          body,
+          `${fnName} must NOT use the old public.is_admin() actor gate — Part B replaced it with the table-backed developer check`,
+        ).not.toMatch(/public\.is_admin\s*\(/i);
+      },
+    );
   });
 });

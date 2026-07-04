@@ -25,7 +25,7 @@ declare
   v_new public.admin_emails%rowtype;
 begin
   -- Part B (§3.2): admin_emails mutation is DEVELOPER-only. Table-backed actor
-  -- check (NOT public.is_developer(), whose JWT arm must never authorize a
+  -- check (table-backed only — a JWT-armed developer claim must never authorize a
   -- membership mutation). Fast-reject BEFORE the advisory lock. The added_by
   -- column is derived from auth.uid() here (not trusted from a caller param) so
   -- a forged request can't spoof the actor identity.
@@ -133,7 +133,7 @@ declare
   v_row public.admin_emails%rowtype;
 begin
   -- Part B (§3.2): admin_emails mutation is DEVELOPER-only. Table-backed actor
-  -- check (NOT public.is_developer(), whose JWT arm must never authorize a
+  -- check (table-backed only — a JWT-armed developer claim must never authorize a
   -- membership mutation). Fast-reject BEFORE the advisory lock. Actor identity
   -- (uid + canonical email for the self-revoke check) is derived from auth.* so
   -- a forged caller-supplied actor can't trigger an "other-revoke" treatment of
