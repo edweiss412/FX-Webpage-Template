@@ -61,8 +61,8 @@ scripts/observe.ts                 ← CLI adapter (pnpm observe …); arg-parse
   scripts/observe/format.ts        table + json/ndjson renderers (pure)
   scripts/observe/env.ts           resolveTarget(env, argv) — --env guardrail (pure)
 
-.claude/skills/observe/SKILL.md    ← doc layer (Claude): schema, codes, canonical recipes
-AGENTS.md  (new "Telemetry access" section) ← cross-CLI mirror (Codex reads this)
+AGENTS.md  (new "Telemetry access" section) ← TRACKED source of truth (Claude + Codex)
+.claude/skills/observe/SKILL.md    ← per-machine convenience, UNtracked (.claude/ is gitignored)
 ```
 
 ### 2.1 Boundary decisions
@@ -110,7 +110,17 @@ Re-export of `loadAppEvents`. `AppEventFilters` (`lib/admin/observabilityTypes.t
 Returns `{ kind:"ok"; events: AppEventRow[]; hasMore; nextCursor }` or `infra_error`.
 `AppEventRow` (`:4-18`): `id, occurredAt, level, source, message, code|null, requestId|null,
 showId|null, driveFileId|null, actorHash|null, context, showTitle|null, showSlug|null`.
-`PAGE_SIZE = 100` (`:1`).
+
+**Pagination reality (Codex R1 HIGH):** a single `queryEvents`/`loadAppEvents` call returns
+**at most `PAGE_SIZE = 100`** rows (`observabilityTypes.ts:1`) plus `hasMore`/`nextCursor` —
+the limit is hardcoded in the loader and `queryEvents` does NOT accept a `limit` param. There
+is therefore **no per-call limit knob for events.** The CLI's `events`/`tail --limit`
+(§4.2, §4.5) is satisfied by the *CLI* driving a keyset-pagination loop: call `queryEvents`,
+then follow `nextCursor` (via `AppEventFilters.cursor`) page by page, accumulating until it
+has `--limit` rows or `hasMore` is false. Hard cap 500 total (≤5 pages). `queryAlerts`/
+`queryChangeLog` are new code and DO take a direct `.limit(n)`; only `events`/`tail` paginate.
+This asymmetry is deliberate — we do not modify `loadAppEvents` (avoids the rename collision,
+§2.1).
 
 ### 3.2 `getCronHealth(): Promise<LoadCronHealthResult>`
 
@@ -122,12 +132,19 @@ AppEventLevel|null, counts: Record<string,number>|null`.
 ### 3.3 `queryAlerts(filters: AlertFilters): Promise<QueryAlertsResult>` — NEW
 
 `AlertFilters = { openOnly?: boolean; code?: string; limit?: number }`.
-Query: `.from("admin_alerts").select("id, show_id, code, context, raised_at, last_seen_at,
+Query: `.from("admin_alerts").select("id, show_id, code, raised_at, last_seen_at,
 occurrence_count, resolved_at, resolved_by, shows(title, slug)").order("raised_at",
 { ascending:false }).limit(limit)`. `openOnly` → `.is("resolved_at", null)`; `code` →
 `.eq("code", code)`. Returns `{ kind:"ok"; alerts: AlertRow[] }` or `infra_error`.
 There is **no** status enum — open = `resolved_at IS NULL`
 (`supabase/migrations/20260501001000_internal_and_admin.sql:279`).
+
+**`context` is deliberately NOT selected (Codex R1 HIGH).** Unlike `app_events.context`
+(written post-`sanitizeContext`, email-redacted), `admin_alerts.context` is NOT guaranteed
+redacted — existing producers store report/crew snippets there. Selecting it would widen the
+`--env prod` surface to raw PII. v1 surfaces only the operational signal (code / show /
+occurrence / raised / resolved). If a future consumer needs alert context, it is added
+deliberately with its own redaction pass — not in this read-only layer.
 
 ### 3.4 `queryChangeLog(filters: ChangeLogFilters): Promise<QueryChangeLogResult>` — NEW
 
@@ -186,7 +203,9 @@ pnpm observe help | --help | (no args)              # usage
 - `--show` → validated against the read-core's UUID guard; invalid → treated as absent (consistent with core
   guard). `--code`/`--source`/`--request`/`--q` → trimmed, dropped if empty or >200 chars
   (mirrors `capped()`).
-- `--limit` → parsed int; default per command (events 100, others 100); clamp 1..500.
+- `--limit` → parsed int; clamp 1..500; default 100. For `events`/`tail` it caps the total
+  rows the CLI accumulates across its keyset-pagination loop (§3.1); for `alerts`/`changes` it
+  maps directly to the read-core `.limit(n)`. Invalid/NaN → default 100.
 - `--open` (alerts) → `openOnly:true`; absent → all alerts.
 - Unknown flags → usage error to stderr, exit 1.
 
@@ -255,21 +274,39 @@ This prevents an ambient prod `SUPABASE_URL` (e.g. left in a shell) from silentl
 CLI at prod: local is the default and actively refuses a non-local ambient URL unless the
 operator names the environment. `observe codes` never touches the DB, so it ignores `--env`.
 
-**Redaction note:** `app_events` rows are written post-`sanitizeContext` (email-redacted,
-JSON-safe — `lib/log/persist.ts`), so even against prod the CLI surfaces already-scrubbed
-data; no new PII exposure path.
+**Redaction note (per-source, Codex R1 HIGH):**
+- `app_events.context` — written post-`sanitizeContext` (email-redacted, JSON-safe,
+  `lib/log/persist.ts`); safe to surface even against prod.
+- `admin_alerts.context` — NOT guaranteed redacted → **not selected** by `queryAlerts` (§3.3).
+- `show_change_log` — `queryChangeLog` selects `summary`/`change_kind`/`entity_ref`/`status`
+  but NOT `before_image`/`after_image` (which can hold raw row snapshots). `summary` is the
+  same admin-facing text the existing `/admin` Changes feed already renders, so it introduces
+  no exposure beyond the current UI.
+
+No CLI output path surfaces an un-redacted raw context/image blob.
 
 ---
 
 ## 6. Doc layer
 
-- **`.claude/skills/observe/SKILL.md`** (Claude-only): frontmatter `name: observe`,
-  `description` triggering on telemetry/log/debugging intent. Body: the `app_events` schema,
-  the filter vocabulary, the four read commands + `codes` + `tail`, the `--env` guardrail
-  ("default local; prod needs `--env prod` + exported creds"), and 4–5 canonical recipes
-  ("errors for a show in the last hour", "is cron healthy", "open alerts", "explain a code",
-  "live error feed"). Points at AGENTS.md for the durable cross-CLI copy rather than
-  duplicating.
+**The committed, durable, cross-CLI deliverable is the AGENTS.md section** — `.claude/` is
+gitignored on this repo (Codex R1 HIGH), so a skill file there is per-machine only and is NOT
+a tracked artifact. The knowledge therefore lives in the repo, and the skill is a thin
+per-machine convenience pointing at it (same status as the existing `impeccable`/`superpowers`
+skills on this repo).
+
+- **`AGENTS.md` new "Telemetry access (observe CLI)" section** (TRACKED — source of truth):
+  the command table (§4.1), flag→filter mapping, the `--env` guardrail (default local; prod
+  needs `--env prod` + exported creds), the per-source redaction posture (§5), and the
+  read-only guarantee. This is what both Claude and Codex read. **This is a committed artifact
+  and part of the definition of done.**
+- **`.claude/skills/observe/SKILL.md`** (per-machine, UNtracked — best-effort): frontmatter
+  `name: observe`, `description` triggering on telemetry/log/debugging intent; body = the
+  canonical recipes ("errors for a show in the last hour", "is cron healthy", "open alerts",
+  "explain a code", "live error feed") that point at the `pnpm observe` commands and defer to
+  the AGENTS.md section for the durable copy. Created for convenience; **its absence in a fresh
+  checkout is expected and breaks nothing** — the CLI + AGENTS.md stand alone. Not gating CI,
+  not a merge blocker.
 - **`AGENTS.md` new "Telemetry access" section** (cross-CLI source of truth — Codex can't read
   the skill): the command table, the `--env` guardrail, and the read-only guarantee. Short.
 
@@ -301,6 +338,10 @@ data; no new PII exposure path.
 - `parseObserveArgs`: each flag → correct filter object; `--level` token filtering;
   `--since` mapping incl. `all`→null; `--limit` clamp; unknown-flag → error. **Failure mode:**
   a flag that parses to the wrong filter (e.g. `--since 7d` not mapping to 168).
+- events pagination loop: given a `queryEvents` stub returning two pages (`hasMore:true` then
+  `hasMore:false`), the CLI accumulates across pages up to `--limit`, stops at `!hasMore`, and
+  never exceeds the 500 hard cap. **Failure mode caught:** `--limit > 100` silently truncating
+  to one page (the Codex R1 finding), or an infinite loop when `nextCursor` doesn't advance.
 - `resolveTarget`: local default; ambient non-loopback URL without `--env` → refuse;
   `--env prod` with loopback/unset → error; `--env prod` with valid non-loopback + key → ok.
   **Failure mode:** accidental prod target from ambient env.
@@ -357,6 +398,12 @@ Cite these to avoid relitigation:
 5. **We do not move `lib/admin/*` loaders** — §2.1. Re-export insulates against the parallel
    `/observability`→`/telemetry` rename; moving them would collide.
 6. **Non-UI** — §1. Invariant 8 impeccable dual-gate N/A; this is a Codex/Opus non-UI change.
+7. **The skill under `.claude/` is intentionally untracked** — §6. `.claude/` is gitignored;
+   the durable deliverable is the AGENTS.md section. Do not flag "skill not committed" — that
+   is by design; the CLI + AGENTS.md are self-sufficient.
+8. **`events --limit` is CLI-side pagination, not a loader param** — §3.1. `loadAppEvents`
+   hardcodes `PAGE_SIZE=100`; we deliberately do not modify it (rename collision). The CLI
+   follows `nextCursor`. This asymmetry with `alerts`/`changes` (direct `.limit`) is intended.
 
 ---
 
@@ -368,6 +415,12 @@ Cite these to avoid relitigation:
 - `pnpm observe codes WATCH_CHANNEL_ORPHANED` prints its catalog copy offline; a forensic code
   degrades gracefully.
 - `pnpm observe tail --follow --level error` streams new error events live.
+- `pnpm observe events --limit 250` returns up to 250 rows via CLI-side cursor pagination
+  (≤3 loader calls); `queryAlerts`/`queryChangeLog` honor `--limit` directly.
 - `pnpm observe events` against an ambient prod `SUPABASE_URL` without `--env prod` refuses.
+- `queryAlerts` never emits `admin_alerts.context`; `queryChangeLog` never emits
+  `before_image`/`after_image`.
+- The tracked **AGENTS.md "Telemetry access" section** documents the command table, `--env`
+  guardrail, and read-only guarantee (the durable cross-CLI deliverable).
 - All meta-tests (§7) pass; read-only guard blocks any future write in the core.
 - Full `pnpm typecheck` + `pnpm test` + `pnpm format:check` green; real CI green.
