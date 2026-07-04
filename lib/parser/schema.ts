@@ -125,8 +125,9 @@ function extractLabelCells(markdown: string): Set<string> {
     if (!trimmed.startsWith("|")) continue;
     if (/^\|[\s:|*-]+\|/.test(trimmed)) continue; // separator row
     const parts = trimmed.split("|"); // ["", col0, col1, ..., ""]
-    if (parts.length < 2) continue;
-    const col0 = normalizeLabel(parts[1]);
+    const rawCol0 = parts[1]; // first physical cell after the leading pipe
+    if (rawCol0 === undefined) continue;
+    const col0 = normalizeLabel(rawCol0);
     if (col0.length > 0) labels.add(col0);
   }
   return labels;

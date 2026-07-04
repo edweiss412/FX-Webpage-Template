@@ -615,7 +615,10 @@ describe("processOneFile", () => {
     expect(source).toContain("last_sync_status = 'parse_error'");
     expect(source).not.toContain("last_sync_status = 'hard_fail'");
     expect(source).toContain("last_sync_error = $2");
-    expect(source).toContain("[driveFileId, error.code]");
+    // Structural pin: updateShowParseError must persist the MESSAGE, not just the code,
+    // so the existing-show retain-last-good diagnostic (e.g. VERSION_AMBIGUOUS scores)
+    // survives. Guards against the fake (phase1.test.ts) diverging from production again.
+    expect(source).toContain("`${error.code}: ${error.message}`");
   });
 
   test("production last_sync_status literal writes stay inside the spec enum", () => {

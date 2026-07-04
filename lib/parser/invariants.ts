@@ -118,6 +118,19 @@ export function runInvariants(prior: ParseResult | null, next: ParseResult): Inv
   }
 
   // -------------------------------------------------------------------------
+  // VERSION_AMBIGUOUS: parser could not confidently determine the version.
+  // Placed BEFORE MI-2..5 so it is failedCodes[0] (the routed/rendered code)
+  // even though the ambiguous stub is empty. Forward the parser's message
+  // (best guess + marker scores) — phase1 persists invariant.messages.join,
+  // so this is how the diagnostic reaches last_error_message/last_sync_error.
+  // -------------------------------------------------------------------------
+  const versionAmbiguous = next.hardErrors.find((e) => e.code === "VERSION_AMBIGUOUS");
+  if (versionAmbiguous) {
+    failedCodes.push("VERSION_AMBIGUOUS");
+    messages.push(versionAmbiguous.message);
+  }
+
+  // -------------------------------------------------------------------------
   // MI-2: show.title is non-empty
   // -------------------------------------------------------------------------
   if (next.show.title.trim().length === 0) {

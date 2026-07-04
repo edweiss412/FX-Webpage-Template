@@ -1537,3 +1537,27 @@ describe("MI-7b — composite contact keying (Codex round-5 finding)", () => {
     expect(mi7b.length).toBeGreaterThanOrEqual(1);
   });
 });
+
+// synthParseResult(p: Partial<ParseResult>) is the existing builder in this file.
+// It defaults to a valid parse (template_version "v4", 1 crew, 1 room). We keep
+// template_version valid (so MI-1 does NOT fire) and empty crew/rooms (so the
+// empty-stub reality is exercised and MI-4/MI-5 also fire) — proving
+// VERSION_AMBIGUOUS still sorts to failedCodes[0].
+describe("runInvariants — VERSION_AMBIGUOUS", () => {
+  it("hard-fails with VERSION_AMBIGUOUS first and forwards the parser message", () => {
+    const message =
+      "Could not confidently determine sheet template version (best guess v2; scores v4=0, v2=2). " +
+      "Fix the sheet's version markers so it is recognizable again.";
+    const next = synthParseResult({
+      hardErrors: [{ code: "VERSION_AMBIGUOUS", message }],
+      crewMembers: [],
+      rooms: [],
+    });
+    const result = runInvariants(null, next);
+    expect(result.outcome).toBe("hard_fail");
+    if (result.outcome === "hard_fail") {
+      expect(result.failedCodes[0]).toBe("VERSION_AMBIGUOUS"); // ahead of MI-4/MI-5
+      expect(result.messages.join("; ")).toContain("v4=0, v2=2");
+    }
+  });
+});

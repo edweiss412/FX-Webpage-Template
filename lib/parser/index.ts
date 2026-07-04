@@ -9,7 +9,7 @@
  * headRevisionId, and mimeType — those fields are NEVER populated here.
  */
 
-import { detectVersion } from "./schema";
+import { classifyVersion } from "./schema";
 import { isAgendaLinkRow } from "./agendaLinkRow";
 import { HTTP_URL_PREFIX } from "./httpUrlPrefix";
 import { newAggregator, emitUnknownSection } from "./warnings";
@@ -478,49 +478,71 @@ export function mergeGearIntoRooms(parsed: RoomRow[], gear: GearRoom[]): RoomRow
   return result;
 }
 
+function buildMinimalParsedSheet(
+  templateVersion: "v1" | "v2" | "v4",
+  hardErrors: ParseError[],
+): ParsedSheet {
+  return {
+    show: {
+      title: "",
+      client_label: "",
+      client_contact: null,
+      template_version: templateVersion,
+      venue: null,
+      dates: { travelIn: null, set: null, showDays: [], travelOut: null },
+      schedule_phases: {},
+      event_details: {},
+      agenda_links: [],
+      coi_status: null,
+      po: null,
+      proposal: null,
+      invoice: null,
+      invoice_notes: null,
+    },
+    crewMembers: [],
+    hotelReservations: [],
+    rooms: [],
+    transportation: null,
+    contacts: [],
+    pullSheet: null,
+    diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
+    openingReel: null,
+    raw_unrecognized: [],
+    warnings: [],
+    hardErrors,
+  };
+}
+
 export function parseSheet(markdown: string, filename?: string): ParsedSheet {
   const hardErrors: ParseError[] = [];
 
-  // Step 1: Detect version. Hard-error gate per spec §6.8.
-  const version = detectVersion(markdown);
-  if (version === null) {
+  // Step 1: Detect version with confidence scoring. Hard-error gate per spec §6.8.
+  const verdict = classifyVersion(markdown);
+  if (verdict.status === "not_a_sheet") {
     hardErrors.push({
       code: "MI-1_VERSION_DETECTION_FAILED",
       message:
         "Could not detect sheet template version (v1/v2/v4). " +
         "The markdown does not match any known FXAV sheet layout.",
     });
-    // Return a minimal-but-valid ParsedSheet shape. Phase-1 sync will gate on hardErrors.
-    return {
-      show: {
-        title: "",
-        client_label: "",
-        client_contact: null,
-        template_version: "v4", // placeholder; version unknown
-        venue: null,
-        dates: { travelIn: null, set: null, showDays: [], travelOut: null },
-        schedule_phases: {},
-        event_details: {},
-        agenda_links: [],
-        coi_status: null,
-        po: null,
-        proposal: null,
-        invoice: null,
-        invoice_notes: null,
-      },
-      crewMembers: [],
-      hotelReservations: [],
-      rooms: [],
-      transportation: null,
-      contacts: [],
-      pullSheet: null,
-      diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
-      openingReel: null,
-      raw_unrecognized: [],
-      warnings: [],
-      hardErrors,
-    };
+    // Minimal-but-valid ParsedSheet; "v4" placeholder (version unknown). Phase-1 gates on hardErrors.
+    return buildMinimalParsedSheet("v4", hardErrors);
   }
+  if (verdict.status === "ambiguous") {
+    // Markers present but confidence below threshold (too few, too close, or single-block).
+    // Fail-closed: emit VERSION_AMBIGUOUS + minimal stub (mirrors MI-1). The message carries
+    // the best guess + marker scores — the operator's evidence for recovery, forwarded through
+    // runInvariants into last_error_message/last_sync_error (spec §4.3).
+    hardErrors.push({
+      code: "VERSION_AMBIGUOUS",
+      message:
+        `Could not confidently determine sheet template version (best guess ${verdict.bestGuess}; ` +
+        `scores v4=${verdict.scores.v4}, v2=${verdict.scores.v2}). ` +
+        "Fix the sheet's version markers so it is recognizable again.",
+    });
+    return buildMinimalParsedSheet(verdict.bestGuess, hardErrors);
+  }
+  const version = verdict.version;
 
   // Step 2: Initialize aggregator for warnings + raw_unrecognized.
   const agg = newAggregator();

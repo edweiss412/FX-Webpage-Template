@@ -104,7 +104,7 @@ describe("classifyVersion", () => {
   });
 
   it("stays confident v4 when Contact Office is renamed (multi-marker resilience, fixes #2)", () => {
-    const md = readFileSync(V4_FIXTURES[0], "utf8").replace(/Contact Office/gi, "Office Contact");
+    const md = readFileSync(V4_FIXTURES[0]!, "utf8").replace(/Contact Office/gi, "Office Contact");
     const v = classifyVersion(md);
     expect(v.status).toBe("confident");
     if (v.status === "confident") expect(v.version).toBe("v4");
