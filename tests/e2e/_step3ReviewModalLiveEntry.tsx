@@ -44,7 +44,13 @@ window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
   if (url === RESCAN_ROUTE) {
     return Promise.resolve(
       new Response(
-        JSON.stringify({ ok: true, status: "updated", needsReview: false, changed: true }),
+        JSON.stringify({
+          ok: true,
+          status: "updated",
+          needsReview: false,
+          changed: true,
+          demoted: false,
+        }),
         { status: 200, headers: { "Content-Type": "application/json" } },
       ),
     );

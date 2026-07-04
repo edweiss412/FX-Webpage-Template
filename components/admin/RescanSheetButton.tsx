@@ -46,7 +46,7 @@ export type RescanSheetButtonProps = {
 
 // The route's RescanResult → JSON mapping (app/api/admin/onboarding/rescan-sheet/route.ts).
 type RescanResponse =
-  | { ok: true; status: "updated"; needsReview: boolean; changed: boolean }
+  | { ok: true; status: "updated"; needsReview: boolean; changed: boolean; demoted: boolean }
   | { ok: false; status: "needs_attention" | "busy"; code: string }
   | { ok: false; status: "superseded" | "no_active_session" | "not_found" | "not_a_sheet" };
 
@@ -79,7 +79,10 @@ function resultFor(body: RescanResponse): ResultState {
     if (body.needsReview) {
       return {
         kind: "info",
-        copy: "Updated. This sheet changed and needs your review before publishing.",
+        copy:
+          body.demoted || body.changed
+            ? "Updated. This sheet changed and needs your review before publishing."
+            : "No changes found. This sheet still needs your review before publishing.",
       };
     }
     return {
