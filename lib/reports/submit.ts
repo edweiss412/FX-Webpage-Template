@@ -20,7 +20,7 @@ export type ReporterRoleSnapshot = string | null;
 
 export type RequestBody = {
   idempotency_key: string;
-  show_id: string;
+  show_id: string | null;
   showTitle?: string | null;
   showSlug?: string | null;
   reporterUrl?: string | null;
@@ -263,10 +263,11 @@ function quoteMessage(message: string | null | undefined): string {
 function showLine(body: RequestBody): string {
   const title = body.showTitle?.trim(); // canonicalize-exempt: report title formatting, not email normalization.
   const slug = body.showSlug?.trim(); // canonicalize-exempt: report slug formatting, not email normalization.
-  if (title && slug) return `${title} (\`${slug}\`) — ${body.show_id}`;
-  if (title) return `${title} — ${body.show_id}`;
-  if (slug) return `\`${slug}\` — ${body.show_id}`;
-  return body.show_id;
+  const idSuffix = body.show_id != null ? ` — ${body.show_id}` : "";
+  if (title && slug) return `${title} (\`${slug}\`)${idSuffix}`;
+  if (title) return `${title}${idSuffix}`;
+  if (slug) return `\`${slug}\`${idSuffix}`;
+  return body.show_id ?? "staged wizard sheet (no show record)";
 }
 
 function foundShowContext(showContext?: ReportShowContextInput): ReportShowContext | null {
@@ -276,6 +277,9 @@ function foundShowContext(showContext?: ReportShowContextInput): ReportShowConte
 }
 
 function showContextLine(body: RequestBody, showContext?: ReportShowContextInput): string {
+  // Spec §D4: a staged wizard report has no shows record — take the staged
+  // fallback path, NEVER the "(deleted)" missing-show label.
+  if (body.show_id == null) return showLine(body);
   const show = foundShowContext(showContext);
   if (show) return `${show.title} (${show.slug})`;
   if (showContext && "state" in showContext && showContext.state === "missing") return "(deleted)";
@@ -444,7 +448,7 @@ export function buildCrewIssueBody(
   void auth;
   const show = foundShowContext(showContext);
   return [
-    `**Reported by:** crew member of \`${show?.slug ?? body.showSlug ?? body.show_id}\` (role flags: \`${reporterRole ?? "none"}\`)`,
+    `**Reported by:** crew member of \`${show?.slug ?? body.showSlug ?? body.show_id ?? "staged wizard sheet (no show record)"}\` (role flags: \`${reporterRole ?? "none"}\`)`,
     "_(Reporter identity intentionally NOT included; Eric can look up via `reports.id` if needed.)_",
     "",
     `**Show:** ${showContextLine(body, showContext)}`,
@@ -817,7 +821,7 @@ async function expiredLeaseRetry(
   db: ReportLeaseDb,
   auth: ReportAuthContext,
   body: RequestBody,
-  showContext: ReportShowContextResult,
+  showContext?: ReportShowContextResult,
   depth = 0,
 ): Promise<SubmitReportResult> {
   if (depth >= 3) {
@@ -1032,11 +1036,13 @@ export async function submitReport(
         return inFlightResponse();
       }
       if (reservation.state === "expired_pending_recovery") {
-        const showContext = await readReportShowContext(body.show_id);
+        const showContext =
+          body.show_id == null ? undefined : await readReportShowContext(body.show_id);
         return await expiredLeaseRetry(postgresAdapter(sql), auth, body, showContext);
       }
 
-      const showContext = await readReportShowContext(body.show_id);
+      const showContext =
+        body.show_id == null ? undefined : await readReportShowContext(body.show_id);
 
       let issue: CreatedIssue;
       try {
