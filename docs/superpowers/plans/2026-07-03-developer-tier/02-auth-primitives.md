@@ -120,16 +120,25 @@ const resolveDeveloperIdentity = cache(async (): Promise<DeveloperIdentity> => {
   return { email };
 });
 
-export async function requireDeveloperIdentity(opts: RequireDeveloperOpts = {}): Promise<DeveloperIdentity> {
-  await maybeForceTestInfraFail(await safeHeaders(), opts.layer ?? "page");
+export async function requireDeveloperIdentity(opts?: RequireDeveloperOpts): Promise<DeveloperIdentity> {
+  const layer = opts?.layer ?? "page";
+  // Header handling is INLINE (there is NO safeHeaders helper); copy the exact
+  // pattern from requireAdminIdentity (requireAdmin.ts:279-291): the force hook
+  // stays OUTSIDE the cached core so it fires per-layer.
+  let reqHeaders: Awaited<ReturnType<typeof headers>> | null = null;
+  try { reqHeaders = await headers(); } catch { reqHeaders = null; }
+  maybeForceTestInfraFail(reqHeaders, layer);
   return resolveDeveloperIdentity();
 }
-export async function requireDeveloper(opts: RequireDeveloperOpts = {}): Promise<void> {
-  await maybeForceTestInfraFail(await safeHeaders(), opts.layer ?? "page");
+export async function requireDeveloper(opts?: RequireDeveloperOpts): Promise<void> {
+  const layer = opts?.layer ?? "page";
+  let reqHeaders: Awaited<ReturnType<typeof headers>> | null = null;
+  try { reqHeaders = await headers(); } catch { reqHeaders = null; }
+  maybeForceTestInfraFail(reqHeaders, layer);
   await resolveDeveloperIdentity();
 }
 ```
-(Match `requireAdmin.ts`'s exact `safeHeaders`/header handling; `DEVELOPER_ACCESS_DENIED` is a log string only, NOT in `AuthFailureCode` — mirrors `ADMIN_ACCESS_DENIED`.)
+(`maybeForceTestInfraFail` is copied from `requireAdmin.ts:116` changing its thrown class to `DeveloperInfraError`; `redirectToSignIn` copied from `requireAdmin.ts:44-64`. `DEVELOPER_ACCESS_DENIED` is a log string only, NOT in `AuthFailureCode` — mirrors `ADMIN_ACCESS_DENIED`.)
 
 - [ ] **Step 5: Green** — `pnpm vitest run tests/auth/requireDeveloper.test.ts` → PASS.
 
