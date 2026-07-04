@@ -15,6 +15,22 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
 // Forensic source tag for both the durable success outcome and the infra-fault trace.
 const OUTCOME_SOURCE = "admin.picker.resetCrewMemberSelection";
 
+// Durable forensic trace for a reset that failed on infra (RPC returned-error / thrown).
+// AWAITED so the app_events row persists before this Server Action returns — an unawaited
+// log.* can be dropped when the request is frozen/terminated post-return (Codex HIGH). The
+// try/catch guards it so a telemetry fault can never mask the real failure result.
+async function logInfraFault(showId: string): Promise<void> {
+  try {
+    await log.warn("PICKER_SELECTION_RESET_INFRA_FAILED", {
+      code: "PICKER_SELECTION_RESET_INFRA_FAILED",
+      source: OUTCOME_SOURCE,
+      showId,
+    });
+  } catch {
+    /* best-effort: telemetry must never throw over the returned result */
+  }
+}
+
 type ResetCrewMemberSelectionResult =
   | { ok: true; reset_at: string }
   | {
@@ -47,11 +63,7 @@ export async function resetCrewMemberSelection(input: {
     if (error) {
       // Forensic: a DB/infra fault on the reset otherwise vanishes silently. NOT §12.4
       // (inside a log.warn span → stripped from the producer scan).
-      log.warn("PICKER_SELECTION_RESET_INFRA_FAILED", {
-        code: "PICKER_SELECTION_RESET_INFRA_FAILED",
-        source: OUTCOME_SOURCE,
-        showId: input.showId,
-      });
+      await logInfraFault(input.showId);
       return { ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" };
     }
     // NULL is a benign no-op (member already off the roster) — expected, not a fault; unlogged.
@@ -72,11 +84,7 @@ export async function resetCrewMemberSelection(input: {
 
     return { ok: true, reset_at: data };
   } catch {
-    log.warn("PICKER_SELECTION_RESET_INFRA_FAILED", {
-      code: "PICKER_SELECTION_RESET_INFRA_FAILED",
-      source: OUTCOME_SOURCE,
-      showId: input.showId,
-    });
+    await logInfraFault(input.showId);
     return { ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" };
   }
 }

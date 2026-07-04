@@ -122,6 +122,13 @@ describe("resetCrewMemberSelection", () => {
     expect(mockOutcome).not.toHaveBeenCalled();
   });
 
+  test("the infra-fault warn is AWAITED so the app_events row is durable in a Server Action", () => {
+    // An unawaited log.* can be dropped when the request is frozen after the action
+    // returns; the forensic infra trace must persist before return (Codex HIGH).
+    const src = readFileSync("lib/auth/picker/resetCrewMemberSelection.ts", "utf8");
+    expect(src).toMatch(/await\s+log\.warn\(/);
+  });
+
   test("not-found (benign no-op) emits NEITHER a success outcome NOR an infra warn", async () => {
     rpc.mockResolvedValueOnce({ data: null, error: null });
     await resetCrewMemberSelection({ showId: SHOW_ID, crewMemberId: CREW_ID });
