@@ -136,7 +136,12 @@ test("ROUTE default path (no fetchImageBytes injection) serves media bytes end-t
   const ex = extractEmbeddedObjects(sampleXlsx());
   const obj = ex.objectsByTab.get("DIAGRAMS")![0]!;
   const bytes = ex.bytesByObjectId.get(obj.objectId)!;
-  const stub = { /* same media stub shape as above, objectId: obj.objectId */ };
+  const stub = {
+    sheetTab: "DIAGRAMS", objectId: obj.objectId, mimeType: "image/png",
+    contentUrl: null, mediaPartName: obj.mediaPartName,
+    sheetsRevisionId: "rev-1", embeddedFingerprint: sha256Base64Url(bytes),
+    recovery_disposition: "normal" as const, snapshotPath: null,
+  };
   const WSID = "00000000-1111-4222-8333-444444444444";
   const res = await handleStagedDiagramGet(
     new Request("http://x"),
@@ -227,14 +232,25 @@ function OptimisticHarness(props: {
       isDirtyRescan={false}
       onClose={props.onClose ?? vi.fn()}
       checked={checked}
-      onRequestSetChecked={(next) => {
+      onRequestSetChecked={async (next) => {
+        const prev = checked;
         setChecked(next); // the card's optimistic flip (Step3SheetCard.tsx:289-292)
-        return props.request(next);
+        let ok: boolean;
+        try {
+          ok = await props.request(next);
+        } catch (e) {
+          setChecked(prev); // the card's failure settlement/rollback (Step3SheetCard.tsx:289-295)
+          throw e; // rethrow so the MODAL's own catch (Step3ReviewModal.tsx:686-690) is exercised
+        }
+        if (!ok) setChecked(prev); // rollback on resolve-false too
+        return ok;
       }}
     />
   );
 }
 ```
+
+The rollback mirrors the live card contract (revert to pre-click state on failure) — without it the harness leaves `checked` on the flipped value after a failed publish and asserts the wrong slot.
 
   - publish: `initialChecked=false`, click `…-review-publish` → assert (while unresolved) label "Selecting…" AND `className` contains `bg-accent`; resolve `true` → `onClose` called.
   - unpublish: `initialChecked=true`, click → label "Removing…" AND `className` contains `border-border-strong` (quiet recipe), NOT `bg-accent`; resolve `true` → label becomes "Publish this show".
@@ -284,10 +300,10 @@ Branch at `:1122` uses `showCheckedSlot`; both buttons use `disabled={isPending}
   - type draft → collapse → re-expand → textarea value preserved.
   - T-D3(a): mock fetch success → submit → status "Sent — thanks. The developer will take a look." → collapse → re-expand → status line still shows it.
   - T-D3(b): deferred fetch → submit → collapse while pending → resolve success → re-expand → success status rendered; sessionStorage attempt key removed (rotate-on-success observable via `window.sessionStorage.getItem(...) === null`).
-- [ ] **Step 2:** run → FAIL (no toggle; form always mounted).
-- [ ] **Step 3: implement** — `const [expanded, setExpanded] = useState(false);` + `const formId = useId();` + a focus effect or ref-callback that focuses the textarea when `expanded` flips true. Toggle button between the intro `<p>` and the form: quiet secondary recipe (copy the submit button's classes `:2069`), `aria-expanded={expanded}`, `aria-controls={formId}`, onClick `setExpanded((v) => !v)`. Wrap the existing `<form>` in `{expanded ? (<form id={formId} …existing…>) : null}`. `draft`/`status`/`handleSubmit` stay OUTSIDE the conditional (component-level state — T-D3 pins this). No other form changes.
+- [ ] **Step 2: failing e2e adaptations (written BEFORE implementation — TDD invariant 1)** — layout spec: replace the report-submit tap-target row (`step3-review-modal.layout.spec.ts:400-418`) with the toggle selector `[data-testid="wizard-step3-card-${HARNESS_DFID}-report-toggle"]`; interactions spec: add the expand-then-measure step (click toggle → submit button visible → height ≥ 44). Run `pnpm test:e2e step3-review-modal` → the adapted assertions FAIL (no toggle exists yet).
+- [ ] **Step 3:** run unit tests → FAIL (no toggle; form always mounted). Then **implement** — `const [expanded, setExpanded] = useState(false);` + `const formId = useId();` + a focus effect or ref-callback that focuses the textarea when `expanded` flips true. Toggle button between the intro `<p>` and the form: quiet secondary recipe (copy the submit button's classes `:2069`), `aria-expanded={expanded}`, `aria-controls={formId}`, onClick `setExpanded((v) => !v)`. Wrap the existing `<form>` in `{expanded ? (<form id={formId} …existing…>) : null}`. `draft`/`status`/`handleSubmit` stay OUTSIDE the conditional (component-level state — T-D3 pins this). No other form changes.
 - [ ] **Step 4:** `pnpm vitest run tests/components/admin/wizard/step3ReviewSections.test.tsx tests/components/admin/wizard/step3ReportIssueSection.test.tsx` → PASS (T-D2: expand-first updates to BOTH files' existing report tests, mechanical).
-- [ ] **Step 5:** e2e adaptations per the Files list — layout spec swaps the report-submit tap-target row for the toggle; interactions spec adds expand-then-measure (submit ≥44px). Run `pnpm test:e2e step3-review-modal` (`test:e2e` = `playwright test`, `package.json:45`; positional arg filters by file name) → PASS.
+- [ ] **Step 5:** `pnpm test:e2e step3-review-modal` (`test:e2e` = `playwright test`, `package.json:45`; positional arg filters by file name) → PASS (the Step-2 adaptations now green).
 - [ ] **Step 6:** commit `feat(admin): report-an-issue form collapses behind a disclosure trigger`
 
 ### Task 8: Transition audit (spec §B3 + §D2 inventories)
