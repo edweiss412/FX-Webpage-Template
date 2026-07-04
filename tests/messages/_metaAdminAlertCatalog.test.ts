@@ -43,6 +43,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
+import { INBOX_ROUTED_CODES } from "@/lib/messages/adminSurface";
 
 const ROOT = process.cwd();
 
@@ -686,4 +687,30 @@ describe("META admin_alerts catalog contract", () => {
       }
     }
   });
+
+  // --- Inbox-routed (adminSurface:"inbox") contract (route-sync-problems spec §8) ---
+  test("adminSurface:'inbox' is exactly SHEET_UNAVAILABLE + PARSE_ERROR_LAST_GOOD", () => {
+    expect([...INBOX_ROUTED_CODES].sort()).toEqual(["PARSE_ERROR_LAST_GOOD", "SHEET_UNAVAILABLE"]);
+  });
+
+  test.each(INBOX_ROUTED_CODES)(
+    "inbox-routed code %s: non-null dougFacing, lifecycle 'auto', interpolated-placeholder-registered",
+    (code) => {
+      const entry = (MESSAGE_CATALOG as Record<string, { dougFacing: string | null } | undefined>)[
+        code
+      ];
+      // (a) a no-Dismiss inbox item MUST have admin copy — an empty card is useless.
+      expect(entry?.dougFacing, `${code} needs non-null dougFacing`).not.toBeNull();
+      // (b) MUST be lifecycle "auto" — a no-Dismiss item that never auto-resolves
+      // would be permanently stuck. This composes with #283's registry.
+      const lifecycle = ADMIN_ALERTS_LIFECYCLE[code as (typeof ADMIN_ALERTS_CODES)[number]];
+      expect(lifecycle?.class, `${code} must be lifecycle class "auto"`).toBe("auto");
+      // (c) both carry a <sheet-name> placeholder → must be producer-registered so
+      // the inbox copy resolver interpolates it (never a literal placeholder).
+      expect(
+        INTERPOLATED_DOUG_FACING_CODES.includes(code as (typeof ADMIN_ALERTS_CODES)[number]),
+        `${code} carries an interpolation placeholder; keep it in INTERPOLATED_DOUG_FACING_CODES`,
+      ).toBe(true);
+    },
+  );
 });
