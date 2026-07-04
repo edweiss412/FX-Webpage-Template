@@ -11,6 +11,12 @@ export type NavItem = {
   mobileOnly?: true;
   /** Excluded from the mobile bottom tab bar (desktop-nav destination). */
   desktopOnly?: true;
+  /**
+   * developer-tier Task 15 (spec §6 row 8): visible ONLY to developers. A
+   * non-developer admin never sees this destination in either nav (AdminNav
+   * filters it out when `viewerIsDeveloper` is false).
+   */
+  developerOnly?: true;
 };
 
 export const NAV: NavItem[] = [
@@ -47,6 +53,9 @@ export const NAV: NavItem[] = [
     href: "/admin/observability",
     Icon: Activity,
     desktopOnly: true,
+    // developer-tier Task 15 (spec §6 row 8): Activity/observability is a
+    // developer-only surface — hidden from normal admins in the nav.
+    developerOnly: true,
   },
 ];
 
