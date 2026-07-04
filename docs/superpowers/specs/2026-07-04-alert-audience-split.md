@@ -150,11 +150,20 @@ already admin-gated).
 
 ### 6.1 `HealthStatus` type (`lib/admin/healthRollup.ts`)
 
+The rollup MUST carry the popover payload (the deduped summary lines), not just a
+worst-weight scalar — otherwise the client popover has no way to render specific lines and
+degrades to a generic message even when specific alerts exist (R1 finding 1).
+
 ```ts
+export type HealthSummaryLine = { text: string; count: number };  // one distinct dougSummary
 export type HealthStatus =
   | { kind: "ok" }                                    // zero unresolved health alerts → green
-  | { kind: "notice"; count: number }                 // ≥1, worst is notice → amber
-  | { kind: "degraded"; count: number }               // ≥1 degraded → red
+  | {
+      kind: "notice" | "degraded";                    // worst-active weight → amber | red
+      count: number;                                  // total unresolved health rows
+      summaries: HealthSummaryLine[];                 // deduped dougSummary lines, capped (§6.4)
+      overflowCount: number;                          // distinct summaries beyond the cap
+    }
   | { kind: "infra_error" };                          // rollup read itself failed
 ```
 
@@ -163,8 +172,18 @@ construct client in try/catch → returns `{kind:"infra_error"}` on throw; destr
 `{ data, error }` (invariant 9); a non-array `data` with no error → `infra_error`
 (integrity failure, not silent green). It selects `id, code` of unresolved rows whose
 code is in the `health` set (computed from `MESSAGE_CATALOG` at module load, like
-`INFO_SEVERITY_CODES`), then reduces to the worst `healthWeight`. `count` = number of
-unresolved health rows.
+`INFO_SEVERITY_CODES`), then:
+
+1. `count` = number of unresolved health rows.
+2. worst `healthWeight` over the rows → `kind` (`degraded` if any degraded, else `notice`).
+3. `summaries` = map each row's `code` → its catalog `dougSummary`, dedupe by text
+   (accumulating a per-text `count`), sort **degraded-weighted texts first** then by count
+   desc, then cap at `POPOVER_SUMMARY_CAP` (4). `overflowCount` = distinct-summary count
+   minus what remains after the cap.
+
+The **payload is threaded into both** `AppHealthIndicator` (uses `kind`/`count`) **and**
+`AppHealthPopover`/`AppHealthPanel` (use `summaries`/`overflowCount`) — see §5.1. There is
+no second server fetch; the one rollup carries everything.
 
 ### 6.2 Guard conditions
 
@@ -178,7 +197,8 @@ unresolved health rows.
 - `dougSummary` missing for a health row → the popover omits that line (never renders
   `undefined`/raw code); meta-test forbids this for the 42.
 - Popover with `count > 0` but every `dougSummary` deduped to empty → fallback single line
-  "Some background systems need attention. The developer has been notified."
+  "Some background systems need attention. No action needed from you — this is visible in
+  system health for the developer." (No false "has been notified" claim — see §6.4.)
 
 ### 6.3 Indicator (nav dot) — `AppHealthIndicator`
 
@@ -197,9 +217,14 @@ unresolved health rows.
 - Bottom-sheet on mobile / anchored popover on desktop (reuse the responsive
   modal/sheet pattern already in the codebase; `useDialogFocus` + scrim).
 - Title: "System status". Body: one plain-language line per **distinct** `dougSummary`
-  among unresolved health alerts, **capped at 4 lines** with a "+N more background items"
-  overflow note (cap prevents unbounded growth). A closing reassurance line: "The developer
-  has been notified — no action needed from you."
+  among unresolved health alerts (from `HealthStatus.summaries`), **capped at
+  `POPOVER_SUMMARY_CAP` = 4 lines** with a "+`overflowCount` more background items"
+  overflow note (cap prevents unbounded growth). A closing reassurance line that is
+  **literally true** given no outbound notification path exists in this feature:
+  **"No action needed from you — the developer can see this in system health."**
+  (R1 finding 2: the earlier "the developer has been notified" wording was a false claim —
+  this feature adds only a passive health surface, not an outbound alert to the developer.
+  Do not reintroduce "notified" phrasing unless a real notification path is added.)
 - No resolve/action controls (health items are non-Doug-actionable by definition).
 - All copy is catalog-sourced (`dougSummary`) through a typed accessor — invariant 5
   (no raw codes in the DOM).
@@ -306,6 +331,15 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
 - AC4: Doug (non-developer) clicking the indicator sees the plain-language popover
   (catalog `dougSummary` lines, capped at 4 + overflow note, no raw codes, no action
   controls). A developer clicking it lands on `/admin/observability`.
+- AC4b: Seeding **multiple distinct** health codes with distinct `dougSummary` text
+  renders each deduped line with its per-text count, in worst-weight-first order, and a
+  "+N more background items" note when distinct summaries exceed `POPOVER_SUMMARY_CAP` (4)
+  — asserted against `HealthStatus.summaries`/`overflowCount` (the data source), NOT by
+  scraping a container that also renders sibling copy (anti-tautology). Seeding two rows of
+  the SAME code collapses to one line with `count: 2`.
+- AC4c: The popover closing line reads "No action needed from you — the developer can see
+  this in system health." and never contains the word "notified" (no false outbound-alert
+  claim).
 - AC5: The nav indicator is 44×44, vertically centered against `NotifBell` within 0.5px
   (real-browser assertion).
 - AC6: `_metaAlertAudienceContract` fails if any admin-alert code lacks `audience`, or a
