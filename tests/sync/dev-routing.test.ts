@@ -284,6 +284,43 @@ describe("AC-3.3: MI-1_VERSION_DETECTION_FAILED routes to dev.pending_ingestions
   });
 });
 
+describe("VERSION_AMBIGUOUS routes to dev.pending_ingestions with scored message", () => {
+  // Ambiguous: two markers from ONE block (gs_timing) => score 2, blocks 1 => VERSION_AMBIGUOUS.
+  const SYNTHETIC_AMBIGUOUS_MARKDOWN =
+    "| GS SET TIME | 10:00am |\n| GS SETUP | 9:00am |\n| Some Other Row | value |\n";
+  const TEMP_AMBIGUOUS_NAME = "_temp-version-ambiguous.md";
+
+  test("ambiguous first-seen sheet → last_error_code=VERSION_AMBIGUOUS + scored last_error_message", async () => {
+    await writeFile(join(FIXTURE_DIR, TEMP_AMBIGUOUS_NAME), SYNTHETIC_AMBIGUOUS_MARKDOWN, "utf8");
+    try {
+      const result = await parseAndStage(TEMP_AMBIGUOUS_NAME);
+
+      const piRead = await admin
+        .schema("dev")
+        .from("pending_ingestions")
+        .select("drive_file_name, last_error_code, last_error_message")
+        .eq("drive_file_id", result.driveFileId)
+        .single();
+      expect(piRead.error, `read failed: ${piRead.error?.message}`).toBeNull();
+      const row = piRead.data as {
+        drive_file_name: string;
+        last_error_code: string;
+        last_error_message: string | null;
+      };
+      expect(row.drive_file_name).toBe(TEMP_AMBIGUOUS_NAME);
+      expect(row.last_error_code).toBe("VERSION_AMBIGUOUS");
+      expect(row.last_error_message ?? "").toContain("v4=");
+      expect(row.last_error_message ?? "").toContain("v2=");
+      expect(row.last_error_message ?? "").toMatch(/best guess/i);
+
+      expect(result.outcome).toBe("hard_fail");
+      expect(result.staging?.kind).toBe("pending_ingestion");
+    } finally {
+      await rm(join(FIXTURE_DIR, TEMP_AMBIGUOUS_NAME), { force: true });
+    }
+  });
+});
+
 // ============================================================================
 // Round 5 Finding 1 — outcome-flip mutual-exclusion regression
 // ============================================================================

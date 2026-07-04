@@ -520,6 +520,40 @@ describe("runPhase1 routing and writes", () => {
     expect(tx.pendingIngestions).toEqual([]);
   });
 
+  test("VERSION_AMBIGUOUS: existing-show ambiguous parse hard-fails, retains last-good, persists scored diagnostic", async () => {
+    const tx = new FakePhase1Tx();
+    tx.shows.set("file-1", {
+      id: "show-file-1",
+      driveFileId: "file-1",
+      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+      lastSyncStatus: "ok",
+      lastSyncError: null,
+      priorParseResult: parseResult(),
+    });
+    const message =
+      "Could not confidently determine sheet template version (best guess v2; scores v4=0, v2=2). " +
+      "Fix the sheet's version markers so it is recognizable again.";
+    // template_version stays valid (MI-1 does not fire); empty crew/rooms mirror the ambiguous
+    // stub so MI-4/MI-5 also fire — proving VERSION_AMBIGUOUS still sorts to failedCodes[0].
+    const next = parseResult({
+      hardErrors: [{ code: "VERSION_AMBIGUOUS", message }],
+      crewMembers: [],
+      rooms: [],
+    });
+
+    const result = await runWith(tx, next);
+
+    expect(result).toMatchObject({ outcome: "hard_fail", code: "VERSION_AMBIGUOUS" });
+    expect((result as { message?: string }).message).toContain("v4=0, v2=2");
+    expect(tx.operations).toContain("updateShowParseError:file-1"); // retain-last-good branch
+    expect(tx.operations.some((o) => o.startsWith("upsertLivePendingIngestion"))).toBe(false);
+    expect(tx.operations.some((o) => o.startsWith("upsertLivePendingSync"))).toBe(false);
+    expect(tx.shows.get("file-1")).toMatchObject({ lastSyncStatus: "parse_error" }); // held, not applied
+    // The scored diagnostic must reach shows.last_sync_error (the fake writes
+    // `${code}: ${message}`, matching the production fix in updateShowParseError).
+    expect(tx.shows.get("file-1")!.lastSyncError).toContain("v4=0, v2=2");
+  });
+
   test("first-seen hard fail carries no showId (nothing written to shows → nothing to bust)", async () => {
     const tx = new FakePhase1Tx();
 
