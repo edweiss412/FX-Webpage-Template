@@ -166,6 +166,17 @@ does NOT receive the layout's rollup — a layout cannot pass props into page `c
 resolves `isCurrentUserDeveloper()` there. Two independent reads through one helper; both
 pinned by `_metaInfraContract` (§10).
 
+**Onboarding chrome (R15 finding 2 — "nothing goes dark" under a real layout state).** The
+admin layout returns `<OnboardingTopBar>` instead of `<AdminNav>` while `inOnboarding`
+(`app/admin/layout.tsx:126-134`), and that branch currently computes NO alert data. Because
+health codes are removed from the banner/per-show, an unresolved health alert during
+onboarding would otherwise have NO Doug-visible indicator at all. So the rollup is computed
+BEFORE the `inOnboarding` branch (or in both branches) and the **`AppHealthIndicator` is
+rendered in `OnboardingTopBar` too** (same escalating dot; Doug popover / dev deep-link).
+`fetchHealthRollup()` short-circuits to one cheap count in the common healthy first-run
+state. A test with `inOnboarding === true` + a seeded health alert asserts the indicator is
+present.
+
 ## 6. Component contracts
 
 ### 6.1 `HealthStatus` type (`lib/admin/healthRollup.ts`)
@@ -188,11 +199,15 @@ export type HealthStatus =
 ```
 
 `fetchHealthRollup()` mirrors `fetchUnresolvedAlertCount` (`lib/admin/alertCount.ts`):
-construct client in try/catch → returns `{kind:"infra_error"}` on throw; destructure
-`{ data, error }` (invariant 9); a non-array `data`/`count` with no error → `infra_error`
-(integrity failure, not silent green). Three code sets are computed from `MESSAGE_CATALOG`
-at module load (like `INFO_SEVERITY_CODES`): `HEALTH_CODES`, `DEGRADED_HEALTH_CODES`,
-`NOTICE_HEALTH_CODES`.
+construct client in try/catch → returns `{kind:"infra_error"}` on throw. **Each probe is a
+`count:"exact", head:true` query, which returns NO row array by design** (R15 finding 1) —
+so success is validated **solely on `typeof count === "number"`**, exactly like
+`fetchUnresolvedAlertCount` (`alertCount.ts:33` ignores `data`, checks `count`). A returned
+`error`, a thrown error, or a non-number `count` → `infra_error`; `data === null` is NORMAL
+for head probes and is NOT an integrity failure. (Array-shape validation applies only to the
+row-list `HealthAlertsPanel` loader, §6.6 — never to these count-head probes.) Three code
+sets are computed from `MESSAGE_CATALOG` at module load (like `INFO_SEVERITY_CODES`):
+`HEALTH_CODES`, `DEGRADED_HEALTH_CODES`, `NOTICE_HEALTH_CODES`.
 
 **Bounded + EXACT design (R12 finding 1 + R14 finding 1 — this read runs on EVERY admin
 layout render, so it must never be an unbounded row fetch that PostgREST can silently
@@ -300,18 +315,25 @@ a scoped health-alert detail list **into scope** on the already-`requireDevelope
 
 - `HealthAlertsPanel` renders ABOVE the existing cron-health/event-timeline content
   (a new section; the page keeps `CronHealthHeader` + `EventTimeline`).
-- Loads unresolved `admin_alerts` rows whose `code ∈ HEALTH_CODES`, **ordered
-  degraded-weight FIRST, then `raised_at` desc** (R13 finding 1 — a plain `raised_at desc`
-  cap could bury an older *degraded* row behind newer notices, making the row that turned
-  the dot red unreachable in the only surface that shows it → "nothing goes dark" violated).
-  Because health codes partition into `DEGRADED_HEALTH_CODES` / `NOTICE_HEALTH_CODES`
-  (module-load sets), ordering is expressed as: degraded rows before notice rows, each group
-  `raised_at` desc. The list is **paginated with load-more (`.range`)**, page size
-  `HEALTH_PANEL_PAGE_SIZE` (e.g. 50) with an honest "+N more" / "Load more" control — the cap
-  is a page size, NOT a hard ceiling, so **every** health row (including every degraded row)
-  is reachable and resolvable. **Selects `id, code, show_id, context, occurrence_count,
+- Loads unresolved `admin_alerts` rows whose `code ∈ HEALTH_CODES`, **degraded rows before
+  notice rows** (R13 finding 1 — a plain `raised_at desc` cap could bury an older *degraded*
+  row behind newer notices, making the row that turned the dot red unreachable → "nothing
+  goes dark" violated). Health weight lives in the CATALOG, not a DB column, so ordering is
+  achieved by **two partitioned DB queries** (R15 finding 3 — a single `.range()` over
+  `code IN HEALTH_CODES` + client-side sort only orders the current page, so an older
+  degraded row could sit outside the first range):
+  1. **Degraded section:** `.in("code", DEGRADED_HEALTH_CODES).is("resolved_at",
+     null).order("raised_at", desc).range(...)` — paginated with load-more.
+  2. **Notice section:** `.in("code", NOTICE_HEALTH_CODES).is("resolved_at",
+     null).order("raised_at", desc).range(...)` — a SEPARATE paginated query, rendered after
+     the degraded section.
+  Because degraded rows are their OWN query, they are ALWAYS shown before any notice row
+  regardless of `raised_at`, and each section paginates independently (`.range`, page size
+  `HEALTH_PANEL_PAGE_SIZE`, e.g. 50) with an honest "+N more" / "Load more" — the page size
+  is NOT a hard ceiling, so **every** health row (every degraded row especially) is reachable
+  and resolvable. Both queries **select `id, code, show_id, context, occurrence_count,
   raised_at, shows(slug)`** — `context` and `slug` are REQUIRED to rebuild the per-code
-  action links (below). Typed read: destructure `{ data, error }`; a returned/thrown error
+  action links (below). Typed reads: destructure `{ data, error }`; a returned/thrown error
   → a cataloged degraded panel (invariant 9), never a silent empty. (Bounded per
   `_metaBoundedReads` via `.range`.)
 - Per row: the alert **title/copy via `lib/messages/lookup.ts`** (dev-facing `dougFacing`
@@ -639,7 +661,11 @@ follow-up. The plan's impeccable dual-gate adjudicates this.
 - AC12: `/admin` renders the `AppHealthPanel` from seeded health rows (its own pinned
   `fetchHealthRollup()` read), not only the nav dot. Clicking a show-scoped health alert's
   Resolve control on `/admin/observability#health` stays on `#health`, removes the row, and
-  never renders raw JSON. **Resolving the LAST unresolved health alert also clears the
+  never renders raw JSON.
+- AC13: With `inOnboarding === true` and a seeded unresolved health alert, the
+  `AppHealthIndicator` is still rendered in the onboarding chrome (`OnboardingTopBar`) — a
+  health alert is never invisible under the onboarding layout state (R15 finding 2).
+- AC12 (cont.): **Resolving the LAST unresolved health alert also clears the
   persistent nav indicator** (the action revalidates `/admin` layout, §6.6) — asserted by
   mocking `revalidatePath` (both `/admin` layout + `/admin/observability`) and a browser
   check that the nav dot returns to green after the resolve, no manual refresh.
