@@ -159,6 +159,33 @@ and the fallback a few lines below:
   const day = ros[iso] ?? { entries: [], showStart: null, showEnd: null, window: null };
 ```
 
+- [ ] **Step 5b: Mechanical `ScheduleDay` fixture sweep (Codex plan-review R1) — REQUIRED before commit**
+
+Because `showEnd` is a **required** field, every existing `ScheduleDay` literal AND every exact
+`toEqual`/`toMatchObject` expected `ScheduleDay` object must gain `showEnd: null` (or a real value), or
+the suite fails to typecheck / fails equality. Do NOT weaken `showEnd` to optional to get green. Find
+every site:
+
+Run: `rg -n "showStart:" tests components lib app scripts`
+
+Add `showEnd: null` to each `ScheduleDay` literal/expected across the **26** test files that carry them,
+namely: `tests/crew/resolveKeyTimes.test.ts`, `tests/parser/blocks/scheduleBookends.test.ts`,
+`tests/components/buildRightNowContext.test.ts`, `tests/components/step3SheetCard.test.tsx`,
+`tests/components/step3SheetCard.bookends.test.tsx`, `tests/components/admin/wizard/_step3ReviewFixture.ts`,
+`tests/components/crew/sourceLinkCoverage.test.tsx`,
+`tests/components/crew/sections/ScheduleSection.{agenda,caps,bookends,loadoutMeta,anchorFloor}.test.tsx`,
+`tests/components/crew/sections/TodaySection.{bookends,modeA,}.test.tsx`,
+`tests/components/crew/sections/ScheduleSection.test.tsx`,
+`tests/components/tiles/CardinalityCapBoundary.test.tsx`,
+`tests/sync/{enrichWithDrivePins.runOfShow,applyParseResultScheduleDay,runOfShowConfirmedReplace}.test.ts`,
+`tests/e2e/{right-now-transitions,crew-layout-dimensions}.spec.ts`,
+`tests/data/{decodeRunOfShow,downgradeRunOfShow,getShowForViewerRunOfShow,verifyResyncExpectedMap}.test.ts`.
+(Tasks 2/3/4/7 further edit their own fixtures with real `showEnd` values; this sweep just keeps every
+intermediate commit type-clean.)
+
+Then run: `pnpm typecheck`
+Expected: clean (no `Property 'showEnd' is missing` errors). This step gates the Task 1 commit.
+
 - [ ] **Step 6: Update the warning doc comment (R9)** — `lib/parser/blocks/agendaWarnings.ts:45-51`, remove the end-only example:
 
 ```ts
@@ -177,8 +204,9 @@ Expected: PASS (incl. the `#307` block).
 - [ ] **Step 8: Commit**
 
 ```bash
-git add lib/parser/types.ts lib/parser/blocks/scheduleTimes.ts lib/parser/index.ts lib/parser/blocks/scheduleBookends.ts lib/parser/blocks/agendaWarnings.ts tests/parser/blocks/scheduleTimes.test.ts
-git commit --no-verify -m "feat(parser): capture end-only show-day times as showEnd (#307)"
+# includes the Step-5b fixture sweep across all 26 ScheduleDay-literal test files
+git add -A
+git commit --no-verify -m "feat(parser): capture end-only show-day times as showEnd + ScheduleDay.showEnd field (#307)"
 ```
 
 ---
@@ -361,17 +389,54 @@ git commit --no-verify -m "fix(sync): keep end-only (showEnd) days through apply
 
 - [ ] **Step 1: Write the failing tests** —
 
-(a) Crew render, new file `tests/components/crew/sections/ScheduleSection.showEnd.test.tsx` (derive from an existing ScheduleSection test's harness; assert against the pinned-today/day card meta, scoped to the day card subtree to avoid sibling KeyTimesStrip):
+(a) Crew render — concrete executable test, new file
+`tests/components/crew/sections/ScheduleSection.showEnd.test.tsx` (mirrors the `loadoutMeta.test.tsx`
+harness: renders `ScheduleSection`, scopes to `[data-day="<iso>"]`, asserts `[data-slot="day-card-meta"]`
+textContent — so a sibling KeyTimesStrip cannot satisfy it):
 
-```ts
-it("renders 'Ends 6:00 PM' meta for an end-only fragment day", () => {
-  // build data with runOfShow["<showDay>"] = {entries:[],showStart:null,showEnd:"6:00 PM",window:null}
-  // render ScheduleSection; scope to the day card; expect text "Ends 6:00 PM"
-});
-it("hides a sentinel showEnd 'TBD' (no 'Ends' meta)", () => {
-  // runOfShow day showEnd:"TBD"; expect no "Ends" text in the day card
+```tsx
+import { afterEach, describe, expect, test } from "vitest";
+import { cleanup, render } from "@testing-library/react";
+import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
+import { makeShowForViewer } from "@/tests/fixtures/showForViewer";
+import type { ScheduleDay } from "@/lib/parser/types";
+
+afterEach(cleanup);
+
+const TODAY = new Date("2026-06-01T15:00:00Z");
+const D = "2025-05-14";
+const DATES = { travelIn: null, set: null, showDays: [D], travelOut: null };
+
+function renderWith(day: ScheduleDay) {
+  return render(
+    <ScheduleSection
+      data={makeShowForViewer({ show: { dates: DATES }, runOfShow: { [D]: day }, transportation: null })}
+      viewer={{ kind: "admin" }}
+      today={TODAY}
+      showId="show-showend"
+    />,
+  ).container;
+}
+
+describe("ScheduleSection — end-only showEnd meta (#307)", () => {
+  test("end-only fragment day → DayCard meta 'Ends 6:00 PM'", () => {
+    const c = renderWith({ entries: [], showStart: null, showEnd: "6:00 PM", window: null });
+    const wrapper = c.querySelector(`[data-day="${D}"]`);
+    expect(wrapper!.querySelector('[data-slot="day-card-meta"]')!.textContent).toBe("Ends 6:00 PM");
+  });
+
+  test("sentinel showEnd 'TBD' → no meta (hidden, not 'Ends TBD')", () => {
+    const c = renderWith({ entries: [], showStart: null, showEnd: "TBD", window: null });
+    const wrapper = c.querySelector(`[data-day="${D}"]`);
+    expect(wrapper!.querySelector('[data-slot="day-card-meta"]')).toBeNull();
+  });
 });
 ```
+
+This behavioral test is the PRIMARY pin (Codex plan-review R2): the structural
+`_metaSentinelHidingContract` only checks that the file contains a `resolveOptionalField(` call, which
+`ScheduleSection.tsx` already does for other fields — so it cannot distinguish a guarded from an
+unguarded `showEnd`. The `'TBD' → no meta` assertion is what actually proves the guard.
 
 (b) resolveKeyTimes guard, append to `tests/crew/resolveKeyTimes.test.ts`:
 
