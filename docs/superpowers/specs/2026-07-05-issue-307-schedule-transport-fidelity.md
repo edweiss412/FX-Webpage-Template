@@ -287,11 +287,19 @@ behavior change, not a silent fix). Edits — **copy-preserving** (no operator-c
   prettier mangles §12.4 cells → x1 divergence).
 - **`lib/parser/blocks/agendaWarnings.ts:45-51`** doc comment: drop the end-only case from the
   "emitted when" description; it now fires only for the no-clock-contentful case.
-- **Parity verification:** run `pnpm gen:spec-codes` (regenerates
-  `lib/messages/__generated__/spec-codes.ts` from §12.4) — expected **no diff** (copy unchanged) — then
-  `vitest run tests/messages` + the `x1-catalog-parity` / `x2` audits to confirm the runtime catalog ↔
-  §12.4 copy parity still holds. If gen produces any diff, commit it in the same change (three-way
-  lockstep per AGENTS.md). `lib/messages/catalog.ts` needs **no** row edit (copy unchanged).
+- **Three-way §12.4 lockstep (AGENTS.md — followed as a procedure, gate is the arbiter):** the
+  implementation task edits the master-spec row, THEN runs `pnpm gen:spec-codes` (regenerates
+  `lib/messages/__generated__/spec-codes.ts` from §12.4), THEN runs the `x1-catalog-parity` gate
+  (`tests/cross-cutting/codes.test.ts`) which deep-matches the runtime catalog ↔ §12.4 on the four
+  **copy** columns only — `dougFacing` / `crewFacing` / `followUp` / `helpfulContext` (`:75-87`). All
+  three artifacts (master-spec edit, regenerated `spec-codes.ts`, and any `catalog.ts` change) land in
+  the **same commit**.
+- **Expected outcome, stated but NOT pre-judged:** because the edit touches only the DEFINITION/trigger
+  column (which x1 does not compare) and leaves all four copy columns byte-identical, `gen:spec-codes` is
+  expected to produce a **no-op diff** and `catalog.ts` is expected to need no row change. This is a
+  *prediction to verify with the gate*, not a license to skip the lockstep: run gen + x1; if either
+  produces a diff or failure, update `catalog.ts` accordingly and commit it in the same task. Do NOT run
+  prettier on the master spec (`feedback_never_prettier_the_master_spec`).
 
 This is NOT a new §12.4 code (no `TRUST_DOMAINS` / help-family / internal-enum additions); it is an
 example-scope narrowing of an existing row, so the "new code = 4 more CI gates" path
