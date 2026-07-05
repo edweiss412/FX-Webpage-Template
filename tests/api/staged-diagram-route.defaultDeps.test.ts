@@ -24,13 +24,15 @@ vi.mock("@/lib/drive/fetch", async (orig) => ({
   ...(await orig<Record<string, unknown>>()),
   fetchCurrentSheetXlsxBytes,
 }));
-vi.mock("@/lib/drive/client", () => ({ getDriveClient: () => ({}), getDriveAccessToken: async () => "t" }));
+vi.mock("@/lib/drive/client", () => ({
+  getDriveClient: () => ({}),
+  getDriveAccessToken: async () => "t",
+}));
 
 describe("defaultStagedDiagramFetchImageBytes (spec §A3)", () => {
   test("default fetcher serves DIAGRAMS media bytes for the route-param driveFileId", async () => {
-    const { defaultStagedDiagramFetchImageBytes } = await import(
-      "@/app/api/admin/onboarding/staged-diagram/[wizardSessionId]/[driveFileId]/[objectId]/route"
-    );
+    const { defaultStagedDiagramFetchImageBytes } =
+      await import("@/app/api/admin/onboarding/staged-diagram/[wizardSessionId]/[driveFileId]/[objectId]/route");
     fetchCurrentSheetXlsxBytes.mockResolvedValue(sampleXlsx());
     const ex = extractEmbeddedObjects(sampleXlsx());
     const obj = ex.objectsByTab.get("DIAGRAMS")![0]!;
@@ -53,9 +55,8 @@ describe("defaultStagedDiagramFetchImageBytes (spec §A3)", () => {
   });
 
   test("ROUTE default path (no fetchImageBytes injection) serves media bytes end-to-end", async () => {
-    const { handleStagedDiagramGet } = await import(
-      "@/app/api/admin/onboarding/staged-diagram/[wizardSessionId]/[driveFileId]/[objectId]/route"
-    );
+    const { handleStagedDiagramGet } =
+      await import("@/app/api/admin/onboarding/staged-diagram/[wizardSessionId]/[driveFileId]/[objectId]/route");
     fetchCurrentSheetXlsxBytes.mockResolvedValue(sampleXlsx());
     const ex = extractEmbeddedObjects(sampleXlsx());
     const obj = ex.objectsByTab.get("DIAGRAMS")![0]!;
@@ -74,11 +75,19 @@ describe("defaultStagedDiagramFetchImageBytes (spec §A3)", () => {
     const WSID = "00000000-1111-4222-8333-444444444444";
     const res = await handleStagedDiagramGet(
       new Request("http://x"),
-      { params: Promise.resolve({ wizardSessionId: WSID, driveFileId: "df-123", objectId: obj.objectId }) },
+      {
+        params: Promise.resolve({
+          wizardSessionId: WSID,
+          driveFileId: "df-123",
+          objectId: obj.objectId,
+        }),
+      },
       {
         requireAdminIdentity: async () => ({ email: "a@b.c" }),
         queryOne: (async () => ({
-          parse_result: { diagrams: { embeddedImages: [stub], linkedFolderItems: [], linkedFolder: null } },
+          parse_result: {
+            diagrams: { embeddedImages: [stub], linkedFolderItems: [], linkedFolder: null },
+          },
         })) as unknown as NonNullable<StagedDiagramRouteDeps["queryOne"]>,
         // NO fetchImageBytes — the route must bind defaultStagedDiagramFetchImageBytes itself
       },

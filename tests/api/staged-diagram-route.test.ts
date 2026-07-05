@@ -43,9 +43,8 @@ const PNG_BYTES = new TextEncoder().encode("png-bytes");
 // Module-level spies so every test can assert call counts (the security tests
 // assert ZERO calls — the spy must be the same object the route received).
 const queryOneMock = vi.fn<(sqlText: string, params: unknown[]) => Promise<unknown>>();
-const fetchImageBytesMock = vi.fn<
-  (stub: unknown, ctx: { driveFileId: string }) => Promise<unknown>
->();
+const fetchImageBytesMock =
+  vi.fn<(stub: unknown, ctx: { driveFileId: string }) => Promise<unknown>>();
 
 beforeEach(() => {
   queryOneMock.mockReset();
