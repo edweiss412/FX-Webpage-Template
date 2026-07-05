@@ -85,6 +85,43 @@ function mockJsonResponse(body: unknown, init: { status?: number } = {}) {
   } as unknown as Response;
 }
 
+// Task 3 fixture builders (mirror the existing constant fixtures). A clean row
+// has a reviewable preview (parseResult.show); a warn row carries a data-quality
+// warning so summarizeDataGaps().total === its count.
+function cleanRow(dfid: string, status: "staged" | "applied"): Step3Row {
+  return {
+    driveFileId: dfid,
+    driveFileName: `${dfid}.gsheet`,
+    status,
+    parseResult: { show: { title: dfid }, warnings: [] } as unknown as ParseResult,
+  };
+}
+function warnRow(dfid: string): Step3Row {
+  return {
+    driveFileId: dfid,
+    driveFileName: `${dfid}.gsheet`,
+    status: "staged",
+    parseResult: {
+      show: { title: dfid },
+      warnings: [{ code: "FIELD_UNREADABLE", severity: "warn" }],
+    } as unknown as ParseResult,
+  };
+}
+function hardFailRow(dfid: string): Step3Row {
+  return {
+    driveFileId: dfid,
+    driveFileName: `${dfid}.gsheet`,
+    status: "hard_failed",
+    pendingIngestionId: `pi-${dfid}`,
+    errorCode: "MI_PARSE_FAILED",
+  };
+}
+// Normalize whitespace so the composed summary's emphasis spans compare cleanly
+// (no jest-dom toHaveTextContent in this suite).
+function norm(el: HTMLElement | null): string {
+  return (el?.textContent ?? "").replace(/\s+/g, " ").trim();
+}
+
 beforeEach(() => {
   refreshMock.mockReset();
   fetchMock.mockReset();
@@ -92,6 +129,78 @@ beforeEach(() => {
 });
 
 afterEach(() => cleanup());
+
+describe("Step3Review header + composed summary (Task 3)", () => {
+  test('header reads "Review what we found"', () => {
+    const { getByTestId, queryByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[cleanRow("a", "staged")]} />,
+    );
+    expect(norm(getByTestId("wizard-step3-heading"))).toContain("Review what we found");
+    expect(queryByTestId("wizard-step3-eyebrow")).toBeNull();
+  });
+
+  test("summary: all ready, plural", () => {
+    const { getByTestId } = render(
+      <Step3Review
+        wizardSessionId={WIZARD_SESSION_ID}
+        rows={[cleanRow("a", "staged"), cleanRow("b", "staged")]}
+      />,
+    );
+    expect(norm(getByTestId("wizard-step3-summary"))).toBe(
+      "2 sheets parsed from your Drive folder. All 2 are ready to publish. Nothing publishes until you say so.",
+    );
+  });
+
+  test("summary: single ready avoids 'All 1'", () => {
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[cleanRow("a", "staged")]} />,
+    );
+    expect(norm(getByTestId("wizard-step3-summary"))).toBe(
+      "1 sheet parsed from your Drive folder. It's ready to publish. Nothing publishes until you say so.",
+    );
+  });
+
+  test("summary: one needs a look uses singular 'needs' + 'it goes'", () => {
+    const { getByTestId } = render(
+      <Step3Review
+        wizardSessionId={WIZARD_SESSION_ID}
+        rows={[cleanRow("a", "staged"), warnRow("b")]}
+      />,
+    );
+    expect(norm(getByTestId("wizard-step3-summary"))).toBe(
+      "2 sheets parsed from your Drive folder. 1 ready to publish — 1 needs a quick look before it goes live. Nothing publishes until you say so.",
+    );
+  });
+
+  test("summary: readyCount===0, needsLookCount>1 → no 'ready' lead, plural 'need … they go'", () => {
+    const { getByTestId } = render(
+      <Step3Review
+        wizardSessionId={WIZARD_SESSION_ID}
+        rows={[warnRow("a"), warnRow("b")]}
+      />,
+    );
+    expect(norm(getByTestId("wizard-step3-summary"))).toBe(
+      "2 sheets parsed from your Drive folder. 2 need a quick look before they go live. Nothing publishes until you say so.",
+    );
+  });
+
+  test("summary: only blocking rows → no readiness clause", () => {
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[hardFailRow("a")]} />,
+    );
+    const s = norm(getByTestId("wizard-step3-summary"));
+    expect(s).toContain("1 sheet parsed from your Drive folder.");
+    expect(s).not.toContain("ready to publish");
+  });
+
+  test("summary: empty (rows = []) renders NO summary paragraph (empty card handles it)", () => {
+    const { getByTestId, queryByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[]} />,
+    );
+    expect(queryByTestId("wizard-step3-summary")).toBeNull();
+    expect(getByTestId("wizard-step3-empty")).not.toBeNull();
+  });
+});
 
 describe("Step3Review", () => {
   test("renders one row per manifest row with its drive file name and status badge", () => {
@@ -305,22 +414,22 @@ describe("Step3Review", () => {
     expect(container.textContent ?? "").not.toContain("WIZARD_SESSION_SUPERSEDED");
   });
 
-  test("F1: header heading reads 'Review & publish your sheets' (new model)", () => {
+  test("F1: header heading reads 'Review what we found' (Variant B)", () => {
     const { getByTestId } = render(
       <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[STAGED_ROW]} />,
     );
-    expect(getByTestId("wizard-step3").textContent ?? "").toContain("Review & publish your sheets");
+    expect(getByTestId("wizard-step3-heading").textContent ?? "").toContain("Review what we found");
   });
 
-  test("F1: header intro explains the publish checkbox (publish now vs keep as a draft)", () => {
+  test("F1: composed summary reassures nothing publishes without consent", () => {
     const { getByTestId } = render(
       <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[STAGED_ROW]} />,
     );
-    const text = getByTestId("wizard-step3").textContent ?? "";
-    // The intro tells Doug what the checkbox does: tick to publish now, leave
-    // unchecked to keep as a draft he can publish later from Unpublished.
-    expect(text).toContain("Tick the shows to publish now");
-    expect(text).toContain("Unpublished");
+    // The summary (Variant B) replaced the static subhead; the publish-safety
+    // reassurance moved into it, and the checkbox-vs-draft explanation lives in
+    // the header HelpTooltip.
+    const text = getByTestId("wizard-step3-summary").textContent ?? "";
+    expect(text).toContain("Nothing publishes until you say so.");
   });
 
   test("F1: stale 'every row must be resolved' copy is gone (finishable model)", () => {

@@ -276,7 +276,7 @@ describe("StepIndicator redesign — labels + connectors + done-check (Task 2)",
     render(<StepIndicator step={3} maxReachedStep={3} />);
     const connectors = screen.getAllByTestId("wizard-step-connector");
     expect(connectors).toHaveLength(2); // between 1-2 and 2-3
-    expect(connectors[0].className).toContain("bg-border-strong"); // left pill (1) done → filled
+    expect(connectors[0]!.className).toContain("bg-border-strong"); // left pill (1) done → filled
   });
 });
 

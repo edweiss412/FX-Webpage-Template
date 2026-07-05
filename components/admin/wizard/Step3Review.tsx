@@ -46,6 +46,8 @@ import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { Step3SheetCard } from "@/components/admin/wizard/Step3SheetCard";
+import { arr } from "@/components/admin/wizard/step3ReviewSections";
+import { summarizeDataGaps, stripLegacyUnknownFieldAnchors } from "@/lib/parser/dataGaps";
 import type { ParseResult } from "@/lib/parser/types";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 
@@ -654,6 +656,68 @@ export function computeSelectableCounts(rows: Step3Row[]): {
   };
 }
 
+// A clean row "needs a look" when it has no reviewable preview, has been demoted
+// by a per-sheet re-scan, OR carries at least one data-quality parse warning.
+// Drives the header's ready/needs-look split (§4.2).
+function rowNeedsLook(row: Step3Row): boolean {
+  return (
+    !hasReviewablePreview(row) ||
+    row.lastFinalizeFailureCode != null ||
+    summarizeDataGaps(stripLegacyUnknownFieldAnchors(arr((row.parseResult as ParseResult)?.warnings)))
+      .total > 0
+  );
+}
+
+// Composed summary line (§4.2 copy catalog): pluralized, guard-branched, with
+// bold counts and a warn-colored "needs a look" clause. Emphasis is presentation
+// only — the normalized textContent equals the plaintext form the tests pin.
+function renderSummary(sheetCount: number, readyCount: number, needsLookCount: number) {
+  const cleanCount = readyCount + needsLookCount;
+  const head = (
+    <>
+      <b className="font-semibold text-text-strong">
+        {sheetCount} sheet{sheetCount === 1 ? "" : "s"}
+      </b>
+      {" parsed from your Drive folder."}
+    </>
+  );
+  if (cleanCount === 0) return head; // blocking / set-aside only — no readiness clause
+  const tail = " Nothing publishes until you say so.";
+  if (needsLookCount === 0) {
+    return (
+      <>
+        {head}{" "}
+        <b className="font-semibold text-text-strong">
+          {readyCount === 1 ? "It's ready to publish." : `All ${readyCount} are ready to publish.`}
+        </b>
+        {tail}
+      </>
+    );
+  }
+  const verb = needsLookCount === 1 ? "needs" : "need";
+  const pron = needsLookCount === 1 ? "it goes" : "they go";
+  const look = (
+    <span className="text-warning-text">
+      {`${needsLookCount} ${verb} a quick look before ${pron} live.`}
+    </span>
+  );
+  return (
+    <>
+      {head}{" "}
+      {readyCount > 0 ? (
+        <>
+          <b className="font-semibold text-text-strong">{`${readyCount} ready to publish`}</b>
+          {" — "}
+          {look}
+        </>
+      ) : (
+        look
+      )}
+      {tail}
+    </>
+  );
+}
+
 export function Step3Review({ wizardSessionId, rows, onCountsChange }: Step3ReviewProps) {
   const router = useRouter();
   const unresolvedCount = rows.filter((r) => !isResolved(r.status)).length;
@@ -682,6 +746,12 @@ export function Step3Review({ wizardSessionId, rows, onCountsChange }: Step3Revi
   const deferredRows = rows.filter((r) => r.status === "defer_until_modified");
   const skippedRows = rows.filter((r) => r.status === "skipped_non_sheet");
   const hasSetAside = ignoredRows.length + deferredRows.length + skippedRows.length > 0;
+
+  // Header summary counts (§4.2). readyCount/needsLookCount partition the clean
+  // rows; sheetCount is every non-skipped row (blocking rows are still "sheets").
+  const readyCount = publishRows.filter((r) => !rowNeedsLook(r)).length;
+  const needsLookCount = publishRows.length - readyCount;
+  const sheetCount = rows.length - skippedRows.length;
 
   // Per-card details now open in a self-managed MODAL overlay (the card's "More"
   // button → <Step3ReviewModal>), so there is no accordion state here and the
@@ -961,17 +1031,14 @@ export function Step3Review({ wizardSessionId, rows, onCountsChange }: Step3Revi
       className="flex flex-col gap-section-gap"
     >
       <header className="flex flex-col gap-2">
-        <p
-          data-testid="wizard-step3-eyebrow"
-          className="text-xs font-medium uppercase text-text-subtle"
-          style={{ letterSpacing: "var(--tracking-eyebrow)" }}
-        >
-          Step 3 of 3
-        </p>
         <div className="flex items-center gap-2">
-          <h2 id="wizard-step3-heading" className="text-2xl font-semibold text-text-strong">
-            Review &amp; publish your sheets
-          </h2>
+          <h1
+            id="wizard-step3-heading"
+            data-testid="wizard-step3-heading"
+            className="text-2xl font-semibold text-text-strong sm:text-[28px]"
+          >
+            Review what we found
+          </h1>
           <HelpTooltip
             label="Help: Review and publish your sheets"
             testId="help-affordance--wizard-step3--tooltip"
@@ -993,10 +1060,16 @@ export function Step3Review({ wizardSessionId, rows, onCountsChange }: Step3Revi
             </p>
           </HelpTooltip>
         </div>
-        <p className="max-w-prose text-base text-text-subtle">
-          Every sheet we found in your folder is listed below. Tick the shows to publish now; the
-          rest stay under Unpublished, where you can publish them whenever you are ready.
-        </p>
+        {/* Composed summary (§4.2) — only when there ARE sheets; the empty state's
+            card is the sole content when rows = []. */}
+        {rows.length > 0 ? (
+          <p
+            data-testid="wizard-step3-summary"
+            className="max-w-prose text-base text-text-subtle"
+          >
+            {renderSummary(sheetCount, readyCount, needsLookCount)}
+          </p>
+        ) : null}
         {rows.length > 0 ? (
           <Step3PublishHeader
             allChecked={allChecked}
