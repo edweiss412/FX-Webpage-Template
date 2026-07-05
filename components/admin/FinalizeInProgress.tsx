@@ -17,6 +17,7 @@ import Link from "next/link";
 import { ResumeFinalizeButton } from "@/components/admin/ResumeFinalizeButton";
 import { CleanupAbandonedFinalizeButton } from "@/components/admin/CleanupAbandonedFinalizeButton";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
+import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { messageFor } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import type { UnresolvedSheet, UnresolvedSheetsInfraError } from "@/app/admin/_unresolvedSheets";
@@ -130,7 +131,10 @@ export function FinalizeInProgress({
                 <span className="wrap-break-word font-medium">
                   {sheet.displayName || sheet.driveFileId}
                 </span>
-                <span>{copyForCode(sheet.failureCode)}</span>
+                {/* Catalog dougFacing copy may carry *emphasis* markers; render
+                    them as styled JSX (marker-free copy passes through unchanged).
+                    Pinned by tests/messages/_metaEmphasisRenderContract.test.ts. */}
+                <span>{renderEmphasis(copyForCode(sheet.failureCode))}</span>
                 <HelpAffordance code={sheet.failureCode} />
                 <Link
                   data-testid={`finalize-in-progress-resolve-${sheet.driveFileId}`}
