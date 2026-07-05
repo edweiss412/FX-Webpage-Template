@@ -347,10 +347,10 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
         </p>
       </header>
 
-      {/* One card: Folder link input, a "you already scanned X" confirmation
-          below it (only while the field still holds the scanned folder), then a
-          row with the re-scan button (left) and, in resume mode, Continue to
-          Step 3 (right, the accent CTA). */}
+      {/* One card for every state: the Folder link input + optional "you already
+          scanned X" confirmation on top, and a lower region that swaps between the
+          action row, the in-flight progress readout, the completed-scan summary,
+          and the failure alert. There is no detached second card below the form. */}
       <form
         onSubmit={handleSubmit}
         noValidate
@@ -387,142 +387,157 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
           </p>
         ) : null}
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <button
-            type="submit"
-            data-testid="wizard-step2-submit"
-            disabled={submitDisabled}
-            className={submitIsPrimary ? PRIMARY_BUTTON : SECONDARY_BUTTON}
+        {/* Lower region of the card — the single surface for every state. While a
+            scan is in flight the live-progress readout renders IN PLACE of the
+            button row; a completed scan shows its summary, and a failure shows an
+            inset alert, each ABOVE the action row (consolidated: one card, never a
+            detached second card below the form). */}
+        {isSubmitting && progress ? (
+          <div
+            data-testid="wizard-step2-progress"
+            className="mt-1 flex flex-col gap-2 border-t border-border pt-4 text-sm text-text"
           >
-            {submitLabel}
-          </button>
-          {showResume ? (
-            <Link
-              href="/admin?step=3"
-              data-testid="wizard-step2-resume-advance"
-              className={submitIsPrimary ? SECONDARY_BUTTON : PRIMARY_BUTTON}
-            >
-              Continue to Step 3
-            </Link>
-          ) : null}
-        </div>
-      </form>
-
-      {state.kind === "submitting" && progress ? (
-        <div
-          data-testid="wizard-step2-progress"
-          className="flex flex-col gap-2 rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text"
-        >
-          <p className="text-base font-semibold text-text-strong" aria-hidden="true">
-            {heading}
-          </p>
-          <p className="break-all text-text-subtle" aria-hidden="true">
-            {state.folderUrl}
-          </p>
-          <progress
-            data-testid="wizard-step2-progressbar"
-            className="h-2 w-full"
-            max={reading ? reading.total : undefined}
-            value={reading ? reading.done : undefined}
-            aria-label="Folder scan progress"
-            aria-valuemin={0}
-            aria-valuemax={reading ? reading.total : undefined}
-            aria-valuenow={reading ? reading.done : undefined}
-          />
-          {reading ? (
+            <p className="text-base font-semibold text-text-strong" aria-hidden="true">
+              {heading}
+            </p>
+            <progress
+              data-testid="wizard-step2-progressbar"
+              className="h-2 w-full"
+              max={reading ? reading.total : undefined}
+              value={reading ? reading.done : undefined}
+              aria-label="Folder scan progress"
+              aria-valuemin={0}
+              aria-valuemax={reading ? reading.total : undefined}
+              aria-valuenow={reading ? reading.done : undefined}
+            />
+            {reading ? (
+              <p
+                className="tabular-nums text-text-subtle"
+                data-testid="wizard-step2-count"
+                aria-hidden="true"
+              >
+                {reading.done} of {reading.total} sheet{reading.total === 1 ? "" : "s"}
+              </p>
+            ) : null}
+            {reading && reading.lastName ? (
+              <p
+                className="truncate text-text"
+                data-testid="wizard-step2-lastname"
+                title={reading.lastName}
+                aria-hidden="true"
+              >
+                <span className="text-text-subtle">Just read: </span>
+                {reading.lastName}
+              </p>
+            ) : null}
             <p
               className="tabular-nums text-text-subtle"
-              data-testid="wizard-step2-count"
+              data-testid="wizard-step2-elapsed"
               aria-hidden="true"
             >
-              {reading.done} of {reading.total} sheet{reading.total === 1 ? "" : "s"}
+              {elapsedSeconds} second{elapsedSeconds === 1 ? "" : "s"} elapsed
             </p>
-          ) : null}
-          {reading && reading.lastName ? (
-            <p
-              className="truncate text-text"
-              data-testid="wizard-step2-lastname"
-              title={reading.lastName}
-              aria-hidden="true"
-            >
-              <span className="text-text-subtle">Just read: </span>
-              {reading.lastName}
-            </p>
-          ) : null}
-          <p
-            className="tabular-nums text-text-subtle"
-            data-testid="wizard-step2-elapsed"
-            aria-hidden="true"
-          >
-            {elapsedSeconds} second{elapsedSeconds === 1 ? "" : "s"} elapsed
-          </p>
-          {/* Screen-reader announcer: phase changes only, not every tick. */}
-          <span className="sr-only" role="status" aria-live="polite">
-            {heading}
-          </span>
-        </div>
-      ) : null}
-
-      {state.kind === "success" ? (
-        <div
-          data-testid="wizard-step2-success"
-          className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad"
-        >
-          <p className="text-base font-semibold text-text-strong">
-            {state.result.folderName
-              ? `Found ${formatTotals(state.result.totals)} items in ${state.result.folderName}.`
-              : `Found ${formatTotals(state.result.totals)} items in your folder.`}
-          </p>
-          <ul className="flex flex-col gap-1 text-sm text-text-subtle">
-            <li>
-              Sheets ready for review:{" "}
-              <span className="font-semibold tabular-nums text-text">
-                {state.result.totals.staged}
-              </span>
-            </li>
-            <li>
-              Sheets we could not parse:{" "}
-              <span className="font-semibold tabular-nums text-text">
-                {state.result.totals.hard_failed}
-              </span>
-            </li>
-            <li>
-              Non-sheet files we skipped:{" "}
-              <span className="font-semibold tabular-nums text-text">
-                {state.result.totals.skipped_non_sheet}
-              </span>
-            </li>
-            {state.result.totals.live_row_conflict !== undefined &&
-            state.result.totals.live_row_conflict > 0 ? (
-              <li>
-                Live-row conflicts:{" "}
-                <span className="font-semibold tabular-nums text-text">
-                  {state.result.totals.live_row_conflict}
-                </span>
-              </li>
+            {/* Screen-reader announcer: phase changes only, not every tick. */}
+            <span className="sr-only" role="status" aria-live="polite">
+              {heading}
+            </span>
+          </div>
+        ) : (
+          <>
+            {state.kind === "success" ? (
+              <div
+                data-testid="wizard-step2-success"
+                className="mt-1 flex flex-col gap-2 border-t border-border pt-4"
+              >
+                <p className="text-base font-semibold text-text-strong">
+                  {state.result.folderName
+                    ? `Found ${formatTotals(state.result.totals)} items in ${state.result.folderName}.`
+                    : `Found ${formatTotals(state.result.totals)} items in your folder.`}
+                </p>
+                <ul className="flex flex-col gap-1 text-sm text-text-subtle">
+                  <li>
+                    Sheets ready for review:{" "}
+                    <span className="font-semibold tabular-nums text-text">
+                      {state.result.totals.staged}
+                    </span>
+                  </li>
+                  <li>
+                    Sheets we could not parse:{" "}
+                    <span className="font-semibold tabular-nums text-text">
+                      {state.result.totals.hard_failed}
+                    </span>
+                  </li>
+                  <li>
+                    Non-sheet files we skipped:{" "}
+                    <span className="font-semibold tabular-nums text-text">
+                      {state.result.totals.skipped_non_sheet}
+                    </span>
+                  </li>
+                  {state.result.totals.live_row_conflict !== undefined &&
+                  state.result.totals.live_row_conflict > 0 ? (
+                    <li>
+                      Live-row conflicts:{" "}
+                      <span className="font-semibold tabular-nums text-text">
+                        {state.result.totals.live_row_conflict}
+                      </span>
+                    </li>
+                  ) : null}
+                </ul>
+              </div>
             ) : null}
-          </ul>
-          <Link
-            href="/admin?step=3"
-            data-testid="wizard-step2-advance"
-            className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-accent px-6 text-base font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-          >
-            Continue to Step 3
-          </Link>
-        </div>
-      ) : null}
 
-      {state.kind === "error" ? (
-        <div
-          role="alert"
-          data-testid="wizard-step2-error"
-          className="flex flex-col gap-2 rounded-md border border-border bg-warning-bg p-tile-pad text-base text-warning-text"
-        >
-          <p className="font-semibold">We could not verify that folder.</p>
-          <p>{state.copy}</p>
-          <HelpAffordance code={state.code} />
-        </div>
-      ) : null}
+            {state.kind === "error" ? (
+              <div
+                role="alert"
+                data-testid="wizard-step2-error"
+                className="mt-1 flex flex-col gap-2 rounded-sm border border-border bg-warning-bg p-3 text-base text-warning-text"
+              >
+                <p className="font-semibold">We could not verify that folder.</p>
+                <p>{state.copy}</p>
+                <HelpAffordance code={state.code} />
+              </div>
+            ) : null}
+
+            {/* Action row. After a completed scan, Continue to Step 3 is the
+                accent primary and the scan button steps down to secondary
+                (one accent per card); otherwise the scan button is primary and,
+                in resume mode, Continue rides alongside it as secondary. */}
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <button
+                type="submit"
+                data-testid="wizard-step2-submit"
+                disabled={submitDisabled}
+                className={
+                  state.kind === "success"
+                    ? SECONDARY_BUTTON
+                    : submitIsPrimary
+                      ? PRIMARY_BUTTON
+                      : SECONDARY_BUTTON
+                }
+              >
+                {submitLabel}
+              </button>
+              {state.kind === "success" ? (
+                <Link
+                  href="/admin?step=3"
+                  data-testid="wizard-step2-advance"
+                  className={PRIMARY_BUTTON}
+                >
+                  Continue to Step 3
+                </Link>
+              ) : showResume ? (
+                <Link
+                  href="/admin?step=3"
+                  data-testid="wizard-step2-resume-advance"
+                  className={submitIsPrimary ? SECONDARY_BUTTON : PRIMARY_BUTTON}
+                >
+                  Continue to Step 3
+                </Link>
+              ) : null}
+            </div>
+          </>
+        )}
+      </form>
     </section>
   );
 }

@@ -480,6 +480,74 @@ describe("Step2Verify", () => {
     expect(container.textContent ?? "").not.toContain("null");
   });
 
+  test("consolidated into ONE card: the live progress block lives inside the scan form (no second card)", async () => {
+    // Before consolidation the scan form and the live-progress readout were two
+    // separate stacked cards. They now share the single bordered form card — the
+    // progress block renders in place of the button row while the scan is in
+    // flight, and no longer carries its own card chrome.
+    fetchMock.mockImplementation(() => new Promise<Response>(() => {}));
+    const { getByTestId } = render(<Step2Verify />);
+    fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
+      target: { value: "https://drive.google.com/drive/folders/abc123" },
+    });
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-step2-submit"));
+    });
+    await waitFor(() => expect(getByTestId("wizard-step2-progress")).toBeTruthy());
+    const progress = getByTestId("wizard-step2-progress");
+    const form = progress.closest("form");
+    expect(form).not.toBeNull();
+    // …and that same form still owns the folder input → one card, not two.
+    expect(form!.querySelector('[data-testid="wizard-step2-folder-url-input"]')).not.toBeNull();
+    // The progress block no longer carries its OWN card chrome (that was the
+    // doubled second card); the surrounding form is the single bordered surface.
+    expect(progress.className).not.toContain("rounded-md");
+    expect(progress.className).not.toContain("bg-surface-sunken");
+    expect(form!.className).toContain("rounded-md");
+    expect(form!.className).toContain("border-border");
+  });
+
+  test("consolidated: the completed-scan summary lives inside the scan form (no second card)", async () => {
+    fetchMock.mockResolvedValue(mockJsonResponse(completedScanBody(["staged"], "Shows 2026")));
+    const { getByTestId } = render(<Step2Verify />);
+    fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
+      target: { value: "https://drive.google.com/drive/folders/abc123" },
+    });
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-step2-submit"));
+    });
+    await waitFor(() => expect(getByTestId("wizard-step2-success")).toBeTruthy());
+    const success = getByTestId("wizard-step2-success");
+    expect(success.closest("form")).not.toBeNull();
+    // No own card chrome — the surrounding form is the single bordered surface.
+    expect(success.className).not.toContain("rounded-md");
+    // Continue to Step 3 is the accent primary; the scan button steps down.
+    expect(getByTestId("wizard-step2-advance").className).toContain("bg-accent");
+    expect(getByTestId("wizard-step2-submit").className).not.toContain("bg-accent");
+    // …and both share the same action row inside the form.
+    expect(getByTestId("wizard-step2-submit").closest("form")).not.toBeNull();
+  });
+
+  test("consolidated: the failure alert lives inside the scan form (no second card)", async () => {
+    fetchMock.mockResolvedValue(
+      mockJsonResponse({ ok: false, code: "FOLDER_NOT_FOUND" }, { status: 404 }),
+    );
+    const { getByTestId } = render(<Step2Verify />);
+    fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
+      target: { value: "https://drive.google.com/drive/folders/missing" },
+    });
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-step2-submit"));
+    });
+    await waitFor(() => expect(getByTestId("wizard-step2-error")).toBeTruthy());
+    const error = getByTestId("wizard-step2-error");
+    expect(error.closest("form")).not.toBeNull();
+    expect(error.getAttribute("role")).toBe("alert");
+    expect(error.className).not.toContain("rounded-md"); // inset alert, not its own card
+    // The scan button is still present in the form → the operator can retry.
+    expect(getByTestId("wizard-step2-submit").closest("form")).not.toBeNull();
+  });
+
   test("a stream that ends without a result renders the generic error", async () => {
     fetchMock.mockResolvedValue(
       streamResponse([
