@@ -55,6 +55,11 @@ describe("NotifBell — badge (spec §7.1 / §12 guards)", () => {
     expect(getByTestId("admin-notif-badge").textContent).toBe("9+");
   });
 
+  it("count 9 → NOT capped (boundary, carried over from the pre-rewrite suite)", () => {
+    const { getByTestId } = renderBell({ kind: "ok", count: 9 });
+    expect(getByTestId("admin-notif-badge").textContent).toBe("9");
+  });
+
   it("count 0 → no badge node (guard row, spec §12)", () => {
     const { queryByTestId, getByTestId } = renderBell({ kind: "ok", count: 0 });
     expect(getByTestId("admin-notif-bell")).toBeTruthy();
