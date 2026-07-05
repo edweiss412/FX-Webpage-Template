@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test, vi } from "vitest";
 import { NextRequest } from "next/server";
+import { resolveBotLoginAlertRow, BotLoginResolveInfraError } from "@/lib/reports/botLoginAlert";
 
 const supabaseMock = vi.hoisted(() => ({
   mode: "ok" as "ok" | "returned_error" | "thrown_error",
@@ -92,12 +93,17 @@ const REGISTERED_INFRA_EXPORTS = [
   "runReportReaper",
   "GET",
   "runReaperGet",
+  // alert-resolve-truthing §6.2: service-role admin_alerts UPDATE resolver (the pure
+  // botLoginConfigured predicate + the BotLoginResolveInfraError class are annotated
+  // // not-subject-to-meta: in the source, so they need no registration here).
+  "resolveBotLoginAlertRow",
 ] as const;
 
 const META_SOURCE_FILES = [
   "lib/reports/leaseProtocol.ts",
   "lib/reports/rateLimit.ts",
   "lib/reports/submit.ts",
+  "lib/reports/botLoginAlert.ts",
   "lib/github/issues.ts",
   "app/api/report/route.ts",
   "app/api/cron/report-reaper/route.ts",
@@ -439,6 +445,26 @@ describe("META reports infra-failure contract", () => {
     } finally {
       if (originalSecret === undefined) delete process.env.CRON_SECRET;
       else process.env.CRON_SECRET = originalSecret;
+    }
+  });
+
+  test("resolveBotLoginAlertRow throws BotLoginResolveInfraError on returned Supabase error", async () => {
+    const original = process.env.GITHUB_BOT_LOGIN;
+    process.env.GITHUB_BOT_LOGIN = "fxav-bot"; // env gate open so the resolver reaches the client
+    try {
+      const builder = {
+        update: () => builder,
+        eq: () => builder,
+        is: () => builder,
+        select: async () => ({ error: { message: "META: simulated returned error" } }),
+      } as Record<string, unknown>;
+      const client = { from: () => builder } as never;
+      await expect(resolveBotLoginAlertRow(() => client)).rejects.toBeInstanceOf(
+        BotLoginResolveInfraError,
+      );
+    } finally {
+      if (original === undefined) delete process.env.GITHUB_BOT_LOGIN;
+      else process.env.GITHUB_BOT_LOGIN = original;
     }
   });
 });
