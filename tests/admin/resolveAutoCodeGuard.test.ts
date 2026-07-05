@@ -235,6 +235,47 @@ describe("resolveAutoCodeGuard — auto codes fail CLOSED at the four manual-res
     expect(track.update).toBe(true);
   });
 
+  // --- Spec §5 guard precedence: a HEALTH code that is ALSO auto (WEBHOOK_TOKEN_INVALID,
+  //     GITHUB_BOT_LOGIN_MISSING) hits the audience-based HEALTH_CODES rejection (403) FIRST.
+  //     The guards are orthogonal, not nested (spec §5 lines 288-294): on the doug routes a
+  //     health code is categorically not resolvable (403), which supersedes the auto-only 409.
+  //     Both are NO-write. Pins the ordering so a future reorder can't silently downgrade the
+  //     health rejection to a 409 (whole-diff review R2). ---------------------
+  it("global route: health+auto code → 403 ALERT_HEALTH_RESOLVE_FORBIDDEN (health precedes auto), NO update", async () => {
+    const track = { update: false };
+    const res = await handleAdminAlertGlobalResolve(
+      new Request("http://x"),
+      { params: Promise.resolve({ id: ID }) },
+      {
+        requireAdminIdentity,
+        withTx: makeWithTx(
+          { id: ID, show_id: null, slug: null, resolved_at: null, code: AUTO_HEALTH },
+          track,
+        ),
+      },
+    );
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ ok: false, code: "ALERT_HEALTH_RESOLVE_FORBIDDEN" });
+    expect(track.update).toBe(false);
+  });
+  it("per-show route: health+auto code → 403 ALERT_HEALTH_RESOLVE_FORBIDDEN (health precedes auto), NO update", async () => {
+    const track = { update: false };
+    const res = await handleAdminAlertShowResolve(
+      new Request("http://x"),
+      { params: Promise.resolve({ slug: "rpas", id: ID }) },
+      {
+        requireAdminIdentity,
+        withTx: makeWithTx(
+          { id: ID, show_id: "show-1", slug: "rpas", resolved_at: null, code: AUTO_HEALTH },
+          track,
+        ),
+      },
+    );
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({ ok: false, code: "ALERT_HEALTH_RESOLVE_FORBIDDEN" });
+    expect(track.update).toBe(false);
+  });
+
   // --- Regression: the INTERNAL auto-resolver stays permissive --------------
   it("resolveAdminAlert() STILL resolves an auto code programmatically (auto-resolution intact)", async () => {
     const calls = { update: false };
