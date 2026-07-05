@@ -61,7 +61,7 @@ if (materialShrinkItems.length > 0) {
     return {
       outcome: "shrink_held",
       code: "RESYNC_SHRINK_HELD",
-      message: describeShrink(materialShrinkItems), // e.g. "crew 5→2; rooms 4→1"
+      message: describeShrink(materialShrinkItems, show!.priorParseResult, args.parseResult), // "crew 5→2; rooms 4→1"
       heldModifiedTime: args.binding.modifiedTime,   // echoed back for the confirm step
       shrinkItems: materialShrinkItems,
       showId: show!.showId,
@@ -70,6 +70,8 @@ if (materialShrinkItems.length > 0) {
   // else fall through → applies (pass / auto_apply_with_holds)
 }
 ```
+
+**`describeShrink` needs the parse counts (R10-2 → R11-2).** The `MI-6` `TriggeredReviewItem` is only `{ id, invariant: "MI-6" }` (no counts — `lib/parser/types.ts`), unlike `MI-7` which embeds `{ section, prior_count, new_count }`. So `describeShrink(items, priorParseResult, nextParseResult)` computes the crew delta for `MI-6` from `priorParseResult.crewMembers.length → nextParseResult.crewMembers.length` and reads each `MI-7` item's embedded `prior_count/new_count`. It emits a human string like `"crew 5→2; rooms 4→1"`. A test asserts an `MI-6` hold's `detail` contains the actual crew `prior→next` counts (not a generic "crew reduced").
 
 New optional `Phase1Args` fields: `acceptShrink?: boolean` and `expectedModifiedTime?: string`, threaded from the manual-sync route body → `runManualSyncForShow` → `processOneFile` → `runPhase1`. Cron/push never set them. The hold is bypassed ONLY when `acceptShrink` is true AND `expectedModifiedTime` equals the current `binding.modifiedTime` — so an admin can only apply the exact shrink they were shown; if Doug edited between prompt and confirm, the parse re-holds with fresh counts (R10 finding 1). A hard-fail current sheet still retains last-good regardless (`acceptShrink` only bypasses the *shrink* hold, never the hard-fail path).
 
@@ -186,11 +188,11 @@ cron/push re-sync (existing published show)
      │     ── ADMIN RESOLVES ──
      │        accept (legit shrink) → click "Re-sync from Drive" → still shrinks → shrink_held
      │                                → button shows counts + "Apply reduced version" CONFIRM
-     │                                → confirm re-POSTs {acceptShrink:true} → applies
+     │                                → confirm re-POSTs {acceptShrink:true, expectedModifiedTime} → applies (version matches)
      │                                → resolve-site AUTO-CLEARS the alert
      │        mistake → do nothing (or re-sync w/o confirming) → last-good stays; Doug fixes sheet
      │                                → clean cron re-sync applies → alert AUTO-CLEARS (no manual dismiss)
-     ├─ MI-6/MI-7 present AND acceptShrink=true → applies (confirmed accept; MI-11 still held if present)
+     ├─ MI-6/MI-7 present AND acceptShrink=true AND expectedModifiedTime==current → applies (MI-11 still held if present)
      └─ MI-11 only / asset drift / MI-7b / crewDrop==1 → auto-apply (unchanged)
 ```
 
@@ -213,9 +215,9 @@ cron/push re-sync (existing published show)
 
 Derive expectations from fixture dimensions (not hardcoded).
 
-1. **phase1: MI-6 crew shrink (cron) → `shrink_held`.** Prior 5 crew → next 2 (`crewDrop=3>1`), `mode:"cron"`; assert `outcome==="shrink_held"`, `code:"RESYNC_SHRINK_HELD"`, and NO apply/`upsertLivePendingSync`. (`tests/sync/phase1.decision-rule.test.ts`.)
+1. **phase1: MI-6 crew shrink (cron) → `shrink_held` with real counts.** Prior 5 crew → next 2 (`crewDrop=3>1`), `mode:"cron"`; assert `outcome==="shrink_held"`, `code:"RESYNC_SHRINK_HELD"`, NO apply, and **`message`/`detail` contains the actual crew counts `"5→2"`** (derived via `describeShrink(items, prior, next)` — not a generic "crew reduced"; R11-2). (`tests/sync/phase1.decision-rule.test.ts`.)
 2. **phase1: MI-7 section shrink (cron) → `shrink_held`.** Prior 4 rooms → 1 (`nc<pc/2`); also transportation populated→null. Assert held.
-3. **phase1: the hold is mode-independent; only `acceptShrink` bypasses it.** Same shrink with `mode:"manual"` and NO `acceptShrink` → `shrink_held` (holds, no apply) — proves generic manual re-sync can't one-click-clobber (R9). With `acceptShrink:true` → `pass`/`auto_apply_with_holds` (applies). Catches: a blanket `mode==="manual"` bypass reappearing.
+3. **phase1: hold is mode-independent; only a VERSION-BOUND accept bypasses it.** (a) Same shrink with `mode:"manual"` and no accept fields → `shrink_held` (holds) — proves generic manual re-sync can't one-click-clobber (R9). (b) `acceptShrink:true` **with `expectedModifiedTime === binding.modifiedTime`** → `pass`/`auto_apply_with_holds` (applies). (c) **Negative:** `acceptShrink:true` with `expectedModifiedTime` MISSING → `shrink_held` (no apply). (d) **Negative:** `acceptShrink:true` with `expectedModifiedTime` MISMATCHED (stale) → `shrink_held` with fresh counts (no apply). Catches: a bare `acceptShrink` bypass or a `mode==="manual"` bypass reintroducing the clobber (R9/R10).
 4. **phase1: MI-6 + MI-11 (cron) → `shrink_held`.** Prior 5/Alice@old → next 2/Alice@new; assert held (no apply → no clobber, no ungated email). Catches: routing the combined case to auto-apply.
 5. **phase1: benign drift unchanged.** (a) MI-11-only + crew growth → `auto_apply_with_holds`, no hold (matches `cutover.retireLivePendingSyncs.test.ts:57`, stays green). (b) MI-7b rename stable count → applies. (c) `crewDrop==1` → applies. Catches: over-holding benign edits / off-by-one.
 6. **DB-backed: hold retains last-good + raises alert + sets status.** Seed published show + 5 crew; run cron pipeline with a 2-crew parse; assert (a) the 5 live `crew_members` rows are **still present** (no clobber), (b) an open `admin_alerts` row `code=RESYNC_SHRINK_HELD` for the show, (c) `shows.last_sync_status = 'shrink_held'`. Catches: the core data-loss bug + missing signal + missing status.
