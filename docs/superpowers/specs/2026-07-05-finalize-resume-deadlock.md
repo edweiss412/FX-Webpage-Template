@@ -413,10 +413,19 @@ STRUCTURALLY, not per-route:
 advisory-before-row**, exactly mirroring the proven reap path
 (`collectReapDriveFileIds` / `lockReapDriveFiles`, `sessionLifecycle.ts:516–567`):
 
-1. Collect the FULL drive_file_id set it will touch — `applied`-manifest rows,
-   shadows (`shows_pending_changes`), AND the unresolved set
-   (`unresolvedManifestCount` rows: blocking statuses + demoted `staged`+failure
-   code) — via **PLAIN reads, NO `FOR UPDATE`** anywhere.
+1. Collect the FULL drive_file_id set for THIS session via the SAME five-table
+   union the reap path already uses (`collectReapDriveFileIds`,
+   `sessionLifecycle.ts:516–543`: `onboarding_scan_manifest`,
+   `shows_pending_changes`, `pending_syncs`, `pending_ingestions`,
+   `deferred_ingestions`) — this is EXACTLY the set of tables `purgeWizardRows`
+   (`sessionLifecycle.ts:164`) deletes, so every drive-id-bearing row the purge
+   removes for the active session is covered (not just the applied/shadow/
+   unresolved subset — R8 completeness). Collect via **PLAIN reads, NO
+   `FOR UPDATE`** anywhere. (Only the ACTIVE session needs locking: `purgeWizardRows`
+   also deletes OTHER sessions' rows, but every recovery route rejects a non-active
+   session — `pending_wizard_session_id = $wsid` guards — so no recovery can be
+   mutating an inactive session's rows. Reuse the existing `collectReapDriveFileIds`
+   helper rather than a new query.)
 2. Acquire `show:<drive>` advisory locks for that whole set in ONE globally-sorted
    acquisition, BEFORE any row lock or mutation. This is the ONLY ordering; there
    is no remaining `FOR UPDATE`-before-`show:` path in cleanup. (The old
@@ -474,10 +483,12 @@ result and does the right thing.
   finalize/reap. **Advisory-lock holder topology (Thread 2 change):** cleanup
   already holds `finalize:<session>` (`sessionLifecycle.ts:344`) then a sorted set
   of `show:<drive>` locks (`lockCleanupDriveFiles`). BOTH cleanup purge paths
-  (24h-stale and stuck) now collect their ENTIRE drive_file_id set — `applied`
-  manifest + shadows + unresolved — via PLAIN read and lock it ALL
+  (24h-stale and stuck) now collect the session's ENTIRE drive_file_id set via the
+  SAME five-table union as `collectReapDriveFileIds` (`sessionLifecycle.ts:516–543`
+  — manifest, shadows, pending_syncs, pending_ingestions, deferred_ingestions =
+  exactly what `purgeWizardRows` deletes) via PLAIN read, and lock it ALL
   ADVISORY-BEFORE-ROW (the old `applied`/shadow `FOR UPDATE`-then-advisory in
-  `lockCleanupDriveFiles` is REMOVED — R7 structural fix, mirroring
+  `lockCleanupDriveFiles` is REMOVED — R7/R8 structural fix, mirroring
   `collectReapDriveFileIds`/`lockReapDriveFiles`, `sessionLifecycle.ts:516–567`).
   This closes AB-BA against EVERY `show:`-first recovery route (Apply on `staged`
   rows, Unapprove on `applied` rows, discard, extract-agenda). Single holder per
