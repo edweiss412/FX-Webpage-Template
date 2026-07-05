@@ -149,7 +149,48 @@ git commit --no-verify -m "feat(admin): SECTION_REGION_MAP for wizard step-3 dee
 - Consumes: `SourceAnchor` (`lib/sheet-links/buildSheetDeepLink.ts:3`).
 - Produces: `Step3Row.sourceAnchors?: Record<string, SourceAnchor>` — an OPTIONAL field, threaded only inside the `if (staged)` clean-row branch (`OnboardingWizard.tsx:356-374`); base/non-staged rows carry no `sourceAnchors`. When threaded it is at least `{}` (never `undefined`, per `exactOptionalPropertyTypes`). Task 3 reads it via `SectionData.row.sourceAnchors` and MUST treat it as optional (`?? {}`).
 
-- [ ] **Step 1: Write the failing test.** Add to `tests/components/onboardingWizard.fetchStep3.test.ts` a new describe mirroring the existing "parse_result threading" block (which seeds `dataByTable["pending_syncs"]` and asserts `row.parseResult`):
+- [ ] **Step 1a: Make the harness capture the SELECT column string.** The mock's
+  `select` is a passthrough that ignores its argument (`onboardingWizard.fetchStep3.test.ts:44`),
+  so a threading test alone CANNOT catch a forgotten `source_anchors` column in the
+  production SELECT (the mock returns the whole seeded row regardless). Extend the harness
+  to record the select string per table. In `tests/components/onboardingWizard.fetchStep3.test.ts`:
+
+  (1) Add a capture bucket to the hoisted `seed` (`:21-23`):
+```ts
+const seed = vi.hoisted(() => ({
+  dataByTable: {} as Record<string, unknown>,
+  selectByTable: {} as Record<string, string>,
+}));
+```
+  (2) Replace `builder.select = passthrough;` (`:44`) with a recorder:
+```ts
+    builder.select = (...args: unknown[]) => {
+      if (typeof table === "string" && typeof args[0] === "string") {
+        seed.selectByTable[table] = args[0];
+      }
+      return builder as AwaitableQuery;
+    };
+```
+  (3) Reset it in `beforeEach` (`:85-89`), next to the `dataByTable` reset:
+```ts
+  seed.selectByTable = {};
+```
+
+- [ ] **Step 1b: Write the failing tests.** Add to `tests/components/onboardingWizard.fetchStep3.test.ts` a new describe mirroring the existing "parse_result threading" block (which seeds `dataByTable["pending_syncs"]` and asserts `row.parseResult`). The FIRST test pins the production SELECT string (fails if the column is missing even though the mock returns the row anyway):
+
+```ts
+  test("the pending_syncs SELECT requests the source_anchors column", async () => {
+    seedManifest([{ drive_file_id: "dfid-1", name: "One.xlsx", status: "staged" }]);
+    seed.dataByTable["pending_syncs"] = [
+      { staged_id: "s-1", drive_file_id: "dfid-1", parse_result: PARSE_RESULT_FIXTURE, source_anchors: ANCHORS },
+    ];
+    const { fetchStep3Data } = await import("@/components/admin/OnboardingWizard");
+    await fetchStep3Data(SESSION_ID);
+    // Catches the "coercion/threading added but production SELECT column forgotten" gap:
+    // the passthrough mock would otherwise return the row regardless of the projection.
+    expect(seed.selectByTable["pending_syncs"]).toContain("source_anchors");
+  });
+```
 
 ```ts
 describe("fetchStep3Data — source_anchors threading (bug #316 item 3)", () => {
