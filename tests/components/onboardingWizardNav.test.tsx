@@ -91,31 +91,37 @@ afterEach(() => {
 });
 
 describe("OnboardingWizard navigation chrome (Task 5)", () => {
-  test("Step 3 renders NO top Back link (Variant B: Back moved into the sticky publish bar)", async () => {
+  test("Step 3 renders NO top Back link (Variant B: Back lives in the full-width footer)", async () => {
     const { queryByTestId, getByTestId } = render(
       await OnboardingWizard({ settings: FRESH_SETTINGS, searchParams: { step: "3" } }),
     );
-    // Top Back is gone on step 3…
+    // No top Back chrome, and the retired testid is gone entirely…
     expect(queryByTestId("wizard-back-link")).toBeNull();
     // …and (with a null-session FRESH_SETTINGS) step 3 lands on the no-session
-    // empty state — the chrome renders with ZERO Supabase.
+    // empty state — the chrome renders with ZERO Supabase, and no footer.
     expect(getByTestId("wizard-step3-no-session")).not.toBeNull();
+    expect(queryByTestId("wizard-footer")).toBeNull();
   });
 
-  test("Step 2 renders a Back link pointing at ?step=1", async () => {
+  test("Step 2 renders its Back link (→ ?step=1) inside the shared footer", async () => {
     const { getByTestId } = render(
       await OnboardingWizard({ settings: FRESH_SETTINGS, searchParams: { step: "2" } }),
     );
-    expect((getByTestId("wizard-back-link") as HTMLAnchorElement).getAttribute("href")).toBe(
-      "/admin?step=1",
-    );
+    const back = getByTestId("wizard-step2-back") as HTMLAnchorElement;
+    expect(back.getAttribute("href")).toBe("/admin?step=1");
+    // It is inside the full-width footer, not the top chrome.
+    expect(back.closest('[data-testid="wizard-footer"]')).not.toBeNull();
   });
 
-  test("Step 1 renders NO Back link (there is nowhere to go back to)", async () => {
-    const { queryByTestId } = render(
+  test("Step 1 renders NO Back (first step) — the footer shows a spacer, not a link", async () => {
+    const { queryByTestId, getByTestId } = render(
       await OnboardingWizard({ settings: FRESH_SETTINGS, searchParams: {} }),
     );
     expect(queryByTestId("wizard-back-link")).toBeNull();
+    expect(queryByTestId("wizard-step2-back")).toBeNull();
+    // The footer still renders (it carries the forward action); its back slot is a
+    // hidden spacer so the primary stays right-aligned.
+    expect(getByTestId("wizard-footer-back-spacer")).not.toBeNull();
   });
 
   test("visited-step pills are real <Link>s to their ?step= (n ≤ current)", async () => {
@@ -175,8 +181,8 @@ describe("OnboardingWizard navigation chrome (Task 5)", () => {
     expect((getByTestId("wizard-step2-folder-url-input") as HTMLInputElement).value).toBe(
       "https://drive.google.com/drive/folders/abc123",
     );
-    // …and a Continue-to-Step-3 link reopens the forward path without re-scanning.
-    expect(getByTestId("wizard-step2-resume-advance").getAttribute("href")).toBe("/admin?step=3");
+    // …and the footer's Continue reopens the forward path without re-scanning.
+    expect(getByTestId("wizard-step2-advance").getAttribute("href")).toBe("/admin?step=3");
     expect(getByTestId("wizard-step2-resume").textContent ?? "").toContain("Shows 2026");
   });
 
@@ -209,7 +215,11 @@ describe("OnboardingWizard navigation chrome (Task 5)", () => {
     expect(pill3.tagName).not.toBe("A");
     expect(pill3.getAttribute("href")).toBeNull();
     expect(queryByTestId("wizard-step2-resume")).toBeNull();
-    expect(queryByTestId("wizard-step2-resume-advance")).toBeNull();
+    // The footer's Continue is present but DISABLED (no reviewable scan to go to):
+    // a non-link, aria-disabled element — never a live forward path to an empty Step 3.
+    const advance = getByTestId("wizard-step2-advance");
+    expect(advance.tagName).not.toBe("A");
+    expect(advance.getAttribute("aria-disabled")).toBe("true");
     // No false pre-fill either — the input stays blank.
     expect((getByTestId("wizard-step2-folder-url-input") as HTMLInputElement).value).toBe("");
   });
@@ -283,12 +293,16 @@ describe("StepIndicator redesign — labels + connectors + done-check (Task 2)",
 });
 
 describe("OnboardingWizard Step-3 width + card list (Variant B — Task 5)", () => {
-  test("Step 3 uses the single-column container width (max-w-3xl, not the old lg:max-w-6xl)", async () => {
+  test("Step 3 widens the single-column container on large desktops (max-w-3xl base → xl:max-w-5xl, never the old lg:max-w-6xl)", async () => {
     const { getByTestId } = render(
       await OnboardingWizard({ settings: FRESH_SETTINGS, searchParams: { step: "3" } }),
     );
     const cls = getByTestId("onboarding-wizard").className;
+    // Base stays 768px (max-w-3xl) on laptops/tablets; only the xl breakpoint
+    // (≥1280px) widens the review list to 1024px so it stops looking lost in
+    // the max-w-[1600px] admin shell. Not a return to the pre-Variant-B lg:max-w-6xl.
     expect(cls).toContain("max-w-3xl");
+    expect(cls).toContain("xl:max-w-5xl");
     expect(cls).not.toContain("lg:max-w-6xl");
   });
 

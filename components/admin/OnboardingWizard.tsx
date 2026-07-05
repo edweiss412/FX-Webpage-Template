@@ -25,7 +25,7 @@
  */
 import { Fragment } from "react";
 import Link from "next/link";
-import { Check, ChevronLeft } from "lucide-react";
+import { Check } from "lucide-react";
 import type { AppSettingsRow } from "@/lib/onboarding/sessionLifecycle";
 import { startOverServerAction } from "@/lib/onboarding/serverActions";
 import { messageFor } from "@/lib/messages/lookup";
@@ -194,24 +194,12 @@ export function StepIndicator({
   );
 }
 
-// Non-destructive "Back" affordance (Task 5): a plain <Link> to the previous
-// step, matching the existing forward `?step=` pattern (Step2Verify's "Continue
-// to Step 3" link). Step 1 has no Back, so this renders only for steps 2 and 3.
-// SAFETY: mounting `?step=N-1` is read-only. Step2Verify (the ?step=2 body)
-// fires its scan POST ONLY from the form's onSubmit handler, never on mount, so
-// Back cannot re-trigger a scan or orphan the wizard session.
-function BackLink({ step }: { step: 2 | 3 }) {
-  return (
-    <Link
-      href={`/admin?step=${step - 1}`}
-      data-testid="wizard-back-link"
-      className="inline-flex min-h-tap-min items-center gap-1 rounded-sm px-2 text-sm font-medium text-text-subtle transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-    >
-      <ChevronLeft aria-hidden="true" className="size-4" />
-      Back
-    </Link>
-  );
-}
+// The per-step "Back" affordance now lives in the shared full-width
+// <WizardFooter> (rendered inside Step2Verify / Step3ReviewWithFinalize with the
+// step's forward action), so the wizard chrome no longer carries a top Back link.
+// SAFETY note preserved: navigating `?step=N-1` is read-only — Step2Verify fires
+// its scan POST only from the form's onSubmit, never on mount, so Back cannot
+// re-trigger a scan or orphan the wizard session.
 
 type Step3FetchResult =
   | { kind: "ok"; rows: Step3Row[]; finishable: boolean }
@@ -520,21 +508,26 @@ export async function OnboardingWizard({
       }
     : undefined;
 
-  // Variant B (Task 5): Steps 1-2 stay narrow (max-w-2xl); Step 3 uses a slightly
-  // wider single-column container (max-w-3xl) sized for the full-width compact
-  // sheet rows + sticky publish bar (the list itself lives in <Step3Review>).
-  const containerMaxWidth = step === 3 ? "max-w-3xl" : "max-w-2xl";
+  // Variant B (Task 5): Steps 1-2 stay narrow (max-w-2xl) — they are single-column
+  // instruction/input flows where extra width just adds empty space. Step 3 is the
+  // review list of full-width compact sheet rows (the list lives in <Step3Review>);
+  // it holds a 768px base (max-w-3xl) on laptops/tablets and widens to 1024px
+  // (xl:max-w-5xl, ≥1280px) so the list stops looking lost in the max-w-[1600px]
+  // admin shell on large desktops.
+  const containerMaxWidth = step === 3 ? "max-w-3xl xl:max-w-5xl" : "max-w-2xl";
 
   return (
+    // `pb-32` reserves space for the fixed full-width <WizardFooter> each step
+    // renders (Step 1 in <Step1Share>, Steps 2-3 in their client wrappers) so the
+    // bar never occludes the last row of content.
     <div
       data-testid="onboarding-wizard"
-      className={`mx-auto flex ${containerMaxWidth} flex-col gap-section-gap`}
+      className={`mx-auto flex ${containerMaxWidth} flex-col gap-section-gap pb-32`}
     >
+      {/* Forward + Back nav both live in the shared footer now; the top chrome is
+          just the step indicator. */}
       <div className="flex items-center justify-between gap-3">
         <StepIndicator step={step} maxReachedStep={maxReachedStep} />
-        {/* Variant B (Task 6): Step 3's Back moved into the sticky publish bar
-            (Step3ReviewWithFinalize), so only Step 2 keeps a top Back. */}
-        {step === 2 ? <BackLink step={2} /> : null}
       </div>
 
       {service.ok ? (

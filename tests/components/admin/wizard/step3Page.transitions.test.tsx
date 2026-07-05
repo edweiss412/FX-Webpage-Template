@@ -55,7 +55,7 @@ test("no changed/created Step-3 shell component imports framer-motion/AnimatePre
     "components/admin/wizard/Step3SheetCard.tsx",
     "components/admin/wizard/Step3Review.tsx",
     "components/admin/wizard/Step3ReviewWithFinalize.tsx",
-    "components/admin/wizard/Step3PublishBar.tsx",
+    "components/admin/wizard/WizardFooter.tsx",
     "components/admin/FinalizeButton.tsx",
     "components/admin/OnboardingWizard.tsx",
   ];
@@ -90,7 +90,7 @@ describe("Step-3 page — deliberately-instant conditionals (§8)", () => {
     expect(count.textContent).toContain("1 of 1 selected to publish");
   });
 
-  test("T8-c: summary + sticky bar are guarded on rows.length (instant mount/unmount)", () => {
+  test("T8-c: summary + footer are guarded on rows.length (instant mount/unmount)", () => {
     const full = render(
       <Step3ReviewWithFinalize
         wizardSessionId={WSID}
@@ -101,7 +101,7 @@ describe("Step-3 page — deliberately-instant conditionals (§8)", () => {
       />,
     );
     expect(full.getByTestId("wizard-step3-summary")).toBeTruthy();
-    expect(full.getByTestId("wizard-step3-publish-bar")).toBeTruthy();
+    expect(full.getByTestId("wizard-footer")).toBeTruthy();
     cleanup();
     const empty = render(
       <Step3ReviewWithFinalize
@@ -113,7 +113,7 @@ describe("Step-3 page — deliberately-instant conditionals (§8)", () => {
       />,
     );
     expect(empty.queryByTestId("wizard-step3-summary")).toBeNull();
-    expect(empty.queryByTestId("wizard-step3-publish-bar")).toBeNull();
+    expect(empty.queryByTestId("wizard-footer")).toBeNull();
     expect(empty.getByTestId("wizard-step3-empty")).toBeTruthy();
   });
 

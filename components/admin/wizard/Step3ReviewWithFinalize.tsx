@@ -21,7 +21,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { FinalizeButton } from "@/components/admin/FinalizeButton";
-import { Step3PublishBar } from "@/components/admin/wizard/Step3PublishBar";
+import { WizardFooter } from "@/components/admin/wizard/WizardFooter";
 import {
   Step3Review,
   computeSelectableCounts,
@@ -55,39 +55,42 @@ export function Step3ReviewWithFinalize({
   });
 
   return (
-    // `w-full` is load-bearing: the sticky bar's `w-full` resolves against THIS
-    // wrapper, so it must fill the wizard container's width for DI-3 (bar spans
-    // the container). This project's Tailwind v4 flex parents are not relied on to
-    // stretch children implicitly.
-    <div className="relative flex min-h-full w-full flex-col">
-      {/* Scroll body: bottom padding so the last card is never occluded by the
-          sticky bar (DI-3, spec §7). */}
+    // The publish controls now live in the shared full-width <WizardFooter>
+    // (fixed to the viewport bottom, spanning edge-to-edge). It positions against
+    // the viewport, so this wrapper no longer needs `relative`/`w-full` to size a
+    // sticky child. Bottom padding on the scroll body keeps the last card clear of
+    // the fixed footer (DI-3, spec §7); OnboardingWizard pads the column too.
+    <div className="flex min-h-full flex-col">
       <div className="pb-24">
         <Step3Review wizardSessionId={wizardSessionId} rows={rows} onCountsChange={setCounts} />
       </div>
       {rows.length > 0 ? (
-        <Step3PublishBar>
-          <p
-            data-testid="wizard-step3-publish-count"
-            className="text-sm tabular-nums text-text-subtle"
-          >
-            <b className="text-text-strong">{counts.selectedCount}</b> of {counts.selectableTotal}{" "}
-            selected to publish
-          </p>
-          <div className="ml-auto flex items-end gap-3">
+        <WizardFooter
+          back={
             <Link
               data-testid="wizard-step3-back"
               href="/admin?step=2"
-              className="inline-flex min-h-tap-min items-center gap-1 rounded-md px-3 text-sm font-medium text-text-subtle transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+              className="inline-flex min-h-tap-min items-center gap-1 rounded-sm px-2 text-sm font-medium text-text-subtle transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
             >
               <ChevronLeft aria-hidden="true" className="size-4" />
               Back
             </Link>
-            {/* The disabled gate is UNCHANGED — it gates on `finishable` (a blocking
-                row blocks finish), NOT on selectableTotal. A finishable page with
-                zero selectable rows keeps Publish enabled (finish-with-nothing is
-                reachable, spec §4.4/§10). panelPlacement="above" floats the
-                running/terminal panels above the bar. */}
+          }
+          center={
+            <p
+              data-testid="wizard-step3-publish-count"
+              className="text-sm tabular-nums text-text-subtle"
+            >
+              <b className="text-text-strong">{counts.selectedCount}</b> of {counts.selectableTotal}{" "}
+              selected to publish
+            </p>
+          }
+          primary={
+            // The disabled gate is UNCHANGED — it gates on `finishable` (a blocking
+            // row blocks finish), NOT on selectableTotal. A finishable page with
+            // zero selectable rows keeps Publish enabled (finish-with-nothing is
+            // reachable, spec §4.4/§10). panelPlacement="above" floats the
+            // running/terminal panels above the footer (in-flow, flex-col-reverse).
             <FinalizeButton
               wizardSessionId={wizardSessionId}
               disabled={!finishable}
@@ -95,8 +98,8 @@ export function Step3ReviewWithFinalize({
               uncheckedCleanCount={counts.uncheckedCleanCount}
               panelPlacement="above"
             />
-          </div>
-        </Step3PublishBar>
+          }
+        />
       ) : null}
     </div>
   );

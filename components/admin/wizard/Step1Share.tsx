@@ -30,6 +30,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HelpTooltip } from "@/components/admin/HelpTooltip";
+import { WizardFooter } from "@/components/admin/wizard/WizardFooter";
 
 type Step1ShareProps = {
   serviceAccountEmail: string;
@@ -189,15 +190,19 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
         </p>
       </details>
 
-      <div className="flex justify-end">
-        <Link
-          data-testid="wizard-step1-advance"
-          href="/admin?step=2"
-          className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-accent px-6 text-base font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-        >
-          I&rsquo;ve shared the folder
-        </Link>
-      </div>
+      {/* Forward nav lives in the shared full-width footer (no Back on step 1,
+          the first step). The primary keeps its testid + copy for continuity. */}
+      <WizardFooter
+        primary={
+          <Link
+            data-testid="wizard-step1-advance"
+            href="/admin?step=2"
+            className="inline-flex min-h-tap-min items-center justify-center rounded-sm bg-accent px-6 text-base font-semibold text-accent-text shadow-(--shadow-tile) transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          >
+            I&rsquo;ve shared the folder
+          </Link>
+        }
+      />
     </section>
   );
 }
