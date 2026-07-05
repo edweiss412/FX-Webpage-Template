@@ -187,6 +187,22 @@ describe("fetchStep3Data — source_anchors threading (bug #316 item 3)", () => 
     const stagedRow = result.rows.find((r) => r.driveFileId === "dfid-1");
     expect(stagedRow?.sourceAnchors).toEqual({});
   });
+
+  test("an APPLIED clean row also threads sourceAnchors (pending_syncs survives approval)", async () => {
+    // isCleanReviewRow(status) covers BOTH 'staged' and 'applied' (OnboardingWizard.tsx:351-357):
+    // a checked/applied card keeps its pending_syncs row, so its links must anchor too. A
+    // status==='staged'-only implementation would regress applied cards to #gid=0.
+    seedManifest([{ drive_file_id: "dfid-applied", name: "Applied.xlsx", status: "applied" }]);
+    seed.dataByTable["pending_syncs"] = [
+      { staged_id: "s-a", drive_file_id: "dfid-applied", parse_result: PARSE_RESULT_FIXTURE, source_anchors: ANCHORS },
+    ];
+    const { fetchStep3Data } = await import("@/components/admin/OnboardingWizard");
+    const result = await fetchStep3Data(SESSION_ID);
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    const appliedRow = result.rows.find((r) => r.driveFileId === "dfid-applied");
+    expect(appliedRow?.sourceAnchors).toEqual(ANCHORS);
+  });
 });
 ```
 
@@ -282,8 +298,13 @@ git commit --no-verify -m "feat(admin): thread pending_syncs.source_anchors to S
 ```ts
 describe("Step3ReviewModal — per-section deep link anchors (bug #316 item 3)", () => {
   const CREW_ANCHOR = { title: "INFO", gid: 0, a1: "A25:E25" };
-  // sourceAnchors keyed by RegionId. `crew` region present; other regions absent.
-  const ANCHORS = { crew: CREW_ANCHOR };
+  const TRANSPORT_ANCHOR = { title: "INFO", gid: 0, a1: "A49:D61" };
+  // sourceAnchors keyed by RegionId. `crew` + `transportation` present; `hotels` absent.
+  // NOTE: `transportation` (not `transport`) is deliberate — it is the RegionId, while
+  // `transport` is the SectionId. This pair PROVES SECTION_REGION_MAP is consulted: a
+  // buggy `sourceAnchors[chrome.sectionId]` would look up `sourceAnchors["transport"]`
+  // (undefined) and fall back to #gid=0, failing the transport assertion below.
+  const ANCHORS = { crew: CREW_ANCHOR, transportation: TRANSPORT_ANCHOR };
 
   function withAnchors() {
     const pr = buildParseResult();
@@ -302,8 +323,19 @@ describe("Step3ReviewModal — per-section deep link anchors (bug #316 item 3)",
     expect(link.getAttribute("href")).not.toBe(buildSheetDeepLink(DFID));
   });
 
+  test("transport section (non-identity SectionId→RegionId) uses SECTION_REGION_MAP", () => {
+    // transport → transportation: proves the map is consulted (not sourceAnchors[sectionId]).
+    const d = withAnchors();
+    const { q } = renderModal({ d });
+    const link = q.getByTestId(`wizard-step3-card-${DFID}-section-transport-sheetlink`) as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe(buildSheetDeepLink(DFID, TRANSPORT_ANCHOR));
+    expect(link.getAttribute("href")).toContain("range=A49%3AD61");
+    // A `sourceAnchors[chrome.sectionId]` bug → sourceAnchors["transport"] undefined → #gid=0.
+    expect(link.getAttribute("href")).not.toBe(buildSheetDeepLink(DFID));
+  });
+
   test("a section whose region has no anchor falls back to #gid=0", () => {
-    const d = withAnchors(); // only `crew` present; `hotels` region absent
+    const d = withAnchors(); // `hotels` region absent from ANCHORS
     const { q } = renderModal({ d });
     const link = q.getByTestId(`wizard-step3-card-${DFID}-section-hotels-sheetlink`) as HTMLAnchorElement;
     expect(link.getAttribute("href")).toBe(buildSheetDeepLink(DFID)); // #gid=0 fallback
