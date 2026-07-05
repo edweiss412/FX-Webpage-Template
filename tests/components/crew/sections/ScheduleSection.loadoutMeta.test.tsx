@@ -49,6 +49,7 @@ describe("ScheduleSection — fragment-day Show-time meta gates on load-out-filt
         // filter drops it → dayEntries is empty → the fragment showStart meta applies.
         entries: [{ start: "7:00 AM", title: "Load Out — venue", kind: "loadout" }],
         showStart: SHOW_START,
+        showEnd: null,
         window: null,
       },
     });
@@ -72,6 +73,7 @@ describe("ScheduleSection — fragment-day Show-time meta gates on load-out-filt
         // showStart present but must NOT print: displayable entries drive the list,
         // so the fragment meta branch is not reached.
         showStart: SHOW_START,
+        showEnd: null,
         window: null,
       },
     });

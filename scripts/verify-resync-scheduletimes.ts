@@ -18,7 +18,8 @@ type DayExpectation =
   | { field: "entries" } // titled run-of-show (Consultants, RPAS, FinTech)
   | { field: "window" } // bare-window span (RIA, Asset-Mgmt)
   | { field: "showStart" } // leading-start fragment (Redefining-FI Day 1)
-  | { field: "unparsed" }; // deliberate end-only → expected SCHEDULE_TIME_UNPARSED, NOT a decoded day
+  | { field: "showEnd" } // end-only fragment (Redefining-FI Day 2 "GS: ... - 6:00 PM")
+  | { field: "unparsed" }; // genuinely unparseable → SCHEDULE_TIME_UNPARSED, NOT a decoded day
 
 /** drive_file_id → { isoDate → expectation }. CANONICAL live Drive IDs (gsheets-MCP
  *  recon 2026-06-22) + per-ISO field derived from each show's live DATES TIME cells.
@@ -35,7 +36,7 @@ const EXPECTED: Record<string, Record<string, DayExpectation>> = {
   // Redefining Fixed Income / Private Credit 2025 — Day 1 leading-start fragment, Day 2 end-only
   "1HHw7vqCpnuxeDQDU5Gyxl70kyYV5-q6OFhcH_slXTcg": {
     "2025-05-13": { field: "showStart" }, // "GS: 8:00 AM -"
-    "2025-05-14": { field: "unparsed" }, // "GS: ... - 6:00 PM" — deliberate end-only
+    "2025-05-14": { field: "showEnd" }, // "GS: ... - 6:00 PM" — end-only, decoded as showEnd
   },
   // RIA Investment Forum - Central 2025 — bare windows both days
   "1Ll_fx6Q24y6aTSqIV7YiruDKrYtezkkKrVCXVc4Cwkw": {
@@ -91,6 +92,14 @@ function dayHasExpectedField(day: RunOfShow[string] | undefined, exp: DayExpecta
       return day.window != null;
     case "showStart":
       return day.showStart != null;
+    case "showEnd":
+      return day.showEnd != null;
+    default: {
+      // Exhaustiveness guard: a new DayExpectation variant with no case above leaves
+      // `exp` non-never here, so this assignment becomes a COMPILE error.
+      const _exhaustive: never = exp;
+      return _exhaustive;
+    }
   }
 }
 
@@ -165,7 +174,7 @@ async function main() {
     const { value, corrupt } = decodeRunOfShow(rec?.run_of_show ?? null);
     const decoded: RunOfShow = (value as RunOfShow) ?? {};
     const recoveredSomething = Object.values(decoded).some(
-      (d) => d.entries.length > 0 || d.showStart != null || d.window != null,
+      (d) => d.entries.length > 0 || d.showStart != null || d.showEnd != null || d.window != null,
     );
     const pass = rec !== undefined && !corrupt && recoveredSomething;
     if (!pass) anyFail = true;

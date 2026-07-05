@@ -7,7 +7,7 @@ const d1 = "2026-06-24",
   d2 = "2026-06-25";
 const e = [{ start: "9:00 AM", title: "Keynote" }];
 // decodeRunOfShow wraps legacy AgendaEntry[] to ScheduleDay; decoded form used in assertions below.
-const eSD = { entries: e, showStart: null, window: null };
+const eSD = { entries: e, showStart: null, showEnd: null, window: null };
 
 // Minimal shows row — only the fields getShowForViewer dereferences. dates.showDays is the current-date domain.
 function showRow(showDays: string[]) {
@@ -238,6 +238,7 @@ describe("getShowForViewer.runOfShow ScheduleDay projection (per-day-schedule)",
   const sd = (start: string | null, win: { start: string; end: string } | null = null) => ({
     entries: start ? [{ start, title: "Keynote" }] : [],
     showStart: start,
+    showEnd: null,
     window: win,
   });
 

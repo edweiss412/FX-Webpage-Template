@@ -169,6 +169,7 @@ function fullFixture(): ShowForViewer {
       [TODAY_ISO]: {
         entries: [{ start: "09:00", title: "Doors open" }],
         showStart: "09:00",
+        showEnd: null,
         window: null,
       },
     },

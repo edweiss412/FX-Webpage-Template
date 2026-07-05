@@ -21,7 +21,7 @@ function renderEntries(entries: AgendaEntry[]) {
         show: { dates: DATES },
         // runOfShow is now Record<string, ScheduleDay> (Task 2): lift the bare
         // entries into the canonical day value (null showStart/window).
-        runOfShow: { [D1]: { entries, showStart: null, window: null } },
+        runOfShow: { [D1]: { entries, showStart: null, showEnd: null, window: null } },
       })}
       viewer={VIEWER}
       today={TODAY}

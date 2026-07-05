@@ -53,6 +53,7 @@ describe("enrichWithDrivePins — runOfShow survives the ParsedSheet→ParseResu
       "2026-05-14": {
         entries: [{ start: "8:00 AM", title: "X" }],
         showStart: "8:00 AM",
+        showEnd: null,
         window: null,
       },
     };

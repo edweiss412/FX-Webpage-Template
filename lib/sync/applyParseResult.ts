@@ -153,7 +153,11 @@ export async function applyParseResult(
   } else {
     const confirmed = Object.fromEntries(
       Object.entries(parsedRunOfShow).filter(
-        ([, day]) => day.entries.length > 0 || day.showStart !== null || day.window !== null,
+        ([, day]) =>
+          day.entries.length > 0 ||
+          day.showStart !== null ||
+          day.showEnd !== null ||
+          day.window !== null,
       ),
     );
     runOfShowToStore = Object.keys(confirmed).length > 0 ? confirmed : null;
@@ -163,9 +167,14 @@ export async function applyParseResult(
     const prior = args.snapshot.priorRunOfShow;
     let emittedIndex = 0;
     const isFullyEmpty = (d: ScheduleDay | undefined): boolean =>
-      d != null && d.entries.length === 0 && d.showStart === null && d.window === null;
+      d != null &&
+      d.entries.length === 0 &&
+      d.showStart === null &&
+      d.showEnd === null &&
+      d.window === null;
     const priorHadContent = (d: ScheduleDay | undefined): boolean =>
-      d != null && (d.entries.length > 0 || d.showStart !== null || d.window !== null);
+      d != null &&
+      (d.entries.length > 0 || d.showStart !== null || d.showEnd !== null || d.window !== null);
     for (const [iso, day] of Object.entries(parsedRunOfShow)) {
       if (isFullyEmpty(day) && priorHadContent(prior?.[iso])) {
         args.parseResult.warnings.push(agendaDayEmptied(emittedIndex, iso));

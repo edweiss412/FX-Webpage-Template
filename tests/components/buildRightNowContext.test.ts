@@ -165,8 +165,8 @@ describe("buildRightNowContext — showAnchors carry (D6/§5.1)", () => {
   it("carries the dated per-day Show anchors from runOfShow into RightNowContext.showAnchors", () => {
     const showDays = ["2026-10-08", "2026-10-09"];
     const runOfShow: RunOfShow = {
-      "2026-10-08": { entries: [], showStart: "7:15am", window: null },
-      "2026-10-09": { entries: [], showStart: "8:30am", window: null },
+      "2026-10-08": { entries: [], showStart: "7:15am", showEnd: null, window: null },
+      "2026-10-09": { entries: [], showStart: "8:30am", showEnd: null, window: null },
     };
     const ctx = buildRightNowContext({
       show: show({ dates: { travelIn: null, set: null, showDays, travelOut: null } }),

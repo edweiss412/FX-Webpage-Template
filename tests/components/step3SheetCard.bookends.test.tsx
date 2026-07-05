@@ -100,6 +100,7 @@ describe("Step3SheetCard ScheduleBreakdown — SET/strike/load-out (Task 14)", (
           { start: "8:30 PM", title: "Setup" },
         ],
         showStart: null,
+        showEnd: null,
         window: null,
       },
       "2026-04-10": {
@@ -109,6 +110,7 @@ describe("Step3SheetCard ScheduleBreakdown — SET/strike/load-out (Task 14)", (
           { start: "6:00 PM", title: "Load Out", kind: "loadout" },
         ],
         showStart: null,
+        showEnd: null,
         window: null,
       },
     };
@@ -135,6 +137,7 @@ describe("Step3SheetCard ScheduleBreakdown — SET/strike/load-out (Task 14)", (
       "2026-04-10": {
         entries: [{ start: "6:00 PM", title: "Load Out", kind: "loadout" }],
         showStart: null,
+        showEnd: null,
         window: null,
       },
     };
@@ -161,6 +164,7 @@ describe("Step3SheetCard ScheduleBreakdown — SET/strike/load-out (Task 14)", (
       "2026-04-10": {
         entries: [...agenda, { start: "6:00 PM", title: "Load Out", kind: "loadout" }],
         showStart: null,
+        showEnd: null,
         window: null,
       },
     };
@@ -183,6 +187,7 @@ describe("Step3SheetCard ScheduleBreakdown — SET/strike/load-out (Task 14)", (
           ? [{ start: "6:00 PM", title: "LoadOutMarker", kind: "loadout" }]
           : [{ start: "9:00 AM", title: `PlainDay${d}` }],
         showStart: null,
+        showEnd: null,
         window: null,
       };
     }

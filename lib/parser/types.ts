@@ -361,6 +361,7 @@ export type AgendaEntry = {
 export type ScheduleDay = {
   entries: AgendaEntry[]; // titled run-of-show (may be [])
   showStart: string | null; // per-day first-call anchor
+  showEnd: string | null; // per-day end-only anchor ("GS: ... - 6:00 PM" → "6:00 PM"); NOT a start anchor
   window: { start: string; end: string } | null; // bare-window days only
 };
 export type RunOfShow = Record<string, ScheduleDay>; // keyed by ISO 'YYYY-MM-DD'

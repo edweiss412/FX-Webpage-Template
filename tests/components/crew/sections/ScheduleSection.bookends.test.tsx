@@ -76,8 +76,8 @@ function makeData(opts: { assignedNames: string[] }) {
     show: { dates: DATES },
     transportation: transport(opts.assignedNames),
     runOfShow: {
-      [SET]: { entries: setEntries, showStart: null, window: null },
-      [SHOW]: { entries: showEntries, showStart: null, window: null },
+      [SET]: { entries: setEntries, showStart: null, showEnd: null, window: null },
+      [SHOW]: { entries: showEntries, showStart: null, showEnd: null, window: null },
     },
   });
 }

@@ -149,9 +149,19 @@ describe("resolveKeyTimes — per-day shows[] (decision table rows 1-3)", () => 
   it("emits one ShowAnchor per visible show day, each carrying that day's own anchor", () => {
     const showDays = ["2026-10-08", "2026-10-09", "2026-10-10"];
     const runOfShow: RunOfShow = {
-      "2026-10-08": { entries: [], showStart: "7:15am", window: null }, // row 1
-      "2026-10-09": { entries: [], showStart: null, window: { start: "7:30am", end: "5:50pm" } }, // row 2
-      "2026-10-10": { entries: [{ start: "8:00am", title: "GS" }], showStart: null, window: null }, // row 3
+      "2026-10-08": { entries: [], showStart: "7:15am", showEnd: null, window: null }, // row 1
+      "2026-10-09": {
+        entries: [],
+        showStart: null,
+        showEnd: null,
+        window: { start: "7:30am", end: "5:50pm" },
+      }, // row 2
+      "2026-10-10": {
+        entries: [{ start: "8:00am", title: "GS" }],
+        showStart: null,
+        showEnd: null,
+        window: null,
+      }, // row 3
     };
     const anchors = resolveKeyTimes(dates({ showDays }), null, runOfShow, NONE);
     // assert against the RETURNED anchors (data source), not a render container:
@@ -198,6 +208,7 @@ describe("resolveKeyTimes — gating + fallback (decision table rows 4-6)", () =
       "2026-10-08": {
         entries: [{ start: "7:15am", title: "Registration" }],
         showStart: null,
+        showEnd: null,
         window: null,
       },
     };
@@ -233,7 +244,7 @@ describe("resolveKeyTimes — gating + fallback (decision table rows 4-6)", () =
   it("date-safe fallback: Redefining-FI Day-2 (5/14) absent from runOfShow, room dated 5/13 → NO 5/14 anchor", () => {
     const gs = room({ show_time: "5/13 @ 8:00 AM" });
     const runOfShow: RunOfShow = {
-      "2026-05-13": { entries: [], showStart: "8:00 AM", window: null }, // Day 1 recovered
+      "2026-05-13": { entries: [], showStart: "8:00 AM", showEnd: null, window: null }, // Day 1 recovered
       // 2026-05-14 deliberately absent (contentful-unparsed end-only cell)
     };
     const a = resolveKeyTimes(
@@ -260,9 +271,19 @@ describe("resolveKeyTimes — ShowAnchor.time is sentinel-guarded at the source"
   it("a sentinel showStart/window.start/entries[0].start never becomes a ShowAnchor.time; falls through", () => {
     const showDays = ["2026-10-08", "2026-10-09", "2026-10-10"];
     const runOfShow: RunOfShow = {
-      "2026-10-08": { entries: [], showStart: "TBD", window: { start: "7:30am", end: "5:50pm" } }, // showStart sentinel → window.start
-      "2026-10-09": { entries: [{ start: "N/A", title: "GS" }], showStart: null, window: null }, // entries[0].start sentinel → omit (no room)
-      "2026-10-10": { entries: [], showStart: "TBA", window: null }, // all sentinel/absent → omit
+      "2026-10-08": {
+        entries: [],
+        showStart: "TBD",
+        showEnd: null,
+        window: { start: "7:30am", end: "5:50pm" },
+      }, // showStart sentinel → window.start
+      "2026-10-09": {
+        entries: [{ start: "N/A", title: "GS" }],
+        showStart: null,
+        showEnd: null,
+        window: null,
+      }, // entries[0].start sentinel → omit (no room)
+      "2026-10-10": { entries: [], showStart: "TBA", showEnd: null, window: null }, // all sentinel/absent → omit
     };
     const a = resolveKeyTimes(dates({ showDays }), null, runOfShow, NONE);
     // No anchor.time may equal a sentinel.
@@ -279,6 +300,7 @@ describe("resolveKeyTimes — synthetic strike/loadout entries are not show anch
       "2025-05-14": {
         entries: [{ start: "6:00 PM", title: "Load Out", kind: "loadout" }],
         showStart: null,
+        showEnd: null,
         window: null,
       },
     };
@@ -297,6 +319,7 @@ describe("resolveKeyTimes — synthetic strike/loadout entries are not show anch
           { start: "9:00 AM", title: "Keynote" },
         ],
         showStart: null,
+        showEnd: null,
         window: null,
       },
     };
@@ -314,6 +337,7 @@ describe("resolveKeyTimes — terminal-titled entries are not show anchors (desi
       "2025-05-14": {
         entries: [{ start: "4:15PM", title: "Meeting Concludes" }],
         showStart: null,
+        showEnd: null,
         window: null,
       },
     };
@@ -331,6 +355,7 @@ describe("resolveKeyTimes — terminal-titled entries are not show anchors (desi
           { start: "9:00 AM", title: "General Session" },
         ],
         showStart: null,
+        showEnd: null,
         window: null,
       },
     };
@@ -400,5 +425,15 @@ describe("resolveKeyTimes — Set/Strike stage-gating (#248)", () => {
     const a = resolveKeyTimes(ANCHOR_DATES(), [gs], null, NONE); // no 5th arg — optional default
     expect(a.set).toBeDefined();
     expect(a.strike).toBeDefined();
+  });
+
+  it("#307 showEnd-only day produces NO show anchor (end != start)", () => {
+    const anchors = resolveKeyTimes(
+      { dates: { showDays: ["2025-05-14"] } } as never,
+      null, // no rooms
+      { "2025-05-14": { entries: [], showStart: null, showEnd: "6:00 PM", window: null } },
+      NONE,
+    );
+    expect(anchors.shows).toBeUndefined();
   });
 });

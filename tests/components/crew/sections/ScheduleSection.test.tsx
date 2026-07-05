@@ -264,7 +264,7 @@ test("fragment-day showStart / window meta is sentinel-guarded (raw 'TBD' never 
   // Fragment day: showStart only, entries [], window null — but the value is a sentinel.
   const data = makeShowForViewer({
     show: { dates: { showDays: ["2026-10-08"], set: null, travelIn: null, travelOut: null } },
-    runOfShow: { "2026-10-08": { entries: [], showStart: "TBD", window: null } },
+    runOfShow: { "2026-10-08": { entries: [], showStart: "TBD", showEnd: null, window: null } },
   });
   const r = render(
     <ScheduleSection data={data} viewer={adminViewer} today={at("2026-10-08")} showId="s1" />,
@@ -279,7 +279,7 @@ test("fragment-day showStart / window meta is sentinel-guarded (raw 'TBD' never 
   // Real clock → meta renders.
   const data2 = makeShowForViewer({
     show: { dates: { showDays: ["2026-10-08"], set: null, travelIn: null, travelOut: null } },
-    runOfShow: { "2026-10-08": { entries: [], showStart: "8:00am", window: null } },
+    runOfShow: { "2026-10-08": { entries: [], showStart: "8:00am", showEnd: null, window: null } },
   });
   const r2 = render(
     <ScheduleSection data={data2} viewer={adminViewer} today={at("2026-10-08")} showId="s1" />,

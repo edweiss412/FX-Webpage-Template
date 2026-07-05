@@ -5,15 +5,22 @@ import type { ScheduleDay } from "@/lib/parser/types";
 const titled = (start: string): ScheduleDay => ({
   entries: [{ start, title: "Keynote" }],
   showStart: start,
+  showEnd: null,
   window: null,
 });
 const bareWindow: ScheduleDay = {
   entries: [],
   showStart: null,
+  showEnd: null,
   window: { start: "7:30am", end: "5:50pm" },
 };
-const showStartOnly: ScheduleDay = { entries: [], showStart: "8:00 AM", window: null };
-const fullyEmpty: ScheduleDay = { entries: [], showStart: null, window: null };
+const showStartOnly: ScheduleDay = {
+  entries: [],
+  showStart: "8:00 AM",
+  showEnd: null,
+  window: null,
+};
+const fullyEmpty: ScheduleDay = { entries: [], showStart: null, showEnd: null, window: null };
 
 function makeTx() {
   const captured: { run_of_show?: Record<string, ScheduleDay> | null } = {};
@@ -135,5 +142,26 @@ describe("applyParseResult — ScheduleDay persist predicate (§7)", () => {
     ).parseResult.warnings.filter((w) => w.code === "AGENDA_DAY_EMPTIED");
     expect(emptied).toHaveLength(1);
     expect(emptied[0]!.sourceCell).toBeUndefined();
+  });
+
+  const endOnly: ScheduleDay = { entries: [], showStart: null, showEnd: "6:00 PM", window: null };
+
+  it("#307 end-only (showEnd) day survives storage (not filtered)", async () => {
+    const { tx, captured } = makeTx();
+    await applyParseResult(tx, baseArgs({ "2025-05-14": endOnly }, null));
+    expect(captured.run_of_show?.["2025-05-14"]?.showEnd).toBe("6:00 PM");
+  });
+
+  it("#307 prior-populated day that becomes end-only does NOT emit AGENDA_DAY_EMPTIED", async () => {
+    const { tx } = makeTx();
+    const args = baseArgs(
+      { "2025-05-14": endOnly },
+      { "2025-05-14": titled("8:00 AM") }, // was stored before; now end-only → still has content
+    );
+    await applyParseResult(tx, args);
+    const codes = (
+      args as { parseResult: { warnings: { code: string }[] } }
+    ).parseResult.warnings.map((w) => w.code);
+    expect(codes).not.toContain("AGENDA_DAY_EMPTIED");
   });
 });
