@@ -448,7 +448,7 @@ export async function AlertBanner() {
         {identityText != null ? (
           <p
             data-testid="admin-alert-identity"
-            className="col-start-1 row-start-2 min-w-0 mt-2 text-sm text-text-subtle"
+            className="col-start-1 row-start-2 min-w-0 mt-2 break-words text-sm text-text-subtle"
           >
             {identityText}
           </p>
@@ -477,7 +477,10 @@ export async function AlertBanner() {
               satisfied by the other when the panel is open. Suppressed with the
               collapsed line when describeAlert → null. */}
           {identityText != null ? (
-            <p data-testid="admin-alert-identity-panel" className="mt-2 text-sm text-text-subtle">
+            <p
+              data-testid="admin-alert-identity-panel"
+              className="mt-2 break-words text-sm text-text-subtle"
+            >
               {identityText}
             </p>
           ) : null}

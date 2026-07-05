@@ -306,3 +306,16 @@ TDD ordering note (Codex P4): the identity ELEMENT already exists after Task 10,
 **Placeholder scan:** none — every code step has concrete test/impl; regexes and field names are exact.
 
 **Type consistency:** `IdentityContext`/`SerializedAlertIdentity`/`AlertIdentity`/`AlertIdentitySegment` defined in Task 1, consumed unchanged in 2/4/8/10/11. `resolveAlertIdentities` signature in Task 4 matches its callers (Tasks 8/10/11). `sanitizeIdentityString(raw, {includePii})` consistent across Tasks 1/2/4.
+
+## Task 14 — Impeccable v3 dual-gate dispositions (invariant 8)
+
+External attestation (fresh-eyes Opus attestor, not the implementer) ran `/impeccable critique` + `/impeccable audit` on the `AlertBanner.tsx` + `PerShowAlertSection.tsx` identity-line diff (product register). Preflight passed (PRODUCT.md + DESIGN.md context, product register, command references). **Result: 0 CRITICAL, 0 HIGH — invariant-8 gating bar satisfied, nothing required fix-or-defer.** Audit total 18/20 (Excellent).
+
+Dispositions:
+
+- **[Contrast — the flagged open question] RESOLVED PASS.** `text-text-subtle` on the banner `warning-bg`, computed from live `globals.css` `@theme` tokens: LIGHT 6.13:1, DARK 4.72:1 (14px = normal text → 4.5:1 AA floor; dark is the tight case but clears). Per-show `text-text-subtle` on page bg: LIGHT 6.47:1 / DARK 6.75:1. No AA failure either theme.
+- **[LOW — long-email overflow] FIXED (landed here).** Added `break-words` to all three identity `<p>`s (banner collapsed `admin-alert-identity`, banner panel `admin-alert-identity-panel`, `per-show-alert-identity`). The line carries a raw email and "Doug-on-phone" is an explicit design context, so a pathologically long unbroken address could overflow at 320–390px; `break-words` is the minimal guard. 65 component tests + typecheck + prettier stay green.
+- **[MEDIUM — neutral `text-text-subtle` vs a warning-family muted tone] ACCEPTED as-is.** The identity line matches the existing banner sub-lines (`admin-alert-helpful-context`, failed-sources) which already use `text-sm text-text-subtle` on `warning-bg`; introducing a `warning-text-subtle` token is a whole-banner tone decision out of this feature's scope. Consistency wins; contrast already clears AA.
+- **[LOW — cross-surface size asymmetry `text-sm` vs `text-xs`] ACCEPTED.** Each identity line mirrors its LOCAL siblings (banner sub-lines are `text-sm`; per-show sub-lines are `text-xs`), so it is within-surface consistent; harmonizing across surfaces would break local consistency for no legibility gain.
+
+No `DEFERRED.md` entry needed (no HIGH/CRITICAL deferrals). The `break-words` fix lands in the same commit as these dispositions.

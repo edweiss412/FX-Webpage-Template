@@ -354,7 +354,10 @@ export async function PerShowAlertSection({
                   (global / empty / unknown code / degraded resolve). The <p>
                   contains ONLY the identity string. */}
               {alert.identityText ? (
-                <p data-testid="per-show-alert-identity" className="text-xs text-text-subtle">
+                <p
+                  data-testid="per-show-alert-identity"
+                  className="break-words text-xs text-text-subtle"
+                >
                   {alert.identityText}
                 </p>
               ) : null}
