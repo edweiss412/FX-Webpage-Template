@@ -92,8 +92,11 @@ line** when there are no titled entries, mirroring the crew `ScheduleSection` se
   - else `showEnd` real (sentinel-guarded) → `Ends {showEnd}` (e.g. `Ends 6:00 PM`);
   - else null.
 - Render `timeMeta`, when non-null, as a muted line directly under the date header, above the
-  (empty) entries grid. Reuse the existing sentinel guard (`hasContent`) / the shared
-  `formatScheduleWindow` from `@/lib/crew/agendaDisplay` for the window branch so behavior matches crew.
+  (empty) entries grid. Route `showStart`/`showEnd` through `resolveOptionalField` (the sentinel-hiding
+  guard — hides `TBD`/`N/A`/`TBA`, NOT the weaker `hasContent`) and the window through the shared
+  `formatScheduleWindow` from `@/lib/crew/agendaDisplay`, so a sentinel value hides exactly as it does on
+  crew (defense-in-depth; `components/admin/` is outside the `_metaSentinelHidingContract` walk, so this
+  is enforced by behavioral test 9, not the structural meta-test).
 
 **Guard conditions.** `ros[iso]` may be undefined (guarded by `arr()`/optional chaining as today).
 `showStart`/`window`/`showEnd` may each be null/sentinel — every value passes through the sentinel
@@ -387,6 +390,13 @@ Each test derives expectations from fixture dimensions; none is tautological.
     stale against the new end-only contract.* (The live `scripts/verify-resync-scheduletimes.ts` map flip
     at `:38` is exercised by that gate against `TEST_DATABASE_URL`, not by unit test.)
 
+12. **Sentinel-negative `showEnd` render (Codex R6).** Crew `ScheduleSection` fragment day with
+    `sd.showEnd = "TBD"` (and `showStart`/`window`/entries empty) renders **no** `Ends …` meta (the
+    `guardMeta`/`resolveOptionalField` guard hides it) — not `Ends TBD`. Plus the structural
+    `_metaSentinelHidingContract` extension (pattern includes `showEnd`) fails CI if a future walked
+    component reads `showEnd` un-guarded. *Catches: a `TBD`/`N/A`/`TBA` sentinel leaking as `Ends TBD`.*
+    (Decode-layer sentinel guard is separately pinned by test 5: `{showEnd:"TBD"}` → null.)
+
 ### Parser-behavior test reconciliation (do not blind-delete)
 
 The end-only change flips existing assertions that pin `SCHEDULE_TIME_UNPARSED` for the `GS: ... - 6:00 PM`
@@ -398,9 +408,29 @@ that surfaces every one (per `feedback_full_suite_before_push_scoped_gates_miss_
 
 ## Meta-test inventory
 
-**None created or extended.** This change touches no auth, DB-write, admin-alert, tile-sentinel, or
-advisory-lock surface. No `pg_advisory*`. No new §12.4 code. No new Supabase call boundary. Declared
-explicitly per the writing-plans meta-test-inventory rule.
+**EXTENDS `tests/components/tiles/_metaSentinelHidingContract.test.ts` (Codex spec-review R6, MEDIUM).**
+`showEnd` is a new raw sheet-derived value rendered as crew DayCard meta (`Ends {time}`), so it joins the
+existing §8.3 sentinel-hiding registry alongside `ScheduleDay.window.start/end` and `showStart`. Required
+change to that meta-test:
+
+- The `ScheduleDay` reference entry (`:258-261`) pattern `/\b(window\??\.(start|end)\b|\bshowStart\b)/`
+  gains `|\bshowEnd\b` → `/\b(window\??\.(start|end)\b|\bshowStart\b|\bshowEnd\b)/`, and its `description`
+  + the block comment (`:244-252`) name `showEnd` (fragment "Ends 6:00 PM" meta).
+- The meta-test walks `components/tiles/` + `components/crew/sections/` + `components/crew/primitives/`
+  (`:84,101-102`). It requires each walked file matching the pattern to route the value through
+  `shouldHideGenericOptional` directly OR via the `resolveOptionalField` wrapper (`:415-417`). The crew
+  `ScheduleSection.tsx` (walked) reads `sd.showEnd` via `guardMeta` (= `resolveOptionalField`), so it
+  satisfies `hasWrapper` and passes. **No walked file reads `showEnd` un-guarded** — verified because the
+  only new `showEnd` reader in a walked dir is `ScheduleSection`, which already imports/uses
+  `resolveOptionalField`.
+- The wizard `step3ReviewSections.tsx` is under `components/admin/`, which the meta-test does **not**
+  walk, so Fix 1's new `showStart`/`window`/`showEnd` reads there are not enforced by this contract.
+  Regardless, Fix 1 routes them through `resolveOptionalField` / `formatScheduleWindow` (defense-in-depth
+  + consistency with crew; see Fix 1) — and in step-3 the `ros` is fresh parse output whose `showEnd` is
+  always a real clock token or null, so a sentinel cannot arise there anyway.
+
+No other meta-test applies: no auth, DB-write, admin-alert, advisory-lock (`pg_advisory*`) surface; no new
+§12.4 code (R9 is an example-scope narrowing); no new Supabase call boundary.
 
 ## Out of scope
 
