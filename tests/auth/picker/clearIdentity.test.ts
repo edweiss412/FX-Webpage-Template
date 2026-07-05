@@ -22,7 +22,12 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("next/headers", () => ({ cookies: vi.fn() }));
 
-const logMock = vi.hoisted(() => ({ warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() }));
+const logMock = vi.hoisted(() => ({
+  warn: vi.fn(),
+  error: vi.fn(),
+  info: vi.fn(),
+  debug: vi.fn(),
+}));
 vi.mock("@/lib/log", () => ({ log: logMock }));
 
 const KEY = "0".repeat(64);
