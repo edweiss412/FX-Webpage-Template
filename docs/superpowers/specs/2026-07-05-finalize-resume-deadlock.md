@@ -293,17 +293,37 @@ under the `finalize:<session>` lock it already takes (`:344`):
   `route.ts:333`).
 
 When provably stuck, cleanup proceeds regardless of `pending_wizard_session_at`
-age. When NOT stuck AND not 24h-stale, it still throws
-`CleanupRequiresStaleSessionError('session_too_fresh')` as today (a fresh,
-still-progressing session must not be casually destroyed). The
-`finalize_active_within_last_hour` guard (`:371–387`) is UNCHANGED and still
-applies — an actively-advancing finalize is never "stuck" even if the row
-arithmetic looks stuck mid-batch, because the recency guard blocks it.
+age AND regardless of the `finalize_active_within_last_hour` recency guard
+(`sessionLifecycle.ts:371–387`). When NOT stuck AND not 24h-stale, it still
+throws `CleanupRequiresStaleSessionError('session_too_fresh')` as today (a fresh,
+still-progressing session must not be casually destroyed).
 
-The stuck-eligibility check reuses the two predicates via small SQL count
-helpers local to `sessionLifecycle.ts` (the module already runs raw SQL through
-its `OnboardingSessionTx`), evaluated UNDER the held `finalize:` lock so the
-counts are consistent with any concurrent finalize.
+**Why the recency guard must be bypassed for the stuck path (R1 finding).** A
+batch that DEMOTES a row and leaves the checkpoint `in_progress` still runs
+`advanceCheckpoint` (`route.ts:646–662`), which sets `last_processed_at = now()`
+and `batches_completed + 1`. So a session that just got stuck has a `< 1 hour`
+`last_processed_at` BY CONSTRUCTION — the recency guard, unchanged, would block
+the stuck-discard for up to an hour (the real incident's `last_processed_at` was
+~2 minutes old). That reduces the deadlock from 24h to 1h; it does not remove it.
+
+**Why bypassing is safe.** `cleanupAbandonedFinalize` takes
+`pg_advisory_xact_lock(hashtext('finalize:' || sessionId))` (`sessionLifecycle.ts:344`)
+— the SAME key finalize's `tryFinalizeLock` acquires for its whole batch
+(`route.ts:1130`). So cleanup cannot even begin its checks until any concurrent
+finalize has committed/rolled back and released the lock; and while cleanup holds
+it, a new finalize's `tryFinalizeLock` fails → `CONCURRENT_FINALIZE_IN_FLIGHT`,
+no mutation. Under that lock, "0 finishable clean rows" means no finalize is or
+can be making progress, so a recent `last_processed_at` reflects the FAILED batch,
+not activity. The recency guard's purpose (don't destroy an actively-advancing
+finalize) is already fully served by the advisory lock for the stuck case; the
+guard remains for the NON-stuck 24h path (a fresh session with finishable rows
+whose operator merely wandered off).
+
+The stuck-eligibility check reuses the two predicates (`selectFinishableCleanRows`
+count == 0 AND `unresolvedManifestCount` > 0) via small SQL count helpers local
+to `sessionLifecycle.ts` (the module already runs raw SQL through its
+`OnboardingSessionTx`), evaluated UNDER the held `finalize:` lock so the counts
+are consistent and no concurrent finalize can change them mid-check.
 
 ### 5.2 Published shows stay live
 
@@ -327,8 +347,10 @@ same as the existing button's copy).
 - Fresh session that is NOT stuck (has finishable rows): still
   `session_too_fresh` 409 — Thread 2 does not weaken the guard for
   actively-progressing sessions.
-- `finalize_active_within_last_hour`: unchanged, still 409 — never discard a
-  running finalize.
+- `finalize_active_within_last_hour`: STILL 409 for the NON-stuck path (unchanged)
+  — never discard a session that still has finishable rows. BYPASSED only for the
+  provably-stuck path (0 finishable + ≥1 unresolved), where the `finalize:`
+  advisory lock already guarantees no finalize is concurrently running (§5.1).
 
 ## 6. Files touched
 
@@ -453,9 +475,15 @@ are plain conditional server render. Transition-audit task therefore asserts
 - **T8 (Thread 2 not-stuck):** a fresh session WITH finishable rows still 409s
   `session_too_fresh`. Catches: weakening the guard for actively-progressing
   sessions.
-- **T9 (Thread 2 recency):** a fresh, stuck-looking session with
-  `last_processed_at > now() - 1h` still 409s `finalize_active_within_last_hour`.
-  Catches: discarding a running finalize.
+- **T9 (Thread 2 recency, non-stuck):** a fresh session WITH finishable rows and
+  `last_processed_at > now() - 1h` still 409s (guard applies to the non-stuck
+  path). Catches: weakening the recency guard for a session that could still
+  progress.
+- **T9b (Thread 2 recency, stuck — the incident):** a fresh, PROVABLY-STUCK
+  session (0 finishable + ≥1 unresolved) whose `last_processed_at` is 2 minutes
+  old (set by the demoting batch's `advanceCheckpoint`) IS discarded successfully
+  — the recency guard does NOT block it. Catches the exact real-world deadlock:
+  the escape hatch failing for the first hour after getting stuck.
 
 Tests deriving "unresolved" expectations assert against the DB row state (the
 data source), not against the rendered container — anti-tautology rule.
