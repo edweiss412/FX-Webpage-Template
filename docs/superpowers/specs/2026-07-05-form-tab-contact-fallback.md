@@ -85,7 +85,9 @@ Add a FORM-fallback AV label and merge it fill-only-if-empty.
    const ONSITE_AV_LABEL_RE = /^\s*onsite\s+av\s+contact\s*$/i;
    ```
 
-2. In the scan loop (`contacts.ts:80-124`), add a third branch AFTER the venue/in_house_av detection. When `col0` matches `ONSITE_AV_LABEL_RE`, the row is a **FORM-fallback AV candidate**: set `labelMatched = true`, apply the same `rawValue` extraction (`cells[1]`), `hasContactSignal` guard, and `parseContactCell(rawValue, "in_house_av")`, but push the parsed rows into a **separate** `formAvContacts: ContactRow[]` array instead of `contacts`. (Do NOT let an `ONSITE_AV_LABEL_RE` row fall through to the `venue`/`in_house_av` push.)
+2. In the scan loop (`contacts.ts:80-124`), add a third branch AFTER the venue/in_house_av detection. When `col0` matches `ONSITE_AV_LABEL_RE`, the row is a **FORM-fallback AV candidate**: set `labelMatched = true`, apply the same `rawValue` extraction (`cells[1]`), then a **stricter** signal guard than the INFO path — `EMAIL_RE.test(rawValue) || PHONE_RE.test(rawValue)` (require an email or phone, NOT the name-only branch of `hasContactSignal`) — and `parseContactCell(rawValue, "in_house_av")`, pushing the parsed rows into a **separate** `formAvContacts: ContactRow[]` array instead of `contacts`. (Do NOT let an `ONSITE_AV_LABEL_RE` row fall through to the `venue`/`in_house_av` push.)
+
+   **Rationale for the stricter guard (Codex R1 MEDIUM):** the INFO `hasContactSignal` accepts any two capitalized words, so a placeholder like `Onsite AV Contact | Not Applicable` or `To Be Determined` would emit a bogus `in_house_av` row (name = "Not Applicable"). A real onsite-AV contact always carries an email or phone (the live value is `chris.mercado@encoreglobal.com`); requiring email-or-phone for the FORM fallback rejects every prose placeholder while keeping every real contact.
 
 3. After the existing email-dedup (`contacts.ts:131-140`) produces `deduped`, apply fill-only-if-empty:
 
@@ -108,7 +110,7 @@ Add a FORM-fallback AV label and merge it fill-only-if-empty.
    }
    ```
 
-4. The D1 empty-section guard (`contacts.ts:145`) fires on `labelMatched && deduped.length === 0` — unchanged; `ONSITE_AV_LABEL_RE` participates in `labelMatched`, so an AV-label row that yields nothing still fails loud, consistent with the existing contract.
+4. The D1 empty-section guard (`contacts.ts:145`) fires on `labelMatched && deduped.length === 0` — **unchanged**. Note (Codex R1 LOW, corrected): D1 is a whole-section guard, not a per-label one — it fires only when NO contact of any kind survived across every matched label. So an empty/placeholder FORM AV row that yields nothing does NOT independently "fail loud" if a venue contact is present; it simply contributes no AV contact. That is the existing contract for every label (e.g. an empty INFO `In House AV` row today), and is acceptable: the fallback's job is to surface real FORM data, and a genuinely empty FORM AV cell means there is nothing to surface. `ONSITE_AV_LABEL_RE` still participates in `labelMatched` so a show with ONLY an AV label and no contact anywhere still fails loud.
 
 **Multi-person:** `parseContactCell` already splits a multi-email FORM cell into one `ContactRow` per person, so a FORM `Onsite AV Contact` cell listing two AV techs yields two rows (matches the INFO multi-person behavior).
 
@@ -120,17 +122,24 @@ Add a FORM-fallback harvest for the client contact's email + phone, applied fill
 
    ```ts
    // FORM-tab fallback labels for the client-side contact (the Google-Form submitter — the
-   // client's logistics director). Exact-label match; the FORM tab is unique per show and
-   // each label appears once. Used ONLY to fill an INFO client contact whose email/phone are
-   // empty (fill-only-if-INFO-empty) — never to override a real INFO value.
+   // client's logistics director). Exact-label match, SCOPED to the FORM intake block.
    const FORM_CLIENT_EMAIL_LABEL = "email address";
    const FORM_CLIENT_PHONE_LABEL = "phone number";
+   // The FORM intake block always opens with these header rows; used to scope the harvest so a
+   // stray "Email Address"/"Phone Number" row elsewhere in the markdown can never be picked up.
+   const FORM_BLOCK_ANCHORS = new Set(["timestamp", "your name"]);
 
    function harvestFormClientContact(rows: string[][]): { email: string | null; phone: string | null } {
      let email: string | null = null;
      let phone: string | null = null;
+     let inFormBlock = false;
      for (const row of rows) {
        const label = (row[0] ?? "").toLowerCase().trim();
+       if (FORM_BLOCK_ANCHORS.has(label)) {
+         inFormBlock = true; // entered the FORM intake block
+         continue;
+       }
+       if (!inFormBlock) continue; // only harvest rows AFTER a FORM anchor
        const val = clean(row[1] ?? "");
        if (!val) continue;
        // Accept the email row only when the value actually looks like an email; accept the
@@ -144,6 +153,8 @@ Add a FORM-fallback harvest for the client contact's email + phone, applied fill
      return { email, phone };
    }
    ```
+
+   **Scoping rationale (Codex R1 HIGH):** the harvest must not scan globally. Across the entire fixture corpus, the exact labels `Email Address` / `Phone Number` appear only inside the FORM intake block (9 fixtures × once each, always immediately after `Timestamp` / `Your Name`). Anchoring the scan to the block header (`inFormBlock` gate) makes the scope structural rather than incidental, so no future non-FORM `Email Address` row can fill the client contact.
 
 2. In `parseClient` (`client.ts:374`), AFTER the version-branch produces `result` (`{ client_label, client_contact }`), apply the fallback only when a main contact exists and is missing email or phone:
 
@@ -180,10 +191,13 @@ Every email that enters the system routes through `canonicalize` (`@/lib/email/c
 | INFO cell populated, FORM cell populated | INFO wins; FORM discarded | INFO wins; FORM not written |
 | INFO cell empty, FORM cell populated | FORM surfaced | FORM fills |
 | INFO cell empty, FORM cell empty | nothing (D1 empty-section if any AV label seen) | stays null |
-| INFO cell empty, FORM value is placeholder ("FALSE"/"N/A"/blank) | `hasContactSignal` rejects | `/@/` or `/\d/` guard rejects |
+| INFO cell empty, FORM value is prose placeholder ("Not Applicable"/"To Be Determined"/"FALSE"/"N/A"/blank) | email-or-phone guard rejects (no `@`, no digits) | `/@/` or `/\d/` guard rejects |
+| INFO email present, INFO phone empty (partial) | N/A | phone filled from FORM, email untouched |
+| INFO phone present, INFO email empty (partial) | N/A | email filled from FORM, phone untouched |
+| FORM `Email Address`/`Phone Number` outside a FORM block (no `Timestamp`/`Your Name` anchor) | N/A | not harvested (`inFormBlock` gate) |
 | FORM cell multi-person | multiple `in_house_av` rows | N/A (single email/phone) |
 | `client_contact === null` | N/A | no-op |
-| `Onsite AV Contact Info` row (`| ... | FALSE |`) | not matched (regex requires exact "Onsite AV Contact") + `hasContactSignal` rejects | N/A |
+| `Onsite AV Contact Info` row (`| ... | FALSE |`) | not matched (regex requires exact "Onsite AV Contact") + email-or-phone guard rejects | N/A |
 
 ---
 
@@ -196,9 +210,11 @@ New test file `tests/parser/formTabContactFallback.test.ts`. Test inputs are **i
 3. **Client email/phone fallback when INFO empty** — INFO CLIENT block with `Contact | Ashley Morgan`, empty `Contact Email`/`Contact Cell`; FORM `Email Address | ashley.morgan@institutionalinvestor.com`, `Phone Number | 8452701900` → `client_contact` = `{ name:"Ashley Morgan", email:"ashley.morgan@institutionalinvestor.com", phone:"8452701900" }`. *Catches: client email/phone dropped (the actual bug).* Email asserted canonicalized.
 4. **Client INFO wins** — INFO `Contact Email | real@info.com` populated AND FORM `Email Address | other@form.com` → `client_contact.email === "real@info.com"`. *Catches: FORM override clobbering curated INFO email.*
 5. **Client fallback no-op when no CLIENT block** — markdown with a FORM `Email Address` row but no INFO CLIENT block → `client_contact === null` (unchanged). *Catches: synthesizing a phantom client from FORM PII.*
-6. **Placeholder rejection** — FORM `Onsite AV Contact | FALSE` and `Email Address | N/A` with empty INFO → no AV contact, client email stays null. *Catches: placeholder form values leaking as contacts.*
-7. **Regression — populated fixture unchanged** — run `parseContacts`/`parseClient` on the existing `fixtures/shows/raw/2025-10-fixed-income-trading-summit.md` (INFO populated) and assert the result is byte-identical to today's output (Chris Mercado + Danilo from INFO AV; Ashley email `ashley.morgan@institutionalinvestor.com` + phone `845-270-1900` from INFO; venue Kurt Ashcraft). *Catches: the fallback altering shows whose INFO is populated.*
-8. **Venue not regressed** — live-shape markdown → venue contact `kurt.ashcraft@hyatt.com` still surfaced (via existing `VENUE_LABEL_RE`). *Catches: the AV change accidentally breaking the already-working venue path.*
+6. **Placeholder rejection** — FORM `Onsite AV Contact | Not Applicable` (prose, no email/phone) and `Email Address | N/A` with empty INFO → no AV contact, client email stays null. *Catches: prose placeholders leaking as contacts past the name-only signal (Codex R1 MEDIUM — must use a prose two-word placeholder, not just `FALSE`).*
+7. **Client fallback scoping (false-positive)** — markdown with an INFO CLIENT block (empty email/phone) and a stray `| Email Address | stray@x.com |` / `| Phone Number | 5551234567 |` row that is NOT preceded by any `Timestamp`/`Your Name` FORM anchor → `client_contact.email` / `.phone` stay null (not filled from the stray rows). *Catches: global scan picking up a non-FORM Email Address/Phone Number row (Codex R1 HIGH).*
+8. **Client partial fill** — two cases: (a) INFO `Contact Email | keep@info.com` present but `Contact Cell` empty, FORM `Phone Number | 8452701900` present → email stays `keep@info.com`, phone filled `8452701900`; (b) INFO phone present, email empty, FORM email present → phone stays INFO value, email filled from FORM. *Catches: fill-only-if-empty applied per-field, not all-or-nothing (Codex R1 MEDIUM).*
+9. **Regression — populated fixture unchanged** — run `parseContacts`/`parseClient` on the existing `fixtures/shows/raw/2025-10-fixed-income-trading-summit.md` (INFO populated) and assert the result is byte-identical to today's output (Chris Mercado + Danilo from INFO AV; Ashley email `ashley.morgan@institutionalinvestor.com` + phone `845-270-1900` from INFO; venue Kurt Ashcraft). *Catches: the fallback altering shows whose INFO is populated.*
+10. **Venue not regressed** — live-shape markdown → venue contact `kurt.ashcraft@hyatt.com` still surfaced (via existing `VENUE_LABEL_RE`). *Catches: the AV change accidentally breaking the already-working venue path.*
 
 ---
 
