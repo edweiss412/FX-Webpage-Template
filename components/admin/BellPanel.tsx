@@ -1,6 +1,7 @@
 "use client";
 /**
- * components/admin/BellPanel.tsx (bell notification center Task 13, spec §7.2/§7.3)
+ * components/admin/BellPanel.tsx (bell notification center Task 13 + Task 14,
+ * spec §7.2/§7.3/§7.4)
  *
  * The bell notification panel: a clone of the `AppHealthPopover` dialog shell
  * (`components/admin/AppHealthPopover.tsx`) — `role="dialog" aria-modal`,
@@ -16,28 +17,60 @@
  * settles, calls `onOpened()` so the badge refetches to server truth. Order is
  * load-bearing: open must never fire before the feed resolves.
  *
- * Scope note (Task 13 = shell + sections + states): rows are static snapshot
- * renderings. Per-row read gesture, inline resolve/Retry actions, action-link
- * chips, and the developer config footer land in the follow-up interaction task.
+ * Task 14 — the interaction layer on the active rows:
+ *   - Resolve: a fetch POST to the EXISTING resolve routes (global
+ *     `/api/admin/admin-alerts/[id]/resolve`; show-scoped
+ *     `/api/admin/show/[slug]/alerts/[id]/resolve` when the entry carries a
+ *     slug). The route's door order (403 HEALTH → 409 auto → 400 scope → 200)
+ *     is unchanged; the panel refetches after the POST settles so a 409 (the
+ *     code raced to auto) surfaces the auto note on the re-read snapshot.
+ *   - Auto-resolving rows show `autoResolveNote` instead of a button; health
+ *     rows show a "View in telemetry" deep link (the global route 403s health
+ *     by design); `WATCH_CHANNEL_ORPHANED` carries the banner's Retry form.
+ *   - Read gesture (spec §3.1/D3): the FIRST expand of a row POSTs `/bell/read`
+ *     with the SERVER `activityAt` as `seenActivityAt` and clears the unread
+ *     dot optimistically (opacity flip, fixed slot — no layout shift). A failed
+ *     read POST leaves the dot cleared for the session (fail-quiet, §4).
+ *   - Dev footer (`viewerIsDeveloper` only): the live window/cap plus an inline
+ *     two-input edit that POSTs `/bell/config`; a 400 renders the response's
+ *     bounds (no silent clamp), a success refetches the feed.
  *
- * Copy (invariant 5 — no raw codes in the DOM): titles/messages come from the
- * catalog via `messageFor`/`isMessageCode`; the error state renders
- * `ALERT_BELL_FEED_FAILED` dougFacing. An uncataloged row code falls back to a
- * generic title (never the raw code string).
+ * Copy (invariant 5 — no raw codes in the DOM): titles/messages/helpful context
+ * come from the catalog via `messageFor`/`lookupHelpfulContext`/`isMessageCode`;
+ * auto notes come from the feed's catalog-derived `autoResolveNote`; button and
+ * footer labels are UI chrome (uncataloged, like "Dismiss"/"Retry"). The error
+ * state renders `ALERT_BELL_FEED_FAILED`. An uncataloged row code falls back to
+ * a generic title (never the raw code string).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
-import { getRequiredDougFacing, isMessageCode, messageFor } from "@/lib/messages/lookup";
+import {
+  getRequiredDougFacing,
+  isMessageCode,
+  lookupHelpfulContext,
+  messageFor,
+} from "@/lib/messages/lookup";
 import { describeAlert } from "@/lib/adminAlerts/describeAlert";
 import { raisedAtSuffix } from "@/lib/time/raisedAt";
+import { retryWatchSubscriptionFormAction } from "@/app/admin/actions";
+import { RetryWatchButton } from "@/components/admin/RetryWatchButton";
+import { BELL_LIMITS } from "@/lib/admin/bellConfig";
 import type { BellEntry, BellFeedResult } from "@/lib/admin/bellFeed";
 
 const FEED_ENDPOINT = "/api/admin/alerts/bell/feed";
 const OPEN_ENDPOINT = "/api/admin/alerts/bell/open";
+const READ_ENDPOINT = "/api/admin/alerts/bell/read";
+const CONFIG_ENDPOINT = "/api/admin/alerts/bell/config";
+
+const WATCH_CODE = "WATCH_CHANNEL_ORPHANED";
 
 // The wire shape the feed route returns (kind stripped — feed/route.ts).
 type BellFeedBody = Omit<Extract<BellFeedResult, { kind: "ok" }>, "kind">;
+
+// Config-route 400 bounds echo (config/route.ts returns `{ error, limits }`,
+// where `limits` mirrors BELL_LIMITS — used to render the accepted range).
+type BellConfigLimits = typeof BELL_LIMITS;
 
 type PanelState =
   | { status: "loading" }
@@ -51,6 +84,19 @@ const FALLBACK_TITLE = "Notification";
 function rowCopy(code: string): { title: string; message: string | null } {
   const entry = isMessageCode(code) ? messageFor(code) : null;
   return { title: entry?.title ?? FALLBACK_TITLE, message: entry?.dougFacing ?? null };
+}
+
+function rowHelpfulContext(code: string): string | null {
+  return isMessageCode(code) ? lookupHelpfulContext(code) : null;
+}
+
+// The resolve route the entry posts to: show-scoped when the row carries a
+// slug (per-show alerts never use the global route — matches PerShowAlertSection
+// and the global route's own 400 scope door), global otherwise.
+function resolveUrl(entry: BellEntry): string {
+  return entry.slug
+    ? `/api/admin/show/${entry.slug}/alerts/${entry.alertId}/resolve`
+    : `/api/admin/admin-alerts/${entry.alertId}/resolve`;
 }
 
 function OccurrenceChip({ occurrences }: { occurrences: number }) {
@@ -68,35 +114,151 @@ function IdentityLine({ entry }: { entry: BellEntry }) {
   return <p className="mt-0.5 wrap-break-word text-sm text-text-subtle">{text}</p>;
 }
 
-function ActiveRow({ entry, now }: { entry: BellEntry; now: Date }) {
+// Shared chrome for the non-form action buttons/links (Resolve, telemetry link,
+// action chip) — mirrors the banner's action-link affordance.
+const ACTION_CHROME =
+  "inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border-strong bg-surface px-4 font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60";
+
+function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => void }) {
+  const [resolving, setResolving] = useState(false);
+  const isWatch = entry.code === WATCH_CODE;
+
+  const onResolve = useCallback(async () => {
+    if (resolving) return; // guard against double-fire (no form action here)
+    setResolving(true);
+    try {
+      await fetch(resolveUrl(entry), { method: "POST" });
+    } catch {
+      // Network fault: keep the row; the viewer can retry. Reset the button.
+      setResolving(false);
+      return;
+    }
+    // Refetch after the POST settles regardless of status: a 200 shows the row
+    // resolved, a 409 (raced to auto) surfaces the auto note, a 404 drops it.
+    onRefetch();
+  }, [entry, onRefetch, resolving]);
+
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-2">
+      {entry.isHealth ? (
+        <a
+          href="/admin/dev/telemetry#health"
+          data-testid={`bell-telemetry-${entry.alertId}`}
+          className={ACTION_CHROME}
+        >
+          View in telemetry
+        </a>
+      ) : entry.isAutoResolving ? (
+        <p
+          data-testid={`bell-auto-note-${entry.alertId}`}
+          className="wrap-break-word text-sm text-text-subtle"
+        >
+          {entry.autoResolveNote}
+        </p>
+      ) : (
+        <button
+          type="button"
+          data-testid={`bell-resolve-${entry.alertId}`}
+          onClick={() => void onResolve()}
+          disabled={resolving}
+          aria-busy={resolving}
+          className={ACTION_CHROME}
+        >
+          {resolving ? "Resolving…" : "Resolve"}
+        </button>
+      )}
+      {/* Carry-over from the retired AlertBanner: the watch alert's single-tap
+          Retry form (idempotent — no two-tap confirm). Pending state derives
+          from useFormStatus inside RetryWatchButton, so the button re-enables
+          when the Server Action returns even on a no-revalidate failure path. */}
+      {!entry.isHealth && isWatch ? (
+        <form action={retryWatchSubscriptionFormAction}>
+          <RetryWatchButton ringOffset="surface" />
+        </form>
+      ) : null}
+      {entry.action ? (
+        <a
+          href={entry.action.href}
+          data-testid={`bell-action-${entry.alertId}`}
+          {...(entry.action.external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
+          className={ACTION_CHROME}
+        >
+          {entry.action.label}
+          {entry.action.external ? <span aria-hidden="true"> ↗</span> : null}
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
+function ActiveRow({
+  entry,
+  now,
+  expanded,
+  readCleared,
+  onToggle,
+  onRefetch,
+}: {
+  entry: BellEntry;
+  now: Date;
+  expanded: boolean;
+  readCleared: boolean;
+  onToggle: () => void;
+  onRefetch: () => void;
+}) {
   const { title, message } = rowCopy(entry.code);
+  const helpful = rowHelpfulContext(entry.code);
+  // Dot shows only while genuinely unread AND not yet optimistically cleared
+  // this session (a failed read POST does not un-clear it — spec §4 fail-quiet).
+  const dotVisible = entry.unread && !readCleared;
   return (
     <div
       data-testid={`bell-entry-${entry.alertId}`}
-      className="flex gap-3 border-b border-border py-3 last:border-b-0"
+      className="border-b border-border py-3 last:border-b-0"
     >
-      {/* Fixed size-2 dot slot: always occupies space (§14 no-layout-shift
-          invariant); the dot fades between unread/read via opacity. */}
-      <span aria-hidden="true" className="mt-1.5 inline-flex size-2 shrink-0">
-        <span
-          data-testid={`bell-unread-dot-${entry.alertId}`}
-          className={`size-2 rounded-full bg-accent motion-safe:transition-opacity motion-safe:duration-fast ${
-            entry.unread ? "opacity-100" : "opacity-0"
-          }`}
-        />
-      </span>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-start justify-between gap-2">
-          <p className="min-w-0 font-medium text-text-strong">{title}</p>
-          <div className="flex shrink-0 items-center gap-2">
-            <OccurrenceChip occurrences={entry.occurrences} />
-            <span className="text-xs tabular-nums text-text-subtle">
-              {raisedAtSuffix(entry.activityAt, now)}
-            </span>
+      <button
+        type="button"
+        data-testid={`bell-entry-toggle-${entry.alertId}`}
+        onClick={onToggle}
+        aria-expanded={expanded}
+        className="flex w-full gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+      >
+        {/* Fixed size-2 dot slot: always occupies space (§14 no-layout-shift
+            invariant); the dot fades between unread/read via opacity. */}
+        <span aria-hidden="true" className="mt-1.5 inline-flex size-2 shrink-0">
+          <span
+            data-testid={`bell-unread-dot-${entry.alertId}`}
+            className={`size-2 rounded-full bg-accent motion-safe:transition-opacity motion-safe:duration-fast ${
+              dotVisible ? "opacity-100" : "opacity-0"
+            }`}
+          />
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <p className="min-w-0 font-medium text-text-strong">{title}</p>
+            <div className="flex shrink-0 items-center gap-2">
+              <OccurrenceChip occurrences={entry.occurrences} />
+              <span className="text-xs tabular-nums text-text-subtle">
+                {raisedAtSuffix(entry.activityAt, now)}
+              </span>
+            </div>
           </div>
+          {message ? <p className="mt-0.5 text-sm text-text-subtle">{message}</p> : null}
+          <IdentityLine entry={entry} />
         </div>
-        {message ? <p className="mt-0.5 text-sm text-text-subtle">{message}</p> : null}
-        <IdentityLine entry={entry} />
+      </button>
+      {/* helpfulContext disclosure, mirroring the banner's ErrorExplainer block.
+          Rendered only when expanded AND the catalog carries helpful context. */}
+      {expanded && helpful ? (
+        <p
+          data-testid={`bell-context-${entry.alertId}`}
+          className="mt-2 ml-5 wrap-break-word text-sm text-text-subtle"
+        >
+          {helpful}
+        </p>
+      ) : null}
+      <div className="ml-5">
+        <ActionCell entry={entry} onRefetch={onRefetch} />
       </div>
     </div>
   );
@@ -112,6 +274,105 @@ function HistoryRow({ entry, now }: { entry: BellEntry; now: Date }) {
     >
       <p className="min-w-0 font-medium">{title}</p>
       {resolved ? <p className="mt-0.5 text-xs tabular-nums">{resolved}</p> : null}
+    </div>
+  );
+}
+
+function DevFooter({
+  historyDays,
+  feedCap,
+  onSaved,
+}: {
+  historyDays: number;
+  feedCap: number;
+  onSaved: () => void;
+}) {
+  const [historyInput, setHistoryInput] = useState(String(historyDays));
+  const [capInput, setCapInput] = useState(String(feedCap));
+  const [saving, setSaving] = useState(false);
+  const [boundsError, setBoundsError] = useState<BellConfigLimits | null>(null);
+
+  const onSave = useCallback(async () => {
+    if (saving) return;
+    setSaving(true);
+    setBoundsError(null);
+    let res: Response;
+    try {
+      res = await fetch(CONFIG_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          historyDays: Number.parseInt(historyInput, 10),
+          feedCap: Number.parseInt(capInput, 10),
+        }),
+      });
+    } catch {
+      setSaving(false);
+      return;
+    }
+    if (res.status === 400) {
+      // Field-level rejection: render the accepted bounds the route echoed back
+      // (no silent clamp — the dev sees exactly what range is valid).
+      try {
+        const body = (await res.json()) as { limits?: BellConfigLimits };
+        setBoundsError(body.limits ?? BELL_LIMITS);
+      } catch {
+        setBoundsError(BELL_LIMITS);
+      }
+      setSaving(false);
+      return;
+    }
+    setSaving(false);
+    if (res.ok) onSaved();
+  }, [capInput, historyInput, saving, onSaved]);
+
+  return (
+    <div
+      data-testid="bell-dev-footer"
+      className="mt-4 border-t border-border pt-3 text-xs text-text-subtle"
+    >
+      <p className="tabular-nums">
+        Window: {historyDays}d · Cap: {feedCap}
+      </p>
+      <div className="mt-2 flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1">
+          <span>Window (days)</span>
+          <input
+            type="number"
+            inputMode="numeric"
+            data-testid="bell-config-history"
+            value={historyInput}
+            onChange={(e) => setHistoryInput(e.target.value)}
+            className="w-20 rounded-sm border border-border-strong bg-surface px-2 py-1 tabular-nums text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span>Feed cap</span>
+          <input
+            type="number"
+            inputMode="numeric"
+            data-testid="bell-config-cap"
+            value={capInput}
+            onChange={(e) => setCapInput(e.target.value)}
+            className="w-20 rounded-sm border border-border-strong bg-surface px-2 py-1 tabular-nums text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          />
+        </label>
+        <button
+          type="button"
+          data-testid="bell-config-save"
+          onClick={() => void onSave()}
+          disabled={saving}
+          className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-surface px-4 font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {saving ? "Saving…" : "Save"}
+        </button>
+      </div>
+      {boundsError ? (
+        <p data-testid="bell-config-error" className="mt-2 wrap-break-word text-warning-text">
+          Window must be {boundsError.historyDays.min}–{boundsError.historyDays.max} days; cap must
+          be {boundsError.feedCap.min}–{boundsError.feedCap.max}.
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -133,6 +394,13 @@ export function BellPanel({
   // Which snapshot we have already stamped via /bell/open — prevents a duplicate
   // open POST for the same seenThrough across re-renders (spec §7.2 "exactly once").
   const openedForRef = useRef<string | null>(null);
+
+  // Per-row expand state and optimistic read-clear state. Both persist across
+  // refetches (session-scoped Sets) so a resolve refetch never un-clears a dot
+  // and the read POST fires at most once per row (first expand only).
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  const [readClearedIds, setReadClearedIds] = useState<Set<string>>(() => new Set());
+  const readFiredRef = useRef<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     setState({ status: "loading" });
@@ -173,6 +441,32 @@ export function BellPanel({
       onOpened();
     }
   }, [onOpened]);
+
+  // First expand of a row: fire the read POST once with the SERVER activityAt,
+  // and clear the dot optimistically. A failed POST leaves the dot cleared
+  // (fail-quiet, spec §4) — the ref guard keeps it at exactly once.
+  const handleToggle = useCallback((entry: BellEntry) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(entry.alertId)) next.delete(entry.alertId);
+      else next.add(entry.alertId);
+      return next;
+    });
+    if (readFiredRef.current.has(entry.alertId)) return;
+    readFiredRef.current.add(entry.alertId);
+    setReadClearedIds((prev) => new Set(prev).add(entry.alertId));
+    void (async () => {
+      try {
+        await fetch(READ_ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ alertId: entry.alertId, seenActivityAt: entry.activityAt }),
+        });
+      } catch {
+        // fail-quiet: the dot stays cleared this session (spec §4)
+      }
+    })();
+  }, []);
 
   // Mount-once load. The ref guard keeps the open POST at exactly once even if
   // React remounts the effect (StrictMode) or `load`'s identity changes.
@@ -233,7 +527,15 @@ export function BellPanel({
           {active.length > 0 ? (
             <section data-testid="bell-section-active" aria-label="Active notifications">
               {active.map((entry) => (
-                <ActiveRow key={entry.alertId} entry={entry} now={now} />
+                <ActiveRow
+                  key={entry.alertId}
+                  entry={entry}
+                  now={now}
+                  expanded={expandedIds.has(entry.alertId)}
+                  readCleared={readClearedIds.has(entry.alertId)}
+                  onToggle={() => handleToggle(entry)}
+                  onRefetch={() => void load()}
+                />
               ))}
             </section>
           ) : null}
@@ -260,6 +562,13 @@ export function BellPanel({
                 ? `Showing the first ${feed.feedCap} — older items are in telemetry`
                 : `Showing the first ${feed.feedCap} — older items age out of this list.`}
             </p>
+          ) : null}
+          {viewerIsDeveloper ? (
+            <DevFooter
+              historyDays={feed.historyDays}
+              feedCap={feed.feedCap}
+              onSaved={() => void load()}
+            />
           ) : null}
         </>
       );
