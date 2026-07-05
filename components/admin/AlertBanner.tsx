@@ -227,6 +227,10 @@ export async function AlertBanner() {
   // /non-string case. `escalated` mirrors the escalation predicate in
   // lib/drive/watchEscalation.ts (config OR occurrence_count >= threshold).
   const isWatchAlert = !isPerShowAlert && alert.code === "WATCH_CHANNEL_ORPHANED";
+  // alert-resolve-truthing §4.3: a non-watch auto-resolving code suppresses the manual
+  // resolve form entirely — the action cell renders nothing (no misleading button); the
+  // auto-clear note surfaces in the expanded panel footer instead.
+  const suppressResolveForm = isAutoResolving(alert.code);
   // Per-code action link (spec 2026-07-04-alert-action-links §7.2): GLOBAL
   // non-watch rows only — per-show rows keep "Check it" as their single
   // navigation (the action link renders on the show page after click-through).
@@ -587,12 +591,7 @@ export async function AlertBanner() {
             <form action={retryWatchSubscriptionFormAction}>
               <RetryWatchButton />
             </form>
-          ) : isAutoResolving(
-              alert.code,
-            ) ? // alert-resolve-truthing §4.3: a non-watch auto-resolving code suppresses the
-          // manual resolve form entirely — the action cell renders nothing (no misleading
-          // button), and the auto-clear note surfaces in the expanded panel footer.
-          null : (
+          ) : suppressResolveForm ? null : (
             // M9 C4 / M5-D3 §5.4: two-tap inline confirm. ResolveAlertButton
             // is a small client island; the parent form owns the hidden id
             // input + Server Action so the resolve posture is preserved. The
