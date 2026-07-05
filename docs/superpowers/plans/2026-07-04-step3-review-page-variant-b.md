@@ -442,7 +442,7 @@ it("step 3 renders no top Back link (Back is in the bar)", () => {
 
 - [ ] **Step 3: Implement**:
   - `FinalizeButton`: root `className={`flex ${panelPlacement === "above" ? "flex-col-reverse" : "flex-col"} gap-3`}`; nothing else changes (sr-announcer stays first child → visually last under reverse, immaterial). Add the prop to the type with default `"below"`.
-  - `Step3PublishBar.tsx` (`"use client"`, presentational): `<div className="sticky bottom-0 z-10 flex items-end gap-3 border-t border-border bg-surface/90 px-4 py-3 backdrop-blur">{children}</div>` — accepts `{ children }`. (Layout only; the DI-3 assertion pins width/no-occlusion.)
+  - `Step3PublishBar.tsx` (`"use client"`, presentational): `<div data-testid="wizard-step3-publish-bar" className="sticky bottom-0 z-10 flex w-full items-end gap-3 border-t border-border bg-surface/90 px-4 py-3 backdrop-blur">{children}</div>` — accepts `{ children }`. **`w-full` is load-bearing:** the bar's parent is the `flex flex-col` frame, and this project's Tailwind v4 does NOT default `align-items: stretch`, so without `w-full` the bar shrinks to its content width and DI-3 fails (spec §7). The `data-testid="wizard-step3-publish-bar"` is what the DI-3 assertion targets. (Layout only; DI-3 pins width + no-occlusion.)
   - `Step3ReviewWithFinalize`: wrap the content in `<div className="relative flex min-h-full flex-col">`; add bottom padding on the scroll body so the last card isn't occluded (`pb-24`); render, when `rows.length > 0`, `<Step3PublishBar>` containing: `<p data-testid="wizard-step3-publish-count" className="text-sm tabular-nums text-text-subtle"><b>{counts.selectedCount}</b> of {counts.selectableTotal} selected to publish</p>`, a `flex-1` spacer, `<Link data-testid="wizard-step3-back" href="/admin?step=2" className="…ghost…">Back</Link>`, and `<FinalizeButton … panelPlacement="above" />`. Seed `selectableTotal`/`selectedCount` in the initial `useState` (compute from the same server rows the wrapper already receives; add `initialSelectableTotal`/`initialSelectedCount` props threaded from `OnboardingWizard.tsx:398-407`, OR derive them in the wrapper from `rows` directly — prefer deriving in the wrapper to avoid new props).
   - `OnboardingWizard`: change the top `{step !== 1 ? <BackLink step={step} /> : null}` (`:494`) → `{step === 2 ? <BackLink step={2} /> : null}` so step 3 shows no top Back.
 
@@ -490,15 +490,20 @@ test.describe("Step-3 review page — layout dimensions", () => {
   });
   test("DI-3: sticky bar spans the container width and does not occlude the last card", async ({ page }) => {
     await gotoStep3(page);
-    const bar = page.locator('[data-testid="wizard-step3-publish-count"]').locator("xpath=ancestor::div[contains(@class,'sticky')]");
+    const bar = page.getByTestId("wizard-step3-publish-bar");
     const container = page.getByTestId("onboarding-wizard");
     const [barW, contW] = await Promise.all([
       bar.evaluate((b) => b.getBoundingClientRect().width),
       container.evaluate((c) => c.getBoundingClientRect().width),
     ]);
     expect(Math.abs(barW - contW)).toBeLessThanOrEqual(0.5);
-    // last card fully above the bar (not occluded)
-    const lastCardBottom = await page.getByTestId(/wizard-step3-card-.*/).last().evaluate((el) => el.getBoundingClientRect().bottom);
+    // Not-occluded: SCROLL the last card into view first (the list is unbounded,
+    // so the last card starts below the fold). The body's bottom padding must keep
+    // it clear of the sticky bar even at the very bottom of the scroll.
+    const lastCard = page.getByTestId(/wizard-step3-card-.*/).last();
+    await lastCard.scrollIntoViewIfNeeded();
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)); // settle at absolute bottom
+    const lastCardBottom = await lastCard.evaluate((el) => el.getBoundingClientRect().bottom);
     const barTop = await bar.evaluate((b) => b.getBoundingClientRect().top);
     expect(lastCardBottom).toBeLessThanOrEqual(barTop + 0.5);
   });
@@ -509,7 +514,7 @@ Add a `gotoStep3(page)` helper following the sibling spec's login+seed flow. If 
 - [ ] **Step 2: Prove each assertion BITES (negative-regression red).** A real-browser layout assertion is only meaningful if it FAILS when the invariant is violated — run it green against the built page, then, one at a time, temporarily break each invariant and confirm the matching assertion goes RED, then restore:
   - DI-1: remove the stepper's `hidden sm:inline` on non-active labels → re-run at 320px → DI-1 FAILS (overflow) → restore.
   - DI-2: remove `items-center` from the card row → DI-2 FAILS (checkbox/button no longer centered) → restore.
-  - DI-3: remove the bar's full-width/`left-0 right-0` (or its `items-center`) → DI-3 FAILS (width mismatch) → restore.
+  - DI-3: remove the bar's `w-full` class → DI-3 FAILS (bar shrinks to content width in the non-stretch flex parent) → restore. (Also confirm removing the body's bottom padding makes the occlusion half of DI-3 fail.)
   Record the three red runs. This is the TDD-red step for a layout gate (per the negative-regression discipline — a layout assertion that can't fail is tautological).
 
 - [ ] **Step 3: Implement** — no NEW product code beyond adding `data-testid="wizard-step3-publish-bar"` to the `Step3PublishBar` root (fold into Task 6) so DI-3's selector is stable; the spec IS the deliverable. Confirm the bar CSS satisfies the invariants (full-width within the container; `items-center` centering; body `pb` ≥ bar height so the last card is not occluded).
