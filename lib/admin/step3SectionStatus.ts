@@ -1,4 +1,5 @@
 import type { ParseWarning } from "@/lib/parser/types";
+import type { RegionId } from "@/lib/sheet-links/buildSheetDeepLink";
 
 export type SectionId =
   | "venue"
@@ -39,6 +40,29 @@ const KIND_TO_SECTION: Record<string, Exclude<SectionId, "warnings">> = {
   event_details: "event",
   dress: "event",
   financials: "billing",
+};
+
+// SectionId → the parser RegionId whose source_anchors range the section's
+// "In sheet" heading link should target (bug #316 item 3). A wizard section is
+// coarser than a region (KIND_TO_SECTION folds details/event_details/dress into
+// `event`), so each section maps to its PRIMARY region; `null` = no single region
+// → whole-sheet #gid=0 fallback (diagrams sub-block has no dfid; warnings spans the
+// sheet; report is not a parsed region).
+export const SECTION_REGION_MAP: Record<SectionId, RegionId | null> = {
+  venue: "venue",
+  event: "details",
+  crew: "crew",
+  contacts: "contacts",
+  schedule: "schedule",
+  agenda: "schedule",
+  hotels: "hotels",
+  transport: "transportation",
+  rooms: "rooms",
+  diagrams: null,
+  packlist: "gear_packlist",
+  billing: "financials",
+  warnings: null,
+  report: null,
 };
 
 export function sectionForWarning(w: ParseWarning): SectionId | null {

@@ -2489,3 +2489,63 @@ describe("Step3ReviewModal — warning jump-links + one-shot highlight (Task 9, 
     expect(scrollToStub).toHaveBeenCalled();
   });
 });
+
+describe("Step3ReviewModal — per-section deep link anchors (bug #316 item 3)", () => {
+  const CREW_ANCHOR = { title: "INFO", gid: 0, a1: "A25:E25" };
+  const TRANSPORT_ANCHOR = { title: "INFO", gid: 0, a1: "A49:D61" };
+  // sourceAnchors keyed by RegionId. `crew` + `transportation` present; `hotels` absent.
+  // NOTE: `transportation` (not `transport`) is deliberate — it is the RegionId, while
+  // `transport` is the SectionId. This pair PROVES SECTION_REGION_MAP is consulted: a
+  // buggy `sourceAnchors[chrome.sectionId]` would look up `sourceAnchors["transport"]`
+  // (undefined) and fall back to #gid=0, failing the transport assertion below.
+  const ANCHORS = { crew: CREW_ANCHOR, transportation: TRANSPORT_ANCHOR };
+
+  function withAnchors() {
+    const pr = buildParseResult();
+    return sectionData({}, { row: stagedRow(pr, { sourceAnchors: ANCHORS }) });
+  }
+
+  test("crew section link targets the crew region's range (derived from the fixture anchor)", () => {
+    const d = withAnchors();
+    const { q } = renderModal({ d });
+    const link = q.getByTestId(
+      `wizard-step3-card-${DFID}-section-crew-sheetlink`,
+    ) as HTMLAnchorElement;
+    // Expected href DERIVED from the fixture anchor via the real builder — not hardcoded.
+    expect(link.getAttribute("href")).toBe(buildSheetDeepLink(DFID, CREW_ANCHOR));
+    // Concrete failure mode: the wizard passing NO anchor → href would be `${base}#gid=0`
+    // with no range. Pin the range from the fixture so that bug fails this assertion.
+    expect(link.getAttribute("href")).toContain("range=A25%3AE25");
+    expect(link.getAttribute("href")).not.toBe(buildSheetDeepLink(DFID));
+  });
+
+  test("transport section (non-identity SectionId→RegionId) uses SECTION_REGION_MAP", () => {
+    // transport → transportation: proves the map is consulted (not sourceAnchors[sectionId]).
+    const d = withAnchors();
+    const { q } = renderModal({ d });
+    const link = q.getByTestId(
+      `wizard-step3-card-${DFID}-section-transport-sheetlink`,
+    ) as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe(buildSheetDeepLink(DFID, TRANSPORT_ANCHOR));
+    expect(link.getAttribute("href")).toContain("range=A49%3AD61");
+    // A `sourceAnchors[chrome.sectionId]` bug → sourceAnchors["transport"] undefined → #gid=0.
+    expect(link.getAttribute("href")).not.toBe(buildSheetDeepLink(DFID));
+  });
+
+  test("a section whose region has no anchor falls back to #gid=0", () => {
+    const d = withAnchors(); // `hotels` region absent from ANCHORS
+    const { q } = renderModal({ d });
+    const link = q.getByTestId(
+      `wizard-step3-card-${DFID}-section-hotels-sheetlink`,
+    ) as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe(buildSheetDeepLink(DFID)); // #gid=0 fallback
+  });
+
+  test("regression: the modal HEADER link stays whole-sheet (#gid=0) even with anchors present", () => {
+    const d = withAnchors();
+    const { q } = renderModal({ d });
+    // tid() = `wizard-step3-card-${DFID}-review-sheetlink` (the header link, out of scope)
+    const header = q.getByTestId(tid("sheetlink")) as HTMLAnchorElement;
+    expect(header.getAttribute("href")).toBe(buildSheetDeepLink(DFID));
+  });
+});

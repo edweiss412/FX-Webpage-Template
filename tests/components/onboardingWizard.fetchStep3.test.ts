@@ -20,6 +20,7 @@ import { beforeEach, describe, expect, test, vi } from "vitest";
 
 const seed = vi.hoisted(() => ({
   dataByTable: {} as Record<string, unknown>,
+  selectByTable: {} as Record<string, string>,
 }));
 
 type AwaitableQuery = Promise<{ data: unknown; error: null }> & {
@@ -41,7 +42,15 @@ function makeClient() {
       const result = { data, error: null as null };
       const builder: Partial<AwaitableQuery> = {};
       const passthrough = () => builder as AwaitableQuery;
-      builder.select = passthrough;
+      // Record the projected column string per table so a test can pin that the
+      // production SELECT requests a given column (the passthrough returns the whole
+      // seeded row regardless of projection, so column omissions are otherwise invisible).
+      builder.select = (...args: unknown[]) => {
+        if (typeof table === "string" && typeof args[0] === "string") {
+          seed.selectByTable[table] = args[0];
+        }
+        return builder as AwaitableQuery;
+      };
       builder.eq = passthrough;
       builder.in = passthrough;
       builder.is = passthrough;
@@ -84,6 +93,7 @@ function seedManifest(
 
 beforeEach(() => {
   seed.dataByTable = {};
+  seed.selectByTable = {};
   // Default: no pending_syncs / pending_ingestions rows unless a test seeds them.
   seed.dataByTable["pending_syncs"] = [];
   seed.dataByTable["pending_ingestions"] = [];
@@ -269,5 +279,86 @@ describe("fetchStep3Data — baseline adminAgendaPreview + agendaStateKey (Task 
     expect(row).toBeDefined();
     expect(row?.adminAgendaPreview).toEqual([]);
     expect(row?.agendaStateKey).toBe(`${SESSION_ID}:s-2:2026-05-01T00:00:00.000Z`);
+  });
+});
+
+describe("fetchStep3Data — source_anchors threading (bug #316 item 3)", () => {
+  const ANCHORS = {
+    crew: { title: "INFO", gid: 0, a1: "A25:E25" },
+    schedule: { title: "AGENDA", gid: 1490737099, a1: "A1:X999" },
+  };
+
+  test("the pending_syncs SELECT requests the source_anchors column", async () => {
+    seedManifest([{ drive_file_id: "dfid-1", name: "One.xlsx", status: "staged" }]);
+    seed.dataByTable["pending_syncs"] = [
+      {
+        staged_id: "s-1",
+        drive_file_id: "dfid-1",
+        parse_result: PARSE_RESULT_FIXTURE,
+        source_anchors: ANCHORS,
+      },
+    ];
+    const { fetchStep3Data } = await import("@/components/admin/OnboardingWizard");
+    await fetchStep3Data(SESSION_ID);
+    // Catches the "coercion/threading added but production SELECT column forgotten" gap:
+    // the passthrough mock would otherwise return the row regardless of the projection.
+    expect(seed.selectByTable["pending_syncs"]).toContain("source_anchors");
+  });
+
+  test("a staged row's Step3Row.sourceAnchors equals the seeded source_anchors object", async () => {
+    seedManifest([{ drive_file_id: "dfid-1", name: "One.xlsx", status: "staged" }]);
+    seed.dataByTable["pending_syncs"] = [
+      {
+        staged_id: "s-1",
+        drive_file_id: "dfid-1",
+        parse_result: PARSE_RESULT_FIXTURE,
+        source_anchors: ANCHORS,
+      },
+    ];
+    const { fetchStep3Data } = await import("@/components/admin/OnboardingWizard");
+    const result = await fetchStep3Data(SESSION_ID);
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    const stagedRow = result.rows.find((r) => r.driveFileId === "dfid-1");
+    expect(stagedRow?.sourceAnchors).toEqual(ANCHORS);
+  });
+
+  test("a non-object source_anchors coerces to {} (defensive, mirrors parse_result guard)", async () => {
+    seedManifest([{ drive_file_id: "dfid-1", name: "One.xlsx", status: "staged" }]);
+    seed.dataByTable["pending_syncs"] = [
+      {
+        staged_id: "s-1",
+        drive_file_id: "dfid-1",
+        parse_result: PARSE_RESULT_FIXTURE,
+        source_anchors: "corrupt",
+      },
+    ];
+    const { fetchStep3Data } = await import("@/components/admin/OnboardingWizard");
+    const result = await fetchStep3Data(SESSION_ID);
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    const stagedRow = result.rows.find((r) => r.driveFileId === "dfid-1");
+    expect(stagedRow?.sourceAnchors).toEqual({});
+  });
+
+  test("an APPLIED clean row also threads sourceAnchors (pending_syncs survives approval)", async () => {
+    // isCleanReviewRow(status) covers BOTH 'staged' and 'applied': a checked/applied card
+    // keeps its pending_syncs row, so its links must anchor too. A status==='staged'-only
+    // implementation would regress applied cards to #gid=0.
+    seedManifest([{ drive_file_id: "dfid-applied", name: "Applied.xlsx", status: "applied" }]);
+    seed.dataByTable["pending_syncs"] = [
+      {
+        staged_id: "s-a",
+        drive_file_id: "dfid-applied",
+        parse_result: PARSE_RESULT_FIXTURE,
+        source_anchors: ANCHORS,
+      },
+    ];
+    const { fetchStep3Data } = await import("@/components/admin/OnboardingWizard");
+    const result = await fetchStep3Data(SESSION_ID);
+    expect(result.kind).toBe("ok");
+    if (result.kind !== "ok") return;
+    const appliedRow = result.rows.find((r) => r.driveFileId === "dfid-applied");
+    expect(appliedRow?.sourceAnchors).toEqual(ANCHORS);
   });
 });
