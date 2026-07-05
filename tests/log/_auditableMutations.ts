@@ -220,6 +220,18 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
     fn: "rerunSetupServerAction",
     code: "ONBOARDING_SETUP_RERUN",
   },
+  // Task 12 — app/admin/actions form actions. ADMIN_ALERT_RESOLVED is REUSED
+  // (already sanctioned above; the RPC alert-resolve routes stamp it too).
+  {
+    file: "app/admin/actions.ts",
+    fn: "resolveAdminAlertFormAction",
+    code: "ADMIN_ALERT_RESOLVED",
+  },
+  {
+    file: "app/admin/actions.ts",
+    fn: "retryWatchSubscriptionFormAction",
+    code: "WATCH_SUBSCRIPTION_RETRIED",
+  },
 ];
 
 export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
@@ -275,6 +287,8 @@ export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
   // Invariant #10 (2026-07-04) Task 11.
   "ONBOARDING_STARTED_OVER",
   "ONBOARDING_SETUP_RERUN",
+  // Invariant #10 (2026-07-04) Task 12. ADMIN_ALERT_RESOLVED is REUSED (already above).
+  "WATCH_SUBSCRIPTION_RETRIED",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing

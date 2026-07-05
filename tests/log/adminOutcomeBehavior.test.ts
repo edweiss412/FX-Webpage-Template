@@ -174,6 +174,43 @@ vi.mock("@/lib/onboarding/sessionLifecycle", () => ({
 
 import { startOverServerAction, rerunSetupServerAction } from "@/lib/onboarding/serverActions";
 
+// ── Task 12: app/admin/actions ──────────────────────────────────────────────
+const getActiveWatchedFolderMock = vi.fn(
+  async (..._a: unknown[]) => ({ folderId: "folder-1" }) as unknown,
+);
+vi.mock("@/lib/appSettings/getWatchedFolderId", () => ({
+  getActiveWatchedFolder: (...a: unknown[]) => getActiveWatchedFolderMock(...a),
+}));
+
+const subscribeToWatchedFolderMock = vi.fn(
+  async (..._a: unknown[]) => ({ outcome: "active" as const, channelId: "chan-1" }) as unknown,
+);
+vi.mock("@/lib/drive/watch", () => ({
+  subscribeToWatchedFolder: (...a: unknown[]) => subscribeToWatchedFolderMock(...a),
+}));
+
+const resolveAdminAlertMock = vi.fn(async (..._a: unknown[]) => undefined);
+vi.mock("@/lib/adminAlerts/resolveAdminAlert", () => ({
+  resolveAdminAlert: (...a: unknown[]) => resolveAdminAlertMock(...a),
+}));
+
+const { WatchRetryInfraErrorDouble } = vi.hoisted(() => {
+  class WatchRetryInfraErrorDouble extends Error {
+    constructor(stage: string) {
+      super(`watch retry infra error: ${stage}`);
+    }
+  }
+  return { WatchRetryInfraErrorDouble };
+});
+vi.mock("@/lib/admin/watchRetryError", () => ({
+  WatchRetryInfraError: WatchRetryInfraErrorDouble,
+}));
+
+import {
+  resolveAdminAlertFormAction,
+  retryWatchSubscriptionFormAction,
+} from "@/app/admin/actions";
+
 // ── inline file-local recorder (single-file contract; no cross-file state) ──
 const recorded = new Set<string>(); // "file::fn::code"
 function recordAdminOutcomeBehavior(x: { file: string; fn: string; code: string }) {
@@ -245,6 +282,12 @@ beforeEach(() => {
   }));
   runInvariantsMock.mockImplementation(() => ({ outcome: "pass" as const }));
   purgeAndRotateOnboardingSessionMock.mockImplementation(async () => ({ rotated: true }));
+  getActiveWatchedFolderMock.mockImplementation(async () => ({ folderId: "folder-1" }));
+  subscribeToWatchedFolderMock.mockImplementation(async () => ({
+    outcome: "active" as const,
+    channelId: "chan-1",
+  }));
+  resolveAdminAlertMock.mockImplementation(async () => undefined);
 });
 
 // ── Task 7: settings toggles (spec §3.1 A, §5.2) ────────────────────────────
@@ -492,5 +535,43 @@ describe("Task 11 — onboarding start-over / rerun-setup observe changes", () =
     });
     const failCodes = await observeCodes(() => rerunSetupServerAction());
     expect(failCodes).not.toContain("ONBOARDING_SETUP_RERUN");
+  });
+});
+
+// ── Task 12: app/admin/actions (spec §3.1 A, §5.2) ──────────────────────────
+describe("Task 12 — alert-resolve + watch-retry observe success only", () => {
+  test("resolveAdminAlertFormAction emits (reuse) ADMIN_ALERT_RESOLVED on the committed UPDATE; nothing on a missing id", async () => {
+    serverClientImpl.current = async () =>
+      makeClient({
+        getUser: { data: { user: { email: "admin@example.com" } }, error: null },
+        from: { error: null },
+      });
+    const form = new FormData();
+    form.set("id", "11111111-1111-1111-1111-111111111111");
+    const codes = await observeCodes(() => resolveAdminAlertFormAction(form));
+    expect(codes).toContain("ADMIN_ALERT_RESOLVED");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/actions.ts",
+      fn: "resolveAdminAlertFormAction",
+      code: "ADMIN_ALERT_RESOLVED",
+    });
+
+    // Missing id — the action's early return, no getUser/UPDATE reached.
+    const failCodes = await observeCodes(() => resolveAdminAlertFormAction(new FormData()));
+    expect(failCodes).not.toContain("ADMIN_ALERT_RESOLVED");
+  });
+
+  test("retryWatchSubscriptionFormAction emits WATCH_SUBSCRIPTION_RETRIED on successful renewal; nothing on the no-folder skip", async () => {
+    const codes = await observeCodes(() => retryWatchSubscriptionFormAction(new FormData()));
+    expect(codes).toContain("WATCH_SUBSCRIPTION_RETRIED");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/actions.ts",
+      fn: "retryWatchSubscriptionFormAction",
+      code: "WATCH_SUBSCRIPTION_RETRIED",
+    });
+
+    getActiveWatchedFolderMock.mockImplementation(async () => ({ kind: "no_folder_configured" }));
+    const failCodes = await observeCodes(() => retryWatchSubscriptionFormAction(new FormData()));
+    expect(failCodes).not.toContain("WATCH_SUBSCRIPTION_RETRIED");
   });
 });

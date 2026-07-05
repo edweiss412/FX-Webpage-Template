@@ -179,6 +179,18 @@ export async function resolveAdminAlertFormAction(formData: FormData): Promise<v
     );
   }
 
+  // Invariant #10: durable success trace on the committed UPDATE branch only
+  // (post-mutation; logAdminOutcome is internally try/catch-wrapped so it can
+  // never throw over the committed write). Reuses ADMIN_ALERT_RESOLVED — the
+  // same code the RPC alert-resolve routes stamp. Actor is `resolvedBy`
+  // (already canonicalized pre-mutation).
+  await logAdminOutcome({
+    code: "ADMIN_ALERT_RESOLVED",
+    source: "admin.actions",
+    actorEmail: resolvedBy,
+    extra: { alertId: id },
+  });
+
   // Re-render the admin layout so the AlertBanner re-runs its SELECT
   // and the freshly-resolved row drops out of the topmost slot.
   revalidatePath("/admin", "layout");
@@ -305,6 +317,16 @@ export async function retryWatchSubscriptionFormAction(_formData: FormData): Pro
   const result = await subscribeToWatchedFolder(folder.folderId);
   if (result.outcome === "active") {
     await resolveAdminAlert({ showId: null, code: "WATCH_CHANNEL_ORPHANED" });
+    // Invariant #10: successful-renewal is the only branch that emits (post-commit,
+    // after the subscription renewed). A non-active outcome (orphaned) or a thrown
+    // infra error does NOT reach here — it must not read as a successful retry.
+    // No actorEmail: this action gates via requireAdmin() (not requireAdminIdentity),
+    // so no canonical email is resolved; attribution is out of scope for this surface.
+    await logAdminOutcome({
+      code: "WATCH_SUBSCRIPTION_RETRIED",
+      source: "admin.watchRetry",
+      result: "renewed",
+    });
   }
   revalidatePath("/admin", "layout");
   revalidatePath("/admin/settings");

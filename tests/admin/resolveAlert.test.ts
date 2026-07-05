@@ -116,6 +116,16 @@ vi.mock("next/cache", () => ({
   revalidatePath: revalidatePathSpy,
 }));
 
+// Invariant #10: the action now emits ADMIN_ALERT_RESOLVED via logAdminOutcome on
+// the committed-success branch. Stub it here so this pre-existing feature test does
+// NOT drive the REAL logger (which would attempt app_events persistence + surface on
+// the `expect(consoleErrorSpy).not.toHaveBeenCalled()` happy-path assertion). The
+// executable behavioral proof for this emit lives in tests/log/adminOutcomeBehavior.test.ts
+// (which deliberately does NOT mock the logger).
+vi.mock("@/lib/log/logAdminOutcome", () => ({
+  logAdminOutcome: vi.fn(async () => undefined),
+}));
+
 // Import AFTER mocks so the action's module-level imports resolve to them.
 import { resolveAdminAlertFormAction } from "@/app/admin/actions";
 
