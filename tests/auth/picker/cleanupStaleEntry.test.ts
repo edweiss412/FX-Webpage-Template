@@ -13,6 +13,9 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/headers", () => ({ cookies: vi.fn() }));
 vi.mock("@/lib/adminAlerts/upsertAdminAlert", () => ({ upsertAdminAlert: vi.fn() }));
 
+const logMock = vi.hoisted(() => ({ warn: vi.fn(), error: vi.fn(), info: vi.fn(), debug: vi.fn() }));
+vi.mock("@/lib/log", () => ({ log: logMock }));
+
 const KEY = "0".repeat(64);
 const SHOW_ID = "11111111-1111-1111-1111-111111111111";
 const OTHER_SHOW_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
@@ -40,6 +43,7 @@ beforeEach(() => {
   process.env.PICKER_COOKIE_SIGNING_KEY = KEY;
   existingCookie = undefined;
   cookieSet.mockReset();
+  logMock.info.mockClear();
   vi.mocked(revalidatePath).mockReset();
   vi.mocked(upsertAdminAlert).mockReset();
   vi.mocked(cookies).mockResolvedValue({
@@ -146,5 +150,94 @@ describe("cleanupStaleEntry", () => {
         expectedCrewMemberId: "not-uuid",
       }),
     ).resolves.toEqual({ ok: false, code: "PICKER_INVALID_INPUT" });
+  });
+});
+
+describe("cleanupStaleEntry telemetry — PICKER_STALE_ENTRY_CLEANED", () => {
+  test("emits on the cleaned branch", async () => {
+    existingCookie = encodePickerCookie(
+      { v: 1, selections: { [SHOW_ID]: { id: CREW_ID, e: 1, t: 100 } } },
+      KEY,
+    );
+    await cleanupStaleEntryCore({
+      slug: SLUG,
+      shareToken: TOKEN,
+      showId: SHOW_ID,
+      expectedEpoch: 1,
+      expectedCrewMemberId: CREW_ID,
+    });
+    expect(logMock.info).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        code: "PICKER_STALE_ENTRY_CLEANED",
+        source: "auth.picker.cleanupStaleEntry",
+        showId: SHOW_ID,
+        epoch: 1,
+        crewMemberId: CREW_ID,
+      }),
+    );
+  });
+
+  test("does NOT emit on a noop (epoch/crew mismatch, no entry for this show, or no cookie)", async () => {
+    // (a) mismatch: newer epoch present
+    existingCookie = encodePickerCookie(
+      { v: 1, selections: { [SHOW_ID]: { id: CREW_ID, e: 5, t: 100 } } },
+      KEY,
+    );
+    await cleanupStaleEntryCore({
+      slug: SLUG,
+      shareToken: TOKEN,
+      showId: SHOW_ID,
+      expectedEpoch: 1,
+      expectedCrewMemberId: CREW_ID,
+    });
+    // (b) cookie present but NO entry for this show (the distinct !entry return)
+    existingCookie = encodePickerCookie(
+      { v: 1, selections: { [OTHER_SHOW_ID]: { id: OTHER_CREW_ID, e: 2, t: 200 } } },
+      KEY,
+    );
+    await cleanupStaleEntryCore({
+      slug: SLUG,
+      shareToken: TOKEN,
+      showId: SHOW_ID,
+      expectedEpoch: 1,
+      expectedCrewMemberId: CREW_ID,
+    });
+    // (c) no cookie at all (the !env return)
+    existingCookie = undefined;
+    await cleanupStaleEntryCore({
+      slug: SLUG,
+      shareToken: TOKEN,
+      showId: SHOW_ID,
+      expectedEpoch: 1,
+      expectedCrewMemberId: CREW_ID,
+    });
+    expect(logMock.info).not.toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: "PICKER_STALE_ENTRY_CLEANED" }),
+    );
+  });
+
+  test("does NOT emit when cleanupStaleEntryCore catches a thrown fault (spec §5 *Core throw path)", async () => {
+    existingCookie = encodePickerCookie(
+      { v: 1, selections: { [SHOW_ID]: { id: CREW_ID, e: 1, t: 100 } } },
+      KEY,
+    );
+    // `await cookies()` (before the upsertAdminAlert try) → propagates to the
+    // cleanupStaleEntryCore catch; the emit is never reached.
+    vi.mocked(cookies).mockRejectedValueOnce(new Error("cookie store down"));
+    await expect(
+      cleanupStaleEntryCore({
+        slug: SLUG,
+        shareToken: TOKEN,
+        showId: SHOW_ID,
+        expectedEpoch: 1,
+        expectedCrewMemberId: CREW_ID,
+      }),
+    ).resolves.toEqual({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+    expect(logMock.info).not.toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: "PICKER_STALE_ENTRY_CLEANED" }),
+    );
   });
 });
