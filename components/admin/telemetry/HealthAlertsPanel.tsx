@@ -111,7 +111,7 @@ function HealthAlertRowItem({
       {row.identityText ? (
         <p
           data-testid={`health-alert-identity-${row.id}`}
-          className="break-words text-sm text-text-subtle"
+          className="wrap-break-word text-sm text-text-subtle"
         >
           {row.identityText}
         </p>

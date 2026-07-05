@@ -393,7 +393,7 @@ export async function PerShowAlertSection({
               {alert.identityText ? (
                 <p
                   data-testid="per-show-alert-identity"
-                  className="break-words text-xs text-text-subtle"
+                  className="wrap-break-word text-xs text-text-subtle"
                 >
                   {alert.identityText}
                 </p>

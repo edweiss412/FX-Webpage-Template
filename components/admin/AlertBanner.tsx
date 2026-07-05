@@ -441,7 +441,7 @@ export async function AlertBanner() {
         {identityText != null ? (
           <p
             data-testid="admin-alert-identity"
-            className="col-start-1 row-start-2 min-w-0 mt-2 break-words text-sm text-text-subtle"
+            className="col-start-1 row-start-2 min-w-0 mt-2 wrap-break-word text-sm text-text-subtle"
           >
             {identityText}
           </p>
@@ -472,7 +472,7 @@ export async function AlertBanner() {
           {identityText != null ? (
             <p
               data-testid="admin-alert-identity-panel"
-              className="mt-2 break-words text-sm text-text-subtle"
+              className="mt-2 wrap-break-word text-sm text-text-subtle"
             >
               {identityText}
             </p>
