@@ -323,7 +323,13 @@ export function ScheduleSection({
                           data-day={day.date}
                           {...(isToday ? { "data-today": "true" } : {})}
                         >
-                          <DayCard day={day.date} phase={day.phase} today={isToday} meta={meta} />
+                          <DayCard
+                            day={day.date}
+                            phase={day.phase}
+                            today={isToday}
+                            meta={meta}
+                            label={day.label}
+                          />
                           {/* Gate on the per-viewer (load-out-gated) DISPLAYABLE
                               count, not the raw stored count: a day whose entries
                               are all URL-only (stripped title → "") OR only a
