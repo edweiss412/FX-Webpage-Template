@@ -885,7 +885,12 @@ describe("Step3SheetCard compact list row (Task 4)", () => {
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-client`)).toBeNull();
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-dates`)).toBeNull();
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-venue`)).toBeNull();
-    expect(q.getByTestId(`wizard-step3-card-${DFID}-title`)).toBeTruthy();
+    // §4.3: with all three absent, NO meta <p> renders at all — not an empty
+    // paragraph that would leave a dangling gap under the title. The text block
+    // (the title's min-w-0 flex-1 parent) contains ONLY the title element.
+    const titleEl = q.getByTestId(`wizard-step3-card-${DFID}-title`);
+    const textBlock = titleEl.parentElement!;
+    expect(textBlock.querySelectorAll("p").length).toBe(1); // just the title <p>
   });
 
   test("demoted RESCAN → no checkbox, 'Needs another look' chip, rescan banner, title-link, Review modal trigger", async () => {

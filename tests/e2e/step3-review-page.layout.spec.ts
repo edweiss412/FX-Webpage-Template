@@ -76,7 +76,9 @@ function card(dfid: string, title: string, needsLook: boolean): string {
   const chip = needsLook
     ? `<span data-testid="wizard-step3-card-${dfid}-review-chip" class="inline-flex items-center gap-1.5 rounded-pill bg-warning-bg px-2.5 py-0.5 text-xs font-semibold text-warning-text"><span aria-hidden="true" class="size-1.5 rounded-full bg-status-review"></span>2 need a look</span>`
     : "";
-  const btnBorder = needsLook ? " border border-border-strong" : "";
+  const btnVariant = needsLook
+    ? " border border-border-strong text-text-strong"
+    : " text-text-subtle hover:text-text-strong";
   const btnLabel = needsLook ? "Review" : "View";
   return `<article data-testid="wizard-step3-card-${dfid}" class="flex flex-wrap items-center gap-x-4 gap-y-3 rounded-md border ${border} bg-surface p-tile-pad shadow-tile">
     <label class="relative -m-3 inline-flex shrink-0 cursor-pointer items-center justify-center p-3">
@@ -95,7 +97,7 @@ function card(dfid: string, title: string, needsLook: boolean): string {
     </div>
     <div class="flex shrink-0 items-center gap-3 max-sm:w-full max-sm:justify-between">
       ${chip}
-      <button type="button" data-testid="wizard-step3-card-${dfid}-more" class="inline-flex min-h-tap-min shrink-0 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken${btnBorder}">${btnLabel}</button>
+      <button type="button" data-testid="wizard-step3-card-${dfid}-more" class="inline-flex min-h-tap-min shrink-0 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-semibold transition-colors duration-fast hover:bg-surface-sunken${btnVariant}">${btnLabel}</button>
     </div>
   </article>`;
 }

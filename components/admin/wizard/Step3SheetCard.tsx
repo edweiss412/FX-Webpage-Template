@@ -295,7 +295,7 @@ export function Step3SheetCard({
       <article
         data-testid={`wizard-step3-card-${dfid}`}
         data-no-details="true"
-        className="flex flex-col gap-2 rounded-md border border-border bg-surface p-tile-pad"
+        className="flex flex-col gap-2 rounded-md border border-border bg-surface p-tile-pad shadow-tile"
       >
         <div data-testid={`wizard-step3-card-${dfid}-summary`} className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
@@ -355,22 +355,25 @@ export function Step3SheetCard({
       </span>
     ) : null,
   ].filter((n): n is ReactElement => n != null);
-  const metaLine = (
-    <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-text-subtle">
-      {metaSegments.flatMap((seg, i) =>
-        i === 0
-          ? [seg]
-          : ([
-              <span
-                key={`dot-${i}`}
-                aria-hidden="true"
-                className="size-[3px] shrink-0 rounded-full bg-border-strong"
-              />,
-              seg,
-            ] as ReactElement[]),
-      )}
-    </p>
-  );
+  // §4.3: when client, dates, AND venue are all absent, render NO meta line at
+  // all (not an empty <p> that would leave a dangling gap under the title).
+  const metaLine =
+    metaSegments.length > 0 ? (
+      <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-text-subtle">
+        {metaSegments.flatMap((seg, i) =>
+          i === 0
+            ? [seg]
+            : ([
+                <span
+                  key={`dot-${i}`}
+                  aria-hidden="true"
+                  className="size-[3px] shrink-0 rounded-full bg-border-strong"
+                />,
+                seg,
+              ] as ReactElement[]),
+        )}
+      </p>
+    ) : null;
 
   // The warn "needs a look" chip: a bg-status-review dot + bg-warning-bg pill
   // (dot+text paired, DESIGN.md §1.3). Selectable warn rows show a COUNT; demoted
@@ -395,8 +398,12 @@ export function Step3SheetCard({
       aria-haspopup="dialog"
       onClick={() => setDetailsOpen(true)}
       className={[
-        "inline-flex min-h-tap-min shrink-0 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2",
-        label === "Review" ? "border border-border-strong" : "",
+        "inline-flex min-h-tap-min shrink-0 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-semibold transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2",
+        // Review = outline + strong text (the primary needs-a-look action); View =
+        // subtler ghost (a clean row needs no urging), so the two read distinctly.
+        label === "Review"
+          ? "border border-border-strong text-text-strong"
+          : "text-text-subtle hover:text-text-strong",
       ].join(" ")}
     >
       {label}
