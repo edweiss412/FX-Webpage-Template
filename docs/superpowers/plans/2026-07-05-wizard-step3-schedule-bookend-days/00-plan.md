@@ -39,56 +39,39 @@ None applies. This change touches no auth call-boundary, DB write, admin-alert c
 - Produces: `ScheduleDayRow` accepts `phase?: SchedulePhase | null`. When non-null, renders `<span data-testid={`wizard-step3-card-${dfid}-sched-phase-${iso}`}>{phase}</span>` in the `<li>` header stack, after the date span (`:884`). Absent/`null` → no phase node.
 - Consumes: `SchedulePhase` from `@/lib/crew/agendaDisplay`.
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing test** (renders `ScheduleDayRow` DIRECTLY — passes with only this task's implementation; the union/threading is Task 2)
 
 ```tsx
 // @vitest-environment jsdom
 import { afterEach, describe, expect, test } from "vitest";
 import { cleanup, render } from "@testing-library/react";
-import { ScheduleBreakdown } from "@/components/admin/wizard/step3ReviewSections";
-import type { ScheduleDay, ShowRow } from "@/lib/parser/types";
+import { ScheduleDayRow } from "@/components/admin/wizard/step3ReviewSections";
+import type { SchedulePhase } from "@/lib/crew/agendaDisplay";
 
 afterEach(cleanup);
 
-const day = (extra: Partial<ScheduleDay> = {}): ScheduleDay => ({
-  entries: [],
-  showStart: null,
-  showEnd: null,
-  window: null,
-  ...extra,
-});
-const dates = (o: Partial<ShowRow["dates"]> = {}): ShowRow["dates"] => ({
-  travelIn: null,
-  set: null,
-  showDays: [],
-  travelOut: null,
-  ...o,
-});
+// ScheduleDayRow returns an <li>; wrap in <ul> to keep DOM nesting valid.
+const renderRow = (props: { iso: string; phase?: SchedulePhase | null }) =>
+  render(
+    <ul>
+      <ScheduleDayRow dfid="d" entries={[]} {...props} />
+    </ul>,
+  );
 
 describe("wizard ScheduleDayRow phase label", () => {
-  test("aggregate day renders its phase label with a per-date testid", () => {
-    // travelIn day has NO ros entry — it comes purely from the aggregate.
-    const { container } = render(
-      <ScheduleBreakdown dfid="d" ros={{}} dates={dates({ travelIn: "2025-10-18" })} />,
-    );
-    const phase = container.querySelector(
-      '[data-testid="wizard-step3-card-d-sched-phase-2025-10-18"]',
-    );
-    expect(phase?.textContent).toBe("Travel In");
+  test("renders the phase label with a per-date testid when `phase` is set", () => {
+    const { container } = renderRow({ iso: "2025-10-18", phase: "Travel In" });
+    expect(
+      container.querySelector('[data-testid="wizard-step3-card-d-sched-phase-2025-10-18"]')
+        ?.textContent,
+    ).toBe("Travel In");
   });
 
-  test("ros-only day (outside the aggregate) renders NO phase label", () => {
-    const { container } = render(
-      <ScheduleBreakdown
-        dfid="d"
-        ros={{ "2025-10-30": day({ entries: [{ start: "5:00 PM", title: "Strike — GS", kind: "strike" }] }) }}
-        dates={dates()}
-      />,
-    );
-    // No aggregate day, so no phase node anywhere.
-    expect(container.querySelector('[data-testid^="wizard-step3-card-d-sched-phase-"]')).toBeNull();
-    // But the ros-only day still renders (regression guard, exercised fully in Task 2).
-    expect(container.textContent).toContain("Strike — GS");
+  test("no `phase` prop → no phase label node", () => {
+    const { container } = renderRow({ iso: "2025-10-30" });
+    expect(
+      container.querySelector('[data-testid^="wizard-step3-card-d-sched-phase-"]'),
+    ).toBeNull();
   });
 });
 ```
@@ -96,7 +79,7 @@ describe("wizard ScheduleDayRow phase label", () => {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `pnpm vitest run tests/components/admin/wizard/ScheduleDayRow.phase.test.tsx`
-Expected: FAIL — `ScheduleBreakdown` has no `dates` prop yet / no phase label rendered (first test: `phase` is null; second may pass incidentally).
+Expected: FAIL — `ScheduleDayRow` has no `phase` prop yet (first test: no phase node rendered).
 
 - [ ] **Step 3: Implement — add the `phase` prop + label to `ScheduleDayRow`**
 
@@ -162,7 +145,7 @@ git commit --no-verify -m "feat(admin): ScheduleDayRow phase label (per-date tes
 
 **Files:**
 - Modify: `components/admin/wizard/step3ReviewSections.tsx` (`ScheduleBreakdown`, ~937-977; call site `:2438`; import `aggregateDays`)
-- Test: `tests/components/admin/wizard/scheduleBreakdown.bookendDays.test.tsx` (create)
+- Test: `tests/components/admin/wizard/scheduleBreakdown.bookendDays.test.tsx` (create — direct-render merge/union/cap), `tests/components/admin/wizard/scheduleBreakdown.threading.test.tsx` (create — call-site integration via `Step3SheetCard`)
 
 **Interfaces:**
 - Consumes: `aggregateDays`, `SchedulePhase` from `@/lib/crew/agendaDisplay`; `ScheduleDayRow.phase` from Task 1.
@@ -173,7 +156,7 @@ git commit --no-verify -m "feat(admin): ScheduleDayRow phase label (per-date tes
 ```tsx
 // @vitest-environment jsdom
 import { afterEach, describe, expect, test } from "vitest";
-import { cleanup, render, within } from "@testing-library/react";
+import { cleanup, render } from "@testing-library/react";
 import { ScheduleBreakdown } from "@/components/admin/wizard/step3ReviewSections";
 import { aggregateDays } from "@/lib/crew/agendaDisplay";
 import type { ScheduleDay, ShowRow } from "@/lib/parser/types";
@@ -238,13 +221,15 @@ describe("wizard ScheduleBreakdown — all schedule days (bug #316 item 1)", () 
     expect(container.textContent).toContain("No run-of-show parsed.");
   });
 
-  test("BreakdownSection count reflects merged day count", () => {
+  test("BreakdownSection count reflects merged day count (scoped to the count element)", () => {
     const ros = { "2025-10-30": day({ entries: [{ start: "5:00 PM", title: "X", kind: "strike" as const }] }) };
     const { getByTestId } = render(<ScheduleBreakdown dfid="d" ros={ros} dates={fx} />);
     const el = getByTestId("wizard-step3-card-d-breakdown-schedule");
-    // aggregate = 4 days (travelIn/set/2 show/travelOut = 5) ... derive, don't hardcode:
+    // Derive the merged count from the fixture; assert against the section header's
+    // count node specifically (rendered as "(N)" in the <h4> eyebrow) — NOT a bare
+    // `getByText("6")` that could match a time like "6:00".
     const merged = new Set([...aggregateDays(fx).map((d) => d.date), "2025-10-30"]).size;
-    expect(within(el).getByText(String(merged))).toBeTruthy();
+    expect(el.querySelector("h4")?.textContent).toContain(`(${merged})`);
   });
 
   test("cap-exempt: travelOut survives when > SCHEDULE_DAYS_CAP non-synthetic days precede it", () => {
@@ -257,8 +242,65 @@ describe("wizard ScheduleBreakdown — all schedule days (bug #316 item 1)", () 
     // a mid-list SHOW day beyond the cap is dropped into the overflow note.
     expect(container.textContent).toMatch(/more days/);
   });
+
+  test("cap-exempt: a SYNTHETIC ros day beyond the cap still renders (existing exemption preserved)", () => {
+    // 15 show days + one off-schedule strike that sorts LAST (idx ≥ CAP). A regression
+    // that dropped isSyntheticDay while adding the bookend exemption would fail this.
+    const many = Array.from({ length: 15 }, (_, i) => `2025-10-${String(i + 1).padStart(2, "0")}`);
+    const capFx = dates({ showDays: many });
+    const ros = {
+      "2025-12-31": day({ entries: [{ start: "5:00 PM", title: "Strike — GS", kind: "strike" as const }] }),
+    };
+    const { container } = render(<ScheduleBreakdown dfid="d" ros={ros} dates={capFx} />);
+    expect(container.textContent).toContain("Strike — GS");
+  });
 });
 ```
+
+- [ ] **Step 1b: Write the failing call-site integration test** (proves the Step-3 registry threads `s.pr.show.dates` — the optional `dates` default would otherwise mask a forgotten thread)
+
+```tsx
+// @vitest-environment jsdom
+// tests/components/admin/wizard/scheduleBreakdown.threading.test.tsx
+import { afterEach, describe, expect, test } from "vitest";
+import { cleanup, fireEvent, render } from "@testing-library/react";
+import { Step3SheetCard } from "@/components/admin/wizard/Step3SheetCard";
+import type { ParseResult, ShowRow, Step3Row } from "@/lib/parser/types"; // ShowRow/ParseResult from parser types; Step3Row from step3ReviewSections
+import type { Step3Row as Step3RowT } from "@/components/admin/wizard/step3ReviewSections";
+
+const WSID = "00000000-1111-4222-8333-444444444444";
+const DFID = "d";
+afterEach(cleanup);
+
+// Minimal ShowRow/ParseResult with a travel-in date and empty run-of-show.
+const show = (): ShowRow => ({
+  title: "T", client_label: null, client_contact: null, template_version: "v4", venue: null,
+  dates: { travelIn: "2025-10-18", set: null, showDays: ["2025-10-20"], travelOut: null },
+  schedule_phases: {}, event_details: {}, agenda_links: [], coi_status: null,
+  po: null, proposal: null, invoice: null, invoice_notes: null,
+});
+const pr = (): ParseResult => ({
+  show: show(), crewMembers: [], hotelReservations: [], rooms: [], transportation: null,
+  contacts: [], pullSheet: null,
+  diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
+  openingReel: null, raw_unrecognized: [], warnings: [], runOfShow: {}, hardErrors: [],
+});
+const row = (): Step3RowT => ({ driveFileId: DFID, driveFileName: "x.sheet", status: "staged", parseResult: pr() });
+
+describe("wizard Step3 call site threads dates → travel-in appears (bug #316 item 1)", () => {
+  test("travel-in phase label renders in the expanded card (proves dates threading)", () => {
+    const q = render(<Step3SheetCard row={row()} wizardSessionId={WSID} />);
+    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));
+    const el = q.getByTestId(`wizard-step3-card-${DFID}-breakdown-schedule`);
+    expect(
+      el.querySelector(`[data-testid="wizard-step3-card-${DFID}-sched-phase-2025-10-18"]`)
+        ?.textContent,
+    ).toBe("Travel In");
+  });
+});
+```
+
+> Note on imports: confirm the exact exported names/shape of `ShowRow`, `ParseResult`, and `Step3Row` (the row type is exported from `@/components/admin/wizard/step3ReviewSections`, not parser types — see `SectionData.row: Step3Row`, `step3ReviewSections.tsx:1963`). Adjust the `show()`/`pr()` literals to satisfy every required field the current types demand (mirror `tests/components/step3SheetCard.bookends.test.tsx:33-70`, the live fixture). Fix any type error before running.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -352,13 +394,13 @@ Confirm `ShowRow` is imported in this file (it is — used by `VenueBreakdown`/`
 
 - [ ] **Step 5: Run the new + regression tests**
 
-Run: `pnpm vitest run tests/components/admin/wizard/scheduleBreakdown.bookendDays.test.tsx tests/components/admin/wizard/ScheduleDayRow.phase.test.tsx tests/components/admin/wizard/ScheduleDayRow.meta.test.tsx tests/components/step3SheetCard.bookends.test.tsx`
-Expected: PASS (all — new tests green; the two existing suites unchanged).
+Run: `pnpm vitest run tests/components/admin/wizard/scheduleBreakdown.bookendDays.test.tsx tests/components/admin/wizard/scheduleBreakdown.threading.test.tsx tests/components/admin/wizard/ScheduleDayRow.phase.test.tsx tests/components/admin/wizard/ScheduleDayRow.meta.test.tsx tests/components/step3SheetCard.bookends.test.tsx`
+Expected: PASS (all — new tests green; the two existing suites unchanged). The threading test proves the call-site `dates` thread.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add tests/components/admin/wizard/scheduleBreakdown.bookendDays.test.tsx components/admin/wizard/step3ReviewSections.tsx
+git add tests/components/admin/wizard/scheduleBreakdown.bookendDays.test.tsx tests/components/admin/wizard/scheduleBreakdown.threading.test.tsx components/admin/wizard/step3ReviewSections.tsx
 git commit --no-verify -m "fix(admin): wizard step-3 schedule renders all days incl. travel bookends (#316)"
 ```
 
