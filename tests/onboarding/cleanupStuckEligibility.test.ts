@@ -32,11 +32,16 @@ type FakeState = {
   // unresolved ids returned on the FIRST (pre-lock) vs SECOND (post-lock) read.
   preUnresolved: string[];
   postUnresolved: string[];
+  // reap-lock drive-id set (collectReapDriveFileIds union) returned on the FIRST
+  // (inside lockCleanupDriveFiles) vs SECOND (under-lock recheck) collect pass.
+  preReap: string[];
+  postReap: string[];
   recentFinalize: number;
 };
 
 class FakeTx implements OnboardingSessionTx {
   unresolvedReads = 0;
+  reapReads = 0;
   deletes: string[] = [];
   rotated = false;
 
@@ -54,6 +59,18 @@ class FakeTx implements OnboardingSessionTx {
     });
 
     if (q.includes("pg_advisory_xact_lock")) return rows([]);
+
+    // collectReapDriveFileIds unions five reap tables per pass; deferred_ingestions
+    // is reap-only (never touched by the unresolved/finishable reads), so it is the
+    // safe per-pass sentinel. Return the whole set here (the union of the other four
+    // empty selects is identical) and split pre-lock (pass 0) vs under-lock recheck
+    // (pass 1) so a test can model a lock-set that EXPANDED while cleanup waited.
+    if (q.startsWith("select drive_file_id from public.deferred_ingestions")) {
+      const ids = this.reapReads === 0 ? this.s.preReap : this.s.postReap;
+      this.reapReads += 1;
+      return rows(ids.map((drive_file_id) => ({ drive_file_id })));
+    }
+    if (q.startsWith("select drive_file_id from public.")) return rows([]);
 
     // Owner + staleness read (has the `as is_stale` computed column).
     if (q.includes("as is_stale")) {
@@ -111,6 +128,8 @@ const base: FakeState = {
   finishable: 0,
   preUnresolved: [],
   postUnresolved: [],
+  preReap: [],
+  postReap: [],
   recentFinalize: 0,
 };
 
@@ -182,6 +201,40 @@ describe("cleanupAbandonedFinalize eligibility (Thread 2b)", () => {
     });
     await expect(result).rejects.toMatchObject({ reason: "session_too_fresh" });
     expect(tx.rotated).toBe(false);
+  });
+
+  test("under-lock recheck ABORTS session_too_fresh when the reap lock-set EXPANDS post-lock (whole-diff R1 HIGH)", async () => {
+    // A concurrent scan/recovery INSERTed a new session row (D2) after
+    // lockCleanupDriveFiles's initial collect (or while cleanup waited on the show:
+    // locks). The purge is SESSION-scoped, so it would delete D2's rows WITHOUT ever
+    // holding show:D2 — an invariant-2 violation. cleanup must re-collect under the
+    // held locks and abort rather than purge an unlocked drive id. The unresolved set
+    // is deliberately unchanged so ONLY the reap-expansion guard can trip this.
+    const { tx, result } = run({
+      ...base,
+      isStale: true,
+      finishable: 1,
+      preUnresolved: ["D1"],
+      postUnresolved: ["D1"],
+      preReap: ["D1"],
+      postReap: ["D1", "D2"], // D2 appeared after our initial collect
+    });
+    await expect(result).rejects.toMatchObject({ reason: "session_too_fresh" });
+    expect(tx.rotated).toBe(false); // purged nothing
+  });
+
+  test("under-lock recheck PROCEEDS when the reap set is unchanged", async () => {
+    const { tx, result } = run({
+      ...base,
+      isStale: true,
+      finishable: 1,
+      preUnresolved: [],
+      postUnresolved: [],
+      preReap: ["D1", "D2"],
+      postReap: ["D2", "D1"], // same set, re-sorted — must NOT be seen as expansion
+    });
+    await expect(result).resolves.toMatchObject({ status: "cleaned" });
+    expect(tx.rotated).toBe(true);
   });
 
   test("under-lock recheck PROCEEDS when the unresolved set is unchanged", async () => {

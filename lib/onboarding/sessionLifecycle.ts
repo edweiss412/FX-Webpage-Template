@@ -465,7 +465,27 @@ export async function cleanupAbandonedFinalize(
       }
     }
 
-    await lockCleanupDriveFiles(tx, sessionId);
+    const lockedReapIds = await lockCleanupDriveFiles(tx, sessionId);
+
+    // Invariant 2 under-lock recheck (whole-diff R1 HIGH) — the reap LOCK-SET must
+    // not have EXPANDED. purgeWizardRowsForSession issues SESSION-scoped deletes
+    // across the five reap tables, so a row a concurrent scan/recovery INSERTed for
+    // this session AFTER lockCleanupDriveFiles's initial collect (or while cleanup
+    // waited on the show: locks) would be purged WITHOUT ever holding show:<new id>.
+    // Acquiring that lock in-place now — while already holding higher-sorted show:
+    // locks — is the exact AB-BA hazard lockReapDriveFiles throws to avoid, so we do
+    // NOT lock-and-continue: we re-collect under the held locks and, if any id is not
+    // already held, ABORT the discard (purge nothing). A newly-appearing row also
+    // means the session is actively changing, so session_too_fresh is the correct
+    // operator-facing signal (mirrors the resolved-recovery abort below).
+    const heldReap = new Set(lockedReapIds);
+    const recheckReap = await collectReapDriveFileIds(tx, sessionId);
+    if (recheckReap.some((id) => !heldReap.has(id))) {
+      throw new CleanupRequiresStaleSessionError("session_too_fresh", {
+        wizard_session_id: sessionId,
+        pending_wizard_session_at: owner.rows[0].pending_wizard_session_at ?? null,
+      });
+    }
 
     // Under-lock recheck (spec §5.5 step 3) — BOTH paths. A recovery route (staged
     // Apply / Unapprove) takes the row's show: advisory lock BEFORE mutating its
