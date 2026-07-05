@@ -16,6 +16,13 @@
 // VISIBLE on it, never a silent empty). Bounded per _metaBoundedReads via .range.
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { DEGRADED_HEALTH_CODES, NOTICE_HEALTH_CODES } from "@/lib/adminAlerts/audience";
+import { projectIdentityContext } from "@/lib/adminAlerts/projectIdentityContext";
+import {
+  resolveAlertIdentities,
+  type AlertIdentitiesResult,
+} from "@/lib/adminAlerts/resolveAlertIdentities";
+import { describeAlert } from "@/lib/adminAlerts/describeAlert";
+import { log } from "@/lib/log";
 
 export const HEALTH_PANEL_PAGE_SIZE = 50;
 
@@ -27,6 +34,11 @@ export type HealthAlertRow = {
   context: Record<string, unknown> | null;
   occurrence_count: number;
   raised_at: string;
+  // At-a-glance identity (alert-at-a-glance-identity extension to the health
+  // UI). Resolved crew/show/sheet/email line, or null for global/uncataloged
+  // codes. DEFINITE field (exactOptionalPropertyTypes ON) — never
+  // optional-undefined. includePii:true (developer-only page → raw email OK).
+  identityText: string | null;
 };
 
 export type LoadHealthAlertsResult =
@@ -62,6 +74,14 @@ export async function loadHealthAlerts({
     return { kind: "infra_error" };
   }
 
+  // Read the health-alert rows. This try/catch wraps ONLY the read so the
+  // supabase-derived await's catch stays adjacent to it (invariant 9 /
+  // tests/admin/_metaInfraContract catch-window). Identity resolution is a
+  // SEPARATE step below with its own try/catch — mirroring fetchPerShowAlerts
+  // (read in its own try, resolve after) — so the additive resolve block never
+  // lengthens the read's try body.
+  let rows: Omit<HealthAlertRow, "identityText">[];
+  let hasMore: boolean;
   try {
     const { data, error } = await supabase
       .from("admin_alerts")
@@ -72,8 +92,8 @@ export async function loadHealthAlerts({
       .range(safePage * SIZE, safePage * SIZE + SIZE); // SIZE+1 rows (inclusive range)
     if (error) return { kind: "infra_error" };
     const arr = Array.isArray(data) ? data : [];
-    const hasMore = arr.length > SIZE;
-    const rows: HealthAlertRow[] = arr.slice(0, SIZE).map((row) => {
+    hasMore = arr.length > SIZE;
+    rows = arr.slice(0, SIZE).map((row) => {
       const r = row as Record<string, unknown>;
       return {
         id: r.id as string,
@@ -85,8 +105,51 @@ export async function loadHealthAlerts({
         raised_at: r.raised_at as string,
       };
     });
-    return { kind: "ok", rows, hasMore };
   } catch {
     return { kind: "infra_error" };
   }
+
+  // At-a-glance identity (spec §3.1–§3.3), mirroring fetchPerShowAlerts.
+  // Health alerts carry their OWN scope, so each row's OWN show_id is the
+  // ResolverRow show_id (NOT an injected page-level id). Resolve ONCE over the
+  // SLICED page rows (≤SIZE) so batching stays bounded (≤3 reads). includePii:
+  // true — the telemetry page is requireDeveloper-gated. The resolver never
+  // throws on a returned DB error (it degrades to kind:"infra_error" with a
+  // partial/empty map), but wrap defensively; on ANY fault (thrown OR
+  // infra_error) log a degraded event and use whatever survived — but STILL
+  // return every row (identity is additive, never gating).
+  const resolverRows = rows.map((r) => ({
+    id: r.id,
+    code: r.code,
+    show_id: r.show_id,
+    occurrence_count: r.occurrence_count,
+    identityContext: projectIdentityContext(r.context, { includePii: true }),
+  }));
+  let identities: AlertIdentitiesResult["identities"] = new Map();
+  try {
+    const resolved = await resolveAlertIdentities(
+      resolverRows,
+      // The full SupabaseClient generic is deeper than the resolver's narrow
+      // SupabaseLike shape; TS can flag TS2589 on the direct pass. Cast through
+      // the resolver's own parameter type (production precedent:
+      // app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route.ts).
+      supabase as unknown as Parameters<typeof resolveAlertIdentities>[1],
+      { includePii: true },
+    );
+    // Use the (possibly partial) map REGARDLESS of kind — on infra_error it
+    // still carries whatever resolved before the fault (spec §3.2 partial
+    // degradation; e.g. the email segment survives a failed crew lookup).
+    identities = resolved.identities;
+    if (resolved.kind === "infra_error") {
+      log.error("alert identity resolve degraded", { source: "admin.healthAlerts" });
+    }
+  } catch (err) {
+    log.error("alert identity resolve degraded", { source: "admin.healthAlerts", error: err });
+  }
+
+  const withIdentity: HealthAlertRow[] = rows.map((r) => {
+    const identity = identities.get(r.id);
+    return { ...r, identityText: identity ? describeAlert(identity, { includePii: true }) : null };
+  });
+  return { kind: "ok", rows: withIdentity, hasMore };
 }

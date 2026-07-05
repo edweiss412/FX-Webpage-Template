@@ -5,8 +5,9 @@
 // full page is distinguishable from a larger partition: hasMore = data.length >
 // SIZE, rows = data.slice(0, SIZE). Returned/thrown errors → { kind:"infra_error" }.
 import { readFileSync } from "node:fs";
-import { it, expect, vi, beforeEach } from "vitest";
+import { it, expect, vi, beforeEach, afterEach } from "vitest";
 import { DEGRADED_HEALTH_CODES, NOTICE_HEALTH_CODES } from "@/lib/adminAlerts/audience";
+import { setLogSink, resetLogSink } from "@/lib/log";
 
 type Row = {
   id: string;
@@ -24,14 +25,56 @@ const state = {
   returnError: false,
   degraded: [] as Row[],
   notice: [] as Row[],
+  // Identity resolver fixtures (routed by the resolver's `.from(table)` reads,
+  // filtered by the `.in()` id list) — mirror tests/components/PerShowAlertSection.
+  crewRows: [] as Array<{ id: string; show_id: string | null; name: string | null }>,
+  showRows: [] as Array<{ id: string; title: string | null; slug: string | null }>,
+  // When true, the crew_members/shows reads return a PostgREST { error },
+  // driving resolveAlertIdentities → kind:"infra_error" (loader must still
+  // return every row + degrade to surviving-only identity, per spec §3.2).
+  failIdentityRead: false,
 };
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => {
     if (state.throwOnConstruct) throw new Error("construct boom");
     return {
-      from: () => {
+      from: (table: string) => {
         if (state.throwOnFrom) throw new Error("from boom");
+        // Identity-resolver reads: `.from("crew_members"|"shows").select(cols)
+        // .in(col, ids).limit(n)` → { data, error }. Filter by the `.in()` list.
+        if (table === "crew_members" || table === "shows") {
+          const inFilter: { column: string | null; values: string[] | null } = {
+            column: null,
+            values: null,
+          };
+          const rb = {
+            select: () => rb,
+            in: (column: string, values: string[]) => {
+              inFilter.column = column;
+              inFilter.values = values;
+              return rb;
+            },
+            limit: (n: number) => {
+              if (state.failIdentityRead) {
+                return Promise.resolve({
+                  data: null,
+                  error: { message: "simulated identity read failure" },
+                });
+              }
+              const source =
+                table === "crew_members"
+                  ? (state.crewRows as Array<Record<string, unknown>>)
+                  : (state.showRows as Array<Record<string, unknown>>);
+              const rows =
+                inFilter.column && inFilter.values
+                  ? source.filter((r) => inFilter.values!.includes(r[inFilter.column!] as string))
+                  : source;
+              return Promise.resolve({ data: rows.slice(0, n), error: null });
+            },
+          };
+          return rb;
+        }
         let setRows: Row[] = [];
         let from = 0;
         let to = 0;
@@ -91,6 +134,13 @@ beforeEach(() => {
   state.returnError = false;
   state.degraded = [];
   state.notice = [];
+  state.crewRows = [];
+  state.showRows = [];
+  state.failIdentityRead = false;
+});
+
+afterEach(() => {
+  resetLogSink();
 });
 
 it("construction throw → infra_error", async () => {
@@ -173,4 +223,100 @@ it("requests SIZE+1 via .range(page*SIZE, page*SIZE+SIZE) and destructures { dat
   expect(src).toMatch(/\.range\(/);
   expect(src).toMatch(/HEALTH_PANEL_PAGE_SIZE\s*=\s*50/);
   expect(src).toMatch(/\{\s*data\s*,\s*error\s*\}\s*=\s*await/);
+});
+
+// ---------------------------------------------------------------------------
+// At-a-glance identity (alert-at-a-glance-identity extension to the health UI).
+// loadHealthAlerts now RESOLVES a per-row `identityText` (mirrors
+// fetchPerShowAlerts): read admin_alerts, then batch-resolve identities.
+// includePii:true — the telemetry page is requireDeveloper-gated (raw email OK).
+// Each health row uses its OWN show_id (health alerts carry their own scope).
+// ---------------------------------------------------------------------------
+const IDENT_SHOW_ID = "11111111-1111-4111-8111-111111111111";
+const IDENT_CREW_ID = "22222222-2222-4222-8222-222222222222";
+
+function healthRow(overrides: Partial<Row> & { id: string; code: string }): Row {
+  return {
+    show_id: null,
+    context: null,
+    occurrence_count: 1,
+    raised_at: "2026-05-04T10:00:00.000Z",
+    shows: null,
+    ...overrides,
+  };
+}
+
+it("(a) OAUTH_IDENTITY_CLAIMED health row → identityText = 'Crew: <name> · <email> · Show: <title>'", async () => {
+  // Crew + show resolved via the row's OWN show_id (crew is show-scoped:
+  // crew.show_id must equal the row's effective show). Email is the canonical
+  // OAuth user_email, projected without a DB read.
+  state.notice = [
+    healthRow({
+      id: "oauth-1",
+      code: "OAUTH_IDENTITY_CLAIMED",
+      show_id: IDENT_SHOW_ID,
+      context: {
+        crew_member_id: IDENT_CREW_ID,
+        user_email: "jordan@example.com",
+        show_id: IDENT_SHOW_ID,
+      },
+    }),
+  ];
+  state.crewRows = [{ id: IDENT_CREW_ID, show_id: IDENT_SHOW_ID, name: "Jordan Lee" }];
+  state.showRows = [{ id: IDENT_SHOW_ID, title: "East Coast Spectacular", slug: "east-coast" }];
+  const r = await loadHealthAlerts({ weight: "notice", page: 0 });
+  if (r.kind !== "ok") throw new Error("expected ok");
+  expect(r.rows[0]!.identityText).toBe(
+    "Crew: Jordan Lee · jordan@example.com · Show: East Coast Spectacular",
+  );
+});
+
+it("(b) ROLE_FLAGS_NOTICE health row → identityText carries the crew names + 'N role changes' count (no DB read)", async () => {
+  state.notice = [
+    healthRow({
+      id: "role-1",
+      code: "ROLE_FLAGS_NOTICE",
+      context: { changes: [{ crew_name: "Alex Kim" }, { crew_name: "Sam Poe" }] },
+    }),
+  ];
+  const r = await loadHealthAlerts({ weight: "notice", page: 0 });
+  if (r.kind !== "ok") throw new Error("expected ok");
+  const text = r.rows[0]!.identityText ?? "";
+  expect(text).toContain("Alex Kim");
+  expect(text).toContain("Sam Poe");
+  expect(text).toContain("2 role changes");
+});
+
+it("(e) resolver infra_error on an OAUTH row → row still returned, SURVIVING email segment shows, degraded event logged", async () => {
+  const records: Array<{ source: string; message: string }> = [];
+  setLogSink((record) => {
+    records.push({ source: record.source, message: record.message });
+  });
+  // The crew/show reads fail; the email segment (projected from user_email
+  // WITHOUT a DB read) survives. Per spec §3.2 partial degradation, the loader
+  // keeps the surviving segment AND still returns the row.
+  state.failIdentityRead = true;
+  state.notice = [
+    healthRow({
+      id: "oauth-degraded",
+      code: "OAUTH_IDENTITY_CLAIMED",
+      show_id: IDENT_SHOW_ID,
+      context: {
+        crew_member_id: IDENT_CREW_ID,
+        user_email: "jordan@example.com",
+        show_id: IDENT_SHOW_ID,
+      },
+    }),
+  ];
+  state.crewRows = [{ id: IDENT_CREW_ID, show_id: IDENT_SHOW_ID, name: "Jordan Lee" }];
+  state.showRows = [{ id: IDENT_SHOW_ID, title: "East Coast Spectacular", slug: "east-coast" }];
+  const r = await loadHealthAlerts({ weight: "notice", page: 0 });
+  if (r.kind !== "ok") throw new Error("expected ok");
+  // Row still present; email survives; crew/show labels dropped (failed reads).
+  expect(r.rows[0]!.identityText).toBe("jordan@example.com");
+  expect(
+    records.some(
+      (rec) => rec.source === "admin.healthAlerts" && /identity resolve degraded/.test(rec.message),
+    ),
+  ).toBe(true);
 });

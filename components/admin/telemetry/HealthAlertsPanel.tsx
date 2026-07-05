@@ -108,6 +108,14 @@ function HealthAlertRowItem({
           {renderCatalogEmphasis(followUpTemplate, params)}
         </p>
       ) : null}
+      {row.identityText ? (
+        <p
+          data-testid={`health-alert-identity-${row.id}`}
+          className="break-words text-sm text-text-subtle"
+        >
+          {row.identityText}
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-center gap-3 text-xs text-text-subtle">
         <span className="tabular-nums">
           Raised{" "}
