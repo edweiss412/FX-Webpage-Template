@@ -44,7 +44,7 @@
 
 - **EXTENDS** `tests/messages/_metaAdminAlertCatalog.test.ts`: (a) reclassify `GITHUB_BOT_LOGIN_MISSING` deferred→auto; (b) new assertion `catalog.resolution` ↔ registry class parity for all 42; (c) new manual-copy guard (no auto-clear language in `resolution: "manual"` copy).
 - **No advisory-lock surface touched** — `pg_advisory*` topology N/A (no code path mutating `shows`/`crew_members`/auth/pending_* is added; the bot-login resolve is a global `admin_alerts` UPDATE, no advisory lock).
-- **Supabase call-boundary:** the cron bot-login resolver is a new `.from("admin_alerts").update(...)` service-role call — register in the notify call-boundary meta-test or inline `// not-subject-to-meta`.
+- **EXTENDS** `tests/reports/_metaInfraContract.test.ts` (Task 1 Step 13): the new service-role `.from("admin_alerts").update(...)` in `lib/reports/botLoginAlert.ts` is brought under contract — the file is added to `META_SOURCE_FILES`, `resolveBotLoginAlertRow` is added to `REGISTERED_INFRA_EXPORTS` (with a behavioral `BotLoginResolveInfraError`-on-returned-error test), and the pure `botLoginConfigured` + `BotLoginResolveInfraError` exports carry `// not-subject-to-meta:` annotations. The submit-side `resolveBotLoginAlertFailOpen` is a module-local (non-`export`) helper using raw `db.query` (postgres.js, not a Supabase client), so it is not an enumerated boundary. `lib/notify/runNotify.ts` gains no new Supabase call (it only imports+invokes the resolver), so the notify meta-test's `REGISTERED` list is unchanged.
 
 ---
 
@@ -55,6 +55,7 @@
 - Modify: `lib/notify/runNotify.ts` (`MaintenanceDeps` ~`:71-82`; `runMaintenance` invocation after email reconcile ~`:206`, **catch-logged so a resolve fault never collapses the run** — H3)
 - Modify: `lib/reports/submit.ts` — fail-open raw resolve before **BOTH** durable-`201` returns: the normal-create path (`:1089`) AND the expired-lease-retry path (`:956`, `expiredLeaseRetry`). `GITHUB_BOT_LOGIN_MISSING` is raised on the lookup-inconclusive path (`handleLookupInconclusive:783`), which feeds the expired-lease flow, so the `:956` return is a real reach — H2. Raw resolve mirrors the raw `upsertAdminAlert` at `:643`.
 - Test: `tests/reports/botLoginAlert.test.ts`, `tests/notify/runMaintenance.botLogin.test.ts`, `tests/reports/submit.botLoginResolve.test.ts`
+- Modify (meta-test): `tests/reports/_metaInfraContract.test.ts` (register the new `admin_alerts` mutation boundary — Step 13)
 
 **Interfaces:**
 - Produces: `botLoginConfigured(env?: NodeJS.ProcessEnv): boolean`; `resolveBotLoginAlertRow(makeClient?): Promise<void>` (service-role update, injectable client factory for tests) wired as the default for `MaintenanceDeps.resolveBotLoginAlert`; a submit-side fail-open raw resolve extracted so both `201` returns invoke it.
@@ -92,6 +93,13 @@ Expected: FAIL — cannot find module `@/lib/reports/botLoginAlert`.
 // through the typed resolveAdminAlert helper. "Submit succeeded" does not prove the
 // env is configured (the env is only read on the expired-lease recovery path), so
 // resolution ALWAYS re-checks the env here.
+//
+// The reports infra-contract meta-test (tests/reports/_metaInfraContract.test.ts) scans this file
+// once it is added to META_SOURCE_FILES (Step 8b). Its structural test enumerates every `export`
+// and requires each to be in REGISTERED_INFRA_EXPORTS OR carry a `// not-subject-to-meta: <reason>`
+// comment IMMEDIATELY above the export line. `botLoginConfigured` is a pure env predicate (no DB) →
+// annotate it:
+// not-subject-to-meta: pure env-presence predicate, no Supabase/DB boundary
 export function botLoginConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
   const v = env.GITHUB_BOT_LOGIN;
   return typeof v === "string" && v.trim() !== "";
@@ -226,6 +234,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/server"; // real
 
 /** Typed infra fault for a failed bot-login alert resolve — invariant 9 discriminable class,
  *  not a bare Error. The cron catch-logs it; callers can `instanceof`-narrow. */
+// not-subject-to-meta: typed error class, holds no Supabase/DB call of its own
 export class BotLoginResolveInfraError extends Error {
   readonly cause: unknown;
   constructor(cause: unknown) {
@@ -372,10 +381,33 @@ when implementing; `:956` uses the same `successBody(auth, "created", issue.html
 Run: `pnpm vitest run tests/reports/submit.botLoginResolve.test.ts tests/reports/botLoginAlert.test.ts tests/notify/runMaintenance.botLogin.test.ts`
 Expected: PASS.
 
-- [ ] **Step 13: Commit**
+- [ ] **Step 13: Bring the new Supabase mutation under the reports infra-contract meta-test (invariant 9 — R4 H1)**
+
+The new `resolveBotLoginAlertRow` is a service-role `admin_alerts` mutation, so it MUST be under the
+structural infra-contract. `lib/reports/botLoginAlert.ts` is a NEW file → currently unscanned by
+`tests/reports/_metaInfraContract.test.ts` (its scan set is the hardcoded `META_SOURCE_FILES` list at
+`:97`; the structural test at `:165-171` requires every `export` in those files to be in
+`REGISTERED_INFRA_EXPORTS` (`:77`) OR carry a `// not-subject-to-meta: <reason>` comment on the line
+immediately above the export). Edit `tests/reports/_metaInfraContract.test.ts`:
+
+- Add `"lib/reports/botLoginAlert.ts"` to `META_SOURCE_FILES` (`:97`).
+- Add `"resolveBotLoginAlertRow"` to `REGISTERED_INFRA_EXPORTS` (`:77`) — it is a real DB boundary
+  (the pure `botLoginConfigured` and the `BotLoginResolveInfraError` class are already annotated
+  `// not-subject-to-meta:` in the source, Steps 3 + 7, so they're covered without registration).
+- Add a behavioral test mirroring the file's existing pattern (`:173-196`), e.g.
+  `test("resolveBotLoginAlertRow throws BotLoginResolveInfraError on returned Supabase error", ...)`
+  using a fake client whose `.select()` resolves `{ error: { message } }` — asserts
+  `rejects.toBeInstanceOf(BotLoginResolveInfraError)`.
+
+Run: `pnpm vitest run tests/reports/_metaInfraContract.test.ts`
+Expected: PASS (structural coverage test green — every botLoginAlert export is registered or annotated;
+new behavioral test green). Run it RED first by adding the file to `META_SOURCE_FILES` *before* the
+`REGISTERED_INFRA_EXPORTS` row to confirm the structural guard bites on `resolveBotLoginAlertRow`.
+
+- [ ] **Step 14: Commit**
 
 ```bash
-git add lib/reports/botLoginAlert.ts lib/notify/runNotify.ts lib/reports/submit.ts tests/reports/botLoginAlert.test.ts tests/notify/runMaintenance.botLogin.test.ts tests/reports/submit.botLoginResolve.test.ts
+git add lib/reports/botLoginAlert.ts lib/notify/runNotify.ts lib/reports/submit.ts tests/reports/botLoginAlert.test.ts tests/notify/runMaintenance.botLogin.test.ts tests/reports/submit.botLoginResolve.test.ts tests/reports/_metaInfraContract.test.ts
 git commit --no-verify -m "feat(notify): auto-resolve GITHUB_BOT_LOGIN_MISSING via env-presence reconcile (cron + fail-open submit)"
 ```
 
@@ -836,6 +868,12 @@ git commit --no-verify -m "fix(messages): AMBIGUOUS_EMAIL_BINDING copy no longer
 **Files:**
 - Modify: `DEFERRED.md`
 
+**TDD exemption (explicit — R4 M1):** this is a **docs-only** task with no runtime behavior, so the
+invariant-1 "failing test → implementation → passing test" cycle does not apply (there is nothing to
+assert about a Markdown note). Its gate is the Step 2 consistency `rg` check (a red/green proof that no
+count drifted). This is the only TDD-exempt task in the plan; every behavior-bearing task keeps the
+full red→green→commit cycle.
+
 - [ ] **Step 1: Add the DEFERRED.md entry**
 
 Add an entry noting: `BRANCH_PROTECTION_DRIFT` / `BRANCH_PROTECTION_MONITOR_AUTH_FAILED` stay `class: deferred` (manual button retained) because their detector job is `if: false` (`.github/workflows/x-audits.yml:443,474`, X6-D-1 solo-dev variant). **Re-enable trigger:** if the X6-D-1 verify-branch-protection jobs are re-enabled, add resolve-on-clean at `scripts/verify-branch-protection.ts:334-337` (success branch, existing service-role client `:70`, `localSupabaseReason` skip `:63`) and reclassify both to `auto` (registry + catalog `resolution`).
@@ -855,7 +893,8 @@ git commit --no-verify -m "docs(plan): record branch-protection auto-resolution 
 
 ## Task 9: Full-suite gate + impeccable dual-gate + close-out
 
-**Files:** none new (verification + gates).
+**Files:**
+- Create: `docs/superpowers/plans/2026-07-04-alert-resolve-truthing/CLOSEOUT.md` (invariant-8 disposition record — this standalone feature has no milestone handoff doc, so its §Impeccable record lives here — R4 H2)
 
 - [ ] **Step 1: Full suite + typecheck + format**
 
@@ -866,20 +905,30 @@ Expected: green. Triage any failure env (psql/DB) vs real. Broad breakage in a s
 
 Run: `pnpm vitest run tests/messages/ tests/admin/ tests/adminAlerts/` — confirm `_metaAdminAlertCatalog`, `_metaInfraContract`, catalog parity, and the new guards all green after every edit (structural meta-tests are comment/format-fragile).
 
-- [ ] **Step 3: Impeccable dual-gate (invariant 8, UI surfaces)**
+- [ ] **Step 3: Impeccable dual-gate (invariant 8, UI surfaces) + record dispositions**
 
-Run `/impeccable critique` AND `/impeccable audit` on the diff for `HealthAlertsPanel.tsx`, `PerShowAlertSection.tsx`, `AlertBanner.tsx` (external, not self-attested). Fix every HIGH/CRITICAL or record in `DEFERRED.md` with a concrete trigger. Record findings + dispositions.
+Run `/impeccable critique` AND `/impeccable audit` on the diff for `HealthAlertsPanel.tsx`,
+`PerShowAlertSection.tsx`, `AlertBanner.tsx` (external, not self-attested). Then **write
+`docs/superpowers/plans/2026-07-04-alert-resolve-truthing/CLOSEOUT.md`** with an `## Impeccable dual-gate`
+section recording, per surface: every critique + audit finding, its severity, and its disposition
+(fixed-in-commit-<sha> / deferred). Invariant 8 requires this record to exist **even when the gate
+produces zero findings** — in that case CLOSEOUT.md states "critique: no HIGH/CRITICAL; audit: no
+HIGH/CRITICAL" with the run date. Every HIGH/CRITICAL is either fixed here or deferred via a concrete
+`DEFERRED.md` entry with a trigger (cross-reference it in CLOSEOUT.md). This record lands **before** the
+Stage 4 cross-model review.
 
-- [ ] **Step 4: Commit any impeccable fixes**
+- [ ] **Step 4: Commit the disposition record + any impeccable fixes**
 
 Stage **only** the files the gate actually changed — never `git add -A` (this worktree shares the
-dirty-tree model; `-A` can sweep unrelated changes into the commit — M2). List the touched files
-explicitly, e.g.:
+dirty-tree model; `-A` can sweep unrelated changes into the commit — M2). Always include CLOSEOUT.md
+(and DEFERRED.md if a HIGH/CRITICAL was deferred); add each fixed source file by exact path:
 
 ```bash
-git add components/admin/telemetry/HealthAlertsPanel.tsx components/admin/PerShowAlertSection.tsx components/admin/AlertBanner.tsx
-# + any additional file an impeccable fix touched — add each by exact path (git status --porcelain to enumerate)
-git commit --no-verify -m "fix(admin): impeccable dual-gate findings on alert auto-clear surfaces"
+git add docs/superpowers/plans/2026-07-04-alert-resolve-truthing/CLOSEOUT.md
+# + DEFERRED.md if a HIGH/CRITICAL was deferred
+# + each UI file an impeccable fix actually touched, by exact path (git status --porcelain to enumerate):
+#   components/admin/telemetry/HealthAlertsPanel.tsx components/admin/PerShowAlertSection.tsx components/admin/AlertBanner.tsx
+git commit --no-verify -m "docs(admin): impeccable dual-gate dispositions + any fixes on alert auto-clear surfaces"
 ```
 
 ---
