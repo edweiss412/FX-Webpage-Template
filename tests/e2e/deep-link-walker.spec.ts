@@ -168,7 +168,7 @@ async function routeFor(row: ConcreteRow): Promise<string> {
   });
 }
 
-async function assertTarget(root: ReturnType<Page["getByTestId"]>, row: ConcreteRow) {
+async function assertTarget(page: Page, root: ReturnType<Page["getByTestId"]>, row: ConcreteRow) {
   const directHref = await root.getAttribute("href");
   if (directHref) {
     const direct = new URL(directHref, BASE_URL);
@@ -176,32 +176,46 @@ async function assertTarget(root: ReturnType<Page["getByTestId"]>, row: Concrete
     return;
   }
 
-  // HoverHelp arm: a tooltip whose disclosure is a button[aria-expanded]
-  // trigger (HoverHelp pattern). Click reveals the panel so the nested
-  // Learn-more link below becomes resolvable.
-  const hoverTrigger = root.locator("button[aria-expanded]").first();
-  if ((await hoverTrigger.count()) > 0) {
-    await hoverTrigger.click();
-    // Playwright's mouse click moves the pointer onto the trigger first, so
-    // HoverHelp's mouse-only pointerenter (hover-open) fires BEFORE the click
-    // toggle — net result: open-by-hover, then toggle → closed. Real inputs
-    // don't hit this (hover-readers don't click; touch taps don't hover;
-    // keyboard toggles without a pointer). If the state settled closed, click
-    // once more — the pointer is already inside, so no second pointerenter
-    // fires and the toggle lands open.
-    try {
-      await expect(hoverTrigger).toHaveAttribute("aria-expanded", "true", { timeout: 1_000 });
-    } catch {
+  // HelpSheet arm: a trigger that opens a modal SHEET (button[aria-haspopup=
+  // "dialog"]). The sheet PORTALS to <body>, so the nested Learn-more link is
+  // NOT under `root` — after opening, resolve it inside the open dialog. Checked
+  // BEFORE the HoverHelp arm because a HelpSheet trigger also carries
+  // aria-expanded, and its click must not be double-toggled.
+  const sheetTrigger = root.locator('button[aria-haspopup="dialog"]').first();
+  let scope: ReturnType<Page["locator"]> = root;
+  if ((await sheetTrigger.count()) > 0) {
+    await sheetTrigger.click();
+    const dialog = page.getByRole("dialog");
+    await expect(dialog, `${row.testid} sheet opens`).toBeVisible();
+    scope = dialog;
+  } else {
+    // HoverHelp arm: a tooltip whose disclosure is a button[aria-expanded]
+    // trigger (HoverHelp pattern). Click reveals the panel so the nested
+    // Learn-more link below becomes resolvable.
+    const hoverTrigger = root.locator("button[aria-expanded]").first();
+    if ((await hoverTrigger.count()) > 0) {
       await hoverTrigger.click();
+      // Playwright's mouse click moves the pointer onto the trigger first, so
+      // HoverHelp's mouse-only pointerenter (hover-open) fires BEFORE the click
+      // toggle — net result: open-by-hover, then toggle → closed. Real inputs
+      // don't hit this (hover-readers don't click; touch taps don't hover;
+      // keyboard toggles without a pointer). If the state settled closed, click
+      // once more — the pointer is already inside, so no second pointerenter
+      // fires and the toggle lands open.
+      try {
+        await expect(hoverTrigger).toHaveAttribute("aria-expanded", "true", { timeout: 1_000 });
+      } catch {
+        await hoverTrigger.click();
+      }
+    }
+
+    const summary = root.locator("summary").first();
+    if ((await summary.count()) > 0) {
+      await summary.click();
     }
   }
 
-  const summary = root.locator("summary").first();
-  if ((await summary.count()) > 0) {
-    await summary.click();
-  }
-
-  const nested = root
+  const nested = scope
     .locator("a")
     .filter({ hasText: /Learn more|New here\?/i })
     .first();
@@ -232,6 +246,6 @@ for (const row of allWalkableRows) {
 
     const root = page.getByTestId(row.testid);
     await expect(root, `${row.testid} should be visible on ${sourceRoute}`).toBeVisible();
-    await assertTarget(root, row);
+    await assertTarget(page, root, row);
   });
 }

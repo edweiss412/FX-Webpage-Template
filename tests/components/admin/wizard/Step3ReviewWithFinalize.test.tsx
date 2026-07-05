@@ -153,9 +153,9 @@ describe("Step3ReviewWithFinalize — optimistic publish count", () => {
   });
 });
 
-describe("WizardFooter — step-3 publish footer (Task 6; full-width footer 2026-07-05)", () => {
-  test("footer shows selected count + Back(→step 2) + FinalizeButton", () => {
-    const { getByTestId } = render(
+describe("WizardFooter — step-3 publish footer (tracking-in-center redesign 2026-07-05)", () => {
+  test("footer center shows the idle finish hint (not a 'N of M selected' count) + Back + Publish", () => {
+    const { getByTestId, queryByTestId } = render(
       <Step3ReviewWithFinalize
         wizardSessionId={WIZARD_SESSION_ID}
         rows={[selectable("a", "applied"), selectable("b", "staged")]}
@@ -164,14 +164,21 @@ describe("WizardFooter — step-3 publish footer (Task 6; full-width footer 2026
         initialUncheckedCleanCount={1}
       />,
     );
-    expect(getByTestId("wizard-step3-publish-count").textContent).toContain(
-      "1 of 2 selected to publish",
+    // The "N of M selected" count is GONE from the footer.
+    expect(queryByTestId("wizard-step3-publish-count")).toBeNull();
+    // The center now carries the calm idle hint while nothing is publishing.
+    expect(getByTestId("wizard-step3-finish-hint").textContent).toContain(
+      "You can finish setup whenever you are ready.",
     );
     expect(getByTestId("wizard-step3-back").getAttribute("href")).toBe("/admin?step=2");
     expect(getByTestId("wizard-finalize-button")).toBeTruthy();
+    // The finish hint lives in the footer (center slot), not the scroll body.
+    expect(
+      getByTestId("wizard-step3-finish-hint").closest('[data-testid="wizard-footer"]'),
+    ).not.toBeNull();
   });
 
-  test("selectableTotal===0 (only a no-details clean row) but finishable → '0 of 0', Publish stays ENABLED", () => {
+  test("selectableTotal===0 (only a no-details clean row) but finishable → Publish stays ENABLED", () => {
     const { getByTestId } = render(
       <Step3ReviewWithFinalize
         wizardSessionId={WIZARD_SESSION_ID}
@@ -181,17 +188,15 @@ describe("WizardFooter — step-3 publish footer (Task 6; full-width footer 2026
         initialUncheckedCleanCount={1}
       />,
     );
-    expect(getByTestId("wizard-step3-publish-count").textContent).toContain(
-      "0 of 0 selected to publish",
-    );
-    // Existing finishable gate, NOT the selectable count — finish-with-nothing is reachable.
+    expect(getByTestId("wizard-step3-finish-hint")).toBeTruthy();
+    // Existing finishable gate, NOT any selectable count — finish-with-nothing is reachable.
     expect((getByTestId("wizard-finalize-button") as HTMLButtonElement).disabled).toBe(false);
   });
 
   test("empty rows → NO footer (guard at Step3ReviewWithFinalize)", () => {
-    // Spec §4.4/§7: with zero rows the wrapper renders no footer at all (no count,
-    // no Back, no FinalizeButton) — gated on `rows.length > 0`, so an empty
-    // Step 3 never shows a spurious "0 of 0" footer over the empty state.
+    // Spec §4.4/§7: with zero rows the wrapper renders no footer at all (no hint,
+    // no Back, no Publish) — gated on `rows.length > 0`, so an empty Step 3 never
+    // shows a spurious footer over the empty state.
     const { queryByTestId } = render(
       <Step3ReviewWithFinalize
         wizardSessionId={WIZARD_SESSION_ID}
@@ -202,7 +207,7 @@ describe("WizardFooter — step-3 publish footer (Task 6; full-width footer 2026
       />,
     );
     expect(queryByTestId("wizard-footer")).toBeNull();
-    expect(queryByTestId("wizard-step3-publish-count")).toBeNull();
+    expect(queryByTestId("wizard-step3-finish-hint")).toBeNull();
     expect(queryByTestId("wizard-finalize-button")).toBeNull();
     expect(queryByTestId("wizard-step3-back")).toBeNull();
   });
@@ -217,9 +222,7 @@ describe("WizardFooter — step-3 publish footer (Task 6; full-width footer 2026
         initialUncheckedCleanCount={0}
       />,
     );
-    expect(getByTestId("wizard-step3-publish-count").textContent).toContain(
-      "0 of 0 selected to publish",
-    );
+    expect(getByTestId("wizard-step3-finish-hint")).toBeTruthy();
     expect((getByTestId("wizard-finalize-button") as HTMLButtonElement).disabled).toBe(true);
   });
 });

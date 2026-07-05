@@ -96,7 +96,7 @@ type ButtonState =
   | { kind: "error"; copy: string; code: string | null }
   | { kind: "complete" };
 
-function casPhaseLabel(phase: FinalizeCasPhase | null): string {
+export function casPhaseLabel(phase: FinalizeCasPhase | null): string {
   switch (phase) {
     case "applying":
       return "Applying your edits…";
@@ -121,13 +121,27 @@ function lookupDougFacing(code: string | undefined | null): string | null {
 const GENERIC_ERROR =
   "The publish step could not complete. Refresh and try again, or contact the developer if this keeps happening.";
 
-export function FinalizeButton({
+export type FinalizeRunProps = {
+  wizardSessionId: string;
+  disabled?: boolean;
+  publishCount?: number;
+  uncheckedCleanCount?: number;
+};
+
+/**
+ * useFinalizeRun — the finalize state machine + streaming loop, extracted so a
+ * caller can place the trigger and the status/tracking in SEPARATE layout slots.
+ * The wizard footer (Step3ReviewWithFinalize) puts the Publish button in the
+ * right slot and the live tracking in the CENTER; the combined <FinalizeButton>
+ * below composes the same hook + presentational pieces into one stacked unit for
+ * every other caller (behavior + testids unchanged).
+ */
+export function useFinalizeRun({
   wizardSessionId,
   disabled,
   publishCount,
   uncheckedCleanCount = 0,
-  panelPlacement = "below",
-}: FinalizeButtonProps) {
+}: FinalizeRunProps) {
   const router = useRouter();
   const [state, setState] = useState<ButtonState>({ kind: "idle" });
   // D5 soft confirm: a CONTROLLED open flag (not an in-onClick self-disable —
@@ -140,26 +154,12 @@ export function FinalizeButton({
   // the grand total (completed + the current batch's `listed` remaining). Reset each runLoop entry.
   const completedRef = useRef(0);
   const grandTotalRef = useRef(0);
-  // A11y (WCAG 2.4.3): the trigger button is REMOVED when the panel takes over, and terminal
-  // alert/status regions replace it too. Without intervention, keyboard/SR focus is dropped onto
-  // <body>. Move focus deliberately: the running panel and each terminal alert region are focusable
-  // (tabIndex=-1) and receive focus on entry, so the operator keeps their place and can reach the
-  // re-apply / retry controls without re-tabbing from the top of the page.
-  const panelRef = useRef<HTMLDivElement>(null);
-  const alertRef = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (state.kind === "running") {
-      panelRef.current?.focus();
-    } else if (
-      state.kind === "race_row" ||
-      state.kind === "cas_per_row" ||
-      state.kind === "error"
-    ) {
-      alertRef.current?.focus();
-    }
-    // Keyed on state.kind only: focus the panel ONCE on entering `running` (not on every batch/cas
-    // phase tick, which would yank focus mid-progress). Refs are stable; setState is not read here.
-  }, [state.kind]);
+  // A11y (WCAG 2.4.3) focus management on entering the running/terminal states
+  // lives in the presentational pieces that own the DOM — <ProgressPanel> (via
+  // its host in FinalizeButton), <FinalizeStatusRegion> (terminal alerts), and
+  // <Step3CompactTracking> — each with its OWN local ref + focus-on-entry effect.
+  // The hook deliberately holds no DOM refs: returning a ref through `run` and
+  // passing it as a prop trips react-hooks/refs (a ref surfaced during render).
 
   // Read one /finalize batch response. Streaming (Accept: NDJSON) → parse listed/row progress into
   // state and return the terminal body + rows processed this batch. Non-NDJSON (proxy stripped
@@ -427,44 +427,89 @@ export function FinalizeButton({
     void runLoop();
   }
 
+  return {
+    state,
+    isRunning,
+    buttonDisabled,
+    confirmOpen,
+    setConfirmOpen,
+    onPrimaryClick,
+    runLoop,
+    liveMessage,
+    idleLabel,
+    uncheckedCleanCount,
+    wizardSessionId,
+  };
+}
+
+export type FinalizeRun = ReturnType<typeof useFinalizeRun>;
+
+/**
+ * Persistent SR announcer for the transient running phases. Hoisted so screen
+ * readers reliably announce phase changes — a live region inserted
+ * already-populated is often missed; a stable region whose text mutates is
+ * announced.
+ */
+export function FinalizeAnnouncer({ run }: { run: FinalizeRun }) {
   return (
-    <div
-      className={`flex ${panelPlacement === "above" ? "flex-col-reverse" : "flex-col"} gap-3`}
-      data-testid="wizard-finalize"
+    <span className="sr-only" role="status" aria-live="polite">
+      {run.liveMessage}
+    </span>
+  );
+}
+
+/** The idle Publish trigger (the AccentButton). Placement is the caller's. */
+export function FinalizeTrigger({ run }: { run: FinalizeRun }) {
+  return (
+    <AccentButton
+      data-testid="wizard-finalize-button"
+      onClick={run.onPrimaryClick}
+      disabled={run.buttonDisabled}
+      aria-haspopup={run.uncheckedCleanCount > 0 ? "dialog" : undefined}
+      aria-expanded={run.uncheckedCleanCount > 0 ? run.confirmOpen : undefined}
+      size="lg"
+      inline
+      selfStart
+      shadow
     >
-      {/* Persistent SR announcer: hoisted ABOVE the morph so screen readers reliably announce phase
-          changes. A live region inserted already-populated is often missed; a stable region whose
-          text mutates is announced. */}
-      <span className="sr-only" role="status" aria-live="polite">
-        {liveMessage}
-      </span>
-      {/* D2 inline morph: while running, the button region becomes the progress panel. */}
-      {state.kind === "running" ? (
-        <ProgressPanel ref={panelRef} state={state} />
-      ) : (
-        <AccentButton
-          data-testid="wizard-finalize-button"
-          onClick={onPrimaryClick}
-          disabled={buttonDisabled}
-          aria-haspopup={uncheckedCleanCount > 0 ? "dialog" : undefined}
-          aria-expanded={uncheckedCleanCount > 0 ? confirmOpen : undefined}
-          size="lg"
-          inline
-          selfStart
-          shadow
-        >
-          {idleLabel}
-        </AccentButton>
-      )}
+      {run.idleLabel}
+    </AccentButton>
+  );
+}
 
-      {confirmOpen ? (
-        <FinalizeSoftConfirm
-          uncheckedCleanCount={uncheckedCleanCount}
-          onProceed={() => void runLoop()}
-          onCancel={() => setConfirmOpen(false)}
-        />
-      ) : null}
+/** The D5 soft confirm, rendered only while open. */
+export function FinalizeConfirm({ run }: { run: FinalizeRun }) {
+  if (!run.confirmOpen) return null;
+  return (
+    <FinalizeSoftConfirm
+      uncheckedCleanCount={run.uncheckedCleanCount}
+      onProceed={() => void run.runLoop()}
+      onCancel={() => run.setConfirmOpen(false)}
+    />
+  );
+}
 
+/**
+ * The TERMINAL status panels (race-row / cas-per-row / error / complete) as a
+ * fragment — no wrapper, so a host's flow is unchanged. The RUNNING progress is
+ * NOT here: the combined <FinalizeButton> morphs its trigger into <ProgressPanel>
+ * in place, while the wizard footer renders a compact inline tracking; each host
+ * owns the running display and shares these terminal panels.
+ */
+export function FinalizeStatusRegion({ run }: { run: FinalizeRun }) {
+  const { state, wizardSessionId } = run;
+  // A11y (WCAG 2.4.3): on entering a terminal alert state the trigger/panel is
+  // gone, so move focus onto the alert region (a local ref + focus-on-entry
+  // effect — the hook holds no DOM refs). Only one terminal panel renders at a
+  // time, so the single ref lands on whichever is mounted.
+  const alertRef = useRef<HTMLDivElement>(null);
+  const isAlert =
+    state.kind === "race_row" || state.kind === "cas_per_row" || state.kind === "error";
+  useEffect(() => {
+    if (isAlert) alertRef.current?.focus();
+  }, [isAlert]);
+  return (
+    <>
       {state.kind === "race_row" ? (
         <div
           ref={alertRef}
@@ -551,6 +596,40 @@ export function FinalizeButton({
           Setup is complete. Your shows are live for crew now.
         </p>
       ) : null}
+    </>
+  );
+}
+
+/**
+ * Combined trigger + inline morph + status, stacked. This is the drop-in unit
+ * every caller EXCEPT the wizard footer uses (Step3ReviewWithFinalize composes
+ * the hook + pieces into the footer's separate center/right slots). DOM +
+ * testids are unchanged from before the hook extraction.
+ */
+export function FinalizeButton({ panelPlacement = "below", ...props }: FinalizeButtonProps) {
+  const run = useFinalizeRun(props);
+  // A11y (WCAG 2.4.3): when the trigger morphs into the progress panel, move
+  // focus onto the panel (a local ref + focus-on-entry effect; the hook holds no
+  // DOM refs). Mirrors <FinalizeStatusRegion>'s alert focus + Step3's tracking.
+  const panelRef = useRef<HTMLDivElement>(null);
+  const running = run.state.kind === "running";
+  useEffect(() => {
+    if (running) panelRef.current?.focus();
+  }, [running]);
+  return (
+    <div
+      className={`flex ${panelPlacement === "above" ? "flex-col-reverse" : "flex-col"} gap-3`}
+      data-testid="wizard-finalize"
+    >
+      <FinalizeAnnouncer run={run} />
+      {/* D2 inline morph: while running, the button region becomes the progress panel. */}
+      {run.state.kind === "running" ? (
+        <ProgressPanel ref={panelRef} state={run.state} />
+      ) : (
+        <FinalizeTrigger run={run} />
+      )}
+      <FinalizeConfirm run={run} />
+      <FinalizeStatusRegion run={run} />
     </div>
   );
 }

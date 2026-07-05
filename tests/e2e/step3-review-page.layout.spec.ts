@@ -24,9 +24,11 @@
  *   DI-1: the stepper does not overflow at 320px.
  *   DI-2: the card's visible checkbox box + View/Review button are vertically
  *         centered within the card.
- *   DI-3: the fixed footer spans the full VIEWPORT width (edge-to-edge, not the
- *         centered content column), does not occlude the last card, keeps Publish
- *         within the viewport, and baselines its idle row.
+ *   DI-3: the fixed footer wrapper is full-bleed, but the VISIBLE bar is capped
+ *         to the admin-shell width (page-padding inset — it matches
+ *         <OnboardingTopBar>, not the viewport edge nor the narrow content
+ *         column), does not occlude the last card, keeps Publish within the
+ *         viewport, and baselines its idle row (finish hint · Back · Publish).
  *   DI-4: at 360px the card does not overflow and its right cluster wraps below
  *         the title.
  *   DI-5: at 320px the footer and its idle row (including the full-label
@@ -120,14 +122,20 @@ function cards(): string {
 }
 
 // WizardFooter (WizardFooter.tsx) with the step-3 slots from
-// Step3ReviewWithFinalize: back (→step 2), center (count), primary (FinalizeButton).
-// Fixed + full-viewport-width; inner row capped at the admin-shell max-w-[1600px].
+// Step3ReviewWithFinalize: back (→step 2), center (idle finish hint), primary
+// (Publish). The fixed wrapper is full-bleed for positioning; the VISIBLE bar
+// (wizard-footer-inner: border-t + surface wash) is capped to the admin-shell
+// container (mx-auto max-w-[1600px] + page padding) so its rule + width MATCH
+// <OnboardingTopBar>. (The real component portals this to <body>; the static
+// harness places it at the end of <body>, the same DOM position.)
 function bar(): string {
-  return `<div data-testid="wizard-footer" class="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-surface/90 backdrop-blur">
-    <div data-testid="wizard-footer-inner" class="mx-auto flex w-full max-w-[1600px] flex-wrap items-end gap-x-4 gap-y-2 px-page-pad-mobile pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:px-page-pad-desktop">
-      <a data-testid="wizard-step3-back" href="/admin?step=2" class="inline-flex min-h-tap-min items-center gap-1 rounded-sm px-2 text-sm font-medium text-text-subtle transition-colors duration-fast hover:text-text-strong"><svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>Back</a>
-      <div class="mx-auto"><p data-testid="wizard-step3-publish-count" class="text-sm tabular-nums text-text-subtle"><b class="text-text-strong">3</b> of 8 selected to publish</p></div>
-      <div class="ml-auto flex items-end"><button data-testid="wizard-finalize-button" class="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-accent px-6 text-base font-semibold text-accent-text shadow-tile">Publish 3 shows &amp; finish setup</button></div>
+  return `<div data-testid="wizard-footer" class="fixed inset-x-0 bottom-0 z-40">
+    <div class="mx-auto max-w-[1600px] px-page-pad-mobile sm:px-page-pad-desktop">
+      <div data-testid="wizard-footer-inner" class="flex flex-wrap items-end gap-x-4 gap-y-2 border-t border-border bg-surface/90 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] backdrop-blur">
+        <a data-testid="wizard-step3-back" href="/admin?step=2" class="inline-flex min-h-tap-min items-center gap-1 rounded-sm px-2 text-sm font-medium text-text-subtle transition-colors duration-fast hover:text-text-strong"><svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>Back</a>
+        <div class="mx-auto min-w-0"><div data-testid="wizard-step3-footer-center" class="flex min-h-12 w-full max-w-md flex-col items-stretch justify-center"><p data-testid="wizard-step3-finish-hint" class="text-center text-sm text-text-subtle">You can finish setup whenever you are ready.</p></div></div>
+        <div class="ml-auto flex items-end"><div class="flex items-end gap-3"><button data-testid="wizard-finalize-button" class="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-accent px-6 text-base font-semibold text-accent-text shadow-tile">Publish 3 shows &amp; finish setup</button></div></div>
+      </div>
     </div>
   </div>`;
 }
@@ -232,24 +240,29 @@ test.describe("Step-3 review page — layout dimensions (spec §7)", () => {
     expect(Math.abs(rects.btnMid - rects.cardMid)).toBeLessThanOrEqual(1);
   });
 
-  test("DI-3: the fixed footer spans the full viewport width and does not occlude the last card", async ({
+  test("DI-3: the visible bar is capped to the admin-shell width (matches the header), not full-bleed, and does not occlude the last card", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1024, height: 700 });
     await page.goto(baseUrl);
-    const barEl = page.getByTestId("wizard-footer");
+    const wrapperEl = page.getByTestId("wizard-footer"); // fixed full-bleed positioning layer
+    const barEl = page.getByTestId("wizard-footer-inner"); // the VISIBLE bar (border-t + wash)
     const container = page.getByTestId("onboarding-wizard");
-    // Full-width: the footer spans the whole VIEWPORT, wider than the centered
-    // content column (max-w-3xl = 768px at this viewport). This is the redesign's
-    // core intent — a regression that re-nested the bar in the column would shrink
-    // barW to the container width and fail here.
     const vw = page.viewportSize()!.width;
-    const [barW, contW] = await Promise.all([
+    const [wrapperW, barW, contW] = await Promise.all([
+      wrapperEl.evaluate((b) => b.getBoundingClientRect().width),
       barEl.evaluate((b) => b.getBoundingClientRect().width),
       container.evaluate((c) => c.getBoundingClientRect().width),
     ]);
-    expect(Math.abs(barW - vw)).toBeLessThanOrEqual(0.5);
-    expect(barW).toBeGreaterThan(contW + 100); // demonstrably wider than the column
+    // The fixed wrapper is full-bleed (positioning only).
+    expect(Math.abs(wrapperW - vw)).toBeLessThanOrEqual(0.5);
+    // The VISIBLE bar is inset by exactly the admin-shell page padding (32px each
+    // side at ≥sm) inside the wrapper — i.e. it matches <OnboardingTopBar>'s
+    // content box, NOT the viewport edge. (A regression to a full-bleed rule would
+    // make wrapperW - barW ≈ 0 and fail here.)
+    expect(Math.abs(wrapperW - barW - 64)).toBeLessThanOrEqual(2);
+    // …but still demonstrably wider than the centered content column (max-w-3xl).
+    expect(barW).toBeGreaterThan(contW + 100);
 
     // Not-occluded: scroll the last card into view (the list is unbounded → it
     // starts below the fold), settle at the absolute bottom, then assert the
@@ -269,7 +282,7 @@ test.describe("Step-3 review page — layout dimensions (spec §7)", () => {
     });
     expect(pubRect.bottom).toBeLessThanOrEqual(vh + 0.5);
 
-    // …and the idle-row items (count · Back · Publish) sit within the bar's box.
+    // …and the idle-row items (finish hint · Back · Publish) sit within the bar's box.
     const barBox = await barEl.evaluate((b) => {
       const r = b.getBoundingClientRect();
       return { top: r.top, bottom: r.bottom };
@@ -278,11 +291,11 @@ test.describe("Step-3 review page — layout dimensions (spec §7)", () => {
       const r = el.getBoundingClientRect();
       return r.top + r.height / 2;
     });
-    const countMid = await page.getByTestId("wizard-step3-publish-count").evaluate((el) => {
+    const hintMid = await page.getByTestId("wizard-step3-finish-hint").evaluate((el) => {
       const r = el.getBoundingClientRect();
       return r.top + r.height / 2;
     });
-    for (const m of [pubRect.mid, backMid, countMid]) {
+    for (const m of [pubRect.mid, backMid, hintMid]) {
       expect(m).toBeGreaterThanOrEqual(barBox.top - 0.5);
       expect(m).toBeLessThanOrEqual(barBox.bottom + 0.5);
     }

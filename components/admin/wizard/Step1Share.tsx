@@ -29,7 +29,7 @@
  */
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { HelpTooltip } from "@/components/admin/HelpTooltip";
+import { HelpSheet } from "@/components/admin/HelpSheet";
 import { WizardFooter } from "@/components/admin/wizard/WizardFooter";
 
 type Step1ShareProps = {
@@ -79,7 +79,7 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
           <h2 id="wizard-step1-heading" className="text-2xl font-semibold text-text-strong">
             Share your show folder
           </h2>
-          <HelpTooltip
+          <HelpSheet
             label="Help: Share your show folder"
             testId="help-affordance--wizard-step1--tooltip"
           >
@@ -97,7 +97,7 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
                 Learn more →
               </a>
             </p>
-          </HelpTooltip>
+          </HelpSheet>
         </div>
         <p className="max-w-prose text-base text-text-subtle">
           The app reads sheets out of one Google Drive folder you pick. Share that folder with the

@@ -68,12 +68,12 @@ test("no changed/created Step-3 shell component imports framer-motion/AnimatePre
 });
 
 describe("Step-3 page — deliberately-instant conditionals (§8)", () => {
-  test("T8-a: checkbox flip updates the bar count instantly, tabular-nums (no layout shift)", () => {
+  test("T8-a: checkbox flip updates the Publish label instantly (the 'N of M selected' count was removed)", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async () => new Response(JSON.stringify({ status: "approved" }), { status: 200 })),
     );
-    const { getByTestId } = render(
+    const { getByTestId, queryByTestId } = render(
       <Step3ReviewWithFinalize
         wizardSessionId={WSID}
         rows={[stagedRow("a", "staged")]}
@@ -82,12 +82,13 @@ describe("Step-3 page — deliberately-instant conditionals (§8)", () => {
         initialUncheckedCleanCount={1}
       />,
     );
-    const count = getByTestId("wizard-step3-publish-count");
-    expect(count.className).toContain("tabular-nums"); // no digit-width jitter
-    expect(count.textContent).toContain("0 of 1 selected to publish");
-    // Toggling the box optimistically flips the count with no async wait (instant).
+    // The separate footer count is gone; the surviving optimistic-count surface
+    // is the Publish button label, which must flip with no async wait (instant).
+    expect(queryByTestId("wizard-step3-publish-count")).toBeNull();
+    const button = getByTestId("wizard-finalize-button");
+    expect(button.textContent).toContain("Publish 0 shows & finish setup");
     fireEvent.click(getByTestId("wizard-step3-checkbox-a"));
-    expect(count.textContent).toContain("1 of 1 selected to publish");
+    expect(button.textContent).toContain("Publish 1 show & finish setup");
   });
 
   test("T8-c: summary + footer are guarded on rows.length (instant mount/unmount)", () => {
@@ -194,8 +195,10 @@ describe("Step-3 page — compound (§8)", () => {
       />,
     );
     fireEvent.click(q.getByTestId("wizard-finalize-button"));
-    // FinalizeButton is now in `running` (its progress panel is mounted).
-    await waitFor(() => expect(q.getByTestId("wizard-finalize-progress")).toBeTruthy());
+    // The finalize run is now `running` — in the footer center the compact
+    // tracking mounts (the boxed ProgressPanel is the combined FinalizeButton's
+    // in-place morph; the footer uses <Step3CompactTracking> instead).
+    await waitFor(() => expect(q.getByTestId("wizard-step3-tracking")).toBeTruthy());
     // The card's Review/View button is STILL enabled mid-publish and opens the modal.
     const more = q.getByTestId("wizard-step3-card-a-more") as HTMLButtonElement;
     expect(more.disabled).toBe(false);

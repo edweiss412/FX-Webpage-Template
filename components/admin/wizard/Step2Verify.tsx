@@ -34,7 +34,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { messageFor } from "@/lib/messages/lookup";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
-import { HelpTooltip } from "@/components/admin/HelpTooltip";
+import { HelpSheet } from "@/components/admin/HelpSheet";
+import { HoverHelp } from "@/components/admin/HoverHelp";
 import type { MessageCode } from "@/lib/messages/catalog";
 import {
   SCAN_STREAM_CONTENT_TYPE,
@@ -313,6 +314,10 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
   const heading =
     progress?.phase === "finishing" ? "Finishing up…" : "Looking through your folder…";
   const reading = progress?.phase === "reading" ? progress : null;
+  // The scan result rides the footer center as a hover/tap summary once a scan
+  // this session succeeds (a resume from a prior scan has no totals to show).
+  const foundSummary =
+    state.kind === "success" ? <Step2FoundSummary result={state.result} /> : undefined;
 
   return (
     <section
@@ -332,7 +337,7 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
           <h2 id="wizard-step2-heading" className="text-2xl font-semibold text-text-strong">
             Verify your folder
           </h2>
-          <HelpTooltip
+          <HelpSheet
             label="Help: Verify your folder"
             testId="help-affordance--wizard-step2--tooltip"
           >
@@ -349,7 +354,7 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
                 Learn more →
               </a>
             </p>
-          </HelpTooltip>
+          </HelpSheet>
         </div>
         <p className="max-w-prose text-base text-text-subtle">
           Paste the link to the folder you just shared. We will read what is inside and bring it in
@@ -454,48 +459,9 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
           </div>
         ) : (
           <>
-            {state.kind === "success" ? (
-              <div
-                data-testid="wizard-step2-success"
-                className="mt-1 flex flex-col gap-2 border-t border-border pt-4"
-              >
-                <p className="text-base font-semibold text-text-strong">
-                  {state.result.folderName
-                    ? `Found ${formatTotals(state.result.totals)} items in ${state.result.folderName}.`
-                    : `Found ${formatTotals(state.result.totals)} items in your folder.`}
-                </p>
-                <ul className="flex flex-col gap-1 text-sm text-text-subtle">
-                  <li>
-                    Sheets ready for review:{" "}
-                    <span className="font-semibold tabular-nums text-text">
-                      {state.result.totals.staged}
-                    </span>
-                  </li>
-                  <li>
-                    Sheets we could not parse:{" "}
-                    <span className="font-semibold tabular-nums text-text">
-                      {state.result.totals.hard_failed}
-                    </span>
-                  </li>
-                  <li>
-                    Non-sheet files we skipped:{" "}
-                    <span className="font-semibold tabular-nums text-text">
-                      {state.result.totals.skipped_non_sheet}
-                    </span>
-                  </li>
-                  {state.result.totals.live_row_conflict !== undefined &&
-                  state.result.totals.live_row_conflict > 0 ? (
-                    <li>
-                      Live-row conflicts:{" "}
-                      <span className="font-semibold tabular-nums text-text">
-                        {state.result.totals.live_row_conflict}
-                      </span>
-                    </li>
-                  ) : null}
-                </ul>
-              </div>
-            ) : null}
-
+            {/* The completed-scan result no longer renders here — it moved to the
+                WizardFooter center as a hover/tap "Found N items" summary
+                (2026-07-05). The card keeps only the folder input + retry button. */}
             {state.kind === "error" ? (
               <div
                 role="alert"
@@ -533,6 +499,7 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
       </form>
 
       <WizardFooter
+        center={foundSummary}
         back={
           <Link
             href="/admin?step=1"
@@ -564,5 +531,60 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
         }
       />
     </section>
+  );
+}
+
+// Footer-center scan-result summary (2026-07-05). "Found N items" reads at a
+// glance; the per-bucket breakdown discloses on hover (mouse), tap (touch), or
+// focus+Enter (keyboard) via <HoverHelp>, which is WCAG 1.4.13-compliant
+// (dismissible with Escape, hoverable, reachable on every input). `placement="top"`
+// opens the popover UPWARD so it isn't clipped by the viewport bottom the footer
+// hugs. The dotted underline signals the text is interactive.
+function Step2FoundSummary({ result }: { result: ScanCompleted }) {
+  const total = formatTotals(result.totals);
+  const t = result.totals;
+  const noun = total === 1 ? "item" : "items";
+  return (
+    // not-a-help-affordance: this is the scan-result summary popover, not a help
+    // "?" tooltip — it carries no help-affordance matrix testid.
+    <HoverHelp
+      label="Scan result breakdown"
+      testId="wizard-step2-found"
+      rootTestId="wizard-step2-success"
+      placement="top"
+      trigger={
+        <span className="text-sm text-text-subtle underline decoration-dotted decoration-text-faint underline-offset-4">
+          Found <b className="font-semibold tabular-nums text-text-strong">{total}</b> {noun}
+          {result.folderName ? (
+            <span className="hidden sm:inline"> in {result.folderName}</span>
+          ) : null}
+        </span>
+      }
+    >
+      <p className="mb-2 font-semibold text-text-strong">
+        Found {total} {noun}
+        {result.folderName ? ` in ${result.folderName}` : ""}.
+      </p>
+      <ul className="flex flex-col gap-1">
+        <li>
+          Sheets ready for review:{" "}
+          <span className="font-semibold tabular-nums text-text">{t.staged}</span>
+        </li>
+        <li>
+          Sheets we could not parse:{" "}
+          <span className="font-semibold tabular-nums text-text">{t.hard_failed}</span>
+        </li>
+        <li>
+          Non-sheet files we skipped:{" "}
+          <span className="font-semibold tabular-nums text-text">{t.skipped_non_sheet}</span>
+        </li>
+        {t.live_row_conflict !== undefined && t.live_row_conflict > 0 ? (
+          <li>
+            Live-row conflicts:{" "}
+            <span className="font-semibold tabular-nums text-text">{t.live_row_conflict}</span>
+          </li>
+        ) : null}
+      </ul>
+    </HoverHelp>
   );
 }

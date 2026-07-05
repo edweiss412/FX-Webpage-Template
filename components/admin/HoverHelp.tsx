@@ -53,6 +53,7 @@ export function HoverHelp({
   children,
   trigger,
   align = "left",
+  placement = "bottom",
   testId = "hover-help",
   rootTestId,
   learnMore,
@@ -65,6 +66,13 @@ export function HoverHelp({
   trigger?: ReactNode;
   /** Horizontal anchor of the popover relative to the trigger. */
   align?: "left" | "right";
+  /**
+   * Vertical placement of the popover relative to the trigger. Default "bottom"
+   * (opens downward) — unchanged for every existing caller. "top" opens UPWARD,
+   * for triggers pinned near the viewport bottom (e.g. the wizard footer's
+   * scan-result summary) where a downward popover would fall off-screen.
+   */
+  placement?: "top" | "bottom";
   /** Test id root; trigger gets `-trigger`, body gets `-body`. */
   testId?: string;
   /** M12.12 affordance-matrix test id on the root wrapper (e2e walker hook). */
@@ -174,7 +182,9 @@ export function HoverHelp({
         data-testid={`${testId}-body`}
         onPointerEnter={openNow}
         onPointerLeave={scheduleClose}
-        className={`absolute top-[calc(100%+6px)] z-50 w-72 max-w-[80vw] rounded-md border border-border-strong bg-surface-raised p-3.5 text-xs/relaxed font-normal normal-case  tracking-normal text-text-subtle shadow-tile transition-opacity duration-fast ${
+        className={`absolute z-50 w-72 max-w-[80vw] rounded-md border border-border-strong bg-surface-raised p-3.5 text-xs/relaxed font-normal normal-case  tracking-normal text-text-subtle shadow-tile transition-opacity duration-fast ${
+          placement === "top" ? "bottom-[calc(100%+6px)]" : "top-[calc(100%+6px)]"
+        } ${
           open ? "visible opacity-100" : "pointer-events-none invisible opacity-0"
         } ${align === "right" ? "right-0" : "left-0"}`}
       >
