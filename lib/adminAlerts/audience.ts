@@ -84,6 +84,6 @@ const AUTO_RESOLVE_NOTES: Record<string, string> = {
 export function autoResolveNote(code: string): string {
   return (
     AUTO_RESOLVE_NOTES[code] ??
-    "Clears automatically when the system detects recovery — no action needed here."
+    "Clears automatically when the system detects recovery. No action is needed here."
   );
 }

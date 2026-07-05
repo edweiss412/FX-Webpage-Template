@@ -17,7 +17,7 @@
  */
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { log } from "@/lib/log";
-import { HEALTH_CODES } from "@/lib/adminAlerts/audience";
+import { HEALTH_CODES, isAutoResolving, autoResolveNote } from "@/lib/adminAlerts/audience";
 import { resolveAlertAction } from "@/lib/adminAlerts/alertActions";
 import { projectIdentityContext } from "@/lib/adminAlerts/projectIdentityContext";
 import { resolveAlertIdentities } from "@/lib/adminAlerts/resolveAlertIdentities";
@@ -414,6 +414,16 @@ export async function PerShowAlertSection({
                   className="text-xs text-text-subtle"
                 >
                   Clears automatically once the sheet is back or re-parses.
+                </p>
+              ) : isAutoResolving(alert.code) ? (
+                // Any other auto-resolving code (alert-resolve-truthing §4.2): a manual
+                // "Mark resolved" would be a misleading no-op, so it is suppressed and a
+                // generic auto-clear note takes its place.
+                <p
+                  data-testid={`per-show-alert-autoclear-${alert.id}`}
+                  className="text-xs text-text-subtle"
+                >
+                  {autoResolveNote(alert.code)}
                 </p>
               ) : (
                 <PerShowAlertResolveButton alertId={alert.id} slug={slug} />
