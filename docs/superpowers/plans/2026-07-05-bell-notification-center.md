@@ -232,7 +232,9 @@ git commit --no-verify -m "feat(db): bell state tables + monotonic write RPCs + 
 //    its resolved_occurrence_sum covers its windowed resolved predecessors.
 // 4. pre-cap exclusion: seed p_cap+5 rows of an excluded code + 1 included row,
 //    p_excluded_codes=[excluded] → the included row IS returned (spec §6.1/R7).
-// 5. caps: seed p_cap+1 distinct active keys → active rows = p_cap, meta.active_hit_cap=true.
+// 5. caps OVER: seed p_cap+1 distinct active keys → active rows = p_cap, meta.active_hit_cap=true.
+// 5b. caps EXACT (R2 finding): seed EXACTLY p_cap distinct active keys → active rows = p_cap
+//     AND meta.active_hit_cap=false (no false-positive truncation row). Same pair for history.
 // 6. window: resolved_at older than p_history_days days → absent from history AND sums.
 // 7. NULL p_excluded_codes → the call rejects (function raises).
 // 8. empty-array p_excluded_codes → nothing excluded.
@@ -297,13 +299,18 @@ begin
       and a.code <> all(p_excluded_codes)
     group by 1, 2
   ),
-  active as (
+  active_probe as (
+    -- p_cap+1 probe: distinguishes exactly-at-cap (hit_cap=false) from
+    -- over-cap (hit_cap=true). Counting a capped CTE cannot tell them apart.
     select a.*
     from public.admin_alerts a
     where a.resolved_at is null
       and a.code <> all(p_excluded_codes)
     order by greatest(a.raised_at, a.last_seen_at) desc
-    limit p_cap
+    limit p_cap + 1
+  ),
+  active as (
+    select * from active_probe limit p_cap
   ),
   history as (
     select distinct on (coalesce(a.show_id::text, ''), a.code) a.*
@@ -322,14 +329,17 @@ begin
       )
     order by coalesce(a.show_id::text, ''), a.code, a.resolved_at desc
   ),
-  history_capped as (
+  history_probe as (
     select h.* from history h
     order by h.resolved_at desc
-    limit p_cap
+    limit p_cap + 1
+  ),
+  history_capped as (
+    select * from history_probe limit p_cap
   )
   select true, now(),
-         (select count(*) from active) = p_cap,
-         (select count(*) from history_capped) = p_cap,
+         (select count(*) from active_probe) > p_cap,
+         (select count(*) from history_probe) > p_cap,
          null::uuid, null::text, null::uuid, null::text, null::jsonb,
          null::integer, null::timestamptz, null::timestamptz, null::timestamptz,
          null::bigint, null::boolean
@@ -857,6 +867,8 @@ export async function GET() {
 
 - [ ] **Step 4: Run tests + meta discovery** — `pnpm test tests/app/api/bellFeedRoute.test.ts tests/app/api/bellCountRoute.test.ts tests/log/_metaMutationSurfaceObservability.test.ts`. GET routes are not mutation surfaces — discovery must stay green with no new rows. Expected: PASS.
 
+- [ ] **Step 4b: Route-domain registry sweep (plan-review R2 candidate 5)** — `rg -n "TRUST_DOMAINS|app/api/admin" tests/ lib/ --glob '*.ts' -l | head` and run every registry-style meta-test that enumerates admin API routes (`pnpm test tests/help tests/routing tests/cross-cutting 2>/dev/null || true`, then the specific failures). Add rows for ALL SIX bell routes (feed/count/open/read/config/token) to every registry that demands them IN THIS COMMIT — do not leave registry repairs for a CI round. Repeat the sweep in Tasks 10-12 commits if their routes trigger additional registries.
+
 - [ ] **Step 5: Commit**
 
 ```bash
@@ -966,10 +978,15 @@ export async function POST(request: NextRequest) {
 `read/route.ts` — same skeleton, plus before the write (fail-closed visibility, spec §10):
 
 ```ts
+  // Precedence pinned (plan-review R2 candidate 3): alertId validity FIRST →
+  // 404 (identifier namespace, spec §4); only then timestamp validity → 400.
   const alertId = typeof body?.alertId === "string" ? body.alertId : "";
+  if (!UUID_RE.test(alertId)) {
+    return NextResponse.json({ error: "not_found" }, { status: 404 });
+  }
   const seenActivityAt = parseBellTimestamp(body?.seenActivityAt);
-  if (!UUID_RE.test(alertId) || !seenActivityAt) {
-    return NextResponse.json({ error: "invalid" }, { status: alertId && !UUID_RE.test(alertId) ? 404 : 400 });
+  if (!seenActivityAt) {
+    return NextResponse.json({ error: "invalid" }, { status: 400 });
   }
   const viewerIsDeveloper = await isCurrentUserDeveloper();
   const { data: rows, error: lookupError } = await supabase
@@ -1126,7 +1143,10 @@ git commit --no-verify -m "feat(admin): bell realtime — admin token mint, priv
 //    resolve buttons (mode boundary, spec §7.3).
 // 5. after feed render, POST /bell/open fired EXACTLY once with body
 //    { seenThrough: <the feed's seenThrough> } — order: feed resolved BEFORE open
-//    (spec §7.2 snapshot-safety; assert fetch call order + body).
+//    (spec §7.2 snapshot-safety). Harness note (plan-review R2 candidate 4): await
+//    the READY state first (findByTestId bell-section-active), then assert order via
+//    fetchMock.mock.invocationCallOrder (or resolve the feed via an explicit deferred
+//    promise the test controls) — do NOT assert call order across un-awaited microtasks.
 // 6. feed 503 → bell-error renders dougFacing copy for ALERT_BELL_FEED_FAILED
 //    (via catalog lookup, not literal) + Retry button; Retry refires feed fetch.
 // 7. entries [] → bell-empty ("You're all caught up." + window subline incl.
