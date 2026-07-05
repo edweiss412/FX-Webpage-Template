@@ -156,7 +156,7 @@ export const SPEC_CODES = {
     "crewFacing": "Something is misconfigured for this show. Doug has been notified.",
     "dougFacing": "Two crew rows share the same email — Google login is unsafe to resolve. The duplicate-email check normally catches this; please re-share the sheet so we can re-parse, or contact the developer.",
     "followUp": "Doug → fix sheet duplicate; if persistent, Eric",
-    "helpfulContext": "When two people on the crew list share the same email address, we can't safely tell who's logging in. The duplicate-email check should normally catch this in the parse step. If you're seeing this code, the safest fix is to look at the most recent edits to your crew block — usually one of the two emails is a typo or a paste mistake. Once you correct the duplicate in your sheet, this alert will clear automatically on the next sync.",
+    "helpfulContext": "When two people on the crew list share the same email address, we can't safely tell who's logging in. The duplicate-email check should normally catch this in the parse step. If you're seeing this code, the safest fix is to look at the most recent edits to your crew block — usually one of the two emails is a typo or a paste mistake. Once you correct the duplicate in your sheet, mark this alert resolved from the affected show's page.",
   },
   "APPLY_PROMOTE_PENDING": {
     "crewFacing": null,

@@ -59,10 +59,10 @@ export const MESSAGE_CATALOG = {
     crewFacing: "Something is misconfigured for this show. Doug has been notified.",
     followUp: "Doug → fix sheet duplicate; if persistent, Eric",
     helpfulContext:
-      "When two people on the crew list share the same email address, we can't safely tell who's logging in. The duplicate-email check should normally catch this in the parse step. If you're seeing this code, the safest fix is to look at the most recent edits to your crew block — usually one of the two emails is a typo or a paste mistake. Once you correct the duplicate in your sheet, this alert will clear automatically on the next sync.",
+      "When two people on the crew list share the same email address, we can't safely tell who's logging in. The duplicate-email check should normally catch this in the parse step. If you're seeing this code, the safest fix is to look at the most recent edits to your crew block — usually one of the two emails is a typo or a paste mistake. Once you correct the duplicate in your sheet, mark this alert resolved from the affected show's page.",
     title: "Two crew rows share an email",
     longExplanation:
-      "Two rows in the CREW block share the same email address, so we can't safely tell who is logging in. Usually one of the two emails is a typo or paste mistake. Fix the duplicate in the sheet and this alert will clear on the next sync.",
+      "Two rows in the CREW block share the same email address, so we can't safely tell who is logging in. Usually one of the two emails is a typo or paste mistake. Fix the duplicate in the sheet, then mark this alert resolved from the affected show's page.",
     helpHref: "/help/errors#AMBIGUOUS_EMAIL_BINDING",
   },
   SESSION_IDLE_TIMEOUT: {

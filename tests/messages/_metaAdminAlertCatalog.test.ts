@@ -672,6 +672,27 @@ describe("META admin_alerts catalog contract", () => {
     }
   });
 
+  // alert-resolve-truthing §4.6: a resolution:"manual" code must NOT promise auto-clear
+  // in any operator-visible copy — that would contradict the retained manual resolve
+  // button (the code only clears when the operator marks it resolved). Auto codes are
+  // free to say "clears automatically"; manual codes must not.
+  test("no resolution:manual code promises auto-clear in its copy", () => {
+    const BANNED = /clears? automatically|clear on the next sync|auto-?clear/i;
+    const EXEMPT = new Set<string>([]); // none
+    for (const code of ADMIN_ALERTS_CODES) {
+      const entry = MESSAGE_CATALOG[code as keyof typeof MESSAGE_CATALOG] as
+        | { resolution?: "auto" | "manual"; [k: string]: unknown }
+        | undefined;
+      if (entry?.resolution !== "manual" || EXEMPT.has(code)) continue;
+      for (const field of ["dougFacing", "helpfulContext", "longExplanation"] as const) {
+        const copy = (entry?.[field] as string | null | undefined) ?? "";
+        expect(copy, `${code}.${field} promises auto-clear despite resolution:manual`).not.toMatch(
+          BANNED,
+        );
+      }
+    }
+  });
+
   // --- Inbox-routed (adminSurface:"inbox") contract (route-sync-problems spec §8) ---
   test("adminSurface:'inbox' is exactly SHEET_UNAVAILABLE + PARSE_ERROR_LAST_GOOD", () => {
     expect([...INBOX_ROUTED_CODES].sort()).toEqual(["PARSE_ERROR_LAST_GOOD", "SHEET_UNAVAILABLE"]);
