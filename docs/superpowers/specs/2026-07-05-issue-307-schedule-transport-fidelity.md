@@ -66,8 +66,15 @@ with a `SCHEDULE_TIME_UNPARSED` warn (`:207`, `scheduleTimeUnparsed` in
   pins v2 → `[]`; `getShowForViewer.test.ts:312` is a pre-seeded DB round-trip, not a parse).
 - **R5.** No DB migration. `run_of_show` is schemaless JSONB; `showEnd` needs no DDL, no
   validation-schema-parity concern.
-- **R6.** `SCHEDULE_TIME_UNPARSED` (§12.4 code) is **not** edited — no catalog touch. The end-only
-  case simply stops emitting it; the code and its copy are unchanged.
+- **R6.** `SCHEDULE_TIME_UNPARSED` (§12.4 code) **still exists and still fires** for the genuinely
+  unparseable case (a contentful, non-sentinel TIME cell with no clock at all — e.g. `"General Session
+  TBD"`). Only the **end-only** trigger is removed (it now parses to `showEnd`). The operator **copy**
+  (dougFacing / helpfulContext / longExplanation) is generic ("we couldn't read a start time…") and is
+  **unchanged** — so `x1-catalog-parity` holds with no `catalog.ts` copy edit. But the **definition
+  column** of master-spec §12.4 (and the `agendaWarnings.ts` doc comment) currently name end-only
+  `"GS: ... - 6:00 PM"` as a firing example, which becomes false — see R9. This is a deliberate,
+  user-approved behavior change to the canonical spec (issue #3 "Include now"), reconciled in-change,
+  not a silent divergence.
 
 ## Fix 1 — wizard fragment-day rendering
 
@@ -133,7 +140,8 @@ with empty / `-` / `\-` cell → `[]` (unchanged). Multi-name cell → `splitNam
 **Files:** `lib/parser/types.ts`, `lib/parser/blocks/scheduleTimes.ts`,
 `lib/sync/applyParseResult.ts`, `lib/data/decodeRunOfShow.ts`, `lib/data/downgradeRunOfShow.ts`,
 `components/crew/sections/ScheduleSection.tsx`, `scripts/verify-resync-scheduletimes.ts`,
-`tests/data/verifyResyncExpectedMap.test.ts`.
+`tests/data/verifyResyncExpectedMap.test.ts`, `lib/parser/blocks/agendaWarnings.ts` (doc comment, R9),
+`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (§12.4 definition column, R9).
 
 ### Has-content predicate class (R7 — class-sweep, MUST all include `showEnd`)
 
@@ -237,6 +245,32 @@ window===null):
   meta = t != null ? `Ends ${t}` : undefined;
 }
 ```
+
+### §12.4 / warning-contract reconciliation (R9 — Codex spec-review R3, HIGH)
+
+The canonical `SCHEDULE_TIME_UNPARSED` contract names the end-only case as a firing example; Fix 3
+removes that trigger, so the canonical text must be reconciled in the same change (author-approved
+behavior change, not a silent fix). Edits — **copy-preserving** (no operator-copy column changes):
+
+- **`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2896`** (§12.4 row, DEFINITION column
+  only): remove the `an end-only "GS: ... - 6:00 PM"` example; keep the general definition and the
+  `"General Session TBD"` example; add `/ end time` to the "no readable call time / window / agenda"
+  list so the firing condition reads "no readable call time / window / agenda / end time (e.g. 'General
+  Session TBD')". The three copy columns (dougFacing / crewFacing / followUp) are **untouched**. Edit
+  **surgically** — do NOT run prettier on the master spec (`feedback_never_prettier_the_master_spec`:
+  prettier mangles §12.4 cells → x1 divergence).
+- **`lib/parser/blocks/agendaWarnings.ts:45-51`** doc comment: drop the end-only case from the
+  "emitted when" description; it now fires only for the no-clock-contentful case.
+- **Parity verification:** run `pnpm gen:spec-codes` (regenerates
+  `lib/messages/__generated__/spec-codes.ts` from §12.4) — expected **no diff** (copy unchanged) — then
+  `vitest run tests/messages` + the `x1-catalog-parity` / `x2` audits to confirm the runtime catalog ↔
+  §12.4 copy parity still holds. If gen produces any diff, commit it in the same change (three-way
+  lockstep per AGENTS.md). `lib/messages/catalog.ts` needs **no** row edit (copy unchanged).
+
+This is NOT a new §12.4 code (no `TRUST_DOMAINS` / help-family / internal-enum additions); it is an
+example-scope narrowing of an existing row, so the "new code = 4 more CI gates" path
+(`feedback_new_12_4_code_full_ci_touchpoints`) does not apply — only the copy-parity gates, which stay
+green because copy is preserved.
 
 ## Flag lifecycle table — `ScheduleDay.showEnd`
 
