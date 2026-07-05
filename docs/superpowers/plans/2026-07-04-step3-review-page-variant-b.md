@@ -304,12 +304,25 @@ it("single warning → 'needs' singular", () => {
   const q = render(<Step3SheetCard row={stagedRow(parseResult({ warnings: oneFieldUnreadable() }))} wizardSessionId={WSID} />);
   expect(within(card(q)).getByTestId(`wizard-step3-card-${DFID}-review-chip`)).toHaveTextContent("1 needs a look");
 });
-it("meta line shows client · dates · venue from parseResult.show, omitting absent segments", () => {
-  const q = render(<Step3SheetCard row={stagedRow(parseResult({ warnings: [], clientLabel: "Acme" }))} wizardSessionId={WSID} />);
-  expect(within(card(q)).getByTestId(`wizard-step3-card-${DFID}-client`)).toHaveTextContent("Acme");
-  // a fixture with no client renders no -client node:
-  const q2 = render(<Step3SheetCard row={stagedRow(parseResult({ warnings: [], clientLabel: null }))} wizardSessionId={WSID} />);
-  expect(q2.queryByTestId(`wizard-step3-card-${DFID}-client`)).toBeNull();
+it("meta line shows client · dates · venue from parseResult.show; each segment present when its datum is", () => {
+  // Populate the fixture with recognizable inputs and assert the rendered segments CONTAIN those
+  // fixture values (anti-tautology: assert against the fixture inputs, NOT the component's own
+  // venueDisplay/dateSummarySegments helpers). Extend the fixture builder with clientLabel +
+  // a venue whose name is "Grand Ballroom" (withVenue) + a real dates object (withDates).
+  const q = render(<Step3SheetCard row={stagedRow(parseResult({ warnings: [], clientLabel: "Acme", withVenue: "Grand Ballroom", withDates: true }))} wizardSessionId={WSID} />);
+  const meta = card(q);
+  expect(within(meta).getByTestId(`wizard-step3-card-${DFID}-client`)).toHaveTextContent("Acme");
+  expect(within(meta).getByTestId(`wizard-step3-card-${DFID}-venue`)).toHaveTextContent("Grand Ballroom");
+  expect(within(meta).getByTestId(`wizard-step3-card-${DFID}-dates`).textContent?.trim().length).toBeGreaterThan(0);
+});
+it("meta line omits each absent segment (no empty node, no dangling separator)", () => {
+  // client null → no -client; dates empty → no -dates; venue null → no -venue.
+  const q = render(<Step3SheetCard row={stagedRow(parseResult({ warnings: [], clientLabel: null, withDates: false, withVenue: false }))} wizardSessionId={WSID} />);
+  expect(q.queryByTestId(`wizard-step3-card-${DFID}-client`)).toBeNull();
+  expect(q.queryByTestId(`wizard-step3-card-${DFID}-dates`)).toBeNull();
+  expect(q.queryByTestId(`wizard-step3-card-${DFID}-venue`)).toBeNull();
+  // with all three absent, the meta <p> renders no segment nodes at all (title still present).
+  expect(q.getByTestId(`wizard-step3-card-${DFID}-title`)).toBeInTheDocument();
 });
 // Demoted has TWO live sub-branches (Step3SheetCard.tsx:325-373): RESCAN_REVIEW_REQUIRED →
 // RescanReviewBanner (`-rescan-review`), every OTHER non-null code → NotPublishableNote
@@ -762,7 +775,14 @@ it("T8-e: the bar renders its own Back (→ ?step=2), instantly present with the
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails / passes appropriately** — `pnpm vitest run tests/components/admin/wizard/step3Page.transitions.test.tsx`. These assert the *absence* of unintended animation + presence of the reachable compound path; they should pass once Tasks 4/6 land (write them first as red where the DOM doesn't yet exist).
+- [ ] **Step 2: Prove each audit assertion BITES (negative-regression red).** Because this audit task lands AFTER the implementations, its assertions would be green-after-the-fact — meaningless unless they can fail. So, one at a time, inject the exact regression each assertion guards, confirm it goes RED, then revert (mirrors Task 7's discipline; per AGENTS.md invariant 1 the red proof is the TDD-red step for a verification gate):
+  - **No-framer (panelPlacement / variant swaps):** temporarily wrap the swapped region in a framer-motion `AnimatePresence` (or add a literal `data-framer` attr) → the `not.toContain("data-framer")` assertions FAIL → revert.
+  - **Compound running (T8-b):** temporarily set the card `-more` button `disabled={isPublishing}` (wire it to any running signal) → the "`more` toBeEnabled while running" assertion FAILS → revert.
+  - **Guards (T8-c):** temporarily drop the `rows.length > 0` guard on the summary / bar → the "absent when empty" assertions FAIL → revert.
+  - **Variant swap (T8-d):** temporarily force the selectable branch for a demoted row → the demoted marker assertion FAILS → revert.
+  - **Count flip (T8-a):** temporarily hardcode the count text → the "0 of 1 → 1 of 1" assertion FAILS → revert.
+  - **Back relocation (T8-e / onboardingWizardNav):** temporarily restore `step !== 1` on the top `BackLink` → the "no top Back on step 3" assertion FAILS → revert.
+  Record the red runs. Then `pnpm vitest run tests/components/admin/wizard/step3Page.transitions.test.tsx tests/components/onboardingWizardNav.test.tsx` → all GREEN with the code restored.
 
 - [ ] **Step 3: Implement** — no new animation; ensure the compound path stays reachable (do NOT disable the card button during publish). If any assertion fails because a button got disabled, that's the bug to fix.
 
