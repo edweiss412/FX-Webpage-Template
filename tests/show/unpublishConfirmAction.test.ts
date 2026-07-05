@@ -51,6 +51,13 @@ vi.mock("@/lib/sync/unpublishConfirmPage", async (importOriginal) => {
   };
 });
 
+// Invariant #10: the action now emits SHOW_UNPUBLISHED_VIA_EMAILED_LINK via
+// logAdminOutcome on the committed-success branch. Stub it (this file drives the
+// real action, and the success tests would otherwise reach the real logger); the
+// stub also lets the co-located test below assert the emit fires on success ONLY.
+const logAdminOutcomeMock = vi.hoisted(() => vi.fn(async (_o: unknown) => undefined));
+vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome: logAdminOutcomeMock }));
+
 function form(fields: Record<string, string>): FormData {
   const fd = new FormData();
   for (const [k, v] of Object.entries(fields)) fd.set(k, v);
@@ -70,6 +77,7 @@ beforeEach(() => {
   wrapperMock.calls = [];
   precheckMock.result = { kind: "ok", title: "Client Show" };
   precheckMock.calls = [];
+  logAdminOutcomeMock.mockClear();
 });
 
 describe("confirmUnpublishAction", () => {
@@ -106,6 +114,32 @@ describe("confirmUnpublishAction", () => {
     const state = await runAction();
     expect(wrapperMock.calls).toEqual([VALID_FIELDS]);
     expect(state).toEqual({ status: "success", title: "Client Show" });
+  });
+
+  test("invariant #10: success emits SHOW_UNPUBLISHED_VIA_EMAILED_LINK (showId only, no actor); refusals emit nothing", async () => {
+    // Success branch → exactly one code-carrying emit, scoped to the show, no actor.
+    await runAction();
+    expect(logAdminOutcomeMock).toHaveBeenCalledTimes(1);
+    const emitted = logAdminOutcomeMock.mock.calls[0]![0] as Record<string, unknown>;
+    expect(emitted.code).toBe("SHOW_UNPUBLISHED_VIA_EMAILED_LINK");
+    expect(emitted.showId).toBe("show-1");
+    expect(emitted.actorEmail).toBeUndefined();
+
+    // Non-success branches (neutral pre-check, infra pre-check, expired outcome) emit nothing.
+    logAdminOutcomeMock.mockClear();
+    precheckMock.result = { kind: "neutral" };
+    await runAction();
+    precheckMock.result = { kind: "infra" };
+    await runAction();
+    precheckMock.result = { kind: "ok", title: "Client Show" };
+    wrapperMock.result = {
+      outcome: "expired",
+      status: 400,
+      code: "UNPUBLISH_TOKEN_EXPIRED",
+      showId: "show-1",
+    };
+    await runAction();
+    expect(logAdminOutcomeMock).not.toHaveBeenCalled();
   });
 
   test("expired outcome → catalog copy via lib/messages/lookup (invariant 5 — never the raw code)", async () => {
