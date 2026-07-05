@@ -10,9 +10,11 @@ export type SectionId =
   | "hotels"
   | "transport"
   | "rooms"
+  | "diagrams"
   | "packlist"
   | "billing"
-  | "warnings";
+  | "warnings"
+  | "report";
 
 const KIND_TO_SECTION: Record<string, Exclude<SectionId, "warnings">> = {
   crew: "crew",
@@ -45,16 +47,29 @@ export function sectionForWarning(w: ParseWarning): SectionId | null {
   return KIND_TO_SECTION[kind] ?? null;
 }
 
+export function warningsBySection(
+  warnings: readonly ParseWarning[],
+  renderedSections: ReadonlySet<SectionId>,
+): ReadonlyMap<SectionId, readonly { warning: ParseWarning; index: number }[]> {
+  const map = new Map<SectionId, { warning: ParseWarning; index: number }[]>();
+  warnings.forEach((warning, index) => {
+    if (warning.severity !== "warn") return;
+    const mapped = sectionForWarning(warning);
+    const target: SectionId = mapped !== null && renderedSections.has(mapped) ? mapped : "warnings";
+    const list = map.get(target);
+    if (list) list.push({ warning, index });
+    else map.set(target, [{ warning, index }]);
+  });
+  return map;
+}
+
 export function deriveSectionStatuses(
   warnings: readonly ParseWarning[],
   renderedSections: ReadonlySet<SectionId>,
 ): { flagged: ReadonlySet<SectionId>; flaggedCount: number } {
-  const flagged = new Set<SectionId>();
-  for (const w of warnings) {
-    if (w.severity !== "warn") continue;
-    const mapped = sectionForWarning(w);
-    if (mapped !== null && renderedSections.has(mapped)) flagged.add(mapped);
-    else flagged.add("warnings"); // unmapped or degraded → the always-rendered checks row (§7)
-  }
+  // Derived from warningsBySection so the flag set and the callout map can
+  // never disagree (spec §E2). Same rules as before: warn-severity only;
+  // mapped→section when rendered, else the warnings bucket; unmapped→warnings.
+  const flagged = new Set(warningsBySection(warnings, renderedSections).keys());
   return { flagged, flaggedCount: flagged.size };
 }

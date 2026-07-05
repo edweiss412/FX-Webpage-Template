@@ -1,12 +1,7 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalog";
+import { DOUG_SURFACE_EXCLUDED_CODES } from "@/lib/messages/adminSurface";
 
 export type AlertCountResult = { kind: "ok"; count: number } | { kind: "infra_error" };
-
-// Mirror AlertBanner's exclusion: info-severity codes are notices, not banner-raising.
-const INFO_SEVERITY_CODES: string[] = (Object.values(MESSAGE_CATALOG) as MessageCatalogEntry[])
-  .filter((entry) => entry.severity === "info")
-  .map((entry) => entry.code);
 
 export async function fetchUnresolvedAlertCount(): Promise<AlertCountResult> {
   let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
@@ -20,8 +15,8 @@ export async function fetchUnresolvedAlertCount(): Promise<AlertCountResult> {
       .from("admin_alerts")
       .select("id", { count: "exact", head: true })
       .is("resolved_at", null);
-    if (INFO_SEVERITY_CODES.length > 0) {
-      q = q.not("code", "in", `(${INFO_SEVERITY_CODES.map((c) => `"${c}"`).join(",")})`);
+    if (DOUG_SURFACE_EXCLUDED_CODES.length > 0) {
+      q = q.not("code", "in", `(${DOUG_SURFACE_EXCLUDED_CODES.map((c) => `"${c}"`).join(",")})`);
     }
     const { data: _countData, count, error } = await q; // invariant 9: destructure { data, error }, not bare
     void _countData;

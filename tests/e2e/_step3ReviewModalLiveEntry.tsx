@@ -30,6 +30,34 @@ declare global {
   }
 }
 
+/** §K14 fetch stub: intercepts ONLY the rescan route the footer's
+ *  RescanSheetButton POSTs to (components/admin/RescanSheetButton.tsx:111) and
+ *  answers the deterministic clean-success body so the overlay result renders
+ *  with fixed copy ("Updated. Still ready to publish."). Every OTHER request
+ *  passes through to the real fetch — in this dev-server-less harness that
+ *  request fails loudly rather than being silently absorbed. */
+const RESCAN_ROUTE = "/api/admin/onboarding/rescan-sheet";
+const realFetch = window.fetch.bind(window);
+window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+  const url =
+    typeof input === "string" ? input : input instanceof URL ? input.href : (input?.url ?? "");
+  if (url === RESCAN_ROUTE) {
+    return Promise.resolve(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          status: "updated",
+          needsReview: false,
+          changed: true,
+          demoted: false,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+  }
+  return realFetch(input as RequestInfo, init);
+}) as typeof window.fetch;
+
 function LiveHarness() {
   const [open, setOpen] = useState(true);
   if (!open) return null;

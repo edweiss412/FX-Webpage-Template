@@ -26,7 +26,7 @@ vi.mock("@/lib/auth/requireDeveloper", () => ({
 const DEV_PAGE_FILES = [
   "app/admin/dev/page.tsx",
   "app/admin/dev/source-link-dim/page.tsx",
-  "app/admin/dev/observability-dim/page.tsx",
+  "app/admin/dev/telemetry-dim/page.tsx",
 ];
 
 function stripComments(source: string): string {

@@ -1,6 +1,6 @@
 // scripts/observe/args.ts
 import { parseArgs } from "node:util";
-import type { AppEventFilters, AppEventLevel } from "@/lib/admin/observabilityTypes";
+import type { AppEventFilters, AppEventLevel } from "@/lib/admin/telemetryTypes";
 import { isUuid, type AlertFilters, type ChangeLogFilters } from "@/lib/observe/query";
 
 export type ObserveCommand = "events" | "alerts" | "cron" | "changes" | "codes" | "tail" | "help";

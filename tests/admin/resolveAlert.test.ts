@@ -49,6 +49,11 @@ const mockState = vi.hoisted(() => ({
   chainResult: { error: null as null | { message: string } },
   userEmail: "admin@fxav.test" as string | null | undefined,
   getUserError: null as null | { message: string },
+  // alert-audience-split Task 10: the action now fetches the row's code and
+  // REJECTS health codes before the UPDATE. Default a doug code so the legacy
+  // resolve path proceeds; the health-reject path is pinned in healthResolveGuard.
+  guardRow: { code: "SHOW_UNPUBLISHED" } as { code: string } | null,
+  guardError: null as null | { message: string },
   updateSpy: vi.fn(),
   fromSpy: vi.fn(),
   filters: [] as Array<{ method: "eq" | "is"; column: string; value: unknown }>,
@@ -60,18 +65,15 @@ vi.mock("@/lib/auth/requireAdmin", () => ({
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServerClient: async () => {
-    const builder = {
-      update: (payload: unknown) => {
-        mockState.updateSpy(payload);
-        return builder;
-      },
+    // The UPDATE chain records its filters (pinned by the happy-path assertion).
+    const filterBuilder = {
       eq: (col: string, val: string) => {
         mockState.filters.push({ method: "eq", column: col, value: val });
-        return builder;
+        return filterBuilder;
       },
       is: (col: string, val: unknown) => {
         mockState.filters.push({ method: "is", column: col, value: val });
-        return builder;
+        return filterBuilder;
       },
       then: (
         resolve: (value: typeof mockState.chainResult) => unknown,
@@ -80,10 +82,24 @@ vi.mock("@/lib/supabase/server", () => ({
         return Promise.resolve(mockState.chainResult).then(resolve, reject);
       },
     };
+    // The guard code-lookup chain (.select("code").eq("id").maybeSingle()) is a
+    // SEPARATE builder that does NOT record into `filters` — so the happy-path
+    // filter assertion still sees only the UPDATE chain's predicates.
+    const readBuilder = {
+      eq: () => readBuilder,
+      maybeSingle: async () => ({ data: mockState.guardRow, error: mockState.guardError }),
+    };
+    const top = {
+      select: () => readBuilder,
+      update: (payload: unknown) => {
+        mockState.updateSpy(payload);
+        return filterBuilder;
+      },
+    };
     return {
       from: (table: string) => {
         mockState.fromSpy(table);
-        return builder;
+        return top;
       },
       auth: {
         getUser: async () => ({
@@ -112,6 +128,8 @@ describe("resolveAdminAlertFormAction", () => {
     mockState.chainResult = { error: null };
     mockState.userEmail = "admin@fxav.test";
     mockState.getUserError = null;
+    mockState.guardRow = { code: "SHOW_UNPUBLISHED" };
+    mockState.guardError = null;
     mockState.updateSpy.mockClear();
     mockState.fromSpy.mockClear();
     mockState.filters = [];
@@ -132,8 +150,9 @@ describe("resolveAdminAlertFormAction", () => {
   test("happy path: valid UUID + healthy DB → UPDATE runs and revalidatePath fires", async () => {
     await resolveAdminAlertFormAction(fd({ id: VALID_UUID }));
 
-    // The action constructed a supabase client and called .from('admin_alerts').
-    expect(mockState.fromSpy).toHaveBeenCalledTimes(1);
+    // The action called .from('admin_alerts') twice: the code-guard lookup then
+    // the UPDATE (alert-audience-split Task 10 added the health-code guard read).
+    expect(mockState.fromSpy).toHaveBeenCalledTimes(2);
     expect(mockState.fromSpy).toHaveBeenCalledWith("admin_alerts");
 
     // The .update() call carried both resolved_at (an ISO string) and

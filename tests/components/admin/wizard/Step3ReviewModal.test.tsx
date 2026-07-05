@@ -34,6 +34,7 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { useState } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import type { ParseResult, ParseWarning } from "@/lib/parser/types";
@@ -48,11 +49,16 @@ import {
   DRAG_SLOP_PX,
   DURATION_FAST_FALLBACK_MS,
   DURATION_NORMAL_FALLBACK_MS,
+  INDICATOR_INSET_PX,
+  NAV_SCROLL_SETTLE_EPSILON_PX,
+  NAV_SCROLL_SETTLE_TIMEOUT_MS,
   SCROLL_SPY_OFFSET_PX,
   Step3ReviewModal,
+  WARNING_HIGHLIGHT_MS,
 } from "@/components/admin/wizard/Step3ReviewModal";
 import {
   __resetAgendaThrottleForTests,
+  CALLOUT_MAX_ENTRIES,
   contactBlocks,
   dateSummarySegments,
   step3Sections,
@@ -60,6 +66,7 @@ import {
   type SectionData,
 } from "@/components/admin/wizard/step3ReviewSections";
 import { deriveSectionStatuses, type SectionId } from "@/lib/admin/step3SectionStatus";
+import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { buildParseResult, stagedRow } from "./_step3ReviewFixture";
 
@@ -135,6 +142,53 @@ function renderModal(
     />,
   );
   return { q, d, onClose, onRequestSetChecked };
+}
+
+/** Deferred promise so pending-state assertions run while the request is
+ *  genuinely unresolved (and can then settle either way, or reject). */
+function deferred() {
+  let resolve!: (v: boolean) => void;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<boolean>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+/** Mirrors renderModal's exact prop set with STATEFUL checked — reproduces the
+ *  live card contract (Step3SheetCard.tsx:289-295): `checked` flips
+ *  OPTIMISTICALLY the moment the request starts, rolls back to the pre-click
+ *  value on resolve-false AND on throw (rethrown so the modal's own catch at
+ *  Step3ReviewModal.tsx:686-690 is exercised). Static-prop renders can't catch
+ *  the §B1 bug — the wrong slot only renders once `checked` flips mid-flight. */
+function OptimisticHarness(props: {
+  initialChecked: boolean;
+  request: (next: boolean) => Promise<boolean>;
+  onClose?: () => void;
+}) {
+  const [checked, setChecked] = useState(props.initialChecked);
+  return (
+    <Step3ReviewModal
+      data={sectionData()}
+      isDirtyRescan={false}
+      onClose={props.onClose ?? vi.fn()}
+      checked={checked}
+      onRequestSetChecked={async (next) => {
+        const prev = checked;
+        setChecked(next); // the card's optimistic flip (Step3SheetCard.tsx:289-292)
+        let ok: boolean;
+        try {
+          ok = await props.request(next);
+        } catch (e) {
+          setChecked(prev); // the card's failure settlement/rollback
+          throw e; // rethrow so the MODAL's own catch is exercised
+        }
+        if (!ok) setChecked(prev); // rollback on resolve-false too
+        return ok;
+      }}
+    />
+  );
 }
 
 /** flaggedCount the modal must display, computed the same way the spec derives
@@ -465,42 +519,84 @@ describe("Step3ReviewModal — footer note + buttons (spec §9.1)", () => {
     expect(within(q.getByTestId(tid("footer"))).getByText("Re-scan this sheet")).toBeTruthy();
   });
 
-  test("publish button label: 'Publish this show' unchecked, 'Selected to publish' checked", () => {
+  test("footer rescan result is an overlay (resultPlacement='overlay'): result carries data-rescan-overlay-result, out of flow (spec §G — catches: footer call site left stacked)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              ok: true,
+              status: "updated",
+              needsReview: false,
+              changed: true,
+              demoted: false,
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+    const { q } = renderModal();
+    const footer = q.getByTestId(tid("footer"));
+    await act(async () => {
+      fireEvent.click(within(footer).getByTestId(`rescan-sheet-button-${DFID}`));
+    });
+    const result = await within(footer).findByTestId(`rescan-sheet-result-${DFID}`);
+    expect(result.hasAttribute("data-rescan-overlay-result")).toBe(true);
+    // Structural out-of-flow pin (pixel constancy is Task 14's Playwright): the
+    // overlay result is absolutely positioned above the button, not stacked in flow.
+    const resultClasses = result.className.split(/\s+/);
+    expect(resultClasses).toContain("absolute");
+    expect(resultClasses).toContain("bottom-full");
+    // Mobile-safe anchor contract (impeccable audit P1): below sm the overlay
+    // is LEFT-anchored against the FOOTER (the footer carries `relative`; the
+    // button wrapper is only `sm:relative`), so a 312px coded result can never
+    // extend past the left viewport edge at 390px; ≥sm restores the
+    // wrapper-anchored right-0. Real-pixel proof is the §K14 390px Playwright
+    // assertion (tests/e2e/step3-review-modal.interactions.spec.ts).
+    expect(resultClasses).toContain("left-0");
+    expect(resultClasses).toContain("sm:left-auto");
+    expect(resultClasses).toContain("sm:right-0");
+    expect(footer.className.split(/\s+/)).toContain("relative");
+  });
+
+  test("primary-slot label: 'Publish this show' unchecked, 'Unpublish' checked (spec §C2 — supersedes the 'Selected to publish' pin)", () => {
     const { q } = renderModal({ checked: false });
     expect(q.getByTestId(tid("publish")).textContent).toBe("Publish this show");
     cleanup();
     const { q: q2 } = renderModal({ checked: true });
-    expect(q2.getByTestId(tid("publish")).textContent).toBe("Selected to publish");
+    expect(within(q2.getByTestId(tid("footer"))).getByTestId(tid("publish")).textContent).toBe(
+      "Unpublish",
+    );
   });
 
-  test("publish CTA styling: unchecked keeps the accent treatment; checked resting state demotes to quiet positive (border/surface)", () => {
+  test("primary-slot styling: unchecked keeps the accent CTA; checked renders the quiet/secondary Unpublish (border/surface, never accent) with NO Check icon (spec §C2)", () => {
     const { q } = renderModal({ checked: false });
     const unchecked = q.getByTestId(tid("publish"));
     expect(unchecked.className).toMatch(/\bbg-accent\b/);
     expect(unchecked.className).toMatch(/\btext-accent-text\b/);
     cleanup();
     const { q: q2 } = renderModal({ checked: true });
-    const checkedBtn = q2.getByTestId(tid("publish"));
-    expect(checkedBtn.className).toMatch(/\bborder\b/);
-    expect(checkedBtn.className).toMatch(/\bborder-border-strong\b/);
-    expect(checkedBtn.className).toMatch(/\bbg-surface\b/);
-    expect(checkedBtn.className).toMatch(/\btext-status-positive-text\b/);
-    expect(checkedBtn.className).not.toMatch(/\bbg-accent\b/);
-    expect(checkedBtn.className).toMatch(/\bmin-h-tap-min\b/);
-    // The Check icon stays.
-    expect(checkedBtn.querySelector("svg")).not.toBeNull();
+    const unpublish = within(q2.getByTestId(tid("footer"))).getByTestId(tid("publish"));
+    expect(unpublish.className).toMatch(/\bborder\b/);
+    expect(unpublish.className).toMatch(/\bborder-border-strong\b/);
+    expect(unpublish.className).toMatch(/\bbg-surface\b/);
+    expect(unpublish.className).not.toMatch(/\bbg-accent\b/);
+    expect(unpublish.className).toMatch(/\bmin-h-tap-min\b/);
+    // No Check icon inside the Unpublish button (the checked slot is no longer
+    // the idempotent-approve CTA) — no svg at all.
+    expect(unpublish.querySelector("svg")).toBeNull();
   });
 
-  test("publish CTA styling: pending keeps the accent treatment even when checked", async () => {
+  test("Unpublish pending: label 'Removing…', quiet treatment kept (never flips to accent while pending)", async () => {
     let settle!: (v: boolean) => void;
     const onRequestSetChecked = vi.fn(() => new Promise<boolean>((resolve) => (settle = resolve)));
     const { q } = renderModal({ checked: true, onRequestSetChecked });
     fireEvent.click(q.getByTestId(tid("publish")));
-    await waitFor(() => expect(q.getByTestId(tid("publish")).textContent).toBe("Selecting…"));
+    await waitFor(() => expect(q.getByTestId(tid("publish")).textContent).toBe("Removing…"));
     const pending = q.getByTestId(tid("publish"));
-    expect(pending.className).toMatch(/\bbg-accent\b/);
-    expect(pending.className).toMatch(/\btext-accent-text\b/);
-    expect(pending.className).not.toMatch(/\bborder-border-strong\b/);
+    expect(pending.className).toMatch(/\bborder-border-strong\b/);
+    expect(pending.className).not.toMatch(/\bbg-accent\b/);
     await act(async () => settle(true));
   });
 
@@ -523,23 +619,28 @@ describe("Step3ReviewModal — footer note + buttons (spec §9.1)", () => {
 // ── Publish click semantics (spec §9.1 idempotent approve) ──────────────────
 
 describe("Step3ReviewModal — publish click (spec §9.1)", () => {
-  test("click calls onRequestSetChecked with EXACTLY true in BOTH states (never a toggle)", async () => {
+  test("click requests EXACTLY the state-appropriate value: unchecked → true (closes), checked → false (stays open) — spec §C2 supersedes the idempotent-approve pin", async () => {
     const onRequestSetChecked = vi.fn(async () => true);
     const { q, onClose } = renderModal({ checked: false, onRequestSetChecked });
     fireEvent.click(q.getByTestId(tid("publish")));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(onRequestSetChecked).toHaveBeenCalledWith(true);
+    expect(onRequestSetChecked).not.toHaveBeenCalledWith(false);
     cleanup();
+    // CHECKED state (§C2): the slot is a real Unpublish — requests EXACTLY
+    // false (catches: unpublish wired to true) and never closes on success.
     const onRequestSetChecked2 = vi.fn(async () => true);
     const { q: q2, onClose: onClose2 } = renderModal({
       checked: true,
       onRequestSetChecked: onRequestSetChecked2,
     });
     fireEvent.click(q2.getByTestId(tid("publish")));
-    await waitFor(() => expect(onClose2).toHaveBeenCalledTimes(1));
-    // CHECKED state still requests true — idempotent approve, not a toggle.
-    expect(onRequestSetChecked2).toHaveBeenCalledWith(true);
-    expect(onRequestSetChecked2).not.toHaveBeenCalledWith(false);
+    await waitFor(() => expect(onRequestSetChecked2).toHaveBeenCalledTimes(1));
+    expect(onRequestSetChecked2).toHaveBeenCalledWith(false);
+    expect(onRequestSetChecked2).not.toHaveBeenCalledWith(true);
+    // Success stays open — settlement flips the checked prop instead.
+    await waitFor(() => expect(q2.getByTestId(tid("publish")).textContent).toBe("Unpublish"));
+    expect(onClose2).not.toHaveBeenCalled();
   });
 
   test("resolved true → onClose called exactly once", async () => {
@@ -548,12 +649,14 @@ describe("Step3ReviewModal — publish click (spec §9.1)", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 
-  test("resolved false → modal stays open, inline error note, prior label kept", async () => {
-    const { q, onClose } = renderModal({
-      checked: false,
-      onRequestSetChecked: vi.fn(async () => false),
-    });
+  test("resolved false → modal stays open, inline error note, prior label kept (optimistic flip rolled back — spec T-B2)", async () => {
+    const onClose = vi.fn();
+    const d = deferred();
+    const q = render(
+      <OptimisticHarness initialChecked={false} request={() => d.promise} onClose={onClose} />,
+    );
     fireEvent.click(q.getByTestId(tid("publish")));
+    await act(async () => d.resolve(false));
     await waitFor(() =>
       expect(
         within(q.getByTestId(tid("footer"))).getByText(
@@ -570,29 +673,205 @@ describe("Step3ReviewModal — publish click (spec §9.1)", () => {
     // Inside the aria-modal dialog, the failure must be announced by AT —
     // role="status" makes the inline note a live region (impeccable audit P2).
     expect(errorNote.getAttribute("role")).toBe("status");
-    // Prior (state-derived) label restored — not stuck on "Selecting…".
-    expect(q.getByTestId(tid("publish")).textContent).toBe("Publish this show");
+    // Prior (state-derived) label restored — not stuck on "Selecting…" — and
+    // the button re-enabled for a retry (no pendingOp leak, spec §B2).
+    const btn = q.getByTestId(tid("publish")) as HTMLButtonElement;
+    expect(btn.textContent).toBe("Publish this show");
+    expect(btn.disabled).toBe(false);
   });
 
-  test("while pending → disabled + aria-busy + 'Selecting…' (deferred promise)", async () => {
-    let resolveReq!: (v: boolean) => void;
-    const onRequestSetChecked = vi.fn(
-      () =>
-        new Promise<boolean>((resolve) => {
-          resolveReq = resolve;
-        }),
+  test("REJECTED (thrown) → same settlement as resolve-false: error note, label restored, re-enabled (spec T-B2; §B2 pendingOp clears on caught throw)", async () => {
+    const onClose = vi.fn();
+    const d = deferred();
+    const q = render(
+      <OptimisticHarness initialChecked={false} request={() => d.promise} onClose={onClose} />,
     );
-    const { q, onClose } = renderModal({ onRequestSetChecked });
     fireEvent.click(q.getByTestId(tid("publish")));
+    await act(async () => d.reject(new Error("network down")));
+    await waitFor(() =>
+      expect(
+        within(q.getByTestId(tid("footer"))).getByText(
+          "Couldn't update the publish selection. Try again.",
+        ),
+      ).toBeTruthy(),
+    );
+    expect(onClose).not.toHaveBeenCalled();
     const btn = q.getByTestId(tid("publish")) as HTMLButtonElement;
-    await waitFor(() => expect(btn.textContent).toBe("Selecting…"));
+    expect(btn.textContent).toBe("Publish this show");
+    expect(btn.disabled).toBe(false);
+  });
+
+  test("[BUG §B1] while publish is pending the slot follows the OPERATION, not the optimistically-flipped checked prop: accent CTA + 'Selecting…' (broken code renders the checked branch: quiet 'Removing…')", async () => {
+    const d = deferred();
+    const onClose = vi.fn();
+    const q = render(
+      <OptimisticHarness initialChecked={false} request={() => d.promise} onClose={onClose} />,
+    );
+    fireEvent.click(q.getByTestId(tid("publish")));
+    await waitFor(() => expect(q.getByTestId(tid("publish")).textContent).toBe("Selecting…"));
+    const btn = q.getByTestId(tid("publish")) as HTMLButtonElement;
+    // Accent (primary CTA) treatment persists through the flight — the flipped
+    // checked prop must NOT swap in the quiet unpublish recipe mid-publish.
+    expect(btn.className).toMatch(/\bbg-accent\b/);
+    expect(btn.className).not.toMatch(/\bborder-border-strong\b/);
     expect(btn.disabled).toBe(true);
     expect(btn.getAttribute("aria-busy")).toBe("true");
     expect(onClose).not.toHaveBeenCalled();
-    await act(async () => {
-      resolveReq(true);
-    });
+    await act(async () => d.resolve(true));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+});
+
+// ── Task 8: footer Unpublish + finalize-demoted gate (spec §C2/§C3) ─────────
+
+describe("Step3ReviewModal — footer Unpublish + demoted gate (spec §C2/§C3)", () => {
+  /** SectionData whose row is finalize-demoted by `code` (dirty rescan is the
+   *  RESCAN_REVIEW_REQUIRED subtype — spec §C3). */
+  function demotedData(code: string): SectionData {
+    const pr = buildParseResult();
+    return sectionData({}, { row: stagedRow(pr, { lastFinalizeFailureCode: code }) });
+  }
+
+  test("unpublish success stays open: promise resolves true → onClose NOT called, button back to idle; checked=false rerender swaps the slot instantly", async () => {
+    let settle!: (v: boolean) => void;
+    const onRequestSetChecked = vi.fn(() => new Promise<boolean>((resolve) => (settle = resolve)));
+    const onClose = vi.fn();
+    const d = sectionData();
+    const q = render(
+      <Step3ReviewModal
+        data={d}
+        checked={true}
+        isDirtyRescan={false}
+        onRequestSetChecked={onRequestSetChecked}
+        onClose={onClose}
+      />,
+    );
+    const footer = q.getByTestId(tid("footer"));
+    const btn = within(footer).getByTestId(tid("publish")) as HTMLButtonElement;
+    expect(btn.textContent).toBe("Unpublish");
+    fireEvent.click(btn);
+    await waitFor(() => expect(btn.textContent).toBe("Removing…"));
+    await act(async () => settle(true));
+    // Modal STAYS OPEN; publishState back to idle (button re-enabled).
+    expect(onClose).not.toHaveBeenCalled();
+    await waitFor(() => expect(btn.textContent).toBe("Unpublish"));
+    expect(btn.disabled).toBe(false);
+    // The card's settlement flips the checked prop — the slot swaps to the
+    // publish CTA instantly (§H N5: no animation utility on the slot).
+    q.rerender(
+      <Step3ReviewModal
+        data={d}
+        checked={false}
+        isDirtyRescan={false}
+        onRequestSetChecked={onRequestSetChecked}
+        onClose={onClose}
+      />,
+    );
+    const swapped = within(q.getByTestId(tid("footer"))).getByTestId(tid("publish"));
+    expect(swapped.textContent).toBe("Publish this show");
+    expect(swapped.className).not.toMatch(/\banimate-|transition-\[/);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  test("unpublish failure: resolves false → the EXISTING publish-error affordance (role=status note in the footer), modal open, label restored", async () => {
+    const { q, onClose } = renderModal({
+      checked: true,
+      onRequestSetChecked: vi.fn(async () => false),
+    });
+    const footer = q.getByTestId(tid("footer"));
+    fireEvent.click(within(footer).getByTestId(tid("publish")));
+    await waitFor(() =>
+      expect(
+        within(footer).getByText("Couldn't update the publish selection. Try again."),
+      ).toBeTruthy(),
+    );
+    const errorNote = within(footer).getByText("Couldn't update the publish selection. Try again.");
+    expect(errorNote.getAttribute("role")).toBe("status");
+    expect(errorNote.className).toMatch(/\btext-warning-text\b/);
+    expect(onClose).not.toHaveBeenCalled();
+    // Not stuck on "Removing…" — the state-derived label is restored.
+    expect(within(footer).getByTestId(tid("publish")).textContent).toBe("Unpublish");
+  });
+
+  test("[BUG §B1] while unpublish is pending the slot follows the OPERATION: quiet 'Removing…' even though checked already flipped false (broken code renders the accent 'Selecting…'); rapid second click fires NO second request; success settles to the publish CTA", async () => {
+    const d = deferred();
+    const request = vi.fn(() => d.promise);
+    const onClose = vi.fn();
+    const q = render(
+      <OptimisticHarness initialChecked={true} request={request} onClose={onClose} />,
+    );
+    const footer = q.getByTestId(tid("footer"));
+    fireEvent.click(within(footer).getByTestId(tid("publish")));
+    await waitFor(() =>
+      expect(within(footer).getByTestId(tid("publish")).textContent).toBe("Removing…"),
+    );
+    const btn = within(footer).getByTestId(tid("publish")) as HTMLButtonElement;
+    // Quiet/secondary treatment persists through the flight — the flipped
+    // checked prop must NOT swap in the accent publish CTA mid-unpublish.
+    expect(btn.className).toMatch(/\bborder-border-strong\b/);
+    expect(btn.className).not.toMatch(/\bbg-accent\b/);
+    expect(btn.disabled).toBe(true);
+    expect(btn.getAttribute("aria-busy")).toBe("true");
+    // Rapid double-click guard: the disabled button fires no second request.
+    fireEvent.click(btn);
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+    await act(async () => d.resolve(true));
+    // Success stays open; checked settled false → the slot renders the accent
+    // publish CTA (§B2: post-resolution behavior unchanged).
+    await waitFor(() =>
+      expect(within(footer).getByTestId(tid("publish")).textContent).toBe("Publish this show"),
+    );
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  test("demoted gate (§C3): non-rescan finalize failure → NO publish/unpublish button; NotPublishableNote copy + Re-scan still render in the footer (even when checked)", () => {
+    const d = demotedData("DRIVE_FETCH_FAILED");
+    // checked=true is the stronger fixture: the gate must win over checked.
+    const { q } = renderModal({ d, checked: true, isDirtyRescan: false });
+    const footer = q.getByTestId(tid("footer"));
+    expect(within(footer).queryByTestId(tid("publish"))).toBeNull();
+    expect(q.queryByTestId(tid("publish"))).toBeNull();
+    // The shared NotPublishableNote copy, verbatim from the card (spec §C2),
+    // with the modal-scoped testid.
+    const note = within(footer).getByTestId(tid("not-publishable"));
+    expect(
+      within(note).getByText("This sheet needs attention before it can be published."),
+    ).toBeTruthy();
+    // RescanSheetButton still renders (recovery flows through the next scan).
+    expect(within(footer).getByText("Re-scan this sheet")).toBeTruthy();
+  });
+
+  test("branch order (§C3): dirty rescan wins over demoted — RESCAN_REVIEW_REQUIRED + isDirtyRescan renders the dirty branch, not NotPublishableNote", () => {
+    const d = demotedData(RESCAN_REVIEW_REQUIRED);
+    const { q } = renderModal({ d, checked: false, isDirtyRescan: true });
+    const footer = q.getByTestId(tid("footer"));
+    // The dirty branch (unchanged): review-required note + reapply link.
+    expect(
+      within(footer).getByText(
+        "This sheet changed since you reviewed it. Review it before publishing.",
+      ),
+    ).toBeTruthy();
+    expect(within(footer).getByText("Review this sheet").closest("a")).not.toBeNull();
+    // NOT the demoted branch: no NotPublishableNote, no publish, no re-scan.
+    expect(within(footer).queryByTestId(tid("not-publishable"))).toBeNull();
+    expect(
+      within(footer).queryByText("This sheet needs attention before it can be published."),
+    ).toBeNull();
+    expect(within(footer).queryByTestId(tid("publish"))).toBeNull();
+    expect(within(footer).queryByText("Re-scan this sheet")).toBeNull();
+  });
+
+  test("unchecked publish path unchanged: 'Publish this show' → onRequestSetChecked(true) → onClose exactly once on success", async () => {
+    const onRequestSetChecked = vi.fn(async () => true);
+    const { q, onClose } = renderModal({ checked: false, onRequestSetChecked });
+    const footer = q.getByTestId(tid("footer"));
+    const btn = within(footer).getByTestId(tid("publish"));
+    expect(btn.textContent).toBe("Publish this show");
+    fireEvent.click(btn);
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+    expect(onRequestSetChecked).toHaveBeenCalledWith(true);
+    expect(onRequestSetChecked).not.toHaveBeenCalledWith(false);
   });
 });
 
@@ -738,6 +1017,11 @@ describe("Step3ReviewModal — side rail anatomy (spec §6.2)", () => {
     for (const s of step3Sections(d)) {
       const item = q.getByTestId(tid(`rail-item-${s.id}`));
       const dot = item.querySelector(".bg-status-review, .bg-status-positive");
+      if (s.hideDot) {
+        // §D2: report is the only def with hideDot — its rail item has NO dot.
+        expect(dot).toBeNull();
+        continue;
+      }
       expect(dot).not.toBeNull();
       const expectRed = s.id === "warnings" ? true : flagged.has(s.id);
       expect(dot!.className).toMatch(expectRed ? /\bbg-status-review\b/ : /\bbg-status-positive\b/);
@@ -746,17 +1030,20 @@ describe("Step3ReviewModal — side rail anatomy (spec §6.2)", () => {
     }
   });
 
-  test("active rail item: bg-surface-sunken + w-1 rounded-r-pill bg-accent indicator; inactive has neither", () => {
+  test("active rail item: bg-surface-sunken; NO per-item accent span in ANY item (Task 10 — the shared nav-level indicator replaced them, spec §A3)", () => {
     const { q, d } = renderModal();
-    const first = step3Sections(d)[0]!;
+    const defs = step3Sections(d);
+    const first = defs[0]!;
     const activeItem = q.getByTestId(tid(`rail-item-${first.id}`));
     expect(activeItem.className).toMatch(/\bbg-surface-sunken\b/);
-    const indicator = activeItem.querySelector(".bg-accent");
-    expect(indicator).not.toBeNull();
-    expect(indicator!.className).toMatch(/\bw-1\b/);
-    expect(indicator!.className).toMatch(/\brounded-r-pill\b/);
-    const idle = q.getByTestId(tid("rail-item-warnings"));
-    expect(idle.querySelector(".bg-accent")).toBeNull();
+    // The retired per-item conditional span (inset-y-3 accent bar) is GONE —
+    // from the active item AND every other item (the indicator is the single
+    // nav-level element pinned by the Task-10 sliding-indicator suite below).
+    for (const s of defs) {
+      const item = q.getByTestId(tid(`rail-item-${s.id}`));
+      expect(item.querySelector(".bg-accent")).toBeNull();
+      expect(item.querySelector(".inset-y-3")).toBeNull();
+    }
   });
 
   test("warnings dot is ROW-LOCAL: info-only warnings → positive dot while the count still shows", () => {
@@ -792,7 +1079,12 @@ describe("Step3ReviewModal — chip rail (spec §6.3)", () => {
         expect(classes).toContain(c);
       }
       expect(chip.querySelector(".tabular-nums")).toBeNull(); // chips never show counts
-      expect(chip.querySelector(".bg-status-review, .bg-status-positive")).not.toBeNull();
+      if (s.hideDot) {
+        // §D2: report is the only def with hideDot — its chip has NO dot.
+        expect(chip.querySelector(".bg-status-review, .bg-status-positive")).toBeNull();
+      } else {
+        expect(chip.querySelector(".bg-status-review, .bg-status-positive")).not.toBeNull();
+      }
       // Label ONLY — a stray count/extra text would change textContent.
       expect(chip.textContent).toBe(s.label);
     }
@@ -957,7 +1249,7 @@ describe("Step3ReviewModal — rail/chip click navigation (Task 5; shares Task 6
     withScrollToStub((scrollTo) => {
       const { q, d } = renderModal();
       const defs = step3Sections(d);
-      const target = defs[defs.length - 1]!; // warnings — far from the initial active
+      const target = defs[defs.length - 1]!; // report (§D2 last) — far from the initial active
       fireEvent.click(q.getByTestId(tid(`rail-item-${target.id}`)));
       const rail = q.getByTestId(tid("rail"));
       const chiprail = q.getByTestId(tid("chiprail"));
@@ -1146,6 +1438,497 @@ describe("Step3ReviewModal — scroll-spy wiring (Task 6, spec §6.3a)", () => {
     } finally {
       restoreRects();
     }
+  });
+});
+
+// ── Nav-click scroll-spy suppression (Task 10, spec §A2; §H N1) ──────────────
+
+describe("Step3ReviewModal — nav-click scroll-spy suppression (Task 10, spec §A2)", () => {
+  let restoreRects: (() => void) | null = null;
+  let restoreRaf: (() => void) | null = null;
+  let originalScrollTo: PropertyDescriptor | undefined;
+  let hadScrollTo = false;
+
+  afterEach(() => {
+    restoreRects?.();
+    restoreRects = null;
+    restoreRaf?.();
+    restoreRaf = null;
+    if (hadScrollTo) {
+      if (originalScrollTo) {
+        Object.defineProperty(HTMLElement.prototype, "scrollTo", originalScrollTo);
+      } else {
+        delete (HTMLElement.prototype as { scrollTo?: unknown }).scrollTo;
+      }
+      hadScrollTo = false;
+      originalScrollTo = undefined;
+    }
+    vi.useRealTimers();
+  });
+
+  /** Harness per the task-10 brief: fake timers, rAF mapped onto 0ms fake
+   *  timeouts (a SYNCHRONOUS rAF stub would break the component's throttle —
+   *  `rafId = requestAnimationFrame(evaluate)` assigns AFTER the callback
+   *  already reset rafId to null, permanently wedging the gate; manual
+   *  assignment, NOT vi.stubGlobal, for deterministic restore order vs
+   *  useFakeTimers), prototype `scrollTo` stub, and DYNAMIC per-element
+   *  geometry: the content pane is the coordinate origin (rect.top always 0);
+   *  each section's viewport-relative top = absoluteTop − content.scrollTop —
+   *  exactly what a real scrolled pane reports — so `sectionTopFor` recovers
+   *  the absolute container-relative top at ANY scroll position. */
+  function setup(
+    opts: {
+      d?: SectionData;
+      clientHeight?: number;
+      /** scrollHeight as a function of the section count n. */
+      scrollHeight?: (n: number) => number;
+      /** Absolute container-relative top of section i (of n). */
+      absTop?: (i: number, n: number) => number;
+    } = {},
+  ) {
+    vi.useFakeTimers();
+    const realRaf = window.requestAnimationFrame;
+    const realCaf = window.cancelAnimationFrame;
+    window.requestAnimationFrame = ((cb: FrameRequestCallback) =>
+      setTimeout(() => cb(0), 0) as unknown as number) as typeof requestAnimationFrame;
+    window.cancelAnimationFrame = ((id: number) =>
+      clearTimeout(id as unknown as ReturnType<typeof setTimeout>)) as typeof cancelAnimationFrame;
+    restoreRaf = () => {
+      window.requestAnimationFrame = realRaf;
+      window.cancelAnimationFrame = realCaf;
+    };
+    originalScrollTo = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo");
+    hadScrollTo = true;
+    const scrollTo = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+      value: scrollTo,
+      configurable: true,
+      writable: true,
+    });
+
+    const { q, d } = renderModal(opts.d ? { d: opts.d } : {});
+    const defs = step3Sections(d);
+    const n = defs.length;
+    const content = q.getByTestId(tid("content"));
+    const clientHeight = opts.clientHeight ?? 600;
+    const scrollHeight = (opts.scrollHeight ?? ((k: number) => k * 1000 + 400))(n);
+    Object.defineProperty(content, "clientHeight", { value: clientHeight, configurable: true });
+    Object.defineProperty(content, "scrollHeight", { value: scrollHeight, configurable: true });
+    const absTopOf = opts.absTop ?? ((i: number) => i * 1000);
+    const absTops = new Map<Element, number>();
+    defs.forEach((s, i) => absTops.set(q.getByTestId(tid(`section-${s.id}`)), absTopOf(i, n)));
+    const originalRects = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      const abs = absTops.get(this);
+      const top = this === content || abs === undefined ? 0 : abs - content.scrollTop;
+      return {
+        top,
+        bottom: top,
+        left: 0,
+        right: 0,
+        width: 0,
+        height: 0,
+        x: 0,
+        y: top,
+        toJSON() {
+          return {};
+        },
+      } as DOMRect;
+    };
+    restoreRects = () => {
+      Element.prototype.getBoundingClientRect = originalRects;
+    };
+    return {
+      q,
+      d,
+      defs,
+      content,
+      scrollTo,
+      clientHeight,
+      scrollHeight,
+      maxTop: scrollHeight - clientHeight,
+      absTop: (i: number) => absTopOf(i, n),
+      tops: defs.map((s, i) => ({ id: s.id, top: absTopOf(i, n) })),
+    };
+  }
+
+  /** aria-current holder's section id, read off the given nav. */
+  function navActiveId(q: ReturnType<typeof renderModal>["q"], nav: "rail" | "chiprail"): string {
+    const item = nav === "rail" ? "rail-item-" : "chip-item-";
+    const current = q.getByTestId(tid(nav)).querySelector('[aria-current="true"]');
+    expect(current).not.toBeNull();
+    return current!.getAttribute("data-testid")!.replace(tid(item), "");
+  }
+
+  /** One scroll "frame": set the position, dispatch, and run the 0ms
+   *  rAF-timeout so the throttled evaluate() executes for THIS event. */
+  function scrollAt(content: HTMLElement, top: number) {
+    content.scrollTop = top;
+    fireEvent.scroll(content);
+    act(() => {
+      vi.advanceTimersByTime(0);
+    });
+  }
+
+  test("§H N1: after a far rail click, aria-current NEVER visits any id other than {pre-click, clicked} across intermediate glide frames — on BOTH navs", () => {
+    const { q, defs, content, scrollTo, clientHeight, scrollHeight, absTop, tops } = setup();
+    expect(navActiveId(q, "rail")).toBe(defs[0]!.id); // pre-click
+    const target = defs[defs.length - 1]!;
+    fireEvent.click(q.getByTestId(tid(`rail-item-${target.id}`)));
+    // Clicked id is active immediately, before any scroll event fires.
+    expect(navActiveId(q, "rail")).toBe(target.id);
+    expect(navActiveId(q, "chiprail")).toBe(target.id);
+    expect(scrollTo).toHaveBeenCalledTimes(1);
+    // Simulate the smooth glide's intermediate frames. Sanity per frame: the
+    // pure rule WOULD derive a different id — only suppression holds it.
+    const intermediates = [1, Math.floor(defs.length / 2), defs.length - 2].map(
+      (i) => absTop(i) + 10,
+    );
+    for (const top of intermediates) {
+      expect(activeSectionFor(top, clientHeight, scrollHeight, tops)).not.toBe(target.id);
+      scrollAt(content, top);
+      expect(navActiveId(q, "rail")).toBe(target.id);
+      expect(navActiveId(q, "chiprail")).toBe(target.id); // shared state — chip rail benefits too
+    }
+  });
+
+  test("settled release falls through to derivation on the SAME frame (|scrollTop − target| ≤ ε)", () => {
+    // Custom geometry: the LAST section sits only 50px below the second-to-last
+    // (inside SCROLL_SPY_OFFSET_PX), so the settled position derives a
+    // DIFFERENT id than the clicked one — proving the release fell through to
+    // derivation within the SAME scroll dispatch (not a later frame).
+    const { q, defs, content, absTop } = setup({
+      absTop: (i, n) => (i === n - 1 ? (n - 2) * 1000 + 50 : i * 1000),
+    });
+    const clicked = defs[defs.length - 2]!;
+    const slidesTo = defs[defs.length - 1]!;
+    fireEvent.click(q.getByTestId(tid(`rail-item-${clicked.id}`)));
+    const targetTop = absTop(defs.length - 2) - 8; // sectionTopFor − 8 (unclamped here)
+    // Mid-glide frame far from the target: held.
+    scrollAt(content, absTop(1) + 10);
+    expect(navActiveId(q, "rail")).toBe(clicked.id);
+    // Within epsilon of the target: released + derived on this SAME dispatch.
+    scrollAt(content, targetTop + NAV_SCROLL_SETTLE_EPSILON_PX);
+    expect(navActiveId(q, "rail")).toBe(slidesTo.id);
+  });
+
+  test("bottom-clamp release: a target that IS the bottom releases when the pane hits the bottom, even outside ε", () => {
+    // scrollHeight small enough that the last section's target exceeds maxTop
+    // → beginSuppressedScroll clamps it to the bottom.
+    const { q, defs, content, scrollHeight, maxTop, absTop } = setup({
+      scrollHeight: (n) => (n - 1) * 1000 + 400,
+    });
+    const target = defs[defs.length - 1]!;
+    expect(absTop(defs.length - 1) - 8).toBeGreaterThan(maxTop); // fixture sanity: clamped
+    fireEvent.click(q.getByTestId(tid(`rail-item-${target.id}`)));
+    // The pane resizes mid-glide (e.g. viewport change): the glide stops at the
+    // NEW bottom, 50px short of the clamped target — outside ε, so only the
+    // bottom-clamp condition can release.
+    Object.defineProperty(content, "clientHeight", { value: 650, configurable: true });
+    const newBottom = scrollHeight - 650;
+    expect(Math.abs(newBottom - maxTop)).toBeGreaterThan(NAV_SCROLL_SETTLE_EPSILON_PX);
+    scrollAt(content, newBottom);
+    // Released (derivation at the bottom picks the last section = clicked id);
+    // the NEXT frame re-derives freely — no timers advanced, no user input.
+    scrollAt(content, absTop(1) + 10);
+    expect(navActiveId(q, "rail")).toBe(defs[1]!.id);
+  });
+
+  test("upward-from-bottom HOLD: parked at the bottom, clicking a target well above max scroll does NOT release on a still-at-bottom frame", () => {
+    const { q, defs, content, maxTop } = setup();
+    // Park at the bottom — derivation puts the LAST section active.
+    scrollAt(content, maxTop);
+    expect(navActiveId(q, "rail")).toBe(defs[defs.length - 1]!.id);
+    // Click the FIRST section (target clamps to 0 — nowhere near the bottom).
+    fireEvent.click(q.getByTestId(tid(`rail-item-${defs[0]!.id}`)));
+    expect(navActiveId(q, "rail")).toBe(defs[0]!.id);
+    // Glide barely started: a scroll frame still AT the bottom satisfies the
+    // naive bottom-clamp check — but the target is not the bottom, so the
+    // suppression must HOLD (a release here would re-derive the bottom
+    // section: the reported flicker's edge case).
+    scrollAt(content, maxTop);
+    expect(navActiveId(q, "rail")).toBe(defs[0]!.id);
+  });
+
+  test("timeout release (zero-event glide): idle for NAV_SCROLL_SETTLE_TIMEOUT_MS with no scroll progress → released; in-flight progress RESTARTS the fallback (Task 14)", () => {
+    const { q, defs, content, absTop } = setup();
+    const target = defs[defs.length - 1]!;
+    fireEvent.click(q.getByTestId(tid(`rail-item-${target.id}`)));
+    const unrelated = absTop(1) + 10;
+    // In-flight progress restarts the fallback (Task 14 real-browser finding:
+    // healthy glides can exceed the window — a mid-glide scroll frame is
+    // neither zero-event nor interrupted, so it pushes the timeout out).
+    act(() => {
+      vi.advanceTimersByTime(NAV_SCROLL_SETTLE_TIMEOUT_MS - 1);
+    });
+    scrollAt(content, unrelated); // progress at T−1 → held AND restarted
+    expect(navActiveId(q, "rail")).toBe(target.id);
+    act(() => {
+      vi.advanceTimersByTime(NAV_SCROLL_SETTLE_TIMEOUT_MS - 1);
+    });
+    scrollAt(content, unrelated); // pre-restart remainder never fires → held
+    expect(navActiveId(q, "rail")).toBe(target.id);
+    // Zero-event/interrupted core: a FULL idle window with no scroll progress
+    // releases; the next scroll frame re-derives from position.
+    act(() => {
+      vi.advanceTimersByTime(NAV_SCROLL_SETTLE_TIMEOUT_MS);
+    });
+    scrollAt(content, unrelated);
+    expect(navActiveId(q, "rail")).toBe(defs[1]!.id); // released — spy re-derives
+  });
+
+  test.each(["wheel", "touchstart", "pointerdown"] as const)(
+    "user-input release: %s on the scroller cancels the override — the next scroll re-derives instantly",
+    (eventType) => {
+      const { q, defs, content, absTop } = setup();
+      const target = defs[defs.length - 1]!;
+      fireEvent.click(q.getByTestId(tid(`rail-item-${target.id}`)));
+      const unrelated = absTop(1) + 10;
+      scrollAt(content, unrelated);
+      expect(navActiveId(q, "rail")).toBe(target.id); // suppressed before the input
+      if (eventType === "wheel") fireEvent.wheel(content);
+      else if (eventType === "touchstart") fireEvent.touchStart(content);
+      else fireEvent.pointerDown(content);
+      scrollAt(content, unrelated);
+      expect(navActiveId(q, "rail")).toBe(defs[1]!.id);
+    },
+  );
+
+  test("pre-scroll immediate release: already within ε of the target → suppression never engages (no scroll event will fire)", () => {
+    const { q, defs, content, scrollTo, absTop } = setup();
+    const k = Math.floor(defs.length / 2);
+    // Park exactly at section k's click target.
+    scrollAt(content, absTop(k) - 8);
+    expect(navActiveId(q, "rail")).toBe(defs[k]!.id);
+    fireEvent.click(q.getByTestId(tid(`rail-item-${defs[k]!.id}`)));
+    expect(scrollTo).toHaveBeenLastCalledWith({ top: absTop(k) - 8 });
+    // A subsequent scroll re-derives IMMEDIATELY — no timer advance, no user
+    // input — proving no suppression window was opened.
+    scrollAt(content, absTop(1) + 10);
+    expect(navActiveId(q, "rail")).toBe(defs[1]!.id);
+  });
+
+  test("replace-not-queue: a second nav click mid-suppression replaces the target and restarts the timeout", () => {
+    const { q, defs, content, absTop } = setup();
+    const first = defs[defs.length - 1]!;
+    const second = defs[defs.length - 3]!;
+    fireEvent.click(q.getByTestId(tid(`rail-item-${first.id}`)));
+    act(() => {
+      vi.advanceTimersByTime(NAV_SCROLL_SETTLE_TIMEOUT_MS - 1);
+    });
+    fireEvent.click(q.getByTestId(tid(`rail-item-${second.id}`)));
+    expect(navActiveId(q, "rail")).toBe(second.id);
+    // The FIRST click's target no longer releases: settling at it holds.
+    scrollAt(content, absTop(defs.length - 1) - 8);
+    expect(navActiveId(q, "rail")).toBe(second.id);
+    // The FIRST click's timeout (1ms away when replaced) was cleared: at
+    // NEW-timeout−1 the suppression still holds (this scroll frame is also
+    // in-flight progress, which restarts the fallback — Task 14)…
+    act(() => {
+      vi.advanceTimersByTime(NAV_SCROLL_SETTLE_TIMEOUT_MS - 1);
+    });
+    scrollAt(content, absTop(1) + 10);
+    expect(navActiveId(q, "rail")).toBe(second.id);
+    // …and releases after a FULL idle window with no further scroll progress.
+    act(() => {
+      vi.advanceTimersByTime(NAV_SCROLL_SETTLE_TIMEOUT_MS);
+    });
+    scrollAt(content, absTop(1) + 10);
+    expect(navActiveId(q, "rail")).toBe(defs[1]!.id);
+  });
+
+  test("unmount mid-suppression: no timer leaks; scroll + wheel/touchstart/pointerdown listeners all removed", () => {
+    const { q, defs, content } = setup();
+    fireEvent.click(q.getByTestId(tid(`rail-item-${defs[defs.length - 1]!.id}`)));
+    const removeSpy = vi.spyOn(content, "removeEventListener");
+    q.unmount();
+    expect(() => vi.runAllTimers()).not.toThrow();
+    const removed = removeSpy.mock.calls.map((c) => c[0]);
+    for (const type of ["scroll", "wheel", "touchstart", "pointerdown"]) {
+      expect(removed).toContain(type);
+    }
+  });
+
+  test("§E4 jump threads the SAME suppression: after a warning jump, intermediate frames hold 'warnings'; timeout still releases", () => {
+    const d = sectionData({ warnings: [warning("crew")] });
+    const { q, defs, content, absTop } = setup({ d });
+    // Park mid-pane so the jump target (container-relative li top − 8) differs
+    // from the current position by more than ε.
+    scrollAt(content, absTop(1) + 10);
+    expect(navActiveId(q, "rail")).toBe(defs[1]!.id);
+    const callout = q.getByTestId(`wizard-step3-card-${DFID}-section-crew-flag-callout`);
+    fireEvent.click(within(callout).getByRole("button", { name: /View details/ }));
+    expect(navActiveId(q, "rail")).toBe("warnings");
+    // Mid-glide frame at an unrelated position: held on 'warnings'.
+    scrollAt(content, absTop(2) + 10);
+    expect(navActiveId(q, "rail")).toBe("warnings");
+    // Timeout releases the jump's suppression exactly like a rail click's.
+    act(() => {
+      vi.advanceTimersByTime(NAV_SCROLL_SETTLE_TIMEOUT_MS);
+    });
+    scrollAt(content, absTop(2) + 10);
+    expect(navActiveId(q, "rail")).toBe(defs[2]!.id);
+  });
+});
+
+// ── Sliding rail indicator (Task 10, spec §A3) ───────────────────────────────
+
+describe("Step3ReviewModal — sliding rail indicator (Task 10, spec §A3)", () => {
+  // Stubbed rail geometry (jsdom computes no layout). Values are arbitrary but
+  // non-zero; every expectation below is DERIVED from these constants + the
+  // exported INDICATOR_INSET_PX — never restated literals.
+  const NAV_TOP = 40;
+  const NAV_HEIGHT = 400;
+  const FIRST_ITEM_OFFSET = 8; // first button's top below the nav's top
+  const ITEM_STRIDE = 48;
+  const ITEM_HEIGHT = 44;
+
+  let restoreRects: (() => void) | null = null;
+  let restoreRaf: (() => void) | null = null;
+
+  afterEach(() => {
+    restoreRects?.();
+    restoreRects = null;
+    restoreRaf?.();
+    restoreRaf = null;
+  });
+
+  /** Per-element rects keyed by data-testid: the rail nav and its item
+   *  buttons get real-looking geometry; everything else stays 0 (so the
+   *  scroll-spy's zero-pane guard keeps it inert). Installed BEFORE render —
+   *  the measurement useLayoutEffect runs on mount. */
+  function stubRailGeometry() {
+    const original = Element.prototype.getBoundingClientRect;
+    Element.prototype.getBoundingClientRect = function (this: Element) {
+      const t = this.getAttribute("data-testid") ?? "";
+      let top = 0;
+      let height = 0;
+      if (t === tid("rail")) {
+        top = NAV_TOP;
+        height = NAV_HEIGHT;
+      } else if (t.includes("-review-rail-item-")) {
+        const items = Array.from(document.querySelectorAll('[data-testid*="-review-rail-item-"]'));
+        top = NAV_TOP + FIRST_ITEM_OFFSET + items.indexOf(this) * ITEM_STRIDE;
+        height = ITEM_HEIGHT;
+      }
+      return {
+        top,
+        bottom: top + height,
+        left: 0,
+        right: 0,
+        width: 0,
+        height,
+        x: 0,
+        y: top,
+        toJSON() {
+          return {};
+        },
+      } as DOMRect;
+    };
+    restoreRects = () => {
+      Element.prototype.getBoundingClientRect = original;
+    };
+  }
+
+  /** Queue-based rAF: callbacks run only when flush() is called, so the test
+   *  can observe the FIRST paint (before the transition-enable tick). */
+  function stubRafQueue() {
+    const queue: FrameRequestCallback[] = [];
+    const realRaf = window.requestAnimationFrame;
+    const realCaf = window.cancelAnimationFrame;
+    window.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+      queue.push(cb);
+      return queue.length;
+    }) as typeof requestAnimationFrame;
+    window.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame;
+    restoreRaf = () => {
+      window.requestAnimationFrame = realRaf;
+      window.cancelAnimationFrame = realCaf;
+    };
+    return {
+      flush: () =>
+        act(() => {
+          for (const cb of queue.splice(0)) cb(0);
+        }),
+    };
+  }
+
+  function expectedY(itemIndex: number, navScrollTop = 0): number {
+    // y = btnRect.top − navRect.top + nav.scrollTop + INDICATOR_INSET_PX (§A3)
+    return FIRST_ITEM_OFFSET + itemIndex * ITEM_STRIDE + navScrollTop + INDICATOR_INSET_PX;
+  }
+  const EXPECTED_H = ITEM_HEIGHT - 2 * INDICATOR_INSET_PX;
+
+  test("exactly ONE indicator: aria-hidden, FIRST child of the rail nav (nav is `relative`); per-item spans gone; transform/height derived from the active button's rect", () => {
+    stubRailGeometry();
+    const { flush } = stubRafQueue();
+    const { q } = renderModal();
+    flush();
+    const rail = q.getByTestId(tid("rail"));
+    expect(rail.className).toMatch(/\brelative\b/);
+    const indicator = q.getByTestId(tid("rail-indicator"));
+    expect(indicator.getAttribute("aria-hidden")).toBe("true");
+    expect(rail.firstElementChild).toBe(indicator);
+    // ONE indicator element in the whole modal; ZERO per-item accent spans.
+    expect(
+      q.getByTestId(tid("modal")).querySelectorAll(`[data-testid="${tid("rail-indicator")}"]`),
+    ).toHaveLength(1);
+    expect(rail.querySelectorAll(".inset-y-3")).toHaveLength(0);
+    const accentEls = rail.querySelectorAll(".bg-accent");
+    expect(accentEls).toHaveLength(1);
+    expect(accentEls[0]).toBe(indicator);
+    for (const c of ["absolute", "left-0", "w-1", "rounded-r-pill", "bg-accent"]) {
+      expect(indicator.className.split(/\s+/)).toContain(c);
+    }
+    // Active = first registry section (index 0): position from ITS stubbed rect.
+    expect(indicator.style.transform).toBe(`translateY(${expectedY(0)}px)`);
+    expect(indicator.style.height).toBe(`${EXPECTED_H}px`);
+  });
+
+  test("first mount applies position WITHOUT transition classes; the enable tick adds them (no slide-in from 0; motion-reduce collapse included)", () => {
+    stubRailGeometry();
+    const { flush } = stubRafQueue();
+    const { q } = renderModal();
+    const indicator = q.getByTestId(tid("rail-indicator"));
+    // BEFORE the enable tick: measured position, NO transition classes — the
+    // first paint must not animate from translateY(0) (and reduced-motion
+    // first-mount cannot animate either: there is nothing to transition).
+    expect(indicator.style.transform).toBe(`translateY(${expectedY(0)}px)`);
+    expect(indicator.className).not.toMatch(/transition-\[/);
+    flush();
+    const classes = q.getByTestId(tid("rail-indicator")).className.split(/\s+/);
+    for (const c of [
+      "transition-[transform,height]",
+      "duration-fast",
+      "ease-out-quart",
+      "motion-reduce:transition-none",
+    ]) {
+      expect(classes).toContain(c);
+    }
+  });
+
+  test("clicking another rail item slides the indicator: transform re-measured from that button's rect + nav.scrollTop; transition classes retained", () => {
+    stubRailGeometry();
+    const { flush } = stubRafQueue();
+    const { q, d } = renderModal();
+    flush();
+    const defs = step3Sections(d);
+    const k = 3;
+    const rail = q.getByTestId(tid("rail"));
+    rail.scrollTop = 60; // pins the `+ nav.scrollTop` term of the §A3 formula
+    fireEvent.click(q.getByTestId(tid(`rail-item-${defs[k]!.id}`)));
+    const indicator = q.getByTestId(tid("rail-indicator"));
+    expect(indicator.style.transform).toBe(`translateY(${expectedY(k, 60)}px)`);
+    expect(indicator.style.height).toBe(`${EXPECTED_H}px`);
+    expect(indicator.className).toMatch(/transition-\[transform,height\]/);
+  });
+
+  test("unmeasurable geometry (jsdom zeros — no stub) → indicator hidden (null render); rail items render normally", () => {
+    const { q } = renderModal();
+    expect(q.queryByTestId(tid("rail-indicator"))).toBeNull();
+    expect(
+      q.getByTestId(tid("rail")).querySelectorAll('[data-testid*="-review-rail-item-"]').length,
+    ).toBeGreaterThan(0);
   });
 });
 
@@ -1436,5 +2219,235 @@ describe("Step3ReviewModal — sheet drag-to-dismiss (Task 7, spec §10)", () =>
     // Step3ReviewModal.tsx's DURATION_NORMAL_FALLBACK_MS/DURATION_FAST_FALLBACK_MS.
     expect(DURATION_NORMAL_FALLBACK_MS).toBe(Number(normalMatch[1]));
     expect(DURATION_FAST_FALLBACK_MS).toBe(Number(fastMatch[1]));
+  });
+});
+
+// ── Task 9: flag callouts + warning jump-links + one-shot highlight ──────────
+// (follow-ups spec §E3/§E4, §H N2/N3, §K9)
+
+describe("Step3ReviewModal — section flag callouts (Task 9, spec §E3)", () => {
+  /** N warn-severity crew-kind warnings (N derived from the cap, never a
+   *  hardcoded row count — anti-tautology). */
+  function crewWarnings(n: number): ParseWarning[] {
+    return Array.from({ length: n }, () => warning("crew"));
+  }
+
+  function calloutTid(sectionId: string): string {
+    return `wizard-step3-card-${DFID}-section-${sectionId}-flag-callout`;
+  }
+
+  test("callout renders as the FIRST child inside the flagged section's panel card, capped at CALLOUT_MAX_ENTRIES rows + overflow line", () => {
+    // Failure mode caught: an unbounded callout (every warning gets a row) or
+    // a callout mounted outside/after the panel-card body.
+    const d = sectionData({ warnings: crewWarnings(CALLOUT_MAX_ENTRIES + 2) });
+    const { q } = renderModal({ d });
+
+    const callout = q.getByTestId(calloutTid("crew"));
+    // First child INSIDE the §5.2 panel card (the card div carries bg-surface;
+    // the heading row sits before the card, not inside it).
+    const card = callout.parentElement!;
+    expect(card.className).toContain("bg-surface");
+    expect(card.firstElementChild).toBe(callout);
+    // The crew section panel contains the callout (container-scoped).
+    expect(q.getByTestId(tid("section-crew")).contains(callout)).toBe(true);
+
+    // Exactly CALLOUT_MAX_ENTRIES title rows, each with a jump button.
+    const jumpButtons = within(callout).getAllByRole("button", { name: /View details/ });
+    expect(jumpButtons).toHaveLength(CALLOUT_MAX_ENTRIES);
+
+    // Overflow line derived from the fixture length, itself a button.
+    const total = d.warnings.filter((w) => w.severity === "warn").length;
+    expect(total).toBeGreaterThan(CALLOUT_MAX_ENTRIES);
+    const more = within(callout).getByRole("button", {
+      name: `+${total - CALLOUT_MAX_ENTRIES} more in Parse warnings`,
+    });
+    expect(more).toBeTruthy();
+  });
+
+  test("at or under the cap: no overflow line", () => {
+    const d = sectionData({ warnings: crewWarnings(CALLOUT_MAX_ENTRIES) });
+    const { q } = renderModal({ d });
+    const callout = q.getByTestId(calloutTid("crew"));
+    expect(within(callout).getAllByRole("button", { name: /View details/ })).toHaveLength(
+      CALLOUT_MAX_ENTRIES,
+    );
+    expect(within(callout).queryByText(/more in Parse warnings/)).toBeNull();
+  });
+
+  test("the warnings section itself NEVER gets a callout (circular-callout guard)", () => {
+    // An unmapped warn flags the `warnings` bucket (§E2) — flagged, but its
+    // body IS the warning list, so no callout may render there.
+    const unmapped: ParseWarning = { severity: "warn", code: "SOME_CODE", message: "" };
+    const d = sectionData({ warnings: [unmapped] });
+    const { q } = renderModal({ d });
+    // The warnings section is flagged (sanity: the chip shows 1)…
+    expect(q.getByTestId(tid("chip")).textContent).toBe("1 needs a look");
+    // …but carries no callout, and no other section does either.
+    expect(q.queryByTestId(calloutTid("warnings"))).toBeNull();
+    expect(document.querySelector('[data-testid$="-flag-callout"]')).toBeNull();
+  });
+
+  test("unflagged sections render no callout", () => {
+    const d = sectionData({ warnings: crewWarnings(1) });
+    const { q } = renderModal({ d });
+    expect(q.getByTestId(calloutTid("crew"))).toBeTruthy();
+    expect(q.queryByTestId(calloutTid("schedule"))).toBeNull();
+    expect(q.queryByTestId(calloutTid("contacts"))).toBeNull();
+  });
+
+  test("titles are hardened: a token-shaped message renders the generic fallback, never the raw token (§E3 → reviewWarningTitle transitivity)", () => {
+    // Failure mode caught: the callout bypassing reviewWarningTitle and
+    // echoing w.message (raw-code leak, invariant 5).
+    const tokenWarning: ParseWarning = {
+      severity: "warn",
+      code: "SOME_CODE",
+      message: "OPENING_REEL_UNREADABLE",
+      blockRef: { kind: "crew" },
+    };
+    const d = sectionData({ warnings: [tokenWarning] });
+    const { q } = renderModal({ d });
+    const callout = q.getByTestId(calloutTid("crew"));
+    expect(within(callout).getByText("A parse issue was recorded for this sheet.")).toBeTruthy();
+    expect(callout.textContent).not.toContain("OPENING_REEL_UNREADABLE");
+  });
+});
+
+describe("Step3ReviewModal — warning jump-links + one-shot highlight (Task 9, spec §E4)", () => {
+  /** jsdom has no Element#scrollTo — stub it on the prototype for the jump
+   *  path's `typeof scroller.scrollTo === "function"` guard. */
+  let scrollToStub: ReturnType<typeof vi.fn>;
+  let originalScrollTo: PropertyDescriptor | undefined;
+
+  function stubScrollTo() {
+    originalScrollTo = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo");
+    scrollToStub = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+      value: scrollToStub,
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  afterEach(() => {
+    if (originalScrollTo) {
+      Object.defineProperty(HTMLElement.prototype, "scrollTo", originalScrollTo);
+    } else {
+      delete (HTMLElement.prototype as { scrollTo?: unknown }).scrollTo;
+    }
+    originalScrollTo = undefined;
+    vi.useRealTimers();
+  });
+
+  function calloutTid(sectionId: string): string {
+    return `wizard-step3-card-${DFID}-section-${sectionId}-flag-callout`;
+  }
+
+  /** One info warning FIRST so warn indices exercise the FULL-array index
+   *  contract (§E2: index = position in the full warnings array, info rows
+   *  included in the numbering). */
+  function warningsWithInfoPrefix(warnCount: number): ParseWarning[] {
+    const info: ParseWarning = {
+      severity: "info",
+      code: "SOME_CODE",
+      message: "",
+      blockRef: { kind: "crew" },
+    };
+    return [info, ...Array.from({ length: warnCount }, () => warning("crew"))];
+  }
+
+  test("jump: click 'View details' → aria-current moves to the warnings rail item; the li located via data-warning-index gets the flash attribute; cleared after WARNING_HIGHLIGHT_MS; no id attributes anywhere", () => {
+    stubScrollTo();
+    vi.useFakeTimers();
+    const d = sectionData({ warnings: warningsWithInfoPrefix(1) });
+    const { q } = renderModal({ d });
+
+    // Index derived from the fixture (full-array position of the warn row).
+    const warnIndex = d.warnings.findIndex((w) => w.severity === "warn");
+    expect(warnIndex).toBeGreaterThan(0); // the info prefix shifts it — full-array contract
+
+    const callout = q.getByTestId(calloutTid("crew"));
+    fireEvent.click(within(callout).getByRole("button", { name: /View details/ }));
+
+    // aria-current moved to the warnings item on the rail (container-scoped).
+    const rail = q.getByTestId(tid("rail"));
+    expect(within(rail).getByTestId(tid("rail-item-warnings")).getAttribute("aria-current")).toBe(
+      "true",
+    );
+    expect(rail.querySelectorAll('[aria-current="true"]')).toHaveLength(1);
+
+    // The target li — located EXACTLY the way the component must locate it:
+    // container-scoped data-warning-index query, NO id attributes.
+    const content = q.getByTestId(tid("content"));
+    const li = content.querySelector<HTMLElement>(`[data-warning-index="${warnIndex}"]`);
+    expect(li).not.toBeNull();
+    expect(li).toBe(q.getByTestId(`wizard-step3-card-${DFID}-warning-${warnIndex}`));
+    expect(li!.hasAttribute("data-step3-warning-flash")).toBe(true);
+    expect(scrollToStub).toHaveBeenCalled();
+
+    // Twin-nav id ban (§9.4): the jump added no id anywhere in either nav or
+    // on the li.
+    expect(rail.querySelectorAll("[id]")).toHaveLength(0);
+    expect(q.getByTestId(tid("chiprail")).querySelectorAll("[id]")).toHaveLength(0);
+    expect(li!.hasAttribute("id")).toBe(false);
+
+    // One-shot: attribute removed after WARNING_HIGHLIGHT_MS (timer hygiene).
+    act(() => {
+      vi.advanceTimersByTime(WARNING_HIGHLIGHT_MS);
+    });
+    expect(li!.hasAttribute("data-step3-warning-flash")).toBe(false);
+  });
+
+  test("one highlight at a time: a second jump moves the attribute; unmount mid-highlight clears timers", () => {
+    stubScrollTo();
+    vi.useFakeTimers();
+    const d = sectionData({ warnings: warningsWithInfoPrefix(2) });
+    const { q } = renderModal({ d });
+
+    const warnIndices = d.warnings
+      .map((w, i) => (w.severity === "warn" ? i : -1))
+      .filter((i) => i >= 0);
+    expect(warnIndices).toHaveLength(2);
+
+    const callout = q.getByTestId(calloutTid("crew"));
+    const buttons = within(callout).getAllByRole("button", { name: /View details/ });
+    const content = q.getByTestId(tid("content"));
+    const liA = content.querySelector<HTMLElement>(`[data-warning-index="${warnIndices[0]}"]`)!;
+    const liB = content.querySelector<HTMLElement>(`[data-warning-index="${warnIndices[1]}"]`)!;
+
+    fireEvent.click(buttons[0]!);
+    expect(liA.hasAttribute("data-step3-warning-flash")).toBe(true);
+
+    // Immediately jump to B: A's attribute removed, ONLY B carries it.
+    fireEvent.click(buttons[1]!);
+    expect(liA.hasAttribute("data-step3-warning-flash")).toBe(false);
+    expect(liB.hasAttribute("data-step3-warning-flash")).toBe(true);
+    expect(document.querySelectorAll("[data-step3-warning-flash]")).toHaveLength(1);
+
+    // Unmount mid-highlight: teardown clears the timer — no late errors.
+    q.unmount();
+    expect(() => vi.runAllTimers()).not.toThrow();
+  });
+
+  test("'+N more' targets the warnings section top: plain nav-click semantics, NO highlight anywhere", () => {
+    stubScrollTo();
+    vi.useFakeTimers();
+    const d = sectionData({ warnings: warningsWithInfoPrefix(CALLOUT_MAX_ENTRIES + 2) });
+    const { q } = renderModal({ d });
+
+    const total = d.warnings.filter((w) => w.severity === "warn").length;
+    const callout = q.getByTestId(calloutTid("crew"));
+    fireEvent.click(
+      within(callout).getByRole("button", {
+        name: `+${total - CALLOUT_MAX_ENTRIES} more in Parse warnings`,
+      }),
+    );
+
+    const rail = q.getByTestId(tid("rail"));
+    expect(within(rail).getByTestId(tid("rail-item-warnings")).getAttribute("aria-current")).toBe(
+      "true",
+    );
+    // §A2 nav-click semantics only — no row highlight.
+    expect(document.querySelectorAll("[data-step3-warning-flash]")).toHaveLength(0);
+    expect(scrollToStub).toHaveBeenCalled();
   });
 });

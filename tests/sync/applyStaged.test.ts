@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
+import { mkDataGaps } from "../helpers/dataGapsFixture";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { DriveListedFile } from "@/lib/drive/list";
@@ -570,10 +571,7 @@ describe("applyStaged live-scope", () => {
     expect(alertCall!.params[1]).toBe("SHOW_FIRST_PUBLISHED");
     const ctx = alertCall!.params[2] as Record<string, unknown>;
     // Derived from the seeded staged warnings (the data source).
-    expect(ctx.data_gaps).toEqual({
-      total: 2,
-      classes: { FIELD_UNREADABLE: 1, UNKNOWN_SECTION_HEADER: 1, BLOCK_DISAPPEARED: 0 },
-    });
+    expect(ctx.data_gaps).toEqual(mkDataGaps({ FIELD_UNREADABLE: 1, UNKNOWN_SECTION_HEADER: 1 }));
   });
 
   test("Task 4.4 negative-regression: a normal apply (no FIRST_SEEN_REVIEW) does NOT call emitSuccessfulPhase2Tail", async () => {

@@ -75,4 +75,26 @@ describe("validatePickerAssetSession", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.response.status).toBe(500);
   });
+
+  test("selection_reset maps to the UNAUTHORIZED (401) response, not stale (410)", async () => {
+    // Live code distinguishes unauthorized() [401] from stale() [410]. selection_reset joins
+    // the 401 group (like epoch_stale), NOT the 410 group (show_unavailable/identity_invalidated).
+    state.picker = {
+      kind: "selection_reset",
+      expectedEpoch: 4,
+      expectedCrewMemberId: "11111111-1111-4111-8111-111111111111",
+    };
+    const { validatePickerAssetSession } =
+      await import("@/lib/auth/picker/validatePickerAssetSession");
+
+    const result = await validatePickerAssetSession(req("__Host-fxav_picker=signed"), "show-id");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.response.status).toBe(401); // NOT 410 — asserts the correct group
+
+    // Contrast pin: a stale kind returns 410, proving the 401 assertion is discriminating.
+    state.picker = { kind: "show_unavailable" };
+    const stale = await validatePickerAssetSession(req("__Host-fxav_picker=signed"), "show-id");
+    expect(stale.ok).toBe(false);
+    if (!stale.ok) expect(stale.response.status).toBe(410);
+  });
 });

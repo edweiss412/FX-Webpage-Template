@@ -78,6 +78,22 @@ describe("GET /api/show/[slug]/version", () => {
     expect(state.rpcCalls).toEqual([]);
   });
 
+  test("selection_reset (per-member reset) denies with 401, like epoch_stale", async () => {
+    state.picker = {
+      kind: "selection_reset",
+      expectedEpoch: 4,
+      expectedCrewMemberId: "22222222-2222-4222-8222-222222222222",
+    };
+    const res = await GET(fakeReq("__Host-fxav_picker=signed"), {
+      params: Promise.resolve({ slug: "test-show" }),
+    });
+    expect(res.status).toBe(401);
+    const body = (await res.json()) as { error: string; reason?: string };
+    expect(body.error).toBe("SHOW_VERSION_AUTH_FAILED");
+    expect(body.reason).toBe("selection_reset");
+    expect(state.rpcCalls).toEqual([]); // denied before the version RPC
+  });
+
   test("valid picker cookie returns version token", async () => {
     state.picker = { kind: "resolved", crewMemberId: "22222222-2222-4222-8222-222222222222" };
     state.versionToken = "1234567890:7";

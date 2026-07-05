@@ -3,11 +3,7 @@
 // logic, with the log.error calls (and the lib-log import) removed.
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { CRON_RUN_SUMMARY, CRON_JOBS, type CronJobSpec } from "@/lib/cron/runSummary";
-import type {
-  AppEventLevel,
-  CronHealthRow,
-  CronRunOutcomeRead,
-} from "@/lib/admin/observabilityTypes";
+import type { AppEventLevel, CronHealthRow, CronRunOutcomeRead } from "@/lib/admin/telemetryTypes";
 
 export type QueryCronHealthResult =
   | { kind: "ok"; jobs: CronHealthRow[] }

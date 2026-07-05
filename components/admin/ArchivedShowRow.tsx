@@ -29,6 +29,7 @@
 import Link from "next/link";
 import { formatRelative, type ActiveShowRow } from "@/lib/admin/showDisplay";
 import { UnarchiveShowButton } from "@/components/admin/UnarchiveShowButton";
+import { DataQualityBadge } from "@/components/admin/DataQualityBadge";
 
 type ArchivedShowRowProps = {
   row: ActiveShowRow;
@@ -53,6 +54,9 @@ export function ArchivedShowRow({ row, now, unarchiveAction }: ArchivedShowRowPr
           <span className="truncate text-base font-semibold text-text-strong">
             {row.title ?? row.slug}
           </span>
+          {/* parse-data-quality-warnings badge (spec §3.2 site B) — after the
+              title, before the Archived pill. */}
+          <DataQualityBadge slug={row.slug} dataGaps={row.dataGaps} />
           <span
             data-testid={`archived-pill-${row.slug}`}
             className="inline-flex items-center gap-1 self-center rounded-pill border border-status-idle px-2 py-0.5 text-xs font-semibold text-status-idle-text"

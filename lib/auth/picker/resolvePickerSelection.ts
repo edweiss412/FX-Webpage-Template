@@ -7,6 +7,7 @@ export type ResolvePickerSelectionResult =
   | { kind: "no_selection" }
   | { kind: "epoch_stale"; expectedEpoch: number; expectedCrewMemberId: string }
   | { kind: "removed_from_roster"; expectedEpoch: number; expectedCrewMemberId: string }
+  | { kind: "selection_reset"; expectedEpoch: number; expectedCrewMemberId: string }
   | {
       kind: "identity_invalidated";
       expectedEpoch: number;
@@ -25,6 +26,7 @@ type ShowRow = {
 type CrewRow = {
   id: string;
   claimed_via_oauth_at: string | null;
+  selections_reset_at: string | null;
 };
 
 type CrewEmailRow = {
@@ -90,7 +92,7 @@ export async function resolvePickerSelection(input: {
   try {
     const { data, error } = (await serviceRole
       .from("crew_members")
-      .select("id, claimed_via_oauth_at")
+      .select("id, claimed_via_oauth_at, selections_reset_at")
       .eq("id", entry.id)
       .eq("show_id", input.showId)
       .maybeSingle()) as { data: CrewRow | null; error: unknown };
@@ -102,6 +104,16 @@ export async function resolvePickerSelection(input: {
 
   if (!crewRow) {
     return { kind: "removed_from_roster", expectedEpoch: entry.e, expectedCrewMemberId: entry.id };
+  }
+
+  // Per-member admin reset wins over the claimed-after-pick check below: an explicit admin reset
+  // should force a re-pick even for a claimed identity. NaN (malformed marker) fails open:
+  // `entry.t <= NaN` is false, so a corrupt value never triggers a spurious reset.
+  if (crewRow.selections_reset_at !== null) {
+    const resetAtMillis = Math.floor(new Date(crewRow.selections_reset_at).getTime());
+    if (entry.t <= resetAtMillis) {
+      return { kind: "selection_reset", expectedEpoch: entry.e, expectedCrewMemberId: entry.id };
+    }
   }
 
   if (crewRow.claimed_via_oauth_at !== null) {

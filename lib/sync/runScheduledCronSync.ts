@@ -822,7 +822,11 @@ class PostgresPipelineTx implements SyncPipelineTx {
          where drive_file_id = $1
         returning id
       `,
-      [driveFileId, error.code],
+      // Persist code AND message so the scored VERSION_AMBIGUOUS (and every parser
+      // hard-fail) diagnostic survives on the existing-show retain-last-good path.
+      // last_sync_error is never consumed as a bare code (verified); it is displayed
+      // + carried as an opaque prior_last_sync_error passthrough.
+      [driveFileId, `${error.code}: ${error.message}`],
     );
     return rows[0]?.id ?? null;
   }

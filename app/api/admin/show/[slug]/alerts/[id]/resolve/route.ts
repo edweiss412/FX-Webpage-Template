@@ -1,8 +1,10 @@
 import { NextResponse } from "next/server";
 import postgres from "postgres";
 import { canonicalize } from "@/lib/email/canonicalize";
+import { isInboxRouted } from "@/lib/messages/adminSurface";
 import { log } from "@/lib/log";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
+import { HEALTH_CODES } from "@/lib/adminAlerts/audience";
 
 export type AdminAlertShowResolveTx = {
   queryOne<T>(sql: string, params: unknown[]): Promise<T | null>;
@@ -26,6 +28,7 @@ type AlertRow = {
   id: string;
   show_id: string;
   resolved_at: string | null;
+  code: string;
 };
 
 function databaseUrl(): string {
@@ -106,7 +109,7 @@ export async function handleAdminAlertShowResolve(
 
       const row = await tx.queryOne<AlertRow>(
         `
-        select id, show_id, resolved_at
+        select id, show_id, resolved_at, code
           from public.admin_alerts
          where id = $1::uuid
            and show_id = $2::uuid
@@ -115,9 +118,19 @@ export async function handleAdminAlertShowResolve(
         [id, show.id],
       );
       if (!row) return errorResponse(404, "ADMIN_ALERT_NOT_FOUND");
+      // alert-audience-split §6.7: HEALTH-audience alerts resolve ONLY through the
+      // dev-gated resolveHealthAlertFormAction — this user-facing route rejects them,
+      // leaving resolved_at unchanged. Plain structural API code (not a §12.4 row).
+      if (HEALTH_CODES.includes(row.code)) {
+        return errorResponse(403, "ALERT_HEALTH_RESOLVE_FORBIDDEN");
+      }
       if (row.resolved_at) {
         return NextResponse.json({ status: "resolved", id, resolved_at: row.resolved_at });
       }
+      // Inbox-routed codes auto-clear only — manual resolve is forbidden (spec §4.8).
+      // Plain structural API code (not a §12.4 catalog row): the PerShowAlertResolveButton
+      // is omitted for these codes, so this backstop is never surfaced to the operator.
+      if (isInboxRouted(row.code)) return errorResponse(409, "ALERT_AUTO_RESOLVE_ONLY");
 
       const updated = await tx.queryOne<AlertRow>(
         `

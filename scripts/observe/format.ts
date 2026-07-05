@@ -1,5 +1,5 @@
 // scripts/observe/format.ts
-import type { AppEventRow, CronHealthRow } from "@/lib/admin/observabilityTypes";
+import type { AppEventRow, CronHealthRow } from "@/lib/admin/telemetryTypes";
 import type { AlertRow, ChangeRow } from "@/lib/observe/query";
 import { describeAlert } from "@/lib/adminAlerts/describeAlert";
 

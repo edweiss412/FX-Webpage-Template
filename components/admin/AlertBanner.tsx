@@ -32,7 +32,7 @@ import { fetchUnresolvedAlertCount } from "@/lib/admin/alertCount";
 import { getRequiredDougFacing, isMessageCode, messageFor } from "@/lib/messages/lookup";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { resolveAdminAlertFormAction, retryWatchSubscriptionFormAction } from "@/app/admin/actions";
-import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalog";
+import { DOUG_SURFACE_EXCLUDED_CODES } from "@/lib/messages/adminSurface";
 import { raisedAtSuffix } from "@/lib/time/raisedAt";
 import { nowDate } from "@/lib/time/now";
 import { formatBoundedCount } from "@/lib/format/count";
@@ -65,18 +65,11 @@ type AlertRow = {
     | null;
 };
 
-// Codes whose catalog entry is `severity: 'info'` are operator notices
-// (Amendment 8 / ROLE_FLAGS_NOTICE is the canonical example) — they are
-// recorded for visibility but must not raise the primary admin banner.
-// The dedicated alert-feed surface that shows them is M9/M10 territory.
-// Computed at module load from MESSAGE_CATALOG so adding a new info-severity
-// entry to the catalog automatically extends the exclusion list.
-// Cast widens each literal-typed entry (the catalog uses
-// `as const satisfies Record<string, MessageCatalogEntry>`) so the
-// optional `severity` field is visible to the filter.
-const INFO_SEVERITY_CODES: string[] = (Object.values(MESSAGE_CATALOG) as MessageCatalogEntry[])
-  .filter((entry) => entry.severity === "info")
-  .map((entry) => entry.code);
+// Codes the banner must NOT surface: `severity: 'info'` operator notices
+// (ROLE_FLAGS_NOTICE etc.) AND `adminSurface: 'inbox'` codes that now render
+// in the Needs attention inbox instead (SHEET_UNAVAILABLE / PARSE_ERROR_LAST_GOOD).
+// Both are computed from the catalog in lib/messages/adminSurface.ts, so the
+// bell count (fetchUnresolvedAlertCount) and this banner exclude the SAME set.
 
 export async function AlertBanner() {
   // AGENTS.md §1.9 + Codex R6 R2 class-sweep: wrap client construction
@@ -123,11 +116,11 @@ export async function AlertBanner() {
         .from("admin_alerts")
         .select("id, code, raised_at, show_id, context, occurrence_count, shows(slug, title)")
         .is("resolved_at", null);
-      if (INFO_SEVERITY_CODES.length > 0) {
+      if (DOUG_SURFACE_EXCLUDED_CODES.length > 0) {
         query = query.not(
           "code",
           "in",
-          `(${INFO_SEVERITY_CODES.map((code) => `"${code}"`).join(",")})`,
+          `(${DOUG_SURFACE_EXCLUDED_CODES.map((code) => `"${code}"`).join(",")})`,
         );
       }
       const result = await query.order("raised_at", { ascending: false }).limit(1);

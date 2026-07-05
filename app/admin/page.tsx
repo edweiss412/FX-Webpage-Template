@@ -112,6 +112,11 @@ function DashboardWithHeader({
       <div id="alerts">
         <AlertBanner />
       </div>
+      {/* alert-audience-split §6.5 originally rendered an ambient AppHealthPanel
+          strip here. It was retired: the nav AppHealthIndicator already escalates
+          health-audience alerts ("nothing goes dark") and reveals the same rollup
+          detail on click (developer deep-link / Doug popover), so the strip was a
+          redundant second affordance. */}
       <Dashboard {...(bucket ? { bucket } : {})} folderName={folderName ?? null} />
     </>
   );

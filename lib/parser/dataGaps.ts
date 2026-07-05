@@ -13,32 +13,64 @@
  * the admin loaders and the UI can import it without a parser→admin dependency.
  */
 
-import { FIELD_UNREADABLE, UNKNOWN_SECTION_HEADER, BLOCK_DISAPPEARED } from "@/lib/parser/warnings";
+import { FIELD_UNREADABLE } from "@/lib/parser/warnings";
 import type { ParseWarning } from "@/lib/parser/types";
+
+/**
+ * GAP_CLASSES — the single source of truth for the data-quality gap class. Each
+ * entry pairs a persisted `warn`-severity ParseWarning code that means "sheet data
+ * didn't land / couldn't be resolved" with its PLAIN-LANGUAGE label (invariant 5 —
+ * never the raw code). Ordered: this array drives set membership, the `GapCode`
+ * union, the labels map, AND the `dataGapClassDetails` / `formatDataGapBreakdown`
+ * display order. Curated allow-list (NOT "all warn-severity" — five autocorrect
+ * codes are warn yet benign); see the spec's §2 for the verified taxonomy and the
+ * drift-guard meta-test (tests/parser/dataGapsClassCompleteness.test.ts) that pins
+ * the full 42-code persisted-ParseWarning partition.
+ */
+export const GAP_CLASSES = [
+  { code: "FIELD_UNREADABLE", label: "unreadable field" },
+  { code: "UNKNOWN_SECTION_HEADER", label: "unknown section" },
+  { code: "BLOCK_DISAPPEARED", label: "removed section" },
+  { code: "UNKNOWN_FIELD", label: "unrecognized field" },
+  { code: "SCHEDULE_TIME_UNPARSED", label: "unreadable schedule time" },
+  { code: "UNKNOWN_ROLE_TOKEN", label: "unrecognized role" },
+  { code: "UNKNOWN_DAY_RESTRICTION", label: "unrecognized day restriction" },
+  { code: "SECTION_HEADER_NO_FIELDS", label: "empty section" },
+  { code: "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE", label: "off-schedule strike date" },
+  { code: "TRAVEL_FLIGHT_UNPARSEABLE", label: "unreadable flight" },
+  { code: "TRAVEL_FLIGHT_NAME_UNMATCHED", label: "unmatched flight passenger" },
+  { code: "TRAVEL_FLIGHT_AMBIGUOUS_TABLE", label: "unclear flight list" },
+  { code: "AGENDA_GRID_MALFORMED", label: "unreadable agenda" },
+  { code: "AGENDA_BLOCK_UNRESOLVED", label: "unplaced agenda section" },
+  { code: "AGENDA_DAY_AMBIGUOUS", label: "unclear agenda day" },
+  { code: "AGENDA_DAY_TRUNCATED", label: "cut-off agenda day" },
+  { code: "AGENDA_DAY_EMPTIED", label: "empty agenda day" },
+  { code: "AGENDA_PDF_UNREADABLE", label: "unreadable agenda PDF" },
+  { code: "AGENDA_LINK_NOT_CLICKABLE", label: "unreachable agenda link" },
+  { code: "PULL_SHEET_PARSE_PARTIAL", label: "partial pull sheet" },
+  { code: "PULL_SHEET_AMBIGUOUS_FORMAT", label: "unclear pull sheet" },
+  { code: "PULL_SHEET_UNKNOWN_VARIANT", label: "unrecognized pull sheet" },
+] as const;
+
+export type GapCode = (typeof GAP_CLASSES)[number]["code"];
 
 export type DataGapsSummary = {
   total: number;
-  classes: {
-    FIELD_UNREADABLE: number;
-    UNKNOWN_SECTION_HEADER: number;
-    BLOCK_DISAPPEARED: number;
-  };
+  classes: Record<GapCode, number>;
 };
 
 /**
- * The three data-quality warning codes, single-sourced. `shows_internal.parse_warnings`
- * is NOT limited to these — other producers persist `warn`-severity warnings whose
- * `.message` may BE the raw code (e.g. asset `reelWarning()` returns
- * `{ severity:"warn", code, message: code }`). Any surface that renders a warning's
- * `.message` (the per-show Data-Quality panel) MUST gate on this set first, or it would
- * print a raw §12.4 code (invariant 5) and misclassify a non-data-quality warning under
- * "Data quality". Whole-diff review R1 [high].
+ * The data-quality gap codes, single-sourced from GAP_CLASSES. `shows_internal.parse_warnings`
+ * is NOT limited to these — other producers persist `warn`-severity warnings (autocorrects,
+ * asset/diagram codes) whose `.message` may BE the raw code. Any surface that renders a
+ * warning's `.message` MUST gate on this set first, or it would print a raw §12.4 code
+ * (invariant 5) and misclassify a non-gap warning under "Data quality".
  */
-export const DATA_GAP_CODES: ReadonlySet<string> = new Set([
-  FIELD_UNREADABLE,
-  UNKNOWN_SECTION_HEADER,
-  BLOCK_DISAPPEARED,
-]);
+export const DATA_GAP_CODES: ReadonlySet<string> = new Set(GAP_CLASSES.map((g) => g.code));
+
+/** Fresh, all-keys-zero `classes` record (every GapCode → 0). */
+const zeroClasses = (): Record<GapCode, number> =>
+  Object.fromEntries(GAP_CLASSES.map((g) => [g.code, 0])) as Record<GapCode, number>;
 
 /** True when `w` is a `warn`-severity data-quality warning (one of the three DQ codes). */
 export function isDataQualityWarning(w: ParseWarning | null | undefined): boolean {
@@ -53,22 +85,17 @@ export function isDataQualityWarning(w: ParseWarning | null | undefined): boolea
 export function summarizeDataGaps(
   warnings: readonly ParseWarning[] | null | undefined,
 ): DataGapsSummary {
-  const classes = {
-    FIELD_UNREADABLE: 0,
-    UNKNOWN_SECTION_HEADER: 0,
-    BLOCK_DISAPPEARED: 0,
-  };
+  const classes = zeroClasses();
   if (!warnings) return { total: 0, classes };
 
+  let total = 0;
   for (const w of warnings) {
-    if (w.severity === "info") continue;
-    if (w.code === FIELD_UNREADABLE) classes.FIELD_UNREADABLE += 1;
-    else if (w.code === UNKNOWN_SECTION_HEADER) classes.UNKNOWN_SECTION_HEADER += 1;
-    else if (w.code === BLOCK_DISAPPEARED) classes.BLOCK_DISAPPEARED += 1;
+    if (w.severity === "info") continue; // #289 contract: skip only info (missing severity counts)
+    if (DATA_GAP_CODES.has(w.code)) {
+      classes[w.code as GapCode] += 1;
+      total += 1;
+    }
   }
-
-  const total =
-    classes.FIELD_UNREADABLE + classes.UNKNOWN_SECTION_HEADER + classes.BLOCK_DISAPPEARED;
   return { total, classes };
 }
 
@@ -79,11 +106,9 @@ export function summarizeDataGaps(
  * literal (invariant 5: no raw §12.4 codes in UI). Single-sourced here so every
  * surface reads the same wording.
  */
-export const DATA_GAP_CLASS_LABELS: Record<keyof DataGapsSummary["classes"], string> = {
-  FIELD_UNREADABLE: "unreadable field",
-  UNKNOWN_SECTION_HEADER: "unknown section",
-  BLOCK_DISAPPEARED: "removed section",
-};
+export const DATA_GAP_CLASS_LABELS: Record<GapCode, string> = Object.fromEntries(
+  GAP_CLASSES.map((g) => [g.code, g.label]),
+) as Record<GapCode, string>;
 
 /**
  * Flatten a summary into ordered per-class detail entries with a count > 0,
@@ -93,21 +118,34 @@ export const DATA_GAP_CLASS_LABELS: Record<keyof DataGapsSummary["classes"], str
  */
 export function dataGapClassDetails(
   summary: DataGapsSummary,
-): Array<{ key: keyof DataGapsSummary["classes"]; count: number; label: string }> {
-  const order: Array<keyof DataGapsSummary["classes"]> = [
-    "FIELD_UNREADABLE",
-    "UNKNOWN_SECTION_HEADER",
-    "BLOCK_DISAPPEARED",
-  ];
-  const out: Array<{ key: keyof DataGapsSummary["classes"]; count: number; label: string }> = [];
-  for (const key of order) {
-    const count = summary.classes[key];
+): Array<{ key: GapCode; count: number; label: string }> {
+  const out: Array<{ key: GapCode; count: number; label: string }> = [];
+  for (const { code, label } of GAP_CLASSES) {
+    const count = summary.classes[code];
     if (count > 0) {
-      const base = DATA_GAP_CLASS_LABELS[key];
-      out.push({ key, count, label: count === 1 ? base : `${base}s` });
+      out.push({ key: code, count, label: count === 1 ? label : `${label}s` });
     }
   }
   return out;
+}
+
+/**
+ * Bounded, human breakdown string for a summary. Ordering: count desc, then
+ * GAP_CLASSES registry order (stable tiebreak). Caps at `cap` classes; the
+ * remaining classes collapse to "+N more". Used by ALL THREE count-bearing
+ * surfaces (badge aria-label/title, per-show alert sub-line, held-row
+ * DataGapsChip title) so none is ever unbounded. Empty string when `cap <= 0`
+ * or the summary has no gaps (callers already gate on `total > 0`).
+ */
+export function formatDataGapBreakdown(summary: DataGapsSummary, cap = 4): string {
+  if (cap <= 0 || summary.total === 0) return "";
+  // dataGapClassDetails is already in registry order; Array.sort is stable, so
+  // equal counts preserve registry order (deterministic tiebreak).
+  const sorted = [...dataGapClassDetails(summary)].sort((a, b) => b.count - a.count);
+  const shown = sorted.slice(0, cap);
+  const remainder = sorted.length - shown.length;
+  const base = shown.map((d) => `${d.count} ${d.label}`).join(", ");
+  return remainder > 0 ? `${base}, +${remainder} more` : base;
 }
 
 /**

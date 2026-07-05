@@ -29,15 +29,15 @@ import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react
 import { AdminEmailsInfraError } from "@/lib/data/adminEmails";
 
 // --- Mock the action's dependencies so test (a) runs the REAL action path.
-// requireAdminIdentity: pass the gate. revokeAdminEmail: throw the typed infra
+// requireDeveloperIdentity: pass the gate. revokeAdminEmail: throw the typed infra
 // fault so revokeAdminAction's catch maps it to { kind: "infra_error" } (6.4).
 // next/cache revalidatePath: no-op (success path not exercised by (a)).
 // Return a real admin identity: revokeAdminAction's M12.5 self-revoke guard
 // reads `canonicalize(identity.email)`, so `undefined` would throw before the
 // data call. The email differs from the revoked target ("x@example.com") so
 // the guard passes and the flow reaches revokeAdminEmail (mocked to throw).
-vi.mock("@/lib/auth/requireAdmin", () => ({
-  requireAdminIdentity: async () => ({ email: "admin@fxav.test" }),
+vi.mock("@/lib/auth/requireDeveloper", () => ({
+  requireDeveloperIdentity: async () => ({ email: "admin@fxav.test" }),
 }));
 vi.mock("@/lib/data/adminEmails", async (importActual) => {
   const actual = await importActual<typeof import("@/lib/data/adminEmails")>();

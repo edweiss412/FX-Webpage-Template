@@ -2,7 +2,7 @@
  * lib/auth/requireDeveloper.ts (developer-tier, spec §5)
  *
  * The single chokepoint that gates developer-only surfaces (/admin/dev/*,
- * Activity/observability, stale-session reap, validation reset/reseed). It
+ * Telemetry, stale-session reap, validation reset/reseed). It
  * clones lib/auth/requireAdmin.ts's structure exactly, swapping the
  * authorization RPC is_admin() → is_developer(), the typed infra error, and
  * the structured log code. Because the developer ⟹ admin axiom holds in both

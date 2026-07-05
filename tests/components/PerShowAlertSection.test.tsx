@@ -85,6 +85,10 @@ vi.mock("@/lib/supabase/server", () => {
           select: () => builder,
           eq: () => builder,
           is: () => builder,
+          // alert-audience-split: fetchPerShowAlerts appends `.not("code","in",…)`
+          // to exclude HEALTH_CODES. The mock doesn't need to apply the exclusion
+          // (fixtures use non-health codes) — just chain, so the read doesn't throw.
+          not: () => builder,
           order: () => builder,
           in: (column: string, values: string[]) => {
             inFilter.column = column;
@@ -155,40 +159,47 @@ describe("PerShowAlertSection — at-a-glance identity line", () => {
     resetLogSink();
   });
 
-  test("(a) OAUTH_IDENTITY_CLAIMED → identity line renders crew name · email · show title (scoped, anti-tautology)", async () => {
-    mockState.crewRows = [{ id: CREW_ID, show_id: SHOW_ID, name: "Jamie Rivera" }];
+  // NOTE (alert-audience-split reconciliation): the crew-rich codes
+  // (OAUTH_IDENTITY_CLAIMED, ROLE_FLAGS_NOTICE, …) are now `audience:"health"`
+  // and no longer surface on the per-show section (HEALTH_CODES excluded). Their
+  // rich crew+email+show / crew-names identity is exercised on the HEALTH surface
+  // (HealthAlertsPanel). Here the per-show identity line is verified with
+  // doug-VISIBLE codes: AMBIGUOUS_EMAIL_BINDING (Show · email) and, for the
+  // show-scoping-via-injected-showId case, PICKER_EPOCH_RESET (Show only).
+  test("(a) AMBIGUOUS_EMAIL_BINDING → identity line renders email · show title (anti-tautology)", async () => {
     mockState.showRows = [{ id: SHOW_ID, title: "Spring Conference", slug: "spring-conference" }];
     setAlerts([
       {
-        id: "oauth-1",
-        code: "OAUTH_IDENTITY_CLAIMED",
+        id: "ambig-1",
+        code: "AMBIGUOUS_EMAIL_BINDING",
         raised_at: "2026-05-04T10:00:00Z",
-        context: { crew_member_id: CREW_ID, user_email: "jamie@example.com", show_id: SHOW_ID },
+        context: { email: "jamie@example.com" },
       },
     ]);
     const { getByTestId, container } = await renderSection();
     const identity = getByTestId("per-show-alert-identity");
-    // Expected string derived from the fixtures (Crew · email · Show), NOT by
-    // calling describeAlert (which would round-trip the production path).
-    expect(identity.textContent).toBe(
-      "Crew: Jamie Rivera · jamie@example.com · Show: Spring Conference",
-    );
+    // Show resolves via the section's injected `showId` prop; email is projected
+    // from context.email. Expected derived from the fixtures, not describeAlert.
+    expect(identity.textContent).toContain("jamie@example.com");
+    expect(identity.textContent).toContain("Show: Spring Conference");
     // Anti-tautology: clone the row, remove the identity node, and prove the
-    // crew name is rendered NOWHERE else — the identity node is the sole source.
+    // email is rendered NOWHERE else — the identity node is the sole source.
     const clone = container.cloneNode(true) as HTMLElement;
     clone.querySelector("[data-testid=per-show-alert-identity]")?.remove();
-    expect(clone.textContent).not.toContain("Jamie Rivera");
+    expect(clone.textContent).not.toContain("jamie@example.com");
   });
 
-  test("(b) EMAIL_DELIVERY_FAILED (show-only, NO drive_file_id) → identity renders the SHOW-NAME segment via injected showId", async () => {
+  test("(b) PICKER_EPOCH_RESET (show-only, NO drive_file_id) → identity renders the SHOW-NAME segment via injected showId", async () => {
     // No drive_file_id and no show_id in context — the ONLY way the resolver
     // can produce a Show segment is the section injecting its `showId` prop as
-    // the row's show_id. Stub the shows read for that showId.
+    // the row's show_id. Stub the shows read for that showId. (crew-names /
+    // ROLE_FLAGS_NOTICE identity is health-audience now → covered on the
+    // HealthAlertsPanel, not here.)
     mockState.showRows = [{ id: SHOW_ID, title: "East Coast Spectacular", slug: "east-coast" }];
     setAlerts([
       {
-        id: "email-1",
-        code: "EMAIL_DELIVERY_FAILED",
+        id: "picker-epoch-1",
+        code: "PICKER_EPOCH_RESET",
         raised_at: "2026-05-04T10:00:00Z",
         context: {},
       },
@@ -197,27 +208,11 @@ describe("PerShowAlertSection — at-a-glance identity line", () => {
     expect(getByTestId("per-show-alert-identity").textContent).toBe("Show: East Coast Spectacular");
   });
 
-  test("(c) ROLE_FLAGS_NOTICE → identity renders crew names + count from context.changes (no DB read)", async () => {
-    setAlerts([
-      {
-        id: "role-1",
-        code: "ROLE_FLAGS_NOTICE",
-        raised_at: "2026-05-04T10:00:00Z",
-        context: { changes: [{ crew_name: "Alex Kim" }, { crew_name: "Sam Poe" }] },
-      },
-    ]);
-    const { getByTestId } = await renderSection();
-    const text = getByTestId("per-show-alert-identity").textContent ?? "";
-    expect(text).toContain("Alex Kim");
-    expect(text).toContain("Sam Poe");
-    expect(text).toContain("2 role changes");
-  });
-
-  test("global code (GITHUB_BOT_LOGIN_MISSING) → NO identity line, alert still renders", async () => {
+  test("global code (SHOW_UNPUBLISHED) → NO identity line, alert still renders", async () => {
     setAlerts([
       {
         id: "global-1",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "SHOW_UNPUBLISHED",
         raised_at: "2026-05-04T10:00:00Z",
       },
     ]);
@@ -248,28 +243,28 @@ describe("PerShowAlertSection — at-a-glance identity line", () => {
     setLogSink((record) => {
       records.push({ source: record.source, message: record.message });
     });
-    // OAUTH row so the resolver actually issues crew/show reads — which fail.
-    // The email segment is projected from context.user_email WITHOUT a DB read,
-    // so it SURVIVES the failed crew/show lookups. Per the spec §3.2 F9/P5
-    // partial-degradation contract (Codex whole-diff R2 MEDIUM), the caller must
-    // still render the surviving segment — NOT drop the whole partial map.
+    // AMBIGUOUS_EMAIL_BINDING (doug-visible) has a showName segment, so the
+    // resolver issues a `shows` read — which the forced failIdentityRead fails.
+    // The email segment is projected from context.email WITHOUT a DB read, so it
+    // SURVIVES the failed show lookup. Per the spec §3.2 F9/P5 partial-degradation
+    // contract (Codex whole-diff R2 MEDIUM), the caller must still render the
+    // surviving segment — NOT drop the whole partial map.
     mockState.failIdentityRead = true;
     setAlerts([
       {
         id: "infra-1",
-        code: "OAUTH_IDENTITY_CLAIMED",
+        code: "AMBIGUOUS_EMAIL_BINDING",
         raised_at: "2026-05-04T10:00:00Z",
-        context: { crew_member_id: CREW_ID, user_email: "jamie@example.com", show_id: SHOW_ID },
+        context: { email: "jamie@example.com" },
       },
     ]);
     const { getByTestId } = await renderSection();
     expect(getByTestId("per-show-alert-infra-1")).not.toBeNull(); // alert still renders
-    // The surviving email segment renders; crew/show (which needed the failed
-    // DB reads) do NOT — proving partial degradation, not all-or-nothing drop.
+    // The surviving email segment renders; the Show segment (which needed the
+    // failed DB read) does NOT — proving partial degradation, not all-or-nothing.
     const identity = getByTestId("per-show-alert-identity");
     expect(identity.textContent).toContain("jamie@example.com");
-    // The crew/show segments needed the failed DB reads, so their labels are absent.
-    expect(identity.textContent).not.toContain("Crew:");
+    // The Show segment needed the failed DB read, so its label is absent.
     expect(identity.textContent).not.toContain("Show:");
     expect(
       records.some(

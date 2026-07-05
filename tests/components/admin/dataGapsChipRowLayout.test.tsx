@@ -28,18 +28,17 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { ShowsTable } from "@/components/admin/ShowsTable";
+import { ArchivedShowRow } from "@/components/admin/ArchivedShowRow";
 import type { ActiveShowRow } from "@/lib/admin/showDisplay";
-import type { DataGapsSummary } from "@/lib/parser/dataGaps";
+import { formatDataGapBreakdown, type DataGapsSummary } from "@/lib/parser/dataGaps";
+import { mkDataGaps } from "../../helpers/dataGapsFixture";
 
 afterEach(cleanup);
 
 const now = new Date("2026-06-03T12:00:00.000Z");
 
 function gaps(total: number): DataGapsSummary {
-  return {
-    total,
-    classes: { FIELD_UNREADABLE: total, UNKNOWN_SECTION_HEADER: 0, BLOCK_DISAPPEARED: 0 },
-  };
+  return mkDataGaps({ FIELD_UNREADABLE: total });
 }
 
 function row(over: Partial<ActiveShowRow> & { slug: string }): ActiveShowRow {
@@ -88,6 +87,33 @@ describe("data-gaps chip row — layout structure (no fixed-dimension-parent ris
     expect(bar.firstElementChild).toBe(chip);
   });
 
+  it("the held-row chip title is bounded to 4 classes + '+N more' via the shared cap helper", () => {
+    // 6 distinct classes → the chip `title` must be the bounded helper output, not
+    // the unbounded 6-class join (Codex plan R2 MEDIUM: chip is a third cap surface).
+    const summary = mkDataGaps({
+      FIELD_UNREADABLE: 1,
+      UNKNOWN_SECTION_HEADER: 1,
+      BLOCK_DISAPPEARED: 1,
+      UNKNOWN_FIELD: 1,
+      SCHEDULE_TIME_UNPARSED: 1,
+      UNKNOWN_ROLE_TOKEN: 1,
+    });
+    render(
+      <ShowsTable
+        rows={[row({ slug: "cap", dataGaps: summary })]}
+        now={now}
+        activeCount={1}
+        overflowCount={0}
+        rowAction={(r) => <button data-testid={`publish-${r.slug}`}>Publish</button>}
+      />,
+    );
+    const chip = screen.getByTestId("shows-data-gaps-chip-cap");
+    const expected = formatDataGapBreakdown(summary); // derived from the data source
+    expect(chip.getAttribute("title")).toBe(expected);
+    expect(expected).toMatch(/\+2 more$/);
+    expect(chip.getAttribute("title")).not.toMatch(/unrecognized role/); // 6th class not shown
+  });
+
   it("the row-action bar pins items-center + flex-wrap (the stretch/overflow guards)", () => {
     renderRow();
     const bar = screen.getByTestId("shows-row-action-g");
@@ -98,5 +124,72 @@ describe("data-gaps chip row — layout structure (no fixed-dimension-parent ris
     // overflowing the row.
     expect(bar.className).toMatch(/\bflex-wrap\b/);
     expect(bar.className).toMatch(/\bflex\b/);
+  });
+
+  // Data-quality badge (spec §4.1 / DQ-1): the badge lives in the CONTENT-height
+  // title container (not a fixed-dimension parent), so real-browser
+  // height-equality is N/A. This jsdom structural test pins: badge is a child of
+  // the title container (items-center), carries shrink-0, and is ordered AFTER
+  // the title, BEFORE the inline status pill.
+  it("badge sits in the ShowsTable title container with items-center + shrink-0, before the inline pill", () => {
+    render(
+      <ShowsTable
+        rows={[row({ slug: "gaps", isLive: true, dataGaps: gaps(2) })]}
+        now={now}
+        activeCount={1}
+        overflowCount={0}
+      />,
+    );
+    const badge = screen.getByTestId("shows-data-quality-gaps");
+    expect(badge.className).toContain("shrink-0"); // a long title cannot compress it away
+    const titleContainer = badge.parentElement!;
+    expect(titleContainer.className).toContain("items-center"); // Tailwind v4 has no default stretch
+    const kids = Array.from(titleContainer.children);
+    const titleIdx = kids.findIndex((k) => k.textContent?.includes("Title gaps"));
+    expect(titleIdx).toBeGreaterThanOrEqual(0);
+    expect(kids.indexOf(badge)).toBeGreaterThan(titleIdx); // title precedes badge
+    // …and BEFORE the inline status pill (this row isLive → shows-live-pill). Pin
+    // the ordering so a regression that moves the badge after the pill FAILS
+    // (whole-diff review LOW: the "after title" assertion alone couldn't catch that).
+    const pillWrapperIdx = kids.findIndex((k) =>
+      k.querySelector('[data-testid="shows-live-pill-gaps"]'),
+    );
+    expect(pillWrapperIdx).toBeGreaterThan(0);
+    expect(kids.indexOf(badge)).toBeLessThan(pillWrapperIdx);
+  });
+
+  it("badge sits in the ArchivedShowRow title container with items-center + shrink-0, before the Archived pill", () => {
+    render(
+      <ArchivedShowRow
+        row={{
+          id: "a1",
+          slug: "a1",
+          title: "Archived",
+          showDateStart: null,
+          showDateEnd: null,
+          crewCount: 0,
+          lastSyncedAt: null,
+          lastSyncStatus: null,
+          published: false,
+          isLive: false,
+          finalizeOwned: false,
+          archivedAt: "2026-06-01T00:00:00.000Z",
+          dataGaps: gaps(2),
+        }}
+        now={now}
+        unarchiveAction={async () => {}}
+      />,
+    );
+    const badge = screen.getByTestId("shows-data-quality-a1");
+    expect(badge.className).toContain("shrink-0");
+    const titleContainer = badge.parentElement!;
+    expect(titleContainer.className).toContain("items-center");
+    const kids = Array.from(titleContainer.children);
+    // title span is child 0; the Archived pill is disambiguated by its testid
+    // (the pill ALSO contains the text "Archived", so match on the testid).
+    const pillIdx = kids.findIndex((k) => k.getAttribute("data-testid") === "archived-pill-a1");
+    expect(kids.indexOf(badge)).toBeGreaterThan(0); // after the title span
+    expect(pillIdx).toBeGreaterThan(0);
+    expect(kids.indexOf(badge)).toBeLessThan(pillIdx); // before the Archived pill
   });
 });

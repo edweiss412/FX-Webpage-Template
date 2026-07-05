@@ -1,4 +1,5 @@
 import { describe, expect, test, vi } from "vitest";
+import { mkDataGaps } from "../helpers/dataGapsFixture";
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import ts from "typescript";
@@ -615,7 +616,10 @@ describe("processOneFile", () => {
     expect(source).toContain("last_sync_status = 'parse_error'");
     expect(source).not.toContain("last_sync_status = 'hard_fail'");
     expect(source).toContain("last_sync_error = $2");
-    expect(source).toContain("[driveFileId, error.code]");
+    // Structural pin: updateShowParseError must persist the MESSAGE, not just the code,
+    // so the existing-show retain-last-good diagnostic (e.g. VERSION_AMBIGUOUS scores)
+    // survives. Guards against the fake (phase1.test.ts) diverging from production again.
+    expect(source).toContain("`${error.code}: ${error.message}`");
   });
 
   test("production last_sync_status literal writes stay inside the spec enum", () => {
@@ -906,10 +910,7 @@ describe("processOneFile", () => {
     expect(call).toBeDefined();
     const ctx = call![0].context;
     // The digest is derived from the warn-severity data-quality warnings (info excluded).
-    expect(ctx.data_gaps).toEqual({
-      total: 3,
-      classes: { FIELD_UNREADABLE: 2, UNKNOWN_SECTION_HEADER: 0, BLOCK_DISAPPEARED: 1 },
-    });
+    expect(ctx.data_gaps).toEqual(mkDataGaps({ FIELD_UNREADABLE: 2, BLOCK_DISAPPEARED: 1 }));
   });
 
   test("no data_gaps key on the SHOW_FIRST_PUBLISHED context when there are no warn-severity data-quality warnings", async () => {

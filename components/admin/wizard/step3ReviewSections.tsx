@@ -28,6 +28,7 @@ import {
   Fragment,
   useContext,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -37,12 +38,16 @@ import {
   BedDouble,
   CalendarDays,
   ChevronRight,
+  ExternalLink,
   FileText,
+  ImageOff,
+  Images,
   Info,
   LayoutGrid,
   Lightbulb,
   Mail,
   MapPin,
+  MessageSquareWarning,
   Package,
   Phone,
   Receipt,
@@ -72,13 +77,17 @@ import type {
 import type { Step3Row } from "@/components/admin/wizard/Step3Review";
 import type { SectionId } from "@/lib/admin/step3SectionStatus";
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
+import {
+  hasStagedPreviewSource,
+  isRenderableDiagramStub,
+  trustedDriveFolderHref,
+} from "@/lib/admin/stagedDiagramGuards";
 import type { MessageCode } from "@/lib/messages/catalog";
 import { humanizeDate, humanizeDayRange } from "@/lib/dates/humanize";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
 import { EVENT_DETAILS_LABELS } from "@/lib/crew/eventDetailsSpecs";
-import { ROOM_DETAIL_FIELDS } from "@/lib/crew/roomDetailFields";
 import { partialAttendanceLabel } from "@/lib/crew/partialAttendance";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
@@ -105,26 +114,42 @@ export const PACK_LIST_ITEMS_CAP = 8;
 export const SCHEDULE_DAYS_CAP = 14;
 export const SCHEDULE_ENTRIES_CAP = 6;
 
-// Per-room equipment-scope fields shown under each room in the review breakdown so
-// the operator can VERIFY parsed gear (GEAR-tab + INFO A/V/L) before publishing. We
-// show every NON-EMPTY value as-parsed (sentinels like "TBD"/"-" included) — this is
-// a parse-review surface, not the crew page (which sentinel-hides), so the operator
-// sees exactly what landed. Order mirrors the crew GearSection (A→V→L→Scenic→Other).
-const ROOM_SCOPE_FIELDS: ReadonlyArray<{ label: string; key: keyof RoomRow }> = [
-  { label: "Audio", key: "audio" },
-  { label: "Video", key: "video" },
-  { label: "Lighting", key: "lighting" },
-  { label: "Scenic", key: "scenic" },
-  { label: "Other", key: "other" },
+// Per-room equipment-scope disciplines shown under each room in the review
+// breakdown so the operator can VERIFY parsed gear (GEAR-tab + INFO A/V/L)
+// before publishing. Parsed values render AS-PARSED (sentinels like "TBD"/"-"
+// included) — this is a parse-review surface, not the crew page (which
+// sentinel-hides), so the operator sees exactly what landed. All five rows
+// ALWAYS render (rooms-scope-cards redesign, 2026-07-04): an unparsed
+// discipline reads a muted "Not specified", stating fact rather than asserting
+// an intentional call. Order + glyphs mirror the crew GearSection
+// (A→V→L→Scenic→Other). `color` is a single mid-lightness OKLCH per discipline
+// (mock parity) — readable on the sunken icon chip in both light and dark.
+const ROOM_SCOPE: ReadonlyArray<{
+  label: string;
+  key: keyof RoomRow;
+  Icon: LucideIcon;
+  color: string;
+}> = [
+  { label: "Audio", key: "audio", Icon: Volume2, color: "oklch(0.60 0.12 25)" },
+  { label: "Video", key: "video", Icon: Video, color: "oklch(0.57 0.11 255)" },
+  { label: "Lighting", key: "lighting", Icon: Lightbulb, color: "oklch(0.63 0.11 75)" },
+  { label: "Scenic", key: "scenic", Icon: Theater, color: "oklch(0.55 0.10 155)" },
+  { label: "Other", key: "other", Icon: Package, color: "oklch(0.55 0.10 300)" },
 ];
 
-// Scope-row icons (spec §8 rooms row): lucide best-equivalents of the mock's
-// audio/video/bulb/scenic glyphs; anything else falls back to the grid glyph.
-const ROOM_SCOPE_ICONS: Record<string, LucideIcon> = {
-  Audio: Volume2,
-  Video: Video,
-  Lighting: Lightbulb,
-  Scenic: Theater,
+// Copy shown for a discipline that did not parse. Deliberately NOT the mock's
+// literal "Not needed" (which asserts an intentional decision) — on a
+// parse-review surface a blank cell may simply be a gap. (owner decision,
+// 2026-07-04; PRODUCT.md "missing data is a human sentence".)
+const ROOM_SCOPE_UNSPECIFIED = "Not specified";
+
+// Humanized room-kind labels for the header pill (replaces the raw enum the
+// legacy flat list rendered). RoomKind is a closed 3-value union, so the map is
+// exhaustive — a new kind is a compile error here.
+const ROOM_KIND_LABEL: Record<RoomRow["kind"], string> = {
+  gs: "General session",
+  breakout: "Breakout",
+  additional: "Additional",
 };
 
 /** A string field that actually parsed to content (non-null, non-whitespace). */
@@ -246,8 +271,103 @@ export type Step3SectionChrome = {
   label: string;
   /** §7 flagged-set membership (drives icon-chip tone, chip, panel border). */
   flagged: boolean;
+  /**
+   * Heading level for the §6.4 heading row. Top-level sections use `3` (the
+   * default → `<h3>`, keeping the modal outline h2→h3). A section rendered as a
+   * SUB-block of another (the Diagrams block folded under Rooms & scope) passes
+   * `4` → a smaller, subordinate `<h4>` so it reads as part of its parent
+   * section, not a co-equal sibling. Optional/ABSENT elsewhere
+   * (exactOptionalPropertyTypes): absent, never `undefined`.
+   */
+  headingLevel?: 3 | 4;
+  /**
+   * Follow-ups spec §D3a: stable-identity reader for the modal's shared
+   * `active` nav section, consumed by `ReportIssueSection` AT SUBMIT TIME for
+   * a stale-free `viewerVisibleSection`. Optional — existing provider mounts
+   * stay valid; exactOptionalPropertyTypes: present or ABSENT, never
+   * `undefined`. NOT a render-stability contract (the provider keeps passing
+   * a fresh inline object each render).
+   */
+  getActiveSection?: () => SectionId;
+  /**
+   * Follow-ups spec §E3: the section's warn-severity warning entries from
+   * `warningsBySection` (index = position in the FULL warnings array — the
+   * jump-target key). Passed by the modal for every flagged section EXCEPT
+   * `warnings` (its body IS the warning list — a callout would be circular).
+   * Optional/ABSENT everywhere else (exactOptionalPropertyTypes).
+   */
+  calloutEntries?: readonly { warning: ParseWarning; index: number }[];
+  /**
+   * Follow-ups spec §E4: jump callback — a full-array warning index scrolls
+   * to that row + flashes it; `null` is the "+N more" section-top jump
+   * (plain §A2 nav-click semantics, no highlight).
+   */
+  onJumpToWarning?: (index: number | null) => void;
+  /** Testid parts for the §E3 callout (`-section-${id}-flag-callout`) — the
+   *  modal (sole provider) always passes both; optional so existing provider
+   *  mounts in section tests stay valid. */
+  dfid?: string;
+  sectionId?: SectionId;
 };
 export const Step3SectionChromeContext = createContext<Step3SectionChrome | null>(null);
+
+// §E3 callout row cap (spec §2 named constant): at most this many warning
+// titles render inline; the remainder collapses to "+N more in Parse warnings".
+export const CALLOUT_MAX_ENTRIES = 3;
+
+/**
+ * §E3 inline flag callout: a compact warning-tone block at the top of a
+ * flagged section's panel card linking each mapped warning to its row in the
+ * Parse-warnings section. Titles go through `reviewWarningTitle` — the §8
+ * hardening (invariant 5, no raw machine tokens) applies transitively.
+ */
+function SectionFlagCallout({
+  dfid,
+  sectionId,
+  entries,
+  onJump,
+}: {
+  dfid: string;
+  sectionId: SectionId;
+  entries: readonly { warning: ParseWarning; index: number }[];
+  onJump: (index: number | null) => void;
+}) {
+  const shown = entries.slice(0, CALLOUT_MAX_ENTRIES);
+  const extra = entries.length - shown.length;
+  return (
+    <div
+      data-testid={`wizard-step3-card-${dfid}-section-${sectionId}-flag-callout`}
+      className="flex flex-col gap-1 rounded-md border border-border-strong bg-warning-bg px-3 py-2 text-xs text-warning-text"
+    >
+      {shown.map(({ warning, index }) => {
+        const title = reviewWarningTitle(warning); // §8 hardening applies transitively
+        return (
+          <div key={index} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+            <AlertTriangle aria-hidden="true" className="size-3.5 shrink-0" />
+            <span className="min-w-0 wrap-break-word font-medium">{title}</span>
+            <button
+              type="button"
+              onClick={() => onJump(index)}
+              className="inline-flex min-h-tap-min items-center font-semibold underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            >
+              View details<span className="sr-only"> for {title}</span>
+            </button>
+          </div>
+        );
+      })}
+      {/* §H N2: instant — deliberate (overflow line follows the entry count; static with section render) */}
+      {extra > 0 ? (
+        <button
+          type="button"
+          onClick={() => onJump(null)}
+          className="inline-flex min-h-tap-min items-center self-start font-semibold underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+        >
+          +{extra} more in Parse warnings
+        </button>
+      ) : null}
+    </div>
+  );
+}
 
 /** §6.4 heading row + §5.2 panel card (shared by BreakdownSection + agenda). */
 function ModalSectionChrome({
@@ -260,23 +380,33 @@ function ModalSectionChrome({
   count: number | null;
   children: React.ReactNode;
 }) {
-  const { Icon, label, flagged } = chrome;
+  const { Icon, label, flagged, headingLevel = 3 } = chrome;
+  // Level 4 = a SUB-block heading (Diagrams under Rooms & scope): smaller chip +
+  // text so it reads as subordinate to its parent section, not a peer.
+  const sub = headingLevel === 4;
+  const Heading = sub ? "h4" : "h3";
   return (
     <>
-      <div className="mb-3 flex items-center gap-2.5">
+      <div className={`${sub ? "mb-2" : "mb-3"} flex items-center gap-2.5`}>
         <span
           aria-hidden="true"
-          className={`grid size-7 shrink-0 place-items-center rounded-sm ${
+          className={`grid ${sub ? "size-6" : "size-7"} shrink-0 place-items-center rounded-sm ${
             flagged ? "bg-warning-bg text-warning-text" : "bg-surface-sunken text-text-subtle"
           }`}
         >
-          <Icon className="size-4" />
+          <Icon className={sub ? "size-3.5" : "size-4"} />
         </span>
-        <h3 className="min-w-0 wrap-break-word text-base font-semibold text-text-strong">
+        <Heading
+          className={`min-w-0 wrap-break-word font-semibold text-text-strong ${
+            sub ? "text-sm" : "text-base"
+          }`}
+        >
           {label}
-        </h3>
+        </Heading>
         {count !== null ? (
-          <span className="shrink-0 text-sm tabular-nums text-text-subtle">({count})</span>
+          <span className={`shrink-0 tabular-nums text-text-subtle ${sub ? "text-xs" : "text-sm"}`}>
+            ({count})
+          </span>
         ) : null}
         <span className="flex-1" />
         {flagged ? (
@@ -290,6 +420,20 @@ function ModalSectionChrome({
           flagged ? "border-border-strong" : "border-border"
         }`}
       >
+        {/* §H N2: instant — deliberate (callout presence is static with the
+            section render — no mount animation; spec §E3 first child) */}
+        {chrome.calloutEntries &&
+        chrome.calloutEntries.length > 0 &&
+        chrome.onJumpToWarning &&
+        chrome.dfid !== undefined &&
+        chrome.sectionId !== undefined ? (
+          <SectionFlagCallout
+            dfid={chrome.dfid}
+            sectionId={chrome.sectionId}
+            entries={chrome.calloutEntries}
+            onJump={chrome.onJumpToWarning}
+          />
+        ) : null}
         {children}
       </div>
     </>
@@ -307,7 +451,8 @@ export function BreakdownSection({
 }: {
   testId: string;
   label: string;
-  count: number;
+  /** null → no count (non-list-shaped bodies, e.g. report — Task 7). */
+  count: number | null;
   children: React.ReactNode;
 }) {
   const chrome = useContext(Step3SectionChromeContext);
@@ -323,7 +468,8 @@ export function BreakdownSection({
   return (
     <section data-testid={testId} className="flex flex-col gap-1.5">
       <h4 className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
-        {label} <span className="tabular-nums text-text-subtle">({count})</span>
+        {label}{" "}
+        {count !== null ? <span className="tabular-nums text-text-subtle">({count})</span> : null}
       </h4>
       {children}
     </section>
@@ -749,69 +895,145 @@ export function RoomsBreakdown({ dfid, rooms }: { dfid: string; rooms: RoomRow[]
       {rooms.length === 0 ? (
         <p className="text-sm text-text-subtle">No rooms parsed.</p>
       ) : (
-        <ul className="flex flex-col gap-3">
+        <ul className="flex flex-col gap-3.5">
           {shown.map((r, i) => {
-            const scope = ROOM_SCOPE_FIELDS.filter((f) => hasContent(r[f.key]));
+            // Header schedule meta — Set/Show/Strike; keep only parsed values so
+            // the row (and its dividers) omit entirely when nothing parsed.
+            const times = (
+              [
+                { label: "Set", value: r.set_time, emphasized: false },
+                { label: "Show", value: r.show_time, emphasized: true },
+                { label: "Strike", value: r.strike_time, emphasized: false },
+              ] as const
+            ).filter((t) => hasContent(t.value));
+            const setup = hasContent(r.setup) ? r.setup : null;
+            const dimensions = hasContent(r.dimensions) ? r.dimensions : null;
+            const floor = hasContent(r.floor) ? r.floor : null;
+            const hasHeaderBody = times.length > 0 || setup !== null || dimensions !== null;
             return (
-              <li key={`${r.name}-${i}`} className="text-sm text-text">
-                {/* §8 room header: name + kind eyebrow on one baseline row. */}
-                <div className="flex flex-wrap items-baseline gap-x-2">
-                  <span className="wrap-break-word font-semibold text-text-strong">
-                    {r.name || "Room"}
-                  </span>
-                  {r.kind ? (
-                    <span className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
-                      {r.kind}
+              <li
+                key={`${r.name}-${i}`}
+                className="overflow-hidden rounded-md border border-border bg-surface shadow-tile"
+              >
+                {/* Header — accent-tinted panel (mock --accent-tint). */}
+                <div
+                  data-testid={`wizard-step3-card-${dfid}-room-${i}-header`}
+                  className="flex flex-col gap-2 bg-accent/6 px-3.5 py-3"
+                >
+                  {/* name + humanized kind pill + floor */}
+                  <div
+                    className={
+                      "flex flex-wrap items-center gap-x-2 gap-y-1" +
+                      (hasHeaderBody ? " border-b border-border pb-2.5" : "")
+                    }
+                  >
+                    <span className="wrap-break-word text-sm font-semibold text-text-strong">
+                      {r.name || "Room"}
                     </span>
+                    <span
+                      className="rounded-pill bg-accent/10 px-2 py-0.5 text-[0.625rem] font-semibold uppercase text-accent-on-bg"
+                      style={{ letterSpacing: "0.07em" }}
+                    >
+                      {ROOM_KIND_LABEL[r.kind]}
+                    </span>
+                    {floor !== null ? (
+                      <span className="ml-auto text-xs text-text-subtle">{floor}</span>
+                    ) : null}
+                  </div>
+                  {/* Set · Show · Strike (Show emphasized) — spread full-width,
+                      hairline divider below (no border-l side-stripe). */}
+                  {times.length > 0 ? (
+                    <div
+                      data-testid={`wizard-step3-card-${dfid}-room-${i}-times`}
+                      className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-border pb-2.5"
+                    >
+                      {times.map((t) => (
+                        <span key={t.label} className="flex items-baseline">
+                          <span
+                            className="text-xs font-semibold uppercase text-text-subtle"
+                            style={EYEBROW_STYLE}
+                          >
+                            {t.label}
+                          </span>
+                          <span
+                            className={
+                              "ml-1.5 text-xs tabular-nums " +
+                              (t.emphasized ? "font-semibold text-accent-on-bg" : "text-text")
+                            }
+                          >
+                            {t.value}
+                          </span>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {setup !== null ? (
+                    <div className="flex items-baseline gap-2">
+                      <span
+                        className="shrink-0 text-xs font-semibold uppercase text-text-subtle"
+                        style={EYEBROW_STYLE}
+                      >
+                        Setup
+                      </span>
+                      <span className="wrap-break-word text-xs text-text-subtle">{setup}</span>
+                    </div>
+                  ) : null}
+                  {dimensions !== null ? (
+                    <div className="flex items-baseline gap-2">
+                      <span
+                        className="shrink-0 text-xs font-semibold uppercase text-text-subtle"
+                        style={EYEBROW_STYLE}
+                      >
+                        Room Dimensions
+                      </span>
+                      <span className="wrap-break-word text-xs tabular-nums text-text">
+                        {dimensions}
+                      </span>
+                    </div>
                   ) : null}
                 </div>
-                {scope.length > 0 ? (
-                  <ul
-                    data-testid={`wizard-step3-card-${dfid}-room-${i}-scope`}
-                    className="mt-1.5 flex flex-col gap-1 text-xs text-text-subtle"
-                  >
-                    {scope.map((f) => {
-                      const ScopeIcon = ROOM_SCOPE_ICONS[f.label] ?? LayoutGrid;
-                      return (
-                        // §8 scope grammar: icon / key / value tracks.
-                        <li
-                          key={f.label}
-                          className="grid grid-cols-[1.25rem_5rem_minmax(0,1fr)] items-start gap-x-2"
+                {/* Scope — ALL five disciplines; unparsed reads "Not specified". */}
+                <ul
+                  data-testid={`wizard-step3-card-${dfid}-room-${i}-scope`}
+                  className="flex flex-col px-3.5 py-1"
+                >
+                  {ROOM_SCOPE.map(({ label, key, Icon, color }) => {
+                    const value = hasContent(r[key]) ? (r[key] as string) : null;
+                    return (
+                      // Icon chip / eyebrow key / value tracks.
+                      <li
+                        key={label}
+                        className="grid grid-cols-[1.5rem_5rem_minmax(0,1fr)] items-start gap-x-2.5 border-b border-border py-2 last:border-0"
+                      >
+                        <span
+                          className="grid size-6 place-items-center rounded-md bg-surface-sunken"
+                          style={value ? { color } : undefined}
                         >
-                          <ScopeIcon
+                          <Icon
                             aria-hidden="true"
-                            className="mt-px size-3.5 text-accent-on-bg"
+                            className={"size-3.5" + (value ? "" : " text-text-faint opacity-60")}
                           />
-                          <span className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
-                            {f.label}:
-                          </span>
-                          <span className="wrap-break-word text-text">{r[f.key] as string}</span>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                ) : null}
-                {(() => {
-                  // Per-room physical + schedule detail (BL-ROOM-DETAIL-UNRENDERED).
-                  // Coerce once; keep non-empty AS-PARSED (sentinels visible — review
-                  // surface, NOT sentinel-hidden like the crew page).
-                  const detail = ROOM_DETAIL_FIELDS.map((f) => ({
-                    label: f.label,
-                    value: String(r[f.key] ?? "").trim(),
-                  })).filter((d) => d.value.length > 0);
-                  return detail.length > 0 ? (
-                    <ul
-                      data-testid={`wizard-step3-card-${dfid}-room-${i}-detail`}
-                      className="mt-1 flex flex-col gap-0.5 pl-7 text-xs text-text-subtle"
-                    >
-                      {detail.map((d) => (
-                        <li key={d.label} className="wrap-break-word">
-                          <span className="font-medium text-text">{d.label}:</span> {d.value}
-                        </li>
-                      ))}
-                    </ul>
-                  ) : null;
-                })()}
+                        </span>
+                        <span
+                          data-testid="room-scope-key"
+                          className="pt-1 text-xs font-semibold uppercase text-text-subtle"
+                          style={EYEBROW_STYLE}
+                        >
+                          {label}
+                        </span>
+                        <span
+                          className={
+                            value
+                              ? "wrap-break-word pt-0.5 text-xs text-text"
+                              : "pt-0.5 text-xs italic text-text-subtle"
+                          }
+                        >
+                          {value ?? ROOM_SCOPE_UNSPECIFIED}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
               </li>
             );
           })}
@@ -1102,6 +1324,9 @@ export function WarningsBreakdown({ dfid, warnings }: { dfid: string; warnings: 
                 <li
                   key={`${w.code}-${i}`}
                   data-testid={`wizard-step3-card-${dfid}-warning-${i}`}
+                  // §E4 jump-target key: same FULL-array index as the testid —
+                  // the modal's container-scoped query hook (no `id`s, §9.4).
+                  data-warning-index={i}
                   className="flex gap-3"
                 >
                   {/* §8 severity icon chip: warn = warm chip, info = neutral. */}
@@ -1569,6 +1794,33 @@ export function AgendaBreakdown({
   );
 }
 
+/**
+ * audit idx39/#180: the minimal "needs attention — not publishable" indicator for a
+ * row demoted by a NON-RESCAN finalize failure code (DRIVE_FETCH_FAILED,
+ * STAGED_PARSE_SOURCE_OUT_OF_SCOPE, WIZARD_SESSION_SUPERSEDED, …). The publish
+ * checkbox/button is suppressed for these (matching Step3Review.selectableRows + the
+ * server /approve refusal), so this note replaces it and tells the operator the row
+ * can't be published as-is. Plain-English only (invariant 5 — never the raw §12.4
+ * code). Shares the warm warning treatment (warning-bg + strong border + icon) with
+ * RescanReviewBanner; no reapply link, since recovery for these codes flows through
+ * the next scan, not a per-item reapply choice.
+ *
+ * Shared export (spec §C2): rendered by Step3SheetCard (default testid — card
+ * output byte-identical) AND by the Step3ReviewModal footer's demoted branch
+ * (modal-scoped `testId`).
+ */
+export function NotPublishableNote({ dfid, testId }: { dfid: string; testId?: string }) {
+  return (
+    <div
+      data-testid={testId ?? `wizard-step3-card-${dfid}-not-publishable`}
+      className="flex items-start gap-2 rounded-md border border-border-strong bg-warning-bg p-tile-pad text-warning-text"
+    >
+      <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+      <p className="text-sm font-medium">This sheet needs attention before it can be published.</p>
+    </div>
+  );
+}
+
 /* ──────────────────────────────────────────────────────────────────────────
  * Section registry (spec §6.1) — the single source of truth the review modal
  * (Task 4+) renders: rail items, chip rail, content-pane sections.
@@ -1597,6 +1849,12 @@ export type Step3SectionDef = {
   Icon: LucideIcon;
   /** Rail count for the list-shaped subset (§6.1); null → no rail count. */
   railCount: ((d: SectionData) => number) | null;
+  /**
+   * Follow-ups spec §D2: present-`true` ONLY on `report` — BOTH navs (desktop
+   * rail + mobile chips) render no status dot for it. exactOptionalPropertyTypes:
+   * present-`true` or ABSENT, never `hideDot: undefined`.
+   */
+  hideDot?: true;
   /** The restyled section body. */
   render: (d: SectionData) => React.ReactNode;
 };
@@ -1612,11 +1870,389 @@ export const STEP3_SECTION_GROUPS: readonly string[] = [
   "Checks",
 ];
 
+/** Thumbnail-grid cap (spec §B3): overflow renders the quiet "+N more" note. */
+export const DIAGRAM_TILE_CAP = 12;
+
+/** One thumbnail tile — raw <img> + onError placeholder, mirroring the crew
+ *  Gallery pattern (components/diagrams/Gallery.tsx:130-144; raw <img> is a
+ *  documented revert — next/image drops cookies). */
+function DiagramTile({
+  src,
+  alt,
+  testId,
+  hasPreviewSource,
+}: {
+  src: string;
+  alt: string;
+  testId: string;
+  hasPreviewSource: boolean;
+}) {
+  const [failed, setFailed] = useState(!hasPreviewSource);
+  if (failed) {
+    return (
+      <span
+        data-testid={testId}
+        className="grid aspect-4/3 w-full place-items-center gap-1 rounded-md border border-border bg-surface-sunken text-center"
+      >
+        <ImageOff aria-hidden="true" className="size-4 text-text-subtle" />
+        <span className="text-xs text-text-subtle">Preview unavailable</span>
+      </span>
+    );
+  }
+  return (
+    /* aria-label mirrors the img alt (impeccable audit P2): the anchor's
+       accessible name must never be empty even if the alt computation ever
+       regresses to "" (nameless-link guard, WCAG 2.4.4/4.1.2). */
+    <a
+      href={src}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={alt}
+      data-testid={testId}
+      className="block"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element -- staged-diagram
+          preview route is admin-cookie-authed; next/image drops cookies (same
+          documented revert as components/diagrams/Gallery.tsx). */}
+      <img
+        src={src}
+        alt={alt}
+        loading="lazy"
+        decoding="async"
+        onError={() => setFailed(true)}
+        className="aspect-4/3 w-full rounded-md border border-border bg-surface-sunken object-cover"
+      />
+    </a>
+  );
+}
+
 /**
- * The §6.1 registry. 12 defs when the row has an agenda baseline, 11 without
- * (`agenda` renders — rail entry AND section — only when the baseline is
- * non-empty, the same gate the card uses today). Every other section always
- * renders (empty states preserved); `warnings` always renders (§3.10).
+ * Diagrams section body (follow-ups spec §B3): count summary (zero parts
+ * omitted), capped thumbnail grid, and the revalidated folder row.
+ * Element-level guard mirrors the preview route (§B1): the SAME shared
+ * predicate filters the untrusted persisted JSONB BEFORE any dereference —
+ * invalid elements are excluded from tiles, counts, and cap math.
+ */
+export function DiagramsBreakdown({
+  dfid,
+  wizardSessionId,
+  diagrams,
+}: {
+  dfid: string;
+  wizardSessionId: string;
+  diagrams: ParseResult["diagrams"] | null | undefined;
+}) {
+  const stubs = arr(diagrams?.embeddedImages).filter(isRenderableDiagramStub);
+  const folderItems = arr(diagrams?.linkedFolderItems);
+  const folderHref = diagrams?.linkedFolder
+    ? trustedDriveFolderHref((diagrams.linkedFolder as { driveFolderUrl?: unknown }).driveFolderUrl)
+    : null;
+  const hasFolder = diagrams?.linkedFolder != null;
+  const shown = stubs.slice(0, DIAGRAM_TILE_CAP);
+  const extra = stubs.length - shown.length;
+  const summaryParts: string[] = [];
+  if (stubs.length > 0) {
+    summaryParts.push(`${stubs.length} embedded image${stubs.length === 1 ? "" : "s"}`);
+  }
+  if (folderItems.length > 0) {
+    summaryParts.push(`${folderItems.length} folder file${folderItems.length === 1 ? "" : "s"}`);
+  }
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-section-diagrams`}
+      label="Diagrams"
+      count={stubs.length + folderItems.length}
+    >
+      {summaryParts.length > 0 ? (
+        <p className="text-xs text-text-subtle">{summaryParts.join(" · ")}</p>
+      ) : null}
+      {shown.length > 0 ? (
+        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+          {shown.map((stub, i) => (
+            <DiagramTile
+              key={`${stub.objectId}-${i}`}
+              testId={`wizard-step3-card-${dfid}-diagram-tile-${i}`}
+              src={`/api/admin/onboarding/staged-diagram/${wizardSessionId}/${dfid}/${encodeURIComponent(stub.objectId)}`}
+              // `?? ` only catches null/undefined — a persisted `alt: ""`
+              // rendered a nameless link (impeccable audit P2); blank/space
+              // alts fall back to the generic sheet-tab string too.
+              alt={stub.alt?.trim() || `Diagram from ${stub.sheetTab}`}
+              // Shared servability predicate (spec §A4): the tile and the
+              // preview route can never disagree on what's fetchable —
+              // trusted legacy contentUrl OR fingerprint-addressable media.
+              hasPreviewSource={hasStagedPreviewSource(stub)}
+            />
+          ))}
+        </div>
+      ) : null}
+      {extra > 0 ? (
+        <p className="text-xs text-text-subtle">
+          +{extra} more — all images are snapshotted when the show publishes.
+        </p>
+      ) : null}
+      {hasFolder ? (
+        <p className="flex flex-wrap items-center gap-x-2 text-sm text-text">
+          {folderHref !== null ? (
+            <a
+              data-testid={`wizard-step3-card-${dfid}-diagram-folder-link`}
+              href={folderHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex min-h-tap-min items-center gap-1 font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            >
+              Open diagrams folder in Drive <ExternalLink aria-hidden="true" className="size-3.5" />
+            </a>
+          ) : null}
+          {folderItems.length > 0 ? (
+            <span className="text-text-subtle">{folderItems.length} files</span>
+          ) : null}
+        </p>
+      ) : null}
+    </BreakdownSection>
+  );
+}
+
+/** Report message textarea cap (spec §D3). */
+export const REPORT_MESSAGE_MAX_CHARS = 2000;
+/** Payload parse-warnings cap (spec §D3). */
+export const REPORT_PARSE_WARNINGS_CAP = 50;
+/** Rendered whenever a failure code resolves to no usable dougFacing copy —
+ *  the status line is never empty and never a raw code (invariant 5).
+ *  Spec §D3 sanctions this exported generic fallback for codes whose catalog
+ *  entry has dougFacing: null (e.g. ADMIN_SESSION_LOOKUP_FAILED). */
+// not-subject:M5-D8 — spec-§D3-sanctioned generic fallback constant, not an inline callsite literal.
+export const REPORT_GENERIC_ERROR_COPY = "Couldn’t send the report. Try again in a moment.";
+
+type ReportSectionStatus =
+  | { kind: "idle" }
+  | { kind: "pending" }
+  | { kind: "success" }
+  | { kind: "error"; copy: string };
+
+function reportAttemptStorageKey(wizardSessionId: string, driveFileId: string): string {
+  // Scoped to wizard session AND drive file (spec §D3): a later wizard session
+  // for the same file is a DIFFERENT report and must not be swallowed as a
+  // duplicate of a stale attempt (mirrors ReportModal's surfaceId-validated
+  // reuse, components/shared/ReportModal.tsx:110-133; rotate-on-success :327).
+  return `fxav-report-attempt-wizard-${wizardSessionId}-${driveFileId}`;
+}
+
+function mintOrReuseAttemptKey(storageKey: string): string {
+  try {
+    const existing = window.sessionStorage.getItem(storageKey);
+    if (existing) return existing;
+    const minted = crypto.randomUUID();
+    window.sessionStorage.setItem(storageKey, minted);
+    return minted;
+  } catch {
+    return crypto.randomUUID(); // storage unavailable — still send, just unlinkable
+  }
+}
+
+function rotateAttemptKey(storageKey: string): void {
+  try {
+    window.sessionStorage.removeItem(storageKey);
+  } catch {
+    /* storage unavailable — nothing persisted to rotate */
+  }
+}
+
+/** Single resolution rule for EVERY failure (spec §D3): cataloged dougFacing
+ *  if non-null/non-empty after trim, else the exported generic fallback. */
+function reportErrorCopy(code: string | null): string {
+  if (code !== null && isMessageCode(code)) {
+    const copy = messageFor(code as MessageCode).dougFacing;
+    if (copy != null && copy.trim().length > 0) return copy;
+  }
+  return REPORT_GENERIC_ERROR_COPY;
+}
+
+/**
+ * Report-an-issue section body (follow-ups spec §D3): explainer + labeled
+ * textarea + idempotent submit to `POST /api/report` + copy-only status line.
+ * `viewerVisibleSection` is read from the chrome context's `getActiveSection`
+ * AT SUBMIT TIME (§D3a); outside the chrome context the field is omitted.
+ * Modal unmount mid-flight is fire-and-forget by construction — the persisted
+ * key makes a retry after reopen a duplicate → success (§D3 guards). Draft
+ * persistence is mount-local only (spec-accepted).
+ *
+ * Follow-ups-b2 §D: the form is collapsed by default behind a disclosure
+ * trigger. `draft`/`status`/`handleSubmit` live HERE (component level), NOT in
+ * the conditional subtree, so collapsing unmounts the form DOM but preserves
+ * the draft, the last status line, and any in-flight POST (fire-and-forget —
+ * same posture as modal unmount above).
+ */
+export function ReportIssueSection({ data }: { data: SectionData }) {
+  const { dfid, wizardSessionId, row, warnings } = data;
+  const chrome = useContext(Step3SectionChromeContext);
+  const [draft, setDraft] = useState("");
+  const [status, setStatus] = useState<ReportSectionStatus>({ kind: "idle" });
+  const [expanded, setExpanded] = useState(false);
+  const textareaId = useId();
+  const formId = useId();
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // §D1: on expand, focus moves to the textarea (async focus contract — tests
+  // poll via waitFor). Effect-on-flip: mount starts collapsed so this never
+  // fires on initial render, and collapse leaves focus on the trigger.
+  useEffect(() => {
+    if (expanded) textareaRef.current?.focus();
+  }, [expanded]);
+
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const message = draft.trim();
+    if (message.length === 0 || status.kind === "pending") return;
+    setStatus({ kind: "pending" });
+    const storageKey = reportAttemptStorageKey(wizardSessionId, dfid);
+    const idempotency_key = mintOrReuseAttemptKey(storageKey);
+    const payload = {
+      surface: "admin",
+      show_id: null,
+      showTitle: row.stagedShowTitle ?? row.driveFileName ?? null,
+      showSlug: null,
+      idempotency_key,
+      message,
+      reporterUrl: window.location.href,
+      ...(chrome?.getActiveSection ? { viewerVisibleSection: chrome.getActiveSection() } : {}),
+      userAgent: navigator.userAgent,
+      parseWarnings: warnings.slice(0, REPORT_PARSE_WARNINGS_CAP),
+      fieldRef: {
+        kind: "wizard-step3",
+        driveFileId: dfid,
+        wizardSessionId,
+        driveFileName: row.driveFileName ?? null,
+        stagedShowTitle: row.stagedShowTitle ?? null,
+      },
+    };
+    try {
+      // not-subject-to-meta: internal Next API fetch, not a Supabase client call
+      const res = await fetch("/api/report", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      let parsed: { ok?: boolean; code?: string } = {};
+      try {
+        parsed = (await res.json()) as typeof parsed;
+      } catch {
+        parsed = {};
+      }
+      if (res.ok && parsed.ok === true) {
+        // created / duplicate / recovered all count as success (spec §D3).
+        rotateAttemptKey(storageKey);
+        setDraft("");
+        setStatus({ kind: "success" });
+        return;
+      }
+      if (res.status === 410 && parsed.code === "REPORT_HORIZON_EXPIRED") {
+        rotateAttemptKey(storageKey); // terminal — a retry is a NEW report
+        setStatus({ kind: "error", copy: reportErrorCopy("REPORT_HORIZON_EXPIRED") });
+        return;
+      }
+      const code = parsed.code ?? (res.status >= 500 ? "REPORT_PIPELINE_FAILED" : null);
+      setStatus({ kind: "error", copy: reportErrorCopy(code) });
+    } catch {
+      setStatus({ kind: "error", copy: reportErrorCopy("NETWORK_UNREACHABLE") });
+    }
+  }
+
+  return (
+    <BreakdownSection
+      testId={`wizard-step3-card-${dfid}-section-report`}
+      label="Report an issue"
+      count={null}
+    >
+      <p className="text-sm text-text-subtle">
+        Spotted something wrong or missing that the checks above didn&rsquo;t flag? Send it to the
+        developer.
+      </p>
+      <button
+        type="button"
+        data-testid={`wizard-step3-card-${dfid}-report-toggle`}
+        aria-expanded={expanded}
+        aria-controls={formId}
+        onClick={() => setExpanded((v) => !v)}
+        /* §D1 disclosure trigger — same quiet secondary recipe as the submit
+           button below (never the accent CTA; that belongs to Publish). */
+        className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-surface px-4 text-sm font-semibold text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+      >
+        Write a report
+      </button>
+      {/* §D2: instant — deliberate (collapsed↔expanded; the status swaps inside are §D2 instant too) */}
+      {expanded ? (
+        <form id={formId} onSubmit={handleSubmit} className="flex flex-col gap-2">
+          <label htmlFor={textareaId} className="text-sm font-medium text-text-strong">
+            What&rsquo;s wrong or missing?
+          </label>
+          <textarea
+            id={textareaId}
+            ref={textareaRef}
+            data-testid={`wizard-step3-card-${dfid}-report-textarea`}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            maxLength={REPORT_MESSAGE_MAX_CHARS}
+            rows={3}
+            /* border-border on bg-bg was 1.22:1 — far under the 3:1 non-text
+               minimum (impeccable audit P2, WCAG 1.4.11). border-strong + the
+               surface fill together make the field read as a field. */
+            className="w-full rounded-sm border border-border-strong bg-surface p-2 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          />
+          <div className="flex items-center gap-3">
+            <button
+              type="submit"
+              data-testid={`wizard-step3-card-${dfid}-report-submit`}
+              disabled={draft.trim().length === 0 || status.kind === "pending"}
+              aria-busy={status.kind === "pending" || undefined}
+              /* Quiet secondary treatment (impeccable critique P2): the report
+                 path must not compete with the footer's accent Publish CTA —
+                 same border/surface recipe as the footer Unpublish button.
+                 ring-offset-bg matches the content pane surface. */
+              className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-surface px-4 text-sm font-semibold text-text transition-colors duration-fast hover:bg-surface-sunken disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            >
+              Send report
+            </button>
+            <span
+              data-testid={`wizard-step3-card-${dfid}-report-status`}
+              role="status"
+              aria-live="polite"
+              className={`min-w-0 text-sm ${status.kind === "error" ? "font-medium text-warning-text" : "text-text-subtle"}`}
+            >
+              {/* §D3 status line — instant text swaps (spec §H N7) */}
+              {status.kind === "pending"
+                ? "Sending…"
+                : status.kind === "success"
+                  ? "Sent — thanks. The developer will take a look."
+                  : status.kind === "error"
+                    ? status.copy
+                    : ""}
+            </span>
+          </div>
+        </form>
+      ) : null}
+    </BreakdownSection>
+  );
+}
+
+/**
+ * §B2 diagrams-signal gate: the untrusted-JSONB `diagrams` object carries
+ * something renderable — a folder link, embedded images, or pinned folder
+ * items. Mirrors the card's `hasDiagrams` badge gate so badge and the Diagrams
+ * sub-block agree. Diagrams are no longer their own section; this gates the
+ * sub-block rendered BELOW the rooms inside the Rooms & scope section.
+ */
+export function hasDiagramSignal(diagrams: ParseResult["diagrams"] | null | undefined): boolean {
+  const count = arr(diagrams?.embeddedImages).length + arr(diagrams?.linkedFolderItems).length;
+  return diagrams != null && (diagrams.linkedFolder != null || count > 0);
+}
+
+/**
+ * The §6.1 registry (+ follow-ups §D2). 12 defs base; `agenda` (rail entry AND
+ * section, only when the baseline is non-empty — the same gate the card uses
+ * today) is conditional → 12/13. Diagrams are consolidated INTO the `rooms`
+ * section (rendered below the rooms), so they are NOT a separate registry def.
+ * Every other section always renders (empty states preserved); `warnings`
+ * always renders (§3.10); `report` is unconditional and ALWAYS last (§D2).
  */
 export function step3Sections(d: SectionData): Step3SectionDef[] {
   const defs: Step3SectionDef[] = [
@@ -1710,8 +2346,35 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       group: "Gear",
       Icon: LayoutGrid,
       railCount: (s) => s.rooms.length,
-      render: (s) => <RoomsBreakdown dfid={s.dfid} rooms={s.rooms} />,
+      // Diagrams are consolidated INTO this section, BELOW the rooms — they ARE
+      // the rooms' floor plans (Doug's own sheet links its "Room Diagram" cell
+      // to the DIAGRAMS tab). No separate nav entry. The Diagrams sub-block
+      // renders only when the untrusted-JSONB diagrams object carries a signal
+      // (folder link / embedded images / pinned folder items — the same
+      // `hasDiagramSignal` gate the card's badge uses), wrapped in its OWN
+      // chrome provider so it keeps the "Diagrams" heading (icon + count),
+      // never inheriting the outer "Rooms & scope" chrome.
+      render: (s) => (
+        <div className="flex min-w-0 flex-col gap-4">
+          <RoomsBreakdown dfid={s.dfid} rooms={s.rooms} />
+          {hasDiagramSignal(s.pr.diagrams) ? (
+            // headingLevel 4 → subordinate "Diagrams" sub-heading (h4, smaller)
+            // so it reads as part of Rooms & scope, not a co-equal section.
+            <Step3SectionChromeContext.Provider
+              value={{ Icon: Images, label: "Diagrams", flagged: false, headingLevel: 4 }}
+            >
+              <DiagramsBreakdown
+                dfid={s.dfid}
+                wizardSessionId={s.wizardSessionId}
+                diagrams={s.pr.diagrams}
+              />
+            </Step3SectionChromeContext.Provider>
+          ) : null}
+        </div>
+      ),
     },
+  );
+  defs.push(
     {
       id: "packlist",
       label: "Pack list",
@@ -1736,6 +2399,15 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       // Both severities — the rail count counts list rows (§3.3).
       railCount: (s) => s.warnings.length,
       render: (s) => <WarningsBreakdown dfid={s.dfid} warnings={s.warnings} />,
+    },
+    {
+      id: "report",
+      label: "Report an issue",
+      group: "Checks",
+      Icon: MessageSquareWarning, // design-stage-tunable (spec §L)
+      railCount: null,
+      hideDot: true, // spec §D2 — the only section without a status dot
+      render: (s) => <ReportIssueSection data={s} />,
     },
   );
   return defs;

@@ -13,6 +13,11 @@ import { CAPTURE_LAUNCH_ARGS } from "./scripts/capture-launch-args";
  *      validates that /admin/dev returns 404 even for an authenticated admin,
  *      proving the build-artifact gate (NOT just runtime env state).
  *
+ * CARVE-OUT: these blanket "/admin/dev 404 in prod" statements cover the dev
+ * PANEL + source-link-dim + telemetry-dim harnesses only. /admin/dev/telemetry
+ * is the deliberate PROD-available exception (developer-gated at runtime, not
+ * build-gated).
+ *
  * The dev-build / prod-build approach was ratified during M3 spec review:
  * a single build with runtime-toggled env defeats the build-artifact gate.
  * See docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/03-04-tiles.md:13-19.
@@ -63,7 +68,7 @@ export default defineConfig({
     {
       name: "desktop-chromium",
       testMatch:
-        /(sample|crew-page|schedule-tile|transport-tile|status-financials|role-spoof|pack-list|notes-tile|right-now|right-now-transitions|layout-dimensions|source-link-dimensional|observability-layout|theme-toggle|empty-state|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|alert-identity-banner-layout|admin-changes-feed-layout|admin-layout|admin-parse-panel|admin-route-boundaries|admin-settings-admins-refresh|developer-tier|sign-in-page|bootstrap|me-page|notify-toggles|needs-attention-page|root-landing)\.spec\.ts/,
+        /(sample|crew-page|schedule-tile|transport-tile|status-financials|role-spoof|pack-list|notes-tile|right-now|right-now-transitions|layout-dimensions|source-link-dimensional|telemetry-layout|theme-toggle|empty-state|empty-state-reachability|apply-driven-refresh|redeem-link|leaked-link|auth-chain|admin-banner|admin-banner-layout|alert-identity-banner-layout|admin-changes-feed-layout|admin-layout|admin-parse-panel|admin-route-boundaries|admin-settings-admins-refresh|developer-tier|sign-in-page|bootstrap|me-page|notify-toggles|needs-attention-page|root-landing)\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
         viewport: { width: 1280, height: 800 },

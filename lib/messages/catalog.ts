@@ -1,6 +1,28 @@
 export type MessageCatalogEntry = {
   code: string;
   severity?: "info" | "warning";
+  /**
+   * Admin-surface routing (catalog-internal, like `severity`; NOT §12.4 prose).
+   * Default (absent) = "banner". "inbox" routes the code out of the dismissible
+   * AlertBanner and into the Needs attention inbox as an auto-clearing to-do.
+   * See docs/superpowers/specs/2026-07-03-route-sync-problems-to-needs-attention.md.
+   */
+  adminSurface?: "banner" | "inbox";
+  /**
+   * Alert audience (spec 2026-07-04-alert-audience-split §3). Set on every code
+   * used as an admin_alerts code. "doug" codes stay on Doug's amber surfaces;
+   * "health" codes are excluded from those surfaces and roll up into the
+   * app-health indicator instead. Absent for non-admin-alert catalog entries.
+   */
+  audience?: "doug" | "health";
+  /** Health severity weight — set ONLY on audience:"health" codes. */
+  healthWeight?: "degraded" | "notice";
+  /**
+   * Plain-language, reassuring, NON-actionable Doug-facing summary for the
+   * health popover — set ONLY on audience:"health" codes; distinct from the
+   * developer-facing dougFacing/followUp.
+   */
+  dougSummary?: string | null;
   dougFacing: string | null;
   crewFacing: string | null;
   followUp: string | null;
@@ -23,6 +45,7 @@ export const MESSAGE_CATALOG = {
   },
   AMBIGUOUS_EMAIL_BINDING: {
     code: "AMBIGUOUS_EMAIL_BINDING",
+    audience: "doug",
     dougFacing:
       "Two crew rows share the same email — Google login is unsafe to resolve. The duplicate-email check normally catches this; please re-share the sheet so we can re-parse, or contact the developer.",
     crewFacing: "Something is misconfigured for this show. Doug has been notified.",
@@ -56,6 +79,7 @@ export const MESSAGE_CATALOG = {
   },
   DRIVE_FETCH_FAILED: {
     code: "DRIVE_FETCH_FAILED",
+    audience: "doug",
     dougFacing:
       "We couldn't fetch this sheet from Google Drive. Could be a transient network issue, or the sheet's been moved or unshared. We'll keep retrying. If this stays for more than an hour, click 'Retry' or check the sheet's share settings.",
     crewFacing: "We couldn't get the latest from Doug's sheet. Showing what we had at _<time>_.",
@@ -88,6 +112,8 @@ export const MESSAGE_CATALOG = {
   },
   SHEET_UNAVAILABLE: {
     code: "SHEET_UNAVAILABLE",
+    audience: "doug",
+    adminSurface: "inbox",
     dougFacing:
       "_<sheet-name>_ isn't in your folder anymore. Either you moved/unshared it, or it was deleted. Re-share it to bring the show back.",
     crewFacing: "We couldn't get the latest from Doug's sheet. Showing what we had at _<time>_.",
@@ -101,6 +127,8 @@ export const MESSAGE_CATALOG = {
   },
   PARSE_ERROR_LAST_GOOD: {
     code: "PARSE_ERROR_LAST_GOOD",
+    audience: "doug",
+    adminSurface: "inbox",
     dougFacing:
       "_<sheet-name>_'s latest edit didn't parse. The previous approved version is still showing to crew. See the per-show parse panel for the error detail.",
     crewFacing:
@@ -167,6 +195,9 @@ export const MESSAGE_CATALOG = {
   // copy says the action was cancelled without asserting zero residue.
   WIZARD_SESSION_SUPERSEDED_RACE: {
     code: "WIZARD_SESSION_SUPERSEDED_RACE",
+    audience: "health",
+    healthWeight: "notice",
+    dougSummary: "Two setup sessions overlapped, and the app kept the newer one. Nothing was lost.",
     dougFacing:
       "A leftover action from a retired setup wizard bumped into the newer one and was safely cancelled before it could change the new wizard's state. Any setup-scan leftovers from the old tab are inert and cleaned up automatically — continue in the active wizard tab.",
     crewFacing: null,
@@ -245,8 +276,9 @@ export const MESSAGE_CATALOG = {
   },
   WATCH_CHANNEL_ORPHANED: {
     code: "WATCH_CHANNEL_ORPHANED",
+    audience: "doug",
     dougFacing:
-      "The instant-updates connection to Google Drive is having trouble. Shows still sync automatically every few minutes.",
+      "The instant-updates connection to Google Drive needs to reconnect. Shows still sync automatically every few minutes, so nothing is lost.",
     crewFacing: null,
     followUp: "Auto-retry hourly; admin Retry now; Eric if escalated",
     helpfulContext:
@@ -258,6 +290,10 @@ export const MESSAGE_CATALOG = {
   },
   WEBHOOK_TOKEN_INVALID: {
     code: "WEBHOOK_TOKEN_INVALID",
+    audience: "health",
+    healthWeight: "degraded",
+    dougSummary:
+      "A Google Drive push notification failed a security check. Instant updates keep working through the regular sync.",
     dougFacing:
       "A push notification from Google Drive failed verification — possible spoofing or misconfiguration. The developer has been notified.",
     crewFacing: null,
@@ -400,6 +436,7 @@ export const MESSAGE_CATALOG = {
   },
   REEL_DRIFTED: {
     code: "REEL_DRIFTED",
+    audience: "doug",
     dougFacing:
       "The opening-reel video has been edited since you reviewed this parse. Crew see the text status only until your next sheet edit re-stages the new reel.",
     crewFacing: null,
@@ -413,6 +450,7 @@ export const MESSAGE_CATALOG = {
   },
   OPENING_REEL_NOT_VIDEO: {
     code: "OPENING_REEL_NOT_VIDEO",
+    audience: "doug",
     dougFacing:
       "The opening-reel link is not a video file. Crew see the text status only — replace the link with a video file URL to enable inline playback.",
     crewFacing: "Opening reel link is not a video file",
@@ -426,6 +464,7 @@ export const MESSAGE_CATALOG = {
   },
   OPENING_REEL_PERMISSION_DENIED: {
     code: "OPENING_REEL_PERMISSION_DENIED",
+    audience: "doug",
     dougFacing:
       "The opening-reel video is no longer shared with FXAV. Crew see the text status only — re-share the video file (or replace the link) to restore inline playback.",
     crewFacing: "Opening reel access revoked",
@@ -439,6 +478,7 @@ export const MESSAGE_CATALOG = {
   },
   EMBEDDED_RECOVERY_REQUIRES_RESTAGE: {
     code: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
+    audience: "doug",
     dougFacing:
       "A diagram in this sheet can't be re-downloaded automatically. Save the sheet (any edit advances the version) and crew will see the image again on the next sync.",
     crewFacing: null,
@@ -472,6 +512,10 @@ export const MESSAGE_CATALOG = {
   },
   ASSET_RECOVERY_REVISION_DRIFT: {
     code: "ASSET_RECOVERY_REVISION_DRIFT",
+    audience: "health",
+    healthWeight: "notice",
+    dougSummary:
+      "A gallery image changed while it was being restored, so the app used the newest version. Everything stays current.",
     dougFacing:
       "Diagram recovery paused because the show changed while recovery was checking files. We'll retry against the latest version on the next run.",
     crewFacing: null,
@@ -485,6 +529,10 @@ export const MESSAGE_CATALOG = {
   },
   ASSET_RECOVERY_DRIFT_COOLDOWN: {
     code: "ASSET_RECOVERY_DRIFT_COOLDOWN",
+    audience: "health",
+    healthWeight: "notice",
+    dougSummary:
+      "The app briefly paused re-checking a gallery image to avoid churn. It resumes on its own.",
     dougFacing:
       "Diagram recovery is backing off briefly because this show keeps changing during recovery. We'll retry automatically after the cooldown.",
     crewFacing: null,
@@ -508,6 +556,7 @@ export const MESSAGE_CATALOG = {
   },
   ASSET_RECOVERY_BYTES_EXCEEDED: {
     code: "ASSET_RECOVERY_BYTES_EXCEEDED",
+    audience: "doug",
     dougFacing:
       "This show's diagram set is too large to recover automatically (more than 60 images, an image >50MB, or >3GB total). Crew see placeholders for the missing diagrams. Tell the developer if you need this raised, or trim the gallery.",
     crewFacing: null,
@@ -570,6 +619,20 @@ export const MESSAGE_CATALOG = {
     longExplanation:
       "We look for specific row markers in your show template to recognize it as a real show sheet (Contact Office row and MAIN/SECONDARY block for v4; Hotel Contact Info row for v2). None of those markers were found. If your template has changed intentionally, tell the developer.",
     helpHref: "/help/errors#MI-1_VERSION_DETECTION_FAILED",
+  },
+  VERSION_AMBIGUOUS: {
+    code: "VERSION_AMBIGUOUS",
+    dougFacing:
+      "_<sheet-name>_ has some of your show-template markers but not enough for us to be sure which template it is — so we've paused instead of guessing. Check that the sheet's key rows (the Contact block for v4 sheets, or the GS/BO pull-sheet timing rows for v2 sheets) are intact, or tell the developer if your template changed.",
+    crewFacing: null,
+    followUp:
+      "Doug → check the sheet's version markers; Eric → add/adjust the detector if the template changed",
+    helpfulContext:
+      "We recognize your show template by a set of distinctive row labels grouped into blocks. This sheet matched too few of them, or the matches were too close between two templates, so we couldn't confidently pick one — and we won't apply a guess. Restore the expected rows (the Contact block for v4 sheets, the GS/BO pull-sheet timing rows for v2 sheets), or tell the developer if you changed the template.",
+    title: "Unsure which show template this is",
+    longExplanation:
+      "We recognize your show template by distinctive row labels grouped into blocks, and we require a clear match before applying it. This sheet matched too few markers, or the call between two templates was too close, so we paused rather than risk parsing it with the wrong rules. Restore the expected rows, or tell the developer if you changed the template.",
+    helpHref: "/help/errors#VERSION_AMBIGUOUS",
   },
   "MI-2_TITLE_MISSING": {
     code: "MI-2_TITLE_MISSING",
@@ -746,6 +809,10 @@ export const MESSAGE_CATALOG = {
   },
   ROLE_FLAGS_NOTICE: {
     code: "ROLE_FLAGS_NOTICE",
+    audience: "health",
+    healthWeight: "notice",
+    dougSummary:
+      "The app auto-applied a small crew-role change from the sheet. It's just a heads-up.",
     severity: "info",
     dougFacing:
       "A crew member's role flags changed. The LEAD bit is unchanged, so the change was applied automatically — this entry is here for audit.",
@@ -947,6 +1014,7 @@ export const MESSAGE_CATALOG = {
   },
   SHOW_FIRST_PUBLISHED: {
     code: "SHOW_FIRST_PUBLISHED",
+    audience: "doug",
     severity: "info",
     dougFacing:
       "_<sheet-name>_ is now live for crew at its share-token URL. _<crew-count>_ crew, _<show-date>_. **Made a mistake?** Flip the Published toggle off on the show's page \u2014 crew can't open the show until you turn it back on. When email is set up, the published notice also carries a 24-hour undo link.",
@@ -960,6 +1028,7 @@ export const MESSAGE_CATALOG = {
   },
   SHOW_UNPUBLISHED: {
     code: "SHOW_UNPUBLISHED",
+    audience: "doug",
     dougFacing:
       "_<sheet-name>_ has been unpublished. Its crew link is paused \u2014 crew who open it see a 'not available right now' page with no show details. Turn Published back on from the show's page when you're ready.",
     crewFacing: null,
@@ -1708,6 +1777,7 @@ export const MESSAGE_CATALOG = {
   },
   LIVE_ROW_CONFLICT: {
     code: "LIVE_ROW_CONFLICT",
+    audience: "doug",
     dougFacing:
       "A sheet is already being processed by the live folder sync, so we're skipping it during setup. Resolve it from the dashboard, then re-run setup if needed.",
     crewFacing: null,
@@ -1734,6 +1804,10 @@ export const MESSAGE_CATALOG = {
   },
   PENDING_SNAPSHOT_PROMOTE_STUCK: {
     code: "PENDING_SNAPSHOT_PROMOTE_STUCK",
+    audience: "health",
+    healthWeight: "degraded",
+    dougSummary:
+      "A behind-the-scenes diagram update is taking longer than expected to finish. The developer can clear it; your published shows are unaffected.",
     dougFacing:
       "A diagram snapshot promotion has been stuck for more than 15 minutes. Eric needs to run the snapshot-promote repair tool before cleanup can finish.",
     crewFacing: null,
@@ -1747,6 +1821,10 @@ export const MESSAGE_CATALOG = {
   },
   PENDING_SNAPSHOT_ROLLBACK_STUCK: {
     code: "PENDING_SNAPSHOT_ROLLBACK_STUCK",
+    audience: "health",
+    healthWeight: "degraded",
+    dougSummary:
+      "A diagram change is waiting to roll back cleanly. The developer handles this; your live shows keep working.",
     dougFacing:
       "A diagram snapshot rollback stalled after moving some assets. Eric needs to run the snapshot-rollback repair tool before cleanup can finish.",
     crewFacing: null,
@@ -1760,6 +1838,10 @@ export const MESSAGE_CATALOG = {
   },
   BRANCH_PROTECTION_DRIFT: {
     code: "BRANCH_PROTECTION_DRIFT",
+    audience: "health",
+    healthWeight: "degraded",
+    dougSummary:
+      "A developer safety setting drifted from its expected value. This is a code-side check the developer will restore.",
     dougFacing:
       "Branch protection no longer matches the X.6 contract. Restore the required checks and review settings before merging.",
     crewFacing: null,
@@ -1773,6 +1855,10 @@ export const MESSAGE_CATALOG = {
   },
   BRANCH_PROTECTION_MONITOR_AUTH_FAILED: {
     code: "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
+    audience: "health",
+    healthWeight: "degraded",
+    dougSummary:
+      "The tool that watches developer safety settings couldn't sign in. The developer will reconnect it.",
     dougFacing:
       "Branch-protection monitoring cannot authenticate with GitHub. Rotate the GH App token or PAT within 24 hours.",
     crewFacing: null,
@@ -1951,6 +2037,7 @@ export const MESSAGE_CATALOG = {
   },
   SYNC_STALLED: {
     code: "SYNC_STALLED",
+    audience: "doug",
     severity: "warning",
     dougFacing:
       "Automatic syncing hasn't run in over an hour, so new sheet changes won't appear until it resumes. If this keeps happening, check the Drive connection or re-run setup.",
@@ -1965,11 +2052,15 @@ export const MESSAGE_CATALOG = {
   },
   EMAIL_DELIVERY_FAILED: {
     code: "EMAIL_DELIVERY_FAILED",
+    audience: "health",
+    healthWeight: "degraded",
+    dougSummary:
+      "A notification email couldn't be sent. The system keeps retrying, and the developer will check the email setup.",
     severity: "warning",
     dougFacing:
-      "We couldn't send a notification email. We'll keep retrying; if it keeps failing, check the email settings.",
+      "We couldn't send a notification email. We'll keep retrying automatically; if it persists, the developer will check the email provider setup.",
     crewFacing: null,
-    followUp: "Doug → check email settings if this persists",
+    followUp: "Eric → check provider key / verified sending domain",
     helpfulContext:
       "An outbound notification email failed to send through the email provider. The system retries automatically a few times. If it keeps failing, the provider key or the verified sending domain may need attention.",
     title: "Couldn't send a notification email",
@@ -1979,11 +2070,16 @@ export const MESSAGE_CATALOG = {
   },
   EMAIL_NOT_CONFIGURED: {
     code: "EMAIL_NOT_CONFIGURED",
+    audience: "health",
+    healthWeight: "degraded",
+    dougSummary:
+      "Notification emails aren't set up yet, so those emails won't go out. The developer configures this; in-app alerts still work.",
     severity: "warning",
     dougFacing:
-      "Email notifications aren't set up yet, so sync-problem alerts, the daily digest, and auto-publish undo emails won't be sent. Check that the email provider key, the sending address, and the site address are all configured.",
+      "Email notifications aren't set up yet, so sync-problem alerts, the daily digest, and auto-publish undo emails won't be sent. The developer configures this on the deployment.",
     crewFacing: null,
-    followUp: "Doug → check email provider key, sending address, and site address",
+    followUp:
+      "Eric → configure email env (provider key / sending address / site address) on the deployment",
     helpfulContext:
       "Outbound email isn't fully configured, so sync-problem alerts, the daily digest, and auto-publish undo emails won't be sent. This needs three things set: the provider API key, a verified sending address, and the app's public site address (used to build the links in each email). In-app alerts and each show's Published toggle still work; set whichever is missing to enable email.",
     title: "Email notifications not set up",
@@ -1993,6 +2089,10 @@ export const MESSAGE_CATALOG = {
   },
   TILE_SERVER_RENDER_FAILED: {
     code: "TILE_SERVER_RENDER_FAILED",
+    audience: "health",
+    healthWeight: "degraded",
+    dougSummary:
+      "One piece of a crew page had trouble drawing and fell back safely. The developer can look; the rest of the page is fine.",
     dougFacing:
       "*<sheet-name>*: a section couldn't load on the server. The page will keep trying — refresh in a minute. Tell the developer if this keeps happening.",
     crewFacing: "This section couldn't load — last good data shown.",
@@ -2006,6 +2106,10 @@ export const MESSAGE_CATALOG = {
   },
   TILE_PROJECTION_FETCH_FAILED: {
     code: "TILE_PROJECTION_FETCH_FAILED",
+    audience: "health",
+    healthWeight: "degraded",
+    dougSummary:
+      "A crew page couldn't load one section's data this time. It retries automatically, and the developer can review it.",
     dougFacing:
       "*<sheet-name>*: one or more crew-page data sources couldn't load (the failed sources are listed in the alert detail). The page rendered with the rest of the data; refresh in a minute. Tell the developer if this keeps happening.",
     crewFacing: null,
@@ -2042,6 +2146,10 @@ export const MESSAGE_CATALOG = {
   },
   REPORT_ORPHANED_LOST_LEASE: {
     code: "REPORT_ORPHANED_LOST_LEASE",
+    audience: "health",
+    healthWeight: "notice",
+    dougSummary:
+      "A bug-report cleanup step tidied up an abandoned record on its own. Nothing you filed was affected.",
     dougFacing:
       "An orphaned bug-report issue was created during a retry race and auto-closed. Click through to verify the issue closed correctly. If this code recurs frequently, increase the lease window.",
     crewFacing: null,
@@ -2055,6 +2163,10 @@ export const MESSAGE_CATALOG = {
   },
   GITHUB_BOT_LOGIN_MISSING: {
     code: "GITHUB_BOT_LOGIN_MISSING",
+    audience: "health",
+    healthWeight: "degraded",
+    dougSummary:
+      "A developer tool for bug reports isn't fully set up. Reporting still works; the developer will finish the connection.",
     dougFacing:
       "GitHub bot login is unconfigured — the report-recovery path is degraded. Set `GITHUB_BOT_LOGIN` env var to the bot's GitHub username.",
     crewFacing: null,
@@ -2068,6 +2180,10 @@ export const MESSAGE_CATALOG = {
   },
   REPORT_LEASE_THRASHING: {
     code: "REPORT_LEASE_THRASHING",
+    audience: "health",
+    healthWeight: "degraded",
+    dougSummary:
+      "The bug-report system retried a step several times in a row. The developer will look; reports still go through.",
     dougFacing:
       "Bug-report processing is thrashing on this show — retries are racing against leases. Check Eric's status; this usually means the lease window needs tuning.",
     crewFacing: null,
@@ -2132,7 +2248,7 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → retry; if persistent, check Supabase admin_emails RPC + grants",
     helpfulContext:
-      "addAdminAction / revokeAdminAction caught an AdminEmailsInfraError from addAdminEmail / revokeAdminEmail (after the requireAdminIdentity gate) and returned { kind: 'infra_error' }. Rendered inline by AddAdminForm + RevokeRowButton instead of tearing down the settings section.",
+      "addAdminAction / revokeAdminAction caught an AdminEmailsInfraError from addAdminEmail / revokeAdminEmail (after the requireDeveloperIdentity gate) and returned { kind: 'infra_error' }. Rendered inline by AddAdminForm + RevokeRowButton instead of tearing down the settings section.",
     title: "Couldn't update administrators",
     longExplanation:
       "We couldn't add or revoke that administrator, usually a transient database or permissions issue. Try again in a moment; if it keeps failing, the developer needs to check the database connection.",
@@ -2295,6 +2411,7 @@ export const MESSAGE_CATALOG = {
   },
   EMBEDDED_ASSET_DRIFTED: {
     code: "EMBEDDED_ASSET_DRIFTED",
+    audience: "doug",
     dougFacing:
       "An embedded diagram changed after staging. Crew see a placeholder for that image until a new sheet edit re-stages it.",
     crewFacing: null,
@@ -2404,6 +2521,10 @@ export const MESSAGE_CATALOG = {
   },
   PENDING_SNAPSHOT_DELETE_STUCK: {
     code: "PENDING_SNAPSHOT_DELETE_STUCK",
+    audience: "health",
+    healthWeight: "degraded",
+    dougSummary:
+      "An old diagram version is slow to clean up. It's harmless, and the developer will tidy it up.",
     dougFacing:
       "Old diagram snapshot cleanup is stuck. Crew pages are still protected, but storage cleanup needs repair.",
     crewFacing: null,
@@ -2465,6 +2586,10 @@ export const MESSAGE_CATALOG = {
   },
   REPORT_DUPLICATE_LIVE_MATCHES: {
     code: "REPORT_DUPLICATE_LIVE_MATCHES",
+    audience: "health",
+    healthWeight: "degraded",
+    dougSummary:
+      "The bug-report system found two records that look the same and paused to stay safe. The developer will sort it out.",
     dougFacing:
       "Multiple live GitHub issues were found for one report submission. Recovery is paused until Eric reviews the duplicates.",
     crewFacing: null,
@@ -2492,6 +2617,10 @@ export const MESSAGE_CATALOG = {
   },
   REPORT_LOOKUP_INCONCLUSIVE: {
     code: "REPORT_LOOKUP_INCONCLUSIVE",
+    audience: "health",
+    healthWeight: "notice",
+    dougSummary:
+      "A bug-report lookup wasn't certain and stayed cautious. Crew can simply try again.",
     dougFacing:
       "We couldn't confirm whether your previous report went through. Please try again in a few minutes.",
     crewFacing:
@@ -2506,6 +2635,10 @@ export const MESSAGE_CATALOG = {
   },
   REPORT_OPEN_ORPHAN_LABEL: {
     code: "REPORT_OPEN_ORPHAN_LABEL",
+    audience: "health",
+    healthWeight: "degraded",
+    dougSummary:
+      "A bug report ended up in an unusual state the developer needs to review. Nothing you filed was lost.",
     dougFacing:
       "An open GitHub issue carries the orphan-cleanup label. Eric needs to review and either re-close the issue or remove the label.",
     crewFacing: null,
@@ -2547,14 +2680,14 @@ export const MESSAGE_CATALOG = {
   SELF_REVOKE_FORBIDDEN: {
     code: "SELF_REVOKE_FORBIDDEN",
     dougFacing:
-      "You can't revoke your own administrator access. Ask another admin to do it if you need to be removed.",
+      "You can't revoke your own administrator access. Ask another developer to do it if you need to be removed.",
     crewFacing: null,
-    followUp: "Doug → ask another admin to revoke you",
+    followUp: "Doug → ask another developer to revoke you",
     helpfulContext:
-      "revoke_admin_email_rpc refuses a self-revoke unconditionally inside its SECURITY DEFINER body — comparing the canonical target email to public.auth_email_canonical() — so an admin can never revoke their own access even via a hand-forged PostgREST rpc() call that bypasses the Server Action. This is defense-in-depth behind the M12.5 Server-Action guard. Other-revoke (a rogue admin revoking a peer, including the last peer) stays allowed by design; see amendment §5.5 + §11 anti-goal.",
+      "revoke_admin_email_rpc refuses a self-revoke unconditionally inside its SECURITY DEFINER body — comparing the canonical target email to public.auth_email_canonical() — so an admin can never revoke their own access even via a hand-forged PostgREST rpc() call that bypasses the Server Action. This is defense-in-depth behind the M12.5 Server-Action guard. Other-revoke is now developer-only (this milestone closes the §5.5 rogue-revoke risk); a non-developer actor is refused (42501 at the RPC / forbidden() at the Server Action).",
     title: "Can't revoke your own access",
     longExplanation:
-      "An administrator can never revoke their own access — the database refuses it directly, behind the Server Action guard. If you need to be removed, ask another admin to revoke you.",
+      "An administrator can never revoke their own access — the database refuses it directly, behind the Server Action guard. If you need to be removed, ask another developer to revoke you.",
     helpHref: "/help/errors#SELF_REVOKE_FORBIDDEN",
   },
   SESSION_NOT_FOUND: {
@@ -2656,6 +2789,10 @@ export const MESSAGE_CATALOG = {
   },
   STALE_ORPHAN_REPORT: {
     code: "STALE_ORPHAN_REPORT",
+    audience: "health",
+    healthWeight: "notice",
+    dougSummary:
+      "An old, unfinished bug-report reservation was cleared automatically during routine cleanup. No action needed.",
     dougFacing:
       "A stale bug-report reservation expired before it could create a GitHub issue. No user action is needed unless this repeats.",
     crewFacing: null,
@@ -2704,6 +2841,7 @@ export const MESSAGE_CATALOG = {
   },
   PICKER_EPOCH_RESET: {
     code: "PICKER_EPOCH_RESET",
+    audience: "doug",
     dougFacing:
       "Picker selections were reset for this show. Crew will be asked to pick themselves again on their next visit.",
     crewFacing: null,
@@ -2717,6 +2855,10 @@ export const MESSAGE_CATALOG = {
   },
   PICKER_SELECTION_RACE: {
     code: "PICKER_SELECTION_RACE",
+    audience: "health",
+    healthWeight: "notice",
+    dougSummary:
+      "Two show-picker actions overlapped, and the app sorted it out automatically. No action needed.",
     dougFacing:
       "A stale saved picker selection was cleaned up after the show access state changed.",
     crewFacing: null,
@@ -2881,6 +3023,10 @@ export const MESSAGE_CATALOG = {
   },
   PICKER_BOOTSTRAP_RPC_FAILED: {
     code: "PICKER_BOOTSTRAP_RPC_FAILED",
+    audience: "health",
+    healthWeight: "degraded",
+    dougSummary:
+      "The show-picker had trouble starting up for someone. It usually recovers on retry; the developer can check if it persists.",
     dougFacing:
       "Google picker bootstrap could not claim the signed-in user's crew identity. The user saw a retry page.",
     crewFacing: "Couldn't sign you in. Please try again in a moment.",
@@ -2894,6 +3040,10 @@ export const MESSAGE_CATALOG = {
   },
   PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED: {
     code: "PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED",
+    audience: "health",
+    healthWeight: "degraded",
+    dougSummary:
+      "The show-picker couldn't match a show once. It typically resolves on the next try; the developer can review it.",
     dougFacing:
       "Google picker bootstrap could not resolve the show link before session validation. The user saw a retry page.",
     crewFacing: "Couldn't sign you in. Please try again in a moment.",
@@ -2907,6 +3057,10 @@ export const MESSAGE_CATALOG = {
   },
   OAUTH_IDENTITY_CLAIMED: {
     code: "OAUTH_IDENTITY_CLAIMED",
+    audience: "health",
+    healthWeight: "notice",
+    dougSummary:
+      "A sign-in identity was already linked, and the app handled it automatically. No action needed.",
     dougFacing: "A crew identity was claimed through Google sign-in.",
     crewFacing: null,
     followUp: "Informational",
@@ -2919,6 +3073,9 @@ export const MESSAGE_CATALOG = {
   },
   CALLBACK_CLAIM_THREW: {
     code: "CALLBACK_CLAIM_THREW",
+    audience: "health",
+    healthWeight: "notice",
+    dougSummary: "A sign-in step hit a hiccup and will retry on the next visit. No action needed.",
     dougFacing:
       "The OAuth callback claim step threw before it could finish. The next show visit will retry through picker bootstrap.",
     crewFacing: null,

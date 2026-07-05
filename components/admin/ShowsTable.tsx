@@ -30,7 +30,8 @@ import {
 import { StatusIndicator } from "@/components/admin/StatusIndicator";
 import { HoverHelp } from "@/components/admin/HoverHelp";
 import { syncStatusBucket, type SyncBucket } from "@/lib/admin/syncStatus";
-import { dataGapClassDetails, type DataGapsSummary } from "@/lib/parser/dataGaps";
+import { formatDataGapBreakdown, type DataGapsSummary } from "@/lib/parser/dataGaps";
+import { DataQualityBadge } from "@/components/admin/DataQualityBadge";
 
 type ShowsTableProps = {
   rows: ActiveShowRow[];
@@ -239,8 +240,9 @@ function rowTitle(row: ActiveShowRow): string {
 // raw §12.4 code literal (invariant 5).
 function DataGapsChip({ slug, dataGaps }: { slug: string; dataGaps: DataGapsSummary | undefined }) {
   if (!dataGaps || dataGaps.total === 0) return null;
-  const details = dataGapClassDetails(dataGaps);
-  const breakdown = details.map((d) => `${d.count} ${d.label}`).join(", ");
+  // Bounded (≤4 classes + "+N more") via the shared cap helper so the hover
+  // title never grows unbounded across the 22 gap classes.
+  const breakdown = formatDataGapBreakdown(dataGaps);
   return (
     <span
       data-testid={`shows-data-gaps-chip-${slug}`}
@@ -464,6 +466,9 @@ export function ShowsTable({
                         <span className="min-w-0 wrap-break-word text-sm font-semibold text-text-strong">
                           {rowTitle(row)}
                         </span>
+                        {/* parse-data-quality-warnings badge (spec §3.2 site A) —
+                            after the title, before the inline status pill. */}
+                        <DataQualityBadge slug={row.slug} dataGaps={row.dataGaps} />
                         {/* Inline pill — visible <960px (stacked + 5-col bands); hidden
                             ≥960px where the dedicated Status column takes over (§4.1). */}
                         <span className="min-[960px]:hidden">

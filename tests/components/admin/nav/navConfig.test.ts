@@ -1,17 +1,17 @@
 import { describe, it, expect } from "vitest";
 import { NAV, isNavItemActive, shouldRenderOverflow } from "@/components/admin/nav/navConfig";
 
-it("launch destinations: dashboard + attention + settings + observability", () => {
-  expect(NAV.map((n) => n.id)).toEqual(["dashboard", "attention", "settings", "observability"]);
+it("launch destinations: dashboard + attention + settings + telemetry", () => {
+  expect(NAV.map((n) => n.id)).toEqual(["dashboard", "attention", "settings", "telemetry"]);
   expect(NAV.length).toBe(4);
 });
 
-it("observability (Activity) is a desktopOnly destination with href /admin/observability", () => {
-  const obs = NAV.find((n) => n.id === "observability");
+it("telemetry (Telemetry) is a desktopOnly destination with href /admin/dev/telemetry", () => {
+  const obs = NAV.find((n) => n.id === "telemetry");
   expect(obs).toBeDefined();
   expect(obs?.desktopOnly).toBe(true);
   expect(obs?.mobileOnly).toBeUndefined();
-  expect(obs?.href).toBe("/admin/observability");
+  expect(obs?.href).toBe("/admin/dev/telemetry");
 });
 
 it("ignored-sheets is NOT a nav destination (moved to a dashboard disclosure)", () => {
@@ -36,7 +36,7 @@ it("dashboard + settings are NOT mobileOnly (desktop destinations)", () => {
 
 describe("active-state matrix: exactly one active id per path", () => {
   const matrix: Array<
-    [path: string, activeId: "dashboard" | "attention" | "settings" | "observability"]
+    [path: string, activeId: "dashboard" | "attention" | "settings" | "telemetry"]
   > = [
     ["/admin", "dashboard"],
     ["/admin/needs-attention", "attention"],
@@ -45,13 +45,13 @@ describe("active-state matrix: exactly one active id per path", () => {
     // disclosure). /admin/ignored-sheets now 307-redirects to /admin via
     // next.config redirects() (pinned by tests/config/rootRedirect.test.ts); if
     // any stray sub-path still resolves, isNavItemActive classifies it as
-    // Dashboard (it is not settings/attention/observability).
+    // Dashboard (it is not settings/attention/telemetry).
     ["/admin/ignored-sheets", "dashboard"],
     ["/admin/ignored-sheets/x", "dashboard"],
     ["/admin/settings", "settings"],
     ["/admin/settings/admins", "settings"],
-    ["/admin/observability", "observability"],
-    ["/admin/observability/x", "observability"],
+    ["/admin/dev/telemetry", "telemetry"],
+    ["/admin/dev/telemetry/x", "telemetry"],
     ["/admin/show/abc", "dashboard"],
   ];
 
@@ -90,7 +90,7 @@ it("settings + nested settings routes activate Settings", () => {
 
 it("overflow 'More' tab hidden at ≤5 destinations, shown only at >5", () => {
   expect(shouldRenderOverflow(2)).toBe(false);
-  // The mobile bottom bar shows only non-desktopOnly items (Activity is desktopOnly),
+  // The mobile bottom bar shows only non-desktopOnly items (Telemetry is desktopOnly),
   // so the mobile-visible count is 3 (Dashboard / Attention / Settings)
   // → no overflow "More" tab.
   const mobileCount = NAV.filter((n) => !n.desktopOnly).length;

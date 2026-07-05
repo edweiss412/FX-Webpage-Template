@@ -59,6 +59,7 @@ vi.mock("@/lib/supabase/server", () => ({
       builder.select = () => builder;
       builder.eq = pass;
       builder.is = pass;
+      builder.not = pass;
       builder.order = pass;
       builder.returns = pass;
       builder.maybeSingle = async () => ({

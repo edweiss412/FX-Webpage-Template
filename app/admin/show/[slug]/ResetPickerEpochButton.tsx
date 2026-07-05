@@ -23,6 +23,8 @@ import { useEffect, useId, useRef, useState, useTransition } from "react";
 import { resetPickerEpoch } from "@/lib/auth/picker/resetPickerEpoch";
 
 const AUTO_REVERT_MS = 3_000;
+/** PCR-1 (d): how long a success banner lingers before it auto-dismisses. */
+const SUCCESS_DISMISS_MS = 5_000;
 
 type UiState = "idle" | "confirm" | "resolving";
 type Result = { ok: true; new_epoch: number } | { ok: false; code: string } | null;
@@ -71,6 +73,16 @@ export function ResetPickerEpochButton({
     }
   }, [isPending, result, ui]);
 
+  // PCR-1 (d): auto-dismiss the SUCCESS banner so a stale confirmation doesn't
+  // linger beside the control. The refused banner is NOT auto-dismissed — it must
+  // persist until the admin reads it. Cleanup clears the timer on unmount or when
+  // the result changes (no setState-after-unmount leak).
+  useEffect(() => {
+    if (!result?.ok) return;
+    const t = setTimeout(() => setResult(null), SUCCESS_DISMISS_MS);
+    return () => clearTimeout(t);
+  }, [result]);
+
   const onResetClick = () => {
     clearAutoRevert();
     // Clear any prior result so a stale OK/refused banner doesn't reappear
@@ -107,7 +119,9 @@ export function ResetPickerEpochButton({
   const labelHeader =
     compact && rowLabel ? (
       <div className="min-w-0">
-        <p className="text-sm font-medium text-text-strong">{rowLabel}</p>
+        {/* PCR-1 (b): heading (under the panel's <h3>) so the control is reachable
+            in the screen-reader heading outline. Visual style is unchanged. */}
+        <h4 className="text-sm font-medium text-text-strong">{rowLabel}</h4>
         {rowDescription ? (
           <p id={descId} className="text-xs text-text-subtle">
             {rowDescription}
@@ -125,8 +139,8 @@ export function ResetPickerEpochButton({
       aria-describedby={compact && rowDescription ? descId : undefined}
       className={
         compact
-          ? "inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-          : "inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border bg-surface px-4 py-2 font-medium text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          ? "inline-flex min-h-tap-min min-w-tap-min shrink-0 items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+          : "inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border bg-surface px-4 py-2 font-medium text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
       }
     >
       {compact ? (
@@ -140,53 +154,46 @@ export function ResetPickerEpochButton({
     </button>
   );
 
-  const banners = (
-    <>
-      {okMessage && (
-        <p
-          data-testid="admin-reset-picker-epoch-ok"
-          role="status"
-          aria-live="polite"
-          className="rounded-sm bg-surface-raised px-2 py-1 text-sm text-text-strong"
-        >
-          <span aria-hidden="true" className="mr-1 font-semibold text-accent">
-            ✓
-          </span>
-          {okMessage}
-        </p>
-      )}
-      {refusedMessage && (
-        <p
-          data-testid="admin-reset-picker-epoch-refused"
-          role="alert"
-          className="rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
-        >
-          {refusedMessage}
-        </p>
-      )}
-    </>
+  // PCR-1 (a): persistent, visually-hidden polite live region present in EVERY
+  // UI state (idle + confirm) so it is one stable node across the resolving →
+  // idle transition; the success text swaps INTO a pre-existing region, so SRs
+  // that skip insert-time announcements on a freshly mounted region still fire.
+  // A real sr-only element (NOT display:contents, whose live-region semantics
+  // can be dropped from the a11y tree in Safari/VoiceOver) that is out of layout
+  // flow (position:absolute), so it adds no flex gap. Visible banner is separate.
+  const liveRegion = (
+    <div className="sr-only" role="status" aria-live="polite">
+      {okMessage ?? ""}
+    </div>
   );
-
-  if (ui === "idle") {
-    return compact && rowLabel ? (
-      <div className="flex flex-col gap-2 py-3">
-        <div className="flex items-start justify-between gap-3">
-          {labelHeader}
-          {idleButton}
-        </div>
-        {banners}
-      </div>
-    ) : (
-      <div className="flex flex-col items-end gap-2">
-        {idleButton}
-        {banners}
-      </div>
-    );
-  }
+  // aria-hidden: the sr-only region is the single SR source for the success;
+  // this visible banner is purely decorative so the message is not exposed to
+  // the a11y tree twice (Codex R2 LOW).
+  const okBanner = okMessage ? (
+    <p
+      data-testid="admin-reset-picker-epoch-ok"
+      aria-hidden="true"
+      className="rounded-sm bg-surface-raised px-2 py-1 text-sm text-text-strong"
+    >
+      <span aria-hidden="true" className="mr-1 font-semibold text-accent">
+        ✓
+      </span>
+      {okMessage}
+    </p>
+  ) : null;
+  const errorBanner = refusedMessage ? (
+    <p
+      data-testid="admin-reset-picker-epoch-refused"
+      role="alert"
+      className="rounded-sm bg-warning-bg px-2 py-1 text-sm text-warning-text"
+    >
+      {refusedMessage}
+    </p>
+  ) : null;
 
   // M11.5-IMP-5 item 4: aria-describedby links the destructive Confirm button to
   // the warning paragraph's id (tighter SR experience). data-testid + role=group
-  // stay on the outer container so the existing test contract holds.
+  // stay on the confirm-row container so the existing test contract holds.
   const warningP = (
     <p id="admin-reset-picker-epoch-warning" className="text-sm text-text-subtle">
       Every device&rsquo;s picker re-prompts on next visit.
@@ -201,7 +208,7 @@ export function ResetPickerEpochButton({
         aria-busy={isResolving}
         aria-describedby="admin-reset-picker-epoch-warning"
         data-testid="admin-reset-picker-epoch-confirm-button"
-        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-4 py-2 font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-4 py-2 font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60"
       >
         {isResolving ? "Resetting…" : "Confirm reset"}
       </button>
@@ -210,35 +217,51 @@ export function ResetPickerEpochButton({
         onClick={onCancelClick}
         disabled={isResolving}
         data-testid="admin-reset-picker-epoch-cancel-button"
-        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border bg-surface px-4 py-2 text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
+        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border bg-surface px-4 py-2 text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60"
       >
         Cancel
       </button>
     </div>
   );
 
+  // Single return so {liveRegion} sits at a stable tree position across states.
   // Compact confirm: label is its OWN top row; warning + Confirm/Cancel render
   // FULL-WIDTH below it (adversarial M12.7 — not cramped beside the label).
-  return compact && rowLabel ? (
+  const stateBody =
+    ui === "idle" ? (
+      compact && rowLabel ? (
+        <div className="flex items-start justify-between gap-3">
+          {labelHeader}
+          {idleButton}
+        </div>
+      ) : (
+        idleButton
+      )
+    ) : (
+      <div
+        data-testid="admin-reset-picker-epoch-confirm-row"
+        role="group"
+        aria-label="Confirm resetting picker selections for this show"
+        className={compact && rowLabel ? "flex flex-col gap-2" : "flex flex-col items-end gap-2"}
+      >
+        {compact && rowLabel ? labelHeader : null}
+        {warningP}
+        {confirmCancelButtons}
+      </div>
+    );
+
+  return (
     <div
-      data-testid="admin-reset-picker-epoch-confirm-row"
-      role="group"
-      aria-label="Confirm resetting picker selections for this show"
-      className="flex flex-col gap-2 py-3"
+      className={compact && rowLabel ? "flex flex-col gap-2 py-3" : "flex flex-col items-end gap-2"}
     >
-      {labelHeader}
-      {warningP}
-      {confirmCancelButtons}
-    </div>
-  ) : (
-    <div
-      data-testid="admin-reset-picker-epoch-confirm-row"
-      role="group"
-      aria-label="Confirm resetting picker selections for this show"
-      className="flex flex-col items-end gap-2"
-    >
-      {warningP}
-      {confirmCancelButtons}
+      {stateBody}
+      {liveRegion}
+      {/* Visible banners render only at rest (idle), never beside the resolving
+          confirm row — the sr-only liveRegion above still announces immediately
+          regardless of ui, so gating the VISIBLE banner costs no announce delay
+          (Codex R3 — restores the prior idle-only banner placement). */}
+      {ui === "idle" ? okBanner : null}
+      {ui === "idle" ? errorBanner : null}
     </div>
   );
 }

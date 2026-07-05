@@ -3,6 +3,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { AdminNav } from "@/components/admin/nav/AdminNav";
+import type { HealthStatus } from "@/lib/admin/healthRollup";
 
 // Variable-driven so individual tests can move the pathname (badge hook
 // reads it too; it must NOT fetch on initial mount).
@@ -79,9 +80,9 @@ describe("AdminNav", () => {
     ).toBeTruthy();
   });
 
-  it("Activity (desktopOnly) is absent from the mobile bottom tabs; no dead 'More' placeholder", () => {
+  it("Telemetry (desktopOnly) is absent from the mobile bottom tabs; no dead 'More' placeholder", () => {
     render(<AdminNav email="a@b.c" alertCount={okAlerts} initialBadgeCount={0} />);
-    expect(screen.queryByTestId("admin-bottom-tab-observability")).toBeNull();
+    expect(screen.queryByTestId("admin-bottom-tab-telemetry")).toBeNull();
     expect(screen.queryByTestId("admin-bottom-tab-more")).toBeNull(); // overflow never triggers (5 mobile tabs)
     expect(screen.getByTestId("admin-bottom-tab-dashboard")).toBeInTheDocument(); // a real mobile tab still renders
   });
@@ -153,6 +154,29 @@ describe("AdminNav", () => {
     it("initial mount never fetches the count route", () => {
       render(<AdminNav email="d@e.com" alertCount={okAlerts} initialBadgeCount={3} />);
       expect(fetchSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("app-health indicator (Task 6)", () => {
+    const degraded: HealthStatus = {
+      kind: "degraded",
+      count: 2,
+      summaries: [{ text: "A background report lease is thrashing.", count: 2 }],
+      overflowCount: 0,
+    };
+
+    it("renders <AppHealthIndicator> beside <NotifBell> given a healthRollup prop", () => {
+      render(<AdminNav email="d@e.com" alertCount={okAlerts} healthRollup={degraded} />);
+      const bell = screen.getByTestId("admin-notif-bell");
+      const indicator = screen.getByTestId("app-health-indicator");
+      expect(indicator).toBeInTheDocument();
+      // Sibling of the bell inside the same action cluster.
+      expect(bell.parentElement).toBe(indicator.parentElement);
+    });
+
+    it("does not render the indicator when no healthRollup is provided", () => {
+      render(<AdminNav email="d@e.com" alertCount={okAlerts} />);
+      expect(screen.queryByTestId("app-health-indicator")).toBeNull();
     });
   });
 });

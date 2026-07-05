@@ -19,6 +19,9 @@
 //   | Step-3 per-class detail         | `dataGapDetails.length > 0 ? … : null` | INSTANT |
 //   | Per-show "Data quality" panel   | `failed ? … : active/ignored.length>0 ? … : null` | INSTANT |
 //   | First-published alert sub-line  | `dataGapsDigest ? … : null`          | INSTANT   |
+//   | Data-quality badge (ShowsTable) | early-return null when total===0     | INSTANT   |
+//   | Data-quality badge (Archived)   | early-return null when total===0     | INSTANT   |
+//   | Degraded-read notice (Dashboard)| `dataGapsDegraded ? … : null`        | INSTANT   |
 //
 // Compound transitions: each surface lives in a different component, reads a
 // different data source, and shares no client state with the others (all four
@@ -33,6 +36,7 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { ShowsTable } from "@/components/admin/ShowsTable";
 import type { ActiveShowRow } from "@/lib/admin/showDisplay";
 import type { DataGapsSummary } from "@/lib/parser/dataGaps";
+import { mkDataGaps } from "../../helpers/dataGapsFixture";
 
 afterEach(cleanup);
 
@@ -49,19 +53,15 @@ const DATA_GAP_SOURCE_FILES = [
   "components/admin/wizard/Step3SheetCard.tsx",
   "components/admin/PerShowAlertSection.tsx",
   "app/admin/show/[slug]/page.tsx",
+  "components/admin/Dashboard.tsx",
+  "components/admin/DataQualityBadge.tsx",
+  "components/admin/ArchivedShowRow.tsx",
 ] as const;
 
 const now = new Date("2026-06-03T12:00:00.000Z");
 
 function gaps(total: number): DataGapsSummary {
-  return {
-    total,
-    classes: {
-      FIELD_UNREADABLE: total,
-      UNKNOWN_SECTION_HEADER: 0,
-      BLOCK_DISAPPEARED: 0,
-    },
-  };
+  return mkDataGaps({ FIELD_UNREADABLE: total });
 }
 
 function row(over: Partial<ActiveShowRow> & { slug: string }): ActiveShowRow {
@@ -128,6 +128,21 @@ describe("data-gap surfaces — transition audit (instant, static parse-state)",
     expect(page).toMatch(/\{dataQuality\.failed \? \(/);
     expect(page).toMatch(/: activeActionable\.length > 0 \|\| ignoredActionable\.length > 0 \? \(/);
     expect(src("components/admin/PerShowAlertSection.tsx")).toMatch(/\{dataGapsDigest \? \(/);
+  });
+
+  // Data-quality badge + degraded notice (this feature). Failure mode: the
+  // degraded-read notice or the badge gets wrapped in an animated presence.
+  it("Dashboard degraded-read notice is an instant ternary, not an animated wrapper", () => {
+    const s = src("components/admin/Dashboard.tsx");
+    expect(s).toMatch(/\{result\.dataGapsDegraded \? \(/); // plain ternary-to-null
+    // the notice testid is NOT inside an AnimatePresence wrapper
+    expect(s).not.toMatch(/AnimatePresence[\s\S]*dashboard-data-quality-degraded/);
+  });
+
+  it("DataQualityBadge is an instant early-return null, not an animated presence", () => {
+    const s = src("components/admin/DataQualityBadge.tsx");
+    expect(s).toMatch(/if \(!dataGaps \|\| dataGaps\.total === 0\) return null;/); // instant unmount
+    expect(s).not.toMatch(/AnimatePresence|framer-motion|motion\./);
   });
 
   // Render-level proof the chip mounts/unmounts INSTANTLY: present iff total>0,

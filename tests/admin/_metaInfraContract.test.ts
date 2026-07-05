@@ -65,6 +65,7 @@ type AwaitableQuery = Promise<{ data: null; error: null }> & {
   eq: (..._args: unknown[]) => AwaitableQuery;
   in: (..._args: unknown[]) => AwaitableQuery;
   is: (..._args: unknown[]) => AwaitableQuery;
+  not: (..._args: unknown[]) => AwaitableQuery;
   order: (..._args: unknown[]) => AwaitableQuery;
   limit: (..._args: unknown[]) => AwaitableQuery;
   range: (..._args: unknown[]) => AwaitableQuery;
@@ -112,6 +113,7 @@ function makeThrowingClient() {
       builder.eq = passthrough;
       builder.in = passthrough;
       builder.is = passthrough;
+      builder.not = passthrough;
       builder.order = passthrough;
       builder.limit = passthrough;
       builder.range = passthrough;
@@ -174,7 +176,8 @@ const infraRegistry = [
   {
     helper: "fetchDashboardData",
     path: "components/admin/Dashboard.tsx",
-    contract: "shows/crew/pending_ingestions/pending_syncs await throws → infra_error",
+    contract:
+      "shows/crew/pending_ingestions/pending_syncs await throws → infra_error; the shows_internal.parse_warnings data-gaps read (readDataGaps) destructures { data, error } and returns a typed infra_error at the boundary, which the caller degrades VISIBLE (dataGapsDegraded → calm notice), NEVER a silent empty — mirrors the per-show panel read at :322 (invariant 9)",
   },
   {
     helper: "fetchLiveFirstSeenRow",
@@ -244,6 +247,18 @@ const infraRegistry = [
     path: "lib/admin/alertCount.ts",
     contract:
       "admin_alerts head:true count; client construction + await/throw → { kind:'infra_error' }; count=0 is the ONLY clean state (feeds NotifBell badge + AlertBanner +N chip, no drift)",
+  },
+  {
+    helper: "fetchHealthRollup",
+    path: "lib/admin/healthRollup.ts",
+    contract:
+      "admin_alerts app-health rollup: exact count:'exact', head:true probes ONLY (total over HEALTH_CODES → short-circuit {kind:'ok'} at 0; degraded head count → worst weight; parallel per-code head counts for the popover summaries). Every await destructures { data, count, error }; construction throw / returned {error} / non-number count / any await throw → { kind:'infra_error' }; data:null is NORMAL for a head probe (validated solely on typeof count === 'number', never array-shape)",
+  },
+  {
+    helper: "loadHealthAlerts",
+    path: "lib/admin/healthAlerts.ts",
+    contract:
+      "admin_alerts health-detail loader (spec §6.6): ONE partition per call (weight → DEGRADED_HEALTH_CODES | NOTICE_HEALTH_CODES), .in('code', set).is('resolved_at',null).order('raised_at',desc).range(page*SIZE, page*SIZE+SIZE) requesting SIZE+1 rows; destructure { data, error }; construction throw / returned {error} / any await throw → { kind:'infra_error' } (array-shape read; the panel degrades VISIBLE, never a silent empty). Bounded via .range.",
   },
   {
     helper: "getActiveWatchedFolder",
@@ -610,6 +625,18 @@ describe("META §B Supabase call-boundary contract", () => {
       expect(result).toMatchObject({ kind: "infra_error" });
       expect((result as { kind: string; message: string }).message).toMatch(/crew_members.*threw/);
     });
+
+    test("from('shows_internal') throw → degrades VISIBLE (NOT infra_error): dataGapsDegraded, no rows dropped", async () => {
+      // Seed a shows row so wave-2 (readDataGaps) runs past the empty-shows
+      // short-circuit (same shape as the crew_members test above).
+      infraMock.dataByTable = { shows: [{ id: "s1", slug: "rpas", drive_file_id: "df-1" }] };
+      infraMock.throwOnFromTable = "shows_internal";
+      const { fetchDashboardData } = await import("@/components/admin/Dashboard");
+      const result = await fetchDashboardData();
+      expect((result as { kind?: string }).kind).toBeUndefined(); // NOT a dashboard-wide infra_error
+      expect((result as { dataGapsDegraded: boolean }).dataGapsDegraded).toBe(true);
+      expect((result as { rows: unknown[] }).rows.length).toBe(1);
+    });
   });
 
   // Needs-attention loader (mobile needs-attention Task 1, spec §4.1) —
@@ -794,6 +821,26 @@ describe("META §B Supabase call-boundary contract", () => {
       infraMock.throwOnFromTable = "show_change_log";
       const { queryChangeLog } = await import("@/lib/observe/query/changeLog");
       expect(await queryChangeLog({})).toMatchObject({ kind: "infra_error" });
+    });
+  });
+
+  // Health-detail loader (alert-audience-split Task 8, spec §6.6). Array-shape
+  // read: construction throw AND per-table .from() throw both surface the typed
+  // infra_error (never propagate). The panel degrades VISIBLE on it.
+  describe("loadHealthAlerts", () => {
+    test("server-client construction throw → { kind: 'infra_error' }", async () => {
+      infraMock.throwOnConstruct = true;
+      const { loadHealthAlerts } = await import("@/lib/admin/healthAlerts");
+      expect(await loadHealthAlerts({ weight: "degraded", page: 0 })).toEqual({
+        kind: "infra_error",
+      });
+    });
+    test("from('admin_alerts') throw → { kind: 'infra_error' }", async () => {
+      infraMock.throwOnFromTable = "admin_alerts";
+      const { loadHealthAlerts } = await import("@/lib/admin/healthAlerts");
+      expect(await loadHealthAlerts({ weight: "notice", page: 0 })).toEqual({
+        kind: "infra_error",
+      });
     });
   });
 

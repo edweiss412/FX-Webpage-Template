@@ -32,7 +32,14 @@ function isUuidV4(value: unknown): value is string {
 async function readRequestBody(req: Request): Promise<RequestBody | null> {
   try {
     const body = (await req.json()) as Partial<RequestBody>;
-    if (!isUuidV4(body.idempotency_key) || !isUuidV4(body.show_id)) return null;
+    if (!isUuidV4(body.idempotency_key)) return null;
+    if (body.show_id === null) {
+      // Spec §D4: staged wizard rows have no shows record — null is allowed
+      // ONLY for the admin surface; crew always has a show (unchanged 400).
+      if (body.surface !== "admin") return null;
+    } else if (!isUuidV4(body.show_id)) {
+      return null;
+    }
     return body as RequestBody;
   } catch {
     return null;
@@ -123,19 +130,24 @@ async function authenticateReportRequest(
     }
   }
 
+  // readRequestBody already rejects show_id null for non-admin surfaces;
+  // this narrow is unreachable-but-typed for the string-only crew APIs below.
+  const crewShowId = body.show_id;
+  if (crewShowId === null) return { ok: false, status: 400, body: { ok: false } };
+
   const pickerResult = await deps.resolvePickerSelection({
-    showId: body.show_id,
+    showId: crewShowId,
     cookie: pickerCookieFromRequest(req),
   });
   if (pickerResult.kind === "resolved") {
-    const roleFlags = await deps.readCrewRoleFlags(body.show_id, pickerResult.crewMemberId);
+    const roleFlags = await deps.readCrewRoleFlags(crewShowId, pickerResult.crewMemberId);
     if (!roleFlags.ok) return roleFlags;
     return {
       ok: true,
       auth: {
         kind: "crew",
         source: "picker",
-        showId: body.show_id,
+        showId: crewShowId,
         crewMemberId: pickerResult.crewMemberId,
         roleFlags: roleFlags.roleFlags,
       },

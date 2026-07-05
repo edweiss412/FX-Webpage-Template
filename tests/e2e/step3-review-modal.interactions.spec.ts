@@ -21,8 +21,19 @@
  *      static markup too).
  *   3. serves live.html (#root + bundle.js) over node:http.
  *
- * Reduced-motion choice (documented per the task brief): all tests emulate
- * `prefers-reduced-motion: reduce`. app/globals.css collapses the panel/scrim
+ * Follow-ups Task 14 (spec 2026-07-03 §I/§K11-§K14) extends this file:
+ *   - §K13 jump+highlight and §K14 footer no-shift run under the file's
+ *     reduced-motion default (the flash attribute lifecycle and the overlay's
+ *     out-of-flow geometry are motion-independent); the live entry stubs
+ *     window.fetch for ONLY the rescan route (deterministic overlay result).
+ *   - §K11 nav race + §K12 indicator live in a dedicated `test.describe` that
+ *     emulates `reducedMotion: "no-preference"` — the content pane's glide is
+ *     `motion-safe:scroll-smooth` and the indicator slide is `motion-reduce:
+ *     transition-none`, so the race/transition under test only exist with
+ *     motion enabled.
+ *
+ * Reduced-motion choice (documented per the task brief): all OTHER tests
+ * emulate `prefers-reduced-motion: reduce`. app/globals.css collapses the panel/scrim
  * entrance animation AND zeroes --duration-fast/normal, and gates the content
  * pane's scroll-smooth behind motion-safe. Consequences, all deterministic:
  *   - geometry is final on load (no entrance-animation waits);
@@ -78,6 +89,11 @@ const SCROLL_SPY_OFFSET_PX = 90;
 const DRAG_DISMISS_PX = 140; // > DRAG_DISMISS_THRESHOLD_PX (110)
 const DRAG_SPRINGBACK_PX = 60; // between DRAG_SLOP_PX (6) and the 110 threshold
 const NAV_CLICK_OFFSET_PX = 8; // §6.3a click override scrolls to sectionTop − 8
+// Follow-ups spec (2026-07-03) literals — same deliberately-NOT-imported
+// rationale: the SPEC is the source of truth, drift fails here correctly.
+const INDICATOR_INSET_PX = 12; // §A3/§I rail-indicator vertical inset
+const WARNING_HIGHLIGHT_MS = 1600; // §E4/§H N3 one-shot warning-row flash
+const TAP_MIN = 44; // parent-spec §15 minimum tap-target height
 
 function tid(name: string): string {
   return `wizard-step3-card-${HARNESS_DFID}-review-${name}`;
@@ -583,3 +599,455 @@ for (const { mode, width, height, hiddenNav } of TAB_MODES) {
     );
   });
 }
+
+// ── §K13 jump + highlight lifecycle (two-pane 1280; reduced motion — the
+// attribute lifecycle is identical: steady tint instead of a fade, removed
+// with the attribute by the WARNING_HIGHLIGHT_MS timer) ──────────────────────
+
+test("§K13: callout View details jumps to the warning row in view, flash present then gone", async ({
+  page,
+}) => {
+  await openLive(page, { width: 1280, height: 800 });
+
+  // The harness fixture maps 5 warn-severity crew-kind warnings → the crew
+  // section's §E3 callout (3 "View details" rows + a "+2 more" overflow row).
+  const callout = page.locator(
+    `[data-testid="wizard-step3-card-${HARNESS_DFID}-section-crew-flag-callout"]`,
+  );
+  await expect(callout, "crew flag callout renders").toHaveCount(1);
+  await callout
+    .getByRole("button", { name: /View details/ })
+    .first()
+    .click();
+
+  // The jump flashed exactly ONE element, and it is a warnings-section row
+  // (li[data-warning-index]) — catches: wrong target / attribute on nothing.
+  const flashed = page.locator("[data-step3-warning-flash]");
+  await expect(flashed, "exactly one flashed warning row").toHaveCount(1);
+  const info = await flashed.evaluate((el) => ({
+    tag: el.tagName,
+    index: el.getAttribute("data-warning-index"),
+    testid: el.getAttribute("data-testid") ?? "",
+  }));
+  expect(info.tag, "flash target is a list row").toBe("LI");
+  expect(info.index, "flash target carries the jump-key index").not.toBeNull();
+  expect(info.testid.startsWith(`wizard-step3-card-${HARNESS_DFID}-warning-`)).toBe(true);
+
+  // §E4 landing: the target row lies within the scroller's viewport rect
+  // (instant glide under reduced motion — geometry is already final).
+  const landing = await page.locator(CONTENT).evaluate((scroller) => {
+    const target = scroller.querySelector("[data-step3-warning-flash]");
+    if (!target) return null;
+    const s = scroller.getBoundingClientRect();
+    const t = target.getBoundingClientRect();
+    return { sTop: s.top, sBottom: s.bottom, tTop: t.top, tBottom: t.bottom };
+  });
+  expect(landing, "flashed row still inside the scroller").not.toBeNull();
+  if (!landing) return;
+  expect(landing.tTop, "row top at/below the scroller top").toBeGreaterThanOrEqual(
+    landing.sTop - TOL,
+  );
+  expect(landing.tBottom, "row bottom at/above the scroller bottom").toBeLessThanOrEqual(
+    landing.sBottom + TOL,
+  );
+
+  // The jump also drives the nav via §E4 = §A2 semantics: the suppressed
+  // glide releases on settle/clamp and falls through to the §6.3a derivation
+  // at the landed position (parent spec §A2 release conditions). Follow-ups-b2
+  // §D collapsed the report form, shortening the LAST section — this jump now
+  // BOTTOM-CLAMPS, so the rule's answer is the last section ("report"), not
+  // "warnings" as under the pre-§D geometry. Derive the expectation from the
+  // spec rule at live-measured geometry rather than hardcoding either id, so
+  // the assertion keeps its teeth against wiring drift (wrong container,
+  // stale tops, aria-current on the wrong item) without pinning the fixture's
+  // height budget.
+  const landed = await contentMetrics(page);
+  const landedScrollTop = await page.locator(CONTENT).evaluate((el) => el.scrollTop);
+  const expectedActive = specActiveSection(
+    landedScrollTop,
+    landed.clientHeight,
+    landed.scrollHeight,
+    landed.tops,
+  );
+  await expect
+    .poll(() => railActiveId(page), { message: "nav lands on the §6.3a-derived section" })
+    .toBe(expectedActive);
+
+  // Lifecycle: the one-shot timer strips the attribute within
+  // WARNING_HIGHLIGHT_MS (+1s slack) — catches: timer never firing.
+  await expect
+    .poll(() => page.locator("[data-step3-warning-flash]").count(), {
+      message: "flash attribute removed by the one-shot timer",
+      timeout: WARNING_HIGHLIGHT_MS + 1000,
+    })
+    .toBe(0);
+});
+
+// ── Follow-ups-b2 §D: report disclosure — expand, then measure the submit
+// tap target. The layout spec's STATIC harness cannot expand (no JS), so its
+// tap-target audit measures the always-present toggle and the submit-button
+// ≥44px measurement lives HERE behind a real click. Catches: toggle missing/
+// unwired, form not mounting on expand, or a submit target under 44px. ──────
+
+test("§D: report toggle expands the form live — submit button visible with height ≥ 44", async ({
+  page,
+}) => {
+  await openLive(page, { width: 1280, height: 800 });
+
+  const toggle = page.locator(`[data-testid="wizard-step3-card-${HARNESS_DFID}-report-toggle"]`);
+  await expect(toggle, "disclosure toggle renders collapsed").toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
+  const submit = page.locator(`[data-testid="wizard-step3-card-${HARNESS_DFID}-report-submit"]`);
+  await expect(submit, "form hidden while collapsed").toHaveCount(0);
+
+  await toggle.click();
+  await expect(toggle, "toggle reflects expansion").toHaveAttribute("aria-expanded", "true");
+  await expect(submit, "submit button mounts on expand").toBeVisible();
+  const h = await submit.evaluate((el) => el.getBoundingClientRect().height);
+  expect(h, "report submit height ≥ 44 after expand").toBeGreaterThanOrEqual(TAP_MIN - TOL);
+});
+
+// ── §K14 footer no-shift (overlay rescan result; live-entry fetch stub) ─────
+
+test("§K14: overlay rescan result keeps the footer height constant; floats above; dismiss works", async ({
+  page,
+}) => {
+  await openLive(page, { width: 1280, height: 800 });
+  const FOOTER = `[data-testid="${tid("footer")}"]`;
+  const footerRect = () =>
+    page.locator(FOOTER).evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return { top: r.top, height: r.height };
+    });
+
+  const before = await footerRect();
+  expect(before.height, "footer has real height").toBeGreaterThan(0);
+
+  // The live entry's fetch stub answers the rescan route with the clean
+  // deterministic success body — the overlay result renders.
+  await page.locator(`[data-testid="rescan-sheet-button-${HARNESS_DFID}"]`).click();
+  const overlay = page.locator("[data-rescan-overlay-result]");
+  await expect(overlay, "overlay result appears").toBeVisible();
+
+  // §I: footer height identical (±0.5px) before/after the result renders —
+  // catches: result rendering in-flow and growing the footer.
+  const after = await footerRect();
+  expect(
+    Math.abs(after.height - before.height),
+    `footer height ${after.height} === pre-result height ${before.height}`,
+  ).toBeLessThanOrEqual(TOL);
+
+  // Out of flow, floating ABOVE the trigger: spec §G pins `absolute
+  // bottom-full right-0 mb-2` on the button's wrapper INSIDE the footer, so
+  // the overlay's bottom lands exactly 8px (mb-2) above the Re-scan button —
+  // i.e. ~5px into the footer's top PADDING strip (border 1px + pt-3 12px −
+  // mb-2 8px), measured 656 vs footer top 651 @1280. The correct out-of-flow
+  // contract is therefore "fully above the trigger button" (never overlapping
+  // any footer CONTENT and never affecting flow — the §I height equality
+  // above is the load-bearing invariant), NOT "above the footer's border box".
+  const overlayRect = await overlay.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { bottom: r.bottom, height: r.height };
+  });
+  const buttonTop = await page
+    .locator(`[data-testid="rescan-sheet-button-${HARNESS_DFID}"]`)
+    .evaluate((el) => el.getBoundingClientRect().top);
+  expect(overlayRect.height, "overlay has real height").toBeGreaterThan(0);
+  expect(
+    overlayRect.bottom,
+    `overlay bottom ${overlayRect.bottom} ≤ Re-scan button top ${buttonTop} (floats above the trigger)`,
+  ).toBeLessThanOrEqual(buttonTop + TOL);
+
+  // A floating layer must be closable (§G): dismiss removes it.
+  await overlay.locator('button[aria-label="Dismiss"]').click();
+  await expect(overlay, "dismiss removes the overlay").toHaveCount(0);
+  await expect(page.locator(MODAL), "modal itself stays open").toHaveCount(1);
+});
+
+test("§K14 at 390px (sheet mode): overlay rescan result stays fully on-screen — footer-anchored left below sm (impeccable audit P1: right-0 on the left-positioned wrapper clipped ~139px off the left viewport edge)", async ({
+  page,
+}) => {
+  const VIEWPORT_W = 390;
+  await openLive(page, { width: VIEWPORT_W, height: 844 });
+  await page.locator(`[data-testid="rescan-sheet-button-${HARNESS_DFID}"]`).click();
+  const overlay = page.locator("[data-rescan-overlay-result]");
+  await expect(overlay, "overlay result appears").toBeVisible();
+  const box = await overlay.boundingBox();
+  expect(box, "overlay has a bounding box").not.toBeNull();
+  if (!box) return;
+  expect(box.width, "overlay has real width").toBeGreaterThan(0);
+  // Both horizontal edges inside the viewport (WCAG 1.4.10 reflow): pre-fix,
+  // the wrapper-anchored right-0 overlay started at x < 0 even for this short
+  // clean-info body (wrapper right edge ≈ 173px, overlay ≈ 250px wide).
+  expect(box.x, `overlay left edge ${box.x} on-screen`).toBeGreaterThanOrEqual(-TOL);
+  expect(
+    box.x + box.width,
+    `overlay right edge ${box.x + box.width} inside the ${VIEWPORT_W}px viewport`,
+  ).toBeLessThanOrEqual(VIEWPORT_W + TOL);
+  // Still floats above the footer (out of flow — §I height constancy is
+  // pinned by the 1280px §K14 test above).
+  const footerTop = await page
+    .locator(`[data-testid="${tid("footer")}"]`)
+    .evaluate((el) => el.getBoundingClientRect().top);
+  expect(
+    box.y + box.height,
+    `overlay bottom ${box.y + box.height} at/above the footer top ${footerTop}`,
+  ).toBeLessThanOrEqual(footerTop + TOL);
+  // Dismiss still works at this viewport.
+  await overlay.locator('button[aria-label="Dismiss"]').click();
+  await expect(overlay, "dismiss removes the overlay").toHaveCount(0);
+});
+
+// ── §K11/§K12 — MOTION ENABLED (deliberately NOT inheriting the file's
+// reduced-motion emulation): the content pane's glide is `motion-safe:
+// scroll-smooth` and the rail indicator's slide is `motion-reduce:
+// transition-none` — the nav race and the indicator transition only EXIST
+// with motion on, so these tests emulate `no-preference` explicitly. ─────────
+
+test.describe("§K11/§K12 with motion enabled", () => {
+  async function openLiveWithMotion(page: Page, viewport: { width: number; height: number }) {
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    await page.setViewportSize(viewport);
+    await page.goto(baseUrl + "live.html");
+    await expect(page.locator(PANEL)).toBeVisible();
+    // Motion is ON here, so the panel entrance animation actually runs — wait
+    // for it to finish so geometry is final before any measurement or click.
+    await page
+      .locator(PANEL)
+      .evaluate((el) => Promise.all(el.getAnimations().map((a) => a.finished)));
+  }
+
+  test("§K11 nav race: frame-sampled aria-current ⊆ {pre-click, clicked} across the glide", async ({
+    page,
+  }) => {
+    await openLiveWithMotion(page, { width: 1280, height: 800 });
+    const pre = await railActiveId(page);
+    expect(pre, "pre-click active id readable").not.toBeNull();
+    const m = await contentMetrics(page);
+    const lastId = m.tops[m.tops.length - 1]?.id ?? "";
+    expect(lastId, "the last section is a real far target").not.toBe(pre);
+
+    // Click + rAF-sample INSIDE the page so no frame between the click and
+    // the first sample can hide a flicker (the reported §A2 bug: the rail
+    // indicator hopped across every section between here and there).
+    const result = await page.evaluate(
+      async ({ railSel, itemSel, contentSel, itemPrefix }) => {
+        const rail = document.querySelector(railSel);
+        const item = document.querySelector<HTMLElement>(itemSel);
+        const scroller = document.querySelector<HTMLElement>(contentSel);
+        if (!rail || !item || !scroller) return null;
+        const readActive = () => {
+          const current = Array.from(rail.querySelectorAll('[aria-current="true"]')).filter(
+            (el) => el.getClientRects().length > 0,
+          );
+          if (current.length !== 1) return `__invalid(${current.length})`;
+          return (current[0]?.getAttribute("data-testid") ?? "").slice(itemPrefix.length);
+        };
+        const t0 = performance.now();
+        item.click();
+        const observed = new Set<string>([readActive()]); // same-tick post-click read
+        const firstSeen: Record<string, number> = { [readActive()]: 0 };
+        const deadline = performance.now() + 2000; // cap ~2s
+        let lastTop = scroller.scrollTop;
+        let stable = 0;
+        let movedFrames = 0;
+        await new Promise<void>((resolve) => {
+          const sample = () => {
+            const cur = readActive();
+            observed.add(cur);
+            if (!(cur in firstSeen)) firstSeen[cur] = performance.now() - t0;
+            const top = scroller.scrollTop;
+            if (Math.abs(top - lastTop) < 0.5) stable += 1;
+            else {
+              stable = 0;
+              movedFrames += 1;
+            }
+            lastTop = top;
+            if (stable >= 5 || performance.now() > deadline) resolve();
+            else requestAnimationFrame(sample);
+          };
+          requestAnimationFrame(sample);
+        });
+        return {
+          observed: Array.from(observed),
+          movedFrames,
+          settledTop: scroller.scrollTop,
+          firstSeen,
+          glideMs: performance.now() - t0,
+        };
+      },
+      {
+        railSel: RAIL,
+        itemSel: `[data-testid="${tid(`rail-item-${lastId}`)}"]`,
+        contentSel: CONTENT,
+        itemPrefix: tid("rail-item-"),
+      },
+    );
+    expect(result, "harness elements present").not.toBeNull();
+    if (!result) return;
+
+    // Non-vacuity: the glide really spanned multiple frames (the race window
+    // this test exists for actually opened) and really scrolled the pane.
+    // (`firstSeen`/`glideMs` ride along for failure diagnostics — this glide
+    // measures ~970ms, i.e. LONGER than NAV_SCROLL_SETTLE_TIMEOUT_MS, which is
+    // exactly the case that caught the pre-Task-14 mid-glide timeout resume.)
+    expect(result.movedFrames, "smooth glide spans multiple frames").toBeGreaterThanOrEqual(3);
+    expect(result.settledTop, "the click scrolled the pane").toBeGreaterThan(0);
+
+    // §K11: no intermediate section ever became active (catches the reported
+    // flicker — without §A2 suppression the spy re-derives every mid-glide
+    // position). `__invalid(n)` entries also fail here (0 or 2+ aria-current).
+    for (const id of result.observed) {
+      expect([pre, lastId], `observed aria-current "${id}" ⊆ {pre-click, clicked}`).toContain(id);
+    }
+    await expect
+      .poll(() => railActiveId(page), { message: "clicked item is active after settle" })
+      .toBe(lastId);
+  });
+
+  test("§K11 wheel mid-glide: user input resumes the spy — active leaves the clicked id", async ({
+    page,
+  }) => {
+    await openLiveWithMotion(page, { width: 1280, height: 800 });
+    const m = await contentMetrics(page);
+    const firstId = m.tops[0]?.id ?? "";
+    const lastId = m.tops[m.tops.length - 1]?.id ?? "";
+
+    // Park at the very bottom INSTANTLY (explicit behavior override — the
+    // pane's CSS scroll-behavior is smooth with motion on).
+    await page
+      .locator(CONTENT)
+      .evaluate((el) => el.scrollTo({ top: el.scrollHeight, behavior: "instant" }));
+    await expect.poll(() => railActiveId(page), { message: "parked at the bottom" }).toBe(lastId);
+
+    const result = await page.evaluate(
+      async ({ railSel, itemSel, contentSel, itemPrefix, clickedId }) => {
+        const rail = document.querySelector(railSel);
+        const item = document.querySelector<HTMLElement>(itemSel);
+        const scroller = document.querySelector<HTMLElement>(contentSel);
+        if (!rail || !item || !scroller) return null;
+        const readActive = () => {
+          const current = Array.from(rail.querySelectorAll('[aria-current="true"]')).filter(
+            (el) => el.getClientRects().length > 0,
+          );
+          if (current.length !== 1) return null;
+          return (current[0]?.getAttribute("data-testid") ?? "").slice(itemPrefix.length);
+        };
+        item.click(); // far upward glide begins (bottom → first section)
+        // Give the glide a couple of frames to actually start…
+        await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(null))));
+        const topAtWheel = scroller.scrollTop;
+        // …then deliver the user input mid-glide (§A2 release listener).
+        scroller.dispatchEvent(new WheelEvent("wheel", { deltaY: -40, bubbles: true }));
+        const deadline = performance.now() + 2000;
+        let resumedTo: string | null = null;
+        await new Promise<void>((resolve) => {
+          const sample = () => {
+            const cur = readActive();
+            if (cur !== null && cur !== clickedId) {
+              resumedTo = cur;
+              resolve();
+              return;
+            }
+            if (performance.now() > deadline) {
+              resolve();
+              return;
+            }
+            requestAnimationFrame(sample);
+          };
+          requestAnimationFrame(sample);
+        });
+        return { topAtWheel, resumedTo };
+      },
+      {
+        railSel: RAIL,
+        itemSel: `[data-testid="${tid(`rail-item-${firstId}`)}"]`,
+        contentSel: CONTENT,
+        itemPrefix: tid("rail-item-"),
+        clickedId: firstId,
+      },
+    );
+    expect(result, "harness elements present").not.toBeNull();
+    if (!result) return;
+
+    // The wheel fired while the glide was genuinely in flight (the pane was
+    // still far above the clicked target's landing position).
+    expect(
+      result.topAtWheel,
+      `wheel dispatched mid-glide (scrollTop ${result.topAtWheel} still far from 0)`,
+    ).toBeGreaterThan(SCROLL_SPY_OFFSET_PX);
+
+    // §K11: within a few frames of the wheel the spy re-derived a
+    // scroll-position id ≠ the clicked id — catches: suppression never
+    // released on user input (active would stay pinned to the clicked id).
+    expect(result.resumedTo, "spy resumed from the wheel input").not.toBeNull();
+    expect(result.resumedTo, "resumed active is scroll-derived, not the clicked id").not.toBe(
+      firstId,
+    );
+  });
+
+  test("§K12 indicator: aligns to the active button (±0.5px) after click + settle; transitions transform", async ({
+    page,
+  }) => {
+    await openLiveWithMotion(page, { width: 1280, height: 800 });
+    const m = await contentMetrics(page);
+    // A mid-registry target forces a REAL slide from the initial first item.
+    const targetId = m.tops[Math.floor(m.tops.length / 2)]?.id ?? "";
+    expect(targetId, "mid-registry target exists").not.toBe("");
+    await page.locator(`[data-testid="${tid(`rail-item-${targetId}`)}"]`).click();
+    await expect
+      .poll(() => railActiveId(page), { message: "clicked item becomes active" })
+      .toBe(targetId);
+
+    const INDICATOR = `[data-testid="${tid("rail-indicator")}"]`;
+    const measure = () =>
+      page.evaluate(
+        ({ indSel, btnSel }) => {
+          const ind = document.querySelector(indSel);
+          const btn = document.querySelector(btnSel);
+          if (!ind || !btn) return null;
+          const i = ind.getBoundingClientRect();
+          const b = btn.getBoundingClientRect();
+          return {
+            indTop: i.top,
+            indHeight: i.height,
+            btnTop: b.top,
+            btnHeight: b.height,
+            transitionProperty: getComputedStyle(ind).transitionProperty,
+          };
+        },
+        { indSel: INDICATOR, btnSel: `[data-testid="${tid(`rail-item-${targetId}`)}"]` },
+      );
+
+    // The slide runs over --duration-fast — poll until the indicator lands on
+    // the §I geometry: top === btn.top + inset, height === btn.height − 2·inset.
+    await expect
+      .poll(
+        async () => {
+          const r = await measure();
+          if (!r) return "indicator or button missing";
+          const topDelta = Math.abs(r.indTop - (r.btnTop + INDICATOR_INSET_PX));
+          const heightDelta = Math.abs(r.indHeight - (r.btnHeight - 2 * INDICATOR_INSET_PX));
+          return topDelta <= TOL && heightDelta <= TOL
+            ? "aligned"
+            : `topΔ ${topDelta.toFixed(2)} heightΔ ${heightDelta.toFixed(2)}`;
+        },
+        { message: "indicator settles onto the §I alignment (±0.5px)" },
+      )
+      .toBe("aligned");
+
+    const final = await measure();
+    expect(final, "final measure available").not.toBeNull();
+    if (!final) return;
+    // Non-degenerate geometry: the inset math left a real visible bar.
+    expect(final.indHeight, "indicator has real height").toBeGreaterThan(0);
+    // §K12: the slide mechanism itself — transition classes present and
+    // scoped to transform (catches: classes stripped or mis-scoped).
+    expect(
+      final.transitionProperty,
+      `computed transition-property "${final.transitionProperty}" contains transform`,
+    ).toContain("transform");
+  });
+});

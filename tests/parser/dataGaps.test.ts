@@ -10,6 +10,9 @@ import {
   summarizeDataGaps,
   dataGapClassDetails,
   DATA_GAP_CLASS_LABELS,
+  DATA_GAP_CODES,
+  GAP_CLASSES,
+  formatDataGapBreakdown,
   operatorActionableWarnings,
   OPERATOR_ACTIONABLE_ANCHORED,
   stripLegacyUnknownFieldAnchors,
@@ -23,60 +26,94 @@ const warn = (code: string, severity: ParseWarning["severity"] = "warn"): ParseW
   message: `${code} message`,
 });
 
+// A summary whose `classes` has every GAP_CLASSES key at 0 EXCEPT the given
+// overrides — derived from the registry so the expectation tracks the real set
+// (anti-tautology: never hardcode the 22-key shape).
+const classesWith = (overrides: Record<string, number>): Record<string, number> =>
+  Object.fromEntries(GAP_CLASSES.map((g) => [g.code, overrides[g.code] ?? 0]));
+
+describe("GAP_CLASSES registry (single source of truth)", () => {
+  it("has exactly 22 entries and includes the newly-counted codes", () => {
+    expect(GAP_CLASSES).toHaveLength(22);
+    expect(DATA_GAP_CODES.size).toBe(22);
+    for (const c of ["UNKNOWN_FIELD", "SCHEDULE_TIME_UNPARSED", "AGENDA_LINK_NOT_CLICKABLE"]) {
+      expect(DATA_GAP_CODES.has(c)).toBe(true);
+    }
+  });
+
+  it("labels satisfy invariant 5 — no raw code token ever renders", () => {
+    for (const { code, label } of GAP_CLASSES) {
+      expect(label.length).toBeGreaterThan(0);
+      expect(label).not.toBe(code); // not the raw code
+      expect(label).not.toContain("_"); // no snake_case
+      expect(label).not.toMatch(/[A-Z0-9]{2,}_/); // no SCREAMING_SNAKE token
+      expect(label[0]).toBe(label[0]!.toLowerCase()); // starts lowercase (mid-sentence)
+      // Plain-language acronyms like "PDF" ARE allowed (Codex plan R1): do NOT assert lowercase-only.
+    }
+    expect(DATA_GAP_CLASS_LABELS.AGENDA_PDF_UNREADABLE).toContain("PDF");
+  });
+});
+
 describe("summarizeDataGaps", () => {
-  it("counts each of the three data-quality classes and the total", () => {
+  it("counts the full gap class, keyed by code", () => {
     const warnings: ParseWarning[] = [
       warn("FIELD_UNREADABLE"),
       warn("FIELD_UNREADABLE"),
       warn("UNKNOWN_SECTION_HEADER"),
       warn("BLOCK_DISAPPEARED"),
+      warn("UNKNOWN_FIELD"),
+      warn("SCHEDULE_TIME_UNPARSED"),
     ];
     const out = summarizeDataGaps(warnings);
-    expect(out).toEqual({
-      total: 4,
-      classes: {
+    expect(out.total).toBe(6);
+    expect(out.classes).toEqual(
+      classesWith({
         FIELD_UNREADABLE: 2,
         UNKNOWN_SECTION_HEADER: 1,
         BLOCK_DISAPPEARED: 1,
-      },
-    });
+        UNKNOWN_FIELD: 1,
+        SCHEDULE_TIME_UNPARSED: 1,
+      }),
+    );
   });
 
-  it("ignores non-data-quality warning codes (does not count them in the total)", () => {
-    const warnings: ParseWarning[] = [
-      warn("FIELD_UNREADABLE"),
-      warn("SECTION_HEADER_NO_FIELDS"),
-      warn("UNKNOWN_ROLE_TOKEN"),
-    ];
-    const out = summarizeDataGaps(warnings);
-    expect(out.total).toBe(1);
-    expect(out.classes.FIELD_UNREADABLE).toBe(1);
-    expect(out.classes.UNKNOWN_SECTION_HEADER).toBe(0);
-    expect(out.classes.BLOCK_DISAPPEARED).toBe(0);
+  it("counts EVERY gap class once when given one warn per code (derived from registry)", () => {
+    const oneEach = GAP_CLASSES.map((g) => warn(g.code));
+    const out = summarizeDataGaps(oneEach);
+    expect(out.total).toBe(GAP_CLASSES.length); // 22
+    for (const { code } of GAP_CLASSES) expect(out.classes[code]).toBe(1);
   });
 
-  it("excludes severity:'info' warnings even when the code is a data-quality class", () => {
-    const warnings: ParseWarning[] = [
+  it("does NOT count benign warn-severity autocorrects, info codes, or asset codes (allow-list, not severity)", () => {
+    const out = summarizeDataGaps([
+      warn("UNKNOWN_FIELD"), // counted gap
+      warn("STAGE_WORD_AUTOCORRECTED"), // warn autocorrect — benign, NOT counted
+      warn("DAY_RESTRICTION_DOUBLE_LOCATION", "info"), // info — NOT counted
+      warn("REEL_DRIFTED"), // warn asset — NOT counted
+    ]);
+    expect(out.total).toBe(1); // only UNKNOWN_FIELD
+    expect(out.classes.UNKNOWN_FIELD).toBe(1);
+  });
+
+  it("excludes severity:'info' warnings even when the code is a gap class", () => {
+    const out = summarizeDataGaps([
       warn("FIELD_UNREADABLE", "info"),
-      warn("UNKNOWN_SECTION_HEADER", "warn"),
-    ];
-    const out = summarizeDataGaps(warnings);
+      warn("UNKNOWN_SECTION_HEADER"),
+    ]);
     expect(out.total).toBe(1);
     expect(out.classes.FIELD_UNREADABLE).toBe(0);
     expect(out.classes.UNKNOWN_SECTION_HEADER).toBe(1);
   });
 
-  it("returns {total:0} for an empty array", () => {
-    const out = summarizeDataGaps([]);
-    expect(out.total).toBe(0);
-    expect(out.classes).toEqual({
-      FIELD_UNREADABLE: 0,
-      UNKNOWN_SECTION_HEADER: 0,
-      BLOCK_DISAPPEARED: 0,
-    });
+  it("counts a gap code whose warning is MISSING severity (preserves #289 contract: skip only info)", () => {
+    const out = summarizeDataGaps([
+      { code: "UNKNOWN_FIELD", message: "x" } as unknown as ParseWarning,
+    ]);
+    expect(out.total).toBe(1);
   });
 
-  it("returns {total:0} for null / undefined input", () => {
+  it("returns {total:0, all keys 0} for empty / null / undefined", () => {
+    expect(summarizeDataGaps([])).toEqual({ total: 0, classes: classesWith({}) });
     expect(summarizeDataGaps(null).total).toBe(0);
     expect(summarizeDataGaps(undefined).total).toBe(0);
   });
@@ -89,10 +126,19 @@ describe("dataGapClassDetails — per-class breakdown for the UI surfaces", () =
       warn("FIELD_UNREADABLE"),
       warn("BLOCK_DISAPPEARED"),
     ]);
-    // Derived from the input array, not a hardcoded shape (anti-tautology).
     expect(dataGapClassDetails(summary)).toEqual([
       { key: "FIELD_UNREADABLE", count: 2, label: "unreadable fields" },
       { key: "BLOCK_DISAPPEARED", count: 1, label: "removed section" },
+    ]);
+  });
+
+  it("orders by registry position and pluralizes acronym labels correctly", () => {
+    const summary = summarizeDataGaps([
+      warn("AGENDA_PDF_UNREADABLE"),
+      warn("AGENDA_PDF_UNREADABLE"),
+    ]);
+    expect(dataGapClassDetails(summary)).toEqual([
+      { key: "AGENDA_PDF_UNREADABLE", count: 2, label: "unreadable agenda PDFs" },
     ]);
   });
 
@@ -103,8 +149,40 @@ describe("dataGapClassDetails — per-class breakdown for the UI surfaces", () =
   it("labels never expose the raw §12.4 code literal (invariant 5)", () => {
     for (const [code, label] of Object.entries(DATA_GAP_CLASS_LABELS)) {
       expect(label).not.toContain(code);
-      expect(label).toMatch(/^[a-z ]+$/); // plain lowercase words only
+      expect(label).not.toContain("_");
     }
+  });
+});
+
+describe("formatDataGapBreakdown — bounded, single-sourced breakdown string", () => {
+  it("joins classes count-desc then registry order, no cap when <= cap", () => {
+    const summary = summarizeDataGaps([
+      warn("UNKNOWN_SECTION_HEADER"),
+      warn("FIELD_UNREADABLE"),
+      warn("FIELD_UNREADABLE"),
+    ]);
+    expect(formatDataGapBreakdown(summary)).toBe("2 unreadable fields, 1 unknown section");
+  });
+
+  it("caps at `cap` classes and appends '+N more' when there are more", () => {
+    // 6 distinct classes, each count 1 → cap 4 → 4 listed + '+2 more'
+    const codes = GAP_CLASSES.slice(0, 6).map((g) => g.code);
+    const summary = summarizeDataGaps(codes.map((c) => warn(c)));
+    const out = formatDataGapBreakdown(summary, 4);
+    expect(out).toMatch(/, \+2 more$/);
+    // exactly 4 class-phrases before the "+N more"
+    expect(out.split(", +")[0]!.split(", ")).toHaveLength(4);
+  });
+
+  it("breaks count ties by registry order (deterministic)", () => {
+    // FIELD_UNREADABLE precedes UNKNOWN_SECTION_HEADER in GAP_CLASSES; equal counts
+    const summary = summarizeDataGaps([warn("UNKNOWN_SECTION_HEADER"), warn("FIELD_UNREADABLE")]);
+    expect(formatDataGapBreakdown(summary)).toBe("1 unreadable field, 1 unknown section");
+  });
+
+  it("returns '' for total 0 or cap<=0", () => {
+    expect(formatDataGapBreakdown(summarizeDataGaps([]))).toBe("");
+    expect(formatDataGapBreakdown(summarizeDataGaps([warn("UNKNOWN_FIELD")]), 0)).toBe("");
   });
 });
 

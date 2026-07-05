@@ -230,3 +230,70 @@ describe("AdministratorsSection — Developer toggle (Task 18)", () => {
     });
   });
 });
+
+// Part B §3.3 — admin-roster MANAGEMENT (Add / Revoke / Re-add) is developer-only.
+// Non-developers keep the read-only list but see NO management affordance.
+//
+// Concrete failure mode this pins: a non-developer admin currently sees the
+// Add trigger, per-row Revoke, and Re-add controls — a privilege-surface leak
+// (they can POST-reach the now-developer-gated Server Actions from the UI).
+//
+// Anti-tautology: expected active/revoked/non-actor counts are DERIVED from the
+// fixture `rows`, never hardcoded — the test works across any fixture shape.
+describe("AdministratorsSection — management controls gated on developer (Part B §3.3)", () => {
+  const ACTOR = "alice@example.com";
+  const fixtureRows = [
+    row({ email: ACTOR }), // actor, active
+    row({ email: "bob@example.com" }), // non-actor, active
+    row({
+      email: "carol@example.com",
+      revoked_at: "2026-05-15T00:00:00.000Z",
+      revoked_by: ACTOR,
+    }), // revoked
+  ];
+  const result = ok(fixtureRows);
+  const activeCount = fixtureRows.filter((r) => r.revoked_at === null).length;
+  const revokedCount = fixtureRows.filter((r) => r.revoked_at !== null).length;
+  const nonActorActiveCount = fixtureRows.filter(
+    (r) => r.revoked_at === null && r.email !== ACTOR,
+  ).length;
+
+  it("viewerIsDeveloper=false → read-only list, NO Add/Revoke/Re-add controls", () => {
+    render(
+      <AdministratorsSection
+        result={result}
+        actorCanonicalEmail={ACTOR}
+        now={NOW}
+        viewerIsDeveloper={false}
+      />,
+    );
+    // No management affordances anywhere.
+    expect(screen.queryByTestId("admin-add-admin-trigger")).toBeNull();
+    expect(screen.queryByTestId("mock-revoke-button")).toBeNull();
+    expect(screen.queryByTestId("mock-readd-button")).toBeNull();
+
+    // But the read-only list IS present, byte-for-byte the same information.
+    expect(screen.getByTestId("admin-settings-admins-card")).not.toBeNull();
+    expect(screen.getAllByTestId("admin-allowlist-row")).toHaveLength(activeCount);
+    expect(within(rowByEmail(ACTOR)).getByTestId("admin-allowlist-you-badge")).not.toBeNull();
+    expect(screen.getByTestId("admin-revoked-list")).not.toBeNull();
+    expect(screen.getAllByTestId("admin-allowlist-revoked-row")).toHaveLength(revokedCount);
+  });
+
+  it("viewerIsDeveloper=true → Add trigger + non-actor Revoke + Re-add controls all render", () => {
+    render(
+      <AdministratorsSection
+        result={result}
+        actorCanonicalEmail={ACTOR}
+        now={NOW}
+        viewerIsDeveloper={true}
+      />,
+    );
+    expect(screen.getByTestId("admin-add-admin-trigger")).not.toBeNull();
+    // Revoke renders for every non-actor active row; never on the actor's own row.
+    expect(screen.getAllByTestId("mock-revoke-button")).toHaveLength(nonActorActiveCount);
+    expect(within(rowByEmail(ACTOR)).queryByTestId("mock-revoke-button")).toBeNull();
+    // Re-add renders for every revoked row.
+    expect(screen.getAllByTestId("mock-readd-button")).toHaveLength(revokedCount);
+  });
+});

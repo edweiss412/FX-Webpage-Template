@@ -34,6 +34,8 @@ function lockTakingRpcNames(): string[] {
     "supabase/migrations/20260502000000_dev_schema_clone.sql",
     "supabase/migrations/20260523000003_reset_picker_epoch_atomic.sql",
     "supabase/migrations/20260523000004_rotate_show_share_token.sql",
+    // Per-crew picker reset (2026-07-03) — self-locking admin RPC.
+    "supabase/migrations/20260703000001_reset_crew_member_selection.sql",
     "supabase/migrations/20260523000007_select_identity_atomic.sql",
     "supabase/migrations/20260524000002_claim_oauth_identity.sql",
     // M12 Phase 0.C Task 0.C.4 — validation tooling mint RPC.
@@ -59,6 +61,11 @@ function lockTakingRpcNames(): string[] {
     // revoke_admin_email_rpc each take hashtextextended('admin_emails', 0)
     // before their row lock, single-holder (own body; never nested).
     "supabase/migrations/20260703230100_admin_emails_developer_tier.sql",
+    // Part B (2026-07-04 §3.2) — re-created upsert_admin_email_rpc +
+    // revoke_admin_email_rpc (developer-only actor, pre+post-lock re-check) each
+    // take hashtextextended('admin_emails', 0) before their FOR UPDATE row lock,
+    // single-holder (own body; never nested inside each other).
+    "supabase/migrations/20260704000000_admin_mgmt_requires_developer.sql",
   ];
 
   const names = new Set<string>();
@@ -83,6 +90,7 @@ describe("advisory-lock RPC deadlock guard", () => {
     const lockTakingNames = lockTakingRpcNames();
     expect(lockTakingNames).toContain("reset_picker_epoch_atomic");
     expect(lockTakingNames).toContain("rotate_show_share_token");
+    expect(lockTakingNames).toContain("reset_crew_member_selection");
     expect(lockTakingNames).toContain("select_identity_atomic");
     expect(lockTakingNames).toContain("claim_oauth_identity");
     // M12 Phase 0.C Task 0.C.4 — validation reseed mint RPC is the sole
@@ -104,6 +112,12 @@ describe("advisory-lock RPC deadlock guard", () => {
     // hashtextextended('admin_emails', 0) before its FOR UPDATE row lock,
     // single-holder (its own body; never nested inside upsert/revoke).
     expect(lockTakingNames).toContain("set_admin_developer_rpc");
+    // Part B (2026-07-04 §3.2) — the re-created upsert_admin_email_rpc +
+    // revoke_admin_email_rpc (migration 20260704000000) each take
+    // hashtextextended('admin_emails', 0) before their row lock, single-holder
+    // (own body; never nested inside each other or set_admin_developer_rpc).
+    expect(lockTakingNames).toContain("upsert_admin_email_rpc");
+    expect(lockTakingNames).toContain("revoke_admin_email_rpc");
 
     const sourceFiles = [
       // middleware.ts removed 2026-05-27 (Phase 0.A finding 5 / commit b5999c8).
@@ -115,6 +129,9 @@ describe("advisory-lock RPC deadlock guard", () => {
       "app/admin/dev/actions.ts",
       "lib/auth/picker/resetPickerEpoch.ts",
       "lib/auth/picker/rotateShareToken.ts",
+      // Per-crew picker reset (2026-07-03) — awaits the self-locking reset_crew_member_selection
+      // RPC bare (no JS-side withShowAdvisoryLock); nesting would deadlock (M5 R20 class).
+      "lib/auth/picker/resetCrewMemberSelection.ts",
       "lib/auth/picker/selectIdentity.ts",
       // Sync changes-feed Phase 3 — the MI-11 gate server actions await the self-locking RPCs
       // bare (no JS-side withShowAdvisoryLock); nesting would deadlock under burst (M5 R20 class).
@@ -173,6 +190,7 @@ describe("advisory-lock RPC deadlock guard", () => {
     const lockTakingMigrations = [
       "supabase/migrations/20260523000003_reset_picker_epoch_atomic.sql",
       "supabase/migrations/20260523000004_rotate_show_share_token.sql",
+      "supabase/migrations/20260703000001_reset_crew_member_selection.sql",
       "supabase/migrations/20260523000007_select_identity_atomic.sql",
       "supabase/migrations/20260524000002_claim_oauth_identity.sql",
       "supabase/migrations/20260527210000_mint_validation_fixture_atomic.sql",
@@ -183,6 +201,12 @@ describe("advisory-lock RPC deadlock guard", () => {
       // lock BEFORE its FOR UPDATE row lock; the re-created revoke_admin_email_rpc
       // takes the advisory lock and no FOR UPDATE. Pin advisory-before-row here.
       "supabase/migrations/20260703230100_admin_emails_developer_tier.sql",
+      // Part B (2026-07-04 §3.2) — the re-created upsert_admin_email_rpc takes its
+      // advisory lock BEFORE its FOR UPDATE row lock; the re-created
+      // revoke_admin_email_rpc takes the advisory lock and no FOR UPDATE. The
+      // added post-lock developer re-check (a non-locking exists()) must not have
+      // moved the advisory lock after the row lock — pin advisory-before-row here.
+      "supabase/migrations/20260704000000_admin_mgmt_requires_developer.sql",
       // NOTE: reset_validation_data is NOT scanned from a hardcoded file here — it is
       // `create or replace`d by hotfix migrations, so a pinned path validates a
       // superseded body (audit idx78). It is checked below from the SHIPPED body via

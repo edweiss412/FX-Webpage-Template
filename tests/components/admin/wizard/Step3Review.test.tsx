@@ -556,22 +556,25 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
     parseResult: GEAR_PR,
   };
 
-  test("each room shows its non-empty A/V/L/scenic/other scope; an empty room shows none", () => {
-    const { getByTestId, queryByTestId } = render(
+  test("each room shows all five disciplines; parsed values as-parsed, empty read 'Not specified'", () => {
+    const { getByTestId } = render(
       <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[GEAR_ROW]} />,
     );
     fireEvent.click(getByTestId("wizard-step3-card-drive-gear-1-more"));
     const scope = getByTestId("wizard-step3-card-drive-gear-1-room-0-scope");
     const t = scope.textContent ?? "";
-    for (const label of ["Audio:", "Video:", "Lighting:", "Scenic:", "Other:"])
+    // Redesign: all five discipline keys always render (no trailing colon).
+    for (const label of ["Audio", "Video", "Lighting", "Scenic", "Other"])
       expect(t).toContain(label);
     expect(t).toContain("(1) QU32 (17) Tabletop Mics"); // value rendered, not just the label
     expect(t).toContain("(2) Barco Projectors");
-    // index-1 room has all-null scope → no scope sub-list at all
-    expect(queryByTestId("wizard-step3-card-drive-gear-1-room-1-scope")).toBeNull();
+    // index-1 room has all-null scope → all five rows still render, each "Not specified".
+    const empty = getByTestId("wizard-step3-card-drive-gear-1-room-1-scope");
+    expect(empty.querySelectorAll("li")).toHaveLength(5);
+    expect((empty.textContent ?? "").match(/Not specified/g) ?? []).toHaveLength(5);
   });
 
-  test("each room shows its non-empty detail (dimensions/floor/setup/times) as-parsed incl. sentinels (BL-ROOM-DETAIL-UNRENDERED)", () => {
+  test("per-room physical detail (dimensions/floor/setup/times) renders in the card header, as-parsed incl. sentinels", () => {
     const pr = {
       ...GEAR_PR,
       rooms: [
@@ -591,16 +594,19 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
       <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
     );
     fireEvent.click(getByTestId("wizard-step3-card-drive-gear-3-more"));
-    const detail = getByTestId("wizard-step3-card-drive-gear-3-room-0-detail").textContent ?? "";
-    expect(detail).toContain("Dimensions:");
-    expect(detail).toContain("60' x 45'");
-    expect(detail).toContain("Setup:");
-    expect(detail).toContain("Set time:");
-    // sentinel SHOWN as-parsed (review surface, NOT sentinel-hidden like the crew page):
-    expect(detail).toContain("Floor:");
-    expect(detail).toContain("TBD");
-    // whitespace-only omitted (empty after trim):
-    expect(detail).not.toContain("Show time:");
+    const header = getByTestId("wizard-step3-card-drive-gear-3-room-0-header");
+    const h = within(header);
+    expect(h.getByText("Room Dimensions")).toBeTruthy();
+    expect(h.getByText("60' x 45'")).toBeTruthy();
+    expect(h.getByText("Setup")).toBeTruthy();
+    expect(h.getByText("18 tables of 7")).toBeTruthy();
+    // floor sentinel "TBD" SHOWN as-parsed (review surface, NOT sentinel-hidden):
+    expect(header.textContent).toContain("TBD");
+    // set_time renders in the Set·Show·Strike row; whitespace-only show_time omitted.
+    const times = getByTestId("wizard-step3-card-drive-gear-3-room-0-times");
+    expect(within(times).getByText("Set")).toBeTruthy();
+    expect(within(times).getByText("5/13 after 8pm")).toBeTruthy();
+    expect(times.textContent).not.toContain("Show");
   });
 
   test("event-details breakdown shows keynote + URL-stripped opening reel (no Drive URL leak)", () => {

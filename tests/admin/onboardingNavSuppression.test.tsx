@@ -63,6 +63,22 @@ vi.mock("@/lib/admin/alertCount", () => ({
 vi.mock("@/lib/admin/needsAttentionCount", () => ({
   loadNeedsAttentionCount: vi.fn(async () => ({ kind: "ok", count: 0 })),
 }));
+// AC13: the layout threads the health rollup into BOTH nav chromes; seed it so
+// the onboarding branch can render the escalating indicator.
+const healthState = vi.hoisted(() => ({
+  result: { kind: "ok" } as {
+    kind: string;
+    count?: number;
+    summaries?: unknown[];
+    overflowCount?: number;
+  },
+}));
+vi.mock("@/lib/admin/healthRollup", () => ({
+  fetchHealthRollup: vi.fn(async () => healthState.result),
+}));
+vi.mock("@/lib/auth/requireDeveloper", () => ({
+  isCurrentUserDeveloper: vi.fn(async () => false),
+}));
 // next/image renders a plain <img> in jsdom without Next's loader plumbing.
 vi.mock("next/image", () => ({
   default: (props: Record<string, unknown>) => React.createElement("img", props),
@@ -101,6 +117,7 @@ afterEach(() => {
 beforeEach(() => {
   settingsState.result = null;
   checkpointState.result = null; // default: no checkpoint yet → wizard pre-finalize
+  healthState.result = { kind: "ok" };
 });
 
 describe("AdminLayout onboarding nav suppression (Task 1)", () => {
@@ -170,5 +187,23 @@ describe("AdminLayout onboarding nav suppression (Task 1)", () => {
     await renderLayout();
     expect(screen.getByTestId("admin-nav-topbar")).toBeInTheDocument();
     expect(screen.queryByTestId("onboarding-top-bar")).toBeNull();
+  });
+
+  it("AC13: renders the app-health indicator in the onboarding chrome when a health alert is active", async () => {
+    settingsState.result = {
+      kind: "value",
+      settings: makeSettings({ pending_wizard_session_id: null, watched_folder_id: null }),
+    };
+    healthState.result = {
+      kind: "degraded",
+      count: 1,
+      summaries: [{ text: "A push notification failed a security check.", count: 1 }],
+      overflowCount: 0,
+    };
+    await renderLayout();
+    // Onboarding chrome is shown, and the escalating indicator rides with it.
+    expect(screen.getByTestId("onboarding-top-bar")).toBeInTheDocument();
+    expect(screen.getByTestId("app-health-indicator")).toBeInTheDocument();
+    expect(screen.getByTestId("app-health-dot-degraded")).toBeInTheDocument();
   });
 });

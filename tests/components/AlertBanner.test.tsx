@@ -339,7 +339,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "old",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-01T00:00:00Z",
         show_id: null,
         shows: null,
@@ -362,15 +362,17 @@ describe("AlertBanner", () => {
 
   // Codes whose dougFacing copy the AlertBanner can display. Parameterized
   // so a future catalog tweak forces a test update for every code that the
-  // banner is allowed to surface.
+  // banner is allowed to surface. alert-audience-split §5: all must be
+  // `audience: "doug"` (health codes are now banner-EXCLUDED, so they can
+  // never reach the banner and would render nothing here).
   const ADMIN_CODES = [
     "AMBIGUOUS_EMAIL_BINDING",
     "WATCH_CHANNEL_ORPHANED",
-    "WEBHOOK_TOKEN_INVALID",
-    "REPORT_ORPHANED_LOST_LEASE",
-    "GITHUB_BOT_LOGIN_MISSING",
-    "REPORT_LEASE_THRASHING",
-    "TILE_SERVER_RENDER_FAILED",
+    "DRIVE_FETCH_FAILED",
+    "SYNC_STALLED",
+    "EMBEDDED_ASSET_DRIFTED",
+    "REEL_DRIFTED",
+    "SHOW_UNPUBLISHED",
   ] as const satisfies readonly MessageCode[];
 
   for (const code of ADMIN_CODES) {
@@ -392,6 +394,81 @@ describe("AlertBanner", () => {
       );
     });
   }
+
+  // alert-audience-split Task 4 (AC1/AC2/AC10): the banner EXCLUDES health
+  // codes (audience:"health") and info-severity codes, but keeps every other
+  // doug code and — crucially — unknown/uncataloged codes (exclusion, NOT an
+  // allowlist). Unknown codes degrade safely (no raw code string in the DOM).
+  describe("audience exclusion (Task 4)", () => {
+    test("a top health code is EXCLUDED; the next doug code surfaces instead", async () => {
+      setRows([
+        {
+          id: "health-top",
+          code: "WEBHOOK_TOKEN_INVALID", // audience:health, degraded — must NOT surface
+          raised_at: "2026-05-04T12:00:00Z",
+          show_id: null,
+          shows: null,
+        },
+        {
+          id: "doug-next",
+          code: "DRIVE_FETCH_FAILED", // audience:doug — surfaces as the topmost eligible
+          raised_at: "2026-05-04T11:00:00Z",
+          show_id: null,
+          shows: null,
+        },
+      ]);
+      const { getByTestId, container } = render(await AlertBanner());
+      expect(getByTestId("error-explainer-message").textContent).toBe(
+        stripMarkers(MESSAGE_CATALOG.DRIVE_FETCH_FAILED.dougFacing!),
+      );
+      // The health code's copy never appears.
+      expect(container.textContent).not.toContain(
+        stripMarkers(MESSAGE_CATALOG.WEBHOOK_TOKEN_INVALID.dougFacing!),
+      );
+    });
+
+    test("SHOW_FIRST_PUBLISHED (info, non-health) stays banner-excluded", async () => {
+      setRows([
+        {
+          id: "info-top",
+          code: "SHOW_FIRST_PUBLISHED", // severity:info — banner-excluded (regression guard)
+          raised_at: "2026-05-04T12:00:00Z",
+          show_id: null,
+          shows: null,
+        },
+        {
+          id: "doug-next",
+          code: "DRIVE_FETCH_FAILED",
+          raised_at: "2026-05-04T11:00:00Z",
+          show_id: null,
+          shows: null,
+        },
+      ]);
+      const { getByTestId } = render(await AlertBanner());
+      expect(getByTestId("error-explainer-message").textContent).toBe(
+        stripMarkers(MESSAGE_CATALOG.DRIVE_FETCH_FAILED.dougFacing!),
+      );
+    });
+
+    test("an unknown/uncataloged code stays VISIBLE (counted/rendered) WITHOUT leaking the raw code string (AC7/AC10, invariant 5)", async () => {
+      setRows([
+        {
+          id: "unknown-top",
+          code: "TOTALLY_UNKNOWN_CODE", // ∉ catalog — exclusion-not-allowlist keeps it visible
+          raised_at: "2026-05-04T12:00:00Z",
+          show_id: null,
+          shows: null,
+        },
+      ]);
+      const { getByTestId, container } = render(await AlertBanner());
+      // The banner still mounts (the unknown row was NOT excluded) …
+      expect(getByTestId("admin-alert-banner")).toBeTruthy();
+      // … but the raw code string never reaches the DOM (unknown-code guard →
+      // null copy → safe degraded shell). Strip data-testid values first.
+      const stripped = container.innerHTML.replace(/data-testid="[^"]*"/g, "");
+      expect(stripped).not.toContain("TOTALLY_UNKNOWN_CODE");
+    });
+  });
 
   test("INVARIANT 5: no raw error codes in rendered DOM (outside data-testid attributes)", async () => {
     setRows([
@@ -469,7 +546,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "alert-with-resolve",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -506,14 +583,14 @@ describe("AlertBanner", () => {
   // C0 round-6 M1: prove that AlertBanner threads admin_alerts.context
   // through ErrorExplainer's `params` so renderer interpolation
   // substitutes <placeholder> tokens (e.g., <sheet-name> for
-  // TILE_SERVER_RENDER_FAILED). Without this assertion, the R5 plumbing
+  // SHOW_UNPUBLISHED). Without this assertion, the R5 plumbing
   // could regress without any test failing — the catalog interpolation
   // unit test only exercises messageFor directly.
   test("AlertBanner threads admin_alerts.context through ErrorExplainer for placeholder substitution", async () => {
     setRows([
       {
         id: "tile-failed-1",
-        code: "TILE_SERVER_RENDER_FAILED",
+        code: "SHOW_UNPUBLISHED",
         raised_at: "2026-05-04T11:00:00Z",
         show_id: "11111111-1111-4111-8111-111111111111",
         context: { tileId: "lodging-tile", message: "boom", sheet_name: "Spring Conference" },
@@ -532,7 +609,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "tile-failed-no-ctx",
-        code: "TILE_SERVER_RENDER_FAILED",
+        code: "SHOW_UNPUBLISHED",
         raised_at: "2026-05-04T12:00:00Z",
         show_id: "11111111-1111-4111-8111-111111111111",
         context: null,
@@ -548,7 +625,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "alert-with-time",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-15T11:46:00Z", // 14 minutes before mock now
         show_id: null,
         shows: null,
@@ -579,28 +656,28 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "top",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-15T10:00:00Z",
         show_id: null,
         shows: null,
       },
       {
         id: "queued-1",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-15T09:00:00Z",
         show_id: null,
         shows: null,
       },
       {
         id: "queued-2",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-15T08:00:00Z",
         show_id: null,
         shows: null,
       },
       {
         id: "queued-3",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-15T07:00:00Z",
         show_id: null,
         shows: null,
@@ -639,7 +716,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "unresolved-top",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-15T10:00:00Z",
         show_id: null,
         shows: null,
@@ -647,14 +724,14 @@ describe("AlertBanner", () => {
       },
       {
         id: "unresolved-queued",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-15T09:00:00Z",
         show_id: null,
         shows: null,
       },
       {
         id: "RESOLVED-row",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-15T11:00:00Z", // newest, but RESOLVED — must be hidden
         show_id: null,
         shows: null,
@@ -674,7 +751,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "only-one",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-15T10:00:00Z",
         show_id: null,
         shows: null,
@@ -688,7 +765,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "alert-resolve-idle",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-15T10:00:00Z",
         show_id: null,
         shows: null,
@@ -722,7 +799,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "global-1",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -763,7 +840,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "global-2",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -780,7 +857,7 @@ describe("AlertBanner", () => {
     // of dougFacing (emphasis stripped) — no mid-word truncation. Anti-tautology:
     // derive the expectation from the catalog via the SAME helpers the component
     // uses (firstSentence ∘ stripEmphasis), never hardcoded.
-    const CODE = "TILE_SERVER_RENDER_FAILED" satisfies MessageCode;
+    const CODE = "SHOW_UNPUBLISHED" satisfies MessageCode;
     setRows([
       {
         id: "emph-1",
@@ -858,7 +935,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "badge-250",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -875,7 +952,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "chip-250",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -892,7 +969,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "single-1",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -914,7 +991,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "alert-1",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -1000,7 +1077,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "infra-count",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -1086,7 +1163,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "swap-1",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -1116,7 +1193,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "swap-2",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -1157,7 +1234,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "swap-recover",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -1249,7 +1326,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "g1",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -1464,7 +1541,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "g-after",
-        code: "GITHUB_BOT_LOGIN_MISSING",
+        code: "DRIVE_FETCH_FAILED",
         raised_at: "2026-05-04T11:00:00Z",
         show_id: null,
         shows: null,
@@ -1492,51 +1569,60 @@ describe("AlertBanner", () => {
   const OAUTH_CREW_ID = "22222222-2222-4222-8222-222222222222";
   const OAUTH_SHOW_ID = "11111111-1111-4111-8111-111111111111";
 
-  test("OAUTH_IDENTITY_CLAIMED → admin-alert-identity shows crew name, email, and show title", async () => {
-    mockState.crewRows = [{ id: OAUTH_CREW_ID, show_id: OAUTH_SHOW_ID, name: "Jamie Rivera" }];
+  // NOTE (alert-audience-split reconciliation): the crew-rich codes
+  // (OAUTH_IDENTITY_CLAIMED, ROLE_FLAGS_NOTICE, …) are now `audience:"health"`
+  // and no longer surface on Doug's AlertBanner (DOUG_SURFACE_EXCLUDED_CODES).
+  // Their rich crew+email+show identity is exercised on the HEALTH surface
+  // (HealthAlertsPanel) instead. The banner identity line is verified here with
+  // a doug-VISIBLE code that still carries a rich identity: AMBIGUOUS_EMAIL_BINDING
+  // (Show · email · crew-row count).
+  test("AMBIGUOUS_EMAIL_BINDING → admin-alert-identity shows email and show title", async () => {
     mockState.showRows = [
       { id: OAUTH_SHOW_ID, title: "Spring Conference", slug: "spring-conference" },
     ];
     setRows([
       {
-        id: "oauth-ident-1",
-        code: "OAUTH_IDENTITY_CLAIMED",
+        id: "ambig-ident-1",
+        code: "AMBIGUOUS_EMAIL_BINDING",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: OAUTH_SHOW_ID,
         shows: { slug: "spring-conference" },
         context: {
-          crew_member_id: OAUTH_CREW_ID,
-          user_email: "jamie@example.com",
+          email: "jamie@example.com",
           show_id: OAUTH_SHOW_ID,
+          crew_member_ids: [OAUTH_CREW_ID, "33333333-3333-4333-8333-333333333333"],
         },
       },
     ]);
     const { container } = render(await AlertBanner());
     // Anti-tautology: the expanded-panel copy (admin-alert-identity-panel)
-    // independently renders the SAME crew name. Clone the tree and REMOVE that
-    // sibling before scanning, so only the collapsed identity node can satisfy
-    // the assertion (the two nodes carry DISTINCT test ids by design — Codex P10).
+    // independently renders the SAME identity string. Clone the tree and REMOVE
+    // that sibling before scanning, so only the collapsed identity node can
+    // satisfy the assertion (distinct test ids by design — Codex P10).
     const clone = container.cloneNode(true) as HTMLElement;
     clone.querySelector("[data-testid=admin-alert-identity-panel]")?.remove();
     const identity = clone.querySelector("[data-testid=admin-alert-identity]");
     expect(identity).not.toBeNull();
     const text = identity!.textContent ?? "";
-    expect(text).toContain("Jamie Rivera"); // crew name (DB-resolved, show-scoped)
-    expect(text).toContain("jamie@example.com"); // OAuth email (context.user_email, PII allowed)
+    expect(text).toContain("jamie@example.com"); // email (context.email, PII allowed on admin surface)
     expect(text).toContain("Spring Conference"); // show title (DB-resolved)
     // Panel copy carries the same text under its own id.
     expect(
       container
         .querySelector("[data-testid=admin-alert-identity-panel]")
-        ?.textContent?.includes("Jamie Rivera"),
+        ?.textContent?.includes("Spring Conference"),
     ).toBe(true);
   });
 
-  test("global code (GITHUB_BOT_LOGIN_MISSING) renders NO identity line (collapsed or panel)", async () => {
+  test("global code (SHOW_UNPUBLISHED) renders NO identity line (collapsed or panel)", async () => {
     setRows([
       {
         id: "global-ident",
-        code: "GITHUB_BOT_LOGIN_MISSING", // ALERT_IDENTITY_MAP → { kind: "global" }
+        // SHOW_UNPUBLISHED is a doug-VISIBLE global code (ALERT_IDENTITY_MAP →
+        // { kind: "global" }); GITHUB_BOT_LOGIN_MISSING is now audience:"health"
+        // and is excluded from the banner entirely, so it can't exercise the
+        // "global code renders on the banner but shows no identity" path here.
+        code: "SHOW_UNPUBLISHED",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -1573,18 +1659,19 @@ describe("AlertBanner", () => {
     setLogSink((record) => {
       records.push({ source: record.source, message: record.message });
     });
-    // OAUTH row so the resolver actually issues crew/show reads — which fail.
+    // AMBIGUOUS_EMAIL_BINDING (doug-visible) has a showName segment, so the
+    // resolver issues a `shows` read — which the forced failIdentityRead fails,
+    // driving resolveAlertIdentities → kind:"infra_error" + the degraded log.
     mockState.failIdentityRead = true;
     setRows([
       {
-        id: "oauth-infra",
-        code: "OAUTH_IDENTITY_CLAIMED",
+        id: "ambig-infra",
+        code: "AMBIGUOUS_EMAIL_BINDING",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: OAUTH_SHOW_ID,
         shows: { slug: "spring-conference" },
         context: {
-          crew_member_id: OAUTH_CREW_ID,
-          user_email: "jamie@example.com",
+          email: "jamie@example.com",
           show_id: OAUTH_SHOW_ID,
         },
       },

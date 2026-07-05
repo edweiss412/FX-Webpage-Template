@@ -66,6 +66,12 @@ const AUDITABLE_MUTATIONS: ReadonlyArray<{ file: string; code: string }> = [
     file: "app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts",
     code: "ADMIN_ALERT_RESOLVED",
   },
+  // alert-audience-split Task 9: dev-gated health-alert resolve Server Action
+  // (REUSES ADMIN_ALERT_RESOLVED — already SANCTIONED via the resolve routes).
+  {
+    file: "app/admin/actions.ts",
+    code: "ADMIN_ALERT_RESOLVED",
+  },
   {
     file: "app/api/admin/pending-ingestions/[id]/discard/route.ts",
     code: "PENDING_INGESTION_DISCARDED",
@@ -117,6 +123,13 @@ const AUDITABLE_MUTATIONS: ReadonlyArray<{ file: string; code: string }> = [
     file: "app/api/admin/ignored-sheets/[driveFileId]/unignore/route.ts",
     code: "IGNORED_SHEET_UNIGNORED",
   },
+  // Per-crew picker reset (2026-07-04): the per-member reset deliberately raises NO
+  // admin_alert (copy would be false), so its durable audit trail is a logAdminOutcome
+  // success trace on the admin server action (deferral closed from BL / spec §2.4/§8).
+  {
+    file: "lib/auth/picker/resetCrewMemberSelection.ts",
+    code: "PICKER_SELECTION_RESET_BY_ADMIN",
+  },
 ];
 
 const SANCTIONED_CODES = new Set([
@@ -154,6 +167,8 @@ const SANCTIONED_CODES = new Set([
   "ONBOARDING_SCAN_COMPLETED",
   "AGENDA_EXTRACT_COMPLETED",
   "IGNORED_SHEET_UNIGNORED",
+  // Per-crew picker reset (2026-07-04).
+  "PICKER_SELECTION_RESET_BY_ADMIN",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing
@@ -311,6 +326,9 @@ const NEW_FORENSIC_CODES = new Set([
   "LIVE_STAGED_DISCARD_AUTH_INFRA",
   "CREW_REPORT_SUBMITTED",
   "AMBIGUOUS_EMAIL_BINDING_DETECTED",
+  // Per-crew picker reset (2026-07-04) — forensic infra-fault code on the RPC
+  // returned-error / thrown path (inside a log.warn span; NOT cataloged).
+  "PICKER_SELECTION_RESET_INFRA_FAILED",
 ]);
 
 const read = (f: string) => readFileSync(f, "utf8");

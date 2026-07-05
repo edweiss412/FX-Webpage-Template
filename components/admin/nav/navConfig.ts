@@ -2,7 +2,7 @@ import { Activity, Inbox, LayoutGrid, Settings } from "lucide-react";
 import type { ComponentType } from "react";
 
 export type NavItem = {
-  id: "dashboard" | "attention" | "settings" | "observability";
+  id: "dashboard" | "attention" | "settings" | "telemetry";
   label: string;
   short: string;
   href: string;
@@ -33,18 +33,18 @@ export const NAV: NavItem[] = [
   // collapsed-by-default disclosure table BELOW the dashboard's main shows table
   // (components/admin/IgnoredSheetsDisclosure), reachable from /admin directly.
   { id: "settings", label: "Settings", short: "Settings", href: "/admin/settings", Icon: Settings },
-  // Observability "Activity" — the app-event log + cron-health diagnostics page.
+  // Telemetry — the app-event log + cron-health diagnostics page.
   // A DESKTOP-nav destination only (desktopOnly): it never appears in the mobile
   // bottom tab bar (which stays at 5 items → no overflow "More"). Mobile reaches
   // it via the Settings-page link.
   {
-    id: "observability",
-    label: "Activity",
-    short: "Activity",
-    href: "/admin/observability",
+    id: "telemetry",
+    label: "Telemetry",
+    short: "Telemetry",
+    href: "/admin/dev/telemetry",
     Icon: Activity,
     desktopOnly: true,
-    // developer-tier Task 15 (spec §6 row 8): Activity/observability is a
+    // developer-tier Task 15 (spec §6 row 8): Telemetry is a
     // developer-only surface — hidden from normal admins in the nav.
     developerOnly: true,
   },
@@ -64,10 +64,10 @@ export function isNavItemActive(id: NavItem["id"], pathname: string): boolean {
   const inSettings = pathname === "/admin/settings" || pathname.startsWith("/admin/settings/");
   const inAttention =
     pathname === "/admin/needs-attention" || pathname.startsWith("/admin/needs-attention/");
-  const inObservability =
-    pathname === "/admin/observability" || pathname.startsWith("/admin/observability/");
+  const inTelemetry =
+    pathname === "/admin/dev/telemetry" || pathname.startsWith("/admin/dev/telemetry/");
   if (id === "settings") return inSettings;
   if (id === "attention") return inAttention;
-  if (id === "observability") return inObservability;
-  return !inSettings && !inAttention && !inObservability;
+  if (id === "telemetry") return inTelemetry;
+  return !inSettings && !inAttention && !inTelemetry;
 }

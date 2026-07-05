@@ -17,6 +17,7 @@
  */
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { log } from "@/lib/log";
+import { HEALTH_CODES } from "@/lib/adminAlerts/audience";
 import { resolveAlertAction } from "@/lib/adminAlerts/alertActions";
 import { projectIdentityContext } from "@/lib/adminAlerts/projectIdentityContext";
 import { resolveAlertIdentities } from "@/lib/adminAlerts/resolveAlertIdentities";
@@ -24,12 +25,12 @@ import { describeAlert } from "@/lib/adminAlerts/describeAlert";
 import type { AlertIdentity } from "@/lib/adminAlerts/identityTypes";
 import { nowDate } from "@/lib/time/now";
 import { PerShowAlertResolveButton } from "@/components/admin/PerShowAlertResolveButton";
-import { HelpAffordance } from "@/components/admin/HelpAffordance";
+import { isInboxRouted } from "@/lib/messages/adminSurface";
 import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import { messageFor, type MessageParams } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { renderCatalogEmphasis } from "@/components/messages/renderEmphasis";
-import { dataGapClassDetails, type DataGapsSummary } from "@/lib/parser/dataGaps";
+import { formatDataGapBreakdown, GAP_CLASSES, type DataGapsSummary } from "@/lib/parser/dataGaps";
 
 const UNRESOLVED_PLACEHOLDER_RE = /<[a-zA-Z_][a-zA-Z0-9_-]*>/;
 
@@ -81,13 +82,14 @@ function readDataGapsDigest(context: Record<string, unknown> | null): DataGapsSu
   if (!classes || typeof classes !== "object") return null;
   const c = classes as Record<string, unknown>;
   const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  // Reconstruct ALL gap-class keys from the persisted digest. An OLD 3-key context
+  // (pre-#289 scope) defaults its missing keys to 0; the persisted `total` is kept
+  // as-is (point-in-time snapshot — never retroactively recounted).
   return {
     total: candidate.total,
-    classes: {
-      FIELD_UNREADABLE: num(c.FIELD_UNREADABLE),
-      UNKNOWN_SECTION_HEADER: num(c.UNKNOWN_SECTION_HEADER),
-      BLOCK_DISAPPEARED: num(c.BLOCK_DISAPPEARED),
-    },
+    classes: Object.fromEntries(
+      GAP_CLASSES.map((g) => [g.code, num(c[g.code])]),
+    ) as DataGapsSummary["classes"],
   };
 }
 
@@ -136,12 +138,21 @@ export async function fetchPerShowAlerts(
   // resolve block never lengthens the read's try body.
   let rows: Omit<AdminAlertRow, "identityText">[];
   try {
-    const { data, error } = await supabase
+    // alert-audience-split §5: exclude `audience: "health"` codes from the
+    // per-show Doug surface (they flow to the app-health indicator instead).
+    // HEALTH ONLY — do NOT exclude info-severity here (unlike the banner/bell),
+    // so SHOW_FIRST_PUBLISHED keeps its existing per-show affordance. Unknown
+    // codes stay visible (exclusion, not allowlist). The `.not(...in...)` value
+    // list must be non-empty, so guard it.
+    let query = supabase
       .from("admin_alerts")
       .select("id, code, context, raised_at, occurrence_count")
       .eq("show_id", showId)
-      .is("resolved_at", null)
-      .order("raised_at", { ascending: false });
+      .is("resolved_at", null);
+    if (HEALTH_CODES.length > 0) {
+      query = query.not("code", "in", `(${HEALTH_CODES.map((c) => `"${c}"`).join(",")})`);
+    }
+    const { data, error } = await query.order("raised_at", { ascending: false });
     if (error) {
       return {
         kind: "infra_error",
@@ -283,6 +294,17 @@ export async function PerShowAlertSection({
       <ul className="flex flex-col gap-3">
         {result.map((alert) => {
           const copyTemplate = safeDougFacingTemplate(alert.code, alert.context);
+          // Plain-language explanation, rendered ALWAYS-VISIBLE below the alert
+          // title (no "What does this mean?" disclosure toggle, no "Learn more →"
+          // link — the former per-row <HelpAffordance>). Unknown/log-only codes
+          // carry null helpfulContext → the block simply drops.
+          const helpfulContext =
+            alert.code in MESSAGE_CATALOG
+              ? messageFor(
+                  alert.code as MessageCode,
+                  (alert.context as MessageParams | null) ?? undefined,
+                ).helpfulContext
+              : null;
           const isHighlighted = highlightAlertId === alert.id;
           // R5-HIGH-1: TILE_PROJECTION_FETCH_FAILED carries the curated set of
           // crew-page data domains whose sub-query failed in context.failedKeys
@@ -320,10 +342,15 @@ export async function PerShowAlertSection({
                     )
                   : "Something needs your attention on this show."}
               </p>
-              <HelpAffordance
-                code={alert.code}
-                {...(alert.context ? { params: alert.context as MessageParams } : {})}
-              />
+              {helpfulContext ? (
+                <div
+                  data-testid={`per-show-alert-help-${alert.id}`}
+                  className="mt-1 flex flex-col gap-1 text-sm text-text-subtle"
+                >
+                  <p className="font-medium">What does this mean?</p>
+                  <p className="max-w-prose">{helpfulContext}</p>
+                </div>
+              ) : null}
               {/* Per-code action link (spec 2026-07-04-alert-action-links §7.1). Fail-quiet:
                   resolveAlertAction returns null for unregistered codes or failed guards. */}
               {action ? (
@@ -354,10 +381,7 @@ export async function PerShowAlertSection({
                   data-testid={`per-show-alert-data-gaps-${alert.id}`}
                   className="text-xs text-text-subtle"
                 >
-                  Data dropped while parsing:{" "}
-                  {dataGapClassDetails(dataGapsDigest)
-                    .map((d) => `${d.count} ${d.label}`)
-                    .join(", ")}
+                  Data dropped while parsing: {formatDataGapBreakdown(dataGapsDigest)}
                 </p>
               ) : null}
               {/* At-a-glance identity (Task 11, spec §3.1–§3.3): the resolved
@@ -380,7 +404,20 @@ export async function PerShowAlertSection({
                   {formatRelative(alert.raised_at, now)}
                 </time>
               </p>
-              <PerShowAlertResolveButton alertId={alert.id} slug={slug} />
+              {isInboxRouted(alert.code) ? (
+                // Inbox-routed sync problems (SHEET_UNAVAILABLE / PARSE_ERROR_LAST_GOOD)
+                // are auto-clear-only: the show page shows them read-only (no "Mark
+                // resolved") — they clear when the sheet is back / re-parses. The
+                // Needs attention inbox is where this to-do surfaces (spec §4.8).
+                <p
+                  data-testid={`per-show-alert-autoclear-${alert.id}`}
+                  className="text-xs text-text-subtle"
+                >
+                  Clears automatically once the sheet is back or re-parses.
+                </p>
+              ) : (
+                <PerShowAlertResolveButton alertId={alert.id} slug={slug} />
+              )}
             </li>
           );
         })}

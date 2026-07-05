@@ -54,7 +54,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "Couldn't update administrators right now. Try again in a moment.",
     "followUp": "Doug → retry; if persistent, check Supabase admin_emails RPC + grants",
-    "helpfulContext": "addAdminAction / revokeAdminAction caught an AdminEmailsInfraError from addAdminEmail / revokeAdminEmail (after the requireAdminIdentity gate) and returned { kind: 'infra_error' }. Rendered inline by AddAdminForm + RevokeRowButton instead of tearing down the settings section.",
+    "helpfulContext": "addAdminAction / revokeAdminAction caught an AdminEmailsInfraError from addAdminEmail / revokeAdminEmail (after the requireDeveloperIdentity gate) and returned { kind: 'infra_error' }. Rendered inline by AddAdminForm + RevokeRowButton instead of tearing down the settings section.",
   },
   "ADMIN_FORBIDDEN": {
     "crewFacing": null,
@@ -316,14 +316,14 @@ export const SPEC_CODES = {
   },
   "EMAIL_DELIVERY_FAILED": {
     "crewFacing": null,
-    "dougFacing": "We couldn't send a notification email. We'll keep retrying; if it keeps failing, check the email settings.",
-    "followUp": "Doug → check email settings if this persists",
+    "dougFacing": "We couldn't send a notification email. We'll keep retrying automatically; if it persists, the developer will check the email provider setup.",
+    "followUp": "Eric → check provider key / verified sending domain",
     "helpfulContext": "An outbound notification email failed to send through the email provider. The system retries automatically a few times. If it keeps failing, the provider key or the verified sending domain may need attention.",
   },
   "EMAIL_NOT_CONFIGURED": {
     "crewFacing": null,
-    "dougFacing": "Email notifications aren't set up yet, so sync-problem alerts, the daily digest, and auto-publish undo emails won't be sent. Check that the email provider key, the sending address, and the site address are all configured.",
-    "followUp": "Doug → check email provider key, sending address, and site address",
+    "dougFacing": "Email notifications aren't set up yet, so sync-problem alerts, the daily digest, and auto-publish undo emails won't be sent. The developer configures this on the deployment.",
+    "followUp": "Eric → configure email env (provider key / sending address / site address) on the deployment",
     "helpfulContext": "Outbound email isn't fully configured, so sync-problem alerts, the daily digest, and auto-publish undo emails won't be sent. This needs three things set: the provider API key, a verified sending address, and the app's public site address (used to build the links in each email). In-app alerts and each show's Published toggle still work; set whichever is missing to enable email.",
   },
   "EMBEDDED_ASSET_DRIFTED": {
@@ -1000,9 +1000,9 @@ export const SPEC_CODES = {
   },
   "SELF_REVOKE_FORBIDDEN": {
     "crewFacing": null,
-    "dougFacing": "You can't revoke your own administrator access. Ask another admin to do it if you need to be removed.",
-    "followUp": "Doug → ask another admin to revoke you",
-    "helpfulContext": "revoke_admin_email_rpc refuses a self-revoke unconditionally inside its SECURITY DEFINER body — comparing the canonical target email to public.auth_email_canonical() — so an admin can never revoke their own access even via a hand-forged PostgREST rpc() call that bypasses the Server Action. This is defense-in-depth behind the M12.5 Server-Action guard. Other-revoke (a rogue admin revoking a peer, including the last peer) stays allowed by design; see amendment §5.5 + §11 anti-goal.",
+    "dougFacing": "You can't revoke your own administrator access. Ask another developer to do it if you need to be removed.",
+    "followUp": "Doug → ask another developer to revoke you",
+    "helpfulContext": "revoke_admin_email_rpc refuses a self-revoke unconditionally inside its SECURITY DEFINER body — comparing the canonical target email to public.auth_email_canonical() — so an admin can never revoke their own access even via a hand-forged PostgREST rpc() call that bypasses the Server Action. This is defense-in-depth behind the M12.5 Server-Action guard. Other-revoke is now developer-only (this milestone closes the §5.5 rogue-revoke risk); a non-developer actor is refused (42501 at the RPC / forbidden() at the Server Action).",
   },
   "SESSION_ABSOLUTE_TIMEOUT": {
     "crewFacing": "Your session has expired. Open the original link Doug shared again.",
@@ -1424,9 +1424,15 @@ export const SPEC_CODES = {
     "followUp": "Eric → enable the reset flag",
     "helpfulContext": "The Reset-validation-data action (Settings → Maintenance card) reached the correct project but the destructive-reset flag is turned off, which prevents any data from being wiped. The developer needs to enable the flag for this project before resets are allowed. Once enabled, the action will proceed normally.",
   },
+  "VERSION_AMBIGUOUS": {
+    "crewFacing": null,
+    "dougFacing": "_<sheet-name>_ has some of your show-template markers but not enough for us to be sure which template it is — so we've paused instead of guessing. Check that the sheet's key rows (the Contact block for v4 sheets, or the GS/BO pull-sheet timing rows for v2 sheets) are intact, or tell the developer if your template changed.",
+    "followUp": "Doug → check the sheet's version markers; Eric → add/adjust the detector if the template changed",
+    "helpfulContext": "We recognize your show template by a set of distinctive row labels grouped into blocks. This sheet matched too few of them, or the matches were too close between two templates, so we couldn't confidently pick one — and we won't apply a guess. Restore the expected rows (the Contact block for v4 sheets, the GS/BO pull-sheet timing rows for v2 sheets), or tell the developer if you changed the template.",
+  },
   "WATCH_CHANNEL_ORPHANED": {
     "crewFacing": null,
-    "dougFacing": "The instant-updates connection to Google Drive is having trouble. Shows still sync automatically every few minutes.",
+    "dougFacing": "The instant-updates connection to Google Drive needs to reconnect. Shows still sync automatically every few minutes, so nothing is lost.",
     "followUp": "Auto-retry hourly; admin Retry now; Eric if escalated",
     "helpfulContext": "The connection that makes sheet edits show up instantly couldn't be set up or renewed. Your shows still sync on the normal schedule, so nothing is lost — at worst, edits take a few minutes to appear. We retry the connection automatically every hour, and you can use Retry now to try immediately. If it keeps failing, we'll flag it for support.",
   },

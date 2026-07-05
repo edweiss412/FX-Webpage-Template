@@ -275,7 +275,10 @@ export function auditNoRawCodesInSourceFiles(
  *  - `app/api/**` — API routes, no UI surface to crawl.
  *  - `app/admin/dev/**` — build-gated dev surface (renamed-away in prod
  *    builds via `scripts/with-admin-dev-flag.mjs`; not a real route in the
- *    shipped binary).
+ *    shipped binary). EXCEPTION: `app/admin/dev/telemetry/**` IS prod-available
+ *    (developer-gated at runtime, not build-gated), so it is a real user-facing
+ *    route and MUST be crawled for raw-code leaks — the filter below re-includes
+ *    it.
  *  - Dynamic routes (path contains `[`) — these need fixtures to navigate
  *    and are exercised by their own per-feature e2e tests.
  *  - `app/help/errors/page.tsx` — the M11 errors page (E.13) is the
@@ -316,7 +319,9 @@ export function discoverStaticAppRoutePaths(): string[] {
   return walkSourceFiles(["app"], { extensions: [".tsx", ".mdx"] })
     .filter((path) => path.endsWith("/page.tsx") || path.endsWith("/page.mdx"))
     .filter((path) => !path.startsWith("app/api/"))
-    .filter((path) => !path.startsWith("app/admin/dev/"))
+    .filter(
+      (path) => !path.startsWith("app/admin/dev/") || path.startsWith("app/admin/dev/telemetry/"),
+    )
     .filter((path) => !path.includes("["))
     .map((path) => {
       const route = path.replace(/^app/, "").replace(/\/page\.(tsx|mdx)$/, "");

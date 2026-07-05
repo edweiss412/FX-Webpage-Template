@@ -20,13 +20,18 @@ import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 
 /**
  * Result of a per-sheet Re-scan (spec §5.4). `status:"updated"` is the only
- * mutating outcome; `needsReview=true` means the row was demoted/blocked (the
- * operator must re-review before publish). Every other status is a typed,
- * NON-mutating guard outcome. `code` is always a §12.4-cataloged code (the route
- * renders it via `lookupDougFacing`, never raw — invariant 5).
+ * mutating outcome; `needsReview=true` means the row is currently unapproved (the
+ * operator must re-review before publish) — this is true both for a fresh demotion
+ * AND for a row that was already unapproved, so it cannot alone tell the client
+ * whether content just regressed. `demoted` disambiguates: `true` only for the
+ * DIRTY branch (§6.1 — content regressed, or a corrupt prior forced fail-closed
+ * review), `false` for every clean outcome (re-stamped OR clean-but-unapproved).
+ * Every other status is a typed, NON-mutating guard outcome. `code` is always a
+ * §12.4-cataloged code (the route renders it via `lookupDougFacing`, never raw —
+ * invariant 5).
  */
 export type RescanResult =
-  | { status: "updated"; needsReview: boolean; changed: boolean }
+  | { status: "updated"; needsReview: boolean; changed: boolean; demoted: boolean }
   | { status: "needs_attention"; code: string }
   | { status: "busy"; code: "CONCURRENT_FINALIZE_IN_FLIGHT" }
   | { status: "superseded" | "no_active_session" | "not_found" | "not_a_sheet" };
@@ -395,7 +400,7 @@ export async function rescanWizardSheet(
           where wizard_session_id = $1::uuid and drive_file_id = $2`,
         [wizardSessionId, driveFileId, RESCAN_REVIEW_REQUIRED, triggered],
       );
-      return { status: "updated", needsReview: true, changed };
+      return { status: "updated", needsReview: true, changed, demoted: true };
     }
 
     if (prior.priorReady) {
@@ -428,7 +433,7 @@ export async function rescanWizardSheet(
           [wizardSessionId, driveFileId],
         );
       }
-      return { status: "updated", needsReview: false, changed };
+      return { status: "updated", needsReview: false, changed, demoted: false };
     }
 
     // CLEAN + not previously-ready → clear any prior demotion code (un-block) and keep the row
@@ -442,7 +447,7 @@ export async function rescanWizardSheet(
         where wizard_session_id = $1::uuid and drive_file_id = $2`,
       [wizardSessionId, driveFileId],
     );
-    return { status: "updated", needsReview: true, changed };
+    return { status: "updated", needsReview: true, changed, demoted: false };
   });
 }
 

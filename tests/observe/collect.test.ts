@@ -54,7 +54,7 @@ describe("collectEvents", () => {
   });
   test("(d) non-advancing cursor stops (no infinite loop)", async () => {
     let calls = 0;
-    const q = async (_f: import("@/lib/admin/observabilityTypes").AppEventFilters) => {
+    const q = async (_f: import("@/lib/admin/telemetryTypes").AppEventFilters) => {
       calls++;
       return {
         kind: "ok" as const,

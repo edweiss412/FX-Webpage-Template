@@ -43,6 +43,8 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
+import { INBOX_ROUTED_CODES } from "@/lib/messages/adminSurface";
+import { ADMIN_ALERTS_CODES } from "@/tests/messages/adminAlertsRegistry";
 
 const ROOT = process.cwd();
 
@@ -52,52 +54,9 @@ function adminAlertCodeUnionMembers(): string[] {
   return [...union.matchAll(/\|\s+"([A-Z0-9_]+)"/g)].map((match) => match[1]!).sort();
 }
 
-// Registry: every catalog code currently used in a production
-// admin_alerts.upsert call. Keep in sync with grep findings.
-const ADMIN_ALERTS_CODES = [
-  "AMBIGUOUS_EMAIL_BINDING", //       lib/auth/validateGoogleSession.ts
-  "OAUTH_IDENTITY_CLAIMED", //        app/auth/callback/route.ts
-  "PICKER_BOOTSTRAP_RPC_FAILED", //   app/api/auth/picker-bootstrap/route.ts
-  "PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED", // app/api/auth/picker-bootstrap/route.ts
-  "CALLBACK_CLAIM_THREW", //          app/auth/callback/route.ts
-  "PICKER_SELECTION_RACE", //         lib/auth/picker/cleanupStaleEntry.ts
-  "PICKER_EPOCH_RESET", //            lib/auth/picker/resetPickerEpoch.ts
-  "ASSET_RECOVERY_BYTES_EXCEEDED", //  M7 asset recovery byte ceiling
-  "ASSET_RECOVERY_REVISION_DRIFT", //  M7 asset recovery stale-preview cooldown
-  "ASSET_RECOVERY_DRIFT_COOLDOWN", //  M7 asset recovery cooldown skip
-  "WATCH_CHANNEL_ORPHANED", //        M6 watch subscription recovery
-  "WEBHOOK_TOKEN_INVALID", //         M6 Drive webhook verification failure
-  "EMBEDDED_RECOVERY_REQUIRES_RESTAGE", // M6 asset recovery alert
-  "LIVE_ROW_CONFLICT", //             M6 live-row conflict recovery
-  "ROLE_FLAGS_NOTICE", //             M6 auto-applied non-LEAD role_flags change
-  "DRIVE_FETCH_FAILED", //            B3 cron drive_error recovery
-  "PARSE_ERROR_LAST_GOOD", //         B3 cron parse_error recovery
-  "SHEET_UNAVAILABLE", //             M6 cron/fetch source missing recovery
-  "SYNC_STALLED", //                  B3 global sync heartbeat detector
-  "EMAIL_DELIVERY_FAILED", //         B3 delivery loop provider-failure producer
-  "EMAIL_NOT_CONFIGURED", //          B3 email config reconciliation producer
-  "SHOW_FIRST_PUBLISHED", //          M6.5 first-seen auto-publish confirmation
-  "SHOW_UNPUBLISHED", //              M6.5 unpublish undo confirmation
-  "PENDING_SNAPSHOT_PROMOTE_STUCK", // M7 diagram GC promotion-stuck repair signal
-  "PENDING_SNAPSHOT_ROLLBACK_STUCK", // M7 promoter rollback-stuck repair signal
-  "PENDING_SNAPSHOT_DELETE_STUCK", //   M7 diagram GC delete-stuck repair signal
-  "OPENING_REEL_PERMISSION_DENIED", //  M7 apply-time reel 403 warning
-  "OPENING_REEL_NOT_VIDEO", //          M7 apply-time reel MIME warning
-  "REEL_DRIFTED", //                    M7 apply-time reel drift warning
-  "EMBEDDED_ASSET_DRIFTED", //          M7 diagram drift warning
-  "REPORT_ORPHANED_LOST_LEASE", //      M8 bug-report lost-lease orphan cleanup
-  "REPORT_LOOKUP_INCONCLUSIVE", //      M8 bug-report lookup fail-closed recovery
-  "GITHUB_BOT_LOGIN_MISSING", //        M8 bug-report recovery bot config
-  "REPORT_DUPLICATE_LIVE_MATCHES", //   M8 duplicate live marker fail-closed recovery
-  "REPORT_OPEN_ORPHAN_LABEL", //        M8 impossible open orphan state
-  "REPORT_LEASE_THRASHING", //          M8 repeated retry/lease race fail-closed recovery
-  "STALE_ORPHAN_REPORT", //             M8 report reaper stale reservation audit
-  "TILE_SERVER_RENDER_FAILED", //       M9 Task 9.2: per-tile server-render failure
-  "TILE_PROJECTION_FETCH_FAILED", //    Crew-page projection sub-source fetch failure (_CrewShell producer)
-  "BRANCH_PROTECTION_DRIFT", //         X.6 branch-protection drift detector
-  "BRANCH_PROTECTION_MONITOR_AUTH_FAILED", // X.6 branch-protection monitor auth failure
-  "WIZARD_SESSION_SUPERSEDED_RACE", //  F5 wizard-session CAS race post-rollback producer
-] as const;
+// Registry: every catalog code currently used in a production admin_alerts.upsert
+// call. Extracted to tests/messages/adminAlertsRegistry.ts (imported above) so the
+// audience contract meta-test enforces the SAME 42-code set.
 
 type WriteSite = { path: string; pattern: RegExp };
 
@@ -686,4 +645,30 @@ describe("META admin_alerts catalog contract", () => {
       }
     }
   });
+
+  // --- Inbox-routed (adminSurface:"inbox") contract (route-sync-problems spec §8) ---
+  test("adminSurface:'inbox' is exactly SHEET_UNAVAILABLE + PARSE_ERROR_LAST_GOOD", () => {
+    expect([...INBOX_ROUTED_CODES].sort()).toEqual(["PARSE_ERROR_LAST_GOOD", "SHEET_UNAVAILABLE"]);
+  });
+
+  test.each(INBOX_ROUTED_CODES)(
+    "inbox-routed code %s: non-null dougFacing, lifecycle 'auto', interpolated-placeholder-registered",
+    (code) => {
+      const entry = (MESSAGE_CATALOG as Record<string, { dougFacing: string | null } | undefined>)[
+        code
+      ];
+      // (a) a no-Dismiss inbox item MUST have admin copy — an empty card is useless.
+      expect(entry?.dougFacing, `${code} needs non-null dougFacing`).not.toBeNull();
+      // (b) MUST be lifecycle "auto" — a no-Dismiss item that never auto-resolves
+      // would be permanently stuck. This composes with #283's registry.
+      const lifecycle = ADMIN_ALERTS_LIFECYCLE[code as (typeof ADMIN_ALERTS_CODES)[number]];
+      expect(lifecycle?.class, `${code} must be lifecycle class "auto"`).toBe("auto");
+      // (c) both carry a <sheet-name> placeholder → must be producer-registered so
+      // the inbox copy resolver interpolates it (never a literal placeholder).
+      expect(
+        INTERPOLATED_DOUG_FACING_CODES.includes(code as (typeof ADMIN_ALERTS_CODES)[number]),
+        `${code} carries an interpolation placeholder; keep it in INTERPOLATED_DOUG_FACING_CODES`,
+      ).toBe(true);
+    },
+  );
 });

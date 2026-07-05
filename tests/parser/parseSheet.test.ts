@@ -274,3 +274,45 @@ describe("parseSheet — runOfShow wiring (Phase 2)", () => {
     expect(r.warnings.map((w) => w.code)).toContain("SCHEDULE_TIME_UNPARSED");
   });
 });
+
+describe("parseSheet — VERSION_AMBIGUOUS", () => {
+  it("emits VERSION_AMBIGUOUS with scores in the message on an ambiguous sheet", () => {
+    // Two markers, both in the gs_timing block => score 2 but only 1 block => ambiguous.
+    const md = "| GS SET TIME | 10:00 |\n| GS SETUP | 9:00 |";
+    const parsed = parseSheet(md);
+    const err = parsed.hardErrors.find((e) => e.code === "VERSION_AMBIGUOUS");
+    expect(err).toBeDefined();
+    expect(err!.message).toContain("v4=");
+    expect(err!.message).toContain("v2=");
+    expect(["v1", "v2", "v4"]).toContain(parsed.show.template_version); // best-guess version set
+  });
+
+  it("still parses the sheet best-effort under the best-guess version (MI-2..5b convention, not a stub)", () => {
+    // An ambiguous sheet that DOES contain crew — the block parsers still run (unlike MI-1's
+    // stub), so downstream review / dev-panel sees a real parse. Uses a minimal v1-shaped head.
+    const md = [
+      "| CLIENT | Institutional Investor |",
+      "| DATES |  | DAY | DATE | TIME |",
+      "| | Travel In | Mon | 5/7/2026 | 9:00am |",
+      "| CREW | NAME | ROLE | PHONE | EMAIL |",
+      "| | John Smith | A1 | 917-331-4885 | john@example.com |",
+    ].join("\n");
+    const parsed = parseSheet(md);
+    expect(parsed.hardErrors.some((e) => e.code === "VERSION_AMBIGUOUS")).toBe(true);
+    // NOT a stub: the crew block was actually parsed.
+    expect(parsed.crewMembers.length).toBeGreaterThan(0);
+  });
+
+  it("does NOT emit VERSION_AMBIGUOUS on a confident v4 sheet", () => {
+    const md = readFileSync("fixtures/shows/raw/2026-03-rpas-central-four-seasons.md", "utf8");
+    const parsed = parseSheet(md);
+    expect(parsed.hardErrors.find((e) => e.code === "VERSION_AMBIGUOUS")).toBeUndefined();
+    expect(parsed.show.template_version).toBe("v4");
+  });
+
+  it("still emits MI-1 (not VERSION_AMBIGUOUS) for a non-sheet", () => {
+    const parsed = parseSheet("# A document\n\nno tables here");
+    expect(parsed.hardErrors.some((e) => e.code === "MI-1_VERSION_DETECTION_FAILED")).toBe(true);
+    expect(parsed.hardErrors.some((e) => e.code === "VERSION_AMBIGUOUS")).toBe(false);
+  });
+});

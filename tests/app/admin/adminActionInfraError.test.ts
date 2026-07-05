@@ -5,9 +5,9 @@
  *
  * Contract pinned here (action layer):
  *   - addAdminEmail / revokeAdminEmail throwing AdminEmailsInfraError
- *     (the DATA call, AFTER the requireAdminIdentity gate) → the action
+ *     (the DATA call, AFTER the requireDeveloperIdentity gate) → the action
  *     returns { kind: "infra_error" } (retryable inline state).
- *   - A gate AdminInfraError (from requireAdminIdentity) PROPAGATES —
+ *   - A gate DeveloperInfraError (from requireDeveloperIdentity) PROPAGATES —
  *     it must NOT be caught and downgraded to a retryable inline state
  *     (auth/infra fault → catalog 500 boundary, AGENTS.md invariant 9).
  *   - A Next control-flow throw (redirect/notFound digest) propagates.
@@ -19,18 +19,19 @@
 import { describe, expect, test, beforeEach, vi } from "vitest";
 
 const mockState = vi.hoisted(() => ({
-  requireAdminIdentityImpl: null as null | (() => Promise<{ email: string }>),
+  requireDeveloperIdentityImpl: null as null | (() => Promise<{ email: string }>),
   addAdminEmailImpl: null as null | ((opts: unknown) => Promise<unknown>),
   revokeAdminEmailImpl: null as null | ((opts: unknown) => Promise<unknown>),
 }));
 
-vi.mock("@/lib/auth/requireAdmin", async () => {
-  const actual =
-    await vi.importActual<typeof import("@/lib/auth/requireAdmin")>("@/lib/auth/requireAdmin");
+vi.mock("@/lib/auth/requireDeveloper", async () => {
+  const actual = await vi.importActual<typeof import("@/lib/auth/requireDeveloper")>(
+    "@/lib/auth/requireDeveloper",
+  );
   return {
     ...actual,
-    requireAdminIdentity: async () => {
-      if (mockState.requireAdminIdentityImpl) return mockState.requireAdminIdentityImpl();
+    requireDeveloperIdentity: async () => {
+      if (mockState.requireDeveloperIdentityImpl) return mockState.requireDeveloperIdentityImpl();
       return { email: "test-admin@example.com" };
     },
   };
@@ -58,11 +59,11 @@ vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
 
 const { addAdminAction, revokeAdminAction } = await import("@/app/admin/settings/admins/actions");
 const { AdminEmailsInfraError } = await import("@/lib/data/adminEmails");
-const { AdminInfraError } = await import("@/lib/auth/requireAdmin");
+const { DeveloperInfraError } = await import("@/lib/auth/requireDeveloper");
 
 describe("admin write actions — symmetric infra_error (Task 6.4)", () => {
   beforeEach(() => {
-    mockState.requireAdminIdentityImpl = null;
+    mockState.requireDeveloperIdentityImpl = null;
     mockState.addAdminEmailImpl = null;
     mockState.revokeAdminEmailImpl = null;
   });
@@ -87,9 +88,9 @@ describe("admin write actions — symmetric infra_error (Task 6.4)", () => {
     expect(out).toEqual({ kind: "infra_error" });
   });
 
-  test("addAdminAction: a gate AdminInfraError still PROPAGATES (not downgraded to infra_error)", async () => {
-    mockState.requireAdminIdentityImpl = async () => {
-      throw new AdminInfraError("gate fault");
+  test("addAdminAction: a gate DeveloperInfraError still PROPAGATES (not downgraded to infra_error)", async () => {
+    mockState.requireDeveloperIdentityImpl = async () => {
+      throw new DeveloperInfraError("gate fault");
     };
     let dataCalled = false;
     mockState.addAdminEmailImpl = async () => {
@@ -98,17 +99,17 @@ describe("admin write actions — symmetric infra_error (Task 6.4)", () => {
     };
     const fd = new FormData();
     fd.set("email", "x@example.com");
-    await expect(addAdminAction(null, fd)).rejects.toBeInstanceOf(AdminInfraError);
+    await expect(addAdminAction(null, fd)).rejects.toBeInstanceOf(DeveloperInfraError);
     expect(dataCalled).toBe(false);
   });
 
-  test("revokeAdminAction: a gate AdminInfraError still PROPAGATES (not downgraded to infra_error)", async () => {
-    mockState.requireAdminIdentityImpl = async () => {
-      throw new AdminInfraError("gate fault");
+  test("revokeAdminAction: a gate DeveloperInfraError still PROPAGATES (not downgraded to infra_error)", async () => {
+    mockState.requireDeveloperIdentityImpl = async () => {
+      throw new DeveloperInfraError("gate fault");
     };
     const fd = new FormData();
     fd.set("email", "x@example.com");
-    await expect(revokeAdminAction(null, fd)).rejects.toBeInstanceOf(AdminInfraError);
+    await expect(revokeAdminAction(null, fd)).rejects.toBeInstanceOf(DeveloperInfraError);
   });
 
   test("addAdminAction: a Next control-flow throw propagates (not swallowed as infra_error)", async () => {

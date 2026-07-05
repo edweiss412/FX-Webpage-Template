@@ -46,6 +46,7 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { CrewShell } from "./_CrewShell";
 import { PickerInterstitial } from "./_PickerInterstitial";
 import { SignInOrSkipGate } from "./_SignInOrSkipGate";
+import { staleBannerFor } from "./staleBanner";
 
 type RosterRow = {
   id: string;
@@ -231,6 +232,7 @@ export default async function ShowPage({
 
     case "epoch_stale":
     case "removed_from_roster":
+    case "selection_reset":
     case "identity_invalidated": {
       let roster;
       try {
@@ -243,12 +245,7 @@ export default async function ShowPage({
           />
         );
       }
-      const banner =
-        result.kind === "epoch_stale"
-          ? "PICKER_EPOCH_STALE_BANNER"
-          : result.kind === "removed_from_roster"
-            ? "PICKER_REMOVED_FROM_ROSTER_BANNER"
-            : "PICKER_IDENTITY_CLAIMED_AFTER_PICK_BANNER";
+      const banner = staleBannerFor(result.kind);
       return (
         <PickerInterstitial
           slug={slug}

@@ -23,6 +23,12 @@ export const INTERNAL_CODE_ENUMS = {
   AGENDA_GRID_MALFORMED: {
     source: "parse_warnings.code"
   },
+  AGENDA_LINK_NOT_CLICKABLE: {
+    source: "parse_warnings.code"
+  },
+  AGENDA_PDF_UNREADABLE: {
+    source: "parse_warnings.code"
+  },
   AMBIGUOUS_EMAIL_BINDING: {
     source: "admin_alerts.code"
   },
@@ -34,6 +40,9 @@ export const INTERNAL_CODE_ENUMS = {
   },
   ASSET_RECOVERY_REVISION_DRIFT: {
     source: "admin_alerts.code"
+  },
+  BLOCK_DISAPPEARED: {
+    source: "parse_warnings.code"
   },
   COLUMN_HEADER_AUTOCORRECTED: {
     source: "parse_warnings.code"
@@ -298,6 +307,9 @@ export const INTERNAL_CODE_ENUMS = {
   },
   UNPUBLISH_TOKEN_EXPIRED: {
     source: "admin_alerts.code"
+  },
+  VERSION_AMBIGUOUS: {
+    source: "parse_warnings.code,pending_ingestions.last_error_code"
   },
   WATCH_CHANNEL_ORPHANED: {
     source: "admin_alerts.code"

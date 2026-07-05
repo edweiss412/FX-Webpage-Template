@@ -12,8 +12,13 @@ afterEach(() => {
   cleanup();
 });
 
-function renderCard(props: { totalCount: number; ingestionTotal: number; syncTotal: number }) {
-  render(<NeedsAttentionSummaryCard {...props} />);
+function renderCard(props: {
+  totalCount: number;
+  ingestionTotal: number;
+  syncTotal: number;
+  syncProblemTotal?: number;
+}) {
+  render(<NeedsAttentionSummaryCard syncProblemTotal={0} {...props} />);
   return screen.getByTestId("needs-attention-summary-card");
 }
 

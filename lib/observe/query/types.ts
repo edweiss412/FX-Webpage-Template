@@ -1,7 +1,7 @@
 // lib/observe/query/types.ts
 import type { SerializedAlertIdentity } from "@/lib/adminAlerts/identityTypes";
 
-// Module-private UUID guard (observabilityTypes' UUID_RE is NOT exported).
+// Module-private UUID guard (telemetryTypes' UUID_RE is NOT exported).
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function isUuid(s: string): boolean {
   return UUID_RE.test(s);

@@ -119,6 +119,7 @@ vi.mock("@/lib/supabase/server", () => ({
       builder.eq = pass;
       builder.is = pass;
       builder.in = pass;
+      builder.not = pass;
       builder.order = pass;
       builder.returns = pass;
       builder.maybeSingle = async () => ({
@@ -356,14 +357,14 @@ describe("per-show page (§6)", () => {
   it("rotate + reset rendered only when published && !archived", async () => {
     await renderPage();
     expect(screen.getByTestId("admin-rotate-share-token-button")).toBeInTheDocument();
-    expect(screen.getByTestId("admin-reset-picker-epoch-button")).toBeInTheDocument();
+    expect(screen.getByTestId("picker-reset-control")).toBeInTheDocument();
   });
 
   it("rotate + reset hidden for a publishing (unpublished) show", async () => {
     state.show = { ...baseShow, published: false, archived: false };
     await renderPage();
     expect(screen.queryByTestId("admin-rotate-share-token-button")).toBeNull();
-    expect(screen.queryByTestId("admin-reset-picker-epoch-button")).toBeNull();
+    expect(screen.queryByTestId("picker-reset-control")).toBeNull();
   });
 
   // Phase 6 — the legacy live whole-parse review mount (ParsePanel) is RETIRED on

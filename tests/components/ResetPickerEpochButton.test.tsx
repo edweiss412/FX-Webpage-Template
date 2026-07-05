@@ -39,6 +39,139 @@ describe("ResetPickerEpochButton — two-tap state machine", () => {
     expect(idleBtn().textContent).toContain("Reset picker selections");
   });
 
+  // PCR-1 item (c): DESIGN §focus specifies a ring PLUS a 2px offset. Every
+  // focusable control (idle + confirm) must carry the offset, not just the ring.
+  test("(c) every focusable control carries the DESIGN focus-ring offset", () => {
+    const { container } = render(
+      <ResetPickerEpochButton
+        showId={SHOW_ID}
+        compact
+        rowLabel="Reset name picker"
+        rowDescription="Everyone re-picks who they are on their next visit."
+      />,
+    );
+    const checkAll = () => {
+      const focusables = container.querySelectorAll("button, select");
+      expect(focusables.length).toBeGreaterThan(0);
+      focusables.forEach((el) =>
+        expect((el as HTMLElement).className).toContain("focus-visible:ring-offset-2"),
+      );
+    };
+    checkAll(); // idle button
+    fireEvent.click(idleBtn()); // → confirm
+    checkAll(); // confirm + cancel
+  });
+
+  // PCR-1 (a) regression (Codex R3): the visible outcome banner must never
+  // render beside the still-"resolving" confirm row — it appears only at rest.
+  test("(regression) success banner does not render beside the resolving confirm row", async () => {
+    let resolve!: (v: unknown) => void;
+    (resetPickerEpoch as unknown as ReturnType<typeof vi.fn>).mockReturnValueOnce(
+      new Promise((r) => {
+        resolve = r;
+      }),
+    );
+    render(<ResetPickerEpochButton showId={SHOW_ID} />);
+    fireEvent.click(idleBtn());
+    await act(async () => {
+      fireEvent.click(confirmBtn());
+      await Promise.resolve();
+    });
+    // resolving: the "Resetting…" confirm button is present; NO banner yet
+    expect(screen.getByTestId("admin-reset-picker-epoch-confirm-button")).toBeTruthy();
+    expect(screen.queryByTestId("admin-reset-picker-epoch-ok")).toBeNull();
+    await act(async () => {
+      resolve({ ok: true, new_epoch: 9 });
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    // settled: confirm row gone, banner shown
+    expect(screen.queryByTestId("admin-reset-picker-epoch-confirm-button")).toBeNull();
+    expect(screen.getByTestId("admin-reset-picker-epoch-ok")).toBeTruthy();
+  });
+
+  // PCR-1 item (d): the SUCCESS banner auto-dismisses after its window; the
+  // refused banner persists until the admin acts on it.
+  test("(d) success banner auto-dismisses after the window", async () => {
+    (resetPickerEpoch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: true,
+      new_epoch: 3,
+    });
+    render(<ResetPickerEpochButton showId={SHOW_ID} />);
+    fireEvent.click(idleBtn());
+    await act(async () => {
+      fireEvent.click(confirmBtn());
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByTestId("admin-reset-picker-epoch-ok")).toBeTruthy();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5_001);
+    });
+    expect(screen.queryByTestId("admin-reset-picker-epoch-ok")).toBeNull();
+  });
+
+  test("(d) refused banner does NOT auto-dismiss", async () => {
+    (resetPickerEpoch as unknown as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+      ok: false,
+      code: "PICKER_RESET_FORBIDDEN",
+    });
+    render(<ResetPickerEpochButton showId={SHOW_ID} />);
+    fireEvent.click(idleBtn());
+    await act(async () => {
+      fireEvent.click(confirmBtn());
+      await vi.advanceTimersByTimeAsync(0);
+    });
+    expect(screen.getByTestId("admin-reset-picker-epoch-refused")).toBeTruthy();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(10_000);
+    });
+    expect(screen.getByTestId("admin-reset-picker-epoch-refused")).toBeTruthy();
+  });
+
+  // PCR-1 item (b): the compact row label is a heading (sits under the panel's
+  // <h3>), not a plain <p>, so the control appears in the SR heading outline.
+  test("(b) the compact row label is a heading", () => {
+    render(
+      <ResetPickerEpochButton
+        showId={SHOW_ID}
+        compact
+        rowLabel="Reset name picker"
+        rowDescription="Everyone re-picks who they are on their next visit."
+      />,
+    );
+    expect(screen.getByRole("heading", { name: /Reset name picker/i })).toBeTruthy();
+  });
+
+  // PCR-1 item (a): the OK banner announces from a live region that is ALREADY
+  // mounted (and empty) before the success — SRs that skip insert-time announces
+  // on a freshly-mounted region still fire. Present in idle AND confirm so the
+  // region is a stable node across the resolving → idle transition.
+  test("(a) a persistent, empty aria-live=polite status region exists at mount (compact)", () => {
+    const { container } = render(
+      <ResetPickerEpochButton
+        showId={SHOW_ID}
+        compact
+        rowLabel="Reset name picker"
+        rowDescription="Everyone re-picks who they are on their next visit."
+      />,
+    );
+    const region = container.querySelector('[role="status"][aria-live="polite"]');
+    expect(region).not.toBeNull();
+    expect(screen.queryByTestId("admin-reset-picker-epoch-ok")).toBeNull();
+  });
+
+  test("(a) the status region persists through the confirm state (stable node)", () => {
+    const { container } = render(
+      <ResetPickerEpochButton
+        showId={SHOW_ID}
+        compact
+        rowLabel="Reset name picker"
+        rowDescription="Everyone re-picks who they are on their next visit."
+      />,
+    );
+    fireEvent.click(idleBtn()); // → confirm
+    expect(container.querySelector('[role="status"][aria-live="polite"]')).not.toBeNull();
+  });
+
   // M12.6 — compact share-card variant: visible text "Reset" → needs a
   // descriptive accessible name + aria-describedby (adversarial review). aria-label
   // contains the visible "Reset" (WCAG 2.5.3 Label-in-Name).

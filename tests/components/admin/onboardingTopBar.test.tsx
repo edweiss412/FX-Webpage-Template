@@ -12,6 +12,7 @@
 import { afterEach, describe, expect, test } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { OnboardingTopBar } from "@/components/admin/nav/OnboardingTopBar";
+import type { HealthStatus } from "@/lib/admin/healthRollup";
 
 afterEach(cleanup);
 
@@ -43,5 +44,24 @@ describe("OnboardingTopBar", () => {
     expect(span.className).toContain("max-w-48");
     // and it must NOT carry the inert bare-`inline` display utility
     expect(span.className).not.toMatch(/(?:^|\s)sm:inline(?:\s|$)/);
+  });
+
+  test("renders the <AppHealthIndicator> when a healthRollup is provided (nothing goes dark during onboarding)", () => {
+    const degraded: HealthStatus = {
+      kind: "degraded",
+      count: 1,
+      summaries: [{ text: "A push notification failed a security check.", count: 1 }],
+      overflowCount: 0,
+    };
+    const q = render(
+      <OnboardingTopBar email="admin@example.test" healthRollup={degraded} isDeveloper={false} />,
+    );
+    expect(q.getByTestId("app-health-indicator")).not.toBeNull();
+    expect(q.getByTestId("app-health-dot-degraded")).not.toBeNull();
+  });
+
+  test("omits the indicator when no healthRollup is provided (guard)", () => {
+    const q = render(<OnboardingTopBar email="admin@example.test" />);
+    expect(q.queryByTestId("app-health-indicator")).toBeNull();
   });
 });

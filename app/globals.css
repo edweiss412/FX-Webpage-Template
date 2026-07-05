@@ -16,8 +16,16 @@
 @source not "../docs";
 @source not "../tests";
 @source not "../lib";
-/* admin dev surface — disabled in production builds (ADMIN_DEV_PANEL_ENABLED). */
-@source not "../app/admin/dev";
+/* admin dev surface — the dev PANEL + dim harnesses are disabled in production
+   builds (ADMIN_DEV_PANEL_ENABLED), so exclude ONLY those dev-only route dirs
+   from Tailwind scanning. NOT the whole `app/admin/dev` tree: `/admin/dev/telemetry`
+   is PROD-available (developer-gated at runtime) and its classes must be scanned.
+   (A parent `@source not` + a child `@source` include does NOT compose in Tailwind
+   v4 — the exclusion always wins — so we narrow the exclusion instead.) */
+@source not "../app/admin/dev/page.tsx";
+@source not "../app/admin/dev/actions.ts";
+@source not "../app/admin/dev/source-link-dim";
+@source not "../app/admin/dev/telemetry-dim";
 
 /*
  * Token surface for FXAV Crew Pages — pairs with DESIGN.md.
@@ -81,6 +89,8 @@
   --color-status-review-text: var(--color-status-review-text-runtime);
   --color-status-warn: var(--color-status-warn-runtime);
   --color-status-warn-text: var(--color-status-warn-text-runtime);
+  --color-status-degraded: var(--color-status-degraded-runtime);
+  --color-status-degraded-text: var(--color-status-degraded-text-runtime);
   --color-status-idle: var(--color-text-faint);
   --color-status-idle-text: var(--color-text-subtle);
 
@@ -257,6 +267,8 @@
   --color-status-review-text-runtime: #6e4e00;
   --color-status-warn-runtime: #b26a16;
   --color-status-warn-text-runtime: #7a3d00;
+  --color-status-degraded-runtime: #b3261e;
+  --color-status-degraded-text-runtime: #ffffff;
 
   color-scheme: light;
 }
@@ -299,6 +311,8 @@
     --color-status-review-text-runtime: #f0c860;
     --color-status-warn-runtime: #e9a23a;
     --color-status-warn-text-runtime: #f0b454;
+    --color-status-degraded-runtime: #e5534b;
+    --color-status-degraded-text-runtime: #1a1a1a;
 
     color-scheme: dark;
   }
@@ -334,6 +348,8 @@
   --color-status-review-text-runtime: #f0c860;
   --color-status-warn-runtime: #e9a23a;
   --color-status-warn-text-runtime: #f0b454;
+  --color-status-degraded-runtime: #e5534b;
+  --color-status-degraded-text-runtime: #1a1a1a;
 
   color-scheme: dark;
 }
@@ -599,6 +615,18 @@ body {
     transform: translateY(0);
   }
 }
+/* General responsive-sheet entrance (transform-only, DESIGN.md §5.4). Referenced
+   by AppHealthPopover and ReportModal via `animate-[sheet-rise_...]`; both had
+   been referencing this name before it was defined, so the rise silently no-op'd.
+   Reduced-motion callers pair it with `motion-reduce:animate-none`. */
+@keyframes sheet-rise {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
 @keyframes step3-details-pop-in {
   from {
     opacity: 0;
@@ -638,6 +666,40 @@ body {
   [data-step3-review-scrim],
   [data-step3-review-panel] {
     animation: none;
+  }
+}
+
+/* Re-scan result overlay (spec 2026-07-03 §G / §H N4): the modal footer's
+   RescanSheetButton floats its result above the button; entrance reuses the
+   existing fast pop-in. Exit is instant (no exit animation). */
+[data-rescan-overlay-result] {
+  animation: step3-details-pop-in var(--duration-fast) var(--ease-out-quart);
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-rescan-overlay-result] {
+    animation: none;
+  }
+}
+
+/* Step-3 review modal: one-shot warning-row highlight after a callout jump
+   (spec 2026-07-03 §E4). Motion-safe: background fade over WARNING_HIGHLIGHT_MS
+   (1600ms — keep in sync with Step3ReviewModal.tsx). Reduced motion: steady
+   tint, removed with the attribute. */
+@keyframes step3-warning-flash {
+  from {
+    background-color: var(--color-warning-bg);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+[data-step3-warning-flash] {
+  animation: step3-warning-flash 1600ms ease-out;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-step3-warning-flash] {
+    animation: none;
+    background-color: var(--color-warning-bg);
   }
 }
 

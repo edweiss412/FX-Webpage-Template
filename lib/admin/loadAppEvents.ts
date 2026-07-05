@@ -6,7 +6,7 @@ import {
   type AppEventFilters,
   type AppEventRow,
   type LoadAppEventsResult,
-} from "@/lib/admin/observabilityTypes";
+} from "@/lib/admin/telemetryTypes";
 
 const SELECT =
   "id, occurred_at, level, source, message, code, request_id, show_id, drive_file_id, actor_hash, context, shows(title, slug)";
