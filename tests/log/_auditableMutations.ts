@@ -209,6 +209,17 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
   // Task 10 — admin/dev/actions parse-stage + schema reset.
   { file: "app/admin/dev/actions.ts", fn: "parseAndStage", code: "DEV_PARSE_STAGED" },
   { file: "app/admin/dev/actions.ts", fn: "resetDevSchema", code: "DEV_SCHEMA_RESET" },
+  // Task 11 — onboarding start-over / rerun-setup.
+  {
+    file: "lib/onboarding/serverActions.ts",
+    fn: "startOverServerAction",
+    code: "ONBOARDING_STARTED_OVER",
+  },
+  {
+    file: "lib/onboarding/serverActions.ts",
+    fn: "rerunSetupServerAction",
+    code: "ONBOARDING_SETUP_RERUN",
+  },
 ];
 
 export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
@@ -261,6 +272,9 @@ export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
   // Invariant #10 (2026-07-04) Task 10.
   "DEV_PARSE_STAGED",
   "DEV_SCHEMA_RESET",
+  // Invariant #10 (2026-07-04) Task 11.
+  "ONBOARDING_STARTED_OVER",
+  "ONBOARDING_SETUP_RERUN",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing

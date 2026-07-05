@@ -164,6 +164,16 @@ vi.mock("@/lib/parser/invariants", () => ({
 
 import { parseAndStage, resetDevSchema } from "@/app/admin/dev/actions";
 
+// ── Task 11: onboarding serverActions ───────────────────────────────────────
+const purgeAndRotateOnboardingSessionMock = vi.fn(
+  async (..._a: unknown[]) => ({ rotated: true }) as unknown,
+);
+vi.mock("@/lib/onboarding/sessionLifecycle", () => ({
+  purgeAndRotateOnboardingSession: (...a: unknown[]) => purgeAndRotateOnboardingSessionMock(...a),
+}));
+
+import { startOverServerAction, rerunSetupServerAction } from "@/lib/onboarding/serverActions";
+
 // ── inline file-local recorder (single-file contract; no cross-file state) ──
 const recorded = new Set<string>(); // "file::fn::code"
 function recordAdminOutcomeBehavior(x: { file: string; fn: string; code: string }) {
@@ -234,6 +244,7 @@ beforeEach(() => {
     ...(parsed as Record<string, unknown>),
   }));
   runInvariantsMock.mockImplementation(() => ({ outcome: "pass" as const }));
+  purgeAndRotateOnboardingSessionMock.mockImplementation(async () => ({ rotated: true }));
 });
 
 // ── Task 7: settings toggles (spec §3.1 A, §5.2) ────────────────────────────
@@ -434,5 +445,52 @@ describe("Task 10 — dev parse-stage + schema reset observe changes", () => {
       makeClient({ rpc: { data: null, error: { message: "boom" } } });
     const failCodes = await observeCodes(() => resetDevSchema());
     expect(failCodes).not.toContain("DEV_SCHEMA_RESET");
+  });
+});
+
+// ── Task 11: onboarding serverActions (spec §3.1 A, §5.2) ───────────────────
+// Both actions are Promise<never> (they redirect()) — the redirect-safe
+// observeCodes helper's catch is what lets the emitted code be observed
+// despite the thrown NEXT_REDIRECT-style error (Task 6 scaffold).
+describe("Task 11 — onboarding start-over / rerun-setup observe changes", () => {
+  test("startOverServerAction emits ONBOARDING_STARTED_OVER before the redirect throw; nothing if the purge throws", async () => {
+    const codes = await observeCodes(() => startOverServerAction());
+    expect(codes).toContain("ONBOARDING_STARTED_OVER");
+    recordAdminOutcomeBehavior({
+      file: "lib/onboarding/serverActions.ts",
+      fn: "startOverServerAction",
+      code: "ONBOARDING_STARTED_OVER",
+    });
+
+    purgeAndRotateOnboardingSessionMock.mockImplementation(async () => {
+      throw new Error("purge infra fault");
+    });
+    const failCodes = await observeCodes(() => startOverServerAction());
+    expect(failCodes).not.toContain("ONBOARDING_STARTED_OVER");
+  });
+
+  test("rerunSetupServerAction emits ONBOARDING_SETUP_RERUN before the redirect throw (both the normal and the finalize-pending-suppressed branch); nothing if the purge throws", async () => {
+    const codes = await observeCodes(() => rerunSetupServerAction());
+    expect(codes).toContain("ONBOARDING_SETUP_RERUN");
+    recordAdminOutcomeBehavior({
+      file: "lib/onboarding/serverActions.ts",
+      fn: "rerunSetupServerAction",
+      code: "ONBOARDING_SETUP_RERUN",
+    });
+
+    // Suppressed (finalize batches pending) branch: still redirects (to a
+    // different URL) — the emit fires unconditionally once the purge resolves.
+    purgeAndRotateOnboardingSessionMock.mockImplementation(async () => ({
+      rotated: false,
+      suppressed: "WIZARD_FINALIZE_BATCHES_PENDING",
+    }));
+    const suppressedCodes = await observeCodes(() => rerunSetupServerAction());
+    expect(suppressedCodes).toContain("ONBOARDING_SETUP_RERUN");
+
+    purgeAndRotateOnboardingSessionMock.mockImplementation(async () => {
+      throw new Error("purge infra fault");
+    });
+    const failCodes = await observeCodes(() => rerunSetupServerAction());
+    expect(failCodes).not.toContain("ONBOARDING_SETUP_RERUN");
   });
 });
