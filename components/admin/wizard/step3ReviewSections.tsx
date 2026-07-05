@@ -894,9 +894,14 @@ export function ScheduleDayRow({
         {humanizeDate(iso) ?? iso}
       </span>
       {phase != null ? (
+        // Reuse the wizard's own eyebrow recipe (EYEBROW_CLASS/STYLE) — the phase
+        // label is MEANINGFUL copy (it identifies the travel-in/out day), so it must
+        // clear AA-normal contrast (text-text-subtle, not the decorative text-faint)
+        // and match the 12px eyebrow scale used across the breakdown. Impeccable P1.
         <span
           data-testid={`wizard-step3-card-${dfid}-sched-phase-${iso}`}
-          className="text-[11px] font-semibold uppercase tracking-eyebrow text-text-faint"
+          className={EYEBROW_CLASS}
+          style={EYEBROW_STYLE}
         >
           {phase}
         </span>
