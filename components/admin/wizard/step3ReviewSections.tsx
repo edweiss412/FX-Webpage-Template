@@ -89,6 +89,7 @@ import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
 import { EVENT_DETAILS_LABELS } from "@/lib/crew/eventDetailsSpecs";
 import { partialAttendanceLabel } from "@/lib/crew/partialAttendance";
+import { resolveOptionalField, formatScheduleWindow } from "@/lib/crew/agendaDisplay";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
 import { Avatar } from "@/components/atoms/Avatar";
@@ -832,10 +833,16 @@ export function ScheduleDayRow({
   dfid,
   iso,
   entries,
+  showStart = null,
+  window: dayWindow = null,
+  showEnd = null,
 }: {
   dfid: string;
   iso: string;
   entries: AgendaEntry[];
+  showStart?: string | null;
+  window?: { start: string; end: string } | null;
+  showEnd?: string | null;
 }) {
   const [showAll, setShowAll] = useState(false);
   // Cap-exemption partition (spec §9.4): cap ONLY the agenda group at
@@ -850,11 +857,30 @@ export function ScheduleDayRow({
   // grid, so their time/title cells share the agenda rows' column edges.
   const rows = [...visibleAgenda, ...synthetic];
 
+  // Fragment-day meta (§#307 Fix 1): a day with no titled entries surfaces its
+  // showStart / window / showEnd — mirrors the crew ScheduleSection. Sentinel-guarded
+  // (resolveOptionalField hides TBD/N/A), so it never renders "Ends TBD".
+  let timeMeta: string | null = null;
+  if (entries.length === 0) {
+    const win = dayWindow != null ? formatScheduleWindow(dayWindow) : null;
+    const start = resolveOptionalField(showStart ?? undefined) ?? null;
+    const end = resolveOptionalField(showEnd ?? undefined) ?? null;
+    timeMeta = win ?? start ?? (end != null ? `Ends ${end}` : null);
+  }
+
   return (
     <li className="flex flex-col gap-1">
       <span className="text-xs font-medium tabular-nums text-text-strong">
         {humanizeDate(iso) ?? iso}
       </span>
+      {timeMeta ? (
+        <span
+          data-testid={`wizard-step3-card-${dfid}-sched-meta`}
+          className="text-sm tabular-nums text-text-subtle"
+        >
+          {timeMeta}
+        </span>
+      ) : null}
       <div className="grid grid-cols-[auto_1fr] items-baseline gap-x-2 gap-y-0.5">
         {rows.map((e, i) => {
           const isSynthetic = e.kind === "strike" || e.kind === "loadout";
@@ -922,7 +948,15 @@ export function ScheduleBreakdown({ dfid, ros }: { dfid: string; ros: RunOfShow 
       ) : (
         <ul className="flex flex-col gap-3">
           {shownDays.map((iso) => (
-            <ScheduleDayRow key={iso} dfid={dfid} iso={iso} entries={arr(ros[iso]?.entries)} />
+            <ScheduleDayRow
+              key={iso}
+              dfid={dfid}
+              iso={iso}
+              entries={arr(ros[iso]?.entries)}
+              showStart={ros[iso]?.showStart ?? null}
+              window={ros[iso]?.window ?? null}
+              showEnd={ros[iso]?.showEnd ?? null}
+            />
           ))}
         </ul>
       )}
