@@ -134,4 +134,97 @@ describe("runObserve", () => {
     expect(none.exitCode).toBe(0);
     expect(none.stdout).toContain("pnpm observe");
   });
+
+  // Task 9: --reveal-email → includePii + at-a-glance identity rendering.
+  describe("alerts identity + --reveal-email", () => {
+    const noPiiIdentity = {
+      segments: [
+        { label: "Show", value: "East Coast" },
+        { label: "Crew", value: "Jamie Rivera" },
+      ],
+      global: false,
+    };
+    const withPiiIdentity = {
+      segments: [
+        { label: "Show", value: "East Coast" },
+        { label: "Crew", value: "Jamie Rivera" },
+        { label: "Email", value: "crew@fxav.test", pii: true },
+      ],
+      global: false,
+    };
+    function alertRow(identity: typeof noPiiIdentity) {
+      return {
+        id: "a1",
+        showId: null,
+        code: "SOME_CODE",
+        raisedAt: "2026-07-03T00:00:00.000Z",
+        lastSeenAt: "2026-07-03T00:00:00.000Z",
+        occurrenceCount: 1,
+        resolvedAt: null,
+        resolvedBy: null,
+        showTitle: null,
+        showSlug: null,
+        identity,
+      };
+    }
+
+    test("default: no --reveal-email → includePii false/absent, identity shown, no raw email", async () => {
+      let capturedFilters: unknown;
+      const r = await runObserve(["alerts"], {
+        ...deps,
+        queryAlerts: async (filters) => {
+          capturedFilters = filters;
+          return { kind: "ok" as const, alerts: [alertRow(noPiiIdentity)] };
+        },
+      });
+      expect(r.exitCode).toBe(0);
+      // Identity segments render (at-a-glance).
+      expect(r.stdout).toContain("Show: East Coast");
+      expect(r.stdout).toContain("Crew: Jamie Rivera");
+      // No raw email anywhere in output.
+      expect(r.stdout).not.toContain("crew@fxav.test");
+      // includePii not requested by default.
+      expect((capturedFilters as { includePii?: boolean }).includePii).not.toBe(true);
+    });
+
+    test("--reveal-email → includePii true passed to queryAlerts, email rendered, stderr warns", async () => {
+      let capturedFilters: unknown;
+      const r = await runObserve(["alerts", "--reveal-email"], {
+        ...deps,
+        queryAlerts: async (filters) => {
+          capturedFilters = filters;
+          return { kind: "ok" as const, alerts: [alertRow(withPiiIdentity)] };
+        },
+      });
+      expect(r.exitCode).toBe(0);
+      expect((capturedFilters as { includePii?: boolean }).includePii).toBe(true);
+      expect(r.stdout).toContain("crew@fxav.test");
+      expect(r.stderr.toLowerCase()).toContain("pii");
+    });
+
+    test("--json default: no email segment, only AlertRow shape", async () => {
+      const r = await runObserve(["alerts", "--json"], {
+        ...deps,
+        queryAlerts: async () => ({ kind: "ok" as const, alerts: [alertRow(noPiiIdentity)] }),
+      });
+      expect(r.exitCode).toBe(0);
+      const parsed = JSON.parse(r.stdout) as Array<Record<string, unknown>>;
+      expect(parsed).toHaveLength(1);
+      const row = parsed[0];
+      expect(row).toBeDefined();
+      expect(JSON.stringify(row)).not.toContain("user_email");
+      expect(JSON.stringify(row)).not.toContain("crew@fxav.test");
+      expect(row).not.toHaveProperty("context");
+      expect(row).not.toHaveProperty("resolution");
+      expect(row?.identity).toEqual(noPiiIdentity);
+    });
+
+    test("unknown-flag-not-rejected: alerts --reveal-email parses cleanly (exit 0)", async () => {
+      const r = await runObserve(["alerts", "--reveal-email"], {
+        ...deps,
+        queryAlerts: async () => ({ kind: "ok" as const, alerts: [] }),
+      });
+      expect(r.exitCode).toBe(0);
+    });
+  });
 });

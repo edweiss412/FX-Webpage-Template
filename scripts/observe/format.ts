@@ -1,6 +1,7 @@
 // scripts/observe/format.ts
 import type { AppEventRow, CronHealthRow } from "@/lib/admin/telemetryTypes";
 import type { AlertRow, ChangeRow } from "@/lib/observe/query";
+import { describeAlert } from "@/lib/adminAlerts/describeAlert";
 
 const trunc = (s: string, n = 80) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
 
@@ -21,10 +22,14 @@ export function formatAlerts(rows: AlertRow[], json: boolean): string {
   if (json) return JSON.stringify(rows);
   if (rows.length === 0) return "(no rows)";
   return rows
-    .map(
-      (r) =>
-        `${r.raisedAt}  ${r.code.padEnd(28)}  ${(r.showTitle ?? r.showId ?? "-").padEnd(20)}  x${r.occurrenceCount}  ${r.resolvedAt ? "resolved" : "OPEN"}`,
-    )
+    .map((r) => {
+      const base = `${r.raisedAt}  ${r.code.padEnd(28)}  ${(r.showTitle ?? r.showId ?? "-").padEnd(20)}  x${r.occurrenceCount}  ${r.resolvedAt ? "resolved" : "OPEN"}`;
+      // Render with includePii:true UNCONDITIONALLY — the read-core already gated
+      // which segments are present (Codex P9); re-gating here would double-drop
+      // an already-revealed email.
+      const idLine = describeAlert(r.identity, { includePii: true });
+      return idLine ? `${base}\n    ${idLine}` : base;
+    })
     .join("\n");
 }
 export function formatCron(rows: CronHealthRow[], json: boolean, nowMs: number): string {

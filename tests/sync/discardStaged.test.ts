@@ -501,7 +501,9 @@ describe("discardStaged live-scope", () => {
         },
         syncDeps,
       ),
-    ).rejects.toBeInstanceOf(WizardSessionSupersededRollbackError);
+    ).rejects.toMatchObject({
+      context: { attemptedAction: "discard", driveFileName: "Show Sheet" },
+    });
     expect(syncDeps.deleteWizardPendingSync).not.toHaveBeenCalled();
   });
 
@@ -532,7 +534,9 @@ describe("discardStaged live-scope", () => {
         },
         syncDeps,
       ),
-    ).rejects.toBeInstanceOf(WizardSessionSupersededRollbackError);
+    ).rejects.toMatchObject({
+      context: { attemptedAction: "discard", driveFileName: "Show Sheet" },
+    });
   });
 
   // S3 nuance: try_again writes NO deferral first, so a manifest miss there is

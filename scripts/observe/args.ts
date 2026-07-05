@@ -15,6 +15,7 @@ export type ParsedArgs =
       json: boolean;
       env?: string;
       follow: boolean;
+      revealEmail: boolean;
       interval: number;
       limit?: number;
       eventFilters: AppEventFilters;
@@ -56,6 +57,7 @@ export function parseObserveArgs(argv: string[]): ParsedArgs {
         open: { type: "boolean", default: false },
         json: { type: "boolean", default: false },
         follow: { type: "boolean", default: false },
+        "reveal-email": { type: "boolean", default: false },
         help: { type: "boolean", short: "h", default: false },
       },
     });
@@ -103,10 +105,12 @@ export function parseObserveArgs(argv: string[]): ParsedArgs {
     ...(showId ? { showId } : {}),
     ...(since !== undefined ? { sinceHours: since } : {}),
   };
+  const revealEmail = values["reveal-email"] === true;
   const alertFilters: AlertFilters = {
     ...(values.open ? { openOnly: true } : {}),
     ...(codeVal ? { code: codeVal } : {}),
     ...(limit !== undefined ? { limit } : {}),
+    includePii: revealEmail,
   };
   const changeFilters: ChangeLogFilters = {
     ...(showId ? { showId } : {}),
@@ -121,6 +125,7 @@ export function parseObserveArgs(argv: string[]): ParsedArgs {
     json: values.json ?? false,
     ...(values.env ? { env: values.env } : {}),
     follow: values.follow ?? false,
+    revealEmail,
     interval,
     ...(limit !== undefined ? { limit } : {}),
     eventFilters,

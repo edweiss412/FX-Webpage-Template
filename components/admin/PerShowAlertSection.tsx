@@ -16,8 +16,13 @@
  * pinned to that row).
  */
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { log } from "@/lib/log";
 import { HEALTH_CODES } from "@/lib/adminAlerts/audience";
 import { resolveAlertAction } from "@/lib/adminAlerts/alertActions";
+import { projectIdentityContext } from "@/lib/adminAlerts/projectIdentityContext";
+import { resolveAlertIdentities } from "@/lib/adminAlerts/resolveAlertIdentities";
+import { describeAlert } from "@/lib/adminAlerts/describeAlert";
+import type { AlertIdentity } from "@/lib/adminAlerts/identityTypes";
 import { nowDate } from "@/lib/time/now";
 import { PerShowAlertResolveButton } from "@/components/admin/PerShowAlertResolveButton";
 import { isInboxRouted } from "@/lib/messages/adminSurface";
@@ -46,6 +51,14 @@ type AdminAlertRow = {
   code: string;
   context: Record<string, unknown> | null;
   raised_at: string;
+  /** admin_alerts.occurrence_count (NOT NULL default 1) — drives the resolver's coalescing disclosure. */
+  occurrence_count: number;
+  /**
+   * At-a-glance identity line (spec §3.1–§3.3): the resolved crew/show/email/
+   * count string, or null for global / empty / unknown-code / degraded rows.
+   * Definite field (exactOptionalPropertyTypes) — never optional-undefined.
+   */
+  identityText: string | null;
 };
 
 type PerShowAlertSectionProps = {
@@ -117,6 +130,13 @@ export async function fetchPerShowAlerts(
       message: `supabase client failed: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
+  // Read the per-show alert rows. This try/catch wraps ONLY the read so the
+  // supabase-derived await's catch stays adjacent to it (AGENTS.md §1.9 /
+  // tests/admin/_metaInfraContract catch-window). Identity resolution is a
+  // SEPARATE step below with its own try/catch — mirroring AlertBanner's Task
+  // 10 structure (read in its own try, resolve after) — so the additive
+  // resolve block never lengthens the read's try body.
+  let rows: Omit<AdminAlertRow, "identityText">[];
   try {
     // alert-audience-split §5: exclude `audience: "health"` codes from the
     // per-show Doug surface (they flow to the app-health indicator instead).
@@ -126,7 +146,7 @@ export async function fetchPerShowAlerts(
     // list must be non-empty, so guard it.
     let query = supabase
       .from("admin_alerts")
-      .select("id, code, context, raised_at")
+      .select("id, code, context, raised_at, occurrence_count")
       .eq("show_id", showId)
       .is("resolved_at", null);
     if (HEALTH_CODES.length > 0) {
@@ -139,11 +159,12 @@ export async function fetchPerShowAlerts(
         message: `admin_alerts query failed: ${error.message}`,
       };
     }
-    return (data ?? []).map((row) => ({
+    rows = (data ?? []).map((row) => ({
       id: row.id as string,
       code: row.code as string,
       context: (row.context as Record<string, unknown> | null) ?? null,
       raised_at: row.raised_at as string,
+      occurrence_count: (row.occurrence_count as number) ?? 1,
     }));
   } catch (err) {
     return {
@@ -151,6 +172,58 @@ export async function fetchPerShowAlerts(
       message: `admin_alerts query threw: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
+
+  // At-a-glance identity (spec §3.1–§3.3), mirroring AlertBanner's Task 10
+  // wiring. The section's `showId` prop is authoritative: inject it as every
+  // row's ResolverRow `show_id` so a show-scoped code with NO drive_file_id
+  // still resolves the Show segment. Resolve ONCE (the resolver batches all
+  // rows into ≤3 reads). The resolver never throws on a returned DB error
+  // (it degrades to kind:"infra_error" with a partial/empty map), but wrap
+  // the call defensively anyway; on ANY fault (thrown OR infra_error) log a
+  // degraded event and fall back to no identity — but STILL return every
+  // alert (identity is additive, never gating).
+  const resolverRows = rows.map((r) => ({
+    id: r.id,
+    code: r.code,
+    show_id: showId,
+    occurrence_count: r.occurrence_count,
+    identityContext: projectIdentityContext(r.context, { includePii: true }),
+  }));
+  let identities = new Map<string, AlertIdentity>();
+  try {
+    const resolved = await resolveAlertIdentities(
+      resolverRows,
+      // The full SupabaseClient generic is deeper than the resolver's narrow
+      // SupabaseLike shape; TS can flag TS2589 on the direct pass. Cast
+      // through the resolver's own parameter type (production precedent:
+      // app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route.ts).
+      supabase as unknown as Parameters<typeof resolveAlertIdentities>[1],
+      { includePii: true },
+    );
+    // The resolver ALWAYS returns a (possibly partial) identities map — on
+    // infra_error it still carries whatever resolved BEFORE the fault (spec
+    // §3.2 F9/P5 partial degradation; e.g. the email/show segments survive a
+    // failed crew_members lookup). Use the map REGARDLESS of kind so surviving
+    // segments still render, and ADDITIONALLY log when degraded. Mirrors
+    // AlertBanner's Task-10 handling (Codex whole-diff R2 MEDIUM — the prior
+    // else-only assignment dropped the whole partial map on infra_error).
+    identities = resolved.identities;
+    if (resolved.kind === "infra_error") {
+      log.error("alert identity resolve degraded", {
+        source: "admin.perShowAlertSection",
+      });
+    }
+  } catch (err) {
+    log.error("alert identity resolve degraded", {
+      source: "admin.perShowAlertSection",
+      error: err,
+    });
+  }
+  return rows.map((r) => {
+    const identity = identities.get(r.id);
+    const identityText = identity ? describeAlert(identity, { includePii: true }) : null;
+    return { ...r, identityText };
+  });
 }
 
 export async function PerShowAlertSection({
@@ -309,6 +382,20 @@ export async function PerShowAlertSection({
                   className="text-xs text-text-subtle"
                 >
                   Data dropped while parsing: {formatDataGapBreakdown(dataGapsDigest)}
+                </p>
+              ) : null}
+              {/* At-a-glance identity (Task 11, spec §3.1–§3.3): the resolved
+                  crew/show/email/count string. Muted sub-line tone mirrors the
+                  failedKeys/dataGaps detail lines above (text-xs text-text-subtle,
+                  no new token). Suppressed entirely when identityText is null
+                  (global / empty / unknown code / degraded resolve). The <p>
+                  contains ONLY the identity string. */}
+              {alert.identityText ? (
+                <p
+                  data-testid="per-show-alert-identity"
+                  className="wrap-break-word text-xs text-text-subtle"
+                >
+                  {alert.identityText}
                 </p>
               ) : null}
               <p className="text-xs text-text-subtle tabular-nums">

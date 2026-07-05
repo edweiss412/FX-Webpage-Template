@@ -228,6 +228,7 @@ export async function handleWizardStagedApply(
             )(),
             pending_ingestion_id: error.context.pendingIngestionId ?? null,
             drive_file_id: error.context.driveFileId,
+            file_name: error.context.driveFileName,
           },
         });
       } catch (alertError) {

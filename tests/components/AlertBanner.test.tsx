@@ -30,6 +30,7 @@ import { AlertBanner } from "@/components/admin/AlertBanner";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { firstSentence, stripEmphasis } from "@/lib/messages/collapsedSummary";
 import { ESCALATION_THRESHOLD } from "@/lib/drive/watchErrors";
+import { setLogSink, resetLogSink } from "@/lib/log";
 
 // RECON-1 T3: <AlertBanner> now wraps its normal-state render in
 // <AlertBannerRouteBoundary> (a 'use client' island that reads BOTH
@@ -123,6 +124,22 @@ const mockState = vi.hoisted(() => ({
   // probe) returns a PostgREST `{ error }`, driving AlertBanner's
   // detailFailed branch → the degraded variant (no <details>).
   failDetailRead: false,
+  // Task 10 (at-a-glance identity): the SAME supabase client is now also
+  // passed to resolveAlertIdentities, which issues
+  // `.from("crew_members"|"shows").select(cols).in(col, ids).limit(n)`
+  // reads. These fixtures back those reads (keyed/filtered by the `.in()`
+  // id list). Defaults empty → resolver finds no rows → no crew/show segment.
+  crewRows: [] as Array<{ id: string; show_id: string | null; name: string | null }>,
+  showRows: [] as Array<{
+    id?: string;
+    drive_file_id?: string;
+    title: string | null;
+    slug: string | null;
+  }>,
+  // When true, the crew_members/shows reads return a PostgREST `{ error }`,
+  // driving resolveAlertIdentities → kind:"infra_error" (banner must still
+  // render + log; per §3.2 the resolver never throws on a returned error).
+  failIdentityRead: false,
 }));
 
 vi.mock("@/lib/supabase/server", () => {
@@ -141,12 +158,17 @@ vi.mock("@/lib/supabase/server", () => {
       // payload AND the count probe, matching real PostgREST semantics.
       // `from()` returns a fresh builder per call so the count probe's
       // filters don't leak into the data probe (and vice versa).
-      function createBuilder() {
+      function createBuilder(table: string) {
         const filters: Array<
           | { kind: "not_in"; column: string; values: string[] }
           | { kind: "is"; column: string; value: null | boolean }
         > = [];
         let countMode = false;
+        // Task 10: the resolver narrows crew/show reads via `.in(col, ids)`.
+        const inFilter: { column: string | null; values: string[] | null } = {
+          column: null,
+          values: null,
+        };
         const apply = () => {
           let rows: typeof mockState.rows = mockState.rows;
           for (const f of filters) {
@@ -192,11 +214,42 @@ vi.mock("@/lib/supabase/server", () => {
             }
             return builder;
           },
+          // Task 10: resolveAlertIdentities narrows its crew/show reads via
+          // `.in("id"|"drive_file_id", ids)`. Record the filter; `.limit`
+          // applies it against the crew/show fixtures below.
+          in: (column: string, values: string[]) => {
+            inFilter.column = column;
+            inFilter.values = values;
+            return builder;
+          },
           order: () => builder,
-          limit: (n: number) =>
-            mockState.failDetailRead
+          limit: (n: number) => {
+            // Task 10: the identity resolver reads crew_members/shows. Serve
+            // those from the dedicated fixtures, filtered by the `.in()` list.
+            // A forced failIdentityRead returns a PostgREST `{ error }` so the
+            // resolver degrades to kind:"infra_error" WITHOUT throwing.
+            if (table === "crew_members" || table === "shows") {
+              if (mockState.failIdentityRead) {
+                return Promise.resolve({
+                  data: null,
+                  error: { message: "simulated identity read failure" },
+                });
+              }
+              const source =
+                table === "crew_members"
+                  ? (mockState.crewRows as Array<Record<string, unknown>>)
+                  : (mockState.showRows as Array<Record<string, unknown>>);
+              const rows =
+                inFilter.column && inFilter.values
+                  ? source.filter((r) => inFilter.values!.includes(r[inFilter.column!] as string))
+                  : source;
+              return Promise.resolve({ data: rows.slice(0, n), error: null });
+            }
+            // admin_alerts detail probe (unchanged behavior).
+            return mockState.failDetailRead
               ? Promise.resolve({ data: null, error: { message: "simulated detail read failure" } })
-              : Promise.resolve({ data: apply().slice(0, n), error: null }),
+              : Promise.resolve({ data: apply().slice(0, n), error: null });
+          },
           // Awaiting the builder (no .order().limit()) returns the count
           // probe shape. Required for the M9 C4 queue-depth chip path.
           then: (onFulfilled: (value: { data: null; error: null; count: number }) => void) => {
@@ -213,7 +266,7 @@ vi.mock("@/lib/supabase/server", () => {
         return builder;
       }
       return {
-        from: () => createBuilder(),
+        from: (table: string) => createBuilder(table),
       };
     },
   };
@@ -248,12 +301,16 @@ describe("AlertBanner", () => {
   beforeEach(() => {
     mockState.rows = [];
     mockState.failDetailRead = false;
+    mockState.crewRows = [];
+    mockState.showRows = [];
+    mockState.failIdentityRead = false;
     countState.override = null;
     navState.pathname = "/";
     navState.search = "";
   });
   afterEach(() => {
     cleanup();
+    resetLogSink();
   });
 
   test("renders nothing when no unresolved alerts (no DOM mount)", async () => {
@@ -1493,5 +1550,141 @@ describe("AlertBanner", () => {
     r = render(await AlertBanner());
     expect(r.container.querySelector("[data-testid=admin-alert-retry-button]")).toBeNull();
     expect(r.container.querySelector("[data-testid=admin-alert-resolve-button]")).not.toBeNull();
+  });
+
+  // ===========================================================================
+  // Task 10 — at-a-glance identity line (crew / show / sheet / email).
+  //
+  // AlertBanner now projects `admin_alerts.context` → resolveAlertIdentities
+  // (admin surface → includePii:true) → describeAlert, rendering the resulting
+  // "Label: value · …" string in TWO distinct nodes: the always-visible
+  // collapsed line (`admin-alert-identity`, the one Task 12's real-browser gate
+  // measures) and the expanded-panel copy (`admin-alert-identity-panel`).
+  //
+  // Failure modes pinned: identity omitted for a global/unknown code; a
+  // resolver infra_error crashing the persistent admin layout; and a tautology
+  // where the panel copy self-satisfies the collapsed-line assertion.
+  // ===========================================================================
+
+  const OAUTH_CREW_ID = "22222222-2222-4222-8222-222222222222";
+  const OAUTH_SHOW_ID = "11111111-1111-4111-8111-111111111111";
+
+  // NOTE (alert-audience-split reconciliation): the crew-rich codes
+  // (OAUTH_IDENTITY_CLAIMED, ROLE_FLAGS_NOTICE, …) are now `audience:"health"`
+  // and no longer surface on Doug's AlertBanner (DOUG_SURFACE_EXCLUDED_CODES).
+  // Their rich crew+email+show identity is exercised on the HEALTH surface
+  // (HealthAlertsPanel) instead. The banner identity line is verified here with
+  // a doug-VISIBLE code that still carries a rich identity: AMBIGUOUS_EMAIL_BINDING
+  // (Show · email · crew-row count).
+  test("AMBIGUOUS_EMAIL_BINDING → admin-alert-identity shows email and show title", async () => {
+    mockState.showRows = [
+      { id: OAUTH_SHOW_ID, title: "Spring Conference", slug: "spring-conference" },
+    ];
+    setRows([
+      {
+        id: "ambig-ident-1",
+        code: "AMBIGUOUS_EMAIL_BINDING",
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: OAUTH_SHOW_ID,
+        shows: { slug: "spring-conference" },
+        context: {
+          email: "jamie@example.com",
+          show_id: OAUTH_SHOW_ID,
+          crew_member_ids: [OAUTH_CREW_ID, "33333333-3333-4333-8333-333333333333"],
+        },
+      },
+    ]);
+    const { container } = render(await AlertBanner());
+    // Anti-tautology: the expanded-panel copy (admin-alert-identity-panel)
+    // independently renders the SAME identity string. Clone the tree and REMOVE
+    // that sibling before scanning, so only the collapsed identity node can
+    // satisfy the assertion (distinct test ids by design — Codex P10).
+    const clone = container.cloneNode(true) as HTMLElement;
+    clone.querySelector("[data-testid=admin-alert-identity-panel]")?.remove();
+    const identity = clone.querySelector("[data-testid=admin-alert-identity]");
+    expect(identity).not.toBeNull();
+    const text = identity!.textContent ?? "";
+    expect(text).toContain("jamie@example.com"); // email (context.email, PII allowed on admin surface)
+    expect(text).toContain("Spring Conference"); // show title (DB-resolved)
+    // Panel copy carries the same text under its own id.
+    expect(
+      container
+        .querySelector("[data-testid=admin-alert-identity-panel]")
+        ?.textContent?.includes("Spring Conference"),
+    ).toBe(true);
+  });
+
+  test("global code (SHOW_UNPUBLISHED) renders NO identity line (collapsed or panel)", async () => {
+    setRows([
+      {
+        id: "global-ident",
+        // SHOW_UNPUBLISHED is a doug-VISIBLE global code (ALERT_IDENTITY_MAP →
+        // { kind: "global" }); GITHUB_BOT_LOGIN_MISSING is now audience:"health"
+        // and is excluded from the banner entirely, so it can't exercise the
+        // "global code renders on the banner but shows no identity" path here.
+        code: "SHOW_UNPUBLISHED",
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+    ]);
+    const { getByTestId, queryByTestId } = render(await AlertBanner());
+    expect(getByTestId("admin-alert-banner")).not.toBeNull(); // banner still renders
+    expect(queryByTestId("admin-alert-identity")).toBeNull();
+    expect(queryByTestId("admin-alert-identity-panel")).toBeNull();
+  });
+
+  test("unknown code renders the banner with NO identity line and does not throw", async () => {
+    setRows([
+      {
+        id: "unknown-ident",
+        code: "TOTALLY_NOT_A_CATALOG_CODE", // not in ALERT_IDENTITY_MAP nor the catalog
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: null,
+        shows: null,
+      },
+    ]);
+    await expect(
+      (async () => {
+        const { getByTestId, queryByTestId } = render(await AlertBanner());
+        expect(getByTestId("admin-alert-banner")).not.toBeNull();
+        expect(queryByTestId("admin-alert-identity")).toBeNull();
+        expect(queryByTestId("admin-alert-identity-panel")).toBeNull();
+      })(),
+    ).resolves.toBeUndefined();
+  });
+
+  test("resolver infra_error still renders the alert (no crash) and logs a degraded event", async () => {
+    const records: Array<{ source: string; message: string }> = [];
+    setLogSink((record) => {
+      records.push({ source: record.source, message: record.message });
+    });
+    // AMBIGUOUS_EMAIL_BINDING (doug-visible) has a showName segment, so the
+    // resolver issues a `shows` read — which the forced failIdentityRead fails,
+    // driving resolveAlertIdentities → kind:"infra_error" + the degraded log.
+    mockState.failIdentityRead = true;
+    setRows([
+      {
+        id: "ambig-infra",
+        code: "AMBIGUOUS_EMAIL_BINDING",
+        raised_at: "2026-05-04T10:00:00Z",
+        show_id: OAUTH_SHOW_ID,
+        shows: { slug: "spring-conference" },
+        context: {
+          email: "jamie@example.com",
+          show_id: OAUTH_SHOW_ID,
+        },
+      },
+    ]);
+    const { getByTestId } = render(await AlertBanner());
+    // Banner still renders — a resolver fault must not take down the layout.
+    expect(getByTestId("admin-alert-banner")).not.toBeNull();
+    expect(getByTestId("admin-alert-banner").querySelector("summary")).not.toBeNull();
+    // A degraded event was logged from the banner's identity path.
+    expect(
+      records.some(
+        (r) => r.source === "admin.alertBanner" && /identity resolve degraded/.test(r.message),
+      ),
+    ).toBe(true);
   });
 });

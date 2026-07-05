@@ -471,6 +471,7 @@ export async function discardStaged_unlocked(
           attemptedAction: "discard",
           supersededSessionId: args.wizardSessionId,
           driveFileId: args.driveFileId,
+          driveFileName: pending.driveFileName,
         });
       }
       return { outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED };
@@ -488,6 +489,7 @@ export async function discardStaged_unlocked(
         attemptedAction: "discard",
         supersededSessionId: args.wizardSessionId,
         driveFileId: args.driveFileId,
+        driveFileName: pending.driveFileName,
       });
     }
     return { outcome: "discarded", variant };

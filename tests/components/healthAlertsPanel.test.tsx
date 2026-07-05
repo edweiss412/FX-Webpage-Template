@@ -31,6 +31,7 @@ function row(overrides: Partial<HealthAlertRow> & { id: string; code: string }):
     context: null,
     occurrence_count: 1,
     raised_at: "2026-01-01T00:00:00.000Z",
+    identityText: null,
     ...overrides,
   };
 }
@@ -133,6 +134,57 @@ describe("HealthAlertsPanel (Task 8 reachability)", () => {
         `action link for row ${id}`,
       ).toBeInTheDocument();
     }
+  });
+
+  test("(c) OAUTH_IDENTITY_CLAIMED row renders the at-a-glance identity line (crew · email · show)", async () => {
+    // includePii:true surface (developer-only page), so raw email shows. The
+    // identity text is produced by loadHealthAlerts (mocked here); the panel's
+    // job is to RENDER it in a scoped node. Anti-tautology: after asserting the
+    // scoped identity node carries the crew name, clone the row and REMOVE that
+    // node, proving the crew name appears nowhere else on the row.
+    const identityText = "Crew: Jordan Lee · jordan@example.com · Show: East Coast Spectacular";
+    impl.fn = async ({ weight }) =>
+      weight === "notice"
+        ? {
+            kind: "ok",
+            rows: [
+              row({
+                id: "oauth1",
+                code: "OAUTH_IDENTITY_CLAIMED",
+                show_id: "s1",
+                slug: "east-coast",
+                identityText,
+              }),
+            ],
+            hasMore: false,
+          }
+        : { kind: "ok", rows: [], hasMore: false };
+    await renderPanel();
+    const panel = screen.getByTestId("health-alerts-panel");
+    const identity = within(panel).getByTestId("health-alert-identity-oauth1");
+    expect(identity.textContent).toContain("Jordan Lee");
+    expect(identity.textContent).toContain("jordan@example.com");
+    expect(identity.textContent).toContain("East Coast Spectacular");
+    // Anti-tautology: the crew name is rendered ONLY in the identity node.
+    const rowNode = within(panel).getByTestId("health-alert-row-oauth1");
+    const clone = rowNode.cloneNode(true) as HTMLElement;
+    clone.querySelector("[data-testid=health-alert-identity-oauth1]")?.remove();
+    expect(clone.textContent ?? "").not.toContain("Jordan Lee");
+  });
+
+  test("(d) global-identity health code (GITHUB_BOT_LOGIN_MISSING) → NO identity line, row still renders", async () => {
+    impl.fn = async ({ weight }) =>
+      weight === "degraded"
+        ? {
+            kind: "ok",
+            rows: [row({ id: "gh1", code: "GITHUB_BOT_LOGIN_MISSING", identityText: null })],
+            hasMore: false,
+          }
+        : { kind: "ok", rows: [], hasMore: false };
+    await renderPanel();
+    const panel = screen.getByTestId("health-alerts-panel");
+    expect(within(panel).getByTestId("health-alert-row-gh1")).toBeInTheDocument();
+    expect(within(panel).queryByTestId("health-alert-identity-gh1")).toBeNull();
   });
 
   test("degraded section renders BEFORE the notice section", async () => {

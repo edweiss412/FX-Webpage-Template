@@ -138,6 +138,7 @@ async function stampOauthClaim(
             crew_member_id: row.crew_member_id,
             show_id: row.show_id,
             claimed_at_millis: row.claimed_at_millis,
+            user_email: canonicalEmail,
             user_email_hash: hashForLog(canonicalEmail),
           },
         });

@@ -473,6 +473,12 @@ async function handleAction(
         supersededSessionId: current.row.wizard_session_id,
         pendingIngestionId: id,
         driveFileId: current.row.drive_file_id,
+        // Task 7: the currently-locked row's captured sheet name — in scope
+        // here regardless of which branch (manifest transition / deferral /
+        // delete) 0-rows below. exactOptionalPropertyTypes: only set the key
+        // when defined — assigning `undefined` to an optional property is
+        // rejected under this tsconfig.
+        ...(current.row.drive_file_name ? { driveFileName: current.row.drive_file_name } : {}),
       };
       const manifestTransitioned = await transitionManifestRow(tx, current.row, action);
       if (!manifestTransitioned) {
@@ -549,6 +555,7 @@ async function handleAction(
             )(),
             pending_ingestion_id: error.context.pendingIngestionId ?? null,
             drive_file_id: error.context.driveFileId,
+            file_name: error.context.driveFileName,
           },
         });
       } catch (alertError) {

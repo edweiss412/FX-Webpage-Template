@@ -3,6 +3,12 @@ export type WizardSessionRollbackContext = {
   supersededSessionId: string;
   pendingIngestionId?: string;
   driveFileId: string;
+  // Task 7 (alert-at-a-glance identity): the drive file / sheet name in scope at
+  // the throw site, threaded through to the WIZARD_SESSION_SUPERSEDED_RACE alert's
+  // `file_name` context field so Doug can tell WHICH sheet raced. Optional —
+  // some throw sites genuinely have no name in scope (the alert renderer already
+  // drops the Sheet segment when absent).
+  driveFileName?: string;
 };
 
 /**

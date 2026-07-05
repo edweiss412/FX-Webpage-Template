@@ -227,11 +227,17 @@ describe("DS3-1 — POST manifest-keyed permanent_ignore route (mocked tx)", () 
         throw error;
       }
     };
+    // Task 7: capture the emitted alert to assert file_name is sourced from the
+    // locked manifest row's `name` column (manifest.name → rollbackContext.driveFileName).
+    let capturedAlert: { code: string; context: Record<string, unknown> } | null = null;
 
     const response = await handleWizardManifestIgnore(req(), context(), {
       requireAdminIdentity: okAdmin,
       withRowTx: throwingWithRowTx,
-      upsertAdminAlert: async () => null,
+      upsertAdminAlert: async (input) => {
+        capturedAlert = { code: input.code, context: input.context as Record<string, unknown> };
+        return null;
+      },
       readCurrentWizardSessionId: async () => null,
     });
 
@@ -245,5 +251,9 @@ describe("DS3-1 — POST manifest-keyed permanent_ignore route (mocked tx)", () 
     expect(lastTxCalls.some((c) => /insert into public\.deferred_ingestions/i.test(c.sql))).toBe(
       true,
     );
+    expect(capturedAlert).toMatchObject({
+      code: "WIZARD_SESSION_SUPERSEDED_RACE",
+      context: { file_name: SHEET_NAME },
+    });
   });
 });
