@@ -72,6 +72,22 @@ export async function seedGlobalAlert(opts: { count: number }) {
   await seedNUnresolved(opts.count);
 }
 
+// Seed exactly ONE unresolved GLOBAL alert of an arbitrary code (alert-resolve-truthing
+// §4.5 real-browser layout gate). Used for a non-watch auto-resolving code (e.g.
+// SYNC_STALLED) whose auto-clear note must be measured in a real opened panel. The code
+// MUST be doug-visible (not in DOUG_SURFACE_EXCLUDED_CODES) or the banner query filters it
+// out and renders nothing. admin_alerts.context is NOT NULL → an empty `{}` is inserted.
+export async function seedGlobalCodeAlert(code: string) {
+  await clearAlerts();
+  const { error } = await admin.from("admin_alerts").insert({
+    show_id: null,
+    code,
+    context: {},
+    raised_at: new Date(Date.now() - 5 * 3600_000).toISOString(),
+  });
+  if (error) throw new Error(`seedGlobalCodeAlert(${code}) insert failed: ${error.message}`);
+}
+
 // Seed exactly ONE unresolved GLOBAL WATCH_CHANNEL_ORPHANED row (spec §3.4). The
 // banner's watch branch keys on `code === "WATCH_CHANNEL_ORPHANED" && show_id null`
 // so this row renders the Retry action slot + panel dismiss/status/error-detail.

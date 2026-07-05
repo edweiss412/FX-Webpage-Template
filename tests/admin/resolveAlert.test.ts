@@ -52,7 +52,7 @@ const mockState = vi.hoisted(() => ({
   // alert-audience-split Task 10: the action now fetches the row's code and
   // REJECTS health codes before the UPDATE. Default a doug code so the legacy
   // resolve path proceeds; the health-reject path is pinned in healthResolveGuard.
-  guardRow: { code: "SHOW_UNPUBLISHED" } as { code: string } | null,
+  guardRow: { code: "SHOW_FIRST_PUBLISHED" } as { code: string } | null,
   guardError: null as null | { message: string },
   updateSpy: vi.fn(),
   fromSpy: vi.fn(),
@@ -128,7 +128,7 @@ describe("resolveAdminAlertFormAction", () => {
     mockState.chainResult = { error: null };
     mockState.userEmail = "admin@fxav.test";
     mockState.getUserError = null;
-    mockState.guardRow = { code: "SHOW_UNPUBLISHED" };
+    mockState.guardRow = { code: "SHOW_FIRST_PUBLISHED" };
     mockState.guardError = null;
     mockState.updateSpy.mockClear();
     mockState.fromSpy.mockClear();

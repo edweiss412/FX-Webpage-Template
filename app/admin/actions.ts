@@ -34,7 +34,7 @@ import { subscribeToWatchedFolder } from "@/lib/drive/watch";
 import { resolveAdminAlert } from "@/lib/adminAlerts/resolveAdminAlert";
 import { WatchRetryInfraError } from "@/lib/admin/watchRetryError";
 import { requireDeveloperIdentity } from "@/lib/auth/requireDeveloper";
-import { HEALTH_CODES } from "@/lib/adminAlerts/audience";
+import { HEALTH_CODES, isAutoResolving } from "@/lib/adminAlerts/audience";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 // Local UUID regex — duplicated from `lib/auth/constants.ts` (UUID_RE) because
@@ -127,6 +127,12 @@ export async function resolveAdminAlertFormAction(formData: FormData): Promise<v
     );
   }
   if (guardRow && HEALTH_CODES.includes(guardRow.code as string)) {
+    return;
+  }
+  // alert-resolve-truthing §4.3: an auto-resolving code self-clears, so a manual
+  // resolve here would be a misleading no-op. Fail CLOSED — no-op (do NOT
+  // revalidate a false success), leaving resolved_at for the auto-resolver.
+  if (guardRow && isAutoResolving(guardRow.code as string)) {
     return;
   }
 
@@ -222,6 +228,10 @@ export async function resolveHealthAlertFormAction(formData: FormData): Promise<
   // A developer cannot use this door to resolve a `doug` alert (defense-in-depth):
   // only HEALTH_CODES rows are resolvable here. No write on rejection.
   if (!HEALTH_CODES.includes(code)) return;
+  // alert-resolve-truthing §4.3: an auto-resolving health code self-clears, so even
+  // the developer door fails CLOSED — no manual no-op write (the HealthAlertsPanel
+  // renders an auto-clear note in place of the button for these codes).
+  if (isAutoResolving(code)) return;
   const showId = (row.show_id as string | null) ?? null;
 
   const { data: updated, error: updateError } = await supabase

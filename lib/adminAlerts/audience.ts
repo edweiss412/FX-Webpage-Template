@@ -48,3 +48,42 @@ export function dougSummaryFor(code: string): string | null {
     | undefined;
   return entry?.dougSummary ?? null;
 }
+
+/** Every `resolution: "auto"` code — self-resolving; the manual button is suppressed. */
+export const AUTO_RESOLVING_CODES: string[] = entries
+  .filter((entry) => entry.resolution === "auto")
+  .map((entry) => entry.code);
+
+const AUTO_RESOLVING_SET = new Set(AUTO_RESOLVING_CODES);
+
+/**
+ * True iff a code self-resolves. Unknown/uncataloged → false (fail-visible: the
+ * manual button still renders, so an unrecognized actionable alert is never hidden).
+ */
+export function isAutoResolving(code: string): boolean {
+  return AUTO_RESOLVING_SET.has(code);
+}
+
+// Per-code auto-clear note; codes absent here fall back to the generic line. Human
+// copy only (invariant 5) — never a raw code, never interpolates untrusted context.
+const AUTO_RESOLVE_NOTES: Record<string, string> = {
+  EMAIL_NOT_CONFIGURED:
+    "Clears automatically once email notifications are configured on the deployment.",
+  EMAIL_DELIVERY_FAILED: "Clears automatically once email deliveries recover.",
+  GITHUB_BOT_LOGIN_MISSING: "Clears automatically once GITHUB_BOT_LOGIN is set on the deployment.",
+  SYNC_STALLED: "Clears automatically once the sync heartbeat recovers.",
+  WATCH_CHANNEL_ORPHANED:
+    "Clears automatically once the Drive watch channel re-subscribes (use Retry to trigger it now).",
+};
+
+/**
+ * Human-readable "why there's no button" note for an auto-resolving code. Returns a
+ * per-code hint when one is defined, else a well-worded generic line. Pure (no DB, no
+ * interpolation of untrusted context) — invariant 5 holds, no placeholder-leak path.
+ */
+export function autoResolveNote(code: string): string {
+  return (
+    AUTO_RESOLVE_NOTES[code] ??
+    "Clears automatically when the system detects recovery. No action is needed here."
+  );
+}

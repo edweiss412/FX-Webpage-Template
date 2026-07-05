@@ -2,6 +2,8 @@ import { getAlertOnAutoPublish } from "@/lib/appSettings/getAlertOnAutoPublish";
 import { getAlertOnSyncProblems } from "@/lib/appSettings/getAlertOnSyncProblems";
 import { getDailyReviewDigest } from "@/lib/appSettings/getDailyReviewDigest";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { log } from "@/lib/log";
+import { resolveBotLoginAlertRow } from "@/lib/reports/botLoginAlert";
 import { configValid } from "@/lib/notify/config";
 import { DIGEST_RETRY_WINDOW_HOURS, DIGEST_TIMEZONE } from "@/lib/notify/constants";
 import { buildDigestModel } from "@/lib/notify/digest";
@@ -77,6 +79,7 @@ export type MaintenanceDeps = {
   getAlertOnAutoPublish?: () => Promise<ToggleResult>;
   getDailyReviewDigest?: () => Promise<ToggleResult>;
   configValid?: () => ConfigResult;
+  resolveBotLoginAlert?: () => Promise<void>; // alert-resolve-truthing §6.2
   now?: Date;
 };
 
@@ -222,6 +225,19 @@ export async function runMaintenance(deps: MaintenanceDeps = {}): Promise<Mainte
           }
         : { kind: "infra_error", toggleFaults };
   out.push({ step: "emailDelivery", result: email });
+
+  // alert-resolve-truthing §6.2: opportunistically resolve GITHUB_BOT_LOGIN_MISSING when the env is
+  // configured. Catch-logged (invariant 9 — logged, not silent) so a resolve fault degrades to a
+  // no-op for THIS cycle instead of escaping runMaintenance (an uncaught throw is swallowed by
+  // safeMaintenance into a single generic `stall` infra_error, destroying every real step result).
+  // No 4th step is appended — the returned [stall, recovery, emailDelivery] contract is preserved.
+  await (deps.resolveBotLoginAlert ?? resolveBotLoginAlertRow)().catch((cause) => {
+    void log.warn("bot-login alert resolve failed (non-fatal)", {
+      source: "notify.maintenance",
+      code: "CREW_REPORT_SUBMITTED",
+      detail: cause instanceof Error ? cause.message : String(cause),
+    });
+  });
   return out;
 }
 

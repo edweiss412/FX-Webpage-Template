@@ -83,7 +83,7 @@ describe("resolveHealthAlertFormAction", () => {
   it("non-developer → denied before any read/write; no update, no log, no revalidate", async () => {
     const forbidden = Object.assign(new Error("forbidden"), { code: "FORBIDDEN" });
     requireDeveloperIdentity.mockRejectedValue(forbidden);
-    state.row = { code: "WEBHOOK_TOKEN_INVALID", show_id: null };
+    state.row = { code: "TILE_SERVER_RENDER_FAILED", show_id: null };
     await expect(resolveHealthAlertFormAction(fd())).rejects.toThrow();
     expect(state.updateCalled).toBe(false);
     expect(logAdminOutcome).not.toHaveBeenCalled();
@@ -91,7 +91,7 @@ describe("resolveHealthAlertFormAction", () => {
   });
 
   it("developer + health row → resolves, sets resolved_by, awaits ONE ADMIN_ALERT_RESOLVED with actor, revalidates BOTH", async () => {
-    state.row = { code: "WEBHOOK_TOKEN_INVALID", show_id: null };
+    state.row = { code: "TILE_SERVER_RENDER_FAILED", show_id: null };
     state.updateData = [{ id: ID }];
     await resolveHealthAlertFormAction(fd());
     expect(state.updateCalled).toBe(true);
@@ -111,7 +111,7 @@ describe("resolveHealthAlertFormAction", () => {
   });
 
   it("AC11/AC12 show-scoped health row → outcome carries showId; BOTH revalidate paths", async () => {
-    state.row = { code: "TILE_PROJECTION_FETCH_FAILED", show_id: "show-1" };
+    state.row = { code: "TILE_SERVER_RENDER_FAILED", show_id: "show-1" };
     state.updateData = [{ id: ID }];
     await resolveHealthAlertFormAction(fd());
     expect(logAdminOutcome).toHaveBeenCalledWith(
@@ -130,7 +130,7 @@ describe("resolveHealthAlertFormAction", () => {
   });
 
   it("zero-row UPDATE (already resolved / concurrent) → no log, no revalidate (idempotent no-op)", async () => {
-    state.row = { code: "WEBHOOK_TOKEN_INVALID", show_id: null };
+    state.row = { code: "TILE_SERVER_RENDER_FAILED", show_id: null };
     state.updateData = []; // affected zero rows
     await resolveHealthAlertFormAction(fd());
     expect(state.updateCalled).toBe(true);
@@ -139,7 +139,7 @@ describe("resolveHealthAlertFormAction", () => {
   });
 
   it("UPDATE returned-error → throws, no log, no revalidate", async () => {
-    state.row = { code: "WEBHOOK_TOKEN_INVALID", show_id: null };
+    state.row = { code: "TILE_SERVER_RENDER_FAILED", show_id: null };
     state.updateError = { message: "rls denied" };
     await expect(resolveHealthAlertFormAction(fd())).rejects.toThrow(/UPDATE failed/);
     expect(logAdminOutcome).not.toHaveBeenCalled();

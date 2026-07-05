@@ -33,6 +33,7 @@ import { getRequiredDougFacing, isMessageCode, messageFor } from "@/lib/messages
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { resolveAdminAlertFormAction, retryWatchSubscriptionFormAction } from "@/app/admin/actions";
 import { DOUG_SURFACE_EXCLUDED_CODES } from "@/lib/messages/adminSurface";
+import { isAutoResolving, autoResolveNote } from "@/lib/adminAlerts/audience";
 import { raisedAtSuffix } from "@/lib/time/raisedAt";
 import { nowDate } from "@/lib/time/now";
 import { formatBoundedCount } from "@/lib/format/count";
@@ -226,6 +227,10 @@ export async function AlertBanner() {
   // /non-string case. `escalated` mirrors the escalation predicate in
   // lib/drive/watchEscalation.ts (config OR occurrence_count >= threshold).
   const isWatchAlert = !isPerShowAlert && alert.code === "WATCH_CHANNEL_ORPHANED";
+  // alert-resolve-truthing §4.3: a non-watch auto-resolving code suppresses the manual
+  // resolve form entirely — the action cell renders nothing (no misleading button); the
+  // auto-clear note surfaces in the expanded panel footer instead.
+  const suppressResolveForm = isAutoResolving(alert.code);
   // Per-code action link (spec 2026-07-04-alert-action-links §7.2): GLOBAL
   // non-watch rows only — per-show rows keep "Check it" as their single
   // navigation (the action link renders on the show page after click-through).
@@ -512,7 +517,10 @@ export async function AlertBanner() {
               <code>{errorDetail}</code>
             </p>
           ) : null}
-          {isWatchAlert ? (
+          {isWatchAlert && !isAutoResolving(alert.code) ? (
+            // alert-resolve-truthing §4.3: an auto-resolving watch code (e.g.
+            // WATCH_CHANNEL_ORPHANED) suppresses the manual Dismiss — Retry stays in the
+            // action cell, and the auto-clear note (below) explains the clearing.
             <form
               action={resolveAdminAlertFormAction}
               data-testid="admin-alert-panel-dismiss"
@@ -529,6 +537,17 @@ export async function AlertBanner() {
                 {raisedAtSuffix(alert.raised_at, now)}
               </time>
             </p>
+            {isAutoResolving(alert.code) ? (
+              // alert-resolve-truthing §4.3: auto-resolving codes suppress the manual
+              // resolve/dismiss affordance; this expanded-panel note explains why there is
+              // no button. `basis-full` drops it onto its own row below Raised / +N more.
+              <p
+                data-testid="admin-alert-autoclear"
+                className="basis-full text-xs text-text-subtle"
+              >
+                {autoResolveNote(alert.code)}
+              </p>
+            ) : null}
             {moreCount > 0 && (
               <Link
                 data-testid="admin-alert-queue-chip"
@@ -575,7 +594,7 @@ export async function AlertBanner() {
             <form action={retryWatchSubscriptionFormAction}>
               <RetryWatchButton />
             </form>
-          ) : (
+          ) : suppressResolveForm ? null : (
             // M9 C4 / M5-D3 §5.4: two-tap inline confirm. ResolveAlertButton
             // is a small client island; the parent form owns the hidden id
             // input + Server Action so the resolve posture is preserved. The

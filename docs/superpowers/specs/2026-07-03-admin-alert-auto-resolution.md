@@ -48,7 +48,8 @@ which governs only the JS producer path).
 
 Classes: **AUTO** = already auto-resolves (no change) · **NEW** = auto-resolution added by this spec ·
 **EVENT** = one-shot notice, manual by design · **DEFER** = state-based but out of scope (BACKLOG).
-Counts: 7 AUTO · 14 NEW · 18 EVENT · 3 DEFER = 42.
+Counts: 7 AUTO · 15 NEW · 18 EVENT · 2 DEFER = 42. (`GITHUB_BOT_LOGIN_MISSING` promoted DEFER→auto by
+`docs/superpowers/specs/2026-07-04-alert-resolve-truthing.md` §6, which supersedes its row below.)
 
 | Code | Class | Raise site(s) | Condition | Clear detection → resolution |
 |---|---|---|---|---|
@@ -91,7 +92,7 @@ Counts: 7 AUTO · 14 NEW · 18 EVENT · 3 DEFER = 42.
 | REPORT_OPEN_ORPHAN_LABEL | EVENT | `lib/reports/submit.ts:207` (mapped by `lookupAlertCode`) | impossible open-orphan state | Impossible-state alarm. |
 | REPORT_LEASE_THRASHING | EVENT | `lib/reports/submit.ts:847-848` | repeated lease races | Same. |
 | STALE_ORPHAN_REPORT | EVENT | `app/api/cron/report-reaper/route.ts:74` | stale reservation reaped | Reaper audit record. |
-| GITHUB_BOT_LOGIN_MISSING | DEFER | `lib/reports/submit.ts:778` | bot login env unset | Config STATE, but the healthy observation point is inside the M8 report pipeline whose review discipline requires live GitHub integration probes (`feedback_mocked_only_tests_invite_tautological_approve`) — out of scope; BACKLOG. |
+| GITHUB_BOT_LOGIN_MISSING | ~~DEFER~~ → **auto** | `lib/reports/botLoginAlert.ts` (`resolveBotLoginAlertRow`, cron env-presence reconcile) + `lib/reports/submit.ts` (`resolveBotLoginAlertFailOpen`, fail-open resolve on configured submit success) | bot login env unset | **Superseded by `2026-07-04-alert-resolve-truthing.md` §6:** resolved via an explicit env-presence read, not "generic submit success", so no live-GitHub-probe dependency. |
 | BRANCH_PROTECTION_DRIFT | DEFER | `scripts/verify-branch-protection.ts:326` | branch protection drifted | STATE, but raised by a CI-side ops script outside the app runtime; BACKLOG. |
 | BRANCH_PROTECTION_MONITOR_AUTH_FAILED | DEFER | `scripts/verify-branch-protection.ts:266,286,309` | monitor auth failing | Same. |
 
@@ -299,8 +300,10 @@ also serves non-crew render paths where "empty `tileErrors`" is not the same obs
 - Dedup/occurrence semantics unchanged: resolving then re-raising creates a fresh row (partial
   unique index `admin_alerts_one_unresolved_idx`, `20260501001000_internal_and_admin.sql:279`),
   preserving history.
-- `GITHUB_BOT_LOGIN_MISSING`, `BRANCH_PROTECTION_*`, report-family auto-resolution, and per-tile
-  keying for `TILE_SERVER_RENDER_FAILED` → BACKLOG.md entries in this PR.
+- `BRANCH_PROTECTION_*`, report-family auto-resolution, and per-tile keying for
+  `TILE_SERVER_RENDER_FAILED` → BACKLOG.md entries in this PR. (`GITHUB_BOT_LOGIN_MISSING` is no
+  longer backlog — promoted DEFER→auto by `2026-07-04-alert-resolve-truthing.md` §6; see the note
+  at the top of §3 and its superseded row above.)
 
 ## 6. Guard conditions & edge cases
 

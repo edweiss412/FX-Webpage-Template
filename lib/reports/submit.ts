@@ -16,6 +16,7 @@ import { enforceQuota, type QuotaResult, type ReportQuotaKind } from "@/lib/repo
 import { canonicalize } from "@/lib/email/canonicalize";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { log } from "@/lib/log";
+import { botLoginConfigured } from "@/lib/reports/botLoginAlert";
 
 export type ReporterRoleSnapshot = string | null;
 
@@ -953,6 +954,7 @@ async function expiredLeaseRetry(
     showId: ageRow.show_id ?? body.show_id,
     issueUrl: issue.htmlUrl,
   });
+  await resolveBotLoginAlertFailOpen(db, ageRow.show_id ?? body.show_id);
   return { status: 201, body: successBody(auth, "created", issue.htmlUrl) };
 }
 
@@ -1016,6 +1018,36 @@ export async function handleTailUpdateMiss(
   } catch (cause) {
     if (cause instanceof ReportSubmitInfraError) throw cause;
     throw new ReportSubmitInfraError("handleTailUpdateMiss", cause);
+  }
+}
+
+// alert-resolve-truthing §6.2 (H2): opportunistic, FAIL-OPEN resolve of the global
+// GITHUB_BOT_LOGIN_MISSING alert when the bot login is configured. Re-reads the env explicitly
+// (a normal create never touches it), so a false-close is impossible. Called before BOTH 201
+// returns — the alert is opened on the lookup-inconclusive path (handleLookupInconclusive) that
+// feeds the expired-lease flow, so the expiredLeaseRetry 201 is a real reach. A resolve failure
+// must NEVER fail an already-durable submit — every fault is caught + logged (invariant 9, not
+// silent). The returned-error contract lives on the service-role resolveBotLoginAlertRow in
+// lib/reports/botLoginAlert.ts. The marker below is one line — the reports meta-test exemption
+// regex requires `// not-subject-to-meta:` on the single line immediately above the export:
+// not-subject-to-meta: raw postgres.js db.query fail-open reconciler; catches locally, never throws, not a Supabase-client returned-error boundary
+export async function resolveBotLoginAlertFailOpen(
+  db: ReportLeaseDb,
+  showId: string | null,
+): Promise<void> {
+  if (!botLoginConfigured()) return; // no query when unset (no false-close)
+  try {
+    await db.query(
+      `UPDATE admin_alerts SET resolved_at = now()
+        WHERE code = 'GITHUB_BOT_LOGIN_MISSING' AND show_id IS NULL AND resolved_at IS NULL`,
+    );
+  } catch (cause) {
+    void log.warn("bot-login alert resolve failed (non-fatal)", {
+      source: "reports.submit",
+      code: "CREW_REPORT_SUBMITTED",
+      showId,
+      detail: cause instanceof Error ? cause.message : String(cause),
+    });
   }
 }
 
@@ -1086,6 +1118,7 @@ export async function submitReport(
         showId: body.show_id,
         issueUrl: issue.htmlUrl,
       });
+      await resolveBotLoginAlertFailOpen(db, body.show_id);
       return { status: 201, body: successBody(auth, "created", issue.htmlUrl) };
     } catch (cause) {
       if (cause instanceof ReportSubmitInfraError) throw cause;

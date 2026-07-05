@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test, vi } from "vitest";
 import { NextRequest } from "next/server";
+import { resolveBotLoginAlertRow, BotLoginResolveInfraError } from "@/lib/reports/botLoginAlert";
 
 const supabaseMock = vi.hoisted(() => ({
   mode: "ok" as "ok" | "returned_error" | "thrown_error",
@@ -92,12 +93,17 @@ const REGISTERED_INFRA_EXPORTS = [
   "runReportReaper",
   "GET",
   "runReaperGet",
+  // alert-resolve-truthing §6.2: service-role admin_alerts UPDATE resolver (the pure
+  // botLoginConfigured predicate + the BotLoginResolveInfraError class are annotated
+  // // not-subject-to-meta: in the source, so they need no registration here).
+  "resolveBotLoginAlertRow",
 ] as const;
 
 const META_SOURCE_FILES = [
   "lib/reports/leaseProtocol.ts",
   "lib/reports/rateLimit.ts",
   "lib/reports/submit.ts",
+  "lib/reports/botLoginAlert.ts",
   "lib/github/issues.ts",
   "app/api/report/route.ts",
   "app/api/cron/report-reaper/route.ts",
@@ -439,6 +445,82 @@ describe("META reports infra-failure contract", () => {
     } finally {
       if (originalSecret === undefined) delete process.env.CRON_SECRET;
       else process.env.CRON_SECRET = originalSecret;
+    }
+  });
+
+  test("resolveBotLoginAlertRow throws BotLoginResolveInfraError on returned Supabase error", async () => {
+    const original = process.env.GITHUB_BOT_LOGIN;
+    process.env.GITHUB_BOT_LOGIN = "fxav-bot"; // env gate open so the resolver reaches the client
+    try {
+      const builder = {
+        update: () => builder,
+        eq: () => builder,
+        is: () => builder,
+        // Full { data, error } shape (invariant 9 — not a partial that lets the resolver
+        // codify an incomplete contract).
+        select: async () => ({ data: null, error: { message: "META: simulated returned error" } }),
+      } as Record<string, unknown>;
+      const client = { from: () => builder } as never;
+      const err = await resolveBotLoginAlertRow(() => client).catch((e) => e);
+      expect(err).toBeInstanceOf(BotLoginResolveInfraError);
+      expect((err as BotLoginResolveInfraError).kind).toBe("returned_error");
+    } finally {
+      if (original === undefined) delete process.env.GITHUB_BOT_LOGIN;
+      else process.env.GITHUB_BOT_LOGIN = original;
+    }
+  });
+
+  // Invariant 9 (whole-diff review R3 HIGH): the resolver destructures the FULL { data, error }
+  // shape and CONSUMES data — a successful resolve returns the count of cleared rows, so the meta
+  // contract requires `data`, not just `error`. A future edit that drops row evidence fails here.
+  test("resolveBotLoginAlertRow returns the cleared-row count from { data } on success", async () => {
+    const original = process.env.GITHUB_BOT_LOGIN;
+    process.env.GITHUB_BOT_LOGIN = "fxav-bot";
+    try {
+      const builder = {
+        update: () => builder,
+        eq: () => builder,
+        is: () => builder,
+        select: async () => ({ data: [{ id: "a" }, { id: "b" }], error: null }),
+      } as Record<string, unknown>;
+      const client = { from: () => builder } as never;
+      await expect(resolveBotLoginAlertRow(() => client)).resolves.toBe(2);
+    } finally {
+      if (original === undefined) delete process.env.GITHUB_BOT_LOGIN;
+      else process.env.GITHUB_BOT_LOGIN = original;
+    }
+  });
+
+  // Invariant 9 (whole-diff review R2 CRITICAL): the THROWN boundary must ALSO surface as the
+  // typed fault, not a raw Error — both a client-construction throw and a PostgREST request throw.
+  test("resolveBotLoginAlertRow wraps a THROWN fault as BotLoginResolveInfraError(kind:thrown_error)", async () => {
+    const original = process.env.GITHUB_BOT_LOGIN;
+    process.env.GITHUB_BOT_LOGIN = "fxav-bot";
+    try {
+      // (a) client construction throws
+      const ctorThrows = () => {
+        throw new Error("META: client construction blew up");
+      };
+      const e1 = await resolveBotLoginAlertRow(ctorThrows as never).catch((e) => e);
+      expect(e1).toBeInstanceOf(BotLoginResolveInfraError);
+      expect((e1 as BotLoginResolveInfraError).kind).toBe("thrown_error");
+
+      // (b) the PostgREST request throws (await rejects) — no raw Error escapes
+      const builder = {
+        update: () => builder,
+        eq: () => builder,
+        is: () => builder,
+        select: async () => {
+          throw new Error("META: request blew up");
+        },
+      } as Record<string, unknown>;
+      const client = { from: () => builder } as never;
+      const e2 = await resolveBotLoginAlertRow(() => client).catch((e) => e);
+      expect(e2).toBeInstanceOf(BotLoginResolveInfraError);
+      expect((e2 as BotLoginResolveInfraError).kind).toBe("thrown_error");
+    } finally {
+      if (original === undefined) delete process.env.GITHUB_BOT_LOGIN;
+      else process.env.GITHUB_BOT_LOGIN = original;
     }
   });
 });
