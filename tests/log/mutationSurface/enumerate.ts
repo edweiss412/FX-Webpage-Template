@@ -47,7 +47,9 @@ export function moduleHasUseServer(sf: ts.SourceFile) {
   return leadingDirective(sf.statements, "use server");
 }
 export function functionBodyHasUseServer(node: ts.FunctionLikeDeclaration) {
-  return !!node.body && ts.isBlock(node.body) && leadingDirective(node.body.statements, "use server");
+  return (
+    !!node.body && ts.isBlock(node.body) && leadingDirective(node.body.statements, "use server")
+  );
 }
 
 /** True if `name` is bound anywhere in a `BindingName` (identifier, object/array
@@ -78,7 +80,11 @@ export function isLocallyRebound(callNode: ts.Node, name: string): boolean {
       for (const p of (n as ts.FunctionLikeDeclaration).parameters ?? [])
         if (bindingBindsName(p.name, name)) found = true;
     // catch clause variable: catch (log) { ... }
-    if (ts.isCatchClause(n) && n.variableDeclaration && bindingBindsName(n.variableDeclaration.name, name))
+    if (
+      ts.isCatchClause(n) &&
+      n.variableDeclaration &&
+      bindingBindsName(n.variableDeclaration.name, name)
+    )
       found = true;
     if (found) return true;
     n = n.parent;
@@ -87,7 +93,13 @@ export function isLocallyRebound(callNode: ts.Node, name: string): boolean {
 }
 
 export function scanBody(root: ts.Node, opts: { descend: boolean }) {
-  const res = { adminOutcome: false, codedLog: false, adminGated: false, rpc: false, writeBuilder: false };
+  const res = {
+    adminOutcome: false,
+    codedLog: false,
+    adminGated: false,
+    rpc: false,
+    writeBuilder: false,
+  };
   const WRITE = new Set(["insert", "update", "delete", "upsert"]);
   const imports = importBindingOk(root.getSourceFile());
   const realBinding = (call: ts.Node, name: "log" | "logAdminOutcome") =>
@@ -257,7 +269,12 @@ function collectModuleActions(sf: ts.SourceFile): { fn: string; node: ts.Node }[
               add(d.name.text, d.initializer);
       }
     }
-    if (ts.isExportDeclaration(st) && !st.moduleSpecifier && st.exportClause && ts.isNamedExports(st.exportClause))
+    if (
+      ts.isExportDeclaration(st) &&
+      !st.moduleSpecifier &&
+      st.exportClause &&
+      ts.isNamedExports(st.exportClause)
+    )
       for (const el of st.exportClause.elements) {
         const localName = (el.propertyName ?? el.name).text;
         const exportedName = el.name.text;

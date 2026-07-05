@@ -83,14 +83,17 @@ describe("scanBody durability predicate", () => {
   });
   test("emit inside if-block → true (control-flow descended)", () => {
     expect(
-      scanBody(firstFn(IMP + 'async function m(){ if(ok){ await logAdminOutcome({code:"X"}); } }'), {
-        descend: false,
-      }).adminOutcome,
+      scanBody(
+        firstFn(IMP + 'async function m(){ if(ok){ await logAdminOutcome({code:"X"}); } }'),
+        {
+          descend: false,
+        },
+      ).adminOutcome,
     ).toBe(true);
   });
   test("requireAdmin in body → adminGated true", () => {
     expect(
-      scanBody(firstFn(IMP + 'async function m(){ await requireAdmin(); doIt(); }'), {
+      scanBody(firstFn(IMP + "async function m(){ await requireAdmin(); doIt(); }"), {
         descend: false,
       }).adminGated,
     ).toBe(true);
@@ -126,13 +129,15 @@ describe("importBindingOk", () => {
 
 describe("call-site binding (Codex plan-R1 F2): local shadow does NOT satisfy the floor", () => {
   test("real import but log rebound in the fn body → codedLog false", () => {
-    const src = IMP + 'async function m(){ const log = { warn(){} }; log.warn("x", { code:"FOO" }); }';
+    const src =
+      IMP + 'async function m(){ const log = { warn(){} }; log.warn("x", { code:"FOO" }); }';
     // scanBody must reject because the call's `log` is locally rebound
     expect(scanBody(firstFn(src), { descend: false }).codedLog).toBe(false);
   });
   test("real import but logAdminOutcome rebound → adminOutcome false", () => {
     const src =
-      IMP + 'async function m(){ const logAdminOutcome = async () => {}; await logAdminOutcome({ code:"X" }); }';
+      IMP +
+      'async function m(){ const logAdminOutcome = async () => {}; await logAdminOutcome({ code:"X" }); }';
     expect(scanBody(firstFn(src), { descend: false }).adminOutcome).toBe(false);
   });
   test("destructured shadow const { log } = fake → codedLog false (Codex plan-R3)", () => {
@@ -247,7 +252,7 @@ describe("collectSurfaceUnits — admin classification", () => {
   test("app/api/report/route.ts-style path → admin:false (not path-matched, not scanned for require*)", () => {
     const root = makeFixture(
       "app/api/report/route.ts",
-      'export async function POST(){ await requireAdminIdentity(); doIt(); }\n',
+      "export async function POST(){ await requireAdminIdentity(); doIt(); }\n",
     );
     const units = collectSurfaceUnits([root]);
     expect(units[0]!.admin).toBe(false);

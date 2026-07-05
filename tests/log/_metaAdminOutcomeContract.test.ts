@@ -4,11 +4,7 @@ import { describe, expect, test } from "vitest";
 import ts from "typescript";
 
 import { codeProducerLiterals } from "@/lib/messages/__internal__/codeProducers";
-import {
-  AUDITABLE_MUTATIONS,
-  SANCTIONED_CODES,
-  NEW_FORENSIC_CODES,
-} from "./_auditableMutations";
+import { AUDITABLE_MUTATIONS, SANCTIONED_CODES, NEW_FORENSIC_CODES } from "./_auditableMutations";
 
 // Registry-walk structural guard for the durable admin-mutation audit trail.
 // Every registered mutation route MUST emit a logAdminOutcome with its outcome
