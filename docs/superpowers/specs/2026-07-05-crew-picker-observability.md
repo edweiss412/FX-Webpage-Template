@@ -44,10 +44,11 @@ mutation boundary. This is durable and catalog-exempt by two existing mechanisms
   A coded `log.info` therefore writes to `app_events`, exactly like `logAdminOutcome`
   (which is itself a coded `log.info` wrapper).
 - **§12.4-scanner-exempt:** the code literal lives **inside a `log.*()` span**, which
-  `stripLogEmissionCalls` removes before the producer scan (same mechanism the existing
-  forensic codes rely on, e.g. `PICKER_IDENTITY_CLAIMED_TAMPER` at
-  `lib/auth/picker/selectIdentity.ts:64`). So no `catalog.ts` / §12.4 registration, and
-  no x1 `tests/messages/codes.test.ts` producer collision.
+  the producer scanner (`lib/messages/__internal__/codeProducers.ts:6-12`, via
+  `stripLogEmissionCalls`) removes before the scan — same mechanism the existing forensic
+  codes rely on, e.g. `PICKER_IDENTITY_CLAIMED_TAMPER` at
+  `lib/auth/picker/selectIdentity.ts:64`. So no `catalog.ts` / §12.4 registration, and no
+  x1 catalog-parity collision (`tests/cross-cutting/codes.test.ts:122-126`).
 
 ### 2.1 The three codes
 
@@ -80,7 +81,13 @@ scope only inside the private `*Impl`. So the emit goes there:
 - **`clearIdentityCoreImpl`** (`clearIdentity.ts:69-106`) — on the **real-delete branch
   only**, before `return { ok: true }` (`:106`), after the cookie rewrite (`:88`/`:96`)
   + `revalidatePath` (`:105`). `input.showId` in scope. The `!env` no-op branch
-  (`:81-83`) stays **silent** (mutation-boundary discipline: nothing was cleared).
+  (`:81-83`) stays **silent**. **Existence guard (Codex spec-R1 MED):** the delete at
+  `:86` (`delete env.selections[input.showId]`) runs unconditionally even when the cookie
+  holds no entry for this `showId`, so the emit MUST be gated on prior existence — capture
+  `const existed = env.selections[input.showId] !== undefined;` **before** the delete and
+  emit only when `existed` is `true`. An `env` that exists but lacks an entry for this
+  show is a no-op → **silent** (mutation-boundary discipline: nothing was actually
+  cleared).
 - **`cleanupStaleEntryCoreImpl`** (`cleanupStaleEntry.ts:61-121`) — before
   `return { ok: true, action: "cleaned" }` (`:121`), after the best-effort
   `upsertAdminAlert` try/catch (`:106-119`). `input.showId`, `input.expectedEpoch`,
@@ -100,7 +107,8 @@ already imports it).
 | `selectIdentityCore` | `…Impl` throws (`:78`) | `catch → { ok:false, code:"PICKER_RESOLVER_LOOKUP_FAILED" }` — **no emit** |
 | `clearIdentityCoreImpl` | invalid input (`:75`) | early return — **no emit** |
 | `clearIdentityCoreImpl` | `!env` (no picker cookie) (`:81-83`) | `{ ok:true }`, **no emit** (nothing cleared) |
-| `clearIdentityCoreImpl` | real delete (`:86-106`) | emit `PICKER_IDENTITY_CLEARED` |
+| `clearIdentityCoreImpl` | `env` present but no entry for `input.showId` (`existed===false`) | `{ ok:true }`, **no emit** (no-op) |
+| `clearIdentityCoreImpl` | real delete, `existed===true` (`:86-106`) | emit `PICKER_IDENTITY_CLEARED` |
 | `cleanupStaleEntryCoreImpl` | invalid input (`:72`), `!env` (`:78`), `!entry` (`:81`), epoch/id mismatch (`:83`) | `{ ok:true, action:"noop" }` or `{ ok:false }`, **no emit** |
 | `cleanupStaleEntryCoreImpl` | `action:"cleaned"` (`:121`) | emit `PICKER_STALE_ENTRY_CLEANED` |
 
@@ -151,11 +159,21 @@ via its `PICKER_IDENTITY_CLAIMED_TAMPER` coded `log.warn` in its own body
 (`selectIdentity.ts:56-65`), and is not in the ledger.
 
 **Ledger delete:** `KNOWN_UNINSTRUMENTED` becomes `[]` (`exemptions.ts`), doc comment
-refreshed to state the ledger is empty (crew picker fns now instrumented). The hygiene
-test "the live KNOWN_UNINSTRUMENTED ledger's 6 rows are all non-admin-gated"
-(`_metaMutationSurfaceObservability.test.ts:551-572`) loops `for (const row of
-KNOWN_UNINSTRUMENTED)` and passes **vacuously** when empty; rename its title to drop the
-stale "6 rows" (`…ledger's rows are all non-admin-gated`).
+refreshed to state the ledger is empty (crew picker fns now instrumented).
+
+Two tests reference the ledger's contents and MUST be updated in the same change:
+
+- **`tests/log/mutationSurface/exemptions.test.ts:18-40` (Codex spec-R1 HIGH)** — the
+  `describe("KNOWN_UNINSTRUMENTED — exactly the 6 crew/system picker fns …")` block **hard-
+  pins** `KNOWN_UNINSTRUMENTED.length === 6` (`:19-21`), a per-row backlog ref (`:22-25`),
+  and the exact 6-row set (`:26-39`). Replace this block with a debt-closed assertion:
+  `expect(KNOWN_UNINSTRUMENTED).toHaveLength(0)` (the ledger is empty now that
+  `BL-CREW-PICKER-OBSERVABILITY` shipped). Keep the sibling `NO_TELEMETRY_RE` and
+  `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER` blocks untouched.
+- **`_metaMutationSurfaceObservability.test.ts:551-572`** — the hygiene test "the live
+  KNOWN_UNINSTRUMENTED ledger's 6 rows are all non-admin-gated" loops `for (const row of
+  KNOWN_UNINSTRUMENTED)` and passes **vacuously** when empty; rename its title to drop the
+  stale "6 rows" (`…ledger's rows are all non-admin-gated`).
 
 ## 4. Registry / bookkeeping
 
@@ -186,11 +204,17 @@ Per suite:
   - invalid input (bad slug/token/uuid) → **no** `log.info` with the code;
   - `selectIdentity`: RPC error / `out_rejection_code` set / bad epoch → no emit;
   - `clearIdentity`: `!env` (no picker cookie) success → no emit (no-op silent);
+  - `clearIdentity`: `env` present but **no entry for this `showId`** → no emit (the
+    existence-guard no-op, Codex spec-R1 MED);
   - `cleanupStaleEntry`: each `noop` branch (`!env`, `!entry`, epoch/id mismatch) → no emit;
   - the `*Core` throw path → `{ ok:false }` and no emit.
 - **Wrapper transitivity:** driving the FormData wrapper (`selectIdentity` /
   `clearIdentity` / `cleanupStaleEntry`) on the success path also observes the emit
   (it flows through `*Core → *Impl`).
+
+Update in lockstep with the ledger delete: `tests/log/mutationSurface/exemptions.test.ts`
+(the `KNOWN_UNINSTRUMENTED` describe block → debt-closed empty assertion, §3) and the
+`…6 rows…` hygiene-test title in `_metaMutationSurfaceObservability.test.ts`.
 
 Keep green: `tests/log/_metaMutationSurfaceObservability.test.ts` (discovery floor +
 hygiene) and `tests/log/_metaAdminOutcomeContract.test.ts` (Assertion 4 leak-check).
@@ -220,5 +244,7 @@ hygiene) and `tests/log/_metaAdminOutcomeContract.test.ts` (Assertion 4 leak-che
 ## 7. Numeric sweep
 
 3 new codes · 6 ledger rows deleted · 6 `// no-telemetry:` comments added · 3 `*Impl`
-emit sites · 3 test suites extended · 1 backlog entry closed · 0 DB migrations · 0 UI
-files · 0 new Supabase call sites · 0 advisory-lock changes.
+emit sites (one existence-guarded) · 3 picker test suites extended · 2 meta-test files
+updated in lockstep (`exemptions.test.ts` length-pin → empty; `_metaMutationSurfaceObservability`
+title) · 1 backlog entry closed · 0 DB migrations · 0 UI files · 0 new Supabase call
+sites · 0 advisory-lock changes.
