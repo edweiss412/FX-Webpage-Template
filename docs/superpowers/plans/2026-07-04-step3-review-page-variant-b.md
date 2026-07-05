@@ -42,6 +42,8 @@
 | `tests/components/onboardingWizardNav.test.tsx` | modify | Stepper redesign + step-3 Back relocation. |
 | `tests/components/admin/FinalizeButton.test.tsx` | modify | `panelPlacement` prop + behavior-unchanged assertions. |
 | `tests/e2e/step3-review-page.layout.spec.ts` | **create** | Real-browser DI-1/2/3 assertions (stepper no-overflow, card centering, sticky-bar width + no-occlusion). |
+| `tests/e2e/step3-grid-layout.spec.ts` | **delete (obsolete)** | Asserts a multi-column grid that "stays multi-column" / "two cells share a row" — the redesign is single-column (spec §5). Superseded by the new layout spec. |
+| `tests/e2e/step3-card-dimensions.spec.ts` | **delete (obsolete)** | Transcribes the old grid-tile card DOM (`-summary-block`, `-badge-diagrams`, `-warnings`, fixed-width column) that the compact card removes. Its DI intent (child ≤ card width) is re-covered by the new layout spec's DI-2. |
 
 ---
 
@@ -355,7 +357,9 @@ Demoted chip: same markup, non-numeric `"Needs another look"`, no count. Keep th
 
 - [ ] **Step 4: Run to verify it passes** — `pnpm vitest run tests/components/step3SheetCard.test.tsx tests/components/step3SheetCard.transitions.test.tsx` → PASS. Update `transitions.test.tsx` live-region assertions to the new DOM.
 
-- [ ] **Step 5: Commit** — `feat(crew-page): compact Step-3 sheet card (View/Review/demoted/no-details)`.
+- [ ] **Step 4b: Delete the obsolete card-dimensions e2e** — the compact card removes the `-summary-block`/`-badge-diagrams`/`-warnings` DOM and the fixed-width grid column that `tests/e2e/step3-card-dimensions.spec.ts` transcribes and measures. `git rm tests/e2e/step3-card-dimensions.spec.ts` (its DI intent is re-covered by Task 7's DI-2). Confirm nothing else imports it: `grep -rn "step3-card-dimensions" tests` → none.
+
+- [ ] **Step 5: Commit** — `feat(crew-page): compact Step-3 sheet card (View/Review/demoted/no-details)` (includes the obsolete-spec deletion).
 
 ---
 
@@ -397,7 +401,9 @@ it("needs-attention + set-aside + empty testids preserved", () => {
 
 - [ ] **Step 4: Run to verify it passes** — `pnpm vitest run tests/components/admin/wizard/Step3Review.test.tsx tests/components/admin/wizard/step3PublishSettlement.test.tsx tests/components/admin/OnboardingWizard.test.tsx` → PASS.
 
-- [ ] **Step 5: Commit** — `feat(crew-page): single-column Step-3 list + edge-section restyle`.
+- [ ] **Step 4b: Delete the obsolete grid-layout e2e** — `tests/e2e/step3-grid-layout.spec.ts` asserts the list "stays multi-column" / "at least two cells share a row"; the redesign is single-column, so those assertions are now false by design. `git rm tests/e2e/step3-grid-layout.spec.ts` (superseded by Task 7's DI assertions). Confirm no importers: `grep -rn "step3-grid-layout" tests` → none.
+
+- [ ] **Step 5: Commit** — `feat(crew-page): single-column Step-3 list + edge-section restyle` (includes the obsolete grid-layout spec deletion).
 
 ---
 
@@ -531,7 +537,7 @@ Add a `gotoStep3(page)` helper following the sibling spec's login+seed flow. If 
   - DI-3: remove the bar's `w-full` class → DI-3 FAILS (bar shrinks to content width in the non-stretch flex parent) → restore. (Also confirm removing the body's bottom padding makes the occlusion half of DI-3 fail.)
   Record the three red runs. This is the TDD-red step for a layout gate (per the negative-regression discipline — a layout assertion that can't fail is tautological).
 
-- [ ] **Step 3: Implement** — no NEW product code beyond adding `data-testid="wizard-step3-publish-bar"` to the `Step3PublishBar` root (fold into Task 6) so DI-3's selector is stable; the spec IS the deliverable. Confirm the bar CSS satisfies the invariants (full-width within the container; `items-center` centering; body `pb` ≥ bar height so the last card is not occluded).
+- [ ] **Step 3: Implement** — no NEW product code beyond adding `data-testid="wizard-step3-publish-bar"` to the `Step3PublishBar` root (fold into Task 6) so DI-3's selector is stable; the spec IS the deliverable. This spec **supersedes** the two obsolete step3 layout specs deleted in Tasks 4b/5b (`step3-card-dimensions.spec.ts` grid-tile card, `step3-grid-layout.spec.ts` multi-column grid) — confirm they are gone (`ls tests/e2e/step3-*.spec.ts` shows only this new one plus the still-valid modal specs `step3-review-modal.*`). Confirm the bar CSS satisfies the invariants (full-width within the container; `items-center` centering; body `pb` ≥ bar height so the last card is not occluded).
 
 - [ ] **Step 4: Run to verify it passes (all invariants restored)** — `pnpm exec playwright test tests/e2e/step3-review-page.layout.spec.ts` → PASS. (Runs in the pinned Playwright Docker image on CI per the byte-comparison/runner discipline; locally validate then let CI confirm.)
 
