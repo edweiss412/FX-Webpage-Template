@@ -36,6 +36,7 @@ import { Step3ReviewWithFinalize } from "@/components/admin/wizard/Step3ReviewWi
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { driveFolderUrl } from "@/lib/drive/driveFolderUrl";
 import type { ParseResult } from "@/lib/parser/types";
+import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { buildAdminAgendaPreview, type AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 
 type OnboardingWizardProps = {
@@ -256,7 +257,7 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
     const q = await supabase
       .from("pending_syncs")
       .select(
-        "staged_id, drive_file_id, staged_modified_time, parse_result, last_finalize_failure_code",
+        "staged_id, drive_file_id, staged_modified_time, parse_result, source_anchors, last_finalize_failure_code",
       )
       .eq("wizard_session_id", wizardSessionId);
     if (q.error) {
@@ -299,6 +300,7 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
       stagedId: string;
       title: string | null;
       parseResult: ParseResult | null;
+      sourceAnchors: Record<string, SourceAnchor>;
       adminAgendaPreview: AdminAgendaItem[];
       agendaStateKey: string;
       lastFinalizeFailureCode: string | null;
@@ -313,6 +315,14 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
     const rawParse = ps.parse_result;
     const parseResult =
       rawParse !== null && typeof rawParse === "object" ? (rawParse as ParseResult) : null;
+    // Bug #316 item 3: coerce the source_anchors jsonb with the SAME defensive guard
+    // as parse_result (non-object/absent → `{}`) so the modal's per-section "In sheet"
+    // links can resolve each region's sheet range from the staged preview.
+    const rawAnchors = ps.source_anchors;
+    const sourceAnchors =
+      rawAnchors !== null && typeof rawAnchors === "object"
+        ? (rawAnchors as Record<string, SourceAnchor>)
+        : {};
     const stagedId = ps.staged_id as string;
     const stagedModifiedTime = (ps.staged_modified_time as string | null) ?? null;
     // Task 11: baseline (note-only) agenda preview. Build with NO opts → every
@@ -328,6 +338,7 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
       stagedId,
       title: parseResult?.show?.title ?? null,
       parseResult,
+      sourceAnchors,
       adminAgendaPreview,
       agendaStateKey,
       // Task 5b (spec §6.1): the demotion code drives the card's dirty re-scan state.
@@ -365,6 +376,7 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
         const withParse: Step3Row = {
           ...base,
           parseResult: staged.parseResult,
+          sourceAnchors: staged.sourceAnchors,
           adminAgendaPreview: staged.adminAgendaPreview,
           agendaStateKey: staged.agendaStateKey,
           lastFinalizeFailureCode: staged.lastFinalizeFailureCode,

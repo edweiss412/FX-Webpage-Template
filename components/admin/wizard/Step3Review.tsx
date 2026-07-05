@@ -50,6 +50,7 @@ import { arr } from "@/components/admin/wizard/step3ReviewSections";
 import { summarizeDataGaps, stripLegacyUnknownFieldAnchors } from "@/lib/parser/dataGaps";
 import type { ParseResult } from "@/lib/parser/types";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
+import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 
 function lookupDougFacing(code: string | undefined | null): string | null {
   if (!code) return null;
@@ -100,6 +101,10 @@ export type Step3Row = {
   // render a dirty re-scan (`RESCAN_REVIEW_REQUIRED`) distinctly — a "review before
   // publishing" link to the reapply page, with the plain publish checkbox suppressed.
   lastFinalizeFailureCode?: string | null;
+  // Bug #316 item 3: per-region source-sheet deep-link anchors, coerced from the
+  // pending_syncs.source_anchors jsonb in fetchStep3Data. Absent/malformed → `{}`.
+  // Consumed by the step-3 modal's per-section "In sheet" heading links.
+  sourceAnchors?: Record<string, SourceAnchor>;
 };
 
 export type Step3PublishCounts = {
