@@ -218,9 +218,16 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
     fn: "setDeveloperAction",
     code: "ADMIN_DEVELOPER_SET",
   },
-  // Task 10 — admin/dev/actions parse-stage + schema reset.
+  // Task 10 — admin/dev/actions parse-stage + schema reset. The `*FormAction`
+  // wrappers are their own admin surfaces (the <form action=…> POST entry points);
+  // they delegate to the registered core in the same module, so driving the wrapper
+  // transitively emits the same code (proven behaviorally). Registered rather than
+  // ADMIN_SURFACE_EXEMPTIONS-delegated because the delegator heuristic is path-based
+  // (cross-file re-export shims) and does not model a same-module by-name delegation.
   { file: "app/admin/dev/actions.ts", fn: "parseAndStage", code: "DEV_PARSE_STAGED" },
   { file: "app/admin/dev/actions.ts", fn: "resetDevSchema", code: "DEV_SCHEMA_RESET" },
+  { file: "app/admin/dev/actions.ts", fn: "parseAndStageFormAction", code: "DEV_PARSE_STAGED" },
+  { file: "app/admin/dev/actions.ts", fn: "resetDevSchemaFormAction", code: "DEV_SCHEMA_RESET" },
   // Task 11 — onboarding start-over / rerun-setup.
   {
     file: "lib/onboarding/serverActions.ts",

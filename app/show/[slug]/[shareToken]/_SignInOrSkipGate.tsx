@@ -33,6 +33,8 @@ import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
 
 async function clearIdentityAndSkipFormAction(formData: FormData): Promise<void> {
   "use server";
+  // no-telemetry: thin crew form-action wrapper; delegates to lib/auth/picker clearIdentityAndSkip,
+  // which is the crew-picker observability surface tracked by BL-CREW-PICKER-OBSERVABILITY.
   await clearIdentityAndSkip(formData);
 }
 

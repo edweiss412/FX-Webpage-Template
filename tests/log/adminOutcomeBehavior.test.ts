@@ -7,6 +7,9 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { setLogSink, resetLogSink } from "@/lib/log";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome"; // NOT re-exported from @/lib/log (verified live)
 import type { LogRecord } from "@/lib/log";
+import { collectSurfaceUnits } from "./mutationSurface/enumerate";
+import { AUDITABLE_MUTATIONS } from "./_auditableMutations";
+import { ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER } from "./mutationSurface/exemptions";
 
 // ── shared auth/Next mocks (Tasks 7-15) ─────────────────────────────────────
 // Per plan Tasks 7-16: NEVER mock @/lib/log or @/lib/log/logAdminOutcome here —
@@ -166,7 +169,12 @@ vi.mock("@/lib/parser/invariants", () => ({
   runInvariants: (...a: unknown[]) => runInvariantsMock(...a),
 }));
 
-import { parseAndStage, resetDevSchema } from "@/app/admin/dev/actions";
+import {
+  parseAndStage,
+  resetDevSchema,
+  parseAndStageFormAction,
+  resetDevSchemaFormAction,
+} from "@/app/admin/dev/actions";
 
 // ── Task 11: onboarding serverActions ───────────────────────────────────────
 const purgeAndRotateOnboardingSessionMock = vi.fn(
@@ -505,6 +513,37 @@ describe("Task 10 — dev parse-stage + schema reset observe changes", () => {
     const failCodes = await observeCodes(() => resetDevSchema());
     expect(failCodes).not.toContain("DEV_SCHEMA_RESET");
   });
+
+  // The two form-action wrappers are their own admin surfaces (the <form action=…>
+  // POST entry points). They delegate to the registered core, so driving the WRAPPER
+  // transitively fires the same code — the behavioral proof is on the wrapper itself
+  // (redirect()-throwing, so observeCodes catches the NEXT_REDIRECT after the emit).
+  test("parseAndStageFormAction transitively emits DEV_PARSE_STAGED then redirects", async () => {
+    serviceRoleClientImpl.current = () =>
+      makeClient({
+        rpc: { data: { kind: "pending_sync", id: "ps-1", show_id: null }, error: null },
+      });
+    const fd = new FormData();
+    fd.set("fixture", "_temp-fixture.md");
+    const codes = await observeCodes(() => parseAndStageFormAction(fd));
+    expect(codes).toContain("DEV_PARSE_STAGED");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/dev/actions.ts",
+      fn: "parseAndStageFormAction",
+      code: "DEV_PARSE_STAGED",
+    });
+  });
+
+  test("resetDevSchemaFormAction transitively emits DEV_SCHEMA_RESET then redirects", async () => {
+    serviceRoleClientImpl.current = () => makeClient({ rpc: { data: null, error: null } });
+    const codes = await observeCodes(() => resetDevSchemaFormAction());
+    expect(codes).toContain("DEV_SCHEMA_RESET");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/dev/actions.ts",
+      fn: "resetDevSchemaFormAction",
+      code: "DEV_SCHEMA_RESET",
+    });
+  });
 });
 
 // ── Task 11: onboarding serverActions (spec §3.1 A, §5.2) ───────────────────
@@ -742,5 +781,44 @@ describe("Task 14 — manifest-ignore + reap-stale-sessions routes observe succe
       }),
     );
     expect(failCodes).not.toContain("STALE_SESSIONS_REAPED");
+  });
+});
+
+// ── Task 18: executable behavioral-coverage assertion (spec §4.2 / §9 / §10.5) ──
+// Runs LAST: every recording test above has populated the file-local `recorded` set
+// within this one module scope (spec R11 F2 — no cross-file recorder). This is the
+// teeth of the admin contract: a registered admin surface that is NOT grandfathered
+// MUST have driven its success branch and been observed emitting its code.
+describe("Task 18 — admin behavioral coverage (every registered non-grandfather admin mutation is proven)", () => {
+  const adminUnits = collectSurfaceUnits(["app", "lib", "components"]).filter((u) => u.admin);
+  const adminKeys = new Set(adminUnits.map((u) => `${u.file}::${u.fn}`));
+  const grandfather = new Set(ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER.map((g) => `${g.file}::${g.fn}`));
+
+  test("the grandfather baseline is exactly the frozen 30 and each entry is still a live admin surface", () => {
+    expect(ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER.length).toBe(30);
+    // No stale entries — a grandfather row must still resolve to a live admin surface
+    // (fails if a route/action was deleted or renamed out from under the baseline).
+    const stale = ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER.filter(
+      (g) => !adminKeys.has(`${g.file}::${g.fn}`),
+    );
+    expect(
+      stale,
+      `stale grandfather entries:\n${stale.map((g) => `${g.file}::${g.fn}`).join("\n")}`,
+    ).toEqual([]);
+  });
+
+  test("every registered admin mutation NOT in the grandfather baseline has an observed behavioral record", () => {
+    // Registry rows scoped to ADMIN surfaces only (the one non-admin registry row —
+    // the emailed-link unpublish ROUTE — passes the discovery floor via its emit and
+    // is not subject to the admin behavioral contract).
+    const missing = AUDITABLE_MUTATIONS.filter((r) => adminKeys.has(`${r.file}::${r.fn}`))
+      .filter((r) => !grandfather.has(`${r.file}::${r.fn}`))
+      .filter((r) => !recorded.has(`${r.file}::${r.fn}::${r.code}`));
+    expect(
+      missing,
+      `unproven admin mutations (registered but no observed success emit in this file):\n${missing
+        .map((r) => `${r.file}::${r.fn}::${r.code}`)
+        .join("\n")}`,
+    ).toEqual([]);
   });
 });

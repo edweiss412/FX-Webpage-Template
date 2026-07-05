@@ -46,8 +46,33 @@ export type AdminSurfaceExemption = {
 };
 
 /** The ONLY way an admin surface skips registry+behavioral (spec §4.3 item 2).
- * Populated in Task 17 alongside the corresponding source-file comments. */
-export const ADMIN_SURFACE_EXEMPTIONS: readonly AdminSurfaceExemption[] = [];
+ * Two shapes:
+ *  - `delegator`: a thin cross-file re-export shim whose POST forwards to a target
+ *    route that IS registered + behaviorally proven. The two wizard pending-ingestion
+ *    shims (`defer_until_modified`, `permanent_ignore`) both `export { POST } from
+ *    "../retry/route"` → the retry route (registered, PENDING_INGESTION_* codes).
+ *  - `read-only`: an admin-gated function that only READS (no write-builder, no `.rpc(`,
+ *    no `logAdminOutcome`) — nothing to observe. The two dev-panel reads
+ *    (`getStagedResult`, `listFixtures`) load fixture/staged state for the UI.
+ * (The dev `*FormAction` wrappers are NOT here — they are registered + behaviorally
+ * proven in AUDITABLE_MUTATIONS, since the delegator shape models cross-file
+ * re-export shims, not a same-module by-name delegation.) */
+export const ADMIN_SURFACE_EXEMPTIONS: readonly AdminSurfaceExemption[] = [
+  {
+    file: "app/api/admin/onboarding/pending_ingestions/[id]/defer_until_modified/route.ts",
+    fn: "POST",
+    kind: "delegator",
+    delegatesTo: "app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts",
+  },
+  {
+    file: "app/api/admin/onboarding/pending_ingestions/[id]/permanent_ignore/route.ts",
+    fn: "POST",
+    kind: "delegator",
+    delegatesTo: "app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts",
+  },
+  { file: "app/admin/dev/actions.ts", fn: "getStagedResult", kind: "read-only" },
+  { file: "app/admin/dev/actions.ts", fn: "listFixtures", kind: "read-only" },
+];
 
 export type KnownUninstrumented = { file: string; fn: string; backlog: string };
 

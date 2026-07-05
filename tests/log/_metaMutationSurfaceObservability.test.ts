@@ -68,7 +68,11 @@ function predicateFor(unit: SurfaceUnit) {
 function containsAnyLogAdminOutcomeCall(node: ts.Node): boolean {
   let found = false;
   const visit = (n: ts.Node) => {
-    if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === "logAdminOutcome")
+    if (
+      ts.isCallExpression(n) &&
+      ts.isIdentifier(n.expression) &&
+      n.expression.text === "logAdminOutcome"
+    )
       found = true;
     ts.forEachChild(n, visit);
   };
@@ -113,12 +117,16 @@ function evaluateUnit(unit: SurfaceUnit, registries: Registries): Decision {
       (r) => r.file === unit.file && (r.fn === undefined || r.fn === unit.fn),
     );
     if (exemption?.kind === "delegator") {
-      const targetRegistered = !!exemption.delegatesTo &&
+      const targetRegistered =
+        !!exemption.delegatesTo &&
         registries.auditable.some((r) => r.file === exemption.delegatesTo);
       const targetReferenced =
         !!exemption.delegatesTo && delegatorCallsTarget(unit.file, exemption.delegatesTo);
       if (targetRegistered && targetReferenced) return { pass: true, reason: "delegator" };
-      return { pass: false, reason: "invalid delegator exemption (target unregistered or unreferenced)" };
+      return {
+        pass: false,
+        reason: "invalid delegator exemption (target unregistered or unreferenced)",
+      };
     }
     if (exemption?.kind === "read-only") {
       const p = scanBody(unit.node, { descend: false });
@@ -198,7 +206,8 @@ describe("scan granularity (route file-level+descend vs action per-function no-d
   test("non-admin action with the emit inside an if/try block PASSES (control-flow descended)", () => {
     const unit = unitFor(
       "lib/x/actions.ts",
-      ACTION_MODULE + 'export async function mutate(){ if (ok) { await logAdminOutcome({code:"X"}); } }\n',
+      ACTION_MODULE +
+        'export async function mutate(){ if (ok) { await logAdminOutcome({code:"X"}); } }\n',
     );
     expect(evaluateUnit(unit, { auditable: [], exemptions: [], ledger: [] }).pass).toBe(true);
   });
@@ -218,7 +227,8 @@ describe("non-admin surfaces", () => {
   test("passes via a per-function // no-telemetry: exemption", () => {
     const unit = unitFor(
       "lib/x/actions.ts",
-      ACTION_MODULE + 'export async function mutate(){\n  // no-telemetry: delegates to another action\n  await doIt();\n}\n',
+      ACTION_MODULE +
+        "export async function mutate(){\n  // no-telemetry: delegates to another action\n  await doIt();\n}\n",
     );
     expect(evaluateUnit(unit, { auditable: [], exemptions: [], ledger: [] }).pass).toBe(true);
   });
@@ -232,15 +242,19 @@ describe("non-admin surfaces", () => {
   });
 
   test("passes via a KNOWN_UNINSTRUMENTED ledger row", () => {
-    const unit = unitFor("lib/x/actions.ts", ACTION_MODULE + "export async function mutate(){ await doIt(); }\n");
-    const ledger: KnownUninstrumented[] = [
-      { file: unit.file, fn: "mutate", backlog: "BL-TEST" },
-    ];
+    const unit = unitFor(
+      "lib/x/actions.ts",
+      ACTION_MODULE + "export async function mutate(){ await doIt(); }\n",
+    );
+    const ledger: KnownUninstrumented[] = [{ file: unit.file, fn: "mutate", backlog: "BL-TEST" }];
     expect(evaluateUnit(unit, { auditable: [], exemptions: [], ledger }).pass).toBe(true);
   });
 
   test("FAILS with none of the above", () => {
-    const unit = unitFor("lib/x/actions.ts", ACTION_MODULE + "export async function mutate(){ await doIt(); }\n");
+    const unit = unitFor(
+      "lib/x/actions.ts",
+      ACTION_MODULE + "export async function mutate(){ await doIt(); }\n",
+    );
     expect(evaluateUnit(unit, { auditable: [], exemptions: [], ledger: [] }).pass).toBe(false);
   });
 
@@ -277,7 +291,7 @@ describe("non-admin surfaces", () => {
     const units = unitsFor(
       "lib/x/picker.ts",
       ACTION_MODULE +
-        'export async function ledgered(){ await doIt(); }\nexport async function freshUnledgered(){ await doIt(); }\n',
+        "export async function ledgered(){ await doIt(); }\nexport async function freshUnledgered(){ await doIt(); }\n",
     );
     const ledgered = units.find((u) => u.fn === "ledgered")!;
     const fresh = units.find((u) => u.fn === "freshUnledgered")!;
@@ -305,7 +319,7 @@ describe("admin surfaces — registry, not scan", () => {
   test("the same admin surface, once registered, PASSES", () => {
     const unit = unitFor(
       "lib/x/actions.ts",
-      ACTION_MODULE + 'export async function mutate(){ await requireAdmin(); await doIt(); }\n',
+      ACTION_MODULE + "export async function mutate(){ await requireAdmin(); await doIt(); }\n",
     );
     const auditable: AuditableMutation[] = [{ file: unit.file, fn: "mutate", code: "TEST_CODE" }];
     expect(evaluateUnit(unit, { auditable, exemptions: [], ledger: [] }).pass).toBe(true);
@@ -333,7 +347,7 @@ describe("admin surfaces — registry, not scan", () => {
     const unit = unitFor(
       "lib/x/actions.ts",
       ACTION_MODULE +
-        'export async function mutate(){\n  await requireAdmin();\n  // no-telemetry: this is definitely fine\n  await doIt();\n}\n',
+        "export async function mutate(){\n  await requireAdmin();\n  // no-telemetry: this is definitely fine\n  await doIt();\n}\n",
     );
     expect(unit.admin).toBe(true);
     expect(evaluateUnit(unit, { auditable: [], exemptions: [], ledger: [] }).pass).toBe(false);
@@ -342,7 +356,7 @@ describe("admin surfaces — registry, not scan", () => {
   test("a KNOWN_UNINSTRUMENTED ledger row does NOT exempt an admin surface", () => {
     const unit = unitFor(
       "lib/x/actions.ts",
-      ACTION_MODULE + 'export async function mutate(){ await requireAdmin(); await doIt(); }\n',
+      ACTION_MODULE + "export async function mutate(){ await requireAdmin(); await doIt(); }\n",
     );
     const ledger: KnownUninstrumented[] = [{ file: unit.file, fn: "mutate", backlog: "BL-TEST" }];
     expect(evaluateUnit(unit, { auditable: [], exemptions: [], ledger }).pass).toBe(false);
@@ -391,7 +405,8 @@ describe("admin surfaces — ADMIN_SURFACE_EXEMPTIONS (delegator / read-only)", 
   test("a valid read-only exemption (no write-builder/.rpc/logAdminOutcome) PASSES", () => {
     const unit = unitFor(
       "lib/x/dev-actions.ts",
-      ACTION_MODULE +'export async function getStagedResult(){ await requireDeveloper(); return sb.from("t").select(); }\n',
+      ACTION_MODULE +
+        'export async function getStagedResult(){ await requireDeveloper(); return sb.from("t").select(); }\n',
     );
     const exemptions: AdminSurfaceExemption[] = [
       { file: unit.file, fn: "getStagedResult", kind: "read-only" },
@@ -402,7 +417,8 @@ describe("admin surfaces — ADMIN_SURFACE_EXEMPTIONS (delegator / read-only)", 
   test("a read-only exemption on a fn calling .rpc( FAILS (Codex R15 — an RPC can mutate)", () => {
     const unit = unitFor(
       "lib/x/dev-actions.ts",
-      ACTION_MODULE +'export async function getStagedResult(){ await requireDeveloper(); return sb.rpc("dev_truncate_all"); }\n',
+      ACTION_MODULE +
+        'export async function getStagedResult(){ await requireDeveloper(); return sb.rpc("dev_truncate_all"); }\n',
     );
     const exemptions: AdminSurfaceExemption[] = [
       { file: unit.file, fn: "getStagedResult", kind: "read-only" },
@@ -413,7 +429,8 @@ describe("admin surfaces — ADMIN_SURFACE_EXEMPTIONS (delegator / read-only)", 
   test("a read-only exemption on a fn with a write-builder call (.insert() etc.) FAILS", () => {
     const unit = unitFor(
       "lib/x/dev-actions.ts",
-      ACTION_MODULE +'export async function getStagedResult(){ await requireDeveloper(); return sb.from("t").insert({}); }\n',
+      ACTION_MODULE +
+        'export async function getStagedResult(){ await requireDeveloper(); return sb.from("t").insert({}); }\n',
     );
     const exemptions: AdminSurfaceExemption[] = [
       { file: unit.file, fn: "getStagedResult", kind: "read-only" },
@@ -424,7 +441,8 @@ describe("admin surfaces — ADMIN_SURFACE_EXEMPTIONS (delegator / read-only)", 
   test("a read-only exemption on a fn calling logAdminOutcome (any form) FAILS", () => {
     const unit = unitFor(
       "lib/x/dev-actions.ts",
-      ACTION_MODULE +'export async function getStagedResult(){ await requireDeveloper(); void logAdminOutcome({code:"X"}); }\n',
+      ACTION_MODULE +
+        'export async function getStagedResult(){ await requireDeveloper(); void logAdminOutcome({code:"X"}); }\n',
     );
     const exemptions: AdminSurfaceExemption[] = [
       { file: unit.file, fn: "getStagedResult", kind: "read-only" },
@@ -439,7 +457,7 @@ describe("KNOWN_UNINSTRUMENTED ledger hygiene", () => {
   test("an entry whose fn body calls a require*[Identity] gate is invalid (admin-gated cannot be ledgered)", () => {
     const unit = unitFor(
       "lib/x/picker.ts",
-      ACTION_MODULE + 'export async function mutate(){ await requireAdmin(); await doIt(); }\n',
+      ACTION_MODULE + "export async function mutate(){ await requireAdmin(); await doIt(); }\n",
     );
     expect(unit.admin).toBe(true);
     // The ledger cannot rescue an admin-gated surface — evaluateUnit's admin
@@ -497,7 +515,10 @@ describe("default-export ban in 'use server' modules", () => {
   });
 
   test("a normal 'use server' module with only named exports passes", () => {
-    const root = makeFixture("lib/x/actions.ts", '"use server";\nexport async function mutate(){}\n');
+    const root = makeFixture(
+      "lib/x/actions.ts",
+      '"use server";\nexport async function mutate(){}\n',
+    );
     expect(defaultExportOffense(join(root, "lib/x/actions.ts"))).toBeNull();
   });
 });
@@ -523,11 +544,11 @@ describe("route-multiplicity assertion", () => {
 
 describe("formatFailures — §4.4 failure output", () => {
   test("lists every offender (no truncation); admin remediation differs from non-admin", () => {
-    const nonAdminUnit = unitFor("lib/x/actions.ts", ACTION_MODULE + "export async function mutate(){ await doIt(); }\n");
-    const adminUnit = unitFor(
-      "app/api/admin/x/route.ts",
-      "export async function POST(){}\n",
+    const nonAdminUnit = unitFor(
+      "lib/x/actions.ts",
+      ACTION_MODULE + "export async function mutate(){ await doIt(); }\n",
     );
+    const adminUnit = unitFor("app/api/admin/x/route.ts", "export async function POST(){}\n");
     const offenders = [
       { unit: nonAdminUnit, reason: "unaccounted" },
       { unit: adminUnit, reason: "admin surface unaccounted for (needs registry or exemption)" },
@@ -550,14 +571,21 @@ describe("formatFailures — §4.4 failure output", () => {
 // ── the live discovery assertion — deferred to Task 17 ────────────────────
 
 describe("live discovery — zero unaccounted surfaces", () => {
-  // UN-SKIP in Task 17 after exemptions/ledger land (and Tasks 7-16 seed the
-  // 21 silent admin/crew surfaces). Until then this is red: 21 admin/crew
-  // surfaces are genuinely unaccounted, plus the exemption/ledger comments
-  // that Task 17 adds to the 4 comment targets don't exist yet.
-  test.skip("every discovered mutation surface unit is accounted for", () => {
+  // Live floor (Task 17): Tasks 7-16 seeded the 21 silent admin/crew surfaces;
+  // the exemption/ledger registries + the 4 comment targets below account for the
+  // rest (test-auth scaffolding, dev delegators/reads, crew form-action wrappers,
+  // the 6 picker fns). A NEW uninstrumented mutation surface fails here by default.
+  test("every discovered mutation surface unit is accounted for", () => {
     const units = collectSurfaceUnits(["app", "lib", "components"]);
     const offenders = units
-      .map((unit) => ({ unit, decision: evaluateUnit(unit, { auditable: AUDITABLE_MUTATIONS, exemptions: ADMIN_SURFACE_EXEMPTIONS, ledger: KNOWN_UNINSTRUMENTED }) }))
+      .map((unit) => ({
+        unit,
+        decision: evaluateUnit(unit, {
+          auditable: AUDITABLE_MUTATIONS,
+          exemptions: ADMIN_SURFACE_EXEMPTIONS,
+          ledger: KNOWN_UNINSTRUMENTED,
+        }),
+      }))
       .filter(({ decision }) => !decision.pass);
     expect(
       offenders,
