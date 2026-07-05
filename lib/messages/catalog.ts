@@ -2272,6 +2272,19 @@ export const MESSAGE_CATALOG = {
       "We couldn't read the alert count, usually a transient database or permissions issue. Refresh in a moment; if it keeps failing, the developer needs to check the admin_alerts table access.",
     helpHref: "/help/errors#ADMIN_ALERT_COUNT_FAILED",
   },
+  ALERT_BELL_FEED_FAILED: {
+    code: "ALERT_BELL_FEED_FAILED",
+    dougFacing:
+      "We couldn't load your notifications just now. Refresh in a moment or use Retry — nothing has been lost.",
+    crewFacing: null,
+    followUp: "none — transient read failure",
+    helpfulContext:
+      "The bell notification panel failed to fetch its feed (server or database hiccup). Alerts are stored server-side, so nothing is lost; the panel retries on demand.",
+    title: "Notifications didn't load",
+    longExplanation:
+      "The bell notification panel failed to fetch its feed (server or database hiccup). Alerts are stored server-side, so nothing is lost; the panel retries on demand.",
+    helpHref: "/help/errors#ALERT_BELL_FEED_FAILED",
+  },
   ADMIN_ROUTE_LOAD_FAILED: {
     code: "ADMIN_ROUTE_LOAD_FAILED",
     dougFacing:
