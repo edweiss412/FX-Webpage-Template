@@ -852,7 +852,7 @@ export function ScheduleDayRow({
   showStart = null,
   window: dayWindow = null,
   showEnd = null,
-  phase = null,
+  label = null,
 }: {
   dfid: string;
   iso: string;
@@ -860,9 +860,11 @@ export function ScheduleDayRow({
   showStart?: string | null;
   window?: { start: string; end: string } | null;
   showEnd?: string | null;
-  // Aggregate-day phase label ("Travel In"/"Set"/"Show"/"Travel Out"); null for an
-  // off-schedule ros-only day (no natural phase). #316 item 1.
-  phase?: SchedulePhase | null;
+  // Aggregate-day display label ("Travel In"/"Set"/"Show Day N"/"Travel Out"); null
+  // for an off-schedule ros-only day (no natural phase). #316 item 1 (surface all
+  // days) + item 2 ("Show Day N" numbering — the string is precomputed by
+  // aggregateDays; the row just renders it).
+  label?: string | null;
 }) {
   const [showAll, setShowAll] = useState(false);
   // Cap-exemption partition (spec §9.4): cap ONLY the agenda group at
@@ -893,17 +895,18 @@ export function ScheduleDayRow({
       <span className="text-xs font-medium tabular-nums text-text-strong">
         {humanizeDate(iso) ?? iso}
       </span>
-      {phase != null ? (
-        // Reuse the wizard's own eyebrow recipe (EYEBROW_CLASS/STYLE) — the phase
-        // label is MEANINGFUL copy (it identifies the travel-in/out day), so it must
-        // clear AA-normal contrast (text-text-subtle, not the decorative text-faint)
-        // and match the 12px eyebrow scale used across the breakdown. Impeccable P1.
+      {label != null ? (
+        // Reuse the wizard's own eyebrow recipe (EYEBROW_CLASS/STYLE) — the day
+        // label is MEANINGFUL copy (it identifies the travel/set/show day, e.g.
+        // "Show Day 2"), so it must clear AA-normal contrast (text-text-subtle, not
+        // the decorative text-faint) and match the 12px eyebrow scale used across
+        // the breakdown. Impeccable P1.
         <span
           data-testid={`wizard-step3-card-${dfid}-sched-phase-${iso}`}
           className={EYEBROW_CLASS}
           style={EYEBROW_STYLE}
         >
-          {phase}
+          {label}
         </span>
       ) : null}
       {timeMeta ? (
@@ -974,11 +977,16 @@ export function ScheduleBreakdown({
   // dropping them would regress this review surface). Sorted ASC by ISO. Previously
   // this iterated Object.keys(ros), so bookend/travel days with no run-of-show entry
   // were silently omitted from the wizard preview while the crew page showed them.
-  const aggregate: { date: string; phase: SchedulePhase | null }[] = aggregateDays(dates);
+  // `label` carries the display text ("Show Day N" for show days — #316 item 2);
+  // `phase` stays the structural tag driving the cap-exemption below.
+  const aggregate: { date: string; phase: SchedulePhase | null; label: string | null }[] =
+    aggregateDays(dates);
   const aggregateDates = new Set(aggregate.map((d) => d.date));
-  const rosOnly: { date: string; phase: SchedulePhase | null }[] = Object.keys(ros)
+  const rosOnly: { date: string; phase: SchedulePhase | null; label: string | null }[] = Object.keys(
+    ros,
+  )
     .filter((iso) => !aggregateDates.has(iso))
-    .map((iso) => ({ date: iso, phase: null }));
+    .map((iso) => ({ date: iso, phase: null, label: null }));
   const mergedDays = [...aggregate, ...rosOnly].sort((a, b) => a.date.localeCompare(b.date));
 
   // Day cap: always-show = synthetic-bearing (strike/load-out — a malformed/long
@@ -1015,7 +1023,7 @@ export function ScheduleBreakdown({
               showStart={ros[d.date]?.showStart ?? null}
               window={ros[d.date]?.window ?? null}
               showEnd={ros[d.date]?.showEnd ?? null}
-              phase={d.phase}
+              label={d.label}
             />
           ))}
         </ul>
