@@ -39,7 +39,7 @@
 | `tests/components/step3SheetCard.transitions.test.tsx` | modify | Transition/live-region coverage under new DOM. |
 | `tests/components/admin/wizard/Step3ReviewWithFinalize.test.tsx` | modify | Bar composition + count wiring. |
 | `tests/components/admin/wizard/step3PublishSettlement.test.tsx` | modify | Settlement under new card DOM. |
-| `tests/components/admin/onboardingWizardNav.test.tsx` | modify | Stepper redesign + step-3 Back relocation. |
+| `tests/components/onboardingWizardNav.test.tsx` | modify | Stepper redesign + step-3 Back relocation. |
 | `tests/components/admin/FinalizeButton.test.tsx` | modify | `panelPlacement` prop + behavior-unchanged assertions. |
 | `tests/e2e/step3-review-page.layout.spec.ts` | **create** | Real-browser DI-1/2/3 assertions (stepper no-overflow, card centering, sticky-bar width + no-occlusion). |
 
@@ -81,24 +81,56 @@ it("onCountsChange reports selectableTotal excluding demoted/no-details clean ro
 
 - [ ] **Step 3: Implement** — extend the type and the effect payload:
 
+Because the two new fields are **required**, EVERY producer/seed of `Step3PublishCounts` must set them in THIS task or the tree won't typecheck at commit (the seed in `Step3ReviewWithFinalize.tsx:45-48` is `{ publishCount, uncheckedCleanCount }` only). So this task touches BOTH files:
+
+`components/admin/wizard/Step3Review.tsx` — extend the type, export a pure helper, update the effect:
+
 ```tsx
 export type Step3PublishCounts = {
   publishCount: number;
   uncheckedCleanCount: number;
   selectableTotal: number; // selectableRows.length
-  selectedCount: number;   // selectableRows checked
+  selectedCount: number; // selectableRows checked
 };
-// … in the onCountsChange effect, add:
+
+// Exported so the client wrapper can seed first paint with NO flash (same
+// predicate the component uses for selectableRows / Select-all).
+export function computeSelectableCounts(rows: Step3Row[]): {
+  selectableTotal: number;
+  selectedCount: number;
+} {
+  const selectable = rows.filter(
+    (r) => isCleanRow(r.status) && hasReviewablePreview(r) && !r.lastFinalizeFailureCode,
+  );
+  return {
+    selectableTotal: selectable.length,
+    selectedCount: selectable.filter((r) => r.status === "applied").length,
+  };
+}
+// … in the onCountsChange effect, add (cleanCount = selectableRows.length :806, appliedCount :805):
 onCountsChange?.({
   publishCount: optimisticPublishCount,
   uncheckedCleanCount: optimisticUncheckedCleanCount,
-  selectableTotal: cleanCount,        // = selectableRows.length (Step3Review.tsx:806)
-  selectedCount: appliedCount,        // = selectableRows.filter(isChecked) (:805)
+  selectableTotal: cleanCount,
+  selectedCount: appliedCount,
 });
 ```
-Add `cleanCount, appliedCount` to the effect deps.
 
-- [ ] **Step 4: Run to verify it passes** — same command → PASS. Also run the whole file (settlement/count tests unaffected): `pnpm vitest run tests/components/admin/wizard/Step3ReviewWithFinalize.test.tsx`.
+Add `cleanCount, appliedCount` to the effect deps. (`hasReviewablePreview`/`isCleanRow` are already defined in this file; `computeSelectableCounts` reuses them so the predicate is single-sourced.)
+
+`components/admin/wizard/Step3ReviewWithFinalize.tsx` — seed the two new fields from the server `rows` so first paint is correct (matches the existing "seeded from server, no flash" contract):
+
+```tsx
+import { Step3Review, computeSelectableCounts, type Step3PublishCounts, type Step3Row } from "@/components/admin/wizard/Step3Review";
+// …
+const [counts, setCounts] = useState<Step3PublishCounts>({
+  publishCount: initialPublishCount,
+  uncheckedCleanCount: initialUncheckedCleanCount,
+  ...computeSelectableCounts(rows),
+});
+```
+
+- [ ] **Step 4: Run to verify it passes** — same `-t` command → PASS. Then the whole file + a **typecheck** (the seed change is type-load-bearing): `pnpm vitest run tests/components/admin/wizard/Step3ReviewWithFinalize.test.tsx && pnpm typecheck`.
 
 - [ ] **Step 5: Commit** — `git add -A && git commit --no-verify -m "feat(crew-page): add selectableTotal/selectedCount to Step3PublishCounts"`
 
@@ -108,7 +140,7 @@ Add `cleanCount, appliedCount` to the effect deps.
 
 **Files:**
 - Modify: `components/admin/OnboardingWizard.tsx` (`StepIndicator` :94-153)
-- Test: `tests/components/admin/onboardingWizardNav.test.tsx`
+- Test: `tests/components/onboardingWizardNav.test.tsx`
 
 **Interfaces:**
 - Consumes: unchanged props `{ step: 1|2|3; maxReachedStep: 1|2|3 }`.
@@ -139,11 +171,11 @@ it("preserves reachability: reached=link, unreached=disabled span", () => {
 ```
 (`StepIndicator` is not exported today — export it from `OnboardingWizard.tsx`, or if the file's test imports the whole wizard, assert via the wizard render. Simplest: `export function StepIndicator` so the unit test imports it directly. Confirm no name clash.)
 
-- [ ] **Step 2: Run to verify it fails** — `pnpm vitest run tests/components/admin/onboardingWizardNav.test.tsx` → FAIL (labels absent / not exported).
+- [ ] **Step 2: Run to verify it fails** — `pnpm vitest run tests/components/onboardingWizardNav.test.tsx` → FAIL (labels absent / not exported).
 
 - [ ] **Step 3: Implement** — rewrite `StepIndicator`. Keep the map over `[1,2,3]`, the `isVisited`/`isActive` logic, testids, aria, and Link/span split. Add: a `LABELS` array; render each step as `<div class="flex items-center gap-2">[pill][label]</div>`; a connector `<span class="h-px flex-1 max-w-[60px] {done?'bg-border-strong':'bg-border'}" aria-hidden>` between steps; on done steps render `<Check aria-hidden className="size-3.5"/>` in place of the number; done pill classes `bg-surface border border-border-strong text-text-subtle`, active `bg-accent text-accent-text`, reachable-todo `bg-surface-sunken text-text-subtle hover:text-text-strong`, unreached `bg-surface-sunken text-text-faint`; labels `hidden sm:inline` for non-active steps, active label always visible + `text-text-strong font-semibold`. Wrap in the same `<nav aria-label="Onboarding progress">` and keep the sr-only "Step {step} of 3". Import `Check` from `lucide-react`.
 
-- [ ] **Step 4: Run to verify it passes** — `pnpm vitest run tests/components/admin/onboardingWizardNav.test.tsx` → PASS. Then the wizard render suite: `pnpm vitest run tests/components/admin/OnboardingWizard.test.tsx`.
+- [ ] **Step 4: Run to verify it passes** — `pnpm vitest run tests/components/onboardingWizardNav.test.tsx` → PASS. Then the wizard render suite: `pnpm vitest run tests/components/admin/OnboardingWizard.test.tsx`.
 
 - [ ] **Step 5: Commit** — `test(crew-page): stepper redesign specs` + `feat(crew-page): redesign shared StepIndicator (labels + connectors + done-check)` (or one combined TDD commit).
 
@@ -370,7 +402,7 @@ it("needs-attention + set-aside + empty testids preserved", () => {
 **Files:**
 - Create: `components/admin/wizard/Step3PublishBar.tsx`
 - Modify: `components/admin/wizard/Step3ReviewWithFinalize.tsx`, `components/admin/FinalizeButton.tsx`, `components/admin/OnboardingWizard.tsx` (drop top Back for step 3)
-- Test: `tests/components/admin/wizard/Step3ReviewWithFinalize.test.tsx`, `tests/components/admin/FinalizeButton.test.tsx`, `tests/components/admin/onboardingWizardNav.test.tsx`
+- Test: `tests/components/admin/wizard/Step3ReviewWithFinalize.test.tsx`, `tests/components/admin/FinalizeButton.test.tsx`, `tests/components/onboardingWizardNav.test.tsx`
 
 **Interfaces:**
 - Consumes: `Step3PublishCounts` (Task 1); the unchanged `FinalizeButton` props.
@@ -414,7 +446,7 @@ it("step 3 renders no top Back link (Back is in the bar)", () => {
   - `Step3ReviewWithFinalize`: wrap the content in `<div className="relative flex min-h-full flex-col">`; add bottom padding on the scroll body so the last card isn't occluded (`pb-24`); render, when `rows.length > 0`, `<Step3PublishBar>` containing: `<p data-testid="wizard-step3-publish-count" className="text-sm tabular-nums text-text-subtle"><b>{counts.selectedCount}</b> of {counts.selectableTotal} selected to publish</p>`, a `flex-1` spacer, `<Link data-testid="wizard-step3-back" href="/admin?step=2" className="…ghost…">Back</Link>`, and `<FinalizeButton … panelPlacement="above" />`. Seed `selectableTotal`/`selectedCount` in the initial `useState` (compute from the same server rows the wrapper already receives; add `initialSelectableTotal`/`initialSelectedCount` props threaded from `OnboardingWizard.tsx:398-407`, OR derive them in the wrapper from `rows` directly — prefer deriving in the wrapper to avoid new props).
   - `OnboardingWizard`: change the top `{step !== 1 ? <BackLink step={step} /> : null}` (`:494`) → `{step === 2 ? <BackLink step={2} /> : null}` so step 3 shows no top Back.
 
-- [ ] **Step 4: Run to verify it passes** — run the three files + the FULL FinalizeButton suite to prove the state machine is intact: `pnpm vitest run tests/components/admin/FinalizeButton.test.tsx tests/components/admin/wizard/Step3ReviewWithFinalize.test.tsx tests/components/admin/onboardingWizardNav.test.tsx` → PASS.
+- [ ] **Step 4: Run to verify it passes** — run the three files + the FULL FinalizeButton suite to prove the state machine is intact: `pnpm vitest run tests/components/admin/FinalizeButton.test.tsx tests/components/admin/wizard/Step3ReviewWithFinalize.test.tsx tests/components/onboardingWizardNav.test.tsx` → PASS.
 
 - [ ] **Step 5: Commit** — `feat(crew-page): sticky Step-3 publish bar re-homing FinalizeButton + Back`.
 
@@ -474,11 +506,15 @@ test.describe("Step-3 review page — layout dimensions", () => {
 ```
 Add a `gotoStep3(page)` helper following the sibling spec's login+seed flow. If the exact selector for the bar wrapper is awkward, give `Step3PublishBar`'s root `data-testid="wizard-step3-publish-bar"` in Task 6 and target that (add the testid to Task 6's bar div if used here).
 
-- [ ] **Step 2: Run to verify it fails** — `pnpm exec playwright test tests/e2e/step3-review-page.layout.spec.ts` → FAIL (page not yet built / selectors) BEFORE Tasks 2-6 land; when run after, the assertions gate the layout.
+- [ ] **Step 2: Prove each assertion BITES (negative-regression red).** A real-browser layout assertion is only meaningful if it FAILS when the invariant is violated — run it green against the built page, then, one at a time, temporarily break each invariant and confirm the matching assertion goes RED, then restore:
+  - DI-1: remove the stepper's `hidden sm:inline` on non-active labels → re-run at 320px → DI-1 FAILS (overflow) → restore.
+  - DI-2: remove `items-center` from the card row → DI-2 FAILS (checkbox/button no longer centered) → restore.
+  - DI-3: remove the bar's full-width/`left-0 right-0` (or its `items-center`) → DI-3 FAILS (width mismatch) → restore.
+  Record the three red runs. This is the TDD-red step for a layout gate (per the negative-regression discipline — a layout assertion that can't fail is tautological).
 
-- [ ] **Step 3: Implement** — no product code here beyond adding `data-testid="wizard-step3-publish-bar"` to the bar root (Task 6) if the ancestor selector is fragile; the spec IS the deliverable. Ensure the bar CSS satisfies the invariants (full-width `left-0 right-0`/block-level within the container; `items-center` centering; body `pb` ≥ bar height).
+- [ ] **Step 3: Implement** — no NEW product code beyond adding `data-testid="wizard-step3-publish-bar"` to the `Step3PublishBar` root (fold into Task 6) so DI-3's selector is stable; the spec IS the deliverable. Confirm the bar CSS satisfies the invariants (full-width within the container; `items-center` centering; body `pb` ≥ bar height so the last card is not occluded).
 
-- [ ] **Step 4: Run to verify it passes** — `pnpm exec playwright test tests/e2e/step3-review-page.layout.spec.ts` → PASS. (Runs in the pinned Playwright Docker image on CI per the byte-comparison/runner discipline; locally validate then let CI confirm.)
+- [ ] **Step 4: Run to verify it passes (all invariants restored)** — `pnpm exec playwright test tests/e2e/step3-review-page.layout.spec.ts` → PASS. (Runs in the pinned Playwright Docker image on CI per the byte-comparison/runner discipline; locally validate then let CI confirm.)
 
 - [ ] **Step 5: Commit** — `test(crew-page): real-browser layout assertions for Step-3 page (DI-1/2/3)`.
 
@@ -500,13 +536,31 @@ it("checkbox flip and count change are instant, tabular-nums (no layout shift)",
   const q = render(<Step3ReviewWithFinalize wizardSessionId={WSID} rows={[cleanRow("a","staged")]} finishable initialPublishCount={0} initialUncheckedCleanCount={1} />);
   expect(q.getByTestId("wizard-step3-publish-count").className).toContain("tabular-nums");
 });
-it("compound: opening a card modal while a publish is running is reachable (both surfaces independent)", async () => {
-  // render the wrapper; the card's Review/View button stays enabled regardless of FinalizeButton state.
-  const q = render(<Step3ReviewWithFinalize wizardSessionId={WSID} rows={[cleanRow("a","staged")]} finishable initialPublishCount={0} initialUncheckedCleanCount={1} />);
+// Helper: a 200 NDJSON response that emits one "listed" event and NEVER sends a
+// terminal "result" / closes → FinalizeButton enters `running` and stays there.
+import { FINALIZE_STREAM_CONTENT_TYPE } from "@/lib/onboarding/finalizeProgress";
+function hangingFinalizeResponse(): Response {
+  const stream = new ReadableStream({
+    start(c) {
+      c.enqueue(new TextEncoder().encode(JSON.stringify({ type: "listed", total: 1 }) + "\n"));
+      // no result, no close → the reader awaits forever, state = running
+    },
+  });
+  return new Response(stream, { status: 200, headers: { "content-type": FINALIZE_STREAM_CONTENT_TYPE } });
+}
+it("compound: card modal is reachable while a publish is ACTUALLY RUNNING (both surfaces independent)", async () => {
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(hangingFinalizeResponse());
+  // one applied row → clicking Publish runs the loop directly (no soft-confirm).
+  const q = render(<Step3ReviewWithFinalize wizardSessionId={WSID} rows={[cleanRow("a","applied")]} finishable initialPublishCount={1} initialUncheckedCleanCount={0} />);
+  fireEvent.click(q.getByTestId("wizard-finalize-button"));
+  // FinalizeButton is now in `running` (its progress panel is mounted).
+  await waitFor(() => expect(q.getByTestId("wizard-finalize-progress")).toBeInTheDocument());
+  // The card's Review/View button is STILL enabled mid-publish and opens the modal.
   const more = q.getByTestId(/wizard-step3-card-.*-more/);
-  expect(more).toBeEnabled();       // not disabled by any publish state
+  expect(more).toBeEnabled();
   fireEvent.click(more);
   await waitFor(() => expect(q.getByRole("dialog")).toBeInTheDocument());
+  fetchMock.mockRestore();
 });
 it("FinalizeButton panelPlacement='above' does not add exit/enter animation (instant swap)", () => {
   const q = render(<FinalizeButton wizardSessionId={WSID} publishCount={0} uncheckedCleanCount={0} panelPlacement="above" />);
@@ -540,7 +594,7 @@ it("FinalizeButton panelPlacement='above' does not add exit/enter animation (ins
 ### Task 10: Full verification pass (pre-review gate)
 
 - [ ] **Step 1** — `pnpm typecheck` (vitest strips types; catches TS errors that pass vitest but fail `next build`).
-- [ ] **Step 2** — FULL affected suite, not just touched files (structural/meta tests): `pnpm vitest run tests/components tests/e2e/step3-review-page.layout.spec.ts` (or the repo's canonical `pnpm test` scoping). Grep the vitest SUMMARY line for real failures amid stderr noise.
+- [ ] **Step 2** — FULL affected vitest suite, not just touched files (structural/meta tests): `pnpm vitest run tests/components` (or the repo's canonical `pnpm test` scoping). Grep the vitest SUMMARY line for real failures amid stderr noise. (The Playwright e2e file is NOT a vitest target — it runs under its own runner in Step 4.)
 - [ ] **Step 3** — `pnpm format:check` (— `--no-verify` commits skip the prettier hook; CI `quality` fails otherwise). Run `pnpm exec prettier --write` on changed files if needed, then re-stage.
 - [ ] **Step 4** — `pnpm exec playwright test tests/e2e/step3-review-page.layout.spec.ts` locally (CI runs it in the pinned image).
 - [ ] **Step 5: Commit** — fold any formatting/type fixes into the relevant task commit or a `chore(crew-page): format + typecheck` commit.
