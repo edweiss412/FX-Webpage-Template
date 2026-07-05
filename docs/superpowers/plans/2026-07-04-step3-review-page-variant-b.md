@@ -47,6 +47,8 @@
 
 ---
 
+> **Execution order:** The **"PLAN-TIME GATE"** section at the very end (plan self-review + cross-model adversarial review to APPROVE) runs FIRST — before Task 1 — and gates entry into implementation. Tasks 1–10 are the TDD implementation sequence; Task 9 (impeccable) and Task 10 (full verification) are the close-out gates. Execute 1 → 10 in order.
+
 ### Task 1: Extend `Step3PublishCounts` with selectable totals
 
 The sticky bar's "N of M selected to publish" must count **selectable** rows, not `publishRows` (which includes demoted/no-details). Add two fields sourced from the already-computed `selectableRows` counts (`Step3Review.tsx:805-806`), leaving `publishCount`/`uncheckedCleanCount` (over `publishRows`, consumed by FinalizeButton) untouched.
@@ -836,11 +838,13 @@ it("T8-e: the bar renders its own Back (→ ?step=2), instantly present with the
 
 ---
 
-### Task 11: Plan self-review + Adversarial review (cross-model)
+### PLAN-TIME GATE (runs BEFORE Task 1 — NOT an execution task): Plan self-review + Adversarial review (cross-model)
+
+> **⚠️ ORDERING:** This is a **plan-time gate**, not the final step of implementation. It runs to **APPROVE the plan BEFORE any of Tasks 1–10 begin** (writing-plans discipline: self-review → cross-model adversarial review → execution handoff). An implementer must NOT read this document top-to-bottom and treat this as "the last thing after coding" — by the time you execute Task 1, this gate has already returned APPROVE. It is placed at the end of the document only because it references the whole task list; temporally it precedes execution. (In the ship pipeline this IS Stage 2; Tasks 1–10 are Stage 3.)
 
 - [ ] **Step 1: Self-review** — re-check this plan against the spec: every spec section (§4.1–§4.5, §6–§11) maps to a task; no placeholders; type/name consistency (`Step3PublishCounts` fields, `panelPlacement`, `rowNeedsLook`, testids) matches across tasks.
 - [ ] **Step 2: Adversarial review** — invoke the `adversarial-review` skill → Codex, REVIEWER ONLY, fresh-eyes, iterate until **APPROVE** (no round budget per the ship pipeline). Apply the response ladder: class-sweep each finding; structural defense if a vector recurs 3+ rounds.
-- [ ] **Step 3** — On APPROVE, advance to execution (Stage 3 of the ship pipeline). Do NOT pause for user plan review (waived).
+- [ ] **Step 3** — On APPROVE, THEN begin execution at **Task 1** (Stage 3 of the ship pipeline). Do NOT pause for user plan review (waived).
 
 ---
 
