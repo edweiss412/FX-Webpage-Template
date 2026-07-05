@@ -1042,6 +1042,9 @@ export function Step3ReviewModal({
                     getActiveSection,
                     dfid,
                     sectionId: s.id,
+                    // Bug #316 item 3: the staged row's per-region source-sheet anchors,
+                    // so each section's "In sheet" heading link opens at its cell range.
+                    sourceAnchors: data.row.sourceAnchors ?? {},
                     // §E3: callout entries for every flagged section EXCEPT
                     // `warnings` (its body IS the warning list — circular).
                     // exactOptional discipline: ABSENT, never undefined.

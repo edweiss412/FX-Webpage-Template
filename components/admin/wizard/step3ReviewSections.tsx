@@ -75,7 +75,7 @@ import type {
   TransportationRow,
 } from "@/lib/parser/types";
 import type { Step3Row } from "@/components/admin/wizard/Step3Review";
-import type { SectionId } from "@/lib/admin/step3SectionStatus";
+import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
 import {
   hasStagedPreviewSource,
@@ -85,7 +85,7 @@ import {
 import type { MessageCode } from "@/lib/messages/catalog";
 import { humanizeDate, humanizeDayRange } from "@/lib/dates/humanize";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
-import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
+import { buildSheetDeepLink, type SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
 import { EVENT_DETAILS_LABELS } from "@/lib/crew/eventDetailsSpecs";
 import { partialAttendanceLabel } from "@/lib/crew/partialAttendance";
@@ -319,6 +319,14 @@ export type Step3SectionChrome = {
    *  mounts in section tests stay valid. */
   dfid?: string;
   sectionId?: SectionId;
+  /**
+   * Bug #316 item 3: the staged row's per-region source-sheet anchors
+   * (`Step3Row.sourceAnchors`). The modal (sole provider) passes `row.sourceAnchors
+   * ?? {}`; each section's heading link resolves its region via SECTION_REGION_MAP.
+   * Optional/ABSENT in section-test provider mounts (exactOptionalPropertyTypes) →
+   * lookup yields undefined → buildSheetDeepLink #gid=0 fallback.
+   */
+  sourceAnchors?: Record<string, SourceAnchor>;
 };
 export const Step3SectionChromeContext = createContext<Step3SectionChrome | null>(null);
 
@@ -411,14 +419,18 @@ function ModalSectionChrome({
   // (Diagrams, no sectionId) never shows one.
   const showCount =
     count !== null && chrome.sectionId !== undefined && COUNT_SECTIONS.has(chrome.sectionId);
-  // Per-section "In sheet" deep link (owner decision, 2026-07-05): every
-  // sheet-backed section heading links to the source sheet. Best-effort anchor
-  // (the staged preview carries no computed per-region anchors, so this lands on
-  // the first/INFO tab). Excluded: the Diagrams sub-block (no dfid) and the
-  // "Report an issue" section (not a parsed sheet region).
+  // Per-section "In sheet" deep link (bug #316 item 3): resolve the section's
+  // parser region via SECTION_REGION_MAP and pass its persisted source_anchors
+  // range to buildSheetDeepLink, so the link opens the sheet AT that section's
+  // cells instead of INFO!A1. Absent anchor / null region / missing key →
+  // buildSheetDeepLink falls back to `#gid=0` (whole first tab). Excluded: the
+  // Diagrams sub-block (no dfid) and the "Report an issue" section (not a region).
+  const sheetRegion =
+    chrome.sectionId !== undefined ? SECTION_REGION_MAP[chrome.sectionId] : null;
+  const sheetAnchor = sheetRegion ? chrome.sourceAnchors?.[sheetRegion] : undefined;
   const sheetHref =
     chrome.dfid && chrome.sectionId !== undefined && chrome.sectionId !== "report"
-      ? buildSheetDeepLink(chrome.dfid)
+      ? buildSheetDeepLink(chrome.dfid, sheetAnchor)
       : null;
   return (
     <>
