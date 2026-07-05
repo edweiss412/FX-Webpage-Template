@@ -44,6 +44,7 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 
 import { Step3SheetCard } from "@/components/admin/wizard/Step3SheetCard";
 import { Step3Review, type Step3Row } from "@/components/admin/wizard/Step3Review";
+import { Step3ReviewWithFinalize } from "@/components/admin/wizard/Step3ReviewWithFinalize";
 
 const WSID = "99999999-2222-4333-8444-555555555555";
 const ROOT = join(__dirname, "..", "..");
@@ -114,8 +115,15 @@ describe("§4.5 transition audit — only the review modal animates; checkbox/co
   });
 
   it("the count line uses tabular-nums (no layout shift) and carries no motion wrapper", () => {
+    // Variant B: the count lives in the sticky publish bar (Step3ReviewWithFinalize).
     const { getByTestId } = render(
-      <Step3Review wizardSessionId={WSID} rows={[stagedRow("c1", "C1"), appliedRow("c2", "C2")]} />,
+      <Step3ReviewWithFinalize
+        wizardSessionId={WSID}
+        rows={[stagedRow("c1", "C1"), appliedRow("c2", "C2")]}
+        finishable
+        initialPublishCount={1}
+        initialUncheckedCleanCount={1}
+      />,
     );
     const count = getByTestId("wizard-step3-publish-count");
     expect(count.className).toMatch(/tabular-nums/);
