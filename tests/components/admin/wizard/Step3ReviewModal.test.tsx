@@ -985,13 +985,11 @@ describe("Step3ReviewModal — side rail anatomy (spec §6.2)", () => {
 
   test("rail counts render exactly for the §6.1 counted subset, values derived from the fixture", () => {
     const { q, d } = renderModal();
+    // Owner decision (2026-07-05): only Crew, Contacts, Rooms, Parse warnings.
     const expected: Partial<Record<SectionId, number>> = {
       crew: d.crewMembers.length,
       contacts: contactBlocks(d.pr.show.client_contact, d.pr.contacts ?? []).length,
-      schedule: Object.keys(d.ros).length,
-      hotels: d.hotels.length,
       rooms: d.rooms.length,
-      packlist: d.pullSheet.length,
       warnings: d.warnings.length,
     };
     expect(d.crewMembers.length).toBeGreaterThan(0); // fixture sanity: a nonzero count is exercised
@@ -1001,7 +999,8 @@ describe("Step3ReviewModal — side rail anatomy (spec §6.2)", () => {
         // Catches a count wired to the wrong data source (fixture-derived value).
         expect(ct?.textContent).toBe(String(expected[s.id]));
       } else {
-        // venue/event/transport/billing (and agenda) never show a rail count.
+        // venue/event/schedule/hotels/transport/packlist/billing (and agenda)
+        // never show a rail count.
         expect(ct).toBeNull();
       }
     }
@@ -1125,13 +1124,52 @@ describe("Step3ReviewModal — section panels (spec §6.4/§5.2/§15)", () => {
         expect(headings[0]!.className.split(/\s+/)).toContain(c);
       }
     }
-    // Counts stay the body's own (§6.1 preamble): fixture-derived, incl. a zero.
+    // Owner decision (2026-07-05): only Crew, Contacts, Rooms, and Parse
+    // warnings show a heading count (fixture-derived, incl. a zero). Every other
+    // section drops the parenthetical.
+    const countRe = /\(\d+\)/;
     const crewHead = q.getByTestId(tid("section-crew")).querySelector("h3")!.parentElement!;
     expect(crewHead.textContent).toContain(`(${d.crewMembers.length})`);
-    const venueHead = q.getByTestId(tid("section-venue")).querySelector("h3")!.parentElement!;
-    expect(venueHead.textContent).toContain("(0)"); // fixture venue is null → 0 rows
+    const roomsHead = q.getByTestId(tid("section-rooms")).querySelector("h3")!.parentElement!;
+    expect(roomsHead.textContent).toContain(`(${d.rooms.length})`);
     const warnHead = q.getByTestId(tid("section-warnings")).querySelector("h3")!.parentElement!;
     expect(warnHead.textContent).toContain(`(${d.warnings.length})`);
+    // Excluded sections carry NO count parenthetical (venue was `(0)` before).
+    const venueHead = q.getByTestId(tid("section-venue")).querySelector("h3")!.parentElement!;
+    expect(venueHead.textContent).not.toMatch(countRe);
+    const hotelsHead = q.getByTestId(tid("section-hotels")).querySelector("h3")!.parentElement!;
+    expect(hotelsHead.textContent).not.toMatch(countRe);
+  });
+
+  test("every sheet-backed section heading carries an 'In sheet' deep link (href/target/rel/aria); report excluded", () => {
+    const { q, d } = renderModal();
+    const sheetHref = buildSheetDeepLink(DFID);
+    expect(sheetHref).not.toBeNull(); // fixture sanity — a real deep-link URL
+    for (const s of step3Sections(d)) {
+      // Not routed through tid(): the per-section link testid omits the "review-"
+      // segment (it's a body-chrome anchor, not a modal-shell control).
+      const linkId = `wizard-step3-card-${DFID}-section-${s.id}-sheetlink`;
+      if (s.id === "report") {
+        // "Report an issue" is not a parsed sheet region — no deep link.
+        expect(q.queryByTestId(linkId)).toBeNull();
+        continue;
+      }
+      const link = q.getByTestId(linkId) as HTMLAnchorElement;
+      expect(link.tagName).toBe("A");
+      expect(link.getAttribute("href")).toBe(sheetHref);
+      expect(link.getAttribute("target")).toBe("_blank");
+      expect(link.getAttribute("rel")).toContain("noopener");
+      // Accessible name names the section, so it never collides with the header link.
+      expect(link.getAttribute("aria-label")).toBe(`Open the source sheet for ${s.label}`);
+    }
+  });
+
+  test("falsy driveFileId → NO per-section sheet links (mirrors the header link's null-gate)", () => {
+    const d = sectionData({}, { dfid: "" });
+    const { q } = renderModal({ d });
+    for (const s of step3Sections(d)) {
+      expect(q.queryByTestId(`wizard-step3-card--section-${s.id}-sheetlink`)).toBeNull();
+    }
   });
 
   test("every heading inside the body region is an H3; the modal's only H2 is the title (§15)", () => {

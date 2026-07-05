@@ -40,6 +40,15 @@ export type AdminAgendaItem = {
     droppedSessions: number;
     droppedDays: number;
     droppedTracks: number;
+    /**
+     * The full, UNCAPPED normalized extraction — the source the capped
+     * `extraction` was sliced from. Present so the admin card can offer an
+     * in-place "Show all" disclosure for the truncated sessions/days/tracks
+     * (owner decision, 2026-07-05) rather than a dead "…and N more" note.
+     * Optional so hand-built test fixtures that don't exercise the disclosure
+     * stay valid.
+     */
+    fullExtraction?: AgendaExtraction;
   } | null;
 };
 
@@ -67,6 +76,8 @@ type CapResult = {
   droppedSessions: number;
   droppedDays: number;
   droppedTracks: number;
+  /** The uncapped input extraction — see AdminAgendaItem.block.fullExtraction. */
+  fullExtraction: AgendaExtraction;
 };
 
 /**
@@ -121,6 +132,7 @@ export function capExtractionForAdmin(ext: AgendaExtraction): CapResult {
     droppedSessions,
     droppedDays,
     droppedTracks,
+    fullExtraction: ext,
   };
 }
 

@@ -1114,8 +1114,13 @@ describe("Step3SheetCard — pack-list review (PULL-tab parity with crew GearSec
     // render "1 items", which substring-passes `toContain("1 item")`. Pin it.
     // (Fixture counts are 3 and 1, so no multi-digit "…1 items" can appear.)
     expect(t).not.toContain("1 items");
-    // count badge in the section header equals the number of cases
-    expect(t).toContain(`(${cases.length})`);
+    // Pack list is NOT a counted section (owner decision 2026-07-05) — the
+    // header shows no case count. Scope to the heading row so the body's per-case
+    // "3 items" pills can't satisfy the assertion by accident (anti-tautology).
+    const head = getByTestId("wizard-step3-card-pack-1-breakdown-pack-list").querySelector(
+      "h3",
+    )!.parentElement!;
+    expect(head.textContent).not.toMatch(/\(\d+\)/);
   });
 
   test("caps at 12 cases and appends an overflow note for the remainder", () => {
@@ -1123,7 +1128,9 @@ describe("Step3SheetCard — pack-list review (PULL-tab parity with crew GearSec
     const { getByTestId, queryByText, getByText } = openPack("pack-2", packPr(CASES));
     const region = getByTestId("wizard-step3-card-pack-2-breakdown-pack-list");
     const t = region.textContent ?? "";
-    expect(t).toContain(`(${CASES.length})`); // header count is the FULL total, not the cap
+    // Pack list is uncounted (owner decision 2026-07-05) — no header count.
+    const head = region.querySelector("h3")!.parentElement!;
+    expect(head.textContent).not.toMatch(/\(\d+\)/);
     // Exact-node label queries (Task 3 restyle: the label and the count pill are
     // separate nodes with no " · " separator, so "Case L1"+"2 items" would
     // substring-satisfy a textContent scan for "Case L12" — query the label

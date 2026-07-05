@@ -305,7 +305,9 @@ describe("step3Sections registry (spec §6.1 + §B2/§D2)", () => {
     warnings: "Checks",
     report: "Checks",
   };
-  const COUNTED = ["crew", "contacts", "schedule", "hotels", "rooms", "packlist", "warnings"];
+  // Owner decision (2026-07-05): only Crew, Contacts, Rooms, and Parse warnings
+  // carry a count — nav rail AND card title. Everything else drops it.
+  const COUNTED = ["crew", "contacts", "rooms", "warnings"];
 
   test("group list is exactly the §6.1 order", () => {
     expect([...STEP3_SECTION_GROUPS]).toEqual([
@@ -404,16 +406,14 @@ describe("step3Sections registry (spec §6.1 + §B2/§D2)", () => {
       if (COUNTED.includes(def.id)) {
         expect(def.railCount, `railCount for ${def.id}`).not.toBeNull();
       } else {
-        // venue/event/transport/billing — and report, ALWAYS null (§D2).
+        // venue/event/schedule/hotels/transport/packlist/billing — and report,
+        // ALWAYS null (owner decision 2026-07-05; §D2 for report).
         expect(def.railCount, `railCount for ${def.id}`).toBeNull();
       }
     }
     // Values derive from the fixture's OWN dimensions (anti-tautology).
     expect(defById(defs, "crew").railCount!(d)).toBe(d.crewMembers.length);
-    expect(defById(defs, "hotels").railCount!(d)).toBe(d.hotels.length);
     expect(defById(defs, "rooms").railCount!(d)).toBe(d.rooms.length);
-    expect(defById(defs, "packlist").railCount!(d)).toBe(d.pullSheet.length);
-    expect(defById(defs, "schedule").railCount!(d)).toBe(Object.keys(d.ros).length);
     expect(defById(defs, "warnings").railCount!(d)).toBe(d.warnings.length);
     // Contacts: block count as rendered today — fixture has no client contact
     // and no contacts → 0.
@@ -970,7 +970,7 @@ describe("RoomsBreakdown — redesigned per-room cards", () => {
     expect(scoped.getByText("82' x 94' x 14'")).toBeTruthy();
   });
 
-  test("scope list always shows all 5 disciplines in order; parsed values as-parsed", () => {
+  test("scope list shows all 5 disciplines, gear-first; parsed values as-parsed", () => {
     const q = renderBody(roomsData([FULL_ROOM]), "rooms");
     const scope = q.getByTestId(`wizard-step3-card-${DFID}-room-0-scope`);
     const rows = scope.querySelectorAll("li");
@@ -978,10 +978,34 @@ describe("RoomsBreakdown — redesigned per-room cards", () => {
     const keys = Array.from(scope.querySelectorAll("li")).map(
       (li) => within(li as HTMLElement).getByTestId("room-scope-key").textContent,
     );
+    // FULL_ROOM's gear (Audio/Video/Lighting) already precedes its empties
+    // (Scenic/Other), so the gear-first sort preserves the canonical order here.
     expect(keys).toEqual(["Audio", "Video", "Lighting", "Scenic", "Other"]);
     // Parsed values shown as-parsed (review surface).
     expect(within(scope).getByText("L-Acoustics K2")).toBeTruthy();
     expect(within(scope).getByText("48x spot")).toBeTruthy();
+  });
+
+  test("disciplines with gear sort ABOVE empty (null / N/A / Not specified) ones; stable within each group (owner decision 2026-07-05)", () => {
+    // audio empty, video has gear, lighting "N/A", scenic has gear, other "Not
+    // specified" → gear group = [Video, Scenic] (original order), empty group =
+    // [Audio, Lighting, Other] (original order). Catches: no sort (audio-first),
+    // or an unstable sort that scrambles same-group order.
+    const MIXED: RoomRow = {
+      ...FULL_ROOM,
+      name: "MIXED",
+      audio: null,
+      video: "d&b V-Series",
+      lighting: "N/A",
+      scenic: "Grey spandex",
+      other: "Not specified",
+    };
+    const q = renderBody(roomsData([MIXED]), "rooms");
+    const scope = q.getByTestId(`wizard-step3-card-${DFID}-room-0-scope`);
+    const keys = Array.from(scope.querySelectorAll("li")).map(
+      (li) => within(li as HTMLElement).getByTestId("room-scope-key").textContent,
+    );
+    expect(keys).toEqual(["Video", "Scenic", "Audio", "Lighting", "Other"]);
   });
 
   test('empty disciplines read "Not specified" (muted italic), never "Not needed"', () => {

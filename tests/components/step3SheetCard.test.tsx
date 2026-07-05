@@ -194,24 +194,25 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-totals`)).toBeNull();
   });
 
-  test("per-section counts move to the expanded breakdown headers (anti-tautology)", () => {
+  test("per-section counts show ONLY for Crew/Rooms in the expanded breakdown headers (anti-tautology)", () => {
     const FIX = parseResult();
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));
     const days = Object.keys(FIX.runOfShow ?? {}).length;
-    // Each breakdown section header renders "<Label> (<count>)"; every count
-    // derives from the fixture array length, never a hardcoded numeral.
+    // Owner decision (2026-07-05): only Crew, Contacts, Rooms, and Parse
+    // warnings carry a count. Counted headers derive from the fixture array
+    // length, never a hardcoded numeral; excluded headers drop it entirely.
     expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-crew`).textContent).toContain(
       `(${FIX.crewMembers.length})`,
     );
     expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-rooms`).textContent).toContain(
       `(${FIX.rooms.length})`,
     );
-    expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-hotels`).textContent).toContain(
-      `(${FIX.hotelReservations.length})`,
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-hotels`).textContent).not.toMatch(
+      /\(\d+\)/,
     );
-    expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-schedule`).textContent).toContain(
-      `(${days})`,
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-schedule`).textContent).not.toMatch(
+      /\(\d+\)/,
     );
     expect(FIX.crewMembers.length).toBeGreaterThan(0);
     expect(days).toBe(3);
@@ -253,13 +254,20 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     expect(txt).not.toMatch(/diagrams/i); // folder link excluded (text-key scope)
     expect(txt).not.toContain("Notes:"); // whitespace-only omitted (empty after trim)
     expect(txt).not.toContain("https://"); // opening_reel URL stripped
-    // header count = 7 shown (stage/podium/polling/keynote/reel/led/test_pattern);
-    // notes(ws) + diagrams(non-text) excluded.
-    expect(txt).toContain("(7)");
+    // Event details is NOT a counted section (owner decision 2026-07-05) — the
+    // HEADING drops the parenthetical count even though 7 specs render. Scope to
+    // the heading row so the body's own "(2) Acrylic" podium value can't satisfy
+    // the assertion (anti-tautology).
+    const evHead = q
+      .getByTestId(`wizard-step3-card-${DFID}-breakdown-event-details`)
+      .querySelector("h3")!.parentElement!;
+    expect(evHead.textContent).not.toMatch(/\(\d+\)/);
   });
 
-  test("schedule-day count uses Object.keys(runOfShow), NOT showDays.length", () => {
-    // runOfShow has 5 days; showDays has only 2 — the rendered count must be 5.
+  test("Crew schedule is NOT a counted section — no day count in the header (owner decision 2026-07-05)", () => {
+    // runOfShow has 5 days; showDays has only 2. The schedule header used to show
+    // "(5)"; it now shows no count at all (only Crew/Contacts/Rooms/Parse
+    // warnings are counted).
     const FIX = parseResult({
       runOfShow: runOfShow(5, 1),
       show: show({
@@ -273,12 +281,12 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));
-    const days = Object.keys(FIX.runOfShow ?? {}).length;
-    expect(days).toBe(5);
+    expect(Object.keys(FIX.runOfShow ?? {}).length).toBe(5);
     expect(FIX.show.dates.showDays.length).toBe(2);
-    expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-schedule`).textContent).toContain(
-      `(${days})`,
-    );
+    const schedHead = q
+      .getByTestId(`wizard-step3-card-${DFID}-breakdown-schedule`)
+      .querySelector("h3")!.parentElement!;
+    expect(schedHead.textContent).not.toMatch(/\(\d+\)/);
   });
 
   test("dates render humanized present segments only on the -dates meta cell", () => {
@@ -489,14 +497,15 @@ describe("Step3SheetCard — guard conditions (§4.6)", () => {
       <Step3SheetCard row={stagedRow(broken as unknown as ParseResult)} wizardSessionId={WSID} />,
     );
     fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));
-    // A 0 is a signal, not hidden: every breakdown header reads "(0)".
+    // A 0 is a signal, not hidden: counted headers (Crew, Rooms) read "(0)".
+    // Excluded headers (Hotels, Crew schedule) show no count at all.
     expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-crew`).textContent).toContain("(0)");
     expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-rooms`).textContent).toContain("(0)");
-    expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-hotels`).textContent).toContain(
-      "(0)",
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-hotels`).textContent).not.toMatch(
+      /\(\d+\)/,
     );
-    expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-schedule`).textContent).toContain(
-      "(0)",
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-schedule`).textContent).not.toMatch(
+      /\(\d+\)/,
     );
   });
 
@@ -509,15 +518,16 @@ describe("Step3SheetCard — guard conditions (§4.6)", () => {
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-warnings`)).toBeNull();
   });
 
-  test("zero-count clean sheet still renders the counts (a 0 is a signal)", () => {
+  test("zero-count clean sheet still renders the Crew count (a 0 is a signal); schedule stays uncounted", () => {
     const FIX = parseResult({ crewMembers: [], rooms: [], hotelReservations: [], runOfShow: {} });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     // a clean (non-null parseResult) sheet still has an expand toggle
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-more`)).not.toBeNull();
     fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));
     expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-crew`).textContent).toContain("(0)");
-    expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-schedule`).textContent).toContain(
-      "(0)",
+    // Crew schedule is not a counted section (owner decision 2026-07-05).
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-schedule`).textContent).not.toMatch(
+      /\(\d+\)/,
     );
   });
 });
