@@ -11,8 +11,10 @@ import {
   sectionForWarning,
   deriveSectionStatuses,
   warningsBySection,
+  SECTION_REGION_MAP,
   type SectionId,
 } from "@/lib/admin/step3SectionStatus";
+import { REGION_IDS } from "@/lib/sheet-links/buildSheetDeepLink";
 
 // ── Test helpers ──
 function warn(kind?: string, severity: "warn" | "info" = "warn"): ParseWarning {
@@ -358,5 +360,58 @@ describe("deriveSectionStatuses derives from warningsBySection", () => {
     expect(status.flagged.has("diagrams" as SectionId)).toBe(false);
     expect(status.flagged.has("report" as SectionId)).toBe(false);
     expect(status.flagged).toEqual(new Set(["warnings"]));
+  });
+});
+
+// Canonical list of every SectionId — kept in lockstep with the union at
+// step3SectionStatus.ts:3. If a SectionId is added without a SECTION_REGION_MAP
+// entry, the completeness assertion below fails.
+const ALL_SECTION_IDS: SectionId[] = [
+  "venue",
+  "event",
+  "crew",
+  "contacts",
+  "schedule",
+  "agenda",
+  "hotels",
+  "transport",
+  "rooms",
+  "diagrams",
+  "packlist",
+  "billing",
+  "warnings",
+  "report",
+];
+
+describe("SECTION_REGION_MAP", () => {
+  test("maps every SectionId member", () => {
+    for (const id of ALL_SECTION_IDS) {
+      expect(Object.prototype.hasOwnProperty.call(SECTION_REGION_MAP, id)).toBe(true);
+    }
+    // No stray keys beyond the 14 SectionId members.
+    expect(Object.keys(SECTION_REGION_MAP).sort()).toEqual([...ALL_SECTION_IDS].sort());
+  });
+
+  test("every non-null target is a real RegionId", () => {
+    const regions = new Set<string>(REGION_IDS);
+    for (const [id, region] of Object.entries(SECTION_REGION_MAP)) {
+      if (region !== null) {
+        expect(regions.has(region), `${id} → ${region}`).toBe(true);
+      }
+    }
+  });
+
+  test("content sections resolve to their primary region", () => {
+    expect(SECTION_REGION_MAP.crew).toBe("crew");
+    expect(SECTION_REGION_MAP.event).toBe("details"); // primary region (dress is a shared sub-block)
+    expect(SECTION_REGION_MAP.schedule).toBe("schedule");
+    expect(SECTION_REGION_MAP.agenda).toBe("schedule");
+    expect(SECTION_REGION_MAP.transport).toBe("transportation");
+    expect(SECTION_REGION_MAP.billing).toBe("financials");
+    expect(SECTION_REGION_MAP.packlist).toBe("gear_packlist");
+    // Non-region sections fall back to whole-sheet.
+    expect(SECTION_REGION_MAP.diagrams).toBeNull();
+    expect(SECTION_REGION_MAP.warnings).toBeNull();
+    expect(SECTION_REGION_MAP.report).toBeNull();
   });
 });
