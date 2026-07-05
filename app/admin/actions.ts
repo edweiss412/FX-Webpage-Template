@@ -141,7 +141,7 @@ export async function resolveAdminAlertFormAction(formData: FormData): Promise<v
   // WHERE clause additionally requires the row to be still unresolved
   // and global-only. Per-show alerts must be resolved from the
   // show-scoped route after the operator views show context.
-  const { error: updateError } = await supabase
+  const { data: updatedRows, error: updateError } = await supabase
     .from("admin_alerts")
     .update({
       resolved_at: new Date().toISOString(), // not-render-side: mutation timestamp (resolved_at write)
@@ -149,7 +149,8 @@ export async function resolveAdminAlertFormAction(formData: FormData): Promise<v
     })
     .eq("id", id)
     .is("resolved_at", null)
-    .is("show_id", null);
+    .is("show_id", null)
+    .select("id");
 
   if (updateError) {
     // I1 fix: do NOT call revalidatePath when the UPDATE failed (network
@@ -178,6 +179,14 @@ export async function resolveAdminAlertFormAction(formData: FormData): Promise<v
       `[resolveAdminAlertFormAction] admin_alerts UPDATE failed: ${updateError.message}`,
     );
   }
+
+  // A Supabase UPDATE that matches zero rows returns NO error (Codex whole-diff R1
+  // HIGH; mirrors resolveHealthAlertFormAction's R13-finding-2 guard). The
+  // `.is("resolved_at", null).is("show_id", null)` WHERE clause misses an
+  // already-resolved, show-scoped, or unknown-id alert — those are idempotent
+  // no-ops, NOT a committed resolve. `updatedRows.length === 1` is the ONLY success:
+  // no false ADMIN_ALERT_RESOLVED emit and no false "resolved" revalidate on 0 rows.
+  if (!Array.isArray(updatedRows) || updatedRows.length !== 1) return;
 
   // Invariant #10: durable success trace on the committed UPDATE branch only
   // (post-mutation; logAdminOutcome is internally try/catch-wrapped so it can

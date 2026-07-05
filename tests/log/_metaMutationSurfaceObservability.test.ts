@@ -80,16 +80,27 @@ function containsAnyLogAdminOutcomeCall(node: ts.Node): boolean {
   return found;
 }
 
-function pathTailNoExt(p: string, n: number): string {
-  const noExt = p.replace(/\.tsx?$/, "");
-  return noExt.split("/").slice(-n).join("/");
-}
-
-/** Heuristic: does the delegator file's source reference the delegatesTo
- * target's path (import/re-export specifier)? */
+/** Does the delegator file actually import/re-export from the `delegatesTo` target?
+ * Codex whole-diff R1 MED: a substring match on the path tail is bypassable — the
+ * 1-segment tail of any `.../route.ts` is just `"route"`, so a shim re-exporting an
+ * UNRELATED `../other/route` would pass. Instead, parse every `from "<specifier>"`,
+ * resolve relative specifiers against the delegator's own directory, and require the
+ * resolved path to equal the full `delegatesTo` path (ext-stripped). The `endsWith`
+ * arm handles fixtures whose files sit under a temp root while `delegatesTo` is a
+ * repo-relative literal; the leading `/` keeps it a path-segment boundary match. */
 function delegatorCallsTarget(delegatorFile: string, delegatesTo: string): boolean {
   const src = readFileSync(delegatorFile, "utf8");
-  return src.includes(pathTailNoExt(delegatesTo, 2)) || src.includes(pathTailNoExt(delegatesTo, 1));
+  const targetNoExt = delegatesTo.replace(/\.tsx?$/, "");
+  const dir = dirname(delegatorFile);
+  const specifierRe = /\bfrom\s*["']([^"']+)["']/g;
+  let m: RegExpExecArray | null;
+  while ((m = specifierRe.exec(src)) !== null) {
+    const spec = m[1]!;
+    if (!spec.startsWith(".")) continue; // only relative specifiers can name a repo file
+    const resolved = join(dir, spec).replace(/\.tsx?$/, "");
+    if (resolved === targetNoExt || resolved.endsWith("/" + targetNoExt)) return true;
+  }
+  return false;
 }
 
 function noTelemetryExempt(unit: SurfaceUnit): boolean {
@@ -129,7 +140,12 @@ function evaluateUnit(unit: SurfaceUnit, registries: Registries): Decision {
       };
     }
     if (exemption?.kind === "read-only") {
-      const p = scanBody(unit.node, { descend: false });
+      // Codex whole-diff R1 MED: scan with descend:true so a `.rpc()`/write-builder
+      // hidden inside a NESTED helper (defined or called within the exempted body)
+      // still trips the guard — a read-only exemption must be read-only transitively,
+      // not just at the top statement level. containsAnyLogAdminOutcomeCall already
+      // recurses.
+      const p = scanBody(unit.node, { descend: true });
       const violates = p.writeBuilder || p.rpc || containsAnyLogAdminOutcomeCall(unit.node);
       if (!violates) return { pass: true, reason: "read-only" };
       return { pass: false, reason: "read-only exemption on a function that mutates" };
@@ -402,6 +418,19 @@ describe("admin surfaces — ADMIN_SURFACE_EXEMPTIONS (delegator / read-only)", 
     expect(evaluateUnit(unit, { auditable, exemptions, ledger: [] }).pass).toBe(false);
   });
 
+  test("a delegator re-exporting a DIFFERENT route FAILS (Codex R1 MED — the 1-segment 'route' tail must not match)", () => {
+    // Both files end in `route.ts`; a substring match on the tail (`"route"`) would
+    // wrongly pass. The specifier resolves to `.../other/route`, NOT the registered
+    // `.../target/route`, so it must be refused.
+    const targetFile = "app/api/admin/target/route.ts";
+    const unit = unitFor("app/api/admin/shim/route.ts", 'export { POST } from "../other/route";\n');
+    const auditable: AuditableMutation[] = [{ file: targetFile, fn: "POST", code: "TARGET_CODE" }];
+    const exemptions: AdminSurfaceExemption[] = [
+      { file: unit.file, kind: "delegator", delegatesTo: targetFile },
+    ];
+    expect(evaluateUnit(unit, { auditable, exemptions, ledger: [] }).pass).toBe(false);
+  });
+
   test("a valid read-only exemption (no write-builder/.rpc/logAdminOutcome) PASSES", () => {
     const unit = unitFor(
       "lib/x/dev-actions.ts",
@@ -443,6 +472,20 @@ describe("admin surfaces — ADMIN_SURFACE_EXEMPTIONS (delegator / read-only)", 
       "lib/x/dev-actions.ts",
       ACTION_MODULE +
         'export async function getStagedResult(){ await requireDeveloper(); void logAdminOutcome({code:"X"}); }\n',
+    );
+    const exemptions: AdminSurfaceExemption[] = [
+      { file: unit.file, fn: "getStagedResult", kind: "read-only" },
+    ];
+    expect(evaluateUnit(unit, { auditable: [], exemptions, ledger: [] }).pass).toBe(false);
+  });
+
+  test("a read-only exemption on a fn hiding .rpc() in a NESTED helper FAILS (Codex R1 MED — transitive scan)", () => {
+    // The top-level body is read-only, but a nested function defines/calls `.rpc()`.
+    // A descend:false scan would miss it; the guard must catch mutations transitively.
+    const unit = unitFor(
+      "lib/x/dev-actions.ts",
+      ACTION_MODULE +
+        'export async function getStagedResult(){ await requireDeveloper(); async function inner(){ return sb.rpc("dev_truncate_all"); } return inner(); }\n',
     );
     const exemptions: AdminSurfaceExemption[] = [
       { file: unit.file, fn: "getStagedResult", kind: "read-only" },

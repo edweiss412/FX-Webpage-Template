@@ -600,11 +600,14 @@ describe("Task 11 — onboarding start-over / rerun-setup observe changes", () =
 
 // ── Task 12: app/admin/actions (spec §3.1 A, §5.2) ──────────────────────────
 describe("Task 12 — alert-resolve + watch-retry observe success only", () => {
-  test("resolveAdminAlertFormAction emits (reuse) ADMIN_ALERT_RESOLVED on the committed UPDATE; nothing on a missing id", async () => {
+  test("resolveAdminAlertFormAction emits (reuse) ADMIN_ALERT_RESOLVED on a single-row committed UPDATE; nothing on a missing id or a zero-row UPDATE", async () => {
+    // `from` feeds BOTH the guard code-lookup (.maybeSingle → a non-health row, since
+    // the array's `.code` is undefined) AND the UPDATE (.select("id") → row evidence).
+    // One returned row is the ONLY committed success (Codex whole-diff R1 HIGH guard).
     serverClientImpl.current = async () =>
       makeClient({
         getUser: { data: { user: { email: "admin@example.com" } }, error: null },
-        from: { error: null },
+        from: { data: [{ id: "11111111-1111-1111-1111-111111111111" }], error: null },
       });
     const form = new FormData();
     form.set("id", "11111111-1111-1111-1111-111111111111");
@@ -619,6 +622,16 @@ describe("Task 12 — alert-resolve + watch-retry observe success only", () => {
     // Missing id — the action's early return, no getUser/UPDATE reached.
     const failCodes = await observeCodes(() => resolveAdminAlertFormAction(new FormData()));
     expect(failCodes).not.toContain("ADMIN_ALERT_RESOLVED");
+
+    // Zero-row UPDATE (already-resolved / show-scoped / unknown id): no error, no
+    // committed resolve → NO emit (Codex whole-diff R1 HIGH).
+    serverClientImpl.current = async () =>
+      makeClient({
+        getUser: { data: { user: { email: "admin@example.com" } }, error: null },
+        from: { data: [], error: null },
+      });
+    const zeroRowCodes = await observeCodes(() => resolveAdminAlertFormAction(form));
+    expect(zeroRowCodes).not.toContain("ADMIN_ALERT_RESOLVED");
   });
 
   test("retryWatchSubscriptionFormAction emits WATCH_SUBSCRIPTION_RETRIED on successful renewal; nothing on the no-folder skip", async () => {

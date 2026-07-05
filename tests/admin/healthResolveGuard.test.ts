@@ -31,9 +31,12 @@ function makeBuilder() {
     return b;
   };
   b.maybeSingle = async () => ({ data: saState.guardRow, error: null });
+  // Invariant #10 (Codex whole-diff R1 HIGH): resolveAdminAlertFormAction now
+  // `.select("id")`s the UPDATE and requires exactly one returned row to emit +
+  // revalidate. A successful resolve returns one row; an error returns none.
   (b as { then: unknown }).then = (
-    f: (r: { data: null; error: { message: string } | null }) => unknown,
-  ) => f({ data: null, error: saState.updateError });
+    f: (r: { data: { id: string }[] | null; error: { message: string } | null }) => unknown,
+  ) => f({ data: saState.updateError ? null : [{ id: "row-1" }], error: saState.updateError });
   return b;
 }
 
