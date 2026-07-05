@@ -68,8 +68,15 @@ export type SchedulePhase = "Travel In" | "Set" | "Show" | "Travel Out";
 export type AggregateDay = {
   /** ISO 'YYYY-MM-DD'. */
   date: string;
-  /** Phase tag — what's happening on this day. */
+  /** Structural phase tag — drives tone + cap-exemption. Unchanged. */
   phase: SchedulePhase;
+  /**
+   * Display text. Equals `phase` for every phase except show days, which read
+   * "Show Day N" — 1-indexed by chronological order among the aggregate's Show
+   * days (bug #316 item 2). Keep numbering OUT of `phase` so the finite
+   * SchedulePhase set still drives DayCard's tone map + the wizard cap-exemption.
+   */
+  label: string;
 };
 
 /**
@@ -87,9 +94,18 @@ export function aggregateDays(dates: ShowRow["dates"]): AggregateDay[] {
   push(dates.set, "Set");
   for (const d of dates.showDays ?? []) push(d, "Show");
   push(dates.travelOut, "Travel Out");
+  // Number show days 1..N in the FINAL sorted (chronological) order, so
+  // "Show Day 1" is always the earliest date that ended up phase "Show". A
+  // showDays date that collided with travelIn/set is deduped away first-wins,
+  // so it never gets a Show number.
+  let showN = 0;
   return [...seen.entries()]
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([date, phase]) => ({ date, phase }));
+    .map(([date, phase]) => ({
+      date,
+      phase,
+      label: phase === "Show" ? `Show Day ${(showN += 1)}` : phase,
+    }));
 }
 
 /**
