@@ -217,6 +217,12 @@ it("summary: one needs a look uses singular 'needs' + 'it goes'", () => {
   expect(screen.getByTestId("wizard-step3-summary")).toHaveTextContent(
     "2 sheets parsed from your Drive folder. 1 ready to publish — 1 needs a quick look before it goes live. Nothing publishes until you say so.");
 });
+it("summary: readyCount===0, needsLookCount>1 → no 'ready' lead, plural 'need … they go'", () => {
+  const rows = [warnRow("a"), warnRow("b")]; // both need a look, none ready
+  render(<Step3Review wizardSessionId={WSID} rows={rows} />);
+  expect(screen.getByTestId("wizard-step3-summary")).toHaveTextContent(
+    "2 sheets parsed from your Drive folder. 2 need a quick look before they go live. Nothing publishes until you say so.");
+});
 it("summary: only blocking rows → no readiness clause", () => {
   render(<Step3Review wizardSessionId={WSID} rows={[hardFailRow("a")]} />);
   const s = screen.getByTestId("wizard-step3-summary");
@@ -535,6 +541,22 @@ test.describe("Step-3 review page — layout dimensions", () => {
     const lastCardBottom = await lastCard.evaluate((el) => el.getBoundingClientRect().bottom);
     const barTop = await bar.evaluate((b) => b.getBoundingClientRect().top);
     expect(lastCardBottom).toBeLessThanOrEqual(barTop + 0.5);
+    // spec §7 DI-3: the idle bar's Publish button is fully within the viewport…
+    const vh = page.viewportSize()!.height;
+    const pubRect = await page.getByTestId("wizard-finalize-button").evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      return { bottom: r.bottom, mid: r.top + r.height / 2 };
+    });
+    expect(pubRect.bottom).toBeLessThanOrEqual(vh + 0.5);
+    // …and the idle-row items (count · Back · Publish) share the bar's baseline row
+    // (bar is items-end): each item's vertical mid sits within the bar's own box.
+    const barBox = await bar.evaluate((b) => { const r = b.getBoundingClientRect(); return { top: r.top, bottom: r.bottom }; });
+    const backMid = await page.getByTestId("wizard-step3-back").evaluate((el) => { const r = el.getBoundingClientRect(); return r.top + r.height / 2; });
+    const countMid = await page.getByTestId("wizard-step3-publish-count").evaluate((el) => { const r = el.getBoundingClientRect(); return r.top + r.height / 2; });
+    for (const m of [pubRect.mid, backMid, countMid]) {
+      expect(m).toBeGreaterThanOrEqual(barBox.top - 0.5);
+      expect(m).toBeLessThanOrEqual(barBox.bottom + 0.5);
+    }
   });
   test("DI-4: at 360px the card does not overflow and its right cluster wraps below the title (spec §5 mobile)", async ({ page }) => {
     await page.setViewportSize({ width: 360, height: 780 });
@@ -574,14 +596,31 @@ Add a `gotoStep3(page)` helper following the sibling spec's login+seed flow (the
 
 ### Task 8: Transition audit
 
-Enumerate every `AnimatePresence`, ternary render, and conditional block in the changed components and assert each is animated or deliberately instant, per spec §8 — including the compound "open modal while publish running" state.
+Enumerate every `AnimatePresence`, ternary render, and conditional block introduced/changed by this redesign and assert each is animated or **deliberately instant**, per spec §8. This redesign introduces **NO** `framer-motion`/`AnimatePresence` — every new conditional is a deliberately-instant mount/unmount or class swap (owned by existing components where it animates, e.g. the modal + the native `<progress>`). The audit both (a) documents each conditional's treatment and (b) proves it renders correctly and without an animation wrapper.
+
+**Complete conditional inventory (every changed surface):**
+
+| # | Conditional (component) | Kind | Treatment | Asserted by |
+| --- | --- | --- | --- | --- |
+| 1 | Summary paragraph `{rows.length > 0 ? … : null}` (Step3Review) | guard | instant; absent when empty | Task 3 empty test + T8-c |
+| 2 | Sticky bar `{rows.length > 0 ? <Step3PublishBar/> : null}` (Step3ReviewWithFinalize) | guard | instant; absent when empty | T8-c |
+| 3 | Card variant select: no-details / demoted / selectable (Step3SheetCard) | ternary chain | instant swap (data-fetched per render, no in-place transition) | T8-d |
+| 4 | Chip `{needsLook && <chip/>}` + View↔Review label (Step3SheetCard) | conditional | instant | Task 4 tests + T8-d |
+| 5 | Checkbox present `{!isFinalizeDemoted && !noDetails}` (Step3SheetCard) | conditional | instant | Task 4 demoted/no-details tests |
+| 6 | Publish count text swap (tabular-nums) (bar) | value | instant, no layout shift | T8-a |
+| 7 | Stepper pill state done/active/todo + `Check` swap (StepIndicator) | ternary | instant (full page nav; class/glyph swap) | Task 2 tests |
+| 8 | Top Back present `{step === 2 …}` — absent on step 3 (OnboardingWizard) | guard | instant | Task 6 no-top-Back test + T8-e |
+| 9 | FinalizeButton `panelPlacement` order (flex-col ↔ flex-col-reverse) | layout | instant, no enter/exit anim | T8-f |
+| 10 | Modal open/close from Review/View | owned by shipped modal | modal's own transition (unchanged) | Task 4 modal test |
+| 11 | **Compound:** open modal while publish `running` | reachable | independent surfaces, no new anim | T8-b |
+| 12 | FinalizeButton running/terminal panels (progress/confirm/race/cas/error/complete) | owned by existing FinalizeButton | unchanged (native `<progress>`, instant swaps) | FinalizeButton.test.tsx (Task 6) |
 
 **Files:**
 - Create/extend: `tests/components/admin/wizard/step3Page.transitions.test.tsx` (or extend `step3SheetCard.transitions.test.tsx`)
 
 **Interfaces:** none new.
 
-- [ ] **Step 1: Write the failing tests** — from the spec §8 inventory (all instant/owned-by-existing except the compound state):
+- [ ] **Step 1: Write the failing tests** — one per inventory row that this redesign owns (rows owned by the shipped modal / existing FinalizeButton are covered by their own suites, cited above). All are deliberately instant:
 
 ```tsx
 it("checkbox flip updates the bar count instantly, tabular-nums (no layout shift)", async () => {
@@ -624,6 +663,37 @@ it("FinalizeButton panelPlacement='above' does not add exit/enter animation (ins
   const q = render(<FinalizeButton wizardSessionId={WSID} publishCount={0} uncheckedCleanCount={0} panelPlacement="above" />);
   // no AnimatePresence wrapper introduced — the region swaps instantly
   expect(q.getByTestId("wizard-finalize").innerHTML).not.toContain("data-framer");
+});
+// T8-c: summary + bar guards — present when rows exist, absent when empty (instant, no anim wrapper).
+it("T8-c: summary + sticky bar are guarded on rows.length (instant mount/unmount)", () => {
+  const full = render(<Step3ReviewWithFinalize wizardSessionId={WSID} rows={[cleanRow("a","staged")]} finishable initialPublishCount={0} initialUncheckedCleanCount={1} />);
+  expect(full.getByTestId("wizard-step3-summary")).toBeInTheDocument();
+  expect(full.getByTestId("wizard-step3-publish-bar")).toBeInTheDocument();
+  cleanup();
+  const empty = render(<Step3ReviewWithFinalize wizardSessionId={WSID} rows={[]} finishable initialPublishCount={0} initialUncheckedCleanCount={0} />);
+  expect(empty.queryByTestId("wizard-step3-summary")).toBeNull();
+  expect(empty.queryByTestId("wizard-step3-publish-bar")).toBeNull();
+  expect(empty.getByTestId("wizard-step3-empty")).toBeInTheDocument();
+});
+// T8-d: card variant selection is an instant ternary swap — each variant renders its
+// own DOM with no shared-element transition / framer wrapper.
+it("T8-d: card variants (selectable / demoted / no-details) swap instantly, no anim wrapper", () => {
+  for (const [row, marker] of [
+    [stagedRow(parseResult({ warnings: [] })), (q) => q.getByTestId(`wizard-step3-card-${DFID}-more`)],
+    [{ ...stagedRow(parseResult({ warnings: [] })), lastFinalizeFailureCode: "RESCAN_REVIEW_REQUIRED" }, (q) => q.getByTestId(`wizard-step3-rescan-review-${DFID}`)],
+    [stagedRow(null, { driveFileName: "x.sheet" }), (q) => q.getByTestId(`wizard-step3-card-${DFID}`)],
+  ] as const) {
+    const q = render(<Step3SheetCard row={row} wizardSessionId={WSID} />);
+    expect(marker(q)).toBeInTheDocument();
+    expect(q.getByTestId(`wizard-step3-card-${DFID}`).innerHTML).not.toContain("data-framer");
+    cleanup();
+  }
+});
+// T8-e: Back relocation — no top Back on step 3, a bar Back instead (instant guard).
+it("T8-e: step 3 has the bar Back, not the top Back", async () => {
+  const q = render(await OnboardingWizard({ settings: settingsStep3(), searchParams: { step: "3" }, hasReviewableScan: true }));
+  expect(q.queryByTestId("wizard-back-link")).toBeNull();      // top Back gone on step 3
+  expect(q.getByTestId("wizard-step3-back")).toBeInTheDocument(); // bar Back present
 });
 ```
 
