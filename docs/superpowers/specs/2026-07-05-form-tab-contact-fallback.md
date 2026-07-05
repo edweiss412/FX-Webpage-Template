@@ -160,8 +160,12 @@ Add a FORM-fallback harvest for the client contact's email + phone, applied fill
        if (!inFormBlock) continue;
        const val = clean(cells[1] ?? "");
        if (!val) continue;
-       if (label === FORM_CLIENT_EMAIL_LABEL && email === null && CLIENT_EMAIL_RE.test(val)) {
-         email = canonicalize(val);
+       if (label === FORM_CLIENT_EMAIL_LABEL && email === null) {
+         // Extract the email SUBSTRING and canonicalize only that — never store the whole cell.
+         // `canonicalize` only trims/lowercases; a wrapped value like "Ashley Morgan <a@b.com>"
+         // would otherwise be stored verbatim. This mirrors parseContactCell's per-email extract.
+         const m = CLIENT_EMAIL_RE.exec(val);
+         if (m) email = canonicalize(m[0]);
        } else if (label === FORM_CLIENT_PHONE_LABEL && phone === null && /\d/.test(val)) {
          phone = presence(val);
        }
@@ -173,7 +177,7 @@ Add a FORM-fallback harvest for the client contact's email + phone, applied fill
    Requires adding `splitRow` to the `./_helpers` import in `client.ts` (it already imports `clean, presence, parseTableRows`).
 
    **Bounding rationale (Codex R1 #1 / R2 HIGH):** across the entire fixture corpus the exact labels `Email Address` / `Phone Number` appear only inside the FORM intake block (9 fixtures × once each, always immediately after `Timestamp` / `Your Name`, in one contiguous table run). Scanning raw markdown lines lets the harvest see the run boundary (a blank/non-table line) and STOP after the first FORM block, so no `Email Address` row in any later block — before or after any anchor — can fill the client contact. `parseTableRows` flattens every table row across the whole markdown into one array with no block boundaries, which is why the harvest scans `markdown` directly rather than the pre-parsed `rows`.
-   **Email-validation rationale (Codex R2 MEDIUM):** the guard is the full `CLIENT_EMAIL_RE`, not a bare `/@/`, so a prose value containing `@` (e.g. `TBD @ client`) is rejected — matching the strength of the AV path's `EMAIL_RE`.
+   **Email-validation rationale (Codex R2 + R3 MEDIUM):** the guard is the full `CLIENT_EMAIL_RE`, not a bare `/@/`, so a prose value containing `@` (e.g. `TBD @ client`) is rejected. Critically, on a match the email is `canonicalize(m[0])` — the extracted email substring — never `canonicalize(val)` over the whole cell, so a wrapped value like `Ashley Morgan <ashley.morgan@institutionalinvestor.com>` stores only `ashley.morgan@institutionalinvestor.com`. This matches both the AV path's `EMAIL_RE` strength and `parseContactCell`'s per-email extraction.
 
 2. In `parseClient` (`client.ts:374`), AFTER the version-branch produces `result` (`{ client_label, client_contact }`), apply the fallback only when a main contact exists and is missing email or phone:
 
@@ -231,6 +235,7 @@ New test file `tests/parser/formTabContactFallback.test.ts`. Test inputs are **i
 5. **Client fallback no-op when no CLIENT block** — markdown with a FORM `Email Address` row but no INFO CLIENT block → `client_contact === null` (unchanged). *Catches: synthesizing a phantom client from FORM PII.*
 6. **Placeholder rejection** — FORM `Onsite AV Contact | Not Applicable` (prose, no email/phone) and, inside a FORM block, `Email Address | TBD @ client` (prose containing `@` but not a valid email) with empty INFO → no AV contact, client email stays null. *Catches: prose placeholders leaking as contacts past the name-only signal AND past a bare `/@/` check (Codex R1 MEDIUM + R2 MEDIUM — must use a two-word prose AV placeholder and a prose-with-`@` email value, not just `FALSE`/`N/A`).*
 7. **Client fallback bounding (false-positive, both sides)** — two cases with an INFO CLIENT block (empty email/phone): (a) a stray `| Email Address | stray@x.com |` with NO `Timestamp`/`Your Name` anchor anywhere → stays null; (b) a real FORM block (Timestamp/Your Name + empty `Email Address` cell) followed later, in a SEPARATE table run (after a blank line), by a stray `| Email Address | stray@x.com |` → stays null (the harvest stopped when the FORM run ended). *Catches: global scan (case a) AND the post-anchor unbounded scan (case b — Codex R2 HIGH).*
+7b. **Prose-wrapped email extraction** — INFO CLIENT block (empty email), FORM block with `Email Address | Ashley Morgan <ashley.morgan@institutionalinvestor.com>` → `client_contact.email === "ashley.morgan@institutionalinvestor.com"` (only the canonicalized email substring, not the wrapper). *Catches: storing the whole cell when the value validates as a substring (Codex R3 MEDIUM).*
 8. **Client partial fill** — two cases: (a) INFO `Contact Email | keep@info.com` present but `Contact Cell` empty, FORM `Phone Number | 8452701900` present → email stays `keep@info.com`, phone filled `8452701900`; (b) INFO phone present, email empty, FORM email present → phone stays INFO value, email filled from FORM. *Catches: fill-only-if-empty applied per-field, not all-or-nothing (Codex R1 MEDIUM).*
 9. **Regression — populated fixture unchanged** — run `parseContacts`/`parseClient` on the existing `fixtures/shows/raw/2025-10-fixed-income-trading-summit.md` (INFO populated) and assert the result is byte-identical to today's output (Chris Mercado + Danilo from INFO AV; Ashley email `ashley.morgan@institutionalinvestor.com` + phone `845-270-1900` from INFO; venue Kurt Ashcraft). *Catches: the fallback altering shows whose INFO is populated.*
 10. **Venue not regressed** — live-shape markdown → venue contact `kurt.ashcraft@hyatt.com` still surfaced (via existing `VENUE_LABEL_RE`). *Catches: the AV change accidentally breaking the already-working venue path.*
