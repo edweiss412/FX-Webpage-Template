@@ -213,13 +213,22 @@ the sync heartbeat recovers.", `WATCH_CHANNEL_ORPHANED` → "…once the Drive w
     `flex flex-col`, line 259): the button→note swap is between `self-start` flow children of a
     no-fixed-height `flex-col` parent — no fixed-dimension parent → child stretch invariant. jsdom
     presence/absence assertions suffice; **layout gate N/A** for these two.
-  - *AlertBanner* (R2 F3): the banner **is** a constrained grid (`fit-content(55%)` action column,
-    `:318`). The auto-clear note is placed in the flexible **left** column (§4.3), never the action
-    cell, precisely to avoid perturbing the constrained column. Because a real constrained-dimension
-    parent is involved, the writing-plans layout-task gate **APPLIES to AlertBanner**: a real-browser
-    (Playwright) assertion renders the banner for `SYNC_STALLED` and `WATCH_CHANNEL_ORPHANED` at mobile
-    (360px) and desktop widths and asserts (a) `section.scrollWidth <= section.clientWidth` (no
-    horizontal overflow) and (b) the auto-clear note's bounding rect does not overlap the action cell's.
+  - *AlertBanner* (R2 F3 + R-plan H4): the banner **is** a constrained grid (`fit-content(55%)` action
+    column, `:318`). The auto-clear note is placed in the flexible **left** column (§4.3), never the
+    action cell, precisely to avoid perturbing the constrained column. **The left-column footer (`:435`)
+    lives inside the `data-testid="admin-alert-panel"` block, which is `display:none` until the
+    `<details>` is opened** (pure-CSS `details:not([open]) ~ [admin-alert-panel]` sibling rule). The
+    auto-clear note is therefore **expanded-panel-only**: in the default collapsed banner a non-watch
+    auto code shows *no* action affordance at all (the action cell renders nothing — honest, no
+    misleading button), and the note becomes visible when the operator opens "Details". Because a real
+    constrained-dimension parent is involved, the writing-plans layout-task gate **APPLIES to
+    AlertBanner**, and — critically — the assertion must run against the **opened** panel (a collapsed
+    `display:none` note has a zero rect, so a non-overlap check in the collapsed state is tautological).
+    The real-browser (Playwright) assertion renders the banner for `SYNC_STALLED` and
+    `WATCH_CHANNEL_ORPHANED`, **opens the `<details>` (sets `open` / clicks the summary)**, and at mobile
+    (360px) and desktop widths asserts (a) the note is genuinely visible — `getBoundingClientRect()`
+    width and height are both `> 0`; (b) `section.scrollWidth <= section.clientWidth` (no horizontal
+    overflow); and (c) the auto-clear note's bounding rect does not overlap the action cell's.
 - **Transition inventory:** a code's `resolution` class is **static** — it cannot change at runtime for
   a given row. The button-vs-note choice is therefore a per-render constant, not a state transition.
   There is **no `AnimatePresence`, no crossfade, no compound transition** — the affordance is chosen

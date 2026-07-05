@@ -27,9 +27,9 @@
 
 - **Modify** `lib/messages/catalog.ts` — add `resolution?: "auto" | "manual"` to `MessageCatalogEntry`; tag all 42 alert codes; fix `AMBIGUOUS_EMAIL_BINDING` copy (Task 7).
 - **Modify** `lib/adminAlerts/audience.ts` — derive `AUTO_RESOLVING_CODES`, `isAutoResolving`, `AUTO_RESOLVE_NOTES` + `autoResolveNote`.
-- **Create** `lib/reports/botLoginAlert.ts` — `botLoginConfigured(env)` presence predicate.
-- **Modify** `lib/reports/submit.ts` — opportunistic fail-open raw resolve on submit success.
-- **Modify** `lib/notify/runNotify.ts` — `MaintenanceDeps.resolveBotLoginAlert` + invocation in `runMaintenance`.
+- **Create** `lib/reports/botLoginAlert.ts` — `botLoginConfigured(env)` presence predicate + injectable service-role `resolveBotLoginAlertRow(makeClient?)` (cron default).
+- **Modify** `lib/reports/submit.ts` — shared fail-open `resolveBotLoginAlertFailOpen(db, showId)` invoked before BOTH 201 returns (normal-create `:1089` + expired-lease-retry `:956`).
+- **Modify** `lib/notify/runNotify.ts` — `MaintenanceDeps.resolveBotLoginAlert` + **catch-logged** invocation in `runMaintenance` (a resolve fault never collapses the run).
 - **Modify** `components/admin/telemetry/HealthAlertsPanel.tsx` — button→note for auto codes.
 - **Modify** `components/admin/PerShowAlertSection.tsx` — broaden suppression to `isAutoResolving`.
 - **Modify** `components/admin/AlertBanner.tsx` — note in left column; keep Retry; drop resolve/dismiss forms for auto codes.
@@ -51,13 +51,13 @@
 ## Task 1: Raw `GITHUB_BOT_LOGIN_MISSING` resolver (helper + cron + submit)
 
 **Files:**
-- Create: `lib/reports/botLoginAlert.ts`
-- Modify: `lib/notify/runNotify.ts` (`MaintenanceDeps` ~`:71-82`; `runMaintenance` after email reconcile ~`:206`)
-- Modify: `lib/reports/submit.ts` (success path ~`:1086`, before the 201 return; raw resolve mirroring `upsertAdminAlert` at `:643`)
+- Create: `lib/reports/botLoginAlert.ts` (`botLoginConfigured` + injectable service-role `resolveBotLoginAlertRow`)
+- Modify: `lib/notify/runNotify.ts` (`MaintenanceDeps` ~`:71-82`; `runMaintenance` invocation after email reconcile ~`:206`, **catch-logged so a resolve fault never collapses the run** — H3)
+- Modify: `lib/reports/submit.ts` — fail-open raw resolve before **BOTH** durable-`201` returns: the normal-create path (`:1089`) AND the expired-lease-retry path (`:956`, `handleExpiredLeaseRetry`). `GITHUB_BOT_LOGIN_MISSING` is raised on the lookup-inconclusive path (`handleLookupInconclusive:783`), which feeds the expired-lease flow, so the `:956` return is a real reach — H2. Raw resolve mirrors the raw `upsertAdminAlert` at `:643`.
 - Test: `tests/reports/botLoginAlert.test.ts`, `tests/notify/runMaintenance.botLogin.test.ts`, `tests/reports/submit.botLoginResolve.test.ts`
 
 **Interfaces:**
-- Produces: `botLoginConfigured(env?: NodeJS.ProcessEnv): boolean`; a cron resolver `resolveBotLoginAlert(): Promise<void>` (service-role update) wired as `MaintenanceDeps.resolveBotLoginAlert`; a submit-side fail-open raw resolve.
+- Produces: `botLoginConfigured(env?: NodeJS.ProcessEnv): boolean`; `resolveBotLoginAlertRow(makeClient?): Promise<void>` (service-role update, injectable client factory for tests) wired as the default for `MaintenanceDeps.resolveBotLoginAlert`; a submit-side fail-open raw resolve extracted so both `201` returns invoke it.
 
 - [ ] **Step 1: Write the failing test for the presence predicate**
 
@@ -103,63 +103,111 @@ export function botLoginConfigured(env: NodeJS.ProcessEnv = process.env): boolea
 Run: `pnpm vitest run tests/reports/botLoginAlert.test.ts`
 Expected: PASS.
 
-- [ ] **Step 5: Write the failing cron-resolver test**
+- [ ] **Step 5: Write the failing resolver + non-collapse tests (H3 — no tautology)**
+
+The `runMaintenance` "called once" assertion alone is tautological (it only proves a passed-in
+callback fired). Instead test the **default resolver's real behavior** (env gate, targeted UPDATE
+shape, typed error) directly via its injectable client factory, plus a `runMaintenance`-level test
+that a **throwing** resolver does NOT collapse the maintenance run.
 
 ```ts
 // tests/notify/runMaintenance.botLogin.test.ts
 import { describe, expect, test, vi } from "vitest";
+import { resolveBotLoginAlertRow } from "@/lib/reports/botLoginAlert";
 import { runMaintenance } from "@/lib/notify/runNotify";
 
-// runMaintenance is exercised via its deps seam; assert the bot-login resolver
-// is invoked once per maintenance run (the default reads process.env internally).
-describe("runMaintenance bot-login resolve", () => {
-  test("invokes resolveBotLoginAlert once", async () => {
-    const resolveBotLoginAlert = vi.fn(async () => {});
-    await runMaintenance({
+// A minimal chainable fake of the service-role query builder used by the resolver.
+function fakeClient(result: { error: { message: string } | null }) {
+  const update = vi.fn(() => builder);
+  const eq = vi.fn(() => builder);
+  const is = vi.fn(() => builder);
+  const select = vi.fn(async () => result);
+  const builder = { update, eq, is, select } as unknown as Record<string, unknown>;
+  const from = vi.fn(() => builder);
+  return { client: { from } as never, from, update, eq, is, select };
+}
+
+describe("resolveBotLoginAlertRow (default cron resolver)", () => {
+  test("env unset → no client constructed, no Supabase call", async () => {
+    const makeClient = vi.fn();
+    await resolveBotLoginAlertRow(makeClient as never); // GITHUB_BOT_LOGIN unset in test env
+    expect(makeClient).not.toHaveBeenCalled();
+  });
+
+  test("env set + clean → issues the targeted resolving UPDATE", async () => {
+    vi.stubEnv("GITHUB_BOT_LOGIN", "fxav-bot");
+    const f = fakeClient({ error: null });
+    await resolveBotLoginAlertRow(() => f.client);
+    expect(f.from).toHaveBeenCalledWith("admin_alerts");
+    expect(f.eq).toHaveBeenCalledWith("code", "GITHUB_BOT_LOGIN_MISSING");
+    expect(f.is).toHaveBeenCalledWith("show_id", null);
+    expect(f.is).toHaveBeenCalledWith("resolved_at", null);
+    vi.unstubAllEnvs();
+  });
+
+  test("env set + returned error → throws typed (invariant 9)", async () => {
+    vi.stubEnv("GITHUB_BOT_LOGIN", "fxav-bot");
+    const f = fakeClient({ error: { message: "boom" } });
+    await expect(resolveBotLoginAlertRow(() => f.client)).rejects.toThrow(/bot-login alert resolve failed: boom/);
+    vi.unstubAllEnvs();
+  });
+});
+
+describe("runMaintenance bot-login step is fail-open (H3 — never collapses the run)", () => {
+  test("a throwing resolveBotLoginAlert dep leaves the other step results intact", async () => {
+    const steps = await runMaintenance({
       readHeartbeat: async () => ({ kind: "ok", heartbeat: new Date(0) }),
       detectAndResolveStall: (async () => ({ kind: "ok", opened: 0, resolved: 0 })) as never,
       resolveRecoveredSyncProblems: async () => ({ kind: "ok" }),
       reconcileEmailDeliveryState: (async () => ({ kind: "ok", opened: 0, resolved: 0 })) as never,
-      getAlertOnSyncProblems: async () => ({ kind: "known", value: false }) as never,
-      getAlertOnAutoPublish: async () => ({ kind: "known", value: false }) as never,
-      getDailyReviewDigest: async () => ({ kind: "known", value: false }) as never,
+      getAlertOnSyncProblems: async () => ({ kind: "value", enabled: false }) as never,
+      getAlertOnAutoPublish: async () => ({ kind: "value", enabled: false }) as never,
+      getDailyReviewDigest: async () => ({ kind: "value", enabled: false }) as never,
       configValid: () => ({ ok: true }) as never,
-      resolveBotLoginAlert,
+      resolveBotLoginAlert: async () => {
+        throw new Error("resolve blew up");
+      },
       now: new Date(0),
     });
-    expect(resolveBotLoginAlert).toHaveBeenCalledTimes(1);
+    // The 3 pre-existing steps are preserved (NOT collapsed to a single generic stall
+    // infra_error, which is what an uncaught throw + safeMaintenance would produce).
+    expect(steps.map((s) => s.step)).toEqual(["stall", "recovery", "emailDelivery"]);
+    expect(steps.find((s) => s.step === "emailDelivery")?.result).toEqual({
+      kind: "ok",
+      opened: 0,
+      resolved: 0,
+    });
   });
 });
 ```
 
+(Confirm the real toggle-result shape when writing — the live `runMaintenance` reads `.enabled` on
+each toggle, `runNotify.ts:184-189`; adapt the dep return literals to the true shape.)
+
 - [ ] **Step 6: Run test to verify it fails**
 
 Run: `pnpm vitest run tests/notify/runMaintenance.botLogin.test.ts`
-Expected: FAIL — `resolveBotLoginAlert` not part of `MaintenanceDeps` / not invoked.
+Expected: FAIL — `resolveBotLoginAlertRow` not exported; `resolveBotLoginAlert` not a `MaintenanceDeps` member / not invoked.
 
-- [ ] **Step 7: Add the dep + default resolver + invocation**
+- [ ] **Step 7: Add the injectable default resolver, the dep, and the catch-logged invocation**
 
-In `lib/notify/runNotify.ts`, add to `MaintenanceDeps`:
-
-```ts
-  reconcileEmailDeliveryState?: typeof reconcileEmailDeliveryState;
-  resolveBotLoginAlert?: () => Promise<void>; // alert-resolve-truthing §6.2
-```
-
-Add the default resolver (top-level in the module) — service-role direct update, invariant-9:
+In `lib/reports/botLoginAlert.ts`, add the service-role resolver (injectable client factory so the
+env gate + UPDATE shape + typed error are directly testable):
 
 ```ts
-import { botLoginConfigured } from "@/lib/reports/botLoginAlert";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/serviceRoleClient"; // adapt to the real factory path
 
-// alert-resolve-truthing §6.2: resolve the global GITHUB_BOT_LOGIN_MISSING row when
-// the env is configured. Direct admin_alerts UPDATE (the code is a NON_UPSERT
-// producer, not in AdminAlertCode). Invariant-9: destructure { data, error }; a
-// returned error surfaces a typed fault, never a silent success.
-// not-subject-to-meta: standalone maintenance reconciler; no typed-result contract —
-// throws propagate to the notify cron's fault envelope (matching reconcileEmailDeliveryState).
-async function resolveBotLoginAlert(): Promise<void> {
-  if (!botLoginConfigured()) return; // no Supabase call when unset
-  const supabase = createSupabaseServiceRoleClient();
+// alert-resolve-truthing §6.2: resolve the global GITHUB_BOT_LOGIN_MISSING row when the
+// env is configured. Direct admin_alerts UPDATE (the code is a NON_UPSERT producer, not in
+// AdminAlertCode). Invariant-9: destructure { error }; a returned error throws a typed fault
+// (the CRON invocation catch-logs it — see runNotify — so a failed resolve degrades to a
+// logged no-op for THIS cycle instead of collapsing the whole maintenance run). The env is
+// checked BEFORE the client is constructed, so an unset deployment makes zero Supabase calls.
+export async function resolveBotLoginAlertRow(
+  makeClient: () => ReturnType<typeof createSupabaseServiceRoleClient> = createSupabaseServiceRoleClient,
+): Promise<void> {
+  if (!botLoginConfigured()) return;
+  const supabase = makeClient();
   const { error } = await supabase
     .from("admin_alerts")
     .update({ resolved_at: new Date().toISOString() })
@@ -173,61 +221,110 @@ async function resolveBotLoginAlert(): Promise<void> {
 }
 ```
 
-In `runMaintenance`, immediately after the `reconcileEmailDeliveryState` call (~`:206`), invoke it:
+In `lib/notify/runNotify.ts`, add to `MaintenanceDeps` and import the default:
 
 ```ts
-  await (deps.resolveBotLoginAlert ?? resolveBotLoginAlert)();
+import { resolveBotLoginAlertRow } from "@/lib/reports/botLoginAlert";
+// ...
+  reconcileEmailDeliveryState?: typeof reconcileEmailDeliveryState;
+  resolveBotLoginAlert?: () => Promise<void>; // alert-resolve-truthing §6.2
 ```
+
+In `runMaintenance`, immediately after the `reconcileEmailDeliveryState` call + `out.push({ step: "emailDelivery", ... })` (~`:224`), invoke the resolver **catch-logged** — a fault must NOT escape `runMaintenance` (an uncaught throw is swallowed by `safeMaintenance` into a single generic `stall` infra_error at `runNotify.ts:141-145`, destroying every real step result). This preserves the returned `[stall, recovery, emailDelivery]` array (so existing `runMaintenance` tests stay green — no 4th step) while surfacing the fault via a log (invariant 9, not silent):
+
+```ts
+  await (deps.resolveBotLoginAlert ?? resolveBotLoginAlertRow)().catch((cause) => {
+    void log.warn("bot-login alert resolve failed (non-fatal)", {
+      source: "notify.maintenance",
+      code: "CREW_REPORT_SUBMITTED", // reuse an existing non-error breadcrumb code; do NOT mint a §12.4 code
+      detail: cause instanceof Error ? cause.message : String(cause),
+    });
+  });
+```
+
+(Reuse the module's existing `log` import; if `notify.maintenance` is not an established `source`
+value, use the existing notify source string in this file. The invocation returns `void` — it does
+not append a step, keeping the 3-step contract.)
 
 - [ ] **Step 8: Run test to verify it passes**
 
 Run: `pnpm vitest run tests/notify/runMaintenance.botLogin.test.ts`
-Expected: PASS. (If `runMaintenance`'s dep-injection shape differs, adapt the harness to the real signature — the assertion "resolver invoked once per run" is the contract.)
+Expected: PASS — default resolver env gate + UPDATE shape + typed error all covered; a throwing dep leaves `[stall, recovery, emailDelivery]` intact. (If `runMaintenance`'s dep-injection shape differs, adapt the harness to the real signature — the contracts are: default resolver behaves per the three cases, and a throwing resolver never collapses the run.)
 
-- [ ] **Step 9: Write the failing submit fail-open test**
+- [ ] **Step 9: Write the failing submit fail-open test (BOTH 201 paths — H2)**
 
 ```ts
-// tests/reports/submit.botLoginResolve.test.ts — asserts the R2 F4 fail-open contract:
-// a resolve UPDATE that throws must NOT turn a durable 201 submit into a failure, and
-// a submit success with GITHUB_BOT_LOGIN unset must NOT fire a resolve (R1 F2).
-// (Harness mirrors the existing submit success-path test; the DB adapter's resolve
-// query is stubbed to throw, and the return status is asserted 201.)
+// tests/reports/submit.botLoginResolve.test.ts — asserts the R2 F4 fail-open + H2 contracts:
+//   (a) NORMAL-create 201 (:1089) + GITHUB_BOT_LOGIN set → the resolving UPDATE is issued;
+//   (b) EXPIRED-LEASE-retry 201 (:956, handleExpiredLeaseRetry) + GITHUB_BOT_LOGIN set → the
+//       resolving UPDATE is issued (this path is where the alert is opened upstream, :783);
+//   (c) either 201 path + resolve UPDATE THROWS → status is STILL 201 (fail-open, never
+//       fails a durable submit);
+//   (d) 201 + GITHUB_BOT_LOGIN unset → the resolve UPDATE is never issued (R1 F2, no false-close).
+// Harness mirrors the existing submit success-path tests (tests/reports/submit.*.test.ts).
+// Detect the resolve UPDATE by matching the fake db.query calls for the GITHUB_BOT_LOGIN_MISSING
+// UPDATE string; stub that specific query to reject for case (c) while the create path succeeds.
 ```
 
-Write the concrete test against the existing `submit.ts` test harness pattern (see `tests/reports/submit.*.test.ts`): (a) success path + `GITHUB_BOT_LOGIN` set + resolve query throws → status 201 still returned; (b) success path + `GITHUB_BOT_LOGIN` unset → resolve query never issued.
+Write the concrete test against the existing `submit.ts` test harness pattern. Cover all four cases;
+crucially **exercise both the normal-create and the expired-lease-retry success paths** (the fake
+db/GitHub adapters must drive `submitReport` down each 201 branch).
 
 - [ ] **Step 10: Run to verify it fails**
 
 Run: `pnpm vitest run tests/reports/submit.botLoginResolve.test.ts`
-Expected: FAIL — no resolve on success path yet.
+Expected: FAIL — no resolve on either success path yet.
 
-- [ ] **Step 11: Add the fail-open submit resolve**
+- [ ] **Step 11: Add the fail-open submit resolve before BOTH 201 returns (H2)**
 
-In `lib/reports/submit.ts`, on the 201 success path (after `writeIssueUrl` succeeds, before `return { status: 201, ... }` ~`:1086`), add:
+In `lib/reports/submit.ts`, extract a module-local fail-open helper and invoke it immediately before
+**each** durable-`201` return — the normal-create return (`:1089`) AND the expired-lease-retry return
+(`:956`). A single shared helper (DRY) so the two call sites cannot drift:
 
 ```ts
-      // alert-resolve-truthing §6.2: opportunistic, FAIL-OPEN resolve of the global
-      // GITHUB_BOT_LOGIN_MISSING alert when the bot login is configured. Re-reads the
-      // env explicitly (a normal create never touches it), so a false-close is
-      // impossible. A resolve failure must NEVER fail an already-durable submit.
-      if (botLoginConfigured()) {
-        try {
-          await db.query(
-            `UPDATE admin_alerts SET resolved_at = now()
-              WHERE code = 'GITHUB_BOT_LOGIN_MISSING' AND show_id IS NULL AND resolved_at IS NULL`,
-          );
-        } catch (cause) {
-          void log.warn("bot-login alert resolve failed (non-fatal)", {
-            source: "reports.submit",
-            code: "CREW_REPORT_SUBMITTED",
-            showId: body.show_id,
-            detail: cause instanceof Error ? cause.message : String(cause),
-          });
-        }
-      }
+// alert-resolve-truthing §6.2 (H2): opportunistic, FAIL-OPEN resolve of the global
+// GITHUB_BOT_LOGIN_MISSING alert when the bot login is configured. Re-reads the env explicitly
+// (a normal create never touches it), so a false-close is impossible. Called before BOTH 201
+// returns — the alert is opened on the lookup-inconclusive path (:783) that feeds the
+// expired-lease flow, so the :956 return is a real reach. A resolve failure must NEVER fail an
+// already-durable submit — every fault is caught + logged (invariant 9, not silent).
+async function resolveBotLoginAlertFailOpen(db: ReportLeaseDb, showId: string | null): Promise<void> {
+  if (!botLoginConfigured()) return; // no query when unset (no false-close)
+  try {
+    await db.query(
+      `UPDATE admin_alerts SET resolved_at = now()
+        WHERE code = 'GITHUB_BOT_LOGIN_MISSING' AND show_id IS NULL AND resolved_at IS NULL`,
+    );
+  } catch (cause) {
+    void log.warn("bot-login alert resolve failed (non-fatal)", {
+      source: "reports.submit",
+      code: "CREW_REPORT_SUBMITTED",
+      showId,
+      detail: cause instanceof Error ? cause.message : String(cause),
+    });
+  }
+}
 ```
 
-(Import `botLoginConfigured` from `@/lib/reports/botLoginAlert`. Reuse the existing `log` import. `code: "CREW_REPORT_SUBMITTED"` is an already-cataloged non-error breadcrumb — do NOT introduce a new §12.4 code.)
+Then, before the normal-create `return { status: 201, ... }` (`:1089`):
+
+```ts
+      await resolveBotLoginAlertFailOpen(db, body.show_id);
+      return { status: 201, body: successBody(auth, "created", issue.htmlUrl) };
+```
+
+And before the expired-lease-retry `return { status: 201, ... }` (`:956`, inside
+`handleExpiredLeaseRetry`) — use that function's in-scope `db` + show id (`ageRow.show_id ?? body.show_id`):
+
+```ts
+  await resolveBotLoginAlertFailOpen(db, ageRow.show_id ?? body.show_id);
+  return { status: 201, body: successBody(auth, "created", issue.htmlUrl) };
+```
+
+(Import `botLoginConfigured` from `@/lib/reports/botLoginAlert`. Reuse the existing `log` import and
+`ReportLeaseDb` type. `code: "CREW_REPORT_SUBMITTED"` is an already-cataloged non-error breadcrumb —
+do NOT introduce a new §12.4 code. Confirm the exact in-scope `db`/show-id identifiers at each site
+when implementing; `:956` uses the same `successBody(auth, "created", issue.htmlUrl)` shape.)
 
 - [ ] **Step 12: Run to verify it passes**
 
@@ -341,33 +438,46 @@ export function autoResolveNote(code: string): string {
 Run: `pnpm vitest run tests/adminAlerts/autoResolving.test.ts`
 Expected: FAIL on `GITHUB_BOT_LOGIN_MISSING` if the registry still says `deferred` (Step 4 tagged it `auto`, but parity must hold). Proceed to Step 7 to reclassify the registry, THEN re-run.
 
-- [ ] **Step 7: Reclassify `GITHUB_BOT_LOGIN_MISSING` in the registry + add parity assertion**
+- [ ] **Step 7: Reclassify `GITHUB_BOT_LOGIN_MISSING` in the registry + fix counts + add parity assertion (H1 — real registry shape)**
 
-In `tests/messages/_metaAdminAlertCatalog.test.ts`, change the `GITHUB_BOT_LOGIN_MISSING` registry row (`:440`) from `{ class: "deferred" }` to:
+The registry constant is **`ADMIN_ALERTS_LIFECYCLE`** (`_metaAdminAlertCatalog.test.ts:271`), NOT
+`REGISTRY`, and `ResolveSite = { file: string; pattern: RegExp }` (`:264`) — the "auto code's resolve
+site exists on disk" test greps each `site.pattern` against the file (`:639-645`). Change the
+`GITHUB_BOT_LOGIN_MISSING` row (`:440`) from `{ class: "deferred" }` to (real function-name regexes,
+which land in Task 1):
 
 ```ts
   GITHUB_BOT_LOGIN_MISSING: {
     class: "auto",
     resolveSites: [
-      { file: "lib/notify/runNotify.ts", detail: "resolveBotLoginAlert (env-presence reconcile)" },
-      { file: "lib/reports/submit.ts", detail: "fail-open resolve on configured submit success" },
+      { file: "lib/reports/botLoginAlert.ts", pattern: /resolveBotLoginAlertRow/ },
+      { file: "lib/reports/submit.ts", pattern: /resolveBotLoginAlertFailOpen/ },
     ],
   },
 ```
 
-Add a parity test:
+Also update the **count assertion** that pins the auto total: `:628`
+`expect(autoCodes.length, "spec §3 pins 21 auto codes ...").toBe(21)` → `.toBe(22)` with an updated
+message (`22 auto = 7 precedent + 14 NEW + GITHUB_BOT_LOGIN_MISSING`), and the matching inline comment
+`:627` (`21 auto codes` → `22 auto codes`). Update the **header comment block** `:259-262`:
+`7 precedent AUTO + 14 NEW = 21 "auto"` → `... + GITHUB_BOT_LOGIN_MISSING = 22 "auto"`; `3 "deferred"`
+→ `2 "deferred"`; and the arithmetic `21 + 17 + 1 + 3 = 42` → `22 + 17 + 1 + 2 = 42`. (Grep the file for
+any other `21`/`3 "deferred"`/`deferred` count references and reconcile — numeric sweep.)
+
+Add a parity test (real constant names — `ADMIN_ALERTS_LIFECYCLE`, `ADMIN_ALERTS_CODES`, `MESSAGE_CATALOG`):
 
 ```ts
 test("catalog.resolution matches registry class for all 42 codes", () => {
   for (const code of ADMIN_ALERTS_CODES) {
     const entry = MESSAGE_CATALOG[code as keyof typeof MESSAGE_CATALOG];
-    const expected = REGISTRY[code].class === "auto" ? "auto" : "manual";
+    const expected = ADMIN_ALERTS_LIFECYCLE[code].class === "auto" ? "auto" : "manual";
     expect(entry?.resolution, `${code} resolution`).toBe(expected);
   }
 });
 ```
 
-(Use the file's existing registry constant name and code-list constant; adapt identifiers to the live file.)
+(`ADMIN_ALERTS_CODES` and `MESSAGE_CATALOG` are already imported/in-scope in this test file; confirm the
+import lines when implementing.)
 
 - [ ] **Step 8: Run the meta-test + derivation test**
 
@@ -498,7 +608,15 @@ git commit --no-verify -m "feat(admin): PerShowAlertSection suppresses manual re
 
 - [ ] **Step 1: Write the failing jsdom render test**
 
-For `SYNC_STALLED` (global non-watch auto): assert `admin-alert-autoclear` present in the left column, `admin-alert-action` cell renders no resolve form. For `WATCH_CHANNEL_ORPHANED` (auto watch): assert the Retry form present AND `admin-alert-autoclear` present AND the dismiss form absent. For a manual global code: resolve form present, no autoclear note.
+The note lives in the left-column footer (`:435`), which is **inside `data-testid="admin-alert-panel"`
+— the expanded `<details>` panel, `display:none` by default in real CSS** (jsdom does not apply the
+`details:not([open]) ~ panel` rule, so jsdom sees it in the DOM regardless; the genuine-visibility
+proof is the Step 5 real-browser assertion, H4). For `SYNC_STALLED` (global non-watch auto): assert
+`admin-alert-autoclear` is present **within the `admin-alert-panel` subtree** (scope the query to the
+panel node, anti-tautology) AND the `admin-alert-action` cell renders no resolve form (no
+`admin-alert-id-input` inside `admin-alert-action`). For `WATCH_CHANNEL_ORPHANED` (auto watch): assert
+the Retry form present AND `admin-alert-autoclear` present AND the panel dismiss form
+(`admin-alert-panel-dismiss`) absent. For a manual global code: resolve form present, no autoclear note.
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -507,7 +625,12 @@ Expected: FAIL.
 
 - [ ] **Step 3: Implement the banner changes**
 
-Add `import { isAutoResolving, autoResolveNote } from "@/lib/adminAlerts/audience";`. In the **left-column footer** (`mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-text-subtle`, ~`:435`), append after the "+N more" link:
+Add `import { isAutoResolving, autoResolveNote } from "@/lib/adminAlerts/audience";`. In the
+**left-column footer** (`mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-text-subtle`,
+~`:435`, which is inside the expanded `admin-alert-panel`), append after the "+N more" link — the note
+is **expanded-panel-only** by design (spec §4.5): the collapsed banner shows the message + Details
+caret and *no* action affordance for a non-watch auto code (honest, no misleading button), and the note
+appears on expand:
 
 ```tsx
             {isAutoResolving(alert.code) ? (
@@ -517,27 +640,36 @@ Add `import { isAutoResolving, autoResolveNote } from "@/lib/adminAlerts/audienc
             ) : null}
 ```
 
-In the **action cell** (`:479-496`), gate the non-watch resolve form and the watch retry/dismiss:
-- The non-watch `else` branch (`:488-496`): render the resolve `<form>` only when `!isAutoResolving(alert.code)`; otherwise render nothing (the note already shows in the footer).
+In the **action cell** (`:454-498`), gate the non-watch resolve form and the watch dismiss:
+- The non-watch `else` branch (`:487-497`): render the resolve `<form>` only when `!isAutoResolving(alert.code)`; otherwise render nothing (the note shows on expand in the footer). `actionLink`/per-show-link branches are unaffected.
 - The watch branch keeps the Retry form unconditionally (Retry is not a manual resolve).
 
-In the **expanded dismiss slot** (`isWatchAlert` dismiss form, `:424-432`): render it only when `!isAutoResolving(alert.code)`.
+In the **expanded panel dismiss slot** (`isWatchAlert` dismiss form, `:424-433`, `admin-alert-panel-dismiss`): render it only when `!isAutoResolving(alert.code)`.
 
 - [ ] **Step 4: Run the jsdom test to verify it passes**
 
 Run: `pnpm vitest run tests/components/admin/alertBanner.autoResolve.test.tsx`
 Expected: PASS.
 
-- [ ] **Step 5: Write the real-browser layout assertion (spec §4.5)**
+- [ ] **Step 5: Write the real-browser layout assertion (spec §4.5 — must OPEN the panel, H4)**
 
 ```ts
 // tests/e2e/alert-banner-autoresolve-layout.spec.ts (Playwright; harness precedent tests/e2e/)
 // Render the banner for SYNC_STALLED and WATCH_CHANNEL_ORPHANED at 360px and 1024px.
-// Assert (a) section.scrollWidth <= section.clientWidth (no horizontal overflow) and
-// (b) the auto-clear note's bounding rect does not overlap the action cell's rect.
+// The note lives in admin-alert-panel, which is display:none until <details open>, so FIRST
+// open the panel (click the summary, or set the `open` attribute on the <details>) — a
+// collapsed note has a zero rect and a non-overlap check would pass tautologically.
+// Then assert (a) the note is GENUINELY VISIBLE: its getBoundingClientRect() width AND height
+//   are both > 0 (not display:none);
+//        (b) section.scrollWidth <= section.clientWidth (no horizontal overflow);
+//        (c) the note's bounding rect does not overlap the action cell's rect.
 ```
 
-Follow the project's real-browser harness precedent (seeded alert row → `/admin` render, or the standalone-render harness). Assert `scrollWidth <= clientWidth` and non-overlapping `getBoundingClientRect()` for `[data-testid=admin-alert-autoclear]` vs `[data-testid=admin-alert-action]`.
+Follow the project's real-browser harness precedent (seeded alert row → `/admin` render, or the
+standalone-render harness). **Open the `<details>` before measuring.** Assert the note rect is
+non-zero (width and height `> 0`), `scrollWidth <= clientWidth`, and non-overlapping
+`getBoundingClientRect()` for `[data-testid=admin-alert-autoclear]` vs `[data-testid=admin-alert-action]`,
+at both widths.
 
 - [ ] **Step 6: Run the layout spec**
 
