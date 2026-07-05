@@ -398,52 +398,57 @@ tab B clicks Discard. Stuck-cleanup counts the session stuck under
 it concurrently with the show-locked Apply → invariant-2 violation + a discard
 decided on a now-stale stuck predicate.
 
-**Contract (ALL cleanup purge paths — stale AND stuck; R5-1 class-sweep).**
-`purgeWizardRows` (`sessionLifecycle.ts:164`) deletes unresolved wizard rows on
-BOTH the 24h-stale path and the new stuck path, so the same Apply-while-Discard
-race exists on both. The lock widening therefore lives in the shared cleanup body
-(`lockCleanupDriveFiles` / its caller), not in a stuck-only branch. Before any
-delete, `cleanupAbandonedFinalize` MUST:
+**Structural resolution of the cleanup lock-ordering vector (R4→R7).** Four
+review rounds hit the same class: cleanup's `lockCleanupDriveFiles`
+(`sessionLifecycle.ts:171`) acquires row locks (`SELECT … FOR UPDATE`) BEFORE
+`show:<drive>` advisory locks, while EVERY session recovery/mutation route takes
+`show:<drive>` FIRST (via `defaultWithRowTx`/`withPostgresSyncPipelineLock`) then
+mutates rows — staged **Apply** (touches `staged` rows), staged **Unapprove**
+(touches `applied` rows, `unapprove/route.ts:43,74,102`), staged **discard**,
+**extract-agenda**, etc. Cleanup's row-before-advisory ordering is AB-BA against
+ALL of them, not just Apply. Per the same-vector rule this is resolved
+STRUCTURALLY, not per-route:
 
-1. Collect the UNRESOLVED drive_file_ids (the `unresolvedManifestCount` set:
-   blocking-status rows + demoted `staged`+failure_code rows) via a **PLAIN read
-   — NO `FOR UPDATE`** (AB-BA avoidance, R5-2 — see below).
-2. Acquire `show:<drive>` advisory locks for the UNION of the existing
-   `applied`-manifest + shadow set AND this unresolved set, in ONE globally-sorted
-   acquisition, and — critically — acquire ALL `show:` advisory locks BEFORE any
-   `FOR UPDATE` row lock on the unresolved rows. (The existing `applied`+shadow
-   `FOR UPDATE`-then-advisory ordering is retained as-is: it is safe against Apply,
-   which never touches `applied` rows. Only the unresolved-row locking, which Apply
-   CAN contend, must be advisory-first.)
-3. RE-CHECK UNDER those `show:` locks — ONE rule, IDENTICAL for both paths (this
-   resolves the R6 stale-vs-stuck inconsistency): re-read the pre-lock unresolved
-   set; **if ANY drive_file_id that was unresolved pre-lock is now resolved**
-   (finishable / failure code cleared / re-approved — i.e. a concurrent Apply or
-   re-scan won the `show:` race and made progress), cleanup ABORTS without
-   purging, throwing `CleanupRequiresStaleSessionError('session_too_fresh')` (the
-   client `router.refresh()`es; the now-resolvable row appears / Resume works).
-   This holds on the 24h-stale path too: a session someone is actively recovering
-   is not abandoned, and aborting never destroys just-applied work. Only when the
-   recheck confirms the rows are STILL unresolved does the purge proceed. The
-   stuck path additionally requires its eligibility predicate
-   (`selectFinishableCleanRows` count == 0 AND `unresolvedManifestCount` > 0) to
-   still hold under the locks; the stale path additionally keeps its age gate.
-   Neither path purges a row a recovery just resolved.
+**`cleanupAbandonedFinalize` converts its ENTIRE drive-file locking to
+advisory-before-row**, exactly mirroring the proven reap path
+(`collectReapDriveFileIds` / `lockReapDriveFiles`, `sessionLifecycle.ts:516–567`):
 
-**AB-BA rationale (R5-2).** `lockCleanupDriveFiles` today selects rows `FOR UPDATE`
-THEN takes `show:` advisory locks (`sessionLifecycle.ts:171`). Apply takes `show:`
-FIRST (`withPostgresSyncPipelineLock`) then row-updates `pending_syncs`/manifest
-(`applyStaged.ts`). If cleanup row-locked an unresolved row then waited on its
-`show:` lock while Apply held that `show:` and waited to update the row → AB-BA
-deadlock. The advisory-before-row ordering above (plain-read collect → sorted
-`show:` locks → then any row work) matches the pattern the reap path already pins
-(`collectReapDriveFileIds` "PLAIN SELECT — deliberately NO row locks",
-`sessionLifecycle.ts:516–543`) and eliminates the inversion.
+1. Collect the FULL drive_file_id set it will touch — `applied`-manifest rows,
+   shadows (`shows_pending_changes`), AND the unresolved set
+   (`unresolvedManifestCount` rows: blocking statuses + demoted `staged`+failure
+   code) — via **PLAIN reads, NO `FOR UPDATE`** anywhere.
+2. Acquire `show:<drive>` advisory locks for that whole set in ONE globally-sorted
+   acquisition, BEFORE any row lock or mutation. This is the ONLY ordering; there
+   is no remaining `FOR UPDATE`-before-`show:` path in cleanup. (The old
+   `applied`/shadow `FOR UPDATE` in `lockCleanupDriveFiles` is removed; any row
+   lock cleanup still needs happens AFTER the advisory locks, matching the reap.)
+3. RE-CHECK UNDER those `show:` locks — ONE rule, IDENTICAL for both purge paths:
+   re-read the pre-lock unresolved set; **if ANY drive_file_id that was unresolved
+   pre-lock is now resolved** (finishable / failure code cleared / re-approved — a
+   concurrent recovery won the `show:` race), cleanup ABORTS without purging,
+   throwing `CleanupRequiresStaleSessionError('session_too_fresh')` (client
+   `router.refresh()`es; the now-resolvable row appears / Resume works). This holds
+   on the 24h-stale path too: a session someone is actively recovering is not
+   abandoned, and aborting never destroys just-applied work. Only when the recheck
+   confirms the rows are STILL unresolved does the purge proceed. The stuck path
+   additionally requires its eligibility predicate (`selectFinishableCleanRows`
+   count == 0 AND `unresolvedManifestCount` > 0) to still hold under the locks; the
+   stale path keeps its age gate. Neither path purges a row a recovery just
+   resolved.
 
-This makes cleanup hold `show:<drive>` for every unresolved row it purges that a
-recovery could touch (invariant 2) and turns the race into a clean
-serialize-then-recheck: whichever of Apply / Discard wins the `show:` lock, the
-loser observes the committed result and does the right thing.
+**Structural defense shipped WITH this change (not deferred):** a meta-test pins
+that `cleanupAbandonedFinalize`'s lock helper issues NO `SELECT … FOR UPDATE`
+before its `show:` advisory acquisitions (static-source assertion over
+`sessionLifecycle.ts`, so a future edit reintroducing the inversion fails at CI),
+plus the T10 DB-level AB-BA-no-hang test exercised against BOTH the Apply and
+Unapprove recovery routes. This closes the vector at CI time regardless of which
+recovery route contends.
+
+This makes cleanup hold `show:<drive>` for every row it locks/purges that a
+recovery could touch (invariant 2), eliminates the AB-BA inversion against all
+recovery routes, and turns the race into a clean serialize-then-recheck: whichever
+of recovery / cleanup wins the `show:` lock, the loser observes the committed
+result and does the right thing.
 
 ## 6. Files touched
 
@@ -468,14 +473,19 @@ loser observes the committed result and does the right thing.
   rows preserves the globally-sorted acquisition (§5.5), so no new AB-BA against
   finalize/reap. **Advisory-lock holder topology (Thread 2 change):** cleanup
   already holds `finalize:<session>` (`sessionLifecycle.ts:344`) then a sorted set
-  of `show:<drive>` locks (`lockCleanupDriveFiles`); BOTH cleanup purge paths
-  (24h-stale and stuck) widen that set to include unresolved-row drive_file_ids,
-  collected via PLAIN read and locked ADVISORY-BEFORE-ROW (no `FOR UPDATE` on an
-  unresolved row before its `show:` lock — R5-2 AB-BA avoidance, mirroring
-  `collectReapDriveFileIds`). Single holder per key preserved (cleanup is the only
-  acquirer within its tx; finalize is excluded by the `finalize:` lock; a recovery
-  Apply holds exactly one `show:` and blocks/unblocks cleanly). The deadlock
-  meta-test also asserts cleanup's unresolved-row collection uses no `FOR UPDATE`.
+  of `show:<drive>` locks (`lockCleanupDriveFiles`). BOTH cleanup purge paths
+  (24h-stale and stuck) now collect their ENTIRE drive_file_id set — `applied`
+  manifest + shadows + unresolved — via PLAIN read and lock it ALL
+  ADVISORY-BEFORE-ROW (the old `applied`/shadow `FOR UPDATE`-then-advisory in
+  `lockCleanupDriveFiles` is REMOVED — R7 structural fix, mirroring
+  `collectReapDriveFileIds`/`lockReapDriveFiles`, `sessionLifecycle.ts:516–567`).
+  This closes AB-BA against EVERY `show:`-first recovery route (Apply on `staged`
+  rows, Unapprove on `applied` rows, discard, extract-agenda). Single holder per
+  key preserved (cleanup is the only acquirer within its tx; finalize is excluded
+  by the `finalize:` lock; a recovery holds exactly one `show:` and
+  blocks/unblocks cleanly). The deadlock meta-test asserts cleanup's lock helper
+  issues NO `for update` before any `pg_advisory_xact_lock(show:…)` (static
+  source).
 - **EXTEND** `tests/admin/_metaInfraContract.test.ts` — new `_unresolvedSheets`
   Supabase read boundary.
 - **No new registry** for admin-mutation observability: finalize and cleanup are
@@ -601,17 +611,22 @@ are plain conditional server render. Transition-audit task therefore asserts
   — the recency guard does NOT block it. Catches the exact real-world deadlock:
   the escape hatch failing for the first hour after getting stuck.
 
-- **T10 (Thread 2 × Thread 1 concurrency — R4/R5):** a `.db.test.ts` that holds
-  the demoted row's `show:<drive>` lock FIRST (simulating a recovery Apply that
-  took `show:` before its row mutation — the AB-BA-prone ordering), then invokes
-  cleanup; cleanup must NOT AB-BA-deadlock (it collects unresolved ids via plain
-  read and acquires `show:` before any `FOR UPDATE` on them), BLOCKS on the held
-  `show:` lock, and once Apply commits: (a) if Apply resolved the row, the
-  under-lock recheck sees it finishable → ABORT `session_too_fresh`, purge
-  nothing; (b) if not, cleanup proceeds. Run for BOTH the stuck path and the
-  24h-stale path (R5-1: same widened lock set). Catches: AB-BA deadlock, purging
-  a row mid-recovery without its `show:` lock (invariant 2), and discarding on a
-  stale predicate.
+- **T10 (Thread 2 × recovery concurrency — R4/R5/R7):** a `.db.test.ts` that
+  holds a session row's `show:<drive>` lock FIRST (simulating a recovery route
+  that took `show:` before its row mutation — the AB-BA-prone ordering), then
+  invokes cleanup; cleanup must NOT AB-BA-deadlock (it collects ALL drive ids via
+  plain read and acquires every `show:` lock before any `FOR UPDATE`), BLOCKS on
+  the held lock, and once the recovery commits: (a) if it resolved the row, the
+  under-lock recheck aborts `session_too_fresh`, purging nothing; (b) if not,
+  cleanup proceeds. Exercise it for BOTH recovery routes that take `show:`-first
+  and touch session rows — staged **Apply** (a `staged`+code row) AND staged
+  **Unapprove** (an `applied` row) — and for BOTH cleanup paths (24h-stale +
+  stuck). Catches: AB-BA deadlock on ANY recovery route (the R7 Unapprove-vs-
+  applied case), purging mid-recovery without the `show:` lock (invariant 2),
+  and discarding on a stale predicate.
+- **T10-static (R7 structural):** a static-source meta-test asserting
+  `cleanupAbandonedFinalize`'s lock helper contains no `for update` before its
+  `pg_advisory_xact_lock(show:…)` calls — reintroducing the inversion fails at CI.
 
 Tests deriving "unresolved" expectations assert against the DB row state (the
 data source), not against the rendered container — anti-tautology rule.
