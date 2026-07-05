@@ -41,6 +41,7 @@ import { revalidatePath } from "next/cache";
 import { requireDeveloperIdentity } from "@/lib/auth/requireDeveloper";
 import { addAdminEmail, revokeAdminEmail, AdminEmailsInfraError } from "@/lib/data/adminEmails";
 import { canonicalize } from "@/lib/email/canonicalize";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 /**
  * Discriminated outcome the page reads back through the React 19
@@ -75,8 +76,9 @@ export async function addAdminAction(
   // §3.1 — admin-roster management is developer-only). If the session is
   // missing or Supabase throws an infra fault, the DeveloperInfraError
   // propagates to Next's error boundary (cataloged 500 path) — invariant 9:
-  // infra faults are never swallowed into a benign action result.
-  await requireDeveloperIdentity();
+  // infra faults are never swallowed into a benign action result. Captured
+  // so the invariant-10 success emit can attribute the grant to the actor.
+  const identity = await requireDeveloperIdentity();
 
   const rawEmail = formData.get("email");
   const note = formData.get("note");
@@ -128,6 +130,12 @@ export async function addAdminAction(
     case "ok":
       revalidatePath("/admin/settings/admins");
       revalidatePath("/admin/settings");
+      // Durable forensic telemetry: post-commit, success branch only (invariant 10, §5.2).
+      await logAdminOutcome({
+        code: "ADMIN_GRANTED",
+        source: "admin.settings.admins.grant",
+        actorEmail: identity.email,
+      });
       return outcome.row?.email ? { kind: "ok", email: outcome.row.email } : { kind: "ok" };
     case "invalid_email":
       return { kind: "invalid_email" };
@@ -192,6 +200,14 @@ export async function revokeAdminAction(
     case "ok":
       revalidatePath("/admin/settings/admins");
       revalidatePath("/admin/settings");
+      // Durable forensic telemetry: post-commit, success branch only (invariant 10, §5.2).
+      // The defensive "already_active" no-op branch below deliberately does NOT emit —
+      // it is a benign idempotent no-op, not a real revoke.
+      await logAdminOutcome({
+        code: "ADMIN_REVOKED",
+        source: "admin.settings.admins.revoke",
+        actorEmail: identity.email,
+      });
       return { kind: "ok" };
     case "invalid_email":
       return { kind: "invalid_email" };

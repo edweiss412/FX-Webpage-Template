@@ -198,6 +198,14 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
     fn: "reseedValidationFixturesAction",
     code: "VALIDATION_RESEED_RUN",
   },
+  // Task 9 — admin-management grant/revoke + developer toggle.
+  { file: "app/admin/settings/admins/actions.ts", fn: "addAdminAction", code: "ADMIN_GRANTED" },
+  { file: "app/admin/settings/admins/actions.ts", fn: "revokeAdminAction", code: "ADMIN_REVOKED" },
+  {
+    file: "app/admin/settings/admins/developerActions.ts",
+    fn: "setDeveloperAction",
+    code: "ADMIN_DEVELOPER_SET",
+  },
 ];
 
 export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
@@ -243,6 +251,10 @@ export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
   // Invariant #10 (2026-07-04) Task 8.
   "VALIDATION_RESET_RUN",
   "VALIDATION_RESEED_RUN",
+  // Invariant #10 (2026-07-04) Task 9.
+  "ADMIN_GRANTED",
+  "ADMIN_REVOKED",
+  "ADMIN_DEVELOPER_SET",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing

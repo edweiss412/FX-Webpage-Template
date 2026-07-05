@@ -105,6 +105,27 @@ import {
   reseedValidationFixturesAction,
 } from "@/app/admin/settings/_actions/validationReset";
 
+// ── Task 9: admin-management ────────────────────────────────────────────────
+const { AdminEmailsInfraErrorDouble } = vi.hoisted(() => {
+  class AdminEmailsInfraErrorDouble extends Error {}
+  return { AdminEmailsInfraErrorDouble };
+});
+const addAdminEmailMock = vi.fn(async (..._a: unknown[]) => ({ kind: "ok" as const }));
+const revokeAdminEmailMock = vi.fn(async (..._a: unknown[]) => ({ kind: "ok" as const }));
+const setAdminDeveloperMock = vi.fn(
+  async (..._a: unknown[]) =>
+    ({ kind: "ok" as const, email: "target@example.com", isDeveloper: true }) as unknown,
+);
+vi.mock("@/lib/data/adminEmails", () => ({
+  addAdminEmail: (...a: unknown[]) => addAdminEmailMock(...a),
+  revokeAdminEmail: (...a: unknown[]) => revokeAdminEmailMock(...a),
+  setAdminDeveloper: (...a: unknown[]) => setAdminDeveloperMock(...a),
+  AdminEmailsInfraError: AdminEmailsInfraErrorDouble,
+}));
+
+import { addAdminAction, revokeAdminAction } from "@/app/admin/settings/admins/actions";
+import { setDeveloperAction } from "@/app/admin/settings/admins/developerActions";
+
 // ── inline file-local recorder (single-file contract; no cross-file state) ──
 const recorded = new Set<string>(); // "file::fn::code"
 function recordAdminOutcomeBehavior(x: { file: string; fn: string; code: string }) {
@@ -157,6 +178,11 @@ beforeEach(() => {
   buildFixturesMock.mockImplementation(() => []);
   mintFixtureCombosMock.mockImplementation(async () => ({ minted: 16 }));
   finalizeFixturesMock.mockImplementation(async () => undefined);
+  addAdminEmailMock.mockImplementation(async () => ({ kind: "ok" as const }));
+  revokeAdminEmailMock.mockImplementation(async () => ({ kind: "ok" as const }));
+  setAdminDeveloperMock.mockImplementation(
+    async () => ({ kind: "ok" as const, email: "target@example.com", isDeveloper: true }) as unknown,
+  );
 });
 
 // ── Task 7: settings toggles (spec §3.1 A, §5.2) ────────────────────────────
@@ -262,5 +288,62 @@ describe("Task 8 — validationReset server actions observe changes", () => {
     });
     const failCodes = await observeCodes(() => reseedValidationFixturesAction());
     expect(failCodes).not.toContain("VALIDATION_RESEED_RUN");
+  });
+});
+
+// ── Task 9: admin-management (spec §3.1 A, §5.2) ────────────────────────────
+describe("Task 9 — admin grant/revoke + developer toggle observe changes", () => {
+  test("addAdminAction emits ADMIN_GRANTED on kind:ok; nothing on invalid_email", async () => {
+    const form = new FormData();
+    form.set("email", "new-admin@example.com");
+    const codes = await observeCodes(() => addAdminAction(null, form));
+    expect(codes).toContain("ADMIN_GRANTED");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/settings/admins/actions.ts",
+      fn: "addAdminAction",
+      code: "ADMIN_GRANTED",
+    });
+
+    const badForm = new FormData();
+    const failCodes = await observeCodes(() => addAdminAction(null, badForm));
+    expect(failCodes).not.toContain("ADMIN_GRANTED");
+  });
+
+  test("revokeAdminAction emits ADMIN_REVOKED on kind:ok; nothing on self-revoke refusal", async () => {
+    const form = new FormData();
+    form.set("email", "someone-else@example.com");
+    const codes = await observeCodes(() => revokeAdminAction(null, form));
+    expect(codes).toContain("ADMIN_REVOKED");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/settings/admins/actions.ts",
+      fn: "revokeAdminAction",
+      code: "ADMIN_REVOKED",
+    });
+
+    const selfForm = new FormData();
+    selfForm.set("email", "admin@example.com"); // matches requireAdminIdentityMock's actor
+    revokeAdminEmailMock.mockClear();
+    const failCodes = await observeCodes(() => revokeAdminAction(null, selfForm));
+    expect(failCodes).not.toContain("ADMIN_REVOKED");
+    // Self-revoke is refused BEFORE the data-layer call (M12.5 mutation-boundary
+    // enforcement) — the RPC is never reached, so no ADMIN_REVOKED is possible.
+    expect(revokeAdminEmailMock).not.toHaveBeenCalled();
+  });
+
+  test("setDeveloperAction emits ADMIN_DEVELOPER_SET on kind:ok; nothing on invalid_email", async () => {
+    const form = new FormData();
+    form.set("email", "target@example.com");
+    form.set("is_developer", "true");
+    const codes = await observeCodes(() => setDeveloperAction(null, form));
+    expect(codes).toContain("ADMIN_DEVELOPER_SET");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/settings/admins/developerActions.ts",
+      fn: "setDeveloperAction",
+      code: "ADMIN_DEVELOPER_SET",
+    });
+
+    const badForm = new FormData();
+    const failCodes = await observeCodes(() => setDeveloperAction(null, badForm));
+    expect(failCodes).not.toContain("ADMIN_DEVELOPER_SET");
   });
 });
