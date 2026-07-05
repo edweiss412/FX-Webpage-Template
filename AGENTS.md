@@ -91,7 +91,7 @@ Run these when writing or revising any milestone plan in this repo.
 | Command   | Reads             | Key flags                                                                                                                         |
 | --------- | ----------------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `events`  | `app_events`      | `--show <uuid>` `--level info,warn,error` `--code C` `--source S` `--request R` `--q text` `--since 1h\|24h\|7d\|all` `--limit N` |
-| `alerts`  | `admin_alerts`    | `--open` `--code C` `--limit N`                                                                                                   |
+| `alerts`  | `admin_alerts`    | `--open` `--code C` `--limit N` `--reveal-email`                                                                                  |
 | `cron`    | cron health       | (none)                                                                                                                            |
 | `changes` | `show_change_log` | `--show <uuid>` `--since …` `--limit N`                                                                                           |
 | `codes`   | message catalog   | `[CODE]` — offline, `--env` ignored                                                                                               |
@@ -103,7 +103,7 @@ All commands also accept `--json` and `--env local\|validation\|prod`. Flags map
 
 **Read-only, hard guarantee:** every file under `lib/observe/query/**` issues only `.select(...)` — no `.insert/.update/.delete/.upsert/.rpc`, and it never imports `lib/log` (reading telemetry must never write it). Pinned by `tests/observe/_metaReadOnlyQueryCore.test.ts`.
 
-**Redaction posture:** `queryAlerts` never selects `admin_alerts.context`; `queryChangeLog` never selects `before_image`/`after_image` (raw row snapshots). `app_events.context` IS surfaced (it is redaction-guaranteed at write time).
+**Redaction posture:** `queryAlerts` DOES select `admin_alerts.context` (spec `2026-07-04-alert-at-a-glance-identity` §7) but never returns it raw — it is the sole owner of identity resolution: each row's context is passed through `projectIdentityContext` (allowlisted, scalar-only projection) then `resolveAlertIdentities`, and only a display-only `SerializedAlertIdentity` (`{ segments, global }` — no `resolution` group, no id-shaped keys, no raw context) reaches the caller/`--json`. Raw email is a deliberate PII carve-out gated by `includePii`: the web admin surface passes `true`; the CLI defaults `false` and reveals only via `--reveal-email`. Token-like substrings (hex/base64 ≥24 chars) are ALWAYS redacted regardless of the flag; control/bidi/zero-width chars are stripped and every string is length-capped. `queryChangeLog` never selects `before_image`/`after_image` (raw row snapshots). `app_events.context` IS surfaced (it is redaction-guaranteed at write time).
 
 ---
 
