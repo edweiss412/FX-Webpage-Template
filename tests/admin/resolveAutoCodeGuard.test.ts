@@ -129,6 +129,12 @@ describe("resolveAutoCodeGuard — auto codes fail CLOSED at the four manual-res
   });
   it("resolveAdminAlertFormAction: manual code → still resolves (update + revalidate)", async () => {
     state.row = { code: MANUAL_DOUG };
+    // Invariant-#10 R1 HIGH: resolveAdminAlertFormAction now `.select("id")`s its
+    // UPDATE and only emits + revalidates when exactly one row committed (a zero-row
+    // UPDATE — already-resolved / show-scoped / unknown id — is NOT a committed
+    // resolve). Supply the single committed row so the success door reaches revalidate
+    // (mirrors the resolveHealthAlertFormAction manual case below).
+    state.updateData = [{ id: ID }];
     await resolveAdminAlertFormAction(fd());
     expect(state.updateCalled).toBe(true);
     expect(revalidatePath).toHaveBeenCalledWith("/admin", "layout");
