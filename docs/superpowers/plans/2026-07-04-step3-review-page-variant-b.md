@@ -223,12 +223,17 @@ it("summary: only blocking rows → no readiness clause", () => {
   expect(s).toHaveTextContent("1 sheet parsed from your Drive folder.");
   expect(s).not.toHaveTextContent("ready to publish");
 });
+it("summary: empty (rows = []) renders NO summary paragraph (empty card handles it)", () => {
+  render(<Step3Review wizardSessionId={WSID} rows={[]} />);
+  expect(screen.queryByTestId("wizard-step3-summary")).toBeNull();
+  expect(screen.getByTestId("wizard-step3-empty")).toBeInTheDocument();
+});
 ```
 (Add fixture builders `warnRow` (clean row whose `parseResult.warnings` yields `summarizeDataGaps().total===1`) and `hardFailRow` if not present — mirror the existing `cleanRow` builder. `summarizeDataGaps` classes: `FIELD_UNREADABLE`/`UNKNOWN_SECTION_HEADER`/`BLOCK_DISAPPEARED` — build a warning of one of those.)
 
 - [ ] **Step 2: Run to verify it fails** — `pnpm vitest run tests/components/admin/wizard/Step3Review.test.tsx -t "summary"` → FAIL.
 
-- [ ] **Step 3: Implement** — add `rowNeedsLook` + counts; replace the header eyebrow/h2/subhead with `<h1 data-testid="wizard-step3-heading" id="wizard-step3-heading" className="text-2xl font-semibold text-text-strong">Review what we found</h1>` + the existing `HelpTooltip` + a `<p data-testid="wizard-step3-summary" className="max-w-prose text-base text-text-subtle">` built from the copy catalog (spec §4.2). Compose with a helper:
+- [ ] **Step 3: Implement** — add `rowNeedsLook` + counts; replace the header eyebrow/h2/subhead with `<h1 data-testid="wizard-step3-heading" id="wizard-step3-heading" className="text-2xl font-semibold text-text-strong">Review what we found</h1>` + the existing `HelpTooltip`. Render the summary paragraph **only when `rows.length > 0`** (spec §4.2/§4.5 — the empty state's card is the sole content when `rows = []`, no summary): `{rows.length > 0 ? <p data-testid="wizard-step3-summary" className="max-w-prose text-base text-text-subtle">…</p> : null}`. `summaryText` is therefore never called with `sheetCount === 0` from an all-empty page (it still degrades gracefully — see below), but the render guard is what satisfies the "no summary paragraph when empty" contract. Compose with a helper:
 
 ```tsx
 function summaryText(sheetCount, readyCount, needsLookCount) {
@@ -329,7 +334,11 @@ const client = pr.show.client_label || null;
 const segs = dateSummarySegments(pr.show.dates);
 const { name: venueName } = venueDisplay(pr.show.venue);
 return (
-  <article data-testid={`wizard-step3-card-${dfid}`} className={`flex items-center gap-4 rounded-md border ${needsLook ? "border-border-strong" : "border-border"} bg-surface p-tile-pad shadow-tile`}>
+  {/* spec §5 mobile: the row WRAPS below `sm` — checkbox+text on row 1, the
+      right cluster becomes a full-width second row (justify-between) so a long
+      title never wraps per-word. `flex-wrap` + the cluster's `max-sm:w-full`
+      (basis 100% → own line). DI-4 (Task 7) pins the wrap + no-overflow at 360px. */}
+  <article data-testid={`wizard-step3-card-${dfid}`} className={`flex flex-wrap items-center gap-x-4 gap-y-3 rounded-md border ${needsLook ? "border-border-strong" : "border-border"} bg-surface p-tile-pad shadow-tile`}>
     <PublishCheckbox … />
     <div className="min-w-0 flex-1">
       <p data-testid={`wizard-step3-card-${dfid}-title`} className="truncate text-base font-semibold text-text-strong">{pr.show.title || titleFallback}</p>
@@ -339,7 +348,7 @@ return (
         {venueName && <span data-testid={`wizard-step3-card-${dfid}-venue`}>{venueName}</span>}
       </p>
     </div>
-    <div className="flex shrink-0 items-center gap-3">
+    <div className="flex shrink-0 items-center gap-3 max-sm:w-full max-sm:justify-between">
       {needsLook && (
         <span data-testid={`wizard-step3-card-${dfid}-review-chip`} className="inline-flex items-center gap-1.5 rounded-pill bg-warning-bg px-2.5 py-0.5 text-xs font-semibold text-warning-text">
           <span aria-hidden className="size-1.5 rounded-full bg-status-review" />
@@ -453,7 +462,7 @@ it("step 3 renders no top Back link (Back is in the bar)", async () => {
 
 - [ ] **Step 3: Implement**:
   - `FinalizeButton`: root `className={`flex ${panelPlacement === "above" ? "flex-col-reverse" : "flex-col"} gap-3`}`; nothing else changes (sr-announcer stays first child → visually last under reverse, immaterial). Add the prop to the type with default `"below"`.
-  - `Step3PublishBar.tsx` (`"use client"`, presentational): `<div data-testid="wizard-step3-publish-bar" className="sticky bottom-0 z-10 flex w-full items-end gap-3 border-t border-border bg-surface/90 px-4 py-3 backdrop-blur">{children}</div>` — accepts `{ children }`. **`w-full` is load-bearing:** the bar's parent is the `flex flex-col` frame, and this project's Tailwind v4 does NOT default `align-items: stretch`, so without `w-full` the bar shrinks to its content width and DI-3 fails (spec §7). The `data-testid="wizard-step3-publish-bar"` is what the DI-3 assertion targets. (Layout only; DI-3 pins width + no-occlusion.)
+  - `Step3PublishBar.tsx` (`"use client"`, presentational): `<div data-testid="wizard-step3-publish-bar" className="sticky bottom-0 z-10 flex w-full flex-wrap items-end gap-x-3 gap-y-2 border-t border-border bg-surface/90 px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] backdrop-blur">{children}</div>` — accepts `{ children }`. Notes: **`w-full` is load-bearing** — the bar's parent is the `flex flex-col` frame and this project's Tailwind v4 does NOT default `align-items: stretch`, so without `w-full` the bar shrinks to its content width and DI-3 fails (spec §7). **`flex-wrap`** lets the count/Back/Publish stack on very narrow widths (spec §5 mobile) instead of overflowing. **`pb-[calc(env(safe-area-inset-bottom)+0.75rem)]`** clears the iOS home indicator (spec §5). The `data-testid` is what DI-3/DI-4 target. (Layout only.)
   - `Step3ReviewWithFinalize`: wrap the content in `<div className="relative flex min-h-full flex-col">`; add bottom padding on the scroll body so the last card isn't occluded (`pb-24`); render, when `rows.length > 0`, `<Step3PublishBar>` containing: `<p data-testid="wizard-step3-publish-count" className="text-sm tabular-nums text-text-subtle"><b>{counts.selectedCount}</b> of {counts.selectableTotal} selected to publish</p>`, a `flex-1` spacer, `<Link data-testid="wizard-step3-back" href="/admin?step=2" className="…ghost…">Back</Link>`, and `<FinalizeButton … panelPlacement="above" />`. Seed `selectableTotal`/`selectedCount` in the initial `useState` (compute from the same server rows the wrapper already receives; add `initialSelectableTotal`/`initialSelectedCount` props threaded from `OnboardingWizard.tsx:398-407`, OR derive them in the wrapper from `rows` directly — prefer deriving in the wrapper to avoid new props).
   - `OnboardingWizard`: change the top `{step !== 1 ? <BackLink step={step} /> : null}` (`:494`) → `{step === 2 ? <BackLink step={2} /> : null}` so step 3 shows no top Back.
 
@@ -527,14 +536,32 @@ test.describe("Step-3 review page — layout dimensions", () => {
     const barTop = await bar.evaluate((b) => b.getBoundingClientRect().top);
     expect(lastCardBottom).toBeLessThanOrEqual(barTop + 0.5);
   });
+  test("DI-4: at 360px the card does not overflow and its right cluster wraps below the title (spec §5 mobile)", async ({ page }) => {
+    await page.setViewportSize({ width: 360, height: 780 });
+    await gotoStep3(page);
+    const card = page
+      .locator('article[data-testid^="wizard-step3-card-"]:has([data-testid$="-checkbox-box"])')
+      .first();
+    // No horizontal overflow within the card at mobile width.
+    const { scrollW, clientW } = await card.evaluate((el) => ({ scrollW: el.scrollWidth, clientW: el.clientWidth }));
+    expect(scrollW).toBeLessThanOrEqual(clientW + 0.5);
+    // The right cluster (the -more button) has wrapped to its own row: its top is
+    // at/below the title's bottom (not on the same line as the title).
+    const { titleBottom, btnTop } = await card.evaluate((el) => ({
+      titleBottom: el.querySelector('[data-testid$="-title"]')!.getBoundingClientRect().bottom,
+      btnTop: el.querySelector('[data-testid$="-more"]')!.getBoundingClientRect().top,
+    }));
+    expect(btnTop).toBeGreaterThanOrEqual(titleBottom - 0.5);
+  });
 });
 ```
-Add a `gotoStep3(page)` helper following the sibling spec's login+seed flow. If the exact selector for the bar wrapper is awkward, give `Step3PublishBar`'s root `data-testid="wizard-step3-publish-bar"` in Task 6 and target that (add the testid to Task 6's bar div if used here).
+Add a `gotoStep3(page)` helper following the sibling spec's login+seed flow (the still-valid `tests/e2e/step3-review-modal.layout.spec.ts` shows the admin-auth + seeded-wizard pattern). `Step3PublishBar`'s root already carries `data-testid="wizard-step3-publish-bar"` (Task 6).
 
 - [ ] **Step 2: Prove each assertion BITES (negative-regression red).** A real-browser layout assertion is only meaningful if it FAILS when the invariant is violated — run it green against the built page, then, one at a time, temporarily break each invariant and confirm the matching assertion goes RED, then restore:
   - DI-1: remove the stepper's `hidden sm:inline` on non-active labels → re-run at 320px → DI-1 FAILS (overflow) → restore.
   - DI-2: restore `PublishCheckbox`'s old `-mt-2.5 items-start` (top-align) on the label → DI-2 FAILS (the visible checkbox box sits above the card's vertical center) → restore the centered version. (Also verify removing `items-center` from the card row itself fails DI-2.)
   - DI-3: remove the bar's `w-full` class → DI-3 FAILS (bar shrinks to content width in the non-stretch flex parent) → restore. (Also confirm removing the body's bottom padding makes the occlusion half of DI-3 fail.)
+  - DI-4: remove the card's `flex-wrap` (or the right cluster's `max-sm:w-full`) → DI-4 FAILS (the cluster stays on the title's row / the card overflows at 360px) → restore.
   Record the three red runs. This is the TDD-red step for a layout gate (per the negative-regression discipline — a layout assertion that can't fail is tautological).
 
 - [ ] **Step 3: Implement** — no NEW product code beyond adding `data-testid="wizard-step3-publish-bar"` to the `Step3PublishBar` root (fold into Task 6) so DI-3's selector is stable; the spec IS the deliverable. This spec **supersedes** the two obsolete step3 layout specs deleted in Tasks 4b/5b (`step3-card-dimensions.spec.ts` grid-tile card, `step3-grid-layout.spec.ts` multi-column grid) — confirm they are gone (`ls tests/e2e/step3-*.spec.ts` shows only this new one plus the still-valid modal specs `step3-review-modal.*`). Confirm the bar CSS satisfies the invariants (full-width within the container; `items-center` centering; body `pb` ≥ bar height so the last card is not occluded).
@@ -557,9 +584,15 @@ Enumerate every `AnimatePresence`, ternary render, and conditional block in the 
 - [ ] **Step 1: Write the failing tests** — from the spec §8 inventory (all instant/owned-by-existing except the compound state):
 
 ```tsx
-it("checkbox flip and count change are instant, tabular-nums (no layout shift)", () => {
+it("checkbox flip updates the bar count instantly, tabular-nums (no layout shift)", async () => {
+  vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ ok: true }), { status: 200 }));
   const q = render(<Step3ReviewWithFinalize wizardSessionId={WSID} rows={[cleanRow("a","staged")]} finishable initialPublishCount={0} initialUncheckedCleanCount={1} />);
-  expect(q.getByTestId("wizard-step3-publish-count").className).toContain("tabular-nums");
+  const count = q.getByTestId("wizard-step3-publish-count");
+  expect(count.className).toContain("tabular-nums");   // no digit-width jitter
+  expect(count).toHaveTextContent("0 of 1 selected to publish");
+  // toggling the box optimistically flips the count with no async wait (instant).
+  fireEvent.click(q.getByTestId(`wizard-step3-checkbox-a`));
+  expect(count).toHaveTextContent("1 of 1 selected to publish");
 });
 // Helper: a 200 NDJSON response that emits one "listed" event and NEVER sends a
 // terminal "result" / closes → FinalizeButton enters `running` and stays there.
