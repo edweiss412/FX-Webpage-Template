@@ -21,6 +21,7 @@ const syncMock = vi.hoisted(() => ({
     (
       driveFileId: string,
       mode: "manual",
+      deps?: { acceptShrink?: boolean; expectedModifiedTime?: string },
     ) => Promise<
       | { outcome: "applied"; showId: string }
       | { outcome: "stage"; stagedId: string }
@@ -28,6 +29,12 @@ const syncMock = vi.hoisted(() => ({
       | { outcome: "hard_fail"; code: string }
       | { outcome: "stale"; code: string }
       | { outcome: "blocked"; code: "FINALIZE_OWNED_SHOW" }
+      | {
+          outcome: "shrink_held";
+          showId: string | null;
+          detail: string;
+          heldModifiedTime: string;
+        }
     >
   >(async () => ({ outcome: "applied", showId: "show-1" })),
 }));
@@ -82,6 +89,14 @@ function request() {
   });
 }
 
+function requestWithBody(body: unknown) {
+  return new NextRequest("https://crew.fxav.test/api/admin/sync/test-show", {
+    method: "POST",
+    body: JSON.stringify(body),
+    headers: { "content-type": "application/json" },
+  });
+}
+
 describe("POST /api/admin/sync/[slug]", () => {
   beforeEach(() => {
     adminMock.requireAdmin.mockClear();
@@ -117,7 +132,36 @@ describe("POST /api/admin/sync/[slug]", () => {
     expect(supabaseMock.state.calls).toEqual([
       { table: "shows", filters: [{ column: "slug", value: "test-show" }] },
     ]);
-    expect(syncMock.runManualSyncForShow).toHaveBeenCalledWith("drive-file-1", "manual");
+    // Generic re-sync (no body) → empty accept payload as the 3rd deps arg (audit #3 threading).
+    expect(syncMock.runManualSyncForShow).toHaveBeenCalledWith("drive-file-1", "manual", {});
+  });
+
+  test("first POST on a shrunk sheet → HTTP 200 {ok:true, result:{shrink_held, detail, heldModifiedTime}}", async () => {
+    // Failure mode (R7): shrink_held carries no `code`, but the route must return it as a SUCCESS
+    // confirm payload (not an error) so the ReSyncButton can render the "Apply reduced version" step.
+    syncMock.runManualSyncForShow.mockResolvedValueOnce({
+      outcome: "shrink_held",
+      showId: "show-1",
+      detail: "crew 5→2",
+      heldModifiedTime: "T1",
+    });
+    const response = await POST(request(), { params: Promise.resolve({ slug: "test-show" }) });
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
+      ok: true,
+      result: { outcome: "shrink_held", detail: "crew 5→2", heldModifiedTime: "T1" },
+    });
+  });
+
+  test("accept POST threads acceptShrink + expectedModifiedTime into runManualSyncForShow", async () => {
+    await POST(requestWithBody({ acceptShrink: true, expectedModifiedTime: "T1" }), {
+      params: Promise.resolve({ slug: "test-show" }),
+    });
+    expect(syncMock.runManualSyncForShow).toHaveBeenCalledWith(
+      "drive-file-1",
+      "manual",
+      expect.objectContaining({ acceptShrink: true, expectedModifiedTime: "T1" }),
+    );
   });
 
   test("applied outcome emits SHOW_SYNCED_MANUAL telemetry gated on the applied result", async () => {
