@@ -239,7 +239,13 @@ function ActiveRow({
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex items-start justify-between gap-2">
-            <p className="min-w-0 font-medium text-text-strong">{title}</p>
+            <p
+              className={`min-w-0 wrap-break-word text-text-strong ${
+                dotVisible ? "font-semibold" : "font-medium"
+              }`}
+            >
+              {title}
+            </p>
             <div className="flex shrink-0 items-center gap-2">
               <OccurrenceChip occurrences={entry.occurrences} />
               <span className="text-xs tabular-nums text-text-subtle">
@@ -248,7 +254,9 @@ function ActiveRow({
             </div>
           </div>
           {message ? (
-            <p className="mt-0.5 text-sm text-text-subtle">{renderEmphasis(message)}</p>
+            <p className="mt-0.5 wrap-break-word text-sm text-text-subtle">
+              {renderEmphasis(message)}
+            </p>
           ) : null}
           <IdentityLine entry={entry} />
         </div>
@@ -278,7 +286,7 @@ function HistoryRow({ entry, now }: { entry: BellEntry; now: Date }) {
       data-testid={`bell-entry-${entry.alertId}`}
       className="flex flex-col border-b border-border py-3 last:border-b-0"
     >
-      <p className="min-w-0 font-medium">{title}</p>
+      <p className="min-w-0 wrap-break-word font-medium">{title}</p>
       {resolved ? <p className="mt-0.5 text-xs tabular-nums">{resolved}</p> : null}
     </div>
   );
@@ -349,7 +357,7 @@ function DevFooter({
             data-testid="bell-config-history"
             value={historyInput}
             onChange={(e) => setHistoryInput(e.target.value)}
-            className="w-20 rounded-sm border border-border-strong bg-surface px-2 py-1 tabular-nums text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            className="min-h-tap-min w-20 rounded-sm border border-border-strong bg-surface px-2 py-1 tabular-nums text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
           />
         </label>
         <label className="flex flex-col gap-1">
@@ -360,7 +368,7 @@ function DevFooter({
             data-testid="bell-config-cap"
             value={capInput}
             onChange={(e) => setCapInput(e.target.value)}
-            className="w-20 rounded-sm border border-border-strong bg-surface px-2 py-1 tabular-nums text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            className="min-h-tap-min w-20 rounded-sm border border-border-strong bg-surface px-2 py-1 tabular-nums text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
           />
         </label>
         <button
@@ -567,8 +575,8 @@ export function BellPanel({
               className="mt-3 border-t border-border pt-3 text-xs text-text-subtle"
             >
               {viewerIsDeveloper
-                ? `Showing the first ${feed.feedCap} — older items are in telemetry`
-                : `Showing the first ${feed.feedCap} — older items age out of this list.`}
+                ? `Showing the first ${feed.feedCap}. Older items are in telemetry.`
+                : `Showing the first ${feed.feedCap}. Older items age out of this list.`}
             </p>
           ) : null}
           {viewerIsDeveloper ? (

@@ -298,3 +298,32 @@ Source: `alert-resolve-truthing` (manual-resolve button reflects true auto-resol
 - **What:** both codes keep the manual resolve button (registry `class: deferred`, catalog `resolution: "manual"`) rather than becoming `auto`. A resolve-on-clean auto-resolver was NOT wired.
 - **Why deferred:** their only producer — the privileged branch-protection drift detector `scripts/verify-branch-protection.ts` — runs in the two `x-audits.yml` jobs `verify-branch-protection` (`:446 if: false`) and `verify-branch-protection-status` (`:477 if: false`), both **disabled** under the X6-D-1 solo-dev variant. A code whose detector never fires cannot observe a "clean" transition, so an auto-resolver would be dead code (and could never be exercised by a test). Manual resolve is the only path that can currently clear a stale row, so the button must stay.
 - **Trigger:** if the X6-D-1 `verify-branch-protection` jobs are re-enabled (drop `if: false` at `x-audits.yml:446` + `:477`), add a resolve-on-clean call on the detector's success branch (`scripts/verify-branch-protection.ts`, reusing the existing service-role client at `:68` and honoring the `localSupabaseReason` skip at `:63`), then reclassify BOTH codes to `auto` — three lockstep edits: registry `ADMIN_ALERTS_LIFECYCLE` (`class: "auto"` + `resolveSites`), catalog `resolution: "auto"`, and the `_metaAdminAlertCatalog` "every auto code's resolve site exists on disk and matches" test. The `no resolution:manual code promises auto-clear in its copy` guard already permits either class.
+- **Resolved (branch `feat/bell-notification-center`, 2026-07-05, spec `2026-07-05-bell-notification-center-design.md` §9):** the bell spec ratified the conversion AHEAD of the workflow trigger (D6 "in scope"): the bell surface makes premature manual resolution of bucket-C codes an attractive nuisance, so the manual button had to go even while the detector jobs stay `if: false`. All three lockstep edits shipped — resolver `defaultResolveAlerts` + healthy-path call sites in `scripts/verify-branch-protection.ts` (commit 1c7091c1, exercised via the `alertResolver` DI seam in tests), catalog `resolution: "auto"` + `AUTO_RESOLVE_NOTES`, registry `class: "auto"` + resolveSites (commit 7bad3a8c). Note the resolver is dormant in CI until `x-audits.yml:446`/`:477` drop `if: false` — that residual re-enable step remains open, but is no longer blocked on this entry.
+
+## Bell notification center — impeccable dual-gate deferrals (2026-07-05)
+
+Source: invariant-8 dual-gate on `feat/bell-notification-center` (critique 28/40, audit 14/20 "Good", detector `[]` clean, no CRITICAL). HIGH fixed in-branch: em-dash truncation copy; P2s fixed in-branch: dev-footer `min-h-tap-min`, `wrap-break-word` on row titles/messages, unread-title `font-semibold` scannability. Remaining P2/P3s below.
+
+### BELL-1 — [P2] Row-expand affordance invisible; context-less rows expand to no visible payload
+
+- **What:** `ActiveRow`'s full-row toggle (`components/admin/BellPanel.tsx` `bell-entry-toggle-*`) has no chevron/caret; rows whose code lacks `helpfulContext` expand to nothing visible beyond the dot clearing.
+- **Why deferred:** the expand-is-read gesture is ratified spec D3/§7.3 — the row MUST stay tappable on every code (the read mark is the point), so "only render toggle when context exists" would break the contract. Adding a rotating caret is a net-new visual element that would re-enter the impeccable gate and touch the §13 transition inventory + §14 layout invariants (e2e) mid-ship.
+- **Trigger:** first real-usage feedback pass (D4 calibration window). Add a caret shown only when `rowHelpfulContext(entry.code)` is non-null, rotating on expand; extend the §13 audit comment + `bell-panel-layout.spec.ts` row-rect assertions in the same commit.
+
+### BELL-2 — [P2] No triage structure at 9+ (flat active list, no count heading, no severity/show grouping)
+
+- **What:** the active section renders a flat activity-ordered list with no visible heading/count (history has one); a 9+ badge opens as an undifferentiated wall.
+- **Why deferred:** grouping/ordering is a spec §7.2 surface (collapse per (show,code), activityAt DESC is the ratified contract); adding severity or show grouping is a design change needing its own shape pass, not a gate fix. Count heading alone without grouping was judged cosmetic.
+- **Trigger:** D4 calibration — once real alert volume is observed, run `/impeccable shape` on panel triage (grouping, mark-all-read, count headings) as its own feature.
+
+### BELL-3 — [P3] Post-action refetch has no aria-live announcement
+
+- **What:** loading→ready and post-Resolve/Save refetches update the list silently for screen readers (badge count changes are visual only).
+- **Why deferred:** the panel is a focus-trapped dialog whose content updates in place; a polite live region needs the project's persistent-sr-only-region pattern (see PCR-1(a)) wired across all five panel states — small but cross-state, and no SR user is blocked (all content remains reachable by re-reading).
+- **Trigger:** bundle with BELL-1's caret commit or the next a11y pass; reuse the PCR-1 persistent `role=status` `sr-only` pattern.
+
+### BELL-4 — [P3] Untokenized brackets `max-h-[70vh] sm:max-h-[480px]`; DevFooter number inputs at w-20
+
+- **What:** panel scroll-container max-heights are arbitrary brackets with no DESIGN.md token; no sibling precedent (AppHealthPopover has no scroll container).
+- **Why deferred:** pragmatic one-off; tokenizing panel max-height solo would add a token with a single consumer. `max-w-[420px]` is ratified §14 and shared with AppHealthPopover — not part of this entry.
+- **Trigger:** next DESIGN.md token pass, or a second scrolling-panel surface appearing (then extract a shared token).
