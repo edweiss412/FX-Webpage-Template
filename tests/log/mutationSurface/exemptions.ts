@@ -93,12 +93,16 @@ export const KNOWN_UNINSTRUMENTED: readonly KnownUninstrumented[] = [];
 
 export type GrandfatherUnit = { file: string; fn: string };
 
-/** The FROZEN scope-bound baseline (spec §4.2, §9): exactly the admin surfaces
- * that ALREADY emitted a success outcome at `origin/main` HEAD — 24 pre-existing
- * admin route POSTs + 6 pre-existing admin action functions. This is a HARDCODED
- * LITERAL (Codex plan-R3 F4 — NOT computed from the tree), and never grows.
- * `manifest/…/ignore` and `reap-stale-sessions` are deliberately NOT here — they
- * are seeded by this change, not pre-existing (Codex R15 F3 / plan-R3 F4). */
+/** The scope-bound behavioral-coverage baseline (spec §4.2, §9): admin surfaces
+ * that ALREADY emitted a success outcome at `origin/main` HEAD but whose INLINE
+ * `observeSuccessCodes` proof in `adminOutcomeBehavior.test.ts` is still being
+ * backfilled. Originally 30 (24 pre-existing admin route POSTs + 6 pre-existing
+ * admin action functions). This is a HARDCODED LITERAL (Codex plan-R3 F4 — NOT
+ * computed from the tree) that NEVER grows and only SHRINKS as surfaces graduate
+ * to inline proof (BL-ADMIN-OUTCOME-BEHAVIOR, delivered in batches).
+ * Batch 1 (2026-07-05) graduated the 6 per-show action functions → 24 route POSTs
+ * remain. `manifest/…/ignore` and `reap-stale-sessions` are deliberately NOT here —
+ * they were seeded WITH inline proof, not pre-existing (Codex R15 F3 / plan-R3 F4). */
 export const ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER: readonly GrandfatherUnit[] = [
   {
     file: "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route.ts",
@@ -142,10 +146,8 @@ export const ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER: readonly GrandfatherUnit[] = [
   },
   { file: "app/api/admin/staged/[fileId]/discard/route.ts", fn: "POST" },
   { file: "app/api/admin/ignored-sheets/[driveFileId]/unignore/route.ts", fn: "POST" },
-  { file: "app/admin/show/[slug]/_actions/archive.ts", fn: "archiveShowAction" },
-  { file: "app/admin/show/[slug]/_actions/unarchive.ts", fn: "unarchiveShowAction" },
-  { file: "app/admin/show/[slug]/_actions/setPublished.ts", fn: "setShowPublishedAction" },
-  { file: "app/admin/show/[slug]/_actions/feed.ts", fn: "mi11ApproveAction" },
-  { file: "app/admin/show/[slug]/_actions/feed.ts", fn: "mi11RejectAction" },
-  { file: "app/admin/show/[slug]/_actions/feed.ts", fn: "undoChangeAction" },
+  // Batch 1 (2026-07-05) — the 6 per-show admin action functions GRADUATED to inline
+  // observeSuccessCodes proof in adminOutcomeBehavior.test.ts (BL-ADMIN-OUTCOME-BEHAVIOR):
+  //   archive.ts::archiveShowAction, unarchive.ts::unarchiveShowAction,
+  //   setPublished.ts::setShowPublishedAction, feed.ts::{mi11ApproveAction,mi11RejectAction,undoChangeAction}.
 ];
