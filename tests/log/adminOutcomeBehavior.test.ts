@@ -18,7 +18,13 @@ vi.mock("@/lib/auth/requireAdmin", () => ({
   requireAdminIdentity: (...a: unknown[]) => requireAdminIdentityMock(...a),
 }));
 
-class DeveloperInfraErrorDouble extends Error {}
+// `class` declarations aren't auto-hoisted the way `vi.fn()` initializers are
+// (Vitest's hoist transform special-cases vi.fn() but not arbitrary class
+// exprs) — wrap in vi.hoisted() so the factory below can reference it.
+const { DeveloperInfraErrorDouble } = vi.hoisted(() => {
+  class DeveloperInfraErrorDouble extends Error {}
+  return { DeveloperInfraErrorDouble };
+});
 const requireDeveloperMock = vi.fn(async (..._a: unknown[]) => undefined);
 const requireDeveloperIdentityMock = vi.fn(async (..._a: unknown[]) => ({ email: "dev@example.com" }));
 vi.mock("@/lib/auth/requireDeveloper", () => ({
@@ -73,6 +79,32 @@ import { setAlertOnAutoPublish } from "@/app/admin/settings/_actions/setAlertOnA
 import { setAlertOnSyncProblems } from "@/app/admin/settings/_actions/setAlertOnSyncProblems";
 import { setDailyReviewDigest } from "@/app/admin/settings/_actions/setDailyReviewDigest";
 
+// ── Task 8: validationReset ──────────────────────────────────────────────
+const destructiveResetAllowedMock = vi.fn((..._a: unknown[]) => true);
+vi.mock("@/lib/admin/validationDeployment", () => ({
+  VALIDATION_PROJECT_REF: "vzakgrxqwcalbmagufjh",
+  destructiveResetAllowed: (...a: unknown[]) => destructiveResetAllowedMock(...a),
+}));
+
+const buildFixturesMock = vi.fn((..._a: unknown[]) => [] as unknown[]);
+vi.mock("@/lib/validation/fixtures", () => ({
+  buildFixtures: (...a: unknown[]) => buildFixturesMock(...a),
+  R_COMBOS: [],
+  SW_COMBOS: [],
+}));
+
+const mintFixtureCombosMock = vi.fn(async (..._a: unknown[]) => ({ minted: 16 }));
+const finalizeFixturesMock = vi.fn(async (..._a: unknown[]) => undefined);
+vi.mock("@/lib/validation/reseedFixtures", () => ({
+  mintFixtureCombos: (...a: unknown[]) => mintFixtureCombosMock(...a),
+  finalizeFixtures: (...a: unknown[]) => finalizeFixturesMock(...a),
+}));
+
+import {
+  resetValidationDataAction,
+  reseedValidationFixturesAction,
+} from "@/app/admin/settings/_actions/validationReset";
+
 // ── inline file-local recorder (single-file contract; no cross-file state) ──
 const recorded = new Set<string>(); // "file::fn::code"
 function recordAdminOutcomeBehavior(x: { file: string; fn: string; code: string }) {
@@ -121,6 +153,10 @@ beforeEach(() => {
   requireDeveloperIdentityMock.mockImplementation(async () => ({ email: "dev@example.com" }));
   serverClientImpl.current = async () => makeClient({});
   serviceRoleClientImpl.current = () => makeClient({});
+  destructiveResetAllowedMock.mockImplementation(() => true);
+  buildFixturesMock.mockImplementation(() => []);
+  mintFixtureCombosMock.mockImplementation(async () => ({ minted: 16 }));
+  finalizeFixturesMock.mockImplementation(async () => undefined);
 });
 
 // ── Task 7: settings toggles (spec §3.1 A, §5.2) ────────────────────────────
@@ -188,5 +224,43 @@ describe("Task 7 — app_settings toggle server actions observe changes", () => 
     serverClientImpl.current = async () => makeClient({ from: { data: null, error: null } });
     const failCodes = await observeCodes(() => setDailyReviewDigest(true));
     expect(failCodes).not.toContain("SETTING_DAILY_REVIEW_DIGEST_CHANGED");
+  });
+});
+
+// ── Task 8: validationReset (spec §3.1 A, §5.2) ─────────────────────────────
+describe("Task 8 — validationReset server actions observe changes", () => {
+  test("resetValidationDataAction emits VALIDATION_RESET_RUN on {ok:true}; nothing on {ok:false}", async () => {
+    serverClientImpl.current = async () => makeClient({ rpc: { data: null, error: null } });
+    serviceRoleClientImpl.current = () =>
+      makeClient({ rpc: { data: { clearedShows: 7 }, error: null } });
+    const codes = await observeCodes(() => resetValidationDataAction());
+    expect(codes).toContain("VALIDATION_RESET_RUN");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/settings/_actions/validationReset.ts",
+      fn: "resetValidationDataAction",
+      code: "VALIDATION_RESET_RUN",
+    });
+
+    destructiveResetAllowedMock.mockImplementation(() => false);
+    const failCodes = await observeCodes(() => resetValidationDataAction());
+    expect(failCodes).not.toContain("VALIDATION_RESET_RUN");
+  });
+
+  test("reseedValidationFixturesAction emits VALIDATION_RESEED_RUN on {ok:true}; nothing on {ok:false}", async () => {
+    serverClientImpl.current = async () => makeClient({ rpc: { data: null, error: null } });
+    serviceRoleClientImpl.current = () => makeClient({});
+    const codes = await observeCodes(() => reseedValidationFixturesAction());
+    expect(codes).toContain("VALIDATION_RESEED_RUN");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/settings/_actions/validationReset.ts",
+      fn: "reseedValidationFixturesAction",
+      code: "VALIDATION_RESEED_RUN",
+    });
+
+    mintFixtureCombosMock.mockImplementation(async () => {
+      throw new Error("boom");
+    });
+    const failCodes = await observeCodes(() => reseedValidationFixturesAction());
+    expect(failCodes).not.toContain("VALIDATION_RESEED_RUN");
   });
 });

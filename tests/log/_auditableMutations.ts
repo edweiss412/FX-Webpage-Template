@@ -187,6 +187,17 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
     fn: "setDailyReviewDigest",
     code: "SETTING_DAILY_REVIEW_DIGEST_CHANGED",
   },
+  // Task 8 — validationReset developer actions.
+  {
+    file: "app/admin/settings/_actions/validationReset.ts",
+    fn: "resetValidationDataAction",
+    code: "VALIDATION_RESET_RUN",
+  },
+  {
+    file: "app/admin/settings/_actions/validationReset.ts",
+    fn: "reseedValidationFixturesAction",
+    code: "VALIDATION_RESEED_RUN",
+  },
 ];
 
 export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
@@ -229,6 +240,9 @@ export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
   "SETTING_ALERT_ON_AUTOPUBLISH_CHANGED",
   "SETTING_ALERT_ON_SYNC_PROBLEMS_CHANGED",
   "SETTING_DAILY_REVIEW_DIGEST_CHANGED",
+  // Invariant #10 (2026-07-04) Task 8.
+  "VALIDATION_RESET_RUN",
+  "VALIDATION_RESEED_RUN",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing
