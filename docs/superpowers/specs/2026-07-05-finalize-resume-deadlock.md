@@ -112,10 +112,24 @@ return a discriminated `{ kind: 'infra_error' }` on fault. It is registered in
 staged page `:112`).
 
 Because the manifest/pending_syncs join is not expressible in one PostgREST
-`.select()`, the helper issues two guarded reads (manifest rows for the session
-at blocking statuses; the `pending_syncs` `last_finalize_failure_code` +
-`parse_result.show.title` for those drive_file_ids) and composes them in JS —
-each read independently `{ data, error }`-guarded.
+`.select()`, the helper issues two guarded reads and composes them in JS — each
+read independently `{ data, error }`-guarded. **The read MUST reproduce the
+finalize predicate exactly, including the demoted-`staged` case** — this is the
+most common wedge (the incident's row was `status='staged'` +
+`last_finalize_failure_code` non-null, set by `demotePending`, `route.ts:432`).
+Do NOT pre-filter the manifest read to the three "blocking" statuses only, or the
+exact wedged row is invisible (violates G1 / T1). Concretely:
+
+1. Read `onboarding_scan_manifest` rows for the session with `status IN
+   ('hard_failed','live_row_conflict','discard_retryable','staged')` — i.e.
+   include `staged`.
+2. Read `pending_syncs.last_finalize_failure_code` + `parse_result.show.title`
+   for those `drive_file_id`s.
+3. In JS, INCLUDE a row iff `status IN
+   ('hard_failed','live_row_conflict','discard_retryable')` OR (`status='staged'`
+   AND its `pending_syncs.last_finalize_failure_code IS NOT NULL`) — byte-for-byte
+   the `unresolvedManifestCount` predicate (`route.ts:333–366`). A fresh
+   unchecked-clean `staged` row (null failure code) is correctly excluded.
 
 ### 3.3 Guard conditions (Thread 1)
 
@@ -157,22 +171,33 @@ clean/dirty decision:
      per-row transaction — publishing it Live (if it was approved/checked) or
      Held (if fresh-unchecked-clean), regenerating reviewer choices for the new
      sentinel items exactly as `rescanWizardSheet`'s clean branch does
-     (`rescanWizardSheet.ts:406–436`). **Fresh-identifier handoff (correctness-
-     critical):** the restage mints a NEW `staged_id` and `staged_modified_time`,
-     but the `row` object in `processApprovedRow` still holds the OLD ones, and
-     the generation-scoped re-read at `route.ts:762–786` pins
-     `(wizard_session_id, drive_file_id, staged_id, staged_modified_time)`. So
-     after a clean restage, `processApprovedRow` MUST re-read the row by
-     `(wizard_session_id, drive_file_id)` to obtain the fresh `staged_id` +
-     `staged_modified_time` and rebind its local `row` to them BEFORE reaching
-     `:730`'s re-read. Concretely: the inline path returns the fresh identifiers
-     from `applyRescanDecisionUnderLock`; `processApprovedRow` re-enters its
-     normal publish flow from the freshly-staged values (equivalently, restart
-     the per-row publish against the fresh row). If this rebind is skipped, the
-     `:762` re-read returns 0 rows → `demotePending` → the SAME false-positive
-     the fix was meant to remove. The operator never sees a bump only when this
-     rebind is correct; T3 asserts the published show carries the fresh
-     `staged_modified_time`.
+     (`rescanWizardSheet.ts:406–436`). **Full fresh-row rebind (correctness-
+     critical — NOT just the two identifiers):** the restage mints a NEW
+     `staged_id`, `staged_modified_time`, AND new `triggered_review_items`
+     (fresh sentinel ids). The downstream publish path consumes `staged_id` +
+     `staged_modified_time` at the generation-scoped re-read (`route.ts:762–786`,
+     which pins all four of `wizard_session_id, drive_file_id, staged_id,
+     staged_modified_time`), AND `triggered_review_items` + reviewer choices +
+     staged ids together into the apply core (`route.ts:887`, `:987`, `:997`,
+     `:999`). If only the two identifiers are rebound while
+     `triggered_review_items` / choices stay from the OLD generation, the apply
+     core sees choices referencing deleted sentinel ids → `EXTRA_REVIEWER_CHOICE`
+     / invalid-request / typed-500, or publishes/audits a stale review payload.
+     So after a clean restage, `processApprovedRow` MUST re-read the FULL fresh
+     `pending_syncs` row by `(wizard_session_id, drive_file_id)` —
+     `staged_id`, `staged_modified_time`, `triggered_review_items`,
+     `wizard_approved`, `wizard_approved_by_email`, `wizard_approved_at`,
+     `wizard_reviewer_choices`, `wizard_reviewer_choices_version`, `parse_result`,
+     `source_anchors` — and rebind its local `row` to ALL of them, with reviewer
+     choices REGENERATED from the fresh sentinel items exactly as
+     `rescanWizardSheet.ts:412` does, BEFORE reaching the `:730`/`:762` re-reads.
+     Equivalently: `applyRescanDecisionUnderLock` returns the fully-restaged row
+     shape and `processApprovedRow` restarts its per-row publish from that row.
+     If any part is stale, the batch either demotes spuriously (0-row re-read) or
+     500s (cross-generation choices). The operator never sees a bump only when
+     this full rebind is correct; T3 asserts the published show carries the fresh
+     `staged_modified_time` AND that its audit/choices reference the fresh
+     sentinel generation (no `EXTRA_REVIEWER_CHOICE`).
    - **DIRTY**: demote (`RESCAN_REVIEW_REQUIRED`, carrying the decision items,
      matching `rescanWizardSheet.ts:391–403`) → returned as a per-row failure,
      surfaced for review by Thread 1.
@@ -451,8 +476,11 @@ are plain conditional server render. Transition-audit task therefore asserts
   re-parse is content-identical (no MI-11..14, no gap regression) is published in
   the same batch with a fresh `staged_modified_time`; `wizard_approved` stays
   true; no demote; `SHOW_FINALIZED` emitted; auto-heal `log.info` emitted
-  post-commit. Catches: false-positive demote on cosmetic bump; publishing with
-  stale identifiers.
+  post-commit. The published row's reviewer choices reference the FRESH sentinel
+  generation — assert NO `EXTRA_REVIEWER_CHOICE` / invalid-request, and that the
+  audit payload reflects the re-parsed `parse_result`, not the stale one.
+  Catches: false-positive demote on cosmetic bump; publishing with stale
+  identifiers OR cross-generation choices/items (the §4.1 full-rebind hazard).
 - **T4 (Thread 3 dirty):** a row whose re-parse surfaces an MI-12 crew change is
   demoted `RESCAN_REVIEW_REQUIRED` with decision items, NOT published. Catches:
   auto-healing a genuine content change (publishing unreviewed data).
