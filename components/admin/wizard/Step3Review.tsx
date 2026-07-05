@@ -42,7 +42,7 @@ import { messageFor } from "@/lib/messages/lookup";
 import { postPublishIntent } from "@/lib/admin/publishIntent";
 import { resolveIngestionCopy } from "@/lib/admin/needsAttention";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
-import { HelpTooltip } from "@/components/admin/HelpTooltip";
+import { HelpSheet } from "@/components/admin/HelpSheet";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { Step3SheetCard } from "@/components/admin/wizard/Step3SheetCard";
@@ -1028,7 +1028,7 @@ export function Step3Review({ wizardSessionId, rows, onCountsChange }: Step3Revi
           >
             Review what we found
           </h1>
-          <HelpTooltip
+          <HelpSheet
             label="Help: Review and publish your sheets"
             testId="help-affordance--wizard-step3--tooltip"
           >
@@ -1047,7 +1047,7 @@ export function Step3Review({ wizardSessionId, rows, onCountsChange }: Step3Revi
                 Learn more →
               </a>
             </p>
-          </HelpTooltip>
+          </HelpSheet>
         </div>
         {/* Composed summary (§4.2) — only when there ARE sheets; the empty state's
             card is the sole content when rows = []. */}

@@ -73,15 +73,15 @@ describe("affordance-matrix ↔ live-surface parity (spec §7)", () => {
     expect(substringPairs, substringPairs.join("\n")).toEqual([]);
   });
 
-  it("every HoverHelp/HelpTooltip call site references a live matrix testid or carries an exemption", () => {
+  it("every HoverHelp/HelpTooltip/HelpSheet call site references a live matrix testid or carries an exemption", () => {
     const failures: string[] = [];
     for (const f of files) {
-      const sites = f.src.match(/<(HoverHelp|HelpTooltip)\b/g) ?? [];
+      const sites = f.src.match(/<(HoverHelp|HelpTooltip|HelpSheet)\b/g) ?? [];
       if (sites.length === 0) continue;
       const lines = f.src.split("\n");
       const rawLines = f.raw.split("\n");
       lines.forEach((line, i) => {
-        if (!/<(HoverHelp|HelpTooltip)\b/.test(line)) return;
+        if (!/<(HoverHelp|HelpTooltip|HelpSheet)\b/.test(line)) return;
         const window = lines.slice(i, Math.min(i + 12, lines.length)).join("\n");
         // Exemption comments live in the RAW source (stripComments blanks them).
         const rawAbove = rawLines.slice(Math.max(0, i - 3), i).join("\n");
