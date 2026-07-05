@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-04 · **Status:** Draft
 **Master spec:** `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` §4.6 (alert workflow), §12.4 (codes)
-**Supersedes (partial):** `docs/superpowers/specs/2026-07-03-admin-alert-auto-resolution.md` §3 — the three `DEFER` rows and their §2 deferral rationale (see §7 below).
+**Supersedes (partial):** `docs/superpowers/specs/2026-07-03-admin-alert-auto-resolution.md` §3 — the `GITHUB_BOT_LOGIN_MISSING` `DEFER` row only (the two `BRANCH_PROTECTION_*` `DEFER` rows are retained; see §6.3, §7).
 
 ## 1. Problem
 
@@ -26,8 +26,13 @@ The developer health panel is the visible instance, but the same gap exists on D
 `SHOW_UNPUBLISHED`, `REEL_DRIFTED`) showing a button that self-clears.
 
 This feature closes the gap two ways: (A) make the manual-resolve affordance reflect a code's true
-resolution class everywhere it renders, and (B) finish auto-resolution for the last three
-`deferred` config-state codes so **no** `admin_alerts` code both self-clears *and* offers a manual button.
+resolution class **everywhere it renders** (`HealthAlertsPanel`, `PerShowAlertSection`, **and the Doug
+`AlertBanner`** — R1 F1), and (B) finish auto-resolution for the one `deferred` config-state code with a
+live recurrence — `GITHUB_BOT_LOGIN_MISSING`. The two `BRANCH_PROTECTION_*` codes stay `deferred`: their
+detector job is disabled (`if: false`, solo-dev variant, §6.3), so they correctly *keep* their manual
+button — a code that cannot self-clear should not be told it will. Net invariant after this feature:
+**no `resolution: "auto"` code offers a manual resolve button, and no `manual`/`deferred` code is
+stripped of one.**
 
 ## 2. Design principle
 
@@ -65,8 +70,10 @@ Every one of the **42** `admin_alerts` registry codes
 (crew-facing tile copy, report inbox strings, etc.) leave it absent — they never reach a resolve surface.
 
 **Class collapse** (test registry 4-way → runtime 2-way): `auto → "auto"`; `event-manual`,
-`state-manual-justified`, `deferred → "manual"`. After Part B (§6) the three `deferred` rows become
-`auto`, so the final mapping is: **`auto` (24 codes) → suppress button**; **`manual` (18 codes) → keep button**.
+`state-manual-justified`, `deferred → "manual"`. After Part B (§6) exactly one `deferred` row
+(`GITHUB_BOT_LOGIN_MISSING`) becomes `auto`; the two `BRANCH_PROTECTION_*` rows stay `deferred → "manual"`.
+Final mapping: **`resolution: "auto"` (22 codes) → suppress button**; **`resolution: "manual"` (20 codes,
+incl. the 2 deferred) → keep button**.
 
 ### 3.2 Derived set + predicate
 
@@ -94,7 +101,9 @@ affordance; worst case is a no-op click, never a hidden actionable alert.
 
 ### 3.3 Relationship to `isInboxRouted`
 
-`INBOX_ROUTED_CODES` (`SHEET_UNAVAILABLE`, `PARSE_ERROR_LAST_GOOD`, `DRIVE_FETCH_FAILED`) are a
+`INBOX_ROUTED_CODES` is **exactly** `PARSE_ERROR_LAST_GOOD` + `SHEET_UNAVAILABLE` (pinned by the
+meta-test at `tests/messages/_metaAdminAlertCatalog.test.ts:650-651`; `DRIVE_FETCH_FAILED` is auto but
+NOT inbox-routed — it has no `adminSurface: "inbox"`, `lib/messages/catalog.ts:80-93`). These two are a
 **subset** of `AUTO_RESOLVING_CODES` with *extra* semantics (Needs-Attention inclusion, no-Dismiss UX
 guard — `lib/messages/adminSurface.ts:6-8`). `isInboxRouted` is **retained unchanged**; it keeps its
 bespoke per-show copy ("Clears automatically once the sheet is back or re-parses",
@@ -147,7 +156,28 @@ The `data-testid` is identical in both auto arms (the surface's existing autocle
 DOM contracts and the read-only test at `tests/components/admin/perShowAlertReadOnly.test.tsx` extend
 naturally.
 
-### 4.3 The note copy — `autoResolveNote(code)`
+### 4.3 `AlertBanner.tsx` (Doug global banner)
+
+The global alert banner (`components/admin/AlertBanner.tsx`, renders the single top global alert;
+`alert.code` at line 222, health codes already excluded from this Doug surface) renders manual
+`resolveAdminAlertFormAction` forms in two branches. Both are gated on `isAutoResolving(alert.code)`:
+
+- **Non-watch global resolve form** (`:493`): when `isAutoResolving(alert.code)` → render the auto-clear
+  note (`data-testid=admin-alert-autoclear`) instead of the `<form action={resolveAdminAlertFormAction}>`.
+  Net-new coverage: `SYNC_STALLED` (global, auto, doug — `lib/notify/detect/stall.ts:15-17`;
+  `catalog.ts:2038-2051`).
+- **Watch-alert dismiss form** (`:424-432`): `WATCH_CHANNEL_ORPHANED` is auto (`catalog.ts:277-290`;
+  reconciled by watch — `lib/drive/watch.ts:658,692,720`). When `isAutoResolving(alert.code)` → suppress
+  the **dismiss** form only and render the auto-clear note. **The Retry form (`:484-485`,
+  `retryWatchSubscriptionFormAction` + `RetryWatchButton`) is KEPT** — it is a safe, idempotent
+  re-subscribe action (not a manual resolve; `RetryWatchButton` docstring), and it is the operator's
+  legitimate way to *drive* recovery, after which the watch reconcile auto-resolves the row. So a
+  watch-orphaned banner shows: Retry (kept) + auto-clear note (replacing dismiss).
+
+Guard condition: an unknown/uncataloged banner code → `isAutoResolving` false → the existing resolve
+form renders (fail-visible, unchanged). `alert.code` is already read at `AlertBanner.tsx:222,251`.
+
+### 4.4 The note copy — `autoResolveNote(code)`
 
 A small pure helper in `lib/adminAlerts/audience.ts` (colocated with the predicate). To avoid inventing
 24 bespoke strings, it returns a per-code hint when a code has one, else a well-worded generic line:
@@ -161,20 +191,21 @@ export function autoResolveNote(code: string): string {
 `AUTO_RESOLVE_NOTES` seeds only the codes whose "when" is meaningfully specific and operator-useful
 (exact set finalized in the plan; at minimum `EMAIL_NOT_CONFIGURED` → "Clears automatically once email
 notifications are configured on the deployment.", `EMAIL_DELIVERY_FAILED` → "…once deliveries recover.",
-`GITHUB_BOT_LOGIN_MISSING` → "…once GITHUB_BOT_LOGIN is set on the deployment."). Every other auto code
-falls back to the generic line. **Invariant 5 holds:** the note is human copy, never a raw code string;
+`GITHUB_BOT_LOGIN_MISSING` → "…once GITHUB_BOT_LOGIN is set on the deployment.", `SYNC_STALLED` → "…once
+the sync heartbeat recovers.", `WATCH_CHANNEL_ORPHANED` → "…once the Drive watch channel re-subscribes
+(use Retry to trigger it now)."). Every other auto code falls back to the generic line. **Invariant 5 holds:** the note is human copy, never a raw code string;
 `autoResolveNote` is pure (no DB, no interpolation of untrusted context) so no placeholder-leak path exists.
 
-### 4.4 Dimensional invariants & transition inventory
+### 4.5 Dimensional invariants & transition inventory
 
-- **Dimensional invariants:** the button→note swap occurs inside the row's existing
-  `flex flex-col gap-2` column (HealthAlertsPanel `HealthAlertRowItem` `<li>` line 80-82;
-  PerShowAlertSection `<li>` line 259). Both the `<button>` and the replacement `<p>` are `self-start`
-  flow children of a `flex-col` parent with no fixed height — **no fixed-dimension parent → child
-  stretch invariant is introduced or affected.** No Playwright layout assertion is required by this
-  change (jsdom render assertions suffice for presence/absence). This is stated explicitly to satisfy
-  the writing-plans layout-task gate: the gate is **N/A** here because no fixed-dimension parent
-  contains these children.
+- **Dimensional invariants:** the button→note swap occurs inside each surface's existing
+  `flex flex-col` column (HealthAlertsPanel `HealthAlertRowItem` `<li>` line 80-82; PerShowAlertSection
+  `<li>` line 259; AlertBanner's action `<div>` at `:481` / dismiss slot at `:424`). In every case both
+  the `<button>`/`<form>` and the replacement `<p>` are `self-start`/flow children of a `flex-col`
+  parent with no fixed height — **no fixed-dimension parent → child stretch invariant is introduced or
+  affected.** No Playwright layout assertion is required (jsdom render assertions suffice for
+  presence/absence). Stated explicitly to satisfy the writing-plans layout-task gate: the gate is
+  **N/A** — no fixed-dimension parent contains these children.
 - **Transition inventory:** a code's `resolution` class is **static** — it cannot change at runtime for
   a given row. The button-vs-note choice is therefore a per-render constant, not a state transition.
   There is **no `AnimatePresence`, no crossfade, no compound transition** — the affordance is chosen
@@ -187,18 +218,21 @@ existing inbox-routed rejection in the internal helper (`lib/adminAlerts/resolve
 the existing `HEALTH_CODES` rejection in the dev door (`app/admin/actions.ts:224`). Each door **already
 fetches `code`** before writing, so the guard is a one-line addition at an existing lookup point:
 
-| Door | File:line | Existing lookup | Guard added |
+| Door | File:line | Existing guard(s) | Guard added |
 |---|---|---|---|
-| Dev health resolve action | `app/admin/actions.ts:221-224` | `code` fetched; `HEALTH_CODES` guard | add `if (isAutoResolving(code)) return;` before write |
-| Admin resolve action | `app/admin/actions.ts:46` (`resolveAdminAlertFormAction`) | fetches `code` | same, before write |
-| Global resolve route | `app/api/admin/admin-alerts/[id]/resolve/route.ts` | fetches `code` | reject auto code (404/no-op parity with not-found) |
-| Per-show resolve route | `app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts` | fetches `code` | same |
+| Dev **health** resolve action (`resolveHealthAlertFormAction`) | `app/admin/actions.ts:221-224` | health-**only**: rejects NON-health (`if (!HEALTH_CODES.includes(code)) return`) — does NOT reject health | add `if (isAutoResolving(code)) return;` before write, so an auto-class **health** code (e.g. `EMAIL_NOT_CONFIGURED`) is rejected while manual-class health codes stay resolvable |
+| Admin resolve action (`resolveAdminAlertFormAction`) | `app/admin/actions.ts:46` | rejects `HEALTH_CODES` (audience-split) | add `if (isAutoResolving(code)) return;` before write |
+| Global resolve route | `app/api/admin/admin-alerts/[id]/resolve/route.ts:117` | rejects `HEALTH_CODES` | reject auto code with the same structural shape as its `HEALTH_CODES` branch (leave `resolved_at` unchanged, no §12.4 code) |
+| Per-show resolve route | `app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts:124,130` | rejects `HEALTH_CODES` + `isInboxRouted` | add auto-code rejection alongside, same shape |
 
-**Additive coverage (not redundant):** all four doors already reject `HEALTH_CODES`
-(`actions.ts:224`; global route `:117`; per-show route `:124`; `resolveAdminAlertFormAction` via the
-audience-split "3 legacy resolve surfaces reject HEALTH_CODES" change), and the per-show route already
-rejects `isInboxRouted` (`:130`). The new `isAutoResolving` guard's *net-new* coverage is therefore the
-**auto-class doug-audience** codes that are neither health nor inbox-routed — `SHOW_UNPUBLISHED`,
+**Additive coverage (not redundant).** The three *doug* doors already reject `HEALTH_CODES`
+(`resolveAdminAlertFormAction`; global route `:117`; per-show route `:124` — the audience-split "3 legacy
+resolve surfaces reject HEALTH_CODES" change), and the per-show route already rejects `isInboxRouted`
+(`:130`). The **dev health** door is the opposite — health-**only** (`actions.ts:224` rejects
+non-health), so for it the new guard's coverage is the auto-class **health** codes (`EMAIL_NOT_CONFIGURED`,
+`EMAIL_DELIVERY_FAILED`, the snapshot/tile/webhook/asset auto health codes). For the three doug doors,
+the new `isAutoResolving` guard's *net-new* coverage is the **auto-class doug-audience** codes that are
+neither health nor inbox-routed — `SHOW_UNPUBLISHED`,
 `REEL_DRIFTED`, `OPENING_REEL_PERMISSION_DENIED`, `OPENING_REEL_NOT_VIDEO`, `EMBEDDED_ASSET_DRIFTED`,
 `ASSET_RECOVERY_BYTES_EXCEEDED`, `EMBEDDED_RECOVERY_REQUIRES_RESTAGE` — which today are manually
 resolvable through the Doug doors despite self-clearing. The three existing rejection checks are
@@ -225,70 +259,92 @@ DB-hard boundary — consistent with the ratified `BL-HEALTH-RESOLVE-DB-LOCKDOWN
 (`project_alert_audience_split` §6.7): admin/Doug are trusted, not adversaries; a direct PostgREST PATCH
 by a non-dev admin remains possible and is accepted.
 
-## 6. Part B — finish the three deferred resolvers (`deferred → auto`)
+## 6. Part B — finish `GITHUB_BOT_LOGIN_MISSING` (deferred → auto); branch-protection stays deferred
 
-Each becomes `class: "auto"` with a real recovery-observation point. All three set `resolved_at = now()`
-and leave `resolved_by` NULL (system-resolved convention, `resolveAdminAlert.ts:18`).
+Only **`GITHUB_BOT_LOGIN_MISSING`** gains a resolver and moves to `class: "auto"`. The two
+`BRANCH_PROTECTION_*` codes **stay `class: "deferred"`** (§6.3) — their detector job is disabled, so an
+auto-resolver would be dead code. Resolution sets `resolved_at = now()`, `resolved_by` NULL (system
+convention, `resolveAdminAlert.ts:18`), via the internal `resolveAdminAlert({ showId: null, code:
+"GITHUB_BOT_LOGIN_MISSING" })` helper (permissive for this non-inbox-routed auto code, §5). **No new RPC,
+no schema change** (§11).
 
-### 6.1 `GITHUB_BOT_LOGIN_MISSING` — dual surface
+### 6.1 The observation is an explicit env-presence read (NOT "generic submit success")
 
-Condition: the `GITHUB_BOT_LOGIN` env var is unset (a pure **presence** check — NOT a live GitHub probe;
-the `2026-07-03` spec §3 line 94 conflated presence with validity). Raised at
-`lib/reports/submit.ts:783`. Two resolve surfaces (both requested):
+Condition: `GITHUB_BOT_LOGIN` is unset — a pure **presence** check (the `2026-07-03` spec §3 line 94
+conflated presence with validity). Raised at `lib/reports/submit.ts:783` only when the report lookup path
+reads the env and finds it missing (`error.code === "BOT_LOGIN_MISSING"`). Crucially, the env is read
+**only** inside `findIssueByMarker` (`lib/github/issues.ts:260-264`), reached via `reconcileBeforeCreate`
+on the expired-lease recovery path (`submit.ts:559-563,877-882`); a normal create
+(`submit.ts:929-956`; `createIssue` `issues.ts:156-180`) never touches it. So **"a submit succeeded" does
+NOT prove the env is configured** (R1 F2). Resolution is therefore gated on an **explicit non-empty read
+of `GITHUB_BOT_LOGIN`**, via one shared helper so both call sites are identical and a false-close is
+impossible:
 
-1. **Notify-cron config reconciler (primary self-healer).** In `lib/notify/runNotify.ts` (which already
-   evaluates `configValid()` at lines 210/234/374), after config evaluation resolve the **global**
-   (`show_id = null`) alert when `process.env.GITHUB_BOT_LOGIN` is a non-empty string. Resolve-on-recovery
-   only — the cron does **not** raise this code (raising stays in the report path, which is where the
-   degradation is actually observed). This self-heals even with zero report traffic. Env read goes through
-   the existing notify config module (`lib/notify/config.ts`) so it is dependency-injectable for tests.
-2. **Opportunistic report-submit resolve.** In `lib/reports/submit.ts`, on any submit that proceeds with
-   the bot login **configured** (i.e. does not hit the `BOT_LOGIN_MISSING` branch at :782), resolve the
-   global alert. Native to the M8 pipeline; clears promptly under traffic.
+```ts
+// lib/reports/botLoginAlert.ts (new, ~15 lines; invariant-9: resolveAdminAlert throws on error)
+export function botLoginConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
+  return typeof env.GITHUB_BOT_LOGIN === "string" && env.GITHUB_BOT_LOGIN.trim() !== "";
+}
+export async function resolveBotLoginAlertIfConfigured(deps: {
+  env?: NodeJS.ProcessEnv;
+  resolveAdminAlert?: typeof resolveAdminAlert;
+} = {}): Promise<void> {
+  if (!botLoginConfigured(deps.env ?? process.env)) return; // no Supabase call when unset
+  await (deps.resolveAdminAlert ?? resolveAdminAlert)({ showId: null, code: "GITHUB_BOT_LOGIN_MISSING" });
+}
+```
 
-Both call the internal `resolveAdminAlert` helper (permissive for this non-inbox-routed auto code, §5).
+### 6.2 Two call sites (both requested)
 
-### 6.2 `BRANCH_PROTECTION_DRIFT` — resolve-on-clean
+1. **Notify-cron (primary self-healer).** `lib/notify/runNotify.ts` gains a new injectable dep
+   `resolveBotLoginAlert?: () => Promise<void>` on `NotifyDeps` (`:58-69`, `:71-80`), defaulting to
+   `resolveBotLoginAlertIfConfigured`, invoked once per notify run after the existing config evaluation.
+   It does **not** read `lib/notify/config.ts` (which only checks the three email envs `RESEND_API_KEY` /
+   `EMAIL_FROM` / `NEXT_PUBLIC_SITE_ORIGIN`, `:6-11` — R1 F4) and does **not** raise the code. Self-heals
+   with zero report traffic. Invariant-9: `resolveAdminAlert` throws on a returned/thrown Supabase error
+   (`resolveAdminAlert.ts:28`); the call is awaited; the config-negative branch issues no Supabase call.
+2. **Opportunistic report-submit resolve.** `lib/reports/submit.ts` calls
+   `resolveBotLoginAlertIfConfigured({})` on the submit success path (after the report row is durably
+   recorded). Because the helper re-reads the env explicitly, it resolves iff `GITHUB_BOT_LOGIN` is
+   actually present — regardless of whether that submit exercised the recovery lookup — so the R1 F2
+   false-close is structurally impossible. Not-subject-to-meta or a registry row per the call-boundary
+   contract as the plan determines (the helper wraps `resolveAdminAlert`, which is already invariant-9-safe).
 
-Raised at `scripts/verify-branch-protection.ts:326` when drift is detected. The script already runs
-recurrently in CI (`.github/workflows/x-audits.yml`) with a service-role Supabase client (used for the
-`upsert_admin_alert` RPC at :70) and already computes the no-drift outcome. Add: on a run that completes
-with **no drift**, resolve the open `BRANCH_PROTECTION_DRIFT` (`show_id = null`) row. Resolution uses the
-script's existing service-role client, guarded by the same `localSupabaseReason` skip that already gates
-the upsert (`:63`) — so resolve is symmetric with raise (no-op when creds unavailable).
+### 6.3 `BRANCH_PROTECTION_*` remain deferred (detector disabled)
 
-### 6.3 `BRANCH_PROTECTION_MONITOR_AUTH_FAILED` — resolve-on-auth-success
-
-Raised at `scripts/verify-branch-protection.ts:266,286,309` when the monitor cannot authenticate. Add: on
-a run where auth **succeeds** (a token resolves and the protection query returns), resolve the open
-`BRANCH_PROTECTION_MONITOR_AUTH_FAILED` row. Same client/skip as §6.2. Because a run that reaches the
-drift check *has* authenticated, auth-success resolution and drift resolution co-occur on a clean run;
-the plan sequences both resolves in the success path.
-
-**Resolve mechanism in the CI script:** the script is standalone (not a Next.js runtime). It resolves via
-the same service-role client with a direct `admin_alerts` update (`.update({ resolved_at }).eq("code", …)
-.is("resolved_at", null).is("show_id", null)`) — mirroring `resolveAdminAlert`'s filter shape — OR a small
-`resolve_admin_alert` RPC if one is preferred for symmetry (decided in the plan). Service-role bypasses
-RLS; no new grant is needed.
+`scripts/verify-branch-protection.ts` is **not run in CI**: both its workflow jobs are `if: false`
+(`.github/workflows/x-audits.yml:443` and `:474`, "X6-D-1: solo-dev variant — branch protection removed,
+no team workflow"; re-enable triggers in `DEFERRED.md §X6-D-1`). With no recurrent observation point, an
+auto-resolver would be dead code, and reclassifying to `auto` would be dishonest metadata (the code could
+never actually resolve). Both `BRANCH_PROTECTION_DRIFT` and `BRANCH_PROTECTION_MONITOR_AUTH_FAILED`
+therefore **remain `class: "deferred"`** and keep their manual button (they are health-degraded, so that
+affordance renders on the HealthAlertsPanel; because they are deferred/not-auto, §4.1 keeps the button
+correctly). A `DEFERRED.md` note records that if the X6-D-1 job is re-enabled, the resolve-on-clean step
+(success branch `verify-branch-protection.ts:334-337`, the script's existing service-role client `:70`,
+guarded by the `localSupabaseReason` skip `:63`) reclassifies them — built then, not now.
 
 ## 7. Registry, spec, and count updates
 
-- **`tests/messages/_metaAdminAlertCatalog.test.ts`:** reclassify the three codes from their current
-  `deferred` (registry array `tests/messages/_metaAdminAlertCatalog.test.ts:440-442`) to `class: "auto"`
-  with their new `resolveSites` (§6). The meta-test already asserts every `auto` code has ≥1 resolve
-  site — the new sites satisfy it. The current `ClassifiedCode` union (`:266-269`) already admits
-  `class: "auto"` with a required non-empty `resolveSites` tuple, so no type change is needed.
+- **`tests/messages/_metaAdminAlertCatalog.test.ts`:** reclassify **only** `GITHUB_BOT_LOGIN_MISSING`
+  from `deferred` (registry array `:440`) to `class: "auto"` with its new `resolveSites` (§6.2). The two
+  `BRANCH_PROTECTION_*` rows (`:441-442`) stay `class: "deferred"` (§6.3). The meta-test already asserts
+  every `auto` code has ≥1 resolve site — the new sites satisfy it. The current `ClassifiedCode` union
+  (`:266-269`) already admits `class: "auto"` with a required non-empty `resolveSites` tuple, so no type
+  change is needed.
 - **New catalog-parity assertion:** the meta-test additionally asserts, for all 42 codes, that
   `MESSAGE_CATALOG[code].resolution === (registryClass === "auto" ? "auto" : "manual")`. This makes the
   test registry the source of truth for the fine class and the catalog the runtime projection, and fails
   CI if a future code's `resolution` drifts from its declared class.
-- **`docs/superpowers/specs/2026-07-03-admin-alert-auto-resolution.md`:** update §3 (the three rows move
-  out of `DEFER` into auto with their resolve mechanisms), update the §2/§3 counts, and add a note that
-  this `2026-07-04` spec supersedes its `DEFER` disposition for these three. **Numeric sweep (before → after):**
-  precedent-AUTO 7 (unchanged); NEW 14 → **17** (the 3 join); EVENT 18 (unchanged); DEFER 3 → **0**;
-  total 42 (unchanged). Runtime resolution partition: `auto` = 7 + 17 = **24**; `manual` = 17
-  event-manual + 1 state-manual-justified (`TILE_SERVER_RENDER_FAILED`) = **18**. 24 + 18 = 42. ✓
-  These are the only numeric literals introduced; every downstream reference cites this partition.
+- **`docs/superpowers/specs/2026-07-03-admin-alert-auto-resolution.md`:** update §3 (the
+  `GITHUB_BOT_LOGIN_MISSING` row moves out of `DEFER` into auto with its resolve mechanism), update the
+  §2/§3 counts, and note that this `2026-07-04` spec supersedes its `DEFER` disposition for that one code
+  (the two `BRANCH_PROTECTION_*` rows stay `DEFER`, unchanged). **Numeric sweep (before → after):**
+  precedent-AUTO 7 (unchanged); NEW 14 → **15** (`GITHUB_BOT_LOGIN_MISSING` joins); EVENT 18 (unchanged);
+  DEFER 3 → **2** (`BRANCH_PROTECTION_DRIFT`, `BRANCH_PROTECTION_MONITOR_AUTH_FAILED` remain); total 42
+  (unchanged). Runtime resolution partition: `resolution: "auto"` = 7 + 15 = **22**; `resolution:
+  "manual"` = 18 (EVENT bucket: 17 event-manual + 1 state-manual-justified `TILE_SERVER_RENDER_FAILED`) +
+  2 deferred = **20**. 22 + 20 = 42. ✓ These are the only numeric literals introduced; every downstream
+  reference cites this partition.
 
 ## 8. Flag lifecycle — `resolution`
 
@@ -320,15 +376,21 @@ No zombie flag: every value is written (per code), read (predicate + doors), and
   sibling rows) per the anti-tautology rule.
 - **PerShowAlertSection render** — a non-inbox auto code (`SHOW_UNPUBLISHED`) now renders the autoclear
   note, not the button; an inbox code keeps its bespoke sheet copy; a manual code keeps the button.
+- **AlertBanner render (R1 F1)** — `SYNC_STALLED` (global non-watch auto) renders the autoclear note,
+  not the resolve form; `WATCH_CHANNEL_ORPHANED` (watch auto) renders the note **and keeps the Retry
+  form** but drops the dismiss form; a manual global code still renders its resolve form. Scope each
+  assertion to the banner's action region (clone-and-strip) per the anti-tautology rule.
 - **Manual-resolve rejection** — each of the four doors, given an auto code, performs **no** UPDATE
   (assert zero-row / no write) and the correct no-op/forbidden shape; given a manual code, still resolves.
   Catches the guard being placed too broadly (blocking manual codes) or too narrowly.
 - **Internal-helper permissiveness (regression pin)** — `resolveAdminAlert({ code: "EMAIL_NOT_CONFIGURED" })`
   still succeeds (the email-detector path). Catches the §5 asymmetry being violated.
-- **Three resolvers** — cron resolves `GITHUB_BOT_LOGIN_MISSING` when `GITHUB_BOT_LOGIN` set (and does
-  **not** raise it); submit resolves it on configured success; the branch-protection script resolves both
-  `BRANCH_PROTECTION_*` on a clean/authed run (mocked service-role client) and does **not** resolve when
-  drift/auth-fail persists.
+- **Bot-login resolver (R1 F2/F4)** — `botLoginConfigured` returns true only for a non-empty
+  `GITHUB_BOT_LOGIN`; `resolveBotLoginAlertIfConfigured` resolves iff configured and issues **no** Supabase
+  call when unset; the notify-cron dep invokes it once per run and does **not** raise the code; the submit
+  call site resolves on a configured success and — critically — does **not** false-close when the env is
+  unset even though the submit succeeded (the R1 F2 regression pin: run a mock submit success with
+  `GITHUB_BOT_LOGIN` unset and assert no resolve fires).
 - **Meta-test parity** — `catalog.resolution` matches registry class for all 42 codes; every `auto`
   code has ≥1 resolve site. Catches drift when a future code is added without a class.
 
@@ -338,6 +400,9 @@ No zombie flag: every value is written (per code), read (predicate + doors), and
   remains `BL-HEALTH-RESOLVE-DB-LOCKDOWN`. This spec is app-surface only (§5).
 - Redesigning `TILE_SERVER_RENDER_FAILED` to a per-tile keyed row so it could auto-resolve — stays
   `state-manual-justified` (BACKLOG, per `2026-07-03` §3 line 76). It keeps its manual button correctly.
+- Auto-resolvers for `BRANCH_PROTECTION_DRIFT` / `BRANCH_PROTECTION_MONITOR_AUTH_FAILED` — their detector
+  is disabled (`if: false`, DEFERRED.md §X6-D-1); they stay `class: "deferred"` and keep their manual
+  button (§6.3). A `DEFERRED.md` note records the re-enable path.
 - Any change to `isInboxRouted` semantics or the Needs-Attention inbox.
 - No schema / RLS / advisory-lock / migration changes. Catalog metadata + UI + resolver wiring only.
 
