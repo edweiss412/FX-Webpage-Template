@@ -224,3 +224,21 @@ alert-audience-split (spec §6.7) makes health-alert resolution developer-gated 
 **Status:** OPEN · **Severity:** low · **Class:** UI EVALUATION
 
 The Step-3 "Review & publish" Variant-B redesign (spec/plan `2026-07-04-step3-review-page-variant-b`) shipped its UI quality gate (invariant 8) via a real-browser static-harness (DI-1…DI-4, bite-verified), a manual DESIGN.md/PRODUCT.md/mock conformance review (close-out §12), and the whole-diff Codex cross-model review as external attestation. What it could NOT do: a `/impeccable critique` + `/impeccable audit` pass on the LIVE rendered page — this repo has no live-app Step-3 seed (every Step-3 layout spec is a standalone static harness). **Fix (when prioritized):** stand up a minimal admin Step-3 seed (a reserved wizard session + a manifest with ≥1 clean, ≥1 needs-a-look, ≥1 demoted, ≥1 no-details, ≥1 blocking, ≥1 set-aside row), then run the impeccable v3 dual-gate against the live `/admin?step=3` render — including an explicit dark-mode warn-contrast check and the double-"Review" affordance on demoted RESCAN cards (close-out §12 finding 7).
+
+---
+
+## Mutation-surface observability (invariant #10, 2026-07-04)
+
+Filed alongside AGENTS.md plan-wide invariant #10 (mutation-surface observability). The invariant is live and enforced; these two entries are the scoped debt it deliberately grandfathers.
+
+### BL-CREW-PICKER-OBSERVABILITY — telemetry taxonomy for the crew/system picker functions
+
+**Status:** OPEN · **Severity:** low · **Class:** OBSERVABILITY DEBT
+
+The 6 non-admin-gated `lib/auth/picker/*` functions (`cleanupStaleEntry`, `cleanupStaleEntryCore`, `clearIdentity`, `clearIdentityAndSkip`, `clearIdentityCore`, `selectIdentityCore`) are recorded in `KNOWN_UNINSTRUMENTED` (`tests/log/mutationSurface/exemptions.ts`) — they mutate crew-picker state (`crew_member_auth` selections) but emit no durable success trace, so a "who picked what, when" audit has no server-side signal. The 3 **admin-gated** picker mutations (`resetPickerEpoch`, `rotateShareToken`, `resetCrewMemberSelection`) ARE instrumented now (invariant #10 §3.1 A) and are NOT part of this debt. **Fix (when prioritized):** design a crew-picker telemetry taxonomy (a code namespace distinct from `logAdminOutcome`'s admin-forensic codes, since the actor is a crew member on an emailed link, not an admin) and wire it through the 6 functions, then delete the `KNOWN_UNINSTRUMENTED` rows. The discovery meta-test forces any NEW picker mutation to be accounted for regardless.
+
+### BL-ADMIN-OUTCOME-BEHAVIOR — backfill executable behavioral proofs for the 30 grandfathered admin surfaces
+
+**Status:** OPEN · **Severity:** low · **Class:** TEST COVERAGE
+
+`ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER` (`tests/log/mutationSurface/exemptions.ts`) freezes 30 pre-existing admin surface units — 24 admin route `POST`s + 6 pre-existing admin action functions — that already emitted a success outcome at `origin/main` HEAD but do not yet carry the new **executable** sink-spy success-branch proof in `tests/log/adminOutcomeBehavior.test.ts` (they are registry-verified only). The invariant-#10 behavioral-coverage assertion already forces EVERY new/non-grandfathered admin surface to ship a proof; this entry is to backfill the frozen 30 so the grandfather set can shrink to zero. **Fix (when prioritized):** add a sink-spy behavioral case per grandfather entry (drive its committed-success branch, assert the code is observed, `recordAdminOutcomeBehavior`), then remove the entry from the baseline (the coverage test's `.length === 30` pin drops as each lands). No production change — proofs only.
