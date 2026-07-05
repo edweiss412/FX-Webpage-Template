@@ -261,10 +261,12 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
  *   - "deferred": STATE-shaped but out of scope this spec (BACKLOG).
  *
  * Counts (spec §3, incl. alert-resolve-truthing §6 + re-sync quality gate): 7 precedent AUTO +
- * 14 NEW + GITHUB_BOT_LOGIN_MISSING + RESYNC_SHRINK_HELD = 23 "auto"; 17 "event-manual" (spec's
+ * 14 NEW + GITHUB_BOT_LOGIN_MISSING + RESYNC_SHRINK_HELD + 2 BRANCH_PROTECTION
+ * (bell-notification-center §9.3) = 25 "auto"; 17 "event-manual" (spec's
  * 18 EVENT rows minus TILE_SERVER_RENDER_FAILED, which the registry splits into its own
- * "state-manual-justified" class); 1 "state-manual-justified"; 2 "deferred".
- * 23 + 17 + 1 + 2 = 43, matching ADMIN_ALERTS_CODES.length.
+ * "state-manual-justified" class); 1 "state-manual-justified"; 0 "deferred" (BRANCH_PROTECTION_*
+ * promoted by bell-notification-center §9.3).
+ * 25 + 17 + 1 + 0 = 43, matching ADMIN_ALERTS_CODES.length.
  */
 type ResolveSite = { file: string; pattern: RegExp };
 type Lifecycle =
@@ -458,9 +460,16 @@ const ADMIN_ALERTS_LIFECYCLE: Record<(typeof ADMIN_ALERTS_CODES)[number], Lifecy
       { file: "lib/reports/submit.ts", pattern: /resolveBotLoginAlertFailOpen/ },
     ],
   },
-  // --- deferred (2): STATE-shaped, out of scope this spec (BACKLOG); detector job is if:false ---
-  BRANCH_PROTECTION_DRIFT: { class: "deferred" },
-  BRANCH_PROTECTION_MONITOR_AUTH_FAILED: { class: "deferred" },
+  // --- auto (promoted from deferred by bell-notification-center §9.3): the branch-protection
+  // monitor is the re-detector, so healthy runs clear the alerts it raised ---
+  BRANCH_PROTECTION_DRIFT: {
+    class: "auto",
+    resolveSites: [{ file: "scripts/verify-branch-protection.ts", pattern: /defaultResolveAlerts/ }],
+  },
+  BRANCH_PROTECTION_MONITOR_AUTH_FAILED: {
+    class: "auto",
+    resolveSites: [{ file: "scripts/verify-branch-protection.ts", pattern: /defaultResolveAlerts/ }],
+  },
 };
 
 describe("META admin_alerts catalog contract", () => {
@@ -647,11 +656,11 @@ describe("META admin_alerts catalog contract", () => {
     ).filter((code) => ADMIN_ALERTS_LIFECYCLE[code].class === "auto");
 
     // Counts cross-check spec §3: 7 precedent AUTO + 14 NEW + GITHUB_BOT_LOGIN_MISSING +
-    // RESYNC_SHRINK_HELD = 23 auto codes.
+    // RESYNC_SHRINK_HELD + 2 BRANCH_PROTECTION (bell-notification-center §9.3) = 25 auto codes.
     expect(
       autoCodes.length,
-      "spec §3 pins 23 auto codes (7 precedent AUTO + 14 NEW + GITHUB_BOT_LOGIN_MISSING + RESYNC_SHRINK_HELD)",
-    ).toBe(23);
+      "spec §3 + bell-notification-center §9.3 pins 25 auto codes (7 precedent AUTO + 14 NEW + GITHUB_BOT_LOGIN_MISSING + RESYNC_SHRINK_HELD + 2 BRANCH_PROTECTION)",
+    ).toBe(25);
 
     for (const code of autoCodes) {
       const lifecycle = ADMIN_ALERTS_LIFECYCLE[code];

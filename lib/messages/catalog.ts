@@ -1881,7 +1881,7 @@ export const MESSAGE_CATALOG = {
   },
   BRANCH_PROTECTION_DRIFT: {
     code: "BRANCH_PROTECTION_DRIFT",
-    resolution: "manual",
+    resolution: "auto",
     audience: "health",
     healthWeight: "degraded",
     dougSummary:
@@ -1899,7 +1899,7 @@ export const MESSAGE_CATALOG = {
   },
   BRANCH_PROTECTION_MONITOR_AUTH_FAILED: {
     code: "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
-    resolution: "manual",
+    resolution: "auto",
     audience: "health",
     healthWeight: "degraded",
     dougSummary:
