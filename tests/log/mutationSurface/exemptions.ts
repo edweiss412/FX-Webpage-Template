@@ -72,6 +72,10 @@ export const ADMIN_SURFACE_EXEMPTIONS: readonly AdminSurfaceExemption[] = [
   },
   { file: "app/admin/dev/actions.ts", fn: "getStagedResult", kind: "read-only" },
   { file: "app/admin/dev/actions.ts", fn: "listFixtures", kind: "read-only" },
+  // Bell notification center Task 12: mints a short-lived Realtime JWT and
+  // writes no state (no write-builder, no `.rpc(`, no `logAdminOutcome`) —
+  // nothing to observe.
+  { file: "app/api/admin/alerts/bell/token/route.ts", fn: "POST", kind: "read-only" },
 ];
 
 export type KnownUninstrumented = { file: string; fn: string; backlog: string };
