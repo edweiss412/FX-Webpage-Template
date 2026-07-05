@@ -81,6 +81,8 @@ alter table public.app_settings
     constraint app_settings_bell_feed_cap_range check (bell_feed_cap between 10 and 200);
 ```
 
+**Developer-gate scope, stated precisely:** the `/bell/config` route's `requireDeveloperIdentity` gate is a product-surface gate. `app_settings` pre-dates this feature with UPDATE granted to `authenticated` under the `is_admin()` RLS policy, so a non-developer admin could in principle PATCH these columns directly through PostgREST — the same accepted class as every existing `app_settings` column and as `BACKLOG.md:216` (`BL-HEALTH-RESOLVE-DB-LOCKDOWN` / the broader `BL-ADMIN-POSTGREST-DML-LOCKDOWN` class): Doug is the trusted business owner, not an adversary, and the worst-case outcome is a benign display-window change bounded by the CHECKs. DB-enforced developer gating for `app_settings` is explicitly deferred to that backlog class, not silently omitted.
+
 Apply-twice idempotent: `add column if not exists`, and each CHECK added via `alter table ... drop constraint if exists <name>` + `add constraint <name>` (the established idempotency form, AGENTS.md CHECK/enum matrix item d).
 
 ### 3.5 Migration checklist (validation parity)
@@ -192,7 +194,7 @@ Copy is derived exclusively through `lib/messages/lookup.ts` (`getRequiredDougFa
 - **Every admin**: exclude `HEALTH_CODES` (`lib/adminAlerts/audience.ts:14-16`) and `INBOX_ROUTED_CODES` (`lib/messages/adminSurface.ts:22-24` — SHEET_UNAVAILABLE / PARSE_ERROR_LAST_GOOD live in the needs-attention inbox with their own badge; including them would double-count and violate their auto-clear-only contract).
 - **Developers** (`viewerIsDeveloper`, threaded from `app/admin/layout.tsx` exactly as today): additionally include `HEALTH_CODES`.
 - **Info-severity codes are included for everyone** — deliberate change vs the banner/count exclusion (`DOUG_SURFACE_EXCLUDED_CODES` unions `INFO_SEVERITY_CODES`, `lib/messages/adminSurface.ts:41-43`): info codes are precisely the one-shot "X happened" notices (bucket A) that a notification feed exists for. The needs-attention badge and health rollup are untouched.
-- Scoping runs **server-side in the feed/count routes** (the browser never sees rows outside the viewer's tier).
+- Scoping runs **server-side in the feed/count routes** — the bell endpoints never *return* rows outside the viewer's tier, and the `read` endpoint refuses to write for invisible ids (§4). **Scope boundary, stated precisely:** this is product-surface routing, not a DB trust boundary. `admin_alerts` itself still GRANTs SELECT/UPDATE to any `is_admin()` caller via PostgREST — a pre-existing, **ratified acceptance** (`BACKLOG.md:216` `BL-HEALTH-RESOLVE-DB-LOCKDOWN`: "Doug is the trusted business owner, not an adversary; role filtering is UX not security"), unchanged by this feature and out of scope here. The bell's *new* tables are held to the stricter full-lockdown standard (§3.3) because they are new surface with no legacy consumers.
 
 ### 6.4 Badge count
 
@@ -354,4 +356,5 @@ No zombie flags: every row above has all four columns filled.
 - **Weekly auto-clear latency for BRANCH_PROTECTION_*** (§9) is accepted; the alternative is the premature-resolve trap.
 - **No `admin_alert_reads` GC in v1** (§1 non-goals).
 - **`AppHealthIndicator` stays separate** (D8) — do not propose folding it into the bell.
+- **DB-level tier enforcement on `admin_alerts` / `app_settings` is a ratified deferral** — `BACKLOG.md:216` (`BL-HEALTH-RESOLVE-DB-LOCKDOWN`, ACCEPTED: "Doug is the trusted business owner, not an adversary; role filtering is UX not security") and the broader `BL-ADMIN-POSTGREST-DML-LOCKDOWN` class it cross-references. The bell changes neither table's grants and adds no new PostgREST exposure (its own new tables ARE fully locked down, §3.3). Do not relitigate the pre-existing grants as a blocker for this feature (adversarial R3 findings 1–2 disposition).
 - Existing placeholders/contracts: inbox-routed codes' auto-clear-only rule (`lib/adminAlerts/resolveAdminAlert.ts:10-16`); fail-visible uncataloged-code posture (`lib/messages/adminSurface.ts:36-40`).
