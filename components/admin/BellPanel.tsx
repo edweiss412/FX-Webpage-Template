@@ -51,6 +51,7 @@ import {
   lookupHelpfulContext,
   messageFor,
 } from "@/lib/messages/lookup";
+import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { describeAlert } from "@/lib/adminAlerts/describeAlert";
 import { raisedAtSuffix } from "@/lib/time/raisedAt";
 import { retryWatchSubscriptionFormAction } from "@/app/admin/actions";
@@ -246,7 +247,9 @@ function ActiveRow({
               </span>
             </div>
           </div>
-          {message ? <p className="mt-0.5 text-sm text-text-subtle">{message}</p> : null}
+          {message ? (
+            <p className="mt-0.5 text-sm text-text-subtle">{renderEmphasis(message)}</p>
+          ) : null}
           <IdentityLine entry={entry} />
         </div>
       </button>
@@ -257,7 +260,7 @@ function ActiveRow({
           data-testid={`bell-context-${entry.alertId}`}
           className="mt-2 ml-5 wrap-break-word text-sm text-text-subtle"
         >
-          {helpful}
+          {renderEmphasis(helpful)}
         </p>
       ) : null}
       <div className="ml-5">
@@ -500,7 +503,9 @@ export function BellPanel({
   } else if (state.status === "error") {
     body = (
       <div data-testid="bell-error" className="rounded-md bg-surface-sunken px-4 py-8 text-center">
-        <p className="text-sm text-text">{getRequiredDougFacing("ALERT_BELL_FEED_FAILED")}</p>
+        <p className="text-sm text-text">
+          {renderEmphasis(getRequiredDougFacing("ALERT_BELL_FEED_FAILED"))}
+        </p>
         <button
           type="button"
           onClick={() => void load()}

@@ -12,7 +12,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "We couldn't check for alerts right now. Refresh in a moment.",
     "followUp": "Doug → refresh; if persistent, check Supabase admin_alerts RLS + grants",
-    "helpfulContext": "The shared admin_alerts head:true count (lib/admin/alertCount.ts) returned/threw an error. The NotifBell renders a degraded warn bell and the AlertBanner renders a degraded summary instead of hiding, so a broken count is visible.",
+    "helpfulContext": "The bell unseen-count read (loadBellUnseenCount, lib/admin/bellFeed.ts) returned/threw an error. The NotifBell renders a degraded warn bell instead of hiding, so a broken count is visible.",
   },
   "ADMIN_ALERT_NOT_FOUND": {
     "crewFacing": null,
