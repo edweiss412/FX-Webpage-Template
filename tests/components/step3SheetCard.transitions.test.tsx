@@ -114,9 +114,12 @@ describe("§4.5 transition audit — only the review modal animates; checkbox/co
     expect(modal.contains(box)).toBe(false);
   });
 
-  it("the count line uses tabular-nums (no layout shift) and carries no motion wrapper", () => {
-    // Variant B: the count lives in the sticky publish bar (Step3ReviewWithFinalize).
-    const { getByTestId } = render(
+  it("the footer center swaps idle hint ↔ tracking with no motion wrapper (count line removed)", () => {
+    // Tracking-in-center redesign (2026-07-05): the "N of M selected" count line
+    // is gone; the footer center shows a static idle hint while nothing publishes
+    // (the optimistic count now rides the Publish button label). The center is an
+    // instant conditional swap — no animation wrapper.
+    const { getByTestId, queryByTestId } = render(
       <Step3ReviewWithFinalize
         wizardSessionId={WSID}
         rows={[stagedRow("c1", "C1"), appliedRow("c2", "C2")]}
@@ -125,9 +128,10 @@ describe("§4.5 transition audit — only the review modal animates; checkbox/co
         initialUncheckedCleanCount={1}
       />,
     );
-    const count = getByTestId("wizard-step3-publish-count");
-    expect(count.className).toMatch(/tabular-nums/);
-    expect(count.className).not.toMatch(/animate|transition-\[height\]|motion/);
+    expect(queryByTestId("wizard-step3-publish-count")).toBeNull();
+    const center = getByTestId("wizard-step3-footer-center");
+    expect(getByTestId("wizard-step3-finish-hint")).toBeTruthy();
+    expect(center.className).not.toMatch(/animate|transition-\[height\]|motion/);
   });
 
   it("compound: toggling Select-all while the review modal is open keeps it open (independent regions)", async () => {
