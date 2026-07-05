@@ -552,6 +552,34 @@ describe("shared apply core is acquire-free (onboarding-fixups F1, spec §3.3)",
     expect(core).toMatch(/assertShowLockHeld|adoptShowLockHeld/);
   });
 
+  test("applyRescanDecisionUnderLock.ts is lock-free and touches neither app_settings nor wizard_finalize_checkpoints (spec §4.2)", () => {
+    // The extracted rescan core runs under finalize's ALREADY-HELD locks on a SEPARATE
+    // connection (finalize's outer tx holds app_settings + wizard_finalize_checkpoints FOR
+    // UPDATE). A per-row advisory acquisition OR any app_settings/checkpoints write here would
+    // cross-transaction deadlock. Pin: the source acquires NO advisory lock, writes NEITHER
+    // table, and calls no lock-taking RPC. (The lock acquisition + app_settings re-check +
+    // checkpoint reopen stay in rescanWizardSheet's wrapper / finalize's route.)
+    const core = stripComments(
+      readFileSync(join(ROOT, "lib/onboarding/applyRescanDecisionUnderLock.ts"), "utf8"),
+    );
+    expect(core, "applyRescanDecisionUnderLock must acquire no advisory lock (§4.2)").not.toMatch(
+      /pg_(?:try_)?advisory_xact_lock/i,
+    );
+    expect(core, "applyRescanDecisionUnderLock must call no lock-taking RPC").not.toMatch(
+      /\.rpc\(/,
+    );
+    // app_settings: neither read (for update) nor written from the core.
+    expect(
+      core,
+      "applyRescanDecisionUnderLock must not touch app_settings (§4.2 cross-tx deadlock)",
+    ).not.toMatch(/\bapp_settings\b/i);
+    // wizard_finalize_checkpoints: no insert/update/delete from the core.
+    expect(
+      core,
+      "applyRescanDecisionUnderLock must not write wizard_finalize_checkpoints (§4.2 cross-tx deadlock)",
+    ).not.toMatch(/(?:insert\s+into|update|delete\s+from)\s+public\.wizard_finalize_checkpoints/i);
+  });
+
   test("finalize routes hold the documented per-show advisory-lock topology (single holder per surface)", () => {
     // Plan 01-f1 §"Advisory-lock holder topology": the per-row tx wrapper (defaultWithRowTx) is
     // the ONLY holder for the apply surfaces. DEVIATION from the plan's literal `toHaveLength(1)`
