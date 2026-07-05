@@ -128,6 +128,13 @@ export async function fetchPerShowAlerts(
       message: `supabase client failed: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
+  // Read the per-show alert rows. This try/catch wraps ONLY the read so the
+  // supabase-derived await's catch stays adjacent to it (AGENTS.md §1.9 /
+  // tests/admin/_metaInfraContract catch-window). Identity resolution is a
+  // SEPARATE step below with its own try/catch — mirroring AlertBanner's Task
+  // 10 structure (read in its own try, resolve after) — so the additive
+  // resolve block never lengthens the read's try body.
+  let rows: Omit<AdminAlertRow, "identityText">[];
   try {
     const { data, error } = await supabase
       .from("admin_alerts")
@@ -141,65 +148,65 @@ export async function fetchPerShowAlerts(
         message: `admin_alerts query failed: ${error.message}`,
       };
     }
-    const rows = (data ?? []).map((row) => ({
+    rows = (data ?? []).map((row) => ({
       id: row.id as string,
       code: row.code as string,
       context: (row.context as Record<string, unknown> | null) ?? null,
       raised_at: row.raised_at as string,
       occurrence_count: (row.occurrence_count as number) ?? 1,
     }));
-
-    // At-a-glance identity (spec §3.1–§3.3), mirroring AlertBanner's Task 10
-    // wiring. The section's `showId` prop is authoritative: inject it as every
-    // row's ResolverRow `show_id` so a show-scoped code with NO drive_file_id
-    // still resolves the Show segment. Resolve ONCE (the resolver batches all
-    // rows into ≤3 reads). The resolver never throws on a returned DB error
-    // (it degrades to kind:"infra_error" with a partial/empty map), but wrap
-    // the call defensively anyway; on ANY fault (thrown OR infra_error) log a
-    // degraded event and fall back to no identity — but STILL return every
-    // alert (identity is additive, never gating).
-    const resolverRows = rows.map((r) => ({
-      id: r.id,
-      code: r.code,
-      show_id: showId,
-      occurrence_count: r.occurrence_count,
-      identityContext: projectIdentityContext(r.context, { includePii: true }),
-    }));
-    let identities = new Map<string, AlertIdentity>();
-    try {
-      const resolved = await resolveAlertIdentities(
-        resolverRows,
-        // The full SupabaseClient generic is deeper than the resolver's narrow
-        // SupabaseLike shape; TS can flag TS2589 on the direct pass. Cast
-        // through the resolver's own parameter type (production precedent:
-        // app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route.ts).
-        supabase as unknown as Parameters<typeof resolveAlertIdentities>[1],
-        { includePii: true },
-      );
-      if (resolved.kind === "infra_error") {
-        log.error("alert identity resolve degraded", {
-          source: "admin.perShowAlertSection",
-        });
-      } else {
-        identities = resolved.identities;
-      }
-    } catch (err) {
-      log.error("alert identity resolve degraded", {
-        source: "admin.perShowAlertSection",
-        error: err,
-      });
-    }
-    return rows.map((r) => {
-      const identity = identities.get(r.id);
-      const identityText = identity ? describeAlert(identity, { includePii: true }) : null;
-      return { ...r, identityText };
-    });
   } catch (err) {
     return {
       kind: "infra_error",
       message: `admin_alerts query threw: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
+
+  // At-a-glance identity (spec §3.1–§3.3), mirroring AlertBanner's Task 10
+  // wiring. The section's `showId` prop is authoritative: inject it as every
+  // row's ResolverRow `show_id` so a show-scoped code with NO drive_file_id
+  // still resolves the Show segment. Resolve ONCE (the resolver batches all
+  // rows into ≤3 reads). The resolver never throws on a returned DB error
+  // (it degrades to kind:"infra_error" with a partial/empty map), but wrap
+  // the call defensively anyway; on ANY fault (thrown OR infra_error) log a
+  // degraded event and fall back to no identity — but STILL return every
+  // alert (identity is additive, never gating).
+  const resolverRows = rows.map((r) => ({
+    id: r.id,
+    code: r.code,
+    show_id: showId,
+    occurrence_count: r.occurrence_count,
+    identityContext: projectIdentityContext(r.context, { includePii: true }),
+  }));
+  let identities = new Map<string, AlertIdentity>();
+  try {
+    const resolved = await resolveAlertIdentities(
+      resolverRows,
+      // The full SupabaseClient generic is deeper than the resolver's narrow
+      // SupabaseLike shape; TS can flag TS2589 on the direct pass. Cast
+      // through the resolver's own parameter type (production precedent:
+      // app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route.ts).
+      supabase as unknown as Parameters<typeof resolveAlertIdentities>[1],
+      { includePii: true },
+    );
+    if (resolved.kind === "infra_error") {
+      log.error("alert identity resolve degraded", {
+        source: "admin.perShowAlertSection",
+      });
+    } else {
+      identities = resolved.identities;
+    }
+  } catch (err) {
+    log.error("alert identity resolve degraded", {
+      source: "admin.perShowAlertSection",
+      error: err,
+    });
+  }
+  return rows.map((r) => {
+    const identity = identities.get(r.id);
+    const identityText = identity ? describeAlert(identity, { includePii: true }) : null;
+    return { ...r, identityText };
+  });
 }
 
 export async function PerShowAlertSection({
