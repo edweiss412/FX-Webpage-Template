@@ -113,13 +113,15 @@ that a **throwing** resolver does NOT collapse the maintenance run.
 ```ts
 // tests/notify/runMaintenance.botLogin.test.ts
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { resolveBotLoginAlertRow } from "@/lib/reports/botLoginAlert";
+import { resolveBotLoginAlertRow, BotLoginResolveInfraError } from "@/lib/reports/botLoginAlert";
 import { runMaintenance } from "@/lib/notify/runNotify";
+import { log } from "@/lib/log";
 
 // The default resolver reads process.env.GITHUB_BOT_LOGIN directly (M2), so every case
 // stubs the env explicitly and restores after — never rely on the ambient CI/dev shell.
 afterEach(() => {
   vi.unstubAllEnvs();
+  vi.restoreAllMocks();
 });
 
 // A minimal chainable fake of the service-role query builder used by the resolver.
@@ -152,30 +154,41 @@ describe("resolveBotLoginAlertRow (default cron resolver)", () => {
     vi.unstubAllEnvs();
   });
 
-  test("env set + returned error → throws typed (invariant 9)", async () => {
+  test("env set + returned error → throws the typed BotLoginResolveInfraError (invariant 9)", async () => {
     vi.stubEnv("GITHUB_BOT_LOGIN", "fxav-bot");
     const f = fakeClient({ error: { message: "boom" } });
-    await expect(resolveBotLoginAlertRow(() => f.client)).rejects.toThrow(/bot-login alert resolve failed: boom/);
-    vi.unstubAllEnvs();
+    await expect(resolveBotLoginAlertRow(() => f.client)).rejects.toBeInstanceOf(BotLoginResolveInfraError);
   });
 });
 
-describe("runMaintenance bot-login step is fail-open (H3 — never collapses the run)", () => {
-  test("a throwing resolveBotLoginAlert dep leaves the other step results intact", async () => {
-    const steps = await runMaintenance({
-      readHeartbeat: async () => ({ kind: "ok", heartbeat: new Date(0) }),
-      detectAndResolveStall: (async () => ({ kind: "ok", opened: 0, resolved: 0 })) as never,
-      resolveRecoveredSyncProblems: async () => ({ kind: "ok" }),
-      reconcileEmailDeliveryState: (async () => ({ kind: "ok", opened: 0, resolved: 0 })) as never,
-      getAlertOnSyncProblems: async () => ({ kind: "value", enabled: false }) as never,
-      getAlertOnAutoPublish: async () => ({ kind: "value", enabled: false }) as never,
-      getDailyReviewDigest: async () => ({ kind: "value", enabled: false }) as never,
-      configValid: () => ({ ok: true }) as never,
-      resolveBotLoginAlert: async () => {
-        throw new Error("resolve blew up");
-      },
-      now: new Date(0),
+// Shared happy-path deps for the runMaintenance-level tests.
+const okDeps = {
+  readHeartbeat: async () => ({ kind: "ok", heartbeat: new Date(0) }),
+  detectAndResolveStall: (async () => ({ kind: "ok", opened: 0, resolved: 0 })) as never,
+  resolveRecoveredSyncProblems: async () => ({ kind: "ok" }),
+  reconcileEmailDeliveryState: (async () => ({ kind: "ok", opened: 0, resolved: 0 })) as never,
+  getAlertOnSyncProblems: async () => ({ kind: "value", enabled: false }) as never,
+  getAlertOnAutoPublish: async () => ({ kind: "value", enabled: false }) as never,
+  getDailyReviewDigest: async () => ({ kind: "value", enabled: false }) as never,
+  configValid: () => ({ ok: true }) as never,
+  now: new Date(0),
+};
+
+describe("runMaintenance invokes the bot-login resolver and fails open (H1/H3)", () => {
+  test("the injected resolver IS called once (proves the dep is wired, not ignored — H1)", async () => {
+    const resolveBotLoginAlert = vi.fn(async () => {});
+    await runMaintenance({ ...okDeps, resolveBotLoginAlert });
+    expect(resolveBotLoginAlert).toHaveBeenCalledTimes(1);
+  });
+
+  test("a throwing resolver is invoked, catch-logged, and does NOT collapse the run (H1/H3)", async () => {
+    const warn = vi.spyOn(log, "warn").mockImplementation(() => {});
+    const resolveBotLoginAlert = vi.fn(async () => {
+      throw new BotLoginResolveInfraError(new Error("resolve blew up"));
     });
+    const steps = await runMaintenance({ ...okDeps, resolveBotLoginAlert });
+    expect(resolveBotLoginAlert).toHaveBeenCalledTimes(1); // invoked (H1 — not a forgotten wire)
+    expect(warn).toHaveBeenCalled(); // catch-logged, not silent (invariant 9)
     // The 3 pre-existing steps are preserved (NOT collapsed to a single generic stall
     // infra_error, which is what an uncaught throw + safeMaintenance would produce).
     expect(steps.map((s) => s.step)).toEqual(["stall", "recovery", "emailDelivery"]);
@@ -188,8 +201,12 @@ describe("runMaintenance bot-login step is fail-open (H3 — never collapses the
 });
 ```
 
-(Confirm the real toggle-result shape when writing — the live `runMaintenance` reads `.enabled` on
-each toggle, `runNotify.ts:184-189`; adapt the dep return literals to the true shape.)
+The **"called once"** test is the red proof that the invocation is actually wired (an implementation
+that adds `resolveBotLoginAlertRow` but forgets the `runMaintenance` call site fails HERE — H1); the
+throwing test proves the catch-log + non-collapse. Confirm the real toggle-result shape when writing —
+the live `runMaintenance` reads `.enabled` on each toggle (`runNotify.ts:184-189`); adapt the dep
+return literals to the true shape. (`vi.spyOn(log, "warn")` mirrors how `log.warn` is called elsewhere;
+if `log` is a frozen namespace, use the project's `setLogSink`/`resetLogSink` seam — `lib/log/index.ts:2`.)
 
 - [ ] **Step 6: Run test to verify it fails**
 
@@ -199,17 +216,31 @@ Expected: FAIL — `resolveBotLoginAlertRow` not exported; `resolveBotLoginAlert
 - [ ] **Step 7: Add the injectable default resolver, the dep, and the catch-logged invocation**
 
 In `lib/reports/botLoginAlert.ts`, add the service-role resolver (injectable client factory so the
-env gate + UPDATE shape + typed error are directly testable):
+env gate + UPDATE shape + typed error are directly testable). **Invariant 9 requires a *discriminable
+typed* fault, not a message-only `Error` (H2)** — mirror the codebase's established `*InfraError`
+pattern (`lib/github/issues.ts:43 GitHubIssueInfraError`, `lib/admin/watchRetryError.ts:11
+WatchRetryInfraError`, etc.):
 
 ```ts
-import { createSupabaseServiceRoleClient } from "@/lib/supabase/serviceRoleClient"; // adapt to the real factory path
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/server"; // real factory path (runNotify.ts:4)
 
-// alert-resolve-truthing §6.2: resolve the global GITHUB_BOT_LOGIN_MISSING row when the
-// env is configured. Direct admin_alerts UPDATE (the code is a NON_UPSERT producer, not in
-// AdminAlertCode). Invariant-9: destructure { error }; a returned error throws a typed fault
-// (the CRON invocation catch-logs it — see runNotify — so a failed resolve degrades to a
-// logged no-op for THIS cycle instead of collapsing the whole maintenance run). The env is
-// checked BEFORE the client is constructed, so an unset deployment makes zero Supabase calls.
+/** Typed infra fault for a failed bot-login alert resolve — invariant 9 discriminable class,
+ *  not a bare Error. The cron catch-logs it; callers can `instanceof`-narrow. */
+export class BotLoginResolveInfraError extends Error {
+  readonly cause: unknown;
+  constructor(cause: unknown) {
+    super(`bot-login alert resolve failed: ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = "BotLoginResolveInfraError";
+    this.cause = cause;
+  }
+}
+
+// alert-resolve-truthing §6.2: resolve the global GITHUB_BOT_LOGIN_MISSING row when the env is
+// configured. Direct admin_alerts UPDATE (the code is a NON_UPSERT producer, not in AdminAlertCode).
+// Invariant-9: destructure { error }; a returned error throws the typed BotLoginResolveInfraError
+// (the CRON invocation catch-logs it — see runNotify — so a failed resolve degrades to a logged
+// no-op for THIS cycle instead of collapsing the whole maintenance run). The env is checked BEFORE
+// the client is constructed, so an unset deployment makes zero Supabase calls.
 export async function resolveBotLoginAlertRow(
   makeClient: () => ReturnType<typeof createSupabaseServiceRoleClient> = createSupabaseServiceRoleClient,
 ): Promise<void> {
@@ -223,16 +254,19 @@ export async function resolveBotLoginAlertRow(
     .is("resolved_at", null)
     .select("id");
   if (error) {
-    throw new Error(`bot-login alert resolve failed: ${error.message ?? String(error)}`);
+    throw new BotLoginResolveInfraError(error);
   }
 }
 ```
 
-In `lib/notify/runNotify.ts`, add to `MaintenanceDeps` and import the default:
+In `lib/notify/runNotify.ts`, add the imports (the live file imports neither `log` nor the resolver —
+M1: `runNotify.ts` has NO `log` import today, so the catch-log below needs it added explicitly) and
+the new `MaintenanceDeps` member:
 
 ```ts
-import { resolveBotLoginAlertRow } from "@/lib/reports/botLoginAlert";
-// ...
+import { log } from "@/lib/log"; // NEW — not previously imported in runNotify.ts (M1)
+import { resolveBotLoginAlertRow } from "@/lib/reports/botLoginAlert"; // NEW
+// ...inside MaintenanceDeps:
   reconcileEmailDeliveryState?: typeof reconcileEmailDeliveryState;
   resolveBotLoginAlert?: () => Promise<void>; // alert-resolve-truthing §6.2
 ```
@@ -838,8 +872,14 @@ Run `/impeccable critique` AND `/impeccable audit` on the diff for `HealthAlerts
 
 - [ ] **Step 4: Commit any impeccable fixes**
 
+Stage **only** the files the gate actually changed — never `git add -A` (this worktree shares the
+dirty-tree model; `-A` can sweep unrelated changes into the commit — M2). List the touched files
+explicitly, e.g.:
+
 ```bash
-git add -A && git commit --no-verify -m "fix(admin): impeccable dual-gate findings on alert auto-clear surfaces"
+git add components/admin/telemetry/HealthAlertsPanel.tsx components/admin/PerShowAlertSection.tsx components/admin/AlertBanner.tsx
+# + any additional file an impeccable fix touched — add each by exact path (git status --porcelain to enumerate)
+git commit --no-verify -m "fix(admin): impeccable dual-gate findings on alert auto-clear surfaces"
 ```
 
 ---
