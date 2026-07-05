@@ -704,7 +704,7 @@ Consumes: `syncStatusBucket` (`lib/admin/syncStatus.ts:20`), `driveConnectionHea
 
 and the fall-through comment at `:68` updates to note `shrink_held<=6h` also falls through to age tiers (crew see valid last-good; honest framing is "sync delayed / showing last confirmed version," not "error").
 
-**Step 3d — run green:** `pnpm vitest run tests/admin tests/components/shared && pnpm typecheck`.
+**Step 3d — run green:** `pnpm vitest run tests/admin tests/components/StaleFooter.test.tsx && pnpm typecheck` (`tests/admin` covers `syncStatus`/`driveConnectionHealth`; the crew-facing footer regression lives at `tests/components/StaleFooter.test.tsx` — NOT `tests/components/shared`).
 
 **Step 3e — commit:** `feat(admin): classify shrink_held as a degraded sync tier (admin + crew footer)`.
 
@@ -859,7 +859,7 @@ it("accept POST threads acceptShrink + expectedModifiedTime into runManualSyncFo
 
 > `_request.json()` on a bodyless POST throws → the `catch` yields `{}` (generic re-sync). Confirm `runManualSyncForShow`'s `ManualSyncResult` union already includes the `shrink_held` shape (it returns `ProcessOneFileResult`, extended in Task 2) so the `.detail`/`.heldModifiedTime` reads typecheck.
 
-**Step 5d — run green:** `pnpm vitest run tests/app/admin tests/sync && pnpm typecheck`.
+**Step 5d — run green:** `pnpm vitest run tests/api/admin-sync-route.test.ts tests/sync && pnpm typecheck` (the route `shrink_held` 200 contract + body-threading test lives at `tests/api/admin-sync-route.test.ts` — NOT `tests/app/admin`; `tests/sync` covers the `runManualSyncForShow` signature threading).
 
 **Step 5e — commit:** `feat(admin): version-bound accept for held re-sync shrinkage (route + manual-sync signature)`.
 
