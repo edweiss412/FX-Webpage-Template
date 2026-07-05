@@ -28,6 +28,12 @@
  *         card, keeps Publish within the viewport, and baselines its idle row.
  *   DI-4: at 360px the card does not overflow and its right cluster wraps below
  *         the title.
+ *   DI-5: at 320px the sticky bar and its idle row (including the full-label
+ *         Publish button, the widest item) do not overflow the viewport. The
+ *         AccentButton label has no `whitespace-nowrap`, so under width pressure
+ *         it wraps and the button shrinks vertically rather than overflowing —
+ *         this pins that (spec §5 "the bar stacks on mobile"; a regression that
+ *         forced the label nowrap would push the button past the viewport edge).
  *
  * Runs via tests/e2e/standalone.config.ts (no webServer / Supabase).
  */
@@ -272,6 +278,29 @@ test.describe("Step-3 review page — layout dimensions (spec §7)", () => {
       expect(m).toBeGreaterThanOrEqual(barBox.top - 0.5);
       expect(m).toBeLessThanOrEqual(barBox.bottom + 0.5);
     }
+  });
+
+  test("DI-5: the sticky bar and its idle row do not overflow the viewport at 320px", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 320, height: 800 });
+    await page.goto(baseUrl);
+    const barEl = page.getByTestId("wizard-step3-publish-bar");
+    // The bar itself must not scroll horizontally (its children wrap, they do not
+    // overflow). The bar spans the container, which spans the viewport at 320px.
+    const { scrollW, clientW } = await barEl.evaluate((b) => ({
+      scrollW: b.scrollWidth,
+      clientW: b.clientWidth,
+    }));
+    expect(scrollW).toBeLessThanOrEqual(clientW + 0.5);
+    // The Publish button — the widest idle-row item (its label is the full
+    // "Publish N shows & finish setup") — stays within the viewport's right edge.
+    // Bites: forcing the label `whitespace-nowrap` pushes this right edge past vw.
+    const vw = page.viewportSize()!.width;
+    const pubRight = await page
+      .getByTestId("wizard-finalize-button")
+      .evaluate((el) => el.getBoundingClientRect().right);
+    expect(pubRight).toBeLessThanOrEqual(vw + 0.5);
   });
 
   test("DI-4: at 360px the card does not overflow and its right cluster wraps below the title", async ({
