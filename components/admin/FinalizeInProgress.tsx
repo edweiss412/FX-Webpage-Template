@@ -114,10 +114,7 @@ export function FinalizeInProgress({
           className="flex flex-col gap-3 rounded-md border border-border bg-warning-bg p-tile-pad text-warning-text"
         >
           <div className="flex flex-col gap-1">
-            <h3
-              id="finalize-in-progress-unresolved-heading"
-              className="text-lg font-semibold"
-            >
+            <h3 id="finalize-in-progress-unresolved-heading" className="text-lg font-semibold">
               Sheets that need review first
             </h3>
             <p className="max-w-prose text-sm">
@@ -159,9 +156,9 @@ export function FinalizeInProgress({
           Trouble finishing?
         </h3>
         <p className="max-w-prose text-sm text-text-subtle">
-          If this setup has been paused for a long time and you would rather start fresh, you can
-          discard it. This deletes the shows from this run only; live shows from your other folder
-          are not touched.
+          If setup is stuck and you would rather start over, you can discard it. Shows you already
+          published in this run stay live and your other live shows are never touched. Only the
+          unfinished part is cleared.
         </p>
         <CleanupAbandonedFinalizeButton sessionId={sessionId} />
       </section>
