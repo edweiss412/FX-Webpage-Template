@@ -96,9 +96,10 @@ describe("OAuth callback claim-stamp hook", () => {
         "claimed_at_millis",
         "crew_member_id",
         "show_id",
+        "user_email",
         "user_email_hash",
       ]);
-      expect(JSON.stringify(alert.context)).not.toContain("crew@fxav.test");
+      expect(alert.context.user_email).toBe("crew@fxav.test");
       expect(alert.context.user_email_hash).toMatch(/^[0-9a-f]{64}$/);
     }
     expect(response.headers.get("set-cookie") ?? "").not.toContain("__Host-fxav_picker");
