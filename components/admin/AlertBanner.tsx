@@ -39,6 +39,9 @@ import { formatBoundedCount } from "@/lib/format/count";
 import { firstSentence, stripEmphasis } from "@/lib/messages/collapsedSummary";
 import { ESCALATION_THRESHOLD } from "@/lib/drive/watchErrors";
 import { resolveAlertAction } from "@/lib/adminAlerts/alertActions";
+import { projectIdentityContext } from "@/lib/adminAlerts/projectIdentityContext";
+import { resolveAlertIdentities } from "@/lib/adminAlerts/resolveAlertIdentities";
+import { describeAlert } from "@/lib/adminAlerts/describeAlert";
 
 import { AlertBannerRouteBoundary } from "./AlertBannerRouteBoundary";
 import { ResolveAlertButton } from "./ResolveAlertButton";
@@ -56,7 +59,10 @@ type AlertRow = {
    * escalation status line (spec §3.4): occurrence_count >= ESCALATION_THRESHOLD.
    */
   occurrence_count: number;
-  shows: { slug: string } | Array<{ slug: string }> | null;
+  shows:
+    | { slug: string; title: string | null }
+    | Array<{ slug: string; title: string | null }>
+    | null;
 };
 
 // Codes whose catalog entry is `severity: 'info'` are operator notices
@@ -115,7 +121,7 @@ export async function AlertBanner() {
     try {
       let query = supabase
         .from("admin_alerts")
-        .select("id, code, raised_at, show_id, context, occurrence_count, shows(slug)")
+        .select("id, code, raised_at, show_id, context, occurrence_count, shows(slug, title)")
         .is("resolved_at", null);
       if (INFO_SEVERITY_CODES.length > 0) {
         query = query.not(
@@ -307,6 +313,52 @@ export async function AlertBanner() {
       } as const)
     : {};
 
+  // Task 10 (at-a-glance identity, spec §3.1–§3.3): resolve the alert's entity
+  // identity (crew / show / sheet / email) from its projected context. This is
+  // the ADMIN surface, so PII is allowed (includePii: true). The resolver never
+  // throws on a returned DB error — it degrades to kind:"infra_error" with a
+  // partial/empty map — but we still wrap the whole thing in try/catch mirroring
+  // the banner's defensive posture (this component is on the PERSISTENT admin
+  // layout; a throw would take down every admin route). On any fault we log +
+  // render the alert without an identity line (never crash). `describeAlert`
+  // returns null for global / empty / unknown-code identities, which suppresses
+  // BOTH identity elements below.
+  let identityText: string | null = null;
+  try {
+    const identityContext = projectIdentityContext(alert.context, { includePii: true });
+    const resolverRow = {
+      id: alert.id,
+      code: alert.code,
+      show_id: alert.show_id,
+      occurrence_count: alert.occurrence_count,
+      identityContext,
+    };
+    const resolved = await resolveAlertIdentities(
+      [resolverRow],
+      // The full SupabaseClient generic is deeper than the resolver's narrow
+      // SupabaseLike shape; TS can flag TS2589 on the direct pass. Cast through
+      // the resolver's own parameter type (production precedent:
+      // app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route.ts).
+      supabase as unknown as Parameters<typeof resolveAlertIdentities>[1],
+      { includePii: true },
+    );
+    if (resolved.kind === "infra_error") {
+      log.error("alert identity resolve degraded", {
+        source: "admin.alertBanner",
+        alertId: alert.id,
+      });
+    }
+    const identity = resolved.identities.get(alert.id) ?? null;
+    identityText = identity ? describeAlert(identity, { includePii: true }) : null;
+  } catch (err) {
+    log.error("alert identity resolve threw", {
+      source: "admin.alertBanner",
+      error: err,
+      alertId: alert.id,
+    });
+    identityText = null;
+  }
+
   return (
     <AlertBannerRouteBoundary alertId={alert.id}>
       <section
@@ -340,7 +392,10 @@ export async function AlertBanner() {
               §7 0.5px vertical-center invariant (T7). items-center centers the icon/
               message/badge/caret within that 44px; the action cell (self-start, also
               ≥44px) starts at the same row-1 top, so all centers align (F-P32). */}
-          <summary className="col-start-1 row-start-1 min-h-tap-min min-w-0 flex items-center gap-3 cursor-pointer list-none [&::-webkit-details-marker]:hidden">
+          <summary
+            data-testid="admin-alert-summary"
+            className="col-start-1 row-start-1 min-h-tap-min min-w-0 flex items-center gap-3 cursor-pointer list-none [&::-webkit-details-marker]:hidden"
+          >
             <TriangleAlert aria-hidden data-testid="admin-alert-icon" className="size-5 shrink-0" />
             {/* Collapsed line renders the catalog dougFacing STRING inline (NOT
                 <ErrorExplainer>, which is a block + <p> and would be invalid
@@ -377,22 +432,55 @@ export async function AlertBanner() {
           </summary>
         </details>
 
+        {/* AT-A-GLANCE IDENTITY (Task 10) — the always-visible collapsed line.
+            Rendered as a SECTION-level grid sibling of <details> at
+            `col-start-1 row-start-2` (its OWN row, between the summary row-1 and
+            the panel row-3), NOT inside the 44px `min-h-tap-min` summary flex, so:
+            (a) it is visible in BOTH collapsed and expanded states (it is never
+            gated by the details-open CSS rule, unlike the panel);
+            (b) it does not inflate the summary's shared 44px tap-target height
+            (Task 12's §7 vertical-center invariant is measured on the summary);
+            (c) it never overlaps the panel — the panel now sits at row-start-3,
+            and when collapsed the panel is display:none so row-3 collapses.
+            Muted sub-line tone matches the panel's helpful-context copy
+            (`text-sm text-text-subtle`), no new color token. Suppressed entirely
+            when describeAlert → null (global / empty / unknown code). */}
+        {identityText != null ? (
+          <p
+            data-testid="admin-alert-identity"
+            className="col-start-1 row-start-2 min-w-0 mt-2 text-sm text-text-subtle"
+          >
+            {identityText}
+          </p>
+        ) : null}
+
         {/* PANEL — a SECTION-level grid sibling of <details> (NOT a child), placed
-            col-span-full / row-2 so it spans the full banner content width. It must
-            live OUTSIDE <details> because a grid item that reaches the grid through
-            a display:contents box does not honor col-span-full in Chromium (it
-            collapses to column 1 — the F18 defect). Open/closed visibility is driven
-            by the pure-CSS `details:not([open]) ~ [data-testid="admin-alert-panel"]
-            { display:none }` sibling rule in globals.css — no-JS reachable, and the
-            general-sibling combinator matches because this panel follows <details>
-            in source order. (The resolve <form> stays in the separate action cell,
-            so the §3.3 / T4 contract — no form inside <details> — is unaffected.) */}
+            col-span-full / row-3 so it spans the full banner content width and sits
+            below the identity line (row-2). It must live OUTSIDE <details> because a
+            grid item that reaches the grid through a display:contents box does not
+            honor col-span-full in Chromium (it collapses to column 1 — the F18
+            defect). Open/closed visibility is driven by the pure-CSS
+            `details:not([open]) ~ [data-testid="admin-alert-panel"] { display:none }`
+            sibling rule in globals.css — no-JS reachable, and the general-sibling
+            combinator matches because this panel follows <details> in source order.
+            (The resolve <form> stays in the separate action cell, so the §3.3 / T4
+            contract — no form inside <details> — is unaffected.) */}
         <div
           data-testid="admin-alert-panel"
-          className="col-span-full row-start-2 min-w-0 mt-3 border-t border-border pt-3"
+          className="col-span-full row-start-3 min-w-0 mt-3 border-t border-border pt-3"
         >
           {/* full (un-truncated) message — ErrorExplainer again, no truncation wrapper */}
           <ErrorExplainer code={alert.code} surface="admin" {...contextParams} />
+          {/* Task 10: the same at-a-glance identity string, echoed inside the
+              expanded panel above the helpful-context copy. Distinct test id from
+              the collapsed line (Codex P10) so a test that scans one node cannot be
+              satisfied by the other when the panel is open. Suppressed with the
+              collapsed line when describeAlert → null. */}
+          {identityText != null ? (
+            <p data-testid="admin-alert-identity-panel" className="mt-2 text-sm text-text-subtle">
+              {identityText}
+            </p>
+          ) : null}
           {/*
               Explanatory copy, surfaced inline in the expanded panel. Replaces
               the former <HelpAffordance> nested "What does this mean?" disclosure
