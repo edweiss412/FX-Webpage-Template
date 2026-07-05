@@ -291,6 +291,8 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
   // Task 10 — bell notification center open/read routes.
   { file: "app/api/admin/alerts/bell/open/route.ts", fn: "POST", code: "BELL_OPENED" },
   { file: "app/api/admin/alerts/bell/read/route.ts", fn: "POST", code: "BELL_READ_MARKED" },
+  // Task 11 — bell notification center developer-gated config route.
+  { file: "app/api/admin/alerts/bell/config/route.ts", fn: "POST", code: "BELL_CONFIG_UPDATED" },
 ];
 
 export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
@@ -358,6 +360,8 @@ export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
   // Bell notification center Task 10.
   "BELL_OPENED",
   "BELL_READ_MARKED",
+  // Bell notification center Task 11.
+  "BELL_CONFIG_UPDATED",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing

@@ -259,6 +259,8 @@ import { handleReapStaleSessions } from "@/app/api/admin/onboarding/reap-stale-s
 // ── Task 10 (bell notification center): open/read routes ───────────────────
 import { POST as bellOpenPOST } from "@/app/api/admin/alerts/bell/open/route";
 import { POST as bellReadPOST } from "@/app/api/admin/alerts/bell/read/route";
+import { POST as bellConfigPOST } from "@/app/api/admin/alerts/bell/config/route";
+import { BELL_LIMITS } from "@/lib/admin/bellConfig";
 
 // ── inline file-local recorder (single-file contract; no cross-file state) ──
 const recorded = new Set<string>(); // "file::fn::code"
@@ -1014,6 +1016,39 @@ describe("Task 10 — bell open/read routes observe success only", () => {
       bellReadPOST(bellReadReq(BELL_ALERT_ID, new Date().toISOString())),
     );
     expect(failCodes).not.toContain("BELL_READ_MARKED");
+  });
+});
+
+// ── Task 11 (bell notification center): developer-gated config route ───────
+const BELL_CONFIG_ROUTE = "app/api/admin/alerts/bell/config/route.ts";
+
+function bellConfigReq(historyDays: number, feedCap: number): NextRequest {
+  return new NextRequest("https://x.test/api/admin/alerts/bell/config", {
+    method: "POST",
+    body: JSON.stringify({ historyDays, feedCap }),
+  });
+}
+
+describe("Task 11 — bell config route observes success only", () => {
+  test("config route emits BELL_CONFIG_UPDATED on a committed update; nothing on an update error", async () => {
+    const historyDays = BELL_LIMITS.historyDays.default;
+    const feedCap = BELL_LIMITS.feedCap.default;
+    serviceRoleClientImpl.current = () =>
+      makeClient({ from: { data: [{ id: "default" }], error: null } });
+    const codes = await observeSuccessCodes(() =>
+      bellConfigPOST(bellConfigReq(historyDays, feedCap)),
+    );
+    expect(codes).toContain("BELL_CONFIG_UPDATED");
+    recordAdminOutcomeBehavior({
+      file: BELL_CONFIG_ROUTE,
+      fn: "POST",
+      code: "BELL_CONFIG_UPDATED",
+    });
+
+    serviceRoleClientImpl.current = () =>
+      makeClient({ from: { data: null, error: { message: "boom" } } });
+    const failCodes = await observeCodes(() => bellConfigPOST(bellConfigReq(historyDays, feedCap)));
+    expect(failCodes).not.toContain("BELL_CONFIG_UPDATED");
   });
 });
 

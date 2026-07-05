@@ -83,6 +83,10 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   // bell_mark_read RPCs, same chain shape as their read siblings above.
   { path: "app/api/admin/alerts/bell/open/route.ts", chain: ["requireAdmin"] },
   { path: "app/api/admin/alerts/bell/read/route.ts", chain: ["requireAdmin"] },
+  // Task 11: developer-gated config route (developer ⟹ admin, spec §2) — same
+  // chokepoint as reap-stale-sessions above, requireDeveloper REPLACES
+  // requireAdmin rather than stacking.
+  { path: "app/api/admin/alerts/bell/config/route.ts", chain: ["requireDeveloper"] },
   { path: "app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts", chain: ["requireAdmin"] },
   { path: "app/api/admin/show/[slug]/data-quality/ignore/route.ts", chain: ["requireAdmin"] },
   { path: "app/api/admin/show/[slug]/data-quality/unignore/route.ts", chain: ["requireAdmin"] },
