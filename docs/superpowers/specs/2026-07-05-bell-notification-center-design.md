@@ -63,7 +63,7 @@ create table public.admin_bell_state (
 ```
 
 - Badge count = number of feed entries (post-grouping, post-audience-scope) whose `activity_at > opened_at` (no row ⇒ `-infinity`, i.e. everything counts). `activity_at = greatest(latest_row.raised_at, latest_row.last_seen_at)`. `resolved_at` deliberately does **not** feed `activity_at` — resolving is not a notification and must not re-badge.
-- **Snapshot-safe watermark**: the watermark never advances past the feed snapshot the viewer was shown (within-snapshot no-loss; the cap boundary is separately defined and accepted in §6.4). `/bell/feed` captures `seenThrough` server-side **before** running its queries (a `select now()` against the same client, so it cannot postdate any row the snapshot missed) and returns it. The client's subsequent `/bell/open` POST carries that `seenThrough`, and the upsert stamps it **monotonically**: `on conflict (admin_email) do update set opened_at = greatest(admin_bell_state.opened_at, excluded.opened_at)`, and the insert/update value is the client-supplied `seenThrough`, rejected with 400 if absent, non-ISO, or in the future (small skew tolerance ≤60s). An alert raised between the feed snapshot and the open POST therefore stays `activity_at > opened_at` and re-badges on the next count refresh — it can never be silently absorbed by the open gesture. (Race identified in adversarial review R2; ratified fix.)
+- **Snapshot-safe watermark**: the watermark never advances past the feed snapshot the viewer was shown (within-snapshot no-loss; the cap boundary is separately defined and accepted in §6.4). `seenThrough` is computed **inside `get_bell_feed_rows` itself** — the RPC returns `now()` (the transaction timestamp of the very snapshot the rows were read from) as a column, and the feed route passes it through. Same-snapshot capture means it can neither postdate a row the snapshot missed (post-snapshot commits carry later timestamps on the same DB clock) nor predate a row the snapshot rendered (a rendered row's `activityAt` was written by a transaction that committed before this snapshot, hence ≤ its `now()`), so opening acknowledges exactly the rendered snapshot — no post-open re-badge of rows the viewer just saw, and no absorption of rows they didn't (adversarial R9 finding 1 refinement of the R2 fix). The client's subsequent `/bell/open` POST carries that `seenThrough`, and the upsert stamps it **monotonically**: `on conflict (admin_email) do update set opened_at = greatest(admin_bell_state.opened_at, excluded.opened_at)`, and the insert/update value is the client-supplied `seenThrough`, rejected with 400 if absent, non-ISO, or in the future (small skew tolerance ≤60s). An alert raised between the feed snapshot and the open POST therefore stays `activity_at > opened_at` and re-badges on the next count refresh — it can never be silently absorbed by the open gesture. (Race identified in adversarial review R2; ratified fix.)
 
 ### 3.3 Access control for both new tables
 
@@ -75,15 +75,18 @@ All access — reads **and** writes — flows only through server routes using t
 
 ```sql
 alter table public.app_settings
-  add column if not exists bell_history_days integer not null default 30
-    constraint app_settings_bell_history_days_range check (bell_history_days between 1 and 365),
-  add column if not exists bell_feed_cap integer not null default 50
-    constraint app_settings_bell_feed_cap_range check (bell_feed_cap between 10 and 200);
+  add column if not exists bell_history_days integer not null default 30,
+  add column if not exists bell_feed_cap integer not null default 50;
+alter table public.app_settings
+  drop constraint if exists app_settings_bell_history_days_range,
+  add constraint app_settings_bell_history_days_range check (bell_history_days between 1 and 365),
+  drop constraint if exists app_settings_bell_feed_cap_range,
+  add constraint app_settings_bell_feed_cap_range check (bell_feed_cap between 10 and 200);
 ```
 
 **Developer-gate scope, stated precisely:** the `/bell/config` route's `requireDeveloperIdentity` gate is a product-surface gate. `app_settings` pre-dates this feature with UPDATE granted to `authenticated` under the `is_admin()` RLS policy, so a non-developer admin could in principle PATCH these columns directly through PostgREST — the same accepted class as every existing `app_settings` column and as `BACKLOG.md:216` (`BL-HEALTH-RESOLVE-DB-LOCKDOWN` / the broader `BL-ADMIN-POSTGREST-DML-LOCKDOWN` class): Doug is the trusted business owner, not an adversary, and the worst-case outcome is a benign display-window change bounded by the CHECKs. DB-enforced developer gating for `app_settings` is explicitly deferred to that backlog class, not silently omitted.
 
-Apply-twice idempotent: `add column if not exists`, and each CHECK added via `alter table ... drop constraint if exists <name>` + `add constraint <name>` (the established idempotency form, AGENTS.md CHECK/enum matrix item d).
+Apply-twice idempotent: column creation and named-CHECK recreation are separate statements (above) so a reapply against existing columns still recreates the constraints — the established form (AGENTS.md CHECK/enum matrix item d; live precedent `supabase/migrations/20260520000911_add_email_canonical_checks.sql:12-25`).
 
 ### 3.5 Migration checklist (validation parity)
 
@@ -159,7 +162,7 @@ Capping raw resolution events before grouping would let one flappy key consume t
 - **Active arm**: all `resolved_at is null` rows — already entry-grain, guaranteed by the partial unique index — ordered by `greatest(raised_at, last_seen_at) desc`, `limit p_cap`.
 - **History arm**: `distinct on (coalesce(show_id::text,''), code)` over rows with `resolved_at >= now() - p_history_days`, keeping the latest resolution per key (`order by key, resolved_at desc`), excluding keys present in the active arm (their history folds into the active entry's occurrence sum instead), ordered by `resolved_at desc`, `limit p_cap`.
 - **Occurrence aggregate**: one CTE computes, per key, `resolved_occurrence_sum = sum(occurrence_count)` over resolved rows inside the window; returned as a column on both arms.
-- Returns one row per entry: latest-row fields (`id, code, show_id, context, occurrence_count, raised_at, last_seen_at, resolved_at`), `slug` (join `shows`), `resolved_occurrence_sum`, `is_active`, plus `arm_hit_cap` flags so the route can set `truncated` without a second read.
+- Returns one row per entry: latest-row fields (`id, code, show_id, context, occurrence_count, raised_at, last_seen_at, resolved_at`), `slug` (join `shows`), `resolved_occurrence_sum`, `is_active`, plus `arm_hit_cap` flags so the route can set `truncated` without a second read, and `seen_through` (`now()` — the snapshot's transaction timestamp, §3.2) on every row.
 - Audience scoping happens **inside the RPC, before the caps**: the route derives the viewer-appropriate exclusion set from the catalog-derived TS constants (§6.3) and passes it as the third argument (`code <> all(p_excluded_codes)` applied in both arms **inside** the CTEs, before each arm's `limit p_cap` — a SQL test fails if filtering moves after either cap). The route passes exactly the §6.3 sets: non-developer → `HEALTH_CODES ∪ INBOX_ROUTED_CODES`; developer → `INBOX_ROUTED_CODES` (inbox-routed codes stay out of *every* tier's bell — the needs-attention inbox owns them). An empty array excludes nothing and has **no current caller** (reserved; nothing in this feature passes it); NULL is rejected (the function raises rather than silently skipping the filter). The §17 audience-matrix test pins that a developer feed never contains an inbox-routed code. Scoping after the cap would let a dev-only health flood starve Doug's feed; passing the set in keeps the catalog-derived TS constants the single source of truth (no SQL copy of the code lists to drift).
 
 | Unit | Grain | Contract |
@@ -339,7 +342,7 @@ No zombie flags: every row above has all four columns filled.
 | `tests/log/adminOutcomeBehavior.test.ts` | executable success-branch proof for `BELL_OPENED` / `BELL_READ_MARKED` / `BELL_CONFIG_UPDATED` |
 | `tests/observe/_metaReadOnlyQueryCore.test.ts` | N/A — no `lib/observe/query/**` changes |
 | `tests/auth/advisoryLockRpcDeadlock.test.ts` | N/A — no `pg_advisory*` surface touched (bell tables are not in the invariant-2 mutate set) |
-| `tests/reports/_metaInfraContract.test.ts` | applies to the §9 resolver if it lands in a scanned file; plan checks `META_SOURCE_FILES` |
+| `tests/reports/_metaInfraContract.test.ts` | N/A — `scripts/verify-branch-protection.ts` is not in `META_SOURCE_FILES` (`tests/reports/_metaInfraContract.test.ts:102-110`). The §9 resolver's new UPDATE call instead carries the same inline `// not-subject-to-meta: <reason>` exemption as the file's existing RPC call (`scripts/verify-branch-protection.ts:69` precedent) AND still honors invariant 9 substantively: full `{ data, error }` destructure inside try/catch, both boundaries degrading to the tolerated skip-log path (§9.3) |
 
 ## 17. Testing strategy
 
