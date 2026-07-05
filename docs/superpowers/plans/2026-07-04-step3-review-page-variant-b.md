@@ -170,12 +170,18 @@ it("preserves reachability: reached=link, unreached=disabled span", () => {
   expect(screen.getByTestId("wizard-step-indicator-1").tagName).toBe("A");
   expect(screen.getByTestId("wizard-step-indicator-3").getAttribute("aria-disabled")).toBe("true");
 });
+it("renders 2 connector lines between the 3 pills, filled after a done step", () => {
+  render(<StepIndicator step={3} maxReachedStep={3} />);
+  const connectors = screen.getAllByTestId("wizard-step-connector");
+  expect(connectors).toHaveLength(2);                       // between 1-2 and 2-3
+  expect(connectors[0].className).toContain("bg-border-strong"); // left pill (1) is done → filled
+});
 ```
 (`StepIndicator` is not exported today — export it from `OnboardingWizard.tsx`, or if the file's test imports the whole wizard, assert via the wizard render. Simplest: `export function StepIndicator` so the unit test imports it directly. Confirm no name clash.)
 
 - [ ] **Step 2: Run to verify it fails** — `pnpm vitest run tests/components/onboardingWizardNav.test.tsx` → FAIL (labels absent / not exported).
 
-- [ ] **Step 3: Implement** — rewrite `StepIndicator`. Keep the map over `[1,2,3]`, the `isVisited`/`isActive` logic, testids, aria, and Link/span split. Add: a `LABELS` array; render each step as `<div class="flex items-center gap-2">[pill][label]</div>`; a connector `<span class="h-px flex-1 max-w-[60px] {done?'bg-border-strong':'bg-border'}" aria-hidden>` between steps; on done steps render `<Check aria-hidden className="size-3.5"/>` in place of the number; done pill classes `bg-surface border border-border-strong text-text-subtle`, active `bg-accent text-accent-text`, reachable-todo `bg-surface-sunken text-text-subtle hover:text-text-strong`, unreached `bg-surface-sunken text-text-faint`; labels `hidden sm:inline` for non-active steps, active label always visible + `text-text-strong font-semibold`. Wrap in the same `<nav aria-label="Onboarding progress">` and keep the sr-only "Step {step} of 3". Import `Check` from `lucide-react`.
+- [ ] **Step 3: Implement** — rewrite `StepIndicator`. Keep the map over `[1,2,3]`, the `isVisited`/`isActive` logic, testids, aria, and Link/span split. Add: a `LABELS` array; render each step as `<div class="flex items-center gap-2">[pill][label]</div>`; a connector `<span data-testid="wizard-step-connector" className="h-px flex-1 max-w-[60px] {leftPillDone?'bg-border-strong':'bg-border'}" aria-hidden>` between steps (2 total, rendered when `n < 3` inside the map — `leftPillDone = n < step`); on done steps render `<Check aria-hidden className="size-3.5"/>` in place of the number; done pill classes `bg-surface border border-border-strong text-text-subtle`, active `bg-accent text-accent-text`, reachable-todo `bg-surface-sunken text-text-subtle hover:text-text-strong`, unreached `bg-surface-sunken text-text-faint`; labels `hidden sm:inline` for non-active steps, active label always visible + `text-text-strong font-semibold`. Wrap in the same `<nav aria-label="Onboarding progress">` and keep the sr-only "Step {step} of 3". Import `Check` from `lucide-react`.
 
 - [ ] **Step 4: Run to verify it passes** — `pnpm vitest run tests/components/onboardingWizardNav.test.tsx` → PASS. Then the wizard render suite: `pnpm vitest run tests/components/admin/OnboardingWizard.test.tsx`.
 
@@ -308,20 +314,27 @@ it("meta line shows client · dates · venue from parseResult.show, omitting abs
 // Demoted has TWO live sub-branches (Step3SheetCard.tsx:325-373): RESCAN_REVIEW_REQUIRED →
 // RescanReviewBanner (`-rescan-review`), every OTHER non-null code → NotPublishableNote
 // (`-not-publishable`). BOTH suppress the checkbox and are non-selectable. Cover both.
-it("demoted RESCAN → no checkbox, 'Needs another look' chip, rescan banner, keeps -title-link", () => {
+it("demoted RESCAN → no checkbox, 'Needs another look' chip, rescan banner, title-link, AND a Review (-more) modal trigger", () => {
   const q = render(<Step3SheetCard row={{ ...stagedRow(parseResult({ warnings: [] })), lastFinalizeFailureCode: "RESCAN_REVIEW_REQUIRED" }} wizardSessionId={WSID} />);
   expect(q.queryByTestId(`wizard-step3-checkbox-${DFID}`)).toBeNull();
   expect(within(card(q)).getByTestId(`wizard-step3-card-${DFID}-review-chip`)).toHaveTextContent("Needs another look");
   expect(q.getByTestId(`wizard-step3-rescan-review-${DFID}`)).toBeInTheDocument();
   expect(q.getByTestId(`wizard-step3-card-${DFID}-title-link`)).toBeInTheDocument(); // §4.3/§9
+  // §4.3: demoted keeps the modal trigger (the shared `-more` button, label "Review").
+  const more = q.getByTestId(`wizard-step3-card-${DFID}-more`);
+  expect(more).toHaveTextContent("Review");
+  fireEvent.click(more);
+  return waitFor(() => expect(q.getByRole("dialog")).toBeInTheDocument());
 });
-it("demoted NON-RESCAN (e.g. WIZARD_SESSION_SUPERSEDED) → no checkbox, chip, NotPublishableNote (not rescan), keeps -title-link", () => {
+it("demoted NON-RESCAN (WIZARD_SESSION_SUPERSEDED) → no checkbox, chip, NotPublishableNote (not rescan), title-link, Review (-more) trigger", async () => {
   const q = render(<Step3SheetCard row={{ ...stagedRow(parseResult({ warnings: [] })), lastFinalizeFailureCode: "WIZARD_SESSION_SUPERSEDED" }} wizardSessionId={WSID} />);
   expect(q.queryByTestId(`wizard-step3-checkbox-${DFID}`)).toBeNull();
   expect(within(card(q)).getByTestId(`wizard-step3-card-${DFID}-review-chip`)).toHaveTextContent("Needs another look");
   expect(q.getByTestId(`wizard-step3-card-${DFID}-not-publishable`)).toBeInTheDocument();
   expect(q.queryByTestId(`wizard-step3-rescan-review-${DFID}`)).toBeNull(); // non-RESCAN → no rescan link
   expect(q.getByTestId(`wizard-step3-card-${DFID}-title-link`)).toBeInTheDocument();
+  fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));       // modal trigger preserved
+  await waitFor(() => expect(q.getByRole("dialog")).toBeInTheDocument());
 });
 it("no-details (parseResult null) → couldn't-read card, no checkbox/chip/button, keeps -title-link", () => {
   const q = render(<Step3SheetCard row={stagedRow(null, { driveFileName: "broken.sheet" })} wizardSessionId={WSID} />);
@@ -340,7 +353,7 @@ Fixture helpers to add (mirror existing builders; each warning is `{ code: "FIEL
 
 - [ ] **Step 2: Run to verify it fails** — `pnpm vitest run tests/components/step3SheetCard.test.tsx` → FAIL (old DOM).
 
-- [ ] **Step 3: Implement** — restructure the selectable render path. **All three variant roots must be `<article data-testid={`wizard-step3-card-${dfid}`}>`** (so the Playwright `article[data-testid^="wizard-step3-card-"]` selectors resolve exactly one element per card). Keep the top guards in order: no-details (`!pr || !pr.show`) returns the existing `data-no-details` card (restyle to compact, keep `-summary` + `SheetTitleLink`/`-title-link`); demoted (`isFinalizeDemoted`, `Step3SheetCard.tsx:237`) returns a non-selectable card with the non-numeric "Needs another look" chip and NO checkbox, keeping BOTH existing sub-branches: `isDirtyRescan` (`=== "RESCAN_REVIEW_REQUIRED"`) → `RescanReviewBanner` (`-rescan-review`); `!isDirtyRescan && isFinalizeDemoted` (any other code) → `NotPublishableNote` (`-not-publishable`, `Step3SheetCard.tsx:373`). Both **must keep `SheetTitleLink` (`-title-link`)** (already at `Step3SheetCard.tsx:397`; do not replace it with the plain `-title`); otherwise the compact selectable card (plain `-title`, checkbox with centered `-checkbox-box`, meta line, chip when `needsLook`, View/Review):
+- [ ] **Step 3: Implement** — restructure the selectable render path. **All three variant roots must be `<article data-testid={`wizard-step3-card-${dfid}`}>`** (so the Playwright `article[data-testid^="wizard-step3-card-"]` selectors resolve exactly one element per card). Keep the top guards in order: no-details (`!pr || !pr.show`) returns the existing `data-no-details` card (restyle to compact, keep `-summary` + `SheetTitleLink`/`-title-link`); demoted (`isFinalizeDemoted`, `Step3SheetCard.tsx:237`) returns a non-selectable card with the non-numeric "Needs another look" chip and NO checkbox, keeping BOTH existing sub-branches: `isDirtyRescan` (`=== "RESCAN_REVIEW_REQUIRED"`) → `RescanReviewBanner` (`-rescan-review`); `!isDirtyRescan && isFinalizeDemoted` (any other code) → `NotPublishableNote` (`-not-publishable`, `Step3SheetCard.tsx:373`). Both demoted sub-branches **must keep `SheetTitleLink` (`-title-link`)** (already at `Step3SheetCard.tsx:397`; do not replace it with the plain `-title`) **and the shared `-more` modal trigger** (label "Review" since demoted ⇒ needsLook) — the `-more` button + `Step3ReviewModal` live in the shared render body (`Step3SheetCard.tsx:519-570`, NOT variant-gated), so a demoted row keeps read-only modal access alongside its banner/note; do not drop it. Otherwise the compact selectable card (plain `-title`, checkbox with centered `-checkbox-box`, meta line, chip when `needsLook`, View/Review):
 
 ```tsx
 // selectable compact row
@@ -761,13 +774,13 @@ it("T8-e: the bar renders its own Back (→ ?step=2), instantly present with the
 
 ### Task 9: Impeccable v3 dual-gate (invariant 8)
 
-**Files:** none (evaluation). Findings + dispositions recorded in the PR body / `DEFERRED.md`.
+**Files:** Create `docs/superpowers/plans/2026-07-04-step3-review-page-variant-b-closeout.md` — this standalone feature has no milestone handoff doc, so this close-out doc IS the handoff record required by AGENTS.md invariant 8. Its **§12 "UI quality gate"** section records BOTH commands' findings + dispositions (fixed / deferred-with-rationale). HIGH/CRITICAL deferrals ALSO get a `DEFERRED.md` entry; the PR body links to this §12.
 
 - [ ] **Step 1** — run `/impeccable critique` on the diff (PRODUCT.md → DESIGN.md → register → preflight gates), affected surfaces = all changed `components/**` + the design-token usage.
 - [ ] **Step 2** — run `/impeccable audit` on the same diff.
-- [ ] **Step 3** — fix every HIGH/CRITICAL finding (re-run the affected task's tests after each fix), or record an explicit `DEFERRED.md` entry with rationale. Common watch: accent-budget on the Review buttons (must stay non-accent), warn contrast in dark mode, stepper label overflow, sticky-bar occlusion, focus-visible on the new Back link + Review buttons.
+- [ ] **Step 3** — record every finding from BOTH commands in the close-out doc's **§12 "UI quality gate"** with a disposition; fix every HIGH/CRITICAL (re-run the affected task's tests after each fix) OR add an explicit `DEFERRED.md` entry + a §12 line with rationale. Common watch: accent-budget on the Review buttons (must stay non-accent), warn contrast in dark mode, stepper label overflow, sticky-bar occlusion, focus-visible on the new Back link + Review buttons, the double-"Review" affordance on demoted RESCAN cards (banner reapply-link + modal button).
 - [ ] **Step 4** — re-run `pnpm vitest run` on all changed component suites to confirm fixes didn't regress.
-- [ ] **Step 5: Commit** — `fix(crew-page): impeccable critique+audit findings` (only if fixes were made).
+- [ ] **Step 5: Commit** — `docs(handoff): impeccable UI-gate findings §12` + (if code fixes were made) `fix(crew-page): impeccable critique+audit findings`.
 
 ---
 
