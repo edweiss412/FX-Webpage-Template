@@ -272,6 +272,29 @@ const infraRegistry = [
       "admin_alerts health-detail loader (spec §6.6): ONE partition per call (weight → DEGRADED_HEALTH_CODES | NOTICE_HEALTH_CODES), .in('code', set).is('resolved_at',null).order('raised_at',desc).range(page*SIZE, page*SIZE+SIZE) requesting SIZE+1 rows; destructure { data, error }; construction throw / returned {error} / any await throw → { kind:'infra_error' } (array-shape read; the panel degrades VISIBLE, never a silent empty). Bounded via .range.",
   },
   {
+    // Bell notification center (2026-07-05-bell-notification-center-design
+    // §6.4): loadBellFeed/loadBellUnseenCount share one `runBellPipeline`
+    // (app_settings bounds read + get_bell_feed_rows RPC), so both helpers
+    // are registered against the shared surface. This shared mock's rpc()
+    // is not table/fn-keyed, so the RPC-throw path can't be driven from
+    // here — it is behaviorally covered directly in
+    // tests/admin/bellFeed.test.ts ("rpc threw → infra_error" /
+    // "rpc returned error → infra_error"), alongside construction-throw,
+    // app_settings error/throw, and an identity-resolve-fault case. This
+    // registry row pins what the shared mock CAN exercise: construction
+    // throw and the app_settings .from() throw.
+    helper: "loadBellFeed",
+    path: "lib/admin/bellFeed.ts",
+    contract:
+      "bell feed pipeline (runBellPipeline: app_settings bounds read, then get_bell_feed_rows RPC); destructure { data, error }; construction throw / app_settings returned {error} / app_settings await throw → { kind: 'infra_error' }. RPC-throw path covered in tests/admin/bellFeed.test.ts (shared mock's rpc() is not table-keyed).",
+  },
+  {
+    helper: "loadBellUnseenCount",
+    path: "lib/admin/bellFeed.ts",
+    contract:
+      "shares runBellPipeline with loadBellFeed (spec §6.4 — badge/panel can never disagree); same infra-fault surface: construction throw / app_settings returned {error} / app_settings await throw → { kind: 'infra_error' }. RPC-throw path covered in tests/admin/bellFeed.test.ts.",
+  },
+  {
     helper: "getActiveWatchedFolder",
     path: "lib/appSettings/getWatchedFolderId.ts",
     contract:
@@ -850,6 +873,42 @@ describe("META §B Supabase call-boundary contract", () => {
       infraMock.throwOnFromTable = "admin_alerts";
       const { loadHealthAlerts } = await import("@/lib/admin/healthAlerts");
       expect(await loadHealthAlerts({ weight: "notice", page: 0 })).toEqual({
+        kind: "infra_error",
+      });
+    });
+  });
+
+  // Bell notification center pipeline (spec §6.4). loadBellFeed and
+  // loadBellUnseenCount share one runBellPipeline (app_settings bounds read,
+  // then the get_bell_feed_rows RPC). This shared mock's rpc() isn't
+  // table/fn-keyed, so only the construction-throw and app_settings-throw
+  // paths are pinned here; the RPC-throw path is behaviorally covered in
+  // tests/admin/bellFeed.test.ts.
+  describe("loadBellFeed", () => {
+    test("server-client construction throw → { kind: 'infra_error' }", async () => {
+      infraMock.throwOnConstruct = true;
+      const { loadBellFeed } = await import("@/lib/admin/bellFeed");
+      expect(await loadBellFeed("admin@example.com", false)).toEqual({ kind: "infra_error" });
+    });
+    test("from('app_settings') throw → { kind: 'infra_error' }", async () => {
+      infraMock.throwOnFromTable = "app_settings";
+      const { loadBellFeed } = await import("@/lib/admin/bellFeed");
+      expect(await loadBellFeed("admin@example.com", false)).toEqual({ kind: "infra_error" });
+    });
+  });
+
+  describe("loadBellUnseenCount", () => {
+    test("server-client construction throw → { kind: 'infra_error' }", async () => {
+      infraMock.throwOnConstruct = true;
+      const { loadBellUnseenCount } = await import("@/lib/admin/bellFeed");
+      expect(await loadBellUnseenCount("admin@example.com", false)).toEqual({
+        kind: "infra_error",
+      });
+    });
+    test("from('app_settings') throw → { kind: 'infra_error' }", async () => {
+      infraMock.throwOnFromTable = "app_settings";
+      const { loadBellUnseenCount } = await import("@/lib/admin/bellFeed");
+      expect(await loadBellUnseenCount("admin@example.com", false)).toEqual({
         kind: "infra_error",
       });
     });
