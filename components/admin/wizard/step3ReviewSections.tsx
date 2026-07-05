@@ -425,8 +425,7 @@ function ModalSectionChrome({
   // cells instead of INFO!A1. Absent anchor / null region / missing key →
   // buildSheetDeepLink falls back to `#gid=0` (whole first tab). Excluded: the
   // Diagrams sub-block (no dfid) and the "Report an issue" section (not a region).
-  const sheetRegion =
-    chrome.sectionId !== undefined ? SECTION_REGION_MAP[chrome.sectionId] : null;
+  const sheetRegion = chrome.sectionId !== undefined ? SECTION_REGION_MAP[chrome.sectionId] : null;
   const sheetAnchor = sheetRegion ? chrome.sourceAnchors?.[sheetRegion] : undefined;
   const sheetHref =
     chrome.dfid && chrome.sectionId !== undefined && chrome.sectionId !== "report"

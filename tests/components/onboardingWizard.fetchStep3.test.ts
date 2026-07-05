@@ -291,7 +291,12 @@ describe("fetchStep3Data — source_anchors threading (bug #316 item 3)", () => 
   test("the pending_syncs SELECT requests the source_anchors column", async () => {
     seedManifest([{ drive_file_id: "dfid-1", name: "One.xlsx", status: "staged" }]);
     seed.dataByTable["pending_syncs"] = [
-      { staged_id: "s-1", drive_file_id: "dfid-1", parse_result: PARSE_RESULT_FIXTURE, source_anchors: ANCHORS },
+      {
+        staged_id: "s-1",
+        drive_file_id: "dfid-1",
+        parse_result: PARSE_RESULT_FIXTURE,
+        source_anchors: ANCHORS,
+      },
     ];
     const { fetchStep3Data } = await import("@/components/admin/OnboardingWizard");
     await fetchStep3Data(SESSION_ID);
@@ -303,7 +308,12 @@ describe("fetchStep3Data — source_anchors threading (bug #316 item 3)", () => 
   test("a staged row's Step3Row.sourceAnchors equals the seeded source_anchors object", async () => {
     seedManifest([{ drive_file_id: "dfid-1", name: "One.xlsx", status: "staged" }]);
     seed.dataByTable["pending_syncs"] = [
-      { staged_id: "s-1", drive_file_id: "dfid-1", parse_result: PARSE_RESULT_FIXTURE, source_anchors: ANCHORS },
+      {
+        staged_id: "s-1",
+        drive_file_id: "dfid-1",
+        parse_result: PARSE_RESULT_FIXTURE,
+        source_anchors: ANCHORS,
+      },
     ];
     const { fetchStep3Data } = await import("@/components/admin/OnboardingWizard");
     const result = await fetchStep3Data(SESSION_ID);
@@ -316,7 +326,12 @@ describe("fetchStep3Data — source_anchors threading (bug #316 item 3)", () => 
   test("a non-object source_anchors coerces to {} (defensive, mirrors parse_result guard)", async () => {
     seedManifest([{ drive_file_id: "dfid-1", name: "One.xlsx", status: "staged" }]);
     seed.dataByTable["pending_syncs"] = [
-      { staged_id: "s-1", drive_file_id: "dfid-1", parse_result: PARSE_RESULT_FIXTURE, source_anchors: "corrupt" },
+      {
+        staged_id: "s-1",
+        drive_file_id: "dfid-1",
+        parse_result: PARSE_RESULT_FIXTURE,
+        source_anchors: "corrupt",
+      },
     ];
     const { fetchStep3Data } = await import("@/components/admin/OnboardingWizard");
     const result = await fetchStep3Data(SESSION_ID);
@@ -332,7 +347,12 @@ describe("fetchStep3Data — source_anchors threading (bug #316 item 3)", () => 
     // implementation would regress applied cards to #gid=0.
     seedManifest([{ drive_file_id: "dfid-applied", name: "Applied.xlsx", status: "applied" }]);
     seed.dataByTable["pending_syncs"] = [
-      { staged_id: "s-a", drive_file_id: "dfid-applied", parse_result: PARSE_RESULT_FIXTURE, source_anchors: ANCHORS },
+      {
+        staged_id: "s-a",
+        drive_file_id: "dfid-applied",
+        parse_result: PARSE_RESULT_FIXTURE,
+        source_anchors: ANCHORS,
+      },
     ];
     const { fetchStep3Data } = await import("@/components/admin/OnboardingWizard");
     const result = await fetchStep3Data(SESSION_ID);

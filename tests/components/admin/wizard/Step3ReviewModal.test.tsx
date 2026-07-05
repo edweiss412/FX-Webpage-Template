@@ -2508,7 +2508,9 @@ describe("Step3ReviewModal — per-section deep link anchors (bug #316 item 3)",
   test("crew section link targets the crew region's range (derived from the fixture anchor)", () => {
     const d = withAnchors();
     const { q } = renderModal({ d });
-    const link = q.getByTestId(`wizard-step3-card-${DFID}-section-crew-sheetlink`) as HTMLAnchorElement;
+    const link = q.getByTestId(
+      `wizard-step3-card-${DFID}-section-crew-sheetlink`,
+    ) as HTMLAnchorElement;
     // Expected href DERIVED from the fixture anchor via the real builder — not hardcoded.
     expect(link.getAttribute("href")).toBe(buildSheetDeepLink(DFID, CREW_ANCHOR));
     // Concrete failure mode: the wizard passing NO anchor → href would be `${base}#gid=0`
@@ -2521,7 +2523,9 @@ describe("Step3ReviewModal — per-section deep link anchors (bug #316 item 3)",
     // transport → transportation: proves the map is consulted (not sourceAnchors[sectionId]).
     const d = withAnchors();
     const { q } = renderModal({ d });
-    const link = q.getByTestId(`wizard-step3-card-${DFID}-section-transport-sheetlink`) as HTMLAnchorElement;
+    const link = q.getByTestId(
+      `wizard-step3-card-${DFID}-section-transport-sheetlink`,
+    ) as HTMLAnchorElement;
     expect(link.getAttribute("href")).toBe(buildSheetDeepLink(DFID, TRANSPORT_ANCHOR));
     expect(link.getAttribute("href")).toContain("range=A49%3AD61");
     // A `sourceAnchors[chrome.sectionId]` bug → sourceAnchors["transport"] undefined → #gid=0.
@@ -2531,7 +2535,9 @@ describe("Step3ReviewModal — per-section deep link anchors (bug #316 item 3)",
   test("a section whose region has no anchor falls back to #gid=0", () => {
     const d = withAnchors(); // `hotels` region absent from ANCHORS
     const { q } = renderModal({ d });
-    const link = q.getByTestId(`wizard-step3-card-${DFID}-section-hotels-sheetlink`) as HTMLAnchorElement;
+    const link = q.getByTestId(
+      `wizard-step3-card-${DFID}-section-hotels-sheetlink`,
+    ) as HTMLAnchorElement;
     expect(link.getAttribute("href")).toBe(buildSheetDeepLink(DFID)); // #gid=0 fallback
   });
 
