@@ -55,7 +55,12 @@ describe("FinalizeInProgress unresolved-sheet list", () => {
         sessionId="s1"
         batchesCompleted={1}
         unresolved={[
-          { driveFileId: "D2", failureCode: null, displayName: "D2", reApplyHref: "/admin/onboarding/staged/s1/D2" },
+          {
+            driveFileId: "D2",
+            failureCode: null,
+            displayName: "D2",
+            reApplyHref: "/admin/onboarding/staged/s1/D2",
+          },
         ]}
       />,
     );

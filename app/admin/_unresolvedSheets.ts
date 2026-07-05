@@ -21,8 +21,17 @@ import { createSupabaseServerClient } from "@/lib/supabase/server";
 // PLUS 'staged' — a demoted row is reset to 'staged' by demotePending while its
 // pending_syncs.last_finalize_failure_code is stamped, so a 'staged' row is
 // unresolved iff its failure code is non-null (filtered in JS below).
-const QUERIED_STATUSES = ["hard_failed", "live_row_conflict", "discard_retryable", "staged"] as const;
-const BLOCKING_STATUSES = new Set<string>(["hard_failed", "live_row_conflict", "discard_retryable"]);
+const QUERIED_STATUSES = [
+  "hard_failed",
+  "live_row_conflict",
+  "discard_retryable",
+  "staged",
+] as const;
+const BLOCKING_STATUSES = new Set<string>([
+  "hard_failed",
+  "live_row_conflict",
+  "discard_retryable",
+]);
 
 export type UnresolvedSheet = {
   driveFileId: string;
@@ -78,7 +87,10 @@ export async function readUnresolvedSheets(
       .eq("wizard_session_id", wizardSessionId)
       .in("status", QUERIED_STATUSES as unknown as string[]);
     if (error) {
-      return { kind: "infra_error", message: `readUnresolvedSheets: manifest query failed: ${error.message}` };
+      return {
+        kind: "infra_error",
+        message: `readUnresolvedSheets: manifest query failed: ${error.message}`,
+      };
     }
     manifestRows = (data ?? []) as ManifestRow[];
   } catch (err) {
@@ -101,7 +113,10 @@ export async function readUnresolvedSheets(
       .eq("wizard_session_id", wizardSessionId)
       .in("drive_file_id", driveFileIds);
     if (error) {
-      return { kind: "infra_error", message: `readUnresolvedSheets: pending query failed: ${error.message}` };
+      return {
+        kind: "infra_error",
+        message: `readUnresolvedSheets: pending query failed: ${error.message}`,
+      };
     }
     pendingRows = (data ?? []) as PendingRow[];
   } catch (err) {

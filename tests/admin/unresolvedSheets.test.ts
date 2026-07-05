@@ -32,7 +32,10 @@ function clientReturning(
     chain.in = self;
     chain.then = (resolve: (v: unknown) => void) => {
       if (table === "onboarding_scan_manifest") {
-        resolve({ data: opts.manifestError ? null : manifestRows, error: opts.manifestError ?? null });
+        resolve({
+          data: opts.manifestError ? null : manifestRows,
+          error: opts.manifestError ?? null,
+        });
       } else {
         resolve({ data: opts.pendingError ? null : pendingRows, error: opts.pendingError ?? null });
       }
@@ -82,16 +85,22 @@ describe("readUnresolvedSheets", () => {
         [{ drive_file_id: "D_HARD", last_finalize_failure_code: null, parse_result: null }],
       ),
     );
-    const rows = (await readUnresolvedSheets(SESSION)) as { driveFileId: string; displayName: string }[];
+    const rows = (await readUnresolvedSheets(SESSION)) as {
+      driveFileId: string;
+      displayName: string;
+    }[];
     expect(rows.map((r) => r.driveFileId)).toEqual(["D_HARD"]);
     // no parse_result title → fall back to driveFileId
     expect(rows[0]!.displayName).toBe("D_HARD");
   });
 
   it("returns an empty array when nothing is unresolved", async () => {
-    mockClient(clientReturning([{ drive_file_id: "D_CLEAN", status: "staged" }], [
-      { drive_file_id: "D_CLEAN", last_finalize_failure_code: null, parse_result: null },
-    ]));
+    mockClient(
+      clientReturning(
+        [{ drive_file_id: "D_CLEAN", status: "staged" }],
+        [{ drive_file_id: "D_CLEAN", last_finalize_failure_code: null, parse_result: null }],
+      ),
+    );
     const res = await readUnresolvedSheets(SESSION);
     expect(res).toEqual([]);
   });
