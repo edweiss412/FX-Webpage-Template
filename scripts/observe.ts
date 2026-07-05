@@ -107,7 +107,10 @@ export async function runObserve(
   if (command === "alerts") {
     const r = await deps.queryAlerts(parsed.alertFilters);
     if (r.kind === "infra_error") return fail(r.message, parsed.json);
-    return { stdout: formatAlerts(r.alerts, parsed.json), stderr: "", exitCode: 0 };
+    const stderr = parsed.revealEmail
+      ? "warning: --reveal-email shows raw canonical email (PII) in output\n"
+      : "";
+    return { stdout: formatAlerts(r.alerts, parsed.json), stderr, exitCode: 0 };
   }
   if (command === "changes") {
     const r = await deps.queryChangeLog(parsed.changeFilters);
@@ -131,7 +134,7 @@ export async function runObserve(
 
 const USAGE = `pnpm observe <events|alerts|cron|changes|codes|tail> [flags]
   events   [--show <uuid>] [--level info,warn,error] [--code C] [--source S] [--request R] [--q text] [--since 1h|24h|7d|all] [--limit N] [--json] [--env local|validation|prod]
-  alerts   [--open] [--code C] [--limit N] [--json] [--env …]
+  alerts   [--open] [--code C] [--limit N] [--reveal-email] [--json] [--env …]
   cron     [--json] [--env …]
   changes  [--show <uuid>] [--since …] [--limit N] [--json] [--env …]
   codes    [CODE]                (offline; --env ignored)
