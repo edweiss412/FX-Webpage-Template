@@ -14,10 +14,12 @@ import ts from "typescript";
 import {
   collectSurfaceUnits,
   moduleDefaultExports,
+  moduleHasUseServer,
   parse,
   scanBody,
   type SurfaceUnit,
 } from "./mutationSurface/enumerate";
+import { walkSourceFiles } from "@/lib/messages/__internal__/walkSourceFiles";
 import { AUDITABLE_MUTATIONS, type AuditableMutation } from "./_auditableMutations";
 import {
   ADMIN_SURFACE_EXEMPTIONS,
@@ -600,6 +602,26 @@ describe("default-export ban in 'use server' modules", () => {
       '"use server";\nexport async function mutate(){}\n',
     );
     expect(defaultExportOffense(join(root, "lib/x/actions.ts"))).toBeNull();
+  });
+
+  test("live tree: no 'use server' module currently uses a default export", () => {
+    // Codex whole-diff R3: the fixture cases above prove `defaultExportOffense`
+    // detects the offense, but `evaluateUnit` (the per-unit live pass) never calls
+    // it — and a module whose ONLY export is a default produces ZERO surface units,
+    // so it would slip the "zero unaccounted" assertion entirely. Mirror the
+    // route-multiplicity live sweep: walk every `"use server"` module in the tree
+    // and assert the ban holds, so a new default-exporting server-action module
+    // fails HERE by default (the default-export ban is meaningless if never applied
+    // to real code).
+    const useServerFiles = walkSourceFiles(["app", "lib", "components"])
+      .filter(
+        (f) => !f.includes("/node_modules/") && !f.includes("/.next/") && !f.includes("/.git/"),
+      )
+      .filter((f) => moduleHasUseServer(parse(f)));
+    const offenses = useServerFiles
+      .map((f) => defaultExportOffense(f))
+      .filter((o): o is string => o !== null);
+    expect(offenses, offenses.join("\n")).toEqual([]);
   });
 });
 
