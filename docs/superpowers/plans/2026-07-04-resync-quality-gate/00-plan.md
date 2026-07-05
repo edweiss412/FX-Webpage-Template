@@ -21,7 +21,7 @@ Mirror the existing **hard-fail retain path** with a distinct outcome + code:
 - **Sync-problem peer code** — `RESYNC_SHRINK_HELD` joins `SYNC_PROBLEM_CODES` (→ digest push + realtime tier + recovery-sweep membership). `syncProblemCodeForStatus('shrink_held')` + `recoveryResolution.ts` (TS `STATUS_TO_CODE` + SQL `CASE`) map the status. Auto-resolve is **free** through the existing `resolveStaleSyncProblemAlerts_unlocked(tx, showId, null)` calls on every clean apply. **Never** `resolveAdminAlert` (it throws for inbox codes).
 - **§12.4 admin-alert lockstep** — new catalog code `RESYNC_SHRINK_HELD` (`adminSurface:"inbox"`, mirror `PARSE_ERROR_LAST_GOOD`).
 - **Manual accept flow** — route body params `acceptShrink`/`expectedModifiedTime` threaded through `runManualSyncForShow` → `processOneFile_unlocked` → `runPhase1`; route special-cases `shrink_held` (HTTP 200, `ok:true`) **before** the `"code" in result` error branch; `ReSyncButton` renders a confirm prompt with the shrink counts + a version-echoing "Apply reduced version" re-submit.
-- **Status consumers** — `syncStatus.ts`, `driveConnectionHealth.ts`, and crew-facing `StaleFooter.tsx` gain a `'shrink_held'` case.
+- **Status consumers** — `syncStatus.ts`, `driveConnectionHealth.ts`, and crew-facing `StaleFooter.tsx` gain a `'shrink_held'` case (all keyed on `last_sync_status`). The cron **outcome** classifier `lib/cron/classifyProcessed.ts` also gains a `shrink_held` branch (a distinct `held` tally, NOT a failure — Codex plan-R8), so a held show never falsely marks a cron run `partial`.
 - **Alert action link** — `alertActions.ts` registers `RESYNC_SHRINK_HELD` → "Review & re-sync" → `/admin/show/<slug>#resync`; `page.tsx` wraps the `ReSyncButton` mount in `id="resync"`.
 
 **No DB migration** — `shows.last_sync_status` is unconstrained `text` (`20260501000000_initial_public_schema.sql:23`). **No advisory-lock topology change** — hold + alert raise both run inside the existing per-show `withShowLock` cron tx; `discardStaged` untouched.
@@ -52,6 +52,8 @@ Next.js 16, Supabase (Postgres), TypeScript (strict), vitest (unit + DB-backed v
 |---|---|
 | `lib/sync/phase1.ts` | `Phase1Args` gains `acceptShrink?: boolean` + `expectedModifiedTime?: string`. `Phase1Result` gains the `shrink_held` variant. `Phase1Tx` gains `updateShowShrinkHeld`. New `describeShrink(items, prior, next)` helper. Hold branch (before the `triggeredReviewItems`/`mi11`/`pass` logic) + version-bound accept gate + `updateShowShrinkHeld` call. |
 | `lib/sync/runScheduledCronSync.ts` | `syncProblemCodeForStatus` gains the `'shrink_held'` case. `ProcessOneFileResult` gains the `shrink_held` variant. New caller branch (raise `RESYNC_SHRINK_HELD`, resolve stale peers, keep own). File-loop post-commit revalidation for `shrink_held`. `updateShowShrinkHeld` tx-method impl (mirrors `updateShowParseError` at `:809`). Thread `acceptShrink`/`expectedModifiedTime` from `ProcessOneFileDeps` into the `runPhase1` args (`:2766-2775`). |
+| `lib/data/showCacheTag.ts` | **No code change** — `revalidateShowFromResult` (`:38`) is a `showId`-presence gate, not an outcome switch, so a `shrink_held` result (carries `showId`) buts the crew cache tag automatically in the file loop (`runScheduledCronSync.ts:3148`). Its **doc comment enumeration** of showId-carrying outcomes (`applied + parse_error + source_gone + existing-show hard_fail`, `:20-28`) is now stale — extend it to name `shrink_held` (comment-only; preempts a stale-citation finding). Comprehensive-coupling audit (Codex R6/R7/R8 same-vector re-analysis) confirmed there is NO exhaustive/`assertNever` switch over the outcome union and NO test pinning the full outcome set, so the new variant breaks no typecheck/exact-set assertion. |
+| `lib/cron/classifyProcessed.ts` | **Codex plan-R8 (missed outcome classifier).** `classifyProcessed` is conservative — any outcome not in `{applied, stage, skipped/asset_recovery}` falls to `else → failed++`, and `summarizeSync.ts:15` turns `counts.failed > 0` into cron `outcome: "partial"` (the 2026-07-03 outage class → `log.warn`). A `shrink_held` result would falsely mark **every** cron pass while a show is held as a partial outage. Add a distinct **`held`** tally: `else if (outcome === "shrink_held") held++` (BEFORE the failed `else`), add `held` to the `counts` type + return. `shrink_held` is a deliberate quality hold surfaced via the `RESYNC_SHRINK_HELD` Needs-Attention alert + digest — NOT a cron failure; `partial` is reserved for infra/parse outages. Consistent with the "dedicated alert, not aggregate signal" design intent. `summarizeSync` needs no change (a held-only run has `failed == 0` → `outcome: "ok"`). Lands in **Task 1** (the outcome first becomes producible there). |
 | `lib/sync/runOnboardingScan.ts` | `PostgresOnboardingScanTx` (a `Phase1Tx` implementer via `OnboardingScanTx`, `:98`) gains a **throw-only** `updateShowShrinkHeld` mirroring its `updateShowParseError`/`updateShowPendingReview` (`:473`) — required for typecheck when the interface method is added (Task 1, same commit). |
 | `tests/sync/*.test.ts` mocks | Every directly-typed `Phase1Tx` mock (`FakeOnboardingTx` `onboarding.test.ts:106`; the `PipelineTx = Phase1Tx & …` literals in `sourceAnchorsPipeline.test.ts`/`runScheduledCronSync.test.ts`) gains a no-op `updateShowShrinkHeld` (Task 1, same commit). `as never`-cast mocks are unaffected — `pnpm typecheck` is the ground truth. |
 | `lib/sync/runManualSyncForShow.ts` | `RunManualSyncForShowDeps` (`:47`) carries `acceptShrink`/`expectedModifiedTime` into `processDeps`; thread to `processOneFile_unlocked`. |
@@ -92,6 +94,7 @@ Next.js 16, Supabase (Postgres), TypeScript (strict), vitest (unit + DB-backed v
 | `tests/app/admin/perShowPage.test.tsx` (extend) | `id="resync"` anchor. |
 | `tests/components/shared/StaleFooter.test.tsx` (extend) | `'shrink_held'` tier. |
 | `tests/admin/syncStatus.test.ts` (extend) | `'shrink_held'` bucket. |
+| `tests/cron/classifyProcessed.test.ts` (extend) | `shrink_held` → `held` tally (NOT `failed`); exact-shape `counts` gains `held`; held excluded from breadcrumbs/fingerprint. |
 
 > Test file names above are the expected homes; if a differently-named suite already owns the surface, extend that one — verify with `rg` before creating a new file (writing-plans pre-draft rule).
 
@@ -146,6 +149,7 @@ Produces:
 - `Phase1Tx.updateShowShrinkHeld(driveFileId, {message}): Promise<string|null|void>` (interface) **and** its `PostgresPipelineTx` impl (mirror `updateShowParseError`).
 - `describeShrink(items, priorParseResult, nextParseResult): string`.
 - `ProcessOneFileResult` variant `{ outcome:"shrink_held"; showId?:string|null; detail:string; heldModifiedTime:string }` (no `code` field — Codex plan-R7; keeping it off also means the route's `"code" in result` error branch never matches a hold) **and** the minimal caller STOP branch in `processOneFile_unlocked` that returns it before `runPhase2_unlocked` (data-safety — Codex plan-R2). Task 2 enhances this branch with the alert raise (the `RESYNC_SHRINK_HELD` literal lands there, co-located with the catalog).
+- `ClassifiedProcessed["counts"]` gains a `held: number` tally; `classifyProcessed` classifies `shrink_held` as `held` (NOT `failed`) so a held show never marks a cron run `partial` (Codex plan-R8).
 
 **Step 1a — failing test** in `tests/sync/phase1.decision-rule.test.ts`.
 
@@ -410,6 +414,32 @@ Minimal caller stop branch — insert in `processOneFile_unlocked` immediately a
   }
 ```
 
+**Cron outcome classifier — `lib/cron/classifyProcessed.ts` (Codex plan-R8, same commit).** The moment the caller branch above can return `shrink_held`, a cron file-loop pushes it to `processed`, and `classifyProcessed` runs over it. Its conservative `else` counts any unrecognized outcome as `failed`, and `summarizeSync.ts:15` turns `counts.failed > 0` into cron `outcome: "partial"` (`log.warn`, the 2026-07-03 outage class). A held show must NOT read as a partial outage. Add a distinct `held` tally:
+
+```ts
+// counts type + init: add `held`
+let applied = 0, staged = 0, skipped = 0, held = 0, failed = 0;
+// ...inside the loop, BEFORE the `else { failed++ }`:
+else if (outcome === "shrink_held") held++;   // deliberate quality hold — surfaced via the
+                                              // RESYNC_SHRINK_HELD Needs-Attention alert, NOT a
+                                              // cron failure. `partial` is for infra/parse outages.
+// ...return counts: { processed: processed.length, applied, staged, skipped, held, failed }
+```
+
+`ClassifiedProcessed["counts"]` gains `held: number`. `summarizeSync` is unchanged — a held-only run has `failed === 0` → `outcome: "ok"` (the `held` count still flows through in `counts` for telemetry). `CronRunSummary.counts` is `Record<string, number>` (`lib/cron/runSummary.ts:9`) so no downstream type churn; `summarizeSync.test.ts:15` uses `toMatchObject` (unaffected).
+
+**Step 1a(i·b) — extend `tests/cron/classifyProcessed.test.ts`.** The existing exact-shape assertion (`:17`) must gain `held: 0`, plus a new fixture proving `shrink_held` is held-not-failed:
+
+```ts
+// add to the primary fixture array + assert held is a NON-failure (concrete failure mode:
+// a held show would otherwise increment `failed` → summarizeSync → false "partial" outage)
+p("h", { outcome: "shrink_held" }),
+// exact-shape assertion updated:
+expect(c.counts).toEqual({ processed: 6, applied: 1, staged: 1, skipped: 1, held: 1, failed: 2 });
+// shrink_held is NOT in breadcrumbs/fingerprint (those are failures only):
+expect(c.breadcrumbs.find((b) => b.driveFileId === "h")).toBeUndefined();
+```
+
 **Step 1a(ii) — ADD a caller-level safety test** (the phase1 unit tests use a fake tx and never exercise the real caller's fall-through). In the caller test suite that exercises `hard_fail` (find with `rg "hard_fail" tests/sync`):
 
 ```ts
@@ -427,9 +457,9 @@ it("shrink_held phase1 result STOPS before Phase 2 (no apply, no clobber)", asyn
 });
 ```
 
-**Step 1d — run, confirm green:** `pnpm vitest run tests/sync/ && pnpm typecheck` (run the whole `tests/sync` dir — the caller test lives outside `phase1.decision-rule.test.ts`).
+**Step 1d — run, confirm green:** `pnpm vitest run tests/sync/ tests/cron/ && pnpm typecheck` (run the whole `tests/sync` dir — the caller test lives outside `phase1.decision-rule.test.ts` — plus `tests/cron` for the `classifyProcessed` `held`-tally change).
 
-**Step 1e — commit (ONE green commit — Codex plan-R4):** `feat(sync): hold material re-sync shrinkage (MI-6/MI-7), retaining last-good`. The TDD red→green cycle happens WITHIN the task (write failing tests → implement → green); the single commit stages the tests AND the implementation together — `phase1.ts` hold branch/types, the `runScheduledCronSync.ts` `updateShowShrinkHeld` impl, the **companion `Phase1Tx` implementer stubs** (`runOnboardingScan.ts` throw-only + directly-typed test mocks — Codex R6), AND the minimal caller stop branch + `ProcessOneFileResult` variant. Do NOT split into a test-only commit (it would be red) — the repo invariant is one GREEN commit per task.
+**Step 1e — commit (ONE green commit — Codex plan-R4):** `feat(sync): hold material re-sync shrinkage (MI-6/MI-7), retaining last-good`. The TDD red→green cycle happens WITHIN the task (write failing tests → implement → green); the single commit stages the tests AND the implementation together — `phase1.ts` hold branch/types, the `runScheduledCronSync.ts` `updateShowShrinkHeld` impl, the **companion `Phase1Tx` implementer stubs** (`runOnboardingScan.ts` throw-only + directly-typed test mocks — Codex R6), the **`classifyProcessed` `held` tally** (Codex R8 — so a held show never reads as a `partial` cron outage), AND the minimal caller stop branch + `ProcessOneFileResult` variant. Do NOT split into a test-only commit (it would be red) — the repo invariant is one GREEN commit per task.
 
 ---
 
