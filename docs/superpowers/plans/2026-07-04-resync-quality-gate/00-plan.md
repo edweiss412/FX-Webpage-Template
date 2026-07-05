@@ -52,6 +52,8 @@ Next.js 16, Supabase (Postgres), TypeScript (strict), vitest (unit + DB-backed v
 |---|---|
 | `lib/sync/phase1.ts` | `Phase1Args` gains `acceptShrink?: boolean` + `expectedModifiedTime?: string`. `Phase1Result` gains the `shrink_held` variant. `Phase1Tx` gains `updateShowShrinkHeld`. New `describeShrink(items, prior, next)` helper. Hold branch (before the `triggeredReviewItems`/`mi11`/`pass` logic) + version-bound accept gate + `updateShowShrinkHeld` call. |
 | `lib/sync/runScheduledCronSync.ts` | `syncProblemCodeForStatus` gains the `'shrink_held'` case. `ProcessOneFileResult` gains the `shrink_held` variant. New caller branch (raise `RESYNC_SHRINK_HELD`, resolve stale peers, keep own). File-loop post-commit revalidation for `shrink_held`. `updateShowShrinkHeld` tx-method impl (mirrors `updateShowParseError` at `:809`). Thread `acceptShrink`/`expectedModifiedTime` from `ProcessOneFileDeps` into the `runPhase1` args (`:2766-2775`). |
+| `lib/sync/runOnboardingScan.ts` | `PostgresOnboardingScanTx` (a `Phase1Tx` implementer via `OnboardingScanTx`, `:98`) gains a **throw-only** `updateShowShrinkHeld` mirroring its `updateShowParseError`/`updateShowPendingReview` (`:473`) — required for typecheck when the interface method is added (Task 1, same commit). |
+| `tests/sync/*.test.ts` mocks | Every directly-typed `Phase1Tx` mock (`FakeOnboardingTx` `onboarding.test.ts:106`; the `PipelineTx = Phase1Tx & …` literals in `sourceAnchorsPipeline.test.ts`/`runScheduledCronSync.test.ts`) gains a no-op `updateShowShrinkHeld` (Task 1, same commit). `as never`-cast mocks are unaffected — `pnpm typecheck` is the ground truth. |
 | `lib/sync/runManualSyncForShow.ts` | `RunManualSyncForShowDeps` (`:47`) carries `acceptShrink`/`expectedModifiedTime` into `processDeps`; thread to `processOneFile_unlocked`. |
 | `app/api/admin/sync/[slug]/route.ts` | Read `acceptShrink`/`expectedModifiedTime` from the POST body; pass into `runManualSyncForShow`; special-case `result.outcome === "shrink_held"` (HTTP 200 `ok:true`) **before** the `"code" in result` branch (`:93-98`). |
 | `components/admin/ReSyncButton.tsx` | Confirm-required state: a `shrink_held` result renders the counts + an "Apply reduced version" button (`data-testid="admin-resync-accept"`) that re-POSTs `{acceptShrink:true, expectedModifiedTime: heldModifiedTime}`. |
@@ -128,7 +130,7 @@ Next.js 16, Supabase (Postgres), TypeScript (strict), vitest (unit + DB-backed v
 
 ### Task 1 — phase1: `shrink_held` outcome + `describeShrink` + version-bound accept gate + types + `updateShowShrinkHeld` (interface **and** impl)
 
-> **Why the `updateShowShrinkHeld` impl is in THIS task (Codex R1 fix):** `PostgresPipelineTx implements SyncPipelineTx`, and `SyncPipelineTx` extends `Phase1Tx`. Adding the method to the `Phase1Tx` **interface** without its **concrete impl** in the same commit makes the class fail to compile. So the interface (in `phase1.ts`) and the impl (in `runScheduledCronSync.ts`) land together here.
+> **Why the `updateShowShrinkHeld` impl is in THIS task (Codex R1 fix):** `PostgresPipelineTx implements SyncPipelineTx`, and `SyncPipelineTx` extends `Phase1Tx`. Adding the method to the `Phase1Tx` **interface** without its **concrete impl** in the same commit makes the class fail to compile. So the interface (in `phase1.ts`) and the impl (in `runScheduledCronSync.ts`) land together here. **The same coupling applies to EVERY other `Phase1Tx` implementer** — the onboarding concrete class (`PostgresOnboardingScanTx`) and the test mocks — all get a minimal `updateShowShrinkHeld` in this commit (Codex R6 fix; enumerated below the impl block, with a `pnpm typecheck` safety net for cast-through-`never` mocks).
 
 **Interfaces**
 
@@ -356,6 +358,19 @@ Hold branch — insert **immediately after** `reviewItems` is computed and the M
 
 > The `phase1` hold branch calls `tx.updateShowShrinkHeld`; in `processOneFile` the tx is this real `PostgresPipelineTx` (impl above), and unit tests supply a fake tx that stubs the method (the test asserts it was called).
 
+**Companion `Phase1Tx` implementers — same commit (Codex plan-R6 fix).** `Phase1Tx` has implementers BEYOND `PostgresPipelineTx`. Adding a required method to the interface breaks typecheck for every one that lacks it, so ALL land in this commit. The interface return type is `Promise<string | null | void>` — the `| void` (mirroring `updateShowParseError`) makes a **no-op** `async updateShowShrinkHeld() {}` structurally assignable, so test mocks need only a one-line no-op; the onboarding concrete class needs a throw-only guard (it must never mutate `shows`). Enumerated sites:
+
+- **`PostgresOnboardingScanTx`** (`lib/sync/runOnboardingScan.ts:473`, via `OnboardingScanTx = Phase1Tx & …` at `:98`) — add a **throw-only** mutator mirroring its existing `updateShowParseError`/`updateShowPendingReview`:
+  ```ts
+    async updateShowShrinkHeld(): Promise<void> {
+      throw new Error("onboarding scan must not mutate shows");
+    }
+  ```
+- **`FakeOnboardingTx implements Phase1Tx`** (`tests/sync/onboarding.test.ts:106`, sibling stubs at `:193`/`:197`) — add `async updateShowShrinkHeld() {}`.
+- **Intersection-typed test `PipelineTx` object literals** whose return/annotation forces `Phase1Tx` satisfaction (missing-property error): `makeTx(): PipelineTx` at `tests/sync/sourceAnchorsPipeline.test.ts` (literal `:264`) and the `PipelineTx = Phase1Tx & …` mock in `tests/sync/runScheduledCronSync.test.ts` (`:28`, literal `:373`) — add `async updateShowShrinkHeld() {}` beside their `updateShowParseError` stub.
+
+> **Typecheck safety net (do NOT rely on the enumeration alone).** Object-literal mocks passed through `as never`/`as unknown as` casts (e.g. `phase2.test.ts:283`, `phase1.decision-rule.test.ts:180`, `discardStaged`, `applyStaged`, `applyStaged.wizardDriveReverify`, `runManualSyncForShow`, `phase1WarningBridge`, `recovery-resolution-syncpath`, `phase1.test.ts`) do NOT error on the missing method — leave them untouched. After adding the enumerated stubs, `pnpm typecheck` is the ground truth: for EVERY remaining `Property 'updateShowShrinkHeld' is missing` error, add the same one-line no-op (or throw-only, if the class forbids `shows` mutation) to that site. The commit is not done until `pnpm typecheck` is clean.
+
 **CRITICAL — minimal caller STOP branch (Codex plan-R2 fix).** An unhandled `shrink_held` variant *compiles*, but at RUNTIME `processOneFile_unlocked` handles only `hard_fail`/`stage`/`defer` then **falls through to `runPhase2_unlocked` (apply)** — so without a caller branch, a `shrink_held` phase1 result would set `last_sync_status='shrink_held'` AND STILL CLOBBER the roster. The phase1 return path and the caller *stop* path are therefore **inseparable** and BOTH land in Task 1. This task adds a **minimal** caller branch that only RETURNS (no alert yet — the alert-raise + resolve enhancement lands in Task 2, co-located with the union/constant it is grep-coupled to).
 
 Add the `ProcessOneFileResult` `shrink_held` variant (`lib/sync/runScheduledCronSync.ts:210`):
@@ -401,7 +416,7 @@ it("shrink_held phase1 result STOPS before Phase 2 (no apply, no clobber)", asyn
 
 **Step 1d — run, confirm green:** `pnpm vitest run tests/sync/ && pnpm typecheck` (run the whole `tests/sync` dir — the caller test lives outside `phase1.decision-rule.test.ts`).
 
-**Step 1e — commit (ONE green commit — Codex plan-R4):** `feat(sync): hold material re-sync shrinkage (MI-6/MI-7), retaining last-good`. The TDD red→green cycle happens WITHIN the task (write failing tests → implement → green); the single commit stages the tests AND the implementation together — `phase1.ts` hold branch/types, the `runScheduledCronSync.ts` `updateShowShrinkHeld` impl, AND the minimal caller stop branch + `ProcessOneFileResult` variant. Do NOT split into a test-only commit (it would be red) — the repo invariant is one GREEN commit per task.
+**Step 1e — commit (ONE green commit — Codex plan-R4):** `feat(sync): hold material re-sync shrinkage (MI-6/MI-7), retaining last-good`. The TDD red→green cycle happens WITHIN the task (write failing tests → implement → green); the single commit stages the tests AND the implementation together — `phase1.ts` hold branch/types, the `runScheduledCronSync.ts` `updateShowShrinkHeld` impl, the **companion `Phase1Tx` implementer stubs** (`runOnboardingScan.ts` throw-only + directly-typed test mocks — Codex R6), AND the minimal caller stop branch + `ProcessOneFileResult` variant. Do NOT split into a test-only commit (it would be red) — the repo invariant is one GREEN commit per task.
 
 ---
 
