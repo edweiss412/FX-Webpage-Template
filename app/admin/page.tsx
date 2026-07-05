@@ -40,7 +40,6 @@ import { FinalizeInProgress } from "@/components/admin/FinalizeInProgress";
 import { ReadyToPublish } from "@/components/admin/ReadyToPublish";
 import { StaleReadyToPublish } from "@/components/admin/StaleReadyToPublish";
 import { Dashboard } from "@/components/admin/Dashboard";
-import { AlertBanner } from "@/components/admin/AlertBanner";
 import { AdminPageHeader } from "@/components/admin/nav/AdminPageHeader";
 import {
   readFinalizeCheckpoint,
@@ -90,15 +89,10 @@ function CheckpointInfraErrorPlaceholder() {
  * return sites (settled steady-state + the defensive final_cas_done branch)
  * route through this wrapper so the header is the one canonical heading.
  *
- * M12.3 items 1+2 (amended by the needs-attention spec D-5): the global
- * AlertBanner mounts on the dashboard + /admin/needs-attention only (removed
- * from app/admin/layout.tsx). Here it mounts BETWEEN the page header and the
- * dashboard stat cards (calm strip under the "Dashboard" title, matching the
- * prototype). Putting it in this wrapper means BOTH Dashboard return sites
- * (settled steady-state + the defensive final_cas_done branch) get it. The
- * `<div id="alerts">` wrapper preserves the queue-chip `/admin#alerts` scroll
- * target. AlertBanner is async and self-fetches admin_alerts, rendering null
- * when the queue is empty — the slot is invisible in clean state.
+ * bell notification center §8: the global AlertBanner (and its `<div id="alerts">`
+ * queue-chip scroll target) is RETIRED. Unresolved admin alerts now surface in
+ * the <NotifBell> panel in the nav, so the dashboard renders straight from the
+ * page header into the stat cards with no banner slot.
  */
 function DashboardWithHeader({
   bucket,
@@ -110,9 +104,6 @@ function DashboardWithHeader({
   return (
     <>
       <AdminPageHeader title="Dashboard" sub="Your live shows and anything that needs review." />
-      <div id="alerts">
-        <AlertBanner />
-      </div>
       {/* alert-audience-split §6.5 originally rendered an ambient AppHealthPanel
           strip here. It was retired: the nav AppHealthIndicator already escalates
           health-audience alerts ("nothing goes dark") and reveals the same rollup

@@ -27,7 +27,7 @@ const okAlerts = { kind: "ok", count: 0 } as const;
 
 describe("AdminNav", () => {
   it("renders brand, nav items, NotifBell, ThemeToggle, UserMenu", () => {
-    render(<AdminNav email="doug@example.com" alertCount={okAlerts} />);
+    render(<AdminNav email="doug@example.com" bellCount={okAlerts} />);
     expect(screen.getByText("Admin")).toBeInTheDocument(); // brand badge
     expect(screen.getAllByRole("link", { name: /Dashboard/ }).length).toBeGreaterThan(0);
     expect(screen.getByTestId("admin-notif-bell")).toBeInTheDocument();
@@ -36,7 +36,7 @@ describe("AdminNav", () => {
   });
 
   it("brand link contains the FXAV icon image", () => {
-    render(<AdminNav email="doug@example.com" alertCount={okAlerts} />);
+    render(<AdminNav email="doug@example.com" bellCount={okAlerts} />);
     const brand = screen.getByTestId("admin-nav-brand");
     const img = brand.querySelector("img");
     expect(img).not.toBeNull();
@@ -44,7 +44,7 @@ describe("AdminNav", () => {
   });
 
   it("desktop top bar: Dashboard + Settings links, NO needs-attention link (mobileOnly, spec D-2), NO Unpublished (route removed)", () => {
-    render(<AdminNav email="d@e.com" alertCount={okAlerts} />);
+    render(<AdminNav email="d@e.com" bellCount={okAlerts} />);
     const topbar = within(screen.getByTestId("admin-nav-topbar"));
     expect(topbar.getByRole("link", { name: /Dashboard/ })).toBeInTheDocument();
     expect(topbar.getByRole("link", { name: /Settings/ })).toBeInTheDocument();
@@ -60,7 +60,7 @@ describe("AdminNav", () => {
   });
 
   it("bottom tab bar: attention BETWEEN dashboard and settings, NO Held tab (route removed)", () => {
-    render(<AdminNav email="d@e.com" alertCount={okAlerts} />);
+    render(<AdminNav email="d@e.com" bellCount={okAlerts} />);
     const tabbar = screen.getByTestId("admin-bottom-tabs");
     expect(tabbar).toHaveTextContent("Home");
     expect(tabbar).toHaveTextContent("Attention");
@@ -81,14 +81,14 @@ describe("AdminNav", () => {
   });
 
   it("Telemetry (desktopOnly) is absent from the mobile bottom tabs; no dead 'More' placeholder", () => {
-    render(<AdminNav email="a@b.c" alertCount={okAlerts} initialBadgeCount={0} />);
+    render(<AdminNav email="a@b.c" bellCount={okAlerts} initialBadgeCount={0} />);
     expect(screen.queryByTestId("admin-bottom-tab-telemetry")).toBeNull();
     expect(screen.queryByTestId("admin-bottom-tab-more")).toBeNull(); // overflow never triggers (5 mobile tabs)
     expect(screen.getByTestId("admin-bottom-tab-dashboard")).toBeInTheDocument(); // a real mobile tab still renders
   });
 
   it("infra_error alertCount → degraded bell in the shell", () => {
-    render(<AdminNav email="d@e.com" alertCount={{ kind: "infra_error" }} />);
+    render(<AdminNav email="d@e.com" bellCount={{ kind: "infra_error" }} />);
     expect(screen.getByTestId("admin-notif-bell-degraded")).toBeInTheDocument();
   });
 
@@ -99,27 +99,27 @@ describe("AdminNav", () => {
       ["NaN", NaN],
       ["-1", -1],
     ])("initialBadgeCount %s → no badge node", (_label, value) => {
-      render(<AdminNav email="d@e.com" alertCount={okAlerts} initialBadgeCount={value} />);
+      render(<AdminNav email="d@e.com" bellCount={okAlerts} initialBadgeCount={value} />);
       expect(screen.queryByTestId("admin-attention-badge")).toBeNull();
     });
 
     it("omitted initialBadgeCount (default null) → no badge node", () => {
-      render(<AdminNav email="d@e.com" alertCount={okAlerts} />);
+      render(<AdminNav email="d@e.com" bellCount={okAlerts} />);
       expect(screen.queryByTestId("admin-attention-badge")).toBeNull();
     });
 
     it("3 → badge '3'", () => {
-      render(<AdminNav email="d@e.com" alertCount={okAlerts} initialBadgeCount={3} />);
+      render(<AdminNav email="d@e.com" bellCount={okAlerts} initialBadgeCount={3} />);
       expect(screen.getByTestId("admin-attention-badge")).toHaveTextContent(/^3$/);
     });
 
     it("10 → badge '9+'", () => {
-      render(<AdminNav email="d@e.com" alertCount={okAlerts} initialBadgeCount={10} />);
+      render(<AdminNav email="d@e.com" bellCount={okAlerts} initialBadgeCount={10} />);
       expect(screen.getByTestId("admin-attention-badge")).toHaveTextContent(/^9\+$/);
     });
 
     it("attention tab aria-label 'Needs attention, 3 items' when badged", () => {
-      render(<AdminNav email="d@e.com" alertCount={okAlerts} initialBadgeCount={3} />);
+      render(<AdminNav email="d@e.com" bellCount={okAlerts} initialBadgeCount={3} />);
       expect(screen.getByTestId("admin-bottom-tab-attention")).toHaveAttribute(
         "aria-label",
         "Needs attention, 3 items",
@@ -127,7 +127,7 @@ describe("AdminNav", () => {
     });
 
     it("attention tab aria-label 'Needs attention' when unbadged", () => {
-      render(<AdminNav email="d@e.com" alertCount={okAlerts} initialBadgeCount={0} />);
+      render(<AdminNav email="d@e.com" bellCount={okAlerts} initialBadgeCount={0} />);
       expect(screen.getByTestId("admin-bottom-tab-attention")).toHaveAttribute(
         "aria-label",
         "Needs attention",
@@ -135,7 +135,7 @@ describe("AdminNav", () => {
     });
 
     it("badge renders ONLY inside the attention tab, never dashboard/settings", () => {
-      render(<AdminNav email="d@e.com" alertCount={okAlerts} initialBadgeCount={4} />);
+      render(<AdminNav email="d@e.com" bellCount={okAlerts} initialBadgeCount={4} />);
       const badges = screen.getAllByTestId("admin-attention-badge");
       expect(badges).toHaveLength(1);
       expect(screen.getByTestId("admin-bottom-tab-attention")).toContainElement(badges[0]!);
@@ -152,7 +152,7 @@ describe("AdminNav", () => {
     });
 
     it("initial mount never refetches a count route (server props are fresh)", () => {
-      render(<AdminNav email="d@e.com" alertCount={okAlerts} initialBadgeCount={3} />);
+      render(<AdminNav email="d@e.com" bellCount={okAlerts} initialBadgeCount={3} />);
       // The bell/attention badge hooks read pathname but must not refetch the
       // count on initial mount — the server-supplied prop is authoritative.
       // NotifBell's useBellBadge legitimately POSTs the realtime token on mount
@@ -171,7 +171,7 @@ describe("AdminNav", () => {
     };
 
     it("renders <AppHealthIndicator> beside <NotifBell> given a healthRollup prop", () => {
-      render(<AdminNav email="d@e.com" alertCount={okAlerts} healthRollup={degraded} />);
+      render(<AdminNav email="d@e.com" bellCount={okAlerts} healthRollup={degraded} />);
       const bell = screen.getByTestId("admin-notif-bell");
       const indicator = screen.getByTestId("app-health-indicator");
       expect(indicator).toBeInTheDocument();
@@ -180,7 +180,7 @@ describe("AdminNav", () => {
     });
 
     it("does not render the indicator when no healthRollup is provided", () => {
-      render(<AdminNav email="d@e.com" alertCount={okAlerts} />);
+      render(<AdminNav email="d@e.com" bellCount={okAlerts} />);
       expect(screen.queryByTestId("app-health-indicator")).toBeNull();
     });
   });

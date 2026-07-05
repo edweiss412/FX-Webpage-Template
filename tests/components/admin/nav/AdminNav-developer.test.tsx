@@ -34,7 +34,7 @@ const okAlerts = { kind: "ok", count: 0 } as const;
 
 describe("AdminNav — developer-only nav items (Task 15)", () => {
   it("viewerIsDeveloper={false} → Telemetry (telemetry) is absent from desktop AND mobile", () => {
-    render(<AdminNav email="doug@example.com" alertCount={okAlerts} viewerIsDeveloper={false} />);
+    render(<AdminNav email="doug@example.com" bellCount={okAlerts} viewerIsDeveloper={false} />);
 
     const topbar = within(screen.getByTestId("admin-nav-topbar"));
     expect(topbar.queryByRole("link", { name: /Telemetry/i })).toBeNull();
@@ -48,7 +48,7 @@ describe("AdminNav — developer-only nav items (Task 15)", () => {
   });
 
   it("viewerIsDeveloper={true} → Telemetry appears in the desktop nav (still desktopOnly on mobile)", () => {
-    render(<AdminNav email="doug@example.com" alertCount={okAlerts} viewerIsDeveloper={true} />);
+    render(<AdminNav email="doug@example.com" bellCount={okAlerts} viewerIsDeveloper={true} />);
 
     const topbar = within(screen.getByTestId("admin-nav-topbar"));
     expect(topbar.getByRole("link", { name: /Telemetry/i })).toBeInTheDocument();
@@ -61,7 +61,7 @@ describe("AdminNav — developer-only nav items (Task 15)", () => {
   });
 
   it("default (viewerIsDeveloper omitted) → Telemetry hidden (safe default)", () => {
-    render(<AdminNav email="doug@example.com" alertCount={okAlerts} />);
+    render(<AdminNav email="doug@example.com" bellCount={okAlerts} />);
     const topbar = within(screen.getByTestId("admin-nav-topbar"));
     expect(topbar.queryByRole("link", { name: /Telemetry/i })).toBeNull();
   });

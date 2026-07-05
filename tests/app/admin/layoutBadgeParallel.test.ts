@@ -1,8 +1,8 @@
 // Phase 2 (nav-perf) E-lite (spec §7 (b)) — app/admin/layout.tsx must read its two
-// independent badge counts (fetchUnresolvedAlertCount + loadNeedsAttentionCount)
+// independent badge counts (loadBellUnseenCount + loadNeedsAttentionCount)
 // CONCURRENTLY, not sequentially, so first /admin entry blocks on one wall-time.
 // Deferred mocks record when each helper is INITIATED; a serial `await a; await b`
-// layout initiates loadNeedsAttentionCount only after fetchUnresolvedAlertCount
+// layout initiates loadNeedsAttentionCount only after loadBellUnseenCount
 // resolves, so it fails the "both started before release" gate.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -30,11 +30,11 @@ vi.mock("@/lib/appSettings/readAppSettingsRow", () => ({
     settings: { pending_wizard_session_id: null, watched_folder_id: "folder-1" },
   }),
 }));
-vi.mock("@/lib/admin/alertCount", () => ({
-  fetchUnresolvedAlertCount: () => {
-    state.started.push("alert");
+vi.mock("@/lib/admin/bellFeed", () => ({
+  loadBellUnseenCount: () => {
+    state.started.push("bell");
     return new Promise((res) => {
-      state.gates.alert = res;
+      state.gates.bell = res;
     });
   },
 }));
@@ -61,11 +61,11 @@ describe("app/admin/layout.tsx — parallel badge reads (Phase 2 E-lite)", () =>
   it("initiates BOTH badge reads before either resolves (serial layout fails)", async () => {
     const p = AdminLayout({ children: null });
     await flush();
-    expect(state.started).toContain("alert");
+    expect(state.started).toContain("bell");
     expect(state.started).toContain("needs");
     expect(state.started).toHaveLength(2);
     // release so the layout can finish building its element tree
-    state.gates.alert!({ kind: "ok", count: 0 });
+    state.gates.bell!({ kind: "ok", count: 0 });
     state.gates.needs!({ kind: "ok", count: 1 });
     await expect(p).resolves.toBeDefined();
   });

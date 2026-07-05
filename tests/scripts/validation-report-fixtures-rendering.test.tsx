@@ -13,18 +13,17 @@
  *   • 2 admin_alerts-surfacing outcomes (lookup-inconclusive, orphaned-lost-lease):
  *     alert-audience-split reclassified BOTH as `audience: "health"` (developer
  *     report-subsystem diagnostics Doug cannot action). They now flow to the
- *     dev HealthAlertsPanel, NOT Doug's AlertBanner. Group B proves the HARNESS's
- *     seeded rows are EXCLUDED by AlertBanner's real SELECT predicate
- *     (DOUG_SURFACE_EXCLUDED_CODES, components/admin/AlertBanner.tsx:113); Group C
- *     proves AlertBanner does not render them and the raw code never leaks
- *     (invariant 5). Their render coverage lives in the health surface's own
- *     suite (tests/components/healthAlertsPanel.test.tsx).
+ *     dev HealthAlertsPanel, NOT any Doug-facing alert surface. Group B proves the
+ *     HARNESS's seeded rows are EXCLUDED by the Doug-surface exclusion predicate
+ *     (DOUG_SURFACE_EXCLUDED_CODES). Their positive render coverage lives in the
+ *     health surface's own suite (tests/components/healthAlertsPanel.test.tsx).
+ *
+ * (The former Group C rendered the retired AlertBanner — bell notification
+ * center §8 — and is removed with the component.)
  */
-import { afterAll, beforeAll, afterEach, describe, expect, test, vi } from "vitest";
-import { cleanup, render } from "@testing-library/react";
+import { afterAll, beforeAll, describe, expect, test, vi } from "vitest";
 import { createClient } from "@supabase/supabase-js";
 
-import { AlertBanner } from "@/components/admin/AlertBanner";
 import {
   MESSAGE_CATALOG,
   type MessageCatalogEntry,
@@ -45,123 +44,9 @@ import {
 
 vi.setConfig({ testTimeout: 90_000, hookTimeout: 90_000 });
 
-// HelpAffordance (Client Component using usePathname) mounts inside AlertBanner;
-// AlertBannerRouteBoundary (RECON-1) additionally reads useSearchParams for its
-// remount key, so the mock must provide it too.
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
-  usePathname: () => "/",
-  useSearchParams: () => new URLSearchParams(""),
-}));
-
-// ── AlertBanner render mock (Group C) ──────────────────────────────────
-// Mirrors the production SELECT chain shape (data probe via .order().limit(1)
-// + count probe via head:true). `from()` returns a fresh builder per call.
-const mockState = vi.hoisted(() => ({
-  rows: [] as Array<{
-    id: string;
-    code: string;
-    raised_at: string;
-    show_id: string | null;
-    context: Record<string, unknown> | null;
-    shows: { slug: string } | null;
-    resolved_at: string | null;
-  }>,
-}));
-
-vi.mock("@/lib/supabase/server", () => {
-  return {
-    createSupabaseServerClient: async () => {
-      function createBuilder() {
-        const filters: Array<
-          | { kind: "not_in"; column: string; values: string[] }
-          | { kind: "is"; column: string; value: null | boolean }
-        > = [];
-        let countMode = false;
-        const apply = () => {
-          let rows: typeof mockState.rows = mockState.rows;
-          for (const f of filters) {
-            if (f.kind === "not_in") {
-              rows = rows.filter((row) => {
-                const cell = (row as unknown as Record<string, unknown>)[f.column];
-                return typeof cell === "string" ? !f.values.includes(cell) : true;
-              });
-            } else if (f.kind === "is") {
-              rows = rows.filter((row) => {
-                const cell = (row as unknown as Record<string, unknown>)[f.column];
-                if (f.value === null) return cell === null;
-                return cell === f.value;
-              });
-            }
-          }
-          return rows;
-        };
-        const builder = {
-          select: (
-            _columns?: string,
-            options?: { count?: "exact" | "planned" | "estimated"; head?: boolean },
-          ) => {
-            if (options?.count === "exact" && options.head === true) countMode = true;
-            return builder;
-          },
-          is: (column: string, value: null | boolean) => {
-            filters.push({ kind: "is", column, value });
-            return builder;
-          },
-          not: (column: string, op: string, valueList: string) => {
-            if (op === "in") {
-              const inner = valueList.replace(/^\(/, "").replace(/\)$/, "");
-              const values = inner
-                .split(",")
-                .map((v) => v.trim().replace(/^"/, "").replace(/"$/, ""))
-                .filter(Boolean);
-              filters.push({ kind: "not_in", column, values });
-            }
-            return builder;
-          },
-          order: () => builder,
-          limit: (n: number) => Promise.resolve({ data: apply().slice(0, n), error: null }),
-          then: (onFulfilled: (value: { data: null; error: null; count: number }) => void) => {
-            if (countMode) {
-              return Promise.resolve({ data: null, error: null, count: apply().length }).then(
-                onFulfilled,
-              );
-            }
-            return Promise.resolve({ data: apply(), error: null }).then(
-              onFulfilled as unknown as (v: { data: typeof mockState.rows; error: null }) => void,
-            );
-          },
-        };
-        return builder;
-      }
-      return { from: () => createBuilder() };
-    },
-  };
-});
-
-function setRows(
-  rows: Array<{
-    id: string;
-    code: string;
-    raised_at: string;
-    show_id: string | null;
-    context?: Record<string, unknown> | null;
-    shows?: { slug: string } | null;
-    resolved_at?: string | null;
-  }>,
-) {
-  mockState.rows = [...rows]
-    .map((r) => ({
-      ...r,
-      context: r.context ?? null,
-      shows: r.shows ?? null,
-      resolved_at: r.resolved_at ?? null,
-    }))
-    .sort((a, b) => new Date(b.raised_at).getTime() - new Date(a.raised_at).getTime());
-}
-
-// AlertBanner's INFO_SEVERITY exclusion list, recomputed exactly as
-// components/admin/AlertBanner.tsx:57 derives it.
+// The Doug-surface INFO_SEVERITY exclusion list, recomputed exactly as
+// lib/messages/adminSurface.ts derives it (info-severity ∪ inbox-routed feeds
+// BANNER_EXCLUDED_CODES; here we recompute just the info-severity axis).
 const INFO_SEVERITY_CODES: string[] = (Object.values(MESSAGE_CATALOG) as MessageCatalogEntry[])
   .filter((entry) => entry.severity === "info")
   .map((entry) => entry.code);
@@ -204,10 +89,10 @@ describe("Group A — catalog completeness (messageFor predicate)", () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────
-// Group B — harness admin_alerts rows survive AlertBanner's SELECT filter
+// Group B — harness admin_alerts rows vs the Doug-surface exclusion filter
 // ─────────────────────────────────────────────────────────────────────
 
-describe("Group B — harness rows survive AlertBanner SELECT predicate", () => {
+describe("Group B — harness rows vs the Doug-surface exclusion predicate", () => {
   const R1_DRIVE = "validation_R1";
   let supabase: ReturnType<typeof createClient>;
 
@@ -241,12 +126,13 @@ describe("Group B — harness rows survive AlertBanner SELECT predicate", () => 
     safeValidationCleanup();
   });
 
-  test("AlertBanner's real SELECT predicate EXCLUDES both harness codes (now health-audience)", async () => {
-    // Mirror AlertBanner's ACTUAL exclusion (DOUG_SURFACE_EXCLUDED_CODES,
-    // AlertBanner.tsx:113) — NOT just the info-severity list. alert-audience-split
-    // reclassified both report codes as health, so Doug's banner SELECT must now
-    // filter them out. Seeded fixtures + this predicate prove the routing on a
-    // live row set.
+  test("the Doug-surface exclusion predicate EXCLUDES both harness codes (now health-audience)", async () => {
+    // Mirror the Doug-surface exclusion (DOUG_SURFACE_EXCLUDED_CODES) — NOT just
+    // the info-severity list. alert-audience-split reclassified both report codes
+    // as health, so any Doug-facing SELECT must filter them out. Seeded fixtures +
+    // this predicate prove the routing on a live row set. (The AlertBanner that
+    // once applied this predicate is retired — bell notification center §8 — but
+    // the exclusion set it used still governs the Doug-facing surfaces.)
     let query = supabase
       .from("admin_alerts")
       .select("code, context")
@@ -279,51 +165,8 @@ describe("Group B — harness rows survive AlertBanner SELECT predicate", () => 
   });
 });
 
-// ─────────────────────────────────────────────────────────────────────
-// Group C — AlertBanner EXCLUDES the (now health-audience) harness codes
-// ─────────────────────────────────────────────────────────────────────
-
-describe("Group C — AlertBanner excludes the health-audience harness codes", () => {
-  afterEach(() => {
-    cleanup();
-    mockState.rows = [];
-  });
-
-  // alert-audience-split reclassified both report codes as health; they route to
-  // the dev HealthAlertsPanel, so Doug's AlertBanner must NOT render them.
-  const HEALTH_ROUTED_CODES = [
-    "REPORT_LOOKUP_INCONCLUSIVE",
-    "REPORT_ORPHANED_LOST_LEASE",
-  ] as const satisfies readonly MessageCode[];
-
-  for (const code of HEALTH_ROUTED_CODES) {
-    test(`AlertBanner does not surface '${code}' and never leaks the raw code`, async () => {
-      // Seed the code as the ONLY unresolved global alert. AlertBanner's SELECT
-      // excludes DOUG_SURFACE_EXCLUDED_CODES (the mock builder honors `.not(in)`),
-      // so the health code is filtered out and the banner has nothing to show.
-      setRows([
-        {
-          id: `target-${code}`,
-          code,
-          raised_at: "2026-05-27T12:00:00Z",
-          show_id: "11111111-1111-4111-8111-111111111111",
-          context: { validation_tag: `m12-fixture-${code}` },
-          shows: { slug: "validation-r1" },
-          resolved_at: null,
-        },
-      ]);
-      const { queryByTestId, container } = render(await AlertBanner());
-
-      // No message panel renders (the only candidate row was health-excluded).
-      expect(queryByTestId("error-explainer-message")).toBeNull();
-      expect(queryByTestId("admin-alert-message")).toBeNull();
-
-      // Invariant 5: the raw code string never leaks into the DOM, and neither
-      // does its Doug copy — it belongs to the health panel now, not the banner.
-      const literal = MESSAGE_CATALOG[code].dougFacing;
-      expect(typeof literal).toBe("string");
-      expect(container.innerHTML).not.toContain(code);
-      expect(container.innerHTML).not.toContain(literal as string);
-    });
-  }
-});
+// Group C (AlertBanner render coverage) is retired with the component itself —
+// bell notification center §8. The two report codes' non-rendering on the
+// Doug-facing surface is now governed by the exclusion set proven in Group B;
+// their positive render coverage lives in the health surface's own suite
+// (tests/components/healthAlertsPanel.test.tsx).

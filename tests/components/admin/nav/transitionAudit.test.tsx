@@ -187,7 +187,7 @@ describe("AdminNav — active-state moves instantly on route change (no animatio
   it("nav active aria-current follows pathname with no transition wrapper", () => {
     navState.pathname = "/admin";
     const { rerender, container } = render(
-      <AdminNav email="doug@example.com" alertCount={{ kind: "ok", count: 0 }} />,
+      <AdminNav email="doug@example.com" bellCount={{ kind: "ok", count: 0 }} />,
     );
     const currentOnDashboard = container.querySelectorAll('[aria-current="page"]').length;
     expect(currentOnDashboard).toBeGreaterThan(0);
@@ -195,7 +195,7 @@ describe("AdminNav — active-state moves instantly on route change (no animatio
     act(() => {
       navState.pathname = "/admin/settings";
     });
-    rerender(<AdminNav email="doug@example.com" alertCount={{ kind: "ok", count: 0 }} />);
+    rerender(<AdminNav email="doug@example.com" bellCount={{ kind: "ok", count: 0 }} />);
     // Active state moved (still ≥1 active item) — instant, no AnimatePresence.
     expect(container.querySelectorAll('[aria-current="page"]').length).toBeGreaterThan(0);
   });

@@ -17,12 +17,15 @@
 import Image from "next/image";
 
 import type { HealthStatus } from "@/lib/admin/healthRollup";
+import type { BellCountResult } from "@/lib/admin/bellFeed";
 import { AppHealthIndicator } from "@/components/admin/nav/AppHealthIndicator";
+import { NotifBell } from "@/components/admin/nav/NotifBell";
 
 export function OnboardingTopBar({
   email,
   healthRollup,
   isDeveloper = false,
+  bellCount,
 }: {
   email: string;
   /**
@@ -32,6 +35,13 @@ export function OnboardingTopBar({
    */
   healthRollup?: HealthStatus;
   isDeveloper?: boolean;
+  /**
+   * bell notification center §7.1/§8: the server-computed unseen bell count.
+   * The bell REPLACES the retired AlertBanner, so the onboarding chrome mounts
+   * it too — an active non-health alert during first-run is never dark. Absent
+   * → the bell is not rendered (the full <AdminNav> always supplies it).
+   */
+  bellCount?: BellCountResult;
 }) {
   const hasEmail = email.trim().length > 0;
 
@@ -69,6 +79,9 @@ export function OnboardingTopBar({
       <div className="flex items-center gap-3">
         {healthRollup ? (
           <AppHealthIndicator rollup={healthRollup} isDeveloper={isDeveloper} />
+        ) : null}
+        {bellCount ? (
+          <NotifBell initialCount={bellCount} viewerIsDeveloper={Boolean(isDeveloper)} />
         ) : null}
         {hasEmail && (
           <span className="hidden max-w-48 truncate text-sm text-text-subtle sm:inline-block">

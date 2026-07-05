@@ -22,7 +22,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import type { AlertCountResult } from "@/lib/admin/alertCount";
+import type { BellCountResult } from "@/lib/admin/bellFeed";
 import type { HealthStatus } from "@/lib/admin/healthRollup";
 import { ThemeToggle } from "@/components/layout/ThemeToggle";
 import { NAV, isNavItemActive, shouldRenderOverflow } from "./navConfig";
@@ -33,13 +33,13 @@ import { UserMenu } from "./UserMenu";
 
 export function AdminNav({
   email,
-  alertCount,
+  bellCount,
   initialBadgeCount = null,
   viewerIsDeveloper = false,
   healthRollup,
 }: {
   email: string;
-  alertCount: AlertCountResult;
+  bellCount: BellCountResult;
   initialBadgeCount?: number | null;
   /**
    * developer-tier Task 15 (spec §6 row 8): gates `developerOnly` NavItems
@@ -136,7 +136,7 @@ export function AdminNav({
           {healthRollup ? (
             <AppHealthIndicator rollup={healthRollup} isDeveloper={viewerIsDeveloper} />
           ) : null}
-          <NotifBell initialCount={alertCount} viewerIsDeveloper={viewerIsDeveloper} />
+          <NotifBell initialCount={bellCount} viewerIsDeveloper={viewerIsDeveloper} />
           <ThemeToggle />
           <UserMenu email={email} />
         </div>

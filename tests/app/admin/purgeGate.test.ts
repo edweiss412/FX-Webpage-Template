@@ -44,7 +44,7 @@ vi.mock("next/navigation", () => ({
 
 // Isolate the gate from the dashboard data layer + async banner.
 vi.mock("@/components/admin/Dashboard", () => ({ Dashboard: () => null }));
-vi.mock("@/components/admin/AlertBanner", () => ({ AlertBanner: () => null }));
+// bell notification center §8: AlertBanner is retired — no banner stub needed.
 
 // A settled, folder-configured, no-pending-session app_settings row → the
 // dispatcher reaches precedence-3 (DashboardWithHeader). Each case sets a

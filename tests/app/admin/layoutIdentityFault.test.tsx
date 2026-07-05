@@ -37,17 +37,17 @@ vi.mock("@/lib/auth/requireAdmin", async () => {
   };
 });
 
-// M12.3 item 1: the layout no longer renders <AlertBanner /> (it is now
-// dashboard-only, mounted under the Dashboard header in app/admin/page.tsx).
-// No AlertBanner mock is needed here.
+// bell notification center §8: the layout no longer renders <AlertBanner /> —
+// unresolved alerts surface in the <NotifBell> panel in the nav. No banner mock.
 
-// On the success path the layout now renders <AdminNav>, a client island
-// that calls usePathname. Stub it so the success-path render doesn't throw
-// outside a Next request scope.
+// On the success path the layout renders <AdminNav>, a client island that calls
+// usePathname (via <NotifBell>'s useBellBadge). Stub it so the success-path
+// render doesn't throw outside a Next request scope.
 vi.mock("next/navigation", () => ({ usePathname: () => "/admin" }));
 
-vi.mock("@/lib/admin/alertCount", () => ({
-  fetchUnresolvedAlertCount: vi.fn(async () => ({ kind: "ok", count: 0 })),
+// The layout seeds the bell badge from loadBellUnseenCount (spec §7.1).
+vi.mock("@/lib/admin/bellFeed", () => ({
+  loadBellUnseenCount: vi.fn(async () => ({ kind: "ok", count: 0 })),
 }));
 
 async function renderLayout() {
