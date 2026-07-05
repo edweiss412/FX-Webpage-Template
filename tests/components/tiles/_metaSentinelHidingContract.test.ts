@@ -249,6 +249,7 @@ const GENERIC_OPTIONAL_FIELDS: ReadonlyArray<{
   // rendering as content. Accessors used by the consumers:
   //   - `day.window.start` / `day.window.end` (DayCard window meta)
   //   - `day.showStart`     (DayCard fragment meta)
+  //   - `day.showEnd`       (DayCard end-only fragment meta "Ends 6:00 PM", §#307)
   //   - `dates.setupTime`   (Set-day DayCard "Setup …" meta)
   // NOTE (R2 finding 6): ShowAnchor.time is INTENTIONALLY NOT registered here —
   // it is sentinel-guarded at the SOURCE (`resolveKeyTimes` only emits anchors
@@ -256,8 +257,8 @@ const GENERIC_OPTIONAL_FIELDS: ReadonlyArray<{
   // absent/sentinel time), so the KeyTimesStrip value (`s.time` → `row.value`) is
   // already clean by construction; a render-time pattern here would be vacuous.
   {
-    description: "ScheduleDay.window.start / window.end / showStart",
-    pattern: /\b(window\??\.(start|end)\b|\bshowStart\b)/,
+    description: "ScheduleDay.window.start / window.end / showStart / showEnd",
+    pattern: /\b(window\??\.(start|end)\b|\bshowStart\b|\bshowEnd\b)/,
   },
   {
     description: "dates.setupTime (Set-day DayCard meta)",

@@ -300,6 +300,12 @@ export function ScheduleSection({
                         // (line ~284) and the RunOfShowList gate (line ~313), both of
                         // which already key off `dayEntries`.
                         meta = guardMeta(sd.showStart);
+                      } else if (sd != null && sd.showEnd != null && dayEntries.length === 0) {
+                        // End-only day (§#307): unknown start, known end → "Ends 6:00 PM".
+                        // guardMeta hides a TBD/N/A sentinel. Mutually exclusive with the
+                        // showStart branch (showEnd is set only when showStart is null).
+                        const t = guardMeta(sd.showEnd);
+                        meta = t != null ? `Ends ${t}` : undefined;
                       }
                       // titled day (displayable dayEntries.length > 0) → meta stays
                       // undefined; the RunOfShowList renders below instead.

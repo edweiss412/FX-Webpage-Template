@@ -406,4 +406,14 @@ describe("resolveKeyTimes — Set/Strike stage-gating (#248)", () => {
     expect(a.set).toBeDefined();
     expect(a.strike).toBeDefined();
   });
+
+  it("#307 showEnd-only day produces NO show anchor (end != start)", () => {
+    const anchors = resolveKeyTimes(
+      { dates: { showDays: ["2025-05-14"] } } as never,
+      null, // no rooms
+      { "2025-05-14": { entries: [], showStart: null, showEnd: "6:00 PM", window: null } },
+      NONE,
+    );
+    expect(anchors.shows).toBeUndefined();
+  });
 });
