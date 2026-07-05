@@ -124,7 +124,7 @@ Next.js 16, Supabase (Postgres), TypeScript (strict), vitest (unit + DB-backed v
 
 ## Tasks
 
-> **Ordering is driven by type-coupling + green-per-commit (Codex plan-review R1 fix).** Every task must `pnpm typecheck` AND leave the suite green at its commit. Two hard couplings shape the order: (1) an interface method added to `Phase1Tx` requires its concrete impl in `PostgresPipelineTx` (which `implements SyncPipelineTx`) in the **same** commit or the class won't compile; (2) the `AdminAlertCode` union member **and** the `SYNC_PROBLEM_CODES` member are each grep-coupled to the caller raise site — `tests/notify/constants-producers.test.ts:27` greps `runScheduledCronSync.ts` for an `upsertAdminAlert({code:"RESYNC_SHRINK_HELD"})` producer for **every** `SYNC_PROBLEM_CODES` member, and `_metaAdminAlertCatalog` (orphan test + `WRITE_SITES` Record) requires the same producer for every union/`ADMIN_ALERTS_CODES` member. So the union, the constant, the catalog row, ALL the meta-registry rows, and the caller raise branch are **one atomic commit** — they cannot be split. The only pieces that land independently are (a) `phase1`'s own additions (which reference `"RESYNC_SHRINK_HELD"` only as a plain `code: string` value, no union dependency) **PLUS the minimal caller STOP branch + `ProcessOneFileResult` variant** — these MUST ship together in Task 1 because a `shrink_held` phase1 result with NO caller branch falls through `runScheduledCronSync`'s `if`s to `runPhase2_unlocked` and CLOBBERS (Codex plan-R2); the branch just returns (no alert yet), so it has no union dependency either — and (b) the downstream consumers/route/UI/DB tests that read already-landed types. Hence: **Task 1 = phase1** (self-contained), **Task 2 = the atomic admin-alert/sync-problem/caller bundle**, then consumers → action link → route → button → DB. Each task ends `git commit` before the next begins.
+> **Ordering is driven by type-coupling + green-per-commit (Codex plan-review R1 fix).** Every task must `pnpm typecheck` AND leave the suite green at its commit. Two hard couplings shape the order: (1) an interface method added to `Phase1Tx` requires its concrete impl in `PostgresPipelineTx` (which `implements SyncPipelineTx`) in the **same** commit or the class won't compile; (2) the `AdminAlertCode` union member **and** the `SYNC_PROBLEM_CODES` member are each grep-coupled to the caller raise site — `tests/notify/constants-producers.test.ts:27` greps `runScheduledCronSync.ts` for an `upsertAdminAlert({code:"RESYNC_SHRINK_HELD"})` producer for **every** `SYNC_PROBLEM_CODES` member, and `_metaAdminAlertCatalog` (orphan test + `WRITE_SITES` Record) requires the same producer for every union/`ADMIN_ALERTS_CODES` member. And a THIRD coupling (Codex plan-R7): the `RESYNC_SHRINK_HELD` string literal is an **orphan-producer scanner** hazard — `tests/cross-cutting/codes.test.ts:122` runs `PRODUCER_RE` (`/\bcode:\s*"SCREAMING"/`) over every `lib`/`app` source file and fails any `code:"…"` literal not yet in generated §12.4 `SPEC_CODES`. So the literal may appear in `lib`/`app` source ONLY in the commit that also lands the catalog row — i.e. the Task 2 raise site. So the union, the constant, the catalog row, ALL the meta-registry rows, and the caller raise branch (the sole `lib`-source home of the `RESYNC_SHRINK_HELD` literal) are **one atomic commit** — they cannot be split. The only pieces that land independently are (a) `phase1`'s own additions — which carry **NO `code` literal at all** (the `shrink_held` result has no `code` field; the alert code is the caller's, raised in Task 2): the hold branch/types, `describeShrink`, `updateShowShrinkHeld` (interface + all implementers), **PLUS the minimal caller STOP branch + `ProcessOneFileResult` variant** — these MUST ship together in Task 1 because a `shrink_held` phase1 result with NO caller branch falls through `runScheduledCronSync`'s `if`s to `runPhase2_unlocked` and CLOBBERS (Codex plan-R2); the branch just returns (no alert, no code literal — so no union or scanner dependency) — and (b) the downstream consumers/route/UI/DB tests that read already-landed types. Hence: **Task 1 = phase1** (self-contained, literal-free), **Task 2 = the atomic admin-alert/sync-problem/caller bundle**, then consumers → action link → route → button → DB. Each task ends `git commit` before the next begins.
 
 ---
 
@@ -142,10 +142,10 @@ Consumes:
 - `ParseResult.crewMembers` (array) — for the `MI-6` crew delta.
 
 Produces:
-- `Phase1Result` variant: `{ outcome:"shrink_held"; code:string; message:string; heldModifiedTime:string; shrinkItems:TriggeredReviewItem[]; showId?:string|null }`. (`code:"RESYNC_SHRINK_HELD"` is a plain string on a `code:string` field — **no** `AdminAlertCode`-union dependency, so this task compiles before the union member exists.)
+- `Phase1Result` variant: `{ outcome:"shrink_held"; message:string; heldModifiedTime:string; shrinkItems:TriggeredReviewItem[]; showId?:string|null }`. **No `code` field (Codex plan-R7):** the `RESYNC_SHRINK_HELD` alert code is owned by the caller's raise site (Task 2), NOT phase1 — a `code:"RESYNC_SHRINK_HELD"` literal in `phase1.ts` would trip the orphan-producer scanner (`PRODUCER_RE` over `lib`/`app`, `tests/cross-cutting/codes.test.ts:122`) before §12.4/catalog exists, making Task 1 red.
 - `Phase1Tx.updateShowShrinkHeld(driveFileId, {message}): Promise<string|null|void>` (interface) **and** its `PostgresPipelineTx` impl (mirror `updateShowParseError`).
 - `describeShrink(items, priorParseResult, nextParseResult): string`.
-- `ProcessOneFileResult` variant `{ outcome:"shrink_held"; code:string; showId?:string|null; detail:string; heldModifiedTime:string }` **and** the minimal caller STOP branch in `processOneFile_unlocked` that returns it before `runPhase2_unlocked` (data-safety — Codex plan-R2). Task 2 enhances this branch with the alert raise.
+- `ProcessOneFileResult` variant `{ outcome:"shrink_held"; showId?:string|null; detail:string; heldModifiedTime:string }` (no `code` field — Codex plan-R7; keeping it off also means the route's `"code" in result` error branch never matches a hold) **and** the minimal caller STOP branch in `processOneFile_unlocked` that returns it before `runPhase2_unlocked` (data-safety — Codex plan-R2). Task 2 enhances this branch with the alert raise (the `RESYNC_SHRINK_HELD` literal lands there, co-located with the catalog).
 
 **Step 1a — failing test** in `tests/sync/phase1.decision-rule.test.ts`.
 
@@ -162,7 +162,7 @@ it("MI-6 crew shrink (cron) → shrink_held with real prior→next counts", asyn
   const tx = makeFakeTx({ show: makeShowRow({ priorParseResult: prior, showId: "show-1" }) });
   const res = await runPhase1(tx, makeArgs({ mode: "cron", parseResult: next, modifiedTime: "T1" }));
   expect(res.outcome).toBe("shrink_held");
-  expect(res).toMatchObject({ code: "RESYNC_SHRINK_HELD", heldModifiedTime: "T1", showId: "show-1" });
+  expect(res).toMatchObject({ outcome: "shrink_held", heldModifiedTime: "T1", showId: "show-1" });
   // Derived from fixture dimensions: prior.crewMembers.length → next.crewMembers.length.
   expect(res.message).toContain(`${prior.crewMembers.length}→${next.crewMembers.length}`); // "5→2"
   expect(res.message.toLowerCase()).toContain("crew");
@@ -245,7 +245,7 @@ Add the `shrink_held` variant to `Phase1Result`:
 ```ts
   | {
       outcome: "shrink_held";
-      code: string;
+      // No `code` field (Codex plan-R7): the alert code is the caller's, raised in Task 2.
       message: string;
       heldModifiedTime: string;
       shrinkItems: TriggeredReviewItem[];
@@ -296,13 +296,20 @@ Hold branch — insert **immediately after** `reviewItems` is computed and the M
 
 ```ts
   // Re-sync quality gate (audit finding #3): count-based MATERIAL shrinkage (MI-6 crew, MI-7
-  // section) on an EXISTING published show HOLDS last-good instead of auto-clobbering, in EVERY
-  // mode (cron/push/manual). The ONLY bypass is a VERSION-BOUND acceptShrink set by a confirmed
-  // re-submit that already showed the admin the shrink counts (D4). MI-6/MI-7 require a prior
-  // (invariants.ts) so `show` is always non-null here; the guard documents the scope.
-  const materialShrinkItems = show
-    ? reviewItems.filter((item) => item.invariant === "MI-6" || item.invariant === "MI-7")
-    : [];
+  // section) on an EXISTING published show HOLDS last-good instead of auto-clobbering, in the
+  // re-sync modes (cron/push/manual). The ONLY bypass is a VERSION-BOUND acceptShrink set by a
+  // confirmed re-submit that already showed the admin the shrink counts (D4). MI-6/MI-7 require a
+  // prior (invariants.ts) so `show` is non-null here; the guard documents the scope.
+  //
+  // onboarding_scan is EXCLUDED (Codex plan-R6/R7): its tx blinds readShowForPhase1 to null
+  // (runOnboardingScan.ts:410 — first-seen semantics, no MI-6..14 diffs, no shows mutations), so
+  // materialShrinkItems is already empty there today. The explicit `mode` gate makes that robust:
+  // onboarding must NEVER mutate `shows`, and PostgresOnboardingScanTx.updateShowShrinkHeld is a
+  // throw-only guard — the gate guarantees the hold branch never invokes it.
+  const materialShrinkItems =
+    show && args.mode !== "onboarding_scan"
+      ? reviewItems.filter((item) => item.invariant === "MI-6" || item.invariant === "MI-7")
+      : [];
   if (materialShrinkItems.length > 0) {
     // Drive's modifiedTime advances on any edit, so a mismatch means Doug edited between the
     // prompt and the confirm — re-hold with fresh counts (the admin must re-confirm).
@@ -313,9 +320,16 @@ Hold branch — insert **immediately after** `reviewItems` is computed and the M
       const updatedShowId = await callTx("updateShowShrinkHeld", () =>
         tx.updateShowShrinkHeld(args.driveFileId, { message }),
       );
+      // NB: NO alert-code field on the shrink_held result (Codex plan-R7). The RESYNC_SHRINK_HELD
+      // alert code is a §12.4/catalog-gated producer owned by the CALLER's raise site (Task 2,
+      // co-located with the catalog row) — never emitted here. Emitting the SCREAMING_SNAKE code
+      // literal on a `code:` property in phase1.ts would be caught by the orphan-producer scanner
+      // (PRODUCER_RE over lib/app in tests/cross-cutting/codes.test.ts) BEFORE the catalog row
+      // exists → Task 1 red. (This comment deliberately avoids that `code:`+quoted-literal shape,
+      // which the scanner would match even inside a comment.) Dropping the field also keeps the
+      // route's `"code" in result` error branch from ever matching a hold.
       return {
         outcome: "shrink_held",
-        code: "RESYNC_SHRINK_HELD",
         message,
         heldModifiedTime: args.binding.modifiedTime,
         shrinkItems: materialShrinkItems,
@@ -376,7 +390,7 @@ Hold branch — insert **immediately after** `reviewItems` is computed and the M
 Add the `ProcessOneFileResult` `shrink_held` variant (`lib/sync/runScheduledCronSync.ts:210`):
 
 ```ts
-  | { outcome: "shrink_held"; code: string; showId?: string | null; detail: string; heldModifiedTime: string }
+  | { outcome: "shrink_held"; showId?: string | null; detail: string; heldModifiedTime: string }
 ```
 
 Minimal caller stop branch — insert in `processOneFile_unlocked` immediately after the `hard_fail` branch (`:2807`), BEFORE the `stage` branch, so control never reaches `runPhase2_unlocked`:
@@ -387,7 +401,6 @@ Minimal caller stop branch — insert in `processOneFile_unlocked` immediately a
     // RESYNC_SHRINK_HELD + resolve stale peers — those are grep-coupled to SYNC_PROBLEM_CODES.)
     const result = {
       outcome: "shrink_held" as const,
-      code: phase1.code,
       showId: phase1.showId ?? null,
       detail: phase1.message,
       heldModifiedTime: phase1.heldModifiedTime,
@@ -405,7 +418,7 @@ Minimal caller stop branch — insert in `processOneFile_unlocked` immediately a
 it("shrink_held phase1 result STOPS before Phase 2 (no apply, no clobber)", async () => {
   const runPhase2 = vi.fn();                    // spy the apply seam
   const applyParseResult = vi.fn();
-  // deps/fakes: phase1 returns { outcome:"shrink_held", code:"RESYNC_SHRINK_HELD",
+  // deps/fakes: phase1 returns { outcome:"shrink_held",
   //   message:"crew 5→2", heldModifiedTime:"T1", showId:"show-1" }
   const result = await processOneFile_unlocked(tx, driveFileId, "cron", fileMeta, deps);
   expect(result.outcome).toBe("shrink_held");
@@ -457,7 +470,10 @@ it("shrink_held → raises RESYNC_SHRINK_HELD, resolves OTHER stale peers, keeps
   // resolveStaleSyncProblemAlerts_unlocked is spied...
   const result = await processOneFile_unlocked(tx, driveFileId, "cron", fileMeta, deps);
   expect(result.outcome).toBe("shrink_held");
-  expect(result).toMatchObject({ code: "RESYNC_SHRINK_HELD", detail: expect.any(String), heldModifiedTime: expect.any(String) });
+  // The result carries NO `code` (R7) — detail/heldModifiedTime only; the RESYNC_SHRINK_HELD
+  // code is asserted on the ALERT raise below, not the result shape.
+  expect(result).toMatchObject({ detail: expect.any(String), heldModifiedTime: expect.any(String) });
+  expect(result).not.toHaveProperty("code");
   expect(upsertAdminAlert).toHaveBeenCalledWith(expect.objectContaining({
     code: "RESYNC_SHRINK_HELD",
     showId: "show-1",
@@ -520,9 +536,8 @@ it("resolves RESYNC_SHRINK_HELD once status returns to 'ok'", async () => {
     // detail + heldModifiedTime propagate to ProcessOneFileResult so the manual route can render
     // the confirmation prompt and echo the reviewed version back on accept (§5c). Mirrors the
     // hard_fail branch (:2777) — retain last-good, raise a per-show alert, resolve stale peers.
-    const result = {                              // ← from Task 1 (unchanged)
+    const result = {                              // ← from Task 1 (unchanged — no `code` field, R7)
       outcome: "shrink_held" as const,
-      code: phase1.code,
       showId: phase1.showId ?? null,
       detail: phase1.message,
       heldModifiedTime: phase1.heldModifiedTime,
@@ -729,7 +744,7 @@ Produces: route returns HTTP 200 `{ ok:true, result:{ outcome:"shrink_held", det
 // Failure mode (R10-2): the route maps ANY result with a `code` field to {ok:false,error:code},
 // so shrink_held would render as an error, not a confirm prompt.
 it("first POST on a shrunk sheet → HTTP 200 {ok:true, result:{outcome:'shrink_held', detail, heldModifiedTime}}", async () => {
-  // fake runManualSyncForShow → { outcome:"shrink_held", code:"RESYNC_SHRINK_HELD", detail:"crew 5→2", heldModifiedTime:"T1", showId:"s" }
+  // fake runManualSyncForShow → { outcome:"shrink_held", detail:"crew 5→2", heldModifiedTime:"T1", showId:"s" }
   const res = await POST(req, ctx);
   expect(res.status).toBe(200);
   const json = await res.json();
