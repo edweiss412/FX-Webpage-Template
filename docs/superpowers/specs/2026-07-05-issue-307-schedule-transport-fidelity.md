@@ -62,8 +62,12 @@ with a `SCHEDULE_TIME_UNPARSED` warn (`:207`, `scheduleTimeUnparsed` in
 - **R3.** `downgradeRunOfShow` (`lib/data/downgradeRunOfShow.ts`) is **lossy** for `showEnd` (as it
   already is for `showStart`/`window`): it maps `entries` only. Doc comment updated to name `showEnd`.
 - **R4.** Transport fix is **passengers-column-only**: remove the no-header all-column scan entirely.
-  No test asserts the scan returns non-empty (`tests/parser/blocks/transport.test.ts:150` already
-  pins v2 → `[]`; `getShowForViewer.test.ts:312` is a pre-seeded DB round-trip, not a parse).
+  `tests/parser/blocks/transport.test.ts:150` already pins v2 → `[]`; `getShowForViewer.test.ts:312` is a
+  pre-seeded DB round-trip, not a parse. The ONE test that asserts non-empty no-header names —
+  `tests/parser/exporterFixtures.test.ts:661-672` (`Pick Up Warehouse → ["Eric Carroll"]` etc.) — is
+  literally the #307 bug encoded as expected output (a prior "B1" fix stopped the col0 stage-label read
+  but still harvested the col-D scratch name). It is reconciled to `[]` **in the same transport commit**
+  (plan Task 6). No test relies on a *legitimate* no-header passenger assignment (none exists — R10).
 - **R5.** No DB migration. `run_of_show` is schemaless JSONB; `showEnd` needs no DDL, no
   validation-schema-parity concern.
 - **R6.** `SCHEDULE_TIME_UNPARSED` (§12.4 code) **still exists and still fires** for the genuinely

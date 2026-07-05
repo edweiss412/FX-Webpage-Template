@@ -159,6 +159,13 @@ and the fallback a few lines below:
   const day = ros[iso] ?? { entries: [], showStart: null, showEnd: null, window: null };
 ```
 
+`lib/data/decodeRunOfShow.ts:181` — a **shorthand** production constructor the `showStart:` grep misses
+(Codex plan-review R2). Minimal placeholder now (Task 2 wires the real sentinel-guarded read):
+```ts
+      result[key] = { entries, showStart, showEnd: null, window };
+```
+(Leave `:180`'s omit-empty predicate unchanged in Task 1 — `showEnd` is always null here until Task 2.)
+
 - [ ] **Step 5b: Mechanical `ScheduleDay` fixture sweep (Codex plan-review R1) — REQUIRED before commit**
 
 Because `showEnd` is a **required** field, every existing `ScheduleDay` literal AND every exact
@@ -623,6 +630,7 @@ git commit --no-verify -m "feat(admin): surface showStart/window/showEnd in wiza
 **Files:**
 - Modify: `lib/parser/blocks/transport.ts:598-630` (`extractAssignedNames`)
 - Test: `tests/parser/blocks/transport.test.ts`
+- Reconcile: `tests/parser/exporterFixtures.test.ts:661-672` (existing test encodes the OLD bug)
 
 - [ ] **Step 1: Write the failing tests** — append to `tests/parser/blocks/transport.test.ts`:
 
@@ -679,15 +687,37 @@ function extractAssignedNames(
 
 (`splitNames`, `isNameLike`, and `crewMembers` remain — used by the passengers-column path.)
 
-- [ ] **Step 4: Run tests to verify pass (incl. regressions)**
+- [ ] **Step 4: Reconcile the existing exporter-fidelity test that encoded the OLD bug** —
+`tests/parser/exporterFixtures.test.ts:661-672` (`describe "B1 transport assigned_names …"`) currently
+asserts the scratch names as expected output:
 
-Run: `npx vitest run tests/parser/blocks/transport.test.ts`
-Expected: PASS — including the v4-with-Passengers tests (`:231-243,561-641`) and the v2→`[]` test (`:149-153`).
+```ts
+    expect(byStage["Pick Up Warehouse"]).toEqual(["Eric Carroll"]);
+    expect(byStage["Drop Off Venue"]).toEqual(["Eric Weiss"]);
+```
 
-- [ ] **Step 5: Commit**
+These are the #307 false positives (col-D billing names beside the `$` costs — the B1 fix only stopped
+the col0 stage-label read, still harvested col D). Flip both to `[]` and update the `describe`/comment to
+the passengers-column-only contract (RFI/PC has no `PASSENGERS` header → no passengers):
+
+```ts
+    // #307: RFI/PC has no PASSENGERS column; the col-D names are billing scratch, not passengers.
+    expect(byStage["Pick Up Warehouse"]).toEqual([]);
+    expect(byStage["Drop Off Venue"]).toEqual([]);
+```
+
+Keep the existing `not.toContain(e.stage)` loop (`:668`) — it still holds (`[]` contains nothing).
+
+- [ ] **Step 5: Run tests to verify pass (incl. regressions + reconciled fixture)**
+
+Run: `npx vitest run tests/parser/blocks/transport.test.ts tests/parser/exporterFixtures.test.ts`
+Expected: PASS — the v4-with-Passengers tests (`transport.test.ts:231-243,561-641`), the v2→`[]` test
+(`:149-153`), the new `#307` cases, AND the reconciled RFI/PC exporter fixture.
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add lib/parser/blocks/transport.ts tests/parser/blocks/transport.test.ts
+git add lib/parser/blocks/transport.ts tests/parser/blocks/transport.test.ts tests/parser/exporterFixtures.test.ts
 git commit --no-verify -m "fix(parser): transport assigned_names only from explicit PASSENGERS column (#307)"
 ```
 
