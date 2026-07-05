@@ -349,6 +349,8 @@ return (
 ```
 Demoted chip: same markup, non-numeric `"Needs another look"`, no count. Keep the `MoreButton`/modal mount logic (`detailsOpen`) unchanged; only its visible label + styling change (ghost for View, outline for Review — NOT accent). Remove the collapsed `<dl>`, data-gap chips, badges, `-publish-live`. Insert `·` separators via `gap-x-2` + a CSS `·` pseudo, OR render the dot as a styled `<span>` between segments (keep it out of the text nodes so `-dates`/`-venue` assertions stay clean).
 
+**Re-center the checkbox for the single-row card (load-bearing for DI-2).** `PublishCheckbox` (`Step3SheetCard.tsx:108-137`) is currently top-aligned for the wrapping-title grid tile: its `<label>` uses `-m-3 -mt-2.5 items-start`, and its **only testid is on the `sr-only <input>`** — the *visible* box is the `<span aria-hidden>`. In the compact `items-center` row this top offset leaves the visible box above the row's vertical center. Change the label to center: `className="relative -m-3 inline-flex shrink-0 cursor-pointer items-center justify-center p-3"` (drop `-mt-2.5`, `items-start`→`items-center`, `justify-start`→`justify-center`) — `PublishCheckbox` is only consumed by this card, so this is safe. AND add a measurable testid to the visible box so the real-browser DI-2 assertion targets what the eye sees: on the `<span aria-hidden>` add `data-testid={`wizard-step3-card-${driveFileId}-checkbox-box`}`. (The `sr-only` input keeps its `wizard-step3-checkbox-${driveFileId}` testid for interaction tests.)
+
 - [ ] **Step 4: Run to verify it passes** — `pnpm vitest run tests/components/step3SheetCard.test.tsx tests/components/step3SheetCard.transitions.test.tsx` → PASS. Update `transitions.test.tsx` live-region assertions to the new DOM.
 
 - [ ] **Step 5: Commit** — `feat(crew-page): compact Step-3 sheet card (View/Review/demoted/no-details)`.
@@ -430,8 +432,9 @@ it("default (no panelPlacement) keeps the current order", () => {
   render(<FinalizeButton wizardSessionId={WSID} publishCount={1} uncheckedCleanCount={0} />);
   expect(screen.getByTestId("wizard-finalize").className).not.toContain("flex-col-reverse");
 });
-// onboardingWizardNav.test.tsx
-it("step 3 renders no top Back link (Back is in the bar)", () => {
+// onboardingWizardNav.test.tsx — OnboardingWizard is an async Server Component,
+// so the callback MUST be async and await it (matches the existing tests there).
+it("step 3 renders no top Back link (Back is in the bar)", async () => {
   render(await OnboardingWizard({ settings: settingsStep3(), searchParams: { step: "3" }, hasReviewableScan: true }));
   // top chrome Back absent on step 3
   expect(screen.queryByTestId("wizard-back-link")).toBeNull();
@@ -477,10 +480,13 @@ test.describe("Step-3 review page — layout dimensions", () => {
   });
   test("DI-2: card checkbox + button are vertically centered within the card", async ({ page }) => {
     await gotoStep3(page);
-    const card = page.getByTestId(/wizard-step3-card-.*/).first();
+    // Use a selectable (View/Review) card — it has both the visible checkbox box
+    // and the -more button. Its data-testid is exactly `wizard-step3-card-<dfid>`.
+    const card = page.locator('[data-testid^="wizard-step3-card-"]:not([data-no-details])').first();
     const rects = await card.evaluate((el) => {
       const c = el.getBoundingClientRect();
-      const box = el.querySelector('[data-testid^="wizard-step3-checkbox-"]')!.getBoundingClientRect();
+      // Measure the VISIBLE checkbox box (the sr-only input has 0 layout size).
+      const box = el.querySelector('[data-testid$="-checkbox-box"]')!.getBoundingClientRect();
       const btn = el.querySelector('[data-testid$="-more"]')!.getBoundingClientRect();
       const mid = (r: DOMRect) => r.top + r.height / 2;
       return { cardMid: mid(c), boxMid: mid(box), btnMid: mid(btn) };
@@ -513,7 +519,7 @@ Add a `gotoStep3(page)` helper following the sibling spec's login+seed flow. If 
 
 - [ ] **Step 2: Prove each assertion BITES (negative-regression red).** A real-browser layout assertion is only meaningful if it FAILS when the invariant is violated — run it green against the built page, then, one at a time, temporarily break each invariant and confirm the matching assertion goes RED, then restore:
   - DI-1: remove the stepper's `hidden sm:inline` on non-active labels → re-run at 320px → DI-1 FAILS (overflow) → restore.
-  - DI-2: remove `items-center` from the card row → DI-2 FAILS (checkbox/button no longer centered) → restore.
+  - DI-2: restore `PublishCheckbox`'s old `-mt-2.5 items-start` (top-align) on the label → DI-2 FAILS (the visible checkbox box sits above the card's vertical center) → restore the centered version. (Also verify removing `items-center` from the card row itself fails DI-2.)
   - DI-3: remove the bar's `w-full` class → DI-3 FAILS (bar shrinks to content width in the non-stretch flex parent) → restore. (Also confirm removing the body's bottom padding makes the occlusion half of DI-3 fail.)
   Record the three red runs. This is the TDD-red step for a layout gate (per the negative-regression discipline — a layout assertion that can't fail is tautological).
 
