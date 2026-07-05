@@ -103,12 +103,21 @@ describe("Step-3 dirty re-scan row (RESCAN_REVIEW_REQUIRED)", () => {
     }));
     vi.stubGlobal("fetch", fetchMock);
 
+    const onCounts = vi.fn();
     const { getByTestId } = render(
-      <Step3Review wizardSessionId={WSID} rows={[cleanRow(clean), dirtyRow(dirty, PARSE)]} />,
+      <Step3Review
+        wizardSessionId={WSID}
+        rows={[cleanRow(clean), dirtyRow(dirty, PARSE)]}
+        onCountsChange={onCounts}
+      />,
     );
 
-    // M counts only the selectable (clean) row — the dirty row is excluded from the set.
-    expect(getByTestId("wizard-step3-publish-count").textContent ?? "").toContain("0 of 1");
+    // Variant B: the "N of M" count moved to the sticky bar; read it from the
+    // reported counts. M counts only the selectable (clean) row — the dirty row
+    // is excluded from the set (selectableTotal 1, selectedCount 0 == "0 of 1").
+    const last = onCounts.mock.calls.at(-1)?.[0];
+    expect(last?.selectableTotal).toBe(1);
+    expect(last?.selectedCount).toBe(0);
 
     fireEvent.click(getByTestId("wizard-step3-select-all"));
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());

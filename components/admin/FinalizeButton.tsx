@@ -75,6 +75,13 @@ type FinalizeButtonProps = {
   // clicking Publish opens a soft confirm first ("N sheets won't be published
   // — you'll find them under Unpublished. Continue?"). They become Held shows.
   uncheckedCleanCount?: number;
+  // LAYOUT-ONLY (Variant B, Task 6): where the running/terminal panels sit
+  // relative to the trigger. "below" (default) = current order (trigger, then
+  // panels below). "above" = flex-col-reverse, so the panels float ABOVE the
+  // trigger — used inside the sticky publish bar, where the bar hugs the viewport
+  // bottom and terminal error/race panels must appear above it. No behavior /
+  // state-machine / testid / focus change; purely the flex direction.
+  panelPlacement?: "above" | "below";
 };
 
 type ButtonState =
@@ -119,6 +126,7 @@ export function FinalizeButton({
   disabled,
   publishCount,
   uncheckedCleanCount = 0,
+  panelPlacement = "below",
 }: FinalizeButtonProps) {
   const router = useRouter();
   const [state, setState] = useState<ButtonState>({ kind: "idle" });
@@ -420,7 +428,10 @@ export function FinalizeButton({
   }
 
   return (
-    <div className="flex flex-col gap-3" data-testid="wizard-finalize">
+    <div
+      className={`flex ${panelPlacement === "above" ? "flex-col-reverse" : "flex-col"} gap-3`}
+      data-testid="wizard-finalize"
+    >
       {/* Persistent SR announcer: hoisted ABOVE the morph so screen readers reliably announce phase
           changes. A live region inserted already-populated is often missed; a stable region whose
           text mutates is announced. */}

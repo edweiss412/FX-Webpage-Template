@@ -23,8 +23,9 @@
  *   - The shell does NOT compose URLs to build-gated routes (memory
  *     `feedback_build_gated_routes_never_fallback_target`).
  */
+import { Fragment } from "react";
 import Link from "next/link";
-import { ChevronLeft } from "lucide-react";
+import { Check, ChevronLeft } from "lucide-react";
 import type { AppSettingsRow } from "@/lib/onboarding/sessionLifecycle";
 import { startOverServerAction } from "@/lib/onboarding/serverActions";
 import { messageFor } from "@/lib/messages/lookup";
@@ -91,21 +92,33 @@ function StartOverForm() {
   );
 }
 
-function StepIndicator({ step, maxReachedStep }: { step: 1 | 2 | 3; maxReachedStep: 1 | 2 | 3 }) {
-  // Pill shape shared by all three states; focus ring shared by the two link
+// Exported for the unit test (onboardingWizardNav.test.tsx) — the redesigned
+// pill+label+connector stepper. Shared across all three wizard steps; nav
+// behavior (reachability, hrefs, aria-current) is unchanged from the original.
+const STEP_LABELS = ["Share folder", "Verify", "Review & publish"] as const;
+
+export function StepIndicator({
+  step,
+  maxReachedStep,
+}: {
+  step: 1 | 2 | 3;
+  maxReachedStep: 1 | 2 | 3;
+}) {
+  // Pill (circle) shape shared by all states; focus ring shared by the two link
   // states (a plain span is not focusable, so it does not carry the ring).
   const base =
-    "flex size-7 items-center justify-center rounded-pill text-xs font-semibold tabular-nums transition-colors duration-fast";
+    "flex size-7 shrink-0 items-center justify-center rounded-pill border text-xs font-semibold tabular-nums transition-colors duration-fast";
   const focusRing =
     "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2";
   return (
     <nav
       aria-label="Onboarding progress"
       data-testid="wizard-step-indicator"
-      className="flex items-center gap-3"
+      className="flex items-center gap-2 sm:gap-3"
     >
       {([1, 2, 3] as const).map((n) => {
         const isActive = n === step;
+        const isDone = n < step; // a step behind the current one is complete
         // Reachable = step ≤ the furthest step the operator has actually reached.
         // `maxReachedStep` is derived from server progress (a reserved scan
         // session makes Step 3 reachable), NOT merely the current URL step — so
@@ -116,35 +129,64 @@ function StepIndicator({ step, maxReachedStep }: { step: 1 | 2 | 3; maxReachedSt
         // Direction-aware label: a reachable pill ahead of the current step is
         // "Go to" (forward), behind it is "Go back to".
         const navLabel = n < step ? `Go back to step ${n}` : `Go to step ${n}`;
-        if (isVisited) {
-          return (
-            <Link
-              key={n}
-              href={`/admin?step=${n}`}
-              data-testid={`wizard-step-indicator-${n}`}
-              aria-current={isActive ? "step" : undefined}
-              aria-label={isActive ? `Step ${n}, current step` : navLabel}
-              className={[
-                base,
-                focusRing,
-                isActive
-                  ? "bg-accent text-accent-text"
-                  : "bg-surface-sunken text-text-subtle hover:text-text-strong",
-              ].join(" ")}
-            >
-              {n}
-            </Link>
-          );
-        }
-        return (
+        // No success/green token exists (DESIGN.md) — a completed pill is neutral
+        // (surface + strong border + a check glyph), NOT green. Accent is reserved
+        // for the single active pill (≤10% accent budget).
+        const pillState = isActive
+          ? "border-transparent bg-accent text-accent-text"
+          : isDone
+            ? "border-border-strong bg-surface text-text-subtle"
+            : isVisited
+              ? "border-transparent bg-surface-sunken text-text-subtle hover:text-text-strong"
+              : "border-transparent bg-surface-sunken text-text-faint";
+        // The check replaces the number on done pills; label sits beside the pill.
+        const glyph = isDone ? <Check aria-hidden="true" className="size-3.5" /> : n;
+        const pill = isVisited ? (
+          <Link
+            href={`/admin?step=${n}`}
+            data-testid={`wizard-step-indicator-${n}`}
+            aria-current={isActive ? "step" : undefined}
+            aria-label={isActive ? `Step ${n}, current step` : navLabel}
+            className={[base, focusRing, pillState].join(" ")}
+          >
+            {glyph}
+          </Link>
+        ) : (
           <span
-            key={n}
             data-testid={`wizard-step-indicator-${n}`}
             aria-disabled="true"
-            className={[base, "bg-surface-sunken text-text-faint"].join(" ")}
+            className={[base, pillState].join(" ")}
           >
-            {n}
+            {glyph}
           </span>
+        );
+        const label = (
+          <span
+            className={[
+              "text-xs font-medium whitespace-nowrap sm:text-sm",
+              isActive ? "font-semibold text-text-strong" : "hidden text-text-subtle sm:inline",
+            ].join(" ")}
+          >
+            {STEP_LABELS[n - 1]}
+          </span>
+        );
+        return (
+          <Fragment key={n}>
+            <div className="flex items-center gap-2">
+              {pill}
+              {label}
+            </div>
+            {n < 3 ? (
+              <span
+                data-testid="wizard-step-connector"
+                aria-hidden="true"
+                className={[
+                  "h-px max-w-[60px] flex-1 rounded-full",
+                  isDone ? "bg-border-strong" : "bg-border",
+                ].join(" ")}
+              />
+            ) : null}
+          </Fragment>
         );
       })}
       <span className="sr-only">Step {step} of 3</span>
@@ -478,11 +520,10 @@ export async function OnboardingWizard({
       }
     : undefined;
 
-  // Task 6: Steps 1-2 stay narrow (max-w-2xl); Step 3 widens on desktop so its
-  // review cards can lay out in a multi-column grid (the grid itself lives in
-  // <Step3Review>). The chrome (stepper, Back, Start over) is left-aligned, so
-  // the wider container only meaningfully affects the card area.
-  const containerMaxWidth = step === 3 ? "max-w-2xl lg:max-w-6xl" : "max-w-2xl";
+  // Variant B (Task 5): Steps 1-2 stay narrow (max-w-2xl); Step 3 uses a slightly
+  // wider single-column container (max-w-3xl) sized for the full-width compact
+  // sheet rows + sticky publish bar (the list itself lives in <Step3Review>).
+  const containerMaxWidth = step === 3 ? "max-w-3xl" : "max-w-2xl";
 
   return (
     <div
@@ -491,7 +532,9 @@ export async function OnboardingWizard({
     >
       <div className="flex items-center justify-between gap-3">
         <StepIndicator step={step} maxReachedStep={maxReachedStep} />
-        {step !== 1 ? <BackLink step={step} /> : null}
+        {/* Variant B (Task 6): Step 3's Back moved into the sticky publish bar
+            (Step3ReviewWithFinalize), so only Step 2 keeps a top Back. */}
+        {step === 2 ? <BackLink step={2} /> : null}
       </div>
 
       {service.ok ? (

@@ -13,9 +13,10 @@
  * INDEPENDENTLY, and the result-copy scan is scoped to the result element (testid
  * `rescan-sheet-result-*`) so the idle button label can never satisfy the assertion.
  *
- * Plus mount coverage (spec §9 placement): the button mounts on BOTH Step3SheetCard
- * render paths (normal + null-parse), is suppressed for a dirty re-scan row, and on the
- * final-publish blocker lists renders ONLY for STAGED_PARSE_OUTDATED_AT_PHASE_D rows.
+ * Plus mount coverage (spec §9 placement): the button mounts on the null-parse
+ * (no-details) card, is ABSENT on the compact selectable card (Variant B §4.3 —
+ * View/Review is the affordance there), is suppressed for a dirty re-scan row, and
+ * on the final-publish blocker lists renders ONLY for STAGED_PARSE_OUTDATED_AT_PHASE_D rows.
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -233,12 +234,16 @@ describe("RescanSheetButton — Step3 card mount (both render paths)", () => {
     return code ? { ...base, lastFinalizeFailureCode: code } : base;
   }
 
-  test("mounts on the normal parsed card", () => {
+  test("does NOT mount on the compact selectable card (View/Review is the affordance)", () => {
+    // Variant B (§4.3): re-scan is a RECOVERY affordance for the no-details and
+    // demoted variants only. A clean, parseable card exposes the modal trigger
+    // (View/Review), not a standalone re-scan button.
     const dfid = "drive-mount-normal";
-    const { getByTestId } = render(
+    const { getByTestId, queryByTestId } = render(
       <Step3Review wizardSessionId={WSID} rows={[row(dfid, PARSE)]} />,
     );
-    expect(getByTestId(`rescan-sheet-button-${dfid}`)).not.toBeNull();
+    expect(queryByTestId(`rescan-sheet-button-${dfid}`)).toBeNull();
+    expect(getByTestId(`wizard-step3-card-${dfid}-more`)).not.toBeNull();
   });
 
   test("mounts on the null-parse (no-details) card", () => {

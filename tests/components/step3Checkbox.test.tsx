@@ -19,6 +19,7 @@
  * jsdom — render + interaction only; the durable write contract is the real-DB
  * route test (tests/api/wizard-approve-route.test.ts).
  */
+import { useState } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import type { ParseResult } from "@/lib/parser/types";
@@ -27,9 +28,35 @@ const refresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh }) }));
 
 import { Step3SheetCard } from "@/components/admin/wizard/Step3SheetCard";
-import { Step3Review, type Step3Row } from "@/components/admin/wizard/Step3Review";
+import {
+  Step3Review,
+  type Step3PublishCounts,
+  type Step3Row,
+} from "@/components/admin/wizard/Step3Review";
 
 const WSID = "11111111-2222-4333-8444-555555555555";
+
+// Variant B: the "N of M selected to publish" count moved OUT of Step3Review into
+// the sticky publish bar (Step3ReviewWithFinalize). These select-all/count tests
+// exercise Step3Review's optimistic overlay directly, so this probe surfaces the
+// same count via onCountsChange (selectedCount/selectableTotal) under the same
+// `wizard-step3-publish-count` testid + "N of M selected to publish" text.
+function CountProbe({ rows }: { rows: Step3Row[] }) {
+  const [c, setC] = useState<Step3PublishCounts>({
+    publishCount: 0,
+    uncheckedCleanCount: 0,
+    selectableTotal: 0,
+    selectedCount: 0,
+  });
+  return (
+    <>
+      <Step3Review wizardSessionId={WSID} rows={rows} onCountsChange={setC} />
+      <p data-testid="wizard-step3-publish-count">
+        {c.selectedCount} of {c.selectableTotal} selected to publish
+      </p>
+    </>
+  );
+}
 
 function parseResult(title: string): ParseResult {
   // Minimal but structurally-valid ParseResult: the card's §4.6 guard requires
@@ -177,7 +204,7 @@ describe("Step3Review select-all + live count (Task D3)", () => {
     ];
     const appliedCount = rows.filter((r) => r.status === "applied").length; // 2
     const cleanCount = rows.filter((r) => r.status === "applied" || r.status === "staged").length; // 3
-    const { getByTestId } = render(<Step3Review wizardSessionId={WSID} rows={rows} />);
+    const { getByTestId } = render(<CountProbe rows={rows} />);
     const count = getByTestId("wizard-step3-publish-count");
     expect(count.textContent).toContain(String(appliedCount));
     expect(count.textContent).toContain(String(cleanCount));
@@ -192,7 +219,7 @@ describe("Step3Review select-all + live count (Task D3)", () => {
       appliedRow("a1", "A1"), // already checked → not re-approved
       stagedRow("s2", "S2"),
     ];
-    const { getByTestId } = render(<Step3Review wizardSessionId={WSID} rows={rows} />);
+    const { getByTestId } = render(<CountProbe rows={rows} />);
     const selectAll = getByTestId("wizard-step3-select-all") as HTMLInputElement;
     expect(selectAll.checked).toBe(false); // not all clean rows checked
 
@@ -211,7 +238,7 @@ describe("Step3Review select-all + live count (Task D3)", () => {
     const fetchMock = okFetch();
     vi.stubGlobal("fetch", fetchMock);
     const rows: Step3Row[] = [appliedRow("a1", "A1"), appliedRow("a2", "A2")];
-    const { getByTestId } = render(<Step3Review wizardSessionId={WSID} rows={rows} />);
+    const { getByTestId } = render(<CountProbe rows={rows} />);
     const selectAll = getByTestId("wizard-step3-select-all") as HTMLInputElement;
     expect(selectAll.checked).toBe(true); // all clean rows checked
 
@@ -250,7 +277,7 @@ describe("Step3Review select-all + live count (Task D3)", () => {
     const fetchMock = okFetch();
     vi.stubGlobal("fetch", fetchMock);
     const rows: Step3Row[] = [stagedRow("s1", "S1"), stagedRow("s2", "S2"), stagedRow("s3", "S3")];
-    const { getByTestId } = render(<Step3Review wizardSessionId={WSID} rows={rows} />);
+    const { getByTestId } = render(<CountProbe rows={rows} />);
     const box = (dfid: string) => getByTestId(`wizard-step3-checkbox-${dfid}`) as HTMLInputElement;
     expect(box("s1").checked).toBe(false);
     expect(box("s2").checked).toBe(false);
@@ -273,7 +300,7 @@ describe("Step3Review select-all + live count (Task D3)", () => {
     const fetchMock = okFetch();
     vi.stubGlobal("fetch", fetchMock);
     const rows: Step3Row[] = [stagedRow("s1", "S1"), stagedRow("s2", "S2")];
-    const { getByTestId } = render(<Step3Review wizardSessionId={WSID} rows={rows} />);
+    const { getByTestId } = render(<CountProbe rows={rows} />);
     const box = (dfid: string) => getByTestId(`wizard-step3-checkbox-${dfid}`) as HTMLInputElement;
 
     fireEvent.click(box("s1"));
@@ -287,7 +314,7 @@ describe("Step3Review select-all + live count (Task D3)", () => {
     const fetchMock = okFetch();
     vi.stubGlobal("fetch", fetchMock);
     const rows: Step3Row[] = [appliedRow("a1", "A1"), appliedRow("a2", "A2")];
-    const { getByTestId } = render(<Step3Review wizardSessionId={WSID} rows={rows} />);
+    const { getByTestId } = render(<CountProbe rows={rows} />);
     const box = (dfid: string) => getByTestId(`wizard-step3-checkbox-${dfid}`) as HTMLInputElement;
     expect(box("a1").checked).toBe(true);
     expect(box("a2").checked).toBe(true);
@@ -307,7 +334,7 @@ describe("Step3Review select-all + live count (Task D3)", () => {
     const fetchMock = vi.fn(async (_url: string) => new Response("nope", { status: 500 }));
     vi.stubGlobal("fetch", fetchMock);
     const rows: Step3Row[] = [stagedRow("s1", "S1")];
-    const { getByTestId } = render(<Step3Review wizardSessionId={WSID} rows={rows} />);
+    const { getByTestId } = render(<CountProbe rows={rows} />);
     const box = () => getByTestId("wizard-step3-checkbox-s1") as HTMLInputElement;
 
     fireEvent.click(box());
@@ -315,7 +342,10 @@ describe("Step3Review select-all + live count (Task D3)", () => {
     // Optimistically checks, then reverts to unchecked when the POST returns !ok.
     await waitFor(() => expect(fetchMock).toHaveBeenCalled());
     await waitFor(() => expect(box().checked).toBe(false));
-    expect(getByTestId("wizard-step3-publish-count").textContent).toMatch(/0 of 1/);
+    // The count is one render hop behind the box (surfaced via onCountsChange) — poll.
+    await waitFor(() =>
+      expect(getByTestId("wizard-step3-publish-count").textContent).toMatch(/0 of 1/),
+    );
   });
 
   it("Select all reverts ONLY the row whose approve failed (partial-failure revert)", async () => {
@@ -326,7 +356,7 @@ describe("Step3Review select-all + live count (Task D3)", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
     const rows: Step3Row[] = [stagedRow("s1", "S1"), stagedRow("s2", "S2"), stagedRow("s3", "S3")];
-    const { getByTestId } = render(<Step3Review wizardSessionId={WSID} rows={rows} />);
+    const { getByTestId } = render(<CountProbe rows={rows} />);
     const box = (dfid: string) => getByTestId(`wizard-step3-checkbox-${dfid}`) as HTMLInputElement;
 
     fireEvent.click(getByTestId("wizard-step3-select-all"));
@@ -336,7 +366,11 @@ describe("Step3Review select-all + live count (Task D3)", () => {
       expect(box("s3").checked).toBe(true);
       expect(box("s2").checked).toBe(false); // its approve failed → only it reverts
     });
-    expect(getByTestId("wizard-step3-publish-count").textContent).toMatch(/2 of 3/);
+    // The count is surfaced via onCountsChange (one render hop behind the boxes),
+    // so poll for the reverted total.
+    await waitFor(() =>
+      expect(getByTestId("wizard-step3-publish-count").textContent).toMatch(/2 of 3/),
+    );
   });
 
   it("Select-all NEVER greys the per-card boxes, and a click during the batch is race-safe (coalesced, not disabled)", async () => {
@@ -360,7 +394,7 @@ describe("Step3Review select-all + live count (Task D3)", () => {
     });
     vi.stubGlobal("fetch", fetchMock);
     const rows: Step3Row[] = [stagedRow("s1", "S1"), stagedRow("s2", "S2")];
-    const { getByTestId } = render(<Step3Review wizardSessionId={WSID} rows={rows} />);
+    const { getByTestId } = render(<CountProbe rows={rows} />);
     const box = (dfid: string) => getByTestId(`wizard-step3-checkbox-${dfid}`) as HTMLInputElement;
 
     // Start the batch: both boxes flip checked instantly (optimistic overlay).
@@ -436,9 +470,7 @@ describe("Step3Review select-all + live count (Task D3)", () => {
       // in "N of M" or (un)published by Select all (it exposes no control to undo it).
       { driveFileId: "bad1", driveFileName: "Corrupt.gsheet", status: "staged", parseResult: null },
     ];
-    const { getByTestId, queryByTestId } = render(
-      <Step3Review wizardSessionId={WSID} rows={rows} />,
-    );
+    const { getByTestId, queryByTestId } = render(<CountProbe rows={rows} />);
     // Both rows render — the corrupt one stays VISIBLE so the operator sees it.
     expect(queryByTestId("wizard-step3-row-ok1")).not.toBeNull();
     expect(queryByTestId("wizard-step3-row-bad1")).not.toBeNull();
@@ -473,9 +505,7 @@ describe("Step3Review select-all + live count (Task D3)", () => {
       return new Response(JSON.stringify({ status: "ok" }), { status: 200 });
     });
     vi.stubGlobal("fetch", fetchMock);
-    const { getByTestId, rerender } = render(
-      <Step3Review wizardSessionId={WSID} rows={[appliedRow("s1", "S1")]} />,
-    );
+    const { getByTestId, rerender } = render(<CountProbe rows={[appliedRow("s1", "S1")]} />);
     const box = () => getByTestId("wizard-step3-checkbox-s1") as HTMLInputElement;
     expect(box().checked).toBe(true);
 
@@ -491,7 +521,7 @@ describe("Step3Review select-all + live count (Task D3)", () => {
     // A STALE refresh lands: a NEW rows reference still carrying the pre-write status
     // (applied) — the in-flight unapprove has not committed. The reconcile MUST keep
     // s1's in-flight intent (re-check = stay applied), not drop it.
-    rerender(<Step3Review wizardSessionId={WSID} rows={[appliedRow("s1", "S1")]} />);
+    rerender(<CountProbe rows={[appliedRow("s1", "S1")]} />);
     expect(box().checked).toBe(true);
 
     // Release the unapprove → flush sees the desired intent (re-checked) still differs

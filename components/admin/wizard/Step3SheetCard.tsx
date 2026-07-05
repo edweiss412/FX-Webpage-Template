@@ -34,7 +34,7 @@
  * rise/pop/scrim animation lives in app/globals.css ([data-step3-review-panel]
  * / [data-step3-review-scrim]), consuming the motion tokens.
  */
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useRef, useState, type ReactElement } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, ChevronRight, ExternalLink } from "lucide-react";
@@ -42,11 +42,7 @@ import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
 import type { RunOfShow } from "@/lib/parser/types";
 import type { Step3Row } from "@/components/admin/wizard/Step3Review";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
-import {
-  summarizeDataGaps,
-  dataGapClassDetails,
-  stripLegacyUnknownFieldAnchors,
-} from "@/lib/parser/dataGaps";
+import { summarizeDataGaps, stripLegacyUnknownFieldAnchors } from "@/lib/parser/dataGaps";
 import { venueDisplay } from "@/lib/venue/venueLocation";
 // The section bodies + agenda live-fill machine live in the section module
 // (Task 3, spec §4/§6.1) and are rendered by the review modal's registry.
@@ -64,17 +60,6 @@ import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 // Summary date rendering (§4.2): `dateSummarySegments` moved to
 // step3ReviewSections.tsx in Task 4 (imported above) so the review modal's
 // header subline shares the exact derivation without importing the card.
-
-function Badge({ testId, label }: { testId: string; label: string }) {
-  return (
-    <span
-      data-testid={testId}
-      className="inline-flex items-center gap-1 rounded-sm bg-surface-sunken px-2 py-0.5 text-xs font-medium text-text"
-    >
-      {label}
-    </span>
-  );
-}
 
 /**
  * The durable publish-intent checkbox (§4.1/§4.6/§7.2), PURELY CONTROLLED
@@ -107,7 +92,7 @@ export function PublishCheckbox({
   // The native input is sr-only but focusable.
   return (
     <label
-      className="relative -m-3 -mt-2.5 inline-flex shrink-0 cursor-pointer items-start justify-start p-3"
+      className="relative -m-3 inline-flex shrink-0 cursor-pointer items-center justify-center p-3"
       title={checked ? "Publishing this show" : "Publish this show"}
     >
       <input
@@ -122,6 +107,7 @@ export function PublishCheckbox({
       />
       <span
         aria-hidden="true"
+        data-testid={`wizard-step3-card-${driveFileId}-checkbox-box`}
         className={`flex size-5 items-center justify-center rounded-sm border-2 transition-colors duration-fast peer-focus-visible:outline-none peer-focus-visible:ring-2 peer-focus-visible:ring-focus-ring peer-focus-visible:ring-offset-2 ${
           checked ? "border-accent bg-accent text-accent-text" : "border-border-strong bg-bg"
         }`}
@@ -309,7 +295,7 @@ export function Step3SheetCard({
       <article
         data-testid={`wizard-step3-card-${dfid}`}
         data-no-details="true"
-        className="flex flex-col gap-2 rounded-md border border-border bg-surface p-tile-pad"
+        className="flex flex-col gap-2 rounded-md border border-border bg-surface p-tile-pad shadow-tile"
       >
         <div data-testid={`wizard-step3-card-${dfid}-summary`} className="flex items-start gap-3">
           <div className="min-w-0 flex-1">
@@ -337,170 +323,98 @@ export function Step3SheetCard({
   const pullSheet = arr(pr.pullSheet);
   const ros: RunOfShow = pr.runOfShow ?? {};
   const warnings = stripLegacyUnknownFieldAnchors(arr(pr.warnings));
-  // parse-data-quality-warnings §6.2a — the publish-decision point. Derive the
-  // per-class data-gap breakdown (single-sourced via summarizeDataGaps) so the
-  // operator sees WHAT dropped, not just a count, before ticking the publish
-  // checkbox.
-  const dataGapsSummary = summarizeDataGaps(warnings);
-  const dataGapDetails = dataGapClassDetails(dataGapsSummary);
+  // Data-quality gap count drives the compact card's "needs a look" state: a
+  // clean row WITH parse warnings gets the warn border + chip + Review button;
+  // a clean row without gets the plain border + View. The per-class breakdown
+  // now lives in the review modal, not the card face.
+  const gaps = summarizeDataGaps(warnings);
+  const needsLook = gaps.total > 0;
 
   const title = pr.show.title || titleFallback;
   const client = pr.show.client_label || null;
   const segs = dateSummarySegments(pr.show.dates);
+  const { name: venueName } = venueDisplay(pr.show.venue);
 
-  const hasDiagrams =
-    pr.diagrams?.linkedFolder != null || arr(pr.diagrams?.embeddedImages).length > 0;
-  const hasReel = pr.openingReel != null;
-
-  // Collapsed-summary Venue row (replaces the old Totals strip): venue name is the
-  // primary value, a best-effort city the muted secondary line. The per-section
-  // counts now live ONLY in the expanded breakdown section headers ("Crew (N)"),
-  // so they are no longer recomputed here.
-  const { name: venueName, city: venueCity } = venueDisplay(pr.show.venue);
-
-  return (
-    <article
-      data-testid={`wizard-step3-card-${dfid}`}
-      className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad shadow-(--shadow-tile)"
-    >
-      {/* Task 5b: a dirty re-scan demotes the row — the review-before-publishing
-          banner leads the card and the publish checkbox below is suppressed. */}
-      {isDirtyRescan ? <RescanReviewBanner dfid={dfid} wizardSessionId={wizardSessionId} /> : null}
-      {/* audit idx39/#180: a non-RESCAN finalize-demoted row also has its checkbox
-          suppressed — surface a minimal "needs attention — not publishable" note so the
-          card doesn't read as a normal, checkable publish card. Mutually exclusive with
-          the RESCAN banner above. */}
-      {!isDirtyRescan && isFinalizeDemoted ? <NotPublishableNote dfid={dfid} /> : null}
-      {/* Header row: a reserved leading slot (D3 checkbox lands here) + the
-          summary text block. The slot is shrink-0; the block is min-w-0 flex-1
-          so a long title truncates instead of overflowing the fixed-width
-          list column (§4.4). */}
-      <div data-testid={`wizard-step3-card-${dfid}-summary`} className="flex items-start gap-3">
-        {/* Leading slot (D3): the durable publish-intent checkbox. shrink-0 so a
-            long title (min-w-0 flex-1 below) truncates instead of squeezing it.
-            Suppressed for ANY finalize-demoted row (audit idx39/#180): a dirty re-scan
-            routes through the reapply page (banner above); any other demoted code is
-            simply not publishable (note above). Either way the server /approve refuses
-            it and selectableRows excludes it, so the box must not render. */}
-        {isFinalizeDemoted ? null : (
-          <PublishCheckbox
-            // Purely controlled by the card in BOTH modes (spec §9.2): the
-            // checked state is the shared optimistic overlay (controlled) or
-            // the card-local optimistic state (uncontrolled), and the click
-            // path is deliberately fire-and-forget — no pending UI on the box.
-            driveFileId={dfid}
-            checked={checked}
-            onToggle={(next) => void requestSetChecked(next)}
-          />
+  // Compact meta line (§4.3): client · dates · venue, each segment present only
+  // when its datum is, joined by a small dot separator (kept OUT of the segment
+  // text nodes so the -client/-dates/-venue assertions stay clean).
+  const metaSegments = [
+    client ? (
+      <span key="client" data-testid={`wizard-step3-card-${dfid}-client`}>
+        {client}
+      </span>
+    ) : null,
+    segs.length > 0 ? (
+      <span key="dates" data-testid={`wizard-step3-card-${dfid}-dates`}>
+        {segs.join(" · ")}
+      </span>
+    ) : null,
+    venueName ? (
+      <span key="venue" data-testid={`wizard-step3-card-${dfid}-venue`}>
+        {venueName}
+      </span>
+    ) : null,
+  ].filter((n): n is ReactElement => n != null);
+  // §4.3: when client, dates, AND venue are all absent, render NO meta line at
+  // all (not an empty <p> that would leave a dangling gap under the title).
+  const metaLine =
+    metaSegments.length > 0 ? (
+      <p className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm text-text-subtle">
+        {metaSegments.flatMap((seg, i) =>
+          i === 0
+            ? [seg]
+            : ([
+                <span
+                  key={`dot-${i}`}
+                  aria-hidden="true"
+                  className="size-[3px] shrink-0 rounded-full bg-border-strong"
+                />,
+                seg,
+              ] as ReactElement[]),
         )}
-        <div className="min-w-0 flex-1">
-          <SheetTitleLink dfid={dfid} title={title} />
-          {client ? <p className="truncate text-sm text-text-subtle">{client}</p> : null}
+      </p>
+    ) : null;
 
-          {/* Dates and Venue are DISTINCT visual roles: each row carries a small
-              uppercase eyebrow label so the two stop reading as one run-on
-              metadata block. Shared 2-track grid so both eyebrows share a left
-              edge and both values share a left edge. */}
-          {/* `minmax(0,1fr)` (not the default `1fr` = `minmax(auto,1fr)`) lets the
-              value column shrink below its content so a long unbreakable token
-              wraps instead of forcing horizontal overflow past the card width. */}
-          <dl className="mt-1.5 grid grid-cols-[auto_minmax(0,1fr)] items-baseline gap-x-2 gap-y-1">
-            <dt
-              className="text-xs font-semibold uppercase text-text-subtle"
-              style={{ letterSpacing: "var(--tracking-eyebrow)" }}
-            >
-              Dates
-            </dt>
-            <dd
-              data-testid={`wizard-step3-card-${dfid}-dates`}
-              className="text-sm text-text-subtle"
-            >
-              {segs.length > 0 ? segs.join(" · ") : "Dates not detected"}
-            </dd>
-            {/* Venue row — the venue NAME only (the best-effort city moved to its own
-                "City" row below). Falls back to a human "Venue not detected" sentence
-                (invariant 5), never an empty cell. */}
-            <dt
-              className="text-xs font-semibold uppercase text-text-subtle"
-              style={{ letterSpacing: "var(--tracking-eyebrow)" }}
-            >
-              Venue
-            </dt>
-            <dd
-              data-testid={`wizard-step3-card-${dfid}-venue`}
-              className="min-w-0 text-sm text-text-subtle"
-            >
-              {venueName ? (
-                <span className="wrap-break-word text-text">{venueName}</span>
-              ) : (
-                "Venue not detected"
-              )}
-            </dd>
-            {/* City row — a dedicated best-effort city mined from the venue address
-                (conservative: null rather than a wrong guess). Replaces the old
-                collapsed crew preview. Rendered ONLY when a city is confidently
-                detected: most FXAV sheets put the location in the venue NAME (e.g.
-                "Four Seasons Hotel Chicago") and leave the address blank, so a
-                "City not detected" fallback would be noise on nearly every card.
-                Per the agreed "Venue Name + City IF POSSIBLE", the row simply
-                drops when the city isn't derivable. */}
-            {venueCity ? (
-              <>
-                <dt
-                  className="text-xs font-semibold uppercase text-text-subtle"
-                  style={{ letterSpacing: "var(--tracking-eyebrow)" }}
-                >
-                  City
-                </dt>
-                <dd
-                  data-testid={`wizard-step3-card-${dfid}-city`}
-                  className="min-w-0 text-sm text-text-subtle"
-                >
-                  <span className="wrap-break-word text-text">{venueCity}</span>
-                </dd>
-              </>
-            ) : null}
-          </dl>
+  // The warn "needs a look" chip: a bg-status-review dot + bg-warning-bg pill
+  // (dot+text paired, DESIGN.md §1.3). Selectable warn rows show a COUNT; demoted
+  // rows show the non-numeric "Needs another look".
+  const reviewChip = (text: string) => (
+    <span
+      data-testid={`wizard-step3-card-${dfid}-review-chip`}
+      className="inline-flex items-center gap-1.5 rounded-pill bg-warning-bg px-2.5 py-0.5 text-xs font-semibold text-warning-text"
+    >
+      <span aria-hidden="true" className="size-1.5 rounded-full bg-status-review" />
+      {text}
+    </span>
+  );
 
-          {(hasDiagrams || hasReel) && (
-            <div className="mt-2 flex flex-wrap items-center gap-1.5">
-              {hasDiagrams ? (
-                <Badge testId={`wizard-step3-card-${dfid}-badge-diagrams`} label="Diagrams ✓" />
-              ) : null}
-              {hasReel ? (
-                <Badge testId={`wizard-step3-card-${dfid}-badge-reel`} label="Reel ✓" />
-              ) : null}
-            </div>
-          )}
+  // The modal trigger — the SAME self-managed modal in every variant. "View" for
+  // a clean row (ghost), "Review" for a needs-a-look / demoted row (outline —
+  // NOT accent; the accent budget is the bar's Publish CTA + checked boxes).
+  const triggerButton = (label: "View" | "Review") => (
+    <button
+      type="button"
+      data-testid={`wizard-step3-card-${dfid}-more`}
+      aria-haspopup="dialog"
+      onClick={() => setDetailsOpen(true)}
+      className={[
+        "inline-flex min-h-tap-min shrink-0 items-center justify-center gap-1.5 rounded-md px-3 text-sm font-semibold transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2",
+        // Review = outline + strong text (the primary needs-a-look action); View =
+        // subtler ghost (a clean row needs no urging), so the two read distinctly.
+        label === "Review"
+          ? "border border-border-strong text-text-strong"
+          : "text-text-subtle hover:text-text-strong",
+      ].join(" ")}
+    >
+      {label}
+    </button>
+  );
 
-          {/* parse-data-quality-warnings §6.2a — the per-class data-gap chips
-              (warning-colored, PLAIN-LANGUAGE labels only — invariant 5, never the
-              raw §12.4 code). Self-explanatory at a glance ("2 unreadable fields");
-              non-data-gap warnings are NOT chipped here — the full per-warning list
-              lives under "Show details". Present iff there's a data gap; instant,
-              no animation. */}
-          {dataGapDetails.length > 0 ? (
-            <ul
-              data-testid={`wizard-step3-card-${dfid}-data-gaps`}
-              className="mt-2 flex flex-wrap items-center gap-1.5 text-xs text-warning-text"
-            >
-              {dataGapDetails.map((d) => (
-                <li
-                  key={d.key}
-                  data-testid={`wizard-step3-card-${dfid}-data-gap-${d.key}`}
-                  className="inline-flex items-center gap-1 rounded-sm bg-warning-bg px-2 py-0.5 font-medium"
-                >
-                  <span className="tabular-nums">{d.count}</span> {d.label}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
-      </div>
-
-      {/* Persistent SR announcer (§9.3, FinalizeButton pattern): announces
-          publish-intent success/failure from BOTH the modal's publish button
-          and the checkbox's fire-and-forget path. */}
+  // Persistent SR announcer (§9.3, FinalizeButton pattern) + the self-managed
+  // review modal, shared by BOTH the demoted and selectable variants (both keep
+  // read-only modal access; publish intent flows through requestSetChecked).
+  const sharedTail = (
+    <>
       <span
         data-testid={`wizard-step3-card-${dfid}-publish-live`}
         className="sr-only"
@@ -509,42 +423,6 @@ export function Step3SheetCard({
       >
         {liveMessage}
       </span>
-
-      {/* "More" — a quiet, left-aligned TEXT button that opens the review
-          modal (<Step3ReviewModal>: a bottom sheet on mobile, a centered
-          panel on desktop). It replaced the old inline expand toggle, so the
-          card stays a compact summary tile and every grid cell is uniform.
-          `aria-haspopup="dialog"` announces that it opens a modal; the trailing
-          chevron is the persistent (non-hover) "opens more" affordance. ≥44px
-          tap target via min-h-tap-min; self-start so it sizes to its content at
-          the card's left edge instead of stretching full width. */}
-      <button
-        type="button"
-        data-testid={`wizard-step3-card-${dfid}-more`}
-        aria-haspopup="dialog"
-        onClick={() => setDetailsOpen(true)}
-        className="inline-flex min-h-tap-min items-center gap-1 self-start text-sm font-medium text-text-strong underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-      >
-        <span>More</span>
-        <ChevronRight aria-hidden="true" className="size-4" />
-      </button>
-
-      {/* Re-scan this sheet (spec §9): a quiet recovery CTA alongside "More". Suppressed
-          for a dirty re-scan row — its banner above already routes to the reapply page,
-          so a competing Re-scan button would muddy the primary action. */}
-      {isDirtyRescan ? null : (
-        <RescanSheetButton driveFileId={dfid} wizardSessionId={wizardSessionId} />
-      )}
-
-      {/* The review modal — mounted ONLY while open, so a closed card carries
-          no section bodies (and none of their focusable "Show all N times"
-          controls) in the DOM at all (absent, not merely `inert`). The §6.1
-          section registry inside the modal renders EVERY section (crew,
-          schedule, …, agenda when a baseline exists, and the always-rendered
-          warnings checks row), so the card only assembles `SectionData` from
-          its existing derived values. Publish intent flows through the card's
-          result-bearing `requestSetChecked` (§9.2): the modal closes only when
-          its own request settles true (§9.2.5). */}
       {detailsOpen ? (
         <Step3ReviewModal
           data={{
@@ -566,6 +444,81 @@ export function Step3SheetCard({
           onClose={closeDetails}
         />
       ) : null}
+    </>
+  );
+
+  // ── Demoted variant (§4.3): a row demoted by ANY finalize failure code is not
+  // publishable — no checkbox. It keeps the source-sheet title link, a non-numeric
+  // "Needs another look" chip, a read-only Review modal trigger, and its banner
+  // (dirty re-scan → reapply link) OR note (any other demoted code). ──
+  if (isFinalizeDemoted) {
+    return (
+      <article
+        data-testid={`wizard-step3-card-${dfid}`}
+        className="flex flex-col gap-3 rounded-md border border-border-strong bg-surface p-tile-pad shadow-tile"
+      >
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
+          <div className="min-w-0 flex-1">
+            <SheetTitleLink dfid={dfid} title={title} />
+            {metaLine}
+          </div>
+          <div className="flex shrink-0 items-center gap-3 max-sm:w-full max-sm:justify-between">
+            {reviewChip("Needs another look")}
+            {triggerButton("Review")}
+          </div>
+        </div>
+        {isDirtyRescan ? (
+          // Dirty re-scan: the banner's "Review this sheet" reapply link IS the
+          // recovery action — no competing Re-scan button (matches the old card).
+          <RescanReviewBanner dfid={dfid} wizardSessionId={wizardSessionId} />
+        ) : (
+          // Any other finalize-demoted code: a not-publishable note PLUS the
+          // Re-scan recovery action (re-scan stays a no-details/demoted affordance;
+          // the old shared tail rendered it for every non-dirty row).
+          <>
+            <NotPublishableNote dfid={dfid} />
+            <RescanSheetButton driveFileId={dfid} wizardSessionId={wizardSessionId} />
+          </>
+        )}
+        {sharedTail}
+      </article>
+    );
+  }
+
+  // ── Selectable variant (§4.3): checkbox + title/meta + right cluster. A clean
+  // row WITH data-quality warnings ("needs a look") gets a warn border, the
+  // "N need(s) a look" chip, and a Review button; a clean-no-warnings row gets a
+  // plain border, no chip, and a ghost View button. Both open the same modal.
+  // spec §5 mobile: the row WRAPS below `sm` (flex-wrap) — the right cluster
+  // becomes a full-width second row (max-sm:w-full + justify-between). ──
+  return (
+    <article
+      data-testid={`wizard-step3-card-${dfid}`}
+      className={`flex flex-wrap items-center gap-x-4 gap-y-3 rounded-md border ${
+        needsLook ? "border-border-strong" : "border-border"
+      } bg-surface p-tile-pad shadow-tile`}
+    >
+      <PublishCheckbox
+        driveFileId={dfid}
+        checked={checked}
+        onToggle={(next) => void requestSetChecked(next)}
+      />
+      <div className="min-w-0 flex-1">
+        <p
+          data-testid={`wizard-step3-card-${dfid}-title`}
+          className="truncate text-base font-semibold text-text-strong"
+        >
+          {title}
+        </p>
+        {metaLine}
+      </div>
+      <div className="flex shrink-0 items-center gap-3 max-sm:w-full max-sm:justify-between">
+        {needsLook
+          ? reviewChip(`${gaps.total} ${gaps.total === 1 ? "needs" : "need"} a look`)
+          : null}
+        {triggerButton(needsLook ? "Review" : "View")}
+      </div>
+      {sharedTail}
     </article>
   );
 }

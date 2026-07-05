@@ -21,7 +21,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type { ParseResult } from "@/lib/parser/types";
 import { Step3ReviewWithFinalize } from "@/components/admin/wizard/Step3ReviewWithFinalize";
-import type { Step3Row } from "@/components/admin/wizard/Step3Review";
+import { Step3Review, type Step3Row } from "@/components/admin/wizard/Step3Review";
 
 const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -48,6 +48,29 @@ function stagedSelectable(driveFileId: string, title: string): Step3Row {
     driveFileName: `${title}.gsheet`,
     status: "staged",
     parseResult: { show: { title } } as unknown as ParseResult,
+  };
+}
+// A selectable row at a given status (applied → checked, staged → unchecked).
+function selectable(driveFileId: string, status: "staged" | "applied"): Step3Row {
+  return { ...stagedSelectable(driveFileId, driveFileId), status };
+}
+// A clean 'staged' row with NO reviewable preview → not selectable (no checkbox).
+function noDetailsRow(driveFileId: string): Step3Row {
+  return {
+    driveFileId,
+    driveFileName: `${driveFileId}.gsheet`,
+    status: "staged",
+    parseResult: null,
+  };
+}
+// A blocking hard-fail row (finishable=false).
+function hardFailRow(driveFileId: string): Step3Row {
+  return {
+    driveFileId,
+    driveFileName: `${driveFileId}.gsheet`,
+    status: "hard_failed",
+    pendingIngestionId: `pi-${driveFileId}`,
+    errorCode: "MI_PARSE_FAILED",
   };
 }
 
@@ -127,5 +150,97 @@ describe("Step3ReviewWithFinalize — optimistic publish count", () => {
         "Publish 2 shows & finish setup",
       ),
     );
+  });
+});
+
+describe("Step3PublishBar — sticky publish bar (Task 6)", () => {
+  test("sticky bar shows selected count + Back(→step 2) + FinalizeButton", () => {
+    const { getByTestId } = render(
+      <Step3ReviewWithFinalize
+        wizardSessionId={WIZARD_SESSION_ID}
+        rows={[selectable("a", "applied"), selectable("b", "staged")]}
+        finishable
+        initialPublishCount={1}
+        initialUncheckedCleanCount={1}
+      />,
+    );
+    expect(getByTestId("wizard-step3-publish-count").textContent).toContain(
+      "1 of 2 selected to publish",
+    );
+    expect(getByTestId("wizard-step3-back").getAttribute("href")).toBe("/admin?step=2");
+    expect(getByTestId("wizard-finalize-button")).toBeTruthy();
+  });
+
+  test("selectableTotal===0 (only a no-details clean row) but finishable → '0 of 0', Publish stays ENABLED", () => {
+    const { getByTestId } = render(
+      <Step3ReviewWithFinalize
+        wizardSessionId={WIZARD_SESSION_ID}
+        rows={[noDetailsRow("a")]}
+        finishable
+        initialPublishCount={0}
+        initialUncheckedCleanCount={1}
+      />,
+    );
+    expect(getByTestId("wizard-step3-publish-count").textContent).toContain(
+      "0 of 0 selected to publish",
+    );
+    // Existing finishable gate, NOT the selectable count — finish-with-nothing is reachable.
+    expect((getByTestId("wizard-finalize-button") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  test("empty rows → NO sticky bar (guard at Step3ReviewWithFinalize:68)", () => {
+    // Spec §4.4/§7: with zero rows the wrapper renders no bar at all (no count,
+    // no Back, no FinalizeButton) — the bar is gated on `rows.length > 0`, so an
+    // empty Step 3 never shows a spurious "0 of 0" bar over the empty state.
+    const { queryByTestId } = render(
+      <Step3ReviewWithFinalize
+        wizardSessionId={WIZARD_SESSION_ID}
+        rows={[]}
+        finishable
+        initialPublishCount={0}
+        initialUncheckedCleanCount={0}
+      />,
+    );
+    expect(queryByTestId("wizard-step3-publish-bar")).toBeNull();
+    expect(queryByTestId("wizard-step3-publish-count")).toBeNull();
+    expect(queryByTestId("wizard-finalize-button")).toBeNull();
+    expect(queryByTestId("wizard-step3-back")).toBeNull();
+  });
+
+  test("a blocking row → finishable=false → Publish DISABLED (unchanged finishable gate)", () => {
+    const { getByTestId } = render(
+      <Step3ReviewWithFinalize
+        wizardSessionId={WIZARD_SESSION_ID}
+        rows={[hardFailRow("a")]}
+        finishable={false}
+        initialPublishCount={0}
+        initialUncheckedCleanCount={0}
+      />,
+    );
+    expect(getByTestId("wizard-step3-publish-count").textContent).toContain(
+      "0 of 0 selected to publish",
+    );
+    expect((getByTestId("wizard-finalize-button") as HTMLButtonElement).disabled).toBe(true);
+  });
+});
+
+describe("Step3PublishCounts — selectable totals (Task 1)", () => {
+  test("onCountsChange reports selectableTotal excluding demoted/no-details clean rows", () => {
+    const onCounts = vi.fn();
+    // 2 clean+selectable (1 applied → checked), 1 clean-but-demoted
+    // (lastFinalizeFailureCode set → excluded from selectable, kept in publishRows).
+    const rows: Step3Row[] = [
+      { ...stagedSelectable("a", "Alpha"), status: "applied" },
+      stagedSelectable("b", "Bravo"),
+      { ...stagedSelectable("c", "Charlie"), lastFinalizeFailureCode: "RESCAN_REVIEW_REQUIRED" },
+    ];
+    render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={rows} onCountsChange={onCounts} />,
+    );
+    const last = onCounts.mock.calls.at(-1)![0];
+    expect(last.selectableTotal).toBe(2); // demoted 'c' excluded
+    expect(last.selectedCount).toBe(1); // only 'a' applied/checked
+    expect(last.publishCount).toBe(1); // unchanged (over publishRows)
+    expect(last.uncheckedCleanCount).toBe(2); // unchanged: 'b' + demoted 'c'
   });
 });

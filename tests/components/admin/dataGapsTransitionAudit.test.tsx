@@ -115,10 +115,11 @@ describe("data-gap surfaces — transition audit (instant, static parse-state)",
   // count hits zero. Pin each as a plain ternary-to-null.
   it("Step-3 detail, per-show panel, and alert sub-line are plain ternary-to-null", () => {
     const step3 = src("components/admin/wizard/Step3SheetCard.tsx");
-    // The summary warning row (per-class data-gap chips) is a plain ternary-to-null:
-    // present iff there's a data gap, gone otherwise — instant, no AnimatePresence/
-    // motion wrapper.
-    expect(step3).toMatch(/\{dataGapDetails\.length > 0 \? \(/);
+    // Variant B: the card's "needs a look" chip is a plain conditional-to-null —
+    // present iff there's a data gap (needsLook), gone otherwise; instant, no
+    // AnimatePresence/motion wrapper. (The per-class breakdown moved to the modal.)
+    // Whitespace-tolerant (prettier may wrap the ternary across lines).
+    expect(step3).toMatch(/\{needsLook\s*\?\s*reviewChip\(/);
     // Per-show panel: failed → calm notice; else (ACTIVE displayable warnings OR
     // IGNORED warnings) → section; else null. Still a plain ternary-to-null (instant
     // present/absent, no AnimatePresence) — the condition is compound because the panel

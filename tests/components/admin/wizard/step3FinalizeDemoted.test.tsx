@@ -85,12 +85,21 @@ describe("Step-3 non-RESCAN finalize-demoted row (audit idx39/#180)", () => {
     }));
     vi.stubGlobal("fetch", fetchMock);
 
+    const onCounts = vi.fn();
     const { getByTestId, queryByTestId } = render(
-      <Step3Review wizardSessionId={WSID} rows={[cleanRow(clean), demotedRow(demoted)]} />,
+      <Step3Review
+        wizardSessionId={WSID}
+        rows={[cleanRow(clean), demotedRow(demoted)]}
+        onCountsChange={onCounts}
+      />,
     );
 
-    // M counts only the selectable (clean) row — the demoted row is excluded.
-    expect(getByTestId("wizard-step3-publish-count").textContent ?? "").toContain("0 of 1");
+    // Variant B: the "N of M" count moved to the sticky bar; read it from the
+    // reported counts. M counts only the selectable (clean) row — the demoted row
+    // is excluded (selectableTotal 1, selectedCount 0 == "0 of 1").
+    const last = onCounts.mock.calls.at(-1)?.[0];
+    expect(last?.selectableTotal).toBe(1);
+    expect(last?.selectedCount).toBe(0);
     // The clean row keeps its enabled checkbox; the demoted row has none.
     expect(getByTestId(`wizard-step3-checkbox-${clean}`)).not.toBeNull();
     expect(queryByTestId(`wizard-step3-checkbox-${demoted}`)).toBeNull();

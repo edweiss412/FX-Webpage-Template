@@ -12,19 +12,19 @@
  *     Step2Verify fires its scan POST only from the form onSubmit handler, never
  *     on mount, so simply rendering the ?step=2 body issues no fetch. The test
  *     spies global.fetch and asserts zero calls after mount.
- *   - Task 6: Step 3 widens the wizard container on desktop (lg:max-w-6xl) while
- *     Steps 1-2 stay narrow (max-w-2xl), and the per-sheet review cards render in
- *     the responsive grid (<ul data-testid="wizard-step3-card-grid">), with the
- *     "Needs your attention" group as a full-width sibling above the grid.
+ *   - Task 5 (Variant B): Step 3 uses a single-column container (max-w-3xl) while
+ *     Steps 1-2 stay narrow (max-w-2xl), and the per-sheet review cards render as a
+ *     single-column flex list (<ul data-testid="wizard-step3-card-grid"> = flex-col),
+ *     with the "Needs your attention" group as a full-width sibling above the list.
  *
  * OnboardingWizard is an async Server Component — tests await the function and
  * render its JSX through RTL. Step2Verify (the ?step=2 body) calls useRouter(),
  * so next/navigation is stubbed at the file level (no app-router in jsdom).
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { cleanup, render, within } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import type { AppSettingsRow } from "@/lib/onboarding/sessionLifecycle";
-import { OnboardingWizard } from "@/components/admin/OnboardingWizard";
+import { OnboardingWizard, StepIndicator } from "@/components/admin/OnboardingWizard";
 import { Step3Review, type Step3Row } from "@/components/admin/wizard/Step3Review";
 
 // Step2Verify (?step=2) + Step3Review children call useRouter()/usePathname();
@@ -91,13 +91,15 @@ afterEach(() => {
 });
 
 describe("OnboardingWizard navigation chrome (Task 5)", () => {
-  test("Step 3 renders a Back link pointing at ?step=2", async () => {
-    const { getByTestId } = render(
+  test("Step 3 renders NO top Back link (Variant B: Back moved into the sticky publish bar)", async () => {
+    const { queryByTestId, getByTestId } = render(
       await OnboardingWizard({ settings: FRESH_SETTINGS, searchParams: { step: "3" } }),
     );
-    const back = getByTestId("wizard-back-link") as HTMLAnchorElement;
-    expect(back.tagName).toBe("A");
-    expect(back.getAttribute("href")).toBe("/admin?step=2");
+    // Top Back is gone on step 3…
+    expect(queryByTestId("wizard-back-link")).toBeNull();
+    // …and (with a null-session FRESH_SETTINGS) step 3 lands on the no-session
+    // empty state — the chrome renders with ZERO Supabase.
+    expect(getByTestId("wizard-step3-no-session")).not.toBeNull();
   });
 
   test("Step 2 renders a Back link pointing at ?step=1", async () => {
@@ -246,29 +248,65 @@ describe("OnboardingWizard navigation chrome (Task 5)", () => {
   });
 });
 
-describe("OnboardingWizard Step-3 width + card grid (Task 6)", () => {
-  test("Step 3 widens the wizard container on desktop (lg:max-w-6xl)", async () => {
+describe("StepIndicator redesign — labels + connectors + done-check (Task 2)", () => {
+  afterEach(cleanup);
+
+  test("shows visible step labels", () => {
+    render(<StepIndicator step={3} maxReachedStep={3} />);
+    expect(screen.queryByText("Share folder")).not.toBeNull();
+    expect(screen.queryByText("Verify")).not.toBeNull();
+    expect(screen.queryByText("Review & publish")).not.toBeNull();
+  });
+
+  test("done steps (n < step) render a check, active step uses accent", () => {
+    render(<StepIndicator step={3} maxReachedStep={3} />);
+    const active = screen.getByTestId("wizard-step-indicator-3");
+    expect(active.className).toContain("bg-accent");
+    const done1 = screen.getByTestId("wizard-step-indicator-1");
+    expect(done1.querySelector("svg")).not.toBeNull();
+  });
+
+  test("preserves reachability: reached=link, unreached=disabled span", () => {
+    render(<StepIndicator step={1} maxReachedStep={1} />);
+    expect(screen.getByTestId("wizard-step-indicator-1").tagName).toBe("A");
+    expect(screen.getByTestId("wizard-step-indicator-3").getAttribute("aria-disabled")).toBe(
+      "true",
+    );
+  });
+
+  test("renders 2 connector lines between the 3 pills, filled after a done step", () => {
+    render(<StepIndicator step={3} maxReachedStep={3} />);
+    const connectors = screen.getAllByTestId("wizard-step-connector");
+    expect(connectors).toHaveLength(2); // between 1-2 and 2-3
+    expect(connectors[0]!.className).toContain("bg-border-strong"); // left pill (1) done → filled
+  });
+});
+
+describe("OnboardingWizard Step-3 width + card list (Variant B — Task 5)", () => {
+  test("Step 3 uses the single-column container width (max-w-3xl, not the old lg:max-w-6xl)", async () => {
     const { getByTestId } = render(
       await OnboardingWizard({ settings: FRESH_SETTINGS, searchParams: { step: "3" } }),
     );
-    expect(getByTestId("onboarding-wizard").className).toContain("lg:max-w-6xl");
+    const cls = getByTestId("onboarding-wizard").className;
+    expect(cls).toContain("max-w-3xl");
+    expect(cls).not.toContain("lg:max-w-6xl");
   });
 
-  test("Steps 1-2 keep the narrow container (no lg:max-w-6xl)", async () => {
+  test("Steps 1-2 keep the narrow container (max-w-2xl, not max-w-3xl)", async () => {
     const step1 = render(await OnboardingWizard({ settings: FRESH_SETTINGS, searchParams: {} }));
-    expect(step1.getByTestId("onboarding-wizard").className).not.toContain("lg:max-w-6xl");
     expect(step1.getByTestId("onboarding-wizard").className).toContain("max-w-2xl");
+    expect(step1.getByTestId("onboarding-wizard").className).not.toContain("max-w-3xl");
     cleanup();
     const step2 = render(
       await OnboardingWizard({ settings: FRESH_SETTINGS, searchParams: { step: "2" } }),
     );
-    expect(step2.getByTestId("onboarding-wizard").className).not.toContain("lg:max-w-6xl");
+    expect(step2.getByTestId("onboarding-wizard").className).not.toContain("max-w-3xl");
   });
 
-  test("the Step-3 card list uses the responsive grid (1 → 2 → 3 cols), items-start", () => {
-    // The grid holds the publishable (clean) cards; seed one staged row so it
+  test("the Step-3 card list is a single-column flex list (no responsive grid)", () => {
+    // The list holds the publishable (clean) cards; seed one staged row so it
     // renders (skipped/ignored/deferred rows now live in their own set-aside
-    // sections below the grid, not inside it).
+    // sections below the list, not inside it).
     const rows: Step3Row[] = [
       {
         driveFileId: "df-clean",
@@ -280,18 +318,12 @@ describe("OnboardingWizard Step-3 width + card grid (Task 6)", () => {
       },
     ];
     const { getByTestId } = render(<Step3Review wizardSessionId={WSID} rows={rows} />);
-    const grid = getByTestId("wizard-step3-card-grid");
-    const cls = grid.className;
-    expect(cls).toContain("grid");
-    expect(cls).toContain("grid-cols-1");
-    expect(cls).toContain("lg:grid-cols-2");
-    expect(cls).toContain("xl:grid-cols-3");
-    // Tailwind v4: explicit items-start so a short card sizes to its own content
-    // height instead of stretching to the tallest in its row.
-    expect(cls).toContain("items-start");
+    const cls = getByTestId("wizard-step3-card-grid").className;
+    expect(cls).toContain("flex-col");
+    expect(cls).not.toMatch(/grid-cols|lg:grid-cols|xl:grid-cols/);
   });
 
-  test("the 'Needs your attention' group is a full-width sibling ABOVE the grid (never a grid cell)", () => {
+  test("the 'Needs your attention' group is a full-width sibling ABOVE the list (never a list cell)", () => {
     // A clean row (so the publish grid renders) + a blocking row (so the
     // needs-attention group renders).
     const rows: Step3Row[] = [
