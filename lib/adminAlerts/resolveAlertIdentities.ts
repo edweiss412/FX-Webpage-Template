@@ -239,10 +239,18 @@ export async function resolveAlertIdentities(
     if (!crewId) return null;
     const crew = crewById.get(crewId);
     if (!crew?.name) return null;
-    // Show-scoped crew resolution (Codex F7): a crew row from a different
-    // show than the alert's effective show yields NO segment.
+    // Show-scoped crew resolution (Codex F7 + whole-diff R1 HIGH), FAIL-CLOSED:
+    // a crew name is attached ONLY when there is an effective show to scope
+    // against AND the crew row belongs to it (`crew.show_id === effective show`).
+    // If there is NO effective show (row.show_id null, no context show_id, no
+    // resolvable drive_file_id), we CANNOT verify the crew belongs to this
+    // alert's scope, so we DROP the segment rather than surface a potentially
+    // cross-show identity. Today's crewName producers (OAUTH_IDENTITY_CLAIMED,
+    // PICKER_SELECTION_RACE, ROLE_FLAGS_NOTICE) always set a UUID show_id, but
+    // `admin_alerts.code` is unconstrained, so the resolver honors its own
+    // show-scoping contract for any drifted/manual/future row.
     const showId = effectiveShowId(row);
-    if (showId && crew.show_id !== showId) return null;
+    if (!showId || crew.show_id !== showId) return null;
     return makeSegment("Crew", crew.name, { pii: false });
   }
 

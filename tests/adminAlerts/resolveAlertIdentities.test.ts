@@ -191,6 +191,43 @@ describe("resolveAlertIdentities", () => {
     ]);
   });
 
+  it("show-scoped crew resolution FAIL-CLOSED: no effective show → NO crew segment even for a valid crew_member_id (Codex whole-diff R1 HIGH)", async () => {
+    // The exact scenario Codex flagged: a crewName code whose row has show_id
+    // null AND whose context carries a valid crew_member_id but NO show_id and
+    // NO drive_file_id. With no effective show to scope against, the crew's
+    // show membership cannot be verified, so the resolver must DROP the crew
+    // segment (fail-closed) rather than surface a potentially cross-show name.
+    const crewId = "cccccccc-cccc-cccc-cccc-cccccccccccc";
+    const { client } = makeFakeSupabase({
+      // The crew row genuinely exists and belongs to SOME show — but the alert
+      // has no effective show, so we still cannot confirm it is THIS alert's show.
+      crewRows: [
+        { id: crewId, show_id: "dddddddd-dddd-dddd-dddd-dddddddddddd", name: "Unscoped Crew" },
+      ],
+    });
+
+    const identityContext = projectIdentityContext(
+      { crew_member_id: crewId, user_email: "someone@example.com" },
+      { includePii: true },
+    );
+    const rows = [
+      row({
+        id: "alert-unscoped",
+        code: "OAUTH_IDENTITY_CLAIMED",
+        show_id: null,
+        identityContext,
+      }),
+    ];
+
+    const result = await resolveAlertIdentities(rows, client, { includePii: true });
+    const identity = result.identities.get("alert-unscoped")!;
+    // The crew name must NOT appear (fail-closed on missing effective show)...
+    expect(identity.segments.some((s) => s.value.includes("Unscoped Crew"))).toBe(false);
+    expect(identity.segments.some((s) => s.label === "Crew")).toBe(false);
+    // ...but the email segment (no show-scoping needed) still renders.
+    expect(identity.segments.some((s) => s.value.includes("someone@example.com"))).toBe(true);
+  });
+
   it("resolved DB names are sanitized: email/token/bidi in crew_members.name and shows.title", async () => {
     const crewId = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
     const showId = "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb";
