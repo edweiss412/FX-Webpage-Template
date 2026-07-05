@@ -131,8 +131,33 @@ with empty / `-` / `\-` cell → `[]` (unchanged). Multi-name cell → `splitNam
 ## Fix 3 — end-only show-day time
 
 **Files:** `lib/parser/types.ts`, `lib/parser/blocks/scheduleTimes.ts`,
-`lib/data/decodeRunOfShow.ts`, `lib/data/downgradeRunOfShow.ts`,
+`lib/sync/applyParseResult.ts`, `lib/data/decodeRunOfShow.ts`, `lib/data/downgradeRunOfShow.ts`,
 `components/crew/sections/ScheduleSection.tsx`.
+
+### Has-content predicate class (R7 — class-sweep, MUST all include `showEnd`)
+
+`showEnd` is a fourth "content" field. Every place that decides "does this day carry usable content?"
+via the three-field predicate MUST add `showEnd`. Complete site list (verified by
+`grep -rn "showStart [!=]== null" lib components | grep -v test` against origin/main):
+
+| Site | Current predicate | Add |
+| ---- | ----------------- | --- |
+| `scheduleTimes.ts:206` (final warn guard) | `entries.length === 0 && showStart === null && window === null` | `&& showEnd === null` |
+| `applyParseResult.ts:156` (confirmed-day filter) | `entries.length > 0 \|\| showStart !== null \|\| window !== null` | `\|\| day.showEnd !== null` |
+| `applyParseResult.ts:166` (`isFullyEmpty`) | `entries.length === 0 && showStart === null && window === null` | `&& d.showEnd === null` |
+| `applyParseResult.ts:168` (`priorHadContent`) | `entries.length > 0 \|\| showStart !== null \|\| window !== null` | `\|\| d.showEnd !== null` |
+| `decodeRunOfShow.ts:180` (omit-empty) | `entries.length > 0 \|\| showStart !== null \|\| window !== null` | `\|\| showEnd !== null` |
+
+`ScheduleSection.tsx:294` is a *positive-showStart render* check, not an empty-day predicate — the new
+`showEnd` render branch is ADDED after it (see Crew render), not edited into it. No other predicate site exists.
+
+**Why `applyParseResult` is load-bearing (Codex spec-review R1, HIGH):** `applyParseResult` runs BEFORE
+storage. Its confirmed-day filter (`:156`) drops any day failing the three-field test, so a
+`{ entries:[], showStart:null, showEnd:"6:00 PM", window:null }` day would be **silently discarded before
+`run_of_show` is written** — and its `isFullyEmpty`/`priorHadContent` pair (`:165-168`) would additionally
+misclassify a previously-populated day that becomes end-only as `AGENDA_DAY_EMPTIED`. Without the `:156`
+edit the entire end-only fix is a no-op past the parser; without `:166/:168` it emits a false emptied-day
+alert. Both are covered by the class-sweep above and test 10.
 
 **Type.** `ScheduleDay` (`types.ts:361`) gains `showEnd: string | null;` (after `showStart`).
 
@@ -190,7 +215,7 @@ window===null):
 | Aspect | Value |
 | ------ | ----- |
 | **Storage** | `shows_internal.run_of_show` JSONB, per-day `ScheduleDay.showEnd` (schemaless; no DDL) |
-| **Write path** | `parseScheduleTimes` sets it (end-only detector) → `applyParseResult` persists `run_of_show` |
+| **Write path** | `parseScheduleTimes` sets it (end-only detector) → `applyParseResult` (confirmed-day filter + `isFullyEmpty`/`priorHadContent` all `showEnd`-aware per R7) persists `run_of_show` |
 | **Read path** | `decodeRunOfShow` → `getShowForViewer` → crew `ScheduleSection` + wizard `ScheduleBreakdown`→`ScheduleDayRow` (via `ros`) |
 | **Effect on output** | renders `Ends {time}` day-meta on both crew Schedule and admin step-3 breakdown; **not** a `resolveKeyTimes` anchor (R2) |
 
@@ -249,6 +274,13 @@ Each test derives expectations from fixture dimensions; none is tautological.
    a titled day shows entries and **no** meta line. Assert against the rendered meta element, with
    sibling controls removed from the scanned subtree (anti-tautology). *Catches: the current
    entries-only render (Issue 1).*
+10. **applyParseResult — end-only day survives storage (Codex R1).** In
+    `tests/sync/applyParseResultScheduleDay.test.ts`: a confirmed `showEnd`-only day
+    (`{ entries:[], showStart:null, showEnd:"6:00 PM", window:null }`) is present in the stored
+    `run_of_show` (not filtered by `:156`); and a prior populated day that becomes `showEnd`-only does
+    **not** emit `AGENDA_DAY_EMPTIED` (`isFullyEmpty` returns false for it). *Catches: the end-only fix
+    being silently dropped before storage and a false emptied-day alert.* The existing `showStartOnly` /
+    `bareWindow` / `fullyEmpty` fixtures in that file gain `showEnd: null`.
 
 ## Meta-test inventory
 
