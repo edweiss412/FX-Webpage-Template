@@ -7,13 +7,13 @@
  *    that code's OWN raise expression (code literal and field in one bounded
  *    regex match — a whole-file grep would keep passing off a sibling log
  *    payload, e.g. lib/sync/runOnboardingScan.ts logSync at :824-829).
- * 2. Show-scoping pins: the three slug-dependent codes render only because
+ * 2. Show-scoping pins: the four slug-dependent codes render only because
  *    their producers raise show-scoped rows; a showId: null refactor would
  *    silently kill the link while fixture-slug unit tests stay green.
  * 3. Target fidelity: the #share-access anchor and the /admin/onboarding
  *    route the internal links point at must exist on disk.
- * 4. Registry parity: exactly the spec's 9 codes, all members of the 42-code
- *    ADMIN_ALERTS_CODES universe.
+ * 4. Registry parity: exactly the spec's 10 codes (9 original + RESYNC_SHRINK_HELD,
+ *    re-sync quality gate audit #3), all members of the ADMIN_ALERTS_CODES universe.
  */
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -106,6 +106,15 @@ const RAISE_SITE_PINS: RaiseSitePin[] = [
     expectedMatches: 1,
     pins: "show-scoped raise (slug-dependent link)",
   },
+  {
+    // Re-sync quality gate (audit #3): the held-shrink alert action link is slug-dependent, so a
+    // showId: null refactor would silently kill it. Pin the show-scoped raise at its own site.
+    code: "RESYNC_SHRINK_HELD",
+    file: "lib/sync/runScheduledCronSync.ts",
+    pattern: /showId: show\.showId,[\s\S]{0,60}?code: "RESYNC_SHRINK_HELD"/g,
+    expectedMatches: 1,
+    pins: "show-scoped raise (slug-dependent link)",
+  },
 ];
 
 describe("alert-action registry ↔ raise-site fidelity", () => {
@@ -132,11 +141,12 @@ describe("alert-action registry parity (spec §6.3)", () => {
     "PICKER_EPOCH_RESET",
     "PICKER_SELECTION_RACE",
     "REPORT_ORPHANED_LOST_LEASE",
+    "RESYNC_SHRINK_HELD",
     "ROLE_FLAGS_NOTICE",
     "SHOW_FIRST_PUBLISHED",
     "WIZARD_SESSION_SUPERSEDED_RACE",
   ];
-  test("registry keys equal exactly the spec's 9 codes", () => {
+  test("registry keys equal exactly the spec's 10 codes", () => {
     expect(Object.keys(ALERT_ACTIONS).sort()).toEqual(SPEC_CODES);
     expect([...ALERT_ACTION_CODES].sort()).toEqual(SPEC_CODES);
   });

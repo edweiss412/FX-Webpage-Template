@@ -991,18 +991,23 @@ export default async function AdminShowPage({
           {isShowEligibleForCrewLink ? (
             <ArchiveShowButton archiveAction={archiveShowAction.bind(null, show.slug)} compact />
           ) : null}
-          {archived ? (
-            // Archived shows are the read-only surface; Re-sync mutates shows /
-            // pending_syncs via /api/admin/sync, whose only server gate is
-            // finalize-ownership (NOT archived — lib/sync/runManualSyncForShow.ts).
-            // Suppress the CTA so this page never invites mutating a retired show.
-            // The server-side archived refusal is deferred (DEFERRED.md DEF-3).
-            <span data-testid="admin-show-resync-archived" className="text-sm text-text-subtle">
-              Re-sync is paused while this show is archived.
-            </span>
-          ) : (
-            <ReSyncButton slug={show.slug} />
-          )}
+          {/* #resync — fragment target for the RESYNC_SHRINK_HELD alert action link
+              ("Review & re-sync", lib/adminAlerts/alertActions.ts). Plain block wrapper so
+              it's a single flex item and does not disturb the actions-row layout. */}
+          <div id="resync">
+            {archived ? (
+              // Archived shows are the read-only surface; Re-sync mutates shows /
+              // pending_syncs via /api/admin/sync, whose only server gate is
+              // finalize-ownership (NOT archived — lib/sync/runManualSyncForShow.ts).
+              // Suppress the CTA so this page never invites mutating a retired show.
+              // The server-side archived refusal is deferred (DEFERRED.md DEF-3).
+              <span data-testid="admin-show-resync-archived" className="text-sm text-text-subtle">
+                Re-sync is paused while this show is archived.
+              </span>
+            ) : (
+              <ReSyncButton slug={show.slug} />
+            )}
+          </div>
         </div>
       </footer>
     </main>
