@@ -59,9 +59,13 @@ describe("HealthAlertResolveButton (Task 9 wiring)", () => {
   });
 
   test("page-2 degraded row (?dpage=1) renders its Resolve control — RESOLVABLE, not just reachable", async () => {
+    // Fixture must be a MANUAL degraded health code so the Resolve control renders:
+    // alert-resolve-truthing reclassified WEBHOOK_TOKEN_INVALID to resolution:"auto",
+    // for which HealthAlertsPanel now suppresses the button in favor of an auto-clear
+    // note. TILE_SERVER_RENDER_FAILED stays manual, preserving this test's intent.
     impl.fn = async ({ weight, page }) =>
       weight === "degraded" && page === 1
-        ? { kind: "ok", rows: [row("row51", "WEBHOOK_TOKEN_INVALID")], hasMore: false }
+        ? { kind: "ok", rows: [row("row51", "TILE_SERVER_RENDER_FAILED")], hasMore: false }
         : { kind: "ok", rows: [], hasMore: false };
     const { HealthAlertsPanel } = await import("@/components/admin/telemetry/HealthAlertsPanel");
     render(await HealthAlertsPanel({ searchParams: { dpage: "1" } }));
