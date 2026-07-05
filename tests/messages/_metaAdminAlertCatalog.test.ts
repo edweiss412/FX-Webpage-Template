@@ -464,11 +464,15 @@ const ADMIN_ALERTS_LIFECYCLE: Record<(typeof ADMIN_ALERTS_CODES)[number], Lifecy
   // monitor is the re-detector, so healthy runs clear the alerts it raised ---
   BRANCH_PROTECTION_DRIFT: {
     class: "auto",
-    resolveSites: [{ file: "scripts/verify-branch-protection.ts", pattern: /defaultResolveAlerts/ }],
+    resolveSites: [
+      { file: "scripts/verify-branch-protection.ts", pattern: /defaultResolveAlerts/ },
+    ],
   },
   BRANCH_PROTECTION_MONITOR_AUTH_FAILED: {
     class: "auto",
-    resolveSites: [{ file: "scripts/verify-branch-protection.ts", pattern: /defaultResolveAlerts/ }],
+    resolveSites: [
+      { file: "scripts/verify-branch-protection.ts", pattern: /defaultResolveAlerts/ },
+    ],
   },
 };
 
