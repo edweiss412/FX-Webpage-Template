@@ -25,7 +25,7 @@ import { HelpTooltip } from "@/components/admin/HelpTooltip";
 import { messageFor, type MessageParams } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { renderCatalogEmphasis } from "@/components/messages/renderEmphasis";
-import { dataGapClassDetails, type DataGapsSummary } from "@/lib/parser/dataGaps";
+import { formatDataGapBreakdown, GAP_CLASSES, type DataGapsSummary } from "@/lib/parser/dataGaps";
 
 const UNRESOLVED_PLACEHOLDER_RE = /<[a-zA-Z_][a-zA-Z0-9_-]*>/;
 
@@ -69,13 +69,14 @@ function readDataGapsDigest(context: Record<string, unknown> | null): DataGapsSu
   if (!classes || typeof classes !== "object") return null;
   const c = classes as Record<string, unknown>;
   const num = (v: unknown): number => (typeof v === "number" && Number.isFinite(v) ? v : 0);
+  // Reconstruct ALL gap-class keys from the persisted digest. An OLD 3-key context
+  // (pre-#289 scope) defaults its missing keys to 0; the persisted `total` is kept
+  // as-is (point-in-time snapshot — never retroactively recounted).
   return {
     total: candidate.total,
-    classes: {
-      FIELD_UNREADABLE: num(c.FIELD_UNREADABLE),
-      UNKNOWN_SECTION_HEADER: num(c.UNKNOWN_SECTION_HEADER),
-      BLOCK_DISAPPEARED: num(c.BLOCK_DISAPPEARED),
-    },
+    classes: Object.fromEntries(
+      GAP_CLASSES.map((g) => [g.code, num(c[g.code])]),
+    ) as DataGapsSummary["classes"],
   };
 }
 
@@ -307,10 +308,7 @@ export async function PerShowAlertSection({
                   data-testid={`per-show-alert-data-gaps-${alert.id}`}
                   className="text-xs text-text-subtle"
                 >
-                  Data dropped while parsing:{" "}
-                  {dataGapClassDetails(dataGapsDigest)
-                    .map((d) => `${d.count} ${d.label}`)
-                    .join(", ")}
+                  Data dropped while parsing: {formatDataGapBreakdown(dataGapsDigest)}
                 </p>
               ) : null}
               <p className="text-xs text-text-subtle tabular-nums">

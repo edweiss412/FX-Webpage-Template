@@ -5,8 +5,8 @@ import {
   DECISION_REQUIRING_INVARIANTS,
 } from "@/lib/onboarding/rescanDecision";
 import { FIELD_UNREADABLE } from "@/lib/parser/warnings";
-import type { DataGapsSummary } from "@/lib/parser/dataGaps";
 import type { ParseResult, ParseWarning } from "@/lib/parser/types";
+import { mkDataGaps } from "../helpers/dataGapsFixture";
 
 // Minimal valid v4 ParseResult fixture (mirrors tests/onboarding/finalizeCasReonboardBaseline).
 // crew + warnings are the only fields the rescan decision diffs against.
@@ -117,22 +117,29 @@ describe("computeRescanDecision", () => {
 
   // Failure mode: a newly-degraded field count being auto-kept (finding 5: per-class count).
   test("data-gap count INCREASE (1 → 2 FIELD_UNREADABLE) → DIRTY", () => {
-    const priorGaps: DataGapsSummary = {
-      total: 1,
-      classes: { FIELD_UNREADABLE: 1, UNKNOWN_SECTION_HEADER: 0, BLOCK_DISAPPEARED: 0 },
-    };
+    const priorGaps = mkDataGaps({ FIELD_UNREADABLE: 1 });
     const refreshed = makeParse([{ name: "Ada Lovelace", email: "ada@x.example" }], unreadable(2));
     expect(computeRescanDecision(PRIOR, refreshed, priorGaps).dirty).toBe(true);
   });
 
   // Negative control: a gap the operator FIXED (count drops) stays CLEAN.
   test("data-gap count DECREASE (2 → 1) → CLEAN", () => {
-    const priorGaps: DataGapsSummary = {
-      total: 2,
-      classes: { FIELD_UNREADABLE: 2, UNKNOWN_SECTION_HEADER: 0, BLOCK_DISAPPEARED: 0 },
-    };
+    const priorGaps = mkDataGaps({ FIELD_UNREADABLE: 2 });
     const refreshed = makeParse([{ name: "Ada Lovelace", email: "ada@x.example" }], unreadable(1));
     expect(computeRescanDecision(PRIOR, refreshed, priorGaps).dirty).toBe(false);
+  });
+
+  // Task 6 — the generalized `classes` Record must let the Object.keys comparison
+  // catch a regression on a NEWLY-counted code (one absent from the pre-#289 3-key
+  // shape). If `classes` were still 3 fixed keys, UNKNOWN_FIELD would not be a key,
+  // the comparison would skip it, and this regression would be silently auto-kept.
+  test("regression on a NEWLY-counted gap code (UNKNOWN_FIELD 0 → 1) → DIRTY", () => {
+    const priorGaps = mkDataGaps({}); // no gaps at all
+    const refreshed = makeParse(
+      [{ name: "Ada Lovelace", email: "ada@x.example" }],
+      [{ severity: "warn", code: "UNKNOWN_FIELD", message: "new unrecognized field" }],
+    );
+    expect(computeRescanDecision(PRIOR, refreshed, priorGaps).dirty).toBe(true);
   });
 
   test("priorParse === null (first-seen) → no decision items, CLEAN (caller adds the !priorReady guard)", () => {

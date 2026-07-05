@@ -4,6 +4,7 @@
 // builder so query shape (head:true counts, .limit/.range bounds, no empty .in)
 // is asserted, not just the returned data.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { mkDataGaps } from "../helpers/dataGapsFixture";
 
 // ── recording mock ────────────────────────────────────────────────────────
 type Seed = {
@@ -701,10 +702,9 @@ describe("fetchDashboardData parallelization (nav-perf phase 1)", () => {
     const { fetchDashboardData } = await import("@/components/admin/Dashboard");
     const result = await fetchDashboardData();
     if ("kind" in result) throw new Error("unexpected infra_error");
-    expect(result.rows.find((r) => r.slug === "rpas")!.dataGaps).toEqual({
-      total: 3,
-      classes: { FIELD_UNREADABLE: 2, UNKNOWN_SECTION_HEADER: 1, BLOCK_DISAPPEARED: 0 },
-    });
+    expect(result.rows.find((r) => r.slug === "rpas")!.dataGaps).toEqual(
+      mkDataGaps({ FIELD_UNREADABLE: 2, UNKNOWN_SECTION_HEADER: 1 }),
+    );
     expect(result.dataGapsDegraded).toBe(false);
   });
 

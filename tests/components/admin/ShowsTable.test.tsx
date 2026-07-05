@@ -10,7 +10,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { ShowsTable } from "@/components/admin/ShowsTable";
 import type { ActiveShowRow } from "@/lib/admin/showDisplay";
-import { dataGapClassDetails, type DataGapsSummary } from "@/lib/parser/dataGaps";
+import { formatDataGapBreakdown, type DataGapsSummary } from "@/lib/parser/dataGaps";
+import { mkDataGaps } from "../../helpers/dataGapsFixture";
 
 afterEach(cleanup);
 
@@ -19,10 +20,9 @@ const now = new Date("2026-06-03T12:00:00.000Z");
 // Derive the expected badge accessible name from the SINGLE SOURCE OF TRUTH
 // (dataGapClassDetails) — never hardcode the plural/total strings (anti-tautology).
 function expectedBadgeName(s: DataGapsSummary): string {
-  const breakdown = dataGapClassDetails(s)
-    .map((d) => `${d.count} ${d.label}`)
-    .join(", ");
-  return `${s.total} data ${s.total === 1 ? "gap" : "gaps"}: ${breakdown}`;
+  // Derived from the single-source cap helper (the data source), NOT the rendered
+  // container — so the assertion tracks the real bounded string (anti-tautology).
+  return `${s.total} data ${s.total === 1 ? "gap" : "gaps"}: ${formatDataGapBreakdown(s)}`;
 }
 
 function row(over: Partial<ActiveShowRow> & { slug: string }): ActiveShowRow {
@@ -700,10 +700,7 @@ describe("ShowsTable", () => {
 
   // ── parse-data-quality-warnings badge (spec §3) ──────────────────────────
   it("T4: badge is queryable by role=img with the derived accessible name; no raw code literal", () => {
-    const summary: DataGapsSummary = {
-      total: 3,
-      classes: { FIELD_UNREADABLE: 2, UNKNOWN_SECTION_HEADER: 1, BLOCK_DISAPPEARED: 0 },
-    };
+    const summary = mkDataGaps({ FIELD_UNREADABLE: 2, UNKNOWN_SECTION_HEADER: 1 });
     render(
       <ShowsTable
         rows={[row({ slug: "gaps", dataGaps: summary })]}
@@ -723,16 +720,7 @@ describe("ShowsTable", () => {
   it("T5: renders NO badge when dataGaps is absent or total 0 (instant unmount)", () => {
     render(
       <ShowsTable
-        rows={[
-          row({ slug: "clean" }),
-          row({
-            slug: "zero",
-            dataGaps: {
-              total: 0,
-              classes: { FIELD_UNREADABLE: 0, UNKNOWN_SECTION_HEADER: 0, BLOCK_DISAPPEARED: 0 },
-            },
-          }),
-        ]}
+        rows={[row({ slug: "clean" }), row({ slug: "zero", dataGaps: mkDataGaps({}) })]}
         now={now}
         activeCount={2}
         overflowCount={0}
@@ -743,10 +731,7 @@ describe("ShowsTable", () => {
   });
 
   it("T6: singular derived accessible name for total 1", () => {
-    const summary: DataGapsSummary = {
-      total: 1,
-      classes: { FIELD_UNREADABLE: 1, UNKNOWN_SECTION_HEADER: 0, BLOCK_DISAPPEARED: 0 },
-    };
+    const summary = mkDataGaps({ FIELD_UNREADABLE: 1 });
     render(
       <ShowsTable
         rows={[row({ slug: "one", dataGaps: summary })]}
@@ -758,5 +743,33 @@ describe("ShowsTable", () => {
     expect(screen.getByRole("img", { name: expectedBadgeName(summary) })).toHaveAccessibleName(
       expectedBadgeName(summary),
     );
+  });
+
+  it("T7: badge aria-label AND title are BOTH bounded to 4 classes + '+N more' (cap helper)", () => {
+    // 6 distinct classes → cap 4 → aria-label/title end with "+2 more", never the
+    // unbounded 6-class join. total reflects the true count (6).
+    const summary = mkDataGaps({
+      FIELD_UNREADABLE: 1,
+      UNKNOWN_SECTION_HEADER: 1,
+      BLOCK_DISAPPEARED: 1,
+      UNKNOWN_FIELD: 1,
+      SCHEDULE_TIME_UNPARSED: 1,
+      UNKNOWN_ROLE_TOKEN: 1,
+    });
+    render(
+      <ShowsTable
+        rows={[row({ slug: "many", dataGaps: summary })]}
+        now={now}
+        activeCount={1}
+        overflowCount={0}
+      />,
+    );
+    const badge = screen.getByTestId("shows-data-quality-many");
+    const expected = expectedBadgeName(summary); // derived from the cap helper
+    expect(badge).toHaveAccessibleName(expected);
+    expect(badge.getAttribute("title")).toBe(expected); // title bounded too (Codex plan R2)
+    expect(expected).toMatch(/\+2 more$/); // the fixture genuinely exercises the cap
+    // and the unbounded 6th-class label never leaks into the name
+    expect(badge.getAttribute("aria-label")).not.toMatch(/unrecognized role/);
   });
 });
