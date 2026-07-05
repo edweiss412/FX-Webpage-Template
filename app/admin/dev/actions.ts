@@ -69,8 +69,9 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { redirect } from "next/navigation";
-import { requireDeveloper } from "@/lib/auth/requireDeveloper";
+import { requireDeveloper, requireDeveloperIdentity } from "@/lib/auth/requireDeveloper";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import { parseSheet } from "@/lib/parser";
 import { runInvariants } from "@/lib/parser/invariants";
 import { enrichWithDrivePins } from "@/lib/sync/enrichWithDrivePins";
@@ -121,6 +122,8 @@ export async function parseAndStage(
   prior: ParseResult | null = null,
 ): Promise<ParseAndStageResult> {
   await requireDeveloper();
+  // Actor identity resolved BEFORE the mutation (cached; invariant 10, §5.1).
+  const { email } = await requireDeveloperIdentity();
 
   // Filename allowlist gate — never read outside fixtures/shows/raw and never
   // accept path traversal.
@@ -211,6 +214,14 @@ export async function parseAndStage(
   }
 
   const staging = data as ParseAndStageResult["staging"];
+
+  // Durable forensic telemetry: post-commit, success branch only (invariant 10, §5.2).
+  await logAdminOutcome({
+    code: "DEV_PARSE_STAGED",
+    source: "admin.dev.parseAndStage",
+    actorEmail: email,
+    result: effectiveOutcome,
+  });
 
   return {
     filename,
@@ -392,11 +403,19 @@ export async function getStagedResult(filename: string): Promise<ParseAndStageRe
  */
 export async function resetDevSchema(): Promise<{ ok: true }> {
   await requireDeveloper();
+  // Actor identity resolved BEFORE the mutation (cached; invariant 10, §5.1).
+  const { email } = await requireDeveloperIdentity();
   const supabase = createSupabaseServiceRoleClient();
   const { error } = await supabase.rpc("dev_truncate_all");
   if (error) {
     throw new Error(`dev_truncate_all failed: ${error.message}`);
   }
+  // Durable forensic telemetry: post-commit, success branch only (invariant 10, §5.2).
+  await logAdminOutcome({
+    code: "DEV_SCHEMA_RESET",
+    source: "admin.dev.resetDevSchema",
+    actorEmail: email,
+  });
   return { ok: true };
 }
 

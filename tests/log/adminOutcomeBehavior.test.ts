@@ -126,6 +126,44 @@ vi.mock("@/lib/data/adminEmails", () => ({
 import { addAdminAction, revokeAdminAction } from "@/app/admin/settings/admins/actions";
 import { setDeveloperAction } from "@/app/admin/settings/admins/developerActions";
 
+// ── Task 10: admin/dev/actions ──────────────────────────────────────────────
+const readFileMock = vi.fn(async (..._a: unknown[]) => "# fixture markdown\n");
+const readdirMock = vi.fn(async (..._a: unknown[]) => [] as string[]);
+vi.mock("node:fs/promises", () => ({
+  readFile: (...a: unknown[]) => readFileMock(...a),
+  readdir: (...a: unknown[]) => readdirMock(...a),
+}));
+
+const parseSheetMock = vi.fn((..._a: unknown[]) => ({
+  hardErrors: [] as unknown[],
+  openingReel: null,
+  diagrams: { linkedFolderItems: [] as unknown[], embeddedImages: [] as unknown[] },
+  warnings: [] as unknown[],
+  raw_unrecognized: [] as unknown[],
+}));
+vi.mock("@/lib/parser", () => ({
+  parseSheet: (...a: unknown[]) => parseSheetMock(...a),
+}));
+
+const enrichWithDrivePinsMock = vi.fn(async (..._a: unknown[]) => ({
+  ...(_a[0] as Record<string, unknown>),
+}));
+vi.mock("@/lib/sync/enrichWithDrivePins", () => ({
+  enrichWithDrivePins: (...a: unknown[]) => enrichWithDrivePinsMock(...a),
+}));
+
+vi.mock("@/lib/sync/mocks/mockDriveClient", () => ({
+  mockDriveClient: {},
+  MOCK_MARKER: "MOCK_MARKER_TEST",
+}));
+
+const runInvariantsMock = vi.fn((..._a: unknown[]) => ({ outcome: "pass" as const }));
+vi.mock("@/lib/parser/invariants", () => ({
+  runInvariants: (...a: unknown[]) => runInvariantsMock(...a),
+}));
+
+import { parseAndStage, resetDevSchema } from "@/app/admin/dev/actions";
+
 // ── inline file-local recorder (single-file contract; no cross-file state) ──
 const recorded = new Set<string>(); // "file::fn::code"
 function recordAdminOutcomeBehavior(x: { file: string; fn: string; code: string }) {
@@ -183,6 +221,19 @@ beforeEach(() => {
   setAdminDeveloperMock.mockImplementation(
     async () => ({ kind: "ok" as const, email: "target@example.com", isDeveloper: true }) as unknown,
   );
+  readFileMock.mockImplementation(async () => "# fixture markdown\n");
+  readdirMock.mockImplementation(async () => []);
+  parseSheetMock.mockImplementation(() => ({
+    hardErrors: [],
+    openingReel: null,
+    diagrams: { linkedFolderItems: [], embeddedImages: [] },
+    warnings: [],
+    raw_unrecognized: [],
+  }));
+  enrichWithDrivePinsMock.mockImplementation(async (parsed: unknown) => ({
+    ...(parsed as Record<string, unknown>),
+  }));
+  runInvariantsMock.mockImplementation(() => ({ outcome: "pass" as const }));
 });
 
 // ── Task 7: settings toggles (spec §3.1 A, §5.2) ────────────────────────────
@@ -345,5 +396,43 @@ describe("Task 9 — admin grant/revoke + developer toggle observe changes", () 
     const badForm = new FormData();
     const failCodes = await observeCodes(() => setDeveloperAction(null, badForm));
     expect(failCodes).not.toContain("ADMIN_DEVELOPER_SET");
+  });
+});
+
+// ── Task 10: admin/dev/actions (spec §3.1 A, §5.2) ──────────────────────────
+describe("Task 10 — dev parse-stage + schema reset observe changes", () => {
+  test("parseAndStage emits DEV_PARSE_STAGED on success; nothing when the RPC errors", async () => {
+    serviceRoleClientImpl.current = () =>
+      makeClient({
+        rpc: { data: { kind: "pending_sync", id: "ps-1", show_id: null }, error: null },
+      });
+    const codes = await observeCodes(() => parseAndStage("_temp-fixture.md"));
+    expect(codes).toContain("DEV_PARSE_STAGED");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/dev/actions.ts",
+      fn: "parseAndStage",
+      code: "DEV_PARSE_STAGED",
+    });
+
+    serviceRoleClientImpl.current = () =>
+      makeClient({ rpc: { data: null, error: { message: "boom" } } });
+    const failCodes = await observeCodes(() => parseAndStage("_temp-fixture.md"));
+    expect(failCodes).not.toContain("DEV_PARSE_STAGED");
+  });
+
+  test("resetDevSchema emits DEV_SCHEMA_RESET on success; nothing when the RPC errors", async () => {
+    serviceRoleClientImpl.current = () => makeClient({ rpc: { data: null, error: null } });
+    const codes = await observeCodes(() => resetDevSchema());
+    expect(codes).toContain("DEV_SCHEMA_RESET");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/dev/actions.ts",
+      fn: "resetDevSchema",
+      code: "DEV_SCHEMA_RESET",
+    });
+
+    serviceRoleClientImpl.current = () =>
+      makeClient({ rpc: { data: null, error: { message: "boom" } } });
+    const failCodes = await observeCodes(() => resetDevSchema());
+    expect(failCodes).not.toContain("DEV_SCHEMA_RESET");
   });
 });

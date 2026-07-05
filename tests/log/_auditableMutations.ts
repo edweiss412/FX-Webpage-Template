@@ -206,6 +206,9 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
     fn: "setDeveloperAction",
     code: "ADMIN_DEVELOPER_SET",
   },
+  // Task 10 — admin/dev/actions parse-stage + schema reset.
+  { file: "app/admin/dev/actions.ts", fn: "parseAndStage", code: "DEV_PARSE_STAGED" },
+  { file: "app/admin/dev/actions.ts", fn: "resetDevSchema", code: "DEV_SCHEMA_RESET" },
 ];
 
 export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
@@ -255,6 +258,9 @@ export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
   "ADMIN_GRANTED",
   "ADMIN_REVOKED",
   "ADMIN_DEVELOPER_SET",
+  // Invariant #10 (2026-07-04) Task 10.
+  "DEV_PARSE_STAGED",
+  "DEV_SCHEMA_RESET",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing
