@@ -546,7 +546,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "alert-with-resolve",
-        code: "DRIVE_FETCH_FAILED",
+        code: "AMBIGUOUS_EMAIL_BINDING",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -765,7 +765,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "alert-resolve-idle",
-        code: "DRIVE_FETCH_FAILED",
+        code: "AMBIGUOUS_EMAIL_BINDING",
         raised_at: "2026-05-15T10:00:00Z",
         show_id: null,
         shows: null,
@@ -799,7 +799,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "global-1",
-        code: "DRIVE_FETCH_FAILED",
+        code: "AMBIGUOUS_EMAIL_BINDING",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -991,7 +991,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "alert-1",
-        code: "DRIVE_FETCH_FAILED",
+        code: "AMBIGUOUS_EMAIL_BINDING",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -1300,9 +1300,12 @@ describe("AlertBanner", () => {
     expect(slotForm.querySelector("[data-testid=admin-alert-id-input]")).toBeNull();
   });
 
-  test("watch panel dismiss uses the quiet variant (no second accent CTA on the open panel)", async () => {
-    // impeccable critique P2: Retry (accent) + Dismiss must not compete at
-    // full strength on one surface; the panel dismiss renders neutral.
+  test("watch auto code suppresses the panel Dismiss (auto-resolving) but keeps Retry + shows the auto-clear note", async () => {
+    // alert-resolve-truthing §4.3: WATCH_CHANNEL_ORPHANED is auto-resolving (the watch
+    // reconcile clears it), so the manual Dismiss is suppressed — only Retry (a safe
+    // idempotent re-subscribe, not a manual resolve) remains, and the auto-clear note
+    // explains the clearing. (WATCH_CHANNEL_ORPHANED is the sole watch code, so the
+    // dismiss branch never renders while it stays auto.)
     setRows([
       {
         id: "watch-quiet-1",
@@ -1315,18 +1318,16 @@ describe("AlertBanner", () => {
       },
     ]);
     const { container } = render(await AlertBanner());
-    const panelBtn = container
-      .querySelector("[data-testid=admin-alert-panel-dismiss]")
-      ?.querySelector("[data-testid=admin-alert-resolve-button]");
-    expect(panelBtn).toBeTruthy();
-    expect((panelBtn as HTMLElement).className).not.toContain("bg-accent");
+    expect(container.querySelector("[data-testid=admin-alert-panel-dismiss]")).toBeNull();
+    expect(container.querySelector("[data-testid=admin-alert-retry-button]")).not.toBeNull();
+    expect(container.querySelector("[data-testid=admin-alert-autoclear]")).not.toBeNull();
   });
 
   test("other global codes keep the Dismiss slot form unchanged (no Retry, no panel dismiss)", async () => {
     setRows([
       {
         id: "g1",
-        code: "DRIVE_FETCH_FAILED",
+        code: "AMBIGUOUS_EMAIL_BINDING",
         raised_at: "2026-05-04T10:00:00Z",
         show_id: null,
         shows: null,
@@ -1364,7 +1365,9 @@ describe("AlertBanner", () => {
     expect(container.querySelector("[data-testid=admin-alert-error-detail]")).toBeNull();
   });
 
-  test("panel dismiss row: <form> with hidden id input + ResolveAlertButton in the SAME form, inside the panel, never inside <summary>/<details>", async () => {
+  test("watch auto code renders the auto-clear note in the panel (no dismiss form), and no form nests inside <summary>/<details>", async () => {
+    // alert-resolve-truthing §4.3: the panel dismiss form is suppressed for the
+    // auto-resolving watch code; the auto-clear note takes its place in the expanded panel.
     setRows([
       {
         id: "watch-2",
@@ -1378,19 +1381,11 @@ describe("AlertBanner", () => {
     ]);
     const { container } = render(await AlertBanner());
     const panel = container.querySelector("[data-testid=admin-alert-panel]")!;
-    const dismiss = panel.querySelector(
-      "[data-testid=admin-alert-panel-dismiss]",
-    ) as HTMLFormElement;
-    expect(dismiss).not.toBeNull();
-    expect(dismiss.tagName.toLowerCase()).toBe("form");
-    const hidden = dismiss.querySelector(
-      "input[name=id][data-testid=admin-alert-id-input]",
-    ) as HTMLInputElement;
-    expect(hidden).not.toBeNull();
-    expect(hidden.value).toBe("watch-2");
-    expect(dismiss.querySelector("[data-testid=admin-alert-resolve-button]")).not.toBeNull();
-    // Slot-integrity: NO form nested inside <summary>/<details> (F18: panel is a
-    // grid SIBLING of <details>, so the dismiss form is legal).
+    expect(panel.querySelector("[data-testid=admin-alert-panel-dismiss]")).toBeNull();
+    // The auto-clear note lives in the expanded panel in the dismiss's place.
+    expect(panel.querySelector("[data-testid=admin-alert-autoclear]")).not.toBeNull();
+    // Slot-integrity: NO form nested inside <summary>/<details> (F18: the Retry form is a
+    // grid SIBLING of <details>).
     const section = container.querySelector("[data-testid=admin-alert-banner]")!;
     expect(section.querySelector("summary form, details form")).toBeNull();
   });
@@ -1483,7 +1478,10 @@ describe("AlertBanner", () => {
     expect(r.container.querySelector("[data-testid=admin-alert-error-detail]")).toBeNull();
   });
 
-  test("panel Dismiss confirm/Cancel operates independently of the Retry form (separate useFormStatus scopes)", async () => {
+  test("watch auto code leaves ONLY the Retry form (no Dismiss/resolve control to compete with it)", async () => {
+    // alert-resolve-truthing §4.3: with the manual Dismiss suppressed for the auto-resolving
+    // watch code, the action surface carries a single affordance — Retry — so there is no
+    // second resolve control and no two-form useFormStatus interaction to reason about.
     setRows([
       {
         id: "w-scope",
@@ -1496,21 +1494,13 @@ describe("AlertBanner", () => {
       },
     ]);
     const { getByTestId, queryByTestId } = render(await AlertBanner());
-    // The Retry button and the panel Dismiss button live in SEPARATE <form>s, so
-    // useFormStatus in one cannot disable controls in the other.
     const retryForm = getByTestId("admin-alert-retry-button").closest("form");
-    const dismissForm = getByTestId("admin-alert-resolve-button").closest("form");
     expect(retryForm).not.toBeNull();
-    expect(dismissForm).not.toBeNull();
-    expect(retryForm).not.toBe(dismissForm);
-    // The Dismiss two-tap still works: idle Resolve → confirm → Cancel back to idle,
-    // with Cancel enabled (pending is false in its own form scope).
-    fireEvent.click(getByTestId("admin-alert-resolve-button"));
-    const cancel = getByTestId("admin-alert-cancel-button") as HTMLButtonElement;
-    expect(cancel.disabled).toBe(false);
-    fireEvent.click(cancel);
-    expect(queryByTestId("admin-alert-confirm-row")).toBeNull();
-    expect(getByTestId("admin-alert-resolve-button")).not.toBeNull();
+    // No manual resolve/dismiss control renders for the auto watch code.
+    expect(queryByTestId("admin-alert-resolve-button")).toBeNull();
+    expect(queryByTestId("admin-alert-panel-dismiss")).toBeNull();
+    // The auto-clear note explains the (automatic) clearing in the Dismiss's place.
+    expect(queryByTestId("admin-alert-autoclear")).not.toBeNull();
   });
 
   test("compound: seed swap re-renders the current DB state (no client Retry/pending carried across a server re-render)", async () => {
@@ -1541,7 +1531,7 @@ describe("AlertBanner", () => {
     setRows([
       {
         id: "g-after",
-        code: "DRIVE_FETCH_FAILED",
+        code: "AMBIGUOUS_EMAIL_BINDING",
         raised_at: "2026-05-04T11:00:00Z",
         show_id: null,
         shows: null,
@@ -1686,5 +1676,47 @@ describe("AlertBanner", () => {
         (r) => r.source === "admin.alertBanner" && /identity resolve degraded/.test(r.message),
       ),
     ).toBe(true);
+  });
+
+  // --- alert-resolve-truthing §4.3: auto-clear note on the global banner ---
+  describe("auto-resolving codes suppress the manual resolve affordance (§4.3)", () => {
+    test("non-watch auto code (SYNC_STALLED) → auto-clear note in panel, no resolve form in the action cell", async () => {
+      setRows([
+        {
+          id: "auto-global",
+          code: "SYNC_STALLED",
+          raised_at: "2026-05-04T10:00:00Z",
+          show_id: null,
+          shows: null,
+        },
+      ]);
+      const { container } = render(await AlertBanner());
+      // The auto-clear note renders inside the expanded panel.
+      const panel = container.querySelector("[data-testid=admin-alert-panel]")!;
+      const note = panel.querySelector("[data-testid=admin-alert-autoclear]");
+      expect(note).not.toBeNull();
+      // Note is human copy, never the raw code (invariant 5).
+      expect(note!.textContent ?? "").not.toContain("SYNC_STALLED");
+      // The action cell renders NO resolve form for an auto code.
+      const action = container.querySelector("[data-testid=admin-alert-action]")!;
+      expect(action.querySelector("form")).toBeNull();
+      expect(container.querySelector("[data-testid=admin-alert-id-input]")).toBeNull();
+    });
+
+    test("manual code (AMBIGUOUS_EMAIL_BINDING) → resolve form present, no auto-clear note", async () => {
+      setRows([
+        {
+          id: "manual-global",
+          code: "AMBIGUOUS_EMAIL_BINDING",
+          raised_at: "2026-05-04T10:00:00Z",
+          show_id: null,
+          shows: null,
+        },
+      ]);
+      const { container } = render(await AlertBanner());
+      const action = container.querySelector("[data-testid=admin-alert-action]")!;
+      expect(action.querySelector("form")).not.toBeNull();
+      expect(container.querySelector("[data-testid=admin-alert-autoclear]")).toBeNull();
+    });
   });
 });
