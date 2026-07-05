@@ -292,11 +292,13 @@ it("meta line shows client · dates · venue from parseResult.show, omitting abs
   const q2 = render(<Step3SheetCard row={stagedRow(parseResult({ warnings: [], clientLabel: null }))} wizardSessionId={WSID} />);
   expect(q2.queryByTestId(`wizard-step3-card-${DFID}-client`)).toBeNull();
 });
-it("demoted (lastFinalizeFailureCode) → no checkbox, non-numeric 'Needs another look' chip, rescan present", () => {
+it("demoted (lastFinalizeFailureCode) → no checkbox, non-numeric 'Needs another look' chip, rescan present, keeps -title-link", () => {
   const q = render(<Step3SheetCard row={{ ...stagedRow(parseResult({ warnings: [] })), lastFinalizeFailureCode: "RESCAN_REVIEW_REQUIRED" }} wizardSessionId={WSID} />);
   expect(q.queryByTestId(`wizard-step3-checkbox-${DFID}`)).toBeNull();
   expect(within(card(q)).getByTestId(`wizard-step3-card-${DFID}-review-chip`)).toHaveTextContent("Needs another look");
   expect(q.getByTestId(`wizard-step3-rescan-review-${DFID}`)).toBeInTheDocument();
+  // spec §4.3/§9: the demoted (non-selectable) card keeps SheetTitleLink.
+  expect(q.getByTestId(`wizard-step3-card-${DFID}-title-link`)).toBeInTheDocument();
 });
 it("no-details (parseResult null) → couldn't-read card, no checkbox/chip/button, keeps -title-link", () => {
   const q = render(<Step3SheetCard row={stagedRow(null, { driveFileName: "broken.sheet" })} wizardSessionId={WSID} />);
@@ -315,7 +317,7 @@ Fixture helpers to add (mirror existing builders; each warning is `{ code: "FIEL
 
 - [ ] **Step 2: Run to verify it fails** — `pnpm vitest run tests/components/step3SheetCard.test.tsx` → FAIL (old DOM).
 
-- [ ] **Step 3: Implement** — restructure the selectable render path. Keep the top guards in order: no-details (`!pr || !pr.show`) returns the existing `data-no-details` card (restyle to compact, keep testids); demoted (`isFinalizeDemoted`) returns the banner+rescan card with the non-numeric chip and NO checkbox; otherwise the compact selectable card:
+- [ ] **Step 3: Implement** — restructure the selectable render path. **All three variant roots must be `<article data-testid={`wizard-step3-card-${dfid}`}>`** (so the Playwright `article[data-testid^="wizard-step3-card-"]` selectors resolve exactly one element per card). Keep the top guards in order: no-details (`!pr || !pr.show`) returns the existing `data-no-details` card (restyle to compact, keep `-summary` + `SheetTitleLink`/`-title-link`); demoted (`isFinalizeDemoted`) returns the banner + rescan card with the non-numeric "Needs another look" chip and NO checkbox — and **must keep `SheetTitleLink` (`-title-link`)** (it already does at `Step3SheetCard.tsx:397`; do not replace it with the plain `-title`); otherwise the compact selectable card (plain `-title`, checkbox with centered `-checkbox-box`, meta line, chip when `needsLook`, View/Review):
 
 ```tsx
 // selectable compact row
@@ -482,7 +484,11 @@ test.describe("Step-3 review page — layout dimensions", () => {
     await gotoStep3(page);
     // Use a selectable (View/Review) card — it has both the visible checkbox box
     // and the -more button. Its data-testid is exactly `wizard-step3-card-<dfid>`.
-    const card = page.locator('[data-testid^="wizard-step3-card-"]:not([data-no-details])').first();
+    // Scope to the card ARTICLE (not a descendant testid like -more/-title), and to a
+    // SELECTABLE card (one that actually has the visible checkbox box) via :has().
+    const card = page
+      .locator('article[data-testid^="wizard-step3-card-"]:has([data-testid$="-checkbox-box"])')
+      .first();
     const rects = await card.evaluate((el) => {
       const c = el.getBoundingClientRect();
       // Measure the VISIBLE checkbox box (the sr-only input has 0 layout size).
@@ -506,7 +512,9 @@ test.describe("Step-3 review page — layout dimensions", () => {
     // Not-occluded: SCROLL the last card into view first (the list is unbounded,
     // so the last card starts below the fold). The body's bottom padding must keep
     // it clear of the sticky bar even at the very bottom of the scroll.
-    const lastCard = page.getByTestId(/wizard-step3-card-.*/).last();
+    // The card ARTICLE only (descendant testids share the prefix); every variant's
+    // root is <article data-testid="wizard-step3-card-<dfid>">.
+    const lastCard = page.locator('article[data-testid^="wizard-step3-card-"]').last();
     await lastCard.scrollIntoViewIfNeeded();
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight)); // settle at absolute bottom
     const lastCardBottom = await lastCard.evaluate((el) => el.getBoundingClientRect().bottom);
