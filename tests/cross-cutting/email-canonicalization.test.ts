@@ -92,8 +92,8 @@ describe("X.5 email canonicalization audit", () => {
     // Failure mode: spec-side boundary extraction is a hardcoded TS list and ignores new AC-X.5 codespans.
     const extracted = extractEmailBoundariesFromDocs(
       read(specPath).replace(
-        "admin_alerts.resolved_by`, AND read-side",
-        "admin_alerts.resolved_by`, `webhook_audit.requester_email`, AND read-side",
+        "admin_bell_state.admin_email`, AND read-side",
+        "admin_bell_state.admin_email`, `webhook_audit.requester_email`, AND read-side",
       ),
       read(planPath),
     );

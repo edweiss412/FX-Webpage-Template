@@ -8,17 +8,29 @@ create table if not exists public.admin_alert_reads (
   alert_id uuid not null references public.admin_alerts(id) on delete cascade,
   admin_email text not null,
   read_at timestamptz not null default now(),
-  primary key (alert_id, admin_email),
-  constraint admin_alert_reads_email_canonical
-    check (admin_email = lower(btrim(admin_email)))
+  primary key (alert_id, admin_email)
 );
+
+alter table public.admin_alert_reads
+  drop constraint if exists admin_alert_reads_email_canonical;
+alter table public.admin_alert_reads
+  drop constraint if exists admin_alert_reads_admin_email_canonical;
+alter table public.admin_alert_reads
+  add constraint admin_alert_reads_admin_email_canonical
+    check (admin_email = lower(btrim(admin_email)) and admin_email <> '');
 
 create table if not exists public.admin_bell_state (
   admin_email text primary key,
-  opened_at timestamptz not null default now(),
-  constraint admin_bell_state_email_canonical
-    check (admin_email = lower(btrim(admin_email)))
+  opened_at timestamptz not null default now()
 );
+
+alter table public.admin_bell_state
+  drop constraint if exists admin_bell_state_email_canonical;
+alter table public.admin_bell_state
+  drop constraint if exists admin_bell_state_admin_email_canonical;
+alter table public.admin_bell_state
+  add constraint admin_bell_state_admin_email_canonical
+    check (admin_email = lower(btrim(admin_email)) and admin_email <> '');
 
 alter table public.admin_alert_reads enable row level security;
 alter table public.admin_bell_state enable row level security;
