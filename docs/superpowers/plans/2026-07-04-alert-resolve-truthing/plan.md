@@ -53,7 +53,7 @@
 **Files:**
 - Create: `lib/reports/botLoginAlert.ts` (`botLoginConfigured` + injectable service-role `resolveBotLoginAlertRow`)
 - Modify: `lib/notify/runNotify.ts` (`MaintenanceDeps` ~`:71-82`; `runMaintenance` invocation after email reconcile ~`:206`, **catch-logged so a resolve fault never collapses the run** — H3)
-- Modify: `lib/reports/submit.ts` — fail-open raw resolve before **BOTH** durable-`201` returns: the normal-create path (`:1089`) AND the expired-lease-retry path (`:956`, `handleExpiredLeaseRetry`). `GITHUB_BOT_LOGIN_MISSING` is raised on the lookup-inconclusive path (`handleLookupInconclusive:783`), which feeds the expired-lease flow, so the `:956` return is a real reach — H2. Raw resolve mirrors the raw `upsertAdminAlert` at `:643`.
+- Modify: `lib/reports/submit.ts` — fail-open raw resolve before **BOTH** durable-`201` returns: the normal-create path (`:1089`) AND the expired-lease-retry path (`:956`, `expiredLeaseRetry`). `GITHUB_BOT_LOGIN_MISSING` is raised on the lookup-inconclusive path (`handleLookupInconclusive:783`), which feeds the expired-lease flow, so the `:956` return is a real reach — H2. Raw resolve mirrors the raw `upsertAdminAlert` at `:643`.
 - Test: `tests/reports/botLoginAlert.test.ts`, `tests/notify/runMaintenance.botLogin.test.ts`, `tests/reports/submit.botLoginResolve.test.ts`
 
 **Interfaces:**
@@ -112,9 +112,15 @@ that a **throwing** resolver does NOT collapse the maintenance run.
 
 ```ts
 // tests/notify/runMaintenance.botLogin.test.ts
-import { describe, expect, test, vi } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { resolveBotLoginAlertRow } from "@/lib/reports/botLoginAlert";
 import { runMaintenance } from "@/lib/notify/runNotify";
+
+// The default resolver reads process.env.GITHUB_BOT_LOGIN directly (M2), so every case
+// stubs the env explicitly and restores after — never rely on the ambient CI/dev shell.
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 // A minimal chainable fake of the service-role query builder used by the resolver.
 function fakeClient(result: { error: { message: string } | null }) {
@@ -129,8 +135,9 @@ function fakeClient(result: { error: { message: string } | null }) {
 
 describe("resolveBotLoginAlertRow (default cron resolver)", () => {
   test("env unset → no client constructed, no Supabase call", async () => {
+    vi.stubEnv("GITHUB_BOT_LOGIN", ""); // explicitly unset (empty → botLoginConfigured false), M2
     const makeClient = vi.fn();
-    await resolveBotLoginAlertRow(makeClient as never); // GITHUB_BOT_LOGIN unset in test env
+    await resolveBotLoginAlertRow(makeClient as never);
     expect(makeClient).not.toHaveBeenCalled();
   });
 
@@ -256,7 +263,7 @@ Expected: PASS — default resolver env gate + UPDATE shape + typed error all co
 ```ts
 // tests/reports/submit.botLoginResolve.test.ts — asserts the R2 F4 fail-open + H2 contracts:
 //   (a) NORMAL-create 201 (:1089) + GITHUB_BOT_LOGIN set → the resolving UPDATE is issued;
-//   (b) EXPIRED-LEASE-retry 201 (:956, handleExpiredLeaseRetry) + GITHUB_BOT_LOGIN set → the
+//   (b) EXPIRED-LEASE-retry 201 (:956, expiredLeaseRetry) + GITHUB_BOT_LOGIN set → the
 //       resolving UPDATE is issued (this path is where the alert is opened upstream, :783);
 //   (c) either 201 path + resolve UPDATE THROWS → status is STILL 201 (fail-open, never
 //       fails a durable submit);
@@ -314,7 +321,7 @@ Then, before the normal-create `return { status: 201, ... }` (`:1089`):
 ```
 
 And before the expired-lease-retry `return { status: 201, ... }` (`:956`, inside
-`handleExpiredLeaseRetry`) — use that function's in-scope `db` + show id (`ageRow.show_id ?? body.show_id`):
+`expiredLeaseRetry`) — use that function's in-scope `db` + show id (`ageRow.show_id ?? body.show_id`):
 
 ```ts
   await resolveBotLoginAlertFailOpen(db, ageRow.show_id ?? body.show_id);
@@ -433,18 +440,41 @@ export function autoResolveNote(code: string): string {
 }
 ```
 
-- [ ] **Step 6: Run the derivation test to verify it passes**
+- [ ] **Step 6: Run the derivation test to verify it now passes**
 
 Run: `pnpm vitest run tests/adminAlerts/autoResolving.test.ts`
-Expected: FAIL on `GITHUB_BOT_LOGIN_MISSING` if the registry still says `deferred` (Step 4 tagged it `auto`, but parity must hold). Proceed to Step 7 to reclassify the registry, THEN re-run.
+Expected: **PASS**. (The derivation test consumes `catalog.resolution` only — it does NOT read the
+registry — so once Steps 4–5 land, `isAutoResolving("GITHUB_BOT_LOGIN_MISSING") === true`. The
+registry↔catalog parity is a *separate* guard proven red-first in Step 7 — H1: the derivation test
+cannot observe the registry, so it must not be the red proof for the reclassification.)
 
-- [ ] **Step 7: Reclassify `GITHUB_BOT_LOGIN_MISSING` in the registry + fix counts + add parity assertion (H1 — real registry shape)**
+- [ ] **Step 7: Add the registry↔catalog parity assertion and prove it RED (registry still `deferred`)**
 
-The registry constant is **`ADMIN_ALERTS_LIFECYCLE`** (`_metaAdminAlertCatalog.test.ts:271`), NOT
-`REGISTRY`, and `ResolveSite = { file: string; pattern: RegExp }` (`:264`) — the "auto code's resolve
-site exists on disk" test greps each `site.pattern` against the file (`:639-645`). Change the
-`GITHUB_BOT_LOGIN_MISSING` row (`:440`) from `{ class: "deferred" }` to (real function-name regexes,
-which land in Task 1):
+Add the parity test to `tests/messages/_metaAdminAlertCatalog.test.ts` **before** touching the registry
+row. Real constant names — `ADMIN_ALERTS_LIFECYCLE` (`:271`), `ADMIN_ALERTS_CODES`, `MESSAGE_CATALOG`
+(all already in-scope in this file; confirm import lines):
+
+```ts
+test("catalog.resolution matches registry class for all 42 codes", () => {
+  for (const code of ADMIN_ALERTS_CODES) {
+    const entry = MESSAGE_CATALOG[code as keyof typeof MESSAGE_CATALOG];
+    const expected = ADMIN_ALERTS_LIFECYCLE[code].class === "auto" ? "auto" : "manual";
+    expect(entry?.resolution, `${code} resolution`).toBe(expected);
+  }
+});
+```
+
+Run: `pnpm vitest run tests/messages/_metaAdminAlertCatalog.test.ts -t "catalog.resolution matches registry"`
+Expected: **FAIL on `GITHUB_BOT_LOGIN_MISSING`** — Step 4 tagged its catalog `resolution: "auto"`, but the
+registry still says `deferred` → derived-expected `"manual"`, so the parity assertion bites. This proves
+the guard is real before the reclassification makes it green.
+
+- [ ] **Step 8: Reclassify the registry row + fix counts, then run GREEN (H1 — real registry shape)**
+
+`ResolveSite = { file: string; pattern: RegExp }` (`:264`) — the "auto code's resolve site exists on
+disk" test greps each `site.pattern` against the file (`:639-645`). Change the `GITHUB_BOT_LOGIN_MISSING`
+row (`:440`) from `{ class: "deferred" }` to (real function-name regexes, which land in Task 1, so the
+disk-grep passes):
 
 ```ts
   GITHUB_BOT_LOGIN_MISSING: {
@@ -464,25 +494,9 @@ message (`22 auto = 7 precedent + 14 NEW + GITHUB_BOT_LOGIN_MISSING`), and the m
 → `2 "deferred"`; and the arithmetic `21 + 17 + 1 + 3 = 42` → `22 + 17 + 1 + 2 = 42`. (Grep the file for
 any other `21`/`3 "deferred"`/`deferred` count references and reconcile — numeric sweep.)
 
-Add a parity test (real constant names — `ADMIN_ALERTS_LIFECYCLE`, `ADMIN_ALERTS_CODES`, `MESSAGE_CATALOG`):
-
-```ts
-test("catalog.resolution matches registry class for all 42 codes", () => {
-  for (const code of ADMIN_ALERTS_CODES) {
-    const entry = MESSAGE_CATALOG[code as keyof typeof MESSAGE_CATALOG];
-    const expected = ADMIN_ALERTS_LIFECYCLE[code].class === "auto" ? "auto" : "manual";
-    expect(entry?.resolution, `${code} resolution`).toBe(expected);
-  }
-});
-```
-
-(`ADMIN_ALERTS_CODES` and `MESSAGE_CATALOG` are already imported/in-scope in this test file; confirm the
-import lines when implementing.)
-
-- [ ] **Step 8: Run the meta-test + derivation test**
-
 Run: `pnpm vitest run tests/messages/_metaAdminAlertCatalog.test.ts tests/adminAlerts/autoResolving.test.ts`
-Expected: PASS (all 42 parity, GITHUB_BOT_LOGIN_MISSING now auto with resolve sites).
+Expected: **PASS** (all 42 parity green; the `:628` auto-count is 22; GITHUB_BOT_LOGIN_MISSING's two
+resolve-site patterns match on disk).
 
 - [ ] **Step 9: Update the 2026-07-03 spec §3 + counts**
 
