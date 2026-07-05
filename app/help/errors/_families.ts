@@ -47,6 +47,7 @@ export const FAMILIES: Family[] = [
     blurb: "The sync pipeline reading, parsing, staging, and applying your sheets.",
     prefixes: [
       "SYNC",
+      "RESYNC",
       "PULL",
       "SHEET",
       "PARSE",

@@ -3,9 +3,14 @@ import { describe, expect, test } from "vitest";
 import { SYNC_PROBLEM_CODES } from "@/lib/notify/constants";
 
 describe("SYNC_PROBLEM_CODES set (§4.1)", () => {
-  test("is exactly the three show-level consumed error codes", () => {
+  test("is exactly the four show-level consumed error codes", () => {
     expect([...SYNC_PROBLEM_CODES].sort()).toEqual(
-      ["DRIVE_FETCH_FAILED", "PARSE_ERROR_LAST_GOOD", "SHEET_UNAVAILABLE"].sort(),
+      [
+        "DRIVE_FETCH_FAILED",
+        "PARSE_ERROR_LAST_GOOD",
+        "RESYNC_SHRINK_HELD",
+        "SHEET_UNAVAILABLE",
+      ].sort(),
     );
   });
 

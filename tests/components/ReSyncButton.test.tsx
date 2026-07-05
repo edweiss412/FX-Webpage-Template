@@ -106,6 +106,79 @@ describe("ReSyncButton", () => {
     });
   });
 
+  test("shrink_held result renders counts + Apply-reduced-version confirm, NOT a plain success", async () => {
+    // Failure mode (audit #3 / R9): a generic one-click re-sync must NOT clobber. The server holds
+    // and returns shrink_held; the button must render a CONFIRM (counts + accept), not a success
+    // line, and must not router.refresh (nothing was applied — last-good is retained).
+    fetchMock.mockResolvedValue({
+      json: async () => ({
+        ok: true,
+        result: { outcome: "shrink_held", detail: "crew 5→2", heldModifiedTime: "T1" },
+      }),
+    } as unknown as Response);
+    const { getByTestId, findByText, queryByTestId } = render(<ReSyncButton slug="s" />);
+    fireEvent.click(getByTestId("admin-resync-button"));
+    expect(await findByText(/crew 5→2/)).not.toBeNull();
+    expect(queryByTestId("admin-resync-accept")).not.toBeNull();
+    expect(queryByTestId("admin-resync-success")).toBeNull();
+    expect(refreshMock).not.toHaveBeenCalled();
+  });
+
+  test("clicking Apply reduced version re-POSTs version-bound acceptShrink + expectedModifiedTime", async () => {
+    fetchMock.mockResolvedValueOnce({
+      json: async () => ({
+        ok: true,
+        result: { outcome: "shrink_held", detail: "crew 5→2", heldModifiedTime: "T1" },
+      }),
+    } as unknown as Response);
+    const { getByTestId, findByTestId } = render(<ReSyncButton slug="s" />);
+    fireEvent.click(getByTestId("admin-resync-button"));
+    const accept = await findByTestId("admin-resync-accept");
+    fetchMock.mockResolvedValueOnce({
+      json: async () => ({ ok: true, result: { outcome: "applied" } }),
+    } as unknown as Response);
+    fireEvent.click(accept);
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+    const [, init] = fetchMock.mock.calls[1]! as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({
+      acceptShrink: true,
+      expectedModifiedTime: "T1",
+    });
+  });
+
+  test("'Keep current version' dismisses the confirm WITHOUT a second POST (safe path; last-good retained)", async () => {
+    // Impeccable MEDIUM (accidental-accept): the destructive accept must not be the ONLY control.
+    // A safe dismiss hides the confirm and issues no request — the server already retained last-good.
+    fetchMock.mockResolvedValueOnce({
+      json: async () => ({
+        ok: true,
+        result: { outcome: "shrink_held", detail: "crew 5→2", heldModifiedTime: "T1" },
+      }),
+    } as unknown as Response);
+    const { getByTestId, findByTestId, queryByTestId } = render(<ReSyncButton slug="s" />);
+    fireEvent.click(getByTestId("admin-resync-button"));
+    const keep = await findByTestId("admin-resync-keep-current");
+    fireEvent.click(keep);
+    await waitFor(() => expect(queryByTestId("admin-resync-shrink-confirm")).toBeNull());
+    expect(queryByTestId("admin-resync-accept")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1); // no accept POST
+  });
+
+  test("focus lands on the SAFE 'Keep current version' control when the hold appears (a11y; not the destructive accept)", async () => {
+    // Impeccable LOW (focus management): the appearing confirm must move focus so keyboard users
+    // reach it — and to the SAFE action, so an accidental Enter keeps last-good rather than clobbers.
+    fetchMock.mockResolvedValue({
+      json: async () => ({
+        ok: true,
+        result: { outcome: "shrink_held", detail: "crew 5→2", heldModifiedTime: "T1" },
+      }),
+    } as unknown as Response);
+    const { getByTestId, findByTestId } = render(<ReSyncButton slug="s" />);
+    fireEvent.click(getByTestId("admin-resync-button"));
+    const keep = await findByTestId("admin-resync-keep-current");
+    await waitFor(() => expect(document.activeElement).toBe(keep));
+  });
+
   test("success summary covers the 'stage' outcome in plain language (no pipeline jargon)", async () => {
     fetchMock.mockResolvedValue({
       json: async () => ({

@@ -374,6 +374,9 @@ function tx(): PipelineTx {
     async updateShowParseError() {
       this.operations.push("updateShowParseError");
     },
+    async updateShowShrinkHeld() {
+      this.operations.push("updateShowShrinkHeld");
+    },
     async updateShowPendingReview() {
       this.operations.push("updateShowPendingReview");
     },
@@ -630,6 +633,9 @@ describe("processOneFile", () => {
       "sheet_unavailable",
       "pending_review",
       "pending",
+      // Re-sync quality gate (audit finding #3): updateShowShrinkHeld writes this on a material
+      // shrink (MI-6/MI-7) hold, retaining last-good.
+      "shrink_held",
     ]);
     const files = filesUnder(
       ["lib/sync", "lib/asset", "lib/assets", "supabase/migrations"],
@@ -1394,6 +1400,45 @@ describe("processOneFile", () => {
       outcome: "skipped",
       code: "mi8_modtime_unstable",
       payload: { kind: "mi8_debounce_skip", reason: "mi8_modtime_unstable" },
+    });
+  });
+
+  test("shrink_held phase1 result STOPS before Phase 2 (no apply, no clobber)", async () => {
+    // Concrete failure mode (Codex plan-R2): without a caller stop branch, a shrink_held phase1
+    // result falls through to runPhase2_unlocked and applyParseResult CLOBBERS the roster.
+    const fakeTx = tx() as LockedShowTx<PipelineTx>;
+    const syncDeps = deps({
+      runPhase1: vi.fn(async (lockedTx: Phase1Tx) => {
+        (lockedTx as PipelineTx).operations.push("runPhase1");
+        return {
+          outcome: "shrink_held" as const,
+          message: "crew 5→2",
+          heldModifiedTime: "T1",
+          shrinkItems: [],
+          showId: "show-1",
+        };
+      }),
+    });
+
+    const result = await processOneFile_unlocked(
+      fakeTx,
+      "file-1",
+      "cron",
+      fileMeta("file-1"),
+      syncDeps,
+    );
+
+    expect("outcome" in result && result.outcome).toBe("shrink_held");
+    if (!("outcome" in result) || result.outcome !== "shrink_held") throw new Error("unreachable");
+    expect(result).toMatchObject({ showId: "show-1", detail: "crew 5→2", heldModifiedTime: "T1" });
+    // No `code` field on a hold (Codex plan-R7) — the alert code is the caller raise site's concern.
+    expect(result).not.toHaveProperty("code");
+    expect(syncDeps.runPhase2).not.toHaveBeenCalled();
+    expect(fakeTx.operations).toContain("runPhase1");
+    expect(fakeTx.operations).not.toContain("runPhase2");
+    expect(syncDeps.logSync).toHaveBeenCalledWith({
+      driveFileId: "file-1",
+      outcome: "shrink_held",
     });
   });
 

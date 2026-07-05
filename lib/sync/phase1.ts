@@ -73,6 +73,15 @@ export type Phase1Tx = {
     driveFileId: string,
     error: { code: string; message: string },
   ): Promise<string | null | void>;
+  // Retain-last-good on a material-shrink hold (audit finding #3): sets
+  // shows.last_sync_status='shrink_held', last_sync_error=message. Mirrors updateShowParseError:
+  // returns the updated show's id (or null when no row matched) so phase1 threads showId onto the
+  // shrink_held result and the caller busts the crew cache tag. `| void` keeps void-returning
+  // tx stubs structurally assignable.
+  updateShowShrinkHeld(
+    driveFileId: string,
+    payload: { message: string },
+  ): Promise<string | null | void>;
   updateShowPendingReview(driveFileId: string): Promise<void>;
   deleteWizardPendingSyncsExcept(wizardSessionId: string): Promise<void>;
 };
@@ -86,6 +95,11 @@ export type Phase1Args = {
   wizardSessionId?: string;
   // Region source anchors computed at scan (onboarding path only); forwarded into the staging row.
   sourceAnchors?: Record<string, SourceAnchor>;
+  // Re-sync quality gate (audit finding #3): a VERSION-BOUND confirmed accept that already
+  // showed the admin the shrink counts. Cron/push never set these. The hold is bypassed ONLY
+  // when acceptShrink === true AND expectedModifiedTime === binding.modifiedTime (§4a).
+  acceptShrink?: boolean;
+  expectedModifiedTime?: string;
 };
 
 export type Phase1Result =
@@ -117,6 +131,15 @@ export type Phase1Result =
   | {
       outcome: "defer";
       reason: "mi8_modtime_unstable" | "mi8b_modtime_unstable";
+    }
+  | {
+      outcome: "shrink_held";
+      // No `code` field (Codex plan-R7): the RESYNC_SHRINK_HELD alert code is the caller's,
+      // raised at the caller's raise site (a later task), NOT phase1.
+      message: string;
+      heldModifiedTime: string;
+      shrinkItems: TriggeredReviewItem[];
+      showId?: string | null;
     };
 
 export class Phase1InfraError extends Error {
@@ -148,6 +171,42 @@ function warningSummary(parseResult: ParseResult): string {
     .filter((warning) => warning.severity === "warn")
     .map((warning) => warning.message)
     .join("; ");
+}
+
+// Doug-facing section labels for the shrink summary. The raw MI-7 `section` keys
+// (lib/parser/types.ts:441) are internal snake_case tokens; humanize them so the alert
+// `detail` + ReSyncButton confirm never leak jargon (impeccable HIGH; PRODUCT.md voice).
+const SHRINK_SECTION_LABELS: Record<
+  Extract<TriggeredReviewItem, { invariant: "MI-7" }>["section"],
+  string
+> = {
+  hotel_reservations: "hotels",
+  rooms: "rooms",
+  contacts: "contacts",
+  transportation: "transportation",
+};
+
+// Human summary of a material-shrink hold for the admin alert `detail` + the ReSyncButton confirm.
+// MI-6's TriggeredReviewItem carries no counts (lib/parser/types.ts:436), so the crew delta is
+// computed from the parse results; MI-7 items embed { section, prior_count, new_count }. Emits e.g.
+// "crew 5→2; hotels 4→1". Never a bare code (invariant 5) nor a raw section token.
+function describeShrink(
+  items: TriggeredReviewItem[],
+  priorParseResult: ParseResult,
+  nextParseResult: ParseResult,
+): string {
+  const parts: string[] = [];
+  for (const item of items) {
+    if (item.invariant === "MI-6") {
+      parts.push(
+        `crew ${priorParseResult.crewMembers.length}→${nextParseResult.crewMembers.length}`,
+      );
+    } else if (item.invariant === "MI-7") {
+      const mi7 = item as Extract<TriggeredReviewItem, { invariant: "MI-7" }>;
+      parts.push(`${SHRINK_SECTION_LABELS[mi7.section]} ${mi7.prior_count}→${mi7.new_count}`);
+    }
+  }
+  return parts.join("; ");
 }
 
 function sourceKindForMode(mode: Phase1Args["mode"]): SyncMode {
@@ -329,6 +388,50 @@ export async function runPhase1(
   const reviewItems = [...invariantItems, ...syncLayerItems];
   const debounce = mi8DebounceReason(args, reviewItems);
   if (debounce) return debounce;
+
+  // Re-sync quality gate (audit finding #3): count-based MATERIAL shrinkage (MI-6 crew, MI-7
+  // section) on an EXISTING published show HOLDS last-good instead of auto-clobbering, in the
+  // re-sync modes (cron/push/manual). The ONLY bypass is a VERSION-BOUND acceptShrink set by a
+  // confirmed re-submit that already showed the admin the shrink counts (D4). MI-6/MI-7 require a
+  // prior (invariants.ts) so `show` is non-null here; the guard documents the scope.
+  //
+  // onboarding_scan is EXCLUDED (Codex plan-R6/R7): its tx blinds readShowForPhase1 to null
+  // (first-seen semantics, no MI-6..14 diffs, no shows mutations), so materialShrinkItems is
+  // already empty there today. The explicit `mode` gate makes that robust: onboarding must NEVER
+  // mutate `shows`, and PostgresOnboardingScanTx.updateShowShrinkHeld is a throw-only guard — the
+  // gate guarantees the hold branch never invokes it.
+  const materialShrinkItems =
+    show && args.mode !== "onboarding_scan"
+      ? reviewItems.filter((item) => item.invariant === "MI-6" || item.invariant === "MI-7")
+      : [];
+  if (materialShrinkItems.length > 0) {
+    // Drive's modifiedTime advances on any edit, so a mismatch means Doug edited between the
+    // prompt and the confirm — re-hold with fresh counts (the admin must re-confirm).
+    const acceptedThisVersion =
+      args.acceptShrink === true && args.expectedModifiedTime === args.binding.modifiedTime;
+    if (!acceptedThisVersion) {
+      const message = describeShrink(materialShrinkItems, show!.priorParseResult, args.parseResult);
+      const updatedShowId = await callTx("updateShowShrinkHeld", () =>
+        tx.updateShowShrinkHeld(args.driveFileId, { message }),
+      );
+      // NB: NO alert-code field on the shrink_held result (Codex plan-R7). The RESYNC_SHRINK_HELD
+      // alert code is a §12.4/catalog-gated producer owned by the CALLER's raise site (a later
+      // task, co-located with the catalog row) — never emitted here. Emitting the SCREAMING_SNAKE
+      // literal on such a property in phase1.ts would be caught by the orphan-producer scanner
+      // (PRODUCER_RE over lib/app in tests/cross-cutting/codes.test.ts) BEFORE the catalog row
+      // exists → red. (This comment deliberately avoids that literal shape, which the scanner
+      // would match even inside a comment.) Dropping the field also keeps the route's
+      // `"code" in result` error branch from ever matching a hold.
+      return {
+        outcome: "shrink_held",
+        message,
+        heldModifiedTime: args.binding.modifiedTime,
+        shrinkItems: materialShrinkItems,
+        showId: typeof updatedShowId === "string" ? updatedShowId : (show!.showId ?? null),
+      };
+    }
+    // else fall through → the parse applies (pass / auto_apply_with_holds; MI-11 still holds).
+  }
 
   // Phase 2 Task 2.1 decision rule: partition MI-11 (existing-crew email change) from the rest.
   // MI-11 is the ONLY gated invariant — it routes to per-crew `sync_holds` (Phase 2 apply path).

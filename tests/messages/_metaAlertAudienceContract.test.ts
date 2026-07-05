@@ -8,6 +8,7 @@ const DOUG = [
   "SHEET_UNAVAILABLE",
   "DRIVE_FETCH_FAILED",
   "PARSE_ERROR_LAST_GOOD",
+  "RESYNC_SHRINK_HELD",
   "AMBIGUOUS_EMAIL_BINDING",
   "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
   "OPENING_REEL_PERMISSION_DENIED",
@@ -65,8 +66,8 @@ const cat = MESSAGE_CATALOG as Record<
 >;
 
 describe("alert audience contract", () => {
-  test("partition counts: 16 doug + 26 health = 42; 16 degraded + 10 notice", () => {
-    expect(DOUG.length).toBe(16);
+  test("partition counts: 17 doug + 26 health = 43; 16 degraded + 10 notice", () => {
+    expect(DOUG.length).toBe(17);
     expect(HEALTH.length).toBe(26);
     expect(DEGRADED.length).toBe(16);
     expect(NOTICE.length).toBe(10);

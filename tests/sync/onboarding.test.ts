@@ -194,6 +194,8 @@ class FakeOnboardingTx implements Phase1Tx {
     throw new Error("onboarding scan must not mutate shows");
   }
 
+  async updateShowShrinkHeld() {}
+
   async updateShowPendingReview() {
     throw new Error("onboarding scan must not mutate shows");
   }

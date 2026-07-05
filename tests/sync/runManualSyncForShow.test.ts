@@ -132,6 +132,7 @@ function fakeTx(held = true): FakeTx {
       return { stagedId: "staged-1" };
     },
     async updateShowParseError() {},
+    async updateShowShrinkHeld() {},
     async updateShowPendingReview() {},
     async deleteWizardPendingSyncsExcept() {},
     async applyShowSnapshot() {

@@ -228,6 +228,16 @@ describe("per-show page (§6)", () => {
     expect(cols).toMatch(/dates/);
   });
 
+  it("wraps the ReSyncButton in a stable #resync anchor for the RESYNC_SHRINK_HELD action link", async () => {
+    // Failure mode: without the fragment target, the alert action link
+    // (/admin/show/<slug>#resync, lib/adminAlerts/alertActions.ts) has nowhere to scroll and the
+    // admin must hunt for the Re-sync control. The anchor must CONTAIN the ReSyncButton.
+    await renderPage();
+    const anchor = document.querySelector("#resync");
+    expect(anchor).not.toBeNull();
+    expect(anchor?.querySelector('[data-testid="admin-resync-button"]')).not.toBeNull();
+  });
+
   // Task 4.3 (B1): the back affordance moved into AdminPageHeader. There is
   // exactly ONE back link (admin-page-header-back → "Back to dashboard") and NO
   // standalone in-body "← Admin home" link. Supersedes the Phase-A

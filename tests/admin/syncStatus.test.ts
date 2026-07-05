@@ -12,6 +12,7 @@ describe("syncStatusBucket", () => {
     ["drive_error", "warn"],
     ["sheet_unavailable", "warn"],
     ["parse_error", "warn"],
+    ["shrink_held", "warn"], // re-sync quality gate (audit #3): held shrink is a degraded tier, NOT ok
     ["pending_review", "review"],
     ["pending", "idle"],
     ["ok", "positive"],
@@ -25,6 +26,7 @@ describe("syncStatusBucket", () => {
     expect(syncStatusBucket("drive_error").label).toBe("Couldn't reach Drive");
     expect(syncStatusBucket("sheet_unavailable").label).toBe("Sheet not in folder");
     expect(syncStatusBucket("parse_error").label).toBe("Couldn't read the sheet");
+    expect(syncStatusBucket("shrink_held").label).toBe("Re-sync held (data loss)");
     expect(syncStatusBucket("pending_review").label).toBe("Changes to review");
     expect(syncStatusBucket("pending").label).toBe("Sync in progress");
     expect(syncStatusBucket("ok").label).toBe("Synced");

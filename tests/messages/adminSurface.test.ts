@@ -6,8 +6,12 @@ import {
 } from "@/lib/messages/adminSurface";
 
 describe("adminSurface", () => {
-  test("INBOX_ROUTED_CODES is exactly the two per-show sync-problem codes", () => {
-    expect([...INBOX_ROUTED_CODES].sort()).toEqual(["PARSE_ERROR_LAST_GOOD", "SHEET_UNAVAILABLE"]);
+  test("INBOX_ROUTED_CODES is exactly the three per-show sync-problem codes", () => {
+    expect([...INBOX_ROUTED_CODES].sort()).toEqual([
+      "PARSE_ERROR_LAST_GOOD",
+      "RESYNC_SHRINK_HELD",
+      "SHEET_UNAVAILABLE",
+    ]);
   });
 
   test("isInboxRouted narrows correctly", () => {

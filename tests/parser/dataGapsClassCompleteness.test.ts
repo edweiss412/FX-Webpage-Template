@@ -97,6 +97,7 @@ const NON_GAP_CATALOG_CODES = new Set<string>([
   // sync-problem / infra codes (surface as admin alerts / results, not parse warnings)
   "SHEET_UNAVAILABLE",
   "PARSE_ERROR_LAST_GOOD",
+  "RESYNC_SHRINK_HELD",
   "SYNC_FILE_FAILED",
   "SYNC_INFRA_ERROR",
   "SYNC_STEP_TIMEOUT",

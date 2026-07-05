@@ -84,7 +84,7 @@ describe("runManualSyncForShow default-path real DB producers", () => {
             fetchDriveFileMetadata: vi.fn(async () => fileMeta(driveFileId)),
             processDeps,
           }),
-        ).resolves.toEqual({ outcome: "hard_fail", code: "MI-4_NO_CREW" });
+        ).resolves.toEqual({ outcome: "hard_fail", code: "MI-4_NO_CREW", showId: null });
 
         const rows = await sql<{ occurrence_count: number; sheet_name: string | null }[]>`
           select occurrence_count, context->>'sheet_name' as sheet_name
@@ -132,7 +132,7 @@ describe("runManualSyncForShow default-path real DB producers", () => {
             fetchDriveFileMetadata: vi.fn(async () => fileMeta(driveFileId)),
             processDeps,
           }),
-        ).resolves.toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED" });
+        ).resolves.toEqual({ outcome: "parse_error", code: "SYNC_FILE_FAILED", showId });
 
         const rows = await sql<{ occurrence_count: number; sheet_name: string | null }[]>`
           select occurrence_count, context->>'sheet_name' as sheet_name

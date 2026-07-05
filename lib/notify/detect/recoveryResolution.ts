@@ -5,6 +5,7 @@ export const STATUS_TO_CODE: Record<string, SyncProblemCode> = {
   drive_error: "DRIVE_FETCH_FAILED",
   parse_error: "PARSE_ERROR_LAST_GOOD",
   sheet_unavailable: "SHEET_UNAVAILABLE",
+  shrink_held: "RESYNC_SHRINK_HELD",
 };
 
 export type RecoveryResolutionSql = {
@@ -59,6 +60,7 @@ export async function resolveRecoveredSyncProblemAlert(
                      when 'drive_error' then 'DRIVE_FETCH_FAILED'
                      when 'parse_error' then 'PARSE_ERROR_LAST_GOOD'
                      when 'sheet_unavailable' then 'SHEET_UNAVAILABLE'
+                     when 'shrink_held' then 'RESYNC_SHRINK_HELD'
                    end) = ${alert.code}
          )
        returning id

@@ -197,6 +197,9 @@ export const INTERNAL_CODE_ENUMS = {
   REPORT_PIPELINE_FAILED: {
     source: "admin_alerts.code"
   },
+  RESYNC_SHRINK_HELD: {
+    source: "admin_alerts.code,pending_ingestions.last_error_code"
+  },
   ROLE_TOKEN_AUTOCORRECTED: {
     source: "parse_warnings.code"
   },

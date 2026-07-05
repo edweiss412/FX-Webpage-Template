@@ -5,7 +5,11 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { log } from "@/lib/log";
 import { resolveBotLoginAlertRow } from "@/lib/reports/botLoginAlert";
 import { configValid } from "@/lib/notify/config";
-import { DIGEST_RETRY_WINDOW_HOURS, DIGEST_TIMEZONE } from "@/lib/notify/constants";
+import {
+  DIGEST_RETRY_WINDOW_HOURS,
+  DIGEST_TIMEZONE,
+  SYNC_PROBLEM_CODES,
+} from "@/lib/notify/constants";
 import { buildDigestModel } from "@/lib/notify/digest";
 import { listRealtimeCandidates } from "@/lib/notify/detect/candidates";
 import { reconcileEmailDeliveryState } from "@/lib/notify/detect/emailDeliveryFailed";
@@ -109,7 +113,7 @@ async function resolveRecoveredSyncProblems(): Promise<MaintenanceResult> {
       .select("id, show_id, code")
       .is("resolved_at", null)
       .not("show_id", "is", null)
-      .in("code", ["DRIVE_FETCH_FAILED", "PARSE_ERROR_LAST_GOOD", "SHEET_UNAVAILABLE"]);
+      .in("code", [...SYNC_PROBLEM_CODES]);
     if (error) return { kind: "infra_error" };
     for (const row of data ?? []) {
       const alert = row as {

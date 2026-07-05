@@ -139,6 +139,10 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
     path: "lib/sync/runScheduledCronSync.ts",
     pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"SHEET_UNAVAILABLE"/,
   },
+  RESYNC_SHRINK_HELD: {
+    path: "lib/sync/runScheduledCronSync.ts",
+    pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"RESYNC_SHRINK_HELD"/,
+  },
   SYNC_STALLED: {
     path: "lib/notify/detect/stall.ts",
     pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"SYNC_STALLED"/,
@@ -256,11 +260,11 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
  *     another tile, which may hold the open row, is healthy; §3 row).
  *   - "deferred": STATE-shaped but out of scope this spec (BACKLOG).
  *
- * Counts (spec §3, incl. alert-resolve-truthing §6): 7 precedent AUTO + 14 NEW +
- * GITHUB_BOT_LOGIN_MISSING = 22 "auto"; 17 "event-manual" (spec's 18 EVENT rows minus
- * TILE_SERVER_RENDER_FAILED, which the registry splits into its own "state-manual-justified"
- * class); 1 "state-manual-justified"; 2 "deferred".
- * 22 + 17 + 1 + 2 = 42, matching ADMIN_ALERTS_CODES.length.
+ * Counts (spec §3, incl. alert-resolve-truthing §6 + re-sync quality gate): 7 precedent AUTO +
+ * 14 NEW + GITHUB_BOT_LOGIN_MISSING + RESYNC_SHRINK_HELD = 23 "auto"; 17 "event-manual" (spec's
+ * 18 EVENT rows minus TILE_SERVER_RENDER_FAILED, which the registry splits into its own
+ * "state-manual-justified" class); 1 "state-manual-justified"; 2 "deferred".
+ * 23 + 17 + 1 + 2 = 43, matching ADMIN_ALERTS_CODES.length.
  */
 type ResolveSite = { file: string; pattern: RegExp };
 type Lifecycle =
@@ -290,6 +294,15 @@ const ADMIN_ALERTS_LIFECYCLE: Record<(typeof ADMIN_ALERTS_CODES)[number], Lifecy
     ],
   },
   SHEET_UNAVAILABLE: {
+    class: "auto",
+    resolveSites: [
+      {
+        file: "lib/sync/runScheduledCronSync.ts",
+        pattern: /resolveStaleSyncProblemAlerts_unlocked/,
+      },
+    ],
+  },
+  RESYNC_SHRINK_HELD: {
     class: "auto",
     resolveSites: [
       {
@@ -522,6 +535,7 @@ describe("META admin_alerts catalog contract", () => {
   const INTERPOLATED_DOUG_FACING_CODES: ReadonlyArray<(typeof ADMIN_ALERTS_CODES)[number]> = [
     "PARSE_ERROR_LAST_GOOD", //      lib/sync/runScheduledCronSync.ts supplies sheet_name
     "SHEET_UNAVAILABLE", //         lib/sync/runScheduledCronSync.ts + runManualSyncForShow.ts supply sheet_name
+    "RESYNC_SHRINK_HELD", //        lib/sync/runScheduledCronSync.ts supplies sheet_name
     "SHOW_FIRST_PUBLISHED", //      lib/sync/runScheduledCronSync.ts supplies sheet_name / crew_count / show_date
     "SHOW_UNPUBLISHED", //          lib/sync/unpublishShow.ts supplies sheet_name
     "TILE_SERVER_RENDER_FAILED", // components/shared/TileServerFallback.tsx supplies sheet_name
@@ -632,11 +646,12 @@ describe("META admin_alerts catalog contract", () => {
       Object.keys(ADMIN_ALERTS_LIFECYCLE) as Array<(typeof ADMIN_ALERTS_CODES)[number]>
     ).filter((code) => ADMIN_ALERTS_LIFECYCLE[code].class === "auto");
 
-    // Counts cross-check spec §3: 7 precedent AUTO + 14 NEW + GITHUB_BOT_LOGIN_MISSING = 22 auto codes.
+    // Counts cross-check spec §3: 7 precedent AUTO + 14 NEW + GITHUB_BOT_LOGIN_MISSING +
+    // RESYNC_SHRINK_HELD = 23 auto codes.
     expect(
       autoCodes.length,
-      "spec §3 pins 22 auto codes (7 precedent AUTO + 14 NEW + GITHUB_BOT_LOGIN_MISSING)",
-    ).toBe(22);
+      "spec §3 pins 23 auto codes (7 precedent AUTO + 14 NEW + GITHUB_BOT_LOGIN_MISSING + RESYNC_SHRINK_HELD)",
+    ).toBe(23);
 
     for (const code of autoCodes) {
       const lifecycle = ADMIN_ALERTS_LIFECYCLE[code];
@@ -662,7 +677,7 @@ describe("META admin_alerts catalog contract", () => {
   // every code: registry "auto" ⇒ catalog "auto"; everything else ⇒ catalog "manual". This is
   // the guard that keeps the promoted runtime metadata (isAutoResolving / the suppressed manual
   // button) honest against the test-only lifecycle classification.
-  test("catalog.resolution matches registry class for all 42 codes", () => {
+  test("catalog.resolution matches registry class for all 43 codes", () => {
     for (const code of ADMIN_ALERTS_CODES) {
       const entry = MESSAGE_CATALOG[code as keyof typeof MESSAGE_CATALOG] as
         | { resolution?: "auto" | "manual" }
@@ -694,8 +709,12 @@ describe("META admin_alerts catalog contract", () => {
   });
 
   // --- Inbox-routed (adminSurface:"inbox") contract (route-sync-problems spec §8) ---
-  test("adminSurface:'inbox' is exactly SHEET_UNAVAILABLE + PARSE_ERROR_LAST_GOOD", () => {
-    expect([...INBOX_ROUTED_CODES].sort()).toEqual(["PARSE_ERROR_LAST_GOOD", "SHEET_UNAVAILABLE"]);
+  test("adminSurface:'inbox' is exactly SHEET_UNAVAILABLE + PARSE_ERROR_LAST_GOOD + RESYNC_SHRINK_HELD", () => {
+    expect([...INBOX_ROUTED_CODES].sort()).toEqual([
+      "PARSE_ERROR_LAST_GOOD",
+      "RESYNC_SHRINK_HELD",
+      "SHEET_UNAVAILABLE",
+    ]);
   });
 
   test.each(INBOX_ROUTED_CODES)(

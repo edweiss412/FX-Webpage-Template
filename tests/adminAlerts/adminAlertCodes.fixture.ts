@@ -1,5 +1,5 @@
 /**
- * Shared fixture: the 42 admin_alerts codes with production write sites.
+ * Shared fixture: the 43 admin_alerts codes with production write sites.
  *
  * Single source of truth is `ADMIN_ALERTS_CODES` in
  * `tests/messages/_metaAdminAlertCatalog.test.ts:57` (not exported from that
@@ -29,6 +29,7 @@ export const ADMIN_ALERTS_CODES = [
   "DRIVE_FETCH_FAILED", //            B3 cron drive_error recovery
   "PARSE_ERROR_LAST_GOOD", //         B3 cron parse_error recovery
   "SHEET_UNAVAILABLE", //             M6 cron/fetch source missing recovery
+  "RESYNC_SHRINK_HELD", //            re-sync quality gate: material shrinkage held
   "SYNC_STALLED", //                  B3 global sync heartbeat detector
   "EMAIL_DELIVERY_FAILED", //         B3 delivery loop provider-failure producer
   "EMAIL_NOT_CONFIGURED", //          B3 email config reconciliation producer

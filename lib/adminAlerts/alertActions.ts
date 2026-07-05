@@ -20,6 +20,7 @@ export const ALERT_ACTION_CODES = [
   "REPORT_ORPHANED_LOST_LEASE",
   "BRANCH_PROTECTION_DRIFT",
   "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
+  "RESYNC_SHRINK_HELD",
 ] as const;
 
 export type AlertActionCode = (typeof ALERT_ACTION_CODES)[number];
@@ -100,6 +101,17 @@ export const ALERT_ACTIONS: Record<AlertActionCode, AlertActionBuilder> = {
   },
   BRANCH_PROTECTION_DRIFT: branchSettings,
   BRANCH_PROTECTION_MONITOR_AUTH_FAILED: branchSettings,
+  // Re-sync quality gate (audit #3): link the held-shrink alert to the per-show ReSyncButton so
+  // the admin can review the shrink counts and accept the reduced version (or wait for Doug's fix).
+  RESYNC_SHRINK_HELD: (_context, opts) => {
+    const slug = typeof opts.slug === "string" ? opts.slug.trim() : "";
+    if (!slug) return null; // fail-quiet when slug missing (registry contract)
+    return {
+      label: "Review & re-sync",
+      href: `/admin/show/${encodeURIComponent(slug)}#resync`,
+      external: false,
+    };
+  },
 };
 
 const REGISTERED = new Set<string>(ALERT_ACTION_CODES);

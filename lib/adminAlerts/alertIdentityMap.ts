@@ -154,6 +154,9 @@ export const ALERT_IDENTITY_MAP: Record<string, IdentityMapEntry> = {
   // 18. SHEET_UNAVAILABLE — already SPECIFIC (sheet in copy) — global entry
   SHEET_UNAVAILABLE: { kind: "global" },
 
+  // 18b. RESYNC_SHRINK_HELD — already SPECIFIC (sheet in copy) — global entry
+  RESYNC_SHRINK_HELD: { kind: "global" },
+
   // 19. SYNC_STALLED — global (truly system-wide)
   SYNC_STALLED: { kind: "global" },
 

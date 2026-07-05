@@ -79,7 +79,22 @@ export async function POST(_request: NextRequest, context: RouteContext): Promis
       return NextResponse.json({ ok: false, error: "PENDING_SYNC_NOT_FOUND" }, { status: 404 });
     }
 
-    const result = await runManualSyncForShow(resolved.driveFileId, "manual");
+    // Re-sync quality gate (audit #3): the confirmed "Apply reduced version" re-submit carries a
+    // version-bound accept payload. The first, generic re-sync click has no body → catch → {}.
+    let body: { acceptShrink?: unknown; expectedModifiedTime?: unknown } = {};
+    try {
+      body = (await _request.json()) as typeof body;
+    } catch {
+      body = {};
+    }
+    const acceptShrink = body.acceptShrink === true;
+    const expectedModifiedTime =
+      typeof body.expectedModifiedTime === "string" ? body.expectedModifiedTime : undefined;
+
+    const result = await runManualSyncForShow(resolved.driveFileId, "manual", {
+      ...(acceptShrink ? { acceptShrink: true } : {}),
+      ...(expectedModifiedTime !== undefined ? { expectedModifiedTime } : {}),
+    });
     if (
       "outcome" in result &&
       result.outcome === "blocked" &&
@@ -89,6 +104,23 @@ export async function POST(_request: NextRequest, context: RouteContext): Promis
     }
     if ("skipped" in result) {
       return NextResponse.json({ ok: false, error: "SHOW_BUSY_RETRY" }, { status: 409 });
+    }
+    // shrink_held is a SUCCESS posture (last-good retained) — it MUST be special-cased BEFORE the
+    // `"code" in result` branch. It carries no `code` (R7) so it would otherwise fall through to the
+    // success return anyway, but the explicit branch shapes the confirm payload the ReSyncButton
+    // reads and guards against future reordering.
+    if ("outcome" in result && result.outcome === "shrink_held") {
+      return NextResponse.json(
+        {
+          ok: true,
+          result: {
+            outcome: "shrink_held",
+            detail: result.detail,
+            heldModifiedTime: result.heldModifiedTime,
+          },
+        },
+        { status: 200 },
+      );
     }
     if ("code" in result) {
       return NextResponse.json(

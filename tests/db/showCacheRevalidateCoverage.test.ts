@@ -53,7 +53,7 @@ const REVALIDATE_REGISTRY: RegistryEntry[] = [
   // ---- Task 5 (sync chokepoint callers) — already shipped before this milestone's Tasks 6–9 ----
   {
     file: "lib/sync/runScheduledCronSync.ts",
-    siteCount: 19,
+    siteCount: 20,
     disposition: "revalidate",
     revalidateBranches: 2, // processOneFile apply tail + markMissingShow loop
     reason:

@@ -69,6 +69,10 @@ export type RunManualSyncForShowDeps = {
     fn: (tx: LockedShowTx<SyncPipelineTx>) => Promise<R> | R,
   ) => Promise<R | ConcurrentSyncSkipped>;
   processDeps?: ProcessOneFileDeps;
+  // Re-sync quality gate (audit #3): a version-bound confirmed accept, threaded from the manual
+  // route body → ProcessOneFileDeps → runPhase1's hold bypass. Cron/push never set these.
+  acceptShrink?: boolean;
+  expectedModifiedTime?: string;
 };
 
 type ManualRecoveryTx = SyncPipelineTx & {
@@ -276,7 +280,13 @@ export async function runManualSyncForShow_unlocked(
 ): Promise<ProcessOneFileResult> {
   await assertShowLockHeld(tx, driveFileId);
   const runUnlocked = deps.processOneFile_unlocked ?? defaultProcessOneFile_unlocked;
-  return await runUnlocked(tx, driveFileId, mode, fileMeta, deps.processDeps ?? {});
+  return await runUnlocked(tx, driveFileId, mode, fileMeta, {
+    ...(deps.processDeps ?? {}),
+    ...(deps.acceptShrink !== undefined ? { acceptShrink: deps.acceptShrink } : {}),
+    ...(deps.expectedModifiedTime !== undefined
+      ? { expectedModifiedTime: deps.expectedModifiedTime }
+      : {}),
+  });
 }
 
 export async function runManualSyncForShow(
@@ -415,6 +425,10 @@ export async function runManualSyncForShow(
 
   const applyResult = await runOne(driveFileId, mode, fileMeta, {
     ...(deps.processDeps ?? {}),
+    ...(deps.acceptShrink !== undefined ? { acceptShrink: deps.acceptShrink } : {}),
+    ...(deps.expectedModifiedTime !== undefined
+      ? { expectedModifiedTime: deps.expectedModifiedTime }
+      : {}),
     withShowLock: async (id, fn) =>
       (await withLock(id, async (tx) => {
         // DEF-3: authoritative in-lock archived re-read (an Archive may have landed since preflight).

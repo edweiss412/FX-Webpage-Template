@@ -184,6 +184,7 @@ export function syncProblemCodeForStatus(
   if (status === "drive_error") return "DRIVE_FETCH_FAILED";
   if (status === "parse_error") return "PARSE_ERROR_LAST_GOOD";
   if (status === "sheet_unavailable") return "SHEET_UNAVAILABLE";
+  if (status === "shrink_held") return "RESYNC_SHRINK_HELD";
   return null;
 }
 
@@ -212,6 +213,12 @@ export type ProcessOneFileResult =
   | { outcome: "asset_recovery" }
   | { outcome: "stage"; stagedId: string }
   | { outcome: "hard_fail"; code: string; showId?: string | null }
+  // Re-sync quality gate (audit finding #3): material shrinkage (MI-6/MI-7) on an existing show
+  // retains last-good instead of clobbering. No `code` field (Codex plan-R7) — the alert code is
+  // raised at the caller's raise site (a later task), and keeping it off means the manual route's
+  // `"code" in result` error branch never matches a hold. showId carries so the file loop busts
+  // the crew cache tag (the hold committed shows.last_sync_status='shrink_held').
+  | { outcome: "shrink_held"; showId?: string | null; detail: string; heldModifiedTime: string }
   | {
       outcome: "applied";
       showId: string;
@@ -351,6 +358,14 @@ export type ProcessOneFileDeps = {
   publishShowInvalidation?: (showId: string) => Promise<void>;
   createUnpublishToken?: () => string;
   now?: () => Date;
+  /**
+   * Re-sync quality gate (Task 2): the manual/version-bound accept route sets
+   * these to apply a held shrinkage; cron/push never populate them, so the hold
+   * is always active on the automatic path. `expectedModifiedTime` version-binds
+   * the accept so a newer edit landing between review and accept re-holds.
+   */
+  acceptShrink?: boolean;
+  expectedModifiedTime?: string;
 };
 
 export type RunScheduledCronSyncDeps = {
@@ -827,6 +842,30 @@ class PostgresPipelineTx implements SyncPipelineTx {
       // last_sync_error is never consumed as a bare code (verified); it is displayed
       // + carried as an opaque prior_last_sync_error passthrough.
       [driveFileId, `${error.code}: ${error.message}`],
+    );
+    return rows[0]?.id ?? null;
+  }
+
+  async updateShowShrinkHeld(
+    driveFileId: string,
+    payload: { message: string },
+  ): Promise<string | null> {
+    // Codex plan-R3: DO NOT advance `last_synced_at` — a hold is NOT a successful sync. Unlike
+    // updateShowParseError (whose 'parse_error' status maps to an IMMEDIATE red StaleFooter tier
+    // where the timestamp is irrelevant), 'shrink_held' uses AGE-BASED crew escalation (like
+    // pending_review). If each repeated cron re-hold on an unchanged sheet refreshed
+    // last_synced_at=now(), a persistent hold would look perpetually fresh and the crew footer
+    // would NEVER reach SYNC_DELAYED_SEVERE. Leaving last_synced_at at the last successful apply
+    // makes crew staleness reflect the TRUE age of the served last-good data.
+    const rows = await this.rows<{ id: string }>(
+      `
+        update public.shows
+           set last_sync_status = 'shrink_held',
+               last_sync_error = $2
+         where drive_file_id = $1
+        returning id
+      `,
+      [driveFileId, payload.message],
     );
     return rows[0]?.id ?? null;
   }
@@ -2771,6 +2810,10 @@ export async function processOneFile_unlocked(
       fileMeta,
       parseResult: pipeline.parseResult,
       binding: pipeline.binding,
+      ...(deps.acceptShrink !== undefined ? { acceptShrink: deps.acceptShrink } : {}),
+      ...(deps.expectedModifiedTime !== undefined
+        ? { expectedModifiedTime: deps.expectedModifiedTime }
+        : {}),
     },
     txDeps,
   );
@@ -2801,6 +2844,42 @@ export async function processOneFile_unlocked(
         tx,
         show.showId,
         syncProblemCodeForStatus("parse_error"),
+      );
+    }
+    return result;
+  }
+  if (phase1.outcome === "shrink_held") {
+    // Retain last-good: STOP before Phase 2 (data-safety, Codex plan-R2). Without this branch a
+    // shrink_held phase1 result would fall through to runPhase2_unlocked and CLOBBER the roster.
+    // A later task enhances this branch to also raise RESYNC_SHRINK_HELD + resolve stale peers —
+    // those are grep-coupled to SYNC_PROBLEM_CODES and the §12.4 catalog, so they land together
+    // there. This minimal branch only returns (no alert, no code literal).
+    const result = {
+      outcome: "shrink_held" as const,
+      showId: phase1.showId ?? null,
+      detail: phase1.message,
+      heldModifiedTime: phase1.heldModifiedTime,
+    };
+    await logSync(txDeps, driveFileId, result);
+    const show = await tx.readShowForPhase1(driveFileId);
+    if (show?.showId) {
+      // §4.1 producer: show-level RESYNC_SHRINK_HELD in the locked shrink_held branch
+      // after Phase 1 has retained last-good. Mirrors the hard_fail branch above.
+      const upsertAdminAlert = requireTxBoundUpsertAdminAlert(txDeps, "processOneFile_unlocked");
+      await upsertAdminAlert({
+        showId: show.showId,
+        code: "RESYNC_SHRINK_HELD",
+        context: {
+          drive_file_id: driveFileId,
+          sheet_name: show.priorParseResult.show.title,
+          detail: phase1.message,
+          held_modified_time: phase1.heldModifiedTime,
+        },
+      });
+      await resolveStaleSyncProblemAlerts_unlocked(
+        tx,
+        show.showId,
+        syncProblemCodeForStatus("shrink_held"), // === "RESYNC_SHRINK_HELD" → keeps its own row
       );
     }
     return result;

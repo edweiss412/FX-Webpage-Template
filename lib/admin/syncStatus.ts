@@ -25,6 +25,10 @@ export function syncStatusBucket(status: string | null | undefined): SyncStatusR
       return { bucket: "warn", label: "Sheet not in folder" };
     case "parse_error":
       return { bucket: "warn", label: "Couldn't read the sheet" };
+    case "shrink_held":
+      // Re-sync quality gate (audit #3): material shrinkage held last-good — a degraded tier
+      // needing admin attention, never `positive`/`ok`.
+      return { bucket: "warn", label: "Re-sync held (data loss)" };
     case "pending_review":
       return { bucket: "review", label: "Changes to review" };
     case "pending":

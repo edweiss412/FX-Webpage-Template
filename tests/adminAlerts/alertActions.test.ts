@@ -178,6 +178,23 @@ describe("branch settings links (spec §4 #8-#9) — segment guard", () => {
   });
 });
 
+describe("RESYNC_SHRINK_HELD (re-sync quality gate, audit #3)", () => {
+  // Failure mode: an unregistered code → resolveAlertAction returns null → the held-shrink alert
+  // has no "accept" affordance and the admin must hunt for the ReSyncButton control.
+  it("builds the #resync fragment href from the slug", () => {
+    expect(resolveAlertAction("RESYNC_SHRINK_HELD", {}, slugOpts)).toEqual({
+      label: "Review & re-sync",
+      href: `/admin/show/${encodeURIComponent(slugOpts.slug)}#resync`,
+      external: false,
+    });
+  });
+  it("→ null when slug missing/blank (fail-quiet, registry contract)", () => {
+    expect(resolveAlertAction("RESYNC_SHRINK_HELD", {}, noSlug)).toBeNull();
+    expect(resolveAlertAction("RESYNC_SHRINK_HELD", {}, { slug: "" })).toBeNull();
+    expect(resolveAlertAction("RESYNC_SHRINK_HELD", {}, { slug: "   " })).toBeNull();
+  });
+});
+
 describe("resolveAlertAction dispatch", () => {
   it("unregistered codes → null", () => {
     expect(resolveAlertAction("SHOW_UNPUBLISHED", { drive_file_id: "x" }, slugOpts)).toBeNull();

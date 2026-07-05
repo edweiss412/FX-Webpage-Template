@@ -474,6 +474,10 @@ export class PostgresOnboardingScanTx implements OnboardingScanTx {
     throw new Error("onboarding scan must not mutate shows");
   }
 
+  async updateShowShrinkHeld(): Promise<void> {
+    throw new Error("onboarding scan must not mutate shows");
+  }
+
   async updateShowPendingReview(): Promise<void> {
     throw new Error("onboarding scan must not mutate shows");
   }

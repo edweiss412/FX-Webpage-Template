@@ -226,6 +226,12 @@ const FIXTURES: Fixture[] = [
     showId: SHOW_ID,
     context: { drive_file_id: DRIVE_FILE_ID, sheet_name: "My Sheet" },
   },
+  // 18b. global — already SPECIFIC in copy
+  {
+    code: "RESYNC_SHRINK_HELD",
+    showId: SHOW_ID,
+    context: { drive_file_id: DRIVE_FILE_ID, sheet_name: "My Sheet" },
+  },
   // 19. lib/notify/detect/stall.ts:15 — global
   { code: "SYNC_STALLED", showId: null, context: {} },
   // 20. lib/notify/deliver.ts:380-384 — showId is the row column, context often {}
@@ -429,7 +435,7 @@ function deriveExpectedTokens(fixture: Fixture, entry: { segments: SegmentSpec[]
 }
 
 describe("ALERT_IDENTITY_MAP x context (spec §9.1 exhaustive matrix)", () => {
-  it("covers exactly the 42 registered codes (numeric-sweep anchor)", () => {
+  it("covers exactly the 43 registered codes (numeric-sweep anchor)", () => {
     expect(FIXTURES.map((f) => f.code).sort()).toEqual([...ADMIN_ALERTS_CODES].sort());
   });
 
