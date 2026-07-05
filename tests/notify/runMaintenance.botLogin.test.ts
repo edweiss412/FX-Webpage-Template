@@ -73,7 +73,7 @@ describe("runMaintenance invokes the bot-login resolver and fails open", () => {
   test("a throwing resolver is invoked, catch-logged, and does NOT collapse the run", async () => {
     const warn = vi.spyOn(log, "warn").mockImplementation(async () => {});
     const resolveBotLoginAlert = vi.fn(async () => {
-      throw new BotLoginResolveInfraError(new Error("resolve blew up"));
+      throw new BotLoginResolveInfraError(new Error("resolve blew up"), "returned_error");
     });
     const steps = await runMaintenance({ ...okDeps, resolveBotLoginAlert });
     expect(resolveBotLoginAlert).toHaveBeenCalledTimes(1); // invoked (not a forgotten wire)

@@ -459,9 +459,42 @@ describe("META reports infra-failure contract", () => {
         select: async () => ({ error: { message: "META: simulated returned error" } }),
       } as Record<string, unknown>;
       const client = { from: () => builder } as never;
-      await expect(resolveBotLoginAlertRow(() => client)).rejects.toBeInstanceOf(
-        BotLoginResolveInfraError,
-      );
+      const err = await resolveBotLoginAlertRow(() => client).catch((e) => e);
+      expect(err).toBeInstanceOf(BotLoginResolveInfraError);
+      expect((err as BotLoginResolveInfraError).kind).toBe("returned_error");
+    } finally {
+      if (original === undefined) delete process.env.GITHUB_BOT_LOGIN;
+      else process.env.GITHUB_BOT_LOGIN = original;
+    }
+  });
+
+  // Invariant 9 (whole-diff review R2 CRITICAL): the THROWN boundary must ALSO surface as the
+  // typed fault, not a raw Error — both a client-construction throw and a PostgREST request throw.
+  test("resolveBotLoginAlertRow wraps a THROWN fault as BotLoginResolveInfraError(kind:thrown_error)", async () => {
+    const original = process.env.GITHUB_BOT_LOGIN;
+    process.env.GITHUB_BOT_LOGIN = "fxav-bot";
+    try {
+      // (a) client construction throws
+      const ctorThrows = () => {
+        throw new Error("META: client construction blew up");
+      };
+      const e1 = await resolveBotLoginAlertRow(ctorThrows as never).catch((e) => e);
+      expect(e1).toBeInstanceOf(BotLoginResolveInfraError);
+      expect((e1 as BotLoginResolveInfraError).kind).toBe("thrown_error");
+
+      // (b) the PostgREST request throws (await rejects) — no raw Error escapes
+      const builder = {
+        update: () => builder,
+        eq: () => builder,
+        is: () => builder,
+        select: async () => {
+          throw new Error("META: request blew up");
+        },
+      } as Record<string, unknown>;
+      const client = { from: () => builder } as never;
+      const e2 = await resolveBotLoginAlertRow(() => client).catch((e) => e);
+      expect(e2).toBeInstanceOf(BotLoginResolveInfraError);
+      expect((e2 as BotLoginResolveInfraError).kind).toBe("thrown_error");
     } finally {
       if (original === undefined) delete process.env.GITHUB_BOT_LOGIN;
       else process.env.GITHUB_BOT_LOGIN = original;

@@ -18,16 +18,21 @@ export function botLoginConfigured(env: NodeJS.ProcessEnv = process.env): boolea
 }
 
 /** Typed infra fault for a failed bot-login alert resolve — invariant 9 discriminable class,
- *  not a bare Error. The cron catch-logs it; callers can `instanceof`-narrow. */
+ *  not a bare Error. `kind` distinguishes a Supabase RETURNED `{ error }` from a THROWN fault
+ *  (client construction or PostgREST request throwing), so both boundaries surface as the same
+ *  discriminable typed result rather than a raw Error escaping on the thrown path. The cron
+ *  catch-logs it; callers can `instanceof`-narrow (and read `.kind`). */
 // not-subject-to-meta: typed error class, holds no Supabase/DB call of its own
 export class BotLoginResolveInfraError extends Error {
   override readonly cause: unknown;
-  constructor(cause: unknown) {
+  readonly kind: "returned_error" | "thrown_error";
+  constructor(cause: unknown, kind: "returned_error" | "thrown_error") {
     super(
-      `bot-login alert resolve failed: ${cause instanceof Error ? cause.message : String(cause)}`,
+      `bot-login alert resolve failed (${kind}): ${cause instanceof Error ? cause.message : String(cause)}`,
     );
     this.name = "BotLoginResolveInfraError";
     this.cause = cause;
+    this.kind = kind;
   }
 }
 
@@ -43,15 +48,24 @@ export async function resolveBotLoginAlertRow(
   > = createSupabaseServiceRoleClient,
 ): Promise<void> {
   if (!botLoginConfigured()) return;
-  const supabase = makeClient();
-  const { error } = await supabase
-    .from("admin_alerts")
-    .update({ resolved_at: new Date().toISOString() })
-    .eq("code", "GITHUB_BOT_LOGIN_MISSING")
-    .is("show_id", null)
-    .is("resolved_at", null)
-    .select("id");
+  // Invariant 9: BOTH boundaries surface as the SAME discriminable typed fault. A throw from
+  // client construction OR the PostgREST request must NOT escape as a raw Error — wrap it as
+  // `thrown_error`; a returned `{ error }` is wrapped as `returned_error`. Everything up to and
+  // including the awaited request is inside the try so no thrown path leaks.
+  let error: { message?: string } | null;
+  try {
+    const supabase = makeClient();
+    ({ error } = await supabase
+      .from("admin_alerts")
+      .update({ resolved_at: new Date().toISOString() })
+      .eq("code", "GITHUB_BOT_LOGIN_MISSING")
+      .is("show_id", null)
+      .is("resolved_at", null)
+      .select("id"));
+  } catch (thrown) {
+    throw new BotLoginResolveInfraError(thrown, "thrown_error");
+  }
   if (error) {
-    throw new BotLoginResolveInfraError(error);
+    throw new BotLoginResolveInfraError(error, "returned_error");
   }
 }
