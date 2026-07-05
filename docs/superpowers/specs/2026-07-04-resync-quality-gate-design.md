@@ -51,19 +51,27 @@ Where PF34 currently drops `MI-6`/`MI-7` to `pass`, add a hold branch. `MI-6`/`M
 const materialShrinkItems = show
   ? reviewItems.filter((item) => item.invariant === "MI-6" || item.invariant === "MI-7")
   : [];
-if (materialShrinkItems.length > 0 && !args.acceptShrink) {
-  const message = describeShrink(materialShrinkItems); // e.g. "crew 5→2; rooms 4→1"
-  return {
-    outcome: "shrink_held",
-    code: "RESYNC_SHRINK_HELD",
-    message,
-    shrinkItems: materialShrinkItems,
-    showId: show!.showId,
-  };
+if (materialShrinkItems.length > 0) {
+  // Acceptance is VERSION-BOUND: honor acceptShrink only if the admin confirmed THIS exact
+  // sheet version. Drive's modifiedTime advances on any edit, so a mismatch means Doug edited
+  // between the prompt and the confirm — re-hold with fresh counts (the admin must re-confirm).
+  const acceptedThisVersion =
+    args.acceptShrink === true && args.expectedModifiedTime === args.binding.modifiedTime;
+  if (!acceptedThisVersion) {
+    return {
+      outcome: "shrink_held",
+      code: "RESYNC_SHRINK_HELD",
+      message: describeShrink(materialShrinkItems), // e.g. "crew 5→2; rooms 4→1"
+      heldModifiedTime: args.binding.modifiedTime,   // echoed back for the confirm step
+      shrinkItems: materialShrinkItems,
+      showId: show!.showId,
+    };
+  }
+  // else fall through → applies (pass / auto_apply_with_holds)
 }
 ```
 
-`acceptShrink?: boolean` is a new optional `Phase1Args` field (default falsy), threaded from the manual-sync route body → `runManualSyncForShow` → `processOneFile` → `runPhase1`. Cron/push never set it. When true, the shrink hold is skipped and the parse applies (through the normal `pass`/`auto_apply_with_holds` path); a hard-fail current sheet still retains last-good regardless (`acceptShrink` only bypasses the *shrink* hold, never the hard-fail path).
+New optional `Phase1Args` fields: `acceptShrink?: boolean` and `expectedModifiedTime?: string`, threaded from the manual-sync route body → `runManualSyncForShow` → `processOneFile` → `runPhase1`. Cron/push never set them. The hold is bypassed ONLY when `acceptShrink` is true AND `expectedModifiedTime` equals the current `binding.modifiedTime` — so an admin can only apply the exact shrink they were shown; if Doug edited between prompt and confirm, the parse re-holds with fresh counts (R10 finding 1). A hard-fail current sheet still retains last-good regardless (`acceptShrink` only bypasses the *shrink* hold, never the hard-fail path).
 
 `shrink_held` is a new `Phase1Result` variant. Like the hard-fail branch (which sets `last_sync_status='parse_error'` via `updateShowParseError`), phase1 sets **`last_sync_status = 'shrink_held'`** and `last_sync_error = message` — but does **not** touch `crew_members`/`rooms`/`hotels`/`contacts` (no `applyParseResult`), so last-good rows are retained and the crew page keeps serving them. No `last_seen_modified_time` advance — identical to the hard-fail retain posture, so a subsequent unchanged cron re-evaluates and the caller re-raises the (deduped) alert; a fixed sheet (new `modifiedTime`) re-evaluates to `pass`/`auto_apply_with_holds`. Implement via an `updateShowShrinkHeld(driveFileId, {message})` tx method mirroring `updateShowParseError` (returns `showId`).
 
@@ -73,7 +81,12 @@ Mirror the `hard_fail` branch (`2777-2806`). Add:
 
 ```ts
 if (phase1.outcome === "shrink_held") {
-  const result = { outcome: "shrink_held" as const, code: phase1.code, showId: phase1.showId };
+  // detail + heldModifiedTime propagate to ProcessOneFileResult so the manual route can render
+  // the confirmation prompt and echo the reviewed version back on accept (§5c).
+  const result = {
+    outcome: "shrink_held" as const, code: phase1.code, showId: phase1.showId,
+    detail: phase1.message, heldModifiedTime: phase1.heldModifiedTime,
+  };
   await logSync(txDeps, driveFileId, result);
   const show = await tx.readShowForPhase1(driveFileId);
   if (show?.showId) {
@@ -81,7 +94,7 @@ if (phase1.outcome === "shrink_held") {
     await upsertAdminAlert({
       showId: show.showId,
       code: "RESYNC_SHRINK_HELD",
-      context: { drive_file_id: driveFileId, sheet_name: show.priorParseResult.show.title, detail: phase1.message, held_modified_time: args.binding.modifiedTime },
+      context: { drive_file_id: driveFileId, sheet_name: show.priorParseResult.show.title, detail: phase1.message, held_modified_time: phase1.heldModifiedTime },
     });
     // Resolve OTHER stale sync-problem alerts, KEEP this one (mirrors the hard_fail branch's
     // resolve call at :2800 with currentCode = the code just raised).
@@ -141,21 +154,22 @@ RESYNC_SHRINK_HELD: (_context, opts) => {
 },
 ```
 
-The link jumps (via the `#resync` fragment) directly to the existing **`ReSyncButton`** (`components/admin/ReSyncButton.tsx`), which is mounted in the per-show page footer (`app/admin/show/[slug]/page.tsx:1004`) and POSTs `/api/admin/sync/[slug]` → `runManualSyncForShow(driveFileId, "manual")`; the recovery sweep (§4c) then clears the alert. **Required companion change:** wrap the `ReSyncButton` mount in a container with `id="resync"` (a stable anchor) so the fragment lands on it, and a test asserts that anchor renders on the per-show page. **No new re-sync UI is built** — the action link reuses the existing button.
+The link jumps (via the `#resync` fragment) directly to the existing **`ReSyncButton`** (`components/admin/ReSyncButton.tsx`), mounted in the per-show page footer (`app/admin/show/[slug]/page.tsx:1004`), which POSTs `/api/admin/sync/[slug]`; the recovery sweep (§4c) clears the alert on apply. **Required companion change:** wrap the `ReSyncButton` mount in a container with `id="resync"` (a stable anchor) so the fragment lands on it, and a test asserts that anchor renders on the per-show page.
 
-### 5c. The confirmed-accept flow (`ReSyncButton`)
+### 5c. The confirmed-accept flow (`ReSyncButton` + route)
 
-Acceptance is a **two-step, informed** action built on the existing `ReSyncButton` (`components/admin/ReSyncButton.tsx`) — no separate button, no new route:
+Acceptance is a **two-step, version-bound, informed** action on the existing `ReSyncButton` — no separate button:
 
-1. **First click ("Re-sync from Drive").** POSTs `/api/admin/sync/[slug]` with no accept flag. If the current sheet still materially shrinks, `runPhase1` returns `shrink_held` (holds — nothing applied). The route surfaces `{ ok: true, result: { outcome: "shrink_held", detail } }` where `detail` is the shrink summary (e.g. "crew 5→2; rooms 4→1").
-2. **Confirm.** `ReSyncButton` renders `shrink_held` NOT as a plain success line but as a **confirmation prompt**: the shrink `detail` + a distinct "Apply reduced version" button (`data-testid="admin-resync-accept"`). Clicking it re-POSTs the SAME route with `{ acceptShrink: true }`.
-3. **Apply.** With `acceptShrink: true`, `runPhase1` skips the shrink hold → applies (through `pass`/`auto_apply_with_holds`); the recovery sweep (§4c) resolves the alert; `router.refresh()`.
+1. **First click ("Re-sync from Drive").** POSTs `/api/admin/sync/[slug]` with no accept payload. If the current sheet still materially shrinks, `runPhase1` returns `shrink_held` (holds — nothing applied), carrying `heldModifiedTime` + the shrink `message`.
+2. **Route special-case (R10 finding 2).** The admin sync route (`app/api/admin/sync/[slug]/route.ts`) currently maps ANY result with a `code` field to `{ ok:false, error: result.code }` (`:93-98`) — which would render `shrink_held` as an error. So the route MUST special-case `result.outcome === "shrink_held"` **before** the `"code" in result` branch, returning HTTP 200 `{ ok:true, result: { outcome:"shrink_held", detail: message, heldModifiedTime } }`.
+3. **Confirm.** `ReSyncButton` renders `shrink_held` NOT as a plain success line but as a **confirmation prompt**: the `detail` counts + an "Apply reduced version" button (`data-testid="admin-resync-accept"`). Clicking it re-POSTs `{ acceptShrink: true, expectedModifiedTime: heldModifiedTime }` (echoing the reviewed version).
+4. **Apply (version-bound).** The route reads `acceptShrink`/`expectedModifiedTime` from the body and threads them to `runManualSyncForShow(driveFileId, "manual", { acceptShrink, expectedModifiedTime })` → phase1. phase1 applies ONLY if `expectedModifiedTime === binding.modifiedTime` (§4a). If Doug edited in between, the modifiedTime differs → phase1 returns `shrink_held` again with the NEW counts → the admin must re-confirm. The recovery sweep (§4c) resolves the alert on a successful apply; `router.refresh()`.
 
-This makes acceptance explicit and informed (the admin sees the counts before applying) and makes a generic re-sync incapable of a one-click clobber — a routine re-sync of a shrunk sheet just shows the prompt and applies nothing until confirmed. Notes:
+This makes a generic re-sync incapable of a one-click clobber (routine re-sync of a shrunk sheet just shows the prompt), and makes acceptance both explicit AND bound to the exact version reviewed. Notes:
 
-- **Applies the CURRENT sheet, not a frozen snapshot.** The design does not persist the held parse (that is the deferred staged-review UI, §13). The confirm prompt shows the *current* shrink `detail`, so what the admin confirms is what applies. If Doug edits between the two clicks, the second POST re-parses and, if the shrink changed, returns `shrink_held` again with the updated counts (re-confirm) — it cannot silently apply a different shrink.
-- **A hard-fail current sheet still fails closed** — `acceptShrink` bypasses only the shrink hold, never the `MI-1..5b` hard-fail retain path. "Accept" can never apply garbage.
-- Alert `context` stores `held_modified_time` for provenance. Byte-exact "apply exactly the version I first reviewed" is `BL-RESYNC-STAGED-REVIEW-UI` (§13).
+- **Applies the CURRENT sheet, not a frozen snapshot** — but only if it matches the reviewed `modifiedTime`; otherwise re-hold. The design does not persist the held parse (that is the deferred staged-review UI, §13).
+- **A hard-fail current sheet still fails closed** — `acceptShrink` bypasses only the shrink hold, never the `MI-1..5b` hard-fail retain path.
+- Alert `context` also stores `held_modified_time` for provenance. Byte-exact "apply exactly the version I first reviewed" (persisting the parse) is `BL-RESYNC-STAGED-REVIEW-UI` (§13).
 
 **Registry lockstep:** add the code to `ALERT_ACTION_CODES` + `ALERT_ACTIONS`, and a row to the pinning meta-test `tests/adminAlerts/alertActions.test.ts` (slug-present → link; slug-missing → null, fail-quiet). `resolveAlertAction` returns null for unregistered codes, so this is additive.
 
@@ -206,7 +220,7 @@ Derive expectations from fixture dimensions (not hardcoded).
 5. **phase1: benign drift unchanged.** (a) MI-11-only + crew growth → `auto_apply_with_holds`, no hold (matches `cutover.retireLivePendingSyncs.test.ts:57`, stays green). (b) MI-7b rename stable count → applies. (c) `crewDrop==1` → applies. Catches: over-holding benign edits / off-by-one.
 6. **DB-backed: hold retains last-good + raises alert + sets status.** Seed published show + 5 crew; run cron pipeline with a 2-crew parse; assert (a) the 5 live `crew_members` rows are **still present** (no clobber), (b) an open `admin_alerts` row `code=RESYNC_SHRINK_HELD` for the show, (c) `shows.last_sync_status = 'shrink_held'`. Catches: the core data-loss bug + missing signal + missing status.
 7. **DB-backed: auto-resolve via BOTH recovery paths.** (a) In-sync: after a hold, run a clean re-sync (crew restored → status `ok`) OR a manual re-sync (accept); assert the open `RESYNC_SHRINK_HELD` alert is resolved (`resolved_at` set) by `resolveStaleSyncProblemAlerts_unlocked(...,null)` — NOT via `resolveAdminAlert`. (b) Notify recovery: assert `recoveryResolution` keeps the alert OPEN while `last_sync_status='shrink_held'` and resolves it only once status is `ok` (its `STATUS_TO_CODE`/SQL CASE now maps `shrink_held`). Catches: a stuck-open inbox alert / a throwing `resolveAdminAlert` (R6-1) / the notify scan mis-resolving a still-held alert or paging a recovered one (R8-2).
-8b. **Confirmed-accept flow + fails-closed on hard-fail.** (a) `ReSyncButton` component test: a `shrink_held` result renders the counts + an "Apply reduced version" button (`admin-resync-accept`), and clicking it re-POSTs with `acceptShrink:true`; a plain success result does NOT render it. (b) route test: POST without `acceptShrink` on a shrunk sheet → `shrink_held` (no apply); POST with `acceptShrink:true` → applies. (c) `acceptShrink:true` on a *hard-fail* (MI-1) current sheet → `hard_fail` retain-last-good (NOT applied). Catches: a one-click clobber (R9) / accept applying garbage (R8-1).
+8b. **Confirmed-accept flow: version-bound + route contract + fails-closed.** (a) `ReSyncButton` component test: a `shrink_held` result renders the counts + an "Apply reduced version" button (`admin-resync-accept`) and clicking it re-POSTs `{acceptShrink:true, expectedModifiedTime: heldModifiedTime}`; a plain success result does NOT render it. (b) **Route contract (R10-2):** a first POST (no accept) on a shrunk sheet returns HTTP **200 `{ok:true, result:{outcome:"shrink_held", detail, heldModifiedTime}}`** — NOT `{ok:false, error}` (the `shrink_held` special-case runs before the `"code" in result` branch). (c) **Version-binding (R10-1):** POST `{acceptShrink:true, expectedModifiedTime: X}` where the current `binding.modifiedTime === X` → applies; where it differs (Doug edited) → `shrink_held` again with fresh counts (no apply). (d) `acceptShrink:true` on a *hard-fail* (MI-1) current sheet → `hard_fail` retain-last-good (NOT applied). Catches: one-click clobber (R9) / accept-different-shrink (R10-1) / confirm prompt rendering as an error (R10-2) / accept applying garbage (R8-1).
 8. **Digest candidacy + status mapping + crew footer.** Assert `SYNC_PROBLEM_CODES` includes `RESYNC_SHRINK_HELD` and `syncProblemCodeForStatus("shrink_held") === "RESYNC_SHRINK_HELD"`; that a status consumer (`syncStatus.ts`) classifies `'shrink_held'` as a degraded tier (not `ok`); and that `StaleFooter` renders `'shrink_held'` like `'pending_review'` — subtle when fresh, `SYNC_DELAYED_SEVERE` (red) when > 6h — NOT a `parse_error`-style error. Catches: the alert never reaching the digest (R6-2) / an unclassified status / a held re-sync rendering as a normal recent sync on crew pages (R7-1).
 9. **Alert action link + anchor target.** `resolveAlertAction("RESYNC_SHRINK_HELD", ctx, {slug})` → `{label:"Review & re-sync", href:"/admin/show/<slug>#resync"}`; slug missing → `null` (fail-quiet) (`tests/adminAlerts/alertActions.test.ts`). AND a per-show-page test asserts an element with `id="resync"` renders around the `ReSyncButton` (the fragment target exists). Catches: an unregistered code / broken slug / a link that lands nowhere (R7-2).
 10. **Meta-tests stay green:** `_metaAdminAlertCatalog` (new code registered: union + `ADMIN_ALERTS_CODES` + `WRITE_SITES` + `LIFECYCLE` class `auto` + `PARSE_ERROR_LAST_GOOD`-mirrored resolveSites; non-null `dougFacing`); x1 catalog parity; x2 no-raw-codes; `alertActions.test.ts` registry row; any `SYNC_PROBLEM_CODES` pin test (`tests/notify/*`); `cutover.retireLivePendingSyncs.test.ts` (unchanged — this design never inserts a live `pending_sync`).
@@ -238,7 +252,7 @@ Phase 6 (resolution #21 cutover) removed the whole-parse review mount from the p
 
 - `MI-6` threshold `crewDrop > 1`; `MI-7` `nc < pc/2 || pc <= 2` (transportation populated→null) — reused verbatim from `invariants.ts:251,266,284,302,317`.
 - Held invariant tags: exactly 2 (`MI-6`, `MI-7`).
-- New production edit sites: `phase1.ts` (hold branch gated on `!args.acceptShrink` + `Phase1Result` variant + `Phase1Args.acceptShrink`), `lib/sync/runManualSyncForShow.ts` + `app/api/admin/sync/[slug]/route.ts` (thread `acceptShrink` from POST body), `components/admin/ReSyncButton.tsx` (confirm-required state + "Apply reduced version" re-submit), `runScheduledCronSync.ts` (caller branch, `updateShowShrinkHeld` tx method, `syncProblemCodeForStatus` case), `upsertAdminAlert.ts` (union), `lib/notify/constants.ts` (`SYNC_PROBLEM_CODES`), `lib/notify/detect/recoveryResolution.ts` (`STATUS_TO_CODE` TS + SQL CASE), `lib/admin/syncStatus.ts` + `driveConnectionHealth.ts` + `components/shared/StaleFooter.tsx` (`'shrink_held'` case), `lib/adminAlerts/alertActions.ts` (action-link row), `app/admin/show/[slug]/page.tsx` (`id="resync"` anchor). Plus the §12.4/admin-alert lockstep (catalog.ts, spec §12.4, 2 regens, `_families.ts`, meta-test registry rows). New admin-alert codes: 1 (`RESYNC_SHRINK_HELD`). New `SYNC_PROBLEM_CODES`: 1. New `last_sync_status` values: 1 (`'shrink_held'`) — **no migration** (column is unconstrained `text`). New DB schema: 0. New UI component files: 0 (reuses `PerShowAlertSection` + `ReSyncButton`). Auto-resolve reuses the existing recovery sweep — 0 new resolve sites.
+- New production edit sites: `phase1.ts` (hold branch gated on `!args.acceptShrink` + `Phase1Result` variant + `Phase1Args.acceptShrink`), `lib/sync/runManualSyncForShow.ts` (extend signature with `{acceptShrink, expectedModifiedTime}`) + `app/api/admin/sync/[slug]/route.ts` (read body params + a `shrink_held` success special-case BEFORE the `"code" in result` error branch at :93-98), `components/admin/ReSyncButton.tsx` (confirm-required state + version-echoing "Apply reduced version" re-submit), `runScheduledCronSync.ts` (caller branch, `updateShowShrinkHeld` tx method, `syncProblemCodeForStatus` case), `upsertAdminAlert.ts` (union), `lib/notify/constants.ts` (`SYNC_PROBLEM_CODES`), `lib/notify/detect/recoveryResolution.ts` (`STATUS_TO_CODE` TS + SQL CASE), `lib/admin/syncStatus.ts` + `driveConnectionHealth.ts` + `components/shared/StaleFooter.tsx` (`'shrink_held'` case), `lib/adminAlerts/alertActions.ts` (action-link row), `app/admin/show/[slug]/page.tsx` (`id="resync"` anchor). Plus the §12.4/admin-alert lockstep (catalog.ts, spec §12.4, 2 regens, `_families.ts`, meta-test registry rows). New admin-alert codes: 1 (`RESYNC_SHRINK_HELD`). New `SYNC_PROBLEM_CODES`: 1. New `last_sync_status` values: 1 (`'shrink_held'`) — **no migration** (column is unconstrained `text`). New DB schema: 0. New UI component files: 0 (reuses `PerShowAlertSection` + `ReSyncButton`). Auto-resolve reuses the existing recovery sweep — 0 new resolve sites.
 
 ## 13. Backlog
 
