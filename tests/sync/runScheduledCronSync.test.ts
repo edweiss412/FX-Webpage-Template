@@ -1429,8 +1429,7 @@ describe("processOneFile", () => {
     );
 
     expect("outcome" in result && result.outcome).toBe("shrink_held");
-    if (!("outcome" in result) || result.outcome !== "shrink_held")
-      throw new Error("unreachable");
+    if (!("outcome" in result) || result.outcome !== "shrink_held") throw new Error("unreachable");
     expect(result).toMatchObject({ showId: "show-1", detail: "crew 5→2", heldModifiedTime: "T1" });
     // No `code` field on a hold (Codex plan-R7) — the alert code is the caller raise site's concern.
     expect(result).not.toHaveProperty("code");
