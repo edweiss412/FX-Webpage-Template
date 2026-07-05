@@ -89,7 +89,7 @@ import { buildSheetDeepLink, type SourceAnchor } from "@/lib/sheet-links/buildSh
 import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
 import { EVENT_DETAILS_LABELS } from "@/lib/crew/eventDetailsSpecs";
 import { partialAttendanceLabel } from "@/lib/crew/partialAttendance";
-import { resolveOptionalField, formatScheduleWindow } from "@/lib/crew/agendaDisplay";
+import { resolveOptionalField, formatScheduleWindow, type SchedulePhase } from "@/lib/crew/agendaDisplay";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
 import { Avatar } from "@/components/atoms/Avatar";
@@ -847,6 +847,7 @@ export function ScheduleDayRow({
   showStart = null,
   window: dayWindow = null,
   showEnd = null,
+  phase = null,
 }: {
   dfid: string;
   iso: string;
@@ -854,6 +855,9 @@ export function ScheduleDayRow({
   showStart?: string | null;
   window?: { start: string; end: string } | null;
   showEnd?: string | null;
+  // Aggregate-day phase label ("Travel In"/"Set"/"Show"/"Travel Out"); null for an
+  // off-schedule ros-only day (no natural phase). #316 item 1.
+  phase?: SchedulePhase | null;
 }) {
   const [showAll, setShowAll] = useState(false);
   // Cap-exemption partition (spec §9.4): cap ONLY the agenda group at
@@ -884,6 +888,14 @@ export function ScheduleDayRow({
       <span className="text-xs font-medium tabular-nums text-text-strong">
         {humanizeDate(iso) ?? iso}
       </span>
+      {phase != null ? (
+        <span
+          data-testid={`wizard-step3-card-${dfid}-sched-phase-${iso}`}
+          className="text-[11px] font-semibold uppercase tracking-eyebrow text-text-faint"
+        >
+          {phase}
+        </span>
+      ) : null}
       {timeMeta ? (
         <span
           data-testid={`wizard-step3-card-${dfid}-sched-meta`}
