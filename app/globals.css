@@ -186,6 +186,18 @@
   --spacing-right-now-min-h: 176px;
   --spacing-page-pad-mobile: 16px;
   --spacing-page-pad-desktop: 32px;
+  /* Shared max extent for wide secondary "panel"-class surfaces at 480px: the
+     dashboard Needs-Attention inbox column (`min-[1400px]:w-panel-max`), the
+     report modal (`max-w-panel-max`), and the notification panel's desktop
+     scroll container (`sm:max-h-panel-max`). One value, one token — the
+     `--spacing-*` namespace generates every property utility (`w-*` / `max-w-*`
+     / `max-h-*`), so `enforce-canonical-classes` maps every `[480px]` bracket
+     to it (BELL-4 tokenization surfaced the shared value). */
+  --spacing-panel-max: 480px;
+  /* The notification panel's MOBILE scroll cap: a bottom-sheet limited to 70vh
+     so the drag handle + header stay on-screen. Bell-specific (no other 70vh
+     consumer); consumed via `max-h-panel-max-mobile sm:max-h-panel-max`. */
+  --spacing-panel-max-mobile: 70vh;
 
   /* ── Radii ── */
   --radius-sm: 6px;

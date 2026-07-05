@@ -543,7 +543,7 @@ export async function Dashboard(
           band — so the split was raised 1080→1240: at the old 1080 two-col band the
           shows col (~680px) starved the ~120px title track. At 1240 (inbox 320px)
           the shows col is ~840px, title ~180px. The inbox stays w-80 (320px) through
-          1240–1399 and only widens to w-[480px] at ≥1400px — a 480px inbox at 1280
+          1240–1399 and only widens to w-panel-max (480px) at ≥1400px — a 480px inbox at 1280
           would drop the shows col to ~720px and starve the title. The band-sweep
           layout test (TITLE_BANDS incl. 1240/1400/1520) pins this; do NOT lower the
           split or widen the inbox earlier without re-running it — either re-collapses
@@ -654,7 +654,7 @@ export async function Dashboard(
         <section
           data-testid="dashboard-inbox-col"
           aria-label="Needs attention"
-          className="flex flex-col gap-3 min-[1240px]:w-80 min-[1240px]:shrink-0 min-[1400px]:w-[480px]"
+          className="flex flex-col gap-3 min-[1240px]:w-80 min-[1240px]:shrink-0 min-[1400px]:w-panel-max"
         >
           <NeedsAttentionSummaryCard
             totalCount={result.needsAttention.totalCount}

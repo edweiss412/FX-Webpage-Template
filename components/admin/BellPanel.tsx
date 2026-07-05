@@ -43,6 +43,7 @@
  * a generic title (never the raw code string).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ChevronRight } from "lucide-react";
 
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 import {
@@ -251,6 +252,22 @@ function ActiveRow({
               <span className="text-xs tabular-nums text-text-subtle">
                 {raisedAtSuffix(entry.activityAt, now)}
               </span>
+              {/* BELL-1: disclosure caret, shown ONLY when the code carries
+                  helpfulContext (a context-less row expands to nothing beyond the
+                  dot clear, so a caret there would be a lie). The full-row toggle
+                  stays tappable on EVERY row (spec D3) — the caret is a visual
+                  affordance, not a gate. aria-hidden: the button already carries
+                  aria-expanded. Rotate is transform-only (no reflow), so the §14
+                  no-layout-shift invariant holds. */}
+              {helpful ? (
+                <ChevronRight
+                  aria-hidden="true"
+                  data-testid={`bell-caret-${entry.alertId}`}
+                  className={`size-4 shrink-0 text-text-subtle motion-safe:transition-transform motion-safe:duration-fast ${
+                    expanded ? "rotate-90" : ""
+                  }`}
+                />
+              ) : null}
             </div>
           </div>
           {message ? (
@@ -405,6 +422,11 @@ export function BellPanel({
   useDialogFocus(containerRef, closeRef);
 
   const [state, setState] = useState<PanelState>({ status: "loading" });
+  // BELL-3: text for the persistent sr-only live region. Empty at mount (nothing
+  // announced yet); the initial load stamps the active count, a refetch stamps a
+  // completion note, and any failed load stamps a plain-language failure. Plain
+  // UI chrome (like "Loading notifications…"), never a raw code (invariant 5).
+  const [liveMessage, setLiveMessage] = useState("");
   // Which snapshot we have already stamped via /bell/open — prevents a duplicate
   // open POST for the same seenThrough across re-renders (spec §7.2 "exactly once").
   const openedForRef = useRef<string | null>(null);
@@ -416,45 +438,70 @@ export function BellPanel({
   const [readClearedIds, setReadClearedIds] = useState<Set<string>>(() => new Set());
   const readFiredRef = useRef<Set<string>>(new Set());
 
-  const load = useCallback(async () => {
-    setState({ status: "loading" });
-    let res: Response;
-    try {
-      res = await fetch(FEED_ENDPOINT, { cache: "no-store" });
-    } catch {
-      setState({ status: "error" });
-      return;
-    }
-    if (!res.ok) {
-      setState({ status: "error" });
-      return;
-    }
-    let body: BellFeedBody;
-    try {
-      body = (await res.json()) as BellFeedBody;
-    } catch {
-      setState({ status: "error" });
-      return;
-    }
-    setState({ status: "ready", feed: body });
-
-    // Snapshot-safe open: stamp the watermark to exactly the snapshot the viewer
-    // saw, THEN refetch the badge. Fail-quiet — a failed open never breaks the
-    // rendered panel; the badge simply keeps its last-known value.
-    if (openedForRef.current !== body.seenThrough) {
-      openedForRef.current = body.seenThrough;
+  // `isRefetch` distinguishes the mount/Retry load (announce the count) from a
+  // post-Resolve/Save refetch (announce completion) — BELL-3.
+  const load = useCallback(
+    async (isRefetch = false) => {
+      setState({ status: "loading" });
+      let res: Response;
       try {
-        await fetch(OPEN_ENDPOINT, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ seenThrough: body.seenThrough }),
-        });
+        res = await fetch(FEED_ENDPOINT, { cache: "no-store" });
       } catch {
-        // fail-quiet (spec §7.2)
+        setState({ status: "error" });
+        setLiveMessage("Notifications didn't load");
+        return;
       }
-      onOpened();
-    }
-  }, [onOpened]);
+      if (!res.ok) {
+        setState({ status: "error" });
+        setLiveMessage("Notifications didn't load");
+        return;
+      }
+      let body: BellFeedBody;
+      try {
+        body = (await res.json()) as BellFeedBody;
+      } catch {
+        setState({ status: "error" });
+        setLiveMessage("Notifications didn't load");
+        return;
+      }
+      setState({ status: "ready", feed: body });
+
+      // BELL-3 announce: a refetch reports completion; the first load reports the
+      // active count (or the empty state), so a screen reader hears the snapshot.
+      if (isRefetch) {
+        setLiveMessage("Notifications updated");
+      } else if (body.entries.length === 0) {
+        setLiveMessage("No notifications");
+      } else {
+        const activeCount = body.entries.filter((e) => e.state === "active").length;
+        setLiveMessage(
+          activeCount === 0
+            ? "No active notifications"
+            : activeCount === 1
+              ? "1 active notification"
+              : `${activeCount} active notifications`,
+        );
+      }
+
+      // Snapshot-safe open: stamp the watermark to exactly the snapshot the viewer
+      // saw, THEN refetch the badge. Fail-quiet — a failed open never breaks the
+      // rendered panel; the badge simply keeps its last-known value.
+      if (openedForRef.current !== body.seenThrough) {
+        openedForRef.current = body.seenThrough;
+        try {
+          await fetch(OPEN_ENDPOINT, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ seenThrough: body.seenThrough }),
+          });
+        } catch {
+          // fail-quiet (spec §7.2)
+        }
+        onOpened();
+      }
+    },
+    [onOpened],
+  );
 
   // First expand of a row: fire the read POST once with the SERVER activityAt,
   // and clear the dot optimistically. A failed POST leaves the dot cleared
@@ -542,6 +589,15 @@ export function BellPanel({
         <>
           {active.length > 0 ? (
             <section data-testid="bell-section-active" aria-label="Active notifications">
+              {/* BELL-2: visible count heading mirroring the history heading
+                  style (the active section is un-dimmed — only the eyebrow label
+                  uses text-text-subtle). Severity/show grouping stays deferred. */}
+              <h3
+                data-testid="bell-section-active-heading"
+                className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-subtle"
+              >
+                Active ({active.length})
+              </h3>
               {active.map((entry) => (
                 <ActiveRow
                   key={entry.alertId}
@@ -550,7 +606,7 @@ export function BellPanel({
                   expanded={expandedIds.has(entry.alertId)}
                   readCleared={readClearedIds.has(entry.alertId)}
                   onToggle={() => handleToggle(entry)}
-                  onRefetch={() => void load()}
+                  onRefetch={() => void load(true)}
                 />
               ))}
             </section>
@@ -583,7 +639,7 @@ export function BellPanel({
             <DevFooter
               historyDays={feed.historyDays}
               feedCap={feed.feedCap}
-              onSaved={() => void load()}
+              onSaved={() => void load(true)}
             />
           ) : null}
         </>
@@ -610,6 +666,17 @@ export function BellPanel({
         ref={containerRef}
         className="relative w-full max-w-[420px] rounded-t-md bg-surface text-text shadow-tile sm:rounded-md motion-safe:animate-[sheet-rise_var(--duration-normal)_var(--ease-out-quart)] motion-reduce:animate-none"
       >
+        {/* BELL-3: persistent sr-only polite live region, present in EVERY panel
+            state from mount (loading | error | ready | empty) so it holds one
+            stable tree position across state transitions — the announce text
+            swaps INTO a pre-existing region, so screen readers that skip
+            insert-time announcements on a freshly mounted node still fire (the
+            PCR-1 pattern). A real sr-only element (NOT display:contents, whose
+            live-region role can be dropped from the a11y tree in Safari/VoiceOver)
+            that is out of layout flow, so it adds no gap. */}
+        <div data-testid="bell-live-region" role="status" aria-live="polite" className="sr-only">
+          {liveMessage}
+        </div>
         <div
           aria-hidden="true"
           className="mx-auto mt-2 h-1 w-10 rounded-pill bg-border sm:hidden"
@@ -631,7 +698,7 @@ export function BellPanel({
             </span>
           </button>
         </div>
-        <div className="max-h-[70vh] overflow-y-auto bg-surface px-4 pb-5 sm:max-h-[480px] sm:px-6">
+        <div className="max-h-panel-max-mobile overflow-y-auto bg-surface px-4 pb-5 sm:max-h-panel-max sm:px-6">
           {body}
         </div>
       </div>

@@ -464,7 +464,7 @@ export function ReportModal(props: ReportModalProps) {
 
       <div
         ref={containerRef}
-        className="relative w-full max-w-[480px] rounded-t-md bg-surface text-text shadow-tile sm:rounded-md motion-safe:animate-[sheet-rise_220ms_cubic-bezier(0.25,1,0.5,1)] motion-reduce:animate-none"
+        className="relative w-full max-w-panel-max rounded-t-md bg-surface text-text shadow-tile sm:rounded-md motion-safe:animate-[sheet-rise_220ms_cubic-bezier(0.25,1,0.5,1)] motion-reduce:animate-none"
       >
         {/*
           Mobile drag-handle. Visual affordance ONLY — pull-to-dismiss

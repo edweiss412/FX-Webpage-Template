@@ -94,6 +94,14 @@
  *   - ActiveRow disclosure `expanded && helpful ? bell-context : null`
  *       → collapsed→expanded height auto-expand (banner ErrorExplainer parity).
  *         Tested: HERE (context appears on expand; header rect unchanged).
+ *   - ActiveRow caret (BELL-1) `helpful ? <ChevronRight bell-caret> : null`
+ *       → rotate on expand (`rotate-90`, transform-only — NO reflow), rendered
+ *         only when the code carries helpfulContext. Independent of read state, so
+ *         it never shifts the dot slot or row geometry between unread/read.
+ *         Tested: HERE (SEED_CODE has helpfulContext → caret present; rotation is
+ *         transform-only so the §14 header-height no-shift assertion below still
+ *         holds) + unit (present-with-context / absent-without; rotation class
+ *         flips on expand).
  *   - ActionCell `isHealth ? telemetry : isAutoResolving ? auto-note : Resolve`
  *     (+ `isWatch` retry form, `entry.action` link)
  *       → instant conditional content. Tested: HERE (SYNC_DELAYED_SEVERE is
