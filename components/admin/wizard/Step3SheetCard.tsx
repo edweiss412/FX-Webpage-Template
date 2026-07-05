@@ -468,9 +468,17 @@ export function Step3SheetCard({
           </div>
         </div>
         {isDirtyRescan ? (
+          // Dirty re-scan: the banner's "Review this sheet" reapply link IS the
+          // recovery action — no competing Re-scan button (matches the old card).
           <RescanReviewBanner dfid={dfid} wizardSessionId={wizardSessionId} />
         ) : (
-          <NotPublishableNote dfid={dfid} />
+          // Any other finalize-demoted code: a not-publishable note PLUS the
+          // Re-scan recovery action (re-scan stays a no-details/demoted affordance;
+          // the old shared tail rendered it for every non-dirty row).
+          <>
+            <NotPublishableNote dfid={dfid} />
+            <RescanSheetButton driveFileId={dfid} wizardSessionId={wizardSessionId} />
+          </>
         )}
         {sharedTail}
       </article>

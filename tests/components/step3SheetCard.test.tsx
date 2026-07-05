@@ -909,6 +909,9 @@ describe("Step3SheetCard compact list row (Task 4)", () => {
     ).toContain("Needs another look");
     expect(q.getByTestId(`wizard-step3-rescan-review-${DFID}`)).toBeTruthy();
     expect(q.getByTestId(`wizard-step3-card-${DFID}-title-link`)).toBeTruthy();
+    // Dirty re-scan: the banner reapply link is the recovery — NO competing
+    // standalone Re-scan button.
+    expect(q.queryByTestId(`rescan-sheet-button-${DFID}`)).toBeNull();
     const more = q.getByTestId(`wizard-step3-card-${DFID}-more`);
     expect(more.textContent).toContain("Review");
     fireEvent.click(more);
@@ -932,6 +935,9 @@ describe("Step3SheetCard compact list row (Task 4)", () => {
     expect(q.getByTestId(`wizard-step3-card-${DFID}-not-publishable`)).toBeTruthy();
     expect(q.queryByTestId(`wizard-step3-rescan-review-${DFID}`)).toBeNull();
     expect(q.getByTestId(`wizard-step3-card-${DFID}-title-link`)).toBeTruthy();
+    // Non-RESCAN demoted keeps the Re-scan RECOVERY action (re-scan is a
+    // no-details/demoted affordance) alongside the not-publishable note.
+    expect(q.getByTestId(`rescan-sheet-button-${DFID}`)).toBeTruthy();
     fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));
     await waitFor(() => expect(q.getByRole("dialog")).toBeTruthy());
   });
