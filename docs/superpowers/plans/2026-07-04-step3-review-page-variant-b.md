@@ -454,6 +454,17 @@ it("sticky bar shows selected count + Back(→step 2) + FinalizeButton", () => {
   expect(back.getAttribute("href")).toBe("/admin?step=2");
   expect(screen.getByTestId("wizard-finalize-button")).toBeInTheDocument();
 });
+it("selectableTotal===0 (only a no-details clean row) but finishable → '0 of 0', Publish stays ENABLED (finish-with-nothing is reachable)", () => {
+  // a clean 'staged' row with parseResult null → no-details → not selectable; finishable (no blocking row).
+  render(<Step3ReviewWithFinalize wizardSessionId={WSID} rows={[noDetailsRow("a")]} finishable initialPublishCount={0} initialUncheckedCleanCount={1} />);
+  expect(screen.getByTestId("wizard-step3-publish-count")).toHaveTextContent("0 of 0 selected to publish");
+  expect(screen.getByTestId("wizard-finalize-button")).toBeEnabled(); // existing finishable gate, NOT selectable-count
+});
+it("a blocking row → finishable=false → Publish DISABLED (unchanged finishable gate)", () => {
+  render(<Step3ReviewWithFinalize wizardSessionId={WSID} rows={[hardFailRow("a")]} finishable={false} initialPublishCount={0} initialUncheckedCleanCount={0} />);
+  expect(screen.getByTestId("wizard-step3-publish-count")).toHaveTextContent("0 of 0 selected to publish");
+  expect(screen.getByTestId("wizard-finalize-button")).toBeDisabled();
+});
 // FinalizeButton.test.tsx
 it("panelPlacement='above' renders panels before the trigger; behavior/testids unchanged", () => {
   render(<FinalizeButton wizardSessionId={WSID} publishCount={0} uncheckedCleanCount={1} panelPlacement="above" />);
@@ -465,8 +476,12 @@ it("default (no panelPlacement) keeps the current order", () => {
   render(<FinalizeButton wizardSessionId={WSID} publishCount={1} uncheckedCleanCount={0} />);
   expect(screen.getByTestId("wizard-finalize").className).not.toContain("flex-col-reverse");
 });
-// onboardingWizardNav.test.tsx — OnboardingWizard is an async Server Component,
-// so the callback MUST be async and await it (matches the existing tests there).
+// Fixture note: add `noDetailsRow(dfid)` (a `staged` clean row with `parseResult: null`)
+// alongside the existing cleanRow/hardFailRow builders.
+// onboardingWizardNav.test.tsx — OnboardingWizard is an async Server Component that
+// calls Supabase (fetchStep3Data). This test MUST reuse OnboardingWizard.test.tsx's
+// existing Supabase/settings mocks (vi.mock of the admin client + fetchStep3Data) and
+// an async callback that awaits the component — do NOT hand-roll a new Supabase setup.
 it("step 3 renders no top Back link (Back is in the bar)", async () => {
   render(await OnboardingWizard({ settings: settingsStep3(), searchParams: { step: "3" }, hasReviewableScan: true }));
   // top chrome Back absent on step 3
@@ -479,7 +494,7 @@ it("step 3 renders no top Back link (Back is in the bar)", async () => {
 - [ ] **Step 3: Implement**:
   - `FinalizeButton`: root `className={`flex ${panelPlacement === "above" ? "flex-col-reverse" : "flex-col"} gap-3`}`; nothing else changes (sr-announcer stays first child → visually last under reverse, immaterial). Add the prop to the type with default `"below"`.
   - `Step3PublishBar.tsx` (`"use client"`, presentational): `<div data-testid="wizard-step3-publish-bar" className="sticky bottom-0 z-10 flex w-full flex-wrap items-end gap-x-3 gap-y-2 border-t border-border bg-surface/90 px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] backdrop-blur">{children}</div>` — accepts `{ children }`. Notes: **`w-full` is load-bearing** — the bar's parent is the `flex flex-col` frame and this project's Tailwind v4 does NOT default `align-items: stretch`, so without `w-full` the bar shrinks to its content width and DI-3 fails (spec §7). **`flex-wrap`** lets the count/Back/Publish stack on very narrow widths (spec §5 mobile) instead of overflowing. **`pb-[calc(env(safe-area-inset-bottom)+0.75rem)]`** clears the iOS home indicator (spec §5). The `data-testid` is what DI-3/DI-4 target. (Layout only.)
-  - `Step3ReviewWithFinalize`: wrap the content in `<div className="relative flex min-h-full flex-col">`; add bottom padding on the scroll body so the last card isn't occluded (`pb-24`); render, when `rows.length > 0`, `<Step3PublishBar>` containing: `<p data-testid="wizard-step3-publish-count" className="text-sm tabular-nums text-text-subtle"><b>{counts.selectedCount}</b> of {counts.selectableTotal} selected to publish</p>`, a `flex-1` spacer, `<Link data-testid="wizard-step3-back" href="/admin?step=2" className="…ghost…">Back</Link>`, and `<FinalizeButton … panelPlacement="above" />`. Seed `selectableTotal`/`selectedCount` in the initial `useState` (compute from the same server rows the wrapper already receives; add `initialSelectableTotal`/`initialSelectedCount` props threaded from `OnboardingWizard.tsx:398-407`, OR derive them in the wrapper from `rows` directly — prefer deriving in the wrapper to avoid new props).
+  - `Step3ReviewWithFinalize`: wrap the content in `<div className="relative flex min-h-full flex-col">`; add bottom padding on the scroll body so the last card isn't occluded (`pb-24`); render, when `rows.length > 0`, `<Step3PublishBar>` containing: `<p data-testid="wizard-step3-publish-count" className="text-sm tabular-nums text-text-subtle"><b>{counts.selectedCount}</b> of {counts.selectableTotal} selected to publish</p>`, a `flex-1` spacer, `<Link data-testid="wizard-step3-back" href="/admin?step=2" className="…ghost…">Back</Link>`, and `<FinalizeButton wizardSessionId={…} disabled={!finishable} publishCount={counts.publishCount} uncheckedCleanCount={counts.uncheckedCleanCount} panelPlacement="above" />`. **The `disabled={!finishable}` gate is UNCHANGED** — it is NOT tied to `selectableTotal`; a finishable page with `selectableTotal === 0` keeps Publish enabled (finish-with-nothing stays reachable, spec §4.4/§10). Seed `selectableTotal`/`selectedCount` in the initial `useState` via `computeSelectableCounts(rows)` (Task 1's exported helper — no new props, no flash).
   - `OnboardingWizard`: change the top `{step !== 1 ? <BackLink step={step} /> : null}` (`:494`) → `{step === 2 ? <BackLink step={2} /> : null}` so step 3 shows no top Back.
 
 - [ ] **Step 4: Run to verify it passes** — run the three files + the FULL FinalizeButton suite to prove the state machine is intact: `pnpm vitest run tests/components/admin/FinalizeButton.test.tsx tests/components/admin/wizard/Step3ReviewWithFinalize.test.tsx tests/components/onboardingWizardNav.test.tsx` → PASS.
