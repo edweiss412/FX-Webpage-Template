@@ -12,26 +12,40 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // vi.hoisted so these are initialized BEFORE the hoisted vi.mock factories run.
-const { requireAdmin, revalidatePath, select, eq, update, from, createSupabaseServerClient } =
-  vi.hoisted(() => {
-    const select = vi.fn();
-    const eq = vi.fn(() => ({ select }));
-    const update = vi.fn(() => ({ eq }));
-    const from = vi.fn(() => ({ update }));
-    return {
-      requireAdmin: vi.fn(async () => undefined),
-      revalidatePath: vi.fn(),
-      select,
-      eq,
-      update,
-      from,
-      createSupabaseServerClient: vi.fn(async () => ({ from })),
-    };
-  });
+const {
+  requireAdmin,
+  requireAdminIdentity,
+  revalidatePath,
+  select,
+  eq,
+  update,
+  from,
+  createSupabaseServerClient,
+} = vi.hoisted(() => {
+  const select = vi.fn();
+  const eq = vi.fn(() => ({ select }));
+  const update = vi.fn(() => ({ eq }));
+  const from = vi.fn(() => ({ update }));
+  return {
+    requireAdmin: vi.fn(async () => undefined),
+    // invariant #10: the toggles now resolve actor identity before the mutation.
+    requireAdminIdentity: vi.fn(async () => ({ email: "admin@example.com" })),
+    revalidatePath: vi.fn(),
+    select,
+    eq,
+    update,
+    from,
+    createSupabaseServerClient: vi.fn(async () => ({ from })),
+  };
+});
 
-vi.mock("@/lib/auth/requireAdmin", () => ({ requireAdmin }));
+vi.mock("@/lib/auth/requireAdmin", () => ({ requireAdmin, requireAdminIdentity }));
 vi.mock("next/cache", () => ({ revalidatePath }));
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient }));
+// invariant #10: the toggles emit via logAdminOutcome post-commit; stub it so this
+// pre-existing test doesn't drive the real logger (behavioral proof lives in
+// tests/log/adminOutcomeBehavior.test.ts).
+vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome: vi.fn(async () => undefined) }));
 
 import { setAlertOnSyncProblems } from "@/app/admin/settings/_actions/setAlertOnSyncProblems";
 import { setDailyReviewDigest } from "@/app/admin/settings/_actions/setDailyReviewDigest";

@@ -1,4 +1,10 @@
-import { beforeEach, describe, expect, test } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
+
+// Invariant #10: the route now emits MANIFEST_SHEET_IGNORED via logAdminOutcome on
+// the committed-success path. Stub it so this route test (which injects a mocked tx
+// and does not set a log sink) does not drive the real logger. The executable
+// behavioral proof lives in tests/log/adminOutcomeBehavior.test.ts.
+vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome: vi.fn(async () => undefined) }));
 
 import {
   handleWizardManifestIgnore,

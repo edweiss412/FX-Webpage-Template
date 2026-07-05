@@ -16,8 +16,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { requireAdmin, requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 export type SetDailyReviewDigestResult = { ok: true } | { ok: false };
 
@@ -25,6 +26,8 @@ export async function setDailyReviewDigest(next: boolean): Promise<SetDailyRevie
   // Defense-in-depth gate. AdminInfraError propagates to the catalog 500 boundary
   // (invariant 9); a non-admin identity throws here before any write.
   await requireAdmin();
+  // Actor identity resolved BEFORE the mutation (cached; invariant 10, §5.1).
+  const { email } = await requireAdminIdentity();
 
   const supabase = await createSupabaseServerClient();
   // not-subject-to-meta: server-action WRITE, not a sync-pipeline read boundary.
@@ -44,5 +47,11 @@ export async function setDailyReviewDigest(next: boolean): Promise<SetDailyRevie
   }
 
   revalidatePath("/admin/settings");
+  await logAdminOutcome({
+    code: "SETTING_DAILY_REVIEW_DIGEST_CHANGED",
+    source: "admin.settings.dailyReviewDigest",
+    actorEmail: email,
+    result: next ? "enabled" : "disabled",
+  });
   return { ok: true };
 }

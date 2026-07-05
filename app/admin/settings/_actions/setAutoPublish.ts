@@ -24,8 +24,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { requireAdmin, requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 export type SetAutoPublishResult = { ok: true } | { ok: false };
 
@@ -34,6 +35,10 @@ export async function setAutoPublish(next: boolean): Promise<SetAutoPublishResul
   // boundary (invariant 9 — infra faults are never swallowed into a benign
   // action result); a non-admin identity throws here before any write.
   await requireAdmin();
+  // Actor identity resolved BEFORE the mutation (cached — no extra RPC,
+  // requireAdmin.ts:135 cache(...)) so a requireAdminIdentity infra throw
+  // never escapes over an already-committed mutation (invariant 10, §5.1).
+  const { email } = await requireAdminIdentity();
 
   const supabase = await createSupabaseServerClient();
   // not-subject-to-meta: this is a server-action WRITE, not a sync-pipeline read
@@ -58,5 +63,12 @@ export async function setAutoPublish(next: boolean): Promise<SetAutoPublishResul
   }
 
   revalidatePath("/admin/settings");
+  // Durable forensic telemetry: post-commit, success branch only (invariant 10, §5.2).
+  await logAdminOutcome({
+    code: "SETTING_AUTOPUBLISH_CHANGED",
+    source: "admin.settings.autoPublish",
+    actorEmail: email,
+    result: next ? "enabled" : "disabled",
+  });
   return { ok: true };
 }

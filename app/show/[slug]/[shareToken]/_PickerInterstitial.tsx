@@ -71,6 +71,8 @@ export type PickerInterstitialProps = {
 
 async function selectIdentityFormAction(formData: FormData): Promise<void> {
   "use server";
+  // no-telemetry: thin crew form-action wrapper; delegates to lib/auth/picker selectIdentity,
+  // which is the crew-picker observability surface tracked by BL-CREW-PICKER-OBSERVABILITY.
   await selectIdentity(formData);
 }
 

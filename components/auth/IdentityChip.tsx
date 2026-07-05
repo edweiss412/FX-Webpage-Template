@@ -24,6 +24,8 @@ import { clearIdentity } from "@/lib/auth/picker/clearIdentity";
 
 async function clearIdentityFormAction(formData: FormData): Promise<void> {
   "use server";
+  // no-telemetry: thin crew form-action wrapper; delegates to lib/auth/picker clearIdentity,
+  // which is the crew-picker observability surface tracked by BL-CREW-PICKER-OBSERVABILITY.
   await clearIdentity(formData);
 }
 

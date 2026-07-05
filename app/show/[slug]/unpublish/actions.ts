@@ -24,6 +24,7 @@ import { unpublishShowViaEmailedLink } from "@/lib/sync/unpublishShow";
 import { prevalidateUnpublishBinding } from "@/lib/sync/unpublishConfirmPage";
 import { revalidateShow } from "@/lib/data/showCacheTag";
 import { messageFor } from "@/lib/messages/lookup";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import type { ConfirmUnpublishActionState } from "./copy";
 
 function fieldOf(formData: FormData, name: string): string | undefined {
@@ -59,6 +60,14 @@ export async function confirmUnpublishAction(
       // nav-perf tag-caching (Task 9): the consume archived the show (published=false) — gates crew
       // visibility. unpublishShowViaEmailedLink committed by the time it resolves (POST-COMMIT).
       revalidateShow(result.showId);
+      // Invariant #10: durable success trace on the emailed-link unpublish (non-admin
+      // surface — no actorEmail; the actor is whoever holds the emailed link). Reuses
+      // SHOW_UNPUBLISHED_VIA_EMAILED_LINK (the same code the unpublish route stamps).
+      await logAdminOutcome({
+        code: "SHOW_UNPUBLISHED_VIA_EMAILED_LINK",
+        source: "show.unpublish.confirmAction",
+        showId: result.showId,
+      });
       return { status: "success", title: precheck.title };
     case "expired": {
       const entry = messageFor("UNPUBLISH_TOKEN_EXPIRED");

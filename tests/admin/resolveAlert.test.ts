@@ -46,7 +46,14 @@ import { hashForLog } from "@/lib/email/hashForLog";
 // returns). The update spy records args so we can assert "no DB call" when
 // the UUID guard or null-id guard short-circuits.
 const mockState = vi.hoisted(() => ({
-  chainResult: { error: null as null | { message: string } },
+  // Invariant #10 (Codex whole-diff R1 HIGH): the UPDATE now `.select("id")`s so a
+  // zero-row match (already-resolved / show-scoped / unknown id) is detectable and
+  // does NOT emit/revalidate. `data` carries the returned-row evidence; the default
+  // is one row (the legacy happy path). Error-path tests set `{ error: {...} }`.
+  chainResult: { data: [{ id: "row-1" }], error: null } as {
+    data?: { id: string }[] | null;
+    error: null | { message: string };
+  },
   userEmail: "admin@fxav.test" as string | null | undefined,
   getUserError: null as null | { message: string },
   // alert-audience-split Task 10: the action now fetches the row's code and
@@ -75,6 +82,9 @@ vi.mock("@/lib/supabase/server", () => ({
         mockState.filters.push({ method: "is", column: col, value: val });
         return filterBuilder;
       },
+      // `.select("id")` terminates the UPDATE chain and returns the row evidence
+      // (invariant #10 zero-row guard); the builder itself is awaited via `then`.
+      select: () => filterBuilder,
       then: (
         resolve: (value: typeof mockState.chainResult) => unknown,
         reject?: (reason: unknown) => unknown,
@@ -116,6 +126,16 @@ vi.mock("next/cache", () => ({
   revalidatePath: revalidatePathSpy,
 }));
 
+// Invariant #10: the action now emits ADMIN_ALERT_RESOLVED via logAdminOutcome on
+// the committed-success branch. Stub it here so this pre-existing feature test does
+// NOT drive the REAL logger (which would attempt app_events persistence + surface on
+// the `expect(consoleErrorSpy).not.toHaveBeenCalled()` happy-path assertion). The
+// executable behavioral proof for this emit lives in tests/log/adminOutcomeBehavior.test.ts
+// (which deliberately does NOT mock the logger).
+vi.mock("@/lib/log/logAdminOutcome", () => ({
+  logAdminOutcome: vi.fn(async () => undefined),
+}));
+
 // Import AFTER mocks so the action's module-level imports resolve to them.
 import { resolveAdminAlertFormAction } from "@/app/admin/actions";
 
@@ -125,7 +145,7 @@ describe("resolveAdminAlertFormAction", () => {
   let consoleErrorSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
-    mockState.chainResult = { error: null };
+    mockState.chainResult = { data: [{ id: "row-1" }], error: null };
     mockState.userEmail = "admin@fxav.test";
     mockState.getUserError = null;
     mockState.guardRow = { code: "SHOW_FIRST_PUBLISHED" };
@@ -178,6 +198,16 @@ describe("resolveAdminAlertFormAction", () => {
     expect(revalidatePathSpy).toHaveBeenCalledWith("/admin", "layout");
 
     // No errors logged.
+    expect(consoleErrorSpy).not.toHaveBeenCalled();
+  });
+
+  test("invariant #10 (Codex R1 HIGH): a zero-row UPDATE (already-resolved / show-scoped / unknown id) does NOT revalidate", async () => {
+    // The UPDATE returns no error but zero matched rows — an idempotent no-op, not a
+    // committed resolve. The action must NOT revalidate a false "resolved" UI.
+    mockState.chainResult = { data: [], error: null };
+    await resolveAdminAlertFormAction(fd({ id: VALID_UUID }));
+    expect(mockState.updateSpy).toHaveBeenCalledTimes(1); // the UPDATE was attempted
+    expect(revalidatePathSpy).not.toHaveBeenCalled(); // but nothing committed → no revalidate
     expect(consoleErrorSpy).not.toHaveBeenCalled();
   });
 

@@ -14,11 +14,14 @@ const logMock = vi.hoisted(() => ({
   debug: vi.fn(),
 }));
 vi.mock("@/lib/log", () => ({ log: logMock }));
+const logAdminOutcomeMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome: logAdminOutcomeMock }));
 import { handleReapStaleSessions } from "@/app/api/admin/onboarding/reap-stale-sessions/route";
 
 afterEach(() => {
   vi.restoreAllMocks();
   logMock.error.mockReset();
+  logAdminOutcomeMock.mockReset();
 });
 
 describe("POST /api/admin/onboarding/reap-stale-sessions", () => {
@@ -45,6 +48,42 @@ describe("POST /api/admin/onboarding/reap-stale-sessions", () => {
     expect(reap).toHaveBeenCalledWith(
       expect.objectContaining({ requireAdminIdentity: expect.any(Function) }),
     );
+    // Invariant #10: one session was actually reaped (skipped_unstable does not count),
+    // so the durable success trace fires with `reaped_1`, actor = the resolved admin.
+    expect(logAdminOutcomeMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "STALE_SESSIONS_REAPED",
+        source: "api.admin.onboarding.reap",
+        actorEmail: "admin@example.com",
+        result: "reaped_1",
+      }),
+    );
+  });
+
+  test("a sweep that reaps NOTHING (all skipped_*) does NOT emit STALE_SESSIONS_REAPED (Codex R2 — no zero-row trace)", async () => {
+    // Concrete failure mode caught: a no-op sweep (nothing stale, or every candidate
+    // skipped_unstable/skipped_fresh_activity) committed zero deletes. Emitting the
+    // past-tense "sessions WERE reaped" trace on it would be a rule #1 zero-row
+    // violation and would inflate the forensic reaped-run count.
+    const reap = vi.fn(async () => ({
+      sessions: [
+        { wizardSessionId: "u", outcome: "skipped_unstable" as const },
+        { wizardSessionId: "f", outcome: "skipped_fresh_activity" as const },
+      ],
+    }));
+    const response = await handleReapStaleSessions(new Request("http://test"), {
+      requireAdminIdentity: async () => ({ email: "admin@example.com" }),
+      reapStaleOnboardingSessions: reap,
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      status: "reaped",
+      sessions: [
+        { wizardSessionId: "u", outcome: "skipped_unstable" },
+        { wizardSessionId: "f", outcome: "skipped_fresh_activity" },
+      ],
+    });
+    expect(logAdminOutcomeMock).not.toHaveBeenCalled();
   });
 
   test("non-admin callers get 403 ADMIN_FORBIDDEN before any reap work", async () => {

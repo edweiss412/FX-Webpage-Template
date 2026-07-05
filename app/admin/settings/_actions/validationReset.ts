@@ -32,12 +32,17 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireDeveloper, DeveloperInfraError } from "@/lib/auth/requireDeveloper";
+import {
+  requireDeveloper,
+  requireDeveloperIdentity,
+  DeveloperInfraError,
+} from "@/lib/auth/requireDeveloper";
 import { destructiveResetAllowed, VALIDATION_PROJECT_REF } from "@/lib/admin/validationDeployment";
 import { createSupabaseServerClient, createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { buildFixtures, R_COMBOS, SW_COMBOS, type Combo } from "@/lib/validation/fixtures";
 import { mintFixtureCombos, finalizeFixtures } from "@/lib/validation/reseedFixtures";
 import type { MessageCode } from "@/lib/messages/catalog";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 export type ValidationActionResult = { ok: true; count: number } | { ok: false; code: MessageCode };
 
@@ -56,6 +61,10 @@ export async function resetValidationDataAction(): Promise<ValidationActionResul
   try {
     // Gate 1: developer (FIRST op inside the try — inline-typed posture §6.1)
     await requireDeveloper();
+    // Actor identity resolved BEFORE the mutation (cached — no extra RPC;
+    // invariant 10, §5.1), so a requireDeveloperIdentity infra throw never
+    // escapes over an already-committed mutation.
+    const { email } = await requireDeveloperIdentity();
 
     // Gate 2: env (validation project ref + ALLOW_DESTRUCTIVE_RESET flag)
     if (!destructiveResetAllowed()) {
@@ -116,6 +125,13 @@ export async function resetValidationDataAction(): Promise<ValidationActionResul
     // residual stale entry. revalidatePath("/admin"/"/admin/settings") covers the admin surfaces.
     revalidatePath("/admin");
     revalidatePath("/admin/settings");
+    // Durable forensic telemetry: post-commit, success branch only (invariant 10, §5.2).
+    await logAdminOutcome({
+      code: "VALIDATION_RESET_RUN",
+      source: "admin.settings.validationReset",
+      actorEmail: email,
+      result: "cleared_" + count,
+    });
     return { ok: true, count };
   } catch (err) {
     if (err instanceof DeveloperInfraError) return { ok: false, code: "VALIDATION_RESET_FAILED" };
@@ -135,6 +151,9 @@ export async function reseedValidationFixturesAction(): Promise<ValidationAction
   try {
     // Gate 1: developer (FIRST op inside the try — inline-typed posture §6.1)
     await requireDeveloper();
+    // Actor identity resolved BEFORE the mutation (cached — no extra RPC;
+    // invariant 10, §5.1).
+    const { email } = await requireDeveloperIdentity();
 
     // Gate 2: env (validation project ref + ALLOW_DESTRUCTIVE_RESET flag)
     if (!destructiveResetAllowed()) {
@@ -194,6 +213,13 @@ export async function reseedValidationFixturesAction(): Promise<ValidationAction
       // it), and the unstable_cache 300s TTL backstops any residual stale entry after a fresh reseed.
       revalidatePath("/admin");
       revalidatePath("/admin/settings");
+      // Durable forensic telemetry: post-commit, success branch only (invariant 10, §5.2).
+      await logAdminOutcome({
+        code: "VALIDATION_RESEED_RUN",
+        source: "admin.settings.validationReset",
+        actorEmail: email,
+        result: "minted_" + minted,
+      });
       return { ok: true, count: minted };
     } catch {
       return { ok: false, code: "VALIDATION_RESEED_FAILED" };

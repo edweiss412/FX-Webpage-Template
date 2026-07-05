@@ -1,3 +1,5 @@
+// no-telemetry: test-only auth scaffolding (build-gated out of production); mints a
+// fixture session for Playwright — not a product mutation surface (invariant #10 §4.3).
 /**
  * app/api/test-auth/set-session/route.ts (M3 Task 3.1)
  *

@@ -12,6 +12,7 @@ import {
   upsertAdminAlert as defaultUpsertAdminAlert,
   type UpsertAdminAlertInput,
 } from "@/lib/adminAlerts/upsertAdminAlert";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 /**
  * DS3-1 — in-wizard "Permanently ignore" for the Step-3 blocking statuses
@@ -196,7 +197,13 @@ export async function handleWizardManifestIgnore(
   const { wizardSessionId, driveFileId } = await context.params;
 
   try {
-    return await deps.withRowTx(driveFileId, async (tx) => {
+    // The callback returns EITHER a refusal `Response` (no mutation committed) OR the
+    // `{ ignored: true }` success sentinel. The success telemetry MUST fire AFTER
+    // withRowTx resolves — i.e. after the per-show advisory lock has RELEASED and the
+    // tx committed (invariant 2 / spec §9) — so the emit lives out here, not inside
+    // the callback. A CAS-miss throws WizardSessionSupersededRollbackError (caught
+    // below → 409, no emit); refusals return a Response (no emit).
+    const outcome = await deps.withRowTx<Response | { ignored: true }>(driveFileId, async (tx) => {
       const manifest = await readLockedManifestRow(tx, wizardSessionId, driveFileId);
       if (!manifest) {
         // Row missing or session superseded — no mutation has run, safe to refuse.
@@ -243,12 +250,30 @@ export async function handleWizardManifestIgnore(
         throw new WizardSessionSupersededRollbackError(rollbackContext);
       }
 
+      // Committed success sentinel — the actual telemetry + HTTP response are built
+      // OUTSIDE this callback (post-lock-release), below.
+      return { ignored: true as const };
+    });
+
+    if (!(outcome instanceof Response)) {
+      // The mutation committed and the advisory lock has released. Emit the durable
+      // success trace now (invariant 2 / spec §9 — never inside the lock tx), then
+      // respond. logAdminOutcome is internally try/catch-wrapped so it can never throw
+      // over the committed write.
+      await logAdminOutcome({
+        code: "MANIFEST_SHEET_IGNORED",
+        source: "api.admin.onboarding.manifest.ignore",
+        actorEmail: deferredByEmail,
+        driveFileId,
+        wizardSessionId,
+      });
       return NextResponse.json({
         status: "ignored",
         drive_file_id: driveFileId,
         wizard_session_id: wizardSessionId,
       });
-    });
+    }
+    return outcome;
   } catch (error) {
     if (error instanceof WizardSessionSupersededRollbackError) {
       // Transaction already aborted. The alert write runs on its own service-role
