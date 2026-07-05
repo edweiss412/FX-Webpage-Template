@@ -195,6 +195,17 @@ const infraRegistry = [
     contract: "wizard_finalize_checkpoints await throws → infra_error",
   },
   {
+    // finalize-resume deadlock §3.2 — the in_progress re-entry surface's
+    // unresolved-sheet list. Two guarded reads (onboarding_scan_manifest then
+    // pending_syncs) composed in JS; reproduces the unresolvedManifestCount
+    // predicate (blocking statuses OR staged+failure_code). Client construction
+    // throw + either query's returned-error OR thrown await → { kind: 'infra_error' }.
+    helper: "readUnresolvedSheets",
+    path: "app/admin/_unresolvedSheets.ts",
+    contract:
+      "onboarding_scan_manifest + pending_syncs reads each destructure { data, error }; construction throw + either query returned-error OR thrown await → infra_error; empty manifest short-circuits to [] without a pending read",
+  },
+  {
     // wizard Back/forward fix (2026-06-26): gates the Step-2 resume affordance +
     // forward stepper pill on "manifest has rows" instead of session-id-non-null
     // (which is true after Start Over / a failed scan with an EMPTY manifest).
