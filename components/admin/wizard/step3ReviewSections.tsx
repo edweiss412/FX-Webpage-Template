@@ -89,7 +89,12 @@ import { buildSheetDeepLink, type SourceAnchor } from "@/lib/sheet-links/buildSh
 import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
 import { EVENT_DETAILS_LABELS } from "@/lib/crew/eventDetailsSpecs";
 import { partialAttendanceLabel } from "@/lib/crew/partialAttendance";
-import { resolveOptionalField, formatScheduleWindow } from "@/lib/crew/agendaDisplay";
+import {
+  resolveOptionalField,
+  formatScheduleWindow,
+  aggregateDays,
+  type SchedulePhase,
+} from "@/lib/crew/agendaDisplay";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
 import { Avatar } from "@/components/atoms/Avatar";
@@ -847,6 +852,7 @@ export function ScheduleDayRow({
   showStart = null,
   window: dayWindow = null,
   showEnd = null,
+  phase = null,
 }: {
   dfid: string;
   iso: string;
@@ -854,6 +860,9 @@ export function ScheduleDayRow({
   showStart?: string | null;
   window?: { start: string; end: string } | null;
   showEnd?: string | null;
+  // Aggregate-day phase label ("Travel In"/"Set"/"Show"/"Travel Out"); null for an
+  // off-schedule ros-only day (no natural phase). #316 item 1.
+  phase?: SchedulePhase | null;
 }) {
   const [showAll, setShowAll] = useState(false);
   // Cap-exemption partition (spec §9.4): cap ONLY the agenda group at
@@ -884,6 +893,19 @@ export function ScheduleDayRow({
       <span className="text-xs font-medium tabular-nums text-text-strong">
         {humanizeDate(iso) ?? iso}
       </span>
+      {phase != null ? (
+        // Reuse the wizard's own eyebrow recipe (EYEBROW_CLASS/STYLE) — the phase
+        // label is MEANINGFUL copy (it identifies the travel-in/out day), so it must
+        // clear AA-normal contrast (text-text-subtle, not the decorative text-faint)
+        // and match the 12px eyebrow scale used across the breakdown. Impeccable P1.
+        <span
+          data-testid={`wizard-step3-card-${dfid}-sched-phase-${iso}`}
+          className={EYEBROW_CLASS}
+          style={EYEBROW_STYLE}
+        >
+          {phase}
+        </span>
+      ) : null}
       {timeMeta ? (
         <span
           data-testid={`wizard-step3-card-${dfid}-sched-meta`}
@@ -934,39 +956,66 @@ export function ScheduleDayRow({
   );
 }
 
-export function ScheduleBreakdown({ dfid, ros }: { dfid: string; ros: RunOfShow }) {
-  const dayKeys = Object.keys(ros);
-  // Day cap-exemption (spec §9.2): a day whose entries contain a strike/load-out
-  // is ALWAYS rendered (a malformed/long sheet could push the exact admin-only
-  // synthetic day past the cap). shownDays = (first SCHEDULE_DAYS_CAP days) ∪
-  // (every synthetic-bearing day); the "…and N more days" note counts only the
-  // dropped NON-synthetic days.
+const EMPTY_DATES: ShowRow["dates"] = { travelIn: null, set: null, showDays: [], travelOut: null };
+
+export function ScheduleBreakdown({
+  dfid,
+  ros,
+  dates = EMPTY_DATES,
+}: {
+  dfid: string;
+  ros: RunOfShow;
+  dates?: ShowRow["dates"];
+}) {
+  // Merged day domain (bug #316 item 1) = the full schedule aggregate
+  // (travelIn/set/showDays/travelOut, phase-labeled) UNION any ros-only day the
+  // parser placed OFF-schedule (strike / load-out / off-schedule agenda —
+  // deriveScheduleBookends warns via strikeDateOffSchedule but still emits them;
+  // dropping them would regress this review surface). Sorted ASC by ISO. Previously
+  // this iterated Object.keys(ros), so bookend/travel days with no run-of-show entry
+  // were silently omitted from the wizard preview while the crew page showed them.
+  const aggregate: { date: string; phase: SchedulePhase | null }[] = aggregateDays(dates);
+  const aggregateDates = new Set(aggregate.map((d) => d.date));
+  const rosOnly: { date: string; phase: SchedulePhase | null }[] = Object.keys(ros)
+    .filter((iso) => !aggregateDates.has(iso))
+    .map((iso) => ({ date: iso, phase: null }));
+  const mergedDays = [...aggregate, ...rosOnly].sort((a, b) => a.date.localeCompare(b.date));
+
+  // Day cap: always-show = synthetic-bearing (strike/load-out — a malformed/long
+  // sheet could push the admin-only synthetic day past the cap) OR a non-Show
+  // aggregate bookend ("Travel In"/"Set"/"Travel Out" — the ≤3 days Doug reported
+  // missing; they must never be hidden by the cap). Show days + non-synthetic
+  // off-schedule ros days remain cap-subject; the "…and N more days" note counts
+  // only those dropped, non-exempt days.
   const isSyntheticDay = (iso: string): boolean =>
     arr(ros[iso]?.entries).some((e) => e.kind === "strike" || e.kind === "loadout");
-  const shownDays = dayKeys.filter((iso, idx) => idx < SCHEDULE_DAYS_CAP || isSyntheticDay(iso));
-  const droppedNonSynthetic = dayKeys.filter(
-    (iso, idx) => idx >= SCHEDULE_DAYS_CAP && !isSyntheticDay(iso),
+  const alwaysShown = (d: { date: string; phase: SchedulePhase | null }): boolean =>
+    isSyntheticDay(d.date) || (d.phase != null && d.phase !== "Show");
+  const shownDays = mergedDays.filter((d, idx) => idx < SCHEDULE_DAYS_CAP || alwaysShown(d));
+  const droppedNonExempt = mergedDays.filter(
+    (d, idx) => idx >= SCHEDULE_DAYS_CAP && !alwaysShown(d),
   ).length;
-  const daysNote = droppedNonSynthetic > 0 ? `…and ${droppedNonSynthetic} more days` : null;
+  const daysNote = droppedNonExempt > 0 ? `…and ${droppedNonExempt} more days` : null;
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-schedule`}
       label="Crew Schedule"
-      count={dayKeys.length}
+      count={mergedDays.length}
     >
-      {dayKeys.length === 0 ? (
+      {mergedDays.length === 0 ? (
         <p className="text-sm text-text-subtle">No run-of-show parsed.</p>
       ) : (
         <ul className="flex flex-col gap-3">
-          {shownDays.map((iso) => (
+          {shownDays.map((d) => (
             <ScheduleDayRow
-              key={iso}
+              key={d.date}
               dfid={dfid}
-              iso={iso}
-              entries={arr(ros[iso]?.entries)}
-              showStart={ros[iso]?.showStart ?? null}
-              window={ros[iso]?.window ?? null}
-              showEnd={ros[iso]?.showEnd ?? null}
+              iso={d.date}
+              entries={arr(ros[d.date]?.entries)}
+              showStart={ros[d.date]?.showStart ?? null}
+              window={ros[d.date]?.window ?? null}
+              showEnd={ros[d.date]?.showEnd ?? null}
+              phase={d.phase}
             />
           ))}
         </ul>
@@ -2435,7 +2484,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       // No rail count (owner decision, 2026-07-05): only Crew, Contacts, Rooms,
       // and Parse warnings show a count. Keep in lockstep with COUNT_SECTIONS.
       railCount: null,
-      render: (s) => <ScheduleBreakdown dfid={s.dfid} ros={s.ros} />,
+      render: (s) => <ScheduleBreakdown dfid={s.dfid} ros={s.ros} dates={s.pr.show.dates} />,
     },
   ];
   if (d.agendaBaseline.length > 0) {

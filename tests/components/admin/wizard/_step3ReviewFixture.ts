@@ -81,7 +81,7 @@ function runOfShow(days: number, entriesPerDay: number): RunOfShow {
   return out;
 }
 
-function show(overrides: Partial<ShowRow> = {}): ShowRow {
+export function show(overrides: Partial<ShowRow> = {}): ShowRow {
   return {
     title: "Asset Mgmt Summit",
     client_label: "Acme Capital",

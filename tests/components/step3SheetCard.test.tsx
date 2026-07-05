@@ -697,7 +697,15 @@ describe("Step3SheetCard — breakdown (§4.3)", () => {
   });
 
   test("schedule outline caps days at 14 and entries per day at 6", () => {
-    const FIX = parseResult({ runOfShow: runOfShow(16, 8) });
+    // Null the show dates so this test isolates PURE ros-day cap behavior: the schedule
+    // now merges the aggregate day domain (travelIn/set/showDays/travelOut) with ros days
+    // (bug #316 item 1), and the default fixture's travelIn (2026-04-09, not in ros) would
+    // otherwise prepend a day and shift every ros day down one cap slot. Aggregate-merge
+    // cap behavior is covered separately in scheduleBreakdown.bookendDays.test.tsx.
+    const FIX = parseResult({
+      runOfShow: runOfShow(16, 8),
+      show: show({ dates: { travelIn: null, set: null, showDays: [], travelOut: null } }),
+    });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     const region = within(expand(q)).getByTestId(`wizard-step3-card-${DFID}-breakdown-schedule`);
     const ros = FIX.runOfShow ?? {};
