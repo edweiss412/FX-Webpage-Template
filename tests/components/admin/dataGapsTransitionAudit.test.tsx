@@ -118,7 +118,8 @@ describe("data-gap surfaces — transition audit (instant, static parse-state)",
     // Variant B: the card's "needs a look" chip is a plain conditional-to-null —
     // present iff there's a data gap (needsLook), gone otherwise; instant, no
     // AnimatePresence/motion wrapper. (The per-class breakdown moved to the modal.)
-    expect(step3).toMatch(/\{needsLook \? reviewChip\(/);
+    // Whitespace-tolerant (prettier may wrap the ternary across lines).
+    expect(step3).toMatch(/\{needsLook\s*\?\s*reviewChip\(/);
     // Per-show panel: failed → calm notice; else (ACTIVE displayable warnings OR
     // IGNORED warnings) → section; else null. Still a plain ternary-to-null (instant
     // present/absent, no AnimatePresence) — the condition is compound because the panel
