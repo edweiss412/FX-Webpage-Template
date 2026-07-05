@@ -17,12 +17,18 @@ function dayHasExpectedField(day: RunOfShow[string] | undefined, exp: DayExpecta
 describe("verify-resync expected-map contract (per-ISO, per-field — NOT ≥1 day)", () => {
   test("entries-expectation day with empty entries FAILS (a recovered-titled-day miss is not masked)", () => {
     expect(
-      dayHasExpectedField({ entries: [], showStart: null, showEnd: null, window: null }, { field: "entries" }),
+      dayHasExpectedField(
+        { entries: [], showStart: null, showEnd: null, window: null },
+        { field: "entries" },
+      ),
     ).toBe(false);
   });
   test("window-expectation day with null window FAILS", () => {
     expect(
-      dayHasExpectedField({ entries: [], showStart: "7:30am", showEnd: null, window: null }, { field: "window" }),
+      dayHasExpectedField(
+        { entries: [], showStart: "7:30am", showEnd: null, window: null },
+        { field: "window" },
+      ),
     ).toBe(false);
   });
   test("unparsed-expectation day FAILS when the day is PRESENT (deliberate-absence must stay absent)", () => {
@@ -37,7 +43,12 @@ describe("verify-resync expected-map contract (per-ISO, per-field — NOT ≥1 d
   test("a fully-recovered show day PASSES", () => {
     expect(
       dayHasExpectedField(
-        { entries: [{ start: "7:15am", title: "Reg" }], showStart: "7:15am", showEnd: null, window: null },
+        {
+          entries: [{ start: "7:15am", title: "Reg" }],
+          showStart: "7:15am",
+          showEnd: null,
+          window: null,
+        },
         { field: "entries" },
       ),
     ).toBe(true);

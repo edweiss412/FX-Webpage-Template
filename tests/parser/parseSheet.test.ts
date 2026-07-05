@@ -263,15 +263,20 @@ describe("parseSheet — runOfShow wiring (Phase 2)", () => {
     expect(w.window!.end).toMatch(/\d/);
   });
 
-  it("SCHEDULE_TIME_UNPARSED from a 'GS: ... - 6:00 PM' end-only SHOW DAY cell reaches ParsedSheet.warnings (index.ts merge)", () => {
-    // Redefining-FI SHOW DAY 2 has 'GS: ... - 6:00 PM' (end-only). The warning
-    // must survive the parseScheduleTimes → agg.warnings merge, not be unit-local.
+  it("end-only 'GS: ... - 6:00 PM' SHOW DAY cell is decoded as showEnd, NOT a SCHEDULE_TIME_UNPARSED warning, through the index.ts merge (#307)", () => {
+    // Redefining-FI SHOW DAY 2 (5/14/25) has 'GS: ... - 6:00 PM' (end-only). Post-#307
+    // the end time is captured as ScheduleDay.showEnd and must survive the
+    // parseScheduleTimes → AGENDA-grid merge (index.ts); it no longer warns.
     const md = readFileSync(
       "fixtures/shows/raw/2025-05-redefining-fixed-income-private-credit.md",
       "utf8",
     );
     const r = parseSheet(md, "redefining-fi.md");
-    expect(r.warnings.map((w) => w.code)).toContain("SCHEDULE_TIME_UNPARSED");
+    expect(r.runOfShow?.["2025-05-14"]?.showEnd).toBe("6:00 PM");
+    const unparsedFor514 = r.warnings.filter(
+      (w) => w.code === "SCHEDULE_TIME_UNPARSED" && (w.message ?? "").includes("2025-05-14"),
+    );
+    expect(unparsedFor514).toEqual([]);
   });
 });
 

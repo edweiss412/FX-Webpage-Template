@@ -642,7 +642,11 @@ describe("parseTransportation — v4 passenger exact-always-wins (PR-passengers)
 });
 
 describe("#307 no-header transport never harvests names", () => {
-  const crew = [{ name: "Eric Carroll" }, { name: "Eric Weiss" }, { name: "Connor Hester" }] as never;
+  const crew = [
+    { name: "Eric Carroll" },
+    { name: "Eric Weiss" },
+    { name: "Connor Hester" },
+  ] as never;
   it("scratch names beside $ costs → assigned_names []", () => {
     const md = [
       "| TRANSPORTATION | NAME | PHONE |  |  |",

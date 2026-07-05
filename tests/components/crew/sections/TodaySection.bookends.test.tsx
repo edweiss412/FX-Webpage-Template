@@ -87,7 +87,9 @@ test("when today is the set day, Today's run-of-show shows the synthesized Load 
         setupTime: "8:30 PM",
       },
     },
-    runOfShow: { [TODAY_ISO]: { entries: setEntries, showStart: null, showEnd: null, window: null } },
+    runOfShow: {
+      [TODAY_ISO]: { entries: setEntries, showStart: null, showEnd: null, window: null },
+    },
   });
   const { container } = render(
     <TodaySection data={data} viewer={adminViewer} today={TODAY} showId={SHOW_ID} />,

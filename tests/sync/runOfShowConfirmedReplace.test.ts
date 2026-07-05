@@ -14,7 +14,12 @@ const e1b: AgendaEntry[] = [{ start: "9:00 AM", title: "Keynote A v2" }];
 const e2: AgendaEntry[] = [{ start: "1:00 PM", title: "Panel B" }];
 
 // ScheduleDay helpers — wrap AgendaEntry arrays in the ScheduleDay shape (Task 8 retype).
-const day = (entries: AgendaEntry[]): ScheduleDay => ({ entries, showStart: null, showEnd: null, window: null });
+const day = (entries: AgendaEntry[]): ScheduleDay => ({
+  entries,
+  showStart: null,
+  showEnd: null,
+  window: null,
+});
 const emptyDay: ScheduleDay = { entries: [], showStart: null, showEnd: null, window: null };
 
 // Minimal ParseResult factory (mirror tests/sync/phase2.test.ts parseResult(); only the fields the apply reads).

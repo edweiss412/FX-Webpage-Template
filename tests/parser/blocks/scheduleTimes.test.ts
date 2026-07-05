@@ -48,9 +48,16 @@ describe("parseScheduleTimes — tokenizer", () => {
   });
 
   it("end-only 'GS: ... - 6:00 PM' → showEnd captured, NO warning (#307)", () => {
-    const { dates, scheduleDays, warnings } = run([["SHOW DAY 1", "Wed", "5/14/25", "GS: ... - 6:00 PM"]]);
+    const { dates, scheduleDays, warnings } = run([
+      ["SHOW DAY 1", "Wed", "5/14/25", "GS: ... - 6:00 PM"],
+    ]);
     const iso = dates.showDays[0]!;
-    expect(scheduleDays[iso]).toEqual({ entries: [], showStart: null, showEnd: "6:00 PM", window: null });
+    expect(scheduleDays[iso]).toEqual({
+      entries: [],
+      showStart: null,
+      showEnd: "6:00 PM",
+      window: null,
+    });
     expect(warnings.map((w) => w.code)).not.toContain("SCHEDULE_TIME_UNPARSED");
   });
 
@@ -61,11 +68,18 @@ describe("parseScheduleTimes — tokenizer", () => {
 
   it("leading-start 'GS: 8:00 AM -' stays showStart, showEnd null (#307 regression guard)", () => {
     const { dates, scheduleDays } = run([["SHOW DAY 1", "Wed", "5/14/25", "GS: 8:00 AM -"]]);
-    expect(scheduleDays[dates.showDays[0]!]).toEqual({ entries: [], showStart: "8:00 AM", showEnd: null, window: null });
+    expect(scheduleDays[dates.showDays[0]!]).toEqual({
+      entries: [],
+      showStart: "8:00 AM",
+      showEnd: null,
+      window: null,
+    });
   });
 
   it("clock-less contentful cell still warns (not swallowed by end-only branch) (#307)", () => {
-    const { dates, scheduleDays, warnings } = run([["SHOW DAY 1", "Wed", "5/14/25", "General Session soon"]]);
+    const { dates, scheduleDays, warnings } = run([
+      ["SHOW DAY 1", "Wed", "5/14/25", "General Session soon"],
+    ]);
     expect(scheduleDays[dates.showDays[0]!]).toBeUndefined();
     expect(warnings.map((w) => w.code)).toContain("SCHEDULE_TIME_UNPARSED");
   });

@@ -150,8 +150,18 @@ describe("resolveKeyTimes — per-day shows[] (decision table rows 1-3)", () => 
     const showDays = ["2026-10-08", "2026-10-09", "2026-10-10"];
     const runOfShow: RunOfShow = {
       "2026-10-08": { entries: [], showStart: "7:15am", showEnd: null, window: null }, // row 1
-      "2026-10-09": { entries: [], showStart: null, showEnd: null, window: { start: "7:30am", end: "5:50pm" } }, // row 2
-      "2026-10-10": { entries: [{ start: "8:00am", title: "GS" }], showStart: null, showEnd: null, window: null }, // row 3
+      "2026-10-09": {
+        entries: [],
+        showStart: null,
+        showEnd: null,
+        window: { start: "7:30am", end: "5:50pm" },
+      }, // row 2
+      "2026-10-10": {
+        entries: [{ start: "8:00am", title: "GS" }],
+        showStart: null,
+        showEnd: null,
+        window: null,
+      }, // row 3
     };
     const anchors = resolveKeyTimes(dates({ showDays }), null, runOfShow, NONE);
     // assert against the RETURNED anchors (data source), not a render container:
@@ -261,8 +271,18 @@ describe("resolveKeyTimes — ShowAnchor.time is sentinel-guarded at the source"
   it("a sentinel showStart/window.start/entries[0].start never becomes a ShowAnchor.time; falls through", () => {
     const showDays = ["2026-10-08", "2026-10-09", "2026-10-10"];
     const runOfShow: RunOfShow = {
-      "2026-10-08": { entries: [], showStart: "TBD", showEnd: null, window: { start: "7:30am", end: "5:50pm" } }, // showStart sentinel → window.start
-      "2026-10-09": { entries: [{ start: "N/A", title: "GS" }], showStart: null, showEnd: null, window: null }, // entries[0].start sentinel → omit (no room)
+      "2026-10-08": {
+        entries: [],
+        showStart: "TBD",
+        showEnd: null,
+        window: { start: "7:30am", end: "5:50pm" },
+      }, // showStart sentinel → window.start
+      "2026-10-09": {
+        entries: [{ start: "N/A", title: "GS" }],
+        showStart: null,
+        showEnd: null,
+        window: null,
+      }, // entries[0].start sentinel → omit (no room)
       "2026-10-10": { entries: [], showStart: "TBA", showEnd: null, window: null }, // all sentinel/absent → omit
     };
     const a = resolveKeyTimes(dates({ showDays }), null, runOfShow, NONE);

@@ -163,7 +163,9 @@ test("Redefining-FI Day 2 absent from runOfShow + cross-dated room → day rende
             set: null,
           },
         },
-        runOfShow: { "2026-05-13": { entries: [], showStart: "8:00 AM", showEnd: null, window: null } },
+        runOfShow: {
+          "2026-05-13": { entries: [], showStart: "8:00 AM", showEnd: null, window: null },
+        },
         rooms: [
           {
             id: "r1",

@@ -41,7 +41,10 @@ describe("wizard ScheduleDayRow fragment-day meta (#307)", () => {
   });
   test("titled day → entries, no meta line", () => {
     const { container } = render(
-      <ScheduleBreakdown dfid="d" ros={{ "2025-05-14": day({ entries: [{ start: "8am", title: "Reg" }] }) }} />,
+      <ScheduleBreakdown
+        dfid="d"
+        ros={{ "2025-05-14": day({ entries: [{ start: "8am", title: "Reg" }] }) }}
+      />,
     );
     expect(container.textContent).toContain("Reg");
     expect(metaText(container)).toBeNull();

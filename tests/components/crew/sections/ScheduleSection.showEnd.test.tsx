@@ -14,7 +14,11 @@ const DATES = { travelIn: null, set: null, showDays: [D], travelOut: null };
 function renderWith(day: ScheduleDay) {
   return render(
     <ScheduleSection
-      data={makeShowForViewer({ show: { dates: DATES }, runOfShow: { [D]: day }, transportation: null })}
+      data={makeShowForViewer({
+        show: { dates: DATES },
+        runOfShow: { [D]: day },
+        transportation: null,
+      })}
       viewer={{ kind: "admin" }}
       today={TODAY}
       showId="show-showend"

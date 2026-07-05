@@ -14,7 +14,12 @@ const bareWindow: ScheduleDay = {
   showEnd: null,
   window: { start: "7:30am", end: "5:50pm" },
 };
-const showStartOnly: ScheduleDay = { entries: [], showStart: "8:00 AM", showEnd: null, window: null };
+const showStartOnly: ScheduleDay = {
+  entries: [],
+  showStart: "8:00 AM",
+  showEnd: null,
+  window: null,
+};
 const fullyEmpty: ScheduleDay = { entries: [], showStart: null, showEnd: null, window: null };
 
 function makeTx() {
