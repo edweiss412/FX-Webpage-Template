@@ -49,7 +49,7 @@ create table public.admin_alert_reads (
 
 - Email canonicalization at the boundary (invariant 3): the write path passes `requireAdminIdentity().email` (already canonical); the CHECK is the schema safety net, mirroring `app_settings_watched_folder_set_by_email_canonical` (`supabase/migrations/20260520000911_add_email_canonical_checks.sql:22`).
 - **Unread semantics**: entry row is unread for viewer V iff no `admin_alert_reads` row for (`latest_row.id`, V) **or** `read_at < latest_row.last_seen_at`. A re-bump (`upsert_admin_alert` conflict arm sets `last_seen_at = now()`, `supabase/migrations/20260505000000_upsert_admin_alert.sql` conflict `do update set last_seen_at = now(), occurrence_count = +1`) therefore re-unreads; a resolve→re-raise mints a fresh row id (partial unique index `admin_alerts_one_unresolved_idx` on `(coalesce(show_id::text,''), code) WHERE resolved_at is null`, `supabase/migrations/20260501001000_internal_and_admin.sql:279`) and is unread by absence.
-- Marking read is an **upsert** (`insert ... on conflict (alert_id, admin_email) do update set read_at = now()`).
+- Marking read is a **snapshot-stamped upsert**: `/bell/read` carries the entry's `activityAt` as rendered (`{ alertId, seenActivityAt }`), and the upsert stamps `read_at = seenActivityAt` monotonically (`on conflict (alert_id, admin_email) do update set read_at = greatest(admin_alert_reads.read_at, excluded.read_at)`). Never `now()`: if the row re-bumped between the feed snapshot and the click, `last_seen_at > seenActivityAt = read_at`, so the newer occurrence the viewer hasn't seen **stays unread** (adversarial R4 finding 1; same snapshot-safety principle as the §3.2 watermark). `seenActivityAt` is rejected 400 if absent, non-ISO, or > now()+60s.
 
 ### 3.2 New table: `admin_bell_state` (badge watermark, D3)
 
@@ -63,7 +63,7 @@ create table public.admin_bell_state (
 ```
 
 - Badge count = number of feed entries (post-grouping, post-audience-scope) whose `activity_at > opened_at` (no row ⇒ `-infinity`, i.e. everything counts). `activity_at = greatest(latest_row.raised_at, latest_row.last_seen_at)`. `resolved_at` deliberately does **not** feed `activity_at` — resolving is not a notification and must not re-badge.
-- **Snapshot-safe watermark (no lost notifications)**: the watermark never advances past what the viewer was actually shown. `/bell/feed` captures `seenThrough` server-side **before** running its queries (a `select now()` against the same client, so it cannot postdate any row the snapshot missed) and returns it. The client's subsequent `/bell/open` POST carries that `seenThrough`, and the upsert stamps it **monotonically**: `on conflict (admin_email) do update set opened_at = greatest(admin_bell_state.opened_at, excluded.opened_at)`, and the insert/update value is the client-supplied `seenThrough`, rejected with 400 if absent, non-ISO, or in the future (small skew tolerance ≤60s). An alert raised between the feed snapshot and the open POST therefore stays `activity_at > opened_at` and re-badges on the next count refresh — it can never be silently absorbed by the open gesture. (Race identified in adversarial review R2; ratified fix.)
+- **Snapshot-safe watermark**: the watermark never advances past the feed snapshot the viewer was shown (within-snapshot no-loss; the cap boundary is separately defined and accepted in §6.4). `/bell/feed` captures `seenThrough` server-side **before** running its queries (a `select now()` against the same client, so it cannot postdate any row the snapshot missed) and returns it. The client's subsequent `/bell/open` POST carries that `seenThrough`, and the upsert stamps it **monotonically**: `on conflict (admin_email) do update set opened_at = greatest(admin_bell_state.opened_at, excluded.opened_at)`, and the insert/update value is the client-supplied `seenThrough`, rejected with 400 if absent, non-ISO, or in the future (small skew tolerance ≤60s). An alert raised between the feed snapshot and the open POST therefore stays `activity_at > opened_at` and re-badges on the next count refresh — it can never be silently absorbed by the open gesture. (Race identified in adversarial review R2; ratified fix.)
 
 ### 3.3 Access control for both new tables
 
@@ -98,7 +98,7 @@ All four routes are admin API routes under `app/api/admin/alerts/bell/`, followi
 | `/api/admin/alerts/bell/feed` | GET | admin | none (read) | `{ entries: BellEntry[], unseenCount: number, truncated: boolean, historyDays: number, feedCap: number, seenThrough: string }` (`historyDays`/`feedCap` echo the live config so the truncation row and dev footer render authoritative values; `seenThrough` per §3.2) |
 | `/api/admin/alerts/bell/count` | GET | admin | none (read) | `{ count: number }` (unseen-entry count only; cheap badge refresh) |
 | `/api/admin/alerts/bell/open` | POST `{ seenThrough }` | admin | monotonic upsert `admin_bell_state.opened_at = greatest(existing, seenThrough)` (§3.2) | `{ ok: true }` |
-| `/api/admin/alerts/bell/read` | POST `{ alertId }` | admin | upsert `admin_alert_reads` for (alertId, viewer) | `{ ok: true }` |
+| `/api/admin/alerts/bell/read` | POST `{ alertId, seenActivityAt }` | admin | monotonic upsert `admin_alert_reads.read_at = greatest(existing, seenActivityAt)` for (alertId, viewer) (§3.1) | `{ ok: true }` |
 | `/api/admin/alerts/bell/config` | POST `{ historyDays, feedCap }` | **developer** (`requireDeveloperIdentity`, `lib/auth/requireDeveloper.ts`) | update `app_settings` columns (server-side validation against the CHECK ranges; out-of-range → 400, §12) | `{ ok: true, historyDays, feedCap }` |
 
 - `read` validates `alertId` is a UUID and (fail-closed) that the alert exists and is visible to the viewer's tier before upserting; unknown/invisible id → 404, never a write.
@@ -198,7 +198,7 @@ Copy is derived exclusively through `lib/messages/lookup.ts` (`getRequiredDougFa
 
 ### 6.4 Badge count
 
-`unseenCount` = entries (post-scope, post-group) with `activityAt > viewer.opened_at`. Served by both `/bell/count` and `/bell/feed`. This **replaces** `fetchUnresolvedAlertCount` (`lib/admin/alertCount.ts`) as the bell's number; `AlertCountResult`'s `infra_error` arm maps to the existing degraded bell rendering (`NotifBell` degraded branch keeps its `ADMIN_ALERT_COUNT_FAILED` copy). `fetchUnresolvedAlertCount` itself is deleted with the banner if no other consumer remains (plan greps; the layout is its only current consumer besides the banner).
+`unseenCount` = entries (post-scope, post-group) with `activityAt > viewer.opened_at`, computed over the **same capped snapshot the feed renders** — `/bell/count` runs the identical pipeline (scope → group → cap) so badge and panel can never disagree. **Cap-limited by definition (accepted lossy boundary, adversarial R4 finding 2 disposition):** entries pushed beyond `bell_feed_cap` by newer activity leave both the badge and the panel together; the truncation row (§7.3) is the signal that more exist, and the feed is activity-ordered so anything dropped is by construction older than everything counted. `/bell/open` likewise acknowledges the snapshot window, not "everything ever" — §3.2's no-loss guarantee is scoped to the rendered snapshot, and a §17 test pins the boundary (a beyond-cap unseen entry is neither counted nor absorbed permanently: its next re-bump re-enters the window unread). This **replaces** `fetchUnresolvedAlertCount` (`lib/admin/alertCount.ts`) as the bell's number; `AlertCountResult`'s `infra_error` arm maps to the existing degraded bell rendering (`NotifBell` degraded branch keeps its `ADMIN_ALERT_COUNT_FAILED` copy). `fetchUnresolvedAlertCount` itself is deleted with the banner if no other consumer remains (plan greps; the layout is its only current consumer besides the banner).
 
 ## 7. UI
 
@@ -226,7 +226,7 @@ Two sections in one scrollable list (panel body `max-h-[70vh] overflow-y-auto` m
 - **Empty state**: `bg-surface-sunken` panel body, "You're all caught up." + subline noting history window.
 - **Error state**: feed fetch failed → panel body renders the new `ALERT_BELL_FEED_FAILED` catalog copy (§11) with a Retry button; badge falls back to last-known.
 - **Truncation** (`truncated: true`): terminal row "Showing the first {cap} — older items are in telemetry" (dev) / "…older items age out" (non-dev).
-- Clicking/expanding a row (rows expand to show `helpfulContext`, mirroring the banner's ErrorExplainer disclosure) POSTs `/bell/read` and clears its dot optimistically.
+- Clicking/expanding a row (rows expand to show `helpfulContext`, mirroring the banner's ErrorExplainer disclosure) POSTs `/bell/read` with the entry's rendered `activityAt` as `seenActivityAt` (§3.1) and clears its dot optimistically.
 
 ### 7.4 Dev footer (D4)
 
@@ -283,6 +283,7 @@ No other codes. `open`/`read` failures are fail-quiet client-side and log server
 | uncataloged `code` in a row | `isMessageCode` guard → generic fallback copy, no throw (§6.2) | — | — |
 | realtime token mint failure / channel error | silent degrade to pathname-refetch mode (§5.4) | — | — |
 | `open` body `seenThrough` | reject 400 (no write) | reject 400 | non-ISO or > now()+60s → 400; older than existing watermark → 200 no-op (monotonic guard) |
+| `read` body `seenActivityAt` | reject 400 (no write) | reject 400 | non-ISO or > now()+60s → 400; older than existing read mark → 200 no-op (monotonic guard) |
 | `opened_at` missing (first ever open) | everything unseen (−infinity watermark) | — | — |
 
 ## 13. Transition inventory
@@ -318,7 +319,7 @@ The panel has no fixed-dimension parent with flex/grid children that must fill i
 | `bell_history_days` | `app_settings` | `/bell/config` (dev) | feed route | resolved-window bound + history subheader copy + truncation copy |
 | `bell_feed_cap` | `app_settings` | `/bell/config` (dev) | feed route | query limits + entry truncation + truncation row |
 | `admin_bell_state.opened_at` | new table | `/bell/open` (client-supplied `seenThrough`, monotonic greatest-wins, §3.2) | feed+count routes | badge watermark |
-| `admin_alert_reads.read_at` | new table | `/bell/read` | feed route | per-row unread dot |
+| `admin_alert_reads.read_at` | new table | `/bell/read` (client-supplied `seenActivityAt`, monotonic greatest-wins, §3.1) | feed route | per-row unread dot |
 | `resolution` (2 codes) | catalog | this change (static) | `isAutoResolving`/409 door/UI suppression | converts trap codes to auto |
 
 No zombie flags: every row above has all four columns filled.
@@ -340,7 +341,7 @@ No zombie flags: every row above has all four columns filled.
 
 ## 17. Testing strategy
 
-- **Unit**: `groupBellEntries` (grouping, occurrence aggregation, truncation flag, activity ordering, state assignment); unread derivation (absence / stale `read_at` / re-bump / re-raise); audience scoping matrix (non-dev vs dev × health/inbox/info/uncataloged codes — derive expectations from catalog-derived sets, never hardcoded code lists, so catalog edits don't rot the test); badge watermark arithmetic incl. no-row viewer; **watermark race**: an alert raised between the feed snapshot (`seenThrough`) and the open POST remains unseen after open (derive the interleaving from fixture timestamps, not sleeps); monotonic no-regress when a stale `seenThrough` arrives after a newer one.
+- **Unit**: `groupBellEntries` (grouping, occurrence aggregation, truncation flag, activity ordering, state assignment); unread derivation (absence / stale `read_at` / re-bump / re-raise); **read race**: a row re-bumped between feed snapshot and click stays unread after the read POST (read stamps `seenActivityAt`, not now()); **cap boundary**: with unseen entries beyond `bell_feed_cap`, count and feed agree, open doesn't permanently absorb the dropped entry, and its re-bump re-enters unread (§6.4); audience scoping matrix (non-dev vs dev × health/inbox/info/uncataloged codes — derive expectations from catalog-derived sets, never hardcoded code lists, so catalog edits don't rot the test); badge watermark arithmetic incl. no-row viewer; **watermark race**: an alert raised between the feed snapshot (`seenThrough`) and the open POST remains unseen after open (derive the interleaving from fixture timestamps, not sleeps); monotonic no-regress when a stale `seenThrough` arrives after a newer one.
 - **Route tests**: auth guards (non-admin 403/404 contract, config non-dev), `read` visibility fail-closed (non-dev marking a health alert id → 404, no row written), bounded-read registration, no-store headers, config 400-rejection bounds agree with the SQL CHECK ranges (derive both from one shared constant), and a direct authenticated PostgREST `select` on `admin_alert_reads` / `admin_bell_state` is refused (§3.3 full lockdown). A non-default configured `bell_feed_cap` propagates into the feed response's `feedCap` and renders in the truncation row + dev footer (R2 finding 2).
 - **Anti-tautology**: assertions about what the panel shows scope their extraction to the panel subtree with sibling surfaces (AppHealthIndicator, per-show section) removed from the cloned DOM; badge-count tests assert against the feed fixture's computed unseen set, not against a count the component also renders. Concrete failure modes stated per test in the plan.
 - **Real-browser (Playwright)**: panel open/close + focus trap; unread dot fixed-slot no-layout-shift; badge slot; the §14 assertions.
