@@ -31,6 +31,7 @@ export type DriveHealthWarnReason =
   | "sync_drive_error"
   | "sync_sheet_unavailable"
   | "sync_parse_error"
+  | "sync_shrink_held"
   | "sync_unknown"
   | "stale_severe"
   | "stale_moderate";
@@ -68,6 +69,8 @@ function codeForReason(reason: DriveHealthWarnReason): MessageCode {
       return "SHEET_UNAVAILABLE";
     case "sync_parse_error":
       return "PARSE_ERROR_LAST_GOOD";
+    case "sync_shrink_held":
+      return "RESYNC_SHRINK_HELD";
     case "sync_unknown":
       return "SYNC_STATUS_UNKNOWN";
     case "stale_severe":
@@ -86,6 +89,7 @@ const RECOGNIZED_SYNC_STATUSES = [
   "drive_error",
   "sheet_unavailable",
   "parse_error",
+  "shrink_held",
 ] as const;
 
 const INFRA_ERROR: DriveConnectionHealth = { kind: "infra_error" };
@@ -203,6 +207,23 @@ export async function fetchDriveConnectionHealth(): Promise<DriveConnectionHealt
         folderId,
         syncingCount,
         parseErrorCount,
+        lastReadAt,
+      );
+    }
+    // tier 4d: shrink_held — re-sync quality gate (audit #3). Held material shrinkage retains
+    // last-good but needs admin attention (accept the reduced version or wait for Doug's fix),
+    // so it ranks with the hard-failure statuses (red regardless of age), just below parse_error.
+    const shrinkHeldCount = await countActive(supabase, (q) =>
+      q.eq("last_sync_status", "shrink_held"),
+    );
+    if (shrinkHeldCount === null) return INFRA_ERROR;
+    if (shrinkHeldCount > 0) {
+      return warn(
+        "sync_shrink_held",
+        folderName,
+        folderId,
+        syncingCount,
+        shrinkHeldCount,
         lastReadAt,
       );
     }

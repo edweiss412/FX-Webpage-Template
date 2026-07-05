@@ -201,6 +201,33 @@ describe("StaleFooter — pending_review × age branching", () => {
     assertNoRawCodes(container);
   });
 
+  test("shrink_held with age <6h falls through to age tiers (subtle, no error code — crew see valid last-good)", () => {
+    // Re-sync quality gate (audit #3): a held re-sync retains the LAST-GOOD roster. Crew see valid
+    // data, so a FRESH hold reads as a normal recent sync (subtle), NOT a red PARSE_ERROR-style error.
+    const now = new Date("2026-05-12T12:00:00Z");
+    const fiveMinAgo = new Date(now.getTime() - 5 * 60 * 1000);
+    const { container } = render(
+      <StaleFooter lastSyncedAt={fiveMinAgo} lastSyncStatus="shrink_held" now={now} />,
+    );
+    const node = container.querySelector('[data-testid="stale-footer"]');
+    expect(node?.getAttribute("data-tier")).toBe("subtle");
+    assertNoRawCodes(container);
+  });
+
+  test("shrink_held with age >6h renders SYNC_DELAYED_SEVERE (identical to pending_review — age-based escalation)", () => {
+    // Age-based escalation on last_synced_at (which updateShowShrinkHeld deliberately does NOT
+    // advance, Codex plan-R3) — a persistent hold on unchanged data ages honestly to SEVERE.
+    const now = new Date("2026-05-12T12:00:00Z");
+    const sevenHrAgo = new Date(now.getTime() - 7 * 60 * 60 * 1000);
+    const { container } = render(
+      <StaleFooter lastSyncedAt={sevenHrAgo} lastSyncStatus="shrink_held" now={now} />,
+    );
+    const node = container.querySelector('[data-testid="stale-footer"]');
+    expect(node?.getAttribute("data-tier")).toBe("red");
+    expect(node?.textContent).toContain(MESSAGE_CATALOG.SYNC_DELAYED_SEVERE.crewFacing ?? "");
+    assertNoRawCodes(container);
+  });
+
   test("status='pending' falls through to age tiers (transient initial state)", () => {
     const now = new Date("2026-05-12T12:00:00Z");
     const fiveMinAgo = new Date(now.getTime() - 5 * 60 * 1000);

@@ -7,6 +7,7 @@
  *   - `sheet_unavailable`  → SHEET_UNAVAILABLE (red, regardless of age)
  *   - `parse_error`        → PARSE_ERROR_LAST_GOOD (red, regardless of age)
  *   - `pending_review`     → age <6h: behaves like `ok`; age >6h: SYNC_DELAYED_SEVERE
+ *   - `shrink_held`        → same as `pending_review` (crew see valid last-good; audit #3)
  *   - `ok` / `pending`     → fall through to age tier ladder:
  *       <10 min:    subtle (no code)
  *       10 min-1h:  subtle + dot (no code)
@@ -61,11 +62,16 @@ function selectCodeAndTier(
 
   const hours = ageMs / 3_600_000;
 
-  if (lastSyncStatus === "pending_review" && hours > 6) {
+  // `shrink_held` (re-sync quality gate, audit #3) is treated identically to `pending_review`:
+  // crew see the valid LAST-GOOD roster, so the honest framing is age-based "sync delayed / showing
+  // last confirmed version," NOT a red error. A fresh hold falls through to subtle; a hold older
+  // than 6h escalates to SYNC_DELAYED_SEVERE. (No crew-facing RESYNC_SHRINK_HELD copy — that alert
+  // is admin-only.)
+  if ((lastSyncStatus === "pending_review" || lastSyncStatus === "shrink_held") && hours > 6) {
     return { code: "SYNC_DELAYED_SEVERE", tier: "red" };
   }
 
-  // ok / pending / pending_review<=6h — fall through to age tiers
+  // ok / pending / pending_review<=6h / shrink_held<=6h — fall through to age tiers
   const minutes = ageMs / 60_000;
   if (minutes < 10) return { code: null, tier: "subtle" };
   if (minutes < 60) return { code: null, tier: "subtle-dot" };

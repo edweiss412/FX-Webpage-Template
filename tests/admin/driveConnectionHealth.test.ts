@@ -41,6 +41,7 @@ type CountLabel =
   | "drive_error"
   | "sheet_unavailable"
   | "parse_error"
+  | "shrink_held"
   | "unknown_status" // unrecognized non-null status
   | "null_status_fresh_ts" // null status AND non-null timestamp
   | "stale_severe"
@@ -70,6 +71,7 @@ function classifyShowsCount(filters: Array<{ op: string; args: unknown[] }>): Co
   if (has("eq", (a) => a[0] === "last_sync_status" && a[1] === "sheet_unavailable"))
     return "sheet_unavailable";
   if (has("eq", (a) => a[0] === "last_sync_status" && a[1] === "parse_error")) return "parse_error";
+  if (has("eq", (a) => a[0] === "last_sync_status" && a[1] === "shrink_held")) return "shrink_held";
 
   // unknown-status count: .not(last_sync_status,'in',...) + .not(last_sync_status,'is',null)
   if (
@@ -428,6 +430,14 @@ describe("fetchDriveConnectionHealth", () => {
       reason: "sync_parse_error",
       code: "PARSE_ERROR_LAST_GOOD",
     });
+
+    // Re-sync quality gate (audit #3): shrink_held is a hard-failure sync-problem tier ranked
+    // just below parse_error — admin sees it as immediate attention regardless of age.
+    sbMock.counts = { active: 3, shrink_held: 1 };
+    expect(await fetchDriveConnectionHealth()).toMatchObject({
+      reason: "sync_shrink_held",
+      code: "RESYNC_SHRINK_HELD",
+    });
   });
 
   it("(n) each Warn reason carries the correct catalog code (exhaustive map)", async () => {
@@ -480,6 +490,14 @@ describe("fetchDriveConnectionHealth", () => {
         },
         "sync_parse_error",
         "PARSE_ERROR_LAST_GOOD",
+      ],
+      [
+        () => {
+          sbMock.watchRow = liveWatch;
+          sbMock.counts = { active: 1, shrink_held: 1 };
+        },
+        "sync_shrink_held",
+        "RESYNC_SHRINK_HELD",
       ],
       [
         () => {
