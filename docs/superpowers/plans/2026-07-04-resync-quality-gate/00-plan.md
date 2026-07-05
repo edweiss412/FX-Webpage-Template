@@ -332,12 +332,18 @@ Hold branch — insert **immediately after** `reviewItems` is computed and the M
     driveFileId: string,
     payload: { message: string },
   ): Promise<string | null> {
+    // Codex plan-R3: DO NOT advance `last_synced_at` — a hold is NOT a successful sync. Unlike
+    // updateShowParseError (whose 'parse_error' status maps to an IMMEDIATE red StaleFooter tier
+    // where the timestamp is irrelevant), 'shrink_held' uses AGE-BASED crew escalation (like
+    // pending_review). If each repeated cron re-hold on an unchanged sheet refreshed
+    // last_synced_at=now(), a persistent hold would look perpetually fresh and the crew footer
+    // would NEVER reach SYNC_DELAYED_SEVERE. Leaving last_synced_at at the last successful apply
+    // makes crew staleness reflect the TRUE age of the served last-good data.
     const rows = await this.rows<{ id: string }>(
       `
         update public.shows
            set last_sync_status = 'shrink_held',
-               last_sync_error = $2,
-               last_synced_at = now()
+               last_sync_error = $2
          where drive_file_id = $1
         returning id
       `,
@@ -600,7 +606,7 @@ Consumes: `syncStatusBucket` (`lib/admin/syncStatus.ts:20`), `driveConnectionHea
 - `tests/admin/syncStatus.test.ts`: `expect(syncStatusBucket("shrink_held")).toEqual({ bucket: "warn", label: expect.any(String) })` — asserts it is NOT `positive`/`ok` (failure mode: an unmapped status defaulting to "Unknown sync state" or, worse, silent `idle`).
 - `tests/components/shared/StaleFooter.test.tsx`: render with `lastSyncStatus="shrink_held"`:
   - fresh (age < 10 min) → tier `subtle`, NO `parse_error`-style red error code (failure mode: a held re-sync rendering as a normal recent sync, R7-1);
-  - age > 6h → `SYNC_DELAYED_SEVERE` red (identical to `pending_review`), NOT `PARSE_ERROR_LAST_GOOD`.
+  - age > 6h → `SYNC_DELAYED_SEVERE` red (identical to `pending_review`), NOT `PARSE_ERROR_LAST_GOOD`. **This escalation is age-based on `last_synced_at`, which is why Task 1's `updateShowShrinkHeld` deliberately does NOT advance `last_synced_at` (Codex plan-R3): a repeated hold must not reset the clock. The "clock preserved" half is asserted DB-side in Task 7 (6b); this component test asserts the footer escalates for a given old age.**
 - (Optional) a `driveConnectionHealth` test if the file has a unit suite: `'shrink_held'` classifies into the degraded sync-problem bucket alongside `'parse_error'`.
 
 **Step 3b — run red.**
@@ -918,6 +924,20 @@ it("hold retains last-good + raises alert + sets status", async () => {
   expect(alerts.map((a) => a.code)).toContain("RESYNC_SHRINK_HELD");
   const [show] = await sql`select last_sync_status from public.shows where id = ${showId}`;
   expect(show.last_sync_status).toBe("shrink_held");
+});
+
+// (6b) Codex plan-R3: a REPEATED hold on an unchanged sheet must NOT reset last_synced_at, or the
+// crew StaleFooter's age-based >6h escalation never fires (a persistent hold looks perpetually fresh).
+it("repeated hold does NOT advance last_synced_at (crew staleness keeps escalating)", async () => {
+  // seed: published show, last_synced_at = 7 hours ago, prior parse of 5 crew
+  const before = (await sql`select last_synced_at from public.shows where id = ${showId}`)[0].last_synced_at;
+  await runCronPipelineForShow(driveFileId, parseOf({ crew: 2 }));                       // hold #1
+  await runCronPipelineForShow(driveFileId, parseOf({ crew: 2 }));                       // hold #2 (unchanged)
+  const [show] = await sql`select last_synced_at, last_sync_status from public.shows where id = ${showId}`;
+  expect(show.last_sync_status).toBe("shrink_held");
+  expect(new Date(show.last_synced_at).getTime()).toBe(new Date(before).getTime()); // clock preserved
+  // Cross-check the consumer: StaleFooter with this 7h-old last_synced_at + 'shrink_held' → SYNC_DELAYED_SEVERE
+  // (asserted at component level in Task 3; here we prove the timestamp the footer reads stays old).
 });
 
 // (7a) Auto-resolve via the sync-problem sweep on a clean apply (Doug restored crew).
