@@ -40,7 +40,7 @@ Next.js 16, Supabase (Postgres), TypeScript (strict), vitest (unit + DB-backed v
 6. **Advisory-lock single-holder rule.** No change: the hold branch and alert raise run inside the existing per-show cron tx. `tests/auth/advisoryLockRpcDeadlock.test.ts` stays green unchanged.
 7. **Never prettier the master spec** (mangles §12.4 cells → x1 divergence). Hand-edit the §12.4 row only.
 8. **Run FULL `pnpm test` + `pnpm typecheck` before any push.** Scoped per-task gates miss shared-chokepoint regressions (phase1 / catalog / SYNC_PROBLEM_CODES are shared). Also run `pnpm format:check` (a `--no-verify` commit skips the prettier hook → CI `quality` fails).
-9. **Spec is canonical.** Anywhere this plan and the spec conflict, the spec wins — open a question, don't silently fix. (Two spec-prose refinements surfaced during citation verification are folded into Task 3 with rationale; see the "Spec nuances folded in" note there.)
+9. **Spec is canonical.** Anywhere this plan and the spec conflict, the spec wins — open a question, don't silently fix. (Two spec-prose refinements surfaced during citation verification are folded into Task 2 with rationale; see the "Spec nuances folded in" note there.)
 
 ---
 
@@ -121,11 +121,13 @@ Next.js 16, Supabase (Postgres), TypeScript (strict), vitest (unit + DB-backed v
 
 ## Tasks
 
-> Ordering guarantees the suite stays green after every task: types + the pure `phase1` decision come first (unit-testable with fakes), then the caller branch, then the catalog lockstep (so `SYNC_PROBLEM_CODES`/catalog references resolve), then consumers, then UI, then route, then DB-backed integration. Each task ends `git commit` before the next begins.
+> **Ordering is driven by type-coupling + green-per-commit (Codex plan-review R1 fix).** Every task must `pnpm typecheck` AND leave the suite green at its commit. Two hard couplings shape the order: (1) an interface method added to `Phase1Tx` requires its concrete impl in `PostgresPipelineTx` (which `implements SyncPipelineTx`) in the **same** commit or the class won't compile; (2) the `AdminAlertCode` union member **and** the `SYNC_PROBLEM_CODES` member are each grep-coupled to the caller raise site — `tests/notify/constants-producers.test.ts:27` greps `runScheduledCronSync.ts` for an `upsertAdminAlert({code:"RESYNC_SHRINK_HELD"})` producer for **every** `SYNC_PROBLEM_CODES` member, and `_metaAdminAlertCatalog` (orphan test + `WRITE_SITES` Record) requires the same producer for every union/`ADMIN_ALERTS_CODES` member. So the union, the constant, the catalog row, ALL the meta-registry rows, and the caller raise branch are **one atomic commit** — they cannot be split. The only pieces that land independently are (a) `phase1`'s own additions (which reference `"RESYNC_SHRINK_HELD"` only as a plain `code: string` value, no union dependency, and whose new `Phase1Result` variant is safely unhandled downstream because `runScheduledCronSync` uses fall-through `if`s, no `assertNever`), and (b) the downstream consumers/route/UI/DB tests that read already-landed types. Hence: **Task 1 = phase1** (self-contained), **Task 2 = the atomic admin-alert/sync-problem/caller bundle**, then consumers → action link → route → button → DB. Each task ends `git commit` before the next begins.
 
 ---
 
-### Task 1 — phase1: `shrink_held` outcome + `describeShrink` + version-bound accept gate + types + `updateShowShrinkHeld`
+### Task 1 — phase1: `shrink_held` outcome + `describeShrink` + version-bound accept gate + types + `updateShowShrinkHeld` (interface **and** impl)
+
+> **Why the `updateShowShrinkHeld` impl is in THIS task (Codex R1 fix):** `PostgresPipelineTx implements SyncPipelineTx`, and `SyncPipelineTx` extends `Phase1Tx`. Adding the method to the `Phase1Tx` **interface** without its **concrete impl** in the same commit makes the class fail to compile. So the interface (in `phase1.ts`) and the impl (in `runScheduledCronSync.ts`) land together here.
 
 **Interfaces**
 
@@ -137,8 +139,8 @@ Consumes:
 - `ParseResult.crewMembers` (array) — for the `MI-6` crew delta.
 
 Produces:
-- `Phase1Result` variant: `{ outcome:"shrink_held"; code:string; message:string; heldModifiedTime:string; shrinkItems:TriggeredReviewItem[]; showId?:string|null }`.
-- `Phase1Tx.updateShowShrinkHeld(driveFileId, {message}): Promise<string|null|void>` (mirror `updateShowParseError`).
+- `Phase1Result` variant: `{ outcome:"shrink_held"; code:string; message:string; heldModifiedTime:string; shrinkItems:TriggeredReviewItem[]; showId?:string|null }`. (`code:"RESYNC_SHRINK_HELD"` is a plain string on a `code:string` field — **no** `AdminAlertCode`-union dependency, so this task compiles before the union member exists.)
+- `Phase1Tx.updateShowShrinkHeld(driveFileId, {message}): Promise<string|null|void>` (interface) **and** its `PostgresPipelineTx` impl (mirror `updateShowParseError`).
 - `describeShrink(items, priorParseResult, nextParseResult): string`.
 
 **Step 1a — failing test** in `tests/sync/phase1.decision-rule.test.ts`.
@@ -322,27 +324,61 @@ Hold branch — insert **immediately after** `reviewItems` is computed and the M
 
 > Verify the `MI-7` `TriggeredReviewItem` field names (`section`/`prior_count`/`new_count`) against `lib/parser/types.ts` before finalizing the cast; adjust the extract if the discriminated shape differs.
 
+**Concrete `updateShowShrinkHeld` impl (same commit — interface+impl coupling).** In `lib/sync/runScheduledCronSync.ts`, add after `updateShowParseError` (`:832`), mirroring it:
+
+```ts
+  async updateShowShrinkHeld(
+    driveFileId: string,
+    payload: { message: string },
+  ): Promise<string | null> {
+    const rows = await this.rows<{ id: string }>(
+      `
+        update public.shows
+           set last_sync_status = 'shrink_held',
+               last_sync_error = $2,
+               last_synced_at = now()
+         where drive_file_id = $1
+        returning id
+      `,
+      [driveFileId, payload.message],
+    );
+    return rows[0]?.id ?? null;
+  }
+```
+
+> The `phase1` hold branch calls `tx.updateShowShrinkHeld`; in `processOneFile` the tx is this real `PostgresPipelineTx` (impl above), and unit tests supply a fake tx that stubs the method (the test asserts it was called). No consumer of the new `Phase1Result` `shrink_held` variant exists yet — `processOneFile_unlocked` uses fall-through `if`s (no `assertNever`), so an unhandled variant compiles; the caller raise branch lands in Task 2.
+
 **Step 1d — run, confirm green:** `pnpm vitest run tests/sync/phase1.decision-rule.test.ts && pnpm typecheck`.
 
-**Step 1e — commit:** `test(sync): shrink_held phase1 decision cases` + `feat(sync): hold material re-sync shrinkage (MI-6/MI-7) retaining last-good` (two commits: test then impl, per TDD — or one `feat(sync):` commit if the repo convention co-commits the failing test; follow the M1 parser precedent of separate `test(sync):`/`feat(sync):`).
+**Step 1e — commit:** `test(sync): shrink_held phase1 decision cases` + `feat(sync): hold material re-sync shrinkage (MI-6/MI-7) retaining last-good` (test-then-impl per TDD; the impl commit includes both the `phase1.ts` hold branch/types and the `runScheduledCronSync.ts` `updateShowShrinkHeld` impl so the class compiles).
 
 ---
 
-### Task 2 — runScheduledCronSync: caller branch + `ProcessOneFileResult` variant + `updateShowShrinkHeld` impl + file-loop revalidation + `syncProblemCodeForStatus` case + arg threading
+### Task 2 — Atomic admin-alert + sync-problem + caller bundle (union · `SYNC_PROBLEM_CODES` · `recoveryResolution` · `syncProblemCodeForStatus` · §12.4 catalog lockstep · caller raise branch · `ProcessOneFileResult` variant · file-loop revalidation · arg threading)
+
+> **Why this is ONE atomic task (Codex R1 fix).** The `AdminAlertCode` union member, the `SYNC_PROBLEM_CODES` member, and the `RESYNC_SHRINK_HELD` catalog row are each grep-/typecheck-coupled to the caller **raise site** (`upsertAdminAlert({code:"RESYNC_SHRINK_HELD"})` in `runScheduledCronSync.ts`): `tests/notify/constants-producers.test.ts:27` greps that producer for **every** `SYNC_PROBLEM_CODES` member; `_metaAdminAlertCatalog`'s orphan test + `ADMIN_ALERTS_WRITE_SITES` Record (typecheck) + `WRITE_SITES` grep require it for the union/`ADMIN_ALERTS_CODES` member; and the catalog's `adminSurface:"inbox"` triggers the inbox-contract test that needs the `ADMIN_ALERTS_LIFECYCLE` entry (→ `ADMIN_ALERTS_CODES` → raise site). So none of these can land before the raise site, and the raise site needs the union member to typecheck. They are indivisible for green-per-commit. Depends on Task 1 (the `Phase1Result` `shrink_held` variant + `updateShowShrinkHeld`). The `updateShowShrinkHeld` **impl** is NOT here — it shipped in Task 1 with its interface.
 
 **Interfaces**
 
 Consumes:
-- `phase1.outcome === "shrink_held"` (Task 1).
+- `phase1.outcome === "shrink_held"` + `.message`/`.heldModifiedTime`/`.showId` (Task 1).
 - `requireTxBoundUpsertAdminAlert(txDeps, "processOneFile_unlocked")` (existing, `:1969`).
 - `resolveStaleSyncProblemAlerts_unlocked(tx, showId, currentCode)` (`:190`).
 - `syncProblemCodeForStatus(status)` (`:181`).
+- `SYNC_PROBLEM_CODES` (`lib/notify/constants.ts:2`); `STATUS_TO_CODE` + SQL `CASE` (`lib/notify/detect/recoveryResolution.ts:4,58`).
+- `AdminAlertCode` union (`lib/adminAlerts/upsertAdminAlert.ts:3`); `MESSAGE_CATALOG` (`lib/messages/catalog.ts:110`).
 - `ProcessOneFileDeps` (`:301`) — extend with `acceptShrink?`/`expectedModifiedTime?`.
 
 Produces:
+- `RESYNC_SHRINK_HELD ∈ SYNC_PROBLEM_CODES`; `syncProblemCodeForStatus('shrink_held') === "RESYNC_SHRINK_HELD"`; `STATUS_TO_CODE.shrink_held` + SQL `CASE` map `'shrink_held'`.
+- `AdminAlertCode` union member; `RESYNC_SHRINK_HELD` §12.4 catalog row (`adminSurface:"inbox"`) + regens + families + meta-registry rows.
 - `ProcessOneFileResult` variant `{ outcome:"shrink_held"; code:string; showId?:string|null; detail:string; heldModifiedTime:string }`.
-- `syncProblemCodeForStatus('shrink_held') === "RESYNC_SHRINK_HELD"`.
-- `updateShowShrinkHeld` tx-method implementation.
+- The caller raise branch (`upsertAdminAlert` + `resolveStaleSyncProblemAlerts_unlocked`), file-loop revalidation, and `ProcessOneFileDeps` accept-arg threading into `runPhase1`.
+
+**Spec nuances folded in (verified against the live meta-test — Global Constraint 9):**
+1. `tests/messages/_metaAdminAlertCatalog.test.ts:692` pins `INBOX_ROUTED_CODES` as **exactly** `["PARSE_ERROR_LAST_GOOD","SHEET_UNAVAILABLE"]`; adding an inbox code REQUIRES updating that assertion to the 3-code set.
+2. `:696-714` requirement (c) asserts **every** inbox-routed code is in `INTERPOLATED_DOUG_FACING_CODES`. So `RESYNC_SHRINK_HELD`'s `dougFacing` MUST carry a `_<sheet-name>_` placeholder and be registered there; the producer (the caller raise branch in this same task) supplies `sheet_name`. The spec §5 admin copy is therefore reworded to **lead with** `_<sheet-name>_` (below) — a copy refinement, not a design change.
+3. `tests/notify/sync-problem-codes.test.ts:6` pins `SYNC_PROBLEM_CODES` as the exact 3-code set → update to the 4-code set in the same commit.
 
 **Step 2a — failing test.** Extend the caller-level test that already exercises the `hard_fail` branch (find with `rg "hard_fail" tests/sync`). Assert, with a `phase1` fake returning `shrink_held`:
 
@@ -370,6 +406,34 @@ it("syncProblemCodeForStatus('shrink_held') === RESYNC_SHRINK_HELD", () => {
   expect(syncProblemCodeForStatus("shrink_held")).toBe("RESYNC_SHRINK_HELD");
 });
 ```
+
+Also extend, in the same commit:
+- `tests/notify/sync-problem-codes.test.ts:6` exact-set → `["DRIVE_FETCH_FAILED","PARSE_ERROR_LAST_GOOD","RESYNC_SHRINK_HELD","SHEET_UNAVAILABLE"]` (sorted).
+- `tests/notify/recoveryResolution.*.test.ts` (extend or new, DB-backed via `TEST_DATABASE_URL`):
+
+```ts
+// Failure mode: without the shrink_held CASE, resolveRecoveredSyncProblemAlert would resolve a
+// RESYNC_SHRINK_HELD alert while the show is STILL held (status='shrink_held') — the `not exists`
+// guard finds no matching status → alert wrongly resolves. And without STATUS_TO_CODE, the scan
+// mis-keys the code.
+it("keeps RESYNC_SHRINK_HELD OPEN while last_sync_status='shrink_held'", async () => {
+  const res = await resolveRecoveredSyncProblemAlert({ alertId, showId, code: "RESYNC_SHRINK_HELD" }, sql);
+  expect(res).toEqual({ kind: "ok", resolved: false });
+});
+it("resolves RESYNC_SHRINK_HELD once status returns to 'ok'", async () => {
+  const res = await resolveRecoveredSyncProblemAlert({ alertId, showId, code: "RESYNC_SHRINK_HELD" }, sql);
+  expect(res).toEqual({ kind: "ok", resolved: true });
+});
+```
+
+- `tests/messages/_metaAdminAlertCatalog.test.ts` registry + inbox edits (fail until the catalog/union/raise-site land):
+  - `ADMIN_ALERTS_CODES` (`:58`) += `"RESYNC_SHRINK_HELD"`.
+  - `ADMIN_ALERTS_WRITE_SITES` (`:108`) += `RESYNC_SHRINK_HELD: { path: "lib/sync/runScheduledCronSync.ts", pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"RESYNC_SHRINK_HELD"/ }`.
+  - `ADMIN_ALERTS_LIFECYCLE` (`:313`) += `RESYNC_SHRINK_HELD: { class: "auto", resolveSites: [{ file: "lib/sync/runScheduledCronSync.ts", pattern: /resolveStaleSyncProblemAlerts_unlocked/ }] }`.
+  - `INTERPOLATED_DOUG_FACING_CODES` (`:556`) += `"RESYNC_SHRINK_HELD"`.
+  - Inbox exact-set (`:693`) → `["PARSE_ERROR_LAST_GOOD", "RESYNC_SHRINK_HELD", "SHEET_UNAVAILABLE"]`.
+  - Count comment (`:301-304`): 22 auto / 43 total.
+- x1 smoke in the same run: `pnpm gen:spec-codes && pnpm vitest run tests/cross-cutting/codes.test.ts`.
 
 **Step 2b — run, confirm red.**
 
@@ -427,27 +491,7 @@ Caller branch — insert immediately after the `hard_fail` branch (`:2807`), bef
 
 **File-loop revalidation:** locate where the file loop post-commit calls `revalidateShowFromResult` for `hard_fail`/`applied` (grep `revalidateShowFromResult` in the loop) and add `shrink_held` to the set of outcomes whose `showId` busts the crew cache tag (the hold committed `shows.last_sync_status='shrink_held'`).
 
-`updateShowShrinkHeld` impl — add after `updateShowParseError` (`:832`), mirroring it:
-
-```ts
-  async updateShowShrinkHeld(
-    driveFileId: string,
-    payload: { message: string },
-  ): Promise<string | null> {
-    const rows = await this.rows<{ id: string }>(
-      `
-        update public.shows
-           set last_sync_status = 'shrink_held',
-               last_sync_error = $2,
-               last_synced_at = now()
-         where drive_file_id = $1
-        returning id
-      `,
-      [driveFileId, payload.message],
-    );
-    return rows[0]?.id ?? null;
-  }
-```
+> `updateShowShrinkHeld` impl already shipped in **Task 1** (interface+impl coupling). Nothing to add here.
 
 **Arg threading:** in `ProcessOneFileDeps` (`:301`) add `acceptShrink?: boolean; expectedModifiedTime?: string;`, and spread them into the `runPhase1_unlocked` args object (`:2766-2774`):
 
@@ -469,34 +513,12 @@ Caller branch — insert immediately after the `hard_fail` branch (`:2807`), bef
 
 > Cron/push callers never populate `deps.acceptShrink`/`deps.expectedModifiedTime`, so the hold is always active for them. Confirm the enclosing function reads `deps` in scope at `:2766` (it is `processOneFile_unlocked`, `deps: ProcessOneFileDeps`).
 
-**Step 2d — run green:** `pnpm vitest run tests/sync/ && pnpm typecheck`.
+**Sync-problem membership + recovery (same commit — the raise site above satisfies the `constants-producers` grep):**
+- `lib/notify/constants.ts:2-6` — add `"RESYNC_SHRINK_HELD",` to `SYNC_PROBLEM_CODES`.
+- `lib/notify/detect/recoveryResolution.ts:4-8` — add `shrink_held: "RESYNC_SHRINK_HELD",` to `STATUS_TO_CODE`.
+- `:58-62` — add `when 'shrink_held' then 'RESYNC_SHRINK_HELD'` to the SQL `CASE`.
 
-**Step 2e — commit:** `feat(sync): raise RESYNC_SHRINK_HELD on a material-shrink hold + thread accept flag`.
-
----
-
-### Task 3 — `RESYNC_SHRINK_HELD` §12.4 + admin-alert lockstep (catalog, regens, families, meta-test registry, inbox contract)
-
-This task lands ALL of the §12.4/admin-alert lockstep in ONE commit (invariant 5 / AGENTS.md §12.4 rule). No production behavior change beyond the union + copy.
-
-**Spec nuances folded in (verified against the live meta-test — Global Constraint 9):**
-1. `tests/messages/_metaAdminAlertCatalog.test.ts:692` pins `INBOX_ROUTED_CODES` as **exactly** `["PARSE_ERROR_LAST_GOOD","SHEET_UNAVAILABLE"]`; adding an inbox code REQUIRES updating that assertion to the 3-code set.
-2. `:696-714` requirement (c) asserts **every** inbox-routed code is in `INTERPOLATED_DOUG_FACING_CODES`. So `RESYNC_SHRINK_HELD`'s `dougFacing` MUST carry a `_<sheet-name>_` placeholder and be registered there; the producer already supplies `sheet_name` (Task 2). The spec §5 admin copy is therefore reworded to **lead with** `_<sheet-name>_` (below) — a copy refinement, not a design change.
-
-**Step 3a — failing test.** Extend `_metaAdminAlertCatalog.test.ts` registries + inbox assertions (these fail until the catalog/union land):
-- `ADMIN_ALERTS_CODES` (`:58`) += `"RESYNC_SHRINK_HELD"`.
-- `ADMIN_ALERTS_WRITE_SITES` (`:108`) += `RESYNC_SHRINK_HELD: { path: "lib/sync/runScheduledCronSync.ts", pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"RESYNC_SHRINK_HELD"/ }`.
-- `ADMIN_ALERTS_LIFECYCLE` (`:313`) += `RESYNC_SHRINK_HELD: { class: "auto", resolveSites: [{ file: "lib/sync/runScheduledCronSync.ts", pattern: /resolveStaleSyncProblemAlerts_unlocked/ }] }`.
-- `INTERPOLATED_DOUG_FACING_CODES` (`:556`) += `"RESYNC_SHRINK_HELD"`.
-- Inbox exact-set (`:693`) → `["PARSE_ERROR_LAST_GOOD", "RESYNC_SHRINK_HELD", "SHEET_UNAVAILABLE"]`.
-- Update the count comment (`:301-304`): 22 auto / 43 total.
-
-Also add a catalog-parity smoke in the same run (x1 catches drift): `pnpm gen:spec-codes && pnpm vitest run tests/cross-cutting/codes.test.ts`.
-
-**Step 3b — run, confirm red.**
-
-**Step 3c — implementation (all in one commit):**
-
+**§12.4 admin-alert lockstep (same commit — union member + catalog + meta-registry are indivisible from the raise site):**
 1. **Master spec §12.4** (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`) — hand-edit a new row after `PARSE_ERROR_LAST_GOOD` (NEVER prettier the spec). Add the helpfulContext appendix line.
 2. `pnpm gen:spec-codes` → commit `lib/messages/__generated__/spec-codes.ts`.
 3. `lib/adminAlerts/upsertAdminAlert.ts` union (`:3`): add `| "RESYNC_SHRINK_HELD"` to `AdminAlertCode`.
@@ -521,71 +543,30 @@ Also add a catalog-parity smoke in the same run (x1 catches drift): `pnpm gen:sp
 
 5. `pnpm gen:internal-code-enums` → commit `lib/messages/__generated__/internal-code-enums.ts`.
 6. `app/help/errors/_families.ts` — add `"RESYNC"` to the `syncing-sheets` family `prefixes` (keeps "Other" empty; `codePrefix("RESYNC_SHRINK_HELD") === "RESYNC"`).
-7. Apply the `_metaAdminAlertCatalog` registry + inbox-assertion edits from Step 3a.
+7. Apply the `_metaAdminAlertCatalog` registry + inbox-assertion edits from Step 2a.
 
-**Step 3d — run green (FULL messages suite):** `pnpm vitest run tests/messages tests/cross-cutting && pnpm typecheck`.
+**Step 2d — run green (FULL messages + notify + sync):** `pnpm vitest run tests/messages tests/cross-cutting tests/notify tests/sync && pnpm typecheck` (recovery DB tests need `TEST_DATABASE_URL`).
 
-**Step 3e — commit:** `feat(messages): add RESYNC_SHRINK_HELD §12.4 code + admin-alert lockstep` (spec §12.4 + both regens + catalog + union + families + meta-test rows all staged together).
-
----
-
-### Task 4 — `SYNC_PROBLEM_CODES` membership + `recoveryResolution` (TS + SQL) + notify-recovery tests
-
-**Interfaces**
-
-Consumes: `SYNC_PROBLEM_CODES` (`lib/notify/constants.ts:2`), `STATUS_TO_CODE` + SQL `CASE` (`lib/notify/detect/recoveryResolution.ts:4,58`).
-Produces: `RESYNC_SHRINK_HELD ∈ SYNC_PROBLEM_CODES`; `STATUS_TO_CODE.shrink_held === "RESYNC_SHRINK_HELD"`; the SQL `CASE` maps `'shrink_held'`.
-
-**Step 4a — failing test.**
-- Extend the `tests/notify/*` pin that asserts `SYNC_PROBLEM_CODES` membership: `expect(SYNC_PROBLEM_CODES).toContain("RESYNC_SHRINK_HELD")`.
-- `tests/notify/recoveryResolution.*.test.ts` (extend or new, DB-backed via `TEST_DATABASE_URL`):
-
-```ts
-// Failure mode: without the shrink_held CASE, resolveRecoveredSyncProblemAlert would resolve a
-// RESYNC_SHRINK_HELD alert while the show is STILL held (status='shrink_held') — the `not exists`
-// guard returns no matching status → alert wrongly resolves. And without STATUS_TO_CODE, the scan
-// mis-keys the code.
-it("keeps RESYNC_SHRINK_HELD OPEN while last_sync_status='shrink_held'", async () => {
-  // seed show status 'shrink_held' + open RESYNC_SHRINK_HELD alert
-  const res = await resolveRecoveredSyncProblemAlert({ alertId, showId, code: "RESYNC_SHRINK_HELD" }, sql);
-  expect(res).toEqual({ kind: "ok", resolved: false });
-});
-it("resolves RESYNC_SHRINK_HELD once status returns to 'ok'", async () => {
-  // seed show status 'ok' + open RESYNC_SHRINK_HELD alert
-  const res = await resolveRecoveredSyncProblemAlert({ alertId, showId, code: "RESYNC_SHRINK_HELD" }, sql);
-  expect(res).toEqual({ kind: "ok", resolved: true });
-});
-```
-
-**Step 4b — run red.**
-
-**Step 4c — implementation.**
-- `lib/notify/constants.ts:2-6` — add `"RESYNC_SHRINK_HELD",` to `SYNC_PROBLEM_CODES`.
-- `lib/notify/detect/recoveryResolution.ts:4-8` — add `shrink_held: "RESYNC_SHRINK_HELD",` to `STATUS_TO_CODE`.
-- `:58-62` — add `when 'shrink_held' then 'RESYNC_SHRINK_HELD'` to the SQL `CASE`.
-
-**Step 4d — run green:** `pnpm vitest run tests/notify && pnpm typecheck` (recovery DB tests need `TEST_DATABASE_URL`).
-
-**Step 4e — commit:** `feat(notify): treat shrink_held as a recoverable sync-problem code`.
+**Step 2e — commit:** `feat(sync): RESYNC_SHRINK_HELD atomic bundle — admin-alert code + sync-problem membership + caller raise + §12.4 lockstep` (union + `SYNC_PROBLEM_CODES` + `recoveryResolution` + `syncProblemCodeForStatus` + catalog + both regens + families + meta-registry rows + caller branch + `ProcessOneFileResult` variant + file-loop + arg threading ALL staged together — they are grep-/typecheck-indivisible).
 
 ---
 
-### Task 5 — status consumers: `syncStatus.ts` + `driveConnectionHealth.ts` + `StaleFooter.tsx`
+### Task 3 — status consumers: `syncStatus.ts` + `driveConnectionHealth.ts` + `StaleFooter.tsx`
 
 **Interfaces**
 
 Consumes: `syncStatusBucket` (`lib/admin/syncStatus.ts:20`), `driveConnectionHealth.ts` status mapping (`:60-90,196`), `selectCodeAndTier` (`components/shared/StaleFooter.tsx:54`).
 
-**Step 5a — failing test.**
+**Step 3a — failing test.**
 - `tests/admin/syncStatus.test.ts`: `expect(syncStatusBucket("shrink_held")).toEqual({ bucket: "warn", label: expect.any(String) })` — asserts it is NOT `positive`/`ok` (failure mode: an unmapped status defaulting to "Unknown sync state" or, worse, silent `idle`).
 - `tests/components/shared/StaleFooter.test.tsx`: render with `lastSyncStatus="shrink_held"`:
   - fresh (age < 10 min) → tier `subtle`, NO `parse_error`-style red error code (failure mode: a held re-sync rendering as a normal recent sync, R7-1);
   - age > 6h → `SYNC_DELAYED_SEVERE` red (identical to `pending_review`), NOT `PARSE_ERROR_LAST_GOOD`.
 - (Optional) a `driveConnectionHealth` test if the file has a unit suite: `'shrink_held'` classifies into the degraded sync-problem bucket alongside `'parse_error'`.
 
-**Step 5b — run red.**
+**Step 3b — run red.**
 
-**Step 5c — implementation.**
+**Step 3c — implementation.**
 - `syncStatus.ts:26-27` — add before/after `parse_error`:
 
 ```ts
@@ -604,21 +585,21 @@ Consumes: `syncStatusBucket` (`lib/admin/syncStatus.ts:20`), `driveConnectionHea
 
 and the fall-through comment at `:68` updates to note `shrink_held<=6h` also falls through to age tiers (crew see valid last-good; honest framing is "sync delayed / showing last confirmed version," not "error").
 
-**Step 5d — run green:** `pnpm vitest run tests/admin tests/components/shared && pnpm typecheck`.
+**Step 3d — run green:** `pnpm vitest run tests/admin tests/components/shared && pnpm typecheck`.
 
-**Step 5e — commit:** `feat(admin): classify shrink_held as a degraded sync tier (admin + crew footer)`.
+**Step 3e — commit:** `feat(admin): classify shrink_held as a degraded sync tier (admin + crew footer)`.
 
-> **UI note (invariant 8):** `StaleFooter.tsx` is a crew-facing UI surface — include it in the milestone close-out impeccable dual-gate (Task 11 handoff).
+> **UI note (invariant 8):** `StaleFooter.tsx` is a crew-facing UI surface — include it in the milestone close-out impeccable dual-gate (Task 10 handoff).
 
 ---
 
-### Task 6 — alert action link + `#resync` anchor
+### Task 4 — alert action link + `#resync` anchor
 
 **Interfaces**
 
 Consumes: `ALERT_ACTION_CODES` (`lib/adminAlerts/alertActions.ts:13`), `ALERT_ACTIONS` (`:79`), `resolveAlertAction` (`:107`), `ReSyncButton` mount (`app/admin/show/[slug]/page.tsx:1004`).
 
-**Step 6a — failing test.**
+**Step 4a — failing test.**
 - `tests/adminAlerts/alertActions.test.ts` new row:
 
 ```ts
@@ -635,9 +616,9 @@ it("RESYNC_SHRINK_HELD → null when slug missing (fail-quiet)", () => {
 
 - `tests/app/admin/perShowPage.test.tsx`: assert an element with `id="resync"` renders around the `ReSyncButton` (the fragment target exists), AND the retirement pins (`staged-review-*` absent) still pass.
 
-**Step 6b — run red.**
+**Step 4b — run red.**
 
-**Step 6c — implementation.**
+**Step 4c — implementation.**
 - `alertActions.ts:13-23` — add `"RESYNC_SHRINK_HELD"` to `ALERT_ACTION_CODES`.
 - `:79-103` — add the builder to `ALERT_ACTIONS`:
 
@@ -666,20 +647,20 @@ it("RESYNC_SHRINK_HELD → null when slug missing (fail-quiet)", () => {
 
 > Confirm the surrounding JSX (`:998-1006`) so the wrapper doesn't break the existing footer flex layout; keep the anchor a plain block wrapper.
 
-**Step 6d — run green:** `pnpm vitest run tests/adminAlerts tests/app/admin/perShowPage.test.tsx && pnpm typecheck`.
+**Step 4d — run green:** `pnpm vitest run tests/adminAlerts tests/app/admin/perShowPage.test.tsx && pnpm typecheck`.
 
-**Step 6e — commit:** `feat(admin): RESYNC_SHRINK_HELD alert action link + #resync anchor`.
+**Step 4e — commit:** `feat(admin): RESYNC_SHRINK_HELD alert action link + #resync anchor`.
 
 ---
 
-### Task 7 — route: `acceptShrink`/`expectedModifiedTime` body params + `shrink_held` success special-case + `runManualSyncForShow` signature
+### Task 5 — route: `acceptShrink`/`expectedModifiedTime` body params + `shrink_held` success special-case + `runManualSyncForShow` signature
 
 **Interfaces**
 
 Consumes: `runManualSyncForShow(driveFileId, mode, deps)` (`lib/sync/runManualSyncForShow.ts:282`), `RunManualSyncForShowDeps` (`:47`), route POST (`app/api/admin/sync/[slug]/route.ts:68`).
 Produces: route returns HTTP 200 `{ ok:true, result:{ outcome:"shrink_held", detail, heldModifiedTime } }` for a hold; version-bound apply on accept.
 
-**Step 7a — failing test** in `tests/app/admin/sync-route.test.ts` (extend or new — grep for the existing sync-route suite first):
+**Step 5a — failing test** in `tests/app/admin/sync-route.test.ts` (extend or new — grep for the existing sync-route suite first):
 
 ```ts
 // Failure mode (R10-2): the route maps ANY result with a `code` field to {ok:false,error:code},
@@ -699,9 +680,9 @@ it("accept POST threads acceptShrink + expectedModifiedTime into runManualSyncFo
 });
 ```
 
-**Step 7b — run red.**
+**Step 5b — run red.**
 
-**Step 7c — implementation.**
+**Step 5c — implementation.**
 
 `runManualSyncForShow.ts` — `RunManualSyncForShowDeps` (`:47`) gains `acceptShrink?: boolean; expectedModifiedTime?: string;`, and `runManualSyncForShow` forwards them into `processDeps` when building the deps passed to `processOneFile`/`processOneFile_unlocked` (so they reach `ProcessOneFileDeps` from Task 2). Concretely, where `deps.processDeps` is spread (`:417`), merge:
 
@@ -759,20 +740,20 @@ it("accept POST threads acceptShrink + expectedModifiedTime into runManualSyncFo
 
 > `_request.json()` on a bodyless POST throws → the `catch` yields `{}` (generic re-sync). Confirm `runManualSyncForShow`'s `ManualSyncResult` union already includes the `shrink_held` shape (it returns `ProcessOneFileResult`, extended in Task 2) so the `.detail`/`.heldModifiedTime` reads typecheck.
 
-**Step 7d — run green:** `pnpm vitest run tests/app/admin tests/sync && pnpm typecheck`.
+**Step 5d — run green:** `pnpm vitest run tests/app/admin tests/sync && pnpm typecheck`.
 
-**Step 7e — commit:** `feat(admin): version-bound accept for held re-sync shrinkage (route + manual-sync signature)`.
+**Step 5e — commit:** `feat(admin): version-bound accept for held re-sync shrinkage (route + manual-sync signature)`.
 
 ---
 
-### Task 8 — `ReSyncButton`: confirm-required state + "Apply reduced version" re-submit
+### Task 6 — `ReSyncButton`: confirm-required state + "Apply reduced version" re-submit
 
 **Interfaces**
 
-Consumes: the route's `{ ok:true, result:{ outcome:"shrink_held", detail, heldModifiedTime } }` (Task 7).
+Consumes: the route's `{ ok:true, result:{ outcome:"shrink_held", detail, heldModifiedTime } }` (Task 5).
 Produces: a confirm prompt (counts + `data-testid="admin-resync-accept"`) that re-POSTs `{ acceptShrink:true, expectedModifiedTime }`.
 
-**Step 8a — failing test** in `tests/components/admin/ReSyncButton.test.tsx`:
+**Step 6a — failing test** in `tests/components/admin/ReSyncButton.test.tsx`:
 
 ```ts
 // Failure mode (R9): a generic one-click re-sync must NOT clobber. The hold returns shrink_held;
@@ -798,9 +779,9 @@ it("clicking Apply reduced version re-POSTs acceptShrink + expectedModifiedTime"
 });
 ```
 
-**Step 8b — run red.**
+**Step 6b — run red.**
 
-**Step 8c — implementation** in `components/admin/ReSyncButton.tsx`. Add a `heldShrink` state and a shared POST helper. Sketch (keep the existing error/success paths intact):
+**Step 6c — implementation** in `components/admin/ReSyncButton.tsx`. Add a `heldShrink` state and a shared POST helper. Sketch (keep the existing error/success paths intact):
 
 ```tsx
   const [heldShrink, setHeldShrink] = useState<{ detail: string; heldModifiedTime: string } | null>(null);
@@ -873,19 +854,19 @@ Wire the primary button to `() => post()` and render the confirm when `heldShrin
 
 > The confirm copy is human text (the `detail` from `describeShrink`), not a raw code — invariant 5 satisfied. The primary `handleClick` is replaced by `() => post()`. Confirm `AccentButton` prop compatibility (it is already imported).
 
-**Step 8d — run green:** `pnpm vitest run tests/components/admin/ReSyncButton.test.tsx && pnpm typecheck`.
+**Step 6d — run green:** `pnpm vitest run tests/components/admin/ReSyncButton.test.tsx && pnpm typecheck`.
 
-**Step 8e — commit:** `feat(admin): ReSyncButton confirm-to-apply held re-sync shrinkage`.
+**Step 6e — commit:** `feat(admin): ReSyncButton confirm-to-apply held re-sync shrinkage`.
 
 > **UI note (invariant 8):** `ReSyncButton` is the PRIMARY UI surface for the close-out impeccable dual-gate (clarity of the shrink-count copy, the confirm affordance's prominence/accessibility, no accidental one-click destructive path).
 
 ---
 
-### Task 9 — DB-backed integration tests
+### Task 7 — DB-backed integration tests
 
 **New file** `tests/sync/resyncShrinkHold.db.test.ts` (env-gated on `TEST_DATABASE_URL`; the executor runs locally). Follow the existing DB-test harness (grep `TEST_DATABASE_URL` under `tests/sync` for the seed/teardown pattern).
 
-**Step 9a — failing tests.**
+**Step 7a — failing tests.**
 
 ```ts
 // (6) Core data-loss bug: seed a published show + 5 crew; run the cron pipeline with a 2-crew parse.
@@ -930,17 +911,17 @@ it("accept with a stale expectedModifiedTime re-holds (no clobber)", async () =>
 
 > Assertions read the **data source** (`crew_members`, `admin_alerts`, `shows` rows), never a rendering container (anti-tautology rule). Crew counts are **derived** from the seed dimension (5) and the parse dimension (2), never a bare magic number stated only in the assertion.
 
-**Step 9b — run red** (`TEST_DATABASE_URL` set).
+**Step 7b — run red** (`TEST_DATABASE_URL` set).
 
-**Step 9c — implementation:** none new — this task validates Tasks 1-8 end-to-end. If a test surfaces a wiring gap (e.g. the file-loop revalidation or the `runManualSyncForShow` shrink_held passthrough), fix in the owning task's file and note it.
+**Step 7c — implementation:** none new — this task validates Tasks 1-6 end-to-end. If a test surfaces a wiring gap (e.g. the file-loop revalidation or the `runManualSyncForShow` shrink_held passthrough), fix in the owning task's file and note it.
 
-**Step 9d — run green:** `TEST_DATABASE_URL=… pnpm vitest run tests/sync/resyncShrinkHold.db.test.ts && pnpm typecheck`.
+**Step 7d — run green:** `TEST_DATABASE_URL=… pnpm vitest run tests/sync/resyncShrinkHold.db.test.ts && pnpm typecheck`.
 
-**Step 9e — commit:** `test(sync): DB-backed re-sync shrink-hold (retain, alert, status, auto-resolve, version-binding)`.
+**Step 7e — commit:** `test(sync): DB-backed re-sync shrink-hold (retain, alert, status, auto-resolve, version-binding)`.
 
 ---
 
-### Task 10 — Self-review
+### Task 8 — Self-review
 
 - Run the FULL suite: `pnpm test` (all vitest, DB tests included with `TEST_DATABASE_URL`), `pnpm typecheck`, `pnpm format:check`, and the audit gates `pnpm test:audit:x1-catalog-parity` + `pnpm test:audit:x2-no-raw-codes`.
 - Re-run the meta-test surfaces explicitly (comment/format-fragility): `pnpm vitest run tests/messages/_metaAdminAlertCatalog.test.ts tests/auth/_metaInfraContract.test.ts tests/auth/advisoryLockRpcDeadlock.test.ts tests/sync/cutover.retireLivePendingSyncs.test.ts tests/app/admin/perShowPage.test.tsx`.
@@ -950,13 +931,13 @@ it("accept with a stale expectedModifiedTime re-holds (no clobber)", async () =>
 
 ---
 
-### Task 11 — Adversarial review (cross-model) — MANDATORY
+### Task 9 — Adversarial review (cross-model) — MANDATORY
 
 After self-review completes, invoke the `adversarial-review` skill to send the whole diff to Codex (the opposing CLI). Iterate to **APPROVE** (no round budget). Preload the reviewer with the spec §9 **do-not-relitigate** list (staging-vs-alert owner decision; MI-11 co-occurrence holds nothing; no live `pending_sync` reinserted; manual-accept applies current-not-frozen; MI-7b excluded; auto-resolve via the sweep not `resolveAdminAlert`), each with its `file:line` citation. Brief must state **REVIEWER ONLY** (no fixes) and **fresh-eyes** posture, and forbid nested cross-model reviews from within the Codex session. Do NOT proceed to execution handoff without an APPROVE.
 
 ---
 
-### Task 12 — Execution handoff / merge
+### Task 10 — Execution handoff / merge
 
 - Push; verify **real CI green** (not just local) via `gh pr checks <PR#> --watch`; confirm `mergeStateStatus == CLEAN`.
 - `gh pr merge --merge` (never squash); fast-forward local `main` and verify `git rev-list --left-right --count main...origin/main` == `0  0`.
