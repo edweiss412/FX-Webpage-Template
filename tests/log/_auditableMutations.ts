@@ -165,6 +165,28 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
     fn: "POST",
     code: "IGNORED_SHEET_UNIGNORED",
   },
+  // Invariant #10 (2026-07-04): admin-tier mutation-surface observability seeding.
+  // Task 7 — app_settings toggle server actions.
+  {
+    file: "app/admin/settings/_actions/setAutoPublish.ts",
+    fn: "setAutoPublish",
+    code: "SETTING_AUTOPUBLISH_CHANGED",
+  },
+  {
+    file: "app/admin/settings/_actions/setAlertOnAutoPublish.ts",
+    fn: "setAlertOnAutoPublish",
+    code: "SETTING_ALERT_ON_AUTOPUBLISH_CHANGED",
+  },
+  {
+    file: "app/admin/settings/_actions/setAlertOnSyncProblems.ts",
+    fn: "setAlertOnSyncProblems",
+    code: "SETTING_ALERT_ON_SYNC_PROBLEMS_CHANGED",
+  },
+  {
+    file: "app/admin/settings/_actions/setDailyReviewDigest.ts",
+    fn: "setDailyReviewDigest",
+    code: "SETTING_DAILY_REVIEW_DIGEST_CHANGED",
+  },
 ];
 
 export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
@@ -202,6 +224,11 @@ export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
   "ONBOARDING_SCAN_COMPLETED",
   "AGENDA_EXTRACT_COMPLETED",
   "IGNORED_SHEET_UNIGNORED",
+  // Invariant #10 (2026-07-04) Task 7.
+  "SETTING_AUTOPUBLISH_CHANGED",
+  "SETTING_ALERT_ON_AUTOPUBLISH_CHANGED",
+  "SETTING_ALERT_ON_SYNC_PROBLEMS_CHANGED",
+  "SETTING_DAILY_REVIEW_DIGEST_CHANGED",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing

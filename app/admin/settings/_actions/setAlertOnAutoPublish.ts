@@ -19,8 +19,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireAdmin } from "@/lib/auth/requireAdmin";
+import { requireAdmin, requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 export type SetAlertOnAutoPublishResult = { ok: true } | { ok: false };
 
@@ -29,6 +30,8 @@ export async function setAlertOnAutoPublish(next: boolean): Promise<SetAlertOnAu
   // (invariant 9 — infra faults are never swallowed into a benign action result);
   // a non-admin identity throws here before any write.
   await requireAdmin();
+  // Actor identity resolved BEFORE the mutation (cached; invariant 10, §5.1).
+  const { email } = await requireAdminIdentity();
 
   const supabase = await createSupabaseServerClient();
   // not-subject-to-meta: server-action WRITE, not a sync-pipeline read boundary.
@@ -48,5 +51,11 @@ export async function setAlertOnAutoPublish(next: boolean): Promise<SetAlertOnAu
   }
 
   revalidatePath("/admin/settings");
+  await logAdminOutcome({
+    code: "SETTING_ALERT_ON_AUTOPUBLISH_CHANGED",
+    source: "admin.settings.alertOnAutoPublish",
+    actorEmail: email,
+    result: next ? "enabled" : "disabled",
+  });
   return { ok: true };
 }
