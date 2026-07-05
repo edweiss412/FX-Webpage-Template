@@ -35,42 +35,40 @@
 **Interfaces:**
 - Produces: `ScheduleDay = { entries: AgendaEntry[]; showStart: string | null; showEnd: string | null; window: { start: string; end: string } | null }`.
 
-- [ ] **Step 1: Write the failing tests** — append to `tests/parser/blocks/scheduleTimes.test.ts`:
+- [ ] **Step 1: Reconcile the existing old-contract test + add cases** — `tests/parser/blocks/scheduleTimes.test.ts`. The file already has (`:50-57`) an old-contract case using the file's `run()` helper (`run(rows: Array<[label, day, date, time]>) → { dates, scheduleDays, warnings }`, `:10`):
 
 ```ts
-describe("#307 end-only show-day time", () => {
-  const dates = { showDays: ["2025-05-13", "2025-05-14"] } as any;
-  const md = (time: string, iso = "2025-05-14") =>
-    ["| DATES |  | DAY | DATE | TIME |", "| :---: | :---: | :---: | :---: | :---: |",
-     `|  | SHOW DAY 2 | Wednesday | 5/14/25 | ${time} |`].join("\n");
+  it("end-only fragment 'GS: ... - 6:00 PM' → NO ScheduleDay + SCHEDULE_TIME_UNPARSED", () => { ... });
+```
 
-  it("captures end-only 'GS: ... - 6:00 PM' as showEnd, no warning", () => {
-    const { scheduleDays, warnings } = parseScheduleTimes(md("GS: ... - 6:00 PM"), dates);
-    expect(scheduleDays["2025-05-14"]).toEqual({
-      entries: [], showStart: null, showEnd: "6:00 PM", window: null,
-    });
+**Replace that `it(...)` block** with the new-contract test + additive cases (do NOT add a duplicate `describe` — reconcile in place so Step 7's whole-file run is green):
+
+```ts
+  it("end-only 'GS: ... - 6:00 PM' → showEnd captured, NO warning (#307)", () => {
+    const { dates, scheduleDays, warnings } = run([["SHOW DAY 1", "Wed", "5/14/25", "GS: ... - 6:00 PM"]]);
+    const iso = dates.showDays[0]!;
+    expect(scheduleDays[iso]).toEqual({ entries: [], showStart: null, showEnd: "6:00 PM", window: null });
     expect(warnings.map((w) => w.code)).not.toContain("SCHEDULE_TIME_UNPARSED");
   });
 
-  it("captures 'TBD - 5:00 PM' as showEnd", () => {
-    const { scheduleDays } = parseScheduleTimes(md("TBD - 5:00 PM"), dates);
-    expect(scheduleDays["2025-05-14"]?.showEnd).toBe("5:00 PM");
+  it("end-only 'TBD - 5:00 PM' → showEnd captured (#307)", () => {
+    const { dates, scheduleDays } = run([["SHOW DAY 1", "Wed", "5/14/25", "TBD - 5:00 PM"]]);
+    expect(scheduleDays[dates.showDays[0]!]?.showEnd).toBe("5:00 PM");
   });
 
-  it("leading-start 'GS: 8:00 AM -' stays showStart, showEnd null", () => {
-    const { scheduleDays } = parseScheduleTimes(md("GS: 8:00 AM -", "2025-05-14"), dates);
-    expect(scheduleDays["2025-05-14"]).toEqual({
-      entries: [], showStart: "8:00 AM", showEnd: null, window: null,
-    });
+  it("leading-start 'GS: 8:00 AM -' stays showStart, showEnd null (#307 regression guard)", () => {
+    const { dates, scheduleDays } = run([["SHOW DAY 1", "Wed", "5/14/25", "GS: 8:00 AM -"]]);
+    expect(scheduleDays[dates.showDays[0]!]).toEqual({ entries: [], showStart: "8:00 AM", showEnd: null, window: null });
   });
 
-  it("clock-less contentful cell still warns (not swallowed by end-only branch)", () => {
-    const { scheduleDays, warnings } = parseScheduleTimes(md("General Session soon"), dates);
-    expect(scheduleDays["2025-05-14"]).toBeUndefined();
+  it("clock-less contentful cell still warns (not swallowed by end-only branch) (#307)", () => {
+    const { dates, scheduleDays, warnings } = run([["SHOW DAY 1", "Wed", "5/14/25", "General Session soon"]]);
+    expect(scheduleDays[dates.showDays[0]!]).toBeUndefined();
     expect(warnings.map((w) => w.code)).toContain("SCHEDULE_TIME_UNPARSED");
   });
-});
 ```
+
+(The Step-5b fixture sweep also adds `showEnd: null` to any other `toEqual`-on-ScheduleDay assertion in this file.)
 
 - [ ] **Step 2: Run to verify failure**
 
@@ -402,6 +400,7 @@ harness: renders `ScheduleSection`, scopes to `[data-day="<iso>"]`, asserts `[da
 textContent — so a sibling KeyTimesStrip cannot satisfy it):
 
 ```tsx
+// @vitest-environment jsdom
 import { afterEach, describe, expect, test } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { ScheduleSection } from "@/components/crew/sections/ScheduleSection";
@@ -514,27 +513,39 @@ git commit --no-verify -m "feat(crew-page): render end-only showEnd as 'Ends {ti
 - [ ] **Step 1: Write the failing test** — new file `tests/components/admin/wizard/ScheduleDayRow.meta.test.tsx`:
 
 ```tsx
-import { render, screen } from "@testing-library/react";
+// @vitest-environment jsdom
+import { afterEach, describe, expect, test } from "vitest";
+import { cleanup, render } from "@testing-library/react";
 import { ScheduleBreakdown } from "@/components/admin/wizard/step3ReviewSections";
+import type { ScheduleDay } from "@/lib/parser/types";
 
-const day = (extra: any) => ({ entries: [], showStart: null, showEnd: null, window: null, ...extra });
+afterEach(cleanup);
 
-it("showStart-only day → start meta", () => {
-  render(<ScheduleBreakdown dfid="d" ros={{ "2025-05-13": day({ showStart: "8:00 AM" }) }} />);
-  expect(screen.getByText("8:00 AM")).toBeInTheDocument();
+const day = (extra: Partial<ScheduleDay>): ScheduleDay => ({
+  entries: [], showStart: null, showEnd: null, window: null, ...extra,
 });
-it("window day → range meta", () => {
-  render(<ScheduleBreakdown dfid="d" ros={{ "2025-06-25": day({ window: { start: "7:30 AM", end: "5:50 PM" } }) }} />);
-  expect(screen.getByText("7:30 AM–5:50 PM")).toBeInTheDocument();
-});
-it("end-only day → 'Ends' meta", () => {
-  render(<ScheduleBreakdown dfid="d" ros={{ "2025-05-14": day({ showEnd: "6:00 PM" }) }} />);
-  expect(screen.getByText("Ends 6:00 PM")).toBeInTheDocument();
-});
-it("titled day → entries, no meta line", () => {
-  render(<ScheduleBreakdown dfid="d" ros={{ "2025-05-14": day({ entries: [{ start: "8am", title: "Reg" }] }) }} />);
-  expect(screen.getByText("Reg")).toBeInTheDocument();
-  expect(screen.queryByTestId("wizard-step3-card-d-sched-meta")).toBeNull();
+// Query the meta line by its testid + read textContent (repo convention — no jest-dom).
+const metaText = (c: HTMLElement): string | null =>
+  c.querySelector('[data-testid="wizard-step3-card-d-sched-meta"]')?.textContent ?? null;
+
+describe("wizard ScheduleDayRow fragment-day meta (#307)", () => {
+  test("showStart-only day → start meta", () => {
+    const { container } = render(<ScheduleBreakdown dfid="d" ros={{ "2025-05-13": day({ showStart: "8:00 AM" }) }} />);
+    expect(metaText(container)).toBe("8:00 AM");
+  });
+  test("window day → range meta", () => {
+    const { container } = render(<ScheduleBreakdown dfid="d" ros={{ "2025-06-25": day({ window: { start: "7:30 AM", end: "5:50 PM" } }) }} />);
+    expect(metaText(container)).toBe("7:30 AM–5:50 PM");
+  });
+  test("end-only day → 'Ends' meta", () => {
+    const { container } = render(<ScheduleBreakdown dfid="d" ros={{ "2025-05-14": day({ showEnd: "6:00 PM" }) }} />);
+    expect(metaText(container)).toBe("Ends 6:00 PM");
+  });
+  test("titled day → entries, no meta line", () => {
+    const { container } = render(<ScheduleBreakdown dfid="d" ros={{ "2025-05-14": day({ entries: [{ start: "8am", title: "Reg" }] }) }} />);
+    expect(container.textContent).toContain("Reg");
+    expect(metaText(container)).toBeNull();
+  });
 });
 ```
 
@@ -852,8 +863,8 @@ git commit --no-verify -m "docs(spec): §12.4 SCHEDULE_TIME_UNPARSED no longer f
 
 - [ ] **Step 1: Reconcile parser-behavior tests** — run the candidates and fix any that assert `SCHEDULE_TIME_UNPARSED` for `GS: ... - 6:00 PM` (now a `showEnd` day, no warning) — reconcile to the new contract, do NOT blind-delete:
 
-Run: `npx vitest run tests/parser/blocks/agendaWarnings.test.ts tests/parser/blocks/scheduleBookends.test.ts tests/components/crew/primitives/RunOfShowList.test.tsx tests/crew/resolveKeyTimes.test.ts`
-For each failure: if it pinned the old end-only warning, update it to expect the day present with `showEnd` and no warning.
+Run: `npx vitest run tests/parser/blocks/scheduleTimes.test.ts tests/parser/blocks/agendaWarnings.test.ts tests/parser/blocks/scheduleBookends.test.ts tests/components/crew/primitives/RunOfShowList.test.tsx tests/crew/resolveKeyTimes.test.ts`
+For each failure: if it pinned the old end-only warning, update it to expect the day present with `showEnd` and no warning. (Task 1 already reconciled `scheduleTimes.test.ts:50-57`; it's listed here as the safety net.)
 
 - [ ] **Step 2: Full suite**
 
