@@ -235,23 +235,26 @@ git commit --no-verify -m "feat(admin): surface unresolved-sheet recovery links 
 - Test: `tests/onboarding/applyRescanDecisionUnderLock.test.ts` + existing `tests/onboarding/rescanWizardSheet*.test.ts` stay green
 
 **Interfaces:**
-- Produces: `export type RescanDecisionInput = { wizardSessionId: string; driveFileId: string; pendingFolderId: string; prepared: PreparedOnboardingFile; priorParse: ParseResult | null; priorDataGaps: DataGapsSummary | null; priorReady: boolean; priorApprovedByEmail: string | null }`
+- Produces: `export type RescanDecisionInput = { wizardSessionId: string; driveFileId: string; pendingFolderId: string; prepared: PreparedOnboardingFile }`
 - Produces: `export type RescanDecisionOutcome = { kind: 'clean_restamped' | 'clean_unchecked' | 'dirty_demoted'; changed: boolean }`
 - Produces: `export async function applyRescanDecisionUnderLock(tx: PostgresTransaction, input: RescanDecisionInput): Promise<RescanDecisionOutcome>`
+- Also moves `capturePriorState` into (or shares it from) this module so BOTH callers capture prior state under the held lock.
 
-**Contract (spec §4.2):** extract ONLY the per-row-surface portion of `rescanWizardSheet`'s post-lock body — the restage via `scanOnboardingPreparedFiles` (injecting a pass-through `withShowLock` that adopts, never acquires), read-back of fresh staged row, `computeRescanDecision`, and the clean/dirty writes to `pending_syncs` + `onboarding_scan_manifest` + `shows_pending_changes` for the single drive_file_id (the branches at `rescanWizardSheet.ts:298-451`, MINUS the checkpoint reopen `:371` and MINUS the `app_settings` re-check `:260`). It MUST NOT: acquire any advisory lock; read/write `app_settings`; write `wizard_finalize_checkpoints`. `rescanWizardSheet` keeps its own lock acquisition, `app_settings` re-check, checkpoint blocker-heal, and manifest 'applied'-restore, and calls this core for the decision/restage.
+**Contract (spec §4.2 + plan-R1-1 approval-race):** extract ONLY the per-row-surface portion of `rescanWizardSheet`'s post-lock body. **The core captures prior state ITSELF, UNDER the held `show:` lock**, via `capturePriorState(tx, wizardSessionId, driveFileId)` (`rescanWizardSheet.ts:106-182`) — it does NOT receive `priorParse`/`priorReady`/`priorApprovedByEmail` as inputs. This is load-bearing: the outer `selectFinishableCleanRows` read holds no `show:` lock, so its approval columns are stale (see `tests/onboarding/finalizeApprovalRace.test.ts`); a concurrent check/uncheck before the lock would be lost or resurrected if the caller passed the stale outer `row`. Capturing under the lock is exactly why `rescanWizardSheet` reads prior state at `:277` (not before its Drive window). The core then does: restage via `scanOnboardingPreparedFiles` (pass-through `withShowLock` that adopts, never acquires), read-back of the fresh staged row, `computeRescanDecision`, and the clean/dirty writes to `pending_syncs` + `onboarding_scan_manifest` + `shows_pending_changes` for the single drive_file_id (the branches at `rescanWizardSheet.ts:298-451`, MINUS the checkpoint reopen `:371` and MINUS the `app_settings` re-check `:260`). It MUST NOT: acquire any advisory lock; read/write `app_settings`; write `wizard_finalize_checkpoints`. `rescanWizardSheet` keeps its own lock acquisition, `app_settings` re-check, checkpoint blocker-heal, and manifest 'applied'-restore, and calls this core for the capture/decision/restage.
 
 - [ ] **Step 1: Write the failing test** (fake-tx unit asserting the core issues no `app_settings`/`checkpoints`/advisory SQL, and that clean+ready re-stamps approval while dirty demotes with `RESCAN_REVIEW_REQUIRED`). Capture all `tx.unsafe(sql)` calls into an array and assert none match `/app_settings|wizard_finalize_checkpoints|pg_advisory/i`.
 
 ```ts
 // tests/onboarding/applyRescanDecisionUnderLock.test.ts — sketch
 const sql: string[] = [];
-const tx = { unsafe: async (s: string) => { sql.push(s); return recordFor(s); } };
-// ... build a clean prepared file (no MI-11..14, no gap regression), priorReady=true
-const out = await applyRescanDecisionUnderLock(tx as any, cleanInput);
+// fake tx: capturePriorState reads a PRIOR approved+clean pending_syncs row FROM tx
+// (the core reads prior state itself under the lock — no priorParse input)
+const tx = { unsafe: async (s: string, p?: unknown[]) => { sql.push(s); return recordFor(s, p); } };
+// build a clean prepared file (no MI-11..14, no gap regression); prior row = approved+clean
+const out = await applyRescanDecisionUnderLock(tx as any, { wizardSessionId, driveFileId, pendingFolderId, prepared: cleanPrepared });
 expect(out.kind).toBe("clean_restamped");
 expect(sql.some((s) => /app_settings|wizard_finalize_checkpoints|pg_advisory/i.test(s))).toBe(false);
-// dirty input → dirty_demoted + RESCAN_REVIEW_REQUIRED written to pending_syncs
+// dirty prepared (MI-12) → dirty_demoted + RESCAN_REVIEW_REQUIRED written to pending_syncs
 ```
 
 - [ ] **Step 2: Run it — FAIL** (`pnpm vitest run tests/onboarding/applyRescanDecisionUnderLock.test.ts`).
@@ -286,7 +289,7 @@ git commit --no-verify -m "refactor(onboarding): extract lock-free applyRescanDe
 
 **Contract (spec §4.1, §4.4, §4.5):** replace the `demotePending(…, STAGED_PARSE_REVISION_RACE_DURING_FINALIZE)` at `route.ts:730-743` with:
 1. `prepareOnboardingFiles(pendingFolderId, { listFolder: async () => [metadata] })` → prepared file. On throw → `demotePending(…, 'DRIVE_FETCH_FAILED')` + return that per-row failure (matches `:711`). On `non_sheet`/absent → demote as the scan reports.
-2. `applyRescanDecisionUnderLock(rowTx, { … prepared, priorParse: asParseResult-tolerant(row.parse_result), priorReady: row.wizard_approved, … })`.
+2. `applyRescanDecisionUnderLock(rowTx, { wizardSessionId, driveFileId: row.drive_file_id, pendingFolderId, prepared })` — the core captures prior state under the held `show:` lock ITSELF (does NOT receive the outer `row`'s stale approval columns; plan-R1-1). This is why Task 3 moved `capturePriorState` into the core.
 3. If `dirty_demoted` → return the per-row failure `{ code: 'RESCAN_REVIEW_REQUIRED', re_apply_url }`.
 4. If clean (`clean_restamped`/`clean_unchecked`) → **full fresh-row rebind**: re-read the fresh `pending_syncs` row by `(wizard_session_id, drive_file_id)` and reassign the local `row`'s `staged_id`, `staged_modified_time`, and `triggered_review_items` from it (the existing `freshRead` at `:762` picks up `parse_result`, choices, approval by the fresh `staged_id`/`staged_modified_time`). Then CONTINUE (fall through) into the existing publish flow — do NOT return. Because the restage set `staged_modified_time = metadata.modifiedTime`, the `:730` guard now passes and `:762` matches the fresh identifiers. POST-COMMIT (after the outer `withTx` resolves), emit `log.info("finalize auto-healed modtime drift", { source: "api.admin.onboarding.finalize", event: "modtime_autohealed", driveFileId, wizardSessionId })` (NO `code:` field).
 
@@ -303,6 +306,8 @@ const ps = await q(`select staged_modified_time, wizard_approved, last_finalize_
 ```
 
 - [ ] **Step 2: Write the failing unit test** — fake-tx: assert that on a modtime mismatch with a clean prepared file, `processApprovedRow` does NOT return a `STAGED_PARSE_REVISION_RACE_DURING_FINALIZE` failure and reaches the publish path; with a dirty prepared file it returns `RESCAN_REVIEW_REQUIRED`.
+
+- [ ] **Step 2b: Write the failing approval-race test** (plan-R1-1) — a `.db.test.ts` (or the `afterDriveRead` seam pattern from `rescanWizardSheet`'s TOCTOU test) proving prior state is captured UNDER the `show:` lock, not from the outer select: stage an APPROVED row; between the outer select and the inline core, flip it UNCHECKED (concurrent unapprove); with a content-clean re-parse, assert the row is treated per its UNDER-LOCK state (unchecked → published Held, not resurrected as approved/Live). Mirror `tests/onboarding/finalizeApprovalRace.test.ts`.
 
 - [ ] **Step 3: Run both — FAIL** (current code demotes unconditionally at `:730`).
 
@@ -355,7 +360,7 @@ git commit --no-verify -m "refactor(onboarding): advisory-before-row cleanup loc
 
 **Contract (spec §5.1, §5.4, §5.5 step 3):** add a provably-stuck eligibility path: under the held `finalize:<session>` lock, `stuck = (finishableCleanCount(tx, sessionId) === 0) && (unresolvedManifestCount(tx, sessionId) > 0)`. When stuck, proceed regardless of `pending_wizard_session_at` age AND regardless of `finalize_active_within_last_hour`. When not stuck AND not 24h-stale → keep throwing `session_too_fresh`. After acquiring the `show:` locks (Task 5), RE-CHECK (both paths): if ANY pre-lock-unresolved drive_file_id is now resolved → abort `session_too_fresh`, purge nothing. Add local SQL count helpers mirroring `selectFinishableCleanRows` / `unresolvedManifestCount` predicates (finalize/route.ts:333, :381).
 
-- [ ] **Step 1: Write failing tests** — T7 (fresh <24h stuck session → cleaned; published show survives; unpublished interim deleted), T8 (fresh non-stuck with finishable rows → `session_too_fresh`), T9 (fresh non-stuck → still guarded), T9b (fresh stuck with `last_processed_at` 2 min old → cleaned, recency does NOT block), T10 (`.db.test.ts`: hold the demoted row's `show:` lock first (simulating Apply and, in a second case, Unapprove), invoke cleanup → no AB-BA hang; if the held op resolved the row, cleanup aborts `session_too_fresh`; else proceeds).
+- [ ] **Step 1: Write failing tests** — T7 (fresh <24h stuck session → cleaned; published show survives; unpublished interim deleted), T8 (fresh non-stuck with finishable rows → `session_too_fresh`), T9 (fresh non-stuck → still guarded), T9b (fresh stuck with `last_processed_at` 2 min old → cleaned, recency does NOT block), **T10 — the full 2×2 matrix (plan-R1-2, spec T10)**: a `.db.test.ts` parameterized over {recovery route ∈ (staged **Apply** on a `staged`+code row, staged **Unapprove** on an `applied` row)} × {cleanup path ∈ (24h-stale, provably-stuck)}. For EACH of the four cells: hold the row's `show:` lock FIRST (recovery took it before its row mutation), invoke cleanup → assert NO AB-BA hang (cleanup blocks, then proceeds after the recovery commits); assert the under-lock recheck ABORTS `session_too_fresh` (purging nothing) when the recovery RESOLVED the row, and PROCEEDS when it did not. The stale-path cells MUST exercise the recheck too, so a stuck-only recheck implementation fails.
 
 - [ ] **Step 2: Run — FAIL.**
 
