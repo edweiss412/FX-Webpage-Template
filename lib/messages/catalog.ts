@@ -152,6 +152,22 @@ export const MESSAGE_CATALOG = {
       "A recent edit to the sheet introduced something the parser couldn't read. The previously approved version is still serving crew. Open the per-show parse panel for the specific underlying error, fix the sheet, and the next sync will replace the stale data.",
     helpHref: "/help/admin/parse-warnings#PARSE_ERROR_LAST_GOOD",
   },
+  RESYNC_SHRINK_HELD: {
+    code: "RESYNC_SHRINK_HELD",
+    resolution: "auto",
+    audience: "doug",
+    adminSurface: "inbox",
+    dougFacing:
+      "_<sheet-name>_'s latest version dropped crew or a whole section, so the update was held and the last good version is still live. If the change is intentional, re-sync the show to apply it; otherwise fix the sheet.",
+    crewFacing: null,
+    followUp: "Doug → re-sync to accept, or fix sheet",
+    helpfulContext:
+      "A recent sync would have removed crew members or an entire section (rooms, hotels, contacts, or transportation) compared to the previous version. To avoid silently losing data we held the update and kept the last good version live for crew. If the reduction is intentional, re-sync the show and confirm to apply it; otherwise fix the sheet and the next sync will apply cleanly and clear this automatically.",
+    title: "Re-sync held — sheet lost data",
+    longExplanation:
+      "The latest version of this sheet would have removed crew or a whole section relative to the previous version. Rather than clobber live data, we held the update and kept the last good version serving crew. Re-sync and confirm to accept the reduction, or fix the sheet — a clean sync clears this on its own.",
+    helpHref: "/help/errors#RESYNC_SHRINK_HELD",
+  },
   STALE_WRITE_ABORTED: {
     code: "STALE_WRITE_ABORTED",
     dougFacing: null,

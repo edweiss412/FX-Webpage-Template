@@ -956,6 +956,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → re-review this sheet in setup, then publish",
     "helpfulContext": "A re-scan of this sheet surfaced a change that needs a decision (for example a crew email, name, or roster change), so setup is holding it out of the publish batch until you re-review and re-approve it from the reapply page.",
   },
+  "RESYNC_SHRINK_HELD": {
+    "crewFacing": null,
+    "dougFacing": "_<sheet-name>_'s latest version dropped crew or a whole section, so the update was held and the last good version is still live. If the change is intentional, re-sync the show to apply it; otherwise fix the sheet.",
+    "followUp": "Doug → re-sync to accept, or fix sheet",
+    "helpfulContext": "A recent sync would have removed crew members or an entire section (rooms, hotels, contacts, or transportation) compared to the previous version. To avoid silently losing data we held the update and kept the last good version live for crew. If the reduction is intentional, re-sync the show and confirm to apply it; otherwise fix the sheet and the next sync will apply cleanly and clear this automatically.",
+  },
   "ROLE_FLAGS_NOTICE": {
     "crewFacing": null,
     "dougFacing": "A crew member's role flags changed. The LEAD bit is unchanged, so the change was applied automatically — this entry is here for audit.",

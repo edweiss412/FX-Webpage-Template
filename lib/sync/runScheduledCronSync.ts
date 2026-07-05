@@ -184,6 +184,7 @@ export function syncProblemCodeForStatus(
   if (status === "drive_error") return "DRIVE_FETCH_FAILED";
   if (status === "parse_error") return "PARSE_ERROR_LAST_GOOD";
   if (status === "sheet_unavailable") return "SHEET_UNAVAILABLE";
+  if (status === "shrink_held") return "RESYNC_SHRINK_HELD";
   return null;
 }
 
@@ -357,6 +358,14 @@ export type ProcessOneFileDeps = {
   publishShowInvalidation?: (showId: string) => Promise<void>;
   createUnpublishToken?: () => string;
   now?: () => Date;
+  /**
+   * Re-sync quality gate (Task 2): the manual/version-bound accept route sets
+   * these to apply a held shrinkage; cron/push never populate them, so the hold
+   * is always active on the automatic path. `expectedModifiedTime` version-binds
+   * the accept so a newer edit landing between review and accept re-holds.
+   */
+  acceptShrink?: boolean;
+  expectedModifiedTime?: string;
 };
 
 export type RunScheduledCronSyncDeps = {
@@ -2801,6 +2810,10 @@ export async function processOneFile_unlocked(
       fileMeta,
       parseResult: pipeline.parseResult,
       binding: pipeline.binding,
+      ...(deps.acceptShrink !== undefined ? { acceptShrink: deps.acceptShrink } : {}),
+      ...(deps.expectedModifiedTime !== undefined
+        ? { expectedModifiedTime: deps.expectedModifiedTime }
+        : {}),
     },
     txDeps,
   );
@@ -2848,6 +2861,27 @@ export async function processOneFile_unlocked(
       heldModifiedTime: phase1.heldModifiedTime,
     };
     await logSync(txDeps, driveFileId, result);
+    const show = await tx.readShowForPhase1(driveFileId);
+    if (show?.showId) {
+      // §4.1 producer: show-level RESYNC_SHRINK_HELD in the locked shrink_held branch
+      // after Phase 1 has retained last-good. Mirrors the hard_fail branch above.
+      const upsertAdminAlert = requireTxBoundUpsertAdminAlert(txDeps, "processOneFile_unlocked");
+      await upsertAdminAlert({
+        showId: show.showId,
+        code: "RESYNC_SHRINK_HELD",
+        context: {
+          drive_file_id: driveFileId,
+          sheet_name: show.priorParseResult.show.title,
+          detail: phase1.message,
+          held_modified_time: phase1.heldModifiedTime,
+        },
+      });
+      await resolveStaleSyncProblemAlerts_unlocked(
+        tx,
+        show.showId,
+        syncProblemCodeForStatus("shrink_held"), // === "RESYNC_SHRINK_HELD" → keeps its own row
+      );
+    }
     return result;
   }
   if (phase1.outcome === "stage") {

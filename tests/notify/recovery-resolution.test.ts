@@ -24,6 +24,7 @@ describe("notify recovery-resolution status map", () => {
       drive_error: "DRIVE_FETCH_FAILED",
       parse_error: "PARSE_ERROR_LAST_GOOD",
       sheet_unavailable: "SHEET_UNAVAILABLE",
+      shrink_held: "RESYNC_SHRINK_HELD",
     });
     expect(Object.values(STATUS_TO_CODE)).not.toContain("SYNC_FILE_FAILED");
     expect(Object.values(STATUS_TO_CODE)).not.toContain("STAGED_PARSE_SOURCE_GONE");
@@ -48,6 +49,34 @@ describe("notify recovery-resolution status map", () => {
     expect(calls[0]?.text).toMatch(/when\s+'parse_error'\s+then\s+'PARSE_ERROR_LAST_GOOD'/i);
     expect(calls[0]?.text).toMatch(/when\s+'sheet_unavailable'\s+then\s+'SHEET_UNAVAILABLE'/i);
     expect(calls[0]?.text).not.toMatch(/last_sync_error/i);
+  });
+
+  test("shrink_held maps to RESYNC_SHRINK_HELD through the status-only CASE (held stays open while held)", async () => {
+    // Failure mode: without the shrink_held CASE arm, a RESYNC_SHRINK_HELD alert whose show is
+    // STILL held (last_sync_status='shrink_held') would have `case ... end` yield NULL, the
+    // `not exists` guard would find no matching row, and the alert would wrongly resolve.
+    const { sql, calls } = fakeSql([]);
+
+    await expect(
+      resolveRecoveredSyncProblemAlert(
+        { alertId: "alert-1", showId: "show-1", code: "RESYNC_SHRINK_HELD" },
+        sql,
+      ),
+    ).resolves.toEqual({ kind: "ok", resolved: false });
+
+    expect(calls[0]?.values).toEqual(["alert-1", "show-1", "RESYNC_SHRINK_HELD"]);
+    expect(calls[0]?.text).toMatch(/when\s+'shrink_held'\s+then\s+'RESYNC_SHRINK_HELD'/i);
+  });
+
+  test("shrink_held alert resolves once the show status no longer maps to it", async () => {
+    const { sql } = fakeSql([{ id: "alert-1" }]);
+
+    await expect(
+      resolveRecoveredSyncProblemAlert(
+        { alertId: "alert-1", showId: "show-1", code: "RESYNC_SHRINK_HELD" },
+        sql,
+      ),
+    ).resolves.toEqual({ kind: "ok", resolved: true });
   });
 
   test("conditional resolve no-ops when a concurrent/current show status still maps to that code", async () => {

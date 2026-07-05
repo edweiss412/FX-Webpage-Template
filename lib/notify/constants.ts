@@ -3,6 +3,7 @@ export const SYNC_PROBLEM_CODES = [
   "DRIVE_FETCH_FAILED",
   "SHEET_UNAVAILABLE",
   "PARSE_ERROR_LAST_GOOD",
+  "RESYNC_SHRINK_HELD",
 ] as const;
 
 export type SyncProblemCode = (typeof SYNC_PROBLEM_CODES)[number];
