@@ -162,13 +162,13 @@ Capping raw resolution events before grouping would let one flappy key consume t
 - **Active arm**: all `resolved_at is null` rows — already entry-grain, guaranteed by the partial unique index — ordered by `greatest(raised_at, last_seen_at) desc`, `limit p_cap`.
 - **History arm**: `distinct on (coalesce(show_id::text,''), code)` over rows with `resolved_at >= now() - p_history_days`, keeping the latest resolution per key (`order by key, resolved_at desc`), excluding keys present in the active arm (their history folds into the active entry's occurrence sum instead), ordered by `resolved_at desc`, `limit p_cap`.
 - **Occurrence aggregate**: one CTE computes, per key, `resolved_occurrence_sum = sum(occurrence_count)` over resolved rows inside the window; returned as a column on both arms.
-- Returns one row per entry: latest-row fields (`id, code, show_id, context, occurrence_count, raised_at, last_seen_at, resolved_at`), `slug` (join `shows`), `resolved_occurrence_sum`, `is_active`, plus `arm_hit_cap` flags so the route can set `truncated` without a second read, and `seen_through` (`now()` — the snapshot's transaction timestamp, §3.2) on every row.
+- Returns **one meta row + zero-or-more entry rows** (discriminated by `is_meta boolean`). The meta row is always present — entry columns NULL, carrying `seen_through` (`now()` — the snapshot's transaction timestamp, §3.2) and the `active_hit_cap` / `history_hit_cap` flags — so `/bell/open` stays snapshot-safe even when the feed is empty (R10 finding 1). Entry rows carry latest-row fields (`id, code, show_id, context, occurrence_count, raised_at, last_seen_at, resolved_at`), `slug` (join `shows`), `resolved_occurrence_sum`, `is_active`. `shapeBellEntries` splits on `is_meta` and treats a missing meta row as an infra error (fail-closed, never a silent default watermark).
 - Audience scoping happens **inside the RPC, before the caps**: the route derives the viewer-appropriate exclusion set from the catalog-derived TS constants (§6.3) and passes it as the third argument (`code <> all(p_excluded_codes)` applied in both arms **inside** the CTEs, before each arm's `limit p_cap` — a SQL test fails if filtering moves after either cap). The route passes exactly the §6.3 sets: non-developer → `HEALTH_CODES ∪ INBOX_ROUTED_CODES`; developer → `INBOX_ROUTED_CODES` (inbox-routed codes stay out of *every* tier's bell — the needs-attention inbox owns them). An empty array excludes nothing and has **no current caller** (reserved; nothing in this feature passes it); NULL is rejected (the function raises rather than silently skipping the filter). The §17 audience-matrix test pins that a developer feed never contains an inbox-routed code. Scoping after the cap would let a dev-only health flood starve Doug's feed; passing the set in keeps the catalog-derived TS constants the single source of truth (no SQL copy of the code lists to drift).
 
 | Unit | Grain | Contract |
 |------|-------|----------|
 | `get_bell_feed_rows` RPC | **one row per (show_id ?? '', code)** — both arms | entry-grain rows ≤ 2×p_cap, occurrence sums over the window, internal LIMITs (bounded-by-construction; §16) |
-| `shapeBellEntries()` (pure TS) | one `BellEntry` per RPC row | merges arms, computes `occurrences` (§6.2), truncates to `feedCap` entries total (active first), sets `truncated` from `arm_hit_cap` ∪ TS truncation |
+| `shapeBellEntries()` (pure TS) | one `BellEntry` per RPC row | merges arms, computes `occurrences` (§6.2), truncates to `feedCap` entries total (active first), sets `truncated` from the meta row's `active_hit_cap`/`history_hit_cap` ∪ TS truncation |
 | feed route | one response per viewer | entries + viewer-relative `unread` flags + `unseenCount` + `seenThrough` |
 
 ### 6.2 `BellEntry` shape
@@ -311,7 +311,7 @@ States: panel closed (C), panel open (O), badge n>0 (B+), badge 0 (B0), badge de
 | **Compound**: resolve clicked while a read POST is in flight | independent endpoints; row moves to resolved rendering on route 200 via refetch; read mark upsert is idempotent either way |
 | **Compound**: dev edits config while feed open | Save → refetch feed with new window; instant re-render |
 
-All N-state pairs not listed are unreachable (e.g., E and Z are exclusive terminal render states of one fetch) — declared explicitly rather than animated.
+The states span independent axes (panel, badge, row, feed), so unlisted *combinations* are reachable but visually independent; the table lists every meaningful visual transition. Pairs within one axis that are omitted are unreachable there (e.g., E and Z are exclusive terminal render states of one fetch) — declared explicitly rather than animated.
 
 ## 14. Dimensional invariants
 
