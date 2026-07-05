@@ -29,6 +29,7 @@ import { renderCatalogEmphasis } from "@/components/messages/renderEmphasis";
 import { formatRelative } from "@/lib/time/relative";
 import { nowDate } from "@/lib/time/now";
 import { HealthAlertResolveButton } from "@/components/admin/telemetry/HealthAlertResolveButton";
+import { isAutoResolving, autoResolveNote } from "@/lib/adminAlerts/audience";
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -147,7 +148,13 @@ function HealthAlertRowItem({
           </a>
         ) : null}
       </div>
-      <HealthAlertResolveButton alertId={row.id} />
+      {isAutoResolving(row.code) ? (
+        <p data-testid={`health-alert-autoclear-${row.id}`} className="text-xs text-text-subtle">
+          {autoResolveNote(row.code)}
+        </p>
+      ) : (
+        <HealthAlertResolveButton alertId={row.id} />
+      )}
     </li>
   );
 }
