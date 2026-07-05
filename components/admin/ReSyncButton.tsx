@@ -16,7 +16,7 @@
  * successful sync ends with router.refresh() so the parse panel reads
  * fresh `pending_syncs` rows on the next render.
  */
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
@@ -69,6 +69,14 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
     detail: string;
     heldModifiedTime: string;
   } | null>(null);
+
+  // A11y (WCAG 2.4.3) + accidental-accept safety: when the hold confirm appears, move focus to the
+  // SAFE "Keep current version" control — never the destructive accept — so a keyboard user reaches
+  // the region and an inadvertent Enter keeps last-good rather than clobbering it.
+  const keepCurrentRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (heldShrink && !errorCode) keepCurrentRef.current?.focus();
+  }, [heldShrink, errorCode]);
 
   // Shared POST helper. `accept` is set only by the "Apply reduced version" confirm — its presence
   // adds the version-bound acceptShrink body. NB: heldShrink is deliberately NOT cleared at the
@@ -152,21 +160,32 @@ export function ReSyncButton({ slug }: ReSyncButtonProps) {
         >
           <p className="text-sm">
             This re-sync would reduce the show: {heldShrink.detail}. The last confirmed version is
-            still live — apply the reduced version anyway?
+            still live. Apply the reduced version anyway?
           </p>
-          <AccentButton
-            onClick={() => post({ expectedModifiedTime: heldShrink.heldModifiedTime })}
-            disabled={pending}
-            data-testid="admin-resync-accept"
-            aria-busy={pending}
-            fontWeight="medium"
-            inline
-            selfStart
-            minWidthTap
-            ringOffset="bg"
-          >
-            {pending ? "Applying…" : "Apply reduced version"}
-          </AccentButton>
+          <div className="flex flex-wrap gap-2">
+            <button
+              ref={keepCurrentRef}
+              type="button"
+              onClick={() => setHeldShrink(null)}
+              disabled={pending}
+              data-testid="admin-resync-keep-current"
+              className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Keep current version
+            </button>
+            <AccentButton
+              onClick={() => post({ expectedModifiedTime: heldShrink.heldModifiedTime })}
+              disabled={pending}
+              data-testid="admin-resync-accept"
+              aria-busy={pending}
+              fontWeight="medium"
+              inline
+              minWidthTap
+              ringOffset="warning-bg"
+            >
+              {pending ? "Applying…" : "Apply reduced version"}
+            </AccentButton>
+          </div>
         </div>
       ) : null}
       {successMessage && !errorCode ? (

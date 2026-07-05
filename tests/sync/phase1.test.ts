@@ -896,6 +896,10 @@ describe("runPhase1 routing and writes", () => {
     expect(tx.operations).toContain("updateShowShrinkHeld:file-1");
     expect(tx.operations).not.toContain("upsertLivePendingSync");
     expect(tx.pendingSyncs).toEqual([]);
+    // Doug-facing message humanizes the section token (impeccable HIGH): the raw
+    // MI-7 `section` key ("hotel_reservations") must NOT leak into the alert/confirm copy.
+    expect((result as { message: string }).message).toContain("hotels 4→1");
+    expect((result as { message: string }).message).not.toContain("hotel_reservations");
   });
 
   test("onboarding scan purges pending rows from prior wizard sessions only", async () => {

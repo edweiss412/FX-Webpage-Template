@@ -146,6 +146,39 @@ describe("ReSyncButton", () => {
     });
   });
 
+  test("'Keep current version' dismisses the confirm WITHOUT a second POST (safe path; last-good retained)", async () => {
+    // Impeccable MEDIUM (accidental-accept): the destructive accept must not be the ONLY control.
+    // A safe dismiss hides the confirm and issues no request — the server already retained last-good.
+    fetchMock.mockResolvedValueOnce({
+      json: async () => ({
+        ok: true,
+        result: { outcome: "shrink_held", detail: "crew 5→2", heldModifiedTime: "T1" },
+      }),
+    } as unknown as Response);
+    const { getByTestId, findByTestId, queryByTestId } = render(<ReSyncButton slug="s" />);
+    fireEvent.click(getByTestId("admin-resync-button"));
+    const keep = await findByTestId("admin-resync-keep-current");
+    fireEvent.click(keep);
+    await waitFor(() => expect(queryByTestId("admin-resync-shrink-confirm")).toBeNull());
+    expect(queryByTestId("admin-resync-accept")).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1); // no accept POST
+  });
+
+  test("focus lands on the SAFE 'Keep current version' control when the hold appears (a11y; not the destructive accept)", async () => {
+    // Impeccable LOW (focus management): the appearing confirm must move focus so keyboard users
+    // reach it — and to the SAFE action, so an accidental Enter keeps last-good rather than clobbers.
+    fetchMock.mockResolvedValue({
+      json: async () => ({
+        ok: true,
+        result: { outcome: "shrink_held", detail: "crew 5→2", heldModifiedTime: "T1" },
+      }),
+    } as unknown as Response);
+    const { getByTestId, findByTestId } = render(<ReSyncButton slug="s" />);
+    fireEvent.click(getByTestId("admin-resync-button"));
+    const keep = await findByTestId("admin-resync-keep-current");
+    await waitFor(() => expect(document.activeElement).toBe(keep));
+  });
+
   test("success summary covers the 'stage' outcome in plain language (no pipeline jargon)", async () => {
     fetchMock.mockResolvedValue({
       json: async () => ({

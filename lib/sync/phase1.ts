@@ -173,10 +173,23 @@ function warningSummary(parseResult: ParseResult): string {
     .join("; ");
 }
 
+// Doug-facing section labels for the shrink summary. The raw MI-7 `section` keys
+// (lib/parser/types.ts:441) are internal snake_case tokens; humanize them so the alert
+// `detail` + ReSyncButton confirm never leak jargon (impeccable HIGH; PRODUCT.md voice).
+const SHRINK_SECTION_LABELS: Record<
+  Extract<TriggeredReviewItem, { invariant: "MI-7" }>["section"],
+  string
+> = {
+  hotel_reservations: "hotels",
+  rooms: "rooms",
+  contacts: "contacts",
+  transportation: "transportation",
+};
+
 // Human summary of a material-shrink hold for the admin alert `detail` + the ReSyncButton confirm.
 // MI-6's TriggeredReviewItem carries no counts (lib/parser/types.ts:436), so the crew delta is
 // computed from the parse results; MI-7 items embed { section, prior_count, new_count }. Emits e.g.
-// "crew 5→2; rooms 4→1". Never a bare code (invariant 5).
+// "crew 5→2; hotels 4→1". Never a bare code (invariant 5) nor a raw section token.
 function describeShrink(
   items: TriggeredReviewItem[],
   priorParseResult: ParseResult,
@@ -190,7 +203,7 @@ function describeShrink(
       );
     } else if (item.invariant === "MI-7") {
       const mi7 = item as Extract<TriggeredReviewItem, { invariant: "MI-7" }>;
-      parts.push(`${mi7.section} ${mi7.prior_count}→${mi7.new_count}`);
+      parts.push(`${SHRINK_SECTION_LABELS[mi7.section]} ${mi7.prior_count}→${mi7.new_count}`);
     }
   }
   return parts.join("; ");
