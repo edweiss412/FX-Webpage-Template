@@ -63,7 +63,7 @@ create table public.admin_bell_state (
 ```
 
 - Badge count = number of feed entries (post-grouping, post-audience-scope) whose `activity_at > opened_at` (no row ⇒ `-infinity`, i.e. everything counts). `activity_at = greatest(latest_row.raised_at, latest_row.last_seen_at)`. `resolved_at` deliberately does **not** feed `activity_at` — resolving is not a notification and must not re-badge.
-- Opening the panel stamps `opened_at = now()` (upsert).
+- **Snapshot-safe watermark (no lost notifications)**: the watermark never advances past what the viewer was actually shown. `/bell/feed` captures `seenThrough` server-side **before** running its queries (a `select now()` against the same client, so it cannot postdate any row the snapshot missed) and returns it. The client's subsequent `/bell/open` POST carries that `seenThrough`, and the upsert stamps it **monotonically**: `on conflict (admin_email) do update set opened_at = greatest(admin_bell_state.opened_at, excluded.opened_at)`, and the insert/update value is the client-supplied `seenThrough`, rejected with 400 if absent, non-ISO, or in the future (small skew tolerance ≤60s). An alert raised between the feed snapshot and the open POST therefore stays `activity_at > opened_at` and re-badges on the next count refresh — it can never be silently absorbed by the open gesture. (Race identified in adversarial review R2; ratified fix.)
 
 ### 3.3 Access control for both new tables
 
@@ -93,9 +93,9 @@ All four routes are admin API routes under `app/api/admin/alerts/bell/`, followi
 
 | Route | Method | Auth | Effect | Response |
 |-------|--------|------|--------|----------|
-| `/api/admin/alerts/bell/feed` | GET | admin | none (read) | `{ entries: BellEntry[], unseenCount: number, truncated: boolean, historyDays: number }` |
+| `/api/admin/alerts/bell/feed` | GET | admin | none (read) | `{ entries: BellEntry[], unseenCount: number, truncated: boolean, historyDays: number, feedCap: number, seenThrough: string }` (`historyDays`/`feedCap` echo the live config so the truncation row and dev footer render authoritative values; `seenThrough` per §3.2) |
 | `/api/admin/alerts/bell/count` | GET | admin | none (read) | `{ count: number }` (unseen-entry count only; cheap badge refresh) |
-| `/api/admin/alerts/bell/open` | POST | admin | upsert `admin_bell_state.opened_at = now()` for the viewer | `{ ok: true }` |
+| `/api/admin/alerts/bell/open` | POST `{ seenThrough }` | admin | monotonic upsert `admin_bell_state.opened_at = greatest(existing, seenThrough)` (§3.2) | `{ ok: true }` |
 | `/api/admin/alerts/bell/read` | POST `{ alertId }` | admin | upsert `admin_alert_reads` for (alertId, viewer) | `{ ok: true }` |
 | `/api/admin/alerts/bell/config` | POST `{ historyDays, feedCap }` | **developer** (`requireDeveloperIdentity`, `lib/auth/requireDeveloper.ts`) | update `app_settings` columns (server-side validation against the CHECK ranges; out-of-range → 400, §12) | `{ ok: true, historyDays, feedCap }` |
 
@@ -208,7 +208,7 @@ Copy is derived exclusively through `lib/messages/lookup.ts` (`getRequiredDougFa
 
 Clone of the `AppHealthPopover` shell (`components/admin/AppHealthPopover.tsx`): `role="dialog" aria-modal`, `useDialogFocus` trap/restore (`lib/a11y/dialogFocus.ts`), Esc + scrim close, bottom-sheet mobile → centered/near-anchored desktop (`fixed inset-0 z-50 flex items-end justify-center sm:items-center`, panel `w-full max-w-[420px] rounded-t-md sm:rounded-md bg-surface shadow-tile motion-safe:animate-[sheet-rise…]`). DESIGN.md's anti-modal rule is satisfied the same way AppHealthPopover already justifies it: a bell popover is a transient, user-summoned, single-tap-dismissed overlay (dropdown-class), not a workflow modal; on mobile it uses the ratified responsive sheet pattern.
 
-Opening the panel: fetch `/bell/feed`, render, then POST `/bell/open` (watermark stamps **after** the feed snapshot so the rendered unread dots reflect pre-open state; the numeric badge zeroes immediately client-side).
+Opening the panel: fetch `/bell/feed`, render, then POST `/bell/open` with the response's `seenThrough` (§3.2 — the watermark advances only to the snapshot the viewer actually saw, so an alert landing mid-open re-badges rather than being absorbed). The numeric badge zeroes immediately client-side; a later `/bell/count` refresh restores any post-snapshot arrivals.
 
 ### 7.3 Rows
 
@@ -280,6 +280,7 @@ No other codes. `open`/`read` failures are fail-quiet client-side and log server
 | `historyDays`/`feedCap` config input | reject 400 | reject 400 | non-integer / out of CHECK range → reject 400 with field-level message (no silent clamp; response mirrors the CHECK bounds so the dev control can render them) |
 | uncataloged `code` in a row | `isMessageCode` guard → generic fallback copy, no throw (§6.2) | — | — |
 | realtime token mint failure / channel error | silent degrade to pathname-refetch mode (§5.4) | — | — |
+| `open` body `seenThrough` | reject 400 (no write) | reject 400 | non-ISO or > now()+60s → 400; older than existing watermark → 200 no-op (monotonic guard) |
 | `opened_at` missing (first ever open) | everything unseen (−infinity watermark) | — | — |
 
 ## 13. Transition inventory
@@ -298,7 +299,7 @@ States: panel closed (C), panel open (O), badge n>0 (B+), badge 0 (B0), badge de
 | L→(feed rendered) / L→E / L→Z | instant swap (spinner → content), no crossfade |
 | E→L (retry) | instant |
 | row collapsed→expanded (helpfulContext disclosure) | height auto-expand, same treatment as the banner's ErrorExplainer disclosure today |
-| **Compound**: ping arrives while panel open | badge stays 0 (viewer is looking at it); feed refetches in place; newly-arrived rows mount unread at top, no reflow animation (declared instant) |
+| **Compound**: ping arrives while panel open | feed refetches in place; newly-arrived rows mount unread at top, no reflow animation (declared instant). Badge reflects the refetched snapshot's `unseenCount` — post-snapshot arrivals may re-badge until the viewer's next open stamps a newer `seenThrough` (§3.2 consistency) |
 | **Compound**: resolve clicked while a read POST is in flight | independent endpoints; row moves to resolved rendering on route 200 via refetch; read mark upsert is idempotent either way |
 | **Compound**: dev edits config while feed open | Save → refetch feed with new window; instant re-render |
 
@@ -314,7 +315,7 @@ The panel has no fixed-dimension parent with flex/grid children that must fill i
 |------------|---------|-----------|-----------|--------|
 | `bell_history_days` | `app_settings` | `/bell/config` (dev) | feed route | resolved-window bound + history subheader copy + truncation copy |
 | `bell_feed_cap` | `app_settings` | `/bell/config` (dev) | feed route | query limits + entry truncation + truncation row |
-| `admin_bell_state.opened_at` | new table | `/bell/open` | feed+count routes | badge watermark |
+| `admin_bell_state.opened_at` | new table | `/bell/open` (client-supplied `seenThrough`, monotonic greatest-wins, §3.2) | feed+count routes | badge watermark |
 | `admin_alert_reads.read_at` | new table | `/bell/read` | feed route | per-row unread dot |
 | `resolution` (2 codes) | catalog | this change (static) | `isAutoResolving`/409 door/UI suppression | converts trap codes to auto |
 
@@ -337,8 +338,8 @@ No zombie flags: every row above has all four columns filled.
 
 ## 17. Testing strategy
 
-- **Unit**: `groupBellEntries` (grouping, occurrence aggregation, truncation flag, activity ordering, state assignment); unread derivation (absence / stale `read_at` / re-bump / re-raise); audience scoping matrix (non-dev vs dev × health/inbox/info/uncataloged codes — derive expectations from catalog-derived sets, never hardcoded code lists, so catalog edits don't rot the test); badge watermark arithmetic incl. no-row viewer.
-- **Route tests**: auth guards (non-admin 403/404 contract, config non-dev), `read` visibility fail-closed (non-dev marking a health alert id → 404, no row written), bounded-read registration, no-store headers, config 400-rejection bounds agree with the SQL CHECK ranges (derive both from one shared constant), and a direct authenticated PostgREST `select` on `admin_alert_reads` / `admin_bell_state` is refused (§3.3 full lockdown).
+- **Unit**: `groupBellEntries` (grouping, occurrence aggregation, truncation flag, activity ordering, state assignment); unread derivation (absence / stale `read_at` / re-bump / re-raise); audience scoping matrix (non-dev vs dev × health/inbox/info/uncataloged codes — derive expectations from catalog-derived sets, never hardcoded code lists, so catalog edits don't rot the test); badge watermark arithmetic incl. no-row viewer; **watermark race**: an alert raised between the feed snapshot (`seenThrough`) and the open POST remains unseen after open (derive the interleaving from fixture timestamps, not sleeps); monotonic no-regress when a stale `seenThrough` arrives after a newer one.
+- **Route tests**: auth guards (non-admin 403/404 contract, config non-dev), `read` visibility fail-closed (non-dev marking a health alert id → 404, no row written), bounded-read registration, no-store headers, config 400-rejection bounds agree with the SQL CHECK ranges (derive both from one shared constant), and a direct authenticated PostgREST `select` on `admin_alert_reads` / `admin_bell_state` is refused (§3.3 full lockdown). A non-default configured `bell_feed_cap` propagates into the feed response's `feedCap` and renders in the truncation row + dev footer (R2 finding 2).
 - **Anti-tautology**: assertions about what the panel shows scope their extraction to the panel subtree with sibling surfaces (AppHealthIndicator, per-show section) removed from the cloned DOM; badge-count tests assert against the feed fixture's computed unseen set, not against a count the component also renders. Concrete failure modes stated per test in the plan.
 - **Real-browser (Playwright)**: panel open/close + focus trap; unread dot fixed-slot no-layout-shift; badge slot; the §14 assertions.
 - **Realtime**: unit-test the subscribe helper with a faked client (template: `tests/realtime/subscribeToShow.test.ts` DI pattern); trigger + policy covered by a pgTAP-style or SQL smoke assertion consistent with how `20260504000000` was tested (plan verifies precedent; mocked-only review is insufficient per AGENTS.md — include one live local-stack probe task exercising insert→ping→refetch).
