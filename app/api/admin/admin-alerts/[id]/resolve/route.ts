@@ -3,7 +3,7 @@ import postgres from "postgres";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { log } from "@/lib/log";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
-import { HEALTH_CODES } from "@/lib/adminAlerts/audience";
+import { HEALTH_CODES, isAutoResolving } from "@/lib/adminAlerts/audience";
 
 export type AdminAlertGlobalResolveTx = {
   queryOne<T>(sql: string, params: unknown[]): Promise<T | null>;
@@ -116,6 +116,13 @@ export async function handleAdminAlertGlobalResolve(
       // leaving resolved_at unchanged. Plain structural API code (not a §12.4 row).
       if (HEALTH_CODES.includes(row.code)) {
         return errorResponse(403, "ALERT_HEALTH_RESOLVE_FORBIDDEN");
+      }
+      // alert-resolve-truthing §4.3: an auto-resolving code self-clears — a manual
+      // resolve is a misleading no-op, so fail CLOSED with 409 before any scope
+      // branch (regardless of show_id) and issue NO update. Plain structural API
+      // code (not a §12.4 row), reusing the per-show route's existing string.
+      if (isAutoResolving(row.code)) {
+        return errorResponse(409, "ALERT_AUTO_RESOLVE_ONLY");
       }
       if (row.show_id !== null) {
         return errorResponse(400, "ALERT_REQUIRES_SHOW_SCOPED_RESOLVE", {

@@ -13,7 +13,9 @@ class FakeShowAlertTx implements AdminAlertShowResolveTx {
     id: A1,
     show_id: "show-1",
     resolved_at: null,
-    code: "WATCH_CHANNEL_ORPHANED",
+    // Manual per-show code so the resolve path is exercised: alert-resolve-truthing
+    // reclassified WATCH_CHANNEL_ORPHANED to auto, for which the route now 409s.
+    code: "LIVE_ROW_CONFLICT",
   };
   updated = false;
 

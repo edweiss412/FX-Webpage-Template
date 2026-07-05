@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server";
 import postgres from "postgres";
 import { canonicalize } from "@/lib/email/canonicalize";
-import { isInboxRouted } from "@/lib/messages/adminSurface";
 import { log } from "@/lib/log";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
-import { HEALTH_CODES } from "@/lib/adminAlerts/audience";
+import { HEALTH_CODES, isAutoResolving } from "@/lib/adminAlerts/audience";
 
 export type AdminAlertShowResolveTx = {
   queryOne<T>(sql: string, params: unknown[]): Promise<T | null>;
@@ -130,7 +129,10 @@ export async function handleAdminAlertShowResolve(
       // Inbox-routed codes auto-clear only — manual resolve is forbidden (spec §4.8).
       // Plain structural API code (not a §12.4 catalog row): the PerShowAlertResolveButton
       // is omitted for these codes, so this backstop is never surfaced to the operator.
-      if (isInboxRouted(row.code)) return errorResponse(409, "ALERT_AUTO_RESOLVE_ONLY");
+      // alert-resolve-truthing §4.3: reject ANY auto-resolving code (inbox-routed
+      // codes are a subset — SHEET_UNAVAILABLE / PARSE_ERROR_LAST_GOOD are auto), not
+      // just the inbox subset. Manual resolve of a self-clearing alert is a no-op.
+      if (isAutoResolving(row.code)) return errorResponse(409, "ALERT_AUTO_RESOLVE_ONLY");
 
       const updated = await tx.queryOne<AlertRow>(
         `

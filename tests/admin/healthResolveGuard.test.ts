@@ -108,7 +108,7 @@ describe("healthResolveGuard — three legacy surfaces reject HEALTH_CODES", () 
     expect(revalidatePath).not.toHaveBeenCalled();
   });
   it("resolveAdminAlertFormAction still resolves a doug-code row (update + revalidate)", async () => {
-    saState.guardRow = { code: "SHEET_UNAVAILABLE" }; // doug audience
+    saState.guardRow = { code: "SHOW_FIRST_PUBLISHED" }; // doug audience, manual (resolvable)
     await resolveAdminAlertFormAction(fd());
     expect(saState.updateCalled).toBe(true);
     expect(revalidatePath).toHaveBeenCalledWith("/admin", "layout");

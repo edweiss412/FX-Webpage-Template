@@ -24,9 +24,13 @@ describe("META manual-resolve lockdown for inbox-routed codes", () => {
     expect(src).toMatch(/input\.codes\.forEach\(assertNotInboxRouted\)/);
   });
 
-  test("show-scoped resolve route rejects inbox-routed with 409 ALERT_AUTO_RESOLVE_ONLY", () => {
+  test("show-scoped resolve route rejects auto-resolving codes with 409 ALERT_AUTO_RESOLVE_ONLY", () => {
     const src = read("app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts");
-    expect(src).toMatch(/isInboxRouted\(row\.code\)/);
+    // alert-resolve-truthing §4.3 BROADENED this guard from isInboxRouted to
+    // isAutoResolving — inbox-routed codes (SHEET_UNAVAILABLE / PARSE_ERROR_LAST_GOOD)
+    // are a SUBSET of auto-resolving, so the no-Dismiss lockdown is preserved AND
+    // extended to every self-clearing code. Both routes reuse the 409 string.
+    expect(src).toMatch(/isAutoResolving\(row\.code\)/);
     expect(src).toMatch(/errorResponse\(409,\s*"ALERT_AUTO_RESOLVE_ONLY"\)/);
     // It selects `code` so the guard has something to check.
     expect(src).toMatch(/select id, show_id, resolved_at, code/);
