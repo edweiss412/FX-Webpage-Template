@@ -28,6 +28,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "invalid" }, { status: 400 });
   }
 
+  // not-subject-to-meta: route with no typed-result contract. A returned
+  // `error` maps to a typed 503 below; a THROWN supabase fault (construction,
+  // network reset, auth-token expiry mid-call) is not caught here and
+  // propagates to the Next.js error boundary (500) — the two fault shapes
+  // are discriminable by status code, satisfying invariant 9 without a
+  // `{ kind: "infra_error" }` helper contract.
   const supabase = createSupabaseServiceRoleClient();
   const { error } = await supabase.rpc("bell_mark_opened", {
     p_admin_email: email,

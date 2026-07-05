@@ -19,9 +19,22 @@ const requireAdminMock = vi.fn(async (..._a: unknown[]) => undefined);
 const requireAdminIdentityMock = vi.fn(async (..._a: unknown[]) => ({
   email: "admin@example.com",
 }));
+// `class` declarations aren't auto-hoisted the way `vi.fn()` initializers are
+// (Vitest's hoist transform special-cases vi.fn() but not arbitrary class
+// exprs) — wrap in vi.hoisted() so the factory below can reference it. Real
+// export (not a bare stub): Task 10's bell routes do `err instanceof
+// AdminInfraError` on the requireAdminIdentity() catch path, so the mock must
+// provide a class, not leave the import undefined.
+const { AdminInfraErrorDouble } = vi.hoisted(() => {
+  class AdminInfraErrorDouble extends Error {
+    readonly code = "ADMIN_SESSION_LOOKUP_FAILED";
+  }
+  return { AdminInfraErrorDouble };
+});
 vi.mock("@/lib/auth/requireAdmin", () => ({
   requireAdmin: (...a: unknown[]) => requireAdminMock(...a),
   requireAdminIdentity: (...a: unknown[]) => requireAdminIdentityMock(...a),
+  AdminInfraError: AdminInfraErrorDouble,
 }));
 
 // `class` declarations aren't auto-hoisted the way `vi.fn()` initializers are

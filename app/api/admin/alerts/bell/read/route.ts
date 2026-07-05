@@ -44,6 +44,12 @@ export async function POST(request: NextRequest) {
 
   const viewerIsDeveloper = await isCurrentUserDeveloper();
   const supabase = createSupabaseServiceRoleClient();
+  // not-subject-to-meta: route with no typed-result contract. A returned
+  // `error` maps to a typed 503 below; a THROWN supabase fault (construction,
+  // network reset, auth-token expiry mid-call) is not caught here and
+  // propagates to the Next.js error boundary (500) — the two fault shapes
+  // are discriminable by status code, satisfying invariant 9 without a
+  // `{ kind: "infra_error" }` helper contract.
   const { data: rows, error: lookupError } = await supabase
     .from("admin_alerts")
     .select("id, code")
@@ -59,6 +65,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "not_found" }, { status: 404 });
   }
 
+  // not-subject-to-meta: same reasoning as the lookup above — returned
+  // `error` → typed 503; a thrown fault propagates to the Next.js error
+  // boundary (500), discriminable from the typed path.
   const { error } = await supabase.rpc("bell_mark_read", {
     p_alert_id: alertId,
     p_admin_email: email,
