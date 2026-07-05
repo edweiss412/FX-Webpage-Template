@@ -42,11 +42,21 @@ describe("wizard ScheduleBreakdown — all schedule days (bug #316 item 1)", () 
     expect(phaseOf(container, fx.travelOut as string)).toBe("Travel Out");
   });
 
-  test("every aggregate day's phase label matches aggregateDays(dates) (bound per date)", () => {
+  test("every aggregate day's label matches aggregateDays(dates).label (bound per date)", () => {
     const { container } = render(<ScheduleBreakdown dfid="d" ros={{}} dates={fx} />);
     for (const d of aggregateDays(fx)) {
-      expect(phaseOf(container, d.date)).toBe(d.phase); // expected DERIVED from the data source
+      expect(phaseOf(container, d.date)).toBe(d.label); // expected DERIVED from the data source
     }
+  });
+
+  test("show days render numbered 'Show Day N' in chronological order (bug #316 item 2)", () => {
+    const { container } = render(<ScheduleBreakdown dfid="d" ros={{}} dates={fx} />);
+    // fx.showDays = ["2025-10-20", "2025-10-21"] → numbered by ASC date.
+    expect(phaseOf(container, "2025-10-20")).toBe("Show Day 1");
+    expect(phaseOf(container, "2025-10-21")).toBe("Show Day 2");
+    // Travel bookends still read their phase (regression guard for the non-show branch).
+    expect(phaseOf(container, "2025-10-18")).toBe("Travel In");
+    expect(phaseOf(container, "2025-10-22")).toBe("Travel Out");
   });
 
   test("regression: an off-schedule ros-only day is preserved (union, not aggregate-only)", () => {
@@ -92,7 +102,8 @@ describe("wizard ScheduleBreakdown — all schedule days (bug #316 item 1)", () 
     // travelOut is exempt. Prove a SPECIFIC over-cap Show day is absent while an in-cap
     // Show day is present — not just that a note exists.
     expect(phaseOf(container, "2025-10-15")).toBeNull(); // over-cap Show day dropped
-    expect(phaseOf(container, "2025-10-01")).toBe("Show"); // in-cap Show day present
+    // Oct01 is the earliest Show day → "Show Day 1" (#316 item 2 numbering).
+    expect(phaseOf(container, "2025-10-01")).toBe("Show Day 1"); // in-cap Show day present
     expect(container.textContent).toMatch(/2 more days/); // exactly the 2 dropped Show days
   });
 

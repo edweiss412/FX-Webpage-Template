@@ -175,6 +175,22 @@ describe("<DayCard> — horizontal date badge", () => {
     expect(getByTestId("day-card").textContent).toContain("Set");
   });
 
+  test("renders `label` as the phase line when provided (Show Day N)", () => {
+    const { getByTestId, queryByText } = render(
+      <DayCard day="2026-06-14" phase="Show" today={false} label="Show Day 2" />,
+    );
+    // The phase-line text is the label, not the bare phase.
+    expect(getByTestId("day-card").textContent).toContain("Show Day 2");
+    expect(queryByText("Show", { exact: true })).toBeNull();
+    // Tone dot still keys off the structural phase.
+    expect(getByTestId("day-card-phase-dot").getAttribute("data-tone")).toBe("show");
+  });
+
+  test("falls back to `phase` text when `label` is omitted", () => {
+    const { getByTestId } = render(<DayCard day="2026-06-13" phase="Set" today={false} />);
+    expect(getByTestId("day-card").textContent).toContain("Set");
+  });
+
   test("meta={null} → no meta node", () => {
     const { getByTestId } = render(<DayCard {...base} today={false} meta={null} />);
     expect(getByTestId("day-card").querySelector('[data-slot="day-card-meta"]')).toBeNull();

@@ -44,6 +44,9 @@ type DayCardProps = {
   today: boolean;
   /** Optional secondary meta line. null → no meta node. */
   meta?: ReactNode;
+  /** Display text for the phase line. Falls back to `phase` when omitted
+   *  (e.g. "Show Day 2" — bug #316 item 2). The tone dot still keys off `phase`. */
+  label?: string;
 };
 
 /** Phase → tone. Travel In/Out share the neutral `travel` tone. */
@@ -54,7 +57,7 @@ const TONE: Record<SchedulePhase, "travel" | "set" | "show"> = {
   Show: "show",
 };
 
-export function DayCard({ day, phase, today, meta }: DayCardProps) {
+export function DayCard({ day, phase, today, meta, label }: DayCardProps) {
   const { dow, dnum } = dayBadgeParts(day);
   const tone = TONE[phase];
 
@@ -99,7 +102,7 @@ export function DayCard({ day, phase, today, meta }: DayCardProps) {
             // set tone is the mock's gold — no @theme token, so inline.
             style={tone === "set" ? { backgroundColor: "#caa53a" } : undefined}
           />
-          {phase}
+          {label ?? phase}
         </span>
         {meta != null ? (
           <span data-slot="day-card-meta" className="text-xs text-text-subtle">
