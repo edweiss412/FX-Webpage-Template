@@ -300,8 +300,10 @@ also serves non-crew render paths where "empty `tileErrors`" is not the same obs
 - Dedup/occurrence semantics unchanged: resolving then re-raising creates a fresh row (partial
   unique index `admin_alerts_one_unresolved_idx`, `20260501001000_internal_and_admin.sql:279`),
   preserving history.
-- `GITHUB_BOT_LOGIN_MISSING`, `BRANCH_PROTECTION_*`, report-family auto-resolution, and per-tile
-  keying for `TILE_SERVER_RENDER_FAILED` → BACKLOG.md entries in this PR.
+- `BRANCH_PROTECTION_*`, report-family auto-resolution, and per-tile keying for
+  `TILE_SERVER_RENDER_FAILED` → BACKLOG.md entries in this PR. (`GITHUB_BOT_LOGIN_MISSING` is no
+  longer backlog — promoted DEFER→auto by `2026-07-04-alert-resolve-truthing.md` §6; see the note
+  at the top of §3 and its superseded row above.)
 
 ## 6. Guard conditions & edge cases
 

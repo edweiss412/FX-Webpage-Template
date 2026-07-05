@@ -455,11 +455,12 @@ No zombie flag: every value is written (per code), read (predicate + doors), and
 - **Internal-helper permissiveness (regression pin)** — `resolveAdminAlert({ code: "EMAIL_NOT_CONFIGURED" })`
   still succeeds (the email-detector path). Catches the §5 asymmetry being violated.
 - **Bot-login resolver (R1 F2/F4)** — `botLoginConfigured` returns true only for a non-empty
-  `GITHUB_BOT_LOGIN`; `resolveBotLoginAlertIfConfigured` resolves iff configured and issues **no** Supabase
-  call when unset; the notify-cron dep invokes it once per run and does **not** raise the code; the submit
-  call site resolves on a configured success and — critically — does **not** false-close when the env is
-  unset even though the submit succeeded (the R1 F2 regression pin: run a mock submit success with
-  `GITHUB_BOT_LOGIN` unset and assert no resolve fires).
+  `GITHUB_BOT_LOGIN`; the notify-cron service-role resolver `resolveBotLoginAlertRow` resolves iff
+  configured and issues **no** Supabase call when unset; the notify-cron dep invokes it once per run and
+  does **not** raise the code; the submit call site `resolveBotLoginAlertFailOpen` resolves on a configured
+  success and, critically, does **not** false-close when the env is unset even though the submit succeeded
+  (the R1 F2 regression pin: run a mock submit success with `GITHUB_BOT_LOGIN` unset and assert no resolve
+  fires).
 - **Meta-test parity** — `catalog.resolution` matches registry class for all 42 codes; every `auto`
   code has ≥1 resolve site. Catches drift when a future code is added without a class.
 - **Manual-copy guard (R2 F5)** — no `resolution: "manual"` code's `dougFacing`/`helpfulContext`/
