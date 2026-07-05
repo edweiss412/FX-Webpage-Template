@@ -418,7 +418,7 @@ Demoted chip: same markup, non-numeric `"Needs another look"`, no count. Keep th
 
 **Files:**
 - Modify: `components/admin/wizard/Step3Review.tsx` (list `:1054-1078`; `Step3PublishHeader` `:519-561`; needs-attention `:1016-1044`; set-aside `:1083-1108`; empty `:995-1005`), `components/admin/OnboardingWizard.tsx` (container width `:485`)
-- Test: `tests/components/admin/wizard/Step3Review.test.tsx`, `tests/components/admin/wizard/step3PublishSettlement.test.tsx`
+- Test: `tests/components/admin/wizard/Step3Review.test.tsx`, `tests/components/admin/wizard/step3PublishSettlement.test.tsx`, **`tests/components/onboardingWizardNav.test.tsx`** (it currently pins the OLD width + grid — see Step 1b).
 
 **Interfaces:**
 - Consumes: extended `Step3PublishCounts` (Task 1).
@@ -446,11 +446,16 @@ it("needs-attention + set-aside + empty testids preserved", () => {
 });
 ```
 
-- [ ] **Step 2: Run to verify it fails** — `pnpm vitest run tests/components/admin/wizard/Step3Review.test.tsx -t "single-column|publish-count no longer"` → FAIL.
+- [ ] **Step 1b: Update the EXISTING `onboardingWizardNav.test.tsx` assertions that pin the OLD design** (they will otherwise fail this task's commit under the per-task TDD rule):
+  - `:250-265` — the container-width tests assert Step 3 has `lg:max-w-6xl`. Rewrite them to the new width: Step 3 `onboarding-wizard` className **contains `max-w-3xl`** and **does NOT contain `lg:max-w-6xl`**; Steps 1-2 keep `max-w-2xl` and no `max-w-3xl`.
+  - `:283-288` — the grid test asserts `wizard-step3-card-grid` has `grid-cols-1` / `lg:grid-cols-2` / `xl:grid-cols-3`. Rewrite it to assert the list has **`flex-col`** and **no `grid-cols`/`lg:grid-cols`/`xl:grid-cols`**.
+  - Update the file's top comment (`:15-17`) that describes the "responsive grid" + `lg:max-w-6xl` to the single-column + `max-w-3xl` reality.
+
+- [ ] **Step 2: Run to verify it fails** — `pnpm vitest run tests/components/admin/wizard/Step3Review.test.tsx tests/components/onboardingWizardNav.test.tsx` → FAIL (the new Step3Review assertions fail; the rewritten nav assertions fail against the still-old code).
 
 - [ ] **Step 3: Implement** — change the list `<ul>` classes from `grid grid-cols-1 items-start gap-4 lg:grid-cols-2 xl:grid-cols-3` to `flex flex-col gap-3`; rewrite its comment. Refactor `Step3PublishHeader` to render select-all WITHOUT the count (remove both `wizard-step3-publish-count` sites `:530,561`; keep the checkbox + label). Restyle the needs-attention plate, set-aside `SetAsideSection` cards, and empty card to the new compact idiom (keep testids + copy). In `OnboardingWizard.tsx:485`, change `step === 3 ? "max-w-2xl lg:max-w-6xl"` → `"max-w-3xl"` and update the adjacent comment.
 
-- [ ] **Step 4: Run to verify it passes** — `pnpm vitest run tests/components/admin/wizard/Step3Review.test.tsx tests/components/admin/wizard/step3PublishSettlement.test.tsx tests/components/admin/OnboardingWizard.test.tsx` → PASS.
+- [ ] **Step 4: Run to verify it passes** — `pnpm vitest run tests/components/admin/wizard/Step3Review.test.tsx tests/components/admin/wizard/step3PublishSettlement.test.tsx tests/components/admin/OnboardingWizard.test.tsx tests/components/onboardingWizardNav.test.tsx` → PASS (the rewritten width/grid assertions now match).
 
 - [ ] **Step 4b: Delete the obsolete grid-layout e2e** — `tests/e2e/step3-grid-layout.spec.ts` asserts the list "stays multi-column" / "at least two cells share a row"; the redesign is single-column, so those assertions are now false by design. `git rm tests/e2e/step3-grid-layout.spec.ts` (superseded by Task 7's DI assertions). Confirm no importers: `grep -rn "step3-grid-layout" tests` → none.
 
@@ -735,10 +740,28 @@ it("compound: card modal is reachable while a publish is ACTUALLY RUNNING (both 
   await waitFor(() => expect(q.getByRole("dialog")).toBeInTheDocument());
   fetchMock.mockRestore();
 });
-it("FinalizeButton panelPlacement='above' does not add exit/enter animation (instant swap)", () => {
+it("FinalizeButton panelPlacement='above' reorders via flex-col-reverse only (no enter/exit animation)", () => {
   const q = render(<FinalizeButton wizardSessionId={WSID} publishCount={0} uncheckedCleanCount={0} panelPlacement="above" />);
-  // no AnimatePresence wrapper introduced — the region swaps instantly
-  expect(q.getByTestId("wizard-finalize").innerHTML).not.toContain("data-framer");
+  expect(q.getByTestId("wizard-finalize").className).toContain("flex-col-reverse"); // layout-only, not an anim
+});
+// SOURCE-LEVEL no-animation guard (replaces a self-satisfying innerHTML/data-framer check —
+// AnimatePresence emits no such marker). This redesign is deliberately INSTANT: none of the
+// changed/created Step-3 shell components may import framer-motion / AnimatePresence. (The repo
+// DOES use framer elsewhere — PageTransition, RightNow, Gallery — so the guard is scoped to
+// THESE files, not repo-wide.) A regression that adds an animation library here fails this.
+it("no changed/created Step-3 shell component imports framer-motion/AnimatePresence (deliberately instant)", () => {
+  const { readFileSync } = require("node:fs");
+  const files = [
+    "components/admin/wizard/Step3SheetCard.tsx",
+    "components/admin/wizard/Step3Review.tsx",
+    "components/admin/wizard/Step3ReviewWithFinalize.tsx",
+    "components/admin/wizard/Step3PublishBar.tsx",
+    "components/admin/FinalizeButton.tsx",
+    "components/admin/OnboardingWizard.tsx",
+  ];
+  for (const f of files) {
+    expect(readFileSync(f, "utf8"), `${f} must not use framer-motion/AnimatePresence`).not.toMatch(/framer-motion|AnimatePresence/);
+  }
 });
 // T8-c: summary + bar guards — present when rows exist, absent when empty (instant, no anim wrapper).
 it("T8-c: summary + sticky bar are guarded on rows.length (instant mount/unmount)", () => {
@@ -760,8 +783,7 @@ it("T8-d: card variants (selectable / demoted / no-details) swap instantly, no a
     [stagedRow(null, { driveFileName: "x.sheet" }), (q) => q.getByTestId(`wizard-step3-card-${DFID}`)],
   ] as const) {
     const q = render(<Step3SheetCard row={row} wizardSessionId={WSID} />);
-    expect(marker(q)).toBeInTheDocument();
-    expect(q.getByTestId(`wizard-step3-card-${DFID}`).innerHTML).not.toContain("data-framer");
+    expect(marker(q)).toBeInTheDocument();  // correct variant DOM (instant; no-framer pinned by the source guard above)
     cleanup();
   }
 });
@@ -776,7 +798,7 @@ it("T8-e: the bar renders its own Back (→ ?step=2), instantly present with the
 ```
 
 - [ ] **Step 2: Prove each audit assertion BITES (negative-regression red).** Because this audit task lands AFTER the implementations, its assertions would be green-after-the-fact — meaningless unless they can fail. So, one at a time, inject the exact regression each assertion guards, confirm it goes RED, then revert (mirrors Task 7's discipline; per AGENTS.md invariant 1 the red proof is the TDD-red step for a verification gate):
-  - **No-framer (panelPlacement / variant swaps):** temporarily wrap the swapped region in a framer-motion `AnimatePresence` (or add a literal `data-framer` attr) → the `not.toContain("data-framer")` assertions FAIL → revert.
+  - **No-framer (source guard):** temporarily add `import { AnimatePresence } from "framer-motion";` to one of the six listed files → the source-level guard FAILS (matches `framer-motion`) → revert. (This proves the guard catches a REAL animation-library introduction, unlike an innerHTML `data-framer` marker check.)
   - **Compound running (T8-b):** temporarily set the card `-more` button `disabled={isPublishing}` (wire it to any running signal) → the "`more` toBeEnabled while running" assertion FAILS → revert.
   - **Guards (T8-c):** temporarily drop the `rows.length > 0` guard on the summary / bar → the "absent when empty" assertions FAIL → revert.
   - **Variant swap (T8-d):** temporarily force the selectable branch for a demoted row → the demoted marker assertion FAILS → revert.
