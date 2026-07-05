@@ -30,6 +30,7 @@ function row(overrides: Partial<HealthAlertRow> & { id: string; code: string }):
     context: null,
     occurrence_count: 1,
     raised_at: "2026-01-01T00:00:00.000Z",
+    identityText: null,
     ...overrides,
   };
 }
