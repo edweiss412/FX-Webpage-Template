@@ -478,14 +478,22 @@ it("default (no panelPlacement) keeps the current order", () => {
 });
 // Fixture note: add `noDetailsRow(dfid)` (a `staged` clean row with `parseResult: null`)
 // alongside the existing cleanRow/hardFailRow builders.
-// onboardingWizardNav.test.tsx — OnboardingWizard is an async Server Component that
-// calls Supabase (fetchStep3Data). This test MUST reuse OnboardingWizard.test.tsx's
-// existing Supabase/settings mocks (vi.mock of the admin client + fetchStep3Data) and
-// an async callback that awaits the component — do NOT hand-roll a new Supabase setup.
-it("step 3 renders no top Back link (Back is in the bar)", async () => {
-  render(await OnboardingWizard({ settings: settingsStep3(), searchParams: { step: "3" }, hasReviewableScan: true }));
-  // top chrome Back absent on step 3
-  expect(screen.queryByTestId("wizard-back-link")).toBeNull();
+// HARNESS: `fetchStep3Data` is a module-lexical function in OnboardingWizard.tsx and
+// CANNOT be spied. onboardingWizardNav.test.tsx already solves this: render OnboardingWizard
+// with `settings.pending_wizard_session_id === null`, so step 3 hits the NO-SESSION empty
+// state (`wizard-step3-no-session`) instead of Step3Container → ZERO Supabase calls, while
+// the nav chrome (stepper + top Back) still renders. Reuse that file's exported
+// `FRESH_SETTINGS` (null session). This test asserts ONLY the top-Back absence (the *bar*
+// Back needs a live session and is asserted separately via the Step3ReviewWithFinalize
+// render above, which doesn't touch OnboardingWizard).
+it("step 3 renders no top Back link (top Back removed; bar Back covered separately)", async () => {
+  render(await OnboardingWizard({ settings: FRESH_SETTINGS, searchParams: { step: "3" } }));
+  expect(screen.queryByTestId("wizard-back-link")).toBeNull();              // top Back gone on step 3
+  expect(screen.getByTestId("wizard-step3-no-session")).toBeInTheDocument(); // no-session state (no Supabase)
+});
+it("step 2 STILL renders the top Back link (only step 3 loses it)", async () => {
+  render(await OnboardingWizard({ settings: FRESH_SETTINGS, searchParams: { step: "2" } }));
+  expect(screen.getByTestId("wizard-back-link").getAttribute("href")).toBe("/admin?step=1");
 });
 ```
 
@@ -714,11 +722,17 @@ it("T8-d: card variants (selectable / demoted / no-details) swap instantly, no a
     cleanup();
   }
 });
-// T8-e: Back relocation — no top Back on step 3, a bar Back instead (instant guard).
-it("T8-e: step 3 has the bar Back, not the top Back", async () => {
-  const q = render(await OnboardingWizard({ settings: settingsStep3(), searchParams: { step: "3" }, hasReviewableScan: true }));
-  expect(q.queryByTestId("wizard-back-link")).toBeNull();      // top Back gone on step 3
-  expect(q.getByTestId("wizard-step3-back")).toBeInTheDocument(); // bar Back present
+// T8-e: Back relocation — asserted across TWO renders (the top chrome and the bar
+// have different data needs; see the Task-6 HARNESS note). Top-Back absence uses the
+// null-session OnboardingWizard render (no Supabase); bar-Back presence uses the
+// Step3ReviewWithFinalize render (which owns the bar).
+it("T8-e: step 3 drops the top Back (no-session render)", async () => {
+  const q = render(await OnboardingWizard({ settings: FRESH_SETTINGS, searchParams: { step: "3" } }));
+  expect(q.queryByTestId("wizard-back-link")).toBeNull();
+});
+it("T8-e: the bar renders its own Back (→ ?step=2)", () => {
+  const q = render(<Step3ReviewWithFinalize wizardSessionId={WSID} rows={[cleanRow("a","staged")]} finishable initialPublishCount={0} initialUncheckedCleanCount={1} />);
+  expect(q.getByTestId("wizard-step3-back").getAttribute("href")).toBe("/admin?step=2");
 });
 ```
 
