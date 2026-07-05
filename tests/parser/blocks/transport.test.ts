@@ -640,3 +640,25 @@ describe("parseTransportation — v4 passenger exact-always-wins (PR-passengers)
     expect(CHA(agg).length).toBe(0);
   });
 });
+
+describe("#307 no-header transport never harvests names", () => {
+  const crew = [{ name: "Eric Carroll" }, { name: "Eric Weiss" }, { name: "Connor Hester" }] as never;
+  it("scratch names beside $ costs → assigned_names []", () => {
+    const md = [
+      "| TRANSPORTATION | NAME | PHONE |  |  |",
+      "| :---: | :---: | :---: | :---: | :---: |",
+      "| Pick Up Warehouse | 5/10 @ TBD |  | Eric Carroll | $938.80 |",
+      "| Pick Up Venue | 5/14 @ 6:00 PM |  | Connor Hester | $1,143.29 |",
+    ].join("\n");
+    const t = parseTransportation(md, "v2", crew);
+    for (const leg of t!.schedule) expect(leg.assigned_names).toEqual([]);
+  });
+  it("plain no-header row with a real roster name → [] (no-header passengers unsupported, R10)", () => {
+    const md = [
+      "| TRANSPORTATION | NAME | PHONE |  |",
+      "| :---: | :---: | :---: | :---: |",
+      "| Pick Up Venue | 5/14 @ 6:00 PM |  | Connor Hester |",
+    ].join("\n");
+    expect(parseTransportation(md, "v2", crew)!.schedule[0]!.assigned_names).toEqual([]);
+  });
+});

@@ -590,9 +590,10 @@ function detectPassengersColIdx(tableLines: string[], agg?: ParseAggregator): nu
 
 /**
  * Extract assigned_names from a row's cells.
- * Strategy:
- * 1. If passengersColIdx >= 0, use that cell.
- * 2. Otherwise, scan all cells for comma-/&-separated name-shaped tokens.
+ * Strategy: use the explicit PASSENGERS column exclusively. When no PASSENGERS
+ * column is declared, there are no passengers — the former all-column
+ * crew-context scan harvested billing/scratch names from unrelated columns
+ * (#307 D41:D43, e.g. names beside `$` costs), so it was removed.
  * Always returns string[] (never null/undefined).
  */
 function extractAssignedNames(
@@ -601,31 +602,15 @@ function extractAssignedNames(
   crewMembers?: CrewMemberRow[],
 ): string[] {
   if (passengersColIdx >= 0) {
-    // passengers column exists — use it exclusively (empty = no names)
+    // Explicit PASSENGERS column — use it exclusively (empty = no names).
     const raw = clean(cells[passengersColIdx] ?? "");
     if (!raw || raw === "-" || raw === "\\-") return [];
     return splitNames(raw, crewMembers);
   }
-
-  // Scan all cells for name-shaped content.
-  // Only use crew-context-validated matches (without context, stage labels like
-  // "Pick Up Warehouse" would false-positive as names).
-  if (crewMembers && crewMembers.length > 0) {
-    // Skip col0 — it is the stage label ("Pick Up Warehouse" etc.), which
-    // isNameLike would accept as a multi-word Title-Case "name" and return
-    // before reaching the real assigned-crew column.
-    for (let ci = 1; ci < cells.length; ci++) {
-      const raw = clean(cells[ci] ?? "");
-      if (!raw) continue;
-      // Skip cells that look like dates, times, or single-word tokens
-      if (/^\d{1,2}\/\d{1,2}/.test(raw)) continue;
-      if (/^\d{1,2}:\d{2}/.test(raw)) continue;
-      if (/^(AM|PM|TBD|N\/A|SENT)$/i.test(raw)) continue;
-      const names = splitNames(raw, crewMembers);
-      if (names.length > 0) return names;
-    }
-  }
-
+  // No declared PASSENGERS column → no passengers. The v2 format has no passenger
+  // column, and no supported no-header passenger assignment exists in the corpus
+  // (spec R10). Do NOT scan other columns — that is what produced the #307 false
+  // positives (billing/scratch names beside the `$` costs).
   return [];
 }
 

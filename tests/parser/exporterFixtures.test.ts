@@ -658,19 +658,20 @@ describe("exporter fidelity — AR R14: GS Digital Signage scoped to the GS bloc
   });
 });
 
-describe("exporter fidelity — B1 transport assigned_names ignores the col0 stage label", () => {
-  it("redefining schedule maps real crew (col3), not the stage label (col0)", () => {
+describe("exporter fidelity — B1 transport assigned_names: no PASSENGERS header → []", () => {
+  it("no PASSENGERS header → assigned_names [] for every leg (#307)", () => {
     // parseSheet threads crew into transport; redefining rows are
-    // `| Pick Up Warehouse | 5/10 @ TBD | | Eric Carroll | $… |`. The scan read
-    // col0 first, and isNameLike accepted "Pick Up Warehouse" (3 capitalized words).
+    // `| Pick Up Warehouse | 5/10 @ TBD | | Eric Carroll | $… |`. RFI/PC has NO
+    // PASSENGERS column; the col-D names (D41:D43, beside the $ costs) are billing
+    // scratch, not passengers → assigned_names is [] for every leg.
     const sched = parse("redefining-fi").transportation!.schedule;
     for (const e of sched) {
       expect(e.assigned_names ?? [], `echoed stage ${e.stage}`).not.toContain(e.stage);
     }
     const byStage = Object.fromEntries(sched.map((e) => [e.stage, e.assigned_names ?? []]));
-    expect(byStage["Pick Up Warehouse"]).toEqual(["Eric Carroll"]);
-    expect(byStage["Drop Off Venue"]).toEqual(["Eric Weiss"]);
-    expect(byStage["Pick Up Venue"]).toEqual(["Connor Hester"]);
+    expect(byStage["Pick Up Warehouse"]).toEqual([]);
+    expect(byStage["Drop Off Venue"]).toEqual([]);
+    expect(byStage["Pick Up Venue"]).toEqual([]);
   });
 });
 
