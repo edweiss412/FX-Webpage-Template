@@ -23,6 +23,13 @@ export type MessageCatalogEntry = {
    * developer-facing dougFacing/followUp.
    */
   dougSummary?: string | null;
+  /**
+   * Resolution class (alert-resolve-truthing §3). "auto" = the system resolves this
+   * code itself at recovery (a manual button would be a misleading no-op → suppressed);
+   * "manual" = one-shot acknowledgment, manual resolve is the disposition. Absent on
+   * non-admin_alerts codes (crew/report/inbox copy that never becomes an alert row).
+   */
+  resolution?: "auto" | "manual";
   dougFacing: string | null;
   crewFacing: string | null;
   followUp: string | null;
@@ -45,6 +52,7 @@ export const MESSAGE_CATALOG = {
   },
   AMBIGUOUS_EMAIL_BINDING: {
     code: "AMBIGUOUS_EMAIL_BINDING",
+    resolution: "manual",
     audience: "doug",
     dougFacing:
       "Two crew rows share the same email — Google login is unsafe to resolve. The duplicate-email check normally catches this; please re-share the sheet so we can re-parse, or contact the developer.",
@@ -79,6 +87,7 @@ export const MESSAGE_CATALOG = {
   },
   DRIVE_FETCH_FAILED: {
     code: "DRIVE_FETCH_FAILED",
+    resolution: "auto",
     audience: "doug",
     dougFacing:
       "We couldn't fetch this sheet from Google Drive. Could be a transient network issue, or the sheet's been moved or unshared. We'll keep retrying. If this stays for more than an hour, click 'Retry' or check the sheet's share settings.",
@@ -112,6 +121,7 @@ export const MESSAGE_CATALOG = {
   },
   SHEET_UNAVAILABLE: {
     code: "SHEET_UNAVAILABLE",
+    resolution: "auto",
     audience: "doug",
     adminSurface: "inbox",
     dougFacing:
@@ -127,6 +137,7 @@ export const MESSAGE_CATALOG = {
   },
   PARSE_ERROR_LAST_GOOD: {
     code: "PARSE_ERROR_LAST_GOOD",
+    resolution: "auto",
     audience: "doug",
     adminSurface: "inbox",
     dougFacing:
@@ -195,6 +206,7 @@ export const MESSAGE_CATALOG = {
   // copy says the action was cancelled without asserting zero residue.
   WIZARD_SESSION_SUPERSEDED_RACE: {
     code: "WIZARD_SESSION_SUPERSEDED_RACE",
+    resolution: "manual",
     audience: "health",
     healthWeight: "notice",
     dougSummary: "Two setup sessions overlapped, and the app kept the newer one. Nothing was lost.",
@@ -276,6 +288,7 @@ export const MESSAGE_CATALOG = {
   },
   WATCH_CHANNEL_ORPHANED: {
     code: "WATCH_CHANNEL_ORPHANED",
+    resolution: "auto",
     audience: "doug",
     dougFacing:
       "The instant-updates connection to Google Drive needs to reconnect. Shows still sync automatically every few minutes, so nothing is lost.",
@@ -290,6 +303,7 @@ export const MESSAGE_CATALOG = {
   },
   WEBHOOK_TOKEN_INVALID: {
     code: "WEBHOOK_TOKEN_INVALID",
+    resolution: "auto",
     audience: "health",
     healthWeight: "degraded",
     dougSummary:
@@ -436,6 +450,7 @@ export const MESSAGE_CATALOG = {
   },
   REEL_DRIFTED: {
     code: "REEL_DRIFTED",
+    resolution: "auto",
     audience: "doug",
     dougFacing:
       "The opening-reel video has been edited since you reviewed this parse. Crew see the text status only until your next sheet edit re-stages the new reel.",
@@ -450,6 +465,7 @@ export const MESSAGE_CATALOG = {
   },
   OPENING_REEL_NOT_VIDEO: {
     code: "OPENING_REEL_NOT_VIDEO",
+    resolution: "auto",
     audience: "doug",
     dougFacing:
       "The opening-reel link is not a video file. Crew see the text status only — replace the link with a video file URL to enable inline playback.",
@@ -464,6 +480,7 @@ export const MESSAGE_CATALOG = {
   },
   OPENING_REEL_PERMISSION_DENIED: {
     code: "OPENING_REEL_PERMISSION_DENIED",
+    resolution: "auto",
     audience: "doug",
     dougFacing:
       "The opening-reel video is no longer shared with FXAV. Crew see the text status only — re-share the video file (or replace the link) to restore inline playback.",
@@ -478,6 +495,7 @@ export const MESSAGE_CATALOG = {
   },
   EMBEDDED_RECOVERY_REQUIRES_RESTAGE: {
     code: "EMBEDDED_RECOVERY_REQUIRES_RESTAGE",
+    resolution: "auto",
     audience: "doug",
     dougFacing:
       "A diagram in this sheet can't be re-downloaded automatically. Save the sheet (any edit advances the version) and crew will see the image again on the next sync.",
@@ -512,6 +530,7 @@ export const MESSAGE_CATALOG = {
   },
   ASSET_RECOVERY_REVISION_DRIFT: {
     code: "ASSET_RECOVERY_REVISION_DRIFT",
+    resolution: "auto",
     audience: "health",
     healthWeight: "notice",
     dougSummary:
@@ -529,6 +548,7 @@ export const MESSAGE_CATALOG = {
   },
   ASSET_RECOVERY_DRIFT_COOLDOWN: {
     code: "ASSET_RECOVERY_DRIFT_COOLDOWN",
+    resolution: "auto",
     audience: "health",
     healthWeight: "notice",
     dougSummary:
@@ -556,6 +576,7 @@ export const MESSAGE_CATALOG = {
   },
   ASSET_RECOVERY_BYTES_EXCEEDED: {
     code: "ASSET_RECOVERY_BYTES_EXCEEDED",
+    resolution: "auto",
     audience: "doug",
     dougFacing:
       "This show's diagram set is too large to recover automatically (more than 60 images, an image >50MB, or >3GB total). Crew see placeholders for the missing diagrams. Tell the developer if you need this raised, or trim the gallery.",
@@ -809,6 +830,7 @@ export const MESSAGE_CATALOG = {
   },
   ROLE_FLAGS_NOTICE: {
     code: "ROLE_FLAGS_NOTICE",
+    resolution: "manual",
     audience: "health",
     healthWeight: "notice",
     dougSummary:
@@ -1014,6 +1036,7 @@ export const MESSAGE_CATALOG = {
   },
   SHOW_FIRST_PUBLISHED: {
     code: "SHOW_FIRST_PUBLISHED",
+    resolution: "manual",
     audience: "doug",
     severity: "info",
     dougFacing:
@@ -1028,6 +1051,7 @@ export const MESSAGE_CATALOG = {
   },
   SHOW_UNPUBLISHED: {
     code: "SHOW_UNPUBLISHED",
+    resolution: "auto",
     audience: "doug",
     dougFacing:
       "_<sheet-name>_ has been unpublished. Its crew link is paused \u2014 crew who open it see a 'not available right now' page with no show details. Turn Published back on from the show's page when you're ready.",
@@ -1777,6 +1801,7 @@ export const MESSAGE_CATALOG = {
   },
   LIVE_ROW_CONFLICT: {
     code: "LIVE_ROW_CONFLICT",
+    resolution: "manual",
     audience: "doug",
     dougFacing:
       "A sheet is already being processed by the live folder sync, so we're skipping it during setup. Resolve it from the dashboard, then re-run setup if needed.",
@@ -1804,6 +1829,7 @@ export const MESSAGE_CATALOG = {
   },
   PENDING_SNAPSHOT_PROMOTE_STUCK: {
     code: "PENDING_SNAPSHOT_PROMOTE_STUCK",
+    resolution: "auto",
     audience: "health",
     healthWeight: "degraded",
     dougSummary:
@@ -1821,6 +1847,7 @@ export const MESSAGE_CATALOG = {
   },
   PENDING_SNAPSHOT_ROLLBACK_STUCK: {
     code: "PENDING_SNAPSHOT_ROLLBACK_STUCK",
+    resolution: "auto",
     audience: "health",
     healthWeight: "degraded",
     dougSummary:
@@ -1838,6 +1865,7 @@ export const MESSAGE_CATALOG = {
   },
   BRANCH_PROTECTION_DRIFT: {
     code: "BRANCH_PROTECTION_DRIFT",
+    resolution: "manual",
     audience: "health",
     healthWeight: "degraded",
     dougSummary:
@@ -1855,6 +1883,7 @@ export const MESSAGE_CATALOG = {
   },
   BRANCH_PROTECTION_MONITOR_AUTH_FAILED: {
     code: "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
+    resolution: "manual",
     audience: "health",
     healthWeight: "degraded",
     dougSummary:
@@ -2037,6 +2066,7 @@ export const MESSAGE_CATALOG = {
   },
   SYNC_STALLED: {
     code: "SYNC_STALLED",
+    resolution: "auto",
     audience: "doug",
     severity: "warning",
     dougFacing:
@@ -2052,6 +2082,7 @@ export const MESSAGE_CATALOG = {
   },
   EMAIL_DELIVERY_FAILED: {
     code: "EMAIL_DELIVERY_FAILED",
+    resolution: "auto",
     audience: "health",
     healthWeight: "degraded",
     dougSummary:
@@ -2070,6 +2101,7 @@ export const MESSAGE_CATALOG = {
   },
   EMAIL_NOT_CONFIGURED: {
     code: "EMAIL_NOT_CONFIGURED",
+    resolution: "auto",
     audience: "health",
     healthWeight: "degraded",
     dougSummary:
@@ -2089,6 +2121,7 @@ export const MESSAGE_CATALOG = {
   },
   TILE_SERVER_RENDER_FAILED: {
     code: "TILE_SERVER_RENDER_FAILED",
+    resolution: "manual",
     audience: "health",
     healthWeight: "degraded",
     dougSummary:
@@ -2106,6 +2139,7 @@ export const MESSAGE_CATALOG = {
   },
   TILE_PROJECTION_FETCH_FAILED: {
     code: "TILE_PROJECTION_FETCH_FAILED",
+    resolution: "auto",
     audience: "health",
     healthWeight: "degraded",
     dougSummary:
@@ -2146,6 +2180,7 @@ export const MESSAGE_CATALOG = {
   },
   REPORT_ORPHANED_LOST_LEASE: {
     code: "REPORT_ORPHANED_LOST_LEASE",
+    resolution: "manual",
     audience: "health",
     healthWeight: "notice",
     dougSummary:
@@ -2163,6 +2198,7 @@ export const MESSAGE_CATALOG = {
   },
   GITHUB_BOT_LOGIN_MISSING: {
     code: "GITHUB_BOT_LOGIN_MISSING",
+    resolution: "auto",
     audience: "health",
     healthWeight: "degraded",
     dougSummary:
@@ -2180,6 +2216,7 @@ export const MESSAGE_CATALOG = {
   },
   REPORT_LEASE_THRASHING: {
     code: "REPORT_LEASE_THRASHING",
+    resolution: "manual",
     audience: "health",
     healthWeight: "degraded",
     dougSummary:
@@ -2411,6 +2448,7 @@ export const MESSAGE_CATALOG = {
   },
   EMBEDDED_ASSET_DRIFTED: {
     code: "EMBEDDED_ASSET_DRIFTED",
+    resolution: "auto",
     audience: "doug",
     dougFacing:
       "An embedded diagram changed after staging. Crew see a placeholder for that image until a new sheet edit re-stages it.",
@@ -2521,6 +2559,7 @@ export const MESSAGE_CATALOG = {
   },
   PENDING_SNAPSHOT_DELETE_STUCK: {
     code: "PENDING_SNAPSHOT_DELETE_STUCK",
+    resolution: "auto",
     audience: "health",
     healthWeight: "degraded",
     dougSummary:
@@ -2586,6 +2625,7 @@ export const MESSAGE_CATALOG = {
   },
   REPORT_DUPLICATE_LIVE_MATCHES: {
     code: "REPORT_DUPLICATE_LIVE_MATCHES",
+    resolution: "manual",
     audience: "health",
     healthWeight: "degraded",
     dougSummary:
@@ -2617,6 +2657,7 @@ export const MESSAGE_CATALOG = {
   },
   REPORT_LOOKUP_INCONCLUSIVE: {
     code: "REPORT_LOOKUP_INCONCLUSIVE",
+    resolution: "manual",
     audience: "health",
     healthWeight: "notice",
     dougSummary:
@@ -2635,6 +2676,7 @@ export const MESSAGE_CATALOG = {
   },
   REPORT_OPEN_ORPHAN_LABEL: {
     code: "REPORT_OPEN_ORPHAN_LABEL",
+    resolution: "manual",
     audience: "health",
     healthWeight: "degraded",
     dougSummary:
@@ -2789,6 +2831,7 @@ export const MESSAGE_CATALOG = {
   },
   STALE_ORPHAN_REPORT: {
     code: "STALE_ORPHAN_REPORT",
+    resolution: "manual",
     audience: "health",
     healthWeight: "notice",
     dougSummary:
@@ -2841,6 +2884,7 @@ export const MESSAGE_CATALOG = {
   },
   PICKER_EPOCH_RESET: {
     code: "PICKER_EPOCH_RESET",
+    resolution: "manual",
     audience: "doug",
     dougFacing:
       "Picker selections were reset for this show. Crew will be asked to pick themselves again on their next visit.",
@@ -2855,6 +2899,7 @@ export const MESSAGE_CATALOG = {
   },
   PICKER_SELECTION_RACE: {
     code: "PICKER_SELECTION_RACE",
+    resolution: "manual",
     audience: "health",
     healthWeight: "notice",
     dougSummary:
@@ -3023,6 +3068,7 @@ export const MESSAGE_CATALOG = {
   },
   PICKER_BOOTSTRAP_RPC_FAILED: {
     code: "PICKER_BOOTSTRAP_RPC_FAILED",
+    resolution: "manual",
     audience: "health",
     healthWeight: "degraded",
     dougSummary:
@@ -3040,6 +3086,7 @@ export const MESSAGE_CATALOG = {
   },
   PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED: {
     code: "PICKER_BOOTSTRAP_RESOLVE_SHOW_FAILED",
+    resolution: "manual",
     audience: "health",
     healthWeight: "degraded",
     dougSummary:
@@ -3057,6 +3104,7 @@ export const MESSAGE_CATALOG = {
   },
   OAUTH_IDENTITY_CLAIMED: {
     code: "OAUTH_IDENTITY_CLAIMED",
+    resolution: "manual",
     audience: "health",
     healthWeight: "notice",
     dougSummary:
@@ -3073,6 +3121,7 @@ export const MESSAGE_CATALOG = {
   },
   CALLBACK_CLAIM_THREW: {
     code: "CALLBACK_CLAIM_THREW",
+    resolution: "manual",
     audience: "health",
     healthWeight: "notice",
     dougSummary: "A sign-in step hit a hiccup and will retry on the next visit. No action needed.",

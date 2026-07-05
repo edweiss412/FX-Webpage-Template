@@ -256,10 +256,11 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
  *     another tile, which may hold the open row, is healthy; §3 row).
  *   - "deferred": STATE-shaped but out of scope this spec (BACKLOG).
  *
- * Counts (spec §3): 7 precedent AUTO + 14 NEW = 21 "auto"; 17 "event-manual"
- * (spec's 18 EVENT rows minus TILE_SERVER_RENDER_FAILED, which the registry splits into
- * its own "state-manual-justified" class); 1 "state-manual-justified"; 3 "deferred".
- * 21 + 17 + 1 + 3 = 42, matching ADMIN_ALERTS_CODES.length.
+ * Counts (spec §3, incl. alert-resolve-truthing §6): 7 precedent AUTO + 14 NEW +
+ * GITHUB_BOT_LOGIN_MISSING = 22 "auto"; 17 "event-manual" (spec's 18 EVENT rows minus
+ * TILE_SERVER_RENDER_FAILED, which the registry splits into its own "state-manual-justified"
+ * class); 1 "state-manual-justified"; 2 "deferred".
+ * 22 + 17 + 1 + 2 = 42, matching ADMIN_ALERTS_CODES.length.
  */
 type ResolveSite = { file: string; pattern: RegExp };
 type Lifecycle =
@@ -436,8 +437,15 @@ const ADMIN_ALERTS_LIFECYCLE: Record<(typeof ADMIN_ALERTS_CODES)[number], Lifecy
   REPORT_LEASE_THRASHING: { class: "event-manual" },
   STALE_ORPHAN_REPORT: { class: "event-manual" },
 
-  // --- deferred (3): STATE-shaped, out of scope this spec (BACKLOG) ---
-  GITHUB_BOT_LOGIN_MISSING: { class: "deferred" },
+  // --- auto (promoted from deferred by alert-resolve-truthing §6): env-presence reconcile ---
+  GITHUB_BOT_LOGIN_MISSING: {
+    class: "auto",
+    resolveSites: [
+      { file: "lib/reports/botLoginAlert.ts", pattern: /resolveBotLoginAlertRow/ },
+      { file: "lib/reports/submit.ts", pattern: /resolveBotLoginAlertFailOpen/ },
+    ],
+  },
+  // --- deferred (2): STATE-shaped, out of scope this spec (BACKLOG); detector job is if:false ---
   BRANCH_PROTECTION_DRIFT: { class: "deferred" },
   BRANCH_PROTECTION_MONITOR_AUTH_FAILED: { class: "deferred" },
 };
@@ -624,8 +632,11 @@ describe("META admin_alerts catalog contract", () => {
       Object.keys(ADMIN_ALERTS_LIFECYCLE) as Array<(typeof ADMIN_ALERTS_CODES)[number]>
     ).filter((code) => ADMIN_ALERTS_LIFECYCLE[code].class === "auto");
 
-    // Counts cross-check spec §3: 7 precedent AUTO + 14 NEW = 21 auto codes.
-    expect(autoCodes.length, "spec §3 pins 21 auto codes (7 precedent AUTO + 14 NEW)").toBe(21);
+    // Counts cross-check spec §3: 7 precedent AUTO + 14 NEW + GITHUB_BOT_LOGIN_MISSING = 22 auto codes.
+    expect(
+      autoCodes.length,
+      "spec §3 pins 22 auto codes (7 precedent AUTO + 14 NEW + GITHUB_BOT_LOGIN_MISSING)",
+    ).toBe(22);
 
     for (const code of autoCodes) {
       const lifecycle = ADMIN_ALERTS_LIFECYCLE[code];
@@ -643,6 +654,21 @@ describe("META admin_alerts catalog contract", () => {
           `${code} is classified auto, but ${site.file} does not match its declared resolve-site pattern ${site.pattern} — an auto code cannot lose its resolve site silently`,
         ).toMatch(site.pattern);
       }
+    }
+  });
+
+  // --- Runtime resolution parity (alert-resolve-truthing §3) ---
+  // The runtime MESSAGE_CATALOG.resolution field must agree with this registry's class for
+  // every code: registry "auto" ⇒ catalog "auto"; everything else ⇒ catalog "manual". This is
+  // the guard that keeps the promoted runtime metadata (isAutoResolving / the suppressed manual
+  // button) honest against the test-only lifecycle classification.
+  test("catalog.resolution matches registry class for all 42 codes", () => {
+    for (const code of ADMIN_ALERTS_CODES) {
+      const entry = MESSAGE_CATALOG[code as keyof typeof MESSAGE_CATALOG] as
+        | { resolution?: "auto" | "manual" }
+        | undefined;
+      const expected = ADMIN_ALERTS_LIFECYCLE[code].class === "auto" ? "auto" : "manual";
+      expect(entry?.resolution, `${code} resolution`).toBe(expected);
     }
   });
 
