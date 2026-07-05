@@ -522,11 +522,10 @@ export async function OnboardingWizard({
       }
     : undefined;
 
-  // Task 6: Steps 1-2 stay narrow (max-w-2xl); Step 3 widens on desktop so its
-  // review cards can lay out in a multi-column grid (the grid itself lives in
-  // <Step3Review>). The chrome (stepper, Back, Start over) is left-aligned, so
-  // the wider container only meaningfully affects the card area.
-  const containerMaxWidth = step === 3 ? "max-w-2xl lg:max-w-6xl" : "max-w-2xl";
+  // Variant B (Task 5): Steps 1-2 stay narrow (max-w-2xl); Step 3 uses a slightly
+  // wider single-column container (max-w-3xl) sized for the full-width compact
+  // sheet rows + sticky publish bar (the list itself lives in <Step3Review>).
+  const containerMaxWidth = step === 3 ? "max-w-3xl" : "max-w-2xl";
 
   return (
     <div

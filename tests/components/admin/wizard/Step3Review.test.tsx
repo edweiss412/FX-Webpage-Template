@@ -116,6 +116,9 @@ function hardFailRow(dfid: string): Step3Row {
     errorCode: "MI_PARSE_FAILED",
   };
 }
+function ignoredRow(dfid: string): Step3Row {
+  return { driveFileId: dfid, driveFileName: `${dfid}.gsheet`, status: "permanent_ignore" };
+}
 // Normalize whitespace so the composed summary's emphasis spans compare cleanly
 // (no jest-dom toHaveTextContent in this suite).
 function norm(el: HTMLElement | null): string {
@@ -199,6 +202,36 @@ describe("Step3Review header + composed summary (Task 3)", () => {
     );
     expect(queryByTestId("wizard-step3-summary")).toBeNull();
     expect(getByTestId("wizard-step3-empty")).not.toBeNull();
+  });
+});
+
+describe("Step3Review single-column list + count relocation (Task 5)", () => {
+  test("clean rows render as a single-column list (not a multi-col grid)", () => {
+    const { getByTestId } = render(
+      <Step3Review
+        wizardSessionId={WIZARD_SESSION_ID}
+        rows={[cleanRow("a", "staged"), cleanRow("b", "staged")]}
+      />,
+    );
+    const list = getByTestId("wizard-step3-card-grid");
+    expect(list.className).not.toMatch(/grid-cols-2|lg:grid-cols|xl:grid-cols/);
+    expect(list.className).toMatch(/flex-col/);
+  });
+
+  test("publish-count no longer renders inside the header select-all block (moved to the bar)", () => {
+    const { getByTestId, queryByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[cleanRow("a", "staged")]} />,
+    );
+    expect(getByTestId("wizard-step3-select-all")).not.toBeNull(); // select-all stays
+    expect(queryByTestId("wizard-step3-publish-count")).toBeNull(); // count is gone from here
+  });
+
+  test("needs-attention + set-aside + empty testids preserved", () => {
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[hardFailRow("a"), ignoredRow("b")]} />,
+    );
+    expect(getByTestId("wizard-step3-needs-attention")).not.toBeNull();
+    expect(getByTestId("wizard-step3-ignored")).not.toBeNull();
   });
 });
 
@@ -518,15 +551,15 @@ describe("Step3Review — per-card details dialog + uniform grid (no accordion)"
     parseResult: pr,
   };
 
-  test("the grid stays uniform — no cell ever spans full-width and there is no dense reflow", () => {
+  test("the list stays uniform — a single-column flex list with no col-span reflow", () => {
     const { getByTestId } = render(
       <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[rowA, rowB]} />,
     );
     const grid = getByTestId("wizard-step3-card-grid");
-    // Responsive multi-column grid, but NO dense backfill and NO col-span
-    // machinery — the open-card-spans-full-width accordion is gone (details now
-    // open in a modal overlay), so the grid never reflows.
-    expect(grid.className).toContain("lg:grid-cols-2");
+    // Variant B: a single-column flex list, and NO col-span machinery — the
+    // open-card-spans-full-width accordion is gone (details now open in a modal
+    // overlay), so the list never reflows.
+    expect(grid.className).toContain("flex-col");
     expect(grid.className).not.toContain("grid-flow-row-dense");
     const spansBefore = Array.from(grid.querySelectorAll("li")).filter((li) =>
       (li.className ?? "").includes("col-span"),

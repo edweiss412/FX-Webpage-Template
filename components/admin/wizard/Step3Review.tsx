@@ -522,28 +522,20 @@ function isCleanRow(status: Step3ManifestStatus): boolean {
  */
 function Step3PublishHeader({
   allChecked,
-  appliedCount,
   cleanCount,
   onToggleSelectAll,
 }: {
   allChecked: boolean;
-  appliedCount: number;
   cleanCount: number;
   onToggleSelectAll: () => void;
 }) {
-  if (cleanCount === 0) {
-    // No publishable rows → no select-all; still emit the count (0 of 0) so the
-    // line is stable and the testid always resolves.
-    return (
-      <p data-testid="wizard-step3-publish-count" className="text-sm tabular-nums text-text-subtle">
-        <span className="tabular-nums">{appliedCount}</span> of{" "}
-        <span className="tabular-nums">{cleanCount}</span> selected to publish
-      </p>
-    );
-  }
+  // No publishable rows → no select-all control. The "N of M selected to publish"
+  // count moved OUT of this header and into the sticky publish bar (Variant B,
+  // Task 6), so this header carries only the Select-all affordance.
+  if (cleanCount === 0) return null;
 
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3">
+    <div className="flex flex-wrap items-center gap-3">
       <label className="inline-flex min-h-tap-min cursor-pointer items-center gap-2">
         <input
           type="checkbox"
@@ -566,10 +558,6 @@ function Step3PublishHeader({
         </span>
         <span className="text-sm font-medium text-text-strong">Select all</span>
       </label>
-      <p data-testid="wizard-step3-publish-count" className="text-sm tabular-nums text-text-subtle">
-        <span className="tabular-nums text-text-strong">{appliedCount}</span> of{" "}
-        <span className="tabular-nums">{cleanCount}</span> selected to publish
-      </p>
     </div>
   );
 }
@@ -1073,7 +1061,6 @@ export function Step3Review({ wizardSessionId, rows, onCountsChange }: Step3Revi
         {rows.length > 0 ? (
           <Step3PublishHeader
             allChecked={allChecked}
-            appliedCount={appliedCount}
             cleanCount={cleanCount}
             // No greyed/disabled feedback: the overlay flips every box (and the
             // Select-all box itself) instantly, which IS the feedback. Re-entry is
@@ -1150,19 +1137,12 @@ export function Step3Review({ wizardSessionId, rows, onCountsChange }: Step3Revi
             </section>
           ) : null}
 
-          {/* The publishable (clean) review cards lay out in a responsive grid — 1
-              col on mobile, 2 at lg, 3 at xl. `items-start` so each card sizes to
-              its own content height (CSS grid defaults to align-items:stretch, which
-              we override so a short card never stretches to match the tallest in its
-              row — this repo's Tailwind v4 requires every such dimensional
-              relationship to be stated explicitly). Every cell is uniform: card
-              details open in a modal overlay (the card's "More" button), so no cell
-              ever spans full-width and the grid never reflows. */}
+          {/* Variant B (§5): the publishable (clean) review cards are a SINGLE-COLUMN
+              flex list of full-width compact rows (not a responsive grid). Each card
+              is one row; detail opens in the review modal (the card's View/Review
+              button). The testid stays `wizard-step3-card-grid` for continuity. */}
           {publishRows.length > 0 ? (
-            <ul
-              data-testid="wizard-step3-card-grid"
-              className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2 xl:grid-cols-3"
-            >
+            <ul data-testid="wizard-step3-card-grid" className="flex flex-col gap-3">
               {publishRows.map((row) => (
                 <li key={row.driveFileId}>
                   <RowItem
