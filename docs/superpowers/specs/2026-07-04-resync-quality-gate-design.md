@@ -248,7 +248,13 @@ Phase 6 (resolution #21 cutover) removed the whole-parse review mount from the p
 - **Extends:** `tests/messages/_metaAdminAlertCatalog.test.ts` (new `RESYNC_SHRINK_HELD` across union / `ADMIN_ALERTS_CODES` / `WRITE_SITES` / `ADMIN_ALERTS_LIFECYCLE`), `tests/adminAlerts/alertActions.test.ts` (new action-link registry row), `tests/app/admin/perShowPage.test.tsx` (new `id="resync"` anchor assertion), a `StaleFooter` test (`'shrink_held'` tier), any `tests/notify/*` pin of `SYNC_PROBLEM_CODES` (new member), and the §12.4 three-way lockstep (x1/x2/codes-coverage).
 - **Must stay green:** `tests/sync/cutover.retireLivePendingSyncs.test.ts` (no live `pending_sync` written), `tests/app/admin/perShowPage.test.tsx` retirement pins (`staged-review-*` still absent — the anchor adds no review UI), `tests/auth/advisoryLockRpcDeadlock.test.ts` (no new lock holder; the raise runs inside the already-locked cron tx), `tests/auth/_metaInfraContract.test.ts` (reuses the existing tx-bound `upsertAdminAlert` helper — no new call boundary).
 - **Advisory-lock topology:** unchanged; the shrink-hold branch and the alert raise both run inside the existing per-show `withShowLock` cron tx.
-- **UI / invariant 8:** `components/shared/StaleFooter.tsx` (crew) and `app/admin/show/[slug]/page.tsx` (the `#resync` anchor) are UI surfaces; the action link renders via existing `PerShowAlertSection`. All Opus-owned. The changes are a status-case + an anchor `id` (no new layout/tokens), but the invariant-8 impeccable dual-gate (`/impeccable critique` + `audit`) still runs on the affected diff at close-out; HIGH/CRITICAL fixed or deferred via `DEFERRED.md`.
+- **UI / invariant 8 (affected surfaces — ALL Opus-owned, ALL in the impeccable dual-gate):**
+  - `components/admin/ReSyncButton.tsx` — **the new confirmation prompt + "Apply reduced version" accept action.** This is the safety boundary that prevents a generic re-sync from becoming a one-click destructive accept, so it is the **primary** UI surface for the `/impeccable critique` + `audit` pair (clarity of the shrink-count copy, the confirm affordance's prominence/accessibility, no accidental one-click path).
+  - `components/shared/StaleFooter.tsx` — the crew-facing `'shrink_held'` tier (delayed, not error).
+  - `app/admin/show/[slug]/page.tsx` — the `#resync` anchor.
+  - The alert action link renders via existing `PerShowAlertSection` (no new component).
+
+  The invariant-8 impeccable dual-gate runs on the whole affected UI diff at close-out; HIGH/CRITICAL findings fixed or deferred via `DEFERRED.md`, with dispositions recorded in the milestone handoff.
 
 ## 12. Numeric sweep
 
