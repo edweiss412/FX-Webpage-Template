@@ -54,7 +54,14 @@ process.env.ADMIN_DEV_PANEL_ENABLED = "true";
 import { vi } from "vitest";
 vi.mock("@/lib/auth/requireDeveloper", () => ({
   requireDeveloper: async () => ({ id: "test-admin", email: "admin@fxav.test" }),
+  // invariant #10: parseAndStage/resetDevSchema now resolve actor identity before the
+  // mutation. Without this the action calls an undefined mock export and throws.
+  requireDeveloperIdentity: async () => ({ email: "admin@fxav.test" }),
 }));
+// invariant #10: parseAndStage emits DEV_PARSE_STAGED via logAdminOutcome on success;
+// stub it so this dev-schema DB test does not drive the real logger (behavioral proof
+// lives in tests/log/adminOutcomeBehavior.test.ts).
+vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome: async () => undefined }));
 
 // Import AFTER the mock is set so the action picks up the no-op requireDeveloper.
 import { parseAndStage } from "@/app/admin/dev/actions";
