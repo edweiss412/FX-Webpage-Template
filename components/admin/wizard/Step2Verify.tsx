@@ -27,8 +27,9 @@
  * client routes the "superseded" outcome through router.refresh(), never copy.
  */
 import Link from "next/link";
-import { Check } from "lucide-react";
+import { Check, ChevronLeft } from "lucide-react";
 import { parseDriveFolderId } from "@/lib/drive/driveFolderUrl";
+import { WizardFooter } from "@/components/admin/wizard/WizardFooter";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { messageFor } from "@/lib/messages/lookup";
@@ -299,6 +300,15 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
   // Continue primary — it is the only enabled action.
   const scanningNewFolder = showResume && !matchesScanned && folderUrl.trim().length > 0;
   const submitIsPrimary = !showResume || scanningNewFolder;
+  // Forward nav now lives in the shared full-width footer (WizardFooter), not
+  // inline in the card. Continue → Step 3 is available once a review exists:
+  // a fresh scan just succeeded, OR a prior scan is on file (resume). It steps
+  // down to the secondary treatment while the operator is actively scanning a
+  // NEW folder, so the loudest (accent) control stays the in-card Scan button —
+  // the single-accent intent that used to govern the inline links (DESIGN.md
+  // ≤10% accent). Disabled (no href, greyed) before any scan exists.
+  const canContinue = state.kind === "success" || showResume;
+  const continueIsPrimary = canContinue && !scanningNewFolder;
   const progress = state.kind === "submitting" ? state.progress : null;
   const heading =
     progress?.phase === "finishing" ? "Finishing up…" : "Looking through your folder…";
@@ -498,11 +508,11 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
               </div>
             ) : null}
 
-            {/* Action row. After a completed scan, Continue to Step 3 is the
-                accent primary and the scan button steps down to secondary
-                (one accent per card); otherwise the scan button is primary and,
-                in resume mode, Continue rides alongside it as secondary. */}
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            {/* Action row: the in-card control is ONLY the Scan/Re-scan button.
+                Forward nav (Continue → Step 3) moved to the shared full-width
+                footer below. On a completed scan the Scan button steps down to
+                secondary so the footer's Continue carries the single accent. */}
+            <div className="flex flex-col gap-3">
               <button
                 type="submit"
                 data-testid="wizard-step2-submit"
@@ -517,27 +527,42 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
               >
                 {submitLabel}
               </button>
-              {state.kind === "success" ? (
-                <Link
-                  href="/admin?step=3"
-                  data-testid="wizard-step2-advance"
-                  className={PRIMARY_BUTTON}
-                >
-                  Continue to Step 3
-                </Link>
-              ) : showResume ? (
-                <Link
-                  href="/admin?step=3"
-                  data-testid="wizard-step2-resume-advance"
-                  className={submitIsPrimary ? SECONDARY_BUTTON : PRIMARY_BUTTON}
-                >
-                  Continue to Step 3
-                </Link>
-              ) : null}
             </div>
           </>
         )}
       </form>
+
+      <WizardFooter
+        back={
+          <Link
+            href="/admin?step=1"
+            data-testid="wizard-step2-back"
+            className="inline-flex min-h-tap-min items-center gap-1 rounded-sm px-2 text-sm font-medium text-text-subtle transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          >
+            <ChevronLeft aria-hidden="true" className="size-4" />
+            Back
+          </Link>
+        }
+        primary={
+          canContinue ? (
+            <Link
+              href="/admin?step=3"
+              data-testid="wizard-step2-advance"
+              className={continueIsPrimary ? PRIMARY_BUTTON : SECONDARY_BUTTON}
+            >
+              Continue to Step 3
+            </Link>
+          ) : (
+            <span
+              data-testid="wizard-step2-advance"
+              aria-disabled="true"
+              className="pointer-events-none inline-flex min-h-tap-min cursor-not-allowed items-center justify-center self-start rounded-sm border border-border bg-surface-sunken px-6 text-base font-medium text-text-faint"
+            >
+              Continue to Step 3
+            </span>
+          )
+        }
+      />
     </section>
   );
 }

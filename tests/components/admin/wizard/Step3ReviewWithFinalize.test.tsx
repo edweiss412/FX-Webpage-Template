@@ -153,8 +153,8 @@ describe("Step3ReviewWithFinalize — optimistic publish count", () => {
   });
 });
 
-describe("Step3PublishBar — sticky publish bar (Task 6)", () => {
-  test("sticky bar shows selected count + Back(→step 2) + FinalizeButton", () => {
+describe("WizardFooter — step-3 publish footer (Task 6; full-width footer 2026-07-05)", () => {
+  test("footer shows selected count + Back(→step 2) + FinalizeButton", () => {
     const { getByTestId } = render(
       <Step3ReviewWithFinalize
         wizardSessionId={WIZARD_SESSION_ID}
@@ -188,10 +188,10 @@ describe("Step3PublishBar — sticky publish bar (Task 6)", () => {
     expect((getByTestId("wizard-finalize-button") as HTMLButtonElement).disabled).toBe(false);
   });
 
-  test("empty rows → NO sticky bar (guard at Step3ReviewWithFinalize:68)", () => {
-    // Spec §4.4/§7: with zero rows the wrapper renders no bar at all (no count,
-    // no Back, no FinalizeButton) — the bar is gated on `rows.length > 0`, so an
-    // empty Step 3 never shows a spurious "0 of 0" bar over the empty state.
+  test("empty rows → NO footer (guard at Step3ReviewWithFinalize)", () => {
+    // Spec §4.4/§7: with zero rows the wrapper renders no footer at all (no count,
+    // no Back, no FinalizeButton) — gated on `rows.length > 0`, so an empty
+    // Step 3 never shows a spurious "0 of 0" footer over the empty state.
     const { queryByTestId } = render(
       <Step3ReviewWithFinalize
         wizardSessionId={WIZARD_SESSION_ID}
@@ -201,7 +201,7 @@ describe("Step3PublishBar — sticky publish bar (Task 6)", () => {
         initialUncheckedCleanCount={0}
       />,
     );
-    expect(queryByTestId("wizard-step3-publish-bar")).toBeNull();
+    expect(queryByTestId("wizard-footer")).toBeNull();
     expect(queryByTestId("wizard-step3-publish-count")).toBeNull();
     expect(queryByTestId("wizard-finalize-button")).toBeNull();
     expect(queryByTestId("wizard-step3-back")).toBeNull();

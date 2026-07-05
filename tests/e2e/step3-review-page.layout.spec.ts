@@ -16,19 +16,20 @@
  * so the compiled Tailwind resolves identically. Keep in sync with:
  *   - StepIndicator            → components/admin/OnboardingWizard.tsx
  *   - Step3SheetCard (compact) → components/admin/wizard/Step3SheetCard.tsx
- *   - Step3PublishBar          → components/admin/wizard/Step3PublishBar.tsx
- *   - the wizard container     → components/admin/OnboardingWizard.tsx
- *   - Step3ReviewWithFinalize wrapper (relative flex min-h-full w-full flex-col + pb-24)
+ *   - WizardFooter             → components/admin/wizard/WizardFooter.tsx
+ *   - the wizard container     → components/admin/OnboardingWizard.tsx (max-w-3xl xl:max-w-5xl)
+ *   - Step3ReviewWithFinalize wrapper (flex min-h-full flex-col + pb-24)
  *
- * Invariants (spec §7):
+ * Invariants (spec §7; footer full-width redesign 2026-07-05):
  *   DI-1: the stepper does not overflow at 320px.
  *   DI-2: the card's visible checkbox box + View/Review button are vertically
  *         centered within the card.
- *   DI-3: the sticky bar spans the container width, does not occlude the last
- *         card, keeps Publish within the viewport, and baselines its idle row.
+ *   DI-3: the fixed footer spans the full VIEWPORT width (edge-to-edge, not the
+ *         centered content column), does not occlude the last card, keeps Publish
+ *         within the viewport, and baselines its idle row.
  *   DI-4: at 360px the card does not overflow and its right cluster wraps below
  *         the title.
- *   DI-5: at 320px the sticky bar and its idle row (including the full-label
+ *   DI-5: at 320px the footer and its idle row (including the full-label
  *         Publish button, the widest item) do not overflow the viewport. The
  *         AccentButton label has no `whitespace-nowrap`, so under width pressure
  *         it wraps and the button shrinks vertically rather than overflowing —
@@ -118,14 +119,15 @@ function cards(): string {
   return list.join("\n");
 }
 
-// Step3PublishBar (Step3PublishBar.tsx) + the bar children from
-// Step3ReviewWithFinalize (count, Back, the AccentButton finalize trigger).
+// WizardFooter (WizardFooter.tsx) with the step-3 slots from
+// Step3ReviewWithFinalize: back (→step 2), center (count), primary (FinalizeButton).
+// Fixed + full-viewport-width; inner row capped at the admin-shell max-w-[1600px].
 function bar(): string {
-  return `<div data-testid="wizard-step3-publish-bar" class="sticky bottom-0 z-10 flex w-full flex-wrap items-end gap-x-3 gap-y-2 border-t border-border bg-surface/90 px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] backdrop-blur">
-    <p data-testid="wizard-step3-publish-count" class="text-sm tabular-nums text-text-subtle"><b class="text-text-strong">3</b> of 8 selected to publish</p>
-    <div class="ml-auto flex items-end gap-3">
-      <a data-testid="wizard-step3-back" href="/admin?step=2" class="inline-flex min-h-tap-min items-center gap-1 rounded-md px-3 text-sm font-medium text-text-subtle transition-colors duration-fast hover:text-text-strong"><svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>Back</a>
-      <button data-testid="wizard-finalize-button" class="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-accent px-6 text-base font-semibold text-accent-text shadow-tile">Publish 3 shows &amp; finish setup</button>
+  return `<div data-testid="wizard-footer" class="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-surface/90 backdrop-blur">
+    <div data-testid="wizard-footer-inner" class="mx-auto flex w-full max-w-[1600px] flex-wrap items-end gap-x-4 gap-y-2 px-page-pad-mobile pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] sm:px-page-pad-desktop">
+      <a data-testid="wizard-step3-back" href="/admin?step=2" class="inline-flex min-h-tap-min items-center gap-1 rounded-sm px-2 text-sm font-medium text-text-subtle transition-colors duration-fast hover:text-text-strong"><svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>Back</a>
+      <div class="mx-auto"><p data-testid="wizard-step3-publish-count" class="text-sm tabular-nums text-text-subtle"><b class="text-text-strong">3</b> of 8 selected to publish</p></div>
+      <div class="ml-auto flex items-end"><button data-testid="wizard-finalize-button" class="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-accent px-6 text-base font-semibold text-accent-text shadow-tile">Publish 3 shows &amp; finish setup</button></div>
     </div>
   </div>`;
 }
@@ -135,9 +137,9 @@ function harnessHtml(cssHref: string): string {
 <html data-theme="light">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><link rel="stylesheet" href="${cssHref}"></head>
 <body class="bg-bg">
-  <div data-testid="onboarding-wizard" class="mx-auto flex max-w-3xl flex-col gap-section-gap">
+  <div data-testid="onboarding-wizard" class="mx-auto flex max-w-3xl flex-col gap-section-gap pb-32 xl:max-w-5xl">
     <div class="flex items-center justify-between gap-3">${stepper()}</div>
-    <div class="relative flex min-h-full w-full flex-col">
+    <div class="flex min-h-full flex-col">
       <div class="pb-24">
         <section data-testid="wizard-step3" class="flex flex-col gap-section-gap">
           <header class="flex flex-col gap-2">
@@ -149,9 +151,9 @@ function harnessHtml(cssHref: string): string {
           </ul>
         </section>
       </div>
-      ${bar()}
     </div>
   </div>
+  ${bar()}
 </body></html>`;
 }
 
@@ -230,22 +232,28 @@ test.describe("Step-3 review page — layout dimensions (spec §7)", () => {
     expect(Math.abs(rects.btnMid - rects.cardMid)).toBeLessThanOrEqual(1);
   });
 
-  test("DI-3: the sticky bar spans the container width and does not occlude the last card", async ({
+  test("DI-3: the fixed footer spans the full viewport width and does not occlude the last card", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 1024, height: 700 });
     await page.goto(baseUrl);
-    const barEl = page.getByTestId("wizard-step3-publish-bar");
+    const barEl = page.getByTestId("wizard-footer");
     const container = page.getByTestId("onboarding-wizard");
+    // Full-width: the footer spans the whole VIEWPORT, wider than the centered
+    // content column (max-w-3xl = 768px at this viewport). This is the redesign's
+    // core intent — a regression that re-nested the bar in the column would shrink
+    // barW to the container width and fail here.
+    const vw = page.viewportSize()!.width;
     const [barW, contW] = await Promise.all([
       barEl.evaluate((b) => b.getBoundingClientRect().width),
       container.evaluate((c) => c.getBoundingClientRect().width),
     ]);
-    expect(Math.abs(barW - contW)).toBeLessThanOrEqual(0.5);
+    expect(Math.abs(barW - vw)).toBeLessThanOrEqual(0.5);
+    expect(barW).toBeGreaterThan(contW + 100); // demonstrably wider than the column
 
     // Not-occluded: scroll the last card into view (the list is unbounded → it
     // starts below the fold), settle at the absolute bottom, then assert the
-    // body's bottom padding keeps it clear of the sticky bar.
+    // body's bottom padding keeps it clear of the fixed footer.
     const lastCard = page.locator('article[data-testid^="wizard-step3-card-"]').last();
     await lastCard.scrollIntoViewIfNeeded();
     await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
@@ -280,12 +288,12 @@ test.describe("Step-3 review page — layout dimensions (spec §7)", () => {
     }
   });
 
-  test("DI-5: the sticky bar and its idle row do not overflow the viewport at 320px", async ({
+  test("DI-5: the footer and its idle row do not overflow the viewport at 320px", async ({
     page,
   }) => {
     await page.setViewportSize({ width: 320, height: 800 });
     await page.goto(baseUrl);
-    const barEl = page.getByTestId("wizard-step3-publish-bar");
+    const barEl = page.getByTestId("wizard-footer");
     // The bar itself must not scroll horizontally (its children wrap, they do not
     // overflow). The bar spans the container, which spans the viewport at 320px.
     const { scrollW, clientW } = await barEl.evaluate((b) => ({
