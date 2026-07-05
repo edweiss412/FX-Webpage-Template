@@ -433,8 +433,104 @@ describe("wizard pending_ingestions actions", () => {
         superseded_session_id: W1,
         pending_ingestion_id: ID1,
         drive_file_id: "file-1",
+        // Task 7: the currently-locked row's captured sheet name.
+        file_name: "Sheet One.gsheet",
       }),
     });
+  });
+
+  // Task 7 (alert-at-a-glance identity): the retry route's rollbackContext is
+  // built ONCE from the locked row (before any of the three writes below it
+  // 0-row), so all three branches — manifest transition, deferral, delete —
+  // must carry the same file_name. Each test below pins one branch.
+  test("manifest-transition-miss supersession alert carries file_name from the current row", async () => {
+    const tx = new FakeWizardPendingTx();
+    tx.manifestUpdateAffectsRow = false;
+    const upsertAlert = vi.fn(async () => "alert-id");
+
+    const response = await handleWizardPendingIngestionAction(
+      context,
+      { ...deps(tx), upsertAdminAlert: upsertAlert },
+      "defer_until_modified",
+    );
+
+    expect(response.status).toBe(409);
+    expect(upsertAlert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "WIZARD_SESSION_SUPERSEDED_RACE",
+        context: expect.objectContaining({ file_name: "Sheet One.gsheet" }),
+      }),
+    );
+  });
+
+  test("deferral-miss supersession alert carries file_name from the current row", async () => {
+    const tx = new FakeWizardPendingTx();
+    tx.deferralUpsertAffectsRow = false;
+    const upsertAlert = vi.fn(async () => "alert-id");
+
+    const response = await handleWizardPendingIngestionAction(
+      context,
+      { ...deps(tx), upsertAdminAlert: upsertAlert },
+      "permanent_ignore",
+    );
+
+    expect(response.status).toBe(409);
+    expect(upsertAlert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "WIZARD_SESSION_SUPERSEDED_RACE",
+        context: expect.objectContaining({ file_name: "Sheet One.gsheet" }),
+      }),
+    );
+  });
+
+  test("pending-ingestion delete-miss supersession alert carries file_name from the current row", async () => {
+    const tx = new FakeWizardPendingTx();
+    tx.deleteAffectsRow = false;
+    const upsertAlert = vi.fn(async () => "alert-id");
+
+    const response = await handleWizardPendingIngestionAction(
+      context,
+      { ...deps(tx), upsertAdminAlert: upsertAlert },
+      "permanent_ignore",
+    );
+
+    expect(response.status).toBe(409);
+    expect(upsertAlert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "WIZARD_SESSION_SUPERSEDED_RACE",
+        context: expect.objectContaining({ file_name: "Sheet One.gsheet" }),
+      }),
+    );
+  });
+
+  // The retry action's supersession is thrown by retrySingleFile (a different
+  // file, tested directly in tests/onboarding/retrySingleFile.test.ts) but
+  // caught by the SAME route catch block + emitter. This pins the emitter side:
+  // whatever driveFileName the throw carries reaches file_name in the alert.
+  test("retry's post-scan supersession alert carries file_name from the retrySingleFile throw", async () => {
+    const tx = new FakeWizardPendingTx();
+    const upsertAlert = vi.fn(async () => "alert-id");
+    const routeDeps = deps(tx, {
+      retrySingleFile: vi.fn(async () => {
+        throw new WizardSessionSupersededRollbackError({
+          attemptedAction: "retry",
+          supersededSessionId: W1,
+          driveFileId: "file-1",
+          driveFileName: "Sheet One.gsheet",
+        });
+      }),
+      upsertAdminAlert: upsertAlert,
+    });
+
+    const response = await handleWizardPendingIngestionRetry(req("/retry"), context, routeDeps);
+
+    expect(response.status).toBe(409);
+    expect(upsertAlert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        code: "WIZARD_SESSION_SUPERSEDED_RACE",
+        context: expect.objectContaining({ file_name: "Sheet One.gsheet" }),
+      }),
+    );
   });
 
   test("alert-writer failure does not mask the 409 (alert is best-effort, the refusal is the contract)", async () => {

@@ -120,6 +120,8 @@ describe("wizard-scoped staged apply/discard routes", () => {
           attemptedAction: "apply",
           supersededSessionId: W1,
           driveFileId: "file-1",
+          // Task 7: the drive file name captured at the applyStaged throw site.
+          driveFileName: "Onboarding Sheet.xlsx",
         });
       }),
       readCurrentWizardSessionId: vi.fn(async () => "99999999-9999-4999-8999-999999999999"),
@@ -134,7 +136,12 @@ describe("wizard-scoped staged apply/discard routes", () => {
     expect(alerts).toHaveLength(1);
     expect(alerts[0]).toMatchObject({
       code: "WIZARD_SESSION_SUPERSEDED_RACE",
-      context: { attempted_action: "apply", drive_file_id: "file-1" },
+      context: {
+        attempted_action: "apply",
+        drive_file_id: "file-1",
+        // Task 7: the emitter reads error.context.driveFileName into file_name.
+        file_name: "Onboarding Sheet.xlsx",
+      },
     });
   });
 
@@ -367,6 +374,8 @@ describe("wizard-scoped staged apply/discard routes", () => {
             attemptedAction: "discard",
             supersededSessionId: W1,
             driveFileId: "file-1",
+            // Task 7: the drive file name captured at the discardStaged throw site.
+            driveFileName: "Onboarding Sheet.xlsx",
           });
         },
       },
@@ -383,6 +392,8 @@ describe("wizard-scoped staged apply/discard routes", () => {
         attempted_action: "discard",
         superseded_session_id: W1,
         drive_file_id: "file-1",
+        // Task 7: the emitter reads error.context.driveFileName into file_name.
+        file_name: "Onboarding Sheet.xlsx",
       }),
     });
   });

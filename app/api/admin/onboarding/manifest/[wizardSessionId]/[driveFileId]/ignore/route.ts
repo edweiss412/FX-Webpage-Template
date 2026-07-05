@@ -212,6 +212,10 @@ export async function handleWizardManifestIgnore(
         attemptedAction: "permanent_ignore" as const,
         supersededSessionId: wizardSessionId,
         driveFileId,
+        // Task 7: the locked manifest row's captured sheet name — in scope here
+        // regardless of which write (deferral / manifest transition) 0-rows
+        // below. exactOptionalPropertyTypes: only set the key when defined.
+        ...(manifest.name ? { driveFileName: manifest.name } : {}),
       };
 
       // Tx ordering: deferral FIRST, then the manifest transition.
@@ -261,6 +265,7 @@ export async function handleWizardManifestIgnore(
             )(),
             pending_ingestion_id: error.context.pendingIngestionId ?? null,
             drive_file_id: error.context.driveFileId,
+            file_name: error.context.driveFileName,
           },
         });
       } catch (alertError) {

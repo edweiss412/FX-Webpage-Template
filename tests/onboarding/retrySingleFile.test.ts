@@ -163,4 +163,38 @@ describe("retrySingleFileFinalize", () => {
       context: { attemptedAction: "retry", supersededSessionId: W1, driveFileId: "file-1" },
     });
   });
+
+  // Task 7 (alert-at-a-glance identity): retrySingleFile (the outer orchestrator)
+  // has the Drive metadata.name in scope but PendingIngestionRow does not, so
+  // finalize takes it as an explicit optional 6th param and threads it into the
+  // rollback context's driveFileName — read by the retry route's
+  // WIZARD_SESSION_SUPERSEDED_RACE emitter as `file_name`.
+  test("S5b: a post-scan supersession threads the caller-provided driveFileName into the rollback context", async () => {
+    const tx = new FakeRetrySingleFileTx();
+    tx.activeWizardSessionId = W2; // superseded after the scan staged
+
+    const call = retrySingleFileFinalize(
+      tx as never,
+      "file-1",
+      W1,
+      scan("staged"),
+      pending(),
+      "Sheet One.gsheet",
+    );
+
+    await expect(call).rejects.toMatchObject({
+      context: { driveFileName: "Sheet One.gsheet" },
+    });
+  });
+
+  test("driveFileName is omitted from the rollback context when the caller provides none (guard: omit when unavailable)", async () => {
+    const tx = new FakeRetrySingleFileTx();
+    tx.activeWizardSessionId = W2;
+
+    const call = retrySingleFileFinalize(tx as never, "file-1", W1, scan("staged"), pending());
+
+    await expect(call).rejects.toMatchObject({
+      context: expect.not.objectContaining({ driveFileName: expect.anything() }),
+    });
+  });
 });

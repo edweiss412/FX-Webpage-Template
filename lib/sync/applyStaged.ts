@@ -1153,6 +1153,7 @@ export async function applyStaged_unlocked(
             attemptedAction: "apply",
             supersededSessionId: args.wizardSessionId,
             driveFileId: pending.driveFileId,
+            driveFileName: pending.parseResult.show.title,
           });
         }
         if (deps.wizardDriveReverify.outcome === "source_gone") {
@@ -1183,6 +1184,7 @@ export async function applyStaged_unlocked(
         attemptedAction: "apply",
         supersededSessionId: args.wizardSessionId,
         driveFileId: pending.driveFileId,
+        driveFileName: pending.parseResult.show.title,
       });
     }
     return {
@@ -1682,6 +1684,7 @@ async function stageWizardRestageInline(
       attemptedAction: "apply",
       supersededSessionId: args.wizardSessionId,
       driveFileId: args.driveFileId,
+      driveFileName: metadata.name,
     });
   }
   if (scan.outcome === "schema_missing") {

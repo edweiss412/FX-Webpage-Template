@@ -156,6 +156,10 @@ export async function retrySingleFileFinalize(
   wizardSessionId: string,
   scan: OnboardingScanResult,
   pending: PendingIngestionRow,
+  // Task 7: the Drive file name (metadata.name), in scope in the OUTER
+  // retrySingleFile caller but not on PendingIngestionRow itself — threaded
+  // through as an explicit optional param so the rollback context can carry it.
+  driveFileName?: string,
 ): Promise<RetrySingleFileResult> {
   await assertShowLockHeld(tx, driveFileId);
   const result = statusFromScan(scan, driveFileId, pending);
@@ -183,6 +187,9 @@ export async function retrySingleFileFinalize(
       attemptedAction: "retry",
       supersededSessionId: wizardSessionId,
       driveFileId,
+      // exactOptionalPropertyTypes: only set the key when defined — assigning
+      // `undefined` to an optional property is rejected under this tsconfig.
+      ...(driveFileName !== undefined ? { driveFileName } : {}),
     });
   }
   return result;
@@ -270,7 +277,14 @@ export async function retrySingleFile(
         prepared,
         { tx: scanTx, withShowLock: async (_driveFileId, fn) => fn(scanTx) },
       );
-      return retrySingleFileFinalize(tx, driveFileId, wizardSessionId, scan, recheck.pending);
+      return retrySingleFileFinalize(
+        tx,
+        driveFileId,
+        wizardSessionId,
+        scan,
+        recheck.pending,
+        metadata.name,
+      );
     },
     { tryOnly: false },
   );
