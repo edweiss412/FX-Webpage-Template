@@ -208,7 +208,9 @@ gate would **fail (or invite a stale-gate bypass)** on the next parser rollout. 
 - Add `| { field: "showEnd" }` to the `DayExpectation` union (`:18-21`) with a comment.
 - Flip `:38` → `"2025-05-14": { field: "showEnd" }, // "GS: ... - 6:00 PM" — end-only, decoded as showEnd`.
 - Add `case "showEnd": return day.showEnd != null;` to the `dayHasExpectedField` switch (`:87-94`), plus
-  a `default` branch with a `const _exhaustive: never = exp.field` guard. The repo does not enable
+  a `default` branch with a `const _exhaustive: never = exp` guard (the switch is exhaustive, so `exp`
+  narrows to `never` in `default`; assigning `exp.field` there would itself be a `never`-access error).
+  The repo does not enable
   `noImplicitReturns`, so a missing case would otherwise return `undefined` at runtime; the explicit
   `never` guard makes omitting a case a **compile error** (verified by `pnpm typecheck`, not a
   `tsc | grep` pipeline which masks errors).

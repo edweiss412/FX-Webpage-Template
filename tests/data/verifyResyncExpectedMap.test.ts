@@ -4,12 +4,13 @@ import type { RunOfShow } from "@/lib/parser/types";
 // Mirror of scripts/verify-resync-scheduletimes.ts dayHasExpectedField — kept
 // here so the per-field, per-ISO contract is CI-pinned (the script itself is a
 // deploy-time live-DB artifact, not runnable in CI).
-type DayExpectation = { field: "entries" | "window" | "showStart" | "unparsed" };
+type DayExpectation = { field: "entries" | "window" | "showStart" | "showEnd" | "unparsed" };
 function dayHasExpectedField(day: RunOfShow[string] | undefined, exp: DayExpectation): boolean {
   if (exp.field === "unparsed") return day === undefined;
   if (day === undefined) return false;
   if (exp.field === "entries") return day.entries.length > 0;
   if (exp.field === "window") return day.window != null;
+  if (exp.field === "showEnd") return day.showEnd != null;
   return day.showStart != null;
 }
 
@@ -65,5 +66,22 @@ describe("verify-resync expected-map contract (per-ISO, per-field — NOT ≥1 d
       "2025-05-14",
     );
     expect(dayHasExpectedField(undefined, { field: "unparsed" }) && warned).toBe(true);
+  });
+
+  test("#307 present showEnd-only day passes { field: 'showEnd' }", () => {
+    expect(
+      dayHasExpectedField(
+        { entries: [], showStart: null, showEnd: "6:00 PM", window: null },
+        { field: "showEnd" },
+      ),
+    ).toBe(true);
+  });
+  test("#307 showEnd expectation FAILS when showEnd absent", () => {
+    expect(
+      dayHasExpectedField(
+        { entries: [], showStart: null, showEnd: null, window: null },
+        { field: "showEnd" },
+      ),
+    ).toBe(false);
   });
 });

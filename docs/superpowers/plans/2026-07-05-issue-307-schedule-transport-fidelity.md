@@ -814,8 +814,11 @@ case silently returns `undefined` at runtime instead of failing to compile — C
     case "showEnd":
       return day.showEnd != null;
     default: {
-      // Exhaustiveness guard: a new DayExpectation.field with no case is a COMPILE error here.
-      const _exhaustive: never = exp.field;
+      // Exhaustiveness guard: the switch is already exhaustive, so `exp` narrows to
+      // `never` here; a new DayExpectation variant with no case leaves `exp` non-never
+      // and this assignment becomes a COMPILE error. (Assign `exp`, not `exp.field` —
+      // on an exhaustive switch `exp.field` would itself be a `never` access error.)
+      const _exhaustive: never = exp;
       return _exhaustive;
     }
 ```
