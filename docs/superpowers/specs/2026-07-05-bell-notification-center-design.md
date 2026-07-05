@@ -152,19 +152,21 @@ New route `POST /api/admin/alerts/bell/token` (admin-gated, sibling of the route
 
 ## 6. Feed semantics (grain & contract)
 
-### 6.1 Source queries (both bounded — `tests/admin/_metaBoundedReads.test.ts` requires `.limit/.range/count:"exact"` on every `admin_alerts` read)
+### 6.1 Source read — entry grain, one read-only RPC (adversarial R5 restructure)
 
-Server-side in `lib/admin/bellFeed.ts` (new), template: `loadHealthAlerts` (`lib/admin/healthAlerts.ts:86-93` — select `id, code, show_id, context, occurrence_count, raised_at, shows(slug)`, plus `last_seen_at, resolved_at` here):
+Capping raw resolution events before grouping would let one flappy key consume the whole cap and starve distinct history entries (R5 finding 1). The source read is therefore defined **at entry grain in SQL**: a read-only SECURITY DEFINER function `get_bell_feed_rows(p_history_days int, p_cap int)` (execute REVOKEd from `public, anon, authenticated`, granted to `service_role` only — same lockdown form as `upsert_admin_alert`, `supabase/migrations/20260505000000_upsert_admin_alert.sql`), called from the feed/count routes via the service-role client. Internally:
 
-- **Unresolved**: `resolved_at is null`, audience-scoped code filter (§6.3), `order last_seen_at desc`, `.limit(bell_feed_cap)`.
-- **Resolved window**: `resolved_at >= now() - bell_history_days`, same code filter, `order resolved_at desc`, `.limit(bell_feed_cap)`.
+- **Active arm**: all `resolved_at is null` rows — already entry-grain, guaranteed by the partial unique index — ordered by `greatest(raised_at, last_seen_at) desc`, `limit p_cap`.
+- **History arm**: `distinct on (coalesce(show_id::text,''), code)` over rows with `resolved_at >= now() - p_history_days`, keeping the latest resolution per key (`order by key, resolved_at desc`), excluding keys present in the active arm (their history folds into the active entry's occurrence sum instead), ordered by `resolved_at desc`, `limit p_cap`.
+- **Occurrence aggregate**: one CTE computes, per key, `resolved_occurrence_sum = sum(occurrence_count)` over resolved rows inside the window; returned as a column on both arms.
+- Returns one row per entry: latest-row fields (`id, code, show_id, context, occurrence_count, raised_at, last_seen_at, resolved_at`), `slug` (join `shows`), `resolved_occurrence_sum`, `is_active`, plus `arm_hit_cap` flags so the route can set `truncated` without a second read.
+- Audience scoping happens **inside the RPC, before the caps**: the route derives the viewer-appropriate exclusion set from the catalog-derived TS constants (§6.3) and passes it as `p_excluded_codes text[]` (`code <> all(p_excluded_codes)` in both arms). Scoping after the cap would let a dev-only health flood starve Doug's feed; passing the set in keeps the catalog-derived TS constants the single source of truth (no SQL copy of the code lists to drift).
 
 | Unit | Grain | Contract |
 |------|-------|----------|
-| unresolved query | one row per open (show_id, code) — guaranteed by the partial unique index | raw rows, ≤ cap |
-| resolved query | one row per resolution event | raw rows, ≤ cap |
-| `groupBellEntries()` (pure TS) | **one entry per (show_id ?? '', code)** | `BellEntry` (below), ≤ cap after truncation, `truncated` flag when either source query hit its limit or grouping dropped entries beyond cap |
-| feed route | one response per viewer | entries + viewer-relative `unread` flags + `unseenCount` |
+| `get_bell_feed_rows` RPC | **one row per (show_id ?? '', code)** — both arms | entry-grain rows ≤ 2×p_cap, occurrence sums over the window, internal LIMITs (bounded-by-construction; §16) |
+| `shapeBellEntries()` (pure TS) | one `BellEntry` per RPC row | merges arms, computes `occurrences` (§6.2), truncates to `feedCap` entries total (active first), sets `truncated` from `arm_hit_cap` ∪ TS truncation |
+| feed route | one response per viewer | entries + viewer-relative `unread` flags + `unseenCount` + `seenThrough` |
 
 ### 6.2 `BellEntry` shape
 
@@ -177,7 +179,7 @@ type BellEntry = {
   state: "active" | "history";      // any unresolved row → active
   activityAt: string;       // greatest(raised_at, last_seen_at) of latest row
   resolvedAt: string | null;        // latest row's resolved_at (history only)
-  occurrences: number;      // latest row's occurrence_count + Σ occurrence_count of older same-key rows in the window
+  occurrences: number;      // active: latest row's occurrence_count + resolved_occurrence_sum (window); history: resolved_occurrence_sum
   unread: boolean;          // §3.1 rule, viewer-relative
   identity: SerializedAlertIdentity | null;  // via the §5.1 chokepoint, includePii: true (admin web surface)
   isAutoResolving: boolean; // lib/adminAlerts/audience.ts:isAutoResolving
@@ -328,7 +330,7 @@ No zombie flags: every row above has all four columns filled.
 
 | Registry | Action |
 |----------|--------|
-| `tests/admin/_metaBoundedReads.test.ts` | new feed queries register (both bounded) |
+| `tests/admin/_metaBoundedReads.test.ts` | the feed read moves into `get_bell_feed_rows` (internal `limit p_cap` per arm, bounded by construction — a SQL test pins both LIMITs); any remaining direct `.from("admin_alerts")` read this feature adds still registers here |
 | `tests/admin/_metaInfraContract.test.ts` / `tests/auth/_metaInfraContract.test.ts` | every new Supabase call site registers or carries `// not-subject-to-meta` |
 | `tests/admin/_metaManualResolveRegistry.test.ts` | bell registers as a manual-resolve surface (inbox-routed refusal is structural — those codes never enter the feed, but the registry pins it) |
 | `tests/messages/_metaAdminAlertCatalog.test.ts` | unchanged (no new producer codes) — `ALERT_BELL_FEED_FAILED` is UI-only, not an `upsert` code; declared N/A with this reason |
@@ -341,7 +343,7 @@ No zombie flags: every row above has all four columns filled.
 
 ## 17. Testing strategy
 
-- **Unit**: `groupBellEntries` (grouping, occurrence aggregation, truncation flag, activity ordering, state assignment); unread derivation (absence / stale `read_at` / re-bump / re-raise); **read race**: a row re-bumped between feed snapshot and click stays unread after the read POST (read stamps `seenActivityAt`, not now()); **cap boundary**: with unseen entries beyond `bell_feed_cap`, count and feed agree, open doesn't permanently absorb the dropped entry, and its re-bump re-enters unread (§6.4); audience scoping matrix (non-dev vs dev × health/inbox/info/uncataloged codes — derive expectations from catalog-derived sets, never hardcoded code lists, so catalog edits don't rot the test); badge watermark arithmetic incl. no-row viewer; **watermark race**: an alert raised between the feed snapshot (`seenThrough`) and the open POST remains unseen after open (derive the interleaving from fixture timestamps, not sleeps); monotonic no-regress when a stale `seenThrough` arrives after a newer one.
+- **Unit + SQL**: `get_bell_feed_rows` entry-grain guarantees — **starvation regression**: many resolved rows for one flappy key collapse to one entry and do NOT displace other distinct history entries (R5 finding 1); occurrence sums cover the whole window; active-arm keys excluded from the history arm; `p_excluded_codes` filters before the cap (a health flood doesn't starve a non-dev feed). `shapeBellEntries` (arm merge, occurrence math, truncation flag, activity ordering, state assignment); unread derivation (absence / stale `read_at` / re-bump / re-raise); **read race**: a row re-bumped between feed snapshot and click stays unread after the read POST (read stamps `seenActivityAt`, not now()); **cap boundary**: with unseen entries beyond `bell_feed_cap`, count and feed agree, open doesn't permanently absorb the dropped entry, and its re-bump re-enters unread (§6.4); audience scoping matrix (non-dev vs dev × health/inbox/info/uncataloged codes — derive expectations from catalog-derived sets, never hardcoded code lists, so catalog edits don't rot the test); badge watermark arithmetic incl. no-row viewer; **watermark race**: an alert raised between the feed snapshot (`seenThrough`) and the open POST remains unseen after open (derive the interleaving from fixture timestamps, not sleeps); monotonic no-regress when a stale `seenThrough` arrives after a newer one.
 - **Route tests**: auth guards (non-admin 403/404 contract, config non-dev), `read` visibility fail-closed (non-dev marking a health alert id → 404, no row written), bounded-read registration, no-store headers, config 400-rejection bounds agree with the SQL CHECK ranges (derive both from one shared constant), and a direct authenticated PostgREST `select` on `admin_alert_reads` / `admin_bell_state` is refused (§3.3 full lockdown). A non-default configured `bell_feed_cap` propagates into the feed response's `feedCap` and renders in the truncation row + dev footer (R2 finding 2).
 - **Anti-tautology**: assertions about what the panel shows scope their extraction to the panel subtree with sibling surfaces (AppHealthIndicator, per-show section) removed from the cloned DOM; badge-count tests assert against the feed fixture's computed unseen set, not against a count the component also renders. Concrete failure modes stated per test in the plan.
 - **Real-browser (Playwright)**: panel open/close + focus trap; unread dot fixed-slot no-layout-shift; badge slot; the §14 assertions.
