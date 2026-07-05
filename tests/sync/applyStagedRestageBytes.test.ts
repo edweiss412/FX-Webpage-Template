@@ -26,6 +26,8 @@ import {
   type ApplyStagedDeps,
   type PendingSyncForApply,
 } from "@/lib/sync/applyStaged";
+import { WizardSessionSupersededRollbackError } from "@/lib/sync/wizardSessionRollback";
+import { WIZARD_SESSION_SUPERSEDED_DURING_SCAN } from "@/lib/sync/runOnboardingScan";
 
 const WIZARD_SESSION_ID = "11111111-1111-4111-8111-111111111111";
 const DRIVE_FILE_ID = "drive-file-1";
@@ -67,11 +69,18 @@ function driveMeta(): DriveListedFile & { trashed?: boolean } {
 }
 
 // Minimal locked tx that only answers the assertShowLockHeld pg_locks probe.
+// holdPort() backs the under-lock restage phase (stageWizardRestageInline
+// constructs a PostgresOnboardingScanTx from it) — unused when
+// scanOnboardingPreparedFiles is mocked directly, but stageWizardRestageInline
+// throws before that if holdPort() is missing/falsy.
 function fakeLockedTx(): LockedShowTx<SyncPipelineTx> {
   const tx = {
     async queryOne<T>(sql: string) {
       if (/pg_locks/i.test(sql)) return { held: true } as T;
       throw new Error(`unexpected SQL in fakeLockedTx: ${sql}`);
+    },
+    holdPort() {
+      return { unsafe: async () => [] };
     },
   };
   return tx as unknown as LockedShowTx<SyncPipelineTx>;
@@ -125,5 +134,52 @@ describe("wizard restage fetches xlsx bytes (audit idx14/#77)", () => {
       DRIVE_FILE_ID,
       HEAD_REVISION_ID,
     );
+  });
+
+  // Task 7 fix round 1: the in-scan supersession throw (applyStaged.ts ~1687,
+  // stageWizardRestageInline) must populate context.driveFileName from
+  // reverify.metadata.name — the Drive-reverified name captured BEFORE the
+  // restage, not the (here-null) staged parseResult. Drives the REAL
+  // applyStaged → applyWizardWithDriveReverify → prepareWizardRestageInline →
+  // stageWizardRestageInline chain (not a mocked throw) so a regression to
+  // that population expression fails this test.
+  test("in-scan supersession during the restage rolls back with the reverified driveFileName", async () => {
+    const scanOnboardingPreparedFiles = vi.fn(async () => ({
+      outcome: "superseded" as const,
+      code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN,
+      processed: [],
+    }));
+
+    const deps: ApplyStagedDeps = {
+      withPipelineLock: (async (_id: string, fn: (tx: LockedShowTx<SyncPipelineTx>) => unknown) =>
+        fn(fakeLockedTx())) as unknown as NonNullable<ApplyStagedDeps["withPipelineLock"]>,
+      readWizardPendingSyncForApply: vi.fn(async () => pending()),
+      readActiveWizardSession: vi.fn(async () => WIZARD_SESSION_ID),
+      readPendingFolderId: vi.fn(async () => PENDING_FOLDER_ID),
+      fetchDriveFileMetadata: vi.fn(async () => driveMeta()),
+      // Let the pre-lock prepare phase complete normally (unlike the STOP test
+      // above) so control reaches the under-lock stageWizardRestageInline.
+      prepareOnboardingFiles: vi.fn(async () => []) as unknown as NonNullable<
+        ApplyStagedDeps["prepareOnboardingFiles"]
+      >,
+      scanOnboardingPreparedFiles,
+    };
+
+    const args: ApplyStagedArgs = {
+      driveFileId: DRIVE_FILE_ID,
+      sourceScope: "wizard",
+      wizardSessionId: WIZARD_SESSION_ID,
+      stagedId: "staged-wizard",
+      reviewerChoices: [],
+      appliedByEmail: "doug@fxav.test",
+    };
+
+    const promise = applyStaged(args, deps);
+
+    await expect(promise).rejects.toBeInstanceOf(WizardSessionSupersededRollbackError);
+    await expect(promise).rejects.toMatchObject({
+      context: { attemptedAction: "apply", driveFileName: driveMeta().name },
+    });
+    expect(scanOnboardingPreparedFiles).toHaveBeenCalled();
   });
 });

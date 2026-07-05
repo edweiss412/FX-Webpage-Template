@@ -28,6 +28,7 @@ import {
   type PendingSyncForApply,
 } from "@/lib/sync/applyStaged";
 import { ASSET_RECOVERY_ALERT_FAMILY } from "@/lib/sync/assetRecovery";
+import { WizardSessionSupersededRollbackError } from "@/lib/sync/wizardSessionRollback";
 
 const logMock = vi.hoisted(() => ({
   error: vi.fn(),
@@ -1952,6 +1953,94 @@ describe("applyStaged live-scope", () => {
     expect(result).toEqual({ outcome: "wizard_superseded", code: WIZARD_SESSION_SUPERSEDED });
     expect(syncDeps.approveWizardPendingSync).toHaveBeenCalled();
     expect(syncDeps.markWizardManifestApplied).not.toHaveBeenCalled();
+  });
+
+  // Task 7 fix round 1: the recordWizardApplyHardFail !recovered throw (applyStaged.ts
+  // ~1152) must populate context.driveFileName from pending.parseResult.show.title.
+  // Drives the REAL applyStaged_unlocked/recordWizardApplyHardFail (not a mocked throw)
+  // so a regression to that population expression fails this test.
+  test("wizard-scope Apply throws the typed rollback error with driveFileName when hard-fail recovery loses the race", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const wizardPending = pending({
+      stagedId: "staged-wizard",
+      sourceKind: "onboarding_scan",
+      wizardSessionId: W1,
+      parseResult: {
+        ...parseResult(),
+        show: { ...parseResult().show, title: "Wizard Sheet Hard-Fail.xlsx" },
+      },
+    });
+    const syncDeps = {
+      ...deps(),
+      readWizardPendingSyncForApply: vi.fn(async () => wizardPending),
+      readActiveWizardSession: vi.fn(async () => W1),
+      wizardDriveReverify: {
+        outcome: "source_gone",
+        code: STAGED_PARSE_SOURCE_GONE,
+        pendingFolderId: null,
+      },
+      upsertWizardPendingIngestion: vi.fn(async () => false), // hard-fail recording loses the race
+      markWizardManifestHardFailed: vi.fn(async () => true),
+    } as ApplyStagedDeps;
+
+    const promise = applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "wizard",
+        wizardSessionId: W1,
+        stagedId: "staged-wizard",
+        reviewerChoices: [],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    await expect(promise).rejects.toBeInstanceOf(WizardSessionSupersededRollbackError);
+    await expect(promise).rejects.toMatchObject({
+      context: { attemptedAction: "apply", driveFileName: "Wizard Sheet Hard-Fail.xlsx" },
+    });
+  });
+
+  // Task 7 fix round 1: the markWizardManifestApplied !manifestApplied throw
+  // (applyStaged.ts ~1183) must also populate driveFileName from
+  // pending.parseResult.show.title, AFTER a successful approveWizardPendingSync.
+  test("wizard-scope Apply throws the typed rollback error with driveFileName when manifest apply loses the race after approval", async () => {
+    const tx = fakeTx() as LockedShowTx<FakeTx>;
+    const wizardPending = pending({
+      stagedId: "staged-wizard",
+      sourceKind: "onboarding_scan",
+      wizardSessionId: W1,
+      parseResult: {
+        ...parseResult(),
+        show: { ...parseResult().show, title: "Wizard Sheet Manifest-Race.xlsx" },
+      },
+    });
+    const syncDeps = {
+      ...deps(),
+      readWizardPendingSyncForApply: vi.fn(async () => wizardPending),
+      readActiveWizardSession: vi.fn(async () => W1),
+      approveWizardPendingSync: vi.fn(async () => true),
+      markWizardManifestApplied: vi.fn(async () => false), // supersession became visible post-approval
+    } as ApplyStagedDeps;
+
+    const promise = applyStaged_unlocked(
+      tx,
+      {
+        driveFileId: "drive-file-1",
+        sourceScope: "wizard",
+        wizardSessionId: W1,
+        stagedId: "staged-wizard",
+        reviewerChoices: [],
+        appliedByEmail: "doug@fxav.test",
+      },
+      syncDeps,
+    );
+
+    await expect(promise).rejects.toBeInstanceOf(WizardSessionSupersededRollbackError);
+    await expect(promise).rejects.toMatchObject({
+      context: { attemptedAction: "apply", driveFileName: "Wizard Sheet Manifest-Race.xlsx" },
+    });
   });
 });
 
