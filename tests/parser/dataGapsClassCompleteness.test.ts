@@ -15,7 +15,7 @@
  *     lib/parser + lib/sync, intersect the canonical MESSAGE_CATALOG (drops
  *     non-code noise, keeps only real system codes wherever/however threaded),
  *     and assert each survivor is classified — in the 42-partition OR the
- *     NON_PARSE_WARNING_CODES_IN_SYNC ignore-list. A new persisted gap code that
+ *     NON_GAP_CATALOG_CODES ignore-list. A new persisted gap code that
  *     nobody classified fails here; naming another literal is the guard WORKING.
  *
  * Residual (documented): a code that is NEVER a literal anywhere (fully
@@ -74,14 +74,19 @@ const ALL_PERSISTED_WARNING_CODES = new Set<string>([
 
 /**
  * Ignore-list — real MESSAGE_CATALOG codes that appear as literals in
- * lib/parser / lib/sync but are NOT persisted `ParseWarning`s (so they never
- * reach shows_internal.parse_warnings and are none of the guard's business).
- * They are collected by the mechanism-agnostic scan, so they MUST be listed here
- * to satisfy `collected ∩ catalog ⊆ partition ∪ ignore`. Grouped by family.
- * Bootstrapped empirically 2026-07-04 (spec §3.2); a NEW sync/admin code added as
- * a literal here fails the scan until classified — safe (fails closed).
+ * lib/parser / lib/sync but are NOT counted gap `ParseWarning`s (so they never
+ * reach the data-quality badge). This includes admin/sync control codes AND
+ * parser hardErrors (`ParseError`, no severity — fatal parse failures, a
+ * different surface from warn-severity data gaps). They are collected by the
+ * mechanism-agnostic scan, so they MUST be listed here to satisfy
+ * `collected ∩ catalog ⊆ partition ∪ ignore`. Grouped by family. Bootstrapped
+ * empirically 2026-07-04 (spec §3.2); a NEW code added as a literal fails the
+ * scan until classified — safe (fails closed).
  */
-const NON_PARSE_WARNING_CODES_IN_SYNC = new Set<string>([
+const NON_GAP_CATALOG_CODES = new Set<string>([
+  // parser hardErrors (ParseError, not a persisted ParseWarning — fatal, held for
+  // review via the parse-failure path, never counted as a warn-severity data gap)
+  "VERSION_AMBIGUOUS",
   // admin_alerts / lifecycle codes raised from the sync path (not parse warnings)
   "SHOW_FIRST_PUBLISHED",
   "SHOW_UNPUBLISHED",
@@ -196,7 +201,7 @@ describe("data-gap class completeness (drift guard)", () => {
       BENIGN_WARN_CODES,
       BENIGN_INFO_CODES,
       ASSET_WARN_CODES,
-      NON_PARSE_WARNING_CODES_IN_SYNC,
+      NON_GAP_CATALOG_CODES,
     ];
     for (let i = 0; i < buckets.length; i++) {
       for (let j = i + 1; j < buckets.length; j++) {
@@ -208,14 +213,14 @@ describe("data-gap class completeness (drift guard)", () => {
 
   it("Layer 2 — every catalog code literal in lib/parser+lib/sync is classified (gap/benign/asset/ignore)", () => {
     const unclassified = collectedRealCodes.filter(
-      (c) => !ALL_PERSISTED_WARNING_CODES.has(c) && !NON_PARSE_WARNING_CODES_IN_SYNC.has(c),
+      (c) => !ALL_PERSISTED_WARNING_CODES.has(c) && !NON_GAP_CATALOG_CODES.has(c),
     );
     // A new persisted parse-warning code (or any new sync/admin code) that nobody
     // classified lands here → add it to the correct bucket or the ignore-list.
     expect(
       unclassified,
       `Unclassified catalog code literal(s) in lib/parser+lib/sync — classify each as a data gap ` +
-        `(GAP_CLASSES), benign, asset, or add to NON_PARSE_WARNING_CODES_IN_SYNC: ${unclassified.join(", ")}`,
+        `(GAP_CLASSES), benign, asset, or add to NON_GAP_CATALOG_CODES: ${unclassified.join(", ")}`,
     ).toEqual([]);
   });
 
@@ -234,15 +239,15 @@ describe("data-gap class completeness (drift guard)", () => {
     ];
     // sanity: those two ARE in the ignore-list, so they don't trip it
     let unclassified = fakeCollected.filter(
-      (c) => !ALL_PERSISTED_WARNING_CODES.has(c) && !NON_PARSE_WARNING_CODES_IN_SYNC.has(c),
+      (c) => !ALL_PERSISTED_WARNING_CODES.has(c) && !NON_GAP_CATALOG_CODES.has(c),
     );
     expect(unclassified).toEqual([]);
     // now inject a genuinely-unclassified catalog code → the assertion must catch it
     const injected = Object.keys(MESSAGE_CATALOG).find(
-      (c) => !ALL_PERSISTED_WARNING_CODES.has(c) && !NON_PARSE_WARNING_CODES_IN_SYNC.has(c),
+      (c) => !ALL_PERSISTED_WARNING_CODES.has(c) && !NON_GAP_CATALOG_CODES.has(c),
     )!;
     unclassified = [...fakeCollected, injected].filter(
-      (c) => !ALL_PERSISTED_WARNING_CODES.has(c) && !NON_PARSE_WARNING_CODES_IN_SYNC.has(c),
+      (c) => !ALL_PERSISTED_WARNING_CODES.has(c) && !NON_GAP_CATALOG_CODES.has(c),
     );
     expect(unclassified).toContain(injected); // the guard would FAIL, as intended
   });
