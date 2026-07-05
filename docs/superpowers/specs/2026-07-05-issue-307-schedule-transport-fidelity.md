@@ -135,6 +135,32 @@ the fuzzy `COLUMN_HEADER_AUTOCORRECTED` recovery) is untouched.
 **Guard conditions.** `passengersColIdx === -1` → `[]` (was the buggy scan). `passengersColIdx >= 0`
 with empty / `-` / `\-` cell → `[]` (unchanged). Multi-name cell → `splitNames` (unchanged).
 
+### Corpus audit + ratified decision (R10 — Codex spec-review R4, HIGH: "silent data loss?")
+
+The concern: removing the no-header scan could silently drop a *real* no-header passenger assignment.
+**Corpus evidence says there are none.** Audit of all 19 transport-bearing fixtures (both renderer
+families — `fixtures/shows/raw/**` and `fixtures/shows/exporter-xlsx/**`, covering every real test show:
+ria, consultants, fixed-income, rpas, fintech, asset-mgmt, redefining-fi/RFI, east-coast, legal-forum,
+sub-advisory):
+
+- **Zero** fixtures contain a `PASSENGERS` header (the v4 Passengers column is a forward-looking feature
+  not present in any real sheet yet; only *synthetic* `transport.test.ts` v4 fixtures exercise it).
+- Therefore **every** `assigned_names` value in the real corpus today is produced by the no-header scan.
+- Inspecting each corpus transport **schedule** row: none carries a crew name in a scannable
+  (non-stage/date/time/phone) column **except** the RFI/PC show, whose `D41:D43` hold billing/cost-owner
+  scratch names (`Eric Carroll` / `Eric Weiss` / `Connor Hester` beside the `E`-column `$` costs) — i.e.
+  the #307 bug itself. Every other show's scan yields `[]` already.
+
+**Conclusion:** removing the scan loses **zero** legitimate passenger data across the entire supported
+corpus and eliminates the single real false positive. The v2 format canonically has no passenger column;
+passenger display is genuinely populated **only** via an explicit `PASSENGERS` column (v4). The user
+**ratified** "Passengers-column-only" over "keep scan, exclude cost columns" in brainstorming. No
+observability warning is added: there is demonstrably nothing to warn about, and a new warning code would
+be unrequested scope (a heavy new-§12.4-code path). Test 6 pins the no-header-with-name → `[]` regression.
+
+**EXPLICITLY DO NOT RELITIGATE:** the scan removal is corpus-evidenced (zero legit no-header passengers)
+and user-ratified. Reintroducing a scan/heuristic or a drop-warning contradicts both.
+
 ## Fix 3 — end-only show-day time
 
 **Files:** `lib/parser/types.ts`, `lib/parser/blocks/scheduleTimes.ts`,
@@ -323,9 +349,13 @@ Each test derives expectations from fixture dimensions; none is tautological.
 5. **decodeRunOfShow — showEnd round-trips + sentinel-guarded.** `{showEnd:"6:00 PM"}` survives;
    `{showEnd:"TBD"}` → null (not corrupt); `{showEnd: 5}` → corrupt. Legacy array day → `showEnd:null`.
    *Catches: decode dropping or mis-typing the new field.*
-6. **Transport — scratch names NOT harvested (the #307 repro).** v2 transport with names in a column
-   adjacent to `$` costs and no PASSENGERS header → every leg `assigned_names: []`. *Catches: the
-   all-column scan.* Expectation derived from the fixture (no passengers column present).
+6. **Transport — scratch names NOT harvested + no-header behavior is `[]` (the #307 repro + R10
+   ratified decision).** Two cases, both with `crewMembers` supplied and NO `PASSENGERS` header:
+   (a) the RFI/PC repro — names in a column adjacent to `$` costs → every leg `assigned_names: []`;
+   (b) the exact fixture Codex requested — a plain no-header transport row carrying a real roster name
+   in a scannable column → `assigned_names: []` (documents that no-header passengers are intentionally
+   unsupported, per R10). *Catches: the all-column scan; pins the ratified product decision so a future
+   change can't silently re-add the scan.* Expectations derived from the fixture (no passengers column).
 7. **Transport — passengers column still works (negative-regression).** v4 with `Passengers`
    column → names populate (existing tests `:231-243` continue to pass).
 8. **Crew ScheduleSection — end-only meta.** Fragment day with only `showEnd` → DayCard meta
