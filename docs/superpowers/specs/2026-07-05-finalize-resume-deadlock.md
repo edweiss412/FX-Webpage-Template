@@ -153,44 +153,82 @@ clean/dirty decision:
 3. `computeRescanDecision(row.parse_result, refreshedParse, priorGaps)`
    (`lib/onboarding/rescanDecision.ts:29`). DIRTY iff a decision-requiring crew
    change (MI-11..14) OR a per-class data-gap count increase.
-   - **CLEAN**: keep the row finishable with the FRESH staged identifiers
-     (`staged_id`, `staged_modified_time`) and continue processing it in the same
+   - **CLEAN**: keep the row finishable and continue processing it in the same
      per-row transaction — publishing it Live (if it was approved/checked) or
      Held (if fresh-unchecked-clean), regenerating reviewer choices for the new
      sentinel items exactly as `rescanWizardSheet`'s clean branch does
-     (`rescanWizardSheet.ts:406–436`). Because the restage set
-     `staged_modified_time = metadata.modifiedTime`, the subsequent
-     generation-scoped re-read (`route.ts:762`) matches on the fresh identifiers.
-     The operator never sees a bump.
+     (`rescanWizardSheet.ts:406–436`). **Fresh-identifier handoff (correctness-
+     critical):** the restage mints a NEW `staged_id` and `staged_modified_time`,
+     but the `row` object in `processApprovedRow` still holds the OLD ones, and
+     the generation-scoped re-read at `route.ts:762–786` pins
+     `(wizard_session_id, drive_file_id, staged_id, staged_modified_time)`. So
+     after a clean restage, `processApprovedRow` MUST re-read the row by
+     `(wizard_session_id, drive_file_id)` to obtain the fresh `staged_id` +
+     `staged_modified_time` and rebind its local `row` to them BEFORE reaching
+     `:730`'s re-read. Concretely: the inline path returns the fresh identifiers
+     from `applyRescanDecisionUnderLock`; `processApprovedRow` re-enters its
+     normal publish flow from the freshly-staged values (equivalently, restart
+     the per-row publish against the fresh row). If this rebind is skipped, the
+     `:762` re-read returns 0 rows → `demotePending` → the SAME false-positive
+     the fix was meant to remove. The operator never sees a bump only when this
+     rebind is correct; T3 asserts the published show carries the fresh
+     `staged_modified_time`.
    - **DIRTY**: demote (`RESCAN_REVIEW_REQUIRED`, carrying the decision items,
      matching `rescanWizardSheet.ts:391–403`) → returned as a per-row failure,
      surfaced for review by Thread 1.
 
-### 4.2 Reuse mechanism (single-holder lock rule — invariant 2)
+### 4.2 Reuse mechanism (single-holder lock rule — invariant 2 — AND cross-tx row-lock safety)
 
 `rescanWizardSheet` (`rescanWizardSheet.ts:195`) already implements steps 1–3,
 but it ACQUIRES its own `finalize:<session>` try-lock (`:252`),
-`app_settings FOR UPDATE` (`:260`), and `show:<drive>` lock (`:274`). Calling it
-from within a finalize batch would attempt to re-acquire `finalize:<session>`
-against finalize's own outer holder on a separate connection and FAIL (busy) —
-and would violate the single-holder rule.
+`app_settings FOR UPDATE` (`:261`), a `show:<drive>` lock (`:274`), AND it UPDATEs
+`wizard_finalize_checkpoints` (`:371`, the blocker-heal reopen). Calling it from
+within a finalize batch would fail two ways: (a) re-acquire `finalize:<session>`
+against finalize's own outer holder → busy (single-holder violation), and (b) —
+the more dangerous one — a **cross-transaction row-lock deadlock.**
 
-**Resolution:** extract `rescanWizardSheet`'s post-lock core — capture prior
-state, restage on the passed tx, `computeRescanDecision`, and the clean/dirty
-branches — into a shared helper `applyRescanDecisionUnderLock(tx, {
-wizardSessionId, driveFileId, pendingFolderId, refreshedParse, prior })` that
-takes an ALREADY-LOCKED tx and NEVER acquires `finalize:`, `app_settings`, or a
-NEW `show:` lock (it asserts the show lock is held, mirroring finalize's existing
-`adoptShowLockHeld` posture, `route.ts` around `:751`). Both callers use it:
+**Connection topology (verified).** Finalize's outer transaction
+(`defaultWithTx`, `route.ts:161`) and each per-row transaction (`defaultWithRowTx`,
+`route.ts:174`) open **separate `postgres()` connections** — they are distinct
+DB transactions, not nested savepoints. The OUTER tx holds, for the ENTIRE batch
+loop: `app_settings FOR UPDATE` (`route.ts:290–292`) and
+`wizard_finalize_checkpoints FOR UPDATE` (`ensureCheckpoint`, `route.ts:324–326`).
+The existing per-row processing deliberately writes ONLY `pending_syncs`,
+`onboarding_scan_manifest`, `shows`, `shows_pending_changes`, audit — it NEVER
+touches `app_settings` or `wizard_finalize_checkpoints`, precisely because a
+per-row write to a row the outer tx holds `FOR UPDATE` would block forever on the
+outer tx (which cannot commit until the row finishes) → self-deadlock.
 
-- `rescanWizardSheet` keeps its own lock acquisition, then calls the core.
-- `processApprovedRow` calls the core under finalize's already-held locks.
+**Resolution:** the shared helper `applyRescanDecisionUnderLock(tx, {
+wizardSessionId, driveFileId, pendingFolderId, refreshedParse, prior })` extracts
+ONLY the per-row-surface part of `rescanWizardSheet`'s core: capture prior state,
+restage via `scanOnboardingPreparedFiles` (injecting a PASS-THROUGH
+`withShowLock` that adopts the held lock and acquires nothing), `computeRescanDecision`,
+and the clean/dirty `pending_syncs` + `onboarding_scan_manifest` +
+`shows_pending_changes` writes for the single `driveFileId`. The helper MUST NOT:
 
-The advisory-lock holder topology is therefore UNCHANGED — `finalize:<session>`
-has exactly one holder (finalize's outer tx), `show:<drive>` exactly one
-(finalize's per-row tx). The extracted core is lock-free by contract. The
-structural guard `tests/auth/advisoryLockRpcDeadlock.test.ts` is extended to pin
-that `applyRescanDecisionUnderLock` acquires no advisory lock.
+- acquire ANY advisory lock (`finalize:`, `app_settings`, `show:`) — it asserts
+  the `show:` lock is held via finalize's existing `adoptShowLockHeld` posture
+  (`route.ts:991`), never acquires;
+- read or write `app_settings` (the outer tx holds it `FOR UPDATE`);
+- write `wizard_finalize_checkpoints` (the outer tx holds it `FOR UPDATE`). The
+  checkpoint blocker-heal reopen (`rescanWizardSheet.ts:371`) and the
+  `app_settings` session re-check (`:261`) STAY in `rescanWizardSheet`'s own
+  wrapper — they are correct there (its standalone tx legitimately owns those)
+  and are NOT part of the shared helper.
+
+`rescanWizardSheet` therefore = its lock acquisition + `app_settings` re-check +
+`applyRescanDecisionUnderLock` + its checkpoint blocker-heal. `processApprovedRow`
+= `applyRescanDecisionUnderLock` under the already-held locks, nothing checkpoint-
+or `app_settings`-related (the outer tx owns the checkpoint; finalize does not
+reopen it mid-batch — it is already `in_progress`).
+
+The advisory-lock holder topology is UNCHANGED — `finalize:<session>` one holder
+(outer tx), `show:<drive>` one holder (per-row tx). The structural guard
+`tests/auth/advisoryLockRpcDeadlock.test.ts` is extended to pin that
+`applyRescanDecisionUnderLock` (a) acquires no advisory lock and (b) issues no
+`app_settings` / `wizard_finalize_checkpoints` write (a static-source assertion,
+so a future edit that reintroduces the cross-tx deadlock fails at CI).
 
 ### 4.3 Drive-light contract change (§5.6 / §5.7)
 
@@ -352,6 +390,17 @@ are plain conditional server render. Transition-audit task therefore asserts
   `rescanWizardSheet`'s pre-lock read would break batch atomicity + the
   single-holder topology; the extracted core is lock-free by contract and pinned
   by the deadlock meta-test.
+- **Cross-tx row-lock deadlock is explicitly designed out** (§4.2). The outer
+  finalize tx and per-row tx are SEPARATE connections; the outer tx holds
+  `app_settings` + `wizard_finalize_checkpoints` `FOR UPDATE` across the batch.
+  The shared core touches NEITHER table — checkpoint reopen + `app_settings`
+  re-check stay in `rescanWizardSheet`'s standalone wrapper. Pinned by the
+  extended deadlock meta-test (no-`app_settings`/no-checkpoint-write assertion).
+  Do not relitigate "reuse the whole rescan core" — that path deadlocks.
+- **Fresh-identifier rebind after clean restage is mandatory** (§4.1). The
+  restage mints new `staged_id`/`staged_modified_time`; the `:762` re-read pins
+  them, so `processApprovedRow` must continue from the fresh values or it
+  spuriously demotes. Covered by T3.
 - **Fail-closed on inline re-parse Drive failure** (§4.4): a row we cannot
   re-verify is demoted, never published. Matches the existing `DRIVE_FETCH_FAILED`
   posture.
@@ -388,9 +437,16 @@ are plain conditional server render. Transition-audit task therefore asserts
 - **T5 (Thread 3 fail-closed):** Drive export throws during inline re-parse →
   `DRIVE_FETCH_FAILED` demote, row not published. Catches: publishing a row we
   could not re-verify.
-- **T6 (Thread 3 topology):** `applyRescanDecisionUnderLock` acquires no
-  advisory lock (deadlock meta-test). Catches: a nested `finalize:`/`show:`
-  acquisition reintroducing the M5-R20 deadlock class.
+- **T6 (Thread 3 topology):** `applyRescanDecisionUnderLock` (a) acquires no
+  advisory lock and (b) issues no `app_settings` / `wizard_finalize_checkpoints`
+  write (static-source deadlock meta-test). Catches: a nested `finalize:`/`show:`
+  acquisition reintroducing the M5-R20 deadlock class, AND a per-row write to an
+  outer-tx-held `FOR UPDATE` row (the cross-tx deadlock §4.2 designs out).
+- **T6b (Thread 3 clean, DB-level):** a `.db.test.ts` runs a real clean inline
+  restage inside a finalize batch against Postgres and asserts the batch COMMITS
+  (does not hang/deadlock) and the show is published with the fresh
+  `staged_modified_time`. Catches: the cross-tx deadlock escaping the static
+  meta-test (fake-tx unit suites never execute the SQL that would block).
 - **T7 (Thread 2 stuck):** a fresh (<24h) session with 0 finishable + ≥1
   unresolved rows is discarded successfully; published shows survive; unpublished
   interim shows deleted. Catches: the 24h gate trapping a stuck operator.
