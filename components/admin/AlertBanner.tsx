@@ -541,7 +541,10 @@ export async function AlertBanner() {
               // alert-resolve-truthing §4.3: auto-resolving codes suppress the manual
               // resolve/dismiss affordance; this expanded-panel note explains why there is
               // no button. `basis-full` drops it onto its own row below Raised / +N more.
-              <p data-testid="admin-alert-autoclear" className="basis-full text-text-subtle">
+              <p
+                data-testid="admin-alert-autoclear"
+                className="basis-full text-xs text-text-subtle"
+              >
                 {autoResolveNote(alert.code)}
               </p>
             ) : null}
