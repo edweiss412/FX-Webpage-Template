@@ -19,9 +19,10 @@ import type { BellCountResult } from "@/lib/admin/bellFeed";
 let mockPathname = "/admin";
 vi.mock("next/navigation", () => ({ usePathname: () => mockPathname }));
 
+const removeChannelMock = vi.fn();
 vi.mock("@/lib/supabase/browser", () => ({
   getSupabaseBrowserClient: () => ({
-    removeChannel: vi.fn(),
+    removeChannel: (...args: unknown[]) => removeChannelMock(...args),
   }),
 }));
 
@@ -37,6 +38,7 @@ beforeEach(() => {
   fetchSpy.mockReset();
   vi.stubGlobal("fetch", fetchSpy);
   subscribeToBellMock.mockReset();
+  removeChannelMock.mockReset();
   // Default: realtime mount-once effect's token POST + subscribe never
   // resolves during these tests (a pending fetch is inert for assertions
   // scoped to sources 1-3). Individual tests override as needed.
@@ -204,5 +206,66 @@ describe("useBellBadge", () => {
     onChanged?.();
 
     await waitFor(() => expect(result.current.count).toBe(42));
+  });
+
+  it("realtime failure retries exactly ONCE (re-mint + new channel), then gives up silently on a second failure (spec §5.4 bounded retry)", async () => {
+    let tokenCallCount = 0;
+    fetchSpy.mockImplementation((url: string) => {
+      if (url === "/api/admin/alerts/bell/token") {
+        tokenCallCount += 1;
+        return Promise.resolve(okResponse({ jwt: `jwt-${tokenCallCount}`, exp: 123 }));
+      }
+      if (url === "/api/admin/alerts/bell/count") {
+        return Promise.resolve(okResponse({ count: 99 }));
+      }
+      return Promise.reject(new Error(`unexpected fetch: ${url}`));
+    });
+
+    const statusCallbacks: Array<(status: string) => void> = [];
+    const channels: object[] = [];
+    subscribeToBellMock.mockImplementation(
+      (
+        _supabase: unknown,
+        _jwt: string,
+        _onChanged: () => void,
+        onStatus?: (status: string) => void,
+      ) => {
+        const channel = {};
+        channels.push(channel);
+        if (onStatus) statusCallbacks.push(onStatus);
+        return { channel, subscribed: new Promise(() => {}) };
+      },
+    );
+
+    const { result, rerender } = renderBadgeHook({ kind: "ok", count: 1 });
+
+    await waitFor(() => expect(subscribeToBellMock).toHaveBeenCalledTimes(1));
+    expect(tokenCallCount).toBe(1);
+
+    // First failure → exactly one bounded retry: tear down the failed
+    // channel, re-mint a fresh token, open a new channel.
+    statusCallbacks[0]?.("CHANNEL_ERROR");
+
+    await waitFor(() => expect(subscribeToBellMock).toHaveBeenCalledTimes(2));
+    expect(tokenCallCount).toBe(2);
+    expect(subscribeToBellMock.mock.calls[1]?.[1]).toBe("jwt-2");
+    expect(removeChannelMock).toHaveBeenCalledTimes(1);
+    expect(removeChannelMock).toHaveBeenCalledWith(channels[0]);
+
+    // Second failure (on the retried channel) → NO further re-mint or
+    // resubscribe: the hook degrades silently rather than looping.
+    statusCallbacks[1]?.("CHANNEL_ERROR");
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(subscribeToBellMock).toHaveBeenCalledTimes(2);
+    expect(tokenCallCount).toBe(2);
+    expect(removeChannelMock).toHaveBeenCalledTimes(1); // no further teardown attempt
+
+    // Pathname-refetch mode still functions after realtime gives up.
+    mockPathname = "/admin/settings";
+    rerender({ value: { kind: "ok", count: 1 } });
+    await waitFor(() => expect(result.current.count).toBe(99));
+    expect(result.current.degraded).toBe(false);
   });
 });
