@@ -714,16 +714,21 @@ asserts the scratch names as expected output:
 ```
 
 These are the #307 false positives (col-D billing names beside the `$` costs — the B1 fix only stopped
-the col0 stage-label read, still harvested col D). Flip both to `[]` and update the `describe`/comment to
-the passengers-column-only contract (RFI/PC has no `PASSENGERS` header → no passengers):
+the col0 stage-label read, still harvested col D). Flip **all three** to `[]` and update the
+`it`-name/comment to the passengers-column-only contract (RFI/PC has no `PASSENGERS` header → no
+passengers):
 
 ```ts
-    // #307: RFI/PC has no PASSENGERS column; the col-D names are billing scratch, not passengers.
+    // #307: RFI/PC has no PASSENGERS column; the col-D names (D41:D43, beside the $ costs)
+    // are billing scratch, not passengers → assigned_names is [] for every leg.
     expect(byStage["Pick Up Warehouse"]).toEqual([]);
     expect(byStage["Drop Off Venue"]).toEqual([]);
+    expect(byStage["Pick Up Venue"]).toEqual([]);
 ```
 
-Keep the existing `not.toContain(e.stage)` loop (`:668`) — it still holds (`[]` contains nothing).
+Rename the `it` from "maps real crew (col3), not the stage label (col0)" to reflect the new contract
+(e.g. "no PASSENGERS header → assigned_names [] for every leg (#307)"). Keep the existing
+`not.toContain(e.stage)` loop (`:668`) — it still holds (`[]` contains nothing).
 
 - [ ] **Step 5: Run tests to verify pass (incl. regressions + reconciled fixture)**
 
@@ -799,13 +804,20 @@ Flip the RFI Day-2 expectation (`:38`):
 ```ts
     "2025-05-14": { field: "showEnd" }, // "GS: ... - 6:00 PM" — end-only, decoded as showEnd
 ```
-Add the switch case (in `dayHasExpectedField`, after `case "showStart"`, `:92-93`):
+Add the switch case (in `dayHasExpectedField`, after `case "showStart"`, `:92-93`) AND a trailing
+compile-time exhaustiveness guard (the repo does NOT set `noImplicitReturns`, so without this a missing
+case silently returns `undefined` at runtime instead of failing to compile — Codex plan-review R5):
 
 ```ts
     case "showStart":
       return day.showStart != null;
     case "showEnd":
       return day.showEnd != null;
+    default: {
+      // Exhaustiveness guard: a new DayExpectation.field with no case is a COMPILE error here.
+      const _exhaustive: never = exp.field;
+      return _exhaustive;
+    }
 ```
 Recovered-content predicate (`:168`):
 
@@ -813,10 +825,12 @@ Recovered-content predicate (`:168`):
       (d) => d.entries.length > 0 || d.showStart != null || d.showEnd != null || d.window != null,
 ```
 
-- [ ] **Step 5: Run tests + typecheck the script**
+- [ ] **Step 5: Run mirror tests + a REAL typecheck of the whole project (incl. the script)**
 
-Run: `npx vitest run tests/data/verifyResyncExpectedMap.test.ts && npx tsc --noEmit -p tsconfig.json 2>&1 | grep verify-resync || echo "script typechecks"`
-Expected: PASS; the exhaustive `switch` compiles (case added).
+Run: `npx vitest run tests/data/verifyResyncExpectedMap.test.ts && pnpm typecheck`
+Expected: PASS. `pnpm typecheck` compiles the whole project (the script included) and FAILS on any type
+or exhaustiveness regression — unlike a `tsc | grep` pipeline, which returns success even when errors
+match the grep. If the `showEnd` case were omitted, the `_exhaustive: never` assignment would error here.
 
 - [ ] **Step 6: Commit**
 
