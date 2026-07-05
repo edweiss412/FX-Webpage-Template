@@ -142,6 +142,7 @@ Produces:
 - `Phase1Result` variant: `{ outcome:"shrink_held"; code:string; message:string; heldModifiedTime:string; shrinkItems:TriggeredReviewItem[]; showId?:string|null }`. (`code:"RESYNC_SHRINK_HELD"` is a plain string on a `code:string` field — **no** `AdminAlertCode`-union dependency, so this task compiles before the union member exists.)
 - `Phase1Tx.updateShowShrinkHeld(driveFileId, {message}): Promise<string|null|void>` (interface) **and** its `PostgresPipelineTx` impl (mirror `updateShowParseError`).
 - `describeShrink(items, priorParseResult, nextParseResult): string`.
+- `ProcessOneFileResult` variant `{ outcome:"shrink_held"; code:string; showId?:string|null; detail:string; heldModifiedTime:string }` **and** the minimal caller STOP branch in `processOneFile_unlocked` that returns it before `runPhase2_unlocked` (data-safety — Codex plan-R2). Task 2 enhances this branch with the alert raise.
 
 **Step 1a — failing test** in `tests/sync/phase1.decision-rule.test.ts`.
 
@@ -346,17 +347,60 @@ Hold branch — insert **immediately after** `reviewItems` is computed and the M
   }
 ```
 
-> The `phase1` hold branch calls `tx.updateShowShrinkHeld`; in `processOneFile` the tx is this real `PostgresPipelineTx` (impl above), and unit tests supply a fake tx that stubs the method (the test asserts it was called). No consumer of the new `Phase1Result` `shrink_held` variant exists yet — `processOneFile_unlocked` uses fall-through `if`s (no `assertNever`), so an unhandled variant compiles; the caller raise branch lands in Task 2.
+> The `phase1` hold branch calls `tx.updateShowShrinkHeld`; in `processOneFile` the tx is this real `PostgresPipelineTx` (impl above), and unit tests supply a fake tx that stubs the method (the test asserts it was called).
 
-**Step 1d — run, confirm green:** `pnpm vitest run tests/sync/phase1.decision-rule.test.ts && pnpm typecheck`.
+**CRITICAL — minimal caller STOP branch (Codex plan-R2 fix).** An unhandled `shrink_held` variant *compiles*, but at RUNTIME `processOneFile_unlocked` handles only `hard_fail`/`stage`/`defer` then **falls through to `runPhase2_unlocked` (apply)** — so without a caller branch, a `shrink_held` phase1 result would set `last_sync_status='shrink_held'` AND STILL CLOBBER the roster. The phase1 return path and the caller *stop* path are therefore **inseparable** and BOTH land in Task 1. This task adds a **minimal** caller branch that only RETURNS (no alert yet — the alert-raise + resolve enhancement lands in Task 2, co-located with the union/constant it is grep-coupled to).
 
-**Step 1e — commit:** `test(sync): shrink_held phase1 decision cases` + `feat(sync): hold material re-sync shrinkage (MI-6/MI-7) retaining last-good` (test-then-impl per TDD; the impl commit includes both the `phase1.ts` hold branch/types and the `runScheduledCronSync.ts` `updateShowShrinkHeld` impl so the class compiles).
+Add the `ProcessOneFileResult` `shrink_held` variant (`lib/sync/runScheduledCronSync.ts:210`):
+
+```ts
+  | { outcome: "shrink_held"; code: string; showId?: string | null; detail: string; heldModifiedTime: string }
+```
+
+Minimal caller stop branch — insert in `processOneFile_unlocked` immediately after the `hard_fail` branch (`:2807`), BEFORE the `stage` branch, so control never reaches `runPhase2_unlocked`:
+
+```ts
+  if (phase1.outcome === "shrink_held") {
+    // Retain last-good: STOP before Phase 2. (Task 2 enhances this branch to also raise
+    // RESYNC_SHRINK_HELD + resolve stale peers — those are grep-coupled to SYNC_PROBLEM_CODES.)
+    const result = {
+      outcome: "shrink_held" as const,
+      code: phase1.code,
+      showId: phase1.showId ?? null,
+      detail: phase1.message,
+      heldModifiedTime: phase1.heldModifiedTime,
+    };
+    await logSync(txDeps, driveFileId, result);
+    return result;
+  }
+```
+
+**Step 1a(ii) — ADD a caller-level safety test** (the phase1 unit tests use a fake tx and never exercise the real caller's fall-through). In the caller test suite that exercises `hard_fail` (find with `rg "hard_fail" tests/sync`):
+
+```ts
+// Concrete failure mode (Codex plan-R2): without a caller stop branch, a shrink_held phase1
+// result falls through to runPhase2_unlocked and applyParseResult CLOBBERS the roster.
+it("shrink_held phase1 result STOPS before Phase 2 (no apply, no clobber)", async () => {
+  const runPhase2 = vi.fn();                    // spy the apply seam
+  const applyParseResult = vi.fn();
+  // deps/fakes: phase1 returns { outcome:"shrink_held", code:"RESYNC_SHRINK_HELD",
+  //   message:"crew 5→2", heldModifiedTime:"T1", showId:"show-1" }
+  const result = await processOneFile_unlocked(tx, driveFileId, "cron", fileMeta, deps);
+  expect(result.outcome).toBe("shrink_held");
+  expect(runPhase2).not.toHaveBeenCalled();
+  expect(applyParseResult).not.toHaveBeenCalled();
+});
+```
+
+**Step 1d — run, confirm green:** `pnpm vitest run tests/sync/ && pnpm typecheck` (run the whole `tests/sync` dir — the caller test lives outside `phase1.decision-rule.test.ts`).
+
+**Step 1e — commit:** `test(sync): shrink_held phase1 + caller-stop cases` + `feat(sync): hold material re-sync shrinkage (MI-6/MI-7), retaining last-good` (test-then-impl per TDD; the impl commit includes the `phase1.ts` hold branch/types, the `runScheduledCronSync.ts` `updateShowShrinkHeld` impl AND the minimal caller stop branch + `ProcessOneFileResult` variant, so no intermediate commit can clobber).
 
 ---
 
 ### Task 2 — Atomic admin-alert + sync-problem + caller bundle (union · `SYNC_PROBLEM_CODES` · `recoveryResolution` · `syncProblemCodeForStatus` · §12.4 catalog lockstep · caller raise branch · `ProcessOneFileResult` variant · file-loop revalidation · arg threading)
 
-> **Why this is ONE atomic task (Codex R1 fix).** The `AdminAlertCode` union member, the `SYNC_PROBLEM_CODES` member, and the `RESYNC_SHRINK_HELD` catalog row are each grep-/typecheck-coupled to the caller **raise site** (`upsertAdminAlert({code:"RESYNC_SHRINK_HELD"})` in `runScheduledCronSync.ts`): `tests/notify/constants-producers.test.ts:27` greps that producer for **every** `SYNC_PROBLEM_CODES` member; `_metaAdminAlertCatalog`'s orphan test + `ADMIN_ALERTS_WRITE_SITES` Record (typecheck) + `WRITE_SITES` grep require it for the union/`ADMIN_ALERTS_CODES` member; and the catalog's `adminSurface:"inbox"` triggers the inbox-contract test that needs the `ADMIN_ALERTS_LIFECYCLE` entry (→ `ADMIN_ALERTS_CODES` → raise site). So none of these can land before the raise site, and the raise site needs the union member to typecheck. They are indivisible for green-per-commit. Depends on Task 1 (the `Phase1Result` `shrink_held` variant + `updateShowShrinkHeld`). The `updateShowShrinkHeld` **impl** is NOT here — it shipped in Task 1 with its interface.
+> **Why this is ONE atomic task (Codex R1 fix).** The `AdminAlertCode` union member, the `SYNC_PROBLEM_CODES` member, and the `RESYNC_SHRINK_HELD` catalog row are each grep-/typecheck-coupled to the caller **raise site** (`upsertAdminAlert({code:"RESYNC_SHRINK_HELD"})` in `runScheduledCronSync.ts`): `tests/notify/constants-producers.test.ts:27` greps that producer for **every** `SYNC_PROBLEM_CODES` member; `_metaAdminAlertCatalog`'s orphan test + `ADMIN_ALERTS_WRITE_SITES` Record (typecheck) + `WRITE_SITES` grep require it for the union/`ADMIN_ALERTS_CODES` member; and the catalog's `adminSurface:"inbox"` triggers the inbox-contract test that needs the `ADMIN_ALERTS_LIFECYCLE` entry (→ `ADMIN_ALERTS_CODES` → raise site). So none of these can land before the raise site, and the raise site needs the union member to typecheck. They are indivisible for green-per-commit. **Depends on Task 1**, which already shipped: the `Phase1Result` + `ProcessOneFileResult` `shrink_held` variants, `updateShowShrinkHeld` (interface+impl), AND the **minimal caller stop branch** (Codex plan-R2 — so Task 1 is already data-safe: no commit clobbers). This task only ENHANCES that existing stop branch with the alert-raise + resolve. The `updateShowShrinkHeld` impl and the `ProcessOneFileResult` variant are NOT here.
 
 **Interfaces**
 
@@ -372,8 +416,7 @@ Consumes:
 Produces:
 - `RESYNC_SHRINK_HELD ∈ SYNC_PROBLEM_CODES`; `syncProblemCodeForStatus('shrink_held') === "RESYNC_SHRINK_HELD"`; `STATUS_TO_CODE.shrink_held` + SQL `CASE` map `'shrink_held'`.
 - `AdminAlertCode` union member; `RESYNC_SHRINK_HELD` §12.4 catalog row (`adminSurface:"inbox"`) + regens + families + meta-registry rows.
-- `ProcessOneFileResult` variant `{ outcome:"shrink_held"; code:string; showId?:string|null; detail:string; heldModifiedTime:string }`.
-- The caller raise branch (`upsertAdminAlert` + `resolveStaleSyncProblemAlerts_unlocked`), file-loop revalidation, and `ProcessOneFileDeps` accept-arg threading into `runPhase1`.
+- **ENHANCE** the Task-1 caller stop branch: add `upsertAdminAlert({code:"RESYNC_SHRINK_HELD", ...})` + `resolveStaleSyncProblemAlerts_unlocked(...)` (keep-own). The branch + `ProcessOneFileResult` variant already exist (Task 1); this task only ADDS the alert-raise/resolve lines. Plus file-loop revalidation for `shrink_held` and `ProcessOneFileDeps` accept-arg threading into `runPhase1`.
 
 **Spec nuances folded in (verified against the live meta-test — Global Constraint 9):**
 1. `tests/messages/_metaAdminAlertCatalog.test.ts:692` pins `INBOX_ROUTED_CODES` as **exactly** `["PARSE_ERROR_LAST_GOOD","SHEET_UNAVAILABLE"]`; adding an inbox code REQUIRES updating that assertion to the 3-code set.
@@ -383,8 +426,8 @@ Produces:
 **Step 2a — failing test.** Extend the caller-level test that already exercises the `hard_fail` branch (find with `rg "hard_fail" tests/sync`). Assert, with a `phase1` fake returning `shrink_held`:
 
 ```ts
-// Failure mode: without a caller branch, a shrink_held phase1 result falls through unhandled
-// and NO admin alert is raised (silent data-hold with no signal).
+// Failure mode: Task 1's stop branch retains last-good but raises NO signal; this asserts the
+// Task-2 enhancement raises RESYNC_SHRINK_HELD and resolves OTHER stale peers (keeping its own).
 it("shrink_held → raises RESYNC_SHRINK_HELD, resolves OTHER stale peers, keeps its own", async () => {
   const upsertAdminAlert = vi.fn();
   const resolveSpy = vi.fn();
@@ -445,29 +488,25 @@ it("resolves RESYNC_SHRINK_HELD once status returns to 'ok'", async () => {
   if (status === "shrink_held") return "RESYNC_SHRINK_HELD";
 ```
 
-`ProcessOneFileResult` (`:210`) — add:
+> `ProcessOneFileResult` `shrink_held` variant already shipped in **Task 1** (with the minimal caller stop branch). Nothing to add to the type here.
 
-```ts
-  | { outcome: "shrink_held"; code: string; showId?: string | null; detail: string; heldModifiedTime: string }
-```
-
-Caller branch — insert immediately after the `hard_fail` branch (`:2807`), before the `stage` branch:
+**ENHANCE the existing Task-1 caller stop branch** (`if (phase1.outcome === "shrink_held") { ... }`, inserted after the `hard_fail` branch `:2807`). Task 1 left it as `{ const result = {...}; await logSync(...); return result; }`. Insert the alert-raise + resolve BETWEEN `logSync` and `return result` (the union member + `SYNC_PROBLEM_CODES` + catalog all land in THIS commit, so `upsertAdminAlert`/`syncProblemCodeForStatus` typecheck). Final form of the branch:
 
 ```ts
   if (phase1.outcome === "shrink_held") {
     // detail + heldModifiedTime propagate to ProcessOneFileResult so the manual route can render
     // the confirmation prompt and echo the reviewed version back on accept (§5c). Mirrors the
     // hard_fail branch (:2777) — retain last-good, raise a per-show alert, resolve stale peers.
-    const result = {
+    const result = {                              // ← from Task 1 (unchanged)
       outcome: "shrink_held" as const,
       code: phase1.code,
       showId: phase1.showId ?? null,
       detail: phase1.message,
       heldModifiedTime: phase1.heldModifiedTime,
     };
-    await logSync(txDeps, driveFileId, result);
-    const show = await tx.readShowForPhase1(driveFileId);
-    if (show?.showId) {
+    await logSync(txDeps, driveFileId, result);   // ← from Task 1 (unchanged)
+    const show = await tx.readShowForPhase1(driveFileId);        // ← ADDED in Task 2
+    if (show?.showId) {                                          // ← ADDED in Task 2
       const upsertAdminAlert = requireTxBoundUpsertAdminAlert(txDeps, "processOneFile_unlocked");
       await upsertAdminAlert({
         showId: show.showId,
@@ -485,7 +524,7 @@ Caller branch — insert immediately after the `hard_fail` branch (`:2807`), bef
         syncProblemCodeForStatus("shrink_held"), // === "RESYNC_SHRINK_HELD" → keeps its own row
       );
     }
-    return result;
+    return result;                                // ← from Task 1 (unchanged)
   }
 ```
 
