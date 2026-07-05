@@ -164,6 +164,69 @@ describe("AgendaBreakdown — 5-state machine", () => {
     expect(s.queryByText(/Parsing agenda/i)).toBeNull();
   });
 
+  // (b2) truncated rows expand IN PLACE when the full extraction is threaded
+  // through (owner decision 2026-07-05) — the "…N more" note is no longer a
+  // dead end. Session counts derive from the fixtures (anti-tautology).
+  test("(b2) 'Show all' expands the capped schedule to the full extraction, hiding the overflow note", async () => {
+    const items: AdminAgendaItem[] = [
+      {
+        label: "AGENDA",
+        badge: null,
+        href: READY_HREF,
+        block: {
+          extraction: extraction(4),
+          droppedSessions: 2,
+          droppedDays: 0,
+          droppedTracks: 0,
+          fullExtraction: extraction(6),
+        },
+      },
+    ];
+    const cappedCount = items[0]!.block!.extraction.days.reduce((n, d) => n + d.sessions.length, 0);
+    const fullCount = items[0]!.block!.fullExtraction!.days.reduce(
+      (n, d) => n + d.sessions.length,
+      0,
+    );
+    expect(fullCount).toBeGreaterThan(cappedCount); // fixture sanity: truncation exercised
+    fetchMock.mockResolvedValue(jsonRes(200, { items }));
+    renderCard();
+    await flush();
+    const s = within(section());
+    // Collapsed: capped rows + overflow note + a toggle labeled by dropped count.
+    expect(s.getAllByTestId("agenda-session")).toHaveLength(cappedCount);
+    expect(s.getByText(/2 more sessions/i)).toBeTruthy();
+    const toggle = s.getByTestId("agenda-show-all");
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.textContent).toMatch(/^show all$/i);
+    // Expand: FULL rows, overflow note gone, toggle flips to "Show less".
+    await act(async () => {
+      toggle.click();
+    });
+    expect(s.getAllByTestId("agenda-session")).toHaveLength(fullCount);
+    expect(s.queryByText(/2 more sessions/i)).toBeNull();
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(toggle.textContent).toMatch(/show less/i);
+  });
+
+  // (b3) backward-compat: a block without `fullExtraction` (legacy/hand-built
+  // fixtures) shows the static note only — no toggle, nothing to expand into.
+  test("(b3) no 'Show all' toggle when fullExtraction is absent", async () => {
+    const legacy: AdminAgendaItem[] = [
+      {
+        label: "AGENDA",
+        badge: null,
+        href: READY_HREF,
+        block: { extraction: extraction(4), droppedSessions: 2, droppedDays: 0, droppedTracks: 0 },
+      },
+    ];
+    fetchMock.mockResolvedValue(jsonRes(200, { items: legacy }));
+    renderCard();
+    await flush();
+    const s = within(section());
+    expect(s.queryByTestId("agenda-show-all")).toBeNull();
+    expect(s.getByText(/2 more sessions/i)).toBeTruthy(); // static note still present
+  });
+
   // (c) error — 504 timeout MUST land in error (NOT ready/stale), no anchor + source link.
   test("(c) 504 timeout → error: note-only, NO Open-PDF anchor, source-sheet link present", async () => {
     fetchMock.mockResolvedValue(jsonRes(504, { status: "timeout" }));

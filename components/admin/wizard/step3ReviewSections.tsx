@@ -143,6 +143,16 @@ const ROOM_SCOPE: ReadonlyArray<{
 // 2026-07-04; PRODUCT.md "missing data is a human sentence".)
 const ROOM_SCOPE_UNSPECIFIED = "Not specified";
 
+// A discipline whose gear is effectively empty — either unparsed (null → renders
+// "Not specified") or an explicit "N/A" / "Not specified" sentinel from the
+// sheet. These sort BELOW disciplines that carry real gear (owner decision,
+// 2026-07-05) so the operator sees what's actually scoped first. Matched
+// case-insensitively; leading/trailing whitespace tolerated.
+function isEmptyScopeValue(value: string | null): boolean {
+  if (value === null) return true;
+  return /^\s*(n\/?a|not\s*specified)\s*$/i.test(value);
+}
+
 // Humanized room-kind labels for the header pill (replaces the raw enum the
 // legacy flat list rendered). RoomKind is a closed 3-value union, so the map is
 // exhaustive — a new kind is a compile error here.
@@ -369,6 +379,17 @@ function SectionFlagCallout({
   );
 }
 
+/**
+ * Sections whose §6.4 heading shows a count (owner decision, 2026-07-05): only
+ * Crew, Contacts, Rooms & scope, and Parse warnings carry a count in the review
+ * modal. Every other section drops the parenthetical — the count added noise
+ * where the body already reads as a scannable list. This gates the MODAL chrome
+ * path only; the legacy (no-chrome) BreakdownSection fallback keeps its count.
+ * The nav-rail counterpart is the per-section `railCount` in `step3Sections`
+ * (null for the same excluded set) — keep the two in lockstep.
+ */
+const COUNT_SECTIONS = new Set<SectionId>(["crew", "contacts", "rooms", "warnings"]);
+
 /** §6.4 heading row + §5.2 panel card (shared by BreakdownSection + agenda). */
 function ModalSectionChrome({
   chrome,
@@ -385,6 +406,19 @@ function ModalSectionChrome({
   // text so it reads as subordinate to its parent section, not a peer.
   const sub = headingLevel === 4;
   const Heading = sub ? "h4" : "h3";
+  // Count shows only for the counted subset (COUNT_SECTIONS). A sub-block
+  // (Diagrams, no sectionId) never shows one.
+  const showCount =
+    count !== null && chrome.sectionId !== undefined && COUNT_SECTIONS.has(chrome.sectionId);
+  // Per-section "In sheet" deep link (owner decision, 2026-07-05): every
+  // sheet-backed section heading links to the source sheet. Best-effort anchor
+  // (the staged preview carries no computed per-region anchors, so this lands on
+  // the first/INFO tab). Excluded: the Diagrams sub-block (no dfid) and the
+  // "Report an issue" section (not a parsed sheet region).
+  const sheetHref =
+    chrome.dfid && chrome.sectionId !== undefined && chrome.sectionId !== "report"
+      ? buildSheetDeepLink(chrome.dfid)
+      : null;
   return (
     <>
       <div className={`${sub ? "mb-2" : "mb-3"} flex items-center gap-2.5`}>
@@ -403,7 +437,7 @@ function ModalSectionChrome({
         >
           {label}
         </Heading>
-        {count !== null ? (
+        {showCount ? (
           <span className={`shrink-0 tabular-nums text-text-subtle ${sub ? "text-xs" : "text-sm"}`}>
             ({count})
           </span>
@@ -413,6 +447,20 @@ function ModalSectionChrome({
           <span className="shrink-0 rounded-pill border border-border-strong bg-warning-bg px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-warning-text">
             Needs a look
           </span>
+        ) : null}
+        {/* §11: instant — deliberate (link presence follows data, not a state transition) */}
+        {sheetHref ? (
+          <a
+            data-testid={`wizard-step3-card-${chrome.dfid}-section-${chrome.sectionId}-sheetlink`}
+            href={sheetHref}
+            target="_blank"
+            rel="noopener noreferrer"
+            aria-label={`Open the source sheet for ${label}`}
+            className="inline-flex min-h-tap-min shrink-0 items-center gap-1 rounded-sm text-xs font-medium whitespace-nowrap text-text-subtle transition-colors duration-fast hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+          >
+            In sheet
+            <ExternalLink aria-hidden="true" className="size-3.5" />
+          </a>
         ) : null}
       </div>
       <div
@@ -992,47 +1040,58 @@ export function RoomsBreakdown({ dfid, rooms }: { dfid: string; rooms: RoomRow[]
                     </div>
                   ) : null}
                 </div>
-                {/* Scope — ALL five disciplines; unparsed reads "Not specified". */}
+                {/* Scope — ALL five disciplines; unparsed reads "Not specified".
+                    Disciplines with real gear sort to the top; "N/A" / "Not
+                    specified" gear sinks to the bottom (owner decision,
+                    2026-07-05). Stable sort → original A→V→L→Scenic→Other order
+                    is preserved within each group. */}
                 <ul
                   data-testid={`wizard-step3-card-${dfid}-room-${i}-scope`}
                   className="flex flex-col px-3.5 py-1"
                 >
-                  {ROOM_SCOPE.map(({ label, key, Icon, color }) => {
-                    const value = hasContent(r[key]) ? (r[key] as string) : null;
-                    return (
-                      // Icon chip / eyebrow key / value tracks.
-                      <li
-                        key={label}
-                        className="grid grid-cols-[1.5rem_5rem_minmax(0,1fr)] items-start gap-x-2.5 border-b border-border py-2 last:border-0"
-                      >
-                        <span
-                          className="grid size-6 place-items-center rounded-md bg-surface-sunken"
-                          style={value ? { color } : undefined}
+                  {ROOM_SCOPE.map((scope) => ({
+                    ...scope,
+                    value: hasContent(r[scope.key]) ? (r[scope.key] as string) : null,
+                  }))
+                    .sort(
+                      (a, b) =>
+                        Number(isEmptyScopeValue(a.value)) - Number(isEmptyScopeValue(b.value)),
+                    )
+                    .map(({ label, Icon, color, value }) => {
+                      return (
+                        // Icon chip / eyebrow key / value tracks.
+                        <li
+                          key={label}
+                          className="grid grid-cols-[1.5rem_5rem_minmax(0,1fr)] items-start gap-x-2.5 border-b border-border py-2 last:border-0"
                         >
-                          <Icon
-                            aria-hidden="true"
-                            className={"size-3.5" + (value ? "" : " text-text-faint opacity-60")}
-                          />
-                        </span>
-                        <span
-                          data-testid="room-scope-key"
-                          className="pt-1 text-xs font-semibold uppercase text-text-subtle"
-                          style={EYEBROW_STYLE}
-                        >
-                          {label}
-                        </span>
-                        <span
-                          className={
-                            value
-                              ? "wrap-break-word pt-0.5 text-xs text-text"
-                              : "pt-0.5 text-xs italic text-text-subtle"
-                          }
-                        >
-                          {value ?? ROOM_SCOPE_UNSPECIFIED}
-                        </span>
-                      </li>
-                    );
-                  })}
+                          <span
+                            className="grid size-6 place-items-center rounded-md bg-surface-sunken"
+                            style={value ? { color } : undefined}
+                          >
+                            <Icon
+                              aria-hidden="true"
+                              className={"size-3.5" + (value ? "" : " text-text-faint opacity-60")}
+                            />
+                          </span>
+                          <span
+                            data-testid="room-scope-key"
+                            className="pt-1 text-xs font-semibold uppercase text-text-subtle"
+                            style={EYEBROW_STYLE}
+                          >
+                            {label}
+                          </span>
+                          <span
+                            className={
+                              value
+                                ? "wrap-break-word pt-0.5 text-xs text-text"
+                                : "pt-0.5 text-xs italic text-text-subtle"
+                            }
+                          >
+                            {value ?? ROOM_SCOPE_UNSPECIFIED}
+                          </span>
+                        </li>
+                      );
+                    })}
                 </ul>
               </li>
             );
@@ -1520,9 +1579,18 @@ function AgendaItemRow({
   state: AgendaState;
   index: number;
 }) {
+  const [showAll, setShowAll] = useState(false);
   const showBlock = state === "ready" && item.block !== null;
   // Anchors render ONLY in `ready`, and ONLY when the server validated an href.
   const showAnchor = state === "ready" && !!item.href;
+  const block = item.block;
+  const droppedTotal = block ? block.droppedSessions + block.droppedDays + block.droppedTracks : 0;
+  // Truncated rows become expandable in place (owner decision, 2026-07-05) —
+  // ONLY when the uncapped extraction was threaded through AND something was
+  // actually dropped. Absent the full payload, the static overflow note stays
+  // the sole affordance (backward-compatible with note-only fixtures).
+  const canExpand = showBlock && !!block?.fullExtraction && droppedTotal > 0;
+  const expanded = canExpand && showAll;
   return (
     <li data-testid="agenda-item" className="flex min-w-0 flex-col gap-1.5">
       {item.badge ? (
@@ -1530,14 +1598,32 @@ function AgendaItemRow({
           {item.badge}
         </span>
       ) : null}
-      {showBlock && item.block ? (
+      {showBlock && block ? (
         <>
-          <AgendaScheduleBlock extraction={item.block.extraction} label={null} />
-          {agendaOverflowNotes(item.block).map((note) => (
-            <p key={note} className="text-xs text-text-subtle">
-              {note}
-            </p>
-          ))}
+          <AgendaScheduleBlock
+            extraction={expanded && block.fullExtraction ? block.fullExtraction : block.extraction}
+            label={null}
+          />
+          {/* Overflow notes describe what's hidden — shown only while collapsed;
+              expanding renders every session/day/track in place. */}
+          {!expanded
+            ? agendaOverflowNotes(block).map((note) => (
+                <p key={note} className="text-xs text-text-subtle">
+                  {note}
+                </p>
+              ))
+            : null}
+          {canExpand ? (
+            <button
+              type="button"
+              data-testid="agenda-show-all"
+              aria-expanded={expanded}
+              onClick={() => setShowAll((v) => !v)}
+              className="inline-flex min-h-tap-min items-center self-start text-xs font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+            >
+              {expanded ? "Show less" : "Show all"}
+            </button>
+          ) : null}
         </>
       ) : (
         <p
@@ -2301,8 +2387,9 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       label: "Crew schedule",
       group: "Schedule",
       Icon: CalendarDays,
-      // Day count (incl. synthetic bookend days), matching the heading count.
-      railCount: (s) => Object.keys(s.ros).length,
+      // No rail count (owner decision, 2026-07-05): only Crew, Contacts, Rooms,
+      // and Parse warnings show a count. Keep in lockstep with COUNT_SECTIONS.
+      railCount: null,
       render: (s) => <ScheduleBreakdown dfid={s.dfid} ros={s.ros} />,
     },
   ];
@@ -2329,7 +2416,8 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       label: "Hotels",
       group: "Logistics",
       Icon: BedDouble,
-      railCount: (s) => s.hotels.length,
+      // No rail count (owner decision, 2026-07-05) — see COUNT_SECTIONS.
+      railCount: null,
       render: (s) => <HotelsBreakdown dfid={s.dfid} hotels={s.hotels} />,
     },
     {
@@ -2380,7 +2468,8 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       label: "Pack list",
       group: "Gear",
       Icon: Package,
-      railCount: (s) => s.pullSheet.length,
+      // No rail count (owner decision, 2026-07-05) — see COUNT_SECTIONS.
+      railCount: null,
       render: (s) => <PackListBreakdown dfid={s.dfid} cases={s.pullSheet} />,
     },
     {
