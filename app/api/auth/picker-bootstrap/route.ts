@@ -90,7 +90,11 @@ async function emitResolveShowFailure(input: { slug: string; error: unknown }): 
   }
 }
 
-async function emitClaimFailure(input: { canonicalEmail: string; error: unknown }): Promise<void> {
+async function emitClaimFailure(input: {
+  canonicalEmail: string;
+  error: unknown;
+  showId: string;
+}): Promise<void> {
   try {
     await upsertAdminAlert({
       showId: null,
@@ -100,6 +104,7 @@ async function emitClaimFailure(input: { canonicalEmail: string; error: unknown 
         rpc_error_code: errorCode(input.error),
         rpc_error_message: errorMessage(input.error),
         route: ROUTE,
+        show_id: input.showId,
       },
     });
   } catch (alertErr) {
@@ -189,12 +194,16 @@ export async function GET(request: Request): Promise<Response> {
         p_email: google.viewer.email,
       });
       if (error) {
-        await emitClaimFailure({ canonicalEmail: google.viewer.email, error });
+        await emitClaimFailure({
+          canonicalEmail: google.viewer.email,
+          error,
+          showId: targetShowId,
+        });
         return htmlResponse("PICKER_BOOTSTRAP_RPC_FAILED", 502);
       }
       claimResult = data as ClaimResult | null;
     } catch (error) {
-      await emitClaimFailure({ canonicalEmail: google.viewer.email, error });
+      await emitClaimFailure({ canonicalEmail: google.viewer.email, error, showId: targetShowId });
       return htmlResponse("PICKER_BOOTSTRAP_RPC_FAILED", 502);
     }
 

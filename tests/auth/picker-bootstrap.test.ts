@@ -126,6 +126,40 @@ describe("/api/auth/picker-bootstrap", () => {
     expect(res.headers.get("set-cookie")).toBeNull();
   });
 
+  test("claim_oauth_identity returned-error is a 502 alert with row null-scoped but context carrying show_id", async () => {
+    state.google = {
+      kind: "success",
+      viewer: {
+        kind: "crew",
+        email: "crew@fxav.test",
+        showId: "11111111-1111-4111-8111-111111111111",
+        crewMemberId: "22222222-2222-4222-8222-222222222222",
+      },
+    } as unknown;
+    state.claim = {
+      data: null,
+      error: { code: "40001", message: "serialization failure" },
+      throws: false,
+    };
+    const { GET } = await import("@/app/api/auth/picker-bootstrap/route");
+
+    const res = await GET(request());
+
+    expect(res.status).toBe(502);
+    expect(state.alerts).toHaveLength(1);
+    const alert = state.alerts[0]!;
+    expect(alert.code).toBe("PICKER_BOOTSTRAP_RPC_FAILED");
+    expect(alert.showId).toBeNull();
+    expect(alert.context).toEqual({
+      attempted_email_hash: expect.stringMatching(/^[0-9a-f]{64}$/),
+      rpc_error_code: "40001",
+      rpc_error_message: "serialization failure",
+      route: "/api/auth/picker-bootstrap",
+      show_id: "11111111-1111-4111-8111-111111111111",
+    });
+    expect(JSON.stringify(alert.context)).not.toContain("crew@fxav.test");
+  });
+
   test("valid Google match mints one show using mint_safe_t_millis exactly", async () => {
     state.google = {
       kind: "success",
