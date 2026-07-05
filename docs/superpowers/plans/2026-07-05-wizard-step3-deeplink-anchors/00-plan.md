@@ -41,11 +41,12 @@
 - Consumes: `SectionId` (`lib/admin/step3SectionStatus.ts:3`), `RegionId` + `REGION_IDS` (`lib/sheet-links/buildSheetDeepLink.ts:28,44`).
 - Produces: `export const SECTION_REGION_MAP: Record<SectionId, RegionId | null>` — Task 3 reads it.
 
-- [ ] **Step 1: Write the failing test.** Append to `tests/admin/step3SectionStatus.test.ts`:
+- [ ] **Step 1: Write the failing test.** Append to `tests/admin/step3SectionStatus.test.ts`. This file already imports `type SectionId` from `@/lib/admin/step3SectionStatus` (`:14`), so add `SECTION_REGION_MAP` to that existing import (or a new import line); do NOT re-import `SectionId`. Add the `REGION_IDS` import:
 
 ```ts
+// add SECTION_REGION_MAP to the existing "@/lib/admin/step3SectionStatus" import (SectionId already imported there)
 import { SECTION_REGION_MAP } from "@/lib/admin/step3SectionStatus";
-import { REGION_IDS, type RegionId } from "@/lib/sheet-links/buildSheetDeepLink";
+import { REGION_IDS } from "@/lib/sheet-links/buildSheetDeepLink";
 
 // Canonical list of every SectionId — kept in lockstep with the union at
 // step3SectionStatus.ts:3. If a SectionId is added without a SECTION_REGION_MAP
@@ -146,7 +147,7 @@ git commit --no-verify -m "feat(admin): SECTION_REGION_MAP for wizard step-3 dee
 
 **Interfaces:**
 - Consumes: `SourceAnchor` (`lib/sheet-links/buildSheetDeepLink.ts:3`).
-- Produces: `Step3Row.sourceAnchors?: Record<string, SourceAnchor>` — always present (at least `{}`) on a clean staged row; Task 3 reads it via `SectionData.row.sourceAnchors`.
+- Produces: `Step3Row.sourceAnchors?: Record<string, SourceAnchor>` — an OPTIONAL field, threaded only inside the `if (staged)` clean-row branch (`OnboardingWizard.tsx:356-374`); base/non-staged rows carry no `sourceAnchors`. When threaded it is at least `{}` (never `undefined`, per `exactOptionalPropertyTypes`). Task 3 reads it via `SectionData.row.sourceAnchors` and MUST treat it as optional (`?? {}`).
 
 - [ ] **Step 1: Write the failing test.** Add to `tests/components/onboardingWizard.fetchStep3.test.ts` a new describe mirroring the existing "parse_result threading" block (which seeds `dataByTable["pending_syncs"]` and asserts `row.parseResult`):
 
@@ -158,8 +159,11 @@ describe("fetchStep3Data — source_anchors threading (bug #316 item 3)", () => 
   };
 
   test("a staged row's Step3Row.sourceAnchors equals the seeded source_anchors object", async () => {
-    // (mirror the exact manifest/session seed used by the passing
-    // "parse_result threading" test above so this row renders as a clean staged row)
+    // seedManifest FIRST — fetchStep3Data builds rows from manifestRows.map and only
+    // joins pending_syncs by drive_file_id when a manifest row exists (a pending_syncs
+    // row with no manifest row → the dfid is never in result.rows). This mirrors the
+    // passing "parse_result threading" test at onboardingWizard.fetchStep3.test.ts:151.
+    seedManifest([{ drive_file_id: "dfid-1", name: "One.xlsx", status: "staged" }]);
     seed.dataByTable["pending_syncs"] = [
       { staged_id: "s-1", drive_file_id: "dfid-1", parse_result: PARSE_RESULT_FIXTURE, source_anchors: ANCHORS },
     ];
@@ -172,6 +176,7 @@ describe("fetchStep3Data — source_anchors threading (bug #316 item 3)", () => 
   });
 
   test("a non-object source_anchors coerces to {} (defensive, mirrors parse_result guard)", async () => {
+    seedManifest([{ drive_file_id: "dfid-1", name: "One.xlsx", status: "staged" }]);
     seed.dataByTable["pending_syncs"] = [
       { staged_id: "s-1", drive_file_id: "dfid-1", parse_result: PARSE_RESULT_FIXTURE, source_anchors: "corrupt" },
     ];
@@ -185,7 +190,7 @@ describe("fetchStep3Data — source_anchors threading (bug #316 item 3)", () => 
 });
 ```
 
-> **Implementer note:** copy the SAME manifest / `app_settings` / session seed the existing passing "parse_result threading" test uses (read that test's `beforeEach`/setup in this file) so the row is a clean staged review row. Do not invent a new seed shape.
+> **Implementer note:** `seedManifest(...)` (test helper at `onboardingWizard.fetchStep3.test.ts:79`, writes `seed.dataByTable["onboarding_scan_manifest"]`) MUST be called before the `pending_syncs` seed — without a manifest row for the dfid, the row never appears in `result.rows`. No `app_settings` seed is needed (the harness stubs the query builder). `PARSE_RESULT_FIXTURE`, `seedManifest`, `seed`, and `SESSION_ID` already exist in this test file.
 
 - [ ] **Step 2: Run test to verify it fails.**
 
