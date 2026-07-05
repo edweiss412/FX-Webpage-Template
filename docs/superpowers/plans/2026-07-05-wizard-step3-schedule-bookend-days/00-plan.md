@@ -36,7 +36,7 @@ None applies. This change touches no auth call-boundary, DB write, admin-alert c
 - Test: `tests/components/admin/wizard/ScheduleDayRow.phase.test.tsx` (create)
 
 **Interfaces:**
-- Produces: `ScheduleDayRow` accepts `phase?: SchedulePhase | null`. When non-null, renders `<span data-testid={`wizard-step3-card-${dfid}-sched-phase-${iso}`}>{phase}</span>` in the `<li>` header stack, after the date span (`:884`). Absent/`null` → no phase node.
+- Produces: `ScheduleDayRow` accepts `phase?: SchedulePhase | null`. When non-null, renders `<span data-testid={`wizard-step3-card-${dfid}-sched-phase-${iso}`}>{phase}</span>` in the `<li>` header stack, after the date span (`:884`). Absent/`null` → no phase node. Note on exactOptionalPropertyTypes: the "never assign `undefined`" rule concerns `undefined`, not `null`. `phase` is `SchedulePhase | null`, and the caller (Task 2) always passes `phase={d.phase}` where `d.phase: SchedulePhase | null` — passing `null` for a ros-only day is intended and valid (it means "no phase"). Do NOT narrow the prop to `phase?: SchedulePhase` (that would reject the `null` the caller passes).
 - Consumes: `SchedulePhase` from `@/lib/crew/agendaDisplay`.
 
 - [ ] **Step 1: Write the failing test** (renders `ScheduleDayRow` DIRECTLY — passes with only this task's implementation; the union/threading is Task 2)
@@ -239,8 +239,13 @@ describe("wizard ScheduleBreakdown — all schedule days (bug #316 item 1)", () 
     const { container } = render(<ScheduleBreakdown dfid="d" ros={{}} dates={capFx} />);
     // travelOut (non-Show aggregate bookend) is cap-exempt → its phase label renders.
     expect(phaseOf(container, "2025-10-31")).toBe("Travel Out");
-    // a mid-list SHOW day beyond the cap is dropped into the overflow note.
-    expect(container.textContent).toMatch(/more days/);
+    // Merged sorted: set(idx0) + Oct01..Oct15(idx1..15) + travelOut(idx16). With CAP=14,
+    // idx0..13 render (set + Oct01..Oct13); Oct14/Oct15 (Show, non-exempt) are DROPPED;
+    // travelOut is exempt. Prove a SPECIFIC over-cap Show day is absent (its phase node
+    // is gone) while an in-cap Show day is present — not just that a note exists.
+    expect(phaseOf(container, "2025-10-15")).toBeNull(); // over-cap Show day dropped
+    expect(phaseOf(container, "2025-10-01")).toBe("Show"); // in-cap Show day present
+    expect(container.textContent).toMatch(/2 more days/); // exactly the 2 dropped Show days
   });
 
   test("cap-exempt: a SYNTHETIC ros day beyond the cap still renders (existing exemption preserved)", () => {
@@ -265,8 +270,8 @@ describe("wizard ScheduleBreakdown — all schedule days (bug #316 item 1)", () 
 import { afterEach, describe, expect, test } from "vitest";
 import { cleanup, fireEvent, render } from "@testing-library/react";
 import { Step3SheetCard } from "@/components/admin/wizard/Step3SheetCard";
-import type { ParseResult, ShowRow, Step3Row } from "@/lib/parser/types"; // ShowRow/ParseResult from parser types; Step3Row from step3ReviewSections
-import type { Step3Row as Step3RowT } from "@/components/admin/wizard/step3ReviewSections";
+import type { ParseResult, ShowRow } from "@/lib/parser/types";
+import type { Step3Row } from "@/components/admin/wizard/step3ReviewSections"; // Step3Row is exported HERE, not from parser types
 
 const WSID = "00000000-1111-4222-8333-444444444444";
 const DFID = "d";
@@ -285,7 +290,7 @@ const pr = (): ParseResult => ({
   diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
   openingReel: null, raw_unrecognized: [], warnings: [], runOfShow: {}, hardErrors: [],
 });
-const row = (): Step3RowT => ({ driveFileId: DFID, driveFileName: "x.sheet", status: "staged", parseResult: pr() });
+const row = (): Step3Row => ({ driveFileId: DFID, driveFileName: "x.sheet", status: "staged", parseResult: pr() });
 
 describe("wizard Step3 call site threads dates → travel-in appears (bug #316 item 1)", () => {
   test("travel-in phase label renders in the expanded card (proves dates threading)", () => {
