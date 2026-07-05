@@ -245,9 +245,12 @@ function recordAdminOutcomeBehavior(x: { file: string; fn: string; code: string 
   recorded.add(`${x.file}::${x.fn}::${x.code}`);
 }
 
-/** Drive a success path with a sink spy; return the codes observed. Captures codes even when
- * `run()` throws — required for `Promise<never>` redirect actions (Next's `redirect()` throws
- * a NEXT_REDIRECT error). The spy runs synchronously in the logger before the throw escapes. */
+/** Drive a path with a sink spy; return the codes observed, SWALLOWING any throw.
+ * Use ONLY for negative / failure-branch assertions (the `failCodes` cases), which
+ * legitimately reject — and several of which throw on the failure path (a redirect
+ * action whose purge faults, an RPC helper that raises). A swallowed throw is fine
+ * there because the assertion is "code is ABSENT"; a hidden throw cannot manufacture
+ * a code. NEVER use this for a success/record path — see `observeSuccessCodes`. */
 async function observeCodes(run: () => Promise<unknown>): Promise<string[]> {
   const codes: string[] = [];
   setLogSink((r: LogRecord) => {
@@ -256,9 +259,53 @@ async function observeCodes(run: () => Promise<unknown>): Promise<string[]> {
   try {
     await run();
   } catch {
-    /* redirect / expected throw — codes already captured */
+    /* failure-branch throw — codes already captured; absence is what we assert */
   } finally {
     resetLogSink();
+  }
+  return codes;
+}
+
+/** Drive a SUCCESS path and PROVE the action actually reached its committed-success
+ * branch before we certify it (companion whole-diff R2 HIGH). `observeCodes` swallows
+ * every throw, so an action that emits its code and then throws an UNEXPECTED error
+ * would be falsely recorded as committed-success. This helper closes that: the ONLY
+ * sanctioned throw is a `NEXT_REDIRECT` from a `{redirect:true}` action, thrown AFTER
+ * the post-commit emit (Next's `redirect()` throws; the mocked `redirect` throws
+ * `Error("NEXT_REDIRECT:<url>")`). Any other throw — or a `{redirect:true}` action
+ * that returns without redirecting — fails the test RED instead of recording a false
+ * proof. Combined with each surface's paired negative `failCodes` case (code ABSENT on
+ * the failure branch), an observed code now provably means the committed-success
+ * branch executed. */
+async function observeSuccessCodes(
+  run: () => Promise<unknown>,
+  opts: { redirect?: boolean } = {},
+): Promise<string[]> {
+  const codes: string[] = [];
+  setLogSink((r: LogRecord) => {
+    if (r.code) codes.push(r.code);
+  });
+  let thrown: unknown;
+  let didThrow = false;
+  try {
+    await run();
+  } catch (err) {
+    didThrow = true;
+    thrown = err;
+  } finally {
+    resetLogSink();
+  }
+  const isRedirect =
+    didThrow && thrown instanceof Error && thrown.message.startsWith("NEXT_REDIRECT");
+  if (opts.redirect) {
+    if (!didThrow) {
+      throw new Error(
+        "observeSuccessCodes({redirect:true}): expected a NEXT_REDIRECT throw on the success branch, but the action returned without redirecting",
+      );
+    }
+    if (!isRedirect) throw thrown; // an unexpected non-redirect throw must not certify success
+  } else if (didThrow) {
+    throw thrown; // a non-redirect success path must not throw — do not certify success
   }
   return codes;
 }
@@ -276,6 +323,49 @@ describe("behavioral scaffold smoke", () => {
       throw new Error("NEXT_REDIRECT");
     });
     expect(thrown).toContain("TEST_THROW");
+  });
+
+  // Companion whole-diff R2 HIGH — observeSuccessCodes must not certify a success
+  // that actually failed. These prove the hardening has teeth (non-tautology): the
+  // 24 success/record sites above all route through observeSuccessCodes, so a
+  // surface that emits then throws, or a redirect wrapper that never redirects,
+  // fails RED instead of being recorded as committed-success.
+  test("observeSuccessCodes RETHROWS a non-redirect throw even after a code was emitted (emit-then-throw ≠ success)", async () => {
+    await expect(
+      observeSuccessCodes(async () => {
+        await logAdminOutcome({ code: "TEST_EMIT_THEN_THROW", source: "t" });
+        throw new Error("mutation failed AFTER the emit");
+      }),
+    ).rejects.toThrow("mutation failed AFTER the emit");
+  });
+
+  test("observeSuccessCodes({redirect:true}) FAILS when the action returns without redirecting", async () => {
+    await expect(
+      observeSuccessCodes(async () => "returned normally, never redirected", { redirect: true }),
+    ).rejects.toThrow(/expected a NEXT_REDIRECT throw/);
+  });
+
+  test("observeSuccessCodes({redirect:true}) RETHROWS a non-redirect throw (a redirect wrapper that faults is not a success)", async () => {
+    await expect(
+      observeSuccessCodes(
+        async () => {
+          await logAdminOutcome({ code: "TEST_REDIRECT_FAULT", source: "t" });
+          throw new Error("purge infra fault"); // NOT a NEXT_REDIRECT
+        },
+        { redirect: true },
+      ),
+    ).rejects.toThrow("purge infra fault");
+  });
+
+  test("observeSuccessCodes({redirect:true}) RETURNS observed codes when a NEXT_REDIRECT is thrown after the emit", async () => {
+    const codes = await observeSuccessCodes(
+      async () => {
+        await logAdminOutcome({ code: "TEST_REDIRECT_OK", source: "t" });
+        throw new Error("NEXT_REDIRECT:/admin");
+      },
+      { redirect: true },
+    );
+    expect(codes).toContain("TEST_REDIRECT_OK");
   });
 });
 
@@ -324,7 +414,7 @@ describe("Task 7 — app_settings toggle server actions observe changes", () => 
   test("setAutoPublish emits SETTING_AUTOPUBLISH_CHANGED on {ok:true}; nothing on {ok:false}", async () => {
     serverClientImpl.current = async () =>
       makeClient({ from: { data: [{ id: "default" }], error: null } });
-    const codes = await observeCodes(() => setAutoPublish(true));
+    const codes = await observeSuccessCodes(() => setAutoPublish(true));
     expect(codes).toContain("SETTING_AUTOPUBLISH_CHANGED");
     recordAdminOutcomeBehavior({
       file: "app/admin/settings/_actions/setAutoPublish.ts",
@@ -340,7 +430,7 @@ describe("Task 7 — app_settings toggle server actions observe changes", () => 
   test("setAlertOnAutoPublish emits SETTING_ALERT_ON_AUTOPUBLISH_CHANGED on {ok:true}; nothing on {ok:false}", async () => {
     serverClientImpl.current = async () =>
       makeClient({ from: { data: [{ id: "default" }], error: null } });
-    const codes = await observeCodes(() => setAlertOnAutoPublish(true));
+    const codes = await observeSuccessCodes(() => setAlertOnAutoPublish(true));
     expect(codes).toContain("SETTING_ALERT_ON_AUTOPUBLISH_CHANGED");
     recordAdminOutcomeBehavior({
       file: "app/admin/settings/_actions/setAlertOnAutoPublish.ts",
@@ -357,7 +447,7 @@ describe("Task 7 — app_settings toggle server actions observe changes", () => 
   test("setAlertOnSyncProblems emits SETTING_ALERT_ON_SYNC_PROBLEMS_CHANGED on {ok:true}; nothing on {ok:false}", async () => {
     serverClientImpl.current = async () =>
       makeClient({ from: { data: [{ id: "default" }], error: null } });
-    const codes = await observeCodes(() => setAlertOnSyncProblems(false));
+    const codes = await observeSuccessCodes(() => setAlertOnSyncProblems(false));
     expect(codes).toContain("SETTING_ALERT_ON_SYNC_PROBLEMS_CHANGED");
     recordAdminOutcomeBehavior({
       file: "app/admin/settings/_actions/setAlertOnSyncProblems.ts",
@@ -373,7 +463,7 @@ describe("Task 7 — app_settings toggle server actions observe changes", () => 
   test("setDailyReviewDigest emits SETTING_DAILY_REVIEW_DIGEST_CHANGED on {ok:true}; nothing on {ok:false}", async () => {
     serverClientImpl.current = async () =>
       makeClient({ from: { data: [{ id: "default" }], error: null } });
-    const codes = await observeCodes(() => setDailyReviewDigest(true));
+    const codes = await observeSuccessCodes(() => setDailyReviewDigest(true));
     expect(codes).toContain("SETTING_DAILY_REVIEW_DIGEST_CHANGED");
     recordAdminOutcomeBehavior({
       file: "app/admin/settings/_actions/setDailyReviewDigest.ts",
@@ -393,7 +483,7 @@ describe("Task 8 — validationReset server actions observe changes", () => {
     serverClientImpl.current = async () => makeClient({ rpc: { data: null, error: null } });
     serviceRoleClientImpl.current = () =>
       makeClient({ rpc: { data: { clearedShows: 7 }, error: null } });
-    const codes = await observeCodes(() => resetValidationDataAction());
+    const codes = await observeSuccessCodes(() => resetValidationDataAction());
     expect(codes).toContain("VALIDATION_RESET_RUN");
     recordAdminOutcomeBehavior({
       file: "app/admin/settings/_actions/validationReset.ts",
@@ -409,7 +499,7 @@ describe("Task 8 — validationReset server actions observe changes", () => {
   test("reseedValidationFixturesAction emits VALIDATION_RESEED_RUN on {ok:true}; nothing on {ok:false}", async () => {
     serverClientImpl.current = async () => makeClient({ rpc: { data: null, error: null } });
     serviceRoleClientImpl.current = () => makeClient({});
-    const codes = await observeCodes(() => reseedValidationFixturesAction());
+    const codes = await observeSuccessCodes(() => reseedValidationFixturesAction());
     expect(codes).toContain("VALIDATION_RESEED_RUN");
     recordAdminOutcomeBehavior({
       file: "app/admin/settings/_actions/validationReset.ts",
@@ -430,7 +520,7 @@ describe("Task 9 — admin grant/revoke + developer toggle observe changes", () 
   test("addAdminAction emits ADMIN_GRANTED on kind:ok; nothing on invalid_email", async () => {
     const form = new FormData();
     form.set("email", "new-admin@example.com");
-    const codes = await observeCodes(() => addAdminAction(null, form));
+    const codes = await observeSuccessCodes(() => addAdminAction(null, form));
     expect(codes).toContain("ADMIN_GRANTED");
     recordAdminOutcomeBehavior({
       file: "app/admin/settings/admins/actions.ts",
@@ -446,7 +536,7 @@ describe("Task 9 — admin grant/revoke + developer toggle observe changes", () 
   test("revokeAdminAction emits ADMIN_REVOKED on kind:ok; nothing on self-revoke refusal", async () => {
     const form = new FormData();
     form.set("email", "someone-else@example.com");
-    const codes = await observeCodes(() => revokeAdminAction(null, form));
+    const codes = await observeSuccessCodes(() => revokeAdminAction(null, form));
     expect(codes).toContain("ADMIN_REVOKED");
     recordAdminOutcomeBehavior({
       file: "app/admin/settings/admins/actions.ts",
@@ -468,7 +558,7 @@ describe("Task 9 — admin grant/revoke + developer toggle observe changes", () 
     const form = new FormData();
     form.set("email", "target@example.com");
     form.set("is_developer", "true");
-    const codes = await observeCodes(() => setDeveloperAction(null, form));
+    const codes = await observeSuccessCodes(() => setDeveloperAction(null, form));
     expect(codes).toContain("ADMIN_DEVELOPER_SET");
     recordAdminOutcomeBehavior({
       file: "app/admin/settings/admins/developerActions.ts",
@@ -489,7 +579,7 @@ describe("Task 10 — dev parse-stage + schema reset observe changes", () => {
       makeClient({
         rpc: { data: { kind: "pending_sync", id: "ps-1", show_id: null }, error: null },
       });
-    const codes = await observeCodes(() => parseAndStage("_temp-fixture.md"));
+    const codes = await observeSuccessCodes(() => parseAndStage("_temp-fixture.md"));
     expect(codes).toContain("DEV_PARSE_STAGED");
     recordAdminOutcomeBehavior({
       file: "app/admin/dev/actions.ts",
@@ -505,7 +595,7 @@ describe("Task 10 — dev parse-stage + schema reset observe changes", () => {
 
   test("resetDevSchema emits DEV_SCHEMA_RESET on success; nothing when the RPC errors", async () => {
     serviceRoleClientImpl.current = () => makeClient({ rpc: { data: null, error: null } });
-    const codes = await observeCodes(() => resetDevSchema());
+    const codes = await observeSuccessCodes(() => resetDevSchema());
     expect(codes).toContain("DEV_SCHEMA_RESET");
     recordAdminOutcomeBehavior({
       file: "app/admin/dev/actions.ts",
@@ -530,7 +620,7 @@ describe("Task 10 — dev parse-stage + schema reset observe changes", () => {
       });
     const fd = new FormData();
     fd.set("fixture", "_temp-fixture.md");
-    const codes = await observeCodes(() => parseAndStageFormAction(fd));
+    const codes = await observeSuccessCodes(() => parseAndStageFormAction(fd), { redirect: true });
     expect(codes).toContain("DEV_PARSE_STAGED");
     recordAdminOutcomeBehavior({
       file: "app/admin/dev/actions.ts",
@@ -541,7 +631,7 @@ describe("Task 10 — dev parse-stage + schema reset observe changes", () => {
 
   test("resetDevSchemaFormAction transitively emits DEV_SCHEMA_RESET then redirects", async () => {
     serviceRoleClientImpl.current = () => makeClient({ rpc: { data: null, error: null } });
-    const codes = await observeCodes(() => resetDevSchemaFormAction());
+    const codes = await observeSuccessCodes(() => resetDevSchemaFormAction(), { redirect: true });
     expect(codes).toContain("DEV_SCHEMA_RESET");
     recordAdminOutcomeBehavior({
       file: "app/admin/dev/actions.ts",
@@ -557,7 +647,7 @@ describe("Task 10 — dev parse-stage + schema reset observe changes", () => {
 // despite the thrown NEXT_REDIRECT-style error (Task 6 scaffold).
 describe("Task 11 — onboarding start-over / rerun-setup observe changes", () => {
   test("startOverServerAction emits ONBOARDING_STARTED_OVER before the redirect throw; nothing if the purge throws", async () => {
-    const codes = await observeCodes(() => startOverServerAction());
+    const codes = await observeSuccessCodes(() => startOverServerAction(), { redirect: true });
     expect(codes).toContain("ONBOARDING_STARTED_OVER");
     recordAdminOutcomeBehavior({
       file: "lib/onboarding/serverActions.ts",
@@ -573,7 +663,7 @@ describe("Task 11 — onboarding start-over / rerun-setup observe changes", () =
   });
 
   test("rerunSetupServerAction emits ONBOARDING_SETUP_RERUN before the redirect throw (both the normal and the finalize-pending-suppressed branch); nothing if the purge throws", async () => {
-    const codes = await observeCodes(() => rerunSetupServerAction());
+    const codes = await observeSuccessCodes(() => rerunSetupServerAction(), { redirect: true });
     expect(codes).toContain("ONBOARDING_SETUP_RERUN");
     recordAdminOutcomeBehavior({
       file: "lib/onboarding/serverActions.ts",
@@ -587,7 +677,9 @@ describe("Task 11 — onboarding start-over / rerun-setup observe changes", () =
       rotated: false,
       suppressed: "WIZARD_FINALIZE_BATCHES_PENDING",
     }));
-    const suppressedCodes = await observeCodes(() => rerunSetupServerAction());
+    const suppressedCodes = await observeSuccessCodes(() => rerunSetupServerAction(), {
+      redirect: true,
+    });
     expect(suppressedCodes).toContain("ONBOARDING_SETUP_RERUN");
 
     purgeAndRotateOnboardingSessionMock.mockImplementation(async () => {
@@ -611,7 +703,7 @@ describe("Task 12 — alert-resolve + watch-retry observe success only", () => {
       });
     const form = new FormData();
     form.set("id", "11111111-1111-1111-1111-111111111111");
-    const codes = await observeCodes(() => resolveAdminAlertFormAction(form));
+    const codes = await observeSuccessCodes(() => resolveAdminAlertFormAction(form));
     expect(codes).toContain("ADMIN_ALERT_RESOLVED");
     recordAdminOutcomeBehavior({
       file: "app/admin/actions.ts",
@@ -635,7 +727,7 @@ describe("Task 12 — alert-resolve + watch-retry observe success only", () => {
   });
 
   test("retryWatchSubscriptionFormAction emits WATCH_SUBSCRIPTION_RETRIED on successful renewal; nothing on the no-folder skip", async () => {
-    const codes = await observeCodes(() => retryWatchSubscriptionFormAction(new FormData()));
+    const codes = await observeSuccessCodes(() => retryWatchSubscriptionFormAction(new FormData()));
     expect(codes).toContain("WATCH_SUBSCRIPTION_RETRIED");
     recordAdminOutcomeBehavior({
       file: "app/admin/actions.ts",
@@ -676,7 +768,7 @@ describe("Reconciliation — resolveHealthAlertFormAction observes ADMIN_ALERT_R
       code: HEALTH_CODES[0]!,
       updatedRows: [{ id: HEALTH_ALERT_ID }],
     });
-    const codes = await observeCodes(() => resolveHealthAlertFormAction(fd));
+    const codes = await observeSuccessCodes(() => resolveHealthAlertFormAction(fd));
     expect(codes).toContain("ADMIN_ALERT_RESOLVED");
     recordAdminOutcomeBehavior({
       file: "app/admin/actions.ts",
@@ -701,7 +793,7 @@ const CREW_ID = "22222222-2222-2222-2222-222222222222";
 describe("Task 13 — picker epoch/share-token/selection resets observe success only", () => {
   test("resetPickerEpoch emits PICKER_EPOCH_RESET_BY_ADMIN on {ok:true}; nothing when the RPC returns a non-number", async () => {
     serverClientImpl.current = async () => makeClient({ rpc: { data: 7, error: null } });
-    const codes = await observeCodes(() => resetPickerEpoch({ showId: SHOW_ID }));
+    const codes = await observeSuccessCodes(() => resetPickerEpoch({ showId: SHOW_ID }));
     expect(codes).toContain("PICKER_EPOCH_RESET_BY_ADMIN");
     recordAdminOutcomeBehavior({
       file: "lib/auth/picker/resetPickerEpoch.ts",
@@ -719,7 +811,7 @@ describe("Task 13 — picker epoch/share-token/selection resets observe success 
   test("rotateShareToken emits SHARE_TOKEN_ROTATED_BY_ADMIN (epoch only, never the token) on {ok:true}; nothing on RPC error", async () => {
     serverClientImpl.current = async () =>
       makeClient({ rpc: { data: { new_share_token: "c".repeat(64), new_epoch: 4 }, error: null } });
-    const codes = await observeCodes(() => rotateShareToken({ showId: SHOW_ID }));
+    const codes = await observeSuccessCodes(() => rotateShareToken({ showId: SHOW_ID }));
     expect(codes).toContain("SHARE_TOKEN_ROTATED_BY_ADMIN");
     recordAdminOutcomeBehavior({
       file: "lib/auth/picker/rotateShareToken.ts",
@@ -737,7 +829,7 @@ describe("Task 13 — picker epoch/share-token/selection resets observe success 
   test("resetCrewMemberSelection emits PICKER_SELECTION_RESET_BY_ADMIN on {ok:true}; nothing on a not-found (NULL) result", async () => {
     serverClientImpl.current = async () =>
       makeClient({ rpc: { data: "2026-07-05T00:00:00.000Z", error: null } });
-    const codes = await observeCodes(() =>
+    const codes = await observeSuccessCodes(() =>
       resetCrewMemberSelection({ showId: SHOW_ID, crewMemberId: CREW_ID }),
     );
     expect(codes).toContain("PICKER_SELECTION_RESET_BY_ADMIN");
@@ -800,7 +892,7 @@ describe("Task 14 — manifest-ignore + reap-stale-sessions routes observe succe
       requireAdminIdentity: async () => ({ email: "admin@example.com" }),
       withRowTx: manifestWithRowTx("live_row_conflict", true),
     };
-    const codes = await observeCodes(() =>
+    const codes = await observeSuccessCodes(() =>
       handleWizardManifestIgnore(manifestReq(), manifestCtx(), deps),
     );
     expect(codes).toContain("MANIFEST_SHEET_IGNORED");
@@ -823,7 +915,7 @@ describe("Task 14 — manifest-ignore + reap-stale-sessions routes observe succe
   });
 
   test("reap route emits STALE_SESSIONS_REAPED on a successful reap; nothing when the reap throws", async () => {
-    const codes = await observeCodes(() =>
+    const codes = await observeSuccessCodes(() =>
       handleReapStaleSessions(new Request("https://x.test/reap", { method: "POST" }), {
         requireAdminIdentity: async () => ({ email: "dev@example.com" }),
         reapStaleOnboardingSessions: async () => ({
