@@ -283,12 +283,16 @@ describe("StepIndicator redesign — labels + connectors + done-check (Task 2)",
 });
 
 describe("OnboardingWizard Step-3 width + card list (Variant B — Task 5)", () => {
-  test("Step 3 uses the single-column container width (max-w-3xl, not the old lg:max-w-6xl)", async () => {
+  test("Step 3 widens the single-column container on large desktops (max-w-3xl base → xl:max-w-5xl, never the old lg:max-w-6xl)", async () => {
     const { getByTestId } = render(
       await OnboardingWizard({ settings: FRESH_SETTINGS, searchParams: { step: "3" } }),
     );
     const cls = getByTestId("onboarding-wizard").className;
+    // Base stays 768px (max-w-3xl) on laptops/tablets; only the xl breakpoint
+    // (≥1280px) widens the review list to 1024px so it stops looking lost in
+    // the max-w-[1600px] admin shell. Not a return to the pre-Variant-B lg:max-w-6xl.
     expect(cls).toContain("max-w-3xl");
+    expect(cls).toContain("xl:max-w-5xl");
     expect(cls).not.toContain("lg:max-w-6xl");
   });
 

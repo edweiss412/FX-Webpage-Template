@@ -520,10 +520,13 @@ export async function OnboardingWizard({
       }
     : undefined;
 
-  // Variant B (Task 5): Steps 1-2 stay narrow (max-w-2xl); Step 3 uses a slightly
-  // wider single-column container (max-w-3xl) sized for the full-width compact
-  // sheet rows + sticky publish bar (the list itself lives in <Step3Review>).
-  const containerMaxWidth = step === 3 ? "max-w-3xl" : "max-w-2xl";
+  // Variant B (Task 5): Steps 1-2 stay narrow (max-w-2xl) — they are single-column
+  // instruction/input flows where extra width just adds empty space. Step 3 is the
+  // review list of full-width compact sheet rows + sticky publish bar (the list
+  // lives in <Step3Review>); it holds a 768px base (max-w-3xl) on laptops/tablets
+  // and widens to 1024px (xl:max-w-5xl, ≥1280px) so the list stops looking lost in
+  // the max-w-[1600px] admin shell on large desktops.
+  const containerMaxWidth = step === 3 ? "max-w-3xl xl:max-w-5xl" : "max-w-2xl";
 
   return (
     <div
