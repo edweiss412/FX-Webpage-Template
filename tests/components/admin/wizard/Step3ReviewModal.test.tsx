@@ -34,6 +34,7 @@
  */
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { useState } from "react";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import type { ParseResult, ParseWarning } from "@/lib/parser/types";
@@ -141,6 +142,53 @@ function renderModal(
     />,
   );
   return { q, d, onClose, onRequestSetChecked };
+}
+
+/** Deferred promise so pending-state assertions run while the request is
+ *  genuinely unresolved (and can then settle either way, or reject). */
+function deferred() {
+  let resolve!: (v: boolean) => void;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<boolean>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+/** Mirrors renderModal's exact prop set with STATEFUL checked — reproduces the
+ *  live card contract (Step3SheetCard.tsx:289-295): `checked` flips
+ *  OPTIMISTICALLY the moment the request starts, rolls back to the pre-click
+ *  value on resolve-false AND on throw (rethrown so the modal's own catch at
+ *  Step3ReviewModal.tsx:686-690 is exercised). Static-prop renders can't catch
+ *  the §B1 bug — the wrong slot only renders once `checked` flips mid-flight. */
+function OptimisticHarness(props: {
+  initialChecked: boolean;
+  request: (next: boolean) => Promise<boolean>;
+  onClose?: () => void;
+}) {
+  const [checked, setChecked] = useState(props.initialChecked);
+  return (
+    <Step3ReviewModal
+      data={sectionData()}
+      isDirtyRescan={false}
+      onClose={props.onClose ?? vi.fn()}
+      checked={checked}
+      onRequestSetChecked={async (next) => {
+        const prev = checked;
+        setChecked(next); // the card's optimistic flip (Step3SheetCard.tsx:289-292)
+        let ok: boolean;
+        try {
+          ok = await props.request(next);
+        } catch (e) {
+          setChecked(prev); // the card's failure settlement/rollback
+          throw e; // rethrow so the MODAL's own catch is exercised
+        }
+        if (!ok) setChecked(prev); // rollback on resolve-false too
+        return ok;
+      }}
+    />
+  );
 }
 
 /** flaggedCount the modal must display, computed the same way the spec derives
@@ -477,7 +525,13 @@ describe("Step3ReviewModal — footer note + buttons (spec §9.1)", () => {
       vi.fn(
         async () =>
           new Response(
-            JSON.stringify({ ok: true, status: "updated", needsReview: false, changed: true }),
+            JSON.stringify({
+              ok: true,
+              status: "updated",
+              needsReview: false,
+              changed: true,
+              demoted: false,
+            }),
             { status: 200 },
           ),
       ),
@@ -595,12 +649,14 @@ describe("Step3ReviewModal — publish click (spec §9.1)", () => {
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 
-  test("resolved false → modal stays open, inline error note, prior label kept", async () => {
-    const { q, onClose } = renderModal({
-      checked: false,
-      onRequestSetChecked: vi.fn(async () => false),
-    });
+  test("resolved false → modal stays open, inline error note, prior label kept (optimistic flip rolled back — spec T-B2)", async () => {
+    const onClose = vi.fn();
+    const d = deferred();
+    const q = render(
+      <OptimisticHarness initialChecked={false} request={() => d.promise} onClose={onClose} />,
+    );
     fireEvent.click(q.getByTestId(tid("publish")));
+    await act(async () => d.resolve(false));
     await waitFor(() =>
       expect(
         within(q.getByTestId(tid("footer"))).getByText(
@@ -617,28 +673,51 @@ describe("Step3ReviewModal — publish click (spec §9.1)", () => {
     // Inside the aria-modal dialog, the failure must be announced by AT —
     // role="status" makes the inline note a live region (impeccable audit P2).
     expect(errorNote.getAttribute("role")).toBe("status");
-    // Prior (state-derived) label restored — not stuck on "Selecting…".
-    expect(q.getByTestId(tid("publish")).textContent).toBe("Publish this show");
+    // Prior (state-derived) label restored — not stuck on "Selecting…" — and
+    // the button re-enabled for a retry (no pendingOp leak, spec §B2).
+    const btn = q.getByTestId(tid("publish")) as HTMLButtonElement;
+    expect(btn.textContent).toBe("Publish this show");
+    expect(btn.disabled).toBe(false);
   });
 
-  test("while pending → disabled + aria-busy + 'Selecting…' (deferred promise)", async () => {
-    let resolveReq!: (v: boolean) => void;
-    const onRequestSetChecked = vi.fn(
-      () =>
-        new Promise<boolean>((resolve) => {
-          resolveReq = resolve;
-        }),
+  test("REJECTED (thrown) → same settlement as resolve-false: error note, label restored, re-enabled (spec T-B2; §B2 pendingOp clears on caught throw)", async () => {
+    const onClose = vi.fn();
+    const d = deferred();
+    const q = render(
+      <OptimisticHarness initialChecked={false} request={() => d.promise} onClose={onClose} />,
     );
-    const { q, onClose } = renderModal({ onRequestSetChecked });
     fireEvent.click(q.getByTestId(tid("publish")));
+    await act(async () => d.reject(new Error("network down")));
+    await waitFor(() =>
+      expect(
+        within(q.getByTestId(tid("footer"))).getByText(
+          "Couldn't update the publish selection. Try again.",
+        ),
+      ).toBeTruthy(),
+    );
+    expect(onClose).not.toHaveBeenCalled();
     const btn = q.getByTestId(tid("publish")) as HTMLButtonElement;
-    await waitFor(() => expect(btn.textContent).toBe("Selecting…"));
+    expect(btn.textContent).toBe("Publish this show");
+    expect(btn.disabled).toBe(false);
+  });
+
+  test("[BUG §B1] while publish is pending the slot follows the OPERATION, not the optimistically-flipped checked prop: accent CTA + 'Selecting…' (broken code renders the checked branch: quiet 'Removing…')", async () => {
+    const d = deferred();
+    const onClose = vi.fn();
+    const q = render(
+      <OptimisticHarness initialChecked={false} request={() => d.promise} onClose={onClose} />,
+    );
+    fireEvent.click(q.getByTestId(tid("publish")));
+    await waitFor(() => expect(q.getByTestId(tid("publish")).textContent).toBe("Selecting…"));
+    const btn = q.getByTestId(tid("publish")) as HTMLButtonElement;
+    // Accent (primary CTA) treatment persists through the flight — the flipped
+    // checked prop must NOT swap in the quiet unpublish recipe mid-publish.
+    expect(btn.className).toMatch(/\bbg-accent\b/);
+    expect(btn.className).not.toMatch(/\bborder-border-strong\b/);
     expect(btn.disabled).toBe(true);
     expect(btn.getAttribute("aria-busy")).toBe("true");
     expect(onClose).not.toHaveBeenCalled();
-    await act(async () => {
-      resolveReq(true);
-    });
+    await act(async () => d.resolve(true));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 });
@@ -714,21 +793,36 @@ describe("Step3ReviewModal — footer Unpublish + demoted gate (spec §C2/§C3)"
     expect(within(footer).getByTestId(tid("publish")).textContent).toBe("Unpublish");
   });
 
-  test("unpublish pending: 'Removing…', disabled, aria-busy; a rapid second click fires NO second request", async () => {
-    let settle!: (v: boolean) => void;
-    const onRequestSetChecked = vi.fn(() => new Promise<boolean>((resolve) => (settle = resolve)));
-    const { q, onClose } = renderModal({ checked: true, onRequestSetChecked });
+  test("[BUG §B1] while unpublish is pending the slot follows the OPERATION: quiet 'Removing…' even though checked already flipped false (broken code renders the accent 'Selecting…'); rapid second click fires NO second request; success settles to the publish CTA", async () => {
+    const d = deferred();
+    const request = vi.fn(() => d.promise);
+    const onClose = vi.fn();
+    const q = render(
+      <OptimisticHarness initialChecked={true} request={request} onClose={onClose} />,
+    );
     const footer = q.getByTestId(tid("footer"));
+    fireEvent.click(within(footer).getByTestId(tid("publish")));
+    await waitFor(() =>
+      expect(within(footer).getByTestId(tid("publish")).textContent).toBe("Removing…"),
+    );
     const btn = within(footer).getByTestId(tid("publish")) as HTMLButtonElement;
-    fireEvent.click(btn);
-    await waitFor(() => expect(btn.textContent).toBe("Removing…"));
+    // Quiet/secondary treatment persists through the flight — the flipped
+    // checked prop must NOT swap in the accent publish CTA mid-unpublish.
+    expect(btn.className).toMatch(/\bborder-border-strong\b/);
+    expect(btn.className).not.toMatch(/\bbg-accent\b/);
     expect(btn.disabled).toBe(true);
     expect(btn.getAttribute("aria-busy")).toBe("true");
     // Rapid double-click guard: the disabled button fires no second request.
     fireEvent.click(btn);
-    expect(onRequestSetChecked).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledTimes(1);
     expect(onClose).not.toHaveBeenCalled();
-    await act(async () => settle(true));
+    await act(async () => d.resolve(true));
+    // Success stays open; checked settled false → the slot renders the accent
+    // publish CTA (§B2: post-resolution behavior unchanged).
+    await waitFor(() =>
+      expect(within(footer).getByTestId(tid("publish")).textContent).toBe("Publish this show"),
+    );
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   test("demoted gate (§C3): non-rescan finalize failure → NO publish/unpublish button; NotPublishableNote copy + Re-scan still render in the footer (even when checked)", () => {

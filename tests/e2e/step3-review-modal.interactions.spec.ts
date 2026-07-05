@@ -93,6 +93,7 @@ const NAV_CLICK_OFFSET_PX = 8; // §6.3a click override scrolls to sectionTop �
 // rationale: the SPEC is the source of truth, drift fails here correctly.
 const INDICATOR_INSET_PX = 12; // §A3/§I rail-indicator vertical inset
 const WARNING_HIGHLIGHT_MS = 1600; // §E4/§H N3 one-shot warning-row flash
+const TAP_MIN = 44; // parent-spec §15 minimum tap-target height
 
 function tid(name: string): string {
   return `wizard-step3-card-${HARNESS_DFID}-review-${name}`;
@@ -650,10 +651,27 @@ test("§K13: callout View details jumps to the warning row in view, flash presen
     landing.sBottom + TOL,
   );
 
-  // The jump also activates the warnings nav item (§E4 = §A2 nav semantics).
+  // The jump also drives the nav via §E4 = §A2 semantics: the suppressed
+  // glide releases on settle/clamp and falls through to the §6.3a derivation
+  // at the landed position (parent spec §A2 release conditions). Follow-ups-b2
+  // §D collapsed the report form, shortening the LAST section — this jump now
+  // BOTTOM-CLAMPS, so the rule's answer is the last section ("report"), not
+  // "warnings" as under the pre-§D geometry. Derive the expectation from the
+  // spec rule at live-measured geometry rather than hardcoding either id, so
+  // the assertion keeps its teeth against wiring drift (wrong container,
+  // stale tops, aria-current on the wrong item) without pinning the fixture's
+  // height budget.
+  const landed = await contentMetrics(page);
+  const landedScrollTop = await page.locator(CONTENT).evaluate((el) => el.scrollTop);
+  const expectedActive = specActiveSection(
+    landedScrollTop,
+    landed.clientHeight,
+    landed.scrollHeight,
+    landed.tops,
+  );
   await expect
-    .poll(() => railActiveId(page), { message: "warnings section becomes active" })
-    .toBe("warnings");
+    .poll(() => railActiveId(page), { message: "nav lands on the §6.3a-derived section" })
+    .toBe(expectedActive);
 
   // Lifecycle: the one-shot timer strips the attribute within
   // WARNING_HIGHLIGHT_MS (+1s slack) — catches: timer never firing.
@@ -663,6 +681,32 @@ test("§K13: callout View details jumps to the warning row in view, flash presen
       timeout: WARNING_HIGHLIGHT_MS + 1000,
     })
     .toBe(0);
+});
+
+// ── Follow-ups-b2 §D: report disclosure — expand, then measure the submit
+// tap target. The layout spec's STATIC harness cannot expand (no JS), so its
+// tap-target audit measures the always-present toggle and the submit-button
+// ≥44px measurement lives HERE behind a real click. Catches: toggle missing/
+// unwired, form not mounting on expand, or a submit target under 44px. ──────
+
+test("§D: report toggle expands the form live — submit button visible with height ≥ 44", async ({
+  page,
+}) => {
+  await openLive(page, { width: 1280, height: 800 });
+
+  const toggle = page.locator(`[data-testid="wizard-step3-card-${HARNESS_DFID}-report-toggle"]`);
+  await expect(toggle, "disclosure toggle renders collapsed").toHaveAttribute(
+    "aria-expanded",
+    "false",
+  );
+  const submit = page.locator(`[data-testid="wizard-step3-card-${HARNESS_DFID}-report-submit"]`);
+  await expect(submit, "form hidden while collapsed").toHaveCount(0);
+
+  await toggle.click();
+  await expect(toggle, "toggle reflects expansion").toHaveAttribute("aria-expanded", "true");
+  await expect(submit, "submit button mounts on expand").toBeVisible();
+  const h = await submit.evaluate((el) => el.getBoundingClientRect().height);
+  expect(h, "report submit height ≥ 44 after expand").toBeGreaterThanOrEqual(TAP_MIN - TOL);
 });
 
 // ── §K14 footer no-shift (overlay rescan result; live-entry fetch stub) ─────

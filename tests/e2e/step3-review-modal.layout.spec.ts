@@ -33,8 +33,10 @@
  * rooms), so the per-section sweep covers `section-rooms`/`section-report` and
  * a dedicated test pins the diagrams grid inside it (no horizontal scroll in
  * the content pane; on-screen tiles === the spec cap; fixture-derived "+N
- * more" note). Tap-target audit adds the report submit button, a crew callout
- * "View details" button, and the diagrams folder link.
+ * more" note). Tap-target audit adds the report disclosure toggle (the form
+ * behind it is collapsed by default per follow-ups-b2 §D — the submit button
+ * is measured in the LIVE interactions spec after an expand step), a crew
+ * callout "View details" button, and the diagrams folder link.
  *
  * Plus (§15/§16): tap-target audit (grab strip, every visible chip, every
  * visible rail item, footer buttons ≥44px tall; a crew tel anchor ≥44×44);
@@ -399,11 +401,15 @@ for (const { mode, width, height, maxRatio } of MODES) {
       expect(grab.height, "grab strip height ≥ 44").toBeGreaterThanOrEqual(TAP_MIN - TOL);
     }
 
-    // Follow-ups Task 14 additions: the report submit button, a crew-callout
+    // Follow-ups Task 14 additions: the report disclosure toggle, a crew-callout
     // "View details" jump button (§E3), and the diagrams folder link (§B3) are
     // all new interactive targets — each ≥44px tall (parent-spec §15 rule).
+    // Follow-ups-b2 §D: the report form is collapsed by default, so this STATIC
+    // harness (react-dom/server — no interactivity) measures the always-present
+    // toggle; the submit-button ≥44px measurement lives in the LIVE interactions
+    // spec behind an expand step.
     for (const [label, sel] of [
-      ["report submit", `[data-testid="wizard-step3-card-${HARNESS_DFID}-report-submit"]`],
+      ["report toggle", `[data-testid="wizard-step3-card-${HARNESS_DFID}-report-toggle"]`],
       [
         "callout View details",
         `[data-testid="wizard-step3-card-${HARNESS_DFID}-section-crew-flag-callout"] button`,

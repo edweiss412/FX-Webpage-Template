@@ -142,7 +142,9 @@ function sectionTopFor(scroller: Element, el: Element): number {
   );
 }
 
-type PublishState = "idle" | "pending" | "error";
+/** Pending carries WHICH operation is in flight: the footer slot follows the
+ *  operation, not the optimistically-flipped `checked` prop (spec §B2). */
+type PublishState = "idle" | "error" | { pending: "publish" | "unpublish" };
 
 export function Step3ReviewModal({
   data,
@@ -681,7 +683,7 @@ export function Step3ReviewModal({
   // Result-bearing publish (spec §9.1): the unchecked slot requests true;
   // close only on a true resolution.
   async function handlePublish() {
-    setPublishState("pending");
+    setPublishState({ pending: "publish" });
     let ok = false;
     try {
       ok = await onRequestSetChecked(true);
@@ -699,7 +701,7 @@ export function Step3ReviewModal({
   // prop flips via the card's settlement (§9.2 waiter queue, untouched), so
   // the slot swaps to "Publish this show" (instant, §H N5).
   async function handleUnpublish() {
-    setPublishState("pending");
+    setPublishState({ pending: "unpublish" });
     let ok = false;
     try {
       ok = await onRequestSetChecked(false);
@@ -713,9 +715,17 @@ export function Step3ReviewModal({
     setPublishState("error"); // same affordance as the publish failure path
   }
 
+  // In-flight derivations (spec §B2): `checked` flips OPTIMISTICALLY the
+  // moment the card's request starts, so mid-flight the slot must follow the
+  // OPERATION — publish keeps the accent CTA, unpublish keeps the quiet
+  // button — and only settle back onto `checked` once pendingOp clears.
+  const pendingOp = typeof publishState === "object" ? publishState.pending : null;
+  const isPending = pendingOp !== null;
+  const showCheckedSlot = pendingOp !== null ? pendingOp === "unpublish" : checked;
+
   // The checked slot owns its own labels ("Unpublish" / "Removing…") below —
   // this pair is the unchecked publish CTA's only.
-  const publishLabel = publishState === "pending" ? "Selecting…" : "Publish this show";
+  const publishLabel = pendingOp === "publish" ? "Selecting…" : "Publish this show";
 
   return (
     <div
@@ -1118,27 +1128,27 @@ export function Step3ReviewModal({
                 wizardSessionId={wizardSessionId}
                 resultPlacement="overlay"
               />
-              {/* §11 N5: instant — deliberate (publish ↔ unpublish slot follows the checked prop; spec §C2/§H N5) */}
-              {checked ? (
+              {/* §11 N5: instant — deliberate (slot follows the operation in flight while pending, else the checked prop; spec 2026-07-04 §B2 amendment) */}
+              {showCheckedSlot ? (
                 <button
                   type="button"
                   data-testid={`wizard-step3-card-${dfid}-review-publish`}
                   onClick={handleUnpublish}
-                  disabled={publishState === "pending"}
-                  aria-busy={publishState === "pending" || undefined}
+                  disabled={isPending}
+                  aria-busy={isPending || undefined}
                   className="inline-flex min-h-tap-min flex-1 items-center justify-center gap-2 rounded-sm border border-border-strong bg-surface px-4 text-sm font-semibold whitespace-nowrap text-text transition-colors duration-fast hover:bg-surface-sunken disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface sm:flex-none"
                 >
                   {/* Quiet/secondary treatment, no Check icon (spec §C2); exact
                       weights design-stage-tunable under impeccable. */}
-                  {publishState === "pending" ? "Removing…" : "Unpublish"}
+                  {pendingOp === "unpublish" ? "Removing…" : "Unpublish"}
                 </button>
               ) : (
                 <button
                   type="button"
                   data-testid={`wizard-step3-card-${dfid}-review-publish`}
                   onClick={handlePublish}
-                  disabled={publishState === "pending"}
-                  aria-busy={publishState === "pending" || undefined}
+                  disabled={isPending}
+                  aria-busy={isPending || undefined}
                   className="inline-flex min-h-tap-min flex-1 items-center justify-center gap-2 rounded-sm bg-accent px-4 text-sm font-semibold whitespace-nowrap text-accent-text transition-colors duration-fast hover:bg-accent-hover disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface sm:flex-none"
                 >
                   {publishLabel}

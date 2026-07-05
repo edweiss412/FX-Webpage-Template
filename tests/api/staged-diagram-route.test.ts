@@ -43,7 +43,8 @@ const PNG_BYTES = new TextEncoder().encode("png-bytes");
 // Module-level spies so every test can assert call counts (the security tests
 // assert ZERO calls — the spy must be the same object the route received).
 const queryOneMock = vi.fn<(sqlText: string, params: unknown[]) => Promise<unknown>>();
-const fetchImageBytesMock = vi.fn<(stub: unknown) => Promise<unknown>>();
+const fetchImageBytesMock =
+  vi.fn<(stub: unknown, ctx: { driveFileId: string }) => Promise<unknown>>();
 
 beforeEach(() => {
   queryOneMock.mockReset();
@@ -180,13 +181,77 @@ describe("staged-diagram route — URL trust boundary (§K7.6, §K7.7) — token
     expect(fetchImageBytesMock.mock.calls.length).toBe(0);
   });
 
-  test("null contentUrl (XLSX-media entry) → 404 with ZERO fetchImageBytes calls", async () => {
+  test("null contentUrl (XLSX-media entry) with no media pair → 404 with ZERO fetchImageBytes calls", async () => {
     queryOneMock.mockResolvedValue({
       parse_result: parseResultWith([{ ...validStub, contentUrl: null }]),
     });
     const response = await get();
     expect(response.status).toBe(404);
     expect(fetchImageBytesMock.mock.calls.length).toBe(0);
+  });
+});
+
+describe("staged-diagram route — XLSX-media stubs (spec §A2/§A3, hasStagedPreviewSource)", () => {
+  const mediaStub = {
+    ...validStub,
+    contentUrl: null,
+    mediaPartName: "xl/media/image1.png",
+    embeddedFingerprint: "fp",
+  };
+
+  // Failure mode: the shipped 404-all-media bug — a well-formed XLSX-media
+  // stub (null contentUrl, real mediaPartName + fingerprint) must be served,
+  // not blanket-404'd like the current `contentUrl == null` gate does.
+  test("media stub (mediaPartName + fingerprint) → 200 with fetchImageBytes(stub, {driveFileId})", async () => {
+    queryOneMock.mockResolvedValue({
+      parse_result: parseResultWith([mediaStub]),
+    });
+    const response = await get();
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe("png-bytes");
+    expect(fetchImageBytesMock.mock.calls.length).toBe(1);
+    const [calledStub, calledCtx] = fetchImageBytesMock.mock.calls[0]!;
+    expect(calledStub).toEqual(mediaStub);
+    expect(calledCtx).toEqual({ driveFileId: DFID });
+  });
+
+  // Failure mode: a restage-only stub (fingerprint null — parser hasn't
+  // recomputed it yet) being served anyway.
+  test("media stub with null embeddedFingerprint (restage-only) → 404, ZERO fetchImageBytes calls", async () => {
+    queryOneMock.mockResolvedValue({
+      parse_result: parseResultWith([{ ...mediaStub, embeddedFingerprint: null }]),
+    });
+    const response = await get();
+    expect(response.status).toBe(404);
+    expect(fetchImageBytesMock.mock.calls.length).toBe(0);
+  });
+
+  test("media stub with no mediaPartName → 404, ZERO fetchImageBytes calls", async () => {
+    const { mediaPartName: _omit, ...withoutMediaPartName } = mediaStub;
+    queryOneMock.mockResolvedValue({
+      parse_result: parseResultWith([withoutMediaPartName]),
+    });
+    const response = await get();
+    expect(response.status).toBe(404);
+    expect(fetchImageBytesMock.mock.calls.length).toBe(0);
+  });
+
+  test("media stub, fetchImageBytes resolves null → 404 (fail-soft)", async () => {
+    queryOneMock.mockResolvedValue({
+      parse_result: parseResultWith([mediaStub]),
+    });
+    fetchImageBytesMock.mockResolvedValue(null);
+    const response = await get();
+    expect(response.status).toBe(404);
+  });
+
+  test("media stub, fetchImageBytes rejects → 404, not 500", async () => {
+    queryOneMock.mockResolvedValue({
+      parse_result: parseResultWith([mediaStub]),
+    });
+    fetchImageBytesMock.mockRejectedValue(new Error("export refetch exploded"));
+    const response = await get();
+    expect(response.status).toBe(404);
   });
 });
 

@@ -77,7 +77,11 @@ import type {
 import type { Step3Row } from "@/components/admin/wizard/Step3Review";
 import type { SectionId } from "@/lib/admin/step3SectionStatus";
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
-import { isRenderableDiagramStub, trustedDriveFolderHref } from "@/lib/admin/stagedDiagramGuards";
+import {
+  hasStagedPreviewSource,
+  isRenderableDiagramStub,
+  trustedDriveFolderHref,
+} from "@/lib/admin/stagedDiagramGuards";
 import type { MessageCode } from "@/lib/messages/catalog";
 import { humanizeDate, humanizeDayRange } from "@/lib/dates/humanize";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
@@ -1876,14 +1880,14 @@ function DiagramTile({
   src,
   alt,
   testId,
-  hasContentUrl,
+  hasPreviewSource,
 }: {
   src: string;
   alt: string;
   testId: string;
-  hasContentUrl: boolean;
+  hasPreviewSource: boolean;
 }) {
-  const [failed, setFailed] = useState(!hasContentUrl);
+  const [failed, setFailed] = useState(!hasPreviewSource);
   if (failed) {
     return (
       <span
@@ -1973,7 +1977,10 @@ export function DiagramsBreakdown({
               // rendered a nameless link (impeccable audit P2); blank/space
               // alts fall back to the generic sheet-tab string too.
               alt={stub.alt?.trim() || `Diagram from ${stub.sheetTab}`}
-              hasContentUrl={stub.contentUrl != null}
+              // Shared servability predicate (spec §A4): the tile and the
+              // preview route can never disagree on what's fetchable —
+              // trusted legacy contentUrl OR fingerprint-addressable media.
+              hasPreviewSource={hasStagedPreviewSource(stub)}
             />
           ))}
         </div>
@@ -2068,13 +2075,29 @@ function reportErrorCopy(code: string | null): string {
  * Modal unmount mid-flight is fire-and-forget by construction — the persisted
  * key makes a retry after reopen a duplicate → success (§D3 guards). Draft
  * persistence is mount-local only (spec-accepted).
+ *
+ * Follow-ups-b2 §D: the form is collapsed by default behind a disclosure
+ * trigger. `draft`/`status`/`handleSubmit` live HERE (component level), NOT in
+ * the conditional subtree, so collapsing unmounts the form DOM but preserves
+ * the draft, the last status line, and any in-flight POST (fire-and-forget —
+ * same posture as modal unmount above).
  */
 export function ReportIssueSection({ data }: { data: SectionData }) {
   const { dfid, wizardSessionId, row, warnings } = data;
   const chrome = useContext(Step3SectionChromeContext);
   const [draft, setDraft] = useState("");
   const [status, setStatus] = useState<ReportSectionStatus>({ kind: "idle" });
+  const [expanded, setExpanded] = useState(false);
   const textareaId = useId();
+  const formId = useId();
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // §D1: on expand, focus moves to the textarea (async focus contract — tests
+  // poll via waitFor). Effect-on-flip: mount starts collapsed so this never
+  // fires on initial render, and collapse leaves focus on the trigger.
+  useEffect(() => {
+    if (expanded) textareaRef.current?.focus();
+  }, [expanded]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -2144,53 +2167,69 @@ export function ReportIssueSection({ data }: { data: SectionData }) {
         Spotted something wrong or missing that the checks above didn&rsquo;t flag? Send it to the
         developer.
       </p>
-      <form onSubmit={handleSubmit} className="flex flex-col gap-2">
-        <label htmlFor={textareaId} className="text-sm font-medium text-text-strong">
-          What&rsquo;s wrong or missing?
-        </label>
-        <textarea
-          id={textareaId}
-          data-testid={`wizard-step3-card-${dfid}-report-textarea`}
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          maxLength={REPORT_MESSAGE_MAX_CHARS}
-          rows={3}
-          /* border-border on bg-bg was 1.22:1 — far under the 3:1 non-text
-             minimum (impeccable audit P2, WCAG 1.4.11). border-strong + the
-             surface fill together make the field read as a field. */
-          className="w-full rounded-sm border border-border-strong bg-surface p-2 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-        />
-        <div className="flex items-center gap-3">
-          <button
-            type="submit"
-            data-testid={`wizard-step3-card-${dfid}-report-submit`}
-            disabled={draft.trim().length === 0 || status.kind === "pending"}
-            aria-busy={status.kind === "pending" || undefined}
-            /* Quiet secondary treatment (impeccable critique P2): the report
-               path must not compete with the footer's accent Publish CTA —
-               same border/surface recipe as the footer Unpublish button.
-               ring-offset-bg matches the content pane surface. */
-            className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-surface px-4 text-sm font-semibold text-text transition-colors duration-fast hover:bg-surface-sunken disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
-          >
-            Send report
-          </button>
-          <span
-            data-testid={`wizard-step3-card-${dfid}-report-status`}
-            role="status"
-            aria-live="polite"
-            className={`min-w-0 text-sm ${status.kind === "error" ? "font-medium text-warning-text" : "text-text-subtle"}`}
-          >
-            {/* §D3 status line — instant text swaps (spec §H N7) */}
-            {status.kind === "pending"
-              ? "Sending…"
-              : status.kind === "success"
-                ? "Sent — thanks. The developer will take a look."
-                : status.kind === "error"
-                  ? status.copy
-                  : ""}
-          </span>
-        </div>
-      </form>
+      <button
+        type="button"
+        data-testid={`wizard-step3-card-${dfid}-report-toggle`}
+        aria-expanded={expanded}
+        aria-controls={formId}
+        onClick={() => setExpanded((v) => !v)}
+        /* §D1 disclosure trigger — same quiet secondary recipe as the submit
+           button below (never the accent CTA; that belongs to Publish). */
+        className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-surface px-4 text-sm font-semibold text-text transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+      >
+        Write a report
+      </button>
+      {/* §D2: instant — deliberate (collapsed↔expanded; the status swaps inside are §D2 instant too) */}
+      {expanded ? (
+        <form id={formId} onSubmit={handleSubmit} className="flex flex-col gap-2">
+          <label htmlFor={textareaId} className="text-sm font-medium text-text-strong">
+            What&rsquo;s wrong or missing?
+          </label>
+          <textarea
+            id={textareaId}
+            ref={textareaRef}
+            data-testid={`wizard-step3-card-${dfid}-report-textarea`}
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            maxLength={REPORT_MESSAGE_MAX_CHARS}
+            rows={3}
+            /* border-border on bg-bg was 1.22:1 — far under the 3:1 non-text
+               minimum (impeccable audit P2, WCAG 1.4.11). border-strong + the
+               surface fill together make the field read as a field. */
+            className="w-full rounded-sm border border-border-strong bg-surface p-2 text-sm text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          />
+          <div className="flex items-center gap-3">
+            <button
+              type="submit"
+              data-testid={`wizard-step3-card-${dfid}-report-submit`}
+              disabled={draft.trim().length === 0 || status.kind === "pending"}
+              aria-busy={status.kind === "pending" || undefined}
+              /* Quiet secondary treatment (impeccable critique P2): the report
+                 path must not compete with the footer's accent Publish CTA —
+                 same border/surface recipe as the footer Unpublish button.
+                 ring-offset-bg matches the content pane surface. */
+              className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-surface px-4 text-sm font-semibold text-text transition-colors duration-fast hover:bg-surface-sunken disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg"
+            >
+              Send report
+            </button>
+            <span
+              data-testid={`wizard-step3-card-${dfid}-report-status`}
+              role="status"
+              aria-live="polite"
+              className={`min-w-0 text-sm ${status.kind === "error" ? "font-medium text-warning-text" : "text-text-subtle"}`}
+            >
+              {/* §D3 status line — instant text swaps (spec §H N7) */}
+              {status.kind === "pending"
+                ? "Sending…"
+                : status.kind === "success"
+                  ? "Sent — thanks. The developer will take a look."
+                  : status.kind === "error"
+                    ? status.copy
+                    : ""}
+            </span>
+          </div>
+        </form>
+      ) : null}
     </BreakdownSection>
   );
 }

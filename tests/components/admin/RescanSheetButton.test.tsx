@@ -65,7 +65,13 @@ describe("RescanSheetButton — states + posted body", () => {
 
   test("on click POSTs { driveFileId, wizardSessionId } to the rescan route (body asserted independently of the branch)", async () => {
     fetchMock.mockResolvedValueOnce(
-      mockJsonResponse({ ok: true, status: "updated", needsReview: false, changed: true }),
+      mockJsonResponse({
+        ok: true,
+        status: "updated",
+        needsReview: false,
+        changed: true,
+        demoted: false,
+      }),
     );
     const { getByTestId } = render(<RescanSheetButton driveFileId={DFID} wizardSessionId={WSID} />);
     await act(async () => {
@@ -80,7 +86,13 @@ describe("RescanSheetButton — states + posted body", () => {
 
   test("updated + clean + changed → 'Updated. Still ready to publish.' and router.refresh()", async () => {
     fetchMock.mockResolvedValueOnce(
-      mockJsonResponse({ ok: true, status: "updated", needsReview: false, changed: true }),
+      mockJsonResponse({
+        ok: true,
+        status: "updated",
+        needsReview: false,
+        changed: true,
+        demoted: false,
+      }),
     );
     const { getByTestId } = render(<RescanSheetButton driveFileId={DFID} wizardSessionId={WSID} />);
     await act(async () => {
@@ -94,7 +106,13 @@ describe("RescanSheetButton — states + posted body", () => {
 
   test("updated + clean + NOT changed → 'No changes found.'", async () => {
     fetchMock.mockResolvedValueOnce(
-      mockJsonResponse({ ok: true, status: "updated", needsReview: false, changed: false }),
+      mockJsonResponse({
+        ok: true,
+        status: "updated",
+        needsReview: false,
+        changed: false,
+        demoted: false,
+      }),
     );
     const { getByTestId } = render(<RescanSheetButton driveFileId={DFID} wizardSessionId={WSID} />);
     await act(async () => {
@@ -107,22 +125,42 @@ describe("RescanSheetButton — states + posted body", () => {
     );
   });
 
-  test("updated + needsReview → 'Updated. This sheet changed and needs your review before publishing.'", async () => {
-    fetchMock.mockResolvedValueOnce(
-      mockJsonResponse({ ok: true, status: "updated", needsReview: true, changed: true }),
-    );
-    const { getByTestId } = render(<RescanSheetButton driveFileId={DFID} wizardSessionId={WSID} />);
-    await act(async () => {
-      fireEvent.click(getByTestId(`rescan-sheet-button-${DFID}`));
-    });
-    await waitFor(() =>
-      expect(getByTestId(`rescan-sheet-result-${DFID}`).textContent ?? "").toContain(
-        "Updated. This sheet changed and needs your review before publishing.",
-      ),
-    );
-    // It still refreshes so the server re-render shows the demoted card.
-    expect(refreshMock).toHaveBeenCalled();
-  });
+  // Spec §C3 copy truth table, rows 1-4 (needsReview: true). demoted || changed →
+  // the byte-identical "changed" sentence; {demoted:false, changed:false} → S1 (the
+  // fixed false positive: an unapproved sheet that did NOT change must not claim it did).
+  const CHANGED_COPY = "Updated. This sheet changed and needs your review before publishing.";
+  const S1_COPY = "No changes found. This sheet still needs your review before publishing.";
+  test.each([
+    { demoted: true, changed: true, copy: CHANGED_COPY },
+    { demoted: true, changed: false, copy: CHANGED_COPY }, // content regressed; modifiedTime stable
+    { demoted: false, changed: true, copy: CHANGED_COPY }, // edited while unapproved
+    { demoted: false, changed: false, copy: S1_COPY }, // the reported false positive
+  ])(
+    "updated + needsReview {demoted:$demoted, changed:$changed} → '$copy'",
+    async ({ demoted, changed, copy }) => {
+      fetchMock.mockResolvedValueOnce(
+        mockJsonResponse({ ok: true, status: "updated", needsReview: true, changed, demoted }),
+      );
+      const { getByTestId } = render(
+        <RescanSheetButton driveFileId={DFID} wizardSessionId={WSID} />,
+      );
+      await act(async () => {
+        fireEvent.click(getByTestId(`rescan-sheet-button-${DFID}`));
+      });
+      await waitFor(() =>
+        expect(getByTestId(`rescan-sheet-result-${DFID}`).textContent ?? "").toContain(copy),
+      );
+      const result = getByTestId(`rescan-sheet-result-${DFID}`).textContent ?? "";
+      if (copy === S1_COPY) {
+        // The false positive itself: nothing changed, so no "changed" claim.
+        expect(result).not.toContain(CHANGED_COPY);
+        expect(result).not.toContain("Updated.");
+      }
+      expect(result).not.toContain("—");
+      // It still refreshes so the server re-render shows the current card state.
+      expect(refreshMock).toHaveBeenCalled();
+    },
+  );
 
   test("needs_attention → cataloged dougFacing + HelpAffordance, no raw code, no refresh", async () => {
     const code = "STAGED_PARSE_FAILED";
@@ -244,7 +282,13 @@ describe("RescanSheetButton — resultPlacement (spec §G, Task 12)", () => {
     "max-w-[min(20rem,80vw)]",
     "shadow-(--shadow-tile)",
   ];
-  const INFO_BODY = { ok: true, status: "updated", needsReview: false, changed: true };
+  const INFO_BODY = {
+    ok: true,
+    status: "updated",
+    needsReview: false,
+    changed: true,
+    demoted: false,
+  };
   const CODED_BODY = { ok: false, status: "needs_attention", code: "STAGED_PARSE_FAILED" };
 
   async function driveResult(

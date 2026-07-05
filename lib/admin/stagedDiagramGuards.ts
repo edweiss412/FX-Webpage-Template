@@ -18,6 +18,14 @@ export function isRenderableDiagramStub(x: unknown): x is EmbeddedImageStub {
   if (o.contentUrl !== undefined && o.contentUrl !== null && typeof o.contentUrl !== "string") {
     return false;
   }
+  if (o.mediaPartName !== undefined && typeof o.mediaPartName !== "string") return false;
+  if (
+    o.embeddedFingerprint !== undefined &&
+    o.embeddedFingerprint !== null &&
+    typeof o.embeddedFingerprint !== "string"
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -40,6 +48,18 @@ export function isTrustedDiagramContentUrl(raw: string): boolean {
   if (url.protocol !== "https:") return false;
   const h = url.hostname.toLowerCase(); // canonicalize-exempt: URL host comparison, not email normalization.
   return TRUSTED_DIAGRAM_HOSTS.some((d) => h === d || h.endsWith("." + d));
+}
+
+/** A stub the preview route can actually serve: a TRUSTED legacy per-entry URL
+ *  (untrusted string contentUrls 404 at the route — the predicate must agree),
+ *  or an XLSX-media entry addressable by fingerprint (fingerprint null =
+ *  restage-only, lib/parser/types.ts:258-262 — not servable). */
+export function hasStagedPreviewSource(stub: EmbeddedImageStub): boolean {
+  // Mirrors the route's branch order: a string contentUrl is AUTHORITATIVE
+  // (untrusted → not servable, even if a media pair coexists on a corrupt
+  // stub); the media arm applies only when contentUrl is null/absent.
+  if (typeof stub.contentUrl === "string") return isTrustedDiagramContentUrl(stub.contentUrl);
+  return typeof stub.mediaPartName === "string" && typeof stub.embeddedFingerprint === "string";
 }
 
 /**

@@ -357,7 +357,12 @@ describe("rescanWizardSheet — Flow A + folder guard + lock (real DB)", () => {
         deps({ refreshedParse: makeParse("Show", CREW), modifiedTime: RESCAN_MODIFIED }),
       );
 
-      expect(result).toEqual({ status: "updated", needsReview: false, changed: true });
+      expect(result).toEqual({
+        status: "updated",
+        needsReview: false,
+        changed: true,
+        demoted: false,
+      });
 
       const row = await readPending();
       expect(row.wizard_approved).toBe(true);
@@ -398,7 +403,12 @@ describe("rescanWizardSheet — Flow A + folder guard + lock (real DB)", () => {
         deps({ refreshedParse: makeParse("Show", CREW_EMAIL_CHANGED) }),
       );
 
-      expect(result).toEqual({ status: "updated", needsReview: true, changed: true });
+      expect(result).toEqual({
+        status: "updated",
+        needsReview: true,
+        changed: true,
+        demoted: true,
+      });
 
       const row = await readPending();
       expect(row.wizard_approved).toBe(false);
@@ -425,7 +435,12 @@ describe("rescanWizardSheet — Flow A + folder guard + lock (real DB)", () => {
         SESSION,
         deps({ refreshedParse: makeParse("Show", CREW, fieldGap(2)) }),
       );
-      expect(result).toEqual({ status: "updated", needsReview: true, changed: true });
+      expect(result).toEqual({
+        status: "updated",
+        needsReview: true,
+        changed: true,
+        demoted: true,
+      });
       const row = await readPending();
       expect(row.wizard_approved).toBe(false);
       expect(row.last_finalize_failure_code).toBe(RESCAN_REVIEW_REQUIRED);
@@ -566,7 +581,12 @@ describe("rescanWizardSheet — Flow A + folder guard + lock (real DB)", () => {
         }),
       );
       // Clean refresh but priorReady=false captured UNDER the lock → stays needs-review, NOT re-approved.
-      expect(result).toEqual({ status: "updated", needsReview: true, changed: true });
+      expect(result).toEqual({
+        status: "updated",
+        needsReview: true,
+        changed: true,
+        demoted: false,
+      });
       const row = await readPending();
       expect(row.wizard_approved).toBe(false);
       expect(row.wizard_approved_by_email).toBeNull();
@@ -616,7 +636,12 @@ describe("rescanWizardSheet — Flow A + folder guard + lock (real DB)", () => {
       );
 
       // Fail-closed: a previously-ready row whose prior parse is unreadable forces review.
-      expect(result).toEqual({ status: "updated", needsReview: true, changed: true });
+      expect(result).toEqual({
+        status: "updated",
+        needsReview: true,
+        changed: true,
+        demoted: true,
+      });
       const row = await readPending();
       expect(row.wizard_approved).toBe(false);
       expect(row.wizard_approved_by_email).toBeNull();
