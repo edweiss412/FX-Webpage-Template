@@ -218,7 +218,12 @@ vi.mock("@/lib/admin/watchRetryError", () => ({
   WatchRetryInfraError: WatchRetryInfraErrorDouble,
 }));
 
-import { resolveAdminAlertFormAction, retryWatchSubscriptionFormAction } from "@/app/admin/actions";
+import {
+  resolveAdminAlertFormAction,
+  resolveHealthAlertFormAction,
+  retryWatchSubscriptionFormAction,
+} from "@/app/admin/actions";
+import { HEALTH_CODES } from "@/lib/adminAlerts/audience";
 
 // ── Task 13: admin picker mutations ─────────────────────────────────────────
 // resetPickerEpoch calls upsertAdminAlert (observational) — mock so the behavioral
@@ -450,7 +455,7 @@ describe("Task 9 — admin grant/revoke + developer toggle observe changes", () 
     });
 
     const selfForm = new FormData();
-    selfForm.set("email", "admin@example.com"); // matches requireAdminIdentityMock's actor
+    selfForm.set("email", "dev@example.com"); // matches the developer-gate actor (self-revoke refusal)
     revokeAdminEmailMock.mockClear();
     const failCodes = await observeCodes(() => revokeAdminAction(null, selfForm));
     expect(failCodes).not.toContain("ADMIN_REVOKED");
@@ -631,6 +636,51 @@ describe("Task 12 — alert-resolve + watch-retry observe success only", () => {
   });
 });
 
+// ── Reconciliation: resolveHealthAlertFormAction (developer-gated health-alert resolve;
+// landed on main after this branch's base). Two sequential supabase calls with different
+// shapes (code lookup via .maybeSingle(); UPDATE returning row evidence via .select("id")),
+// so it needs a bespoke client double rather than the generic makeClient. ──────────────────
+const HEALTH_ALERT_ID = "33333333-3333-4333-8333-333333333333";
+function healthAlertClient(opts: { code: string; updatedRows: unknown[] }) {
+  return async () => {
+    const node: Record<string, unknown> = {};
+    const self = () => node;
+    for (const m of ["select", "eq", "is", "update"]) node[m] = self;
+    // First call ends in .maybeSingle() → the alert's code + show_id row.
+    node.maybeSingle = async () => ({ data: { code: opts.code, show_id: null }, error: null });
+    // Second call ends in .select("id") → awaited node resolves to the UPDATE evidence.
+    node.then = (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) =>
+      Promise.resolve({ data: opts.updatedRows, error: null }).then(res, rej);
+    return { from: () => node };
+  };
+}
+
+describe("Reconciliation — resolveHealthAlertFormAction observes ADMIN_ALERT_RESOLVED on a committed health resolve", () => {
+  test("HEALTH_CODES row + single UPDATE row → emits; a non-health (doug) code emits nothing", async () => {
+    const fd = new FormData();
+    fd.set("id", HEALTH_ALERT_ID);
+    serverClientImpl.current = healthAlertClient({
+      code: HEALTH_CODES[0]!,
+      updatedRows: [{ id: HEALTH_ALERT_ID }],
+    });
+    const codes = await observeCodes(() => resolveHealthAlertFormAction(fd));
+    expect(codes).toContain("ADMIN_ALERT_RESOLVED");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/actions.ts",
+      fn: "resolveHealthAlertFormAction",
+      code: "ADMIN_ALERT_RESOLVED",
+    });
+
+    // Non-health code (a `doug`-audience alert) → defense-in-depth refusal, no emit.
+    serverClientImpl.current = healthAlertClient({
+      code: "SHOW_FIRST_PUBLISHED",
+      updatedRows: [{ id: HEALTH_ALERT_ID }],
+    });
+    const failCodes = await observeCodes(() => resolveHealthAlertFormAction(fd));
+    expect(failCodes).not.toContain("ADMIN_ALERT_RESOLVED");
+  });
+});
+
 // ── Task 13: admin picker mutations (spec §3.1 A, §9 — emit post-RPC, outside lock) ──
 const SHOW_ID = "11111111-1111-1111-1111-111111111111";
 const CREW_ID = "22222222-2222-2222-2222-222222222222";
@@ -671,17 +721,17 @@ describe("Task 13 — picker epoch/share-token/selection resets observe success 
     expect(failCodes).not.toContain("SHARE_TOKEN_ROTATED_BY_ADMIN");
   });
 
-  test("resetCrewMemberSelection emits CREW_SELECTION_RESET_BY_ADMIN on {ok:true}; nothing on a not-found (NULL) result", async () => {
+  test("resetCrewMemberSelection emits PICKER_SELECTION_RESET_BY_ADMIN on {ok:true}; nothing on a not-found (NULL) result", async () => {
     serverClientImpl.current = async () =>
       makeClient({ rpc: { data: "2026-07-05T00:00:00.000Z", error: null } });
     const codes = await observeCodes(() =>
       resetCrewMemberSelection({ showId: SHOW_ID, crewMemberId: CREW_ID }),
     );
-    expect(codes).toContain("CREW_SELECTION_RESET_BY_ADMIN");
+    expect(codes).toContain("PICKER_SELECTION_RESET_BY_ADMIN");
     recordAdminOutcomeBehavior({
       file: "lib/auth/picker/resetCrewMemberSelection.ts",
       fn: "resetCrewMemberSelection",
-      code: "CREW_SELECTION_RESET_BY_ADMIN",
+      code: "PICKER_SELECTION_RESET_BY_ADMIN",
     });
 
     // Failure: RPC returned NULL (crew member not found) → {ok:false}, no emit.
@@ -689,7 +739,7 @@ describe("Task 13 — picker epoch/share-token/selection resets observe success 
     const failCodes = await observeCodes(() =>
       resetCrewMemberSelection({ showId: SHOW_ID, crewMemberId: CREW_ID }),
     );
-    expect(failCodes).not.toContain("CREW_SELECTION_RESET_BY_ADMIN");
+    expect(failCodes).not.toContain("PICKER_SELECTION_RESET_BY_ADMIN");
   });
 });
 

@@ -246,6 +246,14 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
     fn: "resolveAdminAlertFormAction",
     code: "ADMIN_ALERT_RESOLVED",
   },
+  // resolveHealthAlertFormAction (developer-gated health-alert resolve, alert-audience-split
+  // spec §6.6) landed on main after this branch's base; it emits the reused ADMIN_ALERT_RESOLVED.
+  // Registered here so the discovery floor accounts for it (new admin surface → registry + proof).
+  {
+    file: "app/admin/actions.ts",
+    fn: "resolveHealthAlertFormAction",
+    code: "ADMIN_ALERT_RESOLVED",
+  },
   {
     file: "app/admin/actions.ts",
     fn: "retryWatchSubscriptionFormAction",
@@ -266,7 +274,7 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
   {
     file: "lib/auth/picker/resetCrewMemberSelection.ts",
     fn: "resetCrewMemberSelection",
-    code: "CREW_SELECTION_RESET_BY_ADMIN",
+    code: "PICKER_SELECTION_RESET_BY_ADMIN",
   },
   // Task 14 — admin routes (file-level; the single mutating handler is POST). The
   // manifest-ignore emit fires AFTER the withRowTx advisory-lock wrapper resolves.
@@ -340,7 +348,7 @@ export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
   // Invariant #10 (2026-07-04) Task 13.
   "PICKER_EPOCH_RESET_BY_ADMIN",
   "SHARE_TOKEN_ROTATED_BY_ADMIN",
-  "CREW_SELECTION_RESET_BY_ADMIN",
+  "PICKER_SELECTION_RESET_BY_ADMIN",
   // Invariant #10 (2026-07-04) Task 14.
   "MANIFEST_SHEET_IGNORED",
   "STALE_SESSIONS_REAPED",
