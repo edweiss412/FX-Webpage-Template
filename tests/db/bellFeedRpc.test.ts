@@ -252,24 +252,38 @@ describe("get_bell_feed_rows (spec §6.1)", () => {
     expect(Number(ours[0]!.resolved_occurrence_sum)).toBe(3 + 4);
   });
 
-  it("4. pre-cap exclusion: p_cap+5 excluded-code active rows don't consume the cap; the included row still survives", async () => {
-    const cap = 10;
+  it("4. pre-cap exclusion: a flood of newer excluded-code rows doesn't push out an older included row, and doesn't trip the cap", async () => {
+    // If exclusion happened AFTER the cap (broken order), the flood — being
+    // newer than the included row — would fill the p_cap+1 probe first and
+    // the included row would be truncated away. Only correct pre-cap
+    // filtering keeps the included row present while active_hit_cap stays
+    // false (the excluded flood never counts toward the cap at all).
+    // Cap is 50 (not the file's usual boundary-test 10) so ambient active
+    // rows from concurrently running test files can't spuriously trip
+    // active_hit_cap — only this test's own excluded-code flood is
+    // size-correlated with the cap, and it must NOT count toward it.
+    const cap = 50;
     const excludedCode = code("t4-excluded");
-    const now = new Date();
-    for (let i = 0; i < cap + 5; i++) {
-      const showId = await makeShow(`t4-ex-${i}`);
-      await insertAlert({ showId, code: excludedCode, raisedAt: now });
-    }
     const includedCode = code("t4-included");
     const includedShowId = await makeShow("t4-inc");
-    // Far-future timestamp guarantees this row ranks above any ambient active
-    // alert in the shared DB, so it survives the cap regardless of noise.
-    const farFuture = new Date(Date.now() + 1000 * 60 * 60 * 24 * 365 * 50);
+    const base = Date.now();
+    // Included row is the OLDEST of the bunch (T+1); every excluded row below
+    // is strictly NEWER (T+2..T+N), so post-cap filtering would drop the
+    // included row before exclusion ever ran.
     const includedId = await insertAlert({
       showId: includedShowId,
       code: includedCode,
-      raisedAt: farFuture,
+      raisedAt: new Date(base + 1000),
     });
+    const floodCount = cap + 5;
+    for (let i = 0; i < floodCount; i++) {
+      const showId = await makeShow(`t4-ex-${i}`);
+      await insertAlert({
+        showId,
+        code: excludedCode,
+        raisedAt: new Date(base + 2000 + i * 1000),
+      });
+    }
 
     const rows = await callFeed({
       historyDays: 30,
@@ -277,9 +291,13 @@ describe("get_bell_feed_rows (spec §6.1)", () => {
       excludedCodes: [excludedCode],
       adminEmail: adminEmail("t4"),
     });
-    const found = rows.find((r) => !r.is_meta && r.id === includedId);
+    const entries = rows.filter((r) => !r.is_meta);
+    const found = entries.find((r) => r.id === includedId);
     expect(found).toBeDefined();
     expect(found!.is_active).toBe(true);
+    expect(entries.some((r) => r.code === excludedCode)).toBe(false);
+    const meta = rows.find((r) => r.is_meta)!;
+    expect(meta.active_hit_cap).toBe(false);
   });
 
   it("5. caps OVER (active): truncates to p_cap = the newest by activity; meta.active_hit_cap=true", async () => {
@@ -450,6 +468,31 @@ describe("get_bell_feed_rows (spec §6.1)", () => {
     ).rejects.toThrow();
     await expect(
       callFeed({ historyDays: 30, cap: 50, excludedCodes: [], adminEmail: "" }),
+    ).rejects.toThrow();
+  });
+
+  it("7b. out-of-range p_history_days (0, 366) and p_cap (9, 201) each raise", async () => {
+    await expect(
+      callFeed({ historyDays: 0, cap: 50, excludedCodes: [], adminEmail: adminEmail("t7b-hd0") }),
+    ).rejects.toThrow();
+    await expect(
+      callFeed({
+        historyDays: 366,
+        cap: 50,
+        excludedCodes: [],
+        adminEmail: adminEmail("t7b-hd366"),
+      }),
+    ).rejects.toThrow();
+    await expect(
+      callFeed({ historyDays: 30, cap: 9, excludedCodes: [], adminEmail: adminEmail("t7b-cap9") }),
+    ).rejects.toThrow();
+    await expect(
+      callFeed({
+        historyDays: 30,
+        cap: 201,
+        excludedCodes: [],
+        adminEmail: adminEmail("t7b-cap201"),
+      }),
     ).rejects.toThrow();
   });
 
