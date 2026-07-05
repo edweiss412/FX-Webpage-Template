@@ -164,9 +164,7 @@ export function StepIndicator({
           <span
             className={[
               "text-xs font-medium whitespace-nowrap sm:text-sm",
-              isActive
-                ? "font-semibold text-text-strong"
-                : "hidden text-text-subtle sm:inline",
+              isActive ? "font-semibold text-text-strong" : "hidden text-text-subtle sm:inline",
             ].join(" ")}
           >
             {STEP_LABELS[n - 1]}

@@ -56,7 +56,12 @@ function selectable(driveFileId: string, status: "staged" | "applied"): Step3Row
 }
 // A clean 'staged' row with NO reviewable preview → not selectable (no checkbox).
 function noDetailsRow(driveFileId: string): Step3Row {
-  return { driveFileId, driveFileName: `${driveFileId}.gsheet`, status: "staged", parseResult: null };
+  return {
+    driveFileId,
+    driveFileName: `${driveFileId}.gsheet`,
+    status: "staged",
+    parseResult: null,
+  };
 }
 // A blocking hard-fail row (finishable=false).
 function hardFailRow(driveFileId: string): Step3Row {

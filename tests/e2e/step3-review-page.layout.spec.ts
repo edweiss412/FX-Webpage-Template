@@ -48,8 +48,10 @@ const CHECK_SVG = `<svg class="size-3.5" viewBox="0 0 24 24" fill="none" stroke=
 function stepper(): string {
   const base =
     "flex size-7 shrink-0 items-center justify-center rounded-pill border text-xs font-semibold tabular-nums transition-colors duration-fast";
-  const labelInactive = "text-xs font-medium whitespace-nowrap sm:text-sm hidden text-text-subtle sm:inline";
-  const labelActive = "text-xs font-medium whitespace-nowrap sm:text-sm font-semibold text-text-strong";
+  const labelInactive =
+    "text-xs font-medium whitespace-nowrap sm:text-sm hidden text-text-subtle sm:inline";
+  const labelActive =
+    "text-xs font-medium whitespace-nowrap sm:text-sm font-semibold text-text-strong";
   const done = (n: number, label: string) => `
     <div class="flex items-center gap-2">
       <a data-testid="wizard-step-indicator-${n}" class="${base} border-border-strong bg-surface text-text-subtle">${CHECK_SVG}</a>

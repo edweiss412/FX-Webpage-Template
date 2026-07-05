@@ -651,8 +651,9 @@ function rowNeedsLook(row: Step3Row): boolean {
   return (
     !hasReviewablePreview(row) ||
     row.lastFinalizeFailureCode != null ||
-    summarizeDataGaps(stripLegacyUnknownFieldAnchors(arr((row.parseResult as ParseResult)?.warnings)))
-      .total > 0
+    summarizeDataGaps(
+      stripLegacyUnknownFieldAnchors(arr((row.parseResult as ParseResult)?.warnings)),
+    ).total > 0
   );
 }
 
@@ -1051,10 +1052,7 @@ export function Step3Review({ wizardSessionId, rows, onCountsChange }: Step3Revi
         {/* Composed summary (§4.2) — only when there ARE sheets; the empty state's
             card is the sole content when rows = []. */}
         {rows.length > 0 ? (
-          <p
-            data-testid="wizard-step3-summary"
-            className="max-w-prose text-base text-text-subtle"
-          >
+          <p data-testid="wizard-step3-summary" className="max-w-prose text-base text-text-subtle">
             {renderSummary(sheetCount, readyCount, needsLookCount)}
           </p>
         ) : null}

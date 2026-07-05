@@ -187,7 +187,9 @@ describe("Step3SheetCard — summary (§4.2)", () => {
       }),
     });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    expect(q.getByTestId(`wizard-step3-card-${DFID}-venue`).textContent).toContain("The Drake Hotel");
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-venue`).textContent).toContain(
+      "The Drake Hotel",
+    );
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-city`)).toBeNull();
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-totals`)).toBeNull();
   });
@@ -857,7 +859,9 @@ describe("Step3SheetCard compact list row (Task 4)", () => {
       />,
     );
     expect(q.getByTestId(`wizard-step3-card-${DFID}-client`).textContent).toContain("Acme");
-    expect(q.getByTestId(`wizard-step3-card-${DFID}-venue`).textContent).toContain("Grand Ballroom");
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-venue`).textContent).toContain(
+      "Grand Ballroom",
+    );
     expect(
       (q.getByTestId(`wizard-step3-card-${DFID}-dates`).textContent ?? "").trim().length,
     ).toBeGreaterThan(0);

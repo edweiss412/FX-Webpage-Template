@@ -177,10 +177,7 @@ describe("Step3Review header + composed summary (Task 3)", () => {
 
   test("summary: readyCount===0, needsLookCount>1 → no 'ready' lead, plural 'need … they go'", () => {
     const { getByTestId } = render(
-      <Step3Review
-        wizardSessionId={WIZARD_SESSION_ID}
-        rows={[warnRow("a"), warnRow("b")]}
-      />,
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[warnRow("a"), warnRow("b")]} />,
     );
     expect(norm(getByTestId("wizard-step3-summary"))).toBe(
       "2 sheets parsed from your Drive folder. 2 need a quick look before they go live. Nothing publishes until you say so.",
@@ -228,7 +225,10 @@ describe("Step3Review single-column list + count relocation (Task 5)", () => {
 
   test("needs-attention + set-aside + empty testids preserved", () => {
     const { getByTestId } = render(
-      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[hardFailRow("a"), ignoredRow("b")]} />,
+      <Step3Review
+        wizardSessionId={WIZARD_SESSION_ID}
+        rows={[hardFailRow("a"), ignoredRow("b")]}
+      />,
     );
     expect(getByTestId("wizard-step3-needs-attention")).not.toBeNull();
     expect(getByTestId("wizard-step3-ignored")).not.toBeNull();

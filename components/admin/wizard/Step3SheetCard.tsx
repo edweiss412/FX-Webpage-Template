@@ -42,10 +42,7 @@ import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
 import type { RunOfShow } from "@/lib/parser/types";
 import type { Step3Row } from "@/components/admin/wizard/Step3Review";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
-import {
-  summarizeDataGaps,
-  stripLegacyUnknownFieldAnchors,
-} from "@/lib/parser/dataGaps";
+import { summarizeDataGaps, stripLegacyUnknownFieldAnchors } from "@/lib/parser/dataGaps";
 import { venueDisplay } from "@/lib/venue/venueLocation";
 // The section bodies + agenda live-fill machine live in the section module
 // (Task 3, spec §4/§6.1) and are rendered by the review modal's registry.
@@ -501,7 +498,9 @@ export function Step3SheetCard({
         {metaLine}
       </div>
       <div className="flex shrink-0 items-center gap-3 max-sm:w-full max-sm:justify-between">
-        {needsLook ? reviewChip(`${gaps.total} ${gaps.total === 1 ? "needs" : "need"} a look`) : null}
+        {needsLook
+          ? reviewChip(`${gaps.total} ${gaps.total === 1 ? "needs" : "need"} a look`)
+          : null}
         {triggerButton(needsLook ? "Review" : "View")}
       </div>
       {sharedTail}
