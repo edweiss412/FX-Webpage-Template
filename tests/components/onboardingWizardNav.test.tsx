@@ -22,9 +22,9 @@
  * so next/navigation is stubbed at the file level (no app-router in jsdom).
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { cleanup, render, within } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 import type { AppSettingsRow } from "@/lib/onboarding/sessionLifecycle";
-import { OnboardingWizard } from "@/components/admin/OnboardingWizard";
+import { OnboardingWizard, StepIndicator } from "@/components/admin/OnboardingWizard";
 import { Step3Review, type Step3Row } from "@/components/admin/wizard/Step3Review";
 
 // Step2Verify (?step=2) + Step3Review children call useRouter()/usePathname();
@@ -243,6 +243,40 @@ describe("OnboardingWizard navigation chrome (Task 5)", () => {
     // The Step 2 verify form is mounted (read-only) and, crucially, NO scan
     // request was issued on mount.
     expect(fetchSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe("StepIndicator redesign — labels + connectors + done-check (Task 2)", () => {
+  afterEach(cleanup);
+
+  test("shows visible step labels", () => {
+    render(<StepIndicator step={3} maxReachedStep={3} />);
+    expect(screen.queryByText("Share folder")).not.toBeNull();
+    expect(screen.queryByText("Verify")).not.toBeNull();
+    expect(screen.queryByText("Review & publish")).not.toBeNull();
+  });
+
+  test("done steps (n < step) render a check, active step uses accent", () => {
+    render(<StepIndicator step={3} maxReachedStep={3} />);
+    const active = screen.getByTestId("wizard-step-indicator-3");
+    expect(active.className).toContain("bg-accent");
+    const done1 = screen.getByTestId("wizard-step-indicator-1");
+    expect(done1.querySelector("svg")).not.toBeNull();
+  });
+
+  test("preserves reachability: reached=link, unreached=disabled span", () => {
+    render(<StepIndicator step={1} maxReachedStep={1} />);
+    expect(screen.getByTestId("wizard-step-indicator-1").tagName).toBe("A");
+    expect(screen.getByTestId("wizard-step-indicator-3").getAttribute("aria-disabled")).toBe(
+      "true",
+    );
+  });
+
+  test("renders 2 connector lines between the 3 pills, filled after a done step", () => {
+    render(<StepIndicator step={3} maxReachedStep={3} />);
+    const connectors = screen.getAllByTestId("wizard-step-connector");
+    expect(connectors).toHaveLength(2); // between 1-2 and 2-3
+    expect(connectors[0].className).toContain("bg-border-strong"); // left pill (1) done → filled
   });
 });
 
