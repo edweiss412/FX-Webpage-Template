@@ -25,8 +25,6 @@ describe("wizard ScheduleDayRow phase label", () => {
 
   test("no `phase` prop → no phase label node", () => {
     const { container } = renderRow({ iso: "2025-10-30" });
-    expect(
-      container.querySelector('[data-testid^="wizard-step3-card-d-sched-phase-"]'),
-    ).toBeNull();
+    expect(container.querySelector('[data-testid^="wizard-step3-card-d-sched-phase-"]')).toBeNull();
   });
 });
