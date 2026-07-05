@@ -415,15 +415,20 @@ delete, `cleanupAbandonedFinalize` MUST:
    `FOR UPDATE`-then-advisory ordering is retained as-is: it is safe against Apply,
    which never touches `applied` rows. Only the unresolved-row locking, which Apply
    CAN contend, must be advisory-first.)
-3. RE-EVALUATE the stuck/eligibility predicate UNDER those `show:` locks. For the
-   stuck path: `selectFinishableCleanRows` count == 0 AND `unresolvedManifestCount`
-   > 0. A concurrent Apply/re-scan that cleared the failure code or re-approved a
-   row is now visible → the row is finishable (or unresolved drops to 0) → NOT
-   stuck → cleanup ABORTS without purging, throwing
-   `CleanupRequiresStaleSessionError('session_too_fresh')` (client
-   `router.refresh()`es; the now-resolvable row appears / Resume works). For the
-   24h-stale path: the recheck is simply that the `show:` locks are now held, so
-   the purge cannot race an in-flight Apply on those rows.
+3. RE-CHECK UNDER those `show:` locks — ONE rule, IDENTICAL for both paths (this
+   resolves the R6 stale-vs-stuck inconsistency): re-read the pre-lock unresolved
+   set; **if ANY drive_file_id that was unresolved pre-lock is now resolved**
+   (finishable / failure code cleared / re-approved — i.e. a concurrent Apply or
+   re-scan won the `show:` race and made progress), cleanup ABORTS without
+   purging, throwing `CleanupRequiresStaleSessionError('session_too_fresh')` (the
+   client `router.refresh()`es; the now-resolvable row appears / Resume works).
+   This holds on the 24h-stale path too: a session someone is actively recovering
+   is not abandoned, and aborting never destroys just-applied work. Only when the
+   recheck confirms the rows are STILL unresolved does the purge proceed. The
+   stuck path additionally requires its eligibility predicate
+   (`selectFinishableCleanRows` count == 0 AND `unresolvedManifestCount` > 0) to
+   still hold under the locks; the stale path additionally keeps its age gate.
+   Neither path purges a row a recovery just resolved.
 
 **AB-BA rationale (R5-2).** `lockCleanupDriveFiles` today selects rows `FOR UPDATE`
 THEN takes `show:` advisory locks (`sessionLifecycle.ts:171`). Apply takes `show:`
