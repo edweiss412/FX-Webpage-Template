@@ -26,6 +26,7 @@ type VerifyOptions = {
   writeReport?: boolean;
   reportPath?: string;
   requiredStatusChecks?: readonly string[];
+  alertResolver?: (codes: readonly string[]) => Promise<void>;
 };
 
 type VerifyResult = {
@@ -244,6 +245,44 @@ async function emitAlert(
   }
 }
 
+// Spec §9.3 (bucket-C conversion): the monitor is the re-detector, so healthy
+// runs must clear the alerts it raised. Direct service-role UPDATE (mirrors
+// lib/reports/botLoginAlert.ts resolveBotLoginAlertRow); tolerant like
+// emitAlert — a failed resolve degrades to a logged no-op; the JSON report
+// + exit code stay authoritative.
+async function defaultResolveAlerts(codes: readonly string[]): Promise<void> {
+  const unavailableReason = localSupabaseReason(process.env.SUPABASE_URL);
+  if (unavailableReason) throw new Error(unavailableReason);
+  const supabase = createSupabaseServiceRoleClient();
+  let error: { message?: string } | null;
+  try {
+    // not-subject-to-meta: one-shot privileged CI script; failure surface is the X.6 workflow exit code and JSON report.
+    ({ error } = await supabase
+      .from("admin_alerts")
+      .update({ resolved_at: new Date().toISOString() })
+      .in("code", codes as string[])
+      .is("show_id", null)
+      .is("resolved_at", null)
+      .select("id"));
+  } catch (thrown) {
+    throw new Error(`resolve threw: ${errorReason(thrown)}`);
+  }
+  if (error) throw new Error(`resolve returned error: ${error.message ?? String(error)}`);
+}
+
+async function resolveAlerts(
+  resolver: ((codes: readonly string[]) => Promise<void>) | undefined,
+  codes: readonly string[],
+): Promise<void> {
+  try {
+    await (resolver ?? defaultResolveAlerts)(codes);
+  } catch (error) {
+    console.error(
+      `${ADMIN_ALERT_SKIP_PREFIX} resolve skipped (${errorReason(error)}); JSON report + exit code remain authoritative`,
+    );
+  }
+}
+
 export async function verifyBranchProtection(options: VerifyOptions = {}): Promise<VerifyResult> {
   const env = options.env ?? process.env;
   const fetchImpl = options.fetchImpl ?? fetch;
@@ -319,6 +358,8 @@ export async function verifyBranchProtection(options: VerifyOptions = {}): Promi
         : ["+missing_branch_protection"];
   }
 
+  await resolveAlerts(options.alertResolver, ["BRANCH_PROTECTION_MONITOR_AUTH_FAILED"]);
+
   if (failures.length > 0) {
     const context = { failures, repo, ts: new Date().toISOString() };
     await emitAlert(options.adminAlertClient, {
@@ -334,6 +375,7 @@ export async function verifyBranchProtection(options: VerifyOptions = {}): Promi
   if (options.writeReport !== false) {
     writeJsonReport(reportPath, { status: "ok", checks: requiredStatusChecks, repo });
   }
+  await resolveAlerts(options.alertResolver, ["BRANCH_PROTECTION_DRIFT"]);
   return { ok: true, failures: [] };
 }
 
