@@ -258,13 +258,19 @@ const adminViewer = { kind: "admin" } as const;
 
 describe("ScheduleSection — Show Day numbering (bug #316 item 2)", () => {
   test("multi show-day schedule numbers the show days chronologically", () => {
-    const dates = {
-      travelIn: "2025-10-18",
-      set: null,
-      showDays: ["2025-10-20", "2025-10-19"], // out of order on purpose
-      travelOut: "2025-10-21",
-    };
-    const data = makeShowForViewer({ dates }); // VERIFY the fixture accepts a `dates` override; if it merges into show.dates, pass accordingly
+    // makeShowForViewer(overrides?: DeepPartial<ShowForViewer>) — dates live at
+    // show.dates (fixtures/showForViewer.ts:60-72); arrays are REPLACED, not
+    // index-merged (deepMergeObjects, :117-119), so showDays overrides cleanly.
+    const data = makeShowForViewer({
+      show: {
+        dates: {
+          travelIn: "2025-10-18",
+          set: null,
+          showDays: ["2025-10-20", "2025-10-19"], // out of order on purpose
+          travelOut: "2025-10-21",
+        },
+      },
+    });
     const { container } = render(
       <ScheduleSection data={data} viewer={adminViewer} today={new Date("2025-10-19T12:00:00Z")} showId="s" />,
     );
@@ -282,7 +288,7 @@ describe("ScheduleSection — Show Day numbering (bug #316 item 2)", () => {
 });
 ```
 
-> **Impl note:** the harness is confirmed — `makeShowForViewer` from `@/tests/fixtures/showForViewer`, admin viewer `{ kind: "admin" } as const` (both per `ScheduleSection.bookends.test.tsx:24,86`). The one thing to confirm at impl time is HOW `makeShowForViewer` accepts date overrides (a `dates` key vs. a nested `show.dates` merge) — inspect the fixture's option shape and pass dates through whichever path it exposes; assert against `aggregateDays(data.show.dates)` regardless.
+> **Impl note:** harness fully confirmed — `makeShowForViewer` from `@/tests/fixtures/showForViewer` takes `DeepPartial<ShowForViewer>`; dates are at `show.dates` (`fixtures/showForViewer.ts:60-72`); arrays are REPLACED by the override (`deepMergeObjects` comment `:117-119`), so `showDays` overrides cleanly. Admin viewer `{ kind: "admin" } as const` resolves to `dateRestriction none` → every aggregate day visible. Default `runOfShow: null` (`:104`) is null-safe in `ScheduleSection` (`data.runOfShow?.[day.date]`). No placeholder remains.
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -430,6 +436,16 @@ Note critique + audit findings/dispositions for the close-out handoff. Commit an
 - **Type consistency:** `AggregateDay.label: string` (Task 1) → `DayCard.label?: string` (Task 2) → `ScheduleDayRow.label?: string | null` (Task 4). `phase` never changes type. Consistent across tasks.
 - **Anti-tautology:** every numbering assertion derives expected values from `aggregateDays(fixture.dates)` (the data source), not from the rendered container or a hardcoded max.
 
-## Adversarial review (cross-model)
+## Ordering (unambiguous)
+
+The gates run in exactly this order — invariant 8 requires the UI dual-gate BEFORE any cross-model review of the implementation:
+
+1. Tasks 1–4 (TDD impl, commit per task).
+2. Task 5 — full-suite green + typecheck/lint/format, then **impeccable critique + audit** on the UI diff (invariant 8), fixes/deferrals landed.
+3. **Only then**: whole-diff cross-model (Codex) review of the implementation → APPROVE. → push → CI green → merge.
+
+This "Adversarial review (cross-model)" section governs the PLAN review (Stage 2, already in progress). The implementation's whole-diff cross-model review is step 3 above, strictly after Task 5's dual-gate — never before.
+
+## Adversarial review of THIS PLAN (cross-model)
 
 After self-review: Codex adversarial review of this plan, REVIEWER ONLY, iterate to APPROVE (no round budget). Then execution handoff.
