@@ -98,7 +98,7 @@ Rationale (addresses spec-review R1 HIGH): before this change bookend days weren
 
 ## Rendered vs conceptual
 
-The phase label is a **rendered element**: a `<span data-testid="wizard-step3-card-${dfid}-sched-phase">` containing the phase text (e.g. "Travel In"), placed after the date header span, styled as a subtle small label (final visual treatment set during the impeccable dual-gate; content and placement fixed here).
+The phase label is a **rendered element**: a `<span data-testid="wizard-step3-card-${dfid}-sched-phase-${iso}">` (per-date unique id, matching the data-flow section) containing the phase text (e.g. "Travel In"), placed after the date header span, styled as a subtle small label (final visual treatment set during the impeccable dual-gate; content and placement fixed here).
 
 ## Testing (anti-tautology)
 
