@@ -135,6 +135,9 @@ function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => v
     }
     // Refetch after the POST settles regardless of status: a 200 shows the row
     // resolved, a 409 (raced to auto) surfaces the auto note, a 404 drops it.
+    // Reset the button too — on a transient 5xx the row survives the refetch
+    // and must not stay stuck at "Resolving…".
+    setResolving(false);
     onRefetch();
   }, [entry, onRefetch, resolving]);
 
