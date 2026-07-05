@@ -160,19 +160,29 @@ naturally.
 
 The global alert banner (`components/admin/AlertBanner.tsx`, renders the single top global alert;
 `alert.code` at line 222, health codes already excluded from this Doug surface) renders manual
-`resolveAdminAlertFormAction` forms in two branches. Both are gated on `isAutoResolving(alert.code)`:
+`resolveAdminAlertFormAction` forms in two branches, gated on `isAutoResolving(alert.code)`.
 
-- **Non-watch global resolve form** (`:493`): when `isAutoResolving(alert.code)` → render the auto-clear
-  note (`data-testid=admin-alert-autoclear`) instead of the `<form action={resolveAdminAlertFormAction}>`.
-  Net-new coverage: `SYNC_STALLED` (global, auto, doug — `lib/notify/detect/stall.ts:15-17`;
-  `catalog.ts:2038-2051`).
-- **Watch-alert dismiss form** (`:424-432`): `WATCH_CHANNEL_ORPHANED` is auto (`catalog.ts:277-290`;
-  reconciled by watch — `lib/drive/watch.ts:658,692,720`). When `isAutoResolving(alert.code)` → suppress
-  the **dismiss** form only and render the auto-clear note. **The Retry form (`:484-485`,
-  `retryWatchSubscriptionFormAction` + `RetryWatchButton`) is KEPT** — it is a safe, idempotent
-  re-subscribe action (not a manual resolve; `RetryWatchButton` docstring), and it is the operator's
-  legitimate way to *drive* recovery, after which the watch reconcile auto-resolves the row. So a
-  watch-orphaned banner shows: Retry (kept) + auto-clear note (replacing dismiss).
+**Layout constraint (R2 F3 — critical).** The banner is a **constrained grid**
+(`grid-cols-[minmax(0,1fr)_fit-content(55%)]`, `AlertBanner.tsx:318`). The **right** cell
+(`col-start-2`, `data-testid=admin-alert-action`, `flex flex-wrap justify-end`, `:454`) is
+`fit-content(55%)` — a compact action column. Dropping a multi-word auto-clear `<p>` into it would blow
+out the column width and mobile wrapping. Therefore the auto-clear note is **NOT** placed in the action
+cell. It renders in the **left** column (`minmax(0,1fr)`, flexible), appended to the existing footer row
+(`mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-text-subtle`, `:435`, which already
+holds "Raised …" + "+N more"), as a `text-xs text-text-subtle` `<p data-testid="admin-alert-autoclear">`.
+The action cell for an auto code renders **nothing** (non-watch) or **only the Retry form** (watch).
+
+- **Non-watch global resolve form** (`:493`): when `isAutoResolving(alert.code)` → the action cell
+  renders nothing, and the auto-clear note appears in the left-column footer. Net-new coverage:
+  `SYNC_STALLED` (global, auto, doug — `lib/notify/detect/stall.ts:15-17`; `catalog.ts:2038-2051`).
+- **Watch-alert dismiss form** (`:424-432`, in the expanded left-column `<details>` panel):
+  `WATCH_CHANNEL_ORPHANED` is auto (`catalog.ts:277-290`; reconciled by watch —
+  `lib/drive/watch.ts:658,692,720`). When `isAutoResolving(alert.code)` → suppress the **dismiss** form
+  and render the auto-clear note in its place (left column, low layout risk). **The Retry form in the
+  action cell (`:484-485`, `retryWatchSubscriptionFormAction` + `RetryWatchButton`) is KEPT** — a safe
+  idempotent re-subscribe action (not a manual resolve), the operator's way to *drive* recovery, after
+  which the watch reconcile auto-resolves the row. Watch-orphaned banner shows: Retry (action cell) +
+  auto-clear note (left column).
 
 Guard condition: an unknown/uncataloged banner code → `isAutoResolving` false → the existing resolve
 form renders (fail-visible, unchanged). `alert.code` is already read at `AlertBanner.tsx:222,251`.
@@ -198,18 +208,49 @@ the sync heartbeat recovers.", `WATCH_CHANNEL_ORPHANED` → "…once the Drive w
 
 ### 4.5 Dimensional invariants & transition inventory
 
-- **Dimensional invariants:** the button→note swap occurs inside each surface's existing
-  `flex flex-col` column (HealthAlertsPanel `HealthAlertRowItem` `<li>` line 80-82; PerShowAlertSection
-  `<li>` line 259; AlertBanner's action `<div>` at `:481` / dismiss slot at `:424`). In every case both
-  the `<button>`/`<form>` and the replacement `<p>` are `self-start`/flow children of a `flex-col`
-  parent with no fixed height — **no fixed-dimension parent → child stretch invariant is introduced or
-  affected.** No Playwright layout assertion is required (jsdom render assertions suffice for
-  presence/absence). Stated explicitly to satisfy the writing-plans layout-task gate: the gate is
-  **N/A** — no fixed-dimension parent contains these children.
+- **Dimensional invariants:**
+  - *HealthAlertsPanel* (`<li>` `flex flex-col`, line 80-82) and *PerShowAlertSection* (`<li>`
+    `flex flex-col`, line 259): the button→note swap is between `self-start` flow children of a
+    no-fixed-height `flex-col` parent — no fixed-dimension parent → child stretch invariant. jsdom
+    presence/absence assertions suffice; **layout gate N/A** for these two.
+  - *AlertBanner* (R2 F3): the banner **is** a constrained grid (`fit-content(55%)` action column,
+    `:318`). The auto-clear note is placed in the flexible **left** column (§4.3), never the action
+    cell, precisely to avoid perturbing the constrained column. Because a real constrained-dimension
+    parent is involved, the writing-plans layout-task gate **APPLIES to AlertBanner**: a real-browser
+    (Playwright) assertion renders the banner for `SYNC_STALLED` and `WATCH_CHANNEL_ORPHANED` at mobile
+    (360px) and desktop widths and asserts (a) `section.scrollWidth <= section.clientWidth` (no
+    horizontal overflow) and (b) the auto-clear note's bounding rect does not overlap the action cell's.
 - **Transition inventory:** a code's `resolution` class is **static** — it cannot change at runtime for
   a given row. The button-vs-note choice is therefore a per-render constant, not a state transition.
   There is **no `AnimatePresence`, no crossfade, no compound transition** — the affordance is chosen
   once at render and never animates between button and note. Declared: **instant, no animation needed.**
+
+### 4.6 Manual-class copy must not promise auto-clear (R2 F5)
+
+A `resolution: "manual"` code's own operator copy must not tell Doug it will auto-resolve — otherwise the
+kept manual button and the copy contradict each other (AlertBanner renders `helpfulContext` for the
+selected alert, `AlertBanner.tsx:395`). Exactly **one** existing code violates this:
+`AMBIGUOUS_EMAIL_BINDING` (registry class `event-manual`, `_metaAdminAlertCatalog.test.ts:421`) whose
+`helpfulContext` (`lib/messages/catalog.ts:54`; master §12.4 prose line 3091) and `longExplanation`
+(`catalog.ts:57`) say the alert "will clear automatically on the next sync." That promise is **false and
+contradicts the master spec itself**: §4.6 (line 937) + §12.4 (line 2322) specify this row "cannot be
+dismissed without clicking through to the affected show and confirming resolution" — i.e. **manual**. No
+code path auto-resolves it (it is in no resolver set).
+
+Fix: rewrite the two copy fragments to drop the auto-clear promise and align with the §4.6 manual-confirm
+behavior (e.g. "…correct the duplicate in your sheet, then mark this alert resolved from the show's
+page."). This is a **§12.4 lockstep edit** (AGENTS.md "§12.4 catalog row edits require three lockstep
+updates"): (a) master-spec prose (`2026-04-30-…md` line 3091 helpfulContext block; the §12.4 table row at
+line 2780 already carries no auto-clear promise, so it is unchanged), (b) `pnpm gen:spec-codes` →
+`lib/messages/__generated__/spec-codes.ts`, (c) `lib/messages/catalog.ts:54,57`. **Do NOT run prettier on
+the master spec** (`feedback_never_prettier_the_master_spec` — it mangles §12.4 cells → x1 divergence);
+edit the single prose line surgically. Verify the `x1-catalog-parity` gate stays green after regen.
+
+**Structural guard (meta-test):** add an assertion (in `_metaAdminAlertCatalog.test.ts` or a sibling)
+that no `resolution: "manual"` code's `dougFacing` / `helpfulContext` / `longExplanation` contains
+auto-clear language (`/clears? automatically|clear on the next sync|auto-?clear/i`), with an explicit
+empty exemption list (any future exemption must be justified inline). This catches the class, not just the
+instance — a future manual code that promises auto-clear fails CI.
 
 ## 5. Part A.2 — fail-closed guard on manual-resolve entry points
 
@@ -264,9 +305,18 @@ by a non-dev admin remains possible and is accepted.
 Only **`GITHUB_BOT_LOGIN_MISSING`** gains a resolver and moves to `class: "auto"`. The two
 `BRANCH_PROTECTION_*` codes **stay `class: "deferred"`** (§6.3) — their detector job is disabled, so an
 auto-resolver would be dead code. Resolution sets `resolved_at = now()`, `resolved_by` NULL (system
-convention, `resolveAdminAlert.ts:18`), via the internal `resolveAdminAlert({ showId: null, code:
-"GITHUB_BOT_LOGIN_MISSING" })` helper (permissive for this non-inbox-routed auto code, §5). **No new RPC,
-no schema change** (§11).
+convention). **No new RPC, no schema change** (§11).
+
+**Resolver topology (R2 F1 — critical).** `GITHUB_BOT_LOGIN_MISSING` is a **registered NON_UPSERT
+producer** (`tests/messages/_metaAdminAlertCatalog.test.ts:585-587`) — raised by a **raw** SQL insert in
+the report pipeline (`lib/reports/submit.ts:783`, `upsertAdminAlert(db, null, …)` — the report-local raw
+writer, NOT the JS RPC `upsertAdminAlert({…})`). It is deliberately **excluded** from the `AdminAlertCode`
+union (`lib/adminAlerts/upsertAdminAlert.ts:3-35`), and that exclusion is meta-test-pinned. Therefore the
+resolver **must NOT** go through the `AdminAlertCode`-typed `resolveAdminAlert`
+(`lib/adminAlerts/resolveAdminAlert.ts:20`, `code: AdminAlertCode`) — that would not typecheck and would
+force a union-widening the meta-test forbids. Instead this code is resolved by a **raw** resolver
+mirroring its raw producer, in each backend's native transaction machinery (the same "resolve via the
+mechanism native to its transaction machinery" principle as `2026-07-03` §4).
 
 ### 6.1 The observation is an explicit env-presence read (NOT "generic submit success")
 
@@ -277,38 +327,48 @@ reads the env and finds it missing (`error.code === "BOT_LOGIN_MISSING"`). Cruci
 on the expired-lease recovery path (`submit.ts:559-563,877-882`); a normal create
 (`submit.ts:929-956`; `createIssue` `issues.ts:156-180`) never touches it. So **"a submit succeeded" does
 NOT prove the env is configured** (R1 F2). Resolution is therefore gated on an **explicit non-empty read
-of `GITHUB_BOT_LOGIN`**, via one shared helper so both call sites are identical and a false-close is
-impossible:
+of `GITHUB_BOT_LOGIN`**, via one shared presence predicate so both call sites are identical and a
+false-close is impossible:
 
 ```ts
-// lib/reports/botLoginAlert.ts (new, ~15 lines; invariant-9: resolveAdminAlert throws on error)
+// lib/reports/botLoginAlert.ts (new)
 export function botLoginConfigured(env: NodeJS.ProcessEnv = process.env): boolean {
   return typeof env.GITHUB_BOT_LOGIN === "string" && env.GITHUB_BOT_LOGIN.trim() !== "";
 }
-export async function resolveBotLoginAlertIfConfigured(deps: {
-  env?: NodeJS.ProcessEnv;
-  resolveAdminAlert?: typeof resolveAdminAlert;
-} = {}): Promise<void> {
-  if (!botLoginConfigured(deps.env ?? process.env)) return; // no Supabase call when unset
-  await (deps.resolveAdminAlert ?? resolveAdminAlert)({ showId: null, code: "GITHUB_BOT_LOGIN_MISSING" });
-}
 ```
+
+The predicate is pure and env-injectable for tests. The **resolve action** is backend-specific (below),
+because the code is a raw NON_UPSERT producer with no typed-helper entry.
 
 ### 6.2 Two call sites (both requested)
 
+Both first check `botLoginConfigured(env)` and no-op (issue **no** DB statement) when the env is unset.
+
 1. **Notify-cron (primary self-healer).** `lib/notify/runNotify.ts` gains a new injectable dep
-   `resolveBotLoginAlert?: () => Promise<void>` on `NotifyDeps` (`:58-69`, `:71-80`), defaulting to
-   `resolveBotLoginAlertIfConfigured`, invoked once per notify run after the existing config evaluation.
-   It does **not** read `lib/notify/config.ts` (which only checks the three email envs `RESEND_API_KEY` /
-   `EMAIL_FROM` / `NEXT_PUBLIC_SITE_ORIGIN`, `:6-11` — R1 F4) and does **not** raise the code. Self-heals
-   with zero report traffic. Invariant-9: `resolveAdminAlert` throws on a returned/thrown Supabase error
-   (`resolveAdminAlert.ts:28`); the call is awaited; the config-negative branch issues no Supabase call.
-2. **Opportunistic report-submit resolve.** `lib/reports/submit.ts` calls
-   `resolveBotLoginAlertIfConfigured({})` on the submit success path (after the report row is durably
-   recorded). Because the helper re-reads the env explicitly, it resolves iff `GITHUB_BOT_LOGIN` is
-   actually present — regardless of whether that submit exercised the recovery lookup — so the R1 F2
-   false-close is structurally impossible. Not-subject-to-meta or a registry row per the call-boundary
-   contract as the plan determines (the helper wraps `resolveAdminAlert`, which is already invariant-9-safe).
+   `resolveBotLoginAlert?: () => Promise<void>` on `NotifyDeps` (`:58-69`, `:71-80`), defaulting to a
+   thin function that, when `botLoginConfigured(process.env)`, resolves the global row via the
+   **service-role Supabase client** with a **direct `admin_alerts` update** —
+   `.from("admin_alerts").update({ resolved_at }).eq("code", "GITHUB_BOT_LOGIN_MISSING").is("show_id",
+   null).is("resolved_at", null).select("id")` — a plain string code column filter (no `AdminAlertCode`
+   type gate). It is invoked once per notify run after the existing config evaluation, does **not** read
+   `lib/notify/config.ts` (which only checks the three email envs `RESEND_API_KEY` / `EMAIL_FROM` /
+   `NEXT_PUBLIC_SITE_ORIGIN`, `:6-11` — R1 F4), and does **not** raise the code. Self-heals with zero
+   report traffic. **Invariant-9:** the update destructures `{ data, error }`; a returned/thrown error is
+   surfaced as a typed/logged fault (matching `runNotify`'s existing fault posture), never a silent
+   success; this resolver is registered in the notify call-boundary meta-test (or carries an inline
+   `// not-subject-to-meta` with reason, per the plan).
+2. **Opportunistic report-submit resolve — FAIL-OPEN (R2 F4).** `lib/reports/submit.ts`, on the submit
+   success path (after the report row + issue URL are durably written, `submit.ts:1063`), when
+   `botLoginConfigured(process.env)`, resolves the global row via a **raw `db` SQL UPDATE** (postgres.js,
+   the same `db` handle that raised it) — `update admin_alerts set resolved_at = now() where code =
+   'GITHUB_BOT_LOGIN_MISSING' and show_id is null and resolved_at is null`. This resolve is
+   **best-effort/fail-open**: it is wrapped so a resolve failure is caught + logged and **never** turns
+   the already-durably-successful submit into a `ReportSubmitInfraError` (`submit.ts:1090`). A durable
+   report success must not be reported as failure because a cosmetic alert-resolve lost a race. Because
+   the helper re-reads the env explicitly, it resolves iff `GITHUB_BOT_LOGIN` is actually present —
+   regardless of whether that submit exercised the recovery lookup — so the R1 F2 false-close is
+   structurally impossible; and the R2 F4 fail-open posture is proven by a test that forces the resolve
+   UPDATE to throw and asserts the submit still returns success.
 
 ### 6.3 `BRANCH_PROTECTION_*` remain deferred (detector disabled)
 
@@ -393,6 +453,9 @@ No zombie flag: every value is written (per code), read (predicate + doors), and
   `GITHUB_BOT_LOGIN` unset and assert no resolve fires).
 - **Meta-test parity** — `catalog.resolution` matches registry class for all 42 codes; every `auto`
   code has ≥1 resolve site. Catches drift when a future code is added without a class.
+- **Manual-copy guard (R2 F5)** — no `resolution: "manual"` code's `dougFacing`/`helpfulContext`/
+  `longExplanation` contains auto-clear language (empty exemption list). Regression test that the
+  corrected `AMBIGUOUS_EMAIL_BINDING` copy passes and its pre-edit copy would have failed.
 
 ## 11. Out of scope
 
@@ -408,6 +471,7 @@ No zombie flag: every value is written (per code), read (predicate + doors), and
 
 ## 12. UI quality gate
 
-HealthAlertsPanel and PerShowAlertSection are UI surfaces (`components/**`). Invariant 8 applies:
-`/impeccable critique` + `/impeccable audit` on the affected diff, HIGH/CRITICAL fixed or `DEFERRED.md`,
-before the whole-diff Codex review.
+`HealthAlertsPanel`, `PerShowAlertSection`, **and `AlertBanner`** (R2 F2) are UI surfaces
+(`components/**`). Invariant 8 applies to **all three**: `/impeccable critique` + `/impeccable audit` on
+the affected diff, HIGH/CRITICAL fixed or `DEFERRED.md`, before the whole-diff Codex review. AlertBanner
+additionally carries the real-browser layout assertion of §4.5.
