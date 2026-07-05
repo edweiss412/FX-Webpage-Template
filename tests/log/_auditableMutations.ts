@@ -52,7 +52,11 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
     code: "SNAPSHOT_ROLLBACK_REPAIRED",
   },
   // Completion (2026-07-02): publish/archive/unpublish lifecycle telemetry.
-  { file: "app/admin/show/[slug]/_actions/archive.ts", fn: "archiveShowAction", code: "SHOW_ARCHIVED" },
+  {
+    file: "app/admin/show/[slug]/_actions/archive.ts",
+    fn: "archiveShowAction",
+    code: "SHOW_ARCHIVED",
+  },
   {
     file: "app/admin/show/[slug]/_actions/unarchive.ts",
     fn: "unarchiveShowAction",
@@ -138,8 +142,16 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
   // Success-path telemetry gap (2026-07-03): audit findings #5/#6/#7/#15 — durable
   // success outcomes on state-mutating admin ops that previously logged only FAILURE.
   // #5 changes-feed MI-11 server actions (3 emits):
-  { file: "app/admin/show/[slug]/_actions/feed.ts", fn: "mi11ApproveAction", code: "MI11_HOLD_APPROVED" },
-  { file: "app/admin/show/[slug]/_actions/feed.ts", fn: "mi11RejectAction", code: "MI11_HOLD_REJECTED" },
+  {
+    file: "app/admin/show/[slug]/_actions/feed.ts",
+    fn: "mi11ApproveAction",
+    code: "MI11_HOLD_APPROVED",
+  },
+  {
+    file: "app/admin/show/[slug]/_actions/feed.ts",
+    fn: "mi11RejectAction",
+    code: "MI11_HOLD_REJECTED",
+  },
   { file: "app/admin/show/[slug]/_actions/feed.ts", fn: "undoChangeAction", code: "CHANGE_UNDONE" },
   // #6 onboarding folder scan:
   {
@@ -249,6 +261,18 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
     fn: "resetCrewMemberSelection",
     code: "CREW_SELECTION_RESET_BY_ADMIN",
   },
+  // Task 14 — admin routes (file-level; the single mutating handler is POST). The
+  // manifest-ignore emit fires AFTER the withRowTx advisory-lock wrapper resolves.
+  {
+    file: "app/api/admin/onboarding/manifest/[wizardSessionId]/[driveFileId]/ignore/route.ts",
+    fn: "POST",
+    code: "MANIFEST_SHEET_IGNORED",
+  },
+  {
+    file: "app/api/admin/onboarding/reap-stale-sessions/route.ts",
+    fn: "POST",
+    code: "STALE_SESSIONS_REAPED",
+  },
 ];
 
 export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
@@ -310,6 +334,9 @@ export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
   "PICKER_EPOCH_RESET_BY_ADMIN",
   "SHARE_TOKEN_ROTATED_BY_ADMIN",
   "CREW_SELECTION_RESET_BY_ADMIN",
+  // Invariant #10 (2026-07-04) Task 14.
+  "MANIFEST_SHEET_IGNORED",
+  "STALE_SESSIONS_REAPED",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing

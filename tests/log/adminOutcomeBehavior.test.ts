@@ -12,7 +12,9 @@ import type { LogRecord } from "@/lib/log";
 // Per plan Tasks 7-16: NEVER mock @/lib/log or @/lib/log/logAdminOutcome here —
 // the sink-spy proof requires the REAL logger. Mock ONLY auth/data/Next deps.
 const requireAdminMock = vi.fn(async (..._a: unknown[]) => undefined);
-const requireAdminIdentityMock = vi.fn(async (..._a: unknown[]) => ({ email: "admin@example.com" }));
+const requireAdminIdentityMock = vi.fn(async (..._a: unknown[]) => ({
+  email: "admin@example.com",
+}));
 vi.mock("@/lib/auth/requireAdmin", () => ({
   requireAdmin: (...a: unknown[]) => requireAdminMock(...a),
   requireAdminIdentity: (...a: unknown[]) => requireAdminIdentityMock(...a),
@@ -26,7 +28,9 @@ const { DeveloperInfraErrorDouble } = vi.hoisted(() => {
   return { DeveloperInfraErrorDouble };
 });
 const requireDeveloperMock = vi.fn(async (..._a: unknown[]) => undefined);
-const requireDeveloperIdentityMock = vi.fn(async (..._a: unknown[]) => ({ email: "dev@example.com" }));
+const requireDeveloperIdentityMock = vi.fn(async (..._a: unknown[]) => ({
+  email: "dev@example.com",
+}));
 vi.mock("@/lib/auth/requireDeveloper", () => ({
   requireDeveloper: (...a: unknown[]) => requireDeveloperMock(...a),
   requireDeveloperIdentity: (...a: unknown[]) => requireDeveloperIdentityMock(...a),
@@ -206,10 +210,7 @@ vi.mock("@/lib/admin/watchRetryError", () => ({
   WatchRetryInfraError: WatchRetryInfraErrorDouble,
 }));
 
-import {
-  resolveAdminAlertFormAction,
-  retryWatchSubscriptionFormAction,
-} from "@/app/admin/actions";
+import { resolveAdminAlertFormAction, retryWatchSubscriptionFormAction } from "@/app/admin/actions";
 
 // ── Task 13: admin picker mutations ─────────────────────────────────────────
 // resetPickerEpoch calls upsertAdminAlert (observational) — mock so the behavioral
@@ -220,6 +221,10 @@ vi.mock("@/lib/adminAlerts/upsertAdminAlert", () => ({
 import { resetPickerEpoch } from "@/lib/auth/picker/resetPickerEpoch";
 import { rotateShareToken } from "@/lib/auth/picker/rotateShareToken";
 import { resetCrewMemberSelection } from "@/lib/auth/picker/resetCrewMemberSelection";
+
+// ── Task 14: admin routes (manifest/ignore, reap-stale-sessions) ────────────
+import { handleWizardManifestIgnore } from "@/app/api/admin/onboarding/manifest/[wizardSessionId]/[driveFileId]/ignore/route";
+import { handleReapStaleSessions } from "@/app/api/admin/onboarding/reap-stale-sessions/route";
 
 // ── inline file-local recorder (single-file contract; no cross-file state) ──
 const recorded = new Set<string>(); // "file::fn::code"
@@ -276,7 +281,8 @@ beforeEach(() => {
   addAdminEmailMock.mockImplementation(async () => ({ kind: "ok" as const }));
   revokeAdminEmailMock.mockImplementation(async () => ({ kind: "ok" as const }));
   setAdminDeveloperMock.mockImplementation(
-    async () => ({ kind: "ok" as const, email: "target@example.com", isDeveloper: true }) as unknown,
+    async () =>
+      ({ kind: "ok" as const, email: "target@example.com", isDeveloper: true }) as unknown,
   );
   readFileMock.mockImplementation(async () => "# fixture markdown\n");
   readdirMock.mockImplementation(async () => []);
@@ -645,5 +651,96 @@ describe("Task 13 — picker epoch/share-token/selection resets observe success 
       resetCrewMemberSelection({ showId: SHOW_ID, crewMemberId: CREW_ID }),
     );
     expect(failCodes).not.toContain("CREW_SELECTION_RESET_BY_ADMIN");
+  });
+});
+
+// ── Task 14: admin routes (surface key = {file, fn:"POST"}) ──────────────────
+const MANIFEST_ROUTE =
+  "app/api/admin/onboarding/manifest/[wizardSessionId]/[driveFileId]/ignore/route.ts";
+const REAP_ROUTE = "app/api/admin/onboarding/reap-stale-sessions/route.ts";
+const WSID = "11111111-2222-4333-8444-555555555555";
+const DFID = "drive-file-t14";
+
+// Transparent injected withRowTx: runs the callback against a query stub, no real lock.
+function manifestWithRowTx(status: string, transitionOk: boolean) {
+  return async <R>(
+    _driveFileId: string,
+    fn: (tx: { queryOne<T>(sql: string, params: unknown[]): Promise<T> }) => Promise<R> | R,
+  ): Promise<R> => {
+    const tx = {
+      async queryOne<T>(sql: string): Promise<T> {
+        if (/from public\.onboarding_scan_manifest/i.test(sql) && /for update/i.test(sql)) {
+          return { name: "Sheet.gsheet", status } as T;
+        }
+        if (/insert into public\.deferred_ingestions/i.test(sql)) return { upserted: true } as T;
+        if (/update public\.onboarding_scan_manifest/i.test(sql))
+          return (transitionOk ? { updated: true } : null) as T;
+        return null as T;
+      },
+    };
+    return await fn(tx);
+  };
+}
+
+function manifestCtx() {
+  return { params: Promise.resolve({ wizardSessionId: WSID, driveFileId: DFID }) };
+}
+function manifestReq() {
+  return new Request(`https://x.test/api/admin/onboarding/manifest/${WSID}/${DFID}/ignore`, {
+    method: "POST",
+  });
+}
+
+describe("Task 14 — manifest-ignore + reap-stale-sessions routes observe success only", () => {
+  test("manifest/ignore route emits MANIFEST_SHEET_IGNORED on the committed transition; nothing on a status-gate refusal", async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const deps: any = {
+      requireAdminIdentity: async () => ({ email: "admin@example.com" }),
+      withRowTx: manifestWithRowTx("live_row_conflict", true),
+    };
+    const codes = await observeCodes(() =>
+      handleWizardManifestIgnore(manifestReq(), manifestCtx(), deps),
+    );
+    expect(codes).toContain("MANIFEST_SHEET_IGNORED");
+    recordAdminOutcomeBehavior({
+      file: MANIFEST_ROUTE,
+      fn: "POST",
+      code: "MANIFEST_SHEET_IGNORED",
+    });
+
+    // Status-gate refusal (non-ignorable status) → 409 Response, no mutation, no emit.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const refuseDeps: any = {
+      requireAdminIdentity: async () => ({ email: "admin@example.com" }),
+      withRowTx: manifestWithRowTx("staged", true),
+    };
+    const failCodes = await observeCodes(() =>
+      handleWizardManifestIgnore(manifestReq(), manifestCtx(), refuseDeps),
+    );
+    expect(failCodes).not.toContain("MANIFEST_SHEET_IGNORED");
+  });
+
+  test("reap route emits STALE_SESSIONS_REAPED on a successful reap; nothing when the reap throws", async () => {
+    const codes = await observeCodes(() =>
+      handleReapStaleSessions(new Request("https://x.test/reap", { method: "POST" }), {
+        requireAdminIdentity: async () => ({ email: "dev@example.com" }),
+        reapStaleOnboardingSessions: async () => ({
+          sessions: [{ wizardSessionId: "a", outcome: "reaped_full" as const }],
+        }),
+      }),
+    );
+    expect(codes).toContain("STALE_SESSIONS_REAPED");
+    recordAdminOutcomeBehavior({ file: REAP_ROUTE, fn: "POST", code: "STALE_SESSIONS_REAPED" });
+
+    // Reap throws (infra fault) → 500, no emit.
+    const failCodes = await observeCodes(() =>
+      handleReapStaleSessions(new Request("https://x.test/reap", { method: "POST" }), {
+        requireAdminIdentity: async () => ({ email: "dev@example.com" }),
+        reapStaleOnboardingSessions: async () => {
+          throw new Error("reap infra down");
+        },
+      }),
+    );
+    expect(failCodes).not.toContain("STALE_SESSIONS_REAPED");
   });
 });

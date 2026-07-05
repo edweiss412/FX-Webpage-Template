@@ -14,6 +14,7 @@
  */
 import { NextResponse } from "next/server";
 import { log } from "@/lib/log";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import {
   reapStaleOnboardingSessions as defaultReap,
   type ReapStaleSessionsResult,
@@ -58,6 +59,17 @@ export async function handleReapStaleSessions(
   }
   try {
     const result = await reap({ requireAdminIdentity: async () => admin });
+    // Invariant #10: durable success trace, post-commit (the reap's advisory-locked
+    // deletes have committed). `reaped_<n>` counts only sessions actually reaped —
+    // `reaped_full` / `reaped_orphan_rows` — not the skipped_* outcomes. Actor is the
+    // developer identity resolved pre-mutation.
+    const reapedCount = result.sessions.filter((s) => s.outcome.startsWith("reaped_")).length;
+    await logAdminOutcome({
+      code: "STALE_SESSIONS_REAPED",
+      source: "api.admin.onboarding.reap",
+      actorEmail: admin.email,
+      result: "reaped_" + reapedCount,
+    });
     // R29-2: the summary surfaces skipped_unstable sessions verbatim so the
     // admin affordance can render them distinctly from successful reaps.
     return NextResponse.json({ status: "reaped", sessions: result.sessions });
