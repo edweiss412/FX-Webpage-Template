@@ -848,7 +848,7 @@ it("T8-e: the bar renders its own Back (→ ?step=2), instantly present with the
 
 ---
 
-## Self-review checklist (run by the author before Task 11's Codex round)
+## Self-review checklist (run by the author before the PLAN-TIME GATE's Codex round)
 
 1. **Spec coverage:** §4.1 stepper→T2; §4.2 header/summary→T3; §4.3 card variants→T4; §4.4 bar+counts→T1+T6; §4.5 edge→T5; §5 layout→T5+T7; §6 tokens→all (global constraints); §7 dimensional invariants→T7; §8 transitions→T8; §9 DOM/test delta→T2-T6 tests; §10 guards→T3/T4 tests; §11 a11y→T2/T4/T6; §12 non-goals→respected; §13 invariants→global constraints + declarations. No gap.
 2. **Placeholder scan:** every code step shows code; no "TBD"/"similar to".
