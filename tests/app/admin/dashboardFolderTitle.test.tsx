@@ -50,9 +50,6 @@ vi.mock("next/navigation", () => ({
   usePathname: () => "/admin",
 }));
 vi.mock("@/components/admin/AlertBanner", () => ({ AlertBanner: () => null }));
-// AppHealthPanel is an async Server Component (own fetchHealthRollup read); stub
-// it like AlertBanner so RTL can render the sync dashboard tree.
-vi.mock("@/components/admin/AppHealthPanel", () => ({ AppHealthPanel: () => null }));
 vi.mock("@/components/admin/Dashboard", () => ({
   Dashboard: (props: { folderName?: string | null }) => {
     captured.folderName = props.folderName;

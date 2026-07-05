@@ -136,11 +136,6 @@ vi.mock("@/components/admin/Dashboard", () => ({
 vi.mock("@/components/admin/AlertBanner", () => ({
   AlertBanner: () => <div data-testid="admin-alert-banner-stub" />,
 }));
-// AppHealthPanel is an async Server Component (own fetchHealthRollup read); stub
-// it like AlertBanner so RTL can render the sync dashboard tree.
-vi.mock("@/components/admin/AppHealthPanel", () => ({
-  AppHealthPanel: () => <div data-testid="app-health-panel-stub" />,
-}));
 
 import AdminPage from "@/app/admin/page";
 
