@@ -211,6 +211,16 @@ import {
   retryWatchSubscriptionFormAction,
 } from "@/app/admin/actions";
 
+// ── Task 13: admin picker mutations ─────────────────────────────────────────
+// resetPickerEpoch calls upsertAdminAlert (observational) — mock so the behavioral
+// test does not drive that side-channel's real writer.
+vi.mock("@/lib/adminAlerts/upsertAdminAlert", () => ({
+  upsertAdminAlert: vi.fn(async () => null),
+}));
+import { resetPickerEpoch } from "@/lib/auth/picker/resetPickerEpoch";
+import { rotateShareToken } from "@/lib/auth/picker/rotateShareToken";
+import { resetCrewMemberSelection } from "@/lib/auth/picker/resetCrewMemberSelection";
+
 // ── inline file-local recorder (single-file contract; no cross-file state) ──
 const recorded = new Set<string>(); // "file::fn::code"
 function recordAdminOutcomeBehavior(x: { file: string; fn: string; code: string }) {
@@ -573,5 +583,67 @@ describe("Task 12 — alert-resolve + watch-retry observe success only", () => {
     getActiveWatchedFolderMock.mockImplementation(async () => ({ kind: "no_folder_configured" }));
     const failCodes = await observeCodes(() => retryWatchSubscriptionFormAction(new FormData()));
     expect(failCodes).not.toContain("WATCH_SUBSCRIPTION_RETRIED");
+  });
+});
+
+// ── Task 13: admin picker mutations (spec §3.1 A, §9 — emit post-RPC, outside lock) ──
+const SHOW_ID = "11111111-1111-1111-1111-111111111111";
+const CREW_ID = "22222222-2222-2222-2222-222222222222";
+
+describe("Task 13 — picker epoch/share-token/selection resets observe success only", () => {
+  test("resetPickerEpoch emits PICKER_EPOCH_RESET_BY_ADMIN on {ok:true}; nothing when the RPC returns a non-number", async () => {
+    serverClientImpl.current = async () => makeClient({ rpc: { data: 7, error: null } });
+    const codes = await observeCodes(() => resetPickerEpoch({ showId: SHOW_ID }));
+    expect(codes).toContain("PICKER_EPOCH_RESET_BY_ADMIN");
+    recordAdminOutcomeBehavior({
+      file: "lib/auth/picker/resetPickerEpoch.ts",
+      fn: "resetPickerEpoch",
+      code: "PICKER_EPOCH_RESET_BY_ADMIN",
+    });
+
+    // Failure: RPC returned error → {ok:false}, no emit.
+    serverClientImpl.current = async () =>
+      makeClient({ rpc: { data: null, error: { message: "db down" } } });
+    const failCodes = await observeCodes(() => resetPickerEpoch({ showId: SHOW_ID }));
+    expect(failCodes).not.toContain("PICKER_EPOCH_RESET_BY_ADMIN");
+  });
+
+  test("rotateShareToken emits SHARE_TOKEN_ROTATED_BY_ADMIN (epoch only, never the token) on {ok:true}; nothing on RPC error", async () => {
+    serverClientImpl.current = async () =>
+      makeClient({ rpc: { data: { new_share_token: "c".repeat(64), new_epoch: 4 }, error: null } });
+    const codes = await observeCodes(() => rotateShareToken({ showId: SHOW_ID }));
+    expect(codes).toContain("SHARE_TOKEN_ROTATED_BY_ADMIN");
+    recordAdminOutcomeBehavior({
+      file: "lib/auth/picker/rotateShareToken.ts",
+      fn: "rotateShareToken",
+      code: "SHARE_TOKEN_ROTATED_BY_ADMIN",
+    });
+
+    // Failure: RPC returned error → {ok:false}, no emit.
+    serverClientImpl.current = async () =>
+      makeClient({ rpc: { data: null, error: { message: "db down" } } });
+    const failCodes = await observeCodes(() => rotateShareToken({ showId: SHOW_ID }));
+    expect(failCodes).not.toContain("SHARE_TOKEN_ROTATED_BY_ADMIN");
+  });
+
+  test("resetCrewMemberSelection emits CREW_SELECTION_RESET_BY_ADMIN on {ok:true}; nothing on a not-found (NULL) result", async () => {
+    serverClientImpl.current = async () =>
+      makeClient({ rpc: { data: "2026-07-05T00:00:00.000Z", error: null } });
+    const codes = await observeCodes(() =>
+      resetCrewMemberSelection({ showId: SHOW_ID, crewMemberId: CREW_ID }),
+    );
+    expect(codes).toContain("CREW_SELECTION_RESET_BY_ADMIN");
+    recordAdminOutcomeBehavior({
+      file: "lib/auth/picker/resetCrewMemberSelection.ts",
+      fn: "resetCrewMemberSelection",
+      code: "CREW_SELECTION_RESET_BY_ADMIN",
+    });
+
+    // Failure: RPC returned NULL (crew member not found) → {ok:false}, no emit.
+    serverClientImpl.current = async () => makeClient({ rpc: { data: null, error: null } });
+    const failCodes = await observeCodes(() =>
+      resetCrewMemberSelection({ showId: SHOW_ID, crewMemberId: CREW_ID }),
+    );
+    expect(failCodes).not.toContain("CREW_SELECTION_RESET_BY_ADMIN");
   });
 });

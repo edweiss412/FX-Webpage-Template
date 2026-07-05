@@ -232,6 +232,23 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
     fn: "retryWatchSubscriptionFormAction",
     code: "WATCH_SUBSCRIPTION_RETRIED",
   },
+  // Task 13 — admin picker mutations. Emit post-RPC (the advisory lock is held
+  // IN-RPC and released) — never inside the lock tx (invariant 2 / spec §9).
+  {
+    file: "lib/auth/picker/resetPickerEpoch.ts",
+    fn: "resetPickerEpoch",
+    code: "PICKER_EPOCH_RESET_BY_ADMIN",
+  },
+  {
+    file: "lib/auth/picker/rotateShareToken.ts",
+    fn: "rotateShareToken",
+    code: "SHARE_TOKEN_ROTATED_BY_ADMIN",
+  },
+  {
+    file: "lib/auth/picker/resetCrewMemberSelection.ts",
+    fn: "resetCrewMemberSelection",
+    code: "CREW_SELECTION_RESET_BY_ADMIN",
+  },
 ];
 
 export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
@@ -289,6 +306,10 @@ export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
   "ONBOARDING_SETUP_RERUN",
   // Invariant #10 (2026-07-04) Task 12. ADMIN_ALERT_RESOLVED is REUSED (already above).
   "WATCH_SUBSCRIPTION_RETRIED",
+  // Invariant #10 (2026-07-04) Task 13.
+  "PICKER_EPOCH_RESET_BY_ADMIN",
+  "SHARE_TOKEN_ROTATED_BY_ADMIN",
+  "CREW_SELECTION_RESET_BY_ADMIN",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing

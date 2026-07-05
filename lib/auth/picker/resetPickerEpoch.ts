@@ -4,6 +4,7 @@ import { requireAdminIdentity } from "@/lib/auth/requireAdmin";
 import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 import { hashForLog } from "@/lib/email/hashForLog";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 
 // not-subject-to-revalidate (nav-perf tag-caching Task 9): resetting the picker epoch mutates only
 // shows.picker_epoch — a picker/auth column NOT in the getShowForViewer DATA projection. The
@@ -38,6 +39,17 @@ export async function resetPickerEpoch(input: { showId: string }): Promise<Reset
     } catch {
       // Alert emission is observational; the reset already succeeded.
     }
+
+    // Invariant #10: durable success trace, post-commit (the RPC's advisory lock
+    // is held IN-RPC and has already released). Actor from the requireAdminIdentity()
+    // resolved above (pre-mutation).
+    await logAdminOutcome({
+      code: "PICKER_EPOCH_RESET_BY_ADMIN",
+      source: "admin.picker.resetEpoch",
+      actorEmail: adminCtx.email,
+      showId: input.showId,
+      result: "epoch_" + data,
+    });
 
     return { ok: true, new_epoch: data };
   } catch {

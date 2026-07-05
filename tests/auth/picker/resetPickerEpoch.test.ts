@@ -7,6 +7,10 @@ import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 vi.mock("@/lib/auth/requireAdmin", () => ({ requireAdminIdentity: vi.fn() }));
 vi.mock("@/lib/supabase/server", () => ({ createSupabaseServerClient: vi.fn() }));
 vi.mock("@/lib/adminAlerts/upsertAdminAlert", () => ({ upsertAdminAlert: vi.fn() }));
+// Invariant #10: the action now emits PICKER_EPOCH_RESET_BY_ADMIN via logAdminOutcome.
+// Stub it so this unit test doesn't drive the real logger (behavioral proof lives in
+// tests/log/adminOutcomeBehavior.test.ts).
+vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome: vi.fn(async () => undefined) }));
 
 const SHOW_ID = "11111111-1111-1111-1111-111111111111";
 const ADMIN_EMAIL = "admin@example.com";
