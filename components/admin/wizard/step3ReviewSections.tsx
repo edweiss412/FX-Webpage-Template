@@ -982,11 +982,10 @@ export function ScheduleBreakdown({
   const aggregate: { date: string; phase: SchedulePhase | null; label: string | null }[] =
     aggregateDays(dates);
   const aggregateDates = new Set(aggregate.map((d) => d.date));
-  const rosOnly: { date: string; phase: SchedulePhase | null; label: string | null }[] = Object.keys(
-    ros,
-  )
-    .filter((iso) => !aggregateDates.has(iso))
-    .map((iso) => ({ date: iso, phase: null, label: null }));
+  const rosOnly: { date: string; phase: SchedulePhase | null; label: string | null }[] =
+    Object.keys(ros)
+      .filter((iso) => !aggregateDates.has(iso))
+      .map((iso) => ({ date: iso, phase: null, label: null }));
   const mergedDays = [...aggregate, ...rosOnly].sort((a, b) => a.date.localeCompare(b.date));
 
   // Day cap: always-show = synthetic-bearing (strike/load-out — a malformed/long
