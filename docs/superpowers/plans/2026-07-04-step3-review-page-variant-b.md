@@ -41,7 +41,7 @@
 | `tests/components/admin/wizard/step3PublishSettlement.test.tsx` | modify | Settlement under new card DOM. |
 | `tests/components/onboardingWizardNav.test.tsx` | modify | Stepper redesign + step-3 Back relocation. |
 | `tests/components/admin/FinalizeButton.test.tsx` | modify | `panelPlacement` prop + behavior-unchanged assertions. |
-| `tests/e2e/step3-review-page.layout.spec.ts` | **create** | Real-browser DI-1/2/3 assertions (stepper no-overflow, card centering, sticky-bar width + no-occlusion). |
+| `tests/e2e/step3-review-page.layout.spec.ts` | **create** | Standalone static-harness real-browser DI-1…DI-4 assertions (stepper no-overflow, card centering, sticky-bar width + publish-in-viewport + no-occlusion, mobile wrap). |
 | `tests/e2e/step3-grid-layout.spec.ts` | **delete (obsolete)** | Asserts a multi-column grid that "stays multi-column" / "two cells share a row" — the redesign is single-column (spec §5). Superseded by the new layout spec. |
 | `tests/e2e/step3-card-dimensions.spec.ts` | **delete (obsolete)** | Transcribes the old grid-tile card DOM (`-summary-block`, `-badge-diagrams`, `-warnings`, fixed-width column) that the compact card removes. Its DI intent (child ≤ card width) is re-covered by the new layout spec's DI-2. |
 
@@ -478,20 +478,22 @@ it("default (no panelPlacement) keeps the current order", () => {
 });
 // Fixture note: add `noDetailsRow(dfid)` (a `staged` clean row with `parseResult: null`)
 // alongside the existing cleanRow/hardFailRow builders.
-// HARNESS: `fetchStep3Data` is a module-lexical function in OnboardingWizard.tsx and
-// CANNOT be spied. onboardingWizardNav.test.tsx already solves this: render OnboardingWizard
-// with `settings.pending_wizard_session_id === null`, so step 3 hits the NO-SESSION empty
-// state (`wizard-step3-no-session`) instead of Step3Container → ZERO Supabase calls, while
-// the nav chrome (stepper + top Back) still renders. Reuse that file's exported
-// `FRESH_SETTINGS` (null session). This test asserts ONLY the top-Back absence (the *bar*
-// Back needs a live session and is asserted separately via the Step3ReviewWithFinalize
-// render above, which doesn't touch OnboardingWizard).
-it("step 3 renders no top Back link (top Back removed; bar Back covered separately)", async () => {
+// HARNESS + FILE PLACEMENT: `fetchStep3Data` is a module-lexical function in
+// OnboardingWizard.tsx and CANNOT be spied, so a step-3 render must AVOID Step3Container.
+// `tests/components/onboardingWizardNav.test.tsx` already solves this and OWNS the chrome
+// contract: it renders OnboardingWizard with `settings.pending_wizard_session_id === null`,
+// so step 3 hits the NO-SESSION empty state (`wizard-step3-no-session`) instead of
+// Step3Container → ZERO Supabase, while the stepper + top Back still render. It defines
+// `FRESH_SETTINGS` as a FILE-LOCAL const (NOT exported). Therefore ADD these two
+// OnboardingWizard-render tests TO `onboardingWizardNav.test.tsx` (where FRESH_SETTINGS is
+// in scope), NOT to the Step3ReviewWithFinalize file. The *bar* Back (needs a live session)
+// is asserted separately by the Step3ReviewWithFinalize render above (no OnboardingWizard).
+it("step 3 renders no top Back link (top Back removed) — onboardingWizardNav.test.tsx", async () => {
   render(await OnboardingWizard({ settings: FRESH_SETTINGS, searchParams: { step: "3" } }));
   expect(screen.queryByTestId("wizard-back-link")).toBeNull();              // top Back gone on step 3
   expect(screen.getByTestId("wizard-step3-no-session")).toBeInTheDocument(); // no-session state (no Supabase)
 });
-it("step 2 STILL renders the top Back link (only step 3 loses it)", async () => {
+it("step 2 STILL renders the top Back link (only step 3 loses it) — onboardingWizardNav.test.tsx", async () => {
   render(await OnboardingWizard({ settings: FRESH_SETTINGS, searchParams: { step: "2" } }));
   expect(screen.getByTestId("wizard-back-link").getAttribute("href")).toBe("/admin?step=1");
 });
@@ -511,31 +513,46 @@ it("step 2 STILL renders the top Back link (only step 3 loses it)", async () => 
 
 ---
 
-### Task 7: Real-browser layout-dimensions assertions (DI-1/2/3)
+### Task 7: Real-browser layout-dimensions assertions (DI-1…DI-4, standalone static harness)
 
-jsdom does not compute layout; a fixed-dimension parent collapse (Tailwind v4 has no default `align-items: stretch`) passes unit tests. Add a Playwright spec mirroring the existing pattern (`tests/e2e/step3-review-modal.layout.spec.ts`, `tests/e2e/layout-dimensions.spec.ts`).
+jsdom does not compute layout; a fixed-dimension parent collapse (Tailwind v4 has no default `align-items: stretch`) passes unit tests. **This repo has NO live-app step-3 seed** — every existing step-3 layout spec (`step3-grid-layout` [deleted], `step3-card-dimensions` [deleted], `step3-schedule-bookend-layout`, `step3-review-modal.layout`) is a **standalone static-HTML harness**: compile the real `app/globals.css` via `@tailwindcss/cli`, write a static page that transcribes the component's rendered markup (real class names), serve it over `http.createServer`, and measure with Playwright. Follow that exact pattern.
 
 **Files:**
 - Create: `tests/e2e/step3-review-page.layout.spec.ts`
 
-**Interfaces:** consumes the rendered `/admin?step=3` page against the seeded wizard session (follow the seed/login helper the sibling step3 e2e specs use).
+**Interfaces:** a self-contained static harness (no auth, no Supabase, no seed). The transcribed HTML must include: the redesigned stepper (`wizard-step-indicator` + 3 pills with labels + connectors), the header, a `flex flex-col` list (`wizard-step3-card-grid`) with **≥2 selectable cards** (`<article data-testid="wizard-step3-card-<dfid>">` each containing `-checkbox-box`, `-title`, `-more`) plus **enough cards to exceed the viewport height** (so DI-3's occlusion scroll is meaningful) and at least one needs-a-look card, and the sticky `wizard-step3-publish-bar` (count `wizard-step3-publish-count` + `wizard-step3-back` + `wizard-finalize-button`), all inside `wizard-step3-onboarding`/`onboarding-wizard` container markup. **The transcription must copy the EXACT class strings from the Task 2/4/5/6 components** (that is what makes the CSS/layout assertion faithful) — a comment in the spec must point at the source components so a future class change is kept in sync.
 
-- [ ] **Step 1: Write the failing spec** — assert the three dimensional invariants from spec §7, reading `getBoundingClientRect()` in a real browser:
+- [ ] **Step 1: Write the failing spec** — mirror `step3-schedule-bookend-layout.spec.ts`'s scaffold (`beforeAll` compiles CSS + writes HTML + starts the server into `baseUrl`; `afterAll` closes it), then assert the four dimensional invariants from spec §7, reading `getBoundingClientRect()` in the real browser:
 
 ```ts
 import { test, expect } from "@playwright/test";
-// reuse the repo's admin-auth + seeded-wizard helper as the sibling step3 layout spec does.
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createServer, type Server } from "node:http";
+
+let baseUrl: string;
+let server: Server;
+test.beforeAll(async () => {
+  // 1) compile the real token CSS (mirrors step3-schedule-bookend-layout.spec.ts):
+  //    dlx @tailwindcss/cli@<pinned> -i <globals.css entry> -o out.css
+  // 2) write page.html transcribing the redesigned shell markup (classes copied
+  //    VERBATIM from Step3SheetCard / Step3Review / StepIndicator / Step3PublishBar).
+  // 3) serve the dir via http.createServer; set baseUrl = `http://127.0.0.1:${port}/page.html`.
+});
+test.afterAll(() => server?.close());
 
 test.describe("Step-3 review page — layout dimensions", () => {
   test("DI-1: stepper does not overflow at 320px", async ({ page }) => {
     await page.setViewportSize({ width: 320, height: 800 });
-    await gotoStep3(page);
+    await page.goto(baseUrl);
     const nav = page.getByTestId("wizard-step-indicator");
     const { scrollW, clientW } = await nav.evaluate((n) => ({ scrollW: n.scrollWidth, clientW: n.clientWidth }));
     expect(scrollW).toBeLessThanOrEqual(clientW + 0.5);
   });
   test("DI-2: card checkbox + button are vertically centered within the card", async ({ page }) => {
-    await gotoStep3(page);
+    await page.goto(baseUrl);
     // Use a selectable (View/Review) card — it has both the visible checkbox box
     // and the -more button. Its data-testid is exactly `wizard-step3-card-<dfid>`.
     // Scope to the card ARTICLE (not a descendant testid like -more/-title), and to a
@@ -555,7 +572,7 @@ test.describe("Step-3 review page — layout dimensions", () => {
     expect(Math.abs(rects.btnMid - rects.cardMid)).toBeLessThanOrEqual(1);
   });
   test("DI-3: sticky bar spans the container width and does not occlude the last card", async ({ page }) => {
-    await gotoStep3(page);
+    await page.goto(baseUrl);
     const bar = page.getByTestId("wizard-step3-publish-bar");
     const container = page.getByTestId("onboarding-wizard");
     const [barW, contW] = await Promise.all([
@@ -593,7 +610,7 @@ test.describe("Step-3 review page — layout dimensions", () => {
   });
   test("DI-4: at 360px the card does not overflow and its right cluster wraps below the title (spec §5 mobile)", async ({ page }) => {
     await page.setViewportSize({ width: 360, height: 780 });
-    await gotoStep3(page);
+    await page.goto(baseUrl);
     const card = page
       .locator('article[data-testid^="wizard-step3-card-"]:has([data-testid$="-checkbox-box"])')
       .first();
@@ -610,7 +627,7 @@ test.describe("Step-3 review page — layout dimensions", () => {
   });
 });
 ```
-Add a `gotoStep3(page)` helper that uses the **real-app admin auth** pattern from `tests/e2e/onboarding-wizard-step1.spec.ts`: `import { signInAs } from "./helpers/signInAs"` + `ADMIN_FIXTURE` from `./helpers/fixtures`, then `await signInAs(page, ADMIN_FIXTURE)` and `await page.goto("/admin?step=3")`. Reaching Step 3 with review rows requires a **seeded pending wizard session with manifest rows** — use the repo's e2e seed path (the same seeded scan the existing step-2/3 wizard e2e relies on; `pnpm db:seed` + the wizard-session fixture). NOTE: `tests/e2e/step3-review-modal.layout.spec.ts` is a **standalone static harness** (transcribed HTML + Tailwind CLI), NOT a live-app login flow — do not copy its setup; copy `onboarding-wizard-step1.spec.ts`'s. `Step3PublishBar`'s root already carries `data-testid="wizard-step3-publish-bar"` (Task 6).
+`baseUrl` is set by `beforeAll` (the served static harness). `Step3PublishBar`'s root carries `data-testid="wizard-step3-publish-bar"` (Task 6), which the transcribed HTML reproduces verbatim. The `beforeAll` CSS-compile + `createServer` scaffold is copied from `tests/e2e/step3-schedule-bookend-layout.spec.ts` (the pinned `@tailwindcss/cli` version + the globals.css entry pattern it uses).
 
 - [ ] **Step 2: Prove each assertion BITES (negative-regression red).** A real-browser layout assertion is only meaningful if it FAILS when the invariant is violated — run it green against the built page, then, one at a time, temporarily break each invariant and confirm the matching assertion goes RED, then restore:
   - DI-1: remove the stepper's `hidden sm:inline` on non-active labels → re-run at 320px → DI-1 FAILS (overflow) → restore.
@@ -619,7 +636,7 @@ Add a `gotoStep3(page)` helper that uses the **real-app admin auth** pattern fro
   - DI-4: remove the card's `flex-wrap` (or the right cluster's `max-sm:w-full`) → DI-4 FAILS (the cluster stays on the title's row / the card overflows at 360px) → restore.
   Record the four red runs (DI-1 … DI-4). This is the TDD-red step for a layout gate (per the negative-regression discipline — a layout assertion that can't fail is tautological).
 
-- [ ] **Step 3: Implement** — no NEW product code beyond adding `data-testid="wizard-step3-publish-bar"` to the `Step3PublishBar` root (fold into Task 6) so DI-3's selector is stable; the spec IS the deliverable. This spec **supersedes** the two obsolete step3 layout specs deleted in Tasks 4b/5b (`step3-card-dimensions.spec.ts` grid-tile card, `step3-grid-layout.spec.ts` multi-column grid) — confirm they are gone (`ls tests/e2e/step3-*.spec.ts` shows only this new one plus the still-valid modal specs `step3-review-modal.*`). Confirm the bar CSS satisfies the invariants (full-width within the container; `items-center` centering; body `pb` ≥ bar height so the last card is not occluded).
+- [ ] **Step 3: Implement** — the deliverable is the spec + its transcribed static HTML (real compiled CSS). The only product-code touch is `data-testid="wizard-step3-publish-bar"` on the `Step3PublishBar` root (folded into Task 6) so DI-3's selector is stable. This spec **supersedes** the two obsolete step3 layout specs deleted in Tasks 4b/5b (`step3-card-dimensions.spec.ts`, `step3-grid-layout.spec.ts`) — confirm they are gone (`ls tests/e2e/step3-*.spec.ts` shows only this new one plus the still-valid `step3-review-modal.*` and `step3-schedule-bookend-layout.spec.ts`). **Fidelity note:** because the harness transcribes the shell markup, its class strings MUST match the Task 2/4/5/6 components; the spec carries a comment pointing at each source component so a future class change is caught in review. Confirm the compiled CSS makes the bar full-width, the checkbox/`-more` vertically centered, and the body bottom-padding clear the bar.
 
 - [ ] **Step 4: Run to verify it passes (all invariants restored)** — `pnpm exec playwright test tests/e2e/step3-review-page.layout.spec.ts` → PASS. (Runs in the pinned Playwright Docker image on CI per the byte-comparison/runner discipline; locally validate then let CI confirm.)
 
@@ -722,15 +739,11 @@ it("T8-d: card variants (selectable / demoted / no-details) swap instantly, no a
     cleanup();
   }
 });
-// T8-e: Back relocation — asserted across TWO renders (the top chrome and the bar
-// have different data needs; see the Task-6 HARNESS note). Top-Back absence uses the
-// null-session OnboardingWizard render (no Supabase); bar-Back presence uses the
-// Step3ReviewWithFinalize render (which owns the bar).
-it("T8-e: step 3 drops the top Back (no-session render)", async () => {
-  const q = render(await OnboardingWizard({ settings: FRESH_SETTINGS, searchParams: { step: "3" } }));
-  expect(q.queryByTestId("wizard-back-link")).toBeNull();
-});
-it("T8-e: the bar renders its own Back (→ ?step=2)", () => {
+// T8-e: Back relocation. The top-Back ABSENCE assertion lives in onboardingWizardNav.test.tsx
+// (Task 6, null-session OnboardingWizard render — no Supabase). Here in the transitions file
+// we only assert the BAR Back via a Step3ReviewWithFinalize render (no OnboardingWizard →
+// no FRESH_SETTINGS dependency, no fetch).
+it("T8-e: the bar renders its own Back (→ ?step=2), instantly present with the bar", () => {
   const q = render(<Step3ReviewWithFinalize wizardSessionId={WSID} rows={[cleanRow("a","staged")]} finishable initialPublishCount={0} initialUncheckedCleanCount={1} />);
   expect(q.getByTestId("wizard-step3-back").getAttribute("href")).toBe("/admin?step=2");
 });
