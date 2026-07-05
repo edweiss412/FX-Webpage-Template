@@ -132,13 +132,15 @@ with empty / `-` / `\-` cell → `[]` (unchanged). Multi-name cell → `splitNam
 
 **Files:** `lib/parser/types.ts`, `lib/parser/blocks/scheduleTimes.ts`,
 `lib/sync/applyParseResult.ts`, `lib/data/decodeRunOfShow.ts`, `lib/data/downgradeRunOfShow.ts`,
-`components/crew/sections/ScheduleSection.tsx`.
+`components/crew/sections/ScheduleSection.tsx`, `scripts/verify-resync-scheduletimes.ts`,
+`tests/data/verifyResyncExpectedMap.test.ts`.
 
 ### Has-content predicate class (R7 — class-sweep, MUST all include `showEnd`)
 
 `showEnd` is a fourth "content" field. Every place that decides "does this day carry usable content?"
 via the three-field predicate MUST add `showEnd`. Complete site list (verified by
-`grep -rn "showStart [!=]== null" lib components | grep -v test` against origin/main):
+`grep -rn "showStart [!=]== null" lib components app scripts | grep -v .test.` against origin/main —
+note the sweep now includes `scripts/`, the source of the Codex R2 miss):
 
 | Site | Current predicate | Add |
 | ---- | ----------------- | --- |
@@ -147,9 +149,35 @@ via the three-field predicate MUST add `showEnd`. Complete site list (verified b
 | `applyParseResult.ts:166` (`isFullyEmpty`) | `entries.length === 0 && showStart === null && window === null` | `&& d.showEnd === null` |
 | `applyParseResult.ts:168` (`priorHadContent`) | `entries.length > 0 \|\| showStart !== null \|\| window !== null` | `\|\| d.showEnd !== null` |
 | `decodeRunOfShow.ts:180` (omit-empty) | `entries.length > 0 \|\| showStart !== null \|\| window !== null` | `\|\| showEnd !== null` |
+| `verify-resync-scheduletimes.ts:168` (recovered-content) | `entries.length > 0 \|\| showStart != null \|\| window != null` | `\|\| d.showEnd != null` |
 
-`ScheduleSection.tsx:294` is a *positive-showStart render* check, not an empty-day predicate — the new
-`showEnd` render branch is ADDED after it (see Crew render), not edited into it. No other predicate site exists.
+`ScheduleSection.tsx:294` and `verify-resync-scheduletimes.ts:93` (`case "showStart"`) are *positive*
+checks, not empty-day predicates — a new `showEnd` branch / `case` is ADDED beside each (see Crew render
+and R8), not edited in. No other predicate site exists.
+
+### Resync release-gate contract (R8 — Codex spec-review R2, HIGH)
+
+`scripts/verify-resync-scheduletimes.ts` is the deploy-time re-sync verifier (`pnpm
+verify-resync-scheduletimes`, run against `TEST_DATABASE_URL` after a forced re-sync). It hard-codes
+per-show/day expectations, including **`"2025-05-14": { field: "unparsed" }`** (`:38`) for this exact
+RFI/PC show — asserting the day is ABSENT from `run_of_show` AND carries a `SCHEDULE_TIME_UNPARSED`
+warning (`:85`, `:134-138`). After Fix 3, that day parses to `showEnd` (present, no warning), so the
+gate would **fail (or invite a stale-gate bypass)** on the next parser rollout. Required edits:
+
+- Add `| { field: "showEnd" }` to the `DayExpectation` union (`:18-21`) with a comment.
+- Flip `:38` → `"2025-05-14": { field: "showEnd" }, // "GS: ... - 6:00 PM" — end-only, decoded as showEnd`.
+- Add `case "showEnd": return day.showEnd != null;` to the `dayHasExpectedField` switch (`:87-94`). The
+  switch is TS-exhaustive over the union, so omitting the case is a **compile error** — a built-in guard.
+- `:168` recovered-content predicate gains `|| d.showEnd != null` (in the R7 table).
+- `unparsed` union member + its absence/warning logic (`:85`, `:134-147`) **stay** (a future genuine
+  end-drop could reuse them); after this change no live day maps to `unparsed`, which is correct.
+
+**CI mirror** `tests/data/verifyResyncExpectedMap.test.ts` duplicates the `DayExpectation` type +
+`dayHasExpectedField` helper for unit coverage: add `showEnd` to its union (`:7`) and a
+`case`/branch, add a red→green test that a present `showEnd`-only day passes `{ field: "showEnd" }`
+(and that an end-only day does NOT require the unparsed warning), and add `showEnd: null` to its
+`ScheduleDay` fixtures (`:19,24,30,39`). The existing `unparsed`-helper tests (`:27-34,52-67`) test the
+helper generically with `"2025-05-14"` as an arbitrary ISO arg — they remain valid and unchanged.
 
 **Why `applyParseResult` is load-bearing (Codex spec-review R1, HIGH):** `applyParseResult` runs BEFORE
 storage. Its confirmed-day filter (`:156`) drops any day failing the three-field test, so a
@@ -281,6 +309,20 @@ Each test derives expectations from fixture dimensions; none is tautological.
     **not** emit `AGENDA_DAY_EMPTIED` (`isFullyEmpty` returns false for it). *Catches: the end-only fix
     being silently dropped before storage and a false emptied-day alert.* The existing `showStartOnly` /
     `bareWindow` / `fullyEmpty` fixtures in that file gain `showEnd: null`.
+11. **Resync verifier — 2025-05-14 now `showEnd` (Codex R2).** In
+    `tests/data/verifyResyncExpectedMap.test.ts`: a present `showEnd`-only day passes
+    `{ field: "showEnd" }`; the switch is exhaustive (compile-time). *Catches: the release gate going
+    stale against the new end-only contract.* (The live `scripts/verify-resync-scheduletimes.ts` map flip
+    at `:38` is exercised by that gate against `TEST_DATABASE_URL`, not by unit test.)
+
+### Parser-behavior test reconciliation (do not blind-delete)
+
+The end-only change flips existing assertions that pin `SCHEDULE_TIME_UNPARSED` for the `GS: ... - 6:00 PM`
+shape. Any such test (candidate: `tests/parser/blocks/agendaWarnings.test.ts`, plus `2025-05-14`-referencing
+fixtures in `tests/crew/resolveKeyTimes.test.ts`, `tests/parser/blocks/scheduleBookends.test.ts`,
+`tests/components/crew/primitives/RunOfShowList.test.tsx`) must be RECONCILED to the new contract
+(day present with `showEnd`, no warning), not silently removed. The FULL suite (`pnpm test`) is the net
+that surfaces every one (per `feedback_full_suite_before_push_scoped_gates_miss_regressions`).
 
 ## Meta-test inventory
 
