@@ -95,3 +95,61 @@ export async function seedWatchAlert(
   });
   if (error) throw new Error(`seedWatchAlert insert failed: ${error.message}`);
 }
+
+// Seed exactly ONE unresolved PER-SHOW OAUTH_IDENTITY_CLAIMED row whose context
+// resolves to a visible at-a-glance identity (Task 10 / spec §3.1–§3.3). Used by
+// tests/e2e/alert-identity-banner-layout.spec.ts to exercise the identity line's
+// real-browser geometry (jsdom computes no layout).
+//
+// Code choice: OAUTH_IDENTITY_CLAIMED is (a) NON-info severity — its catalog entry
+// (lib/messages/catalog.ts:2908) has no `severity:"info"` field, so the banner's
+// info-exclusion filter does NOT drop it and it renders — and (b) has an identity
+// map entry (lib/adminAlerts/alertIdentityMap.ts:68) with crewName · email · showName
+// segments. The EMAIL segment is authoritative from `context.user_email` WITHOUT a
+// DB lookup (resolveAlertIdentities.ts:71 EMAIL_FIELD_BY_CODE), so setting
+// user_email ALWAYS makes describeAlert non-null ⇒ admin-alert-identity present,
+// even if the crew/show segments fail to resolve.
+//
+// `show_id` (the COLUMN) is set to a real show id ⇒ isPerShowAlert (AlertBanner.tsx:219)
+// ⇒ the action cell renders the "Check it" show link (admin-alert-show-link). The
+// banner joins `shows(slug,title)`, so the picked show must have a slug (real shows
+// do). Returns the seeded show's { id, title, slug } so callers can assert copy.
+export async function seedIdentityAlert(
+  opts: { userEmail?: string } = {},
+): Promise<{ id: string; title: string | null; slug: string | null }> {
+  await clearAlerts();
+  const { data: shows, error: showsErr } = await admin
+    .from("shows")
+    .select("id, title, slug")
+    .limit(1);
+  if (showsErr) throw new Error(`seedIdentityAlert shows select failed: ${showsErr.message}`);
+  const show = (shows ?? [])[0] as
+    | { id: string; title: string | null; slug: string | null }
+    | undefined;
+  if (!show) throw new Error("seedIdentityAlert: no shows seeded in local DB");
+
+  // Optionally resolve the crew segment against a real crew_member for this show.
+  // Absent is fine — the user_email email segment alone still renders the identity.
+  const { data: crew, error: crewErr } = await admin
+    .from("crew_members")
+    .select("id, name")
+    .eq("show_id", show.id)
+    .limit(1);
+  if (crewErr) throw new Error(`seedIdentityAlert crew select failed: ${crewErr.message}`);
+  const crewMember = (crew ?? [])[0] as { id: string; name: string | null } | undefined;
+
+  const context: Record<string, unknown> = {
+    show_id: show.id,
+    user_email: opts.userEmail ?? "crew.identity@example.com",
+  };
+  if (crewMember) context.crew_member_id = crewMember.id;
+
+  const { error } = await admin.from("admin_alerts").insert({
+    show_id: show.id,
+    code: "OAUTH_IDENTITY_CLAIMED",
+    context,
+    raised_at: new Date(Date.now() - 5 * 3600_000).toISOString(),
+  });
+  if (error) throw new Error(`seedIdentityAlert insert failed: ${error.message}`);
+  return { id: show.id, title: show.title, slug: show.slug };
+}
