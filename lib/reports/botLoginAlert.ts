@@ -38,24 +38,27 @@ export class BotLoginResolveInfraError extends Error {
 
 // alert-resolve-truthing §6.2: resolve the global GITHUB_BOT_LOGIN_MISSING row when the env is
 // configured. Direct admin_alerts UPDATE (the code is a NON_UPSERT producer, not in AdminAlertCode).
-// Invariant-9: destructure { error }; a returned error throws the typed BotLoginResolveInfraError
-// (the CRON invocation catch-logs it — see runNotify — so a failed resolve degrades to a logged
-// no-op for THIS cycle instead of collapsing the whole maintenance run). The env is checked BEFORE
-// the client is constructed, so an unset deployment makes zero Supabase calls.
+// The env is checked BEFORE the client is constructed, so an unset deployment makes zero Supabase
+// calls. Returns the number of open rows cleared (0 = none open). The CRON invocation catch-logs a
+// thrown fault (see runNotify), so a failed resolve degrades to a logged no-op for THIS cycle
+// instead of collapsing the whole maintenance run.
 export async function resolveBotLoginAlertRow(
   makeClient: () => ReturnType<
     typeof createSupabaseServiceRoleClient
   > = createSupabaseServiceRoleClient,
-): Promise<void> {
-  if (!botLoginConfigured()) return;
-  // Invariant 9: BOTH boundaries surface as the SAME discriminable typed fault. A throw from
-  // client construction OR the PostgREST request must NOT escape as a raw Error — wrap it as
-  // `thrown_error`; a returned `{ error }` is wrapped as `returned_error`. Everything up to and
-  // including the awaited request is inside the try so no thrown path leaks.
+): Promise<number> {
+  if (!botLoginConfigured()) return 0;
+  // Invariant 9: destructure the FULL { data, error } shape (not a partial) and surface BOTH
+  // boundaries as the SAME discriminable typed fault. A throw from client construction OR the
+  // PostgREST request must NOT escape as a raw Error — wrap it as `thrown_error`; a returned
+  // `{ error }` is wrapped as `returned_error`. Everything up to and including the awaited request
+  // is inside the try so no thrown path leaks. `data` (the cleared rows) is consumed as the return
+  // value, so the meta-test pins the whole call-boundary shape, not just the error half.
+  let data: Array<{ id: string }> | null;
   let error: { message?: string } | null;
   try {
     const supabase = makeClient();
-    ({ error } = await supabase
+    ({ data, error } = await supabase
       .from("admin_alerts")
       .update({ resolved_at: new Date().toISOString() })
       .eq("code", "GITHUB_BOT_LOGIN_MISSING")
@@ -68,4 +71,5 @@ export async function resolveBotLoginAlertRow(
   if (error) {
     throw new BotLoginResolveInfraError(error, "returned_error");
   }
+  return data?.length ?? 0;
 }

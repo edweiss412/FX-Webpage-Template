@@ -456,12 +456,35 @@ describe("META reports infra-failure contract", () => {
         update: () => builder,
         eq: () => builder,
         is: () => builder,
-        select: async () => ({ error: { message: "META: simulated returned error" } }),
+        // Full { data, error } shape (invariant 9 — not a partial that lets the resolver
+        // codify an incomplete contract).
+        select: async () => ({ data: null, error: { message: "META: simulated returned error" } }),
       } as Record<string, unknown>;
       const client = { from: () => builder } as never;
       const err = await resolveBotLoginAlertRow(() => client).catch((e) => e);
       expect(err).toBeInstanceOf(BotLoginResolveInfraError);
       expect((err as BotLoginResolveInfraError).kind).toBe("returned_error");
+    } finally {
+      if (original === undefined) delete process.env.GITHUB_BOT_LOGIN;
+      else process.env.GITHUB_BOT_LOGIN = original;
+    }
+  });
+
+  // Invariant 9 (whole-diff review R3 HIGH): the resolver destructures the FULL { data, error }
+  // shape and CONSUMES data — a successful resolve returns the count of cleared rows, so the meta
+  // contract requires `data`, not just `error`. A future edit that drops row evidence fails here.
+  test("resolveBotLoginAlertRow returns the cleared-row count from { data } on success", async () => {
+    const original = process.env.GITHUB_BOT_LOGIN;
+    process.env.GITHUB_BOT_LOGIN = "fxav-bot";
+    try {
+      const builder = {
+        update: () => builder,
+        eq: () => builder,
+        is: () => builder,
+        select: async () => ({ data: [{ id: "a" }, { id: "b" }], error: null }),
+      } as Record<string, unknown>;
+      const client = { from: () => builder } as never;
+      await expect(resolveBotLoginAlertRow(() => client)).resolves.toBe(2);
     } finally {
       if (original === undefined) delete process.env.GITHUB_BOT_LOGIN;
       else process.env.GITHUB_BOT_LOGIN = original;
