@@ -70,9 +70,9 @@ describe("readUnresolvedSheets", () => {
     expect(Array.isArray(res)).toBe(true);
     const rows = res as Extract<typeof res, unknown[]>;
     expect(rows.map((r) => r.driveFileId)).toEqual(["D_STUCK"]);
-    expect(rows[0].displayName).toBe("East Coast");
-    expect(rows[0].failureCode).toBe("STAGED_PARSE_REVISION_RACE_DURING_FINALIZE");
-    expect(rows[0].reApplyHref).toBe(`/admin/onboarding/staged/${SESSION}/D_STUCK`);
+    expect(rows[0]!.displayName).toBe("East Coast");
+    expect(rows[0]!.failureCode).toBe("STAGED_PARSE_REVISION_RACE_DURING_FINALIZE");
+    expect(rows[0]!.reApplyHref).toBe(`/admin/onboarding/staged/${SESSION}/D_STUCK`);
   });
 
   it("includes blocking-status rows regardless of failure code", async () => {
@@ -85,7 +85,7 @@ describe("readUnresolvedSheets", () => {
     const rows = (await readUnresolvedSheets(SESSION)) as { driveFileId: string; displayName: string }[];
     expect(rows.map((r) => r.driveFileId)).toEqual(["D_HARD"]);
     // no parse_result title → fall back to driveFileId
-    expect(rows[0].displayName).toBe("D_HARD");
+    expect(rows[0]!.displayName).toBe("D_HARD");
   });
 
   it("returns an empty array when nothing is unresolved", async () => {
