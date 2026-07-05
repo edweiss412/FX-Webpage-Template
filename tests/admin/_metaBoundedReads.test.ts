@@ -36,6 +36,9 @@ const READ_MODULES = [
   "lib/observe/query/cronHealth.ts",
   "lib/observe/query/alerts.ts",
   "lib/observe/query/changeLog.ts",
+  // Bell notification center Task 10: admin_alerts existence/tier-visibility
+  // lookup ahead of the bell_mark_read write — bounded via .limit(1).
+  "app/api/admin/alerts/bell/read/route.ts",
 ];
 
 const UNBOUNDED_TABLES = [

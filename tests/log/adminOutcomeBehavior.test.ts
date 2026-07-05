@@ -4,6 +4,7 @@
 // unreliable under Vitest's per-file isolation/workers/sharding).
 
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { NextRequest } from "next/server";
 import { setLogSink, resetLogSink } from "@/lib/log";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome"; // NOT re-exported from @/lib/log (verified live)
 import type { LogRecord } from "@/lib/log";
@@ -34,9 +35,11 @@ const requireDeveloperMock = vi.fn(async (..._a: unknown[]) => undefined);
 const requireDeveloperIdentityMock = vi.fn(async (..._a: unknown[]) => ({
   email: "dev@example.com",
 }));
+const isCurrentUserDeveloperMock = vi.fn(async (..._a: unknown[]) => false);
 vi.mock("@/lib/auth/requireDeveloper", () => ({
   requireDeveloper: (...a: unknown[]) => requireDeveloperMock(...a),
   requireDeveloperIdentity: (...a: unknown[]) => requireDeveloperIdentityMock(...a),
+  isCurrentUserDeveloper: (...a: unknown[]) => isCurrentUserDeveloperMock(...a),
   DeveloperInfraError: DeveloperInfraErrorDouble,
 }));
 
@@ -59,7 +62,8 @@ vi.mock("next/navigation", () => ({
 function chainResult(result: unknown) {
   const node: Record<string, unknown> = {};
   const self = () => node;
-  for (const m of ["eq", "is", "not", "select", "update", "insert", "single"]) node[m] = self;
+  for (const m of ["eq", "is", "not", "select", "update", "insert", "single", "limit"])
+    node[m] = self;
   node.maybeSingle = () => Promise.resolve(result);
   node.then = (onFulfilled: (v: unknown) => unknown, onRejected?: (e: unknown) => unknown) =>
     Promise.resolve(result).then(onFulfilled, onRejected);
@@ -238,6 +242,10 @@ import { resetCrewMemberSelection } from "@/lib/auth/picker/resetCrewMemberSelec
 // ── Task 14: admin routes (manifest/ignore, reap-stale-sessions) ────────────
 import { handleWizardManifestIgnore } from "@/app/api/admin/onboarding/manifest/[wizardSessionId]/[driveFileId]/ignore/route";
 import { handleReapStaleSessions } from "@/app/api/admin/onboarding/reap-stale-sessions/route";
+
+// ── Task 10 (bell notification center): open/read routes ───────────────────
+import { POST as bellOpenPOST } from "@/app/api/admin/alerts/bell/open/route";
+import { POST as bellReadPOST } from "@/app/api/admin/alerts/bell/read/route";
 
 // ── inline file-local recorder (single-file contract; no cross-file state) ──
 const recorded = new Set<string>(); // "file::fn::code"
@@ -936,6 +944,63 @@ describe("Task 14 — manifest-ignore + reap-stale-sessions routes observe succe
       }),
     );
     expect(failCodes).not.toContain("STALE_SESSIONS_REAPED");
+  });
+});
+
+// ── Task 10 (bell notification center): open/read routes observe success only ──
+const BELL_OPEN_ROUTE = "app/api/admin/alerts/bell/open/route.ts";
+const BELL_READ_ROUTE = "app/api/admin/alerts/bell/read/route.ts";
+const BELL_ALERT_ID = "11111111-2222-4333-8444-555555555555";
+
+function bellOpenReq(seenThrough: string): NextRequest {
+  return new NextRequest("https://x.test/api/admin/alerts/bell/open", {
+    method: "POST",
+    body: JSON.stringify({ seenThrough }),
+  });
+}
+function bellReadReq(alertId: string, seenActivityAt: string): NextRequest {
+  return new NextRequest("https://x.test/api/admin/alerts/bell/read", {
+    method: "POST",
+    body: JSON.stringify({ alertId, seenActivityAt }),
+  });
+}
+
+describe("Task 10 — bell open/read routes observe success only", () => {
+  test("open route emits BELL_OPENED on a committed mark; nothing on an rpc error", async () => {
+    serviceRoleClientImpl.current = () => makeClient({ rpc: { data: null, error: null } });
+    const codes = await observeSuccessCodes(() =>
+      bellOpenPOST(bellOpenReq(new Date().toISOString())),
+    );
+    expect(codes).toContain("BELL_OPENED");
+    recordAdminOutcomeBehavior({ file: BELL_OPEN_ROUTE, fn: "POST", code: "BELL_OPENED" });
+
+    serviceRoleClientImpl.current = () =>
+      makeClient({ rpc: { data: null, error: { message: "boom" } } });
+    const failCodes = await observeCodes(() => bellOpenPOST(bellOpenReq(new Date().toISOString())));
+    expect(failCodes).not.toContain("BELL_OPENED");
+  });
+
+  test("read route emits BELL_READ_MARKED on a committed mark; nothing on an rpc error", async () => {
+    serviceRoleClientImpl.current = () =>
+      makeClient({
+        from: { data: [{ id: BELL_ALERT_ID, code: "SOME_CODE" }], error: null },
+        rpc: { data: null, error: null },
+      });
+    const codes = await observeSuccessCodes(() =>
+      bellReadPOST(bellReadReq(BELL_ALERT_ID, new Date().toISOString())),
+    );
+    expect(codes).toContain("BELL_READ_MARKED");
+    recordAdminOutcomeBehavior({ file: BELL_READ_ROUTE, fn: "POST", code: "BELL_READ_MARKED" });
+
+    serviceRoleClientImpl.current = () =>
+      makeClient({
+        from: { data: [{ id: BELL_ALERT_ID, code: "SOME_CODE" }], error: null },
+        rpc: { data: null, error: { message: "boom" } },
+      });
+    const failCodes = await observeCodes(() =>
+      bellReadPOST(bellReadReq(BELL_ALERT_ID, new Date().toISOString())),
+    );
+    expect(failCodes).not.toContain("BELL_READ_MARKED");
   });
 });
 

@@ -79,6 +79,10 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   // requireAdminIdentity, mirroring needs-attention-count's chain shape.
   { path: "app/api/admin/alerts/bell/feed/route.ts", chain: ["requireAdmin"] },
   { path: "app/api/admin/alerts/bell/count/route.ts", chain: ["requireAdmin"] },
+  // Task 10: write routes over the greatest-wins monotonic bell_mark_opened/
+  // bell_mark_read RPCs, same chain shape as their read siblings above.
+  { path: "app/api/admin/alerts/bell/open/route.ts", chain: ["requireAdmin"] },
+  { path: "app/api/admin/alerts/bell/read/route.ts", chain: ["requireAdmin"] },
   { path: "app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts", chain: ["requireAdmin"] },
   { path: "app/api/admin/show/[slug]/data-quality/ignore/route.ts", chain: ["requireAdmin"] },
   { path: "app/api/admin/show/[slug]/data-quality/unignore/route.ts", chain: ["requireAdmin"] },

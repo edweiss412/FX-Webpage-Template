@@ -288,6 +288,9 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
     fn: "POST",
     code: "STALE_SESSIONS_REAPED",
   },
+  // Task 10 — bell notification center open/read routes.
+  { file: "app/api/admin/alerts/bell/open/route.ts", fn: "POST", code: "BELL_OPENED" },
+  { file: "app/api/admin/alerts/bell/read/route.ts", fn: "POST", code: "BELL_READ_MARKED" },
 ];
 
 export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
@@ -352,6 +355,9 @@ export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
   // Invariant #10 (2026-07-04) Task 14.
   "MANIFEST_SHEET_IGNORED",
   "STALE_SESSIONS_REAPED",
+  // Bell notification center Task 10.
+  "BELL_OPENED",
+  "BELL_READ_MARKED",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing
