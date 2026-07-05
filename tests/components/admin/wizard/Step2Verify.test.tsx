@@ -507,7 +507,10 @@ describe("Step2Verify", () => {
     expect(form!.className).toContain("border-border");
   });
 
-  test("consolidated: the completed-scan summary lives inside the scan form (no second card)", async () => {
+  test("the completed-scan result lives in the footer (not the form), with the breakdown in a hover/tap popover", async () => {
+    // Result relocation (2026-07-05): "Found N items" moves OUT of the scan
+    // card and INTO the WizardFooter center as a HoverHelp summary; the
+    // per-bucket breakdown is disclosed on hover or tap, not shown inline.
     fetchMock.mockResolvedValue(mockJsonResponse(completedScanBody(["staged"], "Shows 2026")));
     const { getByTestId } = render(<Step2Verify />);
     fireEvent.change(getByTestId("wizard-step2-folder-url-input"), {
@@ -518,13 +521,19 @@ describe("Step2Verify", () => {
     });
     await waitFor(() => expect(getByTestId("wizard-step2-success")).toBeTruthy());
     const success = getByTestId("wizard-step2-success");
-    expect(success.closest("form")).not.toBeNull();
-    // No own card chrome — the surrounding form is the single bordered surface.
-    expect(success.className).not.toContain("rounded-md");
+    // The summary now lives in the footer, NOT inside the scan form.
+    expect(success.closest("form")).toBeNull();
+    expect(success.closest('[data-testid="wizard-footer"]')).not.toBeNull();
+    // Trigger shows the headline "Found N items in <folder>".
+    expect(getByTestId("wizard-step2-found-trigger").textContent ?? "").toMatch(/Found\s+1\s+item/);
+    expect(success.textContent ?? "").toContain("Shows 2026");
+    // The per-bucket breakdown is in the disclosed popover body.
+    expect(getByTestId("wizard-step2-found-body").textContent ?? "").toContain(
+      "Sheets ready for review:",
+    );
     // Continue to Step 3 is the accent primary; the scan button steps down.
     expect(getByTestId("wizard-step2-advance").className).toContain("bg-accent");
     expect(getByTestId("wizard-step2-submit").className).not.toContain("bg-accent");
-    // …and both share the same action row inside the form.
     expect(getByTestId("wizard-step2-submit").closest("form")).not.toBeNull();
   });
 
