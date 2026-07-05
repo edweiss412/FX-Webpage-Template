@@ -136,7 +136,7 @@ export function AdminNav({
           {healthRollup ? (
             <AppHealthIndicator rollup={healthRollup} isDeveloper={viewerIsDeveloper} />
           ) : null}
-          <NotifBell alertCount={alertCount} />
+          <NotifBell initialCount={alertCount} viewerIsDeveloper={viewerIsDeveloper} />
           <ThemeToggle />
           <UserMenu email={email} />
         </div>

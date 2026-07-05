@@ -204,13 +204,13 @@ describe("AdminNav — active-state moves instantly on route change (no animatio
 describe("NotifBell — badge appear/disappear is instant", () => {
   it("badge present at count>0, absent at 0, no animation class either way", () => {
     const { rerender, queryByTestId, getByTestId } = render(
-      <NotifBell alertCount={{ kind: "ok", count: 3 }} />,
+      <NotifBell initialCount={{ kind: "ok", count: 3 }} viewerIsDeveloper={false} />,
     );
     const badge = getByTestId("admin-notif-badge");
     expect(badge.className).not.toContain("route-enter");
     expect(badge.className).not.toMatch(/animate-/);
 
-    rerender(<NotifBell alertCount={{ kind: "ok", count: 0 }} />);
+    rerender(<NotifBell initialCount={{ kind: "ok", count: 0 }} viewerIsDeveloper={false} />);
     expect(queryByTestId("admin-notif-badge")).toBeNull();
   });
 });

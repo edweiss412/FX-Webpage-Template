@@ -151,9 +151,14 @@ describe("AdminNav", () => {
       ).toBeNull();
     });
 
-    it("initial mount never fetches the count route", () => {
+    it("initial mount never refetches a count route (server props are fresh)", () => {
       render(<AdminNav email="d@e.com" alertCount={okAlerts} initialBadgeCount={3} />);
-      expect(fetchSpy).not.toHaveBeenCalled();
+      // The bell/attention badge hooks read pathname but must not refetch the
+      // count on initial mount — the server-supplied prop is authoritative.
+      // NotifBell's useBellBadge legitimately POSTs the realtime token on mount
+      // (spec §5), so the invariant is scoped to the count endpoints only.
+      const countFetches = fetchSpy.mock.calls.filter((c) => String(c[0]).includes("/count"));
+      expect(countFetches).toHaveLength(0);
     });
   });
 
