@@ -191,7 +191,17 @@ describe("Step3SheetCard ScheduleBreakdown — SET/strike/load-out (Task 14)", (
         window: null,
       };
     }
-    const { region } = renderCard(parseResult({ runOfShow: ros }));
+    // Null the show dates so this test isolates PURE ros-day cap behavior: the
+    // schedule now merges the aggregate day domain (travelIn/set/showDays/travelOut)
+    // with ros days (bug #316 item 1), so a non-empty `showDays` would consume a cap
+    // slot and shift the dropped count. Empty dates → merged == ros keys, matching
+    // this test's original intent (synthetic-day cap exemption among run-of-show days).
+    const { region } = renderCard(
+      parseResult({
+        runOfShow: ros,
+        show: show({ dates: { travelIn: null, set: null, showDays: [], travelOut: null } }),
+      }),
+    );
     // The synthetic-bearing day past the cap is rendered (its marker title shows).
     expect(region.getByText("LoadOutMarker")).toBeTruthy();
     // The non-synthetic day past the cap (index 14, "PlainDay14") is dropped.

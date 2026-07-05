@@ -56,7 +56,7 @@ import {
   type SectionData,
   type Step3SectionDef,
 } from "@/components/admin/wizard/step3ReviewSections";
-import { buildParseResult, stagedRow } from "./_step3ReviewFixture";
+import { buildParseResult, stagedRow, show } from "./_step3ReviewFixture";
 
 // AgendaBreakdown (rendered by the agenda registry entry) calls fetch in an
 // effect; no test here renders it (the hideDot modal tests use an empty
@@ -568,6 +568,11 @@ describe("section bodies — empty-state copy preserved (registry render)", () =
 
   test.each(Object.entries(EMPTY_COPY))("%s body renders '%s' when empty", (id, copy) => {
     const d = sectionData({
+      // Schedule now renders the aggregate day domain (travelIn/set/showDays/travelOut)
+      // in ADDITION to run-of-show entries (bug #316 item 1), so a truly-empty schedule
+      // requires empty dates too — otherwise the default fixture's dates surface bookend
+      // rows and the "No run-of-show parsed." empty state never shows.
+      show: show({ dates: { travelIn: null, set: null, showDays: [], travelOut: null } }),
       crewMembers: [],
       rooms: [],
       hotelReservations: [],
