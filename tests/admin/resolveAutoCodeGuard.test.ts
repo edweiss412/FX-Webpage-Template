@@ -235,6 +235,34 @@ describe("resolveAutoCodeGuard — auto codes fail CLOSED at the four manual-res
     expect(track.update).toBe(true);
   });
 
+  // --- Route parity: an ALREADY-RESOLVED auto code returns 409 (not idempotent 200) on the
+  //     per-show route, exactly as the global route does. The auto guard precedes the
+  //     resolved_at idempotency branch so both routes give auto codes the SAME fail-closed HTTP
+  //     contract (whole-diff review R4 MEDIUM). --------------------------------
+  it("per-show route: already-resolved auto code → 409 ALERT_AUTO_RESOLVE_ONLY (not idempotent 200), NO update", async () => {
+    const track = { update: false };
+    const res = await handleAdminAlertShowResolve(
+      new Request("http://x"),
+      { params: Promise.resolve({ slug: "rpas", id: ID }) },
+      {
+        requireAdminIdentity,
+        withTx: makeWithTx(
+          {
+            id: ID,
+            show_id: "show-1",
+            slug: "rpas",
+            resolved_at: "2026-01-01T00:00:00Z",
+            code: AUTO_DOUG,
+          },
+          track,
+        ),
+      },
+    );
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ ok: false, code: "ALERT_AUTO_RESOLVE_ONLY" });
+    expect(track.update).toBe(false);
+  });
+
   // --- Spec §5 guard precedence: a HEALTH code that is ALSO auto (WEBHOOK_TOKEN_INVALID,
   //     GITHUB_BOT_LOGIN_MISSING) hits the audience-based HEALTH_CODES rejection (403) FIRST.
   //     The guards are orthogonal, not nested (spec §5 lines 288-294): on the doug routes a

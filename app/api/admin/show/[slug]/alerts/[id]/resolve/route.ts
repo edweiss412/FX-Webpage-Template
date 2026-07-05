@@ -123,16 +123,19 @@ export async function handleAdminAlertShowResolve(
       if (HEALTH_CODES.includes(row.code)) {
         return errorResponse(403, "ALERT_HEALTH_RESOLVE_FORBIDDEN");
       }
-      if (row.resolved_at) {
-        return NextResponse.json({ status: "resolved", id, resolved_at: row.resolved_at });
-      }
       // Inbox-routed codes auto-clear only — manual resolve is forbidden (spec §4.8).
       // Plain structural API code (not a §12.4 catalog row): the PerShowAlertResolveButton
       // is omitted for these codes, so this backstop is never surfaced to the operator.
       // alert-resolve-truthing §4.3: reject ANY auto-resolving code (inbox-routed
       // codes are a subset — SHEET_UNAVAILABLE / PARSE_ERROR_LAST_GOOD are auto), not
-      // just the inbox subset. Manual resolve of a self-clearing alert is a no-op.
+      // just the inbox subset. Manual resolve of a self-clearing alert is a no-op. This
+      // check precedes the resolved_at idempotency branch so an already-cleared auto row
+      // returns 409 here exactly as the global route does (whole-diff review R4 MEDIUM:
+      // the two routes must give auto codes the SAME fail-closed HTTP contract).
       if (isAutoResolving(row.code)) return errorResponse(409, "ALERT_AUTO_RESOLVE_ONLY");
+      if (row.resolved_at) {
+        return NextResponse.json({ status: "resolved", id, resolved_at: row.resolved_at });
+      }
 
       const updated = await tx.queryOne<AlertRow>(
         `
