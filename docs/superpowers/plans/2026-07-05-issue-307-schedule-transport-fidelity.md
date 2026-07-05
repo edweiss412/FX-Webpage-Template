@@ -886,15 +886,30 @@ git commit --no-verify -m "docs(spec): §12.4 SCHEDULE_TIME_UNPARSED no longer f
 Run: `npx vitest run tests/parser/blocks/scheduleTimes.test.ts tests/parser/blocks/agendaWarnings.test.ts tests/parser/blocks/scheduleBookends.test.ts tests/components/crew/primitives/RunOfShowList.test.tsx tests/crew/resolveKeyTimes.test.ts`
 For each failure: if it pinned the old end-only warning, update it to expect the day present with `showEnd` and no warning. (Task 1 already reconciled `scheduleTimes.test.ts:50-57`; it's listed here as the safety net.)
 
-- [ ] **Step 2: Full suite**
+- [ ] **Step 2: Full suite (FAIL-CLOSED)**
 
-Run: `pnpm test 2>&1 | tail -30`
-Expected: all pass. Triage any failure as real vs env/psql (per `feedback_full_suite_before_push_scoped_gates_miss_regressions`). Grep the vitest SUMMARY line, not just the tail.
+Run (the `pipefail` makes a failing suite propagate its non-zero exit through the `tee`/`tail` pipe —
+a bare `pnpm test | tail` would mask failures behind `tail`'s exit 0, Codex plan-review R6):
 
-- [ ] **Step 3: Typecheck, lint, format, build**
+```bash
+set -o pipefail
+pnpm test 2>&1 | tee /tmp/307-test.log | tail -40; echo "test exit=$?"
+```
+Expected: `test exit=0` and all pass. Triage any failure as real vs env/psql (per
+`feedback_full_suite_before_push_scoped_gates_miss_regressions`). Grep `/tmp/307-test.log` for the vitest
+SUMMARY line, not just the tail.
 
-Run: `pnpm typecheck && pnpm lint && pnpm format:check && pnpm build 2>&1 | tail -20`
-Expected: all green. (`--no-verify` commits skipped the prettier hook; `format:check` is the net. `lint` enforces canonical Tailwind, e.g. `wrap-break-word`.)
+- [ ] **Step 3: Typecheck, lint, format, build (FAIL-CLOSED)**
+
+Run each directly so a non-zero exit is never swallowed by a pipe:
+
+```bash
+pnpm typecheck && pnpm lint && pnpm format:check && pnpm build; echo "gates exit=$?"
+```
+Expected: `gates exit=0`. (`--no-verify` commits skipped the prettier hook; `format:check` is the net.
+`lint` enforces canonical Tailwind, e.g. `wrap-break-word` not `break-words`.) If you need to trim
+`build` output, use `set -o pipefail; pnpm build 2>&1 | tee /tmp/307-build.log | tail -20` — never a bare
+`| tail`.
 
 - [ ] **Step 4: Impeccable dual-gate (UI diff)** — the diff touches `components/crew/sections/ScheduleSection.tsx` + `components/admin/wizard/step3ReviewSections.tsx` (invariant 8). Run `/impeccable critique` AND `/impeccable audit` on the UI diff; fix HIGH/CRITICAL or defer via `DEFERRED.md`. Record dispositions.
 
