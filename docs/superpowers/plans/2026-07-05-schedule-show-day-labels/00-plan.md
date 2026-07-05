@@ -432,7 +432,7 @@ Note critique + audit findings/dispositions for the close-out handoff. Commit an
 ## Self-review checklist (run before adversarial review)
 
 - **Spec coverage:** Task 1 (numbering), Task 2/3 (crew surface), Task 4 (wizard surface), Task 5 (dual-gate) cover every spec section. No Dark synthesis (spec §2) — correctly absent.
-- **Placeholder scan:** the only deferred detail is the `ScheduleSection` fixture-helper name (Task 3) and the exact `ScheduleDayRow.phase.test.tsx` assertions (Task 4) — both flagged as "verify at impl time against the live harness," with the contract (assert label text per `data-day` / per testid, derived from `aggregateDays`) fully specified.
+- **Placeholder scan:** none. Task 3 uses the concrete `makeShowForViewer({ show: { dates } })` override (fixture behavior cited); Task 4 gives the concrete `ScheduleDayRow.phase.test.tsx` rewrite (`renderRow` prop `label?: string | null`, unchanged assertion strings/testids). All test bodies are executable as written.
 - **Type consistency:** `AggregateDay.label: string` (Task 1) → `DayCard.label?: string` (Task 2) → `ScheduleDayRow.label?: string | null` (Task 4). `phase` never changes type. Consistent across tasks.
 - **Anti-tautology:** every numbering assertion derives expected values from `aggregateDays(fixture.dates)` (the data source), not from the rendered container or a hardcoded max.
 
