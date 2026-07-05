@@ -96,6 +96,21 @@ anchor when building its heading link.
    no `dfid`; `warnings` spans the sheet; `report` is not a parsed region and already
    suppresses its link).
 
+   **One-region-per-section (primary-region) model.** A wizard section is coarser than
+   a parser region: `KIND_TO_SECTION` (`lib/admin/step3SectionStatus.ts:19`) folds
+   several region-kinds into one section — notably `details`, `event_details`, and
+   `dress` all map into `event`. Each section has exactly ONE heading link, so
+   `SECTION_REGION_MAP` picks the section's **primary** region. For `event` that is
+   `details` (the EVENT DETAILS block is the bulk of the section body via
+   `OpsBreakdown`); `dress` is a minor adjacent sub-block that shares the section link.
+   This mirrors the crew page's one-region-per-card model (`CARD_REGION_MAP`,
+   `buildSheetDeepLink.ts:148`), where e.g. `venue-facilities` and `venue-status` both
+   resolve to the single `venue` region despite rendering some cross-region fields. A
+   heading link landing on the section's dominant block (with the adjacent sub-block a
+   short scroll away on the same INFO tab) is the accepted, pre-existing tradeoff — not
+   a regression this spec introduces. (If `details` has no anchor for a given show, the
+   guard below falls the link back to `#gid=0`, exactly as today.)
+
 5. **Chrome field.** Add `sourceAnchors?: Record<string, SourceAnchor>` to
    `Step3SectionChrome` (`step3ReviewSections.tsx:278`). The modal is the sole provider:
    inject `sourceAnchors: data.row.sourceAnchors ?? {}` into the chrome context value at
@@ -185,10 +200,15 @@ links that have a real anchor; it never breaks one.
 - **Scope is ratified.** Per-section heading links only. The card title link staying
   `#gid=0` and the agenda-error link being untouched are deliberate, user-approved
   decisions — do not relitigate.
-- **`schedule`/`agenda` → `schedule` region (AGENTS tab) is intentional**, mirroring the
+- **`schedule`/`agenda` → `schedule` region (AGENDA tab) is intentional**, mirroring the
   crew page's `CARD_REGION_MAP["schedule-days"] = "schedule"`
   (`buildSheetDeepLink.ts:167`). There is no INFO "dates" region in
   `REGION_ANCHOR_SPEC`; AGENDA is the canonical schedule anchor.
+- **`event → details` (not `dress`) is the ratified primary-region choice**, per the
+  one-region-per-section model above. The `event` section aggregates `details` +
+  `event_details` + `dress` kinds into one heading link; `details` (the dominant EVENT
+  DETAILS block) is primary. This is the same coarsening the crew page already ships;
+  do not treat the shared `dress` sub-block as a regression.
 - **`null` regions falling back to `#gid=0` is intentional**, not an oversight — it is
   the documented graceful-degradation path, identical to pre-fix behavior.
 - **The reversed `2026-07-05` owner comment** is deliberate: its premise ("no computed
