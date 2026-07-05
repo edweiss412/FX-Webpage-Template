@@ -15,26 +15,14 @@ describe("NO_TELEMETRY_RE", () => {
   });
 });
 
-describe("KNOWN_UNINSTRUMENTED — exactly the 6 crew/system picker fns (spec §3.1 C)", () => {
-  test("exactly 6 rows", () => {
-    expect(KNOWN_UNINSTRUMENTED.length).toBe(6);
-  });
-  test("every row carries a backlog ref", () => {
-    for (const row of KNOWN_UNINSTRUMENTED)
-      expect(row.backlog, `${row.file}::${row.fn}`).toBe("BL-CREW-PICKER-OBSERVABILITY");
-  });
-  test("the 6 rows match spec §3.1 C exactly", () => {
-    const rows = KNOWN_UNINSTRUMENTED.map((r) => `${r.file}::${r.fn}`);
-    expect(new Set(rows)).toEqual(
-      new Set([
-        "lib/auth/picker/cleanupStaleEntry.ts::cleanupStaleEntry",
-        "lib/auth/picker/cleanupStaleEntry.ts::cleanupStaleEntryCore",
-        "lib/auth/picker/clearIdentity.ts::clearIdentity",
-        "lib/auth/picker/clearIdentity.ts::clearIdentityAndSkip",
-        "lib/auth/picker/clearIdentity.ts::clearIdentityCore",
-        "lib/auth/picker/selectIdentity.ts::selectIdentityCore",
-      ]),
-    );
+describe("KNOWN_UNINSTRUMENTED — empty (BL-CREW-PICKER-OBSERVABILITY closed 2026-07-05)", () => {
+  test("the ledger is empty; the 6 crew picker fns are now instrumented", () => {
+    // The 6 non-admin crew picker fns emit the auth.picker.* crew-telemetry codes
+    // (PICKER_IDENTITY_SELECTED / PICKER_IDENTITY_CLEARED / PICKER_STALE_ENTRY_CLEANED)
+    // and their wrappers carry `// no-telemetry:` delegation comments, so the debt
+    // ledger is closed. A NEW uninstrumented picker mutation is caught by the discovery
+    // floor, not this ledger.
+    expect(KNOWN_UNINSTRUMENTED).toHaveLength(0);
   });
 });
 

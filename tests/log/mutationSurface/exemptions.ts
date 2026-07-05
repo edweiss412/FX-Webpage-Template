@@ -77,41 +77,15 @@ export const ADMIN_SURFACE_EXEMPTIONS: readonly AdminSurfaceExemption[] = [
 export type KnownUninstrumented = { file: string; fn: string; backlog: string };
 
 /** Debt ledger (spec §4.3 item 3, §3.1 C) — always per-function, never file-only.
- * Exactly the 6 non-admin-gated crew/system picker functions; the 3 admin-gated
- * picker mutations are instrumented (§3.1 A), never ledgered here (§4.3 hygiene
- * structurally rejects an admin-gated ledger entry). */
-export const KNOWN_UNINSTRUMENTED: readonly KnownUninstrumented[] = [
-  {
-    file: "lib/auth/picker/cleanupStaleEntry.ts",
-    fn: "cleanupStaleEntry",
-    backlog: "BL-CREW-PICKER-OBSERVABILITY",
-  },
-  {
-    file: "lib/auth/picker/cleanupStaleEntry.ts",
-    fn: "cleanupStaleEntryCore",
-    backlog: "BL-CREW-PICKER-OBSERVABILITY",
-  },
-  {
-    file: "lib/auth/picker/clearIdentity.ts",
-    fn: "clearIdentity",
-    backlog: "BL-CREW-PICKER-OBSERVABILITY",
-  },
-  {
-    file: "lib/auth/picker/clearIdentity.ts",
-    fn: "clearIdentityAndSkip",
-    backlog: "BL-CREW-PICKER-OBSERVABILITY",
-  },
-  {
-    file: "lib/auth/picker/clearIdentity.ts",
-    fn: "clearIdentityCore",
-    backlog: "BL-CREW-PICKER-OBSERVABILITY",
-  },
-  {
-    file: "lib/auth/picker/selectIdentity.ts",
-    fn: "selectIdentityCore",
-    backlog: "BL-CREW-PICKER-OBSERVABILITY",
-  },
-];
+ * EMPTY: BL-CREW-PICKER-OBSERVABILITY shipped 2026-07-05. The 6 non-admin crew/system
+ * picker functions are now instrumented — the mutation boundaries in their private
+ * `*Impl` emit the `auth.picker.*` crew-telemetry codes (PICKER_IDENTITY_SELECTED /
+ * PICKER_IDENTITY_CLEARED / PICKER_STALE_ENTRY_CLEANED, coded `log.info` — NOT
+ * `logAdminOutcome`, since the actor is an anonymous crew member on an emailed link),
+ * and their exported wrappers carry `// no-telemetry:` delegation comments. The 3
+ * admin-gated picker mutations remain instrumented via `logAdminOutcome` (§3.1 A). A
+ * NEW uninstrumented picker mutation fails the discovery floor by default, not here. */
+export const KNOWN_UNINSTRUMENTED: readonly KnownUninstrumented[] = [];
 
 export type GrandfatherUnit = { file: string; fn: string };
 

@@ -509,4 +509,10 @@ export const NEW_FORENSIC_CODES: ReadonlySet<string> = new Set([
   "LIVE_STAGED_DISCARD_AUTH_INFRA",
   "CREW_REPORT_SUBMITTED",
   "AMBIGUOUS_EMAIL_BINDING_DETECTED",
+  // Crew-picker observability (2026-07-05) — non-admin crew coded log.info emits at the
+  // picker mutation boundaries (BL-CREW-PICKER-OBSERVABILITY; inside log.* spans, NOT
+  // cataloged, NOT logAdminOutcome — the actor is an anonymous crew member on an emailed link).
+  "PICKER_IDENTITY_SELECTED",
+  "PICKER_IDENTITY_CLEARED",
+  "PICKER_STALE_ENTRY_CLEANED",
 ]);

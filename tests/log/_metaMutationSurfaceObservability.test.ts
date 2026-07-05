@@ -548,7 +548,7 @@ describe("KNOWN_UNINSTRUMENTED ledger hygiene", () => {
     expect(evaluateUnit(unit, { auditable: [], exemptions: [], ledger }).pass).toBe(false);
   });
 
-  test("the live KNOWN_UNINSTRUMENTED ledger's 6 rows are all non-admin-gated (live-tree check)", () => {
+  test("the live KNOWN_UNINSTRUMENTED ledger's rows are all non-admin-gated (live-tree check)", () => {
     for (const row of KNOWN_UNINSTRUMENTED) {
       const src = readFileSync(join(REPO_ROOT, row.file), "utf8");
       const sf = ts.createSourceFile(row.file, src, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
