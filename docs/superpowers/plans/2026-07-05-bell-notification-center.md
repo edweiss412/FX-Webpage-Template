@@ -218,8 +218,8 @@ git commit --no-verify -m "feat(db): bell state tables + monotonic write RPCs + 
 - Test: `tests/db/bellFeedRpc.test.ts` (new — live local-DB SQL behavior; reuse the DB connection pattern from `tests/db/validation-schema-parity.test.ts` Layer 2 / `tests/db/postgrest-dml-lockdown.test.ts` — inspect those files first and copy their client setup verbatim)
 
 **Interfaces:**
-- Consumes: `public.admin_alerts`, `public.shows(slug)`.
-- Produces: `get_bell_feed_rows(p_history_days int, p_cap int, p_excluded_codes text[])` returning `(is_meta boolean, seen_through timestamptz, active_hit_cap boolean, history_hit_cap boolean, id uuid, code text, show_id uuid, slug text, context jsonb, occurrence_count integer, raised_at timestamptz, last_seen_at timestamptz, resolved_at timestamptz, resolved_occurrence_sum bigint, is_active boolean)` — exactly one `is_meta=true` row always; entry rows unordered (TS sorts).
+- Consumes: `public.admin_alerts`, `public.shows(slug)`, `public.admin_alert_reads` + `public.admin_bell_state` (Task 1 — viewer-state folding).
+- Produces: `get_bell_feed_rows(p_history_days int, p_cap int, p_excluded_codes text[], p_admin_email text)` returning `(is_meta boolean, seen_through timestamptz, active_hit_cap boolean, history_hit_cap boolean, viewer_opened_at timestamptz, id uuid, code text, show_id uuid, slug text, context jsonb, occurrence_count integer, raised_at timestamptz, last_seen_at timestamptz, resolved_at timestamptz, resolved_occurrence_sum bigint, is_active boolean, viewer_read_at timestamptz)` — exactly one `is_meta=true` row always (carries `viewer_opened_at`); entry rows carry `viewer_read_at` (left join `admin_alert_reads` on the caller); entry rows unordered (TS sorts). Viewer state rides in the SAME snapshot as the entries (plan-review R4: cross-tab `/open` race + single-read contract).
 
 - [ ] **Step 1: Write failing SQL behavior tests** `tests/db/bellFeedRpc.test.ts`. Seed via SQL in the test (insert admin_alerts rows with explicit timestamps; clean up after). Cases — derive every expectation from the seeded fixture, never hardcode counts:
 
@@ -238,8 +238,12 @@ git commit --no-verify -m "feat(db): bell state tables + monotonic write RPCs + 
 // 5b. caps EXACT (R2 finding): seed EXACTLY p_cap distinct active keys → active rows = p_cap
 //     AND meta.active_hit_cap=false (no false-positive truncation row). Same pair for history.
 // 6. window: resolved_at older than p_history_days days → absent from history AND sums.
-// 7. NULL p_excluded_codes → the call rejects (function raises).
+// 7. NULL p_excluded_codes → the call rejects (function raises); NULL/empty p_admin_email raises.
 // 8. empty-array p_excluded_codes → nothing excluded.
+// 9. VIEWER-STATE FOLDING (R4): seed a read row for viewer A on one alert +
+//    an admin_bell_state row for A → A's call returns viewer_read_at on that
+//    entry and viewer_opened_at on the meta row; viewer B's call returns NULL
+//    for both (per-admin isolation).
 ```
 
 Each case is a real `await sql\`select * from get_bell_feed_rows(...)\`` assertion, not a mock (AGENTS.md: mocked-only tests invite tautological APPROVE).
@@ -256,13 +260,15 @@ Each case is a real `await sql\`select * from get_bell_feed_rows(...)\`` asserti
 create or replace function public.get_bell_feed_rows(
   p_history_days int,
   p_cap int,
-  p_excluded_codes text[]
+  p_excluded_codes text[],
+  p_admin_email text
 )
 returns table (
   is_meta boolean,
   seen_through timestamptz,
   active_hit_cap boolean,
   history_hit_cap boolean,
+  viewer_opened_at timestamptz,
   id uuid,
   code text,
   show_id uuid,
@@ -273,7 +279,8 @@ returns table (
   last_seen_at timestamptz,
   resolved_at timestamptz,
   resolved_occurrence_sum bigint,
-  is_active boolean
+  is_active boolean,
+  viewer_read_at timestamptz
 )
 language plpgsql
 security definer
@@ -282,6 +289,9 @@ as $$
 begin
   if p_excluded_codes is null then
     raise exception 'get_bell_feed_rows: p_excluded_codes must not be null';
+  end if;
+  if p_admin_email is null or p_admin_email = '' then
+    raise exception 'get_bell_feed_rows: p_admin_email must not be empty';
   end if;
   if p_history_days is null or p_history_days < 1 or p_history_days > 365 then
     raise exception 'get_bell_feed_rows: p_history_days out of range';
@@ -348,32 +358,38 @@ begin
   select true, now(),
          (select count(*) from active_probe) > p_cap,
          (select count(*) from history_probe) > p_cap,
+         (select st.opened_at from public.admin_bell_state st
+           where st.admin_email = p_admin_email),
          null::uuid, null::text, null::uuid, null::text, null::jsonb,
          null::integer, null::timestamptz, null::timestamptz, null::timestamptz,
-         null::bigint, null::boolean
+         null::bigint, null::boolean, null::timestamptz
   union all
-  select false, null, null, null,
+  select false, null, null, null, null,
          a.id, a.code, a.show_id, s.slug, a.context,
          a.occurrence_count, a.raised_at, a.last_seen_at, a.resolved_at,
-         coalesce(rs.resolved_sum, 0), true
+         coalesce(rs.resolved_sum, 0), true, r.read_at
   from active a
   left join public.shows s on s.id = a.show_id
   left join resolved_sums rs
     on rs.key_show = coalesce(a.show_id::text, '') and rs.key_code = a.code
+  left join public.admin_alert_reads r
+    on r.alert_id = a.id and r.admin_email = p_admin_email
   union all
-  select false, null, null, null,
+  select false, null, null, null, null,
          h.id, h.code, h.show_id, s.slug, h.context,
          h.occurrence_count, h.raised_at, h.last_seen_at, h.resolved_at,
-         coalesce(rs.resolved_sum, h.occurrence_count::bigint), false
+         coalesce(rs.resolved_sum, h.occurrence_count::bigint), false, r.read_at
   from history_capped h
   left join public.shows s on s.id = h.show_id
   left join resolved_sums rs
-    on rs.key_show = coalesce(h.show_id::text, '') and rs.key_code = h.code;
+    on rs.key_show = coalesce(h.show_id::text, '') and rs.key_code = h.code
+  left join public.admin_alert_reads r
+    on r.alert_id = h.id and r.admin_email = p_admin_email;
 end;
 $$;
 
-revoke all on function public.get_bell_feed_rows(int, int, text[]) from public, anon, authenticated;
-grant execute on function public.get_bell_feed_rows(int, int, text[]) to service_role;
+revoke all on function public.get_bell_feed_rows(int, int, text[], text) from public, anon, authenticated;
+grant execute on function public.get_bell_feed_rows(int, int, text[], text) to service_role;
 ```
 
 - [ ] **Step 4: Apply locally (twice — idempotency), run tests** — `pnpm test tests/db/bellFeedRpc.test.ts`. Expected: PASS (all 8 cases).
@@ -762,24 +778,27 @@ export class BellFeedShapeError extends Error {}
 
 type RpcRow = {
   is_meta: boolean; seen_through: string | null; active_hit_cap: boolean | null;
-  history_hit_cap: boolean | null; id: string | null; code: string | null;
+  history_hit_cap: boolean | null; viewer_opened_at: string | null;
+  id: string | null; code: string | null;
   show_id: string | null; slug: string | null; context: Record<string, unknown> | null;
   occurrence_count: number | null; raised_at: string | null; last_seen_at: string | null;
   resolved_at: string | null; resolved_occurrence_sum: number | null; is_active: boolean | null;
+  viewer_read_at: string | null;
 };
 
+// Viewer read/watermark state arrives ON the RPC rows (same DB snapshot as the
+// entries — plan-review R4: no separate state reads, no cross-tab /open race).
 export function shapeBellEntries(
   rows: RpcRow[],
-  reads: Map<string, string>,          // alert_id -> read_at
-  openedAt: string | null,
   feedCap: number,
 ): { entries: Omit<BellEntry, "identity">[]; unseenCount: number; truncated: boolean; seenThrough: string } {
   const meta = rows.find((r) => r.is_meta);
   if (!meta || !meta.seen_through) throw new BellFeedShapeError("missing meta row");
+  const openedAt = meta.viewer_opened_at;
   const entryRows = rows.filter((r) => !r.is_meta);
   const shaped = entryRows.map((r) => {
     const activityAt = r.raised_at! > r.last_seen_at! ? r.raised_at! : r.last_seen_at!;
-    const readAt = reads.get(r.id!) ?? null;
+    const readAt = r.viewer_read_at;
     return {
       alertId: r.id!, code: r.code!, showId: r.show_id, slug: r.slug,
       state: (r.is_active ? "active" : "history") as "active" | "history",
@@ -811,7 +830,7 @@ export function shapeBellEntries(
 }
 ```
 
-Note the spec decision encoded here: **history rows are never "unread"** (dots are an active-entry affordance; §7.3 renders dots only in the active section) and unseenCount is computed over the same capped snapshot (§6.4). `loadBellFeed` then: (1) read `app_settings` bell columns (`.select("bell_history_days, bell_feed_cap").eq("id", "default").limit(1)` — own try/catch → infra_error; fall back to `BELL_LIMITS` defaults if columns null); (2) `.rpc("get_bell_feed_rows", { p_history_days, p_cap, p_excluded_codes: bellExcludedCodes(viewerIsDeveloper) })`; (3) `.from("admin_alert_reads").select("alert_id, read_at").eq("admin_email", viewerEmail).in("alert_id", entryIds)` (bounded by entryIds; add `// not-subject-to-meta` only if the admin meta-test flags it — it scans `admin_alerts` reads, not these tables); (4) `.from("admin_bell_state").select("opened_at").eq("admin_email", viewerEmail).limit(1)`; (5) `shapeBellEntries`; (6) identity resolution over the sliced entries — mirror `lib/admin/healthAlerts.ts:113-160` verbatim (includePii: true; identity is additive, never gating; on fault log degraded + keep rows). `loadBellUnseenCount` runs steps 1-5 and returns only the count (identical pipeline — badge and panel can never disagree, spec §6.4).
+Note the spec decision encoded here: **history rows are never "unread"** (dots are an active-entry affordance; §7.3 renders dots only in the active section) and unseenCount is computed over the same capped snapshot (§6.4). `loadBellFeed` then: (1) read `app_settings` bell columns (`.select("bell_history_days, bell_feed_cap").eq("id", "default").limit(1)` — own try/catch → infra_error; fall back to `BELL_LIMITS` defaults if columns null); (2) `.rpc("get_bell_feed_rows", { p_history_days, p_cap, p_excluded_codes: bellExcludedCodes(viewerIsDeveloper), p_admin_email: viewerEmail })` — viewer read/watermark state rides on the returned rows (R4: no separate `.from("admin_alert_reads")`/`admin_bell_state` reads in this pipeline); (3) `shapeBellEntries(rows, feedCap)`; (4) identity resolution over the sliced entries — mirror `lib/admin/healthAlerts.ts:113-160` verbatim (includePii: true; identity is additive, never gating; on fault log degraded + keep rows). `loadBellUnseenCount` runs steps 1-3 and returns only the count (identical pipeline — badge and panel can never disagree, spec §6.4).
 
 - [ ] **Step 4: Run tests** — `pnpm test tests/admin/bellFeed.test.ts`. Expected: PASS. Also run `pnpm test tests/admin` (meta contracts: `_metaInfraContract` catch-window, `_metaBoundedReads` — fix registrations/comments it demands).
 
