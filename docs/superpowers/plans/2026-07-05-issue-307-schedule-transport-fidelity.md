@@ -318,24 +318,30 @@ git commit --no-verify -m "feat(data): decode/round-trip ScheduleDay.showEnd (#3
 - Modify: `lib/sync/applyParseResult.ts:156,165-168`
 - Test: `tests/sync/applyParseResultScheduleDay.test.ts`
 
-- [ ] **Step 1: Write the failing tests** — in `tests/sync/applyParseResultScheduleDay.test.ts`, add fixture + cases (the existing `showStartOnly`/`bareWindow`/`fullyEmpty` fixtures also gain `showEnd: null`):
+- [ ] **Step 1: Write the failing tests** — in `tests/sync/applyParseResultScheduleDay.test.ts`, using the file's REAL harness (`makeTx()` → `{ tx, captured }`; `baseArgs(runOfShow, prior)`; `await applyParseResult(tx, args)`; `AGENDA_DAY_EMPTIED` is read off `args.parseResult.warnings` after apply — mirror the existing test at `:91-106`). First add `showEnd: null` to the four existing fixtures (`titled` return, `bareWindow`, `showStartOnly`, `fullyEmpty`, `:5-16`), then add:
 
 ```ts
 const endOnly: ScheduleDay = { entries: [], showStart: null, showEnd: "6:00 PM", window: null };
 
-it("#307 end-only day survives storage (not filtered)", async () => {
-  const captured = await runApply(baseArgs({ "2025-05-14": endOnly }, null));
-  expect(captured.run_of_show!["2025-05-14"]!.showEnd).toBe("6:00 PM");
+it("#307 end-only (showEnd) day survives storage (not filtered)", async () => {
+  const { tx, captured } = makeTx();
+  await applyParseResult(tx, baseArgs({ "2025-05-14": endOnly }, null));
+  expect(captured.run_of_show?.["2025-05-14"]?.showEnd).toBe("6:00 PM");
 });
 
 it("#307 prior-populated day that becomes end-only does NOT emit AGENDA_DAY_EMPTIED", async () => {
-  const prior = { "2025-05-14": { entries: [{ start: "8am", title: "Reg" }], showStart: "8am", showEnd: null, window: null } };
-  const { warnings } = await runApplyWithWarnings(baseArgs({ "2025-05-14": endOnly }, prior));
-  expect(warnings.map((w) => w.code)).not.toContain("AGENDA_DAY_EMPTIED");
+  const { tx } = makeTx();
+  const args = baseArgs(
+    { "2025-05-14": endOnly },
+    { "2025-05-14": titled("8:00 AM") }, // was stored before; now end-only → still has content
+  );
+  await applyParseResult(tx, args);
+  const codes = (
+    args as { parseResult: { warnings: { code: string }[] } }
+  ).parseResult.warnings.map((w) => w.code);
+  expect(codes).not.toContain("AGENDA_DAY_EMPTIED");
 });
 ```
-
-(Match the file's existing helper names — `baseArgs`, the capture harness — this pseudocode mirrors the `showStartOnly` test at `:65`. Update `showStartOnly`, `bareWindow`, `fullyEmpty` literals to include `showEnd: null`.)
 
 - [ ] **Step 2: Run to verify failure**
 
