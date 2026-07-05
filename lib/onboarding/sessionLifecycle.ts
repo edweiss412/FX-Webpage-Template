@@ -214,6 +214,56 @@ async function lockCleanupDriveFiles(
   return driveFileIds;
 }
 
+// Thread 2b (spec §5.1/§5.4): the provably-stuck predicate. Mirrors the route's
+// countRemainingCleanRows (finalize/route.ts:423) — a row is FINISHABLE-clean iff
+// its manifest is at a non-blocking status ('staged'|'applied') AND it is not a
+// demoted-and-not-yet-reapplied failure (wizard_approved OR no failure code). When
+// this count is 0, a further /finalize call would process nothing; combined with
+// >0 unresolved rows that means the session can never finish on its own → stuck.
+async function finishableCleanCount(tx: OnboardingSessionTx, sessionId: string): Promise<number> {
+  const { rows } = await tx.query<{ finishable_count: number }>(
+    `
+      select count(*)::int as finishable_count
+        from public.pending_syncs ps
+        join public.onboarding_scan_manifest m
+          on m.wizard_session_id = ps.wizard_session_id
+         and m.drive_file_id = ps.drive_file_id
+       where ps.wizard_session_id = $1::uuid
+         and m.status in ('staged', 'applied')
+         and (ps.wizard_approved = true or ps.last_finalize_failure_code is null)
+    `,
+    [sessionId],
+  );
+  return rows[0]?.finishable_count ?? 0;
+}
+
+// Thread 2b (spec §5.4/§5.5 step 3): the UNRESOLVED (blocking) drive_file_id set.
+// Mirrors the route's unresolvedManifestCount (finalize/route.ts:344) predicate but
+// returns the id set (not just a count) so the under-lock recheck can detect that a
+// concurrent recovery route RESOLVED one of these rows while cleanup waited on the
+// show: lock. Count = returned length. Blocking = a genuine error/conflict manifest
+// status OR a demoted 'staged' row still carrying a finalize failure code.
+async function unresolvedManifestDriveFileIds(
+  tx: OnboardingSessionTx,
+  sessionId: string,
+): Promise<string[]> {
+  const { rows } = await tx.query<DriveFileIdRow>(
+    `
+      select m.drive_file_id
+        from public.onboarding_scan_manifest m
+        left join public.pending_syncs ps
+          on ps.wizard_session_id = m.wizard_session_id and ps.drive_file_id = m.drive_file_id
+       where m.wizard_session_id = $1::uuid
+         and (
+           m.status in ('hard_failed', 'live_row_conflict', 'discard_retryable')
+           or (m.status = 'staged' and ps.last_finalize_failure_code is not null)
+         )
+    `,
+    [sessionId],
+  );
+  return rows.map((r) => r.drive_file_id);
+}
+
 export async function purgeAndRotateOnboardingSession(
   deps: SessionLifecycleDeps = {},
 ): Promise<OnboardingRotateResult> {
@@ -359,50 +409,83 @@ export async function cleanupAbandonedFinalize(
   return await runtime.withTx(async (tx) => {
     await tx.query(`select pg_advisory_xact_lock(hashtext('finalize:' || $1))`, [sessionId]);
 
-    const staleSession = await tx.query<AppSettingsRow>(
+    // Own the app_settings row (for the rotation at the end) and read whether the
+    // pending session is 24h-stale in ONE go — comparing `now()` in SQL, never JS,
+    // avoids clock/timezone skew.
+    const owner = await tx.query<AppSettingsRow & { is_stale: boolean }>(
       `
-        select ${APP_SETTINGS_COLUMNS}
+        select ${APP_SETTINGS_COLUMNS},
+               (pending_wizard_session_at is not null
+                and pending_wizard_session_at < now() - interval '24 hours') as is_stale
           from public.app_settings
          where id = 'default'
-           and pending_wizard_session_id = $1::uuid
-           and pending_wizard_session_at < now() - interval '24 hours'
          for update
       `,
-      [sessionId],
     );
-
-    if (staleSession.rowCount === 0) {
-      const owner = await tx.query<AppSettingsRow>(
-        `select ${APP_SETTINGS_COLUMNS} from public.app_settings where id = 'default'`,
-      );
-      if (owner.rows[0]?.pending_wizard_session_id !== sessionId) {
-        return { status: "already_cleaned" };
-      }
-      throw new CleanupRequiresStaleSessionError("session_too_fresh", {
-        wizard_session_id: sessionId,
-        pending_wizard_session_at: owner.rows[0]?.pending_wizard_session_at ?? null,
-      });
+    if (owner.rows[0]?.pending_wizard_session_id !== sessionId) {
+      return { status: "already_cleaned" };
     }
+    const isStale = owner.rows[0].is_stale === true;
 
-    const recentFinalize = await tx.query<{ id: string }>(
-      `
-        select id
-          from public.wizard_finalize_checkpoints
-         where wizard_session_id = $1::uuid
-           and status = 'in_progress'
-           and last_processed_at is not null
-           and last_processed_at > now() - interval '1 hour'
-         for update
-      `,
-      [sessionId],
-    );
-    if (recentFinalize.rowCount > 0) {
-      throw new CleanupRequiresStaleSessionError("finalize_active_within_last_hour", {
-        wizard_session_id: sessionId,
-      });
+    // Thread 2b (spec §5.1/§5.4): a session is PROVABLY STUCK when it has zero
+    // finishable-clean rows AND at least one unresolved (blocking) row — a further
+    // /finalize would process nothing yet finish stays blocked, so it can never
+    // complete on its own. A stuck session may be discarded IMMEDIATELY, regardless
+    // of the 24h age gate AND regardless of the 1-hour finalize-recency gate.
+    const preLockUnresolvedIds = await unresolvedManifestDriveFileIds(tx, sessionId);
+    const finishableCount = await finishableCleanCount(tx, sessionId);
+    const stuck = finishableCount === 0 && preLockUnresolvedIds.length > 0;
+
+    if (!stuck) {
+      // Not stuck → the ordinary staleness contract applies.
+      if (!isStale) {
+        throw new CleanupRequiresStaleSessionError("session_too_fresh", {
+          wizard_session_id: sessionId,
+          pending_wizard_session_at: owner.rows[0].pending_wizard_session_at ?? null,
+        });
+      }
+      // Stale-but-not-stuck: an actively-progressing finalize must still block a
+      // discard. Stuck sessions bypass THIS gate too (spec §5.4).
+      const recentFinalize = await tx.query<{ id: string }>(
+        `
+          select id
+            from public.wizard_finalize_checkpoints
+           where wizard_session_id = $1::uuid
+             and status = 'in_progress'
+             and last_processed_at is not null
+             and last_processed_at > now() - interval '1 hour'
+           for update
+        `,
+        [sessionId],
+      );
+      if (recentFinalize.rowCount > 0) {
+        throw new CleanupRequiresStaleSessionError("finalize_active_within_last_hour", {
+          wizard_session_id: sessionId,
+        });
+      }
     }
 
     await lockCleanupDriveFiles(tx, sessionId);
+
+    // Under-lock recheck (spec §5.5 step 3) — BOTH paths. A recovery route (staged
+    // Apply / Unapprove) takes the row's show: advisory lock BEFORE mutating its
+    // row; cleanup collects the same show: locks (advisory-before-row, Task 5) and
+    // may have waited behind such a recovery. If ANY drive_file_id that was
+    // unresolved pre-lock is now RESOLVED, the operator is actively recovering the
+    // blocked sheet — abort the discard (purge nothing) rather than wipe their
+    // in-flight recovery. Runs on the stale path too, so a stuck-only recheck fails
+    // T10's stale×Apply cell.
+    if (preLockUnresolvedIds.length > 0) {
+      const postLockUnresolved = new Set(await unresolvedManifestDriveFileIds(tx, sessionId));
+      const recovered = preLockUnresolvedIds.filter((id) => !postLockUnresolved.has(id));
+      if (recovered.length > 0) {
+        throw new CleanupRequiresStaleSessionError("session_too_fresh", {
+          wizard_session_id: sessionId,
+          pending_wizard_session_at: owner.rows[0].pending_wizard_session_at ?? null,
+          recovered_drive_file_ids: recovered,
+        });
+      }
+    }
 
     await tx.query(`delete from public.shows_pending_changes where wizard_session_id = $1::uuid`, [
       sessionId,
