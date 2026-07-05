@@ -1,6 +1,6 @@
 # Manual-resolve affordance reflects true auto-resolvability
 
-**Date:** 2026-07-04 · **Status:** Draft
+**Date:** 2026-07-04 · **Status:** Approved (cross-model adversarial review, 3 rounds)
 **Master spec:** `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` §4.6 (alert workflow), §12.4 (codes)
 **Supersedes (partial):** `docs/superpowers/specs/2026-07-03-admin-alert-auto-resolution.md` §3 — the `GITHUB_BOT_LOGIN_MISSING` `DEFER` row only (the two `BRANCH_PROTECTION_*` `DEFER` rows are retained; see §6.3, §7).
 

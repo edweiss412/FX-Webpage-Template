@@ -742,14 +742,19 @@ Expected: PASS.
 // Then assert (a) the note is GENUINELY VISIBLE: its getBoundingClientRect() width AND height
 //   are both > 0 (not display:none);
 //        (b) section.scrollWidth <= section.clientWidth (no horizontal overflow);
-//        (c) the note's bounding rect does not overlap the action cell's rect.
+//        (c) the note's bounding rect does not overlap the action cell's rect;
+//        (d) for WATCH_CHANNEL_ORPHANED specifically: after opening the panel, the watch DISMISS
+//            form [data-testid=admin-alert-panel-dismiss] is ABSENT (suppressed for auto codes) —
+//            R5 M1: prove the suppression holds in the real opened panel, not only in jsdom — while
+//            the Retry form in the action cell remains present.
 ```
 
 Follow the project's real-browser harness precedent (seeded alert row → `/admin` render, or the
 standalone-render harness). **Open the `<details>` before measuring.** Assert the note rect is
-non-zero (width and height `> 0`), `scrollWidth <= clientWidth`, and non-overlapping
-`getBoundingClientRect()` for `[data-testid=admin-alert-autoclear]` vs `[data-testid=admin-alert-action]`,
-at both widths.
+non-zero (width and height `> 0`), `scrollWidth <= clientWidth`, non-overlapping
+`getBoundingClientRect()` for `[data-testid=admin-alert-autoclear]` vs `[data-testid=admin-alert-action]`
+at both widths, and (WATCH_CHANNEL_ORPHANED) the opened panel has no `admin-alert-panel-dismiss` while
+Retry remains.
 
 - [ ] **Step 6: Run the layout spec**
 
@@ -769,13 +774,28 @@ git commit --no-verify -m "feat(admin): AlertBanner shows auto-clear note (left 
 
 **Files:**
 - Modify: `app/admin/actions.ts` (`resolveHealthAlertFormAction` ~`:224`; `resolveAdminAlertFormAction` ~`:46`)
-- Modify: `app/api/admin/admin-alerts/[id]/resolve/route.ts` (~`:117` HEALTH_CODES branch)
-- Modify: `app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts` (~`:124-131`)
+- Modify: `app/api/admin/admin-alerts/[id]/resolve/route.ts` (~`:117` HEALTH_CODES branch — add auto-code 409 before scope branches)
+- Modify: `app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts` (`:133` — replace `isInboxRouted` 409 branch with `isAutoResolving`)
 - Test: `tests/admin/resolveAutoCodeGuard.test.ts` (+ extend existing route/action tests)
 
-- [ ] **Step 1: Write the failing guard tests**
+- [ ] **Step 1: Write the failing guard tests — pin the EXACT per-door contract (R5 M2)**
 
-For each door: given an **auto** code row, assert NO `resolved_at` UPDATE is issued (zero-row / no write) and the door returns its no-op/forbidden shape; given a **manual** code row, resolve still succeeds. Include the **regression pin**: the internal `resolveAdminAlert({ code: "EMAIL_NOT_CONFIGURED" })` (email-detector path) still succeeds — the guard is at the UI door only.
+Each door has a distinct contract; a vague "no write" is not enough (an impl could skip the write yet
+change HTTP/action semantics). Pin, per door:
+
+- **Global route** `app/api/admin/admin-alerts/[id]/resolve/route.ts`: auto code → **HTTP 409** with body
+  `{ code: "ALERT_AUTO_RESOLVE_ONLY" }` (reusing the exact structural string the per-show route already
+  returns for inbox-routed codes — `route.ts:133` `errorResponse(409, "ALERT_AUTO_RESOLVE_ONLY")`,
+  "not a §12.4 catalog row"), and NO `update ... set resolved_at` issued. Manual code → still 200/resolves.
+- **Per-show route** `app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts`: auto code → **HTTP 409**
+  `{ code: "ALERT_AUTO_RESOLVE_ONLY" }`, no write. Pin `SHEET_UNAVAILABLE` (inbox ⊂ auto) still returns
+  409 (no behavior regression). Manual code → still resolves.
+- **`resolveHealthAlertFormAction`** (server action, `app/admin/actions.ts`): auto code → early **`return`
+  (void)**, NO `resolved_at` write (assert the DB update is never issued — spy/zero-row), no throw.
+- **`resolveAdminAlertFormAction`** (server action): auto code → early **`return` (void)**, no write.
+
+**Regression pin:** the internal `resolveAdminAlert({ code: "EMAIL_NOT_CONFIGURED" })` (email-detector
+path) still succeeds — the guard is at the UI door only, not the internal helper.
 
 - [ ] **Step 2: Run to verify it fails**
 
@@ -785,10 +805,12 @@ Expected: FAIL — auto codes currently resolvable via the doug doors.
 - [ ] **Step 3: Implement the guards**
 
 Add `import { isAutoResolving } from "@/lib/adminAlerts/audience";` to each file.
-- `resolveHealthAlertFormAction` (`app/admin/actions.ts`, after `if (!HEALTH_CODES.includes(code)) return;` ~`:224`): `if (isAutoResolving(code)) return;`
-- `resolveAdminAlertFormAction` (after its `code` lookup + HEALTH_CODES guard): `if (isAutoResolving(code)) return;`
-- Global route (`:117` region, beside the `HEALTH_CODES.includes(row.code)` branch): add an `isAutoResolving(row.code)` branch returning the same "leave resolved_at unchanged" shape.
-- Per-show route (`:124-131`, beside the `HEALTH_CODES` + `isInboxRouted` branches): add `isAutoResolving(row.code)` rejection, same shape.
+- `resolveHealthAlertFormAction` (`app/admin/actions.ts`, after `if (!HEALTH_CODES.includes(code)) return;` ~`:224`): `if (isAutoResolving(code)) return;` (void early-return, no write).
+- `resolveAdminAlertFormAction` (after its `code` lookup + HEALTH_CODES guard): `if (isAutoResolving(code)) return;`.
+- Global route (`:117` region, immediately after the `if (HEALTH_CODES.includes(row.code)) return errorResponse(403, ...)` branch and BEFORE the `show_id`/`resolved_at` branches, so auto codes are rejected regardless of scope): `if (isAutoResolving(row.code)) return errorResponse(409, "ALERT_AUTO_RESOLVE_ONLY");`.
+- Per-show route (`:133`): the existing `if (isInboxRouted(row.code)) return errorResponse(409, "ALERT_AUTO_RESOLVE_ONLY");` is subsumed — **replace `isInboxRouted` with `isAutoResolving`** (inbox codes are a subset of auto: `PARSE_ERROR_LAST_GOOD` is a precedent-auto code, `SHEET_UNAVAILABLE` is auto per §3), same `409 / ALERT_AUTO_RESOLVE_ONLY` response. Keep the branch positioned after the HEALTH_CODES + `resolved_at` checks exactly as `isInboxRouted` was. **Line 133 is `isInboxRouted`'s only use in this file — swap its import (`route.ts:4` `import { isInboxRouted } from "@/lib/messages/adminSurface";`) for `import { isAutoResolving } from "@/lib/adminAlerts/audience";`, else the unused import fails typecheck/lint.**
+
+Both routes reuse the pre-existing structural string `ALERT_AUTO_RESOLVE_ONLY` (plain `errorResponse(status, code: string)` — no typed-union or §12.4 catalog plumbing needed).
 
 Do NOT touch `lib/adminAlerts/resolveAdminAlert.ts` (internal helper stays permissive — email detector depends on it).
 
