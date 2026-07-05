@@ -81,13 +81,14 @@ function decodeEntries(rawArr: unknown[], corruptRef: [boolean]): AgendaEntry[] 
  * - `null`                          → { value: null,  corrupt: false }
  * - non-plain-object top-level     → { value: null,  corrupt: true  }
  * - non-ISO key                     → key dropped,    corrupt = true
- * - legacy array day (AgendaEntry[]) → wrapped to { entries, showStart: null, window: null }
- * - object day (ScheduleDay shape) → validated (entries[], showStart, window)
+ * - legacy array day (AgendaEntry[]) → wrapped to { entries, showStart: null, showEnd: null, window: null }
+ * - object day (ScheduleDay shape) → validated (entries[], showStart, showEnd, window)
  * - primitive/other day value       → day dropped,    corrupt = true  (§14 rollback contract)
  * - entry: not plain obj, missing/non-string title, sentinel title,
  *   missing/non-string start, any present optional not a string
  *                                   → entry dropped,  corrupt = true
- * - day with zero usable fields (entries:[] + showStart:null + window:null)
+ * - showEnd: non-string (non-null)  → day dropped,    corrupt = true  (mirrors showStart)
+ * - day with zero usable fields (entries:[] + showStart:null + showEnd:null + window:null)
  *                                   → key omitted from value
  * - no surviving days               → { value: null,  corrupt: <accumulated> }
  *
@@ -121,6 +122,7 @@ export function decodeRunOfShow(raw: unknown): {
     // Layer 3 + 4: shape-discriminating day decoder (§3.2).
     let entries: AgendaEntry[];
     let showStart: string | null = null;
+    let showEnd: string | null = null;
     let window: { start: string; end: string } | null = null;
 
     if (Array.isArray(dayRaw)) {
@@ -143,6 +145,17 @@ export function decodeRunOfShow(raw: unknown): {
         showStart = null;
       } else if (typeof ss === "string") {
         showStart = shouldHideGenericOptional(ss) ? null : ss;
+      } else {
+        corruptRef[0] = true;
+        continue;
+      }
+
+      // showEnd: string | null, sentinel-guarded (mirrors showStart).
+      const se = day["showEnd"];
+      if (se === null || se === undefined) {
+        showEnd = null;
+      } else if (typeof se === "string") {
+        showEnd = shouldHideGenericOptional(se) ? null : se;
       } else {
         corruptRef[0] = true;
         continue;
@@ -177,8 +190,8 @@ export function decodeRunOfShow(raw: unknown): {
     }
 
     // Omit fully-empty days (no usable fields) → anchor-strip fallback upstream.
-    if (entries.length > 0 || showStart !== null || window !== null) {
-      result[key] = { entries, showStart, showEnd: null, window };
+    if (entries.length > 0 || showStart !== null || showEnd !== null || window !== null) {
+      result[key] = { entries, showStart, showEnd, window };
     }
   }
 

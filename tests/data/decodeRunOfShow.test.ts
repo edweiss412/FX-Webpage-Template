@@ -160,3 +160,35 @@ describe("decodeRunOfShow — AgendaEntry.kind enum allow-list", () => {
     expect(value!["2026-05-06"]!.entries[0]!.kind).toBeUndefined();
   });
 });
+
+describe("#307 showEnd decode", () => {
+  it("round-trips a showEnd-only day", () => {
+    const { value, corrupt } = decodeRunOfShow({
+      "2025-05-14": { entries: [], showStart: null, showEnd: "6:00 PM", window: null },
+    });
+    expect(corrupt).toBe(false);
+    expect(value?.["2025-05-14"]).toEqual({
+      entries: [],
+      showStart: null,
+      showEnd: "6:00 PM",
+      window: null,
+    });
+  });
+  it("sentinel showEnd 'TBD' → null, not corrupt", () => {
+    const { value, corrupt } = decodeRunOfShow({
+      "2025-05-14": { entries: [], showStart: null, showEnd: "TBD", window: null },
+    });
+    expect(corrupt).toBe(false);
+    expect(value).toBeNull(); // fully-empty after showEnd nulled → day omitted
+  });
+  it("non-string showEnd → corrupt", () => {
+    const { corrupt } = decodeRunOfShow({
+      "2025-05-14": { entries: [], showStart: null, showEnd: 5, window: null },
+    });
+    expect(corrupt).toBe(true);
+  });
+  it("legacy array day decodes with showEnd null", () => {
+    const { value } = decodeRunOfShow({ "2025-05-14": [{ start: "8am", title: "Reg" }] });
+    expect(value?.["2025-05-14"]?.showEnd).toBeNull();
+  });
+});

@@ -8,8 +8,8 @@ import type { AgendaEntry, RunOfShow } from "@/lib/parser/types";
  * OLD sync, which regenerates legacy arrays) before a deliberate rollback to
  * clear corrupt/tileError signals.
  *
- * LOSSY by design: `showStart` and `window` have no representation in the old
- * shape and are dropped. A bare-window day (entries:[]) downgrades to `[]`
+ * LOSSY by design: `showStart`, `showEnd`, and `window` have no representation
+ * in the old shape and are dropped. A bare-window day (entries:[]) downgrades to `[]`
  * (the window cannot be carried); the old code falls back to room anchors for
  * that day, which is exactly pre-fix behavior.
  */
