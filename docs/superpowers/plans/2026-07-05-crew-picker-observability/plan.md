@@ -220,15 +220,22 @@ test("emits PICKER_STALE_ENTRY_CLEANED on the cleaned branch", async () => {
   );
 });
 
-test("does NOT emit on a noop (epoch/crew mismatch, missing entry, or no cookie)", async () => {
-  // mismatch: newer epoch present
+test("does NOT emit on a noop (epoch/crew mismatch, no entry for this show, or no cookie)", async () => {
+  // (a) mismatch: newer epoch present (hits cleanupStaleEntry.ts:82-84 mismatch return)
   existingCookie = encodePickerCookie(
     { v: 1, selections: { [SHOW_ID]: { id: CREW_ID, e: 5, t: 100 } } }, KEY,
   );
   await cleanupStaleEntryCore({
     slug: SLUG, shareToken: TOKEN, showId: SHOW_ID, expectedEpoch: 1, expectedCrewMemberId: CREW_ID,
   });
-  // no cookie at all
+  // (b) cookie present but NO entry for this show (hits the distinct !entry return, cleanupStaleEntry.ts:81)
+  existingCookie = encodePickerCookie(
+    { v: 1, selections: { [OTHER_SHOW_ID]: { id: OTHER_CREW_ID, e: 2, t: 200 } } }, KEY,
+  );
+  await cleanupStaleEntryCore({
+    slug: SLUG, shareToken: TOKEN, showId: SHOW_ID, expectedEpoch: 1, expectedCrewMemberId: CREW_ID,
+  });
+  // (c) no cookie at all (hits the !env return, cleanupStaleEntry.ts:78)
   existingCookie = undefined;
   await cleanupStaleEntryCore({
     slug: SLUG, shareToken: TOKEN, showId: SHOW_ID, expectedEpoch: 1, expectedCrewMemberId: CREW_ID,
