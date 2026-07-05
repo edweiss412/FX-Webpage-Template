@@ -96,6 +96,7 @@ function runOfShow(days: number, entriesPerDay: number): RunOfShow {
         title: `Session ${d + 1}.${e + 1}`,
       })),
       showStart: "8:00 AM",
+      showEnd: null,
       window: null,
     };
   }

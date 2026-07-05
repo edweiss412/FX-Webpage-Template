@@ -178,7 +178,7 @@ export function decodeRunOfShow(raw: unknown): {
 
     // Omit fully-empty days (no usable fields) → anchor-strip fallback upstream.
     if (entries.length > 0 || showStart !== null || window !== null) {
-      result[key] = { entries, showStart, window };
+      result[key] = { entries, showStart, showEnd: null, window };
     }
   }
 

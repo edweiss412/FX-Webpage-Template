@@ -47,12 +47,26 @@ describe("parseScheduleTimes — tokenizer", () => {
     expect(warnings.map((w) => w.code)).not.toContain("SCHEDULE_TIME_UNPARSED");
   });
 
-  it("end-only fragment 'GS: ... - 6:00 PM' → NO ScheduleDay + SCHEDULE_TIME_UNPARSED", () => {
-    const { dates, scheduleDays, warnings } = run([
-      ["SHOW DAY 1", "Wed", "5/14/25", "GS: ... - 6:00 PM"],
-    ]);
+  it("end-only 'GS: ... - 6:00 PM' → showEnd captured, NO warning (#307)", () => {
+    const { dates, scheduleDays, warnings } = run([["SHOW DAY 1", "Wed", "5/14/25", "GS: ... - 6:00 PM"]]);
     const iso = dates.showDays[0]!;
-    expect(scheduleDays[iso]).toBeUndefined(); // not persisted: no usable field
+    expect(scheduleDays[iso]).toEqual({ entries: [], showStart: null, showEnd: "6:00 PM", window: null });
+    expect(warnings.map((w) => w.code)).not.toContain("SCHEDULE_TIME_UNPARSED");
+  });
+
+  it("end-only 'TBD - 5:00 PM' → showEnd captured (#307)", () => {
+    const { dates, scheduleDays } = run([["SHOW DAY 1", "Wed", "5/14/25", "TBD - 5:00 PM"]]);
+    expect(scheduleDays[dates.showDays[0]!]?.showEnd).toBe("5:00 PM");
+  });
+
+  it("leading-start 'GS: 8:00 AM -' stays showStart, showEnd null (#307 regression guard)", () => {
+    const { dates, scheduleDays } = run([["SHOW DAY 1", "Wed", "5/14/25", "GS: 8:00 AM -"]]);
+    expect(scheduleDays[dates.showDays[0]!]).toEqual({ entries: [], showStart: "8:00 AM", showEnd: null, window: null });
+  });
+
+  it("clock-less contentful cell still warns (not swallowed by end-only branch) (#307)", () => {
+    const { dates, scheduleDays, warnings } = run([["SHOW DAY 1", "Wed", "5/14/25", "General Session soon"]]);
+    expect(scheduleDays[dates.showDays[0]!]).toBeUndefined();
     expect(warnings.map((w) => w.code)).toContain("SCHEDULE_TIME_UNPARSED");
   });
 

@@ -341,11 +341,13 @@ test("Mode A keys off the SHOW-tz ISO across the UTC midnight boundary, not UTC"
       [showTzIso]: {
         entries: [{ start: "9:00 AM", title: "Show-tz day session" }],
         showStart: "9:00 AM",
+        showEnd: null,
         window: null,
       },
       [utcIso]: {
         entries: [{ start: "9:00 AM", title: "UTC day session" }],
         showStart: "9:00 AM",
+        showEnd: null,
         window: null,
       },
     },
@@ -589,6 +591,7 @@ test("merged day → both crew agenda-entry and timeline-agenda-session present"
       [TODAY_ISO]: {
         entries: [{ start: "8:00 AM", title: "Load In", room: "Hall A" }],
         showStart: "8:00 AM",
+        showEnd: null,
         window: null,
       },
     },
@@ -611,6 +614,7 @@ test("crew-only day (no agenda_links) → plain RunOfShowList, no timeline (acti
       [TODAY_ISO]: {
         entries: [{ start: "8:00 AM", title: "Load In" }],
         showStart: "8:00 AM",
+        showEnd: null,
         window: null,
       },
     },
@@ -647,6 +651,7 @@ test("unknown_asterisk viewer + high-conf agenda for today → NO card, NO timel
       [TODAY_ISO]: {
         entries: [{ start: "8:00 AM", title: "Load In" }],
         showStart: "8:00 AM",
+        showEnd: null,
         window: null,
       },
     },

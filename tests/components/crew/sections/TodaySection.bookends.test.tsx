@@ -87,7 +87,7 @@ test("when today is the set day, Today's run-of-show shows the synthesized Load 
         setupTime: "8:30 PM",
       },
     },
-    runOfShow: { [TODAY_ISO]: { entries: setEntries, showStart: null, window: null } },
+    runOfShow: { [TODAY_ISO]: { entries: setEntries, showStart: null, showEnd: null, window: null } },
   });
   const { container } = render(
     <TodaySection data={data} viewer={adminViewer} today={TODAY} showId={SHOW_ID} />,
@@ -111,7 +111,7 @@ test("unassigned crew viewer is DENIED the load-out on today; the strike still s
       dates: { travelIn: null, set: null, showDays: [TODAY_ISO], travelOut: null },
     },
     transportation: transport(["Nobody Here"]), // viewerName not assigned → false
-    runOfShow: { [TODAY_ISO]: { entries, showStart: null, window: null } },
+    runOfShow: { [TODAY_ISO]: { entries, showStart: null, showEnd: null, window: null } },
   });
   const { container } = render(
     <TodaySection data={data} viewer={crewViewer} today={TODAY} showId={SHOW_ID} />,
@@ -137,7 +137,7 @@ test("admin AND an assigned crew viewer both see today's load-out", () => {
         dates: { travelIn: null, set: null, showDays: [TODAY_ISO], travelOut: null },
       },
       transportation: transport(assigned),
-      runOfShow: { [TODAY_ISO]: { entries, showStart: null, window: null } },
+      runOfShow: { [TODAY_ISO]: { entries, showStart: null, showEnd: null, window: null } },
     });
 
   const assigned = render(

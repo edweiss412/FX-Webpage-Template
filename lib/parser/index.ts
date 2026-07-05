@@ -635,12 +635,13 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
         merged[iso] = {
           entries: gridEntries,
           showStart: gridEntries[0]!.start,
+          showEnd: null,
           window: null,
         };
       }
       // grid day present-as-[] → leave the DATES-column ScheduleDay (if any) in place
       else if (!(iso in merged)) {
-        merged[iso] = { entries: [], showStart: null, window: null };
+        merged[iso] = { entries: [], showStart: null, showEnd: null, window: null };
       }
     }
     mergedRunOfShow = merged;

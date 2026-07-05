@@ -47,7 +47,7 @@ function renderAgenda(runOfShow: Record<string, AgendaEntry[]> | null) {
       : Object.fromEntries(
           Object.entries(runOfShow).map(([iso, entries]) => [
             iso,
-            { entries, showStart: null, window: null },
+            { entries, showStart: null, showEnd: null, window: null },
           ]),
         );
   return render(

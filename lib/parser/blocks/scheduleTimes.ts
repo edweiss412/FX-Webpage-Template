@@ -30,6 +30,10 @@ export const TERMINAL_RE =
 // the first clock is NOT a leading start (e.g. "GS: ... - 6:00 PM").
 const PLACEHOLDER_RE = /(\.\.\.|\bTBD\b|\bTBA\b|\bN\/A\b)/i;
 
+// End-only lead: an unknown-start placeholder immediately followed by a range dash
+// (e.g. "GS: ... - 6:00 PM"). The single trailing clock is the day's END, not start.
+const END_ONLY_LEAD_RE = /(?:\.\.\.|\bTBD\b|\bTBA\b|\bN\/A\b)\s*[-–]\s*$/i;
+
 type Tok = { raw: string; start: number; end: number; norm: string };
 
 /**
@@ -170,6 +174,7 @@ export function parseScheduleTimes(
         scheduleDays[iso] = {
           entries: [],
           showStart: null,
+          showEnd: null,
           window: {
             start: cell.slice(toks[0]!.start, toks[0]!.end).trim(),
             end: cell.slice(toks[1]!.start, toks[1]!.end).trim(),
@@ -199,11 +204,29 @@ export function parseScheduleTimes(
     const showStart =
       isLeadingStart && !(toks.length === 1 && TERMINAL_RE.test(firstTitle)) ? first.norm : null;
 
-    const day: ScheduleDay = { entries, showStart, window: null };
+    // End-only day: placeholder start + a single trailing clock (e.g. "GS: ... - 6:00 PM").
+    // The start is unknown; capture the END as showEnd — NEVER showStart (resolveKeyTimes
+    // must not read it as a call-time anchor).
+    let showEnd: string | null = null;
+    if (
+      entries.length === 0 &&
+      showStart === null &&
+      toks.length === 1 &&
+      END_ONLY_LEAD_RE.test(cell.slice(0, first.start))
+    ) {
+      showEnd = first.norm;
+    }
 
-    // If nothing usable was extracted (no entries, no showStart, no window),
+    const day: ScheduleDay = { entries, showStart, showEnd, window: null };
+
+    // If nothing usable was extracted (no entries, no showStart, no showEnd, no window),
     // emit a warning and do NOT persist the day.
-    if (day.entries.length === 0 && day.showStart === null && day.window === null) {
+    if (
+      day.entries.length === 0 &&
+      day.showStart === null &&
+      day.showEnd === null &&
+      day.window === null
+    ) {
       warnings.push(scheduleTimeUnparsed(index, iso));
       return;
     }

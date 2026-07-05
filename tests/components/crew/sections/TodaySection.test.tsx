@@ -289,8 +289,8 @@ function makeMultiDay() {
       },
     },
     runOfShow: {
-      "2026-10-08": { entries: [], showStart: "7:15am", window: null },
-      "2026-10-09": { entries: [], showStart: "8:00am", window: null },
+      "2026-10-08": { entries: [], showStart: "7:15am", showEnd: null, window: null },
+      "2026-10-09": { entries: [], showStart: "8:00am", showEnd: null, window: null },
     },
     rooms: [
       {

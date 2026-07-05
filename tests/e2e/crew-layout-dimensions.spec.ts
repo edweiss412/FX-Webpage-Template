@@ -100,12 +100,14 @@ const SEED_RUN_OF_SHOW = {
       { start: "5:30pm", title: "Meeting Concludes" },
     ],
     showStart: "7:30am",
+    showEnd: null,
     window: null,
   },
   "2026-04-22": {
     // bare-window show day 2 → DayCard meta "8:00am–5:30pm"
     entries: [],
     showStart: "8:00am",
+    showEnd: null,
     window: { start: "8:00am", end: "5:30pm" },
   },
 };

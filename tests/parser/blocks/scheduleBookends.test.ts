@@ -244,6 +244,7 @@ describe("deriveScheduleBookends — Load Out + SET synthesis", () => {
       "2025-05-12": {
         entries: [{ start: "2 PM", title: "Session" }],
         showStart: null,
+        showEnd: null,
         window: null,
       },
     };
@@ -350,6 +351,7 @@ describe("deriveScheduleBookends — SET cell-derived labels (D-SET1)", () => {
       "2025-05-12": {
         entries: [{ start: "9:00 AM", title: "Keynote" }],
         showStart: "9:00 AM",
+        showEnd: null,
         window: null,
       },
     };

@@ -5,15 +5,17 @@ import type { ScheduleDay } from "@/lib/parser/types";
 const titled = (start: string): ScheduleDay => ({
   entries: [{ start, title: "Keynote" }],
   showStart: start,
+  showEnd: null,
   window: null,
 });
 const bareWindow: ScheduleDay = {
   entries: [],
   showStart: null,
+  showEnd: null,
   window: { start: "7:30am", end: "5:50pm" },
 };
-const showStartOnly: ScheduleDay = { entries: [], showStart: "8:00 AM", window: null };
-const fullyEmpty: ScheduleDay = { entries: [], showStart: null, window: null };
+const showStartOnly: ScheduleDay = { entries: [], showStart: "8:00 AM", showEnd: null, window: null };
+const fullyEmpty: ScheduleDay = { entries: [], showStart: null, showEnd: null, window: null };
 
 function makeTx() {
   const captured: { run_of_show?: Record<string, ScheduleDay> | null } = {};

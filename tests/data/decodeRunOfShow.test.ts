@@ -18,7 +18,7 @@ describe("OLD decoder shape on a ScheduleDay value → corrupt-skip, NOT throw (
     // After the reshape, the production decoder ACCEPTS this shape (corrupt:false);
     // the not.toThrow() invariant is unconditional in both states.
     const scheduleDayValue = {
-      "2026-01-02": { entries: [good], showStart: "7:15 AM", window: null },
+      "2026-01-02": { entries: [good], showStart: "7:15 AM", showEnd: null, window: null },
     };
     expect(() => decodeRunOfShow(scheduleDayValue)).not.toThrow();
   });
@@ -41,7 +41,7 @@ describe("decodeRunOfShow — total, deep per-layer validation (R14)", () => {
   });
   it("non-array, non-object day value → that day dropped + corrupt", () => {
     const r = decodeRunOfShow({ "2026-01-01": 5, "2026-01-02": [good] });
-    expect(r.value).toEqual({ "2026-01-02": { entries: [good], showStart: null, window: null } });
+    expect(r.value).toEqual({ "2026-01-02": { entries: [good], showStart: null, showEnd: null, window: null } });
     expect(r.corrupt).toBe(true);
   });
   it("entry = null / non-object / non-string optional field → dropped + corrupt", () => {
@@ -64,12 +64,12 @@ describe("decodeRunOfShow — total, deep per-layer validation (R14)", () => {
   });
   it("well-formed day alongside malformed sibling → valid day still projects, corrupt set", () => {
     const r = decodeRunOfShow({ "2026-01-01": [good], "2026-01-02": [{ title: 9 }] });
-    expect(r.value).toEqual({ "2026-01-01": { entries: [good], showStart: null, window: null } });
+    expect(r.value).toEqual({ "2026-01-01": { entries: [good], showStart: null, showEnd: null, window: null } });
     expect(r.corrupt).toBe(true);
   });
   it("a day left with zero valid entries after filtering is omitted (→ anchor strip)", () => {
     const r = decodeRunOfShow({ "2026-01-01": [{ title: "" }], "2026-01-02": [good] });
-    expect(r.value).toEqual({ "2026-01-02": { entries: [good], showStart: null, window: null } });
+    expect(r.value).toEqual({ "2026-01-02": { entries: [good], showStart: null, showEnd: null, window: null } });
     expect(r.corrupt).toBe(true);
   });
   it("is total over JSONB SHAPES — never throws on plain-data adversarial input", () => {
@@ -84,39 +84,39 @@ describe("decodeRunOfShow — total, deep per-layer validation (R14)", () => {
 
 describe("decodeRunOfShow — ScheduleDay reshape (§3.2)", () => {
   it("new object shape: entries + showStart + window decode through", () => {
-    const day = { entries: [good], showStart: "7:15 AM", window: null };
+    const day = { entries: [good], showStart: "7:15 AM", showEnd: null, window: null };
     const r = decodeRunOfShow({ "2026-01-02": day });
     expect(r.corrupt).toBe(false);
     expect(r.value).toEqual({
-      "2026-01-02": { entries: [good], showStart: "7:15 AM", window: null },
+      "2026-01-02": { entries: [good], showStart: "7:15 AM", showEnd: null, window: null },
     });
   });
   it("new object shape: bare-window day (entries:[], window present, showStart null) survives", () => {
-    const day = { entries: [], showStart: null, window: { start: "7:30am", end: "5:50pm" } };
+    const day = { entries: [], showStart: null, showEnd: null, window: { start: "7:30am", end: "5:50pm" } };
     const r = decodeRunOfShow({ "2026-01-02": day });
     expect(r.value!["2026-01-02"]!.window).toEqual({ start: "7:30am", end: "5:50pm" });
     expect(r.corrupt).toBe(false);
   });
   it("new object shape: sentinel showStart ('TBD') → null, not a leaked anchor", () => {
-    const day = { entries: [good], showStart: "TBD", window: null };
+    const day = { entries: [good], showStart: "TBD", showEnd: null, window: null };
     const r = decodeRunOfShow({ "2026-01-02": day });
     expect(r.value!["2026-01-02"]!.showStart).toBeNull();
   });
   it("new object shape: sentinel window end → window null (no '7:30am–TBD')", () => {
-    const day = { entries: [], showStart: "7:30am", window: { start: "7:30am", end: "N/A" } };
+    const day = { entries: [], showStart: "7:30am", showEnd: null, window: { start: "7:30am", end: "N/A" } };
     const r = decodeRunOfShow({ "2026-01-02": day });
     expect(r.value!["2026-01-02"]!.window).toBeNull();
   });
   it("new object shape: fully-empty day (no entries/showStart/window) → omitted", () => {
-    const r = decodeRunOfShow({ "2026-01-02": { entries: [], showStart: null, window: null } });
+    const r = decodeRunOfShow({ "2026-01-02": { entries: [], showStart: null, showEnd: null, window: null } });
     expect(r.value).toBeNull();
   });
 
   // NEGATIVE-REGRESSION: legacy Record<iso, AgendaEntry[]> still decodes (deploy→re-sync window)
-  it("legacy array shape wraps to ScheduleDay (entries:[...], showStart:null, window:null)", () => {
+  it("legacy array shape wraps to ScheduleDay (entries:[...], showStart:null, showEnd: null, window:null)", () => {
     const r = decodeRunOfShow({ "2026-01-02": [good] });
     expect(r.corrupt).toBe(false);
-    expect(r.value).toEqual({ "2026-01-02": { entries: [good], showStart: null, window: null } });
+    expect(r.value).toEqual({ "2026-01-02": { entries: [good], showStart: null, showEnd: null, window: null } });
   });
 });
 
@@ -129,6 +129,7 @@ describe("decodeRunOfShow — AgendaEntry.kind enum allow-list", () => {
           { start: "6:00 PM", title: "Load Out", kind: "loadout" },
         ],
         showStart: null,
+        showEnd: null,
         window: null,
       },
     };
@@ -142,6 +143,7 @@ describe("decodeRunOfShow — AgendaEntry.kind enum allow-list", () => {
       "2026-05-06": {
         entries: [{ start: "1 PM", title: "X", kind: "banana" }],
         showStart: null,
+        showEnd: null,
         window: null,
       },
     };
@@ -152,7 +154,7 @@ describe("decodeRunOfShow — AgendaEntry.kind enum allow-list", () => {
 
   it("decodes a legacy entry without kind unchanged", () => {
     const raw = {
-      "2026-05-06": { entries: [{ start: "1 PM", title: "X" }], showStart: null, window: null },
+      "2026-05-06": { entries: [{ start: "1 PM", title: "X" }], showStart: null, showEnd: null, window: null },
     };
     const { value } = decodeRunOfShow(raw);
     expect(value!["2026-05-06"]!.entries[0]!.kind).toBeUndefined();

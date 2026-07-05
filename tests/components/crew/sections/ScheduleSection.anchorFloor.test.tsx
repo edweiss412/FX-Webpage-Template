@@ -22,7 +22,7 @@ const at = (iso: string): Date => new Date(`${iso}T12:00:00Z`);
 function ros(entryMap: Record<string, AgendaEntry[]>): Record<string, ScheduleDay> {
   const out: Record<string, ScheduleDay> = {};
   for (const [iso, entries] of Object.entries(entryMap)) {
-    out[iso] = { entries, showStart: null, window: null };
+    out[iso] = { entries, showStart: null, showEnd: null, window: null };
   }
   return out;
 }
@@ -163,7 +163,7 @@ test("Redefining-FI Day 2 absent from runOfShow + cross-dated room → day rende
             set: null,
           },
         },
-        runOfShow: { "2026-05-13": { entries: [], showStart: "8:00 AM", window: null } },
+        runOfShow: { "2026-05-13": { entries: [], showStart: "8:00 AM", showEnd: null, window: null } },
         rooms: [
           {
             id: "r1",

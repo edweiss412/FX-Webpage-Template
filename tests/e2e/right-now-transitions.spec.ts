@@ -615,11 +615,13 @@ test.describe("RightNow per-day Show anchor selection (§5.7)", () => {
         { start: "8:15am", title: "Welcome & Polling" },
       ],
       showStart: DAY1_TIME,
+      showEnd: null,
       window: null,
     },
     [DAY2_ISO]: {
       entries: [],
       showStart: DAY2_TIME,
+      showEnd: null,
       window: { start: "8:00am", end: "5:30pm" },
     },
   };

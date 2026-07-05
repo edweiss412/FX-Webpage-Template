@@ -11,6 +11,7 @@ describe("downgradeRunOfShow — ScheduleDay map → legacy Record<iso, AgendaEn
         { start: "8:00am", title: "Leaders Breakfast" },
       ],
       showStart: "7:15am",
+      showEnd: null,
       window: null,
     },
   };
@@ -32,6 +33,7 @@ describe("downgradeRunOfShow — ScheduleDay map → legacy Record<iso, AgendaEn
       "2025-05-13": {
         entries: [],
         showStart: "7:30am",
+        showEnd: null,
         window: { start: "7:30am", end: "5:50pm" },
       },
     };
@@ -58,6 +60,7 @@ describe("downgradeRunOfShow — ScheduleDay map → legacy Record<iso, AgendaEn
           { start: "8:00am", title: "Leaders Breakfast" },
         ],
         showStart: null,
+        showEnd: null,
         window: null,
       },
     });

@@ -45,7 +45,7 @@ export function parseRoomTimeCell(
 const STRIKE_ROOM_NAME_CAP = 3;
 
 function appendEntry(ros: Record<string, ScheduleDay>, iso: string, entry: AgendaEntry): void {
-  const day = ros[iso] ?? { entries: [], showStart: null, window: null };
+  const day = ros[iso] ?? { entries: [], showStart: null, showEnd: null, window: null };
   ros[iso] = { ...day, entries: [...day.entries, entry] };
 }
 
