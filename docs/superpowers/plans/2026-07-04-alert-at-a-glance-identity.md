@@ -319,3 +319,11 @@ Dispositions:
 - **[LOW — cross-surface size asymmetry `text-sm` vs `text-xs`] ACCEPTED.** Each identity line mirrors its LOCAL siblings (banner sub-lines are `text-sm`; per-show sub-lines are `text-xs`), so it is within-surface consistent; harmonizing across surfaces would break local consistency for no legibility gain.
 
 No `DEFERRED.md` entry needed (no HIGH/CRITICAL deferrals). The `break-words` fix lands in the same commit as these dispositions.
+
+### Phase B addendum — HealthAlertsPanel identity line (impeccable dual-gate)
+
+After merging `origin/main`, the alert-audience-split reclassified the crew/email-rich codes (OAUTH_IDENTITY_CLAIMED etc.) as `audience:"health"`, routing them off the banner/per-show onto the developer `HealthAlertsPanel` (/admin/dev/telemetry). Per the ratified user decision, the identity line was extended there. External impeccable v3 dual-gate (fresh-eyes Opus attestor) on the `HealthAlertsPanel.tsx` addition: **0 CRITICAL, 0 HIGH** — invariant-8 satisfied.
+
+- **[Contrast] PASS.** `text-text-subtle` on the health row `bg-surface`: LIGHT 6.76:1, DARK 6.36:1 (14px normal → 4.5:1 AA floor). Clears AA both themes.
+- **[LOW — text-sm vs text-xs across surfaces] ADJUDICATED KEEP.** The health identity line is `text-sm` (peer to its own `detailTemplate` sibling), while per-show is `text-xs` (peer to ITS `failedKeys`/`dataGaps` siblings). Each is locally consistent by semantic tier; harmonizing across surfaces would break local hierarchy. No change.
+- **[Bans] all clear** — separator is describeAlert's middot `·` (U+00B7), not an em dash; no side-stripe/gradient/glass. Semantics/responsive (break-words) pass.
