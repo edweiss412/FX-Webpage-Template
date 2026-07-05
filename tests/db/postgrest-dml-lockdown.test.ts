@@ -457,7 +457,10 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
     closed_at: "supabase/migrations/20260705100000_bell_state_tables.sql:26",
     selectAnon: false,
     selectAuthenticated: false,
-    postBody: { alert_id: "00000000-0000-0000-0000-000000000000", admin_email: "lockdown-test@example.com" },
+    postBody: {
+      alert_id: "00000000-0000-0000-0000-000000000000",
+      admin_email: "lockdown-test@example.com",
+    },
     rowFilter: "?admin_email=eq.no-such-row%40example.com",
   },
   {
