@@ -14,7 +14,18 @@ import { handleWizardStagedApply } from "@/app/api/admin/onboarding/staged/[wiza
 import { setLogSink, resetLogSink } from "@/lib/log";
 import type { LogRecord } from "@/lib/log/types";
 import { hashForLog } from "@/lib/email/hashForLog";
-import { W1, FakeFinalizeDb, pending, deps, json, request, parseResult } from "./_finalizeFake";
+import {
+  W1,
+  FakeFinalizeDb,
+  pending,
+  deps,
+  json,
+  request,
+  parseResult,
+  withRowTxHoldPortFor,
+  preparedSheetFor,
+  dirtyInlineCore,
+} from "./_finalizeFake";
 
 function applyRequest(wizardSessionId: string, driveFileId: string, stagedId: string): Request {
   return new Request(
@@ -102,7 +113,10 @@ describe("POST /api/admin/onboarding/finalize", () => {
 
   // True-positive preserved: a genuine later edit must still demote with the
   // finalize revision-race code (the guard still fires on a real edit).
-  test("still fires the finalize revision guard when the sheet was genuinely edited", async () => {
+  test("demotes for review when the modtime bump reflects a genuine content edit (Thread 3 dirty)", async () => {
+    // Thread 3: a modtime mismatch no longer demotes unconditionally — it re-parses inline. A
+    // GENUINE edit (dirty re-parse) demotes with RESCAN_REVIEW_REQUIRED (surfaced by Thread 1),
+    // NOT the old STAGED_PARSE_REVISION_RACE_DURING_FINALIZE.
     const db = new FakeFinalizeDb();
     db.approved = [
       pending("first-seen-1", {
@@ -113,6 +127,9 @@ describe("POST /api/admin/onboarding/finalize", () => {
     const response = await handleOnboardingFinalize(
       request(),
       deps(db, {
+        withRowTx: withRowTxHoldPortFor(db, ["first-seen-1"]),
+        prepareOnboardingFiles: vi.fn(async () => [preparedSheetFor("first-seen-1")]),
+        applyRescanDecisionUnderLock: dirtyInlineCore(db),
         fetchDriveFileMetadata: vi.fn(async (driveFileId: string) => ({
           driveFileId,
           name: `${driveFileId}.xlsx`,
@@ -131,7 +148,7 @@ describe("POST /api/admin/onboarding/finalize", () => {
       per_row: [
         {
           drive_file_id: "first-seen-1",
-          code: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE",
+          code: "RESCAN_REVIEW_REQUIRED",
         },
       ],
     });
@@ -139,11 +156,9 @@ describe("POST /api/admin/onboarding/finalize", () => {
     // sets parse_result.show.title to `Show ${driveFileId}` (NOT hardcoded).
     const FS1_TITLE = `Show first-seen-1`;
     const failed = body.per_row.find((r) => r.drive_file_id === "first-seen-1")!;
-    expect(failed.code).toBe("STAGED_PARSE_REVISION_RACE_DURING_FINALIZE");
+    expect(failed.code).toBe("RESCAN_REVIEW_REQUIRED");
     expect(failed.display_name).toBe(FS1_TITLE);
-    expect(db.demoted).toEqual([
-      { driveFileId: "first-seen-1", code: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE" },
-    ]);
+    expect(db.demoted).toEqual([{ driveFileId: "first-seen-1", code: "RESCAN_REVIEW_REQUIRED" }]);
     expect(db.firstSeenApplied).toEqual([]);
   });
 
@@ -161,11 +176,14 @@ describe("POST /api/admin/onboarding/finalize", () => {
     const response = await handleOnboardingFinalize(
       request(),
       deps(db, {
+        withRowTx: withRowTxHoldPortFor(db, ["first-seen-1"]),
+        prepareOnboardingFiles: vi.fn(async () => [preparedSheetFor("first-seen-1", "")]),
+        applyRescanDecisionUnderLock: dirtyInlineCore(db),
         fetchDriveFileMetadata: vi.fn(async (driveFileId: string) => ({
           driveFileId,
           name: `${driveFileId}.xlsx`,
           mimeType: "application/vnd.google-apps.spreadsheet",
-          modifiedTime: "2026-05-09T03:45:00.000Z", // a real edit → revision race blocks the row
+          modifiedTime: "2026-05-09T03:45:00.000Z", // a real edit → dirty re-parse blocks the row
           parents: ["folder-1"],
         })),
       }),
@@ -176,7 +194,7 @@ describe("POST /api/admin/onboarding/finalize", () => {
       per_row: Array<{ drive_file_id: string; code: string; display_name?: string }>;
     };
     const failed = body.per_row.find((r) => r.drive_file_id === "first-seen-1")!;
-    expect(failed.code).toBe("STAGED_PARSE_REVISION_RACE_DURING_FINALIZE");
+    expect(failed.code).toBe("RESCAN_REVIEW_REQUIRED");
     expect(failed).not.toHaveProperty("display_name");
   });
 
@@ -307,6 +325,11 @@ describe("POST /api/admin/onboarding/finalize", () => {
     const db = new FakeFinalizeDb();
     db.approved = [pending("failure-last-1"), pending("failure-last-2"), pending("failure-last-3")];
     const routeDeps = deps(db, {
+      // Only failure-last-3 mismatches → reaches the inline rescan (holdPort); the others publish
+      // first-seen with the plain hold-unaware pipeline. A genuine edit → RESCAN_REVIEW_REQUIRED.
+      withRowTx: withRowTxHoldPortFor(db, ["failure-last-3"]),
+      prepareOnboardingFiles: vi.fn(async () => [preparedSheetFor("failure-last-3")]),
+      applyRescanDecisionUnderLock: dirtyInlineCore(db),
       fetchDriveFileMetadata: vi.fn(async (driveFileId: string) => ({
         driveFileId,
         name: `${driveFileId}.xlsx`,
@@ -332,7 +355,7 @@ describe("POST /api/admin/onboarding/finalize", () => {
         { drive_file_id: "failure-last-2", code: "OK" },
         {
           drive_file_id: "failure-last-3",
-          code: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE",
+          code: "RESCAN_REVIEW_REQUIRED",
           re_apply_url:
             "/admin/onboarding/staged/11111111-1111-4111-8111-111111111111/failure-last-3",
         },
@@ -381,6 +404,9 @@ describe("POST /api/admin/onboarding/finalize", () => {
     const db = new FakeFinalizeDb();
     db.approved = Array.from({ length: 250 }, (_, index) => pending(`multi-failure-${index}`));
     const routeDeps = deps(db, {
+      withRowTx: withRowTxHoldPortFor(db, ["multi-failure-249"]),
+      prepareOnboardingFiles: vi.fn(async () => [preparedSheetFor("multi-failure-249")]),
+      applyRescanDecisionUnderLock: dirtyInlineCore(db),
       fetchDriveFileMetadata: vi.fn(async (driveFileId: string) => ({
         driveFileId,
         name: `${driveFileId}.xlsx`,
@@ -484,13 +510,16 @@ describe("POST /api/admin/onboarding/finalize", () => {
     expect(db.operations).toEqual(["read-session", "try-finalize-lock"]);
   });
 
-  test("demotes a row when Drive head modifiedTime changed between approval and finalize", async () => {
+  test("demotes for review when a modtime change reflects a genuine content edit (Thread 3 dirty)", async () => {
     const db = new FakeFinalizeDb();
     db.approved = [pending("race-1")];
 
     const response = await handleOnboardingFinalize(
       request(),
       deps(db, {
+        withRowTx: withRowTxHoldPortFor(db, ["race-1"]),
+        prepareOnboardingFiles: vi.fn(async () => [preparedSheetFor("race-1")]),
+        applyRescanDecisionUnderLock: dirtyInlineCore(db),
         fetchDriveFileMetadata: vi.fn(async (driveFileId: string) => ({
           driveFileId,
           name: `${driveFileId}.xlsx`,
@@ -508,14 +537,12 @@ describe("POST /api/admin/onboarding/finalize", () => {
         {
           drive_file_id: "race-1",
           wizard_session_id: W1,
-          code: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE",
+          code: "RESCAN_REVIEW_REQUIRED",
           re_apply_url: "/admin/onboarding/staged/11111111-1111-4111-8111-111111111111/race-1",
         },
       ],
     });
-    expect(db.demoted).toEqual([
-      { driveFileId: "race-1", code: "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE" },
-    ]);
+    expect(db.demoted).toEqual([{ driveFileId: "race-1", code: "RESCAN_REVIEW_REQUIRED" }]);
     expect(db.deletedPending).toEqual([]);
   });
 

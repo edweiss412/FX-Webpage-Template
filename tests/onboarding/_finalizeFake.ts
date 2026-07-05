@@ -9,6 +9,7 @@
 import { vi } from "vitest";
 import type { FinalizeRouteDeps, FinalizeRouteTx } from "@/app/api/admin/onboarding/finalize/route";
 import type { SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
+import type { PreparedOnboardingFile } from "@/lib/sync/runOnboardingScan";
 
 export const W1 = "11111111-1111-4111-8111-111111111111";
 
@@ -283,6 +284,24 @@ export class FakeFinalizeDb implements FinalizeRouteTx {
       };
     }
 
+    // Thread 3 inline-rescan rebind: after a clean auto-heal, processApprovedRow re-reads the
+    // fresh staged identifiers by (wizard_session_id, drive_file_id). Matched by drive_file_id
+    // (params[1]); the injected fake core mutates the row's staged_modified_time in place.
+    if (normalized.startsWith("select staged_id, staged_modified_time, triggered_review_items")) {
+      const foundRow = this.approved.find((candidate) => candidate.drive_file_id === params[1]);
+      if (!foundRow) return { rows: [], rowCount: 0 };
+      return {
+        rows: [
+          {
+            staged_id: foundRow.staged_id,
+            staged_modified_time: foundRow.staged_modified_time,
+            triggered_review_items: foundRow.triggered_review_items,
+          } as T,
+        ],
+        rowCount: 1,
+      };
+    }
+
     if (normalized.startsWith("delete from public.pending_syncs")) {
       this.deletedPending.push(params[0] as string);
       this.approved = this.approved.filter((row) => row.drive_file_id !== params[0]);
@@ -361,6 +380,66 @@ export function fakePipelineTx(db: FakeFinalizeDb): SyncPipelineTx {
       );
     },
   } as unknown as SyncPipelineTx;
+}
+
+// Thread 3 (inline re-parse on modtime drift): a pipelineTx exposing holdPort so the inline rescan
+// can ride the held show: lock. NOT added to the shared fakePipelineTx — the first-seen apply path
+// is deliberately hold-UNAWARE in the fake, and a holdPort flips it hold-aware (readOpenHolds SQL
+// the in-memory db cannot serve). Hand it per-row via withRowTxHoldPortFor so ONLY the mismatch row
+// that reaches the rescan gets it; first-seen-publish rows keep the plain fake.
+export function pipelineWithHoldPort(db: FakeFinalizeDb): SyncPipelineTx {
+  return {
+    ...fakePipelineTx(db),
+    holdPort: () => ({
+      unsafe: async (sql: string, params: unknown[] = []) => (await db.query(sql, params)).rows,
+    }),
+  } as SyncPipelineTx;
+}
+
+// A withRowTx that hands the holdPort pipeline ONLY to the given mismatch drive ids (the ones that
+// reach the inline rescan); every other row gets the plain hold-unaware fake so first-seen publish
+// works unchanged.
+export function withRowTxHoldPortFor(
+  db: FakeFinalizeDb,
+  mismatchIds: readonly string[],
+): NonNullable<FinalizeRouteDeps["withRowTx"]> {
+  return async (driveFileId, fn) =>
+    fn(db, mismatchIds.includes(driveFileId) ? pipelineWithHoldPort(db) : fakePipelineTx(db));
+}
+
+// A prepared sheet for the injected prepareOnboardingFiles seam (single-file re-export).
+export function preparedSheetFor(driveFileId: string, title = "Show"): PreparedOnboardingFile {
+  return {
+    file: {
+      driveFileId,
+      name: `${driveFileId}.xlsx`,
+      mimeType: "application/vnd.google-apps.spreadsheet",
+      modifiedTime: "2026-05-08T12:00:00.000Z",
+      parents: ["folder-1"],
+    },
+    kind: "sheet",
+    binding: {} as never,
+    parseResult: parseResult(title) as never,
+    sourceAnchors: {},
+  };
+}
+
+// A fake applyRescanDecisionUnderLock that DEMOTES like the real core's dirty branch (a genuine
+// content edit), mutating the fake db exactly as demotePending would so downstream assertions hold.
+export function dirtyInlineCore(
+  db: FakeFinalizeDb,
+): NonNullable<FinalizeRouteDeps["applyRescanDecisionUnderLock"]> {
+  return (async (_tx: unknown, input: { driveFileId: string }) => {
+    const r = db.approved.find((x) => x.drive_file_id === input.driveFileId);
+    if (r) {
+      r.wizard_approved = false;
+      r.wizard_approved_by_email = null;
+      r.last_finalize_failure_code = "RESCAN_REVIEW_REQUIRED";
+    }
+    db.manifestStatuses.set(input.driveFileId, "staged");
+    db.demoted.push({ driveFileId: input.driveFileId, code: "RESCAN_REVIEW_REQUIRED" });
+    return { kind: "dirty_demoted", changed: true };
+  }) as NonNullable<FinalizeRouteDeps["applyRescanDecisionUnderLock"]>;
 }
 
 export function pending(driveFileId: string, overrides: Partial<PendingRow> = {}): PendingRow {

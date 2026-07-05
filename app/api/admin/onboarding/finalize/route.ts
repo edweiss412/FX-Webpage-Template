@@ -6,6 +6,8 @@ import type { DriveListedFile } from "@/lib/drive/list";
 import { fetchDriveFileMetadata as defaultFetchDriveFileMetadata } from "@/lib/drive/fetch";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
+import { prepareOnboardingFiles as defaultPrepareOnboardingFiles } from "@/lib/sync/runOnboardingScan";
+import { applyRescanDecisionUnderLock as defaultApplyRescanDecisionUnderLock } from "@/lib/onboarding/applyRescanDecisionUnderLock";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import { parsedShowTitle } from "@/lib/onboarding/blockerDisplayName";
 import {
@@ -58,6 +60,11 @@ export type FinalizeRouteDeps = {
     fn: (tx: FinalizeRouteTx, pipelineTx: SyncPipelineTx) => Promise<R>,
   ) => Promise<R>;
   fetchDriveFileMetadata?: (driveFileId: string) => Promise<DriveListedFile>;
+  // Thread 3 (spec §4.1): inline re-parse seams for the modtime-drift auto-heal. Both default to
+  // the real imports; injected by tests so a fake-tx unit can drive the clean/dirty/drive-fail
+  // branches without a live Drive export.
+  prepareOnboardingFiles?: typeof defaultPrepareOnboardingFiles;
+  applyRescanDecisionUnderLock?: typeof defaultApplyRescanDecisionUnderLock;
   batchCap?: number;
   // See finalize-cas/route.ts: streaming-only post-response revalidation deferral (after()).
   deferRevalidate?: (fn: () => void) => void;
@@ -135,6 +142,7 @@ type PerRowResult =
         | typeof WIZARD_REVIEWER_CHOICES_VERSION_UNSUPPORTED
         | typeof WIZARD_SESSION_SUPERSEDED
         | typeof STAGED_REVIEW_ITEMS_CORRUPT
+        | typeof RESCAN_REVIEW_REQUIRED
         | "DRIVE_FETCH_FAILED";
       re_apply_url: string;
       display_name?: string;
@@ -205,6 +213,9 @@ function depsWithDefaults(deps: FinalizeRouteDeps) {
     withTx: deps.withTx ?? defaultWithTx,
     withRowTx: deps.withRowTx ?? defaultWithRowTx,
     fetchDriveFileMetadata: deps.fetchDriveFileMetadata ?? defaultFetchDriveFileMetadata,
+    prepareOnboardingFiles: deps.prepareOnboardingFiles ?? defaultPrepareOnboardingFiles,
+    applyRescanDecisionUnderLock:
+      deps.applyRescanDecisionUnderLock ?? defaultApplyRescanDecisionUnderLock,
     batchCap: deps.batchCap ?? BATCH_CAP,
     // Default schedules post-response via after(); try/catch falls back to synchronous (today's
     // orphaned-enqueue behavior, never a 500). Only the streaming handler passes this to
@@ -694,6 +705,12 @@ async function processApprovedRow(input: {
   tx: FinalizeRouteTx;
   pipelineTx: SyncPipelineTx;
   fetchDriveFileMetadata: (driveFileId: string) => Promise<DriveListedFile>;
+  // Thread 3 (spec §4.1): inline re-parse seams, threaded from runtime so tests can inject fakes.
+  prepareOnboardingFiles: typeof defaultPrepareOnboardingFiles;
+  applyRescanDecisionUnderLock: typeof defaultApplyRescanDecisionUnderLock;
+  // Post-commit auto-heal breadcrumb set: drive_file_ids whose cosmetic modtime drift was healed
+  // inline (spec §4.5). The route emits one event:-keyed log.info per id AFTER the outer tx commits.
+  autoHealedDriveFileIds: Set<string>;
   finalizerEmail: string;
   // nav-perf tag-caching (Task 6): the first-seen apply writes public.shows (+ children) via the
   // shared core. The created show's id is collected here so the route can `revalidateShow(id)`
@@ -728,18 +745,132 @@ async function processApprovedRow(input: {
   }
 
   if (!sameTimestamp(metadata.modifiedTime, row.staged_modified_time)) {
-    await demotePending(
-      tx,
-      wizardSessionId,
-      row.drive_file_id,
-      STAGED_PARSE_REVISION_RACE_DURING_FINALIZE,
-    );
-    return {
-      drive_file_id: row.drive_file_id,
-      wizard_session_id: wizardSessionId,
-      code: STAGED_PARSE_REVISION_RACE_DURING_FINALIZE,
-      re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
+    // Thread 3 (spec §4.1): Google bumps modifiedTime for cosmetic reasons (volatile-formula
+    // recalculation on open, rename/move/share, another viewer's re-save) that do NOT change the
+    // parsed content. Instead of demoting unconditionally, re-fetch + re-parse the single sheet
+    // under the ALREADY-HELD show: lock and apply the existing clean/dirty decision via the
+    // lock-free core. CLEAN → keep publishing this row in the same batch; DIRTY / genuine content
+    // change → demote for review. The re-parse acquires NO lock (single-holder rule, invariant 2):
+    // holdPort() rides the SAME raw connection that took the show: lock at defaultWithRowTx.
+    const port = input.pipelineTx.holdPort?.();
+    if (!port) {
+      throw new Error("finalize inline rescan: locked pipeline tx exposes no holdPort");
+    }
+    // Adapt the required-params holdPort to the core's optional-params PostgresTransaction shape.
+    const rescanTx = {
+      unsafe: (sql: string, params: unknown[] = []) => port.unsafe(sql, params),
     };
+
+    let prepared;
+    try {
+      // Inject the single already-fetched Drive metadata as the folder listing so prepare re-exports
+      // + re-parses ONLY this sheet (no full-folder Drive list) — the `listFolder` dep (verified:
+      // runOnboardingScan.ts prepareOnboardingFiles reads deps.listFolder).
+      const preparedFiles = await input.prepareOnboardingFiles(pendingFolderId, {
+        listFolder: async () => [metadata],
+      });
+      prepared = preparedFiles[0];
+    } catch {
+      // Fail-closed (spec §4.4): a row we cannot re-verify is demoted, never published.
+      await demotePending(tx, wizardSessionId, row.drive_file_id, "DRIVE_FETCH_FAILED");
+      return {
+        drive_file_id: row.drive_file_id,
+        wizard_session_id: wizardSessionId,
+        code: "DRIVE_FETCH_FAILED",
+        re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
+      };
+    }
+    if (!prepared || prepared.kind !== "sheet") {
+      // Not a spreadsheet anymore (moved/replaced by a non-sheet) — treat as out-of-scope.
+      await demotePending(tx, wizardSessionId, row.drive_file_id, STAGED_PARSE_SOURCE_OUT_OF_SCOPE);
+      return {
+        drive_file_id: row.drive_file_id,
+        wizard_session_id: wizardSessionId,
+        code: STAGED_PARSE_SOURCE_OUT_OF_SCOPE,
+        re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
+      };
+    }
+
+    // isBlockerHeal: true — finalize is mid-batch (checkpoint already in_progress); the publish path
+    // owns the manifest, so the core must NOT restore the manifest to 'applied' (spec §4.2).
+    const outcome = await input.applyRescanDecisionUnderLock(rescanTx, {
+      wizardSessionId,
+      driveFileId: row.drive_file_id,
+      pendingFolderId,
+      prepared,
+      refreshedParse: prepared.parseResult,
+      isBlockerHeal: true,
+    });
+
+    if (outcome.kind === "dirty_demoted" || outcome.kind === "hard_failed") {
+      // The core already wrote last_finalize_failure_code = RESCAN_REVIEW_REQUIRED (genuine content
+      // change → surfaced for review by Thread 1). Do NOT re-demote; just return the per-row failure.
+      return {
+        drive_file_id: row.drive_file_id,
+        wizard_session_id: wizardSessionId,
+        code: RESCAN_REVIEW_REQUIRED,
+        re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
+      };
+    }
+    if (
+      outcome.kind === "schema_missing" ||
+      outcome.kind === "superseded" ||
+      outcome.kind === "not_staged"
+    ) {
+      // The core wrote NO pending demotion for these defensive outcomes — fail closed with the
+      // existing revision-race per-row code so the operator gets the re-apply recovery path.
+      await demotePending(
+        tx,
+        wizardSessionId,
+        row.drive_file_id,
+        STAGED_PARSE_REVISION_RACE_DURING_FINALIZE,
+      );
+      return {
+        drive_file_id: row.drive_file_id,
+        wizard_session_id: wizardSessionId,
+        code: STAGED_PARSE_REVISION_RACE_DURING_FINALIZE,
+        re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
+      };
+    }
+
+    // CLEAN (clean_restamped / clean_unchecked): the restage minted a FRESH staged_id,
+    // staged_modified_time (= metadata.modifiedTime), AND new triggered_review_items (fresh sentinel
+    // ids). Rebind those three onto the local `row` so the generation-scoped freshRead below matches
+    // and the publish path consumes the fresh generation — freshRead re-reads parse_result / approval
+    // / choices by (staged_id, staged_modified_time) but does NOT re-read triggered_review_items, and
+    // the publish path reads row.triggered_review_items + row.staged_id directly (spec §4.1 rebind).
+    const freshRows = (await rescanTx.unsafe(
+      `select staged_id, staged_modified_time, triggered_review_items
+         from public.pending_syncs
+        where wizard_session_id = $1::uuid and drive_file_id = $2`,
+      [wizardSessionId, row.drive_file_id],
+    )) as Array<{
+      staged_id: string;
+      staged_modified_time: string | Date;
+      triggered_review_items: unknown;
+    }>;
+    const fresh = freshRows[0];
+    if (!fresh) {
+      // The core restaged but the row is gone — fail closed (should not happen for a clean restage).
+      await demotePending(
+        tx,
+        wizardSessionId,
+        row.drive_file_id,
+        STAGED_PARSE_REVISION_RACE_DURING_FINALIZE,
+      );
+      return {
+        drive_file_id: row.drive_file_id,
+        wizard_session_id: wizardSessionId,
+        code: STAGED_PARSE_REVISION_RACE_DURING_FINALIZE,
+        re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
+      };
+    }
+    row.staged_id = fresh.staged_id;
+    row.staged_modified_time =
+      normalizeTimestamptz(fresh.staged_modified_time) ?? row.staged_modified_time;
+    row.triggered_review_items = fresh.triggered_review_items;
+    input.autoHealedDriveFileIds.add(row.drive_file_id);
+    // Fall through to the generation-scoped freshRead + publish flow with the fresh identifiers.
   }
 
   // §5.6 — generation-scoped re-read of parse_result under the already-held show: lock.
@@ -1100,6 +1231,12 @@ async function executeFinalizeBatch(
   // (inside the per-row txns) and revalidated AFTER deps.withTx resolves (post-commit) — never
   // inside the tx (pre-commit revalidate = stale cache bug, spec §4.2).
   const appliedShowIds = new Set<string>();
+  // Thread 3 (spec §4.5): drive_file_ids whose cosmetic modtime drift was auto-healed inline this
+  // batch. Populated inside the per-row txns; each emits ONE event:-keyed log.info POST-COMMIT.
+  const autoHealedDriveFileIds = new Set<string>();
+  // Captured inside the withTx callback (where wizardSessionId is scoped) for the POST-COMMIT
+  // auto-heal log loop, which runs after withTx resolves.
+  let batchWizardSessionId: string | null = null;
   // OUTCOME-REF (durable finalize telemetry): capture the terminal, committed-success outcome
   // inside the withTx callback (immediately before each committed return, once the batch's
   // mutations are staged in the tx), but EMIT it only AFTER runtime.withTx resolves (post-commit).
@@ -1126,6 +1263,7 @@ async function executeFinalizeBatch(
       if (!wizardSessionId) {
         return errorResponse(409, "WIZARD_FINALIZE_CHECKPOINT_MISSING");
       }
+      batchWizardSessionId = wizardSessionId;
 
       const locked = await tryFinalizeLock(tx, wizardSessionId);
       if (!locked) return errorResponse(409, "CONCURRENT_FINALIZE_IN_FLIGHT");
@@ -1223,6 +1361,9 @@ async function executeFinalizeBatch(
               tx: rowTx,
               pipelineTx,
               fetchDriveFileMetadata: runtime.fetchDriveFileMetadata,
+              prepareOnboardingFiles: runtime.prepareOnboardingFiles,
+              applyRescanDecisionUnderLock: runtime.applyRescanDecisionUnderLock,
+              autoHealedDriveFileIds,
               finalizerEmail,
               appliedShowIds,
             }),
@@ -1338,6 +1479,24 @@ async function executeFinalizeBatch(
         }
       } catch {
         /* best-effort */
+      }
+    }
+    // Thread 3 (spec §4.5): POST-COMMIT auto-heal breadcrumb. An event:-keyed log.info (NOT a §12.4
+    // `code:` — no catalog value, no user-facing surface), one per healed sheet, outside the
+    // advisory-lock tx (invariant 2). Best-effort: a logger throw must never turn a committed
+    // finalize into a 500. Never logs sheet contents.
+    if (batchWizardSessionId) {
+      for (const driveFileId of autoHealedDriveFileIds) {
+        try {
+          await log.info("finalize auto-healed modtime drift", {
+            source: "api.admin.onboarding.finalize",
+            event: "modtime_autohealed",
+            driveFileId,
+            wizardSessionId: batchWizardSessionId,
+          });
+        } catch {
+          /* best-effort */
+        }
       }
     }
     return response;
