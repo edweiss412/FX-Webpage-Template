@@ -73,6 +73,7 @@ export async function selectIdentity(formData: FormData): Promise<SelectIdentity
 export async function selectIdentityCore(
   input: SelectIdentityInput,
 ): Promise<SelectIdentityResult> {
+  // no-telemetry: try/catch wrapper; PICKER_IDENTITY_SELECTED emit fires at the mutation boundary in selectIdentityCoreImpl
   try {
     return await selectIdentityCoreImpl(input);
   } catch {
@@ -143,5 +144,12 @@ async function selectIdentityCoreImpl(input: SelectIdentityInput): Promise<Selec
     maxAge: MAX_AGE_SEC,
   });
   revalidatePath(`/show/${input.slug}/${input.shareToken}`);
+  log.info("picker identity selected", {
+    source: "auth.picker.selectIdentity",
+    code: "PICKER_IDENTITY_SELECTED",
+    showId,
+    crewMemberId: input.crewMemberId,
+    epoch: pickerEpoch,
+  });
   return { ok: true };
 }

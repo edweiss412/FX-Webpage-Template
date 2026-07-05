@@ -22,6 +22,14 @@ vi.mock("next/navigation", () => ({
 }));
 vi.mock("next/headers", () => ({ cookies: vi.fn() }));
 
+const logMock = vi.hoisted(() => ({
+  warn: vi.fn(),
+  error: vi.fn(),
+  info: vi.fn(),
+  debug: vi.fn(),
+}));
+vi.mock("@/lib/log", () => ({ log: logMock }));
+
 const KEY = "0".repeat(64);
 const SHOW_ID = "11111111-1111-1111-1111-111111111111";
 const OTHER_SHOW_ID = "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa";
@@ -45,6 +53,7 @@ beforeEach(() => {
   process.env.PICKER_COOKIE_SIGNING_KEY = KEY;
   existingCookie = undefined;
   cookieSet.mockReset();
+  logMock.info.mockClear();
   vi.mocked(revalidatePath).mockReset();
   vi.mocked(cookies).mockResolvedValue({
     get: (name: string) =>
@@ -123,5 +132,69 @@ describe("clearIdentity", () => {
       digest: expect.stringContaining(`/show/${SLUG}/${TOKEN}?gate=skip`),
     });
     expect(cookieSet).toHaveBeenCalled();
+  });
+});
+
+describe("clearIdentity telemetry — PICKER_IDENTITY_CLEARED", () => {
+  test("emits when an existing entry is cleared", async () => {
+    existingCookie = encodePickerCookie(
+      { v: 1, selections: { [SHOW_ID]: { id: CREW_ID, e: 1, t: 100 } } },
+      KEY,
+    );
+    await clearIdentityCore({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID });
+    expect(logMock.info).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        code: "PICKER_IDENTITY_CLEARED",
+        source: "auth.picker.clearIdentity",
+        showId: SHOW_ID,
+      }),
+    );
+  });
+
+  test("does NOT emit when there is no picker cookie (nothing to clear)", async () => {
+    existingCookie = undefined;
+    await clearIdentityCore({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID });
+    expect(logMock.info).not.toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: "PICKER_IDENTITY_CLEARED" }),
+    );
+  });
+
+  test("does NOT emit when the cookie has no entry for this show (no-op)", async () => {
+    existingCookie = encodePickerCookie(
+      { v: 1, selections: { [OTHER_SHOW_ID]: { id: OTHER_CREW_ID, e: 2, t: 200 } } },
+      KEY,
+    );
+    await clearIdentityCore({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID });
+    expect(logMock.info).not.toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: "PICKER_IDENTITY_CLEARED" }),
+    );
+  });
+
+  test("does NOT emit on invalid input", async () => {
+    await clearIdentityCore({ slug: "", shareToken: TOKEN, showId: SHOW_ID });
+    expect(logMock.info).not.toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: "PICKER_IDENTITY_CLEARED" }),
+    );
+  });
+
+  test("does NOT emit when clearIdentityCore catches a thrown fault (spec §5 *Core throw path)", async () => {
+    existingCookie = encodePickerCookie(
+      { v: 1, selections: { [SHOW_ID]: { id: CREW_ID, e: 1, t: 100 } } },
+      KEY,
+    );
+    // `await cookies()` (no inner try) → propagates to the clearIdentityCore catch;
+    // the emit (after the cookie rewrite) is never reached.
+    vi.mocked(cookies).mockRejectedValueOnce(new Error("cookie store down"));
+    await expect(
+      clearIdentityCore({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID }),
+    ).resolves.toEqual({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+    expect(logMock.info).not.toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: "PICKER_IDENTITY_CLEARED" }),
+    );
   });
 });

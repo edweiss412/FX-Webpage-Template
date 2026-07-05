@@ -8,6 +8,7 @@ import {
   encodePickerCookie,
 } from "@/lib/auth/picker/cookieEnvelope";
 import { pickerCookieSigningKey } from "@/lib/env/pickerCookieSigningKey";
+import { log } from "@/lib/log";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,80}$/;
@@ -27,6 +28,7 @@ type CleanupStaleEntryResult =
   | { ok: false; code: string };
 
 export async function cleanupStaleEntry(formData: FormData): Promise<CleanupStaleEntryResult> {
+  // no-telemetry: FormData-parse wrapper; PICKER_STALE_ENTRY_CLEANED emit fires in cleanupStaleEntryCoreImpl
   const slug = formData.get("slug");
   const shareToken = formData.get("shareToken");
   const showId = formData.get("showId");
@@ -51,6 +53,7 @@ export async function cleanupStaleEntry(formData: FormData): Promise<CleanupStal
 export async function cleanupStaleEntryCore(
   input: CleanupStaleEntryInput,
 ): Promise<CleanupStaleEntryResult> {
+  // no-telemetry: try/catch wrapper; PICKER_STALE_ENTRY_CLEANED emit fires at the mutation boundary in cleanupStaleEntryCoreImpl
   try {
     return await cleanupStaleEntryCoreImpl(input);
   } catch {
@@ -118,5 +121,12 @@ async function cleanupStaleEntryCoreImpl(
     // Best-effort observational alert; cleanup itself has already succeeded.
   }
 
+  log.info("picker stale entry cleaned", {
+    source: "auth.picker.cleanupStaleEntry",
+    code: "PICKER_STALE_ENTRY_CLEANED",
+    showId: input.showId,
+    epoch: input.expectedEpoch,
+    crewMemberId: input.expectedCrewMemberId,
+  });
   return { ok: true, action: "cleaned" };
 }

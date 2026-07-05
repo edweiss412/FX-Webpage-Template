@@ -56,6 +56,7 @@ function formData(input: Partial<{ slug: string; shareToken: string; crewMemberI
 
 beforeEach(() => {
   logMock.warn.mockClear();
+  logMock.info.mockClear();
   process.env.PICKER_COOKIE_SIGNING_KEY = KEY;
   existingCookie = undefined;
   rpcError = null;
@@ -154,6 +155,52 @@ describe("selectIdentityCore", () => {
       ok: false,
       code: "PICKER_RESOLVER_LOOKUP_FAILED",
     });
+  });
+
+  test("emits PICKER_IDENTITY_SELECTED on a committed selection", async () => {
+    await selectIdentityCore({ slug: SLUG, shareToken: TOKEN, crewMemberId: CREW_ID });
+    expect(logMock.info).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        code: "PICKER_IDENTITY_SELECTED",
+        source: "auth.picker.selectIdentity",
+        showId: SHOW_ID, // rpcRow.out_show_id
+        crewMemberId: CREW_ID,
+        epoch: 7, // rpcRow.out_picker_epoch
+      }),
+    );
+  });
+
+  test("does NOT emit PICKER_IDENTITY_SELECTED on rejection / infra fault", async () => {
+    rpcRow = {
+      out_show_id: null,
+      out_picker_epoch: null,
+      out_observed_at_millis: null,
+      out_rejection_code: "PICKER_INVALID_SHARE_TOKEN",
+    };
+    await selectIdentityCore({ slug: SLUG, shareToken: TOKEN, crewMemberId: CREW_ID });
+    rpcError = { message: "db failed" };
+    await selectIdentityCore({ slug: SLUG, shareToken: TOKEN, crewMemberId: CREW_ID });
+    await selectIdentityCore({ slug: "", shareToken: TOKEN, crewMemberId: CREW_ID }); // invalid input
+    expect(logMock.info).not.toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: "PICKER_IDENTITY_SELECTED" }),
+    );
+  });
+
+  test("does NOT emit when selectIdentityCore catches a thrown fault (spec §5 *Core throw path)", async () => {
+    // rpcRow stays valid (beforeEach default) so the RPC succeeds; the throw is forced
+    // in the post-RPC cookie section (`await cookies()`), which is OUTSIDE the inner RPC
+    // try — it propagates to the outer selectIdentityCore catch, and the emit (after the
+    // cookie set) is never reached.
+    vi.mocked(cookies).mockRejectedValueOnce(new Error("cookie store down"));
+    await expect(
+      selectIdentityCore({ slug: SLUG, shareToken: TOKEN, crewMemberId: CREW_ID }),
+    ).resolves.toEqual({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+    expect(logMock.info).not.toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ code: "PICKER_IDENTITY_SELECTED" }),
+    );
   });
 });
 
