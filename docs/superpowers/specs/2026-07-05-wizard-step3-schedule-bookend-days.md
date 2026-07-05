@@ -52,7 +52,7 @@ Richer labels Doug also asked for in #316 item 2 ("Show Day 1/2" numbering, "Dar
 
 - `ScheduleBreakdown({ dfid, ros })` → `ScheduleBreakdown({ dfid, ros, dates })`, where `dates: ShowRow["dates"]`.
 - Call site `step3ReviewSections.tsx:2438`: `<ScheduleBreakdown dfid={s.dfid} ros={s.ros} dates={s.pr.show.dates} />` (`s.pr.show.dates` is `ShowRow["dates"]` — `SectionData.pr: ParseResult`, `step3ReviewSections.tsx:1962`).
-- `ScheduleDayRow` gains an optional `phase?: SchedulePhase | null` prop. When non-null it renders a subtle phase label (`data-testid="wizard-step3-card-${dfid}-sched-phase"`) adjacent to the existing date header (`step3ReviewSections.tsx:884`). Absent/`null` → no phase node (exactOptionalPropertyTypes: present-or-absent, never `phase: undefined` assigned).
+- `ScheduleDayRow` gains an optional `phase?: SchedulePhase | null` prop. When non-null it renders a subtle phase label (`data-testid="wizard-step3-card-${dfid}-sched-phase-${iso}"` — the ISO suffix makes the id unique per day so per-row phase assertions bind the phase to the correct date) adjacent to the existing date header (`step3ReviewSections.tsx:884`). Absent/`null` → no phase node (exactOptionalPropertyTypes: present-or-absent, never `phase: undefined` assigned).
 - Import `aggregateDays` and `type SchedulePhase` from `@/lib/crew/agendaDisplay` (already the single source of the aggregate + phase union; `humanizeDate` is already imported at `step3ReviewSections.tsx:86`).
 
 ### Merge algorithm (single source)
@@ -64,9 +64,14 @@ rosOnly = Object.keys(ros)
   .filter(iso => !aggregateDates.has(iso))
   .map(iso => ({ date: iso, phase: null }))
 mergedDays = [...aggregate, ...rosOnly].sort((a, b) => a.date.localeCompare(b.date))
+
+// cap-exemption (see "Cap / truncation behavior"): synthetic days OR non-Show aggregate bookends
+alwaysShown = (d) => isSyntheticDay(d.date) || (d.phase != null && d.phase !== "Show")
+shownDays = mergedDays.filter((d, idx) => idx < SCHEDULE_DAYS_CAP || alwaysShown(d))
+droppedNonExempt = mergedDays.filter((d, idx) => idx >= SCHEDULE_DAYS_CAP && !alwaysShown(d)).length
 ```
 
-`count` on the `BreakdownSection` becomes `mergedDays.length` (was `dayKeys.length`).
+`count` on the `BreakdownSection` becomes `mergedDays.length` (was `dayKeys.length`); the "…and N more days" note uses `droppedNonExempt`.
 
 ## Guard conditions
 
@@ -78,7 +83,14 @@ mergedDays = [...aggregate, ...rosOnly].sort((a, b) => a.date.localeCompare(b.da
 
 ## Cap / truncation behavior
 
-`SCHEDULE_DAYS_CAP = 14` (`step3ReviewSections.tsx:115`) continues to operate on the merged day list: `shownDays = (first 14 merged days) ∪ (every synthetic-bearing day)`; the "…and N more days" note counts only dropped non-synthetic days. Realistic shows have ≤ ~7 schedule days (well under 14), so bookend days are never dropped in practice. Bookend days are ordinary (non-synthetic) days for cap purposes; a synthetic strike/load-out day remains always-shown (`isSyntheticDay`, `step3ReviewSections.tsx:944`). The per-day entry cap (`SCHEDULE_ENTRIES_CAP = 6`) is unchanged.
+`SCHEDULE_DAYS_CAP = 14` (`step3ReviewSections.tsx:115`) continues to bound the merged day list, but the **always-shown (cap-exempt) set is widened so the reported bug cannot recur through the cap**. A merged day is always shown iff EITHER:
+
+- it is synthetic-bearing (`isSyntheticDay`, existing — a strike/load-out day, `step3ReviewSections.tsx:944`), OR
+- it is an **aggregate bookend day** — `day.phase != null && day.phase !== "Show"` (i.e. "Travel In" / "Set" / "Travel Out"). These are at most 3 days, derived from trusted parsed `dates`, and are exactly the days Doug reported missing; they must never be hidden.
+
+`shownDays = mergedDays.filter((d, idx) => idx < SCHEDULE_DAYS_CAP || alwaysShown(d))`. The "…and N more days" note counts only dropped days that are neither cap-exempt — i.e. **Show days and non-synthetic off-schedule ros-only days** past the cap. Show-day cap behavior is therefore unchanged from today (a 20-show-day festival still caps show days with the overflow note); only the ≤3 bookend days gain the guarantee.
+
+Rationale (addresses spec-review R1 HIGH): before this change bookend days weren't rendered at all; naively re-adding them as ordinary cap-subject days would let a >14-day show drop `travelOut` (or `travelIn` if enough off-schedule ros dates sort before it), reintroducing the exact "bookend day missing" bug. Cap-exempting the non-Show aggregate days closes that. The per-day entry cap (`SCHEDULE_ENTRIES_CAP = 6`) is unchanged.
 
 ## Dimensional invariants
 
@@ -98,8 +110,9 @@ Derive every expected value from fixture dimensions; never hardcode a date the f
 4. **Phase correctness across the aggregate:** for a fixture with all four phases, assert each rendered day's phase label matches `aggregateDays(dates)` for that date (extract from the data source `aggregateDays(fixtureDates)`, NOT from the rendered container that also renders the date, per anti-tautology).
 5. **Empty state:** all dates null + empty ros → `"No run-of-show parsed."` renders; zero day rows.
 6. **`count` reflects merged days:** `BreakdownSection` count equals `mergedDays.length` for a mixed fixture (aggregate ∪ ros-only), derived from the fixture.
+7. **Bookend survives the cap (spec-review R2 MEDIUM):** a fixture with > `SCHEDULE_DAYS_CAP` (14) non-synthetic days where `dates.travelOut` sorts LAST (e.g. `set` + 14 sequential `showDays` + a later `travelOut`) → the `travelOut` row STILL renders (it is cap-exempt as a non-Show aggregate day), while an over-cap SHOW day is dropped into the "…and N more days" note. Derive the day count and the `travelOut` ISO from the fixture; this fails if `travelOut` is treated as an ordinary cap-subject day.
 
-Concrete failure modes caught: (1)/(2) the reported bug; (3) the union-vs-aggregate regression (the single subtlest risk in this change); (4) a mis-mapped phase; (5) the degenerate empty path; (6) a stale count.
+Concrete failure modes caught: (1)/(2) the reported bug; (3) the union-vs-aggregate regression (the single subtlest risk in this change); (4) a mis-mapped phase; (5) the degenerate empty path; (6) a stale count; (7) the cap dropping a bookend day.
 
 ## Invariants
 
