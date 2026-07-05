@@ -243,12 +243,16 @@ describe("PerShowAlertSection — at-a-glance identity line", () => {
     ).resolves.toBeUndefined();
   });
 
-  test("resolver infra_error → alert still renders, no identity line, no crash, degraded event logged", async () => {
+  test("resolver infra_error → alert renders, SURVIVING partial identity still shows, no crash, degraded event logged", async () => {
     const records: Array<{ source: string; message: string }> = [];
     setLogSink((record) => {
       records.push({ source: record.source, message: record.message });
     });
     // OAUTH row so the resolver actually issues crew/show reads — which fail.
+    // The email segment is projected from context.user_email WITHOUT a DB read,
+    // so it SURVIVES the failed crew/show lookups. Per the spec §3.2 F9/P5
+    // partial-degradation contract (Codex whole-diff R2 MEDIUM), the caller must
+    // still render the surviving segment — NOT drop the whole partial map.
     mockState.failIdentityRead = true;
     setAlerts([
       {
@@ -258,9 +262,15 @@ describe("PerShowAlertSection — at-a-glance identity line", () => {
         context: { crew_member_id: CREW_ID, user_email: "jamie@example.com", show_id: SHOW_ID },
       },
     ]);
-    const { getByTestId, queryByTestId } = await renderSection();
+    const { getByTestId } = await renderSection();
     expect(getByTestId("per-show-alert-infra-1")).not.toBeNull(); // alert still renders
-    expect(queryByTestId("per-show-alert-identity")).toBeNull(); // degraded to no identity
+    // The surviving email segment renders; crew/show (which needed the failed
+    // DB reads) do NOT — proving partial degradation, not all-or-nothing drop.
+    const identity = getByTestId("per-show-alert-identity");
+    expect(identity.textContent).toContain("jamie@example.com");
+    // The crew/show segments needed the failed DB reads, so their labels are absent.
+    expect(identity.textContent).not.toContain("Crew:");
+    expect(identity.textContent).not.toContain("Show:");
     expect(
       records.some(
         (r) =>

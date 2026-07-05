@@ -189,12 +189,18 @@ export async function fetchPerShowAlerts(
       supabase as unknown as Parameters<typeof resolveAlertIdentities>[1],
       { includePii: true },
     );
+    // The resolver ALWAYS returns a (possibly partial) identities map — on
+    // infra_error it still carries whatever resolved BEFORE the fault (spec
+    // §3.2 F9/P5 partial degradation; e.g. the email/show segments survive a
+    // failed crew_members lookup). Use the map REGARDLESS of kind so surviving
+    // segments still render, and ADDITIONALLY log when degraded. Mirrors
+    // AlertBanner's Task-10 handling (Codex whole-diff R2 MEDIUM — the prior
+    // else-only assignment dropped the whole partial map on infra_error).
+    identities = resolved.identities;
     if (resolved.kind === "infra_error") {
       log.error("alert identity resolve degraded", {
         source: "admin.perShowAlertSection",
       });
-    } else {
-      identities = resolved.identities;
     }
   } catch (err) {
     log.error("alert identity resolve degraded", {
