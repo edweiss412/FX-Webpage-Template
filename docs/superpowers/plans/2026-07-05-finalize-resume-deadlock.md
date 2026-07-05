@@ -311,7 +311,7 @@ const ps = await q(`select staged_modified_time, wizard_approved, last_finalize_
 
 - [ ] **Step 3: Run both — FAIL** (current code demotes unconditionally at `:730`).
 
-- [ ] **Step 4: Implement** the `:730` branch replacement + the `input.prepareOnboardingFiles` seam + the post-commit `log.info`. Rebind `row.staged_id`/`row.staged_modified_time`/`row.triggered_review_items` from a fresh `select staged_id, staged_modified_time, triggered_review_items from pending_syncs where wizard_session_id=$1 and drive_file_id=$2`.
+- [ ] **Step 4: Implement** the `:730` branch replacement + the `input.prepareOnboardingFiles` seam + the post-commit `log.info`. Rebind `row.staged_id`/`row.staged_modified_time`/`row.triggered_review_items` from a fresh `select staged_id, staged_modified_time, triggered_review_items from pending_syncs where wizard_session_id=$1 and drive_file_id=$2`. **This pre-read is what satisfies the spec's "full fresh-row rebind" (§4.1):** the three re-read fields are exactly the ones the existing downstream `freshRead` (`route.ts:774`) does NOT re-read but the publish path consumes from `row` — `staged_id`/`staged_modified_time` key `freshRead`'s generation-scoped `where` (`:781-785`), and `triggered_review_items` is read directly at `:887`. `freshRead` then picks up `parse_result`, `wizard_approved`, choices, and approver by the fresh `staged_id`/`staged_modified_time`, so the whole row is fresh-generation-consistent (no `EXTRA_REVIEWER_CHOICE`).
 
 - [ ] **Step 5: Run — PASS**, then the finalize suite: `pnpm vitest run tests/onboarding/finalize*.test.ts tests/onboarding/finalizeInlineRescan*.test.ts`.
 
