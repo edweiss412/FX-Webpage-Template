@@ -10,6 +10,7 @@ import {
 } from "@/lib/auth/picker/cookieEnvelope";
 import { pickerCookieSigningKey } from "@/lib/env/pickerCookieSigningKey";
 import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
+import { log } from "@/lib/log";
 
 // not-subject-to-revalidate (nav-perf tag-caching Task 9): clearing the identity only deletes the
 // picker COOKIE — it writes NO database rows at all, let alone getShowForViewer DATA. Nothing to
@@ -45,12 +46,14 @@ function parseFormData(formData: FormData): ClearIdentityInput | null {
 }
 
 export async function clearIdentity(formData: FormData): Promise<ClearIdentityResult> {
+  // no-telemetry: FormData-parse wrapper; PICKER_IDENTITY_CLEARED emit fires in clearIdentityCoreImpl
   const input = parseFormData(formData);
   if (!input) return { ok: false, code: "PICKER_INVALID_INPUT" };
   return clearIdentityCore(input);
 }
 
 export async function clearIdentityAndSkip(formData: FormData): Promise<ClearIdentityResult> {
+  // no-telemetry: FormData-parse + skip redirect; PICKER_IDENTITY_CLEARED emit fires in clearIdentityCoreImpl
   const input = parseFormData(formData);
   if (!input) return { ok: false, code: "PICKER_INVALID_INPUT" };
   const result = await clearIdentityCore(input);
@@ -59,6 +62,7 @@ export async function clearIdentityAndSkip(formData: FormData): Promise<ClearIde
 }
 
 export async function clearIdentityCore(input: ClearIdentityInput): Promise<ClearIdentityResult> {
+  // no-telemetry: try/catch wrapper; PICKER_IDENTITY_CLEARED emit fires at the mutation boundary in clearIdentityCoreImpl
   try {
     return await clearIdentityCoreImpl(input);
   } catch {
@@ -83,6 +87,7 @@ async function clearIdentityCoreImpl(input: ClearIdentityInput): Promise<ClearId
     return { ok: true };
   }
 
+  const existed = env.selections[input.showId] !== undefined;
   delete env.selections[input.showId];
   if (Object.keys(env.selections).length === 0) {
     cookieStore.set(COOKIE_NAME, "", {
@@ -103,5 +108,12 @@ async function clearIdentityCoreImpl(input: ClearIdentityInput): Promise<ClearId
   }
 
   revalidatePath(`/show/${input.slug}/${input.shareToken}`);
+  if (existed) {
+    log.info("picker identity cleared", {
+      source: "auth.picker.clearIdentity",
+      code: "PICKER_IDENTITY_CLEARED",
+      showId: input.showId,
+    });
+  }
   return { ok: true };
 }
