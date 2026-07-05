@@ -18,7 +18,9 @@
  * optimistically and only settle on the next refresh.
  */
 import { useState } from "react";
+import Link from "next/link";
 import { FinalizeButton } from "@/components/admin/FinalizeButton";
+import { Step3PublishBar } from "@/components/admin/wizard/Step3PublishBar";
 import {
   Step3Review,
   computeSelectableCounts,
@@ -52,15 +54,43 @@ export function Step3ReviewWithFinalize({
   });
 
   return (
-    <div className="flex flex-col gap-section-gap">
-      <Step3Review wizardSessionId={wizardSessionId} rows={rows} onCountsChange={setCounts} />
+    <div className="relative flex min-h-full flex-col">
+      {/* Scroll body: bottom padding so the last card is never occluded by the
+          sticky bar (DI-3, spec §7). */}
+      <div className="pb-24">
+        <Step3Review wizardSessionId={wizardSessionId} rows={rows} onCountsChange={setCounts} />
+      </div>
       {rows.length > 0 ? (
-        <FinalizeButton
-          wizardSessionId={wizardSessionId}
-          disabled={!finishable}
-          publishCount={counts.publishCount}
-          uncheckedCleanCount={counts.uncheckedCleanCount}
-        />
+        <Step3PublishBar>
+          <p
+            data-testid="wizard-step3-publish-count"
+            className="text-sm tabular-nums text-text-subtle"
+          >
+            <b className="text-text-strong">{counts.selectedCount}</b> of {counts.selectableTotal}{" "}
+            selected to publish
+          </p>
+          <div className="ml-auto flex items-end gap-3">
+            <Link
+              data-testid="wizard-step3-back"
+              href="/admin?step=2"
+              className="inline-flex min-h-tap-min items-center rounded-md px-3 text-sm font-medium text-text-subtle transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+            >
+              Back
+            </Link>
+            {/* The disabled gate is UNCHANGED — it gates on `finishable` (a blocking
+                row blocks finish), NOT on selectableTotal. A finishable page with
+                zero selectable rows keeps Publish enabled (finish-with-nothing is
+                reachable, spec §4.4/§10). panelPlacement="above" floats the
+                running/terminal panels above the bar. */}
+            <FinalizeButton
+              wizardSessionId={wizardSessionId}
+              disabled={!finishable}
+              publishCount={counts.publishCount}
+              uncheckedCleanCount={counts.uncheckedCleanCount}
+              panelPlacement="above"
+            />
+          </div>
+        </Step3PublishBar>
       ) : null}
     </div>
   );

@@ -534,7 +534,9 @@ export async function OnboardingWizard({
     >
       <div className="flex items-center justify-between gap-3">
         <StepIndicator step={step} maxReachedStep={maxReachedStep} />
-        {step !== 1 ? <BackLink step={step} /> : null}
+        {/* Variant B (Task 6): Step 3's Back moved into the sticky publish bar
+            (Step3ReviewWithFinalize), so only Step 2 keeps a top Back. */}
+        {step === 2 ? <BackLink step={2} /> : null}
       </div>
 
       {service.ok ? (

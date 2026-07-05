@@ -91,13 +91,15 @@ afterEach(() => {
 });
 
 describe("OnboardingWizard navigation chrome (Task 5)", () => {
-  test("Step 3 renders a Back link pointing at ?step=2", async () => {
-    const { getByTestId } = render(
+  test("Step 3 renders NO top Back link (Variant B: Back moved into the sticky publish bar)", async () => {
+    const { queryByTestId, getByTestId } = render(
       await OnboardingWizard({ settings: FRESH_SETTINGS, searchParams: { step: "3" } }),
     );
-    const back = getByTestId("wizard-back-link") as HTMLAnchorElement;
-    expect(back.tagName).toBe("A");
-    expect(back.getAttribute("href")).toBe("/admin?step=2");
+    // Top Back is gone on step 3…
+    expect(queryByTestId("wizard-back-link")).toBeNull();
+    // …and (with a null-session FRESH_SETTINGS) step 3 lands on the no-session
+    // empty state — the chrome renders with ZERO Supabase.
+    expect(getByTestId("wizard-step3-no-session")).not.toBeNull();
   });
 
   test("Step 2 renders a Back link pointing at ?step=1", async () => {

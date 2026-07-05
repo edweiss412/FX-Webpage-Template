@@ -64,6 +64,31 @@ describe("FinalizeButton", () => {
     expect(btn.disabled).toBe(true);
   });
 
+  // ── Variant B (Task 6): layout-only panelPlacement (state machine unchanged) ──
+  test("panelPlacement='above' reverses the flex column; behavior/testids unchanged", () => {
+    const { getByTestId } = render(
+      <FinalizeButton
+        wizardSessionId={WIZARD_SESSION_ID}
+        publishCount={0}
+        uncheckedCleanCount={1}
+        panelPlacement="above"
+      />,
+    );
+    expect(getByTestId("wizard-finalize").className).toContain("flex-col-reverse");
+    expect(getByTestId("wizard-finalize-button")).toBeTruthy(); // trigger still present
+  });
+
+  test("default (no panelPlacement) keeps the current flex order", () => {
+    const { getByTestId } = render(
+      <FinalizeButton
+        wizardSessionId={WIZARD_SESSION_ID}
+        publishCount={1}
+        uncheckedCleanCount={0}
+      />,
+    );
+    expect(getByTestId("wizard-finalize").className).not.toContain("flex-col-reverse");
+  });
+
   // ── Task D5: "Publish N shows & finish setup" label + soft confirm ──
   describe("Task D5 — publish-count label + soft confirm", () => {
     test("label reads 'Publish N shows & finish setup' with N = publishCount", () => {
