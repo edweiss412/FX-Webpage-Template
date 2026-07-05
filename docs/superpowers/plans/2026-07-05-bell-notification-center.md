@@ -232,7 +232,9 @@ git commit --no-verify -m "feat(db): bell state tables + monotonic write RPCs + 
 //    its resolved_occurrence_sum covers its windowed resolved predecessors.
 // 4. pre-cap exclusion: seed p_cap+5 rows of an excluded code + 1 included row,
 //    p_excluded_codes=[excluded] → the included row IS returned (spec §6.1/R7).
-// 5. caps OVER: seed p_cap+1 distinct active keys → active rows = p_cap, meta.active_hit_cap=true.
+// 5. caps OVER: seed p_cap+1 distinct active keys → active rows = p_cap, meta.active_hit_cap=true,
+//    AND the returned p_cap rows are the NEWEST by activity (the oldest probe row is the
+//    one dropped — catches unordered-LIMIT-over-probe, R3 finding 1).
 // 5b. caps EXACT (R2 finding): seed EXACTLY p_cap distinct active keys → active rows = p_cap
 //     AND meta.active_hit_cap=false (no false-positive truncation row). Same pair for history.
 // 6. window: resolved_at older than p_history_days days → absent from history AND sums.
@@ -310,7 +312,11 @@ begin
     limit p_cap + 1
   ),
   active as (
-    select * from active_probe limit p_cap
+    -- ordering restated: LIMIT over an unordered subselect is not contractually
+    -- the top-N of the probe (plan-review R3 finding 1)
+    select * from active_probe
+    order by greatest(raised_at, last_seen_at) desc
+    limit p_cap
   ),
   history as (
     select distinct on (coalesce(a.show_id::text, ''), a.code) a.*
@@ -335,7 +341,9 @@ begin
     limit p_cap + 1
   ),
   history_capped as (
-    select * from history_probe limit p_cap
+    select * from history_probe
+    order by resolved_at desc
+    limit p_cap
   )
   select true, now(),
          (select count(*) from active_probe) > p_cap,
@@ -715,7 +723,9 @@ git commit --no-verify -m "feat(admin): ALERT_BELL_FEED_FAILED catalog code for 
 // 1. meta-row split: missing is_meta row → throws BellFeedShapeError (fail-closed, spec §6.1/R10.1).
 // 2. unread absence: no read row → unread true.
 // 3. unread stale: read_at < last_seen_at → unread true (re-bump re-unreads, spec §3.1).
-// 4. unread fresh: read_at >= last_seen_at → unread false.
+// 4. unread fresh: read_at >= activityAt → unread false.
+// 4b. raised_at NEWER than last_seen_at fixture (backfill/clock edge): unread and the
+//     read stamp both key on activityAt = raised_at — no false read (R3 finding 2).
 // 5. READ RACE (R4.1): read stamped at seenActivityAt, row later re-bumped → unread true.
 // 6. occurrences: active entry = occurrence_count + resolved_occurrence_sum;
 //    history entry = resolved_occurrence_sum (derive from fixture numbers).
@@ -777,7 +787,10 @@ export function shapeBellEntries(
       occurrences: r.is_active
         ? (r.occurrence_count ?? 0) + Number(r.resolved_occurrence_sum ?? 0)
         : Number(r.resolved_occurrence_sum ?? 0),
-      unread: r.is_active ? (readAt === null || readAt < r.last_seen_at!) : false,
+      // unread compares against activityAt (greatest(raised_at,last_seen_at)) —
+      // the SAME value the read stamp carries (spec §3.1 as amended per plan-review
+      // R3 finding 2), so stamp and comparison can never use different clocks.
+      unread: r.is_active ? (readAt === null || readAt < activityAt) : false,
       isAutoResolving: isAutoResolving(r.code!),
       autoResolveNote: isAutoResolving(r.code!) ? autoResolveNote(r.code!) : null,
       action: resolveAlertAction(r.code!, r.context, { slug: r.slug }),
@@ -903,6 +916,8 @@ git commit --no-verify -m "feat(admin): bell feed + count API routes"
 //    (FAIL-CLOSED: non-dev cannot probe health ids — derive the probe code from
 //    HEALTH_CODES[0], not a literal).
 // 7. alert row not found → 404.
+// 8. PRECEDENCE PINNED (R3 finding 3): invalid UUID + invalid timestamp → 404
+//    (alertId wins); valid UUID + invalid timestamp → 400.
 ```
 
 Behavior proofs in `tests/log/adminOutcomeBehavior.test.ts` (pattern `tests/log/adminOutcomeBehavior.test.ts` — `observeSuccessCodes` + `recordAdminOutcomeBehavior`):
