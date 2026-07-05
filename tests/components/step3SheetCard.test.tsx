@@ -16,7 +16,7 @@
  * (those are D3/D4). The card here is purely presentational (a `row` prop).
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { cleanup, render, fireEvent, within } from "@testing-library/react";
+import { cleanup, render, fireEvent, waitFor, within } from "@testing-library/react";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import type {
   ParseResult,
@@ -157,67 +157,39 @@ function stagedRow(pr: ParseResult | null, overrides: Partial<Step3Row> = {}): S
 }
 
 const card = (q: ReturnType<typeof render>) => q.getByTestId(`wizard-step3-card-${DFID}`);
-const summary = (q: ReturnType<typeof render>) =>
-  q.getByTestId(`wizard-step3-card-${DFID}-summary`);
 
 describe("Step3SheetCard — summary (§4.2)", () => {
   test("renders the show title, and client when present", () => {
     const FIX = parseResult();
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    const s = summary(q);
-    expect(s.textContent).toContain(FIX.show.title);
-    expect(s.textContent).toContain(FIX.show.client_label);
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-title`).textContent).toContain(FIX.show.title);
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-client`).textContent).toContain(
+      FIX.show.client_label,
+    );
   });
 
   test("title falls back to driveFileName when parseResult title is empty", () => {
     const FIX = parseResult({ show: show({ title: "" }) });
     const row = stagedRow(FIX, { driveFileName: "fallback-name.sheet" });
     const q = render(<Step3SheetCard row={row} wizardSessionId={WSID} />);
-    expect(summary(q).textContent).toContain("fallback-name.sheet");
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-title`).textContent).toContain(
+      "fallback-name.sheet",
+    );
   });
 
-  test("collapsed summary shows Venue (name only) + a dedicated City row, not the old Totals strip", () => {
+  // Variant B: the venue NAME renders inline on the compact meta line (-venue);
+  // the standalone -city row, "Venue not detected" fallback, and Totals strip are
+  // all gone (venue segment simply omits when absent — see the Task 4 meta tests).
+  test("venue name renders on the compact meta line", () => {
     const FIX = parseResult({
       show: show({
         venue: { name: "The Drake Hotel", address: "140 E Walton Pl, Chicago, IL 60611" },
       }),
     });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    const venue = q.getByTestId(`wizard-step3-card-${DFID}-venue`);
-    const city = q.getByTestId(`wizard-step3-card-${DFID}-city`);
-    expect(venue.textContent).toContain("The Drake Hotel");
-    // The city moved OUT of the Venue row into its own dedicated City row.
-    expect(venue.textContent ?? "").not.toContain("Chicago");
-    expect(city.textContent).toContain("Chicago"); // city mined from the address
-    // The Totals strip is gone: its testid no longer exists and the collapsed
-    // summary no longer carries the "N crew · N rooms" run-on count string.
-    expect(q.queryByTestId(`wizard-step3-card-${DFID}-totals`)).toBeNull();
-    expect(summary(q).textContent ?? "").not.toMatch(/\d+ crew · \d+ rooms/);
-  });
-
-  test("splits the city out of the venue NAME (the real FXAV pattern: '<Brand> <City>', blank address)", () => {
-    const FIX = parseResult({
-      show: show({ venue: { name: "Four Seasons Hotel Chicago", address: "" } }),
-    });
-    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    const venue = q.getByTestId(`wizard-step3-card-${DFID}-venue`);
-    const city = q.getByTestId(`wizard-step3-card-${DFID}-city`);
-    // The trailing city is split into the City row; the Venue keeps the rest.
-    expect(venue.textContent).toContain("Four Seasons Hotel");
-    expect(venue.textContent ?? "").not.toContain("Chicago");
-    expect(city.textContent).toContain("Chicago");
-  });
-
-  test("venue falls back to 'Venue not detected'; the City row is OMITTED (no noise) when no city", () => {
-    const FIX = parseResult({ show: show({ venue: null }) });
-    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    expect(q.getByTestId(`wizard-step3-card-${DFID}-venue`).textContent).toContain(
-      "Venue not detected",
-    );
-    // City is best-effort ("Venue Name + City IF POSSIBLE") — when it can't be
-    // derived the row drops entirely rather than showing "City not detected" on
-    // every card (the address is usually blank; the city lives in the venue name).
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-venue`).textContent).toContain("The Drake Hotel");
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-city`)).toBeNull();
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-totals`)).toBeNull();
   });
 
   test("per-section counts move to the expanded breakdown headers (anti-tautology)", () => {
@@ -307,28 +279,19 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     );
   });
 
-  test("dates render role-labeled, humanized, present segments only", () => {
+  test("dates render humanized present segments only on the -dates meta cell", () => {
     const FIX = parseResult({
       show: show({
         dates: { travelIn: "2026-04-09", set: null, showDays: ["2026-04-10"], travelOut: null },
       }),
     });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    const s = summary(q).textContent ?? "";
-    // Humanized + role-labeled (Task 3), not the raw ISO chain.
+    const s = q.getByTestId(`wizard-step3-card-${DFID}-dates`).textContent ?? "";
+    // Humanized, not the raw ISO chain.
     expect(s).toContain("Travel in Apr 9");
     expect(s).toContain("Show Apr 10");
     expect(s).not.toContain("2026-04-09"); // humanized, not raw ISO
     expect(s).not.toContain("Travel out"); // travelOut null → segment omitted
-    expect(s).not.toContain("Dates not detected");
-  });
-
-  test("'Dates not detected' when no date segments are present", () => {
-    const FIX = parseResult({
-      show: show({ dates: { travelIn: null, set: null, showDays: [], travelOut: null } }),
-    });
-    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    expect(summary(q).textContent).toContain("Dates not detected");
   });
 
   test("show-days that can't be humanized fall back to the raw ISO (a present date is never dropped)", () => {
@@ -338,43 +301,10 @@ describe("Step3SheetCard — summary (§4.2)", () => {
       }),
     });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    const s = summary(q).textContent ?? "";
+    const s = q.getByTestId(`wizard-step3-card-${DFID}-dates`).textContent ?? "";
     // humanizeDayRange → null on all-malformed; the builder falls back to the
     // raw first–last so the Show segment is rendered, not silently omitted.
     expect(s).toContain("Show BADDATE-1 – BADDATE-2");
-    expect(s).not.toContain("Dates not detected");
-  });
-
-  test("diagrams badge shown iff linkedFolder OR embeddedImages present", () => {
-    const withDiagrams = parseResult({
-      diagrams: {
-        linkedFolder: { driveFolderId: "f", driveFolderUrl: "https://x" },
-        embeddedImages: [],
-        linkedFolderItems: [],
-      },
-    });
-    const q1 = render(<Step3SheetCard row={stagedRow(withDiagrams)} wizardSessionId={WSID} />);
-    expect(q1.queryByTestId(`wizard-step3-card-${DFID}-badge-diagrams`)).not.toBeNull();
-    cleanup();
-    const noDiagrams = parseResult();
-    const q2 = render(<Step3SheetCard row={stagedRow(noDiagrams)} wizardSessionId={WSID} />);
-    expect(q2.queryByTestId(`wizard-step3-card-${DFID}-badge-diagrams`)).toBeNull();
-  });
-
-  test("reel badge shown iff openingReel present", () => {
-    const withReel = parseResult({
-      openingReel: {
-        driveFileId: "reel-1",
-        drive_modified_time: "2026-04-01T00:00:00Z",
-        headRevisionId: "r1",
-        mimeType: "video/mp4",
-      },
-    });
-    const q1 = render(<Step3SheetCard row={stagedRow(withReel)} wizardSessionId={WSID} />);
-    expect(q1.queryByTestId(`wizard-step3-card-${DFID}-badge-reel`)).not.toBeNull();
-    cleanup();
-    const q2 = render(<Step3SheetCard row={stagedRow(parseResult())} wizardSessionId={WSID} />);
-    expect(q2.queryByTestId(`wizard-step3-card-${DFID}-badge-reel`)).toBeNull();
   });
 
   // The summary warning row shows ONLY the self-explanatory per-class data-gap
@@ -411,36 +341,14 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-data-gaps`)).toBeNull();
   });
 
-  test("the City row is OMITTED for an ambiguous address (no wrong guess, no noise); the venue name still shows", () => {
-    // An ambiguous two-segment address that cityFromAddress deliberately can't
-    // resolve to a confident city (it returns null rather than guess wrong).
-    const FIX = parseResult({
-      show: show({ venue: { name: "Navy Pier", address: "Navy Pier, Chicago" } }),
-    });
-    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    // The venue name still renders; the ambiguous address yields no city → the row drops.
-    expect(q.getByTestId(`wizard-step3-card-${DFID}-venue`).textContent).toContain("Navy Pier");
-    expect(q.queryByTestId(`wizard-step3-card-${DFID}-city`)).toBeNull();
-  });
-
-  test("the City row IS shown when a structured address yields a confident city", () => {
-    const FIX = parseResult({
-      show: show({
-        venue: { name: "The Drake Hotel", address: "140 E Walton Pl, Chicago, IL 60611" },
-      }),
-    });
-    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    expect(q.getByTestId(`wizard-step3-card-${DFID}-city`).textContent).toContain("Chicago");
-  });
-
-  test("the collapsed crew preview is gone — crew now lives ONLY in the expanded breakdown", () => {
+  test("the collapsed crew preview is gone — crew now lives ONLY in the review modal", () => {
     const FIX = parseResult({ crewMembers: crew(12) });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
     // The old collapsed crew-preview testid no longer exists, and no crew name
-    // appears in the always-visible summary block.
+    // appears on the compact card face.
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-crew-summary`)).toBeNull();
-    expect(summary(q).textContent ?? "").not.toContain(FIX.crewMembers[0]!.name);
-    // Crew appears only after expanding (the breakdown roster).
+    expect(card(q).textContent ?? "").not.toContain(FIX.crewMembers[0]!.name);
+    // Crew appears only after opening the review modal (the breakdown roster).
     fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));
     expect(q.getByTestId(`wizard-step3-card-${DFID}-breakdown-crew`).textContent).toContain(
       FIX.crewMembers[0]!.name,
@@ -454,47 +362,32 @@ describe("Step3SheetCard — title deep link + wrapping", () => {
   // landing rather than a gid-less base URL that opens the doc's last-active tab.
   const SHEET_URL = (dfid: string) => `https://docs.google.com/spreadsheets/d/${dfid}/edit#gid=0`;
 
-  test("the show title is a deep link to the SOURCE sheet, opening in a new tab", () => {
-    const FIX = parseResult();
-    const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    const link = q.getByTestId(`wizard-step3-card-${DFID}-title-link`) as HTMLAnchorElement;
-    expect(link.tagName).toBe("A");
-    // Derived from the fixture's driveFileId, not a hardcoded literal.
-    expect(link.getAttribute("href")).toBe(SHEET_URL(DFID));
-    expect(link.getAttribute("target")).toBe("_blank");
-    expect(link.getAttribute("rel")).toContain("noopener");
-    expect(link.textContent).toContain(FIX.show.title);
-    // Persistent (non-hover) link affordance: a trailing external-link icon. Removing
-    // it must fail this test (the link's only at-rest "opens elsewhere" cue).
-    expect(link.querySelector("svg")).not.toBeNull();
-  });
-
-  test("'More' is a quiet left-aligned button that OPENS A DIALOG, NOT a boxed full-width dropdown", () => {
+  // Variant B: the SELECTABLE card's title is plain text (-title); the source-sheet
+  // deep link (-title-link) is retained only on the non-selectable variants
+  // (no-details below + demoted, covered in the Task 4 block). The modal trigger
+  // opens the review dialog.
+  test("the selectable card's Review/View button opens the review DIALOG (haspopup=dialog)", () => {
     const q = render(<Step3SheetCard row={stagedRow(parseResult())} wizardSessionId={WSID} />);
     const btn = q.getByTestId(`wizard-step3-card-${DFID}-more`);
-    expect(btn.textContent).toContain("More");
-    // Quiet text button: sizes to its content at the card's left edge…
-    expect(btn.className).toMatch(/\bself-start\b/);
-    // …not a boxed, full-width dropdown-styled button (no border, no spread).
-    expect(btn.className).not.toMatch(/\bborder\b/);
-    expect(btn.className).not.toMatch(/\bjustify-between\b/);
-    // It OPENS A MODAL (haspopup=dialog) — so it is not an inline expand toggle:
-    // it carries no aria-expanded, and no dialog exists until it is clicked.
+    // Clean row (no warnings) → View.
+    expect(btn.textContent).toContain("View");
     expect(btn.getAttribute("aria-haspopup")).toBe("dialog");
+    // It is a modal trigger, not an inline expand toggle: no aria-expanded, and
+    // no dialog exists until it is clicked.
     expect(btn.getAttribute("aria-expanded")).toBeNull();
-    expect(q.queryByTestId(`wizard-step3-card-${DFID}-review-modal`)).toBeNull();
-    // Persistent (non-hover) chevron affordance.
-    expect(btn.querySelector("svg")).not.toBeNull();
+    expect(q.queryByRole("dialog")).toBeNull();
   });
 
-  test("the title WRAPS (no `truncate`) so a long show name stays fully readable", () => {
+  test("the selectable card's title truncates on the compact row (single-line)", () => {
     const FIX = parseResult({
       show: show({ title: "A Very Long Show Title That Would Otherwise Truncate Off The Card" }),
     });
     const q = render(<Step3SheetCard row={stagedRow(FIX)} wizardSessionId={WSID} />);
-    const link = q.getByTestId(`wizard-step3-card-${DFID}-title-link`);
-    expect(link.className).not.toMatch(/\btruncate\b/);
-    expect(link.className).toMatch(/wrap-break-word/);
+    const titleEl = q.getByTestId(`wizard-step3-card-${DFID}-title`);
+    // The compact row keeps titles to one line (truncate); no source link on the
+    // selectable variant.
+    expect(titleEl.className).toMatch(/\btruncate\b/);
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-title-link`)).toBeNull();
   });
 
   test("even a no-details (null parseResult) row links its title to the source sheet", () => {
@@ -514,36 +407,29 @@ describe("Step3SheetCard — title deep link + wrapping", () => {
 // checked/applied-clean row that carries data-gap warnings must show the
 // PER-CLASS detail (not just the generic count) before the publish checkbox.
 describe("Step3SheetCard — data-gap detail (P3 primary, §6.2a)", () => {
-  test("renders per-class detail for data-gap warnings; the non-DQ warn gets no chip; never the raw code", () => {
+  test("the review chip shows the data-gap COUNT (non-DQ warns excluded); never the raw code", () => {
     const w = [
       { severity: "warn" as const, code: "FIELD_UNREADABLE", message: "phone unreadable" },
       { severity: "warn" as const, code: "FIELD_UNREADABLE", message: "phone 2 unreadable" },
       { severity: "warn" as const, code: "BLOCK_DISAPPEARED", message: "hotel block gone" },
-      // a non-data-quality warn (benign autocorrect) → NO summary chip; it lives
-      // only in the "More" details.
+      // a non-data-quality warn (benign autocorrect) → NOT counted; it lives only
+      // in the review modal.
       { severity: "warn" as const, code: "STAGE_WORD_AUTOCORRECTED", message: "x" },
     ];
-    // An applied (checked) row at the publish decision point.
     const FIX = parseResult({ warnings: w });
     const q = render(
       <Step3SheetCard row={stagedRow(FIX, { status: "applied" })} wizardSessionId={WSID} />,
     );
-    const detail = q.getByTestId(`wizard-step3-card-${DFID}-data-gaps`);
-    // Counts derive from the SEEDED warning array (anti-tautology), never literals.
-    const fieldCount = w.filter((x) => x.code === "FIELD_UNREADABLE").length;
-    const blockCount = w.filter((x) => x.code === "BLOCK_DISAPPEARED").length;
-    expect(
-      q.getByTestId(`wizard-step3-card-${DFID}-data-gap-FIELD_UNREADABLE`).textContent,
-    ).toContain(`${fieldCount} unreadable field${fieldCount === 1 ? "" : "s"}`);
-    expect(
-      q.getByTestId(`wizard-step3-card-${DFID}-data-gap-BLOCK_DISAPPEARED`).textContent,
-    ).toContain(`${blockCount} removed section${blockCount === 1 ? "" : "s"}`);
-    // UNKNOWN_SECTION_HEADER count is 0 here → no entry.
-    expect(q.queryByTestId(`wizard-step3-card-${DFID}-data-gap-UNKNOWN_SECTION_HEADER`)).toBeNull();
-    // The non-DQ warn is NOT chipped in the summary (no "+K other" anymore).
-    expect(q.queryByTestId(`wizard-step3-card-${DFID}-warnings-other`)).toBeNull();
-    // invariant 5: no raw §12.4 code literal in the detail DOM.
-    expect(detail.textContent).not.toMatch(/FIELD_UNREADABLE|BLOCK_DISAPPEARED/);
+    const chip = q.getByTestId(`wizard-step3-card-${DFID}-review-chip`);
+    // total derives from the SEEDED data-quality warnings (anti-tautology), never a literal.
+    const total = w.filter((x) =>
+      ["FIELD_UNREADABLE", "UNKNOWN_SECTION_HEADER", "BLOCK_DISAPPEARED"].includes(x.code),
+    ).length;
+    expect(chip.textContent).toContain(`${total} ${total === 1 ? "needs" : "need"} a look`);
+    // invariant 5: no raw §12.4 code literal in the chip.
+    expect(chip.textContent).not.toMatch(/FIELD_UNREADABLE|BLOCK_DISAPPEARED/);
+    // The per-class breakdown moved to the review modal — no -data-gaps on the card face.
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-data-gaps`)).toBeNull();
   });
 
   test("a lone non-data-quality warning → no summary chip row at all", () => {
@@ -914,5 +800,151 @@ describe("Step3SheetCard — UNKNOWN_FIELD row-label surfacing + legacy shim (Pa
     fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));
     const panel = q.getByTestId(`wizard-step3-card-${DFID}-breakdown-warnings`);
     expect(within(panel).queryByRole("link", { name: /Open in Sheet/ })).toBeNull();
+  });
+});
+
+describe("Step3SheetCard compact list row (Task 4)", () => {
+  // Each warning is a data-quality FIELD_UNREADABLE so summarizeDataGaps().total
+  // equals the count (derived from the fixture, not hardcoded).
+  const warn = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      code: "FIELD_UNREADABLE",
+      severity: "warn" as const,
+      message: `field ${i} unreadable`,
+    }));
+
+  test("clean, no warnings → View button, no chip, plain title (no -title-link)", () => {
+    const q = render(
+      <Step3SheetCard row={stagedRow(parseResult({ warnings: [] }))} wizardSessionId={WSID} />,
+    );
+    expect(within(card(q)).getByTestId(`wizard-step3-card-${DFID}-more`).textContent).toContain(
+      "View",
+    );
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-review-chip`)).toBeNull();
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-title-link`)).toBeNull();
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-title`)).toBeTruthy();
+  });
+
+  test("clean, N data-gap warnings → Review button + chip 'N need a look' (verb-agreed)", () => {
+    const q = render(
+      <Step3SheetCard row={stagedRow(parseResult({ warnings: warn(2) }))} wizardSessionId={WSID} />,
+    );
+    const chip = within(card(q)).getByTestId(`wizard-step3-card-${DFID}-review-chip`);
+    expect(chip.textContent).toContain("2 need a look"); // total===2 from fixture
+    expect(within(card(q)).getByTestId(`wizard-step3-card-${DFID}-more`).textContent).toContain(
+      "Review",
+    );
+  });
+
+  test("single warning → 'needs' singular", () => {
+    const q = render(
+      <Step3SheetCard row={stagedRow(parseResult({ warnings: warn(1) }))} wizardSessionId={WSID} />,
+    );
+    expect(
+      within(card(q)).getByTestId(`wizard-step3-card-${DFID}-review-chip`).textContent,
+    ).toContain("1 needs a look");
+  });
+
+  test("meta line shows client · dates · venue from parseResult.show", () => {
+    const q = render(
+      <Step3SheetCard
+        row={stagedRow(
+          parseResult({
+            show: show({ client_label: "Acme", venue: { name: "Grand Ballroom", address: "" } }),
+          }),
+        )}
+        wizardSessionId={WSID}
+      />,
+    );
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-client`).textContent).toContain("Acme");
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-venue`).textContent).toContain("Grand Ballroom");
+    expect(
+      (q.getByTestId(`wizard-step3-card-${DFID}-dates`).textContent ?? "").trim().length,
+    ).toBeGreaterThan(0);
+  });
+
+  test("meta line omits each absent segment (no empty node, no dangling separator)", () => {
+    const q = render(
+      <Step3SheetCard
+        row={stagedRow(
+          parseResult({
+            show: show({
+              client_label: "",
+              venue: null,
+              dates: { travelIn: null, set: null, showDays: [], travelOut: null },
+            }),
+          }),
+        )}
+        wizardSessionId={WSID}
+      />,
+    );
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-client`)).toBeNull();
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-dates`)).toBeNull();
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-venue`)).toBeNull();
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-title`)).toBeTruthy();
+  });
+
+  test("demoted RESCAN → no checkbox, 'Needs another look' chip, rescan banner, title-link, Review modal trigger", async () => {
+    const q = render(
+      <Step3SheetCard
+        row={{
+          ...stagedRow(parseResult({ warnings: [] })),
+          lastFinalizeFailureCode: "RESCAN_REVIEW_REQUIRED",
+        }}
+        wizardSessionId={WSID}
+      />,
+    );
+    expect(q.queryByTestId(`wizard-step3-checkbox-${DFID}`)).toBeNull();
+    expect(
+      within(card(q)).getByTestId(`wizard-step3-card-${DFID}-review-chip`).textContent,
+    ).toContain("Needs another look");
+    expect(q.getByTestId(`wizard-step3-rescan-review-${DFID}`)).toBeTruthy();
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-title-link`)).toBeTruthy();
+    const more = q.getByTestId(`wizard-step3-card-${DFID}-more`);
+    expect(more.textContent).toContain("Review");
+    fireEvent.click(more);
+    await waitFor(() => expect(q.getByRole("dialog")).toBeTruthy());
+  });
+
+  test("demoted NON-RESCAN (WIZARD_SESSION_SUPERSEDED) → no checkbox, chip, NotPublishableNote, title-link, Review trigger", async () => {
+    const q = render(
+      <Step3SheetCard
+        row={{
+          ...stagedRow(parseResult({ warnings: [] })),
+          lastFinalizeFailureCode: "WIZARD_SESSION_SUPERSEDED",
+        }}
+        wizardSessionId={WSID}
+      />,
+    );
+    expect(q.queryByTestId(`wizard-step3-checkbox-${DFID}`)).toBeNull();
+    expect(
+      within(card(q)).getByTestId(`wizard-step3-card-${DFID}-review-chip`).textContent,
+    ).toContain("Needs another look");
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-not-publishable`)).toBeTruthy();
+    expect(q.queryByTestId(`wizard-step3-rescan-review-${DFID}`)).toBeNull();
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-title-link`)).toBeTruthy();
+    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));
+    await waitFor(() => expect(q.getByRole("dialog")).toBeTruthy());
+  });
+
+  test("no-details (parseResult null) → couldn't-read card, no checkbox/chip/button, keeps -title-link", () => {
+    const q = render(
+      <Step3SheetCard
+        row={stagedRow(null, { driveFileName: "broken.sheet" })}
+        wizardSessionId={WSID}
+      />,
+    );
+    expect(card(q).getAttribute("data-no-details")).toBe("true");
+    expect(card(q).textContent).toContain("broken.sheet");
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-more`)).toBeNull();
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-title-link`)).toBeTruthy();
+  });
+
+  test("View/Review opens the modal (mounts on click)", async () => {
+    const q = render(
+      <Step3SheetCard row={stagedRow(parseResult({ warnings: [] }))} wizardSessionId={WSID} />,
+    );
+    fireEvent.click(q.getByTestId(`wizard-step3-card-${DFID}-more`));
+    await waitFor(() => expect(q.getByRole("dialog")).toBeTruthy());
   });
 });
