@@ -55,11 +55,11 @@ export const MESSAGE_CATALOG = {
     resolution: "manual",
     audience: "doug",
     dougFacing:
-      "Two crew rows share the same email — Google login is unsafe to resolve. The duplicate-email check normally catches this; please re-share the sheet so we can re-parse, or contact the developer.",
+      "Two crew rows share the same email, so Google login is unsafe to resolve. The duplicate-email check normally catches this; please re-share the sheet so we can re-parse, or contact the developer.",
     crewFacing: "Something is misconfigured for this show. Doug has been notified.",
     followUp: "Doug → fix sheet duplicate; if persistent, Eric",
     helpfulContext:
-      "When two people on the crew list share the same email address, we can't safely tell who's logging in. The duplicate-email check should normally catch this in the parse step. If you're seeing this code, the safest fix is to look at the most recent edits to your crew block — usually one of the two emails is a typo or a paste mistake. Once you correct the duplicate in your sheet, mark this alert resolved from the affected show's page.",
+      "When two people on the crew list share the same email address, we can't safely tell who's logging in. The duplicate-email check should normally catch this in the parse step. If you're seeing this code, the safest fix is to look at the most recent edits to your crew block. Usually one of the two emails is a typo or a paste mistake. Once you correct the duplicate in your sheet, mark this alert resolved from the affected show's page.",
     title: "Two crew rows share an email",
     longExplanation:
       "Two rows in the CREW block share the same email address, so we can't safely tell who is logging in. Usually one of the two emails is a typo or paste mistake. Fix the duplicate in the sheet, then mark this alert resolved from the affected show's page.",
