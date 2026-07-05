@@ -105,6 +105,12 @@ export type Step3PublishCounts = {
   publishCount: number;
   // Clean rows currently UNCHECKED (optimistic) → kept as Held drafts.
   uncheckedCleanCount: number;
+  // Selectable rows total (clean + reviewable-preview + not demoted) — the "M"
+  // in the sticky bar's "N of M selected to publish". Excludes demoted/no-details
+  // clean rows (which stay in publishCount's publishRows base but have no checkbox).
+  selectableTotal: number;
+  // Selectable rows currently checked — the "N". At first paint == applied count.
+  selectedCount: number;
 };
 
 type Step3ReviewProps = {
@@ -631,6 +637,23 @@ function hasReviewablePreview(row: Step3Row): boolean {
   return pr != null && typeof pr === "object" && !!(pr as ParseResult).show;
 }
 
+// Exported so the client wrapper (Step3ReviewWithFinalize) can seed first paint
+// with NO flash, using the SAME predicate the component uses for selectableRows /
+// Select-all. selectedCount == the server-truth applied count at first paint
+// (before any optimistic overlay exists).
+export function computeSelectableCounts(rows: Step3Row[]): {
+  selectableTotal: number;
+  selectedCount: number;
+} {
+  const selectable = rows.filter(
+    (r) => isCleanRow(r.status) && hasReviewablePreview(r) && !r.lastFinalizeFailureCode,
+  );
+  return {
+    selectableTotal: selectable.length,
+    selectedCount: selectable.filter((r) => r.status === "applied").length,
+  };
+}
+
 export function Step3Review({ wizardSessionId, rows, onCountsChange }: Step3ReviewProps) {
   const router = useRouter();
   const unresolvedCount = rows.filter((r) => !isResolved(r.status)).length;
@@ -819,8 +842,19 @@ export function Step3Review({ wizardSessionId, rows, onCountsChange }: Step3Revi
     onCountsChange?.({
       publishCount: optimisticPublishCount,
       uncheckedCleanCount: optimisticUncheckedCleanCount,
+      // selectableTotal/selectedCount drive the sticky bar's "N of M". cleanCount
+      // (selectableRows.length) and appliedCount (selectableRows checked) are the
+      // same values the header select-all uses, so the bar tracks the boxes too.
+      selectableTotal: cleanCount,
+      selectedCount: appliedCount,
     });
-  }, [onCountsChange, optimisticPublishCount, optimisticUncheckedCleanCount]);
+  }, [
+    onCountsChange,
+    optimisticPublishCount,
+    optimisticUncheckedCleanCount,
+    cleanCount,
+    appliedCount,
+  ]);
 
   // ONE POST implementation for the whole publish-intent surface: the shared
   // helper (lib/admin/publishIntent.ts) carries the refusal semantics — HTTP

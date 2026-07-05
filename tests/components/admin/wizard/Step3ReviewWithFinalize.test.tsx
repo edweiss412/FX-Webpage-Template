@@ -21,7 +21,7 @@ import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type { ParseResult } from "@/lib/parser/types";
 import { Step3ReviewWithFinalize } from "@/components/admin/wizard/Step3ReviewWithFinalize";
-import type { Step3Row } from "@/components/admin/wizard/Step3Review";
+import { Step3Review, type Step3Row } from "@/components/admin/wizard/Step3Review";
 
 const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -127,5 +127,26 @@ describe("Step3ReviewWithFinalize — optimistic publish count", () => {
         "Publish 2 shows & finish setup",
       ),
     );
+  });
+});
+
+describe("Step3PublishCounts — selectable totals (Task 1)", () => {
+  test("onCountsChange reports selectableTotal excluding demoted/no-details clean rows", () => {
+    const onCounts = vi.fn();
+    // 2 clean+selectable (1 applied → checked), 1 clean-but-demoted
+    // (lastFinalizeFailureCode set → excluded from selectable, kept in publishRows).
+    const rows: Step3Row[] = [
+      { ...stagedSelectable("a", "Alpha"), status: "applied" },
+      stagedSelectable("b", "Bravo"),
+      { ...stagedSelectable("c", "Charlie"), lastFinalizeFailureCode: "RESCAN_REVIEW_REQUIRED" },
+    ];
+    render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={rows} onCountsChange={onCounts} />,
+    );
+    const last = onCounts.mock.calls.at(-1)![0];
+    expect(last.selectableTotal).toBe(2); // demoted 'c' excluded
+    expect(last.selectedCount).toBe(1); // only 'a' applied/checked
+    expect(last.publishCount).toBe(1); // unchanged (over publishRows)
+    expect(last.uncheckedCleanCount).toBe(2); // unchanged: 'b' + demoted 'c'
   });
 });

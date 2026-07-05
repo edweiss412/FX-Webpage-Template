@@ -21,6 +21,7 @@ import { useState } from "react";
 import { FinalizeButton } from "@/components/admin/FinalizeButton";
 import {
   Step3Review,
+  computeSelectableCounts,
   type Step3PublishCounts,
   type Step3Row,
 } from "@/components/admin/wizard/Step3Review";
@@ -45,6 +46,9 @@ export function Step3ReviewWithFinalize({
   const [counts, setCounts] = useState<Step3PublishCounts>({
     publishCount: initialPublishCount,
     uncheckedCleanCount: initialUncheckedCleanCount,
+    // Seed the selectable totals from the server rows so the sticky bar's "N of M"
+    // is correct on first paint (same "seeded from server, no flash" contract).
+    ...computeSelectableCounts(rows),
   });
 
   return (
