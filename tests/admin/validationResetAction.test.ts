@@ -47,8 +47,20 @@ vi.mock("@/lib/admin/validationDeployment", () => ({
 // ---------------------------------------------------------------------------
 vi.mock("@/lib/auth/requireDeveloper", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/auth/requireDeveloper")>();
-  return { ...actual, requireDeveloper: vi.fn(async () => {}) };
+  return {
+    ...actual,
+    requireDeveloper: vi.fn(async () => {}),
+    // invariant #10: the reset/reseed actions now resolve actor identity before the
+    // mutation. Without this override the spread `...actual` requireDeveloperIdentity
+    // hits the real gate and throws DEVELOPER_SESSION_LOOKUP_FAILED.
+    requireDeveloperIdentity: vi.fn(async () => ({ email: "dev@example.com" })),
+  };
 });
+
+// invariant #10: the actions emit via logAdminOutcome post-commit; stub it so this
+// pre-existing test doesn't drive the real logger (behavioral proof lives in
+// tests/log/adminOutcomeBehavior.test.ts).
+vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome: vi.fn(async () => undefined) }));
 
 // ---------------------------------------------------------------------------
 // Mock: revalidatePath
