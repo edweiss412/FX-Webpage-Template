@@ -421,11 +421,28 @@ advisory-before-row**, exactly mirroring the proven reap path
    (`sessionLifecycle.ts:164`) deletes, so every drive-id-bearing row the purge
    removes for the active session is covered (not just the applied/shadow/
    unresolved subset — R8 completeness). Collect via **PLAIN reads, NO
-   `FOR UPDATE`** anywhere. (Only the ACTIVE session needs locking: `purgeWizardRows`
-   also deletes OTHER sessions' rows, but every recovery route rejects a non-active
-   session — `pending_wizard_session_id = $wsid` guards — so no recovery can be
-   mutating an inactive session's rows. Reuse the existing `collectReapDriveFileIds`
-   helper rather than a new query.)
+   `FOR UPDATE`** anywhere, reusing the existing `collectReapDriveFileIds(sessionId)`
+   helper rather than a new query.
+
+   **The discard purge becomes SESSION-SCOPED (R9 — cleanup-vs-reap cross-session
+   race).** Today `purgeWizardRows` (`sessionLifecycle.ts:164`) deletes ALL wizard
+   rows across ALL sessions (and unconditionally truncates
+   `onboarding_scan_manifest`). So cleanup for active session A would delete a
+   stale NON-active session B's rows WITHOUT holding B's `show:` locks, racing
+   `reapStaleOnboardingSessions` (`sessionLifecycle.ts:569–742`) — which locks B's
+   `show:` ids and depends on B's manifest to delete B's interim shows — orphaning
+   B's unpublished interim show (invariant 2 violation). Fix: the discard path
+   deletes ONLY the session being discarded — a session-scoped delete
+   (`where wizard_session_id = $sessionId` for `pending_syncs`, `pending_ingestions`,
+   `onboarding_scan_manifest`, `deferred_ingestions`; `shows_pending_changes` is
+   already session-scoped at `:391`). This makes "lock the active session's
+   five-table union" both COMPLETE and CORRECT and removes cleanup from the
+   cross-session reap race (reap owns other stale sessions' debris — the existing
+   division of labor). Only `cleanupAbandonedFinalize` changes (its final
+   `purgeWizardRows` at `:458` → the session-scoped delete); the rotate-path
+   callers `purgeAndRotateOnboardingSession` / `purgeAndRotateIfStale` are NOT
+   touched by this spec. Any existing test asserting post-discard GLOBAL emptiness
+   of wizard staging is reconciled to session-scoped in the same change.
 2. Acquire `show:<drive>` advisory locks for that whole set in ONE globally-sorted
    acquisition, BEFORE any row lock or mutation. This is the ONLY ordering; there
    is no remaining `FOR UPDATE`-before-`show:` path in cleanup. (The old
@@ -469,7 +486,7 @@ result and does the right thing.
 | `app/api/admin/onboarding/finalize/route.ts` | Replace the `:730` unconditional demote with the inline re-parse + `applyRescanDecisionUnderLock`; continue-on-clean; post-commit auto-heal `log.info`. |
 | `lib/onboarding/rescanWizardSheet.ts` | Extract post-lock core into `applyRescanDecisionUnderLock`; call it. |
 | `lib/onboarding/applyRescanDecisionUnderLock.ts` (new, or co-located) | The shared lock-free clean/dirty core. |
-| `lib/onboarding/sessionLifecycle.ts` | Add the provably-stuck eligibility path to `cleanupAbandonedFinalize`. |
+| `lib/onboarding/sessionLifecycle.ts` | Add the provably-stuck eligibility path; bypass 24h + recency guards for it; rewrite cleanup's drive-file locking to advisory-before-row over the full five-table union (remove the `applied`/shadow `FOR UPDATE`); add the under-lock recheck; make the discard purge session-scoped (§5.5). |
 | `components/admin/CleanupAbandonedFinalizeButton.tsx` | Confirm copy: published shows stay live. |
 | `tests/auth/advisoryLockRpcDeadlock.test.ts` | Pin `applyRescanDecisionUnderLock` acquires no advisory lock. |
 | `tests/admin/_metaInfraContract.test.ts` | Register `_unresolvedSheets` reader. |
@@ -485,11 +502,14 @@ result and does the right thing.
   of `show:<drive>` locks (`lockCleanupDriveFiles`). BOTH cleanup purge paths
   (24h-stale and stuck) now collect the session's ENTIRE drive_file_id set via the
   SAME five-table union as `collectReapDriveFileIds` (`sessionLifecycle.ts:516–543`
-  — manifest, shadows, pending_syncs, pending_ingestions, deferred_ingestions =
-  exactly what `purgeWizardRows` deletes) via PLAIN read, and lock it ALL
-  ADVISORY-BEFORE-ROW (the old `applied`/shadow `FOR UPDATE`-then-advisory in
-  `lockCleanupDriveFiles` is REMOVED — R7/R8 structural fix, mirroring
-  `collectReapDriveFileIds`/`lockReapDriveFiles`, `sessionLifecycle.ts:516–567`).
+  — manifest, shadows, pending_syncs, pending_ingestions, deferred_ingestions) for
+  the DISCARDED session, via PLAIN read, and lock it ALL ADVISORY-BEFORE-ROW (the
+  old `applied`/shadow `FOR UPDATE`-then-advisory in `lockCleanupDriveFiles` is
+  REMOVED — R7/R8 structural fix, mirroring `collectReapDriveFileIds`/
+  `lockReapDriveFiles`, `sessionLifecycle.ts:516–567`). The discard purge is
+  SESSION-SCOPED (R9): it deletes only the discarded session's rows, so the
+  locked set covers everything the purge removes and cleanup no longer races
+  `reapStaleOnboardingSessions` on another session's rows.
   This closes AB-BA against EVERY `show:`-first recovery route (Apply on `staged`
   rows, Unapprove on `applied` rows, discard, extract-agenda). Single holder per
   key preserved (cleanup is the only acquirer within its tx; finalize is excluded
@@ -638,6 +658,13 @@ are plain conditional server render. Transition-audit task therefore asserts
 - **T10-static (R7 structural):** a static-source meta-test asserting
   `cleanupAbandonedFinalize`'s lock helper contains no `for update` before its
   `pg_advisory_xact_lock(show:…)` calls — reintroducing the inversion fails at CI.
+- **T11 (Thread 2 × reap cross-session — R9):** a `.db.test.ts` with active
+  session A being discarded and a stale non-active session B holding staging rows;
+  discard of A deletes ONLY A's rows (session-scoped purge) — B's manifest /
+  pending rows and interim show survive untouched, so a concurrent/subsequent
+  `reapStaleOnboardingSessions` still finds B's provenance and cleans B correctly.
+  Catches: cleanup globally purging B's rows without B's `show:` lock, orphaning
+  B's interim show (invariant 2).
 
 Tests deriving "unresolved" expectations assert against the DB row state (the
 data source), not against the rendered container — anti-tautology rule.
