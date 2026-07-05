@@ -423,7 +423,13 @@ describe("§11 T8: rescanPending false ↔ true — existing RescanSheetButton l
     await act(async () => {
       resolveFetch(
         new Response(
-          JSON.stringify({ ok: true, status: "updated", needsReview: false, changed: true }),
+          JSON.stringify({
+            ok: true,
+            status: "updated",
+            needsReview: false,
+            changed: true,
+            demoted: false,
+          }),
           { status: 200 },
         ),
       );
@@ -688,7 +694,13 @@ describe("§H N4: rescan overlay result — fast pop-in on appear; instant (sync
       vi.fn(
         async () =>
           new Response(
-            JSON.stringify({ ok: true, status: "updated", needsReview: false, changed: true }),
+            JSON.stringify({
+              ok: true,
+              status: "updated",
+              needsReview: false,
+              changed: true,
+              demoted: false,
+            }),
             { status: 200 },
           ),
       ),
@@ -962,7 +974,13 @@ describe("§H compound (d): unpublish resolves while the rescan overlay result i
       vi.fn(
         async () =>
           new Response(
-            JSON.stringify({ ok: true, status: "updated", needsReview: false, changed: true }),
+            JSON.stringify({
+              ok: true,
+              status: "updated",
+              needsReview: false,
+              changed: true,
+              demoted: false,
+            }),
             { status: 200 },
           ),
       ),

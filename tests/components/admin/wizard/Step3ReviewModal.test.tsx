@@ -525,7 +525,13 @@ describe("Step3ReviewModal — footer note + buttons (spec §9.1)", () => {
       vi.fn(
         async () =>
           new Response(
-            JSON.stringify({ ok: true, status: "updated", needsReview: false, changed: true }),
+            JSON.stringify({
+              ok: true,
+              status: "updated",
+              needsReview: false,
+              changed: true,
+              demoted: false,
+            }),
             { status: 200 },
           ),
       ),
