@@ -179,7 +179,7 @@ it("preserves reachability: reached=link, unreached=disabled span", () => {
 
 - [ ] **Step 4: Run to verify it passes** — `pnpm vitest run tests/components/onboardingWizardNav.test.tsx` → PASS. Then the wizard render suite: `pnpm vitest run tests/components/admin/OnboardingWizard.test.tsx`.
 
-- [ ] **Step 5: Commit** — `test(crew-page): stepper redesign specs` + `feat(crew-page): redesign shared StepIndicator (labels + connectors + done-check)` (or one combined TDD commit).
+- [ ] **Step 5: Commit** — ONE commit for the task (TDD: the failing tests + the implementation that greens them land together; AGENTS.md invariant 1 + 6 — one task, one commit): `feat(crew-page): redesign shared StepIndicator (labels + connectors + done-check)`.
 
 ---
 
@@ -305,12 +305,22 @@ it("meta line shows client · dates · venue from parseResult.show, omitting abs
   const q2 = render(<Step3SheetCard row={stagedRow(parseResult({ warnings: [], clientLabel: null }))} wizardSessionId={WSID} />);
   expect(q2.queryByTestId(`wizard-step3-card-${DFID}-client`)).toBeNull();
 });
-it("demoted (lastFinalizeFailureCode) → no checkbox, non-numeric 'Needs another look' chip, rescan present, keeps -title-link", () => {
+// Demoted has TWO live sub-branches (Step3SheetCard.tsx:325-373): RESCAN_REVIEW_REQUIRED →
+// RescanReviewBanner (`-rescan-review`), every OTHER non-null code → NotPublishableNote
+// (`-not-publishable`). BOTH suppress the checkbox and are non-selectable. Cover both.
+it("demoted RESCAN → no checkbox, 'Needs another look' chip, rescan banner, keeps -title-link", () => {
   const q = render(<Step3SheetCard row={{ ...stagedRow(parseResult({ warnings: [] })), lastFinalizeFailureCode: "RESCAN_REVIEW_REQUIRED" }} wizardSessionId={WSID} />);
   expect(q.queryByTestId(`wizard-step3-checkbox-${DFID}`)).toBeNull();
   expect(within(card(q)).getByTestId(`wizard-step3-card-${DFID}-review-chip`)).toHaveTextContent("Needs another look");
   expect(q.getByTestId(`wizard-step3-rescan-review-${DFID}`)).toBeInTheDocument();
-  // spec §4.3/§9: the demoted (non-selectable) card keeps SheetTitleLink.
+  expect(q.getByTestId(`wizard-step3-card-${DFID}-title-link`)).toBeInTheDocument(); // §4.3/§9
+});
+it("demoted NON-RESCAN (e.g. WIZARD_SESSION_SUPERSEDED) → no checkbox, chip, NotPublishableNote (not rescan), keeps -title-link", () => {
+  const q = render(<Step3SheetCard row={{ ...stagedRow(parseResult({ warnings: [] })), lastFinalizeFailureCode: "WIZARD_SESSION_SUPERSEDED" }} wizardSessionId={WSID} />);
+  expect(q.queryByTestId(`wizard-step3-checkbox-${DFID}`)).toBeNull();
+  expect(within(card(q)).getByTestId(`wizard-step3-card-${DFID}-review-chip`)).toHaveTextContent("Needs another look");
+  expect(q.getByTestId(`wizard-step3-card-${DFID}-not-publishable`)).toBeInTheDocument();
+  expect(q.queryByTestId(`wizard-step3-rescan-review-${DFID}`)).toBeNull(); // non-RESCAN → no rescan link
   expect(q.getByTestId(`wizard-step3-card-${DFID}-title-link`)).toBeInTheDocument();
 });
 it("no-details (parseResult null) → couldn't-read card, no checkbox/chip/button, keeps -title-link", () => {
@@ -330,7 +340,7 @@ Fixture helpers to add (mirror existing builders; each warning is `{ code: "FIEL
 
 - [ ] **Step 2: Run to verify it fails** — `pnpm vitest run tests/components/step3SheetCard.test.tsx` → FAIL (old DOM).
 
-- [ ] **Step 3: Implement** — restructure the selectable render path. **All three variant roots must be `<article data-testid={`wizard-step3-card-${dfid}`}>`** (so the Playwright `article[data-testid^="wizard-step3-card-"]` selectors resolve exactly one element per card). Keep the top guards in order: no-details (`!pr || !pr.show`) returns the existing `data-no-details` card (restyle to compact, keep `-summary` + `SheetTitleLink`/`-title-link`); demoted (`isFinalizeDemoted`) returns the banner + rescan card with the non-numeric "Needs another look" chip and NO checkbox — and **must keep `SheetTitleLink` (`-title-link`)** (it already does at `Step3SheetCard.tsx:397`; do not replace it with the plain `-title`); otherwise the compact selectable card (plain `-title`, checkbox with centered `-checkbox-box`, meta line, chip when `needsLook`, View/Review):
+- [ ] **Step 3: Implement** — restructure the selectable render path. **All three variant roots must be `<article data-testid={`wizard-step3-card-${dfid}`}>`** (so the Playwright `article[data-testid^="wizard-step3-card-"]` selectors resolve exactly one element per card). Keep the top guards in order: no-details (`!pr || !pr.show`) returns the existing `data-no-details` card (restyle to compact, keep `-summary` + `SheetTitleLink`/`-title-link`); demoted (`isFinalizeDemoted`, `Step3SheetCard.tsx:237`) returns a non-selectable card with the non-numeric "Needs another look" chip and NO checkbox, keeping BOTH existing sub-branches: `isDirtyRescan` (`=== "RESCAN_REVIEW_REQUIRED"`) → `RescanReviewBanner` (`-rescan-review`); `!isDirtyRescan && isFinalizeDemoted` (any other code) → `NotPublishableNote` (`-not-publishable`, `Step3SheetCard.tsx:373`). Both **must keep `SheetTitleLink` (`-title-link`)** (already at `Step3SheetCard.tsx:397`; do not replace it with the plain `-title`); otherwise the compact selectable card (plain `-title`, checkbox with centered `-checkbox-box`, meta line, chip when `needsLook`, View/Review):
 
 ```tsx
 // selectable compact row
@@ -577,20 +587,20 @@ test.describe("Step-3 review page — layout dimensions", () => {
   });
 });
 ```
-Add a `gotoStep3(page)` helper following the sibling spec's login+seed flow (the still-valid `tests/e2e/step3-review-modal.layout.spec.ts` shows the admin-auth + seeded-wizard pattern). `Step3PublishBar`'s root already carries `data-testid="wizard-step3-publish-bar"` (Task 6).
+Add a `gotoStep3(page)` helper that uses the **real-app admin auth** pattern from `tests/e2e/onboarding-wizard-step1.spec.ts`: `import { signInAs } from "./helpers/signInAs"` + `ADMIN_FIXTURE` from `./helpers/fixtures`, then `await signInAs(page, ADMIN_FIXTURE)` and `await page.goto("/admin?step=3")`. Reaching Step 3 with review rows requires a **seeded pending wizard session with manifest rows** — use the repo's e2e seed path (the same seeded scan the existing step-2/3 wizard e2e relies on; `pnpm db:seed` + the wizard-session fixture). NOTE: `tests/e2e/step3-review-modal.layout.spec.ts` is a **standalone static harness** (transcribed HTML + Tailwind CLI), NOT a live-app login flow — do not copy its setup; copy `onboarding-wizard-step1.spec.ts`'s. `Step3PublishBar`'s root already carries `data-testid="wizard-step3-publish-bar"` (Task 6).
 
 - [ ] **Step 2: Prove each assertion BITES (negative-regression red).** A real-browser layout assertion is only meaningful if it FAILS when the invariant is violated — run it green against the built page, then, one at a time, temporarily break each invariant and confirm the matching assertion goes RED, then restore:
   - DI-1: remove the stepper's `hidden sm:inline` on non-active labels → re-run at 320px → DI-1 FAILS (overflow) → restore.
   - DI-2: restore `PublishCheckbox`'s old `-mt-2.5 items-start` (top-align) on the label → DI-2 FAILS (the visible checkbox box sits above the card's vertical center) → restore the centered version. (Also verify removing `items-center` from the card row itself fails DI-2.)
   - DI-3: remove the bar's `w-full` class → DI-3 FAILS (bar shrinks to content width in the non-stretch flex parent) → restore. (Also confirm removing the body's bottom padding makes the occlusion half of DI-3 fail.)
   - DI-4: remove the card's `flex-wrap` (or the right cluster's `max-sm:w-full`) → DI-4 FAILS (the cluster stays on the title's row / the card overflows at 360px) → restore.
-  Record the three red runs. This is the TDD-red step for a layout gate (per the negative-regression discipline — a layout assertion that can't fail is tautological).
+  Record the four red runs (DI-1 … DI-4). This is the TDD-red step for a layout gate (per the negative-regression discipline — a layout assertion that can't fail is tautological).
 
 - [ ] **Step 3: Implement** — no NEW product code beyond adding `data-testid="wizard-step3-publish-bar"` to the `Step3PublishBar` root (fold into Task 6) so DI-3's selector is stable; the spec IS the deliverable. This spec **supersedes** the two obsolete step3 layout specs deleted in Tasks 4b/5b (`step3-card-dimensions.spec.ts` grid-tile card, `step3-grid-layout.spec.ts` multi-column grid) — confirm they are gone (`ls tests/e2e/step3-*.spec.ts` shows only this new one plus the still-valid modal specs `step3-review-modal.*`). Confirm the bar CSS satisfies the invariants (full-width within the container; `items-center` centering; body `pb` ≥ bar height so the last card is not occluded).
 
 - [ ] **Step 4: Run to verify it passes (all invariants restored)** — `pnpm exec playwright test tests/e2e/step3-review-page.layout.spec.ts` → PASS. (Runs in the pinned Playwright Docker image on CI per the byte-comparison/runner discipline; locally validate then let CI confirm.)
 
-- [ ] **Step 5: Commit** — `test(crew-page): real-browser layout assertions for Step-3 page (DI-1/2/3)`.
+- [ ] **Step 5: Commit** — `test(crew-page): real-browser layout assertions for Step-3 page (DI-1…DI-4)`.
 
 ---
 
