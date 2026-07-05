@@ -318,6 +318,37 @@ describe("advisory-lock RPC deadlock guard", () => {
     expect(source).not.toMatch(/\.rpc\(/);
   });
 
+  test("T10-static (finalize-resume-deadlock §5.5 R7): cleanup's lock helper takes NO FOR UPDATE before its show: advisory locks (advisory-before-row)", () => {
+    // Thread 2a structural defense — cleanupAbandonedFinalize's drive-file lock
+    // helper (lockCleanupDriveFiles) formerly `SELECT … FOR UPDATE`d applied-
+    // manifest + shadow rows BEFORE acquiring the show: advisory locks — the
+    // reverse of every show:-first recovery route (Apply, Unapprove, discard,
+    // extract-agenda), an AB-BA inversion. Pin advisory-before-row on the helper
+    // body so a future edit reintroducing a FOR UPDATE ahead of the show: lock
+    // fails at CI (reuses the file's stripComments + assertAdvisoryBeforeRowLock).
+    const source = stripComments(
+      readFileSync(join(ROOT, "lib/onboarding/sessionLifecycle.ts"), "utf8"),
+    );
+    const helperStart = source.indexOf("async function lockCleanupDriveFiles");
+    expect(helperStart, "lockCleanupDriveFiles not found").toBeGreaterThan(-1);
+    // The helper is defined immediately before purgeAndRotateOnboardingSession.
+    const helperEnd = source.indexOf(
+      "export async function purgeAndRotateOnboardingSession",
+      helperStart,
+    );
+    expect(helperEnd, "could not bound lockCleanupDriveFiles body").toBeGreaterThan(helperStart);
+    const helperBody = source.slice(helperStart, helperEnd);
+    // Must acquire a show: advisory lock and take NO FOR UPDATE ahead of it.
+    expect(helperBody).toMatch(/pg_advisory_xact_lock\(hashtext\('show:' \|\| \$1\)\)/);
+    assertAdvisoryBeforeRowLock(
+      "lib/onboarding/sessionLifecycle.ts",
+      "lockCleanupDriveFiles",
+      helperBody,
+    );
+    // Belt-and-suspenders: the helper body contains no FOR UPDATE at all.
+    expect(helperBody).not.toMatch(/\bfor\s+update\b/i);
+  });
+
   test("stale-session reap uses direct SQL locks (finalize then show), no lock-taking RPC, no rotation", () => {
     // F4 Task 4.3 — sibling of the cleanup pin above, for reapStaleOnboardingSessions
     // (spec §3.3 row "F4 stale-session reap": same layer as cleanup, single holder).

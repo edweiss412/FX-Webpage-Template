@@ -168,34 +168,50 @@ async function purgeWizardRows(tx: OnboardingSessionTx): Promise<void> {
   await tx.query(`delete from public.deferred_ingestions where wizard_session_id is not null`);
 }
 
-async function lockCleanupDriveFiles(tx: OnboardingSessionTx, sessionId: string): Promise<void> {
-  const appliedManifest = await tx.query<DriveFileIdRow>(
-    `
-      select drive_file_id
-        from public.onboarding_scan_manifest
-       where wizard_session_id = $1::uuid
-         and status = 'applied'
-       for update
-    `,
-    [sessionId],
-  );
-  const shadowRows = await tx.query<DriveFileIdRow>(
-    `
-      select drive_file_id
-        from public.shows_pending_changes
-       where wizard_session_id = $1::uuid
-       for update
-    `,
-    [sessionId],
-  );
+// Thread 2a (spec §5.5 R9): the discard purge for cleanupAbandonedFinalize is
+// SESSION-SCOPED — it deletes ONLY the session being discarded, never the global
+// cross-session sweep purgeWizardRows performs. This makes "lock the active
+// session's five-table union" (lockCleanupDriveFiles) both COMPLETE (covers
+// every row the purge removes) and CORRECT (a stale NON-active session B's rows
+// are left to reapStaleOnboardingSessions, which locks B's show: ids — cleanup
+// no longer races the reap on another session's rows and orphans B's interim
+// show). purgeAndRotateOnboardingSession / purgeAndRotateIfStale keep the global
+// purgeWizardRows — they legitimately reset all wizard staging.
+async function purgeWizardRowsForSession(
+  tx: OnboardingSessionTx,
+  sessionId: string,
+): Promise<void> {
+  await tx.query(`delete from public.pending_syncs where wizard_session_id = $1::uuid`, [
+    sessionId,
+  ]);
+  await tx.query(`delete from public.pending_ingestions where wizard_session_id = $1::uuid`, [
+    sessionId,
+  ]);
+  await tx.query(`delete from public.onboarding_scan_manifest where wizard_session_id = $1::uuid`, [
+    sessionId,
+  ]);
+  await tx.query(`delete from public.deferred_ingestions where wizard_session_id = $1::uuid`, [
+    sessionId,
+  ]);
+}
 
-  const driveFileIds = [
-    ...new Set([...appliedManifest.rows, ...shadowRows.rows].map((row) => row.drive_file_id)),
-  ].sort((left, right) => left.localeCompare(right));
-
+// Thread 2a (spec §5.5 R7/R8): ADVISORY-BEFORE-ROW cleanup locking, mirroring the
+// proven reap path. Collect the DISCARDED session's FULL drive-id union via the
+// SAME five-table union collectReapDriveFileIds uses (PLAIN reads, NO FOR UPDATE
+// anywhere — a FOR UPDATE before the show: advisory locks is AB-BA against every
+// show:-first recovery route: staged Apply on 'staged' rows, Unapprove on
+// 'applied' rows, discard, extract-agenda), then acquire every show: advisory
+// lock in one globally-sorted acquisition. The old applied/shadow FOR UPDATE is
+// removed. Returns the locked, sorted id set (caller currently ignores it).
+async function lockCleanupDriveFiles(
+  tx: OnboardingSessionTx,
+  sessionId: string,
+): Promise<string[]> {
+  const driveFileIds = await collectReapDriveFileIds(tx, sessionId); // sorted, plain read
   for (const driveFileId of driveFileIds) {
     await tx.query(`select pg_advisory_xact_lock(hashtext('show:' || $1))`, [driveFileId]);
   }
+  return driveFileIds;
 }
 
 export async function purgeAndRotateOnboardingSession(
@@ -455,7 +471,7 @@ export async function cleanupAbandonedFinalize(
       throw new OnboardingSessionInfraError("app_settings default row was not found");
     }
 
-    await purgeWizardRows(tx);
+    await purgeWizardRowsForSession(tx, sessionId);
     return { status: "cleaned", settings };
   });
 }
