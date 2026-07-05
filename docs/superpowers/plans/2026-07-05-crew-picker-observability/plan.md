@@ -70,6 +70,21 @@ test("does NOT emit PICKER_IDENTITY_SELECTED on rejection / infra fault", async 
     expect.objectContaining({ code: "PICKER_IDENTITY_SELECTED" }),
   );
 });
+
+test("does NOT emit when selectIdentityCore catches a thrown fault (spec §5 *Core throw path)", async () => {
+  // rpcRow stays valid (beforeEach default) so the RPC succeeds; the throw is forced
+  // in the post-RPC cookie section (`await cookies()` at selectIdentity.ts:129), which
+  // is OUTSIDE the inner RPC try — it propagates to the outer selectIdentityCore catch,
+  // and the emit (after the cookie set) is never reached.
+  vi.mocked(cookies).mockRejectedValueOnce(new Error("cookie store down"));
+  await expect(
+    selectIdentityCore({ slug: SLUG, shareToken: TOKEN, crewMemberId: CREW_ID }),
+  ).resolves.toEqual({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+  expect(logMock.info).not.toHaveBeenCalledWith(
+    expect.any(String),
+    expect.objectContaining({ code: "PICKER_IDENTITY_SELECTED" }),
+  );
+});
 ```
 
 - [ ] **Step 2 — run, expect FAIL** — `pnpm vitest run tests/auth/picker/selectIdentity.test.ts` (info never called with the code).
@@ -160,6 +175,21 @@ test("does NOT emit on invalid input", async () => {
     expect.any(String), expect.objectContaining({ code: "PICKER_IDENTITY_CLEARED" }),
   );
 });
+
+test("does NOT emit when clearIdentityCore catches a thrown fault (spec §5 *Core throw path)", async () => {
+  existingCookie = encodePickerCookie(
+    { v: 1, selections: { [SHOW_ID]: { id: CREW_ID, e: 1, t: 100 } } }, KEY,
+  );
+  // `await cookies()` at clearIdentity.ts:79 (no inner try) → propagates to the
+  // clearIdentityCore catch; the emit (after the cookie rewrite) is never reached.
+  vi.mocked(cookies).mockRejectedValueOnce(new Error("cookie store down"));
+  await expect(
+    clearIdentityCore({ slug: SLUG, shareToken: TOKEN, showId: SHOW_ID }),
+  ).resolves.toEqual({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
+  expect(logMock.info).not.toHaveBeenCalledWith(
+    expect.any(String), expect.objectContaining({ code: "PICKER_IDENTITY_CLEARED" }),
+  );
+});
 ```
 
 - [ ] **Step 2 — run, expect FAIL** (`log` not imported / not emitted).
@@ -240,6 +270,23 @@ test("does NOT emit on a noop (epoch/crew mismatch, no entry for this show, or n
   await cleanupStaleEntryCore({
     slug: SLUG, shareToken: TOKEN, showId: SHOW_ID, expectedEpoch: 1, expectedCrewMemberId: CREW_ID,
   });
+  expect(logMock.info).not.toHaveBeenCalledWith(
+    expect.any(String), expect.objectContaining({ code: "PICKER_STALE_ENTRY_CLEANED" }),
+  );
+});
+
+test("does NOT emit when cleanupStaleEntryCore catches a thrown fault (spec §5 *Core throw path)", async () => {
+  existingCookie = encodePickerCookie(
+    { v: 1, selections: { [SHOW_ID]: { id: CREW_ID, e: 1, t: 100 } } }, KEY,
+  );
+  // `await cookies()` at cleanupStaleEntry.ts:76 (before the upsertAdminAlert try) →
+  // propagates to the cleanupStaleEntryCore catch; the emit is never reached.
+  vi.mocked(cookies).mockRejectedValueOnce(new Error("cookie store down"));
+  await expect(
+    cleanupStaleEntryCore({
+      slug: SLUG, shareToken: TOKEN, showId: SHOW_ID, expectedEpoch: 1, expectedCrewMemberId: CREW_ID,
+    }),
+  ).resolves.toEqual({ ok: false, code: "PICKER_RESOLVER_LOOKUP_FAILED" });
   expect(logMock.info).not.toHaveBeenCalledWith(
     expect.any(String), expect.objectContaining({ code: "PICKER_STALE_ENTRY_CLEANED" }),
   );
