@@ -83,19 +83,35 @@ function containsAnyLogAdminOutcomeCall(node: ts.Node): boolean {
 /** Does the delegator file actually import/re-export from the `delegatesTo` target?
  * Codex whole-diff R1 MED: a substring match on the path tail is bypassable — the
  * 1-segment tail of any `.../route.ts` is just `"route"`, so a shim re-exporting an
- * UNRELATED `../other/route` would pass. Instead, parse every `from "<specifier>"`,
- * resolve relative specifiers against the delegator's own directory, and require the
- * resolved path to equal the full `delegatesTo` path (ext-stripped). The `endsWith`
- * arm handles fixtures whose files sit under a temp root while `delegatesTo` is a
- * repo-relative literal; the leading `/` keeps it a path-segment boundary match. */
+ * UNRELATED `../other/route` would pass.
+ * Codex whole-diff R2: a raw-source `from "<specifier>"` regex is ALSO bypassable —
+ * a comment or string literal `from "../retry/route"` would satisfy it without any
+ * real binding. Instead, parse the delegator into an AST and read module specifiers
+ * ONLY from real `import … from` / `export … from` declarations (`ts.isImport
+ * Declaration` / `ts.isExportDeclaration`), which the scanner cannot confuse with
+ * commentary or string data. Resolve relative specifiers against the delegator's own
+ * directory and require the resolved path to equal the full `delegatesTo` path
+ * (ext-stripped). The `endsWith` arm handles fixtures whose files sit under a temp
+ * root while `delegatesTo` is a repo-relative literal; the leading `/` keeps it a
+ * path-segment boundary match. */
 function delegatorCallsTarget(delegatorFile: string, delegatesTo: string): boolean {
-  const src = readFileSync(delegatorFile, "utf8");
+  const sf = parse(delegatorFile);
   const targetNoExt = delegatesTo.replace(/\.tsx?$/, "");
   const dir = dirname(delegatorFile);
-  const specifierRe = /\bfrom\s*["']([^"']+)["']/g;
-  let m: RegExpExecArray | null;
-  while ((m = specifierRe.exec(src)) !== null) {
-    const spec = m[1]!;
+  const specifiers: string[] = [];
+  for (const stmt of sf.statements) {
+    // Only genuine module bindings carry a resolvable file reference. A
+    // moduleSpecifier is always a StringLiteral node on these declarations —
+    // never a comment, never an arbitrary string expression elsewhere.
+    const moduleSpecifier =
+      (ts.isImportDeclaration(stmt) || ts.isExportDeclaration(stmt)) && stmt.moduleSpecifier
+        ? stmt.moduleSpecifier
+        : undefined;
+    if (moduleSpecifier && ts.isStringLiteral(moduleSpecifier)) {
+      specifiers.push(moduleSpecifier.text);
+    }
+  }
+  for (const spec of specifiers) {
     if (!spec.startsWith(".")) continue; // only relative specifiers can name a repo file
     const resolved = join(dir, spec).replace(/\.tsx?$/, "");
     if (resolved === targetNoExt || resolved.endsWith("/" + targetNoExt)) return true;
@@ -424,6 +440,27 @@ describe("admin surfaces — ADMIN_SURFACE_EXEMPTIONS (delegator / read-only)", 
     // `.../target/route`, so it must be refused.
     const targetFile = "app/api/admin/target/route.ts";
     const unit = unitFor("app/api/admin/shim/route.ts", 'export { POST } from "../other/route";\n');
+    const auditable: AuditableMutation[] = [{ file: targetFile, fn: "POST", code: "TARGET_CODE" }];
+    const exemptions: AdminSurfaceExemption[] = [
+      { file: unit.file, kind: "delegator", delegatesTo: targetFile },
+    ];
+    expect(evaluateUnit(unit, { auditable, exemptions, ledger: [] }).pass).toBe(false);
+  });
+
+  test("a delegator that names the target ONLY in a comment / string literal FAILS (Codex R2 — no raw-source `from` bypass)", () => {
+    // The ONLY occurrences of `from "../target/route"` are a leading comment and a
+    // string-literal payload — there is NO real import/export binding. A raw-source
+    // regex on `from "<spec>"` would have wrongly matched and PASSED; the AST reader
+    // sees no ImportDeclaration/ExportDeclaration moduleSpecifier, so it must refuse.
+    const targetFile = "app/api/admin/target/route.ts";
+    const unit = unitFor(
+      "app/api/admin/shim/route.ts",
+      '// historically re-exported from "../target/route"\n' +
+        "export async function POST(): Promise<Response> {\n" +
+        "  const note = 'delegates from \"../target/route\"';\n" +
+        "  return new Response(note);\n" +
+        "}\n",
+    );
     const auditable: AuditableMutation[] = [{ file: targetFile, fn: "POST", code: "TARGET_CODE" }];
     const exemptions: AdminSurfaceExemption[] = [
       { file: unit.file, kind: "delegator", delegatesTo: targetFile },
