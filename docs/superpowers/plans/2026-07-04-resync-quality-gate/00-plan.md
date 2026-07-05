@@ -52,7 +52,8 @@ Next.js 16, Supabase (Postgres), TypeScript (strict), vitest (unit + DB-backed v
 |---|---|
 | `lib/sync/phase1.ts` | `Phase1Args` gains `acceptShrink?: boolean` + `expectedModifiedTime?: string`. `Phase1Result` gains the `shrink_held` variant. `Phase1Tx` gains `updateShowShrinkHeld`. New `describeShrink(items, prior, next)` helper. Hold branch (before the `triggeredReviewItems`/`mi11`/`pass` logic) + version-bound accept gate + `updateShowShrinkHeld` call. |
 | `lib/sync/runScheduledCronSync.ts` | `syncProblemCodeForStatus` gains the `'shrink_held'` case. `ProcessOneFileResult` gains the `shrink_held` variant. New caller branch (raise `RESYNC_SHRINK_HELD`, resolve stale peers, keep own). File-loop post-commit revalidation for `shrink_held`. `updateShowShrinkHeld` tx-method impl (mirrors `updateShowParseError` at `:809`). Thread `acceptShrink`/`expectedModifiedTime` from `ProcessOneFileDeps` into the `runPhase1` args (`:2766-2775`). |
-| `lib/data/showCacheTag.ts` | **No code change** — `revalidateShowFromResult` (`:38`) is a `showId`-presence gate, not an outcome switch, so a `shrink_held` result (carries `showId`) buts the crew cache tag automatically in the file loop (`runScheduledCronSync.ts:3148`). Its **doc comment enumeration** of showId-carrying outcomes (`applied + parse_error + source_gone + existing-show hard_fail`, `:20-28`) is now stale — extend it to name `shrink_held` (comment-only; preempts a stale-citation finding). Comprehensive-coupling audit (Codex R6/R7/R8 same-vector re-analysis) confirmed there is NO exhaustive/`assertNever` switch over the outcome union and NO test pinning the full outcome set, so the new variant breaks no typecheck/exact-set assertion. |
+| `lib/data/showCacheTag.ts` | **No code change** — `revalidateShowFromResult` (`:38`) is a `showId`-presence gate, not an outcome switch, so a `shrink_held` result (carries `showId`) buts the crew cache tag automatically in the file loop (`runScheduledCronSync.ts:3148`). Its **doc comment enumeration** of showId-carrying outcomes (`applied + parse_error + source_gone + existing-show hard_fail`, `:20-28`) is now stale — extend it to name `shrink_held` (comment-only; preempts a stale-citation finding). |
+| `tests/sync/runScheduledCronSync.test.ts` · `tests/sync/_secondCopyApplyTripwire.test.ts` · `tests/db/showCacheRevalidateCoverage.test.ts` | **Structural guards (Codex R9).** Task 1's `shows`-UPDATE + new `last_sync_status` literal trip three `lib/sync`-scanning meta-tests: extend the status-enum allow-Set (add `"shrink_held"`), add `updateShowShrinkHeld` to the tripwire ALLOWED symbols, and bump `runScheduledCronSync.ts` `siteCount` 19→20. Full instructions + the same-vector-closure rationale are in Task 1's **"Structural guard checklist"**. Exhaustive-coupling audit confirmed these are the complete set that scan for this feature's `shows`-writes/status-literals — plus NO `assertNever` outcome switch and NO full-outcome-set test (so the union variant breaks no exact-set assertion). |
 | `lib/cron/classifyProcessed.ts` | **Codex plan-R8 (missed outcome classifier).** `classifyProcessed` is conservative — any outcome not in `{applied, stage, skipped/asset_recovery}` falls to `else → failed++`, and `summarizeSync.ts:15` turns `counts.failed > 0` into cron `outcome: "partial"` (the 2026-07-03 outage class → `log.warn`). A `shrink_held` result would falsely mark **every** cron pass while a show is held as a partial outage. Add a distinct **`held`** tally: `else if (outcome === "shrink_held") held++` (BEFORE the failed `else`), add `held` to the `counts` type + return. `shrink_held` is a deliberate quality hold surfaced via the `RESYNC_SHRINK_HELD` Needs-Attention alert + digest — NOT a cron failure; `partial` is reserved for infra/parse outages. Consistent with the "dedicated alert, not aggregate signal" design intent. `summarizeSync` needs no change (a held-only run has `failed == 0` → `outcome: "ok"`). Lands in **Task 1** (the outcome first becomes producible there). |
 | `lib/sync/runOnboardingScan.ts` | `PostgresOnboardingScanTx` (a `Phase1Tx` implementer via `OnboardingScanTx`, `:98`) gains a **throw-only** `updateShowShrinkHeld` mirroring its `updateShowParseError`/`updateShowPendingReview` (`:473`) — required for typecheck when the interface method is added (Task 1, same commit). |
 | `tests/sync/*.test.ts` mocks | Every directly-typed `Phase1Tx` mock (`FakeOnboardingTx` `onboarding.test.ts:106`; the `PipelineTx = Phase1Tx & …` literals in `sourceAnchorsPipeline.test.ts`/`runScheduledCronSync.test.ts`) gains a no-op `updateShowShrinkHeld` (Task 1, same commit). `as never`-cast mocks are unaffected — `pnpm typecheck` is the ground truth. |
@@ -89,10 +90,10 @@ Next.js 16, Supabase (Postgres), TypeScript (strict), vitest (unit + DB-backed v
 | `tests/adminAlerts/alertActions.test.ts` (extend) | Action-link row. |
 | `tests/notify/*` SYNC_PROBLEM_CODES pin (extend) | New member. |
 | `tests/notify/recoveryResolution.*.test.ts` (extend or new) | Held stays open; recovered resolves. |
-| `tests/components/admin/ReSyncButton.test.tsx` (extend or new) | Confirm prompt + accept re-POST. |
-| `tests/app/admin/sync-route.test.ts` (extend or new) | Route `shrink_held` 200 contract + version-binding. |
+| `tests/components/ReSyncButton.test.tsx` (extend or new) | Confirm prompt + accept re-POST. |
+| `tests/api/admin-sync-route.test.ts` (extend or new) | Route `shrink_held` 200 contract + version-binding. |
 | `tests/app/admin/perShowPage.test.tsx` (extend) | `id="resync"` anchor. |
-| `tests/components/shared/StaleFooter.test.tsx` (extend) | `'shrink_held'` tier. |
+| `tests/components/StaleFooter.test.tsx` (extend) | `'shrink_held'` tier. |
 | `tests/admin/syncStatus.test.ts` (extend) | `'shrink_held'` bucket. |
 | `tests/cron/classifyProcessed.test.ts` (extend) | `shrink_held` → `held` tally (NOT `failed`); exact-shape `counts` gains `held`; held excluded from breadcrumbs/fingerprint. |
 
@@ -110,6 +111,8 @@ Next.js 16, Supabase (Postgres), TypeScript (strict), vitest (unit + DB-backed v
 - notify `SYNC_PROBLEM_CODES` pin (whichever `tests/notify/*` asserts membership) — new member.
 - The §12.4 three-way lockstep gates: `tests/cross-cutting/codes.test.ts` (x1 catalog parity), `tests/cross-cutting/no-raw-codes.test.ts` (x2), codes-coverage.
 - `tests/app/admin/perShowPage.test.tsx` — new `id="resync"` anchor assertion (the retirement pins at `:373-388` stay green — the anchor adds NO review UI).
+- **`lib/sync`-scanning structural guards (Codex R9 — the same-vector closure; all in Task 1):** `tests/sync/runScheduledCronSync.test.ts:624` (add `"shrink_held"` to the `last_sync_status` allow-Set), `tests/sync/_secondCopyApplyTripwire.test.ts:46` (add `updateShowShrinkHeld` to the ALLOWED symbols), `tests/db/showCacheRevalidateCoverage.test.ts:56` (bump `runScheduledCronSync.ts` `siteCount` 19→20). Full instructions in Task 1's "Structural guard checklist."
+- `tests/cron/classifyProcessed.test.ts` (Codex R8) — `shrink_held` → `held` tally; exact-shape `counts` gains `held`.
 
 **MUST STAY GREEN (unchanged):**
 - `tests/sync/cutover.retireLivePendingSyncs.test.ts` — this design never writes a live `pending_sync`.
@@ -428,6 +431,14 @@ else if (outcome === "shrink_held") held++;   // deliberate quality hold — sur
 
 `ClassifiedProcessed["counts"]` gains `held: number`. `summarizeSync` is unchanged — a held-only run has `failed === 0` → `outcome: "ok"` (the `held` count still flows through in `counts` for telemetry). `CronRunSummary.counts` is `Record<string, number>` (`lib/cron/runSummary.ts:9`) so no downstream type churn; `summarizeSync.test.ts:15` uses `toMatchObject` (unaffected).
 
+**STRUCTURAL GUARD CHECKLIST — `lib/sync`-scanning meta-tests (Codex plan-R9; the same-vector closure).** Rounds R6/R7/R8/R9 each surfaced ONE structural guard the plan hadn't enumerated (`Phase1Tx` implementers → orphan-producer scanner → `classifyProcessed` → the guards below). The recurrence signal (AGENTS.md "same-vector after comprehensive re-analysis → ship structural defense in this commit") is discharged here by enumerating **every** meta-test that scans `lib/sync`/`app/api` source for a symbol/literal this feature introduces. Task 1 adds a `shows`-UPDATE method (`updateShowShrinkHeld` → `update public.shows set last_sync_status='shrink_held'`) and a new `last_sync_status` literal; **all three of these guards fail in Task 1's commit unless updated in the same commit.** The implementer MUST verify each (running the exact test is the ground truth — each reports the live count/offender on mismatch):
+
+1. **`tests/sync/runScheduledCronSync.test.ts:624`** ("production last_sync_status literal writes stay inside the spec enum") — hard-coded `allowed` Set `{ok, parse_error, drive_error, sheet_unavailable, pending_review, pending}` scanned across `lib/sync`/`lib/asset`/`lib/assets`/`supabase/migrations`. **ADD `"shrink_held"` to that Set** (the sole edit — the new literal is otherwise a violation).
+2. **`tests/sync/_secondCopyApplyTripwire.test.ts:46`** (`ALLOWED` (file, symbol) ranges — every `shows`/child-snapshot or `shows`-UPDATE statement under `lib/**`+`app/api/**` must sit inside an allowed symbol body; `updateShowParseError`/`updateShowPendingReview` are already listed `:58-59`). **ADD `{ file: "lib/sync/runScheduledCronSync.ts", symbol: "async updateShowShrinkHeld(" }`** — `updateShowShrinkHeld`'s `update public.shows` matches `SNAPSHOT_SQL` and would be an unallowed offender otherwise. (The companion "allowlist is live" test is satisfied because the method body does contain the matched statement.)
+3. **`tests/db/showCacheRevalidateCoverage.test.ts:56`** (`runScheduledCronSync.ts` registered `siteCount: 19` = expected `\b`-anchored raw-SQL write-LINE count). `updateShowShrinkHeld`'s new `update public.shows` write increments the live count. **BUMP `siteCount` 19 → 20** (the file is already `disposition:"revalidate"` and routes its post-commit bust through `revalidateShowFromResult` in the file loop, so no new revalidate call is needed — only the count). The test prints the live count on mismatch; use it to confirm the exact delta.
+
+(Task 2's `admin_alerts` raise/resolve use the existing `upsertAdminAlert`/`resolveStaleSyncProblemAlerts_unlocked` helpers — no NEW raw `admin_alerts` statement — so `tests/sync/_livePartitionClassificationContract.test.ts` needs no new classification row; verified against its `partitionTables` regex, which matches raw table names, not helper calls.)
+
 **Step 1a(i·b) — extend `tests/cron/classifyProcessed.test.ts`.** The existing exact-shape assertion (`:17`) must gain `held: 0`, plus a new fixture proving `shrink_held` is held-not-failed:
 
 ```ts
@@ -457,9 +468,9 @@ it("shrink_held phase1 result STOPS before Phase 2 (no apply, no clobber)", asyn
 });
 ```
 
-**Step 1d — run, confirm green:** `pnpm vitest run tests/sync/ tests/cron/ && pnpm typecheck` (run the whole `tests/sync` dir — the caller test lives outside `phase1.decision-rule.test.ts` — plus `tests/cron` for the `classifyProcessed` `held`-tally change).
+**Step 1d — run, confirm green:** `pnpm vitest run tests/sync/ tests/cron/ && TEST_DATABASE_URL=… pnpm vitest run tests/db/showCacheRevalidateCoverage.test.ts && pnpm typecheck`. Runs the whole `tests/sync` dir (caller safety test + both structural guards `runScheduledCronSync.test.ts` and `_secondCopyApplyTripwire.test.ts` live here), `tests/cron` for the `classifyProcessed` `held` tally, and the `showCacheRevalidateCoverage` siteCount guard (`tests/db`, needs `TEST_DATABASE_URL`). All three structural-guard edits from the checklist above must be staged, or these fail.
 
-**Step 1e — commit (ONE green commit — Codex plan-R4):** `feat(sync): hold material re-sync shrinkage (MI-6/MI-7), retaining last-good`. The TDD red→green cycle happens WITHIN the task (write failing tests → implement → green); the single commit stages the tests AND the implementation together — `phase1.ts` hold branch/types, the `runScheduledCronSync.ts` `updateShowShrinkHeld` impl, the **companion `Phase1Tx` implementer stubs** (`runOnboardingScan.ts` throw-only + directly-typed test mocks — Codex R6), the **`classifyProcessed` `held` tally** (Codex R8 — so a held show never reads as a `partial` cron outage), AND the minimal caller stop branch + `ProcessOneFileResult` variant. Do NOT split into a test-only commit (it would be red) — the repo invariant is one GREEN commit per task.
+**Step 1e — commit (ONE green commit — Codex plan-R4):** `feat(sync): hold material re-sync shrinkage (MI-6/MI-7), retaining last-good`. The TDD red→green cycle happens WITHIN the task (write failing tests → implement → green); the single commit stages the tests AND the implementation together — `phase1.ts` hold branch/types, the `runScheduledCronSync.ts` `updateShowShrinkHeld` impl, the **companion `Phase1Tx` implementer stubs** (`runOnboardingScan.ts` throw-only + directly-typed test mocks — Codex R6), the **`classifyProcessed` `held` tally** (Codex R8 — so a held show never reads as a `partial` cron outage), the **three structural-guard updates** (Codex R9 — `last_sync_status` enum Set, `_secondCopyApplyTripwire` ALLOWED symbol, `showCacheRevalidateCoverage` siteCount 19→20), AND the minimal caller stop branch + `ProcessOneFileResult` variant. Do NOT split into a test-only commit (it would be red) — the repo invariant is one GREEN commit per task.
 
 ---
 
@@ -667,7 +678,7 @@ Consumes: `syncStatusBucket` (`lib/admin/syncStatus.ts:20`), `driveConnectionHea
 
 **Step 3a — failing test.**
 - `tests/admin/syncStatus.test.ts`: `expect(syncStatusBucket("shrink_held")).toEqual({ bucket: "warn", label: expect.any(String) })` — asserts it is NOT `positive`/`ok` (failure mode: an unmapped status defaulting to "Unknown sync state" or, worse, silent `idle`).
-- `tests/components/shared/StaleFooter.test.tsx`: render with `lastSyncStatus="shrink_held"`:
+- `tests/components/StaleFooter.test.tsx`: render with `lastSyncStatus="shrink_held"`:
   - fresh (age < 10 min) → tier `subtle`, NO `parse_error`-style red error code (failure mode: a held re-sync rendering as a normal recent sync, R7-1);
   - age > 6h → `SYNC_DELAYED_SEVERE` red (identical to `pending_review`), NOT `PARSE_ERROR_LAST_GOOD`. **This escalation is age-based on `last_synced_at`, which is why Task 1's `updateShowShrinkHeld` deliberately does NOT advance `last_synced_at` (Codex plan-R3): a repeated hold must not reset the clock. The "clock preserved" half is asserted DB-side in Task 7 (6b); this component test asserts the footer escalates for a given old age.**
 - (Optional) a `driveConnectionHealth` test if the file has a unit suite: `'shrink_held'` classifies into the degraded sync-problem bucket alongside `'parse_error'`.
@@ -768,7 +779,7 @@ it("RESYNC_SHRINK_HELD → null when slug missing (fail-quiet)", () => {
 Consumes: `runManualSyncForShow(driveFileId, mode, deps)` (`lib/sync/runManualSyncForShow.ts:282`), `RunManualSyncForShowDeps` (`:47`), route POST (`app/api/admin/sync/[slug]/route.ts:68`).
 Produces: route returns HTTP 200 `{ ok:true, result:{ outcome:"shrink_held", detail, heldModifiedTime } }` for a hold; version-bound apply on accept.
 
-**Step 5a — failing test** in `tests/app/admin/sync-route.test.ts` (extend or new — grep for the existing sync-route suite first):
+**Step 5a — failing test** in `tests/api/admin-sync-route.test.ts` (extend or new — grep for the existing sync-route suite first):
 
 ```ts
 // Failure mode (R10-2): the route maps ANY result with a `code` field to {ok:false,error:code},
@@ -861,7 +872,7 @@ it("accept POST threads acceptShrink + expectedModifiedTime into runManualSyncFo
 Consumes: the route's `{ ok:true, result:{ outcome:"shrink_held", detail, heldModifiedTime } }` (Task 5).
 Produces: a confirm prompt (counts + `data-testid="admin-resync-accept"`) that re-POSTs `{ acceptShrink:true, expectedModifiedTime }`.
 
-**Step 6a — failing test** in `tests/components/admin/ReSyncButton.test.tsx`:
+**Step 6a — failing test** in `tests/components/ReSyncButton.test.tsx`:
 
 ```ts
 // Failure mode (R9): a generic one-click re-sync must NOT clobber. The hold returns shrink_held;
@@ -962,7 +973,7 @@ Wire the primary button to `() => post()` and render the confirm when `heldShrin
 
 > The confirm copy is human text (the `detail` from `describeShrink`), not a raw code — invariant 5 satisfied. The primary `handleClick` is replaced by `() => post()`. Confirm `AccentButton` prop compatibility (it is already imported).
 
-**Step 6d — run green:** `pnpm vitest run tests/components/admin/ReSyncButton.test.tsx && pnpm typecheck`.
+**Step 6d — run green:** `pnpm vitest run tests/components/ReSyncButton.test.tsx && pnpm typecheck`.
 
 **Step 6e — commit:** `feat(admin): ReSyncButton confirm-to-apply held re-sync shrinkage`.
 
