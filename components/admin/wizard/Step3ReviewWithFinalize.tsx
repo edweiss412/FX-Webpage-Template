@@ -54,7 +54,11 @@ export function Step3ReviewWithFinalize({
   });
 
   return (
-    <div className="relative flex min-h-full flex-col">
+    // `w-full` is load-bearing: the sticky bar's `w-full` resolves against THIS
+    // wrapper, so it must fill the wizard container's width for DI-3 (bar spans
+    // the container). This project's Tailwind v4 flex parents are not relied on to
+    // stretch children implicitly.
+    <div className="relative flex min-h-full w-full flex-col">
       {/* Scroll body: bottom padding so the last card is never occluded by the
           sticky bar (DI-3, spec §7). */}
       <div className="pb-24">
