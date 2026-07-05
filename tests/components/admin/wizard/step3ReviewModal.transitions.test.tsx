@@ -1077,3 +1077,44 @@ describe("§11 source-marker audit — every conditional-render site in Step3Rev
     expect(MODAL_SRC).toMatch(/:\s*isFinalizeDemoted \? \(\n\s*\/\* §11: instant — deliberate/);
   });
 });
+
+/** Follow-ups-b2 §D2: same shape as `isClassified`, keyed on the §D2 marker —
+ *  the ReportIssueSection conditionals are governed by the follow-ups-b2 §D2
+ *  transition inventory (collapsed↔expanded + status swaps, ALL instant), not
+ *  the parent §11 table, so they carry their own marker token. */
+function isClassifiedD2(
+  lines: string[],
+  lineIndex: number,
+): { classified: boolean; instant: boolean } {
+  const prev = lines[lineIndex - 1] ?? "";
+  const instant = prev.includes("§D2") && prev.includes("instant — deliberate");
+  const animated = /animate-|transition-\[|duration-(fast|normal)\b|ease-out-quart\b/.test(prev);
+  return { classified: instant || animated, instant };
+}
+
+describe("§D2 source-marker audit — every conditional-render site in the ReportIssueSection region is classified instant", () => {
+  const SECTIONS_SRC = readFileSync(
+    join(ROOT, "components/admin/wizard/step3ReviewSections.tsx"),
+    "utf8",
+  );
+  const start = SECTIONS_SRC.indexOf("export function ReportIssueSection");
+  const nextExport = SECTIONS_SRC.indexOf("\nexport ", start + 1);
+  const REGION = SECTIONS_SRC.slice(start, nextExport === -1 ? SECTIONS_SRC.length : nextExport);
+
+  test("slice anchors resolve and the region contains the §D disclosure conditional", () => {
+    expect(start).toBeGreaterThan(-1);
+    expect(REGION).toContain("{expanded ? (");
+  });
+
+  test("every conditional-render site carries the §D2 instant marker on the line above — §D2's inventory has NO animated pairs, so an animation classification here is drift, not a pass", () => {
+    const lines = REGION.split("\n");
+    const hits = findConditionalLines(REGION);
+    expect(hits.length).toBeGreaterThan(0); // the disclosure conditional at minimum
+    const bad: string[] = [];
+    for (const idx of hits) {
+      const { instant } = isClassifiedD2(lines, idx);
+      if (!instant) bad.push(`line ${idx + 1}: ${(lines[idx] ?? "").trim()}`);
+    }
+    expect(bad).toEqual([]);
+  });
+});

@@ -2179,6 +2179,7 @@ export function ReportIssueSection({ data }: { data: SectionData }) {
       >
         Write a report
       </button>
+      {/* §D2: instant — deliberate (collapsed↔expanded; the status swaps inside are §D2 instant too) */}
       {expanded ? (
         <form id={formId} onSubmit={handleSubmit} className="flex flex-col gap-2">
           <label htmlFor={textareaId} className="text-sm font-medium text-text-strong">
