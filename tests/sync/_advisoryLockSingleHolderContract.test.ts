@@ -441,7 +441,15 @@ describe("M6 advisory-lock single-holder contract", () => {
 
     expect(source).toContain("hashtext('finalize:' ||");
     expect(source).toContain("hashtext('show:' || $1)");
-    expect(source).toMatch(/sort\(\(left, right\) => left\.localeCompare\(right\)\)/);
+    // Thread 2a: cleanup now collects its show: lock set through the shared
+    // collectReapDriveFileIds (advisory-before-row), which sorts the five-table
+    // union deterministically before any show: lock is acquired — the globally
+    // sorted acquisition that defeats AB-BA. Pin that sort here (the collector's
+    // `(a, b) => a.localeCompare(b)`), plus lockCleanupDriveFiles delegating to it.
+    expect(source).toMatch(/sort\(\(a, b\) => a\.localeCompare\(b\)\)/);
+    expect(source).toMatch(/collectReapDriveFileIds\(tx, sessionId\)/);
+    // Between the show: locks and the deletes, cleanup may run the under-lock
+    // recovery recheck (Thread 2b); [\s\S]* tolerates it. The deletes still follow.
     expect(cleanupSource).toMatch(
       /await lockCleanupDriveFiles\(tx, sessionId\);[\s\S]*delete from public\.shows_pending_changes[\s\S]*delete from public\.shows/,
     );

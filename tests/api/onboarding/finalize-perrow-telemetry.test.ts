@@ -3,7 +3,16 @@ import { setLogSink, resetLogSink } from "@/lib/log";
 import type { LogRecord } from "@/lib/log/types";
 import { handleOnboardingFinalize } from "@/app/api/admin/onboarding/finalize/route";
 import { handleOnboardingFinalizeCas } from "@/app/api/admin/onboarding/finalize-cas/route";
-import { W1, FakeFinalizeDb, pending, deps, request } from "../../onboarding/_finalizeFake";
+import {
+  W1,
+  FakeFinalizeDb,
+  pending,
+  deps,
+  request,
+  withRowTxHoldPortFor,
+  preparedSheetFor,
+  dirtyInlineCore,
+} from "../../onboarding/_finalizeFake";
 import {
   W1 as CAS_W1,
   request as casRequest,
@@ -27,20 +36,28 @@ function capture(): LogRecord[] {
 afterEach(() => resetLogSink());
 
 describe("finalize per-row hard-fail telemetry", () => {
-  test("mixed committed batch → SHOW_FINALIZED + one log.error DRIVE_FETCH_FAILED + one log.warn revision-race", async () => {
+  test("mixed committed batch → SHOW_FINALIZED + one log.error DRIVE_FETCH_FAILED + one log.warn rescan-review", async () => {
     const sink = capture();
     const db = new FakeFinalizeDb();
     db.approved = [pending("ok-1"), pending("drive-fail-1"), pending("revrace-1")];
     const response = await handleOnboardingFinalize(
       request(),
       deps(db, {
+        // Thread 3: revrace-1's Drive modifiedTime moved past the staged instant, so finalize
+        // re-parses it inline under the held show: lock instead of demoting unconditionally. Hand
+        // that row the hold-aware pipeline + a dirty core (genuine content change) so it surfaces
+        // the RESCAN_REVIEW_REQUIRED per-row failure (warn) — the modern replacement for the old
+        // unconditional STAGED_PARSE_REVISION_RACE_DURING_FINALIZE demote.
+        withRowTx: withRowTxHoldPortFor(db, ["revrace-1"]),
+        prepareOnboardingFiles: vi.fn(async () => [preparedSheetFor("revrace-1")]),
+        applyRescanDecisionUnderLock: dirtyInlineCore(db),
         fetchDriveFileMetadata: vi.fn(async (driveFileId: string) => {
           if (driveFileId === "drive-fail-1") throw new Error("drive down");
           return {
             driveFileId,
             name: `${driveFileId}.xlsx`,
             mimeType: "application/vnd.google-apps.spreadsheet",
-            // revrace-1: modifiedTime later than the staged instant → revision race.
+            // revrace-1: modifiedTime later than the staged instant → inline re-parse.
             modifiedTime:
               driveFileId === "revrace-1" ? "2026-05-08T13:00:00.000Z" : "2026-05-08T12:00:00.000Z",
             parents: ["folder-1"],
@@ -61,11 +78,13 @@ describe("finalize per-row hard-fail telemetry", () => {
     expect(driveFail[0]!.driveFileId).toBe("drive-fail-1");
     expect(driveFail[0]!.context.wizardSessionId).toBe(W1);
 
-    const revRace = sink.filter((r) => r.code === "STAGED_PARSE_REVISION_RACE_DURING_FINALIZE");
-    expect(revRace).toHaveLength(1);
-    expect(revRace[0]!.level).toBe("warn");
-    expect(revRace[0]!.driveFileId).toBe("revrace-1");
-    expect(revRace[0]!.context.wizardSessionId).toBe(W1);
+    // A genuine content change on a modtime-bumped row demotes to RESCAN_REVIEW_REQUIRED (warn),
+    // and its committed per-row failure flushes durable telemetry post-commit.
+    const rescan = sink.filter((r) => r.code === "RESCAN_REVIEW_REQUIRED");
+    expect(rescan).toHaveLength(1);
+    expect(rescan[0]!.level).toBe("warn");
+    expect(rescan[0]!.driveFileId).toBe("revrace-1");
+    expect(rescan[0]!.context.wizardSessionId).toBe(W1);
   });
 
   test("rolled-back batch (commit fault) → NO per-row failure emission and NO SHOW_FINALIZED", async () => {
