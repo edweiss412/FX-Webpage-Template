@@ -116,7 +116,7 @@ function bar(): string {
   return `<div data-testid="wizard-step3-publish-bar" class="sticky bottom-0 z-10 flex w-full flex-wrap items-end gap-x-3 gap-y-2 border-t border-border bg-surface/90 px-4 pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)] backdrop-blur">
     <p data-testid="wizard-step3-publish-count" class="text-sm tabular-nums text-text-subtle"><b class="text-text-strong">3</b> of 8 selected to publish</p>
     <div class="ml-auto flex items-end gap-3">
-      <a data-testid="wizard-step3-back" href="/admin?step=2" class="inline-flex min-h-tap-min items-center rounded-md px-3 text-sm font-medium text-text-subtle transition-colors duration-fast hover:text-text-strong">Back</a>
+      <a data-testid="wizard-step3-back" href="/admin?step=2" class="inline-flex min-h-tap-min items-center gap-1 rounded-md px-3 text-sm font-medium text-text-subtle transition-colors duration-fast hover:text-text-strong"><svg class="size-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg>Back</a>
       <button data-testid="wizard-finalize-button" class="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-accent px-6 text-base font-semibold text-accent-text shadow-tile">Publish 3 shows &amp; finish setup</button>
     </div>
   </div>`;
