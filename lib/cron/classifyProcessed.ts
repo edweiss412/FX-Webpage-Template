@@ -8,7 +8,14 @@ const SKIPPED = new Set(["skipped", "asset_recovery"]);
 export const MAX_FAILURE_BREADCRUMBS = 25;
 
 export type ClassifiedProcessed = {
-  counts: { processed: number; applied: number; staged: number; skipped: number; failed: number };
+  counts: {
+    processed: number;
+    applied: number;
+    staged: number;
+    skipped: number;
+    held: number;
+    failed: number;
+  };
   breadcrumbs: Array<{ driveFileId: string; outcome: string; code?: string }>;
   failuresTruncated: boolean;
   fingerprintParts: string[];
@@ -20,6 +27,7 @@ export function classifyProcessed(
   let applied = 0,
     staged = 0,
     skipped = 0,
+    held = 0,
     failed = 0;
   const breadcrumbs: ClassifiedProcessed["breadcrumbs"] = [];
   const fingerprintParts: string[] = [];
@@ -32,6 +40,9 @@ export function classifyProcessed(
     if (outcome === "applied") applied++;
     else if (outcome === "stage") staged++;
     else if (outcome && SKIPPED.has(outcome)) skipped++;
+    else if (outcome === "shrink_held")
+      held++; // deliberate quality hold — surfaced via the RESYNC_SHRINK_HELD Needs-Attention
+    // alert, NOT a cron failure. `partial` is reserved for infra/parse outages.
     else {
       failed++;
       const code = (r as { code?: string }).code;
@@ -43,7 +54,7 @@ export function classifyProcessed(
     }
   }
   return {
-    counts: { processed: processed.length, applied, staged, skipped, failed },
+    counts: { processed: processed.length, applied, staged, skipped, held, failed },
     breadcrumbs,
     failuresTruncated: failed > breadcrumbs.length,
     fingerprintParts,

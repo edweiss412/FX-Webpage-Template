@@ -217,6 +217,20 @@ class FakePhase1Tx {
     return null;
   }
 
+  async updateShowShrinkHeld(
+    driveFileId: string,
+    payload: { message: string },
+  ): Promise<string | null> {
+    this.operations.push(`updateShowShrinkHeld:${driveFileId}`);
+    const row = this.shows.get(driveFileId);
+    if (row) {
+      row.lastSyncStatus = "shrink_held";
+      row.lastSyncError = payload.message;
+      return row.id ?? null;
+    }
+    return null;
+  }
+
   async updateShowPendingReview(driveFileId: string) {
     this.operations.push(`updateShowPendingReview:${driveFileId}`);
     const row = this.shows.get(driveFileId);
@@ -725,9 +739,12 @@ describe("runPhase1 routing and writes", () => {
       parseResult({ hotelReservations: [hotel(1)] }),
     ],
     [
+      // Pure rename (rooms 2→2): keyed on (kind,name) so "General Session"→"Main Session" fires
+      // MI-7b WITHOUT MI-7 (no count drop). The re-sync hold filter matches MI-6/MI-7 only, so a
+      // benign rename must still auto-apply → pass (regression guard for the filter boundary).
       "MI-7b",
       parseResult({ rooms: [room("General Session"), room("Breakout")] }),
-      parseResult({ rooms: [room("General Session")] }),
+      parseResult({ rooms: [room("Main Session"), room("Breakout")] }),
     ],
     ["MI-8", parseResult(), parseResult({ show: { ...parseResult().show, po: null } })],
     [
@@ -791,12 +808,20 @@ describe("runPhase1 routing and writes", () => {
         expect(result.mi11Items).toEqual(
           expect.arrayContaining([expect.objectContaining({ invariant: "MI-11" })]),
         );
+      } else if (expectedInvariant === "MI-6" || expectedInvariant === "MI-7") {
+        // Re-sync quality gate (audit finding #3): count-based MATERIAL shrinkage now HOLDS
+        // last-good instead of auto-applying. Full hold coverage lives in
+        // phase1.decision-rule.test.ts; here we only assert the routing changed.
+        expect(result.outcome).toBe("shrink_held");
+        expect(tx.operations).toContain("updateShowShrinkHeld:file-1");
       } else {
-        // Every other invariant (MI-6..MI-14 except MI-11) is a notification → auto-applies → pass.
+        // Every other invariant (MI-8..MI-14 except MI-11) is a notification → auto-applies → pass.
         expect(result.outcome).toBe("pass");
       }
-      // The legacy pending_review status flip no longer happens (no live stage for existing shows).
-      expect(tx.shows.get("file-1")?.lastSyncStatus).toBe("ok");
+      // MI-6/MI-7 now commit 'shrink_held'; the legacy pending_review status flip is still gone.
+      expect(tx.shows.get("file-1")?.lastSyncStatus).toBe(
+        expectedInvariant === "MI-6" || expectedInvariant === "MI-7" ? "shrink_held" : "ok",
+      );
     },
   );
 
@@ -850,7 +875,7 @@ describe("runPhase1 routing and writes", () => {
     expect(tx.pendingIngestions).toEqual([]);
   });
 
-  test("Phase 2: an existing MI-7 section shrink auto-applies and never (re)writes a live pending_sync", async () => {
+  test("Phase 2: an existing MI-7 section shrink HOLDS last-good (shrink_held) and never writes a live pending_sync", async () => {
     const prior = parseResult({ hotelReservations: [hotel(1), hotel(2), hotel(3), hotel(4)] });
     const next = parseResult({ hotelReservations: [hotel(1)] });
     const tx = new FakePhase1Tx();
@@ -864,9 +889,11 @@ describe("runPhase1 routing and writes", () => {
 
     const result = await runWith(tx, next);
 
-    // MI-7 is a section_shrunk notification → auto-applies. The whole-parse live staging path is
-    // retired (PF31): the decision rule never calls upsertLivePendingSync for an existing show.
-    expect(result.outcome).toBe("pass");
+    // Re-sync quality gate (audit finding #3): a material MI-7 section shrink on an existing show
+    // no longer auto-applies — it HOLDS last-good (retain, no clobber) and commits 'shrink_held'.
+    // The whole-parse live staging path stays retired (PF31): no upsertLivePendingSync either.
+    expect(result.outcome).toBe("shrink_held");
+    expect(tx.operations).toContain("updateShowShrinkHeld:file-1");
     expect(tx.operations).not.toContain("upsertLivePendingSync");
     expect(tx.pendingSyncs).toEqual([]);
   });

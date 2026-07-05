@@ -163,6 +163,7 @@ class FakePhase1Tx {
   }
 
   async updateShowParseError() {}
+  async updateShowShrinkHeld() {}
 
   async updateShowPendingReview(driveFileId: string) {
     const show = this.shows.get(driveFileId);

@@ -262,6 +262,7 @@ function makeTx(): PipelineTx {
       return { stagedId: "staged-1" };
     },
     async updateShowParseError() {},
+    async updateShowShrinkHeld() {},
     async updateShowPendingReview() {},
     async deleteWizardPendingSyncsExcept() {},
     // ApplyParseResultTx

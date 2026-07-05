@@ -56,6 +56,7 @@ const ALLOWED: ReadonlyArray<{ file: string; symbol: string }> = [
   // legitimate non-snapshot shows-UPDATE lifecycle sites (enumerated from the live worktree):
   { file: "lib/sync/runScheduledCronSync.ts", symbol: "async applyDiagramSnapshot(" },
   { file: "lib/sync/runScheduledCronSync.ts", symbol: "async updateShowParseError(" },
+  { file: "lib/sync/runScheduledCronSync.ts", symbol: "async updateShowShrinkHeld(" },
   { file: "lib/sync/runScheduledCronSync.ts", symbol: "async updateShowPendingReview(" },
   { file: "lib/sync/runScheduledCronSync.ts", symbol: "async markShowSheetUnavailable(" },
   { file: "lib/sync/runScheduledCronSync.ts", symbol: "async markShowDriveError(" },
