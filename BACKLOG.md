@@ -233,9 +233,9 @@ Filed alongside AGENTS.md plan-wide invariant #10 (mutation-surface observabilit
 
 ### BL-CREW-PICKER-OBSERVABILITY — telemetry taxonomy for the crew/system picker functions
 
-**Status:** OPEN · **Severity:** low · **Class:** OBSERVABILITY DEBT
+**Status:** CLOSED (2026-07-05) · **Severity:** low · **Class:** OBSERVABILITY DEBT
 
-The 6 non-admin-gated `lib/auth/picker/*` functions (`cleanupStaleEntry`, `cleanupStaleEntryCore`, `clearIdentity`, `clearIdentityAndSkip`, `clearIdentityCore`, `selectIdentityCore`) are recorded in `KNOWN_UNINSTRUMENTED` (`tests/log/mutationSurface/exemptions.ts`) — they mutate crew-picker state (`crew_member_auth` selections) but emit no durable success trace, so a "who picked what, when" audit has no server-side signal. The 3 **admin-gated** picker mutations (`resetPickerEpoch`, `rotateShareToken`, `resetCrewMemberSelection`) ARE instrumented now (invariant #10 §3.1 A) and are NOT part of this debt. **Fix (when prioritized):** design a crew-picker telemetry taxonomy (a code namespace distinct from `logAdminOutcome`'s admin-forensic codes, since the actor is a crew member on an emailed link, not an admin) and wire it through the 6 functions, then delete the `KNOWN_UNINSTRUMENTED` rows. The discovery meta-test forces any NEW picker mutation to be accounted for regardless.
+**Shipped** the `auth.picker.*` crew-telemetry taxonomy (coded `log.info`, distinct from `logAdminOutcome` since the actor is an anonymous crew member on an emailed link): `PICKER_IDENTITY_SELECTED` (`selectIdentityCoreImpl`), `PICKER_IDENTITY_CLEARED` (`clearIdentityCoreImpl`, existence-guarded), `PICKER_STALE_ENTRY_CLEANED` (`cleanupStaleEntryCoreImpl`, cleaned branch). The 6 exported wrappers carry `// no-telemetry:` delegation comments and `KNOWN_UNINSTRUMENTED` (`tests/log/mutationSurface/exemptions.ts`) is now empty; the discovery floor forces any NEW picker mutation to be accounted for regardless. The 3 **admin-gated** picker mutations (`resetPickerEpoch`, `rotateShareToken`, `resetCrewMemberSelection`) remain instrumented via `logAdminOutcome` (invariant #10 §3.1 A) and were never part of this debt.
 
 ### BL-ADMIN-OUTCOME-BEHAVIOR — backfill executable behavioral proofs for the 30 grandfathered admin surfaces
 
