@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { deriveStep3DisplayState, type DisplayDerivationInput } from "@/lib/admin/step3DisplayState";
+import {
+  deriveStep3DisplayState,
+  type DisplayDerivationInput,
+} from "@/lib/admin/step3DisplayState";
 
 const base: DisplayDerivationInput = {
   status: "staged",
@@ -26,7 +29,11 @@ describe("deriveStep3DisplayState (spec §4.2 ordered algorithm)", () => {
 
   it("rule 2: staged + failure code with well-formed parse → re-apply modal row", () => {
     expect(
-      deriveStep3DisplayState({ ...base, status: "staged", lastFinalizeFailureCode: "RESCAN_REVIEW_REQUIRED" }),
+      deriveStep3DisplayState({
+        ...base,
+        status: "staged",
+        lastFinalizeFailureCode: "RESCAN_REVIEW_REQUIRED",
+      }),
     ).toBe("needs_review_reapply");
   });
 

@@ -24,7 +24,11 @@ describe("badgeForDisplayState (spec §4.2 badge tones — derived, never reache
     expect(badgeForDisplayState("ready")).toEqual({ label: "Ready", tone: "info" });
   });
   it("all three needs_review_* → 'Needs review' warn", () => {
-    for (const s of ["needs_review_other", "needs_review_reapply", "needs_review_no_details"] as const) {
+    for (const s of [
+      "needs_review_other",
+      "needs_review_reapply",
+      "needs_review_no_details",
+    ] as const) {
       expect(badgeForDisplayState(s)).toEqual({ label: "Needs review", tone: "warn" });
     }
   });

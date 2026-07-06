@@ -31,7 +31,11 @@ export type DisplayDerivationInput = {
   sessionLinked: boolean; // true iff linkedShow came from the session-provenance join
 };
 
-const HARD_BLOCK = new Set<Step3ManifestStatus>(["hard_failed", "live_row_conflict", "discard_retryable"]);
+const HARD_BLOCK = new Set<Step3ManifestStatus>([
+  "hard_failed",
+  "live_row_conflict",
+  "discard_retryable",
+]);
 const SET_ASIDE = new Set<Step3ManifestStatus>(["permanent_ignore", "defer_until_modified"]);
 
 // First-match-wins ordered algorithm (spec §4.2). Total: the final `ready`
