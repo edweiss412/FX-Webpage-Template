@@ -110,3 +110,33 @@ git add app/admin/page.tsx components/admin/wizard/Step3ReviewWithFinalize.tsx t
 git rm components/admin/FinalizeInProgress.tsx components/admin/ReadyToPublish.tsx components/admin/StaleReadyToPublish.tsx components/admin/ResumeFinalizeButton.tsx
 git commit --no-verify -m "feat(admin): unified Step-3 for in_progress/all_batches_complete; delete interstitials (spec §4.5/§4.6)"
 ```
+
+---
+
+### Task 3.4: Hide the editable checkbox + Select-all at non-null checkpoints (spec §4.2 rule 7, HIGH plan-R1)
+
+Spec rule 7: the editable publish checkbox exists ONLY at `checkpoint null`. Post-finalize (`in_progress`/`all_batches_complete`) rows are badge-only — no per-row `PublishCheckbox`, no Select-all — because finalize consumed intent into `publish_intent`. Task 2.4 disables mutators during an *active run*; this task hides the checkbox for the *whole post-finalize surface* (a checkpoint state, orthogonal to run-active).
+
+**Files:**
+- Modify: `components/admin/wizard/Step3Review.tsx` (accept `checkpointStatus`; suppress Select-all `:531-550` when non-null) + `Step3SheetCard.tsx` (suppress `PublishCheckbox` `:501-505` when non-null, render the derived badge instead)
+- Modify: `components/admin/wizard/Step3ReviewWithFinalize.tsx` (thread `checkpointStatus` into `Step3Review`, alongside the footer selection)
+- Test: `tests/components/admin/wizard/Step3CheckpointAffordance.test.tsx`
+
+**Interfaces:**
+- Produces: `Step3ReviewProps` + `Step3Row` renderers accept `checkpointStatus: "in_progress" | "all_batches_complete" | null`.
+
+- [ ] **Step 1: Write the failing test**:
+  - `checkpointStatus=null` + a clean Ready row → renders `data-testid="wizard-step3-select-all"` AND the per-row `PublishCheckbox` (unchanged pre-finalize).
+  - `checkpointStatus="in_progress"` (and `"all_batches_complete"`) → NO `wizard-step3-select-all`, NO per-row publish checkbox; a first-seen checked row renders the **Ready to publish** badge; an unchecked row renders **Held**. (Assert against the derived `displayState`; clone-strip nothing else renders a checkbox.)
+
+- [ ] **Step 2: Run — verify fail.**
+
+- [ ] **Step 3: Implement** — thread `checkpointStatus` from `Step3ReviewWithFinalize` → `Step3Review` → `Step3SheetCard`; gate the Select-all control and `PublishCheckbox` render on `checkpointStatus === null`. (This is distinct from Task 2.4's `isPublishRunActive` *disable*: here the control is not rendered at all post-finalize.)
+
+- [ ] **Step 4: Run — verify pass.** - [ ] **Step 5: Typecheck.**
+
+- [ ] **Step 6: Commit**
+```bash
+git add components/admin/wizard/Step3Review.tsx components/admin/wizard/Step3SheetCard.tsx components/admin/wizard/Step3ReviewWithFinalize.tsx tests/components/admin/wizard/Step3CheckpointAffordance.test.tsx
+git commit --no-verify -m "feat(admin): hide editable publish checkbox + select-all at non-null checkpoints (spec §4.2 rule 7)"
+```

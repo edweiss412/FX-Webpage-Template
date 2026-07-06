@@ -23,7 +23,7 @@ Fold the `StagedReviewCard` resolution UI into `Step3ReviewModal`. Both the stan
   export type ItemTier = "tier1_context" | "tier2_diagnostic" | "tier3_radio";
   export function tierForItem(item: TriggeredReviewItem): ItemTier;
   ```
-- Consumes: `TriggeredReviewItem`, `ReviewerAction` (`lib/parser/types.ts`).
+- Consumes: `TriggeredReviewItem` (`lib/parser/types.ts`); `ReviewerChoice` (`@/lib/sync/applyStaged`). **`ReviewerAction` is NOT in `lib/parser/types.ts` (plan-R1 fix)** — live code derives it locally as `type ReviewerAction = ReviewerChoice["action"]` (`StagedReviewCard.tsx:61,83`). The new module exports `ReviewerAction` from that same `ReviewerChoice` source; `StagedReviewCard` then imports it from the module instead of re-deriving.
 
 - [ ] **Step 1: Write the failing test** — the tier RULE over the full union (spec §4.4). Assert against `allowedActionsFor().length`, NOT a hardcoded invariant list.
 ```ts
@@ -54,7 +54,7 @@ describe("tierForItem (spec §4.4 rule, not enumeration)", () => {
 
 - [ ] **Step 2: Run — verify fail.**
 
-- [ ] **Step 3: Implement** — move the four helpers from `StagedReviewCard.tsx:115-200` verbatim into `lib/admin/step3ReviewItemTiers.ts`; add:
+- [ ] **Step 3: Implement** — move the four helpers from `StagedReviewCard.tsx:115-200` verbatim into `lib/admin/step3ReviewItemTiers.ts`, plus `export type ReviewerAction = ReviewerChoice["action"];` (import `ReviewerChoice` from `@/lib/sync/applyStaged`) and the `ASSET_REVIEW_INVARIANTS`/`FIRST_SEEN_INVARIANTS` sets they depend on (`StagedReviewCard.tsx:71-81`); add:
 ```ts
 const PURE_CONTEXT = new Set(["ONBOARDING_SCAN_REVIEW", "FIRST_SEEN_REVIEW"]);
 export function tierForItem(item: TriggeredReviewItem): ItemTier {
@@ -177,21 +177,22 @@ While a publish/resume run is active, freeze EVERY row mutator: publish checkbox
 **Files:**
 - Modify: `components/admin/wizard/Step3ReviewWithFinalize.tsx` (pass `isPublishRunActive={run.isRunning}` into `Step3Review`)
 - Modify: `components/admin/wizard/Step3Review.tsx` (thread to each row) + `Step3SheetCard.tsx` (gate `PublishCheckbox`, row `RescanSheetButton`, inline controls)
+- Modify: `components/admin/RescanSheetButton.tsx:34` (`RescanSheetButtonProps` gains `disabled?: boolean`; the button's `disabled` becomes `pending || props.disabled` at `:157`) — **plan-R1 HIGH**: today it disables only on its own `pending` state, so `isPublishRunActive` cannot freeze it without this prop. Consumed by BOTH the row Re-scan (here) and the modal Re-scan (Task 2.2).
 - Test: `tests/components/admin/wizard/Step3ActiveRunFreeze.test.tsx`
 
 **Interfaces:**
-- Produces: `Step3ReviewProps` + `Step3Row` renderers accept `isPublishRunActive: boolean`; `PublishCheckbox` gains a `disabled?: boolean` prop.
+- Produces: `Step3ReviewProps` + `Step3Row` renderers accept `isPublishRunActive: boolean`; `PublishCheckbox` gains `disabled?: boolean`; `RescanSheetButtonProps` gains `disabled?: boolean`.
 
 - [ ] **Step 1: Write the failing test** — with `isPublishRunActive` true, assert EACH is disabled: publish checkbox, row `Re-scan this sheet`, an inline `HardFailedActions`/`ManifestIgnoreAction` control, row `Review →`, and (open modal) Approve / Re-scan / Ignore.
 
 - [ ] **Step 2: Run — verify fail.**
 
-- [ ] **Step 3: Implement** — add `disabled` to `PublishCheckbox` (`Step3SheetCard.tsx:79/:501`); gate the row `RescanSheetButton` and inline controls on `isPublishRunActive`; pass `isPublishRunActive` into the modal `resolution` (already consumed in Task 2.2). Thread the prop from `Step3ReviewWithFinalize` (`run.isRunning`, `:113`) → `Step3Review` → each `Step3SheetCard`.
+- [ ] **Step 3: Implement** — add `disabled?: boolean` to `PublishCheckbox` (`Step3SheetCard.tsx:79/:501`) AND to `RescanSheetButton` (`RescanSheetButtonProps:34`; `disabled={pending || props.disabled}` at `:157`); gate the row `RescanSheetButton`, the `PublishCheckbox`, the Select-all control (`:547`), and the inline controls on `isPublishRunActive`; pass `isPublishRunActive` into the modal `resolution` (already consumed in Task 2.2, where the modal `RescanSheetButton` also receives `disabled`). Thread the prop from `Step3ReviewWithFinalize` (`run.isRunning`, `:113`) → `Step3Review` → each `Step3SheetCard`.
 
 - [ ] **Step 4: Run — verify pass.** - [ ] **Step 5: Typecheck.**
 
 - [ ] **Step 6: Commit**
 ```bash
-git add components/admin/wizard/Step3ReviewWithFinalize.tsx components/admin/wizard/Step3Review.tsx components/admin/wizard/Step3SheetCard.tsx tests/components/admin/wizard/Step3ActiveRunFreeze.test.tsx
+git add components/admin/wizard/Step3ReviewWithFinalize.tsx components/admin/wizard/Step3Review.tsx components/admin/wizard/Step3SheetCard.tsx components/admin/RescanSheetButton.tsx tests/components/admin/wizard/Step3ActiveRunFreeze.test.tsx
 git commit --no-verify -m "feat(admin): freeze all step-3 row mutators during an active publish run (spec §4.4 R8)"
 ```

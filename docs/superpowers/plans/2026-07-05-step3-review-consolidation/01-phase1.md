@@ -19,7 +19,8 @@ The single source of truth for a row's display state. Pure function, no React, n
     | "needs_review_other"      // rule 1
     | "needs_review_reapply"    // rule 2, well-formed parseResult
     | "needs_review_no_details" // rule 2, null/corrupt parseResult
-    | "set_aside"               // rule 3 (permanent_ignore/defer/skipped)
+    | "set_aside"               // rule 3a (permanent_ignore / defer_until_modified) — "Set aside for this setup"
+    | "skipped"                 // rule 3b (skipped_non_sheet) — "Skipped (not a sheet)"
     | "live"                    // rule 4
     | "ready_to_publish"        // rule 5 (pre-CAS checked)
     | "held"                    // rule 6
@@ -75,10 +76,11 @@ describe("deriveStep3DisplayState", () => {
       .toBe("needs_review_no_details");
   });
 
-  it("rule 3: permanent_ignore / defer / skipped → set aside", () => {
-    for (const status of ["permanent_ignore", "defer_until_modified", "skipped_non_sheet"] as const) {
+  it("rule 3a: permanent_ignore / defer → set_aside; rule 3b: skipped_non_sheet → skipped (distinct copy)", () => {
+    for (const status of ["permanent_ignore", "defer_until_modified"] as const) {
       expect(deriveStep3DisplayState({ ...base, status })).toBe("set_aside");
     }
+    expect(deriveStep3DisplayState({ ...base, status: "skipped_non_sheet" })).toBe("skipped");
   });
 
   it("rule 4: crew-visible linked show (session OR existing-show) → Live", () => {
@@ -128,6 +130,7 @@ export type Step3DisplayState =
   | "needs_review_reapply"
   | "needs_review_no_details"
   | "set_aside"
+  | "skipped"
   | "live"
   | "ready_to_publish"
   | "held"
@@ -143,7 +146,7 @@ export type DisplayDerivationInput = {
 };
 
 const HARD_BLOCK = new Set<Step3ManifestStatus>(["hard_failed", "live_row_conflict", "discard_retryable"]);
-const SET_ASIDE = new Set<Step3ManifestStatus>(["permanent_ignore", "defer_until_modified", "skipped_non_sheet"]);
+const SET_ASIDE = new Set<Step3ManifestStatus>(["permanent_ignore", "defer_until_modified"]);
 
 // First-match-wins ordered algorithm (spec §4.2). Total: the final `ready`
 // fallthrough guarantees exactly one state per row. Proven by the §4.2.2 matrix
@@ -155,8 +158,9 @@ export function deriveStep3DisplayState(input: DisplayDerivationInput): Step3Dis
   if (input.status === "staged" && input.lastFinalizeFailureCode !== null) {
     return input.hasWellFormedParseResult ? "needs_review_reapply" : "needs_review_no_details";
   }
-  // 3. resolved / set aside.
+  // 3a. resolved / set aside; 3b. skipped (distinct copy, spec §4.2 rule 3).
   if (SET_ASIDE.has(input.status)) return "set_aside";
+  if (input.status === "skipped_non_sheet") return "skipped";
   // 4. Live: any crew-visible linked show (session-provenance OR existing-show branch).
   const crewVisible = input.linkedShow?.published === true && input.linkedShow.archived === false;
   if (crewVisible) return "live";
@@ -205,6 +209,14 @@ Thread the fields the derivation + modal need, and compute the linked-show state
   displayState?: Step3DisplayState; // computed by deriveStep3DisplayState in fetchStep3Data
   ```
 - Consumes: `deriveStep3DisplayState` (Task 1.1), `parseTriggeredReviewItems` + `isStructurallyValidReviewItem` (`lib/staging/reviewPayloadGuards.ts`).
+- **Candidate-selection contract (HIGH, plan-R1).** `buildStep3Row` takes the FULL list of `shows` candidates for the row's `drive_file_id` (not one pre-picked show), and resolves `linkedShow`/`sessionLinked` by this precedence — never a bare `created_show_id` trust:
+  ```ts
+  type ShowCandidate = { id: string; drive_file_id: string; published: boolean; archived: boolean; wizard_created_session_id: string | null };
+  buildStep3Row(manifestRow, pendingRow, candidates: ShowCandidate[]): Step3Row
+  ```
+  1. **Session-provenance** (precedence): pick the candidate where `manifest.created_show_id === c.id && manifest.drive_file_id === c.drive_file_id && c.wizard_created_session_id === manifest.wizard_session_id` → `sessionLinked = true`.
+  2. Else, **only if** `manifest.created_show_id === null`, **existing-show branch**: pick a candidate where `c.drive_file_id === manifest.drive_file_id && c.published === true && c.archived === false && c.wizard_created_session_id !== manifest.wizard_session_id` (null-safe distinct: a `null` session id is `!== manifest.wizard_session_id`) → `sessionLinked = false`. If multiple crew-visible candidates match, pick the first (a `drive_file_id` maps to one live show; the guard is `published && !archived`).
+  3. Else `linkedShow = null`. A **non-null** `created_show_id` that matches NO candidate (forged/stale) yields `linkedShow = null` (session join fails; existing-show branch is gated on `created_show_id IS NULL`, so it cannot rescue a forged pointer) → falls to Ready/manifest status. This is the R2 safety.
 
 - [ ] **Step 1: Write the failing test** — the two-level corrupt guard + Live/Held derivation from a joined show. Use a fake `fetchStep3Data` dependency-injection seam if `fetchStep3Data` reads Supabase directly; otherwise assert on a small extracted `buildStep3Row(manifestRow, pendingRow, joinedShow)` helper.
 
@@ -218,37 +230,52 @@ const pending = { staged_id: "st1", parse_result: { show: { title: "X" } }, last
 
 describe("buildStep3Row review-items two-level guard (spec §4.3.1, R6)", () => {
   it("[null] element → reviewItemsCorrupt, triggeredReviewItems empty", () => {
-    const row = buildStep3Row({ ...manifest }, { ...pending, triggered_review_items: [null] }, null);
+    const row = buildStep3Row({ ...manifest }, { ...pending, triggered_review_items: [null] }, []);
     expect(row.reviewItemsCorrupt).toBe(true);
     expect(row.triggeredReviewItems ?? []).toEqual([]);
   });
   it("missing-field element → reviewItemsCorrupt", () => {
-    const row = buildStep3Row({ ...manifest }, { ...pending, triggered_review_items: [{ id: "x" }] }, null);
+    const row = buildStep3Row({ ...manifest }, { ...pending, triggered_review_items: [{ id: "x" }] }, []);
     expect(row.reviewItemsCorrupt).toBe(true);
   });
   it("valid items → not corrupt, populated", () => {
     const items = [{ id: "a", invariant: "MI-6", section: "sched" }];
-    const row = buildStep3Row({ ...manifest }, { ...pending, triggered_review_items: items }, null);
+    const row = buildStep3Row({ ...manifest }, { ...pending, triggered_review_items: items }, []);
     expect(row.reviewItemsCorrupt).toBe(false);
     expect(row.triggeredReviewItems?.length).toBe(1);
   });
 });
 
-describe("buildStep3Row Live/Held derivation (spec §4.3)", () => {
-  const linked = { id: "show1", drive_file_id: "d1", published: true, archived: false, wizard_created_session_id: "s1" };
-  it("session-provenance join + published → Live", () => {
-    const row = buildStep3Row({ ...manifest, status: "applied", created_show_id: "show1" }, pending, linked);
+describe("buildStep3Row Live/Held candidate selection (spec §4.3, plan-R1)", () => {
+  const sessionShow = { id: "show1", drive_file_id: "d1", published: true, archived: false, wizard_created_session_id: "s1" };
+  it("session-provenance join wins → Live, sessionLinked", () => {
+    const row = buildStep3Row({ ...manifest, status: "applied", created_show_id: "show1" }, pending, [sessionShow]);
     expect(row.displayState).toBe("live");
     expect(row.sessionLinked).toBe(true);
   });
-  it("existing-show branch (null session, other-session id) → Live", () => {
-    const row = buildStep3Row(
-      { ...manifest, created_show_id: null },
-      pending,
-      { ...linked, wizard_created_session_id: null },
-    );
+  it("existing-show branch, NULL provenance → Live, not sessionLinked", () => {
+    const row = buildStep3Row({ ...manifest, created_show_id: null }, pending, [{ ...sessionShow, wizard_created_session_id: null }]);
     expect(row.displayState).toBe("live");
     expect(row.sessionLinked).toBe(false);
+  });
+  it("existing-show branch, PRIOR-session non-null id → Live (IS DISTINCT FROM, not IS NULL)", () => {
+    const row = buildStep3Row({ ...manifest, created_show_id: null, wizard_session_id: "s2" }, pending, [{ ...sessionShow, wizard_created_session_id: "s1" }]);
+    expect(row.displayState).toBe("live");
+    expect(row.sessionLinked).toBe(false);
+  });
+  it("existing-show ARCHIVED prior-session show → falls to Ready (not Live, not Held)", () => {
+    const row = buildStep3Row({ ...manifest, created_show_id: null, wizard_session_id: "s2" }, pending, [{ ...sessionShow, archived: true, wizard_created_session_id: "s1" }]);
+    expect(row.displayState).toBe("ready");
+  });
+  it("session-provenance precedence over a same-drive existing candidate", () => {
+    const other = { id: "showX", drive_file_id: "d1", published: true, archived: false, wizard_created_session_id: null };
+    const row = buildStep3Row({ ...manifest, status: "applied", created_show_id: "show1" }, pending, [other, sessionShow]);
+    expect(row.sessionLinked).toBe(true); // picked show1 via provenance, not showX
+  });
+  it("forged/stale non-null created_show_id matching NO candidate → not Live (R2 safety)", () => {
+    const row = buildStep3Row({ ...manifest, status: "applied", created_show_id: "ghost" }, pending, [sessionShow]);
+    expect(row.displayState).not.toBe("live");
+    expect(row.linkedShow ?? null).toBeNull();
   });
 });
 ```
@@ -258,11 +285,11 @@ describe("buildStep3Row Live/Held derivation (spec §4.3)", () => {
 - [ ] **Step 3: Implement.** In `Step3Review.tsx` add the new optional fields to `Step3Row`. In `OnboardingWizard.tsx`:
   1. Extend the `pending_syncs` select to include `triggered_review_items` (spec §4.3; current select at `:259-260`).
   2. Add a `public.shows` read selecting `id, drive_file_id, published, archived, wizard_created_session_id` for the session's `drive_file_id`s (destructure `{ data, error }`; infra fault → `{ kind: "infra_error" }`).
-  3. Export a pure `buildStep3Row(manifestRow, pendingRow, joinedShow)` that:
+  3. Export a pure `buildStep3Row(manifestRow, pendingRow, candidates: ShowCandidate[])` that:
      - Coerces `triggered_review_items` via `parseTriggeredReviewItems`; sets `reviewItemsCorrupt = !(parsed.ok && parsed.items.every(isStructurallyValidReviewItem))`; populates `triggeredReviewItems` only when both pass.
-     - Resolves `linkedShow` + `sessionLinked`: session-provenance join iff `manifest.created_show_id === show.id && manifest.drive_file_id === show.drive_file_id && show.wizard_created_session_id === manifest.wizard_session_id`; else existing-show branch iff `manifest.created_show_id === null && show.drive_file_id === manifest.drive_file_id && show.wizard_created_session_id !== manifest.wizard_session_id && show.published`. (`IS DISTINCT FROM` in JS: `!==` with null-safe compare.)
+     - Resolves `linkedShow` + `sessionLinked` per the **Candidate-selection contract** above (session-provenance first; existing-show branch only when `created_show_id IS NULL`; else null). The caller groups the `public.shows` read by `drive_file_id` and passes each row's candidate list.
      - Sets `hasWellFormedParseResult = !!(pending.parse_result && typeof pending.parse_result === "object" && pending.parse_result.show)`.
-     - Computes `displayState = deriveStep3DisplayState({...})`.
+     - Computes `displayState = deriveStep3DisplayState({ ...signals, linkedShow, sessionLinked })`.
 
 - [ ] **Step 4: Run — verify pass.**
 
@@ -315,7 +342,7 @@ Render the per-row badge from `row.displayState` (spec §4.2 table tones). No ne
 
 - [ ] **Step 2: Run — verify fail.**
 
-- [ ] **Step 3: Implement** `badgeForDisplayState(state): { label, tone }` mapping per spec §4.2 table; render it in the row. Keep `badgeForStatus` only if still referenced; otherwise replace.
+- [ ] **Step 3: Implement** `badgeForDisplayState(state): { label, tone }` mapping per spec §4.2 table; render it in the row. Distinct copy per plan-R1: `set_aside` → "Set aside for this setup" (muted), `skipped` → "Skipped (not a sheet)" (muted), `ready_to_publish` → "Ready to publish" (positive), `held` → "Held" (neutral), `live` → "Live" (accent), `ready` → "Ready" (idle). The badge derives ONLY from `displayState` (which already encodes the status distinction), so it never reaches back to `row.status`. Keep `badgeForStatus` only if still referenced; otherwise replace.
 
 - [ ] **Step 4: Run — verify pass.** - [ ] **Step 5: Typecheck.**
 
