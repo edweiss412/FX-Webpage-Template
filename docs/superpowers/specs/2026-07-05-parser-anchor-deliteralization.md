@@ -142,7 +142,9 @@ const STAGE_RESTRICTION_VOCAB = ["LOAD IN", "SET", "SHOW", "STRIKE", "LOAD OUT"]
 export type StageClause = {
   /** Recognized stage tokens in appearance order, deduped. Empty if none recognized. */
   stages: Array<"Load In" | "Set" | "Show" | "Strike" | "Load Out">;
-  /** True iff a trailing ONLY(±***) restriction marker was present. */
+  /** True iff a VALID trailing restriction marker was present — exactly bare `ONLY`
+   *  or `ONLY***` (three stars). A trailing 1–2 stars (`ONLY*`/`ONLY**`) is NOT a
+   *  valid marker (mirrors live `STAGE_TRAILING_MARKER_RE`, personalization.ts:183-187). */
   hasOnly: boolean;
   /** The role cell with the leading stage clause + ONLY marker removed, for role-flag tokenizing. */
   cleaned: string;
@@ -156,7 +158,7 @@ export function parseStageClause(roleCell: string): StageClause
 **Grammar (evaluated on the role cell, after day-restriction extraction already ran upstream — see `crew.ts:299-304`):**
 
 1. Strip an optional leading `-` and whitespace (preserved for `cleaned` reconstruction).
-2. **Find the ONLY marker.** Locate the first `\bONLY\b(\*{0,3})?`. If ABSENT → `hasOnly = false`, `stages = []`, `unrecognizedRestriction = false`, `cleaned = roleCell` UNCHANGED, return. (A partial subset with no ONLY — e.g. `Set / Strike` — is thus never consumed, so `extractRoleFlags` still emits its `UNKNOWN_ROLE_TOKEN` signal — adversarial-review R2 finding 2, never silent. Descriptive full lists w/o ONLY are handled by the retained `FULL_STAGE_PATTERN` strip in `extractRoleFlags`.)
+2. **Find the ONLY marker.** Locate the first VALID marker `\bONLY\b(?:\s*\*{3})?(?!\s*\*)`. **A marker is valid ONLY as bare `ONLY` or `ONLY***` (exactly three stars, optional whitespace before them); a trailing 1–2 stars — `ONLY*` / `ONLY**` — is NOT a valid marker (adversarial-review R14 finding 1).** The negative lookahead `(?!\s*\*)` rejects any ONLY-token followed by a non-triple star run, mirroring the live `STAGE_TRAILING_MARKER_RE` (`personalization.ts:183-187`, which peels only `ONLY` / `ONLY***` / bare `***` and deliberately leaves `ONLY*`/`ONLY**` untouched — `***`-count tolerance is a deferred concern). If NO valid marker (ABSENT, including a malformed `ONLY*`/`ONLY**`) → `hasOnly = false`, `stages = []`, `unrecognizedRestriction = false`, `cleaned = roleCell` UNCHANGED, return. This is fail-safe: a malformed `Set / Strike ONLY*` is NEVER consumed as a restriction (so it can never narrow a partial subset — origin/main never did either, since its partial-subset narrowing used the star-free `LOAD_IN_SET_ONLY_PATTERN`/`LOAD_OUT_STRIKE_ONLY_PATTERN`), and `extractRoleFlags` then emits `UNKNOWN_ROLE_TOKEN` on the garbled tokens (whole-show + surfaced signal, never silent — adversarial-review R2 finding 2). Descriptive full lists w/o ONLY are handled by the retained `FULL_STAGE_PATTERN` strip in `extractRoleFlags`.
 3. **ONLY present.** Let `body` = text between the leading dash and the ONLY marker; `tail` = text after the marker. Split `body` on `/` into segments (trimmed). **Comprehensive re-analysis of the stage-clause classification vector (adversarial-review R1 f1, R3 f1, R5 f1, R8 f1 — 3+ same-vector rounds triggered the AGENTS.md rule). Structural discriminator: the presence of a RECOGNIZED STAGE TOKEN is the SOLE signal that separates a stage restriction from a role clause — there is NO stage-word guessing/heuristic (that would reintroduce the brittle literal lists this PR removes).** Three mutually-exclusive branches:
    - **All-stages** — every `/`-segment EXACTLY equals a `STAGE_RESTRICTION_VOCAB` member (≥1 segment; full-segment-exact so `SHOW CALLER` ≠ `SHOW`, R1 f1). → `stages` = segments (appearance order, deduped, canonical), `hasOnly = true`, `unrecognizedRestriction = false`, `consumedOnlyClause = true`, `cleaned = tail`. Explicit restriction.
    - **Some-stage (malformed)** — ≥1 `/`-segment is an exact stage but NOT all are. → `stages = []` (NEVER partial-narrow to the recognized prefix, R3 f1), `hasOnly = true`, `unrecognizedRestriction = true`, `consumedOnlyClause = true`, `cleaned = tail` (garbled stage body consumed so `extractRoleFlags` does not double-warn; a post-ONLY role tail like `- LEAD` is preserved). → `UNKNOWN_STAGE_RESTRICTION` + whole-show. Covers `Set / Rehearsal ONLY`, `Set / Sho ONLY`, `Load In / Rehearsal ONLY - LEAD`.
@@ -165,6 +167,18 @@ export function parseStageClause(roleCell: string): StageClause
    (A date token in `body` — `\d{1,2}/\d{1,2}` — is a leaked day restriction normally consumed upstream by `extractDayRestriction` (`crew.ts:299`); it has no recognized stage, so it falls into No-stage and is left to the existing role/day path. Defensive; not expected.)
 
 **Structural invariant (the class-closing rule):** `UNKNOWN_STAGE_RESTRICTION` fires **iff** `body` contains ≥1 recognized stage token AND is not all-stages. Zero recognized stages ⟹ role clause (never a stage restriction); all stages ⟹ explicit restriction. This single predicate subsumes SHOW CALLER (no stage → role), hyphenated `BO - V1` (no stage → role), `RIGGER`/`Rehearsal` (no stage → role/UNKNOWN_ROLE_TOKEN), and `Set / Rehearsal` (some-stage → UNKNOWN_STAGE_RESTRICTION). A dedicated unit test asserts the invariant directly.
+
+**Marker-validity enumeration (asterisk sub-vector, R14 f1 — pinned as a parameterized unit test in §8).** Marker validity is gated FIRST, orthogonally to the all/some/no-stage branch — an invalid marker collapses to the ABSENT branch (`hasOnly = false`) regardless of body:
+
+| ONLY-suffix | Valid marker? | Disposition |
+|-------------|---------------|-------------|
+| `ONLY` (0 stars) | ✅ yes | marker consumed; body classified all/some/no-stage |
+| `ONLY*` (1) | ❌ no | ABSENT → whole-show + role path (`UNKNOWN_ROLE_TOKEN`) |
+| `ONLY**` (2) | ❌ no | ABSENT → whole-show + role path |
+| `ONLY***` (3) | ✅ yes | marker consumed; the `***` day-emphasis is absorbed (crew.ts triple-asterisk, suppressed via `consumedOnlyClause`) |
+| `ONLY****` (4+) | ❌ no | ABSENT → whole-show + role path (safe; malformed) |
+
+Rationale: exactly mirrors the live `STAGE_TRAILING_MARKER_RE` contract (`ONLY` / `ONLY***` / bare `***`), so de-literalization does not widen marker tolerance beyond origin/main.
 
 Note: `Sho` (typo of `Show`) is NOT auto-corrected by `normalizeStageWords` (its `STAGE_VOCAB` is the 4 physical stages, no `Show` — §3.3), so `Set / Sho ONLY` is some-stage-malformed (safe `UNKNOWN_STAGE_RESTRICTION`); extending stage-word typo correction to `Show` is out of scope.
 
@@ -178,6 +192,9 @@ Note: `Sho` (typo of `Show`) is NOT auto-corrected by `normalizeStageWords` (its
 | `Set / Show ONLY` | [Set,Show] | true | false | explicit [Set,Show] (**NEW**, Show valid) |
 | `Load In / Set / Strike / Load Out - LEAD` (full, no ONLY) | [4 stages] | false | false | none; `cleaned` unchanged, full-list prefix stripped by retained `FULL_STAGE_PATTERN` → role LEAD (unchanged) |
 | `Set / Strike` (partial, no ONLY) | [Set,Strike] | false | false | none; `cleaned` UNCHANGED → `extractRoleFlags` emits `UNKNOWN_ROLE_TOKEN` (signal preserved, **NOT silent**) |
+| `Set / Strike ONLY*` (malformed 1-star marker) | [] | false | false | none; invalid marker → treated as ABSENT (**never narrows to [Set,Strike]**, R14 f1); `cleaned` UNCHANGED → `extractRoleFlags` emits `UNKNOWN_ROLE_TOKEN` |
+| `Set / Strike ONLY**` (malformed 2-star marker) | [] | false | false | none; invalid marker → ABSENT; → `UNKNOWN_ROLE_TOKEN` (R14 f1) |
+| `Load In / Set / Strike / Load Out ONLY*` (malformed full-list) | [] | false | false | none (whole-show — a no-op even on origin/main's full-4 restriction; safe); role tail via `FULL_STAGE_PATTERN` strip |
 | `SHOW ONLY` | [Show] | true | false | all-stages → explicit [Show] |
 | `Set / Rehearsal ONLY` (some-stage) | [] | true | true | none + `UNKNOWN_STAGE_RESTRICTION` (**never partial [Set]** — R3 f1) |
 | `Set / Sho ONLY` (some-stage typo) | [] | true | true | none + `UNKNOWN_STAGE_RESTRICTION` |
@@ -198,7 +215,7 @@ Note: `Sho` (typo of `Show`) is NOT auto-corrected by `normalizeStageWords` (its
 export function extractStageRestriction(roleCell: string): {
   restriction: StageRestriction;
   warnings: ParseWarning[];
-  consumedOnlyClause: boolean; // true iff an ONLY(±***) stage clause was parsed (explicit OR unrecognized)
+  consumedOnlyClause: boolean; // true iff a VALID (bare ONLY or ONLY***) stage clause was parsed (explicit OR unrecognized)
 } {
   const clause = parseStageClause(roleCell);
   if (clause.stages.length > 0 && clause.hasOnly) {
@@ -355,6 +372,7 @@ Every new test states the concrete failure mode it catches; expected values deri
 - **Hyphenated role scopes preserved (R5 finding 1):** `BO - V1 ONLY`, `GS - A1 ONLY`, `BO - LEAD ONLY` → `extractStageRestriction` `{kind:"none"}` with NO `UNKNOWN_STAGE_RESTRICTION`, AND `extractRoleFlags` yields the roles (`BO`+`V1`, `GS`+`A1`, `BO`+`LEAD`) + `ONLY`. Failure mode: `/`-only classification misreads a hyphen-scoped role as an unknown stage restriction and strips the role flags.
 - **Anchor resolution (R5 finding 2):** a crew row producing `UNKNOWN_STAGE_RESTRICTION` → `resolveWarningSourceCells` resolves it by `blockRef.name` to the role cell (a non-null `sourceCell`) on both the sync and onboarding anchor paths. Failure mode: added to the actionable set but no resolver branch → link-less actionable row.
 - **No-ONLY subset preserves signal (R2 finding 2):** `Set / Strike` (no ONLY) → `extractStageRestriction` `{kind:"none"}` with NO warning, AND `extractRoleFlags` emits `UNKNOWN_ROLE_TOKEN` (identical to `origin/main`). `Load In / Set / Strike / Load Out - LEAD` (full, no ONLY) → role `LEAD`, no restriction, no unknown token. Failure mode: silent strip drops the existing unknown-token signal.
+- **Malformed ONLY marker never narrows (R14 finding 1) — PARAMETERIZED over the asterisk enumeration:** for the marker-validity table, assert `parseStageClause`/`extractStageRestriction` treat `ONLY` and `ONLY***` as valid markers but `ONLY*`, `ONLY**`, `ONLY****` as INVALID (→ `hasOnly:false`, ABSENT branch). Concretely: `Set / Strike ONLY*` and `Set / Strike ONLY**` → `extractStageRestriction` returns `{kind:"none"}` with NO explicit restriction and NO `UNKNOWN_STAGE_RESTRICTION` (marker not consumed), AND `extractRoleFlags` emits `UNKNOWN_ROLE_TOKEN` on the garbled tokens — i.e. IDENTICAL non-narrowing to `origin/main` (which never narrowed a partial on `ONLY*`). Positive controls in the same table: `Set / Strike ONLY` → explicit `[Set,Strike]`; `Load In / Set / Strike / Load Out ONLY***` → explicit 4-stage. Failure mode: the generalized marker grammar widens tolerance and silently narrows a crew member's schedule on malformed `ONLY*`/`ONLY**` input.
 - **Mixed ONLY-clause never partially narrows (R3 finding 1):** `Set / Rehearsal ONLY`, `Set / Sho ONLY`, `Load In / Rehearsal ONLY - LEAD` → `extractStageRestriction` returns `{kind:"none"}` + exactly one `UNKNOWN_STAGE_RESTRICTION` (NOT explicit `[Set]`/`[Load In]`); assert stages is empty and the crew member is NOT narrowed to the recognized prefix. For the `- LEAD` tail case, assert `extractRoleFlags` still yields role `LEAD` (post-ONLY tail preserved). Failure mode: recognized-prefix consumption emits a partial explicit restriction that silently hides valid days.
 - **Data-gap counting (R13 finding 1):** a `ParseWarning[]` containing one `severity:"warn"` `UNKNOWN_STAGE_RESTRICTION` → `summarizeDataGaps(...)` returns `total: 1` with `classes.UNKNOWN_STAGE_RESTRICTION === 1` (asserted against the summary data source, not a rendered badge); `isDataQualityWarning` returns `true` for it. Control: the same code at `severity:"info"` is NOT counted. Failure mode: the new warning is anchored but omitted from the data-quality badge/count.
 - **End-to-end filter:** `stage-filtered-schedule` — a crew row `Set / Show ONLY` folds to a `date_restriction` covering exactly Set + Show days (derive the expected day set from the fixture's `dates`/`schedule_phases`, not a literal). Failure mode: Show not intersecting.
@@ -379,6 +397,7 @@ Every new test states the concrete failure mode it catches; expected values deri
 - **The `consumedOnlyClause` flag on `extractStageRestriction`** exists solely to suppress the pre-existing `crew.ts` triple-asterisk `UNKNOWN_DAY_RESTRICTION` when an `ONLY***` stage clause already consumed the marker (R7 f3) — it is not a new restriction concept.
 - **`UNKNOWN_STAGE_RESTRICTION` is BOTH counted (data-gap) AND anchored, by design.** It mirrors `UNKNOWN_ROLE_TOKEN`/`UNKNOWN_DAY_RESTRICTION`, which each appear in BOTH `GAP_CLASSES` and `OPERATOR_ACTIONABLE_ANCHORED` (`dataGaps.ts:36-37,164-165`) — a crew-role sheet-data gap Doug can fix at a resolvable cell. Membership in both sets is intentional and pinned by the completeness meta-test (§7 item 8); do not relitigate as double-classification. (R13 f1.)
 - **`STAGE_VOCAB` (typo vocab, `:174`) stays 4-wide; `STAGE_RESTRICTION_VOCAB` (grammar, new) is 5-wide.** Two different vocabularies for two different jobs (spelling correction vs clause recognition). Not a contradiction.
+- **Marker tolerance is NOT widened by de-literalization (R14 f1).** The valid ONLY-marker forms are exactly `ONLY` and `ONLY***` — identical to the live `STAGE_TRAILING_MARKER_RE` (`personalization.ts:183-187`). `ONLY*`/`ONLY**` remain invalid markers (fail-safe to whole-show), and origin/main never narrowed a *partial* subset on a starred marker anyway (its partial narrowing used the star-free `LOAD_IN_SET_ONLY_PATTERN`/`LOAD_OUT_STRIKE_ONLY_PATTERN`). Adding `***`-count tolerance for 1–2 stars is a separate deferred concern; do not relitigate it into this PR.
 - **Corpus-wide rooms no-op is the room contract**, not "looks right." De-literalization must be deep-equal to `origin/main` `rooms` on ALL committed fixtures; a bogus room anywhere fails. Discovery/terminator gate is name-shape + immediate-field-evidence (dims-alone rejected — R6). This whole-corpus regression is the structural defense that closed the three-round false-positive vector; do not relitigate the dims-alone branch.
 
 ## 10. Self-consistency / numeric sweep
