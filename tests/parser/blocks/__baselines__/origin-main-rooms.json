@@ -73,6 +73,42 @@
       "digital_signage": "N/A",
       "other": "(1) FOH Rack (1) 8' Ladder (1) Case Water Tech Drape Hardware / Fabric",
       "notes": null
+    },
+    {
+      "kind": "breakout",
+      "name": "LASALLE B",
+      "dimensions": "30' x 25' x 10.5'",
+      "floor": "7th Floor",
+      "setup": "TBD",
+      "set_time": "3/24 @ 10:00 AM",
+      "show_time": "TBD",
+      "strike_time": "TBD",
+      "audio": "N/A",
+      "video": "(1) Eiki Projector (1) 7' Tripod (1) Tripod Skirt (1) ASUS Laptop (1) Slide Advancer (1) Projector Stand",
+      "lighting": "N/A",
+      "scenic": "N/A",
+      "power": null,
+      "digital_signage": "N/A",
+      "other": "N/A",
+      "notes": null
+    },
+    {
+      "kind": "breakout",
+      "name": "LASALLE A",
+      "dimensions": "30' x 25' x 10.5'",
+      "floor": "7th Floor",
+      "setup": "TBD",
+      "set_time": "3/24 @ 10:00 AM",
+      "show_time": "TBD",
+      "strike_time": "TBD",
+      "audio": "N/A",
+      "video": "(1) Eiki Projector (1) 7' Tripod (1) Tripod Skirt (1) ASUS Laptop (1) Slide Advancer (1) Projector Stand",
+      "lighting": "N/A",
+      "scenic": "N/A",
+      "power": null,
+      "digital_signage": "N/A",
+      "other": "N/A",
+      "notes": null
     }
   ],
   "fixtures/shows/raw/2025-04-asset-mgmt-cfo-coo.md": [
