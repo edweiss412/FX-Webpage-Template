@@ -224,12 +224,15 @@ export function Step3ReviewModal({
   // triggers router.refresh, which delivers NEW triggeredReviewItems to the
   // still-open modal — re-derive the choices so single-action items auto-bind
   // and stale bindings for removed items are dropped (else Approve can stick
-  // disabled with no selectable radios until reopen). The memo is stable until
-  // the item ids change, so on mount this sets the identical ref and React
-  // bails — no extra render. (Codex R5 MEDIUM.)
-  useEffect(() => {
+  // disabled with no selectable radios until reopen). React's blessed
+  // reset-on-prop-change pattern: adjust state DURING render (no effect, no
+  // cascading-render lint), guarded by the previous memo identity so it fires
+  // only when the item ids actually change. (Codex R5 MEDIUM.)
+  const [prevInitialChoices, setPrevInitialChoices] = useState(initialResolutionChoices);
+  if (prevInitialChoices !== initialResolutionChoices) {
+    setPrevInitialChoices(initialResolutionChoices);
     setResolutionChoices(initialResolutionChoices);
-  }, [initialResolutionChoices]);
+  }
   const [resolutionPending, setResolutionPending] = useState(false);
   const [resolutionError, setResolutionError] = useState<string | null>(null);
 
