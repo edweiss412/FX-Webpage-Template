@@ -424,6 +424,13 @@ describe("fingerprint (Codex R7/R8/R15/R16)", () => {
     const m2 = base({ warnings: [w("B"), w("A")] });
     expect(fingerprint(b, m1)).not.toBe(fingerprint(b, m2));
   });
+  it("changes on empty-container payload drift [] -> [{}] and {} -> [] (plan-R4)", () => {
+    const b = base({ rooms: [] });
+    expect(fingerprint(b, base({ rooms: [{} as never] }))).not.toBe(fingerprint(b, base({ rooms: [] })));
+    // adding an empty nested container is visible
+    const b2 = base({ contacts: [] });
+    expect(fingerprint(b2, base({ contacts: [{} as never] }))).not.toBe(fingerprint(b2, b2));
+  });
 });
 
 describe("capture", () => {
@@ -504,12 +511,22 @@ export function verdict(b: ParsedSheet, m: ParsedSheet): Verdict {
 export const digest = (v: unknown): string =>
   createHash("sha256").update(canon(typeof v === "string" ? v.normalize("NFC") : v)).digest("hex").slice(0, 12);
 
-/** Flatten an object to sorted [path, value] leaf pairs (arrays use indexed paths). */
+/**
+ * Flatten to sorted [path, value] pairs. Every CONTAINER node also emits a shape
+ * token (`#arr:<len>` / `#obj:<sortedKeys>`) so an empty-container change like
+ * `[] -> [{}]` or `{} -> []` moves the fingerprint (plan-R4). Leaf scalars emit
+ * their value; arrays use indexed paths.
+ */
 function leaves(v: unknown, prefix = ""): Array<[string, unknown]> {
   if (v === null || typeof v !== "object") return [[prefix, v]];
-  const out: Array<[string, unknown]> = [];
-  if (Array.isArray(v)) v.forEach((e, i) => out.push(...leaves(e, `${prefix}[${i}]`)));
-  else for (const k of Object.keys(v as object).sort()) out.push(...leaves((v as Record<string, unknown>)[k], `${prefix}.${k}`));
+  if (Array.isArray(v)) {
+    const out: Array<[string, unknown]> = [[prefix, `#arr:${v.length}`]];
+    v.forEach((e, i) => out.push(...leaves(e, `${prefix}[${i}]`)));
+    return out;
+  }
+  const keys = Object.keys(v as object).sort();
+  const out: Array<[string, unknown]> = [[prefix, `#obj:${keys.join(",")}`]];
+  for (const k of keys) out.push(...leaves((v as Record<string, unknown>)[k], `${prefix}.${k}`));
   return out;
 }
 
@@ -1014,7 +1031,7 @@ const rowClass = (cells: string[]): "header" | "alignment" | "spacer" | "data" =
   return "data";
 };
 
-type Sec = { domain: string; hasHeader: boolean; dataRows: string[][]; runIndex: number };
+type Sec = { domain: string; headerToken: string | null; dataRows: string[][]; runIndex: number };
 function sections(md: string): Sec[] {
   const out: Sec[] = [];
   let cur: Sec | null = null, runIndex = -1, inRun = false;
@@ -1022,10 +1039,26 @@ function sections(md: string): Sec[] {
     if (line.trim() === "" || !line.trim().startsWith("|")) { cur = null; inRun = false; continue; }
     if (!inRun) { inRun = true; runIndex++; }
     const cells = cellsOf(line), cls = rowClass(cells);
-    if (cls === "header") { cur = { domain: DOMAIN_OF[resolve(cells[0]!)!] ?? "other", hasHeader: true, dataRows: [], runIndex }; out.push(cur); }
-    else if (cls === "data") { if (!cur) { cur = { domain: "other", hasHeader: false, dataRows: [], runIndex }; out.push(cur); } cur.dataRows.push(cells); }
+    if (cls === "header") { cur = { domain: DOMAIN_OF[resolve(cells[0]!)!] ?? "other", headerToken: (cells[0] ?? "").trim(), dataRows: [], runIndex }; out.push(cur); }
+    else if (cls === "data") { if (!cur) { cur = { domain: "other", headerToken: null, dataRows: [], runIndex }; out.push(cur); } cur.dataRows.push(cells); }
   }
   return out;
+}
+
+/**
+ * Independently replicate the operator's header-typo eligibility guard (plan-R4):
+ * ≥2 chars, an adjacent distinct pair exists, and the transposition is NOT itself a
+ * recognized header. Kept minimal + local so the audit stays implementation-independent
+ * of operators.ts while counting the SAME eligible sites for exact agreement.
+ */
+function typoEligible(token: string): boolean {
+  const chars = [...token];
+  if (chars.length < 2) return false;
+  let pos = -1;
+  for (let i = 0; i < chars.length - 1; i++) if (chars[i] !== chars[i + 1]) { pos = i; break; }
+  if (pos < 0) return false;
+  [chars[pos], chars[pos + 1]] = [chars[pos + 1]!, chars[pos]!];
+  return resolve(chars.join("")) === null; // transposed token must not be a real header
 }
 
 /** Independent site counts per `${op}|${domain}` from raw markdown (covers ALL 7 corrupting ops, plan-R1). */
@@ -1034,7 +1067,7 @@ export function auditSites(md: string): Map<string, number> {
   const bump = (op: string, domain: string, n = 1) => m.set(`${op}|${domain}`, (m.get(`${op}|${domain}`) ?? 0) + n);
   const secs = sections(md);
   for (const s of secs) {
-    if (s.hasHeader) bump("header-typo", s.domain);           // one header-typo site per header row
+    if (s.headerToken && typoEligible(s.headerToken)) bump("header-typo", s.domain); // exact typo-eligible count (plan-R4)
     for (const row of s.dataRows) {
       const cells = row.filter((c) => c.length > 0);
       bump("ref-sub", s.domain, cells.length);
@@ -1223,14 +1256,14 @@ git commit --no-verify -m "feat(parser): mutation harness driver + day-1 known-h
 - Modify: `tests/parser/mutationHarness.test.ts` (add gate blocks)
 
 **Interfaces:**
-- Consumes: `SECTION_DOMAIN_MAP`, `RISK_CRITICAL`, `classifySection`, `resolveHeader` (`./mutation/classify`), `floorEligible` (`./mutation/operators`), `auditSites` (`./mutation/applicabilityAudit`), `KNOWN_SECTION_HEADERS`/`PREFIX_SECTION_FAMILIES` (`@/lib/parser/knownSections`).
+- Consumes: `SECTION_DOMAIN_MAP`, `resolveHeader`, `REQUIRED_HEADERS_FOR_DOMAIN` (`./mutation/classify`), `OPERATORS`, `auditSites` (`./mutation/applicabilityAudit`), `KNOWN_SECTION_HEADERS`/`PREFIX_SECTION_FAMILIES` (`@/lib/parser/knownSections`).
 
 - [ ] **Step 1: Add the gate tests**
 
 ```ts
 // append to tests/parser/mutationHarness.test.ts
 import { KNOWN_SECTION_HEADERS, PREFIX_SECTION_FAMILIES } from "@/lib/parser/knownSections";
-import { SECTION_DOMAIN_MAP, RISK_CRITICAL, resolveHeader, REQUIRED_HEADERS_FOR_DOMAIN } from "./mutation/classify";
+import { SECTION_DOMAIN_MAP, resolveHeader, REQUIRED_HEADERS_FOR_DOMAIN } from "./mutation/classify";
 import { OPERATORS as OPS } from "./mutation/operators";
 import { auditSites } from "./mutation/applicabilityAudit";
 
@@ -1251,12 +1284,10 @@ describe("classifier parity gate (Codex R2/R4/R8)", () => {
 
 describe("coverage floor + COUNT-level audit agreement (Codex R5/R9, exhaustive plan-R3)", () => {
   // EXACT: operator emit count per domain must EQUAL the independent audit count
-  // (identical applicability predicate). blank-row:remove is exact too — its 2-domain
-  // mutant credits each adjacent domain once, matching the audit's dual bump.
-  const EXACT = ["ref-sub", "unicode-inject", "merged-cell", "column-shift", "blank-row:inject", "blank-row:remove"];
-  // BOUNDED: header-typo may emit fewer than audit (typo-guard can skip a header) — assert
-  // generated ≤ audit AND presence (audit>0 ⟹ generated>0).
-  const BOUNDED = ["header-typo"];
+  // (identical applicability predicate). header-typo is exact too — the audit replicates
+  // its typo-eligibility guard (plan-R4). blank-row:remove is exact — its 2-domain mutant
+  // credits each adjacent domain once, matching the audit's dual bump.
+  const EXACT = ["header-typo", "ref-sub", "unicode-inject", "merged-cell", "column-shift", "blank-row:inject", "blank-row:remove"];
 
   const genCounts = (raw: { domains: string[] }[]): Map<string, number> => {
     const m = new Map<string, number>();
@@ -1270,7 +1301,6 @@ describe("coverage floor + COUNT-level audit agreement (Codex R5/R9, exhaustive 
       const audit = auditSites(md);
       for (const op of EXACT) {
         const gen = genCounts(OPS[op]!(md));
-        // every domain either side mentions must match
         const domains = new Set<string>([...gen.keys(), ...[...audit.keys()].filter((k) => k.startsWith(`${op}|`)).map((k) => k.split("|")[1]!)]);
         for (const d of domains) {
           expect(gen.get(d) ?? 0, `${f.slug} ${op}|${d} count`).toBe(audit.get(`${op}|${d}`) ?? 0);
@@ -1279,19 +1309,11 @@ describe("coverage floor + COUNT-level audit agreement (Codex R5/R9, exhaustive 
     }
   });
 
-  it("BOUNDED operators: generated ≤ audit and every audited domain is present", () => {
-    for (const f of FIXTURES) {
-      const md = readFixture(f);
-      const audit = auditSites(md);
-      for (const op of BOUNDED) {
-        const gen = genCounts(OPS[op]!(md));
-        for (const d of RISK_CRITICAL) {
-          const a = audit.get(`${op}|${d}`) ?? 0, g = gen.get(d) ?? 0;
-          expect(g, `${f.slug} ${op}|${d} over-generated`).toBeLessThanOrEqual(a);
-          if (a > 0) expect(g, `${f.slug} ${op}|${d} present`).toBeGreaterThan(0);
-        }
-      }
-    }
+  it("header-typo count matches for TWO same-domain headers (one-emitted-only would fail, plan-R4)", () => {
+    const md = "| CREW | NAME |\n|  | Doug |\n\n| TECH | NAME |\n|  | Eric |"; // two crew-domain headers
+    const gen = genCounts(OPS["header-typo"]!(md));
+    expect(gen.get("crew") ?? 0).toBe(auditSites(md).get("header-typo|crew") ?? 0);
+    expect(gen.get("crew") ?? 0).toBe(2); // both CREW + TECH headers → 2 crew-domain typo sites
   });
 });
 ```
