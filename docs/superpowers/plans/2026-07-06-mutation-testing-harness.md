@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- **Zero product-source change; test-infra weighting permitted (spec AC-5).** New test files live under `tests/parser/mutation/**` + `tests/parser/mutationHarness.test.ts`. Task 12 additionally edits two TEST-infra files so the heavy harness is a weight-balanced, merge-gating UNIT-SUITE file — `lib/test/vitest.weights.ts` (register its measured weight) and `tests/cross-cutting/vitest-shard-balance.test.ts` (derive `HOT` from the top-2 weights). NO PRODUCT source (`lib/parser`, `app/`, `components/`, `supabase/`) and NO new workflow / `package.json` script / exclusion is touched. (The R19–R21 x-audits placement was reverted at R22: an x-audits job is not in the required-check inventory, so it would not block merge; the already-required `unit-suite` aggregator gates the harness for free.)
+- **Zero product-source change; a dedicated nightly workflow is added (spec AC-5, amended 2026-07-06).** New test files live under `tests/parser/mutation/**` + `tests/parser/mutationHarness.test.ts`. Because Task 8 Step 1 measured the exhaustive corpus at ~50 min serial (101,795 mutants), Task 12 places the harness on a dedicated NIGHTLY workflow OFF the merge-gating fast path — editing `vitest.projects.ts` + `vitest.config.ts` to EXCLUDE the harness from the default/unit-suite discovery (opt-in via `VITEST_INCLUDE_MUTATION_HARNESS=1`), extending `tests/cross-cutting/vitest-projects-partition.test.ts` to pin that gating contract, and creating `.github/workflows/mutation-harness.yml` (`schedule:` + `workflow_dispatch:`). NO PRODUCT source (`lib/parser`, `app/`, `components/`, `supabase/`) is touched; the only non-`tests/` files are the two vitest-config modules (test-config surface) and the workflow YAML (CI infra). (History: R19–R21 x-audits placement → R22 unit-suite weighted merge-gate → 2026-07-06 nightly, once the real ~50-min runtime made any merge-gating placement infeasible without sampling. The R22 `lib/test/vitest.weights.ts` / `vitest-shard-balance.test.ts` edits are NOT made — the file leaves the sequencer's path.)
 - **TDD per task:** failing test → minimal implementation → passing test → commit. Never implementation before its test.
 - **Commit per task**, conventional-commits (`test(parser):` / `feat(parser):` / `chore(parser):`). One task per commit. Use `--no-verify` (shared lint-staged hook belongs to the main checkout).
 - **Determinism:** no `Math.random`, no `Date.now`. All site enumeration is a deterministic top-to-bottom scan.
@@ -1757,11 +1757,11 @@ it("measure corpus size + wall-clock", () => {
 
 Run: `pnpm vitest run tests/parser/mutation/_measure.test.ts` then `rm tests/parser/mutation/_measure.test.ts`.
 
-Record both numbers in the Task 8 commit message. Both feed later tasks: the count sets `MUTANT_BUDGET`, and the **wall-clock becomes the `FILE_WEIGHTS` entry in Task 12** (so the unit-suite shard sequencer balances the harness). Accept the exhaustive design only if:
-  - **count ≤ `MUTANT_BUDGET` (150_000)** with headroom — if it is already near the ceiling, raise `MUTANT_BUDGET` deliberately (an operator is fanning out more than expected; confirm that is intended, not a per-char bug).
-  - **wall-clock < 150_000 ms** (half the 300s hook ceiling, and comfortably under the 20-min unit-suite leg timeout — `unit-suite.yml:52`). If it exceeds 150s, DO NOT split `runAll()` into `test.each` cases — unit-suite's `--shard` partitions by **FILE**, not by `it`/`test.each` case (`unit-suite.yml:87`), so a single heavy file's cases all still land on ONE leg. Instead shard at the **FILE** level: split the corpus into a few per-family driver files (e.g. `mutationHarness.exporter.test.ts` / `mutationHarness.raw.test.ts`), each a discovered `*.test.ts` the sequencer can place on a different leg, each weight-registered in Task 12; then reconcile the union of alarms against the ledger — either per-file (each file owns its fixtures' ledger slice) or in a committed aggregation the CI runs after all legs. Note the chosen split in the commit message. (At the expected ~100-150s this is not needed — one weighted file is fine.)
+Record both numbers in the Task 8 commit message. **MEASURED (2026-07-06): 101,795 mutants; ~29.8 ms/parse; ≈ 3,029 s (~50 min) serial full parse.** The count (101,795) sets the corpus-budget assertion (≤ `MUTANT_BUDGET` 150,000 — comfortably under; no raise needed). The wall-clock outcome:
+  - **count ≤ `MUTANT_BUDGET` (150_000)** ✔ — 101,795 with ~48k headroom. (If a future fixture pushes it near the ceiling, raise `MUTANT_BUDGET` deliberately after confirming the fanout is intended, not a per-char bug.)
+  - **wall-clock ≈ 3,029 s — 20× the ~150 s a merge-gating `unit-suite` leg can absorb.** Sampling was rejected (a silent-wrong parse in an un-parsed site would ship undetected, §4.3); ~20-file FILE-level sharding is fragile against the 20-min leg timeout. **RESOLUTION (user-directed 2026-07-06): keep full exhaustiveness and move the harness OFF the merge-gating path onto a dedicated NIGHTLY workflow** (Task 12) — excluded from the default suite, run only via `VITEST_INCLUDE_MUTATION_HARNESS=1` on a `schedule:` + `workflow_dispatch:` job with a 90-min leg timeout. The single-`beforeAll` design below is unchanged EXCEPT its hook timeout is raised to 75 min (`4_500_000 ms`) to cover the ~50-min run.
 
-If the measured numbers are within budget, proceed with the single-`beforeAll` design below.
+Proceed with the single-`beforeAll` design below (nightly-scoped per Task 12).
 
 - [ ] **Step 2: Write the driver test (initially expected RED — the ledger is empty but real holes exist)**
 
@@ -1829,15 +1829,17 @@ function runAll(): { alarms: Alarm[]; allSiteIds: string[]; cosmeticViolations: 
 // run of the cheap structural-gate describes added in Task 9 — `-t "classifier parity"`,
 // `-t "COUNT-level audit agreement"`, and their red-phase probes — collects this module but runs
 // only the matched describe's hooks/tests, so `runAll()` never fires for those. Only tests INSIDE
-// this describe pay the corpus cost. The hook carries an explicit 300s timeout because vitest's
-// default hookTimeout (10s) is far below the measured corpus wall-clock (Step 1). This heavy file
-// runs on the required unit-suite path (weight-registered in vitest.weights.ts, Task 12) — the
-// beforeAll deferral keeps its cost off any targeted `-t` sibling-gate run.
+// this describe pay the corpus cost. The hook carries an explicit 75-min (4_500_000 ms) timeout
+// because the measured corpus wall-clock (Step 1) is ~50 min — far past vitest's default hookTimeout
+// (10s) AND past the 300s originally planned before the exhaustive corpus was measured. This heavy
+// file is EXCLUDED from the default/unit-suite discovery and run ONLY by the nightly workflow
+// (opt-in VITEST_INCLUDE_MUTATION_HARNESS, Task 12) — the beforeAll deferral additionally keeps its
+// cost off any targeted `-t` sibling-gate run within the same file.
 describe("mutation harness — bidirectional known-holes ledger", () => {
   let R: { alarms: Alarm[]; allSiteIds: string[]; cosmeticViolations: string[]; noOps: string[] };
   beforeAll(() => {
     R = runAll(); // throws (fails the hook) if Phase-1 mutant count exceeds MUTANT_BUDGET before any parse
-  }, 300_000);
+  }, 4_500_000);
 
   it("corpus size is within the documented runtime budget (plan-R17)", () => {
     expect(R.allSiteIds.length).toBeGreaterThan(0);
@@ -2245,60 +2247,144 @@ git commit --no-verify -m "test(parser): surface total mutant count + skippedIna
 
 ---
 
-### Task 12: CI wiring — register the harness as a weight-balanced UNIT-SUITE file (merge-gating)
+### Task 12: CI wiring — dedicated nightly workflow + default-suite exclusion (non-merge-gating)
 
-**Why (Codex plan-R22 [high], superseding the R19 x-audits detour):** the harness must be a **merge-blocking** CI gate (spec goal — a silent-parse regression must fail the PR, not just log red). The repo's required-check inventory is loaded from the master spec's AC-X.6 body through an allowlist that recognizes ONLY `x1`–`x6`, `traceability-audit`, `verify-branch-protection-status` (`scripts/generate-traceability.ts:206-216`). A NEW x-audits job (`mutation-harness`) is therefore **not** merge-blocking without also editing the master spec's required-check list + that allowlist + branch protection — a large cross-cutting surface. The `unit-suite` aggregator (`unit-suite.yml`) is **already** a required check that gates on ALL matrix legs (`unit-suite.yml:19`), so a heavy test discovered on that path is merge-gating **for free**. The only real issue R19 raised — an *unweighted* heavy file mis-balances a shard leg (`DEFAULT_WEIGHT`=1500ms, `vitest.weights.ts:9`) — is fixed by REGISTERING its measured weight so the LPT sequencer (`vitest.sequencer.ts`) balances it. This returns to the spec's originally-approved AC-5 ("plain discovered file in the existing config"), now correctly weighted.
+**Why (user-directed 2026-07-06, superseding the R22 merge-gate decision):** Task 8 Step 1 measured the exhaustive corpus at **101,795 mutants × ~29.8 ms/parse ≈ 3,029 s (~50 min) serial** — 20× the ~150 s a merge-gating `unit-suite` leg (20-min timeout, `unit-suite.yml:52`) can absorb, and the leg also runs the rest of the suite. Sampling to fit the budget was rejected (it would let a silent-wrong parse in an un-parsed site ship undetected, spec §4.3); ~20-file sharding is fragile against the leg timeout. The user chose to **keep full exhaustiveness and move the harness OFF the merge-gating fast path onto a dedicated nightly workflow** (spec §Non-goals + AC-5, amended). Consequence: the harness is (a) **excluded from the default discovered suite** so a bare `pnpm test` and the `unit-suite` legs never pick up the 50-min file, and (b) run by a new **scheduled + `workflow_dispatch`** GitHub Actions workflow. It is NOT merge-blocking; a ledger divergence fails the nightly run and is triaged. The R22-era `lib/test/vitest.weights.ts` weight row and `vitest-shard-balance.test.ts` HOT-pair edit are **NOT made** — they only matter for a file the unit-suite sequencer runs, and this file leaves that path.
 
 **Files:**
-- Modify: `lib/test/vitest.weights.ts` (register the harness's measured wall-clock)
-- Modify: `tests/cross-cutting/vitest-shard-balance.test.ts` (derive `HOT` from the top-2 committed weights so adding a new heaviest file doesn't break the "different legs" assertion)
+- Modify: `vitest.projects.ts` (add `NIGHTLY_ONLY_EXCLUDES`)
+- Modify: `vitest.config.ts` (gate the exclusion behind opt-in `VITEST_INCLUDE_MUTATION_HARNESS`)
+- Modify: `tests/cross-cutting/vitest-projects-partition.test.ts` (pin the new opt-in gating contract, mirroring the env-bound gating tests)
+- Create: `.github/workflows/mutation-harness.yml` (nightly `schedule:` + `workflow_dispatch:`)
 
-**Interfaces:** the harness stays a normally-discovered `tests/**/*.test.ts` file — NO exclusion, NO new workflow, NO package.json script. It runs in local `pnpm test` and in every `unit-suite` CI run (it is NOT env-bound, so `VITEST_EXCLUDE_ENV_BOUND=1` does not drop it). It lands in the SERIAL project (fixture-corpus-bound, `fileParallelism:false`) via the default `BASE_INCLUDE`.
+**Interfaces:** the harness is a normally-named `tests/parser/mutationHarness.test.ts` that is EXCLUDED from both vitest projects by default (so it runs in NO project on a bare `pnpm test`/`unit-suite`), and INCLUDED only when `VITEST_INCLUDE_MUTATION_HARNESS=1` — the single env var the nightly workflow (and a dev who wants to run it) sets. This mirrors the established `VITEST_EXCLUDE_ENV_BOUND` gating pattern (`vitest.config.ts:15`), inverted to opt-IN because the default posture is "don't run the 50-min file."
 
-- [ ] **Step 1: Register the measured weight** — add one entry to `FILE_WEIGHTS` in `lib/test/vitest.weights.ts` using the wall-clock measured in Task 8 Step 1 (round UP to a round number; the header comment permits `// measured`):
-
-```ts
-export const FILE_WEIGHTS: Record<string, number> = {
-  "tests/scripts/validation-report-fixtures.test.ts": 76000, // measured
-  "tests/cross-cutting/validation-check-seed-content-coverage.test.ts": 41000, // measured
-  "tests/cross-cutting/no-global-cursor.test.ts": 30000, // estimated
-  "tests/scripts/validation-check-seed.test.ts": 25000, // estimated
-  "tests/parser/mutationHarness.test.ts": 150000, // measured — heavy serial mutation corpus (plan-R22)
-};
-```
-
-Set the value to the ACTUAL measured wall-clock (Task 8 Step 1). If it exceeds the 20-min unit-suite leg timeout (`unit-suite.yml:52`, 1200s) with margin lost, use the **FILE-level** split from Task 8 Step 1 (multiple per-family driver files — e.g. `mutationHarness.exporter.test.ts` / `mutationHarness.raw.test.ts` — each a discovered `*.test.ts` weight-registered here, so `--shard` spreads them across legs; `test.each` cases do NOT help because `--shard` partitions by FILE, `unit-suite.yml:87`). At ~100-150s this is not expected — one weighted file is fine.
-
-- [ ] **Step 2: Make the shard-balance meta-test resilient to a new heaviest file** — the existing `HOT` is a hardcoded pair (the two previously-heaviest files); adding a heavier file makes the old pair cluster into one leg and trips the "different legs" assertion. Derive `HOT` from the top-2 committed weights instead (the LPT N=2 invariant guarantees the two heaviest always split across the two legs). In `tests/cross-cutting/vitest-shard-balance.test.ts`, replace the hardcoded `HOT` const:
+- [ ] **Step 1: Add the exclusion constant** — in `vitest.projects.ts`, after `ENV_BOUND_EXCLUDES` (`:34-38`), add:
 
 ```ts
-// The two HEAVIEST committed files by weight. LPT N=2 always places the top-2 in
-// different bins (bin B is empty when item #2 is placed), so this pins "the heavy
-// files don't cluster" while staying correct as the heavy-file set grows (plan-R22).
-const HOT = Object.entries(FILE_WEIGHTS)
-  .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
-  .slice(0, 2)
-  .map(([k]) => k);
+// The mutation harness (tests/parser/mutationHarness.test.ts) exhaustively parses
+// ~102k mutants (~50 min serial, Task 8 Step 1) — far past any merge-gating leg
+// budget. It is therefore EXCLUDED from the default discovered suite (local
+// `pnpm test` + the unit-suite legs) and run ONLY by the nightly workflow, which
+// opts IN via VITEST_INCLUDE_MUTATION_HARNESS=1. Opt-IN (not the env-bound opt-OUT
+// pattern) because the safe default is "skip the 50-min file". (User-directed
+// nightly placement, 2026-07-06; spec §Non-goals + AC-5.)
+export const NIGHTLY_ONLY_EXCLUDES = ["**/tests/parser/mutationHarness.test.ts"];
 ```
 
-`FILE_WEIGHTS` is already imported at `:7`. The `discovers a non-trivial file set` test still asserts each `HOT` member is in `allFiles` — the harness IS discovered (not env-excluded), so that holds; and the `no stale keys` test still holds because the new weight key maps to the real committed file.
+- [ ] **Step 2: Gate the exclusion in the config** — in `vitest.config.ts`, import the new constant and add the gated exclude to the serial project:
 
-- [ ] **Step 3: Verify locally — the harness runs on the unit path AND the topology meta-tests stay green**
+```ts
+// (add NIGHTLY_ONLY_EXCLUDES to the existing import from "./vitest.projects")
+import { BASE_INCLUDE, PARALLEL_TEST_GLOBS, ENV_BOUND_EXCLUDES, NIGHTLY_ONLY_EXCLUDES } from "./vitest.projects";
 
-```bash
-# It IS discovered by the unit-suite path (NOT excluded):
-VITEST_EXCLUDE_ENV_BOUND=1 pnpm vitest run tests/parser/mutationHarness.test.ts 2>&1 | tail -5
-# Expected: the harness RUNS and PASSES (it is not env-bound; the env var drops only the 3 listed files).
-
-pnpm vitest run tests/cross-cutting/vitest-shard-balance.test.ts tests/cross-cutting/vitest-projects-partition.test.ts
+// The nightly mutation harness is OPT-IN: excluded from the default suite unless
+// the nightly workflow (or a dev) sets VITEST_INCLUDE_MUTATION_HARNESS=1. Same
+// project-level-exclude mechanism as the env-bound gate (CLI --exclude is ignored
+// once a project defines its own exclude).
+const nightlyExcludes = process.env.VITEST_INCLUDE_MUTATION_HARNESS === "1" ? [] : NIGHTLY_ONLY_EXCLUDES;
 ```
-Expected: PASS. `vitest-shard-balance`: >400 files discovered; `HOT` (now the top-2 weights, incl. the harness) land in different legs; no bin exceeds 1.25× mean; no stale keys (the new weight key exists). `vitest-projects-partition`: the harness lands in exactly the SERIAL project.
 
-- [ ] **Step 4: Commit**
+and extend the serial project's `exclude` array (`:65`):
+
+```ts
+          exclude: [...configDefaults.exclude, ...PARALLEL_TEST_GLOBS, ...envBoundExcludes, ...nightlyExcludes],
+```
+
+- [ ] **Step 3: Pin the gating contract in the partition meta-test** — append to `tests/cross-cutting/vitest-projects-partition.test.ts` (it already imports the config and stubs env vars for the env-bound test at `:155-179`; add `NIGHTLY_ONLY_EXCLUDES` to the `@/vitest.projects` import). New tests:
+
+```ts
+it("the mutation harness is NOT in the parallel set (must be excludable from serial)", () => {
+  for (const glob of NIGHTLY_ONLY_EXCLUDES) {
+    const path = glob.replace(/^\*\*\//, "");
+    expect(allTestFiles, `${path} should exist`).toContain(path);
+    expect(matchesParallel(path), `${path} must be SERIAL so the opt-in gate governs it`).toBe(false);
+  }
+});
+
+it("VITEST_INCLUDE_MUTATION_HARNESS gates the harness in the serial exclude (opt-IN)", async () => {
+  const serialExcludeFor = async (value: string | undefined): Promise<string[]> => {
+    vi.resetModules();
+    if (value === undefined) vi.stubEnv("VITEST_INCLUDE_MUTATION_HARNESS", "");
+    else vi.stubEnv("VITEST_INCLUDE_MUTATION_HARNESS", value);
+    try {
+      const cfg = (await import("@/vitest.config")).default as { test?: { projects?: ProjectEntry[] } };
+      return cfg.test?.projects?.find((p) => p.test.name === "serial")?.test.exclude ?? [];
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
+  };
+  const optedIn = await serialExcludeFor("1");   // nightly workflow
+  const def = await serialExcludeFor(undefined); // local pnpm test + unit-suite
+  for (const f of NIGHTLY_ONLY_EXCLUDES) {
+    expect(def, `${f} excluded by default (kept off the fast path)`).toContain(f);
+    expect(optedIn, `${f} runs when VITEST_INCLUDE_MUTATION_HARNESS=1 (nightly)`).not.toContain(f);
+  }
+});
+
+it("the nightly workflow sets the opt-in var and targets the harness file", () => {
+  const wf = readFileSync(join(ROOT, ".github", "workflows", "mutation-harness.yml"), "utf8");
+  expect(wf.includes("VITEST_INCLUDE_MUTATION_HARNESS"), "workflow must opt IN to the harness").toBe(true);
+  expect(wf.includes("tests/parser/mutationHarness.test.ts"), "workflow must target the harness file").toBe(true);
+  expect(/schedule:/.test(wf) && /workflow_dispatch:/.test(wf), "workflow must be scheduled + dispatchable").toBe(true);
+});
+```
+
+- [ ] **Step 4: Create the nightly workflow** — `.github/workflows/mutation-harness.yml`. Mirror the setup steps of `unit-suite.yml` (checkout, pnpm, node, install) but run ONLY the harness with the opt-in var and a generous timeout (the ~50-min run + install headroom):
+
+```yaml
+name: mutation-harness
+on:
+  schedule:
+    - cron: "0 7 * * *" # 07:00 UTC nightly (off-peak); triage a red run manually
+  workflow_dispatch: {} # close-out verifies green on the PR branch before merge
+concurrency:
+  group: mutation-harness-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  mutation-harness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Run exhaustive mutation harness (nightly, ~50 min)
+        env:
+          VITEST_INCLUDE_MUTATION_HARNESS: "1"
+        run: pnpm vitest run tests/parser/mutationHarness.test.ts
+```
+
+> Verify the setup-step versions/inputs against the live `unit-suite.yml` before committing (action pins, `node-version-file`, pnpm setup shape) — match it exactly so the nightly runner provisions identically. If `unit-suite.yml` pins `supabase/setup-cli` or other steps the harness does NOT need (it is DB-free, pure parser), OMIT them.
+
+- [ ] **Step 5: Verify locally — excluded by default, runs opted-in, meta-tests green**
 
 ```bash
-git add lib/test/vitest.weights.ts tests/cross-cutting/vitest-shard-balance.test.ts
-git commit --no-verify -m "ci(parser): register mutation harness weight so unit-suite balances the merge gate"
+# Excluded by default (0 harness tests collected — fast):
+pnpm vitest run tests/parser/mutationHarness.test.ts 2>&1 | tail -3
+# Expected: "No test files found" / 0 files — the default exclude drops it.
+
+# The gating + partition meta-tests stay green:
+pnpm vitest run tests/cross-cutting/vitest-projects-partition.test.ts 2>&1 | tail -5
+```
+Expected: partition meta-test PASS (every file still logically partitioned; new opt-in gating tests green; the nightly workflow file exists and is wired). Do NOT run the full harness here (50 min) — Task 8/13 already validated it opted-in.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add vitest.projects.ts vitest.config.ts tests/cross-cutting/vitest-projects-partition.test.ts .github/workflows/mutation-harness.yml
+git commit --no-verify -F - <<'MSG'
+ci(parser): run exhaustive mutation harness nightly, off the merge-gating path
+
+~102k-mutant exhaustive corpus is ~50 min serial (Task 8 Step 1) — excluded from
+the default suite (opt-in VITEST_INCLUDE_MUTATION_HARNESS) and run by a dedicated
+nightly workflow. Non-merge-gating; ledger divergence fails the nightly run.
+MSG
 ```
 
 ---
@@ -2333,23 +2419,27 @@ Expected: PASS. A shared-chokepoint change is not expected here (test-only), but
 git add -A && git commit --no-verify -m "chore(parser): format + final verification for mutation harness"
 ```
 
-- [ ] **Step 6: Confirm the harness actually ran and PASSED inside the required unit-suite gate on the real PR run (plan-R22, memory `feedback_ci_local_passes_ci_fails`)**
+- [ ] **Step 6: Confirm the nightly harness workflow actually ran GREEN on the PR branch via `workflow_dispatch` (memory `feedback_ci_local_passes_ci_fails`, "local-passes-CI-fails is its own bug class")**
 
-Local green is necessary but NOT sufficient — the harness's real gate is the required `unit-suite` aggregator, which runs it in ONE of the two shard legs (weight-balanced, Task 12). After the PR is open, confirm (a) both `unit-suite-shard` legs + the `unit-suite` aggregator concluded **success**, and (b) the harness actually EXECUTED (not silently skipped/excluded) by finding its describe in the leg log:
+Local green is necessary but NOT sufficient. The harness is NOT on the merge-gating `unit-suite` path (Task 12, user-directed nightly placement) — its real runner is the `mutation-harness` workflow. Before merge, trigger it on the PR branch and confirm it ran the harness and PASSED (proves the opt-in wiring + workflow setup are correct on a real runner, not just locally):
 
 ```bash
-gh pr checks "$(gh pr view --json number -q .number)"   # unit-suite + unit-suite-shard legs must be pass/CLEAN
-# Identify the leg that ran the harness and confirm it executed (not 0 tests):
-RID=$(gh run list --workflow=unit-suite.yml --branch "$(git branch --show-current)" --limit 1 --json databaseId -q '.[0].databaseId')
+BR="$(git branch --show-current)"
+gh workflow run mutation-harness.yml --ref "$BR"        # workflow_dispatch on the PR branch
+sleep 20
+RID=$(gh run list --workflow=mutation-harness.yml --branch "$BR" --limit 1 --json databaseId -q '.[0].databaseId')
+gh run watch "$RID" --exit-status                        # ~50 min; exits non-zero if the run fails
 gh run view "$RID" --log 2>/dev/null | grep -i "mutation harness — bidirectional known-holes ledger" | head
 ```
-Expected: the `unit-suite` aggregator is a passing REQUIRED check (so a ledger divergence would block merge — the CI-gating guarantee), and the grep finds the harness describe in a leg log (proving it ran, i.e. it is NOT accidentally env-excluded). Treat as a CLOSE-OUT gate distinct from local-green. If the harness did not run in any leg, the weight/discovery wiring (Task 12) is wrong — fix before merge.
+Expected: `gh run watch --exit-status` concludes success, and the grep finds the harness describe in the log (proving it EXECUTED, i.e. the opt-in var actually included it — not 0 tests). Treat as a CLOSE-OUT gate distinct from local-green. If the run fails or ran 0 tests, the opt-in/exclusion wiring or workflow setup (Task 12) is wrong — fix before merge. (The `mutation-harness` workflow is NOT a required check, so it does not block the `gh pr merge`; this manual dispatch-and-watch is the substitute close-out proof.)
+
+> **Note (Step 4 scope):** the default `pnpm test` in Step 4 does NOT run the 50-min harness — it is excluded from the default suite (Task 12). Step 4 confirms the fast Tasks 1–7 + 10 tests + the Task 12 config/partition meta-tests are green; the harness itself is validated opted-in (Task 8 Step 5, and this Step 6 nightly-workflow dispatch).
 
 ---
 
 ## Self-Review checklist (run before adversarial review)
 
-1. **Spec coverage:** every spec section maps to a task — segmentation/row-taxonomy (T1), classifier+parity+lockstep (T2), oracle+verdict+fingerprint+redaction (T3), 8-operator/9-key generators+selection+domains (T4), fixture registry+parity (T5), independent audit+golden (T6), ledger type (T7), driver+day-1 ledger+uniqueness+cosmetic+bidirectional (T8), classifier/floor/audit gates (T9), negative controls incl. R12/R13/R14/R15/R16 (T10), coverage legibility (T11), CI wiring as a weighted merge-gating unit-suite file (T12), verification (T13). ✔
+1. **Spec coverage:** every spec section maps to a task — segmentation/row-taxonomy (T1), classifier+parity+lockstep (T2), oracle+verdict+fingerprint+redaction (T3), 8-operator/9-key generators+selection+domains (T4), fixture registry+parity (T5), independent audit+golden (T6), ledger type (T7), driver+day-1 ledger+uniqueness+cosmetic+bidirectional (T8), classifier/floor/audit gates (T9), negative controls incl. R12/R13/R14/R15/R16 (T10), coverage legibility (T11), CI wiring as a dedicated NIGHTLY workflow off the merge-gating path + default-suite exclusion (T12, user-directed 2026-07-06 after the ~50-min corpus was measured), verification (T13). ✔
 2. **Placeholder scan:** the only deferred concrete values are `GOLDEN_INVENTORY` exact counts and `KNOWN_SILENT_HOLES` rows — both are DATA populated from an observed run and hand-verified in-task (T6 S4, T8 S3), not code placeholders. ✔
 3. **Type consistency:** `Mutant.domains: Domain[]`, `floorEligible(): Set<Domain>`, `skippedInapplicable(): Domain[]`, `verdict(): Verdict`, `fingerprint(): string`, `KnownHole` fields — consistent across T3/T4/T7/T8. Detection is exhaustive (no `select`/cap). ✔
 
