@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** A CI-gating vitest harness that mutates the 17 committed parser fixtures with 8 operators and asserts every mutant is either parsed identically, signaled, or recorded in a bidirectional known-holes ledger — never silently wrong.
+**Goal:** A CI-gating vitest harness that mutates the 17 committed parser fixtures with 8 operators (9 registered keys — `blank-row` emits `:inject` + `:remove`) and asserts every mutant is either parsed identically, signaled, or recorded in a bidirectional known-holes ledger — never silently wrong.
 
 **Architecture:** Pure test-only modules under `tests/parser/mutation/`. A metamorphic oracle compares each mutant's `parseSheet` output against the pristine baseline (data payload + full signal channels). Header-anchored logical-section segmentation assigns each mutation site to a parser domain; a floor-first selection guarantees per-domain coverage; a behavior-fingerprinted ledger ratchets known holes bidirectionally; an implementation-independent applicability audit + golden inventory prevents self-referential coverage.
 
@@ -29,7 +29,7 @@
 | `tests/parser/mutation/rows.ts` | Row taxonomy (header/alignment/spacer/data), run + logical-section segmentation |
 | `tests/parser/mutation/classify.ts` | `resolveHeader`, `SECTION_DOMAIN_MAP`, `Domain`, `classifySection`, `domains(site)`, `floorEligible` |
 | `tests/parser/mutation/expectedDomains.ts` | `EXPECTED_HEADER_DOMAINS` — hand-authored domain oracle, SEPARATE from the classifier impl so the gate is not self-referential (plan-R21) |
-| `tests/parser/mutation/operators.ts` | 8 operators, applicability predicates, exhaustive site enumeration, `floorEligible`, `skippedInapplicable` |
+| `tests/parser/mutation/operators.ts` | 8 operators → 9 registered keys (`blank-row:inject`/`:remove`), applicability predicates, exhaustive site enumeration, `floorEligible`, `skippedInapplicable` |
 | `tests/parser/mutation/oracle.ts` | baseline capture, `payloadOf`/`signalOf`, `payloadChanged`, `signalEq`, `signalKeys`, `newSignalFired`, `verdict`, `fingerprint` |
 | `tests/parser/mutation/knownHoles.ts` | `KnownHole` type + `KNOWN_SILENT_HOLES` ledger |
 | `tests/parser/mutation/fixtures.ts` | 17-entry fixture registry `{ slug, family, path }` |
@@ -453,7 +453,7 @@ git commit --no-verify -m "test(parser): prefix-resolving classifier + SECTION_D
 ```ts
 // tests/parser/mutation/oracle.test.ts
 import { describe, it, expect } from "vitest";
-import { capture, verdict, fingerprint } from "./oracle";
+import { capture, verdict, fingerprint, signalRows } from "./oracle";
 import type { ParsedSheet } from "@/lib/parser/types";
 
 // Minimal ParsedSheet builder for oracle unit tests (only the fields the oracle reads).
@@ -493,6 +493,31 @@ describe("verdict (corrupting bucket, Codex R5 SILENT_SIGNAL_LOSS)", () => {
     const wA = { severity: "warn" as const, code: "W", message: "m", sourceCell: undefined };
     const wB = { severity: "warn" as const, code: "W", message: "m" };
     expect(verdict(base({ warnings: [wA] }), base({ warnings: [wB] }))).toBe("ABSORBED");
+  });
+});
+
+describe("fingerprint signal component — redaction boundary is EXECUTABLE (Codex R26)", () => {
+  it("keeps STRUCTURAL fields verbatim and DIGESTS pii/free-text (never raw in the ledger)", () => {
+    const w = {
+      severity: "warn" as const, code: "MI_7",
+      message: "secret@example.com", rawSnippet: "raw pii row",
+      blockRef: { kind: "crew", index: 2 },
+    };
+    const [row] = signalRows(base({ warnings: [w] }));
+    // structural fields present VERBATIM (a reviewer can see WHY a ledger row moved):
+    expect(row).toContain(`"code":"MI_7"`);
+    expect(row).toContain(`"severity":"warn"`);
+    expect(row).toContain(`"kind":"crew"`);
+    expect(row).toContain(`"index":2`);
+    // PII / free-text NOT present raw (digested):
+    expect(row).not.toContain("secret@example.com");
+    expect(row).not.toContain("raw pii row");
+  });
+  it("a code (structural) change and a message (pii) change BOTH move the fingerprint", () => {
+    const b = base();
+    const w = (over: object) => base({ warnings: [{ severity: "warn" as const, code: "W", message: "m", ...over }] });
+    expect(fingerprint(b, w({ code: "W2" }))).not.toBe(fingerprint(b, w({}))); // structural
+    expect(fingerprint(b, w({ message: "n" }))).not.toBe(fingerprint(b, w({}))); // pii
   });
 });
 
@@ -666,16 +691,42 @@ export function fingerprint(b: ParsedSheet, m: ParsedSheet): string {
     if (canon(bv) === canon(mv)) continue;
     payloadDiff.push(`${p}:${typeof bv}->${typeof mv}:${digest(bv)}->${digest(mv)}`);
   }
-  // Order-sensitive signal component: index-keyed full-object redacted digests (R15/R16).
-  const sig = (p: ParsedSheet): string[] => {
-    const rows: string[] = [];
-    p.warnings.forEach((w, i) => rows.push(`W#${i}:${digest(w)}`));
-    p.hardErrors.forEach((h, i) => rows.push(`H#${i}:${digest(h)}`));
-    p.raw_unrecognized.forEach((r, i) => rows.push(`R#${i}:${digest(r)}`));
-    return rows;
-  };
-  const signalDiff = `B[${sig(b).join(",")}]|M[${sig(m).join(",")}]`;
+  // Order-sensitive signal component: index-keyed, per-field REDACTED canonical entries (spec §5,
+  // R15/R16, R26). Structural fields (severity, code, blockRef.kind/index/iso/name, block, key) are
+  // kept VERBATIM so a reviewer can see WHY a ledger row moved (code vs anchor vs message vs raw
+  // value); PII/free-text (message, rawSnippet, sourceCell, value) is digest()-ed so the committed
+  // ledger never carries raw PII. `signalRows` is exported so the redaction boundary is testable.
+  const signalDiff = `B[${signalRows(b).join(",")}]|M[${signalRows(m).join(",")}]`;
   return createHash("sha256").update(`${payloadDiff.join(";")}||${signalDiff}`).digest("hex").slice(0, 16);
+}
+
+/** Per-entry redaction (spec §5.179): structural fields VERBATIM, PII/free-text digest()-ed, then
+ *  canonicalized order-stably. Exported so a test can inspect the pre-hash field boundary. */
+const redactWarning = (w: ParseWarning) => ({
+  severity: w.severity,
+  code: w.code,
+  message: digest(w.message ?? ""),
+  blockRef: w.blockRef
+    ? { kind: w.blockRef.kind, index: w.blockRef.index ?? null, iso: w.blockRef.iso ?? null, name: w.blockRef.name ?? null }
+    : null,
+  rawSnippet: w.rawSnippet === undefined ? null : digest(w.rawSnippet),
+  sourceCell: w.sourceCell == null ? null : digest(JSON.stringify(w.sourceCell)),
+});
+const redactError = (h: ParseError) => ({ code: h.code, message: digest(h.message ?? ""), blockRef: h.blockRef ? { kind: h.blockRef.kind } : null });
+const redactRaw = (r: { block?: string; key?: string; value?: unknown }) => ({
+  block: r.block ?? null,
+  key: r.key ?? null,
+  value: digest(typeof r.value === "string" ? r.value : JSON.stringify(r.value ?? null)),
+});
+
+/** The index-keyed, redacted signal-entry list used by `fingerprint` (exported for the redaction-
+ *  boundary test). Order-preserving: swapping two entries changes which content sits at which index. */
+export function signalRows(p: ParsedSheet): string[] {
+  const rows: string[] = [];
+  p.warnings.forEach((w, i) => rows.push(`W#${i}:${canon(redactWarning(w))}`));
+  p.hardErrors.forEach((h, i) => rows.push(`H#${i}:${canon(redactError(h))}`));
+  (p.raw_unrecognized as Array<{ block?: string; key?: string; value?: unknown }>).forEach((r, i) => rows.push(`R#${i}:${canon(redactRaw(r))}`));
+  return rows;
 }
 ```
 
@@ -1276,10 +1327,15 @@ describe("independent applicability audit (Codex R9/R13)", () => {
     expect(sites.get("ref-sub|crew") ?? 0).toBeGreaterThan(0);
     expect(sites.get("column-shift|crew") ?? 0).toBeGreaterThan(0);
   });
-  it("every GOLDEN_INVENTORY count is EXACT (hand-verified, protects against over-count, plan-R7)", () => {
+  it("every GOLDEN_INVENTORY count is present in the real fixture (sanity; EXACT pin is the excerpt test, plan-R7/R26)", () => {
+    // The count is SECTION-scoped (a `lines` excerpt), so the whole-fixture total is >= it (a
+    // domain can recur in other sections — e.g. rpas has HOTEL at L43 AND "HOTELS FOR DOUG'S DRIVE
+    // BACK" at L59). The EXACT anti-tautology pin is the excerpt-localization test below
+    // (`auditSites(excerpt) === count`); here we only sanity-check the section's sites exist in the
+    // real fixture, so a wholesale audit failure (0 sites) is still caught.
     for (const g of GOLDEN_INVENTORY) {
       const md = readFileSync(g.fixture, "utf8");
-      expect(auditSites(md).get(`${g.op}|${g.domain}`) ?? 0, `${g.fixture} ${g.op} ${g.domain}`).toBe(g.count);
+      expect(auditSites(md).get(`${g.op}|${g.domain}`) ?? 0, `${g.fixture} ${g.op} ${g.domain}`).toBeGreaterThanOrEqual(g.count);
     }
   });
   it("every GOLDEN_INVENTORY row has CONCRETE, REAL, LOCALIZING provenance (plan-R10)", () => {
@@ -1306,7 +1362,7 @@ describe("independent applicability audit (Codex R9/R13)", () => {
     for (const op of CORRUPT) expect(ops.has(op), `golden inventory missing operator ${op}`).toBe(true);
     const has = (op: string, domain: string) => GOLDEN_INVENTORY.some((g) => g.op === op && g.domain === domain && g.count >= 1);
     expect(has("ref-sub", "hotel"), "need a ref-sub × hotel row").toBe(true);
-    expect(has("merged-cell", "rooms"), "need a merged-cell × rooms row").toBe(true);
+    expect(has("merged-cell", "hotel"), "need a merged-cell × hotel row").toBe(true);
     expect(has("ref-sub", "crew"), "need a ref-sub × crew row").toBe(true);
     const domains = new Set(GOLDEN_INVENTORY.map((g) => g.domain));
     expect(domains.size, "golden inventory too narrow").toBeGreaterThanOrEqual(3);
@@ -1487,26 +1543,39 @@ export function expectedSkipped(md: string, op: string): string[] {
  * disagrees with the audit means the AUDIT is wrong and must be fixed — never adjust `count` to
  * match the code. The `lines` field is provenance: it forces the derivation to be reproducible
  * and makes a lazy copy-from-code visible in review. MUST cover every corrupting operator + the
- * required rows the structural gate checks: ref-sub×hotel, merged-cell×rooms, ref-sub×crew, one
+ * required rows the structural gate checks: ref-sub×hotel, merged-cell×hotel, ref-sub×crew, one
  * header-typo, one blank-row:remove. (The `HAND_FIXTURE` test above is the separate, fully
  * self-contained external oracle; this table extends that guarantee onto the real corpus.)
  */
 export const GOLDEN_INVENTORY: Array<{ fixture: string; op: string; domain: string; count: number; lines: string }> = [
-  // Each `count` below is a PLACEHOLDER — the implementer opens the fixture at `lines`, counts
-  // by hand, and writes the human-derived number (Task 6 Step 4). Do NOT paste auditSites output.
-  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "ref-sub", domain: "crew", count: 6, lines: "TODO:L<crew-section>" },
-  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "column-shift", domain: "crew", count: 1, lines: "TODO:L<crew-section>" },
-  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "header-typo", domain: "crew", count: 1, lines: "TODO:L<crew-header>" },
-  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "blank-row:remove", domain: "transportation", count: 1, lines: "TODO:L<transport-boundary>" },
-  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "blank-row:inject", domain: "crew", count: 5, lines: "TODO:L<crew-section>" },
-  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "unicode-inject", domain: "crew", count: 6, lines: "TODO:L<crew-section>" },
-  { fixture: "fixtures/shows/exporter-xlsx/rpas.md", op: "ref-sub", domain: "hotel", count: 1, lines: "TODO:L<hotel-section>" },
-  { fixture: "fixtures/shows/exporter-xlsx/rpas.md", op: "merged-cell", domain: "rooms", count: 1, lines: "TODO:L<rooms-section>" },
-  // ADD MORE representative rows; every `count` is HAND-COUNTED from `lines`, never copied from code.
+  // Every `count` is a real HAND-COUNT against the fixture excerpt at `lines` (Step 3b), NOT pasted
+  // from auditSites. `lines` is a concrete `<start>-<end>` range (the provenance test enforces the
+  // shape AND that auditSites(excerpt)===count). The rows below are the author's hand-count; the
+  // implementer RE-VERIFIES each against `auditSites(sliceLines(fixture, lines))` before the green
+  // run — the localization test is the arbiter, and per plan-R9 a disagreement means the AUDIT is
+  // wrong (fix auditSites), never adjust the count to match code.
+  //
+  // consultants CREW section — header L69, six data rows L70-75, spacer L76; each data row has 3
+  // non-empty cells (name / role / phone; col0 + trailing col empty):
+  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "ref-sub", domain: "crew", count: 18, lines: "69-76" }, // 6 rows × 3 cells
+  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "unicode-inject", domain: "crew", count: 18, lines: "69-76" }, // all 3 cells ≥2 scalars
+  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "merged-cell", domain: "crew", count: 24, lines: "69-76" }, // 6 rows × (5 cells − 1)
+  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "column-shift", domain: "crew", count: 1, lines: "69-76" }, // 1 per section w/ ≥1 data row
+  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "header-typo", domain: "crew", count: 1, lines: "69-76" }, // CREW header, typo-eligible
+  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "blank-row:inject", domain: "crew", count: 5, lines: "69-76" }, // 6 data rows → 5 gaps
+  // consultants DRESS-run → TRANSPORTATION-run boundary (blank L79):
+  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "blank-row:remove", domain: "transportation", count: 1, lines: "77-80" }, // one inter-run boundary
+  // rpas HOTEL section — header L43, alignment L44, 14 data rows L45-58; each data row has 4 non-empty cells:
+  { fixture: "fixtures/shows/exporter-xlsx/rpas.md", op: "ref-sub", domain: "hotel", count: 56, lines: "43-58" }, // 14 rows × 4 cells
+  { fixture: "fixtures/shows/exporter-xlsx/rpas.md", op: "merged-cell", domain: "hotel", count: 56, lines: "43-58" }, // 14 rows × (5 cells − 1)
 ];
 ```
 
-- [ ] **Step 4: Run it — verify it passes.** For each `GOLDEN_INVENTORY` row: open the fixture, set `lines` to the real line range of the section, HAND-COUNT the operator's applicable sites in that section, and write that human-derived number as `count` (the test asserts `===`). Do NOT paste `auditSites` output into `count` — if your hand-count disagrees with the audit, the audit is wrong; fix `auditSites`, not the golden number (plan-R9).
+> **Note on the exact counts:** the values above are the author's hand-count from the cited fixtures at the cited lines. During Step 3b the implementer opens each excerpt and re-derives the number; if `auditSites(excerpt)` yields a different value, first re-count by hand — if the hand-count still disagrees, the AUDIT is wrong and `auditSites` is fixed (plan-R9), and only if the author's committed number here was the miscount is THIS table corrected. No row ever carries a `TODO`/non-numeric `lines`.
+
+- [ ] **Step 3b (hand-count RE-VERIFICATION, precedes green):** the `GOLDEN_INVENTORY` above ships with concrete hand-counted values + real `<start>-<end>` line ranges (no `TODO`). Before running, RE-VERIFY each row: open the fixture at `lines`, hand-count the operator's applicable sites in that excerpt, and confirm it matches the committed `count`. Do NOT paste `auditSites` output into `count`. If your hand-count disagrees with `auditSites(excerpt)`, the AUDIT is wrong — fix `auditSites`, not the golden number (plan-R9); only correct THIS table if the committed number was itself a miscount.
+
+- [ ] **Step 4: Run it — verify it passes.** The provenance test asserts every `lines` matches `/^\d+-\d+$/` AND `auditSites(sliceLines(fixture, lines)) === count`; the non-vacuity test asserts all 7 corrupting operators + `ref-sub×hotel` + `merged-cell×hotel` + `ref-sub×crew` are present. Expected: PASS.
 
 Run: `pnpm vitest run tests/parser/mutation/applicabilityAudit.test.ts`
 Expected: PASS.
@@ -2263,7 +2332,7 @@ Expected: the `unit-suite` aggregator is a passing REQUIRED check (so a ledger d
 
 ## Self-Review checklist (run before adversarial review)
 
-1. **Spec coverage:** every spec section maps to a task — segmentation/row-taxonomy (T1), classifier+parity+lockstep (T2), oracle+verdict+fingerprint (T3), 8 operators+selection+domains (T4), fixture registry+parity (T5), independent audit+golden (T6), ledger type (T7), driver+day-1 ledger+uniqueness+cosmetic+bidirectional (T8), classifier/floor/audit gates (T9), negative controls incl. R12/R13/R14/R15/R16 (T10), coverage legibility (T11), CI wiring as a weighted merge-gating unit-suite file (T12), verification (T13). ✔
+1. **Spec coverage:** every spec section maps to a task — segmentation/row-taxonomy (T1), classifier+parity+lockstep (T2), oracle+verdict+fingerprint+redaction (T3), 8-operator/9-key generators+selection+domains (T4), fixture registry+parity (T5), independent audit+golden (T6), ledger type (T7), driver+day-1 ledger+uniqueness+cosmetic+bidirectional (T8), classifier/floor/audit gates (T9), negative controls incl. R12/R13/R14/R15/R16 (T10), coverage legibility (T11), CI wiring as a weighted merge-gating unit-suite file (T12), verification (T13). ✔
 2. **Placeholder scan:** the only deferred concrete values are `GOLDEN_INVENTORY` exact counts and `KNOWN_SILENT_HOLES` rows — both are DATA populated from an observed run and hand-verified in-task (T6 S4, T8 S3), not code placeholders. ✔
 3. **Type consistency:** `Mutant.domains: Domain[]`, `floorEligible(): Set<Domain>`, `skippedInapplicable(): Domain[]`, `verdict(): Verdict`, `fingerprint(): string`, `KnownHole` fields — consistent across T3/T4/T7/T8. Detection is exhaustive (no `select`/cap). ✔
 

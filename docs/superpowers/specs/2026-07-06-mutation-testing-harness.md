@@ -80,7 +80,7 @@ Corrupting-bucket verdict (evaluated top-down; first match wins):
 
 ### 4.1 Corrupting bucket — oracle: `ABSORBED ∨ SIGNALED`
 
-A change of meaning is acceptable *if announced*. The six audit-named operators:
+A change of meaning is acceptable *if announced*. **Operator cardinality (canonical, used everywhere):** 8 operators — 6 corrupting (below) + 2 cosmetic (§4.2) — emitting **9 registered operator keys**, because `blank-row` (item 5) registers as both `blank-row:inject` and `blank-row:remove`. Every count-bearing reference (CI weight, corpus totals, coverage summaries, `siteId` keys, audit tables, the operator-inventory gate) is keyed on the **9 registered keys**. The six audit-named corrupting operators:
 
 1. **`header-typo`** — apply a single Damerau edit (adjacent-char transposition) to a recognized section-header token in a `| HEADER | … |` row (CREW / TECH / HOTEL / VENUE / DATES / TRANSPORTATION / AGENDA / GEAR / etc.). The transposed token MUST NOT itself be a valid header (guard against accidentally producing a real header). Catches finding #5 (short headers have no typo tolerance). Site = each header-row line.
 2. **`ref-sub`** — replace one non-empty table body-cell value with the literal `#REF!` (present in 3/7 live shows per the grounding audit). Site = **every** non-empty data-row cell (all emitted; detection is exhaustive, §4.3).
@@ -190,7 +190,7 @@ The initial ledger is populated by running the harness once against the branch H
 ## 6. File layout (all test-infra)
 
 ```
-tests/parser/mutation/operators.ts          # 8 pure operators + exhaustive site enumeration + floorEligible/skippedInapplicable
+tests/parser/mutation/operators.ts          # 8 operators → 9 registered keys (blank-row:inject/:remove) + exhaustive site enumeration + floorEligible/skippedInapplicable
 tests/parser/mutation/classify.ts           # resolveHeader, SECTION_DOMAIN_MAP, domains(site), floorEligible
 tests/parser/mutation/expectedDomains.ts    # EXPECTED_HEADER_DOMAINS — hand-authored domain oracle (external to classify.ts, plan-R21)
 tests/parser/mutation/oracle.ts             # baseline capture, signalKeys, payloadChanged, signalEq, verdict(), fingerprint()
