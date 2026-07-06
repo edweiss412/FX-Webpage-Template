@@ -148,9 +148,11 @@ export function Step3ReviewWithFinalize({
             <div className="flex items-end gap-3">
               <FinalizeAnnouncer run={run} />
               {showCleanup ? <CleanupAbandonedFinalizeButton sessionId={wizardSessionId} /> : null}
-              {/* While publishing, the button steps aside and the center carries
-                  the tracking — so this slot never morphs (no layout shift). */}
-              {run.isRunning ? null : <FinalizeTrigger run={run} />}
+              {/* The Publish button stays mounted while publishing — it steps into
+                  a disabled "Publishing…" spinner state (FinalizeTrigger) instead
+                  of vanishing (owner decision 2026-07-06). The footer center still
+                  carries the detailed per-sheet tracking alongside it. */}
+              <FinalizeTrigger run={run} />
             </div>
           }
         />
@@ -209,11 +211,12 @@ function Step3FooterCenter({ run, isStale = false }: { run: FinalizeRun; isStale
  */
 function Step3CompactTracking({ run }: { run: FinalizeRun }) {
   const { state } = run;
-  // WCAG 2.4.3: when Publish is clicked the trigger button is removed (it lives
-  // in the footer's right slot) and this tracking takes over the center — move
-  // focus here so keyboard/SR users are not dropped onto <body>. A LOCAL ref +
-  // mount-time focus (rather than the hook's panelRef, which the combined
-  // FinalizeButton drives) keeps this idiomatic and lint-clean.
+  // WCAG 2.4.3: when Publish is clicked the trigger button (footer right slot)
+  // goes DISABLED — a disabled control can't hold focus, so keyboard/SR users
+  // would drop onto <body>. This tracking takes over the center; move focus here
+  // on mount so it lands on the live progress instead. A LOCAL ref + mount-time
+  // focus (rather than the hook's panelRef, which the combined FinalizeButton
+  // drives) keeps this idiomatic and lint-clean.
   const trackingRef = useRef<HTMLDivElement>(null);
   const running = state.kind === "running";
   useEffect(() => {
