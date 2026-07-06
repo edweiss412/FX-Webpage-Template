@@ -21,9 +21,46 @@ export type PullSheetOverride = {
  */
 export type OverrideSnapshot = { tabName: string; fingerprint: string } | null;
 
-/** Drop the audit fields; `null` passes through as `null` (§5.8). */
-export function overrideSnapshot(o: PullSheetOverride | null | undefined): OverrideSnapshot {
+/**
+ * Drop the audit fields; `null` passes through as `null` (§5.8). Accepts EITHER a full
+ * `PullSheetOverride` or an already-reduced `OverrideSnapshot` (both carry `tabName`+`fingerprint`),
+ * so the finalize gate can reduce a desired override AND an already-stored applied snapshot through
+ * the one function.
+ */
+export function overrideSnapshot(
+  o: PullSheetOverride | OverrideSnapshot | undefined,
+): OverrideSnapshot {
   return o ? { tabName: o.tabName, fingerprint: o.fingerprint } : null;
+}
+
+/**
+ * §5.8 / I4 finalize consistency gate outcome. Declarative: `ok:true` proceeds to the propagation
+ * write; `ok:false` refuses BEFORE any mutation and surfaces the EXISTING cataloged code
+ * `STAGED_PARSE_OUTDATED_AT_PHASE_D` (the override-snapshot mismatch is the same "staged parse
+ * outdated at Phase-D" class — NO new §12.4 code).
+ */
+export type FinalizeOverrideGateResult =
+  | { ok: true; code: null }
+  | { ok: false; code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" };
+
+/**
+ * The single comparator BOTH finalize flows (Flow A first-seen, Flow B existing-show shadow) call
+ * under the held `show:` lock (§5.8, I4). `desired` is the accepted override (Flow A: live
+ * `pending_syncs.pull_sheet_override`; Flow B: `payload.pullSheetOverride`); `applied` is the staged
+ * parse's snapshot (Flow A: `pending_syncs.pull_sheet_override_applied`; Flow B:
+ * `payload.pullSheetOverrideApplied`). Both are reduced via {@link overrideSnapshot} and deep-compared
+ * via {@link overrideSnapshotsEqual}, so the audit fields (`acceptedBy`/`acceptedAt`) are ignored — a
+ * re-stamped accept still finalizes (Codex R3-1 subset-vs-object bug cannot recur). DECLARATIVE — no
+ * compensation write; a successful re-scan reconverges `applied` → `desired`.
+ */
+export function evaluateFinalizeOverrideGate(args: {
+  desired: PullSheetOverride | OverrideSnapshot | null | undefined;
+  applied: PullSheetOverride | OverrideSnapshot | null | undefined;
+}): FinalizeOverrideGateResult {
+  const desired = overrideSnapshot(args.desired ?? null);
+  const applied = overrideSnapshot(args.applied ?? null);
+  if (overrideSnapshotsEqual(desired, applied)) return { ok: true, code: null };
+  return { ok: false, code: "STAGED_PARSE_OUTDATED_AT_PHASE_D" };
 }
 
 /**

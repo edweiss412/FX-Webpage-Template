@@ -11,6 +11,7 @@ import {
 } from "@/lib/onboarding/shadowPayload";
 import { parsedShowTitle } from "@/lib/onboarding/blockerDisplayName";
 import { applyStagedCore, normalizeTimestamptz } from "@/lib/sync/applyStagedCore";
+import { evaluateFinalizeOverrideGate } from "@/lib/sync/pullSheetOverride";
 import { revisionTimesMatch } from "@/lib/sync/applyStaged";
 import { SHOW_ARCHIVED_IMMUTABLE, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import { adoptShowLockHeld } from "@/lib/sync/lockedShowTx";
@@ -430,6 +431,20 @@ async function applyShadow(
   // re-run final CAS, or session supersession.
   if (await readShowArchived_unlocked(lockedTx, row.drive_file_id)) {
     return { drive_file_id: row.drive_file_id, code: SHOW_ARCHIVED_IMMUTABLE };
+  }
+
+  // §5.8 / I4 Flow B finalize consistency gate — UNDER the held show: lock (adoptShowLockHeld above;
+  // no new holder), BEFORE the Phase-2 apply / shows.pull_sheet_override propagation. Compare the
+  // PAYLOAD-INTERNAL desired override against the staged parse's applied snapshot (NOT the stale
+  // durable shows value — Codex R8). On mismatch REFUSE with the existing cataloged
+  // STAGED_PARSE_OUTDATED_AT_PHASE_D (invariant 5). Declarative — no compensation write; the shadow
+  // is retained and a successful re-scan reconverges applied → desired.
+  const overrideGate = evaluateFinalizeOverrideGate({
+    desired: parsed.pullSheetOverride,
+    applied: parsed.pullSheetOverrideApplied,
+  });
+  if (!overrideGate.ok) {
+    return { drive_file_id: row.drive_file_id, code: overrideGate.code };
   }
 
   const core = await applyStagedCore(lockedTx, {

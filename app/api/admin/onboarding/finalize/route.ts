@@ -31,6 +31,7 @@ import { hashForLog } from "@/lib/email/hashForLog";
 import { revalidateShow } from "@/lib/data/showCacheTag";
 import { severityForFinalizeRowCode } from "@/lib/onboarding/finalizeRowSeverity";
 import type { OverrideSnapshot, PullSheetOverride } from "@/lib/sync/pullSheetOverride";
+import { evaluateFinalizeOverrideGate } from "@/lib/sync/pullSheetOverride";
 
 const BATCH_CAP = 100;
 const REVIEWER_CHOICES_VERSION = 1;
@@ -144,6 +145,9 @@ type PerRowResult =
         | typeof WIZARD_SESSION_SUPERSEDED
         | typeof STAGED_REVIEW_ITEMS_CORRUPT
         | typeof RESCAN_REVIEW_REQUIRED
+        // §5.8 / I4 Flow A finalize consistency gate refusal — the existing cataloged code reused
+        // for the override-snapshot mismatch class (no new §12.4 row).
+        | "STAGED_PARSE_OUTDATED_AT_PHASE_D"
         | "DRIVE_FETCH_FAILED";
       re_apply_url: string;
       display_name?: string;
@@ -1194,6 +1198,26 @@ async function processApprovedRow(input: {
     : synthesizeDefaultChoices(parsedItems.items); // unchecked: apply-all over the sentinel(s)
 
   const lockedTx = await adoptShowLockHeld(input.pipelineTx, row.drive_file_id);
+
+  // §5.8 / I4 Flow A finalize consistency gate — UNDER the just-adopted show: lock (no new holder),
+  // BEFORE the first-seen apply / shows.pull_sheet_override propagation. Compare the DESIRED override
+  // (live pending_syncs.pull_sheet_override) against the staged parse's applied snapshot
+  // (pending_syncs.pull_sheet_override_applied). On mismatch REFUSE with the existing cataloged
+  // STAGED_PARSE_OUTDATED_AT_PHASE_D (invariant 5) — never a silent apply. Declarative — no
+  // compensation write (the row is left for a re-scan, which reconverges applied → desired).
+  const overrideGate = evaluateFinalizeOverrideGate({
+    desired: pullSheetOverride,
+    applied: pullSheetOverrideApplied,
+  });
+  if (!overrideGate.ok) {
+    return {
+      drive_file_id: row.drive_file_id,
+      wizard_session_id: wizardSessionId,
+      code: overrideGate.code,
+      re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
+    };
+  }
+
   const core = await applyStagedCore(lockedTx, {
     sourceScope: "wizard",
     driveFileId: row.drive_file_id,
