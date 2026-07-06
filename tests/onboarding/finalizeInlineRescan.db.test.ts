@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import postgres from "postgres";
+import { assertLocalDbUrl } from "../db/_remediationHelpers";
 
 import { PostgresOnboardingScanTx, type PostgresTransaction } from "@/lib/sync/runOnboardingScan";
 import { handleOnboardingFinalize } from "@/app/api/admin/onboarding/finalize/route";
@@ -18,8 +19,13 @@ import type { PreparedOnboardingFile } from "@/lib/sync/runOnboardingScan";
  * is injected (returning a real prepared sheet with a valid minimal binding, the same shape
  * rescanWizardSheet.db.test.ts uses), so no Drive I/O is performed.
  */
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+// Whole-diff R1 HIGH: validate loopback at module eval, BEFORE any postgres()
+// handle opens or dbUp flips true. A mispointed LOCAL_TEST_DATABASE_URL now throws
+// here (module load fails) instead of letting the probe connect + afterAll issue
+// DELETE/UPDATE against the remote (TEST_DATABASE_URL is the validation project).
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "7e7e7e7e-3333-4333-8333-7e7e7e7e7e7e";
 const FOLDER = "inline-rescan-folder";

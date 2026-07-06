@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import postgres from "postgres";
+import { assertLocalDbUrl } from "../db/_remediationHelpers";
 
 import {
   cleanupAbandonedFinalize,
@@ -22,8 +23,13 @@ import {
  *       cleaned — the recency gate does NOT block a stuck session.
  */
 
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+// Whole-diff R1 HIGH: validate loopback at module eval, BEFORE any postgres()
+// handle opens or dbUp flips true. A mispointed LOCAL_TEST_DATABASE_URL now throws
+// here (module load fails) instead of letting the probe connect + afterAll issue
+// DELETE/UPDATE against the remote (TEST_DATABASE_URL is the validation project).
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "5e5e5e5e-2b2b-4b2b-8b2b-5e5e5e5e5e5e";
 const FOLDER = "stuck-eligibility-folder";

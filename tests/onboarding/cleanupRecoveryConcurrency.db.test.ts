@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import postgres from "postgres";
+import { assertLocalDbUrl } from "../db/_remediationHelpers";
 
 import { cleanupAbandonedFinalize } from "@/lib/onboarding/sessionLifecycle";
 
@@ -29,8 +30,13 @@ import { cleanupAbandonedFinalize } from "@/lib/onboarding/sessionLifecycle";
  *       two STALE×RESOLVING/ NON_RESOLVING cells).
  */
 
-const LOCAL_URL =
-  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+// Whole-diff R1 HIGH: validate loopback at module eval, BEFORE any postgres()
+// handle opens or dbUp flips true. A mispointed LOCAL_TEST_DATABASE_URL now throws
+// here (module load fails) instead of letting the probe connect + afterAll issue
+// DELETE/UPDATE against the remote (TEST_DATABASE_URL is the validation project).
+const LOCAL_URL = assertLocalDbUrl(
+  process.env.LOCAL_TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+);
 
 const SESSION = "3c3c3c3c-4d4d-4d4d-8d4d-3c3c3c3c3c3c";
 const FOLDER = "recovery-concurrency-folder";
