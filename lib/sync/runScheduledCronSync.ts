@@ -32,8 +32,17 @@ import {
   fetchSheetMarkdownAndBytesAtRevision,
   withDriveRetry,
 } from "@/lib/drive/fetch";
+import { synthesizeMarkdownFromXlsx } from "@/lib/drive/exportSheetToMarkdown";
 import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
 import { attachWarningAnchors } from "@/lib/sync/attachWarningAnchors";
+import {
+  discardAndRerun,
+  finalizeArchivedTabs,
+  overrideSnapshot,
+  reconcileIncludedTab,
+  type OverrideSnapshot,
+  type PullSheetOverride,
+} from "@/lib/sync/pullSheetOverride";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { getDriveAccessToken, getDriveAuth } from "@/lib/drive/client";
 import {
@@ -492,6 +501,21 @@ export type ProcessOneFileDeps = {
   readStoredAgendaLinks?: (
     driveFileId: string,
   ) => Promise<ParseResult["show"]["agenda_links"] | null>;
+  /**
+   * §5.3 cron override read: the durable `shows.pull_sheet_override` for this file. When set,
+   * the export threads `includePullSheetFromTab`; a content/tab drift auto-clears it (§5.2).
+   * Defaults to an unlocked Postgres read; tests inject a stub.
+   */
+  readShowPullSheetOverride?: (driveFileId: string) => Promise<PullSheetOverride | null>;
+  /**
+   * §5.2 forensic sink for the durable-clear event (published-show archived-tab drift). Called
+   * post-clear under the show lock with the tab name. Defaults to a `log.warn` code-emit; tests
+   * inject a spy to assert the CONTENT_CHANGED code fired.
+   */
+  emitPullSheetOverrideContentChanged?: (args: {
+    driveFileId: string;
+    tabName: string;
+  }) => Promise<void> | void;
   driveClient?: DriveClient;
   runPhase1?: typeof runPhase1;
   runPhase2?: typeof runPhase2;
@@ -613,6 +637,44 @@ function databaseUrl(): string {
     throw new Error("runScheduledCronSync requires DATABASE_URL in production");
   }
   return "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+}
+
+/**
+ * §5.3 cron default: read the durable `shows.pull_sheet_override` on a short-lived connection
+ * (the prepare phase is pre-lock, DB-tx-free). Best-effort — a fault degrades to "no override"
+ * (the fail-safe direction: do NOT force-include archived gear).
+ */
+async function defaultReadShowPullSheetOverride(
+  driveFileId: string,
+): Promise<PullSheetOverride | null> {
+  const sql = postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false });
+  try {
+    const rows = (await sql.unsafe(
+      `select pull_sheet_override as o from public.shows where drive_file_id = $1 limit 1`,
+      [driveFileId],
+    )) as Array<{ o: PullSheetOverride | null }>;
+    return rows[0]?.o ?? null;
+  } catch {
+    return null;
+  } finally {
+    await sql.end({ timeout: 5 }).catch(() => {});
+  }
+}
+
+/**
+ * §5.2 default forensic emit for the durable auto-clear (published-show archived-tab drift):
+ * a code-carrying `log.warn` (the persisted `code` is the durable signal, not the message).
+ */
+function defaultEmitPullSheetOverrideContentChanged(args: {
+  driveFileId: string;
+  tabName: string;
+}): void {
+  log.warn("PULL_SHEET_OVERRIDE_CONTENT_CHANGED: archived-tab override auto-cleared on drift", {
+    code: "PULL_SHEET_OVERRIDE_CONTENT_CHANGED",
+    source: "cron_sync",
+    driveFileId: args.driveFileId,
+    tabName: args.tabName,
+  });
 }
 
 class PostgresPipelineTx implements SyncPipelineTx {
@@ -938,10 +1000,11 @@ class PostgresPipelineTx implements SyncPipelineTx {
         insert into public.pending_syncs (
           drive_file_id, base_modified_time, staged_modified_time, parse_result,
           triggered_review_items, prior_last_sync_status, prior_last_sync_error,
-          staged_id, source_kind, warning_summary, wizard_session_id
+          staged_id, source_kind, warning_summary, wizard_session_id,
+          pull_sheet_override_applied
         )
         values ($1, $2::timestamptz, $3::timestamptz, $4::jsonb, $5::jsonb, $6, $7,
-                coalesce($8::uuid, gen_random_uuid()), $9, $10, null)
+                coalesce($8::uuid, gen_random_uuid()), $9, $10, null, $11::jsonb)
         on conflict (drive_file_id) where wizard_session_id is null
         do update set
           parsed_at = now(),
@@ -953,7 +1016,9 @@ class PostgresPipelineTx implements SyncPipelineTx {
           prior_last_sync_error = excluded.prior_last_sync_error,
           staged_id = excluded.staged_id,
           source_kind = excluded.source_kind,
-          warning_summary = excluded.warning_summary
+          warning_summary = excluded.warning_summary,
+          -- §5.8 Flow C: applied snapshot tracks the freshly-staged live parse.
+          pull_sheet_override_applied = excluded.pull_sheet_override_applied
         returning staged_id
       `,
       [
@@ -967,6 +1032,8 @@ class PostgresPipelineTx implements SyncPipelineTx {
         row.stagedId ?? null,
         row.sourceKind,
         row.warningSummary,
+        // $11: §5.8 applied snapshot (raw object|null → jsonb). Absent ⇒ null.
+        row.pullSheetOverrideApplied ?? null,
       ],
     );
     return { stagedId: upserted?.staged_id ?? row.stagedId ?? "" };
@@ -2624,6 +2691,16 @@ export type PreparedProcessOneFile =
        * than wiping them to `{}`. A successful extract (incl. genuinely-no-anchors) stays `{}`.
        */
       sourceAnchors?: Record<string, SourceAnchor>;
+      // §5.8: the override snapshot the staged/applied parse was produced under —
+      // overrideSnapshot(override-as-of-read) on match/no-override, null on the
+      // content-changed/tab-missing discard-and-rerun. Written to
+      // pull_sheet_override_applied by upsertLivePendingSync (Flow C).
+      pullSheetOverrideApplied?: OverrideSnapshot;
+      // §5.2/I5b: true when the pre-lock reconcile discarded the override — the
+      // locked apply clears durable shows.pull_sheet_override + emits the forensic event.
+      pullSheetOverrideCleared?: boolean;
+      // The archived tab whose drift triggered the clear (for the forensic emit).
+      pullSheetOverrideClearedTab?: string;
     };
 
 function defaultCooldownReader(
@@ -2706,6 +2783,14 @@ export async function prepareProcessOneFile(
     }
   }
 
+  // §5.3 cron override read (pre-lock, best-effort): if a durable override pinned an archived
+  // tab's pull sheet, thread `includePullSheetFromTab` so the export re-includes that gear.
+  const overrideReader = deps.readShowPullSheetOverride ?? defaultReadShowPullSheetOverride;
+  const pullSheetOverride = await overrideReader(driveFileId).catch(() => null);
+  const includeOpts = pullSheetOverride
+    ? { includePullSheetFromTab: pullSheetOverride.tabName }
+    : {};
+
   // Task 5 — single Drive export: fetch markdown AND raw bytes in one call on the real path.
   // When deps.fetchMarkdownAtRevision is injected (tests), fall back to separate markdown +
   // fetchXlsxBytes injections. On the real path, fetchSheetMarkdownAndBytesAtRevision performs
@@ -2728,7 +2813,7 @@ export async function prepareProcessOneFile(
     } else {
       // Real path: single Drive export, both markdown and bytes from one HTTP call.
       const result = await withStepTimeout("fetchMarkdownAtRevision", () =>
-        fetchSheetMarkdownAndBytesAtRevision(driveFileId, binding.bindingToken),
+        fetchSheetMarkdownAndBytesAtRevision(driveFileId, binding.bindingToken, includeOpts),
       );
       markdown = result.markdown;
       xlsxBytes = result.bytes;
@@ -2882,17 +2967,88 @@ export async function prepareProcessOneFile(
     };
   }
 
+  // §5.2/§5.3 reconcile: attach the archived-tab offers + emit PULL_SHEET_ON_ARCHIVED_TAB
+  // warnings, then compare the accepted tab's CURRENT fingerprint against the durable override.
+  const archivedPullSheetTabs = xlsxBytes
+    ? synthesizeMarkdownFromXlsx(xlsxBytes, includeOpts).archivedPullSheetTabs
+    : [];
+  finalizeArchivedTabs(enriched, archivedPullSheetTabs);
+
+  let readyParseResult = enriched;
+  let pullSheetOverrideApplied: OverrideSnapshot = overrideSnapshot(pullSheetOverride);
+  let pullSheetOverrideCleared = false;
+  let pullSheetOverrideClearedTab: string | undefined;
+  const reconciled = reconcileIncludedTab({
+    tabs: archivedPullSheetTabs,
+    override: pullSheetOverride,
+  });
+  if (
+    pullSheetOverride &&
+    xlsxBytes &&
+    (reconciled.kind === "content_changed" || reconciled.kind === "tab_missing")
+  ) {
+    // §5.2/I5b: the accepted archived gear drifted (or its tab vanished). SHARED discard-and-rerun
+    // (same helper as onboarding/rescan): re-parse WITHOUT inclusion — preserving any current
+    // non-OLD pull sheet, dropping only the OLD-tab gear — and defer the durable clear + forensic
+    // emit to the locked apply (below), where the show: lock is held.
+    const bytes = xlsxBytes;
+    const discard = await discardAndRerun({
+      reconcile: reconciled,
+      overrideTabName: pullSheetOverride.tabName,
+      reparseNoOverride: async () => {
+        const noOverride = synthesizeMarkdownFromXlsx(bytes);
+        // Reuse the already-enriched result (reel/diagrams are identical — the OLD tab does not
+        // affect them); only the pull sheet + archived-tab list change under no-override.
+        const reparsedPull = (deps.parseSheet ?? parseMarkdownSheet)(
+          noOverride.markdown,
+          fileMeta.name,
+        );
+        const cloned: ParseResult = {
+          ...enriched,
+          pullSheet: reparsedPull.pullSheet,
+          warnings: [...enriched.warnings],
+          archivedPullSheetTabs: [],
+        };
+        return finalizeArchivedTabs(cloned, noOverride.archivedPullSheetTabs);
+      },
+      clearOverride: async () => {
+        pullSheetOverrideCleared = true;
+      },
+    });
+    readyParseResult = discard.parseResult;
+    pullSheetOverrideApplied = discard.appliedSnapshot;
+    pullSheetOverrideCleared = true;
+    pullSheetOverrideClearedTab = pullSheetOverride.tabName;
+  }
+
   return {
     kind: "ready",
     resolvedMode: gate.mode as Exclude<ResolvedSyncMode, "asset_recovery">,
     binding,
-    parseResult: enriched,
+    parseResult: readyParseResult,
     // audit idx12+idx63: OMIT on a genuine sheets-list fetch failure (exactOptionalPropertyTypes
     // forbids an explicit `undefined` on an optional field). The guarded cron spread
     // (`pipeline.sourceAnchors !== undefined`) reads an absent property identically → coalesce
     // receives null → the stored source_anchors are PRESERVED, not wiped to `{}`.
     ...(sourceAnchors !== undefined ? { sourceAnchors } : {}),
+    ...(pullSheetOverrideApplied !== undefined ? { pullSheetOverrideApplied } : {}),
+    ...(pullSheetOverrideCleared ? { pullSheetOverrideCleared } : {}),
+    ...(pullSheetOverrideClearedTab !== undefined ? { pullSheetOverrideClearedTab } : {}),
   };
+}
+
+/**
+ * §5.2/I5b durable auto-clear of the archived-tab override, under the held show: lock.
+ * Narrow single-purpose writer so the shows-UPDATE tripwire
+ * (`tests/sync/_secondCopyApplyTripwire.test.ts`) registers exactly this symbol.
+ */
+async function clearShowPullSheetOverride_unlocked(
+  tx: LockedShowTx<SyncPipelineTx>,
+  driveFileId: string,
+): Promise<void> {
+  await tx.queryOne(`update public.shows set pull_sheet_override = null where drive_file_id = $1`, [
+    driveFileId,
+  ]);
 }
 
 export async function processOneFile_unlocked(
@@ -2953,6 +3109,18 @@ export async function processOneFile_unlocked(
     );
   }
 
+  // §5.2/I5b durable auto-clear (under the show: lock): the pre-lock reconcile discarded the
+  // override (content drift or the tab vanished). Clear the DURABLE shows.pull_sheet_override so
+  // the next cron re-parses with no override (never sticky on a stale fingerprint), and emit the
+  // forensic CONTENT_CHANGED signal. The applied parse (pipeline.parseResult) already dropped the
+  // changed OLD gear while preserving any current non-OLD pull sheet.
+  if (pipeline.pullSheetOverrideCleared) {
+    await clearShowPullSheetOverride_unlocked(tx, driveFileId);
+    const emit =
+      deps.emitPullSheetOverrideContentChanged ?? defaultEmitPullSheetOverrideContentChanged;
+    await emit({ driveFileId, tabName: pipeline.pullSheetOverrideClearedTab ?? "" });
+  }
+
   const phase1 = await runPhase1_unlocked(
     tx,
     {
@@ -2961,6 +3129,10 @@ export async function processOneFile_unlocked(
       fileMeta,
       parseResult: pipeline.parseResult,
       binding: pipeline.binding,
+      // §5.8: Flow C live-staging writes pull_sheet_override_applied with the staged parse.
+      ...(pipeline.pullSheetOverrideApplied !== undefined
+        ? { pullSheetOverrideApplied: pipeline.pullSheetOverrideApplied }
+        : {}),
       ...(deps.acceptShrink !== undefined ? { acceptShrink: deps.acceptShrink } : {}),
       ...(deps.expectedModifiedTime !== undefined
         ? { expectedModifiedTime: deps.expectedModifiedTime }

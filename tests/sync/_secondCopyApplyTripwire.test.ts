@@ -60,6 +60,11 @@ const ALLOWED: ReadonlyArray<{ file: string; symbol: string }> = [
   { file: "lib/sync/runScheduledCronSync.ts", symbol: "async updateShowPendingReview(" },
   { file: "lib/sync/runScheduledCronSync.ts", symbol: "async markShowSheetUnavailable(" },
   { file: "lib/sync/runScheduledCronSync.ts", symbol: "async markShowDriveError(" },
+  // §5.2/I5b durable archived-tab override auto-clear (single-column null write, under show: lock).
+  {
+    file: "lib/sync/runScheduledCronSync.ts",
+    symbol: "async function clearShowPullSheetOverride_unlocked(",
+  },
   { file: "lib/sync/applyStaged.ts", symbol: "async function defaultRestoreShowStatus(" },
   { file: "lib/sync/discardStaged.ts", symbol: "async function defaultRestoreShowStatus(" },
   {

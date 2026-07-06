@@ -650,6 +650,9 @@ describe("runOnboardingScan", () => {
       tx,
       listFolder: vi.fn(async () => files),
       fetchMarkdownWithBinding,
+      // This test measures fetch concurrency, not overrides — stub the reader so no
+      // per-file DB round-trip staggers the observed max-in-flight count.
+      readPullSheetOverride: async () => null,
       parseSheet: vi.fn((markdown: string) => ({ markdown }) as unknown as ParsedSheet),
       enrichWithDrivePins: vi.fn(async (parsed: ParsedSheet) => {
         const driveFileId = (parsed as unknown as { markdown: string }).markdown.replace(
