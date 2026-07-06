@@ -183,6 +183,50 @@ export function roomGroupKey(col0Raw: string, firstLine: string): string {
   return roomBaseName(firstLine) + " " + dayRangeOf(col0Raw);
 }
 
+/**
+ * FIELD-EVIDENCE (spec §2.2 (c2) signal 1, R37 f1). True iff the row IMMEDIATELY
+ * beneath `i` (skipping a `:---:` separator / all-empty row) is a `BO …`/`GS …`
+ * field-label row. Separates a room (`MABEL`→`BO Setup`) from an agenda note
+ * (`WELCOME RECEPTION DAY 1`→schedule rows).
+ */
+export function hasRoomFieldBlock(lines: string[], i: number): boolean {
+  for (let k = i + 1; k < lines.length; k++) {
+    const t = (lines[k] ?? "").trim();
+    if (!t.startsWith("|")) break;
+    if (/^\|\s*:?-+/.test(t) || allEmptyCells(t)) continue;
+    const label = col0Of(lines[k]!)
+      .replace(/^(?:BO|GS)\s+/i, "")
+      .trim()
+      .toUpperCase();
+    if (ROOM_FIELD_LABELS.has(label)) return true;
+    break; // the first NON-field body row ends the immediately-following field block
+  }
+  return false;
+}
+
+/**
+ * PRECEDED-BY-BOUNDARY (spec §2.2 (c2) signal 2, R38 f1). True iff the candidate
+ * STARTS a room block: `i===0`, or the immediately-preceding line is blank/non-`|`,
+ * a `:---:` separator, or an all-empty-cells row. This is what an interleaved
+ * in-room note LACKS (it is preceded by a non-empty field row).
+ */
+export function precededByBoundary(lines: string[], i: number): boolean {
+  if (i === 0) return true;
+  const prev = (lines[i - 1] ?? "").trim();
+  if (!prev.startsWith("|")) return true;
+  if (/^\|\s*:?-+/.test(prev)) return true;
+  return allEmptyCells(prev);
+}
+
+/** Composed room-header admit predicate — shape × boundary × field-evidence (spec §2.2 (c2)). */
+export function isRoomHeader(lines: string[], i: number): boolean {
+  return (
+    isRoomHeaderShape(col0Of(lines[i] ?? "")) &&
+    precededByBoundary(lines, i) &&
+    hasRoomFieldBlock(lines, i)
+  );
+}
+
 // Mergeable room data fields (everything except kind/name) — used to absorb a same-name
 // breakout into its GS room without dropping any populated value.
 const RECONCILE_FIELDS = [

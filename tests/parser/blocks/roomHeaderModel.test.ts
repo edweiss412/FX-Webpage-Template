@@ -6,6 +6,9 @@ import {
   roomBaseName,
   dayRangeOf,
   roomGroupKey,
+  hasRoomFieldBlock,
+  precededByBoundary,
+  isRoomHeader,
 } from "@/lib/parser/blocks/rooms";
 
 describe("room shape predicates (spec §2.2/§2.3)", () => {
@@ -46,5 +49,43 @@ describe("room shape predicates (spec §2.2/§2.3)", () => {
     const k = (c: string) => roomGroupKey(c, c.replace(/&#10;/g, "\n").split("\n")[0]!.trim());
     expect(k("SALON ABCD DAY 1 & 2")).toBe(k("SALON ABCD&#10;DAY 1 & 2")); // R27 merge
     expect(k("SALON ABCD DAY 1")).not.toBe(k("SALON ABCD DAY 2")); // R34 split
+  });
+});
+
+const T = (s: string[]) => s;
+describe("room block-context predicates (spec §2.2 c2 — R37/R38)", () => {
+  const room = T([
+    "| MABEL 1&#10;DAY 1 & 2 |",
+    "| :---: | :---: |",
+    "| BO Setup | TBD |",
+    "| BO Audio | NONE |",
+  ]);
+  it("hasRoomFieldBlock true when a BO field row is immediately beneath (skipping separator)", () => {
+    expect(hasRoomFieldBlock(room, 0)).toBe(true);
+  });
+  it("hasRoomFieldBlock false for an agenda note (schedule rows beneath)", () => {
+    expect(
+      hasRoomFieldBlock(T(["| WELCOME RECEPTION DAY 1 |", "| 6:00 PM | Cocktails |"]), 0),
+    ).toBe(false);
+  });
+  it("precededByBoundary: blank/separator/all-empty row above, or i===0", () => {
+    expect(precededByBoundary(T(["", "| MABEL 1&#10;DAY 1 & 2 |"]), 1)).toBe(true); // blank
+    expect(
+      precededByBoundary(T(["| | | |", "| LAUDERDALE 1, 2, 3 DAY 1 & 2 |"]), 1),
+    ).toBe(true); // all-empty
+    expect(
+      precededByBoundary(T(["| BO Setup | TBD |", "| WELCOME RECEPTION DAY 1 |"]), 1),
+    ).toBe(false); // field row above
+  });
+  it("isRoomHeader: interleaved note fails boundary even with a BO row beneath (R38)", () => {
+    const inter = T([
+      "| MABEL 1&#10;DAY 1 & 2 |",
+      "| :---: | :---: |",
+      "| BO Setup | TBD |",
+      "| WELCOME RECEPTION DAY 1 |",
+      "| BO Audio | L-Acoustics |",
+    ]);
+    expect(isRoomHeader(inter, 0)).toBe(true); // MABEL is a room
+    expect(isRoomHeader(inter, 3)).toBe(false); // the note is NOT
   });
 });
