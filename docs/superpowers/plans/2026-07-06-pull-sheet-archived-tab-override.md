@@ -622,7 +622,7 @@ Run → **FAILS** (helper absent).
 ### Step 6.2 — Impl helper + wire into scan/cron/apply
 
 - `pullSheetOverride.ts`: implement the three functions. `emitArchivedTabWarnings` produces the `ParseWarning` shape from §5.2 (`blockRef.kind = "pull_sheet_archived_tab"`, `rawSnippet = headerPreviews.join(" | ")`). `reconcileIncludedTab`: `null` override → `no_override`; else find the tab whose `tabName === override.tabName` — absent → `tab_missing`; present and `fingerprint === override.fingerprint` → `match`; present and differs → `content_changed`. **`tab_missing` is handled identically to `content_changed`** (Codex plan-R2-1): clear the override, no stale `pullSheet` staged, `_applied = null`, but since there is no server-side tab to re-review, emit `PULL_SHEET_OVERRIDE_CONTENT_CHANGED` and render **S1** (no offer) rather than S4 — the archived tab is simply gone.
-- **`runOnboardingScan.ts`:** before calling the fetch helper, read the row's `pull_sheet_override` (destructure `{ data, error }` — invariant 9). Pass `includePullSheetFromTab: override?.tabName`. After parse: push `emitArchivedTabWarnings(...)` into `parse_result.warnings`; set `parse_result.archivedPullSheetTabs = tabs`. If `reconcileIncludedTab` returns `content_changed` **or `tab_missing`** → run the **discard-and-rerun** (5.2, I5b): under the `show:` lock (see Task 7 for the lock reconciliation) clear the override (`update ... set pull_sheet_override = null`), emit `PULL_SHEET_OVERRIDE_CONTENT_CHANGED` (forensic), re-parse WITHOUT `includePullSheetFromTab`, and stage that no-override parse with **empty `pullSheet`** AND `pull_sheet_override_applied = null` (Codex plan-R1 finding 2). For `content_changed`, set the changed tab's entry `contentChangedSinceAccept = true` with the NEW previews/fingerprint (S4). For `tab_missing`, there is no server-side tab → no offer entry → S1 (Codex plan-R2-1). Do NOT persist `overrideSnapshot(override-as-of-lock)` in this branch: the override just mismatched and was cleared, so writing `applied = A` while desired is now `null` would leave finalize permanently blocked after a *safety* clear. `_applied = null` matches the no-override parse actually staged, so `overrideSnapshot(null) === applied` → the row finalizes as a plain no-pull-sheet show.
+- **`runOnboardingScan.ts`:** before calling the fetch helper, read the row's `pull_sheet_override` (destructure `{ data, error }` — invariant 9). Pass `includePullSheetFromTab: override?.tabName`. After parse: push `emitArchivedTabWarnings(...)` into `parse_result.warnings`; set `parse_result.archivedPullSheetTabs = tabs`. If `reconcileIncludedTab` returns `content_changed` **or `tab_missing`** → run the **discard-and-rerun** (5.2, I5b): under the `show:` lock (see Task 7 for the lock reconciliation) clear the override (`update ... set pull_sheet_override = null`), emit `PULL_SHEET_OVERRIDE_CONTENT_CHANGED` (forensic), **re-parse WITHOUT `includePullSheetFromTab`, and stage THAT no-override parse result** with `pull_sheet_override_applied = null`. The no-override re-parse **preserves any current non-OLD pull sheet and drops only the OLD-tab gear** (Codex plan-R4-1) — do NOT force `pullSheet = []`. `parse_result.pullSheet` is empty ONLY when the workbook has no non-OLD pull sheet; a valid current pull sheet on a normal tab survives. For `content_changed`, set the changed tab's entry `contentChangedSinceAccept = true` with the NEW previews/fingerprint (S4). For `tab_missing`, there is no server-side tab → no offer entry → S1 (Codex plan-R2-1). Do NOT persist `overrideSnapshot(override-as-of-lock)` in this branch: the override just mismatched and was cleared, so writing `applied = A` while desired is now `null` would leave finalize permanently blocked after a *safety* clear. `_applied = null` matches the no-override parse actually staged, so `overrideSnapshot(null) === applied` → the row finalizes as a plain no-pull-sheet show.
   For the **non-mismatch** staging paths (normal re-scan, accept-included, no-override), persist `pull_sheet_override_applied = overrideSnapshot(override-as-of-lock)` **atomically with the `parse_result` INSERT** (`:421-443` — add both columns to the upsert column list + `excluded.` set-clause). Only the content-changed branch overrides this to `null`.
 - **`runScheduledCronSync.ts`:** cron reads `shows.pull_sheet_override`, threads `includePullSheetFromTab`, and runs the SAME `reconcileIncludedTab` on its returned tabs. On `content_changed`/`tab_missing` for a **published** show, cron clears the **durable** `shows.pull_sheet_override` (`update public.shows set pull_sheet_override = null where drive_file_id = ...` under the `show:` lock), emits `PULL_SHEET_OVERRIDE_CONTENT_CHANGED`, applies NO changed gear (empty pullSheet), and the next parse runs with no override (Codex plan-R2-2 — the onboarding branch clears `pending_syncs`; the durable post-publish clear happens HERE or the live path stays sticky on a stale fingerprint). `upsertLivePendingSync` (`:933`) writes `pull_sheet_override_applied` with its staged parse (Task 10 covers the Flow C apply gate). Step 6.4 adds the cron test.
 - **`applyStaged.ts`:** read paths surface the new columns (additive `select`).
@@ -638,15 +638,26 @@ it("content-changed accepted tab: staged row has override=null, empty pullSheet,
   const staged = await runOnboardingScanForOne({ /* deps producing the mismatch */ });
   expect(staged.pull_sheet_override).toBeNull();                       // cleared
   expect(staged.pull_sheet_override_applied).toBeNull();               // Codex plan-R1-2: NOT overrideSnapshot(A)
-  expect(staged.parse_result.pullSheet).toEqual([]);                   // no stale gear staged (I5b)
+  expect(staged.parse_result.pullSheet).toEqual([]);                   // OLD-tab-only workbook → empty (no current pull sheet)
   const tab = staged.parse_result.archivedPullSheetTabs.find((t) => t.tabName === "OLD PULL SHEET");
   expect(tab?.contentChangedSinceAccept).toBe(true);
   expect(tab?.fingerprint).toBe("ee");                                 // NEW fingerprint for re-review
   expect(staged.parse_result.warnings.some((w) => w.code === "PULL_SHEET_OVERRIDE_CONTENT_CHANGED")).toBe(true);
 });
+
+it("mixed workbook: current non-OLD pull sheet + accepted OLD tab that drifts => current gear PRESERVED, only OLD gear dropped (Codex plan-R4-1)", async () => {
+  // Arrange: a normal 'PULL SHEET' tab with current gear (e.g. 'Current DI Box') AND an accepted OLD tab
+  // whose fingerprint now mismatches. The no-override re-parse keeps the current tab's pull sheet.
+  const staged = await runOnboardingScanForOne({ /* deps: current tab + drifted OLD tab */ });
+  expect(staged.pull_sheet_override).toBeNull();
+  expect(staged.pull_sheet_override_applied).toBeNull();
+  const items = staged.parse_result.pullSheet.flatMap((c) => c.items).map((i) => i.item);
+  expect(items).toContain("Current DI Box");   // current gear NOT erased by the safety clear
+  expect(items).not.toContain("Shure SM58");   // OLD-tab gear dropped
+});
 ```
 
-Run → **FAILS** first (branch persists `overrideSnapshot(A)` / non-empty pullSheet), then after Step 6.2 → **PASSES**. Concrete failure mode caught: a safety auto-clear that leaves the row finalize-blocked (`applied=A`, desired=null) or that stages the changed gear.
+Run → **FAILS** first (branch persists `overrideSnapshot(A)`, or stages the changed OLD gear, or force-empties the current gear), then after Step 6.2 → **PASSES**. Concrete failure modes caught: a safety auto-clear that leaves the row finalize-blocked (`applied=A`, desired=null); that stages the changed OLD gear; OR that erases a legitimate current non-OLD pull sheet (plan-R4-1).
 
 ### Step 6.4 — Failing durable cron auto-clear test (published-show content drift)
 
@@ -654,10 +665,11 @@ Run → **FAILS** first (branch persists `overrideSnapshot(A)` / non-empty pullS
 it("cron: published show, accepted OLD tab content changed => durable shows.pull_sheet_override cleared, CONTENT_CHANGED emitted, no changed gear applied", async () => {
   // Arrange: shows.pull_sheet_override = {tabName:'OLD PULL SHEET', fingerprint:'ff', ...};
   // exporter returns the included tab with fingerprint 'ee'.
-  const { showsUpdate, events, applied } = await runScheduledCronSyncForOne({ /* deps producing the mismatch */ });
+  const { showsUpdate, events, applied } = await runScheduledCronSyncForOne({ /* deps: OLD-tab-only, mismatch */ });
   expect(showsUpdate.pull_sheet_override).toBeNull();                       // durable cleared (Codex plan-R2-2)
   expect(events.some((e) => e.code === "PULL_SHEET_OVERRIDE_CONTENT_CHANGED")).toBe(true);
-  expect(applied.pullSheet).toEqual([]);                                    // no changed gear applied (I5)
+  // OLD-tab-only fixture → no current gear; assert the CHANGED OLD gear is absent (not that pullSheet is force-emptied).
+  expect(applied.pullSheet.flatMap((c) => c.items).map((i) => i.item)).not.toContain("Shure SM58"); // no changed OLD gear applied (I5, plan-R4)
 });
 it("cron: override tab deleted/renamed server-side (tab_missing) => durable override cleared, no stale gear", async () => { /* same asserts, tab absent from returned tabs */ });
 ```
