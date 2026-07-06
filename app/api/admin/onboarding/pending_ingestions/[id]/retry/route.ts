@@ -9,6 +9,7 @@ import {
   type RetrySingleFileResult,
 } from "@/lib/sync/retrySingleFile";
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
+import { StaleOverrideRefusedRollbackError } from "@/lib/sync/runOnboardingScan";
 import {
   readCurrentWizardSessionIdBestEffort,
   WizardSessionSupersededRollbackError,
@@ -538,6 +539,13 @@ async function handleAction(
     }
     return response;
   } catch (error) {
+    if (error instanceof StaleOverrideRefusedRollbackError) {
+      // §5.7/I5a: the retry's under-lock re-read found the pull-sheet override changed after the
+      // pre-lock parse. scanPreparedFileWithTx THREW before staging → the locked tx rolled back,
+      // nothing staged. Surface the cataloged "staged parse outdated" 409 (a fresh parse
+      // re-derives under the current override), same refresh-and-wait UX as a revision race.
+      return errorResponse(409, "STAGED_PARSE_OUTDATED");
+    }
     if (error instanceof WizardSessionSupersededRollbackError) {
       // Transaction is already aborted here. The alert write runs on the
       // Supabase service-role RPC — its own transaction, the established

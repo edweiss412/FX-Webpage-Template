@@ -8,6 +8,7 @@ import {
   discardAndRerun,
   finalizeArchivedTabs,
   overrideSnapshot,
+  overrideSnapshotsEqual,
   reconcileIncludedTab,
   type OverrideSnapshot,
   type PullSheetOverride,
@@ -699,6 +700,38 @@ async function scanPreparedFileWithTx(
   try {
     const binding = prepared.binding;
     const parseResult = prepared.parseResult;
+    // §5.7/I5a locked-snapshot protocol (shared staging path). prepareOnboardingFiles read
+    // pending_syncs.pull_sheet_override BEFORE the show: lock and recorded it as
+    // prepared.pullSheetOverrideUsed. Re-read it HERE, under the held lock, on the SAME tx —
+    // if a concurrent holder (Task-8 accept/revoke RPC, Task-6 content-change auto-clear)
+    // changed it in the TOCTOU window, prepared.parseResult / prepared.pullSheetOverrideApplied
+    // are STALE (may carry OLD-tab gear the current override no longer authorizes). Refuse by
+    // THROWING before any staging write so the per-file tx rolls back with nothing staged; the
+    // next scan re-derives under the current override. Mirrors the rescanWizardSheet guard
+    // (lib/onboarding/rescanWizardSheet.ts) for the applyStaged-restage + retrySingleFile paths,
+    // which prepare outside the lock and stage here without an upstream guard. (The rescan path
+    // guards upstream under the same held lock, so this re-read is a redundant no-op there.)
+    // Gated on preLockSnapshot !== null: the re-read (and refuse) only matters when the pre-lock
+    // parse was produced UNDER an override — that is the only case where stale OLD-tab gear could
+    // reach a staged pullSheet (the I5 concern). A null→accept race in the window stages a parse
+    // with NO OLD gear (nothing stale), and the finalize consistency gate (Task 11) still refuses
+    // publication on the applied(null)≠desired(B) mismatch. Gating this way also keeps the vast
+    // majority of scans (no override) on their existing zero-extra-query staging path.
+    const preLockSnapshot: OverrideSnapshot = prepared.pullSheetOverrideUsed ?? null;
+    if (preLockSnapshot !== null) {
+      // Read via the tx's typed queryOne (LockableSyncTx), NOT a fresh connection — so the read is
+      // serialized under the SAME held show: lock (mirrors the cron guard at
+      // runScheduledCronSync.ts processOneFile_unlocked).
+      const lockedRow = await tx.queryOne<{ pull_sheet_override: PullSheetOverride | null } | null>(
+        `select pull_sheet_override from public.pending_syncs
+          where drive_file_id = $1 and wizard_session_id = $2::uuid limit 1`,
+        [file.driveFileId, wizardSessionId],
+      );
+      const lockedSnapshot = overrideSnapshot(lockedRow?.pull_sheet_override ?? null);
+      if (!overrideSnapshotsEqual(preLockSnapshot, lockedSnapshot)) {
+        throw new StaleOverrideRefusedRollbackError(file.driveFileId);
+      }
+    }
     const result = await runPhase1Impl(tx, {
       driveFileId: file.driveFileId,
       mode: "onboarding_scan",
@@ -881,6 +914,22 @@ class OnboardingScanLiveRowConflictRollbackError extends Error {
   ) {
     super(`onboarding scan live-row conflict (sqlstate ${sqlstate}, ${conflictKind})`);
     this.name = "OnboardingScanLiveRowConflictRollbackError";
+  }
+}
+
+/**
+ * §5.7/I5a control-flow error: the pre-lock pull-sheet override snapshot the staged parse was
+ * produced under no longer matches the durable `pending_syncs.pull_sheet_override` re-read under
+ * the held show: lock (a concurrent accept/revoke or content-change auto-clear changed it in the
+ * TOCTOU window). Thrown from `scanPreparedFileWithTx` BEFORE any staging write so the per-file
+ * transaction rolls back with nothing staged; the caller surfaces a re-scan-needed result and the
+ * next scan re-derives under the current override. Sibling of
+ * {@link OnboardingScanLiveRowConflictRollbackError} — a benign refuse, never an infra fault.
+ */
+export class StaleOverrideRefusedRollbackError extends Error {
+  constructor(readonly driveFileId: string) {
+    super(`onboarding scan refused: pull-sheet override changed under lock (${driveFileId})`);
+    this.name = "StaleOverrideRefusedRollbackError";
   }
 }
 

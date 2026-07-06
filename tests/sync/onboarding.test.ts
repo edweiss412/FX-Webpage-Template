@@ -116,6 +116,10 @@ class FakeOnboardingTx implements Phase1Tx {
   operations: string[] = [];
   superseded = false;
   conflictOnPendingSync: "42P10" | "23505" | null = null;
+  // §5.7/I5a: the durable pending_syncs.pull_sheet_override as re-read UNDER the show: lock by
+  // scanPreparedFileWithTx's guard (via queryOne). Defaults null (no override) so the guard is a
+  // no-op for the no-override staging tests; the override-race tests set it to simulate a change.
+  lockedOverride: { tabName: string; fingerprint: string } | null = null;
 
   async ensureWizardIsolationIndexes() {
     this.operations.push("ensureWizardIsolationIndexes");
@@ -235,7 +239,11 @@ class FakeOnboardingTx implements Phase1Tx {
     return "alert-1";
   }
 
-  async queryOne<T>() {
+  async queryOne<T>(sql?: string) {
+    // §5.7/I5a guard re-reads the durable override via queryOne under the lock.
+    if (sql && /pull_sheet_override/i.test(sql)) {
+      return { pull_sheet_override: this.lockedOverride } as T;
+    }
     return { held: true, locked: true } as T;
   }
 }
@@ -750,5 +758,65 @@ describe("runOnboardingScan", () => {
     expect(tx.pendingSyncs).toMatchObject([
       { driveFileId: "file-1", wizardSessionId: W1, sourceKind: "onboarding_scan" },
     ]);
+  });
+
+  // §5.7/I5a locked-snapshot protocol on the SHARED staging path (applyStaged restage +
+  // retrySingleFile prepare pre-lock, then stage here without an upstream guard). Whole-diff R2:
+  // scanPreparedFileWithTx must re-read the durable override UNDER the lock and refuse a parse
+  // produced under a now-stale override before writing any staged result — else stale OLD-tab gear
+  // reaches a staged pullSheet and the admin only discovers it at the finalize gate.
+  test("scanOnboardingPreparedFiles REFUSES (throws, stages nothing) when the override changed under the lock", async () => {
+    vi.resetModules();
+    const { scanOnboardingPreparedFiles, StaleOverrideRefusedRollbackError } =
+      await import("@/lib/sync/runOnboardingScan");
+    const tx = new FakeOnboardingTx();
+    // Admin revoked in the TOCTOU window: the durable override re-read under the lock is now null.
+    tx.lockedOverride = null;
+    const listFolder = vi.fn(async () => {
+      throw new Error("listFolder must not be called");
+    });
+    const prepared: PreparedOnboardingFile[] = [
+      {
+        file: file("file-1"),
+        kind: "sheet",
+        sourceAnchors: {},
+        binding: { bindingToken: "tok-file-1", modifiedTime: "2026-05-08T12:00:00.000Z" },
+        parseResult: parseResult(),
+        // The pre-lock parse was produced UNDER an override that no longer matches the durable row.
+        pullSheetOverrideUsed: { tabName: "OLD PULL SHEET", fingerprint: "ff00ff" },
+      },
+    ];
+
+    await expect(
+      scanOnboardingPreparedFiles("folder-1", W1, prepared, { tx, listFolder }),
+    ).rejects.toBeInstanceOf(StaleOverrideRefusedRollbackError);
+    // Nothing staged: the guard threw BEFORE any staging write, so the per-file tx rolled back.
+    expect(tx.manifest).toEqual([]);
+    expect(tx.pendingSyncs).toEqual([]);
+  });
+
+  test("scanOnboardingPreparedFiles STAGES normally when the under-lock override still matches the pre-lock snapshot", async () => {
+    vi.resetModules();
+    const { scanOnboardingPreparedFiles } = await import("@/lib/sync/runOnboardingScan");
+    const tx = new FakeOnboardingTx();
+    // Durable override unchanged: overrideSnapshot({tabName,fingerprint,...}) === the pre-lock snapshot.
+    tx.lockedOverride = { tabName: "OLD PULL SHEET", fingerprint: "ff00ff" };
+    const listFolder = vi.fn(async () => {
+      throw new Error("listFolder must not be called");
+    });
+    const prepared: PreparedOnboardingFile[] = [
+      {
+        file: file("file-1"),
+        kind: "sheet",
+        sourceAnchors: {},
+        binding: { bindingToken: "tok-file-1", modifiedTime: "2026-05-08T12:00:00.000Z" },
+        parseResult: parseResult(),
+        pullSheetOverrideUsed: { tabName: "OLD PULL SHEET", fingerprint: "ff00ff" },
+      },
+    ];
+
+    const result = await scanOnboardingPreparedFiles("folder-1", W1, prepared, { tx, listFolder });
+    expect(result).toMatchObject({ outcome: "completed" });
+    expect(tx.manifest).toMatchObject([{ driveFileId: "file-1", status: "staged" }]);
   });
 });
