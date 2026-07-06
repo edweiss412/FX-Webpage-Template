@@ -314,10 +314,11 @@ git commit --no-verify -m "test(parser): exhaustive room-admit truth-table + cor
 ---
 ## Part B — Stage-restriction token grammar + `UNKNOWN_STAGE_RESTRICTION`
 
-**Interfaces produced by Part B** (copied from spec §3.2):
-- `type StageClause = { stages: WorkPhase[]; cleaned: string; unrecognizedRestriction: boolean }`
+**Interfaces produced by Part B** (copied from spec §3.2 + §9 `consumedOnlyClause` preempt):
+- `type StageClause = { stages: WorkPhase[]; cleaned: string; unrecognizedRestriction: boolean; consumedOnlyClause: boolean }`
+  - `consumedOnlyClause` = `true` whenever `parseStageClause` consumed a trailing `ONLY`/`ONLY***` marker (explicit OR malformed OR full-4) — the signal that suppresses the pre-existing crew triple-asterisk `UNKNOWN_DAY_RESTRICTION` guard (spec §9; the field does NOT yet exist in live code — it is NEW).
 - `parseStageClause(roleCell: string): StageClause` — the token-level grammar (spec §3.2 steps 1-4).
-- `extractStageRestriction(roleCell: string): { restriction: StageRestriction; warnings: ParseWarning[] }` — CHANGED return shape (was `StageRestriction`; spec §3).
+- `extractStageRestriction(roleCell: string): { restriction: StageRestriction; warnings: ParseWarning[]; consumedOnlyClause: boolean }` — CHANGED return shape (was bare `StageRestriction`; spec §3).
 
 ### Task B1: `parseStageClause` token-level grammar
 
@@ -362,8 +363,23 @@ describe("parseStageClause (spec §3.2)", () => {
     expect(parseStageClause("Rehearsal ONLY").unrecognizedRestriction).toBe(false);
     expect(parseStageClause("RIGGER ONLY").unrecognizedRestriction).toBe(false);
   });
-  it("full-4 lenient star preserved (ONLY* .. ONLY**** stays a 4-stage restriction) (R17)", () => {
-    expect(parseStageClause("Load In / Set / Show / Strike ONLY**").stages.length).toBe(4);
+  it("full-4 lenient star: the EXACT live full-4 phrase (no Show) keeps a 4-stage restriction (R17)", () => {
+    // FULL_STAGE_ONLY_PATTERN = /Load In / Set / Strike / Load Out ONLY\*{0,3}/i (personalization.ts:53)
+    const r = parseStageClause("Load In / Set / Strike / Load Out ONLY**");
+    expect(r.stages).toEqual(["Load In", "Set", "Strike", "Load Out"]);
+    expect(r.unrecognizedRestriction).toBe(false);
+    expect(r.consumedOnlyClause).toBe(true);
+  });
+  it("NON-full-4 clause with Show + a double-star marker does NOT restrict (fail-open, R17)", () => {
+    // 'Load In / Set / Show / Strike ONLY**' is NOT the full-4 phrase and ONLY** is invalid for
+    // generalized clauses → no stages, no restriction (must NOT hide Show days).
+    const r = parseStageClause("Load In / Set / Show / Strike ONLY**");
+    expect(r.stages).toEqual([]);
+    expect(r.unrecognizedRestriction).toBe(false);
+  });
+  it("consumedOnlyClause is true for a malformed ONLY*** clause (suppresses crew triple-asterisk guard)", () => {
+    expect(parseStageClause("Set / Rehearsal ONLY***").consumedOnlyClause).toBe(true);
+    expect(parseStageClause("Set / Rehearsal ONLY***").unrecognizedRestriction).toBe(true);
   });
 });
 ```
@@ -377,6 +393,7 @@ describe("parseStageClause (spec §3.2)", () => {
   4. TOKEN classification: multi-word extraction FIRST (`MULTI_WORD_TOKENS`, preserving R1), then split the body on `/` AND `-`, classify each atomic token STAGE (`STAGE_VOCAB` + "SHOW") / ROLE / UNKNOWN.
   - Branches: **explicit** (≥1 STAGE, 0 UNKNOWN → `stages`=STAGE tokens, `cleaned`=ROLE tokens + tail, `unrecognizedRestriction=false`); **malformed** (≥1 STAGE, ≥1 UNKNOWN → `stages`=[], `unrecognizedRestriction=true`, `cleaned`= ALL non-stage tokens [role+unknown] + tail); **role clause** (0 STAGE → `stages`=[], `unrecognizedRestriction=false`, `cleaned`=roleCell unchanged).
   - Note `WorkPhase` order for `stages` follows appearance order in the cell.
+  - `consumedOnlyClause`: set `true` whenever a trailing `ONLY`/`ONLY***` marker (or the full-4 `ONLY\*{0,3}`) was matched and stripped — i.e. the clause presented as an ONLY-clause, EVEN in the malformed branch. This is what tells crew.ts the `***` was already accounted for (spec §9). A pure role clause with NO `ONLY` marker (`- LEAD***`) leaves it `false` so the existing bare-`***` UNKNOWN_DAY_RESTRICTION path still fires.
 
 - [ ] **Step 4: Run to verify it passes.** `pnpm test tests/parser/stageClause.test.ts` → PASS.
 
@@ -420,7 +437,7 @@ it("extractStageRestriction: role clause → none + no stage warning", () => {
 
 - [ ] **Step 2: Run to verify it fails.** `pnpm test tests/parser/stageClause.test.ts` → FAIL.
 
-- [ ] **Step 3: Implement.** Rewrite `extractStageRestriction` to call `parseStageClause`, map `stages.length>0` → `{kind:"explicit", stages}`, else `{kind:"none"}`; when `unrecognizedRestriction` push a `UNKNOWN_STAGE_RESTRICTION` warning (blockRef stamped later in crew.ts). Update every call site of `extractStageRestriction` (grep `extractStageRestriction(` — `crew.ts` and any tests) to destructure `{restriction, warnings}`. Route `cleaned` into `extractRoleFlags` so typo-roles autocorrect and `RIGGER` surfaces as `UNKNOWN_ROLE_TOKEN` (spec §3.2 malformed branch).
+- [ ] **Step 3: Implement.** Rewrite `extractStageRestriction` to call `parseStageClause`, map `stages.length>0` → `{kind:"explicit", stages}`, else `{kind:"none"}`; when `unrecognizedRestriction` push a `UNKNOWN_STAGE_RESTRICTION` warning (blockRef stamped later in crew.ts); pass through `consumedOnlyClause` on the result. Update every call site of `extractStageRestriction` (grep `extractStageRestriction(` — `crew.ts` and any tests) to destructure `{restriction, warnings, consumedOnlyClause}`. Route `cleaned` into `extractRoleFlags` so typo-roles autocorrect and `RIGGER` surfaces as `UNKNOWN_ROLE_TOKEN` (spec §3.2 malformed branch).
 
 - [ ] **Step 4: Run.** `pnpm test tests/parser/` → PASS (existing stage-filter tests updated to the new return shape as needed — update them to the new contract, verifying each, per the "behavior change → update old-behavior tests" rule).
 
@@ -470,25 +487,32 @@ git commit --no-verify -m "feat(messages): register UNKNOWN_STAGE_RESTRICTION (�
 ### Task B4: Emit `UNKNOWN_STAGE_RESTRICTION` from crew stamping + fail-open schedule
 
 **Files:**
-- Modify: `lib/parser/blocks/crew.ts` (stamp the warning with a crew `blockRef` at the stage-restriction site, mirroring the `UNKNOWN_ROLE_TOKEN` stamping `:326-334`). Confirm the fail-open outcome: a malformed clause → `{kind:"none"}` restriction → the crew member sees the WHOLE show (spec §9 fail-open), NOT zero-days.
+- Modify: `lib/parser/blocks/crew.ts` — (a) stamp the `UNKNOWN_STAGE_RESTRICTION` warning with a crew `blockRef` at the stage-restriction site, mirroring the `UNKNOWN_ROLE_TOKEN` stamping `:326-334`; (b) thread `consumedOnlyClause` into the pre-existing triple-asterisk guard (`:347-352`), adding `&& !stageResult.consumedOnlyClause` so a consumed `ONLY***` stage clause does NOT also fire `UNKNOWN_DAY_RESTRICTION`/`unknown_asterisk` (spec §9). Confirm the fail-open outcome: a malformed clause → `{kind:"none"}` restriction → the crew member sees the WHOLE show (spec §9), NOT zero-days and NOT an unknown-date restriction.
 - Test: `tests/parser/blocks/crew.test.ts` (extend) + a `stageSchedule` integration assertion
 
-**Interfaces:** Consumes B2/B3.
+**Interfaces:** Consumes B2/B3 (`extractStageRestriction` now returns `consumedOnlyClause`).
 
-- [ ] **Step 1: Write the failing integration test** — a crew row with `Set / Rehearsal ONLY` produces a `UNKNOWN_STAGE_RESTRICTION` warning stamped with the crew `blockRef.name`, and the member's effective schedule is the WHOLE show (not zero days):
+- [ ] **Step 1: Write the failing integration tests** — (a) `Set / Rehearsal ONLY` → `UNKNOWN_STAGE_RESTRICTION` stamped with crew `blockRef.name`, whole-show; (b) **`Set / Rehearsal ONLY***` → ONLY `UNKNOWN_STAGE_RESTRICTION` (NOT `UNKNOWN_DAY_RESTRICTION`), date restriction stays `{kind:"none"}` (not `unknown_asterisk`), whole-show** (the consumedOnlyClause guard):
 ```ts
 it("malformed stage clause → UNKNOWN_STAGE_RESTRICTION + whole-show (fail-open)", () => {
   const md = /* a v2 crew fixture row with role cell 'Set / Rehearsal ONLY' */;
   const parsed = parseCrew(md, "v2");
+  const codes = parsed.warnings.map((w) => w.code);
+  expect(codes).toContain("UNKNOWN_STAGE_RESTRICTION");
   const warn = parsed.warnings.find((w) => w.code === "UNKNOWN_STAGE_RESTRICTION");
   expect(warn?.blockRef?.name).toBeTruthy();
-  // effective restriction is none → whole show
+});
+it("malformed ONLY*** clause: only UNKNOWN_STAGE_RESTRICTION, no UNKNOWN_DAY_RESTRICTION (consumedOnlyClause)", () => {
+  const md = /* a v2 crew fixture row with role cell 'Set / Rehearsal ONLY***' */;
+  const codes = parseCrew(md, "v2").warnings.map((w) => w.code);
+  expect(codes).toContain("UNKNOWN_STAGE_RESTRICTION");
+  expect(codes).not.toContain("UNKNOWN_DAY_RESTRICTION"); // suppressed by !consumedOnlyClause
 });
 ```
 
 - [ ] **Step 2: Run to verify it fails.** → FAIL.
 
-- [ ] **Step 3: Implement** the crew.ts stamping (mirror `:326-334`), threading `warnings` from `extractStageRestriction`. Verify `effectiveViewerDateRestriction` (`stageSchedule.ts:48-67`) with a `{kind:"none"}` stage restriction yields the whole show; if the malformed path could reach the zero-days trap (`:66` `workedDays` can be `[]`), ensure the malformed clause routes to `{kind:"none"}` (which it does per B2) so the trap is not hit.
+- [ ] **Step 3: Implement** the crew.ts stamping (mirror `:326-334`), threading `warnings` + `consumedOnlyClause` from `extractStageRestriction`. Change the triple-asterisk guard condition (`crew.ts:347-352`) from `hasTripleAsterisk(roleRaw) && dateRestriction.kind==="none" && stageRestriction.kind==="none"` to ALSO require `&& !stageResult.consumedOnlyClause`. Verify `effectiveViewerDateRestriction` (`stageSchedule.ts:48-67`) with a `{kind:"none"}` stage restriction yields the whole show; ensure the malformed clause routes to `{kind:"none"}` (per B2) so neither the zero-days trap (`:66`) nor the `unknown_asterisk` path is hit.
 
 - [ ] **Step 4: Run.** `pnpm test tests/parser/` → PASS.
 
