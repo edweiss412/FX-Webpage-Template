@@ -62,8 +62,11 @@ function rooms(n: number): RoomRow[] {
     set_time: null,
     show_time: null,
     strike_time: null,
+    // Each fixture room carries real A/V (video) gear so it COUNTS toward the
+    // Rooms & scope tally (roomHasScope) — the count now excludes no-A/V rooms,
+    // and the exclusion path is exercised by its own dedicated test.
     audio: null,
-    video: null,
+    video: "(1) Projector",
     lighting: null,
     scenic: null,
     power: null,
@@ -418,7 +421,7 @@ describe("Step3SheetCard — title deep link + wrapping", () => {
 // checked/applied-clean row that carries data-gap warnings must show the
 // PER-CLASS detail (not just the generic count) before the publish checkbox.
 describe("Step3SheetCard — data-gap detail (P3 primary, §6.2a)", () => {
-  test("the review chip shows the data-gap COUNT (non-DQ warns excluded); never the raw code", () => {
+  test("the data-quality badge shows the data-gap COUNT (non-DQ warns excluded); never the raw code", () => {
     const w = [
       { severity: "warn" as const, code: "FIELD_UNREADABLE", message: "phone unreadable" },
       { severity: "warn" as const, code: "FIELD_UNREADABLE", message: "phone 2 unreadable" },
@@ -431,14 +434,21 @@ describe("Step3SheetCard — data-gap detail (P3 primary, §6.2a)", () => {
     const q = render(
       <Step3SheetCard row={stagedRow(FIX, { status: "applied" })} wizardSessionId={WSID} />,
     );
-    const chip = q.getByTestId(`wizard-step3-card-${DFID}-review-chip`);
+    // The count chip is REPLACED by the shared admin-dashboard data-quality glyph
+    // appended to the show name (owner decision 2026-07-06). No -review-chip.
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-review-chip`)).toBeNull();
+    const badge = q.getByTestId(`shows-data-quality-${DFID}`);
     // total derives from the SEEDED data-quality warnings (anti-tautology), never a literal.
     const total = w.filter((x) =>
       ["FIELD_UNREADABLE", "UNKNOWN_SECTION_HEADER", "BLOCK_DISAPPEARED"].includes(x.code),
     ).length;
-    expect(chip.textContent).toContain(`${total} ${total === 1 ? "needs" : "need"} a look`);
-    // invariant 5: no raw §12.4 code literal in the chip.
-    expect(chip.textContent).not.toMatch(/FIELD_UNREADABLE|BLOCK_DISAPPEARED/);
+    // The count rides the badge's accessible name ("N data gaps: …").
+    expect(badge.getAttribute("aria-label")).toContain(`${total} data gap`);
+    // invariant 5: no raw §12.4 code literal in the badge.
+    expect(badge.getAttribute("aria-label")).not.toMatch(/FIELD_UNREADABLE|BLOCK_DISAPPEARED/);
+    // The badge sits WITH the title (appended to the name), not in the right cluster.
+    const titleWrap = badge.closest("div")!;
+    expect(titleWrap.contains(q.getByTestId(`wizard-step3-card-${DFID}-title`))).toBe(true);
     // The per-class breakdown moved to the review modal — no -data-gaps on the card face.
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-data-gaps`)).toBeNull();
   });
@@ -834,7 +844,7 @@ describe("Step3SheetCard compact list row (Task 4)", () => {
       message: `field ${i} unreadable`,
     }));
 
-  test("clean, no warnings → View button, no chip, plain title (no -title-link)", () => {
+  test("clean, no warnings → View button, no chip, no data-quality badge, plain title (no -title-link)", () => {
     const q = render(
       <Step3SheetCard row={stagedRow(parseResult({ warnings: [] }))} wizardSessionId={WSID} />,
     );
@@ -842,28 +852,32 @@ describe("Step3SheetCard compact list row (Task 4)", () => {
       "View",
     );
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-review-chip`)).toBeNull();
+    // No data gaps → the badge renders null (it is not always-on).
+    expect(q.queryByTestId(`shows-data-quality-${DFID}`)).toBeNull();
     expect(q.queryByTestId(`wizard-step3-card-${DFID}-title-link`)).toBeNull();
     expect(q.getByTestId(`wizard-step3-card-${DFID}-title`)).toBeTruthy();
   });
 
-  test("clean, N data-gap warnings → Review button + chip 'N need a look' (verb-agreed)", () => {
+  test("clean, N data-gap warnings → Review button + data-quality badge carrying the count", () => {
     const q = render(
       <Step3SheetCard row={stagedRow(parseResult({ warnings: warn(2) }))} wizardSessionId={WSID} />,
     );
-    const chip = within(card(q)).getByTestId(`wizard-step3-card-${DFID}-review-chip`);
-    expect(chip.textContent).toContain("2 need a look"); // total===2 from fixture
+    // The count chip is gone; the shared data-quality glyph carries the count.
+    expect(q.queryByTestId(`wizard-step3-card-${DFID}-review-chip`)).toBeNull();
+    const badge = within(card(q)).getByTestId(`shows-data-quality-${DFID}`);
+    expect(badge.getAttribute("aria-label")).toContain("2 data gaps"); // total===2 from fixture
     expect(within(card(q)).getByTestId(`wizard-step3-card-${DFID}-more`).textContent).toContain(
       "Review",
     );
   });
 
-  test("single warning → 'needs' singular", () => {
+  test("single warning → 'gap' singular in the badge accessible name", () => {
     const q = render(
       <Step3SheetCard row={stagedRow(parseResult({ warnings: warn(1) }))} wizardSessionId={WSID} />,
     );
     expect(
-      within(card(q)).getByTestId(`wizard-step3-card-${DFID}-review-chip`).textContent,
-    ).toContain("1 needs a look");
+      within(card(q)).getByTestId(`shows-data-quality-${DFID}`).getAttribute("aria-label"),
+    ).toContain("1 data gap:");
   });
 
   test("meta line shows client · dates · venue from parseResult.show", () => {

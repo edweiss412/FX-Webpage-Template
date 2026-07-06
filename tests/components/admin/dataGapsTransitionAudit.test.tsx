@@ -115,11 +115,15 @@ describe("data-gap surfaces — transition audit (instant, static parse-state)",
   // count hits zero. Pin each as a plain ternary-to-null.
   it("Step-3 detail, per-show panel, and alert sub-line are plain ternary-to-null", () => {
     const step3 = src("components/admin/wizard/Step3SheetCard.tsx");
-    // Variant B: the card's "needs a look" chip is a plain conditional-to-null —
-    // present iff there's a data gap (needsLook), gone otherwise; instant, no
-    // AnimatePresence/motion wrapper. (The per-class breakdown moved to the modal.)
-    // Whitespace-tolerant (prettier may wrap the ternary across lines).
-    expect(step3).toMatch(/\{needsLook\s*\?\s*reviewChip\(/);
+    // The card's data-gap surface is now the shared <DataQualityBadge> appended
+    // to the title (the count chip was retired 2026-07-06). The badge renders
+    // itself null when there are no gaps (pinned instant in its own test below),
+    // so the card mounts it UNCONDITIONALLY — no AnimatePresence/motion wrapper,
+    // no lingering. Pin that plain, wrapper-free render.
+    expect(step3).toMatch(/<DataQualityBadge slug=\{dfid\} dataGaps=\{gaps\} \/>/);
+    // The demoted variant's non-numeric "Needs another look" chip stays a plain
+    // reviewChip render (instant, no wrapper) — pin it too.
+    expect(step3).toMatch(/\{reviewChip\("Needs another look"\)\}/);
     // Per-show panel: failed → calm notice; else (ACTIVE displayable warnings OR
     // IGNORED warnings) → section; else null. Still a plain ternary-to-null (instant
     // present/absent, no AnimatePresence) — the condition is compound because the panel

@@ -51,6 +51,7 @@ import {
   DIAGRAM_TILE_CAP,
   DiagramsBreakdown,
   reviewWarningTitle,
+  roomHasScope,
   step3Sections,
   STEP3_SECTION_GROUPS,
   type SectionData,
@@ -413,7 +414,12 @@ describe("step3Sections registry (spec §6.1 + §B2/§D2)", () => {
     }
     // Values derive from the fixture's OWN dimensions (anti-tautology).
     expect(defById(defs, "crew").railCount!(d)).toBe(d.crewMembers.length);
-    expect(defById(defs, "rooms").railCount!(d)).toBe(d.rooms.length);
+    // Rooms rail count = only A/V-scoped rooms (roomHasScope), NOT raw length.
+    // The default fixture rooms all carry A/V, so scoped === length here.
+    expect(defById(defs, "rooms").railCount!(d)).toBe(d.rooms.filter(roomHasScope).length);
+    // And with a no-A/V room MIXED in, the rail count drops it (exclusion path).
+    const mixed = sectionData({ rooms: [...d.rooms, { ...d.rooms[0]!, video: null }] });
+    expect(defById(step3Sections(mixed), "rooms").railCount!(mixed)).toBe(d.rooms.length);
     expect(defById(defs, "warnings").railCount!(d)).toBe(d.warnings.length);
     // Contacts: block count as rendered today — fixture has no client contact
     // and no contacts → 0.
@@ -917,6 +923,40 @@ describe("RoomsBreakdown — redesigned per-room cards", () => {
     if (!li) throw new Error(`room ${i} card <li> not found`);
     return li as HTMLElement;
   }
+
+  // A room whose every A/V discipline is empty (null OR an "N/A"/"Not specified"
+  // sentinel, case/spacing tolerant) — e.g. an "additional rooms" placeholder
+  // that only holds a setup note. roomHasScope → false, so it is NOT counted.
+  const NO_AV_ROOM: RoomRow = {
+    ...FULL_ROOM,
+    kind: "additional",
+    name: "Boardroom (TBD)",
+    audio: "N/A",
+    video: null,
+    lighting: "Not specified",
+    scenic: null,
+    other: "  n/a ",
+  };
+
+  test("Rooms & scope count EXCLUDES rooms with no A/V, but they still RENDER (owner decision 2026-07-06)", () => {
+    const roomsFixture = [FULL_ROOM, NO_AV_ROOM];
+    // Premise guard (anti-tautology): exactly one of the two has A/V scope.
+    expect(roomHasScope(FULL_ROOM)).toBe(true);
+    expect(roomHasScope(NO_AV_ROOM)).toBe(false);
+    const expected = roomsFixture.filter(roomHasScope).length; // === 1, derived not hardcoded
+    expect(expected).toBe(1);
+
+    const q = renderBody(roomsData(roomsFixture), "rooms");
+    // BOTH rooms render (the no-A/V room is not hidden, just uncounted).
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-room-0-scope`)).toBeTruthy();
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-room-1-scope`)).toBeTruthy();
+    // The header count reflects ONLY the A/V-scoped rooms. Scope to the heading
+    // (the non-chrome fallback renders the count inside the section <h4>) so a
+    // "(5)"-shaped body value can't satisfy the assertion.
+    const heading = q.getByTestId(`wizard-step3-card-${DFID}-breakdown-rooms`).querySelector("h4")!;
+    expect(heading.textContent).toContain(`(${expected})`);
+    expect(heading.textContent).not.toContain(`(${roomsFixture.length})`); // never the raw length
+  });
 
   test("each room is a bordered card with an accent-tinted header holding name, kind pill, and floor", () => {
     const q = renderBody(roomsData([FULL_ROOM]), "rooms");

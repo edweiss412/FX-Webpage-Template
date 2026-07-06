@@ -78,7 +78,7 @@ describe("OnboardingTopBar", () => {
     expect(q.queryByTestId("app-health-indicator")).toBeNull();
   });
 
-  test("renders <NotifBell> beside the <AppHealthIndicator> when a bellCount prop is provided (spec §7.1: the onboarding chrome keeps a non-health alert surface after banner retirement)", () => {
+  test("NEVER renders <NotifBell> during onboarding — even with a healthRollup (owner decision 2026-07-06: the bell is suppressed while the nav tabs are, and only the health indicator stays)", () => {
     const degraded: HealthStatus = {
       kind: "degraded",
       count: 1,
@@ -86,22 +86,16 @@ describe("OnboardingTopBar", () => {
       overflowCount: 0,
     };
     const q = render(
-      <OnboardingTopBar
-        email="admin@example.test"
-        healthRollup={degraded}
-        isDeveloper={false}
-        bellCount={{ kind: "ok", count: 0 }}
-      />,
+      <OnboardingTopBar email="admin@example.test" healthRollup={degraded} isDeveloper={false} />,
     );
-    const bell = q.getByTestId("admin-notif-bell");
-    const indicator = q.getByTestId("app-health-indicator");
-    expect(bell).not.toBeNull();
-    // Sibling of the indicator inside the same right-side action cluster,
-    // mirroring the <AdminNav> arrangement (AppHealthIndicator + NotifBell).
-    expect(bell.parentElement).toBe(indicator.parentElement);
+    // Bell is gone from the setup chrome…
+    expect(q.queryByTestId("admin-notif-bell")).toBeNull();
+    expect(q.queryByTestId("admin-notif-bell-degraded")).toBeNull();
+    // …but the app-health indicator still renders (a health fault must never be dark).
+    expect(q.getByTestId("app-health-indicator")).not.toBeNull();
   });
 
-  test("omits the bell entirely when no bellCount prop is provided (guard)", () => {
+  test("omits the bell entirely in the minimal render (guard)", () => {
     const q = render(<OnboardingTopBar email="admin@example.test" />);
     expect(q.queryByTestId("admin-notif-bell")).toBeNull();
     expect(q.queryByTestId("admin-notif-bell-degraded")).toBeNull();

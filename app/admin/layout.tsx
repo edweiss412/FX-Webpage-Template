@@ -162,7 +162,6 @@ export default async function AdminLayout({ children }: { children: ReactNode })
           email={adminEmail}
           healthRollup={healthRollup}
           isDeveloper={viewerIsDeveloper}
-          bellCount={bellCount}
         />
         <PageTransition>{children}</PageTransition>
       </div>
