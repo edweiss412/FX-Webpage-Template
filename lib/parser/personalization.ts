@@ -14,7 +14,7 @@ import { gatedVocabCorrect } from "@/lib/parser/typoGate";
 
 // ── Role normalization map ────────────────────────────────────────────────────
 // Maps cleaned token strings (trimmed uppercase) to canonical RoleFlag.
-const ROLE_NORMALIZATIONS: Record<string, RoleFlag> = {
+export const ROLE_NORMALIZATIONS: Record<string, RoleFlag> = {
   LEAD: "LEAD",
   A1: "A1",
   A2: "A2",
@@ -50,7 +50,7 @@ const SHORT_ROLE_CODES: readonly string[] = Object.keys(ROLE_NORMALIZATIONS).fil
 
 // ── Stage restriction patterns ────────────────────────────────────────────────
 const FULL_STAGE_PATTERN = /Load\s+In\s*\/\s*Set\s*\/\s*Strike\s*\/\s*Load\s+Out/i;
-const FULL_STAGE_ONLY_PATTERN =
+export const FULL_STAGE_ONLY_PATTERN =
   /Load\s+In\s*\/\s*Set\s*\/\s*Strike\s*\/\s*Load\s+Out\s+ONLY\*{0,3}/i;
 const LOAD_IN_SET_ONLY_PATTERN = /^\s*-?\s*Load\s+In\s*\/\s*Set\s+ONLY\s*$/i;
 const LOAD_OUT_STRIKE_ONLY_PATTERN = /^\s*-?\s*Load\s+Out\s*\/\s*Strike\s+ONLY\s*$/i;
