@@ -421,9 +421,10 @@ if (/\bOLD\b/i.test(sheetName)) {
     const fingerprint = createHash("sha256")
       .update(regions.map((r) => stripBlankLines(r.regionMarkdown)).join("\n\x00\n"), "utf8")
       .digest("hex");
+    const rawPreviews = collectRawPullSheetPreviews(rawGrid); // from RAW grid, one per PULL SHEET header
     archivedPullSheetTabs.push({
       tabName: sheetName,
-      headerPreviews: regions.map((r) => previewFromHeaderCell(r.headerCell)), // extractCaseLabel-style
+      headerPreviews: regions.map((_, i) => rawPreviews[i] ?? "(no header text)"), // index-aligned to regions
       fingerprint,
       included,
       contentChangedSinceAccept: false,
@@ -437,9 +438,10 @@ if (/\bOLD\b/i.test(sheetName)) {
 }
 ```
 
-- `collectPullSheetRegionsFromMarkdown(md)`: walk markdown table rows; a header row is one whose split cells all contain "PULL SHEET" (`pull-sheet.ts:60`); a region = that header + rows through the `collectDataBlock` span, up to the next such header.
-- `previewFromHeaderCell(cell)` (mirror `extractCaseLabel`, `pull-sheet.ts:189-191`): `cell.replace(/&#10;/g," / ").split("/").map(s=>s.trim()).filter(s=>s && s.toUpperCase()!=="PULL SHEET").join(" / ").slice(0,120)`, or `"(no header text)"` when empty (§6).
+- `collectPullSheetRegionsFromMarkdown(md)`: walk markdown table rows; a header row is one whose split cells all contain "PULL SHEET" (`pull-sheet.ts:60`); a region = that header + rows through the `collectDataBlock` span, up to the next such header. Regions/fingerprint/emission derive from THIS (normalized-markdown single source).
+- `collectRawPullSheetPreviews(rawGrid)` (**previews come from the RAW grid, not the synthetic header cell** — see spec §5.1 implementation finding): for each raw row whose non-blank cells all satisfy the "PULL SHEET" predicate, the preview = the first non-blank row after it (`" / "`-joined, capped 120, `"(no header text)"` when empty). Index-aligned to the emitted regions. The synthetic-cell/`extractCaseLabel` approach does NOT work because `normalizePullSheetGrid` folds the `QTY/ITEM` column header into the synthetic cell and doesn't collapse a 2nd case's identity — so raw-grid derivation is required to satisfy I2 (every case's show identity shown).
 - `stripBlankLines(md)`: drop fully-blank lines so an extra blank row is stable (D5).
+- `splitMarkdownRow(line)`: local mirror of the parser's `splitRow` (keeps the exporter dependency-light).
 
 Run → **PASSES**.
 
