@@ -227,6 +227,12 @@ describe("vitest projects split — partition is complete and correctly wired", 
       /schedule:/.test(wf) && /workflow_dispatch:/.test(wf),
       "workflow must be scheduled + dispatchable",
     ).toBe(true);
+    // pull_request path-filtered trigger gives pre-merge real-Actions validation (Codex R2):
+    // workflow_dispatch alone can't run against a branch before the file is on the default branch.
+    expect(
+      /pull_request:/.test(wf),
+      "workflow must also run on harness-touching PRs (pre-merge proof)",
+    ).toBe(true);
   });
 
   it("unit-suite.yml uses the env var, NOT the (ignored) vitest --exclude flag", () => {

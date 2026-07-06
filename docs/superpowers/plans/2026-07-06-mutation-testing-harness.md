@@ -2338,7 +2338,17 @@ name: mutation-harness
 on:
   schedule:
     - cron: "0 7 * * *" # 07:00 UTC nightly (off-peak); triage a red run manually
-  workflow_dispatch: {} # close-out verifies green on the PR branch before merge
+  workflow_dispatch: {} # post-merge manual re-run
+  # pull_request path-filtered (Codex whole-diff R2): workflow_dispatch on a NEW workflow only works
+  # once the file is on the default branch, so it CANNOT validate this PR pre-merge. A path-filtered
+  # pull_request trigger runs the workflow AS IT EXISTS ON THE PR HEAD — real-Actions validation of
+  # the ~92-min harness on the branch BEFORE merge — while staying OUT of branch-protection required
+  # checks (non-merge-gating). Scoped so only harness-touching PRs pay the 92 min.
+  pull_request:
+    paths:
+      - ".github/workflows/mutation-harness.yml"
+      - "tests/parser/mutation/**"
+      - "tests/parser/mutationHarness.test.ts"
 concurrency:
   group: mutation-harness-${{ github.ref }}
   cancel-in-progress: true
@@ -2357,7 +2367,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       # NO supabase/setup-cli, psql, or bootstrap: the harness is pure-parser / DB-free.
-      - name: Run exhaustive mutation harness (nightly, ~50 min)
+      - name: Run exhaustive mutation harness (~92 min)
         env:
           VITEST_INCLUDE_MUTATION_HARNESS: "1"
         run: pnpm exec vitest run tests/parser/mutationHarness.test.ts
@@ -2422,21 +2432,22 @@ Expected: PASS. A shared-chokepoint change is not expected here (test-only), but
 git add -A && git commit --no-verify -m "chore(parser): format + final verification for mutation harness"
 ```
 
-- [ ] **Step 6: Confirm the nightly harness workflow actually ran GREEN on the PR branch via `workflow_dispatch` (memory `feedback_ci_local_passes_ci_fails`, "local-passes-CI-fails is its own bug class")**
+- [ ] **Step 6: Confirm the harness workflow actually ran GREEN on the PR via the path-filtered `pull_request` trigger (memory `feedback_ci_local_passes_ci_fails`, "local-passes-CI-fails is its own bug class")**
 
-Local green is necessary but NOT sufficient. The harness is NOT on the merge-gating `unit-suite` path (Task 12, user-directed nightly placement) — its real runner is the `mutation-harness` workflow. Before merge, trigger it on the PR branch and confirm it ran the harness and PASSED (proves the opt-in wiring + workflow setup are correct on a real runner, not just locally):
+Local green is necessary but NOT sufficient. The harness is NOT on the merge-gating `unit-suite` path (Task 12) — its real runner is the `mutation-harness` workflow. **`workflow_dispatch` cannot validate a NEW workflow against the PR branch** (GitHub only exposes manual dispatch once the file is on the default branch — Codex whole-diff R2), so the workflow carries a path-filtered `pull_request:` trigger that runs the full ~92-min job automatically on this (harness-touching) PR, from the PR head. Before merge, confirm THAT run executed the harness and PASSED (proves the opt-in wiring + workflow setup work on a real runner, not just locally):
 
 ```bash
-BR="$(git branch --show-current)"
-gh workflow run mutation-harness.yml --ref "$BR"        # workflow_dispatch on the PR branch
-sleep 20
-RID=$(gh run list --workflow=mutation-harness.yml --branch "$BR" --limit 1 --json databaseId -q '.[0].databaseId')
-gh run watch "$RID" --exit-status                        # ~50 min; exits non-zero if the run fails
+PR=$(gh pr view --json number -q .number)
+# the mutation-harness workflow run for THIS PR's head SHA:
+SHA=$(git rev-parse HEAD)
+RID=$(gh run list --workflow=mutation-harness.yml --branch "$(git branch --show-current)" --limit 5 \
+       --json databaseId,headSha -q "[.[] | select(.headSha==\"$SHA\")][0].databaseId")
+gh run watch "$RID" --exit-status                        # ~92 min; exits non-zero if the run fails
 gh run view "$RID" --log 2>/dev/null | grep -i "mutation harness — bidirectional known-holes ledger" | head
 ```
-Expected: `gh run watch --exit-status` concludes success, and the grep finds the harness describe in the log (proving it EXECUTED, i.e. the opt-in var actually included it — not 0 tests). Treat as a CLOSE-OUT gate distinct from local-green. If the run fails or ran 0 tests, the opt-in/exclusion wiring or workflow setup (Task 12) is wrong — fix before merge. (The `mutation-harness` workflow is NOT a required check, so it does not block the `gh pr merge`; this manual dispatch-and-watch is the substitute close-out proof.)
+Expected: `gh run watch --exit-status` concludes success, and the grep finds the harness describe in the log (proving it EXECUTED — the opt-in var actually included it, not 0 tests). Treat as a CLOSE-OUT gate distinct from local-green. If the run fails or ran 0 tests, the opt-in/exclusion wiring or workflow setup (Task 12) is wrong — fix before merge. (The `mutation-harness` workflow is NOT a branch-protection required check, so its result does not block `gh pr merge`; this PR-triggered run is the substitute close-out proof. `workflow_dispatch` remains for post-merge manual re-runs.)
 
-> **Note (Step 4 scope):** the default `pnpm test` in Step 4 does NOT run the 50-min harness — it is excluded from the default suite (Task 12). Step 4 confirms the fast Tasks 1–7 + 10 tests + the Task 12 config/partition meta-tests are green; the harness itself is validated opted-in (Task 8 Step 5, and this Step 6 nightly-workflow dispatch).
+> **Note (Step 4 scope):** the default `pnpm test` in Step 4 does NOT run the ~92-min harness — it is excluded from the default suite (Task 12). Step 4 confirms the fast Tasks 1–7 + 10 tests + the Task 12 config/partition meta-tests are green; the harness itself is validated opted-in (Task 8 Step 5, and this Step 6 PR-triggered workflow run).
 
 ---
 

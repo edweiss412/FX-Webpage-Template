@@ -10,6 +10,17 @@ on:
   schedule:
     - cron: "0 7 * * *" # 07:00 UTC nightly (off-peak)
   workflow_dispatch: {}
+  # pull_request path-filtered (Codex whole-diff R2 [medium]): workflow_dispatch on a NEW workflow
+  # only works once the file is on the default branch, so it CANNOT validate this PR pre-merge. A
+  # path-filtered pull_request trigger runs the workflow AS IT EXISTS ON THE PR HEAD, giving real-
+  # Actions validation of the workflow + the ~92-min harness on the branch BEFORE merge — while
+  # staying OUT of branch-protection required checks (not merge-gating; a red run is triaged, not a
+  # merge blocker). Scoped to harness-touching PRs only, so unrelated PRs never pay the 92 min.
+  pull_request:
+    paths:
+      - ".github/workflows/mutation-harness.yml"
+      - "tests/parser/mutation/**"
+      - "tests/parser/mutationHarness.test.ts"
 concurrency:
   group: mutation-harness-${{ github.ref }}
   cancel-in-progress: true
