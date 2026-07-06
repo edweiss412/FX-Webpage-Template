@@ -168,34 +168,111 @@ async function purgeWizardRows(tx: OnboardingSessionTx): Promise<void> {
   await tx.query(`delete from public.deferred_ingestions where wizard_session_id is not null`);
 }
 
-async function lockCleanupDriveFiles(tx: OnboardingSessionTx, sessionId: string): Promise<void> {
-  const appliedManifest = await tx.query<DriveFileIdRow>(
-    `
-      select drive_file_id
-        from public.onboarding_scan_manifest
-       where wizard_session_id = $1::uuid
-         and status = 'applied'
-       for update
-    `,
-    [sessionId],
+// Thread 2a (spec §5.5 R9): the discard purge for cleanupAbandonedFinalize is
+// SESSION-SCOPED — it deletes ONLY the session being discarded, never the global
+// cross-session sweep purgeWizardRows performs. This makes "lock the active
+// session's five-table union" (lockCleanupDriveFiles) both COMPLETE (covers
+// every row the purge removes) and CORRECT (a stale NON-active session B's rows
+// are left to reapStaleOnboardingSessions, which locks B's show: ids — cleanup
+// no longer races the reap on another session's rows and orphans B's interim
+// show). purgeAndRotateOnboardingSession / purgeAndRotateIfStale keep the global
+// purgeWizardRows — they legitimately reset all wizard staging.
+async function purgeWizardRowsForSession(
+  tx: OnboardingSessionTx,
+  sessionId: string,
+  lockedDriveFileIds: readonly string[],
+): Promise<void> {
+  // Whole-diff R2 HIGH — every delete is constrained to the LOCKED drive-id set,
+  // never wizard_session_id alone (mirrors reapOneSession R42-1). A stale-tab
+  // scan/recovery committing a NEW-drive row for this session AFTER the reap-set
+  // recheck must NOT be swept without holding show:<new_drive_id>; the post-delete
+  // residue check in cleanupAbandonedFinalize then aborts if such a row appeared.
+  // (drive_file_id is NOT NULL in all four tables' DDL, so no row escapes via NULL.)
+  await tx.query(
+    `delete from public.pending_syncs where wizard_session_id = $1::uuid and drive_file_id = any($2)`,
+    [sessionId, lockedDriveFileIds],
   );
-  const shadowRows = await tx.query<DriveFileIdRow>(
-    `
-      select drive_file_id
-        from public.shows_pending_changes
-       where wizard_session_id = $1::uuid
-       for update
-    `,
-    [sessionId],
+  await tx.query(
+    `delete from public.pending_ingestions where wizard_session_id = $1::uuid and drive_file_id = any($2)`,
+    [sessionId, lockedDriveFileIds],
   );
+  await tx.query(
+    `delete from public.onboarding_scan_manifest where wizard_session_id = $1::uuid and drive_file_id = any($2)`,
+    [sessionId, lockedDriveFileIds],
+  );
+  await tx.query(
+    `delete from public.deferred_ingestions where wizard_session_id = $1::uuid and drive_file_id = any($2)`,
+    [sessionId, lockedDriveFileIds],
+  );
+}
 
-  const driveFileIds = [
-    ...new Set([...appliedManifest.rows, ...shadowRows.rows].map((row) => row.drive_file_id)),
-  ].sort((left, right) => left.localeCompare(right));
-
+// Thread 2a (spec §5.5 R7/R8): ADVISORY-BEFORE-ROW cleanup locking, mirroring the
+// proven reap path. Collect the DISCARDED session's FULL drive-id union via the
+// SAME five-table union collectReapDriveFileIds uses (PLAIN reads, NO FOR UPDATE
+// anywhere — a FOR UPDATE before the show: advisory locks is AB-BA against every
+// show:-first recovery route: staged Apply on 'staged' rows, Unapprove on
+// 'applied' rows, discard, extract-agenda), then acquire every show: advisory
+// lock in one globally-sorted acquisition. The old applied/shadow FOR UPDATE is
+// removed. Returns the locked, sorted id set (caller currently ignores it).
+async function lockCleanupDriveFiles(
+  tx: OnboardingSessionTx,
+  sessionId: string,
+): Promise<string[]> {
+  const driveFileIds = await collectReapDriveFileIds(tx, sessionId); // sorted, plain read
   for (const driveFileId of driveFileIds) {
     await tx.query(`select pg_advisory_xact_lock(hashtext('show:' || $1))`, [driveFileId]);
   }
+  return driveFileIds;
+}
+
+// Thread 2b (spec §5.1/§5.4): the provably-stuck predicate. Mirrors the route's
+// countRemainingCleanRows (finalize/route.ts:423) — a row is FINISHABLE-clean iff
+// its manifest is at a non-blocking status ('staged'|'applied') AND it is not a
+// demoted-and-not-yet-reapplied failure (wizard_approved OR no failure code). When
+// this count is 0, a further /finalize call would process nothing; combined with
+// >0 unresolved rows that means the session can never finish on its own → stuck.
+async function finishableCleanCount(tx: OnboardingSessionTx, sessionId: string): Promise<number> {
+  const { rows } = await tx.query<{ finishable_count: number }>(
+    `
+      select count(*)::int as finishable_count
+        from public.pending_syncs ps
+        join public.onboarding_scan_manifest m
+          on m.wizard_session_id = ps.wizard_session_id
+         and m.drive_file_id = ps.drive_file_id
+       where ps.wizard_session_id = $1::uuid
+         and m.status in ('staged', 'applied')
+         and (ps.wizard_approved = true or ps.last_finalize_failure_code is null)
+    `,
+    [sessionId],
+  );
+  return rows[0]?.finishable_count ?? 0;
+}
+
+// Thread 2b (spec §5.4/§5.5 step 3): the UNRESOLVED (blocking) drive_file_id set.
+// Mirrors the route's unresolvedManifestCount (finalize/route.ts:344) predicate but
+// returns the id set (not just a count) so the under-lock recheck can detect that a
+// concurrent recovery route RESOLVED one of these rows while cleanup waited on the
+// show: lock. Count = returned length. Blocking = a genuine error/conflict manifest
+// status OR a demoted 'staged' row still carrying a finalize failure code.
+async function unresolvedManifestDriveFileIds(
+  tx: OnboardingSessionTx,
+  sessionId: string,
+): Promise<string[]> {
+  const { rows } = await tx.query<DriveFileIdRow>(
+    `
+      select m.drive_file_id
+        from public.onboarding_scan_manifest m
+        left join public.pending_syncs ps
+          on ps.wizard_session_id = m.wizard_session_id and ps.drive_file_id = m.drive_file_id
+       where m.wizard_session_id = $1::uuid
+         and (
+           m.status in ('hard_failed', 'live_row_conflict', 'discard_retryable')
+           or (m.status = 'staged' and ps.last_finalize_failure_code is not null)
+         )
+    `,
+    [sessionId],
+  );
+  return rows.map((r) => r.drive_file_id);
 }
 
 export async function purgeAndRotateOnboardingSession(
@@ -343,54 +420,154 @@ export async function cleanupAbandonedFinalize(
   return await runtime.withTx(async (tx) => {
     await tx.query(`select pg_advisory_xact_lock(hashtext('finalize:' || $1))`, [sessionId]);
 
-    const staleSession = await tx.query<AppSettingsRow>(
+    // Own the app_settings row (for the rotation at the end) and read whether the
+    // pending session is 24h-stale in ONE go — comparing `now()` in SQL, never JS,
+    // avoids clock/timezone skew.
+    const owner = await tx.query<AppSettingsRow & { is_stale: boolean }>(
       `
-        select ${APP_SETTINGS_COLUMNS}
+        select ${APP_SETTINGS_COLUMNS},
+               (pending_wizard_session_at is not null
+                and pending_wizard_session_at < now() - interval '24 hours') as is_stale
           from public.app_settings
          where id = 'default'
-           and pending_wizard_session_id = $1::uuid
-           and pending_wizard_session_at < now() - interval '24 hours'
          for update
       `,
-      [sessionId],
     );
+    if (owner.rows[0]?.pending_wizard_session_id !== sessionId) {
+      return { status: "already_cleaned" };
+    }
+    const isStale = owner.rows[0].is_stale === true;
 
-    if (staleSession.rowCount === 0) {
-      const owner = await tx.query<AppSettingsRow>(
-        `select ${APP_SETTINGS_COLUMNS} from public.app_settings where id = 'default'`,
-      );
-      if (owner.rows[0]?.pending_wizard_session_id !== sessionId) {
-        return { status: "already_cleaned" };
+    // Thread 2b (spec §5.1/§5.4): a session is PROVABLY STUCK when it has zero
+    // finishable-clean rows AND at least one unresolved (blocking) row — a further
+    // /finalize would process nothing yet finish stays blocked, so it can never
+    // complete on its own. A stuck session may be discarded IMMEDIATELY, regardless
+    // of the 24h age gate AND regardless of the 1-hour finalize-recency gate.
+    const preLockUnresolvedIds = await unresolvedManifestDriveFileIds(tx, sessionId);
+    const finishableCount = await finishableCleanCount(tx, sessionId);
+    const stuck = finishableCount === 0 && preLockUnresolvedIds.length > 0;
+
+    if (!stuck) {
+      // Not stuck → the ordinary staleness contract applies.
+      if (!isStale) {
+        throw new CleanupRequiresStaleSessionError("session_too_fresh", {
+          wizard_session_id: sessionId,
+          pending_wizard_session_at: owner.rows[0].pending_wizard_session_at ?? null,
+        });
       }
+      // Stale-but-not-stuck: an actively-progressing finalize must still block a
+      // discard. Stuck sessions bypass THIS gate too (spec §5.4).
+      const recentFinalize = await tx.query<{ id: string }>(
+        `
+          select id
+            from public.wizard_finalize_checkpoints
+           where wizard_session_id = $1::uuid
+             and status = 'in_progress'
+             and last_processed_at is not null
+             and last_processed_at > now() - interval '1 hour'
+           for update
+        `,
+        [sessionId],
+      );
+      if (recentFinalize.rowCount > 0) {
+        throw new CleanupRequiresStaleSessionError("finalize_active_within_last_hour", {
+          wizard_session_id: sessionId,
+        });
+      }
+    }
+
+    const lockedReapIds = await lockCleanupDriveFiles(tx, sessionId);
+
+    // Invariant 2 under-lock recheck (whole-diff R1 HIGH) — the reap LOCK-SET must
+    // not have EXPANDED. purgeWizardRowsForSession issues SESSION-scoped deletes
+    // across the five reap tables, so a row a concurrent scan/recovery INSERTed for
+    // this session AFTER lockCleanupDriveFiles's initial collect (or while cleanup
+    // waited on the show: locks) would be purged WITHOUT ever holding show:<new id>.
+    // Acquiring that lock in-place now — while already holding higher-sorted show:
+    // locks — is the exact AB-BA hazard lockReapDriveFiles throws to avoid, so we do
+    // NOT lock-and-continue: we re-collect under the held locks and, if any id is not
+    // already held, ABORT the discard (purge nothing). A newly-appearing row also
+    // means the session is actively changing, so session_too_fresh is the correct
+    // operator-facing signal (mirrors the resolved-recovery abort below).
+    const heldReap = new Set(lockedReapIds);
+    const recheckReap = await collectReapDriveFileIds(tx, sessionId);
+    if (recheckReap.some((id) => !heldReap.has(id))) {
       throw new CleanupRequiresStaleSessionError("session_too_fresh", {
         wizard_session_id: sessionId,
-        pending_wizard_session_at: owner.rows[0]?.pending_wizard_session_at ?? null,
+        pending_wizard_session_at: owner.rows[0].pending_wizard_session_at ?? null,
       });
     }
 
-    const recentFinalize = await tx.query<{ id: string }>(
-      `
-        select id
-          from public.wizard_finalize_checkpoints
-         where wizard_session_id = $1::uuid
-           and status = 'in_progress'
-           and last_processed_at is not null
-           and last_processed_at > now() - interval '1 hour'
-         for update
-      `,
-      [sessionId],
+    // Under-lock reads (spec §5.5 step 3) — one authoritative snapshot of the
+    // session's blocking + finishable state, now that the show: locks serialize
+    // every recovery/scan on this session's ids. Reused by both under-lock gates.
+    const postUnresolvedIds = await unresolvedManifestDriveFileIds(tx, sessionId);
+    const postFinishable = await finishableCleanCount(tx, sessionId);
+
+    // Whole-diff R3 HIGH — re-evaluate the FULL eligibility ladder UNDER the locks.
+    // The pre-lock stuck/stale/recency decision is only an early-out: a finishable
+    // row that a concurrent scan/recovery committed BEFORE lockCleanupDriveFiles's
+    // collect (so it is in the locked set and the R1 expansion guard does NOT fire)
+    // can have flipped the session OUT of "stuck". A fresh, no-longer-stuck session
+    // must be blocked, not discarded — so re-apply the same ladder against the
+    // authoritative under-lock counts. isStale is stable here (app_settings row is
+    // held FOR UPDATE since the owner read).
+    const postStuck = postFinishable === 0 && postUnresolvedIds.length > 0;
+    if (!postStuck) {
+      if (!isStale) {
+        throw new CleanupRequiresStaleSessionError("session_too_fresh", {
+          wizard_session_id: sessionId,
+          pending_wizard_session_at: owner.rows[0].pending_wizard_session_at ?? null,
+        });
+      }
+      const recentFinalize = await tx.query<{ id: string }>(
+        `
+          select id
+            from public.wizard_finalize_checkpoints
+           where wizard_session_id = $1::uuid
+             and status = 'in_progress'
+             and last_processed_at is not null
+             and last_processed_at > now() - interval '1 hour'
+           for update
+        `,
+        [sessionId],
+      );
+      if (recentFinalize.rowCount > 0) {
+        throw new CleanupRequiresStaleSessionError("finalize_active_within_last_hour", {
+          wizard_session_id: sessionId,
+        });
+      }
+    }
+
+    // Under-lock recovery recheck (spec §5.5 step 3) — BOTH paths. A recovery route
+    // (staged Apply / Unapprove) takes the row's show: advisory lock BEFORE mutating
+    // its row; cleanup collects the same show: locks (advisory-before-row, Task 5)
+    // and may have waited behind such a recovery. If ANY drive_file_id that was
+    // unresolved pre-lock is now RESOLVED, the operator is actively recovering the
+    // blocked sheet — abort the discard (purge nothing) rather than wipe their
+    // in-flight recovery, even when the session is still technically stuck. Runs on
+    // the stale path too, so a stuck-only recheck fails T10's stale×Apply cell.
+    if (preLockUnresolvedIds.length > 0) {
+      const postLockUnresolved = new Set(postUnresolvedIds);
+      const recovered = preLockUnresolvedIds.filter((id) => !postLockUnresolved.has(id));
+      if (recovered.length > 0) {
+        throw new CleanupRequiresStaleSessionError("session_too_fresh", {
+          wizard_session_id: sessionId,
+          pending_wizard_session_at: owner.rows[0].pending_wizard_session_at ?? null,
+          recovered_drive_file_ids: recovered,
+        });
+      }
+    }
+
+    // Whole-diff R2 HIGH — every drive-id-bearing delete below is constrained to
+    // the LOCKED set (lockedReapIds), mirroring reapOneSession R42-1. Combined with
+    // the post-delete residue check, this guarantees no row is deleted without
+    // holding its show: lock even if a scan/recovery inserts a NEW-drive row for
+    // this session mid-transaction (after the reap-set recheck above).
+    await tx.query(
+      `delete from public.shows_pending_changes where wizard_session_id = $1::uuid and drive_file_id = any($2)`,
+      [sessionId, lockedReapIds],
     );
-    if (recentFinalize.rowCount > 0) {
-      throw new CleanupRequiresStaleSessionError("finalize_active_within_last_hour", {
-        wizard_session_id: sessionId,
-      });
-    }
-
-    await lockCleanupDriveFiles(tx, sessionId);
-
-    await tx.query(`delete from public.shows_pending_changes where wizard_session_id = $1::uuid`, [
-      sessionId,
-    ]);
     // F4 Task 4.1 (spec §6 / R11-1): the first-seen interim-show delete is
     // PROVENANCE-keyed (created_show_id written by F1 Phase B in the same
     // per-row tx as the show INSERT), never the `published = false` proxy —
@@ -414,14 +591,37 @@ export async function cleanupAbandonedFinalize(
            and m.created_show_id = s.id
            and m.drive_file_id = s.drive_file_id
            and s.wizard_created_session_id = m.wizard_session_id
+           and m.drive_file_id = any($2)
            and s.published = false
       `,
-      [sessionId],
+      [sessionId, lockedReapIds],
     );
+    await purgeWizardRowsForSession(tx, sessionId, lockedReapIds);
+    // wizard_finalize_checkpoints is per-SESSION (no drive_file_id), so it stays
+    // session-scoped — matches reapOneSession's checkpoint delete.
     await tx.query(
       `delete from public.wizard_finalize_checkpoints where wizard_session_id = $1::uuid`,
       [sessionId],
     );
+
+    // Whole-diff R2 HIGH — post-delete residue check (mirrors reapOneSession
+    // R42-1). The id-scoped deletes above removed only the locked set. If ANY
+    // session-scoped row REMAINS in a drive-id-bearing reap table, a scan/recovery
+    // inserted a NEW-drive row for this session mid-transaction (after the recheck)
+    // — deleting it would violate invariant 2, so abort the whole discard (throw →
+    // tx rollback, nothing committed) and let the admin retry with a fresh lock set.
+    for (const table of REAP_DRIVE_ID_TABLES) {
+      const residue = await tx.query(
+        `select 1 from public.${table} where wizard_session_id = $1::uuid limit 1`,
+        [sessionId],
+      );
+      if (residue.rowCount > 0) {
+        throw new CleanupRequiresStaleSessionError("session_too_fresh", {
+          wizard_session_id: sessionId,
+          pending_wizard_session_at: owner.rows[0].pending_wizard_session_at ?? null,
+        });
+      }
+    }
     await tx.query(
       `
         insert into public.sync_log (status, message, parse_warnings)
@@ -455,7 +655,6 @@ export async function cleanupAbandonedFinalize(
       throw new OnboardingSessionInfraError("app_settings default row was not found");
     }
 
-    await purgeWizardRows(tx);
     return { status: "cleaned", settings };
   });
 }

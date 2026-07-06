@@ -441,9 +441,55 @@ describe("M6 advisory-lock single-holder contract", () => {
 
     expect(source).toContain("hashtext('finalize:' ||");
     expect(source).toContain("hashtext('show:' || $1)");
-    expect(source).toMatch(/sort\(\(left, right\) => left\.localeCompare\(right\)\)/);
+    // Thread 2a: cleanup now collects its show: lock set through the shared
+    // collectReapDriveFileIds (advisory-before-row), which sorts the five-table
+    // union deterministically before any show: lock is acquired — the globally
+    // sorted acquisition that defeats AB-BA. Pin that sort here (the collector's
+    // `(a, b) => a.localeCompare(b)`), plus lockCleanupDriveFiles delegating to it.
+    expect(source).toMatch(/sort\(\(a, b\) => a\.localeCompare\(b\)\)/);
+    expect(source).toMatch(/collectReapDriveFileIds\(tx, sessionId\)/);
+    // Between the show: locks and the deletes, cleanup may run the under-lock
+    // recovery recheck (Thread 2b); [\s\S]* tolerates it. The deletes still follow.
     expect(cleanupSource).toMatch(
       /await lockCleanupDriveFiles\(tx, sessionId\);[\s\S]*delete from public\.shows_pending_changes[\s\S]*delete from public\.shows/,
+    );
+
+    // Same-vector structural defense (whole-diff R1/R2/R3): cleanupAbandonedFinalize
+    // MUST mirror reapOneSession's full under-lock contract, since three review rounds
+    // in a row surfaced under-lock correctness gaps here. Pin each protection so a
+    // future edit that drops one fails at CI, not in the next adversarial round:
+    //   (R1) recollect the reap set under the held locks and abort if it expanded;
+    //   (R2) every drive-id-bearing delete is id-scoped to the locked set, and a
+    //        post-delete residue check re-scans the reap tables and aborts on any
+    //        leftover session-scoped row (a mid-tx insert outside the locked set);
+    //   (R3) re-evaluate the stuck/stale eligibility ladder under the locks.
+    // (R1) expansion recheck.
+    expect(cleanupSource).toMatch(
+      /const recheckReap = await collectReapDriveFileIds\(tx, sessionId\)/,
+    );
+    // (R2) id-scoped deletes — no session-scoped-only delete of a drive-id-bearing
+    // reap table survives; each carries `drive_file_id = any(`.
+    expect(cleanupSource).toMatch(
+      /delete from public\.shows_pending_changes where wizard_session_id = \$1::uuid and drive_file_id = any\(/,
+    );
+    expect(cleanupSource).toMatch(/and m\.drive_file_id = any\(\$2\)/); // interim shows delete
+    // (R2) post-delete residue check over the reap tables.
+    expect(cleanupSource).toMatch(
+      /select 1 from public\.\$\{table\} where wizard_session_id = \$1::uuid limit 1/,
+    );
+    expect(cleanupSource).toMatch(/for \(const table of REAP_DRIVE_ID_TABLES\)/);
+    // (R3) under-lock eligibility re-evaluation (authoritative post-lock counts).
+    expect(cleanupSource).toMatch(
+      /const postFinishable = await finishableCleanCount\(tx, sessionId\)/,
+    );
+    expect(cleanupSource).toMatch(/const postStuck = postFinishable === 0/);
+    // (R5) collectReapDriveFileIds MUST collect the show: lock set UNCONDITIONALLY — no
+    // status / published / pending_syncs filter — so an 'applied' manifest for an
+    // already-published show is locked before the id-scoped manifest delete removes it.
+    // A filter here would leave a published show's provenance deletable without its
+    // show: lock. The trailing backtick pins that nothing follows `$1::uuid`.
+    expect(source).toMatch(
+      /for \(const table of REAP_DRIVE_ID_TABLES\)[\s\S]*?select drive_file_id from public\.\$\{table\} where wizard_session_id = \$1::uuid`/,
     );
   });
 

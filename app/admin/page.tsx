@@ -48,6 +48,7 @@ import {
   isInfraError,
 } from "@/app/admin/_finalizeCheckpoint";
 import { readScanManifestCount } from "@/app/admin/_scanManifestCount";
+import { readUnresolvedSheets } from "@/app/admin/_unresolvedSheets";
 import { nowDate } from "@/lib/time/now";
 
 export const dynamic = "force-dynamic";
@@ -163,10 +164,16 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
     }
     if (checkpoint !== null) {
       if (checkpoint.status === "in_progress") {
+        // Read the sheets blocking this session from finishing so the re-entry
+        // surface can link straight to each one's recovery page (spec §3). A
+        // degraded read passes through as an infra-error discriminant — the
+        // component shows a soft note and never blocks Resume/Discard.
+        const unresolved = await readUnresolvedSheets(settings.pending_wizard_session_id);
         return (
           <FinalizeInProgress
             sessionId={settings.pending_wizard_session_id}
             batchesCompleted={checkpoint.batches_completed}
+            unresolved={unresolved}
             {...(checkpoint.last_processed_at !== null
               ? { lastProcessedAt: checkpoint.last_processed_at }
               : {})}

@@ -318,6 +318,37 @@ describe("advisory-lock RPC deadlock guard", () => {
     expect(source).not.toMatch(/\.rpc\(/);
   });
 
+  test("T10-static (finalize-resume-deadlock §5.5 R7): cleanup's lock helper takes NO FOR UPDATE before its show: advisory locks (advisory-before-row)", () => {
+    // Thread 2a structural defense — cleanupAbandonedFinalize's drive-file lock
+    // helper (lockCleanupDriveFiles) formerly `SELECT … FOR UPDATE`d applied-
+    // manifest + shadow rows BEFORE acquiring the show: advisory locks — the
+    // reverse of every show:-first recovery route (Apply, Unapprove, discard,
+    // extract-agenda), an AB-BA inversion. Pin advisory-before-row on the helper
+    // body so a future edit reintroducing a FOR UPDATE ahead of the show: lock
+    // fails at CI (reuses the file's stripComments + assertAdvisoryBeforeRowLock).
+    const source = stripComments(
+      readFileSync(join(ROOT, "lib/onboarding/sessionLifecycle.ts"), "utf8"),
+    );
+    const helperStart = source.indexOf("async function lockCleanupDriveFiles");
+    expect(helperStart, "lockCleanupDriveFiles not found").toBeGreaterThan(-1);
+    // The helper is defined immediately before purgeAndRotateOnboardingSession.
+    const helperEnd = source.indexOf(
+      "export async function purgeAndRotateOnboardingSession",
+      helperStart,
+    );
+    expect(helperEnd, "could not bound lockCleanupDriveFiles body").toBeGreaterThan(helperStart);
+    const helperBody = source.slice(helperStart, helperEnd);
+    // Must acquire a show: advisory lock and take NO FOR UPDATE ahead of it.
+    expect(helperBody).toMatch(/pg_advisory_xact_lock\(hashtext\('show:' \|\| \$1\)\)/);
+    assertAdvisoryBeforeRowLock(
+      "lib/onboarding/sessionLifecycle.ts",
+      "lockCleanupDriveFiles",
+      helperBody,
+    );
+    // Belt-and-suspenders: the helper body contains no FOR UPDATE at all.
+    expect(helperBody).not.toMatch(/\bfor\s+update\b/i);
+  });
+
   test("stale-session reap uses direct SQL locks (finalize then show), no lock-taking RPC, no rotation", () => {
     // F4 Task 4.3 — sibling of the cleanup pin above, for reapStaleOnboardingSessions
     // (spec §3.3 row "F4 stale-session reap": same layer as cleanup, single holder).
@@ -550,6 +581,34 @@ describe("shared apply core is acquire-free (onboarding-fixups F1, spec §3.3)",
     expect(core).not.toMatch(/withPostgresSyncPipelineLock|withShowLock\s*\(/);
     // Adoption, not acquisition: the core asserts the caller already holds the lock.
     expect(core).toMatch(/assertShowLockHeld|adoptShowLockHeld/);
+  });
+
+  test("applyRescanDecisionUnderLock.ts is lock-free and touches neither app_settings nor wizard_finalize_checkpoints (spec §4.2)", () => {
+    // The extracted rescan core runs under finalize's ALREADY-HELD locks on a SEPARATE
+    // connection (finalize's outer tx holds app_settings + wizard_finalize_checkpoints FOR
+    // UPDATE). A per-row advisory acquisition OR any app_settings/checkpoints write here would
+    // cross-transaction deadlock. Pin: the source acquires NO advisory lock, writes NEITHER
+    // table, and calls no lock-taking RPC. (The lock acquisition + app_settings re-check +
+    // checkpoint reopen stay in rescanWizardSheet's wrapper / finalize's route.)
+    const core = stripComments(
+      readFileSync(join(ROOT, "lib/onboarding/applyRescanDecisionUnderLock.ts"), "utf8"),
+    );
+    expect(core, "applyRescanDecisionUnderLock must acquire no advisory lock (§4.2)").not.toMatch(
+      /pg_(?:try_)?advisory_xact_lock/i,
+    );
+    expect(core, "applyRescanDecisionUnderLock must call no lock-taking RPC").not.toMatch(
+      /\.rpc\(/,
+    );
+    // app_settings: neither read (for update) nor written from the core.
+    expect(
+      core,
+      "applyRescanDecisionUnderLock must not touch app_settings (§4.2 cross-tx deadlock)",
+    ).not.toMatch(/\bapp_settings\b/i);
+    // wizard_finalize_checkpoints: no insert/update/delete from the core.
+    expect(
+      core,
+      "applyRescanDecisionUnderLock must not write wizard_finalize_checkpoints (§4.2 cross-tx deadlock)",
+    ).not.toMatch(/(?:insert\s+into|update|delete\s+from)\s+public\.wizard_finalize_checkpoints/i);
   });
 
   test("finalize routes hold the documented per-show advisory-lock topology (single holder per surface)", () => {

@@ -94,8 +94,8 @@ export function CleanupAbandonedFinalizeButton({ sessionId }: Props) {
             Discard this setup?
           </p>
           <p className="text-sm">
-            This deletes every show that was published as part of this wizard run. Your live folder,
-            if you had one, is not touched.
+            This clears the unfinished part of this setup so you can start over. Shows you already
+            published in this run stay live, and your other live shows are never touched.
           </p>
           <div className="flex flex-wrap gap-2">
             <button

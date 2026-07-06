@@ -136,6 +136,42 @@ class FakeLifecycleTx implements OnboardingSessionTx {
       };
     }
 
+    if (op === "select-owner-stale") {
+      // The owner row always carries the computed is_stale (DB-clock 24h check).
+      return {
+        rows: [{ ...this.settingsRow, is_stale: this.staleByDbClock } as T],
+        rowCount: 1,
+      };
+    }
+
+    if (op === "select-unresolved-manifest") {
+      // These fixtures seed no blocking rows → not stuck; the under-lock recheck (if
+      // reached) reads the same empty set → recovered=[] → proceeds.
+      return { rows: [], rowCount: 0 };
+    }
+
+    if (op === "select-finishable-count") {
+      return { rows: [{ finishable_count: 0 } as T], rowCount: 1 };
+    }
+
+    if (op === "collect-manifest") {
+      const rows = this.appliedManifestDriveFileIds.map((drive_file_id) => ({ drive_file_id }));
+      return { rows: rows as T[], rowCount: rows.length };
+    }
+
+    if (op === "collect-shadow") {
+      const rows = this.shadowDriveFileIds.map((drive_file_id) => ({ drive_file_id }));
+      return { rows: rows as T[], rowCount: rows.length };
+    }
+
+    if (
+      op === "collect-pending-syncs" ||
+      op === "collect-pending-ingestions" ||
+      op === "collect-deferred"
+    ) {
+      return { rows: [], rowCount: 0 };
+    }
+
     if (op === "select-recent-finalize") {
       return {
         rows: this.recentCheckpoint ? ([{ id: "checkpoint-1" }] as T[]) : [],
@@ -154,6 +190,11 @@ class FakeLifecycleTx implements OnboardingSessionTx {
     }
 
     if (op === "delete-shadow" || op === "delete-interim-shows" || op === "delete-checkpoint") {
+      return { rows: [], rowCount: 0 };
+    }
+
+    if (op === "select-residue") {
+      // These fixtures seed no mid-transaction insert → no residue → proceed.
       return { rows: [], rowCount: 0 };
     }
 
@@ -178,6 +219,37 @@ class FakeLifecycleTx implements OnboardingSessionTx {
     }
     if (sql.startsWith("select pg_advisory_xact_lock") && sql.includes("show:")) {
       return "lock-show";
+    }
+    // Thread 2b: owner + is_stale read (`for update`) — replaces the old
+    // select-stale-session as cleanupAbandonedFinalize's eligibility read.
+    if (sql.includes("as is_stale") && sql.includes("from public.app_settings")) {
+      return "select-owner-stale";
+    }
+    // Thread 2b: unresolved (blocking) manifest drive-id set — the stuck predicate's
+    // denominator AND the under-lock recovery recheck source.
+    if (sql.includes("from public.onboarding_scan_manifest m") && sql.includes("hard_failed")) {
+      return "select-unresolved-manifest";
+    }
+    // Thread 2b: finishable-clean count — the stuck predicate's numerator.
+    if (sql.includes("as finishable_count")) {
+      return "select-finishable-count";
+    }
+    // Thread 2a: cleanup collects its show: lock set through the shared five-table
+    // reap union (collectReapDriveFileIds), NOT the old applied-manifest + shadow reads.
+    if (sql.startsWith("select drive_file_id from public.onboarding_scan_manifest")) {
+      return "collect-manifest";
+    }
+    if (sql.startsWith("select drive_file_id from public.shows_pending_changes")) {
+      return "collect-shadow";
+    }
+    if (sql.startsWith("select drive_file_id from public.pending_syncs")) {
+      return "collect-pending-syncs";
+    }
+    if (sql.startsWith("select drive_file_id from public.pending_ingestions")) {
+      return "collect-pending-ingestions";
+    }
+    if (sql.startsWith("select drive_file_id from public.deferred_ingestions")) {
+      return "collect-deferred";
     }
     if (sql.includes("pending_wizard_session_id = $1") && sql.includes("for update")) {
       return "select-stale-session";
@@ -215,6 +287,11 @@ class FakeLifecycleTx implements OnboardingSessionTx {
     }
     if (sql.startsWith("delete from public.wizard_finalize_checkpoints"))
       return "delete-checkpoint";
+    // Thread 2a (whole-diff R2): post-delete residue check — one `select 1 from
+    // public.<reap table> where wizard_session_id = $1 limit 1` per drive-id table.
+    if (sql.startsWith("select 1 from public.") && sql.includes("limit 1")) {
+      return "select-residue";
+    }
     throw new Error(`Could not classify SQL: ${sql}`);
   }
 
@@ -418,9 +495,13 @@ describe("onboarding session lifecycle helpers", () => {
     });
 
     expect(result).toEqual({ status: "cleaned", settings: tx.settingsRow });
-    expect(tx.operations.slice(0, 3)).toEqual([
+    // Thread 2b eligibility order: finalize lock → owner+is_stale read → stuck
+    // predicate (unresolved set, then finishable count) → recency gate (stale, not stuck).
+    expect(tx.operations.slice(0, 5)).toEqual([
       "lock-finalize",
-      "select-stale-session",
+      "select-owner-stale",
+      "select-unresolved-manifest",
+      "select-finishable-count",
       "select-recent-finalize",
     ]);
     expect(tx.settingsRow.pending_wizard_session_id).toBe(W2);
@@ -438,8 +519,8 @@ describe("onboarding session lifecycle helpers", () => {
 
     expect(tx.operations).toEqual(
       expect.arrayContaining([
-        "select-applied-manifest-drive-files",
-        "select-shadow-drive-files",
+        "collect-manifest",
+        "collect-shadow",
         "lock-show:drive-a",
         "lock-show:drive-b",
         "lock-show:drive-c",
