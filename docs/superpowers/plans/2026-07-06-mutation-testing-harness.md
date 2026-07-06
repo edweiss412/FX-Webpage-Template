@@ -718,6 +718,15 @@ describe("data-row-only exclusion (Codex R12)", () => {
   });
 });
 
+describe("ref-sub skips already-#REF! cells — no byte-identical no-op (plan-R18)", () => {
+  it("a cell already #REF! is not a site; only the real cell is mutated, none equal baseline", () => {
+    const md = "| CREW | NAME | ROLE |\n|  | #REF! | Lead |"; // NAME already #REF!, ROLE=Lead
+    const ms = OPERATORS["ref-sub"]!(md);
+    expect(ms.length).toBe(1);                        // only ROLE=Lead is an eligible site
+    expect(ms.every((m) => m.md !== md)).toBe(true);  // no emitted mutant is byte-identical to baseline
+  });
+});
+
 describe("blank-row:inject is per data-row gap, not per section (plan-R3)", () => {
   it("a section with 3 data rows yields 2 injection mutants with distinct siteIds", () => {
     const md = "| CREW | NAME |\n|  | Doug |\n|  | Eric |\n|  | Carl |";
@@ -883,7 +892,10 @@ const sid = (op: string, s: LogicalSection, line: number, locus: number | string
 
 // ---- corrupting operators (data-row scoped) ----
 const refSub = (md: string): Mutant[] =>
-  eachDataCell(md).map((c) => ({
+  // Skip cells already `#REF!` — rewriting them to `#REF!` is a byte-identical no-op that
+  // would still claim a siteId and count toward coverage without exercising the parser
+  // (Codex plan-R18 [medium]). The independent audit applies the identical exclusion.
+  eachDataCell(md).filter((c) => c.val.trim() !== "#REF!").map((c) => ({
     md: withCell(md, c.line, c.cellIdx, "#REF!"), siteId: sid("ref-sub", c.sec, c.line, c.cellIdx),
     bucket: "corrupting", domains: dom(c.sec),
   }));
@@ -1314,7 +1326,9 @@ export function auditSites(md: string): Map<string, number> {
     if (s.headerToken && typoEligible(s.headerToken)) bump("header-typo", s.domain); // exact typo-eligible count (plan-R4)
     for (const row of s.dataRows) {
       const cells = row.filter((c) => c.length > 0);
-      bump("ref-sub", s.domain, cells.length);
+      // ref-sub excludes cells already `#REF!` (no-op parity with the operator, plan-R18);
+      // unicode-inject keeps them (injecting a ZWNJ into `#REF!` IS a real, non-identical change).
+      bump("ref-sub", s.domain, cells.filter((c) => c.trim() !== "#REF!").length);
       bump("unicode-inject", s.domain, cells.filter((c) => [...c].length >= 2).length);
       if (row.length >= 3) bump("merged-cell", s.domain, row.length - 1); // one per interior pipe (plan-R5)
     }
@@ -1578,29 +1592,47 @@ const MUTANT_BUDGET = 150_000;
 const withSlug = (m: Mutant, op: string, slug: string): Mutant =>
   ({ ...m, siteId: `${op}:${slug}:${m.siteId.slice(op.length + 1)}` });
 
-/** Exhaustive: parse EVERY generated mutant across all fixtures × operators (plan-R2). */
-function runAll(): { alarms: Alarm[]; allSiteIds: string[]; cosmeticViolations: string[] } {
+/** Exhaustive: parse EVERY generated mutant across all fixtures × operators (plan-R2).
+ *  Two phases so the budget guard fires BEFORE any parse (Codex plan-R18 [high]): operator
+ *  generation is pure string work, so Phase 1 enumerates every mutant and THROWS if the running
+ *  total crosses MUTANT_BUDGET — an explosive-fanout regression fails fast instead of spending
+ *  the whole 300s parse budget. Phase 2 (the expensive parseSheet pass) runs only once the
+ *  budget passes. `noOps` catches any operator that emits a byte-identical mutant (plan-R18). */
+function runAll(): { alarms: Alarm[]; allSiteIds: string[]; cosmeticViolations: string[]; noOps: string[] } {
+  // Phase 1 — generate (no parseSheet) + enforce the budget before parsing.
+  const work: { md: string; slug: string; mutants: Mutant[] }[] = [];
+  let projected = 0;
+  for (const f of FIXTURES) {
+    const md = readFixture(f);
+    const mutants: Mutant[] = [];
+    for (const [op, gen] of Object.entries(OPERATORS)) for (const m of gen(md)) mutants.push(withSlug(m, op, f.slug));
+    projected += mutants.length;
+    if (projected > MUTANT_BUDGET) {
+      throw new Error(`generated mutant count ${projected} exceeds MUTANT_BUDGET ${MUTANT_BUDGET} before any parse — operator fanout regression?`);
+    }
+    work.push({ md, slug: f.slug, mutants });
+  }
+  // Phase 2 — the expensive parse pass, reached only after the budget guard passes.
   const alarms: Alarm[] = [];
   const allSiteIds: string[] = [];
   const cosmeticViolations: string[] = [];
-  for (const f of FIXTURES) {
-    const md = readFixture(f);
-    const baseline = capture(md, `${f.slug}.md`);
-    for (const [op, gen] of Object.entries(OPERATORS)) {
-      for (const m of gen(md).map((x) => withSlug(x, op, f.slug))) {
-        allSiteIds.push(m.siteId);
-        const mut = capture(m.md, `${f.slug}.md`);
-        const v = verdict(baseline, mut);
-        if (m.bucket === "cosmetic") {
-          if (v !== "ABSORBED") cosmeticViolations.push(m.siteId); // cosmetic must be fully invisible
-          continue;
-        }
-        if (v === "SILENT_WRONG") alarms.push({ siteId: m.siteId, kind: "wrong", fingerprint: fingerprint(baseline, mut) });
-        if (v === "SILENT_SIGNAL_LOSS") alarms.push({ siteId: m.siteId, kind: "signal_loss", fingerprint: fingerprint(baseline, mut) });
+  const noOps: string[] = [];
+  for (const { md, slug, mutants } of work) {
+    const baseline = capture(md, `${slug}.md`);
+    for (const m of mutants) {
+      allSiteIds.push(m.siteId);
+      if (m.md === md) noOps.push(m.siteId); // byte-identical mutant = false coverage (plan-R18)
+      const mut = capture(m.md, `${slug}.md`);
+      const v = verdict(baseline, mut);
+      if (m.bucket === "cosmetic") {
+        if (v !== "ABSORBED") cosmeticViolations.push(m.siteId); // cosmetic must be fully invisible
+        continue;
       }
+      if (v === "SILENT_WRONG") alarms.push({ siteId: m.siteId, kind: "wrong", fingerprint: fingerprint(baseline, mut) });
+      if (v === "SILENT_SIGNAL_LOSS") alarms.push({ siteId: m.siteId, kind: "signal_loss", fingerprint: fingerprint(baseline, mut) });
     }
   }
-  return { alarms, allSiteIds, cosmeticViolations };
+  return { alarms, allSiteIds, cosmeticViolations, noOps };
 }
 
 // The exhaustive corpus parse is DEFERRED into a beforeAll (NOT executed at describe-collection
@@ -1612,14 +1644,17 @@ function runAll(): { alarms: Alarm[]; allSiteIds: string[]; cosmeticViolations: 
 // default hookTimeout (10s) is far below the measured corpus wall-clock (Step 1); this file is a
 // CI audit gate (runs in the audits workflow), not a fast unit test on the hot path.
 describe("mutation harness — bidirectional known-holes ledger", () => {
-  let R: { alarms: Alarm[]; allSiteIds: string[]; cosmeticViolations: string[] };
+  let R: { alarms: Alarm[]; allSiteIds: string[]; cosmeticViolations: string[]; noOps: string[] };
   beforeAll(() => {
-    R = runAll();
+    R = runAll(); // throws (fails the hook) if Phase-1 mutant count exceeds MUTANT_BUDGET before any parse
   }, 300_000);
 
   it("corpus size is within the documented runtime budget (plan-R17)", () => {
     expect(R.allSiteIds.length).toBeGreaterThan(0);
     expect(R.allSiteIds.length, `mutant count exceeds MUTANT_BUDGET — measure + update deliberately`).toBeLessThanOrEqual(MUTANT_BUDGET);
+  });
+  it("no emitted mutant is byte-identical to its baseline fixture (plan-R18)", () => {
+    expect(R.noOps, `byte-identical no-op mutants (false coverage):\n${R.noOps.join("\n")}`).toEqual([]);
   });
   it("all generated siteIds are globally unique (Codex R2)", () => {
     expect(new Set(R.allSiteIds).size).toBe(R.allSiteIds.length);
