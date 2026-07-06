@@ -408,4 +408,28 @@ describe("parseRooms — prefixed-admission gate (synthetic)", () => {
     expect(bo).toHaveLength(1);
     expect(bo[0]!.name).toBe("GHOST HALL");
   });
+
+  // whole-diff R1 f1: two adjacent prefixed blocks with NO blank separator must not let
+  // the first consume the second's BO fields (NEXT_ROOM_HEADER_RE terminates on the
+  // prefixed header).
+  it("T6: adjacent prefixed blocks do not bleed fields into each other", () => {
+    const md =
+      "| AAA BREAKOUT 1&#10;ROOM ONE&#10;10' x 10' | |\n" +
+      "| BO Setup | chairs one |\n" +
+      "| BBB BREAKOUT 2&#10;ROOM TWO&#10;20' x 20' | |\n" +
+      "| BO Setup | chairs two |\n";
+    const bo = parseRooms(md, "v2").filter((r) => r.kind === "breakout");
+    expect(bo).toHaveLength(2);
+    expect(bo.find((r) => r.name === "ROOM ONE")!.setup).toBe("chairs one");
+    expect(bo.find((r) => r.name === "ROOM TWO")!.setup).toBe("chairs two");
+  });
+
+  // whole-diff R1 f2: a "BREAKOUTS BREAKOUT N" header (keyword is BREAKOUT, the token
+  // BREAKOUTS is a prefix) with dims/floor but no BO fields must still be gated out — a
+  // `^BREAKOUT` (no \b) classifier would misread BREAKOUTS as the keyword and fabricate it.
+  it("T7: BREAKOUTS-prefixed dims-only header is gated (no fabricated room)", () => {
+    const md = "| BREAKOUTS BREAKOUT 3&#10;GHOSTB&#10;5' x 9'&#10;2nd Floor | |\n";
+    const bo = parseRooms(md, "v2").filter((r) => r.kind === "breakout");
+    expect(bo).toHaveLength(0);
+  });
 });

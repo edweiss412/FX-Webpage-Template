@@ -1141,7 +1141,11 @@ function parseBoRooms(markdown: string, model: RoomHeaderModel): RoomRow[] {
     // BO-field evidence: roomHasContent counts the header-harvested dims/floor assigned
     // above, so a "<PREFIX> BREAKOUT N&#10;dims" with no BO block would otherwise
     // fabricate a room (BL-ROOM-DIMS-ONLY-NOVEL-HEADER paranoia).
-    const prefixed = !/^BREAKOUT/.test(firstLine);
+    // `\b` so BREAKOUT must be a whole token: "BREAKOUTS BREAKOUT 3" is prefixed (the
+    // literal keyword is BREAKOUT, not BREAKOUTS), so it is gated — a plain `^BREAKOUT`
+    // test would misread the "BREAKOUTS" prefix as the keyword and bypass the gate
+    // (whole-diff R1 f2).
+    const prefixed = !/^BREAKOUT\b/.test(firstLine);
     if (prefixed && !roomHasBoFieldValue(room)) continue;
 
     if (!boGroups.has(headerKey)) {
@@ -1283,8 +1287,13 @@ function mergeBoFields(room: RoomRowInternal, blockText: string): void {
 // (no blank separator) doesn't bleed its fields into the current room. The literal
 // MABEL/LAUDERDALE names are no longer here — they are covered by the precomputed
 // `model.roomHeaderLines` terminator set (any admitted DAY-range room header).
+// A prefixed `<PREFIX> BREAKOUT N` header (BL-ROOM-SHOW-PREFIXED-BREAKOUT-HEADER) is a
+// next-room header too, so it terminates a preceding BO block — otherwise two ADJACENT
+// prefixed breakouts with no blank separator would let the first consume the second's
+// fields (whole-diff R1 f1). The optional prefix mirrors `boBlockRe`; a bare BREAKOUT
+// still matches (empty group), so existing termination is unchanged.
 const NEXT_ROOM_HEADER_RE =
-  /^\|\s*(GENERAL\s+SESSION|BREAKOUT|ADDITIONAL\s+ROOM|LUNCH\s+ROOM|DETAILS)\b/i;
+  /^\|\s*(GENERAL\s+SESSION|(?:[A-Z0-9]+\s+)?BREAKOUT|ADDITIONAL\s+ROOM|LUNCH\s+ROOM|DETAILS)\b/i;
 
 // LINE-BASED (spec §2.2 (e), R24 f1): walk `lines` from `startLine`. Behavior-identical
 // to the old `extractBoBlock(markdown, m.index)` because `m.index` is the row's line
