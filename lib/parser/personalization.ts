@@ -11,6 +11,7 @@
 import type { DateRestriction, StageRestriction, RoleFlag, ParseWarning } from "./types";
 import { closedVocabMatch } from "@/lib/parser/fuzzyMatch";
 import { gatedVocabCorrect } from "@/lib/parser/typoGate";
+import { parseStageClause } from "@/lib/parser/stageClause";
 
 // ── Role normalization map ────────────────────────────────────────────────────
 // Maps cleaned token strings (trimmed uppercase) to canonical RoleFlag.
@@ -52,8 +53,6 @@ const SHORT_ROLE_CODES: readonly string[] = Object.keys(ROLE_NORMALIZATIONS).fil
 const FULL_STAGE_PATTERN = /Load\s+In\s*\/\s*Set\s*\/\s*Strike\s*\/\s*Load\s+Out/i;
 export const FULL_STAGE_ONLY_PATTERN =
   /Load\s+In\s*\/\s*Set\s*\/\s*Strike\s*\/\s*Load\s+Out\s+ONLY\*{0,3}/i;
-const LOAD_IN_SET_ONLY_PATTERN = /^\s*-?\s*Load\s+In\s*\/\s*Set\s+ONLY\s*$/i;
-const LOAD_OUT_STRIKE_ONLY_PATTERN = /^\s*-?\s*Load\s+Out\s*\/\s*Strike\s+ONLY\s*$/i;
 
 // ── Day restriction patterns ──────────────────────────────────────────────────
 const PAREN_ONLY_PATTERN = /\(([^)]*\bONLY\b[^)]*)\)/i;
@@ -148,24 +147,46 @@ function extractDateTokens(text: string): string[] {
 // ── extractStageRestriction ───────────────────────────────────────────────────
 
 /**
- * Extract stage restriction from the role cell.
+ * Extract stage restriction from the role cell, delegating to the token-level
+ * `parseStageClause` grammar (spec §3). Recognizes ANY subset/reordering of the 5
+ * stages as an explicit restriction; a malformed clause (≥1 stage + ≥1 unreadable
+ * token) yields `{kind:"none"}` + a single `UNKNOWN_STAGE_RESTRICTION` warning (the
+ * fail-open whole-show choice — never partial-narrow, since an unknown token adjacent
+ * to a stage may itself be a mis-typed STAGE). A zero-stage clause is a role clause and
+ * emits no stage warning.
  *
- * Verified patterns:
- *  - "Load In / Set / Strike / Load Out" (full set) → all stages
- *  - "Load In / Set ONLY" → ['Load In','Set']   (2025-10-fixed-income:30)
- *  - "Load Out / Strike ONLY" → ['Load Out','Strike'] (2025-10-fixed-income:31)
+ * `consumedOnlyClause` is `true` iff a VALID (bare `ONLY` / `ONLY***` / full-4 lenient)
+ * STAGE clause was consumed (explicit OR malformed) — it suppresses the crew.ts
+ * triple-asterisk `UNKNOWN_DAY_RESTRICTION` double-warn (spec §9).
  */
-export function extractStageRestriction(roleCell: string): StageRestriction {
-  if (FULL_STAGE_ONLY_PATTERN.test(roleCell)) {
-    return { kind: "explicit", stages: ["Load In", "Set", "Strike", "Load Out"] };
+export function extractStageRestriction(roleCell: string): {
+  restriction: StageRestriction;
+  warnings: ParseWarning[];
+  consumedOnlyClause: boolean;
+} {
+  const clause = parseStageClause(roleCell);
+  if (clause.stages.length > 0) {
+    return {
+      restriction: { kind: "explicit", stages: clause.stages },
+      warnings: [],
+      consumedOnlyClause: true,
+    };
   }
-  if (LOAD_IN_SET_ONLY_PATTERN.test(roleCell)) {
-    return { kind: "explicit", stages: ["Load In", "Set"] };
+  if (clause.unrecognizedRestriction) {
+    return {
+      restriction: { kind: "none" },
+      warnings: [
+        {
+          severity: "warn",
+          code: "UNKNOWN_STAGE_RESTRICTION",
+          message: `Role cell has a work-phase restriction we couldn't read: '${roleCell}'`,
+          rawSnippet: roleCell,
+        },
+      ],
+      consumedOnlyClause: true,
+    };
   }
-  if (LOAD_OUT_STRIKE_ONLY_PATTERN.test(roleCell)) {
-    return { kind: "explicit", stages: ["Load Out", "Strike"] };
-  }
-  return { kind: "none" };
+  return { restriction: { kind: "none" }, warnings: [], consumedOnlyClause: clause.consumedOnlyClause };
 }
 
 // ── normalizeStageWords (typo-tolerant stage-word correction) ──────────────────
@@ -273,23 +294,22 @@ export function extractRoleFlags(roleCell: string): RoleFlagResult {
     if (!flags.includes(flag)) flags.push(flag);
   };
 
-  let remainder = roleCell;
+  // A consumed with-ONLY stage clause is removed via the shared grammar: `cleaned` is
+  // roleCell UNCHANGED unless a with-ONLY clause was consumed (explicit → ROLE tokens +
+  // tail; malformed → ROLE + UNKNOWN tokens + tail; No-stage → unchanged). This replaces
+  // the three hardcoded with-ONLY strip-patterns (FULL_STAGE_ONLY / LOAD_IN_SET_ONLY /
+  // LOAD_OUT_STRIKE_ONLY). The descriptive full-stage-list (NO ONLY) prefix strip is
+  // RETAINED below — it is not one of the three de-duplicated restriction patterns.
+  let remainder = parseStageClause(roleCell).cleaned;
 
-  // Strip full stage list prefix
+  // Strip descriptive full stage list prefix (no-ONLY "works all phases" case).
   if (FULL_STAGE_PATTERN.test(remainder)) {
     remainder = remainder.replace(
       /^\s*-?\s*Load\s+In\s*\/\s*Set\s*\/\s*Strike\s*\/\s*Load\s+Out\s*(ONLY\*{0,3})?\s*(-{1,2}\s*)?/i,
       "",
     );
     // If nothing remained after the stage list (e.g. "ONLY***" or bare "ONLY"), clear it.
-    // Note: after the regex above made the dash optional, this catches any residual
-    // ONLY/ONLY*** that was not consumed by the main pattern (e.g. when ONLY appears
-    // without a trailing dash and role flags).
     remainder = remainder.replace(/^\s*ONLY\*{0,3}\s*$/i, "").trim();
-  } else if (LOAD_IN_SET_ONLY_PATTERN.test(remainder)) {
-    remainder = "";
-  } else if (LOAD_OUT_STRIKE_ONLY_PATTERN.test(remainder)) {
-    remainder = "";
   }
 
   // Strip triple asterisks

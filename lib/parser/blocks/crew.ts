@@ -321,7 +321,8 @@ function buildCrewMember(params: {
     if (agg) agg.warnings.push(stageNote);
   }
 
-  const stageRestriction = extractStageRestriction(roleCellForParse);
+  const stageResult = extractStageRestriction(roleCellForParse);
+  const stageRestriction = stageResult.restriction;
   const roleFlagResult = extractRoleFlags(roleCellForParse);
   // Stamp UNKNOWN_ROLE_TOKEN / ROLE_TOKEN_AUTOCORRECTED warnings with the crew-row
   // blockRef so they can deep-link to the offending role cell. extractRoleFlags stays pure.

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { parseStageClause } from "@/lib/parser/stageClause";
+import { extractStageRestriction, extractRoleFlags } from "@/lib/parser/personalization";
 
 describe("parseStageClause (spec §3.2)", () => {
   it("EXPLICIT: any subset/order of the 5 stages + trailing ONLY", () => {
@@ -45,5 +46,56 @@ describe("parseStageClause (spec §3.2)", () => {
   it("consumedOnlyClause is true for a malformed ONLY*** clause (suppresses crew triple-asterisk guard)", () => {
     expect(parseStageClause("Set / Rehearsal ONLY***").consumedOnlyClause).toBe(true);
     expect(parseStageClause("Set / Rehearsal ONLY***").unrecognizedRestriction).toBe(true);
+  });
+});
+
+describe("extractStageRestriction delegates to parseStageClause (spec §3)", () => {
+  it("explicit → restriction, no warning", () => {
+    const r = extractStageRestriction("Set / Strike ONLY");
+    expect(r.restriction).toEqual({ kind: "explicit", stages: ["Set", "Strike"] });
+    expect(r.warnings).toEqual([]);
+    expect(r.consumedOnlyClause).toBe(true);
+  });
+  it("the three original phrasings still produce identical restrictions (regression)", () => {
+    expect(extractStageRestriction("- Load In / Set / Strike / Load Out ONLY*** - LEAD").restriction).toEqual({
+      kind: "explicit",
+      stages: ["Load In", "Set", "Strike", "Load Out"],
+    });
+    expect(extractStageRestriction("- Load In / Set ONLY").restriction).toEqual({
+      kind: "explicit",
+      stages: ["Load In", "Set"],
+    });
+    expect(extractStageRestriction("- Load Out / Strike ONLY").restriction).toEqual({
+      kind: "explicit",
+      stages: ["Load Out", "Strike"],
+    });
+  });
+  it("malformed → none + UNKNOWN_STAGE_RESTRICTION", () => {
+    const r = extractStageRestriction("Set / Rehearsal ONLY");
+    expect(r.restriction).toEqual({ kind: "none" });
+    expect(r.warnings.map((w) => w.code)).toContain("UNKNOWN_STAGE_RESTRICTION");
+    expect(r.consumedOnlyClause).toBe(true);
+  });
+  it("role clause → none + no stage warning", () => {
+    const r = extractStageRestriction("Rehearsal ONLY");
+    expect(r.restriction).toEqual({ kind: "none" });
+    expect(r.warnings.map((w) => w.code)).not.toContain("UNKNOWN_STAGE_RESTRICTION");
+    expect(r.consumedOnlyClause).toBe(false);
+  });
+  it("no-cascade: 'Set / Strike ONLY' → extractRoleFlags emits ZERO UNKNOWN_ROLE_TOKEN (was 2)", () => {
+    const codes = extractRoleFlags("Set / Strike ONLY").warnings.map((w) => w.code);
+    expect(codes).not.toContain("UNKNOWN_ROLE_TOKEN");
+  });
+  it("role-prefixed valid restriction keeps the role via cleaned (R22)", () => {
+    expect(extractStageRestriction("A1 / Set / Strike ONLY").restriction).toEqual({
+      kind: "explicit",
+      stages: ["Set", "Strike"],
+    });
+    expect(extractRoleFlags("A1 / Set / Strike ONLY").flags).toContain("A1");
+  });
+  it("malformed preserves role-prefix + unknown token in cleaned (R16/R28)", () => {
+    const codes = extractRoleFlags("A1 / Set / Rehearsal ONLY").warnings.map((w) => w.code);
+    expect(extractRoleFlags("A1 / Set / Rehearsal ONLY").flags).toContain("A1");
+    expect(codes).toContain("UNKNOWN_ROLE_TOKEN"); // Rehearsal surfaced
   });
 });
