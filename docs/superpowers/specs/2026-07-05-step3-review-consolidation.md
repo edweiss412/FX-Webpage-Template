@@ -152,7 +152,7 @@ The folded modal's `Approve & apply` calls the surviving wizard apply route, whi
 
 - **`Step3Row`** gains (all optional, coerced in `fetchStep3Data`): `stagedId?: string` (already selected at `OnboardingWizard.tsx:259/:326`, just thread it onto the row), `triggeredReviewItems?: TriggeredReviewItem[]` (add to the select + coerce via `parseTriggeredReviewItems`), `reviewItemsCorrupt?: boolean` (set when the jsonb fails to parse — the fail-closed flag `StagedReviewCard` already consumes at `:223/:312`).
 - **`SectionData`** already carries `row: Step3Row`, so these thread through automatically; the modal reads them from `data.row`.
-- **Modal `Approve & apply` payload**: `{ stagedId: data.row.stagedId, reviewerChoicesVersion: 1, reviewerChoices }` where `reviewerChoices` are built from the tier-3 radio picks + the auto-bound single-action items (§4.4). `Wait for next edit` / `Stop showing` map to the existing `discard` route's `kind` values (`try_again_next_sync` / `defer_until_modified` / etc., per `StagedReviewCard.tsx:443-450`).
+- **Modal `Approve & apply` payload**: `{ stagedId: data.row.stagedId, reviewerChoicesVersion: 1, reviewerChoices }` where `reviewerChoices` are built from the tier-3 radio picks + the auto-bound single-action items (§4.4). `Ignore this sheet` maps to the `discard` route `kind: "permanent_ignore"` (`StagedReviewCard.tsx:443-450`). `Re-scan this sheet` uses the separate `rescan-sheet` route (not the discard route). `defer_until_modified` is no longer surfaced (§4.4).
 - **Corrupt guard**: `reviewItemsCorrupt === true` → suppress `Approve & apply`, offer only discard, exactly as `StagedReviewCard.tsx:308-312` does today.
 
 ### 4.4 Resolution modal (re-apply rows only)
@@ -165,7 +165,15 @@ The folded modal's `Approve & apply` calls the surviving wizard apply route, whi
 
 **Single-action-no-radio rule.** When `allowedActionsFor(item).length === 1`, render no radio; the footer `Approve & apply` **is** the explicit act. The submit path binds the sole action to the button (so the "choice required per item" guard — the current skip-when-unset logic — still receives a choice). Radios render only when `length ≥ 2`.
 
-**Footer:** `Approve & apply` (primary) + `Wait for next edit` + `Stop showing this sheet`; `Approve & apply` disabled until every tier-3 item is chosen ("N of M chosen"). These call the surviving `apply` / `discard` endpoints unchanged.
+**Footer actions (redesigned copy + reduced set).** Three immediate, unambiguous actions, each named by object + effect (all Doug-facing → routed through `lib/messages/lookup.ts`, never raw literals — invariant 5):
+
+- **`Approve & apply`** (primary) — resolve now; disabled until every tier-3 item is chosen ("N of M chosen"). Calls the surviving wizard `apply` route (§4.3.1 payload).
+- **`Re-scan this sheet`** (secondary) — **reuse `components/admin/RescanSheetButton.tsx` verbatim** (label "Re-scan this sheet" / pending "Re-scanning…", `:143`; `POST /api/admin/onboarding/rescan-sheet {driveFileId, wizardSessionId}`, with its result overlay). Immediate re-fetch + re-parse (the Thread-3 rescan): clean → the row clears / becomes Ready; dirty → the modal refreshes with new review items. Replaces the old "Retry on next sync" (`try_again_next_sync`) — same intent, immediate feedback, existing component.
+- **`Ignore this sheet`** (secondary) — the `permanent_ignore` discard; the show is removed from setup and appears in **Ignored sheets** on the dashboard, restorable via the existing `unignore` route (`app/api/admin/ignored-sheets/[driveFileId]/unignore/route.ts`). Subline: "You can restore it from Ignored sheets." Replaces the ambiguous "Stop showing this sheet."
+
+**Dropped: `defer_until_modified` ("Wait for next edit").** The backend `kind` stays (route unchanged), but no button renders it. Rationale: its only effect (auto-resurface on next sheet edit, `discardStaged.ts:447`) is already achieved by editing the sheet (sync re-stages on modtime bump) or by `Re-scan this sheet`, and `permanent_ignore` also clears on a manual re-sync (`runManualSyncForShow.ts:473`). It added a confusing third deferral with no distinct value.
+
+**Row-dependent variants (R2 note).** `StagedReviewCard.tsx:38-39`: not every row exposes every discard variant. The footer renders only the variants allowed for the row (`allowedDiscardVariants`), never a hardcoded set; `Approve & apply` + `Re-scan this sheet` are universal, `Ignore this sheet` renders where `permanent_ignore` is allowed.
 
 **Guard — DIRTY with empty/corrupt items.** DIRTY implies ≥ 1 invariant, but defensively (`sentinelItems ?? []`, or `reviewItemsCorrupt`): render the generic "changed, re-review" header + open the modal so Doug can eyeball the sections; suppress `Approve` for the corrupt case (existing `reviewItemsCorrupt` fail-closed behavior preserved).
 
