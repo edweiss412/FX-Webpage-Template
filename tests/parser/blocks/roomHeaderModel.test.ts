@@ -48,6 +48,13 @@ describe("room shape predicates (spec §2.2/§2.3)", () => {
     expect(dayRangeOf("MABEL 1&#10;DAY 1 & 2")).toBe("1&2");
     expect(dayRangeOf("SALON ABCD DAY 1")).toBe("1");
   });
+  it("dayRangeOf anchors on the LAST day-marker line, matching headerDayMarker (whole-diff R6 f2)", () => {
+    // A multi-day-line header admits on its LAST trailing day (headerDayMarker); dayRangeOf must
+    // read the SAME last line, else it groups under DAY 1 and wrong-merges with a real DAY 1 block.
+    expect(dayRangeOf("SALON&#10;DAY 1&#10;DAY 2")).toBe("2");
+    const k = (c: string) => roomGroupKey(c, c.replace(/&#10;/g, "\n").split("\n")[0]!.trim());
+    expect(k("SALON&#10;DAY 1&#10;DAY 2")).not.toBe(k("SALON&#10;DAY 1")); // no collapse into DAY 1
+  });
   it("roomGroupKey merges same name+day, splits distinct days", () => {
     const k = (c: string) => roomGroupKey(c, c.replace(/&#10;/g, "\n").split("\n")[0]!.trim());
     expect(k("SALON ABCD DAY 1 & 2")).toBe(k("SALON ABCD&#10;DAY 1 & 2")); // R27 merge

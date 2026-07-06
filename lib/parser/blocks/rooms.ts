@@ -167,11 +167,19 @@ export function roomBaseName(firstLine: string): string {
     .toUpperCase();
 }
 
-/** The NORMALIZED trailing DAY-range digits from anywhere in the cell (spec §2.2 (d)). */
+/**
+ * The NORMALIZED trailing DAY-range digits of the cell's LAST day-marker line (spec §2.2 (d)).
+ * MUST anchor on the LAST day line, not the first — `headerDayMarker` admits on the last trailing
+ * day marker, so a first-match here would group a multi-day-line header (`SALON&#10;DAY 1&#10;DAY 2`)
+ * under `DAY 1` and wrong-merge it with a real single-day `SALON&#10;DAY 1` block (whole-diff R6 f2).
+ */
 export function dayRangeOf(col0Raw: string): string {
-  return (/\bDAYS?\s+(\d[\d\s&,.\-–—]*?)\s*$/im.exec(col0Raw.replace(/&#10;/g, "\n"))?.[1] ?? "")
-    .replace(/\s+/g, "")
-    .toUpperCase();
+  let last = "";
+  for (const line of col0Raw.replace(/&#10;/g, "\n").split("\n")) {
+    const m = /\bDAYS?\s+(\d[\d\s&,.\-–—]*?)\s*$/i.exec(line.trim());
+    if (m) last = m[1]!;
+  }
+  return last.replace(/\s+/g, "").toUpperCase();
 }
 
 /** The GROUPING key = roomBaseName + " " + dayRangeOf (spec §2.2 (d)). */
