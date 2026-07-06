@@ -105,8 +105,8 @@ Each show row shows exactly one status. **Live/Held derive from the row's LINKED
 
 | Display state | Derivation | Tone | Row affordance |
 |---|---|---|---|
-| **Live** | linked show exists (`created_show_id`) AND `shows.published = true` | accent/live | badge only |
-| **Held** | linked show exists AND `shows.published = false` (draft) | idle/neutral | badge; existing per-row publish semantics preserved |
+| **Live** | provenance-joined show (§4.3) AND `shows.published = true` | accent/live | badge only |
+| **Held** | provenance-joined show (§4.3) AND `shows.published = false` (draft) | idle/neutral | badge; existing per-row publish semantics preserved |
 | **Ready** | no linked show yet, clean (`staged`/`applied`), not blocking | idle | publish checkbox (unchanged pre-finalize); `publish_intent` seeds checked/unchecked |
 | **Needs review — re-apply** | blocking via `staged` + `lastFinalizeFailureCode != null` (RESCAN_REVIEW_REQUIRED / demoted-wedge) | warn | **`Review →`** → modal (§4.4). No inline approve. |
 | **Needs review — other** | `hard_failed` / `live_row_conflict` / `discard_retryable` | warn | **existing inline controls, unchanged** (§4.2.1) |
@@ -132,7 +132,14 @@ These already render their resolution inline on the Step-3 row (never on the del
 
 Extend the existing row build (`OnboardingWizard.tsx:357`, its Supabase reads at `:238/:259/:281`) so it produces `Step3Row[]` for a session in **any** finalize state, adding the published/Held distinction:
 
-- Inputs: `onboarding_scan_manifest` (`status`, `publish_intent`, `created_show_id`), `pending_syncs` (`parse_result`, `last_finalize_failure_code`, `staged_id`, and — new — `triggered_review_items`; the current select at `OnboardingWizard.tsx:259-260` omits `triggered_review_items` and must add it), and — new — `public.shows` joined by `created_show_id` (falling back to `drive_file_id`) for the `published` flag (Live/Held; `published` gates crew visibility, `sessionLifecycle.ts:583,856`).
+- Inputs: `onboarding_scan_manifest` (`status`, `publish_intent`, `created_show_id`, `wizard_session_id`), `pending_syncs` (`parse_result`, `last_finalize_failure_code`, `staged_id`, and — new — `triggered_review_items`; the current select at `OnboardingWizard.tsx:259-260` omits `triggered_review_items` and must add it), and — new — `public.shows` for the `published` flag (Live/Held; `published` gates crew visibility, `sessionLifecycle.ts:583,856`).
+- **Live/Held provenance join (HIGH, R2) — MUST match the canonical `created_show_id` consumer join; never trust `created_show_id` bare and NEVER fall back to a broad `drive_file_id` match** (a forged/stale manifest pointer or same-drive pre-existing show would misclassify Live/Held and wrongly suppress the checkbox/review affordance). Use ALL of (per `finalize-cas/route.ts:494-503,549` and migration `20260611000000:3-7`):
+  ```
+  m.created_show_id = s.id
+  AND m.drive_file_id = s.drive_file_id
+  AND s.wizard_created_session_id = m.wizard_session_id
+  ```
+  A row is **Live** iff a `shows` row satisfies all three AND `s.published = true`; **Held** iff all three AND `s.published = false`. A manifest row with `created_show_id IS NULL` (no linked show yet) is never Live/Held — it falls to Ready/Needs-review from its manifest status.
 - Live/Held per §4.2: linked show + `published`. Ready/Needs-review per the manifest status + blocking predicate (`_unresolvedSheets.ts:141`).
 - Reuses the blocking predicate; `_unresolvedSheets.ts`'s predicate + `readUnresolvedSheets` fold into this read (the file is deleted; §11).
 - Fail-closed: an infra error on any read returns `{ kind:"infra_error" }` (invariant 9, matching the existing `Step3FetchResult` union `OnboardingWizard.tsx:206`) and the surface shows a soft degraded note, never a blank 500 and never a falsely-empty list.
@@ -165,6 +172,8 @@ The folded modal's `Approve & apply` calls the surviving wizard apply route, whi
 After a successful `Approve & apply`, the modal footer returns to the ordinary "Publish this show" / closes; the row's status refreshes (Live/Held/Ready) via the standard router refresh — the same transition the modal already performs through `NotPublishableNote`.
 
 **Guard — no resolution during an active publish run (HIGH, R1).** While the footer's publish/resume loop is running (`run.isRunning`, `Step3ReviewWithFinalize.tsx:113`), the `Review →` control and the modal's `Approve & apply` are **disabled**. The client loops and re-POSTs `/finalize` on every `batch_complete` (`FinalizeButton.tsx`), and the server reselects finishable-clean rows each batch (`finalize/route.ts`), so an apply completing mid-run would race a row into the active batch selection. Disabling resolution during a run serializes it: Doug resolves before publishing or after a run settles, never concurrently. (Resolution is inherently a "this run is blocked" action, so blocking it during a run is also the correct UX.)
+
+**Prop path (R2 LOW).** `run.isRunning` currently lives inside `Step3ReviewWithFinalize` (`:83-113`), while `Review →` (row) and the modal controls live under `Step3Review` / `Step3ReviewModal`. The plan threads an `isPublishRunActive: boolean` prop down from `Step3ReviewWithFinalize` → `Step3Review` (row list) → the `Review →` trigger and → `Step3ReviewModal`, so BOTH the row trigger AND an already-open modal's `Approve & apply` disable while a run is active. Tests prove both: the row `Review →` is disabled during a run, and an open modal's submit is disabled mid-run.
 
 ### 4.5 Footer / primary action by checkpoint state
 
@@ -254,12 +263,13 @@ The unified surface reuses existing layout components (`WizardFooter`, `Step3Rev
 - **Modal fold** (real-browser): `Review →` opens `Step3ReviewModal`; footer shows resolution actions; body shows tier-2 line anchored to section + tier-3 radios; Approve calls the `apply` endpoint (mocked) and closes.
 - **Unified surface by checkpoint** (integration): `in_progress` / `all_batches_complete` render Step-3 with the right footer action (Resume / Finish), not the deleted interstitials.
 - **Redirect** (unit): old staged URL → 307 `/admin`.
-- **Deletion safety** (grep/structural, HIGH R1): covers deleted **components, pages, AND helpers**, plus registry rows and URL-shape assertions. Enumerated breakers to update/remove in the same change:
-  - `tests/admin/_metaInfraContract.test.ts:188-190` + `:946-961` (registers `readUnresolvedSheets` / staged-page reads) — update the registry when `_unresolvedSheets.ts` folds into the unified read.
-  - `tests/components/wizardStagedPage.heading.test.tsx:51` — deleted with the page (or repurposed to the modal heading).
-  - `tests/admin/unresolvedSheets.test.ts:72-78` — asserts the old reapply URL shape; delete/rewrite against the unified read.
+- **Deletion safety** (grep/structural, HIGH R1 + MEDIUM R2): covers deleted **components, pages, AND helpers**, plus registry rows and URL-shape assertions. **The grep guard is AUTHORITATIVE** (a structural test walking the tree, failing on any surviving import/link of a deleted symbol/route); the list below is the illustrative known breaker set to rewrite/delete, not an exhaustive substitute for the guard:
+  - `tests/admin/_metaInfraContract.test.ts:188-190` + `:946-961` (registers `readUnresolvedSheets` / staged reads) — update the registry when `_unresolvedSheets.ts` folds in.
+  - `tests/components/wizardStagedPage.heading.test.tsx`, `tests/components/admin/WizardStagedReapplyResolved.test.tsx` — deleted with the page (or repurposed to the modal).
+  - `tests/admin/unresolvedSheets.test.ts:72-78` — asserts old reapply URL; delete/rewrite against the unified read.
+  - `tests/components/admin/FinalizeReentry.test.tsx`, `FinalizeInProgress.test.tsx`, `AdminPage.test.tsx`, `RunFinalCASButton.test.tsx`, `RescanSheetButton.test.tsx`, `tests/e2e/admin-phase2-surfaces.spec.ts` — rewrite against the unified Step-3 surface or delete with their component.
   - `lib/audit/trustDomains.ts:60-62` — remove the staged-page entry; keep the API entries (`:110-126`).
-  - A grep guard asserts: no import of `FinalizeInProgress`/`ReadyToPublish`/`StaleReadyToPublish`/the staged `page.tsx`/`_unresolvedSheets` survives; the two link-outs (`Step3ReviewModal.tsx:1087`, `Step3SheetCard.tsx:183`) are gone.
+  - The grep guard asserts: no import of `FinalizeInProgress`/`ReadyToPublish`/`StaleReadyToPublish`/the staged `page.tsx`/`_unresolvedSheets` survives; the two link-outs (`Step3ReviewModal.tsx:1087`, `Step3SheetCard.tsx:183`) are gone.
 - **Layout** (real-browser Playwright): footer + modal at mobile/desktop breakpoints with row-status badges present; no horizontal overflow; footer center min-height preserved.
 
 ## 12. Watchpoints / disagreement-loop preempts
@@ -279,9 +289,11 @@ The unified surface reuses existing layout components (`WizardFooter`, `Step3Rev
 
 Decomposable into safe phases:
 
-1. **Data contract + unified read** — extend `Step3Row` (`stagedId`, `triggeredReviewItems`, `reviewItemsCorrupt`; §4.3.1) + the `shows` join for Live/Held (§4.3); display-state derivation + badges behind the existing pre-finalize surface (no behavior change yet).
-2. **Modal resolution behavior** — fold `StagedReviewCard` resolution into `Step3ReviewModal` (tiers, single-action-no-radio, corrupt guard, active-run disable §4.4); wire `Approve & apply`/`Wait`/`Stop-showing` to the existing apply/discard routes. No deletion yet.
-3. **Redirect + staged-page delete** — delete the standalone staged `page.tsx`, add the `next.config.ts` redirect, remove the two link-outs, drop the `trustDomains` page entry.
-4. **Registry + test cleanup** — fold `_unresolvedSheets` into the unified read; update `_metaInfraContract` registry rows; delete/rewrite `unresolvedSheets`/`wizardStagedPage` tests; add the redirect + deletion-safety guards (§11).
-5. **Interstitial fold** — render Step-3 for `in_progress` + `all_batches_complete`; fold Resume/Finish (CAS) into the footer with the stale note; delete `FinalizeInProgress` / `ReadyToPublish` / `StaleReadyToPublish`.
+**Ordering constraint (HIGH, R2):** the staged `page.tsx` and its link-outs must NOT be deleted/redirected until the modal resolution AND the checkpoint-state Step-3 render both exist — otherwise, during the window, an `in_progress` session still renders `FinalizeInProgress` whose re-apply links would redirect to `/admin` (still the interstitial), stranding resolution. So the surface fold precedes the delete, and the delete+redirect is atomic with the re-entry fold.
+
+1. **Data contract + unified read** — extend `Step3Row` (`stagedId`, `triggeredReviewItems`, `reviewItemsCorrupt`; §4.3.1) + the provenance-joined `shows` read for Live/Held (§4.3); display-state derivation + badges behind the existing pre-finalize surface (no behavior change yet).
+2. **Modal resolution behavior** — fold `StagedReviewCard` resolution into `Step3ReviewModal` (tiers, single-action-no-radio, corrupt guard, active-run disable §4.4); thread `isPublishRunActive`; wire `Approve & apply`/`Wait`/`Stop-showing` to the existing apply/discard routes. Both the standalone page and the modal work during this phase (dual-path, safe).
+3. **Interstitial + checkpoint fold** — render the unified Step-3 for `in_progress` + `all_batches_complete`; fold Resume/Finish (CAS) into the footer with the stale note; delete `FinalizeInProgress` / `ReadyToPublish` / `StaleReadyToPublish`. After this, `/admin` renders Step-3 (with the modal) for every non-terminal checkpoint — so `/admin` is now a valid redirect target for a re-apply row.
+4. **Redirect + staged-page delete** — only now delete the standalone staged `page.tsx`, add the `next.config.ts` redirect (→ `/admin`, which is the unified surface post-phase-3), remove the two link-outs, drop the `trustDomains` page entry. Atomic with phase 3's guarantee.
+5. **Registry + test cleanup** — fold `_unresolvedSheets` into the unified read; update `_metaInfraContract` registry rows; delete/rewrite the affected tests (§11); add the redirect + deletion-safety guards.
 6. **Impeccable dual-gate + cross-model review + CI.**
