@@ -62,6 +62,33 @@ import {
   type SectionData,
 } from "@/components/admin/wizard/step3ReviewSections";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
+import {
+  allowedActionsFor,
+  describeItem,
+  actionLabel,
+  expectedRenameValue,
+  tierForItem,
+  type ReviewerAction,
+} from "@/lib/admin/step3ReviewItemTiers";
+import type { ReviewerChoice } from "@/lib/sync/applyStaged";
+import type { TriggeredReviewItem } from "@/lib/parser/types";
+
+/**
+ * Step-3 consolidation (spec §4.4): the folded re-apply resolution contract.
+ * When present, the modal renders the tiered resolution body + Approve & apply /
+ * Re-scan / Ignore footer instead of the pre-finalize publish footer. This is
+ * the ONLY resolution path for a blocked re-apply row (never a blind inline
+ * approve).
+ */
+export type Step3ReviewResolution = {
+  triggeredReviewItems: TriggeredReviewItem[];
+  reviewItemsCorrupt: boolean;
+  stagedId: string;
+  isPublishRunActive: boolean;
+  onApplyResolve: (choices: ReviewerChoice[]) => Promise<boolean>;
+  onRescan: () => void;
+  onIgnore: () => Promise<boolean>;
+};
 
 // ── Interaction constants (spec §6.3a/§10; DESIGN.md §5 note) ───────────────
 // Behavioral thresholds, not rendered visual values — they never paint a px.
@@ -152,18 +179,105 @@ export function Step3ReviewModal({
   isDirtyRescan,
   onRequestSetChecked,
   onClose,
+  resolution,
 }: {
   data: SectionData;
   checked: boolean;
   isDirtyRescan: boolean;
   onRequestSetChecked: (next: boolean) => Promise<boolean>;
   onClose: () => void;
+  resolution?: Step3ReviewResolution;
 }) {
   const { dfid, wizardSessionId } = data;
   const panelRef = useRef<HTMLDivElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
   const h2Id = useId();
   const [publishState, setPublishState] = useState<PublishState>("idle");
+
+  // ── Re-apply resolution state (spec §4.4) — active only when `resolution` is
+  // passed. Single-action items auto-bind their sole action; multi-action
+  // (tier-3) items start unset and force an explicit choice before Approve. ──
+  const resolutionItems = resolution?.triggeredReviewItems ?? [];
+  const reviewItemsCorrupt = resolution?.reviewItemsCorrupt === true;
+  const isPublishRunActive = resolution?.isPublishRunActive === true;
+  const initialResolutionChoices = useMemo(() => {
+    const initial = new Map<string, ReviewerAction>();
+    for (const item of resolutionItems) {
+      const allowed = allowedActionsFor(item);
+      if (allowed.length === 1) initial.set(item.id, allowed[0]!);
+    }
+    return initial;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resolution?.triggeredReviewItems]);
+  const [resolutionChoices, setResolutionChoices] =
+    useState<Map<string, ReviewerAction>>(initialResolutionChoices);
+  const [resolutionPending, setResolutionPending] = useState(false);
+  const [resolutionError, setResolutionError] = useState<string | null>(null);
+
+  const setResolutionChoice = (itemId: string, action: ReviewerAction) => {
+    setResolutionChoices((prev) => {
+      const next = new Map(prev);
+      next.set(itemId, action);
+      return next;
+    });
+  };
+
+  // Approve is gated: every item must carry a choice (single-action items
+  // already do), the items must not be corrupt, and no publish run may be in
+  // flight (spec §4.4 R8 full freeze).
+  const allResolutionChosen = resolutionItems.every((i) => resolutionChoices.has(i.id));
+  const canApprove =
+    !reviewItemsCorrupt && allResolutionChosen && !resolutionPending && !isPublishRunActive;
+
+  async function handleApproveResolve() {
+    if (!resolution || resolutionPending || reviewItemsCorrupt || isPublishRunActive) return;
+    setResolutionError(null);
+    const reviewerChoices: ReviewerChoice[] = [];
+    for (const item of resolutionItems) {
+      const action = resolutionChoices.get(item.id);
+      if (!action) {
+        setResolutionError("MISSING_REVIEWER_CHOICE");
+        return;
+      }
+      const choice: ReviewerChoice = { item_id: item.id, action };
+      if (action === "rename") {
+        const target = expectedRenameValue(item);
+        if (target !== null) choice.rename_value = target;
+      }
+      reviewerChoices.push(choice);
+    }
+    setResolutionPending(true);
+    let ok = false;
+    try {
+      ok = await resolution.onApplyResolve(reviewerChoices);
+    } catch {
+      ok = false;
+    }
+    if (ok) {
+      onClose();
+      return; // parent unmounts us
+    }
+    setResolutionPending(false);
+    setResolutionError("STAGED_APPLY_FAILED");
+  }
+
+  async function handleIgnoreResolve() {
+    if (!resolution || resolutionPending || isPublishRunActive) return;
+    setResolutionError(null);
+    setResolutionPending(true);
+    let ok = false;
+    try {
+      ok = await resolution.onIgnore();
+    } catch {
+      ok = false;
+    }
+    if (ok) {
+      onClose();
+      return;
+    }
+    setResolutionPending(false);
+    setResolutionError("STAGED_DISCARD_FAILED");
+  }
 
   // ── Section registry + statuses (spec §6.1/§7) — ONE memoized derivation
   // feeds the header chip, footer note, both navs, and the section panels. ──
@@ -1021,6 +1135,75 @@ export function Step3ReviewModal({
             data-testid={`wizard-step3-card-${dfid}-review-content`}
             className="flex min-w-0 flex-1 flex-col gap-6 overflow-y-auto p-tile-pad motion-safe:scroll-smooth"
           >
+            {/* Re-apply resolution body (spec §4.4): rendered ABOVE the section
+                panels when this is a blocked re-apply row. Tier-1/2 items are
+                context/diagnostic lines; tier-3 items force a radio choice.
+                §11: instant — deliberate (resolution presence follows data/props, no animation) */}
+            {resolution ? (
+              <section
+                data-testid={`wizard-step3-card-${dfid}-review-resolution`}
+                aria-label="Resolve before publishing"
+                className="flex min-w-0 flex-col gap-4 rounded-md border border-border bg-surface-sunken p-tile-pad"
+              >
+                <h3 className="text-sm font-semibold text-text-strong">
+                  Resolve before publishing
+                </h3>
+                {/* §11: instant — deliberate (corrupt-vs-items branch follows server truth, no animation) */}
+                {reviewItemsCorrupt ? (
+                  <p
+                    data-testid={`wizard-step3-card-${dfid}-review-resolution-corrupt`}
+                    className="text-sm text-warning-text"
+                  >
+                    We couldn&apos;t read the review details for this sheet. Re-scan it, or set it
+                    aside for this setup.
+                  </p>
+                ) : (
+                  resolutionItems.map((item) => {
+                    const tier = tierForItem(item);
+                    if (tier !== "tier3_radio") {
+                      return (
+                        <p
+                          key={item.id}
+                          data-testid={`wizard-step3-card-${dfid}-review-resolution-item-${item.id}`}
+                          className="text-sm text-text"
+                        >
+                          {describeItem(item)}
+                        </p>
+                      );
+                    }
+                    const allowed = allowedActionsFor(item);
+                    return (
+                      <fieldset
+                        key={item.id}
+                        data-testid={`wizard-step3-card-${dfid}-review-resolution-item-${item.id}`}
+                        className="flex min-w-0 flex-col gap-2"
+                      >
+                        <legend className="text-sm text-text">{describeItem(item)}</legend>
+                        {allowed.map((action) => {
+                          const selected = resolutionChoices.get(item.id) === action;
+                          return (
+                            <label
+                              key={action}
+                              className="flex min-h-tap-min items-center gap-2 text-sm text-text"
+                            >
+                              <input
+                                type="radio"
+                                name={`resolution-${item.id}`}
+                                checked={selected}
+                                disabled={isPublishRunActive}
+                                onChange={() => setResolutionChoice(item.id, action)}
+                                className="size-4 shrink-0 accent-accent"
+                              />
+                              <span>{actionLabel(action, item, true)}</span>
+                            </label>
+                          );
+                        })}
+                      </fieldset>
+                    );
+                  })
+                )}
+              </section>
+            ) : null}
             {sections.map((s) => (
               <section
                 key={s.id}
@@ -1071,8 +1254,61 @@ export function Step3ReviewModal({
           data-testid={`wizard-step3-card-${dfid}-review-footer`}
           className="relative flex shrink-0 flex-wrap items-center gap-3 border-t border-border bg-surface px-tile-pad pt-3 pb-[calc(--spacing(3)+env(safe-area-inset-bottom,0))] sm:pb-3"
         >
-          {/* §11 T10: instant — deliberate (footer swaps on isDirtyRescan/props change; server truth) */}
-          {isDirtyRescan ? (
+          {/* Re-apply resolution footer (spec §4.4): the ONLY resolution path
+              for a blocked re-apply row. Approve & apply (primary) + Re-scan +
+              Ignore. All three freeze during an active publish run (R8).
+              §11: instant — deliberate (footer swaps on resolution presence; server truth, no animation) */}
+          {resolution ? (
+            <>
+              <span
+                data-testid={`wizard-step3-card-${dfid}-review-resolution-note`}
+                className="hidden min-w-0 items-center text-sm text-text-subtle sm:flex sm:flex-1"
+              >
+                Removed from this setup.
+              </span>
+              {/* §11: instant — deliberate (error note appears instantly, no animation) */}
+              {resolutionError !== null ? (
+                <span
+                  role="status"
+                  data-testid={`wizard-step3-card-${dfid}-review-resolution-error`}
+                  className="min-w-0 text-sm font-medium text-warning-text"
+                >
+                  {resolutionError === "MISSING_REVIEWER_CHOICE"
+                    ? "Pick an option for each change first."
+                    : "Something went wrong. Try again."}
+                </span>
+              ) : null}
+              <button
+                type="button"
+                data-testid={`wizard-step3-card-${dfid}-review-resolution-ignore`}
+                onClick={handleIgnoreResolve}
+                disabled={resolutionPending || isPublishRunActive}
+                className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-surface px-4 text-sm font-semibold whitespace-nowrap text-text transition-colors duration-fast hover:bg-surface-sunken disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+              >
+                Ignore this sheet
+              </button>
+              <RescanSheetButton
+                driveFileId={dfid}
+                wizardSessionId={wizardSessionId}
+                resultPlacement="overlay"
+                disabled={isPublishRunActive}
+              />
+              {/* §11: instant — deliberate (approve button presence follows corrupt flag; server truth, no animation) */}
+              {!reviewItemsCorrupt ? (
+                <button
+                  type="button"
+                  data-testid={`wizard-step3-card-${dfid}-review-resolution-approve`}
+                  onClick={handleApproveResolve}
+                  disabled={!canApprove}
+                  aria-busy={resolutionPending || undefined}
+                  className="inline-flex min-h-tap-min flex-1 items-center justify-center gap-2 rounded-sm bg-accent px-4 text-sm font-semibold whitespace-nowrap text-accent-text transition-colors duration-fast hover:bg-accent-hover disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface sm:flex-none"
+                >
+                  {resolutionPending ? "Applying…" : "Approve & apply"}
+                </button>
+              ) : null}
+            </>
+          ) : /* §11 T10: instant — deliberate (footer swaps on isDirtyRescan/props change; server truth) */
+          isDirtyRescan ? (
             /* Dirty re-scan (spec §9.2): the plain publish approve cannot clear
                RESCAN_REVIEW_REQUIRED, so BOTH the publish and re-scan buttons
                are suppressed; the operator routes through the reapply page
