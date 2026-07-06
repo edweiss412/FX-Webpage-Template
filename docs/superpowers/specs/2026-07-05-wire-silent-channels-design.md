@@ -91,7 +91,7 @@ log.warn("Dropped sheet with unexpected parent folder", {
 |---|---|
 | `audience` | `"doug"` |
 | `resolution` | `"auto"` |
-| `adminSurface` | `"inbox"` (Needs-attention to-do; mirrors `PARSE_ERROR_LAST_GOOD`/`RESYNC_SHRINK_HELD`) |
+| `adminSurface` | **banner** (default; omit `adminSurface`) — mirrors `SYNC_STALLED`, B's global sibling. **Not `inbox`**: the needs-attention inbox is a per-show to-do surface, and a global `showId:null` row is a system banner, not a per-show item. This also keeps B clear of the `assertNotInboxRouted` manual-resolve guard (round-2 finding 1) — though B's resolve is RPC-internal regardless (§5.4). |
 | `severity` | (predicate code — has `title`/`longExplanation`/`helpHref`) |
 | identity | global — `showId: null` (like `SYNC_STALLED`) |
 
@@ -116,7 +116,7 @@ The uniqueness index collapses all `showId:null` `FIRST_SEEN_PARSE_FAILED` sight
 ```
 
 - **Add (raise):** on a first-seen hard-fail, set `failures[driveFileId] = { sheet_title, code }`. Keyed by `driveFileId` → natural dedup (a repeated failure of the same sheet overwrites its own entry, no growth).
-- **Prune + resolve (recovery):** a first-seen sheet leaves the failing set when it is next processed **successfully** — i.e. it stages (`stage` outcome) or publishes, meaning it is no longer a first-seen parse-failure. At each such bounded success site, remove `failures[driveFileId]`; **if `failures` becomes empty, resolve the alert** (`resolveAdminAlert({ showId: null, code: "FIRST_SEEN_PARSE_FAILED" })`, mirroring `lib/notify/detect/stall.ts:17`'s global resolve via `.is("show_id", null)`).
+- **Prune + resolve (recovery):** a first-seen sheet leaves the failing set when it is next processed **successfully** — i.e. it stages (`stage` outcome) or publishes, meaning it is no longer a first-seen parse-failure. At each such bounded success site, call `prune_first_seen_parse_failed(driveFileId)` which removes `failures[driveFileId]` and, **if `failures` becomes empty, sets `resolved_at = now()` on the global row inside the same SECURITY DEFINER function** (§5.4). The resolve is therefore a raw tx-bound SQL update inside the RPC — it does **not** call the `resolveAdminAlert` helper and so cannot trip the `assertNotInboxRouted` guard (moot anyway since B is banner, not inbox). (This is why B does not reuse `stall.ts`'s `resolveAdminAlert` path — B's resolve is atomic with its prune.)
 
 **Merge semantics require an RPC change.** The current `upsert_admin_alert` (`supabase/migrations/20260618000000_upsert_admin_alert_failedkeys_merge.sql`) merges a **grow-only text array** (`failedKeys`) — it cannot prune, and it merges text not objects. B needs **object-map add** and **key-prune**.
 
@@ -195,7 +195,9 @@ On each **applied** sync for a published show (tx-bound, under the show lock —
 3. **No open alert:** if `isQualityRegression(prior, current)` → **OPEN**, store `baseline = prior` (the pre-regression good state). Else no-op.
 4. **Open alert exists (stored `baseline`):** compare `current` against the STORED `baseline`, not the immediate prior:
    - `isQualityRegression(baseline, current)` still true → **keep open**; re-upsert refreshing `breakdown`/`new_classes`/`worsened` but **preserve `baseline` unchanged** (do not let a further 40→80 step move the anchor).
-   - `isQualityRegression(baseline, current)` false → **RESOLVE** (`resolveAdminAlert({ showId, code })`, mirroring `PARSE_ERROR_LAST_GOOD` auto-resolve).
+   - `isQualityRegression(baseline, current)` false → **RESOLVE** via a dedicated tx-bound SQL update (new helper `resolveQualityRegression_unlocked(tx, showId)`: `update public.admin_alerts set resolved_at = now() where show_id = $1::uuid and code = 'RESYNC_QUALITY_REGRESSED' and resolved_at is null`). This is a raw tx update (same mechanism family as `resolveStaleSyncProblemAlerts_unlocked`), NOT the `resolveAdminAlert` helper — `RESYNC_QUALITY_REGRESSED` is `adminSurface:"inbox"` and `resolveAdminAlert` throws for inbox codes via `assertNotInboxRouted` (round-2 finding 1). Tx-bound, under the show lock, so it commits atomically with the sync outcome.
+
+**Why C is NOT added to `SYNC_PROBLEM_CODES`:** the generic success sweep `resolveStaleSyncProblemAlerts_unlocked(tx, showId, null)` (called on EVERY successful applied sync, `runScheduledCronSync.ts:3026`) unconditionally resolves every `SYNC_PROBLEM_CODES` member for the show. If C were a member, a "successful" but still-degraded sync (40→40) would resolve C — re-introducing round-1 finding 1. C's resolve is **warnings-conditional (vs baseline), not status-conditional**, so it must stay OUT of `SYNC_PROBLEM_CODES` and use its own dedicated conditional resolve above. (C is not a "sync problem" in the status sense — the sync applied fine.)
 
 This yields the required behavior: **4→40 opens (baseline 4); 40→40 stays open (still regressed vs baseline 4); 40→80 stays open, baseline pinned at 4; 80→4 resolves (no longer regressed vs baseline 4).**
 
@@ -230,13 +232,13 @@ Each new §12.4 code fans out (verified files exist against HEAD):
 5. **`AdminAlertCode` union** — `lib/adminAlerts/upsertAdminAlert.ts:3-37` (add both codes).
 6. **`tests/messages/adminAlertsRegistry.ts`** — add both (the alert-code registry).
 7. **`tests/messages/_metaAlertAudienceContract.test.ts`** — audience rows (`doug` for both).
-8. **`tests/messages/adminSurface.test.ts`** — `inbox` for both.
+8. **`tests/messages/adminSurface.test.ts`** — `inbox` for **C only**; **B is banner** (default, not inbox — §5.1). Note: `inbox` routing makes a code auto-resolve-only (manual `resolveAdminAlert` is guarded by `assertNotInboxRouted`), which is why C's resolve is a raw tx SQL update (§6.4) — consistent with C being inbox.
 9. **`tests/messages/_metaAlertActionsContract.test.ts`** — alert-action rows + **raise-site-pinning regex** (this is the raise-site-pinning meta-test, PR #287; e.g. pin `code: "RESYNC_QUALITY_REGRESSED"` to its producer). C is show-scoped (pin `showId: show.showId, code: "RESYNC_QUALITY_REGRESSED"`); B is global (pin `showId: null, code: "FIRST_SEEN_PARSE_FAILED"` — or via the new RPC helper name).
 10. **`lib/adminAlerts/alertActions.ts`** — action entries (both; C mirrors `RESYNC_SHRINK_HELD:106`, B mirrors `SYNC_STALLED`).
 11. **`lib/adminAlerts/alertIdentityMap.ts`** — `{ kind: "global" }` for both (B truly global; C sheet-in-copy).
-12. **`lib/notify/constants.ts`** — add to the sync-problem/notify code set if applicable (C is a sync-problem code like `RESYNC_SHRINK_HELD:6`; B is a global detector like `SYNC_STALLED`).
-13. **`lib/notify/detect/recoveryResolution.ts`** — if C participates in the status→code recovery map (`shrink_held → RESYNC_SHRINK_HELD`, `:8/:63`), add the analogous mapping so a recovered sync auto-resolves it.
-14. **`lib/cron/classifyProcessed.ts`** — classification counter if the outcome needs a bucket (C's "regressed-but-applied" is still an `applied` outcome — likely no new bucket; confirm).
+12. **`lib/notify/constants.ts` — `SYNC_PROBLEM_CODES`: do NOT add C or B.** C's resolve is warnings-conditional (vs baseline), so it must be excluded from the unconditional success sweep at `runScheduledCronSync.ts:3026` (round-2 finding 1 — see §6.4). B is a global banner detector (like `SYNC_STALLED`, which is also not in `SYNC_PROBLEM_CODES`), resolved in-RPC. Neither joins the set. (This also means the `sync-problem-codes.test.ts` registry stays as-is for these two codes — verify it does not force-require every new alert code into `SYNC_PROBLEM_CODES`.)
+13. **`lib/notify/detect/recoveryResolution.ts` — N/A for C and B.** The status→code recovery map (`shrink_held → RESYNC_SHRINK_HELD`, `:8/:63`) keys off a sync **status**. C has no distinct status (a regressed sync's status is the normal applied/ok status); B is global with no per-show status. Both resolve via their own dedicated paths (C: `resolveQualityRegression_unlocked`; B: in-RPC prune), NOT the status-map. No recoveryResolution edit.
+14. **`lib/cron/classifyProcessed.ts`** — no new bucket. C's "regressed-but-applied" is still an `applied`/success outcome; B's first-seen hard-fail already classifies as `hard_failed`. Confirm no counter change needed.
 15. **help/errors** — new anchors + `_families` check (`feedback_new_12_4_code_full_ci_touchpoints`): `/help/errors#FIRST_SEEN_PARSE_FAILED`, `RESYNC_QUALITY_REGRESSED`.
 16. **Per-show admin page** — the show-scoped C alert renders on `app/admin/show/[slug]/page.tsx` via the existing alert-list renderer (no new component expected; confirm during impl whether any `app/` file changes → if so, invariant 8 impeccable dual-gate).
 17. **Run the FULL suite** before push (`feedback_new_12_4_code_full_ci_touchpoints`, `feedback_full_suite_before_push_scoped_gates_miss_regressions`).
@@ -244,8 +246,8 @@ Each new §12.4 code fans out (verified files exist against HEAD):
 ## 8. Meta-test inventory (writing-plans requirement)
 
 - **CREATES:** none.
-- **EXTENDS:** `adminAlertsRegistry.ts`, `_metaAlertAudienceContract.test.ts`, `adminSurface.test.ts`, `_metaAlertActionsContract.test.ts` (incl. raise-site pins), `recovery-resolution.test.ts`, `sync-problem-codes.test.ts`, x1-catalog-parity (`codes.test.ts`), the internal-code-enums gate, and the `dataGapsClassCompleteness`-adjacent parser tests (C's comparator lives next to `summarizeDataGaps`).
-- **Advisory-lock topology:** untouched. All raises are post-commit, outside the lock; single-holder rule (invariant 2) unaffected. New RPCs (`upsert/prune_first_seen_parse_failed`) do **not** acquire `pg_advisory*`. Declared explicitly.
+- **EXTENDS:** `adminAlertsRegistry.ts`, `_metaAlertAudienceContract.test.ts`, `adminSurface.test.ts`, `_metaAlertActionsContract.test.ts` (incl. raise-site pins), x1-catalog-parity (`codes.test.ts`), the internal-code-enums gate, and the `dataGapsClassCompleteness`-adjacent parser tests (C's comparator lives next to `summarizeDataGaps`). **`sync-problem-codes.test.ts` / `recovery-resolution.test.ts`:** verify only that these two codes are correctly EXCLUDED from `SYNC_PROBLEM_CODES` and the status→code recovery map (§7.12/§7.13) — no new positive rows there.
+- **Advisory-lock topology:** untouched. B/C alert **raises and auto-resolves are tx-bound inside the existing `withShowLock` pipeline transaction** (mirroring `PARSE_ERROR_LAST_GOOD` at `runScheduledCronSync.ts:2834/2843`) — this is the corrected topology (round-1 finding 2; supersedes any earlier "post-commit outside the lock" phrasing). The new B RPCs (`upsert/prune_first_seen_parse_failed`) and the C resolve helper (`resolveQualityRegression_unlocked`) do **not** acquire `pg_advisory*` — no new lock holder, no nesting. Unit A's `log.warn` telemetry is the only emit outside a lock (listing phase). Declared explicitly.
 - **PostgREST DML lockdown:** new RPCs are SECURITY DEFINER with `revoke ... from public, anon, authenticated; grant execute to service_role`. They do not add a new RPC-gated *table* (they mutate the existing `admin_alerts`, whose grants are already locked). Confirm `admin_alerts` INSERT/UPDATE is already REVOKEd from `authenticated`.
 
 ## 9. Invariants honored
@@ -284,7 +286,9 @@ The `validation-schema-parity` CI job asserts validation ⊇ manifest. C adds **
   - 40→80 stays open; stored `baseline` remains 4 (not moved to 40).
   - 80→4 **resolves** (no longer regressed vs baseline 4).
   - Baseline preservation: assert a re-upsert does NOT clobber `context.baseline`.
-  - Failure mode caught: "resolving a still-degraded show after one cycle, hiding a persistent regression."
+  - **Resolve path:** the 80→4 resolve goes through the raw tx SQL `resolveQualityRegression_unlocked`, NOT `resolveAdminAlert` — assert the recovered inbox-routed C alert resolves WITHOUT throwing the `assertNotInboxRouted` guard (round-2 finding 1). Assert C is absent from `SYNC_PROBLEM_CODES` so the generic success sweep (`:3026`) does not touch it.
+  - Failure mode caught: "resolving a still-degraded show after one cycle, hiding a persistent regression"; and "a recovered regression stuck open because the manual resolve helper throws on inbox codes."
+- **B — resolve path:** the last-sheet prune resolves the global row inside `prune_first_seen_parse_failed` (assert `resolved_at` set atomically, no `resolveAdminAlert` call). B is banner: assert `adminSurface` is not `inbox`.
 
 ## 12. Open decisions (resolved)
 
@@ -294,3 +298,5 @@ The `validation-schema-parity` CI job asserts validation ⊇ manifest. C adds **
 - **C comparator:** new-class-appeared OR (+5 abs AND +50% rel); never absolute total. Resolved (corpus-calibrated).
 - **C debounce + resolve:** storage-native dedup (one-row-per-(show,code)); **baseline-anchored auto-resolve** — resolve only when current returns to the stored pre-regression baseline, never on immediate-prior equality (round-1 finding 1). Resolved.
 - **B/C raise placement:** tx-bound inside the existing `withShowLock` pipeline tx, mirroring `PARSE_ERROR_LAST_GOOD`/`RESYNC_SHRINK_HELD` — NOT a new post-commit epilogue (round-1 finding 2). Invariant 10's post-commit-outside-lock rule governs telemetry emits (Unit A), not admin_alerts raises. Resolved.
+- **B adminSurface:** banner (not inbox), mirroring `SYNC_STALLED` its global sibling (round-2 finding 1). Resolved.
+- **Auto-resolve mechanism:** both via raw tx-bound SQL, never the `resolveAdminAlert` helper (which throws on inbox codes). C = dedicated `resolveQualityRegression_unlocked` (conditional on baseline recovery; C excluded from `SYNC_PROBLEM_CODES` so the unconditional success sweep can't prematurely resolve it). B = in-RPC `resolved_at` set on empty-failures prune. Resolved (round-2 finding 1).
