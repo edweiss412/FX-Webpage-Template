@@ -2,7 +2,7 @@
  * `namesRefer` — does a parsed hotel-guest name and a roster viewer name refer to
  * the SAME person? Used by `getShowForViewer`'s per-viewer hotel-visibility filter
  * (replacing a naive `guest.includes(viewer)` substring that under-matched ~5 of 7
- * shows). Spec: docs/superpowers/specs/2026-06-26-hotel-viewer-name-match.md.
+ * shows). Spec: docs/superpowers/specs/parser/2026-06-26-hotel-viewer-name-match.md.
  *
  * The filter is UX, NOT a security boundary (owner determination 2026-05-23 — the
  * picker is a free self-identify over the full roster; getShowForViewer fetches via

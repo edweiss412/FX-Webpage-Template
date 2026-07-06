@@ -1,7 +1,7 @@
 // tests/messages/_metaAlertActionsContract.test.ts
 /**
  * Structural contract for the alert action registry
- * (spec docs/superpowers/specs/2026-07-04-alert-action-links.md §6).
+ * (spec docs/superpowers/specs/alerts/2026-07-04-alert-action-links.md §6).
  *
  * 1. Raise-site fidelity: every context field a builder consumes appears at
  *    that code's OWN raise expression (code literal and field in one bounded

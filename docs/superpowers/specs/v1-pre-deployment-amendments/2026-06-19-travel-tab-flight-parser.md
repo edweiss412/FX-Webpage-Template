@@ -2,7 +2,7 @@
 
 **Status:** spec (owner-review WAIVED — Codex adversarial review is the gate).
 **Branch:** `feat/travel-tab-flight` (worktree `/Users/ericweiss/FX-Webpage-Template-travel-flight`) off merged main `0bc5f59d`.
-**Follows:** the merged Phase-3 per-crew flight info (PR #46) — the `DEF-FLIGHT-1` entry in `docs/superpowers/plans/2026-06-19-crew-flight-info/DEFERRED.md`.
+**Follows:** the merged Phase-3 per-crew flight info (PR #46) — the `DEF-FLIGHT-1` entry in `docs/superpowers/plans/parser/2026-06-19-crew-flight-info/DEFERRED.md`.
 
 ## Goal
 

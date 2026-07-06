@@ -192,7 +192,7 @@ export function inScopeAliases(scopePrefix: string): string[] {
 
 /**
  * Resolve a label to a canonical UNDER scopePrefix only, scoped on BOTH paths (spec
- * §5.1 of docs/superpowers/specs/2026-06-27-parser-typo-tolerance-design.md): an
+ * §5.1 of docs/superpowers/specs/parser/2026-06-27-parser-typo-tolerance-design.md): an
  * out-of-scope exact alias returns null (never borrows another block's canonical);
  * a near-miss of an in-scope alias is fuzzy-corrected via the gate (minLen 5, tie-abort,
  * sub-label exclusion). The global `resolveAlias`/`resolveAliasFull` stay exact + untouched.

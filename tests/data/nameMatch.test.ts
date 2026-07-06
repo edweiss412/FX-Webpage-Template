@@ -1,6 +1,6 @@
 /**
  * Tests for `namesRefer` — the hotel-guest↔viewer name matcher.
- * Spec: docs/superpowers/specs/2026-06-26-hotel-viewer-name-match.md (§1 oracle).
+ * Spec: docs/superpowers/specs/parser/2026-06-26-hotel-viewer-name-match.md (§1 oracle).
  *
  * The matcher decides whether a parsed hotel-guest name and a roster viewer name
  * refer to the SAME person, tolerant of first-name-only, nickname/legal-name

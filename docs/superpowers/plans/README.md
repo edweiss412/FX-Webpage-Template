@@ -21,9 +21,24 @@ Everything that must close before Doug touches the product. Composed of one mast
 
 **M13 — v1 launch** is tracked inside the M12 plan as its successor milestone (v1.0 release moment). When it lands, the v1 bundle closes.
 
-## v1.X+ post-deployment plans (future)
+## v1.X+ post-deployment plans — grouped by subsystem
 
-Plans created after the v1 release will land as **top-level peers** of `2026-04-30-fxav-crew-pages-v1/`, *not* inside `v1-pre-deployment-amendments/`. Suggested naming: `2026-XX-XX-v1.1-{slug}/` so the version is in the path. The pre-deployment-amendments subdir is frozen at v1 release; it's a historical artifact of the launch bundle.
+Plans created after the v1 bundle are grouped into **subsystem folders** that mirror [`../specs/`](../specs/README.md) (dates stay in each filename, so chronology is preserved within a folder). A plan and its spec share the same subsystem folder name.
+
+| Folder | Scope |
+| --- | --- |
+| [`parser/`](./parser/) | Sheet parsing & fidelity |
+| [`step3-onboarding/`](./step3-onboarding/) | Onboarding wizard & Step-3 review |
+| [`observability/`](./observability/) | Telemetry & logging |
+| [`alerts/`](./alerts/) | Admin alerts |
+| [`schedule/`](./schedule/) | Show-day schedule & agenda |
+| [`nav-perf/`](./nav-perf/) | Navigation performance |
+| [`ci/`](./ci/) | CI pipeline |
+| [`data-quality/`](./data-quality/) | Data-quality & resync |
+| [`crew/`](./crew/) | Crew page |
+| [`admin/`](./admin/) | Admin surfaces |
+
+Each folder has its own `README.md` index listing every entry. The `v1-pre-deployment-amendments/` subdir is frozen at v1 release; it's a historical artifact of the launch bundle, distinct from these subsystem folders.
 
 ## Speculative future work (not yet a plan)
 

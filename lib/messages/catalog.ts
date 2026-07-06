@@ -5,7 +5,7 @@ export type MessageCatalogEntry = {
    * Admin-surface routing (catalog-internal, like `severity`; NOT §12.4 prose).
    * Default (absent) = "banner". "inbox" routes the code out of the dismissible
    * AlertBanner and into the Needs attention inbox as an auto-clearing to-do.
-   * See docs/superpowers/specs/2026-07-03-route-sync-problems-to-needs-attention.md.
+   * See docs/superpowers/specs/alerts/2026-07-03-route-sync-problems-to-needs-attention.md.
    */
   adminSurface?: "banner" | "inbox";
   /**

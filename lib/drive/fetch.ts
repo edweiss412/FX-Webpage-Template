@@ -114,7 +114,7 @@ export class DriveFetchError extends Error {
  * (still an `instanceof DriveFetchError`, so existing Drive-fault handlers keep
  * classifying it) fails fast at the chokepoint with a stack pointing at the real
  * caller, so a detached/mystery empty-id call self-identifies. See
- * docs/superpowers/specs/2026-07-02-cron-empty-id-throw-attribution-design.md.
+ * docs/superpowers/specs/observability/2026-07-02-cron-empty-id-throw-attribution-design.md.
  */
 export class InvalidDriveFileIdError extends DriveFetchError {
   readonly rawFileId: string;

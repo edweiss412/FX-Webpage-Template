@@ -2,8 +2,8 @@
 
 **Date:** 2026-07-03
 **Branch:** `fix/nullcode-forensic-batch2`
-**Spec:** `docs/superpowers/specs/2026-07-03-nullcode-forensic-batch2-design.md`
-**Plan:** `docs/superpowers/plans/2026-07-03-nullcode-forensic-batch2-plan.md`
+**Spec:** `docs/superpowers/specs/observability/2026-07-03-nullcode-forensic-batch2-design.md`
+**Plan:** `docs/superpowers/plans/observability/2026-07-03-nullcode-forensic-batch2-plan.md`
 
 Stamps a forensic `code:` field on 35 null-code `log.error`/`log.warn` sites so they persist to `app_events` as queryable, groupable rows. Pure observability enrichment — each edit adds one `code:` field to an existing 2nd-arg fields object; zero behavior change. Registered in `NEW_FORENSIC_CODES`; proven by an AST guard that reads the same surface `lib/log/logger.ts` persists (top-level `code` of the 2nd argument) plus runtime emission spies.
 

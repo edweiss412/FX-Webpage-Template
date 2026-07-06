@@ -3,7 +3,7 @@ import { driveFolderUrl } from "@/lib/drive/driveFolderUrl";
 
 /**
  * Per-code action links for admin alert rows
- * (spec docs/superpowers/specs/2026-07-04-alert-action-links.md §3-§4).
+ * (spec docs/superpowers/specs/alerts/2026-07-04-alert-action-links.md §3-§4).
  *
  * Keyed by its own exact literal union, NOT `AdminAlertCode`: three of these
  * codes are raw-SQL/script producers deliberately outside that union (see

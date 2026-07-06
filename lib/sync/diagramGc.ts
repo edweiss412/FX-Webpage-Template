@@ -31,7 +31,7 @@ export type DiagramGcTx = {
   listPendingPromotionRetries?(now: Date): Promise<string[]>;
   deletePromotedRows(now: Date): Promise<number>;
   emitStuckAlerts?(now: Date): Promise<void>;
-  // S4 (docs/superpowers/specs/2026-07-03-admin-alert-auto-resolution.md#s4): resolves
+  // S4 (docs/superpowers/specs/alerts/2026-07-03-admin-alert-auto-resolution.md#s4): resolves
   // PENDING_SNAPSHOT_PROMOTE_STUCK / PENDING_SNAPSHOT_DELETE_STUCK for shows whose ledger row no
   // longer matches the raise predicate above — the same gc cycle's inverted anti-join.
   resolveClearedStuckAlerts?(now: Date): Promise<void>;

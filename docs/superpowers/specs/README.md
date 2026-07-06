@@ -28,9 +28,24 @@ Live in [`master-spec-patches/`](./master-spec-patches/). These are surgical edi
 
 Distinct from `v1-pre-deployment-amendments/`: those are full amendment-shaped specs (each has its own plan tree, AC table, adversarial-review log); the entries here patch existing master-spec content rather than standing alone. The earlier directory name was `amendments/` (renamed for clarity).
 
-## v1.X+ post-deployment specs (future)
+## v1.X+ post-deployment specs — grouped by subsystem
 
-Future feedback-driven specs land as **top-level peers** of `2026-04-30-fxav-crew-pages-v1.md` — *not* inside `v1-pre-deployment-amendments/`. Suggested naming: `2026-XX-XX-v1.1-{slug}.md`. The pre-deployment-amendments subdir is frozen at v1 launch; it's a historical artifact of the launch bundle.
+Feedback-driven specs created after the v1 bundle are grouped into **subsystem folders** (dates stay in each filename, so chronology is preserved within a folder). Pick the folder that matches the surface you're touching:
+
+| Folder | Scope |
+| --- | --- |
+| [`parser/`](./parser/) | Sheet parsing & fidelity — typo tolerance, gear/flight/hotel/room/set-cell, deep-links, INFO/FORM-tab, unknown labels |
+| [`step3-onboarding/`](./step3-onboarding/) | Onboarding wizard & Step-3 review — scan progress, review modal/page, publish streaming, source anchors, rescan |
+| [`observability/`](./observability/) | Telemetry & logging — centralized logging, Sentry, coverage, mutation-surface, cron attribution, forensic codes |
+| [`alerts/`](./alerts/) | Admin alerts — action links, audience split, at-a-glance identity, resolve-truthing, auto-resolution, bell center |
+| [`schedule/`](./schedule/) | Show-day schedule & agenda — key times, show-day labels, unified timeline, agenda PDF, strike/loadout, bookend days |
+| [`nav-perf/`](./nav-perf/) | Navigation performance — data/auth, UI feedback, tag caching |
+| [`ci/`](./ci/) | CI pipeline — merge queue, matrix/shard, PR speedup |
+| [`data-quality/`](./data-quality/) | Data-quality & resync — badge warn-class, resync gate, version-detection, empty-drive, finalize races |
+| [`crew/`](./crew/) | Crew page — picker, partial-attendance chip, client-section toggle, transport, redesigns |
+| [`admin/`](./admin/) | Admin surfaces — developer tier, dev-gate, shows status/table, published toggle, validation reset |
+
+Each folder has its own `README.md` index listing every entry. The `v1-pre-deployment-amendments/` subdir is frozen at v1 launch; it's a historical artifact of the launch bundle, distinct from these subsystem folders.
 
 ## Conventions
 

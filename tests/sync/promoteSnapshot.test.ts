@@ -76,7 +76,7 @@ vi.mock("@/lib/sync/lockedShowTx", () => ({
 const { promoteSnapshotUpload, repairSnapshotRollback } =
   await import("@/lib/sync/promoteSnapshot");
 
-// The exact resolve UPDATE from the S4 spec (docs/superpowers/specs/2026-07-03-admin-alert-auto-resolution.md#s4):
+// The exact resolve UPDATE from the S4 spec (docs/superpowers/specs/alerts/2026-07-03-admin-alert-auto-resolution.md#s4):
 // `update public.admin_alerts set resolved_at = now() where show_id = $1::uuid and code =
 // 'PENDING_SNAPSHOT_ROLLBACK_STUCK' and resolved_at is null`, issued via the same `promoteTx`
 // clearRolledBack/repairSnapshotRollback already hold — never a fresh connection.
@@ -122,7 +122,7 @@ describe("promoteSnapshotUpload", () => {
     );
   });
 
-  // S4 (docs/superpowers/specs/2026-07-03-admin-alert-auto-resolution.md#s4): clearRolledBack is
+  // S4 (docs/superpowers/specs/alerts/2026-07-03-admin-alert-auto-resolution.md#s4): clearRolledBack is
   // the automatic-retry rollback-completion code point. A manifest-count mismatch on the
   // temp-prefix listing (asset_count=2 but storage only has 1 file) is the simplest trigger for
   // clearRolledBack — it fires BEFORE any move is attempted, so this proves the resolve fires on
