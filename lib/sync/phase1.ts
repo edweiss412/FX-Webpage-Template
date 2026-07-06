@@ -26,6 +26,13 @@ export type Phase1ShowRow = {
   lastSyncStatus: string | null;
   lastSyncError: string | null;
   priorParseResult: ParseResult;
+  /**
+   * RAW nullable prior parse_warnings (spec §6.5): `null` when the column is NULL OR no
+   * shows_internal row exists (untrustworthy baseline → Unit C skips), distinct from the
+   * coalesced `priorParseResult.warnings` (`?? []`). Optional so non-C fixtures needn't set it;
+   * the concrete readShowForPhase1 producer always sets it (null or the raw array).
+   */
+  priorParseWarningsRaw?: ParseResult["warnings"] | null;
 };
 
 export type Phase1PendingSyncRow = {

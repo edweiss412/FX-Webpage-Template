@@ -693,6 +693,9 @@ class PostgresPipelineTx implements SyncPipelineTx {
         warnings: internal?.parse_warnings ?? [],
         hardErrors: [],
       },
+      // §6.5: RAW nullable prior warnings — null when the column is NULL OR no shows_internal row
+      // (untrustworthy baseline → Unit C skips). NOT coalesced to [] like `warnings` above.
+      priorParseWarningsRaw: internal?.parse_warnings ?? null,
     };
   }
 
