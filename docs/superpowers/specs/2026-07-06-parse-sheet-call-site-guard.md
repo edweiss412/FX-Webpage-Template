@@ -101,7 +101,15 @@ try {
   // novel structure hit an unanticipated path. Route it to the SAME fail-closed handling as a
   // parse hardError (retain last-good + PARSE_ERROR_LAST_GOOD for existing; stage for first-seen)
   // instead of aborting the sync. Audit rec-6 / finding #17.
-  const message = error instanceof Error ? error.message : String(error);
+  // Message extraction is itself guarded: a pathological throw value (Symbol, or an object with a
+  // throwing `message` getter / `toString`) would make `String(error)` or `.message` throw and
+  // re-break the guard. Fall back to a fixed string so synthesis ALWAYS proceeds.
+  let message: string;
+  try {
+    message = error instanceof Error ? error.message : String(error);
+  } catch {
+    message = "unknown parser error (unstringifiable throw value)";
+  }
   // Synthesize the fail-closed sheet FIRST — the guard must not depend on logging succeeding.
   parsed = buildThrownParsedSheet(message);
   // Forensic, best-effort: never let a logging fault (rejecting sink) break the guard or leak
@@ -120,7 +128,7 @@ try {
 - The try/catch wraps the **injection seam** `(deps.parseSheet ?? parseMarkdownSheet)(...)`, so both the real parser and any test-injected `deps.parseSheet` are guarded (this is the test seam).
 - **`parsed` is assigned before the log call**, so even a throwing/rejecting log sink (installed via `setLogSink`, `lib/log/logger.ts:90`) cannot prevent the fail-closed synthesis. The `.catch(() => {})` prevents an unhandled rejection (memory: unhandled rejections fail CI with all tests passing).
 - `source: "sync"` is mandatory (`LogFields` requires `source`, `lib/log/types.ts:5`); `driveFileId` (camelCase) is the reserved correlation field mapped to `LogRecord.driveFileId` (`logger.ts:12,48`) — using `drive_file_id` would misfile the ID as free context, not the app_events join column.
-- `PARSE_SHEET_THREW` is a **log-only forensic code** (free string on `log.error`'s second arg), distinct from the `PARSE_THREW` hardError code and from any §12.4 catalog code. It must satisfy the log-code AST guard (`code` on `args[1]`, top-level) checked by `tests/sync/_metaInfraContract.test.ts` — verified during implementation.
+- `PARSE_SHEET_THREW` is a **log-only forensic code** (free string on `log.error`'s second arg), distinct from the `PARSE_THREW` hardError code and from any §12.4 catalog code. The runtime logger persists ONLY the top-level `code` of the second argument (`lib/log/logger.ts:46`), so the code is placed as a top-level key of `args[1]` (as written above). **No existing meta-test structurally pins this call:** `tests/sync/_metaInfraContract.test.ts` is a Supabase infra-failure registry (does not parse `log.*` calls); the AST log-code guard `findLogErrorWarnCalls` lives in `tests/log/_metaAdminOutcomeContract.test.ts:307` but is scoped to a hardcoded admin-outcome registry, and the mutation-surface scanner (`tests/log/mutationSurface/enumerate.ts`) only covers route/action surfaces — `prepareProcessOneFile` is an internal sync function, out of both scopes. Correctness of the emit is therefore proved behaviorally by the §4.2 "forensic log emitted with correct fields" test (capturing the record via `setLogSink`), not by a static registry row.
 - Downstream is byte-identical to a normal MI-1 flow: `parsed.show.agenda_links?.length` (`:2784`) is `[]` → skipped; `enrichWithDrivePins` already tolerates the minimal sheet (MI-1 already flows through it today); `runPhase1_unlocked` → `hard_fail`.
 
 ### 2.5 Advisory-lock invariant (invariant 2)
@@ -134,7 +142,8 @@ try {
 | Input / state | Behavior |
 |---|---|
 | `error` is an `Error` | `message = error.message` |
-| `error` is a string / number / `undefined` / `null` (non-Error throw) | `message = String(error)` — never crashes on message extraction |
+| `error` is a string / number / `undefined` / `null` (non-Error throw) | `message = String(error)` |
+| `error` is unstringifiable (`Symbol`, throwing `message` getter / `toString`) | message-extraction try/catch → fixed fallback string; synthesis still proceeds |
 | Thrown on an **existing** show | `hard_fail` → last-good retained by Phase-1 → `PARSE_ERROR_LAST_GOOD` upserted (`:2985`) |
 | Thrown on a **first-seen** show (no existing `shows` row) | `hard_fail` → `pending_ingestions` row written via `upsertLivePendingIngestion` (`phase1.ts:369`), **no `shows` row**, no auto-publish (fail-closed) — identical to a normal first-seen MI-1 hard_fail |
 | Forensic `log.error` sink throws/rejects | `parsed` already synthesized → guard still routes to `hard_fail`; rejection swallowed, no unhandled rejection |
@@ -157,10 +166,12 @@ Use the `deps.parseSheet` injection to supply a parser that throws.
 - **Existing show → retain last-good + alert.** With a throwing parser and a prior published show, assert `outcome === "hard_fail"`, the show's last-good data is retained (not clobbered), and a `PARSE_ERROR_LAST_GOOD` admin alert is upserted. *Catches:* a guard that catches the throw but fails to route to the hard_fail branch (e.g. synthesizing a `pass`-able sheet), silently overwriting live data.
 - **First-seen → fail-closed pending_ingestions, no `shows` row.** With a throwing parser and no prior show, assert the outcome is `hard_fail`, a `pending_ingestions` row is written (`lastErrorCode === "MI-1_VERSION_DETECTION_FAILED"`), and **no `shows` row is published** (`showId` null) — mirroring a normal first-seen MI-1 hard_fail exactly. *Catches:* a first-seen throw leaking into auto-publish, AND a mis-assertion that "nothing is written" (a normal first-seen hard_fail DOES write pending_ingestions — `phase1.ts:369`, `phase1.test.ts:585`).
 - **Forensic log emitted with correct fields.** Assert a `log.error` carrying `source: "sync"`, `code: "PARSE_SHEET_THREW"`, and `driveFileId` (the reserved field, mapped to `LogRecord.driveFileId`) is emitted on the throw path — capture via `setLogSink`. *Catches:* the channel going silent, and the ID being misfiled as free context instead of the join column.
-- **Logging fault does not break the guard.** Install a `setLogSink` that throws/rejects, drive a parser throw, and assert the guard STILL routes to `hard_fail` (last-good retained / pending_ingestions written) with no unhandled rejection. *Catches:* a regression that awaits the log before synthesizing `parsed`, letting a logger fault re-break the sync (finding-3 vector).
+- **Logging fault does not break the guard.** Install a `setLogSink` that throws/rejects, drive a parser throw, and assert the guard STILL routes to `hard_fail` (last-good retained / pending_ingestions written) with no unhandled rejection. *Catches:* a regression that awaits the log before synthesizing `parsed`, letting a logger fault re-break the sync (R1 finding-3 vector).
+- **Pathological throw value does not break the guard.** Inject a `deps.parseSheet` that throws a value whose stringification fails (e.g. `throw Symbol()` — `String(Symbol())` throws `TypeError`; or an object with a throwing `message` getter). Assert the guard still synthesizes the thrown sheet and routes to `hard_fail`. *Catches:* the message-extraction line itself throwing before `parsed` is assigned (R2 finding-2 vector).
 
 ### 4.3 Meta / regression
-- Run `tests/sync/_metaInfraContract.test.ts` after adding the `log.error` — confirm the new call satisfies the log-code AST guard (code on `args[1]`) and the Supabase call-boundary scan is unaffected.
+- **No new structural meta-test is created or required.** `prepareProcessOneFile` is an internal sync function (not a route/action mutation surface), so `tests/log/_metaMutationSurfaceObservability.test.ts` does not cover it, and the AST log-code guard in `tests/log/_metaAdminOutcomeContract.test.ts` is scoped to a hardcoded admin-outcome registry that this call is not a member of. Correctness of the `log.error` fields is proved behaviorally (§4.2), not statically.
+- Re-run `tests/sync/_metaInfraContract.test.ts` after the edit only to confirm the **Supabase call-boundary** scan is unaffected (the change adds no new Supabase call; this is a regression check, not a log-code assertion).
 - Run the full parser + sync suites (`pnpm test`) — the change touches a shared chokepoint (`runInvariants`), so scoped gates are insufficient (memory: full-suite-before-push).
 
 ---
