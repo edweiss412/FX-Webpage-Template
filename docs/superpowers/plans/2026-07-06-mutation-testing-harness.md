@@ -794,7 +794,7 @@ const CONSULTANTS_RUN = [
 ].join("\n");
 
 describe("operator inventory is complete (plan-R7)", () => {
-  it("exactly the 9 expected operators are registered (7 corrupting + 2 cosmetic)", () => {
+  it("exactly the 9 expected operators are registered (8 corrupting + 1 cosmetic)", () => {
     expect(Object.keys(OPERATORS).sort()).toEqual(
       [
         "header-typo", "ref-sub", "unicode-inject", "column-shift",
@@ -1108,7 +1108,7 @@ function* sectionReorder(md: string): Generator<Mutant> {
   for (let i = 0; i < blocks.length - 1; i++) {
     const swapped = [...blocks.slice(0, i), blocks[i + 1], blocks[i], ...blocks.slice(i + 2)].join("\n\n");
     if (swapped === md) continue; // identical blocks → no-op, skip
-    yield { md: swapped, siteId: `section-reorder:B${i}:L0:Xpair${i}`, bucket: "cosmetic", domains: [] };
+    yield { md: swapped, siteId: `section-reorder:B${i}:L0:Xpair${i}`, bucket: "corrupting", domains: [] }; // reclassified corrupting: parser is order-sensitive (measured 2026-07-06)
   }
 }
 
@@ -1757,9 +1757,9 @@ it("measure corpus size + wall-clock", () => {
 
 Run: `pnpm vitest run tests/parser/mutation/_measure.test.ts` then `rm tests/parser/mutation/_measure.test.ts`.
 
-Record both numbers in the Task 8 commit message. **MEASURED (2026-07-06): 101,795 mutants; ~29.8 ms/parse; ≈ 3,029 s (~50 min) serial full parse.** The count (101,795) sets the corpus-budget assertion (≤ `MUTANT_BUDGET` 150,000 — comfortably under; no raise needed). The wall-clock outcome:
+Record both numbers in the Task 8 commit message. **MEASURED (2026-07-06): 101,795 mutants; ~54 ms/parse; ≈ 5,541 s (~92 min) serial full parse. Also surfaced: `section-reorder` produced 82 alarms (58 SILENT_WRONG + 24 SILENT_SIGNAL_LOSS) → reclassified from cosmetic to CORRUPTING (parser is order-sensitive); `trailing-whitespace` 0 violations (genuinely cosmetic).** The count (101,795) sets the corpus-budget assertion (≤ `MUTANT_BUDGET` 150,000 — comfortably under; no raise needed). The wall-clock outcome:
   - **count ≤ `MUTANT_BUDGET` (150_000)** ✔ — 101,795 with ~48k headroom. (If a future fixture pushes it near the ceiling, raise `MUTANT_BUDGET` deliberately after confirming the fanout is intended, not a per-char bug.)
-  - **wall-clock ≈ 3,029 s — 20× the ~150 s a merge-gating `unit-suite` leg can absorb.** Sampling was rejected (a silent-wrong parse in an un-parsed site would ship undetected, §4.3); ~20-file FILE-level sharding is fragile against the 20-min leg timeout. **RESOLUTION (user-directed 2026-07-06): keep full exhaustiveness and move the harness OFF the merge-gating path onto a dedicated NIGHTLY workflow** (Task 12) — excluded from the default suite, run only via `VITEST_INCLUDE_MUTATION_HARNESS=1` on a `schedule:` + `workflow_dispatch:` job with a 90-min leg timeout. The single-`beforeAll` design below is unchanged EXCEPT its hook timeout is raised to 75 min (`4_500_000 ms`) to cover the ~50-min run.
+  - **wall-clock ≈ 5,541 s (~92 min) — 37× the ~150 s a merge-gating `unit-suite` leg can absorb.** Sampling was rejected (a silent-wrong parse in an un-parsed site would ship undetected, §4.3); ~20-file FILE-level sharding is fragile against the 20-min leg timeout. **RESOLUTION (user-directed 2026-07-06): keep full exhaustiveness and move the harness OFF the merge-gating path onto a dedicated NIGHTLY workflow** (Task 12) — excluded from the default suite, run only via `VITEST_INCLUDE_MUTATION_HARNESS=1` on a `schedule:` + `workflow_dispatch:` job with a 180-min leg timeout. The single-`beforeAll` design below is unchanged EXCEPT its hook timeout is raised to 180 min (`10_800_000 ms`) to cover the ~92-min run with margin.
 
 Proceed with the single-`beforeAll` design below (nightly-scoped per Task 12).
 
@@ -1829,8 +1829,8 @@ function runAll(): { alarms: Alarm[]; allSiteIds: string[]; cosmeticViolations: 
 // run of the cheap structural-gate describes added in Task 9 — `-t "classifier parity"`,
 // `-t "COUNT-level audit agreement"`, and their red-phase probes — collects this module but runs
 // only the matched describe's hooks/tests, so `runAll()` never fires for those. Only tests INSIDE
-// this describe pay the corpus cost. The hook carries an explicit 75-min (4_500_000 ms) timeout
-// because the measured corpus wall-clock (Step 1) is ~50 min — far past vitest's default hookTimeout
+// this describe pay the corpus cost. The hook carries an explicit 180-min (10_800_000 ms) timeout
+// because the measured corpus wall-clock (Step 1) is ~92 min — far past vitest's default hookTimeout
 // (10s) AND past the 300s originally planned before the exhaustive corpus was measured. This heavy
 // file is EXCLUDED from the default/unit-suite discovery and run ONLY by the nightly workflow
 // (opt-in VITEST_INCLUDE_MUTATION_HARNESS, Task 12) — the beforeAll deferral additionally keeps its
@@ -1839,7 +1839,7 @@ describe("mutation harness — bidirectional known-holes ledger", () => {
   let R: { alarms: Alarm[]; allSiteIds: string[]; cosmeticViolations: string[]; noOps: string[] };
   beforeAll(() => {
     R = runAll(); // throws (fails the hook) if Phase-1 mutant count exceeds MUTANT_BUDGET before any parse
-  }, 4_500_000);
+  }, 10_800_000);
 
   it("corpus size is within the documented runtime budget (plan-R17)", () => {
     expect(R.allSiteIds.length).toBeGreaterThan(0);
@@ -2209,7 +2209,7 @@ describe("coverage legibility (exhaustive; skippedInapplicable surfaced)", () =>
       const md = readFixture(f);
       for (const op of OPERATOR_NAMES) {
         for (const m of boundedMutants(op, md)) { total++; for (const dm of m.domains) domains.add(dm); } // guarded stream (plan-R24)
-        if (op.startsWith("section-reorder") || op.startsWith("trailing")) continue; // cosmetic: no floor
+        if (op.startsWith("section-reorder") || op.startsWith("trailing")) continue; // domain-agnostic (section-reorder) / cosmetic (trailing): no per-domain floor
         const sk = skippedInapplicable(md, op);
         if (sk.length) skips.push(`${f.slug}/${op}: ${sk.join(",")}`);
       }
@@ -2345,7 +2345,7 @@ concurrency:
 jobs:
   mutation-harness:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

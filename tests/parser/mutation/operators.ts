@@ -146,18 +146,30 @@ function* blankRowRemove(md: string): Generator<Mutant> {
   }
 }
 
-// ---- cosmetic operators ----
+// ---- section-reorder: CORRUPTING (measured 2026-07-06) ----
+// Originally specified as a cosmetic (must-be-invisible) control on the premise that block
+// parsers scan the whole document order-independently. The day-1 exhaustive run DISPROVED that:
+// 99/486 adjacent-block swaps produced a SILENT_WRONG verdict — the parser preserves SOURCE
+// ORDER into its output arrays (crewMembers/rooms/hotelReservations/…), so reordering sections
+// silently reorders the payload with no warning. That is precisely the silent fragility the
+// harness exists to pin, so section-reorder is reclassified `corrupting`: its order-sensitive
+// swaps become ledger holes (SILENT_WRONG / SILENT_SIGNAL_LOSS), its no-effect swaps stay
+// ABSORBED, and any swap that trips a warning is SIGNALED. `domains: []` — the perturbation is
+// whole-document, not domain-scoped, so it is exempt from the per-domain coverage floor / audit
+// agreement (those cover the 7 domain-scoped corrupting keys). (Spec §4.1, amended.)
 function* sectionReorder(md: string): Generator<Mutant> {
-  // EXHAUSTIVE (plan-R10): one cosmetic mutant per ADJACENT block-pair swap, not just the
-  // first two — a parser order-dependence between late blocks must also be exercised.
+  // EXHAUSTIVE (plan-R10): one mutant per ADJACENT block-pair swap, not just the first two —
+  // a parser order-dependence between late blocks must also be exercised.
   const blocks = md.split(/\n\s*\n/);
   if (blocks.length < 2) return;
   for (let i = 0; i < blocks.length - 1; i++) {
     const swapped = [...blocks.slice(0, i), blocks[i + 1], blocks[i], ...blocks.slice(i + 2)].join("\n\n");
     if (swapped === md) continue; // identical blocks → no-op, skip
-    yield { md: swapped, siteId: `section-reorder:B${i}:L0:Xpair${i}`, bucket: "cosmetic", domains: [] };
+    yield { md: swapped, siteId: `section-reorder:B${i}:L0:Xpair${i}`, bucket: "corrupting", domains: [] };
   }
 }
+
+// ---- cosmetic operators ----
 
 function* trailingWhitespace(md: string): Generator<Mutant> {
   const swapped = md.replace(/\n/g, "  \n") + "\n\n"; // trailing spaces on each line + trailing blank lines

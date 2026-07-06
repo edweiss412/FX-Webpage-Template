@@ -17,7 +17,7 @@ const CONSULTANTS_RUN = [
 ].join("\n");
 
 describe("operator inventory is complete (plan-R7)", () => {
-  it("exactly the 9 expected operators are registered (7 corrupting + 2 cosmetic)", () => {
+  it("exactly the 9 expected operators are registered (8 corrupting + 1 cosmetic)", () => {
     expect(Object.keys(OPERATORS).sort()).toEqual(
       [
         "header-typo", "ref-sub", "unicode-inject", "column-shift",
