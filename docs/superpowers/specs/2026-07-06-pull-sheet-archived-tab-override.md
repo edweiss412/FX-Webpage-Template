@@ -88,13 +88,35 @@ Before invoking the exporter, the sync/scan path reads the row's `pull_sheet_ove
   - holds `pg_advisory_xact_lock(hashtext('show:' || p_drive_file_id))` (invariant 2 single-holder; the route/JS does **not** take the lock),
   - writes `pending_syncs.pull_sheet_override` (`null` on revoke),
   - is the sole writer of that column at the onboarding layer.
+- **RPC authorization contract** (Codex R1 finding 3 — a `SECURITY DEFINER` write to `pending_syncs` is a privileged surface independent of the route): the RPC must NOT be a PostgREST bypass. Belt-and-suspenders:
+  1. **Grant lockdown:** `revoke execute on function set_pull_sheet_override(...) from public, anon, authenticated;` `grant execute ... to service_role;`. The route calls it with the service-role client (matching existing onboarding RPCs), so `authenticated`/`anon` can never call it via PostgREST.
+  2. **In-RPC guard:** the function additionally asserts the caller context is a live onboarding session — it validates `p_wizard_session_id` against the active `app_settings.pending_wizard_session_id` and that the target `pending_syncs` row exists for `(session, drive_file_id)`; on mismatch it raises (no write). This mirrors how the existing onboarding RPCs gate to the active session, so a stale/forged session id cannot mutate an unrelated show.
+  3. A **grant meta-test** asserts `execute` is revoked from `authenticated`/`anon`, and a **direct-RPC non-admin denial test** confirms a non-service caller is rejected.
 - On success the route triggers the existing re-scan (`app/api/admin/onboarding/rescan-sheet/route.ts` path) so the preview re-parses with the pull sheet included/excluded. Accept therefore re-runs 5.3 with the new override present.
 - Fingerprint for accept is taken from the `archivedPullSheetTabs` entry the UI already holds for that tab (the route re-derives/validates it from a fresh detect to avoid trusting client input — the fingerprint written is the server-computed one).
 - Post-commit, outside the lock tx: `logAdminOutcome({ code: "PULL_SHEET_OVERRIDE_SET" | "PULL_SHEET_OVERRIDE_CLEARED", ... })` (forensic admin codes; §12.4-exempt via the admin-outcome contract, same as existing `logAdminOutcome` codes). No secret is logged; the tab name is not a secret.
 
-### 5.5 Publish propagation
+### 5.5 Publish propagation — BOTH onboarding flows
 
-At publish/apply (`lib/sync/applyStaged.ts`), `pending_syncs.pull_sheet_override` is copied to `shows.pull_sheet_override`, exactly as `source_anchors` is propagated. Cron sync (post-publish) reads `shows.pull_sheet_override`.
+The override must reach durable `shows.pull_sheet_override` on **both** finalize paths, or a cron sync after publish reads `null`, re-skips the OLD tab, and removes the gear again (Codex R1 finding 2):
+
+- **Flow A — new/first-seen show** (`lib/onboarding/applyRescanDecisionUnderLock.ts` reading `pending_syncs`): copy `pending_syncs.pull_sheet_override` → `shows.pull_sheet_override`, exactly as `source_anchors` is propagated.
+- **Flow B — existing (already-live) show shadow path** (`app/api/admin/onboarding/finalize/route.ts` stages approved existing shows into `shows_pending_changes.payload` and deletes the `pending_syncs` row, then `finalize-cas` / `applyRescanDecisionUnderLock` applies the shadow via `parseShadowPayloadForApply`, `lib/onboarding/shadowPayload.ts:75`): `pull_sheet_override` MUST be (a) written into the shadow payload when the existing show is staged, (b) surfaced by `parseShadowPayloadForApply` (add to `ParsedShadowPayloadForApply`), and (c) written to `shows.pull_sheet_override` in the Phase-D apply. Without all three, accepting an override for a live show applies the gear on the immediate parse but leaves `shows.pull_sheet_override` null → next cron strips it.
+
+Cron sync (post-publish) reads `shows.pull_sheet_override`.
+
+### 5.7 Concurrency — locked-snapshot protocol (single-holder + re-read under lock)
+
+`rescanWizardSheet` (and the cron equivalent) fetch + export + parse **pre-lock** (`lib/onboarding/rescanWizardSheet.ts:99-139` — the advisory `app_settings` read is non-mutating; the authoritative `show:` lock is taken later at `:170`). The override read that drives `includePullSheetFromTab` therefore happens **before** the lock, while accept/revoke and content-change auto-clear mutate the override **under** the lock. A naive design has a TOCTOU: a rescan/cron that read an accepted override pre-lock can stage OLD-tab gear even though an admin revoked (or content-change cleared) it under the lock in the interim; the inverse race can overwrite a fresh accept with a null-override parse (Codex R1 finding 1).
+
+Protocol (mandatory):
+
+1. The pre-lock export carries the **exact override snapshot it used**: `{ tabName, fingerprint }` (or `null`) that produced the parse.
+2. Inside the `show:` locked transaction, **re-read** `pull_sheet_override` for the row.
+3. If the locked value differs from the pre-lock snapshot (tabName changed, fingerprint changed, null↔set), the pre-lock parse is **stale**: do NOT write staged/live results from it. Refuse-and-retry — re-export under the caller's retry envelope, or drop the stale parse (the next scan re-derives). Never write a staged pull sheet that disagrees with the override as-of-lock.
+4. The auto-clear on content-change (5.2) and the accept/revoke write (5.4) both occur **under the same `show:` lock**, so all override state transitions are serialized against each other and against the apply.
+
+Single-holder (invariant 2): the `show:` lock is held by the writing layer that already holds it (`rescanWizardSheet` locked tx / `applyRescanDecisionUnderLock` / the `set_pull_sheet_override` RPC) — never doubly. `set_pull_sheet_override` is the sole holder for its own call; it does not nest under a JS-side `show:` lock.
 
 ### 5.6 Step-3 UI (Pack list section)
 
@@ -134,11 +156,12 @@ No zombie: every column of the row is populated (storage, ≥1 write, ≥1 read,
 |---|---|
 | Table DDL | `alter table public.pending_syncs add column if not exists pull_sheet_override jsonb;` and same for `public.shows`. Nullable, default `null` (NOT `'{}'` — null is the meaningful "skipped" sentinel, distinct from source_anchors' `'{}'` default). |
 | Inline CHECK | None (free-form jsonb, shape enforced in app). CHECK/enum migration matrix → **N/A** (no CHECK, no enum). |
-| RPC write path | `set_pull_sheet_override` SECURITY DEFINER (D8), advisory-locked. |
+| RPC write path | `set_pull_sheet_override` SECURITY DEFINER (D8), advisory-locked; `execute` revoked from `public`/`anon`/`authenticated`, granted `service_role`; in-RPC active-session + target-row guard (5.4). |
 | RPC read path | Existing staged-read / cron-read RPCs `select` the new column (additive; add to their projections). |
-| Propagation | `applyStaged` publish copies `pending_syncs.pull_sheet_override` → `shows.pull_sheet_override` (5.5). |
+| Propagation | BOTH flows (5.5): Flow A `pending_syncs.pull_sheet_override` → `shows.pull_sheet_override`; Flow B existing-show shadow → `shows_pending_changes.payload` + `parseShadowPayloadForApply` (`lib/onboarding/shadowPayload.ts:75`) + Phase-D apply → `shows.pull_sheet_override`. |
+| Concurrency | Locked-snapshot protocol (5.7): pre-lock parse carries its override snapshot; re-read under `show:` lock; refuse-and-retry on mismatch. |
 | Cleanup | Onboarding cleanup/reset flows that clear `pending_syncs` rows already delete the whole row (`runOnboardingScan.ts:489`) → column goes with it; no separate cleanup needed. Verify no `pending_syncs`-column-list INSERT omits it where it must carry. |
-| PostgREST DML lockdown | `pull_sheet_override` is written only via the SECURITY DEFINER RPC. If `pending_syncs`/`shows` already REVOKE direct DML from `authenticated`/`anon` (RPC-gated), the new column inherits that; confirm in plan and add a structural note. No new table → no new lockdown migration unless the tables aren't already locked. |
+| PostgREST DML lockdown | `pull_sheet_override` is written only via the SECURITY DEFINER RPC. If `pending_syncs`/`shows` already REVOKE direct DML from `authenticated`/`anon` (RPC-gated), the new column inherits that; confirm in plan and add a structural note. No new table → no new lockdown migration unless the tables aren't already locked. **Plus** the new function's own `execute` grants are locked down (RPC write-path row above). |
 | Frontend | `PackListBreakdown` states (5.6); accept/revoke buttons. |
 | Manifest / validation | `pnpm gen:schema-manifest` regenerated + committed; migration applied surgically to validation project `vzakgrxqwcalbmagufjh`; `validation-schema-parity` gate green. |
 | Tests | Detection unit, fingerprint stability, un-skip granularity (rooms not leaked), warning emission, override read/include, content-change auto-drop, publish propagation, RPC advisory-lock held, route admin-gate + AUDITABLE_MUTATIONS behavioral proof, step-3 S1–S4 rendering, DataQualityBadge count. |
@@ -182,11 +205,14 @@ Compound: accept while a cron sync is mid-flight → serialized by advisory lock
 - OLD-skip sites: **2** (exporter un-skipped conditionally; anchors never).
 - `synthesizeMarkdownFromXlsx` call sites to migrate to `.markdown`: enumerate in plan (≥2 known: `fetch.ts:497`, `:614`).
 - Realistic OLD-pull-sheet-tab count per show: ≤2 (render all; no truncation).
+- Finalize propagation flows the override must traverse: **2** (Flow A new-show pending_syncs→shows; Flow B existing-show shadow payload→shows).
+- Override-lock TOCTOU race tests: **2** (revoke-vs-rescan, accept-vs-cron).
 
 ## 13. Meta-test inventory
 
 - **Extends** `tests/log/_auditableMutations.ts` (`AUDITABLE_MUTATIONS`) + `tests/log/adminOutcomeBehavior.test.ts` — the accept/revoke route is an admin mutation (invariant 10).
 - **Extends** advisory-lock topology pin `tests/auth/advisoryLockRpcDeadlock.test.ts` (or `_advisoryLockSingleHolderContract.test.ts`) — `set_pull_sheet_override` is a new `show:`-keyed lock holder; single-holder (RPC only, not JS).
+- **New** grant meta-test: `execute` on `set_pull_sheet_override` revoked from `authenticated`/`anon` (PostgREST-bypass guard, 5.4). Analogous to the postgrest-dml-lockdown structural pins.
 - **Extends** §12.4 catalog parity (`tests/messages/codes.test.ts`) — 2 new rows.
 - **Extends** `lib/parser/dataGaps.ts` GAP_CLASSES → the data-gap drift guard (`tests/…` for `summarizeDataGaps`).
 - **No** new Supabase call-boundary registry surface beyond the standard `{ data, error }` discipline for the new route/RPC caller (add row or inline exemption per invariant 9).
@@ -200,6 +226,9 @@ Compound: accept while a cron sync is mid-flight → serialized by advisory lock
 - **`null` default (not `'{}'`) is intentional** — null is the "skipped" sentinel; source_anchors uses `'{}'` because empty-map is its neutral, but override's neutral is absence.
 - **Fingerprint is server-computed, client input untrusted** (§6) — not a trust hole.
 - **Content-pin auto-drop is fail-safe** (drops to skip + re-prompts, never auto-includes changed content) — the conservative direction.
+- **Pre-lock parse is reconciled under-lock** (5.7) — the override include/exclude decision is snapshotted pre-lock and re-validated under the `show:` lock before any staged/live write; a mismatch refuses the stale parse. This closes the revoke-vs-rescan and accept-vs-cron TOCTOU.
+- **Override propagates on BOTH finalize flows** (5.5) — Flow A (pending_syncs→shows) and Flow B (existing-show shadow payload→shows). Durable `shows.pull_sheet_override` is written on the existing-show path too, so cron never re-strips accepted gear.
+- **The RPC is not a PostgREST bypass** (5.4) — `execute` revoked from `authenticated`/`anon`, service-role-only, plus an in-RPC active-session guard; a direct non-admin call cannot set/clear overrides.
 
 ## 15. Testing — concrete failure modes each test catches
 
@@ -209,8 +238,9 @@ Compound: accept while a cron sync is mid-flight → serialized by advisory lock
 4. **Fingerprint stability**: cosmetic reformat (whitespace, blank rows) → same fingerprint; a changed QTY/ITEM cell → different fingerprint. Catches: over-eager auto-drop and under-eager (missed) content change. Derive expected from fixture cell edits, not hardcoded hashes.
 5. **Override read/include**: override set + matching fingerprint → `pr.pullSheet` populated from that tab. Catches: override not threaded.
 6. **Content-change auto-drop**: override set, tab content changed → override cleared, `PULL_SHEET_OVERRIDE_CONTENT_CHANGED` emitted, `PULL_SHEET_ON_ARCHIVED_TAB` re-fired, `pr.pullSheet` empty. Catches: stale gear silently publishing.
-7. **Publish propagation**: `pending_syncs.pull_sheet_override` → `shows.pull_sheet_override` at apply. Catches: override lost at publish (cron would re-skip).
-8. **Advisory lock**: `set_pull_sheet_override` holds `show:`-keyed lock; JS route does not. Catches: deadlock / lock-not-held.
+7. **Publish propagation — both flows**: Flow A (new show) `pending_syncs.pull_sheet_override` → `shows`; Flow B (existing live show) accept → finalize via shadow payload → `shows.pull_sheet_override` present → next cron preserves the pull sheet. Catches: override lost at publish on the existing-show path (Codex R1-2) so cron re-strips gear.
+8. **Advisory lock + locked snapshot**: `set_pull_sheet_override` holds `show:`-keyed lock; JS route does not. Race tests: (a) revoke-vs-rescan — override cleared under lock after a pre-lock accepted parse → stale parse refused, no OLD gear staged; (b) accept-vs-cron — accept under lock while cron parsed pre-lock with null → cron's stale null-parse does not overwrite the accept. Catches: deadlock / lock-not-held / TOCTOU (Codex R1-1).
+8b. **RPC grant/auth**: `execute` revoked from `authenticated`/`anon`; a direct non-service RPC call is denied; a forged/stale `wizard_session_id` raises without writing. Catches: PostgREST bypass of the route's admin gate + fingerprint validation (Codex R1-3).
 9. **Admin gate + behavioral proof**: route requires admin; success branch records the outcome code (sink-spy after committed success). Catches: dark mutation surface (invariant 10).
 10. **Step-3 S1–S4**: each state renders the right copy/buttons from (pullSheet, warning, override) inputs; empty/multi-tab guards. Anti-tautology: assert against the section's data inputs, and when scanning DOM for the tab name, scope to the Pack list section (remove sibling sections that might independently render a tab name).
 11. **DataQualityBadge**: a `PULL_SHEET_ON_ARCHIVED_TAB` warning increments the gap count. Catches: badge not reflecting the new gap class.
