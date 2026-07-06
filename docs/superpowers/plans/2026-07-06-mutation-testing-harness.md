@@ -442,6 +442,29 @@ describe("fingerprint (Codex R7/R8/R15/R16)", () => {
     const b2 = base({ contacts: [] });
     expect(fingerprint(b2, base({ contacts: [{} as never] }))).not.toBe(fingerprint(b2, b2));
   });
+  it("is sensitive to EVERY warning anchoring field: message/rawSnippet/blockRef/sourceCell (plan-R9)", () => {
+    const b = base();
+    const mk = (over: Partial<import("@/lib/parser/types").ParseWarning>) =>
+      base({ warnings: [{ severity: "warn", code: "W", message: "m", ...over }] });
+    const baseFp = fingerprint(b, mk({}));
+    const variants = {
+      message: mk({ message: "different" }),
+      rawSnippet: mk({ rawSnippet: "snip" }),
+      blockRef: mk({ blockRef: { kind: "crew" } }),
+      sourceCell: mk({ sourceCell: { tab: "DATES", a1: "B2" } as never }),
+    };
+    const fps = Object.values(variants).map((v) => fingerprint(b, v));
+    for (const [name, v] of Object.entries(variants)) {
+      expect(fingerprint(b, v), `warning ${name} must move the fingerprint`).not.toBe(baseFp);
+    }
+    expect(new Set(fps).size, "each warning field is independently distinguishable").toBe(fps.length);
+  });
+  it("is sensitive to a hardError blockRef change (plan-R9)", () => {
+    const b = base();
+    const m1 = base({ hardErrors: [{ code: "E", message: "m" }] });
+    const m2 = base({ hardErrors: [{ code: "E", message: "m", blockRef: { kind: "hotel" } }] });
+    expect(fingerprint(b, m1)).not.toBe(fingerprint(b, m2));
+  });
 });
 
 describe("capture", () => {
@@ -1011,7 +1034,7 @@ git commit --no-verify -m "test(parser): fixture registry + directory-parity gat
 
 **Interfaces:**
 - Consumes: ONLY `@/lib/parser/knownSections` (`normalizeHeader`, `KNOWN_SECTION_HEADERS`, `PREFIX_SECTION_FAMILIES`) + `./fixtures`. **Must NOT import `rows.ts`/`classify.ts`/`operators.ts`** (independence, Codex R13).
-- Produces: `auditSites(md): Map<`\``${op}|${domain}`\``, number>`, `GOLDEN_INVENTORY: Array<{ fixture; op; domain; count: number }>` (exact hand-verified counts).
+- Produces: `auditSites(md): Map<`\``${op}|${domain}`\``, number>`, `GOLDEN_INVENTORY: Array<{ fixture; op; domain; count: number; lines: string }>` (exact HAND-COUNTED counts + line-range provenance).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1198,30 +1221,34 @@ export function auditSites(md: string): Map<string, number> {
 }
 
 /**
- * EXACT hand-verified counts (plan-R7) — set each `count` to the value the passing
- * `auditSites` run reports for that `(fixture, op, domain)`, THEN hand-verify it against the
- * fixture markdown before committing (exact `===`, not a lower bound, so the audit cannot
- * silently over- or under-count). MUST cover every corrupting operator + the required rows
- * the structural gate checks: ref-sub×hotel, merged-cell×rooms, ref-sub×crew, one header-typo,
- * one blank-row:remove. The counts below are PLACEHOLDER seeds — the implementer replaces each
- * with the HAND-COUNTED exact number (read the fixture markdown; do NOT copy auditSites output —
- * that is circular, plan-R8) in Task 6 Step 4 before the suite goes green. The `HAND_FIXTURE`
- * test in the spec file is the separate, fully-independent external oracle.
+ * EXACT counts HAND-DERIVED from the fixture markdown (plan-R7/R9). The `count` for each row
+ * is obtained by a human OPENING the fixture at the cited `lines` range, reading the section,
+ * and counting the operator's applicable sites BY HAND — it is NOT copied from `auditSites`
+ * output (that would make this guard circular: a miscounting audit could preserve its own bad
+ * number, plan-R9). The test asserts `auditSites(...) === count` exactly, so a hand-count that
+ * disagrees with the audit means the AUDIT is wrong and must be fixed — never adjust `count` to
+ * match the code. The `lines` field is provenance: it forces the derivation to be reproducible
+ * and makes a lazy copy-from-code visible in review. MUST cover every corrupting operator + the
+ * required rows the structural gate checks: ref-sub×hotel, merged-cell×rooms, ref-sub×crew, one
+ * header-typo, one blank-row:remove. (The `HAND_FIXTURE` test above is the separate, fully
+ * self-contained external oracle; this table extends that guarantee onto the real corpus.)
  */
-export const GOLDEN_INVENTORY: Array<{ fixture: string; op: string; domain: string; count: number }> = [
-  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "ref-sub", domain: "crew", count: 6 },
-  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "column-shift", domain: "crew", count: 1 },
-  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "header-typo", domain: "crew", count: 1 },
-  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "blank-row:remove", domain: "transportation", count: 1 },
-  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "blank-row:inject", domain: "crew", count: 5 },
-  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "unicode-inject", domain: "crew", count: 6 },
-  { fixture: "fixtures/shows/exporter-xlsx/rpas.md", op: "ref-sub", domain: "hotel", count: 1 },
-  { fixture: "fixtures/shows/exporter-xlsx/rpas.md", op: "merged-cell", domain: "rooms", count: 1 },
-  // ADD MORE representative rows; every `count` is exact + hand-verified.
+export const GOLDEN_INVENTORY: Array<{ fixture: string; op: string; domain: string; count: number; lines: string }> = [
+  // Each `count` below is a PLACEHOLDER — the implementer opens the fixture at `lines`, counts
+  // by hand, and writes the human-derived number (Task 6 Step 4). Do NOT paste auditSites output.
+  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "ref-sub", domain: "crew", count: 6, lines: "TODO:L<crew-section>" },
+  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "column-shift", domain: "crew", count: 1, lines: "TODO:L<crew-section>" },
+  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "header-typo", domain: "crew", count: 1, lines: "TODO:L<crew-header>" },
+  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "blank-row:remove", domain: "transportation", count: 1, lines: "TODO:L<transport-boundary>" },
+  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "blank-row:inject", domain: "crew", count: 5, lines: "TODO:L<crew-section>" },
+  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "unicode-inject", domain: "crew", count: 6, lines: "TODO:L<crew-section>" },
+  { fixture: "fixtures/shows/exporter-xlsx/rpas.md", op: "ref-sub", domain: "hotel", count: 1, lines: "TODO:L<hotel-section>" },
+  { fixture: "fixtures/shows/exporter-xlsx/rpas.md", op: "merged-cell", domain: "rooms", count: 1, lines: "TODO:L<rooms-section>" },
+  // ADD MORE representative rows; every `count` is HAND-COUNTED from `lines`, never copied from code.
 ];
 ```
 
-- [ ] **Step 4: Run it — verify it passes** (set each `GOLDEN_INVENTORY.count` to the EXACT observed count, hand-verifying each against the fixture markdown; the test asserts `===`).
+- [ ] **Step 4: Run it — verify it passes.** For each `GOLDEN_INVENTORY` row: open the fixture, set `lines` to the real line range of the section, HAND-COUNT the operator's applicable sites in that section, and write that human-derived number as `count` (the test asserts `===`). Do NOT paste `auditSites` output into `count` — if your hand-count disagrees with the audit, the audit is wrong; fix `auditSites`, not the golden number (plan-R9).
 
 Run: `pnpm vitest run tests/parser/mutation/applicabilityAudit.test.ts`
 Expected: PASS.
@@ -1235,36 +1262,118 @@ git commit --no-verify -m "test(parser): implementation-independent applicabilit
 
 ---
 
-### Task 7: Known-holes ledger (empty) + type
+### Task 7: Known-holes ledger + bidirectional reconcile (TDD)
 
 **Files:**
 - Create: `tests/parser/mutation/knownHoles.ts`
-- Test: (covered by the driver, Task 8) — no standalone test; this task defines the type + an initially-empty array.
+- Test: `tests/parser/mutation/knownHoles.test.ts`
 
 **Interfaces:**
-- Produces: `KnownHole` type, `KNOWN_SILENT_HOLES: KnownHole[]`.
+- Produces: `KnownHole` type, `Alarm` type, `ledgerKey(a)`, `reconcileLedger(actual, ledger): { newAlarms; staleRows }`, `KNOWN_SILENT_HOLES: readonly KnownHole[]`.
+- Consumed by: the driver (Task 8) — the driver builds the `actual` alarm set and calls `reconcileLedger`, so the bidirectional comparison lives in ONE tested function, not inline in the driver (plan-R9).
 
-- [ ] **Step 1: Write the module (starts empty; populated in Task 8 from the day-1 run)**
+- [ ] **Step 1: Write the failing test FIRST (red — module does not exist yet)**
+
+```ts
+// tests/parser/mutation/knownHoles.test.ts
+import { describe, it, expect } from "vitest";
+import { reconcileLedger, ledgerKey, KNOWN_SILENT_HOLES } from "./knownHoles";
+import type { Alarm, KnownHole } from "./knownHoles";
+
+const A = (siteId: string, kind: Alarm["kind"], fingerprint: string): Alarm => ({ siteId, kind, fingerprint });
+const H = (siteId: string, kind: KnownHole["kind"], fingerprint: string): KnownHole =>
+  ({ siteId, kind, fingerprint, finding: "#1", note: "n" });
+
+describe("reconcileLedger is bidirectional (plan-R9)", () => {
+  it("empty vs empty → clean", () => {
+    expect(reconcileLedger([], [])).toEqual({ newAlarms: [], staleRows: [] });
+  });
+  it("actual ∖ ledger → newAlarms (a NEW silent hole fails)", () => {
+    const r = reconcileLedger([A("s1", "wrong", "fp")], []);
+    expect(r.newAlarms).toEqual(["s1|wrong|fp"]);
+    expect(r.staleRows).toEqual([]);
+  });
+  it("ledger ∖ actual → staleRows (a FIXED/drifted hole fails, forces shrinkage)", () => {
+    const r = reconcileLedger([], [H("s1", "wrong", "fp")]);
+    expect(r.newAlarms).toEqual([]);
+    expect(r.staleRows).toEqual(["s1|wrong|fp"]);
+  });
+  it("same site+kind but CHANGED fingerprint → BOTH directions fire (deepened hole not masked)", () => {
+    const r = reconcileLedger([A("s1", "wrong", "fpNEW")], [H("s1", "wrong", "fpOLD")]);
+    expect(r.newAlarms).toEqual(["s1|wrong|fpNEW"]);
+    expect(r.staleRows).toEqual(["s1|wrong|fpOLD"]);
+  });
+  it("kind is part of the key (wrong vs signal_loss are distinct holes)", () => {
+    const r = reconcileLedger([A("s1", "signal_loss", "fp")], [H("s1", "wrong", "fp")]);
+    expect(r.newAlarms).toEqual(["s1|signal_loss|fp"]);
+    expect(r.staleRows).toEqual(["s1|wrong|fp"]);
+  });
+  it("exact match → clean (order-independent)", () => {
+    expect(reconcileLedger([A("a", "wrong", "1"), A("b", "signal_loss", "2")], [H("b", "signal_loss", "2"), H("a", "wrong", "1")]))
+      .toEqual({ newAlarms: [], staleRows: [] });
+  });
+});
+
+describe("committed ledger shape", () => {
+  it("KNOWN_SILENT_HOLES rows all carry the required fields", () => {
+    for (const h of KNOWN_SILENT_HOLES) {
+      expect(typeof h.siteId).toBe("string");
+      expect(["wrong", "signal_loss"]).toContain(h.kind);
+      expect(typeof h.fingerprint).toBe("string");
+      expect(h.finding.length).toBeGreaterThan(0);
+    }
+  });
+});
+```
+
+- [ ] **Step 2: Run it — verify it fails**
+
+Run: `pnpm vitest run tests/parser/mutation/knownHoles.test.ts`
+Expected: FAIL (module not found).
+
+- [ ] **Step 3: Write the module (starts with an empty ledger; populated in Task 8 from the day-1 run)**
 
 ```ts
 // tests/parser/mutation/knownHoles.ts
-export type KnownHole = {
-  siteId: string;                        // "<op>:<fixtureSlug>:B..:L..:X.." (fixture slug prefixed by the driver)
-  kind: "wrong" | "signal_loss";
-  fingerprint: string;
+export type Alarm = { siteId: string; kind: "wrong" | "signal_loss"; fingerprint: string };
+export type KnownHole = Alarm & {
   finding: string;                       // audit finding ref e.g. "#3" | "#5" | "unaudited"
   note: string;
 };
+
+/** Stable comparison key — a hole is identified by (siteId, kind, fingerprint) so a
+ *  DEEPENED hole (same site/kind, changed behavior fingerprint) reads as both a stale
+ *  old row AND a new alarm, never silently absorbed (plan-R9). */
+export const ledgerKey = (a: Alarm): string => `${a.siteId}|${a.kind}|${a.fingerprint}`;
+
+/** Bidirectional set diff: newAlarms = actual ∖ ledger (fail — undocumented hole),
+ *  staleRows = ledger ∖ actual (fail — fixed/drifted; forces the ledger to shrink). */
+export function reconcileLedger(
+  actual: readonly Alarm[],
+  ledger: readonly KnownHole[],
+): { newAlarms: string[]; staleRows: string[] } {
+  const a = new Set(actual.map(ledgerKey));
+  const l = new Set(ledger.map(ledgerKey));
+  return {
+    newAlarms: [...a].filter((k) => !l.has(k)),
+    staleRows: [...l].filter((k) => !a.has(k)),
+  };
+}
 
 // Populated in Task 8 from the day-1 harness run against branch HEAD.
 export const KNOWN_SILENT_HOLES: readonly KnownHole[] = [];
 ```
 
-- [ ] **Step 2: Commit**
+- [ ] **Step 4: Run it — verify GREEN**
+
+Run: `pnpm vitest run tests/parser/mutation/knownHoles.test.ts`
+Expected: PASS (reconcile bidirectional; ledger empty so shape test is vacuously green).
+
+- [ ] **Step 5: Commit**
 
 ```bash
-git add tests/parser/mutation/knownHoles.ts
-git commit --no-verify -m "chore(parser): known-holes ledger scaffold (empty, populated by driver day-1 run)"
+git add tests/parser/mutation/knownHoles.ts tests/parser/mutation/knownHoles.test.ts
+git commit --no-verify -m "test(parser): known-holes ledger + bidirectional reconcile (TDD red→green)"
 ```
 
 ---
@@ -1287,9 +1396,8 @@ import { FIXTURES, readFixture } from "./mutation/fixtures";
 import { OPERATORS } from "./mutation/operators";
 import type { Mutant } from "./mutation/operators";
 import { capture, verdict, fingerprint } from "./mutation/oracle";
-import { KNOWN_SILENT_HOLES } from "./mutation/knownHoles";
-
-type Alarm = { siteId: string; kind: "wrong" | "signal_loss"; fingerprint: string };
+import { KNOWN_SILENT_HOLES, reconcileLedger } from "./mutation/knownHoles";
+import type { Alarm } from "./mutation/knownHoles";
 
 // Prefix each operator's siteId with the fixture slug so keys are globally unique across
 // the corpus. Operator siteIds start "<op>:B..:L..:X.." → "<op>:<slug>:B..:L..:X..".
@@ -1331,13 +1439,9 @@ describe("mutation harness — bidirectional known-holes ledger", () => {
     expect(cosmeticViolations).toEqual([]);
   });
   it("actual alarms == committed ledger, keyed (siteId, kind, fingerprint) — bidirectional", () => {
-    const key = (a: { siteId: string; kind: string; fingerprint: string }) => `${a.siteId}|${a.kind}|${a.fingerprint}`;
-    const actual = new Set(alarms.map(key));
-    const ledger = new Set(KNOWN_SILENT_HOLES.map(key));
-    const newHoles = [...actual].filter((k) => !ledger.has(k));
-    const staleLedger = [...ledger].filter((k) => !actual.has(k));
-    expect(newHoles, `NEW/changed alarms not in ledger:\n${newHoles.join("\n")}`).toEqual([]);
-    expect(staleLedger, `stale ledger rows (fixed or drifted):\n${staleLedger.join("\n")}`).toEqual([]);
+    const { newAlarms, staleRows } = reconcileLedger(alarms, KNOWN_SILENT_HOLES);
+    expect(newAlarms, `NEW/changed alarms not in ledger:\n${newAlarms.join("\n")}`).toEqual([]);
+    expect(staleRows, `stale ledger rows (fixed or drifted):\n${staleRows.join("\n")}`).toEqual([]);
   });
 });
 ```
