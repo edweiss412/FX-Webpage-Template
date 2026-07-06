@@ -2267,7 +2267,7 @@ export const FILE_WEIGHTS: Record<string, number> = {
 };
 ```
 
-Set the value to the ACTUAL measured wall-clock (Task 8 Step 1). If it exceeds the 20-min unit-suite leg timeout (`unit-suite.yml:52`, 1200s) with margin lost, fall back to the Task 8 `test.each`-per-fixture sharding so vitest can spread cases — but at ~100-150s that is not expected.
+Set the value to the ACTUAL measured wall-clock (Task 8 Step 1). If it exceeds the 20-min unit-suite leg timeout (`unit-suite.yml:52`, 1200s) with margin lost, use the **FILE-level** split from Task 8 Step 1 (multiple per-family driver files — e.g. `mutationHarness.exporter.test.ts` / `mutationHarness.raw.test.ts` — each a discovered `*.test.ts` weight-registered here, so `--shard` spreads them across legs; `test.each` cases do NOT help because `--shard` partitions by FILE, `unit-suite.yml:87`). At ~100-150s this is not expected — one weighted file is fine.
 
 - [ ] **Step 2: Make the shard-balance meta-test resilient to a new heaviest file** — the existing `HOT` is a hardcoded pair (the two previously-heaviest files); adding a heavier file makes the old pair cluster into one leg and trips the "different legs" assertion. Derive `HOT` from the top-2 committed weights instead (the LPT N=2 invariant guarantees the two heaviest always split across the two legs). In `tests/cross-cutting/vitest-shard-balance.test.ts`, replace the hardcoded `HOT` const:
 
