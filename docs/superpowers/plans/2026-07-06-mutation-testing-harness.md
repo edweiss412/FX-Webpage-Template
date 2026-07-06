@@ -622,6 +622,18 @@ const CONSULTANTS_RUN = [
   "| DRESS | Black Polo |",
 ].join("\n");
 
+describe("operator inventory is complete (plan-R7)", () => {
+  it("exactly the 9 expected operators are registered (7 corrupting + 2 cosmetic)", () => {
+    expect(Object.keys(OPERATORS).sort()).toEqual(
+      [
+        "header-typo", "ref-sub", "unicode-inject", "column-shift",
+        "blank-row:inject", "blank-row:remove", "merged-cell",
+        "section-reorder", "trailing-whitespace",
+      ].sort(),
+    );
+  });
+});
+
 describe("operator determinism + uniqueness", () => {
   it("every operator returns byte-distinct mutated markdown and unique siteIds", () => {
     for (const [name, op] of Object.entries(OPERATORS)) {
@@ -997,7 +1009,7 @@ git commit --no-verify -m "test(parser): fixture registry + directory-parity gat
 
 **Interfaces:**
 - Consumes: ONLY `@/lib/parser/knownSections` (`normalizeHeader`, `KNOWN_SECTION_HEADERS`, `PREFIX_SECTION_FAMILIES`) + `./fixtures`. **Must NOT import `rows.ts`/`classify.ts`/`operators.ts`** (independence, Codex R13).
-- Produces: `auditSites(md): Map<`\``${op}|${domain}`\``, number>`, `GOLDEN_INVENTORY: Array<{ fixture; op; domain; min: number }>`.
+- Produces: `auditSites(md): Map<`\``${op}|${domain}`\``, number>`, `GOLDEN_INVENTORY: Array<{ fixture; op; domain; count: number }>` (exact hand-verified counts).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1014,10 +1026,10 @@ describe("independent applicability audit (Codex R9/R13)", () => {
     expect(sites.get("ref-sub|crew") ?? 0).toBeGreaterThan(0);
     expect(sites.get("column-shift|crew") ?? 0).toBeGreaterThan(0);
   });
-  it("every GOLDEN_INVENTORY min is met", () => {
+  it("every GOLDEN_INVENTORY count is EXACT (hand-verified, protects against over-count, plan-R7)", () => {
     for (const g of GOLDEN_INVENTORY) {
       const md = readFileSync(g.fixture, "utf8");
-      expect(auditSites(md).get(`${g.op}|${g.domain}`) ?? 0, `${g.fixture} ${g.op} ${g.domain}`).toBeGreaterThanOrEqual(g.min);
+      expect(auditSites(md).get(`${g.op}|${g.domain}`) ?? 0, `${g.fixture} ${g.op} ${g.domain}`).toBe(g.count);
     }
   });
   it("GOLDEN_INVENTORY is structurally non-vacuous (plan-R6)", () => {
@@ -1025,13 +1037,21 @@ describe("independent applicability audit (Codex R9/R13)", () => {
     expect(GOLDEN_INVENTORY.length).toBeGreaterThanOrEqual(CORRUPT.length);
     const ops = new Set(GOLDEN_INVENTORY.map((g) => g.op));
     for (const op of CORRUPT) expect(ops.has(op), `golden inventory missing operator ${op}`).toBe(true);
-    // required representative rows (each hand-verified > 0 against the fixture markdown):
-    const has = (op: string, domain: string) => GOLDEN_INVENTORY.some((g) => g.op === op && g.domain === domain && g.min >= 1);
+    const has = (op: string, domain: string) => GOLDEN_INVENTORY.some((g) => g.op === op && g.domain === domain && g.count >= 1);
     expect(has("ref-sub", "hotel"), "need a ref-sub × hotel row").toBe(true);
     expect(has("merged-cell", "rooms"), "need a merged-cell × rooms row").toBe(true);
     expect(has("ref-sub", "crew"), "need a ref-sub × crew row").toBe(true);
     const domains = new Set(GOLDEN_INVENTORY.map((g) => g.domain));
     expect(domains.size, "golden inventory too narrow").toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe("audit independence is EXECUTABLE (plan-R7)", () => {
+  it("applicabilityAudit.ts does not import the shared row/classify/operator helpers", () => {
+    const src = readFileSync("tests/parser/mutation/applicabilityAudit.ts", "utf8");
+    for (const forbidden of ["./rows", "./classify", "./operators"]) {
+      expect(src, `applicabilityAudit must not import ${forbidden}`).not.toContain(`from "${forbidden}"`);
+    }
   });
 });
 ```
@@ -1135,25 +1155,28 @@ export function auditSites(md: string): Map<string, number> {
 }
 
 /**
- * Hand-verified lower bounds — verify each `min` against the fixture markdown before committing
- * (raise from the safe `1` seed to the observed count where the implementer confirms it). MUST
- * cover every corrupting operator + the required rows the structural gate checks (plan-R1/R6):
- * ref-sub×hotel, merged-cell×rooms, ref-sub×crew, one header-typo, one blank-row:remove.
+ * EXACT hand-verified counts (plan-R7) — set each `count` to the value the passing
+ * `auditSites` run reports for that `(fixture, op, domain)`, THEN hand-verify it against the
+ * fixture markdown before committing (exact `===`, not a lower bound, so the audit cannot
+ * silently over- or under-count). MUST cover every corrupting operator + the required rows
+ * the structural gate checks: ref-sub×hotel, merged-cell×rooms, ref-sub×crew, one header-typo,
+ * one blank-row:remove. The counts below are PLACEHOLDER seeds — the implementer replaces each
+ * with the observed-and-verified exact number in Task 6 Step 4 before the suite goes green.
  */
-export const GOLDEN_INVENTORY: Array<{ fixture: string; op: string; domain: string; min: number }> = [
-  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "ref-sub", domain: "crew", min: 6 },
-  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "column-shift", domain: "crew", min: 1 },
-  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "header-typo", domain: "crew", min: 1 },
-  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "blank-row:remove", domain: "transportation", min: 1 },
-  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "blank-row:inject", domain: "crew", min: 1 },
-  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "unicode-inject", domain: "crew", min: 1 },
-  { fixture: "fixtures/shows/exporter-xlsx/rpas.md", op: "ref-sub", domain: "hotel", min: 1 },
-  { fixture: "fixtures/shows/exporter-xlsx/rpas.md", op: "merged-cell", domain: "rooms", min: 1 },
-  // ADD MORE after observing auditSites output; raise each min to the hand-verified count.
+export const GOLDEN_INVENTORY: Array<{ fixture: string; op: string; domain: string; count: number }> = [
+  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "ref-sub", domain: "crew", count: 6 },
+  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "column-shift", domain: "crew", count: 1 },
+  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "header-typo", domain: "crew", count: 1 },
+  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "blank-row:remove", domain: "transportation", count: 1 },
+  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "blank-row:inject", domain: "crew", count: 5 },
+  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "unicode-inject", domain: "crew", count: 6 },
+  { fixture: "fixtures/shows/exporter-xlsx/rpas.md", op: "ref-sub", domain: "hotel", count: 1 },
+  { fixture: "fixtures/shows/exporter-xlsx/rpas.md", op: "merged-cell", domain: "rooms", count: 1 },
+  // ADD MORE representative rows; every `count` is exact + hand-verified.
 ];
 ```
 
-- [ ] **Step 4: Run it — verify it passes** (fill `GOLDEN_INVENTORY` mins from the observed counts, hand-verifying each against the fixture).
+- [ ] **Step 4: Run it — verify it passes** (set each `GOLDEN_INVENTORY.count` to the EXACT observed count, hand-verifying each against the fixture markdown; the test asserts `===`).
 
 Run: `pnpm vitest run tests/parser/mutation/applicabilityAudit.test.ts`
 Expected: PASS.
@@ -1570,7 +1593,7 @@ git add -A && git commit --no-verify -m "chore(parser): format + final verificat
 ## Self-Review checklist (run before adversarial review)
 
 1. **Spec coverage:** every spec section maps to a task — segmentation/row-taxonomy (T1), classifier+parity+lockstep (T2), oracle+verdict+fingerprint (T3), 8 operators+selection+domains (T4), fixture registry+parity (T5), independent audit+golden (T6), ledger type (T7), driver+day-1 ledger+uniqueness+cosmetic+bidirectional (T8), classifier/floor/audit gates (T9), negative controls incl. R12/R13/R14/R15/R16 (T10), coverage legibility (T11), verification (T12). ✔
-2. **Placeholder scan:** the only deferred concrete values are `GOLDEN_INVENTORY` mins and `KNOWN_SILENT_HOLES` rows — both are DATA populated from an observed run and hand-verified in-task (T6 S4, T8 S3), not code placeholders. ✔
+2. **Placeholder scan:** the only deferred concrete values are `GOLDEN_INVENTORY` exact counts and `KNOWN_SILENT_HOLES` rows — both are DATA populated from an observed run and hand-verified in-task (T6 S4, T8 S3), not code placeholders. ✔
 3. **Type consistency:** `Mutant.domains: Domain[]`, `floorEligible(): Set<Domain>`, `skippedInapplicable(): Domain[]`, `verdict(): Verdict`, `fingerprint(): string`, `KnownHole` fields — consistent across T3/T4/T7/T8. Detection is exhaustive (no `select`/cap). ✔
 
 ## Adversarial review (cross-model)
