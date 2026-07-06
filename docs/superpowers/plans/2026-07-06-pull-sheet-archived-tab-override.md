@@ -370,7 +370,7 @@ if (/\bOLD\b/i.test(sheetName)) {
   if (regions.length > 0) {
     const included = opts?.includePullSheetFromTab === sheetName;
     const fingerprint = createHash("sha256")
-      .update(regions.map((r) => r.regionText).join("\n \n"), "utf8")
+      .update(regions.map((r) => r.regionText).join("\n\x00\n"), "utf8")
       .digest("hex");
     archivedPullSheetTabs.push({
       tabName: sheetName,
@@ -551,11 +551,33 @@ Run → **FAILS** (helper absent).
 ### Step 6.2 — Impl helper + wire into scan/cron/apply
 
 - `pullSheetOverride.ts`: implement the three functions. `emitArchivedTabWarnings` produces the `ParseWarning` shape from §5.2 (`blockRef.kind = "pull_sheet_archived_tab"`, `rawSnippet = headerPreviews.join(" | ")`). `reconcileIncludedTab` finds the `included:true` tab (if any) and compares its returned `fingerprint` to `override.fingerprint`.
-- **`runOnboardingScan.ts`:** before calling the fetch helper, read the row's `pull_sheet_override` (destructure `{ data, error }` — invariant 9). Pass `includePullSheetFromTab: override?.tabName`. After parse: push `emitArchivedTabWarnings(...)` into `parse_result.warnings`; set `parse_result.archivedPullSheetTabs = tabs`. If `reconcileIncludedTab` returns `content_changed` → run the **discard-and-rerun** (5.2, I5b): under the `show:` lock (see Task 7 for the lock reconciliation) clear the override (`set_pull_sheet_override`-equivalent write of `null`, or a direct locked `update ... set pull_sheet_override = null`), emit `PULL_SHEET_OVERRIDE_CONTENT_CHANGED` (forensic), re-parse WITHOUT `includePullSheetFromTab`, stage that no-override parse with **empty `pullSheet`** and set the changed tab's entry `contentChangedSinceAccept = true` with the NEW previews/fingerprint. Persist `pull_sheet_override_applied = overrideSnapshot(override-as-of-lock)` **atomically with the `parse_result` INSERT** (`:421-443` — add both columns to the upsert column list + `excluded.` set-clause).
+- **`runOnboardingScan.ts`:** before calling the fetch helper, read the row's `pull_sheet_override` (destructure `{ data, error }` — invariant 9). Pass `includePullSheetFromTab: override?.tabName`. After parse: push `emitArchivedTabWarnings(...)` into `parse_result.warnings`; set `parse_result.archivedPullSheetTabs = tabs`. If `reconcileIncludedTab` returns `content_changed` → run the **discard-and-rerun** (5.2, I5b): under the `show:` lock (see Task 7 for the lock reconciliation) clear the override (`update ... set pull_sheet_override = null`), emit `PULL_SHEET_OVERRIDE_CONTENT_CHANGED` (forensic), re-parse WITHOUT `includePullSheetFromTab`, and stage that no-override parse with **empty `pullSheet`**, the changed tab's entry `contentChangedSinceAccept = true` with the NEW previews/fingerprint, **AND `pull_sheet_override_applied = null`** (Codex plan-R1 finding 2). Do NOT persist `overrideSnapshot(override-as-of-lock)` in this branch: the override just mismatched and was cleared, so writing `applied = A` while desired is now `null` would leave finalize permanently blocked after a *safety* clear. `_applied = null` matches the no-override parse actually staged, so `overrideSnapshot(null) === applied` → the row finalizes as a plain no-pull-sheet show.
+  For the **non-mismatch** staging paths (normal re-scan, accept-included, no-override), persist `pull_sheet_override_applied = overrideSnapshot(override-as-of-lock)` **atomically with the `parse_result` INSERT** (`:421-443` — add both columns to the upsert column list + `excluded.` set-clause). Only the content-changed branch overrides this to `null`.
 - **`runScheduledCronSync.ts`:** cron reads `shows.pull_sheet_override`; `upsertLivePendingSync` (`:933`) writes `pull_sheet_override_applied` with its staged parse (Task 10 covers the Flow C apply gate).
 - **`applyStaged.ts`:** read paths surface the new columns (additive `select`).
 
-Run Step 6.1 + `pnpm vitest run tests/sync` → **PASSES**. Commit: `feat(sync): override read, archived-tab warnings, content-change discard-and-rerun, applied-snapshot write`
+### Step 6.3 — Failing content-changed integration test (staged DB/envelope outcome)
+
+Helper unit tests (6.1) don't prove the staged row. Add an integration test (against `$TEST_DATABASE_URL` or a stubbed `Phase1Tx` that records the upsert args) asserting the **content-changed branch's persisted outcome**:
+
+```ts
+it("content-changed accepted tab: staged row has override=null, empty pullSheet, changed tab flagged, _applied=null, warning re-fired", async () => {
+  // Arrange: pending_syncs override = {tabName:'OLD PULL SHEET', fingerprint:'ff', ...};
+  // exporter now returns the included tab with a DIFFERENT fingerprint 'ee'.
+  const staged = await runOnboardingScanForOne({ /* deps producing the mismatch */ });
+  expect(staged.pull_sheet_override).toBeNull();                       // cleared
+  expect(staged.pull_sheet_override_applied).toBeNull();               // Codex plan-R1-2: NOT overrideSnapshot(A)
+  expect(staged.parse_result.pullSheet).toEqual([]);                   // no stale gear staged (I5b)
+  const tab = staged.parse_result.archivedPullSheetTabs.find((t) => t.tabName === "OLD PULL SHEET");
+  expect(tab?.contentChangedSinceAccept).toBe(true);
+  expect(tab?.fingerprint).toBe("ee");                                 // NEW fingerprint for re-review
+  expect(staged.parse_result.warnings.some((w) => w.code === "PULL_SHEET_OVERRIDE_CONTENT_CHANGED")).toBe(true);
+});
+```
+
+Run → **FAILS** first (branch persists `overrideSnapshot(A)` / non-empty pullSheet), then after Step 6.2 → **PASSES**. Concrete failure mode caught: a safety auto-clear that leaves the row finalize-blocked (`applied=A`, desired=null) or that stages the changed gear.
+
+Run Step 6.1 + 6.3 + `pnpm vitest run tests/sync` → **PASSES**. Commit: `feat(sync): override read, archived-tab warnings, content-change discard-and-rerun, applied-snapshot write`
 
 ---
 
@@ -610,7 +632,18 @@ Body: `{ driveFileId: string; wizardSessionId: string; tabName: string; expected
 ```ts
 // route behavior
 it("accept: server fingerprint === expectedFingerprint => RPC called with server-computed fingerprint, re-scan triggered", async () => { /* ... */ });
-it("accept: server fingerprint !== expectedFingerprint => 409 typed re-prompt, RPC NOT called (I3 CAS)", async () => { /* ... */ });
+it("accept: server fingerprint !== expectedFingerprint => 409 { status: 'stale_review' } (code-less), RPC NOT called (I3 CAS)", async () => {
+  // server fresh-detect returns fingerprint 'ee'; body expectedFingerprint 'ff'
+  const res = await POST(reqWith({ driveFileId: "d", wizardSessionId: "s", tabName: "OLD PULL SHEET", expectedFingerprint: "ff" }));
+  expect(res.status).toBe(409);
+  await expect(res.json()).resolves.toEqual({ status: "stale_review" });
+  expect(rpcSpy).not.toHaveBeenCalled();
+});
+it("stale_review 409 body has no §12.4/lookup code (uncataloged-code guard, Codex plan-R1-3)", async () => {
+  const res = await POST(reqWith({ driveFileId: "d", wizardSessionId: "s", tabName: "OLD PULL SHEET", expectedFingerprint: "ff" }));
+  const body = await res.json();
+  expect(body).not.toHaveProperty("code"); // structured status only; UI re-fetches preview, card carries the message
+});
 it("accept: named tab has no pull-sheet region server-side => typed error, no override written", async () => { /* ... */ });
 it("revoke: tabName null => RPC called with p_tab_name null, re-scan triggered", async () => { /* ... */ });
 it("non-admin => rejected before any RPC (requireAdminIdentity throws)", async () => { /* ... */ });
@@ -637,7 +670,7 @@ Run → **FAILS** (route absent; registry rows missing).
 Route (`POST`), pattern mirrors `rescan-sheet/route.ts` but uses `requireAdminIdentity`:
 1. `const { email } = await requireAdminIdentity();` (gate).
 2. Parse body; validate shape (typed 400 via lookup copy on malformed — invariant 5).
-3. **Fresh server-side detect** the named tab's current fingerprint (re-fetch bytes + `synthesizeMarkdownFromXlsx`), find the `ArchivedPullSheetTab` for `tabName`. If none → typed error (no pull-sheet region server-side). For accept: if `serverFingerprint !== expectedFingerprint` → 409 typed re-prompt (`PULL_SHEET_OVERRIDE_STALE_REVIEW` lookup copy; NOT a new §12.4 code — a route-level UI message via lookup), RPC NOT called (I3).
+3. **Fresh server-side detect** the named tab's current fingerprint (re-fetch bytes + `synthesizeMarkdownFromXlsx`), find the `ArchivedPullSheetTab` for `tabName`. If none → typed error (no pull-sheet region server-side). For accept: if `serverFingerprint !== expectedFingerprint` → **HTTP 409 with a structured, code-less status body `{ status: "stale_review" }`** (NOT a §12.4 code and NOT a lookup-copy code — Codex plan-R1 finding 3: an uncataloged lookup key resolves to null/throws). The client's accept handler treats 409 `stale_review` as "content changed since you reviewed" and **re-fetches the Step-3 preview** — the re-scanned preview re-renders the Pack list section, and the changed content surfaces via the existing S2/S4 card copy (which IS cataloged/inline). No dedicated error-code copy is needed because the card itself is the user-facing message. RPC NOT called (I3).
 4. Call `set_pull_sheet_override` with the **service-role client** (`{data,error}` destructure — invariant 9): `p_fingerprint = serverFingerprint` (accept) or route the revoke branch with `p_tab_name = null`. The JS route does NOT take the `show:` lock.
 5. On success: trigger the existing re-scan (`rescan-sheet` path) so 5.3 re-runs with the new override.
 6. **Post-commit, outside any lock tx:** `await logAdminOutcome({ code: tabName ? "PULL_SHEET_OVERRIDE_SET" : "PULL_SHEET_OVERRIDE_CLEARED", actorEmail: email, ... })` (forensic admin codes; §12.4-exempt via `_metaAdminOutcomeContract`). No secret logged (tab name is not a secret).
@@ -748,7 +781,9 @@ Run → **PASSES**. Commit: `feat(onboarding): finalize gate refuses staged pars
 - `components/admin/wizard/Step3SheetCard.tsx` (`arr(pr.pullSheet)` `:429`, DTO shaping `:542` — add `archivedPullSheetTabs`)
 - `tests/components/admin/wizard/packListBreakdownStates.test.tsx` (NEW)
 
-**Interfaces — Consumes:** `pr.pullSheet: PullSheetCase[]`, `pr.archivedPullSheetTabs: ArchivedPullSheetTab[]`, override-active flag. **Produces:** S1–S4 render + accept/revoke buttons POSTing to the Task 8 route.
+**Interfaces — Consumes:** `pr.pullSheet: PullSheetCase[]`, `pr.archivedPullSheetTabs: ArchivedPullSheetTab[]`, `dfid` (driveFileId), `wizardSessionId` (threaded from `SectionData`), override-active flag. **Produces:** S1–S4 render + accept/revoke buttons POSTing the FULL route body (`driveFileId`, `wizardSessionId`, `tabName`, `expectedFingerprint`) to the Task 8 route.
+
+> **Codex plan-R1 finding 1:** the Task 8 route/RPC requires `wizardSessionId` (in-RPC active-session guard). `PackListBreakdown` MUST receive and send it, or accept/revoke cannot validate the session. `wizardSessionId` is already available in the Step-3 wizard context (the wizard is a single active onboarding session); thread it through `SectionData`/`Step3SheetCard` shaping into `PackListBreakdown` props.
 
 ### Step 12.1 — Failing S1–S4 render tests (anti-tautology: assert against data inputs; scope DOM to Pack list section)
 
@@ -760,31 +795,45 @@ function packListSection(container: HTMLElement) {
   return clone;
 }
 
-it("S1 Empty: no pull sheet, no archived tabs => 'No pack list parsed.'", () => { /* ... */ });
+it("S1 Empty: no pull sheet, no archived tabs => 'No pack list parsed.'", () => {
+  render(<PackListBreakdown dfid="d" wizardSessionId="sess-1" cases={[]} archivedPullSheetTabs={[]} overrideActive={false} />);
+  expect(packListSection(screen.getByTestId("step3-card")).textContent).toContain("No pack list parsed.");
+});
 
 it("S2 Offer: archivedPullSheetTabs entry (contentChangedSinceAccept:false), no override => warning card lists EVERY headerPreview + both buttons", () => {
   const pr = { pullSheet: [], archivedPullSheetTabs: [
     { tabName: "OLD PULL SHEET", headerPreviews: ["RIA - CHICAGO", "MIAMI"], fingerprint: "ff", included: false, contentChangedSinceAccept: false },
   ]};
-  render(<PackListBreakdown dfid="d" cases={pr.pullSheet} archivedPullSheetTabs={pr.archivedPullSheetTabs} overrideActive={false} />);
+  render(<PackListBreakdown dfid="d" wizardSessionId="sess-1" cases={pr.pullSheet} archivedPullSheetTabs={pr.archivedPullSheetTabs} overrideActive={false} />);
   const sec = packListSection(screen.getByTestId("step3-card"));
   expect(sec.textContent).toContain("OLD PULL SHEET");
   expect(sec.textContent).toContain("RIA - CHICAGO"); // I2: every case shown
   expect(sec.textContent).toContain("MIAMI");
   const accept = screen.getByRole("button", { name: /use this show's gear/i });
-  // 10b fingerprint transport: accept POSTs the PERSISTED entry's fingerprint
+  // 10b fingerprint transport + full body: accept POSTs driveFileId, wizardSessionId, tabName, expectedFingerprint
   fireEvent.click(accept);
-  expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining("/pull-sheet-override"),
-    expect.objectContaining({ body: expect.stringContaining('"expectedFingerprint":"ff"') }));
+  const body = JSON.parse((fetchSpy.mock.calls.at(-1)![1] as RequestInit).body as string);
+  expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining("/pull-sheet-override"), expect.anything());
+  expect(body).toEqual({ driveFileId: "d", wizardSessionId: "sess-1", tabName: "OLD PULL SHEET", expectedFingerprint: "ff" });
 });
 
-it("S3 Included: override active, pullSheet populated => pack list + 'Included from archived tab' note + Revoke", () => { /* ... */ });
+it("S3 Included: override active, pullSheet populated => pack list + 'Included from archived tab' note + Revoke posts full body with tabName:null", () => {
+  render(<PackListBreakdown dfid="d" wizardSessionId="sess-1"
+    cases={[{ caseLabel: "FOH", items: [{ qty: 1, cat: null, subCat: null, item: "Rack" }] }]}
+    archivedPullSheetTabs={[{ tabName: "OLD PULL SHEET", headerPreviews: ["RIA"], fingerprint: "ff", included: true, contentChangedSinceAccept: false }]}
+    overrideActive={true} />);
+  const sec = packListSection(screen.getByTestId("step3-card"));
+  expect(sec.textContent).toMatch(/Included from archived tab/i);
+  fireEvent.click(screen.getByRole("button", { name: /revoke/i }));
+  const body = JSON.parse((fetchSpy.mock.calls.at(-1)![1] as RequestInit).body as string);
+  expect(body).toEqual({ driveFileId: "d", wizardSessionId: "sess-1", tabName: null });
+});
 
 it("S4 Re-confirm: entry contentChangedSinceAccept:true + override null + empty pullSheet => 'changed — re-confirm' prefix, NOT generic S2 copy (Codex R10-2)", () => {
   const pr = { pullSheet: [], archivedPullSheetTabs: [
     { tabName: "OLD PULL SHEET", headerPreviews: ["MIAMI"], fingerprint: "ee", included: false, contentChangedSinceAccept: true },
   ]};
-  render(<PackListBreakdown dfid="d" cases={[]} archivedPullSheetTabs={pr.archivedPullSheetTabs} overrideActive={false} />);
+  render(<PackListBreakdown dfid="d" wizardSessionId="sess-1" cases={[]} archivedPullSheetTabs={pr.archivedPullSheetTabs} overrideActive={false} />);
   expect(screen.getByTestId("step3-card").textContent).toMatch(/changed — re-confirm/i);
 });
 
@@ -796,7 +845,7 @@ Run → **FAILS**.
 
 ### Step 12.2 — Impl
 
-Extend `PackListBreakdown` props to `{ dfid, cases, archivedPullSheetTabs, overrideActive }`. Render the state table from §5.6:
+Extend `PackListBreakdown` props to `{ dfid, wizardSessionId, cases, archivedPullSheetTabs, overrideActive }` (Codex plan-R1-1). Accept/revoke handlers POST the full body (`{ driveFileId: dfid, wizardSessionId, tabName, expectedFingerprint }` for accept; `{ driveFileId: dfid, wizardSessionId, tabName: null }` for revoke). On a **409 `{ status: "stale_review" }`** response (Codex plan-R1-3), the handler re-fetches the Step-3 preview (same success path) instead of showing a bespoke error — the re-rendered card carries the changed-content message. Render the state table from §5.6:
 - **S1:** `cases` empty + `archivedPullSheetTabs` empty → `"No pack list parsed."` (unchanged).
 - **S2:** an entry with `contentChangedSinceAccept === false` and `!overrideActive` → per-tab warning card `"Found a pull sheet on archived tab '{tabName}'."`, then `headerPreviews.map((p, i) => "Case {i+1} header reads '{p || "(no header text)"}'")` as a list, `"If this is this show's gear, include it; otherwise leave it skipped."` + `[Use this show's gear]` (POST that entry's `fingerprint` as `expectedFingerprint`) / `[Keep skipped]`.
 - **S3:** `overrideActive` + populated `cases` → normal pack list + subtle `"Included from archived tab '{tabName}'."` + `[Revoke]`.
