@@ -61,6 +61,7 @@ import {
 } from "lucide-react";
 import type {
   AgendaEntry,
+  ArchivedPullSheetTab,
   ClientContact,
   ContactRow,
   CrewMemberRow,
@@ -74,6 +75,7 @@ import type {
   ShowRow,
   TransportationRow,
 } from "@/lib/parser/types";
+import { useRouter } from "next/navigation";
 import type { Step3Row } from "@/components/admin/wizard/Step3Review";
 import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
@@ -1310,75 +1312,326 @@ function PackCountPill({ count }: { count: number }) {
 // (which date-gates pack-list visibility via isPackListVisibleToday), a review
 // surface always shows what parsed. A case with zero items renders as a plain
 // non-expandable line.
-export function PackListBreakdown({ dfid, cases }: { dfid: string; cases: PullSheetCase[] }) {
-  const shown = cases.slice(0, PACK_LIST_CASES_CAP);
-  const note = overflowNote(cases.length, PACK_LIST_CASES_CAP, "cases");
+export function PackListBreakdown({
+  dfid,
+  wizardSessionId,
+  cases,
+  archivedPullSheetTabs,
+  overrideActive,
+}: {
+  dfid: string;
+  wizardSessionId: string;
+  cases: PullSheetCase[];
+  archivedPullSheetTabs: ArchivedPullSheetTab[];
+  overrideActive: boolean;
+}) {
+  // §5.6 state machine. The included tab (override applied) carries the revoke
+  // note (S3); every non-included archived tab is an offer/re-confirm card (S2/S4,
+  // §6 renders all, no cap). When an override is active we suppress the offers —
+  // only one override at a time (the RPC enforces it).
+  const includedTab = archivedPullSheetTabs.find((t) => t.included) ?? null;
+  const offers = overrideActive ? [] : archivedPullSheetTabs.filter((t) => !t.included);
+  const hasCases = cases.length > 0;
+  // S1: nothing parsed AND nothing to offer. A pending offer (S2/S4) or an active
+  // override (S3) suppresses the empty state.
+  const isEmpty = !hasCases && archivedPullSheetTabs.length === 0;
+  // Dismissing an offer unmounts its whole card (incl. the focused button). Inside
+  // the focus-trapped review modal that would strand focus on <body> (WCAG 2.4.3),
+  // so the section wrapper is a `tabIndex={-1}` focus fallback the offer targets
+  // BEFORE it unmounts (impeccable audit P2).
+  const sectionRef = useRef<HTMLDivElement>(null);
+  const focusSection = () => sectionRef.current?.focus();
+
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-pack-list`}
       label="Pack list"
       count={cases.length}
     >
-      {cases.length === 0 ? (
-        <p className="text-sm text-text-subtle">No pack list parsed.</p>
-      ) : (
-        <ul className="flex flex-col">
-          {shown.map((c, i) => {
-            const items = arr(c.items);
-            const label = c.caseLabel || `Case ${i + 1}`;
-            // No items → nothing to expand; render a plain line (the count still
-            // tells the operator the case parsed but is empty).
-            if (items.length === 0) {
-              return (
-                <li
-                  key={`${label}-${i}`}
-                  className="flex min-h-tap-min items-center gap-2 border-b border-border text-sm text-text last:border-0"
-                >
-                  <span aria-hidden="true" className="size-4 shrink-0" />
+      <div
+        ref={sectionRef}
+        tabIndex={-1}
+        data-section="pack-list"
+        className="flex flex-col gap-3 outline-none"
+      >
+        {isEmpty ? <p className="text-sm text-text-subtle">No pack list parsed.</p> : null}
+        {hasCases ? <PackListCases dfid={dfid} cases={cases} /> : null}
+        {overrideActive && includedTab ? (
+          <ArchivedTabIncludedNote
+            dfid={dfid}
+            wizardSessionId={wizardSessionId}
+            tab={includedTab}
+          />
+        ) : null}
+        {offers.map((tab, i) => (
+          <ArchivedTabOffer
+            key={`${tab.tabName}-${i}`}
+            dfid={dfid}
+            wizardSessionId={wizardSessionId}
+            tab={tab}
+            onDismissFocus={focusSection}
+          />
+        ))}
+      </div>
+    </BreakdownSection>
+  );
+}
+
+/** The parsed PULL-tab case list — the disclosure body shared by the normal
+ *  pack list and the S3/S4-mixed states (current gear renders even when an
+ *  archived-tab offer or included note is also present). */
+function PackListCases({ dfid, cases }: { dfid: string; cases: PullSheetCase[] }) {
+  const shown = cases.slice(0, PACK_LIST_CASES_CAP);
+  const note = overflowNote(cases.length, PACK_LIST_CASES_CAP, "cases");
+  return (
+    <>
+      <ul className="flex flex-col">
+        {shown.map((c, i) => {
+          const items = arr(c.items);
+          const label = c.caseLabel || `Case ${i + 1}`;
+          // No items → nothing to expand; render a plain line (the count still
+          // tells the operator the case parsed but is empty).
+          if (items.length === 0) {
+            return (
+              <li
+                key={`${label}-${i}`}
+                className="flex min-h-tap-min items-center gap-2 border-b border-border text-sm text-text last:border-0"
+              >
+                <span aria-hidden="true" className="size-4 shrink-0" />
+                <span className="wrap-break-word flex-1 font-medium text-text-strong">{label}</span>
+                <PackCountPill count={items.length} />
+              </li>
+            );
+          }
+          const shownItems = items.slice(0, PACK_LIST_ITEMS_CAP);
+          const itemsNote = overflowNote(items.length, PACK_LIST_ITEMS_CAP, "items");
+          return (
+            <li
+              key={`${label}-${i}`}
+              className="border-b border-border text-sm text-text last:border-0"
+            >
+              <details className="group" data-testid={`wizard-step3-card-${dfid}-pack-case-${i}`}>
+                {/* §8 summary row: ≥44px tap target, chevron rotate on open
+                    (transform only), count pill. Native marker hidden — the
+                    chevron IS the disclosure affordance. */}
+                <summary className="flex min-h-tap-min cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
+                  <ChevronRight
+                    aria-hidden="true"
+                    className="size-4 shrink-0 text-text-subtle transition-transform duration-fast group-open:rotate-90"
+                  />
                   <span className="wrap-break-word flex-1 font-medium text-text-strong">
                     {label}
                   </span>
                   <PackCountPill count={items.length} />
-                </li>
-              );
-            }
-            const shownItems = items.slice(0, PACK_LIST_ITEMS_CAP);
-            const itemsNote = overflowNote(items.length, PACK_LIST_ITEMS_CAP, "items");
-            return (
-              <li
-                key={`${label}-${i}`}
-                className="border-b border-border text-sm text-text last:border-0"
-              >
-                <details className="group" data-testid={`wizard-step3-card-${dfid}-pack-case-${i}`}>
-                  {/* §8 summary row: ≥44px tap target, chevron rotate on open
-                      (transform only), count pill. Native marker hidden — the
-                      chevron IS the disclosure affordance. */}
-                  <summary className="flex min-h-tap-min cursor-pointer list-none items-center gap-2 [&::-webkit-details-marker]:hidden">
-                    <ChevronRight
-                      aria-hidden="true"
-                      className="size-4 shrink-0 text-text-subtle transition-transform duration-fast group-open:rotate-90"
-                    />
-                    <span className="wrap-break-word flex-1 font-medium text-text-strong">
-                      {label}
-                    </span>
-                    <PackCountPill count={items.length} />
-                  </summary>
-                  <ul className="mb-2 flex flex-col gap-0.5 pl-6 text-xs text-text-subtle">
-                    {shownItems.map((item, j) => (
-                      <li key={`${item.item}-${j}`} className="wrap-break-word">
-                        {packItemLabel(item)}
-                      </li>
-                    ))}
-                    {itemsNote ? <li className="text-text-subtle">{itemsNote}</li> : null}
-                  </ul>
-                </details>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+                </summary>
+                <ul className="mb-2 flex flex-col gap-0.5 pl-6 text-xs text-text-subtle">
+                  {shownItems.map((item, j) => (
+                    <li key={`${item.item}-${j}`} className="wrap-break-word">
+                      {packItemLabel(item)}
+                    </li>
+                  ))}
+                  {itemsNote ? <li className="text-text-subtle">{itemsNote}</li> : null}
+                </ul>
+              </details>
+            </li>
+          );
+        })}
+      </ul>
       {note ? <p className="text-xs text-text-subtle">{note}</p> : null}
-    </BreakdownSection>
+    </>
+  );
+}
+
+// The archived-tab CTA grammar. The load-bearing action (accept / revoke) is the
+// bordered button that mirrors RescanSheetButton; the dismiss ("Keep skipped") is
+// a quieter ghost so a glancing operator reads the primary action first (impeccable
+// critique P2 — hierarchy WITHIN the neutral palette, never spending the ≤10% orange).
+const ARCHIVED_TAB_BTN =
+  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
+// Resting color is text-text (NOT text-subtle — DESIGN.md:27 bars subtle on action
+// targets); the border-transparent + no-fill is what makes it read as secondary.
+const ARCHIVED_TAB_GHOST_BTN =
+  "inline-flex min-h-tap-min items-center justify-center rounded-sm border border-transparent px-4 text-sm font-medium text-text transition-colors duration-fast hover:text-text-strong disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
+
+async function postPullSheetOverride(body: unknown): Promise<{ ok: boolean; refresh: boolean }> {
+  const response = await fetch("/api/admin/onboarding/pull-sheet-override", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  // On success OR a 409 stale-review (the server re-scanned to the new
+  // fingerprint), re-fetch the preview so the re-rendered card carries the fresh
+  // state instead of a bespoke error (plan-R1-3). Any other status is a real
+  // failure surfaced as an inline line (no raw code — invariant 5).
+  return { ok: response.ok, refresh: response.ok || response.status === 409 };
+}
+
+const ARCHIVED_TAB_ERROR =
+  "That didn’t go through. Refresh and try again, or contact the developer if it keeps happening.";
+
+/** S2 offer / S4 re-confirm: a warning card offering to fold one archived-tab
+ *  pull sheet into this show's gear. Accept POSTs the row-state-CAS body (no
+ *  active override → expectedOverrideSnapshot null). "Keep skipped" is a local
+ *  dismiss — the default state is already skipped, so nothing is written. */
+function ArchivedTabOffer({
+  dfid,
+  wizardSessionId,
+  tab,
+  onDismissFocus,
+}: {
+  dfid: string;
+  wizardSessionId: string;
+  tab: ArchivedPullSheetTab;
+  /** Focus a persistent sibling before this card unmounts on dismiss (WCAG 2.4.3). */
+  onDismissFocus: () => void;
+}) {
+  const router = useRouter();
+  const [pending, setPending] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (dismissed) return null;
+
+  async function accept() {
+    if (pending) return;
+    setError(null);
+    setPending(true);
+    try {
+      const { refresh } = await postPullSheetOverride({
+        driveFileId: dfid,
+        wizardSessionId,
+        tabName: tab.tabName,
+        expectedFingerprint: tab.fingerprint,
+        expectedOverrideSnapshot: null,
+      });
+      if (refresh) {
+        router.refresh();
+        return;
+      }
+      setError(ARCHIVED_TAB_ERROR);
+    } catch {
+      setError(ARCHIVED_TAB_ERROR);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  // S4 (content changed after acceptance) is a genuine "act before it publishes"
+  // state → warm warning tone. S2 (first discovery) is neutral information, not a
+  // problem → the quieter info tone (impeccable critique P3).
+  const changed = tab.contentChangedSinceAccept;
+  const cardTone = changed
+    ? "border-border-strong bg-warning-bg text-warning-text"
+    : "border-border bg-info-bg text-text-strong";
+
+  return (
+    <div
+      data-testid={`pack-list-archived-offer-${dfid}-${tab.tabName}`}
+      className={`flex flex-col gap-2 rounded-sm border p-3 text-sm ${cardTone}`}
+    >
+      <p className="font-medium">
+        {changed
+          ? `The archived tab ‘${tab.tabName}’ changed. Re-confirm before it publishes.`
+          : `Found a pull sheet on archived tab ‘${tab.tabName}’.`}
+      </p>
+      <ul className="flex flex-col gap-0.5 text-xs">
+        {tab.headerPreviews.map((preview, i) => (
+          <li key={`${tab.tabName}-preview-${i}`} className="wrap-break-word">
+            Case {i + 1} header reads ‘{preview.trim() ? preview : "(no header text)"}’.
+          </li>
+        ))}
+      </ul>
+      <p>If this is this show’s gear, include it; otherwise leave it skipped.</p>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={accept}
+          disabled={pending}
+          aria-busy={pending}
+          className={ARCHIVED_TAB_BTN}
+        >
+          {pending ? "Including…" : "Use this show’s gear"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            // Move focus to the persistent section BEFORE the card (and this
+            // button) unmount, so focus never drops to <body> in the trapped modal.
+            onDismissFocus();
+            setDismissed(true);
+          }}
+          disabled={pending}
+          className={ARCHIVED_TAB_GHOST_BTN}
+        >
+          Keep skipped
+        </button>
+      </div>
+      {error ? (
+        <p role="status" aria-live="polite">
+          {error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** S3: the subtle "this pack list came from an archived tab" note + Revoke.
+ *  Revoke POSTs tabName:null with the active override's snapshot as the row-state
+ *  CAS baseline (spec §5.4). */
+function ArchivedTabIncludedNote({
+  dfid,
+  wizardSessionId,
+  tab,
+}: {
+  dfid: string;
+  wizardSessionId: string;
+  tab: ArchivedPullSheetTab;
+}) {
+  const router = useRouter();
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function revoke() {
+    if (pending) return;
+    setError(null);
+    setPending(true);
+    try {
+      const { refresh } = await postPullSheetOverride({
+        driveFileId: dfid,
+        wizardSessionId,
+        tabName: null,
+        expectedOverrideSnapshot: { tabName: tab.tabName, fingerprint: tab.fingerprint },
+      });
+      if (refresh) {
+        router.refresh();
+        return;
+      }
+      setError(ARCHIVED_TAB_ERROR);
+    } catch {
+      setError(ARCHIVED_TAB_ERROR);
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-2 rounded-sm border border-border bg-info-bg px-3 py-2 text-sm text-text-strong">
+      <p className="wrap-break-word min-w-0 flex-1">Included from archived tab ‘{tab.tabName}’.</p>
+      <button
+        type="button"
+        onClick={revoke}
+        disabled={pending}
+        aria-busy={pending}
+        className={ARCHIVED_TAB_BTN}
+      >
+        {pending ? "Revoking…" : "Revoke"}
+      </button>
+      {error ? (
+        <p role="status" aria-live="polite" className="basis-full">
+          {error}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -2051,6 +2304,7 @@ export type SectionData = {
   rooms: RoomRow[];
   hotels: HotelReservationRow[];
   pullSheet: PullSheetCase[];
+  archivedPullSheetTabs: ArchivedPullSheetTab[];
   ros: RunOfShow;
   warnings: ParseWarning[];
   agendaBaseline: AdminAgendaItem[];
@@ -2601,7 +2855,15 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       Icon: Package,
       // No rail count (owner decision, 2026-07-05) — see COUNT_SECTIONS.
       railCount: null,
-      render: (s) => <PackListBreakdown dfid={s.dfid} cases={s.pullSheet} />,
+      render: (s) => (
+        <PackListBreakdown
+          dfid={s.dfid}
+          wizardSessionId={s.wizardSessionId}
+          cases={s.pullSheet}
+          archivedPullSheetTabs={s.archivedPullSheetTabs}
+          overrideActive={s.archivedPullSheetTabs.some((t) => t.included)}
+        />
+      ),
     },
     {
       id: "billing",

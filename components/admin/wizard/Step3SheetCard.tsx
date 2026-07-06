@@ -427,6 +427,7 @@ export function Step3SheetCard({
   const rooms = arr(pr.rooms);
   const hotels = arr(pr.hotelReservations);
   const pullSheet = arr(pr.pullSheet);
+  const archivedPullSheetTabs = arr(pr.archivedPullSheetTabs);
   const ros: RunOfShow = pr.runOfShow ?? {};
   const warnings = stripLegacyUnknownFieldAnchors(arr(pr.warnings));
   // Data-quality gap count drives the compact card's "needs a look" state: a
@@ -540,6 +541,7 @@ export function Step3SheetCard({
             rooms,
             hotels,
             pullSheet,
+            archivedPullSheetTabs,
             ros,
             warnings,
             agendaBaseline: arr(row.adminAgendaPreview),
