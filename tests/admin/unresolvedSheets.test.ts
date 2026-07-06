@@ -94,6 +94,27 @@ describe("readUnresolvedSheets", () => {
     expect(rows[0]!.displayName).toBe("D_HARD");
   });
 
+  it("falls back to driveFileId for a whitespace-only title (whole-diff R5 MEDIUM)", async () => {
+    mockClient(
+      clientReturning(
+        [{ drive_file_id: "D_BLANK", status: "hard_failed" }],
+        [
+          {
+            drive_file_id: "D_BLANK",
+            last_finalize_failure_code: null,
+            parse_result: { show: { title: "   " } }, // whitespace-only → visually blank
+          },
+        ],
+      ),
+    );
+    const rows = (await readUnresolvedSheets(SESSION)) as {
+      driveFileId: string;
+      displayName: string;
+    }[];
+    // A whitespace-only title must not render a blank bold line — fall back to the id.
+    expect(rows[0]!.displayName).toBe("D_BLANK");
+  });
+
   it("returns an empty array when nothing is unresolved", async () => {
     mockClient(
       clientReturning(

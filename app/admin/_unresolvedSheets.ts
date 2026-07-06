@@ -62,7 +62,9 @@ function reApplyHref(wizardSessionId: string, driveFileId: string): string {
 
 function displayNameFor(parseResult: PendingRow["parse_result"], driveFileId: string): string {
   const title = parseResult?.show?.title;
-  return typeof title === "string" && title.length > 0 ? title : driveFileId;
+  // Whole-diff R5 MEDIUM: guard on the TRIMMED length so a whitespace-only title
+  // ("   ") falls back to the drive_file_id instead of rendering a visually blank name.
+  return typeof title === "string" && title.trim().length > 0 ? title : driveFileId;
 }
 
 export async function readUnresolvedSheets(
