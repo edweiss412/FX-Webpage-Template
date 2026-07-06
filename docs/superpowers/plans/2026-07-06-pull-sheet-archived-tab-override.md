@@ -795,6 +795,13 @@ it("row-state CAS: RPC raises 40001 (override changed since page load) => 409 { 
 });
 it("non-admin => rejected before any RPC (requireAdminIdentity throws)", async () => { /* ... */ });
 it("success branch records logAdminOutcome code PULL_SHEET_OVERRIDE_SET/CLEARED (sink-spy after committed success)", async () => { /* invariant 10 behavioral proof */ });
+it("re-scan FAILS after RPC commit => logAdminOutcome STILL emitted SET/CLEARED (partial-success audit, no dark surface, Codex plan-R8-1)", async () => {
+  rpcSpy.mockResolvedValueOnce({ data: {}, error: null });        // RPC commits
+  rescanSpy.mockRejectedValueOnce(new Error("rescan timeout"));    // re-scan fails AFTER commit
+  const res = await POST(reqWith({ driveFileId: "d", wizardSessionId: "s", tabName: "OLD PULL SHEET", expectedFingerprint: "ff", expectedOverrideSnapshot: null }));
+  expect(outcomeSpy).toHaveBeenCalledWith(expect.objectContaining({ code: "PULL_SHEET_OVERRIDE_SET" })); // audit fired despite re-scan failure
+  expect(res.status).not.toBe(500);                                // committed mutation reports success; preview refreshes later
+});
 
 // _auditableMutations registry: new file+POST+code rows present
 // adminOutcomeBehavior: executable success-branch proof for both codes
@@ -819,10 +826,10 @@ Route (`POST`), pattern mirrors `rescan-sheet/route.ts` but uses `requireAdminId
 2. Parse body; validate shape (typed 400 via lookup copy on malformed — invariant 5).
 3. **Fresh server-side detect** the named tab's current fingerprint (re-fetch bytes + `synthesizeMarkdownFromXlsx`), find the `ArchivedPullSheetTab` for `tabName`. If none → typed error (no pull-sheet region server-side). For accept: if `serverFingerprint !== expectedFingerprint` → **first trigger the standard re-scan (`rescan-sheet` path) so the freshly-detected `archivedPullSheetTabs` (new fingerprint + previews) is re-persisted into the Step-3 envelope** — the RPC is NOT called, so the override is untouched (a first-time S2 offer just re-persists with the new fingerprint; `reconcileIncludedTab` returns `no_override`). THEN return **HTTP 409 with a structured, code-less status body `{ status: "stale_review" }`** (NOT a §12.4 code and NOT a lookup-copy code — Codex plan-R1 finding 3: an uncataloged lookup key resolves to null/throws). Without the re-scan refresh the client would re-fetch the SAME stale envelope (`fingerprint='ff'`) and dead-loop on 409 (plan-R5 finding 1). With it, the client's accept handler treats 409 `stale_review` as "content changed since you reviewed", **re-fetches the Step-3 preview** showing the NEW fingerprint, and a second accept against that new fingerprint matches and succeeds. The changed content surfaces via the existing S2/S4 card copy (which IS cataloged/inline). RPC NOT called (I3).
 4. Call `set_pull_sheet_override` with the **service-role client** (`{data,error}` destructure — invariant 9): `p_fingerprint = serverFingerprint` (accept) or `p_tab_name = null` (revoke); pass `p_expected_override_snapshot = body.expectedOverrideSnapshot` for BOTH. The JS route does NOT take the `show:` lock. If the RPC raises `40001` (row-state CAS mismatch — someone changed the override since the admin's page loaded) → the route returns the same **409 `{ status: "stale_review" }`** as the fingerprint-CAS branch; the client re-fetches the preview. (Both the sheet-content CAS in step 3 and the row-state CAS here funnel to the one 409 refresh path.)
-5. On success: trigger the existing re-scan (`rescan-sheet` path) so 5.3 re-runs with the new override.
-6. **Post-commit, outside any lock tx:** `await logAdminOutcome({ code: tabName ? "PULL_SHEET_OVERRIDE_SET" : "PULL_SHEET_OVERRIDE_CLEARED", actorEmail: email, ... })` (forensic admin codes; §12.4-exempt via `_metaAdminOutcomeContract`). No secret logged (tab name is not a secret).
+5. **Immediately on RPC commit, post-commit + outside any lock tx — BEFORE triggering the re-scan (Codex plan-R8-1):** `await logAdminOutcome({ code: tabName ? "PULL_SHEET_OVERRIDE_SET" : "PULL_SHEET_OVERRIDE_CLEARED", actorEmail: email, ... })` (forensic admin codes; §12.4-exempt via `_metaAdminOutcomeContract`). No secret logged (tab name is not a secret). The RPC has already committed, so the mutation is durable — the audit MUST NOT be gated on the subsequent re-scan. If the audit came after the re-scan, a re-scan failure/timeout would leave a committed override mutation unaudited (a dark admin surface, invariant 10).
+6. Only AFTER the audit is emitted: trigger the existing re-scan (`rescan-sheet` path) so 5.3 re-runs with the new override. Wrap it so a re-scan failure is itself logged (a separate forensic `code`) but does NOT throw past the already-emitted success audit — the response still reports success (the override IS set; the preview will refresh on next scan/reload).
 
-Registry: add two rows to `AUDITABLE_MUTATIONS` (`{ file: "app/api/admin/onboarding/pull-sheet-override/route.ts", fn: "POST", code: "PULL_SHEET_OVERRIDE_SET" }` and `..._CLEARED`). Extend `adminOutcomeBehavior.test.ts` with the executable success-branch proof for both codes. Extend the two advisory-lock meta-tests.
+Registry: add two rows to `AUDITABLE_MUTATIONS` (`{ file: "app/api/admin/onboarding/pull-sheet-override/route.ts", fn: "POST", code: "PULL_SHEET_OVERRIDE_SET" }` and `..._CLEARED`). Extend `adminOutcomeBehavior.test.ts` with the executable success-branch proof for both codes — including a **re-scan-fails-after-commit** case asserting `logAdminOutcome` STILL fired the SET/CLEARED code (Codex plan-R8-1: partial-success audit). Extend the two advisory-lock meta-tests.
 
 `setPullSheetOverrideRpcAuth.test.ts` (against `$TEST_DATABASE_URL`): a non-service (authenticated-role) `select set_pull_sheet_override(...)` is denied by the grant; a service-role call with a forged/stale `p_wizard_session_id` raises (no write).
 
@@ -902,6 +909,11 @@ it("Flow A accept-then-failed-rescan => finalize REFUSED until reconverge (overr
 it("Flow B durable=A, staged-under-A, revoke=>null, rescan fails => payload {override:null, applied:A} => gate compares A vs null => REFUSED (NOT buggy durable-A pass)", () => { /* Codex R8 */ });
 it("Flow B legitimate accept durable-null=>A, staged-under-A => payload {override:A, applied:A} => gate PASSES, shows.override=A (NOT permanently blocked)", () => { /* ... */ });
 it("overrideSnapshot compare ignores acceptedBy/acceptedAt: accepted-then-rescanned row DOES finalize (Flow A & B)", () => { /* Codex R3-1 subset-vs-object bug cannot recur */ });
+it("mismatch blocking outcome returns cataloged STAGED_PARSE_OUTDATED_AT_PHASE_D and resolves to non-null copy (Codex plan-R8-2, no uncataloged code)", () => {
+  const outcome = evaluateFinalizeOverrideGate({ desired: { tabName: "OLD PULL SHEET", fingerprint: "ff" }, applied: null }); // A vs null => refuse
+  expect(outcome.code).toBe("STAGED_PARSE_OUTDATED_AT_PHASE_D");
+  expect(lookupMessage(outcome.code)).toBeTruthy(); // existing catalog entry => non-null user-facing copy (invariant 5)
+});
 ```
 
 Run → **FAILS**.
@@ -911,7 +923,7 @@ Run → **FAILS**.
 Under the `show:` lock at finalize/apply, gate `applied === overrideSnapshot(desired)`:
 - **Flow A:** desired = live `pending_syncs.pull_sheet_override`; applied = `pending_syncs.pull_sheet_override_applied`.
 - **Flow B:** desired = `payload.pullSheetOverride`; applied = `payload.pullSheetOverrideApplied` (payload-internal, NOT stale durable `shows`).
-On mismatch → typed blocking outcome (`re-scan needed before publishing`) surfaced via lookup copy (invariant 5), never a silent apply. Declarative gate — no compensation write; a successful re-scan reconverges `applied` → `override`.
+On mismatch → typed blocking outcome surfaced via lookup copy (invariant 5), never a silent apply. **Reuse the existing cataloged code `STAGED_PARSE_OUTDATED_AT_PHASE_D`** (`catalog.ts:2865`; already returned by `finalize-cas/route.ts:414,420` for the same "staged parse outdated at Phase-D" class) — the override-snapshot mismatch is that same class, so NO new §12.4 code / lockstep is added (Codex plan-R8-2). Declarative gate — no compensation write; a successful re-scan reconverges `applied` → `override`.
 
 Run → **PASSES**. Commit: `feat(onboarding): finalize gate refuses staged parse out of sync with desired override (Flow A/B)`
 
@@ -1023,13 +1035,14 @@ The badge count assertion was moved into **Task 4 Step 4.1** so it is genuinely 
 
 ## Task 14 — Schema manifest regen + validation-project apply
 
-**Spec:** §8 Manifest/validation row, AGENTS.md validation-schema-parity gate. **Files:** `supabase/__generated__/schema-manifest.json` (regen), no test file (CI `validation-schema-parity` enforces).
+**Spec:** §8 Manifest/validation row, AGENTS.md validation-schema-parity gate. **Files:** `supabase/__generated__/schema-manifest.json` (regen); the CI `validation-schema-parity` test is the executable gate (Layer-1 tripwire + Layer-2 psql parity).
 
-### Steps
+### Steps (fail-first — the parity gate IS this task's test, Codex plan-R8-3)
 1. Confirm the migration is applied to the LOCAL all-migrations DB (Task 1 did this).
-2. `pnpm gen:schema-manifest` → regenerates `supabase/__generated__/schema-manifest.json` including the 3 new columns. Commit the regenerated manifest (Layer-1 tripwire fails if skipped).
-3. Apply the migration **surgically** to validation project `vzakgrxqwcalbmagufjh` (blocked for `db push`): `psql "$TEST_DATABASE_URL" -f supabase/migrations/20260706000000_pull_sheet_override.sql` (TEST_DATABASE_URL points at validation per the "validation creds in MAIN .env.local" lesson) then `psql "$TEST_DATABASE_URL" -c "notify pgrst, 'reload schema';"`. Layer-2 (`tests/db/validation-schema-parity.test.ts`) asserts validation ⊇ manifest.
-4. Verify: `pnpm vitest run tests/db/validation-schema-parity.test.ts` → green.
+2. **RED first:** BEFORE regenerating the manifest or touching validation, run `pnpm vitest run tests/db/validation-schema-parity.test.ts` and **observe it FAIL** — Layer-1 (DB-free tripwire) fails because the committed manifest lacks the 3 new columns, and/or Layer-2 fails because validation lacks them. Record the failing output. (This is the task's fail-first proof; without observing RED, a green run could be a false pass that masks a skipped regen/apply — the exact gap R8-3 flags.)
+3. `pnpm gen:schema-manifest` → regenerates `supabase/__generated__/schema-manifest.json` including the 3 new columns. Stage the regenerated manifest (Layer-1 tripwire fails if skipped).
+4. Apply the migration **surgically** to validation project `vzakgrxqwcalbmagufjh` (blocked for `db push`): `psql "$TEST_DATABASE_URL" -f supabase/migrations/20260706000000_pull_sheet_override.sql` (TEST_DATABASE_URL points at validation per the "validation creds in MAIN .env.local" lesson) then `psql "$TEST_DATABASE_URL" -c "notify pgrst, 'reload schema';"`. Layer-2 (`tests/db/validation-schema-parity.test.ts`) asserts validation ⊇ manifest.
+5. **GREEN:** re-run `pnpm vitest run tests/db/validation-schema-parity.test.ts` → now passes (both layers). Only after RED→GREEN is observed, commit.
 
 Commit: `chore(db): regen schema manifest + apply pull_sheet_override migration to validation`
 
