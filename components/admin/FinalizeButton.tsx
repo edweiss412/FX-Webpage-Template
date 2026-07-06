@@ -126,6 +126,12 @@ export type FinalizeRunProps = {
   disabled?: boolean;
   publishCount?: number;
   uncheckedCleanCount?: number;
+  // Step-3 consolidation (spec §4.5): the endpoint sequence this run drives.
+  //   "publish" (default) — the /finalize batch loop THEN /finalize-cas.
+  //   "resume"            — the /finalize batch loop ONLY; STOP before CAS
+  //                         (mid-finalize in_progress checkpoint recovery).
+  //   "finish"            — ONLY /finalize-cas (all_batches_complete → flip to Live).
+  mode?: "publish" | "resume" | "finish";
 };
 
 /**
@@ -141,6 +147,7 @@ export function useFinalizeRun({
   disabled,
   publishCount,
   uncheckedCleanCount = 0,
+  mode = "publish",
 }: FinalizeRunProps) {
   const router = useRouter();
   const [state, setState] = useState<ButtonState>({ kind: "idle" });
@@ -296,61 +303,75 @@ export function useFinalizeRun({
     // prior run's completed count (the server's `listed` reflects only the REMAINING finishable rows).
     completedRef.current = 0;
     grandTotalRef.current = 0;
-    setState({ kind: "running", phase: "batch", done: 0, total: 0, lastName: null });
 
-    while (true) {
-      let response: Response;
-      try {
-        response = await fetch("/api/admin/onboarding/finalize", {
-          method: "POST",
-          headers: { Accept: FINALIZE_STREAM_CONTENT_TYPE },
-        });
-      } catch {
+    // mode:"finish" (spec §4.5) — the batch loop already ran in a prior session
+    // (checkpoint all_batches_complete); go straight to the /finalize-cas flip.
+    if (mode !== "finish") {
+      setState({ kind: "running", phase: "batch", done: 0, total: 0, lastName: null });
+
+      while (true) {
+        let response: Response;
+        try {
+          response = await fetch("/api/admin/onboarding/finalize", {
+            method: "POST",
+            headers: { Accept: FINALIZE_STREAM_CONTENT_TYPE },
+          });
+        } catch {
+          setState({ kind: "error", copy: GENERIC_ERROR, code: null });
+          return;
+        }
+        let read: Awaited<ReturnType<typeof readFinalizeBatch>>;
+        try {
+          read = await readFinalizeBatch(response);
+        } catch {
+          // A mid-stream reader.read() rejection (connection drop) or a non-stream
+          // response.json() parse failure escapes here; map it to the same generic
+          // error the clean-EOF interruption sentinel uses so the panel never
+          // freezes on kind:'running' (unguarded, it escaped `void runLoop()`).
+          setState({ kind: "error", copy: GENERIC_ERROR, code: null });
+          return;
+        }
+        if ("interrupted" in read) {
+          setState({ kind: "error", copy: GENERIC_ERROR, code: null });
+          return;
+        }
+        const body = read.body;
+        if ("ok" in body && body.ok === false) {
+          setState({
+            kind: "error",
+            copy: lookupDougFacing(body.code) ?? GENERIC_ERROR,
+            code: body.code,
+          });
+          return;
+        }
+        const batchBody = body as FinalizeBatchResponse;
+        // Per-row failures can land on EITHER batch_complete OR all_batches_complete (a row that races
+        // mid-batch surfaces with a non-OK entry alongside the OK entries). Inspect per_row BEFORE
+        // branching on status; if any row is non-OK, stop the loop and render the re-apply links from
+        // THIS response's pre-built re_apply_url. Looping past a failure would strand the operator.
+        const failedRows = (batchBody.per_row ?? []).filter(
+          (r): r is PerRowFailure => r.code !== "OK",
+        );
+        if (failedRows.length > 0) {
+          setState({ kind: "race_row", failures: failedRows });
+          return;
+        }
+        // This batch's rows are now finished — fold them into the cross-batch baseline.
+        completedRef.current += read.rowsProcessed;
+        if (batchBody.status === "batch_complete") continue;
+        if (batchBody.status === "all_batches_complete") break;
         setState({ kind: "error", copy: GENERIC_ERROR, code: null });
         return;
       }
-      let read: Awaited<ReturnType<typeof readFinalizeBatch>>;
-      try {
-        read = await readFinalizeBatch(response);
-      } catch {
-        // A mid-stream reader.read() rejection (connection drop) or a non-stream
-        // response.json() parse failure escapes here; map it to the same generic
-        // error the clean-EOF interruption sentinel uses so the panel never
-        // freezes on kind:'running' (unguarded, it escaped `void runLoop()`).
-        setState({ kind: "error", copy: GENERIC_ERROR, code: null });
+
+      // mode:"resume" (spec §4.5) — the batches are all applied; STOP before CAS.
+      // Advancing to Live is a SEPARATE "Finish" action (mode:"finish"). The page
+      // re-renders at the all_batches_complete checkpoint with a Finish footer.
+      if (mode === "resume") {
+        setState({ kind: "complete" });
+        router.refresh();
         return;
       }
-      if ("interrupted" in read) {
-        setState({ kind: "error", copy: GENERIC_ERROR, code: null });
-        return;
-      }
-      const body = read.body;
-      if ("ok" in body && body.ok === false) {
-        setState({
-          kind: "error",
-          copy: lookupDougFacing(body.code) ?? GENERIC_ERROR,
-          code: body.code,
-        });
-        return;
-      }
-      const batchBody = body as FinalizeBatchResponse;
-      // Per-row failures can land on EITHER batch_complete OR all_batches_complete (a row that races
-      // mid-batch surfaces with a non-OK entry alongside the OK entries). Inspect per_row BEFORE
-      // branching on status; if any row is non-OK, stop the loop and render the re-apply links from
-      // THIS response's pre-built re_apply_url. Looping past a failure would strand the operator.
-      const failedRows = (batchBody.per_row ?? []).filter(
-        (r): r is PerRowFailure => r.code !== "OK",
-      );
-      if (failedRows.length > 0) {
-        setState({ kind: "race_row", failures: failedRows });
-        return;
-      }
-      // This batch's rows are now finished — fold them into the cross-batch baseline.
-      completedRef.current += read.rowsProcessed;
-      if (batchBody.status === "batch_complete") continue;
-      if (batchBody.status === "all_batches_complete") break;
-      setState({ kind: "error", copy: GENERIC_ERROR, code: null });
-      return;
     }
 
     setState({ kind: "running", phase: "cas", casPhase: null });
