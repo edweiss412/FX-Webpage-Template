@@ -62,6 +62,26 @@ function stageOf(upper: string): WorkPhase | null {
 }
 
 /**
+ * True iff the post-ONLY-marker `tail` carries stage-relevant content that the grammar
+ * would otherwise silently DROP (whole-diff Codex R2 [high]): a SECOND ONLY marker, a
+ * recognized STAGE token, or an unknown NON-role token. Applied to BOTH the full-4 carve-out
+ * and the general grammar path so a dropped-tail stage can never narrow the restriction and
+ * hide work days (spec §9 fail-open). A CLEAN role token in the tail (`… ONLY - LEAD`) is not
+ * dropped content — it routes to the role path via `cleaned` — so it is NOT malformed; the
+ * per-token test uses the SAME `ROLE_NORMALIZATIONS` standard as the body classification.
+ */
+function tailDropsStageContent(tail: string): boolean {
+  if (STRICT_ONLY_MARKER_RE.test(tail) || FULL_STAGE_ONLY_PATTERN.test(tail)) return true;
+  for (const raw of tail.split(/[/\-]/)) {
+    const tt = raw.trim();
+    if (!tt) continue;
+    const up = tt.toUpperCase();
+    if (stageOf(up) || !ROLE_NORMALIZATIONS[up]) return true;
+  }
+  return false;
+}
+
+/**
  * Parse the role cell's leading stage clause (spec §3.2 steps 1-4).
  */
 export function parseStageClause(roleCell: string): StageClause {
@@ -75,10 +95,13 @@ export function parseStageClause(roleCell: string): StageClause {
   if (full4) {
     const prefix = roleCell.slice(0, full4.index);
     const tail = roleCell.slice(full4.index + full4[0].length);
+    // Even the backward-compat carve-out must not drop a trailing stage (`… Load Out ONLY / Show`)
+    // and silently narrow to the 4 — fail open if the tail carries dropped stage content (R2).
+    const malformed = tailDropsStageContent(tail);
     return {
-      stages: ["Load In", "Set", "Strike", "Load Out"],
+      stages: malformed ? [] : ["Load In", "Set", "Strike", "Load Out"],
       cleaned: prefix + tail,
-      unrecognizedRestriction: false,
+      unrecognizedRestriction: malformed,
       consumedOnlyClause: true,
     };
   }
@@ -134,13 +157,15 @@ export function parseStageClause(roleCell: string): StageClause {
     };
   }
 
-  // Explicit (≥1 STAGE, 0 UNKNOWN) OR Malformed (≥1 STAGE, ≥1 UNKNOWN). Both preserve the
-  // non-stage tokens (roles for explicit; roles + unknown/typo for malformed) + the tail.
+  // Explicit (≥1 STAGE, 0 UNKNOWN, clean tail) OR Malformed (body UNKNOWN, or the tail carries
+  // dropped stage content — a second ONLY / a stage token / an unknown non-role token, R2).
+  // Both preserve the non-stage tokens (roles for explicit; roles + unknown/typo for malformed).
+  const malformed = hasUnknown || tailDropsStageContent(tail);
   const core = nonStageTokens.join(" / ");
   return {
-    stages: hasUnknown ? [] : stages,
+    stages: malformed ? [] : stages,
     cleaned: core + tail,
-    unrecognizedRestriction: hasUnknown,
+    unrecognizedRestriction: malformed,
     consumedOnlyClause: true,
   };
 }

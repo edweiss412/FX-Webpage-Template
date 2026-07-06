@@ -24,6 +24,36 @@ describe("parseStageClause (spec §3.2)", () => {
     expect(r.unrecognizedRestriction).toBe(true);
     expect(r.cleaned).toMatch(/Rehearsal/); // non-stage tokens preserved (autocorrect/UNKNOWN_ROLE downstream)
   });
+  it("MALFORMED tail: a second ONLY marker after the first fails open, not narrow (whole-diff R2)", () => {
+    // `Set ONLY / Strike ONLY` must NOT narrow to ["Set"] and hide Strike days.
+    const r = parseStageClause("Set ONLY / Strike ONLY");
+    expect(r.stages).toEqual([]);
+    expect(r.unrecognizedRestriction).toBe(true);
+    expect(r.consumedOnlyClause).toBe(true);
+  });
+  it("MALFORMED tail: a STAGE token after the ONLY marker fails open (whole-diff R2)", () => {
+    // `Set ONLY / Strike` (no second ONLY) — Strike sits in the dropped tail → fail open.
+    const r = parseStageClause("Set ONLY / Strike");
+    expect(r.stages).toEqual([]);
+    expect(r.unrecognizedRestriction).toBe(true);
+  });
+  it("CLEAN tail: a role token after the ONLY marker keeps the explicit restriction (whole-diff R2)", () => {
+    // `Set ONLY - LEAD` — LEAD is a clean role in the tail → Set-only restriction preserved.
+    const r = parseStageClause("Set ONLY - LEAD");
+    expect(r.stages).toEqual(["Set"]);
+    expect(r.unrecognizedRestriction).toBe(false);
+    expect(r.cleaned).toMatch(/LEAD/);
+  });
+  it("full-4 carve-out also fails open on a dropped trailing stage (whole-diff R2 class-sweep)", () => {
+    // `… Load Out ONLY / Show` must NOT keep the 4 and drop Show — the carve-out fails open too.
+    const r = parseStageClause("Load In / Set / Strike / Load Out ONLY / Show");
+    expect(r.stages).toEqual([]);
+    expect(r.unrecognizedRestriction).toBe(true);
+    // But a clean role tail on the carve-out is still fine (LEAD preserved, 4 stages kept).
+    const ok = parseStageClause("- Load In / Set / Strike / Load Out ONLY*** - LEAD");
+    expect(ok.stages).toEqual(["Load In", "Set", "Strike", "Load Out"]);
+    expect(ok.unrecognizedRestriction).toBe(false);
+  });
   it("ROLE CLAUSE: zero stages → not a restriction (Rehearsal ONLY, RIGGER ONLY)", () => {
     expect(parseStageClause("Rehearsal ONLY").stages).toEqual([]);
     expect(parseStageClause("Rehearsal ONLY").unrecognizedRestriction).toBe(false);
