@@ -162,3 +162,60 @@ describe("coverage floor + COUNT-level audit agreement (Codex R5/R9, exhaustive 
     expect(gen.get("crew") ?? 0).toBe(2); // both CREW + TECH headers → 2 crew-domain typo sites
   });
 });
+
+// ─── Task 11: coverage summary + skippedInapplicable surfacing ─────────────────────────────────
+import { skippedInapplicable } from "./mutation/operators";
+import { expectedSkipped } from "./mutation/applicabilityAudit";
+
+const CORRUPTING = [
+  "header-typo", "ref-sub", "unicode-inject", "column-shift",
+  "blank-row:inject", "blank-row:remove", "merged-cell",
+];
+
+describe("present-but-inapplicable domains cannot be silently excused (plan-R10)", () => {
+  it("shared skippedInapplicable === independent expectedSkipped for every fixture × corrupting op", () => {
+    // The independent audit computes present-risk-critical domains (incl. ZERO-site ones) from
+    // its OWN segmentation. If the shared classifier regresses and drops a present domain, the
+    // shared skippedInapplicable omits it while expectedSkipped still lists it → this fails.
+    for (const f of FIXTURES) {
+      const md = readFixture(f);
+      for (const op of CORRUPTING) {
+        expect(skippedInapplicable(md, op), `${f.slug}/${op} skipped-inapplicable mismatch (classifier drift?)`)
+          .toEqual(expectedSkipped(md, op));
+      }
+    }
+  }, 120_000);
+  it("a present zero-site domain IS surfaced by both sides (merged-cell on a 2-col HOTEL section)", () => {
+    const md = "| HOTEL | Kimpton |\n|  | 122 W Monroe |"; // 2-col → no merged-cell site; hotel present
+    expect(skippedInapplicable(md, "merged-cell")).toContain("hotel");
+    expect(expectedSkipped(md, "merged-cell")).toContain("hotel");
+  });
+});
+
+describe("coverage legibility (exhaustive; skippedInapplicable surfaced)", () => {
+  it("emits total mutant count + per-fixture/op skippedInapplicable and covers >3 domains", () => {
+    let total = 0;
+    const domains = new Set<string>();
+    const skips: string[] = [];
+    for (const f of FIXTURES) {
+      const md = readFixture(f);
+      for (const op of OPERATOR_NAMES) {
+        for (const m of boundedMutants(op, md)) { total++; for (const dm of m.domains) domains.add(dm); } // guarded stream (plan-R24)
+        if (op.startsWith("section-reorder") || op.startsWith("trailing")) continue; // domain-agnostic (section-reorder) / cosmetic (trailing): no per-domain floor
+        const sk = skippedInapplicable(md, op);
+        if (sk.length) skips.push(`${f.slug}/${op}: ${sk.join(",")}`);
+      }
+    }
+    // eslint-disable-next-line no-console
+    console.log(`[mutation-harness] total=${total} domains=${[...domains].sort().join(",")}\n  skippedInapplicable:\n  ${skips.join("\n  ") || "(none)"}`);
+    expect(total).toBeGreaterThan(50);
+    expect(domains.size).toBeGreaterThan(3);
+  }, 120_000);
+
+  it("skippedInapplicable is a pure function of the fixture (deterministic, surfaced not silent)", () => {
+    // A present risk-critical domain with no applicable site must appear — merged-cell on a
+    // 2-column HOTEL section. Assert the surfacing helper reports it (never a silent excusal).
+    const md = "| HOTEL | Kimpton |\n|  | 122 W Monroe |";
+    expect(skippedInapplicable(md, "merged-cell")).toContain("hotel");
+  });
+});

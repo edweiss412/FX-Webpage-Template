@@ -2192,7 +2192,7 @@ describe("present-but-inapplicable domains cannot be silently excused (plan-R10)
           .toEqual(expectedSkipped(md, op));
       }
     }
-  });
+  }, 120_000); // loops every fixture × corrupting op (audit + classifier) — exceeds the 5s default
   it("a present zero-site domain IS surfaced by both sides (merged-cell on a 2-col HOTEL section)", () => {
     const md = "| HOTEL | Kimpton |\n|  | 122 W Monroe |"; // 2-col → no merged-cell site; hotel present
     expect(skippedInapplicable(md, "merged-cell")).toContain("hotel");
@@ -2218,7 +2218,7 @@ describe("coverage legibility (exhaustive; skippedInapplicable surfaced)", () =>
     console.log(`[mutation-harness] total=${total} domains=${[...domains].sort().join(",")}\n  skippedInapplicable:\n  ${skips.join("\n  ") || "(none)"}`);
     expect(total).toBeGreaterThan(50);
     expect(domains.size).toBeGreaterThan(3);
-  });
+  }, 120_000); // ~102k streaming generations + per-op skippedInapplicable ≈ 37s — exceeds the 5s default
 
   it("skippedInapplicable is a pure function of the fixture (deterministic, surfaced not silent)", () => {
     // A present risk-critical domain with no applicable site must appear — merged-cell on a
