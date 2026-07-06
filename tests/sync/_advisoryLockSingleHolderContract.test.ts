@@ -453,6 +453,36 @@ describe("M6 advisory-lock single-holder contract", () => {
     expect(cleanupSource).toMatch(
       /await lockCleanupDriveFiles\(tx, sessionId\);[\s\S]*delete from public\.shows_pending_changes[\s\S]*delete from public\.shows/,
     );
+
+    // Same-vector structural defense (whole-diff R1/R2/R3): cleanupAbandonedFinalize
+    // MUST mirror reapOneSession's full under-lock contract, since three review rounds
+    // in a row surfaced under-lock correctness gaps here. Pin each protection so a
+    // future edit that drops one fails at CI, not in the next adversarial round:
+    //   (R1) recollect the reap set under the held locks and abort if it expanded;
+    //   (R2) every drive-id-bearing delete is id-scoped to the locked set, and a
+    //        post-delete residue check re-scans the reap tables and aborts on any
+    //        leftover session-scoped row (a mid-tx insert outside the locked set);
+    //   (R3) re-evaluate the stuck/stale eligibility ladder under the locks.
+    // (R1) expansion recheck.
+    expect(cleanupSource).toMatch(
+      /const recheckReap = await collectReapDriveFileIds\(tx, sessionId\)/,
+    );
+    // (R2) id-scoped deletes — no session-scoped-only delete of a drive-id-bearing
+    // reap table survives; each carries `drive_file_id = any(`.
+    expect(cleanupSource).toMatch(
+      /delete from public\.shows_pending_changes where wizard_session_id = \$1::uuid and drive_file_id = any\(/,
+    );
+    expect(cleanupSource).toMatch(/and m\.drive_file_id = any\(\$2\)/); // interim shows delete
+    // (R2) post-delete residue check over the reap tables.
+    expect(cleanupSource).toMatch(
+      /select 1 from public\.\$\{table\} where wizard_session_id = \$1::uuid limit 1/,
+    );
+    expect(cleanupSource).toMatch(/for \(const table of REAP_DRIVE_ID_TABLES\)/);
+    // (R3) under-lock eligibility re-evaluation (authoritative post-lock counts).
+    expect(cleanupSource).toMatch(
+      /const postFinishable = await finishableCleanCount\(tx, sessionId\)/,
+    );
+    expect(cleanupSource).toMatch(/const postStuck = postFinishable === 0/);
   });
 
   test("unpublish_show admin path holds the show lock in-RPC only (single-holder)", () => {
