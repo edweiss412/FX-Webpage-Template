@@ -710,7 +710,7 @@ git commit --no-verify -m "test(parser): metamorphic oracle — verdict (incl. S
 ```ts
 // tests/parser/mutation/operators.test.ts
 import { describe, it, expect } from "vitest";
-import { OPERATORS, floorEligible, skippedInapplicable } from "./operators";
+import { OPERATORS, OPERATOR_NAMES, boundedMutants, floorEligible, skippedInapplicable } from "./operators";
 import { splitCells } from "./rows";
 import { splitRow, clean } from "@/lib/parser/blocks/_helpers";
 
@@ -735,6 +735,15 @@ describe("operator inventory is complete (plan-R7)", () => {
         "section-reorder", "trailing-whitespace",
       ].sort(),
     );
+    expect([...OPERATOR_NAMES].sort()).toEqual(Object.keys(OPERATORS).sort()); // names ⟺ array keys
+  });
+  it("OPERATORS[op](md) is exactly the guarded stream materialized — no unguarded path (plan-R25)", () => {
+    // Pins that the eager array form wraps `boundedMutants` (the budget-guarded stream), so any
+    // fail-fast/O(1) guarantee proven for boundedMutants transitively holds for OPERATORS too —
+    // there is NO unguarded enumeration path in the module.
+    for (const op of OPERATOR_NAMES) {
+      expect(OPERATORS[op]!(CONSULTANTS_RUN)).toEqual([...boundedMutants(op, CONSULTANTS_RUN)]);
+    }
   });
 });
 
@@ -1071,17 +1080,26 @@ export function* guardStream<T>(gen: Iterable<T>, budget: number, label: string)
 }
 
 /** THE canonical corpus-scale operator iterator: a budget-guarded stream of `op`'s mutants for
- *  `md`. The ONLY exported way to enumerate an operator over a real fixture — runAll,
- *  skippedInapplicable, the count-agreement gate, and the coverage summary all use it. */
+ *  `md`. The ONLY way to enumerate an operator over a real fixture — runAll, skippedInapplicable,
+ *  the count-agreement gate, and the coverage summary all use it. */
 export function boundedMutants(op: string, md: string): Generator<Mutant> {
   return guardStream(OPERATOR_GENS[op]!(md), MUTANT_BUDGET, `${op} fanout`);
 }
 
-/** Eager ARRAY form — a thin `[...gen]` wrapper for BOUNDED synthetic-input test call sites ONLY
- *  (which use `.filter/.map/.length/.find/.some/.slice`). DERIVED from the private OPERATOR_GENS,
- *  so lazy and array forms can never drift. Never use over a real fixture — use `boundedMutants`. */
+/** The 9 operator names — for KEY iteration without importing the eager array form (`OPERATOR_NAMES`
+ *  replaces `Object.keys(OPERATORS)` at the corpus call sites, so nothing depends on OPERATORS just
+ *  to enumerate op names). */
+export const OPERATOR_NAMES: readonly string[] = Object.keys(OPERATOR_GENS);
+
+/** Eager ARRAY form for BOUNDED synthetic-input test call sites ONLY (which use
+ *  `.filter/.map/.length/.find/.some/.slice`). It wraps `boundedMutants` — NOT the raw private
+ *  generator — so even this path is budget-GUARDED (Codex plan-R25 [high]): a caller who mistakenly
+ *  spreads it over a real fixture still hits the MUTANT_BUDGET fail-fast, never an unbounded
+ *  materialization. There is therefore NO unguarded enumeration path in the module. Corpus loops
+ *  MUST still stream `boundedMutants` (never build the array); the equivalence
+ *  `[...boundedMutants(op, md)] === OPERATORS[op](md)` is pinned by a Task-4 unit test. */
 export const OPERATORS: Record<string, (md: string) => Mutant[]> = Object.fromEntries(
-  Object.entries(OPERATOR_GENS).map(([k, g]) => [k, (md: string) => [...g(md)]]),
+  OPERATOR_NAMES.map((k) => [k, (md: string) => [...boundedMutants(k, md)]]),
 );
 
 export function floorEligible(mutants: Mutant[]): Set<Domain> {
@@ -1221,6 +1239,7 @@ git commit --no-verify -m "test(parser): fixture registry + directory-parity gat
 // tests/parser/mutation/applicabilityAudit.test.ts
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
+import { resolve, dirname } from "node:path";
 import { auditSites, GOLDEN_INVENTORY } from "./applicabilityAudit";
 import { OPERATORS } from "./operators";
 
@@ -1294,14 +1313,29 @@ describe("independent applicability audit (Codex R9/R13)", () => {
   });
 });
 
-describe("audit independence is EXECUTABLE (plan-R7/R8)", () => {
-  it("applicabilityAudit.ts references NO shared helper via any import/require/re-export form", () => {
-    const src = readFileSync("tests/parser/mutation/applicabilityAudit.ts", "utf8");
-    // covers: import ... from "X"|'X', export ... from "X", require("X"), import("X"),
-    // with optional ./ prefix and optional .ts/.js suffix, both quote styles (plan-R8).
-    for (const mod of ["rows", "classify", "operators"]) {
-      const re = new RegExp(`(from|require\\(|import\\()\\s*['"]\\.?/?(\\./)?${mod}(\\.[tj]s)?['"]`);
-      expect(re.test(src), `applicabilityAudit must not depend on ./${mod}`).toBe(false);
+describe("audit independence is EXECUTABLE (plan-R7/R8/R25)", () => {
+  it("NO import/export-from/require/import() in applicabilityAudit.ts RESOLVES to a shared harness module", () => {
+    // Codex plan-R25 [medium]: a string-match on `./rows` misses alias/parent forms
+    // (`../mutation/rows`, `@/tests/parser/mutation/rows`). Instead RESOLVE every specifier to an
+    // absolute path and compare against the three forbidden sibling files — fail-closed for any
+    // form that actually resolves to rows.ts / classify.ts / operators.ts.
+    const auditPath = resolve("tests/parser/mutation/applicabilityAudit.ts");
+    const src = readFileSync(auditPath, "utf8");
+    const dir = dirname(auditPath);
+    const repoRoot = resolve("."); // `@/*` → repo root (tsconfig.json:25-26)
+    const forbidden = new Set(["rows", "classify", "operators"].map((m) => resolve(dir, `${m}.ts`)));
+    const specifiers = [
+      ...src.matchAll(/(?:import|export)[\s\S]*?from\s*['"]([^'"]+)['"]|(?:require|import)\(\s*['"]([^'"]+)['"]\s*\)/g),
+    ]
+      .map((m) => m[1] ?? m[2]!)
+      .filter(Boolean);
+    for (const spec of specifiers) {
+      const base = spec.startsWith("@/") ? resolve(repoRoot, spec.slice(2)) : resolve(dir, spec);
+      const withTs = base.endsWith(".ts") ? base : `${base}.ts`;
+      expect(
+        forbidden.has(withTs),
+        `applicabilityAudit must not depend on a shared harness module (resolved ${spec} → ${withTs})`,
+      ).toBe(false);
     }
   });
 });
@@ -1621,16 +1655,16 @@ Run a throwaway measurement as a temporary vitest file (vitest resolves the `@/`
 // tests/parser/mutation/_measure.test.ts   (TEMPORARY — delete before committing Task 8)
 import { it } from "vitest";
 import { FIXTURES, readFixture } from "./fixtures";
-import { boundedMutants, OPERATORS } from "./operators";
+import { boundedMutants, OPERATOR_NAMES } from "./operators";
 import { capture, verdict } from "./oracle";
 it("measure corpus size + wall-clock", () => {
   let count = 0;
   // Stream through boundedMutants (no array materialization) — mirrors runAll's O(1) shape, so peak
   // heap here matches the real driver, not an accumulate-then-count proxy (Codex plan-R19/R20/R24).
-  for (const f of FIXTURES) for (const op of Object.keys(OPERATORS)) for (const _ of boundedMutants(op, readFixture(f))) count++;
+  for (const f of FIXTURES) for (const op of OPERATOR_NAMES) for (const _ of boundedMutants(op, readFixture(f))) count++;
   const t0 = performance.now();
   for (const f of FIXTURES) { const md = readFixture(f); const b = capture(md, `${f.slug}.md`);
-    for (const op of Object.keys(OPERATORS)) for (const m of boundedMutants(op, md)) verdict(b, capture(m.md, `${f.slug}.md`)); }
+    for (const op of OPERATOR_NAMES) for (const m of boundedMutants(op, md)) verdict(b, capture(m.md, `${f.slug}.md`)); }
   console.log(`[measure] mutant count: ${count}  full-parse wall-clock ms: ${Math.round(performance.now() - t0)}`);
 }, 300_000);
 ```
@@ -1639,7 +1673,7 @@ Run: `pnpm vitest run tests/parser/mutation/_measure.test.ts` then `rm tests/par
 
 Record both numbers in the Task 8 commit message. Both feed later tasks: the count sets `MUTANT_BUDGET`, and the **wall-clock becomes the `FILE_WEIGHTS` entry in Task 12** (so the unit-suite shard sequencer balances the harness). Accept the exhaustive design only if:
   - **count ≤ `MUTANT_BUDGET` (150_000)** with headroom — if it is already near the ceiling, raise `MUTANT_BUDGET` deliberately (an operator is fanning out more than expected; confirm that is intended, not a per-char bug).
-  - **wall-clock < 150_000 ms** (half the 300s hook ceiling, and comfortably under the 20-min unit-suite leg timeout — `unit-suite.yml:52`). If it exceeds 150s, DO NOT accept a single monolithic run: shard the corpus by splitting `runAll()` into one `test.each(FIXTURES)` case per fixture, or into per-fixture-group files, and reconcile the union of alarms against the ledger in a final aggregation test. Note the chosen sharding in the commit message.
+  - **wall-clock < 150_000 ms** (half the 300s hook ceiling, and comfortably under the 20-min unit-suite leg timeout — `unit-suite.yml:52`). If it exceeds 150s, DO NOT split `runAll()` into `test.each` cases — unit-suite's `--shard` partitions by **FILE**, not by `it`/`test.each` case (`unit-suite.yml:87`), so a single heavy file's cases all still land on ONE leg. Instead shard at the **FILE** level: split the corpus into a few per-family driver files (e.g. `mutationHarness.exporter.test.ts` / `mutationHarness.raw.test.ts`), each a discovered `*.test.ts` the sequencer can place on a different leg, each weight-registered in Task 12; then reconcile the union of alarms against the ledger — either per-file (each file owns its fixtures' ledger slice) or in a committed aggregation the CI runs after all legs. Note the chosen split in the commit message. (At the expected ~100-150s this is not needed — one weighted file is fine.)
 
 If the measured numbers are within budget, proceed with the single-`beforeAll` design below.
 
@@ -1649,7 +1683,7 @@ If the measured numbers are within budget, proceed with the single-`beforeAll` d
 // tests/parser/mutationHarness.test.ts
 import { describe, it, expect, beforeAll } from "vitest";
 import { FIXTURES, readFixture } from "./mutation/fixtures";
-import { boundedMutants, MUTANT_BUDGET, OPERATORS } from "./mutation/operators";
+import { boundedMutants, MUTANT_BUDGET, OPERATOR_NAMES } from "./mutation/operators";
 import type { Mutant } from "./mutation/operators";
 import { capture, verdict, fingerprint } from "./mutation/oracle";
 import { KNOWN_SILENT_HOLES, reconcileLedger } from "./mutation/knownHoles";
@@ -1657,8 +1691,8 @@ import type { Alarm } from "./mutation/knownHoles";
 
 // MUTANT_BUDGET is the single source of truth in operators.ts (imported above) — the per-(operator,
 // fixture) fanout ceiling. Here it doubles as the GLOBAL corpus-size guard (below) and is asserted
-// by the "corpus size within budget" test. `OPERATORS` is imported only for its KEYS (the 9 op
-// names); the corpus is streamed through `boundedMutants`, never the eager array form.
+// by the "corpus size within budget" test. Op names come from `OPERATOR_NAMES` (NOT the eager
+// `OPERATORS` array form); the corpus is streamed through `boundedMutants`.
 
 // Prefix each operator's siteId with the fixture slug so keys are globally unique across
 // the corpus. Operator siteIds start "<op>:B..:L..:X.." → "<op>:<slug>:B..:L..:X..".
@@ -1682,7 +1716,7 @@ function runAll(): { alarms: Alarm[]; allSiteIds: string[]; cosmeticViolations: 
   for (const f of FIXTURES) {
     const md = readFixture(f);
     const baseline = capture(md, `${f.slug}.md`);
-    for (const op of Object.keys(OPERATORS)) {
+    for (const op of OPERATOR_NAMES) {
       for (const raw of boundedMutants(op, md)) { // per-(op,fixture) budget guard inside boundedMutants
         if (++n > MUTANT_BUDGET) {
           throw new Error(`corpus mutant count exceeded MUTANT_BUDGET ${MUTANT_BUDGET} — operator fanout regression?`);
@@ -2085,7 +2119,7 @@ describe("coverage legibility (exhaustive; skippedInapplicable surfaced)", () =>
     const skips: string[] = [];
     for (const f of FIXTURES) {
       const md = readFixture(f);
-      for (const op of Object.keys(OPERATORS)) {
+      for (const op of OPERATOR_NAMES) {
         for (const m of boundedMutants(op, md)) { total++; for (const dm of m.domains) domains.add(dm); } // guarded stream (plan-R24)
         if (op.startsWith("section-reorder") || op.startsWith("trailing")) continue; // cosmetic: no floor
         const sk = skippedInapplicable(md, op);
