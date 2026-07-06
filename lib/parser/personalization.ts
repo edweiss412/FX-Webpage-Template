@@ -186,7 +186,11 @@ export function extractStageRestriction(roleCell: string): {
       consumedOnlyClause: true,
     };
   }
-  return { restriction: { kind: "none" }, warnings: [], consumedOnlyClause: clause.consumedOnlyClause };
+  return {
+    restriction: { kind: "none" },
+    warnings: [],
+    consumedOnlyClause: clause.consumedOnlyClause,
+  };
 }
 
 // ── normalizeStageWords (typo-tolerant stage-word correction) ──────────────────

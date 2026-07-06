@@ -57,7 +57,9 @@ describe("extractStageRestriction delegates to parseStageClause (spec §3)", () 
     expect(r.consumedOnlyClause).toBe(true);
   });
   it("the three original phrasings still produce identical restrictions (regression)", () => {
-    expect(extractStageRestriction("- Load In / Set / Strike / Load Out ONLY*** - LEAD").restriction).toEqual({
+    expect(
+      extractStageRestriction("- Load In / Set / Strike / Load Out ONLY*** - LEAD").restriction,
+    ).toEqual({
       kind: "explicit",
       stages: ["Load In", "Set", "Strike", "Load Out"],
     });

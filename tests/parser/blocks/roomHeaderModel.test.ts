@@ -73,12 +73,10 @@ describe("room block-context predicates (spec §2.2 c2 — R37/R38)", () => {
   });
   it("precededByBoundary: blank/separator/all-empty row above, or i===0", () => {
     expect(precededByBoundary(T(["", "| MABEL 1&#10;DAY 1 & 2 |"]), 1)).toBe(true); // blank
-    expect(
-      precededByBoundary(T(["| | | |", "| LAUDERDALE 1, 2, 3 DAY 1 & 2 |"]), 1),
-    ).toBe(true); // all-empty
-    expect(
-      precededByBoundary(T(["| BO Setup | TBD |", "| WELCOME RECEPTION DAY 1 |"]), 1),
-    ).toBe(false); // field row above
+    expect(precededByBoundary(T(["| | | |", "| LAUDERDALE 1, 2, 3 DAY 1 & 2 |"]), 1)).toBe(true); // all-empty
+    expect(precededByBoundary(T(["| BO Setup | TBD |", "| WELCOME RECEPTION DAY 1 |"]), 1)).toBe(
+      false,
+    ); // field row above
   });
   it("isRoomHeader: interleaved note fails boundary even with a BO row beneath (R38)", () => {
     const inter = T([
@@ -97,7 +95,10 @@ describe("computeRoomHeaderModel + corpus no-op (spec §2.4/§8)", () => {
   const eastCoast = readFileSync("fixtures/shows/raw/2024-05-east-coast-family-office.md", "utf8");
   it("admits exactly MABEL 1 and LAUDERDALE from the east-coast fixture", () => {
     const m = computeRoomHeaderModel(eastCoast);
-    const names = [...m.groups.values()].flat().map((c) => c.displayName).sort();
+    const names = [...m.groups.values()]
+      .flat()
+      .map((c) => c.displayName)
+      .sort();
     expect(names).toEqual(["LAUDERDALE 1, 2, 3 DAY 1 & 2", "MABEL 1"]);
   });
   it("east-coast rooms parse byte-identically (both emitted with BO Setup)", () => {

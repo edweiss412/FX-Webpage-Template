@@ -120,9 +120,7 @@ export function roomHeaderNameShape(col0Raw: string): boolean {
   // item 2: non-empty identity (DAY-stripped), not a section banner.
   const identity = roomBaseName(firstLine);
   if (identity.length === 0) return false;
-  if (
-    SECTION_PREFIX_FAMILIES.some((p) => identity === p || identity.startsWith(p + " "))
-  ) {
+  if (SECTION_PREFIX_FAMILIES.some((p) => identity === p || identity.startsWith(p + " "))) {
     return false;
   }
   if (SECTION_EXACT_TOKENS.has(identity)) return false;
@@ -171,9 +169,7 @@ export function roomBaseName(firstLine: string): string {
 
 /** The NORMALIZED trailing DAY-range digits from anywhere in the cell (spec §2.2 (d)). */
 export function dayRangeOf(col0Raw: string): string {
-  return (
-    /\bDAYS?\s+(\d[\d\s&,.\-–—]*?)\s*$/im.exec(col0Raw.replace(/&#10;/g, "\n"))?.[1] ?? ""
-  )
+  return (/\bDAYS?\s+(\d[\d\s&,.\-–—]*?)\s*$/im.exec(col0Raw.replace(/&#10;/g, "\n"))?.[1] ?? "")
     .replace(/\s+/g, "")
     .toUpperCase();
 }

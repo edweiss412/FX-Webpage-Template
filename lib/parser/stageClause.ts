@@ -87,7 +87,12 @@ export function parseStageClause(roleCell: string): StageClause {
   //    not a consumed clause; `cleaned` is roleCell UNCHANGED (fail-safe to the role path).
   const marker = STRICT_ONLY_MARKER_RE.exec(roleCell);
   if (!marker) {
-    return { stages: [], cleaned: roleCell, unrecognizedRestriction: false, consumedOnlyClause: false };
+    return {
+      stages: [],
+      cleaned: roleCell,
+      unrecognizedRestriction: false,
+      consumedOnlyClause: false,
+    };
   }
 
   // 4. ONLY present (non-full-4). body = between the leading dash and the ONLY marker;
@@ -121,7 +126,12 @@ export function parseStageClause(roleCell: string): StageClause {
 
   // No-stage (ROLE clause): zero STAGE tokens → not a restriction; `cleaned` unchanged.
   if (stages.length === 0) {
-    return { stages: [], cleaned: roleCell, unrecognizedRestriction: false, consumedOnlyClause: false };
+    return {
+      stages: [],
+      cleaned: roleCell,
+      unrecognizedRestriction: false,
+      consumedOnlyClause: false,
+    };
   }
 
   // Explicit (≥1 STAGE, 0 UNKNOWN) OR Malformed (≥1 STAGE, ≥1 UNKNOWN). Both preserve the
