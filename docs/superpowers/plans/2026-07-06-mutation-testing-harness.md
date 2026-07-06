@@ -28,7 +28,7 @@
 |---|---|
 | `tests/parser/mutation/rows.ts` | Row taxonomy (header/alignment/spacer/data), run + logical-section segmentation |
 | `tests/parser/mutation/classify.ts` | `resolveHeader`, `SECTION_DOMAIN_MAP`, `Domain`, `classifySection`, `domains(site)`, `floorEligible` |
-| `tests/parser/mutation/operators.ts` | 8 operators, applicability predicates, site enumeration, floor-first selection, `MAX_SITES_PER_OP` |
+| `tests/parser/mutation/operators.ts` | 8 operators, applicability predicates, exhaustive site enumeration, `floorEligible`, `skippedInapplicable` |
 | `tests/parser/mutation/oracle.ts` | baseline capture, `payloadOf`/`signalOf`, `payloadChanged`, `signalEq`, `signalKeys`, `newSignalFired`, `verdict`, `fingerprint` |
 | `tests/parser/mutation/knownHoles.ts` | `KnownHole` type + `KNOWN_SILENT_HOLES` ledger |
 | `tests/parser/mutation/fixtures.ts` | 17-entry fixture registry `{ slug, family, path }` |
@@ -562,15 +562,17 @@ git commit --no-verify -m "test(parser): metamorphic oracle — verdict (incl. S
 
 **Interfaces:**
 - Consumes: `segment`/`splitCells`/types (`./rows`), `isHeaderCells`/`classifySection`/`resolveHeader`/`Domain`/`RISK_CRITICAL` (`./classify`).
-- Produces: `Mutant`, `Bucket`, `MAX_SITES_PER_OP`, `OPERATORS: Record<string, (md) => Mutant[]>`, `floorEligible(mutants): Set<Domain>`, `skippedInapplicable(md, op): Domain[]`, `select(rawMutants, md): { selected: Mutant[]; dropped: number }`.
+- Produces: `Mutant`, `Bucket`, `OPERATORS: Record<string, (md) => Mutant[]>`, `floorEligible(mutants): Set<Domain>`, `skippedInapplicable(md, op): Domain[]`.
 - **domains(site)** is carried on each `Mutant.domains`; boundary (`blank-row:remove`) mutants carry a 2-element `domains`.
+- **Exhaustive:** operators emit ALL applicable sites; there is no cap/`select` (plan-R2). The driver parses every generated mutant.
 
 - [ ] **Step 1: Write the failing test**
 
 ```ts
 // tests/parser/mutation/operators.test.ts
 import { describe, it, expect } from "vitest";
-import { OPERATORS, select, MAX_SITES_PER_OP } from "./operators";
+import { OPERATORS, floorEligible, skippedInapplicable } from "./operators";
+import { splitCells } from "./rows";
 
 const CONSULTANTS_RUN = [
   "| DATES | DAY |",
@@ -610,6 +612,15 @@ describe("column-shift requires a data row and is credited per logical section (
     // DRESS section has only its header row + no data row → no column-shift site there
     expect(ms.every((m) => m.dataRowCount! >= 1)).toBe(true);
   });
+  it("inserts a REAL empty leading cell so splitCells sees the shift (plan-R2)", () => {
+    const md = "| CREW | NAME |\n|  | Doug Larson | 917 |";
+    const m = OPERATORS["column-shift"]!(md)[0]!;
+    const shiftedDataLine = m.md.split("\n").find((l) => l.includes("Doug Larson"))!;
+    const cells = splitCells(shiftedDataLine);
+    expect(cells[0]).toBe("");            // new empty leading cell
+    expect(cells).toContain("Doug Larson"); // originals preserved, shifted right
+    expect(cells.length).toBeGreaterThan(splitCells("|  | Doug Larson | 917 |").length - 1);
+  });
 });
 
 describe("unicode-inject needs ≥2 scalar values (Codex R14)", () => {
@@ -622,29 +633,21 @@ describe("unicode-inject needs ≥2 scalar values (Codex R14)", () => {
   });
 });
 
-describe("floor-first selection (Codex R4/R5)", () => {
-  it("reserves ≥1 ref-sub site for crew even when crew blocks come late", () => {
-    const late = [
+describe("exhaustive generation + floor eligibility (plan-R2)", () => {
+  it("every applicable site is generated (no cap) — a late section is still emitted", () => {
+    const md = [
       ...Array.from({ length: 15 }, (_, i) => `| CLIENT | meta${i} |`).flatMap((h) => [h, "|  | v |", ""]),
       "| CREW | NAME |", "|  | Doug Larson |",
     ].join("\n");
-    const { selected } = select(OPERATORS["ref-sub"]!(late), late);
-    expect(selected.some((m) => m.domains.includes("crew"))).toBe(true);
+    // exhaustive: the late CREW section's ref-sub site is present in the FULL output.
+    expect(OPERATORS["ref-sub"]!(md).some((m) => m.domains.includes("crew"))).toBe(true);
   });
-  it("round-robin fill reaches a late section even when early sections have many sites (plan-R1)", () => {
-    // two early CLIENT sections with many cells + a late VENUE section with one cell.
-    const md = [
-      "| CLIENT | a | b | c | d | e |", "|  | 1 | 2 | 3 | 4 | 5 |", "",
-      "| CLIENT | a | b | c | d | e |", "|  | 6 | 7 | 8 | 9 | 10 |", "",
-      "| VENUE | X |", "|  | LateHall |",
-    ].join("\n");
-    const { selected } = select(OPERATORS["ref-sub"]!(md), md);
-    // VENUE is non-risk-critical (not reserved) → only round-robin fill can reach it.
-    expect(selected.some((m) => m.domains.includes("venue")), "late VENUE section starved").toBe(true);
+  it("floorEligible over all generated mutants includes each present risk-critical domain that has sites", () => {
+    const md = "| CREW | NAME |\n|  | Doug Larson |";
+    expect(floorEligible(OPERATORS["ref-sub"]!(md)).has("crew")).toBe(true);
   });
 });
 
-import { skippedInapplicable } from "./operators";
 describe("skippedInapplicable surfacing (Codex R5)", () => {
   it("a present risk-critical domain with no applicable site for an op is reported", () => {
     // A HOTEL section with only a 2-column data row → no merged-cell (needs ≥3 cells).
@@ -671,7 +674,6 @@ import type { Domain } from "./classify";
 
 export type Bucket = "corrupting" | "cosmetic";
 export type Mutant = { md: string; siteId: string; bucket: Bucket; domains: Domain[]; dataRowCount?: number };
-export const MAX_SITES_PER_OP = 12;
 
 const seg = (md: string): Segmentation => segment(md, isHeaderCells);
 const lines = (md: string) => md.split("\n");
@@ -748,7 +750,9 @@ const columnShift = (md: string): Mutant[] => {
     const dr = dataRows(s);
     if (dr.length < 1) continue; // Codex R13: require ≥1 data row
     const ls = lines(md);
-    for (const r of s.rows) ls[r.line] = `|  ${ls[r.line]!.replace(/^\|/, "")}`; // prepend empty leading col
+    // insert a REAL empty leading cell (new pipe delimiter), not just whitespace (plan-R2):
+    // "| x | y |" -> "|  | x | y |"
+    for (const r of s.rows) ls[r.line] = ls[r.line]!.replace(/^\|/, "|  |");
     out.push({ md: ls.join("\n"), siteId: sid("column-shift", s, s.headerRow?.line ?? s.rows[0]!.line, 0), bucket: "corrupting", domains: dom(s), dataRowCount: dr.length });
   }
   return out;
@@ -827,39 +831,11 @@ export function skippedInapplicable(md: string, op: string): Domain[] {
   return [...present].filter((d) => !eligible.has(d)).sort();
 }
 
-const blockIdxOf = (m: Mutant): number => Number(/B(\d+)/.exec(m.siteId)?.[1] ?? -1);
-
-/** Floor-first reservation, THEN round-robin fill across sections (§4.3, Codex R4/plan-R1). */
-export function select(raw: Mutant[], _md: string): { selected: Mutant[]; dropped: number } {
-  const eligible = floorEligible(raw);
-  const reserved: Mutant[] = [];
-  const used = new Set<string>();
-  for (const d of RISK_CRITICAL) {
-    if (!eligible.has(d)) continue;
-    const first = raw.find((m) => m.domains.includes(d) && !used.has(m.siteId));
-    if (first) { reserved.push(first); used.add(first.siteId); }
-  }
-  // Round-robin fill: group remaining sites by block index, take one per block per pass.
-  const byBlock = new Map<number, Mutant[]>();
-  for (const m of raw) if (!used.has(m.siteId)) {
-    const b = blockIdxOf(m); if (!byBlock.has(b)) byBlock.set(b, []); byBlock.get(b)!.push(m);
-  }
-  const blocks = [...byBlock.keys()].sort((a, b) => a - b);
-  const bound = Math.max(MAX_SITES_PER_OP, reserved.length);
-  const fill: Mutant[] = [];
-  let progress = true;
-  while (fill.length + reserved.length < bound && progress) {
-    progress = false;
-    for (const b of blocks) {
-      const q = byBlock.get(b)!;
-      if (q.length === 0) continue;
-      fill.push(q.shift()!); progress = true;
-      if (fill.length + reserved.length >= bound) break;
-    }
-  }
-  const selected = [...reserved, ...fill];
-  return { selected, dropped: raw.length - selected.length };
-}
+// NOTE (plan-R2): detection is EXHAUSTIVE. The driver parses EVERY generated mutant —
+// there is no cap and no `select`/reservation limiter, because a silent-wrong parse in an
+// un-parsed site would ship undetected (spec §2 "every fixture × operator × site"). The
+// coverage floor + independent applicability audit remain as guards that each risk-critical
+// domain HAS applicable sites (catching an operator that stops enumerating a domain).
 ```
 
 *(Note for the implementer: the `sectionReorder`/`blankRowRemove` line-arithmetic above is the reference algorithm; if a fixture's exact blank-line indexing differs, keep the CONTRACT — a byte-distinct mutant, correct `domains`, unique `siteId` — and adjust the mechanics. The Task-4 tests pin the contract.)*
@@ -1144,16 +1120,19 @@ git commit --no-verify -m "chore(parser): known-holes ledger scaffold (empty, po
 // tests/parser/mutationHarness.test.ts
 import { describe, it, expect } from "vitest";
 import { FIXTURES, readFixture } from "./mutation/fixtures";
-import { OPERATORS, select } from "./mutation/operators";
+import { OPERATORS } from "./mutation/operators";
 import type { Mutant } from "./mutation/operators";
 import { capture, verdict, fingerprint } from "./mutation/oracle";
 import { KNOWN_SILENT_HOLES } from "./mutation/knownHoles";
-import type { ParsedSheet } from "@/lib/parser/types";
 
 type Alarm = { siteId: string; kind: "wrong" | "signal_loss"; fingerprint: string };
-const CORRUPTING = ["header-typo", "ref-sub", "unicode-inject", "column-shift", "blank-row:inject", "blank-row:remove", "merged-cell"];
-const COSMETIC = ["section-reorder", "trailing-whitespace"];
 
+// Prefix each operator's siteId with the fixture slug so keys are globally unique across
+// the corpus. Operator siteIds start "<op>:B..:L..:X.." → "<op>:<slug>:B..:L..:X..".
+const withSlug = (m: Mutant, op: string, slug: string): Mutant =>
+  ({ ...m, siteId: `${op}:${slug}:${m.siteId.slice(op.length + 1)}` });
+
+/** Exhaustive: parse EVERY generated mutant across all fixtures × operators (plan-R2). */
 function runAll(): { alarms: Alarm[]; allSiteIds: string[]; cosmeticViolations: string[] } {
   const alarms: Alarm[] = [];
   const allSiteIds: string[] = [];
@@ -1162,17 +1141,14 @@ function runAll(): { alarms: Alarm[]; allSiteIds: string[]; cosmeticViolations: 
     const md = readFixture(f);
     const baseline = capture(md, `${f.slug}.md`);
     for (const [op, gen] of Object.entries(OPERATORS)) {
-      const raw = gen(md).map((m): Mutant => ({ ...m, siteId: `${op.split(":")[0]}:${f.slug}:${m.siteId.split(":").slice(1).join(":")}` }));
-      const { selected } = select(raw, md);
-      for (const m of selected) {
+      for (const m of gen(md).map((x) => withSlug(x, op, f.slug))) {
         allSiteIds.push(m.siteId);
         const mut = capture(m.md, `${f.slug}.md`);
+        const v = verdict(baseline, mut);
         if (m.bucket === "cosmetic") {
-          const v = verdict(baseline, mut);
           if (v !== "ABSORBED") cosmeticViolations.push(m.siteId); // cosmetic must be fully invisible
           continue;
         }
-        const v = verdict(baseline, mut);
         if (v === "SILENT_WRONG") alarms.push({ siteId: m.siteId, kind: "wrong", fingerprint: fingerprint(baseline, mut) });
         if (v === "SILENT_SIGNAL_LOSS") alarms.push({ siteId: m.siteId, kind: "signal_loss", fingerprint: fingerprint(baseline, mut) });
       }
@@ -1244,7 +1220,7 @@ git commit --no-verify -m "feat(parser): mutation harness driver + day-1 known-h
 // append to tests/parser/mutationHarness.test.ts
 import { KNOWN_SECTION_HEADERS, PREFIX_SECTION_FAMILIES } from "@/lib/parser/knownSections";
 import { SECTION_DOMAIN_MAP, RISK_CRITICAL, resolveHeader, REQUIRED_HEADERS_FOR_DOMAIN } from "./mutation/classify";
-import { OPERATORS as OPS, floorEligible } from "./mutation/operators";
+import { OPERATORS as OPS } from "./mutation/operators";
 import { auditSites } from "./mutation/applicabilityAudit";
 
 describe("classifier parity gate (Codex R2/R4/R8)", () => {
@@ -1262,22 +1238,21 @@ describe("classifier parity gate (Codex R2/R4/R8)", () => {
   });
 });
 
-describe("coverage floor + audit agreement (Codex R5/R9)", () => {
+describe("coverage floor + audit agreement (Codex R5/R9, exhaustive plan-R2)", () => {
   const CORRUPT = ["header-typo", "ref-sub", "unicode-inject", "column-shift", "blank-row:inject", "blank-row:remove", "merged-cell"];
-  it("every floor-eligible risk-critical domain receives ≥1 selected mutant; audit agrees", () => {
+  it("every domain the independent audit reports as applicable is actually generated by the operator", () => {
     for (const f of FIXTURES) {
       const md = readFixture(f);
       const audit = auditSites(md);
       for (const op of CORRUPT) {
-        const raw = OPS[op]!(md);
-        const { selected } = select(raw, md);
-        const covered = floorEligible(selected);
-        const eligible = floorEligible(raw);
-        for (const d of eligible) expect(covered.has(d), `${f.slug} ${op} floor miss ${d}`).toBe(true);
-        // audit-agreement: a domain the independent audit says HAS applicable sites must be eligible
+        const raw = OPS[op]!(md);                       // exhaustive: all generated mutants
+        const generatedDomains = new Set(raw.flatMap((m) => m.domains));
+        // audit-agreement (independent oracle): a domain the audit counts > 0 for `op`
+        // MUST appear among the operator's generated mutants — else the operator dropped it.
         for (const d of RISK_CRITICAL) {
-          const auditHas = (audit.get(`${op.startsWith("blank-row") ? op : op}|${d}`) ?? 0) > 0;
-          if (auditHas) expect(eligible.has(d) || raw.some((m) => m.domains.includes(d)), `${f.slug} ${op} audit-vs-eligible ${d}`).toBe(true);
+          if ((audit.get(`${op}|${d}`) ?? 0) > 0) {
+            expect(generatedDomains.has(d), `${f.slug} ${op}: audit says ${d} applicable but operator generated none`).toBe(true);
+          }
         }
       }
     }
@@ -1383,7 +1358,7 @@ git commit --no-verify -m "test(parser): negative controls — every alarm class
 
 ---
 
-### Task 11: Coverage summary + droppedSites/skippedInapplicable surfacing
+### Task 11: Coverage summary + skippedInapplicable surfacing
 
 **Files:**
 - Modify: `tests/parser/mutationHarness.test.ts` (emit a legible summary; assert it is non-trivial)
@@ -1394,24 +1369,24 @@ git commit --no-verify -m "test(parser): negative controls — every alarm class
 // append to tests/parser/mutationHarness.test.ts
 import { skippedInapplicable } from "./mutation/operators";
 
-describe("coverage legibility (audit 'no silent caps')", () => {
-  it("emits total/dropped/skippedInapplicable and covers >3 domains across the corpus", () => {
-    let total = 0, dropped = 0;
+describe("coverage legibility (exhaustive; skippedInapplicable surfaced)", () => {
+  it("emits total mutant count + per-fixture/op skippedInapplicable and covers >3 domains", () => {
+    let total = 0;
     const domains = new Set<string>();
     const skips: string[] = [];
     for (const f of FIXTURES) {
       const md = readFixture(f);
       for (const [op, gen] of Object.entries(OPERATORS)) {
-        const { selected, dropped: d } = select(gen(md), md);
-        total += selected.length; dropped += d;
-        for (const m of selected) for (const dm of m.domains) domains.add(dm);
+        const ms = gen(md); // exhaustive
+        total += ms.length;
+        for (const m of ms) for (const dm of m.domains) domains.add(dm);
         if (op.startsWith("section-reorder") || op.startsWith("trailing")) continue; // cosmetic: no floor
         const sk = skippedInapplicable(md, op);
         if (sk.length) skips.push(`${f.slug}/${op}: ${sk.join(",")}`);
       }
     }
     // eslint-disable-next-line no-console
-    console.log(`[mutation-harness] total=${total} dropped=${dropped} domains=${[...domains].sort().join(",")}\n  skippedInapplicable:\n  ${skips.join("\n  ") || "(none)"}`);
+    console.log(`[mutation-harness] total=${total} domains=${[...domains].sort().join(",")}\n  skippedInapplicable:\n  ${skips.join("\n  ") || "(none)"}`);
     expect(total).toBeGreaterThan(50);
     expect(domains.size).toBeGreaterThan(3);
   });
@@ -1428,13 +1403,13 @@ describe("coverage legibility (audit 'no silent caps')", () => {
 - [ ] **Step 2: Run — verify GREEN** (note the printed summary line)
 
 Run: `pnpm vitest run tests/parser/mutationHarness.test.ts`
-Expected: PASS; a `[mutation-harness] total=… dropped=… domains=…` line printed.
+Expected: PASS; a `[mutation-harness] total=… domains=…` + `skippedInapplicable` line printed.
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add tests/parser/mutationHarness.test.ts
-git commit --no-verify -m "test(parser): surface total/dropped mutant counts + domain coverage"
+git commit --no-verify -m "test(parser): surface total mutant count + skippedInapplicable + domain coverage"
 ```
 
 ---
@@ -1475,7 +1450,7 @@ git add -A && git commit --no-verify -m "chore(parser): format + final verificat
 
 1. **Spec coverage:** every spec section maps to a task — segmentation/row-taxonomy (T1), classifier+parity+lockstep (T2), oracle+verdict+fingerprint (T3), 8 operators+selection+domains (T4), fixture registry+parity (T5), independent audit+golden (T6), ledger type (T7), driver+day-1 ledger+uniqueness+cosmetic+bidirectional (T8), classifier/floor/audit gates (T9), negative controls incl. R12/R13/R14/R15/R16 (T10), coverage legibility (T11), verification (T12). ✔
 2. **Placeholder scan:** the only deferred concrete values are `GOLDEN_INVENTORY` mins and `KNOWN_SILENT_HOLES` rows — both are DATA populated from an observed run and hand-verified in-task (T6 S4, T8 S3), not code placeholders. ✔
-3. **Type consistency:** `Mutant.domains: Domain[]`, `select(): {selected,dropped}`, `verdict(): Verdict`, `fingerprint(): string`, `KnownHole` fields — consistent across T3/T4/T7/T8. ✔
+3. **Type consistency:** `Mutant.domains: Domain[]`, `floorEligible(): Set<Domain>`, `skippedInapplicable(): Domain[]`, `verdict(): Verdict`, `fingerprint(): string`, `KnownHole` fields — consistent across T3/T4/T7/T8. Detection is exhaustive (no `select`/cap). ✔
 
 ## Adversarial review (cross-model)
 
