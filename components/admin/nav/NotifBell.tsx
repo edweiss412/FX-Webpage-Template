@@ -29,7 +29,7 @@ export function NotifBell({
   initialCount: BellCountResult;
   viewerIsDeveloper: boolean;
 }) {
-  const { count, degraded, refetch } = useBellBadge(initialCount);
+  const { count, degraded, refetch, pingSignal } = useBellBadge(initialCount);
   const [open, setOpen] = useState(false);
 
   const trigger = degraded ? (
@@ -85,6 +85,7 @@ export function NotifBell({
           viewerIsDeveloper={viewerIsDeveloper}
           onClose={() => setOpen(false)}
           onOpened={refetch}
+          pingSignal={pingSignal}
         />
       ) : null}
     </>

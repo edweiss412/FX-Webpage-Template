@@ -45,12 +45,18 @@ export type UseBellBadgeResult = {
   count: number | null;
   degraded: boolean;
   refetch: () => void;
+  // Monotonic counter bumped on every realtime `changed` push (spec §5.4 —
+  // "and the feed too, if the panel is open"). An open BellPanel watches this
+  // and refetches its feed when it advances; the count refetch below is the
+  // badge's own reaction to the same push. Starts at 0; only CHANGES matter.
+  pingSignal: number;
 };
 
 export function useBellBadge(initial: BellCountResult): UseBellBadgeResult {
   const pathname = usePathname();
   const [count, setCount] = useState<number | null>(initial.kind === "ok" ? initial.count : null);
   const [degraded, setDegraded] = useState<boolean>(initial.kind === "infra_error");
+  const [pingSignal, setPingSignal] = useState(0);
   const tokenRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const lastPathRef = useRef(pathname);
@@ -156,7 +162,12 @@ export function useBellBadge(initial: BellCountResult): UseBellBadgeResult {
           supabase,
           jwt,
           () => {
-            if (!torndown) refetch();
+            if (torndown) return;
+            // Source 4: refetch the badge count (its own reaction) AND advance
+            // the ping signal so an open BellPanel refetches its feed (spec
+            // §5.4). setPingSignal is stable, so no new effect dep is needed.
+            refetch();
+            setPingSignal((n) => n + 1);
           },
           (status) => {
             if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") {
@@ -178,5 +189,5 @@ export function useBellBadge(initial: BellCountResult): UseBellBadgeResult {
     };
   }, [refetch]);
 
-  return { count, degraded, refetch };
+  return { count, degraded, refetch, pingSignal };
 }

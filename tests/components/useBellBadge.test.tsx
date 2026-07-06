@@ -208,6 +208,34 @@ describe("useBellBadge", () => {
     await waitFor(() => expect(result.current.count).toBe(42));
   });
 
+  it("realtime `changed` increments pingSignal AND still schedules the count refetch (open-panel feed refresh signal, spec §5.4)", async () => {
+    fetchSpy.mockImplementation((url: string) => {
+      if (url === "/api/admin/alerts/bell/token") {
+        return Promise.resolve(okResponse({ jwt: "fake.jwt", exp: 123 }));
+      }
+      if (url === "/api/admin/alerts/bell/count") {
+        return Promise.resolve(okResponse({ count: 5 }));
+      }
+      return Promise.reject(new Error(`unexpected fetch: ${url}`));
+    });
+    let onChanged: (() => void) | undefined;
+    subscribeToBellMock.mockImplementation((_supabase: unknown, _jwt: string, cb: () => void) => {
+      onChanged = cb;
+      return { channel: {}, subscribed: new Promise(() => {}) };
+    });
+
+    const { result } = renderBadgeHook({ kind: "ok", count: 1 });
+    await waitFor(() => expect(subscribeToBellMock).toHaveBeenCalledTimes(1));
+
+    const before = result.current.pingSignal;
+    onChanged?.();
+
+    // Source-4 count refetch is preserved…
+    await waitFor(() => expect(result.current.count).toBe(5));
+    // …and the ping signal advances so an OPEN BellPanel can refetch its feed.
+    expect(result.current.pingSignal).toBeGreaterThan(before);
+  });
+
   it("realtime failure retries exactly ONCE (re-mint + new channel), then gives up silently on a second failure (spec §5.4 bounded retry)", async () => {
     let tokenCallCount = 0;
     fetchSpy.mockImplementation((url: string) => {

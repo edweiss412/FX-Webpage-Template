@@ -151,6 +151,11 @@ describe("BellPanel — sections (spec §7.3)", () => {
     // is acceptable there, same as the retired banner — assert no crash + title).
     const CODE = "MI-2_TITLE_MISSING";
     const sheetName = "East Coast Spectacular";
+    // Finding 2 (R2): a producer value carrying its OWN markdown metacharacters.
+    // Emphasis must be parsed on the raw catalog TEMPLATE only; the param value
+    // is interpolated as opaque text, so its `*draft*` / `_x_` must NOT spawn
+    // their own <em>/<strong> nodes and must survive byte-for-byte.
+    const metaValue = "East *draft*_x_";
     const entries = [
       makeEntry({
         alertId: "ctx",
@@ -159,6 +164,12 @@ describe("BellPanel — sections (spec §7.3)", () => {
         context: { "sheet-name": sheetName },
       }),
       makeEntry({ alertId: "noctx", state: "active", code: CODE, context: null }),
+      makeEntry({
+        alertId: "meta",
+        state: "active",
+        code: CODE,
+        context: { "sheet-name": metaValue },
+      }),
     ];
     routeFetch(feedBody({ entries }));
     const { getByTestId } = renderPanel();
@@ -173,6 +184,18 @@ describe("BellPanel — sections (spec §7.3)", () => {
     // Null-context row renders without throwing; its catalog title is present.
     const nullRow = within(panel).getByTestId("bell-entry-noctx");
     expect(nullRow.textContent).toContain("Show title missing");
+
+    // Metacharacter row: the value renders LITERALLY (asterisks + underscores
+    // intact — an interpolate-then-parse implementation would consume `*draft*`
+    // into <em>draft</em> and lose the raw characters), and the value's own
+    // markers spawn NO emphasis nodes (the template's authored `_…_` around the
+    // placeholder is allowed; the value's own `*draft*` is not).
+    const metaRow = within(panel).getByTestId("bell-entry-meta");
+    expect(metaRow.textContent).toContain(metaValue);
+    expect(Array.from(metaRow.querySelectorAll("em")).some((e) => e.textContent === "draft")).toBe(
+      false,
+    );
+    expect(metaRow.querySelector("strong")).toBeNull();
   });
 
   it("uncataloged entry code renders a generic fallback, never the raw code, without throwing (§6.2)", async () => {
@@ -265,5 +288,82 @@ describe("BellPanel — states (spec §7.3)", () => {
 
     const row = await within(getByTestId("bell-panel")).findByTestId("bell-truncation-row");
     expect(row.textContent).toContain("37");
+  });
+});
+
+describe("BellPanel — ping refetch (spec §5.4 — realtime refreshes the OPEN feed)", () => {
+  it("bumping pingSignal refetches the feed in place, surfaces new rows, preserves read-cleared dots, and does not re-POST /bell/open for the same snapshot", async () => {
+    // Same snapshot stamp across both reads: the ping brings a new entry but the
+    // watermark is already stamped, so the openedForRef guard must suppress a
+    // second /bell/open (the established resolve-refetch contract §7.2).
+    const seenThrough = "2026-07-05T10:00:00.000Z";
+    const first = feedBody({
+      entries: [makeEntry({ alertId: "a", state: "active", unread: true })],
+      seenThrough,
+    });
+    const second = feedBody({
+      entries: [
+        makeEntry({ alertId: "a", state: "active", unread: true }),
+        makeEntry({ alertId: "b", state: "active", unread: true }),
+      ],
+      seenThrough,
+    });
+    let feedCalls = 0;
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes("/bell/feed")) {
+        feedCalls += 1;
+        return Promise.resolve(jsonOk(feedCalls === 1 ? first : second));
+      }
+      return Promise.resolve(jsonOk({}));
+    });
+
+    const onClose = vi.fn();
+    const onOpened = vi.fn();
+    const { getByTestId, queryByTestId, rerender } = render(
+      <BellPanel viewerIsDeveloper={false} onClose={onClose} onOpened={onOpened} pingSignal={0} />,
+    );
+    const panel = getByTestId("bell-panel");
+
+    // Initial snapshot: row a present, row b absent.
+    await within(panel).findByTestId("bell-entry-a");
+    expect(queryByTestId("bell-entry-b")).toBeNull();
+
+    // Expand row a → read-clears its dot (session-scoped Set; must survive refetch).
+    fireEvent.click(within(panel).getByTestId("bell-entry-toggle-a"));
+    await waitFor(() =>
+      expect(within(panel).getByTestId("bell-unread-dot-a").className).toContain("opacity-0"),
+    );
+
+    // Ping: a realtime `changed` on the OPEN panel bumps pingSignal → in-place
+    // feed refetch via the SAME path the resolve/save settle uses.
+    rerender(
+      <BellPanel viewerIsDeveloper={false} onClose={onClose} onOpened={onOpened} pingSignal={1} />,
+    );
+
+    // New row surfaces on the refetch (fetch fired a SECOND time at /bell/feed).
+    await within(panel).findByTestId("bell-entry-b");
+    expect(feedCalls).toBe(2);
+
+    // Read-cleared dot for row a survived the ping refetch (no un-clear).
+    expect(within(panel).getByTestId("bell-unread-dot-a").className).toContain("opacity-0");
+
+    // Same seenThrough → exactly ONE /bell/open across mount + ping refetch.
+    const openCalls = fetchMock.mock.calls.filter((c) => String(c[0]).includes("/bell/open"));
+    expect(openCalls).toHaveLength(1);
+
+    // BELL-3: a ping refetch announces completion like the resolve path.
+    expect(getByTestId("bell-live-region").textContent).toBe("Notifications updated");
+  });
+
+  it("an unchanged pingSignal (initial mount value) triggers no refetch", async () => {
+    routeFetch(feedBody({ entries: [makeEntry({ alertId: "a", state: "active" })] }));
+    const onClose = vi.fn();
+    const onOpened = vi.fn();
+    const { getByTestId } = render(
+      <BellPanel viewerIsDeveloper={false} onClose={onClose} onOpened={onOpened} pingSignal={3} />,
+    );
+    await within(getByTestId("bell-panel")).findByTestId("bell-entry-a");
+    const feedCalls = fetchMock.mock.calls.filter((c) => String(c[0]).includes("/bell/feed"));
+    expect(feedCalls).toHaveLength(1);
   });
 });

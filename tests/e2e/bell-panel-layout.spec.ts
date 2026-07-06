@@ -81,8 +81,11 @@
  *   - `active.length > 0 ? <section bell-section-active> : null`
  *       → instant. Tested: HERE (present) + unit.
  *   - `history.length > 0 ? <section bell-section-history> : null` (A→H)
- *       → NO live re-sort; snapshot only, instant on refetch. Tested: unit
- *         (resolve-while-open case) — this spec does not resolve a row.
+ *       → NO live re-sort; snapshot only, instant on refetch — the SAME instant
+ *         treatment for BOTH the resolve/save refetch and the realtime
+ *         ping-triggered refetch (spec §5.4 open-panel feed refresh); neither
+ *         animates the reflow. Tested: unit (resolve-while-open case + ping
+ *         refetch case) — this spec does not resolve a row.
  *   - `feed.truncated ? bell-truncation-row : null`
  *       → instant. Tested: unit.
  *   - `viewerIsDeveloper ? <DevFooter/> : null`

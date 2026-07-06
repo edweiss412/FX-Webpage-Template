@@ -51,8 +51,9 @@ import {
   isMessageCode,
   lookupHelpfulContext,
   messageFor,
+  type MessageParams,
 } from "@/lib/messages/lookup";
-import { renderEmphasis } from "@/components/messages/renderEmphasis";
+import { renderCatalogEmphasis } from "@/components/messages/renderEmphasis";
 import { describeAlert } from "@/lib/adminAlerts/describeAlert";
 import { raisedAtSuffix } from "@/lib/time/raisedAt";
 import { retryWatchSubscriptionFormAction } from "@/app/admin/actions";
@@ -83,20 +84,28 @@ type PanelState =
 // no catalog `title` (invariant 5: never surface the raw code).
 const FALLBACK_TITLE = "Notification";
 
-// Producer context is interpolated into the catalog template exactly as the
-// retired AlertBanner did (`messageFor(code, (context ?? undefined) as never)`)
-// so codes whose copy carries `<placeholder>` markers render the real value,
-// not raw template text. A null/absent context yields the untouched entry.
-function rowCopy(
-  code: string,
-  context: Record<string, unknown> | null,
-): { title: string; message: string | null } {
-  const entry = isMessageCode(code) ? messageFor(code, (context ?? undefined) as never) : null;
+// Copy is returned as RAW catalog TEMPLATES (title + dougFacing/helpfulContext
+// templates, params NOT applied here). Emphasis is parsed on the template and
+// producer context is interpolated as OPAQUE TEXT at the render site via
+// `renderCatalogEmphasis(template, params)` — the same order ErrorExplainer
+// uses (Codex R2). Interpolating BEFORE emphasis parsing would let a context
+// value like "East *draft*" be reinterpreted as markdown. `title` is never
+// interpolated by messageFor, so it is unchanged either way.
+function rowCopy(code: string): { title: string; message: string | null } {
+  const entry = isMessageCode(code) ? messageFor(code) : null;
   return { title: entry?.title ?? FALLBACK_TITLE, message: entry?.dougFacing ?? null };
 }
 
-function rowHelpfulContext(code: string, context: Record<string, unknown> | null): string | null {
-  return isMessageCode(code) ? lookupHelpfulContext(code, (context ?? undefined) as never) : null;
+function rowHelpfulContext(code: string): string | null {
+  // Raw helpfulContext template. Presence (non-null) is unchanged by params, so
+  // the caret/disclosure gating keying on this stays correct.
+  return isMessageCode(code) ? lookupHelpfulContext(code) : null;
+}
+
+// Narrowing for the render sites: entry.context is a producer-supplied jsonb
+// bag; renderCatalogEmphasis interpolates its scalars as opaque text.
+function contextParams(context: Record<string, unknown> | null): MessageParams | undefined {
+  return (context ?? undefined) as MessageParams | undefined;
 }
 
 // The resolve route the entry posts to: show-scoped when the row carries a
@@ -218,8 +227,9 @@ function ActiveRow({
   onToggle: () => void;
   onRefetch: () => void;
 }) {
-  const { title, message } = rowCopy(entry.code, entry.context);
-  const helpful = rowHelpfulContext(entry.code, entry.context);
+  const { title, message } = rowCopy(entry.code);
+  const helpful = rowHelpfulContext(entry.code);
+  const params = contextParams(entry.context);
   // Dot shows only while genuinely unread AND not yet optimistically cleared
   // this session (a failed read POST does not un-clear it — spec §4 fail-quiet).
   const dotVisible = entry.unread && !readCleared;
@@ -279,7 +289,7 @@ function ActiveRow({
           </div>
           {message ? (
             <p className="mt-0.5 wrap-break-word text-sm text-text-subtle">
-              {renderEmphasis(message)}
+              {renderCatalogEmphasis(message, params)}
             </p>
           ) : null}
           <IdentityLine entry={entry} />
@@ -292,7 +302,7 @@ function ActiveRow({
           data-testid={`bell-context-${entry.alertId}`}
           className="mt-2 ml-5 wrap-break-word text-sm text-text-subtle"
         >
-          {renderEmphasis(helpful)}
+          {renderCatalogEmphasis(helpful, params)}
         </p>
       ) : null}
       <div className="ml-5">
@@ -303,7 +313,7 @@ function ActiveRow({
 }
 
 function HistoryRow({ entry, now }: { entry: BellEntry; now: Date }) {
-  const { title } = rowCopy(entry.code, entry.context);
+  const { title } = rowCopy(entry.code);
   const resolved = entry.resolvedAt ? `Resolved ${raisedAtSuffix(entry.resolvedAt, now)}` : null;
   return (
     <div
@@ -419,10 +429,15 @@ export function BellPanel({
   viewerIsDeveloper,
   onClose,
   onOpened,
+  pingSignal,
 }: {
   viewerIsDeveloper: boolean;
   onClose: () => void;
   onOpened: () => void;
+  // Monotonic realtime-ping counter from useBellBadge (spec §5.4). Each advance
+  // is a `changed` push while the panel is OPEN → refetch the feed in place.
+  // Optional so direct-render harnesses (and the closed-panel case) can omit it.
+  pingSignal?: number;
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
@@ -545,6 +560,21 @@ export function BellPanel({
     void load();
   }, [load]);
 
+  // Ping refetch (spec §5.4 — "refetch the feed too, if the panel is open").
+  // A realtime `changed` while the panel is open advances `pingSignal`; we
+  // refetch the feed in place via the SAME path the resolve/save settle uses
+  // (`load(true)` → BELL-3 "Notifications updated" announce, session-scoped
+  // read/expand Sets preserved, openedForRef guard suppresses a duplicate
+  // /bell/open for an already-stamped snapshot). Ref-compare skips the initial
+  // mount value so only a genuine post-mount push triggers a refetch — the
+  // effect must not double-fire alongside the mount-once load above.
+  const lastPingRef = useRef(pingSignal);
+  useEffect(() => {
+    if (pingSignal === lastPingRef.current) return;
+    lastPingRef.current = pingSignal;
+    void load(true);
+  }, [pingSignal, load]);
+
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") onClose();
@@ -566,7 +596,7 @@ export function BellPanel({
     body = (
       <div data-testid="bell-error" className="rounded-md bg-surface-sunken px-4 py-8 text-center">
         <p className="text-sm text-text">
-          {renderEmphasis(getRequiredDougFacing("ALERT_BELL_FEED_FAILED"))}
+          {renderCatalogEmphasis(getRequiredDougFacing("ALERT_BELL_FEED_FAILED"))}
         </p>
         <button
           type="button"

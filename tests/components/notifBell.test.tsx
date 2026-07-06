@@ -21,6 +21,7 @@ vi.mock("@/components/admin/nav/useBellBadge", () => ({
     count: initial.kind === "ok" ? initial.count : null,
     degraded: initial.kind === "infra_error",
     refetch: refetchMock,
+    pingSignal: 0,
   }),
 }));
 
