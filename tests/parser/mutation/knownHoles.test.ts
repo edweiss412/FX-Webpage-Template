@@ -1,6 +1,11 @@
 // tests/parser/mutation/knownHoles.test.ts
 import { describe, it, expect } from "vitest";
-import { reconcileLedger, KNOWN_SILENT_HOLES } from "./knownHoles";
+import {
+  reconcileLedger,
+  KNOWN_SILENT_HOLES,
+  OPERATOR_FINDING_MAP,
+  findingFor,
+} from "./knownHoles";
 import type { Alarm, KnownHole } from "./knownHoles";
 
 const A = (siteId: string, kind: Alarm["kind"], fingerprint: string): Alarm => ({
@@ -57,6 +62,43 @@ describe("committed ledger shape", () => {
       expect(["wrong", "signal_loss"]).toContain(h.kind);
       expect(typeof h.fingerprint).toBe("string");
       expect(h.finding.length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("ledger is triageable — no blanket 'unaudited' (Codex whole-diff R3)", () => {
+  // Every corrupting operator maps to the audit finding it exercises (documented #) or a real
+  // BACKLOG.md id, so a stale/new ledger failure is recoverable by operator class, not thousands of
+  // opaque rows. header-typo→#5 and blank-row:*→#10 are documented audit findings; the rest are
+  // BL-MUTATION-* backlog sub-items (see BACKLOG.md § BL-MUTATION-HARNESS-OPEN-HOLES).
+  const CORRUPTING = [
+    "header-typo",
+    "ref-sub",
+    "unicode-inject",
+    "column-shift",
+    "blank-row:inject",
+    "blank-row:remove",
+    "merged-cell",
+    "section-reorder",
+  ];
+  it("OPERATOR_FINDING_MAP covers every corrupting operator with a documented finding# or BL- ref", () => {
+    for (const op of CORRUPTING) {
+      const f = OPERATOR_FINDING_MAP[op];
+      expect(f, `no finding mapping for ${op}`).toBeDefined();
+      expect(f, `${op} finding must be an audit #N or a BL- backlog id`).toMatch(
+        /^#\d+$|^BL-[A-Z0-9-]+$/,
+      );
+    }
+  });
+  it("every ledger row's finding is a documented map value — NEVER a blanket 'unaudited'", () => {
+    const allowed = new Set(Object.values(OPERATOR_FINDING_MAP));
+    for (const h of KNOWN_SILENT_HOLES) {
+      expect(h.finding, `${h.siteId} finding must not be 'unaudited'`).not.toBe("unaudited");
+      expect(allowed, `${h.siteId} finding "${h.finding}" not in OPERATOR_FINDING_MAP`).toContain(
+        h.finding,
+      );
+      // the row's committed finding agrees with the operator→finding resolver
+      expect(findingFor(h.siteId), `${h.siteId} finding disagrees with findingFor`).toBe(h.finding);
     }
   });
 });

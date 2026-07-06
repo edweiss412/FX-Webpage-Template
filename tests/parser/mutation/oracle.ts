@@ -131,47 +131,47 @@ export function fingerprint(b: ParsedSheet, m: ParsedSheet): string {
     .slice(0, 16);
 }
 
-/** Per-entry redaction (spec §5.179): structural fields VERBATIM, PII/free-text digest()-ed, then
- *  canonicalized order-stably. Exported so a test can inspect the pre-hash field boundary. */
-// `nullish3` preserves the absent-vs-null-vs-value distinction that `signalEq` (a toEqual)
-// makes — collapsing `undefined` and `null` to one token would let a SILENT_SIGNAL_LOSS that only
-// gains/loses a null anchor keep the same fingerprint while signalEq sees the change (Codex R28).
-const nullish3 = <T>(v: T | null | undefined, present: (x: T) => string): string =>
-  v === undefined ? "__undef__" : v === null ? "__null__" : present(v);
-const redactWarning = (w: ParseWarning) => ({
-  severity: w.severity,
-  code: w.code,
-  message: digest(w.message ?? ""),
-  blockRef: w.blockRef
-    ? {
-        kind: w.blockRef.kind,
-        index: w.blockRef.index ?? null,
-        iso: w.blockRef.iso ?? null,
-        name: w.blockRef.name ?? null,
-      }
-    : null,
-  rawSnippet: nullish3(w.rawSnippet, (s) => digest(s)), // rawSnippet?: string (never null, but absent≠"")
-  sourceCell: nullish3(w.sourceCell, (s) => digest(JSON.stringify(s))), // SourceAnchor | null | undefined — 3-state
-});
-const redactError = (h: ParseError) => ({
-  code: h.code,
-  message: digest(h.message ?? ""),
-  blockRef: h.blockRef ? { kind: h.blockRef.kind } : null,
-});
-const redactRaw = (r: { block?: string; key?: string; value?: unknown }) => ({
-  block: r.block ?? null,
-  key: r.key ?? null,
-  value: nullish3(r.value, (v) => digest(typeof v === "string" ? v : JSON.stringify(v))), // preserve undefined≠null
-});
+/**
+ * EXHAUSTIVE-BY-TYPE signal redaction (Codex whole-diff R3 [medium]). The previous redactors
+ * hand-whitelisted today's fields (severity/code/message/blockRef.{kind,index,iso,name}/rawSnippet/
+ * sourceCell/block/key/value); a parser change that ADDED or populated ANOTHER enumerable signal
+ * field would move `signalEq` (a full deep-equal over the whole object) while the fingerprint stayed
+ * constant, because the new field was silently discarded — an in-ledger drift the ratchet is
+ * supposed to catch. `redactNode` instead walks the ENTIRE object generically and keeps EVERY key,
+ * so the fingerprint's signal view is a superset of `signalEq`'s: any field `signalEq` compares also
+ * reaches the fingerprint. PII is still never stored raw — a value is digest()-ed when its KEY is a
+ * known free-text/PII field (`PII_KEYS`) OR (defense-in-depth for a future PII-ish field) when a
+ * string value LOOKS like PII (`looksPii`: contains '@', a phone-shaped run, or is long). Every
+ * other scalar is kept verbatim so a reviewer can still see WHY a row moved. Absent-vs-null-vs-value
+ * is preserved by `canon` (undefined→omitted key, null→"__null__"), matching signalEq's 3-state
+ * (Codex R28). Changing the algorithm re-BASELINES all ledger fingerprints (day-1 re-pin; no fixture
+ * data changed, so the alarm site set is unchanged — only the fingerprint values).
+ */
+const PII_KEYS: ReadonlySet<string> = new Set(["message", "rawSnippet", "sourceCell", "value"]);
+const looksPii = (s: string): boolean =>
+  s.includes("@") || /\d{3}\D?\d{3}\D?\d{4}/.test(s) || s.length > 40;
+function redactNode(v: unknown, key?: string): unknown {
+  const piiKey = key !== undefined && PII_KEYS.has(key);
+  if (v === undefined) return undefined; // canon omits the key (absent) — preserves absent≠null
+  if (v === null) return null; // canon → "__null__"
+  if (typeof v === "string") return piiKey || looksPii(v) ? `#d:${digest(v)}` : v;
+  if (typeof v !== "object") return v; // number / boolean — structural, verbatim
+  if (piiKey) return `#d:${digest(canon(v))}`; // PII-keyed object (e.g. sourceCell) — digest whole
+  if (Array.isArray(v)) return v.map((e) => redactNode(e));
+  const o = v as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const k of Object.keys(o)) out[k] = redactNode(o[k], k); // EVERY key kept (exhaustive)
+  return out;
+}
 
-/** The index-keyed, redacted signal-entry list used by `fingerprint` (exported for the redaction-
- *  boundary test). Order-preserving: swapping two entries changes which content sits at which index. */
+/** The index-keyed, exhaustively-redacted signal-entry list used by `fingerprint` (exported for the
+ *  redaction-boundary test). Order-preserving: swapping two entries changes which content sits at
+ *  which index. Every enumerable field of each entry reaches the digest (Codex R3), so the
+ *  fingerprint moves whenever `signalEq` would. */
 export function signalRows(p: ParsedSheet): string[] {
   const rows: string[] = [];
-  p.warnings.forEach((w, i) => rows.push(`W#${i}:${canon(redactWarning(w))}`));
-  p.hardErrors.forEach((h, i) => rows.push(`H#${i}:${canon(redactError(h))}`));
-  (p.raw_unrecognized as Array<{ block?: string; key?: string; value?: unknown }>).forEach((r, i) =>
-    rows.push(`R#${i}:${canon(redactRaw(r))}`),
-  );
+  p.warnings.forEach((w: ParseWarning, i) => rows.push(`W#${i}:${canon(redactNode(w))}`));
+  p.hardErrors.forEach((h: ParseError, i) => rows.push(`H#${i}:${canon(redactNode(h))}`));
+  p.raw_unrecognized.forEach((r, i) => rows.push(`R#${i}:${canon(redactNode(r))}`));
   return rows;
 }

@@ -82,6 +82,34 @@ describe("fingerprint signal component — redaction boundary is EXECUTABLE (Cod
     expect(row).not.toContain("secret@example.com");
     expect(row).not.toContain("raw pii row");
   });
+  it("EXHAUSTIVE: a NEW enumerable signal field moves the fingerprint (redaction ⊇ signalEq, Codex R3)", () => {
+    // The prior redactors whitelisted today's fields, so a parser change that added another
+    // enumerable warning field would move signalEq (full deep-equal) but NOT the fingerprint,
+    // letting an in-ledger hole drift undetected. redactNode keeps EVERY key, so any field
+    // signalEq compares also reaches the fingerprint.
+    const b = base();
+    const wBase = { severity: "warn" as const, code: "W", message: "m" };
+    const wExtra = {
+      ...wBase,
+      hint: "future-parser-field",
+    } as unknown as ParsedSheet["warnings"][number];
+    // signalEq sees the extra field (verdict is not ABSORBED)...
+    expect(verdict(base({ warnings: [wBase] }), base({ warnings: [wExtra] }))).not.toBe("ABSORBED");
+    // ...and the fingerprint sees it too (the whole point of exhaustive redaction).
+    expect(fingerprint(b, base({ warnings: [wExtra] }))).not.toBe(
+      fingerprint(b, base({ warnings: [wBase] })),
+    );
+    // a NEW field that LOOKS like PII is digested, not stored raw, but STILL moves the fingerprint
+    const wPii = {
+      ...wBase,
+      contact: "person@example.com",
+    } as unknown as ParsedSheet["warnings"][number];
+    const [rowPii] = signalRows(base({ warnings: [wPii] }));
+    expect(rowPii).not.toContain("person@example.com"); // redacted despite the unknown key
+    expect(fingerprint(b, base({ warnings: [wPii] }))).not.toBe(
+      fingerprint(b, base({ warnings: [wBase] })),
+    );
+  });
   it("a code (structural) change and a message (pii) change BOTH move the fingerprint", () => {
     const b = base();
     const w = (over: object) =>
