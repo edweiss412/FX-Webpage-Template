@@ -38,10 +38,12 @@ Existing (1:1): `#fafaf9`→`bg` · `#fff`→`surface` · `#f4f3f1`→`surface-s
 Reused tints: warn icon-circle bg → `warning-bg`; unread row tint → `stale-tint`.
 
 **New tokens** (add to `@theme` + `:root` + both dark blocks in `app/globals.css`, document in `DESIGN.md` §1.1 + contrast in §1.2):
-- `--color-accent-tint` — info icon-circle bg **and** active-count-pill bg. Light `#feeede`, dark `#2a1e10` (warm, low-chroma). Icon/text on it = `accent-on-bg` (dark: `#ffa047`) → verify ≥3:1 graphical / ≥4.5:1 text.
-- `--color-danger-bg` — critical icon-circle bg. Light `#fbeae8`, dark `#3a1e1c`. Icon on it = `status-degraded` → verify ≥3:1 graphical.
+- `--color-accent-tint` — info icon-circle bg **and** active-count-pill bg. Light `#feeede`, dark `#2a1e10` (warm, low-chroma).
+  - **Info icon** on it = `accent-on-bg` (light `#c25e00` / dark `#ffa047`) — a **graphical** glyph, floor ≥3:1. Computed light 3.78:1, dark 8.08:1. ✓
+  - **Active-count-pill TEXT** on it = **`text-strong`** (light `#0e0f12` / dark `#f5f3ee`), NOT `accent-on-bg`. `accent-on-bg` on this tint is only ~3.78:1 light — **below the 4.5:1 text floor** (R5), so it must not carry the pill number. `text-strong` on `accent-tint` ≈16.5:1 light / ≈14:1 dark. ✓ AA/AAA. The pill reads as tinted via its bg; the number is near-ink.
+- `--color-danger-bg` — critical icon-circle bg. Light `#fbeae8`, dark `#3a1e1c`. Icon on it = `status-degraded` (**graphical**) — light 5.63:1, dark 4.16:1, floor ≥3:1. ✓
 
-`tests/styles/status-token-contrast.test.ts` gets rows for the two new tint↔icon pairs (graphical ≥3:1 both modes).
+`tests/styles/status-token-contrast.test.ts` gets: (1) two **graphical** rows (`status-degraded` on `danger-bg`; `accent-on-bg` on `accent-tint`) ≥3:1 both modes; (2) one **text** row (`text-strong` on `accent-tint`, the active-count pill) ≥4.5:1 both modes.
 
 ## 4. Motion
 
