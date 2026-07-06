@@ -498,16 +498,57 @@ export async function cleanupAbandonedFinalize(
       });
     }
 
-    // Under-lock recheck (spec §5.5 step 3) — BOTH paths. A recovery route (staged
-    // Apply / Unapprove) takes the row's show: advisory lock BEFORE mutating its
-    // row; cleanup collects the same show: locks (advisory-before-row, Task 5) and
-    // may have waited behind such a recovery. If ANY drive_file_id that was
+    // Under-lock reads (spec §5.5 step 3) — one authoritative snapshot of the
+    // session's blocking + finishable state, now that the show: locks serialize
+    // every recovery/scan on this session's ids. Reused by both under-lock gates.
+    const postUnresolvedIds = await unresolvedManifestDriveFileIds(tx, sessionId);
+    const postFinishable = await finishableCleanCount(tx, sessionId);
+
+    // Whole-diff R3 HIGH — re-evaluate the FULL eligibility ladder UNDER the locks.
+    // The pre-lock stuck/stale/recency decision is only an early-out: a finishable
+    // row that a concurrent scan/recovery committed BEFORE lockCleanupDriveFiles's
+    // collect (so it is in the locked set and the R1 expansion guard does NOT fire)
+    // can have flipped the session OUT of "stuck". A fresh, no-longer-stuck session
+    // must be blocked, not discarded — so re-apply the same ladder against the
+    // authoritative under-lock counts. isStale is stable here (app_settings row is
+    // held FOR UPDATE since the owner read).
+    const postStuck = postFinishable === 0 && postUnresolvedIds.length > 0;
+    if (!postStuck) {
+      if (!isStale) {
+        throw new CleanupRequiresStaleSessionError("session_too_fresh", {
+          wizard_session_id: sessionId,
+          pending_wizard_session_at: owner.rows[0].pending_wizard_session_at ?? null,
+        });
+      }
+      const recentFinalize = await tx.query<{ id: string }>(
+        `
+          select id
+            from public.wizard_finalize_checkpoints
+           where wizard_session_id = $1::uuid
+             and status = 'in_progress'
+             and last_processed_at is not null
+             and last_processed_at > now() - interval '1 hour'
+           for update
+        `,
+        [sessionId],
+      );
+      if (recentFinalize.rowCount > 0) {
+        throw new CleanupRequiresStaleSessionError("finalize_active_within_last_hour", {
+          wizard_session_id: sessionId,
+        });
+      }
+    }
+
+    // Under-lock recovery recheck (spec §5.5 step 3) — BOTH paths. A recovery route
+    // (staged Apply / Unapprove) takes the row's show: advisory lock BEFORE mutating
+    // its row; cleanup collects the same show: locks (advisory-before-row, Task 5)
+    // and may have waited behind such a recovery. If ANY drive_file_id that was
     // unresolved pre-lock is now RESOLVED, the operator is actively recovering the
     // blocked sheet — abort the discard (purge nothing) rather than wipe their
-    // in-flight recovery. Runs on the stale path too, so a stuck-only recheck fails
-    // T10's stale×Apply cell.
+    // in-flight recovery, even when the session is still technically stuck. Runs on
+    // the stale path too, so a stuck-only recheck fails T10's stale×Apply cell.
     if (preLockUnresolvedIds.length > 0) {
-      const postLockUnresolved = new Set(await unresolvedManifestDriveFileIds(tx, sessionId));
+      const postLockUnresolved = new Set(postUnresolvedIds);
       const recovered = preLockUnresolvedIds.filter((id) => !postLockUnresolved.has(id));
       if (recovered.length > 0) {
         throw new CleanupRequiresStaleSessionError("session_too_fresh", {

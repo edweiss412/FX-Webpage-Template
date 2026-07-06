@@ -28,7 +28,11 @@ type FakeState = {
   ownerSessionId: string | null;
   isStale: boolean;
   pendingAt: string | null;
+  // finishable-clean count on the FIRST (pre-lock) read; finishableUnderLock (if set)
+  // is returned on the SECOND (under-lock re-eval) read — models a finishable row a
+  // scan/recovery committed before the reap collect. Defaults to `finishable`.
   finishable: number;
+  finishableUnderLock?: number;
   // unresolved ids returned on the FIRST (pre-lock) vs SECOND (post-lock) read.
   preUnresolved: string[];
   postUnresolved: string[];
@@ -45,6 +49,7 @@ type FakeState = {
 
 class FakeTx implements OnboardingSessionTx {
   unresolvedReads = 0;
+  finishableReads = 0;
   reapReads = 0;
   deletes: string[] = [];
   rotated = false;
@@ -92,7 +97,13 @@ class FakeTx implements OnboardingSessionTx {
         is_stale: this.s.isStale,
       });
     }
-    if (q.includes("finishable_count")) return row({ finishable_count: this.s.finishable });
+    if (q.includes("finishable_count")) {
+      // First read = pre-lock; second = under-lock re-eval (R3 HIGH).
+      const v =
+        this.finishableReads === 0 ? this.s.finishable : (this.s.finishableUnderLock ?? this.s.finishable);
+      this.finishableReads += 1;
+      return row({ finishable_count: v });
+    }
     // Unresolved-id set: first call = pre-lock, second = post-lock.
     if (q.includes("onboarding_scan_manifest m") && q.includes("m.status in")) {
       const ids = this.unresolvedReads === 0 ? this.s.preUnresolved : this.s.postUnresolved;
@@ -210,6 +221,26 @@ describe("cleanupAbandonedFinalize eligibility (Thread 2b)", () => {
       finishable: 1,
       preUnresolved: ["D1"],
       postUnresolved: [], // resolved during the wait
+    });
+    await expect(result).rejects.toMatchObject({ reason: "session_too_fresh" });
+    expect(tx.rotated).toBe(false);
+  });
+
+  test("under-lock re-eval ABORTS a fresh session that GAINED a finishable row before the reap collect (whole-diff R3 HIGH)", async () => {
+    // Pre-lock the session looks stuck (0 finishable + D1 unresolved) so the fresh
+    // gate is bypassed. But a concurrent scan committed a finishable D2 BEFORE the
+    // reap collect, so D2 is in the locked set (no expansion → the R1 guard is
+    // silent) and the session is no longer stuck. A fresh, no-longer-stuck session
+    // must be blocked — the authoritative under-lock re-eval throws session_too_fresh.
+    const { tx, result } = run({
+      ...base,
+      isStale: false, // FRESH
+      finishable: 0, // stuck pre-lock
+      finishableUnderLock: 1, // …but finishable under the locks → NOT stuck
+      preUnresolved: ["D1"],
+      postUnresolved: ["D1"], // D1 still unresolved (recovery recheck cannot fire)
+      preReap: ["D1", "D2"],
+      postReap: ["D1", "D2"], // no expansion — D2 was present at collect time
     });
     await expect(result).rejects.toMatchObject({ reason: "session_too_fresh" });
     expect(tx.rotated).toBe(false);
