@@ -29,8 +29,17 @@ export function NotifBell({
   initialCount: BellCountResult;
   viewerIsDeveloper: boolean;
 }) {
-  const { count, degraded, refetch, pingSignal } = useBellBadge(initialCount);
+  const { count, degraded, refetch, zeroNow, pingSignal } = useBellBadge(initialCount);
   const [open, setOpen] = useState(false);
+
+  // Open gesture: zero the badge immediately client-side (spec §7.2 — a quick
+  // open/close on a slow network must not leave a stale count visible), then
+  // mount the panel. The panel's onOpened={refetch} restores post-snapshot
+  // arrivals once /bell/feed → /bell/open settle to server truth.
+  const openPanel = () => {
+    zeroNow();
+    setOpen(true);
+  };
 
   const trigger = degraded ? (
     <button
@@ -40,7 +49,7 @@ export function NotifBell({
       title={getRequiredDougFacing("ADMIN_ALERT_COUNT_FAILED")}
       aria-haspopup="dialog"
       aria-expanded={open}
-      onClick={() => setOpen(true)}
+      onClick={openPanel}
       className="relative inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm text-warning-text hover:bg-surface-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
     >
       <Bell className="size-5" aria-hidden="true" />
@@ -60,7 +69,7 @@ export function NotifBell({
       }
       aria-haspopup="dialog"
       aria-expanded={open}
-      onClick={() => setOpen(true)}
+      onClick={openPanel}
       className="relative inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm text-text-subtle hover:bg-surface-raised hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
     >
       <Bell className="size-5" aria-hidden="true" />

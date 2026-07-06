@@ -432,3 +432,47 @@ describe("BellPanel — load race (Finding 1: a stale response must not overwrit
     });
   });
 });
+
+describe("BellPanel — unmount invalidation (R4 Finding 1: a load in flight at close must not stamp /bell/open)", () => {
+  it("closing the panel before /bell/feed resolves discards the load — no /bell/open POST, no post-unmount onOpened", async () => {
+    // Slow connection: the viewer opens the bell, then closes (Esc/scrim →
+    // unmount) before the feed resolves. When the deferred /bell/feed later
+    // settles, the resumed load must bail at its seq guard — no setState on the
+    // unmounted panel, and (the spec §7.2 watermark hazard) no /bell/open
+    // advancing opened_at to a snapshot the viewer never saw.
+    const feedResolvers: Array<(r: Response) => void> = [];
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes("/bell/feed")) {
+        return new Promise<Response>((resolve) => feedResolvers.push(resolve));
+      }
+      return Promise.resolve(jsonOk({}));
+    });
+
+    const onClose = vi.fn();
+    const onOpened = vi.fn();
+    const { getByTestId, unmount } = render(
+      <BellPanel viewerIsDeveloper={false} onClose={onClose} onOpened={onOpened} pingSignal={0} />,
+    );
+
+    // Mount load fired the feed (still pending); panel sits in its loading shell.
+    await waitFor(() => expect(feedResolvers).toHaveLength(1));
+    getByTestId("bell-loading");
+
+    // Viewer closes before the feed resolves → the panel unmounts.
+    unmount();
+
+    // The deferred feed resolves AFTER unmount with a real snapshot.
+    feedResolvers[0]!(
+      jsonOk(feedBody({ entries: [makeEntry({ alertId: "a", state: "active" })] })),
+    );
+    // Flush the late response's full then-chain (fetch → seq guard → return).
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // No watermark stamped for a snapshot the viewer never saw, and the badge
+    // refetch callback never fired post-unmount.
+    const openCalls = fetchMock.mock.calls.filter((c) => String(c[0]).includes("/bell/open"));
+    expect(openCalls).toHaveLength(0);
+    expect(onOpened).not.toHaveBeenCalled();
+  });
+});

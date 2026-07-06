@@ -45,6 +45,9 @@ export type UseBellBadgeResult = {
   count: number | null;
   degraded: boolean;
   refetch: () => void;
+  // Zero the badge count immediately client-side on the open gesture (spec
+  // §7.2). Does not touch `degraded`; a later refetch restores server truth.
+  zeroNow: () => void;
   // Monotonic counter bumped on every realtime `changed` push (spec §5.4 —
   // "and the feed too, if the panel is open"). An open BellPanel watches this
   // and refetches its feed when it advances; the count refetch below is the
@@ -95,6 +98,21 @@ export function useBellBadge(initial: BellCountResult): UseBellBadgeResult {
   const refetch = useCallback(() => {
     runFetch();
   }, [runFetch]);
+
+  // Immediate-zero-on-open (spec §7.2 — "the numeric badge zeroes immediately
+  // client-side; a later /bell/count refresh restores any post-snapshot
+  // arrivals"). Zeroes the count WITHOUT touching `degraded` (a stale-data
+  // affordance is orthogonal to the seen watermark) and WITHOUT tearing down
+  // the refetch machinery. Bumps the same monotonic token every source guards
+  // on (and aborts the in-flight request) so a count response that started
+  // BEFORE the open gesture cannot resurrect the badge; a `refetch()` / prop
+  // sync started AFTER this claims a newer token and legitimately restores
+  // server truth (the panel's `onOpened={refetch}` is exactly that path).
+  const zeroNow = useCallback(() => {
+    tokenRef.current += 1;
+    abortRef.current?.abort();
+    setCount(0);
+  }, []);
 
   // Source 1/2: initial prop + prop changes (router.refresh path). Always
   // commits — the newest server truth wins. An infra_error prop marks
@@ -189,5 +207,5 @@ export function useBellBadge(initial: BellCountResult): UseBellBadgeResult {
     };
   }, [refetch]);
 
-  return { count, degraded, refetch, pingSignal };
+  return { count, degraded, refetch, zeroNow, pingSignal };
 }

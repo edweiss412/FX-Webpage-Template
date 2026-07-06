@@ -12,7 +12,7 @@
  * `subscribeToBell` itself is covered by tests/realtime/subscribeToBell.test.ts.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { useBellBadge } from "@/components/admin/nav/useBellBadge";
 import type { BellCountResult } from "@/lib/admin/bellFeed";
 
@@ -180,6 +180,57 @@ describe("useBellBadge", () => {
     result.current.refetch();
 
     await waitFor(() => expect(result.current.count).toBe(11));
+  });
+
+  it("zeroNow zeroes the count client-side without touching degraded, discards a pre-zero in-flight count, and lets a post-zero refetch restore server truth (spec §7.2)", async () => {
+    // Immediate-zero-on-open (spec §7.2 — "the numeric badge zeroes immediately
+    // client-side; a later /bell/count refresh restores any post-snapshot
+    // arrivals"). The pre-zero in-flight count must NOT resurrect the badge
+    // (a count response that started before the open gesture is stale); a
+    // refetch started AFTER zeroNow legitimately restores post-snapshot arrivals.
+    let resolveStale!: (value: unknown) => void;
+    let countCalls = 0;
+    fetchSpy.mockImplementation((url: string) => {
+      if (url === "/api/admin/alerts/bell/token") return new Promise(() => {});
+      if (url === "/api/admin/alerts/bell/count") {
+        countCalls += 1;
+        if (countCalls === 1) {
+          return new Promise((resolve) => {
+            resolveStale = resolve;
+          });
+        }
+        return Promise.resolve(okResponse({ count: 6 }));
+      }
+      return new Promise(() => {});
+    });
+
+    const { result } = renderBadgeHook({ kind: "ok", count: 3 });
+    expect(result.current.count).toBe(3);
+
+    // A count refetch is already in flight (deferred) when the viewer opens.
+    act(() => {
+      result.current.refetch();
+    });
+
+    // Open gesture zeroes the badge synchronously.
+    act(() => {
+      result.current.zeroNow();
+    });
+    expect(result.current.count).toBe(0);
+    expect(result.current.degraded).toBe(false);
+
+    // The pre-zero in-flight count resolves late → must be discarded (token bumped).
+    resolveStale(okResponse({ count: 9 }));
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(result.current.count).toBe(0);
+
+    // A refetch started AFTER zeroNow applies (server truth restores arrivals).
+    act(() => {
+      result.current.refetch();
+    });
+    await waitFor(() => expect(result.current.count).toBe(6));
+    expect(result.current.degraded).toBe(false);
   });
 
   it("mounts the realtime channel once via token POST + subscribeToBell, and onChanged triggers a refetch", async () => {

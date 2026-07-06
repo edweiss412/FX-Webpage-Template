@@ -457,6 +457,10 @@ export function BellPanel({
   // load claims a seq at start and bails before every post-await mutation once a
   // newer load has superseded it — a stale snapshot never reaches setState (and
   // so never reaches the inline open-stamp below, which is gated on this path).
+  // Unmount also bumps this (cleanup effect below): a load in flight when the
+  // viewer closes the panel is INVALIDATED, so a late response never setStates a
+  // dead component AND never POSTs /bell/open for a snapshot the viewer closed
+  // before seeing (spec §7.2 — the watermark advances only to what was seen).
   const loadSeqRef = useRef(0);
 
   // Per-row expand state and optimistic read-clear state. Both persist across
@@ -566,13 +570,26 @@ export function BellPanel({
     })();
   }, []);
 
-  // Mount-once load. The ref guard keeps the open POST at exactly once even if
-  // React remounts the effect (StrictMode) or `load`'s identity changes.
+  // Mount-once load + unmount invalidation (R4 Finding 1). didLoadRef keeps the
+  // load (and its exactly-once open POST) from double-firing within a live
+  // mount. The cleanup bumps loadSeqRef so an in-flight load is INVALIDATED at
+  // teardown — its `seq !== loadSeqRef.current` guard bails before any
+  // post-await mutation, so a late response never setStates the unmounted panel
+  // and never POSTs /bell/open for a snapshot the viewer closed before seeing
+  // (spec §7.2). Resetting didLoadRef in the cleanup lets React's dev-only
+  // StrictMode remount (teardown → re-run) re-fire the load after its first
+  // pass was invalidated; a genuine close unmounts the whole panel, so the next
+  // open is a fresh instance regardless.
   const didLoadRef = useRef(false);
   useEffect(() => {
-    if (didLoadRef.current) return;
-    didLoadRef.current = true;
-    void load();
+    if (!didLoadRef.current) {
+      didLoadRef.current = true;
+      void load();
+    }
+    return () => {
+      loadSeqRef.current += 1;
+      didLoadRef.current = false;
+    };
   }, [load]);
 
   // Ping refetch (spec §5.4 — "refetch the feed too, if the panel is open").
