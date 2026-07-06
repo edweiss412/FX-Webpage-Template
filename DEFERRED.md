@@ -332,3 +332,25 @@ Source: invariant-8 dual-gate on `feat/bell-notification-center` (critique 28/40
 - **Why deferred:** pragmatic one-off; tokenizing panel max-height solo would add a token with a single consumer. `max-w-[420px]` is ratified §14 and shared with AppHealthPopover — not part of this entry.
 - **Trigger:** next DESIGN.md token pass, or a second scrolling-panel surface appearing (then extract a shared token).
 - **Resolved (branch `feat/bell-notification-center`, 2026-07-05, user-directed):** tokenized both scroll-container max-heights. `app/globals.css` `@theme` gained `--spacing-panel-max-mobile: 70vh` (bell-specific mobile scroll cap) and `--spacing-panel-max: 480px`; `BellPanel`'s `max-h-[70vh] sm:max-h-[480px]` became `max-h-panel-max-mobile sm:max-h-panel-max`. Tokenizing 480px surfaced it as a SHARED value — the `enforce-canonical-classes` lint rule then required the three pre-existing `[480px]` bracket sites to adopt the canonical class, so `--spacing-panel-max` is documented in DESIGN.md §3 as the shared "wide panel" extent and the dashboard Needs-Attention inbox column (`app/admin/loading.tsx`, `components/admin/Dashboard.tsx` → `min-[1400px]:w-panel-max`) plus the report modal (`components/shared/ReportModal.tsx` → `max-w-panel-max`) were canonicalized in the same commit. Verified the four utilities compile via the Tailwind v4 pipeline. The DevFooter `w-20` number inputs stay as-is (not a bracket; unchanged). (Note: this superseded the entry's "single consumer" premise — 480px had 3 prior consumers.)
+
+## Step-3 review consolidation — impeccable dual-gate deferrals (2026-07-06)
+
+Source: invariant-8 impeccable v3 dual-gate on branch `feat/step3-review-consolidation`. Verdict: critique 35/40 PASS, audit 19/20 PASS, deterministic detector `[]`, zero CRITICAL, zero unaddressed HIGH. FIXED in-branch: em-dash in the pre-finalize summary (comma), the post-finalize summary contradiction (suppressed like the Select-all header), the modal resolution-footer note ("Removed from this setup." → "Approve to re-apply, or set this sheet aside."), and the resolution-error live region (`role="status"` → `role="alert"`). The entries below are the P2/P3 items on the PRE-EXISTING modal chrome (the consolidation only added the resolution footer; these predate it) — deferred, not introduced by this diff.
+
+### S3C-1 — [P2] Per-section nav dots signal "needs a look" by color only (WCAG 1.4.1)
+
+- **What:** `components/admin/wizard/Step3ReviewModal.tsx:322` — the rail/chip section dots use `dotToneClass` (`bg-status-review` red vs `bg-status-positive` green), size-2, `aria-hidden`. The only per-section "flagged" cue is red-vs-green on shape-identical dots, invisible to AT and to color-blind sighted users.
+- **Why deferred:** pre-existing modal navigation (not part of the consolidation surface); mitigated — the section header carries a text "N need a look" count and the section chrome differs, so no user is fully blocked. A correct fix (distinct glyph on flagged dots, or sr-adjacent text) touches the modal's shared section-nav, out of consolidation scope.
+- **Trigger:** the next a11y pass on Step3ReviewModal section nav, or any SR/color-blind audit that flags it.
+
+### S3C-2 — [P2] Modal background not `inert` while open
+
+- **What:** `Step3ReviewModal.tsx:844` — `role="dialog" aria-modal` + `useDialogFocus` trap + body-scroll-lock are present, but the modal renders inline (not portaled) and background siblings are not `inert`/`aria-hidden`, so a virtual-cursor SR user can browse behind the open dialog.
+- **Why deferred:** pre-existing modal architecture; the focus trap + Esc/scrim/drag exits keep keyboard users contained. Adding `inert` to siblings is a modal-shell change beyond the consolidation's resolution-footer scope.
+- **Trigger:** the next modal-a11y pass, or a portal migration of Step3ReviewModal.
+
+### S3C-3 — [P3] Heading hierarchy skip (h1 → h3) on the review surface
+
+- **What:** `Step3Review.tsx:1155` page `h1` is followed by section `h3`s (needs-attention / set-aside) with no `h2` (WCAG 1.3.1 best-practice).
+- **Why deferred:** pre-existing structure; visual hierarchy is correct and no content is unreachable. Renumbering headings is a low-impact polish spanning the whole review surface.
+- **Trigger:** the next heading/landmark pass on the admin wizard.

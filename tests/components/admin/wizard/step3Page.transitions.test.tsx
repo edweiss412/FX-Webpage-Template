@@ -123,7 +123,9 @@ describe("Step-3 page — deliberately-instant conditionals (§8)", () => {
       [stagedRow(DFID), (q) => q.getByTestId(`wizard-step3-card-${DFID}-more`)],
       [
         { ...stagedRow(DFID), lastFinalizeFailureCode: "RESCAN_REVIEW_REQUIRED" },
-        (q) => q.getByTestId(`wizard-step3-rescan-review-${DFID}`),
+        // Consolidation (spec §4.4): the demoted-dirty variant renders the
+        // context banner (no reapply link); recovery is the Review modal.
+        (q) => q.getByTestId(`wizard-step3-card-${DFID}-rescan-review`),
       ],
       [
         { driveFileId: DFID, driveFileName: "x.sheet", status: "staged", parseResult: null },

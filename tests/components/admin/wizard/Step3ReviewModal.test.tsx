@@ -600,19 +600,17 @@ describe("Step3ReviewModal — footer note + buttons (spec §9.1)", () => {
     await act(async () => settle(true));
   });
 
-  test("dirty-rescan: NO publish button, NO rescan button; review-required note + reapply link (RescanReviewBanner copy/target)", () => {
+  test("dirty-rescan: NO publish button, NO rescan button; context-only review note with NO link-out (staged page retired, spec §4.6)", () => {
     const { q } = renderModal({ isDirtyRescan: true });
     const footer = q.getByTestId(tid("footer"));
     expect(q.queryByTestId(tid("publish"))).toBeNull();
     expect(within(footer).queryByText("Re-scan this sheet")).toBeNull();
-    expect(
-      within(footer).getByText(
-        "This sheet changed since you reviewed it. Review it before publishing.",
-      ),
-    ).toBeTruthy();
-    const link = within(footer).getByText("Review this sheet").closest("a") as HTMLAnchorElement;
-    expect(link).not.toBeNull();
-    expect(link.getAttribute("href")).toBe(`/admin/onboarding/staged/${WSID}/${DFID}`);
+    // The standalone reapply page was folded into this modal — the dirty-rescan
+    // footer is now a context-only note (the resolution footer is the real path).
+    const note = within(footer).getByTestId(`wizard-step3-card-${DFID}-review-reapply`);
+    expect(note.textContent).toContain("This sheet changed since you reviewed it.");
+    expect(note.closest("a")).toBeNull();
+    expect(footer.querySelector('a[href*="/admin/onboarding/staged/"]')).toBeNull();
   });
 });
 
@@ -846,13 +844,9 @@ describe("Step3ReviewModal — footer Unpublish + demoted gate (spec §C2/§C3)"
     const d = demotedData(RESCAN_REVIEW_REQUIRED);
     const { q } = renderModal({ d, checked: false, isDirtyRescan: true });
     const footer = q.getByTestId(tid("footer"));
-    // The dirty branch (unchanged): review-required note + reapply link.
-    expect(
-      within(footer).getByText(
-        "This sheet changed since you reviewed it. Review it before publishing.",
-      ),
-    ).toBeTruthy();
-    expect(within(footer).getByText("Review this sheet").closest("a")).not.toBeNull();
+    // The dirty branch (context-only note, staged page retired — spec §4.6).
+    const note = within(footer).getByTestId(`wizard-step3-card-${DFID}-review-reapply`);
+    expect(note.textContent).toContain("This sheet changed since you reviewed it.");
     // NOT the demoted branch: no NotPublishableNote, no publish, no re-scan.
     expect(within(footer).queryByTestId(tid("not-publishable"))).toBeNull();
     expect(

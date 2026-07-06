@@ -35,9 +35,12 @@ import type { Step3Row, Step3ManifestStatus } from "@/components/admin/wizard/St
 import { Step3ReviewWithFinalize } from "@/components/admin/wizard/Step3ReviewWithFinalize";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { driveFolderUrl } from "@/lib/drive/driveFolderUrl";
-import type { ParseResult } from "@/lib/parser/types";
+import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { buildAdminAgendaPreview, type AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
+import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
+import { isStructurallyValidReviewItem } from "@/lib/staging/reviewPayloadGuards";
+import { deriveStep3DisplayState } from "@/lib/admin/step3DisplayState";
 
 type OnboardingWizardProps = {
   settings: AppSettingsRow;
@@ -50,6 +53,16 @@ type OnboardingWizardProps = {
   // Defaults to false so a caller (or test) that omits it never advertises a
   // forward/resume affordance that would land on an empty Step 3.
   hasReviewableScan?: boolean;
+  // Step-3 consolidation (spec §4.3): the /admin dispatcher's finalize checkpoint
+  // for the active session, threaded into the unified Step-3 surface so it renders
+  // across finalize states (footer Resume/Finish + badge-only rows post-finalize).
+  // null = pre-finalize (default).
+  checkpointStatus?: "in_progress" | "all_batches_complete" | null;
+  // Spec §4.5: an all_batches_complete checkpoint past the staleness window shows
+  // the footer recovery note + Cleanup (replacing StaleReadyToPublish). Computed
+  // by the /admin dispatcher (isCheckpointStale). Only meaningful when
+  // checkpointStatus === "all_batches_complete".
+  isStale?: boolean;
 };
 
 type ServiceAccountResult = { ok: true; email: string } | { ok: false };
@@ -216,6 +229,132 @@ const isCleanReviewRow = (s: Step3ManifestStatus): boolean => s === "staged" || 
 // Exported for tests/admin/_metaInfraContract.test.ts — the helper is the
 // subject row of the §B Supabase call-boundary registry for the Step 3
 // wizard surface (AGENTS.md §1.9). Production callers use Step3Container.
+// ── Step-3 consolidation (spec §4.3) — the unified per-session disposition read. ──
+
+/** Minimal manifest shape buildStep3Row derives from. */
+type ManifestRowForBuild = {
+  drive_file_id: string;
+  status: Step3ManifestStatus;
+  name?: string | null;
+  publish_intent?: boolean | null;
+  created_show_id?: string | null;
+  wizard_session_id: string;
+};
+
+/** Raw pending_syncs row (clean rows only). null for hard_failed/skipped/resolved
+ *  rows, which carry no pending_syncs row (plan-R3). */
+type PendingSyncRowForBuild = {
+  staged_id: string;
+  parse_result: unknown;
+  last_finalize_failure_code?: string | null;
+  triggered_review_items?: unknown;
+} | null;
+
+/** A public.shows candidate for the row's drive_file_id. */
+export type ShowCandidate = {
+  id: string;
+  drive_file_id: string;
+  published: boolean;
+  archived: boolean;
+  wizard_created_session_id: string | null;
+};
+
+/**
+ * buildStep3Row — the pure core of the unified read (spec §4.3/§4.3.1). Produces
+ * the derivation-carrying fields of a Step3Row from its manifest row, its
+ * (nullable) pending_syncs row, and the full list of public.shows candidates for
+ * its drive_file_id. Presentation-only enrichment (agenda preview, source
+ * anchors, ingestion id) is layered on by the caller.
+ *
+ * Candidate-selection contract (plan-R1): session-provenance join FIRST; the
+ * existing-show branch fires ONLY when created_show_id IS NULL and never trusts a
+ * bare created_show_id — a forged/stale non-null pointer that matches no candidate
+ * yields no linked show (R2 safety).
+ */
+export function buildStep3Row(
+  m: ManifestRowForBuild,
+  pending: PendingSyncRowForBuild,
+  candidates: ShowCandidate[],
+): Step3Row {
+  const driveFileId = m.drive_file_id;
+  const status = m.status;
+  const driveFileName = m.name ?? null;
+
+  // Two-level review-items guard (spec §4.3.1): array parse AND every element
+  // structurally valid; else fail closed (reviewItemsCorrupt). No pending → no items.
+  let triggeredReviewItems: TriggeredReviewItem[] | undefined;
+  let reviewItemsCorrupt = false;
+  if (pending) {
+    const parsed = parseTriggeredReviewItems(pending.triggered_review_items);
+    const ok = parsed.ok && parsed.items.every(isStructurallyValidReviewItem);
+    reviewItemsCorrupt = !ok;
+    if (ok) triggeredReviewItems = parsed.items;
+  }
+
+  // Linked-show resolution. Session-provenance join first (all three predicates).
+  const createdShowId = m.created_show_id ?? null;
+  let linkedShow: { published: boolean; archived: boolean } | null = null;
+  let sessionLinked = false;
+  const sessionMatch = candidates.find(
+    (c) =>
+      createdShowId !== null &&
+      c.id === createdShowId &&
+      c.drive_file_id === driveFileId &&
+      c.wizard_created_session_id === m.wizard_session_id,
+  );
+  if (sessionMatch) {
+    linkedShow = { published: sessionMatch.published, archived: sessionMatch.archived };
+    sessionLinked = true;
+  } else if (createdShowId === null) {
+    // Existing-show branch: only when this session created nothing. Not-this-session
+    // (IS DISTINCT FROM), crew-visible. Excludes forged pointers (gated on null above).
+    const existing = candidates.find(
+      (c) =>
+        c.drive_file_id === driveFileId &&
+        c.published === true &&
+        c.archived === false &&
+        c.wizard_created_session_id !== m.wizard_session_id,
+    );
+    if (existing) {
+      linkedShow = { published: existing.published, archived: existing.archived };
+      sessionLinked = false;
+    }
+  }
+
+  const publishIntent = m.publish_intent === true;
+  const lastFinalizeFailureCode = pending?.last_finalize_failure_code ?? null;
+  const parseResult =
+    pending && pending.parse_result !== null && typeof pending.parse_result === "object"
+      ? (pending.parse_result as ParseResult)
+      : null;
+  const hasWellFormedParseResult = !!(parseResult && (parseResult as { show?: unknown }).show);
+
+  const displayState = deriveStep3DisplayState({
+    status,
+    lastFinalizeFailureCode,
+    hasWellFormedParseResult,
+    linkedShow,
+    publishIntent,
+    sessionLinked,
+  });
+
+  const row: Step3Row = {
+    driveFileId,
+    status,
+    driveFileName,
+    reviewItemsCorrupt,
+    publishIntent,
+    createdShowId,
+    linkedShow,
+    sessionLinked,
+    displayState,
+  };
+  if (pending) row.stagedId = pending.staged_id;
+  if (triggeredReviewItems) row.triggeredReviewItems = triggeredReviewItems;
+  if (lastFinalizeFailureCode !== null) row.lastFinalizeFailureCode = lastFinalizeFailureCode;
+  return row;
+}
+
 export async function fetchStep3Data(wizardSessionId: string): Promise<Step3FetchResult> {
   let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   try {
@@ -233,18 +372,18 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
   // `.error` branch — never as an uncaught framework exception.
   let manifestRows: ReadonlyArray<Record<string, unknown>>;
   try {
-    const q = await supabase
+    const { data, error } = await supabase
       .from("onboarding_scan_manifest")
-      .select("drive_file_id, name, status")
+      .select("drive_file_id, name, status, publish_intent, created_show_id, wizard_session_id")
       .eq("wizard_session_id", wizardSessionId)
       .order("drive_file_id", { ascending: true });
-    if (q.error) {
+    if (error) {
       return {
         kind: "infra_error",
-        message: `onboarding_scan_manifest query failed: ${q.error.message}`,
+        message: `onboarding_scan_manifest query failed: ${error.message}`,
       };
     }
-    manifestRows = (q.data ?? []) as ReadonlyArray<Record<string, unknown>>;
+    manifestRows = (data ?? []) as ReadonlyArray<Record<string, unknown>>;
   } catch (err) {
     return {
       kind: "infra_error",
@@ -254,19 +393,19 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
 
   let pendingSyncsRows: ReadonlyArray<Record<string, unknown>>;
   try {
-    const q = await supabase
+    const { data, error } = await supabase
       .from("pending_syncs")
       .select(
-        "staged_id, drive_file_id, staged_modified_time, parse_result, source_anchors, last_finalize_failure_code",
+        "staged_id, drive_file_id, staged_modified_time, parse_result, source_anchors, last_finalize_failure_code, triggered_review_items",
       )
       .eq("wizard_session_id", wizardSessionId);
-    if (q.error) {
+    if (error) {
       return {
         kind: "infra_error",
-        message: `pending_syncs query failed: ${q.error.message}`,
+        message: `pending_syncs query failed: ${error.message}`,
       };
     }
-    pendingSyncsRows = (q.data ?? []) as ReadonlyArray<Record<string, unknown>>;
+    pendingSyncsRows = (data ?? []) as ReadonlyArray<Record<string, unknown>>;
   } catch (err) {
     return {
       kind: "infra_error",
@@ -276,22 +415,73 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
 
   let pendingIngestionsRows: ReadonlyArray<Record<string, unknown>>;
   try {
-    const q = await supabase
+    const { data, error } = await supabase
       .from("pending_ingestions")
       .select("id, drive_file_id, last_error_code")
       .eq("wizard_session_id", wizardSessionId);
-    if (q.error) {
+    if (error) {
       return {
         kind: "infra_error",
-        message: `pending_ingestions query failed: ${q.error.message}`,
+        message: `pending_ingestions query failed: ${error.message}`,
       };
     }
-    pendingIngestionsRows = (q.data ?? []) as ReadonlyArray<Record<string, unknown>>;
+    pendingIngestionsRows = (data ?? []) as ReadonlyArray<Record<string, unknown>>;
   } catch (err) {
     return {
       kind: "infra_error",
       message: `pending_ingestions query threw: ${err instanceof Error ? err.message : String(err)}`,
     };
+  }
+
+  // Spec §4.3: the public.shows read for Live/Held derivation — published + archived
+  // (crew-visible = published && !archived) + wizard_created_session_id (the
+  // provenance discriminator). Scoped to the session's drive_file_ids. Same typed
+  // infra-error contract (AGENTS.md §1.9).
+  const driveFileIds = manifestRows.map((m) => m.drive_file_id as string);
+  let showsRows: ReadonlyArray<Record<string, unknown>> = [];
+  if (driveFileIds.length > 0) {
+    try {
+      const { data, error } = await supabase
+        .from("shows")
+        .select("id, drive_file_id, published, archived, wizard_created_session_id")
+        .in("drive_file_id", driveFileIds);
+      if (error) {
+        return { kind: "infra_error", message: `shows query failed: ${error.message}` };
+      }
+      showsRows = (data ?? []) as ReadonlyArray<Record<string, unknown>>;
+    } catch (err) {
+      return {
+        kind: "infra_error",
+        message: `shows query threw: ${err instanceof Error ? err.message : String(err)}`,
+      };
+    }
+  }
+
+  // Candidates grouped by drive_file_id (a row's buildStep3Row candidate list).
+  const candidatesByDfid = new Map<string, ShowCandidate[]>();
+  for (const s of showsRows) {
+    const dfid = s.drive_file_id as string;
+    const candidate: ShowCandidate = {
+      id: s.id as string,
+      drive_file_id: dfid,
+      published: s.published === true,
+      archived: s.archived === true,
+      wizard_created_session_id: (s.wizard_created_session_id as string | null) ?? null,
+    };
+    const list = candidatesByDfid.get(dfid);
+    if (list) list.push(candidate);
+    else candidatesByDfid.set(dfid, [candidate]);
+  }
+
+  // Raw pending_syncs row by drive_file_id (buildStep3Row's nullable pending input).
+  const rawPendingByDfid = new Map<string, PendingSyncRowForBuild>();
+  for (const ps of pendingSyncsRows) {
+    rawPendingByDfid.set(ps.drive_file_id as string, {
+      staged_id: ps.staged_id as string,
+      parse_result: ps.parse_result,
+      last_finalize_failure_code: (ps.last_finalize_failure_code as string | null) ?? null,
+      triggered_review_items: ps.triggered_review_items,
+    });
   }
 
   const stagedByDfid = new Map<
@@ -357,8 +547,21 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
   const rows: Step3Row[] = manifestRows.map((m) => {
     const driveFileId = m.drive_file_id as string;
     const status = m.status as Step3ManifestStatus;
-    const driveFileName = (m.name as string | null) ?? null;
-    const base: Step3Row = { driveFileId, status, driveFileName };
+    // Spec §4.3: buildStep3Row is the derivation core (displayState, linkedShow,
+    // reviewItemsCorrupt, stagedId, publishIntent). Presentation-only fields
+    // (parseResult preview, anchors, agenda, ingestion id) are layered on below.
+    const base = buildStep3Row(
+      {
+        drive_file_id: driveFileId,
+        status,
+        name: (m.name as string | null) ?? null,
+        publish_intent: (m.publish_intent as boolean | null) ?? null,
+        created_show_id: (m.created_show_id as string | null) ?? null,
+        wizard_session_id: (m.wizard_session_id as string | null) ?? wizardSessionId,
+      },
+      rawPendingByDfid.get(driveFileId) ?? null,
+      candidatesByDfid.get(driveFileId) ?? [],
+    );
     if (isCleanReviewRow(status)) {
       // FIX 1 (CRITICAL): a checked card flips the manifest status
       // 'staged'→'applied', but the pending_syncs row SURVIVES approval (it is
@@ -372,14 +575,12 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
         // jsonb was absent/malformed). Title is the back-compat summary field.
         // Task 11: carry the baseline (note-only) agenda preview + the stable
         // agendaStateKey so the card has note-only items immediately.
-        // Task 5b: thread the demotion code so a dirty re-scan row renders distinctly.
         const withParse: Step3Row = {
           ...base,
           parseResult: staged.parseResult,
           sourceAnchors: staged.sourceAnchors,
           adminAgendaPreview: staged.adminAgendaPreview,
           agendaStateKey: staged.agendaStateKey,
-          lastFinalizeFailureCode: staged.lastFinalizeFailureCode,
         };
         if (staged.title) return { ...withParse, stagedShowTitle: staged.title };
         return withParse;
@@ -412,10 +613,18 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
   return { kind: "ok", rows, finishable };
 }
 
-async function Step3Container({ wizardSessionId }: { wizardSessionId: string }) {
+async function Step3Container({
+  wizardSessionId,
+  checkpointStatus = null,
+  isStale = false,
+}: {
+  wizardSessionId: string;
+  checkpointStatus?: "in_progress" | "all_batches_complete" | null;
+  isStale?: boolean;
+}) {
   const result = await fetchStep3Data(wizardSessionId);
   if (result.kind === "infra_error") {
-    return (
+    const degradedNote = (
       <section
         data-testid="wizard-step3-infra-error"
         className="flex flex-col gap-3 rounded-md border border-border bg-warning-bg p-tile-pad text-warning-text"
@@ -426,6 +635,25 @@ async function Step3Container({ wizardSessionId }: { wizardSessionId: string }) 
           developer.
         </p>
       </section>
+    );
+    // Plan-R2 MEDIUM: at a non-null checkpoint a degraded sheet read must NOT
+    // strand the operator — the Resume/Finish + Cleanup footer stays reachable
+    // (Step3ReviewWithFinalize renders the footer even with rows=[]). At
+    // checkpoint null there is no finalize in flight, so the note stands alone.
+    if (checkpointStatus === null) return degradedNote;
+    return (
+      <>
+        {degradedNote}
+        <Step3ReviewWithFinalize
+          wizardSessionId={wizardSessionId}
+          rows={[]}
+          finishable
+          initialPublishCount={0}
+          initialUncheckedCleanCount={0}
+          checkpointStatus={checkpointStatus}
+          isStale={isStale}
+        />
+      </>
     );
   }
   // D5: thread the publish-intent counts into the finish button. publishCount =
@@ -447,6 +675,8 @@ async function Step3Container({ wizardSessionId }: { wizardSessionId: string }) 
       finishable={result.finishable}
       initialPublishCount={publishCount}
       initialUncheckedCleanCount={uncheckedCleanCount}
+      checkpointStatus={checkpointStatus}
+      isStale={isStale}
     />
   );
 }
@@ -477,6 +707,8 @@ export async function OnboardingWizard({
   settings,
   searchParams,
   hasReviewableScan = false,
+  checkpointStatus = null,
+  isStale = false,
 }: OnboardingWizardProps) {
   const service = readServiceAccountEmail();
   const step = pickStep(searchParams.step);
@@ -547,7 +779,11 @@ export async function OnboardingWizard({
           {step === 1 ? <Step1Share serviceAccountEmail={service.email} /> : null}
           {step === 2 ? <Step2Verify {...(priorScan ? { priorScan } : {})} /> : null}
           {step === 3 && settings.pending_wizard_session_id !== null ? (
-            <Step3Container wizardSessionId={settings.pending_wizard_session_id} />
+            <Step3Container
+              wizardSessionId={settings.pending_wizard_session_id}
+              checkpointStatus={checkpointStatus}
+              isStale={isStale}
+            />
           ) : null}
           {step === 3 && settings.pending_wizard_session_id === null ? (
             <section

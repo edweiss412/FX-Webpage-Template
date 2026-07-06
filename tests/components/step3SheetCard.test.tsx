@@ -912,7 +912,7 @@ describe("Step3SheetCard compact list row (Task 4)", () => {
     expect(textBlock.querySelectorAll("p").length).toBe(1); // just the title <p>
   });
 
-  test("demoted RESCAN → no checkbox, 'Needs another look' chip, rescan banner, title-link, Review modal trigger", async () => {
+  test("demoted RESCAN → no checkbox, 'Needs another look' chip, context banner (no reapply link), title-link, Review modal trigger", async () => {
     const q = render(
       <Step3SheetCard
         row={{
@@ -926,10 +926,15 @@ describe("Step3SheetCard compact list row (Task 4)", () => {
     expect(
       within(card(q)).getByTestId(`wizard-step3-card-${DFID}-review-chip`).textContent,
     ).toContain("Needs another look");
-    expect(q.getByTestId(`wizard-step3-rescan-review-${DFID}`)).toBeTruthy();
+    // Step-3 consolidation (spec §4.4): the context banner remains, but its old
+    // reapply-page LINK (testid wizard-step3-rescan-review-<dfid>, → the deleted
+    // standalone staged page) is gone — recovery is the Review modal's resolution.
+    expect(q.getByTestId(`wizard-step3-card-${DFID}-rescan-review`)).toBeTruthy();
+    expect(q.queryByTestId(`wizard-step3-rescan-review-${DFID}`)).toBeNull();
+    expect(q.container.querySelector('a[href^="/admin/onboarding/staged/"]')).toBeNull();
     expect(q.getByTestId(`wizard-step3-card-${DFID}-title-link`)).toBeTruthy();
-    // Dirty re-scan: the banner reapply link is the recovery — NO competing
-    // standalone Re-scan button.
+    // Dirty re-scan: the banner is context-only — NO competing standalone
+    // Re-scan button in the demoted-dirty variant.
     expect(q.queryByTestId(`rescan-sheet-button-${DFID}`)).toBeNull();
     const more = q.getByTestId(`wizard-step3-card-${DFID}-more`);
     expect(more.textContent).toContain("Review");

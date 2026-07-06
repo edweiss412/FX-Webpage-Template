@@ -42,6 +42,13 @@ export type RescanSheetButtonProps = {
    * dismiss button; entrance is the fast pop-in via [data-rescan-overlay-result].
    */
   resultPlacement?: "stacked" | "overlay";
+  /**
+   * Step-3 consolidation (spec §4.4 R8): externally freeze the button while a
+   * publish/resume run is active (in addition to its own in-flight `pending`).
+   * The modal Re-scan (its first consumer) and the row Re-scan (Task 2.4) both
+   * pass `isPublishRunActive` here.
+   */
+  disabled?: boolean;
 };
 
 // The route's RescanResult → JSON mapping (app/api/admin/onboarding/rescan-sheet/route.ts).
@@ -100,6 +107,7 @@ export function RescanSheetButton({
   driveFileId,
   wizardSessionId,
   resultPlacement,
+  disabled,
 }: RescanSheetButtonProps) {
   const placement = resultPlacement ?? "stacked";
   const router = useRouter();
@@ -159,7 +167,7 @@ export function RescanSheetButton({
         ref={triggerRef}
         data-testid={`rescan-sheet-button-${driveFileId}`}
         onClick={handleClick}
-        disabled={pending}
+        disabled={pending || disabled}
         aria-busy={pending}
         className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
       >

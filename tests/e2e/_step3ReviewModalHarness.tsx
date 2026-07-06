@@ -164,6 +164,11 @@ export function modalElement(
   handlers: {
     onRequestSetChecked?: (next: boolean) => Promise<boolean>;
     onClose?: () => void;
+    // Step-3 consolidation (spec §9): when provided, the modal renders its
+    // RESOLUTION variant (tier radios + describeItem lines + Approve & apply /
+    // Re-scan / Ignore footer) instead of the read-only publish footer. The
+    // layout harness passes this to measure the folded resolution surface.
+    resolution?: import("@/components/admin/wizard/Step3ReviewModal").Step3ReviewResolution;
   } = {},
 ): React.ReactElement {
   return React.createElement(
@@ -175,8 +180,27 @@ export function modalElement(
       isDirtyRescan: false,
       onRequestSetChecked: handlers.onRequestSetChecked ?? (async () => true),
       onClose: handlers.onClose ?? (() => {}),
+      ...(handlers.resolution ? { resolution: handlers.resolution } : {}),
     }),
   );
+}
+
+/** A minimal resolution fixture for the layout harness: a tier-3 (MI-6, radio
+ *  choices) + a tier-1 (FIRST_SEEN_REVIEW context) review item — the widest
+ *  footer variant. Handlers are inert (layout-only measurement). */
+export function harnessResolution(): import("@/components/admin/wizard/Step3ReviewModal").Step3ReviewResolution {
+  return {
+    triggeredReviewItems: [
+      { id: "mi6-1", invariant: "MI-6", section: "schedule" },
+      { id: "fs-1", invariant: "FIRST_SEEN_REVIEW" },
+    ] as unknown as import("@/lib/parser/types").TriggeredReviewItem[],
+    reviewItemsCorrupt: false,
+    stagedId: "staged-harness-1",
+    isPublishRunActive: false,
+    onApplyResolve: async () => true,
+    onRescan: () => {},
+    onIgnore: async () => true,
+  };
 }
 
 /** Static HTML for the modal (default fixture, or with overrides — e.g. the
@@ -189,6 +213,13 @@ export function renderModalHtml(
 ): string {
   const data = buildSectionData(overrides.prOverrides ?? {}, overrides.showOverrides ?? {});
   return renderToStaticMarkup(modalElement(data));
+}
+
+/** Static HTML for the modal's RESOLUTION variant (spec §9) — the folded
+ *  re-apply surface with tier radios + Approve & apply / Re-scan / Ignore. */
+export function renderResolutionModalHtml(): string {
+  const data = buildSectionData();
+  return renderToStaticMarkup(modalElement(data, { resolution: harnessResolution() }));
 }
 
 /* Direct-execution entry (Task 10): Playwright's test transform rewrites JSX
@@ -215,6 +246,7 @@ if (typeof require !== "undefined" && typeof module !== "undefined" && require.m
       long: renderModalHtml({
         showOverrides: { title: LONG_TITLE, client_label: LONG_CLIENT, dates: LONG_DATES },
       }),
+      resolution: renderResolutionModalHtml(),
     }),
   );
 }

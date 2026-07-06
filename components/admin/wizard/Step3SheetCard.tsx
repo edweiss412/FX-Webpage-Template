@@ -35,12 +35,11 @@
  * / [data-step3-review-scrim]), consuming the motion tokens.
  */
 import { useCallback, useRef, useState, type ReactElement } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Check, ChevronRight, ExternalLink } from "lucide-react";
+import { AlertTriangle, Check, ExternalLink } from "lucide-react";
 import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
 import type { RunOfShow } from "@/lib/parser/types";
-import type { Step3Row } from "@/components/admin/wizard/Step3Review";
+import { Step3RowBadge, type Step3Row } from "@/components/admin/wizard/Step3Review";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { summarizeDataGaps, stripLegacyUnknownFieldAnchors } from "@/lib/parser/dataGaps";
 import { venueDisplay } from "@/lib/venue/venueLocation";
@@ -53,7 +52,11 @@ import {
   dateSummarySegments,
   NotPublishableNote,
 } from "@/components/admin/wizard/step3ReviewSections";
-import { Step3ReviewModal } from "@/components/admin/wizard/Step3ReviewModal";
+import {
+  Step3ReviewModal,
+  type Step3ReviewResolution,
+} from "@/components/admin/wizard/Step3ReviewModal";
+import type { ReviewerChoice } from "@/lib/sync/applyStaged";
 import { postPublishIntent } from "@/lib/admin/publishIntent";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 
@@ -80,10 +83,13 @@ export function PublishCheckbox({
   driveFileId,
   checked,
   onToggle,
+  disabled = false,
 }: {
   driveFileId: string;
   checked: boolean;
   onToggle: (next: boolean) => void;
+  // Spec §4.4 R8: frozen while a publish/resume run is active.
+  disabled?: boolean;
 }) {
   // A 20px visible box (size-5) with a ≥44px hit area: p-3 (12px) + the size-5
   // box = 44px clickable square, pulled back by -m-3 so the layout footprint
@@ -99,6 +105,7 @@ export function PublishCheckbox({
         type="checkbox"
         data-testid={`wizard-step3-checkbox-${driveFileId}`}
         checked={checked}
+        disabled={disabled}
         aria-label={
           checked ? "Publishing this show. Uncheck to keep it unpublished." : "Publish this show"
         }
@@ -166,26 +173,20 @@ function SheetTitleLink({ dfid, title }: { dfid: string; title: string }) {
  * Warm warning-bg + full strong border (DESIGN.md §1.2 — warning, not error; never a
  * side-stripe), paired with an icon + text (color-blind floor §1).
  */
-function RescanReviewBanner({ dfid, wizardSessionId }: { dfid: string; wizardSessionId: string }) {
+function RescanReviewBanner({ dfid }: { dfid: string }) {
+  // Step-3 consolidation (spec §4.4): the recovery action is the card's own
+  // "Review" button, which opens the folded Step3ReviewModal with its tiered
+  // resolution — NOT a link to the (deleted) standalone staged page. The banner
+  // is now context-only.
   return (
     <div
       data-testid={`wizard-step3-card-${dfid}-rescan-review`}
-      className="flex flex-col gap-2 rounded-md border border-border-strong bg-warning-bg p-tile-pad text-warning-text"
+      className="flex items-start gap-2 rounded-md border border-border-strong bg-warning-bg p-tile-pad text-warning-text"
     >
-      <div className="flex items-start gap-2">
-        <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-        <p className="text-sm font-medium">
-          This sheet changed since you reviewed it. Review it before publishing.
-        </p>
-      </div>
-      <Link
-        data-testid={`wizard-step3-rescan-review-${dfid}`}
-        href={`/admin/onboarding/staged/${wizardSessionId}/${dfid}`}
-        className="inline-flex min-h-tap-min items-center gap-1 self-start text-sm font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-      >
-        Review this sheet
-        <ChevronRight aria-hidden="true" className="size-4" />
-      </Link>
+      <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+      <p className="text-sm font-medium">
+        This sheet changed since you reviewed it. Use Review to resolve it before publishing.
+      </p>
     </div>
   );
 }
@@ -195,9 +196,18 @@ export function Step3SheetCard({
   wizardSessionId,
   checked: checkedProp,
   onToggleChecked,
+  isPublishRunActive = false,
+  checkpointStatus = null,
 }: {
   row: Step3Row;
   wizardSessionId: string;
+  // Spec §4.4 R8: while a publish/resume run is active, every row mutator freezes
+  // (checkbox, Select-all, Re-scan, Review→, and the modal's Approve/Re-scan/
+  // Ignore). Threaded from Step3ReviewWithFinalize.run.isRunning (Task 2.4).
+  isPublishRunActive?: boolean;
+  // Spec §4.2 rule 7: at a non-null checkpoint the editable publish checkbox is
+  // not rendered at all — the row shows its derived-state badge instead.
+  checkpointStatus?: "in_progress" | "all_batches_complete" | null;
   // Optional controlled publish-intent (lifted into Step3Review). When the parent
   // supplies `onToggleChecked`, the checkbox is controlled by the shared optimistic
   // state so "Select all" updates this box instantly, and the RESULT-BEARING
@@ -289,8 +299,89 @@ export function Step3SheetCard({
 
   const titleFallback = row.driveFileName || dfid;
 
+  // ── Re-apply resolution (spec §4.4) — the ONLY path to clear a blocked
+  // re-apply row is the folded Step3ReviewModal (never a blind inline approve).
+  // Approve POSTs the wizard apply route; Ignore POSTs the wizard discard route
+  // with kind:"permanent_ignore" (the route reads only { stagedId, kind }). ──
+  async function applyResolve(reviewerChoices: ReviewerChoice[]): Promise<boolean> {
+    if (!row.stagedId) return false;
+    try {
+      const res = await fetch(
+        `/api/admin/onboarding/staged/${encodeURIComponent(wizardSessionId)}/${encodeURIComponent(dfid)}/apply`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            stagedId: row.stagedId,
+            reviewerChoicesVersion: 1,
+            reviewerChoices,
+          }),
+        },
+      );
+      const json = (await res.json().catch(() => ({}))) as { status?: string };
+      const ok = res.ok && json.status === "reapplied";
+      if (ok) router.refresh();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+  async function ignoreResolve(): Promise<boolean> {
+    if (!row.stagedId) return false;
+    try {
+      const res = await fetch(
+        `/api/admin/onboarding/staged/${encodeURIComponent(wizardSessionId)}/${encodeURIComponent(dfid)}/discard`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ stagedId: row.stagedId, kind: "permanent_ignore" }),
+        },
+      );
+      const ok = res.ok;
+      if (ok) router.refresh();
+      return ok;
+    } catch {
+      return false;
+    }
+  }
+  // A blocked re-apply row (needs_review_reapply) folds its resolution into the
+  // modal. Every other displayState leaves `resolution` undefined → the modal is
+  // the read-only preview it has always been.
+  const resolution: Step3ReviewResolution | undefined =
+    row.displayState === "needs_review_reapply" && row.stagedId
+      ? {
+          triggeredReviewItems: row.triggeredReviewItems ?? [],
+          reviewItemsCorrupt: row.reviewItemsCorrupt === true,
+          stagedId: row.stagedId,
+          isPublishRunActive,
+          onApplyResolve: applyResolve,
+          onRescan: () => {},
+          onIgnore: ignoreResolve,
+        }
+      : undefined;
+
   // ── §4.6 guard: null/corrupt parseResult → no-details state, no expand. ──
   if (!pr || typeof pr !== "object" || !pr.show) {
+    // Post-finalize badge-only (spec §4.2 rule 7): at a non-null checkpoint the
+    // row is display-only and the finalize batch has DELETED its pending_syncs
+    // parse preview (route `deleteApprovedPending`), so `pr` is legitimately
+    // absent. Render the derived badge — NOT the pre-finalize Re-scan/Ignore
+    // recovery, which does not apply once publishing has begun. (Blocked
+    // re-apply rows retain their pending_syncs, so they never reach here with a
+    // missing preview.) Codex whole-diff R3.
+    if (checkpointStatus !== null && row.displayState) {
+      return (
+        <article
+          data-testid={`wizard-step3-card-${dfid}`}
+          className="flex items-center gap-3 rounded-md border border-border bg-surface p-tile-pad shadow-tile"
+        >
+          <div className="min-w-0 flex-1">
+            <SheetTitleLink dfid={dfid} title={titleFallback} />
+          </div>
+          <Step3RowBadge displayState={row.displayState} />
+        </article>
+      );
+    }
     return (
       <article
         data-testid={`wizard-step3-card-${dfid}`}
@@ -305,14 +396,28 @@ export function Step3SheetCard({
             </p>
           </div>
         </div>
-        {/* A dirty re-scan routes to the reapply page (the review link is primary, even
-            for a no-details row); otherwise re-scanning is exactly how a no-details row
-            recovers, so the Re-scan button leads the recovery here (spec §9). */}
-        {isDirtyRescan ? (
-          <RescanReviewBanner dfid={dfid} wizardSessionId={wizardSessionId} />
-        ) : (
-          <RescanSheetButton driveFileId={dfid} wizardSessionId={wizardSessionId} />
-        )}
+        {/* Step-3 consolidation (spec §4.2.1/§4.4): a no-details row recovers
+            INLINE — Re-scan, or Ignore this sheet (session-scoped permanent_ignore).
+            The old reapply-page link is gone (the standalone staged page is
+            deleted; old URL 307s to /admin). */}
+        <div className="flex flex-wrap items-center gap-2">
+          <RescanSheetButton
+            driveFileId={dfid}
+            wizardSessionId={wizardSessionId}
+            disabled={isPublishRunActive}
+          />
+          {row.stagedId ? (
+            <button
+              type="button"
+              data-testid={`wizard-step3-card-${dfid}-no-details-ignore`}
+              onClick={() => void ignoreResolve()}
+              disabled={isPublishRunActive}
+              className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-surface px-4 text-sm font-medium text-text transition-colors duration-fast hover:bg-surface-sunken disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            >
+              Ignore this sheet
+            </button>
+          ) : null}
+        </div>
       </article>
     );
   }
@@ -442,6 +547,14 @@ export function Step3SheetCard({
           isDirtyRescan={isDirtyRescan}
           onRequestSetChecked={requestSetChecked}
           onClose={closeDetails}
+          // R8: the modal keeps read-only view access during a run, but its own
+          // mutators (Publish/Unpublish/Re-scan) must freeze — thread the flag
+          // directly so a NON-reapply (View/Publish) modal freezes too, not only
+          // the resolution path (Codex R1 HIGH).
+          isPublishRunActive={isPublishRunActive}
+          // exactOptionalPropertyTypes: pass the prop ABSENT (never `undefined`)
+          // when this row is not a blocked re-apply row.
+          {...(resolution ? { resolution } : {})}
         />
       ) : null}
     </>
@@ -470,14 +583,18 @@ export function Step3SheetCard({
         {isDirtyRescan ? (
           // Dirty re-scan: the banner's "Review this sheet" reapply link IS the
           // recovery action — no competing Re-scan button (matches the old card).
-          <RescanReviewBanner dfid={dfid} wizardSessionId={wizardSessionId} />
+          <RescanReviewBanner dfid={dfid} />
         ) : (
           // Any other finalize-demoted code: a not-publishable note PLUS the
           // Re-scan recovery action (re-scan stays a no-details/demoted affordance;
           // the old shared tail rendered it for every non-dirty row).
           <>
             <NotPublishableNote dfid={dfid} />
-            <RescanSheetButton driveFileId={dfid} wizardSessionId={wizardSessionId} />
+            <RescanSheetButton
+              driveFileId={dfid}
+              wizardSessionId={wizardSessionId}
+              disabled={isPublishRunActive}
+            />
           </>
         )}
         {sharedTail}
@@ -498,11 +615,19 @@ export function Step3SheetCard({
         needsLook ? "border-border-strong" : "border-border"
       } bg-surface p-tile-pad shadow-tile`}
     >
-      <PublishCheckbox
-        driveFileId={dfid}
-        checked={checked}
-        onToggle={(next) => void requestSetChecked(next)}
-      />
+      {/* Spec §4.2 rule 7: pre-finalize (checkpoint null) shows the editable
+          publish checkbox; post-finalize the row is badge-only (Live / Held /
+          Ready to publish, from the derived displayState). */}
+      {checkpointStatus === null ? (
+        <PublishCheckbox
+          driveFileId={dfid}
+          checked={checked}
+          onToggle={(next) => void requestSetChecked(next)}
+          disabled={isPublishRunActive}
+        />
+      ) : row.displayState ? (
+        <Step3RowBadge displayState={row.displayState} />
+      ) : null}
       <div className="min-w-0 flex-1">
         <p
           data-testid={`wizard-step3-card-${dfid}-title`}

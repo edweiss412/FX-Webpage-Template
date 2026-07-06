@@ -131,6 +131,7 @@ test.beforeAll(async () => {
     diagramStubCount: number;
     normal: string;
     long: string;
+    resolution: string;
   };
   expect(pages.dfid, "spec-local dfid matches the harness fixture").toBe(HARNESS_DFID);
   // §K15 anti-tautology: expected tile/overflow numbers derive from the
@@ -145,6 +146,8 @@ test.beforeAll(async () => {
   // case (long unbroken title + long client + maximal dates summary).
   writeFileSync(join(workDir, "harness.html"), pageHtml("out.css", pages.normal));
   writeFileSync(join(workDir, "harness-long.html"), pageHtml("out.css", pages.long));
+  // Step-3 consolidation (spec §9): the folded RESOLUTION footer variant.
+  writeFileSync(join(workDir, "harness-resolution.html"), pageHtml("out.css", pages.resolution));
 
   // Compile the real token CSS (template mechanics: prepend @source lines for
   // the harness pages to a copy of app/globals.css so Tailwind v4 generates
@@ -153,7 +156,7 @@ test.beforeAll(async () => {
   const globals = readFileSync(join(REPO_ROOT, "app", "globals.css"), "utf8");
   writeFileSync(
     entryCss,
-    `@source "${join(workDir, "harness.html")}";\n@source "${join(workDir, "harness-long.html")}";\n${globals}`,
+    `@source "${join(workDir, "harness.html")}";\n@source "${join(workDir, "harness-long.html")}";\n@source "${join(workDir, "harness-resolution.html")}";\n${globals}`,
   );
   execFileSync(
     "pnpm",
@@ -535,3 +538,48 @@ test("§9.1 sheet footer safe-area @ 390: paddingBottom ≥ base padding + style
     "safe-area-inset-bottom",
   );
 });
+
+// ── Step-3 consolidation: folded RESOLUTION footer (spec §9) ────────────────
+// The re-apply resolution surface (tier radios + Approve & apply / Re-scan /
+// Ignore) is NEW to the modal. jsdom can't measure it; assert real layout at
+// mobile + desktop: no horizontal overflow, footer + primary/secondary actions
+// present, and tap targets ≥44px. Served from harness-resolution.html.
+for (const { mode, width, height } of [
+  { mode: "sheet", width: 390, height: 844 },
+  { mode: "two-pane", width: 1280, height: 800 },
+] as const) {
+  test(`§9 resolution footer: no horizontal overflow + actions present @ ${mode} ${width}px`, async ({
+    page,
+  }) => {
+    await openHarness(page, { width, height }, "harness-resolution.html");
+
+    // No horizontal overflow of the document (the widest resolution footer —
+    // Approve & apply + Re-scan + Ignore — must fit; a regression that forced a
+    // nowrap row past the viewport would fail here).
+    const overflow = await page.evaluate(() => ({
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+    }));
+    expect(
+      overflow.scrollWidth,
+      `doc scrollWidth ${overflow.scrollWidth} ≤ clientWidth ${overflow.clientWidth} @ ${mode}`,
+    ).toBeLessThanOrEqual(overflow.clientWidth + TOL);
+
+    // The resolution footer + its primary (Approve & apply) and secondary
+    // (Ignore) actions render — proves the folded resolution variant mounted.
+    await expect(page.locator(`[data-testid="${tid("footer")}"]`)).toBeVisible();
+    const approve = page.locator(`[data-testid="${tid("resolution-approve")}"]`);
+    const ignore = page.locator(`[data-testid="${tid("resolution-ignore")}"]`);
+    await expect(approve).toBeVisible();
+    await expect(ignore).toBeVisible();
+
+    // §15 tap-target: both action buttons are ≥44px tall (min-h-tap-min).
+    for (const [name, loc] of [
+      ["approve", approve],
+      ["ignore", ignore],
+    ] as const) {
+      const h = await loc.evaluate((el) => el.getBoundingClientRect().height);
+      expect(h, `${name} button height ${h} ≥ 44 @ ${mode}`).toBeGreaterThanOrEqual(44 - TOL);
+    }
+  });
+}

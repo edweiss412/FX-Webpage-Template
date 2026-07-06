@@ -1055,9 +1055,12 @@ function isClassified(
 }
 
 describe("§11 source-marker audit — every conditional-render site in Step3ReviewModal.tsx is classified", () => {
-  test("exactly 10 conditional-render sites exist (curated list length) — a new one added later must be classified or this count fails", () => {
+  test("exactly 14 conditional-render sites exist (curated list length) — a new one added later must be classified or this count fails", () => {
+    // 10 pre-consolidation + 4 added by the Step-3 re-apply resolution fold
+    // (spec §4.4): resolution body head, corrupt-vs-items branch, resolution
+    // footer head, error note, approve-vs-corrupt. All deliberate-instant.
     const hits = findConditionalLines(MODAL_SRC);
-    expect(hits.length).toBe(10);
+    expect(hits.length).toBe(14);
   });
 
   test("every conditional-render site carries either the §11 instant marker or an animation/transition class on the line above it", () => {
@@ -1071,7 +1074,7 @@ describe("§11 source-marker audit — every conditional-render site in Step3Rev
     expect(unclassified).toEqual([]);
   });
 
-  test("exactly ONE site — the shared rail-indicator ternary — classifies as ANIMATED (T6′); the other 9 are INSTANT (§11 'deliberate instant' rows)", () => {
+  test("exactly ONE site — the shared rail-indicator ternary — classifies as ANIMATED (T6′); the other 13 are INSTANT (§11 'deliberate instant' rows)", () => {
     const lines = MODAL_SRC.split("\n");
     const hits = findConditionalLines(MODAL_SRC);
     const animated = hits.filter((idx) => {

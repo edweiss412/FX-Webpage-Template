@@ -26,6 +26,9 @@ const RETIRED_LITERAL_ALLOWLIST: Record<string, ReadonlySet<string>> = {
     // message code) — emitted by phase1 when auto-publish is OFF, consumed by applyStaged's tail gate.
     "lib/sync/phase1.ts",
     "lib/sync/applyStaged.ts",
+    // Step-3 consolidation: the tier/label helpers (FIRST_SEEN_INVARIANTS sentinel
+    // set) were extracted here from StagedReviewCard and shared with the folded modal.
+    "lib/admin/step3ReviewItemTiers.ts",
   ]),
 };
 

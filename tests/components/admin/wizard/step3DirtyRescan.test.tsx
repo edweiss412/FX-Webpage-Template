@@ -1,17 +1,20 @@
 // @vitest-environment jsdom
 /**
- * tests/components/admin/wizard/step3DirtyRescan.test.tsx (Task 5b — UI)
+ * tests/components/admin/wizard/step3DirtyRescan.test.tsx (Task 5b — UI;
+ * Step-3 consolidation spec §4.4)
  *
  * A Step-3 row demoted by a per-sheet re-scan carries
  * lastFinalizeFailureCode === 'RESCAN_REVIEW_REQUIRED'. Such a row must render a
- * DISTINCT "this sheet changed — review it" state: a link to the reapply page and
- * NO bare publish checkbox (the checkbox /approve cannot safely clear it — Task 5b
- * guard). Rendered through <Step3Review> (not <Step3SheetCard> directly) so the
- * row-routing that production uses is exercised, and across BOTH card render paths
- * (a normal parsed card AND the null-parse no-details card).
+ * DISTINCT "this sheet changed — review it" state and NO bare publish checkbox
+ * (the checkbox /approve cannot safely clear it — Task 5b guard). Post
+ * consolidation, recovery is the folded Step3ReviewModal resolution (Review →),
+ * NOT a link to the deleted standalone staged page; a null-parse row recovers
+ * inline (Re-scan + Ignore). Rendered through <Step3Review> (not
+ * <Step3SheetCard> directly) so the production row-routing is exercised.
  *
  * Concrete failure mode pinned: a dirty re-scan row showing the ordinary publish
- * checkbox (which would silently re-approve a crew change on click).
+ * checkbox (which would silently re-approve a crew change on click), OR a link
+ * to the deleted /admin/onboarding/staged/ page.
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
@@ -37,6 +40,11 @@ function dirtyRow(dfid: string, parseResult: ParseResult | null): Step3Row {
     status: "staged",
     parseResult,
     lastFinalizeFailureCode: RESCAN_REVIEW_REQUIRED,
+    stagedId: `staged-${dfid}`,
+    // Production sets displayState via buildStep3Row: a well-formed parse →
+    // needs_review_reapply (folded modal); a null parse → needs_review_no_details.
+    displayState: parseResult ? "needs_review_reapply" : "needs_review_no_details",
+    ...(parseResult ? { triggeredReviewItems: [], reviewItemsCorrupt: false } : {}),
   };
 }
 
@@ -55,39 +63,42 @@ function cleanRow(dfid: string): Step3Row {
 }
 
 describe("Step-3 dirty re-scan row (RESCAN_REVIEW_REQUIRED)", () => {
-  test("normal-parse card: renders the reapply link to the right page and SUPPRESSES the publish checkbox", () => {
+  test("normal-parse card: context banner (no reapply link), Review modal trigger, SUPPRESSED publish checkbox", () => {
     const dfid = "drive-dirty-normal";
-    const { getByTestId, queryByTestId } = render(
+    const { getByTestId, queryByTestId, container } = render(
       <Step3Review wizardSessionId={WSID} rows={[dirtyRow(dfid, PARSE)]} />,
     );
 
-    const link = getByTestId(`wizard-step3-rescan-review-${dfid}`);
-    expect(link.getAttribute("href")).toBe(`/admin/onboarding/staged/${WSID}/${dfid}`);
-    expect(link.textContent ?? "").toContain("Review this sheet");
-
+    // The old reapply LINK to the deleted staged page is gone (spec §4.4).
+    expect(queryByTestId(`wizard-step3-rescan-review-${dfid}`)).toBeNull();
+    expect(container.querySelector('a[href^="/admin/onboarding/staged/"]')).toBeNull();
+    // Recovery is the folded modal — the Review trigger is present.
+    expect(getByTestId(`wizard-step3-card-${dfid}-more`)).not.toBeNull();
     // The plain publish checkbox is suppressed for this row.
     expect(queryByTestId(`wizard-step3-checkbox-${dfid}`)).toBeNull();
   });
 
-  test("null-parse (no-details) card: STILL renders the reapply link", () => {
+  test("null-parse (no-details) card: inline Re-scan + Ignore, NO reapply link", () => {
     const dfid = "drive-dirty-nodetails";
-    const { getByTestId, queryByTestId } = render(
+    const { getByTestId, queryByTestId, container } = render(
       <Step3Review wizardSessionId={WSID} rows={[dirtyRow(dfid, null)]} />,
     );
 
-    const link = getByTestId(`wizard-step3-rescan-review-${dfid}`);
-    expect(link.getAttribute("href")).toBe(`/admin/onboarding/staged/${WSID}/${dfid}`);
+    expect(queryByTestId(`wizard-step3-rescan-review-${dfid}`)).toBeNull();
+    expect(container.querySelector('a[href^="/admin/onboarding/staged/"]')).toBeNull();
+    expect(getByTestId(`rescan-sheet-button-${dfid}`)).not.toBeNull();
+    expect(getByTestId(`wizard-step3-card-${dfid}-no-details-ignore`)).not.toBeNull();
     expect(queryByTestId(`wizard-step3-checkbox-${dfid}`)).toBeNull();
   });
 
-  test("the distinct copy explains the sheet changed and to review before publishing", () => {
+  test("the distinct copy explains the sheet changed and to use Review before publishing", () => {
     const dfid = "drive-dirty-copy";
     const { getByTestId } = render(
       <Step3Review wizardSessionId={WSID} rows={[dirtyRow(dfid, PARSE)]} />,
     );
     const card = getByTestId(`wizard-step3-card-${dfid}`);
     expect(card.textContent ?? "").toContain(
-      "This sheet changed since you reviewed it. Review it before publishing.",
+      "This sheet changed since you reviewed it. Use Review to resolve it before publishing.",
     );
     // No raw §12.4 code leaks into the DOM (invariant 5).
     expect(card.textContent ?? "").not.toContain(RESCAN_REVIEW_REQUIRED);
