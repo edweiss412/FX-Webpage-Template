@@ -39,7 +39,8 @@ Consequence: when a show's only pull sheet lives on an OLD-named tab, step-3 rev
 | D5 | Fingerprint | SHA-256 hex of the archived tab's **normalized pull-sheet grid** (the cell rows that feed `parsePullSheet` for that tab), computed in the exporter layer where the xlsx bytes are available. |
 | D6 | Un-skip granularity | The exporter emits **only pull-sheet-shaped blocks** from an accepted tab; all other blocks from it are discarded. Time-anchor path (`showDayTimeAnchors.ts`) and room/other-block emission stay unconditionally OLD-skipping. |
 | D7 | New §12.4 codes | `PULL_SHEET_ON_ARCHIVED_TAB` (warn, audience `doug`, data-gap class) and `PULL_SHEET_OVERRIDE_CONTENT_CHANGED` (forensic, audience `health`, auto-drop event). |
-| D8 | Accept/revoke surface | New admin-gated route under `app/api/admin/onboarding/` calling a `SECURITY DEFINER` RPC that holds `pg_advisory_xact_lock(hashtext('show:'||drive_file_id))`; persists override to `pending_syncs.pull_sheet_override` then triggers the existing re-scan. Revoke sets it `null` + re-scans. |
+| D8 | Accept/revoke surface | New admin-gated route under `app/api/admin/onboarding/` calling a `SECURITY DEFINER` RPC that holds `pg_advisory_xact_lock(hashtext('show:'||drive_file_id))`; persists override to `pending_syncs.pull_sheet_override` then triggers the existing re-scan. Revoke sets it `null` + re-scans. Accept is compare-and-set against the reviewed `expectedFingerprint` (5.4). |
+| D10 | Staged consistency | `pending_syncs.pull_sheet_override_applied jsonb` records the override snapshot the staged parse was produced under; finalize refuses when it ≠ current `pull_sheet_override` (5.8). Onboarding-only, not on `shows`. |
 | D9 | Telemetry | Accept/revoke ride `logAdminOutcome` (admin mutation, invariant 10 → `AUDITABLE_MUTATIONS` + behavioral proof). Auto-drop (cron) emits `PULL_SHEET_OVERRIDE_CONTENT_CHANGED`. |
 
 ## 5. Architecture — units
@@ -83,7 +84,8 @@ Before invoking the exporter, the sync/scan path reads the row's `pull_sheet_ove
 
 ### 5.4 Accept / revoke (admin action)
 
-- New route `app/api/admin/onboarding/pull-sheet-override/route.ts` (`POST`), admin-gated (`requireAdmin`/`requireAdminIdentity` per the existing onboarding routes). Body: `{ driveFileId, wizardSessionId, tabName | null }`. `tabName` set = accept; `null` = revoke.
+- New route `app/api/admin/onboarding/pull-sheet-override/route.ts` (`POST`), admin-gated (`requireAdmin`/`requireAdminIdentity` per the existing onboarding routes). Body: `{ driveFileId, wizardSessionId, tabName, expectedFingerprint } | { driveFileId, wizardSessionId, tabName: null }`. `tabName` set = accept; `null` = revoke.
+- **Accept is compare-and-set on the reviewed content** (Codex R2 finding 1): the admin approved the header/preview the S2/S4 card rendered, which corresponds to a specific `expectedFingerprint`. The route fresh-detects the tab's current server-side fingerprint and **rejects with a typed re-prompt error if it differs from `expectedFingerprint`** — so if the OLD tab changed between render and click, the changed gear is NOT pinned; the admin re-reviews the new preview first. Only when server == expected does the RPC write the (identical, server-computed) fingerprint. Revoke carries no fingerprint.
 - Calls a new `SECURITY DEFINER` RPC `set_pull_sheet_override(p_drive_file_id, p_wizard_session_id, p_tab_name, p_fingerprint, p_accepted_by)` that:
   - holds `pg_advisory_xact_lock(hashtext('show:' || p_drive_file_id))` (invariant 2 single-holder; the route/JS does **not** take the lock),
   - writes `pending_syncs.pull_sheet_override` (`null` on revoke),
@@ -117,6 +119,17 @@ Protocol (mandatory):
 4. The auto-clear on content-change (5.2) and the accept/revoke write (5.4) both occur **under the same `show:` lock**, so all override state transitions are serialized against each other and against the apply.
 
 Single-holder (invariant 2): the `show:` lock is held by the writing layer that already holds it (`rescanWizardSheet` locked tx / `applyRescanDecisionUnderLock` / the `set_pull_sheet_override` RPC) — never doubly. `set_pull_sheet_override` is the sole holder for its own call; it does not nest under a JS-side `show:` lock.
+
+### 5.8 Staged-parse ↔ override consistency (persisted snapshot + finalize gate)
+
+5.7 protects a *live* pre-lock parse from writing stale results. But accept/revoke write the override **then** trigger a re-scan, and the *already-staged* `parse_result` in `pending_syncs` was produced under a possibly-different override. If the re-scan fails or times out after the RPC write, finalize could apply a staged parse that disagrees with the current override — e.g. accepted gear staged → admin revokes → override null → re-scan fails → finalize still applies the archived gear; or the inverse (override set, staged parse still lacks the gear) (Codex R2 finding 2).
+
+Mechanism:
+
+- New column `public.pending_syncs.pull_sheet_override_applied jsonb` (nullable, onboarding-only — NOT propagated to `shows`). It records the `{ tabName, fingerprint } | null` override snapshot **the currently-staged parse was actually produced under**. Every successful re-scan writes it **atomically with the staged `parse_result`, under the `show:` lock**, to the override value as-of-lock (per 5.7).
+- `set_pull_sheet_override` (accept/revoke) writes `pull_sheet_override` but does **not** touch `pull_sheet_override_applied`. So immediately after accept/revoke the two diverge → the row is **not** consistent yet.
+- **Finalize/apply gate** (under the `show:` lock, both Flow A and Flow B): refuse to finalize a row whose `pull_sheet_override_applied` ≠ current `pull_sheet_override`. This is a typed blocking outcome ("re-scan needed before publishing"), surfaced via lookup copy — never a silent apply of mismatched gear.
+- **Failed re-scan after the RPC:** the row simply stays in the divergent (unfinalizable) state and the admin sees a "re-scan needed" state, rather than a mixed row. A successful re-scan reconverges `pull_sheet_override_applied` to `pull_sheet_override` and clears the gate. No compensation write is required because the gate is declarative (compare-at-finalize), not a mutation that must be rolled back.
 
 ### 5.6 Step-3 UI (Pack list section)
 
@@ -154,13 +167,14 @@ No zombie: every column of the row is populated (storage, ≥1 write, ≥1 read,
 
 | Layer | Action |
 |---|---|
-| Table DDL | `alter table public.pending_syncs add column if not exists pull_sheet_override jsonb;` and same for `public.shows`. Nullable, default `null` (NOT `'{}'` — null is the meaningful "skipped" sentinel, distinct from source_anchors' `'{}'` default). |
+| Table DDL | `alter table public.pending_syncs add column if not exists pull_sheet_override jsonb;` and same for `public.shows`. Plus onboarding-only `alter table public.pending_syncs add column if not exists pull_sheet_override_applied jsonb;` (5.8). All nullable, default `null` (NOT `'{}'` — null is the meaningful "skipped" sentinel, distinct from source_anchors' `'{}'` default). |
 | Inline CHECK | None (free-form jsonb, shape enforced in app). CHECK/enum migration matrix → **N/A** (no CHECK, no enum). |
 | RPC write path | `set_pull_sheet_override` SECURITY DEFINER (D8), advisory-locked; `execute` revoked from `public`/`anon`/`authenticated`, granted `service_role`; in-RPC active-session + target-row guard (5.4). |
 | RPC read path | Existing staged-read / cron-read RPCs `select` the new column (additive; add to their projections). |
 | Propagation | BOTH flows (5.5): Flow A `pending_syncs.pull_sheet_override` → `shows.pull_sheet_override`; Flow B existing-show shadow → `shows_pending_changes.payload` + `parseShadowPayloadForApply` (`lib/onboarding/shadowPayload.ts:75`) + Phase-D apply → `shows.pull_sheet_override`. |
 | Concurrency | Locked-snapshot protocol (5.7): pre-lock parse carries its override snapshot; re-read under `show:` lock; refuse-and-retry on mismatch. |
-| Cleanup | Onboarding cleanup/reset flows that clear `pending_syncs` rows already delete the whole row (`runOnboardingScan.ts:489`) → column goes with it; no separate cleanup needed. Verify no `pending_syncs`-column-list INSERT omits it where it must carry. |
+| Staged consistency | `pull_sheet_override_applied` written atomically with staged parse under lock; finalize gate refuses when `applied` ≠ current `pull_sheet_override` (5.8). |
+| Cleanup | Onboarding cleanup/reset flows that clear `pending_syncs` rows already delete the whole row (`runOnboardingScan.ts:489`) → both new `pending_syncs` columns go with it; no separate cleanup needed. Verify no `pending_syncs`-column-list INSERT omits `pull_sheet_override` / `pull_sheet_override_applied` where they must carry (a re-stage that drops `_applied` would spuriously trip the 5.8 finalize gate). |
 | PostgREST DML lockdown | `pull_sheet_override` is written only via the SECURITY DEFINER RPC. If `pending_syncs`/`shows` already REVOKE direct DML from `authenticated`/`anon` (RPC-gated), the new column inherits that; confirm in plan and add a structural note. No new table → no new lockdown migration unless the tables aren't already locked. **Plus** the new function's own `execute` grants are locked down (RPC write-path row above). |
 | Frontend | `PackListBreakdown` states (5.6); accept/revoke buttons. |
 | Manifest / validation | `pnpm gen:schema-manifest` regenerated + committed; migration applied surgically to validation project `vzakgrxqwcalbmagufjh`; `validation-schema-parity` gate green. |
@@ -201,12 +215,14 @@ Compound: accept while a cron sync is mid-flight → serialized by advisory lock
 - OLD-skip regex: `/\bOLD\b/i` (unchanged, `exportSheetToMarkdown.ts:222`, `showDayTimeAnchors.ts:59`).
 - `headerPreview` cap: 120 chars; up to 4 lines.
 - New §12.4 codes: **2** warn codes + **2** forensic admin-outcome codes.
-- New DB columns: **2** (`pending_syncs`, `shows`), both `jsonb` nullable default `null`.
+- New DB columns: **3** (`pending_syncs.pull_sheet_override`, `shows.pull_sheet_override`, `pending_syncs.pull_sheet_override_applied`), all `jsonb` nullable default `null`.
 - OLD-skip sites: **2** (exporter un-skipped conditionally; anchors never).
 - `synthesizeMarkdownFromXlsx` call sites to migrate to `.markdown`: enumerate in plan (≥2 known: `fetch.ts:497`, `:614`).
 - Realistic OLD-pull-sheet-tab count per show: ≤2 (render all; no truncation).
 - Finalize propagation flows the override must traverse: **2** (Flow A new-show pending_syncs→shows; Flow B existing-show shadow payload→shows).
 - Override-lock TOCTOU race tests: **2** (revoke-vs-rescan, accept-vs-cron).
+- New DB columns total: **3** (`pending_syncs.pull_sheet_override`, `shows.pull_sheet_override`, `pending_syncs.pull_sheet_override_applied`).
+- Failed-re-scan consistency regression tests: **2** (revoke-then-fail, accept-then-fail).
 
 ## 13. Meta-test inventory
 
@@ -229,6 +245,8 @@ Compound: accept while a cron sync is mid-flight → serialized by advisory lock
 - **Pre-lock parse is reconciled under-lock** (5.7) — the override include/exclude decision is snapshotted pre-lock and re-validated under the `show:` lock before any staged/live write; a mismatch refuses the stale parse. This closes the revoke-vs-rescan and accept-vs-cron TOCTOU.
 - **Override propagates on BOTH finalize flows** (5.5) — Flow A (pending_syncs→shows) and Flow B (existing-show shadow payload→shows). Durable `shows.pull_sheet_override` is written on the existing-show path too, so cron never re-strips accepted gear.
 - **The RPC is not a PostgREST bypass** (5.4) — `execute` revoked from `authenticated`/`anon`, service-role-only, plus an in-RPC active-session guard; a direct non-admin call cannot set/clear overrides.
+- **Accept pins only reviewed content** (5.4) — compare-and-set against the S2/S4 `expectedFingerprint`; a tab that changed between render and click is rejected + re-prompted, never silently pinned.
+- **Staged parse can never publish out of sync with the override** (5.8) — `pull_sheet_override_applied` is compared to the current override at finalize under lock; divergence (incl. after a failed re-scan) refuses finalize rather than applying mismatched gear. Declarative gate, no compensation write.
 
 ## 15. Testing — concrete failure modes each test catches
 
@@ -241,6 +259,8 @@ Compound: accept while a cron sync is mid-flight → serialized by advisory lock
 7. **Publish propagation — both flows**: Flow A (new show) `pending_syncs.pull_sheet_override` → `shows`; Flow B (existing live show) accept → finalize via shadow payload → `shows.pull_sheet_override` present → next cron preserves the pull sheet. Catches: override lost at publish on the existing-show path (Codex R1-2) so cron re-strips gear.
 8. **Advisory lock + locked snapshot**: `set_pull_sheet_override` holds `show:`-keyed lock; JS route does not. Race tests: (a) revoke-vs-rescan — override cleared under lock after a pre-lock accepted parse → stale parse refused, no OLD gear staged; (b) accept-vs-cron — accept under lock while cron parsed pre-lock with null → cron's stale null-parse does not overwrite the accept. Catches: deadlock / lock-not-held / TOCTOU (Codex R1-1).
 8b. **RPC grant/auth**: `execute` revoked from `authenticated`/`anon`; a direct non-service RPC call is denied; a forged/stale `wizard_session_id` raises without writing. Catches: PostgREST bypass of the route's admin gate + fingerprint validation (Codex R1-3).
+8c. **Accept compare-and-set**: OLD tab changes between S2 render and accept click → server fingerprint ≠ `expectedFingerprint` → accept rejected with re-prompt, no override written. Catches: pinning content the admin never reviewed (Codex R2-1).
+8d. **Staged↔override consistency on failed re-scan**: (a) accepted gear staged → revoke → re-scan fails → finalize REFUSED (row unfinalizable, not applying archived gear); (b) accept → re-scan fails → override set but staged parse lacks gear → finalize REFUSED until a successful re-scan reconverges `pull_sheet_override_applied`. Catches: mixed-row publish across failed re-scan (Codex R2-2).
 9. **Admin gate + behavioral proof**: route requires admin; success branch records the outcome code (sink-spy after committed success). Catches: dark mutation surface (invariant 10).
 10. **Step-3 S1–S4**: each state renders the right copy/buttons from (pullSheet, warning, override) inputs; empty/multi-tab guards. Anti-tautology: assert against the section's data inputs, and when scanning DOM for the tab name, scope to the Pack list section (remove sibling sections that might independently render a tab name).
 11. **DataQualityBadge**: a `PULL_SHEET_ON_ARCHIVED_TAB` warning increments the gap count. Catches: badge not reflecting the new gap class.
