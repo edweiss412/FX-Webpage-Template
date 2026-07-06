@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import { computeRoomHeaderModel, findBoBlockVenueHeaders } from "../../../lib/parser/blocks/rooms";
+import { parseSheet } from "../../../lib/parser";
 
 /**
  * Unit tests for the exported `findBoBlockVenueHeaders` resolver (spec §3.1).
@@ -123,5 +125,53 @@ describe("findBoBlockVenueHeaders", () => {
       .filter((h) => h.admit)
       .map((h) => h.header.replace(/&#10;.*/s, "").trim());
     expect(admitted).toEqual(["SALON ABCD"]);
+  });
+});
+
+describe("BO-venue-header fifth pass (e2e via parseSheet)", () => {
+  const md = readFileSync("fixtures/shows/synthetic/2026-07-bo-venue-header.md", "utf8");
+  const rooms = parseSheet(md).rooms;
+  const byName = (n: string) => rooms.filter((r) => (r.name ?? "").toUpperCase() === n);
+
+  it("admits SALON ABCD once with its own dims + BO fields", () => {
+    const salon = byName("SALON ABCD");
+    expect(salon).toHaveLength(1);
+    expect(salon[0]!.kind).toBe("breakout");
+    expect(salon[0]!.dimensions).toBe("60' x 45'");
+    expect(salon[0]!.setup).toBe("A");
+    expect(salon[0]!.audio).toBe("2 mics");
+    expect(salon[0]!.video).toBe("screen");
+  });
+
+  it("admits MERIDIAN once with its OWN fields (no field theft from SALON, adjacency)", () => {
+    // Case 5: MERIDIAN sits immediately below SALON's block with no blank separator.
+    // If SALON's extraction over-ran into MERIDIAN's rows, MERIDIAN would be empty or
+    // SALON would carry m-setup. Both must own their own fields.
+    const meridian = byName("MERIDIAN");
+    expect(meridian).toHaveLength(1);
+    expect(meridian[0]!.setup).toBe("m-setup");
+    expect(meridian[0]!.audio).toBe("m-audio");
+  });
+
+  it("admits ORCHID once and terminates its block at the REJECTED PROJECTOR CART header", () => {
+    // Case 6: the rejected `PROJECTOR CART` asset header (admit=false) must be in
+    // extraTerm so ORCHID's extraction stops before `cart-setup`. A `filter(h=>h.admit)`
+    // extraTerm would leak cart-setup into ORCHID.
+    const orchid = byName("ORCHID");
+    expect(orchid).toHaveLength(1);
+    expect(orchid[0]!.setup).toBe("orchid-setup");
+    expect(orchid[0]!.setup).not.toBe("cart-setup");
+  });
+
+  it("does NOT fabricate rooms from label|value asset rows", () => {
+    for (const asset of ["PROJECTION SCREEN", "RISER", "PROJECTOR CART"]) {
+      expect(rooms.some((r) => (r.name ?? "").toUpperCase().includes(asset))).toBe(false);
+    }
+  });
+
+  it("emits the GRAND HALL DAY-range breakout exactly once (owned by the v1 loop)", () => {
+    const grand = byName("GRAND HALL");
+    expect(grand).toHaveLength(1);
+    expect(grand[0]!.kind).toBe("breakout");
   });
 });

@@ -1176,6 +1176,31 @@ function parseBoRooms(markdown: string, model: RoomHeaderModel): RoomRow[] {
     if (roomHasContent(room)) rooms.push(room);
   }
 
+  // Pass 5 (spec §3.2): dims-only BO-venue-header breakouts. A header carrying dims but
+  // NO DAY-range, sitting above a BO field block, is admitted here (Pass 2 only takes
+  // DAY-range headers). Anchored on the field block, never a dims token, so an asset row
+  // is never fabricated into a room. GS-name overlap is NOT threaded through `seen` — it
+  // flows through the east-coast reconciliation in parseRooms (rooms.ts:408) so a real
+  // same-named DAY breakout is never suppressed.
+  const emitted = new Set(rooms.map((r) => (r.name ?? "").toUpperCase()));
+  const boVenue = findBoBlockVenueHeaders(markdown, model);
+  // extraTerm includes REJECTED (admit=false) headers too — a rejected asset header
+  // between two novel blocks must terminate the prior admitted block (case 6).
+  const extraTerm = new Set(boVenue.map((h) => h.headerLine));
+  for (const h of boVenue) {
+    if (!h.admit) continue;
+    const split = splitRoomHeader(h.header.replace(/&#10;/g, "\n"), "breakout");
+    const key = split.name.toUpperCase();
+    if (!split.name || emitted.has(key)) continue;
+    const room = buildEmptyRoom("breakout", split.name);
+    room.dimensions = split.dimensions;
+    room.floor = split.floor;
+    applyBoFields(room, extractBoBlock(model.lines, h.headerLine, model, extraTerm));
+    if (!roomHasContent(room)) continue;
+    emitted.add(key);
+    rooms.push(room);
+  }
+
   return rooms;
 }
 
@@ -1234,7 +1259,14 @@ const NEXT_ROOM_HEADER_RE =
 // LINE-BASED (spec §2.2 (e), R24 f1): walk `lines` from `startLine`. Behavior-identical
 // to the old `extractBoBlock(markdown, m.index)` because `m.index` is the row's line
 // start, so `markdown.slice(m.index) === lines.slice(startLine).join("\n")`.
-function extractBoBlock(lines: string[], startLine: number, model: RoomHeaderModel): string {
+const EMPTY_TERMINATORS: ReadonlySet<number> = new Set<number>();
+
+function extractBoBlock(
+  lines: string[],
+  startLine: number,
+  model: RoomHeaderModel,
+  extraTerminators: ReadonlySet<number> = EMPTY_TERMINATORS,
+): string {
   const blockLines: string[] = [];
 
   for (let k = 0; startLine + k < lines.length; k++) {
@@ -1245,6 +1277,9 @@ function extractBoBlock(lines: string[], startLine: number, model: RoomHeaderMod
     // header (absolute index ∈ roomHeaderLines) terminates.
     if (k > 0 && NEXT_ROOM_HEADER_RE.test(line.trim())) break;
     if (k > 0 && model.roomHeaderLines.has(startLine + k)) break;
+    // A BO-venue-header the fifth pass resolved (admitted OR rejected) also terminates —
+    // so an ADMITTED novel block ends at the NEXT novel/rejected header without a blank.
+    if (k > 0 && extraTerminators.has(startLine + k)) break;
     blockLines.push(line);
   }
 
