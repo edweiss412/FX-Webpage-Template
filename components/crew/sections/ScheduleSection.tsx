@@ -55,6 +55,7 @@ import { resolveKeyTimes } from "@/lib/crew/resolveKeyTimes";
 import {
   aggregateDays,
   scheduleEntriesForViewer,
+  showStartDisplayEntry,
   formatScheduleWindow,
   resolveOptionalField,
   visibleShowDays,
@@ -279,6 +280,14 @@ export function ScheduleSection({
                       const dayEntries = scheduleEntriesForViewer(sd?.entries, {
                         transportVisible,
                       });
+                      // Bare-showStart SHOW day (phase Show, raw entries.length===0,
+                      // no window, real showStart) → render the call time as a "Show
+                      // Start" run-of-show entry instead of a label-less meta line.
+                      // Renderer-only; gates on RAW sd.entries (NOT dayEntries) so a
+                      // viewer-hidden load-out day keeps its #169 call-time meta, and on
+                      // phase==="Show" so Set/travel days are never relabeled.
+                      const showStartRow =
+                        sd != null ? showStartDisplayEntry(sd, day.phase) : null;
                       let meta: string | undefined;
                       if (isSetDay) {
                         // §6/§9.1: when the SET day carries displayable run-of-show
@@ -291,7 +300,12 @@ export function ScheduleSection({
                         meta = t != null ? `Setup ${t}` : undefined;
                       } else if (sd?.window != null) {
                         meta = guardMeta(formatScheduleWindow(sd.window));
-                      } else if (sd != null && sd.showStart != null && dayEntries.length === 0) {
+                      } else if (
+                        sd != null &&
+                        sd.showStart != null &&
+                        dayEntries.length === 0 &&
+                        showStartRow == null
+                      ) {
                         // Fragment day: single showStart, no DISPLAYABLE entries. Gate
                         // on the per-viewer load-out-filtered `dayEntries` (NOT the raw
                         // `sd.entries`) so a day whose only synthetic entry is a hidden
@@ -337,6 +351,8 @@ export function ScheduleSection({
                               container → the Phase-1 anchor floor shows. */}
                           {dayEntries.length > 0 ? (
                             <RunOfShowList entries={dayEntries} isoDate={day.date} />
+                          ) : showStartRow != null ? (
+                            <RunOfShowList entries={[showStartRow]} isoDate={day.date} />
                           ) : null}
                         </div>
                       );
