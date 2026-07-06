@@ -198,16 +198,34 @@ export function roomGroupKey(col0Raw: string, firstLine: string): string {
  * `Power`/`Notes` rows are only deeper CONTINUATION rows, never the first). Separates a
  * room (`MABEL`→`BO Setup`) from an agenda note (`WELCOME RECEPTION DAY 1`→schedule rows).
  */
-export function hasRoomFieldBlock(lines: string[], i: number): boolean {
+function hasFieldBlock(lines: string[], i: number, prefixRe: RegExp): boolean {
   for (let k = i + 1; k < lines.length; k++) {
     const t = (lines[k] ?? "").trim();
     if (!t.startsWith("|")) break;
     if (/^\|\s*:?-+/.test(t) || allEmptyCells(t)) continue;
-    const prefixed = /^(?:BO|GS)\s+(.*)$/i.exec(col0Of(lines[k]!).trim());
+    const prefixed = prefixRe.exec(col0Of(lines[k]!).trim());
     if (prefixed && ROOM_FIELD_LABELS.has(prefixed[1]!.trim().toUpperCase())) return true;
     break; // the first NON-field body row ends the immediately-following field block
   }
   return false;
+}
+
+export function hasRoomFieldBlock(lines: string[], i: number): boolean {
+  return hasFieldBlock(lines, i, /^(?:BO|GS)\s+(.*)$/i);
+}
+
+/**
+ * BO-ONLY field-evidence (whole-diff Codex R7 [high]). A GS row proves a room EXISTS but that
+ * room belongs to the general-session path (`extractGsBlock`/`parseGsRoom`), NOT the v1 Pass-2
+ * BREAKOUT loop that consumes `model.groups`. Admitting a GS-only-evidenced header to a group
+ * emits a PHANTOM breakout — the header-dims harvest (parseBoRooms ~1081) makes an otherwise
+ * BO-empty room pass `roomHasContent`, duplicating the GS room. So `groups` membership is gated
+ * on BO evidence; `roomHeaderLines` (the terminator set) still admits BO OR GS via `isRoomHeader`
+ * — a GS header scoping block extraction is correct and carries no overrun risk. origin/main's
+ * literal MABEL/LAUDERDALE loop was BO-only by construction; this preserves that contract.
+ */
+export function hasBoFieldBlock(lines: string[], i: number): boolean {
+  return hasFieldBlock(lines, i, /^BO\s+(.*)$/i);
 }
 
 /**
@@ -258,7 +276,10 @@ export function computeRoomHeaderModel(markdown: string): RoomHeaderModel {
     const col0Raw = col0Of(lines[i]!);
     const firstLine = col0Raw.replace(/&#10;/g, "\n").split("\n")[0]!.trim();
     const key = roomGroupKey(col0Raw, firstLine);
-    roomHeaderLines.add(i);
+    roomHeaderLines.add(i); // terminator set: any admitted DAY-range header (BO OR GS)
+    // Breakout GROUP membership is BO-ONLY (whole-diff R7): a GS-evidenced header is a
+    // general-session room (its own path), never a Pass-2 breakout — else a phantom.
+    if (!hasBoFieldBlock(lines, i)) continue;
     const list = groups.get(key);
     const candidate: RoomCandidate = { key, displayName: firstLine, lineIndex: i };
     if (list) list.push(candidate);

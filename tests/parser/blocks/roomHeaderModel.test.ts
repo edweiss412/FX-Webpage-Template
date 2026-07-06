@@ -9,6 +9,7 @@ import {
   dayRangeOf,
   roomGroupKey,
   hasRoomFieldBlock,
+  hasBoFieldBlock,
   precededByBoundary,
   isRoomHeader,
   computeRoomHeaderModel,
@@ -94,6 +95,29 @@ describe("room block-context predicates (spec §2.2 c2 — R37/R38)", () => {
   it("hasRoomFieldBlock true only with a BO/GS-prefixed first field row", () => {
     expect(hasRoomFieldBlock(T(["| MABEL 1&#10;DAY 1 & 2 |", "| BO Setup | TBD |"]), 0)).toBe(true);
     expect(hasRoomFieldBlock(T(["| GRAND BALLROOM DAY 1 |", "| GS Setup | 9pm |"]), 0)).toBe(true);
+  });
+  // Whole-diff Codex R7 [high]: the v1 Pass-2 breakout loop (rooms.ts ~1073) consumes
+  // `model.groups`, so ONLY BO-evidenced headers may seed a breakout GROUP. A GS-evidenced
+  // header belongs to the general-session path (`extractGsBlock`/`parseGsRoom`); admitting it
+  // to a group emits a PHANTOM breakout (the header-dims harvest at ~1081 makes an otherwise
+  // BO-empty room pass `roomHasContent`, duplicating the GS room). GS still counts for the
+  // TERMINATOR set (`roomHeaderLines`) — that only scopes block extraction, no overrun risk.
+  it("hasBoFieldBlock: BO row yes; GS-only no (breakout groups are BO-evidenced only)", () => {
+    expect(hasBoFieldBlock(T(["| MABEL 1&#10;DAY 1 & 2 |", "| BO Setup | TBD |"]), 0)).toBe(true);
+    expect(hasBoFieldBlock(T(["| GRAND BALLROOM DAY 1 |", "| GS Setup | 9pm |"]), 0)).toBe(false);
+  });
+  it("GS-only DAY-range header is a TERMINATOR but seeds NO breakout group (R7 phantom)", () => {
+    const md = [
+      "| GRAND BALLROOM&#10;DAY 1&#10;60' x 45' |",
+      "| :---: | :---: |",
+      "| GS Setup | 9pm |",
+      "| GS Audio | L-Acoustics |",
+    ].join("\n");
+    const m = computeRoomHeaderModel(md);
+    expect([...m.roomHeaderLines]).toContain(0); // header still terminates blocks
+    expect([...m.groups.values()].flat().map((c) => c.displayName)).toEqual([]); // but no group
+    const rooms = parseSheet(md).rooms;
+    expect(rooms.some((r) => r.kind === "breakout" && /GRAND BALLROOM/i.test(r.name))).toBe(false);
   });
   it("isRoomHeader false: DAY-titled note + bare field-ish row at a boundary (R1 attack)", () => {
     const attack = T(["", "| WELCOME RECEPTION DAY 1 |", "| Audio | House music |"]);
