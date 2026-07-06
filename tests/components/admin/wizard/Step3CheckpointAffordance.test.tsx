@@ -9,7 +9,7 @@
  */
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, render, screen, within } from "@testing-library/react";
 
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
@@ -120,6 +120,51 @@ describe("Step-3 checkpoint affordance (spec §4.2 rule 7)", () => {
     ).not.toBe("true");
     expect(screen.queryByText(/couldn.t read the details/i)).toBeNull();
     expect(screen.queryByRole("button", { name: /re-scan this sheet/i })).toBeNull();
+  });
+
+  // The badge sits in the row's right-side cluster (AFTER the title) in BOTH card
+  // variants. Regression: the detailed variant (a row whose pending_syncs parse
+  // preview SURVIVED finalize — e.g. the resume checkpoint's next batch item)
+  // rendered the badge as the FIRST flex child, LEFT of the title, while every
+  // consumed-preview row rendered the compact badge-only card with the badge on
+  // the right. Same "Live" state, two placements. Pin badge-after-title so the
+  // badge column is consistent across all rows.
+  function badgeFollowsTitle(cardTestId: string, titleTestId: string): boolean {
+    const card = screen.getByTestId(cardTestId);
+    const title = within(card).getByTestId(titleTestId);
+    const badge = within(card).getByTestId("wizard-step3-badge");
+    return Boolean(title.compareDocumentPosition(badge) & Node.DOCUMENT_POSITION_FOLLOWING);
+  }
+
+  test("detailed variant (preview survived) renders badge AFTER title, not left of it", () => {
+    render(
+      <Step3Review
+        wizardSessionId={WSID}
+        rows={[readyToPublishRow("d-detailed")]}
+        checkpointStatus="in_progress"
+      />,
+    );
+    expect(
+      badgeFollowsTitle("wizard-step3-card-d-detailed", "wizard-step3-card-d-detailed-title"),
+    ).toBe(true);
+  });
+
+  test("compact variant (preview consumed) also renders badge AFTER title — placement is consistent", () => {
+    render(
+      <Step3Review
+        wizardSessionId={WSID}
+        rows={[heldRowNoPreview("d-compact")]}
+        checkpointStatus="in_progress"
+      />,
+    );
+    // The compact card uses the title link as its heading; there is no `-title`
+    // testid, so assert the badge is DOM-last within the card (right cluster).
+    const card = screen.getByTestId("wizard-step3-card-d-compact");
+    const badge = within(card).getByTestId("wizard-step3-badge");
+    const heading = within(card).getByText("d-compact.gsheet");
+    expect(Boolean(heading.compareDocumentPosition(badge) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(
+      true,
+    );
   });
 
   test("checkpoint all_batches_complete → same badge-only contract", () => {
