@@ -35,6 +35,7 @@ import {
   getAgendaChips,
 } from "@/lib/drive/agendaDrive";
 import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
+import { emitUnexpectedParentWarning } from "@/lib/sync/logUnexpectedParent";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
 import type {
   AgendaEntry,
@@ -3146,7 +3147,9 @@ export async function runScheduledCronSync(
 
     const folderId = folderResult.folderId;
     resolvedFolderId = folderId;
-    const listFolder = deps.listFolder ?? listDriveFolder;
+    const listFolder =
+      deps.listFolder ??
+      ((id: string) => listDriveFolder(id, { onWarning: emitUnexpectedParentWarning }));
     const runOne = deps.processOneFile ?? processOneFile;
     const processDeps = deps.logSync ? { logSync: deps.logSync } : undefined;
     setPhase("list-folder");
