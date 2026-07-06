@@ -252,13 +252,18 @@ describe("RescanSheetButton — Step3 card mount (both render paths)", () => {
     expect(getByTestId(`rescan-sheet-button-${dfid}`)).not.toBeNull();
   });
 
-  test("suppressed for a dirty re-scan row (review link is primary)", () => {
+  test("suppressed for a demoted dirty re-scan row (context banner; Review modal is the recovery)", () => {
     const dfid = "drive-mount-dirty";
-    const { getByTestId, queryByTestId } = render(
+    const { getByTestId, queryByTestId, container } = render(
       <Step3Review wizardSessionId={WSID} rows={[row(dfid, PARSE, RESCAN_REVIEW_REQUIRED)]} />,
     );
+    // The demoted-dirty variant has no standalone Re-scan button…
     expect(queryByTestId(`rescan-sheet-button-${dfid}`)).toBeNull();
-    expect(getByTestId(`wizard-step3-rescan-review-${dfid}`)).not.toBeNull();
+    // …and the context banner remains, but its old reapply LINK (→ the deleted
+    // staged page) is gone (spec §4.4); recovery is the Review modal.
+    expect(getByTestId(`wizard-step3-card-${dfid}-rescan-review`)).not.toBeNull();
+    expect(queryByTestId(`wizard-step3-rescan-review-${dfid}`)).toBeNull();
+    expect(container.querySelector('a[href^="/admin/onboarding/staged/"]')).toBeNull();
   });
 });
 

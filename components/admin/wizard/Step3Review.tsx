@@ -156,6 +156,10 @@ type Step3ReviewProps = {
   // lagged the boxes by a POST round-trip + router.refresh() (the publish-count
   // lag bug). Fired from an effect whenever the optimistic counts change.
   onCountsChange?: (counts: Step3PublishCounts) => void;
+  // Spec §4.4 R8: true while a publish/resume finalize run is active — freezes
+  // every row mutator (checkbox, Select-all, Re-scan, Review→, inline controls,
+  // and the modal's Approve/Re-scan/Ignore). Threaded from run.isRunning.
+  isPublishRunActive?: boolean;
 };
 
 type ActionLabel = "retry" | "defer" | "ignore";
@@ -242,7 +246,14 @@ function endpointForAction(action: ActionLabel, pendingIngestionId: string): str
   return `/api/admin/onboarding/pending_ingestions/${pendingIngestionId}/${slug}`;
 }
 
-function HardFailedActions({ row }: { row: Step3Row & { pendingIngestionId: string } }) {
+function HardFailedActions({
+  row,
+  disabled = false,
+}: {
+  row: Step3Row & { pendingIngestionId: string };
+  // Spec §4.4 R8: frozen while a publish/resume run is active.
+  disabled?: boolean;
+}) {
   const router = useRouter();
   const [pending, setPending] = useState<ActionLabel | null>(null);
   const [error, setError] = useState<{ copy: string; code: string | null } | null>(null);
@@ -283,7 +294,7 @@ function HardFailedActions({ row }: { row: Step3Row & { pendingIngestionId: stri
           type="button"
           data-testid={`wizard-step3-retry-${row.driveFileId}`}
           onClick={() => run("retry")}
-          disabled={pending !== null}
+          disabled={pending !== null || disabled}
           className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
         >
           {pending === "retry" ? "Retrying…" : "Retry now"}
@@ -292,7 +303,7 @@ function HardFailedActions({ row }: { row: Step3Row & { pendingIngestionId: stri
           type="button"
           data-testid={`wizard-step3-defer-${row.driveFileId}`}
           onClick={() => run("defer")}
-          disabled={pending !== null}
+          disabled={pending !== null || disabled}
           className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
         >
           {pending === "defer" ? "Deferring…" : "Defer until modified"}
@@ -301,7 +312,7 @@ function HardFailedActions({ row }: { row: Step3Row & { pendingIngestionId: stri
           type="button"
           data-testid={`wizard-step3-ignore-${row.driveFileId}`}
           onClick={() => run("ignore")}
-          disabled={pending !== null}
+          disabled={pending !== null || disabled}
           className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
         >
           {pending === "ignore" ? "Ignoring…" : "Permanently ignore"}
@@ -347,9 +358,12 @@ function DashboardResolveLink({ driveFileId }: { driveFileId: string }) {
 function ManifestIgnoreAction({
   wizardSessionId,
   row,
+  disabled = false,
 }: {
   wizardSessionId: string;
   row: Step3Row;
+  // Spec §4.4 R8: frozen while a publish/resume run is active.
+  disabled?: boolean;
 }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
@@ -391,7 +405,7 @@ function ManifestIgnoreAction({
         type="button"
         data-testid={`wizard-step3-ignore-${row.driveFileId}`}
         onClick={() => void run()}
-        disabled={pending}
+        disabled={pending || disabled}
         className="inline-flex min-h-tap-min items-center justify-center self-start rounded-sm border border-border-strong bg-bg px-3 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
       >
         {pending ? "Ignoring…" : "Permanently ignore"}
@@ -416,9 +430,12 @@ function RowItem({
   checked,
   onToggleChecked,
   quiet = false,
+  isPublishRunActive = false,
 }: {
   row: Step3Row;
   wizardSessionId: string;
+  // Spec §4.4 R8: freeze every row mutator while a publish/resume run is active.
+  isPublishRunActive?: boolean;
   // Lifted publish-intent (clean rows only) — forwarded to the card's checkbox so
   // Select-all updates every box through Step3Review's shared optimistic state.
   // RESULT-BEARING (spec §9.2): resolves true iff the row SETTLED at the
@@ -436,7 +453,9 @@ function RowItem({
   // Spec §4.2: the badge derives from the unified displayState when present
   // (every buildStep3Row-produced row carries it). Legacy rows constructed
   // without a displayState fall back to the raw-status badge.
-  const badge = row.displayState ? badgeForDisplayState(row.displayState) : badgeForStatus(row.status);
+  const badge = row.displayState
+    ? badgeForDisplayState(row.displayState)
+    : badgeForStatus(row.status);
   const liveConflictCopy = lookupDougFacing("LIVE_ROW_CONFLICT");
 
   // §4.1 / D2 / D6: a clean review sheet renders its parse preview INLINE via
@@ -460,6 +479,7 @@ function RowItem({
           wizardSessionId={wizardSessionId}
           checked={checked}
           onToggleChecked={onToggleChecked}
+          isPublishRunActive={isPublishRunActive}
         />
       </div>
     );
@@ -524,7 +544,10 @@ function RowItem({
             <p className="text-sm text-text-subtle">{hardFailCopy}</p>
           ) : null}
           {row.errorCode ? <HelpAffordance code={row.errorCode} /> : null}
-          <HardFailedActions row={row as Step3Row & { pendingIngestionId: string }} />
+          <HardFailedActions
+            row={row as Step3Row & { pendingIngestionId: string }}
+            disabled={isPublishRunActive}
+          />
         </>
       ) : null}
 
@@ -545,7 +568,11 @@ function RowItem({
             This sheet was set aside by an earlier version of setup. Permanently ignore it to clear
             it from setup.
           </p>
-          <ManifestIgnoreAction wizardSessionId={wizardSessionId} row={row} />
+          <ManifestIgnoreAction
+            wizardSessionId={wizardSessionId}
+            row={row}
+            disabled={isPublishRunActive}
+          />
         </div>
       ) : null}
 
@@ -559,7 +586,11 @@ function RowItem({
               ? renderEmphasis(liveConflictCopy)
               : "This sheet conflicts with a live row. Resolve it from the dashboard and re-run setup."}
           </p>
-          <ManifestIgnoreAction wizardSessionId={wizardSessionId} row={row} />
+          <ManifestIgnoreAction
+            wizardSessionId={wizardSessionId}
+            row={row}
+            disabled={isPublishRunActive}
+          />
           <DashboardResolveLink driveFileId={row.driveFileId} />
           <HelpAffordance code="LIVE_ROW_CONFLICT" />
         </div>
@@ -589,10 +620,13 @@ function Step3PublishHeader({
   allChecked,
   cleanCount,
   onToggleSelectAll,
+  disabled = false,
 }: {
   allChecked: boolean;
   cleanCount: number;
   onToggleSelectAll: () => void;
+  // Spec §4.4 R8: frozen while a publish/resume run is active.
+  disabled?: boolean;
 }) {
   // No publishable rows → no select-all control. The "N of M selected to publish"
   // count moved OUT of this header and into the sticky publish bar (Variant B,
@@ -606,6 +640,7 @@ function Step3PublishHeader({
           type="checkbox"
           data-testid="wizard-step3-select-all"
           checked={allChecked}
+          disabled={disabled}
           aria-label="Select all sheets to publish"
           onChange={() => onToggleSelectAll()}
           className="peer sr-only"
@@ -772,7 +807,12 @@ function renderSummary(sheetCount: number, readyCount: number, needsLookCount: n
   );
 }
 
-export function Step3Review({ wizardSessionId, rows, onCountsChange }: Step3ReviewProps) {
+export function Step3Review({
+  wizardSessionId,
+  rows,
+  onCountsChange,
+  isPublishRunActive = false,
+}: Step3ReviewProps) {
   const router = useRouter();
   const unresolvedCount = rows.filter((r) => !isResolved(r.status)).length;
   const allResolved = unresolvedCount === 0 && rows.length > 0;
@@ -1125,9 +1165,10 @@ export function Step3Review({ wizardSessionId, rows, onCountsChange }: Step3Revi
           <Step3PublishHeader
             allChecked={allChecked}
             cleanCount={cleanCount}
-            // No greyed/disabled feedback: the overlay flips every box (and the
-            // Select-all box itself) instantly, which IS the feedback. Re-entry is
-            // guarded by selectAllPendingRef inside toggleSelectAll, never a visual.
+            // Spec §4.4 R8: Select-all freezes during an active publish/resume run
+            // (unlike the normal path, which has no disabled feedback — the overlay
+            // flip IS the feedback; re-entry is guarded by selectAllPendingRef).
+            disabled={isPublishRunActive}
             onToggleSelectAll={() => void toggleSelectAll()}
           />
         ) : null}
@@ -1193,7 +1234,11 @@ export function Step3Review({ wizardSessionId, rows, onCountsChange }: Step3Revi
               <ul className="flex flex-col gap-3">
                 {blockingRows.map((row) => (
                   <li key={row.driveFileId}>
-                    <RowItem row={row} wizardSessionId={wizardSessionId} />
+                    <RowItem
+                      row={row}
+                      wizardSessionId={wizardSessionId}
+                      isPublishRunActive={isPublishRunActive}
+                    />
                   </li>
                 ))}
               </ul>
@@ -1211,6 +1256,7 @@ export function Step3Review({ wizardSessionId, rows, onCountsChange }: Step3Revi
                   <RowItem
                     row={row}
                     wizardSessionId={wizardSessionId}
+                    isPublishRunActive={isPublishRunActive}
                     checked={isChecked(row)}
                     // No `checkboxPending`: per-card boxes are NEVER disabled now (the
                     // "individual selects grey out" complaint). Race-safety comes from

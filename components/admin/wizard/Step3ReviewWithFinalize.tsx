@@ -100,7 +100,12 @@ export function Step3ReviewWithFinalize({
   return (
     <div className="flex min-h-full flex-col">
       <div className="pb-24">
-        <Step3Review wizardSessionId={wizardSessionId} rows={rows} onCountsChange={setCounts} />
+        <Step3Review
+          wizardSessionId={wizardSessionId}
+          rows={rows}
+          onCountsChange={setCounts}
+          isPublishRunActive={run.isRunning}
+        />
       </div>
       {rows.length > 0 ? (
         <WizardFooter

@@ -83,10 +83,13 @@ export function PublishCheckbox({
   driveFileId,
   checked,
   onToggle,
+  disabled = false,
 }: {
   driveFileId: string;
   checked: boolean;
   onToggle: (next: boolean) => void;
+  // Spec §4.4 R8: frozen while a publish/resume run is active.
+  disabled?: boolean;
 }) {
   // A 20px visible box (size-5) with a ≥44px hit area: p-3 (12px) + the size-5
   // box = 44px clickable square, pulled back by -m-3 so the layout footprint
@@ -102,6 +105,7 @@ export function PublishCheckbox({
         type="checkbox"
         data-testid={`wizard-step3-checkbox-${driveFileId}`}
         checked={checked}
+        disabled={disabled}
         aria-label={
           checked ? "Publishing this show. Uncheck to keep it unpublished." : "Publish this show"
         }
@@ -582,6 +586,7 @@ export function Step3SheetCard({
         driveFileId={dfid}
         checked={checked}
         onToggle={(next) => void requestSetChecked(next)}
+        disabled={isPublishRunActive}
       />
       <div className="min-w-0 flex-1">
         <p
