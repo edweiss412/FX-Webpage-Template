@@ -7,9 +7,7 @@ vi.mock("@/lib/drive/exportSheetToMarkdown", () => ({
   synthesizeMarkdownFromXlsx,
 }));
 
-function fakeDrive(parts: {
-  files?: Partial<drive_v3.Resource$Files>;
-}): drive_v3.Drive {
+function fakeDrive(parts: { files?: Partial<drive_v3.Resource$Files> }): drive_v3.Drive {
   return parts as unknown as drive_v3.Drive;
 }
 

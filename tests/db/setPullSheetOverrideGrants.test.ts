@@ -48,9 +48,7 @@ describe.skipIf(!url)("set_pull_sheet_override grant lockdown", () => {
   // are already locked down (shows: 20260523000001:45; pending_syncs: 20260601000000:163);
   // this pins that the new columns inherit it (table-level REVOKE is column-wide).
   it("pending_syncs and shows have INSERT/UPDATE/DELETE revoked from anon and authenticated", async () => {
-    const grants = await sql<
-      { table_name: string; grantee: string; privilege_type: string }[]
-    >`
+    const grants = await sql<{ table_name: string; grantee: string; privilege_type: string }[]>`
       select table_name, grantee, privilege_type from information_schema.role_table_grants
       where table_schema = 'public' and table_name in ('pending_syncs','shows')
         and grantee in ('anon','authenticated') and privilege_type in ('INSERT','UPDATE','DELETE')`;

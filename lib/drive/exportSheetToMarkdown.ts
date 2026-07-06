@@ -225,7 +225,7 @@ function tableMarkdown(block: CellGrid): string {
 /** Split a markdown table row into trimmed cells (mirror of parser `splitRow`). */
 function splitMarkdownRow(line: string): string[] {
   const parts = line.split("|");
-  return parts.slice(1, parts.length - 1).map((s) => s.trim());
+  return parts.slice(1, parts.length - 1).map((s) => s.trim()); // canonicalize-exempt: markdown cell whitespace, not an email
 }
 
 /**
@@ -241,7 +241,7 @@ function isPullSheetHeaderCells(cells: string[]): boolean {
 function stripBlankLines(md: string): string {
   return md
     .split("\n")
-    .filter((line) => line.trim().length > 0)
+    .filter((line) => line.trim().length > 0) // canonicalize-exempt: markdown line whitespace, not an email
     .join("\n");
 }
 
@@ -255,12 +255,13 @@ function collectPullSheetRegionsFromMarkdown(md: string): { regionMarkdown: stri
   const regions: { regionMarkdown: string }[] = [];
   const blocks = md
     .split(/\n{2,}/)
-    .map((block) => block.trim())
+    .map((block) => block.trim()) // canonicalize-exempt: markdown block whitespace, not an email
     .filter((block) => block.length > 0);
   for (const block of blocks) {
-    const headerLine = block.split("\n").find((line) => line.trim().startsWith("|"));
+    const headerLine = block.split("\n").find((line) => line.trim().startsWith("|")); // canonicalize-exempt: markdown pipe-row detection, not an email
     if (!headerLine) continue;
-    if (isPullSheetHeaderCells(splitMarkdownRow(headerLine.trim()))) {
+    const headerCells = splitMarkdownRow(headerLine.trim()); // canonicalize-exempt: markdown header-cell whitespace, not an email
+    if (isPullSheetHeaderCells(headerCells)) {
       regions.push({ regionMarkdown: block });
     }
   }
