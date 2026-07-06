@@ -812,3 +812,44 @@ describe("parseCrew — column header typo correction (COLUMN_HEADER_AUTOCORRECT
     expect(agg.warnings.find((w) => w.code === "COLUMN_HEADER_AUTOCORRECTED")).toBeUndefined();
   });
 });
+
+// ── B4: UNKNOWN_STAGE_RESTRICTION stamping + fail-open whole-show (spec §9) ────
+// A role cell mixing a recognized stage token with an unrecognized one
+// ("Set / Rehearsal ONLY") is a MALFORMED stage clause: parseStageClause yields
+// {kind:"none"} + an UNKNOWN_STAGE_RESTRICTION warning. crew stamping attaches the
+// crew blockRef and the member sees the WHOLE show (not zero-days, not an
+// unknown-date restriction). The ONLY*** variant must NOT ALSO fire
+// UNKNOWN_DAY_RESTRICTION — consumedOnlyClause suppresses the triple-asterisk guard.
+describe("parseCrew — malformed stage clause → UNKNOWN_STAGE_RESTRICTION (fail-open)", () => {
+  const mdFor = (roleCell: string) =>
+    [
+      "| CREW | NAME | ROLE | PHONE | EMAIL |",
+      `|  | Pat Tester | ${roleCell} | 555-111-2222 | pat.tester@example.com |`,
+      "",
+    ].join("\n");
+
+  it("'Set / Rehearsal ONLY' → UNKNOWN_STAGE_RESTRICTION stamped with crew blockRef, whole-show", () => {
+    const agg = newAggregator();
+    const crew = parseCrew(mdFor("\\- Set / Rehearsal ONLY"), "v2", agg);
+    const codes = agg.warnings.map((w) => w.code);
+    expect(codes).toContain("UNKNOWN_STAGE_RESTRICTION");
+    const warn = agg.warnings.find((w) => w.code === "UNKNOWN_STAGE_RESTRICTION");
+    expect(warn?.blockRef?.name).toBeTruthy();
+    // Fail-open: no explicit stage restriction, whole show (spec §9).
+    const pat = crew.find((c) => c.name === "Pat Tester")!;
+    expect(pat).toBeDefined();
+    expect(pat.stage_restriction).toEqual({ kind: "none" });
+    expect(pat.date_restriction).toEqual({ kind: "none" });
+  });
+
+  it("'Set / Rehearsal ONLY***' → only UNKNOWN_STAGE_RESTRICTION, NOT UNKNOWN_DAY_RESTRICTION (consumedOnlyClause)", () => {
+    const agg = newAggregator();
+    const crew = parseCrew(mdFor("\\- Set / Rehearsal ONLY***"), "v2", agg);
+    const codes = agg.warnings.map((w) => w.code);
+    expect(codes).toContain("UNKNOWN_STAGE_RESTRICTION");
+    expect(codes).not.toContain("UNKNOWN_DAY_RESTRICTION"); // suppressed by !consumedOnlyClause
+    const pat = crew.find((c) => c.name === "Pat Tester")!;
+    expect(pat.date_restriction).toEqual({ kind: "none" }); // not unknown_asterisk
+    expect(pat.stage_restriction).toEqual({ kind: "none" });
+  });
+});

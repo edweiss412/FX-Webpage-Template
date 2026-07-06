@@ -323,6 +323,12 @@ function buildCrewMember(params: {
 
   const stageResult = extractStageRestriction(roleCellForParse);
   const stageRestriction = stageResult.restriction;
+  // Stamp UNKNOWN_STAGE_RESTRICTION (malformed stage clause) with the crew-row
+  // blockRef so Doug can deep-link to the offending role cell. extractStageRestriction
+  // stays pure; the member fails open to the whole show (spec §9).
+  const stampedStageWarnings = stageResult.warnings.map((w) => ({ ...w, blockRef: crewBlockRef }));
+  warnings.push(...stampedStageWarnings);
+  if (agg) agg.warnings.push(...stampedStageWarnings);
   const roleFlagResult = extractRoleFlags(roleCellForParse);
   // Stamp UNKNOWN_ROLE_TOKEN / ROLE_TOKEN_AUTOCORRECTED warnings with the crew-row
   // blockRef so they can deep-link to the offending role cell. extractRoleFlags stays pure.
@@ -348,7 +354,12 @@ function buildCrewMember(params: {
   if (
     hasTripleAsterisk(params.roleRaw) &&
     dateRestriction.kind === "none" &&
-    stageRestriction.kind === "none"
+    stageRestriction.kind === "none" &&
+    // A `***` absorbed by a stage-restriction ONLY marker — even a MALFORMED one
+    // ("Set / Rehearsal ONLY***") whose stage restriction collapsed to none — is
+    // emphasis on the STAGE clause, already reported via UNKNOWN_STAGE_RESTRICTION.
+    // Do not double-report it as an unknown day restriction (spec §9).
+    !stageResult.consumedOnlyClause
   ) {
     dateRestriction = { kind: "unknown_asterisk", days: null };
     const tripleAsteriskWarning = {
