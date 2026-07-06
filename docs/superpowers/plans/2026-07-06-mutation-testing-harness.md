@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- **Zero product-source change.** Only files under `tests/parser/mutation/**` + `tests/parser/mutationHarness.test.ts` + this plan/spec are created. Nothing under `lib/`, `app/`, `components/`, `supabase/`.
+- **Zero product-source change; test/CI-infra wiring permitted (spec AC-5).** New test files live under `tests/parser/mutation/**` + `tests/parser/mutationHarness.test.ts`. Task 12 additionally edits three TEST/CI-infra files to place the heavy harness off the fast unit path — `vitest.projects.ts` (`ENV_BOUND_EXCLUDES`), `package.json` (`test:audit:mutation-harness` script), `.github/workflows/x-audits.yml` (dedicated job). NO PRODUCT source (`lib/parser`, `app/`, `components/`, `supabase/`) is touched. (`lib/test/vitest.weights.ts` is deliberately NOT edited — the harness is excluded from the sharded unit path, so it needs no weight; see Task 12.)
 - **TDD per task:** failing test → minimal implementation → passing test → commit. Never implementation before its test.
 - **Commit per task**, conventional-commits (`test(parser):` / `feat(parser):` / `chore(parser):`). One task per commit. Use `--no-verify` (shared lint-staged hook belongs to the main checkout).
 - **Determinism:** no `Math.random`, no `Date.now`. All site enumeration is a deterministic top-to-bottom scan.
@@ -28,6 +28,7 @@
 |---|---|
 | `tests/parser/mutation/rows.ts` | Row taxonomy (header/alignment/spacer/data), run + logical-section segmentation |
 | `tests/parser/mutation/classify.ts` | `resolveHeader`, `SECTION_DOMAIN_MAP`, `Domain`, `classifySection`, `domains(site)`, `floorEligible` |
+| `tests/parser/mutation/expectedDomains.ts` | `EXPECTED_HEADER_DOMAINS` — hand-authored domain oracle, SEPARATE from the classifier impl so the gate is not self-referential (plan-R21) |
 | `tests/parser/mutation/operators.ts` | 8 operators, applicability predicates, exhaustive site enumeration, `floorEligible`, `skippedInapplicable` |
 | `tests/parser/mutation/oracle.ts` | baseline capture, `payloadOf`/`signalOf`, `payloadChanged`, `signalEq`, `signalKeys`, `newSignalFired`, `verdict`, `fingerprint` |
 | `tests/parser/mutation/knownHoles.ts` | `KnownHole` type + `KNOWN_SILENT_HOLES` ledger |
@@ -250,11 +251,12 @@ git commit --no-verify -m "test(parser): row taxonomy + header-anchored logical-
 
 **Files:**
 - Create: `tests/parser/mutation/classify.ts`
+- Create: `tests/parser/mutation/expectedDomains.ts` (external domain oracle, Step 3b)
 - Test: `tests/parser/mutation/classify.test.ts`
 
 **Interfaces:**
 - Consumes: `KNOWN_SECTION_HEADERS`, `PREFIX_SECTION_FAMILIES`, `normalizeHeader` (`@/lib/parser/knownSections`); `LogicalSection`, `splitCells` (`./rows`).
-- Produces: `Domain`, `RISK_CRITICAL: Domain[]`, `SECTION_DOMAIN_MAP`, `resolveHeader(col0): string|null`, `isHeaderCells(cells): boolean`, `classifySection(sec): Domain`.
+- Produces: `Domain`, `RISK_CRITICAL: Domain[]`, `SECTION_DOMAIN_MAP`, `resolveHeader(col0): string|null`, `isHeaderCells(cells): boolean`, `classifySection(sec): Domain` (`classify.ts`); `EXPECTED_HEADER_DOMAINS: ReadonlyArray<readonly [string, Domain]>` (`expectedDomains.ts` — the SEPARATE oracle consumed by the classifier gate here AND by Task 9).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -262,7 +264,7 @@ git commit --no-verify -m "test(parser): row taxonomy + header-anchored logical-
 // tests/parser/mutation/classify.test.ts
 import { describe, it, expect } from "vitest";
 import { KNOWN_SECTION_HEADERS, PREFIX_SECTION_FAMILIES, normalizeHeader } from "@/lib/parser/knownSections";
-import { EXPECTED_HEADER_DOMAINS } from "./classify"; // hand-authored domain oracle (below)
+import { EXPECTED_HEADER_DOMAINS } from "./expectedDomains"; // SEPARATE hand-authored domain oracle (Step 3b)
 import { resolveHeader, SECTION_DOMAIN_MAP, classifySection, RISK_CRITICAL } from "./classify";
 
 describe("classifier parity (Codex R2/R4/R8)", () => {
@@ -356,25 +358,10 @@ export const SECTION_DOMAIN_MAP: Record<string, Domain> = {
   CLIENT: "client", "PULL SHEET": "pull_sheet", COI: "documents", "DOCUMENT FOLDER LINK": "documents",
 };
 
-/**
- * Hand-authored domain ORACLE: the intended domain for EVERY current KNOWN_SECTION_HEADERS entry
- * (knownSections.ts:34-65). This is a SECOND, independently hand-derived structure from
- * SECTION_DOMAIN_MAP above — the classifier gate asserts (a) this oracle COVERS the live registry
- * (so a new parser header forces a row) and (b) SECTION_DOMAIN_MAP AGREES with it (so a wrong
- * domain is caught by cross-mismatch, not self-reference). Anchored to the external registry, not
- * a private subset (Codex plan-R20 [medium]). Every KNOWN_SECTION_HEADERS token appears here.
- */
-export const EXPECTED_HEADER_DOMAINS: ReadonlyArray<readonly [string, Domain]> = [
-  ["CREW", "crew"], ["TECH", "crew"],
-  ["HOTEL", "hotel"], ["HOTELS", "hotel"], ["HOTEL RESERVATIONS", "hotel"], ["HOTEL RESERVATION", "hotel"],
-  ["HOTEL STAYS", "hotel"], ["HOTEL STAY", "hotel"],
-  ["GENERAL SESSION", "rooms"], ["BREAKOUT", "rooms"], ["BREAKOUTS", "rooms"], ["ADDITIONAL ROOM", "rooms"],
-  ["LUNCH ROOM", "rooms"], ["LUNCH SESSION", "rooms"], ["FOYER", "rooms"],
-  ["EVENT DETAILS", "event_details"], ["DETAILS", "event_details"], ["GS DETAILS", "event_details"],
-  ["TRANSPORTATION", "transportation"], ["DATES", "dates"], ["AGENDA", "agenda"], ["AGENDA LINK", "agenda"],
-  ["VENUE", "venue"], ["VENUES", "venue"], ["DRESS", "dress"], ["IN HOUSE AV", "contacts"],
-  ["CLIENT", "client"], ["PULL SHEET", "pull_sheet"], ["COI", "documents"], ["DOCUMENT FOLDER LINK", "documents"],
-];
+// NOTE: the intended-domain oracle EXPECTED_HEADER_DOMAINS is DELIBERATELY NOT defined here.
+// It lives in its own data module `tests/parser/mutation/expectedDomains.ts` (Step 3b) so the
+// classifier gate compares SECTION_DOMAIN_MAP against a SEPARATELY-authored surface, not a table
+// co-located with (and co-editable in lockstep with) the map itself (Codex plan-R21 [high]).
 
 // Replicates matchesTokenPrefix (knownSections.ts:155-161): startsWith + token boundary.
 function tokenPrefix(n: string, entry: string): boolean {
@@ -405,16 +392,48 @@ export function classifySection(sec: LogicalSection): Domain {
 }
 ```
 
+- [ ] **Step 3b: Write the SEPARATE domain oracle** (`tests/parser/mutation/expectedDomains.ts`)
+
+This module is the anti-tautology anchor for the classifier gate: a hand-authored intended-domain oracle that is NOT in `classify.ts`, so `SECTION_DOMAIN_MAP` and the oracle are two SEPARATELY-authored surfaces the gate cross-checks (Codex plan-R21). It imports only the `Domain` *type* from `classify.ts` (a type-only import — no dependency on the map's runtime values). Every current `KNOWN_SECTION_HEADERS` token (knownSections.ts:34-65, 30 entries) MUST appear here — the gate asserts coverage, so a new parser header forces a new row.
+
+```ts
+// tests/parser/mutation/expectedDomains.ts
+import type { Domain } from "./classify";
+
+/** Hand-authored intended-domain oracle for EVERY current KNOWN_SECTION_HEADERS entry. Authored
+ *  independently of SECTION_DOMAIN_MAP (different file, hand-derived). The classifier-parity gate
+ *  asserts (a) this COVERS the live registry (new header → forced row) and (b) SECTION_DOMAIN_MAP
+ *  AGREES with it — a wrong non-`other` domain is caught by cross-mismatch, not self-reference. */
+export const EXPECTED_HEADER_DOMAINS: ReadonlyArray<readonly [string, Domain]> = [
+  ["CREW", "crew"], ["TECH", "crew"],
+  ["HOTEL", "hotel"], ["HOTELS", "hotel"], ["HOTEL RESERVATIONS", "hotel"], ["HOTEL RESERVATION", "hotel"],
+  ["HOTEL STAYS", "hotel"], ["HOTEL STAY", "hotel"],
+  ["GENERAL SESSION", "rooms"], ["BREAKOUT", "rooms"], ["BREAKOUTS", "rooms"], ["ADDITIONAL ROOM", "rooms"],
+  ["LUNCH ROOM", "rooms"], ["LUNCH SESSION", "rooms"], ["FOYER", "rooms"],
+  ["EVENT DETAILS", "event_details"], ["DETAILS", "event_details"], ["GS DETAILS", "event_details"],
+  ["TRANSPORTATION", "transportation"], ["DATES", "dates"], ["AGENDA", "agenda"], ["AGENDA LINK", "agenda"],
+  ["VENUE", "venue"], ["VENUES", "venue"], ["DRESS", "dress"], ["IN HOUSE AV", "contacts"],
+  ["CLIENT", "client"], ["PULL SHEET", "pull_sheet"], ["COI", "documents"], ["DOCUMENT FOLDER LINK", "documents"],
+];
+```
+
 - [ ] **Step 4: Run it — verify it passes**
 
 Run: `pnpm vitest run tests/parser/mutation/classify.test.ts`
 Expected: PASS.
 
+- [ ] **Step 4b: Prove the domain-agreement gate is LIVE — RED via injected classifier drift (TDD red phase, plan-R21)**
+
+The coverage assertion alone doesn't prove the gate independently pins the domain (a wrong-but-non-`other` map would still pass coverage). Prove the AGREEMENT gate catches a domain misattribution:
+  1. Temporarily edit `tests/parser/mutation/classify.ts` — change `SECTION_DOMAIN_MAP.DRESS` from `"dress"` to `"venue"` (a wrong but non-`other` domain; coverage still green). Do NOT touch `expectedDomains.ts`.
+  2. Run: `pnpm vitest run tests/parser/mutation/classify.test.ts -t "SECTION_DOMAIN_MAP agrees"`. Expected: FAIL (oracle says `dress`, map says `venue`).
+  3. Revert; confirm `git diff --stat tests/parser/mutation/classify.ts` shows no change.
+
 - [ ] **Step 5: Commit**
 
 ```bash
-git add tests/parser/mutation/classify.ts tests/parser/mutation/classify.test.ts
-git commit --no-verify -m "test(parser): prefix-resolving classifier + SECTION_DOMAIN_MAP parity + lockstep table"
+git add tests/parser/mutation/classify.ts tests/parser/mutation/classify.test.ts tests/parser/mutation/expectedDomains.ts
+git commit --no-verify -m "test(parser): prefix-resolving classifier + SECTION_DOMAIN_MAP parity + external domain oracle"
 ```
 
 ---
@@ -1728,14 +1747,15 @@ Measured corpus: <count> mutants, <ms> ms full parse (plan-R17 runtime budget)."
 - Modify: `tests/parser/mutationHarness.test.ts` (add gate blocks)
 
 **Interfaces:**
-- Consumes: `SECTION_DOMAIN_MAP`, `resolveHeader`, `EXPECTED_HEADER_DOMAINS` (`./mutation/classify`), `OPERATORS`, `auditSites` (`./mutation/applicabilityAudit`), `KNOWN_SECTION_HEADERS`/`PREFIX_SECTION_FAMILIES`/`normalizeHeader` (`@/lib/parser/knownSections`).
+- Consumes: `SECTION_DOMAIN_MAP`, `resolveHeader` (`./mutation/classify`), `EXPECTED_HEADER_DOMAINS` (`./mutation/expectedDomains`), `OPERATORS` (`./mutation/operators`), `auditSites` (`./mutation/applicabilityAudit`), `KNOWN_SECTION_HEADERS`/`PREFIX_SECTION_FAMILIES`/`normalizeHeader` (`@/lib/parser/knownSections`).
 
 - [ ] **Step 1: Add the gate tests**
 
 ```ts
 // append to tests/parser/mutationHarness.test.ts
 import { KNOWN_SECTION_HEADERS, PREFIX_SECTION_FAMILIES, normalizeHeader } from "@/lib/parser/knownSections";
-import { SECTION_DOMAIN_MAP, resolveHeader, EXPECTED_HEADER_DOMAINS } from "./mutation/classify";
+import { SECTION_DOMAIN_MAP, resolveHeader } from "./mutation/classify";
+import { EXPECTED_HEADER_DOMAINS } from "./mutation/expectedDomains";
 import { OPERATORS as OPS } from "./mutation/operators";
 import { auditSites } from "./mutation/applicabilityAudit";
 
@@ -2177,6 +2197,18 @@ Expected: PASS. A shared-chokepoint change is not expected here (test-only), but
 ```bash
 git add -A && git commit --no-verify -m "chore(parser): format + final verification for mutation harness"
 ```
+
+- [ ] **Step 6: Verify the NEW x-audits job actually runs GREEN in real GitHub Actions (plan-R21, memory `feedback_ci_local_passes_ci_fails`)**
+
+Local + topology-meta green is necessary but NOT sufficient for a NEW CI surface — YAML shape, `pnpm/action-setup` version, cache/install, `timeout-minutes`, and artifact upload can fail only in Actions. After the PR is open (or via `workflow_dispatch`, which `x-audits.yml` enables), confirm the `mutation-harness` job concluded **success** on the real run — do NOT rely on the unit-suite check alone (the harness is EXCLUDED from unit-suite):
+
+```bash
+gh workflow run x-audits.yml --ref "$(git branch --show-current)"   # or let the PR trigger it
+gh run list --workflow=x-audits.yml --branch "$(git branch --show-current)" --limit 1
+# then, for the run id R:
+gh run view <R> --json jobs -q '.jobs[] | select(.name=="mutation-harness") | {name, conclusion}'
+```
+Expected: `{"name":"mutation-harness","conclusion":"success"}`. Treat this as a CLOSE-OUT gate distinct from local-green (do not mark the milestone done until this passes). If it fails on an environment gap only Actions reveals, fix the workflow and re-run before merge.
 
 ---
 
