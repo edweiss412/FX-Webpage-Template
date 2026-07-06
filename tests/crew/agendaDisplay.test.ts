@@ -4,6 +4,7 @@ import {
   formatScheduleWindow,
   todayShowAnchors,
   scheduleEntriesForViewer,
+  showStartDisplayEntry,
 } from "@/lib/crew/agendaDisplay";
 import type { AgendaEntry } from "@/lib/parser/types";
 
@@ -85,5 +86,45 @@ describe("scheduleEntriesForViewer (load-out transport gate — D12)", () => {
 
   it("undefined entries → empty array (no throw)", () => {
     expect(scheduleEntriesForViewer(undefined, { transportVisible: false })).toEqual([]);
+  });
+});
+
+describe("showStartDisplayEntry (bare-showStart Show day → 'Show Start' grid entry)", () => {
+  it("Show phase, bare showStart, no entries, no window → Show Start entry", () => {
+    expect(
+      showStartDisplayEntry({ showStart: "8:00 AM", window: null, entries: [] }, "Show"),
+    ).toEqual({ start: "8:00 AM", title: "Show Start" });
+  });
+
+  it("window day → null (meta path owns it)", () => {
+    expect(
+      showStartDisplayEntry(
+        { showStart: null, window: { start: "9:00 AM", end: "5:00 PM" }, entries: [] },
+        "Show",
+      ),
+    ).toBeNull();
+  });
+
+  it("sentinel showStart 'TBD' → null (guarded)", () => {
+    expect(showStartDisplayEntry({ showStart: "TBD", window: null, entries: [] }, "Show")).toBeNull();
+  });
+
+  it("null showStart → null", () => {
+    expect(showStartDisplayEntry({ showStart: null, window: null, entries: [] }, "Show")).toBeNull();
+  });
+
+  it("raw entry present (viewer-hidden load-out) → null (#169 raw-entries gate)", () => {
+    const entries: AgendaEntry[] = [{ start: "6:00 PM", title: "Load Out", kind: "loadout" }];
+    expect(
+      showStartDisplayEntry({ showStart: "8:00 AM", window: null, entries }, "Show"),
+    ).toBeNull();
+  });
+
+  it("non-Show phase with bare showStart → null (phase gate)", () => {
+    expect(showStartDisplayEntry({ showStart: "8:00 AM", window: null, entries: [] }, "Set")).toBeNull();
+    expect(
+      showStartDisplayEntry({ showStart: "8:00 AM", window: null, entries: [] }, "Travel In"),
+    ).toBeNull();
+    expect(showStartDisplayEntry({ showStart: "8:00 AM", window: null, entries: [] }, null)).toBeNull();
   });
 });

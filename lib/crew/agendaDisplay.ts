@@ -8,7 +8,13 @@
  * "what are the show days" — duplicating either predicate would let the
  * Today/Schedule privacy contracts drift apart.
  */
-import type { AgendaEntry, DateRestriction, ShowAnchor, ShowRow } from "@/lib/parser/types";
+import type {
+  AgendaEntry,
+  DateRestriction,
+  ScheduleDay,
+  ShowAnchor,
+  ShowRow,
+} from "@/lib/parser/types";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { stripAgendaUrls } from "@/lib/visibility/agendaUrls";
 
@@ -64,6 +70,26 @@ export function scheduleEntriesForViewer(
 }
 
 export type SchedulePhase = "Travel In" | "Set" | "Show" | "Travel Out";
+
+/**
+ * Renderer-only synthesis of the display "Show Start" run-of-show entry for a
+ * bare-showStart SHOW day: phase === "Show", zero RAW parsed entries, no window,
+ * a real (non-sentinel) showStart. The parser's ScheduleDay.showStart is NEVER
+ * mutated (resolveKeyTimes anchor depends on it). Returns null for every other
+ * case — a non-Show phase day (a Set/travel date colliding with a show date must
+ * not be relabeled), any raw entry (incl. a viewer-hidden load-out, preserving the
+ * #169 contract), a window day, an end-only day, or a sentinel/URL showStart.
+ */
+export function showStartDisplayEntry(
+  day: Pick<ScheduleDay, "showStart" | "window" | "entries">,
+  phase: SchedulePhase | null,
+): AgendaEntry | null {
+  if (phase !== "Show") return null; // only Show days get a "Show Start"
+  if (day.entries.length > 0) return null; // any RAW entry (even viewer-hidden) → not bare
+  if (day.window != null) return null; // window day → meta path
+  const start = resolveOptionalField(day.showStart ?? undefined); // sentinel/URL guard
+  return start == null ? null : { start, title: "Show Start" };
+}
 
 export type AggregateDay = {
   /** ISO 'YYYY-MM-DD'. */
