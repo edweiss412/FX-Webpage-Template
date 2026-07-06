@@ -47,6 +47,32 @@ describe("parseStageClause (spec §3.2)", () => {
     }
     expect(checked).toBe(325); // sum_{k=1}^{5} C(5,k)*k! — every subset × every ordering
   });
+  it("R5: a TYPO'd/unknown stage before the full-4 phrase fails open, not the 4-subset (Showw / …)", () => {
+    // `Showw` is a garbled `Show`; the full-4 fast-path must not silently return the 4 stages and
+    // hide the intended Show — the unknown-alongside-stages clause fails open (UNKNOWN_STAGE_RESTRICTION).
+    const r = parseStageClause("Showw / Load In / Set / Strike / Load Out ONLY");
+    expect(r.stages).toEqual([]);
+    expect(r.unrecognizedRestriction).toBe(true);
+  });
+  it("STRUCTURAL: an UNKNOWN/typo token alongside stages ALWAYS fails open (prefix/tail/middle) — R5", () => {
+    // Extends the permutation invariant to unknown tokens (the anti-tautology gap): an unknown
+    // non-role token adjacent to real stages must NEVER yield a partial restriction, regardless of
+    // whether it sits before the full-4 suffix (prefix), after the ONLY marker (tail), or between
+    // stages (general path). All three must fail open with unrecognizedRestriction.
+    const UNKNOWN = ["Showw", "Sett", "Strk", "Rehearsal", "Xyz"];
+    const FULL4 = "Load In / Set / Strike / Load Out";
+    for (const u of UNKNOWN) {
+      for (const cell of [
+        `${u} / ${FULL4} ONLY`, // prefix, before the unanchored full-4 match
+        `${FULL4} ONLY / ${u}`, // tail, after the ONLY marker
+        `Set / ${u} / Strike ONLY`, // middle, general grammar path
+      ]) {
+        const r = parseStageClause(cell);
+        expect(r.stages, `cell='${cell}' must fail open`).toEqual([]);
+        expect(r.unrecognizedRestriction, `cell='${cell}'`).toBe(true);
+      }
+    }
+  });
   it("EXPLICIT keeps a role token and routes it to cleaned (R22)", () => {
     const r = parseStageClause("A1 / Set / Strike ONLY");
     expect(r.stages).toEqual(["Set", "Strike"]);

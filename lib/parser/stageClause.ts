@@ -62,47 +62,30 @@ function stageOf(upper: string): WorkPhase | null {
 }
 
 /**
- * True iff the post-ONLY-marker `tail` carries stage-relevant content that the grammar
- * would otherwise silently DROP (whole-diff Codex R2 [high]): a SECOND ONLY marker, a
- * recognized STAGE token, or an unknown NON-role token. Applied to BOTH the full-4 carve-out
- * and the general grammar path so a dropped-tail stage can never narrow the restriction and
- * hide work days (spec §9 fail-open). A CLEAN role token in the tail (`… ONLY - LEAD`) is not
- * dropped content — it routes to the role path via `cleaned` — so it is NOT malformed; the
- * per-token test uses the SAME `ROLE_NORMALIZATIONS` standard as the body classification.
+ * True iff a `segment` OUTSIDE the full-4 phrase (its leading PREFIX or trailing TAIL) carries
+ * content the full-4 fast-path would silently DROP: a SECOND ONLY marker, a recognized STAGE
+ * token, or an UNKNOWN NON-role token. Symmetric for prefix and tail (whole-diff Codex R2/R4/R5)
+ * so the unanchored `FULL_STAGE_ONLY_PATTERN` can never narrow the restriction and HIDE work days
+ * (spec §9 fail-open):
+ *   - a dropped STAGE (`Show / … ONLY`, `… ONLY / Strike`) → skip fast-path → the general grammar
+ *     parses ALL present stages explicitly;
+ *   - an UNKNOWN token alongside the 4 stages (`Showw / … ONLY` — a garbled `Show`, R5) → skip
+ *     fast-path → the general grammar marks it MALFORMED and fails open with UNKNOWN_STAGE_RESTRICTION,
+ *     rather than silently assuming a valid 4-stage restriction and hiding the intended 5th stage.
+ * A CLEAN role token (`… ONLY - LEAD`, `A1 - … ONLY`) is NOT dropped content — it routes to the
+ * role path via `cleaned` — so it does NOT trigger a skip; the per-token test uses the SAME
+ * `ROLE_NORMALIZATIONS` standard as the general body classification, keeping the two paths
+ * consistent (the general grammar already treats stage+unknown as malformed→fail-open).
  */
-function tailDropsStageContent(tail: string): boolean {
-  if (STRICT_ONLY_MARKER_RE.test(tail) || FULL_STAGE_ONLY_PATTERN.test(tail)) return true;
-  for (const raw of tail.split(/[/\-]/)) {
+function dropsStageContent(segment: string): boolean {
+  if (STRICT_ONLY_MARKER_RE.test(segment) || FULL_STAGE_ONLY_PATTERN.test(segment)) return true;
+  for (const raw of segment.split(/[/\-]/)) {
     const tt = raw.trim();
     if (!tt) continue;
     const up = tt.toUpperCase();
     if (stageOf(up) || !ROLE_NORMALIZATIONS[up]) return true;
   }
   return false;
-}
-
-/** Word-boundary matcher for every stage token (`LOAD IN`/`LOAD OUT` are multi-word). */
-const STAGE_TOKEN_RE = new RegExp(
-  `\\b(?:${STAGE_RESTRICTION_VOCAB.map((v) => v.replace(/ /g, "\\s+")).join("|")})\\b`,
-  "i",
-);
-
-/**
- * True iff the `prefix` BEFORE the unanchored full-4 match carries stage content the fast-path
- * would silently DROP (whole-diff Codex R4 [high]). `FULL_STAGE_ONLY_PATTERN` is UNANCHORED, so
- * `Show / Load In / Set / Strike / Load Out ONLY` matches the `Load In…Load Out ONLY` SUFFIX and
- * ignores the leading `Show /`, returning the 4-stage restriction and HIDING pure-Show days. When
- * the prefix holds a STAGE token or an ONLY marker, the full-4 fast-path is wrong: skip it and let
- * the general grammar parse ALL present stages explicitly (or fail open on a lenient star). A role/
- * unknown prefix token (`A1 - …`, `Foo / …`) is NOT dropped stage content — it routes to the role
- * path via `cleaned` and the 4 stages that ARE named stay valid — so only stages/ONLY are flagged.
- */
-function prefixDropsStageContent(prefix: string): boolean {
-  return (
-    STRICT_ONLY_MARKER_RE.test(prefix) ||
-    FULL_STAGE_ONLY_PATTERN.test(prefix) ||
-    STAGE_TOKEN_RE.test(prefix)
-  );
 }
 
 /**
@@ -116,7 +99,7 @@ export function parseStageClause(roleCell: string): StageClause {
   //    live `FULL_STAGE_ONLY_PATTERN` (UNANCHORED, `ONLY\*{0,3}`) accepts ANY trailing
   //    star count. `cleaned` PRESERVES the ENTIRE prefix + tail (excise only the span).
   const full4 = FULL_STAGE_ONLY_PATTERN.exec(roleCell);
-  if (full4 && !prefixDropsStageContent(roleCell.slice(0, full4.index))) {
+  if (full4 && !dropsStageContent(roleCell.slice(0, full4.index))) {
     const prefix = roleCell.slice(0, full4.index);
     const tail = roleCell.slice(full4.index + full4[0].length);
     // `FULL_STAGE_ONLY_PATTERN` is `ONLY\*{0,3}`, so `ONLY****` leaves a LEFTOVER star run in the
@@ -124,7 +107,7 @@ export function parseStageClause(roleCell: string): StageClause {
     // 4-stage restriction for ANY star count (R17 f1 backward-compat). Strip a leading star-run
     // before the tail check so the carve-out does NOT regress to whole-show on `ONLY****` (R3),
     // while a real dropped stage (`… ONLY**** / Show`) still fails open. `cleaned` stays verbatim.
-    const malformed = tailDropsStageContent(tail.replace(/^\s*\*+/, ""));
+    const malformed = dropsStageContent(tail.replace(/^\s*\*+/, ""));
     return {
       stages: malformed ? [] : ["Load In", "Set", "Strike", "Load Out"],
       cleaned: prefix + tail,
@@ -187,7 +170,7 @@ export function parseStageClause(roleCell: string): StageClause {
   // Explicit (≥1 STAGE, 0 UNKNOWN, clean tail) OR Malformed (body UNKNOWN, or the tail carries
   // dropped stage content — a second ONLY / a stage token / an unknown non-role token, R2).
   // Both preserve the non-stage tokens (roles for explicit; roles + unknown/typo for malformed).
-  const malformed = hasUnknown || tailDropsStageContent(tail);
+  const malformed = hasUnknown || dropsStageContent(tail);
   const core = nonStageTokens.join(" / ");
   return {
     stages: malformed ? [] : stages,
