@@ -1,4 +1,4 @@
--- S1 (docs/superpowers/specs/2026-07-03-admin-alert-auto-resolution.md#s1) — resolve
+-- S1 (docs/superpowers/specs/alerts/2026-07-03-admin-alert-auto-resolution.md#s1) — resolve
 -- SHOW_UNPUBLISHED alerts structurally via a row-level trigger on the `published`
 -- false->true transition, instead of hooking every writer individually. Covers
 -- publish_show (_publish_show_core), the onboarding finalize-cas flip, the validation

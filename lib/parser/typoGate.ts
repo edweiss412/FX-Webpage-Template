@@ -11,7 +11,7 @@ export type GateOpts = {
  * Confidence-gated closed-vocab correction. Exact-first; else nearest within
  * maxDistance subject to the gate. Returns {match, corrected:false} on exact,
  * {match, corrected:true} on a gated near-miss, null otherwise. See spec §2 of
- * docs/superpowers/specs/2026-06-27-parser-typo-tolerance-design.md.
+ * docs/superpowers/specs/parser/2026-06-27-parser-typo-tolerance-design.md.
  */
 export function gatedVocabCorrect(
   token: string,

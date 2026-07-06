@@ -33,7 +33,7 @@ const OPS_FIELD_ALIASES = inScopeAliases("ops.")
  * PR-A surfaces that get a gated fuzzy pass; `excluded` entries name the cross-vocab /
  * do-not-fuzz sets the collision meta-test (tests/parser/typoVocabCollision.test.ts)
  * guards against. Single source of truth for the meta-test + the gate's exclusion sets.
- * See spec §3 of docs/superpowers/specs/2026-06-27-parser-typo-tolerance-design.md.
+ * See spec §3 of docs/superpowers/specs/parser/2026-06-27-parser-typo-tolerance-design.md.
  */
 export const TYPO_VOCABS: readonly VocabEntry[] = [
   {

@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { afterAll, describe, expect, test } from "vitest";
 
-// S1 (docs/superpowers/specs/2026-07-03-admin-alert-auto-resolution.md#s1). Proves the
+// S1 (docs/superpowers/specs/alerts/2026-07-03-admin-alert-auto-resolution.md#s1). Proves the
 // `published` false->true row trigger resolves open SHOW_UNPUBLISHED alerts no matter which
 // writer performs the flip, plus the one-time data repair for alerts stranded before the
 // trigger existed. `runPsql` pattern from tests/db/b2-lifecycle-rpc-meta.test.ts:1-16.

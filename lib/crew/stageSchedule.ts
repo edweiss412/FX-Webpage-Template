@@ -4,7 +4,7 @@
  * "- Load In / Set / Strike / Load Out ONLY***") sees only the days on which they
  * work a phase they're assigned to. Applied once at the getShowForViewer
  * projection chokepoint; all downstream `dateRestriction` consumers narrow with
- * no edit. See docs/superpowers/specs/2026-07-03-stage-filtered-schedule.md.
+ * no edit. See docs/superpowers/specs/schedule/2026-07-03-stage-filtered-schedule.md.
  */
 import type { DateRestriction, StageRestriction, ShowRow, WorkPhase } from "@/lib/parser/types";
 import { aggregateDays, type SchedulePhase } from "@/lib/crew/agendaDisplay";

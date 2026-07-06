@@ -11,7 +11,7 @@ import {
 /**
  * Long, distinctive section headers that are safe to fuzz at fieldBand 0 (no near-miss
  * real-word/plural neighbor). Short routers (CREW/TECH/HOTEL/VENUE) + weekdays are
- * deferred (spec §4.3). See docs/superpowers/specs/2026-06-27-parser-typo-tolerance-design.md.
+ * deferred (spec §4.3). See docs/superpowers/specs/parser/2026-06-27-parser-typo-tolerance-design.md.
  */
 const LONG_SECTION_VOCAB = ["TRANSPORTATION", "EVENT DETAILS", "GS DETAILS"] as const;
 

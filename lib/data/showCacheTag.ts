@@ -9,7 +9,7 @@
  * `revalidateOnApplied(result)` POST-COMMIT (after the outermost apply
  * tx/lock resolves — NEVER inside the tx, and NEVER inside the
  * `unstable_cache` callback). See spec §4.2 / §4.3 and the write-site
- * registry at docs/superpowers/plans/2026-06-23-nav-perf-tag-caching/01-write-site-registry.md.
+ * registry at docs/superpowers/plans/nav-perf/2026-06-23-nav-perf-tag-caching/01-write-site-registry.md.
  */
 import { revalidateTag } from "next/cache";
 

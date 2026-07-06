@@ -3,7 +3,7 @@
  *
  * No Drive/network. pdfjs text-layer only (`legacy/build/pdf.mjs`, no worker, no canvas).
  * Ported from the validated prototype v5
- * (docs/superpowers/plans/2026-06-26-agenda-pdf-schedule.assets/extractor-prototype-v5.mjs),
+ * (docs/superpowers/plans/schedule/2026-06-26-agenda-pdf-schedule.assets/extractor-prototype-v5.mjs),
  * with TWO spec deltas the prototype predates:
  *   (1) §4.3.1 order-aware bare-clock inference (forward-fill) replaces the prototype's
  *       fixed-bucket meridiem rule.

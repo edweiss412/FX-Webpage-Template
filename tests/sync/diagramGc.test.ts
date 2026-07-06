@@ -199,7 +199,7 @@ describe("runDiagramGc", () => {
     expect(result.pendingPrefixesDeleted).toBe(0);
   });
 
-  // S4 (docs/superpowers/specs/2026-07-03-admin-alert-auto-resolution.md#s4). The gc run must
+  // S4 (docs/superpowers/specs/alerts/2026-07-03-admin-alert-auto-resolution.md#s4). The gc run must
   // call resolveClearedStuckAlerts immediately after emitStuckAlerts, in the same pass, so a
   // stuck alert whose underlying ledger row no longer matches the raise predicate gets cleared
   // in the same cycle it would otherwise have been re-raised. The fake tx below implements the

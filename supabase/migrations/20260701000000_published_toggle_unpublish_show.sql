@@ -1,4 +1,4 @@
--- Published toggle (spec docs/superpowers/specs/2026-07-01-published-toggle.md §3.1).
+-- Published toggle (spec docs/superpowers/specs/admin/2026-07-01-published-toggle.md §3.1).
 -- Pure unpublish: published=false + undo-token pair cleared. Explicitly ABSENT (spec D1):
 -- archived/archived_at, picker_epoch bump, share-token rotation, scratch deletes.
 -- All DDL is create-or-replace / naturally idempotent — safe to re-apply.

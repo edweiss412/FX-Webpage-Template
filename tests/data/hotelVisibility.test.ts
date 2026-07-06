@@ -1,7 +1,7 @@
 /**
  * Tests for the per-viewer hotel-visibility predicate `hotelVisibleToViewer`, the
  * extracted helper that `getShowForViewer` uses to filter `allHotels` for a crew
- * viewer. Spec: docs/superpowers/specs/2026-06-26-hotel-viewer-name-match.md §3.2/§4.2.
+ * viewer. Spec: docs/superpowers/specs/parser/2026-06-26-hotel-viewer-name-match.md §3.2/§4.2.
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
