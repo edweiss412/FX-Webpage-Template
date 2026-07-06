@@ -84,7 +84,7 @@ A change of meaning is acceptable *if announced*. The six audit-named operators:
 
 1. **`header-typo`** — apply a single Damerau edit (adjacent-char transposition) to a recognized section-header token in a `| HEADER | … |` row (CREW / TECH / HOTEL / VENUE / DATES / TRANSPORTATION / AGENDA / GEAR / etc.). The transposed token MUST NOT itself be a valid header (guard against accidentally producing a real header). Catches finding #5 (short headers have no typo tolerance). Site = each header-row line.
 2. **`ref-sub`** — replace one non-empty table body-cell value with the literal `#REF!` (present in 3/7 live shows per the grounding audit). Site = each non-empty body cell (capped).
-3. **`unicode-inject`** — insert a zero-width non-joiner (U+200C) into the interior of one non-empty cell value (fintech's live ZWNJ shape). Site = each non-empty body cell (capped).
+3. **`unicode-inject`** — insert a zero-width non-joiner (U+200C) into the interior of one non-empty **data-row** cell value (fintech's live ZWNJ shape). **Applicable only to cells with ≥2 Unicode scalar values** (a 1-char cell has no interior insertion point — Codex R14 HIGH), so the operator can never no-op after eligibility. Site = each qualifying data-row cell (capped).
 4. **`column-shift`** — prepend an empty leading column (`| x |` → `|  | x |`) to every row of **one logical section's row span** (NOT the whole physical pipe run) — the East Coast column-shifted outlier applied locally. Scoping to a single logical section keeps each `column-shift` mutant owned by exactly one domain, so in a multi-section run (DATES/CREW/DRESS) the CREW section gets its own `column-shift` site credited to `crew`, never absorbed into `dates` (Codex R11 HIGH). **Applicable only when the section contains ≥1 data row** (Codex R13 HIGH) — a header/alignment/spacer-only section is NOT column-shift-eligible, so the floor cannot be satisfied by shifting pure delimiter/structure material. The emitted site records the affected **data-row count** (must be ≥1); the shift still spans the whole section for realism, but eligibility requires real data. Site = each logical section with ≥1 data row.
 5. **`blank-row`** — two sub-variants: **`blank-row:inject`** inserts a blank line between two body rows of a logical section (spacer fuse/split, finding #10); **`blank-row:remove`** deletes an existing blank separator between two pipe runs. Site = each interior body-row gap (intra-section) / each inter-run blank (boundary).
 6. **`merged-cell`** — delete one interior pipe of a body row with ≥3 cells, fusing two adjacent cells (how a merged cell exports). Site = each ≥3-cell body row.
@@ -134,15 +134,17 @@ These pin the audit's §2 "credit where due" invariants. A cosmetic edit must be
 - **Applicability is per-operator, and the floor is scoped to it (Codex R5 HIGH).** An operator's applicability is *narrower* than domain-presence: `merged-cell` needs a body row with ≥3 cells, `blank-row:inject` needs a block with ≥2 body rows, `header-typo` needs a recognizable header token. A risk-critical domain can be present yet have **zero applicable sites** for a given operator (a two-column `HOTEL` table has no ≥3-cell row). A floor phrased "every present domain gets a mutant for **every** operator" is therefore **unsatisfiable** and would force the gate to be weakened ad hoc. The floor is instead defined over **operator-applicable** domains only:
   - **Applicability matrix** — each operator declares the site shape it needs; a domain is **floor-eligible for operator O** iff ≥1 O-applicable site has that domain in `domains(site)` (§ segmentation):
 
-    | operator | applicable site shape (data rows only — excl. header / alignment `:---:` / spacer, per Row taxonomy) |
-    |---|---|
-    | `header-typo` | a recognized section-header token in a `\| HEADER \| … \|` row |
-    | `ref-sub` | a non-empty **data-row** cell |
-    | `unicode-inject` | a non-empty **data-row** cell |
-    | `column-shift` | a logical section with **≥1 data row** — shifts that section's rows only |
-    | `blank-row:inject` | a logical section with ≥2 **data rows** (an interior data-row gap) |
-    | `blank-row:remove` | an existing blank line between two pipe runs |
-    | `merged-cell` | a **data row** with ≥3 cells (≥2 interior pipes) |
+    The **data-row-only** exclusion (excl. header / alignment `:---:` / spacer rows, per Row taxonomy) applies to `ref-sub`, `unicode-inject`, `merged-cell`, `blank-row:inject`, and `column-shift`. **`header-typo` is the sole header-row operator** — it deliberately targets section-header rows and is NOT subject to the data-row exclusion (Codex R14 MEDIUM):
+
+    | operator | row class | applicable site shape |
+    |---|---|---|
+    | `header-typo` | **header row** | a recognized section-header token in a `\| HEADER \| … \|` row |
+    | `ref-sub` | data row | a non-empty **data-row** cell |
+    | `unicode-inject` | data row | a non-empty **data-row** cell with **≥2 Unicode scalar values** (an interior insertion point exists — Codex R14 HIGH) |
+    | `column-shift` | data row | a logical section with **≥1 data row** — shifts that section's rows only |
+    | `blank-row:inject` | data row | a logical section with ≥2 **data rows** (an interior data-row gap) |
+    | `blank-row:remove` | (boundary) | an existing blank line between two pipe runs |
+    | `merged-cell` | data row | a **data row** with ≥3 cells (≥2 interior pipes) |
 
   - **`domains(site)` — one uniform helper covering intra-section AND boundary sites (Codex R7 HIGH).** To avoid "in a section classified D" language silently excluding the boundary operator, eligibility and reservation are defined over a single per-site domain function: `domains(site)` = `{ classifySection(logical section of the site's row) }` for an intra-section site, and `domainSet` = `{ classifySection(last section of run i), classifySection(first section of run i+1) }` for a `blank-row:remove` boundary site. Every rule below reads `domains(site)`, never "the section", so `blank-row:remove` is a first-class floor participant.
   - `floorEligible(O) = { D ∈ risk-critical : ∃ O-applicable site s with D ∈ domains(s) }`.
