@@ -872,6 +872,18 @@ export const SPEC_CODES = {
     "followUp": "Doug → optional Report",
     "helpfulContext": "This looks like a PULL SHEET, but the columns aren't laid out the way we expect, so crew see the original text instead of a clean packing list. Let us know if you'd like us to support this layout.",
   },
+  "PULL_SHEET_ON_ARCHIVED_TAB": {
+    "crewFacing": null,
+    "dougFacing": "A pull sheet was found on an archived tab ('{tab}') and left out. If it's this show's gear, include it in review; otherwise ignore.",
+    "followUp": "Doug → include or ignore",
+    "helpfulContext": "We spotted a PULL SHEET on a tab that looks archived — an older or renamed tab, not the sheet's current body — so we left it out of the parse to avoid mixing old gear into the current pull list. If that tab really is this show's gear, include it from the review panel and we'll fold it in; otherwise you can ignore this and nothing changes.",
+  },
+  "PULL_SHEET_OVERRIDE_CONTENT_CHANGED": {
+    "crewFacing": null,
+    "dougFacing": "An included archived-tab pull sheet changed and was set back to skipped for safety; admin must re-confirm.",
+    "followUp": "Doug → re-confirm",
+    "helpfulContext": "You'd previously included an archived-tab pull sheet in this show's gear, but its contents have changed since you accepted it. To avoid silently publishing gear you didn't review, we set that tab back to skipped and left the current pull sheet untouched. Re-open the review panel, check the updated tab, and include it again if it's still correct.",
+  },
   "PULL_SHEET_PARSE_PARTIAL": {
     "crewFacing": null,
     "dougFacing": "We couldn't fully read _<N>_ row(s) on _<sheet-name>_'s PULL SHEET, so those rows show their original text. Let us know if you'd like us to handle that format.",

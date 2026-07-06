@@ -35,16 +35,6 @@ import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 /** 23 — sheet-data-quality gaps counted by summarizeDataGaps (from GAP_CLASSES). */
 const DATA_GAP_CODES = new Set<string>(GAP_CLASSES.map((g) => g.code));
 
-/**
- * Transitional (Tasks 4-6): PULL_SHEET_ON_ARCHIVED_TAB ships its gap class + label
- * here in Task 4, its §12.4 catalog row in Task 5, and its warn-emission literal in
- * lib/sync in Task 6. Until the catalog row lands it is NOT in CATALOG_CODES, so the
- * literal-∩-catalog source scan (Layer 2) cannot see it yet — exempt it from the
- * "phantom gap code" check for now. The self-cleaning guard below FAILS once the
- * code becomes cataloged (Task 5), forcing removal of this exemption then.
- */
-const PENDING_CATALOG_LOCKSTEP = new Set<string>(["PULL_SHEET_ON_ARCHIVED_TAB"]);
-
 /** 7 — warn-severity but semantically benign (parser fixed/adjusted; data landed). */
 const BENIGN_WARN_CODES = new Set<string>([
   "STAGE_WORD_AUTOCORRECTED",
@@ -238,22 +228,8 @@ describe("data-gap class completeness (drift guard)", () => {
 
   it("Layer 2 — every counted gap code actually appears as a literal (no phantom gap codes)", () => {
     const collected = new Set(collectedRealCodes);
-    // PENDING_CATALOG_LOCKSTEP codes are mid-landing (catalog row + emission arrive in a
-    // later task); the literal-∩-catalog scan can't see them until then. Exempt transitionally.
-    const phantom = [...DATA_GAP_CODES].filter(
-      (c) => !collected.has(c) && !PENDING_CATALOG_LOCKSTEP.has(c),
-    );
+    const phantom = [...DATA_GAP_CODES].filter((c) => !collected.has(c));
     expect(phantom, `gap codes not found as literals in source: ${phantom.join(", ")}`).toEqual([]);
-  });
-
-  it("transitional — PENDING_CATALOG_LOCKSTEP codes are NOT yet cataloged (remove once they are)", () => {
-    // Self-cleaning guard: the moment Task 5 adds one of these codes to MESSAGE_CATALOG,
-    // this fails — forcing the exemption's removal so the phantom check regains full teeth.
-    const cataloged = [...PENDING_CATALOG_LOCKSTEP].filter((c) => CATALOG_CODES.has(c));
-    expect(
-      cataloged,
-      `now cataloged — delete from PENDING_CATALOG_LOCKSTEP so Layer 2 covers it: ${cataloged.join(", ")}`,
-    ).toEqual([]);
   });
 
   it("NEGATIVE — the guard bites: a catalog code in neither partition nor ignore-list is flagged", () => {
