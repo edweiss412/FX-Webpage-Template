@@ -220,7 +220,7 @@ Create `tests/sync/firstSeenPendingIngestion.test.ts`. Use the existing phase1 t
 
 ```ts
 import { describe, expect, it } from "vitest";
-import { resolveIngestionCopy } from "@/lib/admin/needsAttention";
+import { buildNeedsAttention, resolveIngestionCopy } from "@/lib/admin/needsAttention";
 // import { runPhase1 } from "@/lib/sync/phase1";  // + the existing fake tx builder
 
 describe("Unit B — first-seen hard_fail surfaces via live pending_ingestions", () => {
@@ -238,6 +238,18 @@ describe("Unit B — first-seen hard_fail surfaces via live pending_ingestions",
     expect(copy.length).toBeGreaterThan(0);
   });
 
+  it("the live row reaches the Needs-Attention inbox as a pending_ingestion item + count (plan-review R4)", () => {
+    // Feed the recorded live row (wizardSessionId === null) through buildNeedsAttention as an
+    // `ingestion` entry (mirror lib/admin/needsAttention.ts:282 mapping + the existing
+    // tests/admin/loadNeedsAttention.test.ts input shape). Assert:
+    //   - the output items include one { variant: "pending_ingestion", driveFileId, copy } item
+    //   - that item's copy === resolveIngestionCopy({ code, driveFileName }) (catalog-safe)
+    //   - the count/badge-visible total includes it (so the main-nav badge increments).
+    // This catches a regression where rows are still written but no longer LOADED/CLASSIFIED into
+    // the inbox — the surface Unit B's audit-#14 closure depends on. Assert against the
+    // buildNeedsAttention output object, not a rendered container (anti-tautology).
+  });
+
   it("clears the row on a subsequent successful apply (deleteLivePendingIngestion)", async () => {
     // Arrange: a fake tx recording deleteLivePendingIngestion(driveFileId).
     // Act: drive the success/apply path (or phase1 stage/success branch that calls delete).
@@ -246,7 +258,7 @@ describe("Unit B — first-seen hard_fail surfaces via live pending_ingestions",
 });
 ```
 
-> Fill the `// Act` bodies against the real `runPhase1` signature and the existing fake-tx fixture in `tests/sync/`. Derive the expected `lastErrorCode` from the fixture's actual hard-fail invariant (not hardcoded) — the value is `invariant.failedCodes[0] ?? "PARSE_HARD_FAIL"` (`phase1.ts:348`). Assert against the recorded row object + `resolveIngestionCopy` output, NOT a rendered inbox container.
+> Fill the `// Act` bodies against the real `runPhase1` signature and the existing fake-tx fixture in `tests/sync/`. Derive the expected `lastErrorCode` from the fixture's actual hard-fail invariant (not hardcoded) — the value is `invariant.failedCodes[0] ?? "PARSE_HARD_FAIL"` (`phase1.ts:348`). For the inbox assertion, use `buildNeedsAttention` (`needsAttention.ts:231`, exported) with an `ingestion`-kind entry carrying the recorded row's fields (see `tests/admin/loadNeedsAttention.test.ts` for the input shape). Assert against the recorded row object + `buildNeedsAttention` output + `resolveIngestionCopy` output, NOT a rendered inbox container.
 
 - [ ] **Step 2: Run test to verify it fails (or passes-for-the-right-reason)**
 
@@ -653,7 +665,8 @@ git commit --no-verify -m "test(messages): register RESYNC_QUALITY_REGRESSED in 
 
 **Files:**
 - Modify: `lib/sync/runScheduledCronSync.ts` (hoist `priorShow`; add `resolveQualityRegression_unlocked` + `evaluateQualityRegression_unlocked`; wire into the applied epilogue ~:3025)
-- Test: `tests/sync/qualityRegressionLifecycle.test.ts`
+- Test: `tests/sync/qualityRegressionLifecycle.test.ts` (helper-level lifecycle + DB-backed anti-storm + trigger structural)
+- Test: `tests/sync/quality-regressed-producer.test.ts` (INTEGRATION through the real applied path — plan-review R4; mirror `tests/sync/resync-shrink-held-producer.test.ts` / `parse-error-last-good-producer.test.ts`)
 
 **Interfaces:**
 - Consumes: `isQualityRegression`, `hasRecoveredToBaseline`, `summarizeDataGaps`, `DataGapsSummary` (C1); `priorParseWarningsRaw` (C2); `requireTxBoundUpsertAdminAlert` (`:2007`); `tx.queryOne`; `resolveStaleSyncProblemAlerts_unlocked` pattern.
@@ -696,10 +709,17 @@ Also assert the delivery contract (structural, no DB needed):
 //     assert admin_alerts_bell_ping_ins is `after insert … for each statement` with NO code/WHEN filter.
 //        import { readFileSync } from "node:fs";
 //        const sql = readFileSync("supabase/migrations/20260705100002_bell_realtime.sql", "utf8");
-//        const trig = sql.match(/create trigger admin_alerts_bell_ping_ins[\s\S]*?;/)?.[0] ?? "";
-//        expect(trig).toMatch(/after insert on public\.admin_alerts/);
-//        expect(trig).toMatch(/for each statement/);
-//        expect(trig).not.toMatch(/\bwhen\b/i); // no row/code filter → every insert (incl. C) pings
+//        const insTrig = sql.match(/create trigger admin_alerts_bell_ping_ins[\s\S]*?;/)?.[0] ?? "";
+//        expect(insTrig).toMatch(/after insert on public\.admin_alerts/);
+//        expect(insTrig).toMatch(/for each statement/);
+//        expect(insTrig).not.toMatch(/\bwhen\b/i); // no row/code filter → every insert (incl. C OPEN) pings
+// 10b. UPDATE-trigger coverage (plan-review R4): a materially-changed keep-open (40→80) re-upserts via
+//      the upsert_admin_alert conflict/UPDATE arm → the bell push must come from the UPDATE trigger.
+//      Assert admin_alerts_bell_ping_upd is ALSO statement-level + code-agnostic:
+//        const updTrig = sql.match(/create trigger admin_alerts_bell_ping_upd[\s\S]*?;/)?.[0] ?? "";
+//        expect(updTrig).toMatch(/after update on public\.admin_alerts/);
+//        expect(updTrig).toMatch(/for each statement/);
+//        expect(updTrig).not.toMatch(/\bwhen\b/i); // no filter → the 40→80 re-upsert pings the bell
 ```
 
 > Derive baselines from `summarizeDataGaps` of constructed warning arrays (not hardcoded totals). Build warning arrays whose `summarizeDataGaps` yields the intended class counts, so the test exercises the real summarizer.
@@ -719,12 +739,33 @@ Also assert the delivery contract (structural, no DB needed):
 //    unread again, with context.baseline STILL the 4-gap summary (preserved).
 ```
 
-This DB-backed test AND the structural ping-trigger assertion (case 10) are both required C5 commit gates — do not commit C5 without them green (run against `TEST_DATABASE_URL`).
+This DB-backed test AND the structural ping-trigger assertions (cases 10 + 10b) are both required C5 commit gates — do not commit C5 without them green (run against `TEST_DATABASE_URL`).
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 1b: Write the failing INTEGRATION test — real applied path calls the producer (plan-review R4, REQUIRED)**
 
-Run: `pnpm vitest run tests/sync/qualityRegressionLifecycle.test.ts`
-Expected: FAIL — `evaluateQualityRegression_unlocked` / `resolveQualityRegression_unlocked` not exported.
+The lifecycle tests above exercise `evaluateQualityRegression_unlocked` directly; the meta-test patterns only see the helper's upsert. Neither proves the **applied epilogue actually calls the producer with the PRE-apply `priorShow`**. An omitted/misordered epilogue call (or a post-apply re-read that reads the NEW warnings as the baseline) would leave audit #16 silent while every helper/meta test still passes. Create `tests/sync/quality-regressed-producer.test.ts`, mirroring the harness in `tests/sync/resync-shrink-held-producer.test.ts` (which drives the real `processOneFile_unlocked`/sync path with a recording tx double + `deps.upsertAdminAlert`):
+
+```ts
+// Drive the REAL applied path (processOneFile_unlocked or its manual-sync sibling harness) for an
+// EXISTING published show whose sync APPLIES:
+// 1. tx.readShowForPhase1 returns a Phase1ShowRow with priorParseWarningsRaw = a 4-UNKNOWN_FIELD warning
+//    array (baseline 4); the incoming parse has 40 UNKNOWN_FIELD warnings (current 40).
+// 2. Assert the tx-bound deps.upsertAdminAlert received { showId: <the show's id> (NOT null),
+//    code: "RESYNC_QUALITY_REGRESSED", context.baseline summarizing to 4 }.
+// 3. Baseline-is-pre-apply proof: make readShowForPhase1's raw warnings DIFFER from the applied
+//    (next) warnings; assert the alert's context.baseline reflects the PRIOR (4), not the applied (40)
+//    — i.e. the producer read priorShow BEFORE phase2 persisted the new warnings.
+// 4. First-seen skip: an auto_publish_ready / !priorShow run → assert NO RESYNC_QUALITY_REGRESSED upsert.
+// 5. Null-baseline skip: priorParseWarningsRaw = null + non-empty current → assert NO upsert.
+// Anti-tautology: assert against the recorded upsertAdminAlert call args, not a rendered surface.
+```
+
+> If `processOneFile_unlocked` is not directly exported, use the same entry the shrink-held/parse-error producer tests use (they exercise the identical locked-tx path). This test is the ONLY gate that catches an unwired/misordered epilogue call — it is a required C5 commit gate alongside the DB-backed anti-storm test.
+
+- [ ] **Step 2: Run tests to verify they fail**
+
+Run: `pnpm vitest run tests/sync/qualityRegressionLifecycle.test.ts tests/sync/quality-regressed-producer.test.ts`
+Expected: FAIL — `evaluateQualityRegression_unlocked` / `resolveQualityRegression_unlocked` not exported; producer not wired into the epilogue.
 
 - [ ] **Step 3: Implement the resolve helper + producer**
 
@@ -878,18 +919,18 @@ In the applied epilogue, AFTER `emitSuccessfulPhase2Tail` and BEFORE `resolveSta
 
 > `priorShow` is the PRE-apply snapshot (captured before `phase2 = await runPhase2_unlocked(...)`), so `priorParseWarningsRaw` is the prior last-good, NOT the just-applied warnings. `nextWarnings = pipeline.parseResult.warnings` is this sync's parse (what phase2 persisted). `sheetName` uses the CURRENT parse title (the alert is about "the latest edit"). First-seen (`priorShow === null`) → producer skips. C is NOT in `SYNC_PROBLEM_CODES`, so the `:3026` sweep never touches it.
 
-- [ ] **Step 5: Run tests (incl. the MANDATORY DB-backed anti-storm proof) + typecheck**
+- [ ] **Step 5: Run tests (incl. MANDATORY DB-backed anti-storm + real-path integration) + typecheck**
 
-Run: `TEST_DATABASE_URL=<local> pnpm vitest run tests/sync/qualityRegressionLifecycle.test.ts && pnpm typecheck`
-Expected: PASS — INCLUDING the DB-backed anti-storm/read-state cases (a-d) and the code-agnostic ping-trigger structural case (10). These two are required gates; do NOT commit C5 with them skipped. Then run the C4 meta-tests now that the producer + resolve helper exist on disk:
+Run: `TEST_DATABASE_URL=<local> pnpm vitest run tests/sync/qualityRegressionLifecycle.test.ts tests/sync/quality-regressed-producer.test.ts && pnpm typecheck`
+Expected: PASS — INCLUDING (i) the DB-backed anti-storm/read-state cases (a-d), (ii) the code-agnostic ping-trigger structural cases (10 + 10b: INSERT and UPDATE triggers), and (iii) the integration test proving the applied epilogue calls the producer with the pre-apply `priorShow`. All three are required gates; do NOT commit C5 with any skipped. Then run the C4 meta-tests now that the producer + resolve helper exist on disk:
 Run: `pnpm vitest run tests/messages/_metaAdminAlertCatalog.test.ts tests/messages/_metaAlertActionsContract.test.ts`
 Expected: PASS (raise-site + lifecycle resolve-site patterns match; the `RAISE_SITE_PINS` show-scoped pin matches the single terminal upsert once).
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add lib/sync/runScheduledCronSync.ts tests/sync/qualityRegressionLifecycle.test.ts
-git commit --no-verify -m "feat(sync): RESYNC_QUALITY_REGRESSED producer — tx-bound raise/keep-open-noop/resolve in applied epilogue (audit #16)"
+git add lib/sync/runScheduledCronSync.ts tests/sync/qualityRegressionLifecycle.test.ts tests/sync/quality-regressed-producer.test.ts
+git commit --no-verify -m "feat(sync): RESYNC_QUALITY_REGRESSED producer — tx-bound raise/keep-open-noop/resolve in applied epilogue + real-path integration test (audit #16)"
 ```
 
 ---
