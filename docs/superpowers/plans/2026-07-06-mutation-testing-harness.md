@@ -488,8 +488,8 @@ const deepEq = (a: unknown, b: unknown): boolean => canon(a) === canon(b);
  * - object key order never affects the result.
  */
 function canon(v: unknown): string {
-  if (v === undefined) return " undef";
-  if (v === null) return " null";
+  if (v === undefined) return "__undef__";
+  if (v === null) return "__null__";
   if (typeof v !== "object") return JSON.stringify(v);
   if (Array.isArray(v)) return `[${v.map(canon).join(",")}]`;
   const o = v as Record<string, unknown>;
@@ -763,7 +763,8 @@ const refSub = (md: string): Mutant[] =>
 const unicodeInject = (md: string): Mutant[] =>
   eachDataCell(md).filter((c) => scalars(c.val) >= 2).map((c) => {
     const mid = Math.floor([...c.val].length / 2);
-    const injected = [...c.val].slice(0, mid).join("") + "‌" + [...c.val].slice(mid).join("");
+    const ZWNJ = "\u200C"; // zero-width non-joiner (fintech live shape)
+    const injected = [...c.val].slice(0, mid).join("") + ZWNJ + [...c.val].slice(mid).join("");
     return { md: withCell(md, c.line, c.cellIdx, injected), siteId: sid("unicode-inject", c.sec, c.line, c.cellIdx), bucket: "corrupting" as const, domains: dom(c.sec) };
   });
 
@@ -1019,6 +1020,19 @@ describe("independent applicability audit (Codex R9/R13)", () => {
       expect(auditSites(md).get(`${g.op}|${g.domain}`) ?? 0, `${g.fixture} ${g.op} ${g.domain}`).toBeGreaterThanOrEqual(g.min);
     }
   });
+  it("GOLDEN_INVENTORY is structurally non-vacuous (plan-R6)", () => {
+    const CORRUPT = ["header-typo", "ref-sub", "unicode-inject", "column-shift", "blank-row:inject", "blank-row:remove", "merged-cell"];
+    expect(GOLDEN_INVENTORY.length).toBeGreaterThanOrEqual(CORRUPT.length);
+    const ops = new Set(GOLDEN_INVENTORY.map((g) => g.op));
+    for (const op of CORRUPT) expect(ops.has(op), `golden inventory missing operator ${op}`).toBe(true);
+    // required representative rows (each hand-verified > 0 against the fixture markdown):
+    const has = (op: string, domain: string) => GOLDEN_INVENTORY.some((g) => g.op === op && g.domain === domain && g.min >= 1);
+    expect(has("ref-sub", "hotel"), "need a ref-sub × hotel row").toBe(true);
+    expect(has("merged-cell", "rooms"), "need a merged-cell × rooms row").toBe(true);
+    expect(has("ref-sub", "crew"), "need a ref-sub × crew row").toBe(true);
+    const domains = new Set(GOLDEN_INVENTORY.map((g) => g.domain));
+    expect(domains.size, "golden inventory too narrow").toBeGreaterThanOrEqual(3);
+  });
 });
 ```
 
@@ -1120,14 +1134,22 @@ export function auditSites(md: string): Map<string, number> {
   return m;
 }
 
-/** Hand-verified lower bounds — verify each against the fixture markdown before committing.
- * MUST include ≥1 row for header-typo AND ≥1 for blank-row:remove (plan-R1). */
+/**
+ * Hand-verified lower bounds — verify each `min` against the fixture markdown before committing
+ * (raise from the safe `1` seed to the observed count where the implementer confirms it). MUST
+ * cover every corrupting operator + the required rows the structural gate checks (plan-R1/R6):
+ * ref-sub×hotel, merged-cell×rooms, ref-sub×crew, one header-typo, one blank-row:remove.
+ */
 export const GOLDEN_INVENTORY: Array<{ fixture: string; op: string; domain: string; min: number }> = [
   { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "ref-sub", domain: "crew", min: 6 },
   { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "column-shift", domain: "crew", min: 1 },
   { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "header-typo", domain: "crew", min: 1 },
   { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "blank-row:remove", domain: "transportation", min: 1 },
-  // ADD MORE after observing auditSites output; each min hand-checked against the raw markdown.
+  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "blank-row:inject", domain: "crew", min: 1 },
+  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "unicode-inject", domain: "crew", min: 1 },
+  { fixture: "fixtures/shows/exporter-xlsx/rpas.md", op: "ref-sub", domain: "hotel", min: 1 },
+  { fixture: "fixtures/shows/exporter-xlsx/rpas.md", op: "merged-cell", domain: "rooms", min: 1 },
+  // ADD MORE after observing auditSites output; raise each min to the hand-verified count.
 ];
 ```
 
