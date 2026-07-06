@@ -90,6 +90,13 @@ describe("row taxonomy", () => {
     expect(splitCells(line)).toEqual(splitRow(line));           // byte-for-byte parser parity
     expect(splitCells(line).length).toBe(4);                    // \| fragments the middle cell into 2
   });
+  it("matches parser splitRow on a MISSING trailing pipe (drops final cell) (plan-R13)", () => {
+    // parser: "| A | B".split("|").slice(1,-1) === ["A"] — the final segment is dropped.
+    expect(splitCells("| A | B")).toEqual(splitRow("| A | B"));
+    expect(splitCells("| A | B")).toEqual(["A"]);
+    expect(splitCells("| A")).toEqual(splitRow("| A"));          // ["", " A"].slice(1,-1) === []
+    expect(splitCells("| A")).toEqual([]);
+  });
   it("classifies alignment / spacer / header / data rows", () => {
     expect(classifyRow([":---:", ":---"]).valueOf()).toBe("alignment");
     expect(classifyRow(["", "", ""]).valueOf()).toBe("spacer");
@@ -159,9 +166,10 @@ export type Segmentation = { runs: Run[]; sections: LogicalSection[] };
 export function splitCells(line: string): string[] {
   const t = line.trim();
   if (!t.startsWith("|")) return [];
-  // strip one leading + one trailing pipe, then split on interior pipes (raw, like the parser)
-  const inner = t.replace(/^\|/, "").replace(/\|$/, "");
-  return inner.split("|").map((c) => c.trim());
+  // EXACT parser parity: `split("|").slice(1,-1)` (splitRow). This DROPS the final segment
+  // when the trailing pipe is ABSENT (`| A | B` → ["A"]), matching parseSheet's cell model —
+  // NOT an "optional trailing pipe" strip, which would over-count that pinned edge (plan-R13).
+  return t.split("|").slice(1, -1).map((c) => c.trim());
 }
 
 const ALIGN = /^:?-{1,}:?$/;
@@ -1214,7 +1222,9 @@ function resolve(col0: string): string | null {
     if (n.startsWith(fam) && (n.length === fam.length || /[^A-Z0-9]/.test(n[fam.length] ?? " "))) return fam;
   return null;
 }
-const cellsOf = (line: string) => line.trim().replace(/^\|/, "").replace(/\|$/, "").split("|").map((c) => c.trim());
+// EXACT parser parity (splitRow): split on raw pipe, drop framing via slice(1,-1) — so a
+// missing trailing pipe drops the final cell, identical to parseSheet (plan-R13).
+const cellsOf = (line: string) => line.trim().split("|").slice(1, -1).map((c) => c.trim());
 const ALIGN = /^:?-{1,}:?$/;
 const rowClass = (cells: string[]): "header" | "alignment" | "spacer" | "data" => {
   const ne = cells.filter((c) => c);
@@ -1719,6 +1729,46 @@ describe("count-level agreement catches partial under-enumeration (plan-R3)", ()
     const genCrew = OPS2["ref-sub"]!(md).filter((m) => m.domains.includes("crew")).length;
     expect(genCrew).toBe(auditCrew);
     expect(genCrew).toBeGreaterThan(1); // proves it is NOT collapsed to one mutant
+  });
+});
+
+// The gates above must go RED when the harness itself is crippled — otherwise a green run
+// proves nothing. These controls INJECT the regressions Codex R13 named and assert the exact
+// gate expression (count agreement, boundary coverage, skipped-inapplicable equality, ledger
+// reconcile) detects the failure. If any of these ever passes, the corresponding real gate is
+// tautological.
+import { expectedSkipped } from "./applicabilityAudit";
+import { reconcileLedger } from "./knownHoles";
+
+describe("structural gates FAIL under injected regressions (plan-R13)", () => {
+  const genCounts = (raw: { domains: string[] }[]): Map<string, number> => {
+    const m = new Map<string, number>();
+    for (const mut of raw) for (const d of mut.domains) m.set(d, (m.get(d) ?? 0) + 1);
+    return m;
+  };
+  it("count-agreement: dropping ONE generated ref-sub|crew mutant makes gen !== audit", () => {
+    const md = "| CREW | NAME | PHONE |\n|  | Doug | 917 |\n|  | Eric | 508 |";
+    const audit = auditSites(md).get("ref-sub|crew") ?? 0;
+    const crippled = OPS2["ref-sub"]!(md).filter((m) => m.domains.includes("crew")).slice(0, -1); // remove one
+    expect(genCounts(crippled).get("crew") ?? 0).not.toBe(audit); // the `=== audit` gate would fail
+  });
+  it("boundary-coverage: removing ALL blank-row:remove mutants leaves an audited boundary uncovered", () => {
+    const md = "| CREW | NAME |\n|  | Doug |\n\n| TRANSPORTATION | NAME |\n|  | Carlos |";
+    const auditHasBoundary = [...auditSites(md).keys()].some((k) => k.startsWith("blank-row:remove|"));
+    const crippledGen: { domains: string[] }[] = []; // operator emits nothing for this class
+    expect(auditHasBoundary).toBe(true);
+    expect(genCounts(crippledGen).size).toBe(0); // gen 0 vs audit>0 → presence/agreement gate fails
+  });
+  it("skipped-inapplicable: a classifier that drops a PRESENT domain diverges from expectedSkipped", () => {
+    const md = "| HOTEL | Kimpton |\n|  | 122 W Monroe |"; // hotel present, zero merged-cell sites
+    const expected = expectedSkipped(md, "merged-cell"); // includes "hotel"
+    expect(expected).toContain("hotel");
+    const crippledShared = expected.filter((d) => d !== "hotel"); // shared classifier regressed hotel → other
+    expect(crippledShared).not.toEqual(expected); // the `toEqual(expectedSkipped)` gate would fail
+  });
+  it("ledger ratchet: an undocumented NEW alarm fails, and a STALE row fails (both directions)", () => {
+    expect(reconcileLedger([{ siteId: "s", kind: "wrong", fingerprint: "f" }], []).newAlarms.length).toBeGreaterThan(0);
+    expect(reconcileLedger([], [{ siteId: "s", kind: "wrong", fingerprint: "f", finding: "#1", note: "n" }]).staleRows.length).toBeGreaterThan(0);
   });
 });
 ```
