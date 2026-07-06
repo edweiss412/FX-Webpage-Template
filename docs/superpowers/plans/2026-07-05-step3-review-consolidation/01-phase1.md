@@ -208,7 +208,7 @@ Thread the fields the derivation + modal need, and compute the linked-show state
   sessionLinked?: boolean;
   displayState?: Step3DisplayState; // computed by deriveStep3DisplayState in fetchStep3Data
   ```
-- Consumes: `deriveStep3DisplayState` (Task 1.1), `parseTriggeredReviewItems` + `isStructurallyValidReviewItem` (`lib/staging/reviewPayloadGuards.ts`).
+- Consumes: `deriveStep3DisplayState` (Task 1.1), `parseTriggeredReviewItems` (`lib/staging/triggeredReviewItems.ts:24`), `isStructurallyValidReviewItem` (`lib/staging/reviewPayloadGuards.ts:69`) — TWO different modules.
 - **Candidate-selection contract (HIGH, plan-R1).** `buildStep3Row` takes the FULL list of `shows` candidates for the row's `drive_file_id` (not one pre-picked show), and resolves `linkedShow`/`sessionLinked` by this precedence — never a bare `created_show_id` trust:
   ```ts
   type ShowCandidate = { id: string; drive_file_id: string; published: boolean; archived: boolean; wizard_created_session_id: string | null };

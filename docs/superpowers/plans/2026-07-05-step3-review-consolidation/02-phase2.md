@@ -83,6 +83,7 @@ Add a `resolution` prop. When present, the modal renders the tiered resolution b
 
 **Files:**
 - Modify: `components/admin/wizard/Step3ReviewModal.tsx:149-161` (props) + body/footer
+- Modify: `components/admin/RescanSheetButton.tsx:34` — add `disabled?: boolean` to `RescanSheetButtonProps`; `disabled={pending || props.disabled}` at `:157`. **plan-R2 HIGH: the prop is added HERE (its first consumer, the modal Re-scan), not Task 2.4** — the modal Re-scan must freeze on `isPublishRunActive` and Task 2.4's row Re-scan reuses the same prop.
 - Test: `tests/components/admin/wizard/Step3ReviewModalResolution.test.tsx`
 
 **Interfaces:**
@@ -125,6 +126,36 @@ it("corrupt items suppress Approve, keep Ignore", () => {
 });
 ```
 
+  **Behavioral mutation tests (HIGH plan-R2 — the load-bearing resolution path; render-only tests would pass a no-op/wrong-route impl):**
+```tsx
+it("Approve & apply sends the exact wizard-apply payload with the tier-3 choice", async () => {
+  const onApplyResolve = vi.fn().mockResolvedValue(true);
+  render(<Step3ReviewModal {...baseProps} resolution={resWith([mi13Item], { stagedId: "st1", onApplyResolve })} />);
+  fireEvent.click(screen.getByRole("radio", { name: /rename to/i }));
+  fireEvent.click(screen.getByRole("button", { name: /approve & apply/i }));
+  // onApplyResolve receives ReviewerChoice[]; the modal's caller wires it to
+  // { stagedId: "st1", reviewerChoicesVersion: 1, reviewerChoices } (Task 2.3).
+  await waitFor(() => expect(onApplyResolve).toHaveBeenCalledWith([
+    expect.objectContaining({ id: mi13Item.id, action: "rename" }),
+  ]));
+});
+it("single-action item is auto-bound into the Approve payload (no radio, still a choice)", async () => {
+  const onApplyResolve = vi.fn().mockResolvedValue(true);
+  render(<Step3ReviewModal {...baseProps} resolution={resWith([mi6Item], { onApplyResolve })} />);
+  fireEvent.click(screen.getByRole("button", { name: /approve & apply/i }));
+  await waitFor(() => expect(onApplyResolve).toHaveBeenCalledWith([
+    expect.objectContaining({ id: mi6Item.id, action: "apply" }),
+  ]));
+});
+it("Ignore this sheet calls onIgnore (wizard discard kind: permanent_ignore)", async () => {
+  const onIgnore = vi.fn().mockResolvedValue(true);
+  render(<Step3ReviewModal {...baseProps} resolution={resWith([mi6Item], { onIgnore })} />);
+  fireEvent.click(screen.getByRole("button", { name: /ignore this sheet/i }));
+  await waitFor(() => expect(onIgnore).toHaveBeenCalledTimes(1));
+});
+```
+  (The `onApplyResolve`/`onIgnore` → route wiring itself is proven in Task 2.3, which mocks `fetch` and asserts the URL + body `{ stagedId, reviewerChoicesVersion: 1, reviewerChoices }` for apply and `{ sourceScope:"wizard", variant:"permanent_ignore" }` for discard.)
+
 - [ ] **Step 2: Run — verify fail.**
 
 - [ ] **Step 3: Implement** the `resolution` branch in `Step3ReviewModal`:
@@ -136,8 +167,8 @@ it("corrupt items suppress Approve, keep Ignore", () => {
 
 - [ ] **Step 6: Commit**
 ```bash
-git add components/admin/wizard/Step3ReviewModal.tsx tests/components/admin/wizard/Step3ReviewModalResolution.test.tsx
-git commit --no-verify -m "feat(admin): fold re-apply resolution into Step3ReviewModal (spec §4.4)"
+git add components/admin/wizard/Step3ReviewModal.tsx components/admin/RescanSheetButton.tsx tests/components/admin/wizard/Step3ReviewModalResolution.test.tsx
+git commit --no-verify -m "feat(admin): fold re-apply resolution into Step3ReviewModal + RescanSheetButton disabled prop (spec §4.4)"
 ```
 
 ---
@@ -155,6 +186,7 @@ Wire the row: a `needs_review_reapply` row shows `Review →` (opens the modal w
   - a `needs_review_reapply` row renders `Review →`; clicking opens the modal with `resolution`.
   - a `needs_review_no_details` row renders `Re-scan this sheet` + `Ignore this sheet`, NO `Review →`, and NO anchor with href starting `/admin/onboarding/staged/`.
   - a `needs_review_other` (`hard_failed`) row renders its existing inline controls and NO `Review →`.
+  - **route-wiring (HIGH plan-R2)** — with `fetch` mocked: opening the modal + Approve POSTs the wizard apply route with body `{ stagedId, reviewerChoicesVersion: 1, reviewerChoices }`; `Ignore this sheet` POSTs the wizard `discard` route with `{ sourceScope: "wizard", variant: "permanent_ignore", stagedId, wizardSessionId }`; assert the exact URL + body, not just that fetch was called.
 
 - [ ] **Step 2: Run — verify fail.**
 
@@ -177,22 +209,23 @@ While a publish/resume run is active, freeze EVERY row mutator: publish checkbox
 **Files:**
 - Modify: `components/admin/wizard/Step3ReviewWithFinalize.tsx` (pass `isPublishRunActive={run.isRunning}` into `Step3Review`)
 - Modify: `components/admin/wizard/Step3Review.tsx` (thread to each row) + `Step3SheetCard.tsx` (gate `PublishCheckbox`, row `RescanSheetButton`, inline controls)
-- Modify: `components/admin/RescanSheetButton.tsx:34` (`RescanSheetButtonProps` gains `disabled?: boolean`; the button's `disabled` becomes `pending || props.disabled` at `:157`) — **plan-R1 HIGH**: today it disables only on its own `pending` state, so `isPublishRunActive` cannot freeze it without this prop. Consumed by BOTH the row Re-scan (here) and the modal Re-scan (Task 2.2).
 - Test: `tests/components/admin/wizard/Step3ActiveRunFreeze.test.tsx`
 
+(`RescanSheetButtonProps.disabled` was added in Task 2.2 — the row Re-scan here just passes `disabled={isPublishRunActive}`.)
+
 **Interfaces:**
-- Produces: `Step3ReviewProps` + `Step3Row` renderers accept `isPublishRunActive: boolean`; `PublishCheckbox` gains `disabled?: boolean`; `RescanSheetButtonProps` gains `disabled?: boolean`.
+- Produces: `Step3ReviewProps` + `Step3Row` renderers accept `isPublishRunActive: boolean`; `PublishCheckbox` gains `disabled?: boolean`. (`RescanSheetButtonProps.disabled` already exists from Task 2.2.)
 
 - [ ] **Step 1: Write the failing test** — with `isPublishRunActive` true, assert EACH is disabled: publish checkbox, row `Re-scan this sheet`, an inline `HardFailedActions`/`ManifestIgnoreAction` control, row `Review →`, and (open modal) Approve / Re-scan / Ignore.
 
 - [ ] **Step 2: Run — verify fail.**
 
-- [ ] **Step 3: Implement** — add `disabled?: boolean` to `PublishCheckbox` (`Step3SheetCard.tsx:79/:501`) AND to `RescanSheetButton` (`RescanSheetButtonProps:34`; `disabled={pending || props.disabled}` at `:157`); gate the row `RescanSheetButton`, the `PublishCheckbox`, the Select-all control (`:547`), and the inline controls on `isPublishRunActive`; pass `isPublishRunActive` into the modal `resolution` (already consumed in Task 2.2, where the modal `RescanSheetButton` also receives `disabled`). Thread the prop from `Step3ReviewWithFinalize` (`run.isRunning`, `:113`) → `Step3Review` → each `Step3SheetCard`.
+- [ ] **Step 3: Implement** — add `disabled?: boolean` to `PublishCheckbox` (`Step3SheetCard.tsx:79/:501`); gate the row `RescanSheetButton` (via its `disabled` prop from Task 2.2), the `PublishCheckbox`, the Select-all control (`:547`), and the inline controls on `isPublishRunActive`; pass `isPublishRunActive` into the modal `resolution` (already consumed in Task 2.2). Thread the prop from `Step3ReviewWithFinalize` (`run.isRunning`, `:113`) → `Step3Review` → each `Step3SheetCard`.
 
 - [ ] **Step 4: Run — verify pass.** - [ ] **Step 5: Typecheck.**
 
 - [ ] **Step 6: Commit**
 ```bash
-git add components/admin/wizard/Step3ReviewWithFinalize.tsx components/admin/wizard/Step3Review.tsx components/admin/wizard/Step3SheetCard.tsx components/admin/RescanSheetButton.tsx tests/components/admin/wizard/Step3ActiveRunFreeze.test.tsx
+git add components/admin/wizard/Step3ReviewWithFinalize.tsx components/admin/wizard/Step3Review.tsx components/admin/wizard/Step3SheetCard.tsx tests/components/admin/wizard/Step3ActiveRunFreeze.test.tsx
 git commit --no-verify -m "feat(admin): freeze all step-3 row mutators during an active publish run (spec §4.4 R8)"
 ```

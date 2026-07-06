@@ -84,38 +84,11 @@ git commit --no-verify -m "feat(admin): footer Publish/Resume/Finish by checkpoi
 
 ---
 
-### Task 3.3: Rewire `app/admin/page.tsx` + delete interstitials (spec §4.5, §4.6)
+### Task 3.3: Hide the editable checkbox + Select-all at non-null checkpoints (spec §4.2 rule 7, HIGH plan-R1)
 
-Render the unified Step-3 for `in_progress` + `all_batches_complete`; compute `isStale` at the page; delete `FinalizeInProgress`/`ReadyToPublish`/`StaleReadyToPublish`/`ResumeFinalizeButton`.
+**Ordering (HIGH plan-R2): this task MUST land BEFORE Task 3.4's page rewire.** Task 3.4 is the first moment the page passes a NON-null `checkpointStatus` into the unified surface; if the checkbox-hiding isn't already wired, that commit exposes editable publish-intent controls on a post-finalize checkpoint page (violating spec §4.2 rule 7 / §6). Threading `checkpointStatus` into the rows here, first, means Task 3.4's rewire flips straight to badge-only.
 
-**Files:**
-- Modify: `app/admin/page.tsx:156-193`
-- Delete: `components/admin/FinalizeInProgress.tsx`, `ReadyToPublish.tsx`, `StaleReadyToPublish.tsx`, `ResumeFinalizeButton.tsx`
-- Test: `tests/admin/step3InfraFooter.test.tsx` (checkpoint render + infra-footer preservation)
-
-- [ ] **Step 1: Write the failing test** (integration, spec §11 + R8):
-  - `in_progress` checkpoint renders the unified Step-3 with a Resume footer (not `FinalizeInProgress`).
-  - `all_batches_complete` (+stale) renders the unified Step-3 with a Finish footer + stale note (not `ReadyToPublish`/`StaleReadyToPublish`).
-  - a rows `{kind:"infra_error"}` at `in_progress`/`all_batches_complete` STILL renders the checkpoint footer (Resume/Finish + Cleanup, from `checkpointStatus`) alongside the degraded row note; at `checkpoint null`, degrades to the note alone.
-
-- [ ] **Step 2: Run — verify fail.**
-
-- [ ] **Step 3: Implement** — replace the `in_progress` and `all_batches_complete` branches (`:157-182`) with the unified render: pass `checkpointStatus` + `isStale` (`isCheckpointStale(checkpoint.last_processed_at, await nowDate())`) into `OnboardingWizard`/`Step3Container`. Route the `Step3Container` infra-error path (`OnboardingWizard.tsx:417`) so it still renders the checkpoint footer at non-null checkpoints. Delete the four component files + their imports. (Do NOT delete `readUnresolvedSheets` yet — its fold lands in Phase 5; but it's no longer called from `page.tsx` after this.)
-
-- [ ] **Step 4: Run — verify pass** + `pnpm tsc --noEmit` (surfaces any surviving import of the deleted components — fix them here or they block Phase 5).
-
-- [ ] **Step 5: Commit**
-```bash
-git add app/admin/page.tsx components/admin/wizard/Step3ReviewWithFinalize.tsx tests/admin/step3InfraFooter.test.tsx
-git rm components/admin/FinalizeInProgress.tsx components/admin/ReadyToPublish.tsx components/admin/StaleReadyToPublish.tsx components/admin/ResumeFinalizeButton.tsx
-git commit --no-verify -m "feat(admin): unified Step-3 for in_progress/all_batches_complete; delete interstitials (spec §4.5/§4.6)"
-```
-
----
-
-### Task 3.4: Hide the editable checkbox + Select-all at non-null checkpoints (spec §4.2 rule 7, HIGH plan-R1)
-
-Spec rule 7: the editable publish checkbox exists ONLY at `checkpoint null`. Post-finalize (`in_progress`/`all_batches_complete`) rows are badge-only — no per-row `PublishCheckbox`, no Select-all — because finalize consumed intent into `publish_intent`. Task 2.4 disables mutators during an *active run*; this task hides the checkbox for the *whole post-finalize surface* (a checkpoint state, orthogonal to run-active).
+Spec rule 7: the editable publish checkbox exists ONLY at `checkpoint null`. Post-finalize (`in_progress`/`all_batches_complete`) rows are badge-only — no per-row `PublishCheckbox`, no Select-all — because finalize consumed intent into `publish_intent`. Task 2.4 disables mutators during an *active run*; this task hides the checkbox for the *whole post-finalize surface* (a checkpoint state, orthogonal to run-active). (Threading now is inert while the page still passes `checkpointStatus={null}` for these checkpoints — the interstitials still render until Task 3.4 — so this commit is behavior-neutral until 3.4 flips the page.)
 
 **Files:**
 - Modify: `components/admin/wizard/Step3Review.tsx` (accept `checkpointStatus`; suppress Select-all `:531-550` when non-null) + `Step3SheetCard.tsx` (suppress `PublishCheckbox` `:501-505` when non-null, render the derived badge instead)
@@ -139,4 +112,34 @@ Spec rule 7: the editable publish checkbox exists ONLY at `checkpoint null`. Pos
 ```bash
 git add components/admin/wizard/Step3Review.tsx components/admin/wizard/Step3SheetCard.tsx components/admin/wizard/Step3ReviewWithFinalize.tsx tests/components/admin/wizard/Step3CheckpointAffordance.test.tsx
 git commit --no-verify -m "feat(admin): hide editable publish checkbox + select-all at non-null checkpoints (spec §4.2 rule 7)"
+```
+
+---
+
+### Task 3.4: Rewire `app/admin/page.tsx` + delete interstitials (spec §4.5, §4.6)
+
+Render the unified Step-3 for `in_progress` + `all_batches_complete`; compute `isStale` at the page; delete `FinalizeInProgress`/`ReadyToPublish`/`StaleReadyToPublish`/`ResumeFinalizeButton`. Depends on Task 3.3 (checkbox hidden) + 3.2 (footer) already threading `checkpointStatus`, so flipping the page to a non-null checkpoint renders badge-only rows + the Resume/Finish footer with NO editable checkbox.
+
+**Files:**
+- Modify: `app/admin/page.tsx:156-193`
+- Modify: `components/admin/OnboardingWizard.tsx` (`Step3Container` infra-error path renders the checkpoint footer at non-null checkpoints — plan-R2 MEDIUM: this change is required here and must be committed with the task)
+- Delete: `components/admin/FinalizeInProgress.tsx`, `ReadyToPublish.tsx`, `StaleReadyToPublish.tsx`, `ResumeFinalizeButton.tsx`
+- Test: `tests/admin/step3InfraFooter.test.tsx` (checkpoint render + infra-footer preservation)
+
+- [ ] **Step 1: Write the failing test** (integration, spec §11 + R8):
+  - `in_progress` checkpoint renders the unified Step-3 with a Resume footer + badge-only rows (not `FinalizeInProgress`, no editable checkbox).
+  - `all_batches_complete` (+stale) renders the unified Step-3 with a Finish footer + stale note (not `ReadyToPublish`/`StaleReadyToPublish`).
+  - a rows `{kind:"infra_error"}` at `in_progress`/`all_batches_complete` STILL renders the checkpoint footer (Resume/Finish + Cleanup, from `checkpointStatus`) alongside the degraded row note; at `checkpoint null`, degrades to the note alone.
+
+- [ ] **Step 2: Run — verify fail.**
+
+- [ ] **Step 3: Implement** — replace the `in_progress` and `all_batches_complete` branches (`:157-182`) with the unified render: pass `checkpointStatus` + `isStale` (`isCheckpointStale(checkpoint.last_processed_at, await nowDate())`) into `OnboardingWizard`/`Step3Container`. Route the `Step3Container` infra-error path (`OnboardingWizard.tsx:417`) so it still renders the checkpoint footer at non-null checkpoints. Delete the four component files + their imports. (Do NOT delete `readUnresolvedSheets` yet — its fold lands in Phase 5; but it's no longer called from `page.tsx` after this.)
+
+- [ ] **Step 4: Run — verify pass** + `pnpm tsc --noEmit` (surfaces any surviving import of the deleted components — fix them here or they block Phase 5).
+
+- [ ] **Step 5: Commit**
+```bash
+git add app/admin/page.tsx components/admin/OnboardingWizard.tsx components/admin/wizard/Step3ReviewWithFinalize.tsx tests/admin/step3InfraFooter.test.tsx
+git rm components/admin/FinalizeInProgress.tsx components/admin/ReadyToPublish.tsx components/admin/StaleReadyToPublish.tsx components/admin/ResumeFinalizeButton.tsx
+git commit --no-verify -m "feat(admin): unified Step-3 for in_progress/all_batches_complete; delete interstitials (spec §4.5/§4.6)"
 ```

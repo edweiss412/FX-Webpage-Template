@@ -34,7 +34,7 @@
 - `fetchStep3Data`/`Step3FetchResult`/`isCleanReviewRow`/`Step3Container` `components/admin/OnboardingWizard.tsx:219/:205/:214/:415`.
 - `app/admin/page.tsx:150-208` checkpoint branch; `checkpoint = { status, batches_completed, last_processed_at }`; `readUnresolvedSheets`, `isCheckpointStale`, `nowDate`, `FinalizeInProgress`/`ReadyToPublish`/`StaleReadyToPublish`/`DashboardWithHeader`.
 - `CleanupAbandonedFinalizeButton({sessionId})` `components/admin/CleanupAbandonedFinalizeButton.tsx:26`.
-- `TriggeredReviewItem` `lib/parser/types.ts:435`; `isStructurallyValidReviewItem` `lib/staging/reviewPayloadGuards.ts:69`; `parseTriggeredReviewItems` (same module).
+- `TriggeredReviewItem` `lib/parser/types.ts:435`; `isStructurallyValidReviewItem` `lib/staging/reviewPayloadGuards.ts:69`; `parseTriggeredReviewItems` `lib/staging/triggeredReviewItems.ts:24` (DIFFERENT module — plan-R2 fix); `ReviewerChoice` `lib/sync/applyStaged.ts`.
 - `DiscardVariant`/`DiscardStagedArgs` (wizard shape `{driveFileId, sourceScope:"wizard", wizardSessionId, stagedId, variant?}`) `lib/sync/discardStaged.ts:20/:55`; wizard accepts all variants `:441-460`; live-only rejection `:504-507`.
 - `next.config.ts:46-75` `redirects()` → `[{source,destination,permanent}]`.
 - Provenance join: `finalize-cas/route.ts:494-503,549`; existing-show paths never write `created_show_id` `finalize/route.ts:1057-1102`; `publish_intent` stamp `:527-529`; CAS publishes `applied && created_show_id && publish_intent` `finalize-cas/route.ts:517-526`.
