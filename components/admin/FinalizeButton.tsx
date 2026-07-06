@@ -76,6 +76,9 @@ type FinalizeButtonProps = {
   // clicking Publish opens a soft confirm first ("N sheets won't be published
   // — you'll find them under Unpublished. Continue?"). They become Held shows.
   uncheckedCleanCount?: number;
+  // §4.1 / D5: the display names of those unchecked-clean sheets, so the confirm
+  // names which sheet(s) won't be published. Forwarded to useFinalizeRun.
+  uncheckedCleanNames?: string[];
   // LAYOUT-ONLY (Variant B, Task 6): where the running/terminal panels sit
   // relative to the trigger. "below" (default) = current order (trigger, then
   // panels below). "above" = flex-col-reverse, so the panels float ABOVE the
@@ -127,6 +130,11 @@ export type FinalizeRunProps = {
   disabled?: boolean;
   publishCount?: number;
   uncheckedCleanCount?: number;
+  // §4.1 / D5: the display names of the unchecked-clean sheets, so the soft
+  // confirm NAMES which sheet(s) won't be published. Length matches
+  // uncheckedCleanCount; omitted (legacy callers) → the confirm shows the count
+  // only, no name list.
+  uncheckedCleanNames?: string[];
   // Step-3 consolidation (spec §4.5): the endpoint sequence this run drives.
   //   "publish" (default) — the /finalize batch loop THEN /finalize-cas.
   //   "resume"            — the /finalize batch loop ONLY; STOP before CAS
@@ -148,6 +156,7 @@ export function useFinalizeRun({
   disabled,
   publishCount,
   uncheckedCleanCount = 0,
+  uncheckedCleanNames = [],
   mode = "publish",
 }: FinalizeRunProps) {
   const router = useRouter();
@@ -365,14 +374,15 @@ export function useFinalizeRun({
         return;
       }
 
-      // mode:"resume" (spec §4.5) — the batches are all applied; STOP before CAS.
-      // Advancing to Live is a SEPARATE "Finish" action (mode:"finish"). The page
-      // re-renders at the all_batches_complete checkpoint with a Finish footer.
-      if (mode === "resume") {
-        setState({ kind: "complete" });
-        router.refresh();
-        return;
-      }
+      // mode:"resume" (owner decision 2026-07-06, supersedes spec §4.5's split):
+      // once the batch loop drains with nothing blocking (a per-row failure would
+      // have returned `race_row` inside the loop above), resume AUTO-CONTINUES into
+      // the CAS flip below — same as `publish` — so one "Resume publishing" click
+      // runs to Live and lands on the dashboard. It no longer stops at a redundant
+      // all_batches_complete checkpoint (which also stranded a stale "Setup is
+      // complete" banner from this very run across the router.refresh()). Resume
+      // still STOPS at `race_row` when a row needs review — that early return is
+      // inside the loop, so reaching here means the batches are clean to finish.
     }
 
     setState({ kind: "running", phase: "cas", casPhase: null });
@@ -474,6 +484,7 @@ export function useFinalizeRun({
     idleLabel,
     runningLabel,
     uncheckedCleanCount,
+    uncheckedCleanNames,
     wizardSessionId,
   };
 }
@@ -538,6 +549,7 @@ export function FinalizeConfirm({ run }: { run: FinalizeRun }) {
   return (
     <FinalizeSoftConfirm
       uncheckedCleanCount={run.uncheckedCleanCount}
+      uncheckedCleanNames={run.uncheckedCleanNames}
       onProceed={() => void run.runLoop()}
       onCancel={() => run.setConfirmOpen(false)}
     />
@@ -763,21 +775,28 @@ const ProgressPanel = forwardRef<
   );
 });
 
+// Cap the named sheets so a large held set can't grow the popover unbounded;
+// past the cap, a "+N more" tail carries the remainder (spec-style truncation).
+const CONFIRM_NAME_CAP = 3;
+
 /**
- * D5 soft confirm (spec §4.1 / D4 decision): an INLINE confirm surface (not a
- * portal modal — modals are an absolute-ban-unless-justified, and an inline
- * disclosure under the button is the lighter affordance) carrying dialog
- * semantics: `role="dialog"` + `aria-modal`, a labelled title, autofocus onto
- * Continue, Escape-to-cancel, and a focus trap between Continue ↔ Cancel so the
- * decision is keyboard-complete. It never self-disables the trigger mid-submit
- * (React-19 form-action hazard); Proceed simply calls the loop.
+ * D5 soft confirm (spec §4.1 / D4 decision): a dialog-semantic confirm surface —
+ * `role="dialog"` + `aria-modal`, a labelled title, autofocus onto Continue,
+ * Escape-to-cancel, and a focus trap between Continue ↔ Cancel so the decision is
+ * keyboard-complete. It never self-disables the trigger mid-submit (React-19
+ * form-action hazard); Proceed simply calls the loop. The CALLER anchors it as a
+ * popover ABOVE the primary button (absolute, `bottom-full`) so opening it floats
+ * over page content instead of growing the sticky footer (owner decision
+ * 2026-07-06: the in-footer render caused the layout shift Doug flagged).
  */
 function FinalizeSoftConfirm({
   uncheckedCleanCount,
+  uncheckedCleanNames = [],
   onProceed,
   onCancel,
 }: {
   uncheckedCleanCount: number;
+  uncheckedCleanNames?: string[];
   onProceed: () => void;
   onCancel: () => void;
 }) {
@@ -813,6 +832,8 @@ function FinalizeSoftConfirm({
   }
 
   const noun = uncheckedCleanCount === 1 ? "sheet" : "sheets";
+  const shownNames = uncheckedCleanNames.slice(0, CONFIRM_NAME_CAP);
+  const extraNames = Math.max(0, uncheckedCleanNames.length - shownNames.length);
 
   return (
     <div
@@ -821,12 +842,39 @@ function FinalizeSoftConfirm({
       aria-labelledby="wizard-finalize-confirm-title"
       data-testid="wizard-finalize-confirm"
       onKeyDown={onKeyDown}
-      className="flex flex-col gap-3 rounded-lg border border-border-strong bg-surface-raised p-tile-pad shadow-(--shadow-tile)"
+      className="flex w-[min(22rem,calc(100vw-2rem))] flex-col gap-3 rounded-lg border border-border-strong bg-surface-raised p-tile-pad shadow-popover"
     >
       <div className="flex flex-col gap-1">
         <p id="wizard-finalize-confirm-title" className="text-base font-semibold text-text-strong">
           {uncheckedCleanCount} {noun} won&rsquo;t be published
         </p>
+        {/* Name the held sheet(s) so "which one?" is answered in place. Capped —
+            past CONFIRM_NAME_CAP a "+N more" tail keeps the popover bounded. */}
+        {shownNames.length > 0 ? (
+          <ul
+            data-testid="wizard-finalize-confirm-names"
+            className="flex flex-col gap-0.5 text-sm text-text-strong"
+          >
+            {shownNames.map((name, i) => (
+              <li key={`${name}-${i}`} className="flex items-start gap-1.5">
+                <span
+                  aria-hidden="true"
+                  className="mt-2 size-[3px] shrink-0 rounded-full bg-border-strong"
+                />
+                <span className="truncate">{name}</span>
+              </li>
+            ))}
+            {extraNames > 0 ? (
+              <li className="flex items-start gap-1.5 text-text-subtle">
+                <span
+                  aria-hidden="true"
+                  className="mt-2 size-[3px] shrink-0 rounded-full bg-border-strong"
+                />
+                <span>and {extraNames} more</span>
+              </li>
+            ) : null}
+          </ul>
+        ) : null}
         <p className="text-sm text-text-subtle">
           You&rsquo;ll find {uncheckedCleanCount === 1 ? "it" : "them"} under{" "}
           <span className="font-medium text-text-strong">Unpublished</span>, ready to publish
