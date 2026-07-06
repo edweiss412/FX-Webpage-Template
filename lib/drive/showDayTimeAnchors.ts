@@ -129,6 +129,7 @@ export function attachSourceCellAnchors(
     } else if (
       w.code === "UNKNOWN_ROLE_TOKEN" ||
       w.code === "UNKNOWN_DAY_RESTRICTION" ||
+      w.code === "UNKNOWN_STAGE_RESTRICTION" ||
       w.code === "STAGE_WORD_AUTOCORRECTED" ||
       w.code === "ROLE_TOKEN_AUTOCORRECTED"
     ) {
