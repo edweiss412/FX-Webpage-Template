@@ -25,7 +25,7 @@ These RPAS headers are **not** admitted by `computeRoomHeaderModel` (`rooms.ts:2
 
 ## 3. Change
 
-Two surgical regex edits in `lib/parser/blocks/rooms.ts`, both scoped to the `boBlockRe`/`splitRoomHeader` breakout path.
+Three surgical edits in `lib/parser/blocks/rooms.ts`, all scoped to the `boBlockRe`/`splitRoomHeader` breakout path: two regex extensions (3.1, 3.2) plus a prefixed-admission gate + helper (3.3).
 
 ### 3.1 `boBlockRe` — admit an optional single UPPERCASE-alnum-token prefix
 
@@ -49,6 +49,33 @@ Prepend, before the existing kind-label strip (`rooms.ts:1384-1387`):
 ```
 
 The pre-strip is its **own** regex with **no `/i` flag** and a lookahead `(?=BREAKOUT\b)` — it removes a leading uppercase-alnum token ONLY when an **uppercase** `BREAKOUT` immediately follows. It is therefore inert for every other header shape (GS/ADDITIONAL/LUNCH, plain numbered/numberless `BREAKOUT`, and any mixed-case name containing `Breakout`). After the pre-strip, the existing `BREAKOUT(?:\s+\d+)?` strip removes the `BREAKOUT 1` keyword+number, leaving `LASALLE A …` for the floor/dims/name extraction that follows unchanged.
+
+### 3.3 Prefixed-admission gate — require positive BO-field content
+
+The existing numberless gate (`rooms.ts:1114`) is `if (!numbered && !roomHasContent(room)) continue;`. But `roomHasContent` (`rooms.ts:687`) counts **header-harvested `dimensions` and `floor`** as content — they are assigned from `splitRoomHeader` at `rooms.ts:1100-1102` BEFORE the gate. So a hypothetical `| <PREFIX> BREAKOUT 3&#10;FOO&#10;5' x 9' |` header with dims/floor but **no** BO field block would satisfy `roomHasContent` on its header dims alone and fabricate a room. Given the project's dims-only-asset false-positive history (`BL-ROOM-DIMS-ONLY-NOVEL-HEADER`, `BACKLOG.md:268`; 14 adversarial rounds), a show-prefixed header must carry a **positive** BO-field signal, not just header geometry.
+
+Add a stricter gate that fires ONLY for the prefixed sub-case (a header whose first line does not itself start with `BREAKOUT` — i.e. a show prefix precedes the keyword), requiring at least one applied BO/plain **field value** (setup/set_time/show_time/strike_time/audio/video/lighting/scenic/power/digital_signage/other/notes), excluding the header-derived dimensions/floor:
+
+```
++   // A show-code prefix (firstLine does not itself start with BREAKOUT) needs
++   // POSITIVE BO-field evidence — header-harvested dims/floor alone (which
++   // roomHasContent counts) must NOT admit it, else a "<PREFIX> BREAKOUT N&#10;dims"
++   // with no BO block fabricates a room (BL-ROOM-DIMS-ONLY-NOVEL-HEADER paranoia).
++   const prefixed = !/^BREAKOUT/.test(firstLine);
++   if (prefixed && !roomHasBoFieldValue(room)) continue;
+```
+
+with a new helper adjacent to `roomHasContent`:
+
+```
++ function roomHasBoFieldValue(room: RoomRow): boolean {
++   return [room.setup, room.set_time, room.show_time, room.strike_time,
++     room.audio, room.video, room.lighting, room.scenic, room.power,
++     room.digital_signage, room.other, room.notes].some((v) => v != null);
++ }
+```
+
+`prefixed` uses a case-sensitive `^BREAKOUT` test: plain `BREAKOUT 1 SALON D` / `BREAKOUT&#10;LASALLE A` headers are NOT prefixed → gate inert → the frozen corpus (all plain-BREAKOUT) is byte-identical. The two RPAS rooms carry real BO fields (`set_time`, `video`, …) → admitted (§4). This gate makes prefix admission require exactly "prefixed header + real BO fields," which the §8 wording now states accurately.
 
 ## 4. Worked example (exact parser output — captured from the implemented change)
 
@@ -107,12 +134,13 @@ TDD per task. Add to `tests/parser/blocks/rooms.test.ts` a describe block for `2
 - **T2 — names derive from the non-prefix, non-BREAKOUT portion.** The breakout names, as a set, are `["LASALLE A", "LASALLE B"]` (order-insensitive to avoid coupling the test to document order). **Anti-tautology:** the names `LASALLE A/B` do not appear anywhere in the header keyword `RPAS BREAKOUT N`, so a passing assertion proves the prefix+keyword were actually stripped, not merely that the header was captured.
 - **T3 — dims/floor/fields.** For the `LASALLE A` room: `dimensions === "30' x 25' x 10.5'"`, `floor === "7th Floor"`, `set_time === "3/24 @ 10:00 AM"`, and `video` contains `Eiki Projector`. These values are derived from the fixture cell content (§4), not invented; the `video` substring is a non-`N/A`, block-specific string that a mis-scoped extraction (grabbing the wrong block) could not accidentally satisfy.
 - **T4 — no prefix leakage.** No emitted room `name` contains `RPAS` or `BREAKOUT` (`rooms.every(r => !/RPAS|BREAKOUT/i.test(r.name))`). Concrete failure mode caught: the 3.2 pre-strip regressing so the name retains `RPAS BREAKOUT 1 LASALLE A`.
+- **T5 — prefixed-admission gate (negative, synthetic).** A synthetic markdown block `| XYZ BREAKOUT 3&#10;GHOST HALL&#10;5' x 9'&#10;2nd Floor |` with NO `BO …`/plain field rows beneath it (dims/floor only) parses to **zero** breakout rooms — proving the §3.3 gate rejects a prefixed header that would otherwise pass `roomHasContent` on header-harvested dims/floor alone. Concrete failure mode caught: the dims-only-asset fabrication class reopening for prefixed headers (a header with the `BREAKOUT` keyword but no room fields fabricating a phantom room). Paired positive control: the same block WITH one `| BO Setup | 60 chairs |` row DOES parse to one room named `GHOST HALL`, proving the gate admits on real BO evidence (not a blanket reject).
 
 The corpus no-op test (`roomHeaderModel.test.ts:194`) already guards that no OTHER fixture changes and that the regenerated `dci-rpas` baseline matches live output — it is the structural defense, not a new meta-test.
 
 ## 8. Guard conditions & edge cases
 
-- **Numberless gate unchanged.** `firstLine` = `RPAS BREAKOUT 1` fails `/^BREAKOUT\s+\d/i` (`rooms.ts:1092`), so these take the **numberless** branch, which requires `roomHasContent(room)` (`rooms.ts:1114`, `roomHasContent` at `rooms.ts:687`). Both rooms have real BO fields (dims/floor/video/set_time) → admitted. A prefixed header sitting above NO field block (or an equipment/pull-sheet `<PREFIX> BREAKOUT SESSION N - X` section with no room fields) still fails `roomHasContent` → rejected. The change adds no new admit path beyond "prefixed header + real BO fields."
+- **Two-tier gate.** `firstLine` = `RPAS BREAKOUT 1` fails `/^BREAKOUT\s+\d/i` (`rooms.ts:1092`), so these take the **numberless** branch (existing gate: `!roomHasContent` → drop). But `roomHasContent` (`rooms.ts:687`) counts header-harvested `dimensions`/`floor`, so the numberless gate ALONE would admit a prefixed dims-only header with no BO block. The §3.3 **prefixed-admission gate** closes this: a prefixed header additionally requires a real applied BO/plain field value (`roomHasBoFieldValue`, excluding dims/floor). Both RPAS rooms carry real BO fields (`set_time`, `video`, …) → admitted; a prefixed `<PREFIX> BREAKOUT N&#10;<dims>` with no field block → rejected. Net: the change adds exactly one admit path — "prefixed header + real BO field value" — and nothing weaker.
 - **Block extraction unchanged.** `extractBoBlock` (`rooms.ts:1264`) bounds the block by the next `NEXT_ROOM_HEADER_RE`/`roomHeaderLines`/blank-line terminator; the RPAS blocks are terminated by the blank line after their `Digital Signage` row (verified in §4 output). No new terminator wiring is needed.
 - **Case-sensitivity is load-bearing.** Both new regexes are case-sensitive on the `BREAKOUT` keyword and the prefix token, so mixed-case template labels (`Breakout Room Setup Date / Time`) and mixed-case names (`Grand Breakout Hall`) are never matched/stripped.
 - **Dims-only asset protection is untouched.** This change does NOT introduce any dims-based admit gate; admission still requires the literal `BREAKOUT` keyword in the header. The `BL-ROOM-DIMS-ONLY-NOVEL-HEADER` descoping (no name-blind dims admit) is unaffected.
