@@ -618,47 +618,61 @@ export function ContactsBreakdown({
       {blocks.length === 0 ? (
         <p className="text-sm text-text-subtle">No contacts parsed.</p>
       ) : (
-        <ul className="flex flex-col gap-3">
-          {blocks.map((b) => (
-            <li key={b.key} className="flex flex-col gap-0.5 text-sm text-text">
-              <span className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
-                {b.kind}
-              </span>
-              {hasContent(b.name) ? (
-                <div className="wrap-break-word font-medium text-text-strong">{b.name}</div>
-              ) : null}
-              {b.rows.length > 0 ? (
-                // §8 meta line: each phone/email is an ACTIONABLE tel:/mailto:
-                // button (mirrors the crew rows' call/email affordances) — the
-                // value stays visible (the operator still reads the number/
-                // address) but the whole chip is tappable. The "Office" row keeps
-                // its "Office:" copy (two phone numbers must stay tellable apart).
-                <span className="flex flex-wrap items-center gap-2">
-                  {b.rows.map((r) => {
-                    const isEmail = r.label === "Email";
-                    const href = isEmail ? `mailto:${r.value}` : `tel:${r.value}`;
-                    const Icon = isEmail ? Mail : Phone;
-                    return (
-                      <a
-                        key={r.label}
-                        href={href}
-                        data-testid={`wizard-step3-card-${dfid}-contact-${b.key}-${
-                          isEmail ? "email" : r.label.toLowerCase()
-                        }`}
-                        aria-label={`${isEmail ? "Email" : "Call"} ${b.name || b.kind}`}
-                        className="inline-flex min-h-tap-min items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-                      >
-                        <Icon aria-hidden="true" className="size-3.5 shrink-0 text-text-faint" />
-                        <span className="wrap-break-word">
-                          {r.label === "Office" ? `Office: ${r.value}` : r.value}
-                        </span>
-                      </a>
-                    );
-                  })}
+        // Crew-row layout (owner decision 2026-07-06): avatar left, name +
+        // contact-kind subline, and the phone/email as right-aligned icon-only
+        // action buttons — the SAME anchor DOM the CrewBreakdown rows use
+        // (size-tap-min hit box wrapping a 32px bordered square). The raw number/
+        // address moves into the button's aria-label rather than showing as text.
+        <ul className="flex flex-col">
+          {blocks.map((b) => {
+            const displayName = hasContent(b.name) ? b.name : b.kind;
+            return (
+              <li key={b.key} className="flex items-center gap-3 py-1">
+                <Avatar name={hasContent(b.name) ? b.name : null} />
+                <span className="min-w-0 flex-1">
+                  <span className="block wrap-break-word text-sm font-medium text-text-strong">
+                    {displayName}
+                  </span>
+                  {hasContent(b.name) ? (
+                    <span className="block wrap-break-word text-xs text-text-subtle">{b.kind}</span>
+                  ) : null}
                 </span>
-              ) : null}
-            </li>
-          ))}
+                {b.rows.length > 0 ? (
+                  // Adjacent anchors sit flush (no gap) so the 44×44 hit areas
+                  // never overlap; the centered 32px visuals leave a natural gutter.
+                  <span className="flex shrink-0 items-center">
+                    {b.rows.map((r) => {
+                      const isEmail = r.label === "Email";
+                      const href = isEmail ? `mailto:${r.value}` : `tel:${r.value}`;
+                      const Icon = isEmail ? Mail : Phone;
+                      // Distinguish a second (office) phone in the accessible name
+                      // so two Call buttons on one contact stay tellable apart.
+                      const action = isEmail
+                        ? "Email"
+                        : r.label === "Office"
+                          ? "Call the office for"
+                          : "Call";
+                      return (
+                        <a
+                          key={r.label}
+                          href={href}
+                          data-testid={`wizard-step3-card-${dfid}-contact-${b.key}-${
+                            isEmail ? "email" : r.label.toLowerCase()
+                          }`}
+                          aria-label={`${action} ${displayName}`}
+                          className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                        >
+                          <span className="grid size-8 place-items-center rounded-sm border border-border text-text-subtle">
+                            <Icon aria-hidden="true" className="size-4" />
+                          </span>
+                        </a>
+                      );
+                    })}
+                  </span>
+                ) : null}
+              </li>
+            );
+          })}
         </ul>
       )}
     </BreakdownSection>
@@ -739,14 +753,17 @@ export function TransportBreakdown({
         <div className="flex flex-col gap-2">
           {fieldRows.length > 0 ? <FieldRowList rows={fieldRows} /> : null}
           {legs.length > 0 ? (
-            // §8: schedule legs as a stage/meta stack under the field list.
+            // §8: schedule legs as a stage/meta stack under the field list, with
+            // hairline dividers BETWEEN legs (owner decision 2026-07-06). The
+            // border-t (when a field list precedes) separates the legs group from
+            // it; divide-y draws the inter-leg rules.
             <ul
-              className={`flex flex-col gap-1 ${fieldRows.length > 0 ? "border-t border-border pt-2" : ""}`}
+              className={`flex flex-col divide-y divide-border ${fieldRows.length > 0 ? "border-t border-border pt-2" : ""}`}
             >
               {legs.map((leg, i) => (
                 <li
                   key={`${leg.stage}-${i}`}
-                  className="flex flex-wrap items-baseline gap-x-2 wrap-break-word text-sm text-text"
+                  className="flex flex-wrap items-baseline gap-x-2 wrap-break-word py-2 text-sm text-text first:pt-0 last:pb-0"
                 >
                   <span className="font-medium text-text-strong">{leg.stage}</span>
                   {leg.meta ? <span className="text-xs text-text-subtle">{leg.meta}</span> : null}
@@ -915,24 +932,28 @@ export function ScheduleDayRow({
   }
 
   return (
-    <li className="flex flex-col gap-1">
+    <li className="flex flex-col gap-1 py-3 first:pt-0 last:pb-0">
+      {/* Date + phase on ONE line: "May 11 — Travel In" (owner decision
+          2026-07-06). The label is APPENDED to the humanized date after an em-dash
+          separator rather than sitting on its own uppercase eyebrow line. It keeps
+          its per-date testid + AA-normal contrast (text-text-subtle), just inline
+          and title-cased as-parsed ("Show Day 2"), not the old uppercase eyebrow. */}
       <span className="text-xs font-medium tabular-nums text-text-strong">
         {humanizeDate(iso) ?? iso}
+        {label != null ? (
+          <>
+            <span aria-hidden="true" className="px-1.5 font-normal text-text-faint">
+              —
+            </span>
+            <span
+              data-testid={`wizard-step3-card-${dfid}-sched-phase-${iso}`}
+              className="font-normal text-text-subtle"
+            >
+              {label}
+            </span>
+          </>
+        ) : null}
       </span>
-      {label != null ? (
-        // Reuse the wizard's own eyebrow recipe (EYEBROW_CLASS/STYLE) — the day
-        // label is MEANINGFUL copy (it identifies the travel/set/show day, e.g.
-        // "Show Day 2"), so it must clear AA-normal contrast (text-text-subtle, not
-        // the decorative text-faint) and match the 12px eyebrow scale used across
-        // the breakdown. Impeccable P1.
-        <span
-          data-testid={`wizard-step3-card-${dfid}-sched-phase-${iso}`}
-          className={EYEBROW_CLASS}
-          style={EYEBROW_STYLE}
-        >
-          {label}
-        </span>
-      ) : null}
       {timeMeta ? (
         <span
           data-testid={`wizard-step3-card-${dfid}-sched-meta`}
@@ -1036,7 +1057,10 @@ export function ScheduleBreakdown({
       {mergedDays.length === 0 ? (
         <p className="text-sm text-text-subtle">No run-of-show parsed.</p>
       ) : (
-        <ul className="flex flex-col gap-3">
+        // Hairline dividers between days (owner decision 2026-07-06); each
+        // ScheduleDayRow <li> carries the py-3 + first:/last: reset that pairs
+        // with divide-y so the rules sit evenly between days, none at the edges.
+        <ul className="flex flex-col divide-y divide-border">
           {shownDays.map((d) => (
             <ScheduleDayRow
               key={d.date}

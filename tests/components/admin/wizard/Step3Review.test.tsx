@@ -986,6 +986,55 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
     );
   });
 
+  test("contacts render crew-style: avatar + name/kind subline + right-aligned tel/mailto action buttons", () => {
+    const pr = {
+      ...GEAR_PR,
+      show: {
+        ...GEAR_PR.show,
+        client_contact: {
+          name: "Ashley Morgan",
+          phone: "845-270-1900",
+          email: "ashley@ii.com",
+          secondary: null,
+        },
+      },
+      contacts: [
+        {
+          kind: "in_house_av",
+          name: "Cesar Salazar",
+          phone: "309-532-5534",
+          email: null,
+          notes: null,
+        },
+      ],
+    } as unknown as ParseResult;
+    const row: Step3Row = { ...GEAR_ROW, driveFileId: "drive-ctx", parseResult: pr };
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
+    );
+    fireEvent.click(getByTestId("wizard-step3-card-drive-ctx-more"));
+    const el = getByTestId("wizard-step3-card-drive-ctx-breakdown-contacts");
+    const region = within(el);
+    // One Avatar per contact block (client + in-house AV) — the crew-row layout.
+    expect(region.getAllByTestId("avatar")).toHaveLength(2);
+    // Name + contact-kind subline are the visible text; the phone/email value
+    // lives in the action anchor's href, NOT inline body text anymore.
+    expect(region.getByText("Ashley Morgan")).toBeTruthy();
+    expect(region.getByText("Client contact")).toBeTruthy();
+    expect(el.textContent ?? "").not.toContain("845-270-1900");
+    const call = region.getByLabelText("Call Ashley Morgan") as HTMLAnchorElement;
+    expect(call.getAttribute("href")).toBe("tel:845-270-1900");
+    expect(call.className).toContain("size-tap-min"); // 44×44 tap target, like crew
+    expect(
+      (region.getByLabelText("Email Ashley Morgan") as HTMLAnchorElement).getAttribute("href"),
+    ).toBe("mailto:ashley@ii.com");
+    // In-house AV has phone only → a Call button, no Email button.
+    expect(
+      (region.getByLabelText("Call Cesar Salazar") as HTMLAnchorElement).getAttribute("href"),
+    ).toBe("tel:309-532-5534");
+    expect(region.queryByLabelText("Email Cesar Salazar")).toBeNull();
+  });
+
   test("crew breakdown shows each member's phone + email as-parsed (BL-REVIEW-MODAL-COMPLETENESS)", () => {
     const pr = {
       ...GEAR_PR,
