@@ -406,6 +406,43 @@ describe("parseSheet call-site guard (finding #17)", () => {
       context: { drive_file_id: "drive-file-1", sheet_name: "FXAV Spring Tour" },
     });
   });
+
+  test("first-seen throw path → hard_fail writes pending_ingestions, no shows row (REAL runPhase1)", async () => {
+    // Full first-seen e2e (spec §4.2): throwing parser → guard synthesizes PARSE_THREW → REAL
+    // runPhase1 (deps.runPhase1 omitted) → runInvariants(null, ...) hard_fails on PARSE_THREW →
+    // no existing shows row → upsertLivePendingIngestion. Proves the guard, PARSE_THREW routing,
+    // pending-ingestion write, and null showId together — non-tautological (real runPhase1).
+    const upsertLivePendingIngestion = vi.fn(async () => "pending-1");
+    const updateShowParseError = vi.fn(async () => "show-x"); // must NOT be called (no shows row)
+    const tx = {
+      async queryOne<T>(sql: string) {
+        if (sql.includes("from public.shows where drive_file_id")) return { archived: false } as T;
+        return { held: true } as T;
+      },
+      readShowForPhase1: vi.fn(async () => null), // first-seen: no existing show
+      upsertLivePendingIngestion,
+      updateShowParseError,
+    } as unknown as LockedShowTx<SyncPipelineTx>;
+    const deps = baseDeps({
+      parseSheet: vi.fn(() => {
+        throw new Error("boom");
+      }),
+      // deps.runPhase1 intentionally omitted → runPhase1_unlocked uses the REAL runPhase1.
+    });
+    const file = fileMeta("drive-file-new");
+    const prepared = await prepareProcessOneFile("drive-file-new", "cron", file, deps, async () => null);
+    expect(prepared.kind).toBe("ready");
+    const result = await processOneFile_unlocked(tx, "drive-file-new", "cron", file, deps, prepared);
+    expect(result).toMatchObject({ outcome: "hard_fail", showId: null });
+    expect(updateShowParseError).not.toHaveBeenCalled();
+    expect(upsertLivePendingIngestion).toHaveBeenCalledTimes(1);
+    expect(upsertLivePendingIngestion).toHaveBeenCalledWith(
+      expect.objectContaining({
+        driveFileId: "drive-file-new",
+        lastErrorCode: "MI-1_VERSION_DETECTION_FAILED",
+      }),
+    );
+  });
 });
 ```
 
@@ -413,6 +450,8 @@ describe("parseSheet call-site guard (finding #17)", () => {
 
 Run: `pnpm vitest run tests/sync/parseSheetCallSiteGuard.test.ts`
 Expected: FAIL — the first test rejects/throws (unguarded call site propagates the injected throw); `PARSE_SHEET_THREW` record absent.
+
+> Harness note: the fake-tx surface (`queryOne`, `readShowForPhase1`, `upsertAdminAlert`, `upsertLivePendingIngestion`) mirrors the working harness in `tests/sync/parse-error-last-good-producer.test.ts` (which drives the same `processOneFile_unlocked` wrapper — `assertShowLockHeld` / `readShowArchived_unlocked` / `recheckLiveDeferralAfterLock` are satisfied by `queryOne`). If the REAL `runPhase1` touches an additional `tx` method on the first-seen hard_fail path during red-run, add it to the fake `tx` as a `vi.fn` returning the minimal shape the call needs — do not stub `runPhase1` itself (that would defeat the point of this test).
 
 - [ ] **Step 3: Write the implementation**
 
@@ -471,7 +510,7 @@ try {
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm vitest run tests/sync/parseSheetCallSiteGuard.test.ts`
-Expected: PASS (all 5).
+Expected: PASS (all 6).
 
 - [ ] **Step 5: Commit**
 
@@ -518,7 +557,7 @@ Expected: all PASS.
 - §2.5 advisory lock unchanged → Global Constraints + verified pre-lock. ✓
 - §3 guard conditions (Error / non-Error / unstringifiable / existing / first-seen / log-fault) → Task 3 tests + Task 2 first-seen. ✓
 - §4.1 parser unit (builder shape; `PARSE_THREW`→`hard_fail`) → Tasks 1, 2. ✓
-- §4.2 sync e2e (survives throw; existing→alert; first-seen→pending; forensic log; log-fault; pathological) → Task 3 tests (+ first-seen composed with Task 2 `prior=null` and existing `phase1.test.ts:585`). ✓
+- §4.2 sync e2e (survives throw; existing→alert; first-seen→pending with null showId via REAL runPhase1; forensic log; log-fault; pathological) → Task 3 tests (6 tests). ✓
 - §4.3 no new meta-test; Supabase boundary regression; full suite → Task 4. ✓
 
 **Placeholder scan:** every code step contains complete code; the only conditional note is the `synthParseResult()` helper-name fallback in Task 2 (the file's real helper is used if the name differs) — this is a naming safeguard, not a placeholder.
