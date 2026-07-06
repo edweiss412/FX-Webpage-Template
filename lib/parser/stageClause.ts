@@ -95,9 +95,12 @@ export function parseStageClause(roleCell: string): StageClause {
   if (full4) {
     const prefix = roleCell.slice(0, full4.index);
     const tail = roleCell.slice(full4.index + full4[0].length);
-    // Even the backward-compat carve-out must not drop a trailing stage (`… Load Out ONLY / Show`)
-    // and silently narrow to the 4 — fail open if the tail carries dropped stage content (R2).
-    const malformed = tailDropsStageContent(tail);
+    // `FULL_STAGE_ONLY_PATTERN` is `ONLY\*{0,3}`, so `ONLY****` leaves a LEFTOVER star run in the
+    // tail. Those stars are marker EMPHASIS, NOT dropped stage content — origin/main keeps the
+    // 4-stage restriction for ANY star count (R17 f1 backward-compat). Strip a leading star-run
+    // before the tail check so the carve-out does NOT regress to whole-show on `ONLY****` (R3),
+    // while a real dropped stage (`… ONLY**** / Show`) still fails open. `cleaned` stays verbatim.
+    const malformed = tailDropsStageContent(tail.replace(/^\s*\*+/, ""));
     return {
       stages: malformed ? [] : ["Load In", "Set", "Strike", "Load Out"],
       cleaned: prefix + tail,

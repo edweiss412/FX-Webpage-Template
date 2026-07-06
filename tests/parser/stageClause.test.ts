@@ -44,6 +44,24 @@ describe("parseStageClause (spec §3.2)", () => {
     expect(r.unrecognizedRestriction).toBe(false);
     expect(r.cleaned).toMatch(/LEAD/);
   });
+  it("full-4 carve-out keeps the 4-stage restriction for ANY star count incl ONLY**** (whole-diff R3)", () => {
+    // ONLY**** : the R2 tail check must NOT treat the leftover emphasis star as dropped stage
+    // content — origin/main's FULL_STAGE_ONLY_PATTERN keeps the 4 stages for any star count.
+    for (const stars of ["", "*", "**", "***", "****", "*****"]) {
+      const r = parseStageClause(`Load In / Set / Strike / Load Out ONLY${stars}`);
+      expect(r.stages, `ONLY${stars}`).toEqual(["Load In", "Set", "Strike", "Load Out"]);
+      expect(r.unrecognizedRestriction, `ONLY${stars}`).toBe(false);
+      expect(r.consumedOnlyClause).toBe(true);
+    }
+    // ONLY**** WITH a clean role tail still keeps the 4 stages.
+    const withRole = parseStageClause("- Load In / Set / Strike / Load Out ONLY**** - LEAD");
+    expect(withRole.stages).toEqual(["Load In", "Set", "Strike", "Load Out"]);
+    expect(withRole.unrecognizedRestriction).toBe(false);
+    // ONLY**** WITH a dropped trailing STAGE still fails open (emphasis strip does not mask /Show).
+    const withStage = parseStageClause("Load In / Set / Strike / Load Out ONLY**** / Show");
+    expect(withStage.stages).toEqual([]);
+    expect(withStage.unrecognizedRestriction).toBe(true);
+  });
   it("full-4 carve-out also fails open on a dropped trailing stage (whole-diff R2 class-sweep)", () => {
     // `… Load Out ONLY / Show` must NOT keep the 4 and drop Show — the carve-out fails open too.
     const r = parseStageClause("Load In / Set / Strike / Load Out ONLY / Show");
