@@ -68,6 +68,39 @@ describe("FinalizeInProgress unresolved-sheet list", () => {
     expect(screen.getByRole("link", { name: /review and resolve/i })).toBeInTheDocument();
   });
 
+  it("gives each recovery link a distinct accessible name (whole-diff R2 LOW a11y)", () => {
+    render(
+      <FinalizeInProgress
+        sessionId="s1"
+        batchesCompleted={1}
+        unresolved={[
+          {
+            driveFileId: "D1",
+            failureCode: null,
+            displayName: "East Coast",
+            reApplyHref: "/admin/onboarding/staged/s1/D1",
+          },
+          {
+            driveFileId: "D2",
+            failureCode: null,
+            displayName: "West Coast",
+            reApplyHref: "/admin/onboarding/staged/s1/D2",
+          },
+        ]}
+      />,
+    );
+    // Each link's accessible name carries its sheet name so a screen-reader user can
+    // tell them apart (a bare, repeated "Review and resolve" cannot be disambiguated).
+    expect(screen.getByRole("link", { name: "Review and resolve: East Coast" })).toHaveAttribute(
+      "href",
+      "/admin/onboarding/staged/s1/D1",
+    );
+    expect(screen.getByRole("link", { name: "Review and resolve: West Coast" })).toHaveAttribute(
+      "href",
+      "/admin/onboarding/staged/s1/D2",
+    );
+  });
+
   it("renders no list section when unresolved is empty", () => {
     render(<FinalizeInProgress sessionId="s1" batchesCompleted={1} unresolved={[]} />);
     expect(screen.queryByTestId("finalize-in-progress-unresolved")).toBeNull();

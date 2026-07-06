@@ -139,6 +139,10 @@ export function FinalizeInProgress({
                 <Link
                   data-testid={`finalize-in-progress-resolve-${sheet.driveFileId}`}
                   href={sheet.reApplyHref}
+                  // Visible text stays short; the accessible name carries the sheet
+                  // name so a screen-reader user with several blocked sheets can tell
+                  // the recovery links apart (a bare "Review and resolve" repeats).
+                  aria-label={`Review and resolve: ${sheet.displayName || sheet.driveFileId}`}
                   className="inline-flex min-h-tap-min items-center self-start font-medium text-warning-text underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
                 >
                   Review and resolve
