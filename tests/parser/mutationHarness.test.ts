@@ -92,3 +92,73 @@ describe("mutation harness — bidirectional known-holes ledger", () => {
     expect(staleRows, `stale ledger rows (fixed or drifted):\n${staleRows.join("\n")}`).toEqual([]);
   });
 });
+
+// ─── Task 9: classifier-parity + coverage-floor + audit-agreement gates ────────────────────────
+import { KNOWN_SECTION_HEADERS, PREFIX_SECTION_FAMILIES, normalizeHeader } from "@/lib/parser/knownSections";
+import { SECTION_DOMAIN_MAP, resolveHeader } from "./mutation/classify";
+import { EXPECTED_HEADER_DOMAINS } from "./mutation/expectedDomains";
+import { OPERATORS as OPS } from "./mutation/operators";
+import { auditSites } from "./mutation/applicabilityAudit";
+
+describe("classifier parity gate (Codex R2/R4/R8/R20)", () => {
+  it("every KNOWN_SECTION_HEADERS entry is mapped and non-other", () => {
+    for (const h of KNOWN_SECTION_HEADERS) {
+      expect(SECTION_DOMAIN_MAP[h], `unmapped: ${h}`).toBeDefined();
+      expect(SECTION_DOMAIN_MAP[h], `${h}=other`).not.toBe("other");
+    }
+  });
+  it("suffixed room families resolve to rooms", () => {
+    for (const fam of PREFIX_SECTION_FAMILIES) expect(SECTION_DOMAIN_MAP[resolveHeader(`${fam} SALON A`)!]).toBe("rooms");
+  });
+  it("EXPECTED_HEADER_DOMAINS covers the live registry (a new parser header forces a row, R20)", () => {
+    const covered = new Set(EXPECTED_HEADER_DOMAINS.map(([h]) => normalizeHeader(h)));
+    for (const h of KNOWN_SECTION_HEADERS) expect(covered, `no expected-domain row for ${h}`).toContain(h);
+  });
+  it("lockstep: SECTION_DOMAIN_MAP agrees with the independent EXPECTED_HEADER_DOMAINS oracle", () => {
+    for (const [h, d] of EXPECTED_HEADER_DOMAINS) expect(SECTION_DOMAIN_MAP[resolveHeader(h)!], h).toBe(d);
+  });
+});
+
+describe("coverage floor + COUNT-level audit agreement (Codex R5/R9, exhaustive plan-R3)", () => {
+  // EXACT: operator emit count per domain must EQUAL the independent audit count
+  // (identical applicability predicate). header-typo is exact too — the audit replicates
+  // its typo-eligibility guard (plan-R4). blank-row:remove is exact — its 2-domain mutant
+  // credits each adjacent domain once, matching the audit's dual bump.
+  const EXACT = ["header-typo", "ref-sub", "unicode-inject", "merged-cell", "column-shift", "blank-row:inject", "blank-row:remove"];
+
+  // Array form — for the BOUNDED synthetic-input tests below only.
+  const genCounts = (raw: { domains: string[] }[]): Map<string, number> => {
+    const m = new Map<string, number>();
+    for (const mut of raw) for (const d of mut.domains) m.set(d, (m.get(d) ?? 0) + 1);
+    return m;
+  };
+  // STREAMING form for the FULL-CORPUS loop (Codex plan-R23/R24 [high]): route through the shared
+  // `boundedMutants` (imported at the top of this file), which embeds the guardStream+MUTANT_BUDGET
+  // fail-fast guard — never materialize the operator array over real fixtures.
+  const genCountsStreamed = (op: string, md: string): Map<string, number> => {
+    const m = new Map<string, number>();
+    for (const mut of boundedMutants(op, md)) for (const d of mut.domains) m.set(d, (m.get(d) ?? 0) + 1);
+    return m;
+  };
+
+  it("EXACT operators: per-domain generated count === independent audit count", () => {
+    for (const f of FIXTURES) {
+      const md = readFixture(f);
+      const audit = auditSites(md);
+      for (const op of EXACT) {
+        const gen = genCountsStreamed(op, md); // streaming + budget-guarded (never an eager array)
+        const domains = new Set<string>([...gen.keys(), ...[...audit.keys()].filter((k) => k.startsWith(`${op}|`)).map((k) => k.split("|")[1]!)]);
+        for (const d of domains) {
+          expect(gen.get(d) ?? 0, `${f.slug} ${op}|${d} count`).toBe(audit.get(`${op}|${d}`) ?? 0);
+        }
+      }
+    }
+  }, 120_000); // ~102k streaming generations (no parse) ≈ 19s — past the 5s default testTimeout
+
+  it("header-typo count matches for TWO same-domain headers (one-emitted-only would fail, plan-R4)", () => {
+    const md = "| CREW | NAME |\n|  | Doug |\n\n| TECH | NAME |\n|  | Eric |"; // two crew-domain headers
+    const gen = genCounts(OPS["header-typo"]!(md));
+    expect(gen.get("crew") ?? 0).toBe(auditSites(md).get("header-typo|crew") ?? 0);
+    expect(gen.get("crew") ?? 0).toBe(2); // both CREW + TECH headers → 2 crew-domain typo sites
+  });
+});

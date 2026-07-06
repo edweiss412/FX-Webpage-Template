@@ -1963,7 +1963,7 @@ describe("coverage floor + COUNT-level audit agreement (Codex R5/R9, exhaustive 
         }
       }
     }
-  });
+  }, 120_000); // ~102k streaming generations (no parse) ≈ 19s — MUST exceed vitest's 5s default testTimeout
 
   it("header-typo count matches for TWO same-domain headers (one-emitted-only would fail, plan-R4)", () => {
     const md = "| CREW | NAME |\n|  | Doug |\n\n| TECH | NAME |\n|  | Eric |"; // two crew-domain headers
