@@ -15,10 +15,11 @@
  *   2. lib/admin/showDisplay.ts — formatRelative takes now: Date (relocated
  *      from the deleted ActiveShowsPanel, M12.12 Task 10) AND the live
  *      consumers (ShowsTable, NeedsAttentionInbox) receive `now` as a prop
- *   3. components/admin/AlertBanner.tsx — imports nowDate, calls await nowDate()
- *      and passes that into raisedAtSuffix(...) (no more `new Date()` arg)
- *   4. components/admin/PerShowAlertSection.tsx — formatRelative takes
+ *   3. components/admin/PerShowAlertSection.tsx — formatRelative takes
  *      now: Date AND component awaits nowDate()
+ *
+ * (components/admin/AlertBanner.tsx was a fourth site; it is retired per bell
+ * notification center §8 and its entry was removed.)
  */
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
@@ -97,24 +98,9 @@ describe("M11 C.2 extension — render-side time migration class-sweep (AC-11.38
     });
   });
 
-  describe("components/admin/AlertBanner.tsx", () => {
-    const src = read("components/admin/AlertBanner.tsx");
-
-    it("imports nowDate from @/lib/time/now", () => {
-      expect(src).toMatch(/from\s+["']@\/lib\/time\/now["']/);
-      expect(src).toMatch(/\bnowDate\b/);
-    });
-
-    it("does NOT pass `new Date()` into raisedAtSuffix(...)", () => {
-      // Migration replaces `raisedAtSuffix(alert.raised_at, new Date())`
-      // with raisedAtSuffix(alert.raised_at, now) where now is awaited.
-      expect(src).not.toMatch(/raisedAtSuffix\s*\([^)]*\bnew\s+Date\s*\(\s*\)/);
-    });
-
-    it("awaits nowDate() before composing the raised-at time element", () => {
-      expect(src).toMatch(/\bawait\s+nowDate\s*\(\s*\)/);
-    });
-  });
+  // bell notification center §8: components/admin/AlertBanner.tsx is retired, so
+  // its render-side-time class-sweep entry is removed here (the surviving
+  // render-side time consumers below still pin the request-scoped nowDate()).
 
   describe("components/admin/PerShowAlertSection.tsx", () => {
     const src = read("components/admin/PerShowAlertSection.tsx");

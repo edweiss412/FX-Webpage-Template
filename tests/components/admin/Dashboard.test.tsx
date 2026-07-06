@@ -152,7 +152,9 @@ describe("Dashboard composition", () => {
     expect(split.className).toContain("min-[1240px]:items-stretch");
     const inbox = screen.getByTestId("dashboard-inbox-col");
     expect(inbox.className).toContain("min-[1240px]:w-80");
-    expect(inbox.className).toContain("min-[1400px]:w-[480px]");
+    // 480px is now the shared `--spacing-panel-max` token (canonicalized from the
+    // former `w-[480px]` bracket when BELL-4 tokenized the value).
+    expect(inbox.className).toContain("min-[1400px]:w-panel-max");
     // the old breakpoints are gone
     expect(inbox.className).not.toContain("min-[1080px]");
     expect(inbox.className).not.toContain("min-[1280px]");

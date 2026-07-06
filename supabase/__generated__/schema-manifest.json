@@ -3,6 +3,11 @@
     "column_name",
     "table_name"
   ],
+  "admin_alert_reads": [
+    "admin_email",
+    "alert_id",
+    "read_at"
+  ],
   "admin_alerts": [
     "code",
     "context",
@@ -13,6 +18,10 @@
     "resolved_at",
     "resolved_by",
     "show_id"
+  ],
+  "admin_bell_state": [
+    "admin_email",
+    "opened_at"
   ],
   "admin_emails": [
     "added_at",
@@ -47,6 +56,8 @@
     "alert_on_auto_publish",
     "alert_on_sync_problems",
     "auto_publish_clean_first_seen",
+    "bell_feed_cap",
+    "bell_history_days",
     "daily_review_digest",
     "id",
     "pending_folder_id",

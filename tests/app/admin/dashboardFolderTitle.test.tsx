@@ -49,7 +49,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }),
   usePathname: () => "/admin",
 }));
-vi.mock("@/components/admin/AlertBanner", () => ({ AlertBanner: () => null }));
+// bell notification center §8: AlertBanner is retired — no banner stub needed.
 vi.mock("@/components/admin/Dashboard", () => ({
   Dashboard: (props: { folderName?: string | null }) => {
     captured.folderName = props.folderName;

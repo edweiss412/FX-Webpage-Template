@@ -12,7 +12,7 @@ export const SPEC_CODES = {
     "crewFacing": null,
     "dougFacing": "We couldn't check for alerts right now. Refresh in a moment.",
     "followUp": "Doug → refresh; if persistent, check Supabase admin_alerts RLS + grants",
-    "helpfulContext": "The shared admin_alerts head:true count (lib/admin/alertCount.ts) returned/threw an error. The NotifBell renders a degraded warn bell and the AlertBanner renders a degraded summary instead of hiding, so a broken count is visible.",
+    "helpfulContext": "The bell unseen-count read (loadBellUnseenCount, lib/admin/bellFeed.ts) returned/threw an error. The NotifBell renders a degraded warn bell instead of hiding, so a broken count is visible.",
   },
   "ADMIN_ALERT_NOT_FOUND": {
     "crewFacing": null,
@@ -145,6 +145,12 @@ export const SPEC_CODES = {
     "dougFacing": null,
     "followUp": "Crew → reopen signed link",
     "helpfulContext": null,
+  },
+  "ALERT_BELL_FEED_FAILED": {
+    "crewFacing": null,
+    "dougFacing": "We couldn't load your notifications just now. Refresh in a moment or use Retry — nothing has been lost.",
+    "followUp": "none — transient read failure",
+    "helpfulContext": "The bell notification panel failed to fetch its feed (server or database hiccup). Alerts are stored server-side, so nothing is lost; the panel retries on demand.",
   },
   "ALERT_REQUIRES_SHOW_SCOPED_RESOLVE": {
     "crewFacing": null,

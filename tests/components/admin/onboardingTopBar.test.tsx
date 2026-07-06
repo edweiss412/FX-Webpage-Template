@@ -9,12 +9,25 @@
  * non-replaced inline element), so the span must be `inline-block` for a long
  * Workspace address to ellipsize instead of growing the bar.
  */
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { OnboardingTopBar } from "@/components/admin/nav/OnboardingTopBar";
 import type { HealthStatus } from "@/lib/admin/healthRollup";
 
-afterEach(cleanup);
+// <NotifBell> (rendered when a bellCount prop is supplied) is a client island:
+// useBellBadge reads usePathname and, in effects, POSTs a realtime token. Mock
+// the pathname and stub fetch so the badge mounts cleanly under jsdom (mirrors
+// tests/components/admin/nav/AdminNav.test.tsx).
+vi.mock("next/navigation", () => ({ usePathname: () => "/admin" }));
+
+beforeEach(() => {
+  vi.stubGlobal("fetch", vi.fn());
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe("OnboardingTopBar", () => {
   test("renders the admin email and a POST sign-out form to /auth/sign-out", () => {
@@ -63,5 +76,34 @@ describe("OnboardingTopBar", () => {
   test("omits the indicator when no healthRollup is provided (guard)", () => {
     const q = render(<OnboardingTopBar email="admin@example.test" />);
     expect(q.queryByTestId("app-health-indicator")).toBeNull();
+  });
+
+  test("renders <NotifBell> beside the <AppHealthIndicator> when a bellCount prop is provided (spec §7.1: the onboarding chrome keeps a non-health alert surface after banner retirement)", () => {
+    const degraded: HealthStatus = {
+      kind: "degraded",
+      count: 1,
+      summaries: [{ text: "A push notification failed a security check.", count: 1 }],
+      overflowCount: 0,
+    };
+    const q = render(
+      <OnboardingTopBar
+        email="admin@example.test"
+        healthRollup={degraded}
+        isDeveloper={false}
+        bellCount={{ kind: "ok", count: 0 }}
+      />,
+    );
+    const bell = q.getByTestId("admin-notif-bell");
+    const indicator = q.getByTestId("app-health-indicator");
+    expect(bell).not.toBeNull();
+    // Sibling of the indicator inside the same right-side action cluster,
+    // mirroring the <AdminNav> arrangement (AppHealthIndicator + NotifBell).
+    expect(bell.parentElement).toBe(indicator.parentElement);
+  });
+
+  test("omits the bell entirely when no bellCount prop is provided (guard)", () => {
+    const q = render(<OnboardingTopBar email="admin@example.test" />);
+    expect(q.queryByTestId("admin-notif-bell")).toBeNull();
+    expect(q.queryByTestId("admin-notif-bell-degraded")).toBeNull();
   });
 });

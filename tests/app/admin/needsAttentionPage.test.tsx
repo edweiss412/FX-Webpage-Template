@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 // Mobile needs-attention Task 5 — /admin/needs-attention page (spec §4.3).
-// Full async-page render with the loader mocked: success → header + #alerts +
-// real NeedsAttentionInbox with the loader's data; loader infra_error →
-// catalog-safe degraded copy (NO raw code text), alerts section STILL present;
-// loader is called with { cap: PAGE_RENDER_CAP } and WITHOUT an injected
-// `supabase` client (pins the no-injected-client rule, spec §4.3).
+// Full async-page render with the loader mocked: success → header + real
+// NeedsAttentionInbox with the loader's data; loader infra_error → catalog-safe
+// degraded copy (NO raw code text); loader is called with { cap: PAGE_RENDER_CAP }
+// and WITHOUT an injected `supabase` client (pins the no-injected-client rule,
+// spec §4.3). bell notification center §8: the AlertBanner + `div#alerts` slot
+// are retired — alerts now surface in the nav <NotifBell> panel.
 import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
@@ -26,14 +27,6 @@ vi.mock("@/lib/auth/requireAdmin", () => ({
   requireAdmin: async () => {},
   requireAdminIdentity: async () => ({ email: "doug@example.com" }),
 }));
-// AlertBanner is an async server component that self-fetches admin_alerts —
-// stub it; the page contract under test is the `div#alerts` mount slot.
-vi.mock("@/components/admin/AlertBanner", async () => {
-  const React = await import("react");
-  return {
-    AlertBanner: () => React.createElement("div", { "data-testid": "alert-banner-stub" }),
-  };
-});
 // Same clock-helper path Dashboard.tsx uses (components/admin/Dashboard.tsx:20).
 vi.mock("@/lib/time/now", () => ({
   nowDate: async () => new Date("2026-06-10T12:00:00.000Z"),
@@ -94,17 +87,12 @@ afterEach(() => {
 });
 
 describe("/admin/needs-attention page (spec §4.3)", () => {
-  it("success: wrapper + header + #alerts + the real inbox rendering the loader's data", async () => {
-    const { container } = await renderPage();
+  it("success: wrapper + header + the real inbox rendering the loader's data", async () => {
+    await renderPage();
 
     expect(screen.getByTestId("admin-needs-attention-page")).toBeInTheDocument();
     expect(screen.getByTestId("admin-page-header-title").textContent).toBe("Needs attention");
     expect(screen.getByText("Everything waiting on you, across all shows.")).toBeInTheDocument();
-
-    // Banner mount slot (D-5 amendment): div#alerts wraps the AlertBanner.
-    const alerts = container.querySelector("div#alerts");
-    expect(alerts).not.toBeNull();
-    expect(alerts!.querySelector("[data-testid=alert-banner-stub]")).not.toBeNull();
 
     // The REAL NeedsAttentionInbox renders the loader items (not a stub) —
     // assert against the loader data source, not hardcoded duplicates.
@@ -119,7 +107,7 @@ describe("/admin/needs-attention page (spec §4.3)", () => {
     expect(screen.queryByTestId("needs-attention-page-degraded")).toBeNull();
   });
 
-  it("loader infra_error: degraded copy block, NO raw code text, alerts section STILL present", async () => {
+  it("loader infra_error: degraded copy block, NO raw code text", async () => {
     state.result = { kind: "infra_error", message: RAW_INFRA_MESSAGE };
     const { container } = await renderPage();
 
@@ -132,9 +120,7 @@ describe("/admin/needs-attention page (spec §4.3)", () => {
     expect(domText).not.toContain("infra_error");
     expect(domText).not.toContain(RAW_INFRA_MESSAGE);
 
-    // The alerts slot is independent of the loader result — still mounted.
-    expect(container.querySelector("div#alerts")).not.toBeNull();
-    // And the inbox is NOT rendered in the degraded state.
+    // The inbox is NOT rendered in the degraded state.
     expect(screen.queryByTestId("needs-attention-inbox")).toBeNull();
   });
 

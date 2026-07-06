@@ -27,7 +27,7 @@ import { PageTransition } from "@/components/layout/PageTransition";
 import { readAppSettingsRow } from "@/lib/appSettings/readAppSettingsRow";
 import { readFinalizeCheckpoint, isInfraError } from "@/app/admin/_finalizeCheckpoint";
 import { getRequiredDougFacing } from "@/lib/messages/lookup";
-import { fetchUnresolvedAlertCount } from "@/lib/admin/alertCount";
+import { loadBellUnseenCount } from "@/lib/admin/bellFeed";
 import { loadNeedsAttentionCount } from "@/lib/admin/needsAttentionCount";
 import { fetchHealthRollup, type HealthStatus } from "@/lib/admin/healthRollup";
 
@@ -135,6 +135,21 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     }
   }
 
+  // nav-perf Phase 2 (E-lite): the two badge reads are independent — run them in
+  // parallel so first /admin entry blocks on one wall-time, not two sequential
+  // round-trips. bellCount comes from loadBellUnseenCount (bell notification
+  // center §6.4 — the SAME pipeline the panel feed reads, so the badge and the
+  // open panel can never disagree). It is computed BEFORE the onboarding branch
+  // because the bell REPLACES the retired AlertBanner and now rides BOTH chromes
+  // (§7.1/§8): the slim onboarding bar and the full nav. The "Needs attention"
+  // tab badge seed (spec §4.2) maps infra_error → null → badge hidden
+  // (fail-quiet, ratified D-4); it is only shown in the full nav, but reading it
+  // here keeps the two independent reads on one parallel wall-time.
+  const [bellCount, needsAttentionCount] = await Promise.all([
+    loadBellUnseenCount(adminEmail, viewerIsDeveloper),
+    loadNeedsAttentionCount(),
+  ]);
+
   if (inOnboarding) {
     return (
       <div
@@ -147,21 +162,12 @@ export default async function AdminLayout({ children }: { children: ReactNode })
           email={adminEmail}
           healthRollup={healthRollup}
           isDeveloper={viewerIsDeveloper}
+          bellCount={bellCount}
         />
         <PageTransition>{children}</PageTransition>
       </div>
     );
   }
-
-  // nav-perf Phase 2 (E-lite): the two badge reads are independent — run them in
-  // parallel so first /admin entry blocks on one wall-time, not two sequential
-  // round-trips. alertCount is meta-pinned in lib/admin/alertCount.ts; the
-  // "Needs attention" tab badge seed (spec §4.2) maps infra_error → null → badge
-  // hidden (fail-quiet, ratified D-4).
-  const [alertCount, needsAttentionCount] = await Promise.all([
-    fetchUnresolvedAlertCount(),
-    loadNeedsAttentionCount(),
-  ]);
 
   return (
     <div
@@ -178,18 +184,16 @@ export default async function AdminLayout({ children }: { children: ReactNode })
     >
       <AdminNav
         email={adminEmail}
-        alertCount={alertCount}
+        bellCount={bellCount}
         initialBadgeCount={needsAttentionCount.kind === "ok" ? needsAttentionCount.count : null}
         viewerIsDeveloper={viewerIsDeveloper}
         healthRollup={healthRollup}
       />
 
-      {/* M12.3 items 1+2: the global AlertBanner is no longer mounted in the
-          layout (it used to ride EVERY admin route, double-rendering on
-          per-show which has its own "Alerts for this show" section). It now
-          mounts ONLY on the dashboard, under the "Dashboard" header — see
-          <DashboardWithHeader> in app/admin/page.tsx, which keeps the
-          `<div id="alerts">` queue-chip scroll target for `/admin#alerts`. */}
+      {/* bell notification center §8: the global AlertBanner is retired. Its
+          role — surfacing unresolved admin alerts — now lives in the <NotifBell>
+          panel in the nav above (both chromes), so there is no banner slot and
+          no `<div id="alerts">` anchor anywhere in the admin tree. */}
       {/* M12.11: animate the page content on every /admin/* navigation. The nav
           above persists (it's outside the wrapper); only the content below
           transitions. loading.tsx skeletons render INSIDE this wrapper, so the

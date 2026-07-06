@@ -47,6 +47,8 @@ const expectedBoundaryChecks: readonly ExpectedBoundaryCheck[] = [
   { table: "pending_syncs", column: "wizard_approved_by_email", nullability: "nullable" },
   { table: "shows_pending_changes", column: "applied_by_email", nullability: "not-null" },
   { table: "email_deliveries", column: "recipient", nullability: "not-null" },
+  { table: "admin_alert_reads", column: "admin_email", nullability: "not-null" },
+  { table: "admin_bell_state", column: "admin_email", nullability: "not-null" },
 ] as const;
 
 function stripSqlComments(sql: string): string {

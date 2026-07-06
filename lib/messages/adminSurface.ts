@@ -2,10 +2,16 @@
 //
 // Single source of truth for admin-alert surface routing, derived from the
 // catalog's `adminSurface` / `severity` fields at module load. Consumers:
-//   - AlertBanner + fetchUnresolvedAlertCount exclude BANNER_EXCLUDED_CODES
 //   - loadNeedsAttention + needsAttentionCount INCLUDE INBOX_ROUTED_CODES
+//   - the bell feed/count exclusion (lib/admin/bellAudience.ts) EXCLUDES
+//     INBOX_ROUTED_CODES (∪ HEALTH_CODES for non-developers) from the NotifBell
+//     panel + badge — the inbox and app-health indicator own those codes
 //   - the resolve routes + resolveAdminAlert(s) helper + PerShowAlertSection
 //     use isInboxRouted() for the no-Dismiss UX guard
+//   - BANNER_EXCLUDED_CODES / DOUG_SURFACE_EXCLUDED_CODES were the retired
+//     AlertBanner's exclusion sets (bell notification center §8). They are kept
+//     for tests/scripts/validation-report-fixtures-rendering.test.tsx, which
+//     mirrors the historical banner query; no live surface reads them.
 // Keeping this computed (not hand-listed) means adding `adminSurface:"inbox"`
 // to a catalog entry automatically wires every consumer.
 import { MESSAGE_CATALOG, type MessageCatalogEntry } from "@/lib/messages/catalog";
@@ -18,12 +24,16 @@ export const INFO_SEVERITY_CODES: string[] = entries
   .filter((entry) => entry.severity === "info")
   .map((entry) => entry.code);
 
-/** Codes routed to the Needs attention inbox instead of the AlertBanner. */
+/** Codes routed to the Needs attention inbox (not the general alert surfaces). */
 export const INBOX_ROUTED_CODES: string[] = entries
   .filter((entry) => entry.adminSurface === "inbox")
   .map((entry) => entry.code);
 
-/** Codes the AlertBanner + bell count must NOT surface (union, de-duped). */
+/**
+ * Legacy: the codes the retired AlertBanner must NOT surface (info-severity ∪
+ * inbox-routed, union de-duped). Retained only for the validation-report-fixtures
+ * rendering test; the live bell exclusion lives in lib/admin/bellAudience.ts.
+ */
 export const BANNER_EXCLUDED_CODES: string[] = [
   ...new Set([...INFO_SEVERITY_CODES, ...INBOX_ROUTED_CODES]),
 ];

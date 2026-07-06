@@ -57,12 +57,18 @@ vi.mock("@/components/layout/PageTransition", () => ({
   PageTransition: ({ children }: { children: React.ReactNode }) => children,
 }));
 vi.mock("@/lib/messages/lookup", () => ({ getRequiredDougFacing: () => "load failed" }));
-vi.mock("@/lib/admin/alertCount", () => ({
-  fetchUnresolvedAlertCount: vi.fn(async () => ({ kind: "ok", count: 0 })),
+// The onboarding chrome now mounts <NotifBell> (bell notification center §7.1/§8:
+// the bell replaces the retired AlertBanner and rides BOTH chromes). Seed the
+// server-computed count; usePathname is stubbed below so the badge hook mounts.
+vi.mock("@/lib/admin/bellFeed", () => ({
+  loadBellUnseenCount: vi.fn(async () => ({ kind: "ok", count: 0 })),
 }));
 vi.mock("@/lib/admin/needsAttentionCount", () => ({
   loadNeedsAttentionCount: vi.fn(async () => ({ kind: "ok", count: 0 })),
 }));
+// <NotifBell>'s useBellBadge reads usePathname; stub it so the client island
+// mounts cleanly without an app-router provider.
+vi.mock("next/navigation", () => ({ usePathname: () => "/admin" }));
 // AC13: the layout threads the health rollup into BOTH nav chromes; seed it so
 // the onboarding branch can render the escalating indicator.
 const healthState = vi.hoisted(() => ({
@@ -112,12 +118,16 @@ async function renderLayout() {
 afterEach(() => {
   cleanup();
   vi.resetModules();
+  vi.unstubAllGlobals();
 });
 
 beforeEach(() => {
   settingsState.result = null;
   checkpointState.result = null; // default: no checkpoint yet → wizard pre-finalize
   healthState.result = { kind: "ok" };
+  // NotifBell's realtime effect POSTs a token; stub fetch so it fails-open
+  // quietly under jsdom instead of hitting the network.
+  vi.stubGlobal("fetch", vi.fn());
 });
 
 describe("AdminLayout onboarding nav suppression (Task 1)", () => {

@@ -7,16 +7,15 @@
  * server client (NO injected client — spec §4.3); a typed infra_error degrades
  * to fixed catalog-safe copy (invariant 5 — never the raw message).
  *
- * Banner placement contract (M12.3, amended by needs-attention spec D-5): the
- * global AlertBanner mounts on the dashboard + THIS page only. The
- * `<div id="alerts">` wrapper mirrors the dashboard's queue-chip scroll-target
- * idiom; AlertBanner is async + self-fetching, rendering null when clean.
+ * bell notification center §8: the global AlertBanner (and its `<div id="alerts">`
+ * anchor) is RETIRED. Unresolved admin alerts now surface in the <NotifBell>
+ * panel in the nav, so this page renders its header straight into the inbox list
+ * with no banner slot.
  *
  * requireAdminIdentity() runs here as defense-in-depth (the admin layout also
  * gates) — registered in lib/audit/trustDomains.ts PROTECTED_ROUTES.
  */
 import { AdminPageHeader } from "@/components/admin/nav/AdminPageHeader";
-import { AlertBanner } from "@/components/admin/AlertBanner";
 import { HoverHelp } from "@/components/admin/HoverHelp";
 import { NeedsAttentionInbox } from "@/components/admin/NeedsAttentionInbox";
 import { loadNeedsAttention } from "@/lib/admin/loadNeedsAttention";
@@ -49,13 +48,6 @@ export default async function NeedsAttentionPage() {
           </HoverHelp>
         }
       />
-      {/* Banner placement contract: dashboard + THIS page only (spec D-5 amendment). */}
-      {/* empty:hidden collapses the slot (and its flex gap) in the common
-          no-alerts state - AlertBanner renders null, leaving the div empty
-          (impeccable critique finding 1). */}
-      <div id="alerts" className="empty:hidden">
-        <AlertBanner />
-      </div>
       <section aria-label="Needs attention" className="flex w-full max-w-3xl flex-col gap-3">
         {"kind" in result ? (
           <p

@@ -74,6 +74,10 @@ const AUTO_RESOLVE_NOTES: Record<string, string> = {
   SYNC_STALLED: "Clears automatically once the sync heartbeat recovers.",
   WATCH_CHANNEL_ORPHANED:
     "Clears automatically once the Drive watch channel re-subscribes (use Retry to trigger it now).",
+  BRANCH_PROTECTION_DRIFT:
+    "Clears automatically the next time the branch-protection monitor verifies the settings match the contract.",
+  BRANCH_PROTECTION_MONITOR_AUTH_FAILED:
+    "Clears automatically the next time the branch-protection monitor authenticates successfully.",
 };
 
 /**

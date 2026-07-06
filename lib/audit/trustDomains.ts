@@ -75,6 +75,21 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   { path: "app/api/report/route.ts", chain: CREW_SESSION_CHAINS },
   { path: "app/api/admin/admin-alerts/[id]/resolve/route.ts", chain: ["requireAdmin"] },
   { path: "app/api/admin/needs-attention-count/route.ts", chain: ["requireAdmin"] },
+  // Bell notification center (Task 9): read-only feed/count routes over
+  // requireAdminIdentity, mirroring needs-attention-count's chain shape.
+  { path: "app/api/admin/alerts/bell/feed/route.ts", chain: ["requireAdmin"] },
+  { path: "app/api/admin/alerts/bell/count/route.ts", chain: ["requireAdmin"] },
+  // Task 10: write routes over the greatest-wins monotonic bell_mark_opened/
+  // bell_mark_read RPCs, same chain shape as their read siblings above.
+  { path: "app/api/admin/alerts/bell/open/route.ts", chain: ["requireAdmin"] },
+  { path: "app/api/admin/alerts/bell/read/route.ts", chain: ["requireAdmin"] },
+  // Task 11: developer-gated config route (developer ⟹ admin, spec §2) — same
+  // chokepoint as reap-stale-sessions above, requireDeveloper REPLACES
+  // requireAdmin rather than stacking.
+  { path: "app/api/admin/alerts/bell/config/route.ts", chain: ["requireDeveloper"] },
+  // Task 12: realtime token mint — read-only (mints a JWT, writes no
+  // state), same requireAdminIdentity chokepoint as the count/feed routes.
+  { path: "app/api/admin/alerts/bell/token/route.ts", chain: ["requireAdmin"] },
   { path: "app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts", chain: ["requireAdmin"] },
   { path: "app/api/admin/show/[slug]/data-quality/ignore/route.ts", chain: ["requireAdmin"] },
   { path: "app/api/admin/show/[slug]/data-quality/unignore/route.ts", chain: ["requireAdmin"] },

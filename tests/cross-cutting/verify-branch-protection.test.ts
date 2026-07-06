@@ -98,7 +98,11 @@ function makeFetch({
   }) as unknown as typeof fetch;
 }
 
-async function runCase(options: Parameters<typeof makeFetch>[0], env: Record<string, string> = {}) {
+async function runCase(
+  options: Parameters<typeof makeFetch>[0],
+  env: Record<string, string> = {},
+  alertResolver?: (codes: readonly string[]) => Promise<void>,
+) {
   const rpc = vi.fn(async () => ({ data: "alert-id", error: null }));
   const verifyOptions: Parameters<typeof verifyBranchProtection>[0] & {
     adminAlertClient: { rpc: typeof rpc };
@@ -107,6 +111,7 @@ async function runCase(options: Parameters<typeof makeFetch>[0], env: Record<str
     fetchImpl: makeFetch(options),
     adminAlertClient: { rpc },
     writeReport: false,
+    ...(alertResolver ? { alertResolver } : {}),
   };
   const result = await verifyBranchProtection({
     ...verifyOptions,
@@ -321,5 +326,63 @@ describe("X.6 branch-protection verifier", () => {
     } finally {
       rmSync(dir, { force: true, recursive: true });
     }
+  });
+
+  test("healthy run resolves both the auth-failed and drift alert codes", async () => {
+    const alertResolver = vi.fn(async () => undefined);
+    const { result } = await runCase({ legacy: legacyProtection() }, {}, alertResolver);
+
+    expect(result.ok).toBe(true);
+    expect(alertResolver).toHaveBeenCalledTimes(2);
+    expect(alertResolver).toHaveBeenCalledWith(["BRANCH_PROTECTION_MONITOR_AUTH_FAILED"]);
+    expect(alertResolver).toHaveBeenCalledWith(["BRANCH_PROTECTION_DRIFT"]);
+  });
+
+  test("drift found resolves only the auth-failed code; drift itself is (re)raised via rpc", async () => {
+    const alertResolver = vi.fn(async () => undefined);
+    const { result, rpc } = await runCase(
+      { legacy: legacyProtection({ enforce_admins: { enabled: false } }) },
+      {},
+      alertResolver,
+    );
+
+    expect(result.ok).toBe(false);
+    expect(alertResolver).toHaveBeenCalledTimes(1);
+    expect(alertResolver).toHaveBeenCalledWith(["BRANCH_PROTECTION_MONITOR_AUTH_FAILED"]);
+    expect(rpc).toHaveBeenCalledWith(
+      "upsert_admin_alert",
+      expect.objectContaining({ p_code: "BRANCH_PROTECTION_DRIFT" }),
+    );
+  });
+
+  test("auth failure never calls the resolver", async () => {
+    const alertResolver = vi.fn(async () => undefined);
+    const rpc = vi.fn(async () => ({ data: "alert-id", error: null }));
+
+    const result = await verifyBranchProtection({
+      env: { GITHUB_REPOSITORY: "owner/repo" },
+      fetchImpl: makeFetch({ status: 200 }),
+      adminAlertClient: { rpc },
+      alertResolver,
+      writeReport: false,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.authFailure).toBe(true);
+    expect(alertResolver).not.toHaveBeenCalled();
+  });
+
+  test("a throwing resolver degrades to a logged no-op without affecting the result", async () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const alertResolver = vi.fn(async () => {
+      throw new Error("resolve boom");
+    });
+
+    const { result } = await runCase({ legacy: legacyProtection() }, {}, alertResolver);
+
+    expect(result.ok).toBe(true);
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("[verify-branch-protection] admin_alerts insertion skipped:"),
+    );
   });
 });

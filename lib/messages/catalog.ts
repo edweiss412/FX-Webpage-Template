@@ -1881,7 +1881,7 @@ export const MESSAGE_CATALOG = {
   },
   BRANCH_PROTECTION_DRIFT: {
     code: "BRANCH_PROTECTION_DRIFT",
-    resolution: "manual",
+    resolution: "auto",
     audience: "health",
     healthWeight: "degraded",
     dougSummary:
@@ -1899,7 +1899,7 @@ export const MESSAGE_CATALOG = {
   },
   BRANCH_PROTECTION_MONITOR_AUTH_FAILED: {
     code: "BRANCH_PROTECTION_MONITOR_AUTH_FAILED",
-    resolution: "manual",
+    resolution: "auto",
     audience: "health",
     healthWeight: "degraded",
     dougSummary:
@@ -2266,11 +2266,24 @@ export const MESSAGE_CATALOG = {
     crewFacing: null,
     followUp: "Doug → refresh; if persistent, check Supabase admin_alerts RLS + grants",
     helpfulContext:
-      "The shared admin_alerts head:true count (lib/admin/alertCount.ts) returned/threw an error. The NotifBell renders a degraded warn bell and the AlertBanner renders a degraded summary instead of hiding, so a broken count is visible.",
+      "The bell unseen-count read (loadBellUnseenCount, lib/admin/bellFeed.ts) returned/threw an error. The NotifBell renders a degraded warn bell instead of hiding, so a broken count is visible.",
     title: "Couldn't check alerts",
     longExplanation:
       "We couldn't read the alert count, usually a transient database or permissions issue. Refresh in a moment; if it keeps failing, the developer needs to check the admin_alerts table access.",
     helpHref: "/help/errors#ADMIN_ALERT_COUNT_FAILED",
+  },
+  ALERT_BELL_FEED_FAILED: {
+    code: "ALERT_BELL_FEED_FAILED",
+    dougFacing:
+      "We couldn't load your notifications just now. Refresh in a moment or use Retry — nothing has been lost.",
+    crewFacing: null,
+    followUp: "none — transient read failure",
+    helpfulContext:
+      "The bell notification panel failed to fetch its feed (server or database hiccup). Alerts are stored server-side, so nothing is lost; the panel retries on demand.",
+    title: "Notifications didn't load",
+    longExplanation:
+      "The bell notification panel failed to fetch its feed (server or database hiccup). Alerts are stored server-side, so nothing is lost; the panel retries on demand.",
+    helpHref: "/help/errors#ALERT_BELL_FEED_FAILED",
   },
   ADMIN_ROUTE_LOAD_FAILED: {
     code: "ADMIN_ROUTE_LOAD_FAILED",

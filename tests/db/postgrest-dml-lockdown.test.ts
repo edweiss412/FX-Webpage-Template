@@ -452,6 +452,25 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
     },
     rowFilter: "?drive_file_id=eq.postgrest-dml-lockdown-test-no-such-row",
   },
+  {
+    table: "admin_alert_reads",
+    closed_at: "supabase/migrations/20260705100000_bell_state_tables.sql:26",
+    selectAnon: false,
+    selectAuthenticated: false,
+    postBody: {
+      alert_id: "00000000-0000-0000-0000-000000000000",
+      admin_email: "lockdown-test@example.com",
+    },
+    rowFilter: "?admin_email=eq.no-such-row%40example.com",
+  },
+  {
+    table: "admin_bell_state",
+    closed_at: "supabase/migrations/20260705100000_bell_state_tables.sql:27",
+    selectAnon: false,
+    selectAuthenticated: false,
+    postBody: { admin_email: "lockdown-test@example.com" },
+    rowFilter: "?admin_email=eq.no-such-row%40example.com",
+  },
 ] as const;
 
 // =============================================================================
