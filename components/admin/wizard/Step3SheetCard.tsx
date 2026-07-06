@@ -59,6 +59,7 @@ import {
 import type { ReviewerChoice } from "@/lib/sync/applyStaged";
 import { postPublishIntent } from "@/lib/admin/publishIntent";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
+import { DataQualityBadge } from "@/components/admin/DataQualityBadge";
 
 // Summary date rendering (§4.2): `dateSummarySegments` moved to
 // step3ReviewSections.tsx in Task 4 (imported above) so the review modal's
@@ -628,22 +629,26 @@ export function Step3SheetCard({
         />
       ) : null}
       <div className="min-w-0 flex-1">
-        <p
-          data-testid={`wizard-step3-card-${dfid}-title`}
-          className="truncate text-base font-semibold text-text-strong"
-        >
-          {title}
-        </p>
+        {/* The data-quality glyph (same one the admin dashboard rows use) sits
+            AT THE END OF THE TITLE — inline, not a right-aligned count chip
+            (owner decision, 2026-07-06). Title truncates (min-w-0), badge is
+            shrink-0 so it never gets clipped. Renders null when gaps.total===0. */}
+        <div className="flex min-w-0 items-center gap-1.5">
+          <p
+            data-testid={`wizard-step3-card-${dfid}-title`}
+            className="truncate text-base font-semibold text-text-strong"
+          >
+            {title}
+          </p>
+          <DataQualityBadge slug={dfid} dataGaps={gaps} />
+        </div>
         {metaLine}
       </div>
-      {/* On mobile this cluster is a full-width second row. With the badge added
-          it can hold chip + View + badge, so it WRAPS (max-sm:flex-wrap) instead
-          of overflowing the card at ~390px. Desktop is content-sized and never
+      {/* On mobile this cluster is a full-width second row holding View/Review +
+          the post-finalize badge, so it WRAPS (max-sm:flex-wrap) instead of
+          overflowing the card at ~390px. Desktop is content-sized and never
           wraps, so the shipped desktop layout is unchanged. */}
       <div className="flex shrink-0 items-center gap-3 max-sm:w-full max-sm:flex-wrap max-sm:justify-between">
-        {needsLook
-          ? reviewChip(`${gaps.total} ${gaps.total === 1 ? "needs" : "need"} a look`)
-          : null}
         {triggerButton(needsLook ? "Review" : "View")}
         {checkpointStatus !== null && row.displayState ? (
           <Step3RowBadge displayState={row.displayState} />
