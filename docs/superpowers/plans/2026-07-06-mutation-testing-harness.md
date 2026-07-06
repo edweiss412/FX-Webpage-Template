@@ -2349,18 +2349,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2 # match unit-suite.yml:61 (pinned, not `latest`)
       - uses: actions/setup-node@v4
         with:
-          node-version-file: .nvmrc
+          node-version: 20 # match unit-suite.yml:64
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # NO supabase/setup-cli, psql, or bootstrap: the harness is pure-parser / DB-free.
       - name: Run exhaustive mutation harness (nightly, ~50 min)
         env:
           VITEST_INCLUDE_MUTATION_HARNESS: "1"
-        run: pnpm vitest run tests/parser/mutationHarness.test.ts
+        run: pnpm exec vitest run tests/parser/mutationHarness.test.ts
 ```
 
-> Verify the setup-step versions/inputs against the live `unit-suite.yml` before committing (action pins, `node-version-file`, pnpm setup shape) — match it exactly so the nightly runner provisions identically. If `unit-suite.yml` pins `supabase/setup-cli` or other steps the harness does NOT need (it is DB-free, pure parser), OMIT them.
+> Pins mirror the live `unit-suite.yml` (pnpm `10.33.2` `:61`, node `20` `:64`, `pnpm install --frozen-lockfile` `:66`). The Supabase/psql/bootstrap steps (`:67-80`) are intentionally OMITTED — the harness only reads committed markdown fixtures + calls `parseSheet`, touching no DB.
 
 - [ ] **Step 5: Verify locally — excluded by default, runs opted-in, meta-tests green**
 
