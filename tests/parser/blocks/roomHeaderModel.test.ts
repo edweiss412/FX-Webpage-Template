@@ -71,6 +71,27 @@ describe("room block-context predicates (spec §2.2 c2 — R37/R38)", () => {
       hasRoomFieldBlock(T(["| WELCOME RECEPTION DAY 1 |", "| 6:00 PM | Cocktails |"]), 0),
     ).toBe(false);
   });
+  // Whole-diff Codex R1 [high]: a BARE field-ish label (no BO/GS prefix) must NOT count
+  // as room field-evidence — else a DAY-titled NOTE whose first row is coincidentally
+  // `| Audio | … |` / `| Notes | … |` / `| Setup | … |` becomes a phantom breakout room.
+  // Real rooms in BOTH renderer families carry the BO/GS prefix on the FIRST field row
+  // (exporter-xlsx bare `Setup`/`Power`/`Notes` are only deeper CONTINUATION rows).
+  it("hasRoomFieldBlock false for a BARE field-ish label immediately beneath (no BO/GS prefix)", () => {
+    for (const bare of ["Audio", "Setup", "Notes", "Power", "Video"]) {
+      expect(
+        hasRoomFieldBlock(T(["| WELCOME RECEPTION DAY 1 |", `| ${bare} | House music |`]), 0),
+        `bare '${bare}' must not be field-evidence`,
+      ).toBe(false);
+    }
+  });
+  it("hasRoomFieldBlock true only with a BO/GS-prefixed first field row", () => {
+    expect(hasRoomFieldBlock(T(["| MABEL 1&#10;DAY 1 & 2 |", "| BO Setup | TBD |"]), 0)).toBe(true);
+    expect(hasRoomFieldBlock(T(["| GRAND BALLROOM DAY 1 |", "| GS Setup | 9pm |"]), 0)).toBe(true);
+  });
+  it("isRoomHeader false: DAY-titled note + bare field-ish row at a boundary (R1 attack)", () => {
+    const attack = T(["", "| WELCOME RECEPTION DAY 1 |", "| Audio | House music |"]);
+    expect(isRoomHeader(attack, 1)).toBe(false);
+  });
   it("precededByBoundary: blank/separator/all-empty row above, or i===0", () => {
     expect(precededByBoundary(T(["", "| MABEL 1&#10;DAY 1 & 2 |"]), 1)).toBe(true); // blank
     expect(precededByBoundary(T(["| | | |", "| LAUDERDALE 1, 2, 3 DAY 1 & 2 |"]), 1)).toBe(true); // all-empty

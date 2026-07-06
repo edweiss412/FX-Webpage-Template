@@ -182,19 +182,21 @@ export function roomGroupKey(col0Raw: string, firstLine: string): string {
 /**
  * FIELD-EVIDENCE (spec §2.2 (c2) signal 1, R37 f1). True iff the row IMMEDIATELY
  * beneath `i` (skipping a `:---:` separator / all-empty row) is a `BO …`/`GS …`
- * field-label row. Separates a room (`MABEL`→`BO Setup`) from an agenda note
- * (`WELCOME RECEPTION DAY 1`→schedule rows).
+ * field-label row. The `BO`/`GS` prefix is MANDATORY (whole-diff Codex R1 [high]):
+ * a BARE field-ish col0 (`Audio`, `Setup`, `Notes`) is NOT evidence, else a DAY-titled
+ * NOTE whose first row happens to be `| Audio | … |` would be admitted as a phantom
+ * breakout. Real rooms in BOTH renderer families carry the prefix on the FIRST field
+ * row (raw/: `BO Setup`; exporter-xlsx: `BO Setup`/`GS Setup` — its bare `Setup`/
+ * `Power`/`Notes` rows are only deeper CONTINUATION rows, never the first). Separates a
+ * room (`MABEL`→`BO Setup`) from an agenda note (`WELCOME RECEPTION DAY 1`→schedule rows).
  */
 export function hasRoomFieldBlock(lines: string[], i: number): boolean {
   for (let k = i + 1; k < lines.length; k++) {
     const t = (lines[k] ?? "").trim();
     if (!t.startsWith("|")) break;
     if (/^\|\s*:?-+/.test(t) || allEmptyCells(t)) continue;
-    const label = col0Of(lines[k]!)
-      .replace(/^(?:BO|GS)\s+/i, "")
-      .trim()
-      .toUpperCase();
-    if (ROOM_FIELD_LABELS.has(label)) return true;
+    const prefixed = /^(?:BO|GS)\s+(.*)$/i.exec(col0Of(lines[k]!).trim());
+    if (prefixed && ROOM_FIELD_LABELS.has(prefixed[1]!.trim().toUpperCase())) return true;
     break; // the first NON-field body row ends the immediately-following field block
   }
   return false;
