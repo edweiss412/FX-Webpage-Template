@@ -113,7 +113,7 @@ Hashkey space touched: `hashtext('show:' || drive_file_id)`.
 - `public.pending_syncs.pull_sheet_override jsonb` (nullable, default `null`)
 - `public.shows.pull_sheet_override jsonb` (nullable, default `null`)
 - `public.pending_syncs.pull_sheet_override_applied jsonb` (nullable, default `null`)
-- RPC `public.set_pull_sheet_override(p_drive_file_id text, p_wizard_session_id uuid, p_tab_name text, p_fingerprint text, p_accepted_by text) returns jsonb`
+- RPC `public.set_pull_sheet_override(p_drive_file_id text, p_wizard_session_id uuid, p_tab_name text, p_fingerprint text, p_accepted_by text, p_expected_override_snapshot jsonb) returns jsonb` (row-state CAS on `p_expected_override_snapshot` under the lock — Codex plan-R3-1)
 
 ### Step 1.1 — Failing grant meta-test
 
@@ -197,7 +197,8 @@ create or replace function public.set_pull_sheet_override(
   p_wizard_session_id uuid,
   p_tab_name text,
   p_fingerprint text,
-  p_accepted_by text
+  p_accepted_by text,
+  p_expected_override_snapshot jsonb  -- overrideSnapshot({tabName,fingerprint}|null) the admin's UI last saw (row-state CAS)
 )
 returns jsonb
 language plpgsql
@@ -206,7 +207,8 @@ set search_path = public, pg_temp
 as $$
 declare
   v_active_session uuid;
-  v_exists boolean;
+  v_current jsonb;
+  v_current_snapshot jsonb;
   v_override jsonb;
 begin
   -- Per-show advisory lock INSIDE the SECURITY DEFINER tx (single holder). Keeps direct
@@ -222,13 +224,22 @@ begin
       using errcode = '22023';
   end if;
 
-  select exists(
-    select 1 from public.pending_syncs
-     where drive_file_id = p_drive_file_id and wizard_session_id = p_wizard_session_id
-  ) into v_exists;
-  if not v_exists then
+  -- Row-state CAS (Codex plan-R3-1): read the CURRENT override under the lock and compare its
+  -- snapshot to what the admin's UI last saw. A stale S3 page revoking after another accept
+  -- (or a stale accept after a revoke) would otherwise clobber the newer decision (lost update).
+  select pull_sheet_override into v_current
+    from public.pending_syncs
+   where drive_file_id = p_drive_file_id and wizard_session_id = p_wizard_session_id;
+  if not found then
     raise exception 'no pending_syncs row for (session, drive_file_id)'
       using errcode = 'P0002';
+  end if;
+  v_current_snapshot := case when v_current is null then null
+    else jsonb_build_object('tabName', v_current->>'tabName', 'fingerprint', v_current->>'fingerprint') end;
+  -- p_expected_override_snapshot is null|{tabName,fingerprint}; compare with null-safe equality.
+  if v_current_snapshot is distinct from p_expected_override_snapshot then
+    raise exception 'stale override snapshot (row changed since review)'
+      using errcode = '40001';  -- serialization_failure → route maps to 409 stale_review
   end if;
 
   if p_tab_name is null then
@@ -250,9 +261,9 @@ begin
 end;
 $$;
 
-revoke execute on function public.set_pull_sheet_override(text, uuid, text, text, text)
+revoke execute on function public.set_pull_sheet_override(text, uuid, text, text, text, jsonb)
   from public, anon, authenticated;
-grant execute on function public.set_pull_sheet_override(text, uuid, text, text, text)
+grant execute on function public.set_pull_sheet_override(text, uuid, text, text, text, jsonb)
   to service_role;
 ```
 
@@ -362,6 +373,23 @@ describe("synthesizeMarkdownFromXlsx archived-tab detection", () => {
     expect(archivedPullSheetTabs[0].included).toBe(true);
     expect(archivedPullSheetTabs[0].fingerprint).toMatch(/^[0-9a-f]{64}$/); // still returned for compare (5.2)
   });
+
+  it("parse-through (single source of truth): previews carry show identity AND parsePullSheet gets the items (Codex plan-R3-2)", () => {
+    // Parser-compatible pull sheet: title/show-identity rows, then variant-B 5-col rows [qty,item,subcat,cat,packed].
+    const grid = [
+      ["PULL SHEET"], ["RIA - CHICAGO, IL"], ["Lakeview - 7th Floor"], ["Set: 4/15/24"],
+      ["QTY", "ITEM", "SUB CAT", "CAT", "PACKED"],
+      ["2", "Shure SM58", "Mic", "AUDIO", "FALSE"],
+    ];
+    const { markdown, archivedPullSheetTabs } = synthesizeMarkdownFromXlsx(
+      buildXlsx([{ name: "OLD PULL SHEET", grid }]), { includePullSheetFromTab: "OLD PULL SHEET" });
+    // I2: the admin-reviewed preview carries the show identity (not item rows, not the bare "PULL SHEET" token)
+    expect(archivedPullSheetTabs[0].headerPreviews[0]).toContain("RIA - CHICAGO, IL");
+    expect(archivedPullSheetTabs[0].headerPreviews[0]).not.toMatch(/^PULL SHEET$/);
+    // I1: parsePullSheet of the emitted markdown recovers the item — same bytes hashed/emitted/parsed
+    const parsed = parsePullSheet(markdown).pullSheet;
+    expect(parsed?.flatMap((c) => c.items).some((i) => i.item === "Shure SM58" && i.qty === 2)).toBe(true);
+  });
 });
 ```
 
@@ -371,37 +399,47 @@ Run → **FAILS** (function returns a bare string; no `archivedPullSheetTabs`).
 
 In `lib/drive/exportSheetToMarkdown.ts`:
 1. Add `import { createHash } from "node:crypto";` and the `ArchivedPullSheetTab` type export.
-2. Extract a shared region-walker `collectPullSheetRegions(grid): { headerLines: string[]; regionText: string }[]` that mirrors the parser: iterate rows, a header row is `cells.length > 0 && cells.every(c => c.toUpperCase().includes("PULL SHEET"))`; for each header, gather its `collectDataBlock`-equivalent span (scan forward across blank/separator-bounded blocks to the next pull-sheet header) — reuse `splitBlocks` semantics but stop at the next header (mirror `pull-sheet.ts:125-151`). `headerLines` = the up-to-4 non-"PULL SHEET" cells after the header row, flattened; `regionText` = normalized concatenation of header cells + all item rows.
-3. Normalization for the fingerprint: lowercase-insensitive is NOT applied (content is case-significant), but collapse runs of whitespace to single spaces and drop fully-blank rows, so cosmetic reformat is stable (D5).
+2. **Single source of truth = the emitted markdown the parser consumes** (Codex plan-R3-2). `normalizePullSheetGrid` (`:123`) for `/PULL SHEET/` tabs COLLAPSES the show-identity/title rows into ONE synthetic `PULL SHEET/<title-parts-joined-by-/>` header cell and slices the original title rows away (`:131-146`) — so building `headerLines` from "rows after the header" would capture ITEM rows, not the show identity, and lose what the admin must review (I2). Instead, derive detection, previews, AND fingerprint from the SAME representation `parsePullSheet` consumes:
+   - Run the tab's normal emission path (`normalizePullSheetGrid` → `splitBlocks` → `tableMarkdown`) to produce the **per-tab pull-sheet markdown** — the exact bytes that would reach `parsePullSheet`.
+   - A case region begins at a markdown header row whose cells all contain "PULL SHEET" (the synthetic `PULL SHEET/<title>` cell satisfies this), through the `collectDataBlock` span (`pull-sheet.ts:92-97`), stopping before the next such header.
+   - `headerPreviews[i]` = the show identity for region `i`, parsed the SAME way `parsePullSheet` derives its `caseLabel`: split the synthetic `PULL SHEET/<title>` header cell on `/`, drop the leading `PULL SHEET` token, join the remaining parts with `" / "`, cap 120 chars (mirror `extractCaseLabel`, `pull-sheet.ts:189-191`). This guarantees `headerPreviews` ≡ what the parser reads ≡ what the admin reviews (I1/I2).
+   - `fingerprint` = SHA-256 over the concatenated region markdown (header cell + `collectDataBlock` item rows) — the exact emitted bytes — so emitted ≡ hashed ≡ parsed (I1).
+3. Normalization for the fingerprint: operate on the already-`tableMarkdown`-emitted region text (whitespace/pipe layout already canonical), and additionally drop fully-blank lines so an extra blank row is stable (D5). Content is case-significant (no lowercasing).
 4. Change the signature to `(buffer, opts?)`, return `{ markdown, archivedPullSheetTabs }`.
 5. In the worksheet loop, replace the bare `if (/\bOLD\b/i.test(sheetName)) continue;` (`:222`) with:
 
 ```ts
 if (/\bOLD\b/i.test(sheetName)) {
+  // Build the SAME per-tab pull-sheet markdown parsePullSheet would consume (single source of truth).
   const grid = normalizePullSheetGrid(sheetName, sheetGrid(sheet));
-  const regions = collectPullSheetRegions(grid);
+  const tabMarkdown = splitBlocks(grid).map(normalizeBlock).map(tableMarkdown).join("\n\n");
+  // Split into case regions: each starts at a header line whose cells all contain "PULL SHEET",
+  // through its collectDataBlock span, stopping before the next such header (mirror pull-sheet.ts).
+  const regions = collectPullSheetRegionsFromMarkdown(tabMarkdown); // { headerCell, regionMarkdown }[]
   if (regions.length > 0) {
     const included = opts?.includePullSheetFromTab === sheetName;
     const fingerprint = createHash("sha256")
-      .update(regions.map((r) => r.regionText).join("\n\x00\n"), "utf8")
+      .update(regions.map((r) => stripBlankLines(r.regionMarkdown)).join("\n\x00\n"), "utf8")
       .digest("hex");
     archivedPullSheetTabs.push({
       tabName: sheetName,
-      headerPreviews: regions.map((r) => flattenPreview(r.headerLines)), // " / " join, ≤120 chars
+      headerPreviews: regions.map((r) => previewFromHeaderCell(r.headerCell)), // extractCaseLabel-style
       fingerprint,
       included,
       contentChangedSinceAccept: false,
     });
     if (included) {
-      // Emit ONLY the collected pull-sheet regions; discard every other block on this tab (D6).
-      for (const r of regions) emitRegionToMarkdown(r); // append region markdown to the output buffer
+      // Emit EXACTLY the collected region markdown (same bytes hashed); other blocks discarded (D6, I1).
+      tables.push(...regions.map((r) => r.regionMarkdown));
     }
   }
   continue; // non-included OLD tabs (and non-pull-sheet OLD tabs) stay dropped
 }
 ```
 
-`flattenPreview(lines)`: `lines.slice(0,4).join(" / ").replace(/&#10;|\n/g, " / ").slice(0,120)`, or `"(no header text)"` when empty (§6). `emitRegionToMarkdown` reuses the same `normalizeBlock` markdown-emission path the non-OLD loop uses (`:224`) so the emitted bytes match what `parsePullSheet` later consumes (I1).
+- `collectPullSheetRegionsFromMarkdown(md)`: walk markdown table rows; a header row is one whose split cells all contain "PULL SHEET" (`pull-sheet.ts:60`); a region = that header + rows through the `collectDataBlock` span, up to the next such header.
+- `previewFromHeaderCell(cell)` (mirror `extractCaseLabel`, `pull-sheet.ts:189-191`): `cell.replace(/&#10;/g," / ").split("/").map(s=>s.trim()).filter(s=>s && s.toUpperCase()!=="PULL SHEET").join(" / ").slice(0,120)`, or `"(no header text)"` when empty (§6).
+- `stripBlankLines(md)`: drop fully-blank lines so an extra blank row is stable (D5).
 
 Run → **PASSES**.
 
@@ -674,7 +712,7 @@ Run → **PASSES**. Commit: `feat(onboarding): locked-snapshot protocol reconcil
 
 **Interfaces — Consumes:** `requireAdminIdentity()` → `{email}` (`lib/auth/requireAdmin`); service-role Supabase client; `set_pull_sheet_override` RPC. **Produces:** `POST` handler.
 
-Body: `{ driveFileId: string; wizardSessionId: string; tabName: string; expectedFingerprint: string }` (accept) | `{ driveFileId: string; wizardSessionId: string; tabName: null }` (revoke).
+Body: `{ driveFileId, wizardSessionId, tabName, expectedFingerprint, expectedOverrideSnapshot }` (accept) | `{ driveFileId, wizardSessionId, tabName: null, expectedOverrideSnapshot }` (revoke). `expectedOverrideSnapshot` = `overrideSnapshot({tabName,fingerprint})|null` the UI last rendered (row-state CAS, Codex plan-R3-1): for a first-time S2 accept it is `null` (no override yet); for a revoke from S3 it is the active override's snapshot; for S4 re-confirm it is `null` (override was auto-cleared). Both accept AND revoke carry it.
 
 ### Step 8.1 — Failing route + auth + registry tests
 
@@ -694,7 +732,13 @@ it("stale_review 409 body has no §12.4/lookup code (uncataloged-code guard, Cod
   expect(body).not.toHaveProperty("code"); // structured status only; UI re-fetches preview, card carries the message
 });
 it("accept: named tab has no pull-sheet region server-side => typed error, no override written", async () => { /* ... */ });
-it("revoke: tabName null => RPC called with p_tab_name null, re-scan triggered", async () => { /* ... */ });
+it("revoke: tabName null => RPC called with p_tab_name null + p_expected_override_snapshot, re-scan triggered", async () => { /* ... */ });
+it("row-state CAS: RPC raises 40001 (override changed since page load) => 409 { status:'stale_review' } (Codex plan-R3-1)", async () => {
+  rpcSpy.mockRejectedValueOnce({ code: "40001" });
+  const res = await POST(reqWith({ driveFileId: "d", wizardSessionId: "s", tabName: null, expectedOverrideSnapshot: { tabName: "OLD PULL SHEET", fingerprint: "ff" } }));
+  expect(res.status).toBe(409);
+  await expect(res.json()).resolves.toEqual({ status: "stale_review" });
+});
 it("non-admin => rejected before any RPC (requireAdminIdentity throws)", async () => { /* ... */ });
 it("success branch records logAdminOutcome code PULL_SHEET_OVERRIDE_SET/CLEARED (sink-spy after committed success)", async () => { /* invariant 10 behavioral proof */ });
 
@@ -720,7 +764,7 @@ Route (`POST`), pattern mirrors `rescan-sheet/route.ts` but uses `requireAdminId
 1. `const { email } = await requireAdminIdentity();` (gate).
 2. Parse body; validate shape (typed 400 via lookup copy on malformed — invariant 5).
 3. **Fresh server-side detect** the named tab's current fingerprint (re-fetch bytes + `synthesizeMarkdownFromXlsx`), find the `ArchivedPullSheetTab` for `tabName`. If none → typed error (no pull-sheet region server-side). For accept: if `serverFingerprint !== expectedFingerprint` → **HTTP 409 with a structured, code-less status body `{ status: "stale_review" }`** (NOT a §12.4 code and NOT a lookup-copy code — Codex plan-R1 finding 3: an uncataloged lookup key resolves to null/throws). The client's accept handler treats 409 `stale_review` as "content changed since you reviewed" and **re-fetches the Step-3 preview** — the re-scanned preview re-renders the Pack list section, and the changed content surfaces via the existing S2/S4 card copy (which IS cataloged/inline). No dedicated error-code copy is needed because the card itself is the user-facing message. RPC NOT called (I3).
-4. Call `set_pull_sheet_override` with the **service-role client** (`{data,error}` destructure — invariant 9): `p_fingerprint = serverFingerprint` (accept) or route the revoke branch with `p_tab_name = null`. The JS route does NOT take the `show:` lock.
+4. Call `set_pull_sheet_override` with the **service-role client** (`{data,error}` destructure — invariant 9): `p_fingerprint = serverFingerprint` (accept) or `p_tab_name = null` (revoke); pass `p_expected_override_snapshot = body.expectedOverrideSnapshot` for BOTH. The JS route does NOT take the `show:` lock. If the RPC raises `40001` (row-state CAS mismatch — someone changed the override since the admin's page loaded) → the route returns the same **409 `{ status: "stale_review" }`** as the fingerprint-CAS branch; the client re-fetches the preview. (Both the sheet-content CAS in step 3 and the row-state CAS here funnel to the one 409 refresh path.)
 5. On success: trigger the existing re-scan (`rescan-sheet` path) so 5.3 re-runs with the new override.
 6. **Post-commit, outside any lock tx:** `await logAdminOutcome({ code: tabName ? "PULL_SHEET_OVERRIDE_SET" : "PULL_SHEET_OVERRIDE_CLEARED", actorEmail: email, ... })` (forensic admin codes; §12.4-exempt via `_metaAdminOutcomeContract`). No secret logged (tab name is not a secret).
 
@@ -863,7 +907,8 @@ it("S2 Offer: archivedPullSheetTabs entry (contentChangedSinceAccept:false), no 
   fireEvent.click(accept);
   const body = JSON.parse((fetchSpy.mock.calls.at(-1)![1] as RequestInit).body as string);
   expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining("/pull-sheet-override"), expect.anything());
-  expect(body).toEqual({ driveFileId: "d", wizardSessionId: "sess-1", tabName: "OLD PULL SHEET", expectedFingerprint: "ff" });
+  // S2 first-time accept: expectedOverrideSnapshot is null (no active override yet) — row-state CAS
+  expect(body).toEqual({ driveFileId: "d", wizardSessionId: "sess-1", tabName: "OLD PULL SHEET", expectedFingerprint: "ff", expectedOverrideSnapshot: null });
 });
 
 it("S3 Included: override active, pullSheet populated => pack list + 'Included from archived tab' note + Revoke posts full body with tabName:null", () => {
@@ -875,7 +920,8 @@ it("S3 Included: override active, pullSheet populated => pack list + 'Included f
   expect(sec.textContent).toMatch(/Included from archived tab/i);
   fireEvent.click(screen.getByRole("button", { name: /revoke/i }));
   const body = JSON.parse((fetchSpy.mock.calls.at(-1)![1] as RequestInit).body as string);
-  expect(body).toEqual({ driveFileId: "d", wizardSessionId: "sess-1", tabName: null });
+  // S3 revoke: expectedOverrideSnapshot = the active override's snapshot (row-state CAS)
+  expect(body).toEqual({ driveFileId: "d", wizardSessionId: "sess-1", tabName: null, expectedOverrideSnapshot: { tabName: "OLD PULL SHEET", fingerprint: "ff" } });
 });
 
 it("S4 Re-confirm: entry contentChangedSinceAccept:true + override null + empty pullSheet => 'changed — re-confirm' prefix, NOT generic S2 copy (Codex R10-2)", () => {
@@ -894,7 +940,7 @@ Run → **FAILS**.
 
 ### Step 12.2 — Impl
 
-Extend `PackListBreakdown` props to `{ dfid, wizardSessionId, cases, archivedPullSheetTabs, overrideActive }` (Codex plan-R1-1). Accept/revoke handlers POST the full body (`{ driveFileId: dfid, wizardSessionId, tabName, expectedFingerprint }` for accept; `{ driveFileId: dfid, wizardSessionId, tabName: null }` for revoke). On a **409 `{ status: "stale_review" }`** response (Codex plan-R1-3), the handler re-fetches the Step-3 preview (same success path) instead of showing a bespoke error — the re-rendered card carries the changed-content message. Render the state table from §5.6:
+Extend `PackListBreakdown` props to `{ dfid, wizardSessionId, cases, archivedPullSheetTabs, overrideActive }` (Codex plan-R1-1). Accept/revoke handlers POST the full body: accept `{ driveFileId: dfid, wizardSessionId, tabName, expectedFingerprint, expectedOverrideSnapshot }`; revoke `{ driveFileId: dfid, wizardSessionId, tabName: null, expectedOverrideSnapshot }`. Compute `expectedOverrideSnapshot` from the CURRENT rendered state (row-state CAS, Codex plan-R3-1): when `overrideActive`, it is `{ tabName, fingerprint }` of the `included:true` entry (S3); otherwise `null` (S2 first-time / S4 re-confirm, where no override is active). On a **409 `{ status: "stale_review" }`** response (Codex plan-R1-3), the handler re-fetches the Step-3 preview (same success path) instead of showing a bespoke error — the re-rendered card carries the changed-content message. Render the state table from §5.6:
 - **S1:** `cases` empty + `archivedPullSheetTabs` empty → `"No pack list parsed."` (unchanged).
 - **S2:** an entry with `contentChangedSinceAccept === false` and `!overrideActive` → per-tab warning card `"Found a pull sheet on archived tab '{tabName}'."`, then `headerPreviews.map((p, i) => "Case {i+1} header reads '{p || "(no header text)"}'")` as a list, `"If this is this show's gear, include it; otherwise leave it skipped."` + `[Use this show's gear]` (POST that entry's `fingerprint` as `expectedFingerprint`) / `[Keep skipped]`.
 - **S3:** `overrideActive` + populated `cases` → normal pack list + subtle `"Included from archived tab '{tabName}'."` + `[Revoke]`.
