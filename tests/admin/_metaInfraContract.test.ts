@@ -192,17 +192,11 @@ const infraRegistry = [
     path: "app/admin/_finalizeCheckpoint.ts",
     contract: "wizard_finalize_checkpoints await throws → infra_error",
   },
-  {
-    // finalize-resume deadlock §3.2 — the in_progress re-entry surface's
-    // unresolved-sheet list. Two guarded reads (onboarding_scan_manifest then
-    // pending_syncs) composed in JS; reproduces the unresolvedManifestCount
-    // predicate (blocking statuses OR staged+failure_code). Client construction
-    // throw + either query's returned-error OR thrown await → { kind: 'infra_error' }.
-    helper: "readUnresolvedSheets",
-    path: "app/admin/_unresolvedSheets.ts",
-    contract:
-      "onboarding_scan_manifest + pending_syncs reads each destructure { data, error }; construction throw + either query returned-error OR thrown await → infra_error; empty manifest short-circuits to [] without a pending read",
-  },
+  // readUnresolvedSheets (app/admin/_unresolvedSheets.ts) was retired with the
+  // in_progress interstitial (spec §4.5/§4.6). Its blocking predicate (blocking
+  // status OR staged+failure_code) is already folded into fetchStep3Data's
+  // `finishable` (OnboardingWizard.tsx:610 — the registered fetchStep3Data
+  // surface above), so no separate registry row remains.
   {
     // wizard Back/forward fix (2026-06-26): gates the Step-2 resume affordance +
     // forward stepper pill on "manifest has rows" instead of session-id-non-null
