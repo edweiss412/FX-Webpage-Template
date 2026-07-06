@@ -31,7 +31,7 @@ import { Check, ChevronLeft } from "lucide-react";
 import { parseDriveFolderId } from "@/lib/drive/driveFolderUrl";
 import { WizardFooter } from "@/components/admin/wizard/WizardFooter";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { messageFor } from "@/lib/messages/lookup";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
 import { HelpSheet } from "@/components/admin/HelpSheet";
@@ -120,27 +120,16 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
   const router = useRouter();
   const [folderUrl, setFolderUrl] = useState(priorScan?.folderUrl ?? "");
   const [state, setState] = useState<FormState>({ kind: "idle" });
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const startedAtRef = useRef(0);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const isSubmitting = state.kind === "submitting";
 
-  useEffect(() => {
-    if (!isSubmitting) {
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-        intervalRef.current = null;
-      }
-      return;
-    }
-    intervalRef.current = setInterval(() => {
-      setElapsedSeconds(Math.floor((Date.now() - startedAtRef.current) / 1000));
-    }, 1000);
-    return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
-    };
-  }, [isSubmitting]);
+  // No elapsed-seconds timer (owner decision 2026-07-06): the live "N of N
+  // sheets" + "Just read: …" readout already shows progress, and a genuine
+  // silent hang can't persist — the scan route's `maxDuration = 300` platform
+  // ceiling kills a hung function (closing the stream → the client's read loop
+  // ends with `!sawResult` → error state), and per-asset `createStallGuard`
+  // (30s idle) + deadline controllers abort a stalled Drive byte stream well
+  // before that. So the timer added no hang-detection the infra doesn't cover.
 
   // Apply a terminal result body — shared by the stream + non-stream branches.
   function applyResultBody(body: ScanResultBody | { ok: false; code: string }) {
@@ -222,8 +211,6 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
     event.preventDefault();
     const trimmed = folderUrl.trim();
     if (!trimmed) return;
-    setElapsedSeconds(0);
-    startedAtRef.current = Date.now();
     setState({ kind: "submitting", folderUrl: trimmed, progress: { phase: "connecting" } });
     try {
       const response = await fetch("/api/admin/onboarding/scan", {
@@ -412,9 +399,23 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
             data-testid="wizard-step2-progress"
             className="mt-1 flex flex-col gap-2 border-t border-border pt-4 text-sm text-text"
           >
-            <p className="text-base font-semibold text-text-strong" aria-hidden="true">
-              {heading}
-            </p>
+            {/* Heading + the "N of N sheets" count share ONE row ABOVE the bar,
+                the count right-aligned (owner decision 2026-07-06). Baseline-
+                aligned; the count is shrink-0 so a long heading never squeezes it. */}
+            <div className="flex items-baseline justify-between gap-3">
+              <p className="text-base font-semibold text-text-strong" aria-hidden="true">
+                {heading}
+              </p>
+              {reading ? (
+                <p
+                  className="shrink-0 tabular-nums text-sm text-text-subtle"
+                  data-testid="wizard-step2-count"
+                  aria-hidden="true"
+                >
+                  {reading.done} of {reading.total} sheet{reading.total === 1 ? "" : "s"}
+                </p>
+              ) : null}
+            </div>
             <progress
               data-testid="wizard-step2-progressbar"
               className="h-2 w-full"
@@ -425,15 +426,6 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
               aria-valuemax={reading ? reading.total : undefined}
               aria-valuenow={reading ? reading.done : undefined}
             />
-            {reading ? (
-              <p
-                className="tabular-nums text-text-subtle"
-                data-testid="wizard-step2-count"
-                aria-hidden="true"
-              >
-                {reading.done} of {reading.total} sheet{reading.total === 1 ? "" : "s"}
-              </p>
-            ) : null}
             {reading && reading.lastName ? (
               <p
                 className="truncate text-text"
@@ -445,13 +437,6 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
                 {reading.lastName}
               </p>
             ) : null}
-            <p
-              className="tabular-nums text-text-subtle"
-              data-testid="wizard-step2-elapsed"
-              aria-hidden="true"
-            >
-              {elapsedSeconds} second{elapsedSeconds === 1 ? "" : "s"} elapsed
-            </p>
             {/* Screen-reader announcer: phase changes only, not every tick. */}
             <span className="sr-only" role="status" aria-live="polite">
               {heading}
