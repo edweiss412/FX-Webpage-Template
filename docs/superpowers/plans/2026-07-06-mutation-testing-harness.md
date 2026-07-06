@@ -1565,9 +1565,10 @@ export const GOLDEN_INVENTORY: Array<{ fixture: string; op: string; domain: stri
   { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "blank-row:inject", domain: "crew", count: 5, lines: "69-76" }, // 6 data rows → 5 gaps
   // consultants DRESS-run → TRANSPORTATION-run boundary (blank L79):
   { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "blank-row:remove", domain: "transportation", count: 1, lines: "77-80" }, // one inter-run boundary
-  // rpas HOTEL section — header L43, alignment L44, 14 data rows L45-58; each data row has 4 non-empty cells:
-  { fixture: "fixtures/shows/exporter-xlsx/rpas.md", op: "ref-sub", domain: "hotel", count: 56, lines: "43-58" }, // 14 rows × 4 cells
-  { fixture: "fixtures/shows/exporter-xlsx/rpas.md", op: "merged-cell", domain: "hotel", count: 56, lines: "43-58" }, // 14 rows × (5 cells − 1)
+  // rpas HOTEL section — header L43, alignment L44, 13 data rows L45-57 (L58 is blank, L59 starts the
+  // separate "HOTELS FOR DOUG'S DRIVE BACK" section); each data row has 4 non-empty cells (Codex R27):
+  { fixture: "fixtures/shows/exporter-xlsx/rpas.md", op: "ref-sub", domain: "hotel", count: 52, lines: "43-57" }, // 13 rows × 4 cells
+  { fixture: "fixtures/shows/exporter-xlsx/rpas.md", op: "merged-cell", domain: "hotel", count: 52, lines: "43-57" }, // 13 rows × (5 cells − 1)
 ];
 ```
 
