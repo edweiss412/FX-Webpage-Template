@@ -519,6 +519,17 @@ describe("fingerprint signal component — redaction boundary is EXECUTABLE (Cod
     expect(fingerprint(b, w({ code: "W2" }))).not.toBe(fingerprint(b, w({}))); // structural
     expect(fingerprint(b, w({ message: "n" }))).not.toBe(fingerprint(b, w({}))); // pii
   });
+  it("distinguishes sourceCell ABSENT vs NULL vs value — matches signalEq's 3-state (R28)", () => {
+    const b = base();
+    const absent = base({ warnings: [{ severity: "warn", code: "W", message: "m" }] });
+    const asNull = base({ warnings: [{ severity: "warn", code: "W", message: "m", sourceCell: null }] });
+    const asVal = base({ warnings: [{ severity: "warn", code: "W", message: "m", sourceCell: { tab: "DATES", a1: "B2" } as never }] });
+    // premise: signalEq (toEqual) treats these three as distinct → a change among them is signal drift
+    expect(verdict(absent, asNull)).not.toBe("ABSORBED"); // a null anchor gained/lost is NOT invisible
+    // fingerprint must move for each pair (else a ledgered SILENT_SIGNAL_LOSS could drift undetected)
+    const [fa, fn, fv] = [fingerprint(b, absent), fingerprint(b, asNull), fingerprint(b, asVal)];
+    expect(new Set([fa, fn, fv]).size).toBe(3);
+  });
 });
 
 describe("fingerprint (Codex R7/R8/R15/R16)", () => {
@@ -702,6 +713,11 @@ export function fingerprint(b: ParsedSheet, m: ParsedSheet): string {
 
 /** Per-entry redaction (spec §5.179): structural fields VERBATIM, PII/free-text digest()-ed, then
  *  canonicalized order-stably. Exported so a test can inspect the pre-hash field boundary. */
+// `nullish3` preserves the absent-vs-null-vs-value distinction that `signalEq` (a toEqual)
+// makes — collapsing `undefined` and `null` to one token would let a SILENT_SIGNAL_LOSS that only
+// gains/loses a null anchor keep the same fingerprint while signalEq sees the change (Codex R28).
+const nullish3 = <T>(v: T | null | undefined, present: (x: T) => string): string =>
+  v === undefined ? "__undef__" : v === null ? "__null__" : present(v);
 const redactWarning = (w: ParseWarning) => ({
   severity: w.severity,
   code: w.code,
@@ -709,14 +725,14 @@ const redactWarning = (w: ParseWarning) => ({
   blockRef: w.blockRef
     ? { kind: w.blockRef.kind, index: w.blockRef.index ?? null, iso: w.blockRef.iso ?? null, name: w.blockRef.name ?? null }
     : null,
-  rawSnippet: w.rawSnippet === undefined ? null : digest(w.rawSnippet),
-  sourceCell: w.sourceCell == null ? null : digest(JSON.stringify(w.sourceCell)),
+  rawSnippet: nullish3(w.rawSnippet, (s) => digest(s)), // rawSnippet?: string (never null, but absent≠"")
+  sourceCell: nullish3(w.sourceCell, (s) => digest(JSON.stringify(s))), // SourceAnchor | null | undefined — 3-state
 });
 const redactError = (h: ParseError) => ({ code: h.code, message: digest(h.message ?? ""), blockRef: h.blockRef ? { kind: h.blockRef.kind } : null });
 const redactRaw = (r: { block?: string; key?: string; value?: unknown }) => ({
   block: r.block ?? null,
   key: r.key ?? null,
-  value: digest(typeof r.value === "string" ? r.value : JSON.stringify(r.value ?? null)),
+  value: nullish3(r.value, (v) => digest(typeof v === "string" ? v : JSON.stringify(v))), // preserve undefined≠null
 });
 
 /** The index-keyed, redacted signal-entry list used by `fingerprint` (exported for the redaction-
