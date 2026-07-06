@@ -108,3 +108,44 @@ describe("computeRoomHeaderModel + corpus no-op (spec §2.4/§8)", () => {
     expect(laud?.setup).toBe("TBD");
   });
 });
+
+describe("isRoomHeader exhaustive truth-table (spec §8 — R30–R38 structural closure)", () => {
+  const cases: Array<[string, string[], string, boolean]> = [
+    // [col0, rowsBelow, rowAbove, expected]
+    ["MABEL 1&#10;DAY 1 & 2", ["| :---: |", "| BO Setup | TBD |"], "", true],
+    ["LAUDERDALE 1, 2, 3 DAY 1 & 2", ["| BO Setup | TBD |"], "| | |", true],
+    ["WELCOME RECEPTION DAY 1", ["| 6:00 PM | X |"], "", false], // agenda note, no field
+    ["WELCOME RECEPTION DAY 1", ["| BO Audio | L |"], "| BO Setup | TBD |", false], // interleaved (R38)
+    ["WELCOME RECEPTION DAY 1", ["| BO Setup | 5PM |"], "", true], // titled table w/ BO
+    ["SPECIAL DAY 1 NOTES", ["| BO Setup | TBD |"], "", false], // DAY-note (R26)
+    ["DAY 1", ["| BO Setup | TBD |"], "", false], // empty base (R36)
+    ["4' X 8' RISER", ["| BO Setup | TBD |"], "", false], // dims, no DAY (R30)
+    ["HOTEL DAY 1 & 2", ["| BO Setup | TBD |"], "", false], // exact token (R33)
+    ["Hotel Ballroom DAY 1 & 2", ["| BO Setup | TBD |"], "", true], // compound (R33)
+  ];
+  it.each(cases)("%s → %s", (col0, below, above, expected) => {
+    const lines = [above || "", `| ${col0} |`, ...below];
+    const i = 1;
+    expect(isRoomHeader(lines, i)).toBe(expected);
+  });
+});
+
+// CORPUS NO-OP MECHANISM (documented per Task A4): deep-equal against an explicit
+// origin/main baseline (tests/parser/blocks/__baselines__/origin-main-rooms.json),
+// captured by running `parseSheet(...).rooms` on every committed fixture in BOTH
+// renderer families (fixtures/shows/raw + fixtures/shows/exporter-xlsx) at the
+// origin/main tree BEFORE the Task A3 source change. De-literalization MUST be
+// byte-identical to that baseline — a fabricated/dropped/mis-extracted room on ANY
+// fixture fails. (Deep-equal, NOT toMatchSnapshot — the baseline is the origin/main
+// contract, not whatever the branch happens to emit.)
+describe("corpus-wide rooms no-op (spec §2.4 — the primary structural defense)", () => {
+  const baseline = JSON.parse(
+    readFileSync("tests/parser/blocks/__baselines__/origin-main-rooms.json", "utf8"),
+  ) as Record<string, unknown[]>;
+  it.each(Object.keys(baseline))("%s rooms unchanged (no fabricated/dropped room)", (path) => {
+    const rooms = parseSheet(readFileSync(path, "utf8")).rooms;
+    // No bogus room: every emitted room name is a real header (non-empty).
+    for (const r of rooms) expect(r.name.trim().length).toBeGreaterThan(0);
+    expect(rooms).toEqual(baseline[path]);
+  });
+});
