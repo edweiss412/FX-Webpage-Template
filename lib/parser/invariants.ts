@@ -106,14 +106,21 @@ export function runInvariants(prior: ParseResult | null, next: ParseResult): Inv
   // MI-1_VERSION_DETECTION_FAILED appears in hardErrors.
   // -------------------------------------------------------------------------
   const validVersions = new Set(["v1", "v2", "v4"]);
+  // A caught parser THROW (audit rec-6 / finding #17) is surfaced as a PARSE_THREW hardError by the
+  // sync call-site guard. Route it to hard_fail exactly like MI-1, reusing the MI-1 failedCode so no
+  // new §12.4 catalog code enters the routed/rendered path (invariant 5).
+  const parserThrew = next.hardErrors.some((e) => e.code === "PARSE_THREW");
   const versionFailed =
     !validVersions.has(next.show.template_version) ||
-    next.hardErrors.some((e) => e.code === "MI-1_VERSION_DETECTION_FAILED");
+    next.hardErrors.some((e) => e.code === "MI-1_VERSION_DETECTION_FAILED") ||
+    parserThrew;
 
   if (versionFailed) {
     failedCodes.push("MI-1_VERSION_DETECTION_FAILED");
     messages.push(
-      `Version detection failed: got '${next.show.template_version}', expected v1/v2/v4`,
+      parserThrew
+        ? "Parser error: the sheet could not be parsed (unexpected internal error)."
+        : `Version detection failed: got '${next.show.template_version}', expected v1/v2/v4`,
     );
   }
 
