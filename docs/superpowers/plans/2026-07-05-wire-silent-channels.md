@@ -28,9 +28,12 @@ Copied verbatim from the spec + AGENTS.md plan-wide invariants. Every task's req
 
 ## File Structure
 
+**Created:**
+- `lib/sync/logUnexpectedParent.ts` — shared `emitUnexpectedParentWarning` coded-log helper (A).
+
 **Modified:**
-- `lib/sync/runOnboardingScan.ts` — wire `onWarning` at the default `listDriveFolder(folderId)` call (A).
-- `lib/sync/runScheduledCronSync.ts` — wire `onWarning` at the default `listDriveFolder(folderId)` call (A); add `priorParseWarningsRaw` to `readShowForPhase1` return (C); hoist the pre-apply `priorShow` read; add `resolveQualityRegression_unlocked` + `evaluateQualityRegression_unlocked` producer; wire into the applied epilogue (C).
+- `lib/sync/runOnboardingScan.ts` — wire `onWarning` into the `prepareOnboardingFiles` default `listDriveFolder` branch (`:948`) (A).
+- `lib/sync/runScheduledCronSync.ts` — wire `onWarning` into the `runScheduledCronSync` default `listDriveFolder` branch (`:3149`) (A); add `priorParseWarningsRaw` to `readShowForPhase1` return (C); hoist the pre-apply `priorShow` read; add `resolveQualityRegression_unlocked` + `evaluateQualityRegression_unlocked` producer; wire into the applied epilogue (C).
 - `lib/parser/dataGaps.ts` — add `isQualityRegression` + `hasRecoveredToBaseline` pure comparators (C).
 - `lib/messages/catalog.ts` — new `RESYNC_QUALITY_REGRESSED` entry (C).
 - `lib/adminAlerts/upsertAdminAlert.ts` — add `RESYNC_QUALITY_REGRESSED` to `AdminAlertCode` (C).
@@ -58,47 +61,38 @@ Copied verbatim from the spec + AGENTS.md plan-wide invariants. Every task's req
 ## Task A: Unit A — `UNEXPECTED_PARENT` dev-facing coded log
 
 **Files:**
-- Modify: `lib/sync/runOnboardingScan.ts` (default `listDriveFolder` call, ~:244-250)
-- Modify: `lib/sync/runScheduledCronSync.ts` (default `listDriveFolder` call, ~:1791-1797)
+- Create: `lib/sync/logUnexpectedParent.ts` (shared coded-log helper)
+- Modify: `lib/sync/runOnboardingScan.ts` (`prepareOnboardingFiles` default branch, `:948`)
+- Modify: `lib/sync/runScheduledCronSync.ts` (`runScheduledCronSync` default branch, `:3149`)
 - Test: `tests/sync/unexpectedParentLog.test.ts`
 
 **Interfaces:**
-- Consumes: `listFolder(folderId, { onWarning })` from `lib/drive/list.ts` — `onWarning?: (w: DriveListWarning) => void`, `DriveListWarning = { code: "UNEXPECTED_PARENT"; driveFileId: string; folderId: string; parents: string[] }`; `log.warn(message: string, fields: LogFields)` from `@/lib/log` (`LogFields` requires `source`, allows `code?` + arbitrary keys).
-- Produces: nothing consumed by later tasks.
+- Consumes: `listFolder(folderId, { onWarning })` from `lib/drive/list.ts` (imported in both files as `listFolder as listDriveFolder`) — `onWarning?: (w: DriveListWarning) => void`, `DriveListWarning = { code: "UNEXPECTED_PARENT"; driveFileId: string; folderId: string; parents: string[] }`; `log.warn(message, fields: LogFields)` from `@/lib/log`. `deps.listFolder?: typeof listDriveFolder` (cron `:374`) — so an injected `listFolder` has the SAME `(folderId, options?)` signature.
+- Produces: `export function emitUnexpectedParentWarning(warning: DriveListWarning): void` (the coded emit) — consumed by both production wirings.
 
-**Wiring rule (spec §4.1):** attach `onWarning` ONLY to the **default** `listDriveFolder(folderId)` call inside each deps builder's `listFolder` method — NOT to the `deps.listFolder ?? listDriveFolder` injection seam (so tests injecting `listFolder` are unaffected).
+**Wiring rule (spec §1/§4.1 — CORRECTED, plan-review R1):** the production folder scans that drop phantom-parent files are the `const listFolder = deps.listFolder ?? listDriveFolder` DEFAULT branches in `prepareOnboardingFiles` (`runOnboardingScan.ts:948`) and `runScheduledCronSync` (`runScheduledCronSync.ts:3149`). Wire `onWarning` into ONLY the default branch (wrap `listDriveFolder`), leaving the `deps.listFolder` injection seam untouched so injected-`listFolder` tests are unaffected. (The `:247`/`:1794` `defaultDriveClient` wrappers are a DIFFERENT path — do NOT target them.)
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: Write the failing test — shared helper + both real production paths**
 
-Create `tests/sync/unexpectedParentLog.test.ts`. Both sites share the same default `listFolder` wrapper shape (`(await listDriveFolder(folderId)).map(toDriveFileMeta)`), so drive the wrapper through the real drive-list `listFolder` with a stubbed Drive page that returns a file whose parent ≠ the requested folder, and assert the coded log fires. Use the drive-list unit seam:
+Create `tests/sync/unexpectedParentLog.test.ts`:
 
 ```ts
 import { describe, expect, it, vi } from "vitest";
 import * as driveList from "@/lib/drive/list";
 import { log } from "@/lib/log";
+import { emitUnexpectedParentWarning } from "@/lib/sync/logUnexpectedParent";
+
+const WARNING = {
+  code: "UNEXPECTED_PARENT" as const,
+  driveFileId: "file-1",
+  folderId: "folder-1",
+  parents: ["other-folder"],
+};
 
 describe("Unit A — UNEXPECTED_PARENT coded log", () => {
-  it("emits a coded log.warn when the default listing drops a phantom-parent sheet", async () => {
+  it("emitUnexpectedParentWarning writes the coded log.warn (shared helper)", () => {
     const warnSpy = vi.spyOn(log, "warn").mockResolvedValue(undefined);
-    // Simulate lib/drive/list.listFolder invoking onWarning for a dropped file.
-    const listSpy = vi
-      .spyOn(driveList, "listFolder")
-      .mockImplementation(async (folderId: string, opts?: driveList.ListFolderOptions) => {
-        opts?.onWarning?.({
-          code: "UNEXPECTED_PARENT",
-          driveFileId: "file-1",
-          folderId,
-          parents: ["other-folder"],
-        });
-        return [] as never;
-      });
-
-    // Import AFTER spies are installed so the module binds the spied listFolder.
-    const { buildOnboardingScanTx } = await import("@/lib/sync/runOnboardingScan");
-    // Exercise the default listFolder wrapper (no injected deps.listFolder).
-    const tx = buildOnboardingScanTx();
-    await tx.listFolder("folder-1");
-
+    emitUnexpectedParentWarning(WARNING);
     expect(warnSpy).toHaveBeenCalledWith(
       "Dropped sheet with unexpected parent folder",
       expect.objectContaining({
@@ -109,73 +103,103 @@ describe("Unit A — UNEXPECTED_PARENT coded log", () => {
         parents: ["other-folder"],
       }),
     );
+    warnSpy.mockRestore();
+  });
+
+  it("prepareOnboardingFiles default branch wires onWarning into the real drive listing", async () => {
+    const warnSpy = vi.spyOn(log, "warn").mockResolvedValue(undefined);
+    // Spy the real lib/drive/list.listFolder (aliased as listDriveFolder in the module): emit a
+    // phantom-parent warning, return an empty list so the rest of the scan is a no-op.
+    const listSpy = vi
+      .spyOn(driveList, "listFolder")
+      .mockImplementation(async (folderId, opts) => {
+        opts?.onWarning?.({ ...WARNING, folderId });
+        return [];
+      });
+    const { prepareOnboardingFiles } = await import("@/lib/sync/runOnboardingScan");
+    // deps OMITS listFolder → exercises the default branch. Provide only what the empty-list
+    // early path needs (onProgress optional). Fill any other required deps as no-op stubs.
+    await prepareOnboardingFiles("folder-1", {} as never);
+    expect(warnSpy).toHaveBeenCalledWith(
+      "Dropped sheet with unexpected parent folder",
+      expect.objectContaining({ code: "UNEXPECTED_PARENT", drive_file_id: "file-1" }),
+    );
     listSpy.mockRestore();
     warnSpy.mockRestore();
   });
+
+  // Mirror the same real-path assertion for the scheduled cron listing (runScheduledCronSync
+  // default branch, :3149). If the full runScheduledCronSync setup is prohibitive to stub, assert
+  // instead that the default branch expression passes emitUnexpectedParentWarning as onWarning —
+  // e.g. a focused test that spies driveList.listFolder and drives the cron entry with deps
+  // omitting listFolder and an empty folder result. Do NOT weaken to the helper-only test alone;
+  // the real default-branch wiring MUST be exercised for at least one of the two sites end-to-end.
 });
 ```
 
-> NOTE (impl): the exact exported builder name (`buildOnboardingScanTx` / the default deps factory) and how to reach the default `listFolder` wrapper must be confirmed against the file — the deps builders at `runOnboardingScan.ts:244` and `runScheduledCronSync.ts:1791` are the targets. If no exported factory reaches the wrapper directly, add one narrow test-only export OR test each site's wrapper via the module's existing test entry point. Do not change the `deps.listFolder` injection contract. Mirror the test for the cron site (`runScheduledCronSync.ts` default `listFolder`).
+> The empty-list return (`[]`) short-circuits the rest of each scan, keeping the integration test light while still exercising the real `deps.listFolder ?? listDriveFolder` default branch. If `prepareOnboardingFiles`/`runScheduledCronSync` throw on missing required deps before reaching the listing, add the minimal no-op deps the early path needs (grep the fn signature: `RunOnboardingScanDeps`, `RunScheduledCronSyncDeps`), or gate the assertion on the listing having run.
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `pnpm vitest run tests/sync/unexpectedParentLog.test.ts`
-Expected: FAIL — `log.warn` not called (onWarning currently unwired).
+Expected: FAIL — `@/lib/sync/logUnexpectedParent` does not exist; onWarning unwired.
 
-- [ ] **Step 3: Wire `onWarning` at both default calls**
+- [ ] **Step 3: Create the shared helper**
 
-`lib/sync/runOnboardingScan.ts` — change the default wrapper (~:244-250) from:
-
-```ts
-    async listFolder(folderId) {
-      return {
-        folderId,
-        files: (await listDriveFolder(folderId)).map(toDriveFileMeta),
-      };
-    },
-```
-
-to (add the `onWarning` option to the DEFAULT drive call):
+Create `lib/sync/logUnexpectedParent.ts`:
 
 ```ts
-    async listFolder(folderId) {
-      return {
-        folderId,
-        files: (
-          await listDriveFolder(folderId, {
-            onWarning: (warning) =>
-              void log.warn("Dropped sheet with unexpected parent folder", {
-                source: "sync.list",
-                code: warning.code, // "UNEXPECTED_PARENT"
-                drive_file_id: warning.driveFileId,
-                folder_id: warning.folderId,
-                parents: warning.parents,
-              }),
-          })
-        ).map(toDriveFileMeta),
-      };
-    },
+import type { DriveListWarning } from "@/lib/drive/list";
+import { log } from "@/lib/log";
+
+/**
+ * Unit A (spec §4): emit the dev-facing coded `app_events` warning when a folder scan drops a
+ * sheet filed under an unexpected parent. Queryable via `pnpm observe events --code UNEXPECTED_PARENT`.
+ * No admin alert, no push (actionability-gating). Runs in the listing phase, outside any advisory
+ * lock (invariant 2 N/A). Fire-and-forget: the caller's `onWarning` is `=> void`.
+ */
+export function emitUnexpectedParentWarning(warning: DriveListWarning): void {
+  void log.warn("Dropped sheet with unexpected parent folder", {
+    source: "sync.list",
+    code: warning.code, // "UNEXPECTED_PARENT"
+    drive_file_id: warning.driveFileId,
+    folder_id: warning.folderId,
+    parents: warning.parents,
+  });
+}
 ```
 
-Apply the identical change to `lib/sync/runScheduledCronSync.ts` (~:1791-1797). Add `import { log } from "@/lib/log";` to each file if not already imported (grep first). Confirm `listDriveFolder` is the `lib/drive/list` `listFolder` export (accepts `ListFolderOptions` as the 2nd arg); if the local alias signature does not accept options, thread it through.
+- [ ] **Step 4: Wire the default branch in both production scans**
 
-> `void` prefix: `onWarning` is typed `=> void`; `log.warn` returns a Promise. `void`-ing it is deliberate fire-and-forget within a synchronous callback — matches the listing-phase, no-lock context (§4.3). This is not a request-scoped `after()` teardown path, so the fire-and-forget-promise leak caveat does not apply.
+`lib/sync/runOnboardingScan.ts` `:948` — change:
+```ts
+  const listFolder = deps.listFolder ?? listDriveFolder;
+```
+to:
+```ts
+  const listFolder =
+    deps.listFolder ??
+    ((folderId: string) => listDriveFolder(folderId, { onWarning: emitUnexpectedParentWarning }));
+```
 
-- [ ] **Step 4: Run test to verify it passes**
+`lib/sync/runScheduledCronSync.ts` `:3149` — identical change.
 
-Run: `pnpm vitest run tests/sync/unexpectedParentLog.test.ts`
-Expected: PASS (both sites).
+Add `import { emitUnexpectedParentWarning } from "@/lib/sync/logUnexpectedParent";` to both files. The wrapped arrow matches `typeof listDriveFolder` (`(folderId, options?)`), so the `deps.listFolder ?? …` type still unifies; injected `deps.listFolder` is untouched (tests unaffected).
 
-- [ ] **Step 5: Verify the `source` token is allowed**
+- [ ] **Step 5: Run test + typecheck**
+
+Run: `pnpm vitest run tests/sync/unexpectedParentLog.test.ts && pnpm typecheck`
+Expected: PASS.
+
+- [ ] **Step 6: Verify the `source` token is allowed**
 
 Run: `rg -n "\"sync\\.list\"|source:\\s*\"sync\\." lib/ scripts/ tests/` — if a `source` allow-list/registry pins the set, add `"sync.list"` there. If none exists, no action.
-Run: `pnpm typecheck` — expect PASS.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add lib/sync/runOnboardingScan.ts lib/sync/runScheduledCronSync.ts tests/sync/unexpectedParentLog.test.ts
-git commit --no-verify -m "feat(sync): emit coded UNEXPECTED_PARENT log at both default listFolder callers (audit #15)"
+git add lib/sync/logUnexpectedParent.ts lib/sync/runOnboardingScan.ts lib/sync/runScheduledCronSync.ts tests/sync/unexpectedParentLog.test.ts
+git commit --no-verify -m "feat(sync): emit coded UNEXPECTED_PARENT log at both production folder-scan default branches (audit #15)"
 ```
 
 ---
@@ -624,13 +648,39 @@ Create `tests/sync/qualityRegressionLifecycle.test.ts`. Use a fake tx recording 
 
 Also assert the delivery contract (structural, no DB needed):
 ```ts
-// 9. bellExcludedCodes(false) does NOT include RESYNC_QUALITY_REGRESSED (feed-visible, banner not inbox/health)
+// 9. bellExcludedCodes(false)/(true) does NOT include RESYNC_QUALITY_REGRESSED (feed-visible, banner not inbox/health)
 //    import { bellExcludedCodes } from "@/lib/admin/bellAudience";
 //    expect(bellExcludedCodes(false)).not.toContain("RESYNC_QUALITY_REGRESSED");
 //    expect(bellExcludedCodes(true)).not.toContain("RESYNC_QUALITY_REGRESSED");
+// 10. Realtime ping coverage (spec §11, round-7): the bell-ping INSERT trigger is code-AGNOSTIC, so
+//     C's insert pings by construction. Structural assertion (no DB needed): read the migration and
+//     assert admin_alerts_bell_ping_ins is `after insert … for each statement` with NO code/WHEN filter.
+//        import { readFileSync } from "node:fs";
+//        const sql = readFileSync("supabase/migrations/20260705100002_bell_realtime.sql", "utf8");
+//        const trig = sql.match(/create trigger admin_alerts_bell_ping_ins[\s\S]*?;/)?.[0] ?? "";
+//        expect(trig).toMatch(/after insert on public\.admin_alerts/);
+//        expect(trig).toMatch(/for each statement/);
+//        expect(trig).not.toMatch(/\bwhen\b/i); // no row/code filter → every insert (incl. C) pings
 ```
 
 > Derive baselines from `summarizeDataGaps` of constructed warning arrays (not hardcoded totals). Build warning arrays whose `summarizeDataGaps` yields the intended class counts, so the test exercises the real summarizer.
+
+**DB-backed anti-storm proof (spec §6.7 test 1 — REQUIRED, plan-review R1 finding 2).** The fake-tx cases 2/3 prove the producer *issues no upsert* on an unchanged 40→40; the spec additionally requires proving the persisted `admin_alerts` row's activity/read-state does NOT churn (because `last_seen_at` is the bell's unread clock). Add a DB-backed lifecycle test against local Supabase (`TEST_DATABASE_URL` — mirror an existing DB-backed sync test's harness; gate/skip when the env var is absent, like sibling DB tests):
+
+```ts
+// DB-backed (local Supabase):
+// a. Run the producer with a real tx (queryOne against admin_alerts) for a 4→40 sync → one open
+//    RESYNC_QUALITY_REGRESSED row exists; capture last_seen_at + occurrence_count.
+// b. Simulate Doug reading: set the per-admin read cursor at/after the row's activityAt (or read
+//    admin_alerts_read state the bell uses); confirm the row is `read` (unread === false) via the
+//    same computation lib/admin/bellFeed.ts:122 uses (readAt >= greatest(raised_at,last_seen_at)).
+// c. Run the producer again on a 40→40 (payload identical) → assert last_seen_at AND occurrence_count
+//    are UNCHANGED (no upsert issued), and the row is STILL read (no re-badge). ← the anti-storm proof.
+// d. Run the producer on a 40→80 (payload changed) → assert last_seen_at ADVANCED and the row is now
+//    unread again, with context.baseline STILL the 4-gap summary (preserved).
+```
+
+If a full local-Supabase harness is disproportionate for this task, at minimum keep the fake-tx no-op assertion (case 2) AND assert the mechanism that guarantees it: that the ONLY code path bumping `last_seen_at`/`occurrence_count` is the `upsert_admin_alert` conflict arm (`supabase/migrations/20260505000000_upsert_admin_alert.sql:17-18`), so "producer issues no upsert" is equivalent to "no activity churn." Prefer the DB-backed test; the equivalence note is the documented fallback, not a substitute for the structural ping-trigger assertion (case 10), which is always required.
 
 - [ ] **Step 2: Run test to verify it fails**
 
