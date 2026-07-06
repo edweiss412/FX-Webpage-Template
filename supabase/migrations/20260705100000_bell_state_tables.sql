@@ -37,6 +37,12 @@ alter table public.admin_bell_state enable row level security;
 -- No client policies on purpose: service-role only (spec §3.3).
 revoke all on table public.admin_alert_reads from anon, authenticated;
 revoke all on table public.admin_bell_state from anon, authenticated;
+-- Explicit service_role grants: a fresh CI database applies migrations in an
+-- environment where default privileges do NOT extend to service_role (the
+-- postgrest-dml-lockdown Layer 1 gate caught this on first real CI run —
+-- local incremental DBs mask it). Same form as 20260611000002.
+grant all privileges on table public.admin_alert_reads to service_role;
+grant all privileges on table public.admin_bell_state to service_role;
 
 -- Dev-tunable feed window/cap (spec §3.4). Column creation and named-CHECK
 -- recreation are SEPARATE statements so reapply against existing columns
