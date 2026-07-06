@@ -1,5 +1,8 @@
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import type { AgendaExtraction } from "@/lib/agenda/types";
+import type { ArchivedPullSheetTab } from "@/lib/drive/exportSheetToMarkdown";
+
+export type { ArchivedPullSheetTab };
 
 export type ParseWarning = {
   severity: "info" | "warn";
@@ -384,6 +387,10 @@ export type ParsedSheet = {
   openingReel: OpeningReelRef | null; // driveFileId only at parse time
   raw_unrecognized: { block: string; key: string; value: string }[];
   warnings: ParseWarning[];
+  // Archived-tab pull-sheet regions detected by the exporter (§5.2, D5/D6).
+  // Required (default []) so every downstream reader can index it without a guard.
+  // The pure parser emits []; the sync/export layer populates it (Task 6).
+  archivedPullSheetTabs: ArchivedPullSheetTab[];
   // AGENDA run-of-show (Phase 2). ISO date -> entries. undefined = grid
   // unlocatable (D-1/D-2). Sibling of warnings; NOT on ShowRow (admin-only, R18).
   runOfShow?: RunOfShow;
@@ -410,6 +417,10 @@ export type ParseResult = {
   openingReel: OpeningReelPinned | null; // pinned at Phase 1 enrichment
   raw_unrecognized: { block: string; key: string; value: string }[];
   warnings: ParseWarning[];
+  // Archived-tab pull-sheet regions detected by the exporter (§5.2, D5/D6).
+  // Required (default []) — first-class on the persisted parse_result envelope so
+  // the Step-3 preview + override reconcile (Tasks 6/9) can always read it.
+  archivedPullSheetTabs: ArchivedPullSheetTab[];
   // AGENDA run-of-show (Phase 2). ISO date -> entries. undefined = grid
   // unlocatable (D-1/D-2). Sibling of warnings; NOT on ShowRow (admin-only, R18).
   runOfShow?: RunOfShow;

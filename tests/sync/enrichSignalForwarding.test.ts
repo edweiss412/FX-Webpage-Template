@@ -39,6 +39,7 @@ function emptyParsed(): ParsedSheet {
     openingReel: null,
     raw_unrecognized: [],
     warnings: [],
+    archivedPullSheetTabs: [],
     hardErrors: [],
   };
 }

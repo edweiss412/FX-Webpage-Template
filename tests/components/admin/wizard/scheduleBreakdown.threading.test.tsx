@@ -42,6 +42,7 @@ const pr = (): ParseResult => ({
   openingReel: null,
   raw_unrecognized: [],
   warnings: [],
+  archivedPullSheetTabs: [],
   runOfShow: {},
   hardErrors: [],
 });

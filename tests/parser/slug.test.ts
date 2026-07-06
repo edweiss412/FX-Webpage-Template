@@ -49,6 +49,7 @@ function makeParseResult(opts: {
     openingReel: null,
     raw_unrecognized: [],
     warnings: [],
+    archivedPullSheetTabs: [],
     hardErrors: [],
   };
 }

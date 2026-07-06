@@ -111,6 +111,7 @@ function deps(
         openingReel: null,
         raw_unrecognized: [],
         warnings: [],
+        archivedPullSheetTabs: [],
         hardErrors: [],
       } satisfies ParseResult,
     })),

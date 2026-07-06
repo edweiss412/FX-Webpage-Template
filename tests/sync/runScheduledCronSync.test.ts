@@ -179,6 +179,7 @@ function parsedSheet(): ParsedSheet {
     openingReel: null,
     raw_unrecognized: [],
     warnings: [],
+    archivedPullSheetTabs: [],
     hardErrors: [],
   };
 }

@@ -138,6 +138,7 @@ describe("Postgres sync pipeline adapter", () => {
           openingReel: null,
           raw_unrecognized: [],
           warnings: [],
+          archivedPullSheetTabs: [],
           hardErrors: [],
         }),
         enrichWithDrivePins: async (parsed) => ({

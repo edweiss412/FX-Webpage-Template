@@ -837,6 +837,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
           : null,
         raw_unrecognized: internal?.raw_unrecognized ?? [],
         warnings: internal?.parse_warnings ?? [],
+        archivedPullSheetTabs: [], // prior-parse reconstruction from live tables; archived-tab list is scan-time only
         hardErrors: [],
       },
       // §6.5: RAW nullable prior warnings — null when the column is NULL OR no shows_internal row

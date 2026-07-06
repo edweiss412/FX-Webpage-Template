@@ -63,6 +63,7 @@ function parseResult(overrides: Partial<ParseResult> = {}): ParseResult {
     openingReel: null,
     raw_unrecognized: [],
     warnings: [],
+    archivedPullSheetTabs: [],
     runOfShow: {},
     hardErrors: [],
     ...overrides,

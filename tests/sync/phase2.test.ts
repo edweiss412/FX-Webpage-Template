@@ -117,6 +117,7 @@ function parseResult(overrides: Partial<ParseResult> = {}): ParseResult {
     openingReel: null,
     raw_unrecognized: [{ block: "x", key: "unknown", value: "raw" }],
     warnings: [{ severity: "warn", code: "WARN", message: "warning" }],
+    archivedPullSheetTabs: [],
     hardErrors: [],
     ...overrides,
   };

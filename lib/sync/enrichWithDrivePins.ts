@@ -400,6 +400,9 @@ export async function enrichWithDrivePins(
     openingReel,
     raw_unrecognized: parsed.raw_unrecognized,
     warnings,
+    // Threaded from the ParsedSheet (default [] from the pure parser). The sync/
+    // export layer populates the real archived-tab list in Task 6.
+    archivedPullSheetTabs: parsed.archivedPullSheetTabs ?? [],
     hardErrors: parsed.hardErrors,
     ...(parsed.runOfShow !== undefined ? { runOfShow: parsed.runOfShow } : {}),
   };
