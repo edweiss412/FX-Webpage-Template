@@ -1593,43 +1593,49 @@ const withSlug = (m: Mutant, op: string, slug: string): Mutant =>
   ({ ...m, siteId: `${op}:${slug}:${m.siteId.slice(op.length + 1)}` });
 
 /** Exhaustive: parse EVERY generated mutant across all fixtures × operators (plan-R2).
- *  Two phases so the budget guard fires BEFORE any parse (Codex plan-R18 [high]): operator
- *  generation is pure string work, so Phase 1 enumerates every mutant and THROWS if the running
- *  total crosses MUTANT_BUDGET — an explosive-fanout regression fails fast instead of spending
- *  the whole 300s parse budget. Phase 2 (the expensive parseSheet pass) runs only once the
- *  budget passes. `noOps` catches any operator that emits a byte-identical mutant (plan-R18). */
+ *  Two STREAMING phases (Codex plan-R18 [high] + plan-R19 [high]):
+ *   • Phase 1 is COUNT-ONLY — it sums `gen(md).length` per (fixture, operator) and THROWS the
+ *     moment the running total crosses MUTANT_BUDGET, before any parseSheet. Generated mutant
+ *     arrays are transient (GC'd each operator); NOTHING corpus-wide is retained, so an
+ *     explosive-fanout regression fails fast on count without OOM-ing on retained markdown.
+ *   • Phase 2 REGENERATES per (fixture, operator) and parses each mutant inline, holding at most
+ *     one operator's mutants at a time. Only short siteId strings (+ actual alarms/noOps) persist
+ *     across the corpus, so peak heap is bounded by one operator's output, not ~1e5 fixture-sized
+ *     `md` strings. `noOps` flags any operator emitting a byte-identical mutant (plan-R18). */
 function runAll(): { alarms: Alarm[]; allSiteIds: string[]; cosmeticViolations: string[]; noOps: string[] } {
-  // Phase 1 — generate (no parseSheet) + enforce the budget before parsing.
-  const work: { md: string; slug: string; mutants: Mutant[] }[] = [];
+  // Phase 1 — COUNT ONLY, budget guard before any parse. No retention of generated mutants.
   let projected = 0;
   for (const f of FIXTURES) {
     const md = readFixture(f);
-    const mutants: Mutant[] = [];
-    for (const [op, gen] of Object.entries(OPERATORS)) for (const m of gen(md)) mutants.push(withSlug(m, op, f.slug));
-    projected += mutants.length;
-    if (projected > MUTANT_BUDGET) {
-      throw new Error(`generated mutant count ${projected} exceeds MUTANT_BUDGET ${MUTANT_BUDGET} before any parse — operator fanout regression?`);
+    for (const gen of Object.values(OPERATORS)) {
+      projected += gen(md).length; // transient array, discarded immediately
+      if (projected > MUTANT_BUDGET) {
+        throw new Error(`generated mutant count ${projected} exceeds MUTANT_BUDGET ${MUTANT_BUDGET} before any parse — operator fanout regression?`);
+      }
     }
-    work.push({ md, slug: f.slug, mutants });
   }
-  // Phase 2 — the expensive parse pass, reached only after the budget guard passes.
+  // Phase 2 — regenerate + parse per (fixture, operator); at most one operator's mutants in heap.
   const alarms: Alarm[] = [];
   const allSiteIds: string[] = [];
   const cosmeticViolations: string[] = [];
   const noOps: string[] = [];
-  for (const { md, slug, mutants } of work) {
-    const baseline = capture(md, `${slug}.md`);
-    for (const m of mutants) {
-      allSiteIds.push(m.siteId);
-      if (m.md === md) noOps.push(m.siteId); // byte-identical mutant = false coverage (plan-R18)
-      const mut = capture(m.md, `${slug}.md`);
-      const v = verdict(baseline, mut);
-      if (m.bucket === "cosmetic") {
-        if (v !== "ABSORBED") cosmeticViolations.push(m.siteId); // cosmetic must be fully invisible
-        continue;
+  for (const f of FIXTURES) {
+    const md = readFixture(f);
+    const baseline = capture(md, `${f.slug}.md`);
+    for (const [op, gen] of Object.entries(OPERATORS)) {
+      for (const raw of gen(md)) {
+        const m = withSlug(raw, op, f.slug);
+        allSiteIds.push(m.siteId);
+        if (m.md === md) noOps.push(m.siteId); // byte-identical mutant = false coverage (plan-R18)
+        const mut = capture(m.md, `${f.slug}.md`);
+        const v = verdict(baseline, mut);
+        if (m.bucket === "cosmetic") {
+          if (v !== "ABSORBED") cosmeticViolations.push(m.siteId); // cosmetic must be fully invisible
+          continue;
+        }
+        if (v === "SILENT_WRONG") alarms.push({ siteId: m.siteId, kind: "wrong", fingerprint: fingerprint(baseline, mut) });
+        if (v === "SILENT_SIGNAL_LOSS") alarms.push({ siteId: m.siteId, kind: "signal_loss", fingerprint: fingerprint(baseline, mut) });
       }
-      if (v === "SILENT_WRONG") alarms.push({ siteId: m.siteId, kind: "wrong", fingerprint: fingerprint(baseline, mut) });
-      if (v === "SILENT_SIGNAL_LOSS") alarms.push({ siteId: m.siteId, kind: "signal_loss", fingerprint: fingerprint(baseline, mut) });
     }
   }
   return { alarms, allSiteIds, cosmeticViolations, noOps };
@@ -2023,7 +2029,108 @@ git commit --no-verify -m "test(parser): surface total mutant count + skippedIna
 
 ---
 
-### Task 12: Final verification
+### Task 12: CI wiring — run the harness in x-audits, OFF the fast unit path
+
+**Why (Codex plan-R19 [high]):** `tests/parser/mutationHarness.test.ts` is a ~100s serial parser-replay gate. Left on the default unit-suite discovery path it lands in the 2-leg `unit-suite.yml` matrix weighed at `DEFAULT_WEIGHT` (1500ms — `lib/test/vitest.weights.ts:9`), so the weight-balanced sequencer (`vitest.sequencer.ts`) mis-sizes it and it overloads one leg's wall-clock (~100s onto a leg the balancer thinks is 1.5s). The repo's established home for heavy gates is `x-audits.yml` (traceability, x1–x6, postgrest-dml-lockdown — each a dedicated job off the fast path). Move it there.
+
+**Files:**
+- Modify: `vitest.projects.ts` (add the harness to `ENV_BOUND_EXCLUDES`)
+- Modify: `package.json` (add a `test:audit:mutation-harness` script)
+- Modify: `.github/workflows/x-audits.yml` (add a `mutation-harness` job)
+
+**Interfaces:** consumes the exclusion mechanism already used by x5/email-canonicalization — a project-level exclude gated by `VITEST_EXCLUDE_ENV_BOUND=1` (`vitest.config.ts:15,65`), which `unit-suite.yml` sets but the x-audits' direct `vitest run <file>` does not.
+
+- [ ] **Step 1: Drop the harness from the fast unit path**
+
+Append to `ENV_BOUND_EXCLUDES` in `vitest.projects.ts` (keep the existing three entries):
+
+```ts
+export const ENV_BOUND_EXCLUDES = [
+  "**/tests/admin/test-auth-gate.test.ts",
+  "**/tests/cross-cutting/pg-cron-coverage.test.ts",
+  "**/tests/cross-cutting/email-canonicalization.test.ts",
+  // Heavy (~100s serial parser replay) — a CI audit gate, not a fast-path unit test.
+  // Dropped from unit-suite via VITEST_EXCLUDE_ENV_BOUND=1 and run instead by the
+  // dedicated x-audits `mutation-harness` job (`vitest run <file>`, env var unset →
+  // this exclude is empty there, so the file runs). Same off-fast-path pattern as
+  // email-canonicalization above. The shard-balance meta-test filters these suffixes
+  // out of its discovered file set (vitest-shard-balance.test.ts:38-40), so NO
+  // FILE_WEIGHTS entry is needed or wanted (a real 150000 weight would instead trip
+  // that test's 1.25x-mean synthetic-balance guard even though the file never shards).
+  "**/tests/parser/mutationHarness.test.ts",
+];
+```
+
+- [ ] **Step 2: Add the audit script** — insert into `package.json` `scripts` (next to the other `test:audit:*`):
+
+```json
+"test:audit:mutation-harness": "vitest run tests/parser/mutationHarness.test.ts",
+```
+
+- [ ] **Step 3: Add the x-audits job** — append under `jobs:` in `.github/workflows/x-audits.yml`, mirroring `x6-pg-cron-pivot` minus the codegen freshness step (this harness has no generated prereq — pure fixture-corpus replay, no live DB):
+
+```yaml
+  mutation-harness:
+    # Rec-5 parser mutation-testing harness (~100s serial parser replay). Runs OFF the
+    # fast unit-suite path (excluded via VITEST_EXCLUDE_ENV_BOUND in vitest.projects.ts);
+    # this dedicated job runs it directly. No live DB, no codegen prereq.
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Run mutation-harness audit
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm test:audit:mutation-harness 2>&1 | tee mutation-harness.log
+      - name: Upload mutation-harness audit artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-harness-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+          if-no-files-found: warn
+          path: |
+            mutation-harness.log
+```
+
+- [ ] **Step 4: Verify the exclusion is correct in both directions**
+
+```bash
+# Unit-suite path DROPS it (matches unit-suite.yml's env var):
+VITEST_EXCLUDE_ENV_BOUND=1 pnpm vitest run tests/parser/mutationHarness.test.ts 2>&1 | tail -5
+# Expected: "No test files found" (excluded) — vitest exits without running it.
+
+# x-audits path RUNS it (env var unset, same as the x-audits job):
+pnpm test:audit:mutation-harness 2>&1 | tail -8
+# Expected: the harness runs and PASSES (ledger + budget + no-op + gates green).
+```
+
+- [ ] **Step 5: Re-run the CI-topology meta-tests (they must stay green after the exclude edit)**
+
+```bash
+pnpm vitest run tests/cross-cutting/vitest-shard-balance.test.ts tests/cross-cutting/vitest-projects-partition.test.ts
+```
+Expected: PASS. `vitest-shard-balance` still discovers >400 files and its no-stale-keys / 1.25×-mean guards hold (the harness suffix is filtered out of `allFiles`, `:38-40`); `vitest-projects-partition` still assigns every file to exactly one project (the harness stays in SERIAL — the env exclude drops it from the RUN, not from project membership).
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add vitest.projects.ts package.json .github/workflows/x-audits.yml
+git commit --no-verify -m "ci(parser): run mutation harness in x-audits, off the fast unit-suite path"
+```
+
+---
+
+### Task 13: Final verification
 
 **Files:** none (verification only).
 
@@ -2057,7 +2164,7 @@ git add -A && git commit --no-verify -m "chore(parser): format + final verificat
 
 ## Self-Review checklist (run before adversarial review)
 
-1. **Spec coverage:** every spec section maps to a task — segmentation/row-taxonomy (T1), classifier+parity+lockstep (T2), oracle+verdict+fingerprint (T3), 8 operators+selection+domains (T4), fixture registry+parity (T5), independent audit+golden (T6), ledger type (T7), driver+day-1 ledger+uniqueness+cosmetic+bidirectional (T8), classifier/floor/audit gates (T9), negative controls incl. R12/R13/R14/R15/R16 (T10), coverage legibility (T11), verification (T12). ✔
+1. **Spec coverage:** every spec section maps to a task — segmentation/row-taxonomy (T1), classifier+parity+lockstep (T2), oracle+verdict+fingerprint (T3), 8 operators+selection+domains (T4), fixture registry+parity (T5), independent audit+golden (T6), ledger type (T7), driver+day-1 ledger+uniqueness+cosmetic+bidirectional (T8), classifier/floor/audit gates (T9), negative controls incl. R12/R13/R14/R15/R16 (T10), coverage legibility (T11), CI wiring off the fast unit path (T12), verification (T13). ✔
 2. **Placeholder scan:** the only deferred concrete values are `GOLDEN_INVENTORY` exact counts and `KNOWN_SILENT_HOLES` rows — both are DATA populated from an observed run and hand-verified in-task (T6 S4, T8 S3), not code placeholders. ✔
 3. **Type consistency:** `Mutant.domains: Domain[]`, `floorEligible(): Set<Domain>`, `skippedInapplicable(): Domain[]`, `verdict(): Verdict`, `fingerprint(): string`, `KnownHole` fields — consistent across T3/T4/T7/T8. Detection is exhaustive (no `select`/cap). ✔
 
