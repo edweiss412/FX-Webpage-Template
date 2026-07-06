@@ -566,7 +566,8 @@ git commit --no-verify -m "feat(messages): add RESYNC_QUALITY_REGRESSED §12.4 c
 - Modify: `tests/messages/_metaAlertAudienceContract.test.ts` (append to the `DOUG` literal array + bump `17` → `18`; comprehensive sweep — this is a HARDCODED list, NOT auto-derived)
 - Modify: `tests/parser/dataGapsClassCompleteness.test.ts` (append to `NON_GAP_CATALOG_CODES` — the AST-literal-scan gate that flags the `code: "RESYNC_QUALITY_REGRESSED"` literal in `lib/sync`; comprehensive sweep)
 - Modify: `lib/adminAlerts/audience.ts` (`AUTO_RESOLVE_NOTES` entry)
-- Gates: `tests/messages/_metaAlertAudienceContract.test.ts`, `tests/messages/adminSurface.test.ts`, `tests/adminAlerts/_metaAlertIdentityMap.test.ts`, `tests/adminAlerts/alertIdentityMatrix.test.ts`, `tests/parser/dataGapsClassCompleteness.test.ts` (all read a registry / scan literals — must stay green)
+- Modify: `tests/adminAlerts/audience.test.ts` (executable guard for the custom auto-resolve note — plan-review R6)
+- Gates: `tests/messages/_metaAlertAudienceContract.test.ts`, `tests/messages/adminSurface.test.ts`, `tests/adminAlerts/_metaAlertIdentityMap.test.ts`, `tests/adminAlerts/alertIdentityMatrix.test.ts`, `tests/parser/dataGapsClassCompleteness.test.ts`, `tests/adminAlerts/audience.test.ts` (all read a registry / scan literals / assert the note — must stay green)
 
 > **Complete registry-touchpoint enumeration (comprehensive re-analysis after 3 same-vector rounds R3/R5 — this is the FULL set, closing the class).** Adding one admin_alerts code touches exactly these registries: (1) `catalog.ts` [C3]; (2) §12.4 prose + helpfulContext appendix [C3]; (3) `spec-codes.ts` gen [C3]; (4) `internal-code-enums.ts` gen [C3]; (5) `AdminAlertCode` union [C3]; (6) `adminAlertsRegistry.ts` `ADMIN_ALERTS_CODES`; (7) `adminAlertCodes.fixture.ts` `ADMIN_ALERTS_CODES` copy #2; (8) `alertIdentityMap.ts`; (9) `alertIdentityMatrix.test.ts` FIXTURES; (10) `_metaAlertIdentityMap.test.ts` count 43→44; (11) `_metaAdminAlertCatalog.test.ts` `ADMIN_ALERTS_WRITE_SITES` + `ADMIN_ALERTS_LIFECYCLE` + `INTERPOLATED_DOUG_FACING_CODES` + auto-count 25→26; (12) `_metaAlertActionsContract.test.ts` `RAISE_SITE_PINS`; (13) `_metaAlertAudienceContract.test.ts` `DOUG` array + count 17→18; (14) `dataGapsClassCompleteness.test.ts` `NON_GAP_CATALOG_CODES`. NO change to: `alertActions.ts`/`ALERT_ACTION_CODES` (no action link), `adminSurface.ts`/`INBOX_ROUTED_CODES` (banner not inbox — its exact-3 assertion would BREAK if added), `SYNC_PROBLEM_CODES` (§6.4), redaction contract (per-field), `code-scenarios.ts` (derived). The "42-code" comments in a couple files are stale prose, not enforced — ignore.
 
@@ -575,6 +576,23 @@ git commit --no-verify -m "feat(messages): add RESYNC_QUALITY_REGRESSED §12.4 c
 - Produces: all structural gates green with the new code registered + its show-scoped raise pinned.
 
 > Order note: the producer/resolve-helper names referenced by the raise-site + lifecycle patterns (`evaluateQualityRegression_unlocked`, `resolveQualityRegression_unlocked`) are introduced in Task C5. Write the patterns here to match those exact names; C4's meta-test edits will fail their on-disk pattern checks until C5 lands the producer. **Land C4 and C5 as a pair** (C4 test → C5 impl → both green), OR sequence C5 before C4's `_metaAdminAlertCatalog` on-disk pattern assertions. The registry/audience/identity/audience-note rows below are independent of C5 and green immediately.
+
+- [ ] **Step 0: Write the failing auto-resolve-note test (TDD, spec §7.11b — plan-review R6)**
+
+The custom `AUTO_RESOLVE_NOTES` entry (added in Step 1) has no executable guard otherwise — an omitted/misspelled key silently falls back to the generic "No action is needed here" note, contradicting C's fix-the-sheet intent, while every other gate still passes. Add to `tests/adminAlerts/audience.test.ts`:
+```ts
+import { autoResolveNote } from "@/lib/adminAlerts/audience";
+
+it("RESYNC_QUALITY_REGRESSED renders the fix-the-sheet auto-resolve note, not the generic fallback", () => {
+  const note = autoResolveNote("RESYNC_QUALITY_REGRESSED");
+  expect(note).toContain("data quality recovers"); // the custom copy
+  expect(note).toBe(
+    "Clears automatically once the sheet's data quality recovers — fix the sheet to resolve it.",
+  );
+  expect(note).not.toContain("No action is needed here"); // NOT the generic fallback
+});
+```
+Run: `pnpm vitest run tests/adminAlerts/audience.test.ts` → FAIL (falls back to the generic note; the key doesn't exist yet).
 
 - [ ] **Step 1: Add the registry + audience + identity + auto-note rows**
 
@@ -615,9 +633,9 @@ git commit --no-verify -m "feat(messages): add RESYNC_QUALITY_REGRESSED §12.4 c
     "Clears automatically once the sheet's data quality recovers — fix the sheet to resolve it.",
 ```
 
-- [ ] **Step 2: Run the audience + surface + identity + matrix + parser contracts**
+- [ ] **Step 2: Run the audience + surface + identity + matrix + parser + note contracts**
 
-Run: `pnpm vitest run tests/messages/_metaAlertAudienceContract.test.ts tests/messages/adminSurface.test.ts tests/adminAlerts/_metaAlertIdentityMap.test.ts tests/adminAlerts/alertIdentityMatrix.test.ts tests/parser/dataGapsClassCompleteness.test.ts`
+Run: `pnpm vitest run tests/messages/_metaAlertAudienceContract.test.ts tests/messages/adminSurface.test.ts tests/adminAlerts/_metaAlertIdentityMap.test.ts tests/adminAlerts/alertIdentityMatrix.test.ts tests/parser/dataGapsClassCompleteness.test.ts tests/adminAlerts/audience.test.ts`
 Expected: `_metaAlertAudienceContract` PASS (`DOUG` appended + count 18; `DOUG ∪ HEALTH === ADMIN_ALERTS_CODES` holds). `adminSurface` PASS (C is banner — `INBOX_ROUTED_CODES` stays exactly the 3 existing codes; do NOT add C there). `_metaAlertIdentityMap` PASS (global entry registered; count 44). `alertIdentityMatrix` PASS (FIXTURES entry present; exhaustive equality holds). `dataGapsClassCompleteness` PASS (the literal is classified in `NON_GAP_CATALOG_CODES`) — NOTE: this only fully passes once C5 writes the `code:"RESYNC_QUALITY_REGRESSED"` literal into `runScheduledCronSync.ts`; before C5 the scan finds no literal so it's a no-op, after C5 the classification is required. Land with C5.
 
 - [ ] **Step 3: Add the `_metaAdminAlertCatalog` rows**
@@ -679,8 +697,8 @@ Expected: after C5 lands the producer + resolve helper, PASS. (`_metaAlertAction
 - [ ] **Step 5: Commit (with C5, or immediately for the independent rows)**
 
 ```bash
-git add tests/messages/adminAlertsRegistry.ts tests/messages/_metaAdminAlertCatalog.test.ts tests/messages/_metaAlertActionsContract.test.ts tests/messages/_metaAlertAudienceContract.test.ts tests/adminAlerts/adminAlertCodes.fixture.ts tests/adminAlerts/_metaAlertIdentityMap.test.ts tests/adminAlerts/alertIdentityMatrix.test.ts tests/parser/dataGapsClassCompleteness.test.ts lib/adminAlerts/alertIdentityMap.ts lib/adminAlerts/audience.ts
-git commit --no-verify -m "test(messages): register RESYNC_QUALITY_REGRESSED across all 14 alert-code registries (identity fixture+matrix 44, DOUG 18, auto-count 26, NON_GAP classification, show-scoped raise pin)"
+git add tests/messages/adminAlertsRegistry.ts tests/messages/_metaAdminAlertCatalog.test.ts tests/messages/_metaAlertActionsContract.test.ts tests/messages/_metaAlertAudienceContract.test.ts tests/adminAlerts/adminAlertCodes.fixture.ts tests/adminAlerts/_metaAlertIdentityMap.test.ts tests/adminAlerts/alertIdentityMatrix.test.ts tests/adminAlerts/audience.test.ts tests/parser/dataGapsClassCompleteness.test.ts lib/adminAlerts/alertIdentityMap.ts lib/adminAlerts/audience.ts
+git commit --no-verify -m "test(messages): register RESYNC_QUALITY_REGRESSED across all 14 alert-code registries + auto-resolve-note guard (identity fixture+matrix 44, DOUG 18, auto-count 26, NON_GAP classification, show-scoped raise pin)"
 ```
 
 ---
