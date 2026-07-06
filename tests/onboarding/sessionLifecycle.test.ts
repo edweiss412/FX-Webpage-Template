@@ -193,6 +193,11 @@ class FakeLifecycleTx implements OnboardingSessionTx {
       return { rows: [], rowCount: 0 };
     }
 
+    if (op === "select-residue") {
+      // These fixtures seed no mid-transaction insert → no residue → proceed.
+      return { rows: [], rowCount: 0 };
+    }
+
     throw new Error(`Unhandled SQL in fake tx: ${normalized}`);
   }
 
@@ -282,6 +287,11 @@ class FakeLifecycleTx implements OnboardingSessionTx {
     }
     if (sql.startsWith("delete from public.wizard_finalize_checkpoints"))
       return "delete-checkpoint";
+    // Thread 2a (whole-diff R2): post-delete residue check — one `select 1 from
+    // public.<reap table> where wizard_session_id = $1 limit 1` per drive-id table.
+    if (sql.startsWith("select 1 from public.") && sql.includes("limit 1")) {
+      return "select-residue";
+    }
     throw new Error(`Could not classify SQL: ${sql}`);
   }
 

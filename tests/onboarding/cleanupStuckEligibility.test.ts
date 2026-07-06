@@ -36,6 +36,10 @@ type FakeState = {
   // (inside lockCleanupDriveFiles) vs SECOND (under-lock recheck) collect pass.
   preReap: string[];
   postReap: string[];
+  // reap tables that STILL report a session-scoped row after the id-scoped deletes
+  // (models a NEW-drive row a scan/recovery inserted mid-transaction) — the
+  // post-delete residue check must abort when any is present.
+  residueTables: string[];
   recentFinalize: number;
 };
 
@@ -71,6 +75,13 @@ class FakeTx implements OnboardingSessionTx {
       return rows(ids.map((drive_file_id) => ({ drive_file_id })));
     }
     if (q.startsWith("select drive_file_id from public.")) return rows([]);
+
+    // Post-delete residue check: `select 1 from public.<table> where … limit 1`.
+    // Return a row iff the modeled residue set names this table (a mid-tx insert).
+    if (q.startsWith("select 1 from public.")) {
+      const table = /from public\.(\w+)/.exec(q)?.[1] ?? "";
+      return this.s.residueTables.includes(table) ? rows([{}]) : rows([]);
+    }
 
     // Owner + staleness read (has the `as is_stale` computed column).
     if (q.includes("as is_stale")) {
@@ -130,6 +141,7 @@ const base: FakeState = {
   postUnresolved: [],
   preReap: [],
   postReap: [],
+  residueTables: [],
   recentFinalize: 0,
 };
 
@@ -221,6 +233,26 @@ describe("cleanupAbandonedFinalize eligibility (Thread 2b)", () => {
     });
     await expect(result).rejects.toMatchObject({ reason: "session_too_fresh" });
     expect(tx.rotated).toBe(false); // purged nothing
+  });
+
+  test("post-delete residue (a NEW-drive row appeared after the recheck) → session_too_fresh, purge nothing (whole-diff R2 HIGH)", async () => {
+    // The reap-set recheck passes (no expansion detected at recheck time), but a
+    // scan/recovery inserts a new-drive row for this session BETWEEN the recheck and
+    // the purge. The id-scoped deletes leave it (it is not in the locked set), and
+    // the post-delete residue check then finds it and aborts the whole discard —
+    // deleting it would be an invariant-2 violation (no show:<new id> held).
+    const { tx, result } = run({
+      ...base,
+      isStale: true,
+      finishable: 1,
+      preUnresolved: [],
+      postUnresolved: [],
+      preReap: ["D1"],
+      postReap: ["D1"], // recheck sees no expansion
+      residueTables: ["pending_syncs"], // …but D2's row remains after the id-scoped delete
+    });
+    await expect(result).rejects.toMatchObject({ reason: "session_too_fresh" });
+    expect(tx.rotated).toBe(false); // rollback — nothing committed
   });
 
   test("under-lock recheck PROCEEDS when the reap set is unchanged", async () => {

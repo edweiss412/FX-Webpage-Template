@@ -180,19 +180,30 @@ async function purgeWizardRows(tx: OnboardingSessionTx): Promise<void> {
 async function purgeWizardRowsForSession(
   tx: OnboardingSessionTx,
   sessionId: string,
+  lockedDriveFileIds: readonly string[],
 ): Promise<void> {
-  await tx.query(`delete from public.pending_syncs where wizard_session_id = $1::uuid`, [
-    sessionId,
-  ]);
-  await tx.query(`delete from public.pending_ingestions where wizard_session_id = $1::uuid`, [
-    sessionId,
-  ]);
-  await tx.query(`delete from public.onboarding_scan_manifest where wizard_session_id = $1::uuid`, [
-    sessionId,
-  ]);
-  await tx.query(`delete from public.deferred_ingestions where wizard_session_id = $1::uuid`, [
-    sessionId,
-  ]);
+  // Whole-diff R2 HIGH — every delete is constrained to the LOCKED drive-id set,
+  // never wizard_session_id alone (mirrors reapOneSession R42-1). A stale-tab
+  // scan/recovery committing a NEW-drive row for this session AFTER the reap-set
+  // recheck must NOT be swept without holding show:<new_drive_id>; the post-delete
+  // residue check in cleanupAbandonedFinalize then aborts if such a row appeared.
+  // (drive_file_id is NOT NULL in all four tables' DDL, so no row escapes via NULL.)
+  await tx.query(
+    `delete from public.pending_syncs where wizard_session_id = $1::uuid and drive_file_id = any($2)`,
+    [sessionId, lockedDriveFileIds],
+  );
+  await tx.query(
+    `delete from public.pending_ingestions where wizard_session_id = $1::uuid and drive_file_id = any($2)`,
+    [sessionId, lockedDriveFileIds],
+  );
+  await tx.query(
+    `delete from public.onboarding_scan_manifest where wizard_session_id = $1::uuid and drive_file_id = any($2)`,
+    [sessionId, lockedDriveFileIds],
+  );
+  await tx.query(
+    `delete from public.deferred_ingestions where wizard_session_id = $1::uuid and drive_file_id = any($2)`,
+    [sessionId, lockedDriveFileIds],
+  );
 }
 
 // Thread 2a (spec §5.5 R7/R8): ADVISORY-BEFORE-ROW cleanup locking, mirroring the
@@ -507,9 +518,15 @@ export async function cleanupAbandonedFinalize(
       }
     }
 
-    await tx.query(`delete from public.shows_pending_changes where wizard_session_id = $1::uuid`, [
-      sessionId,
-    ]);
+    // Whole-diff R2 HIGH — every drive-id-bearing delete below is constrained to
+    // the LOCKED set (lockedReapIds), mirroring reapOneSession R42-1. Combined with
+    // the post-delete residue check, this guarantees no row is deleted without
+    // holding its show: lock even if a scan/recovery inserts a NEW-drive row for
+    // this session mid-transaction (after the reap-set recheck above).
+    await tx.query(
+      `delete from public.shows_pending_changes where wizard_session_id = $1::uuid and drive_file_id = any($2)`,
+      [sessionId, lockedReapIds],
+    );
     // F4 Task 4.1 (spec §6 / R11-1): the first-seen interim-show delete is
     // PROVENANCE-keyed (created_show_id written by F1 Phase B in the same
     // per-row tx as the show INSERT), never the `published = false` proxy —
@@ -533,14 +550,37 @@ export async function cleanupAbandonedFinalize(
            and m.created_show_id = s.id
            and m.drive_file_id = s.drive_file_id
            and s.wizard_created_session_id = m.wizard_session_id
+           and m.drive_file_id = any($2)
            and s.published = false
       `,
-      [sessionId],
+      [sessionId, lockedReapIds],
     );
+    await purgeWizardRowsForSession(tx, sessionId, lockedReapIds);
+    // wizard_finalize_checkpoints is per-SESSION (no drive_file_id), so it stays
+    // session-scoped — matches reapOneSession's checkpoint delete.
     await tx.query(
       `delete from public.wizard_finalize_checkpoints where wizard_session_id = $1::uuid`,
       [sessionId],
     );
+
+    // Whole-diff R2 HIGH — post-delete residue check (mirrors reapOneSession
+    // R42-1). The id-scoped deletes above removed only the locked set. If ANY
+    // session-scoped row REMAINS in a drive-id-bearing reap table, a scan/recovery
+    // inserted a NEW-drive row for this session mid-transaction (after the recheck)
+    // — deleting it would violate invariant 2, so abort the whole discard (throw →
+    // tx rollback, nothing committed) and let the admin retry with a fresh lock set.
+    for (const table of REAP_DRIVE_ID_TABLES) {
+      const residue = await tx.query(
+        `select 1 from public.${table} where wizard_session_id = $1::uuid limit 1`,
+        [sessionId],
+      );
+      if (residue.rowCount > 0) {
+        throw new CleanupRequiresStaleSessionError("session_too_fresh", {
+          wizard_session_id: sessionId,
+          pending_wizard_session_at: owner.rows[0].pending_wizard_session_at ?? null,
+        });
+      }
+    }
     await tx.query(
       `
         insert into public.sync_log (status, message, parse_warnings)
@@ -574,7 +614,6 @@ export async function cleanupAbandonedFinalize(
       throw new OnboardingSessionInfraError("app_settings default row was not found");
     }
 
-    await purgeWizardRowsForSession(tx, sessionId);
     return { status: "cleaned", settings };
   });
 }
