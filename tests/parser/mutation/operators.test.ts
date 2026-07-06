@@ -86,6 +86,30 @@ describe("blank-row:inject is per data-row gap, not per section (plan-R3)", () =
   });
 });
 
+describe("blank-row:remove deletes the FULL blank span so runs actually MERGE (Codex whole-diff R1)", () => {
+  it("single-blank boundary: one mutant that removes the separator", () => {
+    const md = "| CREW | NAME |\n|  | Doug |\n\n| TRANSPORTATION | NAME |\n|  | Carlos |";
+    const ms = OPERATORS["blank-row:remove"]!(md);
+    expect(ms).toHaveLength(1);
+    // the two runs are now adjacent — no blank line survives between the CREW and TRANSPORTATION rows
+    expect(ms[0]!.md).toBe(
+      "| CREW | NAME |\n|  | Doug |\n| TRANSPORTATION | NAME |\n|  | Carlos |",
+    );
+  });
+  it("multi-blank boundary: deleting ONE line would leave a separator — the mutant removes ALL blanks", () => {
+    // TWO blank lines between the runs. A single-line deletion (the pre-fix bug) would leave one
+    // blank, so the parser would still see two runs and the mutant would NOT test the merge.
+    const md = "| CREW | NAME |\n|  | Doug |\n\n\n| TRANSPORTATION | NAME |\n|  | Carlos |";
+    const ms = OPERATORS["blank-row:remove"]!(md);
+    expect(ms).toHaveLength(1); // still exactly one boundary site
+    // BOTH blank lines gone → the runs are truly fused (no residual blank separator)
+    expect(ms[0]!.md).not.toMatch(/\n\s*\n/); // no blank-line separator anywhere
+    expect(ms[0]!.md).toBe(
+      "| CREW | NAME |\n|  | Doug |\n| TRANSPORTATION | NAME |\n|  | Carlos |",
+    );
+  });
+});
+
 describe("merged-cell is per interior pipe, not just the first (plan-R5)", () => {
   it("a 4-cell data row yields 3 merge mutants with distinct pipe loci", () => {
     const md = "| CREW | NAME | ROLE | PHONE |\n|  | Doug | Lead | 917 |"; // data row: ["", "Doug", "Lead", "917"] → 4 cells

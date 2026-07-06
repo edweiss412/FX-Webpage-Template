@@ -191,7 +191,16 @@ function* blankRowRemove(md: string): Generator<Mutant> {
     );
     const blankLine = lastRow + 1;
     if (ls[blankLine]?.trim() !== "") continue;
-    const md2 = ls.filter((_, idx) => idx !== blankLine).join("\n");
+    // Delete the ENTIRE consecutive blank span between the two runs, not just the first blank
+    // line (Codex whole-diff R1 [medium]): with ≥2 blank lines a single-line deletion leaves a
+    // separator, so the parser still sees two runs — a byte-distinct mutant that never exercises
+    // the intended run-MERGE, while the boundary is still credited (tautological coverage). Since
+    // `seg` breaks runs on any blank line, the gap between run a and run b is exactly this
+    // consecutive blank span; removing all of it guarantees the runs actually fuse. (All current
+    // fixtures have single-blank boundaries, so this is byte-identical for them — ledger unchanged.)
+    let blankEnd = blankLine;
+    while (ls[blankEnd + 1]?.trim() === "") blankEnd++;
+    const md2 = ls.filter((_, idx) => idx < blankLine || idx > blankEnd).join("\n");
     const domA = classifySection(a.sections[a.sections.length - 1]!);
     const domB = classifySection(b.sections[0]!);
     // dedup: adjacent same-domain runs must credit the domain ONCE (matches the audit, plan-R8)
