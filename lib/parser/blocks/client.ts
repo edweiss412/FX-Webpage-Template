@@ -378,7 +378,10 @@ const CLIENT_EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/;
 // Harvests email/phone ONLY from the FIRST contiguous table run that contains a FORM anchor, then
 // stops (`formBlockDone`) — bounding the harvest to the single FORM intake block so a stray
 // "Email Address"/"Phone Number" row in any later block is never reached.
-function harvestFormClientContact(markdown: string): { email: string | null; phone: string | null } {
+function harvestFormClientContact(markdown: string): {
+  email: string | null;
+  phone: string | null;
+} {
   let email: string | null = null;
   let phone: string | null = null;
   let inFormBlock = false;

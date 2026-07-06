@@ -75,7 +75,10 @@ describe("FORM-tab AV contact fallback", () => {
   it("keeps INFO AV and discards the FORM fallback when INFO In House AV is populated", () => {
     const INFO_AV = "chris.mercado@encoreglobal.com";
     const FORM_AV = "different.person@x.com";
-    const contacts = parseContacts(md({ infoAv: `Chris Mercado ${INFO_AV}`, formAv: FORM_AV }), "v4");
+    const contacts = parseContacts(
+      md({ infoAv: `Chris Mercado ${INFO_AV}`, formAv: FORM_AV }),
+      "v4",
+    );
     const emails = contacts.filter((c) => c.kind === "in_house_av").map((c) => c.email);
     expect(emails).toContain(canonicalize(INFO_AV));
     expect(emails).not.toContain(canonicalize(FORM_AV));
