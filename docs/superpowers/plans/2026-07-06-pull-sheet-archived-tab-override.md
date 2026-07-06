@@ -149,6 +149,19 @@ describe.skipIf(!url)("set_pull_sheet_override grant lockdown", () => {
     expect(cols).toHaveLength(3);
     for (const c of cols) { expect(c.is_nullable).toBe("YES"); expect(c.column_default).toBeNull(); }
   });
+
+  // Codex plan-R2-3: the new override columns are only safe if the HOST tables already
+  // deny direct PostgREST DML — else anon/authenticated could UPDATE pull_sheet_override
+  // directly, bypassing the RPC's admin auth + fingerprint CAS + advisory lock. Both tables
+  // are already locked down (shows: 20260523000001:45; pending_syncs: 20260601000000:163);
+  // this pins that the new columns inherit it (table-level REVOKE is column-wide).
+  it("pending_syncs and shows have INSERT/UPDATE/DELETE revoked from anon and authenticated", async () => {
+    const grants = await sql<{ table_name: string; grantee: string; privilege_type: string }[]>`
+      select table_name, grantee, privilege_type from information_schema.role_table_grants
+      where table_schema = 'public' and table_name in ('pending_syncs','shows')
+        and grantee in ('anon','authenticated') and privilege_type in ('INSERT','UPDATE','DELETE')`;
+    expect(grants).toHaveLength(0); // no write grant to anon/authenticated on either table
+  });
 });
 ```
 
@@ -442,6 +455,7 @@ Run → **PASSES**. Commit: `feat(drive): thread includePullSheetFromTab + archi
 - `lib/sync/enrichWithDrivePins.ts` (`ParseResult` builder `~:387-400`) + every other `ParseResult` producer (class-sweep)
 - `lib/sync/phase1.ts` (`Phase1ShowRow` `:22`) preview doubles
 - `tests/parser/dataGapsArchivedTab.test.ts` (NEW)
+- `tests/components/.../dataQualityBadgeArchivedTab.test.tsx` (NEW — badge coverage folded here, fail-first; §15 test 11, was Task 13)
 
 **Interfaces — Produces:** `ParseResult.archivedPullSheetTabs: ArchivedPullSheetTab[]` (required, default `[]`). `PULL_SHEET_ON_ARCHIVED_TAB` in `GAP_CLASSES`.
 
@@ -456,6 +470,17 @@ it("PULL_SHEET_ON_ARCHIVED_TAB is a data-gap class counted by summarizeDataGaps"
     { severity: "warn", code: "PULL_SHEET_ON_ARCHIVED_TAB", message: "x" } as any,
   ]);
   expect(summary["PULL_SHEET_ON_ARCHIVED_TAB"]).toBe(1);
+});
+
+// DataQualityBadge coverage folded here so it is genuinely FAIL-FIRST (before the GAP_CLASSES
+// edit below, the badge cannot count this code) — Codex plan-R2-4. §15 test 11.
+it("DataQualityBadge counts a PULL_SHEET_ON_ARCHIVED_TAB warning (derived from summarizeDataGaps, not hardcoded)", () => {
+  const warnings = [{ severity: "warn", code: "PULL_SHEET_ON_ARCHIVED_TAB", message: "x" } as any];
+  const expectedTotal = summarizeDataGaps(warnings).total; // 0 before the class exists, 1 after
+  render(<DataQualityBadge warnings={warnings} />);
+  expect(screen.getByTestId("data-quality-badge").textContent).toContain(String(expectedTotal));
+  // Fail-first: before GAP_CLASSES has the code, expectedTotal===0 and the badge shows the "clean" state,
+  // so the "counts the archived-tab warning" intent fails; after the edit expectedTotal===1 and it passes.
 });
 ```
 
@@ -511,7 +536,12 @@ export function overrideSnapshot(o: PullSheetOverride | null): OverrideSnapshot;
 export function emitArchivedTabWarnings(tabs: ArchivedPullSheetTab[]): ParseWarning[]; // included:false only
 export function reconcileIncludedTab(args: {
   tabs: ArchivedPullSheetTab[]; override: PullSheetOverride | null;
-}): { kind: "match" } | { kind: "content_changed"; changedTab: ArchivedPullSheetTab };
+}):
+  | { kind: "no_override" }                                    // override null → nothing to reconcile
+  | { kind: "match" }                                          // included:true tab, fingerprint === override
+  | { kind: "content_changed"; changedTab: ArchivedPullSheetTab } // included:true tab, fingerprint !==
+  | { kind: "tab_missing" };                                   // override set but NO tab for override.tabName in tabs
+                                                               // (renamed/deleted server-side) — Codex plan-R2-1, spec §6
 ```
 
 ### Step 6.1 — Failing reconcile + emission test
@@ -537,12 +567,15 @@ it("emits one PULL_SHEET_ON_ARCHIVED_TAB per included:false tab, rawSnippet = jo
   });
 });
 
-it("reconcileIncludedTab: matching fingerprint => match; changed => content_changed", () => {
+it("reconcileIncludedTab: match / content_changed / tab_missing / no_override", () => {
   const base = { tabName: "OLD PULL SHEET", headerPreviews: ["RIA"], included: true, contentChangedSinceAccept: false };
   const override = { tabName: "OLD PULL SHEET", fingerprint: "ff", acceptedBy: "a", acceptedAt: "t" };
   expect(reconcileIncludedTab({ tabs: [{ ...base, fingerprint: "ff" }], override }).kind).toBe("match");
-  const changed = reconcileIncludedTab({ tabs: [{ ...base, fingerprint: "ee" }], override });
-  expect(changed.kind).toBe("content_changed");
+  expect(reconcileIncludedTab({ tabs: [{ ...base, fingerprint: "ee" }], override }).kind).toBe("content_changed");
+  // Override tab renamed/deleted server-side → NO entry for override.tabName (Codex plan-R2-1, spec §6):
+  expect(reconcileIncludedTab({ tabs: [], override }).kind).toBe("tab_missing");
+  expect(reconcileIncludedTab({ tabs: [{ ...base, tabName: "OTHER OLD", included: false, fingerprint: "zz" }], override }).kind).toBe("tab_missing");
+  expect(reconcileIncludedTab({ tabs: [], override: null }).kind).toBe("no_override");
 });
 ```
 
@@ -550,10 +583,10 @@ Run → **FAILS** (helper absent).
 
 ### Step 6.2 — Impl helper + wire into scan/cron/apply
 
-- `pullSheetOverride.ts`: implement the three functions. `emitArchivedTabWarnings` produces the `ParseWarning` shape from §5.2 (`blockRef.kind = "pull_sheet_archived_tab"`, `rawSnippet = headerPreviews.join(" | ")`). `reconcileIncludedTab` finds the `included:true` tab (if any) and compares its returned `fingerprint` to `override.fingerprint`.
-- **`runOnboardingScan.ts`:** before calling the fetch helper, read the row's `pull_sheet_override` (destructure `{ data, error }` — invariant 9). Pass `includePullSheetFromTab: override?.tabName`. After parse: push `emitArchivedTabWarnings(...)` into `parse_result.warnings`; set `parse_result.archivedPullSheetTabs = tabs`. If `reconcileIncludedTab` returns `content_changed` → run the **discard-and-rerun** (5.2, I5b): under the `show:` lock (see Task 7 for the lock reconciliation) clear the override (`update ... set pull_sheet_override = null`), emit `PULL_SHEET_OVERRIDE_CONTENT_CHANGED` (forensic), re-parse WITHOUT `includePullSheetFromTab`, and stage that no-override parse with **empty `pullSheet`**, the changed tab's entry `contentChangedSinceAccept = true` with the NEW previews/fingerprint, **AND `pull_sheet_override_applied = null`** (Codex plan-R1 finding 2). Do NOT persist `overrideSnapshot(override-as-of-lock)` in this branch: the override just mismatched and was cleared, so writing `applied = A` while desired is now `null` would leave finalize permanently blocked after a *safety* clear. `_applied = null` matches the no-override parse actually staged, so `overrideSnapshot(null) === applied` → the row finalizes as a plain no-pull-sheet show.
+- `pullSheetOverride.ts`: implement the three functions. `emitArchivedTabWarnings` produces the `ParseWarning` shape from §5.2 (`blockRef.kind = "pull_sheet_archived_tab"`, `rawSnippet = headerPreviews.join(" | ")`). `reconcileIncludedTab`: `null` override → `no_override`; else find the tab whose `tabName === override.tabName` — absent → `tab_missing`; present and `fingerprint === override.fingerprint` → `match`; present and differs → `content_changed`. **`tab_missing` is handled identically to `content_changed`** (Codex plan-R2-1): clear the override, no stale `pullSheet` staged, `_applied = null`, but since there is no server-side tab to re-review, emit `PULL_SHEET_OVERRIDE_CONTENT_CHANGED` and render **S1** (no offer) rather than S4 — the archived tab is simply gone.
+- **`runOnboardingScan.ts`:** before calling the fetch helper, read the row's `pull_sheet_override` (destructure `{ data, error }` — invariant 9). Pass `includePullSheetFromTab: override?.tabName`. After parse: push `emitArchivedTabWarnings(...)` into `parse_result.warnings`; set `parse_result.archivedPullSheetTabs = tabs`. If `reconcileIncludedTab` returns `content_changed` **or `tab_missing`** → run the **discard-and-rerun** (5.2, I5b): under the `show:` lock (see Task 7 for the lock reconciliation) clear the override (`update ... set pull_sheet_override = null`), emit `PULL_SHEET_OVERRIDE_CONTENT_CHANGED` (forensic), re-parse WITHOUT `includePullSheetFromTab`, and stage that no-override parse with **empty `pullSheet`** AND `pull_sheet_override_applied = null` (Codex plan-R1 finding 2). For `content_changed`, set the changed tab's entry `contentChangedSinceAccept = true` with the NEW previews/fingerprint (S4). For `tab_missing`, there is no server-side tab → no offer entry → S1 (Codex plan-R2-1). Do NOT persist `overrideSnapshot(override-as-of-lock)` in this branch: the override just mismatched and was cleared, so writing `applied = A` while desired is now `null` would leave finalize permanently blocked after a *safety* clear. `_applied = null` matches the no-override parse actually staged, so `overrideSnapshot(null) === applied` → the row finalizes as a plain no-pull-sheet show.
   For the **non-mismatch** staging paths (normal re-scan, accept-included, no-override), persist `pull_sheet_override_applied = overrideSnapshot(override-as-of-lock)` **atomically with the `parse_result` INSERT** (`:421-443` — add both columns to the upsert column list + `excluded.` set-clause). Only the content-changed branch overrides this to `null`.
-- **`runScheduledCronSync.ts`:** cron reads `shows.pull_sheet_override`; `upsertLivePendingSync` (`:933`) writes `pull_sheet_override_applied` with its staged parse (Task 10 covers the Flow C apply gate).
+- **`runScheduledCronSync.ts`:** cron reads `shows.pull_sheet_override`, threads `includePullSheetFromTab`, and runs the SAME `reconcileIncludedTab` on its returned tabs. On `content_changed`/`tab_missing` for a **published** show, cron clears the **durable** `shows.pull_sheet_override` (`update public.shows set pull_sheet_override = null where drive_file_id = ...` under the `show:` lock), emits `PULL_SHEET_OVERRIDE_CONTENT_CHANGED`, applies NO changed gear (empty pullSheet), and the next parse runs with no override (Codex plan-R2-2 — the onboarding branch clears `pending_syncs`; the durable post-publish clear happens HERE or the live path stays sticky on a stale fingerprint). `upsertLivePendingSync` (`:933`) writes `pull_sheet_override_applied` with its staged parse (Task 10 covers the Flow C apply gate). Step 6.4 adds the cron test.
 - **`applyStaged.ts`:** read paths surface the new columns (additive `select`).
 
 ### Step 6.3 — Failing content-changed integration test (staged DB/envelope outcome)
@@ -577,7 +610,23 @@ it("content-changed accepted tab: staged row has override=null, empty pullSheet,
 
 Run → **FAILS** first (branch persists `overrideSnapshot(A)` / non-empty pullSheet), then after Step 6.2 → **PASSES**. Concrete failure mode caught: a safety auto-clear that leaves the row finalize-blocked (`applied=A`, desired=null) or that stages the changed gear.
 
-Run Step 6.1 + 6.3 + `pnpm vitest run tests/sync` → **PASSES**. Commit: `feat(sync): override read, archived-tab warnings, content-change discard-and-rerun, applied-snapshot write`
+### Step 6.4 — Failing durable cron auto-clear test (published-show content drift)
+
+```ts
+it("cron: published show, accepted OLD tab content changed => durable shows.pull_sheet_override cleared, CONTENT_CHANGED emitted, no changed gear applied", async () => {
+  // Arrange: shows.pull_sheet_override = {tabName:'OLD PULL SHEET', fingerprint:'ff', ...};
+  // exporter returns the included tab with fingerprint 'ee'.
+  const { showsUpdate, events, applied } = await runScheduledCronSyncForOne({ /* deps producing the mismatch */ });
+  expect(showsUpdate.pull_sheet_override).toBeNull();                       // durable cleared (Codex plan-R2-2)
+  expect(events.some((e) => e.code === "PULL_SHEET_OVERRIDE_CONTENT_CHANGED")).toBe(true);
+  expect(applied.pullSheet).toEqual([]);                                    // no changed gear applied (I5)
+});
+it("cron: override tab deleted/renamed server-side (tab_missing) => durable override cleared, no stale gear", async () => { /* same asserts, tab absent from returned tabs */ });
+```
+
+Run → **FAILS**, then after Step 6.2 cron wiring → **PASSES**. Concrete failure mode: a published show staying sticky on a stale fingerprint after the archived tab changed/vanished.
+
+Run Step 6.1 + 6.3 + 6.4 + `pnpm vitest run tests/sync` → **PASSES**. Commit: `feat(sync): override read, archived-tab warnings, content-change discard-and-rerun, applied-snapshot write`
 
 ---
 
@@ -856,20 +905,9 @@ Run → **PASSES**. Then run `/impeccable critique` + `/impeccable audit` on the
 
 ---
 
-## Task 13 — DataQualityBadge count coverage
+## Task 13 — DataQualityBadge coverage — **FOLDED INTO TASK 4** (Codex plan-R2-4)
 
-**Spec:** §15 test 11. **Files:** `tests/components/.../dataQualityBadgeArchivedTab.test.tsx` (NEW) — likely no impl change (Task 4 already added the gap class; badge is single-sourced from `summarizeDataGaps`). If green with no impl, this is a coverage-lock test.
-
-### Step 13.1
-
-```ts
-it("a PULL_SHEET_ON_ARCHIVED_TAB warning increments the DataQualityBadge gap count", () => {
-  // render badge with warnings=[{severity:'warn', code:'PULL_SHEET_ON_ARCHIVED_TAB'}]
-  // assert the badge count reflects +1 (derive expected from summarizeDataGaps, not hardcoded)
-});
-```
-
-Run → **PASSES** (given Task 4). If it fails, wire the badge's warning filter to `DATA_GAP_CODES`. Commit: `test(admin): DataQualityBadge counts PULL_SHEET_ON_ARCHIVED_TAB gap`
+The badge count assertion was moved into **Task 4 Step 4.1** so it is genuinely **fail-first** (before `PULL_SHEET_ON_ARCHIVED_TAB` is added to `GAP_CLASSES`, `summarizeDataGaps(...).total` is `0`, the badge shows the clean state, and the "counts the archived-tab warning" assertion fails; after the edit it passes). A standalone "run → PASSES with no impl" task violated the TDD invariant (#1), so this task no longer exists as a separate commit. §15 test 11 is delivered by Task 4. Task numbers 14/15 are unchanged.
 
 ---
 
@@ -920,6 +958,9 @@ Commit: `chore(db): regen schema manifest + apply pull_sheet_override migration 
 | 8d Staged↔override on failed re-scan (both flows) | 11 | I4 |
 | 9 Admin gate + behavioral proof | 8 | inv. 10 |
 | 10 / 10b Step-3 S1–S4 + fingerprint transport | 12 | I2, I3 |
-| 11 DataQualityBadge | 13 | — |
+| 11 DataQualityBadge (fail-first, folded) | 4 | — |
+| tab_missing reconcile (renamed/deleted override tab) | 6 | I5, §6 |
+| durable cron content-drift auto-clear | 6 | I5, I6 |
+| PostgREST DML lockdown on host tables | 1 | I7 |
 
 Every I1–I7 invariant and every §15 test has a home. No orphan tests; no orphan tasks.
