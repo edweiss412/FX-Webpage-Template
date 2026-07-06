@@ -673,6 +673,7 @@ git commit --no-verify -m "test(parser): metamorphic oracle — verdict (incl. S
 import { describe, it, expect } from "vitest";
 import { OPERATORS, floorEligible, skippedInapplicable } from "./operators";
 import { splitCells } from "./rows";
+import { splitRow, clean } from "@/lib/parser/blocks/_helpers";
 
 const CONSULTANTS_RUN = [
   "| DATES | DAY |",
@@ -732,6 +733,26 @@ describe("merged-cell is per interior pipe, not just the first (plan-R5)", () =>
     const ms = OPERATORS["merged-cell"]!(md);
     expect(ms).toHaveLength(3); // cells.length - 1
     expect(new Set(ms.map((m) => m.siteId)).size).toBe(3);
+  });
+});
+
+describe("single-site invariant holds on ESCAPED-PIPE rows (plan-R14)", () => {
+  it("mutating a NON-escaped cell leaves every other parser-space value (splitRow+clean) byte-identical", () => {
+    // cell1 carries an escaped `\|` (fragments into 2 parser cells). Mutate cell0 (Hilton→#REF!)
+    // and assert exactly ONE parser-space value changes — the raw-segment rewrite must not reshape
+    // the escaped-pipe fragments in the untouched cells.
+    const md = "| CREW | X |\n| Hilton | Gabriella \\| Events gd@hilton.com | Austin |";
+    const before = splitRow(md.split("\n")[1]!).map(clean);
+    const m = OPERATORS["ref-sub"]!(md).find((x) => x.md.includes("#REF!"))!;
+    const after = splitRow(m.md.split("\n")[1]!).map(clean);
+    expect(after.length).toBe(before.length);                       // no column count change
+    expect(before.map((v, i) => v !== after[i]).filter(Boolean).length).toBe(1); // exactly one cell moved
+  });
+  it("merged-cell removes exactly one delimiter and preserves other segments byte-for-byte", () => {
+    const md = "| A | Gabriella \\| Events | Austin |";
+    const m = OPERATORS["merged-cell"]!(md)[0]!; // fuse cells 0,1
+    expect((m.md.match(/\|/g) || []).length).toBe((md.match(/\|/g) || []).length - 1); // one fewer pipe
+    expect(m.md).toContain("Austin"); // untouched tail cell present verbatim
   });
 });
 
@@ -820,12 +841,33 @@ const lines = (md: string) => md.split("\n");
 const dataRows = (s: LogicalSection): Row[] => s.rows.filter((r) => r.cls === "data");
 const scalars = (s: string) => [...s].length;
 
-// Replace one cell in a specific line; returns the whole mutated markdown.
+// RAW-SEGMENT rewrite (plan-R14). Parser cell `i` === `line.split("|")[i+1]` (splitRow drops
+// framing via slice(1,-1)). Replacing ONLY segment i+1 preserves every OTHER segment
+// byte-for-byte — including escaped `\|` fragments in non-target cells — so the mutation is
+// genuinely single-site in parser-space. Never rebuild the row from trimmed cells with
+// `join(" | ")`: that collapses original padding and reshapes escaped-pipe segments elsewhere,
+// silently corrupting non-target hotel/contact values. The target segment's surrounding
+// whitespace is preserved; only its trimmed content is swapped.
+function replaceRawCell(line: string, cellIdx: number, next: string): string {
+  const parts = line.split("|");
+  const seg = parts[cellIdx + 1] ?? "";
+  const lead = seg.match(/^\s*/)![0];
+  const trail = seg.match(/\s*$/)![0];
+  parts[cellIdx + 1] = `${lead}${next}${trail}`;
+  return parts.join("|");
+}
+/** Fuse parser cells p and p+1 by DELETING the pipe delimiter between them; concatenates the
+ *  two raw segments (padding preserved) and leaves every other segment untouched (plan-R14). */
+function mergeRawCells(line: string, p: number): string {
+  const parts = line.split("|");
+  parts.splice(p + 1, 2, `${parts[p + 1] ?? ""}${parts[p + 2] ?? ""}`);
+  return parts.join("|");
+}
+
+// Replace one cell in a specific line; returns the whole mutated markdown (raw-segment safe).
 function withCell(md: string, line: number, cellIdx: number, next: string): string {
   const ls = lines(md);
-  const cells = splitCells(ls[line]!);
-  cells[cellIdx] = next;
-  ls[line] = `| ${cells.join(" | ")} |`;
+  ls[line] = replaceRawCell(ls[line]!, cellIdx, next);
   return ls.join("\n");
 }
 
@@ -858,10 +900,9 @@ const mergedCell = (md: string): Mutant[] => {
   const out: Mutant[] = [];
   for (const s of seg(md).sections) for (const r of dataRows(s)) {
     if (r.cells.length < 3) continue;
-    // one mutant per interior pipe p (fuse cells p and p+1) — plan-R5
+    // one mutant per interior pipe p (fuse cells p and p+1 via raw delimiter deletion) — plan-R5/R14
     for (let p = 0; p < r.cells.length - 1; p++) {
-      const fused = [...r.cells.slice(0, p), `${r.cells[p]} ${r.cells[p + 1]}`, ...r.cells.slice(p + 2)];
-      const ls = lines(md); ls[r.line] = `| ${fused.join(" | ")} |`;
+      const ls = lines(md); ls[r.line] = mergeRawCells(ls[r.line]!, p);
       out.push({ md: ls.join("\n"), siteId: sid("merged-cell", s, r.line, p), bucket: "corrupting", domains: dom(s) });
     }
   }
