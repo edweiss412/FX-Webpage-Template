@@ -63,6 +63,14 @@ export function useBellBadge(initial: BellCountResult): UseBellBadgeResult {
   const tokenRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const lastPathRef = useRef(pathname);
+  // True between a zeroNow() open gesture and the next SUCCESSFUL count
+  // fetch. While set, prop-sync commits are suppressed: a router.refresh()
+  // that started BEFORE the open click re-renders the layout AFTER the zero
+  // with the pre-open count as a fresh prop object — "newest server truth
+  // wins" must not resurrect a count the viewer just marked seen (spec §7.2;
+  // Codex final-review R5). The panel's onOpened refetch (or any later
+  // successful fetch) is the authoritative restore point.
+  const zeroedRef = useRef(false);
 
   // Shared fetch core for sources 3 (pathname) and 4 (realtime ping), and
   // the externally-exposed `refetch`. Race-safe via the same monotonic
@@ -82,6 +90,7 @@ export function useBellBadge(initial: BellCountResult): UseBellBadgeResult {
           throw new Error("bad body");
         }
         if (tokenRef.current === token) {
+          zeroedRef.current = false;
           setCount(body.count);
           setDegraded(false);
         }
@@ -111,23 +120,28 @@ export function useBellBadge(initial: BellCountResult): UseBellBadgeResult {
   const zeroNow = useCallback(() => {
     tokenRef.current += 1;
     abortRef.current?.abort();
+    zeroedRef.current = true;
     setCount(0);
   }, []);
 
-  // Source 1/2: initial prop + prop changes (router.refresh path). Always
-  // commits — the newest server truth wins. An infra_error prop marks
-  // degraded but leaves `count` untouched (keeps last-known; see file
-  // header deviation note).
+  // Source 1/2: initial prop + prop changes (router.refresh path). Commits
+  // "newest server truth wins" — EXCEPT while `zeroedRef` is set (a prop
+  // render that raced the open gesture carries the pre-open count; see the
+  // ref's comment). An infra_error prop marks degraded but leaves `count`
+  // untouched (keeps last-known; see file header deviation note).
   useEffect(() => {
     tokenRef.current += 1;
     abortRef.current?.abort();
+    /* eslint-disable react-hooks/set-state-in-effect -- coordinated prop sync; mirrors useNeedsAttentionBadge */
     if (initial.kind === "ok") {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- coordinated prop sync; mirrors useNeedsAttentionBadge
-      setCount(initial.count);
+      if (!zeroedRef.current) {
+        setCount(initial.count);
+      }
       setDegraded(false);
     } else {
       setDegraded(true);
     }
+    /* eslint-enable react-hooks/set-state-in-effect */
   }, [initial]);
 
   // Source 3: pathname change.

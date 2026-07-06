@@ -233,6 +233,46 @@ describe("useBellBadge", () => {
     expect(result.current.degraded).toBe(false);
   });
 
+  it("a stale prop-sync landing after zeroNow does not resurrect the count; a post-zero fetch success re-enables prop sync (spec §7.2)", async () => {
+    // Codex final-review R5: router.refresh() started BEFORE the open click
+    // re-renders the layout AFTER zeroNow with the PRE-open server count as a
+    // new `initial` prop. The prop-sync effect must not resurrect the badge;
+    // the next successful count fetch (the panel's onOpened refetch) is the
+    // authoritative restore point, after which prop sync applies again.
+    let countCalls = 0;
+    fetchSpy.mockImplementation((url: string) => {
+      if (url === "/api/admin/alerts/bell/token") return new Promise(() => {});
+      if (url === "/api/admin/alerts/bell/count") {
+        countCalls += 1;
+        return Promise.resolve(okResponse({ count: 6 }));
+      }
+      return new Promise(() => {});
+    });
+
+    const { result, rerender } = renderBadgeHook({ kind: "ok", count: 3 });
+    expect(result.current.count).toBe(3);
+
+    act(() => {
+      result.current.zeroNow();
+    });
+    expect(result.current.count).toBe(0);
+
+    // Stale pre-open server render lands as a new prop object → must NOT apply.
+    rerender({ value: { kind: "ok", count: 3 } });
+    expect(result.current.count).toBe(0);
+    expect(result.current.degraded).toBe(false);
+
+    // Post-zero fetch success restores server truth…
+    act(() => {
+      result.current.refetch();
+    });
+    await waitFor(() => expect(result.current.count).toBe(6));
+
+    // …and re-enables prop sync (newest server truth wins again).
+    rerender({ value: { kind: "ok", count: 7 } });
+    expect(result.current.count).toBe(7);
+  });
+
   it("mounts the realtime channel once via token POST + subscribeToBell, and onChanged triggers a refetch", async () => {
     fetchSpy.mockImplementation((url: string) => {
       if (url === "/api/admin/alerts/bell/token") {
