@@ -412,12 +412,13 @@ git commit --no-verify -m "feat(parser): add isQualityRegression + hasRecoveredT
 ## Task C2: `readShowForPhase1` raw-nullable `priorParseWarningsRaw`
 
 **Files:**
-- Modify: `lib/sync/runScheduledCronSync.ts` (`readShowForPhase1` return type + object, ~:641/683-695)
+- Modify: `lib/sync/phase1.ts` (`Phase1ShowRow` TYPE, `:22` — the type of `tx.readShowForPhase1`'s return; plan-review R3)
+- Modify: `lib/sync/runScheduledCronSync.ts` (`readShowForPhase1` concrete return object, ~:692)
 - Test: `tests/sync/readShowPriorWarningsRaw.test.ts`
 
 **Interfaces:**
 - Consumes: the existing `readShowForPhase1` SELECT of `parse_warnings` (nullable) + `internal` row.
-- Produces: `priorParseWarningsRaw: ParseResult["warnings"] | null` on the `readShowForPhase1` return object — the RAW non-coalesced value: `internal?.parse_warnings ?? null` (`?? null`, NOT `?? []`). `null` when the column is NULL OR the `shows_internal` row is absent. The existing `warnings` field is UNCHANGED (`internal?.parse_warnings ?? []`).
+- Produces: `priorParseWarningsRaw: ParseResult["warnings"] | null` on the `Phase1ShowRow` type (`phase1.ts:22`) AND on the concrete `readShowForPhase1` return object — the RAW non-coalesced value: `internal?.parse_warnings ?? null` (`?? null`, NOT `?? []`). `null` when the column is NULL OR the `shows_internal` row is absent. The existing `warnings` field is UNCHANGED (`internal?.parse_warnings ?? []`). C5's `priorShow?.priorParseWarningsRaw` is typed via `Phase1ShowRow` (`readShowForPhase1(driveFileId): Promise<Phase1ShowRow | null>`, `phase1.ts:60`), so the TYPE addition is load-bearing — without it typecheck fails or forces a cast.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -435,7 +436,16 @@ Create `tests/sync/readShowPriorWarningsRaw.test.ts`. Drive `readShowForPhase1` 
 Run: `pnpm vitest run tests/sync/readShowPriorWarningsRaw.test.ts`
 Expected: FAIL — `priorParseWarningsRaw` undefined on the return object.
 
-- [ ] **Step 3: Add the field**
+- [ ] **Step 3: Add the field to the `Phase1ShowRow` TYPE**
+
+In `lib/sync/phase1.ts`, add to the `Phase1ShowRow` type (`:22`, near the `priorParseResult: ParseResult` field):
+```ts
+  priorParseResult: ParseResult;
+  priorParseWarningsRaw: ParseResult["warnings"] | null; // §6.5: RAW nullable prior warnings (C baseline read)
+```
+Confirm `ParseResult` is imported in `phase1.ts` (it is — used by `priorParseResult`). This is the type `tx.readShowForPhase1` returns, so C5's access typechecks.
+
+- [ ] **Step 4: Add the field to the concrete return object**
 
 In `readShowForPhase1` return object (`runScheduledCronSync.ts:~692`), alongside `warnings: internal?.parse_warnings ?? []`, add:
 
@@ -444,18 +454,18 @@ In `readShowForPhase1` return object (`runScheduledCronSync.ts:~692`), alongside
         priorParseWarningsRaw: internal?.parse_warnings ?? null, // §6.5: RAW nullable — null ⇒ untrustworthy baseline (skip C)
 ```
 
-Update the return TYPE of `readShowForPhase1` to include `priorParseWarningsRaw: ParseResult["warnings"] | null` (find the type/interface for the return shape — likely a `ReadShowForPhase1Result` or inline; add the field there). Confirm `ParseResult` is imported.
+Grep for any OTHER concrete producer of `Phase1ShowRow` (e.g. onboarding tx's `readShowForPhase1`, or test fakes) — every producer must now supply `priorParseWarningsRaw` (add `?? null` there too). `rg -n "priorParseResult:" lib/ tests/` finds them.
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 5: Run test to verify it passes**
 
 Run: `pnpm vitest run tests/sync/readShowPriorWarningsRaw.test.ts && pnpm typecheck`
-Expected: PASS (test + typecheck — the type addition compiles, existing consumers of `warnings` unaffected).
+Expected: PASS (test + typecheck — the type addition compiles; every `Phase1ShowRow` producer supplies the field; existing consumers of `warnings` unaffected).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add lib/sync/runScheduledCronSync.ts tests/sync/readShowPriorWarningsRaw.test.ts
-git commit --no-verify -m "feat(sync): expose raw-nullable priorParseWarningsRaw on readShowForPhase1 (C baseline read-path)"
+git add lib/sync/phase1.ts lib/sync/runScheduledCronSync.ts tests/sync/readShowPriorWarningsRaw.test.ts
+git commit --no-verify -m "feat(sync): expose raw-nullable priorParseWarningsRaw on Phase1ShowRow + readShowForPhase1 (C baseline read-path)"
 ```
 
 ---
@@ -535,8 +545,10 @@ git commit --no-verify -m "feat(messages): add RESYNC_QUALITY_REGRESSED §12.4 c
 - Modify: `tests/messages/_metaAdminAlertCatalog.test.ts` (raise-site pattern + `ADMIN_ALERTS_LIFECYCLE` auto entry + `INTERPOLATED_DOUG_FACING_CODES` + auto-count bump)
 - Modify: `tests/messages/_metaAlertActionsContract.test.ts` (`RAISE_SITE_PINS` show-scoped pin — plan-review R2)
 - Modify: `lib/adminAlerts/alertIdentityMap.ts` (`{ kind: "global" }`)
+- Modify: `tests/adminAlerts/adminAlertCodes.fixture.ts` (add code — the identity-map registry copy; plan-review R3)
+- Modify: `tests/adminAlerts/_metaAlertIdentityMap.test.ts` (bump the exact-count assertion `43` → `44`; plan-review R3)
 - Modify: `lib/adminAlerts/audience.ts` (`AUTO_RESOLVE_NOTES` entry)
-- Gates: `tests/messages/_metaAlertAudienceContract.test.ts`, `tests/messages/adminSurface.test.ts` (read the registry — must stay green)
+- Gates: `tests/messages/_metaAlertAudienceContract.test.ts`, `tests/messages/adminSurface.test.ts`, `tests/adminAlerts/_metaAlertIdentityMap.test.ts` (read a registry — must stay green)
 
 **Interfaces:**
 - Consumes: `ADMIN_ALERTS_CODES` (registry array); `ADMIN_ALERTS_LIFECYCLE` (per-code `{ class, resolveSites }`); `INTERPOLATED_DOUG_FACING_CODES`; the `_metaAdminAlertCatalog` raise-site registry (per-code `{ path, pattern }`); the `_metaAlertActionsContract` `RAISE_SITE_PINS` array (`{ code, file, pattern (g flag), expectedMatches, pins }`).
@@ -557,16 +569,22 @@ git commit --no-verify -m "feat(messages): add RESYNC_QUALITY_REGRESSED §12.4 c
   RESYNC_QUALITY_REGRESSED: { kind: "global" },
 ```
 
+`tests/adminAlerts/adminAlertCodes.fixture.ts` — add to its `ADMIN_ALERTS_CODES` array (the identity-map registry copy, distinct from `tests/messages/adminAlertsRegistry.ts`):
+```ts
+  "RESYNC_QUALITY_REGRESSED", //      C: published-show data-quality regression (audit #16)
+```
+`tests/adminAlerts/_metaAlertIdentityMap.test.ts` — bump the exact-count assertion (`:39-40`) `expect(ADMIN_ALERTS_CODES.length).toBe(43)` → `toBe(44)` (and update the "43 codes" comment). Without both, `_metaAlertIdentityMap` fails ("stray identity map entry for unregistered code" + the numeric-sweep anchor).
+
 `lib/adminAlerts/audience.ts` — add to `AUTO_RESOLVE_NOTES`:
 ```ts
   RESYNC_QUALITY_REGRESSED:
     "Clears automatically once the sheet's data quality recovers — fix the sheet to resolve it.",
 ```
 
-- [ ] **Step 2: Run the audience + surface contracts**
+- [ ] **Step 2: Run the audience + surface + identity contracts**
 
-Run: `pnpm vitest run tests/messages/_metaAlertAudienceContract.test.ts tests/messages/adminSurface.test.ts`
-Expected: `_metaAlertAudienceContract` PASS (C carries `audience:"doug"` → `DOUG ∪ HEALTH === ADMIN_ALERTS_CODES` holds). `adminSurface` PASS (C is banner, so `INBOX_ROUTED_CODES` stays exactly the 3 existing codes — do NOT add C there).
+Run: `pnpm vitest run tests/messages/_metaAlertAudienceContract.test.ts tests/messages/adminSurface.test.ts tests/adminAlerts/_metaAlertIdentityMap.test.ts`
+Expected: `_metaAlertAudienceContract` PASS (C carries `audience:"doug"` → `DOUG ∪ HEALTH === ADMIN_ALERTS_CODES` holds). `adminSurface` PASS (C is banner, so `INBOX_ROUTED_CODES` stays exactly the 3 existing codes — do NOT add C there). `_metaAlertIdentityMap` PASS (C's `{ kind: "global" }` entry is registered in the fixture; count is now 44).
 
 - [ ] **Step 3: Add the `_metaAdminAlertCatalog` rows**
 
@@ -625,8 +643,8 @@ Expected: after C5 lands the producer + resolve helper, PASS. (`_metaAlertAction
 - [ ] **Step 5: Commit (with C5, or immediately for the independent rows)**
 
 ```bash
-git add tests/messages/adminAlertsRegistry.ts tests/messages/_metaAdminAlertCatalog.test.ts tests/messages/_metaAlertActionsContract.test.ts lib/adminAlerts/alertIdentityMap.ts lib/adminAlerts/audience.ts
-git commit --no-verify -m "test(messages): register RESYNC_QUALITY_REGRESSED in alert registries + identity + auto-resolve note + show-scoped raise pin"
+git add tests/messages/adminAlertsRegistry.ts tests/messages/_metaAdminAlertCatalog.test.ts tests/messages/_metaAlertActionsContract.test.ts tests/adminAlerts/adminAlertCodes.fixture.ts tests/adminAlerts/_metaAlertIdentityMap.test.ts lib/adminAlerts/alertIdentityMap.ts lib/adminAlerts/audience.ts
+git commit --no-verify -m "test(messages): register RESYNC_QUALITY_REGRESSED in alert registries + identity fixture (44) + auto-resolve note + show-scoped raise pin"
 ```
 
 ---
@@ -686,10 +704,10 @@ Also assert the delivery contract (structural, no DB needed):
 
 > Derive baselines from `summarizeDataGaps` of constructed warning arrays (not hardcoded totals). Build warning arrays whose `summarizeDataGaps` yields the intended class counts, so the test exercises the real summarizer.
 
-**DB-backed anti-storm proof (spec §6.7 test 1 — REQUIRED, plan-review R1 finding 2).** The fake-tx cases 2/3 prove the producer *issues no upsert* on an unchanged 40→40; the spec additionally requires proving the persisted `admin_alerts` row's activity/read-state does NOT churn (because `last_seen_at` is the bell's unread clock). Add a DB-backed lifecycle test against local Supabase (`TEST_DATABASE_URL` — mirror an existing DB-backed sync test's harness; gate/skip when the env var is absent, like sibling DB tests):
+**DB-backed anti-storm proof (spec §6.7 test 1 — MANDATORY, plan-review R1+R3).** The fake-tx cases 2/3 prove the producer *issues no upsert* on an unchanged 40→40; the spec additionally requires proving the persisted `admin_alerts` row's activity/read-state does NOT churn (because `last_seen_at` is the bell's unread clock). This DB-backed test is **required** for C5 — no fallback escape hatch (a JS-skip + migration-text equivalence argument does not exercise the real row/read-state path a regression could break). Add a DB-backed lifecycle test against local Supabase (`TEST_DATABASE_URL` — mirror an existing DB-backed sync test's harness; sibling DB tests skip-with-notice when the env var is absent locally, but the test runs in CI where `TEST_DATABASE_URL` is set):
 
 ```ts
-// DB-backed (local Supabase):
+// DB-backed (local Supabase) — MANDATORY:
 // a. Run the producer with a real tx (queryOne against admin_alerts) for a 4→40 sync → one open
 //    RESYNC_QUALITY_REGRESSED row exists; capture last_seen_at + occurrence_count.
 // b. Simulate Doug reading: set the per-admin read cursor at/after the row's activityAt (or read
@@ -701,7 +719,7 @@ Also assert the delivery contract (structural, no DB needed):
 //    unread again, with context.baseline STILL the 4-gap summary (preserved).
 ```
 
-If a full local-Supabase harness is disproportionate for this task, at minimum keep the fake-tx no-op assertion (case 2) AND assert the mechanism that guarantees it: that the ONLY code path bumping `last_seen_at`/`occurrence_count` is the `upsert_admin_alert` conflict arm (`supabase/migrations/20260505000000_upsert_admin_alert.sql:17-18`), so "producer issues no upsert" is equivalent to "no activity churn." Prefer the DB-backed test; the equivalence note is the documented fallback, not a substitute for the structural ping-trigger assertion (case 10), which is always required.
+This DB-backed test AND the structural ping-trigger assertion (case 10) are both required C5 commit gates — do not commit C5 without them green (run against `TEST_DATABASE_URL`).
 
 - [ ] **Step 2: Run test to verify it fails**
 
@@ -860,12 +878,12 @@ In the applied epilogue, AFTER `emitSuccessfulPhase2Tail` and BEFORE `resolveSta
 
 > `priorShow` is the PRE-apply snapshot (captured before `phase2 = await runPhase2_unlocked(...)`), so `priorParseWarningsRaw` is the prior last-good, NOT the just-applied warnings. `nextWarnings = pipeline.parseResult.warnings` is this sync's parse (what phase2 persisted). `sheetName` uses the CURRENT parse title (the alert is about "the latest edit"). First-seen (`priorShow === null`) → producer skips. C is NOT in `SYNC_PROBLEM_CODES`, so the `:3026` sweep never touches it.
 
-- [ ] **Step 5: Run tests + typecheck**
+- [ ] **Step 5: Run tests (incl. the MANDATORY DB-backed anti-storm proof) + typecheck**
 
-Run: `pnpm vitest run tests/sync/qualityRegressionLifecycle.test.ts && pnpm typecheck`
-Expected: PASS. Then run the C4 meta-tests now that the producer + resolve helper exist on disk:
-Run: `pnpm vitest run tests/messages/_metaAdminAlertCatalog.test.ts`
-Expected: PASS (raise-site + lifecycle resolve-site patterns match).
+Run: `TEST_DATABASE_URL=<local> pnpm vitest run tests/sync/qualityRegressionLifecycle.test.ts && pnpm typecheck`
+Expected: PASS — INCLUDING the DB-backed anti-storm/read-state cases (a-d) and the code-agnostic ping-trigger structural case (10). These two are required gates; do NOT commit C5 with them skipped. Then run the C4 meta-tests now that the producer + resolve helper exist on disk:
+Run: `pnpm vitest run tests/messages/_metaAdminAlertCatalog.test.ts tests/messages/_metaAlertActionsContract.test.ts`
+Expected: PASS (raise-site + lifecycle resolve-site patterns match; the `RAISE_SITE_PINS` show-scoped pin matches the single terminal upsert once).
 
 - [ ] **Step 6: Commit**
 
