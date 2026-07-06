@@ -513,6 +513,16 @@ function buildMinimalParsedSheet(
   };
 }
 
+/**
+ * Build the minimal fail-closed ParsedSheet for a caught parser THROW (audit rec-6 / finding #17).
+ * The parser is contractually non-throwing; the sync call-site guard uses this to convert an
+ * unexpected throw into a hardError-bearing sheet so it routes to hard_fail like any parse failure.
+ * Pure — no side effects (the sync layer owns telemetry).
+ */
+export function buildThrownParsedSheet(message: string): ParsedSheet {
+  return buildMinimalParsedSheet("v4", [{ code: "PARSE_THREW", message }]);
+}
+
 export function parseSheet(markdown: string, filename?: string): ParsedSheet {
   const hardErrors: ParseError[] = [];
 
