@@ -11,7 +11,7 @@
 The edge-case audit found three ingestion failure modes that happen with **zero pushed signal** — the pipeline does the right structural thing (drops/degrades) but nobody is told:
 
 - **#15 — `UNEXPECTED_PARENT` fully silent.** `listFolder` (`lib/drive/list.ts:112`) drops a misfiled sheet via `onWarning`, but **no production caller wires `onWarning`** (`lib/sync/runOnboardingScan.ts:949`, `lib/sync/runScheduledCronSync.ts:3153` both omit it). The `UNEXPECTED_PARENT` §12.4 message code already exists (`lib/messages/catalog.ts:1525`) — nothing emits it.
-- **#14 — first-seen hard-fail raises no admin alert.** A brand-new sheet Doug adds that parse-hard-fails writes a wizard-session manifest row `status:"hard_failed"` (`lib/sync/runOnboardingScan.ts:736`) but pushes no alert; the cron first-seen hard-fail branch (`lib/sync/runScheduledCronSync.ts:2820`) raises `PARSE_ERROR_LAST_GOOD` **only when `show?.showId` is truthy** (`:2831`) — null for first-seen, so nothing fires.
+- **#14 — first-seen hard-fail is invisible outside the wizard.** A brand-new sheet Doug adds that parse-hard-fails writes only a wizard-session manifest row `status:"hard_failed"` (`lib/sync/runOnboardingScan.ts:736`, visible only inside the wizard); the cron first-seen hard-fail branch (`lib/sync/runScheduledCronSync.ts:2820`) writes nothing durable (raises `PARSE_ERROR_LAST_GOOD` only when `show?.showId` is truthy, `:2831` — null for first-seen). Neither path writes a **live `pending_ingestions` record**, so the failure never reaches the global Needs-Attention inbox / ingestion push that already handles un-ingestable sheets.
 - **#16 — degraded-parse dataGaps never push.** A live published show whose re-sync auto-applies (full-replace) a materially worse parse persists new `parse_warnings` (`lib/sync/applyParseResult.ts:206`) but raises no alert; the passive `DataQualityBadge` is pull-only.
 
 ## 2. Goals / Non-goals
@@ -23,8 +23,8 @@ The edge-case audit found three ingestion failure modes that happen with **zero 
 | Unit | Channel | Resolver | Signal | Audience |
 |---|---|---|---|---|
 | A | `UNEXPECTED_PARENT` sheet drop | dev (phantom parentage) / admin (misfiled) — rare, drop usually *correct* | coded `app_events` log, **no push** | dev-facing (queryable) |
-| B | first-seen parse hard-fail | Doug (his new sheet is broken → fix sheet) | pushed admin alert | `doug` |
-| C | published-show quality regression | Doug (his edit lost data quality → fix sheet); health fallback if parser-coverage gap | pushed admin alert | `doug` |
+| B | first-seen parse hard-fail | Doug (his new sheet is broken → fix sheet) | live `pending_ingestions` record → Needs-Attention inbox + ingestion realtime candidate (existing surface; §5) | `doug` |
+| C | published-show quality regression | Doug (his edit lost data quality → fix sheet); health fallback if parser-coverage gap | new `RESYNC_QUALITY_REGRESSED` admin alert → Bell center (§6) | `doug` |
 
 **Non-goals:**
 - No change to the parse/apply behavior itself. C observes a re-sync that **already applied** — it is informational, not a gate (contrast `RESYNC_SHRINK_HELD`, which *holds*). We do not add a new hold.
@@ -32,13 +32,15 @@ The edge-case audit found three ingestion failure modes that happen with **zero 
 - No new crew-visible copy. B/C are admin/Doug surfaces only.
 - We do NOT change the `admin_alerts_one_unresolved_idx` uniqueness model.
 
-### 2.1 Delivery surface — how B/C are actually pushed (round-4 finding 1)
+### 2.1 Delivery surfaces — how B and C are actually pushed (round-4 finding 1)
 
-"Pushed" here means the **Bell notification center** (PR #324, `project_bell_notification_center_pr324`) — the live admin push surface with a per-admin realtime ping (`lib/realtime/subscribeToBell.ts`). The bell feed (`get_bell_feed_rows`, `supabase/migrations/20260705100001_get_bell_feed_rows.sql`) selects unresolved `admin_alerts` rows **directly** — including global `show_id IS NULL` rows via `coalesce(show_id::text,'')` — filtered only by `p_excluded_codes = HEALTH_CODES ∪ INBOX_ROUTED_CODES` (`lib/admin/bellAudience.ts`). Therefore **any `audience:"doug"`, non-`inbox` alert row surfaces in the bell and fires a realtime ping automatically, purely by existing** — no extra wiring.
+B and C use **different existing push surfaces**, each matched to its data model:
 
-**Consequence for B and C: both are `audience:"doug"` + banner (NOT `inbox`).** As banner-doug rows they appear in the bell with a realtime ping — the push the audit's #14/#16 asked for. `SYNC_STALLED` (global, banner, doug) is the exact precedent for B; per-show banner-doug codes like `DRIVE_FETCH_FAILED` are the precedent for C.
+**C → Bell notification center** (PR #324, `project_bell_notification_center_pr324`). The bell feed (`get_bell_feed_rows`, `supabase/migrations/20260705100001_get_bell_feed_rows.sql`) selects unresolved `admin_alerts` rows **directly**, filtered only by `p_excluded_codes = HEALTH_CODES ∪ INBOX_ROUTED_CODES` (`lib/admin/bellAudience.ts`), and `subscribeToBell.ts` fires a per-admin realtime ping. Therefore any `audience:"doug"`, non-`inbox` alert row surfaces in the bell and pings automatically, purely by existing. **C is `audience:"doug"` + banner (NOT `inbox`)** so it lands in the bell. It must NOT be `inbox` (inbox codes are bell-excluded and would need the `candidates.ts`/`SYNC_PROBLEM_CODES` path, which C cannot join — its warnings-conditional resolve would be prematurely cleared by the unconditional success sweep, §6.4). Per-show banner-doug codes like `DRIVE_FETCH_FAILED` are the precedent.
 
-**Why NOT `inbox`, and why NOT the `candidates.ts` notify pipeline:** `inbox`-routed codes are *excluded* from the bell (the needs-attention inbox owns them) and get their push only via the older `lib/notify/detect/candidates.ts` realtime/email pipeline, which selects `code = any(SYNC_PROBLEM_CODES)` (show) or `SYNC_STALLED` (global). C cannot join `SYNC_PROBLEM_CODES` (its unconditional success-sweep resolve would prematurely clear a still-degraded show — §6.4). So an `inbox` C would be **pull-only** (the exact gap this spec closes). Making C **banner** routes it to the bell instead, giving it a real push WITHOUT `SYNC_PROBLEM_CODES` membership. Additionally, the `candidates.ts` email arm is config-blocked (Resend unset — `project_notify_delivery_state`), so the bell realtime ping is the operative live push regardless. **B/C are intentionally NOT added to `candidates.ts`; their delivery is the bell feed.** This is the resolution of round-4 finding 1: the alerts are delivered (bell realtime), not pull-only.
+**B → Needs-Attention inbox + ingestion realtime candidate** (via `pending_ingestions`, §5). B does NOT create an `admin_alerts` row at all — it writes a live `pending_ingestions` record, which the EXISTING `needsAttention.ts` inbox renders as a `pending_ingestion` item (retry/discard actions, catalog-safe copy from `last_error_code`) and the EXISTING `candidates.ts` `ingestionRows` path turns into a realtime candidate after 1h. This is the established surface for "a sheet that can't be ingested"; B just adds one more producer to it. (The `candidates.ts` email arm is config-blocked — Resend unset, `project_notify_delivery_state` — so the operative live signals are the inbox + realtime candidate, consistent with every other pending-ingestion.)
+
+This resolves round-4 finding 1 for both: neither is pull-only — C pings via the bell, B surfaces in the inbox + ingestion realtime path.
 
 ## 3. Grounding (why the thresholds are what they are)
 
@@ -90,98 +92,40 @@ log.warn("Dropped sheet with unexpected parent folder", {
 
 ---
 
-## 5. Unit B — first-seen parse hard-fail → global aggregate Doug alert
+## 5. Unit B — first-seen parse hard-fail → live `pending_ingestions` record
 
-### 5.1 New code
-`FIRST_SEEN_PARSE_FAILED`.
+### 5.1 Mechanism: route into the EXISTING pending-ingestion surface (no new code)
 
-| Field | Value |
-|---|---|
-| `audience` | `"doug"` |
-| `resolution` | `"auto"` |
-| `adminSurface` | **banner** (default; omit `adminSurface`) — mirrors `SYNC_STALLED`, B's global sibling. **Not `inbox`**: the needs-attention inbox is a per-show to-do surface, and a global `showId:null` row is a system banner, not a per-show item. This also keeps B clear of the `assertNotInboxRouted` manual-resolve guard (round-2 finding 1) — though B's resolve is RPC-internal regardless (§5.4). |
-| `severity` | (predicate code — has `title`/`longExplanation`/`helpHref`) |
-| identity | global — `showId: null` (like `SYNC_STALLED`) |
+**Round-5 pivot.** An earlier draft invented a new global aggregate alert (`FIRST_SEEN_PARSE_FAILED`) with a custom object-map-merge RPC. Codex round-5 correctly flagged that design's incomplete lifecycle pruning (only `stage`/`publish`, not `live_row_conflict`/disappearance) and unbounded context map. Rather than patch a reinvention, B now routes first-seen parse hard-fails into the **existing live `pending_ingestions` surface**, which already solves lifecycle + bounding + push:
 
-### 5.2 Raise sites (both)
-A genuine **first-seen parse hard-fail** = the file has no `public.shows` row yet AND phase-1 returned `outcome:"hard_fail"`. Two entry points reach this:
+- **Table:** `public.pending_ingestions`, live partition (`wizard_session_id IS NULL`), carrying `drive_file_id`, `drive_file_name`, `last_error_code`, `last_error_message`, `attempt_count`, `first_seen_at`, `last_attempt_at`. Upsert seam `upsertLivePendingIngestion(...)` already exists on BOTH tx ports (cron `runScheduledCronSync.ts:2374/741`; onboarding `runOnboardingScan.ts:353`) and is already used by the cron no-show fetch-failure path (`:2374`).
+- **Push surface (existing):** `lib/notify/detect/candidates.ts` `ingestionRows` selects live pending_ingestions older than 1h → realtime candidate; `lib/admin/needsAttention.ts` renders each as a `pending_ingestion` item in the Needs-Attention inbox, with catalog-safe copy resolved from `last_error_code` (generic fallback `SHEET_PROCESS_FAILED.dougFacing`, invariant-5-safe — never a raw code) and retry/discard actions keyed by `pending_ingestions.id`.
+- **Lifecycle (existing, complete):** `deleteLivePendingIngestion(driveFileId)` (`runScheduledCronSync.ts:772`, deletes `where drive_file_id = $1 and wizard_session_id is null`) clears the row on the file's next successful sync/onboard; retry/discard actions (`app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts`) let the admin clear it manually. **This is the complete lifecycle Codex round-5 asked for — it already covers stage, publish, live_row_conflict (the live show delete path), and manual discard, with one row per file (bounded).**
 
-1. **Onboarding scan** — `lib/sync/runOnboardingScan.ts:728-736` (`result.outcome === "hard_fail"` branch, distinct from the `:640` `live_row_conflict` and `:710` `defer` branches which are **excluded**). Data in scope: `file.driveFileId`, `file.name` (sheet title), `result.code`.
-2. **Cron** — `lib/sync/runScheduledCronSync.ts:2820-2849`, the `else` of the `show?.showId` guard (`:2831`). Data in scope: `driveFileId`, `phase1.code`; sheet title is the parse result's title if available (fallback: the Drive `fileMeta.name`).
+**Net effect: B has NO new §12.4 code, NO custom RPC, NO migration, NO aggregate map, NO bell-banner wiring.** It is purely: call the existing `upsertLivePendingIngestion` seam at the two first-seen hard-fail sites that currently skip it. This is a strict simplification and the correct existing-pattern home for "a sheet that can't be ingested."
 
-Both raises are **tx-bound, inside the advisory-locked pipeline transaction** — same lock/tx placement as the established alert-raising pattern (`PARSE_ERROR_LAST_GOOD` / `RESYNC_SHRINK_HELD` at `runScheduledCronSync.ts:2834`, `:2868`, which run inside `withShowLock`'s locked tx; `processOneFile_unlocked` is called at `runScheduledCronSync.ts:2420` within the lock).
+### 5.2 Raise sites (both) — add the missing `upsertLivePendingIngestion` call
 
-**But B does NOT use the generic `requireTxBoundUpsertAdminAlert`** (round-4 finding 2). That helper calls `upsert_admin_alert`, which cannot object-map-merge/prune the global `failures` set and would reintroduce the whole-context-overwrite lost-update race (§5.4). Instead, B adds a **dedicated tx-bound seam** that calls the custom `upsert_first_seen_parse_failed` RPC (and `prune_first_seen_parse_failed` on the success path) on BOTH transaction ports: a new method on the cron `SyncPipelineTx` bound via `txBoundProcessDeps` (used in the `showId`-null cron branch), and the analogous `callTx`-wrapped seam on the onboarding scan tx (same tx that writes the manifest at `:736`). Tests pin B's raise to the **custom RPC** call, NOT the generic `requireTxBoundUpsertAdminAlert`. (C, by contrast, is show-scoped and DOES use the generic `requireTxBoundUpsertAdminAlert` for its raise, plus the dedicated `resolveQualityRegression_unlocked` for its conditional resolve — §6.4.)
+A genuine **first-seen parse hard-fail** = the file has no `public.shows` row yet AND phase-1 returned `outcome:"hard_fail"`.
 
-**Correction (round-1 finding 2):** an earlier draft claimed these raises were "post-commit, outside the lock." That was wrong about the codebase — admin_alerts raises in the sync pipeline are tx-bound by established convention (verified: `requireTxBoundUpsertAdminAlert` binds to the locked tx). Invariant 10's "post-commit, outside any advisory-lock tx" governs **telemetry emits** (`logAdminOutcome` / coded `app_events`) — Unit A's `log.warn` is such an emit and IS outside any lock (listing phase, before per-show processing). It does **not** govern admin_alerts alert-raises. B/C therefore follow the tx-bound alert convention, NOT the telemetry-emit convention.
+1. **Onboarding scan** — `lib/sync/runOnboardingScan.ts:728-736` (`result.outcome === "hard_fail"` branch; distinct from `:640` `live_row_conflict` and `:710` `defer`, both **excluded** — see below). Currently writes ONLY the wizard-session manifest (`status:"hard_failed"`, wizard-scoped, visible only in the wizard). **Add:** also call `tx.upsertLivePendingIngestion({ driveFileId: file.driveFileId, wizardSessionId: null, driveFileName: file.name, lastErrorCode: result.code, lastErrorMessage: <first hardError message> })` so it enters the global live inbox. Data in scope: `file.driveFileId`, `file.name`, `result.code`, hard-error detail.
+2. **Cron** — `lib/sync/runScheduledCronSync.ts:2820-2849`, the `else` of the `show?.showId` guard (`:2831`) — first-seen hard-fail with `showId` null. Currently returns `hard_fail` writing nothing durable. **Add:** `tx.upsertLivePendingIngestion({ driveFileId, wizardSessionId: null, driveFileName: fileMeta.name, lastErrorCode: phase1.code, lastErrorMessage: <first hardError message> })`, mirroring the existing no-show pending path at `:2374`.
 
-**Accepted pre-existing contract (rejecting the round-1 recommendation to move raises to a post-commit epilogue):** because the raise participates in the locked tx, an alert-RPC failure aborts and retries the whole sync — this is the EXISTING behavior for `PARSE_ERROR_LAST_GOOD`/`RESYNC_SHRINK_HELD` and is an accepted contract (a failed sync simply retries next cycle; last-good stays live). Introducing a separate post-commit "return alert intents then emit best-effort" epilogue would diverge B/C from the entire established alert architecture and add a new mechanism to every sibling alert for parity — out of scope and higher-risk than mirroring the proven pattern. B/C match their siblings; no new epilogue mechanism.
+Both calls are **tx-bound inside the advisory-locked pipeline tx** (the seam is a tx method; the manifest write at `:736` and the `:2374` pending upsert are already tx-bound there). This matches the established pattern; no post-commit epilogue (invariant 10's post-commit rule governs telemetry emits like Unit A, not durable pipeline writes).
 
-### 5.3 Aggregate context model + auto-resolve
+### 5.3 Scope exclusions
+- **`live_row_conflict` (`:640`) — excluded.** A live show already exists for this file (`LIVE_ROW_CONFLICT` handles it); it is not a first-seen *parse* failure, and its live pending row is cleared by the live-show path.
+- **`defer` (`:710`) — excluded.** The sheet staged/deferred for review — a normal outcome, not a failure; it writes a wizard deferral, not an error.
+- Only `outcome === "hard_fail"` on a no-`shows`-row file produces the pending_ingestions error record.
 
-The uniqueness index collapses all `showId:null` `FIRST_SEEN_PARSE_FAILED` sightings to **one row**. Context accumulates the failing set:
+### 5.4 Guard conditions
+- `lastErrorMessage`: if the parse produced no hard-error message text, pass the `result.code`'s catalog copy is NOT used here — store the raw hard-error message or null; the inbox renders catalog-safe copy from `last_error_code`, never the raw message (invariant 5).
+- `drive_file_name` null (cron with no `fileMeta.name`): store `""`; the inbox copy tolerates a missing name.
+- **Re-fail dedup:** `upsertLivePendingIngestion` is an upsert `on conflict (drive_file_id) where wizard_session_id is null` (`:750/794`) — a repeated hard-fail of the same sheet bumps `attempt_count` and refreshes `last_error_code`, never duplicates. Bounded: one row per file.
+- **Recovery:** when the sheet is later fixed and syncs/onboards cleanly, the existing success path calls `deleteLivePendingIngestion(driveFileId)` — the row (and its inbox item + push) clears automatically. No custom prune/resolve logic.
 
-```jsonc
-{ "failures": { "<driveFileId>": { "sheet_title": "<name>", "code": "<MI-code>" }, ... } }
-```
-
-- **Add (raise):** on a first-seen hard-fail, set `failures[driveFileId] = { sheet_title, code }`. Keyed by `driveFileId` → natural dedup (a repeated failure of the same sheet overwrites its own entry, no growth).
-- **Prune + resolve (recovery):** a first-seen sheet leaves the failing set when it is next processed **successfully** — i.e. it stages (`stage` outcome) or publishes, meaning it is no longer a first-seen parse-failure. At each such bounded success site, call `prune_first_seen_parse_failed(driveFileId)` which removes `failures[driveFileId]` and, **if `failures` becomes empty, sets `resolved_at = now()` on the global row inside the same SECURITY DEFINER function** (§5.4). The resolve is therefore a raw tx-bound SQL update inside the RPC — it does **not** call the `resolveAdminAlert` helper and so cannot trip the `assertNotInboxRouted` guard (moot anyway since B is banner, not inbox). (This is why B does not reuse `stall.ts`'s `resolveAdminAlert` path — B's resolve is atomic with its prune.)
-
-**Merge semantics require an RPC change.** The current `upsert_admin_alert` (`supabase/migrations/20260618000000_upsert_admin_alert_failedkeys_merge.sql`) merges a **grow-only text array** (`failedKeys`) — it cannot prune, and it merges text not objects. B needs **object-map add** and **key-prune**.
-
-**Why a JS read-modify-write is unsafe here (unlike C):** B's alert is **global** (`showId:null`). Concurrent first-seen files each hold a *different* per-file advisory lock (`show:`||`drive_file_id`), so the advisory lock does **not** serialize writes to the single shared global alert row — a JS read-modify-write would lose updates between concurrent producers. Therefore the map mutation must be **atomic inside a single-statement `INSERT ... ON CONFLICT DO UPDATE`** in a SECURITY DEFINER function (see §5.4). (C differs: it is show-scoped, so its own show lock already serializes its read-modify-write — C needs no RPC.) The RPC calls are tx-bound within each file's pipeline tx (§5.2), but the cross-file serialization guarantee comes from the atomic upsert, not the tx.
-
-### 5.4 RPC: `upsert_first_seen_parse_failed` / `prune_first_seen_parse_failed`
-New migration adds two SECURITY DEFINER functions. Both are apply-twice idempotent (`create or replace`), `set search_path = public, pg_temp`, and `revoke all ... from public, anon, authenticated; grant execute ... to service_role` (PostgREST DML lockdown / call-boundary discipline).
-
-**`upsert_first_seen_parse_failed(p_drive_file_id text, p_sheet_title text, p_code text) returns uuid`** — a SINGLE atomic statement (round-3 finding 1 — the absent-row concurrent-insert race is why this must NOT be a select-then-`jsonb_set`):
-
-```sql
-insert into public.admin_alerts (show_id, code, context)
-values (null, 'FIRST_SEEN_PARSE_FAILED',
-  jsonb_build_object('failures',
-    jsonb_build_object(p_drive_file_id,
-      jsonb_build_object('sheet_title', coalesce(p_sheet_title, ''), 'code', p_code))))
-on conflict (coalesce(show_id::text, ''), code) where resolved_at is null
-do update set
-  last_seen_at = now(),
-  occurrence_count = public.admin_alerts.occurrence_count + 1,
-  context = coalesce(public.admin_alerts.context, '{}'::jsonb)
-    || jsonb_build_object('failures',
-         coalesce(public.admin_alerts.context->'failures', '{}'::jsonb)
-         || jsonb_build_object(p_drive_file_id,
-              jsonb_build_object('sheet_title', coalesce(p_sheet_title, ''), 'code', p_code)))
-returning id;
-```
-
-Two concurrent absent-row producers both attempt the INSERT; Postgres's `ON CONFLICT` on the `admin_alerts_one_unresolved_idx` partial unique index makes the loser fall into `DO UPDATE` atomically — **no `unique_violation`, no lost key, no retry loop needed**. (This is exactly the proven structure of `20260618000000_upsert_admin_alert_failedkeys_merge.sql`; B reuses that INSERT…ON CONFLICT shape but merges a keyed object map instead of a text array.)
-
-**`prune_first_seen_parse_failed(p_drive_file_id text) returns uuid`** — a SINGLE atomic UPDATE:
-
-```sql
-update public.admin_alerts
-   set context = jsonb_set(coalesce(context,'{}'::jsonb), '{failures}',
-                   coalesce(context->'failures','{}'::jsonb) - p_drive_file_id),
-       resolved_at = case
-         when (coalesce(context->'failures','{}'::jsonb) - p_drive_file_id) = '{}'::jsonb
-         then now() else resolved_at end
- where show_id is null and code = 'FIRST_SEEN_PARSE_FAILED' and resolved_at is null
-returning id;
-```
-
-Row-level lock serializes concurrent prune/add on the (now-existing) row; a prune of an absent key is a no-op that still re-checks the empties-then-resolve condition. Pruning the last key sets `resolved_at` atomically (auto-resolve, §5.3).
-
-### 5.5 Guard conditions
-- If `p_sheet_title` is null/empty (cron path with no parsed title and no `fileMeta.name`), store `""` — the Doug copy renders a count + "open onboarding to see which" and does not depend on every title being present.
-- Concurrent first-seen failures (incl. the FIRST two, when no row exists yet): serialized by the atomic `INSERT ... ON CONFLICT DO UPDATE` (§5.4); the conflict loser merges rather than erroring — no `unique_violation`, no lost key.
-- A file that hard-fails, then next scan stages: add then prune → net removal → resolve when last one clears. Idempotent prune of an absent key is a no-op (still checks empties-then-resolve).
-
-### 5.6 Doug copy (catalog)
-- `dougFacing`: "One or more brand-new sheets you added couldn't be read at all, so they haven't been onboarded. Open onboarding to see which sheet(s) failed and the reason, fix the sheet, and re-scan."
-- `title`: "New sheet couldn't be read"
-- `longExplanation`, `helpfulContext`, `followUp` ("Doug → fix sheet, re-scan"), `helpHref: "/help/errors#FIRST_SEEN_PARSE_FAILED"`.
-- `crewFacing: null` (never crew-visible — the show doesn't exist yet).
+### 5.5 Copy
+No new catalog code. The inbox renders the existing catalog-safe pending-ingestion copy: if `last_error_code` resolves to a catalog entry, that copy; else the generic `SHEET_PROCESS_FAILED` fallback (`needsAttention.ts:26`). Confirm during impl that the MI hard-fail codes B stores as `last_error_code` resolve to sensible Doug-facing copy (they are existing §12.4 codes); if a specific MI code needs Doug-facing copy it already has it or falls back safely — no new code required for B.
 
 ---
 
@@ -264,57 +208,55 @@ This yields the required behavior: **4→40 opens (baseline 4); 40→40 stays op
 
 ---
 
-## 7. New-code lockstep touchpoints (both B and C)
+## 7. New-code lockstep touchpoints (C ONLY — B introduces no new code)
 
-Each new §12.4 code fans out (verified files exist against HEAD):
+**B introduces NO new §12.4 code** (round-5 pivot, §5) — it reuses the existing pending-ingestion surface and the existing catalog copy resolved from `last_error_code`. The lockstep below applies to **C's `RESYNC_QUALITY_REGRESSED` only** (verified files exist against HEAD):
 
-1. **Master spec §12.4 prose** — `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (new rows). Do **not** prettier this file (`feedback_never_prettier_the_master_spec`).
+1. **Master spec §12.4 prose** — `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (one new row). Do **not** prettier this file (`feedback_never_prettier_the_master_spec`).
 2. **`pnpm gen:spec-codes`** → `lib/messages/__generated__/spec-codes.ts` (regenerated, committed same commit).
-3. **`lib/messages/catalog.ts`** — new `MESSAGE_CATALOG` rows. The x1-catalog-parity gate (`tests/messages/codes.test.ts`) compares runtime catalog ↔ §12.4 prose; all three land together.
+3. **`lib/messages/catalog.ts`** — new `RESYNC_QUALITY_REGRESSED` `MESSAGE_CATALOG` row. The x1-catalog-parity gate (`tests/messages/codes.test.ts`) compares runtime catalog ↔ §12.4 prose; all three land together.
 4. **`pnpm gen:internal-code-enums`** → `lib/messages/__generated__/internal-code-enums.ts` (x2 gate).
-5. **`AdminAlertCode` union** — `lib/adminAlerts/upsertAdminAlert.ts:3-37` (add both codes).
-6. **`tests/messages/adminAlertsRegistry.ts`** — add both (the alert-code registry).
-7. **`tests/messages/_metaAlertAudienceContract.test.ts`** — audience rows (`doug` for both).
-8. **`tests/messages/adminSurface.test.ts`** — **both B and C are banner** (default, NOT `inbox` — §2.1/§5.1/§6.1). Neither is added to the inbox-routed set; both surface in the Bell notification center. (This is what routes them to the bell push rather than the pull-only inbox — round-4 finding 1.)
-9. **`tests/messages/_metaAlertActionsContract.test.ts`** — **raise-site-pinning** for both producers (PR #287 principle: pin where each code is raised). C: pin `code: "RESYNC_QUALITY_REGRESSED"` to its applied-epilogue producer (`showId: show.showId`). B: pin `code: "FIRST_SEEN_PARSE_FAILED"` to the `upsert_first_seen_parse_failed` RPC call at both raise sites. **Neither gets an action-link row** (see §6.1 / touchpoint 10) — verify the actions-contract test permits an alert code with a raise-pin but no action entry (as `PARSE_ERROR_LAST_GOOD` already is); if the test requires action-code membership, follow the `PARSE_ERROR_LAST_GOOD` exemption path exactly.
-10. **`lib/adminAlerts/alertActions.ts`** — **no change**. B and C both omit action links (round-3 finding 2): C mirrors `PARSE_ERROR_LAST_GOOD` (no action; wrong to mirror `RESYNC_SHRINK_HELD`'s `#resync`), B mirrors `SYNC_STALLED` (global, no per-show action). Do NOT add either to `ALERT_ACTION_CODES`.
-11. **`lib/adminAlerts/alertIdentityMap.ts`** — `{ kind: "global" }` for both (B truly global; C sheet-in-copy).
-12. **`lib/notify/constants.ts` — `SYNC_PROBLEM_CODES`: do NOT add C or B.** C's resolve is warnings-conditional (vs baseline), so it must be excluded from the unconditional success sweep at `runScheduledCronSync.ts:3026` (round-2 finding 1 — see §6.4). B is a global banner detector (like `SYNC_STALLED`, which is also not in `SYNC_PROBLEM_CODES`), resolved in-RPC. Neither joins the set. (This also means the `sync-problem-codes.test.ts` registry stays as-is for these two codes — verify it does not force-require every new alert code into `SYNC_PROBLEM_CODES`.)
-13. **`lib/notify/detect/recoveryResolution.ts` — N/A for C and B.** The status→code recovery map (`shrink_held → RESYNC_SHRINK_HELD`, `:8/:63`) keys off a sync **status**. C has no distinct status (a regressed sync's status is the normal applied/ok status); B is global with no per-show status. Both resolve via their own dedicated paths (C: `resolveQualityRegression_unlocked`; B: in-RPC prune), NOT the status-map. No recoveryResolution edit.
-14. **`lib/cron/classifyProcessed.ts`** — no new bucket. C's "regressed-but-applied" is still an `applied`/success outcome; B's first-seen hard-fail already classifies as `hard_failed`. Confirm no counter change needed.
-15. **help/errors** — new anchors + `_families` check (`feedback_new_12_4_code_full_ci_touchpoints`): `/help/errors#FIRST_SEEN_PARSE_FAILED`, `RESYNC_QUALITY_REGRESSED`.
+5. **`AdminAlertCode` union** — `lib/adminAlerts/upsertAdminAlert.ts:3-37` (add `RESYNC_QUALITY_REGRESSED`).
+6. **`tests/messages/adminAlertsRegistry.ts`** — add `RESYNC_QUALITY_REGRESSED`.
+7. **`tests/messages/_metaAlertAudienceContract.test.ts`** — audience row (`doug`).
+8. **`tests/messages/adminSurface.test.ts`** — C is **banner** (default, NOT `inbox` — §2.1/§6.1); do NOT add it to the inbox-routed set, so it surfaces in the Bell center.
+9. **`tests/messages/_metaAlertActionsContract.test.ts`** — **raise-site-pinning** for C's producer (PR #287 principle): pin `code: "RESYNC_QUALITY_REGRESSED"` to its applied-epilogue producer (`showId: show.showId`). **No action-link row** (touchpoint 10) — verify the actions-contract test permits an alert code with a raise-pin but no action entry (as `PARSE_ERROR_LAST_GOOD` already is); if it requires action-code membership, follow the `PARSE_ERROR_LAST_GOOD` exemption path exactly.
+10. **`lib/adminAlerts/alertActions.ts`** — **no change**. C omits an action link (round-3 finding 2): mirrors `PARSE_ERROR_LAST_GOOD` (no action; wrong to mirror `RESYNC_SHRINK_HELD`'s `#resync`). Do NOT add C to `ALERT_ACTION_CODES`.
+11. **`lib/adminAlerts/alertIdentityMap.ts`** — `{ kind: "global" }` for C (sheet-in-copy).
+12. **`lib/notify/constants.ts` — `SYNC_PROBLEM_CODES`: do NOT add C.** C's resolve is warnings-conditional (vs baseline), so it must be excluded from the unconditional success sweep at `runScheduledCronSync.ts:3026` (round-2 finding 1 — see §6.4). Verify `sync-problem-codes.test.ts` does not force-require every new alert code into `SYNC_PROBLEM_CODES`.
+13. **`lib/notify/detect/recoveryResolution.ts` — N/A for C.** The status→code recovery map keys off a sync **status**; C has no distinct status (a regressed sync's status is the normal applied/ok). C resolves via its dedicated `resolveQualityRegression_unlocked`. No recoveryResolution edit.
+14. **`lib/cron/classifyProcessed.ts`** — no new bucket. C's "regressed-but-applied" is still an `applied`/success outcome. Confirm no counter change needed.
+15. **help/errors** — new anchor + `_families` check (`feedback_new_12_4_code_full_ci_touchpoints`): `/help/admin/parse-warnings#RESYNC_QUALITY_REGRESSED` (match `PARSE_ERROR_LAST_GOOD`'s family) or `/help/errors#RESYNC_QUALITY_REGRESSED`.
 16. **Per-show admin page** — the show-scoped C alert renders on `app/admin/show/[slug]/page.tsx` via the existing alert-list renderer (no new component expected; confirm during impl whether any `app/` file changes → if so, invariant 8 impeccable dual-gate).
 17. **Run the FULL suite** before push (`feedback_new_12_4_code_full_ci_touchpoints`, `feedback_full_suite_before_push_scoped_gates_miss_regressions`).
 
 ## 8. Meta-test inventory (writing-plans requirement)
 
 - **CREATES:** none.
-- **EXTENDS:** `adminAlertsRegistry.ts`, `_metaAlertAudienceContract.test.ts`, `adminSurface.test.ts`, `_metaAlertActionsContract.test.ts` (incl. raise-site pins), x1-catalog-parity (`codes.test.ts`), the internal-code-enums gate, and the `dataGapsClassCompleteness`-adjacent parser tests (C's comparator lives next to `summarizeDataGaps`). **`sync-problem-codes.test.ts` / `recovery-resolution.test.ts`:** verify only that these two codes are correctly EXCLUDED from `SYNC_PROBLEM_CODES` and the status→code recovery map (§7.12/§7.13) — no new positive rows there.
-- **Advisory-lock topology:** untouched. B/C alert **raises and auto-resolves are tx-bound inside the existing `withShowLock` pipeline transaction** (mirroring `PARSE_ERROR_LAST_GOOD` at `runScheduledCronSync.ts:2834/2843`) — this is the corrected topology (round-1 finding 2; supersedes any earlier "post-commit outside the lock" phrasing). The new B RPCs (`upsert/prune_first_seen_parse_failed`) and the C resolve helper (`resolveQualityRegression_unlocked`) do **not** acquire `pg_advisory*` — no new lock holder, no nesting. Unit A's `log.warn` telemetry is the only emit outside a lock (listing phase). Declared explicitly.
-- **PostgREST DML lockdown:** new RPCs are SECURITY DEFINER with `revoke ... from public, anon, authenticated; grant execute to service_role`. They do not add a new RPC-gated *table* (they mutate the existing `admin_alerts`, whose grants are already locked). Confirm `admin_alerts` INSERT/UPDATE is already REVOKEd from `authenticated`.
+- **EXTENDS (C's new code only):** `adminAlertsRegistry.ts`, `_metaAlertAudienceContract.test.ts`, `adminSurface.test.ts`, `_metaAlertActionsContract.test.ts` (raise-site pin), x1-catalog-parity (`codes.test.ts`), the internal-code-enums gate, and the `dataGapsClassCompleteness`-adjacent parser tests (C's comparator lives next to `summarizeDataGaps`). Verify C is correctly EXCLUDED from `SYNC_PROBLEM_CODES` (§7.12) and the recovery map (§7.13). **B touches no catalog/registry meta-test** (no new code); B's coverage is behavioral (pending_ingestions written at both raise sites + cleared on success — §11).
+- **Advisory-lock topology:** untouched. C's alert raise + resolve and B's `upsertLivePendingIngestion` call are all **tx-bound inside the existing `withShowLock` pipeline transaction** (raise mirroring `PARSE_ERROR_LAST_GOOD` at `runScheduledCronSync.ts:2834/2843`; B's pending upsert is the same tx-method family already used at `:2374`). The C resolve helper (`resolveQualityRegression_unlocked`) does **not** acquire `pg_advisory*` — no new lock holder, no nesting. Unit A's `log.warn` telemetry is the only emit outside a lock (listing phase). Declared explicitly.
+- **PostgREST DML lockdown:** **no new RPC and no new table** (round-5 pivot — B's custom RPCs are gone; C is pure JS + existing `upsert_admin_alert`). `pending_ingestions` and `admin_alerts` grants are already locked; no lockdown change.
 
 ## 9. Invariants honored
 
-- **2 (advisory lock single-holder):** B/C alert raises/resolves are **tx-bound inside the existing `withShowLock` pipeline tx** (mirroring `PARSE_ERROR_LAST_GOOD`), and the new B RPCs / `upsert_admin_alert` do **not** acquire `pg_advisory*` — so no new lock holder and no nesting. The single-holder topology is unchanged. ✓
+- **2 (advisory lock single-holder):** C's alert raise/resolve and B's `upsertLivePendingIngestion` call are **tx-bound inside the existing `withShowLock` pipeline tx** (mirroring `PARSE_ERROR_LAST_GOOD`); no new RPC acquires `pg_advisory*` — no new lock holder, no nesting. The single-holder topology is unchanged. ✓
 - **3 (email canonicalization):** no raw emails touched (Drive ids, sheet titles, MI-codes only). ✓
 - **4 (no global cursor):** untouched. ✓
 - **5 (no raw codes in UI):** all Doug/crew copy routes through `catalog.ts` / `lib/messages/lookup.ts`; A's raw `code:` is in `app_events` (dev telemetry, not user UI) — permitted. ✓
-- **9 (Supabase call-boundary):** new RPC call sites destructure `{ data, error }`, distinguish thrown vs returned error; register in the relevant meta-test or carry `// not-subject-to-meta:` with reason. ✓
-- **10 (mutation observability):** governs telemetry emits, NOT admin_alerts raises. **A** is the relevant emit — a coded `app_events` `log.warn` from the listing read (outside any lock), satisfying observability for a currently-dark drop. **B/C** are admin_alerts alert-raises inside existing sync mutation paths (tx-bound, per codebase convention — §5.2), not new mutation surfaces: no new admin HTTP route, no new `"use server"` action, so no `AUDITABLE_MUTATIONS` row is required; the enclosing sync surfaces are already registered. ✓
+- **9 (Supabase call-boundary):** C's resolve-helper query and B's `upsertLivePendingIngestion` call go through existing tx-bound seams that already destructure `{ data, error }` / use the tx query helper; no new bare Supabase client call is introduced. ✓
+- **10 (mutation observability):** governs telemetry emits, NOT alert/pending writes. **A** is the relevant emit — a coded `app_events` `log.warn` from the listing read (outside any lock). **B** writes a `pending_ingestions` row inside an existing sync mutation path (the surface is already registered; the pending-ingestion inbox item is itself the operator signal). **C** is an admin_alerts raise inside an existing sync mutation path (tx-bound). Neither adds a new admin HTTP route or `"use server"` action, so no `AUDITABLE_MUTATIONS` row is required. ✓
 
 ## 10. Migration → validation parity
 
-The B RPC migration (`supabase/migrations/<ts>_first_seen_parse_failed_rpcs.sql`) lands with the parity checklist in the SAME PR:
-1. Apply locally + test (TDD).
-2. `pnpm gen:schema-manifest` → commit regenerated `supabase/**/schema-manifest.json`.
-3. Apply surgically to the validation project (`supabase db query --linked "<SQL>"`; then `notify pgrst, 'reload schema';`). `TEST_DATABASE_URL` lives in **main** `.env.local` (`feedback_validation_creds_in_main_env_local`).
-The `validation-schema-parity` CI job asserts validation ⊇ manifest. C adds **no** DDL (pure JS comparator + existing `upsert_admin_alert`), so C is migration-free.
+**No migration.** Round-5 pivot removed B's custom RPCs; C adds no DDL (pure JS comparator + existing `upsert_admin_alert` for raise + a raw tx `update admin_alerts` for resolve); B reuses the existing `pending_ingestions` table + `upsertLivePendingIngestion` seam. There is **no `supabase/migrations/**` change**, so `pnpm gen:schema-manifest` is a no-op and the `validation-schema-parity` gate is untouched. The entire feature is migration-free.
 
 ## 11. Test plan (TDD per task; anti-tautology)
 
 - **A:** with an injected `listFolder`-free default and a stubbed Drive page returning a phantom-parent file, assert `log.warn` is called with `code:"UNEXPECTED_PARENT"` and the right fields — at **both** callers. Failure mode caught: a caller that silently drops with no telemetry (the current bug).
-- **B — comparator/aggregate:** two distinct first-seen sheets fail → one alert row, `failures` map has 2 keys; re-raise of the same sheet → still 2 keys (dedup); prune one → 1 key, unresolved; prune last → `failures` empty AND `resolved_at` set. Scope-exclusion: `live_row_conflict` (`:640`) and `defer` (`:710`) do **not** raise `FIRST_SEEN_PARSE_FAILED`. Both raise sites (onboarding + cron showId-null) covered. Failure mode: a second failing sheet clobbering the first's row; a recovered sheet leaving a stuck alert.
-- **B — absent-row concurrency (round-3 finding 1, DB test):** with NO pre-existing alert row, fire `upsert_first_seen_parse_failed` for two distinct `drive_file_id`s concurrently (two connections / interleaved tx) → assert exactly one unresolved row exists and **both** keys survive in `failures` (no `unique_violation`, no lost key). This is a real-DB test (the race is a Postgres `ON CONFLICT` property, not observable under mocks — `feedback_mocked_only_tests_invite_tautological_approve`).
+- **B — pending_ingestions write at both raise sites:** an onboarding first-seen hard-fail (`runOnboardingScan.ts:728`) writes a live `pending_ingestions` row (`wizard_session_id IS NULL`, `last_error_code = result.code`, `drive_file_name`) — assert the row exists AND the wizard manifest row still writes (both). A cron first-seen hard-fail (`runScheduledCronSync.ts:2820`, showId-null) writes the same live row. Failure mode caught: an onboarding-discovered first-seen failure that stays invisible outside the wizard (the bug).
+- **B — scope exclusion:** `live_row_conflict` (`:640`) and `defer` (`:710`) do **NOT** write a live `pending_ingestions` error row. Failure mode: a deferred/staged sheet mis-surfaced as an ingestion failure.
+- **B — dedup + lifecycle:** a repeated hard-fail of the same `drive_file_id` upserts (bumps `attempt_count`, refreshes `last_error_code`), NOT a duplicate row. A subsequent successful sync/onboard of that file calls `deleteLivePendingIngestion` → the row (and its inbox item) clears. Failure mode: duplicate rows / a stuck inbox item after recovery.
+- **B — surfaces in the inbox:** a written live `pending_ingestions` row appears as a `pending_ingestion` item in `needsAttention.ts` output with catalog-safe copy (never a raw `last_error_code`; invariant 5). Failure mode: an alert row that exists but is not delivered to any operator surface (round-4/round-5 concern) — proven delivered via the existing inbox.
 - **C — comparator truth table**, derived from **corpus fixtures / `summarizeDataGaps` input** (anti-tautology — assert against the summary objects, never rendered DOM):
   - new class 0→1 → fires (rule 1).
   - `UNKNOWN_FIELD` 4→40 → fires (rule 2: +36 abs, +900% rel).
@@ -333,19 +275,15 @@ The `validation-schema-parity` CI job asserts validation ⊇ manifest. C adds **
   - **Resolve path:** the 80→4 resolve goes through the raw tx SQL `resolveQualityRegression_unlocked`, NOT `resolveAdminAlert`. Assert C is absent from `SYNC_PROBLEM_CODES` so the generic success sweep (`:3026`) does not touch it (else it would resolve a still-degraded 40→40 — round-2 finding 1).
   - **Delivery:** assert C is a banner (non-inbox) doug code, so it appears in `get_bell_feed_rows` output (not excluded by `bellExcludedCodes`) — i.e. it is actually pushed to the bell, not pull-only (round-4 finding 1).
   - Failure mode caught: "resolving a still-degraded show after one cycle, hiding a persistent regression"; and "an alert row created but never delivered to any push surface."
-- **B — resolve path:** the last-sheet prune resolves the global row inside `prune_first_seen_parse_failed` (assert `resolved_at` set atomically, no `resolveAdminAlert` call). B is banner: assert `adminSurface` is not `inbox`, and that a raised B row is present in `get_bell_feed_rows` output (delivered to the bell, not pull-only — round-4 finding 1).
 
 ## 12. Open decisions (resolved)
 
 - **A push vs log:** log (actionability-gating). Resolved.
-- **B aggregate vs per-sheet:** aggregate global row + keyed `failures` map + prune-on-success. Resolved.
-- **B RPC:** dedicated `upsert/prune_first_seen_parse_failed` SECURITY DEFINER pair (atomic in-RPC map mutation) rather than overloading `upsert_admin_alert`. Resolved.
+- **B mechanism (round-5 pivot):** route first-seen parse hard-fails into the EXISTING live `pending_ingestions` surface (Needs-Attention inbox + ingestion realtime candidate + delete-on-success lifecycle) — NOT a new global aggregate alert with a custom object-map RPC. This structurally resolves the round-5 findings (incomplete prune / unbounded map): `pending_ingestions` is one bounded row per file with a complete, existing lifecycle. B introduces no new §12.4 code, no RPC, no migration. Resolved.
+- **B raise sites:** call the existing `upsertLivePendingIngestion` tx seam at both first-seen hard-fail sites that currently skip it (onboarding `:728`, cron `:2820` showId-null); tests pin the `pending_ingestions` write, scope-exclude `live_row_conflict`/`defer`. Resolved (round-4 finding 2's "custom seam vs generic helper" concern is moot — no admin_alerts write for B at all).
 - **C comparator:** new-class-appeared OR (+5 abs AND +50% rel); never absolute total. Resolved (corpus-calibrated).
 - **C debounce + resolve:** storage-native dedup (one-row-per-(show,code)); **baseline-anchored auto-resolve** — resolve only when current returns to the stored pre-regression baseline, never on immediate-prior equality (round-1 finding 1). Resolved.
-- **B/C raise placement:** tx-bound inside the existing `withShowLock` pipeline tx, mirroring `PARSE_ERROR_LAST_GOOD`/`RESYNC_SHRINK_HELD` — NOT a new post-commit epilogue (round-1 finding 2). Invariant 10's post-commit-outside-lock rule governs telemetry emits (Unit A), not admin_alerts raises. Resolved.
-- **B adminSurface:** banner (not inbox), mirroring `SYNC_STALLED` its global sibling (round-2 finding 1). Resolved.
-- **Auto-resolve mechanism:** both via raw tx-bound SQL, never the `resolveAdminAlert` helper (which throws on inbox codes). C = dedicated `resolveQualityRegression_unlocked` (conditional on baseline recovery; C excluded from `SYNC_PROBLEM_CODES` so the unconditional success sweep can't prematurely resolve it). B = in-RPC `resolved_at` set on empty-failures prune. Resolved (round-2 finding 1).
-- **B RPC concurrency:** the upsert is a single atomic `INSERT ... ON CONFLICT (…) WHERE resolved_at is null DO UPDATE` (mirrors the failedKeys migration), so two absent-row concurrent producers both survive with no `unique_violation` and no lost key — NOT a select-then-`jsonb_set` (round-3 finding 1). Resolved.
-- **B/C action links:** NONE. C mirrors `PARSE_ERROR_LAST_GOOD` (no action; copy points to the parse panel) — NOT `RESYNC_SHRINK_HELD`'s `#resync` (wrong surface for an already-applied regression); B mirrors `SYNC_STALLED` (global, no action). Avoids a wrong deep-link, a UI anchor id (no impeccable gate), and a route test (round-3 finding 2). Resolved.
-- **B/C delivery / push surface:** the Bell notification center (`get_bell_feed_rows` + realtime ping, PR #324) — both are `audience:"doug"` + **banner** so they surface in the bell automatically and fire a realtime ping. NOT the `candidates.ts` email/notify pipeline (SYNC_PROBLEM_CODES-scoped + email config-blocked). C is banner (not inbox) specifically so it reaches the bell rather than being pull-only (round-4 finding 1). Resolved.
-- **B raise seam:** dedicated tx-bound `upsert_first_seen_parse_failed` / `prune_first_seen_parse_failed` RPC seam on both tx ports (cron + onboarding), NOT the generic `requireTxBoundUpsertAdminAlert` (which can't object-map-merge) — tests pin the custom RPC (round-4 finding 2). C's raise uses the generic `requireTxBoundUpsertAdminAlert` (last-writer-wins is fine for a show-scoped row under the show lock). Resolved.
+- **C raise placement:** tx-bound inside the existing `withShowLock` pipeline tx via `requireTxBoundUpsertAdminAlert`, mirroring `PARSE_ERROR_LAST_GOOD` — NOT a post-commit epilogue (round-1 finding 2). Invariant 10's post-commit-outside-lock rule governs telemetry emits (Unit A), not admin_alerts raises. Resolved.
+- **C auto-resolve mechanism:** raw tx-bound SQL `resolveQualityRegression_unlocked`, never `resolveAdminAlert` (not tx-bound/conditional). C excluded from `SYNC_PROBLEM_CODES` so the unconditional success sweep can't prematurely resolve a still-degraded show. Resolved (round-2 finding 1).
+- **C action link:** NONE — mirrors `PARSE_ERROR_LAST_GOOD` (no action; copy points to the parse panel), NOT `RESYNC_SHRINK_HELD`'s `#resync` (wrong surface for an already-applied regression). Avoids a wrong deep-link, a UI anchor id (no impeccable gate), and a route test (round-3 finding 2). Resolved.
+- **C delivery / push surface:** the Bell notification center (`get_bell_feed_rows` + realtime ping, PR #324) — C is `audience:"doug"` + **banner** so it surfaces in the bell and pings automatically. Banner (not inbox) specifically so it reaches the bell rather than being pull-only (an inbox C couldn't join `SYNC_PROBLEM_CODES` and would be pull-only). Resolved (round-4 finding 1).
