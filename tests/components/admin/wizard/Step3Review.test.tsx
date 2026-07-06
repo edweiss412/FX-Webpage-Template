@@ -171,7 +171,8 @@ describe("Step3Review header + composed summary (Task 3)", () => {
       />,
     );
     expect(norm(getByTestId("wizard-step3-summary"))).toBe(
-      "2 sheets parsed from your Drive folder. 1 ready to publish — 1 needs a quick look before it goes live. Nothing publishes until you say so.",
+      // No em dash (project copy rule): the ready/needs-look clauses join with a comma.
+      "2 sheets parsed from your Drive folder. 1 ready to publish, 1 needs a quick look before it goes live. Nothing publishes until you say so.",
     );
   });
 

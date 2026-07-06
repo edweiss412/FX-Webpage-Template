@@ -1263,12 +1263,15 @@ export function Step3ReviewModal({
                 data-testid={`wizard-step3-card-${dfid}-review-resolution-note`}
                 className="hidden min-w-0 items-center text-sm text-text-subtle sm:flex sm:flex-1"
               >
-                Removed from this setup.
+                Approve to re-apply, or set this sheet aside.
               </span>
               {/* §11: instant — deliberate (error note appears instantly, no animation) */}
               {resolutionError !== null ? (
                 <span
-                  role="status"
+                  // role="alert" (not status): this note mounts already-populated
+                  // on a failed Approve/Ignore, so it needs an assertive live
+                  // region to be announced on insertion (impeccable audit P2).
+                  role="alert"
                   data-testid={`wizard-step3-card-${dfid}-review-resolution-error`}
                   className="min-w-0 text-sm font-medium text-warning-text"
                 >

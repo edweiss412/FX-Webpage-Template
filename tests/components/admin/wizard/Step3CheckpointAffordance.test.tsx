@@ -75,6 +75,23 @@ describe("Step-3 checkpoint affordance (spec §4.2 rule 7)", () => {
     expect(screen.getByText("Held")).toBeInTheDocument();
   });
 
+  test("post-finalize suppresses the pre-finalize summary (impeccable P2 — 'Nothing publishes…' would contradict badges)", () => {
+    const { queryByTestId, rerender } = render(
+      <Step3Review wizardSessionId={WSID} rows={[readyRow()]} checkpointStatus={null} />,
+    );
+    // Pre-finalize: the summary is present.
+    expect(queryByTestId("wizard-step3-summary")).not.toBeNull();
+    // Post-finalize: suppressed (badges + footer carry the state).
+    rerender(
+      <Step3Review
+        wizardSessionId={WSID}
+        rows={[readyToPublishRow()]}
+        checkpointStatus="in_progress"
+      />,
+    );
+    expect(queryByTestId("wizard-step3-summary")).toBeNull();
+  });
+
   test("checkpoint all_batches_complete → same badge-only contract", () => {
     render(
       <Step3Review

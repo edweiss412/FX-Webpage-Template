@@ -821,7 +821,7 @@ function renderSummary(sheetCount: number, readyCount: number, needsLookCount: n
       {readyCount > 0 ? (
         <>
           <b className="font-semibold text-text-strong">{`${readyCount} ready to publish`}</b>
-          {" — "}
+          {", "}
           {look}
         </>
       ) : (
@@ -1180,9 +1180,13 @@ export function Step3Review({
             </p>
           </HelpSheet>
         </div>
-        {/* Composed summary (§4.2) — only when there ARE sheets; the empty state's
-            card is the sole content when rows = []. */}
-        {rows.length > 0 ? (
+        {/* Composed summary (§4.2) — only when there ARE sheets AND we are
+            pre-finalize (checkpoint null). Post-finalize (in_progress /
+            all_batches_complete) the row badges + the footer's Resume/Finish +
+            stale note carry the state; the pre-finalize summary's "Nothing
+            publishes until you say so." would flatly contradict Live / Ready-to-
+            publish badges, so it is suppressed just like the Select-all header. */}
+        {rows.length > 0 && checkpointStatus === null ? (
           <p data-testid="wizard-step3-summary" className="max-w-prose text-base text-text-subtle">
             {renderSummary(sheetCount, readyCount, needsLookCount)}
           </p>
