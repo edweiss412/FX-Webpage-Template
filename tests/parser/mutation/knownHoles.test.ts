@@ -1,6 +1,6 @@
 // tests/parser/mutation/knownHoles.test.ts
 import { describe, it, expect } from "vitest";
-import { reconcileLedger, ledgerKey, KNOWN_SILENT_HOLES } from "./knownHoles";
+import { reconcileLedger, KNOWN_SILENT_HOLES } from "./knownHoles";
 import type { Alarm, KnownHole } from "./knownHoles";
 
 const A = (siteId: string, kind: Alarm["kind"], fingerprint: string): Alarm => ({
