@@ -115,12 +115,12 @@ function roomBaseName(firstLine: string): string
 //     absent (never, post-admit). MABEL 1&#10;DAY 1 & 2 → "1&2"; SALON ABCD DAY 1 → "1".
 function dayRangeOf(col0Raw: string): string
 //   = (/\bDAYS?\s+(\d[\d\s&,.\-–—]*?)\s*$/im.exec(col0Raw.replace(/&#10;/g,"\n"))?.[1] ?? "").replace(/\s+/g,"").toUpperCase()
-//   roomGroupKey(col0Raw, firstLine): the GROUPING key = roomBaseName + " " + dayRangeOf. Merges the
+//   roomGroupKey(col0Raw, firstLine): the GROUPING key = roomBaseName + " " + dayRangeOf. Merges the
 //     inline-DAY and second-line-DAY forms of the SAME name AND SAME day-range (R27), but keeps
 //     SALON ABCD DAY 1 and SALON ABCD DAY 2 in SEPARATE groups (R34 f1 — distinct-day blocks must NOT
 //     merge into one impossible room). DISPLAY name stays firstLine VERBATIM.
 function roomGroupKey(col0Raw: string, firstLine: string): string
-//   = roomBaseName(firstLine) + " " + dayRangeOf(col0Raw)
+//   = roomBaseName(firstLine) + " " + dayRangeOf(col0Raw)
 // (e) TOP-LEVEL MODEL — computed ONCE before parseGsRoom/parseBoRooms (R17 f2); `seen`-independent.
 //     LINE-BASED (R24 f1): indices are into the shared `lines` array (`markdown.split("\n")`), NOT byte
 //     offsets. extractBoBlock takes a start LINE — behavior-identical because `mabelRe`'s `m.index` is
