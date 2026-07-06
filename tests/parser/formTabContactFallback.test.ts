@@ -95,3 +95,75 @@ describe("FORM-tab AV contact fallback", () => {
     expect(contacts.some((c) => c.kind === "venue" && c.email === canonicalize(VENUE))).toBe(true);
   });
 });
+
+describe("FORM-tab client email/phone fallback", () => {
+  it("fills client email + phone from the FORM block when INFO cells are empty", () => {
+    const EMAIL = "ashley.morgan@institutionalinvestor.com";
+    const PHONE = "8452701900";
+    const { client_contact } = parseClient(md({ formEmail: EMAIL, formPhone: PHONE }), "v4");
+    expect(client_contact).toMatchObject({
+      name: "Ashley Morgan", // from the builder's INFO Contact row (constant across the suite)
+      email: canonicalize(EMAIL),
+      phone: PHONE,
+    });
+  });
+
+  it("keeps the INFO client email when populated (INFO wins)", () => {
+    const INFO = "real@info.com";
+    const FORM = "other@form.com";
+    const { client_contact } = parseClient(md({ infoEmail: INFO, formEmail: FORM }), "v4");
+    expect(client_contact!.email).toBe(canonicalize(INFO));
+    expect(client_contact!.email).not.toBe(canonicalize(FORM));
+  });
+
+  it("is a no-op when there is no INFO CLIENT block", () => {
+    const { client_contact } = parseClient(
+      md({ clientBlock: false, formEmail: "ashley.morgan@institutionalinvestor.com" }),
+      "v4",
+    );
+    expect(client_contact).toBeNull();
+  });
+
+  it("does not fill from a stray Email Address with no FORM anchor (case a)", () => {
+    const stray = md({ formBlock: false }) + "\n| Email Address | stray@x.com |\n";
+    const { client_contact } = parseClient(stray, "v4");
+    expect(client_contact!.email).toBeNull();
+  });
+
+  it("does not fill email OR phone from a stray row after the FORM run ends (case b)", () => {
+    // FORM block present with EMPTY Email Address AND EMPTY Phone Number; strays in a later
+    // separate run must not fill either field (the bounding gate applies to both labels equally).
+    const strayBlock =
+      md({ formEmail: "", formPhone: "" }) +
+      "\n| Some Other Section | header |\n| Email Address | stray@x.com |\n| Phone Number | 5559999999 |\n";
+    const { client_contact } = parseClient(strayBlock, "v4");
+    expect(client_contact!.email).toBeNull();
+    expect(client_contact!.phone).toBeNull();
+  });
+
+  it("extracts only the email substring from a wrapped FORM value", () => {
+    const EMAIL = "ashley.morgan@institutionalinvestor.com";
+    const { client_contact } = parseClient(md({ formEmail: `Ashley Morgan <${EMAIL}>` }), "v4");
+    expect(client_contact!.email).toBe(canonicalize(EMAIL)); // substring extracted from the wrapper
+  });
+
+  it("fills only the empty field on partial INFO data", () => {
+    // INFO email present, INFO phone empty → phone filled, email kept.
+    const INFO_EMAIL = "keep@info.com";
+    const FORM_PHONE = "8452701900";
+    const a = parseClient(md({ infoEmail: INFO_EMAIL, formPhone: FORM_PHONE }), "v4");
+    expect(a.client_contact!.email).toBe(canonicalize(INFO_EMAIL));
+    expect(a.client_contact!.phone).toBe(FORM_PHONE);
+    // INFO phone present, INFO email empty → email filled, phone kept.
+    const INFO_PHONE = "111-222-3333";
+    const FORM_EMAIL = "fill@form.com";
+    const b = parseClient(md({ infoCell: INFO_PHONE, formEmail: FORM_EMAIL }), "v4");
+    expect(b.client_contact!.phone).toBe(INFO_PHONE);
+    expect(b.client_contact!.email).toBe(canonicalize(FORM_EMAIL));
+  });
+
+  it("rejects a prose email placeholder (TBD @ client)", () => {
+    const { client_contact } = parseClient(md({ formEmail: "TBD @ client" }), "v4");
+    expect(client_contact!.email).toBeNull();
+  });
+});
