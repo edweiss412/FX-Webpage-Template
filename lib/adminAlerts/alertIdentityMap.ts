@@ -156,6 +156,8 @@ export const ALERT_IDENTITY_MAP: Record<string, IdentityMapEntry> = {
 
   // 18b. RESYNC_SHRINK_HELD — already SPECIFIC (sheet in copy) — global entry
   RESYNC_SHRINK_HELD: { kind: "global" },
+  // 18c. RESYNC_QUALITY_REGRESSED — already SPECIFIC (sheet in copy) — global entry
+  RESYNC_QUALITY_REGRESSED: { kind: "global" },
 
   // 19. SYNC_STALLED — global (truly system-wide)
   SYNC_STALLED: { kind: "global" },

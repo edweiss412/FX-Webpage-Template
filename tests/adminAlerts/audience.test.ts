@@ -5,6 +5,7 @@ import {
   NOTICE_HEALTH_CODES,
   DOUG_EXCLUDED_CODES,
   dougSummaryFor,
+  autoResolveNote,
 } from "@/lib/adminAlerts/audience";
 
 describe("audience-derived code sets", () => {
@@ -35,5 +36,12 @@ describe("audience-derived code sets", () => {
     expect(dougSummaryFor("WEBHOOK_TOKEN_INVALID")?.length ?? 0).toBeGreaterThan(0);
     expect(dougSummaryFor("SHEET_UNAVAILABLE")).toBeNull();
     expect(dougSummaryFor("NOT_A_CODE")).toBeNull();
+  });
+
+  test("autoResolveNote returns the custom RESYNC_QUALITY_REGRESSED note, not the generic fallback", () => {
+    expect(autoResolveNote("RESYNC_QUALITY_REGRESSED")).toBe(
+      "Clears automatically once the sheet's data quality recovers — fix the sheet to resolve it.",
+    );
+    expect(autoResolveNote("RESYNC_QUALITY_REGRESSED")).not.toContain("No action is needed here");
   });
 });
