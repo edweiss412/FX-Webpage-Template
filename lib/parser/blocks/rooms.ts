@@ -32,6 +32,156 @@ import { clean, presence, splitRow } from "./_helpers";
 import { gatedVocabCorrect } from "@/lib/parser/typoGate";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { classifyGearItem } from "@/lib/parser/gearClassification";
+import { KNOWN_SECTION_HEADERS, KNOWN_SUB_LABELS } from "@/lib/parser/knownSections";
+
+// ── Room-header shape model (spec §2.2/§2.3) ──────────────────────────────────
+// De-literalizes the two-name `mabelRe` loop: a v1 breakout room is admitted on
+// THREE local structural signals (shape + preceded-by-boundary + field-evidence),
+// never on a hardcoded venue name.
+
+// Room-FIELD labels (spec §2.3 item 3). DERIVED from the labels `applyBoLabel`/
+// `applyGsLabel` recognize (below) plus the header value-fields `splitRoomHeader`
+// lifts (DIMENSIONS/FLOOR) and the v4 NAME(S) template word — a proper room NAME is
+// never one of these, so a field-label row (`BO SETUP`, `AUDIO`) is rejected at the
+// name-shape gate. Kept as a single const so it cannot drift from the parser.
+const ROOM_FIELD_LABELS: ReadonlySet<string> = new Set([
+  "SETUP",
+  "SET TIME",
+  "SHOW TIME",
+  "STRIKE TIME",
+  "AUDIO",
+  "VIDEO",
+  "SCENIC",
+  "LIGHTING",
+  "LED",
+  "POWER",
+  "OTHER",
+  "DIMENSIONS",
+  "FLOOR",
+  "DIGITAL SIGNAGE",
+  "NAME(S)",
+  "NOTES",
+]);
+
+// Section/room FAMILIES that intentionally carry a suffix and are claimed by a
+// dedicated path (BO/GS/ADDITIONAL/LUNCH) — matched as a whole-token PREFIX so
+// `BREAKOUT 3` / `ADDITIONAL ROOM 2` / `LUNCH ROOM` are excluded but a compound
+// room name is not (spec §2.3 item 2, PREFIX-match).
+const SECTION_PREFIX_FAMILIES = [
+  "GENERAL SESSION",
+  "BREAKOUT",
+  "ADDITIONAL",
+  "LUNCH",
+  "DETAILS",
+] as const;
+
+// Bare generic section tokens — a section header is EXACTLY the token, never a
+// compound room name — matched by EQUALITY against the DAY-stripped identity (spec
+// §2.3 item 2, EXACT-match), unioned with the live known-section registries.
+const SECTION_EXACT_TOKENS: ReadonlySet<string> = new Set([
+  "DOCUMENTS",
+  "DATES",
+  "CREW",
+  "DRESS",
+  "TRANSPORTATION",
+  "HOTEL",
+  "VENUE",
+  "AGENDA",
+  "CONTACTS",
+  ...KNOWN_SECTION_HEADERS,
+  ...KNOWN_SUB_LABELS,
+]);
+
+/** First cell of a markdown table row, trimmed (keeps a literal `&#10;`). */
+function col0Of(line: string): string {
+  return (line.split("|")[1] ?? "").trim();
+}
+
+/** True iff `row` is a `| … |` row whose every inter-pipe cell is whitespace. */
+function allEmptyCells(row: string): boolean {
+  const t = row.trim();
+  if (!t.startsWith("|")) return false;
+  const cells = t.split("|").slice(1, -1);
+  return cells.length > 0 && cells.every((c) => c.trim() === "");
+}
+
+/**
+ * PURE — name-shape only (spec §2.2 (a), §2.3 items 1-3). True iff the header
+ * cell's first line is a proper, non-dims-leading NAME with a NON-EMPTY base after
+ * the trailing DAY-range is stripped, and is neither a section banner nor a
+ * room-field label.
+ */
+export function roomHeaderNameShape(col0Raw: string): boolean {
+  const firstLine = col0Raw.replace(/&#10;/g, "\n").split("\n")[0]!.trim();
+  const upper = firstLine.toUpperCase();
+  // item 1: proper name shape, NOT dimension-leading.
+  if (!/^[A-Z0-9][A-Z0-9 &',./-]*$/.test(upper)) return false;
+  if (/^\d+\s*'\s*x/i.test(upper)) return false;
+  // item 2: non-empty identity (DAY-stripped), not a section banner.
+  const identity = roomBaseName(firstLine);
+  if (identity.length === 0) return false;
+  if (
+    SECTION_PREFIX_FAMILIES.some((p) => identity === p || identity.startsWith(p + " "))
+  ) {
+    return false;
+  }
+  if (SECTION_EXACT_TOKENS.has(identity)) return false;
+  if (/^GS\s/i.test(firstLine)) return false;
+  // item 3: not a room-FIELD label (strip an optional leading BO / GS prefix).
+  const labelIdentity = upper.replace(/^(?:BO|GS)\s+/, "").trim();
+  if (ROOM_FIELD_LABELS.has(labelIdentity)) return false;
+  return true;
+}
+
+/**
+ * PURE — a TRAILING DAY-RANGE that is the cell's LAST content (spec §2.2 (b)).
+ * The DAY line must END with the range (rejects `SPECIAL DAY 1 NOTES`), and every
+ * non-empty line AFTER it must be a dims-only line (rejects `SPECIAL DAY 1&#10;NOTES`
+ * but admits `MERIDIAN&#10;DAY 1 & 2&#10;60' x 45'`). Robust to `&#10;` vs real `\n`.
+ */
+export function headerDayMarker(col0Raw: string): boolean {
+  const lines = col0Raw
+    .replace(/&#10;/g, "\n")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  let anchor = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/\bDAYS?\s+\d[\d\s&,.\-–—]*$/i.test(lines[i]!)) anchor = i;
+  }
+  if (anchor === -1) return false;
+  for (let i = anchor + 1; i < lines.length; i++) {
+    if (!/^\d+\s*'?\s*x\s*\d/i.test(lines[i]!)) return false;
+  }
+  return true;
+}
+
+/** PURE single-cell SHAPE predicate (spec §2.2 (c)). */
+export function isRoomHeaderShape(col0Raw: string): boolean {
+  return roomHeaderNameShape(col0Raw) && headerDayMarker(col0Raw);
+}
+
+/** The bare NAME — first line with a TRAILING inline DAY-range stripped, uppercased (spec §2.2 (d)). */
+export function roomBaseName(firstLine: string): string {
+  return firstLine
+    .replace(/\s*\bDAYS?\s+\d[\d\s&,.\-–—]*$/i, "")
+    .trim()
+    .toUpperCase();
+}
+
+/** The NORMALIZED trailing DAY-range digits from anywhere in the cell (spec §2.2 (d)). */
+export function dayRangeOf(col0Raw: string): string {
+  return (
+    /\bDAYS?\s+(\d[\d\s&,.\-–—]*?)\s*$/im.exec(col0Raw.replace(/&#10;/g, "\n"))?.[1] ?? ""
+  )
+    .replace(/\s+/g, "")
+    .toUpperCase();
+}
+
+/** The GROUPING key = roomBaseName + " " + dayRangeOf (spec §2.2 (d)). */
+export function roomGroupKey(col0Raw: string, firstLine: string): string {
+  return roomBaseName(firstLine) + " " + dayRangeOf(col0Raw);
+}
 
 // Mergeable room data fields (everything except kind/name) — used to absorb a same-name
 // breakout into its GS room without dropping any populated value.
