@@ -193,6 +193,36 @@ function badgeForStatus(status: Step3ManifestStatus): {
   }
 }
 
+/**
+ * badgeForDisplayState — the unified per-row badge (spec §4.2). Derives ONLY from
+ * the already-computed `displayState` (which encodes the status/publish_intent/
+ * linked-show distinctions), so it never reaches back to raw `row.status`. Total
+ * over Step3DisplayState (exhaustive switch, no fallthrough).
+ */
+export function badgeForDisplayState(state: Step3DisplayState): {
+  label: string;
+  tone: "ok" | "warn" | "info" | "blocked";
+} {
+  switch (state) {
+    case "live":
+      return { label: "Live", tone: "ok" };
+    case "ready_to_publish":
+      return { label: "Ready to publish", tone: "ok" };
+    case "held":
+      return { label: "Held", tone: "info" };
+    case "ready":
+      return { label: "Ready", tone: "info" };
+    case "set_aside":
+      return { label: "Set aside for this setup", tone: "info" };
+    case "skipped":
+      return { label: "Skipped (not a sheet)", tone: "info" };
+    case "needs_review_other":
+    case "needs_review_reapply":
+    case "needs_review_no_details":
+      return { label: "Needs review", tone: "warn" };
+  }
+}
+
 function toneClasses(tone: "ok" | "warn" | "info" | "blocked"): string {
   switch (tone) {
     case "ok":
@@ -403,7 +433,10 @@ function RowItem({
   // from wearing the solid-accent badge (DESIGN.md ≤10% accent coverage).
   quiet?: boolean;
 }) {
-  const badge = badgeForStatus(row.status);
+  // Spec §4.2: the badge derives from the unified displayState when present
+  // (every buildStep3Row-produced row carries it). Legacy rows constructed
+  // without a displayState fall back to the raw-status badge.
+  const badge = row.displayState ? badgeForDisplayState(row.displayState) : badgeForStatus(row.status);
   const liveConflictCopy = lookupDougFacing("LIVE_ROW_CONFLICT");
 
   // §4.1 / D2 / D6: a clean review sheet renders its parse preview INLINE via
