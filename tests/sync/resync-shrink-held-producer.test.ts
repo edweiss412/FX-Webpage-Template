@@ -49,6 +49,7 @@ describe("RESYNC_SHRINK_HELD producer", () => {
         lastSyncStatus: "shrink_held",
         lastSyncError: null,
         priorParseResult: parseResult,
+        priorParseWarningsRaw: null,
       })),
       upsertAdminAlert,
     } as unknown as LockedShowTx<SyncPipelineTx>;

@@ -8,6 +8,7 @@ import { attachWarningAnchors } from "@/lib/sync/attachWarningAnchors";
 import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
+import { emitUnexpectedParentWarning } from "@/lib/sync/logUnexpectedParent";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
 import type { ParsedSheet, ParseResult } from "@/lib/parser/types";
 import { asTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
@@ -945,7 +946,9 @@ export async function prepareOnboardingFiles(
   folderId: string,
   deps: RunOnboardingScanDeps,
 ): Promise<PreparedOnboardingFile[]> {
-  const listFolder = deps.listFolder ?? listDriveFolder;
+  const listFolder =
+    deps.listFolder ??
+    ((id: string) => listDriveFolder(id, { onWarning: emitUnexpectedParentWarning }));
   const files = await listFolder(folderId);
   deps.onProgress?.({ type: "listed", total: files.length });
   const fetchMarkdownWithBinding = deps.fetchMarkdownWithBinding ?? fetchSheetMarkdownWithBinding;

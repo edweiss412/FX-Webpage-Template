@@ -115,6 +115,15 @@ const RAISE_SITE_PINS: RaiseSitePin[] = [
     expectedMatches: 1,
     pins: "show-scoped raise (slug-dependent link)",
   },
+  {
+    code: "RESYNC_QUALITY_REGRESSED",
+    file: "lib/sync/runScheduledCronSync.ts",
+    // Single terminal upsert in evaluateQualityRegression_unlocked. `showId,` shorthand → a
+    // `showId: null` refactor stops matching, dropping expectedMatches to 0 (fails the pin).
+    pattern: /showId,[\s\S]{0,80}?code: "RESYNC_QUALITY_REGRESSED"/g,
+    expectedMatches: 1,
+    pins: "show-scoped raise (per-show alert row; not a global showId:null collision)",
+  },
 ];
 
 describe("alert-action registry ↔ raise-site fidelity", () => {

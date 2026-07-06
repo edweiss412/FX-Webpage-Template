@@ -18,6 +18,7 @@ type FakeShowRow = {
   lastSyncStatus: string | null;
   lastSyncError: string | null;
   priorParseResult: ParseResult;
+  priorParseWarningsRaw: ParseResult["warnings"] | null;
 };
 
 function crew(name: string, overrides: Partial<CrewMemberRow> = {}): CrewMemberRow {
@@ -194,6 +195,7 @@ function seedPriorShow(tx: FakePhase1Tx, prior: ParseResult) {
     lastSyncStatus: "ok",
     lastSyncError: null,
     priorParseResult: prior,
+    priorParseWarningsRaw: null,
   });
 }
 

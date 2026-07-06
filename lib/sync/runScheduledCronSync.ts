@@ -16,7 +16,13 @@ import {
 import { canonicalize } from "@/lib/email/canonicalize";
 import { log, setCronInFlight } from "@/lib/log";
 import { runInvariants } from "@/lib/parser/invariants";
-import { summarizeDataGaps } from "@/lib/parser/dataGaps";
+import {
+  summarizeDataGaps,
+  isQualityRegression,
+  hasRecoveredToBaseline,
+  GAP_CLASSES,
+  type DataGapsSummary,
+} from "@/lib/parser/dataGaps";
 import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
 import { blockDisappearanceWarnings } from "@/lib/sync/blockDisappearance";
 import { ARCHIVED_SKIP_REASON, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
@@ -35,6 +41,7 @@ import {
   getAgendaChips,
 } from "@/lib/drive/agendaDrive";
 import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
+import { emitUnexpectedParentWarning } from "@/lib/sync/logUnexpectedParent";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
 import type {
   AgendaEntry,
@@ -206,6 +213,146 @@ export async function resolveStaleSyncProblemAlerts_unlocked(
     `,
     [showId, [...SYNC_PROBLEM_CODES], currentCode],
   );
+}
+
+// ── Unit C (audit #16): RESYNC_QUALITY_REGRESSED — post-apply data-quality regression alert ──
+// Per-show self-relative (corpus proves gap totals are show-intrinsic 0..120, so an absolute floor
+// is meaningless). Baseline-anchored: the OPEN alert stores the pre-regression summary as
+// context.baseline; it clears only when EVERY class recovers to ≤ baseline (hasRecoveredToBaseline).
+
+/** Auto-resolve the open per-show regression alert (full per-class recovery to baseline). */
+export async function resolveQualityRegression_unlocked(
+  tx: Pick<SyncPipelineTx, "queryOne">,
+  showId: string,
+): Promise<void> {
+  // live-partition:live-only — resolves the live per-show regression alert; never runs from a
+  // wizard/onboarding apply (the producer is wired only in the cron applied epilogue + first-seen
+  // retry no-op, NOT in applyStagedCore). Not reachable from the core apply surface.
+  await tx.queryOne<{ resolved: true } | undefined>(
+    `
+      update public.admin_alerts
+         set resolved_at = now()
+       where show_id = $1::uuid
+         and code = 'RESYNC_QUALITY_REGRESSED'
+         and resolved_at is null
+       returning true as resolved
+    `,
+    [showId],
+  );
+}
+
+type QualityRegressionPayload = {
+  breakdown: Record<string, number>;
+  new_classes: string[];
+  worsened: string[];
+};
+
+function buildRegressionPayload(
+  prior: DataGapsSummary,
+  current: DataGapsSummary,
+): QualityRegressionPayload {
+  const breakdown: Record<string, number> = {};
+  const new_classes: string[] = [];
+  const worsened: string[] = [];
+  for (const { code } of GAP_CLASSES) {
+    const p = prior.classes[code];
+    const n = current.classes[code];
+    if (n > 0) breakdown[code] = n;
+    if (p === 0 && n > 0) new_classes.push(code);
+    else if (p > 0 && n - p >= 5 && n >= p * 1.5) worsened.push(code);
+  }
+  return { breakdown, new_classes, worsened };
+}
+
+/** Order-insensitive string-set equality (dedupes + compares membership). */
+function sameStringSet(a: readonly string[], b: readonly string[]): boolean {
+  const sa = new Set(a);
+  const sb = new Set(b);
+  if (sa.size !== sb.size) return false;
+  for (const x of sa) if (!sb.has(x)) return false;
+  return true;
+}
+
+/** Order-insensitive payload equality for the §6.4a no-op gate (no JSON.stringify — jsonb boundary). */
+function payloadEqual(a: QualityRegressionPayload, b: QualityRegressionPayload): boolean {
+  const aKeys = Object.keys(a.breakdown);
+  const bKeys = Object.keys(b.breakdown);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const k of aKeys) if (a.breakdown[k] !== b.breakdown[k]) return false;
+  return sameStringSet(a.new_classes, b.new_classes) && sameStringSet(a.worsened, b.worsened);
+}
+
+/**
+ * Evaluate a post-apply data-quality regression for an EXISTING published show and raise /
+ * keep-open (payload-gated no-op) / resolve the per-show RESYNC_QUALITY_REGRESSED alert.
+ * Called from the applied epilogue with the PRE-apply `priorShow` snapshot.
+ */
+export async function evaluateQualityRegression_unlocked(args: {
+  tx: Pick<SyncPipelineTx, "queryOne">;
+  deps: ProcessOneFileDeps;
+  driveFileId: string;
+  showId: string | null | undefined;
+  priorParseWarningsRaw: ParseResult["warnings"] | null;
+  nextWarnings: ParseResult["warnings"];
+  sheetName: string;
+}): Promise<void> {
+  const { tx, deps, driveFileId, showId, priorParseWarningsRaw, nextWarnings, sheetName } = args;
+  if (!showId || priorParseWarningsRaw === null) return; // §6.5 record-and-skip / not published
+
+  const prior = summarizeDataGaps(priorParseWarningsRaw);
+  const current = summarizeDataGaps(nextWarnings);
+
+  // live-partition:live-only — reads/raises the live per-show regression alert; reachable only
+  // from the cron applied epilogue (+ first-seen retry no-op), never from a wizard/core apply.
+  const open = await tx.queryOne<{ context: Record<string, unknown> } | undefined>(
+    `select context from public.admin_alerts
+      where show_id = $1::uuid and code = 'RESYNC_QUALITY_REGRESSED' and resolved_at is null`,
+    [showId],
+  );
+
+  // Decide the terminal action; funnel BOTH raise paths through ONE upsert call so the
+  // show-scoping raise-site pin (_metaAlertActionsContract) matches exactly once.
+  let context: Record<string, unknown> | null = null;
+
+  if (!open) {
+    if (!isQualityRegression(prior, current)) return; // no regression, no open alert → nothing to do
+    context = {
+      drive_file_id: driveFileId,
+      sheet_name: sheetName,
+      ...buildRegressionPayload(prior, current),
+      baseline: prior, // pre-regression anchor
+    };
+  } else {
+    const baseline = open.context.baseline as DataGapsSummary;
+    if (hasRecoveredToBaseline(baseline, current)) {
+      await resolveQualityRegression_unlocked(tx, showId); // full per-class recovery → resolve
+      return;
+    }
+    // keep open — payload-gated no-op (§6.4a): skip the upsert when nothing material changed.
+    const nextPayload = buildRegressionPayload(baseline, current);
+    const storedPayload: QualityRegressionPayload = {
+      breakdown: (open.context.breakdown as Record<string, number>) ?? {},
+      new_classes: (open.context.new_classes as string[]) ?? [],
+      worsened: (open.context.worsened as string[]) ?? [],
+    };
+    // The no-op ALSO requires the displayed identity fields (sheet_name, drive_file_id) to be
+    // unchanged — otherwise a pure rename would leave the Bell/per-show copy pointing at the stale
+    // name forever (Codex whole-diff R1). A rename re-upserts once (one re-ping), refreshing the copy.
+    const identityUnchanged =
+      open.context.sheet_name === sheetName && open.context.drive_file_id === driveFileId;
+    if (payloadEqual(nextPayload, storedPayload) && identityUnchanged) return; // no bump, no re-ping
+    context = { drive_file_id: driveFileId, sheet_name: sheetName, ...nextPayload, baseline }; // baseline preserved
+  }
+
+  // Single show-scoped raise site (open OR materially-changed keep-open). `showId` is guarded
+  // non-null above; the `showId,` shorthand is pinned by _metaAlertActionsContract RAISE_SITE_PINS
+  // so a `showId: null` regression fails the pin (per-show row must not collapse into a global one).
+  const upsertAdminAlert = requireTxBoundUpsertAdminAlert(deps, "evaluateQualityRegression");
+  await upsertAdminAlert({
+    showId,
+    code: "RESYNC_QUALITY_REGRESSED",
+    context,
+  });
 }
 
 export type ProcessOneFileResult =
@@ -692,6 +839,9 @@ class PostgresPipelineTx implements SyncPipelineTx {
         warnings: internal?.parse_warnings ?? [],
         hardErrors: [],
       },
+      // §6.5: RAW nullable prior warnings — null when the column is NULL OR no shows_internal row
+      // (untrustworthy baseline → Unit C skips). NOT coalesced to [] like `warnings` above.
+      priorParseWarningsRaw: internal?.parse_warnings ?? null,
     };
   }
 
@@ -2916,6 +3066,13 @@ export async function processOneFile_unlocked(
     ? (showId: string) =>
         makeSnapshotAssetsForApply(showId, tx as Parameters<typeof makeSnapshotAssetsForApply>[1])
     : undefined;
+  // Unit C (audit #16) + notableItems share ONE pre-apply read (captured BEFORE phase2 overwrites
+  // shows_internal.parse_warnings). Only existing shows (pass / auto_apply_with_holds) have a prior;
+  // a first-seen show ('auto_publish_ready') has no prior, so both consumers correctly skip.
+  const priorShow =
+    phase1.outcome === "pass" || phase1.outcome === "auto_apply_with_holds"
+      ? await tx.readShowForPhase1(driveFileId)
+      : null;
   // Task 2.9: derive the notable changes (renames, section shrink, field changes, asset drift) for
   // the auto-apply show_change_log feed rows. Only an EXISTING show (phase1 'pass' or
   // 'auto_apply_with_holds') has a prior to diff against; a first-seen show ('auto_publish_ready')
@@ -2923,7 +3080,6 @@ export async function processOneFile_unlocked(
   const notableItems: TriggeredReviewItem[] =
     phase1.outcome === "pass" || phase1.outcome === "auto_apply_with_holds"
       ? await (async () => {
-          const priorShow = await tx.readShowForPhase1(driveFileId);
           if (!priorShow) return [];
           // Defensive: runInvariants is pure but a degraded/minimal parseResult could throw; the
           // change-log is best-effort and must never fail the sync. Production parses always carry
@@ -3022,6 +3178,24 @@ export async function processOneFile_unlocked(
     fileMeta,
     parseResult: pipeline.parseResult,
     autoPublishFirstSeen,
+  });
+  // Unit C (audit #16): evaluate post-apply data-quality regression against the PRE-apply snapshot.
+  // priorShow was captured before runPhase2_unlocked persisted the new warnings, so
+  // priorParseWarningsRaw is the prior last-good baseline (NOT the just-applied warnings). First-seen
+  // (priorShow === null) → producer skips. C is NOT in SYNC_PROBLEM_CODES, so the sweep below never
+  // touches it. Post-commit? No — this runs pre-commit inside the show lock like the tail; the alert
+  // upsert is tx-bound (invariant 10's post-commit rule is for the crew/admin outcome channel).
+  await evaluateQualityRegression_unlocked({
+    tx,
+    deps: {
+      ...txDeps,
+      upsertAdminAlert: requireTxBoundUpsertAdminAlert(txDeps, "evaluateQualityRegression"),
+    },
+    driveFileId,
+    showId: result.showId,
+    priorParseWarningsRaw: priorShow?.priorParseWarningsRaw ?? null,
+    nextWarnings: pipeline.parseResult.warnings,
+    sheetName: pipeline.parseResult.show.title,
   });
   await resolveStaleSyncProblemAlerts_unlocked(tx, result.showId, null);
   return result;
@@ -3146,7 +3320,9 @@ export async function runScheduledCronSync(
 
     const folderId = folderResult.folderId;
     resolvedFolderId = folderId;
-    const listFolder = deps.listFolder ?? listDriveFolder;
+    const listFolder =
+      deps.listFolder ??
+      ((id: string) => listDriveFolder(id, { onWarning: emitUnexpectedParentWarning }));
     const runOne = deps.processOneFile ?? processOneFile;
     const processDeps = deps.logSync ? { logSync: deps.logSync } : undefined;
     setPhase("list-folder");

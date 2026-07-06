@@ -78,6 +78,8 @@ const AUTO_RESOLVE_NOTES: Record<string, string> = {
     "Clears automatically the next time the branch-protection monitor verifies the settings match the contract.",
   BRANCH_PROTECTION_MONITOR_AUTH_FAILED:
     "Clears automatically the next time the branch-protection monitor authenticates successfully.",
+  RESYNC_QUALITY_REGRESSED:
+    "Clears automatically once the sheet's data quality recovers — fix the sheet to resolve it.",
 };
 
 /**

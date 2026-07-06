@@ -26,6 +26,7 @@ export const ADMIN_ALERTS_CODES = [
   "PARSE_ERROR_LAST_GOOD", //         B3 cron parse_error recovery
   "SHEET_UNAVAILABLE", //             M6 cron/fetch source missing recovery
   "RESYNC_SHRINK_HELD", //            re-sync quality gate: material shrinkage held
+  "RESYNC_QUALITY_REGRESSED", //      re-sync quality gate: data-quality regression
   "SYNC_STALLED", //                  B3 global sync heartbeat detector
   "EMAIL_DELIVERY_FAILED", //         B3 delivery loop provider-failure producer
   "EMAIL_NOT_CONFIGURED", //          B3 email config reconciliation producer

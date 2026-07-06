@@ -100,6 +100,36 @@ export function summarizeDataGaps(
 }
 
 /**
+ * OPENER dual-gate (spec §6.3): does `next` represent a materially worse parse than `prior`?
+ * Fires when EITHER a new gap class appears (0→>0, no magnitude gate) OR an existing class
+ * worsens by >=5 absolute AND >=50% relative. Never compares `.total` (show-intrinsic).
+ */
+export function isQualityRegression(prior: DataGapsSummary, next: DataGapsSummary): boolean {
+  for (const { code } of GAP_CLASSES) {
+    const p = prior.classes[code];
+    const n = next.classes[code];
+    if (p === 0 && n > 0) return true; // rule 1: new class
+    if (p > 0 && n - p >= 5 && n >= p * 1.5) return true; // rule 2: +5 abs AND +50% rel
+  }
+  return false;
+}
+
+/**
+ * RECOVERY predicate (spec §6.4, round-10) — deliberately NOT the negation of the opener.
+ * True iff EVERY gap class is at-or-below its baseline count (no class exceeds baseline,
+ * no new class present). Asymmetric hysteresis: open on a real jump, close only on full recovery.
+ */
+export function hasRecoveredToBaseline(
+  baseline: DataGapsSummary,
+  current: DataGapsSummary,
+): boolean {
+  for (const { code } of GAP_CLASSES) {
+    if (current.classes[code] > baseline.classes[code]) return false;
+  }
+  return true;
+}
+
+/**
  * Human, operator-facing label for each data-quality class — used by the
  * per-class detail rendered on the Step-3 card and the per-show panel. These
  * are PLAIN-LANGUAGE labels, never the raw code

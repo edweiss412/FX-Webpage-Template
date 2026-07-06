@@ -143,6 +143,10 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
     path: "lib/sync/runScheduledCronSync.ts",
     pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"RESYNC_SHRINK_HELD"/,
   },
+  RESYNC_QUALITY_REGRESSED: {
+    path: "lib/sync/runScheduledCronSync.ts",
+    pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"RESYNC_QUALITY_REGRESSED"/,
+  },
   SYNC_STALLED: {
     path: "lib/notify/detect/stall.ts",
     pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"SYNC_STALLED"/,
@@ -261,12 +265,12 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
  *   - "deferred": STATE-shaped but out of scope this spec (BACKLOG).
  *
  * Counts (spec §3, incl. alert-resolve-truthing §6 + re-sync quality gate): 7 precedent AUTO +
- * 14 NEW + GITHUB_BOT_LOGIN_MISSING + RESYNC_SHRINK_HELD + 2 BRANCH_PROTECTION
- * (bell-notification-center §9.3) = 25 "auto"; 17 "event-manual" (spec's
+ * 14 NEW + GITHUB_BOT_LOGIN_MISSING + RESYNC_SHRINK_HELD + RESYNC_QUALITY_REGRESSED
+ * + 2 BRANCH_PROTECTION (bell-notification-center §9.3) = 26 "auto"; 17 "event-manual" (spec's
  * 18 EVENT rows minus TILE_SERVER_RENDER_FAILED, which the registry splits into its own
  * "state-manual-justified" class); 1 "state-manual-justified"; 0 "deferred" (BRANCH_PROTECTION_*
  * promoted by bell-notification-center §9.3).
- * 25 + 17 + 1 + 0 = 43, matching ADMIN_ALERTS_CODES.length.
+ * 26 + 17 + 1 + 0 = 44, matching ADMIN_ALERTS_CODES.length.
  */
 type ResolveSite = { file: string; pattern: RegExp };
 type Lifecycle =
@@ -310,6 +314,15 @@ const ADMIN_ALERTS_LIFECYCLE: Record<(typeof ADMIN_ALERTS_CODES)[number], Lifecy
       {
         file: "lib/sync/runScheduledCronSync.ts",
         pattern: /resolveStaleSyncProblemAlerts_unlocked/,
+      },
+    ],
+  },
+  RESYNC_QUALITY_REGRESSED: {
+    class: "auto",
+    resolveSites: [
+      {
+        file: "lib/sync/runScheduledCronSync.ts",
+        pattern: /resolveQualityRegression_unlocked/,
       },
     ],
   },
@@ -549,6 +562,7 @@ describe("META admin_alerts catalog contract", () => {
     "PARSE_ERROR_LAST_GOOD", //      lib/sync/runScheduledCronSync.ts supplies sheet_name
     "SHEET_UNAVAILABLE", //         lib/sync/runScheduledCronSync.ts + runManualSyncForShow.ts supply sheet_name
     "RESYNC_SHRINK_HELD", //        lib/sync/runScheduledCronSync.ts supplies sheet_name
+    "RESYNC_QUALITY_REGRESSED", //  lib/sync/runScheduledCronSync.ts supplies sheet_name
     "SHOW_FIRST_PUBLISHED", //      lib/sync/runScheduledCronSync.ts supplies sheet_name / crew_count / show_date
     "SHOW_UNPUBLISHED", //          lib/sync/unpublishShow.ts supplies sheet_name
     "TILE_SERVER_RENDER_FAILED", // components/shared/TileServerFallback.tsx supplies sheet_name
@@ -660,11 +674,12 @@ describe("META admin_alerts catalog contract", () => {
     ).filter((code) => ADMIN_ALERTS_LIFECYCLE[code].class === "auto");
 
     // Counts cross-check spec §3: 7 precedent AUTO + 14 NEW + GITHUB_BOT_LOGIN_MISSING +
-    // RESYNC_SHRINK_HELD + 2 BRANCH_PROTECTION (bell-notification-center §9.3) = 25 auto codes.
+    // RESYNC_SHRINK_HELD + RESYNC_QUALITY_REGRESSED + 2 BRANCH_PROTECTION
+    // (bell-notification-center §9.3) = 26 auto codes.
     expect(
       autoCodes.length,
-      "spec §3 + bell-notification-center §9.3 pins 25 auto codes (7 precedent AUTO + 14 NEW + GITHUB_BOT_LOGIN_MISSING + RESYNC_SHRINK_HELD + 2 BRANCH_PROTECTION)",
-    ).toBe(25);
+      "spec §3 + bell-notification-center §9.3 pins 26 auto codes (7 precedent AUTO + 14 NEW + GITHUB_BOT_LOGIN_MISSING + RESYNC_SHRINK_HELD + RESYNC_QUALITY_REGRESSED + 2 BRANCH_PROTECTION)",
+    ).toBe(26);
 
     for (const code of autoCodes) {
       const lifecycle = ADMIN_ALERTS_LIFECYCLE[code];

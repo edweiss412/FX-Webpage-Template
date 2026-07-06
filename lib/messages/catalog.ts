@@ -168,6 +168,22 @@ export const MESSAGE_CATALOG = {
       "The latest version of this sheet would have removed crew or a whole section relative to the previous version. Rather than clobber live data, we held the update and kept the last good version serving crew. Re-sync and confirm to accept the reduction, or fix the sheet; a clean sync clears this on its own.",
     helpHref: "/help/errors#RESYNC_SHRINK_HELD",
   },
+  RESYNC_QUALITY_REGRESSED: {
+    code: "RESYNC_QUALITY_REGRESSED",
+    resolution: "auto",
+    audience: "doug",
+    // NO adminSurface → banner (spec §6.1): feed-visible in the Bell center, not inbox-routed.
+    dougFacing:
+      "_<sheet-name>_'s latest edit lost some data quality — one or more fields or sections that used to read no longer do. The update is already live; open the parse panel to see what degraded and fix the sheet.",
+    crewFacing: null,
+    followUp: "Doug → check parse panel, fix sheet",
+    helpfulContext:
+      "A recent edit to the sheet parsed and went live, but more fields or sections failed to read than before. Crew see the applied data; nothing is held. Open the per-show parse panel to see which classes degraded, fix the sheet, and the next sync clears this automatically once quality recovers.",
+    title: "Latest edit lost data quality",
+    longExplanation:
+      "The latest sync applied but read fewer fields or sections than the previous version — a data-quality regression, not a hard failure. The update is already live for crew. Open the parse panel to see what degraded, fix the sheet, and a recovered sync clears this on its own.",
+    helpHref: "/help/errors#RESYNC_QUALITY_REGRESSED",
+  },
   STALE_WRITE_ABORTED: {
     code: "STALE_WRITE_ABORTED",
     dougFacing: null,
