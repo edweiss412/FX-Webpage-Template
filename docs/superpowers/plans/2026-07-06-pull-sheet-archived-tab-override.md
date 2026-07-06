@@ -47,7 +47,7 @@ Next.js 16, React 19, TypeScript (strict), Supabase Postgres (postgres.js `tx.un
 - **I2 — Reviewed = all of it.** The admin is shown *every* emitted region's header (`headerPreviews[]`). A hash never substitutes for reviewable content.
 - **I3 — Accept pins only reviewed content.** Accept is compare-and-set: server fresh-detect must equal the persisted `expectedFingerprint` the admin reviewed; any drift between render and click → reject + re-prompt.
 - **I4 — Publish gate uses the desired override.** At finalize under the `show:` lock, `applied` must equal `overrideSnapshot(desired)` — Flow A the live `pending_syncs` override, Flow B the payload-carried override; never the stale durable `shows` value.
-- **I5 — No stale parse is ever staged OR applied.** Guards under the `show:` lock: (a) override-**row** drift vs the pre-lock snapshot → refuse-and-retry; (b) sheet-**content** drift under an unchanged override → discard-and-rerun, clear override, empty `pullSheet` with `applied=null`; (c) deferred-apply snapshot gate at apply for ALL three stage-then-apply paths — Flow A/B wizard + Flow C live cron. A changed/mismatched OLD tab never yields a staged OR applied `pullSheet`.
+- **I5 — No stale parse is ever staged OR applied.** Guards under the `show:` lock: (a) override-**row** drift vs the pre-lock snapshot → refuse-and-retry; (b) sheet-**content** drift under an unchanged override → discard-and-rerun: clear override, **re-parse WITHOUT inclusion and stage THAT** (drops only the changed OLD-tab gear, **preserves any current non-OLD pull sheet** — plan-R4/R5; NOT force-emptied), `applied=null`; (c) deferred-apply snapshot gate at apply for ALL three stage-then-apply paths — Flow A/B wizard + Flow C live cron. A changed/mismatched **OLD-tab** gear never yields a staged OR applied `pullSheet` (current non-OLD gear is untouched).
 - **I6 — Durable on both flows.** The accepted override reaches `shows.pull_sheet_override` on Flow A and Flow B; cron reads it so accepted gear survives and revoked gear stays gone.
 - **I7 — Write surface is locked down.** `set_pull_sheet_override` is service-role-only + in-RPC session-guarded; direct PostgREST callers cannot set/clear overrides.
 
@@ -621,10 +621,12 @@ Run → **FAILS** (helper absent).
 
 ### Step 6.2 — Impl helper + wire into scan/cron/apply
 
+- **Single-source discard-and-rerun (structural defense, plan-R4/R5/R6 vector).** The "content_changed/tab_missing → clear override + re-parse WITHOUT inclusion (drops OLD gear, PRESERVES current non-OLD pull sheet) + `_applied=null`" contract is IDENTICAL across all three consumers — `runOnboardingScan`, `rescanWizardSheet`, `runScheduledCronSync`. Implement it ONCE as a shared `pullSheetOverride.ts` helper (e.g. `discardAndRerun({ reparseNoOverride, clearOverride, emit })`) that every path calls, so no path can drift back to force-emptying `pullSheet`. Three same-vector adversarial rounds (empty-vs-preserve) landed on exactly this class; the shared helper closes it structurally.
 - `pullSheetOverride.ts`: implement the three functions. `emitArchivedTabWarnings` produces the `ParseWarning` shape from §5.2 (`blockRef.kind = "pull_sheet_archived_tab"`, `rawSnippet = headerPreviews.join(" | ")`). `reconcileIncludedTab`: `null` override → `no_override`; else find the tab whose `tabName === override.tabName` — absent → `tab_missing`; present and `fingerprint === override.fingerprint` → `match`; present and differs → `content_changed`. **`tab_missing` is handled identically to `content_changed`** (Codex plan-R2-1): clear the override, no stale `pullSheet` staged, `_applied = null`, but since there is no server-side tab to re-review, emit `PULL_SHEET_OVERRIDE_CONTENT_CHANGED` and render **S1** (no offer) rather than S4 — the archived tab is simply gone.
 - **`runOnboardingScan.ts`:** before calling the fetch helper, read the row's `pull_sheet_override` (destructure `{ data, error }` — invariant 9). Pass `includePullSheetFromTab: override?.tabName`. After parse: push `emitArchivedTabWarnings(...)` into `parse_result.warnings`; set `parse_result.archivedPullSheetTabs = tabs`. If `reconcileIncludedTab` returns `content_changed` **or `tab_missing`** → run the **discard-and-rerun** (5.2, I5b): under the `show:` lock (see Task 7 for the lock reconciliation) clear the override (`update ... set pull_sheet_override = null`), emit `PULL_SHEET_OVERRIDE_CONTENT_CHANGED` (forensic), **re-parse WITHOUT `includePullSheetFromTab`, and stage THAT no-override parse result** with `pull_sheet_override_applied = null`. The no-override re-parse **preserves any current non-OLD pull sheet and drops only the OLD-tab gear** (Codex plan-R4-1) — do NOT force `pullSheet = []`. `parse_result.pullSheet` is empty ONLY when the workbook has no non-OLD pull sheet; a valid current pull sheet on a normal tab survives. For `content_changed`, set the changed tab's entry `contentChangedSinceAccept = true` with the NEW previews/fingerprint (S4). For `tab_missing`, there is no server-side tab → no offer entry → S1 (Codex plan-R2-1). Do NOT persist `overrideSnapshot(override-as-of-lock)` in this branch: the override just mismatched and was cleared, so writing `applied = A` while desired is now `null` would leave finalize permanently blocked after a *safety* clear. `_applied = null` matches the no-override parse actually staged, so `overrideSnapshot(null) === applied` → the row finalizes as a plain no-pull-sheet show.
   For the **non-mismatch** staging paths (normal re-scan, accept-included, no-override), persist `pull_sheet_override_applied = overrideSnapshot(override-as-of-lock)` **atomically with the `parse_result` INSERT** (`:421-443` — add both columns to the upsert column list + `excluded.` set-clause). Only the content-changed branch overrides this to `null`.
-- **`runScheduledCronSync.ts`:** cron reads `shows.pull_sheet_override`, threads `includePullSheetFromTab`, and runs the SAME `reconcileIncludedTab` on its returned tabs. On `content_changed`/`tab_missing` for a **published** show, cron clears the **durable** `shows.pull_sheet_override` (`update public.shows set pull_sheet_override = null where drive_file_id = ...` under the `show:` lock), emits `PULL_SHEET_OVERRIDE_CONTENT_CHANGED`, applies NO changed gear (empty pullSheet), and the next parse runs with no override (Codex plan-R2-2 — the onboarding branch clears `pending_syncs`; the durable post-publish clear happens HERE or the live path stays sticky on a stale fingerprint). `upsertLivePendingSync` (`:933`) writes `pull_sheet_override_applied` with its staged parse (Task 10 covers the Flow C apply gate). Step 6.4 adds the cron test.
+- **`rescanWizardSheet.ts` (Codex plan-R6-1 — the accept/revoke/stale-refresh re-scan path, `lib/onboarding/rescanWizardSheet.ts:91`):** this is a SEPARATE scan path from `runOnboardingScan` — it builds `prepared.parseResult` via `prepareOnboardingFiles` → the `fetchSheetMarkdownWithBinding` helper (`fetch.ts:562`, exporter at `:614`), NOT `runOnboardingScan`. It is what the accept route (Task 8 step 5) and the CAS-mismatch refresh (Task 8 step 3, spec §5.4) trigger. It MUST apply the SAME override wiring: (a) before the Drive read, load the row's `pull_sheet_override` and thread `includePullSheetFromTab: override?.tabName` into `prepareOnboardingFiles`/the fetch helper; (b) attach the exporter's returned `archivedPullSheetTabs` onto the persisted `parse_result` envelope (`refreshedParse`) — the same first-class field `runOnboardingScan` writes, so the step-3 preview carries it after a rescan; (c) run `reconcileIncludedTab` under the `show:` lock it already holds (`:80`), and on `content_changed`/`tab_missing` run the identical discard-and-rerun (clear override, re-parse WITHOUT inclusion preserving current non-OLD gear, `_applied = null`, set `contentChangedSinceAccept`), and on the non-mismatch paths persist `pull_sheet_override_applied = overrideSnapshot(override-as-of-lock)`. Without this, accept re-scans, the CAS-refresh (R5-1), and drift-produces-S4 all fail because `rescanWizardSheet` would persist a preview with no `archivedPullSheetTabs`/stale fingerprint.
+- **`runScheduledCronSync.ts`:** cron reads `shows.pull_sheet_override`, threads `includePullSheetFromTab`, and runs the SAME `reconcileIncludedTab` on its returned tabs. On `content_changed`/`tab_missing` for a **published** show, cron clears the **durable** `shows.pull_sheet_override` (`update public.shows set pull_sheet_override = null where drive_file_id = ...` under the `show:` lock), emits `PULL_SHEET_OVERRIDE_CONTENT_CHANGED`, and applies the **no-override re-parse** — the changed OLD-tab gear is absent but any current non-OLD pull sheet is preserved (plan-R4/R5/R6; NOT force-emptied — same contract as the onboarding branch), and the next parse runs with no override (Codex plan-R2-2 — the onboarding branch clears `pending_syncs`; the durable post-publish clear happens HERE or the live path stays sticky on a stale fingerprint). `upsertLivePendingSync` (`:933`) writes `pull_sheet_override_applied` with its staged parse (Task 10 covers the Flow C apply gate). Step 6.4 adds the cron test.
 - **`applyStaged.ts`:** read paths surface the new columns (additive `select`).
 
 ### Step 6.3 — Failing content-changed integration test (staged DB/envelope outcome)
@@ -676,7 +678,34 @@ it("cron: override tab deleted/renamed server-side (tab_missing) => durable over
 
 Run → **FAILS**, then after Step 6.2 cron wiring → **PASSES**. Concrete failure mode: a published show staying sticky on a stale fingerprint after the archived tab changed/vanished.
 
-Run Step 6.1 + 6.3 + 6.4 + `pnpm vitest run tests/sync` → **PASSES**. Commit: `feat(sync): override read, archived-tab warnings, content-change discard-and-rerun, applied-snapshot write`
+### Step 6.5 — Failing `rescanWizardSheet` persistence tests (the accept/refresh re-scan path, Codex plan-R6-1)
+
+`rescanWizardSheet` is a distinct scan path (`prepareOnboardingFiles` → `prepared.parseResult`, exporter at `fetch.ts:614`) — not `runOnboardingScan`. Accept (Task 8 step 5) and the CAS-mismatch refresh (Task 8 step 3 / spec §5.4 R5-1) both trigger it, so it MUST detect + persist archived-tab data or those paths silently break. Tests against a stubbed rescan tx (records the persisted `refreshedParse` + row writes):
+
+```ts
+it("rescanWizardSheet: normal rescan persists parse_result.archivedPullSheetTabs (detection wired into THIS path too)", async () => {
+  const { persisted } = await rescanWizardSheetForOne({ /* override null; OLD tab present */ });
+  expect(persisted.parse_result.archivedPullSheetTabs).toEqual([
+    expect.objectContaining({ tabName: "OLD PULL SHEET", fingerprint: expect.any(String), included: false }),
+  ]);
+});
+it("rescanWizardSheet: override active + matching fingerprint => re-scans WITH inclusion (pr.pullSheet populated from OLD tab)", async () => {
+  const { persisted } = await rescanWizardSheetForOne({ /* override {tabName:'OLD PULL SHEET', fingerprint:'ff'}; tab still 'ff' */ });
+  expect(persisted.parse_result.pullSheet.flatMap((c) => c.items).some((i) => i.item === "Shure SM58")).toBe(true);
+  expect(persisted.pull_sheet_override_applied).toEqual({ tabName: "OLD PULL SHEET", fingerprint: "ff" });
+});
+it("rescanWizardSheet: override active + drifted fingerprint => discard-and-rerun (override cleared, S4 flag, _applied=null, current gear preserved)", async () => {
+  const { persisted } = await rescanWizardSheetForOne({ /* override 'ff'; tab now 'ee'; also a current non-OLD pull sheet */ });
+  expect(persisted.pull_sheet_override).toBeNull();
+  expect(persisted.pull_sheet_override_applied).toBeNull();
+  expect(persisted.parse_result.archivedPullSheetTabs.find((t) => t.tabName === "OLD PULL SHEET")?.contentChangedSinceAccept).toBe(true);
+  expect(persisted.parse_result.pullSheet.flatMap((c) => c.items).map((i) => i.item)).toContain("Current DI Box"); // R4/R5 preserve current
+});
+```
+
+Run → **FAILS** (rescan path unwired), then after Step 6.2 `rescanWizardSheet` wiring → **PASSES**. Concrete failure mode caught: accept/stale-refresh triggering a re-scan that persists a preview with NO `archivedPullSheetTabs` (breaking S2/S4 + the R5-1 dead-loop fix) — the exact gap R6-1 flagged.
+
+Run Step 6.1 + 6.3 + 6.4 + 6.5 + `pnpm vitest run tests/sync tests/onboarding` → **PASSES**. Commit: `feat(sync): override read, archived-tab warnings, content-change discard-and-rerun, applied-snapshot write (scan + rescan paths)`
 
 ---
 
@@ -1028,7 +1057,7 @@ Commit: `chore(db): regen schema manifest + apply pull_sheet_override migration 
 | 4 Fingerprint stability + snapshot subset compare | 2, 11 | I1, I3, I4 |
 | 5 Override read/include | 6 | I5 |
 | 5b Multi-block pin / 5c accepted-tab metadata / 5d multi-case preview | 2, 6 | I1, I2, I5 |
-| 6 Content-change discard-and-rerun (empty staged pullSheet) | 6 | I5(b) |
+| 6 Content-change discard-and-rerun (no-override re-parse: OLD gear dropped, current non-OLD gear preserved) | 6 | I5(b) |
 | 7 Publish propagation both flows | 9 | I6 |
 | 8 Advisory lock + locked snapshot | 7, 8 | I5(a), I7 |
 | 8b RPC grant/auth | 1, 8 | I7 |
@@ -1040,6 +1069,7 @@ Commit: `chore(db): regen schema manifest + apply pull_sheet_override migration 
 | 11 DataQualityBadge (fail-first, folded) | 4 | — |
 | tab_missing reconcile (renamed/deleted override tab) | 6 | I5, §6 |
 | durable cron content-drift auto-clear | 6 | I5, I6 |
+| rescanWizardSheet path persists archivedPullSheetTabs + inclusion/drift (accept/refresh path) | 6 (6.5) | I2, I3, I5 |
 | PostgREST DML lockdown on host tables | 1 | I7 |
 
 Every I1–I7 invariant and every §15 test has a home. No orphan tests; no orphan tasks.
