@@ -44,8 +44,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import Link from "next/link";
-import { AlertTriangle, Check, ChevronRight, ExternalLink, X } from "lucide-react";
+import { AlertTriangle, Check, ExternalLink, X } from "lucide-react";
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import {
@@ -1310,23 +1309,20 @@ export function Step3ReviewModal({
           ) : /* §11 T10: instant — deliberate (footer swaps on isDirtyRescan/props change; server truth) */
           isDirtyRescan ? (
             /* Dirty re-scan (spec §9.2): the plain publish approve cannot clear
-               RESCAN_REVIEW_REQUIRED, so BOTH the publish and re-scan buttons
-               are suppressed; the operator routes through the reapply page
-               (same copy/target as the card's RescanReviewBanner). */
-            <>
-              <span className="flex min-w-0 items-start gap-2 text-sm font-medium text-warning-text">
-                <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-                This sheet changed since you reviewed it. Review it before publishing.
-              </span>
-              <Link
-                data-testid={`wizard-step3-card-${dfid}-review-reapply`}
-                href={`/admin/onboarding/staged/${wizardSessionId}/${dfid}`}
-                className="inline-flex min-h-tap-min items-center gap-1 text-sm font-medium text-text-strong underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-              >
-                Review this sheet
-                <ChevronRight aria-hidden="true" className="size-4" />
-              </Link>
-            </>
+               RESCAN_REVIEW_REQUIRED, so BOTH the publish and re-scan buttons are
+               suppressed. Step-3 consolidation (spec §4.6): the standalone reapply
+               page is retired — resolution now happens IN this modal via the
+               resolution footer (the `resolution ?` branch above), which a dirty
+               row always receives. This context-only fallback (no link-out) covers
+               the read-only-preview edge where no resolution handlers were passed. */
+            <span
+              data-testid={`wizard-step3-card-${dfid}-review-reapply`}
+              className="flex min-w-0 items-start gap-2 text-sm font-medium text-warning-text"
+            >
+              <AlertTriangle aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+              This sheet changed since you reviewed it. Reopen it from Review to resolve it before
+              publishing.
+            </span>
           ) : isFinalizeDemoted ? (
             /* §11: instant — deliberate (demoted slot follows server truth;
                spec §C2). Non-rescan finalize demotion (spec §C3): the row

@@ -184,11 +184,9 @@ const infraRegistry = [
     path: "app/admin/show/staged/[stagedId]/page.tsx",
     contract: "pending_syncs + shows lookup await throws → infra_error",
   },
-  {
-    helper: "fetchWizardStagedRow",
-    path: "app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/page.tsx",
-    contract: "pending_syncs await throws → infra_error",
-  },
+  // fetchWizardStagedRow (app/admin/onboarding/staged/.../page.tsx) was retired
+  // with the standalone staged page (spec §4.6). Its Supabase read boundary no
+  // longer exists; the staged *API* routes remain their own registered surfaces.
   {
     helper: "readFinalizeCheckpoint",
     path: "app/admin/_finalizeCheckpoint.ts",
@@ -943,30 +941,7 @@ describe("META §B Supabase call-boundary contract", () => {
     });
   });
 
-  describe("fetchWizardStagedRow", () => {
-    test("server-client construction throw → typed infra_error", async () => {
-      infraMock.throwOnConstruct = true;
-      const { fetchWizardStagedRow } =
-        await import("@/app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/page");
-      const result = await fetchWizardStagedRow(
-        "00000000-0000-0000-0000-000000000001",
-        "drive-file-1",
-      );
-      expect(result).toMatchObject({ kind: "infra_error" });
-    });
-
-    test("from() throw → typed infra_error", async () => {
-      infraMock.throwOnFrom = true;
-      const { fetchWizardStagedRow } =
-        await import("@/app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/page");
-      const result = await fetchWizardStagedRow(
-        "00000000-0000-0000-0000-000000000001",
-        "drive-file-1",
-      );
-      expect(result).toMatchObject({ kind: "infra_error" });
-      expect((result as { kind: string; message: string }).message).toMatch(/threw/);
-    });
-  });
+  // fetchWizardStagedRow behavioral pins removed — staged page retired (spec §4.6).
 
   describe("readFinalizeCheckpoint", () => {
     test("server-client construction throw → typed infra_error", async () => {

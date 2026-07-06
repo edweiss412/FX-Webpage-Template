@@ -57,10 +57,9 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   // wizard dispatcher at /admin; admin-gated by app/admin/layout.tsx like
   // every sibling (no sinks of its own).
   { path: "app/admin/onboarding/page.tsx", chain: ["requireAdmin"] },
-  {
-    path: "app/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/page.tsx",
-    chain: ["requireAdmin"],
-  },
+  // The standalone /admin/onboarding/staged/[session]/[file] page was retired
+  // (spec §4.6) — folded into the unified Step-3 surface; its URL 307s to /admin.
+  // The staged *API* routes (apply/discard/approve/unapprove, below) remain.
   { path: "app/api/asset/agenda/[show]/[id]/route.ts", chain: "auth-library-exception" },
   { path: "app/api/asset/diagram/[show]/[rev]/[key]/route.ts", chain: "auth-library-exception" },
   { path: "app/api/asset/reel/[show]/route.ts", chain: "auth-library-exception" },
