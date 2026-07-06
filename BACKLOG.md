@@ -242,3 +242,13 @@ Filed alongside AGENTS.md plan-wide invariant #10 (mutation-surface observabilit
 **Status:** OPEN · **Severity:** low · **Class:** TEST COVERAGE
 
 `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER` (`tests/log/mutationSurface/exemptions.ts`) freezes 30 pre-existing admin surface units — 24 admin route `POST`s + 6 pre-existing admin action functions — that already emitted a success outcome at `origin/main` HEAD but do not yet carry the new **executable** sink-spy success-branch proof in `tests/log/adminOutcomeBehavior.test.ts` (they are registry-verified only). The invariant-#10 behavioral-coverage assertion already forces EVERY new/non-grandfathered admin surface to ship a proof; this entry is to backfill the frozen 30 so the grandfather set can shrink to zero. **Fix (when prioritized):** add a sink-spy behavioral case per grandfather entry (drive its committed-success branch, assert the code is observed, `recordAdminOutcomeBehavior`), then remove the entry from the baseline (the coverage test's `.length === 30` pin drops as each lands). No production change — proofs only.
+
+---
+
+## Test-safety hardening (2026-07-05)
+
+### BL-DBTEST-LOOPBACK-EVAL-GUARD — retrofit module-eval loopback guard onto pre-existing db tests
+
+**Status:** OPEN · **Severity:** low · **Class:** TEST SAFETY
+
+The finalize-resume-deadlock whole-diff R1 review surfaced (and fixed, for the 3 suites in that diff) a latent pattern shared by ~20 pre-existing `tests/onboarding/*.db.test.ts` files: `LOCAL_URL = process.env.LOCAL_TEST_DATABASE_URL ?? <loopback default>` is consumed by a probe `beforeAll` that opens `postgres(LOCAL_URL)` and sets `dbUp = true` BEFORE the loopback assertion (`expect(LOCAL_URL).toMatch(/127…/)`) runs in a later `beforeAll`. If `LOCAL_TEST_DATABASE_URL` is mispointed to a remote host (`TEST_DATABASE_URL` is the validation project), the probe connects remote and `dbUp` flips true; even when the later assertion throws, `afterAll`'s `if (dbUp)` teardown still issues DELETE/UPDATE against the remote. The default is loopback so this only bites on an explicit remote override, hence low severity. **Fix (when prioritized):** wrap each file's `LOCAL_URL` in `assertLocalDbUrl(...)` from `tests/db/_remediationHelpers.ts` (synchronous module-eval throw on non-loopback host, before any handle) — the proven pattern in `cleanupReapCrossSession.db.test.ts` + 7 others and now the 3 finalize-resume-deadlock suites. Consider a structural meta-test that fails any `*.db.test.ts` opening `postgres(...)` on a URL not passed through `assertLocalDbUrl`.
