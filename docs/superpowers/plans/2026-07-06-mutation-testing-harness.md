@@ -1679,12 +1679,19 @@ describe("coverage floor + COUNT-level audit agreement (Codex R5/R9, exhaustive 
 });
 ```
 
-- [ ] **Step 2: Run — verify GREEN**
+- [ ] **Step 2: Verify each gate is LIVE — RED via injected regression (TDD red phase, plan-R15)**
+
+These gates run over already-implemented code, so the red phase is proven by injecting a regression into the PROTECTED code and confirming the specific gate fails (then reverting). Do all three, one at a time:
+  1. **Classifier parity:** temporarily edit `tests/parser/mutation/classify.ts` — change `SECTION_DOMAIN_MAP.TRANSPORTATION` to `"other"`. Run: `pnpm vitest run tests/parser/mutationHarness.test.ts -t "classifier parity"`. Expected: FAIL (`TRANSPORTATION=other`). Revert.
+  2. **Count agreement:** temporarily edit `tests/parser/mutation/operators.ts` — make `refSub` return `eachDataCell(md).slice(0, -1).map(...)` (drop one site). Run: `pnpm vitest run tests/parser/mutationHarness.test.ts -t "COUNT-level audit agreement"`. Expected: FAIL (gen ≠ audit for a `ref-sub|<domain>`). Revert.
+  3. Confirm both reverts restored the files (`git diff --stat` shows no change under `tests/parser/mutation/`).
+
+- [ ] **Step 3: Run — verify GREEN**
 
 Run: `pnpm vitest run tests/parser/mutationHarness.test.ts`
 Expected: PASS. If a floor miss fires, the day-1 fixtures genuinely lack that op×domain — confirm via `auditSites` and relax that specific case only if the audit also reports zero (never weaken the gate globally).
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add tests/parser/mutationHarness.test.ts
@@ -1814,12 +1821,19 @@ describe("structural gates FAIL under injected regressions (plan-R13)", () => {
 });
 ```
 
-- [ ] **Step 2: Run — verify GREEN**
+- [ ] **Step 2: Verify the controls are LIVE — RED, not dead assertions (TDD red phase, plan-R15)**
+
+Prove the controls actually exercise the machinery (a dead assertion would pass even against a broken oracle):
+  1. Temporarily edit `tests/parser/mutation/oracle.ts` — make `verdict` `return "ABSORBED"` unconditionally. Run: `pnpm vitest run tests/parser/mutation/negativeControls.test.ts -t "every alarm class"`. Expected: FAIL (SILENT_WRONG / SILENT_SIGNAL_LOSS controls no longer reach their verdicts). Revert.
+  2. Temporarily edit `tests/parser/mutation/operators.ts` — make `refSub` return `[]`. Run: `pnpm vitest run tests/parser/mutation/negativeControls.test.ts -t "structural gates FAIL"`. Expected: FAIL (the count-agreement injected-regression control can no longer form its crippled set). Revert.
+  3. Confirm `git diff --stat` shows no residual change under `tests/parser/mutation/`.
+
+- [ ] **Step 3: Run — verify GREEN**
 
 Run: `pnpm vitest run tests/parser/mutation/negativeControls.test.ts`
 Expected: PASS.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add tests/parser/mutation/negativeControls.test.ts
@@ -1896,12 +1910,16 @@ describe("coverage legibility (exhaustive; skippedInapplicable surfaced)", () =>
 });
 ```
 
-- [ ] **Step 2: Run — verify GREEN** (note the printed summary line)
+- [ ] **Step 2: Verify the skipped-inapplicable equality gate is LIVE — RED via injected classifier drift (TDD red phase, plan-R15)**
+
+Temporarily edit `tests/parser/mutation/classify.ts` — in `classifySection`, force `if (SECTION_DOMAIN_MAP[h] === "hotel") return "other"` (a classifier that drops the hotel domain). Run: `pnpm vitest run tests/parser/mutationHarness.test.ts -t "cannot be silently excused"`. Expected: FAIL for any fixture whose hotel section has a zero-site operator — the shared `skippedInapplicable` now omits `hotel` while the independent `expectedSkipped` still lists it. (If no committed fixture exercises it, add the 2-col HOTEL synthetic to the equality loop for the red run.) Revert the edit; confirm `git diff --stat` is clean under `tests/parser/mutation/`.
+
+- [ ] **Step 3: Run — verify GREEN** (note the printed summary line)
 
 Run: `pnpm vitest run tests/parser/mutationHarness.test.ts`
 Expected: PASS; a `[mutation-harness] total=… domains=…` + `skippedInapplicable` line printed.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
 git add tests/parser/mutationHarness.test.ts
