@@ -94,6 +94,43 @@ describe("buildStep3Row Live/Held candidate selection (spec §4.3, plan-R1)", ()
     );
     expect(row.sessionLinked).toBe(true);
   });
+  it("backfills linkedShowSummary from the WON candidate (owner decision 2026-07-06)", () => {
+    const row = buildStep3Row(
+      { ...manifest, status: "applied", created_show_id: "show1" },
+      pending,
+      [
+        {
+          ...sessionShow,
+          title: "RFI & PC Chicago",
+          clientLabel: "Institutional Investor",
+          venue: { name: "Four Seasons Hotel" },
+          dates: { travelIn: "May 11", set: "May 12", showDays: ["May 13"], travelOut: "May 15" },
+        },
+      ],
+    );
+    expect(row.linkedShowSummary).toEqual({
+      title: "RFI & PC Chicago",
+      clientLabel: "Institutional Investor",
+      venue: { name: "Four Seasons Hotel" },
+      dates: { travelIn: "May 11", set: "May 12", showDays: ["May 13"], travelOut: "May 15" },
+    });
+  });
+  it("NO linkedShowSummary when the candidate carries no summary fields (pure-derivation tests)", () => {
+    const row = buildStep3Row(
+      { ...manifest, status: "applied", created_show_id: "show1" },
+      pending,
+      [sessionShow],
+    );
+    expect(row.linkedShowSummary ?? null).toBeNull();
+  });
+  it("NO linkedShowSummary when no show links (forged pointer)", () => {
+    const row = buildStep3Row(
+      { ...manifest, status: "applied", created_show_id: "ghost" },
+      pending,
+      [{ ...sessionShow, title: "Should Not Leak" }],
+    );
+    expect(row.linkedShowSummary ?? null).toBeNull();
+  });
   it("forged/stale non-null created_show_id matching NO candidate → not Live (R2 safety)", () => {
     const row = buildStep3Row(
       { ...manifest, status: "applied", created_show_id: "ghost" },

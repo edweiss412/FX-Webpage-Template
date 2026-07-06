@@ -45,6 +45,7 @@ function CountProbe({ rows }: { rows: Step3Row[] }) {
   const [c, setC] = useState<Step3PublishCounts>({
     publishCount: 0,
     uncheckedCleanCount: 0,
+    uncheckedCleanNames: [],
     selectableTotal: 0,
     selectedCount: 0,
   });
