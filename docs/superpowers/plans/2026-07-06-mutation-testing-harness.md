@@ -403,6 +403,17 @@ describe("verdict (corrupting bucket, Codex R5 SILENT_SIGNAL_LOSS)", () => {
     const m = base({ warnings: [{ severity: "warn", code: "W", message: "m" }] });
     expect(verdict(base(), m)).toBe("SIGNALED");
   });
+  it("undefined ≠ null: an optional signal field flipping undefined→null is NOT absorbed (plan-R5)", () => {
+    const wU = { severity: "warn" as const, code: "W", message: "m" };                    // sourceCell absent (undefined)
+    const wN = { severity: "warn" as const, code: "W", message: "m", sourceCell: null };   // sourceCell null
+    // same code → newSignalFired false; full signalEq must see the difference → SILENT_SIGNAL_LOSS
+    expect(verdict(base({ warnings: [wN] }), base({ warnings: [wU] }))).toBe("SILENT_SIGNAL_LOSS");
+  });
+  it("toEqual parity: {a: undefined} is equal to {} (no false alarm)", () => {
+    const wA = { severity: "warn" as const, code: "W", message: "m", sourceCell: undefined };
+    const wB = { severity: "warn" as const, code: "W", message: "m" };
+    expect(verdict(base({ warnings: [wA] }), base({ warnings: [wB] }))).toBe("ABSORBED");
+  });
 });
 
 describe("fingerprint (Codex R7/R8/R15/R16)", () => {
@@ -469,14 +480,21 @@ export const signalOf = (p: ParsedSheet): SignalChannels => ({
   warnings: p.warnings, hardErrors: p.hardErrors, raw_unrecognized: p.raw_unrecognized,
 });
 
-const stable = (v: unknown): string => JSON.stringify(v, Object.keys(v as object ?? {}).length ? undefined : undefined);
 const deepEq = (a: unknown, b: unknown): boolean => canon(a) === canon(b);
-// Canonical, key-sorted JSON so object key order never affects equality/fingerprints.
+/**
+ * Canonical, key-sorted string matching Vitest `toEqual` semantics (plan-R5):
+ * - `undefined` and `null` are DISTINCT tokens (toEqual: undefined ≠ null at a leaf).
+ * - object keys whose value is `undefined` are OMITTED (toEqual: {a:undefined} == {}).
+ * - object key order never affects the result.
+ */
 function canon(v: unknown): string {
-  if (v === null || typeof v !== "object") return JSON.stringify(v ?? null);
+  if (v === undefined) return " undef";
+  if (v === null) return " null";
+  if (typeof v !== "object") return JSON.stringify(v);
   if (Array.isArray(v)) return `[${v.map(canon).join(",")}]`;
-  const keys = Object.keys(v as Record<string, unknown>).sort();
-  return `{${keys.map((k) => `${JSON.stringify(k)}:${canon((v as Record<string, unknown>)[k])}`).join(",")}}`;
+  const o = v as Record<string, unknown>;
+  const keys = Object.keys(o).filter((k) => o[k] !== undefined).sort();
+  return `{${keys.map((k) => `${JSON.stringify(k)}:${canon(o[k])}`).join(",")}}`;
 }
 
 export const payloadChanged = (b: ParsedSheet, m: ParsedSheet): boolean => !deepEq(payloadOf(b), payloadOf(m));
@@ -524,9 +542,10 @@ function leaves(v: unknown, prefix = ""): Array<[string, unknown]> {
     v.forEach((e, i) => out.push(...leaves(e, `${prefix}[${i}]`)));
     return out;
   }
-  const keys = Object.keys(v as object).sort();
+  const o = v as Record<string, unknown>;
+  const keys = Object.keys(o).filter((k) => o[k] !== undefined).sort(); // omit undefined keys (toEqual parity)
   const out: Array<[string, unknown]> = [[prefix, `#obj:${keys.join(",")}`]];
-  for (const k of keys) out.push(...leaves((v as Record<string, unknown>)[k], `${prefix}.${k}`));
+  for (const k of keys) out.push(...leaves(o[k], `${prefix}.${k}`));
   return out;
 }
 
@@ -628,6 +647,15 @@ describe("blank-row:inject is per data-row gap, not per section (plan-R3)", () =
     const ms = OPERATORS["blank-row:inject"]!(md);
     expect(ms).toHaveLength(2);
     expect(new Set(ms.map((m) => m.siteId)).size).toBe(2);
+  });
+});
+
+describe("merged-cell is per interior pipe, not just the first (plan-R5)", () => {
+  it("a 4-cell data row yields 3 merge mutants with distinct pipe loci", () => {
+    const md = "| CREW | NAME | ROLE | PHONE |\n|  | Doug | Lead | 917 |"; // data row: ["", "Doug", "Lead", "917"] → 4 cells
+    const ms = OPERATORS["merged-cell"]!(md);
+    expect(ms).toHaveLength(3); // cells.length - 1
+    expect(new Set(ms.map((m) => m.siteId)).size).toBe(3);
   });
 });
 
@@ -743,10 +771,12 @@ const mergedCell = (md: string): Mutant[] => {
   const out: Mutant[] = [];
   for (const s of seg(md).sections) for (const r of dataRows(s)) {
     if (r.cells.length < 3) continue;
-    // delete the first interior pipe → fuse cells 0 and 1
-    const fused = [`${r.cells[0]} ${r.cells[1]}`, ...r.cells.slice(2)];
-    const ls = lines(md); ls[r.line] = `| ${fused.join(" | ")} |`;
-    out.push({ md: ls.join("\n"), siteId: sid("merged-cell", s, r.line, 0), bucket: "corrupting", domains: dom(s) });
+    // one mutant per interior pipe p (fuse cells p and p+1) — plan-R5
+    for (let p = 0; p < r.cells.length - 1; p++) {
+      const fused = [...r.cells.slice(0, p), `${r.cells[p]} ${r.cells[p + 1]}`, ...r.cells.slice(p + 2)];
+      const ls = lines(md); ls[r.line] = `| ${fused.join(" | ")} |`;
+      out.push({ md: ls.join("\n"), siteId: sid("merged-cell", s, r.line, p), bucket: "corrupting", domains: dom(s) });
+    }
   }
   return out;
 };
@@ -1072,7 +1102,7 @@ export function auditSites(md: string): Map<string, number> {
       const cells = row.filter((c) => c.length > 0);
       bump("ref-sub", s.domain, cells.length);
       bump("unicode-inject", s.domain, cells.filter((c) => [...c].length >= 2).length);
-      if (row.length >= 3) bump("merged-cell", s.domain);
+      if (row.length >= 3) bump("merged-cell", s.domain, row.length - 1); // one per interior pipe (plan-R5)
     }
     if (s.dataRows.length >= 1) bump("column-shift", s.domain);
     if (s.dataRows.length >= 2) bump("blank-row:inject", s.domain, s.dataRows.length - 1); // one per gap (plan-R3)
