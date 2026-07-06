@@ -255,10 +255,11 @@ describe("RESYNC_QUALITY_REGRESSED delivery contract (structural)", () => {
 // unchanged 40→40 sync (so the bell's unread clock stays quiet), and DO advance on a material
 // 40→80 change with context.baseline preserved. Skips-with-notice when TEST_DATABASE_URL absent.
 
-const DB_URL =
-  process.env.TEST_DATABASE_URL ??
-  process.env.LOCAL_TEST_DATABASE_URL ??
-  "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+// When a DB URL is EXPLICITLY configured (CI sets TEST_DATABASE_URL), the mandatory anti-storm
+// proof must NOT silently skip on a broken connection (Codex whole-diff R1) — a guard test below
+// fails fast in that case. Absent any URL (local dev), the loopback default may skip cleanly.
+const DB_URL_EXPLICIT = process.env.TEST_DATABASE_URL ?? process.env.LOCAL_TEST_DATABASE_URL;
+const DB_URL = DB_URL_EXPLICIT ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
 const ORIG_ENV = {
   TEST_DATABASE_URL: process.env.TEST_DATABASE_URL,
@@ -432,4 +433,137 @@ describe("RESYNC_QUALITY_REGRESSED DB-backed anti-storm (MANDATORY)", () => {
       }
     },
   );
+
+  // Codex whole-diff R1, finding 4: when a DB URL is EXPLICITLY configured (CI sets
+  // TEST_DATABASE_URL), the mandatory anti-storm proof above must NOT silently skip on a broken
+  // connection. Fail fast so a misconfigured CI surfaces loudly instead of a false green.
+  test("mandatory DB gate is not silently skipped when a DB URL is explicitly configured", () => {
+    if (DB_URL_EXPLICIT) {
+      expect(
+        dbUp,
+        "TEST_DATABASE_URL/LOCAL_TEST_DATABASE_URL is set but the DB probe failed — the mandatory " +
+          "anti-storm + read-path proofs would silently skip. Fix the DB env before merging.",
+      ).toBe(true);
+    } else {
+      expect(true).toBe(true); // local dev without any DB URL: skip-clean is acceptable
+    }
+  });
+});
+
+// ── Read-path 3-path runtime proof (Codex whole-diff R1, finding 3 — spec §6.7 test 2) ──────────
+// The concrete readShowForPhase1 producer must map RAW parse_warnings so Unit C distinguishes:
+//   (A) no shows_internal row      → priorParseWarningsRaw === null (untrustworthy → skip)
+//   (B) parse_warnings column NULL → null
+//   (C) parse_warnings = []        → [] (trustworthy present-empty; a new class fires vs baseline 0)
+// This exercises the REAL DB row mapping (`internal?.parse_warnings ?? null`), which the helper-level
+// tests above cannot reach (they inject priorParseWarningsRaw directly).
+
+const RP_DRIVE_FILE_ID = "quality-regression-readpath-fixture";
+const RP_SLUG = "2026-07-quality-regression-readpath";
+
+async function seedShowForReadPath(
+  internal: { parseWarnings: Warn[] | null } | null,
+): Promise<void> {
+  const seeded = (await sql!.unsafe(
+    `insert into public.shows (drive_file_id, slug, title, client_label, template_version,
+       last_seen_modified_time, last_synced_at, last_sync_status, last_sync_error)
+     values ($1, $2, 'ReadPath Fixture', 'RP Corp', 'v4', $3::timestamptz, now(), 'ok', null)
+     returning id::text as id`,
+    [RP_DRIVE_FILE_ID, RP_SLUG, MODIFIED_TIME],
+  )) as Array<{ id: string }>;
+  const showId = seeded[0]!.id;
+  if (internal) {
+    // Pass the RAW array/null (postgres.js serializes $N::jsonb itself; a manual JSON.stringify
+    // double-encodes into a jsonb STRING scalar — the postgres.js jsonb param trap). Mirrors the
+    // production upsertShowsInternal write at lib/sync/runScheduledCronSync.ts:1667.
+    await sql!.unsafe(
+      `insert into public.shows_internal (show_id, financials, parse_warnings, raw_unrecognized, run_of_show)
+       values ($1::uuid, '{}'::jsonb, $2::jsonb, '[]'::jsonb, null)`,
+      [showId, internal.parseWarnings],
+    );
+  }
+}
+
+async function readPathCleanup(): Promise<void> {
+  if (!sql) return;
+  await sql
+    .unsafe("delete from public.shows where drive_file_id = $1", [RP_DRIVE_FILE_ID])
+    .catch(() => {});
+}
+
+async function readPriorRaw(): Promise<Warn[] | null> {
+  return withPostgresSyncPipelineLock(RP_DRIVE_FILE_ID, async (lockedTx) => {
+    const row = await lockedTx.readShowForPhase1(RP_DRIVE_FILE_ID);
+    return (row?.priorParseWarningsRaw ?? null) as Warn[] | null;
+  }) as Promise<Warn[] | null>;
+}
+
+describe("readShowForPhase1 priorParseWarningsRaw DB mapping (MANDATORY)", () => {
+  test.skipIf(!dbUp)("(A) no shows_internal row → null", async () => {
+    try {
+      await seedShowForReadPath(null);
+      expect(await readPriorRaw()).toBeNull();
+    } finally {
+      await readPathCleanup();
+    }
+  });
+
+  test.skipIf(!dbUp)("(B) parse_warnings column NULL → null", async () => {
+    try {
+      await seedShowForReadPath({ parseWarnings: null });
+      expect(await readPriorRaw()).toBeNull();
+    } finally {
+      await readPathCleanup();
+    }
+  });
+
+  test.skipIf(!dbUp)("(C) parse_warnings = [] → [] (present-empty, NOT null)", async () => {
+    try {
+      await seedShowForReadPath({ parseWarnings: [] });
+      const raw = await readPriorRaw();
+      expect(raw, "trustworthy empty baseline must be [] not null").toEqual([]);
+      expect(raw).not.toBeNull();
+    } finally {
+      await readPathCleanup();
+    }
+  });
+
+  test.skipIf(!dbUp)("(D) parse_warnings with entries → the raw array round-trips", async () => {
+    try {
+      await seedShowForReadPath({ parseWarnings: warns("UNKNOWN_FIELD", 3) });
+      const raw = await readPriorRaw();
+      expect(summarizeDataGaps(raw).classes.UNKNOWN_FIELD).toBe(3);
+    } finally {
+      await readPathCleanup();
+    }
+  });
+});
+
+// ── Fix-1 (Codex whole-diff R1, finding 1): a pure sheet rename refreshes the stale copy ─────────
+describe("RESYNC_QUALITY_REGRESSED sheet-rename refresh (helper-level)", () => {
+  test("unchanged payload but renamed sheet → re-upsert (refresh stale context.sheet_name)", async () => {
+    const baseline = baselineFrom(warns("UNKNOWN_FIELD", 4));
+    const openContext = {
+      drive_file_id: "drive-file-1",
+      sheet_name: "Old Sheet Name", // stale — the open alert was raised under the old name
+      breakdown: { UNKNOWN_FIELD: 40 },
+      new_classes: [],
+      worsened: ["UNKNOWN_FIELD"],
+      baseline,
+    };
+    const { upsertAdminAlert } = await runEval({
+      openContext,
+      showId: "show-1",
+      priorParseWarningsRaw: warns("UNKNOWN_FIELD", 4),
+      nextWarnings: warns("UNKNOWN_FIELD", 40), // identical quality payload (40→40)
+    });
+    // Payload is unchanged, but the sheet was renamed → must re-upsert to refresh the copy.
+    expect(upsertAdminAlert).toHaveBeenCalledTimes(1);
+    const call = upsertAdminAlert.mock.calls[0]![0];
+    expect(call.context.sheet_name, "context refreshed to the current sheet name").toBe("My Sheet");
+    expect(
+      (call.context.baseline as { classes: Record<string, number> }).classes.UNKNOWN_FIELD,
+      "baseline still preserved across the identity refresh",
+    ).toBe(4);
+  });
 });

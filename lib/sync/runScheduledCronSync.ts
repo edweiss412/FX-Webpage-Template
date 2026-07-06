@@ -335,7 +335,12 @@ export async function evaluateQualityRegression_unlocked(args: {
       new_classes: (open.context.new_classes as string[]) ?? [],
       worsened: (open.context.worsened as string[]) ?? [],
     };
-    if (payloadEqual(nextPayload, storedPayload)) return; // no-op → no last_seen_at bump, no bell re-ping
+    // The no-op ALSO requires the displayed identity fields (sheet_name, drive_file_id) to be
+    // unchanged — otherwise a pure rename would leave the Bell/per-show copy pointing at the stale
+    // name forever (Codex whole-diff R1). A rename re-upserts once (one re-ping), refreshing the copy.
+    const identityUnchanged =
+      open.context.sheet_name === sheetName && open.context.drive_file_id === driveFileId;
+    if (payloadEqual(nextPayload, storedPayload) && identityUnchanged) return; // no bump, no re-ping
     context = { drive_file_id: driveFileId, sheet_name: sheetName, ...nextPayload, baseline }; // baseline preserved
   }
 

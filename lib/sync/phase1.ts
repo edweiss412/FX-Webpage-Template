@@ -29,10 +29,12 @@ export type Phase1ShowRow = {
   /**
    * RAW nullable prior parse_warnings (spec §6.5): `null` when the column is NULL OR no
    * shows_internal row exists (untrustworthy baseline → Unit C skips), distinct from the
-   * coalesced `priorParseResult.warnings` (`?? []`). Optional so non-C fixtures needn't set it;
-   * the concrete readShowForPhase1 producer always sets it (null or the raw array).
+   * coalesced `priorParseResult.warnings` (`?? []`). REQUIRED-nullable (Codex whole-diff R1): a
+   * producer or tx double that OMITS it would silently disable RESYNC_QUALITY_REGRESSED for an
+   * existing published show; making it required forces every Phase1ShowRow producer to supply
+   * `null` or the raw array explicitly (fails typecheck on omission).
    */
-  priorParseWarningsRaw?: ParseResult["warnings"] | null;
+  priorParseWarningsRaw: ParseResult["warnings"] | null;
 };
 
 export type Phase1PendingSyncRow = {

@@ -348,6 +348,7 @@ function tx(): PipelineTx {
         lastSyncStatus: "ok",
         lastSyncError: null,
         priorParseResult: parseResult(),
+        priorParseWarningsRaw: null,
       };
     },
     async readLivePendingSync() {
@@ -1294,6 +1295,7 @@ describe("processOneFile", () => {
         lastSyncStatus: "ok",
         lastSyncError: null,
         priorParseResult: priorWithHotels,
+        priorParseWarningsRaw: null,
       }));
 
       const result = await processOneFile_unlocked(
@@ -1365,6 +1367,7 @@ describe("processOneFile", () => {
       lastSyncStatus: "ok",
       lastSyncError: null,
       priorParseResult: priorWithTransport,
+      priorParseWarningsRaw: null,
     }));
 
     await processOneFile_unlocked(fakeTx, "file-1", "cron", fileMeta("file-1"), syncDeps);

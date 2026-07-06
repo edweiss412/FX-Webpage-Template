@@ -4,9 +4,10 @@ import type { Phase1ShowRow } from "@/lib/sync/phase1";
 
 // C2: readShowForPhase1 must expose the RAW, non-coalesced prior warnings so Unit C can distinguish
 // a NULL parse_warnings column (untrustworthy baseline → skip) from a trustworthy empty `[]`.
-// The runtime 3-path proof (NULL column / missing shows_internal row / present-`[]`) lives in the
-// MANDATORY DB-backed test in tests/sync/qualityRegressionLifecycle.test.ts (spec §6.7 test 2);
-// this file pins the TYPE contract + the exact mapping so the coalesce can't silently regress.
+// The runtime 3-path proof (NO shows_internal row / NULL column / present-`[]` / present-entries)
+// runs against a real DB in the "readShowForPhase1 priorParseWarningsRaw DB mapping" describe of
+// tests/sync/qualityRegressionLifecycle.test.ts (spec §6.7 test 2). This file pins the TYPE contract
+// + the exact source mapping as a DB-free fast tripwire so the coalesce can't silently regress.
 
 describe("Unit C read-path — priorParseWarningsRaw (C2)", () => {
   it("Phase1ShowRow carries priorParseWarningsRaw as a raw-nullable field (type contract)", () => {
