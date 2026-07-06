@@ -90,6 +90,23 @@ describe("parseStageClause (spec §3.2)", () => {
       }
     }
   });
+  it("STRUCTURAL: a leading role BAD-STAR ONLY + ANY bare stage subset ALWAYS fails open + signals — R9", () => {
+    // The bad-star sibling of the R8 invariant: a bad-star role-ONLY (ONLY* / ONLY** / ONLY****)
+    // followed by ANY non-empty stage subset (no trailing valid marker) is a malformed stage
+    // restriction — fail open AND signal for every subset and every bad-star count. Closes the
+    // no-marker bad-star dropped-stage hole across the whole body, not just preMarker.
+    const STAGES = ["Load In", "Set", "Show", "Strike", "Load Out"];
+    for (const lead of ["A1 ONLY**", "LEAD ONLY****", "A1 / LEAD ONLY*"]) {
+      for (let mask = 1; mask < 1 << STAGES.length; mask++) {
+        const subset = STAGES.filter((_, i) => mask & (1 << i));
+        const cell = `${lead} / ${subset.join(" / ")}`;
+        const r = parseStageClause(cell);
+        expect(r.stages, `cell='${cell}' must fail open`).toEqual([]);
+        expect(r.unrecognizedRestriction, `cell='${cell}'`).toBe(true);
+        expect(r.consumedOnlyClause, `cell='${cell}'`).toBe(true);
+      }
+    }
+  });
   it("EXPLICIT keeps a role token and routes it to cleaned (R22)", () => {
     const r = parseStageClause("A1 / Set / Strike ONLY");
     expect(r.stages).toEqual(["Set", "Strike"]);
@@ -221,6 +238,29 @@ describe("parseStageClause (spec §3.2)", () => {
     expect(c).toContain("A1");
     expect(c).not.toMatch(/\bSET\b/);
     expect(c).not.toMatch(/\bONLY\b/);
+  });
+  // Whole-diff Codex R9 [high]: same class as R8 but the leading role-ONLY carries a BAD-STAR
+  // marker (`A1 ONLY** / Set`, `LEAD ONLY**** / Load In`). The no-marker bad-star branch only
+  // scanned `preMarker` for stages, so a bare stage AFTER the bad-star marker leaked to role
+  // parsing as UNKNOWN_ROLE_TOKEN instead of signalling. Must scan the WHOLE body.
+  it("R9: a bare STAGE after a leading role BAD-STAR ONLY fails open AND signals", () => {
+    for (const cell of ["A1 ONLY** / Set", "LEAD ONLY**** / Load In", "A1 ONLY* / Set / Strike"]) {
+      const r = parseStageClause(cell);
+      expect(r.stages, cell).toEqual([]); // fail open
+      expect(r.unrecognizedRestriction, cell).toBe(true); // UNKNOWN_STAGE_RESTRICTION
+      expect(r.consumedOnlyClause, cell).toBe(true);
+    }
+  });
+  it("R9: a bad-star role-ONLY with NO stage token stays a role clause (no signal)", () => {
+    for (const cell of ["LEAD ONLY** / A1", "Rehearsal ONLY* / Foobar", "LEAD ONLY**"]) {
+      const r = parseStageClause(cell);
+      expect(r.unrecognizedRestriction, cell).toBe(false);
+    }
+  });
+  it("R9: the stage is excised from `cleaned` in the bad-star branch", () => {
+    const c = parseStageClause("A1 ONLY** / Set").cleaned.toUpperCase();
+    expect(c).toContain("A1");
+    expect(c).not.toMatch(/\bSET\b/);
   });
 });
 

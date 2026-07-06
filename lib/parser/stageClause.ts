@@ -61,17 +61,32 @@ function stageOf(upper: string): WorkPhase | null {
     : null;
 }
 
+/** ANY bad-star ONLY marker (`ONLY*` / `ONLY**` / `ONLY****` — ≥1 trailing star). */
+const BAD_STAR_ONLY_RE = /\bONLY\b\s*\*+/i;
+
 /**
- * True iff any `/`- or `-`-delimited token of `segment` is a recognized STAGE (an ONLY marker
- * on the token is stripped first, so `Set ONLY` reads as `SET`). Narrower than `dropsStageContent`
- * — it fires ONLY on a real stage token, never on a bare second ONLY or an unknown non-role token
- * — so it can distinguish a dropped STAGE restriction (signal) from a pure role concern (whole-diff
- * Codex R8): a stage ONLY'd behind a leading role-ONLY (`A1 ONLY / Set ONLY`) must signal, while an
- * unknown role token behind it (`LEAD ONLY / Foobar`) must stay a role clause (UNKNOWN_ROLE_TOKEN).
+ * Strip every ONLY marker (bad-star FIRST, then the strict bare/`***` form) from a single token,
+ * so a stage carrying a consumed marker (`Set ONLY*`, `Set ONLY`) reduces to the bare stage (`Set`)
+ * for both stage detection and `cleaned` reconstruction. Bad-star must be stripped before strict —
+ * the strict regex's `(?!\s*\*)` lookahead deliberately REJECTS `ONLY**`, so strict alone would
+ * leave the marker (and its stage) undetected (whole-diff Codex R9).
+ */
+function stripOnlyMarkers(token: string): string {
+  return token.replace(BAD_STAR_ONLY_RE, "").replace(STRICT_ONLY_MARKER_RE, "").trim();
+}
+
+/**
+ * True iff any `/`- or `-`-delimited token of `segment` is a recognized STAGE (any ONLY marker on
+ * the token is stripped first, so `Set ONLY` / `Set ONLY**` read as `SET`). Narrower than
+ * `dropsStageContent` — it fires ONLY on a real stage token, never on a bare second ONLY or an
+ * unknown non-role token — so it distinguishes a dropped STAGE restriction (signal) from a pure
+ * role concern (whole-diff Codex R8/R9): a stage ONLY'd behind a leading role-ONLY (`A1 ONLY / Set
+ * ONLY`, `A1 ONLY** / Set`) must signal, while an unknown role token behind it (`LEAD ONLY /
+ * Foobar`) must stay a role clause (UNKNOWN_ROLE_TOKEN).
  */
 function hasStageToken(segment: string): boolean {
   for (const raw of segment.split(/[/\-]/)) {
-    const up = raw.replace(STRICT_ONLY_MARKER_RE, "").trim().toUpperCase();
+    const up = stripOnlyMarkers(raw).toUpperCase();
     if (up && stageOf(up)) return true;
   }
   return false;
@@ -142,17 +157,21 @@ export function parseStageClause(roleCell: string): StageClause {
     // UNKNOWN_STAGE_RESTRICTION so the operator learns their restriction was not applied — the feature
     // contract is "parsed correctly OR explicitly signalled, never silently wrong" (§9). A bad-star
     // ONLY with NO stage token (`LEAD ONLY**`, `Rehearsal ONLY*`) stays a role clause (no signal).
-    const badStarOnly = /\bONLY\b\s*\*+/i.exec(roleCell); // ONLY + ≥1 star (valid bare/*** are STRICT-matched above)
-    if (badStarOnly) {
-      const preMarker = roleCell.slice(leadingDash.length, badStarOnly.index);
-      const segs = preMarker.split(/[/\-]/).map((t) => t.trim());
-      if (segs.some((t) => stageOf(t.toUpperCase()))) {
-        // Excise the stage tokens from `cleaned` (they must not become UNKNOWN_ROLE_TOKENs); keep the
-        // non-stage tokens + the post-marker tail for the role path.
-        const nonStage = segs.filter((t) => t && !stageOf(t.toUpperCase()));
+    if (BAD_STAR_ONLY_RE.test(roleCell)) {
+      // A stage token ANYWHERE in the cell (pre- OR post- the bad-star marker) makes this a
+      // malformed stage restriction (whole-diff R6a + R9). The old code scanned only the text
+      // BEFORE the marker, so a bare stage AFTER it (`A1 ONLY** / Set`) leaked to role parsing.
+      // Scan the WHOLE body; on a hit, fail open + signal, excising every stage token + ALL ONLY
+      // markers from `cleaned` (role tokens survive for the role path).
+      const body = roleCell.slice(leadingDash.length);
+      if (hasStageToken(body)) {
+        const kept = body
+          .split(/[/\-]/)
+          .map((t) => stripOnlyMarkers(t))
+          .filter((t) => t.length > 0 && !stageOf(t.toUpperCase()));
         return {
           stages: [],
-          cleaned: nonStage.join(" / ") + roleCell.slice(badStarOnly.index + badStarOnly[0].length),
+          cleaned: kept.join(" / "),
           unrecognizedRestriction: true,
           consumedOnlyClause: true,
         };
@@ -208,7 +227,7 @@ export function parseStageClause(roleCell: string): StageClause {
       const kept = roleCell
         .slice(leadingDash.length)
         .split(/[/\-]/)
-        .map((t) => t.replace(STRICT_ONLY_MARKER_RE, "").trim())
+        .map((t) => stripOnlyMarkers(t))
         .filter((t) => t.length > 0 && !stageOf(t.toUpperCase()));
       return {
         stages: [],
