@@ -738,6 +738,17 @@ it("accept: server fingerprint !== expectedFingerprint => 409 { status: 'stale_r
   await expect(res.json()).resolves.toEqual({ status: "stale_review" });
   expect(rpcSpy).not.toHaveBeenCalled();
 });
+it("accept CAS mismatch REFRESHES the persisted preview before 409, so a second accept succeeds (no dead-loop, plan-R5-1)", async () => {
+  // server fresh-detect returns 'ee'; page still holds 'ff'. First accept must trigger the re-scan (refresh envelope to 'ee').
+  const res1 = await POST(reqWith({ driveFileId: "d", wizardSessionId: "s", tabName: "OLD PULL SHEET", expectedFingerprint: "ff" }));
+  expect(res1.status).toBe(409);
+  expect(rescanSpy).toHaveBeenCalled();               // envelope re-persisted with the NEW fingerprint (not left stale)
+  expect(rpcSpy).not.toHaveBeenCalled();
+  // client re-fetched, now sends the refreshed fingerprint 'ee' → matches server → succeeds
+  const res2 = await POST(reqWith({ driveFileId: "d", wizardSessionId: "s", tabName: "OLD PULL SHEET", expectedFingerprint: "ee" }));
+  expect(res2.status).toBe(200);
+  expect(rpcSpy).toHaveBeenCalledWith(expect.objectContaining({ p_fingerprint: "ee" }));
+});
 it("stale_review 409 body has no §12.4/lookup code (uncataloged-code guard, Codex plan-R1-3)", async () => {
   const res = await POST(reqWith({ driveFileId: "d", wizardSessionId: "s", tabName: "OLD PULL SHEET", expectedFingerprint: "ff" }));
   const body = await res.json();
@@ -775,7 +786,7 @@ Run → **FAILS** (route absent; registry rows missing).
 Route (`POST`), pattern mirrors `rescan-sheet/route.ts` but uses `requireAdminIdentity`:
 1. `const { email } = await requireAdminIdentity();` (gate).
 2. Parse body; validate shape (typed 400 via lookup copy on malformed — invariant 5).
-3. **Fresh server-side detect** the named tab's current fingerprint (re-fetch bytes + `synthesizeMarkdownFromXlsx`), find the `ArchivedPullSheetTab` for `tabName`. If none → typed error (no pull-sheet region server-side). For accept: if `serverFingerprint !== expectedFingerprint` → **HTTP 409 with a structured, code-less status body `{ status: "stale_review" }`** (NOT a §12.4 code and NOT a lookup-copy code — Codex plan-R1 finding 3: an uncataloged lookup key resolves to null/throws). The client's accept handler treats 409 `stale_review` as "content changed since you reviewed" and **re-fetches the Step-3 preview** — the re-scanned preview re-renders the Pack list section, and the changed content surfaces via the existing S2/S4 card copy (which IS cataloged/inline). No dedicated error-code copy is needed because the card itself is the user-facing message. RPC NOT called (I3).
+3. **Fresh server-side detect** the named tab's current fingerprint (re-fetch bytes + `synthesizeMarkdownFromXlsx`), find the `ArchivedPullSheetTab` for `tabName`. If none → typed error (no pull-sheet region server-side). For accept: if `serverFingerprint !== expectedFingerprint` → **first trigger the standard re-scan (`rescan-sheet` path) so the freshly-detected `archivedPullSheetTabs` (new fingerprint + previews) is re-persisted into the Step-3 envelope** — the RPC is NOT called, so the override is untouched (a first-time S2 offer just re-persists with the new fingerprint; `reconcileIncludedTab` returns `no_override`). THEN return **HTTP 409 with a structured, code-less status body `{ status: "stale_review" }`** (NOT a §12.4 code and NOT a lookup-copy code — Codex plan-R1 finding 3: an uncataloged lookup key resolves to null/throws). Without the re-scan refresh the client would re-fetch the SAME stale envelope (`fingerprint='ff'`) and dead-loop on 409 (plan-R5 finding 1). With it, the client's accept handler treats 409 `stale_review` as "content changed since you reviewed", **re-fetches the Step-3 preview** showing the NEW fingerprint, and a second accept against that new fingerprint matches and succeeds. The changed content surfaces via the existing S2/S4 card copy (which IS cataloged/inline). RPC NOT called (I3).
 4. Call `set_pull_sheet_override` with the **service-role client** (`{data,error}` destructure — invariant 9): `p_fingerprint = serverFingerprint` (accept) or `p_tab_name = null` (revoke); pass `p_expected_override_snapshot = body.expectedOverrideSnapshot` for BOTH. The JS route does NOT take the `show:` lock. If the RPC raises `40001` (row-state CAS mismatch — someone changed the override since the admin's page loaded) → the route returns the same **409 `{ status: "stale_review" }`** as the fingerprint-CAS branch; the client re-fetches the preview. (Both the sheet-content CAS in step 3 and the row-state CAS here funnel to the one 409 refresh path.)
 5. On success: trigger the existing re-scan (`rescan-sheet` path) so 5.3 re-runs with the new override.
 6. **Post-commit, outside any lock tx:** `await logAdminOutcome({ code: tabName ? "PULL_SHEET_OVERRIDE_SET" : "PULL_SHEET_OVERRIDE_CLEARED", actorEmail: email, ... })` (forensic admin codes; §12.4-exempt via `_metaAdminOutcomeContract`). No secret logged (tab name is not a secret).
@@ -944,6 +955,16 @@ it("S4 Re-confirm: entry contentChangedSinceAccept:true + override null + empty 
   expect(screen.getByTestId("step3-card").textContent).toMatch(/changed — re-confirm/i);
 });
 
+it("S4 mixed workbook: current non-OLD pull sheet PRESENT + changed OLD tab => renders current pack list AND the re-confirm card (S4 NOT suppressed by non-empty pullSheet, plan-R5-2)", () => {
+  render(<PackListBreakdown dfid="d" wizardSessionId="sess-1"
+    cases={[{ caseLabel: "FOH", items: [{ qty: 1, cat: null, subCat: null, item: "Current DI Box" }] }]}
+    archivedPullSheetTabs={[{ tabName: "OLD PULL SHEET", headerPreviews: ["MIAMI"], fingerprint: "ee", included: false, contentChangedSinceAccept: true }]}
+    overrideActive={false} />);
+  const sec = packListSection(screen.getByTestId("step3-card"));
+  expect(sec.textContent).toContain("Current DI Box");            // current gear still rendered
+  expect(sec.textContent).toMatch(/changed — re-confirm/i);        // AND the changed-tab re-confirm card
+});
+
 it("multiple OLD tabs => one card + accept button per tab (render all, no truncation)", () => { /* §6 cap */ });
 it("empty headerPreviews entry string => '(no header text)' but card still renders", () => { /* §6 guard */ });
 ```
@@ -956,7 +977,7 @@ Extend `PackListBreakdown` props to `{ dfid, wizardSessionId, cases, archivedPul
 - **S1:** `cases` empty + `archivedPullSheetTabs` empty → `"No pack list parsed."` (unchanged).
 - **S2:** an entry with `contentChangedSinceAccept === false` and `!overrideActive` → per-tab warning card `"Found a pull sheet on archived tab '{tabName}'."`, then `headerPreviews.map((p, i) => "Case {i+1} header reads '{p || "(no header text)"}'")` as a list, `"If this is this show's gear, include it; otherwise leave it skipped."` + `[Use this show's gear]` (POST that entry's `fingerprint` as `expectedFingerprint`) / `[Keep skipped]`.
 - **S3:** `overrideActive` + populated `cases` → normal pack list + subtle `"Included from archived tab '{tabName}'."` + `[Revoke]`.
-- **S4:** entry `contentChangedSinceAccept === true` + `!overrideActive` + empty `cases` → S2 card + prefix `"The archived tab '{tabName}' changed — re-confirm before it publishes."`.
+- **S4:** entry `contentChangedSinceAccept === true` + `!overrideActive` → S2 card + prefix `"The archived tab '{tabName}' changed — re-confirm before it publishes."`. **Do NOT gate on empty `cases`** (plan-R5-2): when a current non-OLD pull sheet survived the auto-clear (mixed workbook, plan-R4), render the normal current Pack list from `cases` **and** the changed-tab re-confirm card. S4 is orthogonal to whether `cases` is empty.
 All copy via `lib/messages/lookup.ts` (invariant 5 — no raw codes). Buttons call the Task 8 route; on success re-fetch the (re-scanned) preview. Thread `archivedPullSheetTabs` through the DTO in `Step3SheetCard.tsx:542` and the section registry `:2604`. Add `data-section="pack-list"` to the section wrapper for the DOM-scoping test.
 
 Run → **PASSES**. Then run `/impeccable critique` + `/impeccable audit` on the diff; record findings + dispositions. Commit: `feat(admin): Step-3 PackListBreakdown S1-S4 archived-tab offer/include/re-confirm states`
