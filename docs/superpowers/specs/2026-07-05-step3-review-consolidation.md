@@ -101,18 +101,51 @@ The per-show rows come from a **unified server read** that runs across finalize 
 
 ### 4.2 Row display states
 
-Each show row shows exactly one status. **Live/Held derive from the row's LINKED show, not from `Step3Row.status` alone** (CRITICAL correction, R1): finalize creates a show for every clean row at `published = false` and the final CAS flips only `publish_intent = true` shows to Live (`onboarding_scan_manifest.publish_intent`, migration `20260623000001_onboarding_publish_intent.sql:10`; `created_show_id` links the row to its show, migration `20260611000000_onboarding_manifest_created_show_id.sql:15`; finalize route `:114,:524`). So `published` is the Live/Held signal and `publish_intent` is the *pre-finalize checkbox intent*, a distinct thing.
+Each show row shows exactly **one** status. **Live/Held derive from the row's LINKED show, not from `Step3Row.status` alone** (CRITICAL correction, R1): finalize creates a show for every clean row at `published = false` and the final CAS flips only `publish_intent = true` shows to Live (`onboarding_scan_manifest.publish_intent`, migration `20260623000001_onboarding_publish_intent.sql:10`; `created_show_id` links the row to its show, migration `20260611000000_onboarding_manifest_created_show_id.sql:15`; finalize route `:114,:524`; CAS publishes only `status='applied' AND created_show_id IS NOT NULL AND publish_intent=true`, `finalize-cas/route.ts:517-526`). So `published` is the *crew-visible* signal, and `publish_intent` is the *checked-for-publish* signal — a **distinct** thing that determines the pre-CAS "will go Live on Finish" state.
 
-| Display state | Derivation | Tone | Row affordance |
+#### 4.2 canonical derivation (ordered, total — structural defense, R8)
+
+This has been the most-revised surface (R1/R5/R6/R7/R8). To close the class, the display state is derived by a **single ordered algorithm** — evaluate top-to-bottom, **first match wins** — over the row's manifest status, failure code, parseResult, and its linked show (session-provenance join OR existing-show branch, §4.3). Every row lands in exactly one state; the `§4.2.2` matrix proves totality across checkpoints. `In progress` is an **orthogonal transient overlay** (client-only, during an active run) layered on top, not a persisted state.
+
+Let `linkedShow` = the show matched by EITHER the session-provenance join OR the existing-show branch (§4.3); `crewVisible(linkedShow)` = `published = true AND archived = false`.
+
+1. **Needs review — other** — status ∈ {`hard_failed`, `live_row_conflict`, `discard_retryable`} → warn; **existing inline controls, unchanged** (§4.2.1). *(highest precedence: a hard block outranks any linked-show state.)*
+2. **Needs review — re-apply** — `staged` AND `lastFinalizeFailureCode != null`:
+   - well-formed `parseResult` → warn; **`Review →`** → modal (§4.4). No inline approve.
+   - null/corrupt `parseResult` → warn; **inline no-details** `Re-scan`/`Ignore`, no Approve (§4.4 guard).
+3. **Resolved / set aside** — status ∈ {`permanent_ignore`, `defer_until_modified`} → muted "Set aside for this setup" (session-scoped, §4.4); `skipped_non_sheet` → muted "Skipped (not a sheet)". *(no publish affordance.)*
+4. **Live** — `linkedShow` exists AND `crewVisible(linkedShow)` → accent/live. Badge only for a session-created show; badge + existing-show checkbox for a pre-existing Live show re-touched this session (§4.3 existing-show branch). An existing-live row with an unapplied staged shadow is **still Live** (the show is serving; its pending edits apply on Finish/CAS) — Live is accurate, not a false state.
+5. **Ready to publish** *(pre-CAS checked, NEW — R8)* — `linkedShow` exists via the **session-provenance join**, `published = false`, `archived = false`, AND `publish_intent = true` → positive/idle "Ready to publish". This is a first-seen CHECKED show created Held that CAS will flip to Live on **Finish**. It is NOT Held (it is going Live) and NOT Live yet (CAS hasn't run). Badge only; the intent was baked during the finalize loop, so no re-editable checkbox here.
+6. **Held** — `linkedShow` exists via the session-provenance join AND NOT Live AND NOT Ready-to-publish, i.e. (`published = false AND publish_intent = false`) OR `archived = true` → idle/neutral. A deliberately-unchecked show (stays draft) or an archived show.
+7. **Ready** *(pre-finalize)* — no linked show yet, clean (`staged`/`applied`), not blocking → idle; publish **checkbox** (editable, `publish_intent` seeds checked/unchecked). This is the only state with a live checkbox — it exists only pre-finalize (checkpoint `null`), when finalize has not created shows.
+
+| Display state | Tone | Row affordance |
+|---|---|---|
+| Needs review — other | warn | existing inline controls (§4.2.1) |
+| Needs review — re-apply (well-formed) | warn | `Review →` modal (§4.4) |
+| Needs review — re-apply (no-details) | warn | inline `Re-scan`/`Ignore`, no Approve |
+| Set aside / Skipped | muted | none |
+| Live | accent/live | badge (+ existing-show checkbox if pre-existing re-touch) |
+| Ready to publish (pre-CAS checked) | positive/idle | badge (read-only) |
+| Held | idle/neutral | badge |
+| Ready (pre-finalize) | idle | editable publish checkbox |
+| In progress (overlay) | positive (pulse) | none (client-only, transient) |
+
+#### 4.2.2 Checkpoint × row-kind proof matrix (totality)
+
+Proves the algorithm is total and correct at every checkpoint. Columns are the `null`/`in_progress`/`all_batches_complete` checkpoints (`final_cas_done` renders the Dashboard, out of the row surface). Row-kinds are the post-finalize show states.
+
+| Row kind | `null` (pre-finalize) | `in_progress` / `all_batches_complete` (pre-CAS) | after Finish (CAS done) |
 |---|---|---|---|
-| **Live** | session-provenance-joined show (§4.3) AND `published = true AND archived = false` — **OR** the existing-show branch (§4.3: `m.created_show_id IS NULL` AND `drive_file_id` match AND `published = true AND archived = false` AND `wizard_created_session_id IS DISTINCT FROM m.wizard_session_id`) | accent/live | badge only (session-created); badge + existing-show checkbox for a pre-existing Live show re-touched this session |
-| **Held** | session-provenance-joined show (§4.3) AND NOT Live (`published = false` draft, OR `archived = true`) | idle/neutral | badge; existing per-row publish semantics preserved |
-| **Ready** | no linked show yet, clean (`staged`/`applied`), not blocking | idle | publish checkbox (unchanged pre-finalize); `publish_intent` seeds checked/unchecked |
-| **Needs review — re-apply** | blocking via `staged` + `lastFinalizeFailureCode != null` (RESCAN_REVIEW_REQUIRED / demoted-wedge) | warn | **`Review →`** → modal (§4.4). No inline approve. |
-| **Needs review — other** | `hard_failed` / `live_row_conflict` / `discard_retryable` | warn | **existing inline controls, unchanged** (§4.2.1) |
-| **In progress** | transient, during an active publish run only | positive (pulse) | none (client-only) |
+| First-seen, CHECKED (`publish_intent=true`) | **Ready** (checkbox, checked) — no show yet | **Ready to publish** (show `published=false`, intent true) — rule 5 | **Live** (`published=true`) — rule 4 |
+| First-seen, UNCHECKED (`publish_intent=false`) | **Ready** (checkbox, unchecked) | **Held** (show `published=false`, intent false) — rule 6 | **Held** (stays `published=false`) — rule 6 |
+| Existing-show, CHECKED (D-apply shadow) | **Live** (existing-show branch; edits pending) — rule 4 | **Live** (still serving; shadow pending) — rule 4 | **Live** (edits applied) — rule 4 |
+| Existing-show, UNCHECKED (D10 no-op) | **Live** (existing-show branch) — rule 4 | **Live** (unchanged) — rule 4 | **Live** (unchanged) — rule 4 |
+| Re-apply blocked (`staged`+failure) | **Needs review — re-apply** — rule 2 | **Needs review — re-apply** — rule 2 | (resolved before Finish) |
+| Hard block (`hard_failed`/conflict) | **Needs review — other** — rule 1 | **Needs review — other** — rule 1 | (resolved before Finish) |
+| Archived linked show | — | **Held** (`archived=true`) — rule 6 | **Held** — rule 6 |
 
-This derivation is checkpoint-agnostic — the presence of a linked published/held show (session-provenance join) OR a pre-existing null-session published show (existing-show branch, §4.3) is the signal, so pre-finalize (no session-linked shows, but an already-existing Live show re-touched by a §7.4 D10 no-op renders Live via the existing-show branch) and post-finalize both work without special-casing. `publish_intent` never means Live.
+`publish_intent` never means Live; only `published=true AND archived=false` does. Rule 5 is the one place `publish_intent` shapes display — the pre-CAS "checked, awaiting Finish" state — and it is explicitly distinct from Live.
 
 #### 4.2.1 Blocking rows are NOT one kind (CRITICAL correction, R1)
 
@@ -152,6 +185,7 @@ Extend the existing row build (`OnboardingWizard.tsx:357`, its Supabase reads at
 - Live/Held per §4.2: linked show + `published`/`archived`. Ready/Needs-review per the manifest status + blocking predicate (`_unresolvedSheets.ts:141`).
 - Reuses the blocking predicate; `_unresolvedSheets.ts`'s predicate + `readUnresolvedSheets` fold into this read (the file is deleted; §11).
 - Fail-closed: an infra error on any read returns `{ kind:"infra_error" }` (invariant 9, matching the existing `Step3FetchResult` union `OnboardingWizard.tsx:206`) and the surface shows a soft degraded note, never a blank 500 and never a falsely-empty list.
+- **Infra error MUST NOT strand checkpoint recovery (HIGH, R8).** The unified read now joins more tables (`pending_syncs` + `public.shows`), so a transient `shows`/join failure is more likely than the old manifest-only read. The **checkpoint footer actions — Resume / Finish / `CleanupAbandonedFinalizeButton` — derive from `checkpointStatus` (the separate checkpoint read at `app/admin/page.tsx:157`), NOT from the row read**, and MUST remain rendered when the row read returns `{kind:"infra_error"}`. On a rows infra error at a non-null checkpoint, render the degraded row note **inside** the unified surface while STILL showing the checkpoint footer (so Doug can Resume/Finish/Cleanup) — mirroring today's behavior where an unresolved-sheet read failure still renders `FinalizeInProgress` with its Resume + Cleanup controls. Only the pre-finalize (`checkpoint null`) surface, which has no checkpoint footer, degrades to the note alone.
 
 **Guard — empty rows.** A session with zero manifest rows (Start-Over rotated, 0-sheet scan) renders the existing empty Step-3 (no footer, `Step3ReviewWithFinalize.tsx:95` already gates `rows.length > 0`).
 
@@ -196,9 +230,14 @@ The test asserts the rule over the full `TriggeredReviewItem` union (a new invar
 
 After a successful `Approve & apply`, the modal footer returns to the ordinary "Publish this show" / closes; the row's status refreshes (Live/Held/Ready) via the standard router refresh — the same transition the modal already performs through `NotPublishableNote`.
 
-**Guard — no resolution during an active publish run (HIGH R1 + MEDIUM R3).** While the footer's publish/resume loop is running (`run.isRunning`, `Step3ReviewWithFinalize.tsx:113`), the `Review →` control AND **every mutating control in the modal footer** — `Approve & apply`, `Re-scan this sheet`, AND `Ignore this sheet` — are **disabled**. All three mutate (apply / rescan-sheet / discard routes) and would otherwise race the active finalize loop, which re-POSTs `/finalize` on every `batch_complete` (`FinalizeButton.tsx`) and reselects finishable-clean rows each batch (`finalize/route.ts`). `RescanSheetButton` only self-disables on its own pending state (`RescanSheetButton.tsx:157-166`), so the `isPublishRunActive` prop must additionally gate it. Disabling ALL modal mutators during a run serializes resolution: Doug resolves before publishing or after a run settles, never concurrently. (Resolution is inherently a "this run is blocked" action, so blocking it during a run is also correct UX.) Tested: with `isPublishRunActive` true, the row `Review →` is disabled AND an already-open modal's Approve / Re-scan / Ignore are all disabled.
+**Guard — freeze the ENTIRE row list during an active publish run (HIGH R1 + MEDIUM R3 + HIGH R8).** While the footer's publish/resume loop is running (`run.isRunning`, `Step3ReviewWithFinalize.tsx:113`), **every mutating control on every Step-3 row is disabled** — not just the modal. The active finalize loop re-POSTs `/finalize` on every `batch_complete` (`FinalizeButton.tsx`) and reselects finishable-clean rows each batch (`finalize/route.ts`), so ANY concurrent row mutation races it. The full freeze list (HIGH R8 — the prior spec only froze the modal, leaving three live race surfaces):
+  - **Publish-intent checkbox** (`PublishCheckbox`, `Step3SheetCard.tsx:501-505`) — today has NO disabled prop; toggling it mid-run mutates `publish_intent` under the loop. Gate on `isPublishRunActive`.
+  - **Row-level `Re-scan this sheet`** (`RescanSheetButton`, `Step3SheetCard.tsx` + `:314`) — only self-disables on its own pending (`RescanSheetButton.tsx:157-166`); gate on `isPublishRunActive` too.
+  - **Inline blocking-row controls** (`HardFailedActions` / `ManifestIgnoreAction` / `DashboardResolveLink`, §4.2.1, `Step3Review.tsx:459-504`) — gate on `isPublishRunActive`.
+  - **`Review →`** trigger AND **every modal mutator** — `Approve & apply`, `Re-scan this sheet`, `Ignore this sheet` (apply / rescan-sheet / discard routes).
+  Disabling ALL row mutators during a run serializes: Doug resolves/edits before publishing or after a run settles, never concurrently. (A blocked row is inherently a "this run is stuck" state, so freezing it during a run is also correct UX.) Tested: with `isPublishRunActive` true, EACH of — publish checkbox, row Re-scan, inline hard-fail/conflict actions, row `Review →`, and an open modal's Approve / Re-scan / Ignore — is disabled.
 
-**Prop path (R2 LOW + R3 MEDIUM).** `run.isRunning` currently lives inside `Step3ReviewWithFinalize` (`:83-113`), while `Review →` (row) and the modal controls live under `Step3Review` / `Step3ReviewModal`. The plan threads an `isPublishRunActive: boolean` prop down from `Step3ReviewWithFinalize` → `Step3Review` (row list) → the `Review →` trigger and → `Step3ReviewModal` → the footer's `Approve & apply`, `RescanSheetButton`, and `Ignore` controls. So the row trigger AND every mutating control of an already-open modal disable while a run is active. Tests prove: row `Review →` disabled during a run; and an open modal's Approve / Re-scan / Ignore all disabled mid-run.
+**Prop path (R2 LOW + R3 MEDIUM + R8).** `run.isRunning` currently lives inside `Step3ReviewWithFinalize` (`:83-113`), while the rows + modal controls live under `Step3Review` / `Step3SheetCard` / `Step3ReviewModal`. The plan threads an `isPublishRunActive: boolean` prop from `Step3ReviewWithFinalize` → `Step3Review` (row list) → **each `Step3SheetCard`** (disables its `PublishCheckbox` + row `RescanSheetButton` + inline blocking controls) and → the `Review →` trigger → `Step3ReviewModal` → the footer's `Approve & apply` / `RescanSheetButton` / `Ignore`. So EVERY row mutator and every mutating control of an already-open modal disable while a run is active. Tests prove each control (checkbox, row Re-scan, inline actions, row `Review →`, open-modal Approve/Re-scan/Ignore) is disabled mid-run.
 
 ### 4.5 Footer / primary action by checkpoint state
 
@@ -242,8 +281,8 @@ The disabled gate stays keyed on `finishable` (blocking rows block finish), unch
 The unified Step-3 has these modes; each row + footer element belongs to exactly one:
 
 - **Pre-finalize** (`checkpoint null`): rows Ready (checkbox) / Needs-review; footer = Publish trigger. Normally no Live/Held rows, BUT a manifest row for an already-existing Live show (a §7.4 D10 no-op re-touch, `finalize/route.ts:846`) legitimately renders **Live** — the **existing-show branch** (§4.3: `m.created_show_id IS NULL` + `drive_file_id` match + `published=true, archived=false` + `wizard_created_session_id IS DISTINCT FROM m.wizard_session_id`) handles it, NOT the session-provenance join (which cannot match — existing-show paths never write `created_show_id`). So "no Live/Held pre-finalize" is the common case, not an invariant.
-- **Mid-finalize** (`in_progress`): rows Live/Held (settled) + Needs-review + Ready(remaining); footer = Resume. Transient In-progress during an active run.
-- **Batches-complete** (`all_batches_complete`): rows Live/Held + any Needs-review; footer = Finish (CAS), stale note if stale.
+- **Mid-finalize** (`in_progress`): rows Live / **Ready-to-publish** (pre-CAS checked, rule 5) / Held (unchecked) + Needs-review + Ready(remaining un-run rows); footer = Resume. Transient In-progress overlay during an active run. The pre-finalize editable checkbox is gone here (finalize consumed intent).
+- **Batches-complete** (`all_batches_complete`): rows Live / **Ready-to-publish** (checked, will go Live on Finish) / Held (unchecked) + any Needs-review; footer = Finish (CAS), stale note if stale.
 - **Modal** (any mode, Needs-review row): resolution UI; independent of the page mode.
 
 Shared across all page modes: the row list component, the per-row status badge, the `Review →` control on Needs-review rows, the section-nav modal.
@@ -290,7 +329,7 @@ The unified surface reuses existing layout components (`WizardFooter`, `Step3Rev
 
 ## 11. Testing strategy
 
-- **Row-status derivation** (unit): each `Step3ManifestStatus` × published/archived/Held/failure-code → expected display state. Derive expectations from fixtures, not hardcoded. Explicit failure modes: (a) a `staged`+failure_code row must be Needs-review, not Ready (the blind-approve hole); (b) a session-linked show with `published=true AND archived=true` must render **Held/neutral**, NOT Live (R6 archived precedence); (c) a pre-existing null-session `published=true, archived=false` show for a matching `drive_file_id` renders Live via the existing-show branch, while the same show `archived=true` falls to Ready.
+- **Row-status derivation — total, ordered algorithm** (unit; the §4.2 structural defense): drive the derivation over the full space and assert exactly one state per row, matching the §4.2.2 matrix. Derive expectations from fixtures, not hardcoded. Explicit failure modes / required cases: (a) a `staged`+failure_code row → Needs-review, not Ready (the blind-approve hole); (b) a session-linked `published=true AND archived=true` show → **Held/neutral**, NOT Live (R6 archived precedence); (c) a pre-existing other-session `published=true, archived=false` show for a matching `drive_file_id` → Live via the existing-show branch, same show `archived=true` → Ready; (d) **R8 pre-CAS**: a first-seen session-linked show `published=false, publish_intent=true` → **Ready to publish** (NOT Held), the same show `publish_intent=false` → **Held**, and both flip correctly after CAS (`published=true` → Live); (e) rule-1 precedence: a `hard_failed` row with (defensively) a linked show still renders Needs-review — other, not Live.
 - **Corrupt review-items guard** (unit): `triggered_review_items = [null]` and a missing-field element (e.g. `[{id:"x"}]`, no `invariant`) BOTH set `reviewItemsCorrupt=true` and suppress `Approve & apply` — proving the two-level guard (array-parse OR `isStructurallyValidReviewItem`) is wired, not array-parse alone (R6). Failure mode caught: an element-level bad cast crashing `allowedActionsFor`/`describeItem`.
 - **`Review →` presence** (component): every Needs-review row renders the control; no Needs-review row exposes an inline approve. Anti-tautology: assert against the row's derived state, and clone-strip sibling controls before scanning.
 - **Single-action-no-radio** (component): a 1-action item renders no `role="radio"`; a ≥2-action item (MI-13) renders the radio group forced-unset; `Approve & apply` disabled until chosen.
@@ -298,6 +337,8 @@ The unified surface reuses existing layout components (`WizardFooter`, `Step3Rev
 - **Null/corrupt `parseResult` fallback** (component, HIGH R7): a re-apply row with `parseResult = null` (or `!pr.show`) renders **no `Review →`** and **no Approve** — only the inline no-details message + `Re-scan this sheet` + `Ignore this sheet`, and **no `/admin/onboarding/staged/` link**. Failure mode caught: a corrupt-parse row stranded (no resolution path) after the staged page is deleted.
 - **Mode endpoint contract** (unit/integration, HIGH R7): with fetch mocked, **Resume** (`in_progress`) drives `/finalize` to `all_batches_complete` and **never calls `/finalize-cas`** (asserts `/finalize-cas` fetch count === 0, then `router.refresh`); **Finish** (`all_batches_complete`) calls **only `/finalize-cas`** (zero `/finalize` batch POSTs); **Publish** (`null`) calls both in sequence. Failure mode caught: a Resume that auto-CASes and silently publishes before the operator confirms Finish.
 - **Unified surface by checkpoint** (integration): `in_progress` / `all_batches_complete` render Step-3 with the right footer action (Resume / Finish), not the deleted interstitials.
+- **Full active-run freeze** (component, HIGH R8): with `isPublishRunActive` true, assert EACH row mutator is disabled — the publish checkbox, the row `Re-scan this sheet`, the inline blocking controls (`HardFailedActions`/`ManifestIgnoreAction`), the row `Review →`, AND an open modal's Approve / Re-scan / Ignore. Failure mode caught: a checkbox/row-rescan/inline-action mutating `publish_intent`/manifest under the live `/finalize` loop.
+- **Infra error preserves checkpoint footer** (integration, HIGH R8): a rows `{kind:"infra_error"}` at `in_progress` / `all_batches_complete` still renders the checkpoint footer (Resume / Finish / `CleanupAbandonedFinalizeButton`, derived from `checkpointStatus`) alongside the degraded row note — never drops recovery. At `checkpoint null`, degrades to the note alone (no footer to preserve).
 - **Redirect** (unit): old staged URL → 307 `/admin`.
 - **Deletion safety** (grep/structural, HIGH R1 + MEDIUM R2): covers deleted **components, pages, AND helpers**, plus registry rows and URL-shape assertions. **The grep guard is AUTHORITATIVE** (a structural test walking the tree, failing on any surviving import/link of a deleted symbol/route); the list below is the illustrative known breaker set to rewrite/delete, not an exhaustive substitute for the guard:
   - `tests/admin/_metaInfraContract.test.ts:188-190` + `:946-961` (registers `readUnresolvedSheets` / staged reads) — update the registry when `_unresolvedSheets.ts` folds in.
@@ -311,6 +352,7 @@ The unified surface reuses existing layout components (`WizardFooter`, `Step3Rev
 
 ## 12. Watchpoints / disagreement-loop preempts
 
+- **Display-state derivation is CLOSED via the §4.2 total ordered algorithm (structural defense, R8).** This surface drew findings R1/R5/R6/R7/R8 (Live/Held join → archived → prior-session → pre-CAS `publish_intent`). Rather than patch cells, §4.2 now specifies ONE ordered, first-match-wins algorithm proven total by the §4.2.2 checkpoint×row matrix, and §11 tests it over the full space. Any new display concern is a change to that one algorithm + matrix, not a new special case. Do NOT re-derive per-cell; audit against the algorithm.
 - **`applied` ≠ Live.** Pre-finalize `applied` is publish-intent (checkbox checked), realized as Live only after CAS. Do NOT relitigate as "applied means published." Cited: `OnboardingWizard.tsx:214`, finalize route Held model (`:114,:524`).
 - **Held is intentional.** Unchecked-clean rows become `published=false` Held drafts by design (Task B2). Not a bug, not "unpublished failure."
 - **In-progress is client-transient.** Finalize is a resumable batch loop; no persisted "publishing now" row exists at a static render. Re-entry = Resume, not a per-row spinner. Cited: `finalize/route.ts` batch loop, `Step3ReviewWithFinalize.tsx:155` tracking.
