@@ -87,6 +87,45 @@ describe("synthesizeMarkdownFromXlsx archived-tab detection", () => {
     ).not.toBe(base.fingerprint);
   });
 
+  it("modern interleaved shape (sub-header/summary blocks before items, rooms after): item survives + parses + fp-sensitive, rooms drop (Codex whole-diff R1 — normalizePullSheetGrid collapses the case into one PULL-SHEET-headed block, so emitted==hashed==parsed==reviewed; I1)", () => {
+    // Adversarial shape from the whole-diff review: header, blank, a sub-header/summary
+    // block, blank, then the QTY/ITEM + packed item block, blank, then ROOMS. If the region
+    // collector keyed naively on blank-delimited blocks (keeping only the PULL SHEET header
+    // block), the item block would be dropped. normalizePullSheetGrid instead COLLAPSES the
+    // identity/sub-header/column-header rows INTO the collapsed "PULL SHEET/…" header row with
+    // items following in the same block, so the collector captures the whole case region.
+    const modern = [
+      ["PULL SHEET", "PULL SHEET"],
+      ["RIA - CHICAGO, IL"],
+      [],
+      ["SUB HEADER SUMMARY", "counts"],
+      [],
+      ["QTY", "ITEM", "SUB CAT", "CAT", "PACKED"],
+      ["2", "Shure SM58", "Mic", "AUDIO", "FALSE"],
+      [],
+      ["ROOMS"],
+      ["Ballroom A"],
+    ];
+    const { markdown, archivedPullSheetTabs } = synthesizeMarkdownFromXlsx(
+      buildXlsx([{ name: "OLD PULL SHEET", grid: modern }]),
+      { includePullSheetFromTab: "OLD PULL SHEET" },
+    );
+    // I1: the emitted region carries the item; parsePullSheet of it recovers the gear.
+    expect(markdown).toContain("Shure SM58");
+    expect(markdown).not.toContain("Ballroom A"); // D6: rooms after the region never leak
+    const parsed = parsePullSheet(markdown).pullSheet;
+    expect(
+      parsed?.flatMap((c) => c.items).some((i) => i.item === "Shure SM58" && i.qty === 2),
+    ).toBe(true);
+    // The fingerprint tracks the item across the intervening sub-header/summary blocks.
+    const base = archivedPullSheetTabs[0]!.fingerprint;
+    const edited = modern.map((r) => [...r]);
+    edited[6] = ["5", "Shure SM58", "Mic", "AUDIO", "FALSE"];
+    const fpEdit = synthesizeMarkdownFromXlsx(buildXlsx([{ name: "OLD PULL SHEET", grid: edited }]))
+      .archivedPullSheetTabs[0]!.fingerprint;
+    expect(fpEdit).not.toBe(base);
+  });
+
   it("includePullSheetFromTab un-skips ONLY pull-sheet regions; rooms/other blocks discarded", () => {
     const withRooms = [...regionA, [], ["ROOMS"], ["Ballroom A"]];
     const { markdown, archivedPullSheetTabs } = synthesizeMarkdownFromXlsx(

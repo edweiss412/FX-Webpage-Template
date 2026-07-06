@@ -462,7 +462,11 @@ export async function fetchSheetMarkdownAndBytesAtRevision(
   driveFileId: string,
   revisionId: string,
   options: DriveFetchOptions = {},
-): Promise<{ markdown: string; bytes: ArrayBuffer }> {
+): Promise<{
+  markdown: string;
+  bytes: ArrayBuffer;
+  archivedPullSheetTabs: ArchivedPullSheetTab[];
+}> {
   const drive = options.drive ?? getDriveClient();
   const before = await fetchFileForExport(
     driveFileId,
@@ -508,7 +512,15 @@ export async function fetchSheetMarkdownAndBytesAtRevision(
         includePullSheetFromTab: options.includePullSheetFromTab,
       })
     : synthesizeMarkdownFromXlsx(bytes);
-  return { markdown: exportedAtRevision.markdown, bytes };
+  // Surface archivedPullSheetTabs alongside markdown+bytes so revision-pinned callers
+  // (the wizard revision-race restage) can reconcile an active pull-sheet override
+  // instead of seeing an empty list and mis-reconciling it as tab_missing (which would
+  // silently clear a still-valid sticky override — whole-diff review R1).
+  return {
+    markdown: exportedAtRevision.markdown,
+    bytes,
+    archivedPullSheetTabs: exportedAtRevision.archivedPullSheetTabs,
+  };
 }
 
 /**

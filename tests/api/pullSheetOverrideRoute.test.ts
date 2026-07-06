@@ -156,6 +156,28 @@ describe("POST /api/admin/onboarding/pull-sheet-override", () => {
     expect(rpc).toHaveBeenCalledWith(expect.objectContaining({ p_fingerprint: "ee" }));
   });
 
+  test("accept CAS mismatch AND the refresh re-scan FAILS => 503 stale_review_refresh_failed (NOT a retry-implying 409 — no dead-loop, whole-diff R1)", async () => {
+    const rescan = vi.fn(async () => {
+      throw new Error("drive export failed");
+    });
+    const { deps, rpc } = makeDeps({ serverFingerprint: "ee", rescan });
+    const res = await handlePullSheetOverride(
+      reqWith({
+        driveFileId: DRIVE,
+        wizardSessionId: SESSION,
+        tabName: TAB,
+        expectedFingerprint: "ff", // mismatch vs server 'ee'
+      }),
+      deps,
+    );
+    // A plain 409 would tell the client "refreshed, retry" and it would loop on the same
+    // stale fingerprint; the distinct 503 routes the client to its error branch instead.
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toEqual({ status: "stale_review_refresh_failed" });
+    expect(rescan).toHaveBeenCalled();
+    expect(rpc).not.toHaveBeenCalled(); // still no override written on a CAS mismatch
+  });
+
   test("stale_review 409 body has no §12.4/lookup code (uncataloged-code guard, plan-R1-3)", async () => {
     const { deps } = makeDeps({ serverFingerprint: "ee" });
     const res = await handlePullSheetOverride(

@@ -1660,18 +1660,31 @@ async function prepareWizardRestageInline(
     // Bind to the already-reverified revision and fetch the markdown at exactly
     // that revision (this runs PRE-LOCK now, so the Drive export is no longer
     // under the per-show lock).
-    fetchMarkdownWithBinding: async (driveFileId) => {
+    fetchMarkdownWithBinding: async (driveFileId, opts) => {
       const bindingToken = metadata.headRevisionId ?? metadata.modifiedTime;
       // Fetch BOTH markdown AND the xlsx bytes at the pinned revision so prepareOne
       // can extractSourceAnchors AND enrich can surface DIAGRAMS-tab embedded images
       // (prepareOnboardingFiles forwards bytes → ctx.xlsxBytes). The markdown-only
       // sibling left bytes undefined → sourceAnchors stayed {} and the restage upsert
       // clobbered the good anchors captured by the initial scan (audit idx14/#77).
-      const { markdown, bytes } = await fetchSheetMarkdownAndBytesAtRevision(
+      //
+      // Thread `opts.includePullSheetFromTab` + return `archivedPullSheetTabs` so prepareOne
+      // reconciles an ACTIVE pull-sheet override on this revision-race restage path exactly
+      // like the normal scan path. Omitting them made archivedPullSheetTabs=[] → tab_missing →
+      // discardAndRerun silently cleared a still-valid sticky override (whole-diff review R1).
+      const { markdown, bytes, archivedPullSheetTabs } = await fetchSheetMarkdownAndBytesAtRevision(
         driveFileId,
         bindingToken,
+        opts?.includePullSheetFromTab
+          ? { includePullSheetFromTab: opts.includePullSheetFromTab }
+          : {},
       );
-      return { binding: { bindingToken, modifiedTime: metadata.modifiedTime }, markdown, bytes };
+      return {
+        binding: { bindingToken, modifiedTime: metadata.modifiedTime },
+        markdown,
+        bytes,
+        archivedPullSheetTabs,
+      };
     },
   });
   return { folderId: reverify.pendingFolderId, prepared };

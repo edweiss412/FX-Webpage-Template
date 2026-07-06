@@ -71,6 +71,14 @@ function staleReview(): Response {
   return NextResponse.json({ status: "stale_review" }, { status: 409 });
 }
 
+function staleReviewRefreshFailed(): Response {
+  // Accept-mismatch path only: the re-persist re-scan FAILED, so the stale preview was NOT
+  // refreshed. A plain 409 stale_review tells the client "refreshed, retry" and it would
+  // dead-loop on the same stale fingerprint (whole-diff review R1). A distinct non-409 status
+  // routes the client to its error branch instead of the auto-refresh path. Code-less body.
+  return NextResponse.json({ status: "stale_review_refresh_failed" }, { status: 503 });
+}
+
 type ParsedBody =
   | {
       kind: "accept";
@@ -185,9 +193,10 @@ export async function handlePullSheetOverride(
     if (serverFingerprint !== parsed.expectedFingerprint) {
       // CAS mismatch on reviewed content. REFRESH the persisted preview FIRST (re-scan
       // re-detects + re-persists the NEW fingerprint — the RPC is untouched), THEN 409.
-      // Without the refresh the client re-fetches the SAME stale envelope and dead-loops.
-      await triggerRescan(rescan, driveFileId, wizardSessionId);
-      return staleReview();
+      // Without the refresh the client re-fetches the SAME stale envelope and dead-loops,
+      // so if the re-scan FAILED, surface a distinct error instead of the retry-implying 409.
+      const refreshed = await triggerRescan(rescan, driveFileId, wizardSessionId);
+      return refreshed ? staleReview() : staleReviewRefreshFailed();
     }
     params = {
       p_drive_file_id: driveFileId,
@@ -251,13 +260,22 @@ export async function handlePullSheetOverride(
   });
 }
 
+/**
+ * Re-run the wizard re-scan so the persisted archivedPullSheetTabs preview refreshes.
+ * Returns `true` on success, `false` if the re-scan threw (logged forensically). Callers
+ * that rely on the refresh having HAPPENED (the accept-mismatch path, which must re-persist
+ * the NEW fingerprint before telling the client to retry) MUST branch on the return; the
+ * post-commit success path ignores it (the override is already durable — the preview
+ * refreshes on the next scan/reload regardless).
+ */
 async function triggerRescan(
   rescan: typeof realRescanWizardSheet,
   driveFileId: string,
   wizardSessionId: string,
-): Promise<void> {
+): Promise<boolean> {
   try {
     await rescan(driveFileId, wizardSessionId);
+    return true;
   } catch (err) {
     try {
       await log.error("pull-sheet override re-scan failed", {
@@ -270,6 +288,7 @@ async function triggerRescan(
     } catch {
       /* best-effort forensic */
     }
+    return false;
   }
 }
 

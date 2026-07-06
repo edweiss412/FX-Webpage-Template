@@ -347,6 +347,11 @@ describe("pull-sheet override — production reader + rescan persist (real DB)",
         ) as unknown as ParseResult,
         pullSheetOverrideApplied: { tabName: TAB, fingerprint: FP },
         pullSheetOverrideCleared: false,
+        // §5.7: production prepareOne sets this to overrideSnapshot(pre-lock override); the
+        // locked-snapshot guard compares it against the under-lock pending_syncs read. Here it
+        // matches OVERRIDE, so the guard proceeds (a fixture missing this made preLock=null vs a
+        // non-null DB override → the guard refused with stale_override_refused).
+        pullSheetOverrideUsed: { tabName: TAB, fingerprint: FP },
       };
       const res = await rescanWizardSheet(DRIVE, SESSION, injectedDeps(prepared));
       expect(res.status).toBe("updated");
@@ -384,6 +389,11 @@ describe("pull-sheet override — production reader + rescan persist (real DB)",
         parseResult: makeParse([changedOffer], "Current DI Box") as unknown as ParseResult,
         pullSheetOverrideApplied: null,
         pullSheetOverrideCleared: true,
+        // §5.7: the pre-lock override (OVERRIDE, fingerprint FP) is what drove this export; the
+        // drift is a CONTENT change (tab now hashes to a different fingerprint), NOT a change to
+        // the durable override, so the under-lock pending_syncs read still returns OVERRIDE and
+        // the locked-snapshot guard proceeds before the discard clears it.
+        pullSheetOverrideUsed: { tabName: TAB, fingerprint: FP },
       };
       const res = await rescanWizardSheet(DRIVE, SESSION, injectedDeps(prepared));
       expect(res.status).toBe("updated");

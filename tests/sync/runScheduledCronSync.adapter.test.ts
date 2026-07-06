@@ -31,6 +31,11 @@ vi.mock("postgres", () => ({
       if (/pg_try_advisory_xact_lock/i.test(sql)) return [{ locked: true }];
       if (/from pg_locks/i.test(sql)) return [{ held: true }];
       if (/select archived from public\.shows/i.test(sql)) return [{ archived: false }]; // DEF-4 in-lock probe
+      // §5.7 cron locked-snapshot re-read (Task 7): the ready variant always carries a
+      // pullSheetOverrideUsed snapshot (null when no override), so processOneFile_unlocked
+      // re-reads the durable override under the lock. No override in this fixture → null.
+      if (/select pull_sheet_override from public\.shows/i.test(sql))
+        return [{ pull_sheet_override: null }];
       if (/from public\.deferred_ingestions/i.test(sql)) return [];
       if (/from public\.revision_race_cooldowns/i.test(sql)) return [];
       if (/delete from public\.revision_race_cooldowns/i.test(sql)) return [];
