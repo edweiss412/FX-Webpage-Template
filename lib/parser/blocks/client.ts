@@ -1,7 +1,7 @@
 import type { ShowRow, ClientContact, ClientContactPerson } from "@/lib/parser/types";
 import type { ParseAggregator } from "@/lib/parser/warnings";
 import { canonicalize } from "@/lib/email/canonicalize";
-import { clean, presence, parseTableRows } from "./_helpers";
+import { clean, presence, parseTableRows, splitRow } from "./_helpers";
 import { gatedVocabCorrect } from "@/lib/parser/typoGate";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { KNOWN_SUB_LABELS } from "@/lib/parser/knownSections";
@@ -362,6 +362,62 @@ function parseClientV2orV1(
   return { client_label: clientLabel, client_contact: contact };
 }
 
+// ── FORM-tab client-contact fallback ───────────────────────────────────────────
+//
+// When the INFO CLIENT block leaves the client contact's email/phone empty, fall back to the
+// FORM intake block (the client's Google-Form response — the submitter is the client's logistics
+// director). Fill-only-if-INFO-empty: only fills a null field, never overrides a real INFO value.
+const FORM_CLIENT_EMAIL_LABEL = "email address";
+const FORM_CLIENT_PHONE_LABEL = "phone number";
+// The FORM intake block always opens with one of these header rows.
+const FORM_BLOCK_ANCHORS = new Set(["timestamp", "your name"]);
+// Full email shape (mirrors contacts.ts EMAIL_RE); canonicalize does NOT validate.
+const CLIENT_EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/;
+
+// Scans the RAW markdown line-by-line so block boundaries (blank/non-table lines) are visible.
+// Harvests email/phone ONLY from the FIRST contiguous table run that contains a FORM anchor, then
+// stops (`formBlockDone`) — bounding the harvest to the single FORM intake block so a stray
+// "Email Address"/"Phone Number" row in any later block is never reached.
+function harvestFormClientContact(markdown: string): {
+  email: string | null;
+  phone: string | null;
+} {
+  let email: string | null = null;
+  let phone: string | null = null;
+  let inFormBlock = false;
+  let formBlockDone = false;
+  for (const line of markdown.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed.startsWith("|")) {
+      if (inFormBlock) {
+        inFormBlock = false;
+        formBlockDone = true; // the FORM run ended — do not re-enter on a later anchor
+      }
+      continue;
+    }
+    if (formBlockDone) continue;
+    const cells = splitRow(trimmed);
+    const label = clean(cells[0] ?? "").toLowerCase();
+    if (FORM_BLOCK_ANCHORS.has(label)) {
+      inFormBlock = true;
+      continue;
+    }
+    if (!inFormBlock) continue;
+    const val = clean(cells[1] ?? "");
+    if (!val) continue;
+    if (label === FORM_CLIENT_EMAIL_LABEL && email === null) {
+      // Extract the email SUBSTRING and canonicalize only that — never store the whole cell.
+      // canonicalize only trims/lowercases; a wrapped "Ashley Morgan <a@b.com>" would otherwise be
+      // stored verbatim. Mirrors parseContactCell's per-email extraction.
+      const m = CLIENT_EMAIL_RE.exec(val);
+      if (m) email = canonicalize(m[0]);
+    } else if (label === FORM_CLIENT_PHONE_LABEL && phone === null && /\d/.test(val)) {
+      phone = presence(val);
+    }
+  }
+  return { email, phone };
+}
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 /**
@@ -379,9 +435,17 @@ export function parseClient(
 ): Pick<ShowRow, "client_label" | "client_contact"> {
   const rows = parseTableRows(markdown);
 
-  if (version === "v4") {
-    return parseClientV4(rows, agg);
+  // v1 and v2 share the same extraction path; v1 additionally handles merged cells.
+  const result = version === "v4" ? parseClientV4(rows, agg) : parseClientV2orV1(rows, agg);
+
+  // FORM-tab fallback (fill-only-if-INFO-empty): fill a null email/phone on the MAIN client
+  // contact from the FORM intake block. No-op when there is no client_contact, or when both
+  // fields are already present. Never overrides a real INFO value.
+  const contact = result.client_contact;
+  if (contact && (contact.email === null || contact.phone === null)) {
+    const form = harvestFormClientContact(markdown);
+    if (contact.email === null && form.email !== null) contact.email = form.email;
+    if (contact.phone === null && form.phone !== null) contact.phone = form.phone;
   }
-  // v1 and v2 share the same extraction path; v1 additionally handles merged cells
-  return parseClientV2orV1(rows, agg);
+  return result;
 }

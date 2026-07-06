@@ -33,6 +33,12 @@ const VENUE_LABEL_RE = /^\s*(?:venue|hotel|hotal)\s+contact\s+(?:info(?:rmation)
 // Labels that map to 'in_house_av' kind
 const IN_HOUSE_AV_LABEL_RE = /^\s*in\s+house\s+av\s*$/i;
 
+// FORM-tab fallback label for the onsite AV contact. Matches the exact Google-Form question
+// label "Onsite AV Contact" — deliberately NOT "Onsite AV Contact Info" (a separate
+// checklist-boolean row carrying TRUE/FALSE). Used only when the INFO "In House AV" label
+// produced no contact (fill-only-if-INFO-empty).
+const ONSITE_AV_LABEL_RE = /^\s*onsite\s+av\s+contact\s*$/i;
+
 // Matches email addresses
 const EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/i;
 
@@ -68,7 +74,10 @@ export function parseContacts(
   agg?: ParseAggregator,
 ): ContactRow[] {
   const contacts: ContactRow[] = [];
-  let labelMatched = false; // a recognized VENUE / IN HOUSE AV label row was seen
+  // FORM-tab "Onsite AV Contact" fallback candidates, collected separately and merged only if the
+  // INFO "In House AV" label produced no in_house_av contact (fill-only-if-INFO-empty).
+  const formAvContacts: ContactRow[] = [];
+  let labelMatched = false; // a recognized VENUE / IN HOUSE AV / FORM AV label row was seen
 
   // Deduplicate rows with identical (kind, rawValue) — catches duplicate metadata rows
   // that appear multiple times in the same file with the same content.
@@ -85,6 +94,18 @@ export function parseContacts(
     if (cells.length < 2) continue;
 
     const col0 = clean(cells[0] ?? "");
+
+    // FORM-tab fallback: "Onsite AV Contact" is collected into a separate bucket and merged only
+    // if INFO produced no in_house_av contact. Stricter than hasContactSignal — require an email or
+    // phone (not the name-only path) so prose placeholders ("Not Applicable") are rejected.
+    if (ONSITE_AV_LABEL_RE.test(col0)) {
+      labelMatched = true;
+      const formAvValue = clean(cells[1] ?? "");
+      if (formAvValue && (EMAIL_RE.test(formAvValue) || PHONE_RE.test(formAvValue))) {
+        formAvContacts.push(...parseContactCell(formAvValue, "in_house_av"));
+      }
+      continue;
+    }
 
     let kind: ContactKind | null = null;
 
@@ -137,6 +158,22 @@ export function parseContacts(
       seenEmailKeys.add(emailKey);
     }
     deduped.push(c);
+  }
+
+  // Fill-only-if-INFO-empty: use the FORM "Onsite AV Contact" fallback ONLY when the INFO
+  // "In House AV" label produced no in_house_av contact; otherwise discard it entirely so INFO
+  // is authoritative and no duplicate/second AV contact appears.
+  const hasInfoAv = deduped.some((c) => c.kind === "in_house_av");
+  if (!hasInfoAv && formAvContacts.length > 0) {
+    const seenFormAvEmails = new Set<string>();
+    for (const c of formAvContacts) {
+      if (c.email) {
+        const k = `in_house_av::${c.email.toLowerCase().trim()}`;
+        if (seenFormAvEmails.has(k)) continue;
+        seenFormAvEmails.add(k);
+      }
+      deduped.push(c);
+    }
   }
 
   // D1: a recognized VENUE / IN HOUSE AV label row that produced no contact (every
