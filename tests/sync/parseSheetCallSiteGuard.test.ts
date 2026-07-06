@@ -77,7 +77,13 @@ describe("parseSheet call-site guard (finding #17)", () => {
         throw new Error("boom");
       }),
     });
-    await prepareProcessOneFile("drive-file-9", "cron", fileMeta("drive-file-9"), deps, async () => null);
+    await prepareProcessOneFile(
+      "drive-file-9",
+      "cron",
+      fileMeta("drive-file-9"),
+      deps,
+      async () => null,
+    );
     const rec = records.find((r) => r.code === "PARSE_SHEET_THREW");
     expect(rec, "a PARSE_SHEET_THREW record must be emitted").toBeDefined();
     expect(rec!.level).toBe("error");
@@ -176,7 +182,13 @@ describe("parseSheet call-site guard (finding #17)", () => {
       })),
     });
     const file = fileMeta("drive-file-1");
-    const prepared = await prepareProcessOneFile("drive-file-1", "cron", file, deps, async () => null);
+    const prepared = await prepareProcessOneFile(
+      "drive-file-1",
+      "cron",
+      file,
+      deps,
+      async () => null,
+    );
     expect(prepared.kind).toBe("ready");
     if (prepared.kind === "ready") {
       expect(prepared.parseResult.hardErrors).toContainEqual(
@@ -194,7 +206,7 @@ describe("parseSheet call-site guard (finding #17)", () => {
 
   test("first-seen throw path → hard_fail writes pending_ingestions, no shows row (REAL runPhase1)", async () => {
     // Full first-seen e2e (spec §4.2): throwing parser → guard synthesizes PARSE_THREW → REAL
-    // runPhase1 (deps.runPhase1 omitted) → runInvariants(null, ...) hard_fails on the MI-1 hardError,��
+    // runPhase1 (deps.runPhase1 omitted) → runInvariants(null, ...) hard_fails on the MI-1 hardError,��
     // no existing shows row → upsertLivePendingIngestion. Proves the guard, MI-1 routing,
     // pending-ingestion write, and null showId together — non-tautological (real runPhase1).
     const upsertLivePendingIngestion = vi.fn(async () => "pending-1");
@@ -215,9 +227,22 @@ describe("parseSheet call-site guard (finding #17)", () => {
       // deps.runPhase1 intentionally omitted → runPhase1_unlocked uses the REAL runPhase1.
     });
     const file = fileMeta("drive-file-new");
-    const prepared = await prepareProcessOneFile("drive-file-new", "cron", file, deps, async () => null);
+    const prepared = await prepareProcessOneFile(
+      "drive-file-new",
+      "cron",
+      file,
+      deps,
+      async () => null,
+    );
     expect(prepared.kind).toBe("ready");
-    const result = await processOneFile_unlocked(tx, "drive-file-new", "cron", file, deps, prepared);
+    const result = await processOneFile_unlocked(
+      tx,
+      "drive-file-new",
+      "cron",
+      file,
+      deps,
+      prepared,
+    );
     expect(result).toMatchObject({ outcome: "hard_fail", showId: null });
     expect(updateShowParseError).not.toHaveBeenCalled();
     expect(upsertLivePendingIngestion).toHaveBeenCalledTimes(1);

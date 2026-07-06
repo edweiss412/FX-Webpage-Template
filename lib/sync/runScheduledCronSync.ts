@@ -2790,14 +2790,16 @@ export async function prepareProcessOneFile(
     // Synthesize the fail-closed sheet FIRST — the guard must not depend on logging succeeding.
     parsed = buildThrownParsedSheet(message);
     // Forensic, best-effort: never let a logging fault break the guard or leak an unhandled rejection.
-    // Keep `log.error(` contiguous so stripLogEmissionCalls recognizes it — the PARSE_SHEET_THREW
-    // forensic code is app_events-only and must be excluded from the §12.4 producer scan.
-    void log.error("Parser threw on sheet parse; routing to hard_fail", {
+    // Assigned to a local (not chained) so prettier keeps `log.error(` on one line — a chained
+    // `.catch()` makes prettier split `log` / `.error` across lines, which stripLogEmissionCalls
+    // cannot match, leaking the app_events-only PARSE_SHEET_THREW code into the §12.4 producer scan.
+    const forensicLog = log.error("Parser threw on sheet parse; routing to hard_fail", {
       source: "sync",
       code: "PARSE_SHEET_THREW",
       driveFileId,
       error,
-    }).catch(() => {});
+    });
+    void forensicLog.catch(() => {});
   }
 
   // Finding C7: seed prior stored `extracted` onto the fresh agenda_links BEFORE enrich, so
