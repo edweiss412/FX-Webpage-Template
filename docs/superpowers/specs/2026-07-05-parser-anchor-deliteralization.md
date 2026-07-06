@@ -43,25 +43,31 @@ Note: shape-based recognition already exists for the *GS* label-less case — `f
 
 ### 2.2 New behavior
 
-Introduce a single exported predicate and use it at all three sites plus the v1 loop's discovery:
+Introduce **three** functions with clean single-responsibility contracts (splitting the pure name-shape test from the contextual evidence test — a single-cell predicate cannot see the block beneath, per adversarial-review R1 finding 2). All exported from `lib/parser/blocks/rooms.ts`:
 
 ```ts
-// lib/parser/blocks/rooms.ts
-// Recognize a label-less venue-name room header by SHAPE, not by literal venue name.
-// col0Raw is the raw first-column cell (may contain &#10; line breaks, NOT yet flattened).
-export function isRoomHeaderShape(col0Raw: string): boolean
+// (a) PURE — name-shape only, computable from the header cell alone.
+export function roomHeaderNameShape(col0Raw: string): boolean
+// (b) PURE — dims token rides in the (possibly multi-line) header cell.
+function dimsInHeader(col0Raw: string): boolean       // /\d+\s*'\s*x/i across any header line
+// (c) CONTEXTUAL — ≥1 recognized breakout room-field in the block beneath.
+function hasRoomFieldEvidence(blockText: string): boolean
+// (d) DISCOVERY predicate — the strong-evidence gate for CREATING a v1 room.
+export function isRoomHeaderShape(col0Raw: string, blockBeneath: string): boolean
+//   = roomHeaderNameShape(col0Raw) && (dimsInHeader(col0Raw) || hasRoomFieldEvidence(blockBeneath))
 ```
 
-**`isRoomHeaderShape(col0Raw)` returns true iff ALL hold:**
+**`roomHeaderNameShape(col0Raw)` (pure) returns true iff BOTH hold:**
 
 1. **Non-empty, label-less proper name.** After flattening `&#10;`→newline and taking the first line, trimmed, uppercased: the first line matches an all-caps proper-name shape `^[A-Z0-9][A-Z0-9 &'./-]*$` (letters/digits/spaces + a small punctuation set; at least one letter). Reject a first line containing lowercase words (a mixed-case field label like `Breakout Room Setup Date / Time`) — the existing loops are already case-sensitive on uppercase headers (`:750-752`), preserve that.
 2. **Not a known section/room banner.** The uppercased first line does NOT start with any structural keyword already handled by a dedicated path or that denotes a section: `GENERAL SESSION`, `BREAKOUT`, `ADDITIONAL`, `LUNCH`, `DETAILS`, plus the section banners `findGsBlockVenueHeader` already excludes (`:565-571`: `DOCUMENTS`, `DATES`, `CREW`, `DRESS`, `TRANSPORTATION`, `HOTEL`, `VENUE`, `AGENDA`, `CONTACTS`). Also NOT in `KNOWN_SECTION_HEADERS` / `KNOWN_SUB_LABELS` (`lib/parser/knownSections.ts:34,96`) and NOT a `GS <label>` field row (`^GS\s`).
-3. **Strong evidence it is a room** (exactly the `findGsBlockVenueHeader` gate, generalized): EITHER a dims token rides in the header cell (`/\d+\s*'\s*x/i` across any header line) OR the block immediately beneath carries ≥1 recognized breakout room-field (the fields `applyBoFields`/`mergeBoFields` already recognize — `dimensions`/`floor`/`setup`/`set time`/etc.). "Immediately beneath" = the contiguous table rows up to the next `isRoomHeaderShape`/structural terminator.
 
-**Uses of the predicate:**
+**`hasRoomFieldEvidence(blockText)`**: ≥1 recognized breakout room-field row in the block beneath (the fields `applyBoFields`/`mergeBoFields` recognize — `dimensions`/`floor`/`setup`/`set time`/`show time`/`strike time`/`audio`/`video`/`scenic`/`lighting`/`power`/`other`). "Block beneath" = the contiguous table rows from the header down to the next terminator.
 
-- **v1 loop (`:823-847`)**: replace `mabelRe` iteration with iteration over every candidate col0 header row for which `isRoomHeaderShape(rawHeader)` is true AND the header is not already claimed by the BREAKOUT/LUNCH loops (`seen`) AND not a GS/section row. The merge-by-header-key + drop-empty-room logic (`:830-847`) is otherwise **unchanged**. `MABEL 1` / `MABEL 1\nAPPROXIMATELY 60' x 45'` / `MABEL 1\nDAY 1 & 2` / `LAUDERDALE …` all satisfy the shape (proper name; dims-in-header OR fields-beneath), so east-coast output is preserved.
-- **`extractGsBlock` terminator (`:687`)** and **`NEXT_ROOM_HEADER_RE` (`:880-881`)**: keep the structural keywords (`GENERAL SESSION|BREAKOUT|ADDITIONAL ROOM|LUNCH ROOM|DETAILS`) and REPLACE the `MABEL|LAUDERDALE` alternatives with a call to `isRoomHeaderShape` on the row's col0. So the terminator now stops at ANY shape-recognized room header, not only the two literal names.
+**Uses:**
+
+- **v1 discovery loop (`:823-847`)**: replace `mabelRe` iteration with a scan over every candidate col0 header row, calling `isRoomHeaderShape(rawHeader, extractBoBlock(markdown, m.index))` — i.e. the DISCOVERY predicate with the block-beneath text — AND the header is not already claimed by the BREAKOUT/LUNCH loops (`seen`) AND not a GS/section row. The merge-by-header-key + drop-empty-room logic (`:830-847`) is otherwise **unchanged**. `MABEL 1\nAPPROXIMATELY 60' x 45'` satisfies via `dimsInHeader`; `MABEL 1\nDAY 1 & 2` (no dims) satisfies via `hasRoomFieldEvidence` on its block beneath; both merge by key `MABEL 1`. So east-coast output is preserved.
+- **`extractGsBlock` terminator (`:687`)** and **`NEXT_ROOM_HEADER_RE` (`:880-881`)**: keep the structural keywords (`GENERAL SESSION|BREAKOUT|ADDITIONAL ROOM|LUNCH ROOM|DETAILS`) and REPLACE the `MABEL|LAUDERDALE` alternatives with `roomHeaderNameShape(col0)` — the terminator's job is "is this a new room header?", which is a NAME-SHAPE question, NOT a strong-evidence question (a terminator that also required fields-beneath would recurse into the very block it is bounding). **Terminator evidence asymmetry (plan-resolved):** the literal terminator fired on bare `MABEL`/`LAUDERDALE` regardless of dims, so a name-shape-only terminator matches or slightly widens that. The EXACT terminator predicate (name-shape alone vs name-shape+dims) is resolved at plan time against the **byte-identical east-coast golden test** (§2.4), whose fixture MUST include the no-dim `MABEL 1\nDAY 1 & 2` merge case — if the chosen terminator changes east-coast `rooms` output, the golden test fails and the plan narrows the predicate. This is the single highest-risk decision in the PR and is deliberately pinned to the fixture, not asserted blind.
 
 ### 2.3 Guard conditions (Part A)
 
@@ -78,7 +84,7 @@ export function isRoomHeaderShape(col0Raw: string): boolean
 
 ### 2.4 Regression anchor (Part A)
 
-`fixtures/shows/raw/2024-05-east-coast-family-office.md` is the byte-identical anchor. The `parseSheet` output (rooms array: names, dims, floors, field values, ordering, merge/dedup) for east-coast MUST be **unchanged** vs `origin/main`. The plan adds a golden-equality test asserting the east-coast rooms array is deep-equal before/after. A NEW synthetic fixture (`SALON ABCD\n60' x 45'` at a non-east-coast venue) asserts a novel venue is now recognized (was dropped).
+`fixtures/shows/raw/2024-05-east-coast-family-office.md` is the byte-identical anchor. The `parseSheet` output (rooms array: names, dims, floors, field values, ordering, merge/dedup) for east-coast MUST be **unchanged** vs `origin/main`. The plan adds a golden-equality test asserting the east-coast rooms array is deep-equal to a snapshot captured from `origin/main`. This fixture already exercises the no-dim `MABEL 1\nDAY 1 & 2` merge case (the R1-finding-2 contextual-evidence path); the test is the authoritative guard on the terminator evidence-asymmetry decision (§2.2). A NEW synthetic fixture (`SALON ABCD\n60' x 45'`) asserts a novel venue is now recognized (was dropped).
 
 ---
 
@@ -122,10 +128,11 @@ export function parseStageClause(roleCell: string): StageClause
 **Grammar (evaluated on the role cell, after day-restriction extraction already ran upstream — see `crew.ts:299-304`):**
 
 1. Strip an optional leading `-` and whitespace.
-2. Greedily consume a **stage run** at the start: one or more `STAGE_RESTRICTION_VOCAB` members (case-insensitive, flexible interior whitespace) joined by `/`. Record them in appearance order, deduped, mapped to canonical casing (`Load In`/`Set`/`Show`/`Strike`/`Load Out`).
-3. After the run, look for `\s+ONLY\b(\*{0,3})?`. If present → `hasOnly = true`.
+2. Consume a **stage run** at the start: split the leading text on `/` and, for each `/`-segment (trimmed, and with a trailing `ONLY`/`***` marker peeled off), require it to **EXACTLY equal** a `STAGE_RESTRICTION_VOCAB` member. Full-segment-exact matching is load-bearing: a segment like `SHOW CALLER` is NOT equal to `SHOW`, so it does NOT count as a stage and the run ends at zero stages (adversarial-review R1 finding 1 — prevents the `SHOW` stage from cannibalizing the `SHOW CALLER` role). The run continues only while consecutive `/`-segments are exact stage members. Record matches in appearance order, deduped, canonical-cased.
+   - **Role precedence (explicit):** a leading token that forms a `MULTI_WORD_TOKENS` role — `SHOW CALLER`, `GREEN ROOM`, `CONTENT CREATION`, `CAM OP` (`personalization.ts:44`) — is NEVER consumed as a stage. This falls out of full-segment-exact matching (each is a single space-joined segment ≠ any stage member), but is stated as an invariant and pinned by tests.
+3. After the run, look for `\s+ONLY\b(\*{0,3})?`. If present → `hasOnly = true`. (A **single** stage token is treated as a restriction run only when immediately followed by the `ONLY` marker — e.g. `SHOW ONLY` → `[Show]`; a bare lone `SHOW` with no `ONLY` and no `/`-joined peer is NOT consumed.)
 4. Everything after the ONLY marker (or after the stage run if no ONLY) is the role-flag tail → `cleaned`.
-5. If step 2 consumed **0 stages** BUT the cell matches the whole-cell shape `^\s*-?\s*<body>\s+ONLY\b(\*{0,3})?\s*$` where `<body>` (a) is non-empty, (b) contains NO recognized `ROLE_NORMALIZATIONS` token, (c) contains NO date token (`\d{1,2}/\d{1,2}`) → `unrecognizedRestriction = true`, and consume the clause into `cleaned = ""` (so `extractRoleFlags` does not also warn). This is the `Rehearsal ONLY` case.
+5. If step 2 consumed **0 stages** BUT the cell matches the whole-cell shape `^\s*-?\s*<body>\s+ONLY\b(\*{0,3})?\s*$` where `<body>` (a) is non-empty, (b) contains NO recognized `ROLE_NORMALIZATIONS` token (incl. multi-word roles — so `SHOW CALLER ONLY` is NOT an unknown stage restriction), (c) contains NO date token (`\d{1,2}/\d{1,2}`), (d) contains NO recognized single stage member alone → `unrecognizedRestriction = true`, and consume the clause into `cleaned = ""` (so `extractRoleFlags` does not also warn). This is the `Rehearsal ONLY` case.
 
 **Decision table:**
 
@@ -136,7 +143,11 @@ export function parseStageClause(roleCell: string): StageClause
 | `Set / Strike ONLY` (reordered subset) | [Set,Strike] | true | false | explicit [Set,Strike] (**FIXED**) |
 | `Set / Show ONLY` | [Set,Show] | true | false | explicit [Set,Show] (**NEW**, Show valid) |
 | `Load In / Set / Strike / Load Out` (no ONLY) | [4 stages] | false | false | none (stripped for flags; unchanged) |
+| `SHOW ONLY` | [Show] | true | false | explicit [Show] |
 | `Rehearsal ONLY` | [] | true | true | none + `UNKNOWN_STAGE_RESTRICTION` warn (**FIXED copy**) |
+| `SHOW CALLER` | [] | false | false | none; role SHOW_CALLER preserved (**collision guard**) |
+| `SHOW CALLER ONLY` | [] | true | false | none; role SHOW_CALLER + ONLY flag (body has recognized role → not unrecognized) |
+| `- SHOW CALLER` | [] | false | false | none; role SHOW_CALLER preserved |
 | `- LEAD` | [] | false | false | none (unchanged) |
 | `A1 / GS` | [] | false | false | none (unchanged) |
 
@@ -274,15 +285,17 @@ Every new test states the concrete failure mode it catches; expected values deri
 
 ### Part A
 - **Golden regression (primary):** `parseSheet` on `2024-05-east-coast-family-office.md` → assert the `rooms` array is **deep-equal** to the `origin/main` baseline (names/dims/floors/fields/order). Failure mode: shape predicate changes east-coast grouping. (Assert against the parsed data source, not a rendered container.)
-- **Novel-venue recognition:** synthetic markdown with `| SALON ABCD\n60' x 45' |` + a `Setup` field row at a non-MABEL venue → assert one breakout room `{name:'SALON ABCD', dimensions:"60' x 45'"}` appears (was dropped on `origin/main`). Failure mode: literal-only recognition.
+- **Novel-venue recognition (dims-in-header):** synthetic markdown with `| SALON ABCD\n60' x 45' |` + a `Setup` field row at a non-MABEL venue → assert one breakout room `{name:'SALON ABCD', dimensions:"60' x 45'"}` appears (was dropped on `origin/main`). Failure mode: literal-only recognition.
+- **Novel-venue recognition (no-dim, fields-beneath):** synthetic `| GRAND FOYER\nDAY 1 & 2 |` (NO dims token) followed by a recognized room-field row (`BO Setup` / `Setup`) → assert the room is recognized via `hasRoomFieldEvidence` (not dims). Directly exercises the R1-finding-2 contextual-evidence path and the `MABEL 1\nDAY 1 & 2` merge shape. Failure mode: single-cell predicate can't see fields beneath.
 - **Negative (no false positive):** an all-caps note row (`| IMPORTANT NOTES |`) with NO dims and NO room fields beneath → assert NO room row created. Failure mode: shape predicate too loose.
-- **`isRoomHeaderShape` unit table:** every §2.3 guard row.
+- **`roomHeaderNameShape` / `hasRoomFieldEvidence` / `isRoomHeaderShape` unit tables:** every §2.3 guard row, exercising the pure-shape and contextual-evidence functions separately.
 
 ### Part B
 - **`parseStageClause` unit table:** every §3.2 decision-table row. Reordered subset (`Set / Strike ONLY`) → `[Set,Strike]`; `Set / Show ONLY` → `[Set,Show]`.
 - **Regression:** the three original phrasings still produce identical `StageRestriction` (full-4, `[Load In,Set]`, `[Load Out,Strike]`).
 - **No-cascade:** `Set / Strike ONLY` → `extractRoleFlags` produces ZERO `UNKNOWN_ROLE_TOKEN` (was 2 on `origin/main`). Failure mode: duplication not removed.
 - **Signal:** `Rehearsal ONLY` → `extractStageRestriction` returns one `UNKNOWN_STAGE_RESTRICTION` warning and `{kind:"none"}` (whole-show fallback). Assert NO `UNKNOWN_ROLE_TOKEN` double-warn.
+- **SHOW_CALLER collision (R1 finding 1):** `SHOW CALLER`, `SHOW CALLER ONLY`, `- SHOW CALLER` → `extractRoleFlags` yields role flag `SHOW_CALLER` (NOT stage `Show` + unknown `CALLER`); `extractStageRestriction` → `{kind:"none"}`, NO `UNKNOWN_STAGE_RESTRICTION`. Failure mode: full-segment-exact matching regressed to prefix-matching, cannibalizing the role.
 - **End-to-end filter:** `stage-filtered-schedule` — a crew row `Set / Show ONLY` folds to a `date_restriction` covering exactly Set + Show days (derive the expected day set from the fixture's `dates`/`schedule_phases`, not a literal). Failure mode: Show not intersecting.
 - **Existing `tests/…stage-filtered-schedule` + `personalization` + `crew` suites** stay green.
 
