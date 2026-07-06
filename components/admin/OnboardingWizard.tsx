@@ -53,6 +53,11 @@ type OnboardingWizardProps = {
   // Defaults to false so a caller (or test) that omits it never advertises a
   // forward/resume affordance that would land on an empty Step 3.
   hasReviewableScan?: boolean;
+  // Step-3 consolidation (spec §4.3): the /admin dispatcher's finalize checkpoint
+  // for the active session, threaded into the unified Step-3 surface so it can
+  // render across finalize states (the footer-mode wiring lands in Phase 3).
+  // null = pre-finalize (default).
+  checkpointStatus?: "in_progress" | "all_batches_complete" | null;
 };
 
 type ServiceAccountResult = { ok: true; email: string } | { ok: false };
@@ -599,7 +604,13 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
   return { kind: "ok", rows, finishable };
 }
 
-async function Step3Container({ wizardSessionId }: { wizardSessionId: string }) {
+async function Step3Container({
+  wizardSessionId,
+  checkpointStatus = null,
+}: {
+  wizardSessionId: string;
+  checkpointStatus?: "in_progress" | "all_batches_complete" | null;
+}) {
   const result = await fetchStep3Data(wizardSessionId);
   if (result.kind === "infra_error") {
     return (
@@ -634,6 +645,7 @@ async function Step3Container({ wizardSessionId }: { wizardSessionId: string }) 
       finishable={result.finishable}
       initialPublishCount={publishCount}
       initialUncheckedCleanCount={uncheckedCleanCount}
+      checkpointStatus={checkpointStatus}
     />
   );
 }
@@ -664,6 +676,7 @@ export async function OnboardingWizard({
   settings,
   searchParams,
   hasReviewableScan = false,
+  checkpointStatus = null,
 }: OnboardingWizardProps) {
   const service = readServiceAccountEmail();
   const step = pickStep(searchParams.step);
@@ -734,7 +747,10 @@ export async function OnboardingWizard({
           {step === 1 ? <Step1Share serviceAccountEmail={service.email} /> : null}
           {step === 2 ? <Step2Verify {...(priorScan ? { priorScan } : {})} /> : null}
           {step === 3 && settings.pending_wizard_session_id !== null ? (
-            <Step3Container wizardSessionId={settings.pending_wizard_session_id} />
+            <Step3Container
+              wizardSessionId={settings.pending_wizard_session_id}
+              checkpointStatus={checkpointStatus}
+            />
           ) : null}
           {step === 3 && settings.pending_wizard_session_id === null ? (
             <section

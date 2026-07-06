@@ -77,6 +77,26 @@ describe("buildStep3Row Live/Held candidate selection (spec §4.3, plan-R1)", ()
     expect(row.displayState).not.toBe("live");
     expect(row.linkedShow ?? null).toBeNull();
   });
+  it("pre-CAS finalize (all_batches_complete): session show published=false + publish_intent → Ready to publish (R8)", () => {
+    const preCasShow = { ...sessionShow, published: false, wizard_created_session_id: "s1" };
+    const row = buildStep3Row(
+      { ...manifest, status: "applied", created_show_id: "show1", publish_intent: true },
+      pending,
+      [preCasShow],
+    );
+    expect(row.displayState).toBe("ready_to_publish");
+    expect(row.publishIntent).toBe(true);
+    expect(row.sessionLinked).toBe(true);
+  });
+  it("pre-CAS finalize, session show published=false, NO publish_intent → Held (deliberately unchecked)", () => {
+    const preCasShow = { ...sessionShow, published: false, wizard_created_session_id: "s1" };
+    const row = buildStep3Row(
+      { ...manifest, status: "applied", created_show_id: "show1", publish_intent: false },
+      pending,
+      [preCasShow],
+    );
+    expect(row.displayState).toBe("held");
+  });
 });
 
 describe("buildStep3Row handles rows with NO pending_syncs row (MEDIUM plan-R3)", () => {

@@ -57,6 +57,11 @@ type Step3ReviewWithFinalizeProps = {
   // first optimistic render so the label never flashes a stale value on mount.
   initialPublishCount: number;
   initialUncheckedCleanCount: number;
+  // Step-3 consolidation (spec §4.3/§4.5): the finalize checkpoint for THIS
+  // session, threaded so the unified surface can render the mid-finalize footer
+  // mode (Resume/Finish) instead of the pre-finalize Publish action. null =
+  // pre-finalize (default). The footer mode wiring lands in Phase 3.
+  checkpointStatus?: "in_progress" | "all_batches_complete" | null;
 };
 
 const FINISH_HINT = "You can finish setup whenever you are ready.";
@@ -67,7 +72,12 @@ export function Step3ReviewWithFinalize({
   finishable,
   initialPublishCount,
   initialUncheckedCleanCount,
+  checkpointStatus = null,
 }: Step3ReviewWithFinalizeProps) {
+  // Referenced now so the threaded checkpoint is a live binding; the footer-mode
+  // consumer lands in Phase 3 (Task 3.2). Void-read keeps it from tripping
+  // no-unused-vars while the wiring is staged across phases.
+  void checkpointStatus;
   const [counts, setCounts] = useState<Step3PublishCounts>({
     publishCount: initialPublishCount,
     uncheckedCleanCount: initialUncheckedCleanCount,
