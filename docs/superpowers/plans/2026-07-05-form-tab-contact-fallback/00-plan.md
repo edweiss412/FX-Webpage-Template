@@ -262,13 +262,15 @@ describe("FORM-tab client email/phone fallback", () => {
     expect(client_contact!.email).toBeNull();
   });
 
-  it("does not fill from a stray Email Address after the FORM run ends (case b)", () => {
-    // FORM block present with EMPTY Email Address; a stray in a later separate run must not fill.
-    const { client_contact } = parseClient(
-      md({ formEmail: "", trailingStrayEmail: "stray@x.com" }),
-      "v4",
-    );
+  it("does not fill email OR phone from a stray row after the FORM run ends (case b)", () => {
+    // FORM block present with EMPTY Email Address AND EMPTY Phone Number; strays in a later
+    // separate run must not fill either field (the bounding gate applies to both labels equally).
+    const strayBlock =
+      md({ formEmail: "", formPhone: "" }) +
+      "\n| Some Other Section | header |\n| Email Address | stray@x.com |\n| Phone Number | 5559999999 |\n";
+    const { client_contact } = parseClient(strayBlock, "v4");
     expect(client_contact!.email).toBeNull();
+    expect(client_contact!.phone).toBeNull();
   });
 
   it("extracts only the email substring from a wrapped FORM value", () => {
