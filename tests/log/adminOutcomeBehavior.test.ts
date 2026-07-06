@@ -262,6 +262,10 @@ import { POST as bellReadPOST } from "@/app/api/admin/alerts/bell/read/route";
 import { POST as bellConfigPOST } from "@/app/api/admin/alerts/bell/config/route";
 import { BELL_LIMITS } from "@/lib/admin/bellConfig";
 
+// ── Task 8 (pull-sheet-on-archived-tab override): accept/revoke route ──────
+import { handlePullSheetOverride } from "@/app/api/admin/onboarding/pull-sheet-override/route";
+import type { ArchivedPullSheetTab } from "@/lib/drive/exportSheetToMarkdown";
+
 // ── inline file-local recorder (single-file contract; no cross-file state) ──
 const recorded = new Set<string>(); // "file::fn::code"
 function recordAdminOutcomeBehavior(x: { file: string; fn: string; code: string }) {
@@ -1049,6 +1053,119 @@ describe("Task 11 — bell config route observes success only", () => {
       makeClient({ from: { data: null, error: { message: "boom" } } });
     const failCodes = await observeCodes(() => bellConfigPOST(bellConfigReq(historyDays, feedCap)));
     expect(failCodes).not.toContain("BELL_CONFIG_UPDATED");
+  });
+});
+
+// ── Task 8 (pull-sheet override): accept/revoke route observes success only ──
+const PULL_SHEET_OVERRIDE_ROUTE = "app/api/admin/onboarding/pull-sheet-override/route.ts";
+const PSO_DRIVE = "pso-drive";
+const PSO_SESSION = "22222222-2222-4222-8222-222222222222";
+const PSO_TAB = "OLD PULL SHEET";
+
+function psoReq(body: unknown): Request {
+  return new Request("https://x.test/api/admin/onboarding/pull-sheet-override", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+function psoTab(fingerprint: string): ArchivedPullSheetTab {
+  return {
+    tabName: PSO_TAB,
+    headerPreviews: ["preview"],
+    fingerprint,
+    included: false,
+    contentChangedSinceAccept: false,
+  };
+}
+
+const psoRpcOk = async (_p: unknown) => ({ data: { override: {} }, error: null });
+const psoRpcErr = async (_p: unknown) => ({ data: null, error: { message: "boom" } });
+const psoRescanOk = async () => ({ status: "updated" as const });
+
+describe("Task 8 — pull-sheet override route observes SET/CLEARED success only", () => {
+  test("accept emits PULL_SHEET_OVERRIDE_SET on committed RPC; nothing on an rpc error", async () => {
+    const acceptBody = {
+      driveFileId: PSO_DRIVE,
+      wizardSessionId: PSO_SESSION,
+      tabName: PSO_TAB,
+      expectedFingerprint: "ee",
+      expectedOverrideSnapshot: null,
+    };
+    const codes = await observeSuccessCodes(() =>
+      handlePullSheetOverride(psoReq(acceptBody), {
+        detectArchivedTabs: async () => [psoTab("ee")],
+        setPullSheetOverrideRpc: psoRpcOk as never,
+        rescanWizardSheet: psoRescanOk as never,
+      }),
+    );
+    expect(codes).toContain("PULL_SHEET_OVERRIDE_SET");
+    recordAdminOutcomeBehavior({
+      file: PULL_SHEET_OVERRIDE_ROUTE,
+      fn: "POST",
+      code: "PULL_SHEET_OVERRIDE_SET",
+    });
+
+    const failCodes = await observeCodes(() =>
+      handlePullSheetOverride(psoReq(acceptBody), {
+        detectArchivedTabs: async () => [psoTab("ee")],
+        setPullSheetOverrideRpc: psoRpcErr as never,
+        rescanWizardSheet: psoRescanOk as never,
+      }),
+    );
+    expect(failCodes).not.toContain("PULL_SHEET_OVERRIDE_SET");
+  });
+
+  test("revoke emits PULL_SHEET_OVERRIDE_CLEARED on committed RPC; nothing on an rpc error", async () => {
+    const revokeBody = {
+      driveFileId: PSO_DRIVE,
+      wizardSessionId: PSO_SESSION,
+      tabName: null,
+      expectedOverrideSnapshot: { tabName: PSO_TAB, fingerprint: "ff" },
+    };
+    const codes = await observeSuccessCodes(() =>
+      handlePullSheetOverride(psoReq(revokeBody), {
+        setPullSheetOverrideRpc: psoRpcOk as never,
+        rescanWizardSheet: psoRescanOk as never,
+      }),
+    );
+    expect(codes).toContain("PULL_SHEET_OVERRIDE_CLEARED");
+    recordAdminOutcomeBehavior({
+      file: PULL_SHEET_OVERRIDE_ROUTE,
+      fn: "POST",
+      code: "PULL_SHEET_OVERRIDE_CLEARED",
+    });
+
+    const failCodes = await observeCodes(() =>
+      handlePullSheetOverride(psoReq(revokeBody), {
+        setPullSheetOverrideRpc: psoRpcErr as never,
+        rescanWizardSheet: psoRescanOk as never,
+      }),
+    );
+    expect(failCodes).not.toContain("PULL_SHEET_OVERRIDE_CLEARED");
+  });
+
+  test("re-scan FAILS after RPC commit => PULL_SHEET_OVERRIDE_SET STILL emitted (partial-success audit, plan-R8-1)", async () => {
+    const acceptBody = {
+      driveFileId: PSO_DRIVE,
+      wizardSessionId: PSO_SESSION,
+      tabName: PSO_TAB,
+      expectedFingerprint: "ee",
+      expectedOverrideSnapshot: null,
+    };
+    // observeSuccessCodes RETHROWS a non-redirect throw — so the fact it returns codes
+    // ALSO proves the route did NOT propagate the re-scan failure past the committed audit.
+    const codes = await observeSuccessCodes(() =>
+      handlePullSheetOverride(psoReq(acceptBody), {
+        detectArchivedTabs: async () => [psoTab("ee")],
+        setPullSheetOverrideRpc: psoRpcOk as never,
+        rescanWizardSheet: (async () => {
+          throw new Error("rescan timeout");
+        }) as never,
+      }),
+    );
+    expect(codes).toContain("PULL_SHEET_OVERRIDE_SET");
   });
 });
 
