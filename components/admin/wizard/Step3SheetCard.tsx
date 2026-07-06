@@ -527,6 +527,11 @@ export function Step3SheetCard({
           isDirtyRescan={isDirtyRescan}
           onRequestSetChecked={requestSetChecked}
           onClose={closeDetails}
+          // R8: the modal keeps read-only view access during a run, but its own
+          // mutators (Publish/Unpublish/Re-scan) must freeze — thread the flag
+          // directly so a NON-reapply (View/Publish) modal freezes too, not only
+          // the resolution path (Codex R1 HIGH).
+          isPublishRunActive={isPublishRunActive}
           // exactOptionalPropertyTypes: pass the prop ABSENT (never `undefined`)
           // when this row is not a blocked re-apply row.
           {...(resolution ? { resolution } : {})}
@@ -565,7 +570,11 @@ export function Step3SheetCard({
           // the old shared tail rendered it for every non-dirty row).
           <>
             <NotPublishableNote dfid={dfid} />
-            <RescanSheetButton driveFileId={dfid} wizardSessionId={wizardSessionId} />
+            <RescanSheetButton
+              driveFileId={dfid}
+              wizardSessionId={wizardSessionId}
+              disabled={isPublishRunActive}
+            />
           </>
         )}
         {sharedTail}

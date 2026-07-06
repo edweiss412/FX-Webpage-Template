@@ -179,6 +179,7 @@ export function Step3ReviewModal({
   onRequestSetChecked,
   onClose,
   resolution,
+  isPublishRunActive: isPublishRunActiveProp = false,
 }: {
   data: SectionData;
   checked: boolean;
@@ -186,6 +187,11 @@ export function Step3ReviewModal({
   onRequestSetChecked: (next: boolean) => Promise<boolean>;
   onClose: () => void;
   resolution?: Step3ReviewResolution;
+  // Spec §4.4 R8: freeze THIS modal's own mutators (Publish/Unpublish + Re-scan)
+  // while a publish/resume finalize run is active. The read-only view stays
+  // open (design: the modal remains inspectable), but no mutation can fire. The
+  // resolution footer freezes independently via `resolution.isPublishRunActive`.
+  isPublishRunActive?: boolean;
 }) {
   const { dfid, wizardSessionId } = data;
   const panelRef = useRef<HTMLDivElement | null>(null);
@@ -198,7 +204,11 @@ export function Step3ReviewModal({
   // (tier-3) items start unset and force an explicit choice before Approve. ──
   const resolutionItems = resolution?.triggeredReviewItems ?? [];
   const reviewItemsCorrupt = resolution?.reviewItemsCorrupt === true;
-  const isPublishRunActive = resolution?.isPublishRunActive === true;
+  // Spec §4.4 R8: the modal is frozen when EITHER the top-level prop says a run
+  // is active (non-reapply View/Publish path — Codex R1 HIGH) OR the resolution
+  // payload carries the signal (blocked re-apply path). One effective flag drives
+  // every mutator below: Publish/Unpublish, Re-scan, and the resolution actions.
+  const isPublishRunActive = isPublishRunActiveProp || resolution?.isPublishRunActive === true;
   const initialResolutionChoices = useMemo(() => {
     const initial = new Map<string, ReviewerAction>();
     for (const item of resolutionItems) {
@@ -796,6 +806,7 @@ export function Step3ReviewModal({
   // Result-bearing publish (spec §9.1): the unchecked slot requests true;
   // close only on a true resolution.
   async function handlePublish() {
+    if (isPublishRunActive) return; // R8: no mutation while a finalize run is active
     setPublishState({ pending: "publish" });
     let ok = false;
     try {
@@ -1365,6 +1376,7 @@ export function Step3ReviewModal({
                 driveFileId={dfid}
                 wizardSessionId={wizardSessionId}
                 resultPlacement="overlay"
+                disabled={isPublishRunActive}
               />
               {/* §11 N5: instant — deliberate (slot follows the operation in flight while pending, else the checked prop; spec 2026-07-04 §B2 amendment) */}
               {showCheckedSlot ? (
@@ -1372,7 +1384,7 @@ export function Step3ReviewModal({
                   type="button"
                   data-testid={`wizard-step3-card-${dfid}-review-publish`}
                   onClick={handleUnpublish}
-                  disabled={isPending}
+                  disabled={isPending || isPublishRunActive}
                   aria-busy={isPending || undefined}
                   className="inline-flex min-h-tap-min flex-1 items-center justify-center gap-2 rounded-sm border border-border-strong bg-surface px-4 text-sm font-semibold whitespace-nowrap text-text transition-colors duration-fast hover:bg-surface-sunken disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface sm:flex-none"
                 >
@@ -1385,7 +1397,7 @@ export function Step3ReviewModal({
                   type="button"
                   data-testid={`wizard-step3-card-${dfid}-review-publish`}
                   onClick={handlePublish}
-                  disabled={isPending}
+                  disabled={isPending || isPublishRunActive}
                   aria-busy={isPending || undefined}
                   className="inline-flex min-h-tap-min flex-1 items-center justify-center gap-2 rounded-sm bg-accent px-4 text-sm font-semibold whitespace-nowrap text-accent-text transition-colors duration-fast hover:bg-accent-hover disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface sm:flex-none"
                 >

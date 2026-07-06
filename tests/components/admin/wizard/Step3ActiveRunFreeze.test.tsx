@@ -65,6 +65,21 @@ function reapplyRow(): Step3Row {
   };
 }
 
+const DEMOTED = "drive-demoted";
+// A finalize-DEMOTED row that is NOT a dirty-rescan (a non-RESCAN failure code):
+// it renders the NotPublishableNote + a plain row-level Re-scan recovery button.
+function demotedRow(): Step3Row {
+  const pr = buildParseResult({}) as unknown as ParseResult;
+  return {
+    driveFileId: DEMOTED,
+    driveFileName: "Demoted.gsheet",
+    status: "staged",
+    parseResult: pr,
+    lastFinalizeFailureCode: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
+    displayState: "needs_review_reapply",
+  };
+}
+
 afterEach(() => cleanup());
 
 function isDisabled(el: Element | null): boolean {
@@ -91,6 +106,20 @@ describe("Step-3 active-run freeze (spec §4.4 R8)", () => {
     expect(isDisabled(screen.getByRole("button", { name: /approve & apply/i }))).toBe(true);
     expect(isDisabled(screen.getByRole("button", { name: /re-scan this sheet/i }))).toBe(true);
     expect(isDisabled(screen.getByRole("button", { name: /ignore this sheet/i }))).toBe(true);
+  });
+
+  test("a NON-reapply (clean-row) modal's Publish + Re-scan freeze during an active run (Codex R1 HIGH)", () => {
+    render(<Step3Review wizardSessionId={WSID} rows={[cleanRow()]} isPublishRunActive />);
+    // Read-only viewing is intentional (design: the modal stays openable), so the
+    // trigger opens; the MUTATORS inside must be frozen.
+    fireEvent.click(screen.getByTestId(`wizard-step3-card-${CLEAN}-more`));
+    expect(isDisabled(screen.getByTestId(`wizard-step3-card-${CLEAN}-review-publish`))).toBe(true);
+    expect(isDisabled(screen.getByRole("button", { name: /re-scan this sheet/i }))).toBe(true);
+  });
+
+  test("a finalize-demoted row's row-level Re-scan freezes during an active run (Codex R1 MEDIUM)", () => {
+    render(<Step3Review wizardSessionId={WSID} rows={[demotedRow()]} isPublishRunActive />);
+    expect(isDisabled(screen.getByRole("button", { name: /re-scan this sheet/i }))).toBe(true);
   });
 
   test("regression: with NO active run, the same controls are ENABLED", () => {
