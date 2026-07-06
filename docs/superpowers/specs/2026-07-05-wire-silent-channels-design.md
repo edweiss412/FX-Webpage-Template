@@ -101,7 +101,11 @@ A genuine **first-seen parse hard-fail** = the file has no `public.shows` row ye
 1. **Onboarding scan** — `lib/sync/runOnboardingScan.ts:728-736` (`result.outcome === "hard_fail"` branch, distinct from the `:640` `live_row_conflict` and `:710` `defer` branches which are **excluded**). Data in scope: `file.driveFileId`, `file.name` (sheet title), `result.code`.
 2. **Cron** — `lib/sync/runScheduledCronSync.ts:2820-2849`, the `else` of the `show?.showId` guard (`:2831`). Data in scope: `driveFileId`, `phase1.code`; sheet title is the parse result's title if available (fallback: the Drive `fileMeta.name`).
 
-Both raises are **post-commit, outside the advisory lock** (mirror the existing `upsertAdminAlert` raise at `runScheduledCronSync.ts:2834`, which is already post-`logSync`, in the locked-tx epilogue — B's raise goes in the SAME structural position: after the outcome is durable, using the tx-bound `requireTxBoundUpsertAdminAlert` on the cron path and the onboarding tx's `upsertAdminAlert` seam on the onboarding path).
+Both raises are **tx-bound, inside the advisory-locked pipeline transaction** — this mirrors the established alert-raising pattern EXACTLY. The existing `PARSE_ERROR_LAST_GOOD` / `RESYNC_SHRINK_HELD` raises (`runScheduledCronSync.ts:2834`, `:2868`) use `requireTxBoundUpsertAdminAlert(txDeps, …)` and run inside `withShowLock`'s locked tx (`processOneFile_unlocked` is called at `runScheduledCronSync.ts:2420` within the lock). B's cron raise uses the SAME tx-bound `requireTxBoundUpsertAdminAlert` in the `showId`-null branch; B's onboarding raise uses the onboarding scan tx's `callTx`-wrapped alert seam (same tx that writes the manifest at `:736`).
+
+**Correction (round-1 finding 2):** an earlier draft claimed these raises were "post-commit, outside the lock." That was wrong about the codebase — admin_alerts raises in the sync pipeline are tx-bound by established convention (verified: `requireTxBoundUpsertAdminAlert` binds to the locked tx). Invariant 10's "post-commit, outside any advisory-lock tx" governs **telemetry emits** (`logAdminOutcome` / coded `app_events`) — Unit A's `log.warn` is such an emit and IS outside any lock (listing phase, before per-show processing). It does **not** govern admin_alerts alert-raises. B/C therefore follow the tx-bound alert convention, NOT the telemetry-emit convention.
+
+**Accepted pre-existing contract (rejecting the round-1 recommendation to move raises to a post-commit epilogue):** because the raise participates in the locked tx, an alert-RPC failure aborts and retries the whole sync — this is the EXISTING behavior for `PARSE_ERROR_LAST_GOOD`/`RESYNC_SHRINK_HELD` and is an accepted contract (a failed sync simply retries next cycle; last-good stays live). Introducing a separate post-commit "return alert intents then emit best-effort" epilogue would diverge B/C from the entire established alert architecture and add a new mechanism to every sibling alert for parity — out of scope and higher-risk than mirroring the proven pattern. B/C match their siblings; no new epilogue mechanism.
 
 ### 5.3 Aggregate context model + auto-resolve
 
@@ -114,7 +118,9 @@ The uniqueness index collapses all `showId:null` `FIRST_SEEN_PARSE_FAILED` sight
 - **Add (raise):** on a first-seen hard-fail, set `failures[driveFileId] = { sheet_title, code }`. Keyed by `driveFileId` → natural dedup (a repeated failure of the same sheet overwrites its own entry, no growth).
 - **Prune + resolve (recovery):** a first-seen sheet leaves the failing set when it is next processed **successfully** — i.e. it stages (`stage` outcome) or publishes, meaning it is no longer a first-seen parse-failure. At each such bounded success site, remove `failures[driveFileId]`; **if `failures` becomes empty, resolve the alert** (`resolveAdminAlert({ showId: null, code: "FIRST_SEEN_PARSE_FAILED" })`, mirroring `lib/notify/detect/stall.ts:17`'s global resolve via `.is("show_id", null)`).
 
-**Merge semantics require an RPC change.** The current `upsert_admin_alert` (`supabase/migrations/20260618000000_upsert_admin_alert_failedkeys_merge.sql`) merges a **grow-only text array** (`failedKeys`) — it cannot prune, and it merges text not objects. B needs **object-map add** and **key-prune**. Design decision (see §5.4): rather than overload `upsert_admin_alert` with prune semantics (it is a shared, heavily-tested chokepoint), model B's context mutation as **read-modify-write inside the same SECURITY DEFINER upsert call by passing the full recomputed `failures` map as `p_context`** — the producer computes the next map (merge-in on add, delete-key on prune) from the current row, and passes the whole object. This keeps `upsert_admin_alert` a plain last-writer-wins for non-`failedKeys` context (its documented default: "Producers WITHOUT a `failedKeys` key behave byte-for-byte as the old function"). The read-current-then-write is done **under the per-show advisory lock is N/A** (global alert, no show) — instead it races only with other first-seen files; because first-seen files are processed serially within a scan and the alert row is global, we serialize the read-modify-write via a dedicated `upsert_first_seen_parse_failed(p_driveFileId, p_sheet_title, p_code)` / `resolve_first_seen_parse_failed(p_driveFileId)` RPC pair that does the map mutation **inside the function** (single statement, atomic) rather than in JS. This avoids a lost-update race between concurrent producers.
+**Merge semantics require an RPC change.** The current `upsert_admin_alert` (`supabase/migrations/20260618000000_upsert_admin_alert_failedkeys_merge.sql`) merges a **grow-only text array** (`failedKeys`) — it cannot prune, and it merges text not objects. B needs **object-map add** and **key-prune**.
+
+**Why a JS read-modify-write is unsafe here (unlike C):** B's alert is **global** (`showId:null`). Concurrent first-seen files each hold a *different* per-file advisory lock (`show:`||`drive_file_id`), so the advisory lock does **not** serialize writes to the single shared global alert row — a JS read-modify-write would lose updates between concurrent producers. Therefore the map mutation must be **atomic inside a SECURITY DEFINER function** (single SQL statement → row-level lock on the one `admin_alerts` row serializes concurrent producers). Hence the dedicated RPC pair in §5.4, rather than JS-side context assembly. (C differs: it is show-scoped, so its own show lock already serializes its read-modify-write — C needs no RPC.) The RPC calls are themselves tx-bound within each file's pipeline tx (§5.2), but the cross-file serialization guarantee comes from the in-RPC atomicity, not the tx.
 
 ### 5.4 RPC: `upsert_first_seen_parse_failed` / `prune_first_seen_parse_failed`
 New migration adds two SECURITY DEFINER functions:
@@ -153,7 +159,7 @@ Both are apply-twice idempotent (`create or replace`). Migration follows the val
 ### 6.2 When it fires
 Computed for an **existing published show** whose re-sync **applied** (not held/staged/first-seen). The apply path is `applyParseResult` (`lib/sync/applyParseResult.ts:206` writes new `parse_warnings`). The prior last-good `parse_warnings` is readable at `readShowForPhase1` (`lib/sync/runScheduledCronSync.ts:645-651`, exposed as `priorParseResult.warnings`, `:692`). Both are in scope in `processOneFile_unlocked` at the applied-outcome epilogue.
 
-"Existing published show" = `public.shows` row non-null (`readShowForPhase1` returns non-null `showId`) AND the outcome is the applied/published branch (NOT `hard_fail`, `shrink_held`, `stage`, `skip`). Raise is **post-commit, outside the lock** (same structural slot as the `PARSE_ERROR_LAST_GOOD` raise).
+"Existing published show" = `public.shows` row non-null (`readShowForPhase1` returns non-null `showId`) AND the outcome is the applied/published branch (NOT `hard_fail`, `shrink_held`, `stage`, `skip`). Raise/resolve is **tx-bound, inside the advisory-locked pipeline tx** (same structural slot and `requireTxBoundUpsertAdminAlert` seam as the `PARSE_ERROR_LAST_GOOD` raise at `runScheduledCronSync.ts:2834`) — see §5.2's tx-boundedness correction. Being inside the show lock is load-bearing for C's baseline read-modify-write (§6.4): the per-show lock serializes the read-current-baseline-then-upsert so there is no lost-update race on this show's alert row.
 
 ### 6.3 Comparator — `isQualityRegression(prior, next): boolean`
 New pure function (co-located with `summarizeDataGaps`, `lib/parser/dataGaps.ts`):
@@ -171,10 +177,32 @@ Fire (`true`) when **either**:
 
 Do **not** compare `.total` alone (corpus proves absolute totals are show-intrinsic, §3 Track 1).
 
-### 6.4 Anti-flap + auto-resolve
+### 6.4 Anti-flap + auto-resolve (baseline-anchored — round-1 finding 1)
+
+**The bug an immediate-prior comparator would have:** if a show regresses `UNKNOWN_FIELD` 4→40 the alert opens; the next sync at 40→40 is *not a new regression vs its immediate prior (40)*, so a naive "resolve when `isQualityRegression(prior,next)` is false" would **resolve the alert while the show is still materially degraded** — turning a persistent regression into a one-cycle notification. Rejected.
+
+**Baseline-anchored lifecycle (correct):** the alert stores the **pre-regression baseline** and resolves only when the show returns to it.
+
+Alert `context` carries:
+```jsonc
+{ "drive_file_id", "sheet_name", "breakdown", "new_classes", "worsened",
+  "baseline": { /* DataGapsSummary captured at the moment the alert first opened = the last-good summary immediately BEFORE the first regressing sync */ } }
+```
+
+On each **applied** sync for a published show (tx-bound, under the show lock — read-modify-write is race-free per §6.2):
+1. `prior = summarizeDataGaps(priorWarnings)` (the stored last-good, before this apply); `current = summarizeDataGaps(nextWarnings)`.
+2. Read the show's open `RESYNC_QUALITY_REGRESSED` alert (if any) to get its stored `baseline`.
+3. **No open alert:** if `isQualityRegression(prior, current)` → **OPEN**, store `baseline = prior` (the pre-regression good state). Else no-op.
+4. **Open alert exists (stored `baseline`):** compare `current` against the STORED `baseline`, not the immediate prior:
+   - `isQualityRegression(baseline, current)` still true → **keep open**; re-upsert refreshing `breakdown`/`new_classes`/`worsened` but **preserve `baseline` unchanged** (do not let a further 40→80 step move the anchor).
+   - `isQualityRegression(baseline, current)` false → **RESOLVE** (`resolveAdminAlert({ showId, code })`, mirroring `PARSE_ERROR_LAST_GOOD` auto-resolve).
+
+This yields the required behavior: **4→40 opens (baseline 4); 40→40 stays open (still regressed vs baseline 4); 40→80 stays open, baseline pinned at 4; 80→4 resolves (no longer regressed vs baseline 4).**
+
+**Baseline preservation across re-upserts:** the existing `upsert_admin_alert` does last-writer-wins on non-`failedKeys` context, so a naive re-raise would clobber `baseline`. Because C is show-scoped and runs under the show advisory lock, the producer reads the current open alert's `baseline` first and passes it back verbatim in `p_context` on every re-upsert (JS read-modify-write, race-free under the lock). No RPC change for C.
+
 - Storage-native dedup: repeated regressed syncs re-upsert the one `(showId, RESYNC_QUALITY_REGRESSED)` row in place — no storm.
-- **Auto-resolve** when a later applied sync is **not** a regression vs its own prior (i.e. `isQualityRegression` is false) → `resolveStaleSyncProblemAlerts_unlocked` / `resolveAdminAlert({ showId, code })`. This mirrors `PARSE_ERROR_LAST_GOOD`'s auto-resolve-on-clean-sync (`runScheduledCronSync.ts:2843`).
-- No k-consecutive needed (storage dedups); consistent with existing alert cadence.
+- No k-consecutive needed (storage dedups + baseline anchor); consistent with existing alert cadence.
 
 ### 6.5 Guard conditions
 - `priorWarnings` null/empty (first-ever apply for a show that somehow lacks prior warnings) → `summarizeDataGaps(null) = { total:0, classes:allZero }`. Rule 1 then fires if the new parse has ANY gap class. This is acceptable: a brand-new-to-published show that lands with gaps is worth one Doug signal. (In practice first publish goes through staging, so this edge is rare.)
@@ -222,12 +250,12 @@ Each new §12.4 code fans out (verified files exist against HEAD):
 
 ## 9. Invariants honored
 
-- **2 (advisory lock):** raises post-commit, outside lock; no new holder. ✓
+- **2 (advisory lock single-holder):** B/C alert raises/resolves are **tx-bound inside the existing `withShowLock` pipeline tx** (mirroring `PARSE_ERROR_LAST_GOOD`), and the new B RPCs / `upsert_admin_alert` do **not** acquire `pg_advisory*` — so no new lock holder and no nesting. The single-holder topology is unchanged. ✓
 - **3 (email canonicalization):** no raw emails touched (Drive ids, sheet titles, MI-codes only). ✓
 - **4 (no global cursor):** untouched. ✓
 - **5 (no raw codes in UI):** all Doug/crew copy routes through `catalog.ts` / `lib/messages/lookup.ts`; A's raw `code:` is in `app_events` (dev telemetry, not user UI) — permitted. ✓
 - **9 (Supabase call-boundary):** new RPC call sites destructure `{ data, error }`, distinguish thrown vs returned error; register in the relevant meta-test or carry `// not-subject-to-meta:` with reason. ✓
-- **10 (mutation observability):** A is a read (coded log). B/C are alert-raises inside existing sync mutation paths, post-commit — no new admin HTTP route, so no `AUDITABLE_MUTATIONS` row; the existing sync surfaces are already registered. ✓
+- **10 (mutation observability):** governs telemetry emits, NOT admin_alerts raises. **A** is the relevant emit — a coded `app_events` `log.warn` from the listing read (outside any lock), satisfying observability for a currently-dark drop. **B/C** are admin_alerts alert-raises inside existing sync mutation paths (tx-bound, per codebase convention — §5.2), not new mutation surfaces: no new admin HTTP route, no new `"use server"` action, so no `AUDITABLE_MUTATIONS` row is required; the enclosing sync surfaces are already registered. ✓
 
 ## 10. Migration → validation parity
 
@@ -250,6 +278,13 @@ The `validation-schema-parity` CI job asserts validation ⊇ manifest. C adds **
   - `hard_fail` / `shrink_held` / `stage` outcomes never reach C.
   - Expected values **derived from fixture dimensions**, not hardcoded (a fixture that baselines at 118 exercises the relative-gate boundary).
   - Concrete failure mode per test stated (e.g. "an absolute-only threshold would fire on 118→119 and spam the already-degraded renderer-family shows").
+- **C — baseline-anchored lifecycle (round-1 finding 1; the load-bearing correctness test):**
+  - 4→40 **opens** the alert with stored `baseline` = the 4-gap summary.
+  - 40→40 (next sync, no new regression vs immediate prior) **stays open** (still regressed vs stored baseline 4) — the exact bug a naive immediate-prior comparator would resolve prematurely.
+  - 40→80 stays open; stored `baseline` remains 4 (not moved to 40).
+  - 80→4 **resolves** (no longer regressed vs baseline 4).
+  - Baseline preservation: assert a re-upsert does NOT clobber `context.baseline`.
+  - Failure mode caught: "resolving a still-degraded show after one cycle, hiding a persistent regression."
 
 ## 12. Open decisions (resolved)
 
@@ -257,4 +292,5 @@ The `validation-schema-parity` CI job asserts validation ⊇ manifest. C adds **
 - **B aggregate vs per-sheet:** aggregate global row + keyed `failures` map + prune-on-success. Resolved.
 - **B RPC:** dedicated `upsert/prune_first_seen_parse_failed` SECURITY DEFINER pair (atomic in-RPC map mutation) rather than overloading `upsert_admin_alert`. Resolved.
 - **C comparator:** new-class-appeared OR (+5 abs AND +50% rel); never absolute total. Resolved (corpus-calibrated).
-- **C debounce:** storage-native (one-row-per-(show,code)); no separate k-consecutive. Resolved.
+- **C debounce + resolve:** storage-native dedup (one-row-per-(show,code)); **baseline-anchored auto-resolve** — resolve only when current returns to the stored pre-regression baseline, never on immediate-prior equality (round-1 finding 1). Resolved.
+- **B/C raise placement:** tx-bound inside the existing `withShowLock` pipeline tx, mirroring `PARSE_ERROR_LAST_GOOD`/`RESYNC_SHRINK_HELD` — NOT a new post-commit epilogue (round-1 finding 2). Invariant 10's post-commit-outside-lock rule governs telemetry emits (Unit A), not admin_alerts raises. Resolved.
