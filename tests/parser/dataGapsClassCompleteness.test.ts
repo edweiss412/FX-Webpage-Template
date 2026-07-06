@@ -27,12 +27,13 @@ import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import * as ts from "typescript";
-import { GAP_CLASSES } from "@/lib/parser/dataGaps";
+import { GAP_CLASSES, OPERATOR_ACTIONABLE_ANCHORED } from "@/lib/parser/dataGaps";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
+import { familyFor } from "@/app/help/errors/_families";
 
 // ── Layer 1: the editorial partition (every PERSISTED ParseWarning code) ──────
 
-/** 22 — sheet-data-quality gaps counted by summarizeDataGaps (from GAP_CLASSES). */
+/** 23 — sheet-data-quality gaps counted by summarizeDataGaps (from GAP_CLASSES). */
 const DATA_GAP_CODES = new Set<string>(GAP_CLASSES.map((g) => g.code));
 
 /** 7 — warn-severity but semantically benign (parser fixed/adjusted; data landed). */
@@ -190,12 +191,12 @@ const collectedRealCodes = (() => {
 // ── Assertions ────────────────────────────────────────────────────────────────
 
 describe("data-gap class completeness (drift guard)", () => {
-  it("Layer 1 — the 4 buckets are pairwise disjoint and total 42 (22/7/2/11)", () => {
-    expect(DATA_GAP_CODES.size).toBe(22);
+  it("Layer 1 — the 4 buckets are pairwise disjoint and total 43 (23/7/2/11)", () => {
+    expect(DATA_GAP_CODES.size).toBe(23);
     expect(BENIGN_WARN_CODES.size).toBe(7);
     expect(BENIGN_INFO_CODES.size).toBe(2);
     expect(ASSET_WARN_CODES.size).toBe(11);
-    expect(ALL_PERSISTED_WARNING_CODES.size).toBe(42); // Set dedups → proves pairwise-disjoint
+    expect(ALL_PERSISTED_WARNING_CODES.size).toBe(43); // Set dedups → proves pairwise-disjoint
 
     // explicit pairwise-disjoint (also vs the ignore-list)
     const buckets = [
@@ -252,5 +253,17 @@ describe("data-gap class completeness (drift guard)", () => {
       (c) => !ALL_PERSISTED_WARNING_CODES.has(c) && !NON_GAP_CATALOG_CODES.has(c),
     );
     expect(unclassified).toContain(injected); // the guard would FAIL, as intended
+  });
+});
+
+describe("UNKNOWN_STAGE_RESTRICTION registration (spec §7)", () => {
+  it("auto-groups under crew-schedule (no _families.ts edit — keeps the PR NON-UI)", () => {
+    expect(familyFor("UNKNOWN_STAGE_RESTRICTION").id).toBe("crew-schedule");
+  });
+  it("is operator-actionable-anchored (per-cell deep link on review surfaces)", () => {
+    expect(OPERATOR_ACTIONABLE_ANCHORED.has("UNKNOWN_STAGE_RESTRICTION")).toBe(true);
+  });
+  it("is counted by the data-quality badge (GAP_CLASSES membership)", () => {
+    expect(GAP_CLASSES.map((g) => g.code)).toContain("UNKNOWN_STAGE_RESTRICTION");
   });
 });

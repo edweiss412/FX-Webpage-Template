@@ -1406,6 +1406,12 @@ export const SPEC_CODES = {
     "followUp": null,
     "helpfulContext": null,
   },
+  "UNKNOWN_STAGE_RESTRICTION": {
+    "crewFacing": null,
+    "dougFacing": "_<crew-name>_'s role mixes a work-phase (like Set) with something we couldn't read (e.g. 'Set / Rehearsal ONLY'), so we can't tell which days apply. We're showing them the whole show to be safe. Use the standard phases — Load In / Set / Show / Strike / Load Out — so we can filter their schedule.",
+    "followUp": "Doug → fix sheet",
+    "helpfulContext": "This crew member's role cell mixes a recognized work-phase (like Set) with a token we couldn't read (e.g. 'Set / Rehearsal ONLY'), so we can't safely tell which days apply. We're showing them the whole show rather than hide a day. Use the standard phases — Load In / Set / Show / Strike / Load Out — so their schedule can be filtered.",
+  },
   "UNPUBLISH_TOKEN_CONSUMED": {
     "crewFacing": null,
     "dougFacing": "This undo has already been used. The show is already unpublished, or someone else (or another tab) got there first.",

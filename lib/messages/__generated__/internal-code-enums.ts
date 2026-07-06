@@ -308,6 +308,9 @@ export const INTERNAL_CODE_ENUMS = {
   UNKNOWN_SECTION_HEADER: {
     source: "parse_warnings.code"
   },
+  UNKNOWN_STAGE_RESTRICTION: {
+    source: "parse_warnings.code"
+  },
   UNPUBLISH_TOKEN_CONSUMED: {
     source: "admin_alerts.code"
   },

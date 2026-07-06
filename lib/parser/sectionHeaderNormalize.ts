@@ -15,10 +15,22 @@ import {
  */
 const LONG_SECTION_VOCAB = ["TRANSPORTATION", "EVENT DETAILS", "GS DETAILS"] as const;
 
+/**
+ * Short, collision-prone section routers (spec §4.3). Unlike the long vocab, these are
+ * only 4 chars, so a single edit lands close to real words — they are fuzzed ONLY when a
+ * field-header band corroborates (never label-only), behind `minLen:4` + the plural
+ * EXCLUDE below. HOTEL/VENUE/DATES are deliberately NOT added (spec §9): no field-band
+ * signal (HOTEL/VENUE) or already-loud MI-3 (DATES).
+ */
+const SHORT_SECTION_VOCAB = ["CREW", "TECH"] as const;
+const SHORT_SECTION_VOCAB_EXCLUDE = ["CREWS", "TECHS"] as const;
+
 const CANON_TO_REGION: Record<string, RegionId> = {
   TRANSPORTATION: "transportation",
   "EVENT DETAILS": "details",
   "GS DETAILS": "details",
+  CREW: "crew",
+  TECH: "crew",
 };
 
 // Cross-vocab exclusion: any other section header + the sub-labels (DATE/DAY/ROOM).
@@ -28,6 +40,17 @@ const EXCLUDE: readonly string[] = [
     (h) => !(LONG_SECTION_VOCAB as readonly string[]).includes(h),
   ),
   ...KNOWN_SUB_LABELS,
+];
+
+// Short-vocab exclusion: every other known header + the sub-labels + the CREWS/TECHS
+// plurals (a real word one edit from CREW/TECH). CREW/TECH themselves are the target,
+// so they are the only KNOWN_SECTION_HEADERS members NOT excluded.
+const SHORT_EXCLUDE: readonly string[] = [
+  ...[...KNOWN_SECTION_HEADERS].filter(
+    (h) => !(SHORT_SECTION_VOCAB as readonly string[]).includes(h),
+  ),
+  ...KNOWN_SUB_LABELS,
+  ...SHORT_SECTION_VOCAB_EXCLUDE,
 ];
 
 const isSeparatorRow = (cells: readonly string[]): boolean =>
@@ -63,14 +86,32 @@ export function normalizeSectionHeaders(markdown: string): {
     if (cells.length === 0 || isSeparatorRow(cells)) return line;
 
     const col0 = (cells[0] ?? "").trim();
-    const fix = gatedVocabCorrect(col0.toUpperCase(), LONG_SECTION_VOCAB, { exclude: EXCLUDE });
+    const otherCells = cells.slice(1);
+    const labelOnly = otherCells.every((c) => c.trim() === "");
+    const fieldBand = countFieldHeaderWords(otherCells);
+
+    // Try the LONG vocab first (safe to fuzz at field-band 0 — label-only OR corroborated).
+    let fix = gatedVocabCorrect(col0.toUpperCase(), LONG_SECTION_VOCAB, { exclude: EXCLUDE });
+    // SHORT vocab (CREW/TECH) is collision-prone → REQUIRES a field-band corroboration
+    // (never label-only) + minLen:4 + plural EXCLUDE. Only attempted if long found nothing.
+    let requireFieldBand = false;
+    if (!fix?.corrected) {
+      fix = gatedVocabCorrect(col0.toUpperCase(), SHORT_SECTION_VOCAB, {
+        minLen: 4,
+        exclude: SHORT_EXCLUDE,
+      });
+      requireFieldBand = true;
+    }
     if (!fix?.corrected) return line;
     const canonical = fix.match;
 
-    // Header-shape gate: a section header row is label-only OR carries ≥1 field-header word.
-    const otherCells = cells.slice(1);
-    const labelOnly = otherCells.every((c) => c.trim() === "");
-    if (!labelOnly && countFieldHeaderWords(otherCells) < 1) return line;
+    // Header-shape gate. LONG: label-only OR ≥1 field-header word. SHORT: field-band
+    // MANDATORY (a bare misspelled short router is left untouched — spec §4.3).
+    if (requireFieldBand) {
+      if (labelOnly || fieldBand < 1) return line;
+    } else if (!labelOnly && fieldBand < 1) {
+      return line;
+    }
 
     // noExactSpellingElsewhere: never shadow a real, correctly-spelled header.
     if (allCol0Upper.has(canonical)) return line;
