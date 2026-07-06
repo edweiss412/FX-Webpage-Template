@@ -82,7 +82,7 @@ Step3ReviewModal({ data: SectionData, checked, isDirtyRescan,
 ### 3.6 Redirect + audit machinery
 
 - `next.config.ts:46-75` `async redirects()` array (307 default, e.g. `/admin/observability → /admin/dev/telemetry`). The old staged URL redirect is added here.
-- `lib/audit/trustDomains.ts:60-62` registers the staged page path; `:110-126` register the surviving API routes. The page entry is removed on delete; API entries stay.
+- `lib/audit/trustDomains.ts:60-62` registers the staged page path; the surviving API routes are at `:154-170` (core staged apply/discard/approve/unapprove) and `:110-126` (staged-diagram + cleanup). The page entry is removed on delete; API entries stay.
 
 ## 4. Target architecture
 
@@ -196,14 +196,16 @@ After a successful `Approve & apply`, the modal footer returns to the ordinary "
 - `in_progress` → **Resume** (drives the existing resume batch loop; `ResumeFinalizeButton` logic folded into the run).
 - `all_batches_complete` → **Finish** (final CAS; `RunFinalCASButton` logic folded in). A **stale** checkpoint adds a footer note (replacing `StaleReadyToPublish`'s standalone discard/publish framing) — discard remains reachable.
 
+**Abandoned-finalize cleanup MUST be re-homed (HIGH, R4).** `FinalizeInProgress.tsx:171` and `StaleReadyToPublish.tsx:77` both render `CleanupAbandonedFinalizeButton` — the recovery path for a stuck/stale session (the finalize-resume-deadlock recovery). Deleting those interstitials must NOT drop it. The unified Step-3 footer renders `CleanupAbandonedFinalizeButton` (unchanged component) as a secondary control whenever the checkpoint is `in_progress` OR a **stale** `all_batches_complete` — the exact two states that expose it today. A test asserts the cleanup control is present in both states on the unified surface.
+
 The disabled gate stays keyed on `finishable` (blocking rows block finish), unchanged (`Step3ReviewWithFinalize.tsx:79-88`).
 
 ### 4.6 Deletions + redirect
 
 - Delete `FinalizeInProgress.tsx`, `ReadyToPublish.tsx`, `StaleReadyToPublish.tsx`, the staged `page.tsx`, and (folded) `_unresolvedSheets.ts`.
-- Remove the two link-outs (`Step3ReviewModal.tsx:1087`, `Step3SheetCard.tsx:183`) — the modal now resolves in place.
+- Remove the **three** in-app links to the staged page (HIGH R4): `Step3ReviewModal.tsx:1087`, `Step3SheetCard.tsx:183`, AND the finalize **race-row** terminal-state link `FinalizeButton.tsx:513-539` (`<Link href={failure.re_apply_url}>`, server-built at `finalize/route.ts:258-260`). The modal now resolves re-apply rows in place; the race-row link is repointed at the unified surface. Minimum: the `re_apply_url` (unchanged server field) is caught by the redirect (§below) so it lands on the unified Step-3 — a test asserts a race-row `re_apply_url` resolves to `/admin` (the unified surface post-fold). Deep-linking the race-row directly to its row's modal is a nice-to-have, out of scope.
 - Add a `next.config.ts` redirect: `/admin/onboarding/staged/:wizardSessionId/:driveFileId → /admin` (307, reversible; Step-3 is the session's home and the row is surfaced there). Keeps bookmarks/alert links landing sane.
-- Remove the staged **page** entry from `lib/audit/trustDomains.ts:60-62`; keep the API-route entries (`:110-126`).
+- Remove the staged **page** entry from `lib/audit/trustDomains.ts:60-62`; keep the API-route entries (core `:154-170`, staged-diagram/cleanup `:110-126`).
 
 ## 5. Guard conditions (per input)
 
@@ -237,7 +239,7 @@ Page-level state transitions and their treatment:
 | Ready → In progress → Live/Held | Publish/Finish run | client optimistic pulse → settle on NDJSON per-row done; row badge crossfades |
 | Needs-review → (modal open) | `Review →` | modal mount (existing dialog enter transition) |
 | (modal) → Ready/Live/Held | Approve & apply success | modal close + router refresh; row badge updates instant |
-| (modal) → Needs-review (unchanged) | Wait / Stop-showing | modal close; row stays Needs-review or leaves list (Stop-showing) |
+| (modal) → Needs-review / removed | Re-scan / Ignore | Re-scan: modal refreshes (dirty) or row clears (clean). Ignore: row leaves the setup list (session-scoped). |
 | pre-finalize → mid-finalize | Publish started, page reload/interruption | server re-render into `in_progress` mode; Resume footer |
 | mid-finalize → batches-complete | last batch done | footer swaps Resume → Finish |
 | Any modal mutation while a publish run is active | compound | **ALL modal mutators disabled during an active run** (§4.4 guard, `run.isRunning`): `Review →`, `Approve & apply`, `Re-scan this sheet`, `Ignore this sheet`. No apply/rescan/discard can race a row into the server's per-batch finishable reselection (`finalize/route.ts`). Serialized by construction; a test asserts all four are disabled while `run.isRunning`. |
@@ -281,8 +283,9 @@ The unified surface reuses existing layout components (`WizardFooter`, `Step3Rev
   - `tests/components/wizardStagedPage.heading.test.tsx`, `tests/components/admin/WizardStagedReapplyResolved.test.tsx` — deleted with the page (or repurposed to the modal).
   - `tests/admin/unresolvedSheets.test.ts:72-78` — asserts old reapply URL; delete/rewrite against the unified read.
   - `tests/components/admin/FinalizeReentry.test.tsx`, `FinalizeInProgress.test.tsx`, `AdminPage.test.tsx`, `RunFinalCASButton.test.tsx`, `RescanSheetButton.test.tsx`, `tests/e2e/admin-phase2-surfaces.spec.ts` — rewrite against the unified Step-3 surface or delete with their component.
-  - `lib/audit/trustDomains.ts:60-62` — remove the staged-page entry; keep the API entries (`:110-126`).
-  - The grep guard asserts: no import of `FinalizeInProgress`/`ReadyToPublish`/`StaleReadyToPublish`/the staged `page.tsx`/`_unresolvedSheets` survives; the two link-outs (`Step3ReviewModal.tsx:1087`, `Step3SheetCard.tsx:183`) are gone.
+  - `lib/audit/trustDomains.ts:60-62` — remove the staged-page entry; keep the API entries (core routes `:154-170`, staged-diagram/cleanup `:110-126`).
+  - The grep guard asserts: no import of `FinalizeInProgress`/`ReadyToPublish`/`StaleReadyToPublish`/the staged `page.tsx`/`_unresolvedSheets` survives; and no in-app `/admin/onboarding/staged/` link literal survives across the THREE sites (`Step3ReviewModal.tsx:1087`, `Step3SheetCard.tsx:183`, `FinalizeButton.tsx` race-row) — the race-row `re_apply_url` is either repointed or provably covered by the redirect test.
+  - **NOT deleted:** `CleanupAbandonedFinalizeButton` is re-homed into the unified footer (§4.5), so the guard must NOT flag its surviving import; a test asserts it renders on the unified surface for `in_progress` + stale `all_batches_complete`.
 - **Layout** (real-browser Playwright): footer + modal at mobile/desktop breakpoints with row-status badges present; no horizontal overflow; footer center min-height preserved.
 
 ## 12. Watchpoints / disagreement-loop preempts
@@ -307,7 +310,7 @@ Decomposable into safe phases:
 **Ordering constraint (HIGH, R2):** the staged `page.tsx` and its link-outs must NOT be deleted/redirected until the modal resolution AND the checkpoint-state Step-3 render both exist — otherwise, during the window, an `in_progress` session still renders `FinalizeInProgress` whose re-apply links would redirect to `/admin` (still the interstitial), stranding resolution. So the surface fold precedes the delete, and the delete+redirect is atomic with the re-entry fold.
 
 1. **Data contract + unified read** — extend `Step3Row` (`stagedId`, `triggeredReviewItems`, `reviewItemsCorrupt`; §4.3.1) + the provenance-joined `shows` read for Live/Held (§4.3); display-state derivation + badges behind the existing pre-finalize surface (no behavior change yet).
-2. **Modal resolution behavior** — fold `StagedReviewCard` resolution into `Step3ReviewModal` (tiers, single-action-no-radio, corrupt guard, active-run disable §4.4); thread `isPublishRunActive`; wire `Approve & apply`/`Wait`/`Stop-showing` to the existing apply/discard routes. Both the standalone page and the modal work during this phase (dual-path, safe).
+2. **Modal resolution behavior** — fold `StagedReviewCard` resolution into `Step3ReviewModal` (tiers, single-action-no-radio, corrupt guard, active-run disable §4.4); thread `isPublishRunActive`; wire `Approve & apply`/`Re-scan this sheet`/`Ignore this sheet` to the existing apply/rescan-sheet/discard routes. Both the standalone page and the modal work during this phase (dual-path, safe).
 3. **Interstitial + checkpoint fold** — render the unified Step-3 for `in_progress` + `all_batches_complete`; fold Resume/Finish (CAS) into the footer with the stale note; delete `FinalizeInProgress` / `ReadyToPublish` / `StaleReadyToPublish`. After this, `/admin` renders Step-3 (with the modal) for every non-terminal checkpoint — so `/admin` is now a valid redirect target for a re-apply row.
 4. **Redirect + staged-page delete** — only now delete the standalone staged `page.tsx`, add the `next.config.ts` redirect (→ `/admin`, which is the unified surface post-phase-3), remove the two link-outs, drop the `trustDomains` page entry. Atomic with phase 3's guarantee.
 5. **Registry + test cleanup** — fold `_unresolvedSheets` into the unified read; update `_metaInfraContract` registry rows; delete/rewrite the affected tests (§11); add the redirect + deletion-safety guards.
