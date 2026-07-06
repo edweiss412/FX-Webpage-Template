@@ -485,18 +485,21 @@ git commit --no-verify -m "feat(sync): expose raw-nullable priorParseWarningsRaw
 ## Task C3: `RESYNC_QUALITY_REGRESSED` §12.4 code lockstep
 
 **Files:**
-- Modify: `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (§12.4 prose row — do NOT prettier)
+- Modify: `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (§12.4 prose row + the `helpfulContext` YAML appendix entry — do NOT prettier)
 - Modify: `lib/messages/catalog.ts` (new entry)
 - Modify: `lib/adminAlerts/upsertAdminAlert.ts` (`AdminAlertCode` union)
 - Regenerate: `lib/messages/__generated__/spec-codes.ts`, `lib/messages/__generated__/internal-code-enums.ts`
-- Gate: `tests/cross-cutting/codes.test.ts` (x1 catalog-parity), the x2 internal-code-enums gate
+- Gate: `tests/cross-cutting/codes.test.ts` (x1 catalog-parity: `MESSAGE_CATALOG` ↔ `SPEC_CODES` deep-equality on dougFacing/crewFacing/followUp/helpfulContext), `tests/cross-cutting/no-raw-codes.test.ts` (x2 internal-code-enums equality)
 
 **Interfaces:**
 - Produces: catalog code `"RESYNC_QUALITY_REGRESSED"` with `audience:"doug"`, `resolution:"auto"`, NO `adminSurface` (banner default); `AdminAlertCode` includes `"RESYNC_QUALITY_REGRESSED"`.
 
-- [ ] **Step 1: Add the §12.4 prose row**
+- [ ] **Step 1: Add the §12.4 prose row + helpfulContext appendix**
 
-Edit `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` §12.4 — add a `RESYNC_QUALITY_REGRESSED` row mirroring `RESYNC_SHRINK_HELD`'s row format exactly (copy the neighboring row's column structure). Doug copy per spec §6.6. **Do not run prettier on this file** (`feedback_never_prettier_the_master_spec`).
+Edit `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md`:
+(a) §12.4 — add a `RESYNC_QUALITY_REGRESSED` **table row** (near the `RESYNC_SHRINK_HELD` row, ~line 2797) mirroring its column structure exactly. dougFacing/crewFacing/followUp cells MUST be byte-identical to the `catalog.ts` entry (x1 deep-equality).
+(b) The `<!-- §12.4 helpfulContext appendix -->` YAML block (~line 3099) — add a `RESYNC_QUALITY_REGRESSED: "..."` line whose value is byte-identical to `catalog.ts`'s `helpfulContext` (the x1 gate `codes.test.ts:66-88` deep-matches `helpfulContext` too; `gen:spec-codes` reads this appendix into `SPEC_CODES`).
+**Do not run prettier on this file** (`feedback_never_prettier_the_master_spec`).
 
 - [ ] **Step 2: Add the catalog entry**
 
@@ -559,8 +562,13 @@ git commit --no-verify -m "feat(messages): add RESYNC_QUALITY_REGRESSED §12.4 c
 - Modify: `lib/adminAlerts/alertIdentityMap.ts` (`{ kind: "global" }`)
 - Modify: `tests/adminAlerts/adminAlertCodes.fixture.ts` (add code — the identity-map registry copy; plan-review R3)
 - Modify: `tests/adminAlerts/_metaAlertIdentityMap.test.ts` (bump the exact-count assertion `43` → `44`; plan-review R3)
+- Modify: `tests/adminAlerts/alertIdentityMatrix.test.ts` (add a `FIXTURES` entry — exhaustive identity-matrix gate; plan-review R5)
+- Modify: `tests/messages/_metaAlertAudienceContract.test.ts` (append to the `DOUG` literal array + bump `17` → `18`; comprehensive sweep — this is a HARDCODED list, NOT auto-derived)
+- Modify: `tests/parser/dataGapsClassCompleteness.test.ts` (append to `NON_GAP_CATALOG_CODES` — the AST-literal-scan gate that flags the `code: "RESYNC_QUALITY_REGRESSED"` literal in `lib/sync`; comprehensive sweep)
 - Modify: `lib/adminAlerts/audience.ts` (`AUTO_RESOLVE_NOTES` entry)
-- Gates: `tests/messages/_metaAlertAudienceContract.test.ts`, `tests/messages/adminSurface.test.ts`, `tests/adminAlerts/_metaAlertIdentityMap.test.ts` (read a registry — must stay green)
+- Gates: `tests/messages/_metaAlertAudienceContract.test.ts`, `tests/messages/adminSurface.test.ts`, `tests/adminAlerts/_metaAlertIdentityMap.test.ts`, `tests/adminAlerts/alertIdentityMatrix.test.ts`, `tests/parser/dataGapsClassCompleteness.test.ts` (all read a registry / scan literals — must stay green)
+
+> **Complete registry-touchpoint enumeration (comprehensive re-analysis after 3 same-vector rounds R3/R5 — this is the FULL set, closing the class).** Adding one admin_alerts code touches exactly these registries: (1) `catalog.ts` [C3]; (2) §12.4 prose + helpfulContext appendix [C3]; (3) `spec-codes.ts` gen [C3]; (4) `internal-code-enums.ts` gen [C3]; (5) `AdminAlertCode` union [C3]; (6) `adminAlertsRegistry.ts` `ADMIN_ALERTS_CODES`; (7) `adminAlertCodes.fixture.ts` `ADMIN_ALERTS_CODES` copy #2; (8) `alertIdentityMap.ts`; (9) `alertIdentityMatrix.test.ts` FIXTURES; (10) `_metaAlertIdentityMap.test.ts` count 43→44; (11) `_metaAdminAlertCatalog.test.ts` `ADMIN_ALERTS_WRITE_SITES` + `ADMIN_ALERTS_LIFECYCLE` + `INTERPOLATED_DOUG_FACING_CODES` + auto-count 25→26; (12) `_metaAlertActionsContract.test.ts` `RAISE_SITE_PINS`; (13) `_metaAlertAudienceContract.test.ts` `DOUG` array + count 17→18; (14) `dataGapsClassCompleteness.test.ts` `NON_GAP_CATALOG_CODES`. NO change to: `alertActions.ts`/`ALERT_ACTION_CODES` (no action link), `adminSurface.ts`/`INBOX_ROUTED_CODES` (banner not inbox — its exact-3 assertion would BREAK if added), `SYNC_PROBLEM_CODES` (§6.4), redaction contract (per-field), `code-scenarios.ts` (derived). The "42-code" comments in a couple files are stale prose, not enforced — ignore.
 
 **Interfaces:**
 - Consumes: `ADMIN_ALERTS_CODES` (registry array); `ADMIN_ALERTS_LIFECYCLE` (per-code `{ class, resolveSites }`); `INTERPOLATED_DOUG_FACING_CODES`; the `_metaAdminAlertCatalog` raise-site registry (per-code `{ path, pattern }`); the `_metaAlertActionsContract` `RAISE_SITE_PINS` array (`{ code, file, pattern (g flag), expectedMatches, pins }`).
@@ -587,16 +595,30 @@ git commit --no-verify -m "feat(messages): add RESYNC_QUALITY_REGRESSED §12.4 c
 ```
 `tests/adminAlerts/_metaAlertIdentityMap.test.ts` — bump the exact-count assertion (`:39-40`) `expect(ADMIN_ALERTS_CODES.length).toBe(43)` → `toBe(44)` (and update the "43 codes" comment). Without both, `_metaAlertIdentityMap` fails ("stray identity map entry for unregistered code" + the numeric-sweep anchor).
 
+`tests/adminAlerts/alertIdentityMatrix.test.ts` — add a `FIXTURES` entry (mirror `RESYNC_SHRINK_HELD`'s at `:229-234` — a `{ kind: "global" }` code, so no `expectedTokens`/segment work; the exhaustive `FIXTURES.map(f=>f.code) === ADMIN_ALERTS_CODES` check at `:438-440` requires it):
+```ts
+  // RESYNC_QUALITY_REGRESSED — global — already SPECIFIC in copy (sheet-name)
+  {
+    code: "RESYNC_QUALITY_REGRESSED",
+    showId: SHOW_ID,
+    context: { drive_file_id: DRIVE_FILE_ID, sheet_name: "My Sheet" },
+  },
+```
+
+`tests/messages/_metaAlertAudienceContract.test.ts` — append `"RESYNC_QUALITY_REGRESSED"` to the `DOUG` **literal array** (`:7-25`) and bump `expect(DOUG.length).toBe(17)` → `toBe(18)` (`:70`). This is a HARDCODED list (not derived) — without the append, `DOUG ∪ HEALTH === ADMIN_ALERTS_CODES` fails; without the bump, the count assertion fails. `HEALTH`/`DEGRADED`/`NOTICE` arrays are UNCHANGED (C is `audience:"doug"`).
+
+`tests/parser/dataGapsClassCompleteness.test.ts` — append `"RESYNC_QUALITY_REGRESSED"` to `NON_GAP_CATALOG_CODES` (~:100, the "sync-problem / infra codes" group alongside `RESYNC_SHRINK_HELD`). The Layer-2 AST scan (`:215-226`) intersects `MESSAGE_CATALOG` keys with `code:"…"` literals in `lib/parser/**` + `lib/sync/**`; C's `code: "RESYNC_QUALITY_REGRESSED"` literal in `runScheduledCronSync.ts` (a scanned root) is flagged unclassified unless listed here. (This gate lives OUTSIDE tests/adminAlerts and is the easiest to miss.)
+
 `lib/adminAlerts/audience.ts` — add to `AUTO_RESOLVE_NOTES`:
 ```ts
   RESYNC_QUALITY_REGRESSED:
     "Clears automatically once the sheet's data quality recovers — fix the sheet to resolve it.",
 ```
 
-- [ ] **Step 2: Run the audience + surface + identity contracts**
+- [ ] **Step 2: Run the audience + surface + identity + matrix + parser contracts**
 
-Run: `pnpm vitest run tests/messages/_metaAlertAudienceContract.test.ts tests/messages/adminSurface.test.ts tests/adminAlerts/_metaAlertIdentityMap.test.ts`
-Expected: `_metaAlertAudienceContract` PASS (C carries `audience:"doug"` → `DOUG ∪ HEALTH === ADMIN_ALERTS_CODES` holds). `adminSurface` PASS (C is banner, so `INBOX_ROUTED_CODES` stays exactly the 3 existing codes — do NOT add C there). `_metaAlertIdentityMap` PASS (C's `{ kind: "global" }` entry is registered in the fixture; count is now 44).
+Run: `pnpm vitest run tests/messages/_metaAlertAudienceContract.test.ts tests/messages/adminSurface.test.ts tests/adminAlerts/_metaAlertIdentityMap.test.ts tests/adminAlerts/alertIdentityMatrix.test.ts tests/parser/dataGapsClassCompleteness.test.ts`
+Expected: `_metaAlertAudienceContract` PASS (`DOUG` appended + count 18; `DOUG ∪ HEALTH === ADMIN_ALERTS_CODES` holds). `adminSurface` PASS (C is banner — `INBOX_ROUTED_CODES` stays exactly the 3 existing codes; do NOT add C there). `_metaAlertIdentityMap` PASS (global entry registered; count 44). `alertIdentityMatrix` PASS (FIXTURES entry present; exhaustive equality holds). `dataGapsClassCompleteness` PASS (the literal is classified in `NON_GAP_CATALOG_CODES`) — NOTE: this only fully passes once C5 writes the `code:"RESYNC_QUALITY_REGRESSED"` literal into `runScheduledCronSync.ts`; before C5 the scan finds no literal so it's a no-op, after C5 the classification is required. Land with C5.
 
 - [ ] **Step 3: Add the `_metaAdminAlertCatalog` rows**
 
@@ -628,7 +650,9 @@ Expected: `_metaAlertAudienceContract` PASS (C carries `audience:"doug"` → `DO
     "RESYNC_QUALITY_REGRESSED", // lib/sync/runScheduledCronSync.ts supplies sheet_name
 ```
 
-(d) Auto-code count (~:659-660): bump `25` → `26` and extend the comment (`+ RESYNC_QUALITY_REGRESSED`).
+(d) Auto-code count (~:664-667): bump `expect(autoCodes.length, ...).toBe(25)` → `toBe(26)` and extend both the assertion message and the prose comment at `~:262-269` (`25 + 17 + 1 + 0 = 43` → `26 + 17 + 1 + 0 = 44`) to include `+ RESYNC_QUALITY_REGRESSED` (the comment isn't asserted but would visibly lie otherwise).
+
+(e) `ADMIN_ALERTS_WRITE_SITES` (~:66-249) — this is the same registry as the raise-site entry in (a) above (the `{ path, pattern }` map keyed by code); (a) IS the `ADMIN_ALERTS_WRITE_SITES` entry. The "every registered producer code has a production write site" test (`:511-526`) passes once (a) + C5's raise literal exist. No separate edit beyond (a).
 
 - [ ] **Step 3b: Add the show-scoped raise-site pin (`_metaAlertActionsContract`, plan-review R2)**
 
@@ -655,8 +679,8 @@ Expected: after C5 lands the producer + resolve helper, PASS. (`_metaAlertAction
 - [ ] **Step 5: Commit (with C5, or immediately for the independent rows)**
 
 ```bash
-git add tests/messages/adminAlertsRegistry.ts tests/messages/_metaAdminAlertCatalog.test.ts tests/messages/_metaAlertActionsContract.test.ts tests/adminAlerts/adminAlertCodes.fixture.ts tests/adminAlerts/_metaAlertIdentityMap.test.ts lib/adminAlerts/alertIdentityMap.ts lib/adminAlerts/audience.ts
-git commit --no-verify -m "test(messages): register RESYNC_QUALITY_REGRESSED in alert registries + identity fixture (44) + auto-resolve note + show-scoped raise pin"
+git add tests/messages/adminAlertsRegistry.ts tests/messages/_metaAdminAlertCatalog.test.ts tests/messages/_metaAlertActionsContract.test.ts tests/messages/_metaAlertAudienceContract.test.ts tests/adminAlerts/adminAlertCodes.fixture.ts tests/adminAlerts/_metaAlertIdentityMap.test.ts tests/adminAlerts/alertIdentityMatrix.test.ts tests/parser/dataGapsClassCompleteness.test.ts lib/adminAlerts/alertIdentityMap.ts lib/adminAlerts/audience.ts
+git commit --no-verify -m "test(messages): register RESYNC_QUALITY_REGRESSED across all 14 alert-code registries (identity fixture+matrix 44, DOUG 18, auto-count 26, NON_GAP classification, show-scoped raise pin)"
 ```
 
 ---
