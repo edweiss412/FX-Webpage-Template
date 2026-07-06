@@ -31,7 +31,7 @@ A normal parse hardError (e.g. MI-1) flows as data, not as an exception:
 1. `parseSheet` returns a minimal `ParsedSheet` with `hardErrors: [{ code: "MI-1_VERSION_DETECTION_FAILED", ... }]` via `buildMinimalParsedSheet("v4", hardErrors)` (`lib/parser/index.ts:481-529`).
 2. It flows through enrich (`:2803`) and into `runPhase1_unlocked` (`:2955`).
 3. `runInvariants` maps the hardError to `hard_fail` (`lib/parser/invariants.ts:108-118, 231-233` — `versionFailed` fires on the `MI-1_VERSION_DETECTION_FAILED` code; any `failedCodes.length > 0` returns `{ outcome: "hard_fail" }`).
-4. `processOneFile_unlocked` handles `phase1.outcome === "hard_fail"` (`runScheduledCronSync.ts:2970-3000`): for an **existing** show it `logSync`s the result, and — because Phase-1 already retained last-good — upserts a `PARSE_ERROR_LAST_GOOD` admin alert (`:2985-2992`). For a **first-seen** show (`show?.showId` null) nothing is written; the fail-closed default is that first-seen never auto-publishes (audit §2; `getAutoPublishCleanFirstSeen.ts:8`).
+4. `processOneFile_unlocked` handles `phase1.outcome === "hard_fail"` (`runScheduledCronSync.ts:2970-3000`): for an **existing** show it `logSync`s the result, and — because Phase-1 already retained last-good — upserts a `PARSE_ERROR_LAST_GOOD` admin alert (`:2985-2992`). For a **first-seen** show (no existing `shows` row) `runInvariants`→`hard_fail` writes a `pending_ingestions` row via `upsertLivePendingIngestion` (`lib/sync/phase1.ts:369-379`) carrying `lastErrorCode`/`lastErrorMessage`/`lastWarnings`; **no `shows` row is written** (`showId` stays null), so nothing auto-publishes (fail-closed default; audit §2; `getAutoPublishCleanFirstSeen.ts:8`). The distinction is "no `shows` row," not "nothing written" — the pending_ingestions row is the first-seen review surface.
 
 **Goal:** a caught throw at the parse call site produces the *same* observable outcome as a normal parse hardError, plus a distinct forensic signal that a throw (not an ordinary degrade) occurred.
 
@@ -102,16 +102,24 @@ try {
   // parse hardError (retain last-good + PARSE_ERROR_LAST_GOOD for existing; stage for first-seen)
   // instead of aborting the sync. Audit rec-6 / finding #17.
   const message = error instanceof Error ? error.message : String(error);
-  log.error("Parser threw on sheet parse; routing to hard_fail", {
-    code: "PARSE_SHEET_THREW",
-    drive_file_id: driveFileId,
-    error: message,
-  });
+  // Synthesize the fail-closed sheet FIRST — the guard must not depend on logging succeeding.
   parsed = buildThrownParsedSheet(message);
+  // Forensic, best-effort: never let a logging fault (rejecting sink) break the guard or leak
+  // an unhandled rejection. `log.error` returns a Promise (emit is async); swallow its rejection.
+  void log
+    .error("Parser threw on sheet parse; routing to hard_fail", {
+      source: "sync",                 // LogFields.source is REQUIRED (lib/log/types.ts:5)
+      code: "PARSE_SHEET_THREW",
+      driveFileId,                     // canonical correlation field (lib/log/types.ts:8), NOT drive_file_id
+      error,                           // raw error → serializeError handles Error / non-Error
+    })
+    .catch(() => {});
 }
 ```
 
 - The try/catch wraps the **injection seam** `(deps.parseSheet ?? parseMarkdownSheet)(...)`, so both the real parser and any test-injected `deps.parseSheet` are guarded (this is the test seam).
+- **`parsed` is assigned before the log call**, so even a throwing/rejecting log sink (installed via `setLogSink`, `lib/log/logger.ts:90`) cannot prevent the fail-closed synthesis. The `.catch(() => {})` prevents an unhandled rejection (memory: unhandled rejections fail CI with all tests passing).
+- `source: "sync"` is mandatory (`LogFields` requires `source`, `lib/log/types.ts:5`); `driveFileId` (camelCase) is the reserved correlation field mapped to `LogRecord.driveFileId` (`logger.ts:12,48`) — using `drive_file_id` would misfile the ID as free context, not the app_events join column.
 - `PARSE_SHEET_THREW` is a **log-only forensic code** (free string on `log.error`'s second arg), distinct from the `PARSE_THREW` hardError code and from any §12.4 catalog code. It must satisfy the log-code AST guard (`code` on `args[1]`, top-level) checked by `tests/sync/_metaInfraContract.test.ts` — verified during implementation.
 - Downstream is byte-identical to a normal MI-1 flow: `parsed.show.agenda_links?.length` (`:2784`) is `[]` → skipped; `enrichWithDrivePins` already tolerates the minimal sheet (MI-1 already flows through it today); `runPhase1_unlocked` → `hard_fail`.
 
@@ -128,7 +136,8 @@ try {
 | `error` is an `Error` | `message = error.message` |
 | `error` is a string / number / `undefined` / `null` (non-Error throw) | `message = String(error)` — never crashes on message extraction |
 | Thrown on an **existing** show | `hard_fail` → last-good retained by Phase-1 → `PARSE_ERROR_LAST_GOOD` upserted (`:2985`) |
-| Thrown on a **first-seen** show (`show?.showId` null) | `hard_fail`, no `shows` write, no alert (fail-closed default; first-seen never auto-publishes) |
+| Thrown on a **first-seen** show (no existing `shows` row) | `hard_fail` → `pending_ingestions` row written via `upsertLivePendingIngestion` (`phase1.ts:369`), **no `shows` row**, no auto-publish (fail-closed) — identical to a normal first-seen MI-1 hard_fail |
+| Forensic `log.error` sink throws/rejects | `parsed` already synthesized → guard still routes to `hard_fail`; rejection swallowed, no unhandled rejection |
 | Parser returns normally (no throw) | Unchanged — existing MI-1 / VERSION_AMBIGUOUS / pass paths untouched |
 | Parser returns a normal MI-1 hardError | Unchanged — `PARSE_THREW` absent, `versionFailed` fires on the MI-1 code exactly as today |
 
@@ -146,8 +155,9 @@ Each test states the concrete failure mode it catches (anti-tautology rule).
 Use the `deps.parseSheet` injection to supply a parser that throws.
 - **Sync survives the throw.** `prepareProcessOneFile` (and `processOneFile_unlocked`) with a throwing `deps.parseSheet` resolves without propagating the exception. *Catches:* the bare call site (no guard) — the injected throw aborts the call. This is the finding #17 regression test.
 - **Existing show → retain last-good + alert.** With a throwing parser and a prior published show, assert `outcome === "hard_fail"`, the show's last-good data is retained (not clobbered), and a `PARSE_ERROR_LAST_GOOD` admin alert is upserted. *Catches:* a guard that catches the throw but fails to route to the hard_fail branch (e.g. synthesizing a `pass`-able sheet), silently overwriting live data.
-- **First-seen → fail-closed (no write, no auto-publish).** With a throwing parser and no prior show, assert no `shows` row is published and the outcome is the first-seen hard_fail (nothing written). *Catches:* a first-seen throw leaking into auto-publish.
-- **Forensic log emitted.** Assert a `log.error` carrying `code: "PARSE_SHEET_THREW"` and the `drive_file_id` is emitted on the throw path. *Catches:* the channel going silent (the whole audit theme).
+- **First-seen → fail-closed pending_ingestions, no `shows` row.** With a throwing parser and no prior show, assert the outcome is `hard_fail`, a `pending_ingestions` row is written (`lastErrorCode === "MI-1_VERSION_DETECTION_FAILED"`), and **no `shows` row is published** (`showId` null) — mirroring a normal first-seen MI-1 hard_fail exactly. *Catches:* a first-seen throw leaking into auto-publish, AND a mis-assertion that "nothing is written" (a normal first-seen hard_fail DOES write pending_ingestions — `phase1.ts:369`, `phase1.test.ts:585`).
+- **Forensic log emitted with correct fields.** Assert a `log.error` carrying `source: "sync"`, `code: "PARSE_SHEET_THREW"`, and `driveFileId` (the reserved field, mapped to `LogRecord.driveFileId`) is emitted on the throw path — capture via `setLogSink`. *Catches:* the channel going silent, and the ID being misfiled as free context instead of the join column.
+- **Logging fault does not break the guard.** Install a `setLogSink` that throws/rejects, drive a parser throw, and assert the guard STILL routes to `hard_fail` (last-good retained / pending_ingestions written) with no unhandled rejection. *Catches:* a regression that awaits the log before synthesizing `parsed`, letting a logger fault re-break the sync (finding-3 vector).
 
 ### 4.3 Meta / regression
 - Run `tests/sync/_metaInfraContract.test.ts` after adding the `log.error` — confirm the new call satisfies the log-code AST guard (code on `args[1]`) and the Supabase call-boundary scan is unaffected.
