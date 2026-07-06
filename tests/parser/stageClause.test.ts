@@ -9,6 +9,44 @@ describe("parseStageClause (spec §3.2)", () => {
     expect(parseStageClause("Set / Show ONLY").stages).toEqual(["Set", "Show"]);
     expect(parseStageClause("Set / Strike ONLY").unrecognizedRestriction).toBe(false);
   });
+  it("R4: a STAGE token BEFORE the full-4 phrase is not dropped (Show / … ONLY)", () => {
+    // The unanchored full-4 pattern matches the Load In…Load Out ONLY suffix; the leading Show
+    // must NOT be silently dropped. General grammar parses all 5 stages explicitly.
+    const r = parseStageClause("Show / Load In / Set / Strike / Load Out ONLY");
+    expect(new Set(r.stages)).toEqual(new Set(["Show", "Load In", "Set", "Strike", "Load Out"]));
+    expect(r.unrecognizedRestriction).toBe(false);
+  });
+  it("R4: leading-stage + lenient star fails OPEN, never the 4-subset that hides Show", () => {
+    const r = parseStageClause("Show / Load In / Set / Strike / Load Out ONLY**");
+    expect(r.stages).toEqual([]); // fail open (whole show) — ONLY** is not a valid general marker
+    expect(r.stages).not.toContain("Load In"); // did NOT keep the 4 and drop Show
+  });
+  it("STRUCTURAL (fail-open invariant): no present stage is ever silently dropped from an explicit restriction", () => {
+    // For EVERY subset AND EVERY ORDERING of the 5 stages + trailing ONLY, the parsed explicit
+    // `stages` is EITHER exactly the present set OR empty (fail open) — NEVER a proper subset that
+    // hides a present stage. All permutations (not just natural/reversed) are required to exercise
+    // the unanchored full-4-suffix match with a LEADING extra stage (`Show / Load In / Set / Strike
+    // / Load Out ONLY`). Closes the dropped-stage class across prefix/middle/tail (whole-diff R2/R3/R4).
+    const STAGES = ["Load In", "Set", "Show", "Strike", "Load Out"];
+    const permutations = <T>(xs: T[]): T[][] =>
+      xs.length <= 1
+        ? [xs]
+        : xs.flatMap((x, i) =>
+            permutations([...xs.slice(0, i), ...xs.slice(i + 1)]).map((p) => [x, ...p]),
+          );
+    let checked = 0;
+    for (let mask = 1; mask < 1 << STAGES.length; mask++) {
+      const present = STAGES.filter((_, i) => mask & (1 << i));
+      for (const order of permutations(present)) {
+        const cell = order.join(" / ") + " ONLY";
+        const parsed = new Set(parseStageClause(cell).stages);
+        checked++;
+        if (parsed.size === 0) continue; // fail open — acceptable
+        expect(parsed, `cell='${cell}' dropped a present stage`).toEqual(new Set(present));
+      }
+    }
+    expect(checked).toBe(325); // sum_{k=1}^{5} C(5,k)*k! — every subset × every ordering
+  });
   it("EXPLICIT keeps a role token and routes it to cleaned (R22)", () => {
     const r = parseStageClause("A1 / Set / Strike ONLY");
     expect(r.stages).toEqual(["Set", "Strike"]);

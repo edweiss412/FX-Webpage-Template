@@ -81,6 +81,30 @@ function tailDropsStageContent(tail: string): boolean {
   return false;
 }
 
+/** Word-boundary matcher for every stage token (`LOAD IN`/`LOAD OUT` are multi-word). */
+const STAGE_TOKEN_RE = new RegExp(
+  `\\b(?:${STAGE_RESTRICTION_VOCAB.map((v) => v.replace(/ /g, "\\s+")).join("|")})\\b`,
+  "i",
+);
+
+/**
+ * True iff the `prefix` BEFORE the unanchored full-4 match carries stage content the fast-path
+ * would silently DROP (whole-diff Codex R4 [high]). `FULL_STAGE_ONLY_PATTERN` is UNANCHORED, so
+ * `Show / Load In / Set / Strike / Load Out ONLY` matches the `Load In…Load Out ONLY` SUFFIX and
+ * ignores the leading `Show /`, returning the 4-stage restriction and HIDING pure-Show days. When
+ * the prefix holds a STAGE token or an ONLY marker, the full-4 fast-path is wrong: skip it and let
+ * the general grammar parse ALL present stages explicitly (or fail open on a lenient star). A role/
+ * unknown prefix token (`A1 - …`, `Foo / …`) is NOT dropped stage content — it routes to the role
+ * path via `cleaned` and the 4 stages that ARE named stay valid — so only stages/ONLY are flagged.
+ */
+function prefixDropsStageContent(prefix: string): boolean {
+  return (
+    STRICT_ONLY_MARKER_RE.test(prefix) ||
+    FULL_STAGE_ONLY_PATTERN.test(prefix) ||
+    STAGE_TOKEN_RE.test(prefix)
+  );
+}
+
 /**
  * Parse the role cell's leading stage clause (spec §3.2 steps 1-4).
  */
@@ -92,7 +116,7 @@ export function parseStageClause(roleCell: string): StageClause {
   //    live `FULL_STAGE_ONLY_PATTERN` (UNANCHORED, `ONLY\*{0,3}`) accepts ANY trailing
   //    star count. `cleaned` PRESERVES the ENTIRE prefix + tail (excise only the span).
   const full4 = FULL_STAGE_ONLY_PATTERN.exec(roleCell);
-  if (full4) {
+  if (full4 && !prefixDropsStageContent(roleCell.slice(0, full4.index))) {
     const prefix = roleCell.slice(0, full4.index);
     const tail = roleCell.slice(full4.index + full4[0].length);
     // `FULL_STAGE_ONLY_PATTERN` is `ONLY\*{0,3}`, so `ONLY****` leaves a LEFTOVER star run in the
