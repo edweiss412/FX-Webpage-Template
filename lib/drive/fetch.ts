@@ -494,7 +494,7 @@ export async function fetchSheetMarkdownAndBytesAtRevision(
     throw new DriveFetchError(`Drive revision token for ${driveFileId} changed during xlsx export`);
   }
 
-  return { markdown: synthesizeMarkdownFromXlsx(bytes), bytes };
+  return { markdown: synthesizeMarkdownFromXlsx(bytes).markdown, bytes };
 }
 
 /**
@@ -611,7 +611,7 @@ export async function fetchSheetMarkdownWithBinding(
 
   return {
     binding: { bindingToken: token, modifiedTime },
-    markdown: synthesizeMarkdownFromXlsx(bytes),
+    markdown: synthesizeMarkdownFromXlsx(bytes).markdown,
     bytes,
   };
 }

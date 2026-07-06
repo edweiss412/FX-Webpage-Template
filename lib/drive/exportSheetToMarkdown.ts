@@ -1,6 +1,25 @@
+import { createHash } from "node:crypto";
 import * as XLSX from "xlsx";
 
 type CellGrid = string[][];
+
+/**
+ * A pull-sheet case region discovered on an ARCHIVED ("OLD …") tab. Archived tabs are
+ * dropped from the synthesized markdown by default (DEF-2 anti-contamination), but their
+ * pull-sheet regions are surfaced here so the sync layer can offer admins an opt-in
+ * re-inclusion + change-detection flow (§5.1, D5/D6, I1/I2).
+ */
+export type ArchivedPullSheetTab = {
+  tabName: string;
+  /** One preview per emitted case region — the show-identity line, ≤120 chars. */
+  headerPreviews: string[];
+  /** SHA-256 hex over all emitted region markdown (blank-line-normalized). */
+  fingerprint: string;
+  /** True only when this tab was opted-in via `opts.includePullSheetFromTab`. */
+  included: boolean;
+  /** Exporter always emits false; the sync layer sets true on auto-clear (§5.2). */
+  contentChangedSinceAccept: boolean;
+};
 
 function cellText(cell: XLSX.CellObject | undefined): string {
   if (!cell || cell.t === "z") return "";
@@ -203,28 +222,132 @@ function tableMarkdown(block: CellGrid): string {
   ].join("\n");
 }
 
-export function synthesizeMarkdownFromXlsx(buffer: ArrayBuffer): string {
+/** Split a markdown table row into trimmed cells (mirror of parser `splitRow`). */
+function splitMarkdownRow(line: string): string[] {
+  const parts = line.split("|");
+  return parts.slice(1, parts.length - 1).map((s) => s.trim());
+}
+
+/**
+ * A markdown table header row is a pull-sheet header when it has cells and EVERY cell
+ * contains "PULL SHEET" (mirror `lib/parser/pull-sheet.ts:60`). The synthetic
+ * `PULL SHEET/<title>` cell that `normalizePullSheetGrid` produces satisfies this.
+ */
+function isPullSheetHeaderCells(cells: string[]): boolean {
+  return cells.length > 0 && cells.every((c) => c.toUpperCase().includes("PULL SHEET"));
+}
+
+/** Drop fully-blank lines so a cosmetic extra blank row is fingerprint-stable (D5). */
+function stripBlankLines(md: string): string {
+  return md
+    .split("\n")
+    .filter((line) => line.trim().length > 0)
+    .join("\n");
+}
+
+/**
+ * Split the per-tab synthesized markdown into pull-sheet case regions. Each region is a
+ * table block whose first pipe row is a pull-sheet header (through its own data rows).
+ * Non-pull-sheet blocks (ROOMS, etc.) are excluded so opt-in re-inclusion never leaks
+ * unrelated content (D6, I1).
+ */
+function collectPullSheetRegionsFromMarkdown(md: string): { regionMarkdown: string }[] {
+  const regions: { regionMarkdown: string }[] = [];
+  const blocks = md
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter((block) => block.length > 0);
+  for (const block of blocks) {
+    const headerLine = block.split("\n").find((line) => line.trim().startsWith("|"));
+    if (!headerLine) continue;
+    if (isPullSheetHeaderCells(splitMarkdownRow(headerLine.trim()))) {
+      regions.push({ regionMarkdown: block });
+    }
+  }
+  return regions;
+}
+
+/**
+ * Derive one show-identity preview per pull-sheet region from the RAW grid. The preview
+ * is the first non-blank row after a pull-sheet header row (its non-empty cells joined,
+ * ≤120 chars) — the show identity an admin reviews (I2). Derived from the raw grid, not
+ * the synthetic `PULL SHEET/<title>` cell, because `normalizePullSheetGrid` collapses the
+ * first case's identity/title/column-header rows together and never collapses subsequent
+ * cases' identity rows at all.
+ */
+function collectRawPullSheetPreviews(grid: CellGrid): string[] {
+  const previews: string[] = [];
+  for (let row = 0; row < grid.length; row += 1) {
+    const nonEmpty = (grid[row] ?? []).filter((c) => !isBlank(c));
+    if (nonEmpty.length === 0 || !isPullSheetHeaderCells(nonEmpty)) continue;
+    let preview = "";
+    for (let next = row + 1; next < grid.length; next += 1) {
+      const cells = (grid[next] ?? []).map(stripEdgeWhitespace).filter((c) => !isBlank(c));
+      if (cells.length > 0) {
+        preview = cells.join(" / ").slice(0, 120);
+        break;
+      }
+    }
+    previews.push(preview.length > 0 ? preview : "(no header text)");
+  }
+  return previews;
+}
+
+export function synthesizeMarkdownFromXlsx(
+  buffer: ArrayBuffer,
+  opts?: { includePullSheetFromTab?: string },
+): { markdown: string; archivedPullSheetTabs: ArchivedPullSheetTab[] } {
   const workbook = XLSX.read(buffer, {
     type: "array",
     cellText: true,
     cellDates: false,
   });
   const tables: string[] = [];
+  const archivedPullSheetTabs: ArchivedPullSheetTab[] = [];
 
   for (const sheetName of workbook.SheetNames) {
     const sheet = workbook.Sheets[sheetName];
     if (!sheet) continue;
-    // Skip archived tabs (e.g. "OLD PULL SHEET"). Their body is often a stale
-    // PRIOR show's data — Redefining FI's "OLD PULL SHEET" holds RIA-Chicago
-    // gear from 4/15/24 — so ingesting it attributes one show's content to
-    // another. Owner decision (DEFERRED AUDIT-2026-06-18-PARSE-FIDELITY-DEF-2):
-    // skip any tab whose name contains the word "OLD".
-    if (/\bOLD\b/i.test(sheetName)) continue;
+    // Archived tabs (e.g. "OLD PULL SHEET") are DROPPED from the synthesized markdown by
+    // default. Their body is often a stale PRIOR show's data — Redefining FI's
+    // "OLD PULL SHEET" holds RIA-Chicago gear from 4/15/24 — so ingesting it attributes
+    // one show's content to another (DEFERRED AUDIT-2026-06-18-PARSE-FIDELITY-DEF-2).
+    // We now additionally DETECT any pull-sheet case regions on the tab (building the same
+    // markdown parsePullSheet would consume — single source of truth) so the sync layer can
+    // surface them for admin review and opt-in re-inclusion via `includePullSheetFromTab`.
+    if (/\bOLD\b/i.test(sheetName)) {
+      const rawGrid = sheetGrid(sheet);
+      const tabMarkdown = splitBlocks(normalizePullSheetGrid(sheetName, rawGrid))
+        .map(normalizeBlock)
+        .map(tableMarkdown)
+        .join("\n\n");
+      const regions = collectPullSheetRegionsFromMarkdown(tabMarkdown);
+      if (regions.length > 0) {
+        const included = opts?.includePullSheetFromTab === sheetName;
+        const fingerprint = createHash("sha256")
+          .update(regions.map((r) => stripBlankLines(r.regionMarkdown)).join("\n\x00\n"), "utf8")
+          .digest("hex");
+        const rawPreviews = collectRawPullSheetPreviews(rawGrid);
+        archivedPullSheetTabs.push({
+          tabName: sheetName,
+          headerPreviews: regions.map((_, index) => rawPreviews[index] ?? "(no header text)"),
+          fingerprint,
+          included,
+          contentChangedSinceAccept: false,
+        });
+        if (included) {
+          // Emit EXACTLY the collected region markdown (same bytes hashed); other blocks
+          // (rooms, etc.) are discarded (D6, I1).
+          tables.push(...regions.map((r) => r.regionMarkdown));
+        }
+      }
+      continue; // non-included OLD tabs (and non-pull-sheet OLD tabs) stay dropped
+    }
     const grid = normalizePullSheetGrid(sheetName, sheetGrid(sheet));
     for (const block of splitBlocks(grid).map(normalizeBlock)) {
       tables.push(tableMarkdown(block));
     }
   }
 
-  return tables.join("\n\n");
+  return { markdown: tables.join("\n\n"), archivedPullSheetTabs };
 }

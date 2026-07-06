@@ -17,7 +17,10 @@ function fakeDrive(parts: {
 describe("Drive fetch wrappers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    synthesizeMarkdownFromXlsx.mockReturnValue("| CLIENT |\n| :---: |\n| ACME |");
+    synthesizeMarkdownFromXlsx.mockReturnValue({
+      markdown: "| CLIENT |\n| :---: |\n| ACME |",
+      archivedPullSheetTabs: [],
+    });
   });
 
   test("fetchDriveFileMetadata wraps files.get with the fields sync needs", async () => {
@@ -581,7 +584,7 @@ describe("Drive fetch wrappers", () => {
 describe("Drive transient-throttle retry (BL-ONBOARDING-SCAN-TRANSIENT-THROTTLE-RETRY)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    synthesizeMarkdownFromXlsx.mockReturnValue("md");
+    synthesizeMarkdownFromXlsx.mockReturnValue({ markdown: "md", archivedPullSheetTabs: [] });
   });
 
   // Deterministic + fast: no real backoff wait, zero jitter.
@@ -686,7 +689,7 @@ describe("Drive transient-throttle retry (BL-ONBOARDING-SCAN-TRANSIENT-THROTTLE-
 describe("Drive xlsx export stall-guard timeout (BL-ONBOARDING-SCAN-EXPORT-HANG)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    synthesizeMarkdownFromXlsx.mockReturnValue("md");
+    synthesizeMarkdownFromXlsx.mockReturnValue({ markdown: "md", archivedPullSheetTabs: [] });
   });
 
   // Deterministic + fast: no real backoff wait, zero jitter.
@@ -911,7 +914,7 @@ describe("Drive xlsx export stall-guard timeout (BL-ONBOARDING-SCAN-EXPORT-HANG)
 describe("Drive files.get stall-guard timeout (DXT-1 C — onboarding hot-path metadata gets)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    synthesizeMarkdownFromXlsx.mockReturnValue("md");
+    synthesizeMarkdownFromXlsx.mockReturnValue({ markdown: "md", archivedPullSheetTabs: [] });
   });
 
   const fastRetry = { sleep: async () => {}, random: () => 0 };

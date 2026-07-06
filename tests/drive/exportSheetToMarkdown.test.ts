@@ -21,7 +21,7 @@ function workbookBuffer(
 
 describe("synthesizeMarkdownFromXlsx", () => {
   test("emits a single GFM table with centered alignment delimiters", () => {
-    const markdown = synthesizeMarkdownFromXlsx(
+    const { markdown } = synthesizeMarkdownFromXlsx(
       workbookBuffer([
         {
           name: "INFO",
@@ -39,7 +39,7 @@ describe("synthesizeMarkdownFromXlsx", () => {
   });
 
   test("keeps tabs and blank-row-separated blocks as separate table blocks", () => {
-    const markdown = synthesizeMarkdownFromXlsx(
+    const { markdown } = synthesizeMarkdownFromXlsx(
       workbookBuffer([
         {
           name: "INFO",
@@ -79,7 +79,7 @@ describe("synthesizeMarkdownFromXlsx", () => {
   });
 
   test("expands merged cells across the merged range", () => {
-    const markdown = synthesizeMarkdownFromXlsx(
+    const { markdown } = synthesizeMarkdownFromXlsx(
       workbookBuffer([
         {
           name: "PULL SHEET",
@@ -104,7 +104,7 @@ describe("synthesizeMarkdownFromXlsx", () => {
   });
 
   test("collapses legacy pull-sheet title bands into the parser-facing case header", () => {
-    const markdown = synthesizeMarkdownFromXlsx(
+    const { markdown } = synthesizeMarkdownFromXlsx(
       workbookBuffer([
         {
           name: "PULL SHEET",
@@ -137,7 +137,7 @@ describe("synthesizeMarkdownFromXlsx", () => {
   });
 
   test("skips archived 'OLD …' tabs entirely (stale prior-show data)", () => {
-    const markdown = synthesizeMarkdownFromXlsx(
+    const { markdown } = synthesizeMarkdownFromXlsx(
       workbookBuffer([
         { name: "INFO", rows: [["CLIENT", "ACME Forum"]] },
         {
@@ -161,7 +161,7 @@ describe("synthesizeMarkdownFromXlsx", () => {
     // parseEventDetails fills event_details. Previously collapsed to label-only
     // on a false premise (a Drive-MCP rendering artifact); see the 2026-06-18
     // grounding audit / DEFERRED AUDIT-2026-06-18-PARSE-FIDELITY-DEF-1.
-    const markdown = synthesizeMarkdownFromXlsx(
+    const { markdown } = synthesizeMarkdownFromXlsx(
       workbookBuffer([
         {
           name: "INFO",
@@ -190,7 +190,7 @@ describe("synthesizeMarkdownFromXlsx", () => {
     // `GENERAL SESSION␊NAME␊DIMS␊FLOOR` header directly, so dropping it silently lost
     // the v2 GS room's dims + floor (and, for ria/redefining, its NAME → generic
     // "General Session"). Keep it — the multi-line cell space-joins per normalizeNewlines.
-    const markdown = synthesizeMarkdownFromXlsx(
+    const { markdown } = synthesizeMarkdownFromXlsx(
       workbookBuffer([
         {
           name: "INFO",
@@ -219,7 +219,7 @@ describe("synthesizeMarkdownFromXlsx", () => {
     // guard (`!col0.includes("&#10;")`) then SKIPS it, silently dropping the entire
     // General Session room (exporter-gap audit, HIGH). Fused room/section headers must
     // flatten regardless of line count so splitRoomHeader can read them.
-    const markdown = synthesizeMarkdownFromXlsx(
+    const { markdown } = synthesizeMarkdownFromXlsx(
       workbookBuffer([
         {
           name: "INFO",
@@ -237,7 +237,7 @@ describe("synthesizeMarkdownFromXlsx", () => {
   });
 
   test("a 2-line GS header still yields a parsed General Session room (not dropped)", () => {
-    const markdown = synthesizeMarkdownFromXlsx(
+    const { markdown } = synthesizeMarkdownFromXlsx(
       workbookBuffer([
         {
           name: "INFO",
@@ -256,7 +256,7 @@ describe("synthesizeMarkdownFromXlsx", () => {
   });
 
   test("escapes parser-significant characters and converts embedded newlines", () => {
-    const markdown = synthesizeMarkdownFromXlsx(
+    const { markdown } = synthesizeMarkdownFromXlsx(
       workbookBuffer([
         {
           name: "LIST",
