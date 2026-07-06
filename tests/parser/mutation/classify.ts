@@ -1,26 +1,69 @@
 // tests/parser/mutation/classify.ts
-import { KNOWN_SECTION_HEADERS, PREFIX_SECTION_FAMILIES, normalizeHeader } from "@/lib/parser/knownSections";
+import {
+  KNOWN_SECTION_HEADERS,
+  PREFIX_SECTION_FAMILIES,
+  normalizeHeader,
+} from "@/lib/parser/knownSections";
 import type { LogicalSection } from "./rows";
 
 export type Domain =
-  | "crew" | "hotel" | "rooms" | "transportation" | "agenda" | "dates" | "event_details"
-  | "venue" | "dress" | "contacts" | "client" | "pull_sheet" | "documents" | "other";
+  | "crew"
+  | "hotel"
+  | "rooms"
+  | "transportation"
+  | "agenda"
+  | "dates"
+  | "event_details"
+  | "venue"
+  | "dress"
+  | "contacts"
+  | "client"
+  | "pull_sheet"
+  | "documents"
+  | "other";
 
 export const RISK_CRITICAL: readonly Domain[] = [
-  "crew", "hotel", "rooms", "transportation", "agenda", "dates", "event_details",
+  "crew",
+  "hotel",
+  "rooms",
+  "transportation",
+  "agenda",
+  "dates",
+  "event_details",
 ];
 
 /** Every current KNOWN_SECTION_HEADERS member (knownSections.ts:34-65) → domain. */
 export const SECTION_DOMAIN_MAP: Record<string, Domain> = {
-  CREW: "crew", TECH: "crew",
-  HOTEL: "hotel", HOTELS: "hotel", "HOTEL RESERVATIONS": "hotel", "HOTEL RESERVATION": "hotel",
-  "HOTEL STAYS": "hotel", "HOTEL STAY": "hotel",
-  "GENERAL SESSION": "rooms", BREAKOUT: "rooms", BREAKOUTS: "rooms", "ADDITIONAL ROOM": "rooms",
-  "LUNCH ROOM": "rooms", "LUNCH SESSION": "rooms", FOYER: "rooms",
-  "EVENT DETAILS": "event_details", DETAILS: "event_details", "GS DETAILS": "event_details",
-  TRANSPORTATION: "transportation", DATES: "dates", AGENDA: "agenda", "AGENDA LINK": "agenda",
-  VENUE: "venue", VENUES: "venue", DRESS: "dress", "IN HOUSE AV": "contacts",
-  CLIENT: "client", "PULL SHEET": "pull_sheet", COI: "documents", "DOCUMENT FOLDER LINK": "documents",
+  CREW: "crew",
+  TECH: "crew",
+  HOTEL: "hotel",
+  HOTELS: "hotel",
+  "HOTEL RESERVATIONS": "hotel",
+  "HOTEL RESERVATION": "hotel",
+  "HOTEL STAYS": "hotel",
+  "HOTEL STAY": "hotel",
+  "GENERAL SESSION": "rooms",
+  BREAKOUT: "rooms",
+  BREAKOUTS: "rooms",
+  "ADDITIONAL ROOM": "rooms",
+  "LUNCH ROOM": "rooms",
+  "LUNCH SESSION": "rooms",
+  FOYER: "rooms",
+  "EVENT DETAILS": "event_details",
+  DETAILS: "event_details",
+  "GS DETAILS": "event_details",
+  TRANSPORTATION: "transportation",
+  DATES: "dates",
+  AGENDA: "agenda",
+  "AGENDA LINK": "agenda",
+  VENUE: "venue",
+  VENUES: "venue",
+  DRESS: "dress",
+  "IN HOUSE AV": "contacts",
+  CLIENT: "client",
+  "PULL SHEET": "pull_sheet",
+  COI: "documents",
+  "DOCUMENT FOLDER LINK": "documents",
 };
 
 // NOTE: the intended-domain oracle EXPECTED_HEADER_DOMAINS is DELIBERATELY NOT defined here.
@@ -30,7 +73,9 @@ export const SECTION_DOMAIN_MAP: Record<string, Domain> = {
 
 // Replicates matchesTokenPrefix (knownSections.ts:155-161): startsWith + token boundary.
 function tokenPrefix(n: string, entry: string): boolean {
-  return n.startsWith(entry) && (n.length === entry.length || /[^A-Z0-9]/.test(n[entry.length] ?? " "));
+  return (
+    n.startsWith(entry) && (n.length === entry.length || /[^A-Z0-9]/.test(n[entry.length] ?? " "))
+  );
 }
 
 /** Resolve a col-0 cell to its canonical parser header (exact or prefix family), else null. */

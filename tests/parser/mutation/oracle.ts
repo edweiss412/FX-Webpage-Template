@@ -12,9 +12,15 @@ export function payloadOf(p: ParsedSheet) {
   const { warnings, hardErrors, raw_unrecognized, ...payload } = p;
   return payload;
 }
-type SignalChannels = { warnings: ParseWarning[]; hardErrors: ParseError[]; raw_unrecognized: ParsedSheet["raw_unrecognized"] };
+type SignalChannels = {
+  warnings: ParseWarning[];
+  hardErrors: ParseError[];
+  raw_unrecognized: ParsedSheet["raw_unrecognized"];
+};
 export const signalOf = (p: ParsedSheet): SignalChannels => ({
-  warnings: p.warnings, hardErrors: p.hardErrors, raw_unrecognized: p.raw_unrecognized,
+  warnings: p.warnings,
+  hardErrors: p.hardErrors,
+  raw_unrecognized: p.raw_unrecognized,
 });
 
 const deepEq = (a: unknown, b: unknown): boolean => canon(a) === canon(b);
@@ -30,12 +36,16 @@ function canon(v: unknown): string {
   if (typeof v !== "object") return JSON.stringify(v);
   if (Array.isArray(v)) return `[${v.map(canon).join(",")}]`;
   const o = v as Record<string, unknown>;
-  const keys = Object.keys(o).filter((k) => o[k] !== undefined).sort();
+  const keys = Object.keys(o)
+    .filter((k) => o[k] !== undefined)
+    .sort();
   return `{${keys.map((k) => `${JSON.stringify(k)}:${canon(o[k])}`).join(",")}}`;
 }
 
-export const payloadChanged = (b: ParsedSheet, m: ParsedSheet): boolean => !deepEq(payloadOf(b), payloadOf(m));
-export const signalEq = (b: ParsedSheet, m: ParsedSheet): boolean => deepEq(signalOf(b), signalOf(m));
+export const payloadChanged = (b: ParsedSheet, m: ParsedSheet): boolean =>
+  !deepEq(payloadOf(b), payloadOf(m));
+export const signalEq = (b: ParsedSheet, m: ParsedSheet): boolean =>
+  deepEq(signalOf(b), signalOf(m));
 
 /** Reduced signal-key multiset for newSignalFired (spec §3.2). */
 export function signalKeys(p: ParsedSheet): Map<string, number> {
@@ -47,14 +57,17 @@ export function signalKeys(p: ParsedSheet): Map<string, number> {
   return map;
 }
 export function newSignalFired(b: ParsedSheet, m: ParsedSheet): boolean {
-  const bk = signalKeys(b), mk = signalKeys(m);
+  const bk = signalKeys(b),
+    mk = signalKeys(m);
   for (const [k, n] of mk) if (n > (bk.get(k) ?? 0)) return true;
   return false;
 }
 
 /** Corrupting-bucket verdict (spec §3.4, top-down). */
 export function verdict(b: ParsedSheet, m: ParsedSheet): Verdict {
-  const pEq = !payloadChanged(b, m), sEq = signalEq(b, m), stronger = newSignalFired(b, m);
+  const pEq = !payloadChanged(b, m),
+    sEq = signalEq(b, m),
+    stronger = newSignalFired(b, m);
   if (pEq && sEq) return "ABSORBED";
   if (pEq && !sEq && stronger) return "SIGNALED";
   if (pEq && !sEq && !stronger) return "SILENT_SIGNAL_LOSS";
@@ -64,7 +77,10 @@ export function verdict(b: ParsedSheet, m: ParsedSheet): Verdict {
 
 /** Short redacted digest of any value — PII never stored raw (spec §5). */
 export const digest = (v: unknown): string =>
-  createHash("sha256").update(canon(typeof v === "string" ? v.normalize("NFC") : v)).digest("hex").slice(0, 12);
+  createHash("sha256")
+    .update(canon(typeof v === "string" ? v.normalize("NFC") : v))
+    .digest("hex")
+    .slice(0, 12);
 
 /**
  * Flatten to sorted [path, value] pairs. Every CONTAINER node also emits a shape
@@ -80,7 +96,9 @@ function leaves(v: unknown, prefix = ""): Array<[string, unknown]> {
     return out;
   }
   const o = v as Record<string, unknown>;
-  const keys = Object.keys(o).filter((k) => o[k] !== undefined).sort(); // omit undefined keys (toEqual parity)
+  const keys = Object.keys(o)
+    .filter((k) => o[k] !== undefined)
+    .sort(); // omit undefined keys (toEqual parity)
   const out: Array<[string, unknown]> = [[prefix, `#obj:${keys.join(",")}`]];
   for (const k of keys) out.push(...leaves(o[k], `${prefix}.${k}`));
   return out;
@@ -96,7 +114,8 @@ export function fingerprint(b: ParsedSheet, m: ParsedSheet): string {
   const paths = [...new Set([...bl.keys(), ...ml.keys()])].sort();
   const payloadDiff: string[] = [];
   for (const p of paths) {
-    const bv = bl.get(p), mv = ml.get(p);
+    const bv = bl.get(p),
+      mv = ml.get(p);
     if (canon(bv) === canon(mv)) continue;
     payloadDiff.push(`${p}:${typeof bv}->${typeof mv}:${digest(bv)}->${digest(mv)}`);
   }
@@ -106,7 +125,10 @@ export function fingerprint(b: ParsedSheet, m: ParsedSheet): string {
   // value); PII/free-text (message, rawSnippet, sourceCell, value) is digest()-ed so the committed
   // ledger never carries raw PII. `signalRows` is exported so the redaction boundary is testable.
   const signalDiff = `B[${signalRows(b).join(",")}]|M[${signalRows(m).join(",")}]`;
-  return createHash("sha256").update(`${payloadDiff.join(";")}||${signalDiff}`).digest("hex").slice(0, 16);
+  return createHash("sha256")
+    .update(`${payloadDiff.join(";")}||${signalDiff}`)
+    .digest("hex")
+    .slice(0, 16);
 }
 
 /** Per-entry redaction (spec §5.179): structural fields VERBATIM, PII/free-text digest()-ed, then
@@ -121,12 +143,21 @@ const redactWarning = (w: ParseWarning) => ({
   code: w.code,
   message: digest(w.message ?? ""),
   blockRef: w.blockRef
-    ? { kind: w.blockRef.kind, index: w.blockRef.index ?? null, iso: w.blockRef.iso ?? null, name: w.blockRef.name ?? null }
+    ? {
+        kind: w.blockRef.kind,
+        index: w.blockRef.index ?? null,
+        iso: w.blockRef.iso ?? null,
+        name: w.blockRef.name ?? null,
+      }
     : null,
   rawSnippet: nullish3(w.rawSnippet, (s) => digest(s)), // rawSnippet?: string (never null, but absent≠"")
   sourceCell: nullish3(w.sourceCell, (s) => digest(JSON.stringify(s))), // SourceAnchor | null | undefined — 3-state
 });
-const redactError = (h: ParseError) => ({ code: h.code, message: digest(h.message ?? ""), blockRef: h.blockRef ? { kind: h.blockRef.kind } : null });
+const redactError = (h: ParseError) => ({
+  code: h.code,
+  message: digest(h.message ?? ""),
+  blockRef: h.blockRef ? { kind: h.blockRef.kind } : null,
+});
 const redactRaw = (r: { block?: string; key?: string; value?: unknown }) => ({
   block: r.block ?? null,
   key: r.key ?? null,
@@ -139,6 +170,8 @@ export function signalRows(p: ParsedSheet): string[] {
   const rows: string[] = [];
   p.warnings.forEach((w, i) => rows.push(`W#${i}:${canon(redactWarning(w))}`));
   p.hardErrors.forEach((h, i) => rows.push(`H#${i}:${canon(redactError(h))}`));
-  (p.raw_unrecognized as Array<{ block?: string; key?: string; value?: unknown }>).forEach((r, i) => rows.push(`R#${i}:${canon(redactRaw(r))}`));
+  (p.raw_unrecognized as Array<{ block?: string; key?: string; value?: unknown }>).forEach((r, i) =>
+    rows.push(`R#${i}:${canon(redactRaw(r))}`),
+  );
   return rows;
 }

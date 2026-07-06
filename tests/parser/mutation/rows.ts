@@ -1,7 +1,12 @@
 // tests/parser/mutation/rows.ts
 export type RowClass = "header" | "alignment" | "spacer" | "data";
 export type Row = { line: number; cells: string[]; cls: RowClass };
-export type LogicalSection = { index: number; headerRow: Row | null; rows: Row[]; runIndex: number };
+export type LogicalSection = {
+  index: number;
+  headerRow: Row | null;
+  rows: Row[];
+  runIndex: number;
+};
 export type Run = { index: number; sections: LogicalSection[]; startLine: number };
 export type Segmentation = { runs: Run[]; sections: LogicalSection[] };
 
@@ -23,7 +28,10 @@ export function splitCells(line: string): string[] {
   // EXACT parser parity: `split("|").slice(1,-1)` (splitRow). This DROPS the final segment
   // when the trailing pipe is ABSENT (`| A | B` → ["A"]), matching parseSheet's cell model —
   // NOT an "optional trailing pipe" strip, which would over-count that pinned edge (plan-R13).
-  return t.split("|").slice(1, -1).map((c) => c.trim());
+  return t
+    .split("|")
+    .slice(1, -1)
+    .map((c) => c.trim());
 }
 
 const ALIGN = /^:?-{1,}:?$/;

@@ -5,7 +5,10 @@ import { FIXTURES } from "./fixtures";
 
 describe("fixture registry parity (Codex R9)", () => {
   it("registry equals the committed .md set (minus README) in both dirs", () => {
-    const md = (dir: string) => readdirSync(dir).filter((f) => f.endsWith(".md") && f !== "README.md").sort();
+    const md = (dir: string) =>
+      readdirSync(dir)
+        .filter((f) => f.endsWith(".md") && f !== "README.md")
+        .sort();
     const expected = [
       ...md("fixtures/shows/exporter-xlsx").map((f) => `fixtures/shows/exporter-xlsx/${f}`),
       ...md("fixtures/shows/raw").map((f) => `fixtures/shows/raw/${f}`),

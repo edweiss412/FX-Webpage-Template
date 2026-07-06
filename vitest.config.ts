@@ -4,7 +4,12 @@ import { dirname } from "node:path";
 import mdx from "@mdx-js/rollup";
 import remarkGfm from "remark-gfm";
 
-import { BASE_INCLUDE, PARALLEL_TEST_GLOBS, ENV_BOUND_EXCLUDES, NIGHTLY_ONLY_EXCLUDES } from "./vitest.projects";
+import {
+  BASE_INCLUDE,
+  PARALLEL_TEST_GLOBS,
+  ENV_BOUND_EXCLUDES,
+  NIGHTLY_ONLY_EXCLUDES,
+} from "./vitest.projects";
 import { WeightBalancedSequencer } from "./vitest.sequencer";
 
 // unit-suite.yml sets VITEST_EXCLUDE_ENV_BOUND=1 to drop the env-bound files
@@ -19,7 +24,8 @@ const envBoundExcludes = process.env.VITEST_EXCLUDE_ENV_BOUND === "1" ? ENV_BOUN
 // VITEST_INCLUDE_MUTATION_HARNESS=1. Same project-level-exclude mechanism as the
 // env-bound gate (CLI --exclude is ignored once a project defines its own exclude);
 // inverted to opt-IN because the safe default is "don't run the ~92-min file".
-const nightlyExcludes = process.env.VITEST_INCLUDE_MUTATION_HARNESS === "1" ? [] : NIGHTLY_ONLY_EXCLUDES;
+const nightlyExcludes =
+  process.env.VITEST_INCLUDE_MUTATION_HARNESS === "1" ? [] : NIGHTLY_ONLY_EXCLUDES;
 
 // M11 Phase E real-render assertions: per-page smoke tests `await import`
 // the .mdx page module. Without an MDX→JS transformer in the Vitest graph
@@ -69,7 +75,12 @@ export default defineConfig({
           // `exclude` overrides the default); then everything in the parallel set
           // is removed so it runs ONLY in the parallel project. New dirs default
           // here (safe).
-          exclude: [...configDefaults.exclude, ...PARALLEL_TEST_GLOBS, ...envBoundExcludes, ...nightlyExcludes],
+          exclude: [
+            ...configDefaults.exclude,
+            ...PARALLEL_TEST_GLOBS,
+            ...envBoundExcludes,
+            ...nightlyExcludes,
+          ],
           fileParallelism: false,
         },
       },

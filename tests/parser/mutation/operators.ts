@@ -1,11 +1,17 @@
 // tests/parser/mutation/operators.ts
-import { segment, splitCells } from "./rows";
+import { segment } from "./rows";
 import type { LogicalSection, Row, Segmentation } from "./rows";
 import { isHeaderCells, classifySection, RISK_CRITICAL } from "./classify";
 import type { Domain } from "./classify";
 
 export type Bucket = "corrupting" | "cosmetic";
-export type Mutant = { md: string; siteId: string; bucket: Bucket; domains: Domain[]; dataRowCount?: number };
+export type Mutant = {
+  md: string;
+  siteId: string;
+  bucket: Bucket;
+  domains: Domain[];
+  dataRowCount?: number;
+};
 
 const seg = (md: string): Segmentation => segment(md, isHeaderCells);
 const lines = (md: string) => md.split("\n");
@@ -42,10 +48,15 @@ function withCell(md: string, line: number, cellIdx: number, next: string): stri
   return ls.join("\n");
 }
 
-function eachDataCell(md: string): Array<{ line: number; cellIdx: number; sec: LogicalSection; val: string }> {
+function eachDataCell(
+  md: string,
+): Array<{ line: number; cellIdx: number; sec: LogicalSection; val: string }> {
   const out: Array<{ line: number; cellIdx: number; sec: LogicalSection; val: string }> = [];
-  for (const s of seg(md).sections) for (const r of dataRows(s))
-    r.cells.forEach((v, i) => { if (v.length > 0) out.push({ line: r.line, cellIdx: i, sec: s, val: v }); });
+  for (const s of seg(md).sections)
+    for (const r of dataRows(s))
+      r.cells.forEach((v, i) => {
+        if (v.length > 0) out.push({ line: r.line, cellIdx: i, sec: s, val: v });
+      });
   return out;
 }
 const dom = (s: LogicalSection): Domain[] => [classifySection(s)];
@@ -62,7 +73,12 @@ function* refSub(md: string): Generator<Mutant> {
     // would still claim a siteId and count toward coverage without exercising the parser
     // (Codex plan-R18 [medium]). The independent audit applies the identical exclusion.
     if (c.val.trim() === "#REF!") continue;
-    yield { md: withCell(md, c.line, c.cellIdx, "#REF!"), siteId: sid("ref-sub", c.sec, c.line, c.cellIdx), bucket: "corrupting", domains: dom(c.sec) };
+    yield {
+      md: withCell(md, c.line, c.cellIdx, "#REF!"),
+      siteId: sid("ref-sub", c.sec, c.line, c.cellIdx),
+      bucket: "corrupting",
+      domains: dom(c.sec),
+    };
   }
 }
 
@@ -72,19 +88,31 @@ function* unicodeInject(md: string): Generator<Mutant> {
     const mid = Math.floor([...c.val].length / 2);
     const ZWNJ = "‌"; // zero-width non-joiner (fintech live shape)
     const injected = [...c.val].slice(0, mid).join("") + ZWNJ + [...c.val].slice(mid).join("");
-    yield { md: withCell(md, c.line, c.cellIdx, injected), siteId: sid("unicode-inject", c.sec, c.line, c.cellIdx), bucket: "corrupting", domains: dom(c.sec) };
+    yield {
+      md: withCell(md, c.line, c.cellIdx, injected),
+      siteId: sid("unicode-inject", c.sec, c.line, c.cellIdx),
+      bucket: "corrupting",
+      domains: dom(c.sec),
+    };
   }
 }
 
 function* mergedCell(md: string): Generator<Mutant> {
-  for (const s of seg(md).sections) for (const r of dataRows(s)) {
-    if (r.cells.length < 3) continue;
-    // one mutant per interior pipe p (fuse cells p and p+1 via raw delimiter deletion) — plan-R5/R14
-    for (let p = 0; p < r.cells.length - 1; p++) {
-      const ls = lines(md); ls[r.line] = mergeRawCells(ls[r.line]!, p);
-      yield { md: ls.join("\n"), siteId: sid("merged-cell", s, r.line, p), bucket: "corrupting", domains: dom(s) };
+  for (const s of seg(md).sections)
+    for (const r of dataRows(s)) {
+      if (r.cells.length < 3) continue;
+      // one mutant per interior pipe p (fuse cells p and p+1 via raw delimiter deletion) — plan-R5/R14
+      for (let p = 0; p < r.cells.length - 1; p++) {
+        const ls = lines(md);
+        ls[r.line] = mergeRawCells(ls[r.line]!, p);
+        yield {
+          md: ls.join("\n"),
+          siteId: sid("merged-cell", s, r.line, p),
+          bucket: "corrupting",
+          domains: dom(s),
+        };
+      }
     }
-  }
 }
 
 function* headerTypo(md: string): Generator<Mutant> {
@@ -95,12 +123,21 @@ function* headerTypo(md: string): Generator<Mutant> {
     // transpose the first adjacent pair of distinct chars
     const chars = [...tok];
     let pos = -1;
-    for (let i = 0; i < chars.length - 1; i++) if (chars[i] !== chars[i + 1]) { pos = i; break; }
+    for (let i = 0; i < chars.length - 1; i++)
+      if (chars[i] !== chars[i + 1]) {
+        pos = i;
+        break;
+      }
     if (pos < 0) continue;
     [chars[pos], chars[pos + 1]] = [chars[pos + 1]!, chars[pos]!];
     const typo = chars.join("");
     if (isHeaderCells([typo])) continue; // guard: must not produce a real header
-    yield { md: withCell(md, s.headerRow.line, 0, typo), siteId: sid("header-typo", s, s.headerRow.line, 0), bucket: "corrupting", domains: dom(s) };
+    yield {
+      md: withCell(md, s.headerRow.line, 0, typo),
+      siteId: sid("header-typo", s, s.headerRow.line, 0),
+      bucket: "corrupting",
+      domains: dom(s),
+    };
   }
 }
 
@@ -112,7 +149,13 @@ function* columnShift(md: string): Generator<Mutant> {
     // insert a REAL empty leading cell (new pipe delimiter), not just whitespace (plan-R2):
     // "| x | y |" -> "|  | x | y |"
     for (const r of s.rows) ls[r.line] = ls[r.line]!.replace(/^\|/, "|  |");
-    yield { md: ls.join("\n"), siteId: sid("column-shift", s, s.headerRow?.line ?? s.rows[0]!.line, 0), bucket: "corrupting", domains: dom(s), dataRowCount: dr.length };
+    yield {
+      md: ls.join("\n"),
+      siteId: sid("column-shift", s, s.headerRow?.line ?? s.rows[0]!.line, 0),
+      bucket: "corrupting",
+      domains: dom(s),
+      dataRowCount: dr.length,
+    };
   }
 }
 
@@ -122,8 +165,14 @@ function* blankRowInject(md: string): Generator<Mutant> {
     // one mutant per interior data-row gap (plan-R3, exhaustive)
     for (let i = 0; i < dr.length - 1; i++) {
       const gapAfter = dr[i]!.line; // absolute line index in the ORIGINAL md
-      const ls = lines(md); ls.splice(gapAfter + 1, 0, "");
-      yield { md: ls.join("\n"), siteId: sid("blank-row:inject", s, gapAfter, `gap${i}`), bucket: "corrupting", domains: dom(s) };
+      const ls = lines(md);
+      ls.splice(gapAfter + 1, 0, "");
+      yield {
+        md: ls.join("\n"),
+        siteId: sid("blank-row:inject", s, gapAfter, `gap${i}`),
+        bucket: "corrupting",
+        domains: dom(s),
+      };
     }
   }
 }
@@ -132,9 +181,14 @@ function* blankRowRemove(md: string): Generator<Mutant> {
   const { runs } = seg(md);
   const ls = lines(md);
   for (let i = 0; i < runs.length - 1; i++) {
-    const a = runs[i]!, b = runs[i + 1]!;
+    const a = runs[i]!,
+      b = runs[i + 1]!;
     // the blank line index between run a's last section and run b's first section
-    const lastRow = Math.max(...a.sections.flatMap((s) => s.rows.map((r) => r.line)).concat(a.sections.map((s) => s.headerRow?.line ?? -1)));
+    const lastRow = Math.max(
+      ...a.sections
+        .flatMap((s) => s.rows.map((r) => r.line))
+        .concat(a.sections.map((s) => s.headerRow?.line ?? -1)),
+    );
     const blankLine = lastRow + 1;
     if (ls[blankLine]?.trim() !== "") continue;
     const md2 = ls.filter((_, idx) => idx !== blankLine).join("\n");
@@ -142,7 +196,12 @@ function* blankRowRemove(md: string): Generator<Mutant> {
     const domB = classifySection(b.sections[0]!);
     // dedup: adjacent same-domain runs must credit the domain ONCE (matches the audit, plan-R8)
     const domains = [...new Set([domA, domB])];
-    yield { md: md2, siteId: `blank-row:remove:B${a.index}:L${blankLine}:Xgap`, bucket: "corrupting", domains };
+    yield {
+      md: md2,
+      siteId: `blank-row:remove:B${a.index}:L${blankLine}:Xgap`,
+      bucket: "corrupting",
+      domains,
+    };
   }
 }
 
@@ -163,9 +222,16 @@ function* sectionReorder(md: string): Generator<Mutant> {
   const blocks = md.split(/\n\s*\n/);
   if (blocks.length < 2) return;
   for (let i = 0; i < blocks.length - 1; i++) {
-    const swapped = [...blocks.slice(0, i), blocks[i + 1], blocks[i], ...blocks.slice(i + 2)].join("\n\n");
+    const swapped = [...blocks.slice(0, i), blocks[i + 1], blocks[i], ...blocks.slice(i + 2)].join(
+      "\n\n",
+    );
     if (swapped === md) continue; // identical blocks → no-op, skip
-    yield { md: swapped, siteId: `section-reorder:B${i}:L0:Xpair${i}`, bucket: "corrupting", domains: [] };
+    yield {
+      md: swapped,
+      siteId: `section-reorder:B${i}:L0:Xpair${i}`,
+      bucket: "corrupting",
+      domains: [],
+    };
   }
 }
 
@@ -188,9 +254,15 @@ export const MUTANT_BUDGET = 150_000;
  *  no consumer can iterate an UNguarded stream and OOM/hang on a fanout regression — the guarded
  *  path is the only path (the structural closure of the R17–R24 memory/streaming vector). */
 const OPERATOR_GENS: Record<string, (md: string) => Generator<Mutant>> = {
-  "header-typo": headerTypo, "ref-sub": refSub, "unicode-inject": unicodeInject,
-  "column-shift": columnShift, "blank-row:inject": blankRowInject, "blank-row:remove": blankRowRemove,
-  "merged-cell": mergedCell, "section-reorder": sectionReorder, "trailing-whitespace": trailingWhitespace,
+  "header-typo": headerTypo,
+  "ref-sub": refSub,
+  "unicode-inject": unicodeInject,
+  "column-shift": columnShift,
+  "blank-row:inject": blankRowInject,
+  "blank-row:remove": blankRowRemove,
+  "merged-cell": mergedCell,
+  "section-reorder": sectionReorder,
+  "trailing-whitespace": trailingWhitespace,
 };
 
 /** Shared fail-fast streaming guard (Codex plan-R24 [high]): yields items one at a time and THROWS
@@ -200,7 +272,8 @@ const OPERATOR_GENS: Record<string, (md: string) => Generator<Mutant>> = {
 export function* guardStream<T>(gen: Iterable<T>, budget: number, label: string): Generator<T> {
   let n = 0;
   for (const x of gen) {
-    if (++n > budget) throw new Error(`${label} exceeded budget ${budget} before array materialization`);
+    if (++n > budget)
+      throw new Error(`${label} exceeded budget ${budget} before array materialization`);
     yield x;
   }
 }
@@ -241,12 +314,16 @@ export function floorEligible(mutants: Mutant[]): Set<Domain> {
  */
 export function skippedInapplicable(md: string, op: string): Domain[] {
   const present = new Set<Domain>();
-  for (const s of seg(md).sections) { const d = classifySection(s); if (RISK_CRITICAL.includes(d)) present.add(d); }
+  for (const s of seg(md).sections) {
+    const d = classifySection(s);
+    if (RISK_CRITICAL.includes(d)) present.add(d);
+  }
   // Route through the shared budget-guarded stream (Codex plan-R23/R24 [high]): never materialize
   // the operator's full array here — this runs across the whole corpus (Task 11), so `boundedMutants`
   // gives both O(1) heap AND fail-fast on a fanout regression (it wraps guardStream over MUTANT_BUDGET).
   const eligible = new Set<Domain>();
-  for (const m of boundedMutants(op, md)) for (const d of m.domains) if (RISK_CRITICAL.includes(d)) eligible.add(d);
+  for (const m of boundedMutants(op, md))
+    for (const d of m.domains) if (RISK_CRITICAL.includes(d)) eligible.add(d);
   return [...present].filter((d) => !eligible.has(d)).sort();
 }
 

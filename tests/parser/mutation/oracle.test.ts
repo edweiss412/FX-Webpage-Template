@@ -6,9 +6,19 @@ import type { ParsedSheet } from "@/lib/parser/types";
 // Minimal ParsedSheet builder for oracle unit tests (only the fields the oracle reads).
 const base = (over: Partial<ParsedSheet> = {}): ParsedSheet =>
   ({
-    show: {} as never, crewMembers: [], hotelReservations: [], rooms: [], transportation: null,
-    contacts: [], pullSheet: null, diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
-    openingReel: null, raw_unrecognized: [], warnings: [], hardErrors: [], ...over,
+    show: {} as never,
+    crewMembers: [],
+    hotelReservations: [],
+    rooms: [],
+    transportation: null,
+    contacts: [],
+    pullSheet: null,
+    diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
+    openingReel: null,
+    raw_unrecognized: [],
+    warnings: [],
+    hardErrors: [],
+    ...over,
   }) as ParsedSheet;
 
 describe("verdict (corrupting bucket, Codex R5 SILENT_SIGNAL_LOSS)", () => {
@@ -19,7 +29,10 @@ describe("verdict (corrupting bucket, Codex R5 SILENT_SIGNAL_LOSS)", () => {
     expect(verdict(base(), base({ crewMembers: [{ name: "X" } as never] }))).toBe("SILENT_WRONG");
   });
   it("payload changed + new warning → SIGNALED", () => {
-    const m = base({ crewMembers: [{ name: "X" } as never], warnings: [{ severity: "warn", code: "W", message: "m" }] });
+    const m = base({
+      crewMembers: [{ name: "X" } as never],
+      warnings: [{ severity: "warn", code: "W", message: "m" }],
+    });
     expect(verdict(base(), m)).toBe("SIGNALED");
   });
   it("payload equal, a baseline warning REMOVED (no compensating signal) → SILENT_SIGNAL_LOSS", () => {
@@ -31,13 +44,20 @@ describe("verdict (corrupting bucket, Codex R5 SILENT_SIGNAL_LOSS)", () => {
     expect(verdict(base(), m)).toBe("SIGNALED");
   });
   it("undefined ≠ null: an optional signal field flipping undefined→null is NOT absorbed (plan-R5)", () => {
-    const wU = { severity: "warn" as const, code: "W", message: "m" };                    // sourceCell absent (undefined)
-    const wN = { severity: "warn" as const, code: "W", message: "m", sourceCell: null };   // sourceCell null
+    const wU = { severity: "warn" as const, code: "W", message: "m" }; // sourceCell absent (undefined)
+    const wN = { severity: "warn" as const, code: "W", message: "m", sourceCell: null }; // sourceCell null
     // same code → newSignalFired false; full signalEq must see the difference → SILENT_SIGNAL_LOSS
     expect(verdict(base({ warnings: [wN] }), base({ warnings: [wU] }))).toBe("SILENT_SIGNAL_LOSS");
   });
   it("toEqual parity: {a: undefined} is equal to {} (no false alarm)", () => {
-    const wA = { severity: "warn" as const, code: "W", message: "m", sourceCell: undefined };
+    // sourceCell:undefined is the POINT of this test (undefined-valued key vs absent key);
+    // cast past exactOptionalPropertyTypes, which forbids the literal but not the runtime shape.
+    const wA = {
+      severity: "warn" as const,
+      code: "W",
+      message: "m",
+      sourceCell: undefined,
+    } as unknown as ParsedSheet["warnings"][number];
     const wB = { severity: "warn" as const, code: "W", message: "m" };
     expect(verdict(base({ warnings: [wA] }), base({ warnings: [wB] }))).toBe("ABSORBED");
   });
@@ -46,8 +66,10 @@ describe("verdict (corrupting bucket, Codex R5 SILENT_SIGNAL_LOSS)", () => {
 describe("fingerprint signal component — redaction boundary is EXECUTABLE (Codex R26)", () => {
   it("keeps STRUCTURAL fields verbatim and DIGESTS pii/free-text (never raw in the ledger)", () => {
     const w = {
-      severity: "warn" as const, code: "MI_7",
-      message: "secret@example.com", rawSnippet: "raw pii row",
+      severity: "warn" as const,
+      code: "MI_7",
+      message: "secret@example.com",
+      rawSnippet: "raw pii row",
       blockRef: { kind: "crew", index: 2 },
     };
     const [row] = signalRows(base({ warnings: [w] }));
@@ -62,15 +84,27 @@ describe("fingerprint signal component — redaction boundary is EXECUTABLE (Cod
   });
   it("a code (structural) change and a message (pii) change BOTH move the fingerprint", () => {
     const b = base();
-    const w = (over: object) => base({ warnings: [{ severity: "warn" as const, code: "W", message: "m", ...over }] });
+    const w = (over: object) =>
+      base({ warnings: [{ severity: "warn" as const, code: "W", message: "m", ...over }] });
     expect(fingerprint(b, w({ code: "W2" }))).not.toBe(fingerprint(b, w({}))); // structural
     expect(fingerprint(b, w({ message: "n" }))).not.toBe(fingerprint(b, w({}))); // pii
   });
   it("distinguishes sourceCell ABSENT vs NULL vs value — matches signalEq's 3-state (R28)", () => {
     const b = base();
     const absent = base({ warnings: [{ severity: "warn", code: "W", message: "m" }] });
-    const asNull = base({ warnings: [{ severity: "warn", code: "W", message: "m", sourceCell: null }] });
-    const asVal = base({ warnings: [{ severity: "warn", code: "W", message: "m", sourceCell: { tab: "DATES", a1: "B2" } as never }] });
+    const asNull = base({
+      warnings: [{ severity: "warn", code: "W", message: "m", sourceCell: null }],
+    });
+    const asVal = base({
+      warnings: [
+        {
+          severity: "warn",
+          code: "W",
+          message: "m",
+          sourceCell: { tab: "DATES", a1: "B2" } as never,
+        },
+      ],
+    });
     // premise: signalEq (toEqual) treats these three as distinct → a change among them is signal drift
     expect(verdict(absent, asNull)).not.toBe("ABSORBED"); // a null anchor gained/lost is NOT invisible
     // fingerprint must move for each pair (else a ledgered SILENT_SIGNAL_LOSS could drift undetected)
@@ -100,7 +134,9 @@ describe("fingerprint (Codex R7/R8/R15/R16)", () => {
   });
   it("changes on empty-container payload drift [] -> [{}] and {} -> [] (plan-R4)", () => {
     const b = base({ rooms: [] });
-    expect(fingerprint(b, base({ rooms: [{} as never] }))).not.toBe(fingerprint(b, base({ rooms: [] })));
+    expect(fingerprint(b, base({ rooms: [{} as never] }))).not.toBe(
+      fingerprint(b, base({ rooms: [] })),
+    );
     // adding an empty nested container is visible
     const b2 = base({ contacts: [] });
     expect(fingerprint(b2, base({ contacts: [{} as never] }))).not.toBe(fingerprint(b2, b2));
@@ -120,7 +156,9 @@ describe("fingerprint (Codex R7/R8/R15/R16)", () => {
     for (const [name, v] of Object.entries(variants)) {
       expect(fingerprint(b, v), `warning ${name} must move the fingerprint`).not.toBe(baseFp);
     }
-    expect(new Set(fps).size, "each warning field is independently distinguishable").toBe(fps.length);
+    expect(new Set(fps).size, "each warning field is independently distinguishable").toBe(
+      fps.length,
+    );
   });
   it("is sensitive to a hardError blockRef change (plan-R9)", () => {
     const b = base();

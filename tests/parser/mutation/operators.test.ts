@@ -1,6 +1,12 @@
 // tests/parser/mutation/operators.test.ts
 import { describe, it, expect } from "vitest";
-import { OPERATORS, OPERATOR_NAMES, boundedMutants, floorEligible, skippedInapplicable } from "./operators";
+import {
+  OPERATORS,
+  OPERATOR_NAMES,
+  boundedMutants,
+  floorEligible,
+  skippedInapplicable,
+} from "./operators";
 import { splitCells } from "./rows";
 import { splitRow, clean } from "@/lib/parser/blocks/_helpers";
 
@@ -20,9 +26,15 @@ describe("operator inventory is complete (plan-R7)", () => {
   it("exactly the 9 expected operators are registered (8 corrupting + 1 cosmetic)", () => {
     expect(Object.keys(OPERATORS).sort()).toEqual(
       [
-        "header-typo", "ref-sub", "unicode-inject", "column-shift",
-        "blank-row:inject", "blank-row:remove", "merged-cell",
-        "section-reorder", "trailing-whitespace",
+        "header-typo",
+        "ref-sub",
+        "unicode-inject",
+        "column-shift",
+        "blank-row:inject",
+        "blank-row:remove",
+        "merged-cell",
+        "section-reorder",
+        "trailing-whitespace",
       ].sort(),
     );
     expect([...OPERATOR_NAMES].sort()).toEqual(Object.keys(OPERATORS).sort()); // names ⟺ array keys
@@ -60,8 +72,8 @@ describe("ref-sub skips already-#REF! cells — no byte-identical no-op (plan-R1
   it("a cell already #REF! is not a site; only the real cell is mutated, none equal baseline", () => {
     const md = "| CREW | NAME | ROLE |\n|  | #REF! | Lead |"; // NAME already #REF!, ROLE=Lead
     const ms = OPERATORS["ref-sub"]!(md);
-    expect(ms.length).toBe(1);                        // only ROLE=Lead is an eligible site
-    expect(ms.every((m) => m.md !== md)).toBe(true);  // no emitted mutant is byte-identical to baseline
+    expect(ms.length).toBe(1); // only ROLE=Lead is an eligible site
+    expect(ms.every((m) => m.md !== md)).toBe(true); // no emitted mutant is byte-identical to baseline
   });
 });
 
@@ -92,7 +104,7 @@ describe("single-site invariant holds on ESCAPED-PIPE rows (plan-R14)", () => {
     const before = splitRow(md.split("\n")[1]!).map(clean);
     const m = OPERATORS["ref-sub"]!(md).find((x) => x.md.includes("#REF!"))!;
     const after = splitRow(m.md.split("\n")[1]!).map(clean);
-    expect(after.length).toBe(before.length);                       // no column count change
+    expect(after.length).toBe(before.length); // no column count change
     expect(before.map((v, i) => v !== after[i]).filter(Boolean).length).toBe(1); // exactly one cell moved
   });
   it("merged-cell removes exactly one delimiter and preserves other segments byte-for-byte", () => {
@@ -107,7 +119,7 @@ describe("section-reorder is exhaustive over adjacent block pairs (plan-R10)", (
   it("3 blocks yield 2 adjacent-pair swaps, INCLUDING the late (2nd–3rd) pair", () => {
     const md = "| CREW | NAME |\n|  | A |\n\n| HOTEL | G |\n|  | B |\n\n| DATES | D |\n|  | C |";
     const ms = OPERATORS["section-reorder"]!(md);
-    expect(ms).toHaveLength(2);                                   // (0,1) and (1,2)
+    expect(ms).toHaveLength(2); // (0,1) and (1,2)
     expect(new Set(ms.map((m) => m.siteId)).size).toBe(2);
     expect(ms.some((m) => m.siteId.includes("Xpair1"))).toBe(true); // the late pair is generated + will be parsed
   });
@@ -125,7 +137,7 @@ describe("column-shift requires a data row and is credited per logical section (
     const m = OPERATORS["column-shift"]!(md)[0]!;
     const shiftedDataLine = m.md.split("\n").find((l) => l.includes("Doug Larson"))!;
     const cells = splitCells(shiftedDataLine);
-    expect(cells[0]).toBe("");            // new empty leading cell
+    expect(cells[0]).toBe(""); // new empty leading cell
     expect(cells).toContain("Doug Larson"); // originals preserved, shifted right
     expect(cells.length).toBeGreaterThan(splitCells("|  | Doug Larson | 917 |").length - 1);
   });
@@ -144,8 +156,13 @@ describe("unicode-inject needs ≥2 scalar values (Codex R14)", () => {
 describe("exhaustive generation + floor eligibility (plan-R2)", () => {
   it("every applicable site is generated (no cap) — a late section is still emitted", () => {
     const md = [
-      ...Array.from({ length: 15 }, (_, i) => `| CLIENT | meta${i} |`).flatMap((h) => [h, "|  | v |", ""]),
-      "| CREW | NAME |", "|  | Doug Larson |",
+      ...Array.from({ length: 15 }, (_, i) => `| CLIENT | meta${i} |`).flatMap((h) => [
+        h,
+        "|  | v |",
+        "",
+      ]),
+      "| CREW | NAME |",
+      "|  | Doug Larson |",
     ].join("\n");
     // exhaustive: the late CREW section's ref-sub site is present in the FULL output.
     expect(OPERATORS["ref-sub"]!(md).some((m) => m.domains.includes("crew"))).toBe(true);

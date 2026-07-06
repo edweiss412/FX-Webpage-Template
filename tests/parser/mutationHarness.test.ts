@@ -14,8 +14,10 @@ import type { Alarm } from "./mutation/knownHoles";
 
 // Prefix each operator's siteId with the fixture slug so keys are globally unique across
 // the corpus. Operator siteIds start "<op>:B..:L..:X.." → "<op>:<slug>:B..:L..:X..".
-const withSlug = (m: Mutant, op: string, slug: string): Mutant =>
-  ({ ...m, siteId: `${op}:${slug}:${m.siteId.slice(op.length + 1)}` });
+const withSlug = (m: Mutant, op: string, slug: string): Mutant => ({
+  ...m,
+  siteId: `${op}:${slug}:${m.siteId.slice(op.length + 1)}`,
+});
 
 /** Exhaustive: parse EVERY generated mutant across all fixtures × operators (plan-R2).
  *  SINGLE-PASS STREAMING (Codex plan-R18–R24 [high], memory vector closed STRUCTURALLY): the corpus
@@ -25,7 +27,12 @@ const withSlug = (m: Mutant, op: string, slug: string): Mutant =>
  *  `++n > MUTANT_BUDGET` guard here caps the whole-corpus total (defends the many-ops-each-large
  *  case). Nothing corpus-wide is retained except short siteId strings (+ actual alarms/noOps).
  *  `noOps` flags any operator emitting a byte-identical mutant (plan-R18). */
-function runAll(): { alarms: Alarm[]; allSiteIds: string[]; cosmeticViolations: string[]; noOps: string[] } {
+function runAll(): {
+  alarms: Alarm[];
+  allSiteIds: string[];
+  cosmeticViolations: string[];
+  noOps: string[];
+} {
   const alarms: Alarm[] = [];
   const allSiteIds: string[] = [];
   const cosmeticViolations: string[] = [];
@@ -35,9 +42,12 @@ function runAll(): { alarms: Alarm[]; allSiteIds: string[]; cosmeticViolations: 
     const md = readFixture(f);
     const baseline = capture(md, `${f.slug}.md`);
     for (const op of OPERATOR_NAMES) {
-      for (const raw of boundedMutants(op, md)) { // per-(op,fixture) budget guard inside boundedMutants
+      for (const raw of boundedMutants(op, md)) {
+        // per-(op,fixture) budget guard inside boundedMutants
         if (++n > MUTANT_BUDGET) {
-          throw new Error(`corpus mutant count exceeded MUTANT_BUDGET ${MUTANT_BUDGET} — operator fanout regression?`);
+          throw new Error(
+            `corpus mutant count exceeded MUTANT_BUDGET ${MUTANT_BUDGET} — operator fanout regression?`,
+          );
         }
         const m = withSlug(raw, op, f.slug);
         allSiteIds.push(m.siteId);
@@ -48,8 +58,14 @@ function runAll(): { alarms: Alarm[]; allSiteIds: string[]; cosmeticViolations: 
           if (v !== "ABSORBED") cosmeticViolations.push(m.siteId); // cosmetic must be fully invisible
           continue;
         }
-        if (v === "SILENT_WRONG") alarms.push({ siteId: m.siteId, kind: "wrong", fingerprint: fingerprint(baseline, mut) });
-        if (v === "SILENT_SIGNAL_LOSS") alarms.push({ siteId: m.siteId, kind: "signal_loss", fingerprint: fingerprint(baseline, mut) });
+        if (v === "SILENT_WRONG")
+          alarms.push({ siteId: m.siteId, kind: "wrong", fingerprint: fingerprint(baseline, mut) });
+        if (v === "SILENT_SIGNAL_LOSS")
+          alarms.push({
+            siteId: m.siteId,
+            kind: "signal_loss",
+            fingerprint: fingerprint(baseline, mut),
+          });
       }
     }
   }
@@ -75,10 +91,16 @@ describe("mutation harness — bidirectional known-holes ledger", () => {
 
   it("corpus size is within the documented runtime budget (plan-R17)", () => {
     expect(R.allSiteIds.length).toBeGreaterThan(0);
-    expect(R.allSiteIds.length, `mutant count exceeds MUTANT_BUDGET — measure + update deliberately`).toBeLessThanOrEqual(MUTANT_BUDGET);
+    expect(
+      R.allSiteIds.length,
+      `mutant count exceeds MUTANT_BUDGET — measure + update deliberately`,
+    ).toBeLessThanOrEqual(MUTANT_BUDGET);
   });
   it("no emitted mutant is byte-identical to its baseline fixture (plan-R18)", () => {
-    expect(R.noOps, `byte-identical no-op mutants (false coverage):\n${R.noOps.join("\n")}`).toEqual([]);
+    expect(
+      R.noOps,
+      `byte-identical no-op mutants (false coverage):\n${R.noOps.join("\n")}`,
+    ).toEqual([]);
   });
   it("all generated siteIds are globally unique (Codex R2)", () => {
     expect(new Set(R.allSiteIds).size).toBe(R.allSiteIds.length);
@@ -94,7 +116,11 @@ describe("mutation harness — bidirectional known-holes ledger", () => {
 });
 
 // ─── Task 9: classifier-parity + coverage-floor + audit-agreement gates ────────────────────────
-import { KNOWN_SECTION_HEADERS, PREFIX_SECTION_FAMILIES, normalizeHeader } from "@/lib/parser/knownSections";
+import {
+  KNOWN_SECTION_HEADERS,
+  PREFIX_SECTION_FAMILIES,
+  normalizeHeader,
+} from "@/lib/parser/knownSections";
 import { SECTION_DOMAIN_MAP, resolveHeader } from "./mutation/classify";
 import { EXPECTED_HEADER_DOMAINS } from "./mutation/expectedDomains";
 import { OPERATORS as OPS } from "./mutation/operators";
@@ -108,14 +134,17 @@ describe("classifier parity gate (Codex R2/R4/R8/R20)", () => {
     }
   });
   it("suffixed room families resolve to rooms", () => {
-    for (const fam of PREFIX_SECTION_FAMILIES) expect(SECTION_DOMAIN_MAP[resolveHeader(`${fam} SALON A`)!]).toBe("rooms");
+    for (const fam of PREFIX_SECTION_FAMILIES)
+      expect(SECTION_DOMAIN_MAP[resolveHeader(`${fam} SALON A`)!]).toBe("rooms");
   });
   it("EXPECTED_HEADER_DOMAINS covers the live registry (a new parser header forces a row, R20)", () => {
     const covered = new Set(EXPECTED_HEADER_DOMAINS.map(([h]) => normalizeHeader(h)));
-    for (const h of KNOWN_SECTION_HEADERS) expect(covered, `no expected-domain row for ${h}`).toContain(h);
+    for (const h of KNOWN_SECTION_HEADERS)
+      expect(covered, `no expected-domain row for ${h}`).toContain(h);
   });
   it("lockstep: SECTION_DOMAIN_MAP agrees with the independent EXPECTED_HEADER_DOMAINS oracle", () => {
-    for (const [h, d] of EXPECTED_HEADER_DOMAINS) expect(SECTION_DOMAIN_MAP[resolveHeader(h)!], h).toBe(d);
+    for (const [h, d] of EXPECTED_HEADER_DOMAINS)
+      expect(SECTION_DOMAIN_MAP[resolveHeader(h)!], h).toBe(d);
   });
 });
 
@@ -124,7 +153,15 @@ describe("coverage floor + COUNT-level audit agreement (Codex R5/R9, exhaustive 
   // (identical applicability predicate). header-typo is exact too — the audit replicates
   // its typo-eligibility guard (plan-R4). blank-row:remove is exact — its 2-domain mutant
   // credits each adjacent domain once, matching the audit's dual bump.
-  const EXACT = ["header-typo", "ref-sub", "unicode-inject", "merged-cell", "column-shift", "blank-row:inject", "blank-row:remove"];
+  const EXACT = [
+    "header-typo",
+    "ref-sub",
+    "unicode-inject",
+    "merged-cell",
+    "column-shift",
+    "blank-row:inject",
+    "blank-row:remove",
+  ];
 
   // Array form — for the BOUNDED synthetic-input tests below only.
   const genCounts = (raw: { domains: string[] }[]): Map<string, number> => {
@@ -137,7 +174,8 @@ describe("coverage floor + COUNT-level audit agreement (Codex R5/R9, exhaustive 
   // fail-fast guard — never materialize the operator array over real fixtures.
   const genCountsStreamed = (op: string, md: string): Map<string, number> => {
     const m = new Map<string, number>();
-    for (const mut of boundedMutants(op, md)) for (const d of mut.domains) m.set(d, (m.get(d) ?? 0) + 1);
+    for (const mut of boundedMutants(op, md))
+      for (const d of mut.domains) m.set(d, (m.get(d) ?? 0) + 1);
     return m;
   };
 
@@ -147,7 +185,10 @@ describe("coverage floor + COUNT-level audit agreement (Codex R5/R9, exhaustive 
       const audit = auditSites(md);
       for (const op of EXACT) {
         const gen = genCountsStreamed(op, md); // streaming + budget-guarded (never an eager array)
-        const domains = new Set<string>([...gen.keys(), ...[...audit.keys()].filter((k) => k.startsWith(`${op}|`)).map((k) => k.split("|")[1]!)]);
+        const domains = new Set<string>([
+          ...gen.keys(),
+          ...[...audit.keys()].filter((k) => k.startsWith(`${op}|`)).map((k) => k.split("|")[1]!),
+        ]);
         for (const d of domains) {
           expect(gen.get(d) ?? 0, `${f.slug} ${op}|${d} count`).toBe(audit.get(`${op}|${d}`) ?? 0);
         }
@@ -168,8 +209,13 @@ import { skippedInapplicable } from "./mutation/operators";
 import { expectedSkipped } from "./mutation/applicabilityAudit";
 
 const CORRUPTING = [
-  "header-typo", "ref-sub", "unicode-inject", "column-shift",
-  "blank-row:inject", "blank-row:remove", "merged-cell",
+  "header-typo",
+  "ref-sub",
+  "unicode-inject",
+  "column-shift",
+  "blank-row:inject",
+  "blank-row:remove",
+  "merged-cell",
 ];
 
 describe("present-but-inapplicable domains cannot be silently excused (plan-R10)", () => {
@@ -180,8 +226,10 @@ describe("present-but-inapplicable domains cannot be silently excused (plan-R10)
     for (const f of FIXTURES) {
       const md = readFixture(f);
       for (const op of CORRUPTING) {
-        expect(skippedInapplicable(md, op), `${f.slug}/${op} skipped-inapplicable mismatch (classifier drift?)`)
-          .toEqual(expectedSkipped(md, op));
+        expect(
+          skippedInapplicable(md, op),
+          `${f.slug}/${op} skipped-inapplicable mismatch (classifier drift?)`,
+        ).toEqual(expectedSkipped(md, op));
       }
     }
   }, 120_000);
@@ -200,14 +248,18 @@ describe("coverage legibility (exhaustive; skippedInapplicable surfaced)", () =>
     for (const f of FIXTURES) {
       const md = readFixture(f);
       for (const op of OPERATOR_NAMES) {
-        for (const m of boundedMutants(op, md)) { total++; for (const dm of m.domains) domains.add(dm); } // guarded stream (plan-R24)
+        for (const m of boundedMutants(op, md)) {
+          total++;
+          for (const dm of m.domains) domains.add(dm);
+        } // guarded stream (plan-R24)
         if (op.startsWith("section-reorder") || op.startsWith("trailing")) continue; // domain-agnostic (section-reorder) / cosmetic (trailing): no per-domain floor
         const sk = skippedInapplicable(md, op);
         if (sk.length) skips.push(`${f.slug}/${op}: ${sk.join(",")}`);
       }
     }
-    // eslint-disable-next-line no-console
-    console.log(`[mutation-harness] total=${total} domains=${[...domains].sort().join(",")}\n  skippedInapplicable:\n  ${skips.join("\n  ") || "(none)"}`);
+    console.log(
+      `[mutation-harness] total=${total} domains=${[...domains].sort().join(",")}\n  skippedInapplicable:\n  ${skips.join("\n  ") || "(none)"}`,
+    );
     expect(total).toBeGreaterThan(50);
     expect(domains.size).toBeGreaterThan(3);
   }, 120_000);

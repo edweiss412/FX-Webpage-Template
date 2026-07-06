@@ -3,7 +3,8 @@ import { describe, it, expect } from "vitest";
 import { splitCells, classifyRow, segment } from "./rows";
 import { splitRow } from "@/lib/parser/blocks/_helpers";
 
-const isHeader = (cells: string[]) => /^(DATES|CREW|DRESS|HOTEL|GENERAL SESSION)/.test((cells[0] ?? "").trim());
+const isHeader = (cells: string[]) =>
+  /^(DATES|CREW|DRESS|HOTEL|GENERAL SESSION)/.test((cells[0] ?? "").trim());
 
 describe("row taxonomy", () => {
   it("splits a pipe row into trimmed cells (drops leading/trailing pipe framing)", () => {
@@ -14,14 +15,14 @@ describe("row taxonomy", () => {
     // on the raw pipe too (splitRow), so the harness must fragment IDENTICALLY — a mutation on
     // any fragment is then a single-site change in parser-space, not a false alarm.
     const line = "| Hilton | Gabriella Decker \\| Events gd@hilton.com | Austin |";
-    expect(splitCells(line)).toEqual(splitRow(line));           // byte-for-byte parser parity
-    expect(splitCells(line).length).toBe(4);                    // \| fragments the middle cell into 2
+    expect(splitCells(line)).toEqual(splitRow(line)); // byte-for-byte parser parity
+    expect(splitCells(line).length).toBe(4); // \| fragments the middle cell into 2
   });
   it("matches parser splitRow on a MISSING trailing pipe (drops final cell) (plan-R13)", () => {
     // parser: "| A | B".split("|").slice(1,-1) === ["A"] — the final segment is dropped.
     expect(splitCells("| A | B")).toEqual(splitRow("| A | B"));
     expect(splitCells("| A | B")).toEqual(["A"]);
-    expect(splitCells("| A")).toEqual(splitRow("| A"));          // ["", " A"].slice(1,-1) === []
+    expect(splitCells("| A")).toEqual(splitRow("| A")); // ["", " A"].slice(1,-1) === []
     expect(splitCells("| A")).toEqual([]);
   });
   it("classifies alignment / spacer / header / data rows", () => {
@@ -45,7 +46,11 @@ describe("logical-section segmentation (Codex R10)", () => {
       "| DRESS | Black |",
     ].join("\n");
     const seg = segment(md, isHeader);
-    expect(seg.sections.map((s) => (s.headerRow?.cells[0] ?? "").trim())).toEqual(["DATES", "CREW", "DRESS"]);
+    expect(seg.sections.map((s) => (s.headerRow?.cells[0] ?? "").trim())).toEqual([
+      "DATES",
+      "CREW",
+      "DRESS",
+    ]);
     // all three sections belong to ONE run (no blank line separates them)
     expect(new Set(seg.sections.map((s) => s.runIndex)).size).toBe(1);
   });

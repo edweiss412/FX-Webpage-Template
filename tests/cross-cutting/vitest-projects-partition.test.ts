@@ -182,7 +182,9 @@ describe("vitest projects split — partition is complete and correctly wired", 
     for (const glob of NIGHTLY_ONLY_EXCLUDES) {
       const path = glob.replace(/^\*\*\//, "");
       expect(allTestFiles, `${path} should exist`).toContain(path);
-      expect(matchesParallel(path), `${path} must be SERIAL so the opt-in gate governs it`).toBe(false);
+      expect(matchesParallel(path), `${path} must be SERIAL so the opt-in gate governs it`).toBe(
+        false,
+      );
     }
   });
 
@@ -205,15 +207,26 @@ describe("vitest projects split — partition is complete and correctly wired", 
     const def = await serialExcludeFor(undefined); // local pnpm test + unit-suite
     for (const f of NIGHTLY_ONLY_EXCLUDES) {
       expect(def, `${f} excluded by default (kept off the fast path)`).toContain(f);
-      expect(optedIn, `${f} runs when VITEST_INCLUDE_MUTATION_HARNESS=1 (nightly)`).not.toContain(f);
+      expect(optedIn, `${f} runs when VITEST_INCLUDE_MUTATION_HARNESS=1 (nightly)`).not.toContain(
+        f,
+      );
     }
   });
 
   it("the nightly workflow sets the opt-in var and targets the harness file", () => {
     const wf = readFileSync(join(ROOT, ".github", "workflows", "mutation-harness.yml"), "utf8");
-    expect(wf.includes("VITEST_INCLUDE_MUTATION_HARNESS"), "workflow must opt IN to the harness").toBe(true);
-    expect(wf.includes("tests/parser/mutationHarness.test.ts"), "workflow must target the harness file").toBe(true);
-    expect(/schedule:/.test(wf) && /workflow_dispatch:/.test(wf), "workflow must be scheduled + dispatchable").toBe(true);
+    expect(
+      wf.includes("VITEST_INCLUDE_MUTATION_HARNESS"),
+      "workflow must opt IN to the harness",
+    ).toBe(true);
+    expect(
+      wf.includes("tests/parser/mutationHarness.test.ts"),
+      "workflow must target the harness file",
+    ).toBe(true);
+    expect(
+      /schedule:/.test(wf) && /workflow_dispatch:/.test(wf),
+      "workflow must be scheduled + dispatchable",
+    ).toBe(true);
   });
 
   it("unit-suite.yml uses the env var, NOT the (ignored) vitest --exclude flag", () => {

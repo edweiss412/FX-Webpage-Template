@@ -3,9 +3,18 @@ import { describe, it, expect } from "vitest";
 import { reconcileLedger, ledgerKey, KNOWN_SILENT_HOLES } from "./knownHoles";
 import type { Alarm, KnownHole } from "./knownHoles";
 
-const A = (siteId: string, kind: Alarm["kind"], fingerprint: string): Alarm => ({ siteId, kind, fingerprint });
-const H = (siteId: string, kind: KnownHole["kind"], fingerprint: string): KnownHole =>
-  ({ siteId, kind, fingerprint, finding: "#1", note: "n" });
+const A = (siteId: string, kind: Alarm["kind"], fingerprint: string): Alarm => ({
+  siteId,
+  kind,
+  fingerprint,
+});
+const H = (siteId: string, kind: KnownHole["kind"], fingerprint: string): KnownHole => ({
+  siteId,
+  kind,
+  fingerprint,
+  finding: "#1",
+  note: "n",
+});
 
 describe("reconcileLedger is bidirectional (plan-R9)", () => {
   it("empty vs empty → clean", () => {
@@ -32,8 +41,12 @@ describe("reconcileLedger is bidirectional (plan-R9)", () => {
     expect(r.staleRows).toEqual(["s1|wrong|fp"]);
   });
   it("exact match → clean (order-independent)", () => {
-    expect(reconcileLedger([A("a", "wrong", "1"), A("b", "signal_loss", "2")], [H("b", "signal_loss", "2"), H("a", "wrong", "1")]))
-      .toEqual({ newAlarms: [], staleRows: [] });
+    expect(
+      reconcileLedger(
+        [A("a", "wrong", "1"), A("b", "signal_loss", "2")],
+        [H("b", "signal_loss", "2"), H("a", "wrong", "1")],
+      ),
+    ).toEqual({ newAlarms: [], staleRows: [] });
   });
 });
 

@@ -5,31 +5,48 @@ import { OPERATORS } from "./operators";
 import type { ParsedSheet } from "@/lib/parser/types";
 
 const base = (over: Partial<ParsedSheet> = {}): ParsedSheet =>
-  ({ show: {} as never, crewMembers: [], hotelReservations: [], rooms: [], transportation: null, contacts: [],
-     pullSheet: null, diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
-     openingReel: null, raw_unrecognized: [], warnings: [], hardErrors: [], ...over } as ParsedSheet);
+  ({
+    show: {} as never,
+    crewMembers: [],
+    hotelReservations: [],
+    rooms: [],
+    transportation: null,
+    contacts: [],
+    pullSheet: null,
+    diagrams: { linkedFolder: null, embeddedImages: [], linkedFolderItems: [] },
+    openingReel: null,
+    raw_unrecognized: [],
+    warnings: [],
+    hardErrors: [],
+    ...over,
+  }) as ParsedSheet;
 
 describe("negative controls — every alarm class is reachable", () => {
   it("SILENT_WRONG: payload change, no signal", () => {
     expect(verdict(base(), base({ rooms: [{} as never] }))).toBe("SILENT_WRONG");
   });
   it("SILENT_SIGNAL_LOSS: baseline warning removed, payload equal", () => {
-    expect(verdict(base({ warnings: [{ severity: "warn", code: "W", message: "m" }] }), base())).toBe("SILENT_SIGNAL_LOSS");
+    expect(
+      verdict(base({ warnings: [{ severity: "warn", code: "W", message: "m" }] }), base()),
+    ).toBe("SILENT_SIGNAL_LOSS");
   });
   it("fingerprint: same-path new value (R8)", () => {
     const b = base({ crewMembers: [{ name: "A" } as never] });
-    expect(fingerprint(b, base({ crewMembers: [{ name: "B" } as never] })))
-      .not.toBe(fingerprint(b, base({ crewMembers: [{ name: "C" } as never] })));
+    expect(fingerprint(b, base({ crewMembers: [{ name: "B" } as never] }))).not.toBe(
+      fingerprint(b, base({ crewMembers: [{ name: "C" } as never] })),
+    );
   });
   it("fingerprint: signal reorder (R16)", () => {
     const w = (c: string) => ({ severity: "warn" as const, code: c, message: c });
-    expect(fingerprint(base(), base({ warnings: [w("A"), w("B")] })))
-      .not.toBe(fingerprint(base(), base({ warnings: [w("B"), w("A")] })));
+    expect(fingerprint(base(), base({ warnings: [w("A"), w("B")] }))).not.toBe(
+      fingerprint(base(), base({ warnings: [w("B"), w("A")] })),
+    );
   });
   it("fingerprint: raw_unrecognized value drift same block|key (R9/R15)", () => {
     const b = base();
-    expect(fingerprint(b, base({ raw_unrecognized: [{ block: "X", key: "k", value: "v1" }] })))
-      .not.toBe(fingerprint(b, base({ raw_unrecognized: [{ block: "X", key: "k", value: "v2" }] })));
+    expect(
+      fingerprint(b, base({ raw_unrecognized: [{ block: "X", key: "k", value: "v1" }] })),
+    ).not.toBe(fingerprint(b, base({ raw_unrecognized: [{ block: "X", key: "k", value: "v2" }] })));
   });
   it("unicode-inject: no site on a single-char data cell (R14)", () => {
     expect(OPERATORS["unicode-inject"]!("| CREW | N |\n|  | A |")).toHaveLength(0);
@@ -49,12 +66,20 @@ describe("negative controls — every alarm class is reachable", () => {
 import { auditSites } from "./applicabilityAudit";
 import { OPERATORS as OPS2 } from "./operators";
 describe("audit covers header + boundary operators independently (plan-R1)", () => {
-  const md = ["| CREW | NAME |", "|  | Doug Larson |", "", "| TRANSPORTATION | NAME |", "|  | Carlos |"].join("\n");
+  const md = [
+    "| CREW | NAME |",
+    "|  | Doug Larson |",
+    "",
+    "| TRANSPORTATION | NAME |",
+    "|  | Carlos |",
+  ].join("\n");
   it("counts a header-typo site for crew and a blank-row:remove boundary between the runs", () => {
     const s = auditSites(md);
     expect(s.get("header-typo|crew") ?? 0).toBeGreaterThan(0);
     // boundary between run0 (crew) and run1 (transportation) → credited to both domains
-    expect((s.get("blank-row:remove|crew") ?? 0) + (s.get("blank-row:remove|transportation") ?? 0)).toBeGreaterThan(0);
+    expect(
+      (s.get("blank-row:remove|crew") ?? 0) + (s.get("blank-row:remove|transportation") ?? 0),
+    ).toBeGreaterThan(0);
   });
 });
 
@@ -96,7 +121,9 @@ describe("structural gates FAIL under injected regressions (plan-R13)", () => {
   });
   it("boundary-coverage: removing ALL blank-row:remove mutants leaves an audited boundary uncovered", () => {
     const md = "| CREW | NAME |\n|  | Doug |\n\n| TRANSPORTATION | NAME |\n|  | Carlos |";
-    const auditHasBoundary = [...auditSites(md).keys()].some((k) => k.startsWith("blank-row:remove|"));
+    const auditHasBoundary = [...auditSites(md).keys()].some((k) =>
+      k.startsWith("blank-row:remove|"),
+    );
     const crippledGen: { domains: string[] }[] = []; // operator emits nothing for this class
     expect(auditHasBoundary).toBe(true);
     expect(genCounts(crippledGen).size).toBe(0); // gen 0 vs audit>0 → presence/agreement gate fails
@@ -109,8 +136,15 @@ describe("structural gates FAIL under injected regressions (plan-R13)", () => {
     expect(crippledShared).not.toEqual(expected); // the `toEqual(expectedSkipped)` gate would fail
   });
   it("ledger ratchet: an undocumented NEW alarm fails, and a STALE row fails (both directions)", () => {
-    expect(reconcileLedger([{ siteId: "s", kind: "wrong", fingerprint: "f" }], []).newAlarms.length).toBeGreaterThan(0);
-    expect(reconcileLedger([], [{ siteId: "s", kind: "wrong", fingerprint: "f", finding: "#1", note: "n" }]).staleRows.length).toBeGreaterThan(0);
+    expect(
+      reconcileLedger([{ siteId: "s", kind: "wrong", fingerprint: "f" }], []).newAlarms.length,
+    ).toBeGreaterThan(0);
+    expect(
+      reconcileLedger(
+        [],
+        [{ siteId: "s", kind: "wrong", fingerprint: "f", finding: "#1", note: "n" }],
+      ).staleRows.length,
+    ).toBeGreaterThan(0);
   });
 });
 
@@ -129,7 +163,9 @@ describe("guardStream — the shared guard behind boundedMutants — fails fast 
       while (true) yield i++;
     }
     expect(() => {
-      for (const _m of guardStream(unbounded(), 100, "test")) { /* consume — never terminates unless the guard throws */ }
+      for (const _m of guardStream(unbounded(), 100, "test")) {
+        /* consume — never terminates unless the guard throws */
+      }
     }).toThrow(/test exceeded budget 100/);
   });
 });

@@ -1,6 +1,10 @@
 // tests/parser/mutation/classify.test.ts
 import { describe, it, expect } from "vitest";
-import { KNOWN_SECTION_HEADERS, PREFIX_SECTION_FAMILIES, normalizeHeader } from "@/lib/parser/knownSections";
+import {
+  KNOWN_SECTION_HEADERS,
+  PREFIX_SECTION_FAMILIES,
+  normalizeHeader,
+} from "@/lib/parser/knownSections";
 import { EXPECTED_HEADER_DOMAINS } from "./expectedDomains"; // SEPARATE hand-authored domain oracle (Step 3b)
 import { resolveHeader, SECTION_DOMAIN_MAP, classifySection, RISK_CRITICAL } from "./classify";
 
@@ -22,7 +26,8 @@ describe("classifier parity (Codex R2/R4/R8)", () => {
     // subset. If KNOWN_SECTION_HEADERS gains a header, this fails until the oracle gets a row —
     // so the domain gate can't silently omit a new registry header (Codex plan-R20 [medium]).
     const covered = new Set(EXPECTED_HEADER_DOMAINS.map(([h]) => normalizeHeader(h)));
-    for (const h of KNOWN_SECTION_HEADERS) expect(covered, `no expected-domain row for registry header ${h}`).toContain(h);
+    for (const h of KNOWN_SECTION_HEADERS)
+      expect(covered, `no expected-domain row for registry header ${h}`).toContain(h);
   });
   it("lockstep: SECTION_DOMAIN_MAP agrees with the independent EXPECTED_HEADER_DOMAINS oracle (R8/R20)", () => {
     // SECTION_DOMAIN_MAP and EXPECTED_HEADER_DOMAINS are two SEPARATELY hand-derived structures;
@@ -39,14 +44,30 @@ describe("classifier parity (Codex R2/R4/R8)", () => {
     const h = resolveHeader("TRANSPORTATION/Equipment Transporter");
     expect(h).toBe("TRANSPORTATION");
     expect(SECTION_DOMAIN_MAP[h!]).toBe("transportation");
-    expect(classifySection({ index: 0, runIndex: 0, rows: [], headerRow: { line: 0, cls: "header" as const, cells: ["TRANSPORTATION/Equipment Transporter", "PHONE"] } })).toBe("transportation");
+    expect(
+      classifySection({
+        index: 0,
+        runIndex: 0,
+        rows: [],
+        headerRow: {
+          line: 0,
+          cls: "header" as const,
+          cells: ["TRANSPORTATION/Equipment Transporter", "PHONE"],
+        },
+      }),
+    ).toBe("transportation");
     // a space-suffixed (non-slash) form is NOT a v4 header → other (matches the parser regex)
     expect(resolveHeader("TRANSPORTATION SCHEDULE")).toBeNull();
   });
 });
 
 describe("classifySection", () => {
-  const sec = (col0: string) => ({ index: 0, runIndex: 0, rows: [], headerRow: { line: 0, cls: "header" as const, cells: [col0, "x"] } });
+  const sec = (col0: string) => ({
+    index: 0,
+    runIndex: 0,
+    rows: [],
+    headerRow: { line: 0, cls: "header" as const, cells: [col0, "x"] },
+  });
   it("classifies by the header row's col-0 token", () => {
     expect(classifySection(sec("CREW"))).toBe("crew");
     expect(classifySection(sec("GENERAL SESSION GRAND BALLROOM"))).toBe("rooms");
