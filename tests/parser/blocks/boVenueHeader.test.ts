@@ -124,7 +124,7 @@ describe("findBoBlockVenueHeaders", () => {
     ].join("\n");
     const admitted = find(md)
       .filter((h) => h.admit)
-      .map((h) => h.header.replace(/&#10;.*/s, "").trim());
+      .map((h) => h.header.replace(/&#10;[\s\S]*/, "").trim());
     expect(admitted).toEqual(["SALON ABCD"]);
   });
 });
