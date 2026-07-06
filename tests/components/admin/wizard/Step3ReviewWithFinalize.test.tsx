@@ -225,6 +225,34 @@ describe("WizardFooter — step-3 publish footer (tracking-in-center redesign 20
     expect(getByTestId("wizard-step3-finish-hint")).toBeTruthy();
     expect((getByTestId("wizard-finalize-button") as HTMLButtonElement).disabled).toBe(true);
   });
+
+  test("clicking Publish keeps the button MOUNTED in a disabled 'Publishing…' state (no vanish)", async () => {
+    // Hang the finalize request so the run stays in flight (never resolves).
+    fetchMock.mockImplementation(() => new Promise<Response>(() => {}));
+    const { getByTestId } = render(
+      <Step3ReviewWithFinalize
+        wizardSessionId={WIZARD_SESSION_ID}
+        rows={[selectable("a", "applied")]}
+        finishable
+        initialPublishCount={1}
+        initialUncheckedCleanCount={0}
+      />,
+    );
+    const btn = () => getByTestId("wizard-finalize-button") as HTMLButtonElement;
+    // Idle: an enabled Publish trigger.
+    expect(btn().disabled).toBe(false);
+    await act(async () => {
+      fireEvent.click(btn());
+    });
+    // Owner decision 2026-07-06: the button does NOT unmount on click — it steps
+    // into a disabled, aria-busy "Publishing…" intermediary (was: removed).
+    const b = btn();
+    expect(b.disabled).toBe(true);
+    expect(b.getAttribute("aria-busy")).toBe("true");
+    expect(b.textContent ?? "").toMatch(/Publishing/i);
+    // The detailed per-sheet tracking still renders alongside it in the center.
+    expect(getByTestId("wizard-step3-tracking")).toBeTruthy();
+  });
 });
 
 describe("Step3PublishCounts — selectable totals (Task 1)", () => {

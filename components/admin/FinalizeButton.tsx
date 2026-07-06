@@ -41,6 +41,7 @@
  */
 import Link from "next/link";
 import { forwardRef, useEffect, useRef, useState } from "react";
+import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { messageFor } from "@/lib/messages/lookup";
 import { HelpAffordance } from "@/components/admin/HelpAffordance";
@@ -442,6 +443,13 @@ export function useFinalizeRun({
         : "Publishing your shows"
       : "";
 
+  // The in-flight button label: while running, the Publish trigger stays put but
+  // steps into a disabled "Publishing…" (or "Finishing setup…" during the CAS
+  // step) intermediary state with a spinner — it no longer vanishes outright
+  // (owner decision 2026-07-06). Empty when idle (the button shows `idleLabel`).
+  const runningLabel =
+    state.kind === "running" ? (state.phase === "cas" ? "Finishing setup…" : "Publishing…") : "";
+
   // Primary click: if clean rows remain unchecked, open the soft confirm
   // FIRST (pure setState — never self-disables the button mid-submit). With
   // nothing unchecked, run the loop directly. The confirm's Proceed runs it.
@@ -464,6 +472,7 @@ export function useFinalizeRun({
     runLoop,
     liveMessage,
     idleLabel,
+    runningLabel,
     uncheckedCleanCount,
     wizardSessionId,
   };
@@ -485,21 +494,40 @@ export function FinalizeAnnouncer({ run }: { run: FinalizeRun }) {
   );
 }
 
-/** The idle Publish trigger (the AccentButton). Placement is the caller's. */
+/**
+ * The Publish trigger (the AccentButton). Placement is the caller's. While a
+ * run is in flight it stays mounted as a DISABLED "Publishing…" intermediary
+ * (spinner + `aria-busy`) rather than unmounting — the button click has a
+ * visible destination instead of the control vanishing (owner decision
+ * 2026-07-06). The double-fire guard is `run.buttonDisabled` (true while
+ * running) + the `onPrimaryClick` early-return, not the old unmount.
+ */
 export function FinalizeTrigger({ run }: { run: FinalizeRun }) {
+  const running = run.isRunning;
   return (
     <AccentButton
       data-testid="wizard-finalize-button"
       onClick={run.onPrimaryClick}
       disabled={run.buttonDisabled}
-      aria-haspopup={run.uncheckedCleanCount > 0 ? "dialog" : undefined}
-      aria-expanded={run.uncheckedCleanCount > 0 ? run.confirmOpen : undefined}
+      aria-busy={running || undefined}
+      // The soft-confirm popup semantics apply only to the idle trigger; while
+      // running there is no dialog to open, so drop haspopup/expanded.
+      aria-haspopup={!running && run.uncheckedCleanCount > 0 ? "dialog" : undefined}
+      aria-expanded={!running && run.uncheckedCleanCount > 0 ? run.confirmOpen : undefined}
       size="lg"
       inline
       selfStart
       shadow
+      className="gap-2"
     >
-      {run.idleLabel}
+      {running ? (
+        <>
+          <Loader2 aria-hidden="true" className="size-4 animate-spin" />
+          {run.runningLabel}
+        </>
+      ) : (
+        run.idleLabel
+      )}
     </AccentButton>
   );
 }
