@@ -76,6 +76,8 @@ The sync layer (`lib/sync/runOnboardingScan.ts`, `lib/sync/runScheduledCronSync.
 
 This flows through the existing warnings→`pending_syncs`→step-3 pipeline. `PULL_SHEET_ON_ARCHIVED_TAB` is added to `GAP_CLASSES` (`lib/parser/dataGaps.ts:50-52`) so it counts in `summarizeDataGaps` / the `DataQualityBadge`.
 
+The warning alone is **not** sufficient transport for the `expectedFingerprint` the accept route needs (Codex R4 finding 1: `ParseWarning` has only `severity`/`code`/`message`/`blockRef`/`rawSnippet` — no fingerprint field). See 5.9 for the durable fingerprint transport.
+
 If the accepted tab is present and its fingerprint **matches** the stored override → no warning; the pull sheet is included (5.1). If accepted but fingerprint **mismatches** (content changed) → clear the override (write `null`), emit `PULL_SHEET_OVERRIDE_CONTENT_CHANGED` (forensic), and fall through to emit `PULL_SHEET_ON_ARCHIVED_TAB` so the admin re-confirms.
 
 ### 5.3 Override read (sync layer)
@@ -132,14 +134,25 @@ Mechanism:
 - **Finalize/apply gate** (under the `show:` lock, both Flow A and Flow B): refuse to finalize a row whose `pull_sheet_override_applied` ≠ `overrideSnapshot(current pull_sheet_override)`. This is a typed blocking outcome ("re-scan needed before publishing"), surfaced via lookup copy — never a silent apply of mismatched gear.
 - **Failed re-scan after the RPC:** the row simply stays in the divergent (unfinalizable) state and the admin sees a "re-scan needed" state, rather than a mixed row. A successful re-scan reconverges `pull_sheet_override_applied` to `pull_sheet_override` and clears the gate. No compensation write is required because the gate is declarative (compare-at-finalize), not a mutation that must be rolled back.
 
+### 5.9 Fingerprint transport to Step 3 (durable, structured)
+
+The `expectedFingerprint` in the accept POST (5.4 compare-and-set) must be the fingerprint of the **content the admin actually reviewed in S2/S4**, carried end-to-end — not a fresh client- or server-side re-detect (which would reopen the stale-preview race the CAS closes). Transport (Codex R4 finding 1):
+
+- The sync/scan layer persists `archivedPullSheetTabs` (`ArchivedPullSheetTab[]` = `{ tabName, headerPreview, fingerprint }`, 5.1) into the **staged preview envelope** in `pending_syncs` — the same envelope that already carries `pullSheet`/`warnings` for step-3 — as a first-class field (e.g. `parse_result.archivedPullSheetTabs`). It is NOT reconstructed from the warning; the warning is only the badge/gap signal.
+- The step-3 preview DTO surfaced to the wizard (the `pr` object read by `PackListBreakdown`, `step3ReviewSections.tsx:2053`) exposes `pr.archivedPullSheetTabs`. `Step3SheetCard.tsx:429`-style shaping adds it alongside `pr.pullSheet`.
+- S2/S4 render each offer from a persisted `ArchivedPullSheetTab`, and the accept button POSTs **that entry's `fingerprint`** as `expectedFingerprint`. The server then fresh-detects and compares to `expectedFingerprint` (5.4): equal → pin; changed-since-review → reject + re-prompt.
+- Because the fingerprint is persisted with the staged parse, a page reload / new admin session still holds the exact reviewed fingerprint. When a re-scan re-stages, `archivedPullSheetTabs` (and its fingerprints) refresh together with `pullSheet` — S2 always reflects the currently-staged content.
+
+> **Exact-shape note:** persisting a new field on the staged parse envelope must not break the `Phase1ShowRow`/preview `toEqual` fixtures — treat it as a required-nullable/array-default field (`archivedPullSheetTabs: []` when none), class-swept across the preview doubles (per the required-nullable-field lesson).
+
 ### 5.6 Step-3 UI (Pack list section)
 
-`components/admin/wizard/step3ReviewSections.tsx` `PackListBreakdown` (label `"Pack list"`, `:1319`/`:2599`) gains states driven by (a) `pr.pullSheet` (`PullSheetCase[]`), (b) the row's `PULL_SHEET_ON_ARCHIVED_TAB` warning (name + `rawSnippet` preview), and (c) whether an override is active (`pull_sheet_override` non-null on the row):
+`components/admin/wizard/step3ReviewSections.tsx` `PackListBreakdown` (label `"Pack list"`, `:1319`/`:2599`) gains states driven by (a) `pr.pullSheet` (`PullSheetCase[]`), (b) `pr.archivedPullSheetTabs` (`ArchivedPullSheetTab[]` — the persisted offer entries incl. `fingerprint`, 5.9; a non-empty array is the S2/S4 trigger, not the warning text), and (c) whether an override is active (`pull_sheet_override` non-null on the row). The `PULL_SHEET_ON_ARCHIVED_TAB` warning drives only the badge/gap count; the render reads the structured tabs:
 
 | State | Condition | Render |
 |---|---|---|
 | **S1 Empty** | no pull sheet, no archived-tab warning | `"No pack list parsed."` (unchanged) |
-| **S2 Offer** | archived-tab warning present, no active override | Warning card: `"Found a pull sheet on archived tab '{tabName}' — header reads '{preview}'. If this is this show's gear, include it; otherwise leave it skipped."` + `[Use this show's gear]` / `[Keep skipped]` |
+| **S2 Offer** | `pr.archivedPullSheetTabs` non-empty, no active override | Warning card per tab: `"Found a pull sheet on archived tab '{tabName}' — header reads '{headerPreview}'. If this is this show's gear, include it; otherwise leave it skipped."` + `[Use this show's gear]` (POSTs that tab's `fingerprint` as `expectedFingerprint`) / `[Keep skipped]` |
 | **S3 Included** | override active, fingerprint matches (pull sheet populated) | Pack list rendered normally + subtle note `"Included from archived tab '{tabName}'."` + `[Revoke]` |
 | **S4 Re-confirm** | override was active but content changed (warning re-fired, pull sheet empty) | Warning card as S2 + prefix `"The archived tab '{tabName}' changed — re-confirm before it publishes."` |
 
@@ -247,6 +260,7 @@ Compound: accept while a cron sync is mid-flight → serialized by advisory lock
 - **Override propagates on BOTH finalize flows** (5.5) — Flow A (pending_syncs→shows) and Flow B (existing-show shadow payload→shows). Durable `shows.pull_sheet_override` is written on the existing-show path too, so cron never re-strips accepted gear.
 - **The RPC is not a PostgREST bypass** (5.4) — `execute` revoked from `authenticated`/`anon`, service-role-only, plus an in-RPC active-session guard; a direct non-admin call cannot set/clear overrides.
 - **Accept pins only reviewed content** (5.4) — compare-and-set against the S2/S4 `expectedFingerprint`; a tab that changed between render and click is rejected + re-prompted, never silently pinned.
+- **The reviewed fingerprint is persisted, not re-detected** (5.9) — `archivedPullSheetTabs` (incl. `fingerprint`) rides the staged `pending_syncs` preview envelope and the step-3 DTO; S2/S4 POST that persisted fingerprint, surviving reload/new-session. The CAS is not defeatable by a fresh client/server detect.
 - **Staged parse can never publish out of sync with the override** (5.8) — `pull_sheet_override_applied` is compared to the current override at finalize under lock; divergence (incl. after a failed re-scan) refuses finalize rather than applying mismatched gear. Declarative gate, no compensation write.
 
 ## 15. Testing — concrete failure modes each test catches
@@ -263,7 +277,8 @@ Compound: accept while a cron sync is mid-flight → serialized by advisory lock
 8c. **Accept compare-and-set**: OLD tab changes between S2 render and accept click → server fingerprint ≠ `expectedFingerprint` → accept rejected with re-prompt, no override written. Catches: pinning content the admin never reviewed (Codex R2-1).
 8d. **Staged↔override consistency on failed re-scan**: (a) accepted gear staged → revoke → re-scan fails → finalize REFUSED (row unfinalizable, not applying archived gear); (b) accept → re-scan fails → override set but staged parse lacks gear → finalize REFUSED until a successful re-scan reconverges `pull_sheet_override_applied`. Catches: mixed-row publish across failed re-scan (Codex R2-2).
 9. **Admin gate + behavioral proof**: route requires admin; success branch records the outcome code (sink-spy after committed success). Catches: dark mutation surface (invariant 10).
-10. **Step-3 S1–S4**: each state renders the right copy/buttons from (pullSheet, warning, override) inputs; empty/multi-tab guards. Anti-tautology: assert against the section's data inputs, and when scanning DOM for the tab name, scope to the Pack list section (remove sibling sections that might independently render a tab name).
+10. **Step-3 S1–S4**: each state renders the right copy/buttons from (`pr.pullSheet`, `pr.archivedPullSheetTabs`, override) inputs; empty/multi-tab guards. Anti-tautology: assert against the section's data inputs, and when scanning DOM for the tab name, scope to the Pack list section (remove sibling sections that might independently render a tab name).
+10b. **Fingerprint transport** (Codex R4): render S2/S4 from a **persisted** preview artifact (`pr.archivedPullSheetTabs` seeded from a `pending_syncs`-shaped fixture, not a live re-detect) and assert the accept POST's `expectedFingerprint` equals that persisted entry's `fingerprint`. Catches: UI unable to supply `expectedFingerprint`, or supplying a fresh-detected one that doesn't prove what the admin reviewed.
 11. **DataQualityBadge**: a `PULL_SHEET_ON_ARCHIVED_TAB` warning increments the gap count. Catches: badge not reflecting the new gap class.
 
 ---
