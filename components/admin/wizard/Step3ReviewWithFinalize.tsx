@@ -46,6 +46,7 @@ import { CleanupAbandonedFinalizeButton } from "@/components/admin/CleanupAbando
 import {
   Step3Review,
   computeSelectableCounts,
+  computeUncheckedCleanNames,
   type Step3PublishCounts,
   type Step3Row,
 } from "@/components/admin/wizard/Step3Review";
@@ -83,6 +84,10 @@ export function Step3ReviewWithFinalize({
   const [counts, setCounts] = useState<Step3PublishCounts>({
     publishCount: initialPublishCount,
     uncheckedCleanCount: initialUncheckedCleanCount,
+    // Seed the unchecked-clean sheet NAMES for the soft confirm's list (same
+    // server-truth base as initialUncheckedCleanCount) so first paint names them
+    // with no flash before the optimistic overlay reports live.
+    uncheckedCleanNames: computeUncheckedCleanNames(rows),
     // Seed the selectable totals from the server rows so the counts feeding the
     // Publish label + soft confirm are correct on first paint.
     ...computeSelectableCounts(rows),
@@ -107,6 +112,7 @@ export function Step3ReviewWithFinalize({
     disabled: !finishable,
     publishCount: counts.publishCount,
     uncheckedCleanCount: counts.uncheckedCleanCount,
+    uncheckedCleanNames: counts.uncheckedCleanNames,
     mode,
   });
 
@@ -145,12 +151,24 @@ export function Step3ReviewWithFinalize({
           }
           center={<Step3FooterCenter run={run} isStale={isStale} />}
           primary={
-            <div className="flex items-end gap-3">
+            <div className="relative flex items-end gap-3">
               <FinalizeAnnouncer run={run} />
               {showCleanup ? <CleanupAbandonedFinalizeButton sessionId={wizardSessionId} /> : null}
-              {/* While publishing, the button steps aside and the center carries
-                  the tracking — so this slot never morphs (no layout shift). */}
-              {run.isRunning ? null : <FinalizeTrigger run={run} />}
+              {/* The Publish button stays mounted while publishing — it steps into
+                  a disabled "Publishing…" spinner state (FinalizeTrigger) instead
+                  of vanishing (owner decision 2026-07-06). The footer center still
+                  carries the detailed per-sheet tracking alongside it. */}
+              <FinalizeTrigger run={run} />
+              {/* The publish soft-confirm is an anchored popover FLOATING above the
+                  button (absolute + bottom-full), so opening it overlays page
+                  content instead of growing the sticky footer — the layout shift
+                  Doug flagged (owner decision 2026-07-06). Right-aligned to the
+                  primary so it tracks the button on every width. */}
+              {run.confirmOpen ? (
+                <div className="absolute right-0 bottom-full z-10 mb-3">
+                  <FinalizeConfirm run={run} />
+                </div>
+              ) : null}
             </div>
           }
         />
@@ -170,9 +188,11 @@ function Step3FooterCenter({ run, isStale = false }: { run: FinalizeRun; isStale
       data-testid="wizard-step3-footer-center"
       className="flex min-h-12 w-full max-w-md flex-col items-stretch justify-center"
     >
-      {run.confirmOpen ? (
-        <FinalizeConfirm run={run} />
-      ) : state.kind === "running" ? (
+      {/* The soft confirm is NOT rendered here anymore — it's an anchored popover
+          over the primary button (see Step3ReviewWithFinalize.primary) so it no
+          longer grows the footer. While it's open the state is idle, so this slot
+          keeps showing the calm hint and the bar height stays put. */}
+      {state.kind === "running" ? (
         <Step3CompactTracking run={run} />
       ) : state.kind === "idle" ? (
         // Spec §4.5: a STALE all_batches_complete checkpoint replaces the calm
@@ -209,11 +229,12 @@ function Step3FooterCenter({ run, isStale = false }: { run: FinalizeRun; isStale
  */
 function Step3CompactTracking({ run }: { run: FinalizeRun }) {
   const { state } = run;
-  // WCAG 2.4.3: when Publish is clicked the trigger button is removed (it lives
-  // in the footer's right slot) and this tracking takes over the center — move
-  // focus here so keyboard/SR users are not dropped onto <body>. A LOCAL ref +
-  // mount-time focus (rather than the hook's panelRef, which the combined
-  // FinalizeButton drives) keeps this idiomatic and lint-clean.
+  // WCAG 2.4.3: when Publish is clicked the trigger button (footer right slot)
+  // goes DISABLED — a disabled control can't hold focus, so keyboard/SR users
+  // would drop onto <body>. This tracking takes over the center; move focus here
+  // on mount so it lands on the live progress instead. A LOCAL ref + mount-time
+  // focus (rather than the hook's panelRef, which the combined FinalizeButton
+  // drives) keeps this idiomatic and lint-clean.
   const trackingRef = useRef<HTMLDivElement>(null);
   const running = state.kind === "running";
   useEffect(() => {

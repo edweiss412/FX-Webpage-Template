@@ -257,6 +257,14 @@ export type ShowCandidate = {
   published: boolean;
   archived: boolean;
   wizard_created_session_id: string | null;
+  // Summary fields (owner decision 2026-07-06) for the post-finalize badge-only
+  // backfill. Optional so pure buildStep3Row unit tests need not supply them;
+  // fetchStep3Data always selects them. When the candidate wins linked-show
+  // resolution, buildStep3Row copies these onto row.linkedShowSummary.
+  title?: string | null;
+  clientLabel?: string | null;
+  venue?: unknown;
+  dates?: unknown;
 };
 
 /**
@@ -295,6 +303,9 @@ export function buildStep3Row(
   const createdShowId = m.created_show_id ?? null;
   let linkedShow: { published: boolean; archived: boolean } | null = null;
   let sessionLinked = false;
+  // The candidate that WON linked-show resolution — its summary backfills the
+  // post-finalize badge-only card (owner decision 2026-07-06).
+  let matchedCandidate: ShowCandidate | null = null;
   const sessionMatch = candidates.find(
     (c) =>
       createdShowId !== null &&
@@ -305,6 +316,7 @@ export function buildStep3Row(
   if (sessionMatch) {
     linkedShow = { published: sessionMatch.published, archived: sessionMatch.archived };
     sessionLinked = true;
+    matchedCandidate = sessionMatch;
   } else if (createdShowId === null) {
     // Existing-show branch: only when this session created nothing. Not-this-session
     // (IS DISTINCT FROM), crew-visible. Excludes forged pointers (gated on null above).
@@ -318,6 +330,7 @@ export function buildStep3Row(
     if (existing) {
       linkedShow = { published: existing.published, archived: existing.archived };
       sessionLinked = false;
+      matchedCandidate = existing;
     }
   }
 
@@ -352,6 +365,23 @@ export function buildStep3Row(
   if (pending) row.stagedId = pending.staged_id;
   if (triggeredReviewItems) row.triggeredReviewItems = triggeredReviewItems;
   if (lastFinalizeFailureCode !== null) row.lastFinalizeFailureCode = lastFinalizeFailureCode;
+  // Backfill summary from the linked live show (owner decision 2026-07-06). Only
+  // attach when at least one summary field is present, so a pure buildStep3Row
+  // unit test (candidates without summary fields) yields no linkedShowSummary.
+  if (
+    matchedCandidate &&
+    (matchedCandidate.title != null ||
+      matchedCandidate.clientLabel != null ||
+      matchedCandidate.venue != null ||
+      matchedCandidate.dates != null)
+  ) {
+    row.linkedShowSummary = {
+      title: matchedCandidate.title ?? null,
+      clientLabel: matchedCandidate.clientLabel ?? null,
+      venue: matchedCandidate.venue ?? null,
+      dates: matchedCandidate.dates ?? null,
+    };
+  }
   return row;
 }
 
@@ -443,7 +473,12 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
     try {
       const { data, error } = await supabase
         .from("shows")
-        .select("id, drive_file_id, published, archived, wizard_created_session_id")
+        // title/client_label/venue/dates back the post-finalize badge-only summary
+        // backfill (owner decision 2026-07-06) — the finalize batch deletes the
+        // pending_syncs parse preview, so the live show is the only source left.
+        .select(
+          "id, drive_file_id, published, archived, wizard_created_session_id, title, client_label, venue, dates",
+        )
         .in("drive_file_id", driveFileIds);
       if (error) {
         return { kind: "infra_error", message: `shows query failed: ${error.message}` };
@@ -467,6 +502,10 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
       published: s.published === true,
       archived: s.archived === true,
       wizard_created_session_id: (s.wizard_created_session_id as string | null) ?? null,
+      title: (s.title as string | null) ?? null,
+      clientLabel: (s.client_label as string | null) ?? null,
+      venue: s.venue ?? null,
+      dates: s.dates ?? null,
     };
     const list = candidatesByDfid.get(dfid);
     if (list) list.push(candidate);
@@ -666,7 +705,14 @@ async function Step3Container({
   // label in sync with the optimistic checkbox overlay so it no longer lags the
   // boxes by a POST round-trip + router.refresh() (the publish-count lag bug).
   const publishCount = result.rows.filter((r) => r.status === "applied").length;
-  const uncheckedCleanCount = result.rows.filter((r) => r.status === "staged").length;
+  // "Won't be published" excludes already-Live rows: an unchecked existing-Live
+  // show is a spec §7.4 D10 NO-OP (finalize/route.ts:1071 — the show is untouched
+  // and STAYS live), so warning that it "won't be published" is false. Only rows
+  // that would genuinely stay unpublished if unchecked (first-seen → Held, pre-CAS
+  // session-created) count. displayState 'live' == crew-visible linked show.
+  const uncheckedCleanCount = result.rows.filter(
+    (r) => r.status === "staged" && r.displayState !== "live",
+  ).length;
 
   return (
     <Step3ReviewWithFinalize

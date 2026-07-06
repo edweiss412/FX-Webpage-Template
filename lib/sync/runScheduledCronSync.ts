@@ -51,7 +51,7 @@ import {
 } from "@/lib/drive/agendaDrive";
 import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
 import { emitUnexpectedParentWarning } from "@/lib/sync/logUnexpectedParent";
-import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
+import { parseSheet as parseMarkdownSheet, buildThrownParsedSheet } from "@/lib/parser";
 import type {
   AgendaEntry,
   ParsedSheet,
@@ -2861,7 +2861,35 @@ export async function prepareProcessOneFile(
     }
   }
 
-  const parsed = (deps.parseSheet ?? parseMarkdownSheet)(markdown, fileMeta.name);
+  let parsed: ParsedSheet;
+  try {
+    parsed = (deps.parseSheet ?? parseMarkdownSheet)(markdown, fileMeta.name);
+  } catch (error) {
+    // The parser is contractually non-throwing (it degrades to hardErrors). A throw here means a
+    // novel structure hit an unanticipated path. Route it to the SAME fail-closed handling as a
+    // parse hardError (retain last-good + PARSE_ERROR_LAST_GOOD for an existing show; first-seen
+    // stages for review) instead of aborting the sync. Audit rec-6 / finding #17.
+    let message: string;
+    try {
+      message = error instanceof Error ? error.message : String(error);
+    } catch {
+      // Pathological throw value (throwing toString/valueOf, or Error with a throwing message getter).
+      message = "unknown parser error (unstringifiable throw value)";
+    }
+    // Synthesize the fail-closed sheet FIRST — the guard must not depend on logging succeeding.
+    parsed = buildThrownParsedSheet(message);
+    // Forensic, best-effort: never let a logging fault break the guard or leak an unhandled rejection.
+    // Assigned to a local (not chained) so prettier keeps `log.error(` on one line — a chained
+    // `.catch()` makes prettier split `log` / `.error` across lines, which stripLogEmissionCalls
+    // cannot match, leaking the app_events-only PARSE_SHEET_THREW code into the §12.4 producer scan.
+    const forensicLog = log.error("Parser threw on sheet parse; routing to hard_fail", {
+      source: "sync",
+      code: "PARSE_SHEET_THREW",
+      driveFileId,
+      error,
+    });
+    void forensicLog.catch(() => {});
+  }
 
   // Finding C7: seed prior stored `extracted` onto the fresh agenda_links BEFORE enrich, so
   // enrichAgenda's revision cache-hit / leave-existing paths are effective. Without this a

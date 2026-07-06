@@ -514,6 +514,21 @@ function buildMinimalParsedSheet(
   };
 }
 
+/**
+ * Build the minimal fail-closed ParsedSheet for a caught parser THROW (audit rec-6 / finding #17).
+ * The parser is contractually non-throwing; the sync call-site guard uses this to convert an
+ * unexpected throw into a hardError-bearing sheet so it routes to hard_fail like any parse failure.
+ *
+ * Reuses the existing `MI-1_VERSION_DETECTION_FAILED` hardError code (a §12.4-cataloged producer)
+ * so no new user-facing code enters the catalog — a caught throw is treated as "could not parse
+ * into a known version", exactly the MI-1 not-a-sheet outcome. The forensic "it was a THROW, not a
+ * genuinely-unrecognized sheet" distinction lives in the `PARSE_SHEET_THREW` app_events log emitted
+ * by the sync guard, NOT in a distinct parser code. Pure — no side effects (sync owns telemetry).
+ */
+export function buildThrownParsedSheet(message: string): ParsedSheet {
+  return buildMinimalParsedSheet("v4", [{ code: "MI-1_VERSION_DETECTION_FAILED", message }]);
+}
+
 export function parseSheet(markdown: string, filename?: string): ParsedSheet {
   const hardErrors: ParseError[] = [];
 

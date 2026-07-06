@@ -168,6 +168,18 @@ describe("resolveKeyTimes — per-day shows[] (decision table rows 1-3)", () => 
     expect(anchors.shows?.map((a) => a.date)).toEqual(showDays); // ASC, one per visible day
     expect(anchors.shows?.map((a) => a.time)).toEqual(["7:15am", "7:30am", "8:00am"]);
   });
+
+  it("bare-showStart day still yields its showStart anchor (Show Start render is renderer-only)", () => {
+    // Regression pin for the 'Show Start' schedule-label feature: the run-of-show
+    // grid synthesizes a {title:'Show Start'} entry at RENDER time only. The parsed
+    // ScheduleDay.showStart is never mutated, so resolveKeyTimes still resolves the
+    // KeyTimesStrip `shows` anchor straight from showStart — unchanged.
+    const runOfShow: RunOfShow = {
+      "2025-05-13": { entries: [], showStart: "8:00 AM", showEnd: null, window: null },
+    };
+    const anchors = resolveKeyTimes(dates({ showDays: ["2025-05-13"] }), null, runOfShow, NONE);
+    expect(anchors.shows?.map((a) => a.time)).toEqual(["8:00 AM"]);
+  });
 });
 
 describe("resolveKeyTimes — Set compose (D3)", () => {

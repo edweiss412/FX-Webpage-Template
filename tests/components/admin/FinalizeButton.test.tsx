@@ -164,7 +164,7 @@ describe("FinalizeButton", () => {
     });
 
     test("with uncheckedCleanCount>0 the click shows the soft confirm and does NOT run the loop yet", async () => {
-      const { getByTestId, queryByTestId } = render(
+      const { getByTestId } = render(
         <FinalizeButton
           wizardSessionId={WIZARD_SESSION_ID}
           publishCount={2}
@@ -180,6 +180,33 @@ describe("FinalizeButton", () => {
       expect(confirm.textContent ?? "").toContain("Unpublished");
       // The finalize loop has NOT fired (no network yet).
       expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    test("the soft confirm NAMES the unchecked sheets (capped with a +N more tail)", async () => {
+      const { getByTestId } = render(
+        <FinalizeButton
+          wizardSessionId={WIZARD_SESSION_ID}
+          publishCount={1}
+          uncheckedCleanCount={5}
+          uncheckedCleanNames={[
+            "Alpha Show",
+            "Bravo Show",
+            "Charlie Show",
+            "Delta Show",
+            "Echo Show",
+          ]}
+        />,
+      );
+      await act(async () => {
+        fireEvent.click(getByTestId("wizard-finalize-button"));
+      });
+      const names = getByTestId("wizard-finalize-confirm-names").textContent ?? "";
+      // First three named verbatim; the remaining two collapse into "+N more".
+      expect(names).toContain("Alpha Show");
+      expect(names).toContain("Bravo Show");
+      expect(names).toContain("Charlie Show");
+      expect(names).not.toContain("Delta Show");
+      expect(names).toContain("and 2 more");
     });
 
     test("confirming the soft confirm runs the finalize loop", async () => {

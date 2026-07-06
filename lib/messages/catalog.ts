@@ -1187,6 +1187,19 @@ export const MESSAGE_CATALOG = {
       "A crew member's role included a label we didn't recognize, so we left it off their page rather than guess. Nothing else is affected. If the label is a real role you use, let us know and we'll add it.",
     helpHref: "/help/errors#UNKNOWN_ROLE_TOKEN",
   },
+  UNKNOWN_STAGE_RESTRICTION: {
+    code: "UNKNOWN_STAGE_RESTRICTION",
+    dougFacing:
+      "_<crew-name>_'s role mixes a work-phase (like Set) with something we couldn't read (e.g. 'Set / Rehearsal ONLY'), so we can't tell which days apply. We're showing them the whole show to be safe. Use the standard phases — Load In / Set / Show / Strike / Load Out — so we can filter their schedule.",
+    crewFacing: null,
+    followUp: "Doug → fix sheet",
+    helpfulContext:
+      "This crew member's role cell mixes a recognized work-phase (like Set) with a token we couldn't read (e.g. 'Set / Rehearsal ONLY'), so we can't safely tell which days apply. We're showing them the whole show rather than hide a day. Use the standard phases — Load In / Set / Show / Strike / Load Out — so their schedule can be filtered.",
+    title: "Stage restriction we couldn't read",
+    longExplanation:
+      "This crew member's role cell mixes a recognized work-phase (like Set) with a token we couldn't read (e.g. 'Set / Rehearsal ONLY'), so we can't safely tell which days apply. We're showing them the whole show rather than hide a day. Use the standard phases — Load In / Set / Show / Strike / Load Out — so their schedule can be filtered.",
+    helpHref: "/help/errors#UNKNOWN_STAGE_RESTRICTION",
+  },
   STAGE_WORD_AUTOCORRECTED: {
     code: "STAGE_WORD_AUTOCORRECTED",
     dougFacing:

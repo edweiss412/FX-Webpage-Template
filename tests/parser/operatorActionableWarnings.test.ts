@@ -5,7 +5,7 @@ import type { ParseWarning } from "@/lib/parser/types";
 const anchor = { title: "INFO", gid: 0, a1: "C2" };
 
 describe("OPERATOR_ACTIONABLE_ANCHORED + selector", () => {
-  it("contains exactly the nineteen codes", () => {
+  it("contains exactly the twenty codes", () => {
     expect([...OPERATOR_ACTIONABLE_ANCHORED].sort()).toEqual([
       "AGENDA_BLOCK_UNRESOLVED",
       "AGENDA_DAY_AMBIGUOUS",
@@ -26,6 +26,7 @@ describe("OPERATOR_ACTIONABLE_ANCHORED + selector", () => {
       "UNKNOWN_DAY_RESTRICTION",
       "UNKNOWN_FIELD",
       "UNKNOWN_ROLE_TOKEN",
+      "UNKNOWN_STAGE_RESTRICTION",
     ]);
   });
 

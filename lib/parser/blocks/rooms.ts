@@ -32,6 +32,261 @@ import { clean, presence, splitRow } from "./_helpers";
 import { gatedVocabCorrect } from "@/lib/parser/typoGate";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { classifyGearItem } from "@/lib/parser/gearClassification";
+import { KNOWN_SECTION_HEADERS, KNOWN_SUB_LABELS } from "@/lib/parser/knownSections";
+
+// ── Room-header shape model (spec §2.2/§2.3) ──────────────────────────────────
+// De-literalizes the two-name `mabelRe` loop: a v1 breakout room is admitted on
+// THREE local structural signals (shape + preceded-by-boundary + field-evidence),
+// never on a hardcoded venue name.
+
+// Room-FIELD labels (spec §2.3 item 3). DERIVED from the labels `applyBoLabel`/
+// `applyGsLabel` recognize (below) plus the header value-fields `splitRoomHeader`
+// lifts (DIMENSIONS/FLOOR) and the v4 NAME(S) template word — a proper room NAME is
+// never one of these, so a field-label row (`BO SETUP`, `AUDIO`) is rejected at the
+// name-shape gate. Kept as a single const so it cannot drift from the parser.
+const ROOM_FIELD_LABELS: ReadonlySet<string> = new Set([
+  "SETUP",
+  "SET TIME",
+  "SHOW TIME",
+  "STRIKE TIME",
+  "AUDIO",
+  "VIDEO",
+  "SCENIC",
+  "LIGHTING",
+  "LED",
+  "POWER",
+  "OTHER",
+  "DIMENSIONS",
+  "FLOOR",
+  "DIGITAL SIGNAGE",
+  "NAME(S)",
+  "NOTES",
+]);
+
+// Section/room FAMILIES that intentionally carry a suffix and are claimed by a
+// dedicated path (BO/GS/ADDITIONAL/LUNCH) — matched as a whole-token PREFIX so
+// `BREAKOUT 3` / `ADDITIONAL ROOM 2` / `LUNCH ROOM` are excluded but a compound
+// room name is not (spec §2.3 item 2, PREFIX-match).
+const SECTION_PREFIX_FAMILIES = [
+  "GENERAL SESSION",
+  "BREAKOUT",
+  "ADDITIONAL",
+  "LUNCH",
+  "DETAILS",
+] as const;
+
+// Bare generic section tokens — a section header is EXACTLY the token, never a
+// compound room name — matched by EQUALITY against the DAY-stripped identity (spec
+// §2.3 item 2, EXACT-match), unioned with the live known-section registries.
+const SECTION_EXACT_TOKENS: ReadonlySet<string> = new Set([
+  "DOCUMENTS",
+  "DATES",
+  "CREW",
+  "DRESS",
+  "TRANSPORTATION",
+  "HOTEL",
+  "VENUE",
+  "AGENDA",
+  "CONTACTS",
+  ...KNOWN_SECTION_HEADERS,
+  ...KNOWN_SUB_LABELS,
+]);
+
+/** First cell of a markdown table row, trimmed (keeps a literal `&#10;`). */
+function col0Of(line: string): string {
+  return (line.split("|")[1] ?? "").trim();
+}
+
+/** True iff `row` is a `| … |` row whose every inter-pipe cell is whitespace. */
+function allEmptyCells(row: string): boolean {
+  const t = row.trim();
+  if (!t.startsWith("|")) return false;
+  const cells = t.split("|").slice(1, -1);
+  return cells.length > 0 && cells.every((c) => c.trim() === "");
+}
+
+/**
+ * PURE — name-shape only (spec §2.2 (a), §2.3 items 1-3). True iff the header
+ * cell's first line is a proper, non-dims-leading NAME with a NON-EMPTY base after
+ * the trailing DAY-range is stripped, and is neither a section banner nor a
+ * room-field label.
+ */
+export function roomHeaderNameShape(col0Raw: string): boolean {
+  const firstLine = col0Raw.replace(/&#10;/g, "\n").split("\n")[0]!.trim();
+  const upper = firstLine.toUpperCase();
+  // item 1: proper name shape, NOT dimension-leading.
+  if (!/^[A-Z0-9][A-Z0-9 &',./-]*$/.test(upper)) return false;
+  if (/^\d+\s*'\s*x/i.test(upper)) return false;
+  // item 2: non-empty identity (DAY-stripped), not a section banner.
+  const identity = roomBaseName(firstLine);
+  if (identity.length === 0) return false;
+  if (SECTION_PREFIX_FAMILIES.some((p) => identity === p || identity.startsWith(p + " "))) {
+    return false;
+  }
+  if (SECTION_EXACT_TOKENS.has(identity)) return false;
+  if (/^GS\s/i.test(firstLine)) return false;
+  // item 3: not a room-FIELD label (strip an optional leading BO / GS prefix).
+  const labelIdentity = upper.replace(/^(?:BO|GS)\s+/, "").trim();
+  if (ROOM_FIELD_LABELS.has(labelIdentity)) return false;
+  return true;
+}
+
+/**
+ * PURE — a TRAILING DAY-RANGE that is the cell's LAST content (spec §2.2 (b)).
+ * The DAY line must END with the range (rejects `SPECIAL DAY 1 NOTES`), and every
+ * non-empty line AFTER it must be a dims-only line (rejects `SPECIAL DAY 1&#10;NOTES`
+ * but admits `MERIDIAN&#10;DAY 1 & 2&#10;60' x 45'`). Robust to `&#10;` vs real `\n`.
+ */
+export function headerDayMarker(col0Raw: string): boolean {
+  const lines = col0Raw
+    .replace(/&#10;/g, "\n")
+    .split("\n")
+    .map((l) => l.trim())
+    .filter(Boolean);
+  let anchor = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/\bDAYS?\s+\d[\d\s&,.\-–—]*$/i.test(lines[i]!)) anchor = i;
+  }
+  if (anchor === -1) return false;
+  for (let i = anchor + 1; i < lines.length; i++) {
+    if (!/^\d+\s*'?\s*x\s*\d/i.test(lines[i]!)) return false;
+  }
+  return true;
+}
+
+/** PURE single-cell SHAPE predicate (spec §2.2 (c)). */
+export function isRoomHeaderShape(col0Raw: string): boolean {
+  return roomHeaderNameShape(col0Raw) && headerDayMarker(col0Raw);
+}
+
+/** The bare NAME — first line with a TRAILING inline DAY-range stripped, uppercased (spec §2.2 (d)). */
+export function roomBaseName(firstLine: string): string {
+  return firstLine
+    .replace(/\s*\bDAYS?\s+\d[\d\s&,.\-–—]*$/i, "")
+    .trim()
+    .toUpperCase();
+}
+
+/**
+ * The NORMALIZED trailing DAY-range digits of the cell's LAST day-marker line (spec §2.2 (d)).
+ * MUST anchor on the LAST day line, not the first — `headerDayMarker` admits on the last trailing
+ * day marker, so a first-match here would group a multi-day-line header (`SALON&#10;DAY 1&#10;DAY 2`)
+ * under `DAY 1` and wrong-merge it with a real single-day `SALON&#10;DAY 1` block (whole-diff R6 f2).
+ */
+export function dayRangeOf(col0Raw: string): string {
+  let last = "";
+  for (const line of col0Raw.replace(/&#10;/g, "\n").split("\n")) {
+    const m = /\bDAYS?\s+(\d[\d\s&,.\-–—]*?)\s*$/i.exec(line.trim());
+    if (m) last = m[1]!;
+  }
+  return last.replace(/\s+/g, "").toUpperCase();
+}
+
+/** The GROUPING key = roomBaseName + " " + dayRangeOf (spec §2.2 (d)). */
+export function roomGroupKey(col0Raw: string, firstLine: string): string {
+  return roomBaseName(firstLine) + " " + dayRangeOf(col0Raw);
+}
+
+/**
+ * FIELD-EVIDENCE (spec §2.2 (c2) signal 1, R37 f1). True iff the row IMMEDIATELY
+ * beneath `i` (skipping a `:---:` separator / all-empty row) is a `BO …`/`GS …`
+ * field-label row. The `BO`/`GS` prefix is MANDATORY (whole-diff Codex R1 [high]):
+ * a BARE field-ish col0 (`Audio`, `Setup`, `Notes`) is NOT evidence, else a DAY-titled
+ * NOTE whose first row happens to be `| Audio | … |` would be admitted as a phantom
+ * breakout. Real rooms in BOTH renderer families carry the prefix on the FIRST field
+ * row (raw/: `BO Setup`; exporter-xlsx: `BO Setup`/`GS Setup` — its bare `Setup`/
+ * `Power`/`Notes` rows are only deeper CONTINUATION rows, never the first). Separates a
+ * room (`MABEL`→`BO Setup`) from an agenda note (`WELCOME RECEPTION DAY 1`→schedule rows).
+ */
+function hasFieldBlock(lines: string[], i: number, prefixRe: RegExp): boolean {
+  for (let k = i + 1; k < lines.length; k++) {
+    const t = (lines[k] ?? "").trim();
+    if (!t.startsWith("|")) break;
+    if (/^\|\s*:?-+/.test(t) || allEmptyCells(t)) continue;
+    const prefixed = prefixRe.exec(col0Of(lines[k]!).trim());
+    if (prefixed && ROOM_FIELD_LABELS.has(prefixed[1]!.trim().toUpperCase())) return true;
+    break; // the first NON-field body row ends the immediately-following field block
+  }
+  return false;
+}
+
+export function hasRoomFieldBlock(lines: string[], i: number): boolean {
+  return hasFieldBlock(lines, i, /^(?:BO|GS)\s+(.*)$/i);
+}
+
+/**
+ * BO-ONLY field-evidence (whole-diff Codex R7 [high]). A GS row proves a room EXISTS but that
+ * room belongs to the general-session path (`extractGsBlock`/`parseGsRoom`), NOT the v1 Pass-2
+ * BREAKOUT loop that consumes `model.groups`. Admitting a GS-only-evidenced header to a group
+ * emits a PHANTOM breakout — the header-dims harvest (parseBoRooms ~1081) makes an otherwise
+ * BO-empty room pass `roomHasContent`, duplicating the GS room. So `groups` membership is gated
+ * on BO evidence; `roomHeaderLines` (the terminator set) still admits BO OR GS via `isRoomHeader`
+ * — a GS header scoping block extraction is correct and carries no overrun risk. origin/main's
+ * literal MABEL/LAUDERDALE loop was BO-only by construction; this preserves that contract.
+ */
+export function hasBoFieldBlock(lines: string[], i: number): boolean {
+  return hasFieldBlock(lines, i, /^BO\s+(.*)$/i);
+}
+
+/**
+ * PRECEDED-BY-BOUNDARY (spec §2.2 (c2) signal 2, R38 f1). True iff the candidate
+ * STARTS a room block: `i===0`, or the immediately-preceding line is blank/non-`|`,
+ * a `:---:` separator, or an all-empty-cells row. This is what an interleaved
+ * in-room note LACKS (it is preceded by a non-empty field row).
+ */
+export function precededByBoundary(lines: string[], i: number): boolean {
+  if (i === 0) return true;
+  const prev = (lines[i - 1] ?? "").trim();
+  if (!prev.startsWith("|")) return true;
+  if (/^\|\s*:?-+/.test(prev)) return true;
+  return allEmptyCells(prev);
+}
+
+/** Composed room-header admit predicate — shape × boundary × field-evidence (spec §2.2 (c2)). */
+export function isRoomHeader(lines: string[], i: number): boolean {
+  return (
+    isRoomHeaderShape(col0Of(lines[i] ?? "")) &&
+    precededByBoundary(lines, i) &&
+    hasRoomFieldBlock(lines, i)
+  );
+}
+
+export type RoomCandidate = { key: string; displayName: string; lineIndex: number };
+export type RoomHeaderModel = {
+  lines: string[]; // markdown.split("\n"), shared by all consumers
+  roomHeaderLines: ReadonlySet<number>; // absolute LINE indices of ALL admitted headers (terminators)
+  groups: Map<string, RoomCandidate[]>; // roomGroupKey → its admitted candidates (for Pass 2)
+};
+
+/**
+ * TOP-LEVEL room-header model (spec §2.2 (e), Pass 0). Computed ONCE from the raw
+ * markdown BEFORE any block parse; LINE-BASED (indices into `markdown.split("\n")`).
+ * Admits a candidate iff `isRoomHeader` (shape AND boundary AND field-evidence), so a
+ * day-labelled note has no field block / is not at a boundary → not admitted, not a
+ * terminator, cannot fabricate a room or steal a field. This is the DROP-IN for the
+ * old two-name `mabelRe` loop.
+ */
+export function computeRoomHeaderModel(markdown: string): RoomHeaderModel {
+  const lines = markdown.split("\n");
+  const roomHeaderLines = new Set<number>();
+  const groups = new Map<string, RoomCandidate[]>();
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i]!.trim().startsWith("|")) continue;
+    if (!isRoomHeader(lines, i)) continue;
+    const col0Raw = col0Of(lines[i]!);
+    const firstLine = col0Raw.replace(/&#10;/g, "\n").split("\n")[0]!.trim();
+    const key = roomGroupKey(col0Raw, firstLine);
+    roomHeaderLines.add(i); // terminator set: any admitted DAY-range header (BO OR GS)
+    // Breakout GROUP membership is BO-ONLY (whole-diff R7): a GS-evidenced header is a
+    // general-session room (its own path), never a Pass-2 breakout — else a phantom.
+    if (!hasBoFieldBlock(lines, i)) continue;
+    const list = groups.get(key);
+    const candidate: RoomCandidate = { key, displayName: firstLine, lineIndex: i };
+    if (list) list.push(candidate);
+    else groups.set(key, [candidate]);
+  }
+  return { lines, roomHeaderLines, groups };
+}
 
 // Mergeable room data fields (everything except kind/name) — used to absorb a same-name
 // breakout into its GS room without dropping any populated value.
@@ -213,14 +468,22 @@ function mergeRooms(primary: RoomRow[], secondary: RoomRow[]): RoomRow[] {
 }
 
 function collectV2V1Rooms(markdown: string): RoomRow[] {
-  // v2/v1: GS-prefix rows + BO-prefix block headers + the all-caps ADDITIONAL ROOM block
+  // v2/v1: GS-prefix rows + BO-prefix block headers + the all-caps ADDITIONAL ROOM block.
+  // Compute the room-header model ONCE (spec Pass 0), before any block parse, so GS and BO
+  // extraction share ONE terminator set regardless of call order.
+  const model = computeRoomHeaderModel(markdown);
   const rooms: RoomRow[] = [];
-  const gsRoom = parseGsRoom(markdown);
+  const gsRoom = parseGsRoom(markdown, model);
   if (gsRoom) rooms.push(gsRoom);
-  rooms.push(...parseBoRooms(markdown));
-  const additionalRoom = parseAdditionalRoom(markdown);
+  rooms.push(...parseBoRooms(markdown, model));
+  const additionalRoom = parseAdditionalRoom(markdown, model);
   if (additionalRoom) rooms.push(additionalRoom);
   return rooms;
+}
+
+/** Line index (0-based) of the byte offset `offset` in `markdown` (offset is at a line start). */
+function lineIndexOfOffset(markdown: string, offset: number): number {
+  return markdown.slice(0, offset).split("\n").length - 1;
 }
 
 function parseAdditionalRoomFields(markdown: string): RoomRow | null {
@@ -440,6 +703,26 @@ function roomHasContent(room: RoomRow): boolean {
   ].some((v) => v != null);
 }
 
+// A room field VALUE populated by applyBoFields — i.e. real BO-block evidence, EXCLUDING
+// the header-harvested dimensions/floor that roomHasContent also counts. Used to gate a
+// show-prefixed BREAKOUT header so header geometry alone cannot admit it.
+function roomHasBoFieldValue(room: RoomRow): boolean {
+  return [
+    room.setup,
+    room.set_time,
+    room.show_time,
+    room.strike_time,
+    room.audio,
+    room.video,
+    room.lighting,
+    room.scenic,
+    room.power,
+    room.digital_signage,
+    room.other,
+    room.notes,
+  ].some((v) => v != null);
+}
+
 function parseV4RoomBlock(
   lines: string[],
   startLine: number,
@@ -580,7 +863,67 @@ function findGsBlockVenueHeader(markdown: string): string | null {
   return null;
 }
 
-function parseGsRoom(markdown: string): RoomRow | null {
+// ── BO-venue-header anchor (spec §3.1) ────────────────────────────────────────
+// Symmetric to findGsBlockVenueHeader, for BREAKOUT field blocks. Resolve the venue
+// header sitting above a `BO Setup/Set Time/Show Time/Strike Time` field block,
+// anchored on the FIELD BLOCK (never a dims token) so an asset row is never fabricated
+// into a room. Records one entry per resolved header — ALWAYS, even when admit===false,
+// so a rejected header (an asset row directly above the next block) still terminates the
+// prior block's extraction in the fifth pass. Dedup by headerLine so multiple anchors
+// under one header collapse to a single record.
+const BO_ANCHOR_RE = /^\|\s*BO\s+(?:Setup|Set Time|Show Time|Strike Time)\b/i;
+
+// SUBSTRING banner/ownership exclusion (spec §3.1): a header whose flattened cell
+// contains any of these whole-word tokens is claimed by a dedicated path (BREAKOUT/
+// LUNCH/ADDITIONAL/GS) or is a section banner — never a novel dims-only venue. SUBSTRING
+// (not `^`-anchored) so `RPAS BREAKOUT 2` is rejected too.
+const BO_VENUE_BANNER_RE =
+  /\b(?:BREAKOUT|LUNCH ROOM|LUNCH|ADDITIONAL ROOM|ADDITIONAL|GENERAL SESSION|DETAILS|DOCUMENTS|DATES|CREW|DRESS|TRANSPORTATION|HOTEL|VENUE|AGENDA|CONTACTS)\b/;
+
+/** True iff col0's first line is `BO <label>` with label ∈ ROOM_FIELD_LABELS (walk-up skip). */
+function isBoFieldLabelRow(col0Raw: string): boolean {
+  const firstLine = col0Raw.replace(/&#10;/g, "\n").split("\n")[0]!.trim().toUpperCase();
+  if (!/^BO\s+/.test(firstLine)) return false;
+  return ROOM_FIELD_LABELS.has(firstLine.replace(/^BO\s+/, "").trim());
+}
+
+export function findBoBlockVenueHeaders(
+  markdown: string,
+  model: RoomHeaderModel,
+): { header: string; headerLine: number; admit: boolean }[] {
+  const lines = model.lines; // === markdown.split("\n"); indices align with extractBoBlock
+  const byLine = new Map<number, { header: string; headerLine: number; admit: boolean }>();
+  for (let i = 0; i < lines.length; i++) {
+    if (!BO_ANCHOR_RE.test((lines[i] ?? "").trim())) continue;
+    // Walk UP to the header row: skip blanks, separators, empty-col-0 continuation rows,
+    // and intervening BO field-label rows. Take the first remaining table row; abandon if
+    // the table ends before one is found.
+    let headerLine = -1;
+    for (let j = i - 1; j >= 0; j--) {
+      const t = (lines[j] ?? "").trim();
+      if (t === "") continue;
+      if (!t.startsWith("|")) break; // left the table without a header
+      if (/^\|\s*:?-+:?\s*\|/.test(t)) continue; // separator row
+      if (col0Of(t) === "") continue; // empty-col-0 continuation/wrap row (`|  | value |`)
+      if (isBoFieldLabelRow(col0Of(t))) continue; // an intervening BO field-label row
+      headerLine = j;
+      break;
+    }
+    if (headerLine === -1 || byLine.has(headerLine)) continue;
+    const cells = splitRow((lines[headerLine] ?? "").trim());
+    const rawCell = cells[0] ?? "";
+    const c0 = clean(rawCell);
+    const c1 = clean(cells[1] ?? "");
+    const flat = c0.replace(/&#10;/g, " ").toUpperCase();
+    const shape = c0.length > 0 && (c1 === "" || c1 === c0);
+    const evidence = /&#10;/.test(rawCell) || /\d+\s*'\s*x/i.test(rawCell);
+    const admit = shape && !BO_VENUE_BANNER_RE.test(flat) && evidence && !headerDayMarker(rawCell);
+    byLine.set(headerLine, { header: rawCell, headerLine, admit });
+  }
+  return [...byLine.values()].sort((a, b) => a.headerLine - b.headerLine);
+}
+
+function parseGsRoom(markdown: string, model: RoomHeaderModel): RoomRow | null {
   if (!/GS\s+Setup/i.test(markdown) && !/GS\s+Set\s+Time/i.test(markdown)) return null;
 
   const room = buildEmptyRoom("gs", "");
@@ -629,7 +972,7 @@ function parseGsRoom(markdown: string): RoomRow | null {
   // back to appending onto that preceding field (gear-parser-fidelity Task 6). Scoped to
   // the GS block so DETAILS/AV continuation rows elsewhere are never pulled onto the room.
   let prevGsCol: GsTextCol | null = null;
-  for (const blockLine of extractGsBlock(markdown).split("\n")) {
+  for (const blockLine of extractGsBlock(model).split("\n")) {
     const t = blockLine.trim();
     if (!t.startsWith("|")) continue;
     if (/^\|\s*:?-+:?\s*\|/.test(t)) continue; // separator
@@ -658,7 +1001,7 @@ function parseGsRoom(markdown: string): RoomRow | null {
   // GS-prefixed block (redefining "N/A", ria/east-coast "NONE"); consultants has a
   // BREAKOUT header there instead, so its GS digital_signage is correctly null.
   const dsRe = /^\|\s*Digital\s+Signage\s*\|([^|]*)/im;
-  const dsMatch = dsRe.exec(extractGsBlock(markdown));
+  const dsMatch = dsRe.exec(extractGsBlock(model));
   if (dsMatch) room.digital_signage = presence(clean(dsMatch[1]!));
 
   return room.name ? room : null;
@@ -667,8 +1010,8 @@ function parseGsRoom(markdown: string): RoomRow | null {
 // The GS block = the contiguous "GS <label>"-prefixed rows plus any trailing BARE
 // field rows (Digital Signage, …) that follow across blank/separator rows, up to
 // the next room/section header. Used to scope bare-field extraction to the GS room.
-function extractGsBlock(markdown: string): string {
-  const lines = markdown.split("\n");
+function extractGsBlock(model: RoomHeaderModel): string {
+  const lines = model.lines;
   let first = -1;
   let last = -1;
   for (let i = 0; i < lines.length; i++) {
@@ -684,8 +1027,13 @@ function extractGsBlock(markdown: string): string {
     if (t === "") continue; // blank — keep scanning for the trailing DS row
     if (!t.startsWith("|")) break; // left the table
     if (/^\|\s*:?-+:?\s*\|/.test(t)) continue; // separator row
-    if (/^\|\s*(GENERAL SESSION|BREAKOUT|ADDITIONAL|LUNCH|MABEL|LAUDERDALE|DETAILS)\b/i.test(t)) {
-      break; // next room / section
+    // Next room / section: a structural keyword OR any admitted DAY-range room header
+    // (the de-literalized replacement for the old literal MABEL/LAUDERDALE terminator).
+    if (
+      /^\|\s*(GENERAL SESSION|BREAKOUT|ADDITIONAL|LUNCH|DETAILS)\b/i.test(t) ||
+      model.roomHeaderLines.has(j)
+    ) {
+      break;
     }
     end = j;
   }
@@ -740,16 +1088,20 @@ function appendGsValue(room: RoomRow, col: GsTextCol, val: string): void {
 
 // ── Breakout room parser ──────────────────────────────────────────────────────
 
-function parseBoRooms(markdown: string): RoomRow[] {
+function parseBoRooms(markdown: string, model: RoomHeaderModel): RoomRow[] {
   const rooms: RoomRow[] = [];
   const seen = new Set<string>();
 
   // v2 format: numbered "| BREAKOUT N&#10;… |" AND numberless "| BREAKOUT&#10;LASALLE A |"
   // / "| BREAKOUT WALTON ROOM Dimensions Floor |" (redefining exporter) — the name
-  // rides on the next line or after the word, with no number.
-  // Case-SENSITIVE (uppercase BREAKOUT) so it matches real headers but not
-  // mixed-case template field labels like "Breakout Room Setup Date / Time".
-  const boBlockRe = /^\|\s*(BREAKOUT(?:&#10;|\s)[^|]*?)\s*\|/gm;
+  // rides on the next line or after the word, with no number. An optional single
+  // UPPERCASE-alnum-token show-code prefix before the keyword ("RPAS BREAKOUT 1&#10;
+  // LASALLE A") is admitted too; the name is derived from the non-prefix, non-BREAKOUT
+  // portion by splitRoomHeader, and a prefixed header is additionally gated on positive
+  // BO-field content below (roomHasBoFieldValue) — BL-ROOM-SHOW-PREFIXED-BREAKOUT-HEADER.
+  // Case-SENSITIVE (uppercase BREAKOUT + uppercase prefix) so it matches real headers but
+  // not mixed-case template field labels like "Breakout Room Setup Date / Time".
+  const boBlockRe = /^\|\s*((?:[A-Z0-9]+\s+)?BREAKOUT(?:&#10;|\s)[^|]*?)\s*\|/gm;
   let m: RegExpExecArray | null;
 
   // Group breakout blocks by venue key so a room reused across days is MERGED into one
@@ -773,7 +1125,7 @@ function parseBoRooms(markdown: string): RoomRow[] {
     room.dimensions = split.dimensions;
     room.floor = split.floor;
 
-    const blockText = extractBoBlock(markdown, m.index);
+    const blockText = extractBoBlock(model.lines, lineIndexOfOffset(markdown, m.index), model);
     applyBoFields(room, blockText);
 
     // Gating (mirrors the v4 path so v2/v1 never re-emits template stubs as
@@ -785,6 +1137,16 @@ function parseBoRooms(markdown: string): RoomRow[] {
     //    "BREAKOUT 1 SALON D" is kept even with empty fields.
     if (!numbered && !roomHasContent(room)) continue;
     if (numbered && !roomHasContent(room) && isPlaceholderRoomName(name)) continue;
+    // A show-code prefix (firstLine does not itself start with BREAKOUT) needs POSITIVE
+    // BO-field evidence: roomHasContent counts the header-harvested dims/floor assigned
+    // above, so a "<PREFIX> BREAKOUT N&#10;dims" with no BO block would otherwise
+    // fabricate a room (BL-ROOM-DIMS-ONLY-NOVEL-HEADER paranoia).
+    // `\b` so BREAKOUT must be a whole token: "BREAKOUTS BREAKOUT 3" is prefixed (the
+    // literal keyword is BREAKOUT, not BREAKOUTS), so it is gated — a plain `^BREAKOUT`
+    // test would misread the "BREAKOUTS" prefix as the keyword and bypass the gate
+    // (whole-diff R1 f2).
+    const prefixed = !/^BREAKOUT\b/.test(firstLine);
+    if (prefixed && !roomHasBoFieldValue(room)) continue;
 
     if (!boGroups.has(headerKey)) {
       boGroups.set(headerKey, []);
@@ -810,43 +1172,89 @@ function parseBoRooms(markdown: string): RoomRow[] {
     const room = buildEmptyRoom("breakout", name);
     room.dimensions = split.dimensions;
     room.floor = split.floor;
-    const blockText = extractBoBlock(markdown, m.index);
+    const blockText = extractBoBlock(model.lines, lineIndexOfOffset(markdown, m.index), model);
     applyBoFields(room, blockText);
     rooms.push(room);
   }
 
-  // v1: MABEL N and LAUDERDALE N rooms (2024 fixture). One room can span multiple
-  // blocks — "MABEL 1&#10;APPROXIMATELY 60' x 45'" (dims in header) and
-  // "MABEL 1&#10;DAY 1 & 2" (the populated fields). MERGE blocks by header key so
-  // the room keeps its content, instead of the empty first occurrence winning
-  // dedup and the populated duplicate being skipped. Drop a room that stays empty.
-  const mabelRooms = new Map<string, RoomRowInternal>();
-  const mabelOrder: string[] = [];
-  const mabelRe = /^\|\s*(MABEL\s+\d[^|]*|LAUDERDALE[^|]*?)\s*\|/gim;
-  while ((m = mabelRe.exec(markdown)) !== null) {
-    const rawHeader = m[1]!.replace(/&#10;/g, "\n");
-    const firstLine = rawHeader.split("\n")[0]!.trim();
-    const headerKey = firstLine.toUpperCase();
+  // v1: DAY-range breakout rooms (de-literalized from the old MABEL/LAUDERDALE loop, spec
+  // Pass 2). Every candidate admitted by the precomputed model — a proper NAME + trailing
+  // DAY-range at a block boundary with a `BO …`/`GS …` field block beneath — is grouped by
+  // roomGroupKey (base name + normalized day-range), so the inline-DAY and second-line-DAY
+  // forms of the SAME name+day MERGE while DISTINCT day-ranges stay separate. One room can
+  // span multiple blocks — "MABEL 1&#10;APPROXIMATELY 60' x 45'" (dims in header) and
+  // "MABEL 1&#10;DAY 1 & 2" (the populated fields) — so blocks in a group are extracted
+  // independently and merged, and a room that stays empty is dropped (roomHasContent).
+  for (const candidates of model.groups.values()) {
+    const displayName = candidates[0]!.displayName;
+    const headerKey = displayName.toUpperCase();
     if (seen.has(headerKey)) continue; // claimed by a BREAKOUT / LUNCH room above
-    let room = mabelRooms.get(headerKey);
-    if (!room) {
-      room = buildEmptyRoom("breakout", firstLine);
-      mabelRooms.set(headerKey, room);
-      mabelOrder.push(headerKey);
+    const room = buildEmptyRoom("breakout", displayName);
+    for (const candidate of candidates) {
+      const rawHeader = col0Of(model.lines[candidate.lineIndex]!).replace(/&#10;/g, "\n");
+      // dims may ride in the header ("APPROXIMATELY 60' x 45'")
+      for (const hl of rawHeader.split("\n").slice(1)) {
+        const dimMatch = /(\d+'\s*x\s*\d+'(?:\s*x\s*\d+')?)/.exec(hl);
+        if (dimMatch && !room.dimensions) room.dimensions = dimMatch[1]!;
+      }
+      mergeBoFields(room, extractBoBlock(model.lines, candidate.lineIndex, model));
     }
-    // dims may ride in the header ("APPROXIMATELY 60' x 45'")
-    for (const hl of rawHeader.split("\n").slice(1)) {
-      const dimMatch = /(\d+'\s*x\s*\d+'(?:\s*x\s*\d+')?)/.exec(hl);
-      if (dimMatch && !room.dimensions) room.dimensions = dimMatch[1]!;
+    // Origin parity (mabelRe grouped by first-line name): a SAME-first-line non-DAY header
+    // — e.g. east-coast's GS venue header "MABEL 1&#10;APPROXIMATELY 60' x 45'" (no DAY-range,
+    // so not admitted as its own room) — still contributes its dims to the same-named DAY-range
+    // breakout via the old name-keyed merge. Harvest those dims if none rode the DAY header.
+    if (!room.dimensions) {
+      const nameKeys = new Set(candidates.map((c) => c.displayName.toUpperCase()));
+      room.dimensions = harvestSameNameHeaderDims(model, nameKeys);
     }
-    mergeBoFields(room, extractBoBlock(markdown, m.index));
-  }
-  for (const key of mabelOrder) {
-    const room = mabelRooms.get(key)!;
     if (roomHasContent(room)) rooms.push(room);
   }
 
+  // Pass 5 (spec §3.2): dims-only BO-venue-header breakouts. A header carrying dims but
+  // NO DAY-range, sitting above a BO field block, is admitted here (Pass 2 only takes
+  // DAY-range headers). Anchored on the field block, never a dims token, so an asset row
+  // is never fabricated into a room. GS-name overlap is NOT threaded through `seen` — it
+  // flows through the east-coast reconciliation in parseRooms (rooms.ts:408) so a real
+  // same-named DAY breakout is never suppressed.
+  const emitted = new Set(rooms.map((r) => (r.name ?? "").toUpperCase()));
+  const boVenue = findBoBlockVenueHeaders(markdown, model);
+  // extraTerm includes REJECTED (admit=false) headers too — a rejected asset header
+  // between two novel blocks must terminate the prior admitted block (case 6).
+  const extraTerm = new Set(boVenue.map((h) => h.headerLine));
+  for (const h of boVenue) {
+    if (!h.admit) continue;
+    const split = splitRoomHeader(h.header.replace(/&#10;/g, "\n"), "breakout");
+    const key = split.name.toUpperCase();
+    if (!split.name || emitted.has(key)) continue;
+    const room = buildEmptyRoom("breakout", split.name);
+    room.dimensions = split.dimensions;
+    room.floor = split.floor;
+    applyBoFields(room, extractBoBlock(model.lines, h.headerLine, model, extraTerm));
+    if (!roomHasContent(room)) continue;
+    emitted.add(key);
+    rooms.push(room);
+  }
+
   return rooms;
+}
+
+// First dims token (with optional trailing height) found on a non-first line of any header
+// cell whose first line matches one of `nameKeys` (uppercased). Mirrors the old mabelRe
+// name-keyed dims merge without admitting a dims-only header as a standalone room (spec §2 descope).
+function harvestSameNameHeaderDims(
+  model: RoomHeaderModel,
+  nameKeys: ReadonlySet<string>,
+): string | null {
+  for (const line of model.lines) {
+    if (!line.trim().startsWith("|")) continue;
+    const parts = col0Of(line).replace(/&#10;/g, "\n").split("\n");
+    if (!nameKeys.has(parts[0]!.trim().toUpperCase())) continue;
+    for (const hl of parts.slice(1)) {
+      const dimMatch = /(\d+'\s*x\s*\d+'(?:\s*x\s*\d+')?)/.exec(hl);
+      if (dimMatch) return dimMatch[1]!;
+    }
+  }
+  return null;
 }
 
 // Fill only the still-empty fields of `room` from `blockText`, so merging multiple
@@ -876,21 +1284,41 @@ function mergeBoFields(room: RoomRowInternal, blockText: string): void {
 }
 
 // Header of the NEXT room/section — extraction must stop here so an adjacent block
-// (no blank separator) doesn't bleed its fields into the current room.
+// (no blank separator) doesn't bleed its fields into the current room. The literal
+// MABEL/LAUDERDALE names are no longer here — they are covered by the precomputed
+// `model.roomHeaderLines` terminator set (any admitted DAY-range room header).
+// A prefixed `<PREFIX> BREAKOUT N` header (BL-ROOM-SHOW-PREFIXED-BREAKOUT-HEADER) is a
+// next-room header too, so it terminates a preceding BO block — otherwise two ADJACENT
+// prefixed breakouts with no blank separator would let the first consume the second's
+// fields (whole-diff R1 f1). The optional prefix mirrors `boBlockRe`; a bare BREAKOUT
+// still matches (empty group), so existing termination is unchanged.
 const NEXT_ROOM_HEADER_RE =
-  /^\|\s*(GENERAL\s+SESSION|BREAKOUT|ADDITIONAL\s+ROOM|LUNCH\s+ROOM|MABEL|LAUDERDALE|DETAILS)\b/i;
+  /^\|\s*(GENERAL\s+SESSION|(?:[A-Z0-9]+\s+)?BREAKOUT|ADDITIONAL\s+ROOM|LUNCH\s+ROOM|DETAILS)\b/i;
 
-function extractBoBlock(markdown: string, startOffset: number): string {
-  const slice = markdown.slice(startOffset);
-  const lines = slice.split("\n");
+// LINE-BASED (spec §2.2 (e), R24 f1): walk `lines` from `startLine`. Behavior-identical
+// to the old `extractBoBlock(markdown, m.index)` because `m.index` is the row's line
+// start, so `markdown.slice(m.index) === lines.slice(startLine).join("\n")`.
+const EMPTY_TERMINATORS: ReadonlySet<number> = new Set<number>();
+
+function extractBoBlock(
+  lines: string[],
+  startLine: number,
+  model: RoomHeaderModel,
+  extraTerminators: ReadonlySet<number> = EMPTY_TERMINATORS,
+): string {
   const blockLines: string[] = [];
 
-  for (let k = 0; k < lines.length; k++) {
-    const line = lines[k]!;
+  for (let k = 0; startLine + k < lines.length; k++) {
+    const line = lines[startLine + k]!;
     if (!line.trim().startsWith("|") && blockLines.length > 0) break;
-    // Stop at the next room/section header — but not the current block's own header
-    // on line 0 (which also matches NEXT_ROOM_HEADER_RE).
+    // Stop at the next room/section header — but not the current block's own header on
+    // line 0 (k === 0), which also matches. A structural keyword OR an admitted DAY-range
+    // header (absolute index ∈ roomHeaderLines) terminates.
     if (k > 0 && NEXT_ROOM_HEADER_RE.test(line.trim())) break;
+    if (k > 0 && model.roomHeaderLines.has(startLine + k)) break;
+    // A BO-venue-header the fifth pass resolved (admitted OR rejected) also terminates —
+    // so an ADMITTED novel block ends at the NEXT novel/rejected header without a blank.
+    if (k > 0 && extraTerminators.has(startLine + k)) break;
     blockLines.push(line);
   }
 
@@ -935,7 +1363,7 @@ function applyBoLabel(room: RoomRow, label: string, val: string | null): void {
 
 // ── Additional room parser ────────────────────────────────────────────────────
 
-function parseAdditionalRoom(markdown: string): RoomRow | null {
+function parseAdditionalRoom(markdown: string, model: RoomHeaderModel): RoomRow | null {
   // Case-SENSITIVE: a real additional-room block header is ALL-CAPS
   // "ADDITIONAL ROOM" (e.g. "ADDITIONAL ROOM\nDimensions\nFloor"). The mixed-case
   // INFO metadata fields ("Additional Room Name(s)", "Additional Room Setup", …)
@@ -955,7 +1383,7 @@ function parseAdditionalRoom(markdown: string): RoomRow | null {
   room.dimensions = split.dimensions;
   room.floor = split.floor;
 
-  const blockText = extractBoBlock(markdown, m.index);
+  const blockText = extractBoBlock(model.lines, lineIndexOfOffset(markdown, m.index), model);
   applyBoFields(room, blockText);
 
   // Gate like the v4 path: a bare "ADDITIONAL ROOM" / "ADDITIONAL ROOM Dimensions
@@ -991,8 +1419,14 @@ function splitRoomHeader(
 ): { name: string; dimensions: string | null; floor: string | null } {
   let s = clean(raw.replace(/&#10;/g, " ")).replace(/\s+/g, " ").trim();
 
-  // 1. kind label prefix + stray leading separator
+  // 1. kind label prefix + stray leading separator. A show-code prefix (a single
+  // UPPERCASE alnum token) before an UPPERCASE `BREAKOUT` keyword is stripped first,
+  // case-SENSITIVELY (own regex, no /i) so it only fires on a real prefixed breakout
+  // header ("RPAS BREAKOUT 1 LASALLE A") and never on a mixed-case name that merely
+  // contains "Breakout" ("Grand Breakout Hall"). The lookahead keeps it inert unless
+  // an uppercase BREAKOUT immediately follows.
   s = s
+    .replace(/^[A-Z0-9]+\s+(?=BREAKOUT\b)/, "")
     .replace(/^(?:GENERAL\s+SESSION|BREAKOUT(?:\s+\d+)?|ADDITIONAL\s+ROOM|LUNCH\s+ROOM)\b/i, "")
     .replace(/^[\s:–—-]+/, "")
     .trim();

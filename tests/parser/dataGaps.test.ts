@@ -28,19 +28,20 @@ const warn = (code: string, severity: ParseWarning["severity"] = "warn"): ParseW
 
 // A summary whose `classes` has every GAP_CLASSES key at 0 EXCEPT the given
 // overrides — derived from the registry so the expectation tracks the real set
-// (anti-tautology: never hardcode the 22-key shape).
+// (anti-tautology: never hardcode the 24-key shape).
 const classesWith = (overrides: Record<string, number>): Record<string, number> =>
   Object.fromEntries(GAP_CLASSES.map((g) => [g.code, overrides[g.code] ?? 0]));
 
 describe("GAP_CLASSES registry (single source of truth)", () => {
-  it("has exactly 23 entries and includes the newly-counted codes", () => {
-    expect(GAP_CLASSES).toHaveLength(23);
-    expect(DATA_GAP_CODES.size).toBe(23);
+  it("has exactly 24 entries and includes the newly-counted codes", () => {
+    expect(GAP_CLASSES).toHaveLength(24);
+    expect(DATA_GAP_CODES.size).toBe(24);
     for (const c of [
       "UNKNOWN_FIELD",
       "SCHEDULE_TIME_UNPARSED",
       "AGENDA_LINK_NOT_CLICKABLE",
       "PULL_SHEET_ON_ARCHIVED_TAB",
+      "UNKNOWN_STAGE_RESTRICTION",
     ]) {
       expect(DATA_GAP_CODES.has(c)).toBe(true);
     }
@@ -85,7 +86,7 @@ describe("summarizeDataGaps", () => {
   it("counts EVERY gap class once when given one warn per code (derived from registry)", () => {
     const oneEach = GAP_CLASSES.map((g) => warn(g.code));
     const out = summarizeDataGaps(oneEach);
-    expect(out.total).toBe(GAP_CLASSES.length); // 23
+    expect(out.total).toBe(GAP_CLASSES.length); // 24
     for (const { code } of GAP_CLASSES) expect(out.classes[code]).toBe(1);
   });
 

@@ -357,3 +357,79 @@ describe("parseRooms — v4 label gate corrects unseen typos (PR-D3)", () => {
     }
   }, 30000); // generous timeout (PR-D1 CI-shard lesson; small vocab here, but be safe)
 });
+
+// ── show-prefixed BREAKOUT headers (2025-03-dci-rpas-central) ────────────────
+// "RPAS BREAKOUT 1&#10;LASALLE A&#10;30' x 25' x 10.5'&#10;7th Floor" (and BREAKOUT 2 /
+// LASALLE B) carry a show-code prefix before the BREAKOUT keyword and sit above real
+// BO field blocks. BL-ROOM-SHOW-PREFIXED-BREAKOUT-HEADER.
+describe("parseRooms — show-prefixed BREAKOUT (2025-03-dci-rpas-central)", () => {
+  const md = readFileSync("fixtures/shows/raw/2025-03-dci-rpas-central.md", "utf8");
+  const rooms = parseRooms(md, "v2");
+  const bo = rooms.filter((r) => r.kind === "breakout");
+
+  it("T1: parses exactly 2 breakout rooms", () => {
+    expect(bo).toHaveLength(2);
+  });
+
+  it("T2: names derive from the non-prefix, non-BREAKOUT portion", () => {
+    // LASALLE A/B appear nowhere in the "RPAS BREAKOUT N" keyword, so a pass proves
+    // the prefix+keyword were stripped, not merely that the header was captured.
+    expect(new Set(bo.map((r) => r.name))).toEqual(new Set(["LASALLE A", "LASALLE B"]));
+  });
+
+  it("T3: LASALLE A carries the fixture dims/floor/BO fields", () => {
+    const a = bo.find((r) => r.name === "LASALLE A")!;
+    expect(a.dimensions).toBe("30' x 25' x 10.5'");
+    expect(a.floor).toBe("7th Floor");
+    expect(a.set_time).toBe("3/24 @ 10:00 AM");
+    // A non-N/A, block-specific string a mis-scoped extraction could not accidentally hit.
+    expect(a.video).toContain("Eiki Projector");
+  });
+
+  it("T4: no prefix or keyword leaks into any room name", () => {
+    expect(rooms.every((r) => !/RPAS|BREAKOUT/i.test(r.name))).toBe(true);
+  });
+});
+
+// Prefixed-admission gate (spec §3.3): a prefixed header with dims/floor but NO BO field
+// block must NOT fabricate a room, even though roomHasContent counts header dims/floor.
+describe("parseRooms — prefixed-admission gate (synthetic)", () => {
+  const noFields = "| XYZ BREAKOUT 3&#10;GHOST HALL&#10;5' x 9'&#10;2nd Floor | |\n";
+  const withField =
+    "| XYZ BREAKOUT 3&#10;GHOST HALL&#10;5' x 9'&#10;2nd Floor | |\n| BO Setup | 60 chairs |\n";
+
+  it("T5a: dims/floor-only prefixed header parses to zero breakouts", () => {
+    const bo = parseRooms(noFields, "v2").filter((r) => r.kind === "breakout");
+    expect(bo).toHaveLength(0);
+  });
+
+  it("T5b: positive control — a BO field admits the room as GHOST HALL", () => {
+    const bo = parseRooms(withField, "v2").filter((r) => r.kind === "breakout");
+    expect(bo).toHaveLength(1);
+    expect(bo[0]!.name).toBe("GHOST HALL");
+  });
+
+  // whole-diff R1 f1: two adjacent prefixed blocks with NO blank separator must not let
+  // the first consume the second's BO fields (NEXT_ROOM_HEADER_RE terminates on the
+  // prefixed header).
+  it("T6: adjacent prefixed blocks do not bleed fields into each other", () => {
+    const md =
+      "| AAA BREAKOUT 1&#10;ROOM ONE&#10;10' x 10' | |\n" +
+      "| BO Setup | chairs one |\n" +
+      "| BBB BREAKOUT 2&#10;ROOM TWO&#10;20' x 20' | |\n" +
+      "| BO Setup | chairs two |\n";
+    const bo = parseRooms(md, "v2").filter((r) => r.kind === "breakout");
+    expect(bo).toHaveLength(2);
+    expect(bo.find((r) => r.name === "ROOM ONE")!.setup).toBe("chairs one");
+    expect(bo.find((r) => r.name === "ROOM TWO")!.setup).toBe("chairs two");
+  });
+
+  // whole-diff R1 f2: a "BREAKOUTS BREAKOUT N" header (keyword is BREAKOUT, the token
+  // BREAKOUTS is a prefix) with dims/floor but no BO fields must still be gated out — a
+  // `^BREAKOUT` (no \b) classifier would misread BREAKOUTS as the keyword and fabricate it.
+  it("T7: BREAKOUTS-prefixed dims-only header is gated (no fabricated room)", () => {
+    const md = "| BREAKOUTS BREAKOUT 3&#10;GHOSTB&#10;5' x 9'&#10;2nd Floor | |\n";
+    const bo = parseRooms(md, "v2").filter((r) => r.kind === "breakout");
+    expect(bo).toHaveLength(0);
+  });
+});

@@ -371,13 +371,46 @@ export function Step3SheetCard({
     // re-apply rows retain their pending_syncs, so they never reach here with a
     // missing preview.) Codex whole-diff R3.
     if (checkpointStatus !== null && row.displayState) {
+      // Owner decision 2026-07-06: backfill the client · dates · venue line from
+      // the linked LIVE show (the finalize batch deleted this row's parse preview,
+      // so the published show is the only source left) — otherwise every applied
+      // row reads as a bare title + badge, which looked broken. Derived with the
+      // SAME helpers the parse-preview path uses (dateSummarySegments/venueDisplay).
+      // A working "View" modal is intentionally NOT offered here: the modal renders
+      // from the deleted ParseResult, so the title's source-sheet deep link is the
+      // only detail affordance post-publish. Summary absent → bare title (a degraded
+      // read where no live show linked).
+      const summary = row.linkedShowSummary ?? null;
+      const summaryTitle = summary?.title || titleFallback;
+      // venue/dates are jsonb on the wire (untyped) — cast to each helper's param
+      // shape at the boundary, exactly as the parse-preview path relies on the
+      // ParseResult coercion. The helpers guard their own missing/partial fields.
+      const summaryDates = summary
+        ? dateSummarySegments(summary.dates as Parameters<typeof dateSummarySegments>[0])
+        : [];
+      const summaryVenue = summary
+        ? venueDisplay(summary.venue as Parameters<typeof venueDisplay>[0]).name
+        : null;
+      const summarySegments = [
+        summary?.clientLabel || null,
+        summaryDates.length > 0 ? summaryDates.join(" · ") : null,
+        summaryVenue || null,
+      ].filter((s): s is string => !!s);
       return (
         <article
           data-testid={`wizard-step3-card-${dfid}`}
           className="flex items-center gap-3 rounded-md border border-border bg-surface p-tile-pad shadow-tile"
         >
           <div className="min-w-0 flex-1">
-            <SheetTitleLink dfid={dfid} title={titleFallback} />
+            <SheetTitleLink dfid={dfid} title={summaryTitle} />
+            {summarySegments.length > 0 ? (
+              <p
+                data-testid={`wizard-step3-card-${dfid}-live-summary`}
+                className="mt-0.5 wrap-break-word text-sm text-text-subtle"
+              >
+                {summarySegments.join(" · ")}
+              </p>
+            ) : null}
           </div>
           <Step3RowBadge displayState={row.displayState} />
         </article>

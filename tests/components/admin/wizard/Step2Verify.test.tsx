@@ -167,7 +167,8 @@ describe("Step2Verify", () => {
     await act(async () => {
       fireEvent.click(getByTestId("wizard-step2-submit"));
     });
-    // Progress block appears with friendly contextual copy + elapsed time.
+    // Progress block appears with friendly contextual copy (no elapsed timer —
+    // removed 2026-07-06; the N-of-N + "Just read" readout carries progress).
     await waitFor(() => {
       expect(queryByTestId("wizard-step2-progress")).toBeTruthy();
     });

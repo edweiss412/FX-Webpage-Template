@@ -276,7 +276,7 @@ test("fragment-day showStart / window meta is sentinel-guarded (raw 'TBD' never 
       .querySelector('[data-slot="day-card-meta"]'),
   ).toBeNull();
   cleanup();
-  // Real clock → meta renders.
+  // Real clock → renders as a "Show Start" run-of-show entry (not a bare meta line).
   const data2 = makeShowForViewer({
     show: { dates: { showDays: ["2026-10-08"], set: null, travelIn: null, travelOut: null } },
     runOfShow: { "2026-10-08": { entries: [], showStart: "8:00am", showEnd: null, window: null } },
@@ -284,11 +284,11 @@ test("fragment-day showStart / window meta is sentinel-guarded (raw 'TBD' never 
   const r2 = render(
     <ScheduleSection data={data2} viewer={adminViewer} today={at("2026-10-08")} showId="s1" />,
   );
-  expect(
-    r2.container
-      .querySelector('[data-testid="schedule-day-today"]')!
-      .querySelector('[data-slot="day-card-meta"]')!.textContent,
-  ).toBe("8:00am");
+  const today2 = r2.container.querySelector('[data-testid="schedule-day-today"]')!;
+  expect(today2.querySelector('[data-slot="day-card-meta"]')).toBeNull();
+  const entry2 = today2.querySelector('[data-testid="agenda-entry"]')!;
+  expect(entry2.textContent).toContain("8:00am");
+  expect(entry2.textContent).toContain("Show Start");
   cleanup();
 });
 

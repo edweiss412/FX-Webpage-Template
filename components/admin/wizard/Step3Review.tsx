@@ -132,6 +132,23 @@ export type Step3Row = {
   // The single derived display state (spec §4.2 ordered algorithm). Computed in
   // fetchStep3Data; every badge / affordance reads THIS, not raw status.
   displayState?: Step3DisplayState;
+  // Owner decision 2026-07-06: the linked live show's summary (title/client/
+  // dates/venue), captured from the SAME candidate that resolved `linkedShow`.
+  // A post-finalize applied row has had its pending_syncs parse preview deleted
+  // by the finalize batch (`parseResult` is null), so the badge-only card
+  // backfills its client · dates · venue line + a View from THIS instead of
+  // rendering a bare title. Absent when no show is linked.
+  linkedShowSummary?: LiveShowSummary | null;
+};
+
+// The linked live show's display summary — raw `public.shows` columns (venue/
+// dates are jsonb, derived in the card via venueDisplay/dateSummarySegments, the
+// same helpers the parse-preview path uses).
+export type LiveShowSummary = {
+  title: string | null;
+  clientLabel: string | null;
+  venue: unknown;
+  dates: unknown;
 };
 
 export type Step3PublishCounts = {
@@ -139,6 +156,10 @@ export type Step3PublishCounts = {
   publishCount: number;
   // Clean rows currently UNCHECKED (optimistic) → kept as Held drafts.
   uncheckedCleanCount: number;
+  // Display names of those unchecked-clean rows, in row order — so the publish
+  // soft-confirm can NAME the sheet(s) that "won't be published" instead of a bare
+  // count. Same optimistic base as uncheckedCleanCount (length always matches).
+  uncheckedCleanNames: string[];
   // Selectable rows total (clean + reviewable-preview + not demoted) — the "M"
   // in the sticky bar's "N of M selected to publish". Excludes demoted/no-details
   // clean rows (which stay in publishCount's publishRows base but have no checkbox).
@@ -242,7 +263,11 @@ export function Step3RowBadge({ displayState }: { displayState: Step3DisplayStat
   return (
     <span
       data-testid="wizard-step3-badge"
-      className={`inline-flex shrink-0 items-center self-start rounded-pill px-3 py-1 text-xs font-semibold ${toneClasses(badge.tone)}`}
+      // No `self-start`: the badge inherits the row's `items-center` so it sits
+      // vertically centered even when the row is taller than one line (a card with
+      // a title + meta line, or a View button whose 44px tap target grows the
+      // right cluster). `self-start` pinned it to the top of that taller zone.
+      className={`inline-flex shrink-0 items-center rounded-pill px-3 py-1 text-xs font-semibold ${toneClasses(badge.tone)}`}
     >
       {badge.label}
     </span>
@@ -770,6 +795,33 @@ export function computeSelectableCounts(rows: Step3Row[]): {
   };
 }
 
+// The concise show name for a row — the parsed title when we have a preview,
+// else the staged title, else the raw Drive file name / id. Used by the publish
+// soft-confirm's "these sheets won't be published" list.
+function rowDisplayName(row: Step3Row): string {
+  const pr = row.parseResult as ParseResult | null | undefined;
+  return pr?.show?.title || row.stagedShowTitle || row.driveFileName || row.driveFileId;
+}
+
+// A clean unchecked row genuinely "won't be published" ONLY if it isn't already
+// crew-visible. An already-Live row (displayState 'live') left unchecked is a spec
+// §7.4 D10 NO-OP (finalize/route.ts:1071 — untouched, STAYS live), so it must be
+// excluded from the "won't be published" warning — otherwise the confirm contradicts
+// the row's own "Live" badge. First-seen (→ Held) and pre-CAS session-created rows
+// still count. Shared by the optimistic count/names AND the seed helper below.
+function wouldStayUnpublishedIfUnchecked(row: Step3Row): boolean {
+  return isCleanRow(row.status) && row.displayState !== "live";
+}
+
+// Names of clean rows UNCHECKED at server truth (status !== 'applied'), EXCLUDING
+// already-Live rows. Seeds the soft-confirm's sheet list on first paint before any
+// optimistic overlay exists, mirroring computeSelectableCounts' role for the seed.
+export function computeUncheckedCleanNames(rows: Step3Row[]): string[] {
+  return rows
+    .filter((r) => wouldStayUnpublishedIfUnchecked(r) && r.status !== "applied")
+    .map(rowDisplayName);
+}
+
 // A clean row "needs a look" when it has no reviewable preview, has been demoted
 // by a per-sheet re-scan, OR carries at least one data-quality parse warning.
 // Drives the header's ready/needs-look split (§4.2).
@@ -1028,23 +1080,37 @@ export function Step3Review({
   // server's `status === 'staged'` derivation did. publishCount + uncheckedCleanCount
   // == publishRows.length.
   const optimisticPublishCount = publishRows.filter(isChecked).length;
-  const optimisticUncheckedCleanCount = publishRows.length - optimisticPublishCount;
+  // "Won't be published" base excludes already-Live rows (unchecking one is a spec
+  // §7.4 D10 NO-OP — it stays live), so heldableRows is publishRows minus those.
+  const heldableRows = publishRows.filter(wouldStayUnpublishedIfUnchecked);
+  // The unchecked-clean sheet names for the soft-confirm (optimistic — same base
+  // as optimisticUncheckedCleanCount). Keyed into the effect via a stable string
+  // proxy (uncheckedNamesKey) so a fresh array ref each render doesn't re-fire it.
+  const uncheckedCleanNames = heldableRows.filter((r) => !isChecked(r)).map(rowDisplayName);
+  const optimisticUncheckedCleanCount = uncheckedCleanNames.length;
+  const uncheckedNamesKey = uncheckedCleanNames.join(" ");
   useEffect(() => {
     onCountsChange?.({
       publishCount: optimisticPublishCount,
       uncheckedCleanCount: optimisticUncheckedCleanCount,
+      uncheckedCleanNames,
       // selectableTotal/selectedCount drive the sticky bar's "N of M". cleanCount
       // (selectableRows.length) and appliedCount (selectableRows checked) are the
       // same values the header select-all uses, so the bar tracks the boxes too.
       selectableTotal: cleanCount,
       selectedCount: appliedCount,
     });
+    // uncheckedCleanNames is intentionally represented by uncheckedNamesKey (a
+    // stable string) in the deps so the effect fires when the NAME SET changes,
+    // not on every render from the freshly-built array literal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     onCountsChange,
     optimisticPublishCount,
     optimisticUncheckedCleanCount,
     cleanCount,
     appliedCount,
+    uncheckedNamesKey,
   ]);
 
   // ONE POST implementation for the whole publish-intent surface: the shared
