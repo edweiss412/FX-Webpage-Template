@@ -195,13 +195,15 @@ a Show-phase bare-showStart day → grid entry (timeMeta skipped); a non-Show da
 with a (collision-edge) bare `showStart` → `start` meta as today (byte-identical);
 sentinel/window/end-only → unchanged. Only the Show-phase bare-showStart case
 changes.
-- When `showStartRow != null`: render it as the sole grid row
-  (`rows = [showStartRow]`) and do **not** set `timeMeta`.
-- When `showStartRow == null` (window / end-only / sentinel): `timeMeta` retains
-  the `win ?? (end ? `Ends ${end}` : null)` value — the raw `start` term is dropped
-  from the `timeMeta` expression because a real (non-sentinel) `showStart` now
-  always becomes `showStartRow`; a sentinel `showStart` yields null on both paths
-  (no meta, no row — identical to today).
+- When `showStartRow != null` (Show-phase bare-showStart day): render it as the
+  sole grid row (`rows = [showStartRow]`) and do **not** set `timeMeta`.
+- When `showStartRow == null`: `timeMeta` keeps its **full original**
+  `win ?? start ?? (end ? `Ends ${end}` : null)` expression — including the `start`
+  term. This is REQUIRED after the phase gate: a non-Show / phase-null day with a
+  real `showStart` deliberately returns `null` from the helper and MUST still show
+  its `start` meta (`8:00 AM`) exactly as today — do NOT drop the `start` term. A
+  sentinel `showStart` yields null on both paths (no meta, no row — identical to
+  today). Window / end-only unchanged.
 - The synthesized row flows through the existing `grid-cols-[auto_1fr]` two-track
   grid (`step3ReviewSections.tsx:965-992`). `kind` absent ⇒ `isSynthetic` false ⇒
   normal `text-text` tone, no hairline rule. It is in the `agenda` partition
