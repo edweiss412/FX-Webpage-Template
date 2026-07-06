@@ -225,6 +225,9 @@ export async function resolveQualityRegression_unlocked(
   tx: Pick<SyncPipelineTx, "queryOne">,
   showId: string,
 ): Promise<void> {
+  // live-partition:live-only — resolves the live per-show regression alert; never runs from a
+  // wizard/onboarding apply (the producer is wired only in the cron applied epilogue + first-seen
+  // retry no-op, NOT in applyStagedCore). Not reachable from the core apply surface.
   await tx.queryOne<{ resolved: true } | undefined>(
     `
       update public.admin_alerts
@@ -261,17 +264,22 @@ function buildRegressionPayload(
   return { breakdown, new_classes, worsened };
 }
 
-/** Order-insensitive payload equality for the §6.4a no-op gate (arrays/objects survive JSON round-trip). */
+/** Order-insensitive string-set equality (dedupes + compares membership). */
+function sameStringSet(a: readonly string[], b: readonly string[]): boolean {
+  const sa = new Set(a);
+  const sb = new Set(b);
+  if (sa.size !== sb.size) return false;
+  for (const x of sa) if (!sb.has(x)) return false;
+  return true;
+}
+
+/** Order-insensitive payload equality for the §6.4a no-op gate (no JSON.stringify — jsonb boundary). */
 function payloadEqual(a: QualityRegressionPayload, b: QualityRegressionPayload): boolean {
-  const norm = (p: QualityRegressionPayload) =>
-    JSON.stringify({
-      breakdown: Object.fromEntries(
-        Object.entries(p.breakdown).sort(([x], [y]) => x.localeCompare(y)),
-      ),
-      new_classes: [...p.new_classes].sort(),
-      worsened: [...p.worsened].sort(),
-    });
-  return norm(a) === norm(b);
+  const aKeys = Object.keys(a.breakdown);
+  const bKeys = Object.keys(b.breakdown);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const k of aKeys) if (a.breakdown[k] !== b.breakdown[k]) return false;
+  return sameStringSet(a.new_classes, b.new_classes) && sameStringSet(a.worsened, b.worsened);
 }
 
 /**
@@ -294,6 +302,8 @@ export async function evaluateQualityRegression_unlocked(args: {
   const prior = summarizeDataGaps(priorParseWarningsRaw);
   const current = summarizeDataGaps(nextWarnings);
 
+  // live-partition:live-only — reads/raises the live per-show regression alert; reachable only
+  // from the cron applied epilogue (+ first-seen retry no-op), never from a wizard/core apply.
   const open = await tx.queryOne<{ context: Record<string, unknown> } | undefined>(
     `select context from public.admin_alerts
       where show_id = $1::uuid and code = 'RESYNC_QUALITY_REGRESSED' and resolved_at is null`,

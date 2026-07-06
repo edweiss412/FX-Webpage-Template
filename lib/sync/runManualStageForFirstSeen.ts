@@ -16,6 +16,7 @@ import {
 import { runPhase2, type Phase2Tx } from "@/lib/sync/phase2";
 import {
   emitSuccessfulPhase2Tail,
+  evaluateQualityRegression_unlocked,
   resolveStaleSyncProblemAlerts_unlocked,
   type ProcessOneFileDeps,
   type ProcessOneFileResult,
@@ -130,6 +131,22 @@ async function toResult(
       fileMeta: args.fileMeta,
       parseResult: args.parseResult,
       autoPublishFirstSeen,
+    });
+    // Tail-parity with the cron applied epilogue (audit #16). First-seen has NO prior published
+    // show, so priorParseWarningsRaw is null → the producer returns immediately (no regression is
+    // possible on a brand-new show). Present here so the two success tails stay structurally
+    // identical (_phase2ArgsParityContract) — a future edit to one must mirror the other.
+    await evaluateQualityRegression_unlocked({
+      tx,
+      deps: {
+        ...deps,
+        upsertAdminAlert: deps.upsertAdminAlert ?? tx.upsertAdminAlert.bind(tx),
+      } as unknown as ProcessOneFileDeps,
+      driveFileId,
+      showId: applied.showId,
+      priorParseWarningsRaw: null,
+      nextWarnings: args.parseResult.warnings,
+      sheetName: args.parseResult.show.title,
     });
     await resolveStaleSyncProblemAlerts_unlocked(tx, applied.showId, null);
     return { outcome: "applied", showId: phase2.showId };
