@@ -233,12 +233,14 @@ describe("useBellBadge", () => {
     expect(result.current.degraded).toBe(false);
   });
 
-  it("a stale prop-sync landing after zeroNow does not resurrect the count; a post-zero fetch success re-enables prop sync (spec §7.2)", async () => {
-    // Codex final-review R5: router.refresh() started BEFORE the open click
-    // re-renders the layout AFTER zeroNow with the PRE-open server count as a
-    // new `initial` prop. The prop-sync effect must not resurrect the badge;
-    // the next successful count fetch (the panel's onOpened refetch) is the
-    // authoritative restore point, after which prop sync applies again.
+  it("after zeroNow, props never resurrect the count — before OR after the restoring fetch (spec §7.2)", async () => {
+    // Codex final-review R5+R6: router.refresh() started BEFORE the open
+    // click can deliver the PRE-open server count as a new `initial` prop at
+    // ANY later time — including after the restoring onOpened refetch. The
+    // client cannot order a prop's server render against the open watermark,
+    // so from the first open gesture onward `count` is owned by the fetch
+    // sources only (every admin_alerts write broadcasts a realtime ping, so
+    // fetches see every change a prop could carry). `degraded` stays synced.
     let countCalls = 0;
     fetchSpy.mockImplementation((url: string) => {
       if (url === "/api/admin/alerts/bell/token") return new Promise(() => {});
@@ -268,9 +270,47 @@ describe("useBellBadge", () => {
     });
     await waitFor(() => expect(result.current.count).toBe(6));
 
-    // …and re-enables prop sync (newest server truth wins again).
+    // …and a pre-open prop landing even AFTER the restoring fetch is still
+    // ignored (R6: the resurrect window must not reopen).
     rerender({ value: { kind: "ok", count: 7 } });
-    expect(result.current.count).toBe(7);
+    expect(result.current.count).toBe(6);
+    // degraded stays prop-synced.
+    rerender({ value: { kind: "infra_error" } });
+    expect(result.current.degraded).toBe(true);
+    expect(result.current.count).toBe(6);
+  });
+
+  it("a stale prop landing while the post-zero restoring refetch is in flight does not cancel it (R6)", async () => {
+    // The suppressed prop-sync must not bump the token or abort the
+    // in-flight restoring fetch — otherwise the badge sticks at 0 until the
+    // next ping/pathname change.
+    let resolveRestore!: (value: unknown) => void;
+    fetchSpy.mockImplementation((url: string) => {
+      if (url === "/api/admin/alerts/bell/token") return new Promise(() => {});
+      if (url === "/api/admin/alerts/bell/count") {
+        return new Promise((resolve) => {
+          resolveRestore = resolve;
+        });
+      }
+      return new Promise(() => {});
+    });
+
+    const { result, rerender } = renderBadgeHook({ kind: "ok", count: 3 });
+
+    act(() => {
+      result.current.zeroNow();
+    });
+    act(() => {
+      result.current.refetch(); // the onOpened restoring fetch (deferred)
+    });
+
+    // Stale pre-open prop lands mid-flight — must not abort/outrank the fetch.
+    rerender({ value: { kind: "ok", count: 3 } });
+    expect(result.current.count).toBe(0);
+
+    resolveRestore(okResponse({ count: 5 }));
+    await waitFor(() => expect(result.current.count).toBe(5));
+    expect(result.current.degraded).toBe(false);
   });
 
   it("mounts the realtime channel once via token POST + subscribeToBell, and onChanged triggers a refetch", async () => {

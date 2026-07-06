@@ -63,13 +63,16 @@ export function useBellBadge(initial: BellCountResult): UseBellBadgeResult {
   const tokenRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
   const lastPathRef = useRef(pathname);
-  // True between a zeroNow() open gesture and the next SUCCESSFUL count
-  // fetch. While set, prop-sync commits are suppressed: a router.refresh()
-  // that started BEFORE the open click re-renders the layout AFTER the zero
-  // with the pre-open count as a fresh prop object — "newest server truth
-  // wins" must not resurrect a count the viewer just marked seen (spec §7.2;
-  // Codex final-review R5). The panel's onOpened refetch (or any later
-  // successful fetch) is the authoritative restore point.
+  // Set by the FIRST zeroNow() open gesture and never cleared for the rest
+  // of the mount. While set, prop-sync commits of `count` are suppressed: a
+  // router.refresh() that started BEFORE the open click can deliver the
+  // pre-open count as a fresh prop object at ANY later time (even after the
+  // restoring onOpened refetch — Codex final-review R5+R6), and the client
+  // cannot order a prop's server render against the open watermark. From the
+  // first open onward, count freshness is owned by the fetch sources (open
+  // refetch, pathname, realtime ping — every admin_alerts write broadcasts a
+  // ping, so fetches see every change props could carry). `degraded` stays
+  // prop-synced.
   const zeroedRef = useRef(false);
 
   // Shared fetch core for sources 3 (pathname) and 4 (realtime ping), and
@@ -90,7 +93,6 @@ export function useBellBadge(initial: BellCountResult): UseBellBadgeResult {
           throw new Error("bad body");
         }
         if (tokenRef.current === token) {
-          zeroedRef.current = false;
           setCount(body.count);
           setDegraded(false);
         }
@@ -114,9 +116,10 @@ export function useBellBadge(initial: BellCountResult): UseBellBadgeResult {
   // affordance is orthogonal to the seen watermark) and WITHOUT tearing down
   // the refetch machinery. Bumps the same monotonic token every source guards
   // on (and aborts the in-flight request) so a count response that started
-  // BEFORE the open gesture cannot resurrect the badge; a `refetch()` / prop
-  // sync started AFTER this claims a newer token and legitimately restores
+  // BEFORE the open gesture cannot resurrect the badge; a `refetch()`
+  // started AFTER this claims a newer token and legitimately restores
   // server truth (the panel's `onOpened={refetch}` is exactly that path).
+  // Props stop committing `count` from here on — see `zeroedRef`.
   const zeroNow = useCallback(() => {
     tokenRef.current += 1;
     abortRef.current?.abort();
@@ -125,20 +128,26 @@ export function useBellBadge(initial: BellCountResult): UseBellBadgeResult {
   }, []);
 
   // Source 1/2: initial prop + prop changes (router.refresh path). Commits
-  // "newest server truth wins" — EXCEPT while `zeroedRef` is set (a prop
-  // render that raced the open gesture carries the pre-open count; see the
-  // ref's comment). An infra_error prop marks degraded but leaves `count`
-  // untouched (keeps last-known; see file header deviation note).
+  // "newest server truth wins" — until the first zeroNow() gesture, after
+  // which props no longer commit `count` (ordering vs the open watermark is
+  // unknowable client-side; see the ref's comment). An infra_error prop marks
+  // degraded but leaves `count` untouched (keeps last-known; see file header
+  // deviation note).
   useEffect(() => {
-    tokenRef.current += 1;
-    abortRef.current?.abort();
     /* eslint-disable react-hooks/set-state-in-effect -- coordinated prop sync; mirrors useNeedsAttentionBadge */
-    if (initial.kind === "ok") {
-      if (!zeroedRef.current) {
-        setCount(initial.count);
-      }
+    if (zeroedRef.current) {
+      // Post-open: props neither commit `count` nor claim the token — a
+      // stale prop must not abort/outrank the restoring refetch in flight
+      // (Codex final-review R6). Only the degraded affordance stays synced.
+      setDegraded(initial.kind === "infra_error");
+    } else if (initial.kind === "ok") {
+      tokenRef.current += 1;
+      abortRef.current?.abort();
+      setCount(initial.count);
       setDegraded(false);
     } else {
+      tokenRef.current += 1;
+      abortRef.current?.abort();
       setDegraded(true);
     }
     /* eslint-enable react-hooks/set-state-in-effect */
