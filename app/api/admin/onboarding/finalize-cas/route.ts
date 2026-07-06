@@ -457,6 +457,10 @@ async function applyShadow(
     // operator declined. applyShadow passes ONLY the raw payload fields (D-2).
     feedPolicy: { kind: "choice_aware" },
     skipDiagramsWrite: false, // payload diagrams already canonical (spec §3.4)
+    // §5.5/I6 Flow B: propagate the payload-carried DESIRED override to shows.pull_sheet_override
+    // under the SAME held show: lock (the core writes it after the Phase-2 apply). PROPAGATION ONLY
+    // — the §5.8 consistency gate (applied vs overrideSnapshot(desired)) is Task 11.
+    pullSheetOverride: parsed.pullSheetOverride,
   });
 
   if (core.outcome === "invalid_request") {

@@ -65,6 +65,12 @@ const ALLOWED: ReadonlyArray<{ file: string; symbol: string }> = [
     file: "lib/sync/runScheduledCronSync.ts",
     symbol: "async function clearShowPullSheetOverride_unlocked(",
   },
+  // §5.5/I6 durable archived-tab override propagation at publish (Flow A + Flow B), single-column
+  // write under the held show: lock — the ONE shows-UPDATE both finalize flows route through.
+  {
+    file: "lib/sync/applyStagedCore.ts",
+    symbol: "async function writeShowPullSheetOverride_unlocked(",
+  },
   { file: "lib/sync/applyStaged.ts", symbol: "async function defaultRestoreShowStatus(" },
   { file: "lib/sync/discardStaged.ts", symbol: "async function defaultRestoreShowStatus(" },
   {

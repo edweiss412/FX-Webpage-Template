@@ -10,6 +10,7 @@ import {
   type RoleFlagsNotice,
 } from "@/lib/sync/phase2";
 import type { SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
+import type { PullSheetOverride } from "@/lib/sync/pullSheetOverride";
 
 /**
  * F1 — the shared "apply a staged parse_result with reviewer choices under an ALREADY-HELD
@@ -435,6 +436,16 @@ export type ApplyStagedCoreArgs = {
   // "In sheet" deep links fall back to the wrong tab). Omitted (not {}) when the caller could not
   // compute them, so the applyShowSnapshot UPDATE arm's coalesce never wipes existing anchors.
   sourceAnchors?: Phase2Args["sourceAnchors"];
+  // §5.5/I6 — the accepted archived-tab pull-sheet override to propagate to shows.pull_sheet_override
+  // at publish. Passed by BOTH finalize flows: Flow A (first-seen) forwards the locked override read
+  // by the finalize route; Flow B (existing-show shadow) forwards payload.pullSheetOverride. Written
+  // under the EXISTING show: lock after the Phase-2 apply (no new lock holder). A revoke propagates as
+  // `null` (clears the durable override); an accept propagates the full object. OMITTED (undefined) by
+  // the live/cron/dashboard staged-apply path so it NEVER touches the durable override. PROPAGATION
+  // ONLY: the §5.8 consistency gate (refuse when applied ≠ overrideSnapshot(desired)) is Task 11.
+  // live-partition:n/a — a `shows`-only value carrier (no partition-table statement here); the override
+  // read lives in the finalize route, and the shows write is partition-agnostic.
+  pullSheetOverride?: PullSheetOverride | null;
 };
 
 export type ApplyStagedCoreResult =
@@ -473,6 +484,26 @@ export type ApplyStagedCoreDeps = {
     stagedId: string,
   ) => Promise<void>;
 };
+
+/**
+ * §5.5/I6 durable propagation of the accepted archived-tab pull-sheet override to
+ * `shows.pull_sheet_override`, under the held show: lock (adopted by the core — no new holder).
+ * Narrow single-purpose writer so the shows-UPDATE tripwire
+ * (`tests/sync/_secondCopyApplyTripwire.test.ts`) registers exactly this symbol. `null` clears the
+ * durable override (revoke); a full object pins it (accept). PROPAGATION ONLY — the §5.8
+ * consistency gate (refuse-on-mismatch) is Task 11.
+ */
+async function writeShowPullSheetOverride_unlocked(
+  tx: LockedShowTx<SyncPipelineTx>,
+  driveFileId: string,
+  override: PullSheetOverride | null,
+): Promise<void> {
+  // Raw object → $1::jsonb (postgres.js serializes; never JSON.stringify — that double-encodes).
+  await tx.queryOne(
+    `update public.shows set pull_sheet_override = $1::jsonb where drive_file_id = $2`,
+    [override, driveFileId],
+  );
+}
 
 export async function applyStagedCore(
   tx: LockedShowTx<SyncPipelineTx>,
@@ -581,6 +612,15 @@ export async function applyStagedCore(
       args.driveFileId,
       args.stagedId,
     );
+  }
+
+  // 11b. §5.5/I6 pull-sheet override propagation (Flow A + Flow B). Written AFTER the Phase-2
+  // apply succeeded, under the SAME held show: lock. Only when the caller supplied the field (the
+  // two finalize flows) — undefined leaves the durable override untouched (live/cron path). null
+  // clears it (revoke); an object pins it (accept). PROPAGATION ONLY — the §5.8 consistency gate
+  // is Task 11.
+  if (args.pullSheetOverride !== undefined) {
+    await writeShowPullSheetOverride_unlocked(tx, args.driveFileId, args.pullSheetOverride);
   }
 
   // 12. Applied (+ passthrough).
