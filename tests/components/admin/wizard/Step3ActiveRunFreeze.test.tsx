@@ -122,6 +122,16 @@ describe("Step-3 active-run freeze (spec §4.4 R8)", () => {
     expect(isDisabled(screen.getByRole("button", { name: /re-scan this sheet/i }))).toBe(true);
   });
 
+  test("the finalize-demoted MODAL's Re-scan freezes during an active run (Codex R2 HIGH)", () => {
+    render(<Step3Review wizardSessionId={WSID} rows={[demotedRow()]} isPublishRunActive />);
+    fireEvent.click(screen.getByTestId(`wizard-step3-card-${DEMOTED}-more`));
+    // Card Re-scan + open-modal Re-scan both render; EVERY re-scan mutator must
+    // be frozen (the modal one is the R2 gap).
+    const rescans = screen.getAllByRole("button", { name: /re-scan this sheet/i });
+    expect(rescans.length).toBeGreaterThanOrEqual(2);
+    for (const b of rescans) expect(isDisabled(b)).toBe(true);
+  });
+
   test("regression: with NO active run, the same controls are ENABLED", () => {
     render(<Step3Review wizardSessionId={WSID} rows={[cleanRow(), hardRow()]} />);
     expect(isDisabled(screen.getByTestId(`wizard-step3-checkbox-${CLEAN}`))).toBe(false);

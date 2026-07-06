@@ -1354,6 +1354,7 @@ export function Step3ReviewModal({
                 driveFileId={dfid}
                 wizardSessionId={wizardSessionId}
                 resultPlacement="overlay"
+                disabled={isPublishRunActive}
               />
             </>
           ) : (
