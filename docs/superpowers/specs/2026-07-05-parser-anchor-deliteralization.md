@@ -22,6 +22,7 @@ Three independent de-literalizations, shipped in one PR (they share the "single-
 
 - **Rehearsal as a work phase / stage.** DESCOPED. `StageRestriction` (`lib/parser/types.ts:28-29`) and `WorkPhase` (`:141`) are the SAME union, and the schedule model has no rehearsal *day* — `PHASE_TAG_WORKPHASES` (`lib/crew/stageSchedule.ts:16-21`) only emits Load In/Set/Show/Load Out. Adding "Rehearsal" to the stage vocab WITHOUT a day mapping makes a "Rehearsal ONLY" crew member intersect zero days (`stageWorksDay` `:24-37` → `effectiveViewerDateRestriction` `:66` returns `days: []`) — strictly worse than the current safe fallback (whole show + warning). Any rehearsal→day mapping (Set? Show?) is an ungrounded guess (Rehearsal is not in the 7-show corpus). Part B therefore recognizes the **5 already-typed stages** and *signals* an unrecognized clause; it does NOT change the type. No `StageRestriction`/`WorkPhase` edit.
 - **Always-signal on shape-recognized rooms.** Part A REPLACES the literal venue anchors with a shape predicate; a room newly recognized by shape appears on the crew/review surfaces (itself visible to Doug) — it does NOT additionally emit a new warning code. (The audit's "Additive + always-signal" variant was considered and declined during brainstorming; pure replacement was chosen.)
+- **HOTEL/VENUE short-header typo tolerance.** Deferred (R7 f2) — their header rows lack `SECTION_FIELD_HEADER_WORD` corroboration, so the field-band gate can't serve them; they need a bespoke per-router gate. Filed as a backlog item; NOT in this PR.
 - **Property/fuzz harness (audit rec 5), silent-channel wiring (rec 4), MI-1 e2e / known-sections walker (rec 6).** Separate recommendations, separate PRs.
 - **Widening date/address/dims formats (audit findings #8/#9/#11).** Tier-2, opportunistic, not this PR.
 
@@ -48,23 +49,29 @@ Introduce **three** functions with clean single-responsibility contracts (splitt
 ```ts
 // (a) PURE — name-shape only, computable from the header cell alone.
 export function roomHeaderNameShape(col0Raw: string): boolean
-// (b) LOCAL — ≥1 recognized breakout room-field in the IMMEDIATE next 1–2 non-blank table rows.
+// (b) PURE — dims token rides in the (possibly multi-line) header cell. VALUE + admit only.
+function dimsInHeader(col0Raw: string): boolean       // /\d+\s*'\s*x/i across any header line
+// (c) LOCAL — ≥1 recognized breakout room-field among the IMMEDIATE next 1–2 non-blank rows.
 function hasRoomFieldEvidence(nextRowsText: string): boolean
-// (c) UNIFIED predicate — the SAME strong-evidence gate for BOTH discovery and terminator.
+// (d) ADMIT predicate — a candidate row worth extracting a block for (discovery + terminator).
 export function isRoomHeaderShape(col0Raw: string, nextRowsText: string): boolean
-//   = roomHeaderNameShape(col0Raw) && hasRoomFieldEvidence(nextRowsText)
-// dimsInHeader(col0Raw) still exists but ONLY for VALUE extraction (splitRoomHeader), NOT the gate.
+//   = roomHeaderNameShape(col0Raw) && (dimsInHeader(col0Raw) || hasRoomFieldEvidence(nextRowsText))
 ```
 
-**Design note — comprehensive re-analysis of the room-discovery false-positive vector (adversarial-review R2 f1, R3 f2, R4 f1, R6 f1 — three consecutive same-vector rounds triggered the AGENTS.md "comprehensive re-analysis + structural defense" rule).** The literal `MABEL|LAUDERDALE` loop was safe because it matched two specific names; a shape scan over the whole document is inherently permissive, and each round surfaced a distinct false-positive class:
+**Design note — comprehensive re-analysis of the room-discovery false-positive vector (adversarial-review R2 f1, R3 f2, R4 f1, R6 f1, R7 f1 — 3+ consecutive same-vector rounds triggered the AGENTS.md "comprehensive re-analysis + structural defense" rule).** The literal `MABEL|LAUDERDALE` loop was safe because it matched two specific names; a shape scan is inherently more permissive. The resolution is a **two-stage admit-then-emit** model that separates "worth extracting a block for" from "actually a room":
 
-| Class | Example | Closed by |
+1. **ADMIT** a candidate iff `roomHeaderNameShape && (dimsInHeader || hasRoomFieldEvidence(immediate 1–2 rows))`. This ADMITS a dims-only-first block (so its dims are captured for merge — R7 f1) AND a field-bearing block.
+2. **Group** admitted candidates by header key and merge dims + fields across the group (the existing `mergeBoFields` merge-by-key logic, `:823-847`, UNCHANGED).
+3. **EMIT** a room for a key-group iff **≥1 admitted block in that group had `hasRoomFieldEvidence`** (an ACTUAL immediate room-field row) — NOT merely dims. A group whose every member is dims-only (an equipment/asset row with a unique key and no field-bearing sibling) is DROPPED. This is the load-bearing gate: `roomHasContent` alone is INSUFFICIENT because it counts `dimensions` as content (`rooms.ts:424-441`), so a dims-only equipment row would pass it — the emit gate requires a real *field*-bearing block in the group, which equipment never has.
+
+| False-positive / correctness class | Example | Closed by |
 |-------|---------|-----------|
-| All-caps NOTE inside a block | `SPECIAL NOTE` then note text | immediate-field-evidence (note text ≠ field) |
+| All-caps NOTE inside a block | `SPECIAL NOTE` then note text | not admitted (no dims, no immediate field) |
 | Uppercase FIELD-LABEL row | `BO SETUP` / `AUDIO` | `roomHeaderNameShape` item 3 (field-label exclusion) |
-| Dimension-bearing EQUIPMENT/asset row | `5' X 9' WIDESCREEN PROJECTION SCREEN` (`fixed-income:121`) | **dims-alone is NO LONGER sufficient** — must have an immediate room-field row (equipment is followed by more equipment, not fields) |
+| Dimension-bearing EQUIPMENT/asset row | `5' X 9' WIDESCREEN…` (`fixed-income:121`) | admitted (dims) BUT emit-gate DROPS it (unique key, no field-bearing block in group) |
+| Repeated room: dims-first + fields-later (CORRECTNESS) | `SALON ABCD&#10;60' x 45'` … `SALON ABCD&#10;DAY 1 & 2` + `BO Setup` | dims-only block admitted → merged into the same-key group → EMITTED because the day block is field-bearing; **dims survive** (R7 f1) |
 
-The single root cause across all three is the `dimsInHeader`-alone acceptance branch and unbounded evidence. Fix: the CREATE/terminate gate is now **`roomHeaderNameShape && hasRoomFieldEvidence(immediate next 1–2 non-blank rows)`** — a real room ALWAYS has a room-field row immediately beneath (a header with only dims and no fields is contentless and would be dropped by the existing empty-room gate at `:846` anyway). `dimsInHeader` is retained solely to EXTRACT the dims value in `splitRoomHeader`, never to decide roomhood. This holds for the corpus: east-coast `MABEL 1&#10;DAY 1 & 2` (`:26`) and `LAUDERDALE 1, 2, 3 DAY 1 & 2` (`:35`) each have `BO Setup` (`:28,:36`) immediately beneath; the fixed-income equipment row is followed by `DLP DATA PROJECTOR` (not a field). Structural defense shipped this round: the **corpus-wide rooms-array no-op test** (§8) — de-literalization MUST be a byte-identical no-op on all 15 committed fixtures — is the mechanism-agnostic guard that catches ANY residual false positive across the whole corpus, not just east-coast.
+east-coast holds: `MABEL 1&#10;DAY 1 & 2` (`:26`) + `BO Setup` (`:28`) and `LAUDERDALE …` (`:35`) + `BO Setup` (`:36`) are field-bearing → emitted; there is no lone dims-only equipment group. `dimsInHeader` is used for the admit branch and for extracting the dims value in `splitRoomHeader`, never as the sole emit criterion. Structural defense shipped this round: the **corpus-wide rooms-array no-op test** (§8) — de-literalization MUST be deep-equal to `origin/main` `rooms` on all 15 committed fixtures — is the mechanism-agnostic guard that catches ANY residual false positive OR dropped dimension across the whole corpus.
 
 **`roomHeaderNameShape(col0Raw)` (pure) returns true iff ALL hold:**
 
@@ -72,14 +79,14 @@ The single root cause across all three is the `dimsInHeader`-alone acceptance br
 2. **Not a known section/room banner.** The uppercased first line does NOT start with any structural keyword already handled by a dedicated path or that denotes a section: `GENERAL SESSION`, `BREAKOUT`, `ADDITIONAL`, `LUNCH`, `DETAILS`, plus the section banners `findGsBlockVenueHeader` already excludes (`:565-571`: `DOCUMENTS`, `DATES`, `CREW`, `DRESS`, `TRANSPORTATION`, `HOTEL`, `VENUE`, `AGENDA`, `CONTACTS`). Also NOT in `KNOWN_SECTION_HEADERS` / `KNOWN_SUB_LABELS` (`lib/parser/knownSections.ts:34,96`) and NOT a `GS <label>` field row (`^GS\s`).
 3. **Not a room-FIELD label** (adversarial-review R4 finding 1). A sheet with UPPERCASE field labels (`BO SETUP`, `AUDIO`, `SET TIME`) would otherwise satisfy the name-shape + immediate-field-evidence gate and fabricate a room named after a field label — a regression the literal MABEL/LAUDERDALE loop cannot cause. Reject the row if its uppercased first line — after stripping an optional leading `BO ` or `GS ` prefix — is one of the room-field labels that `applyBoFields`/`applyGsLabel` recognize (`rooms.ts:695-707` + the `applyBoFields` label set): `SETUP`, `SET TIME`, `SHOW TIME`, `STRIKE TIME`, `AUDIO`, `VIDEO`, `SCENIC`, `LIGHTING`, `LED`, `POWER`, `OTHER`, `DIMENSIONS`, `FLOOR`, `DIGITAL SIGNAGE`, `NAME(S)`, `NOTES`. The exclusion list is DERIVED from the live `applyBoFields`/`applyGsLabel` code (not hardcoded in the spec) so it cannot drift; the plan pins it to a shared constant.
 
-**`hasRoomFieldEvidence(nextRowsText)`**: ≥1 recognized breakout room-field row among the IMMEDIATE next 1–2 non-blank table rows following the header (the fields `applyBoFields`/`mergeBoFields` recognize — `dimensions`/`floor`/`setup`/`set time`/`show time`/`strike time`/`audio`/`video`/`scenic`/`lighting`/`power`/`other`; matched as `BO <field>` or bare label rows exactly as `applyBoFields` does). Bounded to the immediate rows, NOT the whole block (see design note above).
+**`hasRoomFieldEvidence(nextRowsText)`**: ≥1 recognized breakout room-field row among the IMMEDIATE next 1–2 non-blank table rows following the header (the fields `applyBoFields`/`mergeBoFields` recognize — `setup`/`set time`/`show time`/`strike time`/`audio`/`video`/`scenic`/`lighting`/`power`/`other`/`floor`; matched as `BO <field>` or bare label rows exactly as `applyBoFields` does). **`dimensions` is deliberately NOT field-evidence** — a dims value is what an equipment row carries, so counting it would defeat the emit gate. Bounded to the immediate rows, NOT the whole block.
 
-A tiny helper `nextNonBlankRows(lines, i, n=2)` returns the next `n` non-blank, non-separator table rows after index `i`, joined — used by both call sites so the evidence window is identical.
+A tiny helper `nextNonBlankRows(lines, i, n=2)` returns the next `n` non-blank, non-separator table rows after index `i`, joined — used by both call sites so the window is identical.
 
-**Uses (both call the SAME `isRoomHeaderShape(col0, nextNonBlankRows(...))` — name-shape + immediate-field-evidence, NO dims-alone branch):**
+**Uses:**
 
-- **v1 discovery loop (`:823-847`)**: replace `mabelRe` iteration with a scan over every candidate col0 header row, calling `isRoomHeaderShape(rawHeader, nextNonBlankRows(lines, rowIndex))` AND the header is not already claimed by the BREAKOUT/LUNCH loops (`seen`) AND not a GS/section row. The merge-by-header-key + drop-empty-room logic (`:830-847`) is otherwise **unchanged**. `MABEL 1&#10;DAY 1 & 2` and `LAUDERDALE 1, 2, 3 DAY 1 & 2` satisfy via `hasRoomFieldEvidence` (`BO Setup` immediately after); both merge by key. An all-caps note (`SPECIAL NOTE` → note text) or a dimension-bearing equipment row (`5' X 9' WIDESCREEN…` → `DLP DATA PROJECTOR`) FAILS evidence → no bogus room (R3 f2, R6 f1). So east-coast output is preserved and no false-positive rooms are created anywhere in the corpus.
-- **`extractGsBlock` terminator (`:687`)** and **`NEXT_ROOM_HEADER_RE` → `extractBoBlock` (`:880-898`)**: keep the structural keywords (`GENERAL SESSION|BREAKOUT|ADDITIONAL ROOM|LUNCH ROOM|DETAILS`) and REPLACE the `MABEL|LAUDERDALE` alternatives with `isRoomHeaderShape(col0(i), nextNonBlankRows(lines, i))` — the SAME strong-evidence gate as discovery (adversarial-review R2 finding 1 — a name-shape-only terminator would let any all-caps note / equipment / value row inside a GS/BO block truncate it silently). `extractBoBlock`/`extractGsBlock` already iterate lines by index, so the lookahead is a cheap peek. Consequence: an all-caps note / equipment row with no immediate room-field row does NOT terminate; `MABEL 1&#10;DAY 1 & 2` (BO fields immediately after) DOES terminate. The **corpus-wide rooms no-op test** (§8) plus explicit **negative terminator + discovery + equipment tests** pin this — the single highest-risk area in the PR, bounded by an evidence gate and a whole-corpus regression, not asserted blind.
+- **v1 discovery loop (`:823-847`)**: replace `mabelRe` iteration with a scan over every candidate col0 header row: ADMIT via `isRoomHeaderShape(rawHeader, nextNonBlankRows(lines, rowIndex))`, AND not already claimed by the BREAKOUT/LUNCH loops (`seen`), AND not a GS/section row. Track per-admitted-block whether it had `hasRoomFieldEvidence`. Group by header key + `mergeBoFields` (UNCHANGED). **EMIT** a key-group's room ONLY IF ≥1 of its blocks was field-bearing (replaces the `roomHasContent`-only drop for shape-discovered rooms — `roomHasContent` counts dims and would keep equipment). `MABEL 1&#10;DAY 1 & 2` / `LAUDERDALE …` are field-bearing → emitted; a `SALON ABCD&#10;60' x 45'` dims-only block merges into its same-key day-block group and is emitted with dims preserved (R7 f1); an equipment row (`5' X 9' WIDESCREEN…`, unique key, no field-bearing block) is admitted but DROPPED (R6 f1); an all-caps note is not admitted (R3 f2). No false-positive rooms anywhere in the corpus.
+- **`extractGsBlock` terminator (`:687`)** and **`NEXT_ROOM_HEADER_RE` → `extractBoBlock` (`:880-898`)**: keep the structural keywords (`GENERAL SESSION|BREAKOUT|ADDITIONAL ROOM|LUNCH ROOM|DETAILS`) and REPLACE the `MABEL|LAUDERDALE` alternatives with the ADMIT predicate `isRoomHeaderShape(col0(i), nextNonBlankRows(lines, i))` — so extraction stops at the next admitted room header (adversarial-review R2 finding 1 — a name-shape-only terminator would let an all-caps note truncate a block silently; note that a note is not admitted, so it does not terminate either). The **corpus-wide rooms no-op test** (§8) plus explicit **negative terminator + discovery + equipment + repeated-block tests** pin this — the highest-risk area in the PR, bounded by the admit/emit split and a whole-corpus regression, not asserted blind.
 
 ### 2.3 Guard conditions (Part A)
 
@@ -90,9 +97,11 @@ A tiny helper `nextNonBlankRows(lines, i, n=2)` returns the next `n` non-blank, 
 | Mixed-case field label (`Breakout Room Setup …`) | `roomHeaderNameShape` false (lowercase words present) |
 | Section banner (`DETAILS`, `CREW`, …) | `roomHeaderNameShape` false (exclusion list) |
 | Uppercase room-field label (`BO SETUP`, `AUDIO`) | `roomHeaderNameShape` false (item 3 field-label exclusion) |
-| Proper name, NO immediate room-field row (stray note / equipment-with-dims) | `isRoomHeaderShape` false (fails immediate-field-evidence — dims alone is NOT sufficient) |
-| Proper name + ≥1 room-field row IMMEDIATELY beneath | true |
-| `MABEL 1&#10;DAY 1 & 2` + `BO Setup` beneath (east-coast) | true (regression anchor) |
+| Proper name, no dims, no immediate field (stray note) | NOT admitted → no room |
+| Equipment row: dims-in-header, no immediate field, unique key (`5' X 9' WIDESCREEN…`) | ADMITTED (dims) but EMIT-gate DROPS it (no field-bearing block in group) → no room |
+| Dims-only block sharing a key with a field-bearing block (`SALON ABCD&#10;60' x 45'`) | ADMITTED (dims) → merged → EMITTED with dims (via the field-bearing sibling) |
+| Proper name + ≥1 room-field row IMMEDIATELY beneath | ADMITTED + field-bearing → EMITTED |
+| `MABEL 1&#10;DAY 1 & 2` + `BO Setup` beneath (east-coast) | EMITTED (regression anchor) |
 
 ### 2.4 Regression anchor (Part A)
 
@@ -178,10 +187,11 @@ Note: `Sho` (typo of `Show`) is NOT auto-corrected by `normalizeStageWords` (its
 export function extractStageRestriction(roleCell: string): {
   restriction: StageRestriction;
   warnings: ParseWarning[];
+  consumedOnlyClause: boolean; // true iff an ONLY(±***) stage clause was parsed (explicit OR unrecognized)
 } {
   const clause = parseStageClause(roleCell);
   if (clause.stages.length > 0 && clause.hasOnly) {
-    return { restriction: { kind: "explicit", stages: clause.stages }, warnings: [] };
+    return { restriction: { kind: "explicit", stages: clause.stages }, warnings: [], consumedOnlyClause: true };
   }
   if (clause.unrecognizedRestriction) {
     return {
@@ -192,13 +202,16 @@ export function extractStageRestriction(roleCell: string): {
         message: `Role cell has a work-phase restriction we couldn't read: '${roleCell}'`,
         rawSnippet: roleCell,
       }],
+      consumedOnlyClause: true,
     };
   }
-  return { restriction: { kind: "none" }, warnings: [] };
+  return { restriction: { kind: "none" }, warnings: [], consumedOnlyClause: false };
 }
 ```
 
-Signature change: `extractStageRestriction` now returns `{restriction, warnings}` (mirrors `extractDayRestriction`'s `DayRestrictionResult` shape, `:68-73`). Caller `crew.ts:324` threads the warnings (stamped with `crewBlockRef`) into `warnings`/`agg.warnings` exactly as `dayResult.warnings` is threaded (`:300-301`).
+Signature change: `extractStageRestriction` now returns `{restriction, warnings, consumedOnlyClause}` (the warnings mirror `extractDayRestriction`'s `DayRestrictionResult` shape, `:68-73`). Caller `crew.ts:324` threads the warnings (stamped with `crewBlockRef`) into `warnings`/`agg.warnings` exactly as `dayResult.warnings` is threaded (`:300-301`).
+
+**Triple-asterisk double-warn suppression (adversarial-review R7 finding 3):** `parseStageClause` treats `ONLY***` as the ONLY marker, so `Rehearsal ONLY***` / `Set / Rehearsal ONLY***` reach the unrecognized branch (`consumedOnlyClause = true`). The EXISTING triple-asterisk guard at `crew.ts:347-362` fires `UNKNOWN_DAY_RESTRICTION` whenever `hasTripleAsterisk(roleRaw) && dateRestriction.kind === "none" && stageRestriction.kind === "none"` — which is now ALSO true for a consumed unrecognized `ONLY***` clause, producing a MISLEADING second warning. Fix: add `&& !stageResult.consumedOnlyClause` to that guard's condition (the `***` belongs to the stage ONLY marker and `UNKNOWN_STAGE_RESTRICTION` already signals it — mirroring the existing carve-out comment at `:341-346` for recognized stage restrictions, now extended to the unrecognized-but-consumed case). A bare `*** ` on a non-stage role (`- LEAD***`, `consumedOnlyClause = false`) still correctly emits `UNKNOWN_DAY_RESTRICTION`.
 
 **`extractRoleFlags`** replaces its three hardcoded *with-ONLY* strip-patterns (the `FULL_STAGE_ONLY`/`LOAD_IN_SET_ONLY`/`LOAD_OUT_STRIKE_ONLY` handling at `:279-293`) with `parseStageClause(roleCell).cleaned` as the remainder to tokenize. Because `cleaned` is unchanged unless a with-ONLY restriction was consumed (§3.2 step 4), `extractRoleFlags` RETAINS its existing `FULL_STAGE_PATTERN` (no-ONLY) prefix strip (`:279-283`, the descriptive "works all phases" case) applied to that remainder — this is not one of the three restriction patterns being de-duplicated. Net: a `Set / Strike` (no ONLY) remainder is unchanged and tokenizes to `UNKNOWN_ROLE_TOKEN` exactly as today; a `Load In / Set / Strike / Load Out - LEAD` (full, no ONLY) still strips to `LEAD`. The `hasOnlyMarker`/`ONLY` role-flag push (`:269,336-337,365-367`) is unchanged.
 
@@ -224,35 +237,35 @@ Adding `Show` to `STAGE_RESTRICTION_VOCAB` lets a crew member be restricted to `
 
 `normalizeSectionHeaders` (`lib/parser/sectionHeaderNormalize.ts:44-97`) fuzz-corrects only three LONG headers — `LONG_SECTION_VOCAB = ["TRANSPORTATION", "EVENT DETAILS", "GS DETAILS"]` (`:16`) — behind a gate that accepts a label-only row OR a row with ≥1 field-header word (`:70-73`). The short routers `CREW`/`TECH`/`HOTEL`/`VENUE` were explicitly **deferred** as P3 in `docs/superpowers/specs/2026-06-27-parser-typo-tolerance-design.md` (§out-of-scope: "P3 (short section routers CREW/TECH/HOTEL/VENUE behind the field-band gate …)").
 
-Consequence (audit #5): a one-edit typo in a short header — `HOTLE`, `TCEH`, `VENEU` — silently vanishes the section (TECH/HOTEL/VENUE); a `CRWE` typo instead trips the loud MI-3/4/5 hard fail. This part corrects the typo in a pre-pass so the section parses AND, for CREW, pre-empts the cryptic MI hard-fail with a clean auto-correct + warning.
+Consequence (audit #5): a one-edit typo in a short header — `TCEH` — silently vanishes the TECH grid; a `CRWE` typo instead trips the loud MI-3/4/5 hard fail. This part corrects the typo in a pre-pass so TECH parses AND, for CREW, pre-empts the cryptic MI hard-fail with a clean auto-correct + warning. (HOTEL/VENUE typos are also silent per the audit, but their header rows lack the field-header corroboration this gate needs — see §4.2 — so they are deferred to a per-router follow-up.)
 
 ### 4.2 New behavior
 
 Add a `SHORT_SECTION_VOCAB` corrected behind gating STRICTER than the long-vocab path. The gates are: `minLen` + `exclude` (both real `gatedVocabCorrect` opts, `lib/parser/typoGate.ts:3-8`) + a **caller-side field-band gate** (`countFieldHeaderWords(otherCells) ≥ 1`, already at `sectionHeaderNormalize.ts:73`) + `noExactSpellingElsewhere` (caller, `:75-76`).
 
 ```ts
-const SHORT_SECTION_VOCAB = ["CREW", "TECH", "HOTEL", "VENUE"] as const;
+const SHORT_SECTION_VOCAB = ["CREW", "TECH"] as const;
 ```
 
-Aligned EXACTLY to the documented P3 set — the four short routers, all of which have a clean INFO-tab deep-link region. **`DATES` is intentionally excluded** (it was P4, not P3): it has NO header-block `RegionId` (mapping it to `schedule` would mis-link the warning to the AGENDA tab, since the DATES header lives on the INFO tab), it carries the delicate DATE↔DATES near-collision (P4), and a DATES typo already fails loudly via MI-3 — so the quiet-failure value is absent. (This narrows the informal "CREW/TECH/HOTEL/VENUE/DATES" list from the feature brief to the correct P3 four; noted in the ship report.)
+Scoped to the two short routers whose REAL header rows in the corpus carry `SECTION_FIELD_HEADER_WORDS` so the field-band gate actually fires (adversarial-review R7 finding 2): `CREW | NAME | ROLE | PHONE …` (`NAME`/`ROLE`/`PHONE` are field-header words) and `TECH | PHONE | ARRIVAL | DEPARTURE` (`PHONE`). **`HOTEL` and `VENUE` are intentionally excluded**: their real header rows are `HOTEL | RESERVATION #1 | | RESERVATION #2` and (v1) `VENUE | Four Seasons …` — NO cell is a `SECTION_FIELD_HEADER_WORD`, so the field-band gate would NEVER fire and a `HOTLE`/`VENEU` typo would be silently left uncorrected. Shipping them in the vocab would be a hollow promise. They need a bespoke per-router corroboration (e.g. a `RESERVATION #`-shape or hotel/venue-value lookahead) that is out of scope here; filed as a backlog item. **`DATES` also excluded** (P4, region-less, DATE↔DATES delicacy, already-loud MI-3). (This narrows the informal "CREW/TECH/HOTEL/VENUE/DATES" list from the feature brief to the two routers the gate can actually serve; noted in the ship report + backlog.)
 
 **Two-pass structure in `normalizeSectionHeaders`:** per row, try the existing LONG vocab first (unchanged gate: label-only OR ≥1 field word). If no long match, try `SHORT_SECTION_VOCAB` with the STRICTER gate below. Both write the SAME `SECTION_HEADER_AUTOCORRECTED` warning code (`:87`) — an EXISTING §12.4 code (`catalog.ts:1213`). No new code for Part C.
 
 - **Field-band gate (caller-side, stricter for short):** a short-header correction fires ONLY when the candidate row carries ≥1 `SECTION_FIELD_HEADER_WORDS` in its other cells (`countFieldHeaderWords`, `knownSections.ts:241`) — the `labelOnly` branch that the long vocab allows is NOT accepted for short headers (short headers are collision-prone; require field-header corroboration). A bare mistyped `CRWE` with no field-header cells is left untouched (the existing MI hard-fail still catches genuinely-absent CREW).
 - **`minLen: 4`** — `CREW`/`TECH` are 4 chars, so the established `minLen: 5` (field-alias fallback) would reject them. `minLen: 4` admits the four-char routers while still dropping ≤3-char noise magnets. Damerau-1 on a 4-char token is the tight edge; the field-band gate + `noExactSpellingElsewhere` + `EXCLUDE` are the compensating controls.
-- **`EXCLUDE`** — the existing cross-vocab exclusion (`:26-31`) already includes every other `KNOWN_SECTION_HEADERS` member + `KNOWN_SUB_LABELS`. So `VENUES`/`HOTELS`/`HOTEL STAYS`/etc. (in `KNOWN_SECTION_HEADERS`) are in `EXCLUDE` and are never fuzzed into a short router, and `noExactSpellingElsewhere` prevents shadowing a real header. `DATE`/`DAY`/`ROOM` sub-labels (`knownSections.ts:107,112,113`) remain in `EXCLUDE` harmlessly.
+- **`EXCLUDE`** — the existing cross-vocab exclusion (`:26-31`) already includes every other `KNOWN_SECTION_HEADERS` member + `KNOWN_SUB_LABELS`, and `noExactSpellingElsewhere` prevents shadowing a real header. `TECH`↔`TEAM` is Damerau-2 (safe); `CREW`↔`CREWS` (`CREWS` in `KNOWN_SECTION_HEADERS`→`EXCLUDE`). `DATE`/`DAY`/`ROOM` sub-labels remain in `EXCLUDE` harmlessly.
 
-**Region mapping:** extend `CANON_TO_REGION` (`:18-22`) with the four short headers, using the canonical `RegionId` values from `REGION_ANCHOR_SPEC` (`lib/sheet-links/buildSheetDeepLink.ts:61-123`): `CREW`→`crew`, `TECH`→`crew` (the `crew` region header is `/^(CREW|TECH)$/i`, `:76`), `HOTEL`→`hotels` (`:85-90`), `VENUE`→`venue` (`:107-112`). All four are valid `RegionId` union members (`REGION_IDS`, `:29-44`).
+**Region mapping:** extend `CANON_TO_REGION` (`:18-22`) with the two short headers, using the canonical `RegionId` values from `REGION_ANCHOR_SPEC` (`lib/sheet-links/buildSheetDeepLink.ts:61-123`): `CREW`→`crew`, `TECH`→`crew` (the `crew` region header is `/^(CREW|TECH)$/i`, `:76`). Both are valid `RegionId` union members (`REGION_IDS`, `:29-44`).
 
 ### 4.3 Guard conditions (Part C)
 
 | Input | Behavior |
 |-------|----------|
 | Correctly-spelled `CREW` | `gatedVocabCorrect` returns `{corrected:false}` (exact-first, `typoGate.ts:23-25`) → unchanged (corpus guard: no-op on clean sheets) |
-| `CRWE` with field-header cells (`NAME`/`ROLE`) in the row | corrected to `CREW` + `SECTION_HEADER_AUTOCORRECTED`, region `crew` |
-| `HOTLE` / `TCEH` / `VENEU` with field-header cells | corrected to `HOTEL`/`TECH`/`VENUE` |
+| `CRWE` in a `CREW \| NAME \| ROLE \| PHONE` row | corrected to `CREW` + `SECTION_HEADER_AUTOCORRECTED`, region `crew` |
+| `TCEH` in a `TECH \| PHONE \| ARRIVAL \| DEPARTURE` row | corrected to `TECH` (PHONE is a field-header word), region `crew` |
 | `CRWE` label-only, no field-header cells | field-band gate fails → NOT corrected (left for MI hard-fail) |
-| `HOTELS` / `VENUES` (real plural header) | in `EXCLUDE` → never fuzzed to `HOTEL`/`VENUE` |
+| `CREWS` (real plural header) | in `EXCLUDE` → never fuzzed to `CREW` |
 | A real `CREW` header already present elsewhere in the doc | `noExactSpellingElsewhere` (`:75-76`) → the mistyped one is NOT corrected (never shadow a real header) |
 | `TEAM` | `Damerau(TEAM,TECH)=2 > 1` → no match. Safe. |
 
@@ -309,7 +322,8 @@ Every new test states the concrete failure mode it catches; expected values deri
 - **Corpus-wide rooms no-op (PRIMARY structural defense, R6 finding 1):** for EVERY fixture under `fixtures/shows/raw/`, assert `parseSheet(...).rooms` deep-equals a snapshot captured from `origin/main`. Catches ANY false-positive room across the whole corpus (e.g. the dimension-bearing equipment row `fixed-income:121`), not just east-coast. Failure mode: shape discovery fabricates or drops a room on any real sheet. (Assert against the parsed `rooms` data source, not a rendered container.)
 - **Novel-venue recognition:** synthetic markdown with `| SALON ABCD |` and a `BO Setup` field row immediately beneath (+ a dims line in the header cell) → assert one breakout room `{name:'SALON ABCD', dimensions:"60' x 45'"}` appears (was dropped on `origin/main`). Failure mode: literal-only recognition.
 - **Novel-venue recognition (no-dim, fields-beneath):** synthetic `| GRAND FOYER&#10;DAY 1 & 2 |` (NO dims token) followed immediately by a recognized room-field row (`BO Setup`) → assert the room is recognized via `hasRoomFieldEvidence`. Exercises the `MABEL 1&#10;DAY 1 & 2` merge shape. Failure mode: predicate can't see immediate fields.
-- **Negative (equipment-with-dims is not a room, R6 finding 1):** a dimension-bearing asset row (`| 5' X 9' WIDESCREEN PROJECTION SCREEN W/ MOUNTING HARDWARE |`) followed by more asset rows (`DLP DATA PROJECTOR`, not a room field) → assert NO room is created (dims alone is not sufficient; immediate-field-evidence fails). Failure mode: dims-alone acceptance turns equipment into rooms.
+- **Negative (equipment-with-dims is not a room, R6 finding 1):** a dimension-bearing asset row (`| 5' X 9' WIDESCREEN PROJECTION SCREEN W/ MOUNTING HARDWARE |`) followed by more asset rows (`DLP DATA PROJECTOR`, not a room field) → assert NO room is created (admitted via dims but dropped by the emit gate — no field-bearing block in its key-group). Failure mode: dims counted as content turns equipment into rooms.
+- **Repeated-block dims survive (R7 finding 1):** synthetic `| SALON ABCD&#10;60' x 45' |` (dims-only, no immediate field) appearing BEFORE a later `| SALON ABCD&#10;DAY 1 & 2 |` + `BO Setup` row → assert ONE room `{name:'SALON ABCD', dimensions:"60' x 45'", setup:...}` (dims from the first block MERGED, room emitted because the second block is field-bearing). Failure mode: requiring immediate fields on every block drops the dims-only block and loses its dimensions.
 - **Negative (terminator does not truncate, R2 finding 1):** a GS/BO block with an all-caps non-room row (`| SPECIAL NOTE |`, followed by more note text — NOT a room field) BEFORE later legitimate room-field rows → assert extraction does NOT stop at the note row and the later fields ARE captured on the room. Failure mode: name-shape-only terminator truncates the block silently.
 - **Negative (discovery does not fabricate, R3 finding 2):** SAME fixture — assert NO room named `SPECIAL NOTE` is created (immediate next rows are note text, not fields). Failure mode: discovery fabricates a bogus room from a note.
 - **Negative (uppercase field labels are not rooms, R4 finding 1):** a room block whose field labels are UPPERCASE — `| BO SETUP |` then `| BO SET TIME |`, `| AUDIO |` then `| VIDEO |` — → assert NO room named `BO SETUP` / `AUDIO` is created (`roomHeaderNameShape` item 3 rejects field labels). Failure mode: field-label rows fabricate rooms on uppercase-label sheets.
@@ -320,6 +334,7 @@ Every new test states the concrete failure mode it catches; expected values deri
 - **Regression:** the three original phrasings still produce identical `StageRestriction` (full-4, `[Load In,Set]`, `[Load Out,Strike]`).
 - **No-cascade:** `Set / Strike ONLY` → `extractRoleFlags` produces ZERO `UNKNOWN_ROLE_TOKEN` (was 2 on `origin/main`). Failure mode: duplication not removed.
 - **Signal:** `Rehearsal ONLY` → `extractStageRestriction` returns one `UNKNOWN_STAGE_RESTRICTION` warning and `{kind:"none"}` (whole-show fallback). Assert NO `UNKNOWN_ROLE_TOKEN` double-warn.
+- **Triple-asterisk single-signal (R7 finding 3):** a crew row `Rehearsal ONLY***` and `Set / Rehearsal ONLY***` → the crew parse yields EXACTLY ONE `UNKNOWN_STAGE_RESTRICTION` and ZERO `UNKNOWN_DAY_RESTRICTION` (the `consumedOnlyClause` guard suppresses the triple-asterisk day warning). Control: `- LEAD***` still emits `UNKNOWN_DAY_RESTRICTION` (consumedOnlyClause false). Failure mode: the `***` produces a misleading day-restriction warning alongside the stage warning.
 - **SHOW_CALLER collision (R1 finding 1):** `SHOW CALLER`, `SHOW CALLER ONLY`, `- SHOW CALLER` → `extractRoleFlags` yields role flag `SHOW_CALLER` (NOT stage `Show` + unknown `CALLER`); `extractStageRestriction` → `{kind:"none"}`, NO `UNKNOWN_STAGE_RESTRICTION`. Failure mode: full-segment-exact matching regressed to prefix-matching, cannibalizing the role.
 - **Hyphenated role scopes preserved (R5 finding 1):** `BO - V1 ONLY`, `GS - A1 ONLY`, `BO - LEAD ONLY` → `extractStageRestriction` `{kind:"none"}` with NO `UNKNOWN_STAGE_RESTRICTION`, AND `extractRoleFlags` yields the roles (`BO`+`V1`, `GS`+`A1`, `BO`+`LEAD`) + `ONLY`. Failure mode: `/`-only classification misreads a hyphen-scoped role as an unknown stage restriction and strips the role flags.
 - **Anchor resolution (R5 finding 2):** a crew row producing `UNKNOWN_STAGE_RESTRICTION` → `resolveWarningSourceCells` resolves it by `blockRef.name` to the role cell (a non-null `sourceCell`) on both the sync and onboarding anchor paths. Failure mode: added to the actionable set but no resolver branch → link-less actionable row.
@@ -329,10 +344,11 @@ Every new test states the concrete failure mode it catches; expected values deri
 - **Existing `tests/…stage-filtered-schedule` + `personalization` + `crew` suites** stay green.
 
 ### Part C
-- **Correction:** `CRWE` in a row carrying `NAME`/`ROLE` field-header words → corrected to `CREW` + `SECTION_HEADER_AUTOCORRECTED` with region `crew`. `HOTLE`→`HOTEL` (region `hotels`), `TCEH`→`TECH` (region `crew`), `VENEU`→`VENUE` (region `venue`).
+- **Correction:** `CRWE` in a `CREW | NAME | ROLE | PHONE`-shape row → corrected to `CREW` + `SECTION_HEADER_AUTOCORRECTED`, region `crew`. `TCEH` in a `TECH | PHONE | ARRIVAL | DEPARTURE`-shape row → `TECH`, region `crew`.
 - **Gate:** `CRWE` label-only (no field-header cells) → NOT corrected (field-band gate).
-- **Plural non-shadow:** `HOTELS`/`VENUES` → NEVER corrected to `HOTEL`/`VENUE` (EXCLUDE).
+- **Plural non-shadow:** `CREWS` → NEVER corrected to `CREW` (EXCLUDE).
 - **No-shadow:** a mistyped `CRWE` with a correctly-spelled `CREW` elsewhere in the doc → NOT corrected.
+- **Out-of-scope routers stay untouched:** `HOTLE | RESERVATION #1 | | RESERVATION #2` and `VENEU | Four Seasons …` → NOT corrected (no field-header word; deferred — documents the R7 f2 boundary).
 - **Corpus no-op:** every committed clean fixture → `normalizeSectionHeaders` produces zero short-header corrections (no false positives on real sheets).
 
 ---
@@ -341,14 +357,16 @@ Every new test states the concrete failure mode it catches; expected values deri
 
 - **Fail-open posture on unrecognized clauses is intentional.** `Rehearsal ONLY` → whole-show + warning (NOT zero-days, NOT hard-fail). This mirrors the existing `unknown_asterisk` fallback (`crew.ts:347-362`) and is safer than hiding a show from a crew member. Cited: §1 out-of-scope (Rehearsal) + the `effectiveViewerDateRestriction` zero-days trap (`stageSchedule.ts:66`).
 - **Shape-recognized rooms are NOT signaled.** Deliberate (brainstorming chose "replace", declined "always-signal"). A newly-recognized room is visible on the review surface by its presence. §1 out-of-scope.
-- **`minLen: 4` for the short vocab** (vs the established `minLen: 5` for field-alias fallback) is deliberate — `CREW`/`TECH` are 4 chars. The caller-side field-band corroboration (`countFieldHeaderWords ≥ 1`, `:73`) + `noExactSpellingElsewhere` + `EXCLUDE` are the compensating gates. Cited: typo-tolerance design §4.3 deferred these *behind the field-band gate*, which is exactly this gate. **`DATES` deliberately NOT in the short vocab** — P4 (not P3), region-less, DATE↔DATES delicacy, already-loud MI-3. See §4.2.
+- **`minLen: 4` for the short vocab** (vs the established `minLen: 5` for field-alias fallback) is deliberate — `CREW`/`TECH` are 4 chars. The caller-side field-band corroboration (`countFieldHeaderWords ≥ 1`, `:73`) + `noExactSpellingElsewhere` + `EXCLUDE` are the compensating gates. Cited: typo-tolerance design §4.3 deferred these *behind the field-band gate*, which is exactly this gate. **Part C vocab is CREW/TECH only** — HOTEL/VENUE header rows carry no `SECTION_FIELD_HEADER_WORD` so the field-band gate can never fire for them (R7 f2); shipping them would be a hollow promise, so they are deferred to a per-router follow-up. `DATES` also excluded (P4, region-less, already-loud MI-3). See §4.2.
+- **Room de-literalization is an admit-then-emit split, not a single predicate.** dims-only blocks are ADMITTED (to preserve dims via merge — R7 f1) but a room is EMITTED only when its key-group has a field-bearing block (so equipment with dims is dropped — R6 f1). `dimsInHeader` in the emit gate would reintroduce the equipment false-positive; the emit gate is field-evidence, not `roomHasContent` (which counts dims). Do not relitigate.
+- **The `consumedOnlyClause` flag on `extractStageRestriction`** exists solely to suppress the pre-existing `crew.ts` triple-asterisk `UNKNOWN_DAY_RESTRICTION` when an `ONLY***` stage clause already consumed the marker (R7 f3) — it is not a new restriction concept.
 - **`STAGE_VOCAB` (typo vocab, `:174`) stays 4-wide; `STAGE_RESTRICTION_VOCAB` (grammar, new) is 5-wide.** Two different vocabularies for two different jobs (spelling correction vs clause recognition). Not a contradiction.
 - **Corpus-wide rooms no-op is the room contract**, not "looks right." De-literalization must be deep-equal to `origin/main` `rooms` on ALL committed fixtures; a bogus room anywhere fails. Discovery/terminator gate is name-shape + immediate-field-evidence (dims-alone rejected — R6). This whole-corpus regression is the structural defense that closed the three-round false-positive vector; do not relitigate the dims-alone branch.
 
 ## 10. Self-consistency / numeric sweep
 
 - Stage counts: `STAGE_RESTRICTION_VOCAB` = **5** (Load In, Set, Show, Strike, Load Out). `STAGE_VOCAB` (typo) = **4** (no Show) — intentional, §3.3.
-- `SHORT_SECTION_VOCAB` = **4** (CREW, TECH, HOTEL, VENUE — DATES excluded per §4.2). `LONG_SECTION_VOCAB` = **3** (unchanged).
+- `SHORT_SECTION_VOCAB` = **2** (CREW, TECH — HOTEL/VENUE deferred per §4.2 R7 f2, DATES excluded per §4.2). `LONG_SECTION_VOCAB` = **3** (unchanged).
 - New §12.4 codes = **1** (`UNKNOWN_STAGE_RESTRICTION`). New room codes = **0**. New Part-C codes = **0** (reuses `SECTION_HEADER_AUTOCORRECTED`).
 - Rooms.ts literal sites de-literalized = **3** (`:687`, `:825`, `:880-881`).
 - Stage-restriction hardcoded patterns removed = **3** (replaced by 1 `parseStageClause`).
