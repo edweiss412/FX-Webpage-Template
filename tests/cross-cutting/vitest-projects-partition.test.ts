@@ -4,7 +4,7 @@ import { join, relative, sep } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import vitestConfig from "@/vitest.config";
-import { ENV_BOUND_EXCLUDES, PARALLEL_TEST_GLOBS } from "@/vitest.projects";
+import { ENV_BOUND_EXCLUDES, NIGHTLY_ONLY_EXCLUDES, PARALLEL_TEST_GLOBS } from "@/vitest.projects";
 
 // Structural guard for the two-project vitest split (PR B). The #1 risk of a
 // projects split is a glob typo that drops a whole directory from BOTH projects
@@ -176,6 +176,44 @@ describe("vitest projects split — partition is complete and correctly wired", 
         `${f} runs when the env var is unset (x-audits + local pnpm test)`,
       ).not.toContain(f);
     }
+  });
+
+  it("the mutation harness is NOT in the parallel set (must be excludable from serial)", () => {
+    for (const glob of NIGHTLY_ONLY_EXCLUDES) {
+      const path = glob.replace(/^\*\*\//, "");
+      expect(allTestFiles, `${path} should exist`).toContain(path);
+      expect(matchesParallel(path), `${path} must be SERIAL so the opt-in gate governs it`).toBe(false);
+    }
+  });
+
+  it("VITEST_INCLUDE_MUTATION_HARNESS gates the harness in the serial exclude (opt-IN)", async () => {
+    const serialExcludeFor = async (value: string | undefined): Promise<string[]> => {
+      vi.resetModules();
+      if (value === undefined) vi.stubEnv("VITEST_INCLUDE_MUTATION_HARNESS", "");
+      else vi.stubEnv("VITEST_INCLUDE_MUTATION_HARNESS", value);
+      try {
+        const cfg = (await import("@/vitest.config")).default as {
+          test?: { projects?: ProjectEntry[] };
+        };
+        return cfg.test?.projects?.find((p) => p.test.name === "serial")?.test.exclude ?? [];
+      } finally {
+        vi.unstubAllEnvs();
+        vi.resetModules();
+      }
+    };
+    const optedIn = await serialExcludeFor("1"); // nightly workflow
+    const def = await serialExcludeFor(undefined); // local pnpm test + unit-suite
+    for (const f of NIGHTLY_ONLY_EXCLUDES) {
+      expect(def, `${f} excluded by default (kept off the fast path)`).toContain(f);
+      expect(optedIn, `${f} runs when VITEST_INCLUDE_MUTATION_HARNESS=1 (nightly)`).not.toContain(f);
+    }
+  });
+
+  it("the nightly workflow sets the opt-in var and targets the harness file", () => {
+    const wf = readFileSync(join(ROOT, ".github", "workflows", "mutation-harness.yml"), "utf8");
+    expect(wf.includes("VITEST_INCLUDE_MUTATION_HARNESS"), "workflow must opt IN to the harness").toBe(true);
+    expect(wf.includes("tests/parser/mutationHarness.test.ts"), "workflow must target the harness file").toBe(true);
+    expect(/schedule:/.test(wf) && /workflow_dispatch:/.test(wf), "workflow must be scheduled + dispatchable").toBe(true);
   });
 
   it("unit-suite.yml uses the env var, NOT the (ignored) vitest --exclude flag", () => {

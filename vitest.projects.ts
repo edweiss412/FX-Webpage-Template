@@ -37,6 +37,15 @@ export const ENV_BOUND_EXCLUDES = [
   "**/tests/cross-cutting/email-canonicalization.test.ts",
 ];
 
+// The mutation harness (tests/parser/mutationHarness.test.ts) exhaustively parses
+// ~102k mutants (~92 min serial, Task 8 Step 1) — far past any merge-gating leg
+// budget. It is therefore EXCLUDED from the default discovered suite (local
+// `pnpm test` + the unit-suite legs) and run ONLY by the nightly workflow, which
+// opts IN via VITEST_INCLUDE_MUTATION_HARNESS=1. Opt-IN (not the env-bound opt-OUT
+// pattern) because the safe default is "skip the 92-min file". (User-directed
+// nightly placement, 2026-07-06; spec §Non-goals + AC-5.)
+export const NIGHTLY_ONLY_EXCLUDES = ["**/tests/parser/mutationHarness.test.ts"];
+
 export const PARALLEL_TEST_GLOBS = [
   "tests/components/**/*.test.{ts,tsx}",
   "tests/help/**/*.test.{ts,tsx}",
