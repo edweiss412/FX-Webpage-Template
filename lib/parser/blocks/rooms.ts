@@ -703,6 +703,26 @@ function roomHasContent(room: RoomRow): boolean {
   ].some((v) => v != null);
 }
 
+// A room field VALUE populated by applyBoFields — i.e. real BO-block evidence, EXCLUDING
+// the header-harvested dimensions/floor that roomHasContent also counts. Used to gate a
+// show-prefixed BREAKOUT header so header geometry alone cannot admit it.
+function roomHasBoFieldValue(room: RoomRow): boolean {
+  return [
+    room.setup,
+    room.set_time,
+    room.show_time,
+    room.strike_time,
+    room.audio,
+    room.video,
+    room.lighting,
+    room.scenic,
+    room.power,
+    room.digital_signage,
+    room.other,
+    room.notes,
+  ].some((v) => v != null);
+}
+
 function parseV4RoomBlock(
   lines: string[],
   startLine: number,
@@ -1074,10 +1094,14 @@ function parseBoRooms(markdown: string, model: RoomHeaderModel): RoomRow[] {
 
   // v2 format: numbered "| BREAKOUT N&#10;… |" AND numberless "| BREAKOUT&#10;LASALLE A |"
   // / "| BREAKOUT WALTON ROOM Dimensions Floor |" (redefining exporter) — the name
-  // rides on the next line or after the word, with no number.
-  // Case-SENSITIVE (uppercase BREAKOUT) so it matches real headers but not
-  // mixed-case template field labels like "Breakout Room Setup Date / Time".
-  const boBlockRe = /^\|\s*(BREAKOUT(?:&#10;|\s)[^|]*?)\s*\|/gm;
+  // rides on the next line or after the word, with no number. An optional single
+  // UPPERCASE-alnum-token show-code prefix before the keyword ("RPAS BREAKOUT 1&#10;
+  // LASALLE A") is admitted too; the name is derived from the non-prefix, non-BREAKOUT
+  // portion by splitRoomHeader, and a prefixed header is additionally gated on positive
+  // BO-field content below (roomHasBoFieldValue) — BL-ROOM-SHOW-PREFIXED-BREAKOUT-HEADER.
+  // Case-SENSITIVE (uppercase BREAKOUT + uppercase prefix) so it matches real headers but
+  // not mixed-case template field labels like "Breakout Room Setup Date / Time".
+  const boBlockRe = /^\|\s*((?:[A-Z0-9]+\s+)?BREAKOUT(?:&#10;|\s)[^|]*?)\s*\|/gm;
   let m: RegExpExecArray | null;
 
   // Group breakout blocks by venue key so a room reused across days is MERGED into one
@@ -1113,6 +1137,12 @@ function parseBoRooms(markdown: string, model: RoomHeaderModel): RoomRow[] {
     //    "BREAKOUT 1 SALON D" is kept even with empty fields.
     if (!numbered && !roomHasContent(room)) continue;
     if (numbered && !roomHasContent(room) && isPlaceholderRoomName(name)) continue;
+    // A show-code prefix (firstLine does not itself start with BREAKOUT) needs POSITIVE
+    // BO-field evidence: roomHasContent counts the header-harvested dims/floor assigned
+    // above, so a "<PREFIX> BREAKOUT N&#10;dims" with no BO block would otherwise
+    // fabricate a room (BL-ROOM-DIMS-ONLY-NOVEL-HEADER paranoia).
+    const prefixed = !/^BREAKOUT/.test(firstLine);
+    if (prefixed && !roomHasBoFieldValue(room)) continue;
 
     if (!boGroups.has(headerKey)) {
       boGroups.set(headerKey, []);
@@ -1380,8 +1410,14 @@ function splitRoomHeader(
 ): { name: string; dimensions: string | null; floor: string | null } {
   let s = clean(raw.replace(/&#10;/g, " ")).replace(/\s+/g, " ").trim();
 
-  // 1. kind label prefix + stray leading separator
+  // 1. kind label prefix + stray leading separator. A show-code prefix (a single
+  // UPPERCASE alnum token) before an UPPERCASE `BREAKOUT` keyword is stripped first,
+  // case-SENSITIVELY (own regex, no /i) so it only fires on a real prefixed breakout
+  // header ("RPAS BREAKOUT 1 LASALLE A") and never on a mixed-case name that merely
+  // contains "Breakout" ("Grand Breakout Hall"). The lookahead keeps it inert unless
+  // an uppercase BREAKOUT immediately follows.
   s = s
+    .replace(/^[A-Z0-9]+\s+(?=BREAKOUT\b)/, "")
     .replace(/^(?:GENERAL\s+SESSION|BREAKOUT(?:\s+\d+)?|ADDITIONAL\s+ROOM|LUNCH\s+ROOM)\b/i, "")
     .replace(/^[\s:–—-]+/, "")
     .trim();
