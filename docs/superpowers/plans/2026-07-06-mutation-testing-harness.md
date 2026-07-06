@@ -261,8 +261,8 @@ git commit --no-verify -m "test(parser): row taxonomy + header-anchored logical-
 ```ts
 // tests/parser/mutation/classify.test.ts
 import { describe, it, expect } from "vitest";
-import { KNOWN_SECTION_HEADERS, PREFIX_SECTION_FAMILIES } from "@/lib/parser/knownSections";
-import { REQUIRED_HEADERS_FOR_DOMAIN } from "./classify"; // Task-2 lockstep table (below)
+import { KNOWN_SECTION_HEADERS, PREFIX_SECTION_FAMILIES, normalizeHeader } from "@/lib/parser/knownSections";
+import { EXPECTED_HEADER_DOMAINS } from "./classify"; // hand-authored domain oracle (below)
 import { resolveHeader, SECTION_DOMAIN_MAP, classifySection, RISK_CRITICAL } from "./classify";
 
 describe("classifier parity (Codex R2/R4/R8)", () => {
@@ -278,8 +278,18 @@ describe("classifier parity (Codex R2/R4/R8)", () => {
       expect(SECTION_DOMAIN_MAP[resolveHeader(`${fam} GRAND BALLROOM`)!]).toBe("rooms");
     }
   });
-  it("lockstep: every REQUIRED_HEADERS_FOR_DOMAIN row maps to its intended risk-critical domain (R8)", () => {
-    for (const [header, domain] of REQUIRED_HEADERS_FOR_DOMAIN) {
+  it("EXPECTED_HEADER_DOMAINS COVERS the live registry — a new parser header forces a row (R20)", () => {
+    // Anchors the domain oracle to the EXTERNAL source of truth (knownSections.ts), not a private
+    // subset. If KNOWN_SECTION_HEADERS gains a header, this fails until the oracle gets a row —
+    // so the domain gate can't silently omit a new registry header (Codex plan-R20 [medium]).
+    const covered = new Set(EXPECTED_HEADER_DOMAINS.map(([h]) => normalizeHeader(h)));
+    for (const h of KNOWN_SECTION_HEADERS) expect(covered, `no expected-domain row for registry header ${h}`).toContain(h);
+  });
+  it("lockstep: SECTION_DOMAIN_MAP agrees with the independent EXPECTED_HEADER_DOMAINS oracle (R8/R20)", () => {
+    // SECTION_DOMAIN_MAP and EXPECTED_HEADER_DOMAINS are two SEPARATELY hand-derived structures;
+    // this asserts they AGREE, so a wrong domain (e.g. CREW→hotel) in one is caught by mismatch
+    // with the other — not self-reference against a single table.
+    for (const [header, domain] of EXPECTED_HEADER_DOMAINS) {
       expect(SECTION_DOMAIN_MAP[resolveHeader(header)!], header).toBe(domain);
     }
   });
@@ -346,14 +356,24 @@ export const SECTION_DOMAIN_MAP: Record<string, Domain> = {
   CLIENT: "client", "PULL SHEET": "pull_sheet", COI: "documents", "DOCUMENT FOLDER LINK": "documents",
 };
 
-/** Lockstep table vs tests/parser/_metaKnownSectionsRegistry.test.ts REQUIRED_HEADERS (Codex R8). */
-export const REQUIRED_HEADERS_FOR_DOMAIN: ReadonlyArray<readonly [string, Domain]> = [
-  ["CREW", "crew"], ["TECH", "crew"], ["HOTEL", "hotel"], ["HOTEL RESERVATIONS", "hotel"],
-  ["HOTEL STAYS", "hotel"], ["TRANSPORTATION", "transportation"], ["GENERAL SESSION", "rooms"],
-  ["BREAKOUT", "rooms"], ["ADDITIONAL ROOM", "rooms"], ["LUNCH ROOM", "rooms"],
-  ["EVENT DETAILS", "event_details"], ["GS DETAILS", "event_details"], ["DETAILS", "event_details"],
-  ["DRESS", "dress"], ["DATES", "dates"], ["VENUE", "venue"], ["VENUES", "venue"],
-  ["IN HOUSE AV", "contacts"], ["AGENDA", "agenda"], ["AGENDA LINK", "agenda"],
+/**
+ * Hand-authored domain ORACLE: the intended domain for EVERY current KNOWN_SECTION_HEADERS entry
+ * (knownSections.ts:34-65). This is a SECOND, independently hand-derived structure from
+ * SECTION_DOMAIN_MAP above — the classifier gate asserts (a) this oracle COVERS the live registry
+ * (so a new parser header forces a row) and (b) SECTION_DOMAIN_MAP AGREES with it (so a wrong
+ * domain is caught by cross-mismatch, not self-reference). Anchored to the external registry, not
+ * a private subset (Codex plan-R20 [medium]). Every KNOWN_SECTION_HEADERS token appears here.
+ */
+export const EXPECTED_HEADER_DOMAINS: ReadonlyArray<readonly [string, Domain]> = [
+  ["CREW", "crew"], ["TECH", "crew"],
+  ["HOTEL", "hotel"], ["HOTELS", "hotel"], ["HOTEL RESERVATIONS", "hotel"], ["HOTEL RESERVATION", "hotel"],
+  ["HOTEL STAYS", "hotel"], ["HOTEL STAY", "hotel"],
+  ["GENERAL SESSION", "rooms"], ["BREAKOUT", "rooms"], ["BREAKOUTS", "rooms"], ["ADDITIONAL ROOM", "rooms"],
+  ["LUNCH ROOM", "rooms"], ["LUNCH SESSION", "rooms"], ["FOYER", "rooms"],
+  ["EVENT DETAILS", "event_details"], ["DETAILS", "event_details"], ["GS DETAILS", "event_details"],
+  ["TRANSPORTATION", "transportation"], ["DATES", "dates"], ["AGENDA", "agenda"], ["AGENDA LINK", "agenda"],
+  ["VENUE", "venue"], ["VENUES", "venue"], ["DRESS", "dress"], ["IN HOUSE AV", "contacts"],
+  ["CLIENT", "client"], ["PULL SHEET", "pull_sheet"], ["COI", "documents"], ["DOCUMENT FOLDER LINK", "documents"],
 ];
 
 // Replicates matchesTokenPrefix (knownSections.ts:155-161): startsWith + token boundary.
@@ -662,7 +682,7 @@ git commit --no-verify -m "test(parser): metamorphic oracle — verdict (incl. S
 
 **Interfaces:**
 - Consumes: `segment`/`splitCells`/types (`./rows`), `isHeaderCells`/`classifySection`/`resolveHeader`/`Domain`/`RISK_CRITICAL` (`./classify`).
-- Produces: `Mutant`, `Bucket`, `OPERATORS: Record<string, (md) => Mutant[]>`, `floorEligible(mutants): Set<Domain>`, `skippedInapplicable(md, op): Domain[]`.
+- Produces: `Mutant`, `Bucket`, `OPERATOR_GENS: Record<string, (md) => Generator<Mutant>>` (lazy source, consumed by the streaming driver), `OPERATORS: Record<string, (md) => Mutant[]>` (derived `[...gen]` array form for tests), `floorEligible(mutants): Set<Domain>`, `skippedInapplicable(md, op): Domain[]`.
 - **domains(site)** is carried on each `Mutant.domains`; boundary (`blank-row:remove`) mutants carry a 2-element `domains`.
 - **Exhaustive:** operators emit ALL applicable sites; there is no cap/`select` (plan-R2). The driver parses every generated mutant.
 
@@ -891,38 +911,41 @@ const sid = (op: string, s: LogicalSection, line: number, locus: number | string
   `${op}:B${s.index}:L${line}:X${locus}`;
 
 // ---- corrupting operators (data-row scoped) ----
-const refSub = (md: string): Mutant[] =>
-  // Skip cells already `#REF!` — rewriting them to `#REF!` is a byte-identical no-op that
-  // would still claim a siteId and count toward coverage without exercising the parser
-  // (Codex plan-R18 [medium]). The independent audit applies the identical exclusion.
-  eachDataCell(md).filter((c) => c.val.trim() !== "#REF!").map((c) => ({
-    md: withCell(md, c.line, c.cellIdx, "#REF!"), siteId: sid("ref-sub", c.sec, c.line, c.cellIdx),
-    bucket: "corrupting", domains: dom(c.sec),
-  }));
+// Every operator is a LAZY GENERATOR (`function*`), yielding one Mutant at a time. The driver
+// streams them so it can enforce MUTANT_BUDGET before parsing each mutant, never materializing a
+// full operator array (Codex plan-R20 [high]). The array form used by tests is derived below.
+function* refSub(md: string): Generator<Mutant> {
+  for (const c of eachDataCell(md)) {
+    // Skip cells already `#REF!` — rewriting them to `#REF!` is a byte-identical no-op that
+    // would still claim a siteId and count toward coverage without exercising the parser
+    // (Codex plan-R18 [medium]). The independent audit applies the identical exclusion.
+    if (c.val.trim() === "#REF!") continue;
+    yield { md: withCell(md, c.line, c.cellIdx, "#REF!"), siteId: sid("ref-sub", c.sec, c.line, c.cellIdx), bucket: "corrupting", domains: dom(c.sec) };
+  }
+}
 
-const unicodeInject = (md: string): Mutant[] =>
-  eachDataCell(md).filter((c) => scalars(c.val) >= 2).map((c) => {
+function* unicodeInject(md: string): Generator<Mutant> {
+  for (const c of eachDataCell(md)) {
+    if (scalars(c.val) < 2) continue;
     const mid = Math.floor([...c.val].length / 2);
     const ZWNJ = "\u200C"; // zero-width non-joiner (fintech live shape)
     const injected = [...c.val].slice(0, mid).join("") + ZWNJ + [...c.val].slice(mid).join("");
-    return { md: withCell(md, c.line, c.cellIdx, injected), siteId: sid("unicode-inject", c.sec, c.line, c.cellIdx), bucket: "corrupting" as const, domains: dom(c.sec) };
-  });
+    yield { md: withCell(md, c.line, c.cellIdx, injected), siteId: sid("unicode-inject", c.sec, c.line, c.cellIdx), bucket: "corrupting", domains: dom(c.sec) };
+  }
+}
 
-const mergedCell = (md: string): Mutant[] => {
-  const out: Mutant[] = [];
+function* mergedCell(md: string): Generator<Mutant> {
   for (const s of seg(md).sections) for (const r of dataRows(s)) {
     if (r.cells.length < 3) continue;
     // one mutant per interior pipe p (fuse cells p and p+1 via raw delimiter deletion) — plan-R5/R14
     for (let p = 0; p < r.cells.length - 1; p++) {
       const ls = lines(md); ls[r.line] = mergeRawCells(ls[r.line]!, p);
-      out.push({ md: ls.join("\n"), siteId: sid("merged-cell", s, r.line, p), bucket: "corrupting", domains: dom(s) });
+      yield { md: ls.join("\n"), siteId: sid("merged-cell", s, r.line, p), bucket: "corrupting", domains: dom(s) };
     }
   }
-  return out;
-};
+}
 
-const headerTypo = (md: string): Mutant[] => {
-  const out: Mutant[] = [];
+function* headerTypo(md: string): Generator<Mutant> {
   for (const s of seg(md).sections) {
     if (!s.headerRow) continue;
     const tok = s.headerRow.cells[0]!.trim();
@@ -935,13 +958,11 @@ const headerTypo = (md: string): Mutant[] => {
     [chars[pos], chars[pos + 1]] = [chars[pos + 1]!, chars[pos]!];
     const typo = chars.join("");
     if (isHeaderCells([typo])) continue; // guard: must not produce a real header
-    out.push({ md: withCell(md, s.headerRow.line, 0, typo), siteId: sid("header-typo", s, s.headerRow.line, 0), bucket: "corrupting", domains: dom(s) });
+    yield { md: withCell(md, s.headerRow.line, 0, typo), siteId: sid("header-typo", s, s.headerRow.line, 0), bucket: "corrupting", domains: dom(s) };
   }
-  return out;
-};
+}
 
-const columnShift = (md: string): Mutant[] => {
-  const out: Mutant[] = [];
+function* columnShift(md: string): Generator<Mutant> {
   for (const s of seg(md).sections) {
     const dr = dataRows(s);
     if (dr.length < 1) continue; // Codex R13: require ≥1 data row
@@ -949,28 +970,24 @@ const columnShift = (md: string): Mutant[] => {
     // insert a REAL empty leading cell (new pipe delimiter), not just whitespace (plan-R2):
     // "| x | y |" -> "|  | x | y |"
     for (const r of s.rows) ls[r.line] = ls[r.line]!.replace(/^\|/, "|  |");
-    out.push({ md: ls.join("\n"), siteId: sid("column-shift", s, s.headerRow?.line ?? s.rows[0]!.line, 0), bucket: "corrupting", domains: dom(s), dataRowCount: dr.length });
+    yield { md: ls.join("\n"), siteId: sid("column-shift", s, s.headerRow?.line ?? s.rows[0]!.line, 0), bucket: "corrupting", domains: dom(s), dataRowCount: dr.length };
   }
-  return out;
-};
+}
 
-const blankRowInject = (md: string): Mutant[] => {
-  const out: Mutant[] = [];
+function* blankRowInject(md: string): Generator<Mutant> {
   for (const s of seg(md).sections) {
     const dr = dataRows(s);
     // one mutant per interior data-row gap (plan-R3, exhaustive)
     for (let i = 0; i < dr.length - 1; i++) {
       const gapAfter = dr[i]!.line; // absolute line index in the ORIGINAL md
       const ls = lines(md); ls.splice(gapAfter + 1, 0, "");
-      out.push({ md: ls.join("\n"), siteId: sid("blank-row:inject", s, gapAfter, `gap${i}`), bucket: "corrupting", domains: dom(s) });
+      yield { md: ls.join("\n"), siteId: sid("blank-row:inject", s, gapAfter, `gap${i}`), bucket: "corrupting", domains: dom(s) };
     }
   }
-  return out;
-};
+}
 
-const blankRowRemove = (md: string): Mutant[] => {
-  const { runs, sections } = seg(md);
-  const out: Mutant[] = [];
+function* blankRowRemove(md: string): Generator<Mutant> {
+  const { runs } = seg(md);
   const ls = lines(md);
   for (let i = 0; i < runs.length - 1; i++) {
     const a = runs[i]!, b = runs[i + 1]!;
@@ -983,37 +1000,44 @@ const blankRowRemove = (md: string): Mutant[] => {
     const domB = classifySection(b.sections[0]!);
     // dedup: adjacent same-domain runs must credit the domain ONCE (matches the audit, plan-R8)
     const domains = [...new Set([domA, domB])];
-    out.push({ md: md2, siteId: `blank-row:remove:B${a.index}:L${blankLine}:Xgap`, bucket: "corrupting", domains });
+    yield { md: md2, siteId: `blank-row:remove:B${a.index}:L${blankLine}:Xgap`, bucket: "corrupting", domains };
   }
-  return out;
-};
+}
 
 // ---- cosmetic operators ----
-const sectionReorder = (md: string): Mutant[] => {
+function* sectionReorder(md: string): Generator<Mutant> {
   // EXHAUSTIVE (plan-R10): one cosmetic mutant per ADJACENT block-pair swap, not just the
   // first two — a parser order-dependence between late blocks must also be exercised.
   const blocks = md.split(/\n\s*\n/);
-  if (blocks.length < 2) return [];
-  const out: Mutant[] = [];
+  if (blocks.length < 2) return;
   for (let i = 0; i < blocks.length - 1; i++) {
     const swapped = [...blocks.slice(0, i), blocks[i + 1], blocks[i], ...blocks.slice(i + 2)].join("\n\n");
     if (swapped === md) continue; // identical blocks → no-op, skip
-    out.push({ md: swapped, siteId: `section-reorder:B${i}:L0:Xpair${i}`, bucket: "cosmetic", domains: [] });
+    yield { md: swapped, siteId: `section-reorder:B${i}:L0:Xpair${i}`, bucket: "cosmetic", domains: [] };
   }
-  return out;
-};
+}
 
-const trailingWhitespace = (md: string): Mutant[] => {
+function* trailingWhitespace(md: string): Generator<Mutant> {
   const swapped = md.replace(/\n/g, "  \n") + "\n\n"; // trailing spaces on each line + trailing blank lines
-  if (swapped === md) return [];
-  return [{ md: swapped, siteId: "trailing-whitespace:B0:L0:Xeof", bucket: "cosmetic", domains: [] }];
-};
+  if (swapped === md) return;
+  yield { md: swapped, siteId: "trailing-whitespace:B0:L0:Xeof", bucket: "cosmetic", domains: [] };
+}
 
-export const OPERATORS: Record<string, (md: string) => Mutant[]> = {
+/** Raw LAZY operators — the single source of truth. The driver (runAll) consumes THESE so it
+ *  streams one mutant at a time and enforces MUTANT_BUDGET before parsing each, never allocating
+ *  a whole operator array (Codex plan-R20 [high]). */
+export const OPERATOR_GENS: Record<string, (md: string) => Generator<Mutant>> = {
   "header-typo": headerTypo, "ref-sub": refSub, "unicode-inject": unicodeInject,
   "column-shift": columnShift, "blank-row:inject": blankRowInject, "blank-row:remove": blankRowRemove,
   "merged-cell": mergedCell, "section-reorder": sectionReorder, "trailing-whitespace": trailingWhitespace,
 };
+
+/** Eager ARRAY form — a thin `[...gen]` wrapper for the ergonomic test call sites (which use
+ *  `.filter/.map/.length/.find/.some/.slice` on bounded synthetic inputs). DERIVED from
+ *  OPERATOR_GENS, so the lazy and array forms can never drift. */
+export const OPERATORS: Record<string, (md: string) => Mutant[]> = Object.fromEntries(
+  Object.entries(OPERATOR_GENS).map(([k, g]) => [k, (md: string) => [...g(md)]]),
+);
 
 export function floorEligible(mutants: Mutant[]): Set<Domain> {
   const s = new Set<Domain>();
@@ -1548,14 +1572,16 @@ Run a throwaway measurement as a temporary vitest file (vitest resolves the `@/`
 // tests/parser/mutation/_measure.test.ts   (TEMPORARY — delete before committing Task 8)
 import { it } from "vitest";
 import { FIXTURES, readFixture } from "./fixtures";
-import { OPERATORS } from "./operators";
+import { OPERATOR_GENS } from "./operators";
 import { capture, verdict } from "./oracle";
 it("measure corpus size + wall-clock", () => {
   let count = 0;
-  for (const f of FIXTURES) for (const gen of Object.values(OPERATORS)) count += gen(readFixture(f)).length;
+  // Stream-count (no array materialization) — mirrors runAll's O(1) shape, so peak heap here
+  // matches the real driver, not an accumulate-then-count proxy (Codex plan-R19/R20).
+  for (const f of FIXTURES) for (const gen of Object.values(OPERATOR_GENS)) for (const _ of gen(readFixture(f))) count++;
   const t0 = performance.now();
   for (const f of FIXTURES) { const md = readFixture(f); const b = capture(md, `${f.slug}.md`);
-    for (const gen of Object.values(OPERATORS)) for (const m of gen(md)) verdict(b, capture(m.md, `${f.slug}.md`)); }
+    for (const gen of Object.values(OPERATOR_GENS)) for (const m of gen(md)) verdict(b, capture(m.md, `${f.slug}.md`)); }
   console.log(`[measure] mutant count: ${count}  full-parse wall-clock ms: ${Math.round(performance.now() - t0)}`);
 }, 300_000);
 ```
@@ -1574,7 +1600,7 @@ If the measured numbers are within budget, proceed with the single-`beforeAll` d
 // tests/parser/mutationHarness.test.ts
 import { describe, it, expect, beforeAll } from "vitest";
 import { FIXTURES, readFixture } from "./mutation/fixtures";
-import { OPERATORS } from "./mutation/operators";
+import { OPERATOR_GENS } from "./mutation/operators";
 import type { Mutant } from "./mutation/operators";
 import { capture, verdict, fingerprint } from "./mutation/oracle";
 import { KNOWN_SILENT_HOLES, reconcileLedger } from "./mutation/knownHoles";
@@ -1593,37 +1619,27 @@ const withSlug = (m: Mutant, op: string, slug: string): Mutant =>
   ({ ...m, siteId: `${op}:${slug}:${m.siteId.slice(op.length + 1)}` });
 
 /** Exhaustive: parse EVERY generated mutant across all fixtures × operators (plan-R2).
- *  Two STREAMING phases (Codex plan-R18 [high] + plan-R19 [high]):
- *   • Phase 1 is COUNT-ONLY — it sums `gen(md).length` per (fixture, operator) and THROWS the
- *     moment the running total crosses MUTANT_BUDGET, before any parseSheet. Generated mutant
- *     arrays are transient (GC'd each operator); NOTHING corpus-wide is retained, so an
- *     explosive-fanout regression fails fast on count without OOM-ing on retained markdown.
- *   • Phase 2 REGENERATES per (fixture, operator) and parses each mutant inline, holding at most
- *     one operator's mutants at a time. Only short siteId strings (+ actual alarms/noOps) persist
- *     across the corpus, so peak heap is bounded by one operator's output, not ~1e5 fixture-sized
- *     `md` strings. `noOps` flags any operator emitting a byte-identical mutant (plan-R18). */
+ *  SINGLE-PASS STREAMING (Codex plan-R18/R19/R20 [high], memory vector closed structurally):
+ *  operators are lazy generators (OPERATOR_GENS), so this consumes ONE mutant at a time. The
+ *  budget guard `if (++n > MUTANT_BUDGET) throw` fires BEFORE parsing each mutant AND before any
+ *  array is materialized — an explosive single-operator fanout regression throws at mutant
+ *  #(BUDGET+1) with O(1) heap, never allocating ~1e5 fixture-sized `md` strings. Nothing
+ *  corpus-wide is retained except short siteId strings (+ actual alarms/noOps). `noOps` flags any
+ *  operator emitting a byte-identical mutant (plan-R18). */
 function runAll(): { alarms: Alarm[]; allSiteIds: string[]; cosmeticViolations: string[]; noOps: string[] } {
-  // Phase 1 — COUNT ONLY, budget guard before any parse. No retention of generated mutants.
-  let projected = 0;
-  for (const f of FIXTURES) {
-    const md = readFixture(f);
-    for (const gen of Object.values(OPERATORS)) {
-      projected += gen(md).length; // transient array, discarded immediately
-      if (projected > MUTANT_BUDGET) {
-        throw new Error(`generated mutant count ${projected} exceeds MUTANT_BUDGET ${MUTANT_BUDGET} before any parse — operator fanout regression?`);
-      }
-    }
-  }
-  // Phase 2 — regenerate + parse per (fixture, operator); at most one operator's mutants in heap.
   const alarms: Alarm[] = [];
   const allSiteIds: string[] = [];
   const cosmeticViolations: string[] = [];
   const noOps: string[] = [];
+  let n = 0;
   for (const f of FIXTURES) {
     const md = readFixture(f);
     const baseline = capture(md, `${f.slug}.md`);
-    for (const [op, gen] of Object.entries(OPERATORS)) {
+    for (const [op, gen] of Object.entries(OPERATOR_GENS)) {
       for (const raw of gen(md)) {
+        if (++n > MUTANT_BUDGET) {
+          throw new Error(`mutant count exceeded MUTANT_BUDGET ${MUTANT_BUDGET} before parsing all mutants — operator fanout regression?`);
+        }
         const m = withSlug(raw, op, f.slug);
         allSiteIds.push(m.siteId);
         if (m.md === md) noOps.push(m.siteId); // byte-identical mutant = false coverage (plan-R18)
@@ -1712,18 +1728,18 @@ Measured corpus: <count> mutants, <ms> ms full parse (plan-R17 runtime budget)."
 - Modify: `tests/parser/mutationHarness.test.ts` (add gate blocks)
 
 **Interfaces:**
-- Consumes: `SECTION_DOMAIN_MAP`, `resolveHeader`, `REQUIRED_HEADERS_FOR_DOMAIN` (`./mutation/classify`), `OPERATORS`, `auditSites` (`./mutation/applicabilityAudit`), `KNOWN_SECTION_HEADERS`/`PREFIX_SECTION_FAMILIES` (`@/lib/parser/knownSections`).
+- Consumes: `SECTION_DOMAIN_MAP`, `resolveHeader`, `EXPECTED_HEADER_DOMAINS` (`./mutation/classify`), `OPERATORS`, `auditSites` (`./mutation/applicabilityAudit`), `KNOWN_SECTION_HEADERS`/`PREFIX_SECTION_FAMILIES`/`normalizeHeader` (`@/lib/parser/knownSections`).
 
 - [ ] **Step 1: Add the gate tests**
 
 ```ts
 // append to tests/parser/mutationHarness.test.ts
-import { KNOWN_SECTION_HEADERS, PREFIX_SECTION_FAMILIES } from "@/lib/parser/knownSections";
-import { SECTION_DOMAIN_MAP, resolveHeader, REQUIRED_HEADERS_FOR_DOMAIN } from "./mutation/classify";
+import { KNOWN_SECTION_HEADERS, PREFIX_SECTION_FAMILIES, normalizeHeader } from "@/lib/parser/knownSections";
+import { SECTION_DOMAIN_MAP, resolveHeader, EXPECTED_HEADER_DOMAINS } from "./mutation/classify";
 import { OPERATORS as OPS } from "./mutation/operators";
 import { auditSites } from "./mutation/applicabilityAudit";
 
-describe("classifier parity gate (Codex R2/R4/R8)", () => {
+describe("classifier parity gate (Codex R2/R4/R8/R20)", () => {
   it("every KNOWN_SECTION_HEADERS entry is mapped and non-other", () => {
     for (const h of KNOWN_SECTION_HEADERS) {
       expect(SECTION_DOMAIN_MAP[h], `unmapped: ${h}`).toBeDefined();
@@ -1733,8 +1749,12 @@ describe("classifier parity gate (Codex R2/R4/R8)", () => {
   it("suffixed room families resolve to rooms", () => {
     for (const fam of PREFIX_SECTION_FAMILIES) expect(SECTION_DOMAIN_MAP[resolveHeader(`${fam} SALON A`)!]).toBe("rooms");
   });
-  it("lockstep REQUIRED_HEADERS_FOR_DOMAIN holds", () => {
-    for (const [h, d] of REQUIRED_HEADERS_FOR_DOMAIN) expect(SECTION_DOMAIN_MAP[resolveHeader(h)!], h).toBe(d);
+  it("EXPECTED_HEADER_DOMAINS covers the live registry (a new parser header forces a row, R20)", () => {
+    const covered = new Set(EXPECTED_HEADER_DOMAINS.map(([h]) => normalizeHeader(h)));
+    for (const h of KNOWN_SECTION_HEADERS) expect(covered, `no expected-domain row for ${h}`).toContain(h);
+  });
+  it("lockstep: SECTION_DOMAIN_MAP agrees with the independent EXPECTED_HEADER_DOMAINS oracle", () => {
+    for (const [h, d] of EXPECTED_HEADER_DOMAINS) expect(SECTION_DOMAIN_MAP[resolveHeader(h)!], h).toBe(d);
   });
 });
 
@@ -1987,10 +2007,8 @@ describe("coverage legibility (exhaustive; skippedInapplicable surfaced)", () =>
     const skips: string[] = [];
     for (const f of FIXTURES) {
       const md = readFixture(f);
-      for (const [op, gen] of Object.entries(OPERATORS)) {
-        const ms = gen(md); // exhaustive
-        total += ms.length;
-        for (const m of ms) for (const dm of m.domains) domains.add(dm);
+      for (const [op, gen] of Object.entries(OPERATOR_GENS)) {
+        for (const m of gen(md)) { total++; for (const dm of m.domains) domains.add(dm); } // stream (plan-R20)
         if (op.startsWith("section-reorder") || op.startsWith("trailing")) continue; // cosmetic: no floor
         const sk = skippedInapplicable(md, op);
         if (sk.length) skips.push(`${f.slug}/${op}: ${sk.join(",")}`);
