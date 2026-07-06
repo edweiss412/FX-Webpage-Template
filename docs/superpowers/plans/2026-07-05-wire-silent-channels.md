@@ -495,7 +495,10 @@ In `lib/messages/catalog.ts`, add (mirror `RESYNC_SHRINK_HELD` shape but banner/
     title: "Latest edit lost data quality",
     longExplanation:
       "The latest sync applied but read fewer fields or sections than the previous version — a data-quality regression, not a hard failure. The update is already live for crew. Open the parse panel to see what degraded, fix the sheet, and a recovered sync clears this on its own.",
-    helpHref: "/help/admin/parse-warnings#RESYNC_QUALITY_REGRESSED",
+    // /help/errors# — NOT /help/admin/parse-warnings# (plan-review R2): _metaErrorCatalogDocs.test.ts
+    // permits parse-warnings anchors ONLY for WARN_/PARSE_ codes; every other Doug-facing code uses
+    // /help/errors#<code>. Mirrors RESYNC_SHRINK_HELD (helpHref "/help/errors#RESYNC_SHRINK_HELD").
+    helpHref: "/help/errors#RESYNC_QUALITY_REGRESSED",
   },
 ```
 
@@ -530,13 +533,14 @@ git commit --no-verify -m "feat(messages): add RESYNC_QUALITY_REGRESSED §12.4 c
 **Files:**
 - Modify: `tests/messages/adminAlertsRegistry.ts` (add code)
 - Modify: `tests/messages/_metaAdminAlertCatalog.test.ts` (raise-site pattern + `ADMIN_ALERTS_LIFECYCLE` auto entry + `INTERPOLATED_DOUG_FACING_CODES` + auto-count bump)
+- Modify: `tests/messages/_metaAlertActionsContract.test.ts` (`RAISE_SITE_PINS` show-scoped pin — plan-review R2)
 - Modify: `lib/adminAlerts/alertIdentityMap.ts` (`{ kind: "global" }`)
 - Modify: `lib/adminAlerts/audience.ts` (`AUTO_RESOLVE_NOTES` entry)
-- Gates: `tests/messages/_metaAlertAudienceContract.test.ts`, `tests/messages/adminSurface.test.ts`, `tests/messages/_metaAlertActionsContract.test.ts` (all read the registry — must stay green)
+- Gates: `tests/messages/_metaAlertAudienceContract.test.ts`, `tests/messages/adminSurface.test.ts` (read the registry — must stay green)
 
 **Interfaces:**
-- Consumes: `ADMIN_ALERTS_CODES` (registry array); `ADMIN_ALERTS_LIFECYCLE` (per-code `{ class, resolveSites }`); `INTERPOLATED_DOUG_FACING_CODES`; the raise-site registry (per-code `{ path, pattern }`).
-- Produces: all structural gates green with the new code registered.
+- Consumes: `ADMIN_ALERTS_CODES` (registry array); `ADMIN_ALERTS_LIFECYCLE` (per-code `{ class, resolveSites }`); `INTERPOLATED_DOUG_FACING_CODES`; the `_metaAdminAlertCatalog` raise-site registry (per-code `{ path, pattern }`); the `_metaAlertActionsContract` `RAISE_SITE_PINS` array (`{ code, file, pattern (g flag), expectedMatches, pins }`).
+- Produces: all structural gates green with the new code registered + its show-scoped raise pinned.
 
 > Order note: the producer/resolve-helper names referenced by the raise-site + lifecycle patterns (`evaluateQualityRegression_unlocked`, `resolveQualityRegression_unlocked`) are introduced in Task C5. Write the patterns here to match those exact names; C4's meta-test edits will fail their on-disk pattern checks until C5 lands the producer. **Land C4 and C5 as a pair** (C4 test → C5 impl → both green), OR sequence C5 before C4's `_metaAdminAlertCatalog` on-disk pattern assertions. The registry/audience/identity/audience-note rows below are independent of C5 and green immediately.
 
@@ -596,16 +600,33 @@ Expected: `_metaAlertAudienceContract` PASS (C carries `audience:"doug"` → `DO
 
 (d) Auto-code count (~:659-660): bump `25` → `26` and extend the comment (`+ RESYNC_QUALITY_REGRESSED`).
 
-- [ ] **Step 4: Run `_metaAdminAlertCatalog`**
+- [ ] **Step 3b: Add the show-scoped raise-site pin (`_metaAlertActionsContract`, plan-review R2)**
+
+`tests/messages/_metaAlertActionsContract.test.ts` — add a `RAISE_SITE_PINS` entry (mirror `RESYNC_SHRINK_HELD:114`, but match C's single terminal upsert with the `showId` shorthand from C5):
+```ts
+  {
+    code: "RESYNC_QUALITY_REGRESSED",
+    file: "lib/sync/runScheduledCronSync.ts",
+    // Single terminal upsert in evaluateQualityRegression_unlocked. `showId,` shorthand → a
+    // `showId: null` refactor stops matching, dropping expectedMatches to 0 (fails the pin).
+    pattern: /showId,[\s\S]{0,80}?code: "RESYNC_QUALITY_REGRESSED"/g,
+    expectedMatches: 1,
+    pins: "show-scoped raise (per-show alert row; not a global showId:null collision)",
+  },
+```
+
+This is the spec §7.9 show-scoping pin — proves the producer raises a SHOW-scoped row (a `showId: null` regression would collapse unresolved alerts across shows under the `(coalesce(show_id::text,''), code)` uniqueness model). C is still NOT added to `ALERT_ACTION_CODES` (no action link — mirrors `PARSE_ERROR_LAST_GOOD`); the `RAISE_SITE_PINS` array is independent of the action-code subset check.
+
+- [ ] **Step 4: Run `_metaAdminAlertCatalog` + `_metaAlertActionsContract`**
 
 Run: `pnpm vitest run tests/messages/_metaAdminAlertCatalog.test.ts tests/messages/_metaAlertActionsContract.test.ts`
-Expected: after C5 lands the producer + resolve helper, PASS. (`_metaAlertActionsContract`: C is NOT in `ALERT_ACTION_CODES` — verify the contract permits a raise-pinned code with no action entry, as `PARSE_ERROR_LAST_GOOD` already is; no edit to `alertActions.ts`.) If run before C5, the on-disk pattern checks (a)/(b) FAIL — expected; proceed to C5.
+Expected: after C5 lands the producer + resolve helper, PASS. (`_metaAlertActionsContract`: the new `RAISE_SITE_PINS` row matches C5's single terminal upsert once; C is NOT in `ALERT_ACTION_CODES` — the contract permits a raise-pinned code with no action entry, as `PARSE_ERROR_LAST_GOOD` already is; no edit to `alertActions.ts`.) If run before C5, the on-disk pattern checks (a)/(b)/(3b) FAIL — expected; proceed to C5. **Confirm the pattern's `{0,80}` window spans C5's actual `{ showId,\n    code: … }` formatting** (prettier may reflow); widen the bound if the real gap exceeds 80 chars.
 
 - [ ] **Step 5: Commit (with C5, or immediately for the independent rows)**
 
 ```bash
-git add tests/messages/adminAlertsRegistry.ts tests/messages/_metaAdminAlertCatalog.test.ts lib/adminAlerts/alertIdentityMap.ts lib/adminAlerts/audience.ts
-git commit --no-verify -m "test(messages): register RESYNC_QUALITY_REGRESSED in alert registries + identity + auto-resolve note"
+git add tests/messages/adminAlertsRegistry.ts tests/messages/_metaAdminAlertCatalog.test.ts tests/messages/_metaAlertActionsContract.test.ts lib/adminAlerts/alertIdentityMap.ts lib/adminAlerts/audience.ts
+git commit --no-verify -m "test(messages): register RESYNC_QUALITY_REGRESSED in alert registries + identity + auto-resolve note + show-scoped raise pin"
 ```
 
 ---
@@ -753,42 +774,57 @@ export async function evaluateQualityRegression_unlocked(args: {
     [showId],
   );
 
+  // Decide the terminal action; funnel BOTH raise paths through ONE upsert call so the
+  // show-scoping raise-site pin (_metaAlertActionsContract) matches exactly once.
+  let context: Record<string, unknown> | null = null;
+
   if (!open) {
-    if (!isQualityRegression(prior, current)) return;
-    const payload = buildRegressionPayload(prior, current);
-    const upsertAdminAlert = requireTxBoundUpsertAdminAlert(deps, "evaluateQualityRegression");
-    await upsertAdminAlert({
-      showId,
-      code: "RESYNC_QUALITY_REGRESSED",
-      context: { drive_file_id: driveFileId, sheet_name: sheetName, ...payload, baseline: prior },
-    });
-    return;
+    if (!isQualityRegression(prior, current)) return; // no regression, no open alert → nothing to do
+    context = {
+      drive_file_id: driveFileId,
+      sheet_name: sheetName,
+      ...buildRegressionPayload(prior, current),
+      baseline: prior, // pre-regression anchor
+    };
+  } else {
+    const baseline = open.context.baseline as DataGapsSummary;
+    if (hasRecoveredToBaseline(baseline, current)) {
+      await resolveQualityRegression_unlocked(tx, showId); // full per-class recovery → resolve
+      return;
+    }
+    // keep open — payload-gated no-op (§6.4a): skip the upsert when nothing material changed.
+    const nextPayload = buildRegressionPayload(baseline, current);
+    const storedPayload: QualityRegressionPayload = {
+      breakdown: (open.context.breakdown as Record<string, number>) ?? {},
+      new_classes: (open.context.new_classes as string[]) ?? [],
+      worsened: (open.context.worsened as string[]) ?? [],
+    };
+    if (payloadEqual(nextPayload, storedPayload)) return; // no-op → no last_seen_at bump, no bell re-ping
+    context = { drive_file_id: driveFileId, sheet_name: sheetName, ...nextPayload, baseline }; // baseline preserved
   }
 
-  const baseline = open.context.baseline as DataGapsSummary;
-  if (hasRecoveredToBaseline(baseline, current)) {
-    await resolveQualityRegression_unlocked(tx, showId);
-    return;
-  }
-
-  // keep open — payload-gated no-op (§6.4a): skip the upsert when nothing material changed.
-  const nextPayload = buildRegressionPayload(baseline, current);
-  const storedPayload: QualityRegressionPayload = {
-    breakdown: (open.context.breakdown as Record<string, number>) ?? {},
-    new_classes: (open.context.new_classes as string[]) ?? [],
-    worsened: (open.context.worsened as string[]) ?? [],
-  };
-  if (JSON.stringify(nextPayload) === JSON.stringify(canonicalize(storedPayload))) return; // no-op, no re-ping
+  // Single show-scoped raise site (open OR materially-changed keep-open).
   const upsertAdminAlert = requireTxBoundUpsertAdminAlert(deps, "evaluateQualityRegression");
   await upsertAdminAlert({
-    showId,
+    showId, // show-scoped — guarded non-null above (pinned by _metaAlertActionsContract RAISE_SITE_PINS)
     code: "RESYNC_QUALITY_REGRESSED",
-    context: { drive_file_id: driveFileId, sheet_name: sheetName, ...nextPayload, baseline }, // baseline preserved
+    context,
   });
+}
+
+/** Order-insensitive payload equality for the §6.4a no-op gate (arrays/objects survive JSON round-trip). */
+function payloadEqual(a: QualityRegressionPayload, b: QualityRegressionPayload): boolean {
+  const norm = (p: QualityRegressionPayload) =>
+    JSON.stringify({
+      breakdown: Object.fromEntries(Object.entries(p.breakdown).sort(([x], [y]) => x.localeCompare(y))),
+      new_classes: [...p.new_classes].sort(),
+      worsened: [...p.worsened].sort(),
+    });
+  return norm(a) === norm(b);
 }
 ```
 
-> `canonicalize` — the stored payload's arrays/objects may have arbitrary key order from JSON round-trip; sort object keys + arrays before comparing (add a tiny local helper, or compare field-by-field with sorted arrays). Keep the comparison order-insensitive so an equal payload is a reliable no-op. `buildRegressionPayload` is called with `baseline` (not immediate prior) in the keep-open branch so the payload reflects the full delta-from-baseline, matching what OPEN stored.
+> Single terminal `upsertAdminAlert` call: both the open branch and the materially-changed keep-open branch set `context` then fall through to it. The resolve and no-op branches `return` early, so the raise site is reached exactly once per raising sync — `expectedMatches: 1` for the `_metaAlertActionsContract` pin. `buildRegressionPayload` is called with `baseline` (not immediate prior) in the keep-open branch so the payload reflects the full delta-from-baseline, matching what OPEN stored (so an unchanged degraded sync compares equal → no-op).
 
 Confirm imports at top of file: `isQualityRegression`, `hasRecoveredToBaseline`, `summarizeDataGaps`, `DataGapsSummary`, `GAP_CLASSES` from `@/lib/parser/dataGaps`; `ParseResult` already imported.
 
@@ -840,29 +876,29 @@ git commit --no-verify -m "feat(sync): RESYNC_QUALITY_REGRESSED producer — tx-
 
 ---
 
-## Task C6: help/errors anchor family check
+## Task C6: `/help/errors` anchor family check
 
 **Files:**
 - Verify (and only edit if a gate requires): help content for the `helpHref` anchor.
 
 **Interfaces:**
-- Consumes: `helpHref: "/help/admin/parse-warnings#RESYNC_QUALITY_REGRESSED"` (C3 catalog).
-- Produces: the help-anchor `_families` CI check passes.
+- Consumes: `helpHref: "/help/errors#RESYNC_QUALITY_REGRESSED"` (C3 catalog — `/help/errors#`, NOT parse-warnings; see plan-review R2 + the `_metaErrorCatalogDocs` target-class rule).
+- Produces: the help-anchor `_families` / `_metaErrorCatalogDocs` CI checks pass.
 
-- [ ] **Step 1: Run the help-families check**
+- [ ] **Step 1: Run the help-families / error-catalog-docs checks**
 
-Run: `rg -n "PARSE_ERROR_LAST_GOOD" app/help lib/help components/help 2>/dev/null` to locate how `PARSE_ERROR_LAST_GOOD`'s `/help/admin/parse-warnings#…` anchor is satisfied. Then run the help/errors families test (grep `tests/` for `_families` or `helpHref`): `pnpm vitest run $(rg -l "helpHref|_families|parse-warnings" tests | head -20)`.
-Expected: reveals whether `RESYNC_QUALITY_REGRESSED` needs a help section entry.
+Run: `rg -n "RESYNC_SHRINK_HELD" app/help lib/help components/help docs 2>/dev/null` to locate how `RESYNC_SHRINK_HELD`'s `/help/errors#RESYNC_SHRINK_HELD` anchor is satisfied (C mirrors that family). Then run: `pnpm vitest run tests/messages/_metaErrorCatalogDocs.test.ts $(rg -l "helpHref|_families|/help/errors" tests | head -20)`.
+Expected: confirms the target-class rule (parse-warnings anchors are `WARN_`/`PARSE_`-only; `/help/errors#` is correct for C) and whether `RESYNC_QUALITY_REGRESSED` needs a help-page section.
 
 - [ ] **Step 2: Add the anchor content only if required**
 
-If the families check fails, add a `RESYNC_QUALITY_REGRESSED` section to the same help page that hosts `PARSE_ERROR_LAST_GOOD` (mirror its entry). If the check derives anchors from the catalog automatically, no edit needed. **If this touches any file under `app/` or `components/`, invariant 8 (impeccable dual-gate) applies** — run `/impeccable critique` + `/impeccable audit` on the diff. (Expected: help content is data/MDX, not a UI component — confirm.)
+If a families/anchor-existence check fails, add a `RESYNC_QUALITY_REGRESSED` section to the same `/help/errors` page that hosts `RESYNC_SHRINK_HELD` (mirror its entry). If the check derives anchors from the catalog automatically, no edit needed. **If this touches any file under `app/` or `components/`, invariant 8 (impeccable dual-gate) applies** — run `/impeccable critique` + `/impeccable audit` on the diff. (Expected: help content is data/MDX, not a UI component — confirm; `RESYNC_SHRINK_HELD` shipped without an `app/` change, so C likely does too.)
 
 - [ ] **Step 3: Commit (only if a change was needed)**
 
 ```bash
 git add <help files>
-git commit --no-verify -m "docs(help): add RESYNC_QUALITY_REGRESSED parse-warnings help anchor"
+git commit --no-verify -m "docs(help): add RESYNC_QUALITY_REGRESSED /help/errors anchor"
 ```
 
 ---
