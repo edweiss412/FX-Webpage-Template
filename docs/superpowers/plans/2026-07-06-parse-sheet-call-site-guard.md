@@ -10,6 +10,8 @@
 
 **Spec:** `docs/superpowers/specs/2026-07-06-parse-sheet-call-site-guard.md` (Codex-APPROVED after 4 rounds).
 
+> **Implementation amendment (2026-07-06).** Task 2 (extend `runInvariants` to route a new `PARSE_THREW` code) was **dropped** during implementation: the full-suite `codes.test.ts` producer-scan gate requires every `code:` literal in `app/`+`lib/` to be §12.4-cataloged, so a new `PARSE_THREW` literal orphans CI. `buildThrownParsedSheet` (Task 1) now reuses the cataloged `MI-1_VERSION_DETECTION_FAILED` hardError code, which routes to `hard_fail` via the *existing* `invariants.ts:111` gate — **no `runInvariants` edit**. The Task-1 test asserts the MI-1 code and adds a `runInvariants`-composition assertion (first-seen + existing) in place of the removed Task-2 tests. Task 3's `log.error(` is written contiguous (single token) so `stripLogEmissionCalls` excludes `PARSE_SHEET_THREW` from the producer scan; the guard's hardError assertions check `MI-1_VERSION_DETECTION_FAILED`. See the spec's "Implementation amendment" for the full rationale. Everything below that names `PARSE_THREW` is superseded — read it as `MI-1_VERSION_DETECTION_FAILED`, and skip Task 2.
+
 ## Global Constraints
 
 - **TDD per task:** failing test → run-red → minimal impl → run-green → commit. One task per commit.

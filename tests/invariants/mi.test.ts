@@ -134,34 +134,6 @@ describe("Hard-fail invariants (MI-1..MI-5b)", () => {
       }
     });
 
-    it("hard fails when a PARSE_THREW hardError is present (existing show)", () => {
-      const next = synthParseResult({
-        hardErrors: [{ code: "PARSE_THREW", message: "Cannot read properties of undefined" }],
-      });
-      const prior = synthParseResult(); // non-null prior = existing show
-      const r = runInvariants(prior, next);
-      expect(r.outcome).toBe("hard_fail");
-      if (r.outcome === "hard_fail") {
-        expect(r.failedCodes).toContain("MI-1_VERSION_DETECTION_FAILED");
-        // Crash-specific operator message, NOT the "Version detection failed: got 'v4'" string.
-        expect(r.messages.some((m) => m.toLowerCase().includes("parser error"))).toBe(true);
-      }
-    });
-
-    it("hard fails when a PARSE_THREW hardError is present (first-seen, prior=null)", () => {
-      // Proves the caught-throw routes to hard_fail on a first-seen show too. Combined with the
-      // existing first-seen hard_fail coverage (tests/sync/phase1.test.ts → pending_ingestions
-      // written, no shows row), this is the full first-seen throw outcome.
-      const next = synthParseResult({
-        hardErrors: [{ code: "PARSE_THREW", message: "boom" }],
-      });
-      const r = runInvariants(null, next);
-      expect(r.outcome).toBe("hard_fail");
-      if (r.outcome === "hard_fail") {
-        expect(r.failedCodes).toContain("MI-1_VERSION_DETECTION_FAILED");
-      }
-    });
-
     it("passes for valid versions v1, v2, v4", () => {
       for (const v of ["v1", "v2", "v4"] as const) {
         const next = synthParseResult({

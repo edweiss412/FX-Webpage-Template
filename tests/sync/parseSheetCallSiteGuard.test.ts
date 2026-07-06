@@ -45,7 +45,7 @@ afterEach(() => {
 });
 
 describe("parseSheet call-site guard (finding #17)", () => {
-  test("a throwing parser does NOT crash prepare; synthesizes a PARSE_THREW sheet", async () => {
+  test("a throwing parser does NOT crash prepare; synthesizes a fail-closed hardError sheet", async () => {
     // Without the guard this call throws and aborts the file's processing (the finding-#17 bug).
     const deps = baseDeps({
       parseSheet: vi.fn(() => {
@@ -62,7 +62,7 @@ describe("parseSheet call-site guard (finding #17)", () => {
     expect(prepared.kind).toBe("ready");
     if (prepared.kind === "ready") {
       expect(prepared.parseResult.hardErrors).toContainEqual(
-        expect.objectContaining({ code: "PARSE_THREW" }),
+        expect.objectContaining({ code: "MI-1_VERSION_DETECTION_FAILED" }),
       );
     }
   });
@@ -96,7 +96,7 @@ describe("parseSheet call-site guard (finding #17)", () => {
       }),
     });
     // parsed is synthesized BEFORE the log call and the log rejection is swallowed, so prepare
-    // still reaches ready with the PARSE_THREW sheet.
+    // still reaches ready with the fail-closed hardError sheet.
     const prepared = await prepareProcessOneFile(
       "drive-file-2",
       "cron",
@@ -107,7 +107,7 @@ describe("parseSheet call-site guard (finding #17)", () => {
     expect(prepared.kind).toBe("ready");
     if (prepared.kind === "ready") {
       expect(prepared.parseResult.hardErrors).toContainEqual(
-        expect.objectContaining({ code: "PARSE_THREW" }),
+        expect.objectContaining({ code: "MI-1_VERSION_DETECTION_FAILED" }),
       );
     }
   });
@@ -133,7 +133,7 @@ describe("parseSheet call-site guard (finding #17)", () => {
     expect(prepared.kind).toBe("ready");
     if (prepared.kind === "ready") {
       expect(prepared.parseResult.hardErrors).toContainEqual(
-        expect.objectContaining({ code: "PARSE_THREW" }),
+        expect.objectContaining({ code: "MI-1_VERSION_DETECTION_FAILED" }),
       );
     }
   });
@@ -180,7 +180,7 @@ describe("parseSheet call-site guard (finding #17)", () => {
     expect(prepared.kind).toBe("ready");
     if (prepared.kind === "ready") {
       expect(prepared.parseResult.hardErrors).toContainEqual(
-        expect.objectContaining({ code: "PARSE_THREW" }),
+        expect.objectContaining({ code: "MI-1_VERSION_DETECTION_FAILED" }),
       );
     }
     const result = await processOneFile_unlocked(tx, "drive-file-1", "cron", file, deps, prepared);
@@ -194,8 +194,8 @@ describe("parseSheet call-site guard (finding #17)", () => {
 
   test("first-seen throw path → hard_fail writes pending_ingestions, no shows row (REAL runPhase1)", async () => {
     // Full first-seen e2e (spec §4.2): throwing parser → guard synthesizes PARSE_THREW → REAL
-    // runPhase1 (deps.runPhase1 omitted) → runInvariants(null, ...) hard_fails on PARSE_THREW →
-    // no existing shows row → upsertLivePendingIngestion. Proves the guard, PARSE_THREW routing,
+    // runPhase1 (deps.runPhase1 omitted) → runInvariants(null, ...) hard_fails on the MI-1 hardError,��
+    // no existing shows row → upsertLivePendingIngestion. Proves the guard, MI-1 routing,
     // pending-ingestion write, and null showId together — non-tautological (real runPhase1).
     const upsertLivePendingIngestion = vi.fn(async () => "pending-1");
     const updateShowParseError = vi.fn(async () => "show-x"); // must NOT be called (no shows row)

@@ -2778,8 +2778,8 @@ export async function prepareProcessOneFile(
   } catch (error) {
     // The parser is contractually non-throwing (it degrades to hardErrors). A throw here means a
     // novel structure hit an unanticipated path. Route it to the SAME fail-closed handling as a
-    // parse hardError (retain last-good + PARSE_ERROR_LAST_GOOD for existing; pending_ingestions for
-    // first-seen) instead of aborting the sync. Audit rec-6 / finding #17.
+    // parse hardError (retain last-good + PARSE_ERROR_LAST_GOOD for an existing show; first-seen
+    // stages for review) instead of aborting the sync. Audit rec-6 / finding #17.
     let message: string;
     try {
       message = error instanceof Error ? error.message : String(error);
@@ -2790,14 +2790,14 @@ export async function prepareProcessOneFile(
     // Synthesize the fail-closed sheet FIRST — the guard must not depend on logging succeeding.
     parsed = buildThrownParsedSheet(message);
     // Forensic, best-effort: never let a logging fault break the guard or leak an unhandled rejection.
-    void log
-      .error("Parser threw on sheet parse; routing to hard_fail", {
-        source: "sync",
-        code: "PARSE_SHEET_THREW",
-        driveFileId,
-        error,
-      })
-      .catch(() => {});
+    // Keep `log.error(` contiguous so stripLogEmissionCalls recognizes it — the PARSE_SHEET_THREW
+    // forensic code is app_events-only and must be excluded from the §12.4 producer scan.
+    void log.error("Parser threw on sheet parse; routing to hard_fail", {
+      source: "sync",
+      code: "PARSE_SHEET_THREW",
+      driveFileId,
+      error,
+    }).catch(() => {});
   }
 
   // Finding C7: seed prior stored `extracted` onto the fresh agenda_links BEFORE enrich, so

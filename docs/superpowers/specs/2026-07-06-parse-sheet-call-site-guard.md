@@ -5,6 +5,10 @@
 **Source:** `docs/superpowers/plans/2026-04-30-fxav-crew-pages-v1/edge-case-preparedness-audit-2026-07-04.md` §3 Tier-3 finding #17, §5 recommendation 6 ("guard the `parseSheet` call site").
 **Type:** defense-in-depth hardening of the ingestion pipeline. No UI, no DB migration, no advisory-lock topology change.
 
+> **Implementation amendment (2026-07-06, caught by the full-suite gate).** The original design below minted a distinct non-catalog `ParseError.code` of `PARSE_THREW` and extended `runInvariants` to route it to `hard_fail`. During implementation the full test suite (`tests/cross-cutting/codes.test.ts` → `codeProducerLiterals()`, `lib/messages/__internal__/codeProducers.ts:14`) revealed that **every `code:` producer literal in `app/`+`lib/` MUST be a §12.4-cataloged code** — existing parser hardError codes like `MI-1_VERSION_DETECTION_FAILED` are all cataloged. A new `code: "PARSE_THREW"` literal is therefore an orphan and fails CI. The spec's "non-catalog hardError code" premise was wrong for a `code:` literal.
+>
+> **Resolution (implemented):** drop `PARSE_THREW` entirely. `buildThrownParsedSheet` reuses the already-cataloged `MI-1_VERSION_DETECTION_FAILED` hardError code — a caught throw is treated as the MI-1 "could not parse into a known version" outcome, which routes to `hard_fail` via the *existing* `invariants.ts:111` gate with **no `runInvariants` change** (§2.3 below is not implemented). The forensic "it was a THROW, not a genuinely-unrecognized sheet" distinction lives solely in the `PARSE_SHEET_THREW` app_events log (which IS legitimately non-catalog: `log.*` emission spans are stripped from the producer scan by `stripLogEmissionCalls`, provided the `log.error(` token is written contiguous — a multi-line `log\n.error(` is NOT recognized). Net effect on the observable outcome (retain last-good + `PARSE_ERROR_LAST_GOOD` for existing; `pending_ingestions` for first-seen; never crash the sync) is **identical** to the original design. Read §2.1–§2.3 as superseded by this amendment; §2.4/§2.5/§3/§4 stand except that every `PARSE_THREW` hardError code is now `MI-1_VERSION_DETECTION_FAILED`.
+
 ---
 
 ## 1. Problem
