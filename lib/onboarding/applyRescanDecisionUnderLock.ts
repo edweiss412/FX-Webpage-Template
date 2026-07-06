@@ -274,7 +274,17 @@ export async function applyRescanDecisionUnderLock(
   );
   // A previously-ready sheet whose prior parse is unreadable (corrupt shadow) can't be
   // verified clean → force re-review (§6 DIRTY clause; that clause needs priorReady).
-  const isDirty = dirty || (prior.priorReady && prior.priorParse === null);
+  //
+  // Whole-diff R2 MEDIUM: a previously-ready row with a NULL approver email (Flow B
+  // shadows hardcode priorReady=true off a nullable applied_by_email; a corrupt/legacy
+  // pending row is the same shape) cannot be re-stamped wizard_approved=true — that
+  // writes a null approver and violates pending_syncs_approved_requires_full_payload,
+  // turning a cosmetic re-scan into a 500. An unattributable approval can't be
+  // auto-restored, so route it through the controlled demotion instead of crashing.
+  const isDirty =
+    dirty ||
+    (prior.priorReady && prior.priorParse === null) ||
+    (prior.priorReady && prior.priorApprovedByEmail === null);
 
   if (isDirty) {
     // DIRTY → demote-shaped block (spec §6.1): truly blocks finalize via

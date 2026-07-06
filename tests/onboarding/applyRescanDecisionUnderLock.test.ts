@@ -198,6 +198,46 @@ describe("applyRescanDecisionUnderLock", () => {
     expect(restamp!.params[2]).toBe("ada@x.example");
   });
 
+  // Failure mode (whole-diff R2 MEDIUM): a previously-ready row (Flow B shadows
+  // hardcode priorReady=true off a NULLABLE applied_by_email; a corrupt/legacy row
+  // is the shape) whose approver email is NULL. Re-stamping wizard_approved=true with
+  // a null approver violates pending_syncs_approved_requires_full_payload → the clean
+  // re-scan 500s instead of a controlled outcome. The core must demote such a row to
+  // RESCAN_REVIEW_REQUIRED (unattributable approval cannot be auto-restored).
+  test("clean + previously-ready but NULL approver → dirty_demoted (no CHECK-violating re-stamp)", async () => {
+    const { tx, calls } = makeTx({
+      wizard_approved: true,
+      wizard_approved_by_email: null, // ready but unattributed (corrupt/legacy)
+      parse_result: PRIOR_PARSE,
+      staged_modified_time: PRIOR_MODTIME,
+    });
+    const out = await applyRescanDecisionUnderLock(
+      tx,
+      {
+        wizardSessionId: WIZARD,
+        driveFileId: DRIVE,
+        pendingFolderId: FOLDER,
+        prepared: preparedFor(PRIOR_PARSE),
+        refreshedParse: PRIOR_PARSE, // content-identical → would be CLEAN if attributable
+        isBlockerHeal: false,
+      },
+      { scanOnboardingPreparedFiles: stagedScan },
+    );
+    expect(out).toEqual({ kind: "dirty_demoted", changed: true });
+    // MUST NOT attempt an approved=true write with a null approver (the CHECK would 500).
+    expect(
+      calls.some((c) => /wizard_approved\s*=\s*true/i.test(c.sql)),
+      "null-approver row must not be re-stamped approved=true",
+    ).toBe(false);
+    // Demotes with RESCAN_REVIEW_REQUIRED instead.
+    const demote = calls.find(
+      (c) =>
+        /update\s+public\.pending_syncs/i.test(c.sql) &&
+        (c.params as unknown[]).includes("RESCAN_REVIEW_REQUIRED"),
+    );
+    expect(demote, "expected a RESCAN_REVIEW_REQUIRED demotion").toBeTruthy();
+  });
+
   // Failure mode: a decision-requiring crew change (MI-12 rename) being auto-kept.
   // Must demote to unapproved + RESCAN_REVIEW_REQUIRED so the operator re-reviews.
   test("dirty (MI-12 rename vs prior) → dirty_demoted, writes RESCAN_REVIEW_REQUIRED", async () => {
