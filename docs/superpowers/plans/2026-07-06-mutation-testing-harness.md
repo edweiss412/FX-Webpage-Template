@@ -854,7 +854,9 @@ const blankRowRemove = (md: string): Mutant[] => {
     const md2 = ls.filter((_, idx) => idx !== blankLine).join("\n");
     const domA = classifySection(a.sections[a.sections.length - 1]!);
     const domB = classifySection(b.sections[0]!);
-    out.push({ md: md2, siteId: `blank-row:remove:B${a.index}:L${blankLine}:Xgap`, bucket: "corrupting", domains: [domA, domB] });
+    // dedup: adjacent same-domain runs must credit the domain ONCE (matches the audit, plan-R8)
+    const domains = [...new Set([domA, domB])];
+    out.push({ md: md2, siteId: `blank-row:remove:B${a.index}:L${blankLine}:Xgap`, bucket: "corrupting", domains });
   }
   return out;
 };
@@ -1018,8 +1020,35 @@ git commit --no-verify -m "test(parser): fixture registry + directory-parity gat
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { auditSites, GOLDEN_INVENTORY } from "./applicabilityAudit";
+import { OPERATORS } from "./operators";
+
+// ─── EXTERNAL ORACLE (plan-R8) ────────────────────────────────────────────────
+// A tiny HAND-AUTHORED fixture whose per-operator/per-domain site counts were
+// derived by a human reading the markdown — NOT copied from auditSites output.
+// This is the true anti-tautology guard: if auditSites over/under-counts, these
+// literals (counted by hand below) diverge and the test fails. Two sections:
+//   CREW (crew): 2 data rows, each ["","Doug|Eric","917|646"] → 2 non-empty cells
+//   HOTEL (hotel): 1 data row ["","Doug","3"] → 2 non-empty; "3" is 1-char
+const HAND_FIXTURE =
+  "| CREW | NAME | PHONE |\n|  | Doug | 917 |\n|  | Eric | 646 |\n\n| HOTEL | GUEST | NIGHTS |\n|  | Doug | 3 |";
+// Hand-counted expected sites (see per-line reasoning in the plan body):
+const HAND_EXPECTED: Record<string, number> = {
+  "header-typo|crew": 1, "header-typo|hotel": 1,
+  "ref-sub|crew": 4, "ref-sub|hotel": 2,          // non-empty data cells: 2+2 / 2
+  "unicode-inject|crew": 4, "unicode-inject|hotel": 1, // ≥2-scalar cells; "3" excluded
+  "merged-cell|crew": 4, "merged-cell|hotel": 2,  // (row.length-1) per ≥3-cell row
+  "column-shift|crew": 1, "column-shift|hotel": 1, // one per section
+  "blank-row:inject|crew": 1,                      // (dataRows-1); hotel has 1 row → 0
+  "blank-row:remove|crew": 1, "blank-row:remove|hotel": 1, // one boundary, both domains
+};
 
 describe("independent applicability audit (Codex R9/R13)", () => {
+  it("EXTERNAL ORACLE: auditSites matches hand-counted sites on a hand-authored fixture (plan-R8)", () => {
+    const sites = auditSites(HAND_FIXTURE);
+    const got: Record<string, number> = {};
+    for (const [k, v] of sites) if (v > 0) got[k] = v;
+    expect(got).toEqual(HAND_EXPECTED); // exact set + counts — no extra keys, no missing keys
+  });
   it("counts a nonzero ref-sub|crew for consultants-roundtable's embedded CREW section", () => {
     const md = readFileSync("fixtures/shows/raw/2025-10-consultants-roundtable.md", "utf8");
     const sites = auditSites(md);
@@ -1046,12 +1075,26 @@ describe("independent applicability audit (Codex R9/R13)", () => {
   });
 });
 
-describe("audit independence is EXECUTABLE (plan-R7)", () => {
-  it("applicabilityAudit.ts does not import the shared row/classify/operator helpers", () => {
+describe("audit independence is EXECUTABLE (plan-R7/R8)", () => {
+  it("applicabilityAudit.ts references NO shared helper via any import/require/re-export form", () => {
     const src = readFileSync("tests/parser/mutation/applicabilityAudit.ts", "utf8");
-    for (const forbidden of ["./rows", "./classify", "./operators"]) {
-      expect(src, `applicabilityAudit must not import ${forbidden}`).not.toContain(`from "${forbidden}"`);
+    // covers: import ... from "X"|'X', export ... from "X", require("X"), import("X"),
+    // with optional ./ prefix and optional .ts/.js suffix, both quote styles (plan-R8).
+    for (const mod of ["rows", "classify", "operators"]) {
+      const re = new RegExp(`(from|require\\(|import\\()\\s*['"]\\.?/?(\\./)?${mod}(\\.[tj]s)?['"]`);
+      expect(re.test(src), `applicabilityAudit must not depend on ./${mod}`).toBe(false);
     }
+  });
+});
+
+describe("blank-row:remove same-domain boundary is credited ONCE (plan-R8)", () => {
+  it("two adjacent same-domain runs → operator and audit both count exactly 1 for that domain", () => {
+    // two CREW runs separated by one blank line — same domain on both sides.
+    const md = "| CREW | NAME |\n|  | Doug |\n\n| CREW | NAME |\n|  | Eric |";
+    const gen = OPERATORS["blank-row:remove"]!(md).filter((m) => m.domains.includes("crew"));
+    expect(gen).toHaveLength(1);                       // one physical boundary, not double-counted
+    expect(gen[0]!.domains).toEqual(["crew"]);         // deduped
+    expect(auditSites(md).get("blank-row:remove|crew") ?? 0).toBe(1);
   });
 });
 ```
@@ -1061,7 +1104,7 @@ describe("audit independence is EXECUTABLE (plan-R7)", () => {
 Run: `pnpm vitest run tests/parser/mutation/applicabilityAudit.test.ts`
 Expected: FAIL (module not found).
 
-- [ ] **Step 3: Write the implementation** — self-contained scan (own segmentation, own classifier), then populate `GOLDEN_INVENTORY` from the numbers the passing test observes (hand-verify each against the fixture before committing).
+- [ ] **Step 3: Write the implementation** — self-contained scan (own segmentation, own classifier). The `HAND_FIXTURE` external-oracle test is the anti-tautology anchor: its counts are human-derived, so `auditSites` must be MADE CORRECT to match them (never edit `HAND_EXPECTED` to match a buggy audit). For the real-fixture `GOLDEN_INVENTORY` rows, hand-count each `(op, domain)` by reading the fixture markdown directly and set `count` to that hand-derived number — do NOT copy `auditSites` output into the table (that would make the guard circular, plan-R8). If a hand-count and the audit disagree, one of them is wrong: reconcile by re-reading the fixture, not by trusting the code.
 
 ```ts
 // tests/parser/mutation/applicabilityAudit.ts
@@ -1161,7 +1204,9 @@ export function auditSites(md: string): Map<string, number> {
  * silently over- or under-count). MUST cover every corrupting operator + the required rows
  * the structural gate checks: ref-sub×hotel, merged-cell×rooms, ref-sub×crew, one header-typo,
  * one blank-row:remove. The counts below are PLACEHOLDER seeds — the implementer replaces each
- * with the observed-and-verified exact number in Task 6 Step 4 before the suite goes green.
+ * with the HAND-COUNTED exact number (read the fixture markdown; do NOT copy auditSites output —
+ * that is circular, plan-R8) in Task 6 Step 4 before the suite goes green. The `HAND_FIXTURE`
+ * test in the spec file is the separate, fully-independent external oracle.
  */
 export const GOLDEN_INVENTORY: Array<{ fixture: string; op: string; domain: string; count: number }> = [
   { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "ref-sub", domain: "crew", count: 6 },
