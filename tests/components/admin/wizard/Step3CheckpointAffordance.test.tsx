@@ -50,6 +50,18 @@ function heldRow(dfid = "d-held"): Step3Row {
   };
 }
 
+// Post-finalize the finalize batch DELETES the pending_syncs preview for every
+// clean row (route `deleteApprovedPending`), so a Live/Held/Ready-to-publish row
+// legitimately arrives with NO parseResult. It must still render badge-only.
+function heldRowNoPreview(dfid = "d-held-np"): Step3Row {
+  return {
+    driveFileId: dfid,
+    driveFileName: `${dfid}.gsheet`,
+    status: "applied",
+    displayState: "held",
+  };
+}
+
 afterEach(() => cleanup());
 
 describe("Step-3 checkpoint affordance (spec §4.2 rule 7)", () => {
@@ -90,6 +102,24 @@ describe("Step-3 checkpoint affordance (spec §4.2 rule 7)", () => {
       />,
     );
     expect(queryByTestId("wizard-step3-summary")).toBeNull();
+  });
+
+  test("post-finalize row with NO parse preview renders badge-only, NOT no-details recovery (Codex R3 HIGH)", () => {
+    // Regression: the §4.6 no-details guard fired BEFORE the checkpoint branch, so
+    // a consumed-preview Held row showed "couldn't read the details" + Re-scan.
+    render(
+      <Step3Review
+        wizardSessionId={WSID}
+        rows={[heldRowNoPreview()]}
+        checkpointStatus="in_progress"
+      />,
+    );
+    expect(screen.getByText("Held")).toBeInTheDocument();
+    expect(
+      screen.queryByTestId("wizard-step3-card-d-held-np")?.getAttribute("data-no-details"),
+    ).not.toBe("true");
+    expect(screen.queryByText(/couldn.t read the details/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: /re-scan this sheet/i })).toBeNull();
   });
 
   test("checkpoint all_batches_complete → same badge-only contract", () => {

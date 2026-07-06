@@ -362,6 +362,26 @@ export function Step3SheetCard({
 
   // ── §4.6 guard: null/corrupt parseResult → no-details state, no expand. ──
   if (!pr || typeof pr !== "object" || !pr.show) {
+    // Post-finalize badge-only (spec §4.2 rule 7): at a non-null checkpoint the
+    // row is display-only and the finalize batch has DELETED its pending_syncs
+    // parse preview (route `deleteApprovedPending`), so `pr` is legitimately
+    // absent. Render the derived badge — NOT the pre-finalize Re-scan/Ignore
+    // recovery, which does not apply once publishing has begun. (Blocked
+    // re-apply rows retain their pending_syncs, so they never reach here with a
+    // missing preview.) Codex whole-diff R3.
+    if (checkpointStatus !== null && row.displayState) {
+      return (
+        <article
+          data-testid={`wizard-step3-card-${dfid}`}
+          className="flex items-center gap-3 rounded-md border border-border bg-surface p-tile-pad shadow-tile"
+        >
+          <div className="min-w-0 flex-1">
+            <SheetTitleLink dfid={dfid} title={titleFallback} />
+          </div>
+          <Step3RowBadge displayState={row.displayState} />
+        </article>
+      );
+    }
     return (
       <article
         data-testid={`wizard-step3-card-${dfid}`}
