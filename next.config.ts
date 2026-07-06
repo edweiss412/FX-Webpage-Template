@@ -71,6 +71,16 @@ const nextConfig: NextConfig = {
         destination: "/admin/dev/telemetry",
         permanent: true,
       },
+      {
+        // The standalone /admin/onboarding/staged/[session]/[file] recovery page
+        // was folded into the unified Step-3 review surface (spec §4.6). A blocked
+        // re-apply row is now resolved via the Step-3 Review modal on /admin, and
+        // finalize race-row `re_apply_url`s point here. 307 (permanent:false) —
+        // reversible; Step-3 is the session's home and the row is surfaced there.
+        source: "/admin/onboarding/staged/:wizardSessionId/:driveFileId",
+        destination: "/admin",
+        permanent: false,
+      },
     ];
   },
   // M12.13 secret-hygiene (HIGH finding): the unpublish confirm route is reached
