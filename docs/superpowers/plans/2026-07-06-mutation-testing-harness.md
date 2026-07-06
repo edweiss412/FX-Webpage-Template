@@ -1524,17 +1524,54 @@ git commit --no-verify -m "test(parser): known-holes ledger + bidirectional reco
 **Interfaces:**
 - Consumes: everything above.
 
-- [ ] **Step 1: Write the driver test (initially expected RED — the ledger is empty but real holes exist)**
+- [ ] **Step 1: Measure the exhaustive corpus size + wall-clock budget (plan-R17)**
+
+Before committing to the exhaustive design, measure it. The count is cheap (operators are pure string transforms — no `parseSheet`); the full parse is the expensive part, timed once here to confirm it fits the 300s hook ceiling with margin.
+
+Run a throwaway measurement as a temporary vitest file (vitest resolves the `@/` alias the operator/oracle modules use — a bare `tsx` run does not). Delete after recording — do not commit:
+
+```ts
+// tests/parser/mutation/_measure.test.ts   (TEMPORARY — delete before committing Task 8)
+import { it } from "vitest";
+import { FIXTURES, readFixture } from "./fixtures";
+import { OPERATORS } from "./operators";
+import { capture, verdict } from "./oracle";
+it("measure corpus size + wall-clock", () => {
+  let count = 0;
+  for (const f of FIXTURES) for (const gen of Object.values(OPERATORS)) count += gen(readFixture(f)).length;
+  const t0 = performance.now();
+  for (const f of FIXTURES) { const md = readFixture(f); const b = capture(md, `${f.slug}.md`);
+    for (const gen of Object.values(OPERATORS)) for (const m of gen(md)) verdict(b, capture(m.md, `${f.slug}.md`)); }
+  console.log(`[measure] mutant count: ${count}  full-parse wall-clock ms: ${Math.round(performance.now() - t0)}`);
+}, 300_000);
+```
+
+Run: `pnpm vitest run tests/parser/mutation/_measure.test.ts` then `rm tests/parser/mutation/_measure.test.ts`.
+
+Record both numbers in the Task 8 commit message. Accept the exhaustive design only if:
+  - **count ≤ `MUTANT_BUDGET` (150_000)** with headroom — if it is already near the ceiling, raise `MUTANT_BUDGET` deliberately (an operator is fanning out more than expected; confirm that is intended, not a per-char bug).
+  - **wall-clock < 150_000 ms** (half the 300s hook ceiling, leaving margin for slower CI hardware). If it exceeds 150s, DO NOT accept a single monolithic run: shard the corpus across vitest workers by splitting `runAll()` into one `test.each(FIXTURES)` case per fixture (vitest parallelizes cases across the pool), or into per-fixture-group files, and reconcile the union of alarms against the ledger in a final aggregation test. Note the chosen sharding in the commit message.
+
+If the measured numbers are within budget, proceed with the single-`beforeAll` design below.
+
+- [ ] **Step 2: Write the driver test (initially expected RED — the ledger is empty but real holes exist)**
 
 ```ts
 // tests/parser/mutationHarness.test.ts
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeAll } from "vitest";
 import { FIXTURES, readFixture } from "./mutation/fixtures";
 import { OPERATORS } from "./mutation/operators";
 import type { Mutant } from "./mutation/operators";
 import { capture, verdict, fingerprint } from "./mutation/oracle";
 import { KNOWN_SILENT_HOLES, reconcileLedger } from "./mutation/knownHoles";
 import type { Alarm } from "./mutation/knownHoles";
+
+// Runtime-budget ceiling on the exhaustive corpus (plan-R17). NOT a blind hardcode: it is set
+// with headroom above the measured mutant count from Task 8 Step 1 (~1.0e5 across the committed
+// 17 fixtures × 9 operators), and guards against an operator regression that fans out per-char
+// (e.g. unicode-inject emitting one mutant per code point). Update it — with a fresh measurement
+// — only when a fixture or operator is intentionally added/removed.
+const MUTANT_BUDGET = 150_000;
 
 // Prefix each operator's siteId with the fixture slug so keys are globally unique across
 // the corpus. Operator siteIds start "<op>:B..:L..:X.." → "<op>:<slug>:B..:L..:X..".
@@ -1566,29 +1603,44 @@ function runAll(): { alarms: Alarm[]; allSiteIds: string[]; cosmeticViolations: 
   return { alarms, allSiteIds, cosmeticViolations };
 }
 
+// The exhaustive corpus parse is DEFERRED into a beforeAll (NOT executed at describe-collection
+// time) and scoped to THIS describe only. Consequence (closes Codex plan-R17 [high]): a targeted
+// run of the cheap structural-gate describes added in Task 9 — `-t "classifier parity"`,
+// `-t "COUNT-level audit agreement"`, and their red-phase probes — collects this module but runs
+// only the matched describe's hooks/tests, so `runAll()` never fires for those. Only tests INSIDE
+// this describe pay the corpus cost. The hook carries an explicit 300s timeout because vitest's
+// default hookTimeout (10s) is far below the measured corpus wall-clock (Step 1); this file is a
+// CI audit gate (runs in the audits workflow), not a fast unit test on the hot path.
 describe("mutation harness — bidirectional known-holes ledger", () => {
-  const { alarms, allSiteIds, cosmeticViolations } = runAll();
+  let R: { alarms: Alarm[]; allSiteIds: string[]; cosmeticViolations: string[] };
+  beforeAll(() => {
+    R = runAll();
+  }, 300_000);
 
+  it("corpus size is within the documented runtime budget (plan-R17)", () => {
+    expect(R.allSiteIds.length).toBeGreaterThan(0);
+    expect(R.allSiteIds.length, `mutant count exceeds MUTANT_BUDGET — measure + update deliberately`).toBeLessThanOrEqual(MUTANT_BUDGET);
+  });
   it("all generated siteIds are globally unique (Codex R2)", () => {
-    expect(new Set(allSiteIds).size).toBe(allSiteIds.length);
+    expect(new Set(R.allSiteIds).size).toBe(R.allSiteIds.length);
   });
   it("cosmetic operators are fully invisible (payload + signals unchanged)", () => {
-    expect(cosmeticViolations).toEqual([]);
+    expect(R.cosmeticViolations).toEqual([]);
   });
   it("actual alarms == committed ledger, keyed (siteId, kind, fingerprint) — bidirectional", () => {
-    const { newAlarms, staleRows } = reconcileLedger(alarms, KNOWN_SILENT_HOLES);
+    const { newAlarms, staleRows } = reconcileLedger(R.alarms, KNOWN_SILENT_HOLES);
     expect(newAlarms, `NEW/changed alarms not in ledger:\n${newAlarms.join("\n")}`).toEqual([]);
     expect(staleRows, `stale ledger rows (fixed or drifted):\n${staleRows.join("\n")}`).toEqual([]);
   });
 });
 ```
 
-- [ ] **Step 2: Run it — observe the day-1 alarm set**
+- [ ] **Step 3: Run it — observe the day-1 alarm set**
 
 Run: `pnpm vitest run tests/parser/mutationHarness.test.ts`
 Expected: FAIL on the ledger test with a printed list of `newHoles` (the day-1 `SILENT_WRONG`/`SILENT_SIGNAL_LOSS` alarms — these are the real audit findings #1–#13). The uniqueness + cosmetic tests should PASS. If cosmetic FAILS, fix the operator (a cosmetic op changed output) before proceeding.
 
-- [ ] **Step 3: Populate the ledger** — copy each printed `siteId|kind|fingerprint` into `KNOWN_SILENT_HOLES`, mapping each to its audit finding (`#1`–`#13`, or `"unaudited"` + a `BACKLOG.md` note). Example row:
+- [ ] **Step 4: Populate the ledger** — copy each printed `siteId|kind|fingerprint` into `KNOWN_SILENT_HOLES`, mapping each to its audit finding (`#1`–`#13`, or `"unaudited"` + a `BACKLOG.md` note). Example row:
 
 ```ts
 export const KNOWN_SILENT_HOLES: readonly KnownHole[] = [
@@ -1597,16 +1649,18 @@ export const KNOWN_SILENT_HOLES: readonly KnownHole[] = [
 ];
 ```
 
-- [ ] **Step 4: Re-run — verify GREEN**
+- [ ] **Step 5: Re-run — verify GREEN**
 
 Run: `pnpm vitest run tests/parser/mutationHarness.test.ts`
-Expected: PASS (ledger == day-1 alarm set).
+Expected: PASS (ledger == day-1 alarm set; corpus-budget test green).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
 git add tests/parser/mutationHarness.test.ts tests/parser/mutation/knownHoles.ts
-git commit --no-verify -m "feat(parser): mutation harness driver + day-1 known-holes ledger (audit findings #1-#13)"
+git commit --no-verify -m "feat(parser): mutation harness driver + day-1 known-holes ledger (audit findings #1-#13)
+
+Measured corpus: <count> mutants, <ms> ms full parse (plan-R17 runtime budget)."
 ```
 
 ---
