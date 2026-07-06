@@ -483,6 +483,14 @@ describe("M6 advisory-lock single-holder contract", () => {
       /const postFinishable = await finishableCleanCount\(tx, sessionId\)/,
     );
     expect(cleanupSource).toMatch(/const postStuck = postFinishable === 0/);
+    // (R5) collectReapDriveFileIds MUST collect the show: lock set UNCONDITIONALLY — no
+    // status / published / pending_syncs filter — so an 'applied' manifest for an
+    // already-published show is locked before the id-scoped manifest delete removes it.
+    // A filter here would leave a published show's provenance deletable without its
+    // show: lock. The trailing backtick pins that nothing follows `$1::uuid`.
+    expect(source).toMatch(
+      /for \(const table of REAP_DRIVE_ID_TABLES\)[\s\S]*?select drive_file_id from public\.\$\{table\} where wizard_session_id = \$1::uuid`/,
+    );
   });
 
   test("unpublish_show admin path holds the show lock in-RPC only (single-holder)", () => {

@@ -202,6 +202,16 @@ describe("applyRescanDecisionUnderLock", () => {
     expect(choices).toEqual([{ item_id: SENTINEL_ID, action: "apply" }]);
     // approver carried over from the prior row (non-null payload for the CHECK).
     expect(restamp!.params[2]).toBe("ada@x.example");
+    // Whole-diff R5 consistency pin: the SAME clean-restamp writes the manifest back to
+    // 'applied' (for a non-blocker-heal), so wizard_approved=true and Step-3-checked
+    // (manifest='applied') are set together under the lock — never a checked-but-unapproved
+    // mismatch.
+    const manifestApplied = calls.find(
+      (c) =>
+        /update\s+public\.onboarding_scan_manifest/i.test(c.sql) &&
+        /status\s*=\s*'applied'/i.test(c.sql),
+    );
+    expect(manifestApplied, "clean restamp must also restore manifest='applied'").toBeTruthy();
   });
 
   // Failure mode (whole-diff R2 MEDIUM): a previously-ready row (Flow B shadows
