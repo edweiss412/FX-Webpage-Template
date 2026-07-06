@@ -212,7 +212,11 @@ Thread the fields the derivation + modal need, and compute the linked-show state
 - **Candidate-selection contract (HIGH, plan-R1).** `buildStep3Row` takes the FULL list of `shows` candidates for the row's `drive_file_id` (not one pre-picked show), and resolves `linkedShow`/`sessionLinked` by this precedence — never a bare `created_show_id` trust:
   ```ts
   type ShowCandidate = { id: string; drive_file_id: string; published: boolean; archived: boolean; wizard_created_session_id: string | null };
-  buildStep3Row(manifestRow, pendingRow, candidates: ShowCandidate[]): Step3Row
+  // pendingRow is NULLABLE (MEDIUM plan-R3): only CLEAN rows carry a pending_syncs
+  // row (OnboardingWizard.tsx:362); hard_failed rows use pending_ingestions
+  // (:388, → pendingIngestionId), skipped/resolved rows may have neither. Never
+  // dereference `pendingRow.parse_result` without a null guard.
+  buildStep3Row(manifestRow, pendingRow: PendingSyncRow | null, candidates: ShowCandidate[]): Step3Row
   ```
   1. **Session-provenance** (precedence): pick the candidate where `manifest.created_show_id === c.id && manifest.drive_file_id === c.drive_file_id && c.wizard_created_session_id === manifest.wizard_session_id` → `sessionLinked = true`.
   2. Else, **only if** `manifest.created_show_id === null`, **existing-show branch**: pick a candidate where `c.drive_file_id === manifest.drive_file_id && c.published === true && c.archived === false && c.wizard_created_session_id !== manifest.wizard_session_id` (null-safe distinct: a `null` session id is `!== manifest.wizard_session_id`) → `sessionLinked = false`. If multiple crew-visible candidates match, pick the first (a `drive_file_id` maps to one live show; the guard is `published && !archived`).
@@ -278,6 +282,22 @@ describe("buildStep3Row Live/Held candidate selection (spec §4.3, plan-R1)", ()
     expect(row.linkedShow ?? null).toBeNull();
   });
 });
+
+describe("buildStep3Row handles rows with NO pending_syncs row (MEDIUM plan-R3)", () => {
+  it("hard_failed row (pendingRow null) → Needs-review-other, no crash", () => {
+    const row = buildStep3Row({ ...manifest, status: "hard_failed" }, null, []);
+    expect(row.displayState).toBe("needs_review_other");
+    expect(row.reviewItemsCorrupt).toBe(false); // no pending → no items to be corrupt
+    expect(row.triggeredReviewItems ?? []).toEqual([]);
+  });
+  it("skipped_non_sheet row (pendingRow null) → skipped, no crash on parse_result deref", () => {
+    const row = buildStep3Row({ ...manifest, status: "skipped_non_sheet" }, null, []);
+    expect(row.displayState).toBe("skipped");
+  });
+  it("permanent_ignore row (pendingRow null) → set_aside", () => {
+    expect(buildStep3Row({ ...manifest, status: "permanent_ignore" }, null, []).displayState).toBe("set_aside");
+  });
+});
 ```
 
 - [ ] **Step 2: Run — verify fail** (`buildStep3Row` not exported yet).
@@ -285,10 +305,11 @@ describe("buildStep3Row Live/Held candidate selection (spec §4.3, plan-R1)", ()
 - [ ] **Step 3: Implement.** In `Step3Review.tsx` add the new optional fields to `Step3Row`. In `OnboardingWizard.tsx`:
   1. Extend the `pending_syncs` select to include `triggered_review_items` (spec §4.3; current select at `:259-260`).
   2. Add a `public.shows` read selecting `id, drive_file_id, published, archived, wizard_created_session_id` for the session's `drive_file_id`s (destructure `{ data, error }`; infra fault → `{ kind: "infra_error" }`).
-  3. Export a pure `buildStep3Row(manifestRow, pendingRow, candidates: ShowCandidate[])` that:
-     - Coerces `triggered_review_items` via `parseTriggeredReviewItems`; sets `reviewItemsCorrupt = !(parsed.ok && parsed.items.every(isStructurallyValidReviewItem))`; populates `triggeredReviewItems` only when both pass.
+  3. Export a pure `buildStep3Row(manifestRow, pendingRow: PendingSyncRow | null, candidates: ShowCandidate[])` that:
+     - When `pendingRow === null` (hard_failed/skipped/resolved rows, per plan-R3): `triggeredReviewItems` undefined, `reviewItemsCorrupt = false`, `hasWellFormedParseResult = false`, `stagedId` undefined. Never dereference `pendingRow.parse_result`.
+     - Else coerces `pendingRow.triggered_review_items` via `parseTriggeredReviewItems`; sets `reviewItemsCorrupt = !(parsed.ok && parsed.items.every(isStructurallyValidReviewItem))`; populates `triggeredReviewItems` only when both pass.
      - Resolves `linkedShow` + `sessionLinked` per the **Candidate-selection contract** above (session-provenance first; existing-show branch only when `created_show_id IS NULL`; else null). The caller groups the `public.shows` read by `drive_file_id` and passes each row's candidate list.
-     - Sets `hasWellFormedParseResult = !!(pending.parse_result && typeof pending.parse_result === "object" && pending.parse_result.show)`.
+     - Sets `hasWellFormedParseResult = !!(pendingRow?.parse_result && typeof pendingRow.parse_result === "object" && pendingRow.parse_result.show)`.
      - Computes `displayState = deriveStep3DisplayState({ ...signals, linkedShow, sessionLinked })`.
 
 - [ ] **Step 4: Run — verify pass.**

@@ -133,10 +133,12 @@ it("Approve & apply sends the exact wizard-apply payload with the tier-3 choice"
   render(<Step3ReviewModal {...baseProps} resolution={resWith([mi13Item], { stagedId: "st1", onApplyResolve })} />);
   fireEvent.click(screen.getByRole("radio", { name: /rename to/i }));
   fireEvent.click(screen.getByRole("button", { name: /approve & apply/i }));
-  // onApplyResolve receives ReviewerChoice[]; the modal's caller wires it to
-  // { stagedId: "st1", reviewerChoicesVersion: 1, reviewerChoices } (Task 2.3).
+  // onApplyResolve receives ReviewerChoice[] (`{ item_id, action, rename_value? }`,
+  // applyStagedCore.ts:33 — NOT `{ id, action }`); the caller wires it to the wizard
+  // apply body `{ stagedId, reviewerChoicesVersion: 1, reviewerChoices }` (Task 2.3).
+  // A `rename` choice carries `rename_value = expectedRenameValue(item)` (StagedReviewCard.tsx:361-365).
   await waitFor(() => expect(onApplyResolve).toHaveBeenCalledWith([
-    expect.objectContaining({ id: mi13Item.id, action: "rename" }),
+    expect.objectContaining({ item_id: mi13Item.id, action: "rename", rename_value: mi13Item.added_name }),
   ]));
 });
 it("single-action item is auto-bound into the Approve payload (no radio, still a choice)", async () => {
@@ -144,7 +146,7 @@ it("single-action item is auto-bound into the Approve payload (no radio, still a
   render(<Step3ReviewModal {...baseProps} resolution={resWith([mi6Item], { onApplyResolve })} />);
   fireEvent.click(screen.getByRole("button", { name: /approve & apply/i }));
   await waitFor(() => expect(onApplyResolve).toHaveBeenCalledWith([
-    expect.objectContaining({ id: mi6Item.id, action: "apply" }),
+    expect.objectContaining({ item_id: mi6Item.id, action: "apply" }),
   ]));
 });
 it("Ignore this sheet calls onIgnore (wizard discard kind: permanent_ignore)", async () => {
@@ -159,7 +161,7 @@ it("Ignore this sheet calls onIgnore (wizard discard kind: permanent_ignore)", a
 - [ ] **Step 2: Run — verify fail.**
 
 - [ ] **Step 3: Implement** the `resolution` branch in `Step3ReviewModal`:
-  - Body: map `triggeredReviewItems` by `tierForItem` — tier-1 → header subline (via `describeItem`); tier-2 → `describeItem` line anchored to the item's section in the existing section panels; tier-3 → forced-unset radio group (options from `allowedActionsFor`, labels from `actionLabel`, `isWizardMode=true`). Reuse the choice-state machine pattern from `StagedReviewCard:316+` (single-action items auto-bind their sole action; multi-action start unset).
+  - Body: map `triggeredReviewItems` by `tierForItem` — tier-1 → header subline (via `describeItem`); tier-2 → `describeItem` line anchored to the item's section in the existing section panels; tier-3 → forced-unset radio group (options from `allowedActionsFor`, labels from `actionLabel`, `isWizardMode=true`). Reuse the choice-state machine pattern from `StagedReviewCard:316-367` verbatim (single-action items auto-bind their sole action; multi-action start unset). Each choice is built as `{ item_id: item.id, action }`, plus `rename_value = expectedRenameValue(item)` when `action === "rename"` (`StagedReviewCard.tsx:361-365`) — `ReviewerChoice` is `{ item_id, action, rename_value? }` (`applyStagedCore.ts:33`), NOT `{ id, action }`.
   - Footer: `Approve & apply` (primary, disabled while any tier-3 item unset OR `reviewItemsCorrupt` OR `isPublishRunActive`) calling `onApplyResolve(choices)`; `RescanSheetButton` (Re-scan) disabled additionally by `isPublishRunActive`; `Ignore this sheet` calling `onIgnore()` disabled by `isPublishRunActive`. On apply/ignore error keep the modal open with an `ErrorExplainer` note (invariant 5).
   - Copy: "Approve & apply", "Re-scan this sheet", "Ignore this sheet" + subline "Removed from this setup." (no em dashes).
 
@@ -186,7 +188,7 @@ Wire the row: a `needs_review_reapply` row shows `Review →` (opens the modal w
   - a `needs_review_reapply` row renders `Review →`; clicking opens the modal with `resolution`.
   - a `needs_review_no_details` row renders `Re-scan this sheet` + `Ignore this sheet`, NO `Review →`, and NO anchor with href starting `/admin/onboarding/staged/`.
   - a `needs_review_other` (`hard_failed`) row renders its existing inline controls and NO `Review →`.
-  - **route-wiring (HIGH plan-R2)** — with `fetch` mocked: opening the modal + Approve POSTs the wizard apply route with body `{ stagedId, reviewerChoicesVersion: 1, reviewerChoices }`; `Ignore this sheet` POSTs the wizard `discard` route with `{ sourceScope: "wizard", variant: "permanent_ignore", stagedId, wizardSessionId }`; assert the exact URL + body, not just that fetch was called.
+  - **route-wiring (HIGH plan-R2/R3)** — with `fetch` mocked: opening the modal + Approve POSTs the wizard apply route with body `{ stagedId, reviewerChoicesVersion: 1, reviewerChoices }` (`reviewerChoices` = `ReviewerChoice[]` with `item_id`, above); `Ignore this sheet` POSTs the wizard `discard` route with body **`{ stagedId, kind: "permanent_ignore" }`** (the route reads only `{ stagedId, kind }` — `discard/route.ts:38-41,116`; the internal `sourceScope: "wizard"`/`variant` shape is built INSIDE the route at `:127`, NOT sent by the client). Assert the exact URL (`/api/admin/onboarding/staged/${wizardSessionId}/${driveFileId}/apply` and `/discard`) + body, not just that fetch was called.
 
 - [ ] **Step 2: Run — verify fail.**
 
