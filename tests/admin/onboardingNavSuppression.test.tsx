@@ -57,9 +57,11 @@ vi.mock("@/components/layout/PageTransition", () => ({
   PageTransition: ({ children }: { children: React.ReactNode }) => children,
 }));
 vi.mock("@/lib/messages/lookup", () => ({ getRequiredDougFacing: () => "load failed" }));
-// The onboarding chrome now mounts <NotifBell> (bell notification center §7.1/§8:
-// the bell replaces the retired AlertBanner and rides BOTH chromes). Seed the
-// server-computed count; usePathname is stubbed below so the badge hook mounts.
+// The onboarding chrome NO LONGER mounts <NotifBell> (owner decision 2026-07-06:
+// the bell is suppressed during first-run onboarding, mirroring the nav-tab
+// suppression). The layout still computes the count for the full <AdminNav>
+// branch, so keep the mock; usePathname/fetch are stubbed below for the AdminNav
+// branch's own bell.
 vi.mock("@/lib/admin/bellFeed", () => ({
   loadBellUnseenCount: vi.fn(async () => ({ kind: "ok", count: 0 })),
 }));
