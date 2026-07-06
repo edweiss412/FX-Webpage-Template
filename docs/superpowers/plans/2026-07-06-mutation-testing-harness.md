@@ -1797,7 +1797,13 @@ describe("structural gates FAIL under injected regressions (plan-R13)", () => {
   it("count-agreement: dropping ONE generated ref-sub|crew mutant makes gen !== audit", () => {
     const md = "| CREW | NAME | PHONE |\n|  | Doug | 917 |\n|  | Eric | 508 |";
     const audit = auditSites(md).get("ref-sub|crew") ?? 0;
-    const crippled = OPS2["ref-sub"]!(md).filter((m) => m.domains.includes("crew")).slice(0, -1); // remove one
+    const healthy = OPS2["ref-sub"]!(md).filter((m) => m.domains.includes("crew"));
+    // Liveness FIRST: the healthy generator must MATCH the audit. This is the assertion the
+    // injected regression (refSub => []) trips — without it, a fully-dead operator yields
+    // crippled=[] whose count 0 still satisfies `not.toBe(audit>0)`, so the RED proof was a
+    // false positive (Codex plan-R16 [high]).
+    expect(genCounts(healthy).get("crew") ?? 0).toBe(audit);
+    const crippled = healthy.slice(0, -1); // remove one
     expect(genCounts(crippled).get("crew") ?? 0).not.toBe(audit); // the `=== audit` gate would fail
   });
   it("boundary-coverage: removing ALL blank-row:remove mutants leaves an audited boundary uncovered", () => {
