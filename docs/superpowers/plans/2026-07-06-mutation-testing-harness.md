@@ -1072,7 +1072,11 @@ export function floorEligible(mutants: Mutant[]): Set<Domain> {
 export function skippedInapplicable(md: string, op: string): Domain[] {
   const present = new Set<Domain>();
   for (const s of seg(md).sections) { const d = classifySection(s); if (RISK_CRITICAL.includes(d)) present.add(d); }
-  const eligible = floorEligible(OPERATORS[op]!(md));
+  // STREAM the generator (Codex plan-R23 [high]): never materialize the operator's full array
+  // here — this runs across the whole corpus (Task 11), so an eager `OPERATORS[op]!(md)` would
+  // let a fanout regression OOM before any budget guard. The for-of holds one mutant at a time.
+  const eligible = new Set<Domain>();
+  for (const m of OPERATOR_GENS[op]!(md)) for (const d of m.domains) if (RISK_CRITICAL.includes(d)) eligible.add(d);
   return [...present].filter((d) => !eligible.has(d)).sort();
 }
 
@@ -1786,9 +1790,24 @@ describe("coverage floor + COUNT-level audit agreement (Codex R5/R9, exhaustive 
   // credits each adjacent domain once, matching the audit's dual bump.
   const EXACT = ["header-typo", "ref-sub", "unicode-inject", "merged-cell", "column-shift", "blank-row:inject", "blank-row:remove"];
 
+  // Array form — for the BOUNDED synthetic-input tests below only.
   const genCounts = (raw: { domains: string[] }[]): Map<string, number> => {
     const m = new Map<string, number>();
     for (const mut of raw) for (const d of mut.domains) m.set(d, (m.get(d) ?? 0) + 1);
+    return m;
+  };
+  // STREAMING form with the MUTANT_BUDGET guard — for the FULL-CORPUS loop (Codex plan-R23
+  // [high]): never materialize the operator array over real fixtures. OPERATOR_GENS + this
+  // `++n > MUTANT_BUDGET` throw give the same O(1)/fail-fast protection as runAll, so a fanout
+  // regression fails the gate deterministically instead of OOM-ing CI. (MUTANT_BUDGET is the
+  // module const defined for the driver; this describe is in the same file.)
+  const genCountsStreamed = (op: string, md: string): Map<string, number> => {
+    const m = new Map<string, number>();
+    let n = 0;
+    for (const mut of OPERATOR_GENS[op]!(md)) {
+      if (++n > MUTANT_BUDGET) throw new Error(`${op} fanout exceeded MUTANT_BUDGET ${MUTANT_BUDGET} before array materialization`);
+      for (const d of mut.domains) m.set(d, (m.get(d) ?? 0) + 1);
+    }
     return m;
   };
 
@@ -1797,7 +1816,7 @@ describe("coverage floor + COUNT-level audit agreement (Codex R5/R9, exhaustive 
       const md = readFixture(f);
       const audit = auditSites(md);
       for (const op of EXACT) {
-        const gen = genCounts(OPS[op]!(md));
+        const gen = genCountsStreamed(op, md); // streaming + budget-guarded (never an eager array)
         const domains = new Set<string>([...gen.keys(), ...[...audit.keys()].filter((k) => k.startsWith(`${op}|`)).map((k) => k.split("|")[1]!)]);
         for (const d of domains) {
           expect(gen.get(d) ?? 0, `${f.slug} ${op}|${d} count`).toBe(audit.get(`${op}|${d}`) ?? 0);
@@ -1959,6 +1978,25 @@ describe("structural gates FAIL under injected regressions (plan-R13)", () => {
   it("ledger ratchet: an undocumented NEW alarm fails, and a STALE row fails (both directions)", () => {
     expect(reconcileLedger([{ siteId: "s", kind: "wrong", fingerprint: "f" }], []).newAlarms.length).toBeGreaterThan(0);
     expect(reconcileLedger([], [{ siteId: "s", kind: "wrong", fingerprint: "f", finding: "#1", note: "n" }]).staleRows.length).toBeGreaterThan(0);
+  });
+});
+
+describe("streaming budget guard fails fast, BEFORE array materialization (plan-R23)", () => {
+  it("an unbounded generator is stopped by the ++n>budget throw, never collected into an array", () => {
+    // Proves the pattern EVERY full-corpus path uses (runAll, genCountsStreamed, skippedInapplicable):
+    // a for-of over the generator with a budget throw. A non-streaming impl (`[...gen]` / `.map`)
+    // would HANG/OOM on this infinite generator; the guarded loop TERMINATING with a throw proves
+    // the corpus gates fail deterministically on a fanout regression instead of allocating the full
+    // mutant array first (the Codex plan-R23 [high] failure class).
+    function* unbounded(): Generator<{ domains: string[] }> {
+      while (true) yield { domains: ["crew"] };
+    }
+    const BUDGET = 100;
+    const guarded = () => {
+      let n = 0;
+      for (const _m of unbounded()) if (++n > BUDGET) throw new Error("over budget");
+    };
+    expect(guarded).toThrow("over budget"); // terminates ⇒ no array was ever built
   });
 });
 ```

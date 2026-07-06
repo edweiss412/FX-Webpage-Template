@@ -187,7 +187,7 @@ The driver computes `actual = { all mutants whose verdict is SILENT_WRONG or SIL
 
 The initial ledger is populated by running the harness once against the branch HEAD and recording every day-1 alarm (`SILENT_WRONG` and `SILENT_SIGNAL_LOSS`) with its `kind`, `fingerprint`, + mapped finding. Each entry cites the audit finding it evidences; a mutant that surfaces a *new* silent hole not in the audit gets a `finding: "unaudited"` row + a `BACKLOG.md` note.
 
-## 6. File layout (all test-only)
+## 6. File layout (all test-infra)
 
 ```
 tests/parser/mutation/operators.ts          # 8 pure operators + exhaustive site enumeration + floorEligible/skippedInapplicable
@@ -200,7 +200,14 @@ tests/parser/mutation/applicabilityAudit.ts # independent raw-markdown site inve
 tests/parser/mutationHarness.test.ts        # driver: fixtures × operators × sites → verdict → ledger diff + all structural gates
 ```
 
-No file under `lib/`, `app/`, `components/`, `supabase/` is created or modified. Confirmed by the diff being confined to `tests/parser/mutation/**` + the driver + this spec + the plan.
+Plus **two TEST-infrastructure edits** (AC-5 §4, plan-R22) so the heavy harness is a balanced, merge-gating unit-suite file — NOT product source:
+
+```
+lib/test/vitest.weights.ts                       # +1 FILE_WEIGHTS row: the harness's measured wall-clock (so the LPT shard sequencer balances it)
+tests/cross-cutting/vitest-shard-balance.test.ts # HOT derived from the top-2 committed weights (stays correct as the heavy-file set grows)
+```
+
+No **product** source under `lib/parser`, `app/`, `components/`, `supabase/` — and no new workflow — is created or modified. `lib/test/vitest.weights.ts` is test-sharding infrastructure (a build/test-config surface), not runtime product code. Confirmed by the diff being confined to `tests/parser/mutation/**` + the driver + those two test-infra files + this spec + the plan.
 
 ## 7. Fixture corpus (17)
 
