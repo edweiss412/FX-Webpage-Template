@@ -112,19 +112,20 @@ These pin the audit's §2 "credit where due" invariants. A cosmetic edit must be
   resolveHeader(col0):
     n = normalizeHeader(col0)                    // parser's own normalizer
     if KNOWN_SECTION_HEADERS.has(n): return n    // exact
+    if n matches /^TRANSPORTATION\//: return 'TRANSPORTATION'  // v4 slash header (transport.ts:170)
     for fam in PREFIX_SECTION_FAMILIES:          // token-prefix (name/ordinal suffix)
       if n === fam OR (n.startsWith(fam) AND nextChar-after-fam is non-[A-Z0-9]): return fam
     return null                                  // not parser-known → 'other'
   classifySection(sec): let h = resolveHeader(firstCellOf(sec.headerRow)); return h ? SECTION_DOMAIN_MAP[h] : 'other'
   ```
-  The token-prefix boundary rule replicates `matchesTokenPrefix` (`knownSections.ts:155-161`). Because every `PREFIX_SECTION_FAMILIES` member maps to `rooms`, a suffixed room header always resolves to the `rooms` domain.
+  The token-prefix boundary rule replicates `matchesTokenPrefix` (`knownSections.ts:155-161`). Because every `PREFIX_SECTION_FAMILIES` member maps to `rooms`, a suffixed room header always resolves to the `rooms` domain. **v4 transportation slash header (Codex R11 HIGH):** the live parser accepts a col-0 shaped `TRANSPORTATION/<name>` (`lib/parser/blocks/transport.ts:170` — `TRANSPORTATION(?:\/[^|]*)?`). `resolveHeader` therefore resolves any `^TRANSPORTATION/` col-0 to canonical `TRANSPORTATION` (→ `transportation`) so those real fixture sections join the transportation floor instead of falling to `other`. A space-suffixed non-slash form (`TRANSPORTATION SCHEDULE`) is **not** a v4 header and stays `null`, matching the parser regex. This rule is applied identically in the operator-path classifier and the independent `applicabilityAudit` resolver.
 
 - **`SECTION_DOMAIN_MAP` — covers every current `KNOWN_SECTION_HEADERS` member** (`knownSections.ts:34-65`, 30 entries — exhaustive so the parity gate is satisfiable). `Domain = crew | hotel | rooms | transportation | agenda | dates | event_details | venue | dress | contacts | client | pull_sheet | documents | other`:
   - `crew` ← `CREW`, `TECH`
   - `hotel` ← `HOTEL`, `HOTELS`, `HOTEL RESERVATIONS`, `HOTEL RESERVATION`, `HOTEL STAYS`, `HOTEL STAY`
   - `rooms` ← `GENERAL SESSION`, `BREAKOUT`, `BREAKOUTS`, `ADDITIONAL ROOM`, `LUNCH ROOM`, `LUNCH SESSION`, `FOYER`
   - `event_details` ← `EVENT DETAILS`, `DETAILS`, `GS DETAILS`
-  - `transportation` ← `TRANSPORTATION`; `dates` ← `DATES`; `agenda` ← `AGENDA`, `AGENDA LINK`
+  - `transportation` ← `TRANSPORTATION` (incl. the v4 `TRANSPORTATION/<name>` slash form, resolved to canonical `TRANSPORTATION`); `dates` ← `DATES`; `agenda` ← `AGENDA`, `AGENDA LINK`
   - `venue` ← `VENUE`, `VENUES`; `dress` ← `DRESS`; `contacts` ← `IN HOUSE AV`
   - `client` ← `CLIENT`; `pull_sheet` ← `PULL SHEET`; `documents` ← `COI`, `DOCUMENT FOLDER LINK`
   - `other` ← a leading header that is **not** parser-known (genuine metadata rows only).
