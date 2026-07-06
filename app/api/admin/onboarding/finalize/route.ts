@@ -839,6 +839,14 @@ async function processApprovedRow(input: {
     // and the publish path consumes the fresh generation — freshRead re-reads parse_result / approval
     // / choices by (staged_id, staged_modified_time) but does NOT re-read triggered_review_items, and
     // the publish path reads row.triggered_review_items + row.staged_id directly (spec §4.1 rebind).
+    //
+    // Whole-diff R4: clean_unchecked (approval CLEARED during the lock wait → the core set
+    // wizard_approved=false) does NOT skip a re-validation. The freshRead below re-reads the
+    // LOCKED wizard_approved=false and routes to the UNCHECKED branch — a first-seen row is
+    // created Held (firstSeenPublished=false, :1140), an existing-Live show is a §7.4 D10 NO-OP
+    // (:1063). Neither Live-publishes (published=true) an unapproved row — identical to the
+    // normal unchecked-row finalize path (an unchecked-but-finishable row always yields a Held
+    // show). clean_restamped keeps wizard_approved=true and stays Live-eligible via the shadow.
     const freshRows = (await rescanTx.unsafe(
       `select staged_id, staged_modified_time, triggered_review_items
          from public.pending_syncs

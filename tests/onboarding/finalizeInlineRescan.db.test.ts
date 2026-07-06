@@ -305,7 +305,7 @@ maybe("finalize inline re-parse (Thread 3) — real DB end-to-end", () => {
 
     const res = await handleOnboardingFinalize(
       request(),
-      deps({ prepareOnboardingFiles: async () => [preparedFor(DIRTY_CREW)] }) as never, // re-parse ADDS a crew member (MI-11)
+      deps({ prepareOnboardingFiles: async () => [preparedFor(DIRTY_CREW)] }) as never, // re-parse CHANGES Ada's email (same name, new canonical email → MI-12 identity change → dirty)
     );
     const body = (await res.json()) as { per_row: Array<{ code: string }> };
 
