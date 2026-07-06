@@ -14,9 +14,11 @@
  *
  * JWT claim shape (spec §5.3, EXACT — no show_id):
  *   { sub, exp, iat, iss, role: 'authenticated', viewer_kind: 'admin' }
- * sub = the admin's own email (requireAdminIdentity's resolved identity —
- * unlike the subscriber-token route's literal '<admin>', the bell has no
- * show-scoped viewer to disambiguate against).
+ * sub = the literal string '<admin>', matching the sibling
+ * subscriber-token route's admin mint (spec §5.3 is canonical — invariant 7).
+ * The Realtime SELECT policy keys on viewer_kind='admin' only, never on sub,
+ * so the literal both satisfies the spec and keeps the admin's email (PII) out
+ * of the JWT. requireAdminIdentity() is still called for the auth gate.
  *
  * Signed HS256 against SUPABASE_JWT_SECRET (≥32 bytes, RFC 7518 §3.2) with
  * issuer SUPABASE_REALTIME_ISS. Both env vars are required; missing either,
@@ -47,9 +49,10 @@ const TOKEN_TTL_SECONDS = 5 * 60;
 const MIN_HS256_SECRET_BYTES = 32;
 
 export async function POST(): Promise<Response> {
-  let email: string;
   try {
-    ({ email } = await requireAdminIdentity());
+    // Auth gate only — the resolved email is deliberately unused: `sub` is the
+    // literal '<admin>' (spec §5.3), so no PII enters the JWT.
+    await requireAdminIdentity();
   } catch (err) {
     if (err instanceof AdminInfraError) {
       return NextResponse.json({ error: "unavailable" }, { status: 503 });
@@ -78,7 +81,7 @@ export async function POST(): Promise<Response> {
     viewer_kind: "admin",
   })
     .setProtectedHeader({ alg: "HS256" })
-    .setSubject(email)
+    .setSubject("<admin>")
     .setIssuer(issuer)
     .setIssuedAt(iat)
     .setExpirationTime(exp)

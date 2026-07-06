@@ -34,6 +34,11 @@ export type BellEntry = {
   resolvedAt: string | null;
   occurrences: number;
   unread: boolean;
+  // Producer-supplied admin_alerts.context (raw jsonb) — carried onto the entry
+  // so the panel can interpolate it into catalog copy templates (parity with the
+  // retired AlertBanner's `messageFor(code, context)`). Admin-only surface; the
+  // sanitized identity chip below is a SEPARATE, already-projected path.
+  context: Record<string, unknown> | null;
   identity: SerializedAlertIdentity | null;
   isAutoResolving: boolean;
   autoResolveNote: string | null;
@@ -108,6 +113,9 @@ export function shapeBellEntries(
       occurrences: r.is_active
         ? (r.occurrence_count ?? 0) + Number(r.resolved_occurrence_sum ?? 0)
         : Number(r.resolved_occurrence_sum ?? 0),
+      // Explicit null (not undefined) so exactOptionalPropertyTypes-correct
+      // consumers get the same nullable shape on active AND history rows.
+      context: r.context ?? null,
       // unread compares against activityAt (greatest(raised_at,last_seen_at)) —
       // the SAME value the read stamp carries (spec §3.1 as amended per plan-review
       // R3 finding 2), so stamp and comparison can never use different clocks.

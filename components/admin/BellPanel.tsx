@@ -83,13 +83,20 @@ type PanelState =
 // no catalog `title` (invariant 5: never surface the raw code).
 const FALLBACK_TITLE = "Notification";
 
-function rowCopy(code: string): { title: string; message: string | null } {
-  const entry = isMessageCode(code) ? messageFor(code) : null;
+// Producer context is interpolated into the catalog template exactly as the
+// retired AlertBanner did (`messageFor(code, (context ?? undefined) as never)`)
+// so codes whose copy carries `<placeholder>` markers render the real value,
+// not raw template text. A null/absent context yields the untouched entry.
+function rowCopy(
+  code: string,
+  context: Record<string, unknown> | null,
+): { title: string; message: string | null } {
+  const entry = isMessageCode(code) ? messageFor(code, (context ?? undefined) as never) : null;
   return { title: entry?.title ?? FALLBACK_TITLE, message: entry?.dougFacing ?? null };
 }
 
-function rowHelpfulContext(code: string): string | null {
-  return isMessageCode(code) ? lookupHelpfulContext(code) : null;
+function rowHelpfulContext(code: string, context: Record<string, unknown> | null): string | null {
+  return isMessageCode(code) ? lookupHelpfulContext(code, (context ?? undefined) as never) : null;
 }
 
 // The resolve route the entry posts to: show-scoped when the row carries a
@@ -211,8 +218,8 @@ function ActiveRow({
   onToggle: () => void;
   onRefetch: () => void;
 }) {
-  const { title, message } = rowCopy(entry.code);
-  const helpful = rowHelpfulContext(entry.code);
+  const { title, message } = rowCopy(entry.code, entry.context);
+  const helpful = rowHelpfulContext(entry.code, entry.context);
   // Dot shows only while genuinely unread AND not yet optimistically cleared
   // this session (a failed read POST does not un-clear it — spec §4 fail-quiet).
   const dotVisible = entry.unread && !readCleared;
@@ -296,7 +303,7 @@ function ActiveRow({
 }
 
 function HistoryRow({ entry, now }: { entry: BellEntry; now: Date }) {
-  const { title } = rowCopy(entry.code);
+  const { title } = rowCopy(entry.code, entry.context);
   const resolved = entry.resolvedAt ? `Resolved ${raisedAtSuffix(entry.resolvedAt, now)}` : null;
   return (
     <div

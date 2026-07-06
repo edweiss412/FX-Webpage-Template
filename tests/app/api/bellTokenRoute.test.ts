@@ -12,7 +12,9 @@
 //   (c) mint success → 200 with a JWT whose claims are EXACTLY
 //       { sub, exp, iat, iss, role: 'authenticated', viewer_kind: 'admin' }
 //       and NO show_id claim (spec §5.3 — admin-only, unscoped to any show),
-//       with exp - iat === 300;
+//       with sub === '<admin>' (the sibling subscriber-token route's admin
+//       literal — spec §5.3 canonical; keeps the admin email out of the JWT)
+//       and exp - iat === 300;
 //   (d) non-admin (forbidden()/notFound() control flow) propagates untouched.
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { jwtVerify } from "jose";
@@ -107,7 +109,9 @@ describe("POST /api/admin/alerts/bell/token", () => {
     expect(response.status).toBe(200);
     const body = (await response.json()) as { jwt: string; exp: number };
     const { payload } = await jwtVerify(body.jwt, new TextEncoder().encode(TEST_JWT_SECRET));
-    expect(payload.sub).toBe("admin@fxav.test");
+    // sub is the literal '<admin>' (spec §5.3, sibling subscriber-token parity)
+    // — NOT the admin email, so no PII rides in the token.
+    expect(payload.sub).toBe("<admin>");
     expect(payload.iss).toBe(TEST_REALTIME_ISS);
     expect(payload.role).toBe("authenticated");
     expect(payload.viewer_kind).toBe("admin");

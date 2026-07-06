@@ -44,6 +44,7 @@ function makeEntry(over: Partial<BellEntry> & { alertId: string }): BellEntry {
     resolvedAt: null,
     occurrences: 1,
     unread: false,
+    context: null,
     identity: null,
     isAutoResolving: false,
     autoResolveNote: null,
@@ -140,6 +141,38 @@ describe("BellPanel — sections (spec §7.3)", () => {
     await within(getByTestId("bell-panel")).findByTestId("bell-section-active");
     expect(within(getByTestId("bell-entry-many")).getByText("×3")).toBeTruthy();
     expect(within(getByTestId("bell-entry-one")).queryByText(/×/)).toBeNull();
+  });
+
+  it("interpolates entry.context into catalog copy — the value renders, the raw <placeholder> never (Finding 1)", async () => {
+    // MI-2_TITLE_MISSING's dougFacing template is "_<sheet-name>_ doesn't have a
+    // recognizable show title. …" (lib/messages/catalog.ts). With a context
+    // supplying <sheet-name>, the interpolated value must render and the raw
+    // marker must not; with null context the row still renders (template text
+    // is acceptable there, same as the retired banner — assert no crash + title).
+    const CODE = "MI-2_TITLE_MISSING";
+    const sheetName = "East Coast Spectacular";
+    const entries = [
+      makeEntry({
+        alertId: "ctx",
+        state: "active",
+        code: CODE,
+        context: { "sheet-name": sheetName },
+      }),
+      makeEntry({ alertId: "noctx", state: "active", code: CODE, context: null }),
+    ];
+    routeFetch(feedBody({ entries }));
+    const { getByTestId } = renderPanel();
+
+    const panel = getByTestId("bell-panel");
+    const ctxRow = await within(panel).findByTestId("bell-entry-ctx");
+    // Interpolated producer value present; raw template marker gone (scoped to
+    // THIS row — the null-context sibling legitimately still carries the marker).
+    expect(ctxRow.textContent).toContain(sheetName);
+    expect(ctxRow.textContent).not.toContain("<sheet-name>");
+
+    // Null-context row renders without throwing; its catalog title is present.
+    const nullRow = within(panel).getByTestId("bell-entry-noctx");
+    expect(nullRow.textContent).toContain("Show title missing");
   });
 
   it("uncataloged entry code renders a generic fallback, never the raw code, without throwing (§6.2)", async () => {

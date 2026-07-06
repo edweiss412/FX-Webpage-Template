@@ -427,6 +427,25 @@ describe("shapeBellEntries", () => {
     expect(health.isHealth).toBe(true);
     expect(plain.isHealth).toBe(false);
   });
+
+  test("11. context passthrough: producer context rides onto shaped entries (active + history); null → null", () => {
+    const activeCtx = { "sheet-name": "East Coast" };
+    const historyCtx = { email: "doug@fxav.test" };
+    const { entries } = shapeBellEntries(
+      [
+        metaRow(),
+        activeRow({ id: "a1", context: activeCtx }),
+        historyRow({ id: "h1", context: historyCtx }),
+        activeRow({ id: "a2", context: null }),
+      ],
+      50,
+    );
+    expect(entries.find((e) => e.alertId === "a1")?.context).toEqual(activeCtx);
+    expect(entries.find((e) => e.alertId === "h1")?.context).toEqual(historyCtx);
+    // A null-context row carries an explicit null (never undefined) so the
+    // interpolation call site receives the same shape the banner did.
+    expect(entries.find((e) => e.alertId === "a2")?.context).toBeNull();
+  });
 });
 
 describe("loadBellFeed", () => {
