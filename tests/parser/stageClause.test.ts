@@ -73,6 +73,23 @@ describe("parseStageClause (spec §3.2)", () => {
       }
     }
   });
+  it("STRUCTURAL: a leading role-ONLY clause + ANY stage subset ALWAYS fails open + signals — R8", () => {
+    // A stage token ONLY'd behind a leading role-ONLY clause is inherently ambiguous, so for EVERY
+    // non-empty subset of the 5 stages the whole clause must fail open (never hide a work day) AND
+    // signal UNKNOWN_STAGE_RESTRICTION — never a silent partial restriction. Closes the no-stage-body
+    // dropped-stage hole across every stage subset and both leading-role shapes.
+    const STAGES = ["Load In", "Set", "Show", "Strike", "Load Out"];
+    for (const lead of ["A1 ONLY", "LEAD ONLY", "A1 / LEAD ONLY"]) {
+      for (let mask = 1; mask < 1 << STAGES.length; mask++) {
+        const subset = STAGES.filter((_, i) => mask & (1 << i));
+        const cell = `${lead} / ${subset.join(" / ")} ONLY`;
+        const r = parseStageClause(cell);
+        expect(r.stages, `cell='${cell}' must fail open`).toEqual([]);
+        expect(r.unrecognizedRestriction, `cell='${cell}'`).toBe(true);
+        expect(r.consumedOnlyClause, `cell='${cell}'`).toBe(true);
+      }
+    }
+  });
   it("EXPLICIT keeps a role token and routes it to cleaned (R22)", () => {
     const r = parseStageClause("A1 / Set / Strike ONLY");
     expect(r.stages).toEqual(["Set", "Strike"]);
@@ -173,6 +190,38 @@ describe("parseStageClause (spec §3.2)", () => {
     expect(parseStageClause("Set / Rehearsal ONLY***").consumedOnlyClause).toBe(true);
     expect(parseStageClause("Set / Rehearsal ONLY***").unrecognizedRestriction).toBe(true);
   });
+  // Whole-diff Codex R8 [high]: the first ONLY marker may have NO stage in its BODY yet a LATER
+  // clause carries a stage (`A1 ONLY / Set ONLY`, `LEAD ONLY / Set / Strike ONLY`). The no-stage
+  // branch returned early WITHOUT the tail check the general path uses, so the dropped stage
+  // restriction failed open SILENTLY (no UNKNOWN_STAGE_RESTRICTION). It must fail open AND signal.
+  it("R8: a STAGE token after a leading role-ONLY clause fails open AND signals", () => {
+    for (const cell of [
+      "A1 ONLY / Set ONLY",
+      "LEAD ONLY / Set / Strike ONLY",
+      "A1 ONLY / Set", // bare stage after role-ONLY is still ambiguous → signal (fail-open safe)
+    ]) {
+      const r = parseStageClause(cell);
+      expect(r.stages, cell).toEqual([]); // fail open — never hide a work day
+      expect(r.unrecognizedRestriction, cell).toBe(true); // UNKNOWN_STAGE_RESTRICTION
+      expect(r.consumedOnlyClause, cell).toBe(true);
+    }
+  });
+  it("R8: a role-ONLY clause with NO stage token anywhere stays a pure role clause (no signal)", () => {
+    // An UNKNOWN non-stage token after the ONLY (`LEAD ONLY / Foobar`) is a ROLE concern
+    // (UNKNOWN_ROLE_TOKEN downstream), NOT a stage restriction — the R8 guard must be stage-scoped.
+    for (const cell of ["LEAD ONLY", "LEAD ONLY / A1", "LEAD ONLY / Foobar", "Rehearsal ONLY"]) {
+      const r = parseStageClause(cell);
+      expect(r.unrecognizedRestriction, cell).toBe(false);
+      expect(r.consumedOnlyClause, cell).toBe(false);
+    }
+  });
+  it("R8: stage tokens are excised from `cleaned` (never leak as UNKNOWN_ROLE_TOKEN)", () => {
+    // The role tokens survive for the role path; the stage tokens + consumed ONLY markers are gone.
+    const c = parseStageClause("A1 ONLY / Set ONLY").cleaned.toUpperCase();
+    expect(c).toContain("A1");
+    expect(c).not.toMatch(/\bSET\b/);
+    expect(c).not.toMatch(/\bONLY\b/);
+  });
 });
 
 describe("extractStageRestriction delegates to parseStageClause (spec §3)", () => {
@@ -209,6 +258,12 @@ describe("extractStageRestriction delegates to parseStageClause (spec §3)", () 
     expect(r.restriction).toEqual({ kind: "none" });
     expect(r.warnings.map((w) => w.code)).not.toContain("UNKNOWN_STAGE_RESTRICTION");
     expect(r.consumedOnlyClause).toBe(false);
+  });
+  it("R8: a stage ONLY'd behind a leading role-ONLY → none + UNKNOWN_STAGE_RESTRICTION", () => {
+    const r = extractStageRestriction("A1 ONLY / Set ONLY");
+    expect(r.restriction).toEqual({ kind: "none" }); // fail open
+    expect(r.warnings.map((w) => w.code)).toContain("UNKNOWN_STAGE_RESTRICTION");
+    expect(r.consumedOnlyClause).toBe(true);
   });
   it("no-cascade: 'Set / Strike ONLY' → extractRoleFlags emits ZERO UNKNOWN_ROLE_TOKEN (was 2)", () => {
     const codes = extractRoleFlags("Set / Strike ONLY").warnings.map((w) => w.code);

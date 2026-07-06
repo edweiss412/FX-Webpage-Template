@@ -62,6 +62,22 @@ function stageOf(upper: string): WorkPhase | null {
 }
 
 /**
+ * True iff any `/`- or `-`-delimited token of `segment` is a recognized STAGE (an ONLY marker
+ * on the token is stripped first, so `Set ONLY` reads as `SET`). Narrower than `dropsStageContent`
+ * — it fires ONLY on a real stage token, never on a bare second ONLY or an unknown non-role token
+ * — so it can distinguish a dropped STAGE restriction (signal) from a pure role concern (whole-diff
+ * Codex R8): a stage ONLY'd behind a leading role-ONLY (`A1 ONLY / Set ONLY`) must signal, while an
+ * unknown role token behind it (`LEAD ONLY / Foobar`) must stay a role clause (UNKNOWN_ROLE_TOKEN).
+ */
+function hasStageToken(segment: string): boolean {
+  for (const raw of segment.split(/[/\-]/)) {
+    const up = raw.replace(STRICT_ONLY_MARKER_RE, "").trim().toUpperCase();
+    if (up && stageOf(up)) return true;
+  }
+  return false;
+}
+
+/**
  * True iff a `segment` OUTSIDE the full-4 phrase (its leading PREFIX or trailing TAIL) carries
  * content the full-4 fast-path would silently DROP: a SECOND ONLY marker, a recognized STAGE
  * token, or an UNKNOWN NON-role token. Symmetric for prefix and tail (whole-diff Codex R2/R4/R5)
@@ -179,8 +195,28 @@ export function parseStageClause(roleCell: string): StageClause {
     if (!ROLE_NORMALIZATIONS[upper]) hasUnknown = true;
   }
 
-  // No-stage (ROLE clause): zero STAGE tokens → not a restriction; `cleaned` unchanged.
+  // No-stage BODY. The first ONLY marker had no stage before it, BUT a LATER clause may still
+  // carry a stage that got ONLY-restricted (`A1 ONLY / Set ONLY`, `LEAD ONLY / Set / Strike ONLY`).
+  // That is an ambiguous/malformed stage restriction — fail OPEN (never hide a work day, §9) but
+  // SIGNAL UNKNOWN_STAGE_RESTRICTION (the "parsed-correctly-OR-signalled, never silently wrong"
+  // contract). `hasStageToken` is stage-scoped so a role-only clause with an UNKNOWN token
+  // (`LEAD ONLY / Foobar`) stays a pure role clause and routes to UNKNOWN_ROLE_TOKEN (whole-diff R8).
   if (stages.length === 0) {
+    if (hasStageToken(tail)) {
+      // Excise STAGE tokens + consumed ONLY markers from the whole cell; keep role tokens for the
+      // role path (they must not re-enter as UNKNOWN_ROLE_TOKENs).
+      const kept = roleCell
+        .slice(leadingDash.length)
+        .split(/[/\-]/)
+        .map((t) => t.replace(STRICT_ONLY_MARKER_RE, "").trim())
+        .filter((t) => t.length > 0 && !stageOf(t.toUpperCase()));
+      return {
+        stages: [],
+        cleaned: kept.join(" / "),
+        unrecognizedRestriction: true,
+        consumedOnlyClause: true,
+      };
+    }
     return {
       stages: [],
       cleaned: roleCell,
