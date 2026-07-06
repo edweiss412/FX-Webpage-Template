@@ -962,6 +962,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → re-review this sheet in setup, then publish",
     "helpfulContext": "A re-scan of this sheet surfaced a change that needs a decision (for example a crew email, name, or roster change), so setup is holding it out of the publish batch until you re-review and re-approve it from the reapply page.",
   },
+  "RESYNC_QUALITY_REGRESSED": {
+    "crewFacing": null,
+    "dougFacing": "_<sheet-name>_'s latest edit lost some data quality — one or more fields or sections that used to read no longer do. The update is already live; open the parse panel to see what degraded and fix the sheet.",
+    "followUp": "Doug → check parse panel, fix sheet",
+    "helpfulContext": "A recent edit to the sheet parsed and went live, but more fields or sections failed to read than before. Crew see the applied data; nothing is held. Open the per-show parse panel to see which classes degraded, fix the sheet, and the next sync clears this automatically once quality recovers.",
+  },
   "RESYNC_SHRINK_HELD": {
     "crewFacing": null,
     "dougFacing": "_<sheet-name>_'s latest version dropped crew or a whole section, so the update was held and the last good version is still live. If the change is intentional, re-sync the show to apply it; otherwise fix the sheet.",
