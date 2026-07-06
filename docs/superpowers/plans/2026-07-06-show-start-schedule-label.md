@@ -12,7 +12,8 @@
 
 - **TDD per task:** failing test → minimal impl → green → commit. One task per commit, conventional-commits (`feat(crew-page):` / `feat(admin):` / `test(...)`).
 - **Renderer-only:** never mutate parser output or `lib/parser/**`. The helper lives in `lib/crew/agendaDisplay.ts` and is invoked from components only.
-- **Raw-entries gate (Codex R1):** synthesis gates on raw `ScheduleDay.entries.length===0`, NOT the per-viewer `dayEntries` count. The existing `tests/components/crew/sections/ScheduleSection.loadoutMeta.test.tsx:45-66` (#169) MUST stay green unchanged.
+- **Raw-entries gate (Codex spec R1):** synthesis gates on raw `ScheduleDay.entries.length===0`, NOT the per-viewer `dayEntries` count. The existing `tests/components/crew/sections/ScheduleSection.loadoutMeta.test.tsx:45-66` (#169) MUST stay green unchanged.
+- **Show-phase gate (Codex plan R1):** the helper takes `phase: SchedulePhase | null` and returns `null` unless `phase === "Show"`. A non-Show day (Set/travel/bookend) with a collision-edge bare `showStart` is never relabeled "Show Start".
 - **Label text:** exactly `"Show Start"`, defined once in the helper.
 - **Sentinel guard:** route `showStart` through `resolveOptionalField` (`agendaDisplay.ts:26-31`) — hides `''`/`TBD`/`N/A`/`TBA`, strips URLs.
 - **No new §12.4 codes, no DB, no advisory lock, no Supabase boundary** touched → those meta-tests are N/A.
@@ -28,17 +29,17 @@
 - Test: `tests/crew/agendaDisplay.test.ts` (append a `describe` block)
 
 **Interfaces:**
-- Consumes: `resolveOptionalField` (already in this file, `:26`), types `AgendaEntry` / `ScheduleDay` (`@/lib/parser/types`, already imported `:11`).
-- Produces: `export function showStartDisplayEntry(day: Pick<ScheduleDay, "showStart" | "window" | "entries">): AgendaEntry | null` — consumed by Tasks 2 and 3.
+- Consumes: `resolveOptionalField` (already in this file, `:26`), `SchedulePhase` (exported from this file, `:66`), types `AgendaEntry` / `ScheduleDay` (`@/lib/parser/types`, already imported `:11`).
+- Produces: `export function showStartDisplayEntry(day: Pick<ScheduleDay, "showStart" | "window" | "entries">, phase: SchedulePhase | null): AgendaEntry | null` — consumed by Tasks 2 and 3.
 
 - [ ] **Step 1: Write the failing test** — append to `tests/crew/agendaDisplay.test.ts`:
 
 ```ts
 import { showStartDisplayEntry } from "@/lib/crew/agendaDisplay";
 
-describe("showStartDisplayEntry (bare-showStart → 'Show Start' grid entry)", () => {
-  test("bare showStart, no entries, no window → Show Start entry", () => {
-    expect(showStartDisplayEntry({ showStart: "8:00 AM", window: null, entries: [] })).toEqual({
+describe("showStartDisplayEntry (bare-showStart Show day → 'Show Start' grid entry)", () => {
+  test("Show phase, bare showStart, no entries, no window → Show Start entry", () => {
+    expect(showStartDisplayEntry({ showStart: "8:00 AM", window: null, entries: [] }, "Show")).toEqual({
       start: "8:00 AM",
       title: "Show Start",
     });
@@ -46,26 +47,31 @@ describe("showStartDisplayEntry (bare-showStart → 'Show Start' grid entry)", (
 
   test("window day → null (meta path owns it)", () => {
     expect(
-      showStartDisplayEntry({ showStart: null, window: { start: "9:00 AM", end: "5:00 PM" }, entries: [] }),
+      showStartDisplayEntry({ showStart: null, window: { start: "9:00 AM", end: "5:00 PM" }, entries: [] }, "Show"),
     ).toBeNull();
   });
 
   test("sentinel showStart 'TBD' → null (guarded)", () => {
-    expect(showStartDisplayEntry({ showStart: "TBD", window: null, entries: [] })).toBeNull();
+    expect(showStartDisplayEntry({ showStart: "TBD", window: null, entries: [] }, "Show")).toBeNull();
   });
 
   test("null showStart → null", () => {
-    expect(showStartDisplayEntry({ showStart: null, window: null, entries: [] })).toBeNull();
+    expect(showStartDisplayEntry({ showStart: null, window: null, entries: [] }, "Show")).toBeNull();
   });
 
   test("raw entry present (viewer-hidden load-out) → null (#169 raw-entries gate)", () => {
     expect(
-      showStartDisplayEntry({
-        showStart: "8:00 AM",
-        window: null,
-        entries: [{ start: "6:00 PM", title: "Load Out", kind: "loadout" }],
-      }),
+      showStartDisplayEntry(
+        { showStart: "8:00 AM", window: null, entries: [{ start: "6:00 PM", title: "Load Out", kind: "loadout" }] },
+        "Show",
+      ),
     ).toBeNull();
+  });
+
+  test("non-Show phase with bare showStart → null (phase gate, Codex plan R1)", () => {
+    expect(showStartDisplayEntry({ showStart: "8:00 AM", window: null, entries: [] }, "Set")).toBeNull();
+    expect(showStartDisplayEntry({ showStart: "8:00 AM", window: null, entries: [] }, "Travel In")).toBeNull();
+    expect(showStartDisplayEntry({ showStart: "8:00 AM", window: null, entries: [] }, null)).toBeNull();
   });
 });
 ```
@@ -88,7 +94,9 @@ Expected: FAIL — `showStartDisplayEntry is not a function` / import error.
  */
 export function showStartDisplayEntry(
   day: Pick<ScheduleDay, "showStart" | "window" | "entries">,
+  phase: SchedulePhase | null,
 ): AgendaEntry | null {
+  if (phase !== "Show") return null; // only Show days get a "Show Start" (Codex plan R1)
   if (day.entries.length > 0) return null; // any RAW entry → not a bare day
   if (day.window != null) return null; // window day → meta path
   const start = resolveOptionalField(day.showStart ?? undefined); // sentinel/URL guard
@@ -96,7 +104,7 @@ export function showStartDisplayEntry(
 }
 ```
 
-Add `ScheduleDay` to the existing `@/lib/parser/types` import on line 11 if not already present (it imports `AgendaEntry`; add `ScheduleDay`).
+Add `ScheduleDay` to the existing `@/lib/parser/types` import on line 11 if not already present (it imports `AgendaEntry`; add `ScheduleDay`). `SchedulePhase` is already declared/exported in this same file (`:66`) — reference it directly.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -171,6 +179,26 @@ describe("ScheduleSection — bare showStart renders a 'Show Start' run-of-show 
     expect(wrapper.querySelector('[data-slot="day-card-meta"]')).toBeNull();
     expect(c.querySelector(`[data-testid="run-of-show-${D}"]`)).toBeNull();
   });
+
+  test("Set day with a collision-edge bare showStart → NO 'Show Start' row (phase gate)", () => {
+    // dates.set === D but D is NOT a show day → aggregate places D at phase "Set".
+    const SET = "2025-05-12";
+    const c = render(
+      <ScheduleSection
+        data={makeShowForViewer({
+          show: { dates: { travelIn: null, set: SET, showDays: ["2025-05-13"], travelOut: null } },
+          runOfShow: { [SET]: { entries: [], showStart: "8:00 AM", showEnd: null, window: null } },
+          transportation: null,
+        })}
+        viewer={{ kind: "admin" }}
+        today={TODAY}
+        showId="show-showstart-set"
+      />,
+    ).container;
+    const setDay = c.querySelector(`[data-day="${SET}"]`)!;
+    expect(setDay.querySelector('[data-testid="agenda-entry"]')).toBeNull();
+    expect(setDay.textContent).not.toContain("Show Start");
+  });
 });
 ```
 
@@ -184,12 +212,14 @@ Expected: FAIL — first test finds `day-card-meta` "8:00 AM" and no `run-of-sho
 (a) After `const dayEntries = scheduleEntriesForViewer(...)` (ends `:281`), add:
 
 ```tsx
-                      // Bare-showStart day (raw entries.length===0, no window, real
-                      // showStart) → render the call time as a "Show Start" run-of-show
-                      // entry instead of a label-less meta line. Renderer-only; gates on
-                      // RAW sd.entries (NOT dayEntries) so a viewer-hidden load-out day
-                      // keeps its #169 call-time meta. See showStartDisplayEntry.
-                      const showStartRow = sd != null ? showStartDisplayEntry(sd) : null;
+                      // Bare-showStart SHOW day (phase Show, raw entries.length===0,
+                      // no window, real showStart) → render the call time as a "Show
+                      // Start" run-of-show entry instead of a label-less meta line.
+                      // Renderer-only; gates on RAW sd.entries (NOT dayEntries) so a
+                      // viewer-hidden load-out day keeps its #169 call-time meta, and on
+                      // phase==="Show" so Set/travel days are never relabeled. See
+                      // showStartDisplayEntry.
+                      const showStartRow = sd != null ? showStartDisplayEntry(sd, day.phase) : null;
 ```
 
 (b) Change the existing bare-showStart meta branch (`:294`) to also require `showStartRow == null`, so a truly-bare day does NOT double-render meta + grid:
@@ -269,12 +299,18 @@ git commit --no-verify -m "feat(crew-page): render bare showStart as 'Show Start
 - Consumes: `showStartDisplayEntry` (Task 1), the existing 2-track grid render (`:965-992`).
 - Produces: for a bare-showStart wizard day, a `sched-time`="8:00 AM" + `sched-title`="Show Start" grid row and no `sched-meta` node.
 
-- [ ] **Step 1: Write the failing test** — replace the `showStart-only day → start meta` test in `tests/components/admin/wizard/ScheduleDayRow.meta.test.tsx` (`:21-25`):
+- [ ] **Step 1: Write the failing test** — replace the `showStart-only day → start meta` test in `tests/components/admin/wizard/ScheduleDayRow.meta.test.tsx` (`:21-25`). **The `dates` prop is required** so the day aggregates at phase `"Show"` — without it the day is ros-only (phase `null`) and the phase gate correctly suppresses synthesis:
 
 ```tsx
-  test("showStart-only day → 'Show Start' grid entry, no meta", () => {
+  const SHOW_DATES = { travelIn: null, set: null, showDays: ["2025-05-13"], travelOut: null };
+
+  test("showStart-only Show day → 'Show Start' grid entry, no meta", () => {
     const { container } = render(
-      <ScheduleBreakdown dfid="d" ros={{ "2025-05-13": day({ showStart: "8:00 AM" }) }} />,
+      <ScheduleBreakdown
+        dfid="d"
+        ros={{ "2025-05-13": day({ showStart: "8:00 AM" }) }}
+        dates={SHOW_DATES}
+      />,
     );
     expect(metaText(container)).toBeNull();
     const times = [...container.querySelectorAll('[data-testid="wizard-step3-card-d-sched-time"]')];
@@ -282,34 +318,70 @@ git commit --no-verify -m "feat(crew-page): render bare showStart as 'Show Start
     expect(times.map((n) => n.textContent)).toContain("8:00 AM");
     expect(titles.map((n) => n.textContent)).toContain("Show Start");
   });
+
+  test("Set day with a collision-edge bare showStart → NO 'Show Start' entry (phase gate)", () => {
+    // dates.set === the ros date, which is NOT a show day → aggregate phase "Set".
+    const { container } = render(
+      <ScheduleBreakdown
+        dfid="d"
+        ros={{ "2025-05-12": day({ showStart: "8:00 AM" }) }}
+        dates={{ travelIn: null, set: "2025-05-12", showDays: ["2025-05-13"], travelOut: null }}
+      />,
+    );
+    const titles = [...container.querySelectorAll('[data-testid="wizard-step3-card-d-sched-title"]')];
+    expect(titles.map((n) => n.textContent)).not.toContain("Show Start");
+    // Non-Show phase keeps the original start meta (byte-identical to pre-change).
+    expect(metaText(container)).toBe("8:00 AM");
+  });
 ```
 
-(`metaText` at `:18` returns `?? null`; `day(...)` at `:11` seeds `showStart:null`. The `ScheduleBreakdown` wrapper feeds days into `ScheduleDayRow` — confirm the fixture provides `dates`/`showDays` so `2025-05-13` renders; if `ScheduleBreakdown` needs `dates`, pass `dates={{ travelIn:null, set:null, showDays:["2025-05-13"], travelOut:null }}` as it does for other tests in this file.)
+(`metaText` at `:18` returns `?? null`; `day(...)` at `:11` seeds `showStart:null`. `ScheduleBreakdown({ dfid, ros, dates })` accepts `dates` — `:1009-1017`. The Set test asserts the phase-gated day still shows the prior `8:00 AM` meta, confirming only the Show-phase case changed.)
 
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `pnpm vitest run tests/components/admin/wizard/ScheduleDayRow.meta.test.tsx -t "showStart-only"`
 Expected: FAIL — a `sched-meta` "8:00 AM" node still exists, no `sched-title` "Show Start".
 
-- [ ] **Step 3: Write minimal implementation** in `components/admin/wizard/step3ReviewSections.tsx` `ScheduleDayRow`.
+- [ ] **Step 3: Write minimal implementation** in `components/admin/wizard/step3ReviewSections.tsx`.
 
-(a) Add the import: append `showStartDisplayEntry` to the `@/lib/crew/agendaDisplay` import (grep for the existing `aggregateDays` import in this file; add there).
+(a) Add the import: append `showStartDisplayEntry` (and, if not already imported, `type SchedulePhase`) to the `@/lib/crew/agendaDisplay` import block (`:93-97` — already imports `resolveOptionalField`, `formatScheduleWindow`, `aggregateDays`; `SchedulePhase` is already imported for the `ScheduleBreakdown` typing at `:1027`, so reuse it).
 
-(b) After the `rows` computation (`:921`), replace it and the `timeMeta` block (`:921-932`) with:
+(b) Add a `phase` prop to `ScheduleDayRow`. In its prop type (`:897-909`) add `phase?: SchedulePhase | null;` and destructure `phase = null` in the params (`:889-896`).
+
+(c) In `ScheduleBreakdown`'s `shownDays.map` (`:1064-1074`), pass the phase:
 
 ```tsx
-  const showStartRow = showStartDisplayEntry({ showStart, window: dayWindow, entries });
+            <ScheduleDayRow
+              key={d.date}
+              dfid={dfid}
+              iso={d.date}
+              entries={arr(ros[d.date]?.entries)}
+              showStart={ros[d.date]?.showStart ?? null}
+              window={ros[d.date]?.window ?? null}
+              showEnd={ros[d.date]?.showEnd ?? null}
+              phase={d.phase}
+              label={d.label}
+            />
+```
+
+(d) After the `rows` computation (`:921`), replace it and the `timeMeta` block (`:921-932`) with:
+
+```tsx
+  const showStartRow = showStartDisplayEntry({ showStart, window: dayWindow, entries }, phase);
   // Synthetic strike/loadout always follow the (capped) agenda rows in the SAME grid.
   const rows = showStartRow != null ? [showStartRow] : [...visibleAgenda, ...synthetic];
 
   // Fragment-day meta (#307): a day with no titled entries AND no synthesized
-  // Show-Start row surfaces its window / end-only anchor. A bare real showStart is
-  // now the showStartRow above, so it is intentionally dropped from timeMeta.
+  // Show-Start row surfaces its window / start / end anchor. A Show-phase bare
+  // showStart becomes the showStartRow above (timeMeta skipped); every other case
+  // — window, end-only, or a non-Show collision-edge showStart — keeps the original
+  // `win ?? start ?? Ends` meta byte-for-byte.
   let timeMeta: string | null = null;
   if (entries.length === 0 && showStartRow == null) {
     const win = dayWindow != null ? formatScheduleWindow(dayWindow) : null;
+    const start = resolveOptionalField(showStart ?? undefined) ?? null;
     const end = resolveOptionalField(showEnd ?? undefined) ?? null;
-    timeMeta = win ?? (end != null ? `Ends ${end}` : null);
+    timeMeta = win ?? start ?? (end != null ? `Ends ${end}` : null);
   }
 ```
 
@@ -409,7 +481,7 @@ git -C /Users/ericweiss/FX-Webpage-Template rev-list --left-right --count main..
 ## Self-Review
 
 **Spec coverage:**
-- §4.2 helper → Task 1. §4.3 crew → Task 2. §4.4 wizard → Task 3. §4.1 parser-untouched / resolveKeyTimes → Task 4 pin. §3 #169 raw-entries gate → Task 2 Step 5 (loadoutMeta stays green) + Task 1 raw-entry test. §7 dimensional (reuse existing grid) → Task 5. §8 transitions (none) → no task needed (static render). §9 meta-test inventory (none created) → consistent, no meta-test task. §10 test plan items 1-6 → Tasks 1-4 + loadoutMeta. §11 numeric sweep / §12 out-of-scope → no code. Invariant 8 → Task 6 Step 2.
+- §4.2 helper (incl. phase gate + raw-entries gate) → Task 1 (unit covers Show/Set/null phase, window, sentinel, hidden-load-out). §4.3 crew (`day.phase`) → Task 2. §4.4 wizard (`phase` prop threaded from `ScheduleBreakdown`) → Task 3. §4.1 parser-untouched / resolveKeyTimes → Task 4 pin. §3 #169 raw-entries gate → Task 2 Step 5 (loadoutMeta stays green) + Task 1 raw-entry test. §3 phase gate ("Set day unchanged") → Task 1 phase cases + Task 2 & Task 3 Set-day regression tests. §7 dimensional (reuse existing grid) → Task 5. §8 transitions (none) → no task needed (static render). §9 meta-test inventory (none created) → consistent, no meta-test task. §10 test plan items 1-6 + 6a → Tasks 1-4 + loadoutMeta. §11 numeric sweep / §12 out-of-scope → no code. Invariant 8 → Task 6 Step 2.
 - No spec requirement left without a task.
 
 **Placeholder scan:** No TBD/TODO/"handle edge cases". Task 4 Step 1 and Task 3 Step 1 note "mirror the file's existing convention" for exact call/fixture shape — these are real files whose shape the implementer reads; the assertion content is fully specified.
