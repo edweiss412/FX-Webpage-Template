@@ -3,6 +3,15 @@ import type { UpsertAdminAlertInput } from "@/lib/adminAlerts/upsertAdminAlert";
 import { mapWithConcurrency } from "@/lib/async/mapWithConcurrency";
 import type { ScanProgressEvent } from "@/lib/onboarding/scanProgress";
 import { fetchDriveFileMetadata, fetchSheetMarkdownWithBinding } from "@/lib/drive/fetch";
+import { synthesizeMarkdownFromXlsx } from "@/lib/drive/exportSheetToMarkdown";
+import {
+  discardAndRerun,
+  finalizeArchivedTabs,
+  overrideSnapshot,
+  reconcileIncludedTab,
+  type OverrideSnapshot,
+  type PullSheetOverride,
+} from "@/lib/sync/pullSheetOverride";
 import { fetchSheetTitleToGid } from "@/lib/drive/sheetGids";
 import { attachWarningAnchors } from "@/lib/sync/attachWarningAnchors";
 import { extractSourceAnchors } from "@/lib/drive/sourceAnchors";
@@ -10,7 +19,7 @@ import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { listFolder as listDriveFolder, type DriveListedFile } from "@/lib/drive/list";
 import { emitUnexpectedParentWarning } from "@/lib/sync/logUnexpectedParent";
 import { parseSheet as parseMarkdownSheet } from "@/lib/parser";
-import type { ParsedSheet, ParseResult } from "@/lib/parser/types";
+import type { ArchivedPullSheetTab, ParsedSheet, ParseResult } from "@/lib/parser/types";
 import { asTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import {
   enrichWithDrivePins,
@@ -145,6 +154,15 @@ export type PreparedOnboardingFile =
       // Region source anchors computed at scan (best-effort {}), persisted to
       // pending_syncs.source_anchors so finalize reads them instead of re-exporting the XLSX.
       sourceAnchors: Record<string, SourceAnchor>;
+      // The override snapshot the staged parse was ACTUALLY produced under (§5.8) —
+      // `overrideSnapshot(override-as-of-read)` on the match/no-override paths, `null`
+      // on the content-changed/tab-missing discard-and-rerun path. Persisted to
+      // pending_syncs.pull_sheet_override_applied atomically with parse_result.
+      // Optional (absent ⇒ null) so legacy constructions of this shape still type-check.
+      pullSheetOverrideApplied?: OverrideSnapshot;
+      // True only on the discard-and-rerun path (content_changed / tab_missing) — the
+      // staging write must clear pending_syncs.pull_sheet_override to null (§5.2, I5b).
+      pullSheetOverrideCleared?: boolean;
     };
 
 export type RunOnboardingScanDeps = {
@@ -164,7 +182,23 @@ export type RunOnboardingScanDeps = {
   listFolder?: (folderId: string) => Promise<DriveListedFile[]>;
   fetchMarkdownWithBinding?: (
     driveFileId: string,
-  ) => Promise<{ binding: Phase1Binding; markdown: string; bytes?: ArrayBuffer }>;
+    opts?: { includePullSheetFromTab?: string },
+  ) => Promise<{
+    binding: Phase1Binding;
+    markdown: string;
+    bytes?: ArrayBuffer;
+    // Archived ("OLD") tabs carrying a pull-sheet region (spec §5.1). Optional so
+    // legacy test doubles that predate the field still satisfy the type; absent ⇒ [].
+    archivedPullSheetTabs?: ArchivedPullSheetTab[];
+  }>;
+  /**
+   * Reads the row's stored `pull_sheet_override` (onboarding: `pending_syncs`)
+   * so the pre-lock export can thread `includePullSheetFromTab` and reconcile
+   * content drift (§5.2/§5.3). Default returns `null` (no override) — the DB-backed
+   * reader is injected by the production caller so `prepareOnboardingFiles` stays
+   * side-effect-free for the many callers/tests that don't exercise overrides.
+   */
+  readPullSheetOverride?: (driveFileId: string) => Promise<PullSheetOverride | null>;
   // Tab title→gid lookup for exact-cell deep-link anchors. Called only when a
   // cell-anchored warning is present (rare), so it adds no per-sheet round-trip
   // to the common case. Optional/injectable; defaults to the real Sheets API.
@@ -420,7 +454,8 @@ export class PostgresOnboardingScanTx implements OnboardingScanTx {
         insert into public.pending_syncs (
           drive_file_id, base_modified_time, staged_modified_time, parse_result,
           triggered_review_items, prior_last_sync_status, prior_last_sync_error,
-          staged_id, source_kind, warning_summary, wizard_session_id, source_anchors
+          staged_id, source_kind, warning_summary, wizard_session_id, source_anchors,
+          pull_sheet_override_applied
         )
         select $1,
                coalesce(
@@ -429,7 +464,8 @@ export class PostgresOnboardingScanTx implements OnboardingScanTx {
                ),
                $3::timestamptz, $4::jsonb, $5::jsonb, $6, $7,
                coalesce($8::uuid, gen_random_uuid()), $9, $10, $11::uuid,
-               coalesce($12::jsonb, '{}'::jsonb)
+               coalesce($12::jsonb, '{}'::jsonb),
+               $13::jsonb
         where exists (
           select 1 from public.app_settings
            where id = 'default'
@@ -447,7 +483,15 @@ export class PostgresOnboardingScanTx implements OnboardingScanTx {
           staged_id = excluded.staged_id,
           source_kind = excluded.source_kind,
           warning_summary = excluded.warning_summary,
-          source_anchors = excluded.source_anchors
+          source_anchors = excluded.source_anchors,
+          -- §5.8: applied snapshot always tracks the freshly-staged parse.
+          pull_sheet_override_applied = excluded.pull_sheet_override_applied,
+          -- §5.2/I5b: only the discard-and-rerun path clears the desired override
+          -- (the RPC is otherwise its sole writer — I7); normal re-stages preserve it.
+          pull_sheet_override = case
+            when $14::boolean then null
+            else public.pending_syncs.pull_sheet_override
+          end
          where public.pending_syncs.wizard_session_id = $11::uuid
         returning staged_id
       `,
@@ -466,6 +510,9 @@ export class PostgresOnboardingScanTx implements OnboardingScanTx {
         // Raw object to $12::jsonb (postgres.js serializes; never JSON.stringify). Unconditional
         // refresh on conflict so a re-stage (rescan) clears/updates stale anchors (spec §5.3/§5.4).
         row.sourceAnchors ?? null,
+        // $13: §5.8 applied snapshot (raw object|null → jsonb). $14: §5.2 clear-override flag.
+        row.pullSheetOverrideApplied ?? null,
+        row.pullSheetOverrideCleared ?? false,
       ],
     );
     return { stagedId: upserted?.staged_id ?? "" };
@@ -623,6 +670,14 @@ async function scanPreparedFileWithTx(
       // Required field on the sheet variant (always present, possibly {}), forwarded so the
       // staging upsert persists pending_syncs.source_anchors.
       sourceAnchors: prepared.sourceAnchors,
+      // §5.8: persist the override provenance the staged parse was produced under.
+      // Conditional spread for exactOptionalPropertyTypes (absent ⇒ DB defaults null/no-clear).
+      ...(prepared.pullSheetOverrideApplied !== undefined
+        ? { pullSheetOverrideApplied: prepared.pullSheetOverrideApplied }
+        : {}),
+      ...(prepared.pullSheetOverrideCleared !== undefined
+        ? { pullSheetOverrideCleared: prepared.pullSheetOverrideCleared }
+        : {}),
     });
     if (result.outcome === "pass") {
       await callTx("logSync", () =>
@@ -956,6 +1011,9 @@ export async function prepareOnboardingFiles(
   const parseSheet = deps.parseSheet ?? parseMarkdownSheet;
   const enrich = deps.enrichWithDrivePins ?? enrichWithDrivePins;
   const driveClient = deps.driveClient ?? defaultDriveClient();
+  // Default: no override (feature-dark until the production caller injects the
+  // DB-backed reader) — keeps this pre-lock prepare phase side-effect-free.
+  const readOverride = deps.readPullSheetOverride ?? (async () => null);
 
   // Per-file preparation is a pre-lock, side-effect-free Drive read (export +
   // parse + enrich). Each file is independent, so we prepare them with bounded
@@ -969,15 +1027,61 @@ export async function prepareOnboardingFiles(
     if (!isSpreadsheet(file)) {
       return { file, kind: "non_sheet" };
     }
-    const { binding, markdown, bytes } = await fetchMarkdownWithBinding(file.driveFileId);
-    const parsed = parseSheet(markdown, file.name);
-    const parseResult = await enrich(parsed, driveClient, {
+    // §5.3 override read (pre-lock): if this row has an accepted archived-tab pull
+    // sheet, thread `includePullSheetFromTab` so the export re-includes that tab's gear.
+    const override = await readOverride(file.driveFileId);
+    const fetched = await fetchMarkdownWithBinding(
+      file.driveFileId,
+      override ? { includePullSheetFromTab: override.tabName } : undefined,
+    );
+    const { binding, markdown, bytes } = fetched;
+    const archivedPullSheetTabs = fetched.archivedPullSheetTabs ?? [];
+    const enrichCtx = {
       driveFileId: file.driveFileId,
       fileMeta: toDriveFileMeta(file),
       binding,
       // Surface DIAGRAMS-tab embedded images from the already-fetched export bytes.
       ...(bytes ? { xlsxBytes: bytes } : {}),
-    });
+    };
+    let parseResult = await enrich(parseSheet(markdown, file.name), driveClient, enrichCtx);
+    // §5.2/§5.9: attach the archived-tab offers + emit PULL_SHEET_ON_ARCHIVED_TAB warnings
+    // for every NOT-included tab, so the staged parse_result carries them first-class.
+    finalizeArchivedTabs(parseResult, archivedPullSheetTabs);
+    // §5.8 applied snapshot: what override THIS staged parse was produced under.
+    let pullSheetOverrideApplied: OverrideSnapshot = overrideSnapshot(override);
+    let pullSheetOverrideCleared = false;
+    // §5.2/I5b: sheet-content drift under an unchanged override (or the tab vanished)
+    // → discard-and-rerun via the SINGLE shared helper. Re-parse WITHOUT inclusion from
+    // the already-fetched bytes (drops OLD gear, preserves any current non-OLD pull
+    // sheet), clear the override, stage applied=null. No path may diverge from this.
+    const reconciled = reconcileIncludedTab({ tabs: archivedPullSheetTabs, override });
+    if (
+      override &&
+      bytes &&
+      (reconciled.kind === "content_changed" || reconciled.kind === "tab_missing")
+    ) {
+      const discard = await discardAndRerun({
+        reconcile: reconciled,
+        overrideTabName: override.tabName,
+        reparseNoOverride: async () => {
+          const noOverride = synthesizeMarkdownFromXlsx(bytes);
+          const reparsed = await enrich(
+            parseSheet(noOverride.markdown, file.name),
+            driveClient,
+            enrichCtx,
+          );
+          return finalizeArchivedTabs(reparsed, noOverride.archivedPullSheetTabs);
+        },
+        // The durable clear runs at staging (under the show: lock) via the cleared flag;
+        // pre-lock we only record the intent so the upsert writes pull_sheet_override=null.
+        clearOverride: async () => {
+          pullSheetOverrideCleared = true;
+        },
+      });
+      parseResult = discard.parseResult;
+      pullSheetOverrideApplied = discard.appliedSnapshot;
+      pullSheetOverrideCleared = true;
+    }
     // Compute region source anchors ONCE from the already-fetched bytes (best-effort) and
     // reuse them for BOTH warning attachment AND persistence (spec §5.1). The tab-gid fetch
     // now runs for EVERY sheet (not just cell-anchored-warning sheets) so finalize can read
@@ -1016,7 +1120,15 @@ export async function prepareOnboardingFiles(
     } catch {
       /* belt-and-suspenders: best-effort, never wedges the scan */
     }
-    return { file, kind: "sheet", binding, parseResult, sourceAnchors };
+    return {
+      file,
+      kind: "sheet",
+      binding,
+      parseResult,
+      sourceAnchors,
+      pullSheetOverrideApplied,
+      pullSheetOverrideCleared,
+    };
   };
 
   return mapWithConcurrency(files, ONBOARDING_PREPARE_CONCURRENCY, prepareOne, (info) =>
