@@ -45,37 +45,38 @@ Live-sheet audit (gsheets MCP) of the two representative real shows:
 
 ## 3. Design
 
-### 3.1 New function `findBoBlockVenueHeaders(markdown, model): { header: string; headerLine: number }[]`
+### 3.1 New function `findBoBlockVenueHeaders(markdown, model): { header: string; headerLine: number; admit: boolean }[]`
 
-Mirror of `findGsBlockVenueHeader` (rooms.ts:806-844) with two differences: (a) it anchors on `BO` field rows, not `GS`; (b) it returns **all** matches, because BO blocks repeat within a sheet (GS is one-per-sheet, so the GS version returns a single header).
+Mirror of `findGsBlockVenueHeader` (rooms.ts:806-844) with three differences: (a) it anchors on `BO` field rows, not `GS`; (b) it returns **all** matches, because BO blocks repeat within a sheet (GS is one-per-sheet); (c) it records **every** resolved header row it finds — even one that fails the admit gates — with an `admit` flag, because a rejected header (e.g. a `label|value` asset) still **delimits** the preceding block and must be a terminator (§3.2 step 2, R2 HIGH2).
 
 For **each** row matching `^\|\s*BO\s+(?:Setup|Set Time|Show Time|Strike Time)\b` (case-insensitive) — call its line index `firstBoRow`:
 
-1. Walk UP from `firstBoRow - 1`:
+1. **Walk UP** from `firstBoRow - 1`:
    - skip blank lines;
-   - if a line does **not** start with `|` → **abandon this anchor** (left the table without finding a header);
+   - if a line does **not** start with `|` → **no header for this anchor** (the block is already blank/non-table-delimited, which `extractBoBlock` handles at rooms.ts:1182) — produce **no** record and stop the walk;
    - skip separator rows (`^\|\s*:?-+:?\s*\|`);
-   - take the first remaining row (line index `j`) as the candidate header; split its cells → `c0` (cleaned), `c1` (cleaned).
-2. **Block-header shape gate** (identical to rooms.ts:824-826): require `c0.length > 0` **and** (`c1 === ""` **or** `c1 === c0`). An ordinary `| label | value |` DETAILS/asset pair (`c1 !== "" && c1 !== c0`, e.g. `| PROJECTION SCREEN | 5' x 9' |`) → **abandon**.
-3. **Banner / ownership exclusion (SUBSTRING, stricter than the GS anchor):** flatten the cell (`&#10;`→space) and **abandon** if it matches `\b(?:BREAKOUT|LUNCH ROOM|LUNCH|ADDITIONAL ROOM|ADDITIONAL|GENERAL SESSION|DETAILS|DOCUMENTS|DATES|CREW|DRESS|TRANSPORTATION|HOTEL|VENUE|AGENDA|CONTACTS)\b` **anywhere** (case-insensitive). This diverges deliberately from the GS anchor's `^`-anchored `c0` test (rooms.ts:828-834): real BO headers carry a **show prefix** — `RPAS BREAKOUT 2&#10;LASALLE B&#10;30' x 25'…` (`fixtures/shows/raw/2025-03-dci-rpas-central.md:152`, `:207`) — so `^BREAKOUT` would miss them and the new pass would fabricate two phantom rooms on the frozen corpus. Matching `BREAKOUT`/`LUNCH`/`ADDITIONAL`/`GENERAL SESSION` as a substring hands every label-bearing room back to the pass that owns it. The rule is **fail-closed**: over-excluding a would-be novel room is a no-op (origin/main didn't parse it either), never a fabrication.
-4. **Evidence gate** (identical to rooms.ts:840): require the raw cell to contain `&#10;` **or** a dims token `\d+\s*'\s*x` — else **abandon** (a label whose value column was trimmed empty is not a room header).
-5. **DAY-range exclusion (new, BO-specific):** if the raw header cell contains a `DAY N` marker (`headerDayMarker(rawCell)` true — the exported helper at rooms.ts:140) → **abandon**. A DAY-range header is owned by the v1 group loop (rooms.ts:1094); admitting it here would double-emit. (The GS anchor omits this gate because GS headers never carry DAY-ranges; the BO side must add it.)
-6. On success: record `{ header: rawCellWith&#10;, headerLine: j }` (the resolved header line index, not the BO field row).
+   - take the first remaining row (line index `j`) as the resolved header row; split its cells → `c0` (cleaned), `c1` (cleaned), `rawCell` (col-0 raw, keeps `&#10;`). This row is ALWAYS recorded (below); the gates only set `admit`.
+2. Compute `admit` = **all** of:
+   - **Block-header shape** (rooms.ts:824-826): `c0.length > 0` **and** (`c1 === ""` **or** `c1 === c0`). A `| label | value |` pair (`c1 !== "" && c1 !== c0`, e.g. `| PROJECTION SCREEN | 5' x 9' |`) → `admit = false`.
+   - **Banner / ownership exclusion (SUBSTRING, stricter than the GS anchor):** the flattened cell (`&#10;`→space) does **not** match `\b(?:BREAKOUT|LUNCH ROOM|LUNCH|ADDITIONAL ROOM|ADDITIONAL|GENERAL SESSION|DETAILS|DOCUMENTS|DATES|CREW|DRESS|TRANSPORTATION|HOTEL|VENUE|AGENDA|CONTACTS)\b` (case-insensitive). Deliberately diverges from the GS anchor's `^`-anchored `c0` test (rooms.ts:828-834): real BO headers carry a **show prefix** — `RPAS BREAKOUT 2&#10;LASALLE B&#10;30' x 25'…` (`fixtures/shows/raw/2025-03-dci-rpas-central.md:152`, `:207`) — so `^BREAKOUT` would miss them and fabricate two phantom rooms on the frozen corpus. Substring-matching `BREAKOUT`/`LUNCH`/`ADDITIONAL`/`GENERAL SESSION` hands every label-bearing room back to its owning pass. **Fail-closed**: over-excluding a would-be novel room is a no-op, never a fabrication.
+   - **Evidence** (rooms.ts:840): the raw cell contains `&#10;` **or** a dims token `\d+\s*'\s*x` (a trimmed-empty label above a BO block is not a room header).
+   - **Not a DAY-range** (BO-specific): `headerDayMarker(rawCell)` is **false** (the exported helper, rooms.ts:140). A DAY-range header is owned by the v1 group loop (rooms.ts:1094); admitting it here would double-emit.
+3. Record `{ header: rawCell, headerLine: j, admit }`.
 
-Two anchor rows that walk up to the **same** header line yield **one** logical block (dedup by `headerLine`) — a header directly above `BO Setup`, `BO Set Time`, … must not be admitted N times.
+**Dedup by `headerLine`** — two anchor rows (`BO Setup` + `BO Set Time`) under one header must yield **one** record. When two anchors resolve to the same `j`, keep a single record (its `admit` is deterministic — same header → same gates).
 
 ### 3.2 Integration into `parseBoRooms` (rooms.ts:1011)
 
 Add a **fifth pass**, positioned **after** the v1 DAY-range group loop (rooms.ts:1094-1117), so every earlier BO pass has claimed its names first:
 
-1. **Extend the `seen` set with the DAY-range group loop's emitted names.** Today `seen` is populated by the BREAKOUT pass (rooms.ts:1065) and LUNCH pass (rooms.ts:1076) but **not** the DAY-range group loop. Add `seen.add(headerKey)` inside the group loop when it pushes a room (rooms.ts:1116), so the new pass can skip a name already emitted as a DAY-range breakout (a novel dims-only header sharing a DAY-room's base name — e.g. a `SALON A\n60' x 45'` sibling of `SALON A\nDAY 1 & 2` — must not double-emit). This addition changes **no** existing output: nothing after the group loop currently reads `seen`, and each group key is processed once (via the `groups` map), so the `add` cannot alter the loop's own `if (seen.has(headerKey)) continue` skip.
-2. **Resolve all headers first, then extract with them as mutual terminators.** Compute `const boVenue = findBoBlockVenueHeaders(markdown, model)` and `const extraTerm = new Set(boVenue.map(h => h.headerLine))`. Because a dims-only header is **never** admitted into `model.roomHeaderLines` (it lacks a DAY marker, so `computeRoomHeaderModel` never adds it, rooms.ts:271-279), `extractBoBlock` would otherwise **run past** an adjacent dims-only header with no blank separator and let `applyBoFields` overwrite fields (field theft). Add an optional `extraTerminators: ReadonlySet<number> = EMPTY_SET` parameter to `extractBoBlock` (rooms.ts:1177); its loop also breaks when `k > 0 && extraTerminators.has(startLine + k)`. Existing call sites pass nothing (inert). The new pass passes `extraTerm`, so two adjacent novel dims-only headers terminate each other.
-3. For each `{ header, headerLine }` in `boVenue`:
+1. **Dedup against a LOCAL emitted-name set — do NOT touch `seen`.** The new pass must skip a name already emitted by an earlier BO pass (a novel dims-only `SALON A\n60' x 45'` must not double-emit if `SALON A` already exists). It builds `const emitted = new Set(rooms.map(r => (r.name ?? "").toUpperCase()))` from `parseBoRooms`'s own `rooms` array **at the top of the new pass** (BREAKOUT + LUNCH + DAY-range names). It must **NOT** add to `seen`: `seen` is read by the DAY-range group loop's skip at rooms.ts:1097, and `model.groups` is keyed by `roomGroupKey` (base name + day-range, rooms.ts:278) while the skip keys on `displayName.toUpperCase()` (rooms.ts:1095) — so `SALON\nDAY 1` and `SALON\nDAY 2` share displayName `SALON`; a `seen.add("SALON")` after the first group would make the second group `continue`, deleting a committed distinct-day room (R2 HIGH1; contract at `roomHeaderModel.test.ts:59-63`). The GS room is **not** in `rooms` here (it is pushed by `collectV2V1Rooms` at rooms.ts:477, *before* `parseBoRooms` runs), so `emitted` correctly excludes GS — GS overlap flows through the reconciliation (§3.3), not a skip.
+2. **Resolve all headers first, then extract with EVERY resolved header line as a terminator.** Compute `const boVenue = findBoBlockVenueHeaders(markdown, model)` and `const extraTerm = new Set(boVenue.map(h => h.headerLine))` — this includes headers with `admit === false` (the rejected `label|value` asset header at the top of the *next* block). Because a dims-only header is **never** in `model.roomHeaderLines` (it lacks a DAY marker, so `computeRoomHeaderModel` never adds it, rooms.ts:271-279), and `NEXT_ROOM_HEADER_RE` (rooms.ts:1186) matches only keyword headers, `extractBoBlock` would otherwise **run past** an adjacent block (admitted *or* rejected) with no blank separator and let `applyBoFields` overwrite fields (R2 HIGH2: `SALON ABCD` block followed with no blank by `PROJECTION SCREEN | 5'x9'` + `BO Setup | B` → `SALON ABCD.setup === "B"`). Add an optional `extraTerminators: ReadonlySet<number> = EMPTY_SET` parameter to `extractBoBlock` (rooms.ts:1177); its loop also breaks when `k > 0 && extraTerminators.has(startLine + k)`. **Existing call sites pass nothing (inert)** — only the new pass passes `extraTerm`, so no existing extraction boundary changes and the corpus stays byte-identical.
+3. For each `{ header, headerLine, admit }` in `boVenue` **where `admit === true`**:
    - `split = splitRoomHeader(header, "breakout")`; `name = split.name`; `headerKey = name.toUpperCase()`.
-   - if `!name` or `seen.has(headerKey)` → skip.
+   - if `!name` or `emitted.has(headerKey)` → skip.
    - build `buildEmptyRoom("breakout", name)`; set `dimensions`/`floor` from `split`; `applyBoFields(room, extractBoBlock(model.lines, headerLine, model, extraTerm))` — extraction starts at the header line, exactly as the DAY-range loop does at rooms.ts:1106.
    - `if (!roomHasContent(room)) continue;` (a header whose BO block is all-empty is not a room — mirrors rooms.ts:1054).
-   - `seen.add(headerKey); rooms.push(room);`
+   - `emitted.add(headerKey); rooms.push(room);` (so two admitted novel headers with the same name collapse to one).
 
 ### 3.3 GS overlap is handled by the existing reconciliation — no GS threading
 
@@ -92,7 +93,9 @@ A dims-only BO header that happens to share the GS room's name (`MABEL 1`) is **
 | Header is a section banner (`DETAILS`, `HOTEL`, …) **or** carries an ownership label anywhere (`BREAKOUT`, `RPAS BREAKOUT 2`, `LUNCH ROOM`, `ADDITIONAL ROOM`, `GENERAL SESSION`) | abandoned at substring banner/ownership gate (§3.1 step 3) — handed back to the owning pass; **fail-closed** |
 | Header has neither `&#10;` nor a dims token (trimmed-empty label above a BO block) | abandoned at evidence gate → falls back to no room |
 | Header carries a `DAY N` range (`SALON A\nDAY 1 & 2`) | abandoned at DAY gate — owned by the v1 group loop (no double-emit) |
-| Header name already emitted by BREAKOUT / LUNCH / DAY-range / GS pass | skipped via `seen` (no double-emit) |
+| Header name already emitted by the BREAKOUT / LUNCH / DAY-range pass (present in `parseBoRooms`'s local `rooms`) | skipped via the local `emitted` set (§3.2 step 1) — no double-emit |
+| Header name equals the **GS** room's name | NOT skipped here (GS isn't in `parseBoRooms`'s `rooms`); the same-name GS/breakout pair flows to the existing reconciliation at rooms.ts:408-438 (absorb-if-lossless-subset, else keep both) — §3.3 |
+| A **rejected** header (asset / banner / DAY) sits directly above the *next* BO block | recorded with `admit=false` → still a terminator so it delimits the prior block (no field theft), but emits no room |
 | Header valid but its BO block is all-empty (`!roomHasContent`) | skipped (no empty phantom) |
 | Walk-up leaves the table (hits a non-`\|` line) before a header | abandoned (no cross-section reach) |
 | Two `BO` anchor rows resolve to the same header line | admitted **once** (dedup by resolved header line) |
@@ -166,7 +169,7 @@ No boolean config field or toggle introduced. **N/A.**
 
 ## 9. Numeric sweep
 
-- The corpus-no-op claim uses **no fixture count literal** (the round-1 "12" was wrong; the accurate raw-family count is 7). §5 is stated as "every fixture" + a mechanical emulation, so no count can drift.
+- The corpus-no-op claim uses **no fixture count literal** (round-1 "12" and R2 "7" were both wrong header-count derivations). §5 is stated as "every fixture" + a mechanical emulation over all `fixtures/shows/**` (independently reproduced by the R2 reviewer = 0 admits across 25 files), so no count can drift.
 - `5` tests (§7). `5` synthetic-fixture cases (§6). Guard table (§4) enumerates every abandon branch.
 - No magic numbers enter `rooms.ts`; regexes reuse the shipped GS-anchor patterns except: the `BO`-prefix anchor, the **substring** banner/ownership exclusion (§3.1 step 3), the DAY-range exclusion (`headerDayMarker`, rooms.ts:140), and the new `extraTerminators` param on `extractBoBlock`.
 
@@ -175,8 +178,8 @@ No boolean config field or toggle introduced. **N/A.**
 - **This is NOT a dims-blind gate.** The admit trigger is the `BO` field-block anchor + block-header shape, identical to the shipped, safe GS anchor (rooms.ts:806-844). The dims token is header-vs-label *evidence*, never the trigger. Do not relitigate as "reopens the PR #332 asset-fabrication class" — §4.1 is the structural argument; the guard set is copied from live code.
 - **Synthetic fixture is intentional**, not a corpus-fidelity violation. No live show carries this shape yet (§1.2, verified via gsheets MCP on East Coast + RPAS); the fixture is a hand-authored capability anchor, clearly labeled, and the *existing* corpus stays byte-identical (§5, mechanically emulated → zero admits).
 - **Substring banner/ownership gate is deliberate & fail-closed** (§3.1 step 3), diverging from the GS anchor's `^`-anchored test, specifically to catch show-prefixed `RPAS BREAKOUT N` headers. Over-exclusion is a no-op, never a fabrication. Do not relitigate as "inconsistent with `findGsBlockVenueHeader`."
-- **No GS-name threading** (§3.3). GS/breakout same-name overlap is owned by the existing reconciliation (rooms.ts:408-438); seeding the GS name into `seen` would delete the real `MABEL 1` breakout (round-1 CRITICAL). Do not re-propose it.
-- **Extending `seen` in the DAY-range group loop is inert** for existing output (§3.2 step 1) — nothing after that loop reads `seen` today, and each group key is processed once.
-- **`extractBoBlock` gets an `extraTerminators` param** (§3.2 step 2) so adjacent novel dims-only headers (never in `roomHeaderLines`) terminate each other. Existing call sites pass nothing (inert).
+- **No GS-name threading** (§3.3). GS/breakout same-name overlap is owned by the existing reconciliation (rooms.ts:408-438); seeding the GS name into `seen` would delete the real `MABEL 1` breakout (R1 CRITICAL). Do not re-propose it.
+- **The new pass dedups against a LOCAL `emitted` name-set, not `seen`** (§3.2 step 1). Adding to `seen` in the DAY-range group loop would collapse distinct-day groups (`SALON\nDAY 1`/`SALON\nDAY 2` share displayName `SALON`), deleting a committed room (R2 HIGH1). The `emitted` set is derived from `parseBoRooms`'s own `rooms` array and never touches `seen`.
+- **`extractBoBlock` gets an `extraTerminators` param carrying EVERY resolved BO header line — admitted *and* rejected** (§3.2 step 2), so a rejected asset header between two novel blocks still terminates the prior block (R2 HIGH2 field theft). Existing call sites pass nothing (inert); only the new pass passes it, so no corpus extraction boundary moves.
 - **`extractBoBlock` tolerates a non-terminator start line.** The dims-only header is never admitted into `roomHeaderLines`, but `extractBoBlock` (rooms.ts:1180-1189) exempts `k === 0` from the terminator check and stops at the *next* terminator/blank — so extracting from the header line captures exactly its `BO` field block. `applyBoFields`'s `plainFieldRe` (rooms.ts:1205) cannot misfire on the header cell (its col0 is the venue name, not a field label).
 - **No new §12.4 code by design** — this pass emits a *room*, not a *signal*. An unparseable dims-only header (no BO block) is not a new silent-drop: origin/main never parsed it either, and §2 keeps it explicitly out of scope. No `UNKNOWN_*` code is warranted.
