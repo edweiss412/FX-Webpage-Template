@@ -39,7 +39,7 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, Check, ExternalLink } from "lucide-react";
 import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
 import type { RunOfShow } from "@/lib/parser/types";
-import type { Step3Row } from "@/components/admin/wizard/Step3Review";
+import { Step3RowBadge, type Step3Row } from "@/components/admin/wizard/Step3Review";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { summarizeDataGaps, stripLegacyUnknownFieldAnchors } from "@/lib/parser/dataGaps";
 import { venueDisplay } from "@/lib/venue/venueLocation";
@@ -197,6 +197,7 @@ export function Step3SheetCard({
   checked: checkedProp,
   onToggleChecked,
   isPublishRunActive = false,
+  checkpointStatus = null,
 }: {
   row: Step3Row;
   wizardSessionId: string;
@@ -204,6 +205,9 @@ export function Step3SheetCard({
   // (checkbox, Select-all, Re-scan, Review→, and the modal's Approve/Re-scan/
   // Ignore). Threaded from Step3ReviewWithFinalize.run.isRunning (Task 2.4).
   isPublishRunActive?: boolean;
+  // Spec §4.2 rule 7: at a non-null checkpoint the editable publish checkbox is
+  // not rendered at all — the row shows its derived-state badge instead.
+  checkpointStatus?: "in_progress" | "all_batches_complete" | null;
   // Optional controlled publish-intent (lifted into Step3Review). When the parent
   // supplies `onToggleChecked`, the checkbox is controlled by the shared optimistic
   // state so "Select all" updates this box instantly, and the RESULT-BEARING
@@ -582,12 +586,19 @@ export function Step3SheetCard({
         needsLook ? "border-border-strong" : "border-border"
       } bg-surface p-tile-pad shadow-tile`}
     >
-      <PublishCheckbox
-        driveFileId={dfid}
-        checked={checked}
-        onToggle={(next) => void requestSetChecked(next)}
-        disabled={isPublishRunActive}
-      />
+      {/* Spec §4.2 rule 7: pre-finalize (checkpoint null) shows the editable
+          publish checkbox; post-finalize the row is badge-only (Live / Held /
+          Ready to publish, from the derived displayState). */}
+      {checkpointStatus === null ? (
+        <PublishCheckbox
+          driveFileId={dfid}
+          checked={checked}
+          onToggle={(next) => void requestSetChecked(next)}
+          disabled={isPublishRunActive}
+        />
+      ) : row.displayState ? (
+        <Step3RowBadge displayState={row.displayState} />
+      ) : null}
       <div className="min-w-0 flex-1">
         <p
           data-testid={`wizard-step3-card-${dfid}-title`}

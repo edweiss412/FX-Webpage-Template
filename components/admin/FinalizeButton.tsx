@@ -423,10 +423,16 @@ export function useFinalizeRun({
 
   // D5 label: "Publish N shows & finish setup" when a count is threaded;
   // otherwise the prior generic label (legacy callers / resume button).
+  // Step-3 consolidation (spec §4.5): the primary label follows the mode. Resume
+  // continues an interrupted finalize; Finish flips the applied shows to Live.
   const idleLabel =
-    typeof publishCount === "number"
-      ? `Publish ${publishCount} show${publishCount === 1 ? "" : "s"} & finish setup`
-      : "Finish setup and publish";
+    mode === "resume"
+      ? "Resume publishing"
+      : mode === "finish"
+        ? "Finish setup"
+        : typeof publishCount === "number"
+          ? `Publish ${publishCount} show${publishCount === 1 ? "" : "s"} & finish setup`
+          : "Finish setup and publish";
 
   // Persistent SR live message for the transient running phases (rendered by the announcer below).
   const liveMessage =

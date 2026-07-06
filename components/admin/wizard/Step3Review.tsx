@@ -160,6 +160,12 @@ type Step3ReviewProps = {
   // every row mutator (checkbox, Select-all, Re-scan, Review→, inline controls,
   // and the modal's Approve/Re-scan/Ignore). Threaded from run.isRunning.
   isPublishRunActive?: boolean;
+  // Spec §4.2 rule 7 / §6: the editable publish checkbox + Select-all exist ONLY
+  // at checkpoint null (pre-finalize). Post-finalize (in_progress/all_batches_
+  // complete), finalize has consumed intent into publish_intent, so rows are
+  // badge-only. Orthogonal to isPublishRunActive (a whole-surface state, not an
+  // in-flight disable). null = pre-finalize (default).
+  checkpointStatus?: "in_progress" | "all_batches_complete" | null;
 };
 
 type ActionLabel = "retry" | "defer" | "ignore";
@@ -225,6 +231,21 @@ export function badgeForDisplayState(state: Step3DisplayState): {
     case "needs_review_no_details":
       return { label: "Needs review", tone: "warn" };
   }
+}
+
+/**
+ * The derived-state pill (spec §4.2), reused by the badge-only card render at a
+ * post-finalize checkpoint (Step3SheetCard). One source for the label + tone.
+ */
+export function Step3RowBadge({ displayState }: { displayState: Step3DisplayState }) {
+  const badge = badgeForDisplayState(displayState);
+  return (
+    <span
+      className={`inline-flex shrink-0 items-center self-start rounded-pill px-3 py-1 text-xs font-semibold ${toneClasses(badge.tone)}`}
+    >
+      {badge.label}
+    </span>
+  );
 }
 
 function toneClasses(tone: "ok" | "warn" | "info" | "blocked"): string {
@@ -431,11 +452,14 @@ function RowItem({
   onToggleChecked,
   quiet = false,
   isPublishRunActive = false,
+  checkpointStatus = null,
 }: {
   row: Step3Row;
   wizardSessionId: string;
   // Spec §4.4 R8: freeze every row mutator while a publish/resume run is active.
   isPublishRunActive?: boolean;
+  // Spec §4.2 rule 7: badge-only rows (no editable checkbox) post-finalize.
+  checkpointStatus?: "in_progress" | "all_batches_complete" | null;
   // Lifted publish-intent (clean rows only) — forwarded to the card's checkbox so
   // Select-all updates every box through Step3Review's shared optimistic state.
   // RESULT-BEARING (spec §9.2): resolves true iff the row SETTLED at the
@@ -480,6 +504,7 @@ function RowItem({
           checked={checked}
           onToggleChecked={onToggleChecked}
           isPublishRunActive={isPublishRunActive}
+          checkpointStatus={checkpointStatus}
         />
       </div>
     );
@@ -812,6 +837,7 @@ export function Step3Review({
   rows,
   onCountsChange,
   isPublishRunActive = false,
+  checkpointStatus = null,
 }: Step3ReviewProps) {
   const router = useRouter();
   const unresolvedCount = rows.filter((r) => !isResolved(r.status)).length;
@@ -1161,7 +1187,9 @@ export function Step3Review({
             {renderSummary(sheetCount, readyCount, needsLookCount)}
           </p>
         ) : null}
-        {rows.length > 0 ? (
+        {/* Spec §4.2 rule 7: the Select-all / publish-intent header exists ONLY
+            pre-finalize (checkpoint null). Post-finalize rows are badge-only. */}
+        {rows.length > 0 && checkpointStatus === null ? (
           <Step3PublishHeader
             allChecked={allChecked}
             cleanCount={cleanCount}
@@ -1238,6 +1266,7 @@ export function Step3Review({
                       row={row}
                       wizardSessionId={wizardSessionId}
                       isPublishRunActive={isPublishRunActive}
+                      checkpointStatus={checkpointStatus}
                     />
                   </li>
                 ))}
@@ -1257,6 +1286,7 @@ export function Step3Review({
                     row={row}
                     wizardSessionId={wizardSessionId}
                     isPublishRunActive={isPublishRunActive}
+                    checkpointStatus={checkpointStatus}
                     checked={isChecked(row)}
                     // No `checkboxPending`: per-card boxes are NEVER disabled now (the
                     // "individual selects grey out" complaint). Race-safety comes from

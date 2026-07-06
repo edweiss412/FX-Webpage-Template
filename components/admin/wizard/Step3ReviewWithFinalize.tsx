@@ -42,6 +42,7 @@ import {
   type FinalizeRun,
 } from "@/components/admin/FinalizeButton";
 import { WizardFooter } from "@/components/admin/wizard/WizardFooter";
+import { CleanupAbandonedFinalizeButton } from "@/components/admin/CleanupAbandonedFinalizeButton";
 import {
   Step3Review,
   computeSelectableCounts,
@@ -58,10 +59,14 @@ type Step3ReviewWithFinalizeProps = {
   initialPublishCount: number;
   initialUncheckedCleanCount: number;
   // Step-3 consolidation (spec §4.3/§4.5): the finalize checkpoint for THIS
-  // session, threaded so the unified surface can render the mid-finalize footer
-  // mode (Resume/Finish) instead of the pre-finalize Publish action. null =
-  // pre-finalize (default). The footer mode wiring lands in Phase 3.
+  // session, threaded so the unified surface renders the mid-finalize footer
+  // mode (Resume/Finish) instead of the pre-finalize Publish action, and the
+  // rows render badge-only (no editable checkbox). null = pre-finalize.
   checkpointStatus?: "in_progress" | "all_batches_complete" | null;
+  // Spec §4.5: at an all_batches_complete checkpoint that has sat untouched past
+  // the staleness window, the footer shows a recovery note + Cleanup control
+  // (replacing the standalone StaleReadyToPublish interstitial).
+  isStale?: boolean;
 };
 
 const FINISH_HINT = "You can finish setup whenever you are ready.";
@@ -73,11 +78,8 @@ export function Step3ReviewWithFinalize({
   initialPublishCount,
   initialUncheckedCleanCount,
   checkpointStatus = null,
+  isStale = false,
 }: Step3ReviewWithFinalizeProps) {
-  // Referenced now so the threaded checkpoint is a live binding; the footer-mode
-  // consumer lands in Phase 3 (Task 3.2). Void-read keeps it from tripping
-  // no-unused-vars while the wiring is staged across phases.
-  void checkpointStatus;
   const [counts, setCounts] = useState<Step3PublishCounts>({
     publishCount: initialPublishCount,
     uncheckedCleanCount: initialUncheckedCleanCount,
@@ -85,6 +87,16 @@ export function Step3ReviewWithFinalize({
     // Publish label + soft confirm are correct on first paint.
     ...computeSelectableCounts(rows),
   });
+
+  // Spec §4.5: the footer primary follows the checkpoint. null → Publish (full
+  // finalize + CAS); in_progress → Resume (finalize loop only); all_batches_
+  // complete → Finish (CAS only).
+  const mode =
+    checkpointStatus === "in_progress"
+      ? "resume"
+      : checkpointStatus === "all_batches_complete"
+        ? "finish"
+        : "publish";
 
   // The disabled gate is UNCHANGED — it gates on `finishable` (a blocking row
   // blocks finish), NOT on selectableTotal. A finishable page with zero
@@ -95,7 +107,14 @@ export function Step3ReviewWithFinalize({
     disabled: !finishable,
     publishCount: counts.publishCount,
     uncheckedCleanCount: counts.uncheckedCleanCount,
+    mode,
   });
+
+  // Cleanup control appears mid-finalize (in_progress) and on a STALE
+  // all_batches_complete checkpoint — the two states where a finalize may have
+  // been abandoned and the operator needs an escape hatch (spec §4.5).
+  const showCleanup =
+    checkpointStatus === "in_progress" || (checkpointStatus === "all_batches_complete" && isStale);
 
   return (
     <div className="flex min-h-full flex-col">
@@ -105,6 +124,7 @@ export function Step3ReviewWithFinalize({
           rows={rows}
           onCountsChange={setCounts}
           isPublishRunActive={run.isRunning}
+          checkpointStatus={checkpointStatus}
         />
       </div>
       {rows.length > 0 ? (
@@ -119,10 +139,11 @@ export function Step3ReviewWithFinalize({
               Back
             </Link>
           }
-          center={<Step3FooterCenter run={run} />}
+          center={<Step3FooterCenter run={run} isStale={isStale} />}
           primary={
             <div className="flex items-end gap-3">
               <FinalizeAnnouncer run={run} />
+              {showCleanup ? <CleanupAbandonedFinalizeButton sessionId={wizardSessionId} /> : null}
               {/* While publishing, the button steps aside and the center carries
                   the tracking — so this slot never morphs (no layout shift). */}
               {run.isRunning ? null : <FinalizeTrigger run={run} />}
@@ -138,7 +159,7 @@ export function Step3ReviewWithFinalize({
  * The footer center: idle hint · live tracking · terminal panels · soft confirm.
  * A reserved min-height keeps the idle→running swap from jolting the bar.
  */
-function Step3FooterCenter({ run }: { run: FinalizeRun }) {
+function Step3FooterCenter({ run, isStale = false }: { run: FinalizeRun; isStale?: boolean }) {
   const { state } = run;
   return (
     <div
@@ -150,9 +171,24 @@ function Step3FooterCenter({ run }: { run: FinalizeRun }) {
       ) : state.kind === "running" ? (
         <Step3CompactTracking run={run} />
       ) : state.kind === "idle" ? (
-        <p data-testid="wizard-step3-finish-hint" className="text-center text-sm text-text-subtle">
-          {FINISH_HINT}
-        </p>
+        // Spec §4.5: a STALE all_batches_complete checkpoint replaces the calm
+        // idle hint with a recovery note (the old StaleReadyToPublish framing,
+        // folded inline). The Finish + Cleanup controls sit in the primary slot.
+        isStale ? (
+          <p
+            data-testid="wizard-step3-stale-note"
+            className="text-center text-sm font-medium text-warning-text"
+          >
+            This setup was left partway through publishing. Finish it, or clean it up to start over.
+          </p>
+        ) : (
+          <p
+            data-testid="wizard-step3-finish-hint"
+            className="text-center text-sm text-text-subtle"
+          >
+            {FINISH_HINT}
+          </p>
+        )
       ) : (
         // race_row / cas_per_row / error / complete
         <FinalizeStatusRegion run={run} />
