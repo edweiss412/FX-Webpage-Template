@@ -53,11 +53,15 @@ describe("WizardFooter", () => {
     expect(shell).not.toBeNull();
     expect(shell!.className).toContain("px-page-pad-mobile");
     expect(shell!.className).toContain("sm:px-page-pad-desktop");
-    // The visible bar rule (border-t) lives on the inner row, NOT the full-bleed
-    // fixed wrapper — so it spans the shell width, not the viewport.
+    // The visible bar is an OPAQUE page-background fill (bg-bg) on the inner row,
+    // capped to the shell width. No border/wash — the fill is what hides scrolling
+    // content behind the bar (owner decision 2026-07-06). The full-bleed fixed
+    // wrapper carries neither the fill nor a rule.
     const inner = screen.getByTestId("wizard-footer-inner");
-    expect(inner.className).toContain("border-t");
+    expect(inner.className).toContain("bg-bg");
+    expect(inner.className).not.toContain("border-t");
     expect(footer.className).not.toContain("border-t");
+    expect(footer.className).not.toContain("bg-bg");
   });
 
   test("renders back and center slots when provided", () => {
