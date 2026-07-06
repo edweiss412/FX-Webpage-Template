@@ -372,18 +372,18 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
   // `.error` branch — never as an uncaught framework exception.
   let manifestRows: ReadonlyArray<Record<string, unknown>>;
   try {
-    const q = await supabase
+    const { data, error } = await supabase
       .from("onboarding_scan_manifest")
       .select("drive_file_id, name, status, publish_intent, created_show_id, wizard_session_id")
       .eq("wizard_session_id", wizardSessionId)
       .order("drive_file_id", { ascending: true });
-    if (q.error) {
+    if (error) {
       return {
         kind: "infra_error",
-        message: `onboarding_scan_manifest query failed: ${q.error.message}`,
+        message: `onboarding_scan_manifest query failed: ${error.message}`,
       };
     }
-    manifestRows = (q.data ?? []) as ReadonlyArray<Record<string, unknown>>;
+    manifestRows = (data ?? []) as ReadonlyArray<Record<string, unknown>>;
   } catch (err) {
     return {
       kind: "infra_error",
@@ -393,19 +393,19 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
 
   let pendingSyncsRows: ReadonlyArray<Record<string, unknown>>;
   try {
-    const q = await supabase
+    const { data, error } = await supabase
       .from("pending_syncs")
       .select(
         "staged_id, drive_file_id, staged_modified_time, parse_result, source_anchors, last_finalize_failure_code, triggered_review_items",
       )
       .eq("wizard_session_id", wizardSessionId);
-    if (q.error) {
+    if (error) {
       return {
         kind: "infra_error",
-        message: `pending_syncs query failed: ${q.error.message}`,
+        message: `pending_syncs query failed: ${error.message}`,
       };
     }
-    pendingSyncsRows = (q.data ?? []) as ReadonlyArray<Record<string, unknown>>;
+    pendingSyncsRows = (data ?? []) as ReadonlyArray<Record<string, unknown>>;
   } catch (err) {
     return {
       kind: "infra_error",
@@ -415,17 +415,17 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
 
   let pendingIngestionsRows: ReadonlyArray<Record<string, unknown>>;
   try {
-    const q = await supabase
+    const { data, error } = await supabase
       .from("pending_ingestions")
       .select("id, drive_file_id, last_error_code")
       .eq("wizard_session_id", wizardSessionId);
-    if (q.error) {
+    if (error) {
       return {
         kind: "infra_error",
-        message: `pending_ingestions query failed: ${q.error.message}`,
+        message: `pending_ingestions query failed: ${error.message}`,
       };
     }
-    pendingIngestionsRows = (q.data ?? []) as ReadonlyArray<Record<string, unknown>>;
+    pendingIngestionsRows = (data ?? []) as ReadonlyArray<Record<string, unknown>>;
   } catch (err) {
     return {
       kind: "infra_error",
@@ -441,14 +441,14 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
   let showsRows: ReadonlyArray<Record<string, unknown>> = [];
   if (driveFileIds.length > 0) {
     try {
-      const q = await supabase
+      const { data, error } = await supabase
         .from("shows")
         .select("id, drive_file_id, published, archived, wizard_created_session_id")
         .in("drive_file_id", driveFileIds);
-      if (q.error) {
-        return { kind: "infra_error", message: `shows query failed: ${q.error.message}` };
+      if (error) {
+        return { kind: "infra_error", message: `shows query failed: ${error.message}` };
       }
-      showsRows = (q.data ?? []) as ReadonlyArray<Record<string, unknown>>;
+      showsRows = (data ?? []) as ReadonlyArray<Record<string, unknown>>;
     } catch (err) {
       return {
         kind: "infra_error",
