@@ -630,7 +630,27 @@ describe("floor-first selection (Codex R4/R5)", () => {
     ].join("\n");
     const { selected } = select(OPERATORS["ref-sub"]!(late), late);
     expect(selected.some((m) => m.domains.includes("crew"))).toBe(true);
-    expect(selected.length).toBeLessThanOrEqual(Math.max(MAX_SITES_PER_OP, selected.filter((m) => m.domains.includes("crew")).length) + 20);
+  });
+  it("round-robin fill reaches a late section even when early sections have many sites (plan-R1)", () => {
+    // two early CLIENT sections with many cells + a late VENUE section with one cell.
+    const md = [
+      "| CLIENT | a | b | c | d | e |", "|  | 1 | 2 | 3 | 4 | 5 |", "",
+      "| CLIENT | a | b | c | d | e |", "|  | 6 | 7 | 8 | 9 | 10 |", "",
+      "| VENUE | X |", "|  | LateHall |",
+    ].join("\n");
+    const { selected } = select(OPERATORS["ref-sub"]!(md), md);
+    // VENUE is non-risk-critical (not reserved) → only round-robin fill can reach it.
+    expect(selected.some((m) => m.domains.includes("venue")), "late VENUE section starved").toBe(true);
+  });
+});
+
+import { skippedInapplicable } from "./operators";
+describe("skippedInapplicable surfacing (Codex R5)", () => {
+  it("a present risk-critical domain with no applicable site for an op is reported", () => {
+    // A HOTEL section with only a 2-column data row → no merged-cell (needs ≥3 cells).
+    const md = "| HOTEL | Kimpton |\n|  | 122 W Monroe |\n\n| CREW | NAME |\n|  | Doug | 917 | x |";
+    expect(skippedInapplicable(md, "merged-cell")).toContain("hotel");
+    expect(skippedInapplicable(md, "merged-cell")).not.toContain("crew"); // crew row has ≥3 cells
   });
 });
 ```
@@ -795,7 +815,21 @@ export function floorEligible(mutants: Mutant[]): Set<Domain> {
   return s;
 }
 
-/** Floor-first reservation (§4.3): one site per floor-eligible domain, then round-robin fill. */
+/**
+ * Risk-critical domains PRESENT in the fixture (≥1 section classified to them)
+ * but with NO applicable site for operator `op` — surfaced, never silently excused
+ * (spec §4.3, Codex R5). A domain is "present" if any section classifies to it.
+ */
+export function skippedInapplicable(md: string, op: string): Domain[] {
+  const present = new Set<Domain>();
+  for (const s of seg(md).sections) { const d = classifySection(s); if (RISK_CRITICAL.includes(d)) present.add(d); }
+  const eligible = floorEligible(OPERATORS[op]!(md));
+  return [...present].filter((d) => !eligible.has(d)).sort();
+}
+
+const blockIdxOf = (m: Mutant): number => Number(/B(\d+)/.exec(m.siteId)?.[1] ?? -1);
+
+/** Floor-first reservation, THEN round-robin fill across sections (§4.3, Codex R4/plan-R1). */
 export function select(raw: Mutant[], _md: string): { selected: Mutant[]; dropped: number } {
   const eligible = floorEligible(raw);
   const reserved: Mutant[] = [];
@@ -805,9 +839,24 @@ export function select(raw: Mutant[], _md: string): { selected: Mutant[]; droppe
     const first = raw.find((m) => m.domains.includes(d) && !used.has(m.siteId));
     if (first) { reserved.push(first); used.add(first.siteId); }
   }
-  const rest = raw.filter((m) => !used.has(m.siteId));
+  // Round-robin fill: group remaining sites by block index, take one per block per pass.
+  const byBlock = new Map<number, Mutant[]>();
+  for (const m of raw) if (!used.has(m.siteId)) {
+    const b = blockIdxOf(m); if (!byBlock.has(b)) byBlock.set(b, []); byBlock.get(b)!.push(m);
+  }
+  const blocks = [...byBlock.keys()].sort((a, b) => a - b);
   const bound = Math.max(MAX_SITES_PER_OP, reserved.length);
-  const fill = rest.slice(0, Math.max(0, bound - reserved.length));
+  const fill: Mutant[] = [];
+  let progress = true;
+  while (fill.length + reserved.length < bound && progress) {
+    progress = false;
+    for (const b of blocks) {
+      const q = byBlock.get(b)!;
+      if (q.length === 0) continue;
+      fill.push(q.shift()!); progress = true;
+      if (fill.length + reserved.length >= bound) break;
+    }
+  }
   const selected = [...reserved, ...fill];
   return { selected, dropped: raw.length - selected.length };
 }
@@ -978,24 +1027,27 @@ const rowClass = (cells: string[]): "header" | "alignment" | "spacer" | "data" =
   return "data";
 };
 
-type Sec = { domain: string; dataRows: string[][] };
+type Sec = { domain: string; hasHeader: boolean; dataRows: string[][]; runIndex: number };
 function sections(md: string): Sec[] {
   const out: Sec[] = [];
-  let cur: Sec | null = null;
+  let cur: Sec | null = null, runIndex = -1, inRun = false;
   for (const line of md.split("\n")) {
-    if (line.trim() === "" || !line.trim().startsWith("|")) { cur = null; continue; }
+    if (line.trim() === "" || !line.trim().startsWith("|")) { cur = null; inRun = false; continue; }
+    if (!inRun) { inRun = true; runIndex++; }
     const cells = cellsOf(line), cls = rowClass(cells);
-    if (cls === "header") { cur = { domain: DOMAIN_OF[resolve(cells[0]!)!] ?? "other", dataRows: [] }; out.push(cur); }
-    else if (cls === "data") { if (!cur) { cur = { domain: "other", dataRows: [] }; out.push(cur); } cur.dataRows.push(cells); }
+    if (cls === "header") { cur = { domain: DOMAIN_OF[resolve(cells[0]!)!] ?? "other", hasHeader: true, dataRows: [], runIndex }; out.push(cur); }
+    else if (cls === "data") { if (!cur) { cur = { domain: "other", hasHeader: false, dataRows: [], runIndex }; out.push(cur); } cur.dataRows.push(cells); }
   }
   return out;
 }
 
-/** Independent site counts per `${op}|${domain}` from raw markdown. */
+/** Independent site counts per `${op}|${domain}` from raw markdown (covers ALL 7 corrupting ops, plan-R1). */
 export function auditSites(md: string): Map<string, number> {
   const m = new Map<string, number>();
   const bump = (op: string, domain: string, n = 1) => m.set(`${op}|${domain}`, (m.get(`${op}|${domain}`) ?? 0) + n);
-  for (const s of sections(md)) {
+  const secs = sections(md);
+  for (const s of secs) {
+    if (s.hasHeader) bump("header-typo", s.domain);           // one header-typo site per header row
     for (const row of s.dataRows) {
       const cells = row.filter((c) => c.length > 0);
       bump("ref-sub", s.domain, cells.length);
@@ -1005,13 +1057,26 @@ export function auditSites(md: string): Map<string, number> {
     if (s.dataRows.length >= 1) bump("column-shift", s.domain);
     if (s.dataRows.length >= 2) bump("blank-row:inject", s.domain);
   }
+  // blank-row:remove — one boundary site per adjacent run pair; credited to EACH adjacent
+  // section's domain (the last section of run i and the first of run i+1).
+  const firstOfRun = new Map<number, Sec>(), lastOfRun = new Map<number, Sec>();
+  for (const s of secs) { if (!firstOfRun.has(s.runIndex)) firstOfRun.set(s.runIndex, s); lastOfRun.set(s.runIndex, s); }
+  const runs = [...new Set(secs.map((s) => s.runIndex))].sort((a, b) => a - b);
+  for (let i = 0; i < runs.length - 1; i++) {
+    const a = lastOfRun.get(runs[i]!)!, b = firstOfRun.get(runs[i + 1]!)!;
+    bump("blank-row:remove", a.domain);
+    if (b.domain !== a.domain) bump("blank-row:remove", b.domain);
+  }
   return m;
 }
 
-/** Hand-verified lower bounds — verify each against the fixture markdown before committing. */
+/** Hand-verified lower bounds — verify each against the fixture markdown before committing.
+ * MUST include ≥1 row for header-typo AND ≥1 for blank-row:remove (plan-R1). */
 export const GOLDEN_INVENTORY: Array<{ fixture: string; op: string; domain: string; min: number }> = [
   { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "ref-sub", domain: "crew", min: 6 },
   { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "column-shift", domain: "crew", min: 1 },
+  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "header-typo", domain: "crew", min: 1 },
+  { fixture: "fixtures/shows/raw/2025-10-consultants-roundtable.md", op: "blank-row:remove", domain: "transportation", min: 1 },
   // ADD MORE after observing auditSites output; each min hand-checked against the raw markdown.
 ];
 ```
@@ -1288,6 +1353,20 @@ describe("negative controls — every alarm class is reachable", () => {
     for (const m of OPERATORS["ref-sub"]!(md)) expect(m.md).not.toContain("#REF! | :---:");
   });
 });
+
+// The audit independently counts header + boundary ops, so a crippled operator (emitting
+// zero header-typo / blank-row:remove sites) is caught by audit-agreement + golden inventory
+// rather than self-reported (plan-R1). Prove the audit sees these classes independently.
+import { auditSites } from "./applicabilityAudit";
+describe("audit covers header + boundary operators independently (plan-R1)", () => {
+  const md = ["| CREW | NAME |", "|  | Doug Larson |", "", "| TRANSPORTATION | NAME |", "|  | Carlos |"].join("\n");
+  it("counts a header-typo site for crew and a blank-row:remove boundary between the runs", () => {
+    const s = auditSites(md);
+    expect(s.get("header-typo|crew") ?? 0).toBeGreaterThan(0);
+    // boundary between run0 (crew) and run1 (transportation) → credited to both domains
+    expect((s.get("blank-row:remove|crew") ?? 0) + (s.get("blank-row:remove|transportation") ?? 0)).toBeGreaterThan(0);
+  });
+});
 ```
 
 - [ ] **Step 2: Run — verify GREEN**
@@ -1313,22 +1392,35 @@ git commit --no-verify -m "test(parser): negative controls — every alarm class
 
 ```ts
 // append to tests/parser/mutationHarness.test.ts
+import { skippedInapplicable } from "./mutation/operators";
+
 describe("coverage legibility (audit 'no silent caps')", () => {
-  it("emits total mutant + droppedSites counts and covers >1 domain across the corpus", () => {
+  it("emits total/dropped/skippedInapplicable and covers >3 domains across the corpus", () => {
     let total = 0, dropped = 0;
     const domains = new Set<string>();
+    const skips: string[] = [];
     for (const f of FIXTURES) {
       const md = readFixture(f);
       for (const [op, gen] of Object.entries(OPERATORS)) {
         const { selected, dropped: d } = select(gen(md), md);
         total += selected.length; dropped += d;
         for (const m of selected) for (const dm of m.domains) domains.add(dm);
+        if (op.startsWith("section-reorder") || op.startsWith("trailing")) continue; // cosmetic: no floor
+        const sk = skippedInapplicable(md, op);
+        if (sk.length) skips.push(`${f.slug}/${op}: ${sk.join(",")}`);
       }
     }
     // eslint-disable-next-line no-console
-    console.log(`[mutation-harness] total=${total} dropped=${dropped} domains=${[...domains].sort().join(",")}`);
+    console.log(`[mutation-harness] total=${total} dropped=${dropped} domains=${[...domains].sort().join(",")}\n  skippedInapplicable:\n  ${skips.join("\n  ") || "(none)"}`);
     expect(total).toBeGreaterThan(50);
     expect(domains.size).toBeGreaterThan(3);
+  });
+
+  it("skippedInapplicable is a pure function of the fixture (deterministic, surfaced not silent)", () => {
+    // A present risk-critical domain with no applicable site must appear — merged-cell on a
+    // 2-column HOTEL section. Assert the surfacing helper reports it (never a silent excusal).
+    const md = "| HOTEL | Kimpton |\n|  | 122 W Monroe |";
+    expect(skippedInapplicable(md, "merged-cell")).toContain("hotel");
   });
 });
 ```
