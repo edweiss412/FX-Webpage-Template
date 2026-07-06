@@ -694,6 +694,16 @@ describe("merged-cell is per interior pipe, not just the first (plan-R5)", () =>
   });
 });
 
+describe("section-reorder is exhaustive over adjacent block pairs (plan-R10)", () => {
+  it("3 blocks yield 2 adjacent-pair swaps, INCLUDING the late (2nd–3rd) pair", () => {
+    const md = "| CREW | NAME |\n|  | A |\n\n| HOTEL | G |\n|  | B |\n\n| DATES | D |\n|  | C |";
+    const ms = OPERATORS["section-reorder"]!(md);
+    expect(ms).toHaveLength(2);                                   // (0,1) and (1,2)
+    expect(new Set(ms.map((m) => m.siteId)).size).toBe(2);
+    expect(ms.some((m) => m.siteId.includes("Xpair1"))).toBe(true); // the late pair is generated + will be parsed
+  });
+});
+
 describe("column-shift requires a data row and is credited per logical section (Codex R11/R13)", () => {
   it("emits a crew-credited column-shift, none for a header/alignment-only section", () => {
     const ms = OPERATORS["column-shift"]!(CONSULTANTS_RUN);
@@ -886,15 +896,17 @@ const blankRowRemove = (md: string): Mutant[] => {
 
 // ---- cosmetic operators ----
 const sectionReorder = (md: string): Mutant[] => {
-  const { runs } = seg(md);
-  if (runs.length < 2) return [];
-  // swap the first two runs' line spans
-  const ls = lines(md);
-  // simplest deterministic realization: move run[1]'s block before run[0]'s — implemented by the plan's helper
+  // EXHAUSTIVE (plan-R10): one cosmetic mutant per ADJACENT block-pair swap, not just the
+  // first two — a parser order-dependence between late blocks must also be exercised.
   const blocks = md.split(/\n\s*\n/);
   if (blocks.length < 2) return [];
-  const swapped = [blocks[1], blocks[0], ...blocks.slice(2)].join("\n\n");
-  return [{ md: swapped, siteId: "section-reorder:B0:L0:Xpair", bucket: "cosmetic", domains: [] }];
+  const out: Mutant[] = [];
+  for (let i = 0; i < blocks.length - 1; i++) {
+    const swapped = [...blocks.slice(0, i), blocks[i + 1], blocks[i], ...blocks.slice(i + 2)].join("\n\n");
+    if (swapped === md) continue; // identical blocks → no-op, skip
+    out.push({ md: swapped, siteId: `section-reorder:B${i}:L0:Xpair${i}`, bucket: "cosmetic", domains: [] });
+  }
+  return out;
 };
 
 const trailingWhitespace = (md: string): Mutant[] => {
@@ -1034,7 +1046,7 @@ git commit --no-verify -m "test(parser): fixture registry + directory-parity gat
 
 **Interfaces:**
 - Consumes: ONLY `@/lib/parser/knownSections` (`normalizeHeader`, `KNOWN_SECTION_HEADERS`, `PREFIX_SECTION_FAMILIES`) + `./fixtures`. **Must NOT import `rows.ts`/`classify.ts`/`operators.ts`** (independence, Codex R13).
-- Produces: `auditSites(md): Map<`\``${op}|${domain}`\``, number>`, `GOLDEN_INVENTORY: Array<{ fixture; op; domain; count: number; lines: string }>` (exact HAND-COUNTED counts + line-range provenance).
+- Produces: `auditSites(md): Map<`\``${op}|${domain}`\``, number>`, `auditPresentRiskCritical(md): Set<string>`, `expectedSkipped(md, op): string[]` (independent zero-site domain presence, plan-R10), `GOLDEN_INVENTORY: Array<{ fixture; op; domain; count: number; lines: string }>` (exact HAND-COUNTED counts + line-range provenance).
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1082,6 +1094,23 @@ describe("independent applicability audit (Codex R9/R13)", () => {
     for (const g of GOLDEN_INVENTORY) {
       const md = readFileSync(g.fixture, "utf8");
       expect(auditSites(md).get(`${g.op}|${g.domain}`) ?? 0, `${g.fixture} ${g.op} ${g.domain}`).toBe(g.count);
+    }
+  });
+  it("every GOLDEN_INVENTORY row has CONCRETE, REAL, LOCALIZING provenance (plan-R10)", () => {
+    for (const g of GOLDEN_INVENTORY) {
+      // (a) concrete line range, never a TODO placeholder
+      expect(g.lines, `${g.fixture} ${g.op} ${g.domain} lines must be a concrete range like "40-58"`).toMatch(/^\d+-\d+$/);
+      const [start, end] = g.lines.split("-").map(Number) as [number, number];
+      expect(start).toBeGreaterThanOrEqual(1);
+      expect(end).toBeGreaterThanOrEqual(start);
+      // (b) the range exists in the fixture
+      const all = readFileSync(g.fixture, "utf8").split("\n");
+      expect(end, `${g.fixture} lines ${g.lines} exceed file length ${all.length}`).toBeLessThanOrEqual(all.length);
+      // (c) the count LOCALIZES to exactly those lines — auditing the excerpt alone reproduces
+      //     the count. A number pasted from a different section (or the whole file) fails here,
+      //     so provenance cannot be bogus while the count still matches.
+      const excerpt = all.slice(start - 1, end).join("\n");
+      expect(auditSites(excerpt).get(`${g.op}|${g.domain}`) ?? 0, `${g.fixture} ${g.op} ${g.domain} does not localize to lines ${g.lines}`).toBe(g.count);
     }
   });
   it("GOLDEN_INVENTORY is structurally non-vacuous (plan-R6)", () => {
@@ -1218,6 +1247,29 @@ export function auditSites(md: string): Map<string, number> {
     if (b.domain !== a.domain) bump("blank-row:remove", b.domain);
   }
   return m;
+}
+
+/** The 7 risk-critical domains — DUPLICATED here (not imported from classify.ts) so this
+ *  audit's domain-presence view is independent of the shared classifier (plan-R10). */
+const RISK_CRITICAL_AUDIT: ReadonlySet<string> = new Set([
+  "crew", "hotel", "rooms", "transportation", "agenda", "dates", "event_details",
+]);
+
+/** Risk-critical domains the INDEPENDENT scan finds present (≥1 section), regardless of
+ *  whether any operator has a site there — the reference for "present but inapplicable". */
+export function auditPresentRiskCritical(md: string): Set<string> {
+  const s = new Set<string>();
+  for (const sec of sections(md)) if (RISK_CRITICAL_AUDIT.has(sec.domain)) s.add(sec.domain);
+  return s;
+}
+
+/** Independently-derived expected `skippedInapplicable(md, op)`: every present risk-critical
+ *  domain with ZERO audit sites for `op`. If the shared classifier regresses and drops a
+ *  present domain, the shared `skippedInapplicable` omits it while THIS still lists it →
+ *  the driver's equality assertion fails (plan-R10). Includes zero-site domains by design. */
+export function expectedSkipped(md: string, op: string): string[] {
+  const sites = auditSites(md);
+  return [...auditPresentRiskCritical(md)].filter((d) => (sites.get(`${op}|${d}`) ?? 0) === 0).sort();
 }
 
 /**
@@ -1661,6 +1713,32 @@ git commit --no-verify -m "test(parser): negative controls — every alarm class
 ```ts
 // append to tests/parser/mutationHarness.test.ts
 import { skippedInapplicable } from "./mutation/operators";
+import { expectedSkipped } from "./mutation/applicabilityAudit";
+
+const CORRUPTING = [
+  "header-typo", "ref-sub", "unicode-inject", "column-shift",
+  "blank-row:inject", "blank-row:remove", "merged-cell",
+];
+
+describe("present-but-inapplicable domains cannot be silently excused (plan-R10)", () => {
+  it("shared skippedInapplicable === independent expectedSkipped for every fixture × corrupting op", () => {
+    // The independent audit computes present-risk-critical domains (incl. ZERO-site ones) from
+    // its OWN segmentation. If the shared classifier regresses and drops a present domain, the
+    // shared skippedInapplicable omits it while expectedSkipped still lists it → this fails.
+    for (const f of FIXTURES) {
+      const md = readFixture(f);
+      for (const op of CORRUPTING) {
+        expect(skippedInapplicable(md, op), `${f.slug}/${op} skipped-inapplicable mismatch (classifier drift?)`)
+          .toEqual(expectedSkipped(md, op));
+      }
+    }
+  });
+  it("a present zero-site domain IS surfaced by both sides (merged-cell on a 2-col HOTEL section)", () => {
+    const md = "| HOTEL | Kimpton |\n|  | 122 W Monroe |"; // 2-col → no merged-cell site; hotel present
+    expect(skippedInapplicable(md, "merged-cell")).toContain("hotel");
+    expect(expectedSkipped(md, "merged-cell")).toContain("hotel");
+  });
+});
 
 describe("coverage legibility (exhaustive; skippedInapplicable surfaced)", () => {
   it("emits total mutant count + per-fixture/op skippedInapplicable and covers >3 domains", () => {
