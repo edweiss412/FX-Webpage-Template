@@ -701,7 +701,7 @@ git commit --no-verify -m "test(parser): metamorphic oracle — verdict (incl. S
 
 **Interfaces:**
 - Consumes: `segment`/`splitCells`/types (`./rows`), `isHeaderCells`/`classifySection`/`resolveHeader`/`Domain`/`RISK_CRITICAL` (`./classify`).
-- Produces: `Mutant`, `Bucket`, `OPERATOR_GENS: Record<string, (md) => Generator<Mutant>>` (lazy source, consumed by the streaming driver), `OPERATORS: Record<string, (md) => Mutant[]>` (derived `[...gen]` array form for tests), `floorEligible(mutants): Set<Domain>`, `skippedInapplicable(md, op): Domain[]`.
+- Produces: `Mutant`, `Bucket`, `MUTANT_BUDGET: number` (single-source fanout ceiling), `guardStream<T>(gen, budget, label): Generator<T>` (shared fail-fast guard), `boundedMutants(op, md): Generator<Mutant>` (THE corpus-scale iterator — guarded), `OPERATORS: Record<string, (md) => Mutant[]>` (derived `[...gen]` array form, BOUNDED synthetic tests only), `floorEligible(mutants): Set<Domain>`, `skippedInapplicable(md, op): Domain[]`. **`OPERATOR_GENS` (the raw generators) is module-PRIVATE — not exported** (plan-R24 structural closure: the only corpus path is `boundedMutants`).
 - **domains(site)** is carried on each `Mutant.domains`; boundary (`blank-row:remove`) mutants carry a 2-element `domains`.
 - **Exhaustive:** operators emit ALL applicable sites; there is no cap/`select` (plan-R2). The driver parses every generated mutant.
 
@@ -1042,18 +1042,44 @@ function* trailingWhitespace(md: string): Generator<Mutant> {
   yield { md: swapped, siteId: "trailing-whitespace:B0:L0:Xeof", bucket: "cosmetic", domains: [] };
 }
 
-/** Raw LAZY operators — the single source of truth. The driver (runAll) consumes THESE so it
- *  streams one mutant at a time and enforces MUTANT_BUDGET before parsing each, never allocating
- *  a whole operator array (Codex plan-R20 [high]). */
-export const OPERATOR_GENS: Record<string, (md: string) => Generator<Mutant>> = {
+// MUTANT_BUDGET — SINGLE SOURCE OF TRUTH (imported by the driver + every gate). A per-(operator,
+// fixture) ceiling on generated mutants; the healthy corpus is ~1e5 total (hundreds per op×fixture),
+// so 150k with headroom catches a fanout regression (e.g. per-char) without ever false-firing.
+export const MUTANT_BUDGET = 150_000;
+
+/** Raw LAZY operators — MODULE-PRIVATE (Codex plan-R24 [high]). Deliberately NOT exported: the
+ *  ONLY way to enumerate an operator over corpus-scale input is `boundedMutants` below, which wraps
+ *  the generator in the budget-guarded `guardStream`. Making the raw generators unreachable means
+ *  no consumer can iterate an UNguarded stream and OOM/hang on a fanout regression — the guarded
+ *  path is the only path (the structural closure of the R17–R24 memory/streaming vector). */
+const OPERATOR_GENS: Record<string, (md: string) => Generator<Mutant>> = {
   "header-typo": headerTypo, "ref-sub": refSub, "unicode-inject": unicodeInject,
   "column-shift": columnShift, "blank-row:inject": blankRowInject, "blank-row:remove": blankRowRemove,
   "merged-cell": mergedCell, "section-reorder": sectionReorder, "trailing-whitespace": trailingWhitespace,
 };
 
-/** Eager ARRAY form — a thin `[...gen]` wrapper for the ergonomic test call sites (which use
- *  `.filter/.map/.length/.find/.some/.slice` on bounded synthetic inputs). DERIVED from
- *  OPERATOR_GENS, so the lazy and array forms can never drift. */
+/** Shared fail-fast streaming guard (Codex plan-R24 [high]): yields items one at a time and THROWS
+ *  before yielding the (budget+1)th, so an unbounded/fanned-out source fails deterministically with
+ *  O(1) heap instead of being collected into an array. EVERY corpus-scale consumer routes through
+ *  this via `boundedMutants`; a negative control (Task 10) exercises it directly. */
+export function* guardStream<T>(gen: Iterable<T>, budget: number, label: string): Generator<T> {
+  let n = 0;
+  for (const x of gen) {
+    if (++n > budget) throw new Error(`${label} exceeded budget ${budget} before array materialization`);
+    yield x;
+  }
+}
+
+/** THE canonical corpus-scale operator iterator: a budget-guarded stream of `op`'s mutants for
+ *  `md`. The ONLY exported way to enumerate an operator over a real fixture — runAll,
+ *  skippedInapplicable, the count-agreement gate, and the coverage summary all use it. */
+export function boundedMutants(op: string, md: string): Generator<Mutant> {
+  return guardStream(OPERATOR_GENS[op]!(md), MUTANT_BUDGET, `${op} fanout`);
+}
+
+/** Eager ARRAY form — a thin `[...gen]` wrapper for BOUNDED synthetic-input test call sites ONLY
+ *  (which use `.filter/.map/.length/.find/.some/.slice`). DERIVED from the private OPERATOR_GENS,
+ *  so lazy and array forms can never drift. Never use over a real fixture — use `boundedMutants`. */
 export const OPERATORS: Record<string, (md: string) => Mutant[]> = Object.fromEntries(
   Object.entries(OPERATOR_GENS).map(([k, g]) => [k, (md: string) => [...g(md)]]),
 );
@@ -1072,11 +1098,11 @@ export function floorEligible(mutants: Mutant[]): Set<Domain> {
 export function skippedInapplicable(md: string, op: string): Domain[] {
   const present = new Set<Domain>();
   for (const s of seg(md).sections) { const d = classifySection(s); if (RISK_CRITICAL.includes(d)) present.add(d); }
-  // STREAM the generator (Codex plan-R23 [high]): never materialize the operator's full array
-  // here — this runs across the whole corpus (Task 11), so an eager `OPERATORS[op]!(md)` would
-  // let a fanout regression OOM before any budget guard. The for-of holds one mutant at a time.
+  // Route through the shared budget-guarded stream (Codex plan-R23/R24 [high]): never materialize
+  // the operator's full array here — this runs across the whole corpus (Task 11), so `boundedMutants`
+  // gives both O(1) heap AND fail-fast on a fanout regression (it wraps guardStream over MUTANT_BUDGET).
   const eligible = new Set<Domain>();
-  for (const m of OPERATOR_GENS[op]!(md)) for (const d of m.domains) if (RISK_CRITICAL.includes(d)) eligible.add(d);
+  for (const m of boundedMutants(op, md)) for (const d of m.domains) if (RISK_CRITICAL.includes(d)) eligible.add(d);
   return [...present].filter((d) => !eligible.has(d)).sort();
 }
 
@@ -1595,16 +1621,16 @@ Run a throwaway measurement as a temporary vitest file (vitest resolves the `@/`
 // tests/parser/mutation/_measure.test.ts   (TEMPORARY — delete before committing Task 8)
 import { it } from "vitest";
 import { FIXTURES, readFixture } from "./fixtures";
-import { OPERATOR_GENS } from "./operators";
+import { boundedMutants, OPERATORS } from "./operators";
 import { capture, verdict } from "./oracle";
 it("measure corpus size + wall-clock", () => {
   let count = 0;
-  // Stream-count (no array materialization) — mirrors runAll's O(1) shape, so peak heap here
-  // matches the real driver, not an accumulate-then-count proxy (Codex plan-R19/R20).
-  for (const f of FIXTURES) for (const gen of Object.values(OPERATOR_GENS)) for (const _ of gen(readFixture(f))) count++;
+  // Stream through boundedMutants (no array materialization) — mirrors runAll's O(1) shape, so peak
+  // heap here matches the real driver, not an accumulate-then-count proxy (Codex plan-R19/R20/R24).
+  for (const f of FIXTURES) for (const op of Object.keys(OPERATORS)) for (const _ of boundedMutants(op, readFixture(f))) count++;
   const t0 = performance.now();
   for (const f of FIXTURES) { const md = readFixture(f); const b = capture(md, `${f.slug}.md`);
-    for (const gen of Object.values(OPERATOR_GENS)) for (const m of gen(md)) verdict(b, capture(m.md, `${f.slug}.md`)); }
+    for (const op of Object.keys(OPERATORS)) for (const m of boundedMutants(op, md)) verdict(b, capture(m.md, `${f.slug}.md`)); }
   console.log(`[measure] mutant count: ${count}  full-parse wall-clock ms: ${Math.round(performance.now() - t0)}`);
 }, 300_000);
 ```
@@ -1623,18 +1649,16 @@ If the measured numbers are within budget, proceed with the single-`beforeAll` d
 // tests/parser/mutationHarness.test.ts
 import { describe, it, expect, beforeAll } from "vitest";
 import { FIXTURES, readFixture } from "./mutation/fixtures";
-import { OPERATOR_GENS } from "./mutation/operators";
+import { boundedMutants, MUTANT_BUDGET, OPERATORS } from "./mutation/operators";
 import type { Mutant } from "./mutation/operators";
 import { capture, verdict, fingerprint } from "./mutation/oracle";
 import { KNOWN_SILENT_HOLES, reconcileLedger } from "./mutation/knownHoles";
 import type { Alarm } from "./mutation/knownHoles";
 
-// Runtime-budget ceiling on the exhaustive corpus (plan-R17). NOT a blind hardcode: it is set
-// with headroom above the measured mutant count from Task 8 Step 1 (~1.0e5 across the committed
-// 17 fixtures × 9 operators), and guards against an operator regression that fans out per-char
-// (e.g. unicode-inject emitting one mutant per code point). Update it — with a fresh measurement
-// — only when a fixture or operator is intentionally added/removed.
-const MUTANT_BUDGET = 150_000;
+// MUTANT_BUDGET is the single source of truth in operators.ts (imported above) — the per-(operator,
+// fixture) fanout ceiling. Here it doubles as the GLOBAL corpus-size guard (below) and is asserted
+// by the "corpus size within budget" test. `OPERATORS` is imported only for its KEYS (the 9 op
+// names); the corpus is streamed through `boundedMutants`, never the eager array form.
 
 // Prefix each operator's siteId with the fixture slug so keys are globally unique across
 // the corpus. Operator siteIds start "<op>:B..:L..:X.." → "<op>:<slug>:B..:L..:X..".
@@ -1642,13 +1666,13 @@ const withSlug = (m: Mutant, op: string, slug: string): Mutant =>
   ({ ...m, siteId: `${op}:${slug}:${m.siteId.slice(op.length + 1)}` });
 
 /** Exhaustive: parse EVERY generated mutant across all fixtures × operators (plan-R2).
- *  SINGLE-PASS STREAMING (Codex plan-R18/R19/R20 [high], memory vector closed structurally):
- *  operators are lazy generators (OPERATOR_GENS), so this consumes ONE mutant at a time. The
- *  budget guard `if (++n > MUTANT_BUDGET) throw` fires BEFORE parsing each mutant AND before any
- *  array is materialized — an explosive single-operator fanout regression throws at mutant
- *  #(BUDGET+1) with O(1) heap, never allocating ~1e5 fixture-sized `md` strings. Nothing
- *  corpus-wide is retained except short siteId strings (+ actual alarms/noOps). `noOps` flags any
- *  operator emitting a byte-identical mutant (plan-R18). */
+ *  SINGLE-PASS STREAMING (Codex plan-R18–R24 [high], memory vector closed STRUCTURALLY): the corpus
+ *  is streamed through `boundedMutants(op, md)` — the only exported corpus-scale iterator, which
+ *  embeds the per-(op,fixture) `guardStream(..., MUTANT_BUDGET)` fail-fast guard — so an explosive
+ *  single-operator fanout throws with O(1) heap before any array materializes. A SECOND, global
+ *  `++n > MUTANT_BUDGET` guard here caps the whole-corpus total (defends the many-ops-each-large
+ *  case). Nothing corpus-wide is retained except short siteId strings (+ actual alarms/noOps).
+ *  `noOps` flags any operator emitting a byte-identical mutant (plan-R18). */
 function runAll(): { alarms: Alarm[]; allSiteIds: string[]; cosmeticViolations: string[]; noOps: string[] } {
   const alarms: Alarm[] = [];
   const allSiteIds: string[] = [];
@@ -1658,10 +1682,10 @@ function runAll(): { alarms: Alarm[]; allSiteIds: string[]; cosmeticViolations: 
   for (const f of FIXTURES) {
     const md = readFixture(f);
     const baseline = capture(md, `${f.slug}.md`);
-    for (const [op, gen] of Object.entries(OPERATOR_GENS)) {
-      for (const raw of gen(md)) {
+    for (const op of Object.keys(OPERATORS)) {
+      for (const raw of boundedMutants(op, md)) { // per-(op,fixture) budget guard inside boundedMutants
         if (++n > MUTANT_BUDGET) {
-          throw new Error(`mutant count exceeded MUTANT_BUDGET ${MUTANT_BUDGET} before parsing all mutants — operator fanout regression?`);
+          throw new Error(`corpus mutant count exceeded MUTANT_BUDGET ${MUTANT_BUDGET} — operator fanout regression?`);
         }
         const m = withSlug(raw, op, f.slug);
         allSiteIds.push(m.siteId);
@@ -1796,18 +1820,12 @@ describe("coverage floor + COUNT-level audit agreement (Codex R5/R9, exhaustive 
     for (const mut of raw) for (const d of mut.domains) m.set(d, (m.get(d) ?? 0) + 1);
     return m;
   };
-  // STREAMING form with the MUTANT_BUDGET guard — for the FULL-CORPUS loop (Codex plan-R23
-  // [high]): never materialize the operator array over real fixtures. OPERATOR_GENS + this
-  // `++n > MUTANT_BUDGET` throw give the same O(1)/fail-fast protection as runAll, so a fanout
-  // regression fails the gate deterministically instead of OOM-ing CI. (MUTANT_BUDGET is the
-  // module const defined for the driver; this describe is in the same file.)
+  // STREAMING form for the FULL-CORPUS loop (Codex plan-R23/R24 [high]): route through the shared
+  // `boundedMutants` (imported at the top of this file), which embeds the guardStream+MUTANT_BUDGET
+  // fail-fast guard — never materialize the operator array over real fixtures.
   const genCountsStreamed = (op: string, md: string): Map<string, number> => {
     const m = new Map<string, number>();
-    let n = 0;
-    for (const mut of OPERATOR_GENS[op]!(md)) {
-      if (++n > MUTANT_BUDGET) throw new Error(`${op} fanout exceeded MUTANT_BUDGET ${MUTANT_BUDGET} before array materialization`);
-      for (const d of mut.domains) m.set(d, (m.get(d) ?? 0) + 1);
-    }
+    for (const mut of boundedMutants(op, md)) for (const d of mut.domains) m.set(d, (m.get(d) ?? 0) + 1);
     return m;
   };
 
@@ -1981,22 +1999,23 @@ describe("structural gates FAIL under injected regressions (plan-R13)", () => {
   });
 });
 
-describe("streaming budget guard fails fast, BEFORE array materialization (plan-R23)", () => {
-  it("an unbounded generator is stopped by the ++n>budget throw, never collected into an array", () => {
-    // Proves the pattern EVERY full-corpus path uses (runAll, genCountsStreamed, skippedInapplicable):
-    // a for-of over the generator with a budget throw. A non-streaming impl (`[...gen]` / `.map`)
-    // would HANG/OOM on this infinite generator; the guarded loop TERMINATING with a throw proves
-    // the corpus gates fail deterministically on a fanout regression instead of allocating the full
-    // mutant array first (the Codex plan-R23 [high] failure class).
-    function* unbounded(): Generator<{ domains: string[] }> {
-      while (true) yield { domains: ["crew"] };
+import { guardStream } from "./operators";
+
+describe("guardStream — the shared guard behind boundedMutants — fails fast BEFORE array materialization (plan-R24)", () => {
+  it("stops an UNBOUNDED generator by throwing at budget+1, never collecting it into an array", () => {
+    // guardStream is the SINGLE primitive every corpus-scale consumer routes through: boundedMutants
+    // wraps it, and runAll / skippedInapplicable / the count-agreement gate / the coverage summary
+    // all iterate boundedMutants. OPERATOR_GENS is module-private, so there is NO unguarded corpus
+    // path. A non-streaming impl (`[...gen]` / `.map`) would HANG/OOM on this infinite generator; the
+    // guarded loop TERMINATING with a throw proves fail-fast for ALL of those consumers at once
+    // (the Codex plan-R23/R24 [high] failure class — closed structurally, not per-call-site).
+    function* unbounded(): Generator<number> {
+      let i = 0;
+      while (true) yield i++;
     }
-    const BUDGET = 100;
-    const guarded = () => {
-      let n = 0;
-      for (const _m of unbounded()) if (++n > BUDGET) throw new Error("over budget");
-    };
-    expect(guarded).toThrow("over budget"); // terminates ⇒ no array was ever built
+    expect(() => {
+      for (const _m of guardStream(unbounded(), 100, "test")) { /* consume — never terminates unless the guard throws */ }
+    }).toThrow(/test exceeded budget 100/);
   });
 });
 ```
@@ -2066,8 +2085,8 @@ describe("coverage legibility (exhaustive; skippedInapplicable surfaced)", () =>
     const skips: string[] = [];
     for (const f of FIXTURES) {
       const md = readFixture(f);
-      for (const [op, gen] of Object.entries(OPERATOR_GENS)) {
-        for (const m of gen(md)) { total++; for (const dm of m.domains) domains.add(dm); } // stream (plan-R20)
+      for (const op of Object.keys(OPERATORS)) {
+        for (const m of boundedMutants(op, md)) { total++; for (const dm of m.domains) domains.add(dm); } // guarded stream (plan-R24)
         if (op.startsWith("section-reorder") || op.startsWith("trailing")) continue; // cosmetic: no floor
         const sk = skippedInapplicable(md, op);
         if (sk.length) skips.push(`${f.slug}/${op}: ${sk.join(",")}`);
