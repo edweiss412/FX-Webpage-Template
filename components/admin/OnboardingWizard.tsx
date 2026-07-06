@@ -54,10 +54,15 @@ type OnboardingWizardProps = {
   // forward/resume affordance that would land on an empty Step 3.
   hasReviewableScan?: boolean;
   // Step-3 consolidation (spec §4.3): the /admin dispatcher's finalize checkpoint
-  // for the active session, threaded into the unified Step-3 surface so it can
-  // render across finalize states (the footer-mode wiring lands in Phase 3).
+  // for the active session, threaded into the unified Step-3 surface so it renders
+  // across finalize states (footer Resume/Finish + badge-only rows post-finalize).
   // null = pre-finalize (default).
   checkpointStatus?: "in_progress" | "all_batches_complete" | null;
+  // Spec §4.5: an all_batches_complete checkpoint past the staleness window shows
+  // the footer recovery note + Cleanup (replacing StaleReadyToPublish). Computed
+  // by the /admin dispatcher (isCheckpointStale). Only meaningful when
+  // checkpointStatus === "all_batches_complete".
+  isStale?: boolean;
 };
 
 type ServiceAccountResult = { ok: true; email: string } | { ok: false };
@@ -291,7 +296,11 @@ export function buildStep3Row(
   let linkedShow: { published: boolean; archived: boolean } | null = null;
   let sessionLinked = false;
   const sessionMatch = candidates.find(
-    (c) => createdShowId !== null && c.id === createdShowId && c.drive_file_id === driveFileId && c.wizard_created_session_id === m.wizard_session_id,
+    (c) =>
+      createdShowId !== null &&
+      c.id === createdShowId &&
+      c.drive_file_id === driveFileId &&
+      c.wizard_created_session_id === m.wizard_session_id,
   );
   if (sessionMatch) {
     linkedShow = { published: sessionMatch.published, archived: sessionMatch.archived };
@@ -607,13 +616,15 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
 async function Step3Container({
   wizardSessionId,
   checkpointStatus = null,
+  isStale = false,
 }: {
   wizardSessionId: string;
   checkpointStatus?: "in_progress" | "all_batches_complete" | null;
+  isStale?: boolean;
 }) {
   const result = await fetchStep3Data(wizardSessionId);
   if (result.kind === "infra_error") {
-    return (
+    const degradedNote = (
       <section
         data-testid="wizard-step3-infra-error"
         className="flex flex-col gap-3 rounded-md border border-border bg-warning-bg p-tile-pad text-warning-text"
@@ -624,6 +635,25 @@ async function Step3Container({
           developer.
         </p>
       </section>
+    );
+    // Plan-R2 MEDIUM: at a non-null checkpoint a degraded sheet read must NOT
+    // strand the operator — the Resume/Finish + Cleanup footer stays reachable
+    // (Step3ReviewWithFinalize renders the footer even with rows=[]). At
+    // checkpoint null there is no finalize in flight, so the note stands alone.
+    if (checkpointStatus === null) return degradedNote;
+    return (
+      <>
+        {degradedNote}
+        <Step3ReviewWithFinalize
+          wizardSessionId={wizardSessionId}
+          rows={[]}
+          finishable
+          initialPublishCount={0}
+          initialUncheckedCleanCount={0}
+          checkpointStatus={checkpointStatus}
+          isStale={isStale}
+        />
+      </>
     );
   }
   // D5: thread the publish-intent counts into the finish button. publishCount =
@@ -646,6 +676,7 @@ async function Step3Container({
       initialPublishCount={publishCount}
       initialUncheckedCleanCount={uncheckedCleanCount}
       checkpointStatus={checkpointStatus}
+      isStale={isStale}
     />
   );
 }
@@ -677,6 +708,7 @@ export async function OnboardingWizard({
   searchParams,
   hasReviewableScan = false,
   checkpointStatus = null,
+  isStale = false,
 }: OnboardingWizardProps) {
   const service = readServiceAccountEmail();
   const step = pickStep(searchParams.step);
@@ -750,6 +782,7 @@ export async function OnboardingWizard({
             <Step3Container
               wizardSessionId={settings.pending_wizard_session_id}
               checkpointStatus={checkpointStatus}
+              isStale={isStale}
             />
           ) : null}
           {step === 3 && settings.pending_wizard_session_id === null ? (

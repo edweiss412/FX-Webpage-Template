@@ -11,11 +11,17 @@
  * Precedence (deterministic, top-down):
  *   1. settings.pending_wizard_session_id is NON-null →
  *      query wizard_finalize_checkpoints for that session and branch:
- *        - 'in_progress'                          → <FinalizeInProgress />
- *        - 'all_batches_complete' (fresh < 24h)   → <ReadyToPublish />
- *        - 'all_batches_complete' (stale ≥ 24h)   → <StaleReadyToPublish />
+ *        - 'in_progress'                          → unified Step-3 (checkpointStatus,
+ *                                                    Resume footer)
+ *        - 'all_batches_complete' (fresh or stale) → unified Step-3 (checkpointStatus,
+ *                                                    Finish footer; stale → note + Cleanup)
  *        - 'final_cas_done'                       → Dashboard (defensive)
  *        - null (no checkpoint yet)                → <OnboardingWizard />
+ *
+ *      Step-3 consolidation (spec §4.5/§4.6): all non-terminal checkpoints render
+ *      the SAME <OnboardingWizard> forced to step 3 — the three standalone
+ *      interstitials (FinalizeInProgress / ReadyToPublish / StaleReadyToPublish)
+ *      are retired.
  *   2. settings.watched_folder_id IS NULL         → <OnboardingWizard />
  *      (first-visit fresh; no session minted yet)
  *   3. otherwise                                  → Dashboard placeholder
@@ -36,9 +42,6 @@ import { requireAdmin } from "@/lib/auth/requireAdmin";
 import { purgeAndRotateIfStale } from "@/lib/onboarding/sessionLifecycle";
 import { readAppSettingsRow } from "@/lib/appSettings/readAppSettingsRow";
 import { OnboardingWizard } from "@/components/admin/OnboardingWizard";
-import { FinalizeInProgress } from "@/components/admin/FinalizeInProgress";
-import { ReadyToPublish } from "@/components/admin/ReadyToPublish";
-import { StaleReadyToPublish } from "@/components/admin/StaleReadyToPublish";
 import { Dashboard } from "@/components/admin/Dashboard";
 import { AdminPageHeader } from "@/components/admin/nav/AdminPageHeader";
 import {
@@ -47,7 +50,6 @@ import {
   isInfraError,
 } from "@/app/admin/_finalizeCheckpoint";
 import { readScanManifestCount } from "@/app/admin/_scanManifestCount";
-import { readUnresolvedSheets } from "@/app/admin/_unresolvedSheets";
 import { nowDate } from "@/lib/time/now";
 
 export const dynamic = "force-dynamic";
@@ -154,32 +156,26 @@ export default async function AdminPage({ searchParams }: AdminPageProps) {
       return <CheckpointInfraErrorPlaceholder />;
     }
     if (checkpoint !== null) {
-      if (checkpoint.status === "in_progress") {
-        // Read the sheets blocking this session from finishing so the re-entry
-        // surface can link straight to each one's recovery page (spec §3). A
-        // degraded read passes through as an infra-error discriminant — the
-        // component shows a soft note and never blocks Resume/Discard.
-        const unresolved = await readUnresolvedSheets(settings.pending_wizard_session_id);
+      // Step-3 consolidation (spec §4.5/§4.6): the mid-finalize (in_progress) and
+      // post-batch (all_batches_complete) checkpoints render the SAME unified
+      // Step-3 review surface as pre-finalize — forced to step 3 — with a
+      // checkpoint-aware footer (Resume / Finish + Cleanup) and badge-only rows.
+      // This replaces the three standalone interstitials (FinalizeInProgress /
+      // ReadyToPublish / StaleReadyToPublish). Staleness is computed here against
+      // the request-scoped clock so screenshot-frozen-now requests are deterministic.
+      if (checkpoint.status === "in_progress" || checkpoint.status === "all_batches_complete") {
+        const isStale =
+          checkpoint.status === "all_batches_complete" &&
+          isCheckpointStale(checkpoint.last_processed_at, await nowDate());
         return (
-          <FinalizeInProgress
-            sessionId={settings.pending_wizard_session_id}
-            batchesCompleted={checkpoint.batches_completed}
-            unresolved={unresolved}
-            {...(checkpoint.last_processed_at !== null
-              ? { lastProcessedAt: checkpoint.last_processed_at }
-              : {})}
+          <OnboardingWizard
+            settings={settings}
+            searchParams={{ step: "3" }}
+            hasReviewableScan={true}
+            checkpointStatus={checkpoint.status}
+            isStale={isStale}
           />
         );
-      }
-      if (checkpoint.status === "all_batches_complete") {
-        // M11 Phase C (C.2 extension): render-side staleness decision
-        // honors the request-scoped time utility so screenshot-frozen-now
-        // requests produce deterministic surface choice.
-        const now = await nowDate();
-        if (isCheckpointStale(checkpoint.last_processed_at, now)) {
-          return <StaleReadyToPublish sessionId={settings.pending_wizard_session_id} />;
-        }
-        return <ReadyToPublish sessionId={settings.pending_wizard_session_id} />;
       }
       if (checkpoint.status === "final_cas_done") {
         // Defensive — Phase D atomically clears pending_wizard_session_id,

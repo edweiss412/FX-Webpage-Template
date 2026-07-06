@@ -43,14 +43,14 @@ import { describe, expect, it } from "vitest";
 const ADMIN_DIR = "components/admin";
 const ATOM_FILE = "components/shared/AccentButton.tsx";
 
-// The 8 call sites migrated by M5-D7. ResolveAlertButton carries TWO
-// accent buttons (idle Resolve + confirm) — one file, both swapped.
+// The call sites migrated by M5-D7. ResolveAlertButton carries TWO accent
+// buttons (idle Resolve + confirm) — one file, both swapped. (ResumeFinalizeButton
+// was in this list until the Step-3 consolidation retired it — spec §4.5.)
 const MIGRATED_FILES = [
   "ResolveAlertButton.tsx",
   "PendingPanelRetryButton.tsx",
   "ReSyncButton.tsx",
   "RunFinalCASButton.tsx",
-  "ResumeFinalizeButton.tsx",
   "FinalizeButton.tsx",
   "StagedReviewCard.tsx",
 ].map((f) => join(ADMIN_DIR, f));

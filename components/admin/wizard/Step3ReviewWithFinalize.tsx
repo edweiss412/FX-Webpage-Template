@@ -127,7 +127,11 @@ export function Step3ReviewWithFinalize({
           checkpointStatus={checkpointStatus}
         />
       </div>
-      {rows.length > 0 ? (
+      {/* The footer renders whenever there are rows OR we are at a non-null
+          checkpoint — the latter keeps the Resume/Finish + Cleanup controls
+          present even when the sheet list is empty (a degraded Step3Container
+          read renders rows=[] at a checkpoint; plan-R2 MEDIUM). */}
+      {rows.length > 0 || checkpointStatus !== null ? (
         <WizardFooter
           back={
             <Link

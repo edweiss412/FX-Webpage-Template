@@ -77,6 +77,8 @@ vi.mock("@/components/admin/OnboardingWizard", () => ({
     settings: AppSettingsRow;
     searchParams: { step?: string };
     hasReviewableScan?: boolean;
+    checkpointStatus?: "in_progress" | "all_batches_complete" | null;
+    isStale?: boolean;
   }) => {
     onboardingWizardSpy(props);
     return (
@@ -86,6 +88,8 @@ vi.mock("@/components/admin/OnboardingWizard", () => ({
         data-watched-folder={props.settings.watched_folder_id ?? "null"}
         data-step={props.searchParams.step ?? "default"}
         data-has-reviewable-scan={String(props.hasReviewableScan ?? false)}
+        data-checkpoint-status={props.checkpointStatus ?? "null"}
+        data-is-stale={String(props.isStale ?? false)}
       />
     );
   },
@@ -100,32 +104,10 @@ vi.mock("@/app/admin/_scanManifestCount", () => ({
   readScanManifestCount: (...args: unknown[]) => readScanManifestCountMock(...args),
 }));
 
-vi.mock("@/components/admin/FinalizeInProgress", () => ({
-  FinalizeInProgress: (props: {
-    sessionId: string;
-    batchesCompleted: number;
-    lastProcessedAt?: string;
-  }) => (
-    <div
-      data-testid="admin-finalize-in-progress-spy"
-      data-session={props.sessionId}
-      data-batches={String(props.batchesCompleted)}
-      data-last-at={props.lastProcessedAt ?? ""}
-    />
-  ),
-}));
-
-vi.mock("@/components/admin/ReadyToPublish", () => ({
-  ReadyToPublish: (props: { sessionId: string }) => (
-    <div data-testid="admin-ready-to-publish-spy" data-session={props.sessionId} />
-  ),
-}));
-
-vi.mock("@/components/admin/StaleReadyToPublish", () => ({
-  StaleReadyToPublish: (props: { sessionId: string }) => (
-    <div data-testid="admin-stale-ready-to-publish-spy" data-session={props.sessionId} />
-  ),
-}));
+// Step-3 consolidation (spec §4.5/§4.6): FinalizeInProgress / ReadyToPublish /
+// StaleReadyToPublish are retired — every non-terminal checkpoint now renders
+// the unified <OnboardingWizard> (spied above) forced to step 3 with a
+// checkpointStatus + isStale. The dispatch assertions below read those props.
 
 vi.mock("@/components/admin/Dashboard", () => ({
   Dashboard: () => <div data-testid="admin-dashboard-placeholder" />,
@@ -273,7 +255,7 @@ describe("AdminPage Phase 2 routing", () => {
     expect(getByTestId("onboarding-wizard-spy").dataset.hasReviewableScan).toBe("false");
   });
 
-  test("wizard mid-flight + checkpoint status='in_progress' → FinalizeInProgress", async () => {
+  test("wizard mid-flight + checkpoint status='in_progress' → unified Step-3 (checkpointStatus=in_progress, step 3, not stale)", async () => {
     purgeAndRotateIfStaleMock.mockResolvedValue({
       settings: WIZARD_IN_FLIGHT_SETTINGS,
       rotated: false,
@@ -284,14 +266,15 @@ describe("AdminPage Phase 2 routing", () => {
       last_processed_drive_file_id: "drive-100",
       last_processed_at: new Date().toISOString(),
     });
-    const { getByTestId, queryByTestId } = render(
-      await AdminPage({ searchParams: Promise.resolve({}) }),
-    );
-    expect(getByTestId("admin-finalize-in-progress-spy").dataset.batches).toBe("100");
-    expect(queryByTestId("onboarding-wizard-spy")).toBeNull();
+    const { getByTestId } = render(await AdminPage({ searchParams: Promise.resolve({}) }));
+    const spy = getByTestId("onboarding-wizard-spy");
+    expect(spy.dataset.checkpointStatus).toBe("in_progress");
+    expect(spy.dataset.step).toBe("3");
+    expect(spy.dataset.hasReviewableScan).toBe("true");
+    expect(spy.dataset.isStale).toBe("false");
   });
 
-  test("wizard mid-flight + checkpoint status='all_batches_complete' fresh → ReadyToPublish", async () => {
+  test("wizard mid-flight + checkpoint status='all_batches_complete' fresh → unified Step-3 (checkpointStatus, isStale=false)", async () => {
     purgeAndRotateIfStaleMock.mockResolvedValue({
       settings: WIZARD_IN_FLIGHT_SETTINGS,
       rotated: false,
@@ -302,14 +285,14 @@ describe("AdminPage Phase 2 routing", () => {
       last_processed_drive_file_id: "drive-50",
       last_processed_at: new Date(Date.now() - 60 * 1000).toISOString(),
     });
-    const { getByTestId, queryByTestId } = render(
-      await AdminPage({ searchParams: Promise.resolve({}) }),
-    );
-    expect(getByTestId("admin-ready-to-publish-spy")).toBeTruthy();
-    expect(queryByTestId("admin-stale-ready-to-publish-spy")).toBeNull();
+    const { getByTestId } = render(await AdminPage({ searchParams: Promise.resolve({}) }));
+    const spy = getByTestId("onboarding-wizard-spy");
+    expect(spy.dataset.checkpointStatus).toBe("all_batches_complete");
+    expect(spy.dataset.step).toBe("3");
+    expect(spy.dataset.isStale).toBe("false");
   });
 
-  test("wizard mid-flight + checkpoint status='all_batches_complete' stale (≥24h) → StaleReadyToPublish", async () => {
+  test("wizard mid-flight + checkpoint status='all_batches_complete' stale (≥24h) → unified Step-3 (isStale=true)", async () => {
     purgeAndRotateIfStaleMock.mockResolvedValue({
       settings: WIZARD_IN_FLIGHT_SETTINGS,
       rotated: false,
@@ -320,11 +303,10 @@ describe("AdminPage Phase 2 routing", () => {
       last_processed_drive_file_id: "drive-50",
       last_processed_at: new Date(Date.now() - 25 * 3600 * 1000).toISOString(),
     });
-    const { getByTestId, queryByTestId } = render(
-      await AdminPage({ searchParams: Promise.resolve({}) }),
-    );
-    expect(getByTestId("admin-stale-ready-to-publish-spy")).toBeTruthy();
-    expect(queryByTestId("admin-ready-to-publish-spy")).toBeNull();
+    const { getByTestId } = render(await AdminPage({ searchParams: Promise.resolve({}) }));
+    const spy = getByTestId("onboarding-wizard-spy");
+    expect(spy.dataset.checkpointStatus).toBe("all_batches_complete");
+    expect(spy.dataset.isStale).toBe("true");
   });
 
   test("wizard mid-flight + checkpoint status='final_cas_done' (defensive) → Dashboard", async () => {

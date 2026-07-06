@@ -18,7 +18,9 @@ describe("tierForItem (spec §4.4 rule, not enumeration)", () => {
     }
   });
   it("1 action + pure-context invariant → tier1", () => {
-    expect(tierForItem(item({ id: "i", invariant: "ONBOARDING_SCAN_REVIEW" }))).toBe("tier1_context");
+    expect(tierForItem(item({ id: "i", invariant: "ONBOARDING_SCAN_REVIEW" }))).toBe(
+      "tier1_context",
+    );
     expect(tierForItem(item({ id: "i", invariant: "FIRST_SEEN_REVIEW" }))).toBe("tier1_context");
   });
   it("1 action + other invariant → tier2 diagnostic (MI-6, orphans, DIAGRAMS_*)", () => {

@@ -94,8 +94,9 @@ test.describe("admin Phase 2 surfaces (mobile-safari)", () => {
     const response = await page.goto("/admin");
     expect(response?.status()).toBe(200);
 
-    // /admin renders one of: OnboardingWizard, FinalizeInProgress,
-    // ReadyToPublish, StaleReadyToPublish, Dashboard, or the infra-error
+    // /admin renders one of: OnboardingWizard (pre-finalize OR any non-terminal
+    // finalize checkpoint — the three interstitials were consolidated into the
+    // unified Step-3 surface, spec §4.5), Dashboard, or the infra-error
     // placeholder. Each is fine; we just verify the page stays clean.
     await assertNoRawCodes(page);
     await assertNoAdminDevLinks(page);
@@ -104,9 +105,6 @@ test.describe("admin Phase 2 surfaces (mobile-safari)", () => {
     // canonical Phase 2 testids.
     const candidateTestIds = [
       "onboarding-wizard",
-      "admin-finalize-in-progress",
-      "admin-ready-to-publish",
-      "admin-stale-ready-to-publish",
       "admin-dashboard",
       "admin-checkpoint-infra-error",
     ];
