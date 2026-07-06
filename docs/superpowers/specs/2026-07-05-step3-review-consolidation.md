@@ -105,14 +105,14 @@ Each show row shows exactly one status. **Live/Held derive from the row's LINKED
 
 | Display state | Derivation | Tone | Row affordance |
 |---|---|---|---|
-| **Live** | provenance-joined show (§4.3) AND `shows.published = true` | accent/live | badge only |
-| **Held** | provenance-joined show (§4.3) AND `shows.published = false` (draft) | idle/neutral | badge; existing per-row publish semantics preserved |
+| **Live** | session-provenance-joined show (§4.3) AND `shows.published = true` — **OR** the existing-show branch (§4.3: `drive_file_id` match AND `wizard_created_session_id IS NULL` AND `published = true`) | accent/live | badge only (session-created); badge + existing-show checkbox for a pre-existing Live show re-touched this session |
+| **Held** | session-provenance-joined show (§4.3) AND `shows.published = false` (draft) | idle/neutral | badge; existing per-row publish semantics preserved |
 | **Ready** | no linked show yet, clean (`staged`/`applied`), not blocking | idle | publish checkbox (unchanged pre-finalize); `publish_intent` seeds checked/unchecked |
 | **Needs review — re-apply** | blocking via `staged` + `lastFinalizeFailureCode != null` (RESCAN_REVIEW_REQUIRED / demoted-wedge) | warn | **`Review →`** → modal (§4.4). No inline approve. |
 | **Needs review — other** | `hard_failed` / `live_row_conflict` / `discard_retryable` | warn | **existing inline controls, unchanged** (§4.2.1) |
 | **In progress** | transient, during an active publish run only | positive (pulse) | none (client-only) |
 
-This derivation is checkpoint-agnostic — the presence of a linked published/held show is the signal, so pre-finalize (no linked shows, except an already-existing Live show re-touched by a §7.4 D10 no-op) and post-finalize both work without special-casing. `publish_intent` never means Live.
+This derivation is checkpoint-agnostic — the presence of a linked published/held show (session-provenance join) OR a pre-existing null-session published show (existing-show branch, §4.3) is the signal, so pre-finalize (no session-linked shows, but an already-existing Live show re-touched by a §7.4 D10 no-op renders Live via the existing-show branch) and post-finalize both work without special-casing. `publish_intent` never means Live.
 
 #### 4.2.1 Blocking rows are NOT one kind (CRITICAL correction, R1)
 
@@ -132,14 +132,22 @@ These already render their resolution inline on the Step-3 row (never on the del
 
 Extend the existing row build (`OnboardingWizard.tsx:357`, its Supabase reads at `:238/:259/:281`) so it produces `Step3Row[]` for a session in **any** finalize state, adding the published/Held distinction:
 
-- Inputs: `onboarding_scan_manifest` (`status`, `publish_intent`, `created_show_id`, `wizard_session_id`), `pending_syncs` (`parse_result`, `last_finalize_failure_code`, `staged_id`, and — new — `triggered_review_items`; the current select at `OnboardingWizard.tsx:259-260` omits `triggered_review_items` and must add it), and — new — `public.shows` for the `published` flag (Live/Held; `published` gates crew visibility, `sessionLifecycle.ts:583,856`).
-- **Live/Held provenance join (HIGH, R2) — MUST match the canonical `created_show_id` consumer join; never trust `created_show_id` bare and NEVER fall back to a broad `drive_file_id` match** (a forged/stale manifest pointer or same-drive pre-existing show would misclassify Live/Held and wrongly suppress the checkbox/review affordance). Use ALL of (per `finalize-cas/route.ts:494-503,549` and migration `20260611000000:3-7`):
+- Inputs: `onboarding_scan_manifest` (`status`, `publish_intent`, `created_show_id`, `wizard_session_id`), `pending_syncs` (`parse_result`, `last_finalize_failure_code`, `staged_id`, and — new — `triggered_review_items`; the current select at `OnboardingWizard.tsx:259-260` omits `triggered_review_items` and must add it), and — new — `public.shows` for the `published` + `wizard_created_session_id` flags (Live/Held; `published` gates crew visibility, `lib/onboarding/sessionLifecycle.ts:582-585,854-856`).
+- **Live/Held session-provenance join (HIGH, R2) — MUST match the canonical `created_show_id` consumer join; never trust `created_show_id` bare and NEVER fall back to a broad `drive_file_id` match for a SESSION-CREATED show** (a forged/stale manifest pointer or a same-drive session-created Held show would misclassify Live/Held and wrongly suppress the checkbox/review affordance). Use ALL of (per `finalize-cas/route.ts:494-503,549` and migration `20260611000000:3-7`):
   ```
   m.created_show_id = s.id
   AND m.drive_file_id = s.drive_file_id
   AND s.wizard_created_session_id = m.wizard_session_id
   ```
-  A row is **Live** iff a `shows` row satisfies all three AND `s.published = true`; **Held** iff all three AND `s.published = false`. A manifest row with `created_show_id IS NULL` (no linked show yet) is never Live/Held — it falls to Ready/Needs-review from its manifest status.
+  A row is **Live** iff a `shows` row satisfies all three AND `s.published = true`; **Held** iff all three AND `s.published = false`.
+- **Existing-show Live branch (HIGH, R5) — the ONLY safe way to render an already-existing Live show re-touched this session.** Existing-show finalize paths deliberately do NOT write `created_show_id`: the CHECKED existing-show apply stages a shadow + stamps `publish_intent` only (`finalize/route.ts:1057-1064`), and the UNCHECKED D10 no-op leaves `created_show_id` NULL by design (`:1077-1102`). So the session-provenance join above cannot match them, and without this branch an already-Live sheet would fall through to Ready/Needs-review — contradicting §4.2/§6. A row is **Live** via this branch iff a `shows` row satisfies:
+  ```
+  s.drive_file_id = m.drive_file_id
+  AND s.wizard_created_session_id IS NULL
+  AND s.published = true
+  ```
+  This is NOT the broad drive-match R2 forbade. R2's danger was (a) a forged `created_show_id` pointer or (b) a same-drive *session-created* (Held) show being called Live; the `wizard_created_session_id IS NULL` clause excludes both — a session-created show always stamps its session id (`20260611000000:5`), and a forged manifest pointer cannot fabricate a null-session production show. A pre-existing production show for this exact `drive_file_id` with no wizard provenance genuinely IS the Live show for that sheet. The existing-show checkbox (apply-edits intent) still renders alongside the Live badge (§4.2).
+- A manifest row with `created_show_id IS NULL` AND no matching pre-existing published show is never Live/Held — it falls to Ready/Needs-review from its manifest status. (A pre-existing *draft* — `published = false`, null session — likewise falls to Ready; not Held, since Held is a session-provenance state.)
 - Live/Held per §4.2: linked show + `published`. Ready/Needs-review per the manifest status + blocking predicate (`_unresolvedSheets.ts:141`).
 - Reuses the blocking predicate; `_unresolvedSheets.ts`'s predicate + `readUnresolvedSheets` fold into this read (the file is deleted; §11).
 - Fail-closed: an infra error on any read returns `{ kind:"infra_error" }` (invariant 9, matching the existing `Step3FetchResult` union `OnboardingWizard.tsx:206`) and the surface shows a soft degraded note, never a blank 500 and never a falsely-empty list.
@@ -193,7 +201,7 @@ After a successful `Approve & apply`, the modal footer returns to the ordinary "
 `Step3ReviewWithFinalize` gains a `checkpointStatus` input and selects the primary footer action:
 
 - `null` → `FinalizeTrigger` (Publish N shows & finish) — unchanged.
-- `in_progress` → **Resume** (drives the existing resume batch loop; `ResumeFinalizeButton` logic folded into the run).
+- `in_progress` → **Resume** (drives the existing resume batch loop; `ResumeFinalizeButton` logic folded into the run). `ResumeFinalizeButton.tsx` is mounted ONLY by `FinalizeInProgress.tsx:100` (deleted §4.6), so the standalone component is deleted; its `re_apply_url` failure renderer (`ResumeFinalizeButton.tsx:143-149`) is subsumed by the footer run, whose surfaced re-apply rows resolve via the modal / redirect exactly like the race-row (§4.6).
 - `all_batches_complete` → **Finish** (final CAS; `RunFinalCASButton` logic folded in). A **stale** checkpoint adds a footer note (replacing `StaleReadyToPublish`'s standalone discard/publish framing) — discard remains reachable.
 
 **Abandoned-finalize cleanup MUST be re-homed (HIGH, R4).** `FinalizeInProgress.tsx:171` and `StaleReadyToPublish.tsx:77` both render `CleanupAbandonedFinalizeButton` — the recovery path for a stuck/stale session (the finalize-resume-deadlock recovery). Deleting those interstitials must NOT drop it. The unified Step-3 footer renders `CleanupAbandonedFinalizeButton` (unchanged component) as a secondary control whenever the checkpoint is `in_progress` OR a **stale** `all_batches_complete` — the exact two states that expose it today. A test asserts the cleanup control is present in both states on the unified surface.
@@ -202,8 +210,8 @@ The disabled gate stays keyed on `finishable` (blocking rows block finish), unch
 
 ### 4.6 Deletions + redirect
 
-- Delete `FinalizeInProgress.tsx`, `ReadyToPublish.tsx`, `StaleReadyToPublish.tsx`, the staged `page.tsx`, and (folded) `_unresolvedSheets.ts`.
-- Remove the **three** in-app links to the staged page (HIGH R4): `Step3ReviewModal.tsx:1087`, `Step3SheetCard.tsx:183`, AND the finalize **race-row** terminal-state link `FinalizeButton.tsx:513-539` (`<Link href={failure.re_apply_url}>`, server-built at `finalize/route.ts:258-260`). The modal now resolves re-apply rows in place; the race-row link is repointed at the unified surface. Minimum: the `re_apply_url` (unchanged server field) is caught by the redirect (§below) so it lands on the unified Step-3 — a test asserts a race-row `re_apply_url` resolves to `/admin` (the unified surface post-fold). Deep-linking the race-row directly to its row's modal is a nice-to-have, out of scope.
+- Delete `FinalizeInProgress.tsx`, `ReadyToPublish.tsx`, `StaleReadyToPublish.tsx`, `ResumeFinalizeButton.tsx` (logic folded into the footer Resume run, §4.5), the staged `page.tsx`, and (folded) `_unresolvedSheets.ts`.
+- Remove the **four** in-app renderers of a staged-page / `re_apply_url` link (HIGH R4/R5): the two direct staged-page links `Step3ReviewModal.tsx:1087` and `Step3SheetCard.tsx:183`; the finalize **race-row** terminal-state link `FinalizeButton.tsx:513-539` (`<Link href={failure.re_apply_url}>`, server-built at `finalize/route.ts:258-260`); AND the **resume** failure link `ResumeFinalizeButton.tsx:143-149` (same `re_apply_url` field). The modal now resolves re-apply rows in place; the race-row and resume links are subsumed by the folded footer run. Minimum: the `re_apply_url` (unchanged server field) is caught by the redirect (§below) so it lands on the unified Step-3 — a test asserts a race-row `re_apply_url` resolves to `/admin` (the unified surface post-fold). Deep-linking a specific row directly to its modal is a nice-to-have, out of scope.
 - Add a `next.config.ts` redirect: `/admin/onboarding/staged/:wizardSessionId/:driveFileId → /admin` (307, reversible; Step-3 is the session's home and the row is surfaced there). Keeps bookmarks/alert links landing sane.
 - Remove the staged **page** entry from `lib/audit/trustDomains.ts:60-62`; keep the API-route entries (core `:154-170`, staged-diagram/cleanup `:110-126`).
 
@@ -223,7 +231,7 @@ The disabled gate stays keyed on `finishable` (blocking rows block finish), unch
 
 The unified Step-3 has these modes; each row + footer element belongs to exactly one:
 
-- **Pre-finalize** (`checkpoint null`): rows Ready (checkbox) / Needs-review; footer = Publish trigger. Normally no Live/Held rows, BUT a manifest row for an already-existing Live show (a §7.4 D10 no-op re-touch, `finalize/route.ts:846`) legitimately renders **Live** — the derivation (§4.2) handles it because the linked show is already `published=true`. So "no Live/Held pre-finalize" is the common case, not an invariant.
+- **Pre-finalize** (`checkpoint null`): rows Ready (checkbox) / Needs-review; footer = Publish trigger. Normally no Live/Held rows, BUT a manifest row for an already-existing Live show (a §7.4 D10 no-op re-touch, `finalize/route.ts:846`) legitimately renders **Live** — the **existing-show branch** (§4.3: `drive_file_id` match + `wizard_created_session_id IS NULL` + `published=true`) handles it, NOT the session-provenance join (which cannot match — existing-show paths never write `created_show_id`). So "no Live/Held pre-finalize" is the common case, not an invariant.
 - **Mid-finalize** (`in_progress`): rows Live/Held (settled) + Needs-review + Ready(remaining); footer = Resume. Transient In-progress during an active run.
 - **Batches-complete** (`all_batches_complete`): rows Live/Held + any Needs-review; footer = Finish (CAS), stale note if stale.
 - **Modal** (any mode, Needs-review row): resolution UI; independent of the page mode.
@@ -284,7 +292,7 @@ The unified surface reuses existing layout components (`WizardFooter`, `Step3Rev
   - `tests/admin/unresolvedSheets.test.ts:72-78` — asserts old reapply URL; delete/rewrite against the unified read.
   - `tests/components/admin/FinalizeReentry.test.tsx`, `FinalizeInProgress.test.tsx`, `AdminPage.test.tsx`, `RunFinalCASButton.test.tsx`, `RescanSheetButton.test.tsx`, `tests/e2e/admin-phase2-surfaces.spec.ts` — rewrite against the unified Step-3 surface or delete with their component.
   - `lib/audit/trustDomains.ts:60-62` — remove the staged-page entry; keep the API entries (core routes `:154-170`, staged-diagram/cleanup `:110-126`).
-  - The grep guard asserts: no import of `FinalizeInProgress`/`ReadyToPublish`/`StaleReadyToPublish`/the staged `page.tsx`/`_unresolvedSheets` survives; and no in-app `/admin/onboarding/staged/` link literal survives across the THREE sites (`Step3ReviewModal.tsx:1087`, `Step3SheetCard.tsx:183`, `FinalizeButton.tsx` race-row) — the race-row `re_apply_url` is either repointed or provably covered by the redirect test.
+  - The grep guard asserts: no import of `FinalizeInProgress`/`ReadyToPublish`/`StaleReadyToPublish`/`ResumeFinalizeButton`/the staged `page.tsx`/`_unresolvedSheets` survives; and no in-app `/admin/onboarding/staged/` link literal survives across the FOUR renderers (`Step3ReviewModal.tsx:1087`, `Step3SheetCard.tsx:183`, `FinalizeButton.tsx` race-row, `ResumeFinalizeButton.tsx:143-149`) — the race-row/resume `re_apply_url` are either repointed or provably covered by the redirect test.
   - **NOT deleted:** `CleanupAbandonedFinalizeButton` is re-homed into the unified footer (§4.5), so the guard must NOT flag its surviving import; a test asserts it renders on the unified surface for `in_progress` + stale `all_batches_complete`.
 - **Layout** (real-browser Playwright): footer + modal at mobile/desktop breakpoints with row-status badges present; no horizontal overflow; footer center min-height preserved.
 
