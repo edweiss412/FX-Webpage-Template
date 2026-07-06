@@ -64,15 +64,15 @@ export function useBellBadge(initial: BellCountResult): UseBellBadgeResult {
   const abortRef = useRef<AbortController | null>(null);
   const lastPathRef = useRef(pathname);
   // Set by the FIRST zeroNow() open gesture and never cleared for the rest
-  // of the mount. While set, prop-sync commits of `count` are suppressed: a
-  // router.refresh() that started BEFORE the open click can deliver the
-  // pre-open count as a fresh prop object at ANY later time (even after the
-  // restoring onOpened refetch — Codex final-review R5+R6), and the client
-  // cannot order a prop's server render against the open watermark. From the
-  // first open onward, count freshness is owned by the fetch sources (open
-  // refetch, pathname, realtime ping — every admin_alerts write broadcasts a
-  // ping, so fetches see every change props could carry). `degraded` stays
-  // prop-synced.
+  // of the mount. While set, props DEMOTE from count VALUES to fetch
+  // TRIGGERS: a router.refresh() that started BEFORE the open click can
+  // deliver the pre-open count as a fresh prop object at ANY later time
+  // (even after the restoring onOpened refetch — Codex final-review R5-R7),
+  // and the client cannot order a prop's server render against the open
+  // watermark. A count FETCH issued on prop arrival, however, is always
+  // post-open server truth — so the prop keeps its role as a freshness
+  // source (covering realtime-failed mode, R7) without ever being able to
+  // resurrect a just-zeroed count. `degraded` stays prop-synced directly.
   const zeroedRef = useRef(false);
 
   // Shared fetch core for sources 3 (pathname) and 4 (realtime ping), and
@@ -136,10 +136,15 @@ export function useBellBadge(initial: BellCountResult): UseBellBadgeResult {
   useEffect(() => {
     /* eslint-disable react-hooks/set-state-in-effect -- coordinated prop sync; mirrors useNeedsAttentionBadge */
     if (zeroedRef.current) {
-      // Post-open: props neither commit `count` nor claim the token — a
-      // stale prop must not abort/outrank the restoring refetch in flight
-      // (Codex final-review R6). Only the degraded affordance stays synced.
-      setDegraded(initial.kind === "infra_error");
+      // Post-open: the prop's VALUE never commits (unorderable vs the open
+      // watermark, R5/R6); instead an `ok` prop TRIGGERS a token-guarded
+      // count fetch so same-route router.refresh() still refreshes the badge
+      // when realtime is down (R7). An infra_error prop only syncs degraded.
+      if (initial.kind === "ok") {
+        runFetch();
+      } else {
+        setDegraded(true);
+      }
     } else if (initial.kind === "ok") {
       tokenRef.current += 1;
       abortRef.current?.abort();
@@ -151,7 +156,7 @@ export function useBellBadge(initial: BellCountResult): UseBellBadgeResult {
       setDegraded(true);
     }
     /* eslint-enable react-hooks/set-state-in-effect */
-  }, [initial]);
+  }, [initial, runFetch]);
 
   // Source 3: pathname change.
   useEffect(() => {
