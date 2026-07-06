@@ -227,6 +227,40 @@ export function isRoomHeader(lines: string[], i: number): boolean {
   );
 }
 
+export type RoomCandidate = { key: string; displayName: string; lineIndex: number };
+export type RoomHeaderModel = {
+  lines: string[]; // markdown.split("\n"), shared by all consumers
+  roomHeaderLines: ReadonlySet<number>; // absolute LINE indices of ALL admitted headers (terminators)
+  groups: Map<string, RoomCandidate[]>; // roomGroupKey → its admitted candidates (for Pass 2)
+};
+
+/**
+ * TOP-LEVEL room-header model (spec §2.2 (e), Pass 0). Computed ONCE from the raw
+ * markdown BEFORE any block parse; LINE-BASED (indices into `markdown.split("\n")`).
+ * Admits a candidate iff `isRoomHeader` (shape AND boundary AND field-evidence), so a
+ * day-labelled note has no field block / is not at a boundary → not admitted, not a
+ * terminator, cannot fabricate a room or steal a field. This is the DROP-IN for the
+ * old two-name `mabelRe` loop.
+ */
+export function computeRoomHeaderModel(markdown: string): RoomHeaderModel {
+  const lines = markdown.split("\n");
+  const roomHeaderLines = new Set<number>();
+  const groups = new Map<string, RoomCandidate[]>();
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i]!.trim().startsWith("|")) continue;
+    if (!isRoomHeader(lines, i)) continue;
+    const col0Raw = col0Of(lines[i]!);
+    const firstLine = col0Raw.replace(/&#10;/g, "\n").split("\n")[0]!.trim();
+    const key = roomGroupKey(col0Raw, firstLine);
+    roomHeaderLines.add(i);
+    const list = groups.get(key);
+    const candidate: RoomCandidate = { key, displayName: firstLine, lineIndex: i };
+    if (list) list.push(candidate);
+    else groups.set(key, [candidate]);
+  }
+  return { lines, roomHeaderLines, groups };
+}
+
 // Mergeable room data fields (everything except kind/name) — used to absorb a same-name
 // breakout into its GS room without dropping any populated value.
 const RECONCILE_FIELDS = [
@@ -407,14 +441,22 @@ function mergeRooms(primary: RoomRow[], secondary: RoomRow[]): RoomRow[] {
 }
 
 function collectV2V1Rooms(markdown: string): RoomRow[] {
-  // v2/v1: GS-prefix rows + BO-prefix block headers + the all-caps ADDITIONAL ROOM block
+  // v2/v1: GS-prefix rows + BO-prefix block headers + the all-caps ADDITIONAL ROOM block.
+  // Compute the room-header model ONCE (spec Pass 0), before any block parse, so GS and BO
+  // extraction share ONE terminator set regardless of call order.
+  const model = computeRoomHeaderModel(markdown);
   const rooms: RoomRow[] = [];
-  const gsRoom = parseGsRoom(markdown);
+  const gsRoom = parseGsRoom(markdown, model);
   if (gsRoom) rooms.push(gsRoom);
-  rooms.push(...parseBoRooms(markdown));
-  const additionalRoom = parseAdditionalRoom(markdown);
+  rooms.push(...parseBoRooms(markdown, model));
+  const additionalRoom = parseAdditionalRoom(markdown, model);
   if (additionalRoom) rooms.push(additionalRoom);
   return rooms;
+}
+
+/** Line index (0-based) of the byte offset `offset` in `markdown` (offset is at a line start). */
+function lineIndexOfOffset(markdown: string, offset: number): number {
+  return markdown.slice(0, offset).split("\n").length - 1;
 }
 
 function parseAdditionalRoomFields(markdown: string): RoomRow | null {
@@ -774,7 +816,7 @@ function findGsBlockVenueHeader(markdown: string): string | null {
   return null;
 }
 
-function parseGsRoom(markdown: string): RoomRow | null {
+function parseGsRoom(markdown: string, model: RoomHeaderModel): RoomRow | null {
   if (!/GS\s+Setup/i.test(markdown) && !/GS\s+Set\s+Time/i.test(markdown)) return null;
 
   const room = buildEmptyRoom("gs", "");
@@ -823,7 +865,7 @@ function parseGsRoom(markdown: string): RoomRow | null {
   // back to appending onto that preceding field (gear-parser-fidelity Task 6). Scoped to
   // the GS block so DETAILS/AV continuation rows elsewhere are never pulled onto the room.
   let prevGsCol: GsTextCol | null = null;
-  for (const blockLine of extractGsBlock(markdown).split("\n")) {
+  for (const blockLine of extractGsBlock(model).split("\n")) {
     const t = blockLine.trim();
     if (!t.startsWith("|")) continue;
     if (/^\|\s*:?-+:?\s*\|/.test(t)) continue; // separator
@@ -852,7 +894,7 @@ function parseGsRoom(markdown: string): RoomRow | null {
   // GS-prefixed block (redefining "N/A", ria/east-coast "NONE"); consultants has a
   // BREAKOUT header there instead, so its GS digital_signage is correctly null.
   const dsRe = /^\|\s*Digital\s+Signage\s*\|([^|]*)/im;
-  const dsMatch = dsRe.exec(extractGsBlock(markdown));
+  const dsMatch = dsRe.exec(extractGsBlock(model));
   if (dsMatch) room.digital_signage = presence(clean(dsMatch[1]!));
 
   return room.name ? room : null;
@@ -861,8 +903,8 @@ function parseGsRoom(markdown: string): RoomRow | null {
 // The GS block = the contiguous "GS <label>"-prefixed rows plus any trailing BARE
 // field rows (Digital Signage, …) that follow across blank/separator rows, up to
 // the next room/section header. Used to scope bare-field extraction to the GS room.
-function extractGsBlock(markdown: string): string {
-  const lines = markdown.split("\n");
+function extractGsBlock(model: RoomHeaderModel): string {
+  const lines = model.lines;
   let first = -1;
   let last = -1;
   for (let i = 0; i < lines.length; i++) {
@@ -878,8 +920,13 @@ function extractGsBlock(markdown: string): string {
     if (t === "") continue; // blank — keep scanning for the trailing DS row
     if (!t.startsWith("|")) break; // left the table
     if (/^\|\s*:?-+:?\s*\|/.test(t)) continue; // separator row
-    if (/^\|\s*(GENERAL SESSION|BREAKOUT|ADDITIONAL|LUNCH|MABEL|LAUDERDALE|DETAILS)\b/i.test(t)) {
-      break; // next room / section
+    // Next room / section: a structural keyword OR any admitted DAY-range room header
+    // (the de-literalized replacement for the old literal MABEL/LAUDERDALE terminator).
+    if (
+      /^\|\s*(GENERAL SESSION|BREAKOUT|ADDITIONAL|LUNCH|DETAILS)\b/i.test(t) ||
+      model.roomHeaderLines.has(j)
+    ) {
+      break;
     }
     end = j;
   }
@@ -934,7 +981,7 @@ function appendGsValue(room: RoomRow, col: GsTextCol, val: string): void {
 
 // ── Breakout room parser ──────────────────────────────────────────────────────
 
-function parseBoRooms(markdown: string): RoomRow[] {
+function parseBoRooms(markdown: string, model: RoomHeaderModel): RoomRow[] {
   const rooms: RoomRow[] = [];
   const seen = new Set<string>();
 
@@ -967,7 +1014,7 @@ function parseBoRooms(markdown: string): RoomRow[] {
     room.dimensions = split.dimensions;
     room.floor = split.floor;
 
-    const blockText = extractBoBlock(markdown, m.index);
+    const blockText = extractBoBlock(model.lines, lineIndexOfOffset(markdown, m.index), model);
     applyBoFields(room, blockText);
 
     // Gating (mirrors the v4 path so v2/v1 never re-emits template stubs as
@@ -1004,43 +1051,64 @@ function parseBoRooms(markdown: string): RoomRow[] {
     const room = buildEmptyRoom("breakout", name);
     room.dimensions = split.dimensions;
     room.floor = split.floor;
-    const blockText = extractBoBlock(markdown, m.index);
+    const blockText = extractBoBlock(model.lines, lineIndexOfOffset(markdown, m.index), model);
     applyBoFields(room, blockText);
     rooms.push(room);
   }
 
-  // v1: MABEL N and LAUDERDALE N rooms (2024 fixture). One room can span multiple
-  // blocks — "MABEL 1&#10;APPROXIMATELY 60' x 45'" (dims in header) and
-  // "MABEL 1&#10;DAY 1 & 2" (the populated fields). MERGE blocks by header key so
-  // the room keeps its content, instead of the empty first occurrence winning
-  // dedup and the populated duplicate being skipped. Drop a room that stays empty.
-  const mabelRooms = new Map<string, RoomRowInternal>();
-  const mabelOrder: string[] = [];
-  const mabelRe = /^\|\s*(MABEL\s+\d[^|]*|LAUDERDALE[^|]*?)\s*\|/gim;
-  while ((m = mabelRe.exec(markdown)) !== null) {
-    const rawHeader = m[1]!.replace(/&#10;/g, "\n");
-    const firstLine = rawHeader.split("\n")[0]!.trim();
-    const headerKey = firstLine.toUpperCase();
+  // v1: DAY-range breakout rooms (de-literalized from the old MABEL/LAUDERDALE loop, spec
+  // Pass 2). Every candidate admitted by the precomputed model — a proper NAME + trailing
+  // DAY-range at a block boundary with a `BO …`/`GS …` field block beneath — is grouped by
+  // roomGroupKey (base name + normalized day-range), so the inline-DAY and second-line-DAY
+  // forms of the SAME name+day MERGE while DISTINCT day-ranges stay separate. One room can
+  // span multiple blocks — "MABEL 1&#10;APPROXIMATELY 60' x 45'" (dims in header) and
+  // "MABEL 1&#10;DAY 1 & 2" (the populated fields) — so blocks in a group are extracted
+  // independently and merged, and a room that stays empty is dropped (roomHasContent).
+  for (const candidates of model.groups.values()) {
+    const displayName = candidates[0]!.displayName;
+    const headerKey = displayName.toUpperCase();
     if (seen.has(headerKey)) continue; // claimed by a BREAKOUT / LUNCH room above
-    let room = mabelRooms.get(headerKey);
-    if (!room) {
-      room = buildEmptyRoom("breakout", firstLine);
-      mabelRooms.set(headerKey, room);
-      mabelOrder.push(headerKey);
+    const room = buildEmptyRoom("breakout", displayName);
+    for (const candidate of candidates) {
+      const rawHeader = col0Of(model.lines[candidate.lineIndex]!).replace(/&#10;/g, "\n");
+      // dims may ride in the header ("APPROXIMATELY 60' x 45'")
+      for (const hl of rawHeader.split("\n").slice(1)) {
+        const dimMatch = /(\d+'\s*x\s*\d+'(?:\s*x\s*\d+')?)/.exec(hl);
+        if (dimMatch && !room.dimensions) room.dimensions = dimMatch[1]!;
+      }
+      mergeBoFields(room, extractBoBlock(model.lines, candidate.lineIndex, model));
     }
-    // dims may ride in the header ("APPROXIMATELY 60' x 45'")
-    for (const hl of rawHeader.split("\n").slice(1)) {
-      const dimMatch = /(\d+'\s*x\s*\d+'(?:\s*x\s*\d+')?)/.exec(hl);
-      if (dimMatch && !room.dimensions) room.dimensions = dimMatch[1]!;
+    // Origin parity (mabelRe grouped by first-line name): a SAME-first-line non-DAY header
+    // — e.g. east-coast's GS venue header "MABEL 1&#10;APPROXIMATELY 60' x 45'" (no DAY-range,
+    // so not admitted as its own room) — still contributes its dims to the same-named DAY-range
+    // breakout via the old name-keyed merge. Harvest those dims if none rode the DAY header.
+    if (!room.dimensions) {
+      const nameKeys = new Set(candidates.map((c) => c.displayName.toUpperCase()));
+      room.dimensions = harvestSameNameHeaderDims(model, nameKeys);
     }
-    mergeBoFields(room, extractBoBlock(markdown, m.index));
-  }
-  for (const key of mabelOrder) {
-    const room = mabelRooms.get(key)!;
     if (roomHasContent(room)) rooms.push(room);
   }
 
   return rooms;
+}
+
+// First dims token (with optional trailing height) found on a non-first line of any header
+// cell whose first line matches one of `nameKeys` (uppercased). Mirrors the old mabelRe
+// name-keyed dims merge without admitting a dims-only header as a standalone room (spec §2 descope).
+function harvestSameNameHeaderDims(
+  model: RoomHeaderModel,
+  nameKeys: ReadonlySet<string>,
+): string | null {
+  for (const line of model.lines) {
+    if (!line.trim().startsWith("|")) continue;
+    const parts = col0Of(line).replace(/&#10;/g, "\n").split("\n");
+    if (!nameKeys.has(parts[0]!.trim().toUpperCase())) continue;
+    for (const hl of parts.slice(1)) {
+      const dimMatch = /(\d+'\s*x\s*\d+'(?:\s*x\s*\d+')?)/.exec(hl);
+      if (dimMatch) return dimMatch[1]!;
+    }
+  }
+  return null;
 }
 
 // Fill only the still-empty fields of `room` from `blockText`, so merging multiple
@@ -1070,21 +1138,26 @@ function mergeBoFields(room: RoomRowInternal, blockText: string): void {
 }
 
 // Header of the NEXT room/section — extraction must stop here so an adjacent block
-// (no blank separator) doesn't bleed its fields into the current room.
+// (no blank separator) doesn't bleed its fields into the current room. The literal
+// MABEL/LAUDERDALE names are no longer here — they are covered by the precomputed
+// `model.roomHeaderLines` terminator set (any admitted DAY-range room header).
 const NEXT_ROOM_HEADER_RE =
-  /^\|\s*(GENERAL\s+SESSION|BREAKOUT|ADDITIONAL\s+ROOM|LUNCH\s+ROOM|MABEL|LAUDERDALE|DETAILS)\b/i;
+  /^\|\s*(GENERAL\s+SESSION|BREAKOUT|ADDITIONAL\s+ROOM|LUNCH\s+ROOM|DETAILS)\b/i;
 
-function extractBoBlock(markdown: string, startOffset: number): string {
-  const slice = markdown.slice(startOffset);
-  const lines = slice.split("\n");
+// LINE-BASED (spec §2.2 (e), R24 f1): walk `lines` from `startLine`. Behavior-identical
+// to the old `extractBoBlock(markdown, m.index)` because `m.index` is the row's line
+// start, so `markdown.slice(m.index) === lines.slice(startLine).join("\n")`.
+function extractBoBlock(lines: string[], startLine: number, model: RoomHeaderModel): string {
   const blockLines: string[] = [];
 
-  for (let k = 0; k < lines.length; k++) {
-    const line = lines[k]!;
+  for (let k = 0; startLine + k < lines.length; k++) {
+    const line = lines[startLine + k]!;
     if (!line.trim().startsWith("|") && blockLines.length > 0) break;
-    // Stop at the next room/section header — but not the current block's own header
-    // on line 0 (which also matches NEXT_ROOM_HEADER_RE).
+    // Stop at the next room/section header — but not the current block's own header on
+    // line 0 (k === 0), which also matches. A structural keyword OR an admitted DAY-range
+    // header (absolute index ∈ roomHeaderLines) terminates.
     if (k > 0 && NEXT_ROOM_HEADER_RE.test(line.trim())) break;
+    if (k > 0 && model.roomHeaderLines.has(startLine + k)) break;
     blockLines.push(line);
   }
 
@@ -1129,7 +1202,7 @@ function applyBoLabel(room: RoomRow, label: string, val: string | null): void {
 
 // ── Additional room parser ────────────────────────────────────────────────────
 
-function parseAdditionalRoom(markdown: string): RoomRow | null {
+function parseAdditionalRoom(markdown: string, model: RoomHeaderModel): RoomRow | null {
   // Case-SENSITIVE: a real additional-room block header is ALL-CAPS
   // "ADDITIONAL ROOM" (e.g. "ADDITIONAL ROOM\nDimensions\nFloor"). The mixed-case
   // INFO metadata fields ("Additional Room Name(s)", "Additional Room Setup", …)
@@ -1149,7 +1222,7 @@ function parseAdditionalRoom(markdown: string): RoomRow | null {
   room.dimensions = split.dimensions;
   room.floor = split.floor;
 
-  const blockText = extractBoBlock(markdown, m.index);
+  const blockText = extractBoBlock(model.lines, lineIndexOfOffset(markdown, m.index), model);
   applyBoFields(room, blockText);
 
   // Gate like the v4 path: a bare "ADDITIONAL ROOM" / "ADDITIONAL ROOM Dimensions

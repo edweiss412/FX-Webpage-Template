@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { parseSheet } from "@/lib/parser";
 import {
   roomHeaderNameShape,
   headerDayMarker,
@@ -9,6 +11,7 @@ import {
   hasRoomFieldBlock,
   precededByBoundary,
   isRoomHeader,
+  computeRoomHeaderModel,
 } from "@/lib/parser/blocks/rooms";
 
 describe("room shape predicates (spec §2.2/§2.3)", () => {
@@ -87,5 +90,21 @@ describe("room block-context predicates (spec §2.2 c2 — R37/R38)", () => {
     ]);
     expect(isRoomHeader(inter, 0)).toBe(true); // MABEL is a room
     expect(isRoomHeader(inter, 3)).toBe(false); // the note is NOT
+  });
+});
+
+describe("computeRoomHeaderModel + corpus no-op (spec §2.4/§8)", () => {
+  const eastCoast = readFileSync("fixtures/shows/raw/2024-05-east-coast-family-office.md", "utf8");
+  it("admits exactly MABEL 1 and LAUDERDALE from the east-coast fixture", () => {
+    const m = computeRoomHeaderModel(eastCoast);
+    const names = [...m.groups.values()].flat().map((c) => c.displayName).sort();
+    expect(names).toEqual(["LAUDERDALE 1, 2, 3 DAY 1 & 2", "MABEL 1"]);
+  });
+  it("east-coast rooms parse byte-identically (both emitted with BO Setup)", () => {
+    const rooms = parseSheet(eastCoast).rooms;
+    const mabel = rooms.find((r) => r.name === "MABEL 1");
+    const laud = rooms.find((r) => r.name === "LAUDERDALE 1, 2, 3 DAY 1 & 2");
+    expect(mabel?.setup).toBe("TBD");
+    expect(laud?.setup).toBe("TBD");
   });
 });
