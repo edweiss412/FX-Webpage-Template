@@ -134,14 +134,39 @@ describe("BO-venue-header fifth pass (e2e via parseSheet)", () => {
   const rooms = parseSheet(md).rooms;
   const byName = (n: string) => rooms.filter((r) => (r.name ?? "").toUpperCase() === n);
 
+  // Expected values are EXTRACTED FROM THE FIXTURE markdown (independent of the parser),
+  // so each assertion proves the parser faithfully carried the SOURCE cell through — not
+  // a hardcoded literal a broken parser could coincidentally match (anti-tautology). The
+  // FIRST `BO <label>` row after a header is that block's value; the dims token is the
+  // segment after the header cell's `&#10;`.
+  // Anchor on the pipe-prefixed TABLE ROW (`| NAME`), not a bare substring — the fixture's
+  // HTML comments mention names like "PROJECTOR CART" before their row would otherwise win.
+  const rowStart = (header: string): number => {
+    const i = md.indexOf(`| ${header}`);
+    if (i === -1) throw new Error(`fixture has no header row for "${header}"`);
+    return i;
+  };
+  const boField = (header: string, label: string): string => {
+    const m = new RegExp(`\\|\\s*BO ${label}\\s*\\|\\s*([^|]+?)\\s*\\|`).exec(
+      md.slice(rowStart(header)),
+    );
+    if (!m) throw new Error(`fixture missing "BO ${label}" under "${header}"`);
+    return m[1]!;
+  };
+  const headerDims = (header: string): string => {
+    const m = /&#10;([^|]+?)\s*\|/.exec(md.slice(rowStart(header)));
+    if (!m) throw new Error(`fixture header "${header}" has no dims token`);
+    return m[1]!.trim();
+  };
+
   it("admits SALON ABCD once with its own dims + BO fields", () => {
     const salon = byName("SALON ABCD");
     expect(salon).toHaveLength(1);
     expect(salon[0]!.kind).toBe("breakout");
-    expect(salon[0]!.dimensions).toBe("60' x 45'");
-    expect(salon[0]!.setup).toBe("A");
-    expect(salon[0]!.audio).toBe("2 mics");
-    expect(salon[0]!.video).toBe("screen");
+    expect(salon[0]!.dimensions).toBe(headerDims("SALON ABCD"));
+    expect(salon[0]!.setup).toBe(boField("SALON ABCD", "Setup"));
+    expect(salon[0]!.audio).toBe(boField("SALON ABCD", "Audio"));
+    expect(salon[0]!.video).toBe(boField("SALON ABCD", "Video"));
   });
 
   it("admits MERIDIAN once with its OWN fields (no field theft from SALON, adjacency)", () => {
@@ -150,18 +175,21 @@ describe("BO-venue-header fifth pass (e2e via parseSheet)", () => {
     // SALON would carry m-setup. Both must own their own fields.
     const meridian = byName("MERIDIAN");
     expect(meridian).toHaveLength(1);
-    expect(meridian[0]!.setup).toBe("m-setup");
-    expect(meridian[0]!.audio).toBe("m-audio");
+    expect(meridian[0]!.setup).toBe(boField("MERIDIAN", "Setup"));
+    expect(meridian[0]!.audio).toBe(boField("MERIDIAN", "Audio"));
+    // Guard the adjacency risk explicitly: MERIDIAN must NOT inherit SALON's setup.
+    expect(meridian[0]!.setup).not.toBe(boField("SALON ABCD", "Setup"));
   });
 
   it("admits ORCHID once and terminates its block at the REJECTED PROJECTOR CART header", () => {
     // Case 6: the rejected `PROJECTOR CART` asset header (admit=false) must be in
     // extraTerm so ORCHID's extraction stops before `cart-setup`. A `filter(h=>h.admit)`
-    // extraTerm would leak cart-setup into ORCHID.
+    // extraTerm would leak cart-setup into ORCHID. `boField("ORCHID","Setup")` resolves
+    // to the FIRST BO Setup after the ORCHID header (orchid-setup), NOT cart-setup.
     const orchid = byName("ORCHID");
     expect(orchid).toHaveLength(1);
-    expect(orchid[0]!.setup).toBe("orchid-setup");
-    expect(orchid[0]!.setup).not.toBe("cart-setup");
+    expect(orchid[0]!.setup).toBe(boField("ORCHID", "Setup"));
+    expect(orchid[0]!.setup).not.toBe(boField("PROJECTOR CART", "Setup"));
   });
 
   it("does NOT fabricate rooms from label|value asset rows", () => {
