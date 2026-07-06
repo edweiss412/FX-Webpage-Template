@@ -616,8 +616,9 @@ export function Step3SheetCard({
       } bg-surface p-tile-pad shadow-tile`}
     >
       {/* Spec §4.2 rule 7: pre-finalize (checkpoint null) shows the editable
-          publish checkbox; post-finalize the row is badge-only (Live / Held /
-          Ready to publish, from the derived displayState). */}
+          publish checkbox. Post-finalize the row is badge-only — the derived
+          badge lives in the right cluster below (NOT the left slot), so it
+          shares the right-edge badge column with the compact card variant. */}
       {checkpointStatus === null ? (
         <PublishCheckbox
           driveFileId={dfid}
@@ -625,8 +626,6 @@ export function Step3SheetCard({
           onToggle={(next) => void requestSetChecked(next)}
           disabled={isPublishRunActive}
         />
-      ) : row.displayState ? (
-        <Step3RowBadge displayState={row.displayState} />
       ) : null}
       <div className="min-w-0 flex-1">
         <p
@@ -637,11 +636,18 @@ export function Step3SheetCard({
         </p>
         {metaLine}
       </div>
-      <div className="flex shrink-0 items-center gap-3 max-sm:w-full max-sm:justify-between">
+      {/* On mobile this cluster is a full-width second row. With the badge added
+          it can hold chip + View + badge, so it WRAPS (max-sm:flex-wrap) instead
+          of overflowing the card at ~390px. Desktop is content-sized and never
+          wraps, so the shipped desktop layout is unchanged. */}
+      <div className="flex shrink-0 items-center gap-3 max-sm:w-full max-sm:flex-wrap max-sm:justify-between">
         {needsLook
           ? reviewChip(`${gaps.total} ${gaps.total === 1 ? "needs" : "need"} a look`)
           : null}
         {triggerButton(needsLook ? "Review" : "View")}
+        {checkpointStatus !== null && row.displayState ? (
+          <Step3RowBadge displayState={row.displayState} />
+        ) : null}
       </div>
       {sharedTail}
     </article>

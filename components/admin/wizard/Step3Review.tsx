@@ -241,6 +241,7 @@ export function Step3RowBadge({ displayState }: { displayState: Step3DisplayStat
   const badge = badgeForDisplayState(displayState);
   return (
     <span
+      data-testid="wizard-step3-badge"
       className={`inline-flex shrink-0 items-center self-start rounded-pill px-3 py-1 text-xs font-semibold ${toneClasses(badge.tone)}`}
     >
       {badge.label}
