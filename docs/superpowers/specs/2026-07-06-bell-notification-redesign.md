@@ -82,7 +82,7 @@ States: **panel-open** (loading · error · empty · active+history) × **mode**
 | loading → ready / error / empty | instant content swap inside the stable scroll body (no cross-fade; matches current) |
 | row collapsed → expanded | **message is NEVER clamped** — the Doug-facing remediation copy renders in full at all times (unchanged from current `BellPanel.tsx:290-294`; the mock's 2-line clamp is dropped, §2). Expansion adds ONLY the helpful-context disclosure; caret rotate 0→90° `--duration-fast`; disclosure appears instant |
 | row expanded → collapsed | reverse; caret 90°→0° `--duration-fast` (message stays full throughout) |
-| row unread → read (first expand) | dot `opacity-100→0` + row `bg-stale-tint→transparent`, both `--duration-fast` opacity/bg; title weight 600→500 instant |
+| row unread → read (first expand) | dot `opacity-100→0` + row `bg-stale-tint→transparent`, both `--duration-fast` opacity/bg. Title weight is HELD CONSTANT across read (`font-semibold`, `BellPanel.tsx:320`) — a weight swap changes glyph advance widths and can reflow a wrapping title by a full line on read (§14 no-layout-shift); unread emphasis is carried by the pip + `bg-stale-tint` + the severity circle, never the title weight |
 | mark-all-read click | every loaded unread active row runs the unread→read transition simultaneously (dot + tint fade, `--duration-fast`); button then hides (its predicate goes false) |
 | action idle → pending | button label → "Resolving…/Retrying…", `disabled` + `aria-busy`, `opacity-60` (instant, matches current) |
 | action pending → resolved | row removed on refetch (instant list update, matches current) |

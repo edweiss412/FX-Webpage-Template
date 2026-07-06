@@ -43,7 +43,17 @@
  * a generic title (never the raw code string).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronRight } from "lucide-react";
+import {
+  ArrowRight,
+  Check,
+  ChevronRight,
+  CircleAlert,
+  CircleCheck,
+  Info,
+  RotateCcw,
+  TriangleAlert,
+  type LucideIcon,
+} from "lucide-react";
 
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 import {
@@ -108,6 +118,24 @@ function contextParams(context: Record<string, unknown> | null): MessageParams |
   return (context ?? undefined) as MessageParams | undefined;
 }
 
+// Severity tone for a row, derived CLIENT-SIDE (no feed/wire change) from the
+// same signals the row already carries: `isHealth` (app-health degraded) →
+// critical; catalog per-code `severity==="info"` → info; everything else →
+// notice. Color REINFORCES; the icon shape + the row title carry the meaning,
+// so the DESIGN.md §1 color-blind floor holds (never color-alone). `critical`
+// is the only red, scoped to health rows (DESIGN.md §1.3 red-only-for-degraded).
+type RowTone = "critical" | "notice" | "info";
+function rowTone(entry: BellEntry): RowTone {
+  if (entry.isHealth) return "critical";
+  const severity = isMessageCode(entry.code) ? messageFor(entry.code).severity : undefined;
+  return severity === "info" ? "info" : "notice";
+}
+const TONE: Record<RowTone, { wrap: string; icon: LucideIcon; label: string }> = {
+  critical: { wrap: "bg-danger-bg text-status-degraded", icon: TriangleAlert, label: "Critical" },
+  notice: { wrap: "bg-warning-bg text-status-warn", icon: CircleAlert, label: "Warning" },
+  info: { wrap: "bg-accent-tint text-accent-on-bg", icon: Info, label: "Notice" },
+};
+
 // The resolve route the entry posts to: show-scoped when the row carries a
 // slug (per-show alerts never use the global route — matches PerShowAlertSection
 // and the global route's own 400 scope door), global otherwise.
@@ -120,8 +148,9 @@ function resolveUrl(entry: BellEntry): string {
 function OccurrenceChip({ occurrences }: { occurrences: number }) {
   if (typeof occurrences !== "number" || occurrences <= 1) return null;
   return (
-    <span className="rounded-sm bg-surface-sunken px-1 text-xs tabular-nums text-text-subtle">
-      ×{occurrences}
+    <span className="inline-flex items-center gap-1 text-xs tabular-nums text-text-faint">
+      <RotateCcw aria-hidden="true" className="size-3 shrink-0" />
+      Seen {occurrences}×
     </span>
   );
 }
@@ -129,7 +158,7 @@ function OccurrenceChip({ occurrences }: { occurrences: number }) {
 function IdentityLine({ entry }: { entry: BellEntry }) {
   const text = entry.identity ? describeAlert(entry.identity, { includePii: true }) : null;
   if (!text) return null;
-  return <p className="mt-0.5 wrap-break-word text-sm text-text-subtle">{text}</p>;
+  return <span className="mt-0.5 block wrap-break-word text-sm text-text-subtle">{text}</span>;
 }
 
 // Shared chrome for the non-form action buttons/links (Resolve, telemetry link,
@@ -160,7 +189,7 @@ function ActionCell({ entry, onRefetch }: { entry: BellEntry; onRefetch: () => v
   }, [entry, onRefetch, resolving]);
 
   return (
-    <div className="mt-2 flex flex-wrap items-center gap-2">
+    <div className="flex flex-wrap items-center justify-end gap-2">
       {entry.isHealth ? (
         <a
           href="/admin/dev/telemetry#health"
@@ -233,80 +262,112 @@ function ActiveRow({
   // Dot shows only while genuinely unread AND not yet optimistically cleared
   // this session (a failed read POST does not un-clear it — spec §4 fail-quiet).
   const dotVisible = entry.unread && !readCleared;
+  const tone = rowTone(entry);
+  const ToneIcon = TONE[tone].icon;
   return (
     <div
       data-testid={`bell-entry-${entry.alertId}`}
-      className="border-b border-border py-3 last:border-b-0"
+      data-unread={dotVisible ? "true" : "false"}
+      className={`rounded-lg p-2.5 transition-colors motion-safe:duration-fast ${
+        dotVisible ? "bg-stale-tint" : "bg-transparent hover:bg-surface-sunken"
+      }`}
     >
-      <button
-        type="button"
-        data-testid={`bell-entry-toggle-${entry.alertId}`}
-        onClick={onToggle}
-        aria-expanded={expanded}
-        className="flex w-full gap-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-      >
-        {/* Fixed size-2 dot slot: always occupies space (§14 no-layout-shift
-            invariant); the dot fades between unread/read via opacity. */}
-        <span aria-hidden="true" className="mt-1.5 inline-flex size-2 shrink-0">
+      <div className="flex gap-3">
+        {/* Severity icon-circle (34px fixed — DI-4) with the unread pip pinned to
+            its top-right (DI-5). The pip KEEPS the prior dot contract: a size-2
+            (8px) element whose opacity flips on read, so no layout shift and every
+            existing dot test / e2e assertion still holds. */}
+        <span aria-hidden="true" className="relative shrink-0">
           <span
-            data-testid={`bell-unread-dot-${entry.alertId}`}
-            className={`size-2 rounded-full bg-accent motion-safe:transition-opacity motion-safe:duration-fast ${
-              dotVisible ? "opacity-100" : "opacity-0"
-            }`}
-          />
+            data-testid={`bell-sev-${entry.alertId}`}
+            data-tone={tone}
+            title={TONE[tone].label}
+            className={`inline-flex size-[34px] items-center justify-center rounded-full ${TONE[tone].wrap}`}
+          >
+            <ToneIcon className="size-[17px]" />
+          </span>
+          <span className="absolute -right-0.5 -top-0.5 inline-flex size-2">
+            <span
+              data-testid={`bell-unread-dot-${entry.alertId}`}
+              className={`size-2 rounded-full bg-accent ring-2 ring-surface motion-safe:transition-opacity motion-safe:duration-fast ${
+                dotVisible ? "opacity-100" : "opacity-0"
+              }`}
+            />
+          </span>
         </span>
         <div className="min-w-0 flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <p
-              className={`min-w-0 wrap-break-word text-text-strong ${
-                dotVisible ? "font-semibold" : "font-medium"
-              }`}
-            >
-              {title}
-            </p>
-            <div className="flex shrink-0 items-center gap-2">
-              <OccurrenceChip occurrences={entry.occurrences} />
-              <span className="text-xs tabular-nums text-text-subtle">
-                {raisedAtSuffix(entry.activityAt, now)}
+          {/* min-h-tap-min: this is the primary per-row gesture (expand +
+              mark-read). A title-only row (no message/identity line) would
+              otherwise render the affordance well under the 44px floor
+              PRODUCT.md mandates for a phone on the venue floor. The button
+              owns the tap area; the surrounding row `p-2.5` is chrome.
+              flex-col + justify-center vertically centers the (block-flow)
+              title/message/identity stack within that min height. */}
+          <button
+            type="button"
+            data-testid={`bell-entry-toggle-${entry.alertId}`}
+            onClick={onToggle}
+            aria-expanded={expanded}
+            className="flex min-h-tap-min w-full flex-col justify-center text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+          >
+            <span className="flex items-start justify-between gap-2">
+              {/* Title weight is CONSTANT across read/unread — a weight swap
+                  (semibold↔medium) changes glyph advance widths and can reflow a
+                  wrapping title by a full line on read (§14 no-layout-shift, the
+                  `bell-entry-toggle` header must keep its height across the read
+                  flip). Unread emphasis is carried by the pip + `bg-stale-tint`
+                  row background + the severity circle, never the title weight. */}
+              <span className="min-w-0 wrap-break-word font-semibold text-text-strong">
+                {title}
               </span>
-              {/* BELL-1: disclosure caret, shown ONLY when the code carries
-                  helpfulContext (a context-less row expands to nothing beyond the
-                  dot clear, so a caret there would be a lie). The full-row toggle
-                  stays tappable on EVERY row (spec D3) — the caret is a visual
-                  affordance, not a gate. aria-hidden: the button already carries
-                  aria-expanded. Rotate is transform-only (no reflow), so the §14
-                  no-layout-shift invariant holds. */}
-              {helpful ? (
-                <ChevronRight
-                  aria-hidden="true"
-                  data-testid={`bell-caret-${entry.alertId}`}
-                  className={`size-4 shrink-0 text-text-subtle motion-safe:transition-transform motion-safe:duration-fast ${
-                    expanded ? "rotate-90" : ""
-                  }`}
-                />
-              ) : null}
+              <span className="flex shrink-0 items-center gap-2">
+                <span className="text-xs tabular-nums text-text-faint">
+                  {raisedAtSuffix(entry.activityAt, now)}
+                </span>
+                {/* BELL-1: disclosure caret, shown ONLY when the code carries
+                    helpfulContext (a context-less row expands to nothing beyond
+                    the dot clear, so a caret there would be a lie). The full-row
+                    toggle stays tappable on EVERY row (spec D3). Rotate is
+                    transform-only (no reflow), so §14 no-layout-shift holds. The
+                    message is NEVER clamped (spec §2, R4) — expansion only reveals
+                    the helpful-context box. */}
+                {helpful ? (
+                  <ChevronRight
+                    aria-hidden="true"
+                    data-testid={`bell-caret-${entry.alertId}`}
+                    className={`size-4 shrink-0 text-text-faint motion-safe:transition-transform motion-safe:duration-fast ${
+                      expanded ? "rotate-90" : ""
+                    }`}
+                  />
+                ) : null}
+              </span>
+            </span>
+            {message ? (
+              <span className="mt-0.5 block wrap-break-word text-sm text-text-subtle">
+                {renderCatalogEmphasis(message, params)}
+              </span>
+            ) : null}
+            <IdentityLine entry={entry} />
+          </button>
+          {/* helpfulContext disclosure in a tinted box with a leading info glyph
+              (D6). Rendered only when expanded AND the catalog carries context. */}
+          {expanded && helpful ? (
+            <div
+              data-testid={`bell-context-${entry.alertId}`}
+              className="mt-2 flex gap-2 rounded-md bg-surface-sunken p-2.5 text-sm text-text-subtle"
+            >
+              <Info aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-text-faint" />
+              <span className="min-w-0 wrap-break-word">
+                {renderCatalogEmphasis(helpful, params)}
+              </span>
             </div>
-          </div>
-          {message ? (
-            <p className="mt-0.5 wrap-break-word text-sm text-text-subtle">
-              {renderCatalogEmphasis(message, params)}
-            </p>
           ) : null}
-          <IdentityLine entry={entry} />
+          <div className="mt-2 flex items-center gap-3">
+            <OccurrenceChip occurrences={entry.occurrences} />
+            <span className="flex-1" />
+            <ActionCell entry={entry} onRefetch={onRefetch} />
+          </div>
         </div>
-      </button>
-      {/* helpfulContext disclosure, mirroring the banner's ErrorExplainer block.
-          Rendered only when expanded AND the catalog carries helpful context. */}
-      {expanded && helpful ? (
-        <p
-          data-testid={`bell-context-${entry.alertId}`}
-          className="mt-2 ml-5 wrap-break-word text-sm text-text-subtle"
-        >
-          {renderCatalogEmphasis(helpful, params)}
-        </p>
-      ) : null}
-      <div className="ml-5">
-        <ActionCell entry={entry} onRefetch={onRefetch} />
       </div>
     </div>
   );
@@ -318,10 +379,13 @@ function HistoryRow({ entry, now }: { entry: BellEntry; now: Date }) {
   return (
     <div
       data-testid={`bell-entry-${entry.alertId}`}
-      className="flex flex-col border-b border-border py-3 last:border-b-0"
+      className="flex items-center gap-2.5 rounded-lg px-2.5 py-2 transition-colors motion-safe:duration-fast hover:bg-surface-sunken"
     >
-      <p className="min-w-0 wrap-break-word font-medium">{title}</p>
-      {resolved ? <p className="mt-0.5 text-xs tabular-nums">{resolved}</p> : null}
+      <CircleCheck aria-hidden="true" className="size-[15px] shrink-0 text-status-positive" />
+      <span className="min-w-0 flex-1 wrap-break-word text-sm text-text-subtle">{title}</span>
+      {resolved ? (
+        <span className="shrink-0 text-xs tabular-nums text-text-faint">{resolved}</span>
+      ) : null}
     </div>
   );
 }
@@ -544,16 +608,14 @@ export function BellPanel({
     [onOpened],
   );
 
-  // First expand of a row: fire the read POST once with the SERVER activityAt,
-  // and clear the dot optimistically. A failed POST leaves the dot cleared
-  // (fail-quiet, spec §4) — the ref guard keeps it at exactly once.
-  const handleToggle = useCallback((entry: BellEntry) => {
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(entry.alertId)) next.delete(entry.alertId);
-      else next.add(entry.alertId);
-      return next;
-    });
+  // Read side, DECOUPLED from expansion (spec D3 / Codex R7). Fires the
+  // `/bell/read` POST once with the SERVER activityAt and clears the unread
+  // marker optimistically, WITHOUT touching `expandedIds`. Shared by first-expand
+  // (handleToggle) and mark-all-read, so mark-all-read clears markers without
+  // ever expanding/collapsing a row (no panel-jump / state clobber). Fail-quiet
+  // (spec §4): a failed POST leaves the marker cleared for the session; the
+  // readFiredRef guard keeps it at exactly once per row.
+  const markRead = useCallback((entry: BellEntry) => {
     if (readFiredRef.current.has(entry.alertId)) return;
     readFiredRef.current.add(entry.alertId);
     setReadClearedIds((prev) => new Set(prev).add(entry.alertId));
@@ -569,6 +631,20 @@ export function BellPanel({
       }
     })();
   }, []);
+
+  // First expand of a row toggles its disclosure AND marks it read (spec §3.1/D3).
+  const handleToggle = useCallback(
+    (entry: BellEntry) => {
+      setExpandedIds((prev) => {
+        const next = new Set(prev);
+        if (next.has(entry.alertId)) next.delete(entry.alertId);
+        else next.add(entry.alertId);
+        return next;
+      });
+      markRead(entry);
+    },
+    [markRead],
+  );
 
   // Mount-once load + unmount invalidation (R4 Finding 1). didLoadRef keeps the
   // load (and its exactly-once open POST) from double-firing within a live
@@ -647,10 +723,18 @@ export function BellPanel({
       body = (
         <div
           data-testid="bell-empty"
-          className="rounded-md bg-surface-sunken px-4 py-8 text-center"
+          className="rounded-xl bg-surface-sunken px-4 py-9 text-center"
         >
-          <p className="text-sm font-medium text-text">You&rsquo;re all caught up.</p>
-          <p className="mt-1 text-xs text-text-subtle">History window: {feed.historyDays} days</p>
+          <span
+            aria-hidden="true"
+            className="mx-auto mb-2.5 inline-flex size-11 items-center justify-center rounded-full bg-surface text-status-positive shadow-(--shadow-tile)"
+          >
+            <Check className="size-[22px]" />
+          </span>
+          <p className="text-sm font-semibold text-text">You&rsquo;re all caught up.</p>
+          <p className="mt-1 text-xs text-text-faint">
+            No active alerts. History window: {feed.historyDays} days
+          </p>
         </div>
       );
     } else {
@@ -658,14 +742,18 @@ export function BellPanel({
         <>
           {active.length > 0 ? (
             <section data-testid="bell-section-active" aria-label="Active notifications">
-              {/* BELL-2: visible count heading mirroring the history heading
-                  style (the active section is un-dimmed — only the eyebrow label
-                  uses text-text-subtle). Severity/show grouping stays deferred. */}
+              {/* BELL-2: visible count heading — an uppercase eyebrow label plus a
+                  small accent-tinted count pill (the number uses text-strong, not
+                  accent-on-bg, to clear the AA text floor on the tint — §3/R5).
+                  textContent still carries "Active" + the count for a11y/tests. */}
               <h3
                 data-testid="bell-section-active-heading"
-                className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-subtle"
+                className="mb-1.5 flex items-center gap-2 px-1 text-xs font-bold uppercase tracking-wider text-text-faint"
               >
-                Active ({active.length})
+                Active
+                <span className="inline-flex min-w-[18px] items-center justify-center rounded-pill bg-accent-tint px-1.5 text-[11px] font-bold tabular-nums text-text-strong">
+                  {active.length}
+                </span>
               </h3>
               {active.map((entry) => (
                 <ActiveRow
@@ -684,10 +772,10 @@ export function BellPanel({
             <section
               data-testid="bell-section-history"
               aria-label="History"
-              className="mt-4 text-text-subtle"
+              className="mt-3 border-t border-border pt-3 text-text-subtle"
             >
-              <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-text-subtle">
-                History (last {feed.historyDays} days)
+              <h3 className="mb-1.5 px-1 text-xs font-bold uppercase tracking-wider text-text-faint">
+                Earlier · last {feed.historyDays} days
               </h3>
               {history.map((entry) => (
                 <HistoryRow key={entry.alertId} entry={entry} now={now} />
@@ -705,36 +793,75 @@ export function BellPanel({
             </p>
           ) : null}
           {viewerIsDeveloper ? (
-            <DevFooter
-              historyDays={feed.historyDays}
-              feedCap={feed.feedCap}
-              onSaved={() => void load(true)}
-            />
+            <>
+              {/* D9: activity-log link — dev-only, because the telemetry page is
+                  the only real activity surface (no user-facing activity log
+                  exists for Doug; a dead link would violate PRODUCT principle 5). */}
+              <a
+                href="/admin/dev/telemetry"
+                data-testid="bell-activity-log"
+                className="mt-3 flex min-h-tap-min items-center justify-center gap-1.5 rounded-lg border-t border-border pt-3 text-sm font-medium text-text-subtle transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+              >
+                View activity log
+                <ArrowRight aria-hidden="true" className="size-[15px]" />
+              </a>
+              <DevFooter
+                historyDays={feed.historyDays}
+                feedCap={feed.feedCap}
+                onSaved={() => void load(true)}
+              />
+            </>
           ) : null}
         </>
       );
     }
   }
 
+  // Mark-all-read (spec D3): visible ONLY when there are unread active rows AND
+  // the feed is not truncated (a truncated feed hides unread rows the client
+  // cannot reach, so "mark all" would lie — R3/R4). Clears each via the decoupled
+  // markRead (no expand mutation — R7); the button hides the instant the last
+  // marker clears (activeUnread recomputes empty → showMarkAll false).
+  const readyFeed = state.status === "ready" ? state.feed : null;
+  const activeUnread = readyFeed
+    ? readyFeed.entries.filter(
+        (e) => e.state === "active" && e.unread && !readClearedIds.has(e.alertId),
+      )
+    : [];
+  const showMarkAll = activeUnread.length > 0 && !(readyFeed?.truncated ?? false);
+  const onMarkAllRead = () => activeUnread.forEach((entry) => markRead(entry));
+
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="bell-panel-heading"
-      data-testid="bell-panel"
-      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
-    >
-      <button
-        type="button"
-        aria-label="Dismiss"
+    <>
+      {/* Full-screen click-catcher: a dark scrim on mobile (bottom-sheet), fully
+          transparent on desktop (the anchored dropdown blocks outside clicks but
+          does not dim the page). This is a NON-INTERACTIVE, aria-hidden scrim —
+          a MOUSE-only dismiss convenience — deliberately NOT a focusable control
+          and NOT part of the a11y tree: with the dialog's `aria-modal="true"`, a
+          focusable "Dismiss" button living OUTSIDE the dialog subtree would
+          contradict the "outside content is unavailable" contract and get
+          flagged as focusable-outside-modal. Keyboard and AT users dismiss via
+          Esc (the keydown handler) and the in-dialog Close button; the scrim is
+          purely a click-outside affordance for pointer users. */}
+      <div
+        aria-hidden="true"
         data-testid="bell-panel-backdrop"
         onClick={onClose}
-        className="absolute inset-0 bg-text-strong/40 motion-safe:transition-opacity motion-safe:duration-fast"
+        className="fixed inset-0 z-40 bg-overlay-scrim motion-safe:animate-[step3-details-scrim-in_var(--duration-normal)_ease-out] sm:animate-none sm:bg-transparent"
       />
       <div
         ref={containerRef}
-        className="relative w-full max-w-[420px] rounded-t-md bg-surface text-text shadow-tile sm:rounded-md motion-safe:animate-[sheet-rise_var(--duration-normal)_var(--ease-out-quart)] motion-reduce:animate-none"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bell-panel-heading"
+        data-testid="bell-panel"
+        className="fixed inset-x-0 bottom-0 z-50 mx-auto w-full max-w-[420px] rounded-t-lg bg-surface text-text shadow-popover motion-safe:animate-[sheet-rise_var(--duration-normal)_var(--ease-out-quart)] motion-reduce:animate-none sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-0 sm:top-[calc(100%+10px)] sm:mx-0 sm:w-[420px] sm:rounded-lg sm:border sm:border-border sm:origin-top-right sm:motion-safe:animate-[bell-pop-in_var(--duration-normal)_var(--ease-out-quart)]"
       >
+        {/* Desktop caret pointing up at the bell (DI-9); hidden on mobile. */}
+        <span
+          aria-hidden="true"
+          className="absolute right-3 top-[-6px] hidden size-3 rotate-45 rounded-tl-[3px] border-l border-t border-border bg-surface sm:block"
+        />
         {/* BELL-3: persistent sr-only polite live region, present in EVERY panel
             state from mount (loading | error | ready | empty) so it holds one
             stable tree position across state transitions — the announce text
@@ -750,27 +877,39 @@ export function BellPanel({
           aria-hidden="true"
           className="mx-auto mt-2 h-1 w-10 rounded-pill bg-border sm:hidden"
         />
-        <div className="flex items-start justify-between gap-4 px-4 pb-2 pt-4 sm:px-6 sm:pt-5">
-          <h2 id="bell-panel-heading" className="text-lg font-semibold text-text-strong">
+        <div className="flex items-center justify-between gap-3 px-4 pb-2.5 pt-4 sm:px-5 sm:pt-4">
+          <h2 id="bell-panel-heading" className="text-[17px] font-semibold text-text-strong">
             Notifications
           </h2>
-          <button
-            ref={closeRef}
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            data-testid="bell-panel-close"
-            className="-mr-2 inline-flex size-tap-min items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
-          >
-            <span aria-hidden="true" className="text-xl leading-none">
-              ×
-            </span>
-          </button>
+          <div className="flex items-center gap-1">
+            {showMarkAll ? (
+              <button
+                type="button"
+                data-testid="bell-mark-all-read"
+                onClick={onMarkAllRead}
+                className="inline-flex min-h-tap-min items-center rounded-sm px-2 text-[13px] font-medium text-accent-on-bg transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+              >
+                Mark all read
+              </button>
+            ) : null}
+            <button
+              ref={closeRef}
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              data-testid="bell-panel-close"
+              className="-mr-1 inline-flex size-tap-min items-center justify-center rounded-sm text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+            >
+              <span aria-hidden="true" className="text-xl leading-none">
+                ×
+              </span>
+            </button>
+          </div>
         </div>
-        <div className="max-h-panel-max-mobile overflow-y-auto bg-surface px-4 pb-5 sm:max-h-panel-max sm:px-6">
+        <div className="max-h-panel-max-mobile overflow-y-auto bg-surface px-2 pb-3 sm:max-h-panel-max sm:px-2.5">
           {body}
         </div>
       </div>
-    </div>
+    </>
   );
 }

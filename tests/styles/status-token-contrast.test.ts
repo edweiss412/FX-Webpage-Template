@@ -121,6 +121,31 @@ describe("status-token contrast floors (DESIGN.md §1.3)", () => {
     });
   }
 
+  // Bell notification redesign: the two new tint↔icon pairs are GRAPHICAL
+  // objects (WCAG 1.4.11, ≥3:1) — the severity icon glyph drawn on its tinted
+  // circle. The active-count pill NUMBER is body TEXT on `--color-accent-tint`
+  // and uses `--color-text-strong` (NOT `accent-on-bg`, which only reaches
+  // ~3.8:1 there), so it clears the ≥4.5:1 AA text floor. All on BOTH modes.
+  for (const mode of MODES) {
+    const dangerBg = tokenIn(mode.src, "--color-danger-bg-runtime");
+    const degradedIcon = tokenIn(mode.src, "--color-status-degraded-runtime");
+    const accentTint = tokenIn(mode.src, "--color-accent-tint-runtime");
+    const accentOnBg = tokenIn(mode.src, "--color-accent-on-bg-runtime");
+    const textStrong = tokenIn(mode.src, "--color-text-strong-runtime");
+
+    it(`${mode.name}: bell critical icon (status-degraded on danger-bg) clears >=3:1 graphical`, () => {
+      expect(contrast(degradedIcon, dangerBg)).toBeGreaterThanOrEqual(DOT_FLOOR);
+    });
+
+    it(`${mode.name}: bell info icon (accent-on-bg on accent-tint) clears >=3:1 graphical`, () => {
+      expect(contrast(accentOnBg, accentTint)).toBeGreaterThanOrEqual(DOT_FLOOR);
+    });
+
+    it(`${mode.name}: active-count pill text (text-strong on accent-tint) clears >=4.5:1 AA`, () => {
+      expect(contrast(textStrong, accentTint)).toBeGreaterThanOrEqual(TEXT_FLOOR);
+    });
+  }
+
   it("positive hue is NOT green (color-blind floor §1) — it is a teal (blue ≈ green)", () => {
     // A green (e.g. the prototype's #2F7D4F) has blue well below green
     // (b/g ≈ 0.63). The calm teal we ship has blue nearly level with green

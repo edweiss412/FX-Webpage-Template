@@ -130,7 +130,7 @@ describe("BellPanel — sections (spec §7.3)", () => {
     expect(history.className).toContain("text-text-subtle");
   });
 
-  it("occurrences>1 renders a ×N chip; occurrences===1 renders none", async () => {
+  it('occurrences>1 renders a "Seen N×" chip; occurrences===1 renders none', async () => {
     const entries = [
       makeEntry({ alertId: "many", state: "active", occurrences: 3 }),
       makeEntry({ alertId: "one", state: "active", occurrences: 1 }),
@@ -139,8 +139,8 @@ describe("BellPanel — sections (spec §7.3)", () => {
     const { getByTestId } = renderPanel();
 
     await within(getByTestId("bell-panel")).findByTestId("bell-section-active");
-    expect(within(getByTestId("bell-entry-many")).getByText("×3")).toBeTruthy();
-    expect(within(getByTestId("bell-entry-one")).queryByText(/×/)).toBeNull();
+    expect(within(getByTestId("bell-entry-many")).getByText(/Seen 3×/)).toBeTruthy();
+    expect(within(getByTestId("bell-entry-one")).queryByText(/Seen/)).toBeNull();
   });
 
   it("interpolates entry.context into catalog copy — the value renders, the raw <placeholder> never (Finding 1)", async () => {
