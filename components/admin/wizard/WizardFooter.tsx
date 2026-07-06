@@ -21,7 +21,7 @@
  * the one-frame first-paint gap before the bar mounts is acceptable).
  *
  * WIDTH MATCHES THE HEADER (2026-07-05). The fixed wrapper is full-bleed for
- * positioning, but the visible bar (border-t rule only — no surface wash) is capped to the
+ * positioning, but the visible bar (a `bg-bg` fill, no border/wash) is capped to the
  * admin-shell container — `mx-auto max-w-[1600px]` + the same page padding
  * app/admin/layout.tsx uses — so the bar's top rule and content edges line up
  * exactly with <OnboardingTopBar> (the onboarding header) instead of bleeding
@@ -29,10 +29,12 @@
  * above it, 1600px centered — the header's geometry, mirrored.
  *
  * Notes:
- *  - `border-t` only (no surface wash, no backdrop-blur, no drop shadow) — the
- *    bar reads as a hairline rule over the page, not a filled panel (owner
- *    decision, 2026-07-06). Consumers pad their own content so nothing scrolls
- *    under the (now-transparent) bar.
+ *  - `bg-bg` fill, no border, no backdrop-blur, no drop shadow (owner decision,
+ *    2026-07-06). The fill is the PAGE background color (`--color-bg`, the same
+ *    token body paints), so scrolling content disappears cleanly behind the bar
+ *    instead of the old transparent bar letting card text bleed through and
+ *    overlap the footer copy. The bar reads as an extension of the page, not a
+ *    panel — no rule, no wash.
  *  - `items-end` lets a taller `center` (step 3's status panel) grow the bar
  *    upward around the baselined back / primary controls.
  *  - `flex-wrap` lets back / center / primary stack on very narrow widths
@@ -65,7 +67,7 @@ export function WizardFooter({
       <div className="mx-auto max-w-[1600px] px-page-pad-mobile sm:px-page-pad-desktop">
         <div
           data-testid="wizard-footer-inner"
-          className="flex flex-wrap items-end gap-x-4 gap-y-2 border-t border-border pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]"
+          className="flex flex-wrap items-end gap-x-4 gap-y-2 bg-bg pt-3 pb-[calc(env(safe-area-inset-bottom)+0.75rem)]"
         >
           {/* Three equal-weight slots: two `flex-1 basis-0` side columns flank a
               content-sized center. Equal side columns place the center's midpoint
