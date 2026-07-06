@@ -367,3 +367,68 @@ describe("BellPanel — ping refetch (spec §5.4 — realtime refreshes the OPEN
     expect(feedCalls).toHaveLength(1);
   });
 });
+
+describe("BellPanel — load race (Finding 1: a stale response must not overwrite a newer one)", () => {
+  it("an earlier load that resolves AFTER a newer one is discarded; only the newer snapshot renders and stamps /bell/open", async () => {
+    const firstSeen = "2026-07-05T10:00:00.000Z";
+    const secondSeen = "2026-07-05T10:05:00.000Z";
+    // Stale snapshot lacks row b; newer snapshot has it. If the stale response
+    // wins, b disappears and a second /bell/open stamps the stale watermark.
+    const firstBody = feedBody({
+      entries: [makeEntry({ alertId: "a", state: "active" })],
+      seenThrough: firstSeen,
+    });
+    const secondBody = feedBody({
+      entries: [
+        makeEntry({ alertId: "a", state: "active" }),
+        makeEntry({ alertId: "b", state: "active" }),
+      ],
+      seenThrough: secondSeen,
+    });
+
+    // Defer each /bell/feed response so the test controls resolution order;
+    // open/read resolve ok immediately.
+    const feedResolvers: Array<(r: Response) => void> = [];
+    fetchMock.mockImplementation((url: string) => {
+      if (url.includes("/bell/feed")) {
+        return new Promise<Response>((resolve) => feedResolvers.push(resolve));
+      }
+      return Promise.resolve(jsonOk({}));
+    });
+
+    const onClose = vi.fn();
+    const onOpened = vi.fn();
+    const { getByTestId, rerender } = render(
+      <BellPanel viewerIsDeveloper={false} onClose={onClose} onOpened={onOpened} pingSignal={0} />,
+    );
+
+    // Mount load fires the first /bell/feed (still pending).
+    await waitFor(() => expect(feedResolvers).toHaveLength(1));
+
+    // A realtime ping starts a SECOND load before the first resolves.
+    rerender(
+      <BellPanel viewerIsDeveloper={false} onClose={onClose} onOpened={onOpened} pingSignal={1} />,
+    );
+    await waitFor(() => expect(feedResolvers).toHaveLength(2));
+
+    // The NEWER (second) load resolves first → row b surfaces.
+    const panel = getByTestId("bell-panel");
+    feedResolvers[1]!(jsonOk(secondBody));
+    await within(panel).findByTestId("bell-entry-b");
+
+    // The STALE (first) load resolves late → must be discarded (no clobber).
+    feedResolvers[0]!(jsonOk(firstBody));
+    // Flush the stale response's full then-chain (fetch → seq guard → return).
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    // Newer snapshot still rendered: row b survived (the stale load did not win).
+    expect(within(panel).queryByTestId("bell-entry-b")).not.toBeNull();
+
+    // Exactly ONE /bell/open, stamping the NEWER seenThrough (never the stale one).
+    const openCalls = fetchMock.mock.calls.filter((c) => String(c[0]).includes("/bell/open"));
+    expect(openCalls).toHaveLength(1);
+    expect(JSON.parse(String((openCalls[0]![1] as RequestInit).body))).toEqual({
+      seenThrough: secondSeen,
+    });
+  });
+});

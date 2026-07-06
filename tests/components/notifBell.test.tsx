@@ -68,6 +68,24 @@ describe("NotifBell — badge (spec §7.1 / §12 guards)", () => {
   });
 });
 
+describe("NotifBell — aria-label (unseen-count semantics, Finding 2)", () => {
+  // The badge counts UNSEEN entries (it clears on open), so the label must speak
+  // to unseen notifications — NOT "unresolved alerts", which stays false for a
+  // screen reader after the panel is opened while active alerts remain.
+  it("count > 0 → label reads unseen notifications, not 'unresolved alerts'", () => {
+    const { getByTestId } = renderBell({ kind: "ok", count: 3 });
+    const bell = getByTestId("admin-notif-bell");
+    expect(bell.getAttribute("aria-label")).toBe("Notifications — 3 unseen");
+    expect(bell.getAttribute("aria-label")).not.toContain("unresolved");
+  });
+
+  it("count 0 → label reads 'Notifications' (no false 'unresolved alerts')", () => {
+    const { getByTestId } = renderBell({ kind: "ok", count: 0 });
+    const bell = getByTestId("admin-notif-bell");
+    expect(bell.getAttribute("aria-label")).toBe("Notifications");
+  });
+});
+
 describe("NotifBell — degraded (spec §7.1 / §12)", () => {
   it("initial infra_error → degraded bell with '!' chip and catalog-derived aria-label", () => {
     const { getByTestId, queryByTestId } = renderBell({ kind: "infra_error" });

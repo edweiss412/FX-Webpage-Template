@@ -50,7 +50,7 @@ const INNER_CLUSTER = "inline-flex items-center gap-2"; // indicator button → 
 const ICON = `<svg class="size-5" viewBox="0 0 24 24" aria-hidden="true"></svg>`;
 
 function notifBell(): string {
-  return `<a href="/admin#alerts" data-testid="admin-notif-bell" aria-label="No unresolved alerts" class="${TAP_TARGET}">${ICON}</a>`;
+  return `<a href="/admin#alerts" data-testid="admin-notif-bell" aria-label="Notifications" class="${TAP_TARGET}">${ICON}</a>`;
 }
 
 function appHealthIndicator(): string {

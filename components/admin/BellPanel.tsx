@@ -452,6 +452,12 @@ export function BellPanel({
   // Which snapshot we have already stamped via /bell/open — prevents a duplicate
   // open POST for the same seenThrough across re-renders (spec §7.2 "exactly once").
   const openedForRef = useRef<string | null>(null);
+  // Monotonic load token: overlapping loads (mount + realtime ping, or ping +
+  // ping) race, so a slow earlier response can resolve AFTER a newer one. Each
+  // load claims a seq at start and bails before every post-await mutation once a
+  // newer load has superseded it — a stale snapshot never reaches setState (and
+  // so never reaches the inline open-stamp below, which is gated on this path).
+  const loadSeqRef = useRef(0);
 
   // Per-row expand state and optimistic read-clear state. Both persist across
   // refetches (session-scoped Sets) so a resolve refetch never un-clears a dot
@@ -464,15 +470,22 @@ export function BellPanel({
   // post-Resolve/Save refetch (announce completion) — BELL-3.
   const load = useCallback(
     async (isRefetch = false) => {
+      // Claim this load's sequence number. `setState({loading})` is pre-await, so
+      // a newer load simply overwrites it — but every POST-await mutation below
+      // is guarded on `seq === loadSeqRef.current` so a superseded (stale) load
+      // never clobbers the newer snapshot's state, announce, or open-stamp.
+      const seq = ++loadSeqRef.current;
       setState({ status: "loading" });
       let res: Response;
       try {
         res = await fetch(FEED_ENDPOINT, { cache: "no-store" });
       } catch {
+        if (seq !== loadSeqRef.current) return;
         setState({ status: "error" });
         setLiveMessage("Notifications didn't load");
         return;
       }
+      if (seq !== loadSeqRef.current) return;
       if (!res.ok) {
         setState({ status: "error" });
         setLiveMessage("Notifications didn't load");
@@ -482,10 +495,12 @@ export function BellPanel({
       try {
         body = (await res.json()) as BellFeedBody;
       } catch {
+        if (seq !== loadSeqRef.current) return;
         setState({ status: "error" });
         setLiveMessage("Notifications didn't load");
         return;
       }
+      if (seq !== loadSeqRef.current) return;
       setState({ status: "ready", feed: body });
 
       // BELL-3 announce: a refetch reports completion; the first load reports the
