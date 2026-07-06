@@ -47,19 +47,34 @@ The change targets **exactly one** `ScheduleDay` shape. All other shapes are
 untouched. `ScheduleDay` = `{ entries, showStart, showEnd, window }`
 (`lib/parser/types.ts:361-366`).
 
-| Day shape (after per-viewer entry filtering)                        | Current render                    | After this change                          |
+The gate is **raw parser output** (`ScheduleDay.entries.length`), NOT the
+per-viewer displayable count. This distinction is load-bearing (see the
+load-out-only row): a day with a raw parsed entry is NOT bare even if that entry
+is filtered out for the current viewer.
+
+| Day shape                                                           | Current render                    | After this change                          |
 | ------------------------------------------------------------------- | --------------------------------- | ------------------------------------------ |
-| **Bare showStart**: no displayable entries, `window==null`, `showStart` real | meta line `8:00 AM`               | **grid entry `8:00 AM  Show Start`** ← ONLY change |
+| **Bare showStart**: `entries.length===0`, `window==null`, `showStart` real | meta line `8:00 AM`               | **grid entry `8:00 AM  Show Start`** ← ONLY change |
 | Bare showStart but `showStart` is a sentinel (`TBD`/`N/A`/`TBA`)     | no meta (guarded)                 | no entry, no meta (guarded — unchanged)    |
+| **Load-out-only, hidden for viewer** (`entries=[{kind:"loadout"}]`, `showStart` real, viewer without transport → `dayEntries=[]`) | meta line `8:00 AM` (#169 contract) | **unchanged** — raw `entries.length>0` ⇒ no synthesis; existing meta branch still fires |
 | Window day (`window!=null`)                                         | meta `9:00 AM – 5:00 PM`          | unchanged (meta)                           |
 | End-only day (`showEnd!=null`, `showStart==null`)                   | meta `Ends 6:00 PM`               | unchanged (meta)                           |
 | Set day (`phase==="Set"`)                                          | meta `Setup 7:00 AM` (or entries) | unchanged                                  |
-| Titled day (≥1 displayable entry)                                  | run-of-show grid                  | unchanged (already grid; `showStart` never was meta here) |
+| Titled day (≥1 entry)                                              | run-of-show grid                  | unchanged (already grid; `showStart` never was meta here) |
 
 **Mutual exclusivity is guaranteed by the parser:** the window branch returns
 early (`scheduleTimes.ts:173-184`), so `window!=null` ⇒ `showStart==null`.
 `showEnd` is set only when `showStart===null` (`scheduleTimes.ts:210-218`). So a
 day cannot simultaneously be "bare showStart" and "window" or "end-only".
+
+**Why the raw-entries gate (Codex R1 HIGH — do-not-relitigate):** the crew branch
+that currently renders `showStart` meta gates on the per-viewer, load-out-filtered
+`dayEntries` (`ScheduleSection.tsx:294`), NOT raw `sd.entries`. A day whose only
+raw entry is a load-out hidden from the current viewer has `dayEntries.length===0`
+but is NOT a bare parser day. The `#169` regression contract
+(`ScheduleSection.tsx:295-301`) requires it to keep rendering the call-time meta
+with **no** run-of-show container. Gating synthesis on raw `entries.length===0`
+(not `dayEntries`) preserves that contract exactly.
 
 ---
 
@@ -92,21 +107,25 @@ for run-of-show display predicates, per its header comment lines 1-10):
 ```ts
 /**
  * Synthesize the display-only "Show Start" run-of-show entry for a bare-showStart
- * day (no displayable entries, no window). Renderer-only: the parser's
- * ScheduleDay.showStart is NEVER mutated (resolveKeyTimes anchor depends on it).
- * Returns null for every other day shape (titled / window / end-only / sentinel).
+ * day: zero RAW parsed entries, no window, a real (non-sentinel) showStart.
+ * Renderer-only: the parser's ScheduleDay.showStart is NEVER mutated
+ * (resolveKeyTimes anchor depends on it). Returns null for every other day shape
+ * (any raw entry — incl. a viewer-hidden load-out — / window / end-only / sentinel).
  */
 export function showStartDisplayEntry(
-  day: Pick<ScheduleDay, "showStart" | "window">,
-  hasDisplayableEntries: boolean,
+  day: Pick<ScheduleDay, "showStart" | "window" | "entries">,
 ): AgendaEntry | null {
-  if (hasDisplayableEntries) return null;      // titled day → real grid
+  if (day.entries.length > 0) return null;     // any RAW entry (even viewer-hidden) → not bare
   if (day.window != null) return null;         // window day → meta
   const start = resolveOptionalField(day.showStart ?? undefined); // sentinel/URL guard
   return start == null ? null : { start, title: "Show Start" };
 }
 ```
 
+- The gate is **raw `day.entries.length`**, NOT a per-viewer displayable count.
+  This is what preserves the `#169` hidden-load-out contract (§3, Codex R1). Since
+  raw-empty ⇒ nothing is displayable either, a separate `hasDisplayableEntries`
+  parameter would be redundant and is intentionally omitted.
 - Returns `AgendaEntry` with **`kind` absent** ⇒ counts as `"agenda"`
   (`types.ts:358`), so it renders in the normal (strong-tone) group, NOT the muted
   synthetic (strike/loadout) group.
@@ -122,12 +141,17 @@ Current bare-showStart branch (`ScheduleSection.tsx:294-302`) sets
 `meta = guardMeta(sd.showStart)` and `DayCard` renders it; `RunOfShowList` renders
 only when `dayEntries.length > 0` (`ScheduleSection.tsx:338`).
 
-Change: compute `const showStartRow = showStartDisplayEntry(sd ?? {showStart:null,window:null}, dayEntries.length > 0)`.
+Change: compute `const showStartRow = sd != null ? showStartDisplayEntry(sd) : null`.
 - When `showStartRow != null`: **skip** the `meta = guardMeta(sd.showStart)`
   branch (leave `meta` undefined) and render `<RunOfShowList entries={[showStartRow]} isoDate={day.date} />` for that day.
+- When `showStartRow == null`: **all existing branches run unchanged**, including
+  the `meta = guardMeta(sd.showStart)` branch (`ScheduleSection.tsx:294-302`). A
+  load-out-only day hidden from the viewer (raw `entries.length>0`) yields
+  `showStartRow==null`, falls through to that meta branch, and renders `8:00 AM` as
+  today — the `#169` contract is untouched.
 - The `window` branch (line 292-293) and `showEnd` branch (line 303-308) are
-  unchanged — they still produce `meta`. Only the `showStart` branch (294-302) is
-  replaced by the grid entry.
+  unchanged — they still produce `meta`. Only the truly-bare subset of the
+  `showStart` branch is diverted to the grid entry.
 - `RunOfShowList` re-runs `displayableEntries` on `[showStartRow]`; title
   `"Show Start"` is real ⇒ it survives and renders via `RunOfShowEntry` as
   `8:00 AM` (time track) + `Show Start` (title track), `data-testid="agenda-entry"`.
@@ -138,7 +162,9 @@ Current `ScheduleDayRow` (`step3ReviewSections.tsx:926-932`): when
 `entries.length === 0`, `timeMeta = win ?? start ?? (end ? `Ends ${end}` : null)`
 where `start = resolveOptionalField(showStart)`.
 
-Change: compute `const showStartRow = showStartDisplayEntry({ showStart, window: dayWindow }, entries.length > 0)`.
+Change: compute `const showStartRow = showStartDisplayEntry({ showStart, window: dayWindow, entries })`
+(the wizard's `entries` prop IS the raw `ScheduleDay.entries` — admin sees all,
+no viewer filtering — so raw and displayable coincide here).
 - When `showStartRow != null`: render it as the sole grid row
   (`rows = [showStartRow]`) and do **not** set `timeMeta`.
 - When `showStartRow == null` (window / end-only / sentinel): `timeMeta` retains
@@ -155,14 +181,15 @@ Change: compute `const showStartRow = showStartDisplayEntry({ showStart, window:
 
 ## 5. Guard conditions (every input state)
 
-| `showStart`      | `window`        | displayable entries | Result                                        |
-| ---------------- | --------------- | ------------------- | --------------------------------------------- |
-| `null`           | `null`          | 0                   | helper → null; existing `showEnd`/nothing path |
-| `"8:00 AM"`      | `null`          | 0                   | **entry `{start:"8:00 AM",title:"Show Start"}`** |
-| `"TBD"`/`"N/A"`  | `null`          | 0                   | helper → null (sentinel guard); no entry, no meta |
-| `"8:00 AM"`      | `{…}`           | 0                   | impossible per parser; helper still → null (window guard) |
-| any              | any             | ≥1                  | helper → null; titled grid renders as today   |
-| URL-only         | `null`          | 0                   | `resolveOptionalField` strips → null; no entry |
+| `showStart`      | `window`        | raw `entries.length` | Result                                        |
+| ---------------- | --------------- | -------------------- | --------------------------------------------- |
+| `null`           | `null`          | 0                    | helper → null; existing `showEnd`/nothing path |
+| `"8:00 AM"`      | `null`          | 0                    | **entry `{start:"8:00 AM",title:"Show Start"}`** |
+| `"TBD"`/`"N/A"`  | `null`          | 0                    | helper → null (sentinel guard); no entry, no meta |
+| `"8:00 AM"`      | `null`          | ≥1 (incl. viewer-hidden load-out) | helper → null (raw-entries guard); existing meta branch renders `8:00 AM` (#169 preserved) |
+| `"8:00 AM"`      | `{…}`           | 0                    | impossible per parser; helper still → null (window guard) |
+| any              | any             | ≥1                   | helper → null; titled grid renders as today   |
+| URL-only         | `null`          | 0                    | `resolveOptionalField` strips → null; no entry |
 
 `showStart` is a `string | null` (`types.ts:363`); no NaN/number path exists.
 
@@ -210,10 +237,12 @@ new transitions introduced.
 
 1. **Helper unit** (`tests/crew/agendaDisplay.test.ts` or a new
    `showStartDisplayEntry.test.ts`): assert `{start,title:"Show Start"}` for
-   `{showStart:"8:00 AM",window:null}, false`; `null` for window day; `null` for
-   sentinel `"TBD"`; `null` when `hasDisplayableEntries=true`; `null` for
-   `showStart:null`. **Failure mode caught:** helper firing on the wrong day shape
-   (window/end-only/titled) or leaking a sentinel.
+   `{showStart:"8:00 AM",window:null,entries:[]}`; `null` for a window day; `null`
+   for sentinel `"TBD"`; `null` for `showStart:null`; and **`null` when
+   `entries=[{start:"6:00 PM",title:"Load Out",kind:"loadout"}]` even with a real
+   `showStart`** (raw-entries guard — Codex R1). **Failure mode caught:** helper
+   firing on a non-bare day (window/end-only/titled/**hidden-load-out**) or leaking
+   a sentinel.
 2. **Crew render** (extend `ScheduleSection.showEnd.test.tsx` style): bare
    `showStart:"8:00am"` day renders a `run-of-show-<iso>` container with an
    `agenda-entry` whose text includes `8:00am` AND `Show Start`; assert **no**
@@ -230,6 +259,14 @@ new transitions introduced.
    bare-showStart day still yields the `shows` anchor from `showStart` unchanged —
    proves the renderer-only synthesis did not touch the anchor. **Failure mode:**
    accidental parser-level change double-anchoring the KeyTimesStrip.
+6. **Hidden-load-out #169 regression** — the existing
+   `ScheduleSection.loadoutMeta.test.tsx:45-66` already pins the contract (raw
+   `entries=[{kind:"loadout"}]` + real `showStart`, no transport → `day-card-meta`
+   renders, **no** `run-of-show-` container). It MUST stay **green unchanged** after
+   this change; the implementation task treats a red here as a gate failure, not a
+   test to update. This existing test IS the regression guard for the Codex R1
+   raw-entries decision — no new test needed, but the plan pins it as a
+   must-not-break checkpoint.
 
 Every expected value derives from the fixture/props (`8:00 AM` from the input
 `showStart`), not a hardcoded unrelated literal.
