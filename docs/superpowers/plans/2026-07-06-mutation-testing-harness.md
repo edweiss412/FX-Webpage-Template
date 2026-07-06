@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- **Zero product-source change; test/CI-infra wiring permitted (spec AC-5).** New test files live under `tests/parser/mutation/**` + `tests/parser/mutationHarness.test.ts`. Task 12 additionally edits three TEST/CI-infra files to place the heavy harness off the fast unit path — `vitest.projects.ts` (`ENV_BOUND_EXCLUDES`), `package.json` (`test:audit:mutation-harness` script), `.github/workflows/x-audits.yml` (dedicated job). NO PRODUCT source (`lib/parser`, `app/`, `components/`, `supabase/`) is touched. (`lib/test/vitest.weights.ts` is deliberately NOT edited — the harness is excluded from the sharded unit path, so it needs no weight; see Task 12.)
+- **Zero product-source change; test-infra weighting permitted (spec AC-5).** New test files live under `tests/parser/mutation/**` + `tests/parser/mutationHarness.test.ts`. Task 12 additionally edits two TEST-infra files so the heavy harness is a weight-balanced, merge-gating UNIT-SUITE file — `lib/test/vitest.weights.ts` (register its measured weight) and `tests/cross-cutting/vitest-shard-balance.test.ts` (derive `HOT` from the top-2 weights). NO PRODUCT source (`lib/parser`, `app/`, `components/`, `supabase/`) and NO new workflow / `package.json` script / exclusion is touched. (The R19–R21 x-audits placement was reverted at R22: an x-audits job is not in the required-check inventory, so it would not block merge; the already-required `unit-suite` aggregator gates the harness for free.)
 - **TDD per task:** failing test → minimal implementation → passing test → commit. Never implementation before its test.
 - **Commit per task**, conventional-commits (`test(parser):` / `feat(parser):` / `chore(parser):`). One task per commit. Use `--no-verify` (shared lint-staged hook belongs to the main checkout).
 - **Determinism:** no `Math.random`, no `Date.now`. All site enumeration is a deterministic top-to-bottom scan.
@@ -1607,9 +1607,9 @@ it("measure corpus size + wall-clock", () => {
 
 Run: `pnpm vitest run tests/parser/mutation/_measure.test.ts` then `rm tests/parser/mutation/_measure.test.ts`.
 
-Record both numbers in the Task 8 commit message. Accept the exhaustive design only if:
+Record both numbers in the Task 8 commit message. Both feed later tasks: the count sets `MUTANT_BUDGET`, and the **wall-clock becomes the `FILE_WEIGHTS` entry in Task 12** (so the unit-suite shard sequencer balances the harness). Accept the exhaustive design only if:
   - **count ≤ `MUTANT_BUDGET` (150_000)** with headroom — if it is already near the ceiling, raise `MUTANT_BUDGET` deliberately (an operator is fanning out more than expected; confirm that is intended, not a per-char bug).
-  - **wall-clock < 150_000 ms** (half the 300s hook ceiling, leaving margin for slower CI hardware). If it exceeds 150s, DO NOT accept a single monolithic run: shard the corpus across vitest workers by splitting `runAll()` into one `test.each(FIXTURES)` case per fixture (vitest parallelizes cases across the pool), or into per-fixture-group files, and reconcile the union of alarms against the ledger in a final aggregation test. Note the chosen sharding in the commit message.
+  - **wall-clock < 150_000 ms** (half the 300s hook ceiling, and comfortably under the 20-min unit-suite leg timeout — `unit-suite.yml:52`). If it exceeds 150s, DO NOT accept a single monolithic run: shard the corpus by splitting `runAll()` into one `test.each(FIXTURES)` case per fixture, or into per-fixture-group files, and reconcile the union of alarms against the ledger in a final aggregation test. Note the chosen sharding in the commit message.
 
 If the measured numbers are within budget, proceed with the single-`beforeAll` design below.
 
@@ -1682,8 +1682,9 @@ function runAll(): { alarms: Alarm[]; allSiteIds: string[]; cosmeticViolations: 
 // `-t "COUNT-level audit agreement"`, and their red-phase probes — collects this module but runs
 // only the matched describe's hooks/tests, so `runAll()` never fires for those. Only tests INSIDE
 // this describe pay the corpus cost. The hook carries an explicit 300s timeout because vitest's
-// default hookTimeout (10s) is far below the measured corpus wall-clock (Step 1); this file is a
-// CI audit gate (runs in the audits workflow), not a fast unit test on the hot path.
+// default hookTimeout (10s) is far below the measured corpus wall-clock (Step 1). This heavy file
+// runs on the required unit-suite path (weight-registered in vitest.weights.ts, Task 12) — the
+// beforeAll deferral keeps its cost off any targeted `-t` sibling-gate run.
 describe("mutation harness — bidirectional known-holes ledger", () => {
   let R: { alarms: Alarm[]; allSiteIds: string[]; cosmeticViolations: string[]; noOps: string[] };
   beforeAll(() => {
@@ -2067,103 +2068,60 @@ git commit --no-verify -m "test(parser): surface total mutant count + skippedIna
 
 ---
 
-### Task 12: CI wiring — run the harness in x-audits, OFF the fast unit path
+### Task 12: CI wiring — register the harness as a weight-balanced UNIT-SUITE file (merge-gating)
 
-**Why (Codex plan-R19 [high]):** `tests/parser/mutationHarness.test.ts` is a ~100s serial parser-replay gate. Left on the default unit-suite discovery path it lands in the 2-leg `unit-suite.yml` matrix weighed at `DEFAULT_WEIGHT` (1500ms — `lib/test/vitest.weights.ts:9`), so the weight-balanced sequencer (`vitest.sequencer.ts`) mis-sizes it and it overloads one leg's wall-clock (~100s onto a leg the balancer thinks is 1.5s). The repo's established home for heavy gates is `x-audits.yml` (traceability, x1–x6, postgrest-dml-lockdown — each a dedicated job off the fast path). Move it there.
+**Why (Codex plan-R22 [high], superseding the R19 x-audits detour):** the harness must be a **merge-blocking** CI gate (spec goal — a silent-parse regression must fail the PR, not just log red). The repo's required-check inventory is loaded from the master spec's AC-X.6 body through an allowlist that recognizes ONLY `x1`–`x6`, `traceability-audit`, `verify-branch-protection-status` (`scripts/generate-traceability.ts:206-216`). A NEW x-audits job (`mutation-harness`) is therefore **not** merge-blocking without also editing the master spec's required-check list + that allowlist + branch protection — a large cross-cutting surface. The `unit-suite` aggregator (`unit-suite.yml`) is **already** a required check that gates on ALL matrix legs (`unit-suite.yml:19`), so a heavy test discovered on that path is merge-gating **for free**. The only real issue R19 raised — an *unweighted* heavy file mis-balances a shard leg (`DEFAULT_WEIGHT`=1500ms, `vitest.weights.ts:9`) — is fixed by REGISTERING its measured weight so the LPT sequencer (`vitest.sequencer.ts`) balances it. This returns to the spec's originally-approved AC-5 ("plain discovered file in the existing config"), now correctly weighted.
 
 **Files:**
-- Modify: `vitest.projects.ts` (add the harness to `ENV_BOUND_EXCLUDES`)
-- Modify: `package.json` (add a `test:audit:mutation-harness` script)
-- Modify: `.github/workflows/x-audits.yml` (add a `mutation-harness` job)
+- Modify: `lib/test/vitest.weights.ts` (register the harness's measured wall-clock)
+- Modify: `tests/cross-cutting/vitest-shard-balance.test.ts` (derive `HOT` from the top-2 committed weights so adding a new heaviest file doesn't break the "different legs" assertion)
 
-**Interfaces:** consumes the exclusion mechanism already used by x5/email-canonicalization — a project-level exclude gated by `VITEST_EXCLUDE_ENV_BOUND=1` (`vitest.config.ts:15,65`), which `unit-suite.yml` sets but the x-audits' direct `vitest run <file>` does not.
+**Interfaces:** the harness stays a normally-discovered `tests/**/*.test.ts` file — NO exclusion, NO new workflow, NO package.json script. It runs in local `pnpm test` and in every `unit-suite` CI run (it is NOT env-bound, so `VITEST_EXCLUDE_ENV_BOUND=1` does not drop it). It lands in the SERIAL project (fixture-corpus-bound, `fileParallelism:false`) via the default `BASE_INCLUDE`.
 
-- [ ] **Step 1: Drop the harness from the fast unit path**
-
-Append to `ENV_BOUND_EXCLUDES` in `vitest.projects.ts` (keep the existing three entries):
+- [ ] **Step 1: Register the measured weight** — add one entry to `FILE_WEIGHTS` in `lib/test/vitest.weights.ts` using the wall-clock measured in Task 8 Step 1 (round UP to a round number; the header comment permits `// measured`):
 
 ```ts
-export const ENV_BOUND_EXCLUDES = [
-  "**/tests/admin/test-auth-gate.test.ts",
-  "**/tests/cross-cutting/pg-cron-coverage.test.ts",
-  "**/tests/cross-cutting/email-canonicalization.test.ts",
-  // Heavy (~100s serial parser replay) — a CI audit gate, not a fast-path unit test.
-  // Dropped from unit-suite via VITEST_EXCLUDE_ENV_BOUND=1 and run instead by the
-  // dedicated x-audits `mutation-harness` job (`vitest run <file>`, env var unset →
-  // this exclude is empty there, so the file runs). Same off-fast-path pattern as
-  // email-canonicalization above. The shard-balance meta-test filters these suffixes
-  // out of its discovered file set (vitest-shard-balance.test.ts:38-40), so NO
-  // FILE_WEIGHTS entry is needed or wanted (a real 150000 weight would instead trip
-  // that test's 1.25x-mean synthetic-balance guard even though the file never shards).
-  "**/tests/parser/mutationHarness.test.ts",
-];
+export const FILE_WEIGHTS: Record<string, number> = {
+  "tests/scripts/validation-report-fixtures.test.ts": 76000, // measured
+  "tests/cross-cutting/validation-check-seed-content-coverage.test.ts": 41000, // measured
+  "tests/cross-cutting/no-global-cursor.test.ts": 30000, // estimated
+  "tests/scripts/validation-check-seed.test.ts": 25000, // estimated
+  "tests/parser/mutationHarness.test.ts": 150000, // measured — heavy serial mutation corpus (plan-R22)
+};
 ```
 
-- [ ] **Step 2: Add the audit script** — insert into `package.json` `scripts` (next to the other `test:audit:*`):
+Set the value to the ACTUAL measured wall-clock (Task 8 Step 1). If it exceeds the 20-min unit-suite leg timeout (`unit-suite.yml:52`, 1200s) with margin lost, fall back to the Task 8 `test.each`-per-fixture sharding so vitest can spread cases — but at ~100-150s that is not expected.
 
-```json
-"test:audit:mutation-harness": "vitest run tests/parser/mutationHarness.test.ts",
+- [ ] **Step 2: Make the shard-balance meta-test resilient to a new heaviest file** — the existing `HOT` is a hardcoded pair (the two previously-heaviest files); adding a heavier file makes the old pair cluster into one leg and trips the "different legs" assertion. Derive `HOT` from the top-2 committed weights instead (the LPT N=2 invariant guarantees the two heaviest always split across the two legs). In `tests/cross-cutting/vitest-shard-balance.test.ts`, replace the hardcoded `HOT` const:
+
+```ts
+// The two HEAVIEST committed files by weight. LPT N=2 always places the top-2 in
+// different bins (bin B is empty when item #2 is placed), so this pins "the heavy
+// files don't cluster" while staying correct as the heavy-file set grows (plan-R22).
+const HOT = Object.entries(FILE_WEIGHTS)
+  .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
+  .slice(0, 2)
+  .map(([k]) => k);
 ```
 
-- [ ] **Step 3: Add the x-audits job** — append under `jobs:` in `.github/workflows/x-audits.yml`, mirroring `x6-pg-cron-pivot` minus the codegen freshness step (this harness has no generated prereq — pure fixture-corpus replay, no live DB):
+`FILE_WEIGHTS` is already imported at `:7`. The `discovers a non-trivial file set` test still asserts each `HOT` member is in `allFiles` — the harness IS discovered (not env-excluded), so that holds; and the `no stale keys` test still holds because the new weight key maps to the real committed file.
 
-```yaml
-  mutation-harness:
-    # Rec-5 parser mutation-testing harness (~100s serial parser replay). Runs OFF the
-    # fast unit-suite path (excluded via VITEST_EXCLUDE_ENV_BOUND in vitest.projects.ts);
-    # this dedicated job runs it directly. No live DB, no codegen prereq.
-    if: github.event_name != 'schedule'
-    runs-on: ubuntu-latest
-    timeout-minutes: 12
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.33.2
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - name: Run mutation-harness audit
-        shell: bash
-        run: |
-          set -o pipefail
-          pnpm test:audit:mutation-harness 2>&1 | tee mutation-harness.log
-      - name: Upload mutation-harness audit artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: mutation-harness-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
-          if-no-files-found: warn
-          path: |
-            mutation-harness.log
-```
-
-- [ ] **Step 4: Verify the exclusion is correct in both directions**
+- [ ] **Step 3: Verify locally — the harness runs on the unit path AND the topology meta-tests stay green**
 
 ```bash
-# Unit-suite path DROPS it (matches unit-suite.yml's env var):
+# It IS discovered by the unit-suite path (NOT excluded):
 VITEST_EXCLUDE_ENV_BOUND=1 pnpm vitest run tests/parser/mutationHarness.test.ts 2>&1 | tail -5
-# Expected: "No test files found" (excluded) — vitest exits without running it.
+# Expected: the harness RUNS and PASSES (it is not env-bound; the env var drops only the 3 listed files).
 
-# x-audits path RUNS it (env var unset, same as the x-audits job):
-pnpm test:audit:mutation-harness 2>&1 | tail -8
-# Expected: the harness runs and PASSES (ledger + budget + no-op + gates green).
-```
-
-- [ ] **Step 5: Re-run the CI-topology meta-tests (they must stay green after the exclude edit)**
-
-```bash
 pnpm vitest run tests/cross-cutting/vitest-shard-balance.test.ts tests/cross-cutting/vitest-projects-partition.test.ts
 ```
-Expected: PASS. `vitest-shard-balance` still discovers >400 files and its no-stale-keys / 1.25×-mean guards hold (the harness suffix is filtered out of `allFiles`, `:38-40`); `vitest-projects-partition` still assigns every file to exactly one project (the harness stays in SERIAL — the env exclude drops it from the RUN, not from project membership).
+Expected: PASS. `vitest-shard-balance`: >400 files discovered; `HOT` (now the top-2 weights, incl. the harness) land in different legs; no bin exceeds 1.25× mean; no stale keys (the new weight key exists). `vitest-projects-partition`: the harness lands in exactly the SERIAL project.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add vitest.projects.ts package.json .github/workflows/x-audits.yml
-git commit --no-verify -m "ci(parser): run mutation harness in x-audits, off the fast unit-suite path"
+git add lib/test/vitest.weights.ts tests/cross-cutting/vitest-shard-balance.test.ts
+git commit --no-verify -m "ci(parser): register mutation harness weight so unit-suite balances the merge gate"
 ```
 
 ---
@@ -2198,23 +2156,23 @@ Expected: PASS. A shared-chokepoint change is not expected here (test-only), but
 git add -A && git commit --no-verify -m "chore(parser): format + final verification for mutation harness"
 ```
 
-- [ ] **Step 6: Verify the NEW x-audits job actually runs GREEN in real GitHub Actions (plan-R21, memory `feedback_ci_local_passes_ci_fails`)**
+- [ ] **Step 6: Confirm the harness actually ran and PASSED inside the required unit-suite gate on the real PR run (plan-R22, memory `feedback_ci_local_passes_ci_fails`)**
 
-Local + topology-meta green is necessary but NOT sufficient for a NEW CI surface — YAML shape, `pnpm/action-setup` version, cache/install, `timeout-minutes`, and artifact upload can fail only in Actions. After the PR is open (or via `workflow_dispatch`, which `x-audits.yml` enables), confirm the `mutation-harness` job concluded **success** on the real run — do NOT rely on the unit-suite check alone (the harness is EXCLUDED from unit-suite):
+Local green is necessary but NOT sufficient — the harness's real gate is the required `unit-suite` aggregator, which runs it in ONE of the two shard legs (weight-balanced, Task 12). After the PR is open, confirm (a) both `unit-suite-shard` legs + the `unit-suite` aggregator concluded **success**, and (b) the harness actually EXECUTED (not silently skipped/excluded) by finding its describe in the leg log:
 
 ```bash
-gh workflow run x-audits.yml --ref "$(git branch --show-current)"   # or let the PR trigger it
-gh run list --workflow=x-audits.yml --branch "$(git branch --show-current)" --limit 1
-# then, for the run id R:
-gh run view <R> --json jobs -q '.jobs[] | select(.name=="mutation-harness") | {name, conclusion}'
+gh pr checks "$(gh pr view --json number -q .number)"   # unit-suite + unit-suite-shard legs must be pass/CLEAN
+# Identify the leg that ran the harness and confirm it executed (not 0 tests):
+RID=$(gh run list --workflow=unit-suite.yml --branch "$(git branch --show-current)" --limit 1 --json databaseId -q '.[0].databaseId')
+gh run view "$RID" --log 2>/dev/null | grep -i "mutation harness — bidirectional known-holes ledger" | head
 ```
-Expected: `{"name":"mutation-harness","conclusion":"success"}`. Treat this as a CLOSE-OUT gate distinct from local-green (do not mark the milestone done until this passes). If it fails on an environment gap only Actions reveals, fix the workflow and re-run before merge.
+Expected: the `unit-suite` aggregator is a passing REQUIRED check (so a ledger divergence would block merge — the CI-gating guarantee), and the grep finds the harness describe in a leg log (proving it ran, i.e. it is NOT accidentally env-excluded). Treat as a CLOSE-OUT gate distinct from local-green. If the harness did not run in any leg, the weight/discovery wiring (Task 12) is wrong — fix before merge.
 
 ---
 
 ## Self-Review checklist (run before adversarial review)
 
-1. **Spec coverage:** every spec section maps to a task — segmentation/row-taxonomy (T1), classifier+parity+lockstep (T2), oracle+verdict+fingerprint (T3), 8 operators+selection+domains (T4), fixture registry+parity (T5), independent audit+golden (T6), ledger type (T7), driver+day-1 ledger+uniqueness+cosmetic+bidirectional (T8), classifier/floor/audit gates (T9), negative controls incl. R12/R13/R14/R15/R16 (T10), coverage legibility (T11), CI wiring off the fast unit path (T12), verification (T13). ✔
+1. **Spec coverage:** every spec section maps to a task — segmentation/row-taxonomy (T1), classifier+parity+lockstep (T2), oracle+verdict+fingerprint (T3), 8 operators+selection+domains (T4), fixture registry+parity (T5), independent audit+golden (T6), ledger type (T7), driver+day-1 ledger+uniqueness+cosmetic+bidirectional (T8), classifier/floor/audit gates (T9), negative controls incl. R12/R13/R14/R15/R16 (T10), coverage legibility (T11), CI wiring as a weighted merge-gating unit-suite file (T12), verification (T13). ✔
 2. **Placeholder scan:** the only deferred concrete values are `GOLDEN_INVENTORY` exact counts and `KNOWN_SILENT_HOLES` rows — both are DATA populated from an observed run and hand-verified in-task (T6 S4, T8 S3), not code placeholders. ✔
 3. **Type consistency:** `Mutant.domains: Domain[]`, `floorEligible(): Set<Domain>`, `skippedInapplicable(): Domain[]`, `verdict(): Verdict`, `fingerprint(): string`, `KnownHole` fields — consistent across T3/T4/T7/T8. Detection is exhaustive (no `select`/cap). ✔
 
