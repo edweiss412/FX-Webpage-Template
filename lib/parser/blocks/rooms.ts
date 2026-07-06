@@ -843,6 +843,66 @@ function findGsBlockVenueHeader(markdown: string): string | null {
   return null;
 }
 
+// ── BO-venue-header anchor (spec §3.1) ────────────────────────────────────────
+// Symmetric to findGsBlockVenueHeader, for BREAKOUT field blocks. Resolve the venue
+// header sitting above a `BO Setup/Set Time/Show Time/Strike Time` field block,
+// anchored on the FIELD BLOCK (never a dims token) so an asset row is never fabricated
+// into a room. Records one entry per resolved header — ALWAYS, even when admit===false,
+// so a rejected header (an asset row directly above the next block) still terminates the
+// prior block's extraction in the fifth pass. Dedup by headerLine so multiple anchors
+// under one header collapse to a single record.
+const BO_ANCHOR_RE = /^\|\s*BO\s+(?:Setup|Set Time|Show Time|Strike Time)\b/i;
+
+// SUBSTRING banner/ownership exclusion (spec §3.1): a header whose flattened cell
+// contains any of these whole-word tokens is claimed by a dedicated path (BREAKOUT/
+// LUNCH/ADDITIONAL/GS) or is a section banner — never a novel dims-only venue. SUBSTRING
+// (not `^`-anchored) so `RPAS BREAKOUT 2` is rejected too.
+const BO_VENUE_BANNER_RE =
+  /\b(?:BREAKOUT|LUNCH ROOM|LUNCH|ADDITIONAL ROOM|ADDITIONAL|GENERAL SESSION|DETAILS|DOCUMENTS|DATES|CREW|DRESS|TRANSPORTATION|HOTEL|VENUE|AGENDA|CONTACTS)\b/;
+
+/** True iff col0's first line is `BO <label>` with label ∈ ROOM_FIELD_LABELS (walk-up skip). */
+function isBoFieldLabelRow(col0Raw: string): boolean {
+  const firstLine = col0Raw.replace(/&#10;/g, "\n").split("\n")[0]!.trim().toUpperCase();
+  if (!/^BO\s+/.test(firstLine)) return false;
+  return ROOM_FIELD_LABELS.has(firstLine.replace(/^BO\s+/, "").trim());
+}
+
+export function findBoBlockVenueHeaders(
+  markdown: string,
+  model: RoomHeaderModel,
+): { header: string; headerLine: number; admit: boolean }[] {
+  const lines = model.lines; // === markdown.split("\n"); indices align with extractBoBlock
+  const byLine = new Map<number, { header: string; headerLine: number; admit: boolean }>();
+  for (let i = 0; i < lines.length; i++) {
+    if (!BO_ANCHOR_RE.test((lines[i] ?? "").trim())) continue;
+    // Walk UP to the header row: skip blanks, separators, empty-col-0 continuation rows,
+    // and intervening BO field-label rows. Take the first remaining table row; abandon if
+    // the table ends before one is found.
+    let headerLine = -1;
+    for (let j = i - 1; j >= 0; j--) {
+      const t = (lines[j] ?? "").trim();
+      if (t === "") continue;
+      if (!t.startsWith("|")) break; // left the table without a header
+      if (/^\|\s*:?-+:?\s*\|/.test(t)) continue; // separator row
+      if (col0Of(t) === "") continue; // empty-col-0 continuation/wrap row (`|  | value |`)
+      if (isBoFieldLabelRow(col0Of(t))) continue; // an intervening BO field-label row
+      headerLine = j;
+      break;
+    }
+    if (headerLine === -1 || byLine.has(headerLine)) continue;
+    const cells = splitRow((lines[headerLine] ?? "").trim());
+    const rawCell = cells[0] ?? "";
+    const c0 = clean(rawCell);
+    const c1 = clean(cells[1] ?? "");
+    const flat = c0.replace(/&#10;/g, " ").toUpperCase();
+    const shape = c0.length > 0 && (c1 === "" || c1 === c0);
+    const evidence = /&#10;/.test(rawCell) || /\d+\s*'\s*x/i.test(rawCell);
+    const admit = shape && !BO_VENUE_BANNER_RE.test(flat) && evidence && !headerDayMarker(rawCell);
+    byLine.set(headerLine, { header: rawCell, headerLine, admit });
+  }
+  return [...byLine.values()].sort((a, b) => a.headerLine - b.headerLine);
+}
+
 function parseGsRoom(markdown: string, model: RoomHeaderModel): RoomRow | null {
   if (!/GS\s+Setup/i.test(markdown) && !/GS\s+Set\s+Time/i.test(markdown)) return null;
 
