@@ -8,7 +8,7 @@
  * path (in-memory tx double, mirroring tests/sync/sourceAnchorsPipeline.test.ts) and asserts
  * against the recorded upsertAdminAlert args (anti-tautology — not a rendered surface).
  */
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test } from "vitest";
 
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { ParsedSheet, ParseResult } from "@/lib/parser/types";

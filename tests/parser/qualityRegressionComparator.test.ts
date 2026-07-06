@@ -11,7 +11,10 @@ const A = GAP_CLASSES[0].code as GapCode; // first real class
 const B = GAP_CLASSES[1].code as GapCode; // second real class
 
 function summary(counts: Partial<Record<GapCode, number>>): DataGapsSummary {
-  const classes = Object.fromEntries(GAP_CLASSES.map((g) => [g.code, 0])) as Record<GapCode, number>;
+  const classes = Object.fromEntries(GAP_CLASSES.map((g) => [g.code, 0])) as Record<
+    GapCode,
+    number
+  >;
   let total = 0;
   for (const [k, v] of Object.entries(counts)) {
     classes[k as GapCode] = v ?? 0;
