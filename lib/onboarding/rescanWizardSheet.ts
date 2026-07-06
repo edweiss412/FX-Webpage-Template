@@ -43,6 +43,12 @@ export type RescanDeps = {
    * `PostgresOnboardingScanTx` calls `tx.unsafe` (plan finding r2-3).
    */
   withTx?: <R>(fn: (rawTx: PostgresTransaction) => Promise<R>) => Promise<R>;
+  /**
+   * The lock-free clean/dirty decision core (default: real). Injectable so a unit
+   * test can drive a specific outcome without seeding the full staged state — mirrors
+   * the finalize route, which already injects this core.
+   */
+  applyRescanDecisionUnderLock?: typeof applyRescanDecisionUnderLock;
 };
 
 const DRIVE_FETCH_FAILED = "DRIVE_FETCH_FAILED" as const;
@@ -163,33 +169,37 @@ export async function rescanWizardSheet(
     // (4) show:<driveFileId> blocking lock (single holder — the core adopts it below).
     await tx.unsafe(`select pg_advisory_xact_lock(hashtext('show:' || $1))`, [driveFileId]);
 
-    // Re-openable checkpoint so the next /finalize re-processes the re-opened row.
-    // A re-opened checkpoint (>=1 row) means a finalize batch ALREADY completed and this is a
-    // BLOCKER HEAL (Flow B, e.g. a STAGED_PARSE_OUTDATED-blocked shadow): the manifest must stay
-    // 'staged' so the sheet re-enters the batch (publish_intent preserved). When nothing re-opens,
-    // this is a PRE-FINALIZE clean re-approval (Flow A / the C2/C6 scenario) and the core restores
-    // the manifest to 'applied' so the Step-3 checkbox stays truthful. RETURNING makes the result a
-    // per-updated-row array so `.length` is the re-opened count (tx.unsafe is typed unknown[], so a
-    // bare `.count` does not type-check under `next build`). Reordered ahead of the core call (was
-    // interleaved with the per-row heal): the checkpoint reopen touches only
-    // wizard_finalize_checkpoints — a row set disjoint from everything the core writes — so its
-    // position relative to the core is immaterial, and hoisting it keeps the lock-free core from
-    // ever touching wizard_finalize_checkpoints (spec §4.2, invariant 2).
-    const checkpointReopen = await tx.unsafe(
-      `update public.wizard_finalize_checkpoints
-          set status = 'in_progress'
+    // Blocker-heal detection: a COMPLETED checkpoint ('all_batches_complete' /
+    // 'final_cas_done') means a finalize batch already ran and this re-scan is a
+    // BLOCKER HEAL (Flow B, e.g. a STAGED_PARSE_OUTDATED-blocked shadow) — the manifest
+    // must stay 'staged' so the sheet re-enters the batch (publish_intent preserved).
+    // A NON-complete checkpoint is a PRE-FINALIZE clean re-approval (Flow A / the C2/C6
+    // scenario) and the core restores the manifest to 'applied' so the Step-3 checkbox
+    // stays truthful. Read the status WITHOUT mutating (RETURNING `.length` type-checks
+    // as unknown[] under `next build`, so use `.length` of the select).
+    //
+    // Whole-diff R3 MEDIUM: the reopen was previously HOISTED here (unconditionally set
+    // 'in_progress' before the core ran). If the core then early-returned a non-healing
+    // outcome (schema_missing / superseded / not_staged / hard_failed), the checkpoint
+    // was left 'in_progress' with NOTHING healed, stranding the admin on a resume
+    // surface with no processable row. Now we only DETECT here and PERFORM the reopen
+    // after a healing outcome. The core still never touches wizard_finalize_checkpoints
+    // (spec §4.2, invariant 2) — the reopen UPDATE lives here in the lock holder. The
+    // finalize:<session> lock is held, so no concurrent finalize can change the status
+    // between this select and the later update.
+    const completeCheckpoint = await tx.unsafe(
+      `select 1 as ok from public.wizard_finalize_checkpoints
         where wizard_session_id = $1::uuid
-          and status in ('all_batches_complete', 'final_cas_done')
-        returning wizard_session_id`,
+          and status in ('all_batches_complete', 'final_cas_done')`,
       [wizardSessionId],
     );
-    const isBlockerHeal = checkpointReopen.length > 0;
+    const isBlockerHeal = completeCheckpoint.length > 0;
 
     // Capture prior state + restage + clean/dirty decision run in the lock-free shared core
     // (also reused by finalize's inline auto-heal under its already-held locks). The core reads
     // prior state ITSELF under the held show: lock (NOT from the stale pre-lock read) and never
     // touches app_settings / wizard_finalize_checkpoints / any advisory lock (spec §4.2).
-    const outcome = await applyRescanDecisionUnderLock(tx, {
+    const outcome = await (deps.applyRescanDecisionUnderLock ?? applyRescanDecisionUnderLock)(tx, {
       wizardSessionId,
       driveFileId,
       pendingFolderId,
@@ -197,6 +207,19 @@ export async function rescanWizardSheet(
       refreshedParse,
       isBlockerHeal,
     });
+
+    // Reopen a completed checkpoint ONLY on a healing outcome, so the next /finalize
+    // re-processes the healed row. Non-reopenable outcomes leave it untouched.
+    const reopenCompletedCheckpoint = async () => {
+      if (!isBlockerHeal) return;
+      await tx.unsafe(
+        `update public.wizard_finalize_checkpoints
+            set status = 'in_progress'
+          where wizard_session_id = $1::uuid
+            and status in ('all_batches_complete', 'final_cas_done')`,
+        [wizardSessionId],
+      );
+    };
 
     switch (outcome.kind) {
       case "schema_missing":
@@ -206,10 +229,13 @@ export async function rescanWizardSheet(
       case "superseded":
         return { status: "superseded" };
       case "dirty_demoted":
+        await reopenCompletedCheckpoint();
         return { status: "updated", needsReview: true, changed: outcome.changed, demoted: true };
       case "clean_restamped":
+        await reopenCompletedCheckpoint();
         return { status: "updated", needsReview: false, changed: outcome.changed, demoted: false };
       case "clean_unchecked":
+        await reopenCompletedCheckpoint();
         return { status: "updated", needsReview: true, changed: outcome.changed, demoted: false };
     }
   });

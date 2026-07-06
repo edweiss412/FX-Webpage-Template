@@ -100,7 +100,9 @@ class FakeTx implements OnboardingSessionTx {
     if (q.includes("finishable_count")) {
       // First read = pre-lock; second = under-lock re-eval (R3 HIGH).
       const v =
-        this.finishableReads === 0 ? this.s.finishable : (this.s.finishableUnderLock ?? this.s.finishable);
+        this.finishableReads === 0
+          ? this.s.finishable
+          : (this.s.finishableUnderLock ?? this.s.finishable);
       this.finishableReads += 1;
       return row({ finishable_count: v });
     }
