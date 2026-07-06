@@ -45,7 +45,9 @@ Live-sheet audit (gsheets MCP) of the two representative real shows:
 
 ## 3. Design
 
-### 3.1 New function `findBoBlockVenueHeaders(markdown, model): { header: string; headerLine: number; admit: boolean }[]`
+### 3.1 New **exported** function `findBoBlockVenueHeaders(markdown, model): { header: string; headerLine: number; admit: boolean }[]`
+
+> **Export note (R5 LOW):** `findBoBlockVenueHeaders` is declared `export function` so the unit test (§7 test 1) can import it directly, matching the existing exported room-header helpers used by `tests/parser/blocks/roomHeaderModel.test.ts` (e.g. `isRoomHeaderShape`, `hasBoFieldBlock`). Its private sibling `findGsBlockVenueHeader` (rooms.ts:806) stays unexported — only the new helper needs a direct test.
 
 Mirror of `findGsBlockVenueHeader` (rooms.ts:806-844) with three differences: (a) it anchors on `BO` field rows, not `GS`; (b) it returns **all** matches, because BO blocks repeat within a sheet (GS is one-per-sheet); (c) it records **every** resolved header row it finds — even one that fails the admit gates — with an `admit` flag, because a rejected header (e.g. a `label|value` asset) still **delimits** the preceding block and must be a terminator (§3.2 step 2, R2 HIGH2).
 
@@ -55,7 +57,7 @@ For **each** row matching `^\|\s*BO\s+(?:Setup|Set Time|Show Time|Strike Time)\b
    - skip blank lines;
    - if a line does **not** start with `|` → **no header for this anchor** (the block is already blank/non-table-delimited, which `extractBoBlock` handles at rooms.ts:1182) — produce **no** record and stop the walk;
    - skip separator rows (`^\|\s*:?-+:?\s*\|`);
-   - skip **all-empty** rows (`allEmptyCells`, rooms.ts:100) — a continuation row (`|  | value |`, empty col-0) between the header and the first BO field row is body, not a header (R4 MEDIUM);
+   - skip **empty-col-0** rows — any row whose cleaned col-0 is `""`, which covers both all-empty rows (`allEmptyCells`, rooms.ts:100) AND `|  | value |` continuation rows (non-empty col-1). A header always has a non-empty col-0, so an empty-col-0 row is body, never a header — skipping it prevents a continuation row between BO field rows from being recorded as a false `admit=false` terminator that would truncate the block (R4 MEDIUM + R5 MEDIUM);
    - **skip rows that are recognized `BO` FIELD-LABEL rows** — a row whose col-0 matches `^BO\s+(\S.*)$` with the captured label (uppercased, trimmed) ∈ `ROOM_FIELD_LABELS` (rooms.ts:47). CRITICAL (R3): a block has multiple anchors (`BO Setup`, `BO Set Time`, …), and the `BO Set Time` anchor would otherwise resolve `BO Setup` as its "header", record that BO row `admit=false`, and (via `extraTerm`, §3.2) truncate the block's OWN extraction, dropping the room. Skip must be scoped to **recognized field labels**, NOT any `BO `-prefixed row (R4 HIGH3): a legitimate novel venue named `BO BALLROOM\n40' x 30'` is a real header, not a field row — over-skipping it would let an adjacent block steal its fields. (The GS anchor sidesteps the whole issue by finding only the *first* GS row in the markdown, rooms.ts:808-815; the plural BO version skips intermediate BO field rows explicitly.)
    - take the first remaining row (line index `j`) as the resolved header row; split its cells → `c0` (cleaned), `c1` (cleaned), `rawCell` (col-0 raw, keeps `&#10;`). This row is ALWAYS recorded (below); the gates only set `admit`. Because every anchor in one block skips the intervening `BO` rows and resolves to the **same** `j`, the block's anchors collapse to a single record via the `headerLine` dedup — and no `BO`-field row is ever recorded (so none pollutes `extraTerm`).
 2. Compute `admit` = **all** of:
