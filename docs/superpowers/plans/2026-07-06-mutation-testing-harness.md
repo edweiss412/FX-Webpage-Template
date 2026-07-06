@@ -74,12 +74,21 @@ export type Mutant = { md: string; siteId: string; bucket: Bucket; domains: Doma
 // tests/parser/mutation/rows.test.ts
 import { describe, it, expect } from "vitest";
 import { splitCells, classifyRow, segment } from "./rows";
+import { splitRow } from "@/lib/parser/blocks/_helpers";
 
 const isHeader = (cells: string[]) => /^(DATES|CREW|DRESS|HOTEL|GENERAL SESSION)/.test((cells[0] ?? "").trim());
 
 describe("row taxonomy", () => {
   it("splits a pipe row into trimmed cells (drops leading/trailing pipe framing)", () => {
     expect(splitCells("|  A | B  | C |")).toEqual(["A", "B", "C"]);
+  });
+  it("mirrors the parser's splitRow on an ESCAPED-PIPE row (\\| fragments, same as parser) (plan-R11)", () => {
+    // Real fixture shape: a hotel cell containing "... \| Events ...". The live parser splits
+    // on the raw pipe too (splitRow), so the harness must fragment IDENTICALLY — a mutation on
+    // any fragment is then a single-site change in parser-space, not a false alarm.
+    const line = "| Hilton | Gabriella Decker \\| Events gd@hilton.com | Austin |";
+    expect(splitCells(line)).toEqual(splitRow(line));           // byte-for-byte parser parity
+    expect(splitCells(line).length).toBe(4);                    // \| fragments the middle cell into 2
   });
   it("classifies alignment / spacer / header / data rows", () => {
     expect(classifyRow([":---:", ":---"]).valueOf()).toBe("alignment");
@@ -135,11 +144,22 @@ export type LogicalSection = { index: number; headerRow: Row | null; rows: Row[]
 export type Run = { index: number; sections: LogicalSection[]; startLine: number };
 export type Segmentation = { runs: Run[]; sections: LogicalSection[] };
 
-/** A markdown pipe-table row split into trimmed cell strings (framing pipes dropped). */
+/**
+ * A markdown pipe-table row split into trimmed cell strings (framing pipes dropped).
+ *
+ * DELIBERATELY mirrors the live parser's `lib/parser/blocks/_helpers.ts:splitRow`
+ * (`line.split("|").slice(1,-1)`): the parser does NOT honor `\|` escapes at split
+ * time — it splits on the raw pipe and strips the backslash later in `clean()` (plan-R11).
+ * So an escaped `\|` inside a cell fragments into TWO cells here EXACTLY as it does for the
+ * parser. This preserves the metamorphic property: a mutation on one fragment is still a
+ * single-site change in PARSER-space (baseline and mutant both flow through the same
+ * splitRow), so it does not manufacture a false alarm. The harness follows parser behavior
+ * rather than "correct" markdown escaping ON PURPOSE — pinned by the escaped-pipe test below.
+ */
 export function splitCells(line: string): string[] {
   const t = line.trim();
   if (!t.startsWith("|")) return [];
-  // strip one leading + one trailing pipe, then split on interior pipes
+  // strip one leading + one trailing pipe, then split on interior pipes (raw, like the parser)
   const inner = t.replace(/^\|/, "").replace(/\|$/, "");
   return inner.split("|").map((c) => c.trim());
 }
@@ -258,6 +278,14 @@ describe("classifier parity (Codex R2/R4/R8)", () => {
   it("a genuinely-unknown header resolves to null → other", () => {
     expect(resolveHeader("CATERING")).toBeNull();
   });
+  it("v4 TRANSPORTATION/<label> slash header → transportation (transport.ts:170, plan-R11)", () => {
+    const h = resolveHeader("TRANSPORTATION/Equipment Transporter");
+    expect(h).toBe("TRANSPORTATION");
+    expect(SECTION_DOMAIN_MAP[h!]).toBe("transportation");
+    expect(classifySection({ index: 0, runIndex: 0, rows: [], headerRow: { line: 0, cls: "header" as const, cells: ["TRANSPORTATION/Equipment Transporter", "PHONE"] } })).toBe("transportation");
+    // a space-suffixed (non-slash) form is NOT a v4 header → other (matches the parser regex)
+    expect(resolveHeader("TRANSPORTATION SCHEDULE")).toBeNull();
+  });
 });
 
 describe("classifySection", () => {
@@ -329,6 +357,11 @@ function tokenPrefix(n: string, entry: string): boolean {
 export function resolveHeader(col0: string): string | null {
   const n = normalizeHeader(col0);
   if (KNOWN_SECTION_HEADERS.has(n)) return n;
+  // v4 transportation SLASH header: raw col-0 is `TRANSPORTATION/<name>` (lib/parser/blocks/
+  // transport.ts:170 `TRANSPORTATION(?:\/[^|]*)?`). Recognize it so those real fixture sections
+  // are credited to `transportation`, not silently classified `other` (plan-R11). Bare
+  // TRANSPORTATION is already the exact match above; a space-suffixed form is NOT a v4 header.
+  if (/^TRANSPORTATION\//.test(n)) return "TRANSPORTATION";
   for (const fam of PREFIX_SECTION_FAMILIES) if (tokenPrefix(n, fam)) return fam;
   return null;
 }
@@ -1176,6 +1209,7 @@ const DOMAIN_OF: Record<string, string> = {
 function resolve(col0: string): string | null {
   const n = normalizeHeader(col0);
   if (KNOWN_SECTION_HEADERS.has(n)) return n;
+  if (/^TRANSPORTATION\//.test(n)) return "TRANSPORTATION"; // v4 slash header (transport.ts:170) — independent mirror, plan-R11
   for (const fam of PREFIX_SECTION_FAMILIES)
     if (n.startsWith(fam) && (n.length === fam.length || /[^A-Z0-9]/.test(n[fam.length] ?? " "))) return fam;
   return null;
