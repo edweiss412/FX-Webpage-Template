@@ -66,3 +66,39 @@ describe("normalizeSectionHeaders — gated long-section-header typo correction"
     expect(r.corrected.split("|").length).toBe(md.split("|").length);
   });
 });
+
+// ── C1: short-header (CREW/TECH) typo tolerance behind the field-band gate (spec §4/§9) ──
+// CREW/TECH are 4-char collision-prone routers, so they are fuzzed ONLY when a
+// ≥1 field-header-word band corroborates (never label-only), with minLen:4 and the
+// CREWS/TECHS plurals explicitly excluded. HOTEL/VENUE/DATES are NOT added (spec §9).
+describe("normalizeSectionHeaders — CREW/TECH short-header typo tolerance", () => {
+  it("corrects TCEH → TECH and CRWE → CREW when a field-band corroborates", () => {
+    const tech = normalizeSectionHeaders("| TCEH | NAME | ROLE | PHONE | EMAIL |");
+    expect(tech.corrected).toContain("| TECH |");
+    expect(tech.warnings.filter((w) => w.code === "SECTION_HEADER_AUTOCORRECTED")).toHaveLength(1);
+
+    const crew = normalizeSectionHeaders("| CRWE | NAME | ROLE | PHONE | EMAIL |");
+    expect(crew.corrected).toContain("| CREW |");
+    expect(crew.warnings).toHaveLength(1);
+  });
+
+  it("does NOT fuzz a short header with no field band (label-only row)", () => {
+    // Bare `| TCEH |` — collision-prone, no corroboration → left untouched (spec §4.3).
+    expect(normalizeSectionHeaders("| TCEH | |").corrected).toBe("| TCEH | |");
+    expect(normalizeSectionHeaders("| TCEH | |").warnings).toHaveLength(0);
+  });
+
+  it("EXCLUDES the CREWS / TECHS plurals (one edit from CREW/TECH but a real word)", () => {
+    expect(normalizeSectionHeaders("| CREWS | NAME | PHONE |").corrected).toBe(
+      "| CREWS | NAME | PHONE |",
+    );
+    expect(normalizeSectionHeaders("| TECHS | NAME | PHONE |").corrected).toBe(
+      "| TECHS | NAME | PHONE |",
+    );
+  });
+
+  it("does NOT rewrite a short-header-shaped DATA row (values, not field-header words)", () => {
+    const md = "| TCEH | 555-1234 | john@example.com |";
+    expect(normalizeSectionHeaders(md).corrected).toBe(md);
+  });
+});
