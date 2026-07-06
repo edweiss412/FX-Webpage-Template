@@ -101,9 +101,10 @@ try {
   // novel structure hit an unanticipated path. Route it to the SAME fail-closed handling as a
   // parse hardError (retain last-good + PARSE_ERROR_LAST_GOOD for existing; stage for first-seen)
   // instead of aborting the sync. Audit rec-6 / finding #17.
-  // Message extraction is itself guarded: a pathological throw value (Symbol, or an object with a
-  // throwing `message` getter / `toString`) would make `String(error)` or `.message` throw and
-  // re-break the guard. Fall back to a fixed string so synthesis ALWAYS proceeds.
+  // Message extraction is itself guarded: a pathological throw value (an object with a throwing
+  // `toString`/`valueOf`, or an Error whose `message` is a throwing getter) would make
+  // `String(error)` or `.message` throw and re-break the guard. Fall back to a fixed string so
+  // synthesis ALWAYS proceeds. (Note: `String(Symbol())` does NOT throw — it returns "Symbol()".)
   let message: string;
   try {
     message = error instanceof Error ? error.message : String(error);
@@ -143,7 +144,7 @@ try {
 |---|---|
 | `error` is an `Error` | `message = error.message` |
 | `error` is a string / number / `undefined` / `null` (non-Error throw) | `message = String(error)` |
-| `error` is unstringifiable (`Symbol`, throwing `message` getter / `toString`) | message-extraction try/catch → fixed fallback string; synthesis still proceeds |
+| `error` is unstringifiable (object with throwing `toString`/`valueOf`, or Error with throwing `message` getter) | message-extraction try/catch → fixed fallback string; synthesis still proceeds |
 | Thrown on an **existing** show | `hard_fail` → last-good retained by Phase-1 → `PARSE_ERROR_LAST_GOOD` upserted (`:2985`) |
 | Thrown on a **first-seen** show (no existing `shows` row) | `hard_fail` → `pending_ingestions` row written via `upsertLivePendingIngestion` (`phase1.ts:369`), **no `shows` row**, no auto-publish (fail-closed) — identical to a normal first-seen MI-1 hard_fail |
 | Forensic `log.error` sink throws/rejects | `parsed` already synthesized → guard still routes to `hard_fail`; rejection swallowed, no unhandled rejection |
@@ -167,7 +168,7 @@ Use the `deps.parseSheet` injection to supply a parser that throws.
 - **First-seen → fail-closed pending_ingestions, no `shows` row.** With a throwing parser and no prior show, assert the outcome is `hard_fail`, a `pending_ingestions` row is written (`lastErrorCode === "MI-1_VERSION_DETECTION_FAILED"`), and **no `shows` row is published** (`showId` null) — mirroring a normal first-seen MI-1 hard_fail exactly. *Catches:* a first-seen throw leaking into auto-publish, AND a mis-assertion that "nothing is written" (a normal first-seen hard_fail DOES write pending_ingestions — `phase1.ts:369`, `phase1.test.ts:585`).
 - **Forensic log emitted with correct fields.** Assert a `log.error` carrying `source: "sync"`, `code: "PARSE_SHEET_THREW"`, and `driveFileId` (the reserved field, mapped to `LogRecord.driveFileId`) is emitted on the throw path — capture via `setLogSink`. *Catches:* the channel going silent, and the ID being misfiled as free context instead of the join column.
 - **Logging fault does not break the guard.** Install a `setLogSink` that throws/rejects, drive a parser throw, and assert the guard STILL routes to `hard_fail` (last-good retained / pending_ingestions written) with no unhandled rejection. *Catches:* a regression that awaits the log before synthesizing `parsed`, letting a logger fault re-break the sync (R1 finding-3 vector).
-- **Pathological throw value does not break the guard.** Inject a `deps.parseSheet` that throws a value whose stringification fails (e.g. `throw Symbol()` — `String(Symbol())` throws `TypeError`; or an object with a throwing `message` getter). Assert the guard still synthesizes the thrown sheet and routes to `hard_fail`. *Catches:* the message-extraction line itself throwing before `parsed` is assigned (R2 finding-2 vector).
+- **Pathological throw value does not break the guard.** Inject a `deps.parseSheet` that throws a value whose stringification genuinely fails — a non-Error object with a throwing `toString` (`{ toString() { throw new Error("boom"); } }`, which makes `String(error)` throw) AND/OR an `Error` subclass with a throwing `message` getter (`Object.defineProperty(err, "message", { get() { throw ...; } })`, which makes `error.message` throw). Do **not** use `throw Symbol()` — `String(Symbol())` returns `"Symbol()"` and does not throw, so it would leave the extraction catch unexercised (vacuous test). Assert the guard still synthesizes the thrown sheet and routes to `hard_fail`. *Catches:* the message-extraction line itself throwing before `parsed` is assigned (R2 finding-2 vector).
 
 ### 4.3 Meta / regression
 - **No new structural meta-test is created or required.** `prepareProcessOneFile` is an internal sync function (not a route/action mutation surface), so `tests/log/_metaMutationSurfaceObservability.test.ts` does not cover it, and the AST log-code guard in `tests/log/_metaAdminOutcomeContract.test.ts` is scoped to a hardcoded admin-outcome registry that this call is not a member of. Correctness of the `log.error` fields is proved behaviorally (§4.2), not statically.
