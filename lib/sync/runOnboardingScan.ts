@@ -194,9 +194,9 @@ export type RunOnboardingScanDeps = {
   /**
    * Reads the row's stored `pull_sheet_override` (onboarding: `pending_syncs`)
    * so the pre-lock export can thread `includePullSheetFromTab` and reconcile
-   * content drift (§5.2/§5.3). Default returns `null` (no override) — the DB-backed
-   * reader is injected by the production caller so `prepareOnboardingFiles` stays
-   * side-effect-free for the many callers/tests that don't exercise overrides.
+   * content drift (§5.2/§5.3). Defaults to `defaultReadPullSheetOverride` (a
+   * session-scoped DB read on its own short-lived connection, best-effort). Tests
+   * inject a stub to bypass the DB.
    */
   readPullSheetOverride?: (driveFileId: string) => Promise<PullSheetOverride | null>;
   // Tab title→gid lookup for exact-cell deep-link anchors. Called only when a
@@ -258,6 +258,40 @@ function databaseUrl(): string {
     throw new Error("runOnboardingScan requires DATABASE_URL in production");
   }
   return "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+}
+
+/**
+ * Production default for the pre-lock override read (§5.3): the row's stored
+ * `pending_syncs.pull_sheet_override`, scoped to the ACTIVE wizard session (so a
+ * stale session's override can never leak into a fresh scan). Runs on its own
+ * short-lived connection because the prepare phase is pre-lock and DB-tx-free.
+ *
+ * Best-effort: a fault here must NEVER wedge the pre-lock prepare — it degrades to
+ * "no override" (parse normally, do NOT force-include archived gear), the fail-safe
+ * direction (§5.3/I5). Tests inject `deps.readPullSheetOverride` to bypass the DB.
+ */
+async function defaultReadPullSheetOverride(
+  driveFileId: string,
+): Promise<PullSheetOverride | null> {
+  const sql = postgres(databaseUrl(), { max: 1, prepare: false });
+  try {
+    const rows = (await sql.unsafe(
+      `select ps.pull_sheet_override as o
+         from public.pending_syncs ps
+         join public.app_settings a
+           on a.id = 'default'
+          and a.pending_wizard_session_id = ps.wizard_session_id
+        where ps.drive_file_id = $1
+          and ps.wizard_session_id is not null
+        limit 1`,
+      [driveFileId],
+    )) as Array<{ o: PullSheetOverride | null }>;
+    return rows[0]?.o ?? null;
+  } catch {
+    return null;
+  } finally {
+    await sql.end({ timeout: 5 }).catch(() => {});
+  }
 }
 
 function toDriveFileMeta(file: DriveListedFile): DriveFileMeta {
@@ -1011,9 +1045,11 @@ export async function prepareOnboardingFiles(
   const parseSheet = deps.parseSheet ?? parseMarkdownSheet;
   const enrich = deps.enrichWithDrivePins ?? enrichWithDrivePins;
   const driveClient = deps.driveClient ?? defaultDriveClient();
-  // Default: no override (feature-dark until the production caller injects the
-  // DB-backed reader) — keeps this pre-lock prepare phase side-effect-free.
-  const readOverride = deps.readPullSheetOverride ?? (async () => null);
+  // Default: the session-scoped DB read (§5.3). Every production caller of this
+  // pre-lock prepare — onboarding scan, rescan, finalize-inline rescan, retry —
+  // therefore threads any accepted archived-tab override without per-caller wiring.
+  // Best-effort (a read fault degrades to "no override"); tests inject a stub.
+  const readOverride = deps.readPullSheetOverride ?? defaultReadPullSheetOverride;
 
   // Per-file preparation is a pre-lock, side-effect-free Drive read (export +
   // parse + enrich). Each file is independent, so we prepare them with bounded
