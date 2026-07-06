@@ -48,9 +48,10 @@ import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { Step3SheetCard } from "@/components/admin/wizard/Step3SheetCard";
 import { arr } from "@/components/admin/wizard/step3ReviewSections";
 import { summarizeDataGaps, stripLegacyUnknownFieldAnchors } from "@/lib/parser/dataGaps";
-import type { ParseResult } from "@/lib/parser/types";
+import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
+import type { Step3DisplayState } from "@/lib/admin/step3DisplayState";
 
 function lookupDougFacing(code: string | undefined | null): string | null {
   if (!code) return null;
@@ -105,6 +106,32 @@ export type Step3Row = {
   // pending_syncs.source_anchors jsonb in fetchStep3Data. Absent/malformed → `{}`.
   // Consumed by the step-3 modal's per-section "In sheet" heading links.
   sourceAnchors?: Record<string, SourceAnchor>;
+  // ── Step-3 consolidation (spec §4.3.1) — the unified read threads these so the
+  // folded modal can resolve a re-apply row + the derivation can classify it. ──
+  // The staged_id of this row's pending_syncs row (clean rows only), needed for
+  // the modal's Approve & apply / Ignore payloads.
+  stagedId?: string;
+  // Parsed review items — populated ONLY when the jsonb parses AND every element
+  // passes isStructurallyValidReviewItem (two-level guard, spec §4.3.1). Absent
+  // for non-pending rows (hard_failed/skipped/resolved).
+  triggeredReviewItems?: TriggeredReviewItem[];
+  // Fail-closed flag: the review-items jsonb parsed to a non-array, OR an element
+  // failed structural validation. Suppresses Approve; Ignore stays available.
+  reviewItemsCorrupt?: boolean;
+  // manifest.publish_intent — the finalize-stamped realized checked intent (drives
+  // the pre-CAS "Ready to publish" display state, spec §4.2 rule 5). NOT the
+  // pre-finalize checkbox (that is `status`).
+  publishIntent?: boolean;
+  // manifest.created_show_id — the session-provenance link to the created show.
+  createdShowId?: string | null;
+  // The row's linked show resolved via the session-provenance join OR the
+  // existing-show branch (spec §4.3). null when neither matches.
+  linkedShow?: { published: boolean; archived: boolean } | null;
+  // true iff `linkedShow` came from the session-provenance join (vs existing-show).
+  sessionLinked?: boolean;
+  // The single derived display state (spec §4.2 ordered algorithm). Computed in
+  // fetchStep3Data; every badge / affordance reads THIS, not raw status.
+  displayState?: Step3DisplayState;
 };
 
 export type Step3PublishCounts = {
