@@ -148,12 +148,26 @@ describe("parseStageClause (spec §3.2)", () => {
     expect(r.unrecognizedRestriction).toBe(false);
     expect(r.consumedOnlyClause).toBe(true);
   });
-  it("NON-full-4 clause with Show + a double-star marker does NOT restrict (fail-open, R17)", () => {
+  it("NON-full-4 clause with Show + a double-star marker fails open AND signals (R17 + whole-diff R6)", () => {
     // 'Load In / Set / Show / Strike ONLY**' is NOT the full-4 phrase and ONLY** is invalid for
-    // generalized clauses → no stages, no restriction (must NOT hide Show days).
+    // generalized clauses → no stages, no restriction (R17: must NOT hide Show days). R6 refinement:
+    // recognized stages + a bad-star marker is a MALFORMED attempt → also emit UNKNOWN_STAGE_RESTRICTION
+    // (fail open is preserved; the operator is no longer left in the dark).
     const r = parseStageClause("Load In / Set / Show / Strike ONLY**");
-    expect(r.stages).toEqual([]);
-    expect(r.unrecognizedRestriction).toBe(false);
+    expect(r.stages).toEqual([]); // still fail open — Show days are NOT hidden
+    expect(r.unrecognizedRestriction).toBe(true); // R6: signal the dropped restriction
+  });
+  it("R6: recognized stages + a bad-star ONLY marker fail open AND signal (Set / Strike ONLY**)", () => {
+    for (const cell of ["Set / Strike ONLY**", "Set ONLY*", "Load In / Set ONLY****"]) {
+      const r = parseStageClause(cell);
+      expect(r.stages, cell).toEqual([]); // fail open
+      expect(r.unrecognizedRestriction, cell).toBe(true); // UNKNOWN_STAGE_RESTRICTION
+    }
+  });
+  it("R6: a bad-star ONLY with NO stage token stays a role clause (no signal)", () => {
+    // `LEAD ONLY**` / `Rehearsal ONLY*` carry no stage token → not a stage restriction → no signal.
+    expect(parseStageClause("LEAD ONLY**").unrecognizedRestriction).toBe(false);
+    expect(parseStageClause("Rehearsal ONLY*").unrecognizedRestriction).toBe(false);
   });
   it("consumedOnlyClause is true for a malformed ONLY*** clause (suppresses crew triple-asterisk guard)", () => {
     expect(parseStageClause("Set / Rehearsal ONLY***").consumedOnlyClause).toBe(true);

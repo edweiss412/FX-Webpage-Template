@@ -120,6 +120,28 @@ export function parseStageClause(roleCell: string): StageClause {
   //    not a consumed clause; `cleaned` is roleCell UNCHANGED (fail-safe to the role path).
   const marker = STRICT_ONLY_MARKER_RE.exec(roleCell);
   if (!marker) {
+    // A BAD-STAR `ONLY` marker (`ONLY*` / `ONLY**` / `ONLY****` — rejected by the STRICT marker,
+    // and not the full-4 phrase) ALONGSIDE ≥1 recognized STAGE token is a MALFORMED stage-restriction
+    // attempt (whole-diff Codex R6 [high]). It must fail OPEN (no restriction) BUT emit
+    // UNKNOWN_STAGE_RESTRICTION so the operator learns their restriction was not applied — the feature
+    // contract is "parsed correctly OR explicitly signalled, never silently wrong" (§9). A bad-star
+    // ONLY with NO stage token (`LEAD ONLY**`, `Rehearsal ONLY*`) stays a role clause (no signal).
+    const badStarOnly = /\bONLY\b\s*\*+/i.exec(roleCell); // ONLY + ≥1 star (valid bare/*** are STRICT-matched above)
+    if (badStarOnly) {
+      const preMarker = roleCell.slice(leadingDash.length, badStarOnly.index);
+      const segs = preMarker.split(/[/\-]/).map((t) => t.trim());
+      if (segs.some((t) => stageOf(t.toUpperCase()))) {
+        // Excise the stage tokens from `cleaned` (they must not become UNKNOWN_ROLE_TOKENs); keep the
+        // non-stage tokens + the post-marker tail for the role path.
+        const nonStage = segs.filter((t) => t && !stageOf(t.toUpperCase()));
+        return {
+          stages: [],
+          cleaned: nonStage.join(" / ") + roleCell.slice(badStarOnly.index + badStarOnly[0].length),
+          unrecognizedRestriction: true,
+          consumedOnlyClause: true,
+        };
+      }
+    }
     return {
       stages: [],
       cleaned: roleCell,
