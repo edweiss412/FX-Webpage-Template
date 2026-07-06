@@ -30,7 +30,9 @@ describe("wizard ScheduleDayRow fragment-day meta (#307)", () => {
     );
     expect(metaText(container)).toBeNull();
     const times = [...container.querySelectorAll('[data-testid="wizard-step3-card-d-sched-time"]')];
-    const titles = [...container.querySelectorAll('[data-testid="wizard-step3-card-d-sched-title"]')];
+    const titles = [
+      ...container.querySelectorAll('[data-testid="wizard-step3-card-d-sched-title"]'),
+    ];
     expect(times.map((n) => n.textContent)).toContain("8:00 AM");
     expect(titles.map((n) => n.textContent)).toContain("Show Start");
   });
@@ -44,7 +46,9 @@ describe("wizard ScheduleDayRow fragment-day meta (#307)", () => {
         dates={{ travelIn: null, set: "2025-05-12", showDays: ["2025-05-13"], travelOut: null }}
       />,
     );
-    const titles = [...container.querySelectorAll('[data-testid="wizard-step3-card-d-sched-title"]')];
+    const titles = [
+      ...container.querySelectorAll('[data-testid="wizard-step3-card-d-sched-title"]'),
+    ];
     expect(titles.map((n) => n.textContent)).not.toContain("Show Start");
     // Non-Show phase keeps the original start meta (byte-identical to pre-change).
     expect(metaText(container)).toBe("8:00 AM");

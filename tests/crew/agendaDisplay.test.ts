@@ -106,11 +106,15 @@ describe("showStartDisplayEntry (bare-showStart Show day → 'Show Start' grid e
   });
 
   it("sentinel showStart 'TBD' → null (guarded)", () => {
-    expect(showStartDisplayEntry({ showStart: "TBD", window: null, entries: [] }, "Show")).toBeNull();
+    expect(
+      showStartDisplayEntry({ showStart: "TBD", window: null, entries: [] }, "Show"),
+    ).toBeNull();
   });
 
   it("null showStart → null", () => {
-    expect(showStartDisplayEntry({ showStart: null, window: null, entries: [] }, "Show")).toBeNull();
+    expect(
+      showStartDisplayEntry({ showStart: null, window: null, entries: [] }, "Show"),
+    ).toBeNull();
   });
 
   it("raw entry present (viewer-hidden load-out) → null (#169 raw-entries gate)", () => {
@@ -121,10 +125,14 @@ describe("showStartDisplayEntry (bare-showStart Show day → 'Show Start' grid e
   });
 
   it("non-Show phase with bare showStart → null (phase gate)", () => {
-    expect(showStartDisplayEntry({ showStart: "8:00 AM", window: null, entries: [] }, "Set")).toBeNull();
+    expect(
+      showStartDisplayEntry({ showStart: "8:00 AM", window: null, entries: [] }, "Set"),
+    ).toBeNull();
     expect(
       showStartDisplayEntry({ showStart: "8:00 AM", window: null, entries: [] }, "Travel In"),
     ).toBeNull();
-    expect(showStartDisplayEntry({ showStart: "8:00 AM", window: null, entries: [] }, null)).toBeNull();
+    expect(
+      showStartDisplayEntry({ showStart: "8:00 AM", window: null, entries: [] }, null),
+    ).toBeNull();
   });
 });

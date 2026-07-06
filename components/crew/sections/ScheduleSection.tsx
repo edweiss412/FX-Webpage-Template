@@ -286,8 +286,7 @@ export function ScheduleSection({
                       // Renderer-only; gates on RAW sd.entries (NOT dayEntries) so a
                       // viewer-hidden load-out day keeps its #169 call-time meta, and on
                       // phase==="Show" so Set/travel days are never relabeled.
-                      const showStartRow =
-                        sd != null ? showStartDisplayEntry(sd, day.phase) : null;
+                      const showStartRow = sd != null ? showStartDisplayEntry(sd, day.phase) : null;
                       let meta: string | undefined;
                       if (isSetDay) {
                         // §6/§9.1: when the SET day carries displayable run-of-show
