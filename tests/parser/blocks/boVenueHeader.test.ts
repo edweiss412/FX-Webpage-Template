@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { computeRoomHeaderModel, findBoBlockVenueHeaders } from "../../../lib/parser/blocks/rooms";
 import { parseSheet } from "../../../lib/parser";
 
@@ -173,5 +174,98 @@ describe("BO-venue-header fifth pass (e2e via parseSheet)", () => {
     const grand = byName("GRAND HALL");
     expect(grand).toHaveLength(1);
     expect(grand[0]!.kind).toBe("breakout");
+  });
+});
+
+// Enumerate every committed non-synthetic show fixture (raw / exporter-xlsx /
+// email-embedded / pdf-only / parser-units). The synthetic capability fixture is the
+// ONE place a dims-only BO-venue header is expected to admit — excluded here.
+function nonSyntheticFixtures(dir: string): string[] {
+  const out: string[] = [];
+  for (const e of readdirSync(dir)) {
+    const p = join(dir, e);
+    if (statSync(p).isDirectory()) {
+      if (e !== "synthetic") out.push(...nonSyntheticFixtures(p));
+    } else if (e.endsWith(".md") && e !== "README.md" && !e.startsWith("_")) {
+      out.push(p);
+    }
+  }
+  return out;
+}
+
+describe("BO-venue-header anchor — corpus no-op (spec §5 / §7 test 3)", () => {
+  const files = nonSyntheticFixtures("fixtures/shows");
+
+  it("enumerates the real corpus (non-empty)", () => {
+    expect(files.length).toBeGreaterThan(15);
+  });
+
+  it.each(files)("%s admits zero BO-venue headers", (path) => {
+    // Asserts on the resolver's data source, NOT the rendered room container
+    // (anti-tautology): a fabricated OR mis-classified header shows up here as an admit.
+    const md = readFileSync(path, "utf8");
+    const admits = findBoBlockVenueHeaders(md, computeRoomHeaderModel(md)).filter((h) => h.admit);
+    expect(admits.map((h) => h.header)).toEqual([]);
+  });
+});
+
+describe("BO-venue-header anchor — asset non-fabrication under mutation (spec §7 test 4)", () => {
+  // Fixture case 2: a `label|value` asset directly above a BO block. The shape gate
+  // (c1===c0 || c1==="") must reject it under column/blank-row perturbation — a mutation
+  // must never flip a distinct-c1 asset into an admitted room. Complements
+  // feat/mutation-harness (no dependency).
+  const variants: Record<string, string> = {
+    baseline: ["| PROJECTION SCREEN | 5' x 9' |", "| BO Setup | screen-only |"].join("\n"),
+    "blank-row-injected": [
+      "| PROJECTION SCREEN | 5' x 9' |",
+      "",
+      "| BO Setup | screen-only |",
+    ].join("\n"),
+    "leading-empty-column": [
+      "|  | PROJECTION SCREEN | 5' x 9' |",
+      "| BO Setup | screen-only |",
+    ].join("\n"),
+    "trailing-empty-column": [
+      "| PROJECTION SCREEN | 5' x 9' |  |",
+      "| BO Setup | screen-only |",
+    ].join("\n"),
+  };
+
+  it.each(Object.keys(variants))("no PROJECTION SCREEN room under %s", (k) => {
+    const rooms = parseSheet(variants[k]!).rooms;
+    expect(rooms.some((r) => (r.name ?? "").toUpperCase().includes("PROJECTION SCREEN"))).toBe(
+      false,
+    );
+  });
+});
+
+describe("BO-venue-header anchor — GS/BO reconciliation (spec §7 test 5)", () => {
+  const GS = ["| GENERAL SESSION HELICON | |", "| GS Setup | theatre |", "| GS Audio | 2 mics |"];
+  const venue = (audio: string) =>
+    [
+      "| HELICON&#10;60' x 45' | HELICON&#10;60' x 45' |",
+      "| :---: | :---: |",
+      "| BO Setup | theatre |",
+      `| BO Audio | ${audio} |`,
+    ].join("\n");
+
+  it("(a) absorbs a lossless-subset breakout into the GS room, filling dims", () => {
+    // Every populated breakout field equals GS (setup/audio), dims absent in GS → copied.
+    // Lossless subset → absorbed at rooms.ts:424; exactly one GS HELICON with dims.
+    const rooms = parseSheet([...GS, venue("2 mics")].join("\n")).rooms;
+    const helicon = rooms.filter((r) => (r.name ?? "").toUpperCase() === "HELICON");
+    expect(helicon).toHaveLength(1);
+    expect(helicon[0]!.kind).toBe("gs");
+    expect(helicon[0]!.dimensions).toBe("60' x 45'");
+  });
+
+  it("(b) keeps BOTH rooms when a field conflicts (audio 6 mics ≠ 2 mics)", () => {
+    // Conflict → not a subset → both kept at rooms.ts:430 (east-coast MABEL 1 behavior).
+    // Proves the new pass routed through reconciliation and did NOT delete the breakout.
+    const rooms = parseSheet([...GS, venue("6 mics")].join("\n")).rooms;
+    const helicon = rooms.filter((r) => (r.name ?? "").toUpperCase() === "HELICON");
+    expect(helicon).toHaveLength(2);
+    expect(helicon.map((r) => r.kind).sort()).toEqual(["breakout", "gs"]);
+    expect(helicon.find((r) => r.kind === "breakout")!.audio).toBe("6 mics");
   });
 });
