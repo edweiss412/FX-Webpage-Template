@@ -40,8 +40,11 @@ function rooms(n: number): RoomRow[] {
     set_time: null,
     show_time: null,
     strike_time: null,
+    // Real A/V (video) gear so the room COUNTS toward Rooms & scope
+    // (roomHasScope) — the count excludes no-A/V rooms; exclusion is tested
+    // separately.
     audio: null,
-    video: null,
+    video: "(1) Projector",
     lighting: null,
     scenic: null,
     power: null,

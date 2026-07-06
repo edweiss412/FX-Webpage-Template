@@ -174,6 +174,22 @@ export function hasContent(v: unknown): v is string {
 }
 
 /**
+ * A room "counts" for the Rooms & scope tally only when at least one of its five
+ * A/V disciplines (audio/video/lighting/scenic/other) carries real gear. A room
+ * whose every discipline is unparsed OR an explicit "N/A" / "Not specified"
+ * sentinel — e.g. an "additional rooms" placeholder that only holds a setup note
+ * — is not an A/V scope, so it is excluded from the count (owner decision,
+ * 2026-07-06). The room still RENDERS in the breakdown; only the header/rail
+ * count changes. Mirrors the per-discipline emptiness test used for scope sort.
+ */
+export function roomHasScope(r: RoomRow): boolean {
+  return ROOM_SCOPE.some((scope) => {
+    const value = hasContent(r[scope.key]) ? (r[scope.key] as string) : null;
+    return !isEmptyScopeValue(value);
+  });
+}
+
+/**
  * Build {label,value} rows from [label, rawValue] pairs, keeping only as-parsed
  * content (hasContent — non-null, non-whitespace string). Used by the operator
  * review-modal field-group sections (Venue / Ops / Transport / Contacts).
@@ -612,25 +628,33 @@ export function ContactsBreakdown({
                 <div className="wrap-break-word font-medium text-text-strong">{b.name}</div>
               ) : null}
               {b.rows.length > 0 ? (
-                // §8 meta line: phone/email entries lead with a small icon; the
-                // "Office" row keeps its "Office:" label copy (two phone numbers
-                // must stay tellable apart).
-                <span className="flex flex-wrap items-center gap-x-4 gap-y-1">
-                  {b.rows.map((r) => (
-                    <span
-                      key={r.label}
-                      className="inline-flex items-center gap-1.5 text-xs text-text-subtle"
-                    >
-                      {r.label === "Email" ? (
-                        <Mail aria-hidden="true" className="size-3.5 shrink-0 text-text-faint" />
-                      ) : (
-                        <Phone aria-hidden="true" className="size-3.5 shrink-0 text-text-faint" />
-                      )}
-                      <span className="wrap-break-word">
-                        {r.label === "Office" ? `Office: ${r.value}` : r.value}
-                      </span>
-                    </span>
-                  ))}
+                // §8 meta line: each phone/email is an ACTIONABLE tel:/mailto:
+                // button (mirrors the crew rows' call/email affordances) — the
+                // value stays visible (the operator still reads the number/
+                // address) but the whole chip is tappable. The "Office" row keeps
+                // its "Office:" copy (two phone numbers must stay tellable apart).
+                <span className="flex flex-wrap items-center gap-2">
+                  {b.rows.map((r) => {
+                    const isEmail = r.label === "Email";
+                    const href = isEmail ? `mailto:${r.value}` : `tel:${r.value}`;
+                    const Icon = isEmail ? Mail : Phone;
+                    return (
+                      <a
+                        key={r.label}
+                        href={href}
+                        data-testid={`wizard-step3-card-${dfid}-contact-${b.key}-${
+                          isEmail ? "email" : r.label.toLowerCase()
+                        }`}
+                        aria-label={`${isEmail ? "Email" : "Call"} ${b.name || b.kind}`}
+                        className="inline-flex min-h-tap-min items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-text-subtle transition-colors duration-fast hover:bg-surface-sunken hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                      >
+                        <Icon aria-hidden="true" className="size-3.5 shrink-0 text-text-faint" />
+                        <span className="wrap-break-word">
+                          {r.label === "Office" ? `Office: ${r.value}` : r.value}
+                        </span>
+                      </a>
+                    );
+                  })}
                 </span>
               ) : null}
             </li>
@@ -1035,11 +1059,15 @@ export function ScheduleBreakdown({
 export function RoomsBreakdown({ dfid, rooms }: { dfid: string; rooms: RoomRow[] }) {
   const shown = rooms.slice(0, ROOMS_CAP);
   const note = overflowNote(rooms.length, ROOMS_CAP, "rooms");
+  // Count only rooms that actually carry A/V scope — a no-A/V placeholder room
+  // still renders below but does not inflate the header/rail count (§ owner
+  // decision 2026-07-06; see roomHasScope). All rooms still render (shown).
+  const scopedCount = rooms.filter(roomHasScope).length;
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-rooms`}
       label="Rooms"
-      count={rooms.length}
+      count={scopedCount}
     >
       {rooms.length === 0 ? (
         <p className="text-sm text-text-subtle">No rooms parsed.</p>
@@ -2534,7 +2562,9 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       label: "Rooms & scope",
       group: "Gear",
       Icon: LayoutGrid,
-      railCount: (s) => s.rooms.length,
+      // Rail count mirrors the body header: only A/V-scoped rooms are tallied
+      // (roomHasScope) — a no-A/V placeholder room renders but is not counted.
+      railCount: (s) => s.rooms.filter(roomHasScope).length,
       // Diagrams are consolidated INTO this section, BELOW the rooms — they ARE
       // the rooms' floor plans (Doug's own sheet links its "Room Diagram" cell
       // to the DIAGRAMS tab). No separate nav entry. The Diagrams sub-block
