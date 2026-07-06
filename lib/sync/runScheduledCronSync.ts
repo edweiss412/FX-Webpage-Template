@@ -2701,6 +2701,9 @@ export type PreparedProcessOneFile =
       pullSheetOverrideCleared?: boolean;
       // The archived tab whose drift triggered the clear (for the forensic emit).
       pullSheetOverrideClearedTab?: string;
+      // §5.7/I5a: the raw pre-lock override snapshot that drove this parse. Re-read under the
+      // show: lock and compared; a concurrent change (finalize propagation) ⇒ stale, skip apply.
+      pullSheetOverrideUsed?: OverrideSnapshot;
     };
 
 function defaultCooldownReader(
@@ -3034,7 +3037,29 @@ export async function prepareProcessOneFile(
     ...(pullSheetOverrideApplied !== undefined ? { pullSheetOverrideApplied } : {}),
     ...(pullSheetOverrideCleared ? { pullSheetOverrideCleared } : {}),
     ...(pullSheetOverrideClearedTab !== undefined ? { pullSheetOverrideClearedTab } : {}),
+    // §5.7/I5a: the pre-lock override snapshot this parse was produced under. Re-read + compared
+    // under the show: lock in processOneFile_unlocked; a TOCTOU change (e.g. a concurrent finalize
+    // propagation writing shows.pull_sheet_override) makes this parse stale → refuse-and-retry.
+    pullSheetOverrideUsed: overrideSnapshot(pullSheetOverride),
   };
+}
+
+/** §5.7 snapshot equality: both null, or same tabName+fingerprint. null↔set differs. */
+function pullSheetOverrideSnapshotsEqual(a: OverrideSnapshot, b: OverrideSnapshot): boolean {
+  if (a === null || b === null) return a === b;
+  return a.tabName === b.tabName && a.fingerprint === b.fingerprint;
+}
+
+/** Re-read the durable override under the held show: lock (TOCTOU authority for §5.7). */
+async function readShowPullSheetOverride_unlocked(
+  tx: LockedShowTx<SyncPipelineTx>,
+  driveFileId: string,
+): Promise<OverrideSnapshot> {
+  const row = await tx.queryOne<{ pull_sheet_override: PullSheetOverride | null }>(
+    `select pull_sheet_override from public.shows where drive_file_id = $1`,
+    [driveFileId],
+  );
+  return overrideSnapshot(row?.pull_sheet_override ?? null);
 }
 
 /**
@@ -3107,6 +3132,19 @@ export async function processOneFile_unlocked(
       pipeline.error,
       pipeline.code,
     );
+  }
+
+  // §5.7/I5a locked-snapshot protocol (mirror of rescanWizardSheet): re-read the durable override
+  // under the held show: lock. prepareProcessOneFile read it + parsed BEFORE the lock, so a
+  // concurrent finalize propagation could have changed shows.pull_sheet_override in the TOCTOU
+  // window. If it differs from the pre-lock snapshot this parse was produced under, the parse is
+  // STALE — refuse-and-retry: apply/clear NOTHING, so we never clobber the newer override. The next
+  // cron re-derives under the current override.
+  if (pipeline.pullSheetOverrideUsed !== undefined) {
+    const lockedSnapshot = await readShowPullSheetOverride_unlocked(tx, driveFileId);
+    if (!pullSheetOverrideSnapshotsEqual(pipeline.pullSheetOverrideUsed, lockedSnapshot)) {
+      return { outcome: "skipped", reason: "pull_sheet_override_changed_under_lock" };
+    }
   }
 
   // §5.2/I5b durable auto-clear (under the show: lock): the pre-lock reconcile discarded the

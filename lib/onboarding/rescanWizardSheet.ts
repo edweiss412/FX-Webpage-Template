@@ -5,6 +5,11 @@ import type { DriveListedFile } from "@/lib/drive/list";
 import { prepareOnboardingFiles, type PostgresTransaction } from "@/lib/sync/runOnboardingScan";
 import { STAGED_PARSE_SOURCE_OUT_OF_SCOPE } from "@/lib/sync/applyStaged";
 import { applyRescanDecisionUnderLock } from "@/lib/onboarding/applyRescanDecisionUnderLock";
+import {
+  overrideSnapshot,
+  type OverrideSnapshot,
+  type PullSheetOverride,
+} from "@/lib/sync/pullSheetOverride";
 
 /**
  * Result of a per-sheet Re-scan (spec §5.4). `status:"updated"` is the only
@@ -22,6 +27,10 @@ export type RescanResult =
   | { status: "updated"; needsReview: boolean; changed: boolean; demoted: boolean }
   | { status: "needs_attention"; code: string }
   | { status: "busy"; code: "CONCURRENT_FINALIZE_IN_FLIGHT" }
+  // §5.7/I5a locked-snapshot protocol: the pre-lock parse was produced under an override that
+  // another holder changed in the TOCTOU window before the show: lock — the parse is stale and
+  // nothing is written. Refuse-and-retry; the next rescan re-derives under the current override.
+  | { status: "stale_override_refused" }
   | { status: "superseded" | "no_active_session" | "not_found" | "not_a_sheet" };
 
 export type RescanDeps = {
@@ -52,6 +61,12 @@ export type RescanDeps = {
 };
 
 const DRIVE_FETCH_FAILED = "DRIVE_FETCH_FAILED" as const;
+
+/** §5.7 snapshot equality: both null, or same tabName+fingerprint. null↔set differs. */
+function pullSheetOverrideSnapshotsEqual(a: OverrideSnapshot, b: OverrideSnapshot): boolean {
+  if (a === null || b === null) return a === b;
+  return a.tabName === b.tabName && a.fingerprint === b.fingerprint;
+}
 
 function databaseUrl(): string {
   const configured = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
@@ -168,6 +183,24 @@ export async function rescanWizardSheet(
     if (manRows.length === 0) return { status: "not_found" };
     // (4) show:<driveFileId> blocking lock (single holder — the core adopts it below).
     await tx.unsafe(`select pg_advisory_xact_lock(hashtext('show:' || $1))`, [driveFileId]);
+
+    // (4a) §5.7/I5a locked-snapshot protocol: the pre-lock export was produced under
+    // `prepared.pullSheetOverrideUsed`. Re-read pull_sheet_override UNDER the show: lock; if a
+    // concurrent holder (Task-6 content-change auto-clear, or the Task-8 accept/revoke RPC)
+    // changed it in the TOCTOU window, the pre-lock parse is STALE — refuse-and-retry WITHOUT
+    // writing any staged/live result (the next rescan re-derives under the current override).
+    // Destructure returned-vs-thrown explicitly (invariant 9): a read fault throws to the outer
+    // catch (needs_attention), never a silent proceed on a stale parse.
+    const preLockSnapshot: OverrideSnapshot = prepared.pullSheetOverrideUsed ?? null;
+    const lockedOverrideRows = (await tx.unsafe(
+      `select pull_sheet_override as override_json from public.pending_syncs
+        where drive_file_id = $1 and wizard_session_id = $2::uuid limit 1`,
+      [driveFileId, wizardSessionId],
+    )) as Array<{ override_json: PullSheetOverride | null }>;
+    const lockedSnapshot = overrideSnapshot(lockedOverrideRows[0]?.override_json ?? null);
+    if (!pullSheetOverrideSnapshotsEqual(preLockSnapshot, lockedSnapshot)) {
+      return { status: "stale_override_refused" };
+    }
 
     // Blocker-heal detection: a COMPLETED checkpoint ('all_batches_complete' /
     // 'final_cas_done') means a finalize batch already ran and this re-scan is a

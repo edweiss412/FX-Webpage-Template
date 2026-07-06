@@ -163,6 +163,11 @@ export type PreparedOnboardingFile =
       // True only on the discard-and-rerun path (content_changed / tab_missing) — the
       // staging write must clear pending_syncs.pull_sheet_override to null (§5.2, I5b).
       pullSheetOverrideCleared?: boolean;
+      // §5.7/I5a: the snapshot of the override that was READ pre-lock and drove this export
+      // (overrideSnapshot(override-read)). UNLIKE pullSheetOverrideApplied, this is the raw read
+      // even on the discard path (where applied=null) — the locked-snapshot protocol compares it
+      // against the under-lock re-read to detect a TOCTOU override change. Absent ⇒ null.
+      pullSheetOverrideUsed?: OverrideSnapshot;
     };
 
 export type RunOnboardingScanDeps = {
@@ -1164,6 +1169,8 @@ export async function prepareOnboardingFiles(
       sourceAnchors,
       pullSheetOverrideApplied,
       pullSheetOverrideCleared,
+      // §5.7/I5a: the raw pre-lock override snapshot that drove this export (null when none).
+      pullSheetOverrideUsed: overrideSnapshot(override),
     };
   };
 

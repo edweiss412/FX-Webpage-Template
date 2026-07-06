@@ -4,7 +4,13 @@ import { parseSheet as realParseSheet } from "@/lib/parser";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { ParseResult, ParsedSheet } from "@/lib/parser/types";
 import type { PullSheetOverride } from "@/lib/sync/pullSheetOverride";
-import { prepareProcessOneFile, type ProcessOneFileDeps } from "@/lib/sync/runScheduledCronSync";
+import {
+  prepareProcessOneFile,
+  processOneFile_unlocked,
+  type ProcessOneFileDeps,
+  type SyncPipelineTx,
+} from "@/lib/sync/runScheduledCronSync";
+import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
 import { buildXlsx } from "../helpers/buildXlsx";
 
 /**
@@ -149,5 +155,64 @@ describe("cron pull-sheet override reconcile (pre-lock)", () => {
       .map((i) => i.item)
       .join(" ");
     expect(items).toContain("Current DI Box");
+  });
+});
+
+/**
+ * §5.7/I5a locked-snapshot protocol on the cron apply path. prepareProcessOneFile reads
+ * shows.pull_sheet_override + parses BEFORE the per-show lock; a concurrent finalize propagation can
+ * change the durable override in the TOCTOU window. processOneFile_unlocked re-reads it under the
+ * lock and REFUSES (skipped, no apply/clear) when it no longer matches the pre-lock snapshot.
+ */
+describe("cron pull-sheet override locked-snapshot protocol (§5.7)", () => {
+  function lockedTx(underLockOverride: PullSheetOverride | null, seen: string[]) {
+    return {
+      async queryOne<T>(sql: string) {
+        seen.push(sql);
+        if (/pg_locks/i.test(sql)) return { held: true } as T;
+        if (/select archived from public\.shows/i.test(sql)) return { archived: false } as T;
+        if (/select pull_sheet_override from public\.shows/i.test(sql))
+          return { pull_sheet_override: underLockOverride } as T;
+        throw new Error(`unexpected SQL past the §5.7 guard: ${sql}`);
+      },
+    } as unknown as LockedShowTx<SyncPipelineTx>;
+  }
+
+  it("durable override CLEARED under the lock after a matching pre-lock parse => refuse-and-retry (skipped, no apply)", async () => {
+    const bytes = oldOnlyBytes();
+    const prepared = await prepareReady(bytes, mkOverride(oldFingerprint(bytes))); // match => ready, snapshot carried
+    const seen: string[] = [];
+    const result = await processOneFile_unlocked(
+      lockedTx(null, seen), // concurrently cleared under the lock (null != {tabName,fingerprint})
+      "cron-drive-1",
+      "cron",
+      FILE,
+      {},
+      prepared,
+    );
+    expect(result).toEqual({
+      outcome: "skipped",
+      reason: "pull_sheet_override_changed_under_lock",
+    });
+    // proves the guard actually re-read the durable override before refusing
+    expect(seen.some((s) => /select pull_sheet_override from public\.shows/i.test(s))).toBe(true);
+  });
+
+  it("durable override CHANGED to a different fingerprint under the lock => refuse-and-retry", async () => {
+    const bytes = oldOnlyBytes();
+    const prepared = await prepareReady(bytes, mkOverride(oldFingerprint(bytes)));
+    const seen: string[] = [];
+    const result = await processOneFile_unlocked(
+      lockedTx(mkOverride("different-fingerprint"), seen),
+      "cron-drive-1",
+      "cron",
+      FILE,
+      {},
+      prepared,
+    );
+    expect(result).toEqual({
+      outcome: "skipped",
+      reason: "pull_sheet_override_changed_under_lock",
+    });
   });
 });
