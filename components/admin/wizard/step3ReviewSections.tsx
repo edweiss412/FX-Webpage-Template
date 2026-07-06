@@ -93,6 +93,7 @@ import {
   resolveOptionalField,
   formatScheduleWindow,
   aggregateDays,
+  showStartDisplayEntry,
   type SchedulePhase,
 } from "@/lib/crew/agendaDisplay";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
@@ -893,6 +894,7 @@ export function ScheduleDayRow({
   showStart = null,
   window: dayWindow = null,
   showEnd = null,
+  phase = null,
   label = null,
 }: {
   dfid: string;
@@ -901,6 +903,10 @@ export function ScheduleDayRow({
   showStart?: string | null;
   window?: { start: string; end: string } | null;
   showEnd?: string | null;
+  // Structural aggregate phase — gates the synthesized "Show Start" entry to Show
+  // days only (a Set/travel date colliding with a show date must not be relabeled).
+  // null for an off-schedule ros-only day.
+  phase?: SchedulePhase | null;
   // Aggregate-day display label ("Travel In"/"Set"/"Show Day N"/"Travel Out"); null
   // for an off-schedule ros-only day (no natural phase). #316 item 1 (surface all
   // days) + item 2 ("Show Day N" numbering — the string is precomputed by
@@ -916,15 +922,22 @@ export function ScheduleDayRow({
   const synthetic = entries.filter((e) => e.kind === "strike" || e.kind === "loadout");
   const visibleAgenda = showAll ? agenda : agenda.slice(0, SCHEDULE_ENTRIES_CAP);
   const hidden = agenda.length - SCHEDULE_ENTRIES_CAP;
+  // Bare-showStart SHOW day → render the call time as a "Show Start" run-of-show
+  // entry instead of a label-less meta line. Renderer-only; gates on phase==="Show"
+  // and raw entries.length===0 (see showStartDisplayEntry).
+  const showStartRow = showStartDisplayEntry({ showStart, window: dayWindow, entries }, phase);
   // Synthetic rows always follow the (capped) agenda rows in the SAME 2-track
   // grid, so their time/title cells share the agenda rows' column edges.
-  const rows = [...visibleAgenda, ...synthetic];
+  const rows = showStartRow != null ? [showStartRow] : [...visibleAgenda, ...synthetic];
 
-  // Fragment-day meta (§#307 Fix 1): a day with no titled entries surfaces its
-  // showStart / window / showEnd — mirrors the crew ScheduleSection. Sentinel-guarded
-  // (resolveOptionalField hides TBD/N/A), so it never renders "Ends TBD".
+  // Fragment-day meta (§#307 Fix 1): a day with no titled entries AND no synthesized
+  // Show-Start row surfaces its window / start / end — mirrors the crew ScheduleSection.
+  // Sentinel-guarded (resolveOptionalField hides TBD/N/A), so it never renders "Ends TBD".
+  // A Show-phase bare showStart becomes showStartRow above (timeMeta skipped); every
+  // other case — window, end-only, or a non-Show collision-edge showStart — keeps the
+  // original `win ?? start ?? Ends` meta byte-for-byte.
   let timeMeta: string | null = null;
-  if (entries.length === 0) {
+  if (entries.length === 0 && showStartRow == null) {
     const win = dayWindow != null ? formatScheduleWindow(dayWindow) : null;
     const start = resolveOptionalField(showStart ?? undefined) ?? null;
     const end = resolveOptionalField(showEnd ?? undefined) ?? null;
@@ -1070,6 +1083,7 @@ export function ScheduleBreakdown({
               showStart={ros[d.date]?.showStart ?? null}
               window={ros[d.date]?.window ?? null}
               showEnd={ros[d.date]?.showEnd ?? null}
+              phase={d.phase}
               label={d.label}
             />
           ))}

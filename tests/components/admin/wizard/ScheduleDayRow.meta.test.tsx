@@ -18,10 +18,39 @@ const metaText = (c: HTMLElement): string | null =>
   c.querySelector('[data-testid="wizard-step3-card-d-sched-meta"]')?.textContent ?? null;
 
 describe("wizard ScheduleDayRow fragment-day meta (#307)", () => {
-  test("showStart-only day → start meta", () => {
+  const SHOW_DATES = { travelIn: null, set: null, showDays: ["2025-05-13"], travelOut: null };
+
+  test("showStart-only Show day → 'Show Start' grid entry, no meta", () => {
     const { container } = render(
-      <ScheduleBreakdown dfid="d" ros={{ "2025-05-13": day({ showStart: "8:00 AM" }) }} />,
+      <ScheduleBreakdown
+        dfid="d"
+        ros={{ "2025-05-13": day({ showStart: "8:00 AM" }) }}
+        dates={SHOW_DATES}
+      />,
     );
+    expect(metaText(container)).toBeNull();
+    const times = [...container.querySelectorAll('[data-testid="wizard-step3-card-d-sched-time"]')];
+    const titles = [
+      ...container.querySelectorAll('[data-testid="wizard-step3-card-d-sched-title"]'),
+    ];
+    expect(times.map((n) => n.textContent)).toContain("8:00 AM");
+    expect(titles.map((n) => n.textContent)).toContain("Show Start");
+  });
+
+  test("Set day with a collision-edge bare showStart → NO 'Show Start' entry (phase gate)", () => {
+    // dates.set === the ros date, which is NOT a show day → aggregate phase "Set".
+    const { container } = render(
+      <ScheduleBreakdown
+        dfid="d"
+        ros={{ "2025-05-12": day({ showStart: "8:00 AM" }) }}
+        dates={{ travelIn: null, set: "2025-05-12", showDays: ["2025-05-13"], travelOut: null }}
+      />,
+    );
+    const titles = [
+      ...container.querySelectorAll('[data-testid="wizard-step3-card-d-sched-title"]'),
+    ];
+    expect(titles.map((n) => n.textContent)).not.toContain("Show Start");
+    // Non-Show phase keeps the original start meta (byte-identical to pre-change).
     expect(metaText(container)).toBe("8:00 AM");
   });
   test("window day → range meta", () => {
