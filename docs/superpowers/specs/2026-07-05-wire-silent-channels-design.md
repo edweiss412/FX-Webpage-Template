@@ -120,19 +120,51 @@ The uniqueness index collapses all `showId:null` `FIRST_SEEN_PARSE_FAILED` sight
 
 **Merge semantics require an RPC change.** The current `upsert_admin_alert` (`supabase/migrations/20260618000000_upsert_admin_alert_failedkeys_merge.sql`) merges a **grow-only text array** (`failedKeys`) — it cannot prune, and it merges text not objects. B needs **object-map add** and **key-prune**.
 
-**Why a JS read-modify-write is unsafe here (unlike C):** B's alert is **global** (`showId:null`). Concurrent first-seen files each hold a *different* per-file advisory lock (`show:`||`drive_file_id`), so the advisory lock does **not** serialize writes to the single shared global alert row — a JS read-modify-write would lose updates between concurrent producers. Therefore the map mutation must be **atomic inside a SECURITY DEFINER function** (single SQL statement → row-level lock on the one `admin_alerts` row serializes concurrent producers). Hence the dedicated RPC pair in §5.4, rather than JS-side context assembly. (C differs: it is show-scoped, so its own show lock already serializes its read-modify-write — C needs no RPC.) The RPC calls are themselves tx-bound within each file's pipeline tx (§5.2), but the cross-file serialization guarantee comes from the in-RPC atomicity, not the tx.
+**Why a JS read-modify-write is unsafe here (unlike C):** B's alert is **global** (`showId:null`). Concurrent first-seen files each hold a *different* per-file advisory lock (`show:`||`drive_file_id`), so the advisory lock does **not** serialize writes to the single shared global alert row — a JS read-modify-write would lose updates between concurrent producers. Therefore the map mutation must be **atomic inside a single-statement `INSERT ... ON CONFLICT DO UPDATE`** in a SECURITY DEFINER function (see §5.4). (C differs: it is show-scoped, so its own show lock already serializes its read-modify-write — C needs no RPC.) The RPC calls are tx-bound within each file's pipeline tx (§5.2), but the cross-file serialization guarantee comes from the atomic upsert, not the tx.
 
 ### 5.4 RPC: `upsert_first_seen_parse_failed` / `prune_first_seen_parse_failed`
-New migration adds two SECURITY DEFINER functions:
+New migration adds two SECURITY DEFINER functions. Both are apply-twice idempotent (`create or replace`), `set search_path = public, pg_temp`, and `revoke all ... from public, anon, authenticated; grant execute ... to service_role` (PostgREST DML lockdown / call-boundary discipline).
 
-- `upsert_first_seen_parse_failed(p_drive_file_id text, p_sheet_title text, p_code text) returns uuid` — inserts the global row if absent, else `jsonb_set`s `failures->p_drive_file_id`. `set search_path = public, pg_temp`. `revoke all ... from public, anon, authenticated; grant execute ... to service_role` (PostgREST DML lockdown / call-boundary discipline).
-- `prune_first_seen_parse_failed(p_drive_file_id text) returns uuid` — deletes `failures->p_drive_file_id`; if the resulting `failures` object is empty (`failures = '{}'::jsonb`), sets `resolved_at = now()` (auto-resolve). Same grants.
+**`upsert_first_seen_parse_failed(p_drive_file_id text, p_sheet_title text, p_code text) returns uuid`** — a SINGLE atomic statement (round-3 finding 1 — the absent-row concurrent-insert race is why this must NOT be a select-then-`jsonb_set`):
 
-Both are apply-twice idempotent (`create or replace`). Migration follows the validation-parity checklist (§10).
+```sql
+insert into public.admin_alerts (show_id, code, context)
+values (null, 'FIRST_SEEN_PARSE_FAILED',
+  jsonb_build_object('failures',
+    jsonb_build_object(p_drive_file_id,
+      jsonb_build_object('sheet_title', coalesce(p_sheet_title, ''), 'code', p_code))))
+on conflict (coalesce(show_id::text, ''), code) where resolved_at is null
+do update set
+  last_seen_at = now(),
+  occurrence_count = public.admin_alerts.occurrence_count + 1,
+  context = coalesce(public.admin_alerts.context, '{}'::jsonb)
+    || jsonb_build_object('failures',
+         coalesce(public.admin_alerts.context->'failures', '{}'::jsonb)
+         || jsonb_build_object(p_drive_file_id,
+              jsonb_build_object('sheet_title', coalesce(p_sheet_title, ''), 'code', p_code)))
+returning id;
+```
+
+Two concurrent absent-row producers both attempt the INSERT; Postgres's `ON CONFLICT` on the `admin_alerts_one_unresolved_idx` partial unique index makes the loser fall into `DO UPDATE` atomically — **no `unique_violation`, no lost key, no retry loop needed**. (This is exactly the proven structure of `20260618000000_upsert_admin_alert_failedkeys_merge.sql`; B reuses that INSERT…ON CONFLICT shape but merges a keyed object map instead of a text array.)
+
+**`prune_first_seen_parse_failed(p_drive_file_id text) returns uuid`** — a SINGLE atomic UPDATE:
+
+```sql
+update public.admin_alerts
+   set context = jsonb_set(coalesce(context,'{}'::jsonb), '{failures}',
+                   coalesce(context->'failures','{}'::jsonb) - p_drive_file_id),
+       resolved_at = case
+         when (coalesce(context->'failures','{}'::jsonb) - p_drive_file_id) = '{}'::jsonb
+         then now() else resolved_at end
+ where show_id is null and code = 'FIRST_SEEN_PARSE_FAILED' and resolved_at is null
+returning id;
+```
+
+Row-level lock serializes concurrent prune/add on the (now-existing) row; a prune of an absent key is a no-op that still re-checks the empties-then-resolve condition. Pruning the last key sets `resolved_at` atomically (auto-resolve, §5.3).
 
 ### 5.5 Guard conditions
 - If `p_sheet_title` is null/empty (cron path with no parsed title and no `fileMeta.name`), store `""` — the Doug copy renders a count + "open onboarding to see which" and does not depend on every title being present.
-- Concurrent first-seen failures in one scan: serialized by the in-RPC `jsonb_set` (atomic per call); no JS-side read-modify-write.
+- Concurrent first-seen failures (incl. the FIRST two, when no row exists yet): serialized by the atomic `INSERT ... ON CONFLICT DO UPDATE` (§5.4); the conflict loser merges rather than erroring — no `unique_violation`, no lost key.
 - A file that hard-fails, then next scan stages: add then prune → net removal → resolve when last one clears. Idempotent prune of an absent key is a no-op (still checks empties-then-resolve).
 
 ### 5.6 Doug copy (catalog)
@@ -155,6 +187,7 @@ Both are apply-twice idempotent (`create or replace`). Migration follows the val
 | `adminSurface` | `"inbox"` |
 | identity | `{ kind: "global" }` in `alertIdentityMap` (sheet is IN the copy — SPECIFIC, no per-segment identity resolution; same as `RESYNC_SHRINK_HELD` `alertIdentityMap.ts:158`) |
 | scope | **show-scoped** (`showId: show.showId`) — no global collision |
+| action link | **NONE** (round-3 finding 2). C does **not** join `ALERT_ACTION_CODES` and does **not** mirror `RESYNC_SHRINK_HELD`'s action — that action targets `/admin/show/<slug>#resync` (`alertActions.ts:106-113`), the ReSyncButton for *accepting a held shrink*, which is the wrong surface for an already-applied quality regression. C's closest sibling `PARSE_ERROR_LAST_GOOD` has **no** action link (absent from `ALERT_ACTION_CODES`); its inbox copy directs Doug to the parse panel in prose. C mirrors that — no deep-link button, copy says "open the parse panel." This also avoids adding a UI anchor id (no `app/`/`components/` change → no invariant-8 impeccable gate) and an anchor/route test. |
 
 ### 6.2 When it fires
 Computed for an **existing published show** whose re-sync **applied** (not held/staged/first-seen). The apply path is `applyParseResult` (`lib/sync/applyParseResult.ts:206` writes new `parse_warnings`). The prior last-good `parse_warnings` is readable at `readShowForPhase1` (`lib/sync/runScheduledCronSync.ts:645-651`, exposed as `priorParseResult.warnings`, `:692`). Both are in scope in `processOneFile_unlocked` at the applied-outcome epilogue.
@@ -233,8 +266,8 @@ Each new §12.4 code fans out (verified files exist against HEAD):
 6. **`tests/messages/adminAlertsRegistry.ts`** — add both (the alert-code registry).
 7. **`tests/messages/_metaAlertAudienceContract.test.ts`** — audience rows (`doug` for both).
 8. **`tests/messages/adminSurface.test.ts`** — `inbox` for **C only**; **B is banner** (default, not inbox — §5.1). Note: `inbox` routing makes a code auto-resolve-only (manual `resolveAdminAlert` is guarded by `assertNotInboxRouted`), which is why C's resolve is a raw tx SQL update (§6.4) — consistent with C being inbox.
-9. **`tests/messages/_metaAlertActionsContract.test.ts`** — alert-action rows + **raise-site-pinning regex** (this is the raise-site-pinning meta-test, PR #287; e.g. pin `code: "RESYNC_QUALITY_REGRESSED"` to its producer). C is show-scoped (pin `showId: show.showId, code: "RESYNC_QUALITY_REGRESSED"`); B is global (pin `showId: null, code: "FIRST_SEEN_PARSE_FAILED"` — or via the new RPC helper name).
-10. **`lib/adminAlerts/alertActions.ts`** — action entries (both; C mirrors `RESYNC_SHRINK_HELD:106`, B mirrors `SYNC_STALLED`).
+9. **`tests/messages/_metaAlertActionsContract.test.ts`** — **raise-site-pinning** for both producers (PR #287 principle: pin where each code is raised). C: pin `code: "RESYNC_QUALITY_REGRESSED"` to its applied-epilogue producer (`showId: show.showId`). B: pin `code: "FIRST_SEEN_PARSE_FAILED"` to the `upsert_first_seen_parse_failed` RPC call at both raise sites. **Neither gets an action-link row** (see §6.1 / touchpoint 10) — verify the actions-contract test permits an alert code with a raise-pin but no action entry (as `PARSE_ERROR_LAST_GOOD` already is); if the test requires action-code membership, follow the `PARSE_ERROR_LAST_GOOD` exemption path exactly.
+10. **`lib/adminAlerts/alertActions.ts`** — **no change**. B and C both omit action links (round-3 finding 2): C mirrors `PARSE_ERROR_LAST_GOOD` (no action; wrong to mirror `RESYNC_SHRINK_HELD`'s `#resync`), B mirrors `SYNC_STALLED` (global, no per-show action). Do NOT add either to `ALERT_ACTION_CODES`.
 11. **`lib/adminAlerts/alertIdentityMap.ts`** — `{ kind: "global" }` for both (B truly global; C sheet-in-copy).
 12. **`lib/notify/constants.ts` — `SYNC_PROBLEM_CODES`: do NOT add C or B.** C's resolve is warnings-conditional (vs baseline), so it must be excluded from the unconditional success sweep at `runScheduledCronSync.ts:3026` (round-2 finding 1 — see §6.4). B is a global banner detector (like `SYNC_STALLED`, which is also not in `SYNC_PROBLEM_CODES`), resolved in-RPC. Neither joins the set. (This also means the `sync-problem-codes.test.ts` registry stays as-is for these two codes — verify it does not force-require every new alert code into `SYNC_PROBLEM_CODES`.)
 13. **`lib/notify/detect/recoveryResolution.ts` — N/A for C and B.** The status→code recovery map (`shrink_held → RESYNC_SHRINK_HELD`, `:8/:63`) keys off a sync **status**. C has no distinct status (a regressed sync's status is the normal applied/ok status); B is global with no per-show status. Both resolve via their own dedicated paths (C: `resolveQualityRegression_unlocked`; B: in-RPC prune), NOT the status-map. No recoveryResolution edit.
@@ -271,6 +304,7 @@ The `validation-schema-parity` CI job asserts validation ⊇ manifest. C adds **
 
 - **A:** with an injected `listFolder`-free default and a stubbed Drive page returning a phantom-parent file, assert `log.warn` is called with `code:"UNEXPECTED_PARENT"` and the right fields — at **both** callers. Failure mode caught: a caller that silently drops with no telemetry (the current bug).
 - **B — comparator/aggregate:** two distinct first-seen sheets fail → one alert row, `failures` map has 2 keys; re-raise of the same sheet → still 2 keys (dedup); prune one → 1 key, unresolved; prune last → `failures` empty AND `resolved_at` set. Scope-exclusion: `live_row_conflict` (`:640`) and `defer` (`:710`) do **not** raise `FIRST_SEEN_PARSE_FAILED`. Both raise sites (onboarding + cron showId-null) covered. Failure mode: a second failing sheet clobbering the first's row; a recovered sheet leaving a stuck alert.
+- **B — absent-row concurrency (round-3 finding 1, DB test):** with NO pre-existing alert row, fire `upsert_first_seen_parse_failed` for two distinct `drive_file_id`s concurrently (two connections / interleaved tx) → assert exactly one unresolved row exists and **both** keys survive in `failures` (no `unique_violation`, no lost key). This is a real-DB test (the race is a Postgres `ON CONFLICT` property, not observable under mocks — `feedback_mocked_only_tests_invite_tautological_approve`).
 - **C — comparator truth table**, derived from **corpus fixtures / `summarizeDataGaps` input** (anti-tautology — assert against the summary objects, never rendered DOM):
   - new class 0→1 → fires (rule 1).
   - `UNKNOWN_FIELD` 4→40 → fires (rule 2: +36 abs, +900% rel).
@@ -300,3 +334,5 @@ The `validation-schema-parity` CI job asserts validation ⊇ manifest. C adds **
 - **B/C raise placement:** tx-bound inside the existing `withShowLock` pipeline tx, mirroring `PARSE_ERROR_LAST_GOOD`/`RESYNC_SHRINK_HELD` — NOT a new post-commit epilogue (round-1 finding 2). Invariant 10's post-commit-outside-lock rule governs telemetry emits (Unit A), not admin_alerts raises. Resolved.
 - **B adminSurface:** banner (not inbox), mirroring `SYNC_STALLED` its global sibling (round-2 finding 1). Resolved.
 - **Auto-resolve mechanism:** both via raw tx-bound SQL, never the `resolveAdminAlert` helper (which throws on inbox codes). C = dedicated `resolveQualityRegression_unlocked` (conditional on baseline recovery; C excluded from `SYNC_PROBLEM_CODES` so the unconditional success sweep can't prematurely resolve it). B = in-RPC `resolved_at` set on empty-failures prune. Resolved (round-2 finding 1).
+- **B RPC concurrency:** the upsert is a single atomic `INSERT ... ON CONFLICT (…) WHERE resolved_at is null DO UPDATE` (mirrors the failedKeys migration), so two absent-row concurrent producers both survive with no `unique_violation` and no lost key — NOT a select-then-`jsonb_set` (round-3 finding 1). Resolved.
+- **B/C action links:** NONE. C mirrors `PARSE_ERROR_LAST_GOOD` (no action; copy points to the parse panel) — NOT `RESYNC_SHRINK_HELD`'s `#resync` (wrong surface for an already-applied regression); B mirrors `SYNC_STALLED` (global, no action). Avoids a wrong deep-link, a UI anchor id (no impeccable gate), and a route test (round-3 finding 2). Resolved.
