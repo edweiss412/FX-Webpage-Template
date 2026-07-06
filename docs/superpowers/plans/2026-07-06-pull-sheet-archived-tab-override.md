@@ -1,0 +1,876 @@
+# Plan — Pull-sheet on archived ("OLD") tabs: detect + in-app override
+
+**Spec:** `docs/superpowers/specs/2026-07-06-pull-sheet-archived-tab-override.md` (APPROVE, 12 rounds)
+**Slug:** `pull-sheet-archived-tab-override`
+**Branch / worktree:** `feat/pull-sheet-archived-tab-override` @ `/Users/ericweiss/fxav-worktrees/pull-sheet-archived-tab`
+**Implementer:** Opus / Claude Code (UI surface → Opus-only per ROUTING hard rule).
+
+---
+
+## Pre-draft verification notes (stale-citation corrections)
+
+Every task below cites live-verified `file:line`. The following spec/prompt citations were **stale or imprecise** against the live worktree and are corrected here (do NOT silently diverge — use the corrected forms in tasks):
+
+1. **§12.4 catalog-parity test path.** Spec §13 + AGENTS.md say `tests/messages/codes.test.ts`. **Does not exist.** Live path is **`tests/cross-cutting/codes.test.ts`** (+ `tests/cross-cutting/extract-spec-codes.test.ts`). `pnpm gen:spec-codes` runs `scripts/extract-spec-codes.ts` (`package.json:22`). The x1 gate is `test:audit:x1-catalog-parity` (`package.json:31`) → `vitest run tests/cross-cutting/codes.test.ts tests/cross-cutting/extract-spec-codes.test.ts`.
+2. **Advisory-lock single-holder contract test path.** Prompt/MEMORY reference `tests/auth/_advisoryLockSingleHolderContract.test.ts`. **Not in `tests/auth/`.** Live path is **`tests/sync/_advisoryLockSingleHolderContract.test.ts`**. The deadlock-topology pin `tests/auth/advisoryLockRpcDeadlock.test.ts` DOES exist. Task 8 extends BOTH.
+3. **`PackListBreakdown` definition line.** Spec cites `:2599`/`:2604` (those are the section-registry render call sites: `label: "Pack list"` at `:2599`, `render: (s) => <PackListBreakdown .../>` at `:2604`). The **component definition** is `step3ReviewSections.tsx:1313`; `"No pack list parsed."` is at `:1323`; the section DTO field `pullSheet: PullSheetCase[]` is at `:2053`.
+4. **`source_anchors` → `shows` propagation site.** Spec §5.5 says "exactly as `source_anchors` is propagated"; the live propagation is in **`lib/sync/applyStagedCore.ts:434`** and the first-seen INSERT threads `sourceAnchors` at `applyStagedCore.ts:~1152-1155` — NOT `applyRescanDecisionUnderLock.ts`. Flow A propagation Task 9 patches `applyStagedCore.ts`.
+5. **Shadow payload does NOT currently carry `source_anchors`.** `lib/onboarding/shadowPayload.ts` has zero `source_anchors` refs; source_anchors is persisted at scan to `pending_syncs` and read live by finalize (`finalize/route.ts:911,918,971`). So Flow B carrying `pull_sheet_override` + `pull_sheet_override_applied` in `shows_pending_changes.payload` (spec §5.5) is **genuinely new plumbing** — there is no existing shadow field to mirror one-to-one. Task 9 builds it.
+6. **`ParseResult` is assembled in `lib/sync/enrichWithDrivePins.ts:~387-400`** (the `const result: ParseResult = {...}` builder; file is 423 lines). Adding `archivedPullSheetTabs` to the `ParseResult` shape (Task 4) requires patching this builder plus every other `ParseResult` producer (class-sweep in Task 4).
+7. **Route admin gates differ.** `rescan-sheet/route.ts:56` uses `requireAdmin()` (void). `finalize/route.ts:202-203` uses `requireAdminIdentity()` (`{email}`). The new accept/revoke route (Task 8) needs the actor email for `logAdminOutcome`, so it uses **`requireAdminIdentity`**.
+8. **In-RPC session guard precedent** is `app_settings.pending_wizard_session_id` validated against the passed session id (`rescanWizardSheet.ts:103-115`). The RPC's in-body guard (5.4) mirrors this.
+
+All other spec citations verified accurate (exporter `:206`/`:222`, `pull-sheet.ts:33/59-60/92/125/151`, `types.ts:4/210-217/378/404`, `dataGaps.ts:30/69/85`, `fetch.ts:497/614`, `showDayTimeAnchors.ts:58-60`, `logAdminOutcome.ts:27`, `_auditableMutations.ts:13`, migration precedents).
+
+---
+
+## Goal
+
+Un-silence the exporter's `/\bOLD\b/i` worksheet drop when the archived tab actually contains a pull-sheet block, and give admins an in-app, content-pinned, per-show override to include exactly that tab's pull-sheet case regions — without editing the Google Sheet and without ever letting stale/swapped gear silently publish. Default stays skip; the anti-contamination guard (DEF-2) is preserved for every non-accepted tab.
+
+## Architecture (from spec §5)
+
+- **Detection (exporter):** `synthesizeMarkdownFromXlsx(buffer, opts?)` returns `{ markdown, archivedPullSheetTabs }`. For every OLD tab, detect pull-sheet **case regions** (header row where all cells contain "PULL SHEET", through `collectDataBlock`'s span), record one `ArchivedPullSheetTab` with per-region `headerPreviews[]` + a SHA-256 `fingerprint` over all emitted regions. `opts.includePullSheetFromTab` un-skips exactly one tab's pull-sheet regions (rooms/other blocks discarded). `showDayTimeAnchors.ts` stays unconditionally OLD-skipping.
+- **Sync layer:** reads the row's `pull_sheet_override`, threads `includePullSheetFromTab`, emits `PULL_SHEET_ON_ARCHIVED_TAB` warnings for `included:false` tabs, compares the `included:true` tab's returned fingerprint (mismatch → discard-and-rerun + auto-clear + `PULL_SHEET_OVERRIDE_CONTENT_CHANGED`), persists `archivedPullSheetTabs` into the staged envelope, and writes `pull_sheet_override_applied` atomically with every staged parse under the `show:` lock.
+- **Override storage:** nullable `jsonb` `pull_sheet_override` on `pending_syncs` + `shows`; nullable `jsonb` `pull_sheet_override_applied` on `pending_syncs` only.
+- **Accept/revoke:** admin route → `set_pull_sheet_override` SECURITY DEFINER RPC (holds `show:` lock, service-role-only, in-RPC session guard). Compare-and-set against the reviewed `expectedFingerprint`.
+- **Publish propagation:** Flow A (pending_syncs→shows), Flow B (existing-show shadow payload→shows), each with a finalize consistency gate; Flow C (live cron deferred apply) gates against durable `shows.pull_sheet_override`.
+- **Step-3 UI:** `PackListBreakdown` S1–S4 states driven by `(pr.pullSheet, pr.archivedPullSheetTabs, override-active)`.
+
+## Tech stack
+
+Next.js 16, React 19, TypeScript (strict), Supabase Postgres (postgres.js `tx.unsafe`, SECURITY DEFINER RPCs), Vitest + jsdom + Testing Library, Tailwind v4. No new dependencies.
+
+## Global constraints (copied verbatim from spec §5.10 — the I1–I7 invariant set; every task preserves all seven)
+
+- **I1 — One unit.** Emitted ≡ hashed ≡ parsed ≡ reviewed content: the set of pull-sheet **case regions** (header + `collectDataBlock` items). No path may emit, hash, or review a different slice than the others.
+- **I2 — Reviewed = all of it.** The admin is shown *every* emitted region's header (`headerPreviews[]`). A hash never substitutes for reviewable content.
+- **I3 — Accept pins only reviewed content.** Accept is compare-and-set: server fresh-detect must equal the persisted `expectedFingerprint` the admin reviewed; any drift between render and click → reject + re-prompt.
+- **I4 — Publish gate uses the desired override.** At finalize under the `show:` lock, `applied` must equal `overrideSnapshot(desired)` — Flow A the live `pending_syncs` override, Flow B the payload-carried override; never the stale durable `shows` value.
+- **I5 — No stale parse is ever staged OR applied.** Guards under the `show:` lock: (a) override-**row** drift vs the pre-lock snapshot → refuse-and-retry; (b) sheet-**content** drift under an unchanged override → discard-and-rerun, clear override, empty `pullSheet` with `applied=null`; (c) deferred-apply snapshot gate at apply for ALL three stage-then-apply paths — Flow A/B wizard + Flow C live cron. A changed/mismatched OLD tab never yields a staged OR applied `pullSheet`.
+- **I6 — Durable on both flows.** The accepted override reaches `shows.pull_sheet_override` on Flow A and Flow B; cron reads it so accepted gear survives and revoked gear stays gone.
+- **I7 — Write surface is locked down.** `set_pull_sheet_override` is service-role-only + in-RPC session-guarded; direct PostgREST callers cannot set/clear overrides.
+
+Plus plan-wide AGENTS.md invariants: #2 advisory-lock single-holder, #5 no-raw-error-codes (all copy via `lib/messages/lookup.ts`), #8 impeccable UI dual-gate, #9 Supabase `{data,error}` call-boundary, #10 mutation-surface instrumentation, TDD-per-task (#1), commit-per-task (#6).
+
+---
+
+## Meta-test inventory (what this milestone CREATES / EXTENDS)
+
+| Meta-test | Action | Task |
+|---|---|---|
+| `set_pull_sheet_override` grant-lockdown (`execute` revoked from `public`/`anon`/`authenticated`, granted `service_role`) | **NEW** — modeled on the postgrest-dml-lockdown structural pins | Task 1 |
+| `tests/auth/advisoryLockRpcDeadlock.test.ts` (deadlock topology) | **EXTEND** — add `set_pull_sheet_override` as a `show:`-keyed holder | Task 8 |
+| `tests/sync/_advisoryLockSingleHolderContract.test.ts` (single-holder) | **EXTEND** — RPC-only holder; JS route does NOT take the lock | Task 8 |
+| `tests/cross-cutting/codes.test.ts` + `tests/cross-cutting/extract-spec-codes.test.ts` (§12.4 catalog parity) | **EXTEND** — 2 new rows (`PULL_SHEET_ON_ARCHIVED_TAB`, `PULL_SHEET_OVERRIDE_CONTENT_CHANGED`) | Task 5 |
+| `tests/log/_auditableMutations.ts` (`AUDITABLE_MUTATIONS`) + `tests/log/adminOutcomeBehavior.test.ts` | **EXTEND** — accept/revoke route rows + success-branch behavioral proof | Task 8 |
+| `lib/parser/dataGaps.ts` `GAP_CLASSES` + its drift guard | **EXTEND** — `PULL_SHEET_ON_ARCHIVED_TAB` gap class | Task 4 |
+| Supabase call-boundary registry (`_metaInfraContract`) | **NO new surface** — the new route/RPC caller uses standard `{data,error}` destructuring; add inline `// not-subject-to-meta:` where the helper is not an auth helper, or a registry row if applicable | Task 8 |
+| sentinel-hiding / `admin_alerts.upsert` catalog | **N/A** — no `admin_alerts.upsert`; declared not-applicable | — |
+
+---
+
+## Advisory-lock holder topology (mandatory — spec §5.7, AGENTS.md invariant 2)
+
+Hashkey space touched: `hashtext('show:' || drive_file_id)`.
+
+| Holder | Layer | Existing / New | Notes |
+|---|---|---|---|
+| `rescanWizardSheet` locked tx | JS `tx.unsafe(...pg_advisory_xact_lock(hashtext('show:'||$1))...)` | Existing — `lib/onboarding/rescanWizardSheet.ts:170` | Pre-lock export at `:99-139`; the override read + snapshot re-read (5.7) happen around this holder. NOT nested. |
+| `applyStagedCore` / `applyRescanDecisionUnderLock` apply | JS `show:` lock (existing) | Existing | Flow A/B finalize gate (5.8) runs inside this holder. Propagation write to `shows` (Task 9) is inside it. |
+| `set_pull_sheet_override` RPC | in-RPC `perform pg_advisory_xact_lock(hashtext('show:'||p_drive_file_id))` | **NEW holder** | **Single-holder = RPC only.** The JS route (Task 8) does NOT take the `show:` lock — it calls the RPC which is the sole holder for that call. Never nested under a JS-side `show:` lock (M5 R20 deadlock class). |
+| `upsertLivePendingSync` (Flow C stage) / `readLivePendingSyncForApply` (Flow C apply) | JS `show:` lock (existing cron/apply tx) | Existing | `pull_sheet_override_applied` written with the staged parse under this lock (Task 10). |
+
+**Resolution:** each hashkey is locked at exactly one layer per call. The new RPC is a standalone holder (matches the `revoke_leaked_link_atomic` precedent, `supabase/migrations/20260504000004_...sql:27` `perform pg_advisory_xact_lock(hashtext('show:'||...))`). Task 8 EXTENDS `advisoryLockRpcDeadlock.test.ts` (RPC-holds-lock proof) and `_advisoryLockSingleHolderContract.test.ts` (route-does-not-lock proof).
+
+---
+
+## Layout / transition tasks — explicitly NOT required
+
+- **No real-browser layout task.** Per spec §11: `PackListBreakdown` is flow content inside the section card, not a fixed-dimension parent with flex/grid children needing stretch guarantees. No `getBoundingClientRect` parent==child assertion is added. (Stated so it is not added reflexively.)
+- **No transition-audit task.** Per spec §10: S1–S4 are content swaps on re-fetch after a re-scan (instant re-renders); no `AnimatePresence`/`exit`/`initial` obligations. The 6 state-pairs are all "instant — re-render" or unreachable. (Stated so it is not added reflexively.)
+
+---
+
+## Anti-tautology test rules (apply to every test task)
+
+- Assert against **data inputs**, not the rendering container: fingerprint/emission tests assert against `archivedPullSheetTabs` / `synthesizeMarkdownFromXlsx(...).markdown`, never against a container that renders both.
+- **Derive expected values from fixture cell edits**, never hardcode a SHA-256 hex. A cosmetic-only reformat must yield `===` to the pre-edit fingerprint; a QTY/ITEM/header edit must yield `!==` — computed by mutating the fixture, not by pasting a digest.
+- Every test task states the **concrete failure mode** it catches (mapped to §15 test numbers).
+- Step-3 DOM tests: scope DOM scans to the Pack list section — clone the tree and `.remove()` sibling sections that independently render a tab name before asserting.
+
+---
+
+# TASKS
+
+## Task 1 — Migration: 3 columns + `set_pull_sheet_override` RPC + grant lockdown + grant meta-test
+
+**Spec:** D3, D8, §8, §5.4. **Files:**
+- `supabase/migrations/20260706000000_pull_sheet_override.sql` (NEW)
+- `tests/db/setPullSheetOverrideGrants.test.ts` (NEW — grant meta-test)
+
+**Interfaces — Produces:**
+- `public.pending_syncs.pull_sheet_override jsonb` (nullable, default `null`)
+- `public.shows.pull_sheet_override jsonb` (nullable, default `null`)
+- `public.pending_syncs.pull_sheet_override_applied jsonb` (nullable, default `null`)
+- RPC `public.set_pull_sheet_override(p_drive_file_id text, p_wizard_session_id uuid, p_tab_name text, p_fingerprint text, p_accepted_by text) returns jsonb`
+
+### Step 1.1 — Failing grant meta-test
+
+`tests/db/setPullSheetOverrideGrants.test.ts` (runs against `$TEST_DATABASE_URL`; gated `describe.skipIf(!process.env.TEST_DATABASE_URL)` matching sibling `tests/db/*` suites):
+
+```ts
+import { describe, it, expect, beforeAll, afterAll } from "vitest";
+import postgres from "postgres";
+
+const url = process.env.TEST_DATABASE_URL;
+describe.skipIf(!url)("set_pull_sheet_override grant lockdown", () => {
+  let sql: ReturnType<typeof postgres>;
+  beforeAll(() => { sql = postgres(url!, { max: 1 }); });
+  afterAll(async () => { await sql.end(); });
+
+  it("revokes execute from public/anon/authenticated, grants service_role", async () => {
+    const rows = await sql<{ grantee: string }[]>`
+      select grantee from information_schema.role_routine_grants
+      where routine_name = 'set_pull_sheet_override' and privilege_type = 'EXECUTE'`;
+    const grantees = new Set(rows.map((r) => r.grantee));
+    expect(grantees.has("service_role")).toBe(true);
+    expect(grantees.has("authenticated")).toBe(false);
+    expect(grantees.has("anon")).toBe(false);
+    expect(grantees.has("PUBLIC")).toBe(false);
+  });
+
+  it("both override columns and the applied column exist with the right nullability/default", async () => {
+    const cols = await sql<{ table_name: string; column_name: string; is_nullable: string; column_default: string | null }[]>`
+      select table_name, column_name, is_nullable, column_default
+      from information_schema.columns
+      where (table_name = 'pending_syncs' and column_name in ('pull_sheet_override','pull_sheet_override_applied'))
+         or (table_name = 'shows' and column_name = 'pull_sheet_override')`;
+    expect(cols).toHaveLength(3);
+    for (const c of cols) { expect(c.is_nullable).toBe("YES"); expect(c.column_default).toBeNull(); }
+  });
+});
+```
+
+Run: `pnpm vitest run tests/db/setPullSheetOverrideGrants.test.ts` → **FAILS** (routine + columns absent). Verify the failure text names the missing routine.
+
+### Step 1.2 — Migration (minimal impl)
+
+`supabase/migrations/20260706000000_pull_sheet_override.sql`:
+
+```sql
+-- Pull-sheet-on-archived-tab override (spec 2026-07-06). Nullable jsonb; NULL = skipped
+-- (default). NOT '{}': null is the meaningful "skipped" sentinel (distinct from
+-- source_anchors' '{}' neutral). Idempotent: ADD COLUMN IF NOT EXISTS (apply-twice safe).
+alter table public.pending_syncs
+  add column if not exists pull_sheet_override jsonb;
+alter table public.pending_syncs
+  add column if not exists pull_sheet_override_applied jsonb;
+alter table public.shows
+  add column if not exists pull_sheet_override jsonb;
+
+comment on column public.pending_syncs.pull_sheet_override is
+  'In-app override to include an archived OLD-tab pull sheet: {tabName,fingerprint,acceptedBy,acceptedAt}|null. NULL=skipped (default). Written only via set_pull_sheet_override RPC + publish propagation.';
+comment on column public.pending_syncs.pull_sheet_override_applied is
+  'overrideSnapshot({tabName,fingerprint}|null) the currently-staged parse_result was produced under. Deferred-apply consistency gate (spec 5.8). NOT propagated to shows.';
+comment on column public.shows.pull_sheet_override is
+  'Durable copy of pull_sheet_override, propagated at publish (Flow A/B). Read by cron sync (spec 5.3).';
+
+-- SECURITY DEFINER accept/revoke writer. Sole writer of pending_syncs.pull_sheet_override at
+-- the onboarding layer. Holds the per-show advisory lock (single holder — the JS route never
+-- locks). Belt-and-suspenders: (1) execute revoked below; (2) in-RPC active-session guard.
+create or replace function public.set_pull_sheet_override(
+  p_drive_file_id text,
+  p_wizard_session_id uuid,
+  p_tab_name text,
+  p_fingerprint text,
+  p_accepted_by text
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public, pg_temp
+as $$
+declare
+  v_active_session uuid;
+  v_exists boolean;
+  v_override jsonb;
+begin
+  -- Per-show advisory lock INSIDE the SECURITY DEFINER tx (single holder). Keeps direct
+  -- service-role RPC callers from bypassing the write lock.
+  perform pg_advisory_xact_lock(hashtext('show:' || p_drive_file_id));
+
+  -- In-RPC active-session guard (mirrors rescanWizardSheet.ts:103-115): the session must be
+  -- the live onboarding session, and the target pending_syncs row must exist.
+  select pending_wizard_session_id into v_active_session
+    from public.app_settings where id = 'default' limit 1;
+  if v_active_session is null or v_active_session <> p_wizard_session_id then
+    raise exception 'stale or forged wizard session for pull_sheet_override'
+      using errcode = '22023';
+  end if;
+
+  select exists(
+    select 1 from public.pending_syncs
+     where drive_file_id = p_drive_file_id and wizard_session_id = p_wizard_session_id
+  ) into v_exists;
+  if not v_exists then
+    raise exception 'no pending_syncs row for (session, drive_file_id)'
+      using errcode = 'P0002';
+  end if;
+
+  if p_tab_name is null then
+    v_override := null; -- revoke
+  else
+    v_override := jsonb_build_object(
+      'tabName', p_tab_name,
+      'fingerprint', p_fingerprint,
+      'acceptedBy', p_accepted_by,
+      'acceptedAt', to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')
+    );
+  end if;
+
+  update public.pending_syncs
+     set pull_sheet_override = v_override
+   where drive_file_id = p_drive_file_id and wizard_session_id = p_wizard_session_id;
+
+  return jsonb_build_object('override', v_override);
+end;
+$$;
+
+revoke execute on function public.set_pull_sheet_override(text, uuid, text, text, text)
+  from public, anon, authenticated;
+grant execute on function public.set_pull_sheet_override(text, uuid, text, text, text)
+  to service_role;
+```
+
+Apply locally (TDD invariant 1): `psql "$TEST_DATABASE_URL" -f supabase/migrations/20260706000000_pull_sheet_override.sql && psql "$TEST_DATABASE_URL" -c "notify pgrst, 'reload schema';"`.
+
+### Step 1.3 — Pass + commit
+
+Re-run Step 1.1 → **PASSES**. (Schema-manifest regen + validation-project apply are deferred to Task 14 so the manifest reflects ALL migrations-applied at once, but the LOCAL apply happens now.)
+
+Commit: `feat(db): add pull_sheet_override columns + set_pull_sheet_override RPC with grant lockdown`
+
+---
+
+## Task 2 — Exporter: `ArchivedPullSheetTab` detection, fingerprint, conditional emission
+
+**Spec:** §5.1, D5, D6, I1/I2. **Files:**
+- `lib/drive/exportSheetToMarkdown.ts` (edit — `synthesizeMarkdownFromXlsx` at `:206`, OLD-skip at `:222`)
+- `tests/drive/exportSheetArchivedPullSheet.test.ts` (NEW)
+
+**Interfaces — Produces:**
+```ts
+export type ArchivedPullSheetTab = {
+  tabName: string;
+  headerPreviews: string[];       // one entry per emitted case region, ≤120 chars, ≤4 lines joined " / "
+  fingerprint: string;            // SHA-256 hex over all emitted regions (header cells + collectDataBlock items), normalized
+  included: boolean;
+  contentChangedSinceAccept: boolean; // exporter always false; sync layer sets true on auto-clear (5.2)
+};
+export function synthesizeMarkdownFromXlsx(
+  buffer: ArrayBuffer,
+  opts?: { includePullSheetFromTab?: string },
+): { markdown: string; archivedPullSheetTabs: ArchivedPullSheetTab[] };
+```
+**Consumes:** existing `splitBlocks` (`:104`), `normalizePullSheetGrid` (`:123`), `sheetGrid`, the all-cells pull-sheet-header predicate + `collectDataBlock` region rule (mirrors `lib/parser/pull-sheet.ts:60,125-151`).
+
+### Step 2.1 — Failing detection/fingerprint/emission test
+
+Build fixtures as in-memory xlsx via the same `xlsx`/`ExcelJS` helper the file already uses (grep the file's import; construct a workbook with tabs `INFO`, `OLD PULL SHEET`). Test cases (derive expected from fixture edits — anti-tautology):
+
+```ts
+import { describe, it, expect } from "vitest";
+import { synthesizeMarkdownFromXlsx } from "@/lib/drive/exportSheetToMarkdown";
+import { buildXlsx } from "../helpers/buildXlsx"; // helper wrapping the exporter's xlsx lib; add if absent
+
+// Region: header row all-cells "PULL SHEET", then item rows in a LATER block (Codex R7).
+const regionA = [
+  ["PULL SHEET", "PULL SHEET"],
+  ["RIA - CHICAGO, IL"],
+  [], // separator -> collectDataBlock scans forward
+  ["QTY", "ITEM"],
+  ["2", "Shure SM58"],
+];
+
+describe("synthesizeMarkdownFromXlsx archived-tab detection", () => {
+  it("records one ArchivedPullSheetTab for an OLD tab with a pull-sheet region (included:false by default)", () => {
+    const buf = buildXlsx([{ name: "INFO", grid: [["Show", "X"]] }, { name: "OLD PULL SHEET", grid: regionA }]);
+    const { markdown, archivedPullSheetTabs } = synthesizeMarkdownFromXlsx(buf);
+    expect(archivedPullSheetTabs).toHaveLength(1);
+    const t = archivedPullSheetTabs[0];
+    expect(t.tabName).toBe("OLD PULL SHEET");
+    expect(t.included).toBe(false);
+    expect(t.contentChangedSinceAccept).toBe(false);
+    expect(t.headerPreviews).toEqual(["RIA - CHICAGO, IL"]); // header-line preview, not the "PULL SHEET" row
+    expect(t.fingerprint).toMatch(/^[0-9a-f]{64}$/);
+    // included:false => tab dropped from markdown (default anti-contamination)
+    expect(markdown).not.toContain("Shure SM58");
+  });
+
+  it("stray-mention OLD tab (one cell mentions 'pull sheet', no all-cells header row) yields NO entry", () => {
+    const buf = buildXlsx([{ name: "OLD NOTES", grid: [["see pull sheet tab", "notes"], ["misc", "x"]] }]);
+    const { archivedPullSheetTabs } = synthesizeMarkdownFromXlsx(buf);
+    expect(archivedPullSheetTabs).toHaveLength(0);
+  });
+
+  it("cosmetic reformat => same fingerprint; QTY edit => different; header-only edit => different", () => {
+    const base = synthesizeMarkdownFromXlsx(buildXlsx([{ name: "OLD PULL SHEET", grid: regionA }]))
+      .archivedPullSheetTabs[0].fingerprint;
+    const reformatted = regionA.map((r) => [...r]); reformatted.splice(2, 0, []); // extra blank row
+    expect(synthesizeMarkdownFromXlsx(buildXlsx([{ name: "OLD PULL SHEET", grid: reformatted }]))
+      .archivedPullSheetTabs[0].fingerprint).toBe(base);
+    const qty = regionA.map((r) => [...r]); qty[4] = ["3", "Shure SM58"];
+    expect(synthesizeMarkdownFromXlsx(buildXlsx([{ name: "OLD PULL SHEET", grid: qty }]))
+      .archivedPullSheetTabs[0].fingerprint).not.toBe(base);
+    const hdr = regionA.map((r) => [...r]); hdr[1] = ["MIAMI, FL"]; // header-only (Codex R5)
+    expect(synthesizeMarkdownFromXlsx(buildXlsx([{ name: "OLD PULL SHEET", grid: hdr }]))
+      .archivedPullSheetTabs[0].fingerprint).not.toBe(base);
+  });
+
+  it("multi-case tab: previews list every case, fingerprint spans all, 2nd-case edit changes it", () => {
+    const two = [...regionA, [], ["PULL SHEET", "PULL SHEET"], ["MIAMI, FL"], ["QTY", "ITEM"], ["1", "DI Box"]];
+    const base = synthesizeMarkdownFromXlsx(buildXlsx([{ name: "OLD PULL SHEET", grid: two }]))
+      .archivedPullSheetTabs[0];
+    expect(base.headerPreviews).toEqual(["RIA - CHICAGO, IL", "MIAMI, FL"]); // I2 all cases reviewed
+    const edited = two.map((r) => [...r]); edited[edited.length - 1] = ["2", "DI Box"]; // 2nd case item
+    expect(synthesizeMarkdownFromXlsx(buildXlsx([{ name: "OLD PULL SHEET", grid: edited }]))
+      .archivedPullSheetTabs[0].fingerprint).not.toBe(base.fingerprint);
+  });
+
+  it("includePullSheetFromTab un-skips ONLY pull-sheet regions; rooms/other blocks discarded", () => {
+    const withRooms = [...regionA, [], ["ROOMS"], ["Ballroom A"]];
+    const { markdown, archivedPullSheetTabs } = synthesizeMarkdownFromXlsx(
+      buildXlsx([{ name: "OLD PULL SHEET", grid: withRooms }]),
+      { includePullSheetFromTab: "OLD PULL SHEET" },
+    );
+    expect(markdown).toContain("Shure SM58");     // pull-sheet region emitted
+    expect(markdown).not.toContain("Ballroom A");  // DEF-2: rooms NOT leaked
+    expect(archivedPullSheetTabs[0].included).toBe(true);
+    expect(archivedPullSheetTabs[0].fingerprint).toMatch(/^[0-9a-f]{64}$/); // still returned for compare (5.2)
+  });
+});
+```
+
+Run → **FAILS** (function returns a bare string; no `archivedPullSheetTabs`).
+
+### Step 2.2 — Impl (minimal)
+
+In `lib/drive/exportSheetToMarkdown.ts`:
+1. Add `import { createHash } from "node:crypto";` and the `ArchivedPullSheetTab` type export.
+2. Extract a shared region-walker `collectPullSheetRegions(grid): { headerLines: string[]; regionText: string }[]` that mirrors the parser: iterate rows, a header row is `cells.length > 0 && cells.every(c => c.toUpperCase().includes("PULL SHEET"))`; for each header, gather its `collectDataBlock`-equivalent span (scan forward across blank/separator-bounded blocks to the next pull-sheet header) — reuse `splitBlocks` semantics but stop at the next header (mirror `pull-sheet.ts:125-151`). `headerLines` = the up-to-4 non-"PULL SHEET" cells after the header row, flattened; `regionText` = normalized concatenation of header cells + all item rows.
+3. Normalization for the fingerprint: lowercase-insensitive is NOT applied (content is case-significant), but collapse runs of whitespace to single spaces and drop fully-blank rows, so cosmetic reformat is stable (D5).
+4. Change the signature to `(buffer, opts?)`, return `{ markdown, archivedPullSheetTabs }`.
+5. In the worksheet loop, replace the bare `if (/\bOLD\b/i.test(sheetName)) continue;` (`:222`) with:
+
+```ts
+if (/\bOLD\b/i.test(sheetName)) {
+  const grid = normalizePullSheetGrid(sheetName, sheetGrid(sheet));
+  const regions = collectPullSheetRegions(grid);
+  if (regions.length > 0) {
+    const included = opts?.includePullSheetFromTab === sheetName;
+    const fingerprint = createHash("sha256")
+      .update(regions.map((r) => r.regionText).join("\n \n"), "utf8")
+      .digest("hex");
+    archivedPullSheetTabs.push({
+      tabName: sheetName,
+      headerPreviews: regions.map((r) => flattenPreview(r.headerLines)), // " / " join, ≤120 chars
+      fingerprint,
+      included,
+      contentChangedSinceAccept: false,
+    });
+    if (included) {
+      // Emit ONLY the collected pull-sheet regions; discard every other block on this tab (D6).
+      for (const r of regions) emitRegionToMarkdown(r); // append region markdown to the output buffer
+    }
+  }
+  continue; // non-included OLD tabs (and non-pull-sheet OLD tabs) stay dropped
+}
+```
+
+`flattenPreview(lines)`: `lines.slice(0,4).join(" / ").replace(/&#10;|\n/g, " / ").slice(0,120)`, or `"(no header text)"` when empty (§6). `emitRegionToMarkdown` reuses the same `normalizeBlock` markdown-emission path the non-OLD loop uses (`:224`) so the emitted bytes match what `parsePullSheet` later consumes (I1).
+
+Run → **PASSES**.
+
+Commit: `feat(drive): detect + conditionally emit archived-tab pull-sheet regions with content fingerprint`
+
+---
+
+## Task 3 — Thread callers: `fetch.ts` return-shape + `includePullSheetFromTab`
+
+**Spec:** §5.1 return-shape callers, §12 (call sites `:497`,`:614`). **Files:**
+- `lib/drive/fetch.ts` (edit `:497`, `:614`)
+- `tests/drive/fetchSheetMarkdownArchived.test.ts` (NEW)
+- any other bare-string caller (grep-sweep below)
+
+**Interfaces:** the two fetch helpers (`fetchSheetMarkdownWithBinding` and the sibling at `:614`) must (a) accept + thread an optional `includePullSheetFromTab`, (b) return `archivedPullSheetTabs` alongside `{ markdown, bytes }`.
+
+### Step 3.1 — Grep-sweep for bare-string callers
+
+```
+rg -n "synthesizeMarkdownFromXlsx\(" lib app scripts tests
+```
+Every call that used the bare-string return must move to `.markdown`. Known: `fetch.ts:497`, `:614`. Enumerate the full list in the commit body.
+
+### Step 3.2 — Failing test
+
+```ts
+it("fetch helper surfaces archivedPullSheetTabs and threads includePullSheetFromTab", async () => {
+  const res = await fetchSheetMarkdownWithBinding(/* stub bytes with an OLD PULL SHEET tab */, {
+    includePullSheetFromTab: "OLD PULL SHEET",
+  });
+  expect(res.archivedPullSheetTabs?.[0]?.included).toBe(true);
+  expect(res.markdown).toContain("Shure SM58");
+});
+```
+
+Run → **FAILS** (option not accepted; field absent).
+
+### Step 3.3 — Impl
+
+At `:497` and `:614`, replace `synthesizeMarkdownFromXlsx(bytes)` with `synthesizeMarkdownFromXlsx(bytes, opts?.includePullSheetFromTab ? { includePullSheetFromTab: opts.includePullSheetFromTab } : undefined)`, destructure `{ markdown, archivedPullSheetTabs }`, and add both to the returned object + the helper's signature/type. Update all bare-string callers from Step 3.1 to `.markdown`. Supabase call-boundary is unaffected (no new Supabase call), but any `{data,error}` in these helpers stays intact.
+
+Run → **PASSES**. Commit: `feat(drive): thread includePullSheetFromTab + archivedPullSheetTabs through fetch helpers`
+
+---
+
+## Task 4 — Types + `ParseResult` shape + `GAP_CLASSES` extension + class-sweep
+
+**Spec:** §5.2, §5.9 exact-shape note, §13 GAP_CLASSES. **Files:**
+- `lib/parser/types.ts` (`ParseResult` `:404`, `ParsedSheet` `:378`)
+- `lib/parser/dataGaps.ts` (`GAP_CLASSES` `:30`)
+- `lib/sync/enrichWithDrivePins.ts` (`ParseResult` builder `~:387-400`) + every other `ParseResult` producer (class-sweep)
+- `lib/sync/phase1.ts` (`Phase1ShowRow` `:22`) preview doubles
+- `tests/parser/dataGapsArchivedTab.test.ts` (NEW)
+
+**Interfaces — Produces:** `ParseResult.archivedPullSheetTabs: ArchivedPullSheetTab[]` (required, default `[]`). `PULL_SHEET_ON_ARCHIVED_TAB` in `GAP_CLASSES`.
+
+### Step 4.1 — Failing GAP_CLASSES test
+
+```ts
+import { GAP_CLASSES, DATA_GAP_CODES, summarizeDataGaps } from "@/lib/parser/dataGaps";
+it("PULL_SHEET_ON_ARCHIVED_TAB is a data-gap class counted by summarizeDataGaps", () => {
+  expect(GAP_CLASSES.map((g) => g.code)).toContain("PULL_SHEET_ON_ARCHIVED_TAB");
+  expect(DATA_GAP_CODES.has("PULL_SHEET_ON_ARCHIVED_TAB")).toBe(true);
+  const summary = summarizeDataGaps([
+    { severity: "warn", code: "PULL_SHEET_ON_ARCHIVED_TAB", message: "x" } as any,
+  ]);
+  expect(summary["PULL_SHEET_ON_ARCHIVED_TAB"]).toBe(1);
+});
+```
+
+Run → **FAILS**.
+
+### Step 4.2 — Impl
+
+- `dataGaps.ts:30` append `{ code: "PULL_SHEET_ON_ARCHIVED_TAB", label: "pull sheet on archived tab" },` to `GAP_CLASSES` (before the `as const`). `DATA_GAP_CODES`/`summarizeDataGaps` are single-sourced from it (`:69,73`) so they pick it up.
+- `types.ts`: add `archivedPullSheetTabs: ArchivedPullSheetTab[];` to `ParseResult` (`:404` block) and `ParsedSheet` (`:378` block). Import/re-export `ArchivedPullSheetTab` from `@/lib/drive/exportSheetToMarkdown` (or move the type to `types.ts` and have the exporter import it — pick the direction that avoids a cycle; verify with `pnpm typecheck`).
+- **Class-sweep every `ParseResult` producer** (per the required-nullable-field lesson — `as`-cast doubles bypass typecheck and break at runtime): `rg -n "ParseResult = \{|: ParseResult\b" lib tests` and add `archivedPullSheetTabs: parsed.archivedPullSheetTabs ?? []` (or `[]`) to each literal — notably `enrichWithDrivePins.ts:~387`. For `Phase1ShowRow`/preview `toEqual` fixtures, add `archivedPullSheetTabs: []` so exact-shape `toEqual` assertions still pass.
+
+Run Step 4.1 + `pnpm typecheck` → **PASSES**. Run full `pnpm vitest run tests/sync tests/parser` to catch shape doubles. Commit: `feat(parser): add archivedPullSheetTabs to ParseResult + PULL_SHEET_ON_ARCHIVED_TAB gap class`
+
+---
+
+## Task 5 — §12.4 codes: 4-gate lockstep (2 warn codes)
+
+**Spec:** §9, D7. **Files (all in ONE commit — 3-way lockstep):**
+- `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` §12.4 prose (2 new rows)
+- `lib/messages/__generated__/spec-codes.ts` (regen via `pnpm gen:spec-codes`)
+- `lib/messages/catalog.ts` (2 new rows near existing `PULL_SHEET_*` `:1255`/`:1411`)
+
+### Step 5.1 — Failing parity test
+
+Run `pnpm gen:spec-codes && pnpm vitest run tests/cross-cutting/codes.test.ts tests/cross-cutting/extract-spec-codes.test.ts`. Before edits this passes (no new codes); after adding a catalog row WITHOUT the spec row it must FAIL — so first add ONLY the `catalog.ts` rows and run → **FAILS** with a catalog↔§12.4 divergence naming the two codes. (This proves the gate is live before we satisfy it.)
+
+### Step 5.2 — Impl (all three edits, same commit)
+
+- **§12.4 prose** — add two rows (do NOT `prettier` the master spec — mangles §12.4 cells → x1 divergence):
+  - `PULL_SHEET_ON_ARCHIVED_TAB` | warn | doug | "A pull sheet was found on an archived tab ('{tab}') and left out. If it's this show's gear, include it in review; otherwise ignore."
+  - `PULL_SHEET_OVERRIDE_CONTENT_CHANGED` | warn | health | "An included archived-tab pull sheet changed and was set back to skipped for safety; admin must re-confirm."
+- Run `pnpm gen:spec-codes` → regenerates `spec-codes.ts` with both entries.
+- **`catalog.ts`** — add both rows mirroring the existing `PULL_SHEET_PARSE_PARTIAL` shape (`:1255`): `code`, user-facing `message` via lookup, `severity`, `audience`, `helpHref: "/help/errors#<CODE>"`. Namespace guard: `PULL_SHEET_*` is an established parser namespace — no `REPORT_*`-style scanner collision (§9).
+
+Run Step 5.1 command → **PASSES**. Note per the "new §12.4 code = 4 more CI gates" lesson: also run `pnpm gen:internal-code-enums` if present, add help `_families` entries if the help page enumerates codes, and run the FULL `tests/messages/` + `tests/cross-cutting/` suites. Commit: `feat(messages): add PULL_SHEET_ON_ARCHIVED_TAB + PULL_SHEET_OVERRIDE_CONTENT_CHANGED (12.4 lockstep)`
+
+---
+
+## Task 6 — Sync layer: override read, warning emission, content-change discard-and-rerun, envelope persist, `pull_sheet_override_applied` write
+
+**Spec:** §5.2, §5.3, §5.9, I5(b). **Files:**
+- `lib/sync/runOnboardingScan.ts` (override read before export; warning emit; envelope persist `parse_result` INSERT `:421,443`; `pull_sheet_override_applied` write)
+- `lib/sync/runScheduledCronSync.ts` (cron override read from `shows`; `upsertLivePendingSync:933`)
+- `lib/sync/applyStaged.ts` (read paths `:1197,1437`)
+- helper `lib/sync/pullSheetOverride.ts` (NEW — `overrideSnapshot`, `emitArchivedTabWarnings`, `reconcileIncludedTab`)
+- `tests/sync/pullSheetOverrideReconcile.test.ts` (NEW)
+
+**Interfaces — Produces:**
+```ts
+export type PullSheetOverride = { tabName: string; fingerprint: string; acceptedBy: string; acceptedAt: string };
+export type OverrideSnapshot = { tabName: string; fingerprint: string } | null;
+export function overrideSnapshot(o: PullSheetOverride | null): OverrideSnapshot;
+export function emitArchivedTabWarnings(tabs: ArchivedPullSheetTab[]): ParseWarning[]; // included:false only
+export function reconcileIncludedTab(args: {
+  tabs: ArchivedPullSheetTab[]; override: PullSheetOverride | null;
+}): { kind: "match" } | { kind: "content_changed"; changedTab: ArchivedPullSheetTab };
+```
+
+### Step 6.1 — Failing reconcile + emission test
+
+```ts
+import { overrideSnapshot, emitArchivedTabWarnings, reconcileIncludedTab } from "@/lib/sync/pullSheetOverride";
+
+it("overrideSnapshot drops audit fields", () => {
+  expect(overrideSnapshot({ tabName: "OLD PULL SHEET", fingerprint: "ff", acceptedBy: "a@b.com", acceptedAt: "2026-07-06T00:00:00.000Z" }))
+    .toEqual({ tabName: "OLD PULL SHEET", fingerprint: "ff" });
+  expect(overrideSnapshot(null)).toBeNull();
+});
+
+it("emits one PULL_SHEET_ON_ARCHIVED_TAB per included:false tab, rawSnippet = joined previews", () => {
+  const warns = emitArchivedTabWarnings([
+    { tabName: "OLD PULL SHEET", headerPreviews: ["RIA - CHICAGO", "MIAMI"], fingerprint: "ff", included: false, contentChangedSinceAccept: false },
+  ]);
+  expect(warns).toHaveLength(1);
+  expect(warns[0]).toMatchObject({
+    severity: "warn", code: "PULL_SHEET_ON_ARCHIVED_TAB",
+    rawSnippet: "RIA - CHICAGO | MIAMI",
+    blockRef: { kind: "pull_sheet_archived_tab", name: "OLD PULL SHEET" },
+  });
+});
+
+it("reconcileIncludedTab: matching fingerprint => match; changed => content_changed", () => {
+  const base = { tabName: "OLD PULL SHEET", headerPreviews: ["RIA"], included: true, contentChangedSinceAccept: false };
+  const override = { tabName: "OLD PULL SHEET", fingerprint: "ff", acceptedBy: "a", acceptedAt: "t" };
+  expect(reconcileIncludedTab({ tabs: [{ ...base, fingerprint: "ff" }], override }).kind).toBe("match");
+  const changed = reconcileIncludedTab({ tabs: [{ ...base, fingerprint: "ee" }], override });
+  expect(changed.kind).toBe("content_changed");
+});
+```
+
+Run → **FAILS** (helper absent).
+
+### Step 6.2 — Impl helper + wire into scan/cron/apply
+
+- `pullSheetOverride.ts`: implement the three functions. `emitArchivedTabWarnings` produces the `ParseWarning` shape from §5.2 (`blockRef.kind = "pull_sheet_archived_tab"`, `rawSnippet = headerPreviews.join(" | ")`). `reconcileIncludedTab` finds the `included:true` tab (if any) and compares its returned `fingerprint` to `override.fingerprint`.
+- **`runOnboardingScan.ts`:** before calling the fetch helper, read the row's `pull_sheet_override` (destructure `{ data, error }` — invariant 9). Pass `includePullSheetFromTab: override?.tabName`. After parse: push `emitArchivedTabWarnings(...)` into `parse_result.warnings`; set `parse_result.archivedPullSheetTabs = tabs`. If `reconcileIncludedTab` returns `content_changed` → run the **discard-and-rerun** (5.2, I5b): under the `show:` lock (see Task 7 for the lock reconciliation) clear the override (`set_pull_sheet_override`-equivalent write of `null`, or a direct locked `update ... set pull_sheet_override = null`), emit `PULL_SHEET_OVERRIDE_CONTENT_CHANGED` (forensic), re-parse WITHOUT `includePullSheetFromTab`, stage that no-override parse with **empty `pullSheet`** and set the changed tab's entry `contentChangedSinceAccept = true` with the NEW previews/fingerprint. Persist `pull_sheet_override_applied = overrideSnapshot(override-as-of-lock)` **atomically with the `parse_result` INSERT** (`:421-443` — add both columns to the upsert column list + `excluded.` set-clause).
+- **`runScheduledCronSync.ts`:** cron reads `shows.pull_sheet_override`; `upsertLivePendingSync` (`:933`) writes `pull_sheet_override_applied` with its staged parse (Task 10 covers the Flow C apply gate).
+- **`applyStaged.ts`:** read paths surface the new columns (additive `select`).
+
+Run Step 6.1 + `pnpm vitest run tests/sync` → **PASSES**. Commit: `feat(sync): override read, archived-tab warnings, content-change discard-and-rerun, applied-snapshot write`
+
+---
+
+## Task 7 — Locked-snapshot protocol (5.7) in `rescanWizardSheet` + cron
+
+**Spec:** §5.7, I5(a). **Files:**
+- `lib/onboarding/rescanWizardSheet.ts` (pre-lock export `:99-139`, lock `:170`)
+- `tests/onboarding/rescanOverrideLockedSnapshot.test.ts` (NEW)
+
+**Interfaces:** the pre-lock export carries `{ tabName, fingerprint } | null` (`overrideSnapshot(override-used)`); inside the `show:` locked tx (`:170`), re-read `pull_sheet_override`, compute `overrideSnapshot`, and if `!deepEqual(preLockSnapshot, lockedSnapshot)` → refuse-and-retry (do not write staged results from the stale parse).
+
+### Step 7.1 — Failing TOCTOU test
+
+Two races (§12: 2 tests):
+```ts
+it("revoke-vs-rescan: override cleared under lock after a pre-lock accepted parse => stale parse refused", async () => {
+  // pre-lock parse produced under override A; locked re-read returns null => refuse, no OLD gear staged
+  const result = await rescanWizardSheet({ /* deps whose locked read returns null */ }, args);
+  expect(result.kind).toBe("stale_override_refused"); // typed refuse-and-retry outcome
+  // assert no staged parse_result with pull sheet was written
+});
+it("accept-vs-cron: accept under lock while parse read null pre-lock => null-parse does not overwrite the accept", async () => {
+  const result = await rescanWizardSheet({ /* locked read returns override A, pre-lock snapshot null */ }, args);
+  expect(result.kind).toBe("stale_override_refused");
+});
+```
+
+Run → **FAILS**.
+
+### Step 7.2 — Impl
+
+In `rescanWizardSheet`: capture `preLockSnapshot = overrideSnapshot(overrideUsedForExport)`. Inside the `:170` locked tx, `select pull_sheet_override from public.pending_syncs where ...` (destructure `{data,error}`), compute `lockedSnapshot`, and if it differs (tabName/fingerprint/null↔set), return the typed `stale_override_refused` outcome under the caller's retry envelope — do NOT write staged/live results. The auto-clear (Task 6 content_changed) and accept/revoke (Task 8) both run under this same `show:` lock, serializing all transitions. Mirror the same guard in the cron equivalent.
+
+Run → **PASSES**. Commit: `feat(onboarding): locked-snapshot protocol reconciles pre-lock override against under-lock re-read`
+
+---
+
+## Task 8 — Accept/revoke route + RPC caller + AUDITABLE_MUTATIONS + advisory-lock topology pins
+
+**Spec:** §5.4, D8, D9, I3, I7, invariants 2/9/10. **Files:**
+- `app/api/admin/onboarding/pull-sheet-override/route.ts` (NEW)
+- `tests/log/_auditableMutations.ts` (extend), `tests/log/adminOutcomeBehavior.test.ts` (extend)
+- `tests/auth/advisoryLockRpcDeadlock.test.ts` (extend), `tests/sync/_advisoryLockSingleHolderContract.test.ts` (extend)
+- `tests/api/pullSheetOverrideRoute.test.ts` (NEW), `tests/db/setPullSheetOverrideRpcAuth.test.ts` (NEW — direct-RPC denial + forged session)
+
+**Interfaces — Consumes:** `requireAdminIdentity()` → `{email}` (`lib/auth/requireAdmin`); service-role Supabase client; `set_pull_sheet_override` RPC. **Produces:** `POST` handler.
+
+Body: `{ driveFileId: string; wizardSessionId: string; tabName: string; expectedFingerprint: string }` (accept) | `{ driveFileId: string; wizardSessionId: string; tabName: null }` (revoke).
+
+### Step 8.1 — Failing route + auth + registry tests
+
+```ts
+// route behavior
+it("accept: server fingerprint === expectedFingerprint => RPC called with server-computed fingerprint, re-scan triggered", async () => { /* ... */ });
+it("accept: server fingerprint !== expectedFingerprint => 409 typed re-prompt, RPC NOT called (I3 CAS)", async () => { /* ... */ });
+it("accept: named tab has no pull-sheet region server-side => typed error, no override written", async () => { /* ... */ });
+it("revoke: tabName null => RPC called with p_tab_name null, re-scan triggered", async () => { /* ... */ });
+it("non-admin => rejected before any RPC (requireAdminIdentity throws)", async () => { /* ... */ });
+it("success branch records logAdminOutcome code PULL_SHEET_OVERRIDE_SET/CLEARED (sink-spy after committed success)", async () => { /* invariant 10 behavioral proof */ });
+
+// _auditableMutations registry: new file+POST+code rows present
+// adminOutcomeBehavior: executable success-branch proof for both codes
+// advisoryLockRpcDeadlock: set_pull_sheet_override holds show: lock
+// _advisoryLockSingleHolderContract: the route file contains NO pg_advisory*/'show:' JS lock
+```
+
+The single-holder structural test asserts the route source does NOT contain `pg_advisory` or `hashtext('show:'` (RPC-only holder):
+```ts
+it("pull-sheet-override route does not take the show: lock in JS (RPC is sole holder)", () => {
+  const src = fs.readFileSync("app/api/admin/onboarding/pull-sheet-override/route.ts", "utf8");
+  expect(src).not.toMatch(/pg_advisory|hashtext\('show:/);
+});
+```
+
+Run → **FAILS** (route absent; registry rows missing).
+
+### Step 8.2 — Impl route + registry + pins
+
+Route (`POST`), pattern mirrors `rescan-sheet/route.ts` but uses `requireAdminIdentity`:
+1. `const { email } = await requireAdminIdentity();` (gate).
+2. Parse body; validate shape (typed 400 via lookup copy on malformed — invariant 5).
+3. **Fresh server-side detect** the named tab's current fingerprint (re-fetch bytes + `synthesizeMarkdownFromXlsx`), find the `ArchivedPullSheetTab` for `tabName`. If none → typed error (no pull-sheet region server-side). For accept: if `serverFingerprint !== expectedFingerprint` → 409 typed re-prompt (`PULL_SHEET_OVERRIDE_STALE_REVIEW` lookup copy; NOT a new §12.4 code — a route-level UI message via lookup), RPC NOT called (I3).
+4. Call `set_pull_sheet_override` with the **service-role client** (`{data,error}` destructure — invariant 9): `p_fingerprint = serverFingerprint` (accept) or route the revoke branch with `p_tab_name = null`. The JS route does NOT take the `show:` lock.
+5. On success: trigger the existing re-scan (`rescan-sheet` path) so 5.3 re-runs with the new override.
+6. **Post-commit, outside any lock tx:** `await logAdminOutcome({ code: tabName ? "PULL_SHEET_OVERRIDE_SET" : "PULL_SHEET_OVERRIDE_CLEARED", actorEmail: email, ... })` (forensic admin codes; §12.4-exempt via `_metaAdminOutcomeContract`). No secret logged (tab name is not a secret).
+
+Registry: add two rows to `AUDITABLE_MUTATIONS` (`{ file: "app/api/admin/onboarding/pull-sheet-override/route.ts", fn: "POST", code: "PULL_SHEET_OVERRIDE_SET" }` and `..._CLEARED`). Extend `adminOutcomeBehavior.test.ts` with the executable success-branch proof for both codes. Extend the two advisory-lock meta-tests.
+
+`setPullSheetOverrideRpcAuth.test.ts` (against `$TEST_DATABASE_URL`): a non-service (authenticated-role) `select set_pull_sheet_override(...)` is denied by the grant; a service-role call with a forged/stale `p_wizard_session_id` raises (no write).
+
+Run all → **PASSES**. Commit: `feat(admin): pull-sheet-override accept/revoke route (CAS, RPC-only lock, audited)`
+
+---
+
+## Task 9 — Publish propagation: Flow A + Flow B
+
+**Spec:** §5.5, I6, corrections #4/#5. **Files:**
+- `lib/sync/applyStagedCore.ts` (Flow A propagation, near `source_anchors` `:434` + first-seen INSERT `~:1152`)
+- `app/api/admin/onboarding/finalize/route.ts` (Flow B: write both new values into `shows_pending_changes.payload`)
+- `lib/onboarding/shadowPayload.ts` (`ParsedShadowPayloadForApply` `:38`, `parseShadowPayloadForApply` `:75` — surface both)
+- `lib/onboarding/applyRescanDecisionUnderLock.ts` (Phase-D apply writes `payload.pull_sheet_override` → `shows`)
+- `tests/onboarding/pullSheetOverridePropagation.test.ts` (NEW)
+
+### Step 9.1 — Failing propagation tests
+
+```ts
+it("Flow A: pending_syncs.pull_sheet_override copied to shows on first-seen publish", async () => { /* assert shows row has the override */ });
+it("Flow B: existing-show shadow carries BOTH pull_sheet_override and pull_sheet_override_applied in payload; Phase-D writes override to shows post-pending_syncs-deletion", async () => { /* ... */ });
+```
+
+Run → **FAILS**.
+
+### Step 9.2 — Impl
+
+- **Flow A** (`applyStagedCore.ts`): where the first-seen INSERT threads `sourceAnchors` (`~:1155`), also read the locked `pending_syncs.pull_sheet_override` and write it to `shows.pull_sheet_override`. (Under the existing `show:` lock — no new holder.)
+- **Flow B** (`finalize/route.ts`): when staging an existing show into `shows_pending_changes.payload`, add `pull_sheet_override` (desired) AND `pull_sheet_override_applied` (the staged parse's snapshot) to the payload object BEFORE deleting the `pending_syncs` row.
+- **`shadowPayload.ts`:** extend `ParsedShadowPayloadForApply` with `pullSheetOverride: PullSheetOverride | null` and `pullSheetOverrideApplied: OverrideSnapshot`, and parse/validate them in `parseShadowPayloadForApply` (`:75`) fail-closed like the existing fields.
+- **`applyRescanDecisionUnderLock.ts`:** at Phase-D apply, under the `show:` lock, run the 5.8 gate **payload-internally** (`payload.pullSheetOverrideApplied` deep-equals `overrideSnapshot(payload.pullSheetOverride)` — NOT vs stale durable `shows`), and on pass write `payload.pullSheetOverride` to `shows.pull_sheet_override`.
+
+Run → **PASSES**. Commit: `feat(onboarding): propagate pull_sheet_override to shows on both finalize flows (payload-carried for Flow B)`
+
+---
+
+## Task 10 — Flow C: live-cron deferred-apply snapshot + gate
+
+**Spec:** §5.8 Flow C, I5(c), Codex R11. **Files:**
+- `lib/sync/runScheduledCronSync.ts` (`upsertLivePendingSync:933` writes `pull_sheet_override_applied`)
+- `lib/sync/applyStaged.ts` (`readLivePendingSyncForApply:1197,1437` gate)
+- `tests/sync/flowCLivePendingApplyGate.test.ts` (NEW)
+
+### Step 10.1 — Failing Flow C gate test
+
+```ts
+it("Flow C: live pending staged under override A, durable shows.override revoked before apply => apply REFUSED (no stale live parse)", async () => {
+  // upsertLivePendingSync wrote applied = overrideSnapshot(A); shows.pull_sheet_override = null at apply
+  const result = await applyLivePending({ /* deps: shows override null, staged applied = A */ });
+  expect(result.kind).toBe("override_snapshot_mismatch"); // discard-and-rerun, not applied
+});
+```
+
+Run → **FAILS**.
+
+### Step 10.2 — Impl
+
+- `upsertLivePendingSync`: write `pull_sheet_override_applied = overrideSnapshot(override-as-of-lock)` atomically with the staged live `parse_result`, under the `show:` lock.
+- `readLivePendingSyncForApply` apply path (`applyStaged.ts:1197/1437`): under the `show:` lock, gate `staged.pull_sheet_override_applied` deep-equals `overrideSnapshot(shows.pull_sheet_override)` (durable IS the desired value for live sync — no wizard/payload). On mismatch → discard-and-rerun (do not apply); next cron re-parses under the current override. On match → apply.
+
+Run → **PASSES**. Commit: `feat(sync): Flow C live-cron deferred-apply gates staged parse against durable override`
+
+---
+
+## Task 11 — Finalize consistency gate (5.8) Flow A/B + failed-re-scan states
+
+**Spec:** §5.8, I4, §15 tests 4/8d. **Files:**
+- `lib/onboarding/applyRescanDecisionUnderLock.ts` (Flow A gate) / `applyStagedCore.ts`
+- `app/api/admin/onboarding/finalize-cas/route.ts` (surface the typed blocking outcome via lookup copy)
+- `tests/onboarding/finalizeOverrideConsistencyGate.test.ts` (NEW)
+
+### Step 11.1 — Failing gate tests (4 cases, §15 test 8d + test 4)
+
+```ts
+it("Flow A accepted-then-revoke-then-failed-rescan => finalize REFUSED (applied=A, desired=null)", () => { /* ... */ });
+it("Flow A accept-then-failed-rescan => finalize REFUSED until reconverge (override=A, applied=null)", () => { /* ... */ });
+it("Flow B durable=A, staged-under-A, revoke=>null, rescan fails => payload {override:null, applied:A} => gate compares A vs null => REFUSED (NOT buggy durable-A pass)", () => { /* Codex R8 */ });
+it("Flow B legitimate accept durable-null=>A, staged-under-A => payload {override:A, applied:A} => gate PASSES, shows.override=A (NOT permanently blocked)", () => { /* ... */ });
+it("overrideSnapshot compare ignores acceptedBy/acceptedAt: accepted-then-rescanned row DOES finalize (Flow A & B)", () => { /* Codex R3-1 subset-vs-object bug cannot recur */ });
+```
+
+Run → **FAILS**.
+
+### Step 11.2 — Impl
+
+Under the `show:` lock at finalize/apply, gate `applied === overrideSnapshot(desired)`:
+- **Flow A:** desired = live `pending_syncs.pull_sheet_override`; applied = `pending_syncs.pull_sheet_override_applied`.
+- **Flow B:** desired = `payload.pullSheetOverride`; applied = `payload.pullSheetOverrideApplied` (payload-internal, NOT stale durable `shows`).
+On mismatch → typed blocking outcome (`re-scan needed before publishing`) surfaced via lookup copy (invariant 5), never a silent apply. Declarative gate — no compensation write; a successful re-scan reconverges `applied` → `override`.
+
+Run → **PASSES**. Commit: `feat(onboarding): finalize gate refuses staged parse out of sync with desired override (Flow A/B)`
+
+---
+
+## Task 12 — Step-3 UI: `PackListBreakdown` S1–S4 (OPUS-OWNED, impeccable dual-gate)
+
+**Spec:** §5.6, §5.9, §6, §10, §11. **OWNERSHIP:** this task's primary deliverable is UI code (`components/`) → **Opus-only** per ROUTING hard rule. Before whole-diff review it MUST pass **invariant-8 impeccable dual-gate**: `/impeccable critique` AND `/impeccable audit` on the diff, HIGH/CRITICAL fixed or DEFERRED.md'd, with the canonical v3 preflight gates (PRODUCT.md → DESIGN.md → register → preflight signal). External attestation required (not self-attested).
+
+**No real-browser layout task** (spec §11 — not a fixed-dimension flex/grid parent). **No transition-audit task** (spec §10 — S1–S4 are instant re-renders). Both stated explicitly so they are not added.
+
+**Files:**
+- `components/admin/wizard/step3ReviewSections.tsx` (`PackListBreakdown` def `:1313`, `"No pack list parsed."` `:1323`, DTO `pullSheet` `:2053`, render registration `:2604`)
+- `components/admin/wizard/Step3SheetCard.tsx` (`arr(pr.pullSheet)` `:429`, DTO shaping `:542` — add `archivedPullSheetTabs`)
+- `tests/components/admin/wizard/packListBreakdownStates.test.tsx` (NEW)
+
+**Interfaces — Consumes:** `pr.pullSheet: PullSheetCase[]`, `pr.archivedPullSheetTabs: ArchivedPullSheetTab[]`, override-active flag. **Produces:** S1–S4 render + accept/revoke buttons POSTing to the Task 8 route.
+
+### Step 12.1 — Failing S1–S4 render tests (anti-tautology: assert against data inputs; scope DOM to Pack list section)
+
+```ts
+function packListSection(container: HTMLElement) {
+  // Clone + remove sibling sections that independently render a tab name (anti-tautology)
+  const clone = container.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll('[data-section]:not([data-section="pack-list"])').forEach((n) => n.remove());
+  return clone;
+}
+
+it("S1 Empty: no pull sheet, no archived tabs => 'No pack list parsed.'", () => { /* ... */ });
+
+it("S2 Offer: archivedPullSheetTabs entry (contentChangedSinceAccept:false), no override => warning card lists EVERY headerPreview + both buttons", () => {
+  const pr = { pullSheet: [], archivedPullSheetTabs: [
+    { tabName: "OLD PULL SHEET", headerPreviews: ["RIA - CHICAGO", "MIAMI"], fingerprint: "ff", included: false, contentChangedSinceAccept: false },
+  ]};
+  render(<PackListBreakdown dfid="d" cases={pr.pullSheet} archivedPullSheetTabs={pr.archivedPullSheetTabs} overrideActive={false} />);
+  const sec = packListSection(screen.getByTestId("step3-card"));
+  expect(sec.textContent).toContain("OLD PULL SHEET");
+  expect(sec.textContent).toContain("RIA - CHICAGO"); // I2: every case shown
+  expect(sec.textContent).toContain("MIAMI");
+  const accept = screen.getByRole("button", { name: /use this show's gear/i });
+  // 10b fingerprint transport: accept POSTs the PERSISTED entry's fingerprint
+  fireEvent.click(accept);
+  expect(fetchSpy).toHaveBeenCalledWith(expect.stringContaining("/pull-sheet-override"),
+    expect.objectContaining({ body: expect.stringContaining('"expectedFingerprint":"ff"') }));
+});
+
+it("S3 Included: override active, pullSheet populated => pack list + 'Included from archived tab' note + Revoke", () => { /* ... */ });
+
+it("S4 Re-confirm: entry contentChangedSinceAccept:true + override null + empty pullSheet => 'changed — re-confirm' prefix, NOT generic S2 copy (Codex R10-2)", () => {
+  const pr = { pullSheet: [], archivedPullSheetTabs: [
+    { tabName: "OLD PULL SHEET", headerPreviews: ["MIAMI"], fingerprint: "ee", included: false, contentChangedSinceAccept: true },
+  ]};
+  render(<PackListBreakdown dfid="d" cases={[]} archivedPullSheetTabs={pr.archivedPullSheetTabs} overrideActive={false} />);
+  expect(screen.getByTestId("step3-card").textContent).toMatch(/changed — re-confirm/i);
+});
+
+it("multiple OLD tabs => one card + accept button per tab (render all, no truncation)", () => { /* §6 cap */ });
+it("empty headerPreviews entry string => '(no header text)' but card still renders", () => { /* §6 guard */ });
+```
+
+Run → **FAILS**.
+
+### Step 12.2 — Impl
+
+Extend `PackListBreakdown` props to `{ dfid, cases, archivedPullSheetTabs, overrideActive }`. Render the state table from §5.6:
+- **S1:** `cases` empty + `archivedPullSheetTabs` empty → `"No pack list parsed."` (unchanged).
+- **S2:** an entry with `contentChangedSinceAccept === false` and `!overrideActive` → per-tab warning card `"Found a pull sheet on archived tab '{tabName}'."`, then `headerPreviews.map((p, i) => "Case {i+1} header reads '{p || "(no header text)"}'")` as a list, `"If this is this show's gear, include it; otherwise leave it skipped."` + `[Use this show's gear]` (POST that entry's `fingerprint` as `expectedFingerprint`) / `[Keep skipped]`.
+- **S3:** `overrideActive` + populated `cases` → normal pack list + subtle `"Included from archived tab '{tabName}'."` + `[Revoke]`.
+- **S4:** entry `contentChangedSinceAccept === true` + `!overrideActive` + empty `cases` → S2 card + prefix `"The archived tab '{tabName}' changed — re-confirm before it publishes."`.
+All copy via `lib/messages/lookup.ts` (invariant 5 — no raw codes). Buttons call the Task 8 route; on success re-fetch the (re-scanned) preview. Thread `archivedPullSheetTabs` through the DTO in `Step3SheetCard.tsx:542` and the section registry `:2604`. Add `data-section="pack-list"` to the section wrapper for the DOM-scoping test.
+
+Run → **PASSES**. Then run `/impeccable critique` + `/impeccable audit` on the diff; record findings + dispositions. Commit: `feat(admin): Step-3 PackListBreakdown S1-S4 archived-tab offer/include/re-confirm states`
+
+---
+
+## Task 13 — DataQualityBadge count coverage
+
+**Spec:** §15 test 11. **Files:** `tests/components/.../dataQualityBadgeArchivedTab.test.tsx` (NEW) — likely no impl change (Task 4 already added the gap class; badge is single-sourced from `summarizeDataGaps`). If green with no impl, this is a coverage-lock test.
+
+### Step 13.1
+
+```ts
+it("a PULL_SHEET_ON_ARCHIVED_TAB warning increments the DataQualityBadge gap count", () => {
+  // render badge with warnings=[{severity:'warn', code:'PULL_SHEET_ON_ARCHIVED_TAB'}]
+  // assert the badge count reflects +1 (derive expected from summarizeDataGaps, not hardcoded)
+});
+```
+
+Run → **PASSES** (given Task 4). If it fails, wire the badge's warning filter to `DATA_GAP_CODES`. Commit: `test(admin): DataQualityBadge counts PULL_SHEET_ON_ARCHIVED_TAB gap`
+
+---
+
+## Task 14 — Schema manifest regen + validation-project apply
+
+**Spec:** §8 Manifest/validation row, AGENTS.md validation-schema-parity gate. **Files:** `supabase/__generated__/schema-manifest.json` (regen), no test file (CI `validation-schema-parity` enforces).
+
+### Steps
+1. Confirm the migration is applied to the LOCAL all-migrations DB (Task 1 did this).
+2. `pnpm gen:schema-manifest` → regenerates `supabase/__generated__/schema-manifest.json` including the 3 new columns. Commit the regenerated manifest (Layer-1 tripwire fails if skipped).
+3. Apply the migration **surgically** to validation project `vzakgrxqwcalbmagufjh` (blocked for `db push`): `psql "$TEST_DATABASE_URL" -f supabase/migrations/20260706000000_pull_sheet_override.sql` (TEST_DATABASE_URL points at validation per the "validation creds in MAIN .env.local" lesson) then `psql "$TEST_DATABASE_URL" -c "notify pgrst, 'reload schema';"`. Layer-2 (`tests/db/validation-schema-parity.test.ts`) asserts validation ⊇ manifest.
+4. Verify: `pnpm vitest run tests/db/validation-schema-parity.test.ts` → green.
+
+Commit: `chore(db): regen schema manifest + apply pull_sheet_override migration to validation`
+
+---
+
+## Task 15 — Self-review → Adversarial review (cross-model) → whole-diff → CI → close-out
+
+**MANDATORY** per AGENTS.md writing-plans additions. Between self-review and execution handoff:
+
+1. **Full-suite verification before push** (scoped gates miss regressions): `pnpm test` (full), `pnpm typecheck` (vitest strips types), `pnpm lint` (canonical Tailwind ERROR class), `pnpm format:check` (`--no-verify` bypasses prettier), `pnpm vitest run tests/messages tests/cross-cutting` (12.4 gates), the advisory-lock + auditable-mutation + grant meta-tests.
+2. **Impeccable dual-gate** on the UI diff (Task 12) recorded — external attestation.
+3. **Adversarial review (cross-model)** via `adversarial-review` skill → Codex, iterate to APPROVE (autonomous-ship: no round budget). Pre-load the do-not-relitigate list from spec §14 (DEF-2 not reverted; single-holder RPC-only lock; both-tables storage intentional; null-default intentional; server-computed fingerprint; content-pin fail-safe; pre-lock reconciled under-lock; both-flow propagation; RPC not a PostgREST bypass; CAS pins reviewed content; persisted fingerprint transport; declarative finalize gate; case-region unit; three deferred-apply paths gated).
+4. **Whole-diff Codex cross-model review** to APPROVE (fresh-eyes posture).
+5. Push → **real CI green** (not just local — local-passes-CI-fails is its own class) → `gh pr merge --merge` → fast-forward local main.
+
+(This task carries no code; it is the process gate. Do NOT run adversarial review as part of plan authoring — it runs at execution time.)
+
+---
+
+## Test → invariant → spec mapping (coverage check)
+
+| §15 test | Task | Invariant |
+|---|---|---|
+| 1 Detection | 2 | I1 |
+| 2 No-pull-sheet / stray-mention negative | 2 | I1 |
+| 3 Un-skip granularity + late-item region | 2 | I1, DEF-2 |
+| 4 Fingerprint stability + snapshot subset compare | 2, 11 | I1, I3, I4 |
+| 5 Override read/include | 6 | I5 |
+| 5b Multi-block pin / 5c accepted-tab metadata / 5d multi-case preview | 2, 6 | I1, I2, I5 |
+| 6 Content-change discard-and-rerun (empty staged pullSheet) | 6 | I5(b) |
+| 7 Publish propagation both flows | 9 | I6 |
+| 8 Advisory lock + locked snapshot | 7, 8 | I5(a), I7 |
+| 8b RPC grant/auth | 1, 8 | I7 |
+| 8c Accept CAS | 8 | I3 |
+| 8e Flow C live-cron gate | 10 | I5(c) |
+| 8d Staged↔override on failed re-scan (both flows) | 11 | I4 |
+| 9 Admin gate + behavioral proof | 8 | inv. 10 |
+| 10 / 10b Step-3 S1–S4 + fingerprint transport | 12 | I2, I3 |
+| 11 DataQualityBadge | 13 | — |
+
+Every I1–I7 invariant and every §15 test has a home. No orphan tests; no orphan tasks.
