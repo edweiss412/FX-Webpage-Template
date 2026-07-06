@@ -1,6 +1,9 @@
 import type { drive_v3 } from "googleapis";
 import { getDriveAccessToken, getDriveClient } from "@/lib/drive/client";
-import { synthesizeMarkdownFromXlsx } from "@/lib/drive/exportSheetToMarkdown";
+import {
+  synthesizeMarkdownFromXlsx,
+  type ArchivedPullSheetTab,
+} from "@/lib/drive/exportSheetToMarkdown";
 import type { DriveListedFile } from "@/lib/drive/list";
 import { snapshotCronInFlight, type CronInFlightSnapshot } from "@/lib/log/requestContext";
 
@@ -35,6 +38,12 @@ export type DriveFetchOptions = {
    * stall guard without waiting.
    */
   metadataTimeoutMs?: number;
+  /**
+   * When set, the archived ("OLD") worksheet whose name matches is NOT dropped;
+   * its pull-sheet case regions are emitted into the markdown (spec 5.1/5.3).
+   * Threaded verbatim to {@link synthesizeMarkdownFromXlsx}.
+   */
+  includePullSheetFromTab?: string;
 };
 
 /**
@@ -494,7 +503,12 @@ export async function fetchSheetMarkdownAndBytesAtRevision(
     throw new DriveFetchError(`Drive revision token for ${driveFileId} changed during xlsx export`);
   }
 
-  return { markdown: synthesizeMarkdownFromXlsx(bytes).markdown, bytes };
+  const exportedAtRevision = options.includePullSheetFromTab
+    ? synthesizeMarkdownFromXlsx(bytes, {
+        includePullSheetFromTab: options.includePullSheetFromTab,
+      })
+    : synthesizeMarkdownFromXlsx(bytes);
+  return { markdown: exportedAtRevision.markdown, bytes };
 }
 
 /**
@@ -569,6 +583,9 @@ export async function fetchSheetMarkdownWithBinding(
   // onboarding scan can compute exact-cell deep-link anchors WITHOUT a second
   // Drive export.
   bytes: ArrayBuffer;
+  // Archived ("OLD") tabs that contain a pull-sheet region (spec 5.1). The scan
+  // layer reads these to emit warnings / drive the accept-override flow.
+  archivedPullSheetTabs: ArchivedPullSheetTab[];
 }> {
   const drive = options.drive ?? getDriveClient();
   const before = await fetchFileForExport(
@@ -609,9 +626,15 @@ export async function fetchSheetMarkdownWithBinding(
     throw new DriveFetchError(`Drive revision token for ${driveFileId} changed during xlsx export`);
   }
 
+  const { markdown, archivedPullSheetTabs } = options.includePullSheetFromTab
+    ? synthesizeMarkdownFromXlsx(bytes, {
+        includePullSheetFromTab: options.includePullSheetFromTab,
+      })
+    : synthesizeMarkdownFromXlsx(bytes);
   return {
     binding: { bindingToken: token, modifiedTime },
-    markdown: synthesizeMarkdownFromXlsx(bytes).markdown,
+    markdown,
     bytes,
+    archivedPullSheetTabs,
   };
 }
