@@ -119,6 +119,26 @@ describe("Step3ReviewModal resolution body (spec §4.4)", () => {
     expect(screen.getByRole("button", { name: /re-scan this sheet/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /ignore this sheet/i })).toBeInTheDocument();
   });
+
+  test("resolution choices re-derive when items change on a still-open modal (Codex R5 MEDIUM)", () => {
+    // In-modal Re-scan → router.refresh delivers NEW triggeredReviewItems while
+    // the modal stays mounted. `useState(initialMemo)` ignores the memo after
+    // first mount, so without a sync the choices go stale: a fresh single-action
+    // item never auto-binds and Approve is stuck disabled until reopen.
+    const { rerender } = renderModal(resWith([mi13Item])); // tier-3 → no auto-bind, Approve disabled
+    expect(screen.getByRole("button", { name: /approve & apply/i })).toBeDisabled();
+    rerender(
+      <Step3ReviewModal
+        data={sectionData()}
+        checked={false}
+        isDirtyRescan={false}
+        onRequestSetChecked={vi.fn(async () => true)}
+        onClose={vi.fn()}
+        resolution={resWith([mi6Item])} // single-action → must auto-bind after the swap
+      />,
+    );
+    expect(screen.getByRole("button", { name: /approve & apply/i })).toBeEnabled();
+  });
 });
 
 describe("Step3ReviewModal resolution behavioral payloads (HIGH plan-R2/R3)", () => {

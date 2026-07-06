@@ -220,6 +220,16 @@ export function Step3ReviewModal({
   }, [resolution?.triggeredReviewItems]);
   const [resolutionChoices, setResolutionChoices] =
     useState<Map<string, ReviewerAction>>(initialResolutionChoices);
+  // `useState(initialMemo)` only seeds on first mount. An in-modal Re-scan
+  // triggers router.refresh, which delivers NEW triggeredReviewItems to the
+  // still-open modal — re-derive the choices so single-action items auto-bind
+  // and stale bindings for removed items are dropped (else Approve can stick
+  // disabled with no selectable radios until reopen). The memo is stable until
+  // the item ids change, so on mount this sets the identical ref and React
+  // bails — no extra render. (Codex R5 MEDIUM.)
+  useEffect(() => {
+    setResolutionChoices(initialResolutionChoices);
+  }, [initialResolutionChoices]);
   const [resolutionPending, setResolutionPending] = useState(false);
   const [resolutionError, setResolutionError] = useState<string | null>(null);
 
