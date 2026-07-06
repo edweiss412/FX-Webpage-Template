@@ -100,7 +100,10 @@ type Captured = { sql: string; params: unknown[] };
 
 // Fake tx: records every executed SQL and answers the two SELECTs the core issues
 // under the lock (prior-state capture + fresh-staged read-back). Every write returns [].
-function makeTx(priorRow: Record<string, unknown>): { tx: PostgresTransaction; calls: Captured[] } {
+function makeTx(
+  priorRow: Record<string, unknown>,
+  opts: { stagedReadbackEmpty?: boolean } = {},
+): { tx: PostgresTransaction; calls: Captured[] } {
   const calls: Captured[] = [];
   const tx: PostgresTransaction = {
     async unsafe(sql: string, params: unknown[] = []) {
@@ -109,6 +112,9 @@ function makeTx(priorRow: Record<string, unknown>): { tx: PostgresTransaction; c
         return [priorRow];
       }
       if (/select\s+staged_modified_time,\s*triggered_review_items/i.test(sql)) {
+        // R4 MEDIUM: model a scan that reported 'staged' but whose row is no longer
+        // readable (e.g. a superseding cleanup removed it) — the readback is empty.
+        if (opts.stagedReadbackEmpty) return [];
         return [
           {
             staged_modified_time: FRESH_MODTIME,
@@ -236,6 +242,35 @@ describe("applyRescanDecisionUnderLock", () => {
         (c.params as unknown[]).includes("RESCAN_REVIEW_REQUIRED"),
     );
     expect(demote, "expected a RESCAN_REVIEW_REQUIRED demotion").toBeTruthy();
+  });
+
+  // Failure mode (whole-diff R4 MEDIUM): the restage reports 'staged' but the row is
+  // not readable back (a superseding cleanup removed it). The old `one(rows)` returned
+  // `rows[0]!` — undefined on an empty set — so the next deref threw an uncaught
+  // TypeError → empty 500. Must fail closed with a discriminated outcome instead.
+  test("scan staged but row not readable back → not_staged (no uncaught throw)", async () => {
+    const { tx } = makeTx(
+      {
+        wizard_approved: true,
+        wizard_approved_by_email: "ada@x.example",
+        parse_result: PRIOR_PARSE,
+        staged_modified_time: PRIOR_MODTIME,
+      },
+      { stagedReadbackEmpty: true },
+    );
+    const out = await applyRescanDecisionUnderLock(
+      tx,
+      {
+        wizardSessionId: WIZARD,
+        driveFileId: DRIVE,
+        pendingFolderId: FOLDER,
+        prepared: preparedFor(PRIOR_PARSE),
+        refreshedParse: PRIOR_PARSE,
+        isBlockerHeal: false,
+      },
+      { scanOnboardingPreparedFiles: stagedScan },
+    );
+    expect(out).toEqual({ kind: "not_staged", code: expect.any(String) });
   });
 
   // Failure mode: a decision-requiring crew change (MI-12 rename) being auto-kept.

@@ -154,10 +154,6 @@ async function capturePriorState(
   };
 }
 
-function one<T>(rows: T[]): T {
-  return rows[0]!;
-}
-
 /**
  * The lock-free per-row-surface core of a Re-scan (spec §4.2). It CAPTURES prior state
  * itself under the passed (already-locked) `tx`, re-stages the single sheet via
@@ -241,14 +237,20 @@ export async function applyRescanDecisionUnderLock(
 
   // Read back the just-staged row: the fresh staged_modified_time + the blinded
   // sentinel item(s) (new randomUUID ids).
-  const stagedRow = one(
-    (await tx.unsafe(
-      `select staged_modified_time, triggered_review_items
-         from public.pending_syncs
-        where wizard_session_id = $1::uuid and drive_file_id = $2`,
-      [wizardSessionId, driveFileId],
-    )) as Array<{ staged_modified_time: unknown; triggered_review_items: TriggeredReviewItem[] }>,
-  );
+  const stagedRows = (await tx.unsafe(
+    `select staged_modified_time, triggered_review_items
+       from public.pending_syncs
+      where wizard_session_id = $1::uuid and drive_file_id = $2`,
+    [wizardSessionId, driveFileId],
+  )) as Array<{ staged_modified_time: unknown; triggered_review_items: TriggeredReviewItem[] }>;
+  const stagedRow = stagedRows[0];
+  if (!stagedRow) {
+    // Whole-diff R4 MEDIUM: the scan reported 'staged' but the row is not readable
+    // back — e.g. a superseding cleanup removed it between the restage and here. Fail
+    // CLOSED with a discriminated outcome (invariant 9), never an empty 500 from a
+    // `rows[0]!` deref of undefined.
+    return { kind: "not_staged", code: STAGED_PARSE_FAILED };
+  }
   const sentinelItems = stagedRow.triggered_review_items ?? [];
   const changed = isoOf(stagedRow.staged_modified_time) !== isoOf(prior.priorStagedModifiedTime);
 
