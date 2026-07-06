@@ -41,6 +41,9 @@ export type ShowForApply = {
   showId: string | null;
   lastSeenModifiedTime: string | null;
   diagrams: unknown;
+  // §5.8 Flow C — the durable override for the live deferred-apply snapshot gate. Optional so
+  // existing mocks/producers that never populate it read as "no override" (undefined → null).
+  pullSheetOverride?: PullSheetOverride | null;
 };
 
 /**

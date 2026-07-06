@@ -101,6 +101,7 @@ function pending(overrides: Partial<PendingSyncForApply> = {}): PendingSyncForAp
     priorLastSyncStatus: "ok",
     priorLastSyncError: null,
     warningSummary: "none",
+    pullSheetOverrideApplied: null,
     ...overrides,
   };
 }

@@ -27,6 +27,17 @@ export function overrideSnapshot(o: PullSheetOverride | null | undefined): Overr
 }
 
 /**
+ * Deep-equality for two override snapshots (§5.8 deferred-apply gate). Both-null is equal;
+ * one-null-one-set is not; two set snapshots match iff `tabName` AND `fingerprint` agree.
+ * The single comparator every deferred-apply gate (Flow A/B finalize, Flow C live cron) uses
+ * so no path re-derives the null-safety.
+ */
+export function overrideSnapshotsEqual(a: OverrideSnapshot, b: OverrideSnapshot): boolean {
+  if (a === null || b === null) return a === b;
+  return a.tabName === b.tabName && a.fingerprint === b.fingerprint;
+}
+
+/**
  * One `PULL_SHEET_ON_ARCHIVED_TAB` warning per NOT-included archived-tab pull
  * sheet (§5.2). The `included:true` (accepted) tab is reconciled separately by
  * {@link reconcileIncludedTab}, never warned here. `rawSnippet` joins the case
