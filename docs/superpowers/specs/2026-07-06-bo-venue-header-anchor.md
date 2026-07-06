@@ -118,7 +118,7 @@ The admit decision is driven **entirely** by "is there a `BO` field block, and i
 
 ## 5. Corpus no-op invariant
 
-The byte-frozen baseline `tests/parser/blocks/__baselines__/origin-main-rooms.json` (deep-equal at `roomHeaderModel.test.ts:194-203`, both renderer families) **MUST stay identical**. The proof is a **mechanical emulation of the revised §3.1 gate over every `fixtures/shows/**` file** (not a hand-argued grep — the round-1 corpus claim was wrong precisely because it wasn't re-derived): the emulation admits **zero** headers across the entire committed corpus. The header directly above each committed BO block is always one of:
+The byte-frozen baseline `tests/parser/blocks/__baselines__/origin-main-rooms.json` (deep-equal at `roomHeaderModel.test.ts:194-203`, both renderer families) **MUST stay identical**. The proof is a **mechanical emulation of the revised §3.1 gate over every non-synthetic frozen-corpus `fixtures/shows/**` file** (excluding the new `fixtures/shows/synthetic/**` capability fixture, which legitimately admits; not a hand-argued grep — the round-1 corpus claim was wrong precisely because it wasn't re-derived): the emulation admits **zero** headers across the entire committed frozen corpus. The header directly above each committed BO block is always one of:
 
 - a `DAY N` range header → DAY gate abandons (east-coast `MABEL 1\nDAY 1 & 2`, etc.);
 - an ownership-labelled header, incl. the show-prefixed `RPAS BREAKOUT 1/2\nLASALLE A/B\n30' x 25'…` (`dci-rpas-central.md:152,207`) → substring banner/ownership gate abandons;

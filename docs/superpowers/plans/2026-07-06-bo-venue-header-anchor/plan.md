@@ -62,7 +62,7 @@ Hand-authored capability fixture (NOT a Drive render — header comment says so)
 
 **Interfaces — Consumes:** `findBoBlockVenueHeaders` (Task 2). **Produces:** `extractBoBlock(lines, startLine, model, extraTerminators?: ReadonlySet<number> = EMPTY)` — loop also breaks on `k > 0 && extraTerminators.has(startLine + k)`; existing call sites pass nothing. (`extractBoBlock` stays private; it's exercised through `parseSheet` e2e — no direct test, per Codex plan HIGH1.)
 
-- [ ] **Step 1: Write failing e2e test** — `parseSheet(readFileSync('fixtures/shows/synthetic/2026-07-bo-venue-header.md','utf8')).rooms` (spec §7 tests 2 & 5). Derive every expected value from the fixture cells (anti-tautology):
+- [ ] **Step 1: Write failing e2e test** — `parseSheet(readFileSync('fixtures/shows/synthetic/2026-07-bo-venue-header.md','utf8')).rooms` (spec §7 test 2). Derive every expected value from the fixture cells (anti-tautology):
   - exactly one `SALON ABCD` breakout, dims `60' x 45'`, `setup === 'A'`, audio/video from its block;
   - exactly one `MERIDIAN` breakout with ITS OWN `setup === 'm-setup'` / audio (admitted→admitted adjacency, no field theft, case 5);
   - **exactly one `ORCHID` breakout with `setup === 'orchid-setup'`, and `ORCHID.setup !== 'cart-setup'`** (case 6 — proves the REJECTED `PROJECTOR CART` header still terminated ORCHID's extraction; a `filter(h=>h.admit)` extraTerm would fail here);
