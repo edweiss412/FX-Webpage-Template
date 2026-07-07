@@ -878,14 +878,20 @@ function renderSummary(
   // Capitalized: begins a sentence in the dash-free copy (DESIGN.md:318).
   const giveLook = (n: number) => (n === 1 ? "Give it a quick look" : "Give them a quick look");
 
+  // Emphasis carries the COUNTS, not the nudge prose (impeccable critique). The
+  // head already bolds the sheet count; here we bold only count-bearing phrases.
   let clause: ReactNode;
   if (needsLookCount === 0) {
     clause =
-      blockingCount === 0
-        ? strong(
-            `We didn't spot any issues. ${giveLook(readyCount)} against your sheet before you publish.`,
-          )
-        : strong(`${looksClean(readyCount)}. ${giveLook(readyCount)} before you publish.`);
+      blockingCount === 0 ? (
+        // No count in this clause (the head's "N sheets" carries it) → normal weight.
+        `We didn't spot any issues. ${giveLook(readyCount)} against your sheet before you publish.`
+      ) : (
+        <>
+          {strong(looksClean(readyCount))}
+          {`. ${giveLook(readyCount)} before you publish.`}
+        </>
+      );
   } else {
     const verb = needsLookCount === 1 ? "needs" : "need";
     const pron = needsLookCount === 1 ? "it goes" : "they go";

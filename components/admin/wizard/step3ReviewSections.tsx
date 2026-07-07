@@ -3102,31 +3102,34 @@ export function RawUnrecognizedCallout({ raw }: { raw: unknown }) {
   const [expanded, setExpanded] = useState(false);
   if (view.total === 0) return null;
   return (
-    <section className="flex flex-col gap-1 rounded-md border border-border-strong bg-warning-bg px-3 py-2 text-warning-text">
+    // Neutral/informational treatment, NOT warning: this content is not
+    // published and needs no urgent action, so it must not compete visually with
+    // the blocking "needs your attention" signal (impeccable critique MEDIUM).
+    <section className="flex flex-col gap-1 rounded-md border border-border bg-surface-sunken px-3 py-2">
       <button
         type="button"
         aria-expanded={expanded}
         onClick={() => setExpanded((v) => !v)}
-        className="flex min-h-tap-min items-center justify-between gap-2 text-left text-sm font-semibold text-warning-text"
+        className="flex min-h-tap-min items-center justify-between gap-2 text-left text-sm font-semibold text-text-strong"
       >
         <span>{`Content we couldn't read (${view.total})`}</span>
-        <span aria-hidden>{expanded ? "–" : "+"}</span>
+        <span aria-hidden>{expanded ? "−" : "+"}</span>
       </button>
-      <p className="text-xs text-warning-text">
+      <p className="text-xs text-text-subtle">
         These rows were in your sheet but didn&rsquo;t match anything we know how to read. They
         aren&rsquo;t published, so check whether they matter.
       </p>
-      {/* Instant disclosure — deliberate (collapsed↔expanded), matches §D2. */}
+      {/* Instant disclosure, deliberate (collapsed to expanded), matches §D2. */}
       {expanded ? (
         <div className="mt-1 flex flex-col gap-2">
           {view.groups.map((g) => (
             <div key={g.block} className="flex flex-col gap-0.5">
-              <h4 className="text-xs font-semibold uppercase tracking-wide text-warning-text">
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-text-subtle">
                 {g.block}
               </h4>
               <ul className="flex flex-col gap-0.5">
                 {g.rows.map((r, i) => (
-                  <li key={i} className="font-mono text-xs text-warning-text">
+                  <li key={i} className="font-mono text-xs wrap-break-word text-text-subtle">
                     {r.key}
                     {" | "}
                     {r.value === "" ? "(blank)" : r.value}
@@ -3136,7 +3139,7 @@ export function RawUnrecognizedCallout({ raw }: { raw: unknown }) {
             </div>
           ))}
           {view.hiddenCount > 0 ? (
-            <p className="text-xs text-warning-text">{`+${view.hiddenCount} more not shown`}</p>
+            <p className="text-xs text-text-subtle">{`+${view.hiddenCount} more not shown`}</p>
           ) : null}
         </div>
       ) : null}
