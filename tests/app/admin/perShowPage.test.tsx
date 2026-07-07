@@ -7,6 +7,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
+import { CREW_ROSTER_READ_CAP } from "@/app/admin/show/[slug]/crewLinkMailto";
 import type { LogRecord } from "@/lib/log/types";
 
 const state = vi.hoisted(() => ({
@@ -28,6 +29,9 @@ const state = vi.hoisted(() => ({
   tokenReadCalls: 0 as number,
   crewReadCalls: 0 as number,
   selectColsByTable: {} as Record<string, string>,
+  // Flow 5 plan R1 — per-table recorded .limit(n) so reads are PostgREST-faithful
+  // (rows truncated to the requested bound) and the exact bound is assertable.
+  limitByTable: {} as Record<string, number>,
   // §3.2 finalize-owned predicate result (readfinalizeowned_b2). Default false
   // → a !published row reads "Held"; set true to exercise the "Publishing…" pill.
   finalizeOwned: false as boolean,
@@ -54,13 +58,37 @@ vi.mock("@/app/admin/show/[slug]/CurrentShareLinkPanel", async () => {
     // M12.5: Rotate/Reset are folded INTO this panel via the `actions` prop, so
     // the stub MUST render props.actions — otherwise the rotate/reset visibility
     // assertions below would stop exercising the real composition (adversarial R4).
-    CurrentShareLinkPanel: (props: { actions?: React.ReactNode }) =>
+    CurrentShareLinkPanel: (props: {
+      actions?: React.ReactNode;
+      crewEmails?: readonly string[];
+      showTitle?: string;
+    }) =>
       React.createElement(
         "div",
-        { "data-testid": "admin-current-share-link-panel" },
+        {
+          "data-testid": "admin-current-share-link-panel",
+          "data-crew-emails": JSON.stringify(props.crewEmails ?? null),
+          "data-show-title": props.showTitle ?? "",
+        },
         props.actions,
       ),
     resolveOrigin: () => "https://crew.example.com",
+  };
+});
+
+// Flow 5 adversarial R3 — page-level prop-threading pin. The stub keeps the real
+// testid so every existing presence/absence assertion still exercises the page's
+// gating, and exposes the two new props as data attributes (component-level tests
+// cannot catch the page forgetting to pass them).
+vi.mock("@/app/admin/show/[slug]/RotateShareTokenButton", async () => {
+  const React = await import("react");
+  return {
+    RotateShareTokenButton: (props: { crewEmails?: readonly string[]; showTitle?: string }) =>
+      React.createElement("button", {
+        "data-testid": "admin-rotate-share-token-button",
+        "data-crew-emails": JSON.stringify(props.crewEmails ?? null),
+        "data-show-title": props.showTitle ?? "",
+      }),
   };
 });
 
@@ -121,6 +149,10 @@ vi.mock("@/lib/supabase/server", () => ({
       builder.in = pass;
       builder.not = pass;
       builder.order = pass;
+      builder.limit = (n: number) => {
+        state.limitByTable[table] = n;
+        return builder;
+      };
       builder.returns = pass;
       builder.maybeSingle = async () => ({
         data: tableError
@@ -135,7 +167,12 @@ vi.mock("@/lib/supabase/server", () => ({
       (builder as { then: unknown }).then = (onf: (v: unknown) => unknown) => {
         const data =
           table === "crew_members"
-            ? state.crew
+            ? state.crew.slice(
+                0,
+                state.limitByTable[table] === undefined
+                  ? state.crew.length
+                  : state.limitByTable[table],
+              )
             : table === "pending_syncs"
               ? state.pending
               : table === "ignored_warnings"
@@ -204,6 +241,7 @@ beforeEach(() => {
   state.tokenReadCalls = 0;
   state.crewReadCalls = 0;
   state.selectColsByTable = {};
+  state.limitByTable = {};
   state.finalizeOwned = false;
   state.showsInternal = null;
   state.throwOnFromTable = null;
@@ -1080,5 +1118,65 @@ describe("per-show Data quality: correction-loop callout (Flow 3 / 3.1)", () => 
     state.showsInternal = { show_id: "s1", parse_warnings: [] };
     await renderPage();
     expect(screen.queryByTestId("correction-loop-callout")).toBeNull();
+  });
+});
+
+// Flow 5 (audit 5.2) — crew-email threading into the share-link surfaces.
+// Spec docs/superpowers/specs/2026-07-07-flow5-rotate-disclosure-mailto.md §2.5/§6.4.
+describe("per-show page — crew email threading (Flow 5)", () => {
+  it("crew_members select is widened to include email", async () => {
+    await renderPage();
+    expect(state.selectColsByTable.crew_members).toBe("id, name, role, email");
+  });
+
+  // Plan adversarial R1 — pin the EXACT bound: .limit(CREW_ROSTER_READ_CAP) or
+  // .limit(1) would truncate in production and silently skip the overflow branch.
+  it("crew_members read requests exactly CREW_ROSTER_READ_CAP + 1 rows", async () => {
+    await renderPage();
+    expect(state.limitByTable.crew_members).toBe(CREW_ROSTER_READ_CAP + 1);
+  });
+
+  it("threads fixture-derived non-null emails + show.title into BOTH share surfaces (null emails dropped)", async () => {
+    state.crew = [
+      { id: "c1", name: "Ann", role: "A1", email: "ann@example.com" },
+      { id: "c2", name: "Bob", role: "A2", email: null },
+      { id: "c3", name: "Cal", role: "V1", email: "cal@example.com" },
+    ];
+    await renderPage();
+    const expectedEmails = state.crew
+      .map((c) => c.email)
+      .filter((e): e is string => typeof e === "string");
+    const rotate = screen.getByTestId("admin-rotate-share-token-button");
+    expect(JSON.parse(rotate.getAttribute("data-crew-emails")!)).toEqual(expectedEmails);
+    expect(rotate.getAttribute("data-show-title")).toBe(String(baseShow.title));
+    const panel = screen.getByTestId("admin-current-share-link-panel");
+    expect(JSON.parse(panel.getAttribute("data-crew-emails")!)).toEqual(expectedEmails);
+    expect(panel.getAttribute("data-show-title")).toBe(String(baseShow.title));
+  });
+
+  // Adversarial R6/R7 — row-cap overflow fails closed EVERYWHERE, visibly.
+  it("roster over CREW_ROSTER_READ_CAP → visible crew-unavailable alert, empty crewEmails on both surfaces", async () => {
+    // Seed MORE than the requested bound so the PostgREST-faithful mock returns
+    // exactly CREW_ROSTER_READ_CAP + 1 rows (the truncated page) and the
+    // overflow branch must fire on rows.length > CREW_ROSTER_READ_CAP.
+    state.crew = Array.from({ length: CREW_ROSTER_READ_CAP + 50 }, (_, i) => ({
+      id: `c${i}`,
+      name: `Crew ${i}`,
+      role: "A1",
+      email: `crew${i}@example.com`,
+    }));
+    await renderPage();
+    expect(screen.getByTestId("per-show-crew-lookup-failed")).toBeInTheDocument();
+    const rotate = screen.getByTestId("admin-rotate-share-token-button");
+    expect(JSON.parse(rotate.getAttribute("data-crew-emails")!)).toEqual([]);
+    const panel = screen.getByTestId("admin-current-share-link-panel");
+    expect(JSON.parse(panel.getAttribute("data-crew-emails")!)).toEqual([]);
+  });
+
+  it("crew lookup returned-error still yields empty crewEmails (existing fail path unchanged)", async () => {
+    state.errorOnFromTable = "crew_members";
+    await renderPage();
+    const rotate = screen.getByTestId("admin-rotate-share-token-button");
+    expect(JSON.parse(rotate.getAttribute("data-crew-emails")!)).toEqual([]);
   });
 });

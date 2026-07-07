@@ -30,6 +30,7 @@ import { AdminPageHeader } from "@/components/admin/nav/AdminPageHeader";
 import { formatRelative, formatDateRange } from "@/lib/admin/showDisplay";
 import { syncStatusBucket } from "@/lib/admin/syncStatus";
 import { loadShowShareToken } from "@/lib/data/loadShowShareToken";
+import { CREW_ROSTER_READ_CAP } from "./crewLinkMailto";
 import { CurrentShareLinkPanel } from "./CurrentShareLinkPanel";
 import { resolveOrigin } from "./resolveOrigin";
 import { ShareLinkCopyButton } from "./ShareLinkCopyButton";
@@ -97,6 +98,7 @@ type CrewMemberRow = {
   id: string;
   name: string;
   role: string | null;
+  email: string | null;
 };
 
 function initialsFor(name: string): string {
@@ -169,6 +171,7 @@ export default async function AdminShowPage({
         "id, slug, title, client_label, dates, drive_file_id, published, archived, last_synced_at, last_sync_status",
       )
       .eq("slug", slug)
+      .limit(1)
       .maybeSingle<ShowLookupRow>();
     if (showError) {
       void log.error("show lookup failed:", {
@@ -241,13 +244,14 @@ export default async function AdminShowPage({
     }
   };
 
-  const readCrew = async (): Promise<{ crew: PerShowCrewRow[]; crewLookupFailed: boolean }> => {
+  const readCrew = async (): Promise<{ crew: CrewMemberRow[]; crewLookupFailed: boolean }> => {
     try {
       const { data, error } = await supabase
         .from("crew_members")
-        .select("id, name, role")
+        .select("id, name, role, email")
         .eq("show_id", show.id)
         .order("name", { ascending: true })
+        .limit(CREW_ROSTER_READ_CAP + 1)
         .returns<CrewMemberRow[]>();
       if (error) {
         void log.error("crew_members lookup failed:", {
@@ -259,7 +263,22 @@ export default async function AdminShowPage({
         });
         return { crew: [], crewLookupFailed: true };
       }
-      return { crew: data ?? [], crewLookupFailed: false };
+      const rows = data ?? [];
+      if (rows.length > CREW_ROSTER_READ_CAP) {
+        // Flow 5 adversarial R6/R7 — the roster MAY be incomplete at the
+        // PostgREST row cap. A distribution list must be provably complete or
+        // absent, and the display must never be silently partial: reuse the
+        // existing visible crew-unavailable state.
+        void log.error("crew_members roster exceeded read cap:", {
+          source: "admin.show",
+          code: "ADMIN_SHOW_CREW_LOOKUP_FAILED",
+          slug,
+          showId: show.id,
+          error: `roster > CREW_ROSTER_READ_CAP (${CREW_ROSTER_READ_CAP})`,
+        });
+        return { crew: [], crewLookupFailed: true };
+      }
+      return { crew: rows, crewLookupFailed: false };
     } catch (err) {
       void log.error("crew_members lookup threw:", {
         source: "admin.show",
@@ -377,6 +396,13 @@ export default async function AdminShowPage({
     nowDate(),
     loadIgnoredWarnings(show.id),
   ]);
+
+  // Flow 5 (audit 5.2) — distribution list for the "Email crew" affordances.
+  // Emails are canonicalized-or-null at the parse boundary; this filter drops
+  // nulls (the mailto helper applies the authoritative shape validator).
+  const crewEmails = crew
+    .map((c) => c.email)
+    .filter((e): e is string => typeof e === "string" && e.includes("@"));
 
   // Operator-actionable parse warnings (filtered + deduped ONCE here, not in the
   // JSX condition and again in the component — whole-diff R1). selectActionableForDisplay
@@ -788,6 +814,8 @@ export default async function AdminShowPage({
               showId={show.id}
               slug={show.slug}
               token={token}
+              crewEmails={crewEmails}
+              showTitle={show.title}
               actions={
                 // M12.6/M12.7: align with the design — each management action is a
                 // labeled row (label + description left, compact button right) that
@@ -798,6 +826,8 @@ export default async function AdminShowPage({
                     showId={show.id}
                     slug={show.slug}
                     isCrewLinkActive={isShowEligibleForCrewLink}
+                    crewEmails={crewEmails}
+                    showTitle={show.title}
                     compact
                     rowLabel="Rotate share link"
                     rowDescription="Mint a new link; the old one stops working immediately."
