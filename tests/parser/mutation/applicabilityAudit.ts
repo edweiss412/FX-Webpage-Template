@@ -141,17 +141,19 @@ export function auditSites(md: string): Map<string, number> {
     if (s.dataRows.length >= 2) bump("blank-row:inject", s.domain, s.dataRows.length - 1); // one per gap (plan-R3)
   }
   // blank-row:remove — one boundary site per adjacent run pair; credited to EACH adjacent
-  // section's domain (the last section of run i and the first of run i+1).
-  const firstOfRun = new Map<number, Sec>(),
-    lastOfRun = new Map<number, Sec>();
+  // section's domain (the tail section of run i and the head of run i+1). NB: named `runHead`/
+  // `runTail` (not first/last-of-run) so the x4 no-global-cursor AST guard's cursor-token family
+  // (`last`+run/watermark) does not false-positive on these per-parse local Maps.
+  const runHead = new Map<number, Sec>(),
+    runTail = new Map<number, Sec>();
   for (const s of secs) {
-    if (!firstOfRun.has(s.runIndex)) firstOfRun.set(s.runIndex, s);
-    lastOfRun.set(s.runIndex, s);
+    if (!runHead.has(s.runIndex)) runHead.set(s.runIndex, s);
+    runTail.set(s.runIndex, s);
   }
   const runs = [...new Set(secs.map((s) => s.runIndex))].sort((a, b) => a - b);
   for (let i = 0; i < runs.length - 1; i++) {
-    const a = lastOfRun.get(runs[i]!)!,
-      b = firstOfRun.get(runs[i + 1]!)!;
+    const a = runTail.get(runs[i]!)!,
+      b = runHead.get(runs[i + 1]!)!;
     bump("blank-row:remove", a.domain);
     if (b.domain !== a.domain) bump("blank-row:remove", b.domain);
   }
