@@ -81,14 +81,18 @@ Keeps its signature `({ dfid, venue })` and its `BreakdownSection` wrapper (so h
 
 ### 3.2 `VenueMapTile` (new client component) — `components/admin/wizard/VenueMapTile.tsx`
 
-Pure presentational, no data fetching of its own. Props: `{ query: string | null; mapHref: string | null }` where `query` = the geocodable address string (`[name, address].filter(Boolean).join(", ")`, mirroring `geocodeQuery` at `lib/geocoding/client.ts:44`) and `mapHref` = the parseable `googleLink` or `null`.
+**Ownership of map-region presence:** the **parent `VenueBreakdown` owns region collapse.** `VenueBreakdown` computes `query` (§3.1); when `query` is empty it does **not** render the right column / map region at all (single-column body, no `border-l`) and **never mounts** `<VenueMapTile>`. `VenueMapTile` is therefore only ever mounted with a **non-empty** `query`. As a defensive belt-and-suspenders `VenueMapTile` still returns `null` if it somehow receives an empty `query`, but that is not the primary mechanism — the parent is. The component tests assert both: parent omits the region when `query` empty (§12.4), and the tile returns `null` on empty `query` (§12.3).
 
-Render decision (pure, deterministic):
-1. **Map image path** — when `query` is non-empty: an `<img>` whose `src` is our same-origin proxy `/api/admin/venue-map?q=<enc>&theme=<light|dark>` (theme from a `useTheme`-style read; see §6), `loading="lazy"`, `object-cover`, filling the region. On `onError` the component swaps to the **fallback tile** (striped placeholder) via local state — the browser could not load the proxy (key unset → 404/204, Static Maps error, offline). The proxy returns a non-2xx for any failure so `onError` reliably fires.
-2. **Fallback tile** — the mock's diagonal-stripe placeholder built from tokens (`repeating-linear-gradient` over `--color-surface-sunken`/`--color-border`), with a small `map` mono label.
-3. **Directions affordance** overlays both image and fallback: when `mapHref` is set, the whole tile is an `<a href={mapHref} target="_blank" rel="noopener noreferrer">` with an inset "Directions" button (`Navigation` icon + label, `bg-surface border-border-strong`, `min-h-tap-min`). When `mapHref` is null, no anchor and no Directions button — the tile is a static image/placeholder only (no dead anchor, mirroring `VenueSection.tsx:126`).
+Pure presentational, no data fetching of its own. Props: `{ query: string; mapHref: string | null }` where `query` = the geocodable address string (`[name, address].filter(Boolean).join(", ")`, mirroring `geocodeQuery` at `lib/geocoding/client.ts:44`), guaranteed non-empty by the parent) and `mapHref` = the parseable `googleLink` or `null`.
 
-No same-origin proxy request is ever built when `query` is empty — the map region collapses (see §5).
+**Fallback layering (no client state for the fallback):** the striped placeholder tile is rendered as an **always-painted base layer** (`absolute inset-0`, token-driven `repeating-linear-gradient`); the `<img>` overlays it (`absolute inset-0 h-full w-full object-cover`) with an `onError` that hides only itself (`visibility:hidden`), revealing the base stripe. This needs no `useState` for the fallback and renders correctly under SSR / static markup (the layout harness measures region geometry whether or not the img loads). The `map` mono label + Directions affordance overlay both layers.
+
+Render decision (pure, deterministic — always all three layers, no branching state):
+1. **Fallback tile (base layer, always painted)** — the mock's diagonal-stripe placeholder built from tokens (`repeating-linear-gradient` over `--color-surface-sunken`/`--color-border`), with a small `map` mono label. Always present underneath.
+2. **Map image (overlay)** — an `<img>` whose `src` is our same-origin proxy `/api/admin/venue-map?q=<enc>&theme=<light|dark>` (theme read per §6), `loading="lazy"`, `absolute inset-0 h-full w-full object-cover`. **The `<img>`'s `onError` is the sole fallback trigger** — it hides only the img (`visibility:hidden`), revealing the base stripe. The component **never reads the HTTP status**; any non-image response (400/404/502/network) fires `onError` and reveals the fallback. This makes the fallback contract browser-uniform and independent of the route's exact status code.
+3. **Directions affordance (top overlay)** — when `mapHref` is set, the whole tile is an `<a href={mapHref} target="_blank" rel="noopener noreferrer">` with an inset "Directions" button (`Navigation` icon + label, `bg-surface border-border-strong`, `min-h-tap-min`). When `mapHref` is null, no anchor and no Directions button — the tile is a static image/placeholder only (no dead anchor, mirroring `VenueSection.tsx:126`).
+
+The map region itself is never rendered when `query` is empty — the **parent** `VenueBreakdown` collapses it (§3.2 ownership, §5); the proxy is thus never requested with an empty `q` from the normal render path.
 
 ### 3.3 `/api/admin/venue-map` GET route (new) — `app/api/admin/venue-map/route.ts`
 
@@ -96,13 +100,23 @@ Server-side key-safe proxy to Google Static Maps.
 
 - `export const dynamic = "force-dynamic"`.
 - Gate: `await requireAdminIdentity()` in try/catch (`AdminInfraError`→503, else rethrow), identical to `needs-attention-count/route.ts`. **Admin-gated but read-only (GET)** — AGENTS.md telemetry invariant 10 covers *mutations* (POST/PUT/PATCH/DELETE) only, so no `AUDITABLE_MUTATIONS` row is required. Documented explicitly here to preempt relitigation.
-- Read `q` (required, trimmed, length-capped ≤512) and `theme` (`light`|`dark`, default `light`; any other value → `light`).
-- Missing/empty `q` → `204 No Content` (component shows fallback).
+- Read `q` (trimmed, length-capped ≤512) and `theme` (`light`|`dark`, default `light`; any other value → `light`).
+
+**Single status contract** (one row per outcome — the component ignores the code and branches only on `<img>` load success/failure, but the route emits distinct codes for server semantics + route tests):
+
+| Outcome | Status | Body |
+|---|---|---|
+| Success (key set, `q` non-empty, Google OK) | `200` | the PNG, `Content-Type: image/png`, `Cache-Control: private, max-age=3600` |
+| `q` missing/empty | `400` | empty |
+| No key configured (`isStaticMapConfigured()` false) | `404` | empty |
+| Upstream non-OK after retries, or fetch failure/timeout | `502` | empty (no raw upstream body — invariant 5) |
+
+Every non-`200` is a non-image response, so a browser `<img>` fires `onError` for all of them uniformly → fallback stripe. No `204` is used (its 2xx-no-body status is ambiguous for `<img>` across browsers).
+
 - Key resolution via a small helper `lib/maps/staticMap.ts`:
-  - `isStaticMapConfigured()` → `!!process.env.GOOGLE_STATIC_MAPS_API_KEY?.trim() || !!process.env.GOOGLE_GEOCODING_API_KEY?.trim()`. **The Static Maps key reuses the existing `GOOGLE_GEOCODING_API_KEY`** (same GCP project) unless a dedicated `GOOGLE_STATIC_MAPS_API_KEY` is set (checked first). No new **required** secret; a dedicated key is optional.
-  - Key unset → route returns `204` (fallback). This is the **runtime gate**; there is no build-time artifact decision.
-  - `buildStaticMapUrl(query, theme)` → `https://maps.googleapis.com/maps/api/staticmap?center=<enc>&markers=color:0xff8c1a%7C<enc>&zoom=15&size=176x120&scale=2&format=png&key=…` plus, for `theme=dark`, a compact inline `&style=` dark rule set (documented constant). URL never leaves the server.
-- Fetch mirrors `geocoding/client.ts` hardening: `AbortSignal.timeout(8000)`, bounded retry (2) on 429/5xx, **never throws**. On any non-OK Google response or fetch failure → `502`/`204` (component shows fallback; body carries no raw upstream error text — invariant 5). Redact: never echo the key or Google's error body to the client.
+  - `isStaticMapConfigured()` → `!!process.env.GOOGLE_STATIC_MAPS_API_KEY?.trim() || !!process.env.GOOGLE_GEOCODING_API_KEY?.trim()`. **The Static Maps key reuses the existing `GOOGLE_GEOCODING_API_KEY`** (same GCP project) unless a dedicated `GOOGLE_STATIC_MAPS_API_KEY` is set (checked first). No new **required** secret; a dedicated key is optional. This is the **runtime gate** (`404` when false); there is no build-time artifact decision.
+  - `buildStaticMapUrl(query, theme)` → `https://maps.googleapis.com/maps/api/staticmap?center=<enc>&markers=color:0xff8c1a%7C<enc>&zoom=15&size=176x120&scale=2&format=png&key=…` plus, for `theme=dark`, a compact inline `&style=` dark rule set (documented constant `DARK_MAP_STYLE`). URL never leaves the server.
+- Fetch mirrors `geocoding/client.ts` hardening: `AbortSignal.timeout(8000)`, bounded retry (2) on 429/5xx, **never throws** (a thrown fetch → caught → `502`). Redact: never echo the key or Google's error body to the client.
 - Success → stream the PNG through with `Content-Type: image/png` and `Cache-Control: private, max-age=3600` (admin-gated, so `private`; 1h is plenty for a review session). Upstream `fetch` uses `next: { revalidate: 86400 }` so repeated reviews of the same show hit the Next fetch cache.
 
 ---
@@ -118,7 +132,7 @@ Step3 registry (:3217)
                                           → <img src="/api/admin/venue-map?q&theme"/>  (client)
                                               → GET route (server): requireAdminIdentity
                                                   → staticMap helper: key? → Google Static Maps
-                                                  → PNG  |  204/502  → <img onError> → fallback tile
+                                                  → 200 PNG  |  400/404/502  → <img onError> → fallback tile
               Region B: loading-dock footer (only if loadingDock present)
 ```
 
@@ -135,19 +149,20 @@ Partial/edited data is the norm during Stage-3 review. Every branch is explicit 
 | `venue === null` | Body renders `No venue details parsed.` (`text-sm text-text-subtle`) — unchanged from current empty state; `count = 0`. No map region, no footer. |
 | `venue.name` empty, `venue.address` present | Left column shows address block; venue-name line omitted. Eyebrow still shown. |
 | `venue.name` present, `venue.address` empty | Venue name shown; address block omitted. Map `query` falls back to `name` alone (still geocodable). |
-| both `name` and `address` empty (venue object exists via `notes`/`googleLink` only) | Left column shows only the `VENUE` eyebrow + any present fact; `query` empty → **map region collapses entirely** (two-column becomes single column, no border-l). |
+| both `name` and `address` empty (venue object exists via `googleLink` only) | Left column shows only the `VENUE` eyebrow; `query` empty → the **parent `VenueBreakdown` collapses the map region entirely** (two-column becomes single column, no border-l; `<VenueMapTile>` not mounted — §3.2 ownership). If additionally `loadingDock` is empty and `googleLink` non-parseable, `count` may be 0 → the `No venue details parsed.` empty state renders instead (contentRows yields nothing). |
+| `venue.notes` present (any) | **Not rendered by this card and not counted** — parity with the *current* `VenueBreakdown`, which never included notes (only name/address/city/loadingDock/googleLink). Venue notes are a crew-surface concern (`VenueSection.tsx`), out of scope here. No guard branch renders it. |
 | `venue.city` empty | Address block shows street line(s) only; no trailing city/state line. City, when present, appends as a second line (mock: `San Francisco, CA 94108`). |
 | `venue.city` present | Second address line = `city`. (We do NOT re-parse street/state; we render `address` verbatim as line 1 and `city` as line 2, matching the parser's fields — no `streetFromAddress` splitting, which is crew-only.) |
 | `venue.loadingDock` empty/whitespace/null | **Entire dock footer (Region B) omitted** — no border-t, no tint band. |
 | `venue.loadingDock` present | Footer rendered. Long text wraps (`wrap-break-word`), no cap. |
 | `venue.googleLink` missing or non-http(s) (`isParseableUrl` false) | Map tile renders (image or fallback) as a **static** element — no `<a>`, no Directions button. No dead anchor. |
 | `venue.googleLink` parseable | Tile is an anchor to it; Directions button shown. |
-| Static-map key unset / Static Maps disabled / upstream error / offline | `<img onError>` → **fallback striped tile** (still an anchor + Directions if `mapHref`). CI-green without GCP enablement. |
-| `query` non-empty but Google returns ZERO_RESULTS / bad geocode | Google returns a generic "no map" image or an error; route treats non-OK as failure → `204`/`502` → fallback tile. |
+| Static-map key unset (route `404`) / Static Maps disabled or upstream error (route `502`) / offline (img network error) | `<img onError>` → **fallback striped tile** (still an anchor + Directions if `mapHref`). CI-green without GCP enablement. |
+| `query` non-empty but Google returns ZERO_RESULTS / non-OK | route treats any non-OK Google response as failure → `502` → `<img onError>` → fallback tile. |
 
 ### 5.4 Count contract
 
-`count` = number of present top-level facts among: venue name, address, city, loadingDock, googleLink (via `contentRows` on those five, same set as today). Preserves the existing `(N)` counter numbers so `COUNT_SECTIONS` behavior and any count-pinning tests are unaffected. The map tile is a presentation of the address, not a separate counted fact.
+`count` = number of present top-level facts among exactly these five: venue name, address, city, loadingDock, googleLink (via `contentRows` on those five, the same set as today). `venue.notes` is **excluded** (it was never counted by the current card). Preserves the existing `(N)` counter numbers so `COUNT_SECTIONS` behavior and any count-pinning tests are unaffected. The map tile is a presentation of the address, not a separate counted fact.
 
 ---
 
@@ -189,7 +204,7 @@ The card is static content inside an already-animated modal; it introduces **no*
 
 | State pair | Treatment |
 |---|---|
-| map-image ↔ fallback-tile (on `<img>` error) | **Instant** — a swap on load failure; no animation (would call attention to a degraded state). |
+| map-image ↔ fallback-tile (on `<img>` error) | **Instant** — no swap; the stripe base layer is always painted and the failed `<img>` merely hides itself (`visibility:hidden`), revealing it. No animation (would call attention to a degraded state). |
 | image loading → loaded | Optional 150ms `opacity` fade-in on the `<img>` (`transition-opacity`, honors `prefers-reduced-motion`). Not layout-animating (DI safe). Deliberate, minor. |
 | loadingDock present ↔ absent | **Instant** — presence follows data, not a runtime toggle (the card re-renders per staged row; no in-place morph). |
 | desktop two-col ↔ mobile stacked | **Instant** — a media-query layout change, not a JS transition. Matches the modal's own sheet/popup switch (`Step3ReviewModal.tsx:786`), which is also instant at the breakpoint. |
@@ -227,7 +242,7 @@ No zombie flags: the key is read AND applied; `theme` is written AND consumed. I
 
 ## 11. Build-vs-runtime gate
 
-The map is a pure **runtime** check: `isStaticMapConfigured()` is evaluated per request inside the route handler. There is no build-time artifact decision — the route and component ship identically regardless of key presence; behavior differs only at request time. Test shape: a route unit test with the key env **unset** asserts `204` (fallback path); with a stubbed key + stubbed `fetch` asserts the PNG streams through. No `pnpm build` gate involved.
+The map is a pure **runtime** check: `isStaticMapConfigured()` is evaluated per request inside the route handler. There is no build-time artifact decision — the route and component ship identically regardless of key presence; behavior differs only at request time. Test shape: a route unit test with the key env **unset** asserts `404` (fallback path); with a stubbed key + stubbed `fetch` asserts the PNG streams through. No `pnpm build` gate involved.
 
 ---
 
@@ -235,10 +250,10 @@ The map is a pure **runtime** check: `isStaticMapConfigured()` is evaluated per 
 
 TDD per task. Concrete failure mode stated per test.
 
-1. **`staticMap.ts` unit** — `isStaticMapConfigured` (unset both keys → false; either set → true); `buildStaticMapUrl` (address encoded into `center`+`markers`; key never absent in output when configured; `theme=dark` includes `style=`; key value taken from dedicated var first, geocoding var second). *Catches:* key leakage into logs, missing marker, dark param dropped.
-2. **Route handler test** — admin gate rejects unauthenticated (rethrow path) / `AdminInfraError`→503; empty `q`→204; key unset→204; stubbed `fetch` OK → `image/png` + `Cache-Control: private`; stubbed `fetch` 500 (after retries) → non-2xx, no upstream body echoed. *Catches:* key exposure, raw-error leak (invariant 5), missing auth gate.
-3. **`VenueMapTile` component test** — `query` empty → region absent; `query` set, `mapHref` set → `<img>` with proxy src + anchor + Directions; `mapHref` null → no anchor/button; simulate `<img>` `onError` → fallback striped tile still renders (and still anchored if `mapHref`). *Catches:* dead anchors, missing fallback, proxy URL built when it shouldn't be.
-4. **`VenueBreakdown` component test** — `venue null` → empty copy; full venue → venue name/address/city lines, map region, dock footer; `loadingDock` absent → **no** footer; `count` equals present-fact count (derive from fixture, not hardcoded). Clone-and-strip sibling DOM before label scans (anti-tautology). *Catches:* footer shown when dock empty, count drift, address/city mis-render.
+1. **`staticMap.ts` unit** — `isStaticMapConfigured` (unset both keys → false; either set → true); `buildStaticMapUrl` (address encoded into `center`+`markers`; key never absent in output when configured; **`theme=dark` includes the `style=` dark ruleset and `theme=light` omits it** — the advisory dark-URL assertion; key value taken from dedicated var first, geocoding var second). *Catches:* key leakage into logs, missing marker, dark param dropped/wrong-theme.
+2. **Route handler test** — admin gate rejects unauthenticated (rethrow path) / `AdminInfraError`→503; empty `q`→**400**; key unset→**404**; stubbed `fetch` OK → `200` `image/png` + `Cache-Control: private`; stubbed `fetch` 500 (after retries) → **502**, empty body, no upstream text echoed; `theme=dark` query → `buildStaticMapUrl` receives `dark`. *Catches:* key exposure, raw-error leak (invariant 5), missing auth gate, status-contract drift, theme not threaded.
+3. **`VenueMapTile` component test** — mounted with non-empty `query` + `mapHref` set → `<img>` with proxy src (incl. `theme=` param) + anchor + Directions; `mapHref` null → no anchor/button; simulate `<img>` `onError` → the always-present fallback stripe is revealed (img `visibility:hidden`) and stays anchored if `mapHref`; defensive: empty `query` prop → returns `null`. *Catches:* dead anchors, missing fallback base layer, theme param dropped.
+4. **`VenueBreakdown` component test** — `venue null` → empty copy; full venue → venue name/address/city lines, map region, dock footer; `loadingDock` absent → **no** footer; **`query` empty (name+address both empty) → map region NOT in the DOM and `<VenueMapTile>` not mounted** (parent-owns-collapse, §3.2); `venue.notes` present → notes text NOT in the card; `count` equals present-fact count over the five fields (derive from fixture, not hardcoded; notes excluded). Clone-and-strip sibling DOM before label scans (anti-tautology). *Catches:* footer shown when dock empty, map region rendered on empty query, notes leaking in, count drift, address/city mis-render.
 5. **Layout Playwright (real browser)** — DI-1 equal-height at ≥`sm`; DI-4 stacked at `<sm`; DI-6 Directions ≥44px. Geometry derived from render. *Catches:* Tailwind-v4 stretch collapse (the #1 layout bug class here).
 6. **Transition audit** — assert `VenueMapTile`/`VenueBreakdown` contain no `AnimatePresence`/`exit`; the only motion is the documented `<img>` opacity fade guarded by `motion-reduce:`. *Catches:* accidental layout-animating transitions.
 
