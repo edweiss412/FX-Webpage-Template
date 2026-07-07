@@ -34,14 +34,17 @@ Canonical copy (single source of truth; §A.3 tests assert exactly these normali
 | Branch | Condition | Rendered clause (after head, before tail) |
 |---|---|---|
 | HEAD | always | `{sheetCount} sheet{s} parsed from your Drive folder.` |
-| CLEAN-ALL singular | `needsLookCount === 0 && readyCount === 1` | ` We didn't spot any issues — give it a quick look against your sheet before you publish.` |
-| CLEAN-ALL plural | `needsLookCount === 0 && readyCount > 1` | ` We didn't spot any issues — give them a quick look against your sheet before you publish.` |
+| ALL-READY singular | `needsLookCount === 0 && readyCount === sheetCount && readyCount === 1` | ` We didn't spot any issues — give it a quick look against your sheet before you publish.` |
+| ALL-READY plural | `needsLookCount === 0 && readyCount === sheetCount && readyCount > 1` | ` We didn't spot any issues — give them a quick look against your sheet before you publish.` |
+| SOME-READY | `needsLookCount === 0 && readyCount > 0 && readyCount < sheetCount` | ` {readyCount} look clean — give {it\|them} a quick look before you publish; the rest need your attention below.` |
 | MIXED | `needsLookCount > 0 && readyCount > 0` | ` {readyCount} look clean, {needsLookCount} need{s} a quick look before {they go\|it goes} live.` |
 | NEEDSLOOK-ONLY | `needsLookCount > 0 && readyCount === 0` | ` {needsLookCount} need{s} a quick look before {they go\|it goes} live.` |
 | TAIL | `cleanCount > 0` | ` Nothing publishes until you say so.` |
 | (no clause) | `cleanCount === 0` | head only, no tail |
 
-Pluralization rules (unchanged from current): `sheet{s}` → `s` when `sheetCount !== 1`; `need{s}` → `needs` when the governed count `=== 1` else `need`; `{they go|it goes}` → `it goes` when `needsLookCount === 1` else `they go`.
+**Honesty gate (fixes reviewer HIGH-1):** the unscoped "We didn't spot any issues" phrasing fires ONLY when `readyCount === sheetCount` — i.e. every counted sheet is ready. If any counted sheet is blocking or set-aside (`readyCount < sheetCount`), the SOME-READY branch scopes the claim to the ready subset (`{readyCount} look clean`) and points at "the rest need your attention below," so the summary never asserts a blocking sheet is clean. (`sheetCount = rows.length − skippedRows.length` at `Step3Review.tsx:930` — includes blocking + ignored/deferred set-aside rows, so `readyCount === sheetCount` is the precise "all counted sheets are ready" test; no new param needed — `renderSummary` already receives both counts.)
+
+Pluralization rules: `sheet{s}` → `s` when `sheetCount !== 1`; `need{s}` → `needs` when the governed count `=== 1` else `need`; `{they go|it goes}` → `it goes` when `needsLookCount === 1` else `they go`; `{it|them}` (SOME-READY) → `it` when `readyCount === 1` else `them`.
 
 **Presentation-only emphasis** (unchanged pattern): bold counts via `<b className="font-semibold text-text-strong">`; the needs-look clause keeps `text-warning-text`. Normalized `textContent` (single-spaced, per existing test normalization) equals the plaintext above — emphasis MUST NOT change textContent.
 
@@ -49,6 +52,7 @@ Pluralization rules (unchanged from current): `sheet{s}` → `s` when `sheetCoun
 
 - `sheetCount === 0`: `renderSummary` is only called with the visible-row partition; `cleanCount === 0` yields head-only. A zero-sheet folder is handled upstream (empty state), not here. Behavior: head renders `0 sheets parsed from your Drive folder.` with no readiness clause. (No change from today.)
 - `readyCount === 0 && needsLookCount === 0` (all rows blocking/set-aside): `cleanCount === 0` → head only, no tail. (No change.)
+- `readyCount > 0 && readyCount < sheetCount && needsLookCount === 0` (some ready, some blocking/set-aside): SOME-READY branch — scoped clause, never the unscoped "we didn't spot any issues" (reviewer HIGH-1).
 - Negative / NaN counts: not reachable — counts are `Array.filter(...).length`. No guard added.
 
 ### A.4 Descoped
@@ -65,13 +69,13 @@ Audit 2.4's second half — "distinguish 'no crew found in the sheet' vs 'we cou
 
 **Live-code survey (verified this session):** every warn-severity ParseWarning kind emitted by `lib/parser/**` already maps through `KIND_TO_SECTION` — `crew`, `travel`, `transportation`, `rooms`, `pull_sheet`, `venue`, `details`, `contacts`, `client`, `dates`, `financials`, and the `SECTION_HEADER_AUTOCORRECTED` kinds (`CANON_TO_REGION` = {`transportation`,`details`,`crew`} at `sectionHeaderNormalize.ts:28-34`, all mapped). The **sole** warn code that returns `null` from `sectionForWarning` is `UNKNOWN_SECTION_HEADER` (`emitUnknownSection`, `lib/parser/warnings.ts:106-114`), which sets `blockRef.kind = "unknown_section"` and carries the offending header text in `rawSnippet` (no `blockRef.name`).
 
-So the routing gap is narrow and precise: an unrecognized section header ("Hotal Contact Info" sic, "STAFF", "LODGING") is a warn-severity signal that always falls to the generic bucket even when the header clearly *intends* a section Doug is looking at.
+So the routing gap is narrow and precise: an unrecognized section header that is a **whole-header synonym/rename** of a known section ("STAFF" for crew, "LODGING" for hotels, "LOCATION" for venue) is a warn-severity signal that always falls to the generic bucket even though the header clearly *intends* a section Doug is looking at. (Typo'd or multi-word-garbled headers like "Hotal Contact Info" are NOT in scope for Unit B — an edit-distance typo is the parser autocorrect layer's job, not a synonym router's; §B.2 explains why.)
 
 ### B.2 New behavior
 
 Add a **synonym-based best-guess resolver** for `UNKNOWN_SECTION_HEADER` warnings (only): when `sectionForWarning` returns `null` AND the warning is `UNKNOWN_SECTION_HEADER`, attempt to resolve a section from the header text via a curated synonym vocabulary; route there only if a synonym matches **and** the section is rendered; otherwise keep the current generic-bucket behavior.
 
-**Why NOT the parser's canonicalizer (critical — validated in self-review):** a header emits `UNKNOWN_SECTION_HEADER` *precisely because* it fell outside the parser's Damerau autocorrect tolerance — a header the canonicalizer *could* match would have been rewritten to `SECTION_HEADER_AUTOCORRECTED` (which already maps via `CANON_TO_REGION`) and never reached this path. Reusing that same canonicalizer would therefore return `null` for every `UNKNOWN_SECTION_HEADER` and the resolver would be a no-op. The real gap (audit Flow 5 P1-5, live-probe) is **renamed sections** — `STAFF`, `LODGING`, `LOCATION` — which are *synonyms*, not typos, of known sections. Autocorrect (edit-distance) can't catch a synonym; a synonym map can.
+**Why a synonym map, NOT the parser's canonicalizer (design rationale, reviewer MEDIUM-4):** a header emits `UNKNOWN_SECTION_HEADER` after failing the parser's Damerau autocorrect tolerance — a header the canonicalizer *could* match within edit-distance would (in the common case) have been rewritten to `SECTION_HEADER_AUTOCORRECTED` (which already maps via `CANON_TO_REGION`) and not reached this path. So reusing the same edit-distance canonicalizer would add little: it targets the same typo class the parser already handled. The gap Unit B targets is a *different* class — **renamed sections** (audit Flow 5 P1-5, live-probe): `STAFF`, `LODGING`, `LOCATION` are *synonyms*, not typos, of known sections; edit-distance can't catch a synonym, a curated map can. This is a design-choice rationale, not a proof that the canonicalizer is a strict no-op on every conceivable input — Unit B does not depend on that absolute claim, only on synonyms and typos being different classes needing different matchers.
 
 - The resolver lives in `lib/admin/` (NOT `lib/parser` — no parser touch, no Codex-owned surface). It holds a small curated map of uppercased synonym → `SectionId`, seeded from the audit's live-probe rename list. Initial seed (plan enumerates/finalizes):
   - `STAFF`, `PERSONNEL` → `crew`
@@ -90,11 +94,18 @@ Add a **synonym-based best-guess resolver** for `UNKNOWN_SECTION_HEADER` warning
 - `w.rawSnippet` null/empty: no guess possible → generic bucket.
 - No synonym-map entry matches the normalized header (foreign header): generic bucket.
 - Matched guess whose section is not rendered for this sheet: generic bucket.
-- Non-warn severity: `warningsBySection` already early-returns (`:80`); best-guess never runs for `info`/`error`.
+- Non-warn severity: two independent gates — (1) `warningsBySection` early-returns on `severity !== "warn"` (`:80`) before ever calling `sectionForWarning`; (2) inside `sectionForWarning`, the synonym best-guess branch is entered only for `code === "UNKNOWN_SECTION_HEADER"`, and that code is emitted exclusively at `severity:"warn"` (`emitUnknownSection`, `warnings.ts:106-114`). So even if `sectionForWarning` is called directly (it is exported and unit-tested), a non-warn or non-`UNKNOWN_SECTION_HEADER` input cannot reach the synonym map. The guard is local to the function being changed, not only to its caller (reviewer LOW-7).
 
 ### B.4 Anti-tautology test posture
 
-Tests assert three cases against the synonym map, all as `UNKNOWN_SECTION_HEADER` warnings: (1) a rename that IS in the map with its section rendered (`rawSnippet: "LODGING"` → `hotels`); (2) the **negative control** — a foreign header with no map entry (`rawSnippet: "SHIPPING"` → `warnings` bucket) — this MUST be asserted, or the closed-allowlist gate is unproven; (3) the **rendered gate** — a mapped rename whose section is NOT in `renderedSections` (`"LODGING"` when hotels isn't rendered → `warnings` bucket). Additionally assert a typo header that the parser WOULD autocorrect never reaches this path (it arrives as `SECTION_HEADER_AUTOCORRECTED` with a mapped kind, not `UNKNOWN_SECTION_HEADER`) — guards against the no-op flaw. Expected sections come from the synonym map under test, but the negative + rendered-gate controls ensure the assertion can't pass by blanket-routing everything.
+Tests assert these cases, all as `UNKNOWN_SECTION_HEADER` warnings:
+
+1. **Correct-mapping per seed entry (reviewer HIGH-2 — independent oracle).** For EACH seed entry, a case pinning the expected `SectionId` as an **independent hardcoded literal**, NOT read back from the map under test: `"STAFF" → "crew"`, `"LODGING" → "hotels"`, `"LOCATION" → "venue"`, etc. A per-entry literal table in the test proves the map's *values* are correct (a `LODGING → venue` bug fails here), not merely that routing is non-empty. Deriving expected from the map would let a wrong map pass — forbidden.
+2. **Negative control** — a foreign header with no map entry (`"SHIPPING"` → `warnings` bucket). MUST be asserted or the closed-allowlist gate is unproven.
+3. **Rendered gate** — a mapped rename whose section is NOT in `renderedSections` (`"LODGING"` when hotels isn't rendered → `warnings` bucket).
+4. **Not-reached-for-typos (reviewer MEDIUM-4 — parser-generated, end-to-end).** Feed a real markdown section header that the parser DOES autocorrect (e.g. a within-tolerance typo of a known section) through the actual parser (`parseSheet`/the exporter path), and assert the emitted warning is `SECTION_HEADER_AUTOCORRECTED` with a mapped `blockRef.kind` — never `UNKNOWN_SECTION_HEADER`. This must use a parser-generated warning, not a hand-built `ParseWarning` literal, so it actually proves the two classes are disjoint in practice.
+
+The per-entry literals (case 1) plus the negative + rendered-gate controls (cases 2–3) ensure no assertion can pass by blanket-routing or by a wrong map.
 
 ---
 
@@ -115,15 +126,21 @@ Render a **"Content we couldn't read"** callout inside the per-sheet review body
 
 ### C.3 Guard conditions (per the global "guard conditions for every prop" rule)
 
+Because `raw_unrecognized` is coerced from persisted `jsonb` (§C.1), type-level guarantees are NOT enough — the render path fail-closes on malformed data (reviewer MEDIUM-5). A single **sanitizer** normalizes the raw value to a clean `{block,key,value}[]` before any rendering:
+
 - `row.parseResult == null` (non-staged row): callout not rendered.
-- `row.parseResult.raw_unrecognized` absent/`undefined` (older persisted envelope predating the field): treat as `[]` → callout not rendered. (Field is `Required (default [])` per type, but persisted jsonb from before the field existed may lack it — coalesce.)
-- `raw_unrecognized.length === 0`: callout not rendered (no "0 items" chrome).
-- A row with empty `value` (`""`): render `key` with an em-dash placeholder for value (`{key} | —`), never a blank that reads as "we lost it."
-- A row with empty/whitespace `block`: group under a `Other` bucket label rather than an empty group header.
+- `row.parseResult.raw_unrecognized` absent/`undefined` OR **`null`** OR **not an array** (older/malformed persisted jsonb): coalesce to `[]` → callout not rendered. Never throws.
+- **Per-entry validation:** each element must be a non-null object with string-coercible `block`/`key`/`value`. Elements that are `null`, non-objects, or missing `key` are **dropped** (not rendered). The header count `n` reflects the SANITIZED length (post-drop), so the count never over-promises rows the UI then can't show.
+- `sanitized.length === 0` (empty, or everything dropped): callout not rendered (no "0 items" chrome).
+- An entry with empty/whitespace `key`: dropped (a row with no label is unshowable and reads as noise).
+- An entry with empty `value` (`""`): render `key` with an em-dash placeholder (`{key} | —`), never a blank that reads as "we lost it."
+- An entry with empty/whitespace `block`: grouped under an `Other` bucket label rather than an empty group header.
 
 ### C.4 Cap / truncation (per the global cap rule)
 
-`raw_unrecognized` is unbounded in principle (a garbage tab could produce hundreds of rows). Cap the **expanded** list at **50 rows total** across all groups; beyond that, render `+{n − 50} more not shown` as the final line. The header count `n` always reflects the true total (never the capped count). Collapsed state always shows only the header + count.
+`raw_unrecognized` is unbounded in principle (a garbage tab could produce hundreds of rows). Cap the **expanded** list at **50 rows total** across all groups; beyond that, render `+{n − 50} more not shown` as the final line. The header count `n` always reflects the true **sanitized** total (§C.3), never the capped count. Collapsed state always shows only the header + count.
+
+**Ordering (reviewer MEDIUM-6 — deterministic):** the sanitized entries keep their original `raw_unrecognized` array order (the parser's emission order). Groups are formed by first-appearance of each `block` in that order (stable), and rows within a group keep emission order. The "first 50" are therefore the first 50 sanitized entries in emission order — stable across renders and reproducible in tests. No sorting by block name, key, or value.
 
 ### C.5 Transition inventory
 
