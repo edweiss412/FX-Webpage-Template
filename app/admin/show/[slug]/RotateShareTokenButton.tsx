@@ -249,6 +249,15 @@ export function RotateShareTokenButton({
               {copied ? "Copied" : "Copy"}
             </button>
           </div>
+          {emailMailtos.length > 1 && (
+            <p
+              data-testid="admin-rotate-share-token-email-note"
+              className="text-xs text-text-subtle"
+            >
+              Your crew list needs {emailMailtos.length} separate emails. Send each one; addresses
+              go in Bcc.
+            </p>
+          )}
           {emailMailtos.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
               {emailMailtos.map((m) => (

@@ -253,7 +253,7 @@ describe("<CurrentShareLinkPanel> — email-crew anchors", () => {
 
   test("token + emails → single anchor with helper-derived href", async () => {
     process.env.NEXT_PUBLIC_SITE_ORIGIN = "https://crew.fxav.show";
-    const { getAllByTestId } = render(
+    const { getAllByTestId, queryByTestId } = render(
       await CurrentShareLinkPanel({
         showId: SHOW_ID,
         slug: SLUG,
@@ -270,6 +270,7 @@ describe("<CurrentShareLinkPanel> — email-crew anchors", () => {
     expect(anchors[0]!.getAttribute("href")).toBe(expected[0]!.href);
     expect(anchors[0]!.textContent).toContain("Email this link to crew");
     expect(anchors[0]!.textContent).not.toMatch(/\(\d+ of \d+\)/);
+    expect(queryByTestId("admin-current-share-link-email-note")).toBeNull();
   });
 
   // Adversarial R2 — an implementation rendering only mailtos[0] must fail.
@@ -299,6 +300,10 @@ describe("<CurrentShareLinkPanel> — email-crew anchors", () => {
         `Email this link to crew (${m.batch} of ${m.batchCount})`,
       );
     });
+    // Impeccable critique P1 — partial-distribution trap (see rotate counterpart).
+    const note = getAllByTestId("admin-current-share-link-email-note");
+    expect(note).toHaveLength(1);
+    expect(note[0]!.textContent).toContain(`${expected.length} separate emails`);
   });
 
   test("token + no emails → no anchor", async () => {

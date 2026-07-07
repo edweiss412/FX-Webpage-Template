@@ -29,7 +29,7 @@ const UNPAIRED_SURROGATE =
 export type CrewLinkMailto = { href: string; batch: number; batchCount: number };
 
 function subjectFor(title: string): string {
-  return title.length > 0 ? `Crew link — ${title}` : "Crew link";
+  return title.length > 0 ? `Crew link: ${title}` : "Crew link";
 }
 
 function bodyFor(title: string, url: string): string {

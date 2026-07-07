@@ -361,6 +361,7 @@ describe("RotateShareTokenButton — Flow 5 disclosure + email crew anchors", ()
     expect(anchors[0]!.getAttribute("href")).toBe(expected[0]!.href);
     expect(anchors[0]!.textContent).toContain("Email crew");
     expect(anchors[0]!.textContent).not.toMatch(/\(\d+ of \d+\)/);
+    expect(screen.queryByTestId("admin-rotate-share-token-email-note")).toBeNull();
   });
 
   // Adversarial R2 — an implementation rendering only mailtos[0] must fail.
@@ -388,6 +389,10 @@ describe("RotateShareTokenButton — Flow 5 disclosure + email crew anchors", ()
       expect(anchors[i]!.getAttribute("href")).toBe(m.href);
       expect(anchors[i]!.textContent).toContain(`Email crew (${m.batch} of ${m.batchCount})`);
     });
+    // Impeccable critique P1 — partial-distribution trap: multi-batch renders an
+    // instruction naming the batch count so one tap never reads as "done".
+    const note = screen.getByTestId("admin-rotate-share-token-email-note");
+    expect(note.textContent).toContain(`${expected.length} separate emails`);
   });
 
   test("no crewEmails prop → no email anchor", async () => {

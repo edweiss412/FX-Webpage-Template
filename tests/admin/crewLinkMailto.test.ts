@@ -89,7 +89,7 @@ describe("buildCrewLinkMailtos — subject/body encoding", () => {
     const href = out[0]!.href;
     const subject = decodeURIComponent(href.match(/&subject=([^&]*)/)![1]!);
     const body = decodeURIComponent(href.match(/&body=([^&]*)$/)![1]!);
-    expect(subject).toBe(`Crew link — ${TITLE}`);
+    expect(subject).toBe(`Crew link: ${TITLE}`);
     expect(body).toBe(
       `Here's the link to your crew page for ${TITLE}:\n\n${URL}\n\nOpen it and pick your name to see your schedule.`,
     );
@@ -146,7 +146,7 @@ describe("buildCrewLinkMailtos — chunking (R1) and title budget (R4)", () => {
       expect(m.href.length).toBeLessThanOrEqual(MAX_MAILTO_HREF_CHARS);
       const subject = decodeURIComponent(m.href.match(/&subject=([^&]*)/)![1]!);
       const body = decodeURIComponent(m.href.match(/&body=([^&]*)$/)![1]!);
-      expect(subject).toBe(`Crew link — ${truncated}`);
+      expect(subject).toBe(`Crew link: ${truncated}`);
       expect(body).toContain(` for ${truncated}:`);
       collected.push(...recipientsOf(m.href));
     }
@@ -167,7 +167,7 @@ describe("buildCrewLinkMailtos — chunking (R1) and title budget (R4)", () => {
     expect(out).toHaveLength(1);
     expect(out[0]!.href.length).toBeLessThanOrEqual(MAX_MAILTO_HREF_CHARS);
     const subject = decodeURIComponent(out[0]!.href.match(/&subject=([^&]*)/)![1]!);
-    expect(subject).toBe(`Crew link — ${"T".repeat(MAILTO_TITLE_MAX_CHARS - 1)}😀…`);
+    expect(subject).toBe(`Crew link: ${"T".repeat(MAILTO_TITLE_MAX_CHARS - 1)}😀…`);
   });
 
   // Plan adversarial R2 — the MIDDLE ladder rung: truncated title still blows the
@@ -199,7 +199,7 @@ describe("buildCrewLinkMailtos — chunking (R1) and title budget (R4)", () => {
     });
     expect(out).toHaveLength(1);
     const subject = decodeURIComponent(out[0]!.href.match(/&subject=([^&]*)/)![1]!);
-    expect(subject).toBe("Crew link — bad\uFFFDtitle");
+    expect(subject).toBe("Crew link: bad\uFFFDtitle");
   });
 
   test("pathological url that cannot fit one blank-title recipient under the cap → []", () => {
