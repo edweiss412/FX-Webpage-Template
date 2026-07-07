@@ -132,9 +132,15 @@ create table if not exists public.admin_overrides (
   override_value jsonb not null,         -- structured (dates/venue) or json string (name/role/hotel_*)
   sheet_value    jsonb,                  -- last parsed value; refreshed each sync; null = never matched / parsed null
   active         boolean not null default true,   -- false = deactivated (stale), row retained until repoint/discard
-  created_by     text not null,          -- canonicalized admin email
+  created_by     text not null,          -- canonicalized admin email (canonicalized at the RPC boundary; CHECK is the invariant-3 safety net)
   created_at     timestamptz not null default now(),
   updated_at     timestamptz not null default now(),
+  -- Invariant 3: schema-level CHECK is the email safety net (mirrors crew_members_email_canonical,
+  -- 20260501000000_initial_public_schema.sql:44-46). created_by is always an admin email here
+  -- (overrides have no 'system' path), so it must be lower/trim-canonical and non-empty.
+  constraint admin_overrides_created_by_canonical check (
+    created_by = lower(trim(created_by)) and created_by <> ''
+  ),
   constraint admin_overrides_domain_field_chk check (
        (domain = 'show'  and field in ('dates','venue')          and match_key = '')
     or (domain = 'crew'  and field in ('name','role'))
@@ -375,7 +381,7 @@ type OverrideableFieldProps = {
   driveFileId: string;
   domain: "show" | "crew" | "hotel";
   field: "dates" | "venue" | "name" | "role" | "hotel_name" | "hotel_address";
-  matchKey: string;            // '' for show
+  matchKey: string;            // '' for show; the DURABLE PARSED key (§8.2a) — NOT the display value
   currentValue: React.ReactNode | string; // the live (possibly overridden) rendered value
   override: OverrideState | null;          // { overrideValue, sheetValue, active } | null
   currentOrdinal?: number;     // hotel only (CAS anchor)
@@ -384,6 +390,16 @@ type OverrideableFieldProps = {
 ```
 
 Renders the value + (when overridden & active) the "Overridden — sheet says X" chip + edit/revert affordances. It is a client component that calls the server action (§8.4). Guard: `override === null` → plain value + an "Edit" affordance; `override.active === false` (stale) → parsed value + a muted "Override paused — sheet no longer has «matchKey»" note with re-point / discard.
+
+### 8.2a `matchKey` derivation (CRITICAL — pass the parsed key, not the display value)
+
+`matchKey` MUST be the **durable parsed identifier**, never the live display value. After an active name override the live crew row shows `John` but its `match_key` is the parsed `Jon`; if a follow-on **role** edit (or a **hotel_address** edit after a `hotel_name` override) were keyed on the *display* value, the override would be written under `John`/the-override-hotel-name and the next sync — which matches on RAW parse — would fail to find it and deactivate it (or hit the wrong row). The admin loaders therefore derive `matchKey` from source, not display:
+
+- **crew** (`name` and `role` fields on a member): `matchKey = crew_members.sheet_name ?? crew_members.name`. `sheet_name` (§4.4) holds the parsed name whenever any name override is active; otherwise `name` *is* the parsed name. A member's `name` and `role` `OverrideableField`s **share** this one `matchKey` (both key on the member's parsed name — §5.2), so a role edit while a name override is active is correctly keyed to `Jon`, not `John`.
+- **hotel** (`hotel_name` and `hotel_address` on a reservation): the admin loader reads the reservation's active override rows (it already queries `admin_overrides` to render chips + `sheet_value`) and uses the stored `match_key` (the parsed hotel name + dup-ordinal, §5.3); with no active override, `matchKey = hotel_reservations.hotel_name` (which is then the parsed name). Both `hotel_name` and `hotel_address` fields on a reservation share this `matchKey`. (No `sheet_hotel_name` column is needed — the admin surface can read `admin_overrides`, unlike the crew path.)
+- **show**: `matchKey = ''` (singleton).
+
+Tested: a role edit while a name override is active, and a hotel_address edit while a hotel_name override is active, both persist under the PARSED key and survive the next sync (do not deactivate). (§13)
 
 ### 8.2 Chip
 
@@ -408,7 +424,7 @@ The wizard passes `driveFileId` (`s.dfid`) and the parsed values already present
 
 Server action `app/admin/show/[slug]/_actions/overrides.ts` — thin layer: `requireAdminIdentity()` gate → delegate to `lib/overrides/setFieldOverride.ts` helper, then **post-commit** `logAdminOutcome({ code: "FIELD_OVERRIDE_SET"|"FIELD_OVERRIDE_REVERTED", … })` (§11) + `revalidateShow`. **No inline `.rpc` in the action** (deadlock rule, `feed.ts:10-14`).
 
-**Client choice (critical):** `set_field_override` EXECUTE is revoked from `authenticated` and granted only to `service_role` (§7.5), so the helper MUST use **`createSupabaseServiceRoleClient()`**, not `createSupabaseServerClient()`. The latter is cookie-bound and uses the publishable/anon key in this repo — it would pass `requireAdminIdentity()` and then fail `permission denied` at the RPC boundary, making every save/revert path unusable. Mirror the exact precedent `lib/onboarding/setPullSheetOverrideRpc.ts:34` (`const client = (deps?.createClient ?? createSupabaseServiceRoleClient)(); const { data, error } = await client.rpc("set_field_override", params)`). `requireAdminIdentity()` at the action layer is the authorization gate; the service-role client is constructed only after that gate passes. The helper destructures `{ data, error }` + `mapRpcOutcome` (invariant 9) and is registered in the infra-contract meta-test.
+**Client choice (critical):** `set_field_override` EXECUTE is revoked from `authenticated` and granted only to `service_role` (§7.5), so the helper MUST use **`createSupabaseServiceRoleClient()`**, not `createSupabaseServerClient()`. The latter is cookie-bound and uses the publishable/anon key in this repo — it would pass `requireAdminIdentity()` and then fail `permission denied` at the RPC boundary, making every save/revert path unusable. Mirror the exact precedent `lib/onboarding/setPullSheetOverrideRpc.ts:34` (`const client = (deps?.createClient ?? createSupabaseServiceRoleClient)(); const { data, error } = await client.rpc("set_field_override", params)`). `requireAdminIdentity()` at the action layer is the authorization gate; the service-role client is constructed only after that gate passes. The admin email it returns is passed as `p_actor` **canonicalized via `lib/email/canonicalize.ts` at the action boundary** (invariant 3 primary mechanism; the `admin_overrides_created_by_canonical` CHECK is the safety net). The helper destructures `{ data, error }` + `mapRpcOutcome` (invariant 9) and is registered in the infra-contract meta-test.
 
 ### 8.5 Guard conditions (every prop / state)
 
@@ -450,7 +466,7 @@ Compound: editing while a background sync deactivates the same override → on s
 | Invariant | Obligation | Where |
 |---|---|---|
 | **2** advisory lock single-holder | `set_field_override` locks in-RPC; JS action never locks. Sync overlay runs inside existing JS-side `withShowLock` (no new lock). Add migration filename to `advisoryLockRpcDeadlock.test.ts` `migrationFiles:33`. | §7.2, §3.2 |
-| **3** email canonicalization | No email is overridable. `created_by` canonicalized at the action boundary before RPC. | §2.2, §7 |
+| **3** email canonicalization | No email is overridable. `created_by` is canonicalized at the action boundary via `lib/email/canonicalize.ts` **before** the RPC (primary mechanism), AND the `admin_overrides_created_by_canonical` CHECK (`= lower(trim())` , non-empty) is the schema safety net (§4.1). RPC/action test proves a raw/mixed-case actor email is canonicalized (or rejected) before insert. | §2.2, §4.1, §7 |
 | **5** no raw codes in UI | All override errors routed through `lib/messages/lookup.ts`; §10 codes have Doug-facing copy. | §8.7, §10 |
 | **9** Supabase call-boundary | Override helper destructures `{data,error}`, distinguishes returned vs thrown, uses `mapRpcOutcome`; registered in `_metaInfraContract.test.ts` (or inline `// not-subject-to-meta`). | §8.4 |
 | **10** mutation observability | `set_field_override` action is an **admin surface** → `AUDITABLE_MUTATIONS` row + `adminOutcomeBehavior.test.ts` success-branch proof. Emits post-commit, outside the lock. | §11 |
@@ -464,16 +480,18 @@ Compound: editing while a background sync deactivates the same override → on s
 
 ## 10. Error / alert codes (§12.4 lockstep)
 
-Four new codes: **two** forensic outcome codes (`FIELD_OVERRIDE_SET`, `FIELD_OVERRIDE_REVERTED` — logAdminOutcome only, NOT §12.4) and **two** admin-alert codes (`OVERRIDE_TARGET_MISSING`, `OVERRIDE_NAME_CONFLICT`). Only the two admin-alert codes touch §12.4 lockstep; each lands in **all** lockstep surfaces in one commit (spec §12.4 prose → `pnpm gen:spec-codes` → `lib/messages/__generated__/spec-codes.ts` → `lib/messages/catalog.ts` → `tests/cross-cutting/code-scenarios.ts` `CODE_SCENARIOS`; parity gate `tests/cross-cutting/codes.test.ts:70,74`).
+Six new codes: **four** forensic outcome codes (`FIELD_OVERRIDE_SET`/`REVERTED`/`REPOINTED`/`DISCARDED` — one per RPC op; logAdminOutcome only, NOT §12.4) and **two** admin-alert codes (`OVERRIDE_TARGET_MISSING`, `OVERRIDE_NAME_CONFLICT`). Only the two admin-alert codes touch §12.4 lockstep; each lands in **all** lockstep surfaces in one commit (spec §12.4 prose → `pnpm gen:spec-codes` → `lib/messages/__generated__/spec-codes.ts` → `lib/messages/catalog.ts` → `tests/cross-cutting/code-scenarios.ts` `CODE_SCENARIOS`; parity gate `tests/cross-cutting/codes.test.ts:70,74`).
 
 | Code | Kind | Audience | Doug-facing copy (draft) |
 |---|---|---|---|
-| `FIELD_OVERRIDE_SET` | forensic outcome (`logAdminOutcome`) | — (not user-rendered) | n/a |
-| `FIELD_OVERRIDE_REVERTED` | forensic outcome (`logAdminOutcome`) | — | n/a |
+| `FIELD_OVERRIDE_SET` | forensic outcome (`logAdminOutcome`) — `upsert` op | — (not user-rendered) | n/a |
+| `FIELD_OVERRIDE_REVERTED` | forensic outcome — `revert` op | — | n/a |
+| `FIELD_OVERRIDE_REPOINTED` | forensic outcome — `repoint` op | — | n/a |
+| `FIELD_OVERRIDE_DISCARDED` | forensic outcome — `discard` op | — | n/a |
 | `OVERRIDE_TARGET_MISSING` | `admin_alerts` (new `AdminAlertCode`) | doug | "An override you set no longer matches the sheet. The field is showing the sheet's value again — re-point the override to the right row or discard it." |
 | `OVERRIDE_NAME_CONFLICT` | `admin_alerts` (new `AdminAlertCode`) | doug | "A name override you set now clashes with a real crew member of the same name. We paused it and are showing the sheet's name — re-point it to a different name or discard it." |
 
-**Decided (not deferred):** `FIELD_OVERRIDE_SET` / `FIELD_OVERRIDE_REVERTED` are **forensic outcome codes only** — `logAdminOutcome.code` is a free `string` ("see the meta-test registry", `lib/log/logAdminOutcome.ts:9`), validated by the `AUDITABLE_MUTATIONS` registry, **not** the §12.4 catalog parity gate. They are NOT §12.4 rows and NOT in `catalog.ts` (precedent: `archive.ts:42` emits forensic `SHOW_ARCHIVED`, distinct from the user-rendered catalog code `SHOW_ARCHIVED_BY_ADMIN` at `catalog.ts:1741`). **BOTH** admin-alert codes — `OVERRIDE_TARGET_MISSING` AND `OVERRIDE_NAME_CONFLICT` — go through the full §12.4 lockstep (spec prose → `gen:spec-codes` → `catalog.ts` → `CODE_SCENARIOS` → `_metaAdminAlertCatalog`); the two `FIELD_OVERRIDE_*` forensic codes do not.
+**Decided (not deferred):** the **four** `FIELD_OVERRIDE_*` codes (one per RPC op: `SET`=upsert, `REVERTED`=revert, `REPOINTED`=repoint, `DISCARDED`=discard) are **forensic outcome codes only** — `logAdminOutcome.code` is a free `string` ("see the meta-test registry", `lib/log/logAdminOutcome.ts:9`), validated by the `AUDITABLE_MUTATIONS` registry, **not** the §12.4 catalog parity gate. They are NOT §12.4 rows and NOT in `catalog.ts` (precedent: `archive.ts:42` emits forensic `SHOW_ARCHIVED`, distinct from the user-rendered catalog code `SHOW_ARCHIVED_BY_ADMIN` at `catalog.ts:1741`). **BOTH** admin-alert codes — `OVERRIDE_TARGET_MISSING` AND `OVERRIDE_NAME_CONFLICT` — go through the full §12.4 lockstep (spec prose → `gen:spec-codes` → `catalog.ts` → `CODE_SCENARIOS` → `_metaAdminAlertCatalog`); the two `FIELD_OVERRIDE_*` forensic codes do not.
 
 `OVERRIDE_TARGET_MISSING` and `OVERRIDE_NAME_CONFLICT` are **two** new `AdminAlertCode`s (`lib/adminAlerts/upsertAdminAlert.ts:3` union, 36 members → 38). Each fans out to `tests/messages/_metaAdminAlertCatalog.test.ts`, §12.4 prose + helpfulContext appendix, and the audience/identity matrices (~9 surfaces each per MEMORY `reference_admin_alert_code_lockstep_surfaces`). They are **not** added to `INBOX_ROUTED_CODES` — needs-attention surfaces stale/conflict overrides via the durable inactive-row stream (§6 step 2), so routing the alert too would double-list the item.
 
@@ -484,8 +502,9 @@ Additionally, a user-facing **stale-review** error surfaces on the CAS 409 path 
 ## 11. Telemetry (invariant 10)
 
 - `set_field_override` action → **admin surface** (body calls `requireAdminIdentity()`). Requires:
-  - `AUDITABLE_MUTATIONS` registry row (`tests/log/_auditableMutations.ts:13`, shape `{file, fn, code}`): `{ file: "app/admin/show/[slug]/_actions/overrides.ts", fn: "setFieldOverrideAction", code: "FIELD_OVERRIDE_SET" }` (+ revert variant).
-  - Executable success-branch proof in `tests/log/adminOutcomeBehavior.test.ts` (real logger via `setLogSink` spy `:8`): asserts the code is recorded on the committed-success branch.
+  - The action emits a distinct outcome code **per RPC op** — `upsert→FIELD_OVERRIDE_SET`, `revert→FIELD_OVERRIDE_REVERTED`, `repoint→FIELD_OVERRIDE_REPOINTED`, `discard→FIELD_OVERRIDE_DISCARDED` (repoint and discard are real admin mutations — repoint moves which live row is overridden; discard deletes durable override state — so both need first-class audit coverage, R9).
+  - An `AUDITABLE_MUTATIONS` registry row (`tests/log/_auditableMutations.ts:13`, shape `{file, fn, code}`) for **each** of the four codes on `setFieldOverrideAction` (`app/admin/show/[slug]/_actions/overrides.ts`).
+  - Executable success-branch proof in `tests/log/adminOutcomeBehavior.test.ts` (real logger via `setLogSink` spy `:8`) for **all four ops** — each asserts its code is recorded on the committed-success branch.
 - `logAdminOutcome` (`lib/log/logAdminOutcome.ts:27`, `AdminOutcome {code,source,actorEmail?,driveFileId?,showId?,result?,extra?}`) emitted **post-commit, outside the lock tx**. `actorEmail` = canonicalized admin email; **no secrets** (no share tokens; `match_key`/values are show content, allowed).
 - The **wizard** surface (`step3ReviewSections` edit) calls the **same** action → same telemetry (no separate registry row per surface; per-function coverage).
 - Stale/conflict `admin_alert` emit is separate, best-effort telemetry (the `OVERRIDE_TARGET_MISSING` / `OVERRIDE_NAME_CONFLICT` upsert), post-commit — additive to the durable inactive-row needs-attention signal (§6), never the sole signal.
@@ -498,7 +517,7 @@ Additionally, a user-facing **stale-review** error surfaces on the CAS 409 path 
 - `lib/admin/loadNeedsAttention.ts` (page rows) + `needsAttentionCount` (nav badge) + `lib/admin/needsAttention.ts` — add the 4th derived stream (`admin_overrides where not active`, read under the `admin_only` RLS policy by the existing cookie client) to `buildNeedsAttention` (`:291`); tests assert an inactive override surfaces as **both** a page row and a badge-count increment, **even when the post-commit `admin_alert` emit throws** (the durable-signal proof — §6 step 2).
 - `tests/db/postgrest-dml-lockdown.test.ts` — add `admin_overrides` to `RPC_GATED_TABLES` (`:147`): `{selectAnon:false, selectAuthenticated:true, postBody:…}` (authenticated SELECT present but RLS-confined to admins, like `ignored_warnings`); INSERT/UPDATE/DELETE revoked from anon+authenticated; service_role retains ALL (DDL `grant all … to service_role`, §4.1).
 - `tests/auth/advisoryLockRpcDeadlock.test.ts` — add migration filename to `migrationFiles` (`:33`); document `set_field_override` as an in-RPC single holder in the allow-list comments (`:100+`).
-- `tests/log/_auditableMutations.ts` + `tests/log/adminOutcomeBehavior.test.ts` — registry rows + behavioral proof.
+- `tests/log/_auditableMutations.ts` + `tests/log/adminOutcomeBehavior.test.ts` — registry rows + behavioral success-branch proof for **all four** op codes (`FIELD_OVERRIDE_SET`/`REVERTED`/`REPOINTED`/`DISCARDED`, §11).
 - `tests/messages/_metaAdminAlertCatalog.test.ts`, `tests/cross-cutting/codes.test.ts` — new codes.
 - `tests/db/validation-schema-parity.test.ts` — the migration adds BOTH `admin_overrides` (table) AND `crew_members.sheet_name` (column, §4.4); regen manifest + surgical validation apply cover both.
 - `tests/admin/no-inline-email-normalization.test.ts` — any name/`sheet_name` trim carries `// canonicalize-exempt`.
@@ -507,6 +526,7 @@ Additionally, a user-facing **stale-review** error surfaces on the CAS 409 path 
 **Creates:**
 - `tests/sync/overrideApply.test.ts` — the pre-write transform: override folds into crew list before delete/upsert; crew_members.id stable across two syncs (the id-churn regression, §3.1); name-collision fold-conflict deactivates without row collapse (§5.2/§6); hotel matched by name across reorder; show dates/venue overridden; sheet_value refreshed; **stale deactivation surfaces via the inactive-row needs-attention stream even when the post-commit alert emit throws** (durability test — §6 step 2 vs step 3); **a stale-short-circuit sync (`applyShowSnapshot` returns `outcome:"stale"`, `phase2.ts:305-306`) leaves `admin_overrides` completely unchanged — no sheet_value refresh, no deactivation** (Stage A pure / Stage B applied-path-only, §3.2).
 - `tests/overrides/setFieldOverride.test.ts` — RPC ops (upsert/revert/repoint/discard), CAS 409, guard rejections (incl. name collision), lock held, **`sheet_value` = sheet value always: create-then-revert AND edit-then-revert, both WITHOUT any intervening sync, restore the true sheet value for each of the 6 fields (R6 + R7 data-loss regressions — edit must NOT recapture the prior override into sheet_value)**, and the full §7.6 anchor matrix: edit `John`→`Jonathan` and revert `John`→`Jon` hit the correct live row; **a role override applied AND reverted while a name override is active resolves the live row through the sibling name override** (§7.6 finding 3); **repoint of an inactive/stale override succeeds with the old parsed target absent** (does not require an old live row — §7.6 finding 2); a wrong active-anchor (live name moved by a concurrent sync) raises 409, not a silent zero-row no-op.
+- `tests/overrides/matchKeyDurability.test.ts` — the admin loader derives `matchKey` from source not display (§8.2a): a **role edit while a name override is active** persists under the parsed name (not the override), and a **hotel_address edit while a hotel_name override is active** persists under the parsed hotel name; both survive the next sync without deactivating (the R9 mis-key regression). CHECK-canonical `created_by`: a mixed-case actor email is canonicalized before insert (or rejected by the CHECK).
 - Real-browser layout assertion for the chip/field-row dimensional invariant (§8.6).
 
 - `tests/sync/overrideHoldOrdering.test.ts` — an **open MI-11 hold on `Jon` + an active name override `Jon→John`**: (a) hold release/retarget follows the RAW sheet (`Jon` still present); (b) the override fold **still applies** (live row `John`) and **`crew_members.id` is stable** across the sync (§3.4 — no defer, protected-name mapped through the override). Two failure modes caught: folding the override into the ParseResult before hold planning (corrupts hold reconciliation), AND deferring the fold (deletes+reinserts the `John` row → id churn).
