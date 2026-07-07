@@ -306,6 +306,10 @@ Adding the 45th code makes several narrative count anchors stale (some were ALRE
 - `lib/adminAlerts/alertIdentityMap.ts:3` and `:54` (`"42-code matrix"`, `"13 global … 29 with >=1"`)
 - `tests/adminAlerts/alertIdentityMatrix.test.ts:5` and `tests/adminAlerts/_metaAlertIdentityMap.test.ts:39`
 - `tests/messages/_metaAdminAlertCatalog.test.ts:273` (the `"26 + 17 + 1 + 0 = 44"` comment)
+- `tests/messages/_metaAlertActionsContract.test.ts:162` (`"42-code ADMIN_ALERTS_CODES universe"` test-name)
+- `lib/adminAlerts/resolveAlertIdentities.ts:14` and `tests/adminAlerts/alertIdentityMap.test.ts:4` (`"42-code matrix"` comments)
+
+Practical approach: `grep -rn "42-code\|43\b.*doug\|17 doug\|13 global"` across `tests/messages tests/adminAlerts lib/adminAlerts` and update each hit to the accurate 45-based number.
 
 **Comment-fragility guard:** these are docstrings/comments/test-name strings, NOT the AST-scanned infra-contract surfaces — but re-run `tests/messages/` + `tests/adminAlerts/` after editing to confirm no comment-position meta-test tripped (per the repo's comment-fragility discipline).
 
@@ -330,7 +334,8 @@ Expected: PASS (behavioral emit + all completeness meta-tests + x1/x2 parity gre
 - [ ] **Step 12: Commit**
 
 ```bash
-git add app/api/admin/onboarding/scan/route.ts lib/adminAlerts/upsertAdminAlert.ts lib/adminAlerts/alertIdentityMap.ts lib/messages/catalog.ts lib/messages/__generated__/spec-codes.ts lib/messages/__generated__/internal-code-enums.ts docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md tests/messages/adminAlertsRegistry.ts tests/messages/_metaAdminAlertCatalog.test.ts tests/messages/_metaAlertAudienceContract.test.ts tests/adminAlerts/adminAlertCodes.fixture.ts tests/adminAlerts/_metaAlertIdentityMap.test.ts tests/adminAlerts/alertIdentityMatrix.test.ts tests/onboarding/scanRouteAlertEmit.test.ts
+git add app/api/admin/onboarding/scan/route.ts lib/adminAlerts/upsertAdminAlert.ts lib/adminAlerts/alertIdentityMap.ts lib/adminAlerts/resolveAlertIdentities.ts lib/messages/catalog.ts lib/messages/__generated__/spec-codes.ts lib/messages/__generated__/internal-code-enums.ts docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md tests/messages/adminAlertsRegistry.ts tests/messages/_metaAdminAlertCatalog.test.ts tests/messages/_metaAlertAudienceContract.test.ts tests/messages/_metaAlertActionsContract.test.ts tests/adminAlerts/adminAlertCodes.fixture.ts tests/adminAlerts/_metaAlertIdentityMap.test.ts tests/adminAlerts/alertIdentityMatrix.test.ts tests/adminAlerts/alertIdentityMap.test.ts tests/onboarding/scanRouteAlertEmit.test.ts
+# (also `git add` any other file the Step 8b numeric-sweep grep touched)
 git commit --no-verify -m "feat(onboarding): raise ONBOARDING_SHEET_UNREADABLE alert on setup-scan hard-fail"
 ```
 
@@ -352,9 +357,16 @@ git commit --no-verify -m "feat(onboarding): raise ONBOARDING_SHEET_UNREADABLE a
 Create `tests/components/wizard/Step2Verify.emptyState.test.tsx`. Use the project's existing Step2Verify test harness (grep `tests/**/*Step2*` for how it mounts the component in a success state — it likely needs a router stub + a way to set `FormState` to success; follow that pattern). Anti-tautology: scope queries to the block testids; for the "popover absent" assertion, query the footer region specifically.
 
 ```tsx
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest"; // repo default env is "node" (vitest.config.ts:59) and
+// setup.ts does NOT install jest-dom — BOTH lines are required for render + the jest-dom matchers
+// (precedent: tests/app/admin/adminErrorBoundary.test.tsx:1,17).
 import { describe, it, expect } from "vitest";
 import { render, screen, within } from "@testing-library/react";
-// mount helper from the existing Step2Verify tests
+// The existing Step2Verify tests (tests/components/admin/wizard/Step2Verify.test.tsx) drive success
+// via a mocked global fetch returning a streamed NDJSON body — reuse that harness (streamResponse /
+// ndjson / completedScanBody helpers) to reach the `success` FormState; there is NO direct
+// state-injection prop.
 
 const empty = { staged: 0, hard_failed: 0, skipped_non_sheet: 0, live_row_conflict: 0 };
 const unreadable = { staged: 0, hard_failed: 2, skipped_non_sheet: 1, live_row_conflict: 0 };
@@ -376,8 +388,11 @@ describe("Step2Verify staged-0 states", () => {
     expect(screen.queryByTestId("wizard-step2-success")).not.toBeInTheDocument();
   });
 
-  it("empty folder with no parseable folderUrl → no Open-folder link", () => {
-    // render success with totals=empty, folderUrl=""
+  it("empty folder with a non-parseable folderUrl → no Open-folder link", () => {
+    // Drive success with totals=empty but set the folder-url input to a NON-EMPTY
+    // yet unparseable value (e.g. "not-a-drive-url") before submitting — an EMPTY
+    // input can't reach success (handleSubmit early-returns on `!trimmed`,
+    // Step2Verify.tsx:210-214). parseDriveFolderId("not-a-drive-url") → null → no link.
     const block = screen.getByTestId("wizard-step2-empty");
     expect(within(block).queryByRole("link", { name: /open the folder/i })).not.toBeInTheDocument();
   });
@@ -571,6 +586,8 @@ git commit --no-verify -m "feat(admin): first-class empty-folder + nothing-ready
 Create `tests/components/wizard/Step1Share.noFolder.test.tsx`:
 
 ```tsx
+// @vitest-environment jsdom
+import "@testing-library/jest-dom/vitest"; // both required (repo env is "node"; setup.ts omits jest-dom)
 import { describe, it, expect } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import { Step1Share } from "@/components/admin/wizard/Step1Share";
