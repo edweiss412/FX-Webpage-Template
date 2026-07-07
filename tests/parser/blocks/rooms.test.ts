@@ -1,6 +1,12 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { parseRooms, V4_BARE_LABEL_VOCAB } from "@/lib/parser/blocks/rooms";
+import {
+  parseRooms,
+  V4_BARE_LABEL_VOCAB,
+  roomHeaderNameShape,
+  headerDayMarker,
+  splitRoomHeader,
+} from "@/lib/parser/blocks/rooms";
 import { detectVersion } from "@/lib/parser/schema";
 import { newAggregator } from "@/lib/parser/warnings";
 import { gatedVocabCorrect } from "@/lib/parser/typoGate";
@@ -431,5 +437,20 @@ describe("parseRooms — prefixed-admission gate (synthetic)", () => {
     const md = "| BREAKOUTS BREAKOUT 3&#10;GHOSTB&#10;5' x 9'&#10;2nd Floor | |\n";
     const bo = parseRooms(md, "v2").filter((r) => r.kind === "breakout");
     expect(bo).toHaveLength(0);
+  });
+});
+
+describe("dims widening across rooms sites (rec-6d)", () => {
+  it("roomHeaderNameShape rejects a new-format dims-leading cell", () => {
+    expect(roomHeaderNameShape("50′×45′ SALON")).toBe(false);
+    expect(roomHeaderNameShape("50 x 40 SALON")).toBe(false);
+  });
+  it("headerDayMarker admits a ×/′ dims-only line after a DAY anchor AND keeps 5 x 8", () => {
+    expect(headerDayMarker("MERIDIAN&#10;DAY 1&#10;60′ × 45′")).toBe(true);
+    expect(headerDayMarker("MERIDIAN&#10;DAY 1&#10;5 x 8")).toBe(true); // preserved
+  });
+  it("splitRoomHeader extracts new-format dims and strips a dangling ×", () => {
+    expect(splitRoomHeader("ADLER BALLROOM 75′ × 37′ ×", "breakout").dimensions).toBe("75′ × 37′");
+    expect(splitRoomHeader("SALON 50ft x 40ft", "breakout").dimensions).toBe("50ft x 40ft");
   });
 });

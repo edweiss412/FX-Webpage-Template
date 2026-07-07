@@ -29,6 +29,7 @@
 import type { RoomRow, RoomKind } from "../types";
 import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
 import { clean, presence, splitRow } from "./_helpers";
+import { dimsStartRe, dimsFullRe, DIMS_SEP, DIMS_START_SRC } from "./_dimsToken";
 import { gatedVocabCorrect } from "@/lib/parser/typoGate";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { classifyGearItem } from "@/lib/parser/gearClassification";
@@ -131,7 +132,7 @@ export function roomHeaderNameShape(col0Raw: string): boolean {
   const upper = firstLine.toUpperCase();
   // item 1: proper name shape, NOT dimension-leading.
   if (!/^[A-Z0-9][A-Z0-9 &',./-]*$/.test(upper)) return false;
-  if (/^\d+\s*'\s*x/i.test(upper)) return false;
+  if (dimsStartRe(true).test(upper)) return false;
   // item 2: non-empty identity (DAY-stripped), not a section banner.
   const identity = roomBaseName(firstLine);
   if (identity.length === 0) return false;
@@ -164,7 +165,10 @@ export function headerDayMarker(col0Raw: string): boolean {
   }
   if (anchor === -1) return false;
   for (let i = anchor + 1; i < lines.length; i++) {
-    if (!/^\d+\s*'?\s*x\s*\d/i.test(lines[i]!)) return false;
+    // DOCUMENTED EXCEPTION (spec §C invariant 1): a digit-UNGATED, unit-OPTIONAL superset
+    // of today's `/^\d+\s*'?\s*x\s*\d/i` (adds `×`/`′`/`ft` only) so the existing `60 x 45`
+    // / `5 x 8` day-marker acceptance is preserved — it does NOT use the bare 2–3-digit gate.
+    if (!/^\s*\d+\s*(?:['′]|ft\b)?\s*[x×]\s*\d/i.test(lines[i]!)) return false;
   }
   return true;
 }
@@ -872,7 +876,7 @@ function findGsBlockVenueHeader(markdown: string): string | null {
     // sitting directly above GS Setup): an in-cell newline OR a dimension token. Without
     // it, fall back to "General Session" rather than mis-naming the GS room.
     const raw = cells[0] ?? "";
-    if (!/&#10;/.test(raw) && !/\d+\s*'\s*x/i.test(raw)) return null;
+    if (!/&#10;/.test(raw) && !dimsStartRe(false).test(raw)) return null;
     return raw; // raw (keeps &#10; for splitRoomHeader to flatten)
   }
   return null;
@@ -931,7 +935,7 @@ export function findBoBlockVenueHeaders(
     const c1 = clean(cells[1] ?? "");
     const flat = c0.replace(/&#10;/g, " ").toUpperCase();
     const shape = c0.length > 0 && (c1 === "" || c1 === c0);
-    const evidence = /&#10;/.test(rawCell) || /\d+\s*'\s*x/i.test(rawCell);
+    const evidence = /&#10;/.test(rawCell) || dimsStartRe(false).test(rawCell);
     const admit = shape && !BO_VENUE_BANNER_RE.test(flat) && evidence && !headerDayMarker(rawCell);
     byLine.set(headerLine, { header: rawCell, headerLine, admit });
   }
@@ -1211,7 +1215,7 @@ function parseBoRooms(markdown: string, model: RoomHeaderModel): RoomRow[] {
       const rawHeader = col0Of(model.lines[candidate.lineIndex]!).replace(/&#10;/g, "\n");
       // dims may ride in the header ("APPROXIMATELY 60' x 45'")
       for (const hl of rawHeader.split("\n").slice(1)) {
-        const dimMatch = /(\d+'\s*x\s*\d+'(?:\s*x\s*\d+')?)/.exec(hl);
+        const dimMatch = dimsFullRe().exec(hl);
         if (dimMatch && !room.dimensions) room.dimensions = dimMatch[1]!;
       }
       mergeBoFields(room, extractBoBlock(model.lines, candidate.lineIndex, model));
@@ -1267,7 +1271,7 @@ function harvestSameNameHeaderDims(
     const parts = col0Of(line).replace(/&#10;/g, "\n").split("\n");
     if (!nameKeys.has(parts[0]!.trim().toUpperCase())) continue;
     for (const hl of parts.slice(1)) {
-      const dimMatch = /(\d+'\s*x\s*\d+'(?:\s*x\s*\d+')?)/.exec(hl);
+      const dimMatch = dimsFullRe().exec(hl);
       if (dimMatch) return dimMatch[1]!;
     }
   }
@@ -1432,7 +1436,7 @@ function parseAdditionalRoom(markdown: string, model: RoomHeaderModel): RoomRow 
 //      left behind by an unfilled stub.
 // `name` falls back to "General Session" for a GS header that reduces to nothing;
 // other kinds keep an empty name so the caller's placeholder gate can drop the stub.
-function splitRoomHeader(
+export function splitRoomHeader(
   raw: string,
   kind: RoomKind,
 ): { name: string; dimensions: string | null; floor: string | null } {
@@ -1483,7 +1487,9 @@ function splitRoomHeader(
   // A/B" = the room spanning sections A and B), so it counts as a dims label ONLY with a
   // colon ("A/B:"). Making A/B colon-optional (PR #114) wrongly pulled an unlabeled
   // trailing "A/B" out of the name into the dims (audit idx25).
-  const dimStart = s.search(/(?:\b(?:TOTAL|APPROXIMATELY)\s*:?\s*|\bA\/B\s*:\s*)?\d+\s*'\s*x/i);
+  const dimStart = s.search(
+    new RegExp("(?:\\b(?:TOTAL|APPROXIMATELY)\\s*:?\\s*|\\bA\\/B\\s*:\\s*)?" + DIMS_START_SRC, "i"),
+  );
   if (dimStart !== -1) {
     dimensions = presence(
       s
@@ -1494,7 +1500,7 @@ function splitRoomHeader(
         // filled "75' x 37'" but left the 3rd dimension blank, so the flattened
         // header reads "75' x 37' x" and the stray "x" would reach the crew card
         // verbatim (confirmed on the LIVE fintech ADLER BALLROOM cell) — audit idx22.
-        .replace(/\s*x\s*$/i, "")
+        .replace(new RegExp("\\s*" + DIMS_SEP + "\\s*$", "i"), "")
         .trim(),
     );
     s = s.slice(0, dimStart).trim();
