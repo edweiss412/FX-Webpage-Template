@@ -3,6 +3,9 @@ import { resolveAlias, resolveAliasFull, resolveAliasScoped } from "@/lib/parser
 import type { ParseAggregator } from "@/lib/parser/warnings";
 import { emitUnknownField } from "@/lib/parser/warnings";
 import { presence, parseTableRows } from "./_helpers";
+import { matchesSectionHeader } from "./_sectionHeaderMatch";
+
+export const SECTION_HEADER_TOKENS = ["VENUE"] as const;
 
 // ── VENUE block shapes across corpus ─────────────────────────────────────────
 //
@@ -165,7 +168,7 @@ export function parseVenue(
     //         |       | VENUE ADDRESS | <value> |
     //         |       | LOADING DOCK  | <value> |
     // The "VENUE" row opens the block; blank-col0 continuation rows follow.
-    if (col0Upper === "VENUE") {
+    if (matchesSectionHeader(col0, SECTION_HEADER_TOKENS)) {
       const subLabel = row[1] ?? "";
       const subCanon = resolveAlias(subLabel);
 
