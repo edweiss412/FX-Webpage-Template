@@ -270,7 +270,7 @@ export default async function AdminShowPage({
         // existing visible crew-unavailable state.
         void log.error("crew_members roster exceeded read cap:", {
           source: "admin.show",
-          code: "ADMIN_SHOW_CREW_LOOKUP_FAILED",
+          code: "ADMIN_SHOW_CREW_ROSTER_OVERFLOW",
           slug,
           showId: show.id,
           error: `roster > CREW_ROSTER_READ_CAP (${CREW_ROSTER_READ_CAP})`,
