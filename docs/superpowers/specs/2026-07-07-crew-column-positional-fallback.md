@@ -55,12 +55,12 @@ The values land verbatim but possibly in the **wrong field** (a role string stor
 
 Modeled on `COLUMN_HEADER_AUTOCORRECTED` (`catalog.ts:1229-1241`) but stating a *guess*, not a *fix*:
 
-- **dougFacing:** "We couldn't recognize the column headers on _<sheet-name>_'s crew table, so we read the columns by position (1st = name, 2nd = role, 3rd = phone). Check that each crew member's name and role landed in the right place, and add a header row (Name / Role / Phone / Email) if they didn't."
+- **dougFacing:** "We couldn't recognize the column headers on _<sheet-name>_'s crew table, so we read the columns by position instead. Names and roles may have landed in the wrong fields — check the crew section against your sheet, and add a header row (Name / Role / Phone / Email) so we can read the columns by label."
 - **crewFacing:** `null`
 - **followUp:** "Doug → verify crew columns"
-- **helpfulContext:** "This crew table's header row was missing or used labels we don't recognize (e.g. 'Position' instead of 'Role'), so we couldn't confirm which column is which and read them by position — 1st column as name, 2nd as role, 3rd as phone. The rows still parsed, but they may be in the wrong fields. Check the crew section against the sheet; adding a standard header row (Name / Role / Phone / Email) removes the guesswork."
+- **helpfulContext:** "This crew table's header row was missing or used labels we don't recognize (e.g. 'Position' instead of 'Role'), so we couldn't confirm which column is which and read them by position. The rows still parsed, but names and roles may have landed in the wrong fields. Check the crew section against the sheet; adding a standard header row (Name / Role / Phone / Email) removes the guesswork."
 - **title:** "Guessed crew table columns by position"
-- **longExplanation:** "A crew table's header row was missing or used unrecognized labels, so instead of dropping the rows we read the columns by position — 1st as name, 2nd as role, 3rd as phone. The rows parsed but may have landed in the wrong fields. Add a standard header row (Name / Role / Phone / Email) so the columns are read by label."
+- **longExplanation:** "A crew table's header row was missing or used unrecognized labels, so instead of dropping the rows we read the columns by position. The rows parsed but may have landed in the wrong fields. Add a standard header row (Name / Role / Phone / Email) so the columns are read by label."
 - **helpHref:** `/help/errors#CREW_COLUMN_POSITIONAL_FALLBACK`
 
 Data-gap label (`GAP_CLASSES`, plain-language, invariant 5): **"guessed crew columns"**.
@@ -72,7 +72,7 @@ Every cell gets an action or an explicit N/A. This is the tier×domain equivalen
 | # | Surface | Action |
 |---|---|---|
 | 1 | `lib/parser/blocks/crew.ts` `detectColumns` | Return `recognized: Set<"name"\|"role"\|"phone"\|"email">` alongside `{colMap, corrections}`. |
-| 2 | `lib/parser/blocks/crew.ts` `parseCrewBlock` | After `detectColumns`, if `!recognized.has("name") \|\| !recognized.has("role")`, push `CREW_COLUMN_POSITIONAL_FALLBACK` warning (severity warn, blockRef crew, rawSnippet = headerLine) to `warnings` + `agg`. |
+| 2 | `lib/parser/blocks/crew.ts` `parseCrewBlock` | After `detectColumns`, if `!recognized.has("name") \|\| !recognized.has("role")`, push the `CREW_COLUMN_POSITIONAL_FALLBACK` warning to **`agg?.warnings`** — mirroring the `COLUMN_HEADER_AUTOCORRECTED` block-level emit at `crew.ts:129-135` (block warnings propagate ONLY via `agg`; `parseCrewBlock` returns `members` only, and `localWarnings` is the per-member channel passed into `buildCrewMember`, NOT this one). Fields: `severity:"warn"`, `code`, `message` (diagnostic), `rawSnippet: headerLine`, `blockRef:{kind:"crew", index:0}`. |
 | 3 | `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` §12.4 table (~line 2892) | New row: `\| \`CREW_COLUMN_POSITIONAL_FALLBACK\` \| … \| dougFacing \| — \| Doug → verify crew columns \|`. |
 | 4 | §12.4 helpfulContext appendix (~line 3191) | New line: `CREW_COLUMN_POSITIONAL_FALLBACK: "<helpfulContext>"`. |
 | 5 | `pnpm gen:spec-codes` → `lib/messages/__generated__/spec-codes.ts` | Regenerate + commit. Consumed by `tests/cross-cutting/codes.test.ts` (x1 parity). |
@@ -111,7 +111,7 @@ Derive header/row fixtures inline from the real crew-block markdown shape (pipe-
 ## 9. Numeric sweep (single-source values)
 
 - Gap count `24 → 25`, persisted-warning universe `44 → 45` — both live in `tests/parser/dataGapsClassCompleteness.test.ts` comments/constants; update both in the same commit as the `GAP_CLASSES` append. No other file hardcodes these counts (verified via grep in plan pre-draft).
-- Positional defaults cited as `name=1, role=2, phone=3` throughout — sourced from `crew.ts:81-83`; the copy in §5 must match these exact positions.
+- Positional defaults `name=1, role=2, phone=3` (`crew.ts:81-83`) are **internal indices into the 0-based inner-cell array** (`cells = parts.slice(1,-1)`, `crew.ts:149`), NOT human "1st/2nd/3rd column" ordinals — a recognized `| NAME | ROLE |…` header assigns `name=0` (`assign(seg,i)`, `i` 0-based over `segments`, `crew.ts:80,87-96`), while the default assumes a leading marker column so `name=1`. Because that mapping is subtle and can itself be wrong, the §5 Doug-facing copy deliberately makes **no ordinal claim** ("read by position … may be in the wrong fields") rather than naming which column becomes which field. Round-1 adversarial finding (BLOCKING): earlier copy said "1st = name, 2nd = role" which contradicts the `name=1` default — removed.
 - **`dougFacing` byte-parity:** the `x1-catalog-parity` gate compares runtime `catalog.ts` `dougFacing` ↔ §12.4 table cell character-for-character. The §5 dougFacing string MUST be identical in the master-spec §12.4 row (surface #3) and `catalog.ts` (surface #6) — no prettier reflow of the master spec (it mangles §12.4 cells → x1 divergence).
 
 ## 10. Reviewer preempts (EXPLICITLY DO NOT RELITIGATE)
