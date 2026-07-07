@@ -1278,6 +1278,32 @@ export const MESSAGE_CATALOG = {
       "We couldn't read the QTY on some rows — usually it's a word, a range like '1-2', or another value that isn't a plain number. We kept those cases and show the row's original text so techs still see what's packed. Only those rows are affected. Use Report to have us support the format.",
     helpHref: "/help/errors#PULL_SHEET_PARSE_PARTIAL",
   },
+  PULL_SHEET_ON_ARCHIVED_TAB: {
+    code: "PULL_SHEET_ON_ARCHIVED_TAB",
+    dougFacing:
+      "A pull sheet was found on an archived tab ('{tab}') and left out. If it's this show's gear, include it in review; otherwise ignore.",
+    crewFacing: null,
+    followUp: "Doug → include or ignore",
+    helpfulContext:
+      "We spotted a PULL SHEET on a tab that looks archived — an older or renamed tab, not the sheet's current body — so we left it out of the parse to avoid mixing old gear into the current pull list. If that tab really is this show's gear, include it from the review panel and we'll fold it in; otherwise you can ignore this and nothing changes.",
+    title: "Pull sheet found on an archived tab",
+    longExplanation:
+      "We found a PULL SHEET on a tab that looks archived (an older or renamed tab, not the sheet's current body), so we left it out of the parse to avoid mixing old gear into the current pull list. If that tab really is this show's gear, include it from the review panel and we'll fold it in; otherwise you can ignore this and nothing changes.",
+    helpHref: "/help/errors#PULL_SHEET_ON_ARCHIVED_TAB",
+  },
+  PULL_SHEET_OVERRIDE_CONTENT_CHANGED: {
+    code: "PULL_SHEET_OVERRIDE_CONTENT_CHANGED",
+    dougFacing:
+      "An included archived-tab pull sheet changed and was set back to skipped for safety; admin must re-confirm.",
+    crewFacing: null,
+    followUp: "Doug → re-confirm",
+    helpfulContext:
+      "You'd previously included an archived-tab pull sheet in this show's gear, but its contents have changed since you accepted it. To avoid silently publishing gear you didn't review, we set that tab back to skipped and left the current pull sheet untouched. Re-open the review panel, check the updated tab, and include it again if it's still correct.",
+    title: "Included archived-tab pull sheet changed",
+    longExplanation:
+      "An archived-tab pull sheet you'd included in this show's gear has changed since you accepted it. To avoid silently publishing gear you didn't review, we set that tab back to skipped and left the current pull sheet untouched. Re-open the review panel, check the updated tab, and include it again if it's still correct.",
+    helpHref: "/help/errors#PULL_SHEET_OVERRIDE_CONTENT_CHANGED",
+  },
   AGENDA_GRID_MALFORMED: {
     code: "AGENDA_GRID_MALFORMED",
     dougFacing:

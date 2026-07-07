@@ -117,6 +117,13 @@ const lockHolderRegistry = [
     key: "hashtext('show:' || drive_file_id)",
   },
   {
+    path: "supabase/migrations/20260706000000_pull_sheet_override.sql",
+    holder: "set_pull_sheet_override",
+    layer:
+      "SECURITY DEFINER accept/revoke writer is the SOLE show: lock holder (pg_advisory_xact_lock IN-RPC); the JS route app/api/admin/onboarding/pull-sheet-override/route.ts never locks",
+    key: "hashtext('show:' || drive_file_id)",
+  },
+  {
     path: "lib/sync/lockedPromoteTx.ts",
     holder: "withPromoteLock",
     layer: "JS-side transaction wrapper for post-commit storage promotion",
@@ -380,6 +387,11 @@ describe("M6 advisory-lock single-holder contract", () => {
           layer: expect.stringContaining("nonblocking show lock"),
         }),
         expect.objectContaining({
+          holder: "set_pull_sheet_override",
+          layer: expect.stringContaining("SOLE show: lock holder"),
+          key: "hashtext('show:' || drive_file_id)",
+        }),
+        expect.objectContaining({
           holder: "withPromoteLock",
           key: "hashtext('promote:' || show_id)",
         }),
@@ -586,5 +598,13 @@ describe("M6 advisory-lock single-holder contract", () => {
     }
 
     expect(violations).toEqual([]);
+  });
+
+  test("pull-sheet-override route does not take the show: lock in JS (set_pull_sheet_override RPC is sole holder)", () => {
+    // §5.4 topology: the SECURITY DEFINER set_pull_sheet_override RPC holds the show:
+    // advisory lock IN-RPC (single-holder — invariant 2). The JS route must NOT add a
+    // second layer; a nested holder deadlocks under burst (M5 R20 class).
+    const src = read("app/api/admin/onboarding/pull-sheet-override/route.ts");
+    expect(src).not.toMatch(/pg_advisory|hashtext\('show:/);
   });
 });

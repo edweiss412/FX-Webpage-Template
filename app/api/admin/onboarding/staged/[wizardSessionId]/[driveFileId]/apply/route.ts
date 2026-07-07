@@ -11,6 +11,7 @@ import {
 import type { ConcurrentSyncSkipped } from "@/lib/sync/lockedShowTx";
 import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
 import { withPostgresSyncPipelineLock } from "@/lib/sync/runScheduledCronSync";
+import { StaleOverrideRefusedRollbackError } from "@/lib/sync/runOnboardingScan";
 import {
   readCurrentWizardSessionIdBestEffort,
   WizardSessionSupersededRollbackError,
@@ -206,6 +207,14 @@ export async function handleWizardStagedApply(
     const mapped = statusForApplyResult(result);
     return errorResponse(mapped.status, mapped.code);
   } catch (error) {
+    if (error instanceof StaleOverrideRefusedRollbackError) {
+      // §5.7/I5a: the restage's under-lock re-read found the pull-sheet override changed
+      // (concurrent accept/revoke/content-clear) after the pre-lock parse. scanPreparedFileWithTx
+      // THREW before staging, so the locked tx rolled back with nothing staged — the row is
+      // untouched. Surface the cataloged "staged parse outdated" 409 (discarded, a fresh parse
+      // re-derives under the current override), same refresh-and-wait UX as a revision race.
+      return errorResponse(409, "STAGED_PARSE_OUTDATED");
+    }
     if (error instanceof WizardSessionSupersededRollbackError) {
       // applyStaged THROWS on an in-apply supersession (applyStaged.ts 1084/1105/1554):
       // the wizard-scoped writes (pending_ingestion hard-fail upsert / approve UPDATE /

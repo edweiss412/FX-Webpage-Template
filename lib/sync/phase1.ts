@@ -5,6 +5,7 @@ import { runInvariants } from "@/lib/parser/invariants";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import { MI8_DEBOUNCE_MS } from "@/lib/sync/constants";
 import type { ResolvedSyncMode, SyncMode } from "@/lib/sync/perFileProcessor";
+import type { OverrideSnapshot } from "@/lib/sync/pullSheetOverride";
 import {
   getAutoPublishCleanFirstSeen as defaultGetAutoPublishCleanFirstSeen,
   type AutoPublishCleanFirstSeenResult,
@@ -53,6 +54,12 @@ export type Phase1PendingSyncRow = {
   // Optional: only the onboarding scan supplies it; other staging callers omit it and the DB
   // column defaults to '{}'.
   sourceAnchors?: Record<string, SourceAnchor>;
+  // §5.8: the override snapshot THIS staged parse was produced under. Persisted to
+  // pending_syncs.pull_sheet_override_applied atomically with parse_result. Absent ⇒ null.
+  pullSheetOverrideApplied?: OverrideSnapshot;
+  // §5.2/I5b: when true, the staging write also clears pending_syncs.pull_sheet_override
+  // to null (content-change / tab-missing discard-and-rerun). Absent ⇒ no clear.
+  pullSheetOverrideCleared?: boolean;
 };
 
 export type Phase1PendingIngestionRow = {
@@ -104,6 +111,9 @@ export type Phase1Args = {
   wizardSessionId?: string;
   // Region source anchors computed at scan (onboarding path only); forwarded into the staging row.
   sourceAnchors?: Record<string, SourceAnchor>;
+  // §5.8 pull-sheet override provenance for the staged parse — forwarded into the staging row.
+  pullSheetOverrideApplied?: OverrideSnapshot;
+  pullSheetOverrideCleared?: boolean;
   // Re-sync quality gate (audit finding #3): a VERSION-BOUND confirmed accept that already
   // showed the admin the shrink counts. Cron/push never set these. The hold is bypassed ONLY
   // when acceptShrink === true AND expectedModifiedTime === binding.modifiedTime (§4a).
@@ -504,6 +514,12 @@ export async function runPhase1(
         sourceKind: sourceKindForMode(args.mode),
         warningSummary: warningSummary(args.parseResult),
         ...(args.sourceAnchors !== undefined ? { sourceAnchors: args.sourceAnchors } : {}),
+        ...(args.pullSheetOverrideApplied !== undefined
+          ? { pullSheetOverrideApplied: args.pullSheetOverrideApplied }
+          : {}),
+        ...(args.pullSheetOverrideCleared !== undefined
+          ? { pullSheetOverrideCleared: args.pullSheetOverrideCleared }
+          : {}),
       }),
     );
     if (show) {

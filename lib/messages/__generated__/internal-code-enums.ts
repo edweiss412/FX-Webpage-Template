@@ -182,6 +182,12 @@ export const INTERNAL_CODE_ENUMS = {
   PULL_SHEET_AMBIGUOUS_FORMAT: {
     source: "parse_warnings.code"
   },
+  PULL_SHEET_ON_ARCHIVED_TAB: {
+    source: "parse_warnings.code,pending_ingestions.last_error_code"
+  },
+  PULL_SHEET_OVERRIDE_CONTENT_CHANGED: {
+    source: "pending_ingestions.last_error_code"
+  },
   PULL_SHEET_PARSE_PARTIAL: {
     source: "parse_warnings.code"
   },

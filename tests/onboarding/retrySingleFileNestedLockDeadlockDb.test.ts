@@ -125,6 +125,7 @@ function makeParseResult(): ParseResult {
     openingReel: null,
     raw_unrecognized: [],
     warnings: [],
+    archivedPullSheetTabs: [],
     hardErrors: [],
   };
 }

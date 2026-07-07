@@ -105,6 +105,7 @@ function parseWith(crewMembers: ParseResult["crewMembers"]): ParseResult {
     openingReel: null,
     raw_unrecognized: [],
     warnings: [],
+    archivedPullSheetTabs: [],
     hardErrors: [],
   };
 }

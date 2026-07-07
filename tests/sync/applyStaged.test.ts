@@ -81,6 +81,7 @@ function parseResult(): ParseResult {
     openingReel: null,
     raw_unrecognized: [],
     warnings: [],
+    archivedPullSheetTabs: [],
     hardErrors: [],
   };
 }
@@ -100,6 +101,7 @@ function pending(overrides: Partial<PendingSyncForApply> = {}): PendingSyncForAp
     priorLastSyncStatus: "ok",
     priorLastSyncError: null,
     warningSummary: "none",
+    pullSheetOverrideApplied: null,
     ...overrides,
   };
 }

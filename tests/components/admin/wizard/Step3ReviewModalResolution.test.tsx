@@ -45,6 +45,7 @@ function sectionData(): SectionData {
     rooms: pr.rooms,
     hotels: pr.hotelReservations,
     pullSheet: pr.pullSheet ?? [],
+    archivedPullSheetTabs: pr.archivedPullSheetTabs ?? [],
     ros: pr.runOfShow ?? {},
     warnings: pr.warnings,
     agendaBaseline: [],

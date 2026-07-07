@@ -76,6 +76,7 @@ export function parseResult(crewMembers: CrewMemberRow[]): ParseResult {
     openingReel: null,
     raw_unrecognized: [],
     warnings: [],
+    archivedPullSheetTabs: [],
     hardErrors: [],
   };
 }

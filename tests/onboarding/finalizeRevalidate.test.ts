@@ -246,6 +246,8 @@ function fakePipelineTx(db: FakeFinalizeDb): SyncPipelineTx {
       const n = sqlText.replace(/\s+/g, " ").trim();
       if (/pg_locks/i.test(n)) return { held: true };
       if (n.startsWith("insert into public.sync_audit")) return { id: "audit-1" };
+      // §5.5/I6 Flow A pull-sheet override propagation (writeShowPullSheetOverride_unlocked).
+      if (n.startsWith("update public.shows set pull_sheet_override")) return {};
       throw new Error(`Unhandled SQL in fake pipeline tx: ${n}`);
     },
     async applyShowSnapshot(args: { driveFileId: string }) {

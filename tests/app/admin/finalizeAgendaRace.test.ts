@@ -336,6 +336,9 @@ function fakeRacePipeline(
         db.auditRows.push("audit-1");
         return { id: "audit-1" };
       }
+      // Flow A/B archived-tab override propagation (applyStagedCore.writeShowPullSheetOverride_unlocked):
+      // writes shows.pull_sheet_override during first-seen finalize. Result is ignored by the caller.
+      if (/^update public\.shows set pull_sheet_override/i.test(n)) return {};
       throw new Error(`fakeRacePipeline.queryOne: unhandled:\n${n}`);
     },
     // Called by defaultRunPhase2 → the key capture point for parseResult.

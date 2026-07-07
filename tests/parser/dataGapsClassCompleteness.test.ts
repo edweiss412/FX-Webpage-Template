@@ -33,7 +33,7 @@ import { familyFor } from "@/app/help/errors/_families";
 
 // ── Layer 1: the editorial partition (every PERSISTED ParseWarning code) ──────
 
-/** 23 — sheet-data-quality gaps counted by summarizeDataGaps (from GAP_CLASSES). */
+/** 24 — sheet-data-quality gaps counted by summarizeDataGaps (from GAP_CLASSES). */
 const DATA_GAP_CODES = new Set<string>(GAP_CLASSES.map((g) => g.code));
 
 /** 7 — warn-severity but semantically benign (parser fixed/adjusted; data landed). */
@@ -65,7 +65,7 @@ const ASSET_WARN_CODES = new Set<string>([
   "OPENING_REEL_NOT_VIDEO",
 ]);
 
-/** The full persisted-ParseWarning universe (42) — every code lands in exactly one bucket. */
+/** The full persisted-ParseWarning universe (44) — every code lands in exactly one bucket. */
 const ALL_PERSISTED_WARNING_CODES = new Set<string>([
   ...DATA_GAP_CODES,
   ...BENIGN_WARN_CODES,
@@ -111,6 +111,9 @@ const NON_GAP_CATALOG_CODES = new Set<string>([
   "LOCK_OWNERSHIP_ASSERTION_FAILED",
   // staged-parse control codes (staging state machine, not parse warnings)
   "STAGED_PARSE_OUTDATED",
+  // finalize consistency gate (Task 11) — the override-snapshot mismatch reuses this
+  // existing Phase-D blocking code; a control code surfaced via lookup, not a data gap.
+  "STAGED_PARSE_OUTDATED_AT_PHASE_D",
   "STAGED_PARSE_RESTAGED_INLINE",
   "STAGED_PARSE_RESULT_CORRUPT",
   "STAGED_PARSE_REVISION_RACE",
@@ -145,6 +148,10 @@ const NON_GAP_CATALOG_CODES = new Set<string>([
   // MI11 drive-recheck / hold codes
   "MI11_DRIVE_RECHECK_FAILED",
   "MI11_HOLD_ALREADY_RESOLVED",
+  // pull-sheet override control (Task 6) — the S4 "included archived tab changed,
+  // re-confirm" warning; surfaced in the override review card, NOT a counted data gap
+  // (only PULL_SHEET_ON_ARCHIVED_TAB, the offer, is in GAP_CLASSES).
+  "PULL_SHEET_OVERRIDE_CONTENT_CHANGED",
   // asset-recovery control codes (cooldown/drift accounting, not persisted parse warnings)
   "ASSET_RECOVERY_BYTES_EXCEEDED",
   "ASSET_RECOVERY_DRIFT_COOLDOWN",
@@ -191,12 +198,12 @@ const collectedRealCodes = (() => {
 // ── Assertions ────────────────────────────────────────────────────────────────
 
 describe("data-gap class completeness (drift guard)", () => {
-  it("Layer 1 — the 4 buckets are pairwise disjoint and total 43 (23/7/2/11)", () => {
-    expect(DATA_GAP_CODES.size).toBe(23);
+  it("Layer 1 — the 4 buckets are pairwise disjoint and total 44 (24/7/2/11)", () => {
+    expect(DATA_GAP_CODES.size).toBe(24);
     expect(BENIGN_WARN_CODES.size).toBe(7);
     expect(BENIGN_INFO_CODES.size).toBe(2);
     expect(ASSET_WARN_CODES.size).toBe(11);
-    expect(ALL_PERSISTED_WARNING_CODES.size).toBe(43); // Set dedups → proves pairwise-disjoint
+    expect(ALL_PERSISTED_WARNING_CODES.size).toBe(44); // Set dedups → proves pairwise-disjoint
 
     // explicit pairwise-disjoint (also vs the ignore-list)
     const buckets = [

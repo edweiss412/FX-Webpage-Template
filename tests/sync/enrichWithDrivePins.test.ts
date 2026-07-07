@@ -40,6 +40,7 @@ function emptyParsed(overrides: Partial<ParsedSheet> = {}): ParsedSheet {
     openingReel: null,
     raw_unrecognized: [],
     warnings: [],
+    archivedPullSheetTabs: [],
     hardErrors: [],
     ...overrides,
   };

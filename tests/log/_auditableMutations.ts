@@ -293,6 +293,20 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
   { file: "app/api/admin/alerts/bell/read/route.ts", fn: "POST", code: "BELL_READ_MARKED" },
   // Task 11 — bell notification center developer-gated config route.
   { file: "app/api/admin/alerts/bell/config/route.ts", fn: "POST", code: "BELL_CONFIG_UPDATED" },
+  // Pull-sheet-on-archived-tab override accept/revoke (spec §5.4, Task 8). One route
+  // file+POST, two forensic outcome codes (accept => SET, revoke => CLEARED). Both are
+  // emitted post-commit BEFORE the re-scan (plan-R8-1) so a re-scan failure never leaves
+  // the committed override mutation dark (invariant 10).
+  {
+    file: "app/api/admin/onboarding/pull-sheet-override/route.ts",
+    fn: "POST",
+    code: "PULL_SHEET_OVERRIDE_SET",
+  },
+  {
+    file: "app/api/admin/onboarding/pull-sheet-override/route.ts",
+    fn: "POST",
+    code: "PULL_SHEET_OVERRIDE_CLEARED",
+  },
 ];
 
 export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
@@ -362,6 +376,9 @@ export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
   "BELL_READ_MARKED",
   // Bell notification center Task 11.
   "BELL_CONFIG_UPDATED",
+  // Pull-sheet-on-archived-tab override accept/revoke (spec §5.4, Task 8).
+  "PULL_SHEET_OVERRIDE_SET",
+  "PULL_SHEET_OVERRIDE_CLEARED",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing
@@ -525,4 +542,9 @@ export const NEW_FORENSIC_CODES: ReadonlySet<string> = new Set([
   "PICKER_IDENTITY_SELECTED",
   "PICKER_IDENTITY_CLEARED",
   "PICKER_STALE_ENTRY_CLEANED",
+  // Pull-sheet override route (spec §5.4, Task 8) — forensic infra/fault codes emitted
+  // inside log.error spans (NOT logAdminOutcome, NOT cataloged): a post-commit re-scan
+  // failure, and an RPC returned/thrown non-40001 error.
+  "PULL_SHEET_OVERRIDE_RESCAN_FAILED",
+  "PULL_SHEET_OVERRIDE_RPC_FAILED",
 ]);

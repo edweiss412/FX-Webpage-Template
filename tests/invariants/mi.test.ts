@@ -82,6 +82,7 @@ function synthParseResult(p: Partial<ParseResult> = {}): ParseResult {
     openingReel: p.openingReel !== undefined ? p.openingReel : null,
     raw_unrecognized: p.raw_unrecognized ?? [],
     warnings: p.warnings ?? [],
+    archivedPullSheetTabs: [],
     hardErrors: p.hardErrors ?? [],
   };
 }

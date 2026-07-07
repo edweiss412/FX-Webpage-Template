@@ -509,6 +509,7 @@ function buildMinimalParsedSheet(
     openingReel: null,
     raw_unrecognized: [],
     warnings: [],
+    archivedPullSheetTabs: [], // pure parser never emits archived-tab regions (exporter does)
     hardErrors,
   };
 }
@@ -716,6 +717,7 @@ export function parseSheet(markdown: string, filename?: string): ParsedSheet {
     openingReel,
     raw_unrecognized: agg.rawUnrecognized,
     warnings: agg.warnings,
+    archivedPullSheetTabs: [], // pure parser never emits archived-tab regions (exporter does)
     hardErrors,
     ...(mergedRunOfShow !== undefined ? { runOfShow: mergedRunOfShow } : {}),
   };

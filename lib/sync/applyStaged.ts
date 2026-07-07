@@ -48,6 +48,12 @@ import { revalidateShow } from "@/lib/data/showCacheTag";
 import { log } from "@/lib/log";
 import { WizardSessionSupersededRollbackError } from "@/lib/sync/wizardSessionRollback";
 import {
+  overrideSnapshot,
+  overrideSnapshotsEqual,
+  type OverrideSnapshot,
+  type PullSheetOverride,
+} from "@/lib/sync/pullSheetOverride";
+import {
   PostgresOnboardingScanTx,
   prepareOnboardingFiles,
   scanOnboardingPreparedFiles,
@@ -137,6 +143,15 @@ export type PendingSyncForApply = {
   priorLastSyncStatus: string | null;
   priorLastSyncError: string | null;
   warningSummary: string;
+  /**
+   * §5.8 deferred-apply gate — the `overrideSnapshot({tabName,fingerprint}|null)` the staged
+   * `parse_result` was produced under (written atomically with the parse by every staging path).
+   * At apply, the live (Flow C) path deep-equals this against `overrideSnapshot(shows.pull_sheet_override)`
+   * and REFUSES a mismatch (discard-and-rerun). Null when no override was in effect at stage time.
+   * Optional so existing pending-sync doubles that never populate it read as "no override staged"
+   * (undefined → null at the gate); the real read path (mapPendingSyncRowForApply) always sets it.
+   */
+  pullSheetOverrideApplied?: OverrideSnapshot;
 };
 
 type LivePendingIngestionInput = {
@@ -269,6 +284,11 @@ export type ApplyStagedResult =
   | { outcome: "wizard_superseded"; code: typeof WIZARD_SESSION_SUPERSEDED }
   | { outcome: "review_items_corrupt"; code: typeof STAGED_REVIEW_ITEMS_CORRUPT }
   | { outcome: "parse_result_corrupt"; code: typeof STAGED_PARSE_RESULT_CORRUPT }
+  // §5.8 Flow C — the live staged parse was produced under a different override than the current
+  // durable shows.pull_sheet_override; refuse to apply the stale parse (discard-and-rerun). Reuses
+  // the cataloged STAGED_PARSE_OUTDATED code (no new §12.4 code — this is the same "staged parse
+  // outdated" class) so the route surfaces user copy via lookup (invariant 5) and 409s generically.
+  | { outcome: "override_snapshot_mismatch"; code: typeof STAGED_PARSE_OUTDATED }
   | { outcome: "blocked"; code: typeof SHOW_ARCHIVED_IMMUTABLE };
 
 export type ApplyStagedDeps = {
@@ -436,6 +456,9 @@ export type PendingSyncForApplyRow = {
   prior_last_sync_status: string | null;
   prior_last_sync_error: string | null;
   warning_summary: string;
+  // §5.8: stored as overrideSnapshot({tabName,fingerprint})|null jsonb — read verbatim (already
+  // the audit-free projection, NOT a full PullSheetOverride). Absent on legacy rows → null.
+  pull_sheet_override_applied?: OverrideSnapshot;
 };
 
 /**
@@ -492,6 +515,9 @@ export function mapPendingSyncRowForApply(row: PendingSyncForApplyRow): PendingS
     priorLastSyncStatus: row.prior_last_sync_status,
     priorLastSyncError: row.prior_last_sync_error,
     warningSummary: row.warning_summary,
+    // §5.8: the stored value is already an OverrideSnapshot ({tabName,fingerprint}|null); a legacy
+    // row that predates the column comes back undefined → coalesce to null (no override at stage).
+    pullSheetOverrideApplied: row.pull_sheet_override_applied ?? null,
   };
 }
 
@@ -504,7 +530,7 @@ async function defaultReadLivePendingSyncForApply(
       select drive_file_id, staged_id, source_kind, wizard_session_id,
              base_modified_time, staged_modified_time, parse_result,
              triggered_review_items, prior_last_sync_status,
-             prior_last_sync_error, warning_summary
+             prior_last_sync_error, warning_summary, pull_sheet_override_applied
         from public.pending_syncs
        where drive_file_id = $1
          and wizard_session_id is null
@@ -526,7 +552,7 @@ async function defaultReadWizardPendingSyncForApply(
       select drive_file_id, staged_id, source_kind, wizard_session_id,
              base_modified_time, staged_modified_time, parse_result,
              triggered_review_items, prior_last_sync_status,
-             prior_last_sync_error, warning_summary
+             prior_last_sync_error, warning_summary, pull_sheet_override_applied
         from public.pending_syncs
        where drive_file_id = $1
          and wizard_session_id = $2::uuid
@@ -685,20 +711,24 @@ async function defaultReadShowForApply(
     id: string;
     last_seen_modified_time: string | null;
     diagrams: unknown;
+    pull_sheet_override: PullSheetOverride | null;
   } | null>(
     `
-      select id, last_seen_modified_time, diagrams
+      select id, last_seen_modified_time, diagrams, pull_sheet_override
         from public.shows
        where drive_file_id = $1
        limit 1
     `,
     [driveFileId],
   );
-  if (!row) return { showId: null, lastSeenModifiedTime: null, diagrams: null };
+  if (!row)
+    return { showId: null, lastSeenModifiedTime: null, diagrams: null, pullSheetOverride: null };
   return {
     showId: row.id,
     lastSeenModifiedTime: row.last_seen_modified_time,
     diagrams: row.diagrams,
+    // §5.8 Flow C: the durable override is the desired value for the live deferred-apply gate.
+    pullSheetOverride: row.pull_sheet_override ?? null,
   };
 }
 
@@ -1212,6 +1242,17 @@ export async function applyStaged_unlocked(
     return { outcome: "superseded", code: STAGED_PARSE_SUPERSEDED };
   }
 
+  // §5.8 Flow C deferred-apply gate (I5(c)): the live staged parse was produced under some override
+  // (recorded as pending.pullSheetOverrideApplied). For live sync the DURABLE shows.pull_sheet_override
+  // (read atomically with the baseline above, under this show: lock) IS the desired value — there is
+  // no wizard session / shadow payload. If they diverge — the override was revoked or its content
+  // changed AFTER staging — the staged parse is stale. Refuse to apply it (discard-and-rerun); the
+  // next cron re-parses + re-stages under the current durable override.
+  const desiredOverride = overrideSnapshot(show?.pullSheetOverride ?? null);
+  if (!overrideSnapshotsEqual(pending.pullSheetOverrideApplied ?? null, desiredOverride)) {
+    return { outcome: "override_snapshot_mismatch", code: STAGED_PARSE_OUTDATED };
+  }
+
   if (!deps.liveDriveReverify) {
     log.error("applyStaged infra fault", {
       code: SYNC_INFRA_ERROR,
@@ -1619,18 +1660,31 @@ async function prepareWizardRestageInline(
     // Bind to the already-reverified revision and fetch the markdown at exactly
     // that revision (this runs PRE-LOCK now, so the Drive export is no longer
     // under the per-show lock).
-    fetchMarkdownWithBinding: async (driveFileId) => {
+    fetchMarkdownWithBinding: async (driveFileId, opts) => {
       const bindingToken = metadata.headRevisionId ?? metadata.modifiedTime;
       // Fetch BOTH markdown AND the xlsx bytes at the pinned revision so prepareOne
       // can extractSourceAnchors AND enrich can surface DIAGRAMS-tab embedded images
       // (prepareOnboardingFiles forwards bytes → ctx.xlsxBytes). The markdown-only
       // sibling left bytes undefined → sourceAnchors stayed {} and the restage upsert
       // clobbered the good anchors captured by the initial scan (audit idx14/#77).
-      const { markdown, bytes } = await fetchSheetMarkdownAndBytesAtRevision(
+      //
+      // Thread `opts.includePullSheetFromTab` + return `archivedPullSheetTabs` so prepareOne
+      // reconciles an ACTIVE pull-sheet override on this revision-race restage path exactly
+      // like the normal scan path. Omitting them made archivedPullSheetTabs=[] → tab_missing →
+      // discardAndRerun silently cleared a still-valid sticky override (whole-diff review R1).
+      const { markdown, bytes, archivedPullSheetTabs } = await fetchSheetMarkdownAndBytesAtRevision(
         driveFileId,
         bindingToken,
+        opts?.includePullSheetFromTab
+          ? { includePullSheetFromTab: opts.includePullSheetFromTab }
+          : {},
       );
-      return { binding: { bindingToken, modifiedTime: metadata.modifiedTime }, markdown, bytes };
+      return {
+        binding: { bindingToken, modifiedTime: metadata.modifiedTime },
+        markdown,
+        bytes,
+        archivedPullSheetTabs,
+      };
     },
   });
   return { folderId: reverify.pendingFolderId, prepared };

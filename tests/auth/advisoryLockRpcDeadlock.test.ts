@@ -66,6 +66,10 @@ function lockTakingRpcNames(): string[] {
     // take hashtextextended('admin_emails', 0) before their FOR UPDATE row lock,
     // single-holder (own body; never nested inside each other).
     "supabase/migrations/20260704000000_admin_mgmt_requires_developer.sql",
+    // Pull-sheet-on-archived-tab override (spec §5.4, Task 8) — set_pull_sheet_override
+    // acquires pg_advisory_xact_lock(hashtext('show:' || p_drive_file_id)) FIRST in its own
+    // body (sole show: holder; the JS route never locks). Advisory-then-row (no FOR UPDATE).
+    "supabase/migrations/20260706000000_pull_sheet_override.sql",
   ];
 
   const names = new Set<string>();
@@ -118,6 +122,10 @@ describe("advisory-lock RPC deadlock guard", () => {
     // (own body; never nested inside each other or set_admin_developer_rpc).
     expect(lockTakingNames).toContain("upsert_admin_email_rpc");
     expect(lockTakingNames).toContain("revoke_admin_email_rpc");
+    // Pull-sheet-on-archived-tab override (spec §5.4, Task 8) — set_pull_sheet_override is
+    // a single-holder admin lock-taker; the JS route awaits it via the service-role client
+    // and never wraps it in withShowAdvisoryLock (nesting would deadlock, M5 R20 class).
+    expect(lockTakingNames).toContain("set_pull_sheet_override");
 
     const sourceFiles = [
       // middleware.ts removed 2026-05-27 (Phase 0.A finding 5 / commit b5999c8).
@@ -207,6 +215,9 @@ describe("advisory-lock RPC deadlock guard", () => {
       // added post-lock developer re-check (a non-locking exists()) must not have
       // moved the advisory lock after the row lock — pin advisory-before-row here.
       "supabase/migrations/20260704000000_admin_mgmt_requires_developer.sql",
+      // Pull-sheet-on-archived-tab override (spec §5.4, Task 8) — set_pull_sheet_override
+      // takes its show: advisory lock FIRST and issues no FOR UPDATE (plain SELECT/UPDATE).
+      "supabase/migrations/20260706000000_pull_sheet_override.sql",
       // NOTE: reset_validation_data is NOT scanned from a hardcoded file here — it is
       // `create or replace`d by hotfix migrations, so a pinned path validates a
       // superseded body (audit idx78). It is checked below from the SHIPPED body via

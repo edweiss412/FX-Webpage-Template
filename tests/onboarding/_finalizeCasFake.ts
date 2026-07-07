@@ -95,6 +95,9 @@ export class FakeFinalizeCasDb implements FinalizeCasRouteTx {
   }> = [];
   appliedShadows: string[] = [];
   auditRows: string[] = [];
+  // §5.5/I6 Flow B: pull_sheet_override values propagated to shows at Phase-D apply. Recorded for
+  // assertions.
+  pullSheetOverrideWrites: Array<{ driveFileId: string; override: unknown }> = [];
   phaseDCasFailDriveIds = new Set<string>();
   // WM-R9: drive ids whose live show is archived — applyShadow's lock-held re-read
   // (readShowArchived_unlocked) must refuse them with SHOW_ARCHIVED_IMMUTABLE.
@@ -278,6 +281,11 @@ export function makeFakePipelineTx(db: FakeFinalizeCasDb): SyncPipelineTx {
       if (normalized.startsWith("insert into public.sync_audit")) {
         db.auditRows.push(params[1] as string); // $2 = drive_file_id
         return { id: "audit-1" } as T;
+      }
+      if (normalized.startsWith("update public.shows set pull_sheet_override")) {
+        // §5.5/I6 Flow B propagation write (writeShowPullSheetOverride_unlocked) at Phase-D apply.
+        db.pullSheetOverrideWrites.push({ driveFileId: params[1] as string, override: params[0] });
+        return {} as T;
       }
       throw new Error(`Unhandled pipelineTx SQL in finalize-cas fake: ${normalized}`);
     },

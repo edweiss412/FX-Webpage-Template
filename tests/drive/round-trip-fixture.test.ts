@@ -44,7 +44,7 @@ describe("production exporter fixtures: xlsx → markdown round trip (frozen sna
     const xlsx = readFileSync(join(DIR, `${show}.xlsx`));
     const committedMarkdown = readFileSync(join(DIR, `${show}.md`), "utf8");
 
-    const synthesized = synthesizeMarkdownFromXlsx(toArrayBuffer(xlsx));
+    const { markdown: synthesized } = synthesizeMarkdownFromXlsx(toArrayBuffer(xlsx));
 
     expect(synthesized).toBe(committedMarkdown);
     // Belt-and-suspenders: the structural parse must also match (distinguishes a

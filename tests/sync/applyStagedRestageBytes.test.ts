@@ -15,6 +15,15 @@ vi.mock("@/lib/drive/fetch", async (importActual) => {
     fetchSheetMarkdownAndBytesAtRevision: vi.fn(async () => ({
       markdown: "MARKDOWN-WITH-BYTES",
       bytes: new Uint8Array([1, 2, 3, 4]).buffer,
+      archivedPullSheetTabs: [
+        {
+          tabName: "OLD PULL SHEET",
+          headerPreviews: ["RIA"],
+          fingerprint: "ff",
+          included: true,
+          contentChangedSinceAccept: false,
+        },
+      ],
     })),
   };
 });
@@ -87,34 +96,41 @@ function fakeLockedTx(): LockedShowTx<SyncPipelineTx> {
 }
 
 describe("wizard restage fetches xlsx bytes (audit idx14/#77)", () => {
-  test("the restage fetchMarkdownWithBinding closure returns bytes so source_anchors is not clobbered", async () => {
-    let captured: { binding: unknown; markdown: string; bytes?: ArrayBuffer } | undefined;
+  type CapturedClosureResult = {
+    binding: unknown;
+    markdown: string;
+    bytes?: ArrayBuffer;
+    archivedPullSheetTabs?: unknown[];
+  };
 
+  // Drives the restage closure via a mocked prepareOnboardingFiles; `opts` is what
+  // prepareOne passes (undefined normally, {includePullSheetFromTab} with an active override).
+  async function runRestageClosure(fetchOpts?: {
+    includePullSheetFromTab?: string;
+  }): Promise<CapturedClosureResult | undefined> {
+    let captured: CapturedClosureResult | undefined;
     const deps: ApplyStagedDeps = {
-      // Fake pipeline lock: run the callback with a lock-held tx.
       withPipelineLock: (async (_id: string, fn: (tx: LockedShowTx<SyncPipelineTx>) => unknown) =>
         fn(fakeLockedTx())) as unknown as NonNullable<ApplyStagedDeps["withPipelineLock"]>,
       readWizardPendingSyncForApply: vi.fn(async () => pending()),
       readActiveWizardSession: vi.fn(async () => WIZARD_SESSION_ID),
       readPendingFolderId: vi.fn(async () => PENDING_FOLDER_ID),
       fetchDriveFileMetadata: vi.fn(async () => driveMeta()),
-      // Capture + invoke the injected restage closure, then STOP before the
-      // under-lock staging machinery (holdPort/scanOnboardingPreparedFiles).
       prepareOnboardingFiles: vi.fn(
         async (
           _folderId: string,
           opts: {
             fetchMarkdownWithBinding: (
               id: string,
-            ) => Promise<{ binding: unknown; markdown: string; bytes?: ArrayBuffer }>;
+              o?: { includePullSheetFromTab?: string },
+            ) => Promise<CapturedClosureResult>;
           },
         ) => {
-          captured = await opts.fetchMarkdownWithBinding(DRIVE_FILE_ID);
+          captured = await opts.fetchMarkdownWithBinding(DRIVE_FILE_ID, fetchOpts);
           throw new Error(STOP);
         },
       ) as unknown as NonNullable<ApplyStagedDeps["prepareOnboardingFiles"]>,
     };
-
     const args: ApplyStagedArgs = {
       driveFileId: DRIVE_FILE_ID,
       sourceScope: "wizard",
@@ -123,17 +139,38 @@ describe("wizard restage fetches xlsx bytes (audit idx14/#77)", () => {
       reviewerChoices: [],
       appliedByEmail: "doug@fxav.test",
     };
-
     await expect(applyStaged(args, deps)).rejects.toThrow(STOP);
+    return captured;
+  }
 
+  test("the restage fetchMarkdownWithBinding closure returns bytes so source_anchors is not clobbered", async () => {
+    const captured = await runRestageClosure();
     // Closure must carry bytes (the bug returned { binding, markdown } only).
     expect(captured?.bytes).toBeDefined();
     expect(captured?.bytes?.byteLength).toBeGreaterThan(0);
-    // And it must have sourced them from the markdown+bytes sibling at the pinned revision.
+    // Sourced from the markdown+bytes sibling at the pinned revision (no override → {} opts).
     expect(fetchSheetMarkdownAndBytesAtRevision).toHaveBeenCalledWith(
       DRIVE_FILE_ID,
       HEAD_REVISION_ID,
+      {},
     );
+  });
+
+  test("restage with an ACTIVE override threads includePullSheetFromTab + returns archivedPullSheetTabs so the override survives a revision race (whole-diff R1: silent override revocation)", async () => {
+    const captured = await runRestageClosure({ includePullSheetFromTab: "OLD PULL SHEET" });
+    // The override tab is threaded to the revision-pinned export (previously dropped, so the
+    // re-parse omitted the OLD gear).
+    expect(fetchSheetMarkdownAndBytesAtRevision).toHaveBeenCalledWith(
+      DRIVE_FILE_ID,
+      HEAD_REVISION_ID,
+      {
+        includePullSheetFromTab: "OLD PULL SHEET",
+      },
+    );
+    // And archivedPullSheetTabs are surfaced so reconcileIncludedTab sees the still-present tab
+    // (match) instead of an empty list (tab_missing → discardAndRerun → silent override clear).
+    expect(captured?.archivedPullSheetTabs).toBeDefined();
+    expect((captured?.archivedPullSheetTabs ?? []).length).toBeGreaterThan(0);
   });
 
   // Task 7 fix round 1: the in-scan supersession throw (applyStaged.ts ~1687,

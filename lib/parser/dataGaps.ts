@@ -51,6 +51,7 @@ export const GAP_CLASSES = [
   { code: "PULL_SHEET_PARSE_PARTIAL", label: "partial pull sheet" },
   { code: "PULL_SHEET_AMBIGUOUS_FORMAT", label: "unclear pull sheet" },
   { code: "PULL_SHEET_UNKNOWN_VARIANT", label: "unrecognized pull sheet" },
+  { code: "PULL_SHEET_ON_ARCHIVED_TAB", label: "pull sheet on archived tab" },
 ] as const;
 
 export type GapCode = (typeof GAP_CLASSES)[number]["code"];

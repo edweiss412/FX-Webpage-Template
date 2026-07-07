@@ -106,6 +106,9 @@ export class FakeFinalizeDb implements FinalizeRouteTx {
   provenanceRecorded: string[] = [];
   // Task B2: per-drive-file publish_intent stamped at finalize (true=checked → CAS flip to Live).
   manifestPublishIntent = new Map<string, boolean>();
+  // §5.5/I6 Flow A: the pull_sheet_override values propagated to shows.pull_sheet_override by the
+  // first-seen apply core (writeShowPullSheetOverride_unlocked). Recorded for assertions.
+  pullSheetOverrideWrites: Array<{ driveFileId: string; override: unknown }> = [];
 
   async query<T>(sql: string, params: readonly unknown[] = []) {
     const normalized = sql.replace(/\s+/g, " ").trim();
@@ -352,6 +355,11 @@ export function fakePipelineTx(db: FakeFinalizeDb): SyncPipelineTx {
       if (normalized.startsWith("insert into public.sync_audit")) {
         db.auditRows.push(params[1] as string);
         return { id: "audit-1" };
+      }
+      if (normalized.startsWith("update public.shows set pull_sheet_override")) {
+        // §5.5/I6 Flow A propagation write (writeShowPullSheetOverride_unlocked).
+        db.pullSheetOverrideWrites.push({ driveFileId: params[1] as string, override: params[0] });
+        return {};
       }
       throw new Error(`Unhandled SQL in fake pipeline tx: ${normalized}`);
     },

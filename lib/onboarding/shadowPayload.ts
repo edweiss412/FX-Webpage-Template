@@ -1,6 +1,7 @@
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import type { Mi11Item } from "@/lib/sync/holds/writeMi11Holds";
 import type { ReviewerChoice } from "@/lib/sync/applyStagedCore";
+import type { OverrideSnapshot, PullSheetOverride } from "@/lib/sync/pullSheetOverride";
 import { asParseResult, coerceJsonbArray } from "@/lib/db/coerceJsonbObject";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import { isReviewerChoice, isStructurallyValidReviewItem } from "@/lib/staging/reviewPayloadGuards";
@@ -46,6 +47,14 @@ export type ParsedShadowPayloadForApply =
       reviewerChoices: ReviewerChoice[];
       /** ISO string, or null ONLY for an explicit jsonb null (null watermark at staging). */
       baseModifiedTime: string | null;
+      // §5.5/I6 — the DESIRED archived-tab override at Phase B (Flow B), propagated to
+      // shows.pull_sheet_override at Phase-D apply. `null` = no override / revoked. Absent key or
+      // explicit null → null; a present-but-malformed object refuses fail-closed.
+      pullSheetOverride: PullSheetOverride | null;
+      // §5.5/§5.8 — the operational snapshot the staged parse was produced under (audit-field-free).
+      // Carried so Task 11's finalize gate can compare applied === overrideSnapshot(desired)
+      // payload-internally. Task 9 surfaces it but does NOT gate on it (propagation only).
+      pullSheetOverrideApplied: OverrideSnapshot;
     }
   | { ok: false; code: ShadowPayloadRefusalCode };
 
@@ -71,6 +80,52 @@ function toIsoOrNull(value: unknown): string | null {
 // element corruption refuses with the same posture as the items field
 // (STAGED_REVIEW_ITEMS_CORRUPT) instead of surfacing as a route-level
 // ONBOARDING_FINALIZE_INTERNAL_ERROR that blocks the whole batch.
+
+/**
+ * §5.5/I6 fail-closed parse of the DESIRED override carried in the shadow payload. Absent key or
+ * explicit null → `null` (no override / revoked). A present object MUST carry the full audit shape
+ * ({tabName, fingerprint, acceptedBy, acceptedAt} — all strings); anything else refuses.
+ */
+function parsePullSheetOverrideField(
+  value: unknown,
+): { ok: true; value: PullSheetOverride | null } | { ok: false } {
+  if (value === null || value === undefined) return { ok: true, value: null };
+  if (typeof value !== "object" || Array.isArray(value)) return { ok: false };
+  const o = value as Record<string, unknown>;
+  if (
+    typeof o.tabName === "string" &&
+    typeof o.fingerprint === "string" &&
+    typeof o.acceptedBy === "string" &&
+    typeof o.acceptedAt === "string"
+  ) {
+    return {
+      ok: true,
+      value: {
+        tabName: o.tabName,
+        fingerprint: o.fingerprint,
+        acceptedBy: o.acceptedBy,
+        acceptedAt: o.acceptedAt,
+      },
+    };
+  }
+  return { ok: false };
+}
+
+/**
+ * §5.5/§5.8 fail-closed parse of the applied override SNAPSHOT ({tabName, fingerprint}, audit-field-
+ * free). Absent key or explicit null → `null`; a present-but-malformed object refuses.
+ */
+function parseOverrideSnapshotField(
+  value: unknown,
+): { ok: true; value: OverrideSnapshot } | { ok: false } {
+  if (value === null || value === undefined) return { ok: true, value: null };
+  if (typeof value !== "object" || Array.isArray(value)) return { ok: false };
+  const o = value as Record<string, unknown>;
+  if (typeof o.tabName === "string" && typeof o.fingerprint === "string") {
+    return { ok: true, value: { tabName: o.tabName, fingerprint: o.fingerprint } };
+  }
+  return { ok: false };
+}
 
 export function parseShadowPayloadForApply(payload: unknown): ParsedShadowPayloadForApply {
   // Non-null plain-object guard: jsonb permits top-level null / string / number /
@@ -166,6 +221,19 @@ export function parseShadowPayloadForApply(payload: unknown): ParsedShadowPayloa
     reviewerChoices.push(candidate);
   }
 
+  // §5.5/I6 override propagation fields (Flow B). Fail-closed like the fields above: a present-but-
+  // malformed value refuses (STAGED_PARSE_RESULT_CORRUPT); absent/null is the legitimate no-override
+  // case. Consistency of applied vs overrideSnapshot(desired) is NOT checked here — that gate is
+  // Task 11.
+  const parsedOverride = parsePullSheetOverrideField(obj.pull_sheet_override);
+  if (!parsedOverride.ok) {
+    return refuse("STAGED_PARSE_RESULT_CORRUPT");
+  }
+  const parsedOverrideApplied = parseOverrideSnapshotField(obj.pull_sheet_override_applied);
+  if (!parsedOverrideApplied.ok) {
+    return refuse("STAGED_PARSE_RESULT_CORRUPT");
+  }
+
   return {
     ok: true,
     parseResult,
@@ -175,5 +243,7 @@ export function parseShadowPayloadForApply(payload: unknown): ParsedShadowPayloa
     mi11Items,
     reviewerChoices,
     baseModifiedTime,
+    pullSheetOverride: parsedOverride.value,
+    pullSheetOverrideApplied: parsedOverrideApplied.value,
   };
 }

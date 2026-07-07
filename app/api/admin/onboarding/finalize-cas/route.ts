@@ -11,6 +11,7 @@ import {
 } from "@/lib/onboarding/shadowPayload";
 import { parsedShowTitle } from "@/lib/onboarding/blockerDisplayName";
 import { applyStagedCore, normalizeTimestamptz } from "@/lib/sync/applyStagedCore";
+import { evaluateFinalizeOverrideGate } from "@/lib/sync/pullSheetOverride";
 import { revisionTimesMatch } from "@/lib/sync/applyStaged";
 import { SHOW_ARCHIVED_IMMUTABLE, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import { adoptShowLockHeld } from "@/lib/sync/lockedShowTx";
@@ -432,6 +433,20 @@ async function applyShadow(
     return { drive_file_id: row.drive_file_id, code: SHOW_ARCHIVED_IMMUTABLE };
   }
 
+  // §5.8 / I4 Flow B finalize consistency gate — UNDER the held show: lock (adoptShowLockHeld above;
+  // no new holder), BEFORE the Phase-2 apply / shows.pull_sheet_override propagation. Compare the
+  // PAYLOAD-INTERNAL desired override against the staged parse's applied snapshot (NOT the stale
+  // durable shows value — Codex R8). On mismatch REFUSE with the existing cataloged
+  // STAGED_PARSE_OUTDATED_AT_PHASE_D (invariant 5). Declarative — no compensation write; the shadow
+  // is retained and a successful re-scan reconverges applied → desired.
+  const overrideGate = evaluateFinalizeOverrideGate({
+    desired: parsed.pullSheetOverride,
+    applied: parsed.pullSheetOverrideApplied,
+  });
+  if (!overrideGate.ok) {
+    return { drive_file_id: row.drive_file_id, code: overrideGate.code };
+  }
+
   const core = await applyStagedCore(lockedTx, {
     sourceScope: "wizard",
     driveFileId: row.drive_file_id,
@@ -457,6 +472,10 @@ async function applyShadow(
     // operator declined. applyShadow passes ONLY the raw payload fields (D-2).
     feedPolicy: { kind: "choice_aware" },
     skipDiagramsWrite: false, // payload diagrams already canonical (spec §3.4)
+    // §5.5/I6 Flow B: propagate the payload-carried DESIRED override to shows.pull_sheet_override
+    // under the SAME held show: lock (the core writes it after the Phase-2 apply). PROPAGATION ONLY
+    // — the §5.8 consistency gate (applied vs overrideSnapshot(desired)) is Task 11.
+    pullSheetOverride: parsed.pullSheetOverride,
   });
 
   if (core.outcome === "invalid_request") {

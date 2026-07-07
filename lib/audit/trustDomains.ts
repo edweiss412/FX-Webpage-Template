@@ -168,6 +168,12 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
     path: "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/unapprove/route.ts",
     chain: ["requireAdmin"],
   },
+  // Archived OLD-tab pull-sheet content-pinned override (accept/revoke). Admin-gated via
+  // requireAdminIdentity() inside the handler.
+  {
+    path: "app/api/admin/onboarding/pull-sheet-override/route.ts",
+    chain: ["requireAdmin"],
+  },
   {
     path: "app/api/admin/ignored-sheets/[driveFileId]/unignore/route.ts",
     chain: ["requireAdmin"],

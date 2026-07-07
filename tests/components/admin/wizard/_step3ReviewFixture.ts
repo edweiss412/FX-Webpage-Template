@@ -122,6 +122,7 @@ export function buildParseResult(overrides: Partial<ParseResult> = {}): ParseRes
     openingReel: null,
     raw_unrecognized: [],
     warnings: [],
+    archivedPullSheetTabs: [],
     runOfShow: runOfShow(3, 2),
     hardErrors: [],
     ...overrides,

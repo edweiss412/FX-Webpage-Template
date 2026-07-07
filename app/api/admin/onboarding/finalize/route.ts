@@ -30,6 +30,8 @@ import { canonicalize } from "@/lib/email/canonicalize";
 import { hashForLog } from "@/lib/email/hashForLog";
 import { revalidateShow } from "@/lib/data/showCacheTag";
 import { severityForFinalizeRowCode } from "@/lib/onboarding/finalizeRowSeverity";
+import type { OverrideSnapshot, PullSheetOverride } from "@/lib/sync/pullSheetOverride";
+import { evaluateFinalizeOverrideGate } from "@/lib/sync/pullSheetOverride";
 
 const BATCH_CAP = 100;
 const REVIEWER_CHOICES_VERSION = 1;
@@ -143,6 +145,9 @@ type PerRowResult =
         | typeof WIZARD_SESSION_SUPERSEDED
         | typeof STAGED_REVIEW_ITEMS_CORRUPT
         | typeof RESCAN_REVIEW_REQUIRED
+        // §5.8 / I4 Flow A finalize consistency gate refusal — the existing cataloged code reused
+        // for the override-snapshot mismatch class (no new §12.4 row).
+        | "STAGED_PARSE_OUTDATED_AT_PHASE_D"
         | "DRIVE_FETCH_FAILED";
       re_apply_url: string;
       display_name?: string;
@@ -273,6 +278,37 @@ function requireApprovedByEmail(row: PendingFinalizeRow): string {
 // and the staged parse applies wholesale, exactly as a checked apply would.
 function synthesizeDefaultChoices(items: TriggeredReviewItem[]): ReviewerChoice[] {
   return items.map((item) => ({ item_id: item.id, action: "apply" as const }));
+}
+
+// §5.5/I6 fail-safe coercion of the jsonb override columns read from pending_syncs. postgres.js
+// parses jsonb into an object; a well-shaped object is kept, anything else → null (the durable
+// override is a best-effort propagation — a corrupt value must never wedge a publish).
+function coercePullSheetOverride(value: unknown): PullSheetOverride | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const o = value as Record<string, unknown>;
+  if (
+    typeof o.tabName === "string" &&
+    typeof o.fingerprint === "string" &&
+    typeof o.acceptedBy === "string" &&
+    typeof o.acceptedAt === "string"
+  ) {
+    return {
+      tabName: o.tabName,
+      fingerprint: o.fingerprint,
+      acceptedBy: o.acceptedBy,
+      acceptedAt: o.acceptedAt,
+    };
+  }
+  return null;
+}
+
+function coerceOverrideSnapshot(value: unknown): OverrideSnapshot {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const o = value as Record<string, unknown>;
+  if (typeof o.tabName === "string" && typeof o.fingerprint === "string") {
+    return { tabName: o.tabName, fingerprint: o.fingerprint };
+  }
+  return null;
 }
 
 /**
@@ -574,6 +610,12 @@ async function stageExistingShowShadow(
   wizardSessionId: string,
   row: PendingFinalizeRow,
   triggeredReviewItems: TriggeredReviewItem[],
+  // §5.5/I6 Flow B: the DESIRED override + the staged parse's applied SNAPSHOT, read from the same
+  // locked pending_syncs row. BOTH are baked into the shadow payload BEFORE deleteApprovedPending
+  // consumes the pending_syncs row, so Phase-D (finalize-cas applyShadow) can propagate the
+  // override to shows.pull_sheet_override (and Task 11's gate can compare applied vs desired).
+  pullSheetOverride: PullSheetOverride | null,
+  pullSheetOverrideApplied: OverrideSnapshot,
 ): Promise<void> {
   // F1 Task 1.4: deleteApprovedPending consumes the pending_syncs row right after this INSERT,
   // so triggered_review_items + base_modified_time exist ONLY in this payload by Phase D —
@@ -604,7 +646,12 @@ async function stageExistingShowShadow(
                -- the live watermark read in THIS INSERT…SELECT (under the per-show advisory lock the
                -- route already holds) — a no-op when the pending base is non-null (genuine staleness
                -- still refuses), mirroring the scan-time coalesce in upsertLivePendingSync.
-               'base_modified_time', coalesce($9::timestamptz, s.last_seen_modified_time)
+               'base_modified_time', coalesce($9::timestamptz, s.last_seen_modified_time),
+               -- §5.5/I6: DESIRED override + applied snapshot (raw objects → $::jsonb; postgres.js
+               -- serializes). Consumed at Phase-D by finalize-cas applyShadow (propagation) and by
+               -- Task 11's finalize consistency gate.
+               'pull_sheet_override', $11::jsonb,
+               'pull_sheet_override_applied', $12::jsonb
              ),
              $7, $10::timestamptz
         from public.shows s
@@ -629,6 +676,8 @@ async function stageExistingShowShadow(
       triggeredReviewItems,
       normalizeTimestamptz(row.base_modified_time),
       normalizeTimestamptz(row.wizard_approved_at),
+      pullSheetOverride,
+      pullSheetOverrideApplied,
     ],
   );
 }
@@ -909,13 +958,19 @@ async function processApprovedRow(input: {
     // Region source anchors persisted at scan; read under the same generation-scoped lock as
     // parse_result so finalize needs NO Drive export. Best-effort ({} on any coercion failure).
     source_anchors: unknown;
+    // §5.5/I6 — the accepted archived-tab override (DESIRED) + the staged parse's applied SNAPSHOT,
+    // read under the same generation-scoped show: lock so publish propagates the current values.
+    pull_sheet_override: unknown;
+    pull_sheet_override_applied: unknown;
   }>(
     `select parse_result,
             wizard_approved,
             wizard_reviewer_choices, wizard_reviewer_choices_version,
             wizard_approved_by_email, wizard_approved_at,
             last_finalize_failure_code,
-            source_anchors
+            source_anchors,
+            pull_sheet_override,
+            pull_sheet_override_applied
        from public.pending_syncs
       where wizard_session_id = $1::uuid
         and drive_file_id = $2
@@ -974,6 +1029,14 @@ async function processApprovedRow(input: {
   } catch {
     sourceAnchors = {};
   }
+
+  // §5.5/I6 — the accepted archived-tab override (DESIRED) + the staged parse's applied SNAPSHOT,
+  // read from the same locked pending_syncs row. postgres.js returns jsonb as a parsed object;
+  // an object of the right shape is kept, anything else (incl. a legacy string scalar) → null.
+  // Flow A (first-seen) forwards `pullSheetOverride` to the apply core so it propagates to
+  // shows.pull_sheet_override; Flow B (existing-show shadow) carries BOTH into the shadow payload.
+  const pullSheetOverride = coercePullSheetOverride(locked.pull_sheet_override);
+  const pullSheetOverrideApplied = coerceOverrideSnapshot(locked.pull_sheet_override_applied);
 
   // Finishable re-validation (spec §3.2): re-check the approval-column part of the
   // selectFinishableCleanRows predicate against the LOCKED row. Forward-defense — not
@@ -1059,7 +1122,14 @@ async function processApprovedRow(input: {
       // existing-show + CHECKED: unchanged — stage the shadow for the Phase D apply. publish_intent
       // is N/A to the first-seen flip (this row never creates a show) but stamp it true for
       // consistency with the manifest's checked/unchecked contract.
-      await stageExistingShowShadow(tx, wizardSessionId, coercedRow, parsedItems.items);
+      await stageExistingShowShadow(
+        tx,
+        wizardSessionId,
+        coercedRow,
+        parsedItems.items,
+        pullSheetOverride,
+        pullSheetOverrideApplied,
+      );
       await stampManifestPublishIntent(tx, wizardSessionId, row.drive_file_id, true);
       await deleteApprovedPending(tx, wizardSessionId, row);
       return {
@@ -1128,6 +1198,26 @@ async function processApprovedRow(input: {
     : synthesizeDefaultChoices(parsedItems.items); // unchecked: apply-all over the sentinel(s)
 
   const lockedTx = await adoptShowLockHeld(input.pipelineTx, row.drive_file_id);
+
+  // §5.8 / I4 Flow A finalize consistency gate — UNDER the just-adopted show: lock (no new holder),
+  // BEFORE the first-seen apply / shows.pull_sheet_override propagation. Compare the DESIRED override
+  // (live pending_syncs.pull_sheet_override) against the staged parse's applied snapshot
+  // (pending_syncs.pull_sheet_override_applied). On mismatch REFUSE with the existing cataloged
+  // STAGED_PARSE_OUTDATED_AT_PHASE_D (invariant 5) — never a silent apply. Declarative — no
+  // compensation write (the row is left for a re-scan, which reconverges applied → desired).
+  const overrideGate = evaluateFinalizeOverrideGate({
+    desired: pullSheetOverride,
+    applied: pullSheetOverrideApplied,
+  });
+  if (!overrideGate.ok) {
+    return {
+      drive_file_id: row.drive_file_id,
+      wizard_session_id: wizardSessionId,
+      code: overrideGate.code,
+      re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
+    };
+  }
+
   const core = await applyStagedCore(lockedTx, {
     sourceScope: "wizard",
     driveFileId: row.drive_file_id,
@@ -1153,6 +1243,10 @@ async function processApprovedRow(input: {
     // "In sheet" links resolve to the right tab immediately, matching the cron path. Omitted (never
     // {}) on a Drive failure so the apply still succeeds (the #gid=0 fallback keeps links safe).
     ...(Object.keys(sourceAnchors).length > 0 ? { sourceAnchors } : {}),
+    // §5.5/I6 Flow A: propagate the accepted archived-tab override to shows.pull_sheet_override in
+    // the SAME held-lock apply (the core writes it after Phase-2). PROPAGATION ONLY — the §5.8
+    // consistency gate is Task 11.
+    pullSheetOverride,
   });
 
   if (core.outcome === "stale_write") {
