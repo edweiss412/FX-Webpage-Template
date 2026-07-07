@@ -1,4 +1,6 @@
 // tests/parser/mutation/shardPartition.test.ts
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import { SHARD_COUNT, lptAssign, shardOfSiteId, pairKey } from "./shardPartition";
 import type { ShardAssignment } from "./shardPartition";
@@ -75,5 +77,29 @@ describe("shardOfSiteId (op resolved by longest prefix; assignment lookup)", () 
 describe("SHARD_COUNT", () => {
   it("is 8 (spec §3.1)", () => {
     expect(SHARD_COUNT).toBe(8);
+  });
+});
+
+describe("(e) shard-file integrity — exactly SHARD_COUNT files, each bound to its own index", () => {
+  const dir = join(process.cwd(), "tests", "parser");
+  const shardFiles = readdirSync(dir)
+    .filter((f) => /^mutationHarness\.shard\d+\.test\.ts$/.test(f))
+    .sort();
+  it(`exactly ${SHARD_COUNT} shard files exist with indices 0..${SHARD_COUNT - 1}`, () => {
+    expect(shardFiles).toEqual(
+      Array.from({ length: SHARD_COUNT }, (_, i) => `mutationHarness.shard${i}.test.ts`),
+    );
+  });
+  it("each file calls runShard(<its own index>) exactly once (anti-copy-paste-drift)", () => {
+    for (const f of shardFiles) {
+      const idx = Number(/shard(\d+)/.exec(f)![1]);
+      const src = readFileSync(join(dir, f), "utf8");
+      const calls = [...src.matchAll(/runShard\((\d+)\)/g)];
+      expect(calls.length, `${f} must call runShard exactly once`).toBe(1);
+      expect(Number(calls[0]![1]), `${f} must run ITS OWN shard`).toBe(idx);
+    }
+  });
+  it("the retired monolith is gone", () => {
+    expect(readdirSync(dir)).not.toContain("mutationHarness.test.ts");
   });
 });
