@@ -1034,3 +1034,51 @@ describe("per-show page — ADMIN_SHOW_* emits all carry slug (structural)", () 
     ).toEqual([]);
   });
 });
+
+describe("per-show Data quality: correction-loop callout (Flow 3 / 3.1)", () => {
+  const RESYNC =
+    "Fixed it in the sheet? Edit the cell, save, then re-sync. We'll re-parse and clear this.";
+  const actionableW = {
+    severity: "warn" as const,
+    code: "UNKNOWN_FIELD",
+    message: "Unrecognized venue row label: 'Storage'",
+    rawSnippet: "Storage | back dock",
+    sourceCell: { title: "STAGE", gid: 5, a1: "B12" },
+  };
+
+  it("renders the callout with exact copy + the re-sync affordance when there is an active warning on a non-archived show", async () => {
+    state.show = { ...baseShow, published: true, archived: false };
+    state.showsInternal = { show_id: "s1", parse_warnings: [actionableW] };
+    await renderPage();
+    const callout = screen.getByTestId("correction-loop-callout");
+    expect(callout).toHaveTextContent(RESYNC);
+    // the affordance is the actual re-sync control, not merely "a button"
+    expect(within(callout).getByTestId("admin-resync-button")).toBeInTheDocument();
+  });
+
+  it("does NOT render the callout when only IGNORED warnings remain (re-sync would not clear them)", async () => {
+    state.show = { ...baseShow, published: true, archived: false };
+    state.showsInternal = { show_id: "s1", parse_warnings: [actionableW] };
+    state.ignoredFingerprints = [
+      warningFingerprint({ code: actionableW.code, rawSnippet: actionableW.rawSnippet })!,
+    ];
+    await renderPage();
+    // the Data-quality section still renders (ignored subsection), but no callout
+    expect(screen.getByTestId("per-show-data-quality")).toBeInTheDocument();
+    expect(screen.queryByTestId("correction-loop-callout")).toBeNull();
+  });
+
+  it("does NOT render the callout on an archived show even with an active warning (no second re-sync entry point on a retired show)", async () => {
+    state.show = { ...baseShow, published: true, archived: true };
+    state.showsInternal = { show_id: "s1", parse_warnings: [actionableW] };
+    await renderPage();
+    expect(screen.queryByTestId("correction-loop-callout")).toBeNull();
+  });
+
+  it("does NOT render the callout when there are no warnings at all", async () => {
+    state.show = { ...baseShow, published: true, archived: false };
+    state.showsInternal = { show_id: "s1", parse_warnings: [] };
+    await renderPage();
+    expect(screen.queryByTestId("correction-loop-callout")).toBeNull();
+  });
+});

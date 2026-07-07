@@ -222,7 +222,10 @@ test.describe("admin parse panel — /admin/show/[slug]", () => {
     // happened and the error renders through ErrorExplainer; we do NOT
     // assert a specific status because the failure mode depends on the
     // Drive credentials / env wiring of the test environment.
-    await page.getByTestId("admin-resync-button").click();
+    // Scope to the footer #resync anchor: the Flow 3 correction-loop callout mounts a
+    // SECOND <ReSyncButton> (same data-testid) when the show carries an active warning,
+    // which would make a bare getByTestId ambiguous under Playwright strict mode.
+    await page.locator("#resync").getByTestId("admin-resync-button").click();
     await expect(page.getByTestId("admin-resync-error")).toBeVisible({ timeout: 15_000 });
 
     expect(responses.length).toBeGreaterThan(0);
