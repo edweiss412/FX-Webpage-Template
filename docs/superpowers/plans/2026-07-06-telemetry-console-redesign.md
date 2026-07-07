@@ -235,6 +235,18 @@ it("malformed/empty data → infra_error", async () => {
   rpc.mockResolvedValue({ data: [], error: null });
   expect((await loadTelemetryStats(NOW)).kind).toBe("infra_error");
 });
+// Strict validation (Codex plan-R1 F1): drifted/partial shapes must degrade, not render NaN.
+it.each([
+  ["missing field", { total:"4", error_count:"2", warn_count:"1", /* info_count missing */ buckets: Array(24).fill(0) }],
+  ["non-numeric",   { total:"x", error_count:"2", warn_count:"1", info_count:"1", buckets: Array(24).fill(0) }],
+  ["non-array buckets", { total:"4", error_count:"2", warn_count:"1", info_count:"1", buckets: "nope" }],
+  ["wrong bucket length", { total:"4", error_count:"2", warn_count:"1", info_count:"1", buckets: Array(12).fill(0) }],
+  ["NaN/Infinity",  { total:"4", error_count:"Infinity", warn_count:"1", info_count:"1", buckets: Array(24).fill(0) }],
+  ["negative",      { total:"-1", error_count:"2", warn_count:"1", info_count:"1", buckets: Array(24).fill(0) }],
+])("malformed row (%s) → infra_error", async (_label, row) => {
+  rpc.mockResolvedValue({ data: [row], error: null });
+  expect((await loadTelemetryStats(NOW)).kind).toBe("infra_error");
+});
 ```
 
 - [ ] **Step 2: Run, verify FAIL** — `pnpm vitest run tests/admin/loadTelemetryStats.test.ts` → FAIL (module missing).
@@ -248,29 +260,52 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { log } from "@/lib/log";
 import type { LoadTelemetryStatsResult } from "./telemetryTypes";
 
+const isNonNegInt = (n: unknown): n is number =>
+  typeof n === "number" && Number.isFinite(n) && Number.isInteger(n) && n >= 0;
+
+const FAIL = { kind: "infra_error", message: "telemetry stats read failed" } as const;
+
 export async function loadTelemetryStats(now: Date): Promise<LoadTelemetryStatsResult> {
   try {
     const supabase = createSupabaseServiceRoleClient();
     const { data, error } = await supabase.rpc("admin_event_stats_24h", { _now: now.toISOString() });
     if (error) {
-      log.error("admin_event_stats_24h returned error", { code: "TELEMETRY_STATS_READ_RETURNED_ERROR" });
-      return { kind: "infra_error", message: "telemetry stats read failed" };
+      void log.error("admin_event_stats_24h returned error", {
+        source: "admin.telemetry.stats", code: "TELEMETRY_STATS_READ_RETURNED_ERROR",
+      });
+      return FAIL;
     }
     const row = Array.isArray(data) ? data[0] : undefined;
-    if (!row) return { kind: "infra_error", message: "telemetry stats read failed" };
-    return { kind: "ok", stats: {
-      total: Number(row.total), errorCount: Number(row.error_count),
-      warnCount: Number(row.warn_count), infoCount: Number(row.info_count),
-      buckets: Array.isArray(row.buckets) ? row.buckets.map(Number) : [],
-    }};
+    if (!row) {
+      void log.error("admin_event_stats_24h malformed row", {
+        source: "admin.telemetry.stats", code: "TELEMETRY_STATS_READ_RETURNED_ERROR",
+      });
+      return FAIL;
+    }
+    const total = Number(row.total), errorCount = Number(row.error_count);
+    const warnCount = Number(row.warn_count), infoCount = Number(row.info_count);
+    const buckets = Array.isArray(row.buckets) ? row.buckets.map(Number) : null;
+    if (
+      !isNonNegInt(total) || !isNonNegInt(errorCount) || !isNonNegInt(warnCount) ||
+      !isNonNegInt(infoCount) || buckets === null || buckets.length !== 24 ||
+      !buckets.every(isNonNegInt)
+    ) {
+      void log.error("admin_event_stats_24h malformed row", {
+        source: "admin.telemetry.stats", code: "TELEMETRY_STATS_READ_RETURNED_ERROR",
+      });
+      return FAIL;
+    }
+    return { kind: "ok", stats: { total, errorCount, warnCount, infoCount, buckets } };
   } catch {
-    log.error("admin_event_stats_24h threw", { code: "TELEMETRY_STATS_READ_THREW" });
-    return { kind: "infra_error", message: "telemetry stats read failed" };
+    void log.error("admin_event_stats_24h threw", {
+      source: "admin.telemetry.stats", code: "TELEMETRY_STATS_READ_THREW",
+    });
+    return FAIL;
   }
 }
 ```
 
-  (Confirm the `log` import path + method shape by reading `loadAppEvents.ts`; match it exactly.)
+  (Match the `log` import path + `void log.error(msg, { source, code })` shape to `loadAppEvents.ts:53-73` exactly.)
 
 - [ ] **Step 5: Run, verify PASS.**
 

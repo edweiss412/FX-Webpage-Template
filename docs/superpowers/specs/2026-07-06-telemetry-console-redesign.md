@@ -112,33 +112,39 @@ returns table (total bigint, error_count bigint, warn_count bigint,
                info_count bigint, buckets int[])
 language sql stable
 as $$
-  with hours as (
-    select generate_series(0, 23) as h                       -- 0 = oldest, 23 = current hour
-  ),
-  win as (
+  with win as (
     select date_trunc('hour', _now) as cur_hour
   ),
-  ev as (
+  -- MATERIALIZED: one indexed scan of the 24h window, reused below (Codex plan-R1 F2).
+  ev as materialized (
     select occurred_at, level
     from public.app_events, win
     where occurred_at >= win.cur_hour - interval '23 hours'
       and occurred_at <  win.cur_hour + interval '1 hour'
   ),
-  bucketed as (
-    select h,
-           count(ev.*) filter (
-             where date_trunc('hour', ev.occurred_at)
-                 = (select cur_hour from win) - make_interval(hours => 23 - h)
-           ) as c
-    from hours left join ev on true
-    group by h order by h
+  totals as (                                       -- ONE scan of ev, filtered aggregates
+    select count(*)::bigint                                as total,
+           count(*) filter (where level = 'error')::bigint as error_count,
+           count(*) filter (where level = 'warn')::bigint  as warn_count,
+           count(*) filter (where level = 'info')::bigint  as info_count
+    from ev
+  ),
+  per_hour as (                                     -- group events into hour buckets ONCE
+    select date_trunc('hour', occurred_at) as h, count(*)::int as c
+    from ev group by 1
+  ),
+  hours as (                                        -- the 24 target hours (0 oldest, 23 current)
+    select gs.h_idx,
+           (select cur_hour from win) - make_interval(hours => 23 - gs.h_idx) as h_ts
+    from generate_series(0, 23) as gs(h_idx)
+  ),
+  bucketed as (                                     -- 24 rows LEFT JOIN <=24 grouped rows (no cross join)
+    select hours.h_idx, coalesce(per_hour.c, 0) as c
+    from hours left join per_hour on per_hour.h = hours.h_ts
   )
-  select
-    (select count(*)::bigint from ev),
-    (select count(*)::bigint from ev where level = 'error'),
-    (select count(*)::bigint from ev where level = 'warn'),
-    (select count(*)::bigint from ev where level = 'info'),
-    (select array_agg(c order by h)::int[] from bucketed);
+  select totals.total, totals.error_count, totals.warn_count, totals.info_count,
+         (select array_agg(c order by h_idx)::int[] from bucketed)
+  from totals;
 $$;
 
 revoke all on function public.admin_event_stats_24h(timestamptz) from public, anon, authenticated;
@@ -183,7 +189,7 @@ export async function loadTelemetryStats(now: Date): Promise<LoadTelemetryStatsR
 - Uses `createSupabaseServiceRoleClient()` (`@/lib/supabase/server`) — same client as `loadAppEvents`.
 - `const { data, error } = await supabase.rpc("admin_event_stats_24h", { _now: now.toISOString() })` (invariant 9). PostgREST returns a one-row array; read `data?.[0]`.
 - `error` or missing/malformed row → `{ kind:"infra_error", message:"telemetry stats read failed" }`, logged with forensic `code: "TELEMETRY_STATS_READ_RETURNED_ERROR"` / `_THREW` (parity with `loadAppEvents`'s `APP_EVENTS_READ_*`). Never a catalog code.
-- Coerces bigint-as-string/number → `Number(...)`; `buckets` defaults to `[]` only on infra_error (on ok it is always length-24 from the function; a defensive `?? []` guards a null array from an all-empty window — `array_agg` over 24 rows always yields 24 elements, so this is belt-and-suspenders).
+- **Strict row validation before returning `ok` (Codex plan-R1 F1) — a drifted/partial function shape must degrade, not render NaN.** Coerce each of `total`/`error_count`/`warn_count`/`info_count` via `Number(...)` and require every one to be a **finite non-negative integer**; require `buckets` to be an **array of exactly 24** finite non-negative integers (each coerced). If ANY check fails (non-numeric, `NaN`/`Infinity`, negative, wrong length, non-array), return `infra_error` (logged `TELEMETRY_STATS_READ_RETURNED_ERROR`) — NOT `ok` with `[]`/NaN. A shared `isNonNegInt(n)` guard is used. Tests cover: partial row (missing a field), non-numeric value, non-array buckets, wrong bucket length (≠24), and `NaN`/`Infinity`.
 
 **Guard conditions:** `infra_error` → Events·24h card renders count "—", sparkline shows a flat baseline, breakdown line "Unavailable". `total === 0` → count "0", sparkline flat baseline (all bars min-height), breakdown "No events in 24h".
 
