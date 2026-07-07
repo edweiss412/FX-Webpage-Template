@@ -2114,8 +2114,14 @@ function ArchivedTabIncludedNote({
 }
 
 export function HotelsBreakdown({ dfid, hotels }: { dfid: string; hotels: HotelReservationRow[] }) {
+  const chrome = useContext(Step3SectionChromeContext);
   const shown = hotels.slice(0, HOTELS_CAP);
   const note = overflowNote(hotels.length, HOTELS_CAP, "hotels");
+  // A single reservation inside the modal's section chrome would otherwise be a
+  // card-within-a-card (chrome card + HotelCard border). Flatten the lone card so
+  // the chrome IS the single card; nest sub-cards only when there are 2+ rows.
+  // Gated on chrome presence so the non-chrome path (no outer card) keeps a card.
+  const flatSolo = chrome !== null && hotels.length === 1;
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-hotels`}
@@ -2127,7 +2133,7 @@ export function HotelsBreakdown({ dfid, hotels }: { dfid: string; hotels: HotelR
       ) : (
         <div className="flex flex-col gap-3">
           {shown.map((h, i) => (
-            <HotelCard key={`${h.hotel_name ?? "hotel"}-${i}`} h={h} />
+            <HotelCard key={`${h.hotel_name ?? "hotel"}-${i}`} h={h} flat={flatSolo} />
           ))}
           {note ? <p className="text-xs text-text-subtle">{note}</p> : null}
         </div>
@@ -2143,14 +2149,19 @@ export function HotelsBreakdown({ dfid, hotels }: { dfid: string; hotels: HotelR
  * NEVER rendered (it stays private, matching the existing review contract);
  * dates are shown as-parsed (a non-ISO sentinel echoes verbatim).
  */
-function HotelCard({ h }: { h: HotelReservationRow }) {
+function HotelCard({ h, flat = false }: { h: HotelReservationRow; flat?: boolean }) {
   const address = hasContent(h.hotel_address) ? h.hotel_address : null;
   const names = arr(h.names).filter((n) => hasContent(n));
   const nights = nightsBetween(h.check_in, h.check_out);
   const checkIn = h.check_in ? formatIsoDate(h.check_in, "weekday-short") : null;
   const checkOut = h.check_out ? formatIsoDate(h.check_out, "weekday-short") : null;
   return (
-    <div className="flex flex-col gap-3 rounded-md border border-border p-4">
+    <div
+      data-testid="wizard-step3-hotel-card"
+      className={
+        flat ? "flex flex-col gap-3" : "flex flex-col gap-3 rounded-md border border-border p-4"
+      }
+    >
       <div className="flex items-start gap-3">
         <span
           aria-hidden="true"

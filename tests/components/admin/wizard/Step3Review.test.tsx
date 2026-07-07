@@ -1152,6 +1152,49 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
     expect(t).toContain("3 nights"); // Oct 7 → Oct 10
     expect(t).toContain("Eric Weiss, Connor Hester");
     expect(region.querySelectorAll('[data-testid="hotel-guest-avatar"]').length).toBe(2);
+    // Single reservation → NOT a card-within-a-card: the lone HotelCard flattens
+    // (drops its own border/padding) so the section chrome is the only card.
+    const soloCard = region.querySelector('[data-testid="wizard-step3-hotel-card"]');
+    expect(soloCard).not.toBeNull();
+    expect(soloCard!.className).not.toMatch(/\bborder-border\b/);
+  });
+
+  test("hotels breakdown nests each reservation as its own card when 2+ rows", () => {
+    const pr = {
+      ...GEAR_PR,
+      hotelReservations: [
+        {
+          ordinal: 1,
+          hotel_name: "Four Seasons",
+          hotel_address: "120 E Delaware Pl",
+          names: ["Eric Weiss"],
+          confirmation_no: null,
+          check_in: "2025-10-07",
+          check_out: "2025-10-10",
+          notes: null,
+        },
+        {
+          ordinal: 2,
+          hotel_name: "The Drake",
+          hotel_address: "140 E Walton Pl",
+          names: ["Connor Hester"],
+          confirmation_no: null,
+          check_in: "2025-10-07",
+          check_out: "2025-10-10",
+          notes: null,
+        },
+      ],
+    } as unknown as ParseResult;
+    const row: Step3Row = { ...GEAR_ROW, driveFileId: "drive-hb", parseResult: pr };
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
+    );
+    fireEvent.click(getByTestId("wizard-step3-card-drive-hb-more"));
+    const region = getByTestId("wizard-step3-card-drive-hb-breakdown-hotels");
+    const cards = region.querySelectorAll('[data-testid="wizard-step3-hotel-card"]');
+    expect(cards.length).toBe(2);
+    // Multiple reservations → each keeps its own bordered sub-card.
+    cards.forEach((c) => expect(c.className).toMatch(/\bborder-border\b/));
   });
 
   test("crew breakdown shows partial-attendance as-parsed (BL-CREW-PARTIAL-ATTENDANCE-CHIP)", () => {
