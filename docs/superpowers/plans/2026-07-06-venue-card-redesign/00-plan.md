@@ -563,9 +563,9 @@ export function VenueMapTile({
       <span className="absolute top-2.5 left-2.5 rounded-sm bg-surface/85 px-1.5 py-0.5 font-mono text-[10px] text-text-faint">
         map
       </span>
-      {/* (2) real map overlay — hides itself on error (instant; §8 declares no
-          fade, so NO transition class here — an opacity transition would be
-          inert and would trip the transition audit). */}
+      {/* (2) real map overlay — hides itself on error, instantly. §8 declares
+          no fade on image load or on the error swap; an opacity animation would
+          be inert here since nothing tweens. */}
       <img
         data-testid="venue-map-img"
         src={src}
@@ -959,7 +959,16 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const ROOT = join(__dirname, "..", "..", "..", "..");
-const tile = readFileSync(join(ROOT, "components/admin/wizard/VenueMapTile.tsx"), "utf8");
+
+// Strip `//` line and `/* … */` block comments before scanning: the audit tests
+// CODE, not prose. A source comment mentioning the word "transition" (e.g.
+// "no transition class here") must NOT trip the class scan.
+function stripComments(s: string): string {
+  return s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/[^\n]*/g, "");
+}
+
+const tileRaw = readFileSync(join(ROOT, "components/admin/wizard/VenueMapTile.tsx"), "utf8");
+const tile = stripComments(tileRaw);
 const sections = readFileSync(
   join(ROOT, "components/admin/wizard/step3ReviewSections.tsx"),
   "utf8",
@@ -970,10 +979,12 @@ const sections = readFileSync(
 function venueBreakdownSource(): string {
   const start = sections.indexOf("function VenueBreakdown");
   expect(start, "VenueBreakdown function not found").toBeGreaterThan(-1);
-  // Next top-level `function ` declaration terminates the slice.
+  // Next top-level declaration terminates the slice. The very next function in
+  // live code is `export function TransportBreakdown`, so the terminator MUST
+  // accept the optional `export ` prefix or the slice overruns into transport.
   const rest = sections.slice(start + "function VenueBreakdown".length);
-  const nextFn = rest.search(/\nfunction \w/);
-  return rest.slice(0, nextFn === -1 ? undefined : nextFn);
+  const nextFn = rest.search(/\n(?:export )?function \w/);
+  return stripComments(rest.slice(0, nextFn === -1 ? undefined : nextFn));
 }
 
 describe("venue card transition inventory (spec §8 — all instant)", () => {
@@ -985,8 +996,9 @@ describe("venue card transition inventory (spec §8 — all instant)", () => {
     // onError visibility swap. A `transition-*` class would be inert (the
     // component performs no opacity/transform state change) and dishonest.
     expect(tile).not.toMatch(/\btransition(-\w+)?\b/);
-    // The fallback swap is a visibility flip in onError, not an animation.
-    expect(tile).toContain('style.visibility = "hidden"');
+    // The fallback swap is a visibility flip in onError, not an animation
+    // (scan the RAW source — the assertion string is real code, not a comment).
+    expect(tileRaw).toContain('style.visibility = "hidden"');
   });
 
   // The three enumerated conditional renders of the venue card (§8) live in
