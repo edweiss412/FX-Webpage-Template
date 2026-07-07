@@ -110,6 +110,27 @@ describe("loadTelemetryStats", () => {
         buckets: Array(24).fill(0),
       },
     ],
+    // Codex whole-diff R1: a NULL count must FAIL (Number(null)===0 previously masked it as a real 0).
+    [
+      "null count field",
+      {
+        total: null,
+        error_count: "2",
+        warn_count: "1",
+        info_count: "1",
+        buckets: Array(24).fill(0),
+      },
+    ],
+    [
+      "null bucket entry",
+      {
+        total: "4",
+        error_count: "2",
+        warn_count: "1",
+        info_count: "1",
+        buckets: [null, ...Array(23).fill(0)],
+      },
+    ],
   ])("malformed row (%s) → infra_error", async (_label, row) => {
     rpc.mockResolvedValue({ data: [row], error: null });
     expect((await loadTelemetryStats(NOW)).kind).toBe("infra_error");

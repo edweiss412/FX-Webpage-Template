@@ -53,6 +53,9 @@ describe("loadAlertSummary", () => {
     ["NaN/Infinity", { total: "Infinity", degraded: "1" }],
     ["negative", { total: "-1", degraded: "0" }],
     ["degraded > total", { total: "1", degraded: "3" }],
+    // Codex whole-diff R1: NULL fields must FAIL (Number(null)===0 previously masked them as 0).
+    ["null total", { total: null, degraded: "0" }],
+    ["null degraded", { total: "3", degraded: null }],
     ["empty data", null],
   ])("malformed (%s) → infra_error", async (_l, row) => {
     rpc.mockResolvedValue({ data: row === null ? [] : [row], error: null });

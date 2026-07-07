@@ -1,6 +1,6 @@
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { log } from "@/lib/log";
-import { isNonNegInt } from "./telemetryNum";
+import { isNonNegInt, toCount } from "./telemetryNum";
 import type { LoadTelemetryStatsResult } from "./telemetryTypes";
 
 const FAIL = { kind: "infra_error", message: "telemetry stats read failed" } as const;
@@ -26,11 +26,11 @@ export async function loadTelemetryStats(now: Date): Promise<LoadTelemetryStatsR
       });
       return FAIL;
     }
-    const total = Number(row.total),
-      errorCount = Number(row.error_count);
-    const warnCount = Number(row.warn_count),
-      infoCount = Number(row.info_count);
-    const buckets = Array.isArray(row.buckets) ? row.buckets.map(Number) : null;
+    const total = toCount(row.total),
+      errorCount = toCount(row.error_count);
+    const warnCount = toCount(row.warn_count),
+      infoCount = toCount(row.info_count);
+    const buckets = Array.isArray(row.buckets) ? row.buckets.map(toCount) : null;
     if (
       !isNonNegInt(total) ||
       !isNonNegInt(errorCount) ||

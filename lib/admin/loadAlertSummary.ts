@@ -1,7 +1,7 @@
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { log } from "@/lib/log";
 import { HEALTH_CODES, DEGRADED_HEALTH_CODES } from "@/lib/adminAlerts/audience";
-import { isNonNegInt } from "./telemetryNum";
+import { isNonNegInt, toCount } from "./telemetryNum";
 import type { AlertSummary } from "./telemetryTypes";
 
 const FAIL = { kind: "infra_error" } as const;
@@ -28,8 +28,8 @@ export async function loadAlertSummary(): Promise<AlertSummary> {
       });
       return FAIL;
     }
-    const total = Number(row.total),
-      degraded = Number(row.degraded);
+    const total = toCount(row.total),
+      degraded = toCount(row.degraded);
     if (!isNonNegInt(total) || !isNonNegInt(degraded) || degraded > total) {
       void log.error("admin_alert_summary malformed row", {
         source: "admin.telemetry.alertSummary",

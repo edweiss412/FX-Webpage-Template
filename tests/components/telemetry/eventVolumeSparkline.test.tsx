@@ -29,10 +29,17 @@ describe("EventVolumeSparkline", () => {
     expect((b[0] as HTMLElement).className).toContain("bg-border-strong");
   });
 
-  test("empty / all-zero → every bar at the 3px baseline, still renders", () => {
+  test("all-zero → every bar at the 3px baseline, still renders", () => {
     render(<EventVolumeSparkline buckets={[0, 0, 0]} />);
     for (const bar of bars()) expect((bar as HTMLElement).style.height).toBe("3px");
     expect(screen.getByTestId("event-sparkline")).toBeInTheDocument();
+  });
+
+  test("empty buckets (infra/no-data) → a flat 24-bar baseline, never zero bars (spec §7.3)", () => {
+    render(<EventVolumeSparkline buckets={[]} />);
+    const b = bars();
+    expect(b).toHaveLength(24); // never collapses to zero bars
+    for (const bar of b) expect((bar as HTMLElement).style.height).toBe("3px");
   });
 
   test("has an accessible label", () => {

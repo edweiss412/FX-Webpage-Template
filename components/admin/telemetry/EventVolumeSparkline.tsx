@@ -8,10 +8,15 @@
 
 const MIN_H = 3;
 const MAX_H = 22;
+const DEFAULT_LEN = 24; // one bar per hour when no data is supplied
 
 export function EventVolumeSparkline({ buckets }: { buckets: number[] }) {
-  const max = Math.max(1, ...buckets);
-  const last = buckets.length - 1;
+  // Empty buckets (infra_error / no data) must still render a FLAT baseline row
+  // of bars, never collapse to zero bars (spec §7.3). Fall back to a 24-wide
+  // all-zero series so the card keeps its shape while data is unavailable.
+  const series = buckets.length > 0 ? buckets : new Array<number>(DEFAULT_LEN).fill(0);
+  const max = Math.max(1, ...series);
+  const last = series.length - 1;
   return (
     <span
       data-testid="event-sparkline"
@@ -19,7 +24,7 @@ export function EventVolumeSparkline({ buckets }: { buckets: number[] }) {
       aria-label="Event volume over the last 24 hours"
       className="flex h-[22px] items-end gap-[2px]"
     >
-      {buckets.map((v, i) => {
+      {series.map((v, i) => {
         const height = MIN_H + (Math.max(0, v) / max) * (MAX_H - MIN_H);
         return (
           <span
