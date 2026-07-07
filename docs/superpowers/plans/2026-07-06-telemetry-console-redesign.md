@@ -166,6 +166,8 @@ class ROLLBACK extends Error {}
 
 - [ ] **Step 5: Run test, verify PASS** — `pnpm vitest run tests/db/telemetryConsoleReads.test.ts`. Expected: PASS (behavioral + existence + privilege).
 
+- [ ] **Step 5b: Check the RPC-grant meta-test** — run `pnpm vitest run tests/db/rpc-service-role-revokes.test.ts`. If it enumerates functions and asserts each REVOKEs public/anon/authenticated + grants service_role, confirm the two new functions pass (they follow that pattern) or add registry rows if it uses an explicit list.
+
 - [ ] **Step 6: Regenerate manifest (expect no delta)** — `pnpm gen:schema-manifest`; `git status` should show NO change to `supabase/**/schema-manifest.json` (functions aren't introspected). If a delta appears, investigate an unintended table change.
 
 - [ ] **Step 7: Commit** — `git add supabase/migrations/20260706120000_telemetry_console_reads.sql tests/db/telemetryConsoleReads.test.ts && git commit --no-verify -m "feat(db): admin_event_stats_24h + admin_alert_summary read-only aggregates"`
