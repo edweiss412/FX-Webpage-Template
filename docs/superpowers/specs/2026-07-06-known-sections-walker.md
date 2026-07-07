@@ -25,8 +25,11 @@ This closes the drift class structurally: adding a block parser forces either an
 
 - **Section opener** = a col0 token on which a parser OPENS a multi-row section block (a record table or a keyed block that the unknown-section scan could see). This is the ONLY category the registry governs.
 - **NOT a section opener** (out of registry, out of `SECTION_HEADER_TOKENS`):
-  - **Single-cell metadata fields** — `ops.ts` `COI`/`PROPOSAL`/`PO`/`INVOICE`/`INVOICE NOTES` extract one scalar from a 2-cell row; they are never followed by a ≥2-field-header-word band, so the scan never sees them. Declared instead in an exported `METADATA_FIELD_TOKENS` const (introspectable, but explicitly NOT required in the registry — the walker asserts these are DISJOINT from `SECTION_HEADER_TOKENS`, catching a mis-categorization).
-  - **Block terminators** — `crew.ts` `TERMINATING_LABELS`, `venue.ts` `VENUE_BLOCK_TERMINATORS`, `transport.ts` lowercase terminators (`hotel stays`/`coi`/…): tokens a parser stops AT, not opens on. Already exported as named sets; the walker does NOT require these ⊆ registry (a terminator naming another section's opener is coincidental).
+  - **Single-cell / scalar-value labels** — a label whose parser reads only the SINGLE adjacent value cell (`cells[1]`) as a scalar, scanning all rows, and never opens a multi-row block:
+    - `ops.ts` `COI`/`PROPOSAL`/`PO`/`INVOICE`/`INVOICE NOTES` (2-cell scalar rows). Declared in an exported `METADATA_FIELD_TOKENS` const (introspectable, explicitly NOT required in the registry — the walker asserts DISJOINTness from `SECTION_HEADER_TOKENS`).
+    - `contacts.ts` `IN HOUSE AV`, `VENUE/HOTEL/HOTAL CONTACT INFO/INFORMATION/DETAIL(S)`, `ONSITE AV CONTACT` — **R1 finding 1:** `contacts.ts:88-136` row-scans and treats `cells[1]` as a scalar contact value (gated by `hasContactSignal`); it does NOT open a section. Therefore these are NOT section openers and MUST NOT be added to `KNOWN_SECTION_HEADERS`: registering e.g. `VENUE CONTACT INFO` exact would MASK a genuinely-dropped section of that exact name whose row DID carry a ≥2-field-header-word band (`| VENUE CONTACT INFO | Contact Name | Phone # | Email Address |` — the shape pinned by `tests/parser/unknownSection.test.ts`). `contacts.ts` is therefore in the `NO_SECTION_OPENER` allowlist (reason: scalar contact-label detection, `cells[1]`-only). NOTE: `IN HOUSE AV` is ALREADY in `KNOWN_SECTION_HEADERS` (grandfathered, harmless, exact-match) and is LEFT AS-IS; it is simply not a walker-covered section opener.
+  - **Block terminators** — `crew.ts` `TERMINATING_LABELS`, `venue.ts` `VENUE_BLOCK_TERMINATORS`, `transport.ts` lowercase terminators (`hotel stays`/`coi`/…): tokens a parser stops AT, not opens on. The walker does NOT require these ⊆ registry.
+  - **Room-name exclusion / classification prefixes** — `rooms.ts` local `SECTION_PREFIX_FAMILIES` (`ADDITIONAL`, `LUNCH`, `DETAILS`, …, `rooms.ts:70-76`) are BROAD prefixes used to REJECT compound room names / route to dedicated paths — **R1 finding 3:** they are NOT the same as the registry's narrow prefix families (`ADDITIONAL ROOM`, `LUNCH ROOM`, `LUNCH SESSION`, `knownSections.ts:79-86`). rooms' EXPORTED `SECTION_HEADER_TOKENS` is the narrow registry-aligned room-banner families ONLY (§4); the broad internal exclusion prefixes stay PRIVATE and are neither exported nor registered.
   - **Title/sentinel tokens** — `index.ts` `NO_HEADER`, `CLIENT`-prefix title exclusion: not sections.
   - **Column sub-labels / grid headers** — governed by `KNOWN_SUB_LABELS`, unchanged.
 
@@ -42,10 +45,10 @@ Per-parser section-opener detection, current mechanism → target:
 | `event.ts` | `EVENT DETAILS`, `DETAILS`, `DETAILS/ROOM DIAGRAM`, `GS DETAILS`, `GS DETAILS (FOR BOTH)` | `EVENT_DETAILS_HEADER_RE` (`event.ts:40`) | export the 5 canonical tokens; build the alternation regex from them. Adds the two variant tokens to the registry. |
 | `dates.ts` | `DATES` | `.toUpperCase()==="DATES"` (`dates.ts:84`) | export `["DATES"]`; literal check compares to the const |
 | `venue.ts` | `VENUE` (+ `VENUES` registry alias) | `col0Upper==="VENUE"` (`venue.ts:168`) | export `["VENUE","VENUES"]`; check ∈ const |
-| `contacts.ts` | `IN HOUSE AV`, `VENUE/HOTEL/HOTAL CONTACT INFO/INFORMATION/DETAIL(S)`, `ONSITE AV CONTACT` | 3 whole-cell regexes (`contacts.ts:31,34,40`) | export canonical tokens; build regexes from them. Adds the contact-info + onsite tokens to the registry. |
+| `contacts.ts` | (scalar contact labels — NOT section openers, R1 finding 1) | 3 whole-cell regexes (`contacts.ts:31,34,40`) scanning `cells[1]` scalar | `NO_SECTION_OPENER` allowlist (reason: scalar contact-label detection, not a multi-row section opener). NO registry additions. |
 | `client.ts` | `CLIENT` | `label==="CLIENT"` (`client.ts:93,276`) | export `["CLIENT"]`; check ∈ const |
 | `dress.ts` | `DRESS` | `normalizeHeader(...)==="DRESS"` (`dress.ts:24`) | export `["DRESS"]`; check ∈ const |
-| `rooms.ts` | `GENERAL SESSION`, `BREAKOUT`, `ADDITIONAL ROOM`, `LUNCH ROOM`, `LUNCH SESSION`, `GS DETAILS`, `DETAILS` | prefix regexes + `SECTION_EXACT_TOKENS`/`SECTION_PREFIX_FAMILIES` (`rooms.ts:81,621,639,657,445`) | export `SECTION_HEADER_TOKENS` = the prefix families; prefix regexes built from them. rooms already imports the registry — keep. |
+| `rooms.ts` | `GENERAL SESSION`, `BREAKOUT`, `ADDITIONAL ROOM`, `LUNCH ROOM`, `LUNCH SESSION` (narrow registry-aligned room banners ONLY — R1 finding 3) | prefix regexes + `SECTION_EXACT_TOKENS`/`SECTION_PREFIX_FAMILIES` (`rooms.ts:81,621,639,657,445`) | export `SECTION_HEADER_TOKENS` = the narrow families that are ALREADY in `PREFIX_SECTION_FAMILIES`; the broad internal exclusion prefixes (`ADDITIONAL`/`LUNCH`/`DETAILS`, `rooms.ts:70-76`) stay PRIVATE, unexported. rooms already imports the registry — keep. Novel room-name admission is shape-based (`isRoomHeader`), orthogonal to the fixed banner tokens the walker governs. |
 | `gear.ts` | `GENERAL SESSION`, `BREAKOUT`, `LUNCH`, `ADDITIONAL ROOM` (room classification, not a NEW section) | prefix regexes (`gear.ts:89`) | gear classifies rooms it does not OPEN a distinct section → declare in `NO_SECTION_OPENER` allowlist (reason: reuses room families already owned by `rooms.ts`) |
 | `index.ts` (agenda) | `AGENDA`, `AGENDA LINK` | regex (`index.ts:339`) | export tokens from the agenda module; build regex from them |
 | `ops.ts` | — (metadata only) | 5 single-cell regexes | export `METADATA_FIELD_TOKENS` (COI/PROPOSAL/PO/INVOICE/INVOICE NOTES); NO `SECTION_HEADER_TOKENS`; allowlisted with reason |
@@ -53,24 +56,27 @@ Per-parser section-opener detection, current mechanism → target:
 
 ## 5. Registry additions (net-new to `KNOWN_SECTION_HEADERS`)
 
-To make "union of `SECTION_HEADER_TOKENS` ⊆ registry" hold, ADD these currently-recognized-but-unregistered section-opener tokens (all exact-match, all already parsed today — registering them only prevents a future false-positive, never masks a drop because they are exact, not prefix):
+To make "union of `SECTION_HEADER_TOKENS` ⊆ registry" hold, ADD these currently-recognized-but-unregistered section-opener tokens. Each is a token on which its parser OPENS a multi-row block (a genuine section opener, so registering reflects reality and prevents a future false-positive). All are exact-match (NOT added to `PREFIX_SECTION_FAMILIES`):
 
-- `DRIVER` (transport v1 header, `transport.ts:446`)
-- `DETAILS/ROOM DIAGRAM`, `GS DETAILS (FOR BOTH)` (event variants, `event.ts:40`)
-- `VENUE CONTACT INFO`, `VENUE CONTACT INFORMATION`, `VENUE CONTACT DETAIL`, `VENUE CONTACT DETAILS`, `HOTEL CONTACT INFO`, `HOTEL CONTACT INFORMATION`, `HOTEL CONTACT DETAIL`, `HOTEL CONTACT DETAILS`, `HOTAL CONTACT INFO`, `HOTAL CONTACT INFORMATION`, `HOTAL CONTACT DETAIL`, `HOTAL CONTACT DETAILS`, `ONSITE AV CONTACT` (contacts, `contacts.ts:31,40`)
+- `DRIVER` (transport v1 record-table header, `transport.ts:446`) — transport opens its passenger/driver record table here.
+- `DETAILS/ROOM DIAGRAM`, `GS DETAILS (FOR BOTH)` (event-details block variants, `event.ts:40`) — event opens the event-details block on these.
 
-**Guard against masking (spec §R1 precedent in knownSections.ts):** none of the additions is added to `PREFIX_SECTION_FAMILIES`; all match EXACT-only, so a dropped section sharing a prefix ("DRIVER SERVICES | NAME | PHONE") is still flagged.
+**Contacts labels are NOT added (R1 finding 1)** — they are scalar `cells[1]` reads, not section openers; registering them would mask a same-named dropped section. See §3.
+
+**Guard against masking (R1 [medium] precedent in `knownSections.ts:68-76`):** none of the additions is a `PREFIX_SECTION_FAMILIES` member; all match EXACT-only, and each names a token its parser genuinely parses as a section opener (so it is not a "dropped" section). A dropped section sharing a prefix (`DRIVER SERVICES | NAME | PHONE`) is still flagged. During self-review, confirm no corpus fixture contains a row whose col0 exactly equals one of these additions but is NOT the parsed section (would indicate a masking risk).
 
 ## 6. The walker meta-test (`tests/parser/_metaKnownSectionsWalker.test.ts`)
 
 New structural meta-test (companion to the existing hand-maintained pin, which is RETAINED as a redundant deletion-guard):
 
-1. **Filesystem walk.** `fs.readdirSync("lib/parser/blocks")` (+ the agenda export from `index`/`agenda.ts`), filter `*.ts`, exclude `*.test.ts`. For each file:
+1. **Filesystem walk.** `fs.readdirSync("lib/parser/blocks")` (+ the agenda module), filter `*.ts`, exclude `*.test.ts`. For each file:
    - dynamically `import()` it; if it exports `SECTION_HEADER_TOKENS`, collect the tokens; else assert the filename is in the `NO_SECTION_OPENER` allowlist (declared in the test with a per-file reason string). A file in NEITHER → **fail** ("new block parser must export SECTION_HEADER_TOKENS or be allowlisted with a reason").
-2. **Subset assertion.** Every collected token, after `normalizeHeader`, is in `KNOWN_SECTION_HEADERS` (via `isKnownSectionHeader` exact/family match). A token not registered → fail, naming the file + token.
-3. **Disjointness.** For any file exporting BOTH `SECTION_HEADER_TOKENS` and `METADATA_FIELD_TOKENS`, assert they are disjoint (a token cannot be both a section opener and a scalar metadata field).
-4. **Proof test.** A synthetic module object `{ SECTION_HEADER_TOKENS: ["ZZZ_UNREGISTERED"] }` run through the same subset check FAILS — proving the walker actually catches an unregistered token (not vacuously green).
-5. **No-orphan (optional, non-blocking):** warn (do not fail) if a `KNOWN_SECTION_HEADERS` entry is claimed by no parser const AND no `PREFIX_SECTION_FAMILIES`/sub-label consumer — surfaces dead registry entries without brittleness.
+2. **Non-empty for non-allowlisted (R1 finding 2a).** A file NOT in the allowlist that exports `SECTION_HEADER_TOKENS` MUST export a NON-EMPTY array. An empty `SECTION_HEADER_TOKENS = []` on a non-allowlisted file → **fail** (prevents a new parser from vacuously satisfying the subset check with zero tokens).
+3. **Subset assertion.** Every collected token, after `normalizeHeader`, is in `KNOWN_SECTION_HEADERS` (via `isKnownSectionHeader` exact/family match). A token not registered → fail, naming the file + token.
+4. **Raw-header-regex source guard (R1 finding 2b — closes the "private inline matcher" hole).** The refactor makes ALL col0 section-opener regexes flow through a single shared helper (§7, e.g. `col0HeaderRe(token)` / `col0HeaderAltRe(tokens)` in `knownSections.ts` or a new `lib/parser/blocks/_sectionHeaderRe.ts`). The walker reads each block-parser file's SOURCE TEXT and **fails if it finds a raw pipe-anchored col0-header regex literal** matching the shape `/\^\\\|\s*\\s\*[A-Z][A-Z\\s/&]*\.\.\./` (i.e. `/^\|\s*UPPERCASE...\s*\|/`-style literals) that is NOT a call to the shared helper. A small, explicitly-reasoned `RAW_HEADER_REGEX_ALLOWLIST` covers any residual legitimate case (e.g. a multi-column transport regex whose col0 token is still derived from the const but whose full-row shape is inline) — each entry names file + reason. A NEW parser that hand-writes `/^\|\s*CATERING\s*\|/` without going through the helper → **fail**. (This is a defense heuristic scoped to the specific pipe-anchored col0-header shape; ops' whole-cell `/^\s*COI\s*$/i` metadata regexes do NOT match this shape and are unaffected.)
+5. **Disjointness.** For any file exporting BOTH `SECTION_HEADER_TOKENS` and `METADATA_FIELD_TOKENS`, assert they are disjoint (a token cannot be both a section opener and a scalar metadata field).
+6. **Proof test.** A synthetic module object `{ SECTION_HEADER_TOKENS: ["ZZZ_UNREGISTERED"] }` run through the same subset check FAILS, AND a synthetic non-allowlisted file with `SECTION_HEADER_TOKENS: []` fails the non-empty check, AND a synthetic source string containing a raw `/^\|\s*CATERING\s*\|/` literal fails the raw-header-regex guard — proving all three gates are non-vacuous.
+7. **No-orphan (optional, non-blocking):** warn (do not fail) if a `KNOWN_SECTION_HEADERS` entry is claimed by no parser const AND no `PREFIX_SECTION_FAMILIES`/sub-label/grandfathered consumer — surfaces dead registry entries without brittleness.
 
 ## 7. Behavior preservation (the hard requirement)
 
@@ -102,10 +108,12 @@ N/A — pure parser + test; no `pg_advisory*`, no DB, no lock.
 
 ## 12. Acceptance criteria
 
-- Every block parser doing section-opener detection exports `SECTION_HEADER_TOKENS`; its matcher is derived from that const.
+- Every block parser doing section-opener detection exports `SECTION_HEADER_TOKENS`; its matcher is derived from that const via the shared header-regex helper.
 - `ops.ts` exports `METADATA_FIELD_TOKENS` (no section tokens); disjointness holds.
+- `contacts.ts` is allowlisted as scalar contact-label detection (NOT a section opener); no contacts tokens added to the registry.
+- `rooms.ts` exports ONLY the narrow registry-aligned room-banner families; broad internal exclusion prefixes stay private.
 - Files with no section-opener detection are in `NO_SECTION_OPENER` with a per-file reason.
-- Walker meta-test: filesystem walk, subset assertion, disjointness, proof case — all pass; proof case proves non-vacuity.
-- Registry additions (§5) present; none added to `PREFIX_SECTION_FAMILIES`.
+- Walker meta-test: filesystem walk, non-empty-for-non-allowlisted, subset assertion, raw-header-regex source guard, disjointness, and a 3-part proof case — all pass; the proof case proves each gate non-vacuous.
+- Registry additions (§5: `DRIVER`, `DETAILS/ROOM DIAGRAM`, `GS DETAILS (FOR BOTH)`) present; none added to `PREFIX_SECTION_FAMILIES`.
 - Corpus replay + full parser suite green with NO snapshot regeneration (byte-identical output).
 - Full suite has no NEW failures vs merge-base (pre-existing env-only DB/live failures excepted).
