@@ -27,6 +27,8 @@ import {
   WIZARD_HARD_FAIL_GENERIC,
   type Step3Row,
 } from "@/components/admin/wizard/Step3Review";
+import { EVENT_DETAIL_GROUPS, nightsBetween } from "@/components/admin/wizard/step3ReviewSections";
+import { EVENT_DETAILS_LABELS } from "@/lib/crew/eventDetailsSpecs";
 
 const refreshMock = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -759,10 +761,16 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
     fireEvent.click(getByTestId("wizard-step3-card-drive-gear-1-more"));
     const ed =
       getByTestId("wizard-step3-card-drive-gear-1-breakdown-event-details").textContent ?? "";
-    expect(ed).toContain("Keynote:");
+    // Grouped redesign: labels are sentence-case, no trailing colon (uppercase
+    // group headers now carry the hierarchy). Keynote/Opening reel still render.
+    expect(ed).toContain("Keynote");
     expect(ed).toContain("TBD"); // shown as-parsed (review surface, not sentinel-hidden like the crew page)
-    expect(ed).toContain("Opening reel:");
+    expect(ed).toContain("Opening reel");
     expect(ed).toContain("YES");
+    // Grouped headers cluster the field wall (spec 3a Grouped). This fixture
+    // carries opening_reel (Display & content) + keynote (Wardrobe & key moments).
+    expect(ed).toContain("Display & content");
+    expect(ed).toContain("Wardrobe & key moments");
     expect(ed).not.toContain("https://"); // stripOpeningReelText removed the URL
     expect(ed).not.toContain("drive.google.com");
   });
@@ -780,6 +788,51 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
     expect(
       getByTestId("wizard-step3-card-drive-gear-2-breakdown-event-details").textContent,
     ).toContain("No event details parsed.");
+  });
+
+  test("event-details Production booleans render as Yes/No state chips (no green/red, as-parsed)", () => {
+    const pr = {
+      ...GEAR_PR,
+      show: {
+        ...(GEAR_PR as unknown as { show: object }).show,
+        event_details: {
+          polling: "YES",
+          record: "No",
+          virtual_speaker: "TBD", // non-boolean sentinel → shown muted as-parsed, not a false "No"
+        },
+      },
+    } as unknown as ParseResult;
+    const row: Step3Row = { ...GEAR_ROW, driveFileId: "drive-bool", parseResult: pr };
+    const { getByTestId } = render(
+      <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
+    );
+    fireEvent.click(getByTestId("wizard-step3-card-drive-bool-more"));
+    const ed =
+      getByTestId("wizard-step3-card-drive-bool-breakdown-event-details").textContent ?? "";
+    expect(ed).toContain("Audience polling");
+    expect(ed).toContain("Yes");
+    expect(ed).toContain("Recording");
+    expect(ed).toContain("No");
+    // The sentinel boolean shows its raw parsed token, never coerced to "No".
+    expect(ed).toContain("Virtual speaker");
+    expect(ed).toContain("TBD");
+  });
+
+  test("EVENT_DETAIL_GROUPS cover every closed-vocab event_details label (no silent drop)", () => {
+    const grouped = new Set<string>(EVENT_DETAIL_GROUPS.flatMap((g) => g.keys));
+    const labeled = Object.keys(EVENT_DETAILS_LABELS);
+    for (const key of labeled) expect(grouped.has(key)).toBe(true);
+    // No group key is missing a label, and no duplicate placement inflates count.
+    expect(grouped.size).toBe(labeled.length);
+    for (const key of grouped) expect(labeled).toContain(key);
+  });
+
+  test("nightsBetween computes stay length; null on missing/malformed/zero", () => {
+    expect(nightsBetween("2025-10-07", "2025-10-10")).toBe(3);
+    expect(nightsBetween("2026-05-11", "2026-05-15")).toBe(4);
+    expect(nightsBetween(null, "2025-10-10")).toBeNull();
+    expect(nightsBetween("2025-10-10", "2025-10-10")).toBeNull(); // same day → no pill
+    expect(nightsBetween("TBD", "2025-10-10")).toBeNull();
   });
 
   test("venue breakdown shows address/loading dock/maps as-parsed (BL-REVIEW-MODAL-COMPLETENESS)", () => {
@@ -861,11 +914,11 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
     );
     fireEvent.click(getByTestId("wizard-step3-card-drive-tr-lo-more"));
     const t = getByTestId("wizard-step3-card-drive-tr-lo-breakdown-transport").textContent ?? "";
-    expect(t).toContain("Load out:");
+    // Compact redesign: cells are eyebrow-labelled (no trailing colon); the
+    // Load-out contact renders name/phone/email as-parsed.
+    expect(t).toContain("Load out");
     expect(t).toContain("Carlos Pineda");
-    expect(t).toContain("Load out phone:");
     expect(t).toContain("610-618-0111");
-    expect(t).toContain("Load out email:");
     expect(t).toContain("carlos@x.com");
 
     // A transport with no load-out contact omits the Load-out rows entirely.
@@ -905,15 +958,19 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
     );
     fireEvent.click(getByTestId("wizard-step3-card-drive-tr-more"));
     const t = getByTestId("wizard-step3-card-drive-tr-breakdown-transport").textContent ?? "";
-    expect(t).toContain("Driver:");
+    // Compact redesign: Driver / Vehicle / Parking eyebrow cells (no colon).
+    expect(t).toContain("Driver");
     expect(t).toContain("Carlos Pineda");
-    expect(t).toContain("Vehicle:");
-    expect(t).toContain("Parking:");
-    expect(t).toContain("License plate:");
-    expect(t).toContain("TBD"); // sentinel as-parsed
-    expect(t).not.toContain("Color:"); // empty → omitted
-    expect(t).toContain("Pick Up Warehouse"); // schedule leg
-    expect(t).toContain("Doug"); // assigned name
+    expect(t).toContain("Vehicle");
+    expect(t).toContain("16' Box Truck");
+    expect(t).toContain("Parking");
+    expect(t).toContain("14 East Cedar");
+    expect(t).toContain("TBD"); // license_plate sentinel as-parsed sub-line
+    expect(t).not.toContain("Color"); // empty color → omitted (no label leak)
+    // Schedule legs become route nodes; stage + assigned names still render.
+    expect(t).toContain("Pick Up Warehouse"); // schedule leg → route node
+    expect(t).toContain("Doug"); // assigned name under the route node
+    expect(t).toContain("Route");
 
     const pr2 = { ...GEAR_PR, transportation: null } as unknown as ParseResult;
     const row2: Step3Row = { ...GEAR_ROW, driveFileId: "drive-tr2", parseResult: pr2 };
@@ -1066,7 +1123,7 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
           ordinal: 1,
           hotel_name: "Four Seasons",
           hotel_address: "120 E Delaware Pl",
-          names: [],
+          names: ["Eric Weiss", "Connor Hester"],
           confirmation_no: "SECRET-123",
           check_in: "2025-10-07",
           check_out: "2025-10-10",
@@ -1079,9 +1136,15 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
       <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
     );
     fireEvent.click(getByTestId("wizard-step3-card-drive-ha-more"));
-    const t = getByTestId("wizard-step3-card-drive-ha-breakdown-hotels").textContent ?? "";
+    const region = getByTestId("wizard-step3-card-drive-ha-breakdown-hotels");
+    const t = region.textContent ?? "";
     expect(t).toContain("120 E Delaware Pl"); // address now shown
     expect(t).not.toContain("SECRET-123"); // confirmation_no stays private
+    // Structured redesign: nights pill from check_in→check_out, humanized dates,
+    // and a guest-avatar stack derived from the reservation names.
+    expect(t).toContain("3 nights"); // Oct 7 → Oct 10
+    expect(t).toContain("Eric Weiss, Connor Hester");
+    expect(region.querySelectorAll('[data-testid="hotel-guest-avatar"]').length).toBe(2);
   });
 
   test("crew breakdown shows partial-attendance as-parsed (BL-CREW-PARTIAL-ATTENDANCE-CHIP)", () => {

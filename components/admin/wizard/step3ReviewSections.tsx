@@ -35,8 +35,10 @@ import {
 } from "react";
 import {
   AlertTriangle,
+  ArrowRight,
   BedDouble,
   CalendarDays,
+  Check,
   ChevronRight,
   ExternalLink,
   FileText,
@@ -48,6 +50,7 @@ import {
   Mail,
   MapPin,
   MessageSquareWarning,
+  Minus,
   Package,
   Phone,
   Receipt,
@@ -86,6 +89,9 @@ import {
 } from "@/lib/admin/stagedDiagramGuards";
 import type { MessageCode } from "@/lib/messages/catalog";
 import { humanizeDate, humanizeDayRange } from "@/lib/dates/humanize";
+import { formatIsoDate } from "@/lib/format/date";
+import { avatarColor } from "@/lib/crew/avatarColor";
+import { deriveInitials } from "@/components/atoms/Avatar";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { buildSheetDeepLink, type SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
@@ -283,6 +289,98 @@ export function FieldRowList({ rows }: { rows: { label: string; value: string }[
     </ul>
   );
 }
+
+/**
+ * Small identity chip shared by the redesigned Hotels (guest stack) and
+ * Transport (driver / load-out) cards. Reuses the crew identity palette
+ * (`avatarColor`) + `deriveInitials` so a person's swatch is stable across
+ * every surface (DESIGN.md §1.4 identity-avatar exception). `aria-hidden`
+ * because the decorated name is always rendered as live text beside it.
+ * `sizeClass` carries the diameter + text size; callers add stacking margins.
+ */
+function MiniAvatar({
+  name,
+  sizeClass,
+  testId,
+}: {
+  name: string;
+  sizeClass: string;
+  testId?: string;
+}) {
+  return (
+    <span
+      aria-hidden="true"
+      data-testid={testId}
+      style={{ backgroundColor: avatarColor(name) }}
+      className={`grid shrink-0 place-items-center rounded-pill border-2 border-surface font-semibold text-white ${sizeClass}`}
+    >
+      {deriveInitials(name)}
+    </span>
+  );
+}
+
+/**
+ * Nights between an ISO check-in and check-out (both `YYYY-MM-DD`). Returns
+ * null when either is missing, unparseable (a sentinel like `TBD`), or the
+ * span is non-positive — so the "N nights" pill only appears for a real stay.
+ * UTC-pinned (same day-boundary discipline as `formatIsoDate`).
+ */
+export function nightsBetween(checkIn: string | null, checkOut: string | null): number | null {
+  if (!checkIn || !checkOut) return null;
+  const a = new Date(`${checkIn}T00:00:00Z`);
+  const b = new Date(`${checkOut}T00:00:00Z`);
+  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return null;
+  const nights = Math.round((b.getTime() - a.getTime()) / 86_400_000);
+  return nights > 0 ? nights : null;
+}
+
+/**
+ * Event-details grouping (spec "3a Grouped"). The flat 20-field wall clusters
+ * under five eyebrow headers; every key in the closed-vocab `EVENT_DETAILS_LABELS`
+ * appears in exactly one group so a newly-added spec key can never silently
+ * vanish from the review surface (pinned by a completeness test). The four
+ * `EVENT_DETAIL_BOOLEAN_KEYS` render as neutral Yes/No state chips; `dress_code`
+ * renders as a sunken free-text block; everything else is a label:value row.
+ */
+export const EVENT_DETAIL_GROUPS: {
+  title: string;
+  keys: (keyof typeof EVENT_DETAILS_LABELS)[];
+}[] = [
+  { title: "Stage & scenic", keys: ["stage_size", "podium_type", "led", "scenic", "gooseneck"] },
+  {
+    title: "Display & content",
+    keys: ["test_pattern", "digital_signage", "opening_reel", "fonts"],
+  },
+  { title: "Production", keys: ["polling", "record", "virtual_speaker", "virtual_audience"] },
+  {
+    title: "Site & logistics",
+    keys: ["equipment_storage", "staff_office_room", "internet", "power"],
+  },
+  { title: "Wardrobe & key moments", keys: ["keynote_requirements", "dress_code", "notes"] },
+];
+
+const EVENT_DETAIL_BOOLEAN_KEYS = new Set<string>([
+  "polling",
+  "record",
+  "virtual_speaker",
+  "virtual_audience",
+]);
+
+/**
+ * Classify a boolean-field value as affirmative / negative for the state chip.
+ * Returns null for anything that is neither (a sentinel like `TBD`, or richer
+ * free text) so the review surface shows the raw parsed token muted rather than
+ * coercing an ambiguous value into a false "No".
+ */
+function interpretBooleanValue(value: string): "yes" | "no" | null {
+  const v = value.trim().toLowerCase();
+  if (/^(y|yes|true|yep|yeah)\b/.test(v)) return "yes";
+  if (/^(n|no|none|false|nope)\b/.test(v)) return "no";
+  return null;
+}
+
+/** Uppercase eyebrow label for the redesigned spec cells / group headers. */
+const CELL_EYEBROW_CLASS = "text-[10px] font-semibold uppercase tracking-eyebrow text-text-faint";
 
 /**
  * Modal section chrome (Task 5 — spec §6.4/§5.2). The review modal wraps each
@@ -730,53 +828,192 @@ export function TransportBreakdown({
         ["Notes", t.notes],
       ])
     : [];
-  // schedule legs — arr()-guarded against untyped JSONB; each leg gated on stage.
-  const legs = (t ? arr(t.schedule) : [])
+  // Route nodes: each schedule leg with a real stage becomes a route dot with
+  // its humanized when-line and any assigned passengers (review completeness).
+  const routeLegs = (t ? arr(t.schedule) : [])
     .filter((leg) => hasContent(leg.stage))
-    .map((leg) => {
-      const when = [leg.date, leg.time].filter((x) => hasContent(x)).join(" ");
-      const who = arr(leg.assigned_names)
-        .filter((n) => hasContent(n))
-        .join(", ");
-      return {
-        stage: leg.stage as string,
-        meta: [when, who].filter((x) => x.length > 0).join(" · "),
-      };
-    });
-  const count = fieldRows.length + legs.length;
+    .map((leg) => ({
+      stage: leg.stage as string,
+      when: [leg.date, leg.time].filter((x) => hasContent(x)).join(" "),
+      names: arr(leg.assigned_names).filter((n) => hasContent(n)),
+    }));
+  const count = fieldRows.length + routeLegs.length;
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-transport`}
       label="Transport"
       count={count}
     >
-      {count === 0 ? (
+      {count === 0 || !t ? (
         <p className="text-sm text-text-subtle">No transportation parsed.</p>
       ) : (
-        <div className="flex flex-col gap-2">
-          {fieldRows.length > 0 ? <FieldRowList rows={fieldRows} /> : null}
-          {legs.length > 0 ? (
-            // §8: schedule legs as a stage/meta stack under the field list, with
-            // hairline dividers BETWEEN legs (owner decision 2026-07-06). The
-            // border-t (when a field list precedes) separates the legs group from
-            // it; divide-y draws the inter-leg rules.
-            <ul
-              className={`flex flex-col divide-y divide-border ${fieldRows.length > 0 ? "border-t border-border pt-2" : ""}`}
-            >
-              {legs.map((leg, i) => (
-                <li
-                  key={`${leg.stage}-${i}`}
-                  className="flex flex-wrap items-baseline gap-x-2 wrap-break-word py-2 text-sm text-text first:pt-0 last:pb-0"
-                >
-                  <span className="font-medium text-text-strong">{leg.stage}</span>
-                  {leg.meta ? <span className="text-xs text-text-subtle">{leg.meta}</span> : null}
-                </li>
-              ))}
-            </ul>
-          ) : null}
-        </div>
+        <TransportBody t={t} routeLegs={routeLegs} />
       )}
     </BreakdownSection>
+  );
+}
+
+/** One sunken spec cell in the compact transport strip: eyebrow + stacked lines. */
+function TransportCell({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div className="flex min-w-0 flex-col gap-1.5 rounded-md bg-surface-sunken px-3 py-2.5">
+      <span className={CELL_EYEBROW_CLASS}>{label}</span>
+      {children}
+    </div>
+  );
+}
+
+/** Driver / Load-out contact cell — avatar + name, tel + mailto, as-parsed. */
+function ContactCell({
+  label,
+  name,
+  phone,
+  email,
+}: {
+  label: string;
+  name: string | null;
+  phone: string | null;
+  email: string | null;
+}) {
+  return (
+    <TransportCell label={label}>
+      {hasContent(name) ? (
+        <span className="flex min-w-0 items-center gap-1.5">
+          <MiniAvatar name={name} sizeClass="size-5 text-[8px]" />
+          <span className="min-w-0 wrap-break-word text-xs font-medium text-text">{name}</span>
+        </span>
+      ) : null}
+      {hasContent(phone) ? (
+        <a
+          href={`tel:${phone.replace(/[^\d+]/g, "")}`}
+          className="flex items-center gap-1 text-[11px] tabular-nums text-text-subtle hover:text-text"
+        >
+          <Phone className="size-3 shrink-0" aria-hidden="true" />
+          {phone}
+        </a>
+      ) : null}
+      {hasContent(email) ? (
+        <a
+          href={`mailto:${email}`}
+          className="flex min-w-0 items-center gap-1 text-[11px] text-text-subtle hover:text-text"
+        >
+          <Mail className="size-3 shrink-0" aria-hidden="true" />
+          <span className="min-w-0 wrap-break-word">{email}</span>
+        </a>
+      ) : null}
+    </TransportCell>
+  );
+}
+
+/**
+ * Compact transport body (spec "1b Compact"): a responsive spec strip of
+ * Driver / Load-out / Vehicle / Parking cells (each present only when it has
+ * real content) above a horizontal Route timeline of the schedule legs, with
+ * the free-text transport notes last. `t` is non-null (the caller renders the
+ * empty state when count is 0).
+ */
+function TransportBody({
+  t,
+  routeLegs,
+}: {
+  t: TransportationRow;
+  routeLegs: { stage: string; when: string; names: string[] }[];
+}) {
+  const hasDriver =
+    hasContent(t.driver_name) || hasContent(t.driver_phone) || hasContent(t.driver_email);
+  const hasLoadout =
+    hasContent(t.loadout_name) || hasContent(t.loadout_phone) || hasContent(t.loadout_email);
+  const vehicleSubs = [t.license_plate, t.color].filter((x) => hasContent(x)) as string[];
+  const hasVehicle = hasContent(t.vehicle) || vehicleSubs.length > 0;
+  const hasParking = hasContent(t.parking);
+  const cellCount = [hasDriver, hasLoadout, hasVehicle, hasParking].filter(Boolean).length;
+
+  return (
+    <div className="flex flex-col gap-4">
+      {cellCount > 0 ? (
+        <div className="grid grid-cols-2 gap-2 min-[560px]:grid-cols-3">
+          {hasDriver ? (
+            <ContactCell
+              label="Driver"
+              name={t.driver_name}
+              phone={t.driver_phone}
+              email={t.driver_email}
+            />
+          ) : null}
+          {hasLoadout ? (
+            <ContactCell
+              label="Load out"
+              name={t.loadout_name}
+              phone={t.loadout_phone}
+              email={t.loadout_email}
+            />
+          ) : null}
+          {hasVehicle ? (
+            <TransportCell label="Vehicle">
+              {hasContent(t.vehicle) ? (
+                <span className="wrap-break-word text-xs font-medium text-text">{t.vehicle}</span>
+              ) : null}
+              {vehicleSubs.map((s, i) => (
+                <span
+                  key={i}
+                  className={`wrap-break-word text-[11px] ${
+                    shouldHideGenericOptional(s) ? "text-text-faint" : "text-text-subtle"
+                  }`}
+                >
+                  {s}
+                </span>
+              ))}
+            </TransportCell>
+          ) : null}
+          {hasParking ? (
+            <TransportCell label="Parking">
+              <span className="wrap-break-word text-xs font-medium text-text">{t.parking}</span>
+            </TransportCell>
+          ) : null}
+        </div>
+      ) : null}
+
+      {routeLegs.length > 0 ? (
+        <div>
+          <p className={`${CELL_EYEBROW_CLASS} mb-3`}>Route</p>
+          <ol className="relative flex justify-between gap-2">
+            <span aria-hidden="true" className="absolute inset-x-[8%] top-[6px] h-0.5 bg-border" />
+            {routeLegs.map((leg, i) => (
+              <li
+                key={`${leg.stage}-${i}`}
+                className="relative flex min-w-0 flex-1 flex-col items-center gap-2 text-center"
+              >
+                <span
+                  aria-hidden="true"
+                  className={`box-border size-3.5 rounded-pill ring-2 ring-surface ${
+                    i % 2 === 0 ? "bg-accent-on-bg" : "border-2 border-border-strong bg-surface"
+                  }`}
+                />
+                <span className="min-w-0">
+                  <span className="block wrap-break-word text-xs font-semibold text-text-strong">
+                    {leg.stage}
+                  </span>
+                  {leg.when ? (
+                    <span className="mt-0.5 block text-[11px] tabular-nums text-text-subtle">
+                      {leg.when}
+                    </span>
+                  ) : null}
+                  {leg.names.length > 0 ? (
+                    <span className="mt-0.5 block wrap-break-word text-[11px] text-text-faint">
+                      {leg.names.join(", ")}
+                    </span>
+                  ) : null}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </div>
+      ) : null}
+
+      {hasContent(t.notes) ? (
+        <p className="wrap-break-word text-sm text-text-subtle">{t.notes}</p>
+      ) : null}
+    </div>
   );
 }
 
@@ -1290,27 +1527,125 @@ export function EventDetailsBreakdown({
   // parsed-but-unfilled) — deliberately NOT sentinel-hidden like the crew card.
   // This asymmetry is the existing, tested contract (Step3Review.test.tsx
   // "shown as-parsed (review surface, not sentinel-hidden like the crew page)").
-  // Coerce FIRST (String() is null/non-string-safe), then keep any non-empty
-  // value; `opening_reel` keeps its URL-strip cleanup; trim prevents whitespace
-  // from inflating `count`.
-  const fields: { label: string; value: string }[] = [];
-  for (const [key, label] of Object.entries(EVENT_DETAILS_LABELS)) {
+  //
+  // Spec "3a Grouped": the flat field wall clusters under five eyebrow headers
+  // (EVENT_DETAIL_GROUPS, which covers every label key). Coerce FIRST (String()
+  // is null/non-string-safe); `opening_reel` keeps its URL-strip cleanup; trim
+  // prevents whitespace from inflating `count`.
+  const valueFor = (key: string): string => {
     const text = String(ed[key] ?? "").trim();
-    const value = key === "opening_reel" ? stripOpeningReelText(text).trim() : text;
-    if (value.length > 0) fields.push({ label, value });
-  }
+    return key === "opening_reel" ? stripOpeningReelText(text).trim() : text;
+  };
+  const groups = EVENT_DETAIL_GROUPS.map((g) => ({
+    title: g.title,
+    fields: g.keys
+      .map((key) => ({ key, label: EVENT_DETAILS_LABELS[key], value: valueFor(key) }))
+      .filter((f) => f.value.length > 0),
+  })).filter((g) => g.fields.length > 0);
+  const count = groups.reduce((n, g) => n + g.fields.length, 0);
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-event-details`}
       label="Event details"
-      count={fields.length}
+      count={count}
     >
-      {fields.length === 0 ? (
+      {count === 0 ? (
         <p className="text-sm text-text-subtle">No event details parsed.</p>
       ) : (
-        <FieldRowList rows={fields} />
+        <div className="flex flex-col gap-5">
+          {groups.map((g) => (
+            <div key={g.title} className="flex flex-col gap-3">
+              <div className="flex items-center gap-2.5">
+                <span className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
+                  {g.title}
+                </span>
+                <span aria-hidden="true" className="h-px flex-1 bg-border" />
+              </div>
+              <EventDetailGroupBody fields={g.fields} />
+            </div>
+          ))}
+        </div>
       )}
     </BreakdownSection>
+  );
+}
+
+/** One label:value row inside an event-details group; sentinels render muted. */
+function EventDetailRow({ label, value }: { label: string; value: string }) {
+  const muted = shouldHideGenericOptional(value);
+  return (
+    <div className="grid grid-cols-[8rem_minmax(0,1fr)] items-baseline gap-x-4">
+      <span className="wrap-break-word text-xs font-medium text-text-subtle">{label}</span>
+      <span className={`wrap-break-word text-sm ${muted ? "text-text-faint" : "text-text"}`}>
+        {value}
+      </span>
+    </div>
+  );
+}
+
+/** A neutral Yes/No state chip (no green/red — Yes is filled, No is outlined). */
+function BooleanChip({ label, value }: { label: string; value: string }) {
+  const state = interpretBooleanValue(value);
+  return (
+    <div className="flex items-center justify-between gap-2 rounded-md bg-surface-sunken px-3 py-2">
+      <span className="wrap-break-word text-xs font-medium text-text-subtle">{label}</span>
+      {state === "yes" ? (
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-pill border border-border-strong bg-surface px-2.5 py-0.5 text-xs font-semibold text-text-strong">
+          <Check className="size-3" aria-hidden="true" />
+          Yes
+        </span>
+      ) : state === "no" ? (
+        <span className="inline-flex shrink-0 items-center gap-1 rounded-pill border border-border px-2.5 py-0.5 text-xs font-semibold text-text-faint">
+          <Minus className="size-3" aria-hidden="true" />
+          No
+        </span>
+      ) : (
+        // Neither yes nor no (sentinel / richer text) → raw parsed token, muted.
+        <span className="wrap-break-word text-xs font-medium text-text-faint">{value}</span>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Renders a group's fields: booleans as a Yes/No chip grid, `dress_code` as a
+ * sunken free-text block (multi-line preserved), everything else as label:value
+ * rows. Rows render before chips so the Production group (all-boolean) reads as
+ * a clean chip grid and mixed groups keep their text rows on top.
+ */
+function EventDetailGroupBody({
+  fields,
+}: {
+  fields: { key: string; label: string; value: string }[];
+}) {
+  const chips = fields.filter((f) => EVENT_DETAIL_BOOLEAN_KEYS.has(f.key));
+  const rows = fields.filter((f) => !EVENT_DETAIL_BOOLEAN_KEYS.has(f.key));
+  return (
+    <>
+      {rows.length > 0 ? (
+        <div className="flex flex-col gap-2.5">
+          {rows.map((f) =>
+            f.key === "dress_code" ? (
+              <div key={f.key} className="flex flex-col gap-1.5">
+                <span className="text-xs font-medium text-text-subtle">{f.label}</span>
+                <div className="rounded-md bg-surface-sunken px-3 py-2.5 text-sm/relaxed whitespace-pre-line text-text wrap-break-word">
+                  {f.value}
+                </div>
+              </div>
+            ) : (
+              <EventDetailRow key={f.key} label={f.label} value={f.value} />
+            ),
+          )}
+        </div>
+      ) : null}
+      {chips.length > 0 ? (
+        <div className="grid grid-cols-1 gap-2 min-[420px]:grid-cols-2">
+          {chips.map((f) => (
+            <BooleanChip key={f.key} label={f.label} value={f.value} />
+          ))}
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -1688,45 +2023,93 @@ export function HotelsBreakdown({ dfid, hotels }: { dfid: string; hotels: HotelR
       {hotels.length === 0 ? (
         <p className="text-sm text-text-subtle">No hotels parsed.</p>
       ) : (
-        <ul className="flex flex-col gap-2">
+        <div className="flex flex-col gap-3">
           {shown.map((h, i) => (
-            <li
-              key={`${h.hotel_name ?? "hotel"}-${i}`}
-              className="flex items-start gap-3 text-sm text-text"
-            >
-              {/* §8 hotel row: icon chip + info stack + right-aligned dates. */}
-              <span
-                aria-hidden="true"
-                className="grid size-8 shrink-0 place-items-center rounded-sm bg-surface-sunken text-text-subtle"
-              >
-                <BedDouble className="size-4" />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block wrap-break-word font-medium text-text-strong">
-                  {h.hotel_name || "Hotel"}
-                </span>
-                {arr(h.names).length > 0 ? (
-                  <span className="block wrap-break-word text-xs text-text-subtle">
-                    {arr(h.names).join(", ")}
-                  </span>
-                ) : null}
-                {hasContent(h.hotel_address) ? (
-                  <span className="block wrap-break-word text-xs text-text-subtle">
-                    {h.hotel_address}
-                  </span>
-                ) : null}
-              </span>
-              {h.check_in || h.check_out ? (
-                <span className="shrink-0 text-xs tabular-nums text-text-subtle">
-                  {h.check_in ?? "?"} → {h.check_out ?? "?"}
-                </span>
-              ) : null}
-            </li>
+            <HotelCard key={`${h.hotel_name ?? "hotel"}-${i}`} h={h} />
           ))}
-        </ul>
+          {note ? <p className="text-xs text-text-subtle">{note}</p> : null}
+        </div>
       )}
-      {note ? <p className="text-xs text-text-subtle">{note}</p> : null}
     </BreakdownSection>
+  );
+}
+
+/**
+ * One reservation as a structured sub-card (spec "1a Structured"): bed chip +
+ * hotel name + map-pin address + a "N nights" pill, a sunken humanized
+ * check-in → check-out strip, and a guest-avatar stack. `confirmation_no` is
+ * NEVER rendered (it stays private, matching the existing review contract);
+ * dates are shown as-parsed (a non-ISO sentinel echoes verbatim).
+ */
+function HotelCard({ h }: { h: HotelReservationRow }) {
+  const address = hasContent(h.hotel_address) ? h.hotel_address : null;
+  const names = arr(h.names).filter((n) => hasContent(n));
+  const nights = nightsBetween(h.check_in, h.check_out);
+  const checkIn = h.check_in ? formatIsoDate(h.check_in, "weekday-short") : null;
+  const checkOut = h.check_out ? formatIsoDate(h.check_out, "weekday-short") : null;
+  return (
+    <div className="flex flex-col gap-3 rounded-md border border-border p-4">
+      <div className="flex items-start gap-3">
+        <span
+          aria-hidden="true"
+          className="grid size-9 shrink-0 place-items-center rounded-md bg-surface-sunken text-text-subtle"
+        >
+          <BedDouble className="size-4.5" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="wrap-break-word text-base font-semibold text-text-strong">
+            {h.hotel_name || "Hotel"}
+          </p>
+          {address ? (
+            <p className="mt-0.5 flex items-start gap-1.5 text-sm text-text-subtle">
+              <MapPin className="mt-0.5 size-3.5 shrink-0" aria-hidden="true" />
+              <span className="min-w-0 wrap-break-word">{address}</span>
+            </p>
+          ) : null}
+        </div>
+        {nights !== null ? (
+          <span className="shrink-0 rounded-pill border border-border bg-surface-sunken px-2.5 py-0.5 text-xs font-semibold tabular-nums text-text-subtle">
+            {nights} {nights === 1 ? "night" : "nights"}
+          </span>
+        ) : null}
+      </div>
+
+      {checkIn || checkOut ? (
+        <div className="flex items-center gap-3 rounded-md bg-surface-sunken px-3.5 py-2.5">
+          <div className="min-w-0">
+            <p className={CELL_EYEBROW_CLASS}>Check in</p>
+            <p className="mt-0.5 text-sm font-semibold tabular-nums text-text-strong">
+              {checkIn ?? "—"}
+            </p>
+          </div>
+          <ArrowRight className="size-4 shrink-0 text-text-faint" aria-hidden="true" />
+          <div className="min-w-0">
+            <p className={CELL_EYEBROW_CLASS}>Check out</p>
+            <p className="mt-0.5 text-sm font-semibold tabular-nums text-text-strong">
+              {checkOut ?? "—"}
+            </p>
+          </div>
+        </div>
+      ) : null}
+
+      {names.length > 0 ? (
+        <div className="flex items-center gap-2.5">
+          <div className="flex shrink-0">
+            {names.slice(0, 5).map((n, idx) => (
+              <MiniAvatar
+                key={`${n}-${idx}`}
+                name={n}
+                testId="hotel-guest-avatar"
+                sizeClass={`size-6 text-[10px] ${idx > 0 ? "-ml-2" : ""}`}
+              />
+            ))}
+          </div>
+          <span className="min-w-0 wrap-break-word text-xs text-text-subtle">
+            {names.join(", ")}
+          </span>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
