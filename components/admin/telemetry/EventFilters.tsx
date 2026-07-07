@@ -2,8 +2,7 @@
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { AppEventFilters } from "@/lib/admin/telemetryTypes";
-
-const BASE = "/admin/dev/telemetry";
+import { BASE, buildFilterHref } from "@/lib/admin/telemetryFilterHref";
 
 // Controlled text filter: local state mirrors the committed filter value but is NOT reset by an
 // auto-refresh re-render (the `committed` value is unchanged), so focus + in-progress keystrokes
@@ -48,21 +47,6 @@ function FilterTextInput({
       }}
     />
   );
-}
-
-export function buildFilterHref(
-  current: URLSearchParams,
-  patch: Record<string, string | null>,
-): string {
-  const next = new URLSearchParams(current);
-  next.delete("cursorAt"); // every filter change returns to page 1
-  next.delete("cursorId");
-  for (const [k, v] of Object.entries(patch)) {
-    if (v == null || v === "") next.delete(k);
-    else next.set(k, v);
-  }
-  const qs = next.toString();
-  return qs ? `${BASE}?${qs}` : BASE;
 }
 
 export function EventFilters({ filters }: { filters: AppEventFilters }) {
