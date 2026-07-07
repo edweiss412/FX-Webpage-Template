@@ -44,6 +44,7 @@ describe("PARSE_ERROR_LAST_GOOD producer", () => {
         lastSyncError: null,
         priorParseResult: parseResult,
         priorParseWarningsRaw: null,
+        published: true,
       })),
       upsertAdminAlert,
     } as unknown as LockedShowTx<SyncPipelineTx>;

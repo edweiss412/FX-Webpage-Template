@@ -788,6 +788,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
       last_sync_status: string | null;
       last_sync_error: string | null;
       last_seen_modified_time: string | null;
+      published: boolean;
     }>(
       `
         select *
@@ -864,6 +865,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
       driveFileId: show.drive_file_id,
       lastSeenModifiedTime: show.last_seen_modified_time,
       lastSyncStatus: show.last_sync_status,
+      published: show.published,
       lastSyncError: show.last_sync_error,
       priorParseResult: {
         show: {

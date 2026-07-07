@@ -147,6 +147,7 @@ function makeTx(opts: {
         lastSyncError: null,
         priorParseResult: parseResult([]),
         priorParseWarningsRaw: opts.priorParseWarningsRaw,
+        published: true,
       };
     },
     async readLivePendingSync() {

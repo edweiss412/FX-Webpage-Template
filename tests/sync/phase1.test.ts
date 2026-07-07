@@ -17,6 +17,7 @@ type FakeShowRow = {
   lastSyncError: string | null;
   priorParseResult: ParseResult;
   priorParseWarningsRaw: ParseResult["warnings"] | null;
+  published: boolean;
 };
 
 type FakePendingSync = {
@@ -286,6 +287,7 @@ describe("runPhase1 routing and writes", () => {
       lastSyncError: null,
       priorParseResult: parseResult(),
       priorParseWarningsRaw: null,
+      published: true,
     });
 
     await runWith(tx, parseResult());
@@ -520,6 +522,7 @@ describe("runPhase1 routing and writes", () => {
       lastSyncError: null,
       priorParseResult: parseResult(),
       priorParseWarningsRaw: null,
+      published: true,
     });
 
     const result = await runWith(tx, parseResult({ rooms: [] }));
@@ -548,6 +551,7 @@ describe("runPhase1 routing and writes", () => {
       lastSyncError: null,
       priorParseResult: parseResult(),
       priorParseWarningsRaw: null,
+      published: true,
     });
     const message =
       "Could not confidently determine sheet template version (best guess v2; scores v4=0, v2=2). " +
@@ -596,6 +600,7 @@ describe("runPhase1 routing and writes", () => {
       lastSyncError: null,
       priorParseResult: parseResult(),
       priorParseWarningsRaw: null,
+      published: true,
     });
 
     const result = await runWith(tx, parseResult({ show: { ...parseResult().show, po: null } }), {
@@ -620,6 +625,7 @@ describe("runPhase1 routing and writes", () => {
       lastSyncError: null,
       priorParseResult: parseResult(),
       priorParseWarningsRaw: null,
+      published: true,
     });
 
     const result = await runWith(tx, parseResult({ show: { ...parseResult().show, po: null } }), {
@@ -643,6 +649,7 @@ describe("runPhase1 routing and writes", () => {
       lastSyncError: null,
       priorParseResult: parseResult(),
       priorParseWarningsRaw: null,
+      published: true,
     });
 
     const result = await runWith(
@@ -667,6 +674,7 @@ describe("runPhase1 routing and writes", () => {
       lastSyncError: null,
       priorParseResult: parseResult(),
       priorParseWarningsRaw: null,
+      published: true,
     });
 
     const result = await runWith(
@@ -692,6 +700,7 @@ describe("runPhase1 routing and writes", () => {
         lastSyncError: null,
         priorParseResult: parseResult(),
         priorParseWarningsRaw: null,
+        published: true,
       });
 
       const result = await runWith(tx, parseResult({ show: { ...parseResult().show, po: null } }), {
@@ -726,6 +735,7 @@ describe("runPhase1 routing and writes", () => {
       lastSyncError: null,
       priorParseResult: parseResult(),
       priorParseWarningsRaw: null,
+      published: true,
     });
 
     const result = await runWith(tx, parseResult({ pullSheet: null }), {
@@ -805,6 +815,7 @@ describe("runPhase1 routing and writes", () => {
         lastSyncError: null,
         priorParseResult: prior,
         priorParseWarningsRaw: null,
+        published: true,
       });
 
       const result = await runWith(tx, next);
@@ -862,6 +873,7 @@ describe("runPhase1 routing and writes", () => {
       lastSyncError: null,
       priorParseResult: prior,
       priorParseWarningsRaw: null,
+      published: true,
     });
 
     const result = await runWith(tx, next);
@@ -880,6 +892,7 @@ describe("runPhase1 routing and writes", () => {
       lastSyncError: null,
       priorParseResult: parseResult(),
       priorParseWarningsRaw: null,
+      published: true,
     });
 
     const result = await runWith(tx, parseResult());
@@ -900,6 +913,7 @@ describe("runPhase1 routing and writes", () => {
       lastSyncError: null,
       priorParseResult: prior,
       priorParseWarningsRaw: null,
+      published: true,
     });
 
     const result = await runWith(tx, next);

@@ -699,6 +699,7 @@ describe("hard_fail → clean-recovery sequence on the same file", () => {
         lastSyncError: show.lastSyncError,
         priorParseResult: parseResult(),
         priorParseWarningsRaw: null,
+        published: true,
       };
     }
 
