@@ -27,33 +27,39 @@ Three independent units, one PR, TDD + separate commit each.
 
 ### A.2 New behavior
 
-Reframe the clean-row clauses from a verification claim to a "no issues detected — spot-check" nudge. **No structural/count logic changes** — only the rendered strings. `renderSummary`'s branch structure (head → readiness clause → tail) is preserved.
+Reframe the clean-row clauses from a verification claim to a "no issues detected — spot-check" nudge, and make the summary honestly account for **every counted sheet that still needs Doug's forward action** (ready + needs-look + blocking). `renderSummary` gains a `blockingCount` parameter (already computed at the call site: `blockingCount = blockingRows.length`, `Step3Review.tsx:930`); its new signature is `renderSummary(sheetCount, readyCount, needsLookCount, blockingCount)`, called at `:1258`.
 
-Canonical copy (single source of truth; §A.3 tests assert exactly these normalized `textContent` forms):
+Two reusable phrase helpers (grammar, fixes reviewer LOW): `looksClean(n)` = `n === 1 ? "1 looks clean" : "{n} look clean"`; `giveLook(n)` = `n === 1 ? "give it a quick look" : "give them a quick look"`.
 
-| Branch | Condition | Rendered clause (after head, before tail) |
+Canonical copy (single source of truth; §A.3 tests assert exactly these normalized `textContent` forms). The line is composed as **HEAD + readiness-clause + attention-pointer + TAIL**:
+
+| Segment | Condition | Rendered text |
 |---|---|---|
 | HEAD | always | `{sheetCount} sheet{s} parsed from your Drive folder.` |
-| ALL-READY singular | `needsLookCount === 0 && readyCount === sheetCount && readyCount === 1` | ` We didn't spot any issues — give it a quick look against your sheet before you publish.` |
-| ALL-READY plural | `needsLookCount === 0 && readyCount === sheetCount && readyCount > 1` | ` We didn't spot any issues — give them a quick look against your sheet before you publish.` |
-| SOME-READY | `needsLookCount === 0 && readyCount > 0 && readyCount < sheetCount` | ` {readyCount} look clean — give {it\|them} a quick look before you publish; the rest need your attention below.` |
-| MIXED | `needsLookCount > 0 && readyCount > 0` | ` {readyCount} look clean, {needsLookCount} need{s} a quick look before {they go\|it goes} live.` |
+| ALL-READY | `needsLookCount === 0 && blockingCount === 0 && readyCount > 0` | ` We didn't spot any issues — {giveLook(readyCount)} against your sheet before you publish.` |
+| SOME-READY | `needsLookCount === 0 && blockingCount > 0 && readyCount > 0` | ` {looksClean(readyCount)} — {giveLook(readyCount)} before you publish.` |
+| MIXED | `needsLookCount > 0 && readyCount > 0` | ` {looksClean(readyCount)}, {needsLookCount} need{s} a quick look before {they go\|it goes} live.` |
 | NEEDSLOOK-ONLY | `needsLookCount > 0 && readyCount === 0` | ` {needsLookCount} need{s} a quick look before {they go\|it goes} live.` |
+| ATTENTION-POINTER | `blockingCount > 0` (appended after the readiness clause, before TAIL) | ` {blockingCount} need{s} your attention below.` |
 | TAIL | `cleanCount > 0` | ` Nothing publishes until you say so.` |
-| (no clause) | `cleanCount === 0` | head only, no tail |
 
-**Honesty gate (fixes reviewer HIGH-1):** the unscoped "We didn't spot any issues" phrasing fires ONLY when `readyCount === sheetCount` — i.e. every counted sheet is ready. If any counted sheet is blocking or set-aside (`readyCount < sheetCount`), the SOME-READY branch scopes the claim to the ready subset (`{readyCount} look clean`) and points at "the rest need your attention below," so the summary never asserts a blocking sheet is clean. (`sheetCount = rows.length − skippedRows.length` at `Step3Review.tsx:930` — includes blocking + ignored/deferred set-aside rows, so `readyCount === sheetCount` is the precise "all counted sheets are ready" test; no new param needed — `renderSummary` already receives both counts.)
+Composition edge cases:
+- `readyCount === 0 && needsLookCount === 0 && blockingCount > 0` (all blocking): HEAD + ATTENTION-POINTER only, no readiness clause, no TAIL.
+- `readyCount === 0 && needsLookCount === 0 && blockingCount === 0` (everything set-aside/skipped): HEAD only.
 
-Pluralization rules: `sheet{s}` → `s` when `sheetCount !== 1`; `need{s}` → `needs` when the governed count `=== 1` else `need`; `{they go|it goes}` → `it goes` when `needsLookCount === 1` else `they go`; `{it|them}` (SOME-READY) → `it` when `readyCount === 1` else `them`.
+**Honesty gate (fixes reviewer HIGH-1, both rounds):** the unscoped "We didn't spot any issues" fires ONLY in ALL-READY (`needsLookCount === 0 && blockingCount === 0`) — i.e. no clean sheet is flagged AND no sheet is blocking. Any blocking sheet forces SOME-READY/MIXED/NEEDSLOOK scoping PLUS the ATTENTION-POINTER, so the summary always accounts for ready + needs-look + blocking and never implies a blocking sheet is clean. **Set-aside rows (permanent-ignore / defer-until-modified) are deliberately NOT enumerated** in the summary: Doug already dispositioned them, and they render in their own de-emphasized sections below (`Step3Review.tsx:931-933`); the TAIL ("Nothing publishes until you say so") covers them. This is why the gate keys on `blockingCount`, not `readyCount === sheetCount` (`sheetCount` includes set-aside rows, which must not force the scoped wording).
+
+Pluralization rules: `sheet{s}` → `s` when `sheetCount !== 1`; `need{s}` (needs-look clause) → `needs` when `needsLookCount === 1` else `need`; `{they go|it goes}` → `it goes` when `needsLookCount === 1` else `they go`; `need{s}` (ATTENTION-POINTER) → `needs` when `blockingCount === 1` else `need`.
 
 **Presentation-only emphasis** (unchanged pattern): bold counts via `<b className="font-semibold text-text-strong">`; the needs-look clause keeps `text-warning-text`. Normalized `textContent` (single-spaced, per existing test normalization) equals the plaintext above — emphasis MUST NOT change textContent.
 
 ### A.3 Guard conditions
 
 - `sheetCount === 0`: `renderSummary` is only called with the visible-row partition; `cleanCount === 0` yields head-only. A zero-sheet folder is handled upstream (empty state), not here. Behavior: head renders `0 sheets parsed from your Drive folder.` with no readiness clause. (No change from today.)
-- `readyCount === 0 && needsLookCount === 0` (all rows blocking/set-aside): `cleanCount === 0` → head only, no tail. (No change.)
-- `readyCount > 0 && readyCount < sheetCount && needsLookCount === 0` (some ready, some blocking/set-aside): SOME-READY branch — scoped clause, never the unscoped "we didn't spot any issues" (reviewer HIGH-1).
-- Negative / NaN counts: not reachable — counts are `Array.filter(...).length`. No guard added.
+- `readyCount === 0 && needsLookCount === 0 && blockingCount === 0` (all set-aside/skipped): HEAD only, no tail.
+- `readyCount === 0 && needsLookCount === 0 && blockingCount > 0` (all blocking): HEAD + ATTENTION-POINTER, no tail.
+- `blockingCount > 0` with any clean rows: readiness clause is scoped (SOME-READY/MIXED/NEEDSLOOK) and the ATTENTION-POINTER always appends — the unscoped "we didn't spot any issues" is unreachable (reviewer HIGH-1).
+- Negative / NaN counts: not reachable — all four counts are `Array.filter(...).length`. No guard added.
 
 ### A.4 Descoped
 
@@ -77,7 +83,7 @@ Add a **synonym-based best-guess resolver** for `UNKNOWN_SECTION_HEADER` warning
 
 **Why a synonym map, NOT the parser's canonicalizer (design rationale, reviewer MEDIUM-4):** a header emits `UNKNOWN_SECTION_HEADER` after failing the parser's Damerau autocorrect tolerance — a header the canonicalizer *could* match within edit-distance would (in the common case) have been rewritten to `SECTION_HEADER_AUTOCORRECTED` (which already maps via `CANON_TO_REGION`) and not reached this path. So reusing the same edit-distance canonicalizer would add little: it targets the same typo class the parser already handled. The gap Unit B targets is a *different* class — **renamed sections** (audit Flow 5 P1-5, live-probe): `STAFF`, `LODGING`, `LOCATION` are *synonyms*, not typos, of known sections; edit-distance can't catch a synonym, a curated map can. This is a design-choice rationale, not a proof that the canonicalizer is a strict no-op on every conceivable input — Unit B does not depend on that absolute claim, only on synonyms and typos being different classes needing different matchers.
 
-- The resolver lives in `lib/admin/` (NOT `lib/parser` — no parser touch, no Codex-owned surface). It holds a small curated map of uppercased synonym → `SectionId`, seeded from the audit's live-probe rename list. Initial seed (plan enumerates/finalizes):
+- The resolver lives in `lib/admin/` (NOT `lib/parser` — no parser touch, no Codex-owned surface). It holds a small curated map of uppercased synonym → `SectionId`, seeded from the audit's live-probe rename list. **Canonical `SectionId` values** are exactly the `SectionId` union at `lib/admin/step3SectionStatus.ts:4-18` (`venue | event | crew | contacts | schedule | agenda | hotels | transport | rooms | diagrams | packlist | billing | warnings | report`). `hotels` (lodging reservations) and `rooms` (venue breakout rooms / gear scope) are **distinct** sections; a lodging synonym maps to `hotels`, never `rooms` (reviewer HIGH-2, round 2). Every map value MUST be a member of that union (a compile-time `Record<string, SectionId>` enforces it). Initial seed (plan enumerates/finalizes):
   - `STAFF`, `PERSONNEL` → `crew`
   - `LODGING`, `ACCOMMODATION`, `ACCOMMODATIONS`, `HOTEL INFO` → `hotels`
   - `LOCATION`, `VENUE INFO` → `venue`
@@ -94,7 +100,7 @@ Add a **synonym-based best-guess resolver** for `UNKNOWN_SECTION_HEADER` warning
 - `w.rawSnippet` null/empty: no guess possible → generic bucket.
 - No synonym-map entry matches the normalized header (foreign header): generic bucket.
 - Matched guess whose section is not rendered for this sheet: generic bucket.
-- Non-warn severity: two independent gates — (1) `warningsBySection` early-returns on `severity !== "warn"` (`:80`) before ever calling `sectionForWarning`; (2) inside `sectionForWarning`, the synonym best-guess branch is entered only for `code === "UNKNOWN_SECTION_HEADER"`, and that code is emitted exclusively at `severity:"warn"` (`emitUnknownSection`, `warnings.ts:106-114`). So even if `sectionForWarning` is called directly (it is exported and unit-tested), a non-warn or non-`UNKNOWN_SECTION_HEADER` input cannot reach the synonym map. The guard is local to the function being changed, not only to its caller (reviewer LOW-7).
+- Non-warn severity: the synonym best-guess branch inside `sectionForWarning` is entered only when **`w.severity === "warn"` AND `w.code === "UNKNOWN_SECTION_HEADER"`** — a local, self-contained guard checking severity directly, NOT relying on the emitter's convention (reviewer MEDIUM, round 2). So even a malformed/hand-built `{ code: "UNKNOWN_SECTION_HEADER", severity: "error" }` passed to `sectionForWarning` directly (it is exported and unit-tested) cannot reach the synonym map. `warningsBySection`'s existing `severity !== "warn"` early-return (`:80`) is a redundant outer gate, not the sole one.
 
 ### B.4 Anti-tautology test posture
 
@@ -130,11 +136,10 @@ Because `raw_unrecognized` is coerced from persisted `jsonb` (§C.1), type-level
 
 - `row.parseResult == null` (non-staged row): callout not rendered.
 - `row.parseResult.raw_unrecognized` absent/`undefined` OR **`null`** OR **not an array** (older/malformed persisted jsonb): coalesce to `[]` → callout not rendered. Never throws.
-- **Per-entry validation:** each element must be a non-null object with string-coercible `block`/`key`/`value`. Elements that are `null`, non-objects, or missing `key` are **dropped** (not rendered). The header count `n` reflects the SANITIZED length (post-drop), so the count never over-promises rows the UI then can't show.
+- **Per-entry validation (strict `typeof`, not coercion — reviewer MEDIUM, round 2):** an element is KEPT only if it is a non-null plain object whose `key` is a `typeof === "string"` with non-whitespace content. `null`, arrays, primitives, and objects with a non-string or empty/whitespace `key` are **dropped** — never string-coerced (coercion would render `"null"`, `"[object Object]"`, `"undefined"` noise instead of failing closed). For a kept element: `block` is used only if `typeof === "string"` and non-whitespace, else the `Other` bucket; `value` is used only if `typeof === "string"`, else treated as empty (`—` placeholder). The header count `n` reflects the SANITIZED length (post-drop), so the count never over-promises rows the UI can't show.
 - `sanitized.length === 0` (empty, or everything dropped): callout not rendered (no "0 items" chrome).
-- An entry with empty/whitespace `key`: dropped (a row with no label is unshowable and reads as noise).
-- An entry with empty `value` (`""`): render `key` with an em-dash placeholder (`{key} | —`), never a blank that reads as "we lost it."
-- An entry with empty/whitespace `block`: grouped under an `Other` bucket label rather than an empty group header.
+- Kept entry with empty (`""`) or non-string `value`: render `key` with an em-dash placeholder (`{key} | —`), never a blank that reads as "we lost it."
+- Kept entry with empty/whitespace or non-string `block`: grouped under an `Other` bucket label rather than an empty group header.
 
 ### C.4 Cap / truncation (per the global cap rule)
 
@@ -176,8 +181,8 @@ The callout is flow-content (auto height, full container width) inside the scrol
 
 | Unit | File | Change |
 |---|---|---|
-| A | `components/admin/wizard/Step3Review.tsx` (`renderSummary`, ~838-886) | Copy reframe, structure preserved |
-| A | `tests/components/admin/wizard/Step3Review.test.tsx` (:154,163,175,185,195) | Update pinned strings to §A.2 canonical copy |
+| A | `components/admin/wizard/Step3Review.tsx` (`renderSummary`:841, call site :1258) | Copy reframe + new `blockingCount` param; compose HEAD + clause + ATTENTION-POINTER + TAIL per §A.2 |
+| A | `tests/components/admin/wizard/Step3Review.test.tsx` (:154,163,175,185,195) | Update pinned strings to §A.2 canonical copy; ADD cases covering ATTENTION-POINTER (a blocking row present) and the `looksClean(1)` singular grammar — a blocking-present render exercises the branch the round-2 fix added |
 | B | `lib/admin/step3SectionStatus.ts` (`sectionForWarning`, :68-72) | Call new synonym resolver when `sectionForWarning` returns null AND `code === "UNKNOWN_SECTION_HEADER"` |
 | B | `lib/admin/sectionSynonymGuess.ts` (NEW) | Curated closed-allowlist synonym→`SectionId` map + normalized-header match. No `lib/parser` touch |
 | B | `tests/admin/step3SectionStatus.test.ts` | Rename-match + negative-control (foreign) + rendered-gate + not-reached-for-autocorrectable cases |
