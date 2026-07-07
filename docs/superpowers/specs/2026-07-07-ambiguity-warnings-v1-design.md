@@ -77,7 +77,7 @@ Non-goals at this site: the placeholder-drop path (`rooms.ts:815`) stays silent 
 
 Numeric slash/dash dates are always read MDY (`lib/parser/blocks/_helpers.ts:154-155`; precedence chain ISO→slash→dash→lfMDY→lfDMY at `:149`). A per-date "day ≤ 12 is ambiguous" warning would fire on nearly every US sheet — fatigue, rejected.
 
-Instead, a **block-level sequence check** over the DATES section's dates **in sheet encounter order, captured BEFORE the `result.showDays.sort()` calls** (`lib/parser/blocks/dates.ts:183`, `:281` — both parser versions sort before return, erasing row order; the check therefore runs inside the dates block parse, on the ordered list of successfully-parsed dates as encountered, one entry per parsed date row, ALL row kinds included — travel-in / set / show / travel-out): if that encounter-order sequence is non-monotonic (strictly decreasing at any adjacent pair) under the MDY reading, AND re-interpreting every numeric slash/dash date as DMY yields a non-decreasing sequence, emit ONE warning: `blockRef: { kind: "dates", field: "order" }`, `rawSnippet` = the first out-of-order raw date. This fires exactly in the real mis-read scenario (coordinator wrote DMY) and never on a well-ordered US sheet.
+Instead, a **block-level sequence check** over the DATES section's dates **in sheet encounter order, captured BEFORE the `result.showDays.sort()` calls** (`lib/parser/blocks/dates.ts:183`, `:281` — both parser versions sort before return, erasing row order). The sequence is **token-level**: the flattened list of every successfully-parsed date token, ordered by row encounter order then within-cell token order (a SHOW row can yield multiple dates via `extractAllDates`, `dates.ts:322` — each extracted date is one sequence entry). ALL row kinds included — travel-in / set / show / travel-out. `rawSnippet` at a violation = the specific out-of-order date token string; if the token is not separable from its cell, the whole raw cell value: if that encounter-order sequence is non-monotonic (strictly decreasing at any adjacent pair) under the MDY reading, AND re-interpreting every numeric slash/dash date as DMY yields a non-decreasing sequence, emit ONE warning: `blockRef: { kind: "dates", field: "order" }`, `rawSnippet` = the first out-of-order raw date. This fires exactly in the real mis-read scenario (coordinator wrote DMY) and never on a well-ordered US sheet.
 
 Guard conditions: fewer than 2 parseable dates → no check (vacuously ordered). Dates equal under both readings (e.g. 5/5) contribute to neither violation nor rescue. If BOTH readings are non-monotonic → no warning (sheet is just out of order; existing behavior unchanged). Longform/ISO dates are fixed points (only numeric slash/dash re-interpret).
 
@@ -85,7 +85,7 @@ Guard conditions: fewer than 2 parseable dates → no check (vacuously ordered).
 
 ### 4.4 Copy + catalog obligations (all four codes)
 
-Each new code is admin-visible: full §12.4 three-way lockstep (AGENTS.md rule 5 + §12.4 discipline) — master-spec table row (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md:2768-2853`) + helpfulContext YAML appendix entry + `pnpm gen:spec-codes` + `lib/messages/catalog.ts` row (8-field shape; copy template: `CREW_COLUMN_POSITIONAL_FALLBACK` at `catalog.ts:1242-1254`) + `pnpm gen:internal-code-enums`, all in the same commit. Doug-facing copy is action-first, names the sheet location, no raw codes (rule 5). crewFacing: null for all four (crew never sees parse internals). Copy drafts land at plan time; the master spec is NEVER prettier-formatted (memory: prettier mangles §12.4 cells).
+Each new code is admin-visible: full §12.4 three-way lockstep (AGENTS.md rule 5 + §12.4 discipline) — master-spec table row in the parser-warning band (`docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` — precedent rows `CREW_COLUMN_POSITIONAL_FALLBACK` at `:2893`, `AGENDA_DAY_AMBIGUOUS` at `:2899`; new rows insert in that band) + helpfulContext YAML appendix entry (appendix opens at `:3083`) + `pnpm gen:spec-codes` + `lib/messages/catalog.ts` row (8-field shape; copy template: `CREW_COLUMN_POSITIONAL_FALLBACK` at `catalog.ts:1242-1254`) + `pnpm gen:internal-code-enums`, all in the same commit. Doug-facing copy is action-first, names the sheet location, no raw codes (rule 5). crewFacing: null for all four (crew never sees parse internals). Copy drafts land at plan time; the master spec is NEVER prettier-formatted (memory: prettier mangles §12.4 cells).
 
 ## 5. `blockRef.field`
 
@@ -130,19 +130,21 @@ UI surface ⇒ Opus-owned, impeccable v3 critique + audit dual-gate (AGENTS.md i
 
 `sectionForWarning()` / section-status logic (`lib/admin/step3SectionStatus.ts:69-81`, `KIND_TO_SECTION` at `:21-44`) currently yields flagged/clean. New derivation per section:
 
-- **flagged** — has ≥1 warning that is NOT ambiguity-class (unchanged semantics);
+- **flagged** — has ≥1 warning that is NOT ambiguity-class (unchanged semantics); a section with BOTH ambiguity and non-ambiguity warnings is flagged;
 - **judgment** (new) — has ≥1 warning, ALL of them `isAmbiguityCode`;
 - **clean** — zero warnings (unchanged).
+
+This section-level status governs the per-section chrome inside a show's review modal (§7.3). It is distinct from the row-level counting in §7.2 — the two levels use the same predicate (`isAmbiguityCode` partition) at different grains.
 
 Null/unmapped `blockRef.kind` routing is untouched (audit item 2.3 is separate scope).
 
 ### 7.2 Summary counts
 
-`renderSummary()` (`components/admin/wizard/Step3Review.tsx:845-918`, `rowNeedsLook()` at `:828-836`): replace the two-bucket derivation with three counts — **"N clean · M parsed with judgment — spot-check · K flagged."** Exact copy is an impeccable-gate deliverable; the contract here is: three distinct counts, judgment-count wording prompts a glance without implying error, and the sum N+M+K equals the section total.
+`renderSummary()` (`components/admin/wizard/Step3Review.tsx:845-918`, `rowNeedsLook()` at `:828-836`): replace the two-bucket derivation with three counts — **"N clean · M parsed with judgment — spot-check · K flagged."** **Counting unit: rows** — one row per staged show in Step 3, the same unit `rowNeedsLook()` already operates on (NOT sections; sections are the §7.1 grain inside one show's modal). Exact copy is an impeccable-gate deliverable; the contract here is: three distinct counts, judgment-count wording prompts a glance without implying error, and N+M+K equals the total row count.
 
 **Derivation change (required, not optional):** `rowNeedsLook()` today ORs several conditions — `summarizeDataGaps(...).total > 0` plus non-gap branches (missing preview, finalize failure). ONLY the gap-total clause is partitioned by `isAmbiguityCode`: it contributes true only when the row's NON-ambiguity gap count is > 0. **All other OR branches are preserved unchanged** — a row with a missing preview or finalize failure stays needs-look regardless of warning classes. Precedence: needs-look (any surviving branch true) > judgment (not needs-look AND ≥1 ambiguity-class warning) > clean. Ambiguity-only sections do NOT join `rowNeedsLook`'s blocking styling and do NOT block publish. Dashboard chip and regression gate are deliberately NOT partitioned — ambiguity codes count there like any gap class (§3.3; the chip is a "glance here" aggregate, same intent).
 
-Guard conditions: M=0 renders the existing two-state summary (no empty "0 parsed with judgment" chrome). All-zero (no sections) is the existing empty-wizard state, unchanged. A section with ambiguity + non-ambiguity warnings is **flagged** (K), counted once.
+Guard conditions: M=0 renders the existing two-state summary (no empty "0 parsed with judgment" chrome). Zero rows is the existing empty-wizard state, unchanged. A row with ambiguity + non-ambiguity warnings is **needs-look** (K) — its non-ambiguity gap count is > 0 — counted once. The row-level judgment predicate: NOT needs-look AND ≥1 ambiguity-class warning.
 
 ### 7.3 Section chrome
 
