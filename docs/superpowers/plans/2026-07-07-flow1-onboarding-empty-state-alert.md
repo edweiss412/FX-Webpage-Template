@@ -56,77 +56,82 @@
 
 - [ ] **Step 1: Write the failing behavioral route-emit test**
 
-Create `tests/onboarding/scanRouteAlertEmit.test.ts`. This drives the route's stream handler with a stubbed `runOnboardingScan` and asserts the alert emit fires exactly once, post-scan, with the route's real ids. Mirror the existing scan-route test's harness for injecting `runtime` (grep `tests/onboarding/` and `tests/**/*scan*route*` for the established pattern; the route accepts an injected `runtime.runOnboardingScan` and `logAdminOutcome`/`upsertAdminAlert` seams — follow whatever injection shape the existing route tests use, e.g. a `deps`/`runtime` param or module mock of `@/lib/adminAlerts/upsertAdminAlert`).
+Create `tests/onboarding/scanRouteAlertEmit.test.ts`. **Harness (verified):** mirror `tests/onboarding/scanRoute.test.ts` exactly — it builds a `FakeScanDb`, calls `deps(db, { runOnboardingScan: vi.fn(async () => result) })` to inject the scan result via `ScanRouteDeps` (`runOnboardingScan` IS injectable; `:48` of the route), POSTs a `new Request(".../api/admin/onboarding/scan", { method:"POST", ... })`, and reads the NDJSON stream. `logAdminOutcome` and `upsertAdminAlert` are DIRECT module imports in the route (`:17` + the import you add in Step 4), NOT `ScanRouteDeps` seams — so mock them with `vi.mock`, not via `deps`. Import the `deps` / `FakeScanDb` / request-builder helpers from (or copy the shape of) `tests/onboarding/scanRoute.test.ts`. The route reads `folder.folderId` and `wizardSessionId` internally from `verifyFolder` + reserve; use the same folder/session values the existing test uses (e.g. `"folder-1"`, `W1`) and assert those, not invented ids.
 
 ```ts
-import { describe, it, expect, vi } from "vitest";
-// Import the route POST handler + whatever test harness the existing scan-route
-// tests use to drive the NDJSON stream and inject runtime. Reuse it — do not
-// invent a new harness.
+import { describe, it, expect, vi, beforeEach } from "vitest";
+
+vi.mock("@/lib/adminAlerts/upsertAdminAlert", () => ({
+  upsertAdminAlert: vi.fn().mockResolvedValue("alert-id"),
+}));
+vi.mock("@/lib/log/logAdminOutcome", () => ({ logAdminOutcome: vi.fn().mockResolvedValue(undefined) }));
+import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
+import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
+// import { POST }, deps, FakeScanDb, makeRequest from the scanRoute.test.ts harness
 
 describe("onboarding scan route — ONBOARDING_SHEET_UNREADABLE emit", () => {
+  // Use the folder/session the scanRoute.test.ts harness produces (grep it for
+  // the exact folderId + wizard-session constants, e.g. "folder-1" / W1) and
+  // assert those verbatim below. `runFolder`/`runWiz` are placeholders for them.
+  beforeEach(() => {
+    vi.mocked(upsertAdminAlert).mockClear().mockResolvedValue("alert-id");
+    vi.mocked(logAdminOutcome).mockClear().mockResolvedValue(undefined);
+  });
+
   it("emits exactly one alert when the completed scan has ≥1 hard_failed", async () => {
-    const upsertSpy = vi.fn().mockResolvedValue("alert-id");
     const result = {
-      outcome: "completed",
+      outcome: "completed" as const,
       processed: [
-        { driveFileId: "d-b", outcome: "hard_failed" },
-        { driveFileId: "d-a", outcome: "hard_failed" },
-        { driveFileId: "d-ok", outcome: "staged" },
+        { driveFileId: "d-b", outcome: "hard_failed" as const },
+        { driveFileId: "d-a", outcome: "hard_failed" as const },
+        { driveFileId: "d-ok", outcome: "staged" as const },
       ],
     };
-    // Drive the route with runOnboardingScan stubbed to `result`, upsertAdminAlert
-    // stubbed to `upsertSpy`, and a known folderId/wizardSessionId; consume the
-    // stream to completion.
-    // ... harness setup (folderId "folder-x", wizardSessionId "wiz-1") ...
-
-    expect(upsertSpy).toHaveBeenCalledTimes(1);
-    expect(upsertSpy).toHaveBeenCalledWith({
+    // POST via the harness with deps(db, { runOnboardingScan: vi.fn(async () => result) });
+    // read the stream to completion.
+    expect(vi.mocked(upsertAdminAlert)).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(upsertAdminAlert)).toHaveBeenCalledWith({
       showId: null,
       code: "ONBOARDING_SHEET_UNREADABLE",
       context: {
-        folder_id: "folder-x",
-        wizard_session_id: "wiz-1",
+        folder_id: runFolder,
+        wizard_session_id: runWiz,
         failed_drive_file_ids: ["d-a", "d-b"], // sorted distinct
       },
     });
   });
 
-  it("does NOT emit when no file hard_failed", async () => {
-    const upsertSpy = vi.fn();
+  it("does NOT emit when no file hard_failed (incl. live_row_conflict only)", async () => {
     const result = {
-      outcome: "completed",
+      outcome: "completed" as const,
       processed: [
-        { driveFileId: "d-ok", outcome: "staged" },
-        { driveFileId: "d-lrc", outcome: "live_row_conflict" },
+        { driveFileId: "d-ok", outcome: "staged" as const },
+        { driveFileId: "d-lrc", outcome: "live_row_conflict" as const },
       ],
     };
-    // drive route ...
-    expect(upsertSpy).not.toHaveBeenCalledWith(
+    // POST via harness ...
+    expect(vi.mocked(upsertAdminAlert)).not.toHaveBeenCalledWith(
       expect.objectContaining({ code: "ONBOARDING_SHEET_UNREADABLE" }),
     );
   });
 
   it("does NOT emit on a non-completed outcome", async () => {
-    const upsertSpy = vi.fn();
-    const result = { outcome: "schema_missing", code: "WIZARD_ISOLATION_INDEXES_MISSING" };
-    // drive route ...
-    expect(upsertSpy).not.toHaveBeenCalledWith(
+    const result = { outcome: "schema_missing" as const, code: "WIZARD_ISOLATION_INDEXES_MISSING" };
+    // POST via harness ...
+    expect(vi.mocked(upsertAdminAlert)).not.toHaveBeenCalledWith(
       expect.objectContaining({ code: "ONBOARDING_SHEET_UNREADABLE" }),
     );
   });
 
-  it("alert throw does not fail the request or suppress logAdminOutcome", async () => {
-    const upsertSpy = vi.fn().mockRejectedValue(new Error("boom"));
-    const logSpy = vi.fn().mockResolvedValue(undefined);
+  it("alert throw does not 500 or suppress logAdminOutcome", async () => {
+    vi.mocked(upsertAdminAlert).mockRejectedValue(new Error("boom"));
     const result = {
-      outcome: "completed",
-      processed: [{ driveFileId: "d-a", outcome: "hard_failed" }],
+      outcome: "completed" as const,
+      processed: [{ driveFileId: "d-a", outcome: "hard_failed" as const }],
     };
-    // drive route with logAdminOutcome=logSpy, upsertAdminAlert=upsertSpy
-    // Assert: the stream still emits a terminal `result` message (no 500),
-    // and logSpy was still called (own try/catch, not suppressed).
-    expect(logSpy).toHaveBeenCalled();
+    // POST via harness; assert the response still streams a terminal `result`
+    // message (parse the NDJSON — last line has type:"result") and:
+    expect(vi.mocked(logAdminOutcome)).toHaveBeenCalled(); // own try/catch, not suppressed
   });
 });
 ```
@@ -227,10 +232,10 @@ In `lib/messages/catalog.ts`, near the `LIVE_ROW_CONFLICT` row (`:1873`), add (m
   "ONBOARDING_SHEET_UNREADABLE", //     Flow-1 setup-scan hard-fail folder alert
 ```
 
-(b) `tests/messages/_metaAdminAlertCatalog.test.ts` — add a `ADMIN_ALERTS_WRITE_SITES` entry (near the `LIVE_ROW_CONFLICT` entry `:122`):
+(b) `tests/messages/_metaAdminAlertCatalog.test.ts` — add a `ADMIN_ALERTS_WRITE_SITES` entry. The real `WriteSite` shape is `{ path, pattern }` (verified, e.g. `AMBIGUOUS_EMAIL_BINDING` `:66`). Note string-literal `code:` sites need the QUOTE in the pattern (unlike `LIVE_ROW_CONFLICT` which uses the bare constant):
 ```ts
   ONBOARDING_SHEET_UNREADABLE: {
-    file: "app/api/admin/onboarding/scan/route.ts",
+    path: "app/api/admin/onboarding/scan/route.ts",
     pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"ONBOARDING_SHEET_UNREADABLE"/,
   },
 ```
@@ -238,7 +243,6 @@ and an `ADMIN_ALERTS_LIFECYCLE` entry (near `:451`):
 ```ts
   ONBOARDING_SHEET_UNREADABLE: { class: "event-manual" },
 ```
-(Match the exact object shape of the neighboring entries — if `ADMIN_ALERTS_WRITE_SITES` entries omit `file` or use a different key name, mirror the real shape verbatim.)
 
 (c) `tests/messages/_metaAlertAudienceContract.test.ts` — add to the `DOUG` array (`:7`, before `] as const`):
 ```ts
@@ -324,18 +328,29 @@ const lrcOnly = { staged: 0, hard_failed: 0, skipped_non_sheet: 0, live_row_conf
 const staged = { staged: 2, hard_failed: 0, skipped_non_sheet: 0, live_row_conflict: 0 };
 
 describe("Step2Verify staged-0 states", () => {
+  // NOTE: the footer popover has NO plain `wizard-step2-found` element —
+  // Step2FoundSummary passes testId="wizard-step2-found" rootTestId="wizard-step2-success"
+  // to HoverHelp, which renders `wizard-step2-found-trigger`/`-body` and roots the
+  // whole thing at `wizard-step2-success` (HoverHelp.tsx:135,154,182). Assert the
+  // ROOT `wizard-step2-success` for popover presence/absence.
+
   it("empty folder → empty block, no found-summary popover", () => {
     // render success with totals=empty, folderUrl a valid Drive URL
     const block = screen.getByTestId("wizard-step2-empty");
     expect(within(block).getByText(/this folder is empty/i)).toBeInTheDocument();
     expect(within(block).getByRole("link", { name: /open the folder/i })).toBeInTheDocument();
-    expect(screen.queryByTestId("wizard-step2-found")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("wizard-step2-success")).not.toBeInTheDocument();
   });
 
   it("empty folder with no parseable folderUrl → no Open-folder link", () => {
     // render success with totals=empty, folderUrl=""
     const block = screen.getByTestId("wizard-step2-empty");
     expect(within(block).queryByRole("link", { name: /open the folder/i })).not.toBeInTheDocument();
+  });
+
+  it("empty folder → persistent submit button is relabeled 'Re-scan'", () => {
+    // render success with totals=empty (fresh scan, no priorScan)
+    expect(screen.getByTestId("wizard-step2-submit")).toHaveTextContent("Re-scan");
   });
 
   it("files present none staged → nothing-ready block, per-bucket non-zero lines only", () => {
@@ -345,7 +360,8 @@ describe("Step2Verify staged-0 states", () => {
     expect(within(block).getByText(/could not parse/i)).toBeInTheDocument(); // hard_failed 2
     expect(within(block).getByText(/non-sheet files/i)).toBeInTheDocument(); // skipped 1
     expect(within(block).queryByText(/live-row conflicts/i)).not.toBeInTheDocument(); // 0 → omitted
-    expect(screen.queryByTestId("wizard-step2-found")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("wizard-step2-success")).not.toBeInTheDocument();
+    expect(screen.getByTestId("wizard-step2-submit")).toHaveTextContent("Re-scan");
   });
 
   it("live-row-conflict-only scan → nothing-ready block, NO 'couldn't read' blanket", () => {
@@ -355,11 +371,13 @@ describe("Step2Verify staged-0 states", () => {
     expect(within(block).queryByText(/couldn.t read any as a show sheet/i)).not.toBeInTheDocument();
   });
 
-  it("staged>0 → footer popover renders, no empty/nothing-ready block", () => {
+  it("staged>0 → footer popover renders, no empty/nothing-ready block, label unchanged", () => {
     // render success with totals=staged
-    expect(screen.getByTestId("wizard-step2-found")).toBeInTheDocument();
+    expect(screen.getByTestId("wizard-step2-success")).toBeInTheDocument();
     expect(screen.queryByTestId("wizard-step2-empty")).not.toBeInTheDocument();
     expect(screen.queryByTestId("wizard-step2-nothing-ready")).not.toBeInTheDocument();
+    // staged>0 is out of scope for the relabel — button keeps its existing label
+    expect(screen.getByTestId("wizard-step2-submit")).not.toHaveTextContent("Re-scan");
   });
 
   it("new blocks are instant — no AnimatePresence / motion props", () => {
@@ -452,7 +470,23 @@ In the `else` branch of the lower region (the `<>…</>` after `isSubmitting && 
 ) : null}
 ```
 
-(Verify `parseDriveFolderId` is already imported — it is, `:31`. Do NOT change the accent/primary-button logic; the persistent submit button remains "Re-scan" via the existing `submitLabel`/class logic. Confirm `submitLabel` reads "Re-scan" in a success state, or relabel only the label string if needed without touching `submitIsPrimary`/`continueIsPrimary`.)
+(`parseDriveFolderId` is already imported, `:31`. Do NOT change the accent/primary logic — `submitIsPrimary`/`continueIsPrimary` stay untouched.)
+
+- [ ] **Step 4b: Relabel the persistent submit button to "Re-scan" in staged-0 success**
+
+Live `submitLabel` (`:282`) is `isSubmitting ? "Verifying…" : matchesScanned ? "Re-scan" : "Verify and scan"` — a FRESH successful scan (no `priorScan`, so `matchesScanned` false) reads "Verify and scan", not "Re-scan". Spec §4.1 requires the persistent button to read "Re-scan" in the staged-0 modes. Change ONLY the label (not the button class / primary logic):
+
+```tsx
+  const submitLabel = isSubmitting
+    ? "Verifying…"
+    : state.kind === "success" && state.result.totals.staged === 0
+      ? "Re-scan"
+      : matchesScanned
+        ? "Re-scan"
+        : "Verify and scan";
+```
+
+This is gated on `staged === 0` so the staged>0 success path is unchanged (avoids regressing existing Step2Verify tests).
 
 - [ ] **Step 5: Run the tests — verify they pass**
 
