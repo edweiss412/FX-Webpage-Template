@@ -948,7 +948,7 @@ git commit --no-verify -m "test(crew-page): real-browser venue card layout invar
 **Files:**
 - Test: `tests/components/admin/wizard/venueTransitionAudit.test.ts`
 
-**Interfaces:** none; static source assertion over the two new/edited components.
+**Interfaces:** none; static source assertion over BOTH new/edited surfaces — the `VenueMapTile` component AND the `VenueBreakdown` region of `step3ReviewSections.tsx` (that region is where the card's conditional renders live: the map-region gated on `query`, the dock footer gated on `loadingDock`, the directions anchor-vs-div swap). §8 covers the whole venue card, not just the tile, so the audit MUST enumerate every conditional block on both surfaces (per the project's "Transition-audit task" rule: list every `AnimatePresence`, ternary render, and `{cond && …}` block; assert each is deliberately instant). Scanning only the tile is the coverage gap.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -960,12 +960,27 @@ import { join } from "node:path";
 
 const ROOT = join(__dirname, "..", "..", "..", "..");
 const tile = readFileSync(join(ROOT, "components/admin/wizard/VenueMapTile.tsx"), "utf8");
+const sections = readFileSync(
+  join(ROOT, "components/admin/wizard/step3ReviewSections.tsx"),
+  "utf8",
+);
+
+// Slice out ONLY the VenueBreakdown function body so the assertions cannot be
+// satisfied (or violated) by unrelated sections in this large shared file.
+function venueBreakdownSource(): string {
+  const start = sections.indexOf("function VenueBreakdown");
+  expect(start, "VenueBreakdown function not found").toBeGreaterThan(-1);
+  // Next top-level `function ` declaration terminates the slice.
+  const rest = sections.slice(start + "function VenueBreakdown".length);
+  const nextFn = rest.search(/\nfunction \w/);
+  return rest.slice(0, nextFn === -1 ? undefined : nextFn);
+}
 
 describe("venue card transition inventory (spec §8 — all instant)", () => {
-  test("no AnimatePresence / exit / initial props (card is static)", () => {
+  test("tile: no AnimatePresence / exit / initial props (card is static)", () => {
     expect(tile).not.toMatch(/AnimatePresence|(?:^|\s)exit=|(?:^|\s)initial=/);
   });
-  test("no transition classes at all — the card is fully instant (§8)", () => {
+  test("tile: no transition classes at all — fully instant (§8)", () => {
     // §8 declares every state pair instant, incl. image load (no fade) and the
     // onError visibility swap. A `transition-*` class would be inert (the
     // component performs no opacity/transform state change) and dishonest.
@@ -973,10 +988,32 @@ describe("venue card transition inventory (spec §8 — all instant)", () => {
     // The fallback swap is a visibility flip in onError, not an animation.
     expect(tile).toContain('style.visibility = "hidden"');
   });
+
+  // The three enumerated conditional renders of the venue card (§8) live in
+  // VenueBreakdown, not the tile. Prove they EXIST (non-tautological — a broken
+  // rewrite that drops them fails here) and that each is INSTANT (no transition
+  // or AnimatePresence wrapping the state change).
+  test("VenueBreakdown: enumerated conditional renders exist and are instant", () => {
+    const src = venueBreakdownSource();
+    // (a) map region rendered only when the geocode query is non-empty.
+    expect(src, "map-region conditional").toContain("venue-map-region");
+    // (b) dock footer rendered only when loadingDock has content.
+    expect(src, "dock-footer conditional").toContain("venue-dock");
+    // (c) directions target: anchor when mapHref, decorative element otherwise —
+    // routed through VenueMapTile, which the card always renders.
+    expect(src, "map tile mounted").toContain("VenueMapTile");
+    // None of these three state changes animates: no transition/AnimatePresence
+    // in the VenueBreakdown region (compound transitions — e.g. dock toggling
+    // while the map region is absent — are therefore instant by construction).
+    expect(src, "no transition classes in VenueBreakdown").not.toMatch(
+      /\btransition(-\w+)?\b/,
+    );
+    expect(src, "no AnimatePresence in VenueBreakdown").not.toMatch(/AnimatePresence/);
+  });
 });
 ```
 
-- [ ] **Step 2: Run, verify it passes** (Task 4 already wrote the component to satisfy this) — `pnpm vitest run tests/components/admin/wizard/venueTransitionAudit.test.ts`. If it fails, the component violated the transition inventory; fix the component, not the test.
+- [ ] **Step 2: Run, verify it passes** (Tasks 4 + 5 already wrote/edited the surfaces to satisfy this) — `pnpm vitest run tests/components/admin/wizard/venueTransitionAudit.test.ts`. If it fails, the offending surface violated the transition inventory; fix the component/`VenueBreakdown`, not the test.
 
 - [ ] **Step 3: Commit**
 
