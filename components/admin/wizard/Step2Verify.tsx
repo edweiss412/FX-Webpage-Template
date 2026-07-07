@@ -261,10 +261,6 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
   }
 
   const submitDisabled = isSubmitting || folderUrl.trim().length === 0;
-  // Parsed Drive folder id (non-null only for a valid folder URL). Used to gate
-  // AND reconstruct the "Open the folder" link's href from the canonical
-  // `/folders/<id>` shape rather than trusting the raw pasted string.
-  const driveFolderId = parseDriveFolderId(folderUrl);
   // Resume affordance: only while idle (the moment the operator lands back on
   // Step 2 with a reviewable prior scan). "Continue to Step 3" is the primary
   // action, so the co-located re-scan button steps down to SECONDARY_BUTTON
@@ -283,11 +279,18 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
     showResume &&
     priorScan?.folderId != null &&
     parseDriveFolderId(folderUrl) === priorScan.folderId;
-  // A completed staged-0 scan relabels the persistent button "Re-scan" (§4.1);
-  // the button re-submits the same folder URL. Accent/primary logic is unchanged.
+  // A completed staged-0 scan relabels the persistent button "Re-scan" (§4.1) —
+  // but ONLY while the field STILL refers to the folder that was scanned (match
+  // by folder IDENTITY against `state.result.folderId`, mirroring `matchesScanned`
+  // above). Edit the input to a different folder and it reverts to "Verify and
+  // scan": submitting would scan the NEW folder, not re-scan the reported one.
+  const rescanStagedZero =
+    state.kind === "success" &&
+    state.result.totals.staged === 0 &&
+    parseDriveFolderId(folderUrl) === state.result.folderId;
   const submitLabel = isSubmitting
     ? "Verifying…"
-    : state.kind === "success" && state.result.totals.staged === 0
+    : rescanStagedZero
       ? "Re-scan"
       : matchesScanned
         ? "Re-scan"
@@ -491,9 +494,9 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
                 >
                   <p className="font-semibold text-text-strong">This folder is empty.</p>
                   <p>Add a show sheet to the folder, then re-scan.</p>
-                  {driveFolderId ? (
+                  {driveFolderUrl(state.result.folderId) ? (
                     <a
-                      href={driveFolderUrl(driveFolderId) ?? undefined}
+                      href={driveFolderUrl(state.result.folderId) ?? undefined}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex min-h-tap-min items-center self-start font-medium text-text-strong underline underline-offset-2 hover:decoration-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
@@ -541,9 +544,9 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
                     ) : null}
                   </ul>
                   <p>Open the folder to check these in Drive, then re-scan.</p>
-                  {driveFolderId ? (
+                  {driveFolderUrl(state.result.folderId) ? (
                     <a
-                      href={driveFolderUrl(driveFolderId) ?? undefined}
+                      href={driveFolderUrl(state.result.folderId) ?? undefined}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex min-h-tap-min items-center self-start font-medium text-text-strong underline underline-offset-2 hover:decoration-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
