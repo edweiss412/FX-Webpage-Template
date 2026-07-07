@@ -23,7 +23,16 @@
 import type { HotelReservationRow } from "../types";
 import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
 import { clean, presence, normalizeDate, parseTableRows, inferShowYear } from "./_helpers";
+import { buildCol0HeaderRe, matchesSectionHeader } from "./_sectionHeaderMatch";
 import { log } from "@/lib/log";
+
+export const SECTION_HEADER_TOKENS = [
+  "HOTEL",
+  "HOTEL RESERVATION",
+  "HOTEL RESERVATIONS",
+  "HOTEL STAY",
+  "HOTEL STAYS",
+] as const;
 
 const MAX_HOTELS = 4; // cardinality cap §10
 
@@ -63,10 +72,9 @@ export function parseHotels(
   // anchored regexes recognize), NOT a substring — else control rows like
   // "Get Hotel Reservations | FALSE" / "Driver Hotel Stays | FALSE" on a genuinely
   // no-hotel show would emit a spurious warning.
-  const hasHotelHeader = parseTableRows(markdown).some((r) => {
-    const c = clean(r[0] ?? "").toUpperCase();
-    return c === "HOTEL" || /^HOTEL\s+RESERVATIONS?$/.test(c) || /^HOTEL\s+STAYS?$/.test(c);
-  });
+  const hasHotelHeader = parseTableRows(markdown).some((r) =>
+    matchesSectionHeader(clean(r[0] ?? ""), SECTION_HEADER_TOKENS),
+  );
   if (hasHotelHeader) emitEmptySection(agg, "hotels");
   return [];
 }
@@ -310,7 +318,7 @@ function splitHotelNameAddress(combined: string | null): {
  *   ... repeat for res 3+4
  */
 function parseHotelTable(markdown: string): HotelReservationRow[] {
-  const HOTEL_HEADER_RE = /^\|\s*HOTEL\s*\|/m;
+  const HOTEL_HEADER_RE = buildCol0HeaderRe(["HOTEL"]);
   const headerMatch = HOTEL_HEADER_RE.exec(markdown);
   if (!headerMatch) return [];
 
@@ -504,6 +512,7 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
  * - 2025-06: `| Hotel Reservations | Park Hyatt Chicago&#10;"800 N Michigan Ave...&#10;Check In: 6/23 Check Out: 6/26 Doug --- 104461566 Eric---104461567 |`
  */
 function parseInlineHotelRow(markdown: string, contextYear: string | null): HotelReservationRow[] {
+  // RAW_HEADER_REGEX_ALLOWLIST: inline capture matcher; col0 token identity is registry-checked via SECTION_HEADER_TOKENS (see tests/parser/_metaKnownSectionsWalker.test.ts).
   const ROW_RE = /^\|\s*Hotel\s*Reservations?\s*\|([^|]+)/im;
   const m = ROW_RE.exec(markdown);
   if (!m) return [];
@@ -516,6 +525,7 @@ function parseInlineHotelRow(markdown: string, contextYear: string | null): Hote
 
 function parseHotelStaysRow(markdown: string, contextYear: string | null): HotelReservationRow[] {
   // v1 format: | Hotel Stays | <content> |
+  // RAW_HEADER_REGEX_ALLOWLIST: inline capture matcher; col0 token identity is registry-checked via SECTION_HEADER_TOKENS (see tests/parser/_metaKnownSectionsWalker.test.ts).
   const ROW_RE = /^\|\s*Hotel\s*Stays?\s*\|([^|]+)/im;
   const m = ROW_RE.exec(markdown);
   if (!m) return [];
