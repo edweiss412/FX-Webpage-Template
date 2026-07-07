@@ -279,7 +279,15 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
     showResume &&
     priorScan?.folderId != null &&
     parseDriveFolderId(folderUrl) === priorScan.folderId;
-  const submitLabel = isSubmitting ? "Verifying…" : matchesScanned ? "Re-scan" : "Verify and scan";
+  // A completed staged-0 scan relabels the persistent button "Re-scan" (§4.1);
+  // the button re-submits the same folder URL. Accent/primary logic is unchanged.
+  const submitLabel = isSubmitting
+    ? "Verifying…"
+    : state.kind === "success" && state.result.totals.staged === 0
+      ? "Re-scan"
+      : matchesScanned
+        ? "Re-scan"
+        : "Verify and scan";
   // The single accent (DESIGN.md ≤10% cap) follows intent. Default: Continue to
   // Step 3 (forward) is primary and the re-scan button is secondary. But once
   // the operator types a NEW folder to scan, the scan button takes the accent so
@@ -303,8 +311,13 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
   const reading = progress?.phase === "reading" ? progress : null;
   // The scan result rides the footer center as a hover/tap summary once a scan
   // this session succeeds (a resume from a prior scan has no totals to show).
+  // Staged-0 scans surface a first-class in-card block (empty-folder / nothing-
+  // ready, §1.1) instead of the footer "Found N items" popover — so the popover
+  // renders only when there is at least one sheet to review.
   const foundSummary =
-    state.kind === "success" ? <Step2FoundSummary result={state.result} /> : undefined;
+    state.kind === "success" && state.result.totals.staged > 0 ? (
+      <Step2FoundSummary result={state.result} />
+    ) : undefined;
 
   return (
     <section
@@ -457,6 +470,70 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
                 <p>{state.copy}</p>
                 <HelpAffordance code={state.code} />
               </div>
+            ) : null}
+
+            {/* Staged-0 status block (§1.1): a completed scan that staged nothing
+                to review renders a first-class in-card block ABOVE the persistent
+                action row (the footer "Found N items" popover is suppressed for
+                this case). Empty folder vs "nothing ready" are both derivable
+                from totals; the Re-scan action is the action-row button below. */}
+            {state.kind === "success" && state.result.totals.staged === 0 ? (
+              formatTotals(state.result.totals) === 0 ? (
+                <div
+                  data-testid="wizard-step2-empty"
+                  className="mt-1 flex flex-col gap-2 rounded-sm border border-border bg-surface-sunken p-3 text-base text-text"
+                >
+                  <p className="font-semibold text-text-strong">This folder is empty.</p>
+                  <p>Add a show sheet to the folder, then re-scan.</p>
+                  {parseDriveFolderId(folderUrl) ? (
+                    <a
+                      href={folderUrl.trim()}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex min-h-tap-min items-center self-start text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                    >
+                      Open the folder →
+                    </a>
+                  ) : null}
+                </div>
+              ) : (
+                <div
+                  data-testid="wizard-step2-nothing-ready"
+                  className="mt-1 flex flex-col gap-2 rounded-sm border border-border bg-surface-sunken p-3 text-base text-text"
+                >
+                  <p className="font-semibold text-text-strong">
+                    We found {formatTotals(state.result.totals)}{" "}
+                    {formatTotals(state.result.totals) === 1 ? "item" : "items"}, but none are ready
+                    to review yet.
+                  </p>
+                  <ul className="flex flex-col gap-1 text-sm">
+                    {state.result.totals.hard_failed > 0 ? (
+                      <li>
+                        Sheets we could not parse:{" "}
+                        <span className="font-semibold tabular-nums text-text">
+                          {state.result.totals.hard_failed}
+                        </span>
+                      </li>
+                    ) : null}
+                    {state.result.totals.skipped_non_sheet > 0 ? (
+                      <li>
+                        Non-sheet files we skipped:{" "}
+                        <span className="font-semibold tabular-nums text-text">
+                          {state.result.totals.skipped_non_sheet}
+                        </span>
+                      </li>
+                    ) : null}
+                    {state.result.totals.live_row_conflict > 0 ? (
+                      <li>
+                        Live-row conflicts:{" "}
+                        <span className="font-semibold tabular-nums text-text">
+                          {state.result.totals.live_row_conflict}
+                        </span>
+                      </li>
+                    ) : null}
+                  </ul>
+                </div>
+              )
             ) : null}
 
             {/* Action row: the in-card control is ONLY the Scan/Re-scan button.
