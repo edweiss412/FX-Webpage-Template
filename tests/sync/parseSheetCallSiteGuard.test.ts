@@ -166,6 +166,7 @@ describe("parseSheet call-site guard (finding #17)", () => {
         lastSyncError: null,
         priorParseResult,
         priorParseWarningsRaw: null,
+        published: true,
       })),
       upsertAdminAlert,
     } as unknown as LockedShowTx<SyncPipelineTx>;

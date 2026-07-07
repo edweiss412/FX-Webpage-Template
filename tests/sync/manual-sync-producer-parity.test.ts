@@ -43,6 +43,7 @@ function fakeTx() {
         lastSyncError: null,
         priorParseResult: parseResult,
         priorParseWarningsRaw: null,
+        published: true,
       };
     },
     async markShowDriveError() {

@@ -19,6 +19,7 @@ type FakeShowRow = {
   lastSyncError: string | null;
   priorParseResult: ParseResult;
   priorParseWarningsRaw: ParseResult["warnings"] | null;
+  published: boolean;
 };
 
 function crew(name: string, overrides: Partial<CrewMemberRow> = {}): CrewMemberRow {
@@ -188,7 +189,7 @@ async function runWith(
   return runPhase1(tx as never, { ...baseArgs, parseResult: next, ...overrides }, deps);
 }
 
-function seedPriorShow(tx: FakePhase1Tx, prior: ParseResult) {
+function seedPriorShow(tx: FakePhase1Tx, prior: ParseResult, opts: { published?: boolean } = {}) {
   tx.shows.set("file-1", {
     showId: "show-1",
     driveFileId: "file-1",
@@ -197,6 +198,7 @@ function seedPriorShow(tx: FakePhase1Tx, prior: ParseResult) {
     lastSyncError: null,
     priorParseResult: prior,
     priorParseWarningsRaw: null,
+    published: opts.published ?? true,
   });
 }
 

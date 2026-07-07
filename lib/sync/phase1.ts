@@ -36,6 +36,14 @@ export type Phase1ShowRow = {
    * `null` or the raw array explicitly (fails typecheck on omission).
    */
   priorParseWarningsRaw: ParseResult["warnings"] | null;
+  /**
+   * Whether the show is crew-live (shows.published, boolean NOT NULL DEFAULT true).
+   * REQUIRED (not optional) so every producer supplies it explicitly — an omission fails
+   * typecheck rather than silently defaulting a publish state (same fail-loud rationale as
+   * priorParseWarningsRaw above). Read by runPhase1's single-crew-drop hold gate (Flow 4.1):
+   * a published show holds a 1-member drop via shrink_held; an unpublished one auto-applies.
+   */
+  published: boolean;
 };
 
 export type Phase1PendingSyncRow = {

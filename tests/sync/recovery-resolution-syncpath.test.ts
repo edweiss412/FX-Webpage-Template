@@ -64,6 +64,7 @@ function fakeTx(alerts: AlertRow[] = []) {
         lastSyncError: null,
         priorParseResult: parseResult,
         priorParseWarningsRaw: null,
+        published: true,
       };
     },
     async readLivePendingSync() {

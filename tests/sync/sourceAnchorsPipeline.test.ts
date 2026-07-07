@@ -253,6 +253,7 @@ function makeTx(): PipelineTx {
         lastSyncError: null,
         priorParseResult: emptyParseResult(),
         priorParseWarningsRaw: null,
+        published: true,
       };
     },
     async readLivePendingSync() {
