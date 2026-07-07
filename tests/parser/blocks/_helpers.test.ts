@@ -18,7 +18,7 @@
 
 import { describe, it, expect } from "vitest";
 import { readdirSync, readFileSync } from "node:fs";
-import { splitRow, clean } from "@/lib/parser/blocks/_helpers";
+import { splitRow, clean, normalizeDate, inferShowYear } from "@/lib/parser/blocks/_helpers";
 
 describe("splitRow — well-formed rows", () => {
   it("splits '| A | B |' into ['A', 'B'] (trimmed, outer empties dropped)", () => {
@@ -72,5 +72,33 @@ describe("clean() — zero-width strip", () => {
   it("still unescapes backslashes and does NOT touch smart-quotes", () => {
     expect(clean("\\-Load")).toBe("-Load");
     expect(clean("the \u201Cgreen\u201D room")).toBe("the \u201Cgreen\u201D room"); // quotes preserved
+  });
+});
+
+describe("normalizeDate widened shapes (rec-6d)", () => {
+  it.each([
+    ["2026-07-04", "2026-07-04"], // ISO
+    ["June 24, 2026", "2026-06-24"], // long-form full month
+    ["24 Jun 2026", "2026-06-24"], // day-first 3-letter month
+    ["6-24-2026", "2026-06-24"], // cell-only dash, 4-digit year
+    ["7/4/2026", "2026-07-04"], // existing slash still works
+    ["Wed 7/4/26", "2026-07-04"], // existing dow + 2-digit still works
+  ])("accepts %s -> %s", (raw, iso) => {
+    expect(normalizeDate(raw)).toBe(iso);
+  });
+
+  it.each([
+    ["6-24", null], // dash, no year
+    ["6-24-26", null], // dash, 2-digit year (ambiguous) rejected
+    ["June 24, 26", null], // long-form 2-digit year rejected
+    ["2026-02-30", null], // calendar-invalid ISO
+    ["Feb 30 2026", null], // calendar-invalid long-form
+    ["1999-01-01", null], // ISO year < 2000 bound (spec §A)
+    ["2100-01-01", null], // ISO year > 2099 bound (spec §A)
+    ["January 1, 2100", null], // long-form year > 2099 bound
+    ["10:30", null], // time
+    ["2026", null], // bare year
+  ])("rejects %s", (raw) => {
+    expect(normalizeDate(raw)).toBeNull();
   });
 });

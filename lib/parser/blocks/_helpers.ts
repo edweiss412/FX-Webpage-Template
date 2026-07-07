@@ -83,6 +83,47 @@ export function presence(s: string): string | null {
  * - 'M/D' (no year) — returns null
  * - Calendar-invalid dates (Feb 30, Apr 31, month > 12, etc.) — returns null
  */
+const MONTHS: Record<string, number> = {
+  january: 1,
+  jan: 1,
+  february: 2,
+  feb: 2,
+  march: 3,
+  mar: 3,
+  april: 4,
+  apr: 4,
+  may: 5,
+  june: 6,
+  jun: 6,
+  july: 7,
+  jul: 7,
+  august: 8,
+  aug: 8,
+  september: 9,
+  sep: 9,
+  sept: 9,
+  october: 10,
+  oct: 10,
+  november: 11,
+  nov: 11,
+  december: 12,
+  dec: 12,
+};
+const MONTH_ALT =
+  "January|Jan|February|Feb|March|Mar|April|Apr|May|June|Jun|July|Jul|August|Aug|September|Sept|Sep|October|Oct|November|Nov|December|Dec";
+// Exported so extractAllDates (dates.ts) reuses the EXACT same self-delimiting shapes.
+// SELF-DELIMITING: `\b` (or the anchored `^` in normalizeDate) prevents embedded hits
+// like `12026-07-04` (5-digit-prefixed) or `2026-07-041` (trailing digit) — Codex plan R1.
+export const ISO_DATE_RE = /\b(\d{4})-(\d{1,2})-(\d{1,2})\b/;
+export const LONGFORM_MDY_RE = new RegExp(
+  `\\b(${MONTH_ALT})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?,?\\s+(\\d{4})\\b`,
+  "i",
+);
+export const LONGFORM_DMY_RE = new RegExp(
+  `\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(${MONTH_ALT})\\.?,?\\s+(\\d{4})\\b`,
+  "i",
+);
+
 export function normalizeDate(raw: string): string | null {
   if (!raw) return null;
 
@@ -92,16 +133,49 @@ export function normalizeDate(raw: string): string | null {
     "",
   );
 
-  // Match M/D/YY or M/D/YYYY (possibly followed by extra text like " - AFTER 8PM")
-  const match = stripped.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
-  if (!match) return null;
+  let month: number, day: number, year: number;
+  // The NEW 4-digit-year shapes (ISO / dash / long-form) are bounded to 2000–2099 per
+  // spec §A (corpus is 2024–2026; a year outside this window is a house number/code, not
+  // a date). The EXISTING slash path is NOT bounded — it accepts any `\d{2,4}` year today
+  // and MUST stay behavior-preserving (a slash `1/1/1999` still parses).
+  let boundYear = false;
 
-  const month = parseInt(match[1] ?? "", 10);
-  const day = parseInt(match[2] ?? "", 10);
-  const rawYear = parseInt(match[3] ?? "", 10);
-  // 2-digit year: assume 20XX for all values (corpus is 2024-2026 only)
-  const year = rawYear < 100 ? 2000 + rawYear : rawYear;
+  const slash = stripped.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+  const dash = stripped.match(/^(\d{1,2})-(\d{1,2})-(\d{4})\b/); // 4-digit year ONLY
+  const iso = stripped.match(/^(\d{4})-(\d{1,2})-(\d{1,2})\b/);
+  const lfMDY = stripped.match(LONGFORM_MDY_RE);
+  const lfDMY = stripped.match(LONGFORM_DMY_RE);
 
+  if (iso) {
+    year = parseInt(iso[1]!, 10);
+    month = parseInt(iso[2]!, 10);
+    day = parseInt(iso[3]!, 10);
+    boundYear = true;
+  } else if (slash) {
+    month = parseInt(slash[1]!, 10);
+    day = parseInt(slash[2]!, 10);
+    const ry = parseInt(slash[3]!, 10);
+    year = ry < 100 ? 2000 + ry : ry;
+  } else if (dash) {
+    month = parseInt(dash[1]!, 10);
+    day = parseInt(dash[2]!, 10);
+    year = parseInt(dash[3]!, 10);
+    boundYear = true;
+  } else if (lfMDY && lfMDY.index === 0) {
+    month = MONTHS[lfMDY[1]!.toLowerCase()]!;
+    day = parseInt(lfMDY[2]!, 10);
+    year = parseInt(lfMDY[3]!, 10);
+    boundYear = true;
+  } else if (lfDMY && lfDMY.index === 0) {
+    day = parseInt(lfDMY[1]!, 10);
+    month = MONTHS[lfDMY[2]!.toLowerCase()]!;
+    year = parseInt(lfDMY[3]!, 10);
+    boundYear = true;
+  } else {
+    return null;
+  }
+
+  if (boundYear && (year < 2000 || year > 2099)) return null; // spec §A ISO/long/dash bound
   if (month < 1 || month > 12 || day < 1 || day > 31) return null;
 
   // Calendar-validity check: rejects invalid dates like 2/30, 4/31, etc.
