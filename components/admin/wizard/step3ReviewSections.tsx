@@ -856,9 +856,11 @@ export function TransportBreakdown({
 /** One sunken spec cell in the compact transport strip: eyebrow + stacked lines. */
 function TransportCell({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <div className="flex min-w-0 flex-col items-center justify-center gap-1.5 rounded-md bg-surface-sunken px-3 py-2.5 text-center">
+    <div className="flex min-w-0 flex-col items-center gap-1.5 rounded-md bg-surface-sunken px-3 py-2.5 text-center">
       <span className={CELL_EYEBROW_CLASS}>{label}</span>
-      {children}
+      <div className="flex w-full flex-1 flex-col items-center justify-center gap-1.5">
+        {children}
+      </div>
     </div>
   );
 }
@@ -1336,9 +1338,6 @@ export function ScheduleBreakdown({
 export function RoomsBreakdown({ dfid, rooms }: { dfid: string; rooms: RoomRow[] }) {
   const shown = rooms.slice(0, ROOMS_CAP);
   const note = overflowNote(rooms.length, ROOMS_CAP, "rooms");
-  // Subnav: one chip per rendered room, scrolling the modal pane to that card.
-  // Only meaningful with >1 room (a single room is already in view).
-  const roomRefs = useRef<Array<HTMLLIElement | null>>([]);
   // Count only rooms that actually carry A/V scope — a no-A/V placeholder room
   // still renders below but does not inflate the header/rail count (§ owner
   // decision 2026-07-06; see roomHasScope). All rooms still render (shown).
@@ -1352,188 +1351,161 @@ export function RoomsBreakdown({ dfid, rooms }: { dfid: string; rooms: RoomRow[]
       {rooms.length === 0 ? (
         <p className="text-sm text-text-subtle">No rooms parsed.</p>
       ) : (
-        <>
-          {shown.length > 1 ? (
-            <nav
-              aria-label="Jump to room"
-              data-testid={`wizard-step3-card-${dfid}-rooms-subnav`}
-              className="mb-3.5 flex flex-wrap gap-1.5"
-            >
-              {shown.map((r, i) => (
-                <button
-                  key={`${r.name}-nav-${i}`}
-                  type="button"
-                  data-testid={`wizard-step3-card-${dfid}-rooms-subnav-${i}`}
-                  onClick={() =>
-                    roomRefs.current[i]?.scrollIntoView({ behavior: "smooth", block: "start" })
-                  }
-                  className="inline-flex min-h-tap-min items-center rounded-pill border border-border bg-surface-sunken px-2.5 py-1 text-xs font-medium text-text-subtle transition-colors duration-fast hover:border-border-strong hover:text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface"
+        <ul className="flex flex-col gap-3.5">
+          {shown.map((r, i) => {
+            // Header schedule meta — Set/Show/Strike; keep only parsed values so
+            // the row (and its dividers) omit entirely when nothing parsed.
+            const times = (
+              [
+                { label: "Set", value: r.set_time, emphasized: false },
+                { label: "Show", value: r.show_time, emphasized: true },
+                { label: "Strike", value: r.strike_time, emphasized: false },
+              ] as const
+            ).filter((t) => hasContent(t.value));
+            const setup = hasContent(r.setup) ? r.setup : null;
+            const dimensions = hasContent(r.dimensions) ? r.dimensions : null;
+            const floor = hasContent(r.floor) ? r.floor : null;
+            const hasHeaderBody = times.length > 0 || setup !== null || dimensions !== null;
+            return (
+              <li
+                key={`${r.name}-${i}`}
+                data-room-nav={i}
+                className="overflow-hidden rounded-md border border-border bg-surface shadow-tile"
+              >
+                {/* Header — accent-tinted panel (mock --accent-tint). */}
+                <div
+                  data-testid={`wizard-step3-card-${dfid}-room-${i}-header`}
+                  className="flex flex-col gap-2 bg-accent/6 px-3.5 py-3"
                 >
-                  {r.name || `Room ${i + 1}`}
-                </button>
-              ))}
-            </nav>
-          ) : null}
-          <ul className="flex flex-col gap-3.5">
-            {shown.map((r, i) => {
-              // Header schedule meta — Set/Show/Strike; keep only parsed values so
-              // the row (and its dividers) omit entirely when nothing parsed.
-              const times = (
-                [
-                  { label: "Set", value: r.set_time, emphasized: false },
-                  { label: "Show", value: r.show_time, emphasized: true },
-                  { label: "Strike", value: r.strike_time, emphasized: false },
-                ] as const
-              ).filter((t) => hasContent(t.value));
-              const setup = hasContent(r.setup) ? r.setup : null;
-              const dimensions = hasContent(r.dimensions) ? r.dimensions : null;
-              const floor = hasContent(r.floor) ? r.floor : null;
-              const hasHeaderBody = times.length > 0 || setup !== null || dimensions !== null;
-              return (
-                <li
-                  key={`${r.name}-${i}`}
-                  ref={(el) => {
-                    roomRefs.current[i] = el;
-                  }}
-                  className="scroll-mt-2 overflow-hidden rounded-md border border-border bg-surface shadow-tile"
-                >
-                  {/* Header — accent-tinted panel (mock --accent-tint). */}
+                  {/* name + humanized kind pill + floor */}
                   <div
-                    data-testid={`wizard-step3-card-${dfid}-room-${i}-header`}
-                    className="flex flex-col gap-2 bg-accent/6 px-3.5 py-3"
+                    className={
+                      "flex flex-wrap items-center gap-x-2 gap-y-1" +
+                      (hasHeaderBody ? " border-b border-border pb-2.5" : "")
+                    }
                   >
-                    {/* name + humanized kind pill + floor */}
-                    <div
-                      className={
-                        "flex flex-wrap items-center gap-x-2 gap-y-1" +
-                        (hasHeaderBody ? " border-b border-border pb-2.5" : "")
-                      }
+                    <span className="wrap-break-word text-sm font-semibold text-text-strong">
+                      {r.name || "Room"}
+                    </span>
+                    <span
+                      className="rounded-pill bg-accent/10 px-2 py-0.5 text-[0.625rem] font-semibold uppercase text-accent-on-bg"
+                      style={{ letterSpacing: "0.07em" }}
                     >
-                      <span className="wrap-break-word text-sm font-semibold text-text-strong">
-                        {r.name || "Room"}
-                      </span>
-                      <span
-                        className="rounded-pill bg-accent/10 px-2 py-0.5 text-[0.625rem] font-semibold uppercase text-accent-on-bg"
-                        style={{ letterSpacing: "0.07em" }}
-                      >
-                        {ROOM_KIND_LABEL[r.kind]}
-                      </span>
-                      {floor !== null ? (
-                        <span className="ml-auto text-xs text-text-subtle">{floor}</span>
-                      ) : null}
-                    </div>
-                    {/* Set · Show · Strike (Show emphasized) — spread full-width,
-                      hairline divider below (no border-l side-stripe). */}
-                    {times.length > 0 ? (
-                      <div
-                        data-testid={`wizard-step3-card-${dfid}-room-${i}-times`}
-                        className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-border pb-2.5"
-                      >
-                        {times.map((t) => (
-                          <span key={t.label} className="flex items-baseline">
-                            <span
-                              className="text-xs font-semibold uppercase text-text-subtle"
-                              style={EYEBROW_STYLE}
-                            >
-                              {t.label}
-                            </span>
-                            <span
-                              className={
-                                "ml-1.5 text-xs tabular-nums " +
-                                (t.emphasized ? "font-semibold text-accent-on-bg" : "text-text")
-                              }
-                            >
-                              {t.value}
-                            </span>
-                          </span>
-                        ))}
-                      </div>
-                    ) : null}
-                    {setup !== null ? (
-                      <div className="flex items-baseline gap-2">
-                        <span
-                          className="shrink-0 text-xs font-semibold uppercase text-text-subtle"
-                          style={EYEBROW_STYLE}
-                        >
-                          Setup
-                        </span>
-                        <span className="wrap-break-word text-xs text-text-subtle">{setup}</span>
-                      </div>
-                    ) : null}
-                    {dimensions !== null ? (
-                      <div className="flex items-baseline gap-2">
-                        <span
-                          className="shrink-0 text-xs font-semibold uppercase text-text-subtle"
-                          style={EYEBROW_STYLE}
-                        >
-                          Room Dimensions
-                        </span>
-                        <span className="wrap-break-word text-xs tabular-nums text-text">
-                          {dimensions}
-                        </span>
-                      </div>
+                      {ROOM_KIND_LABEL[r.kind]}
+                    </span>
+                    {floor !== null ? (
+                      <span className="ml-auto text-xs text-text-subtle">{floor}</span>
                     ) : null}
                   </div>
-                  {/* Scope — ALL five disciplines; unparsed reads "Not specified".
+                  {/* Set · Show · Strike (Show emphasized) — spread full-width,
+                      hairline divider below (no border-l side-stripe). */}
+                  {times.length > 0 ? (
+                    <div
+                      data-testid={`wizard-step3-card-${dfid}-room-${i}-times`}
+                      className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 border-b border-border pb-2.5"
+                    >
+                      {times.map((t) => (
+                        <span key={t.label} className="flex items-baseline">
+                          <span
+                            className="text-xs font-semibold uppercase text-text-subtle"
+                            style={EYEBROW_STYLE}
+                          >
+                            {t.label}
+                          </span>
+                          <span
+                            className={
+                              "ml-1.5 text-xs tabular-nums " +
+                              (t.emphasized ? "font-semibold text-accent-on-bg" : "text-text")
+                            }
+                          >
+                            {t.value}
+                          </span>
+                        </span>
+                      ))}
+                    </div>
+                  ) : null}
+                  {setup !== null ? (
+                    <div className="flex items-baseline gap-2">
+                      <span
+                        className="shrink-0 text-xs font-semibold uppercase text-text-subtle"
+                        style={EYEBROW_STYLE}
+                      >
+                        Setup
+                      </span>
+                      <span className="wrap-break-word text-xs text-text-subtle">{setup}</span>
+                    </div>
+                  ) : null}
+                  {dimensions !== null ? (
+                    <div className="flex items-baseline gap-2">
+                      <span
+                        className="shrink-0 text-xs font-semibold uppercase text-text-subtle"
+                        style={EYEBROW_STYLE}
+                      >
+                        Room Dimensions
+                      </span>
+                      <span className="wrap-break-word text-xs tabular-nums text-text">
+                        {dimensions}
+                      </span>
+                    </div>
+                  ) : null}
+                </div>
+                {/* Scope — ALL five disciplines; unparsed reads "Not specified".
                     Disciplines with real gear sort to the top; "N/A" / "Not
                     specified" gear sinks to the bottom (owner decision,
                     2026-07-05). Stable sort → original A→V→L→Scenic→Other order
                     is preserved within each group. */}
-                  <ul
-                    data-testid={`wizard-step3-card-${dfid}-room-${i}-scope`}
-                    className="flex flex-col px-3.5 py-1"
-                  >
-                    {ROOM_SCOPE.map((scope) => ({
-                      ...scope,
-                      value: hasContent(r[scope.key]) ? (r[scope.key] as string) : null,
-                    }))
-                      .sort(
-                        (a, b) =>
-                          Number(isEmptyScopeValue(a.value)) - Number(isEmptyScopeValue(b.value)),
-                      )
-                      .map(({ label, Icon, color, value }) => {
-                        return (
-                          // Icon chip / eyebrow key / value tracks.
-                          <li
-                            key={label}
-                            className="grid grid-cols-[1.5rem_5rem_minmax(0,1fr)] items-start gap-x-2.5 border-b border-border py-2 last:border-0"
+                <ul
+                  data-testid={`wizard-step3-card-${dfid}-room-${i}-scope`}
+                  className="flex flex-col px-3.5 py-1"
+                >
+                  {ROOM_SCOPE.map((scope) => ({
+                    ...scope,
+                    value: hasContent(r[scope.key]) ? (r[scope.key] as string) : null,
+                  }))
+                    .sort(
+                      (a, b) =>
+                        Number(isEmptyScopeValue(a.value)) - Number(isEmptyScopeValue(b.value)),
+                    )
+                    .map(({ label, Icon, color, value }) => {
+                      return (
+                        // Icon chip / eyebrow key / value tracks.
+                        <li
+                          key={label}
+                          className="grid grid-cols-[1.5rem_5rem_minmax(0,1fr)] items-start gap-x-2.5 border-b border-border py-2 last:border-0"
+                        >
+                          <span
+                            className="grid size-6 place-items-center rounded-md bg-surface-sunken"
+                            style={value ? { color } : undefined}
                           >
-                            <span
-                              className="grid size-6 place-items-center rounded-md bg-surface-sunken"
-                              style={value ? { color } : undefined}
-                            >
-                              <Icon
-                                aria-hidden="true"
-                                className={
-                                  "size-3.5" + (value ? "" : " text-text-faint opacity-60")
-                                }
-                              />
-                            </span>
-                            <span
-                              data-testid="room-scope-key"
-                              className="pt-1 text-xs font-semibold uppercase text-text-subtle"
-                              style={EYEBROW_STYLE}
-                            >
-                              {label}
-                            </span>
-                            <span
-                              className={
-                                value
-                                  ? "wrap-break-word pt-0.5 text-xs text-text"
-                                  : "pt-0.5 text-xs italic text-text-subtle"
-                              }
-                            >
-                              {value ?? ROOM_SCOPE_UNSPECIFIED}
-                            </span>
-                          </li>
-                        );
-                      })}
-                  </ul>
-                </li>
-              );
-            })}
-          </ul>
-        </>
+                            <Icon
+                              aria-hidden="true"
+                              className={"size-3.5" + (value ? "" : " text-text-faint opacity-60")}
+                            />
+                          </span>
+                          <span
+                            data-testid="room-scope-key"
+                            className="pt-1 text-xs font-semibold uppercase text-text-subtle"
+                            style={EYEBROW_STYLE}
+                          >
+                            {label}
+                          </span>
+                          <span
+                            className={
+                              value
+                                ? "wrap-break-word pt-0.5 text-xs text-text"
+                                : "pt-0.5 text-xs italic text-text-subtle"
+                            }
+                          >
+                            {value ?? ROOM_SCOPE_UNSPECIFIED}
+                          </span>
+                        </li>
+                      );
+                    })}
+                </ul>
+              </li>
+            );
+          })}
+        </ul>
       )}
       {note ? <p className="text-xs text-text-subtle">{note}</p> : null}
     </BreakdownSection>

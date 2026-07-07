@@ -55,6 +55,7 @@ import {
 import {
   dateSummarySegments,
   NotPublishableNote,
+  ROOMS_CAP,
   step3Sections,
   STEP3_SECTION_GROUPS,
   Step3SectionChromeContext,
@@ -436,6 +437,20 @@ export function Step3ReviewModal({
       target.setAttribute("data-step3-warning-flash", "");
       highlightedElRef.current = target;
       highlightTimerRef.current = setTimeout(clearWarningHighlight, WARNING_HIGHLIGHT_MS);
+    }
+  }
+
+  /** Rooms sub-nav: scroll the content pane to the room card at `index`. Keeps
+   *  the parent "Rooms & scope" rail item active (rooms live inside that
+   *  section). Container-scoped attribute query — NO id attributes (twin-nav
+   *  rule §9.4), mirroring `jumpToWarning`. */
+  function jumpToRoom(index: number) {
+    setActive("rooms");
+    const scroller = contentRef.current;
+    const target = scroller?.querySelector<HTMLElement>(`[data-room-nav="${index}"]`);
+    if (scroller && target && typeof scroller.scrollTo === "function") {
+      const top = beginSuppressedScroll(scroller, sectionTopFor(scroller, target) - 8);
+      scroller.scrollTo({ top });
     }
   }
 
@@ -1065,47 +1080,66 @@ export function Step3ReviewModal({
                   {groupSections.map((s) => {
                     const isActive = active === s.id;
                     return (
-                      <button
-                        key={s.id}
-                        type="button"
-                        ref={(el) => {
-                          if (el) railItemRefs.current.set(s.id, el);
-                          else railItemRefs.current.delete(s.id);
-                        }}
-                        data-testid={`wizard-step3-card-${dfid}-review-rail-item-${s.id}`}
-                        aria-current={isActive ? "true" : undefined}
-                        onClick={() => handleNavClick(s.id)}
-                        className={`relative flex min-h-tap-min w-full shrink-0 items-center gap-2.5 rounded-sm px-2 text-left transition-colors duration-fast ${
-                          isActive ? "bg-surface-sunken" : "hover:bg-surface-sunken"
-                        }`}
-                      >
-                        <s.Icon
-                          aria-hidden="true"
-                          className={`size-4 shrink-0 ${
-                            isActive ? "text-accent-on-bg" : "text-text-subtle"
-                          }`}
-                        />
-                        <span
-                          className={`min-w-0 flex-1 truncate text-sm font-medium ${
-                            isActive ? "text-text-strong" : "text-text"
+                      <Fragment key={s.id}>
+                        <button
+                          type="button"
+                          ref={(el) => {
+                            if (el) railItemRefs.current.set(s.id, el);
+                            else railItemRefs.current.delete(s.id);
+                          }}
+                          data-testid={`wizard-step3-card-${dfid}-review-rail-item-${s.id}`}
+                          aria-current={isActive ? "true" : undefined}
+                          onClick={() => handleNavClick(s.id)}
+                          className={`relative flex min-h-tap-min w-full shrink-0 items-center gap-2.5 rounded-sm px-2 text-left transition-colors duration-fast ${
+                            isActive ? "bg-surface-sunken" : "hover:bg-surface-sunken"
                           }`}
                         >
-                          {s.label}
-                        </span>
-                        {/* §11: instant — deliberate (rail count follows the static registry definition) */}
-                        {s.railCount !== null ? (
-                          <span className="shrink-0 text-xs font-medium tabular-nums text-text-subtle">
-                            {s.railCount(data)}
-                          </span>
-                        ) : null}
-                        {/* §11: instant — deliberate (dot presence follows the static registry definition, §D2) */}
-                        {!s.hideDot ? (
-                          <span
+                          <s.Icon
                             aria-hidden="true"
-                            className={`size-2 shrink-0 rounded-pill ${dotToneClass(s.id)}`}
+                            className={`size-4 shrink-0 ${
+                              isActive ? "text-accent-on-bg" : "text-text-subtle"
+                            }`}
                           />
-                        ) : null}
-                      </button>
+                          <span
+                            className={`min-w-0 flex-1 truncate text-sm font-medium ${
+                              isActive ? "text-text-strong" : "text-text"
+                            }`}
+                          >
+                            {s.label}
+                          </span>
+                          {/* §11: instant — deliberate (rail count follows the static registry definition) */}
+                          {s.railCount !== null ? (
+                            <span className="shrink-0 text-xs font-medium tabular-nums text-text-subtle">
+                              {s.railCount(data)}
+                            </span>
+                          ) : null}
+                          {/* §11: instant — deliberate (dot presence follows the static registry definition, §D2) */}
+                          {!s.hideDot ? (
+                            <span
+                              aria-hidden="true"
+                              className={`size-2 shrink-0 rounded-pill ${dotToneClass(s.id)}`}
+                            />
+                          ) : null}
+                        </button>
+                        {/* Rooms & scope sub-nav: one indented child per rendered
+                          room, scrolling the pane to that card. Rooms live inside
+                          the "rooms" section, so these keep the parent active. */}
+                        {s.id === "rooms"
+                          ? data.rooms.slice(0, ROOMS_CAP).map((r, i) => (
+                              <button
+                                key={`room-nav-${r.name}-${i}`}
+                                type="button"
+                                data-testid={`wizard-step3-card-${dfid}-review-rail-room-${i}`}
+                                onClick={() => jumpToRoom(i)}
+                                className="flex min-h-tap-min w-full shrink-0 items-center rounded-sm py-1 pr-2 pl-9 text-left transition-colors duration-fast hover:bg-surface-sunken"
+                              >
+                                <span className="min-w-0 flex-1 truncate text-xs font-medium text-text-subtle">
+                                  {r.name || `Room ${i + 1}`}
+                                </span>
+                              </button>
+                            ))
+                          : null}
+                      </Fragment>
                     );
                   })}
                 </Fragment>
