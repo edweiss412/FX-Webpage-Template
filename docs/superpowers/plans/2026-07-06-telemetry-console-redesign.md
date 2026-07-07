@@ -36,9 +36,8 @@ N/A — this plan touches no `pg_advisory*` code path. Declared explicitly.
 |---|---|---|
 | `supabase/migrations/20260706120000_telemetry_console_reads.sql` | Create | Two `stable` read-only functions + revoke/grant. |
 | `tests/db/telemetryConsoleReads.test.ts` | Create | DB behavioral (rollback-tx) + existence/privilege (local, unit-suite). |
-| `tests/db/telemetryConsoleReads.rpc.test.ts` | Create | Real service_role rpc() smoke + same-project guard (validation, x-audits). |
-| `vitest.projects.ts` | Modify | Add rpc test to `ENV_BOUND_EXCLUDES`. |
-| `.github/workflows/x-audits.yml` | Modify | New validation-scoped `telemetry-rpc-smoke` job. |
+| `tests/db/telemetryConsoleReads.rpc.test.ts` | Create | Real service_role rpc() smoke, gated by `RUN_VALIDATION_RPC_SMOKE` (x-audits only). |
+| `.github/workflows/x-audits.yml` | Modify | New validation-scoped `telemetry-rpc-smoke` job (sets the gate var + secrets). |
 | `lib/admin/telemetryTypes.ts` | Modify | Add `TelemetryStats`, `LoadTelemetryStatsResult`, `AlertSummary`. |
 | `lib/admin/loadTelemetryStats.ts` | Create | `loadTelemetryStats(now)` via `rpc("admin_event_stats_24h")`. |
 | `lib/admin/loadAlertSummary.ts` | Create | `loadAlertSummary()` via `rpc("admin_alert_summary")`. |
@@ -179,13 +178,11 @@ class ROLLBACK extends Error {}
 
 **Files:**
 - Create: `tests/db/telemetryConsoleReads.rpc.test.ts`
-- Modify: `vitest.projects.ts` (`ENV_BOUND_EXCLUDES`)
 - Modify: `.github/workflows/x-audits.yml` (new validation-scoped job)
-- Modify (if red): `tests/cross-cutting/unit-suite-shard-topology.test.ts` / `vitest-shard-balance.test.ts` / `vitest-projects-partition.test.ts`
 
-**Why:** unit-suite boots LOCAL supabase and has no validation Supabase REST creds, so a fail-closed real-`rpc()` test cannot run there (Codex plan-R2 F1). The repo's established pattern for env-bound files: exclude from unit-suite (`ENV_BOUND_EXCLUDES`), gate in x-audits with secrets.
+**Why:** unit-suite boots LOCAL supabase and has no validation Supabase REST creds; and local `pnpm test` (Task 16) may lack them too. So the fail-closed real-`rpc()` test is **gated behind an explicit `RUN_VALIDATION_RPC_SMOKE` env var that ONLY the x-audits job sets** (Codex plan-R3). It SKIPS under local `pnpm test` and under unit-suite (var unset), and runs fail-closed only in the x-audits validation job. This needs no `ENV_BOUND_EXCLUDES`/topology change (the `skipIf` handles all non-x-audits runs).
 
-- [ ] **Step 1: Write the RPC smoke** (`tests/db/telemetryConsoleReads.rpc.test.ts`) — the block removed from Task 1, self-contained:
+- [ ] **Step 1: Write the RPC smoke** (`tests/db/telemetryConsoleReads.rpc.test.ts`), gated so it only runs in the x-audits job:
 
 ```ts
 import { describe, expect, it } from "vitest";
@@ -193,7 +190,10 @@ import { HEALTH_CODES, DEGRADED_HEALTH_CODES } from "@/lib/adminAlerts/audience"
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 
 const DB = process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
-describe("telemetry console reads — real rpc() smoke (validation-scoped)", () => {
+// Validation-only: the x-audits telemetry-rpc-smoke job sets RUN_VALIDATION_RPC_SMOKE=1
+// plus the validation secrets. Skips under local `pnpm test` and unit-suite (var unset),
+// so it never breaks the full-suite gate; fail-closed on missing env only when it DOES run.
+describe.skipIf(!process.env.RUN_VALIDATION_RPC_SMOKE)("telemetry console reads — real rpc() smoke (validation-scoped)", () => {
   it("service_role rpc() reaches the same project's PostgREST with runtime param names", async () => {
     const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SECRET_KEY;
     expect(url && key, "SUPABASE_URL + SUPABASE_SECRET_KEY required (fail-closed)").toBeTruthy();
@@ -216,11 +216,9 @@ describe("telemetry console reads — real rpc() smoke (validation-scoped)", () 
 });
 ```
 
-- [ ] **Step 2: Add to `ENV_BOUND_EXCLUDES`** in `vitest.projects.ts` — append `"tests/db/telemetryConsoleReads.rpc.test.ts"` (match the existing glob/path style of the three env-bound entries). Run `pnpm vitest run tests/cross-cutting/unit-suite-shard-topology.test.ts tests/cross-cutting/vitest-projects-partition.test.ts tests/cross-cutting/vitest-shard-balance.test.ts` — if any pins the exclude list/count, update the expected value in the same commit.
+- [ ] **Step 2: Verify it skips without the gate var** — `pnpm vitest run tests/db/telemetryConsoleReads.rpc.test.ts` → the describe is SKIPPED (0 tests run, no failure). `RUN_VALIDATION_RPC_SMOKE=1 SUPABASE_URL=… SUPABASE_SECRET_KEY=… TEST_DATABASE_URL=… pnpm vitest run tests/db/telemetryConsoleReads.rpc.test.ts` → runs and passes (against validation; requires the migration applied there). No `vitest.projects.ts`/topology change needed (skipIf covers unit-suite + local).
 
-- [ ] **Step 3: Verify unit-suite skips it** — `VITEST_EXCLUDE_ENV_BOUND=1 pnpm exec vitest run --shard=1/2` and `--shard=2/2` do NOT include the rpc file (grep the run list). Locally the file still runs via `pnpm test` (env not set) — that's intended.
-
-- [ ] **Step 4: Add the x-audits job.** In `.github/workflows/x-audits.yml`, add a job mirroring `validation-schema-parity`'s shape:
+- [ ] **Step 3: Add the x-audits job.** In `.github/workflows/x-audits.yml`, add a job mirroring `validation-schema-parity`'s shape (note `RUN_VALIDATION_RPC_SMOKE: "1"`):
 
 ```yaml
   telemetry-rpc-smoke:
@@ -241,6 +239,7 @@ describe("telemetry console reads — real rpc() smoke (validation-scoped)", () 
       - name: Run telemetry rpc smoke against validation
         shell: bash
         env:
+          RUN_VALIDATION_RPC_SMOKE: "1"
           TEST_DATABASE_URL: ${{ secrets.SUPABASE_TEST_DATABASE_URL }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
@@ -256,9 +255,9 @@ describe("telemetry console reads — real rpc() smoke (validation-scoped)", () 
           path: telemetry-rpc-smoke.log
 ```
 
-  Confirm the `secrets.SUPABASE_URL` / `secrets.SUPABASE_SECRET_KEY` names exist (used by the `verify-branch-protection` job in the same file) and `secrets.SUPABASE_TEST_DATABASE_URL` (used by `validation-schema-parity`). Enable `workflow_dispatch:` if not already, so Stage 4 can trigger it directly.
+  Confirm the `secrets.SUPABASE_URL` / `secrets.SUPABASE_SECRET_KEY` names exist (used by the `verify-branch-protection` job in the same file) and `secrets.SUPABASE_TEST_DATABASE_URL` (used by `validation-schema-parity`). Confirm x-audits already triggers on `pull_request` (so the job runs on the PR); if it has `workflow_dispatch:`, note it for Stage-4 manual triggering.
 
-- [ ] **Step 5: Commit** — `git commit --no-verify -m "test(db): CI-wire validation-scoped telemetry rpc smoke (x-audits)"`. (The job proves green at Stage 4 once the migration is applied to validation — Task 1 Step 8.)
+- [ ] **Step 4: Commit** — `git commit --no-verify -m "test(db): CI-wire validation-scoped telemetry rpc smoke (x-audits)"`. (The job proves green at Stage 4 once the migration is applied to validation — Task 1 Step 8.)
 
 ---
 
@@ -693,7 +692,7 @@ expect(container.firstChild).toBeNull();
 **Files:** none (verification only).
 
 - [ ] **Step 1:** `pnpm typecheck` → clean (vitest strips types; `next build`/quality-tsc catch TS).
-- [ ] **Step 2:** `pnpm test` (FULL suite — scoped gates miss cross-file regressions).
+- [ ] **Step 2:** `pnpm test` (FULL suite — scoped gates miss cross-file regressions). The validation rpc smoke (`telemetryConsoleReads.rpc.test.ts`) SKIPS here (gate var `RUN_VALIDATION_RPC_SMOKE` unset), so the full suite passes without validation REST secrets.
 - [ ] **Step 3:** `pnpm lint` (eslint canonical-Tailwind), `pnpm format:check` (prettier; `--no-verify` bypassed the hook).
 - [ ] **Step 4:** `pnpm build` (Next build).
 - [ ] **Step 5:** Re-run the admin meta-tests (`tests/admin/_metaInfraContract.test.ts`) — comment/format fragility guard.
