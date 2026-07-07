@@ -202,6 +202,26 @@ describe("buildCrewLinkMailtos — chunking (R1) and title budget (R4)", () => {
     expect(collected).toEqual(bigRoster);
   });
 
+  test("non-BMP title crossing the truncation boundary: no throw, well-formed truncation, hrefs ≤ cap (plan R1)", () => {
+    const emojiTitle = "😀".repeat(MAILTO_TITLE_MAX_CHARS + 20); // each emoji = 1 code point, 2 code units
+    const out = buildCrewLinkMailtos({ emails: ["a@example.com"], url: URL, showTitle: emojiTitle });
+    expect(out).toHaveLength(1);
+    expect(out[0]!.href.length).toBeLessThanOrEqual(MAX_MAILTO_HREF_CHARS);
+    const subject = decodeURIComponent(out[0]!.href.match(/&subject=([^&]*)/)![1]!);
+    expect(subject).toBe(`Crew link — ${"😀".repeat(MAILTO_TITLE_MAX_CHARS)}…`);
+  });
+
+  test("lone-surrogate title input: no URIError, surrogate replaced with U+FFFD (plan R1)", () => {
+    const out = buildCrewLinkMailtos({
+      emails: ["a@example.com"],
+      url: URL,
+      showTitle: "bad\uD800title",
+    });
+    expect(out).toHaveLength(1);
+    const subject = decodeURIComponent(out[0]!.href.match(/&subject=([^&]*)/)![1]!);
+    expect(subject).toBe("Crew link — bad\uFFFDtitle");
+  });
+
   test("pathological url that cannot fit one blank-title recipient under the cap → []", () => {
     const monsterUrl = `https://crew.fxav.show/show/x/${"a".repeat(MAX_MAILTO_HREF_CHARS)}`;
     const out = buildCrewLinkMailtos({
@@ -247,6 +267,10 @@ const MAX_EMAIL_CHARS = 254;
 // the local part and is neutralized by encodeURIComponent ('%' → '%25').
 const EMAIL_SHAPE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 
+// Unpaired surrogates (external sheet text can carry them) would make
+// encodeURIComponent throw "URI malformed" — replace with U+FFFD first.
+const UNPAIRED_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+
 export type CrewLinkMailto = { href: string; batch: number; batchCount: number };
 
 function subjectFor(title: string): string {
@@ -283,10 +307,13 @@ export function buildCrewLinkMailtos({
   }
   if (recipients.length === 0) return [];
 
-  const trimmed = showTitle.trim();
+  const trimmed = showTitle.replace(UNPAIRED_SURROGATE, "\uFFFD").trim();
+  // Truncate by CODE POINT, not code unit — a .slice() cutting a surrogate
+  // pair would itself mint a lone surrogate and crash the encoder.
+  const codePoints = Array.from(trimmed);
   const effectiveTitle =
-    trimmed.length > MAILTO_TITLE_MAX_CHARS
-      ? `${trimmed.slice(0, MAILTO_TITLE_MAX_CHARS)}…`
+    codePoints.length > MAILTO_TITLE_MAX_CHARS
+      ? `${codePoints.slice(0, MAILTO_TITLE_MAX_CHARS).join("")}…`
       : trimmed;
 
   // Title ladder (adversarial R4): truncated title → blank title → [].
@@ -781,10 +808,25 @@ git commit --no-verify -m "feat(admin): persistent Email-this-link-to-crew ancho
 
 In `tests/app/admin/perShowPage.test.tsx`:
 
-(a) Mock builder — add `.limit` passthrough beside the other passthroughs (`builder.order = pass;` block around line 123):
+(a) Mock builder — record AND apply the limit like PostgREST would (plan adversarial R1: a passthrough would let a wrong `.limit(N)` pass; the mock must truncate). Add `limitByTable: {} as Record<string, number>` to the `state` object (and reset it to `{}` in the same `beforeEach` that resets `selectColsByTable`), then beside the other builder methods (around line 123):
 
 ```ts
-      builder.limit = pass;
+      builder.limit = (n: number) => {
+        state.limitByTable[table] = n;
+        return builder;
+      };
+```
+
+and in the builder's `then` resolver, make `crew_members` respect the recorded limit exactly as PostgREST truncates:
+
+```ts
+        const data =
+          table === "crew_members"
+            ? state.crew.slice(
+                0,
+                state.limitByTable[table] === undefined ? state.crew.length : state.limitByTable[table],
+              )
+            : // ...existing branches unchanged...
 ```
 
 (b) Extend the `CurrentShareLinkPanel` stub (around line 52) so prop threading is observable — replace the stub factory's component with:
@@ -836,6 +878,13 @@ describe("per-show page — crew email threading (Flow 5)", () => {
     expect(state.selectColsByTable.crew_members).toBe("id, name, role, email");
   });
 
+  // Plan adversarial R1 — pin the EXACT bound: .limit(CREW_ROSTER_READ_CAP) or
+  // .limit(1) would truncate in production and silently skip the overflow branch.
+  it("crew_members read requests exactly CREW_ROSTER_READ_CAP + 1 rows", async () => {
+    await renderPage();
+    expect(state.limitByTable.crew_members).toBe(CREW_ROSTER_READ_CAP + 1);
+  });
+
   it("threads fixture-derived non-null emails + show.title into BOTH share surfaces (null emails dropped)", async () => {
     state.crew = [
       { id: "c1", name: "Ann", role: "A1", email: "ann@example.com" },
@@ -856,7 +905,10 @@ describe("per-show page — crew email threading (Flow 5)", () => {
 
   // Adversarial R6/R7 — row-cap overflow fails closed EVERYWHERE, visibly.
   it("roster over CREW_ROSTER_READ_CAP → visible crew-unavailable alert, empty crewEmails on both surfaces", async () => {
-    state.crew = Array.from({ length: CREW_ROSTER_READ_CAP + 1 }, (_, i) => ({
+    // Seed MORE than the requested bound so the PostgREST-faithful mock returns
+    // exactly CREW_ROSTER_READ_CAP + 1 rows (the truncated page) and the
+    // overflow branch must fire on rows.length > CREW_ROSTER_READ_CAP.
+    state.crew = Array.from({ length: CREW_ROSTER_READ_CAP + 50 }, (_, i) => ({
       id: `c${i}`,
       name: `Crew ${i}`,
       role: "A1",
