@@ -251,10 +251,21 @@ describe("vitest projects split — partition is complete and correctly wired", 
     ).toBe(true);
   });
 
-  // Flipped from it.todo to it in the workflow task (same commit as the yml edit) —
-  // the config-level wiring commit precedes the workflow edit, so these pins would
-  // fail between the two commits if enabled here (plan Task 4/5 bridge).
-  it.todo("workflow pins — runs `--project mutation` + widened pull_request path glob");
+  it("workflow pins — runs `--project mutation` + widened pull_request path glob", () => {
+    const wf = readFileSync(join(ROOT, ".github", "workflows", "mutation-harness.yml"), "utf8");
+    expect(
+      wf.includes("--project mutation"),
+      "workflow must run the mutation project explicitly",
+    ).toBe(true);
+    expect(
+      wf.includes("tests/parser/mutationHarness.*.test.ts"),
+      "pull_request path filter must cover shard+gates files (Codex spec-R1 #2)",
+    ).toBe(true);
+    expect(
+      /tests\/parser\/mutationHarness\.test\.ts/.test(wf),
+      "retired single-file path literal must be gone",
+    ).toBe(false);
+  });
 
   it("unit-suite.yml uses the env var, NOT the (ignored) vitest --exclude flag", () => {
     const wf = readFileSync(join(ROOT, ".github", "workflows", "unit-suite.yml"), "utf8");
