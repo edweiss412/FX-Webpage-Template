@@ -33,7 +33,7 @@ This closes the drift class structurally: adding a block parser forces either an
   - **Title/sentinel tokens** — `index.ts` `NO_HEADER`, `CLIENT`-prefix title exclusion: not sections.
   - **Column sub-labels / grid headers** — governed by `KNOWN_SUB_LABELS`, unchanged.
 
-## 4. Current detection survey (verified — see §11 citations)
+## 4. Current detection survey (verified — inline `file:line` citations in the table below)
 
 Per-parser section-opener detection, current mechanism → target:
 
