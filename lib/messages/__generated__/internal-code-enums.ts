@@ -90,10 +90,10 @@ export const INTERNAL_CODE_ENUMS = {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   FOLDER_NOT_FOUND: {
-    source: "pending_ingestions.last_error_code"
+    source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   FOLDER_NOT_SHARED: {
-    source: "pending_ingestions.last_error_code"
+    source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   GOOGLE_NO_CREW_MATCH: {
     source: "admin_alerts.code"
@@ -140,11 +140,14 @@ export const INTERNAL_CODE_ENUMS = {
   ONBOARDING_LEGACY_ROW_AMBIGUOUS: {
     source: "pending_ingestions.last_error_code"
   },
+  ONBOARDING_SHEET_UNREADABLE: {
+    source: "admin_alerts.code,pending_ingestions.last_error_code"
+  },
   OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA: {
-    source: "pending_ingestions.last_error_code"
+    source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   OPERATOR_ERROR_NOT_FOLDER: {
-    source: "pending_ingestions.last_error_code"
+    source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   parse_error: {
     source: "shows.last_sync_status"

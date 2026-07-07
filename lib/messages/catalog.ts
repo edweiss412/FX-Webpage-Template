@@ -1885,6 +1885,21 @@ export const MESSAGE_CATALOG = {
       "Setup tried to stage a parse for a sheet that the live folder sync is already processing. We skipped the wizard's stage to avoid clobbering the live row. Resolve the live row from the dashboard (either Apply or Discard it), then re-run setup if you still need to.",
     helpHref: "/help/errors#LIVE_ROW_CONFLICT",
   },
+  ONBOARDING_SHEET_UNREADABLE: {
+    code: "ONBOARDING_SHEET_UNREADABLE",
+    resolution: "manual",
+    audience: "doug",
+    dougFacing:
+      "Some sheets in your show folder couldn't be read during setup and were skipped. To see which ones and fix them, re-run setup from Settings.",
+    crewFacing: null,
+    followUp: "Doug → Settings → Re-run setup; fix the flagged sheets in Drive; re-scan",
+    helpfulContext:
+      "During setup we scanned your Drive folder and found one or more files we couldn't read as a show sheet, so we skipped them — they aren't staged and won't appear on any crew page. The setup wizard's Step 3 lists each skipped sheet by name while setup is open; after setup you can see them again by re-running setup from Settings. Fix the sheet's layout in Drive (most often a missing or renamed section header), then re-scan.",
+    title: "Some sheets couldn't be read",
+    longExplanation:
+      "During setup we scanned your Drive folder and found one or more files we couldn't read as a show sheet, so we skipped them. They aren't staged and won't appear on any crew page. The setup wizard's Step 3 lists each skipped sheet by name; after setup, re-run setup from Settings to see them again. Fix the sheet's layout in Drive, then re-scan.",
+    helpHref: "/help/errors#ONBOARDING_SHEET_UNREADABLE",
+  },
   WIZARD_ISOLATION_INDEXES_MISSING: {
     code: "WIZARD_ISOLATION_INDEXES_MISSING",
     dougFacing:

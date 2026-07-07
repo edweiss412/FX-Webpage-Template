@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
-// Canonical registry — the SAME 42-code list the _metaAdminAlertCatalog registry pins.
+// Canonical registry — the SAME 45-code list the _metaAdminAlertCatalog registry pins.
 import { ADMIN_ALERTS_CODES } from "@/tests/messages/adminAlertsRegistry";
 
 // The 42 admin-alert codes (spec §3; keep in sync with the ADMIN_ALERTS_CODES registry).
@@ -23,6 +23,7 @@ const DOUG = [
   "PICKER_EPOCH_RESET",
   "SYNC_STALLED",
   "WATCH_CHANNEL_ORPHANED",
+  "ONBOARDING_SHEET_UNREADABLE",
 ] as const;
 const DEGRADED = [
   "PENDING_SNAPSHOT_PROMOTE_STUCK",
@@ -67,8 +68,8 @@ const cat = MESSAGE_CATALOG as Record<
 >;
 
 describe("alert audience contract", () => {
-  test("partition counts: 17 doug + 26 health = 43; 16 degraded + 10 notice", () => {
-    expect(DOUG.length).toBe(18);
+  test("partition counts: 19 doug + 26 health = 45; 16 degraded + 10 notice", () => {
+    expect(DOUG.length).toBe(19);
     expect(HEALTH.length).toBe(26);
     expect(DEGRADED.length).toBe(16);
     expect(NOTICE.length).toBe(10);

@@ -686,6 +686,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → review (within wizard)",
     "helpfulContext": "This sheet was found by the setup wizard's folder scan. Review the parse before activating the folder so you're not committing to data you haven't seen.",
   },
+  "ONBOARDING_SHEET_UNREADABLE": {
+    "crewFacing": null,
+    "dougFacing": "Some sheets in your show folder couldn't be read during setup and were skipped. To see which ones and fix them, re-run setup from Settings.",
+    "followUp": "Doug → Settings → Re-run setup; fix the flagged sheets in Drive; re-scan",
+    "helpfulContext": "During setup we scanned your Drive folder and found one or more files we couldn't read as a show sheet, so we skipped them — they aren't staged and won't appear on any crew page. The setup wizard's Step 3 lists each skipped sheet by name while setup is open; after setup you can see them again by re-running setup from Settings. Fix the sheet's layout in Drive (most often a missing or renamed section header), then re-scan.",
+  },
   "OPENING_REEL_NOT_VIDEO": {
     "crewFacing": "Opening reel link is not a video file",
     "dougFacing": "The opening-reel link is not a video file. Crew see the text status only — replace the link with a video file URL to enable inline playback.",
