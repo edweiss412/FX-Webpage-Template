@@ -49,15 +49,15 @@
 **Interfaces:**
 - Produces: `renderSummary(sheetCount: number, readyCount: number, needsLookCount: number, blockingCount: number)` — internal, composed as HEAD + readiness-clause + ATTENTION-POINTER + TAIL per spec §A.2.
 
-The exact normalized `textContent` each fixture must produce (single-spaced):
+The exact normalized `textContent` each fixture must produce (single-spaced). **Dash-free per DESIGN.md:318 — no em dashes, no `--`; clauses join with periods/commas.**
 
 | Fixture (ready / needsLook / blocking) | Expected textContent |
 |---|---|
-| 2 / 0 / 0 | `2 sheets parsed from your Drive folder. We didn't spot any issues — give them a quick look against your sheet before you publish. Nothing publishes until you say so.` |
-| 1 / 0 / 0 | `1 sheet parsed from your Drive folder. We didn't spot any issues — give it a quick look against your sheet before you publish. Nothing publishes until you say so.` |
+| 2 / 0 / 0 | `2 sheets parsed from your Drive folder. We didn't spot any issues. Give them a quick look against your sheet before you publish. Nothing publishes until you say so.` |
+| 1 / 0 / 0 | `1 sheet parsed from your Drive folder. We didn't spot any issues. Give it a quick look against your sheet before you publish. Nothing publishes until you say so.` |
 | 1 / 1 / 0 (MIXED) | `2 sheets parsed from your Drive folder. 1 looks clean, 1 needs a quick look before it goes live. Nothing publishes until you say so.` |
 | 0 / 2 / 0 (NEEDSLOOK) | `2 sheets parsed from your Drive folder. 2 need a quick look before they go live. Nothing publishes until you say so.` |
-| 1 / 0 / 1 (SOME-READY) | `2 sheets parsed from your Drive folder. 1 looks clean — give it a quick look before you publish. 1 needs your attention below. Nothing publishes until you say so.` |
+| 1 / 0 / 1 (SOME-READY) | `2 sheets parsed from your Drive folder. 1 looks clean. Give it a quick look before you publish. 1 needs your attention below. Nothing publishes until you say so.` |
 | 0 / 0 / 1 (all blocking) | `1 sheet parsed from your Drive folder. 1 needs your attention below.` |
 
 - [ ] **Step 1: Write the failing tests.** Replace the summary assertions at `Step3Review.test.tsx:154,163,175,185,195` with the six rows above, and ADD the SOME-READY (`1/0/1`) and all-blocking (`0/0/1`) cases (they exercise the ATTENTION-POINTER + `looksClean(1)` grammar the round-2 fix added). Build fixtures with the existing helpers: `cleanRow(id,"staged")` → ready; `warnRow(id)` (parseResult warnings `[{code:"FIELD_UNREADABLE",severity:"warn"}]`) → needs-look; `hardFailRow(id)` (status `"hard_failed"`) → blocking. Assert on the normalized `textContent` of the summary element (match the existing query in this file — reuse its normalization helper).
@@ -67,7 +67,7 @@ The exact normalized `textContent` each fixture must produce (single-spaced):
 it("scopes the clean claim and points at blocking rows", () => {
   render(<Step3Review wizardSessionId="w" rows={[cleanRow("a", "staged"), hardFailRow("b")]} />);
   expect(summaryText()).toBe(
-    "2 sheets parsed from your Drive folder. 1 looks clean — give it a quick look before you publish. 1 needs your attention below. Nothing publishes until you say so.",
+    "2 sheets parsed from your Drive folder. 1 looks clean. Give it a quick look before you publish. 1 needs your attention below. Nothing publishes until you say so.",
   );
 });
 ```
@@ -112,16 +112,17 @@ function renderSummary(
 
   const tail = " Nothing publishes until you say so.";
   const looksClean = (n: number) => (n === 1 ? "1 looks clean" : `${n} look clean`);
-  const giveLook = (n: number) => (n === 1 ? "give it a quick look" : "give them a quick look");
+  // Capitalized: begins a sentence in the dash-free copy (DESIGN.md:318).
+  const giveLook = (n: number) => (n === 1 ? "Give it a quick look" : "Give them a quick look");
 
   let clause: React.ReactNode;
   if (needsLookCount === 0) {
     clause =
       blockingCount === 0
         ? strong(
-            `We didn't spot any issues — ${giveLook(readyCount)} against your sheet before you publish.`,
+            `We didn't spot any issues. ${giveLook(readyCount)} against your sheet before you publish.`,
           )
-        : strong(`${looksClean(readyCount)} — ${giveLook(readyCount)} before you publish.`);
+        : strong(`${looksClean(readyCount)}. ${giveLook(readyCount)} before you publish.`);
   } else {
     const verb = needsLookCount === 1 ? "needs" : "need";
     const pron = needsLookCount === 1 ? "it goes" : "they go";
@@ -562,10 +563,10 @@ describe("RawUnrecognizedCallout", () => {
     expect(document.querySelector("script")).toBeNull();
   });
 
-  it("renders an em-dash for an empty value", () => {
+  it("renders "(blank)" for an empty value", () => {
     render(<RawUnrecognizedCallout raw={[{ block: "b", key: "K", value: "" }]} />);
     fireEvent.click(screen.getByRole("button", { name: /Content we couldn't read/ }));
-    expect(screen.getByText(/K\s*\|\s*—/)).toBeInTheDocument();
+    expect(screen.getByText(/K\s*\|\s*\(blank\)/)).toBeInTheDocument();
   });
 
   it("caps at 50 and shows a '+N more not shown' line", () => {
@@ -612,7 +613,7 @@ export function RawUnrecognizedCallout({ raw }: { raw: unknown }) {
       </button>
       <p className="mt-1 text-sm text-text-muted">
         These rows were in your sheet but didn&apos;t match anything we know how to read. They
-        aren&apos;t published — check whether they matter.
+        aren&apos;t published, so check whether they matter.
       </p>
       {expanded ? (
         <div className="mt-2 space-y-3">
@@ -626,7 +627,7 @@ export function RawUnrecognizedCallout({ raw }: { raw: unknown }) {
                   <li key={i} className="font-mono text-sm text-text-strong">
                     {r.key}
                     {" | "}
-                    {r.value === "" ? "—" : r.value}
+                    {r.value === "" ? "(blank)" : r.value}
                   </li>
                 ))}
               </ul>

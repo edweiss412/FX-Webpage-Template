@@ -31,15 +31,17 @@ Reframe the clean-row clauses from a verification claim to a "no issues detected
 
 **Count definitions** (reviewer MEDIUM, round 3): `cleanCount = readyCount + needsLookCount` — the clean (staged/applied) rows, EXCLUDING blocking and set-aside rows. This mirrors the existing `renderSummary` local (`Step3Review.tsx:842`). TAIL keys on `cleanCount > 0` (there is at least one publishable row); all-blocking (`cleanCount === 0 && blockingCount > 0`) and all-set-aside (`cleanCount === 0 && blockingCount === 0`) both suppress TAIL.
 
-Two reusable phrase helpers (grammar, fixes reviewer LOW): `looksClean(n)` = `n === 1 ? "1 looks clean" : "{n} look clean"`; `giveLook(n)` = `n === 1 ? "give it a quick look" : "give them a quick look"`.
+**Copy rule (DESIGN.md:318): NO em dashes** (and no `--`). Use commas, colons, semicolons, periods, parentheses. Empty values use `(blank)`, never a dash glyph (the project uses plain words for missing data, e.g. "Not specified"). All copy below is dash-free.
+
+Two reusable phrase helpers: `looksClean(n)` = `n === 1 ? "1 looks clean" : "{n} look clean"`; `giveLook(n)` = `n === 1 ? "Give it a quick look" : "Give them a quick look"` (capitalized — it begins a sentence in the dash-free copy).
 
 Canonical copy (single source of truth; §A.3 tests assert exactly these normalized `textContent` forms). The line is composed as **HEAD + readiness-clause + attention-pointer + TAIL**:
 
 | Segment | Condition | Rendered text |
 |---|---|---|
 | HEAD | always | `{sheetCount} sheet{s} parsed from your Drive folder.` |
-| ALL-READY | `needsLookCount === 0 && blockingCount === 0 && readyCount > 0` | ` We didn't spot any issues — {giveLook(readyCount)} against your sheet before you publish.` |
-| SOME-READY | `needsLookCount === 0 && blockingCount > 0 && readyCount > 0` | ` {looksClean(readyCount)} — {giveLook(readyCount)} before you publish.` |
+| ALL-READY | `needsLookCount === 0 && blockingCount === 0 && readyCount > 0` | ` We didn't spot any issues. {giveLook(readyCount)} against your sheet before you publish.` |
+| SOME-READY | `needsLookCount === 0 && blockingCount > 0 && readyCount > 0` | ` {looksClean(readyCount)}. {giveLook(readyCount)} before you publish.` |
 | MIXED | `needsLookCount > 0 && readyCount > 0` | ` {looksClean(readyCount)}, {needsLookCount} need{s} a quick look before {they go\|it goes} live.` |
 | NEEDSLOOK-ONLY | `needsLookCount > 0 && readyCount === 0` | ` {needsLookCount} need{s} a quick look before {they go\|it goes} live.` |
 | ATTENTION-POINTER | `blockingCount > 0` (appended after the readiness clause, before TAIL) | ` {blockingCount} need{s} your attention below.` |
@@ -128,7 +130,7 @@ The per-entry literals (case 1) plus the negative + rendered-gate controls (case
 Render a **"Content we couldn't read"** callout inside the per-sheet review body (the same surface that renders section flags — `Step3ReviewModal` / `step3ReviewSections.tsx`), reading `row.parseResult.raw_unrecognized`.
 
 - **Placement:** a dedicated callout in the review body, visually consistent with the existing warning/flag chrome (reuse the section-flag callout styling; do NOT invent a new visual language). It sits alongside the section list, not inside a specific parsed section.
-- **Header:** `Content we couldn't read ({n})` where `n = raw_unrecognized.length`. Plain-language subtitle: `These rows were in your sheet but didn't match anything we know how to read. They aren't published — check whether they matter.`
+- **Header:** `Content we couldn't read ({n})` where `n = raw_unrecognized.length`. Plain-language subtitle (dash-free per DESIGN.md:318): `These rows were in your sheet but didn't match anything we know how to read. They aren't published, so check whether they matter.`
 - **Body:** collapsible (collapsed by default). Expanded → rows grouped by `block`, each block a labeled group; each row shows `key` and `value` as a `label | value` pair using the same neutral row treatment as `/admin/dev`. `block` is a raw parser scope name (e.g. `hotels`, `event_details`) — render it title-cased via the existing block-label map if one exists, else as-is (no fabricated mapping).
 - **No raw error codes** (invariant 5): the callout shows sheet content (`key`/`value`/`block`), never a parser code. `raw_unrecognized` carries no codes, so this is satisfied by construction; the header/subtitle copy is static prose.
 - **Escaped-text rendering only (reviewer MEDIUM, round 3):** `key`, `value`, and any raw-`block` fallback are arbitrary persisted spreadsheet content and MUST be rendered as React text children (auto-escaped) — NEVER via `dangerouslySetInnerHTML`, and never interpreted as HTML/markdown. This closes the same malformed-jsonb boundary as §C.3 against weird/hostile sheet text (embedded `<script>`, angle brackets, control chars). A test asserts a callout row containing HTML-like text renders it literally, not as markup.
@@ -141,7 +143,7 @@ Because `raw_unrecognized` is coerced from persisted `jsonb` (§C.1), type-level
 - `row.parseResult.raw_unrecognized` absent/`undefined` OR **`null`** OR **not an array** (older/malformed persisted jsonb): coalesce to `[]` → callout not rendered. Never throws.
 - **Per-entry validation (strict `typeof`, not coercion — reviewer MEDIUM, round 2):** an element is KEPT only if it is a non-null plain object whose `key` is a `typeof === "string"` with non-whitespace content. `null`, arrays, primitives, and objects with a non-string or empty/whitespace `key` are **dropped** — never string-coerced (coercion would render `"null"`, `"[object Object]"`, `"undefined"` noise instead of failing closed). For a kept element: `block` is used only if `typeof === "string"` and non-whitespace, else the `Other` bucket; `value` is used only if `typeof === "string"`, else treated as empty (`—` placeholder). The header count `n` reflects the SANITIZED length (post-drop), so the count never over-promises rows the UI can't show.
 - `sanitized.length === 0` (empty, or everything dropped): callout not rendered (no "0 items" chrome).
-- Kept entry with empty (`""`) or non-string `value`: render `key` with an em-dash placeholder (`{key} | —`), never a blank that reads as "we lost it."
+- Kept entry with empty (`""`) or non-string `value`: render `key` with a `(blank)` marker (`{key} | (blank)`), never a blank that reads as "we lost it."
 - Kept entry with empty/whitespace or non-string `block`: grouped under an `Other` bucket label rather than an empty group header.
 
 ### C.4 Cap / truncation (per the global cap rule)
