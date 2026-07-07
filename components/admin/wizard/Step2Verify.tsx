@@ -261,6 +261,10 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
   }
 
   const submitDisabled = isSubmitting || folderUrl.trim().length === 0;
+  // Parsed Drive folder id (non-null only for a valid folder URL). Used to gate
+  // AND reconstruct the "Open the folder" link's href from the canonical
+  // `/folders/<id>` shape rather than trusting the raw pasted string.
+  const driveFolderId = parseDriveFolderId(folderUrl);
   // Resume affordance: only while idle (the moment the operator lands back on
   // Step 2 with a reviewable prior scan). "Continue to Step 3" is the primary
   // action, so the co-located re-scan button steps down to SECONDARY_BUTTON
@@ -487,12 +491,12 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
                 >
                   <p className="font-semibold text-text-strong">This folder is empty.</p>
                   <p>Add a show sheet to the folder, then re-scan.</p>
-                  {parseDriveFolderId(folderUrl) ? (
+                  {driveFolderId ? (
                     <a
-                      href={folderUrl.trim()}
+                      href={`https://drive.google.com/drive/folders/${driveFolderId}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex min-h-tap-min items-center self-start text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                      className="inline-flex min-h-tap-min items-center self-start font-medium text-text-strong underline underline-offset-2 hover:decoration-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
                     >
                       Open the folder →
                     </a>
@@ -537,12 +541,12 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
                     ) : null}
                   </ul>
                   <p>Open the folder to check these in Drive, then re-scan.</p>
-                  {parseDriveFolderId(folderUrl) ? (
+                  {driveFolderId ? (
                     <a
-                      href={folderUrl.trim()}
+                      href={`https://drive.google.com/drive/folders/${driveFolderId}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex min-h-tap-min items-center self-start text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                      className="inline-flex min-h-tap-min items-center self-start font-medium text-text-strong underline underline-offset-2 hover:decoration-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
                     >
                       Open the folder →
                     </a>
