@@ -90,9 +90,42 @@ if (missing.length || invalid.length) {
   process.exit(1);
 }
 
-// --- DB round-trip: distinguishes "pool exhausted / supabase down" from real failures ---
-const dbUrl =
-  process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+// --- non-loopback WARNINGS: this is a LOCAL preflight ------------------------
+// SUPABASE_URL / NEXT_PUBLIC_SUPABASE_URL should point at local Supabase and
+// TEST_DATABASE_URL at local Postgres. A remote value here silently makes
+// "local" test runs target validation/prod (loopback-guarded DB tests then
+// skip/throw instead of exercising local). Warn — don't fail; the same
+// TEST_DATABASE_URL is DELIBERATELY validation for the schema-parity /
+// postgrest-dml-lockdown CI-parity scripts (see AGENTS.md).
+const LOOPBACK_HOST = /^(?:localhost|127\.0\.0\.1|\[::1\])$/i;
+function hostOf(url) {
+  try {
+    return new URL(url).hostname.replace(/^\[|\]$/g, "");
+  } catch {
+    return null;
+  }
+}
+for (const key of ["SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_URL", "TEST_DATABASE_URL"]) {
+  const v = process.env[key];
+  if (!v) continue;
+  const host = hostOf(v);
+  if (host && !LOOPBACK_HOST.test(host)) {
+    console.warn(
+      `WARN: ${key} is NON-LOOPBACK (${host}) — "local" runs that read it will ` +
+        `target remote; loopback-guarded DB tests will skip.`,
+    );
+  }
+}
+
+// --- DB round-trip: probe LOCAL Postgres directly ---------------------------
+// Deliberately NOT TEST_DATABASE_URL (which is validation in this repo's main
+// .env.local) — a local preflight must prove LOCAL Postgres is up, so a green
+// here actually means what it says. If TEST_DATABASE_URL IS loopback (custom
+// local port) we honor it; otherwise we ignore it and use the local default.
+const LOCAL_DEFAULT = "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+const tdu = process.env.TEST_DATABASE_URL;
+const tduHost = tdu ? hostOf(tdu) : null;
+const dbUrl = tdu && tduHost && LOOPBACK_HOST.test(tduHost) ? tdu : LOCAL_DEFAULT;
 
 if (skipDb) {
   console.log(`preflight: env ✓  (DB probe skipped)`);
@@ -105,17 +138,17 @@ const psql = spawnSync("psql", [dbUrl, "-v", "ON_ERROR_STOP=1", "-At", "-c", "se
 });
 
 if (psql.error?.code === "ENOENT") {
-  console.warn(`preflight: env ✓  (psql not on PATH — DB probe skipped)`);
+  console.warn(`preflight: env ✓  (psql not on PATH — local DB probe skipped)`);
   process.exit(0);
 }
 if (psql.status !== 0) {
   console.error(
-    `DB UNREACHABLE: ${dbUrl}\n` +
+    `LOCAL DB UNREACHABLE: ${dbUrl.replace(/:[^:@/]+@/, ":***@")}\n` +
       `  ${(psql.stderr || "").trim().split("\n").pop() || "no output"}\n` +
       `  Is local Supabase up?  supabase status  ·  supabase start\n` +
-      `  Pool exhausted after a long session?  supabase stop && supabase start`,
+      `  Pool exhausted after a long session?  pnpm db:reset-pool  (or supabase stop && supabase start)`,
   );
   process.exit(2);
 }
 
-console.log(`preflight: env ✓  DB ✓  (${dbUrl.replace(/:[^:@/]+@/, ":***@")})`);
+console.log(`preflight: env ✓  local DB ✓  (${dbUrl.replace(/:[^:@/]+@/, ":***@")})`);
