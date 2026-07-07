@@ -308,8 +308,9 @@ Adding the 45th code makes several narrative count anchors stale (some were ALRE
 - `tests/messages/_metaAdminAlertCatalog.test.ts:273` (the `"26 + 17 + 1 + 0 = 44"` comment)
 - `tests/messages/_metaAlertActionsContract.test.ts:162` (`"42-code ADMIN_ALERTS_CODES universe"` test-name)
 - `lib/adminAlerts/resolveAlertIdentities.ts:14` and `tests/adminAlerts/alertIdentityMap.test.ts:4` (`"42-code matrix"` comments)
+- `tests/adminAlerts/adminAlertCodes.fixture.ts:2` (`"43 admin_alerts codes"`) and `tests/messages/_metaAdminAlertCatalog.test.ts:708` (`"all 43 codes"`)
 
-Practical approach: `grep -rn "42-code\|43\b.*doug\|17 doug\|13 global"` across `tests/messages tests/adminAlerts lib/adminAlerts` and update each hit to the accurate 45-based number.
+Practical approach: `grep -rn "42-code\|43 \|43-code\|17 doug\|13 global\|= 44\b"` across `tests/messages tests/adminAlerts lib/adminAlerts` and update each narrative hit to the accurate 45-based number (44→45, 43→44 where a subset, 18→19 doug, global +1).
 
 **Comment-fragility guard:** these are docstrings/comments/test-name strings, NOT the AST-scanned infra-contract surfaces — but re-run `tests/messages/` + `tests/adminAlerts/` after editing to confirm no comment-position meta-test tripped (per the repo's comment-fragility discipline).
 
