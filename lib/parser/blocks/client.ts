@@ -5,6 +5,9 @@ import { clean, presence, parseTableRows, splitRow } from "./_helpers";
 import { gatedVocabCorrect } from "@/lib/parser/typoGate";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { KNOWN_SUB_LABELS } from "@/lib/parser/knownSections";
+import { matchesSectionHeader } from "./_sectionHeaderMatch";
+
+export const SECTION_HEADER_TOKENS = ["CLIENT"] as const;
 
 // Closed-vocab client field labels (lowercase) the fuzzy fallback recovers toward. Exported so
 // lib/parser/typoVocabRegistry.ts derives the registry entries from this single source (the gate
@@ -90,7 +93,7 @@ function parseClientV4(
   for (const row of rows) {
     const label = (row[0] ?? "").toUpperCase();
 
-    if (label === "CLIENT") {
+    if (matchesSectionHeader(label, SECTION_HEADER_TOKENS)) {
       inClientBlock = true;
       // The org name is in column 1
       clientLabel = clean(row[1] ?? "");
@@ -273,7 +276,7 @@ function parseClientV2orV1(
     const val = clean(row[1] ?? "");
 
     // v2 shape: "CLIENT" row with org in col 1
-    if (labelNorm === "CLIENT") {
+    if (matchesSectionHeader(labelNorm, SECTION_HEADER_TOKENS)) {
       clientLabel = val;
       continue;
     }
