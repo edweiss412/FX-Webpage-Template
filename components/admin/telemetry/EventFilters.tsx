@@ -80,14 +80,14 @@ export function EventFilters({ filters }: { filters: AppEventFilters }) {
           className="min-h-tap-min flex-1 rounded border border-border bg-surface px-2"
         />
         {/* Segmented level control: one bordered group, dividers between segments. */}
-        <div className="inline-flex min-h-tap-min items-stretch overflow-hidden rounded border border-border">
+        <div className="inline-flex items-stretch overflow-hidden rounded border border-border">
           {LEVELS.map((lvl, i) => (
             <button
               key={lvl}
               type="button"
               data-testid={`filter-level-${lvl}`}
               aria-pressed={levels.has(lvl)}
-              className={`inline-flex items-center px-3 ${i > 0 ? "border-l border-border" : ""} ${levels.has(lvl) ? "bg-accent text-accent-text" : "text-text-subtle"}`}
+              className={`inline-flex min-h-tap-min items-center px-3 ${i > 0 ? "border-l border-border" : ""} ${levels.has(lvl) ? "bg-accent text-accent-text" : "text-text-subtle"}`}
               onClick={() => {
                 const next = new Set(levels);
                 next.has(lvl) ? next.delete(lvl) : next.add(lvl);

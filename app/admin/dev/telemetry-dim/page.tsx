@@ -36,8 +36,17 @@
 import { Suspense } from "react";
 import { requireDeveloper } from "@/lib/auth/requireDeveloper";
 import { CRON_JOBS, CRON_RUN_SUMMARY } from "@/lib/cron/runSummary";
-import type { AppEventRow, CronHealthRow, LoadAppEventsResult } from "@/lib/admin/telemetryTypes";
+import type {
+  AlertSummary,
+  AppEventRow,
+  CronHealthRow,
+  LoadAppEventsResult,
+  LoadCronHealthResult,
+  LoadTelemetryStatsResult,
+} from "@/lib/admin/telemetryTypes";
 import { CronHealthHeader } from "@/components/admin/telemetry/CronHealthHeader";
+import { CronHealthList } from "@/components/admin/telemetry/CronHealthList";
+import { TelemetryOverviewStrip } from "@/components/admin/telemetry/TelemetryOverviewStrip";
 import { EventFilters } from "@/components/admin/telemetry/EventFilters";
 import { EventTimeline } from "@/components/admin/telemetry/EventTimeline";
 import { AutoRefreshControl } from "@/components/admin/telemetry/AutoRefreshControl";
@@ -98,6 +107,22 @@ const RESULT: LoadAppEventsResult = {
   nextCursor: { occurredAt: events[1]!.occurredAt, id: "b" },
 };
 
+// Deterministic console-strip props (no DB read) so the overview stat cards +
+// sparkline are measurable by the real-browser layout spec.
+const SUMMARY: AlertSummary = { kind: "degraded", total: 3, degraded: 1, notice: 2 };
+const CRON_RESULT: LoadCronHealthResult = { kind: "ok", jobs };
+const STATS: LoadTelemetryStatsResult = {
+  kind: "ok",
+  stats: {
+    total: 128,
+    errorCount: 4,
+    warnCount: 7,
+    infoCount: 117,
+    // 24 hourly buckets with a mix so bars span the full [3,22] scale.
+    buckets: [0, 1, 2, 0, 3, 5, 8, 4, 2, 1, 0, 6, 9, 12, 7, 3, 1, 0, 2, 4, 10, 14, 6, 2],
+  },
+};
+
 export default async function TelemetryDimHarness() {
   // Same chokepoint as /admin/dev so the trust-domain auth-chain audit classifies
   // this harness route identically (chain: requireDeveloper).
@@ -105,12 +130,26 @@ export default async function TelemetryDimHarness() {
   return (
     <div className="flex flex-col gap-section-gap p-4" data-testid="telemetry-dim-harness">
       <AutoRefreshControl />
+      {/* Console overview strip — 4 stat cards + sparkline (new console layout §7.2/§8). */}
+      <TelemetryOverviewStrip alertSummary={SUMMARY} cron={CRON_RESULT} stats={STATS} now={NOW} />
+      {/* Retained legacy grid — the existing equal-height cron-card assertion measures this. */}
       <CronHealthHeader jobs={jobs} now={NOW} />
-      {/* EventFilters uses useSearchParams → Suspense boundary (Next 16). */}
-      <Suspense>
-        <EventFilters filters={{ sinceHours: 24 }} />
-      </Suspense>
-      <EventTimeline result={RESULT} now={NOW} currentQuery="" />
+      {/* Two-column console body mirroring the real page: hero log left, 340px sidebar right. */}
+      <div
+        data-testid="telemetry-console-grid"
+        className="grid grid-cols-1 gap-section-gap xl:grid-cols-[minmax(0,1fr)_340px] xl:items-start"
+      >
+        <div className="flex flex-col gap-tile-gap">
+          {/* EventFilters uses useSearchParams → Suspense boundary (Next 16). */}
+          <Suspense>
+            <EventFilters filters={{ sinceHours: 24 }} />
+          </Suspense>
+          <EventTimeline result={RESULT} now={NOW} currentQuery="" />
+        </div>
+        <aside data-testid="telemetry-sidebar" className="flex flex-col gap-section-gap">
+          <CronHealthList jobs={jobs} now={NOW} />
+        </aside>
+      </div>
     </div>
   );
 }
