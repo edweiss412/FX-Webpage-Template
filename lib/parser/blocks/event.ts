@@ -35,10 +35,17 @@ import { type ParseAggregator, emitEmptySection, emitUnknownField } from "@/lib/
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { gatedVocabCorrect } from "@/lib/parser/typoGate";
 import { isSensitiveCanonicalKey } from "@/lib/parser/gearClassification";
+import { buildCol0HeaderRe } from "./_sectionHeaderMatch";
 
 // The EVENT DETAILS block header labels (all variants found in corpus)
-const EVENT_DETAILS_HEADER_RE =
-  /^\|\s*(EVENT\s+DETAILS|DETAILS(?:\/Room\s+Diagram)?|GS\s+DETAILS(?:\s+\(FOR\s+BOTH\))?)\s*[|]/im;
+export const SECTION_HEADER_TOKENS = [
+  "EVENT DETAILS",
+  "DETAILS",
+  "DETAILS/ROOM DIAGRAM",
+  "GS DETAILS",
+  "GS DETAILS (FOR BOTH)",
+] as const;
+const EVENT_DETAILS_HEADER_RE = buildCol0HeaderRe(SECTION_HEADER_TOKENS, { caseInsensitive: true });
 
 // Labels that terminate the event details block
 const TERMINATING_LABELS = new Set([
