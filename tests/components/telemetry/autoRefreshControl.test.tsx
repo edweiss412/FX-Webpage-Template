@@ -96,4 +96,23 @@ describe("AutoRefreshControl", () => {
     document.dispatchEvent(new Event("visibilitychange"));
     expect(refresh).not.toHaveBeenCalled();
   });
+
+  // ── restyle (spec §7.1) ──────────────────────────────────────────────────
+  test("pulse ping ring present only when ON", () => {
+    render(<AutoRefreshControl />); // default ON
+    expect(screen.getByTestId("autorefresh-ping")).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("autorefresh-toggle")); // → OFF
+    expect(screen.queryByTestId("autorefresh-ping")).toBeNull();
+  });
+  test("toggle exposes aria-pressed reflecting on/off", () => {
+    render(<AutoRefreshControl />);
+    const t = screen.getByTestId("autorefresh-toggle");
+    expect(t.getAttribute("aria-pressed")).toBe("true");
+    fireEvent.click(t);
+    expect(t.getAttribute("aria-pressed")).toBe("false");
+  });
+  test("manual refresh button has an accessible 'Refresh now' label", () => {
+    render(<AutoRefreshControl />);
+    expect(screen.getByTestId("autorefresh-manual")).toHaveAttribute("aria-label", "Refresh now");
+  });
 });

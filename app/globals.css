@@ -435,6 +435,33 @@
   }
 }
 
+/* Telemetry auto-refresh live-pulse ring (NOT a @theme token — a local
+   keyframe for the AutoRefreshControl "actively refreshing" indicator, spec
+   §7.1/§9). Expanding fade ring behind the accent dot; suppressed under
+   prefers-reduced-motion so the dot stays static. */
+@keyframes tping {
+  0% {
+    transform: scale(1);
+    opacity: 0.55;
+  }
+  75%,
+  100% {
+    transform: scale(2.2);
+    opacity: 0;
+  }
+}
+
+.telemetry-ping {
+  animation: tping 1.6s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .telemetry-ping {
+    animation: none;
+    opacity: 0;
+  }
+}
+
 @keyframes route-enter {
   from {
     opacity: 0;

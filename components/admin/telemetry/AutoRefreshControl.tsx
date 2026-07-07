@@ -1,4 +1,5 @@
 "use client";
+import { RotateCw } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 
@@ -76,25 +77,56 @@ export function AutoRefreshControl() {
   };
 
   return (
-    <div className="flex items-center gap-2 text-xs text-text-subtle">
+    <div className="inline-flex items-center gap-3 rounded-md border border-border bg-surface px-3 py-1.5 shadow-tile">
+      {/* Pulse dot: live ping ring only when ON; static faint dot when OFF. */}
+      <span aria-hidden className="relative inline-flex size-2 shrink-0">
+        {on && (
+          <span
+            data-testid="autorefresh-ping"
+            className="telemetry-ping absolute inset-0 rounded-full bg-accent"
+          />
+        )}
+        <span
+          className={`relative inline-block size-2 rounded-full ${on ? "bg-accent" : "bg-text-faint"}`}
+        />
+      </span>
+      <span className="text-sm text-text">Auto-refresh</span>
+      {/* Switch: 34×20 track, thumb translateX. min-h-tap-min keeps a ≥44px tap target. */}
       <button
         type="button"
         data-testid="autorefresh-toggle"
+        role="switch"
         aria-pressed={on}
+        aria-label={`Auto-refresh ${on ? "on" : "off"}`}
         onClick={toggle}
-        className={`inline-flex min-h-tap-min items-center rounded-pill px-3 ${on ? "bg-accent text-accent-text" : "bg-surface-sunken"}`}
+        className="inline-flex min-h-tap-min items-center"
       >
-        Auto-refresh {on ? "on" : "off"}
+        <span
+          className={`relative inline-flex h-5 w-[34px] items-center rounded-full transition-colors ${on ? "bg-accent" : "bg-surface-sunken"}`}
+        >
+          <span
+            className={`absolute size-4 rounded-full bg-surface shadow-tile transition-transform ${on ? "translate-x-[16px]" : "translate-x-[2px]"}`}
+          />
+        </span>
       </button>
+      <span aria-hidden className="h-[18px] w-px bg-border" />
+      {agoLabel != null && (
+        <span
+          data-testid="autorefresh-updated"
+          className="text-xs tabular-nums text-text-faint"
+        >
+          {agoLabel}
+        </span>
+      )}
       <button
         type="button"
         data-testid="autorefresh-manual"
+        aria-label="Refresh now"
         onClick={doRefresh}
-        className="inline-flex min-h-tap-min items-center underline"
+        className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border p-1.5 text-text-subtle hover:bg-surface-sunken hover:text-text"
       >
-        Refresh
+        <RotateCw className="size-4" aria-hidden />
       </button>
-      {agoLabel != null && <span data-testid="autorefresh-updated">{agoLabel}</span>}
     </div>
   );
 }
