@@ -68,6 +68,9 @@ describe("normalizeDate widened shapes (rec-6d)", () => {
     ["June 24, 26", null],    // long-form 2-digit year rejected
     ["2026-02-30", null],     // calendar-invalid ISO
     ["Feb 30 2026", null],    // calendar-invalid long-form
+    ["1999-01-01", null],     // ISO year < 2000 bound (spec §A)
+    ["2100-01-01", null],     // ISO year > 2099 bound (spec §A)
+    ["January 1, 2100", null],// long-form year > 2099 bound
     ["10:30", null],          // time
     ["2026", null],           // bare year
   ])("rejects %s", (raw) => {
@@ -112,6 +115,11 @@ export function normalizeDate(raw: string): string | null {
   );
 
   let month: number, day: number, year: number;
+  // The NEW 4-digit-year shapes (ISO / dash / long-form) are bounded to 2000–2099 per
+  // spec §A (corpus is 2024–2026; a year outside this window is a house number/code, not
+  // a date). The EXISTING slash path is NOT bounded — it accepts any `\d{2,4}` year today
+  // and MUST stay behavior-preserving (a slash `1/1/1999` still parses).
+  let boundYear = false;
 
   const slash = stripped.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
   const dash = stripped.match(/^(\d{1,2})-(\d{1,2})-(\d{4})\b/); // 4-digit year ONLY
@@ -120,20 +128,21 @@ export function normalizeDate(raw: string): string | null {
   const lfDMY = stripped.match(LONGFORM_DMY_RE);
 
   if (iso) {
-    year = parseInt(iso[1]!, 10); month = parseInt(iso[2]!, 10); day = parseInt(iso[3]!, 10);
+    year = parseInt(iso[1]!, 10); month = parseInt(iso[2]!, 10); day = parseInt(iso[3]!, 10); boundYear = true;
   } else if (slash) {
     month = parseInt(slash[1]!, 10); day = parseInt(slash[2]!, 10);
     const ry = parseInt(slash[3]!, 10); year = ry < 100 ? 2000 + ry : ry;
   } else if (dash) {
-    month = parseInt(dash[1]!, 10); day = parseInt(dash[2]!, 10); year = parseInt(dash[3]!, 10);
+    month = parseInt(dash[1]!, 10); day = parseInt(dash[2]!, 10); year = parseInt(dash[3]!, 10); boundYear = true;
   } else if (lfMDY && lfMDY.index === 0) {
-    month = MONTHS[lfMDY[1]!.toLowerCase()]!; day = parseInt(lfMDY[2]!, 10); year = parseInt(lfMDY[3]!, 10);
+    month = MONTHS[lfMDY[1]!.toLowerCase()]!; day = parseInt(lfMDY[2]!, 10); year = parseInt(lfMDY[3]!, 10); boundYear = true;
   } else if (lfDMY && lfDMY.index === 0) {
-    day = parseInt(lfDMY[1]!, 10); month = MONTHS[lfDMY[2]!.toLowerCase()]!; year = parseInt(lfDMY[3]!, 10);
+    day = parseInt(lfDMY[1]!, 10); month = MONTHS[lfDMY[2]!.toLowerCase()]!; year = parseInt(lfDMY[3]!, 10); boundYear = true;
   } else {
     return null;
   }
 
+  if (boundYear && (year < 2000 || year > 2099)) return null; // spec §A ISO/long/dash bound
   if (month < 1 || month > 12 || day < 1 || day > 31) return null;
   const date = new Date(year, month - 1, day);
   if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return null;
@@ -620,7 +629,7 @@ Plus the matched-pair test proving `:1214` and `:1270` both populate dims (spec 
 Run: `pnpm vitest run tests/parser/blocks/rooms.test.ts -t "dims widening"`
 Expected: FAIL (sites still on old `'\s*x`).
 
-- [ ] **Step 3: Write minimal implementation** — replace each of the seven site regexes with the shared matcher per the mapping. Import from `./_dimsToken`. Leave `167` as the inline superset. Update cleanup `:1497` to `DIMS_SEP`.
+- [ ] **Step 3: Write minimal implementation** — replace each of the seven site regexes with the shared matcher per the mapping. Import from `./_dimsToken`. Leave `167` as the inline superset. Update cleanup `:1497` to `DIMS_SEP`. **`splitRoomHeader` (rooms.ts:1435) is currently UNEXPORTED — add `export`** so the Task 7 test can import it (Codex plan R2). `roomHeaderNameShape:129`, `headerDayMarker:155`, and `parseRooms:399` are already exported.
 
 - [ ] **Step 4: Run test to verify it passes**
 
@@ -711,4 +720,4 @@ EOF
 - **Spec coverage:** §A → Tasks 1–3; §B → Tasks 4–5; §C → Tasks 6–8; behavior-preservation → Task 9. All spec sections mapped.
 - **Anti-tautology:** dims tests assert against `dimsFullRe()`/`dimsStartRe()` directly (the data source), not a container; the matched-pair test asserts `room.dimensions`, derived from fixture-shaped input, not hardcoded. Address exporter test asserts `normalizeNewlines` output string, not the caller. Date expectations are the spec's canonical values.
 - **Type consistency:** `dimsStartRe(anchored)`, `dimsFullRe()`, `DIMS_SEP` names are stable across Tasks 6–8. `ISO_DATE_RE`/`LONGFORM_MDY_RE`/`LONGFORM_DMY_RE` exported in Task 1, consumed in Tasks 2–3.
-- **Export-for-test caveat:** Tasks 2/4/5 may require adding `export` to `extractAllDates` / `splitHotelNameAddress` / `looksLikeStreetStart` / `normalizeNewlines`. Prefer a real export over a tautological through-the-caller assertion; note it in the commit.
+- **Export-for-test caveat:** Tasks 2/4/5/7 may require adding `export` to `extractAllDates` / `splitHotelNameAddress` / `looksLikeStreetStart` / `normalizeNewlines` / `splitRoomHeader` (rooms.ts:1435, confirmed unexported — Codex plan R2). `roomHeaderNameShape` / `headerDayMarker` / `parseRooms` are already exported. Prefer a real export over a tautological through-the-caller assertion; note it in the commit.
