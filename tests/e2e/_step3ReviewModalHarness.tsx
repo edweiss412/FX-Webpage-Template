@@ -26,7 +26,11 @@ import {
 import { Step3ReviewModal } from "@/components/admin/wizard/Step3ReviewModal";
 import type { SectionData } from "@/components/admin/wizard/step3ReviewSections";
 import type { CrewMemberRow, ParseResult, ParseWarning } from "@/lib/parser/types";
-import { buildParseResult, stagedRow } from "@/tests/components/admin/wizard/_step3ReviewFixture";
+import {
+  buildParseResult,
+  harnessVenue,
+  stagedRow,
+} from "@/tests/components/admin/wizard/_step3ReviewFixture";
 
 /** Matches the fixture builders' fixed driveFileId (_step3ReviewFixture.ts). */
 export const HARNESS_DFID = "drive-abc-123";
@@ -243,7 +247,7 @@ if (typeof require !== "undefined" && typeof module !== "undefined" && require.m
       dfid: HARNESS_DFID,
       diagramStubCount: HARNESS_DIAGRAM_STUB_COUNT,
       crewWarningCount: HARNESS_CREW_WARNING_COUNT,
-      normal: renderModalHtml(),
+      normal: renderModalHtml({ showOverrides: { venue: harnessVenue() } }),
       long: renderModalHtml({
         showOverrides: { title: LONG_TITLE, client_label: LONG_CLIENT, dates: LONG_DATES },
       }),

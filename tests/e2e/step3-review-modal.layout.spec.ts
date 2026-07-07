@@ -583,3 +583,102 @@ for (const { mode, width, height } of [
     }
   });
 }
+
+// ── Venue card redesign (spec 2026-07-06 §7 DI-1..DI-6) ─────────────────────
+test("§DI-1 venue map region height === text column height @ popup 800px", async ({ page }) => {
+  await openHarness(page, { width: 800, height: 900 });
+  const region = await rect(page, '[data-testid="venue-map-region"]');
+  const textCol = await rect(page, '[data-testid="venue-text-col"]');
+  expect(region.height, "map region and text column render").toBeGreaterThan(0);
+  // Tailwind v4 items-stretch collapse catcher: without sm:items-stretch +
+  // self-stretch the region shrinks to the tile's intrinsic height.
+  expect(
+    Math.abs(region.height - textCol.height),
+    `map region ${region.height} === text col ${textCol.height}`,
+  ).toBeLessThanOrEqual(TOL);
+});
+
+test("§DI-2 venue map img fills its region box (no letterbox) @ popup 800px", async ({ page }) => {
+  await openHarness(page, { width: 800, height: 900 });
+  const img = await rect(page, '[data-testid="venue-map-img"]');
+  // The img is `absolute inset-0` inside the map region, so it fills the region's
+  // CONTENT box (inside the 1px border-l divider). Compare to the region's client
+  // box (excludes borders) — h-full w-full object-cover means an exact fill, so a
+  // collapsed/auto-sized/letterboxed img is caught, while the divider is not a
+  // false failure.
+  const contentBox = await page
+    .locator('[data-testid="venue-map-region"]')
+    .evaluate((el) => ({ w: el.clientWidth, h: el.clientHeight }));
+  expect(contentBox.w, "map region content box rendered").toBeGreaterThan(0);
+  expect(
+    Math.abs(img.width - contentBox.w),
+    `img w ${img.width} === region content w ${contentBox.w}`,
+  ).toBeLessThanOrEqual(TOL);
+  expect(
+    Math.abs(img.height - contentBox.h),
+    `img h ${img.height} === region content h ${contentBox.h}`,
+  ).toBeLessThanOrEqual(TOL);
+});
+
+test("§DI-3 venue map region is 172px wide @ popup 800px", async ({ page }) => {
+  await openHarness(page, { width: 800, height: 900 });
+  const region = await rect(page, '[data-testid="venue-map-region"]');
+  expect(
+    Math.abs(region.width - 172),
+    `region width ${region.width} === 172`,
+  ).toBeLessThanOrEqual(TOL);
+});
+
+test("§DI-5 venue full-bleed body + dock reach the panel inner edges @ popup 800px", async ({
+  page,
+}) => {
+  await openHarness(page, { width: 800, height: 900 });
+  // The venue section's panel card is the BreakdownSection panel. The full-bleed
+  // body (-m-tile-pad) + dock footer span the panel's inner content width, and
+  // the map region's right edge aligns to the body's right edge (bleeds to edge).
+  const body = await rect(page, '[data-testid="venue-body"]');
+  const dock = await rect(page, '[data-testid="venue-dock"]');
+  const region = await rect(page, '[data-testid="venue-map-region"]');
+  expect(
+    Math.abs(dock.left - body.left),
+    `dock.left ${dock.left} === body.left ${body.left}`,
+  ).toBeLessThanOrEqual(TOL);
+  expect(
+    Math.abs(dock.right - body.right),
+    `dock.right ${dock.right} === body.right ${body.right}`,
+  ).toBeLessThanOrEqual(TOL);
+  expect(
+    Math.abs(region.right - body.right),
+    `map region.right ${region.right} === body.right ${body.right}`,
+  ).toBeLessThanOrEqual(TOL);
+  // overflow-hidden on the body wrapper clips the square-cornered regions to the
+  // panel radius (mechanism pinned via computed style; env-independent).
+  const overflow = await page
+    .locator('[data-testid="venue-body"]')
+    .evaluate((el) => getComputedStyle(el).overflow);
+  expect(overflow, "venue body clips full-bleed regions (overflow hidden)").toContain("hidden");
+});
+
+test("§DI-4 venue columns STACK below sm @ sheet 390px", async ({ page }) => {
+  await openHarness(page, { width: 390, height: 844 });
+  const region = await rect(page, '[data-testid="venue-map-region"]');
+  const textCol = await rect(page, '[data-testid="venue-text-col"]');
+  // Stacked: the map region's top is at/below the text column's bottom.
+  expect(
+    region.top,
+    `region.top ${region.top} ≥ textCol.bottom ${textCol.bottom}`,
+  ).toBeGreaterThanOrEqual(textCol.bottom - TOL);
+  // Full-width map region when stacked (=== text column width).
+  expect(
+    Math.abs(region.width - textCol.width),
+    `region.width ${region.width} === textCol.width ${textCol.width}`,
+  ).toBeLessThanOrEqual(TOL);
+});
+
+test("§DI-6 venue Directions target ≥ 44px tall @ popup 800px", async ({ page }) => {
+  await openHarness(page, { width: 800, height: 900 });
+  const dir = await rect(page, '[data-testid="venue-map-tile"]'); // whole tile is the anchor
+  expect(dir.height, `venue map anchor height ${dir.height} ≥ 44`).toBeGreaterThanOrEqual(
+    TAP_MIN - TOL,
+  );
+});

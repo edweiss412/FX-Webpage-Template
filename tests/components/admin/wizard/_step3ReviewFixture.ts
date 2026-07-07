@@ -129,6 +129,21 @@ export function buildParseResult(overrides: Partial<ParseResult> = {}): ParseRes
   };
 }
 
+/** Populated venue for the layout harness (the shared `show()` default keeps
+ * `venue: null` so venue-absent sibling tests are unaffected). Non-empty
+ * `loadingDock` + a parseable `googleLink` so the redesigned venue card renders
+ * the map region + Directions anchor + dock footer that the DI-1..DI-6
+ * real-browser layout assertions measure. */
+export function harnessVenue(): NonNullable<ShowRow["venue"]> {
+  return {
+    name: "The Masonic Auditorium",
+    address: "1111 California St",
+    city: "San Francisco, CA 94108",
+    loadingDock: "Rear alley off Taylor St, 2 bays, 9ft clearance",
+    googleLink: "https://maps.google.com/?q=masonic",
+  };
+}
+
 export function stagedRow(pr: ParseResult | null, overrides: Partial<Step3Row> = {}): Step3Row {
   return {
     driveFileId: DFID,
