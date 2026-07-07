@@ -35,7 +35,10 @@ N/A — this plan touches no `pg_advisory*` code path. Declared explicitly.
 | File | Create/Modify | Responsibility |
 |---|---|---|
 | `supabase/migrations/20260706120000_telemetry_console_reads.sql` | Create | Two `stable` read-only functions + revoke/grant. |
-| `tests/db/telemetryConsoleReads.test.ts` | Create | DB behavioral (rollback-tx) + existence/privilege + real-rpc smoke. |
+| `tests/db/telemetryConsoleReads.test.ts` | Create | DB behavioral (rollback-tx) + existence/privilege (local, unit-suite). |
+| `tests/db/telemetryConsoleReads.rpc.test.ts` | Create | Real service_role rpc() smoke + same-project guard (validation, x-audits). |
+| `vitest.projects.ts` | Modify | Add rpc test to `ENV_BOUND_EXCLUDES`. |
+| `.github/workflows/x-audits.yml` | Modify | New validation-scoped `telemetry-rpc-smoke` job. |
 | `lib/admin/telemetryTypes.ts` | Modify | Add `TelemetryStats`, `LoadTelemetryStatsResult`, `AlertSummary`. |
 | `lib/admin/loadTelemetryStats.ts` | Create | `loadTelemetryStats(now)` via `rpc("admin_event_stats_24h")`. |
 | `lib/admin/loadAlertSummary.ts` | Create | `loadAlertSummary()` via `rpc("admin_alert_summary")`. |
@@ -145,36 +148,16 @@ describe("telemetry console reads", () => {
       throw new ROLLBACK();
     }).catch((e) => { if (!(e instanceof ROLLBACK)) throw e; });
   });
-
-  // ---- real PostgREST RPC smoke: same-project guard + fail-closed ----
-  it("service_role rpc() reaches the same project's PostgREST", async () => {
-    const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SECRET_KEY;
-    expect(url && key, "SUPABASE_URL + SUPABASE_SECRET_KEY required for RPC smoke").toBeTruthy();
-    // Same-project guard, fail-closed. Loopback (local supabase) has no project
-    // ref: both DB and URL must be loopback. Remote (validation pooler): the
-    // `postgres.<REF>@…pooler` username ref must equal the `https://<REF>.supabase.co` host ref.
-    const isLoopback = (s: string) => /127\.0\.0\.1|localhost/.test(s);
-    if (isLoopback(DB!) || isLoopback(url!)) {
-      expect(isLoopback(DB!) && isLoopback(url!), "local DB and local SUPABASE_URL must agree").toBe(true);
-    } else {
-      const dbRef = /postgres\.([a-z0-9]+)@/.exec(DB!)?.[1];
-      const urlRef = new URL(url!).host.split(".")[0];
-      expect(urlRef, "SUPABASE_URL project ref must match TEST_DATABASE_URL project").toBe(dbRef);
-    }
-    const supabase = createSupabaseServiceRoleClient();
-    const a = await supabase.rpc("admin_event_stats_24h", { _now: new Date("2020-01-02T05:30:00Z").toISOString() });
-    expect(a.error).toBeNull();
-    expect(Array.isArray(a.data)).toBe(true);
-    expect(a.data?.[0]).toHaveProperty("buckets");
-    const b = await supabase.rpc("admin_alert_summary", { _health_codes: HEALTH_CODES, _degraded_codes: DEGRADED_HEALTH_CODES });
-    expect(b.error).toBeNull();
-    expect(b.data?.[0]).toHaveProperty("total");
-  });
+  // NOTE: the real service_role rpc() smoke is NOT here — it needs validation
+  // REST creds that unit-suite lacks. It lives in Task 1B's
+  // tests/db/telemetryConsoleReads.rpc.test.ts (excluded from unit-suite, run
+  // in an x-audits validation-scoped job). This file (behavioral + existence +
+  // privilege) uses ONLY postgres.js and runs in unit-suite against local.
 });
 class ROLLBACK extends Error {}
 ```
 
-  (Adjust the connection/skip helper to match the repo's existing `tests/db` convention if one exists — grep `tests/db` for `postgres(` and `TEST_DATABASE_URL` first.)
+  (Uses the repo's `tests/db` convention: `postgres(url, { max: 2, prepare: false })` + `sql.begin` sentinel-throw ROLLBACK — see `tests/db/auto-publish-toggle-rls.test.ts`.)
 
 - [ ] **Step 2: Run it, verify FAIL** — `pnpm vitest run tests/db/telemetryConsoleReads.test.ts`. Expected: FAIL (functions do not exist → `to_regprocedure` null / rpc error).
 
@@ -182,13 +165,100 @@ class ROLLBACK extends Error {}
 
 - [ ] **Step 4: Apply locally + reload schema** — apply via the repo's local-apply path (grep an existing migration test / `AGENTS.md` for the exact command; typically `psql "$TEST_DATABASE_URL" -f supabase/migrations/20260706120000_telemetry_console_reads.sql` then `psql "$TEST_DATABASE_URL" -c "notify pgrst, 'reload schema';"`). Confirm the DB the tests hit is the same one.
 
-- [ ] **Step 5: Run test, verify PASS** — `pnpm vitest run tests/db/telemetryConsoleReads.test.ts`. Expected: PASS (all cases; RPC smoke green iff SUPABASE_URL matches).
+- [ ] **Step 5: Run test, verify PASS** — `pnpm vitest run tests/db/telemetryConsoleReads.test.ts`. Expected: PASS (behavioral + existence + privilege).
 
 - [ ] **Step 6: Regenerate manifest (expect no delta)** — `pnpm gen:schema-manifest`; `git status` should show NO change to `supabase/**/schema-manifest.json` (functions aren't introspected). If a delta appears, investigate an unintended table change.
 
 - [ ] **Step 7: Commit** — `git add supabase/migrations/20260706120000_telemetry_console_reads.sql tests/db/telemetryConsoleReads.test.ts && git commit --no-verify -m "feat(db): admin_event_stats_24h + admin_alert_summary read-only aggregates"`
 
-- [ ] **Step 8: Apply to validation surgically (deploy discipline; separate from commit)** — `supabase db query --linked -f supabase/migrations/20260706120000_telemetry_console_reads.sql` then `supabase db query --linked "notify pgrst, 'reload schema';"`. (If `TEST_DATABASE_URL` already IS the validation project — it is: `vzakgrxqwcalbmagufjh` — Step 4 already applied it there; this step confirms + reloads.)
+- [ ] **Step 8: Apply to validation surgically (deploy discipline; separate from commit)** — `supabase db query --linked -f supabase/migrations/20260706120000_telemetry_console_reads.sql` then `supabase db query --linked "notify pgrst, 'reload schema';"`. (If `TEST_DATABASE_URL` already IS the validation project — it is: `vzakgrxqwcalbmagufjh` — Step 4 already applied it there; this step confirms + reloads.) This apply MUST happen before push, else Task 1B's x-audits smoke fails against validation (that's the guard working).
+
+---
+
+### Task 1B: Wire the validation-scoped RPC smoke into CI
+
+**Files:**
+- Create: `tests/db/telemetryConsoleReads.rpc.test.ts`
+- Modify: `vitest.projects.ts` (`ENV_BOUND_EXCLUDES`)
+- Modify: `.github/workflows/x-audits.yml` (new validation-scoped job)
+- Modify (if red): `tests/cross-cutting/unit-suite-shard-topology.test.ts` / `vitest-shard-balance.test.ts` / `vitest-projects-partition.test.ts`
+
+**Why:** unit-suite boots LOCAL supabase and has no validation Supabase REST creds, so a fail-closed real-`rpc()` test cannot run there (Codex plan-R2 F1). The repo's established pattern for env-bound files: exclude from unit-suite (`ENV_BOUND_EXCLUDES`), gate in x-audits with secrets.
+
+- [ ] **Step 1: Write the RPC smoke** (`tests/db/telemetryConsoleReads.rpc.test.ts`) — the block removed from Task 1, self-contained:
+
+```ts
+import { describe, expect, it } from "vitest";
+import { HEALTH_CODES, DEGRADED_HEALTH_CODES } from "@/lib/adminAlerts/audience";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+
+const DB = process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
+describe("telemetry console reads — real rpc() smoke (validation-scoped)", () => {
+  it("service_role rpc() reaches the same project's PostgREST with runtime param names", async () => {
+    const url = process.env.SUPABASE_URL, key = process.env.SUPABASE_SECRET_KEY;
+    expect(url && key, "SUPABASE_URL + SUPABASE_SECRET_KEY required (fail-closed)").toBeTruthy();
+    const isLoopback = (s: string) => /127\.0\.0\.1|localhost/.test(s);
+    if (isLoopback(DB) || isLoopback(url!)) {
+      expect(isLoopback(DB) && isLoopback(url!), "local DB and local SUPABASE_URL must agree").toBe(true);
+    } else {
+      const dbRef = /postgres\.([a-z0-9]+)@/.exec(DB)?.[1];
+      const urlRef = new URL(url!).host.split(".")[0];
+      expect(urlRef, "SUPABASE_URL project ref must match TEST_DATABASE_URL project").toBe(dbRef);
+    }
+    const supabase = createSupabaseServiceRoleClient();
+    const a = await supabase.rpc("admin_event_stats_24h", { _now: new Date("2020-01-02T05:30:00Z").toISOString() });
+    expect(a.error, JSON.stringify(a.error)).toBeNull();
+    expect(a.data?.[0]).toHaveProperty("buckets");
+    const b = await supabase.rpc("admin_alert_summary", { _health_codes: HEALTH_CODES, _degraded_codes: DEGRADED_HEALTH_CODES });
+    expect(b.error, JSON.stringify(b.error)).toBeNull();
+    expect(b.data?.[0]).toHaveProperty("total");
+  });
+});
+```
+
+- [ ] **Step 2: Add to `ENV_BOUND_EXCLUDES`** in `vitest.projects.ts` — append `"tests/db/telemetryConsoleReads.rpc.test.ts"` (match the existing glob/path style of the three env-bound entries). Run `pnpm vitest run tests/cross-cutting/unit-suite-shard-topology.test.ts tests/cross-cutting/vitest-projects-partition.test.ts tests/cross-cutting/vitest-shard-balance.test.ts` — if any pins the exclude list/count, update the expected value in the same commit.
+
+- [ ] **Step 3: Verify unit-suite skips it** — `VITEST_EXCLUDE_ENV_BOUND=1 pnpm exec vitest run --shard=1/2` and `--shard=2/2` do NOT include the rpc file (grep the run list). Locally the file still runs via `pnpm test` (env not set) — that's intended.
+
+- [ ] **Step 4: Add the x-audits job.** In `.github/workflows/x-audits.yml`, add a job mirroring `validation-schema-parity`'s shape:
+
+```yaml
+  telemetry-rpc-smoke:
+    # Validation-deployment proof for the function-only migration 20260706120000
+    # (admin_event_stats_24h / admin_alert_summary). validation-schema-parity
+    # can't see functions; this hits the real PostgREST rpc() path on the
+    # validation project. Fails if the migration never reached validation.
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 10.33.2 }
+      - uses: actions/setup-node@v4
+        with: { node-version: 20, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - name: Run telemetry rpc smoke against validation
+        shell: bash
+        env:
+          TEST_DATABASE_URL: ${{ secrets.SUPABASE_TEST_DATABASE_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+        run: |
+          set -o pipefail
+          pnpm vitest run tests/db/telemetryConsoleReads.rpc.test.ts 2>&1 | tee telemetry-rpc-smoke.log
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: telemetry-rpc-smoke-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          path: telemetry-rpc-smoke.log
+```
+
+  Confirm the `secrets.SUPABASE_URL` / `secrets.SUPABASE_SECRET_KEY` names exist (used by the `verify-branch-protection` job in the same file) and `secrets.SUPABASE_TEST_DATABASE_URL` (used by `validation-schema-parity`). Enable `workflow_dispatch:` if not already, so Stage 4 can trigger it directly.
+
+- [ ] **Step 5: Commit** — `git commit --no-verify -m "test(db): CI-wire validation-scoped telemetry rpc smoke (x-audits)"`. (The job proves green at Stage 4 once the migration is applied to validation — Task 1 Step 8.)
 
 ---
 
@@ -351,12 +421,24 @@ expect((await loadAlertSummary()).kind).toBe("ok");
 // degraded 0, total>0 → notice
 rpc.mockResolvedValue({ data: [{ total: "2", degraded: "0" }], error: null });
 expect((await loadAlertSummary())).toMatchObject({ kind: "notice", notice: 2 });
-// error / throw / malformed → infra_error (3 cases)
+// error / throw → infra_error (2 cases)
+// Strict validation (Codex plan-R2 F2), mirror loadTelemetryStats:
+it.each([
+  ["missing degraded", { total: "3" }],
+  ["non-numeric", { total: "x", degraded: "1" }],
+  ["NaN/Infinity", { total: "Infinity", degraded: "1" }],
+  ["negative", { total: "-1", degraded: "0" }],
+  ["degraded > total", { total: "1", degraded: "3" }],
+  ["empty data", null],
+])("malformed (%s) → infra_error", async (_l, row) => {
+  rpc.mockResolvedValue({ data: row === null ? [] : [row], error: null });
+  expect((await loadAlertSummary()).kind).toBe("infra_error");
+});
 ```
 
 - [ ] **Step 2: Run, verify FAIL.**
 - [ ] **Step 3: Add `AlertSummary` type.**
-- [ ] **Step 4: Write `loadAlertSummary.ts`** per spec §4 (rpc `admin_alert_summary`, import `HEALTH_CODES`/`DEGRADED_HEALTH_CODES` from `@/lib/adminAlerts/audience`, forensic codes `ALERT_SUMMARY_READ_RETURNED_ERROR`/`_THREW`, `notice = total - degraded`, kind logic).
+- [ ] **Step 4: Write `loadAlertSummary.ts`** per spec §4 (rpc `admin_alert_summary`, import `HEALTH_CODES`/`DEGRADED_HEALTH_CODES` from `@/lib/adminAlerts/audience`, forensic codes `ALERT_SUMMARY_READ_RETURNED_ERROR`/`_THREW`). **Strict validation before ok:** reuse the same `isNonNegInt` guard (extract it to a shared `lib/admin/telemetryNum.ts` in Task 2 and import in both loaders, OR duplicate the 1-line helper); require `total`/`degraded` finite non-neg ints AND `degraded <= total`, else `infra_error`. Then `total===0`→ok; else `notice = total - degraded`, `kind = degraded>0?"degraded":"notice"`.
 - [ ] **Step 5: Run, verify PASS.**
 - [ ] **Step 6: Register in `_metaInfraContract.test.ts`** (`skipGrepShape: true`, contract mentions rpc + loadBellFeed precedent). Run the meta-test → PASS.
 - [ ] **Step 7: Commit** — `feat(admin): loadAlertSummary single-snapshot alert counts + infra registry row`
@@ -628,6 +710,7 @@ expect(container.firstChild).toBeNull();
 - **§8 dimensional invariants:** Task 13 (Playwright). ✓ **§9 transitions:** Task 14. ✓
 - **§10 responsive / §11 numeric:** Tasks 6, 12 (grid breakpoints, `jobs.length`, activity copy). ✓
 - **§12 invariants / §13 meta-tests:** registry rows (Tasks 2, 3); N/A declarations in Global Constraints. ✓
-- **§14 testing / §15 SETTLED DB contract:** Task 1 (all five layers). ✓
+- **§14 testing / §15 SETTLED DB contract:** Task 1 (behavioral + existence + privilege, local) + Task 1B (real rpc smoke, excluded from unit-suite, x-audits validation job — the CI-enforced deployment proof). ✓
+- **Strict loader validation (plan-R1 F1 / R2 F2):** `loadTelemetryStats` (Task 2) + `loadAlertSummary` (Task 3) both `isNonNegInt`-validate + degrade to infra_error, with table-driven malformed tests. ✓
 - **Type consistency:** `TelemetryStats`/`LoadTelemetryStatsResult`/`AlertSummary` defined Task 2-3, consumed Task 6; `summarizeCronHealth` signature Task 4 → consumed Task 6, 9; `buildFilterHref` extracted Task 7 Step 0 → consumed Task 7, 8. ✓
 - No placeholders; test code shown; exact paths + commit messages per task.
