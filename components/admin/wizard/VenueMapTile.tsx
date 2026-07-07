@@ -49,7 +49,10 @@ export function VenueMapTile({
             "repeating-linear-gradient(45deg, var(--color-surface-sunken) 0 10px, var(--color-surface) 10px 20px)",
         }}
       />
-      <span className="absolute top-2.5 left-2.5 rounded-sm bg-surface/85 px-1.5 py-0.5 font-mono text-[10px] text-text-faint">
+      <span
+        aria-hidden="true"
+        className="absolute top-2.5 left-2.5 rounded-sm bg-surface/85 px-1.5 py-0.5 font-mono text-[10px] text-text-faint"
+      >
         map
       </span>
       {/* (2) real map overlay — hides itself on error, instantly. §8 declares
@@ -65,6 +68,11 @@ export function VenueMapTile({
         loading="lazy"
         onError={(e) => {
           e.currentTarget.style.visibility = "hidden";
+        }}
+        onLoad={(e) => {
+          // A theme-driven src change re-fetches; if a prior src errored (hidden)
+          // and the new one loads, un-hide so a good map is never left invisible.
+          e.currentTarget.style.visibility = "visible";
         }}
         className="absolute inset-0 size-full object-cover"
       />
@@ -91,8 +99,8 @@ export function VenueMapTile({
       href={mapHref}
       target="_blank"
       rel="noopener noreferrer"
-      aria-label="Open directions to the venue"
-      className={common}
+      aria-label="Open the venue in Google Maps (opens in a new tab)"
+      className={`${common} focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:outline-none focus-visible:ring-inset`}
     >
       {/* anchor wraps the button visual; the inner Directions span is decorative */}
       {inner}
