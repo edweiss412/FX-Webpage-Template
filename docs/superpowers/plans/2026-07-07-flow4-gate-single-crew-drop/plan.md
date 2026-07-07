@@ -87,9 +87,16 @@ In the returned `Phase1ShowRow` object (~:862, alongside `lastSyncStatus: show.l
       published: show.published,
 ```
 
-- [ ] **Step 5: Add `published: true` to all 16 test doubles**
+- [ ] **Step 5: Add `published` to all 16 test doubles**
 
-For each file listed above, add `published: true,` to every `Phase1ShowRow` object literal (co-located with the existing `priorParseWarningsRaw:` line), and to any local `FakeShow`/helper TYPE that mirrors `Phase1ShowRow` fields (e.g. `tests/sync/phase1.test.ts:14-20`, `tests/sync/phase1WarningBridge.test.ts:13-19` add `published: boolean;`). Default `true` — these are existing tests whose behavior must not change (a published show that does NOT single-drop behaves identically). Grep to confirm none missed:
+For each file listed above, add `published: true,` to every `Phase1ShowRow`/fake-show object literal (co-located with the existing `priorParseWarningsRaw:` line), and add `published: boolean;` to any local fake-row TYPE that mirrors `Phase1ShowRow` fields. Concretely:
+
+- `tests/sync/phase1.test.ts`: type `FakeShowRow` at `:12-21` gains `published: boolean;`; every `tx.shows.set("file-1", { ... })` literal (13 sites — grep `shows.set(`) gains `published: true,`.
+- `tests/sync/phase1.decision-rule.test.ts`: its local fake-row type gains `published: boolean;`; the `seedPriorShow(tx, prior)` helper at `:191-192` gains `published: true` in its `tx.shows.set` literal AND an optional param so Task 2 can seed an unpublished show — change its signature to `seedPriorShow(tx: FakePhase1Tx, prior: ParseResult, opts: { published?: boolean } = {})` and set `published: opts.published ?? true` in the literal.
+- `tests/sync/phase1WarningBridge.test.ts`: its local fake-row type (`:13-19`) gains `published: boolean;`; each literal gains `published: true,`.
+- Remaining 13 files: add `published: true,` beside each `priorParseWarningsRaw:` in their `Phase1ShowRow` literals; where a file declares a local mirror type, add the field there too.
+
+Default `true` — these are existing tests whose behavior must not change (a published show that does NOT single-drop behaves identically). Grep to confirm none missed:
 
 ```bash
 cd /Users/ericweiss/fxav-flow4 && pnpm exec tsc --noEmit 2>&1 | grep -i "published" | head
@@ -115,68 +122,78 @@ Claude-Session: https://claude.ai/code/session_01BuoDUY5s1N3hF3GD9k7LSU"
 
 **Files:**
 - Modify: `lib/sync/phase1.ts` (`materialShrinkItems` computation, ~:422-425)
-- Test: `tests/sync/phase1.test.ts` (new `describe` block)
+- Test: `tests/sync/phase1.decision-rule.test.ts` (new `describe` block — the existing material-shrink/`shrink_held` + accept-bypass coverage home; `phase1.test.ts` only asserts routing changed)
 
 **Interfaces:**
-- Consumes: `Phase1ShowRow.published` (Task 1); existing `materialShrinkItems` → `shrink_held` outcome (`lib/sync/phase1.ts:426-453`); existing `describeShrink` (`:212-229`).
+- Consumes: `Phase1ShowRow.published` + `seedPriorShow(tx, prior, { published })` (Task 1); existing `materialShrinkItems` → `shrink_held` outcome (`lib/sync/phase1.ts:426-453`); existing `describeShrink` (`:212-229`).
 - Produces: nothing new downstream — reuses `Phase1Result` `shrink_held`.
 
-Test scaffolding note (anti-tautology): derive the expected count string from the fixture roster lengths, not a hardcoded `"crew 5→4"`. Use `runWith(tx, next)` where `tx.readShowForPhase1` returns a `Phase1ShowRow` with a controllable `published` and a `priorParseResult` whose `crewMembers` length you set; `next` is a `parseResult({ crewMembers: [...] })` with one fewer. The existing `phase1.test.ts` helpers (`makeTx`/`runWith`, ~:280) are the template.
+Real test infra (verified `tests/sync/phase1.decision-rule.test.ts`): `crew(name)` (`:24`), `crewList(n)` (`:205`), `seedPriorShow(tx, prior[, {published}])` (`:191`, seeds `tx.shows` with `id:"show-1"`), `runWith(tx, next, overrides?, deps?)`, `baseArgs.binding.modifiedTime = "2026-05-08T12:00:00.000Z"`, and `FakePhase1Tx.shrinkHeldCalls` (array of `{driveFileId, payload}`) — assert against `tx.shrinkHeldCalls`, NOT a `vi.fn` spy. The existing MI-6 hold test is `crewList(5) → crewList(2)`. Anti-tautology: derive the count string from `prior.crewMembers.length`/`next.crewMembers.length`, never hardcode.
 
-- [ ] **Step 1: Write the failing tests** — `tests/sync/phase1.test.ts`
+- [ ] **Step 1: Write the failing tests** — append to `tests/sync/phase1.decision-rule.test.ts`
 
 ```ts
-describe("single-crew drop gate (Flow 4.1)", () => {
-  // Prior 5 crew; next removes exactly one → net crewDrop === 1.
-  const prior5 = ["A", "B", "C", "D", "E"].map((n) => crewMember(n));
-  const next4 = ["A", "B", "C", "D"].map((n) => crewMember(n));
-
-  it("published single-drop → shrink_held", async () => {
-    const tx = makeTx({ published: true, priorCrew: prior5 });
-    const result = await runWith(tx, parseResult({ crewMembers: next4 }));
-    expect(result.outcome).toBe("shrink_held");
-    // failure mode caught: P0-1, a live single-crew drop applying silently
-    expect(result.outcome === "shrink_held" && result.shrinkItems.filter((i) => i.invariant === "MI-6")).toHaveLength(1);
+describe("single-crew drop gate on published shows (Flow 4.1)", () => {
+  test("published single-drop (cron) → shrink_held with exactly one MI-6", async () => {
+    const tx = new FakePhase1Tx();
+    const prior = parseResult({ crewMembers: crewList(5) });
+    seedPriorShow(tx, prior); // published defaults true
+    const next = parseResult({ crewMembers: crewList(4) }); // subset → crewDrop === 1
+    const res = await runWith(tx, next);
+    expect(res.outcome).toBe("shrink_held");
+    if (res.outcome !== "shrink_held") throw new Error("unreachable");
+    // failure mode caught: P0-1 — a live single-crew drop applying silently
+    expect(res.shrinkItems.filter((i) => i.invariant === "MI-6")).toHaveLength(1);
     // count derived from fixture lengths, not hardcoded
-    expect(result.outcome === "shrink_held" && result.message).toContain(`crew ${prior5.length}→${next4.length}`);
+    expect(res.message).toContain(`${prior.crewMembers.length}→${next.crewMembers.length}`);
+    expect(res.message.toLowerCase()).toContain("crew");
+    expect(tx.shrinkHeldCalls).toHaveLength(1);
   });
 
-  it("unpublished single-drop → applies (not held)", async () => {
-    const tx = makeTx({ published: false, priorCrew: prior5 });
-    const result = await runWith(tx, parseResult({ crewMembers: next4 }));
-    expect(result.outcome).not.toBe("shrink_held");
+  test("unpublished single-drop → applies (not held)", async () => {
+    const tx = new FakePhase1Tx();
+    seedPriorShow(tx, parseResult({ crewMembers: crewList(5) }), { published: false });
+    const res = await runWith(tx, parseResult({ crewMembers: crewList(4) }));
     // failure mode caught: over-gating drafts with setup friction
-    expect(tx.updateShowShrinkHeld).not.toHaveBeenCalled();
+    expect(res.outcome).not.toBe("shrink_held");
+    expect(tx.shrinkHeldCalls).toEqual([]);
   });
 
-  it("published multi-drop → shrink_held with exactly one MI-6 (regression pin)", async () => {
-    const next2 = ["A", "B"].map((n) => crewMember(n)); // crewDrop === 3
-    const tx = makeTx({ published: true, priorCrew: prior5 });
-    const result = await runWith(tx, parseResult({ crewMembers: next2 }));
-    expect(result.outcome).toBe("shrink_held");
-    // failure mode caught: synthetic MI-6 double-firing on multi-drop → duplicate "crew" part
-    expect(result.outcome === "shrink_held" && result.shrinkItems.filter((i) => i.invariant === "MI-6")).toHaveLength(1);
-    expect(result.outcome === "shrink_held" && result.message).toBe(`crew ${prior5.length}→${next2.length}`);
+  test("published multi-drop still holds with exactly one MI-6 (no synthetic double)", async () => {
+    const tx = new FakePhase1Tx();
+    const prior = parseResult({ crewMembers: crewList(5) });
+    seedPriorShow(tx, prior);
+    const next = parseResult({ crewMembers: crewList(2) }); // crewDrop === 3
+    const res = await runWith(tx, next);
+    expect(res.outcome).toBe("shrink_held");
+    if (res.outcome !== "shrink_held") throw new Error("unreachable");
+    // failure mode caught: synthetic MI-6 double-firing → duplicate "crew" part in describeShrink
+    expect(res.shrinkItems.filter((i) => i.invariant === "MI-6")).toHaveLength(1);
+    expect(res.message).toContain(`${prior.crewMembers.length}→${next.crewMembers.length}`);
   });
 
-  it("accept path: published single-drop with acceptShrink applies (not held)", async () => {
-    const tx = makeTx({ published: true, priorCrew: prior5 });
-    const result = await runWith(tx, parseResult({ crewMembers: next4 }), {
+  test("published single-drop with version-bound accept applies (bypass); no hold write", async () => {
+    const tx = new FakePhase1Tx();
+    seedPriorShow(tx, parseResult({ crewMembers: crewList(5) }));
+    const res = await runWith(tx, parseResult({ crewMembers: crewList(4) }), {
       acceptShrink: true,
-      expectedModifiedTime: BINDING_MODIFIED_TIME, // === args.binding.modifiedTime
+      expectedModifiedTime: baseArgs.binding.modifiedTime,
     });
     // failure mode caught: the accept fall-through broken by the new branch
-    expect(result.outcome).not.toBe("shrink_held");
-    expect(tx.updateShowShrinkHeld).not.toHaveBeenCalled();
+    expect(["pass", "auto_apply_with_holds"]).toContain(res.outcome);
+    expect(tx.shrinkHeldCalls).toEqual([]);
+    // Layer note: the single removal's show_change_log orphan-remove row is written by the
+    // phase2/scheduled-sync apply path (lib/sync/runScheduledCronSync.ts:3313+), which this change
+    // does NOT touch and which existing phase2/producer tests already cover — out of runPhase1's layer.
   });
 });
 ```
 
-(If `makeTx`/`runWith`/`crewMember`/`BINDING_MODIFIED_TIME` helpers don't already expose `published`/`priorCrew`/accept options, extend the existing helpers minimally — do not fork them. `makeTx` must record `updateShowShrinkHeld` calls, e.g. `vi.fn()`.)
+(`crewList(5) → crewList(4)` yields a 5→4 subset removing exactly one member → `crewDrop === 1`. `FakePhase1Tx`, `crewList`, `seedPriorShow`, `runWith`, `baseArgs` are pre-existing in this file — do NOT introduce `makeTx`/`vi.fn`/`crewMember`; use the file's own helpers as shown. `seedPriorShow` gained its optional `{published}` param in Task 1 Step 5.)
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `cd /Users/ericweiss/fxav-flow4 && pnpm exec vitest run tests/sync/phase1.test.ts -t "single-crew drop gate"`
+Run: `cd /Users/ericweiss/fxav-flow4 && pnpm exec vitest run tests/sync/phase1.decision-rule.test.ts -t "single-crew drop gate"`
 Expected: FAIL — published single-drop currently returns `pass`/auto-apply (not `shrink_held`); no MI-6 in shrink items.
 
 - [ ] **Step 3: Add the synthetic-MI-6 push** — `lib/sync/phase1.ts`, replacing the `materialShrinkItems` const (~:422-425)
@@ -209,7 +226,7 @@ Expected: PASS — the four new cases pass; every pre-existing sync test still g
 - [ ] **Step 5: Commit**
 
 ```bash
-cd /Users/ericweiss/fxav-flow4 && git add lib/sync/phase1.ts tests/sync/phase1.test.ts && git commit --no-verify -m "feat(sync): hold published single-crew drops via shrink_held (P0-1)
+cd /Users/ericweiss/fxav-flow4 && git add lib/sync/phase1.ts tests/sync/phase1.decision-rule.test.ts && git commit --no-verify -m "feat(sync): hold published single-crew drops via shrink_held (P0-1)
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01BuoDUY5s1N3hF3GD9k7LSU"
