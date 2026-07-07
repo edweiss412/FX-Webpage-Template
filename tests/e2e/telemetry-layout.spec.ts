@@ -104,4 +104,79 @@ test.describe("telemetry layout + tap targets (§8/G7)", () => {
       expect(h, `${sel} tap target`).toBeGreaterThanOrEqual(44 - 0.5);
     }
   });
+
+  test("console strip: equal-height stat cards, 340px sidebar, no overflow, bottom-aligned sparkline (§8)", async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: 1280, height: 900 }); // ≥1200 → two-column console
+    const res = await page.goto(HARNESS_PATH, { waitUntil: "domcontentloaded" });
+    expect(res?.ok()).toBe(true);
+
+    // (1) the 4 overview stat cards are equal height in their row.
+    const statBoxes = await page
+      .locator(
+        "[data-testid=stat-system-health],[data-testid=stat-open-alerts],[data-testid=stat-cron],[data-testid=stat-events]",
+      )
+      .evaluateAll((els) => els.map((e) => e.getBoundingClientRect()));
+    expect(statBoxes.length).toBe(4);
+    const rowCards = statBoxes.filter((b) => Math.abs(b.top - statBoxes[0]!.top) < 1);
+    if (rowCards.length > 1) {
+      const heights = rowCards.map((b) => b.height);
+      expect(Math.max(...heights) - Math.min(...heights)).toBeLessThanOrEqual(0.5);
+    }
+
+    // (2) sidebar is exactly 340px wide at ≥1200, and the body has no horizontal overflow.
+    const sidebarW = await page
+      .locator("[data-testid=telemetry-sidebar]")
+      .evaluate((el) => el.getBoundingClientRect().width);
+    expect(Math.abs(sidebarW - 340)).toBeLessThanOrEqual(0.5);
+    const overflow = await page.evaluate(
+      () => document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    );
+    expect(overflow).toBeLessThanOrEqual(0.5);
+
+    // (3) sparkline bars each measure within [3,22]px and share a common baseline (bottom-aligned).
+    const bars = await page
+      .locator("[data-testid=event-sparkline] [data-bar]")
+      .evaluateAll((els) => els.map((e) => e.getBoundingClientRect()));
+    expect(bars.length).toBeGreaterThan(0);
+    const bottoms = bars.map((b) => b.bottom);
+    for (const b of bars) {
+      expect(b.height).toBeGreaterThanOrEqual(3 - 0.5);
+      expect(b.height).toBeLessThanOrEqual(22 + 0.5);
+    }
+    expect(Math.max(...bottoms) - Math.min(...bottoms)).toBeLessThanOrEqual(0.5);
+
+    // (4) the auto-refresh switch thumb stays within its track in BOTH on and off states.
+    const toggle = page.locator("[data-testid=autorefresh-toggle]");
+    for (let i = 0; i < 2; i++) {
+      const within = await toggle.evaluate((btn) => {
+        const track = btn.querySelector("span") as HTMLElement;
+        const thumb = track.querySelector("span") as HTMLElement;
+        const t = track.getBoundingClientRect();
+        const h = thumb.getBoundingClientRect();
+        return (
+          h.left >= t.left - 0.5 &&
+          h.right <= t.right + 0.5 &&
+          h.top >= t.top - 0.5 &&
+          h.bottom <= t.bottom + 0.5
+        );
+      });
+      expect(within, `switch thumb within track (state ${i})`).toBe(true);
+      await toggle.click(); // flip on↔off
+    }
+  });
+
+  test("console body stacks single-column below xl (sidebar under the log)", async ({ page }) => {
+    await page.setViewportSize({ width: 900, height: 900 }); // < xl (1280) → single column
+    const res = await page.goto(HARNESS_PATH, { waitUntil: "domcontentloaded" });
+    expect(res?.ok()).toBe(true);
+    const logTop = await page
+      .locator("[data-testid=telemetry-console-grid] [data-testid=event-log]")
+      .evaluate((el) => el.getBoundingClientRect().top);
+    const sidebarTop = await page
+      .locator("[data-testid=telemetry-sidebar]")
+      .evaluate((el) => el.getBoundingClientRect().top);
+    expect(sidebarTop).toBeGreaterThan(logTop);
+  });
 });

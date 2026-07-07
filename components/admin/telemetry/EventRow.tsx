@@ -1,5 +1,6 @@
 // components/admin/telemetry/EventRow.tsx
 "use client";
+import { ChevronDown } from "lucide-react";
 import { useState } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
@@ -10,12 +11,24 @@ import { EventLevelBadge } from "./EventLevelBadge";
 import { ContextDetail } from "./ContextDetail";
 import { CronRunSummaryCard } from "./CronRunSummaryCard";
 
-export function EventRow({ event, now }: { event: AppEventRow; now: Date }) {
+export function EventRow({
+  event,
+  now,
+  isFirst = false,
+}: {
+  event: AppEventRow;
+  now: Date;
+  isFirst?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const reduce = useReducedMotion();
   const isSummary = event.code === CRON_RUN_SUMMARY;
+  const isError = event.level === "error";
   return (
-    <li className="flex flex-col gap-2 rounded-md border border-border bg-surface p-tile-pad">
+    <li
+      data-testid={`event-row-${event.id}`}
+      className={`flex flex-col gap-2 px-4 py-3.5 ${isFirst ? "" : "border-t border-border"} ${isError ? "bg-danger-bg" : ""}`}
+    >
       <div className="flex items-start gap-3">
         <EventLevelBadge level={event.level} />
         <div className="min-w-0 flex-1">
@@ -80,7 +93,7 @@ export function EventRow({ event, now }: { event: AppEventRow; now: Date }) {
             </>
           )}
         </div>
-        <span className="shrink-0 text-xs text-text-faint">
+        <span className="shrink-0 text-xs tabular-nums text-text-faint">
           {formatRelative(event.occurredAt, now)}
         </span>
         {event.requestId && (
@@ -92,6 +105,10 @@ export function EventRow({ event, now }: { event: AppEventRow; now: Date }) {
             {event.requestId.slice(0, 8)}
           </Link>
         )}
+        <ChevronDown
+          aria-hidden
+          className={`mt-0.5 size-4 shrink-0 text-text-faint transition-transform ${open ? "rotate-180" : ""}`}
+        />
       </div>
       {/* The ONE animated transition in this surface (spec §7): height disclosure,
           220ms ease-out-quart, instant under prefers-reduced-motion (useReducedMotion → 0). */}

@@ -15,6 +15,18 @@ vi.mock("@/lib/time/now", () => ({ nowDate: async () => new Date("2026-06-29T12:
 vi.mock("@/components/admin/telemetry/HealthAlertsPanel", () => ({
   HealthAlertsPanel: () => null,
 }));
+// The overview strip's two new service-role loaders (loadAlertSummary /
+// loadTelemetryStats) also read Supabase; stub them so the page-render test
+// stays DB-free. Deterministic shapes so the strip renders its ok branches.
+vi.mock("@/lib/admin/loadAlertSummary", () => ({
+  loadAlertSummary: async () => ({ kind: "ok", degraded: 0, notice: 0, total: 0 }),
+}));
+vi.mock("@/lib/admin/loadTelemetryStats", () => ({
+  loadTelemetryStats: async () => ({
+    kind: "ok",
+    stats: { total: 0, errorCount: 0, warnCount: 0, infoCount: 0, buckets: [] },
+  }),
+}));
 // The page renders client children (EventFilters, AutoRefreshControl) that call App Router
 // hooks; without this mock the render throws the Next router invariant instead of testing.
 vi.mock("next/navigation", () => ({
@@ -38,7 +50,7 @@ describe("TelemetryPage", () => {
     render(await Page({ searchParams: Promise.resolve({}) }));
     expect(screen.getByText("Telemetry")).toBeInTheDocument();
     expect(screen.getByTestId("cron-health-degraded")).toBeInTheDocument();
-    expect(screen.getByText(/No events/i)).toBeInTheDocument(); // timeline still rendered
+    expect(screen.getByText(/No events match/i)).toBeInTheDocument(); // timeline empty-state still rendered
   });
 
   test("passes parsed request-correlation filters into loadAppEvents (AC3: requestId + sinceHours null)", async () => {

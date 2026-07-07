@@ -408,6 +408,52 @@ jobs:
           if-no-files-found: warn
           path: validation-schema-parity.log
 
+  telemetry-rpc-smoke:
+    # Validation-DEPLOYMENT proof for the function-only migration
+    # 20260706120000 (admin_event_stats_24h / admin_alert_summary). The
+    # validation-schema-parity gate can't see functions (columns only), so this
+    # job runs the direct-SQL test against the VALIDATION project and asserts
+    # both functions EXIST, are service_role-EXECUTE-granted (not anon/auth),
+    # and are behaviorally correct (rollback-tx, pinned 2020 window + synthetic
+    # alert codes so nothing is committed). Fails if the migration never reached
+    # validation or was applied with the wrong signature/grant.
+    #
+    # Mechanism note: uses postgres.js over TEST_DATABASE_URL (the ONLY
+    # validation credential available as a repo secret — same channel as
+    # validation-schema-parity / postgrest-dml-lockdown). A real PostgREST
+    # rpc() smoke would need a validation-ISSUED apikey (publishable/anon key);
+    # that is NOT a repo secret (SUPABASE_URL/SUPABASE_SECRET_KEY are the LOCAL
+    # supabase pair, hence loopback in CI), so the REST path is not exercised
+    # here. to_regprocedure pins the function signature (param types + arity) —
+    # the drift that matters for a positional-safe service_role deploy.
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Assert telemetry functions are deployed to validation
+        shell: bash
+        env:
+          TEST_DATABASE_URL: ${{ secrets.SUPABASE_TEST_DATABASE_URL }}
+        run: |
+          set -o pipefail
+          pnpm vitest run tests/db/telemetryConsoleReads.test.ts 2>&1 | tee telemetry-rpc-smoke.log
+      - name: Upload telemetry-rpc-smoke artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: telemetry-rpc-smoke-${{ github.run_id }}-${{ github.run_attempt }}-${{ github.job }}
+          if-no-files-found: warn
+          path: telemetry-rpc-smoke.log
+
   affordance-matrix-parity:
     # M12.12 Task 14: structural parity gates for the help-affordance matrix —
     # matrix shape meta-test, matrix↔registry parity, and the reverse

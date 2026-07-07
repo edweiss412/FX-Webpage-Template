@@ -337,6 +337,20 @@ const infraRegistry = [
       "cron health: Promise.all of 9 per-job app_events limit(1) reads (service-role) in one try/catch; a per-result RETURNED {error} → infra_error('app_events read returned error') (distinct path, behaviorally tested in tests/admin/loadCronHealth.test.ts); a genuine THROW (network/construction) → infra_error('app_events read threw'); construction throw → infra_error.",
   },
   {
+    helper: "loadTelemetryStats",
+    path: "lib/admin/loadTelemetryStats.ts",
+    contract:
+      "admin_event_stats_24h RPC; { data, error } destructure; construction throw + rpc returned {error} + rpc throw + empty/malformed row → { kind:'infra_error' }. Shared mock rpc() is not fn-keyed (loadBellFeed precedent) — rpc-throw/error covered in tests/admin/loadTelemetryStats.test.ts.",
+    skipGrepShape: true as const,
+  },
+  {
+    helper: "loadAlertSummary",
+    path: "lib/admin/loadAlertSummary.ts",
+    contract:
+      "admin_alert_summary RPC (HEALTH_CODES/DEGRADED_HEALTH_CODES params); { data, error } destructure; construction throw + rpc returned {error} + rpc throw + empty/malformed row (non-int, degraded>total) → { kind:'infra_error' }. Shared mock rpc() is not fn-keyed (loadBellFeed precedent) — rpc-throw/error covered in tests/admin/loadAlertSummary.test.ts.",
+    skipGrepShape: true as const,
+  },
+  {
     helper: "queryEvents",
     path: "lib/observe/query/events.ts",
     contract:
