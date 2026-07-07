@@ -297,7 +297,8 @@ as $$ ... $$;
    - `revert`: restore `sheet_value` to the live row; delete the override row. No auth-table write.
 
    **sheet_value invariant (R6/R7):** `admin_overrides.sheet_value` ALWAYS holds the **parsed/sheet** value, never an override value. It is captured **once at create** (when the live value still equals the sheet value) and thereafter refreshed **only from the parsed source** on each applied sync (Stage B). It is **never** overwritten on an *edit* (the live value there is the prior override — capturing it would poison revert, R7 finding). This makes revert correct at every moment, including: (a) create-then-revert-before-any-sync (captured-at-create value restored, R6); (b) edit-then-revert-before-any-sync (preserved sheet_value restored, not the discarded prior override, R7). `repoint` to a fresh target captures **that target's** current parsed value (it is un-overridden, so live == sheet). Applies to all 6 fields. Tested: create-then-revert AND edit-then-revert, both without any intervening sync, restore the true sheet value for every field.
-   - `repoint`: update `match_key = p_new_match_key`, `active=true`; **capture the new target's current value into `sheet_value` (same tx, before apply)**; apply `override_value` to the newly-targeted live row.
+   - `repoint` (**active** override — moving from a still-live old target A to a new target B): a **two-target** tx in this order — (1) **release old target A**: restore A's live field from the override row's current stored `sheet_value` (so A stops showing the override and A's `(show_id,name)` frees up); (2) set `match_key = p_new_match_key`, `active=true`, **capture B's current parsed value into `sheet_value`**; (3) apply `override_value` to B. Releasing A **before** applying to B is mandatory for crew-name repoint — otherwise A still holds the override name and step 3 could collide on `(show_id,name)` uniqueness. Tested for crew name, crew role, and hotel: A is restored to its sheet value AND B shows the override, with the name-uniqueness ordering exercised.
+   - `repoint` (**inactive/stale** override — old target vanished by definition, §7.6): no old live row to release; validate the stored-row CAS + the new target's no-collision; set `match_key = p_new_match_key`, `active=true`, capture B's parsed value into `sheet_value`, apply to B.
    - `discard`: delete the override row (no live-row change — the row already shows the parsed value since deactivation).
 5. Return a discriminated `jsonb` result (`{ ok, value | code }`) for `mapRpcOutcome` (`mi11GateActions.ts:34`, invariant 9).
 
@@ -349,7 +350,7 @@ The RPC's immediate live-row `UPDATE` for a **crew** field (name OR role) cannot
 | `upsert` (create/edit) | role | any | `currentLiveName` (resolves through active sibling name override, else `match_key`) | `override_value` |
 | `revert` | name | active | `currentLiveName` | `sheet_value` (parsed name) |
 | `revert` | role | active | `currentLiveName` | `sheet_value` (parsed role) |
-| `repoint` (**active** override) | name/role | target row still live | validate old target (`currentLiveName`) exists to release **and** new target is a current parsed identifier | apply to new target |
+| `repoint` (**active** override) | name/role | target row still live | (1) **restore old target A to its stored `sheet_value`** (release — A stops showing the override, frees A's `(show_id,name)`); (2) validate new target B is a current parsed identifier, no collision; capture B's parsed value into `sheet_value` | apply to B **after** releasing A (ordering mandatory for name uniqueness, §7.2) |
 | `repoint` (**inactive/stale** override) | name/role | old target vanished **by definition** | **do NOT require the old live row.** Validate only: (a) the stored inactive override-row CAS, (b) the new `match_key` is a current parsed identifier with no collision (§7.4). Then set `match_key`=new target, `active=true`, and apply. | apply to new target |
 | `discard` | any | any | — (no live-row change) | — |
 
@@ -357,7 +358,7 @@ The RPC's immediate live-row `UPDATE` for a **crew** field (name OR role) cannot
 
 If a live-row anchor matches **zero** rows when the UI expected one (a sync moved the row out from under an *active*-override op), the RPC raises CAS 409 `stale_review` (§7.2 item 3) rather than silently no-op'ing — the admin UI reloads instead of showing a stale value until the next sync. `show`/`hotel` domains anchor on the shows PK / hotel ordinal and have no parsed-vs-current ambiguity.
 
-Tests (§13): edit-active-name, revert-active-name, **apply-and-revert-role-while-name-override-active** (finding 3), **repoint-after-target-disappearance** succeeds without an old live row (finding 2), and a wrong active-anchor raises 409.
+Tests (§13): edit-active-name, revert-active-name, **apply-and-revert-role-while-name-override-active** (finding 3), **repoint-after-target-disappearance** succeeds without an old live row (finding 2), **active-repoint restores the old target A to its sheet value AND applies to B** for crew name / crew role / hotel, exercising the release-before-apply name-uniqueness ordering (R8 finding), and a wrong active-anchor raises 409.
 
 ---
 
@@ -533,7 +534,7 @@ Additionally, a user-facing **stale-review** error surfaces on the CAS 409 path 
 | DDL (admin_overrides) | shared table | shared | shared |
 | CHECK | `field in (dates,venue), match_key=''` | `field in (name,role)` | `field in (hotel_name,hotel_address)` |
 | Apply transform | replace parseResult.show before applyShowSnapshot | fold **post-hold** crew list before delete/upsert (§3.4); also set `crew_members.sheet_name` | replace hotel rows before replace |
-| Hold ordering | N/A | holds plan on RAW parse; override applies after (§3.4); hold+override same member → defer override | N/A |
+| Hold ordering | N/A | hold *disposition* on RAW parse; override fold still applies after (§3.4 — **NOT deferred**); `protectedNames`/`heldNames` mapped through the active override so the keep-set preserves the overridden row id | N/A |
 | Live-row write (RPC immediate) | `UPDATE shows` | `UPDATE crew_members` (+`sheet_name` on name op); anchor via §7.6 resolver | `UPDATE hotel_reservations` by ordinal |
 | Visibility alias | N/A | **name override** → `sheet_name` widens viewer match set at 3 `namesRefer` sites (§3.5); role → N/A | N/A |
 | Auth reconcile | N/A | **none** (auth table retired M9.5; picker id-keyed) | N/A |
