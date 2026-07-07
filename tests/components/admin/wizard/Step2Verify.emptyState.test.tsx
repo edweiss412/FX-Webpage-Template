@@ -46,7 +46,9 @@ function streamResponse(chunks: string[]): Response {
   return {
     ok: true,
     status: 200,
-    headers: { get: (h: string) => (h.toLowerCase() === "content-type" ? "application/x-ndjson" : null) },
+    headers: {
+      get: (h: string) => (h.toLowerCase() === "content-type" ? "application/x-ndjson" : null),
+    },
     body,
     json: async () => {
       throw new Error("json() must not be called on a stream response");
