@@ -202,13 +202,38 @@ describe("buildCrewLinkMailtos — chunking (R1) and title budget (R4)", () => {
     expect(collected).toEqual(bigRoster);
   });
 
-  test("non-BMP title crossing the truncation boundary: no throw, well-formed truncation, hrefs ≤ cap (plan R1)", () => {
-    const emojiTitle = "😀".repeat(MAILTO_TITLE_MAX_CHARS + 20); // each emoji = 1 code point, 2 code units
-    const out = buildCrewLinkMailtos({ emails: ["a@example.com"], url: URL, showTitle: emojiTitle });
+  test("non-BMP code point AT the truncation boundary: no throw, code-point-safe cut, hrefs ≤ cap (plan R1)", () => {
+    // The 80th code point is an emoji (2 code units). A code-UNIT slice(0, 80)
+    // would cut the surrogate pair in half and crash encodeURIComponent; a
+    // code-POINT slice keeps it whole. Mostly-ASCII so the truncated-title rung
+    // stays under the cap and the truncation itself is observable.
+    const mixedTitle = `${"T".repeat(MAILTO_TITLE_MAX_CHARS - 1)}😀${"T".repeat(40)}`;
+    const out = buildCrewLinkMailtos({ emails: ["a@example.com"], url: URL, showTitle: mixedTitle });
     expect(out).toHaveLength(1);
     expect(out[0]!.href.length).toBeLessThanOrEqual(MAX_MAILTO_HREF_CHARS);
     const subject = decodeURIComponent(out[0]!.href.match(/&subject=([^&]*)/)![1]!);
-    expect(subject).toBe(`Crew link — ${"😀".repeat(MAILTO_TITLE_MAX_CHARS)}…`);
+    expect(subject).toBe(`Crew link — ${"T".repeat(MAILTO_TITLE_MAX_CHARS - 1)}😀…`);
+  });
+
+  // Plan adversarial R2 — the MIDDLE ladder rung: truncated title still blows the
+  // cap (80 emoji encode to ~12 chars each, ~2000 chars across subject+body), but
+  // the blank-title rebuild fits. An implementation that skips the blank rung and
+  // returns [] must fail here.
+  test("blank-title fallback rung: heavy truncated title exceeds cap, blank title succeeds with all recipients", () => {
+    const heavyTitle = "😀".repeat(MAILTO_TITLE_MAX_CHARS + 20);
+    const roster = ["a@example.com", "b@example.com", "c@example.com"];
+    const out = buildCrewLinkMailtos({ emails: roster, url: URL, showTitle: heavyTitle });
+    expect(out.length).toBeGreaterThan(0);
+    const collected: string[] = [];
+    for (const m of out) {
+      expect(m.href.length).toBeLessThanOrEqual(MAX_MAILTO_HREF_CHARS);
+      const subject = decodeURIComponent(m.href.match(/&subject=([^&]*)/)![1]!);
+      const body = decodeURIComponent(m.href.match(/&body=([^&]*)$/)![1]!);
+      expect(subject).toBe("Crew link");
+      expect(body.startsWith("Here's the link to your crew page:\n\n")).toBe(true);
+      collected.push(...recipientsOf(m.href));
+    }
+    expect(collected).toEqual(roster);
   });
 
   test("lone-surrogate title input: no URIError, surrogate replaced with U+FFFD (plan R1)", () => {
