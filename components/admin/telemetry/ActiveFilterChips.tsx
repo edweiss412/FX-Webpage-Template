@@ -8,7 +8,7 @@
 import { X } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { AppEventFilters } from "@/lib/admin/telemetryTypes";
-import { BASE, buildFilterHref } from "@/lib/admin/telemetryFilterHref";
+import { buildFilterHref } from "@/lib/admin/telemetryFilterHref";
 
 type Chip = { key: string; label: string; patch: Record<string, string | null> };
 
@@ -56,14 +56,28 @@ export function hasActiveFilters(filters: AppEventFilters): boolean {
   return buildChips(filters).length > 0;
 }
 
+// "Clear filters" nulls every EVENT-filter key (buildFilterHref also drops the
+// cursor pair) but must PRESERVE unrelated page state — the sidebar
+// HealthAlertsPanel paginates via ?dpage/?npage on this same route, so a blunt
+// push(BASE) would reset it. Patch only the filter keys instead.
+const CLEAR_ALL_PATCH: Record<string, null> = {
+  level: null,
+  source: null,
+  code: null,
+  showId: null,
+  requestId: null,
+  q: null,
+  since: null,
+};
+
 export function ActiveFilterChips({ filters }: { filters: AppEventFilters }) {
   const router = useRouter();
   const sp = useSearchParams();
   const chips = buildChips(filters);
   if (chips.length === 0) return null;
 
-  const remove = (patch: Record<string, string | null>) =>
-    router.push(buildFilterHref(new URLSearchParams(sp.toString()), patch));
+  const patch = (p: Record<string, string | null>) =>
+    router.push(buildFilterHref(new URLSearchParams(sp.toString()), p));
 
   return (
     <div className="flex flex-wrap items-center gap-1.5" data-testid="active-filter-chips">
@@ -78,7 +92,7 @@ export function ActiveFilterChips({ filters }: { filters: AppEventFilters }) {
             data-testid={`chip-remove-${chip.key}`}
             aria-label={`Remove ${chip.label} filter`}
             className="inline-flex min-h-tap-min items-center justify-center rounded-full px-1 text-text-subtle hover:text-text"
-            onClick={() => remove(chip.patch)}
+            onClick={() => patch(chip.patch)}
           >
             <X className="size-3.5" aria-hidden />
           </button>
@@ -88,7 +102,7 @@ export function ActiveFilterChips({ filters }: { filters: AppEventFilters }) {
         type="button"
         data-testid="clear-filters"
         className="inline-flex min-h-tap-min items-center px-1.5 text-xs text-text-subtle underline hover:text-text"
-        onClick={() => router.push(BASE)}
+        onClick={() => patch(CLEAR_ALL_PATCH)}
       >
         Clear filters
       </button>

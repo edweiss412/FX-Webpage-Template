@@ -58,10 +58,23 @@ describe("ActiveFilterChips", () => {
     expect(screen.queryByTestId("chip-remove-since")).not.toBeInTheDocument();
   });
 
-  test("Clear filters pushes BASE", () => {
+  test("Clear filters with only filter params pushes bare BASE", () => {
     spHolder.value = "source=cron.x";
     render(<ActiveFilterChips filters={{ source: "cron.x" }} />);
     fireEvent.click(screen.getByTestId("clear-filters"));
     expect(push).toHaveBeenCalledWith("/admin/dev/telemetry");
+  });
+
+  test("Clear filters PRESERVES non-filter params (sidebar dpage/npage pagination)", () => {
+    spHolder.value = "source=cron.x&level=error&dpage=2&npage=1";
+    render(<ActiveFilterChips filters={{ source: "cron.x", levels: ["error"] }} />);
+    fireEvent.click(screen.getByTestId("clear-filters"));
+    const href = push.mock.calls[0]![0] as string;
+    // filter keys gone…
+    expect(href).not.toContain("source=");
+    expect(href).not.toContain("level=");
+    // …but the HealthAlertsPanel pagination survives
+    expect(href).toContain("dpage=2");
+    expect(href).toContain("npage=1");
   });
 });
