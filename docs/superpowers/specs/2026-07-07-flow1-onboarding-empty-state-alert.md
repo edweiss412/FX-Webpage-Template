@@ -181,7 +181,8 @@ The new empty-state blocks are flow-layout `flex flex-col gap-*` inside the auto
 | RPC read path | Reuse `PerShowAlertSection` + `messageFor`; no change. |
 | `AdminAlertCode` union | ADD `"ONBOARDING_SHEET_UNREADABLE"` in `lib/adminAlerts/upsertAdminAlert.ts`. |
 | §12.4 spec prose | ADD row in `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` §12.4. |
-| Generated codes | `pnpm gen:spec-codes` → refresh `lib/messages/__generated__/spec-codes.ts`. |
+| Generated codes (spec-codes) | `pnpm gen:spec-codes` → refresh `lib/messages/__generated__/spec-codes.ts`. |
+| **Generated codes (internal-code-enums, x2 gate)** | The route literal `upsertAdminAlert({ code: "ONBOARDING_SHEET_UNREADABLE" })` is extracted as an `admin_alerts.code` by `scripts/extract-internal-code-enums.ts` (it strips `log.*({code})` emissions but INCLUDES `upsertAdminAlert` calls). RUN `pnpm gen:internal-code-enums` and COMMIT the regenerated `lib/messages/__generated__/internal-code-enums.ts` in the same PR — the x2 gate `test:audit:x2-no-raw-codes` / `.github/workflows/x-audits.yml:142-146` does `git diff --exit-code` on that file and goes red if stale (review R6 finding). |
 | Runtime catalog | ADD row in `lib/messages/catalog.ts` (fields per §3.4, incl. `audience:"doug"` and NO `healthWeight`/`dougSummary` — those are health-only, `_metaAlertAudienceContract.test.ts:83-90`). |
 | Alert registry | ADD to `tests/messages/adminAlertsRegistry.ts` `ADMIN_ALERTS_CODES`. |
 | **Audience contract** | ADD to the `DOUG` array in `tests/messages/_metaAlertAudienceContract.test.ts:7`; bump `expect(DOUG.length).toBe(18)` → `19` (`:72`). `HEALTH`/`DEGRADED`/`NOTICE` unchanged; the `DOUG ∪ HEALTH === ADMIN_ALERTS_CODES` set-equality is auto-satisfied once DOUG includes it. |
@@ -211,6 +212,8 @@ The new empty-state blocks are flow-layout `flex flex-col gap-*` inside the auto
 - **UNCHANGED** `tests/messages/_metaAlertActionsContract.test.ts` — no action link added (§3.5), so its exactly-10-codes pin is not touched.
 - **EXTENDS** the onboarding-scan-route test surface with a new emit assertion (§9).
 - **Advisory-lock topology:** NO `pg_advisory*` change — the emit is deliberately OUTSIDE the lock (post-commit fresh tx). Declared per the writing-plans rule: no new lock holder; `tests/auth/advisoryLockRpcDeadlock.test.ts` untouched. The plan states this explicitly.
+- **REGENERATE + COMMIT** two generated manifests in the PR: `lib/messages/__generated__/spec-codes.ts` (`pnpm gen:spec-codes`, x1 gate) AND `lib/messages/__generated__/internal-code-enums.ts` (`pnpm gen:internal-code-enums`, x2 `no-raw-codes` gate — the route `code:` literal is extracted as `admin_alerts.code`). Both gates do exact-diff/parity checks and fail red if stale.
+- **CI touchpoints for the new admin-visible code (memory: "new §12.4 code = extra CI gates"):** x1 catalog-parity ✓, x2 internal-code-enums ✓ (above), help `_families` ✓ (ONBOARDING prefix already mapped, no edit), TRUST_DOMAINS **N/A** (no NEW admin route — reusing the existing `app/api/admin/onboarding/scan/route.ts`). Other gen manifests confirmed N/A: `gen:admin-tables` (table/route-scoped, no new table/route), `gen:schema-manifest` (no migration), `gen:watermark-symbols`/`gen:email-boundaries` (unrelated domains). `gen:traceability` reads only the master spec's AC coverage markers (a §12.4 catalog row is not one) — but the implementer runs it in the x-audits suite and commits `coverage.md` if it drifts. Run the FULL `pnpm test` before push (scoped gates miss cross-suite regressions).
 - **NONE** for validation-schema-parity — no migration.
 
 ---
@@ -248,6 +251,6 @@ Numbers derived from fixtures, never hardcoded expectations that a fixture can't
 ## 11. Files touched (summary)
 
 **UI (Opus + impeccable dual-gate):** `components/admin/wizard/Step2Verify.tsx`, `components/admin/wizard/Step1Share.tsx`.
-**Backend/catalog:** `app/api/admin/onboarding/scan/route.ts` (emit site), `lib/adminAlerts/upsertAdminAlert.ts` (`AdminAlertCode` union), `lib/adminAlerts/alertIdentityMap.ts` (`ALERT_IDENTITY_MAP` global entry), `lib/messages/catalog.ts`, `lib/messages/__generated__/spec-codes.ts` (generated), `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (§12.4 row).
+**Backend/catalog:** `app/api/admin/onboarding/scan/route.ts` (emit site), `lib/adminAlerts/upsertAdminAlert.ts` (`AdminAlertCode` union), `lib/adminAlerts/alertIdentityMap.ts` (`ALERT_IDENTITY_MAP` global entry), `lib/messages/catalog.ts`, `lib/messages/__generated__/spec-codes.ts` (generated, `gen:spec-codes`), `lib/messages/__generated__/internal-code-enums.ts` (generated, `gen:internal-code-enums`, x2 gate), `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (§12.4 row).
 **Tests:** `tests/messages/adminAlertsRegistry.ts`, `tests/messages/_metaAdminAlertCatalog.test.ts` (write-site + lifecycle), `tests/messages/_metaAlertAudienceContract.test.ts` (DOUG + count), `tests/adminAlerts/adminAlertCodes.fixture.ts`, `tests/adminAlerts/_metaAlertIdentityMap.test.ts` (count), `tests/adminAlerts/alertIdentityMatrix.test.ts` (FIXTURES + count), route emit test (new), Step2/Step1 component tests (new/extended).
 **No:** migrations, schema-manifest, advisory-lock topology, `alertActions.ts` (no action link), `runOnboardingScan.ts` (emit moved to route), parser, crew route.
