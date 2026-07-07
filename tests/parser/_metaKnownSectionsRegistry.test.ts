@@ -53,6 +53,9 @@ const REQUIRED_HEADERS = [
   "IN HOUSE AV",
   "AGENDA",
   "AGENDA LINK",
+  "DRIVER",
+  "DETAILS/ROOM DIAGRAM",
+  "GS DETAILS (FOR BOTH)",
 ] as const;
 
 describe("known-section-header registry", () => {
