@@ -28,7 +28,7 @@
  */
 import Link from "next/link";
 import { Check, ChevronLeft } from "lucide-react";
-import { parseDriveFolderId } from "@/lib/drive/driveFolderUrl";
+import { driveFolderUrl, parseDriveFolderId } from "@/lib/drive/driveFolderUrl";
 import { WizardFooter } from "@/components/admin/wizard/WizardFooter";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -493,7 +493,7 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
                   <p>Add a show sheet to the folder, then re-scan.</p>
                   {driveFolderId ? (
                     <a
-                      href={`https://drive.google.com/drive/folders/${driveFolderId}`}
+                      href={driveFolderUrl(driveFolderId) ?? undefined}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex min-h-tap-min items-center self-start font-medium text-text-strong underline underline-offset-2 hover:decoration-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
@@ -543,7 +543,7 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
                   <p>Open the folder to check these in Drive, then re-scan.</p>
                   {driveFolderId ? (
                     <a
-                      href={`https://drive.google.com/drive/folders/${driveFolderId}`}
+                      href={driveFolderUrl(driveFolderId) ?? undefined}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="inline-flex min-h-tap-min items-center self-start font-medium text-text-strong underline underline-offset-2 hover:decoration-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
