@@ -563,6 +563,28 @@ git commit --no-verify -m "chore(admin): quality-gate + impeccable fixes for Flo
 
 ---
 
+## Task 6: Whole-diff cross-model adversarial review (mandatory gate)
+
+**Files:** none (review gate); any findings are triaged via deferral discipline (land-now fix / `DEFERRED.md` / `BACKLOG.md`).
+
+This is a plan-level invariant in this repo (AGENTS.md — "Adversarial review (cross-model) is mandatory"), not optional process. Do NOT proceed to execution handoff / push until it returns APPROVE.
+
+- [ ] **Step 1: Run the cross-model whole-diff review**
+
+After Tasks 1-5 are committed and all local gates (typecheck / lint / format / test / build / impeccable) are green, run the Codex whole-diff adversarial review with fresh-eyes posture, REVIEWER ONLY:
+
+```bash
+CC="/Users/ericweiss/.claude/plugins/cache/openai-codex/codex/1.0.4/scripts/codex-companion.mjs"
+CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}/sessions/${CODEX_COMPANION_SESSION_ID:-default}" \
+  node "$CC" adversarial-review --wait
+```
+
+- [ ] **Step 2: Triage + fix to APPROVE**
+
+For each finding: fix in-branch (class-sweep the shape first, then patch), OR defer via a `DEFERRED.md`/`BACKLOG.md` row with rationale. Re-run Step 1 after any fix. Iterate until the reviewer returns **APPROVE** (no round budget). Only then advance to push / CI / merge (Stage 4 of the ship pipeline).
+
+---
+
 ## Self-review (plan vs spec)
 
 - **Spec §3.1 (per-show callout, gate `activeActionable.length > 0 && !archived`)** → Task 2 (mount + gate) + 4 tests (active/ignored-only/archived/zero). ✓
