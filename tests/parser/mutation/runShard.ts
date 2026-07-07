@@ -22,6 +22,10 @@ export type ShardResult = {
   allSiteIds: string[];
   cosmeticViolations: string[];
   noOps: string[];
+  /** The assignment this run sliced by — returned so the shard test reuses it for
+   *  the ledger slice instead of paying a second ~20 s computeShardAssignment()
+   *  (which blew vitest's 5 s default testTimeout in the reconcile it). */
+  assignment: ShardAssignment;
 };
 
 export type RunShardOpts = {
@@ -116,5 +120,5 @@ export async function runShard(shardIndex: number, opts: RunShardOpts = {}): Pro
     mkdirSync(collectDir, { recursive: true });
     writeFileSync(join(collectDir, `alarms-shard${shardIndex}.json`), JSON.stringify({ alarms }));
   }
-  return { alarms, allSiteIds, cosmeticViolations, noOps };
+  return { alarms, allSiteIds, cosmeticViolations, noOps, assignment: A };
 }

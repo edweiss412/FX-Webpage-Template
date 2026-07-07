@@ -10,7 +10,7 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { runShard } from "./mutation/runShard";
 import type { ShardResult } from "./mutation/runShard";
-import { computeShardAssignment, shardOfSiteId, SHARD_COUNT } from "./mutation/shardPartition";
+import { shardOfSiteId, SHARD_COUNT } from "./mutation/shardPartition";
 import { MUTANT_BUDGET } from "./mutation/operators";
 import { KNOWN_SILENT_HOLES, reconcileLedger } from "./mutation/knownHoles";
 
@@ -38,8 +38,10 @@ describe(`mutation harness shard ${SHARD}/${SHARD_COUNT} — ledger slice`, () =
     expect(R.cosmeticViolations).toEqual([]);
   });
   it("slice alarms == ledger slice, keyed (siteId, kind, fingerprint) — bidirectional", () => {
-    const A = computeShardAssignment(); // identical to runShard's by determinism (partition test a)
-    const slice = KNOWN_SILENT_HOLES.filter((h) => shardOfSiteId(h.siteId, A) === SHARD);
+    // Reuse the exact assignment runShard sliced by (returned on R) — a second
+    // computeShardAssignment() here costs ~20 s of generation and timed out
+    // vitest's 5 s default testTimeout on the first full run.
+    const slice = KNOWN_SILENT_HOLES.filter((h) => shardOfSiteId(h.siteId, R.assignment) === SHARD);
     const { newAlarms, staleRows } = reconcileLedger(R.alarms, slice);
     expect(newAlarms, `NEW/changed alarms not in ledger:\n${newAlarms.join("\n")}`).toEqual([]);
     expect(staleRows, `stale ledger rows (fixed or drifted):\n${staleRows.join("\n")}`).toEqual([]);

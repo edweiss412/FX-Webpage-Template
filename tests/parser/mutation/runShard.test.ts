@@ -44,6 +44,7 @@ afterEach(() => {
 describe("runShard slice filter + progress + collector", () => {
   it("processes ONLY its shard's pairs (every siteId belongs to shard-0 fixtures)", async () => {
     const r = await runShard(0, OPTS);
+    expect(r.assignment, "runShard must return the assignment it sliced by").toBe(A);
     expect(r.allSiteIds.length).toBeGreaterThan(0);
     for (const s of r.allSiteIds)
       expect(s, `foreign siteId in shard 0: ${s}`).toContain(":synth-a:");
