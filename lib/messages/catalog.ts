@@ -1239,6 +1239,19 @@ export const MESSAGE_CATALOG = {
       "A column header on a crew table looked misspelled, so we read it as the closest real header and used that column — the crew rows still parse into the right fields. If it was intentional, update the sheet.",
     helpHref: "/help/errors#COLUMN_HEADER_AUTOCORRECTED",
   },
+  CREW_COLUMN_POSITIONAL_FALLBACK: {
+    code: "CREW_COLUMN_POSITIONAL_FALLBACK",
+    dougFacing:
+      "We couldn't recognize the column headers on _<sheet-name>_'s crew table, so we read the columns by position instead. Names and roles may have landed in the wrong fields — check the crew section against your sheet, and add a header row (Name / Role / Phone / Email) so we can read the columns by label.",
+    crewFacing: null,
+    followUp: "Doug → verify crew columns",
+    helpfulContext:
+      "This crew table's header row was missing or used labels we don't recognize (e.g. 'Position' instead of 'Role'), so we couldn't confirm which column is which and read them by position. The rows still parsed, but names and roles may have landed in the wrong fields. Check the crew section against the sheet; adding a standard header row (Name / Role / Phone / Email) removes the guesswork.",
+    title: "Guessed crew table columns by position",
+    longExplanation:
+      "A crew table's header row was missing or used unrecognized labels, so instead of dropping the rows we read the columns by position. The rows parsed but may have landed in the wrong fields. Add a standard header row (Name / Role / Phone / Email) so the columns are read by label.",
+    helpHref: "/help/errors#CREW_COLUMN_POSITIONAL_FALLBACK",
+  },
   SECTION_HEADER_AUTOCORRECTED: {
     code: "SECTION_HEADER_AUTOCORRECTED",
     dougFacing:
