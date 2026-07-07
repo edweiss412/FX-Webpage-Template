@@ -123,8 +123,8 @@ export async function CurrentShareLinkPanel({
       </div>
       {emailMailtos.length > 1 && (
         <p data-testid="admin-current-share-link-email-note" className="text-xs text-text-subtle">
-          Your crew list needs {emailMailtos.length} separate emails. Send each one; addresses go
-          in Bcc.
+          Your crew list needs {emailMailtos.length} separate emails. Send each one; addresses go in
+          Bcc.
         </p>
       )}
       {emailMailtos.length > 0 && (
