@@ -65,11 +65,11 @@ describe("buildRawUnrecognizedView (group + cap + order)", () => {
     const v = buildRawUnrecognizedView(raw);
     expect(v.total).toBe(3);
     expect(v.groups.map((g) => g.block)).toEqual(["hotels", "event"]);
-    expect(v.groups[0].rows).toEqual([
+    expect(v.groups[0]!.rows).toEqual([
       { key: "a", value: "1" },
       { key: "c", value: "3" },
     ]);
-    expect(v.groups[1].rows).toEqual([{ key: "b", value: "2" }]);
+    expect(v.groups[1]!.rows).toEqual([{ key: "b", value: "2" }]);
     expect(v.hiddenCount).toBe(0);
   });
 
@@ -84,8 +84,8 @@ describe("buildRawUnrecognizedView (group + cap + order)", () => {
     const shown = v.groups.reduce((n, g) => n + g.rows.length, 0);
     expect(shown).toBe(RAW_UNRECOGNIZED_CAP);
     expect(v.hiddenCount).toBe(10);
-    expect(v.groups[0].rows[0].key).toBe("k0"); // first-50 in emission order
-    expect(v.groups[0].rows.at(-1)?.key).toBe("k49");
+    expect(v.groups[0]!.rows[0]!.key).toBe("k0"); // first-50 in emission order
+    expect(v.groups[0]!.rows.at(-1)?.key).toBe("k49");
   });
 
   test("total 0 when everything is dropped", () => {

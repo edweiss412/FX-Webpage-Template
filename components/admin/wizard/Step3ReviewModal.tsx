@@ -55,6 +55,7 @@ import {
 import {
   dateSummarySegments,
   NotPublishableNote,
+  RawUnrecognizedCallout,
   ROOMS_CAP,
   step3Sections,
   STEP3_SECTION_GROUPS,
@@ -1297,6 +1298,9 @@ export function Step3ReviewModal({
                 </Step3SectionChromeContext.Provider>
               </section>
             ))}
+            {/* §C: content the parser captured but couldn't understand
+                (raw_unrecognized). Renders nothing when there's nothing to show. */}
+            <RawUnrecognizedCallout raw={data.pr?.raw_unrecognized} />
           </div>
         </div>
 
