@@ -37,14 +37,14 @@ A small presentational callout: one instructional line + a re-run affordance, pl
   - `activeActionable` / `ignoredActionable` are the active/ignored partition (`page.tsx:398`, `partitionByIgnored`). `archived = Boolean(show.archived)` (`page.tsx:422`).
   - **Active-only, not `active || ignored`:** the enclosing section renders when `activeActionable.length > 0 || ignoredActionable.length > 0` (line 876), but **ignored** warnings are content-keyed and survive re-sync (`page.tsx:926-928` "Ignored (N)… content-keyed ignores that survive re-sync"). Re-syncing does NOT clear them, so the callout's "we'll re-parse and clear this" is false for an ignored-only state → the callout must NOT render when `activeActionable.length === 0`.
   - **`!archived`:** an archived show is the read-only surface; `ReSyncButton` is deliberately suppressed on it (`page.tsx:999-1008` renders "Re-sync is paused while this show is archived" instead — per that block's own comment, manual sync mutates `shows`/`pending_syncs` via `/api/admin/sync` whose only server gate is finalize-ownership, NOT archived, so the CTA is suppressed client-side while the server-side archived refusal is deferred). The callout — a second re-sync entry point — must apply the **same guard**: no callout on an archived show. (No "paused" variant of the callout is needed; the footer already carries that message.)
-- **Copy (exact):** `Fixed it in the sheet? Edit the cell, save, then re-sync — we'll re-parse and clear this.`
+- **Copy (exact):** `Fixed it in the sheet? Edit the cell, save, then re-sync. We'll re-parse and clear this.`
 - **Affordance:** an inline `<ReSyncButton slug={show.slug} />` immediately after the copy, forming one callout unit. Because the callout only renders when `!archived`, the mounted `ReSyncButton` is never an archived-show re-sync path. The existing health-section `<ReSyncButton>` (`page.tsx:1008`) **stays** — it answers a different question ("how did the last sync go") in the sync-health context. Two instances of the same underlying action is acceptable because they are framed for different intents; the impeccable audit gate (§8) validates the visual treatment (the callout instance may adopt a quieter/secondary skin if the audit calls for it — a plan-time refinement, not a spec requirement).
 - **New component:** extract a small presentational `CorrectionLoopCallout` (Server Component, no `'use client'`) that renders the copy line and accepts the re-run affordance as `children` (so the same component serves both surfaces with different buttons). Lives at `components/admin/CorrectionLoopCallout.tsx`.
 
 ### 3.2 Onboarding wizard step-3
 
 - **Where:** inside `WarningsBreakdown` (`components/admin/wizard/step3ReviewSections.tsx:2272`), in the non-empty branch (line 2287), replacing/augmenting the existing intro line at 2288-2293 ("These are informational and don't block publishing.") with the loop copy. The wizard **already** carries a co-located re-scan affordance (`RescanSheetButton`) in the sheet-card / modal footer, so the wizard callout is **copy-only** — it does not mount a second re-scan button.
-- **Copy (exact):** `Fixed it in the sheet? Edit the cell, save, then re-scan — we'll re-parse and clear this.` (Only the verb differs from the per-show copy: "re-scan" vs "re-sync", matching the wizard's pre-publish `RescanSheetButton` action vs the per-show live `ReSyncButton`.)
+- **Copy (exact):** `Fixed it in the sheet? Edit the cell, save, then re-scan. We'll re-parse and clear this.` (Only the verb differs from the per-show copy: "re-scan" vs "re-sync", matching the wizard's pre-publish `RescanSheetButton` action vs the per-show live `ReSyncButton`.)
 - **Guard:** the empty branch (line 2279-2285, "No parse warnings for this sheet.") renders **no** callout — nothing to fix.
 - The existing non-blocking note's intent ("informational, doesn't block publishing") is folded into the callout wording OR retained as a second line — a plan-time layout detail; the requirement is that the loop instruction is present and the "doesn't block publishing" reassurance is not lost.
 
@@ -100,13 +100,15 @@ A `disposition` value outside the three known literals is impossible under the T
 
 All operator-visible strings introduced by this spec, verbatim (grep target for the numeric/consistency sweep — no other section may contradict these):
 
-1. Per-show callout: `Fixed it in the sheet? Edit the cell, save, then re-sync — we'll re-parse and clear this.`
-2. Wizard callout: `Fixed it in the sheet? Edit the cell, save, then re-scan — we'll re-parse and clear this.`
+1. Per-show callout: `Fixed it in the sheet? Edit the cell, save, then re-sync. We'll re-parse and clear this.`
+2. Wizard callout: `Fixed it in the sheet? Edit the cell, save, then re-scan. We'll re-parse and clear this.`
 3. Hold `email_change`: `Held for your review: this crew member's sign-in email changed in the sheet. Approve to update their sign-in address; Reject to keep the current one.`
 4. Hold `rename`: `Held for your review: this crew member was renamed in the sheet. Approve to apply the new name; Reject to keep the current one.`
 5. Hold `removal`: `Held for your review: this crew member was removed from the sheet. Approve to remove them; Reject to keep them.`
 
 The two callout strings differ **only** in the verb ("re-sync" / "re-scan"). To avoid drift, the shared prefix/suffix live in one `CorrectionLoopCallout` definition parameterized by the verb (a single `mode: "resync" | "rescan"` prop or equivalent), not two independently-authored strings.
+
+**Design-copy compliance:** every string above complies with `DESIGN.md:318` ("No em dashes. Use commas, colons, semicolons, periods, parentheses. Also not `--`."). The callout strings use a period between clauses; the hold strings use semicolons. No `—` or `--` in any operator-visible string. Implementation tests assert these exact strings, so a stray em dash would fail the copy assertion immediately.
 
 ## 6. Non-catalog rationale (do-not-relitigate)
 
