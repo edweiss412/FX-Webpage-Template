@@ -30,6 +30,16 @@ import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
 import { clean, presence, normalizeDate, splitRow, inferShowYear } from "./_helpers";
 import { canonicalize } from "@/lib/email/canonicalize";
 import { gatedVocabCorrect } from "@/lib/parser/typoGate";
+import { buildCol0HeaderAltRe } from "./_sectionHeaderMatch";
+
+export const SECTION_HEADER_TOKENS = ["TRANSPORTATION", "DRIVER"] as const;
+
+// col0-identity pre-check for the retained multi-column TRANSPORTATION header
+// matchers. Built from the registry-checked token; suffix-tolerant (the live
+// header col0 is `TRANSPORTATION(?:\/[^|]*)?`) + case-insensitive, so it is a
+// behavior-SUPERSET of the retained /im regexes and can only pass more (the
+// retained multi-column regex still gates the actual parse). Behavior-preserving.
+const TRANSPORT_COL0_RE = buildCol0HeaderAltRe(["TRANSPORTATION"], { caseInsensitive: true });
 
 /**
  * Non-transport block labels that signal the transport schedule has ended.
@@ -169,6 +179,11 @@ function parseV4Transport(
   // (`| TRANSPORTATION | TRANSPORTATION | PHONE | EMAIL | …`). The EMAIL column
   // is REQUIRED so this never claims ria's no-email 3-col header (B3 routes that
   // to v2). Capture groups carry the slash content (undefined in the plain form).
+  // Fast col0-identity superset pre-check (behavior-neutral: any markdown the
+  // multi-column header matches also passes this, so the null/non-null outcome
+  // is unchanged). Satisfies the walker import-link nudge.
+  if (!TRANSPORT_COL0_RE.test(markdown)) return null;
+  // RAW_HEADER_REGEX_ALLOWLIST: multi-column header matcher; col0 token identity (TRANSPORTATION) is registry-checked via SECTION_HEADER_TOKENS.
   const headerRe =
     /^\|\s*TRANSPORTATION(?:\/[^|]*)?\s*\|\s*TRANSPORTATION(?:\/([^|]*?))?\s*\|\s*PHONE(?:\/([^|]*?))?\s*\|\s*EMAIL(?:\/([^|]*?))?\s*\|/im;
   const hm = headerRe.exec(markdown);
@@ -333,6 +348,7 @@ function parseV2Transport(
   //        | TRANSPORTATION | TRANSPORTATION | PHONE | (exporter column-dup, ria).
   // Superset of the NAME form. Routing ria here (not v1) also captures its
   // Vehicle row and stops the `| Vehicle | … |` row leaking in as a schedule stage.
+  // RAW_HEADER_REGEX_ALLOWLIST: multi-column header matcher; col0 token identity (TRANSPORTATION) is registry-checked via SECTION_HEADER_TOKENS.
   const headerRe = /^\|\s*TRANSPORTATION\s*\|\s*(?:NAME|TRANSPORTATION)\s*\|\s*PHONE\s*\|/im;
   const hm = headerRe.exec(markdown);
   if (!hm) return null;
@@ -443,6 +459,7 @@ function parseV1Transport(
   _crewMembers?: CrewMemberRow[],
 ): TransportationRow | null {
   // Match: | Driver | <name> | <phone> |  (v1 has no TRANSPORTATION header)
+  // RAW_HEADER_REGEX_ALLOWLIST: v1 Driver record-table matcher; col0 token identity (DRIVER) is registry-checked via SECTION_HEADER_TOKENS.
   const headerRe = /^\|\s*Driver\s*\|\s*([^|]+?)\s*\|\s*([^|]+?)\s*\|/im;
   const hm = headerRe.exec(markdown);
   if (!hm) return null;
