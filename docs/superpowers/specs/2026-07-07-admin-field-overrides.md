@@ -39,6 +39,7 @@ Column citations: `shows.dates`/`shows.venue` (`supabase/__generated__/schema-ma
 - **No override of parser *behavior*** (no per-show parser config). Overrides act on parse *output* only.
 - **No bulk/CSV override import.** One field at a time.
 - **Crew `email` is never overridable** (see above).
+- **No first-seen (pre-publish) staged overrides.** Override editing requires an existing `shows` row (§8.3); a first-seen show has none until finalize. The wizard gates editing to already-applied shows and shows a "publish first / edit the sheet" hint otherwise. A `pending_syncs`-scoped staged-override lifecycle promoted at finalize is a documented follow-up (BL), not this cut.
 
 ### 2.3 Success criteria
 
@@ -170,6 +171,7 @@ create table if not exists public.admin_overrides (
   sheet_value    jsonb,                  -- last parsed value; refreshed each sync; null = never matched / parsed null
   active         boolean not null default true,   -- false = deactivated, row retained until repoint/discard
   deactivation_code text,                 -- R12: DURABLE pause reason. NULL when active; 'target_missing'|'name_conflict' when active=false. Set in-tx (not dependent on the best-effort alert). needs-attention renders copy from THIS.
+  version        integer not null default 1,       -- R15: optimistic-concurrency token. Bumped +1 by the RPC on EVERY override mutation (upsert-edit/revert/repoint/discard AND each sync-side sheet_value refresh/deactivation). The RPC CAS compares p_expected_version; sheet_value alone can't detect a concurrent override edit (it's preserved on edit).
   created_by     text not null,          -- canonicalized admin email (canonicalized at the RPC boundary; CHECK is the invariant-3 safety net)
   created_at     timestamptz not null default now(),
   updated_at     timestamptz not null default now(),
@@ -334,7 +336,7 @@ create or replace function public.set_field_override(
   p_new_match_key text,        -- repoint target; null otherwise
   p_override_value jsonb,      -- upsert only
   p_actor         text,        -- canonicalized admin email
-  p_expected_sheet_value jsonb,-- CAS: the sheet_value the admin's UI last saw (row-state guard)
+  p_expected_version int,      -- CAS (R15): the admin_overrides.version the admin's UI last saw. NULL on create (asserts no active row exists for this target). Mismatch -> 409 stale_review. Detects concurrent override edits/reverts/repoints/discards that p_expected_sheet_value cannot (sheet_value is preserved on edit).
   p_current_ordinal int,       -- hotel immediate-apply anchor; null for show/crew
   p_expected_live_hotel_name text -- hotel CAS (R13): the current live hotel_name the loader saw (= currentLiveHotelName, §5.3). Null for show/crew. The RPC verifies the ordinal row's hotel_name = this under the lock before UPDATE; mismatch -> 409 stale_review.
 ) returns jsonb
@@ -346,7 +348,7 @@ as $$ ... $$;
 
 1. **Per-show advisory lock in-RPC (single holder for this path):** `perform pg_advisory_xact_lock(hashtext('show:' || p_drive_file_id));` — the JS action never locks (mirrors `set_pull_sheet_override:42`, and the MI-11 PF15 no-inline-`.rpc` rule at `feed.ts:10-14`). Resolve `p_drive_file_id → show_id` inside the lock.
 2. **Belt-and-suspenders auth:** `execute` revoked from anon/authenticated, granted to `service_role` only (§7.5). The app-layer gate is `requireAdminIdentity()`.
-3. **Row-state CAS:** read the current `sheet_value` (or current row value) under the lock; if it differs from `p_expected_sheet_value`, raise `errcode 40001` (→ route maps to 409 stale_review), preventing a stale admin page from clobbering a newer sync's value. **For hotels, additionally verify the `p_current_ordinal` row's current `hotel_name = p_expected_live_hotel_name`** (the live name the loader saw — the override value if a `hotel_name` override is active, else the parsed name; §5.3); a mismatch (the row moved/renamed since the page loaded) raises the same 409. This is the hotel analog of the crew §7.6 wrong-anchor 409.
+3. **Row-state CAS (version-based, R15):** read the target's current `admin_overrides.version` under the lock; if it differs from `p_expected_version`, raise `errcode 40001` (→ 409 stale_review). This catches **any** concurrent override mutation — edit / revert / repoint / discard / sync-side refresh — because every mutation **bumps `version`** (unlike `sheet_value`, which is *preserved* on edit and so cannot detect two stale pages both editing the same override — the R15 clobber). On **create**, `p_expected_version` is NULL and the RPC asserts no active override row exists for the target (else 409). **For hotels, additionally verify the `p_current_ordinal` row's current `hotel_name = p_expected_live_hotel_name`** (the live name the loader saw — override value if a `hotel_name` override is active, else parsed name; §5.3); a mismatch raises the same 409 (hotel analog of the crew §7.6 wrong-anchor 409). Every successful mutation ends by `version = version + 1`.
 4. **Op semantics:**
    - `upsert` (**create** — no active override on this target): validate `override_value` (§7.4) incl. the name-collision guard; **capture the current live value (= the parsed/sheet value, since nothing is overridden yet) into `admin_overrides.sheet_value` in the SAME locked tx, BEFORE overwriting the live row**; insert `admin_overrides` (`active=true`, `sheet_value` set); apply `override_value` to the live row (§7.3). No auth-table write (§5.2).
    - `upsert` (**edit** — override already active): validate; update `admin_overrides.override_value` only, **PRESERVE the existing `sheet_value`** (do NOT recapture — the current live value is the *previous override*, not the sheet value); apply the new `override_value` to the live row.
@@ -383,7 +385,7 @@ A name `.trim()` in `lib/sync` or the RPC-adjacent TS is flagged by `tests/admin
 ### 7.5 Grants
 
 ```sql
-revoke execute on function public.set_field_override(text,text,text,text,text,text,jsonb,text,jsonb,int,text)
+revoke execute on function public.set_field_override(text,text,text,text,text,text,jsonb,text,int,int,text)
   from public, anon, authenticated;
 grant  execute on function public.set_field_override(...) to service_role;
 ```
@@ -397,7 +399,7 @@ The RPC's immediate live-row `UPDATE` for a **crew** field (name OR role) cannot
 >
 > Every crew immediate-apply `UPDATE ... WHERE show_id=$1 AND name = currentLiveName(...)`. A role override and a name override on the same member share the same `match_key` (the parsed name), so a role op resolves the live row through the sibling active name override automatically. `crew_members.name` is unique per show, so this resolves exactly one row.
 
-**Per op × state** (all under the advisory lock; every op takes a **stored-override-row CAS** on `p_expected_sheet_value` / expected prior state so a stale UI cannot clobber a newer sync):
+**Per op × state** (all under the advisory lock; every op takes the **version CAS** on `p_expected_version` (§7.2 item 3) so a stale UI cannot clobber a newer sync or a concurrent override edit):
 
 | Op | Field | Precondition | Live-row anchor | New value |
 |---|---|---|---|---|
@@ -433,7 +435,7 @@ type OverrideableFieldProps = {
   field: "dates" | "venue" | "name" | "role" | "hotel_name" | "hotel_address";
   matchKey: string;            // '' for show; the DURABLE PARSED key (§8.2a) — NOT the display value
   currentValue: React.ReactNode | string; // the live (possibly overridden) rendered value
-  override: OverrideState | null;          // { overrideValue, sheetValue, active } | null
+  override: OverrideState | null;          // { overrideValue, sheetValue, active, deactivationCode, version } | null; version is passed back as p_expected_version for the CAS (R15)
   currentOrdinal?: number;     // hotel only (CAS anchor)
   currentLiveHotelName?: string; // hotel only (R13): the live hotel_name the loader saw, for the p_expected_live_hotel_name CAS (§5.3)
   disabled?: boolean;          // e.g. archived show
@@ -464,7 +466,7 @@ Reuse `components/admin/ChangeFeedBadge.tsx` (labeled text pill, DESIGN tokens `
 - hotels section body → hotel_name + hotel_address.
 - dates: the show-level date row.
 
-The wizard passes `driveFileId` (`s.dfid`) and the parsed values already present on `SectionData` (`:2870`). Editing here mutates the live row immediately (pre-publish rows are live rows).
+**Editing requires an existing `shows` row (R15 — no first-seen staged overrides).** Overrides mutate live `shows`/`crew_members`/`hotel_reservations` rows via `set_field_override` (which resolves `drive_file_id → show_id`). A **first-seen** show has **no such rows until finalize inserts them** (`applyShowSnapshot`, `runScheduledCronSync.ts:1506`) — so `set_field_override` has no target pre-publish. Therefore, in the wizard, the `<OverrideableField>` **edit affordance is enabled only when the show already has a `shows` row** (re-review / re-sync of a show that has been applied at least once); the component receives a `disabled` flag derived from show existence. For a genuinely first-seen show (no `shows` row), the field renders read-only with the existing **"Fix in sheet"** loop (3.1) and a hint: *"Overrides become available after you publish this show — until then, correct values in the sheet and Re-sync."* Staged (pre-publish) overrides stored against `pending_syncs` and promoted at finalize are a clean **follow-up** (BL) — deliberately out of scope for this cut (§2.2). Surface B (live-show detail) fully covers 3.2's headline "survives re-sync on a **live** show" case; Surface A adds inline editing for already-live shows re-viewed in the wizard. The wizard passes `driveFileId` (`s.dfid`) + parsed values on `SectionData` (`:2870`) + the show-exists `disabled` flag.
 
 ### 8.4 Surface B — live-show admin detail
 
@@ -485,7 +487,7 @@ Server action `app/admin/show/[slug]/_actions/overrides.ts` — thin layer: `req
 | `override.active`, `sheetValue` non-null | Override value + "Overridden — sheet says «sheetValue»" chip + Edit/Revert. |
 | `override.active`, `sheetValue === null` | Override value + "Overridden — sheet has no value" chip + Edit/Revert. |
 | `override.active === false` (stale) | **Parsed** value + muted "Override paused — sheet no longer has «matchKey»" + Re-point/Discard. |
-| `disabled` (archived show) | Value read-only, no affordances. |
+| `disabled` (archived show, OR first-seen show with no `shows` row yet — §8.3) | Value read-only, no override affordances. First-seen case additionally shows the "Fix in sheet / publish first" hint. |
 | `currentValue` empty/parsed-null, no override | Existing empty-state copy (unchanged). |
 
 ### 8.6 Dimensional invariants
@@ -508,7 +510,7 @@ States: `plain` (no override), `editing` (input open), `overridden`, `stale`. Pa
 | stale → overridden | instant on re-point success |
 | plain/overridden → error | inline error message under the field (via `lib/messages/lookup.ts`; no raw code — invariant 5) |
 
-Compound: editing while a background sync deactivates the same override → on save, the RPC CAS (`p_expected_sheet_value`) mismatches → 409 stale_review → inline "This field changed since you opened it — reload" (mapped copy). No mid-animation compound (all instant).
+Compound: editing while a background sync deactivates/refreshes the same override → the sync bumped `version`, so on save the RPC CAS (`p_expected_version`) mismatches → 409 stale_review → inline "This field changed since you opened it — reload" (mapped copy). No mid-animation compound (all instant).
 
 ---
 
@@ -576,7 +578,7 @@ Additionally, a user-facing **stale-review** error surfaces on the CAS 409 path 
 
 **Creates:**
 - `tests/sync/overrideApply.test.ts` — the §3.6 id-keyed reconciliation: crew_members.id stable across two syncs through override apply / edit / release (the id-churn class, §3.1/§3.6); **name-collision deactivates the override AND the pre-conflict crew_members.id stays bound to its original parsed identity — never reassigned to the newly-parsed colliding member (R11 identity-swap)**; **crew active=false is planned POST-HOLD — a test fails if deactivation is decided before the hold disposition is known (R11)**; hotel matched by name across reorder; show dates/venue overridden; sheet_value refreshed; **stale deactivation surfaces via the inactive-row needs-attention stream even when the post-commit alert emit throws** (durability test — §6 step 2 vs step 3); **a stale-short-circuit sync (`applyShowSnapshot` returns `outcome:"stale"`, `phase2.ts:305-306`) leaves `admin_overrides` completely unchanged — no sheet_value refresh, no deactivation** (Stage A pure / Stage B applied-path-only, §3.2).
-- `tests/overrides/setFieldOverride.test.ts` — RPC ops (upsert/revert/repoint/discard), CAS 409, guard rejections (incl. name collision), lock held, **`sheet_value` = sheet value always: create-then-revert AND edit-then-revert, both WITHOUT any intervening sync, restore the true sheet value for each of the 6 fields (R6 + R7 data-loss regressions — edit must NOT recapture the prior override into sheet_value)**, and the full §7.6 anchor matrix: edit `John`→`Jonathan` and revert `John`→`Jon` hit the correct live row; **a role override applied AND reverted while a name override is active resolves the live row through the sibling name override** (§7.6 finding 3); **repoint of an inactive/stale override succeeds with the old parsed target absent** (does not require an old live row — §7.6 finding 2); a wrong active-anchor (live name moved by a concurrent sync) raises 409, not a silent zero-row no-op; **`discard` on an ACTIVE override is rejected 409 (invalid-state) leaving row + live value intact, for show/crew/hotel (R14)**.
+- `tests/overrides/setFieldOverride.test.ts` — RPC ops (upsert/revert/repoint/discard), CAS 409, guard rejections (incl. name collision), lock held, **`sheet_value` = sheet value always: create-then-revert AND edit-then-revert, both WITHOUT any intervening sync, restore the true sheet value for each of the 6 fields (R6 + R7 data-loss regressions — edit must NOT recapture the prior override into sheet_value)**, and the full §7.6 anchor matrix: edit `John`→`Jonathan` and revert `John`→`Jon` hit the correct live row; **a role override applied AND reverted while a name override is active resolves the live row through the sibling name override** (§7.6 finding 3); **repoint of an inactive/stale override succeeds with the old parsed target absent** (does not require an old live row — §7.6 finding 2); a wrong active-anchor (live name moved by a concurrent sync) raises 409, not a silent zero-row no-op; **`discard` on an ACTIVE override is rejected 409 (invalid-state) leaving row + live value intact, for show/crew/hotel (R14)**; **version CAS (R15): two stale pages editing the same active override — the first succeeds and bumps `version`, the second (stale `p_expected_version`) gets 409 stale_review, not a silent clobber; likewise a stale revert/repoint/discard after any intervening mutation 409s; a create when an active row already exists 409s**.
 - `tests/overrides/matchKeyDurability.test.ts` — the admin loader derives `matchKey` from source not display (§8.2a): a **role edit while a name override is active** persists under the parsed name (not the override), and a **hotel_address edit/create/revert while a hotel_name override is active** anchors via the live-name CAS (§5.3) and persists under the parsed hotel name; both survive the next sync without deactivating (R9/R12). CHECK-canonical `created_by`: a mixed-case actor email is canonicalized before insert (or rejected by the CHECK).
 - `tests/overrides/deactivationReason.test.ts` — the durable `deactivation_code` (R12): a stale deactivation sets `'target_missing'` and a collision sets `'name_conflict'` **in the locked tx**, and needs-attention renders the correct reason **even when the post-commit `upsertAdminAlert` throws** (the reason is read from the column, not the alert).
 - Real-browser layout assertion for the chip/field-row dimensional invariant (§8.6).
@@ -632,3 +634,5 @@ Additionally, a user-facing **stale-review** error surfaces on the CAS 409 path 
 5c. **Crew-name override is the high-complexity field (accepted).** The user explicitly chose the full set INCLUDING crew name over the recommended "exclude name", aware it is "significantly larger, higher risk." Its cross-domain machinery (pre-write fold, hold-ordering, `sheet_name` alias, anchor resolver, collision guard) realizes that accepted cost — not scope creep. The other 5 fields are simple value overlays; a future descope of crew name cleanly removes §3.4/§3.5/§4.4/§7.6-crew + the `sheet_name` column.
 6. **`` hotel dup delimiter** — chosen because it cannot occur in a hotel name; UI hides it. Not a hack to relitigate.
 7. **Crew email intentionally excluded** — identity/canonicalization load-bearing (invariant 3).
+8. **Wizard editing requires an existing `shows` row; first-seen staged overrides are a deliberate follow-up (R15).** A first-seen show has no live rows until finalize, so `set_field_override` has no target pre-publish. The wizard gates the edit affordance on show existence (sheet-edit hint otherwise); Surface B covers the live-show headline case. Scoped cut, not an oversight — do not relitigate as a missing surface.
+9. **Version-based CAS (R15), not sheet_value-based.** Concurrency is guarded by `admin_overrides.version` (bumped on every mutation); `sheet_value` is preserved on edit and cannot detect a concurrent override edit. Do not "simplify" the CAS back to a sheet_value compare.
