@@ -205,7 +205,7 @@ The card is static content inside an already-animated modal; it introduces **no*
 | State pair | Treatment |
 |---|---|
 | map-image ↔ fallback-tile (on `<img>` error) | **Instant** — no swap; the stripe base layer is always painted and the failed `<img>` merely hides itself (`visibility:hidden`), revealing it. No animation (would call attention to a degraded state). |
-| image loading → loaded | Optional 150ms `opacity` fade-in on the `<img>` (`transition-opacity`, honors `prefers-reduced-motion`). Not layout-animating (DI safe). Deliberate, minor. |
+| image loading → loaded | **Instant — no fade.** The `<img>` paints when it loads; there is no opacity transition (a fade would need an opacity state change the component does not perform, so any `transition-opacity` class would be inert). Declared instant so the transition audit is honest. |
 | loadingDock present ↔ absent | **Instant** — presence follows data, not a runtime toggle (the card re-renders per staged row; no in-place morph). |
 | desktop two-col ↔ mobile stacked | **Instant** — a media-query layout change, not a JS transition. Matches the modal's own sheet/popup switch (`Step3ReviewModal.tsx:786`), which is also instant at the breakpoint. |
 | Directions present ↔ absent | **Instant** — follows `mapHref` presence. |

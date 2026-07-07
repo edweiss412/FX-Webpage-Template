@@ -13,7 +13,7 @@
 ## Global Constraints
 
 - **TDD per task; commit per task** — failing test → minimal impl → green → commit. Conventional commits `<type>(<scope>): <summary>` (scope `crew-page` for UI, `admin` acceptable for the route).
-- **No inline hex** — every color/spacing/radius via `@theme` token (`app/globals.css`). Token map is spec §2.
+- **No inline hex in CSS/JSX** — every color/spacing/radius in styles/classes via `@theme` token (`app/globals.css`). Token map is spec §2. **Carve-out:** the Google Static Maps **URL query params** (`markers=color:0xRRGGBB`, `style=…color:0xRRGGBB`) are a **provider API format** that accepts only `0xRRGGBB` literals, not CSS variables. These two literals are defined as named constants in `lib/maps/staticMap.ts`, each mirroring the exact runtime value of its token (`0xff8c1a` === `--color-accent-runtime` #ff8c1a; `0x1a1b1f` === `--color-text-runtime` #1a1b1f), with a comment citing the token. This is the only place hex appears, and it is not a style value.
 - **No raw error codes / upstream error bodies in UI or route bodies** (invariant 5). Route failure bodies are empty.
 - **No em dashes in rendered copy** (DESIGN.md).
 - **Key never reaches the browser** — the `<img>` src is the same-origin proxy; the Google key lives only in the route.
@@ -196,8 +196,15 @@ describe("buildStaticMapUrl", () => {
  */
 const ENDPOINT = "https://maps.googleapis.com/maps/api/staticmap";
 
-/** Compact dark map styling (single feature: overall dark surface + muted
- * labels) applied via inline `style=` when the venue card is in dark mode. */
+// Google Static Maps URL params accept ONLY 0xRRGGBB literals (provider API
+// format, not CSS). Each mirrors the exact runtime value of a design token
+// (app/globals.css), so there is a single conceptual source (plan global-
+// constraint carve-out). MARKER_COLOR === --color-accent-runtime (#ff8c1a);
+// DARK_MAP_STYLE geometry === --color-text-runtime (#1a1b1f).
+const MARKER_COLOR = "0xff8c1a"; // === --color-accent-runtime
+
+/** Compact dark map styling (overall dark geometry) applied via `style=` when
+ * the venue card is in dark mode. Geometry color mirrors --color-text-runtime. */
 export const DARK_MAP_STYLE = "feature:all|element:geometry|color:0x1a1b1f";
 
 /** The Static Maps key: dedicated var first, geocoding var (same GCP project)
@@ -222,7 +229,7 @@ export function buildStaticMapUrl(query: string, theme: "light" | "dark"): strin
   const enc = encodeURIComponent(query);
   const params = [
     `center=${enc}`,
-    `markers=color:0xff8c1a%7C${enc}`,
+    `markers=color:${MARKER_COLOR}%7C${enc}`,
     "zoom=15",
     "size=176x120",
     "scale=2",
@@ -292,22 +299,25 @@ afterEach(() => {
 });
 
 describe("GET /api/admin/venue-map", () => {
-  test("AdminInfraError → 503", async () => {
+  test("AdminInfraError → 503, empty body", async () => {
     requireAdminMock.mockRejectedValue(new AdminInfraError("x"));
     const res = await GET(req("?q=SF"));
     expect(res.status).toBe(503);
+    expect(await res.text()).toBe(""); // no raw error text (invariant 5)
   });
 
-  test("empty q → 400", async () => {
+  test("empty q → 400, empty body", async () => {
     const res = await GET(req("?q=%20"));
     expect(res.status).toBe(400);
+    expect(await res.text()).toBe("");
   });
 
-  test("no key configured → 404", async () => {
+  test("no key configured → 404, empty body", async () => {
     vi.stubEnv("GOOGLE_STATIC_MAPS_API_KEY", "");
     vi.stubEnv("GOOGLE_GEOCODING_API_KEY", "");
     const res = await GET(req("?q=The%20Masonic"));
     expect(res.status).toBe(404);
+    expect(await res.text()).toBe("");
   });
 
   test("configured + upstream OK → 200 image/png with private cache", async () => {
@@ -438,9 +448,8 @@ git commit --no-verify -m "feat(admin): key-safe venue-map static-map proxy rout
 ```tsx
 // @vitest-environment jsdom
 // tests/components/admin/wizard/venueMapTile.test.tsx
-import { afterEach, beforeEach, describe, expect, test } from "vitest";
-import { act } from "react";
-import { cleanup, render, fireEvent, within } from "@testing-library/react";
+import { afterEach, describe, expect, test } from "vitest";
+import { cleanup, render, fireEvent } from "@testing-library/react";
 import { VenueMapTile } from "@/components/admin/wizard/VenueMapTile";
 
 afterEach(() => {
@@ -454,20 +463,29 @@ describe("VenueMapTile", () => {
     expect(container.querySelector('[data-testid="venue-map-tile"]')).toBeNull();
   });
 
-  test("query + mapHref → img with proxy src (light default) + Directions anchor", () => {
+  test("query + mapHref → tile IS the anchor (href/target) + img proxy src + Directions visual", () => {
     const { container } = render(
       <VenueMapTile query="The Masonic, SF" mapHref="https://maps.google.com/?q=x" />,
     );
     const img = container.querySelector('[data-testid="venue-map-img"]') as HTMLImageElement;
     expect(img.getAttribute("src")).toContain("/api/admin/venue-map?q=");
     expect(img.getAttribute("src")).toContain("theme=light");
-    const a = container.querySelector('[data-testid="venue-directions"]') as HTMLAnchorElement;
-    expect(a.getAttribute("href")).toBe("https://maps.google.com/?q=x");
-    expect(a.getAttribute("target")).toBe("_blank");
+    // The whole tile is the anchor (the 44px target) — href/target live on it.
+    const tile = container.querySelector('[data-testid="venue-map-tile"]') as HTMLAnchorElement;
+    expect(tile.tagName).toBe("A");
+    expect(tile.getAttribute("href")).toBe("https://maps.google.com/?q=x");
+    expect(tile.getAttribute("target")).toBe("_blank");
+    expect(tile.getAttribute("rel")).toContain("noopener");
+    // The Directions visual span is present (decorative; no href of its own).
+    const dir = container.querySelector('[data-testid="venue-directions"]') as HTMLElement;
+    expect(dir).not.toBeNull();
+    expect(dir.tagName).toBe("SPAN");
   });
 
-  test("no mapHref → no Directions anchor (no dead link)", () => {
+  test("no mapHref → tile is a non-anchor div, no Directions visual (no dead link)", () => {
     const { container } = render(<VenueMapTile query="X" mapHref={null} />);
+    const tile = container.querySelector('[data-testid="venue-map-tile"]') as HTMLElement;
+    expect(tile.tagName).toBe("DIV");
     expect(container.querySelector('[data-testid="venue-directions"]')).toBeNull();
     // stripe base + img still present
     expect(container.querySelector('[data-testid="venue-map-img"]')).not.toBeNull();
@@ -530,16 +548,24 @@ export function VenueMapTile({
 
   const inner = (
     <>
-      {/* (1) stripe base — always painted */}
+      {/* (1) stripe base — always painted. Inline style for the gradient (no
+          arbitrary-class → avoids the better-tailwindcss canonical-class lint);
+          colors still come from tokens. */}
       <span
         data-testid="venue-map-fallback"
         aria-hidden="true"
-        className="absolute inset-0 bg-[repeating-linear-gradient(45deg,var(--color-surface-sunken)_0_10px,var(--color-surface)_10px_20px)]"
+        className="absolute inset-0"
+        style={{
+          backgroundImage:
+            "repeating-linear-gradient(45deg, var(--color-surface-sunken) 0 10px, var(--color-surface) 10px 20px)",
+        }}
       />
       <span className="absolute top-2.5 left-2.5 rounded-sm bg-surface/85 px-1.5 py-0.5 font-mono text-[10px] text-text-faint">
         map
       </span>
-      {/* (2) real map overlay — hides itself on error */}
+      {/* (2) real map overlay — hides itself on error (instant; §8 declares no
+          fade, so NO transition class here — an opacity transition would be
+          inert and would trip the transition audit). */}
       <img
         data-testid="venue-map-img"
         src={src}
@@ -548,11 +574,17 @@ export function VenueMapTile({
         onError={(e) => {
           e.currentTarget.style.visibility = "hidden";
         }}
-        className="absolute inset-0 h-full w-full object-cover transition-opacity duration-fast motion-reduce:transition-none"
+        className="absolute inset-0 h-full w-full object-cover"
       />
-      {/* (3) Directions — only for a real URL */}
+      {/* (3) Directions visual — only for a real URL. Decorative span (the
+          ANCHOR is the whole tile, testid venue-map-tile, and is the 44px
+          target); this span carries venue-directions so tests can assert its
+          presence/absence follows mapHref. */}
       {mapHref ? (
-        <span className="absolute right-2.5 bottom-2.5 left-2.5 inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface text-xs font-semibold text-text">
+        <span
+          data-testid="venue-directions"
+          className="absolute right-2.5 bottom-2.5 left-2.5 inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface text-xs font-semibold text-text"
+        >
           <Navigation aria-hidden="true" className="size-3.5" />
           Directions
         </span>
@@ -560,7 +592,7 @@ export function VenueMapTile({
     </>
   );
 
-  const common = "relative block h-full min-h-tile-min w-full overflow-hidden";
+  const common = "relative block h-full min-h-tile-min-h w-full overflow-hidden";
   return mapHref ? (
     <a
       data-testid="venue-map-tile"
@@ -581,7 +613,7 @@ export function VenueMapTile({
 }
 ```
 
-Note: when `mapHref` is set the whole tile is the anchor, so the inner `Directions` span is a non-interactive visual (the anchor is the 44px target). When absent, no anchor renders. `min-h-tile-min` = `--spacing-tile-min-h` (96px) guarantees a measurable tile height in the stacked mobile layout.
+Note: when `mapHref` is set the whole tile is the anchor, so the inner `Directions` span is a non-interactive visual (the anchor is the 44px target). When absent, no anchor renders. `min-h-tile-min-h` (utility generated from `--spacing-tile-min-h` = 96px; confirmed in use at `components/atoms/Section.tsx:174`) guarantees a measurable tile height in the stacked mobile layout.
 
 - [ ] **Step 4: Run test, verify it passes** — `pnpm vitest run tests/components/admin/wizard/venueMapTile.test.tsx` → PASS.
 
@@ -840,10 +872,37 @@ test("§DI-1 venue map region height === text column height @ popup 800px", asyn
   ).toBeLessThanOrEqual(TOL);
 });
 
+test("§DI-2 venue map img fills its region box (no letterbox) @ popup 800px", async ({ page }) => {
+  await openHarness(page, { width: 800, height: 900 });
+  const region = await rect(page, '[data-testid="venue-map-region"]');
+  const img = await rect(page, '[data-testid="venue-map-img"]');
+  // h-full w-full object-cover on the img over an absolute-inset stripe base:
+  // the img fills the region box exactly (catches a collapsed/auto-sized img).
+  expect(Math.abs(img.width - region.width), `img w ${img.width} === region w ${region.width}`).toBeLessThanOrEqual(TOL);
+  expect(Math.abs(img.height - region.height), `img h ${img.height} === region h ${region.height}`).toBeLessThanOrEqual(TOL);
+});
+
 test("§DI-3 venue map region is 172px wide @ popup 800px", async ({ page }) => {
   await openHarness(page, { width: 800, height: 900 });
   const region = await rect(page, '[data-testid="venue-map-region"]');
   expect(Math.abs(region.width - 172), `region width ${region.width} === 172`).toBeLessThanOrEqual(TOL);
+});
+
+test("§DI-5 venue full-bleed body + dock reach the panel inner edges @ popup 800px", async ({ page }) => {
+  await openHarness(page, { width: 800, height: 900 });
+  // The venue section's panel card is the BreakdownSection panel. The full-bleed
+  // body (-m-tile-pad) + dock footer span the panel's inner content width, and
+  // the map region's right edge aligns to the body's right edge (bleeds to edge).
+  const body = await rect(page, '[data-testid="venue-body"]');
+  const dock = await rect(page, '[data-testid="venue-dock"]');
+  const region = await rect(page, '[data-testid="venue-map-region"]');
+  expect(Math.abs(dock.left - body.left), `dock.left ${dock.left} === body.left ${body.left}`).toBeLessThanOrEqual(TOL);
+  expect(Math.abs(dock.right - body.right), `dock.right ${dock.right} === body.right ${body.right}`).toBeLessThanOrEqual(TOL);
+  expect(Math.abs(region.right - body.right), `map region.right ${region.right} === body.right ${body.right}`).toBeLessThanOrEqual(TOL);
+  // overflow-hidden on the body wrapper clips the square-cornered regions to the
+  // panel radius (mechanism pinned via computed style; env-independent).
+  const overflow = await page.locator('[data-testid="venue-body"]').evaluate((el) => getComputedStyle(el).overflow);
+  expect(overflow, "venue body clips full-bleed regions (overflow hidden)").toContain("hidden");
 });
 
 test("§DI-4 venue columns STACK below sm @ sheet 390px", async ({ page }) => {
@@ -902,16 +961,17 @@ import { join } from "node:path";
 const ROOT = join(__dirname, "..", "..", "..", "..");
 const tile = readFileSync(join(ROOT, "components/admin/wizard/VenueMapTile.tsx"), "utf8");
 
-describe("venue card transition inventory (spec §8)", () => {
+describe("venue card transition inventory (spec §8 — all instant)", () => {
   test("no AnimatePresence / exit / initial props (card is static)", () => {
     expect(tile).not.toMatch(/AnimatePresence|(?:^|\s)exit=|(?:^|\s)initial=/);
   });
-  test("the only motion is the img opacity fade, guarded by motion-reduce", () => {
-    // transition-opacity present AND paired with motion-reduce:transition-none.
-    expect(tile).toContain("transition-opacity");
-    expect(tile).toContain("motion-reduce:transition-none");
-    // no layout-property transitions (width/height/margin/left/top).
-    expect(tile).not.toMatch(/transition-\[?(?:width|height|margin|left|top|inset)/);
+  test("no transition classes at all — the card is fully instant (§8)", () => {
+    // §8 declares every state pair instant, incl. image load (no fade) and the
+    // onError visibility swap. A `transition-*` class would be inert (the
+    // component performs no opacity/transform state change) and dishonest.
+    expect(tile).not.toMatch(/\btransition(-\w+)?\b/);
+    // The fallback swap is a visibility flip in onError, not an animation.
+    expect(tile).toContain('style.visibility = "hidden"');
   });
 });
 ```
