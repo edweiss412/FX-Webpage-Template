@@ -59,7 +59,7 @@ All emissions go through the `ParseAggregator` (`lib/parser/warnings.ts:15` — 
 - the raw header is dims-leading (name reconstruction is inferential);
 - the residual name after strip is empty or degenerate (single char / punctuation only) while the raw was non-trivial — the strip consumed what may have been the name.
 
-Exact branch enumeration happens at plan time against `splitRoomHeader`'s real structure (writing-plans pre-draft verification); the spec contract is: **every branch of `splitRoomHeader` where two readings were possible and one was picked emits exactly one warning** with `blockRef: { kind: "rooms"|<breakout kind>, name: <parsed room name>, field: "dims" | "name" }` and `rawSnippet` = the raw header cell.
+Exact branch enumeration happens at plan time against `splitRoomHeader`'s real structure (writing-plans pre-draft verification); the spec contract is: **every branch of `splitRoomHeader` where two readings were possible and one was picked emits exactly one warning** with `blockRef: { kind: "rooms", name: <parsed room name>, field: "dims" | "name" }` and `rawSnippet` = the raw header cell. `kind` is ALWAYS the literal `"rooms"` regardless of `RoomKind` (gs/breakout/additional) — `KIND_TO_SECTION` (`lib/admin/step3SectionStatus.ts:21-44`) maps `"rooms"` only; a RoomKind-valued `kind` would silently misroute to the generic bucket.
 
 Non-goals at this site: the placeholder-drop path (`rooms.ts:815`) stays silent — that is a coverage gap (audit #10/#4 family), not an ambiguity, and is out of scope here.
 
@@ -78,7 +78,7 @@ Non-goals at this site: the placeholder-drop path (`rooms.ts:815`) stays silent 
 
 Numeric slash/dash dates are always read MDY (`lib/parser/blocks/_helpers.ts:154-155`; precedence chain ISO→slash→dash→lfMDY→lfDMY at `:149`). A per-date "day ≤ 12 is ambiguous" warning would fire on nearly every US sheet — fatigue, rejected.
 
-Instead, a **block-level sequence check** after the DATES section parses: if the parsed date sequence is non-monotonic under the MDY reading, AND re-interpreting every numeric slash/dash date as DMY yields a monotonic (non-decreasing) sequence, emit ONE warning: `blockRef: { kind: "dates", field: "order" }`, `rawSnippet` = the first out-of-order raw date. This fires exactly in the real mis-read scenario (coordinator wrote DMY) and never on a well-ordered US sheet.
+Instead, a **block-level sequence check** over the DATES section's dates **in sheet encounter order, captured BEFORE the `result.showDays.sort()` calls** (`lib/parser/blocks/dates.ts:183`, `:281` — both parser versions sort before return, erasing row order; the check therefore runs inside the dates block parse, on the ordered list of successfully-parsed dates as encountered, one entry per parsed date row, ALL row kinds included — travel-in / set / show / travel-out): if that encounter-order sequence is non-monotonic (strictly decreasing at any adjacent pair) under the MDY reading, AND re-interpreting every numeric slash/dash date as DMY yields a non-decreasing sequence, emit ONE warning: `blockRef: { kind: "dates", field: "order" }`, `rawSnippet` = the first out-of-order raw date. This fires exactly in the real mis-read scenario (coordinator wrote DMY) and never on a well-ordered US sheet.
 
 Guard conditions: fewer than 2 parseable dates → no check (vacuously ordered). Dates equal under both readings (e.g. 5/5) contribute to neither violation nor rescue. If BOTH readings are non-monotonic → no warning (sheet is just out of order; existing behavior unchanged). Longform/ISO dates are fixed points (only numeric slash/dash re-interpret).
 
@@ -115,7 +115,7 @@ export const TRANSFORM_SITES: ReadonlyArray<
 > = [...];
 ```
 
-Walker asserts: (1) export present on every file (no allowlist analog to `NO_SECTION_OPENER` — a block with zero transform sites exports `[]`); (2) every `code` value exists in the catalog (`isMessageCode`, `lib/messages/lookup.ts:91`) AND is `severity:"warn"`-cataloged; (3) every `code` claimed as ambiguity-class is in `AMBIGUITY_CODES`; (4) the four sites named in this spec appear with their codes (pins this spec's deliverable against silent removal).
+Walker asserts: (1) export present on every file (no allowlist analog to `NO_SECTION_OPENER` — a block with zero transform sites exports `[]`); (2) every `code` value exists in the catalog (`isMessageCode`, `lib/messages/lookup.ts:91`) — catalog `severity` is optional and uses `"warning"` values, so the walker makes NO catalog-severity assertion; the emitted `ParseWarning.severity === "warn"` is proven by each site's emit unit tests (§10), not the walker; (3) every `code` claimed as ambiguity-class is in `AMBIGUITY_CODES`; (4) the four sites named in this spec appear with their codes (pins this spec's deliverable against silent removal).
 
 **Honest limit (stated, not hidden):** the walker enforces declaration, not detection — a NEW undeclared transform inside an EXISTING file is caught at review, not by CI. The fails-by-default property covers new block files and any drift in declared sites. Optional hardening (grep-guard on suspicious patterns à la the no-inline-email guard) was considered and deferred: transform-shaped code (`.split`/`.replace`/regex exec) is ubiquitous in a parser; a grep-guard would drown in exemption comments. This is a deliberate calibration, not an oversight — do not relitigate without a concrete escaped-bug instance.
 
@@ -127,7 +127,7 @@ UI surface ⇒ Opus-owned, impeccable v3 critique + audit dual-gate (AGENTS.md i
 
 ### 7.1 Section status derivation
 
-`sectionForWarning()` / section-status logic (`step3SectionStatus.ts:69-81`, `KIND_TO_SECTION` at `:21-44`) currently yields flagged/clean. New derivation per section:
+`sectionForWarning()` / section-status logic (`lib/admin/step3SectionStatus.ts:69-81`, `KIND_TO_SECTION` at `:21-44`) currently yields flagged/clean. New derivation per section:
 
 - **flagged** — has ≥1 warning that is NOT ambiguity-class (unchanged semantics);
 - **judgment** (new) — has ≥1 warning, ALL of them `isAmbiguityCode`;
@@ -137,13 +137,15 @@ Null/unmapped `blockRef.kind` routing is untouched (audit item 2.3 is separate s
 
 ### 7.2 Summary counts
 
-`renderSummary()` (`Step3Review.tsx:845-918`, `rowNeedsLook()` at `:828-836`): replace the two-bucket derivation with three counts — **"N clean · M parsed with judgment — spot-check · K flagged."** Exact copy is an impeccable-gate deliverable; the contract here is: three distinct counts, judgment-count wording prompts a glance without implying error, and the sum N+M+K equals the section total. Ambiguity-only sections do NOT join `rowNeedsLook`'s blocking styling and do NOT block publish.
+`renderSummary()` (`components/admin/wizard/Step3Review.tsx:845-918`, `rowNeedsLook()` at `:828-836`): replace the two-bucket derivation with three counts — **"N clean · M parsed with judgment — spot-check · K flagged."** Exact copy is an impeccable-gate deliverable; the contract here is: three distinct counts, judgment-count wording prompts a glance without implying error, and the sum N+M+K equals the section total.
+
+**Derivation change (required, not optional):** `rowNeedsLook()` today returns true when `summarizeDataGaps(...).total > 0` — since the new codes join `GAP_CLASSES` (§3.3), an unmodified `rowNeedsLook` would put ambiguity-only rows in the needs-look bucket, contradicting this section. The derivation therefore **partitions gap totals by `isAmbiguityCode`**: `rowNeedsLook` is true only when the row's NON-ambiguity gap/warning count is > 0; a row whose warnings are all ambiguity-class lands in the judgment bucket (M). Ambiguity-only sections do NOT join `rowNeedsLook`'s blocking styling and do NOT block publish. Dashboard chip and regression gate are deliberately NOT partitioned — ambiguity codes count there like any gap class (§3.3; the chip is a "glance here" aggregate, same intent).
 
 Guard conditions: M=0 renders the existing two-state summary (no empty "0 parsed with judgment" chrome). All-zero (no sections) is the existing empty-wizard state, unchanged. A section with ambiguity + non-ambiguity warnings is **flagged** (K), counted once.
 
 ### 7.3 Section chrome
 
-`SectionFlagCallout` (`step3ReviewSections.tsx:469-514`): judgment sections get a visually distinct callout variant — "We made a judgment call reading this — worth a glance" + the entry list (existing `CALLOUT_MAX_ENTRIES` cap at `:480` applies unchanged) + the existing "In sheet ↗" deep-link (`:548-559`) which is the spot-check affordance. Entry text includes the `blockRef.field` when present ("dims for ROOM A"). Visual treatment (color/token choice distinct from flagged amber and from clean) is an impeccable-gate deliverable within existing `DESIGN.md` tokens.
+`SectionFlagCallout` (`components/admin/wizard/step3ReviewSections.tsx:469-514`): judgment sections get a visually distinct callout variant — "We made a judgment call reading this — worth a glance" + the entry list (existing `CALLOUT_MAX_ENTRIES` cap at `:480` applies unchanged) + the existing "In sheet ↗" deep-link (`:548-559`) which is the spot-check affordance. Entry text includes the `blockRef.field` when present ("dims for ROOM A"). Visual treatment (color/token choice distinct from flagged amber and from clean) is an impeccable-gate deliverable within existing `DESIGN.md` tokens.
 
 ### 7.4 Transition inventory
 
@@ -175,7 +177,7 @@ Existing registry joiners (`CREW_COLUMN_POSITIONAL_FALLBACK`, `AGENDA_DAY_AMBIGU
 
 TDD per task (invariant 1). Per site: fixture-derived ambiguous inputs (a multi-dims room header; a glued guest cell with interior digit run; a DMY-ordered numeric date sequence) asserting against the **warnings array + blockRef.field** (anti-tautology: never scan a container that renders both the value and the flag; expected values derived from the fixture, not hardcoded). Negative tests: well-formed inputs at each site emit nothing; both-readings-unordered dates emit nothing. Guard/NaN/empty inputs per §4.3 guards. Walker meta-test per §6. Wizard: derivation unit tests for §7.1/§7.2 including the mixed-warning and M=0 guards. Class-sweep before push: warning-shape `toEqual` assertions (§5), `pnpm test` full suite + typecheck + eslint + format:check (memory: scoped gates miss regressions; vitest strips types; canonical Tailwind; --no-verify bypasses prettier).
 
-**Meta-test inventory (writing-plans rule):** CREATES `tests/parser/_metaTransformSitesWalker.test.ts`; EXTENDS none. Advisory-lock topology: untouched (no mutation-path changes — parser + UI only). Mutation harness: `SECTION_DOMAIN_MAP` (`tests/parser/mutation/classify.ts:36-72`) is section-keyed, not warning-code-keyed — no registration needed; confirmed at citation pass.
+**Meta-test inventory (writing-plans rule):** CREATES `tests/parser/_metaTransformSitesWalker.test.ts`; EXTENDS `tests/parser/dataGapsClassCompleteness.test.ts` (pins `GAP_CLASSES` counts/partition — the four new `GAP_CLASSES` entries update its expected counts and classification rows). Advisory-lock topology: untouched (no mutation-path changes — parser + UI only). Mutation harness: `SECTION_DOMAIN_MAP` (`tests/parser/mutation/classify.ts:36-72`) is section-keyed, not warning-code-keyed — no registration needed; confirmed at citation pass.
 
 ## 11. Do-not-relitigate register
 
