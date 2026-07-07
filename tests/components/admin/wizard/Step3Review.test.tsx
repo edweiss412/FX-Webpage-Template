@@ -144,7 +144,7 @@ describe("Step3Review header + composed summary (Task 3)", () => {
     expect(queryByTestId("wizard-step3-eyebrow")).toBeNull();
   });
 
-  test("summary: all ready, plural", () => {
+  test("summary: all ready, plural — no 'ready to publish' verification claim", () => {
     const { getByTestId } = render(
       <Step3Review
         wizardSessionId={WIZARD_SESSION_ID}
@@ -152,20 +152,20 @@ describe("Step3Review header + composed summary (Task 3)", () => {
       />,
     );
     expect(norm(getByTestId("wizard-step3-summary"))).toBe(
-      "2 sheets parsed from your Drive folder. All 2 are ready to publish. Nothing publishes until you say so.",
+      "2 sheets parsed from your Drive folder. We didn't spot any issues. Give them a quick look against your sheet before you publish. Nothing publishes until you say so.",
     );
   });
 
-  test("summary: single ready avoids 'All 1'", () => {
+  test("summary: single ready, singular 'Give it'", () => {
     const { getByTestId } = render(
       <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[cleanRow("a", "staged")]} />,
     );
     expect(norm(getByTestId("wizard-step3-summary"))).toBe(
-      "1 sheet parsed from your Drive folder. It's ready to publish. Nothing publishes until you say so.",
+      "1 sheet parsed from your Drive folder. We didn't spot any issues. Give it a quick look against your sheet before you publish. Nothing publishes until you say so.",
     );
   });
 
-  test("summary: one needs a look uses singular 'needs' + 'it goes'", () => {
+  test("summary: one needs a look — 'looks clean' singular + 'it goes'", () => {
     const { getByTestId } = render(
       <Step3Review
         wizardSessionId={WIZARD_SESSION_ID}
@@ -173,12 +173,12 @@ describe("Step3Review header + composed summary (Task 3)", () => {
       />,
     );
     expect(norm(getByTestId("wizard-step3-summary"))).toBe(
-      // No em dash (project copy rule): the ready/needs-look clauses join with a comma.
-      "2 sheets parsed from your Drive folder. 1 ready to publish, 1 needs a quick look before it goes live. Nothing publishes until you say so.",
+      // No em dash (DESIGN.md:318): clauses join with a comma.
+      "2 sheets parsed from your Drive folder. 1 looks clean, 1 needs a quick look before it goes live. Nothing publishes until you say so.",
     );
   });
 
-  test("summary: readyCount===0, needsLookCount>1 → no 'ready' lead, plural 'need … they go'", () => {
+  test("summary: readyCount===0, needsLookCount>1 → plural 'need … they go'", () => {
     const { getByTestId } = render(
       <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[warnRow("a"), warnRow("b")]} />,
     );
@@ -187,13 +187,40 @@ describe("Step3Review header + composed summary (Task 3)", () => {
     );
   });
 
-  test("summary: only blocking rows → no readiness clause", () => {
+  test("summary: SOME-READY — scoped clean claim + attention pointer (1 ready, 1 blocking)", () => {
+    const { getByTestId } = render(
+      <Step3Review
+        wizardSessionId={WIZARD_SESSION_ID}
+        rows={[cleanRow("a", "staged"), hardFailRow("b")]}
+      />,
+    );
+    expect(norm(getByTestId("wizard-step3-summary"))).toBe(
+      "2 sheets parsed from your Drive folder. 1 looks clean. Give it a quick look before you publish. 1 needs your attention below. Nothing publishes until you say so.",
+    );
+  });
+
+  test("summary: set-aside sheet scopes the clean claim (no unscoped 'no issues', no pointer)", () => {
+    // 1 ready + 1 permanently-ignored. sheetCount=2 but readyCount=1, so the
+    // clean claim must scope to "1 looks clean" (not "we didn't spot any issues"
+    // across 2 sheets), and there is NO attention pointer (nothing is blocking).
+    const { getByTestId } = render(
+      <Step3Review
+        wizardSessionId={WIZARD_SESSION_ID}
+        rows={[cleanRow("a", "staged"), ignoredRow("b")]}
+      />,
+    );
+    expect(norm(getByTestId("wizard-step3-summary"))).toBe(
+      "2 sheets parsed from your Drive folder. 1 looks clean. Give it a quick look before you publish. Nothing publishes until you say so.",
+    );
+  });
+
+  test("summary: only blocking rows → attention pointer, no readiness clause, no tail", () => {
     const { getByTestId } = render(
       <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[hardFailRow("a")]} />,
     );
-    const s = norm(getByTestId("wizard-step3-summary"));
-    expect(s).toContain("1 sheet parsed from your Drive folder.");
-    expect(s).not.toContain("ready to publish");
+    expect(norm(getByTestId("wizard-step3-summary"))).toBe(
+      "1 sheet parsed from your Drive folder. 1 needs your attention below.",
+    );
   });
 
   test("summary: empty (rows = []) renders NO summary paragraph (empty card handles it)", () => {

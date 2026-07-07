@@ -34,7 +34,7 @@
  * I-7 wizard-scoped staged review page) so reviewer-choices controls
  * live on a dedicated surface, not inline in the list.
  */
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Check } from "lucide-react";
@@ -835,51 +835,91 @@ function rowNeedsLook(row: Step3Row): boolean {
   );
 }
 
-// Composed summary line (§4.2 copy catalog): pluralized, guard-branched, with
-// bold counts and a warn-colored "needs a look" clause. Emphasis is presentation
-// only — the normalized textContent equals the plaintext form the tests pin.
-function renderSummary(sheetCount: number, readyCount: number, needsLookCount: number) {
+// Composed summary line (§4.2 copy catalog + spec 2026-07-07 §A.2): honest,
+// pluralized, guard-branched. A clean row means only "no known warning," never
+// "verified" — so the copy nudges a spot-check instead of claiming "ready to
+// publish." Accounts for every sheet that still needs forward action
+// (ready + needs-look + blocking); set-aside rows have their own sections.
+// No em dashes (DESIGN.md:318). Emphasis is presentation only — the normalized
+// textContent equals the plaintext the tests pin.
+function renderSummary(
+  sheetCount: number,
+  readyCount: number,
+  needsLookCount: number,
+  blockingCount: number,
+) {
   const cleanCount = readyCount + needsLookCount;
+  const strong = (s: string) => <b className="font-semibold text-text-strong">{s}</b>;
   const head = (
     <>
-      <b className="font-semibold text-text-strong">
-        {sheetCount} sheet{sheetCount === 1 ? "" : "s"}
-      </b>
+      {strong(`${sheetCount} sheet${sheetCount === 1 ? "" : "s"}`)}
       {" parsed from your Drive folder."}
     </>
   );
-  if (cleanCount === 0) return head; // blocking / set-aside only — no readiness clause
-  const tail = " Nothing publishes until you say so.";
-  if (needsLookCount === 0) {
+  const attention =
+    blockingCount > 0 ? (
+      <span className="text-warning-text">
+        {` ${blockingCount} ${blockingCount === 1 ? "needs" : "need"} your attention below.`}
+      </span>
+    ) : null;
+
+  if (cleanCount === 0 && blockingCount === 0) return head; // all set-aside/skipped
+  if (cleanCount === 0) {
     return (
       <>
-        {head}{" "}
-        <b className="font-semibold text-text-strong">
-          {readyCount === 1 ? "It's ready to publish." : `All ${readyCount} are ready to publish.`}
-        </b>
-        {tail}
+        {head}
+        {attention}
       </>
-    );
+    ); // all blocking: attention pointer, no tail
   }
-  const verb = needsLookCount === 1 ? "needs" : "need";
-  const pron = needsLookCount === 1 ? "it goes" : "they go";
-  const look = (
-    <span className="text-warning-text">
-      {`${needsLookCount} ${verb} a quick look before ${pron} live.`}
-    </span>
-  );
-  return (
-    <>
-      {head}{" "}
-      {readyCount > 0 ? (
+
+  const tail = " Nothing publishes until you say so.";
+  const looksClean = (n: number) => (n === 1 ? "1 looks clean" : `${n} look clean`);
+  // Capitalized: begins a sentence in the dash-free copy (DESIGN.md:318).
+  const giveLook = (n: number) => (n === 1 ? "Give it a quick look" : "Give them a quick look");
+
+  // Emphasis carries the COUNTS, not the nudge prose (impeccable critique). The
+  // head already bolds the sheet count; here we bold only count-bearing phrases.
+  let clause: ReactNode;
+  if (needsLookCount === 0) {
+    clause =
+      // The unscoped "we didn't spot any issues" fires ONLY when every counted
+      // sheet is ready (readyCount === sheetCount). If any sheet is blocking OR
+      // set-aside (readyCount < sheetCount), scope the claim to the ready subset,
+      // so the summary never over-claims and "N sheets ... give it" can't mismatch.
+      readyCount === sheetCount ? (
+        // No count in this clause (the head's "N sheets" carries it) → normal weight.
+        `We didn't spot any issues. ${giveLook(readyCount)} against your sheet before you publish.`
+      ) : (
         <>
-          <b className="font-semibold text-text-strong">{`${readyCount} ready to publish`}</b>
+          {strong(looksClean(readyCount))}
+          {`. ${giveLook(readyCount)} before you publish.`}
+        </>
+      );
+  } else {
+    const verb = needsLookCount === 1 ? "needs" : "need";
+    const pron = needsLookCount === 1 ? "it goes" : "they go";
+    const look = (
+      <span className="text-warning-text">
+        {`${needsLookCount} ${verb} a quick look before ${pron} live.`}
+      </span>
+    );
+    clause =
+      readyCount > 0 ? (
+        <>
+          {strong(looksClean(readyCount))}
           {", "}
           {look}
         </>
       ) : (
         look
-      )}
+      );
+  }
+
+  return (
+    <>
+      {head} {clause}
+      {attention}
       {tail}
     </>
   );
@@ -1255,7 +1295,7 @@ export function Step3Review({
             publish badges, so it is suppressed just like the Select-all header. */}
         {rows.length > 0 && checkpointStatus === null ? (
           <p data-testid="wizard-step3-summary" className="max-w-prose text-base text-text-subtle">
-            {renderSummary(sheetCount, readyCount, needsLookCount)}
+            {renderSummary(sheetCount, readyCount, needsLookCount, blockingCount)}
           </p>
         ) : null}
         {/* Spec §4.2 rule 7: the Select-all / publish-intent header exists ONLY
