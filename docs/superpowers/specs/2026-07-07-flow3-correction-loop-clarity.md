@@ -32,9 +32,13 @@ A small presentational callout: one instructional line + a re-run affordance, pl
 
 ### 3.1 Per-show admin page
 
-- **Where:** inside the "Data quality" `<section>` (`app/admin/show/[slug]/page.tsx:877-901`), rendered **after** the `<h2>Data quality</h2>` + `HoverHelp` header row (line 882-901) and **before** `BulkIgnoreControls` (line 905). This section only renders when `activeActionable.length > 0 || ignoredActionable.length > 0` (line 876) — so the callout appears **only when there is at least one warning to fix**. No empty-state variant needed (guard: absent section = no callout).
+- **Where:** inside the "Data quality" `<section>` (`app/admin/show/[slug]/page.tsx:877-901`), rendered **after** the `<h2>Data quality</h2>` + `HoverHelp` header row (line 882-901) and **before** `BulkIgnoreControls` (line 905).
+- **Render gate (exact):** the callout renders **only when `activeActionable.length > 0 && !archived`**.
+  - `activeActionable` / `ignoredActionable` are the active/ignored partition (`page.tsx:398`, `partitionByIgnored`). `archived = Boolean(show.archived)` (`page.tsx:422`).
+  - **Active-only, not `active || ignored`:** the enclosing section renders when `activeActionable.length > 0 || ignoredActionable.length > 0` (line 876), but **ignored** warnings are content-keyed and survive re-sync (`page.tsx:926-928` "Ignored (N)… content-keyed ignores that survive re-sync"). Re-syncing does NOT clear them, so the callout's "we'll re-parse and clear this" is false for an ignored-only state → the callout must NOT render when `activeActionable.length === 0`.
+  - **`!archived`:** an archived show is the read-only surface; `ReSyncButton` is deliberately suppressed on it (`page.tsx:999-1008` renders "Re-sync is paused while this show is archived" instead — per that block's own comment, manual sync mutates `shows`/`pending_syncs` via `/api/admin/sync` whose only server gate is finalize-ownership, NOT archived, so the CTA is suppressed client-side while the server-side archived refusal is deferred). The callout — a second re-sync entry point — must apply the **same guard**: no callout on an archived show. (No "paused" variant of the callout is needed; the footer already carries that message.)
 - **Copy (exact):** `Fixed it in the sheet? Edit the cell, save, then re-sync — we'll re-parse and clear this.`
-- **Affordance:** an inline `<ReSyncButton slug={show.slug} />` immediately after the copy, forming one callout unit. The existing health-section `<ReSyncButton>` (`page.tsx:1008`) **stays** — it answers a different question ("how did the last sync go") in the sync-health context. Two instances of the same underlying action is acceptable because they are framed for different intents; the impeccable audit gate (§8) validates the visual treatment (the callout instance may adopt a quieter/secondary skin if the audit calls for it — a plan-time refinement, not a spec requirement).
+- **Affordance:** an inline `<ReSyncButton slug={show.slug} />` immediately after the copy, forming one callout unit. Because the callout only renders when `!archived`, the mounted `ReSyncButton` is never an archived-show re-sync path. The existing health-section `<ReSyncButton>` (`page.tsx:1008`) **stays** — it answers a different question ("how did the last sync go") in the sync-health context. Two instances of the same underlying action is acceptable because they are framed for different intents; the impeccable audit gate (§8) validates the visual treatment (the callout instance may adopt a quieter/secondary skin if the audit calls for it — a plan-time refinement, not a spec requirement).
 - **New component:** extract a small presentational `CorrectionLoopCallout` (Server Component, no `'use client'`) that renders the copy line and accepts the re-run affordance as `children` (so the same component serves both surfaces with different buttons). Lives at `components/admin/CorrectionLoopCallout.tsx`.
 
 ### 3.2 Onboarding wizard step-3
@@ -48,9 +52,12 @@ A small presentational callout: one instructional line + a re-run affordance, pl
 
 | Condition | Behavior |
 |---|---|
-| No warnings on the surface | Section/branch not rendered → callout absent. |
-| Per-show: `show.drive_file_id` null | `ReSyncButton` still renders (it takes `slug`, not `drive_file_id`); callout renders. The per-field deep-links independently render nothing when the sheet link is unbuildable — unchanged. |
+| Per-show: `activeActionable.length === 0` (no active warnings, incl. **ignored-only**) | Callout absent — nothing re-sync will clear. |
+| Per-show: `archived` true (even with active warnings) | Callout absent — retired/read-only surface; matches the suppressed footer `ReSyncButton`. |
+| Per-show: `activeActionable.length > 0 && !archived` | Callout renders with copy + inline `ReSyncButton`. |
+| Per-show: `show.drive_file_id` null | `ReSyncButton` still renders (it takes `slug`, not `drive_file_id`); callout renders (subject to the active/archived gate above). The per-field deep-links independently render nothing when the sheet link is unbuildable — unchanged. |
 | Wizard: warnings present | Copy renders; no button mounted (existing `RescanSheetButton` is the affordance). |
+| Wizard: no warnings | Empty branch renders; no callout. |
 
 ### 3.4 Dimensional invariants (Unit 1)
 
@@ -58,7 +65,7 @@ The callout is intrinsic-height flow content (a `<p>` + an inline button or `chi
 
 ### 3.5 Transition inventory (Unit 1)
 
-The callout has a single visual state (static copy + a button whose own busy/idle transitions are already owned by `ReSyncButton`/`RescanSheetButton`). **Two states total for the section: present (≥1 warning) / absent (0 warnings)** — the absent↔present transition is **instant, no animation needed** (it is a server-rendered conditional tied to warning count, matching the section's existing instant render). No `AnimatePresence`, no new ternary animation. This spec adds no new animated states.
+The callout has a single visual state (static copy + a button whose own busy/idle transitions are already owned by `ReSyncButton`/`RescanSheetButton`). **Two states total for the section: present (active warning, not archived) / absent** — the absent↔present transition is **instant, no animation needed** (it is a server-rendered conditional tied to the render gate, matching the section's existing instant render). No `AnimatePresence`, no new ternary animation. This spec adds no new animated states.
 
 ## 4. Unit 2 — Hold explanations (audit 3.3)
 
@@ -112,11 +119,11 @@ Therefore: **NO** §12.4 prose edit, **NO** `pnpm gen:spec-codes`, **NO** `lib/m
 
 ## 7. Testing (anti-tautology)
 
-- **Unit 1 (per-show callout):** render the "Data quality" section with ≥1 active warning; assert the exact callout copy string (#5.1) is present AND a `ReSyncButton` (the re-sync action, via its `data-testid`/role + label, not merely "a button exists") is within the callout. Negative: render the section with zero warnings → assert the section (and callout) is absent.
+- **Unit 1 (per-show callout):** render the "Data quality" section with ≥1 **active** warning and `archived === false`; assert the exact callout copy string (#5.1) is present AND a `ReSyncButton` (the re-sync action, via its `data-testid`/role + label, not merely "a button exists") is within the callout. Negatives, all asserting the callout copy is **absent**: (a) zero warnings (section absent); (b) **ignored-only** — `activeActionable=[]`, `ignoredActionable.length>0` (section renders its Ignored subsection but no callout); (c) **archived + active warnings** — `archived===true`, `activeActionable.length>0` (no callout, no second re-sync entry point on a retired show).
 - **Unit 1 (wizard callout):** render `WarningsBreakdown` with ≥1 warning; assert exact copy (#5.2). Negative: zero warnings → assert the "No parse warnings" empty copy renders and the loop copy does **not**.
 - **Unit 2 (hold explanations):** for **each** disposition (`email_change`, `rename`, `removal`), render `ChangeFeedEntry` with `action==='approve_reject'` + a matching gate; assert the **exact** disposition-specific explanation string (#5.3–5.5) renders. Negatives: (a) `action==='undo'` → no `change-feed-hold-explanation`; (b) `action==='none'` → none; (c) `action==='approve_reject'` with `gate==null` → none. The assertion must key on the exact copy per disposition (a shared/generic string would let a wrong-disposition mapping pass — the failure mode this catches is the copy table wired to the wrong disposition).
 
-Concrete failure modes each test catches: callout tests catch "callout silently dropped / wrong verb / button not the re-sync action"; hold tests catch "explanation wired to the wrong disposition / leaked on non-gate rows / missing on gate rows."
+Concrete failure modes each test catches: callout tests catch "callout silently dropped / wrong verb / button not the re-sync action / callout shown for ignored-only (false 'will clear this') / callout re-enables re-sync on an archived show"; hold tests catch "explanation wired to the wrong disposition / leaked on non-gate rows / missing on gate rows."
 
 ## 8. Invariants & meta-test inventory
 
@@ -131,5 +138,6 @@ Concrete failure modes each test catches: callout tests catch "callout silently 
 1. **Hold copy is not a catalog code** — §6, precedent `ChangesFeed.tsx:8-11`. Do not request §12.4 lockstep.
 2. **No deep-link relabel** — §2 non-goal; existing "Open in Sheet ↗" / "In sheet" labels are intentionally preserved for cross-surface consistency.
 3. **Audit 3.2 (admin_overrides) is intentionally out of scope** — split to a later milestone; this spec targets B+, not A−. Do not flag its absence as incompleteness.
-4. **Two per-show `ReSyncButton` instances is intentional** — health-context vs correction-context framing; impeccable audit owns the visual disambiguation.
-5. **All-three-disposition coverage is forward-safety, not dead code** — `rename`/`removal` are live members of the `Disposition` union (`holds/types.ts:9-10`); covering them now prevents a blank explanation the day such a hold is first written.
+4. **Two per-show `ReSyncButton` instances is intentional** — health-context vs correction-context framing; impeccable audit owns the visual disambiguation. Both are gated on `!archived` (§3.1), so neither is an archived-show re-sync path.
+5. **Callout gate is `activeActionable.length > 0 && !archived`, not the section's `active || ignored`** (§3.1) — closes the ignored-only false-guidance case and the archived re-sync-reopen case (round-1 findings). Do not "simplify" it back to the section-level condition.
+6. **All-three-disposition coverage is forward-safety, not dead code** — `rename`/`removal` are live members of the `Disposition` union (`holds/types.ts:9-10`); covering them now prevents a blank explanation the day such a hold is first written.
