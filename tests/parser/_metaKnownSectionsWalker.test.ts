@@ -37,7 +37,8 @@ const INDEX_FILE = join(process.cwd(), "lib/parser/index.ts");
 // blocks/*.ts that is neither here nor a token-exporter FAILS.
 const NO_SECTION_OPENER: Record<string, string> = {
   "_helpers.ts": "pure helpers; no col0 section detection",
-  "_dimsToken.ts": "pure dims-token regex fragments (DIMS_START/DIMS_FULL/DIMS_SEP); no section detection",
+  "_dimsToken.ts":
+    "pure dims-token regex fragments (DIMS_START/DIMS_FULL/DIMS_SEP); no section detection",
   "agenda.ts": "agenda schedule rows; the agenda-link opener lives in index.ts",
   "agendaWarnings.ts": "warning emission only",
   "contacts.ts":
