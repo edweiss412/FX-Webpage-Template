@@ -43,6 +43,8 @@
 | `gear.ts` | `NO_SECTION_OPENER` | reuses room families already owned by `rooms.ts` (not a distinct opener) |
 | `_helpers.ts`, `agenda.ts`, `agendaWarnings.ts`, `scheduleBookends.ts`, `scheduleTimes.ts`, `travelFlights.ts`, `travelFlightWarnings.ts` | `NO_SECTION_OPENER` | no section-opener col0 detection |
 
+**Backstop cross-section references (from complete plan-time preflight).** A file may be `NO_SECTION_OPENER` (opens nothing) yet still REFERENCE another section's registered banner as a boundary/classification/sentinel — these are enumerated in the walker's `RAW_HEADER_REGEX_ALLOWLIST` / `EQUALITY_LITERAL_ALLOWLIST` (Task 14) so the registry-keyed backstop stays high-signal: `event.ts` (GENERAL SESSION/BREAKOUT room-block boundary, `:174`), `gear.ts` (room-family classification, `:97-99`), `scheduleTimes.ts` (DATES boundary, `:114/:122`), `index.ts` (CLIENT title sentinel + agenda capture regex). Sub-labels (START/NAME/PHONE/SET/TRAVEL/SHOW DAY/FINISH/TRT), column headers (FLIGHT DETAILS/MAIN/SECONDARY/DATE/TIME), generic char-class matchers (crew `BLOCK_LABEL_RE`, index `TABLE_ROW_RE`), and terminator arrays (crew `TERMINATING_LABELS`) are NOT registered section openers (or not equality/regex-adjacent) and never fire.
+
 ---
 
 ### Task 1: Shared matcher factory `_sectionHeaderMatch.ts`
@@ -999,7 +1001,7 @@ EOF
 
 ### Task 14: The walker meta-test `_metaKnownSectionsWalker.test.ts`
 
-This is the load-bearing structural guard (spec §6). It has FIVE responsibilities: (0) scanned-file set, (1) filesystem-walk fail-by-default, (2) non-empty, (3) EXACT subset ⊆ registry, (4) import-link nudge, (5-6) source-text backstop guards, (7) documented residual comment, (8) disjointness, (9) non-vacuity proof, (10) no-orphan warn.
+This is the load-bearing structural guard (spec §6). Responsibilities: (0) scanned-file set, (1) filesystem-walk fail-by-default, (2) non-empty, (3) EXACT subset ⊆ registry, (4) import-link nudge, (5) REGISTRY-KEYED source-text backstop (Form A equality/startsWith/includes + Form B anchored regex, keyed to `KNOWN_SECTION_HEADERS` membership), (7) documented residual comment, (8) disjointness, (9) non-vacuity proof + negative controls, (10) no-orphan warn.
 
 **Files:**
 - Create: `tests/parser/_metaKnownSectionsWalker.test.ts`
@@ -1016,20 +1018,25 @@ This is the load-bearing structural guard (spec §6). It has FIVE responsibiliti
 // for any NEW file under lib/parser/blocks/. Enforced PRIMARY gates: annotation
 // (export SECTION_HEADER_TOKENS or be allowlisted), non-empty, EXACT subset of
 // KNOWN_SECTION_HEADERS. STRUCTURAL NUDGE: token-exporters (except
-// IMPORT_LINK_EXEMPT) import the shared factory. BACKSTOP: source-text guards
-// flag hand-rolled matcher shapes. DECLARED ACCEPTED RESIDUAL (spec §6.7): the
-// walker proves import, NOT exclusive factory USE, and does not model exotic
-// private matchers on input absent from all fixtures; behavior on shipped
-// fixtures is pinned by the parser test suite, and the COMMON drift (a new
-// parser with an unregistered header) cannot pass silently. Do NOT relitigate
-// the residual as an undiscovered hole.
+// IMPORT_LINK_EXEMPT) import the shared factory. BACKSTOP (registry-keyed): a
+// source-text guard flags a hand-rolled matcher (Form A: equality/startsWith/
+// includes against a quoted token; Form B: an anchored /^.../ regex containing
+// the token) whose token is an EXACT KNOWN_SECTION_HEADERS member the file
+// neither owns nor allowlists — high-signal (sub-labels, column headers,
+// terminator arrays, .includes(var), and comments do NOT fire). DECLARED
+// ACCEPTED RESIDUAL (spec §6.7): the walker proves import, NOT exclusive factory
+// USE; and because the backstop is registry-keyed, a hand-rolled matcher for an
+// UNREGISTERED token, or a registered token via an exotic mechanism (computed
+// token, .match on a built regex, non-anchored/lowercase literal), is not caught
+// — behavior on shipped fixtures is pinned by the parser test suite, and the
+// COMMON drift (a new parser file) cannot pass silently (annotation gate). Do
+// NOT relitigate the residual as an undiscovered hole.
 import { describe, it, expect } from "vitest";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import {
   KNOWN_SECTION_HEADERS,
   PREFIX_SECTION_FAMILIES,
-  KNOWN_SUB_LABELS,
   normalizeHeader,
 } from "@/lib/parser/knownSections";
 
@@ -1055,14 +1062,26 @@ const NO_SECTION_OPENER: Record<string, string> = {
 // matchers not buildable from the presence factory — spec §4/§6.4).
 const IMPORT_LINK_EXEMPT = new Set(["rooms.ts"]);
 
-// Files whose raw col0-header regex literals are legitimate (capture-extract /
-// multi-column / shape matchers). Reason travels with each entry.
+// Files with a RETAINED raw matcher (regex or equality) referencing a REGISTERED
+// section-opener token — either the file's own token (deliberately kept as a
+// capture-extract/multi-column matcher) or another section's banner reused as a
+// boundary/classification. Reason travels with each entry. (Populated from a
+// complete plan-time preflight scan over the live tree — see plan Task 14 note.)
 const RAW_HEADER_REGEX_ALLOWLIST: Record<string, string> = {
   "rooms.ts": "capture-extract/shape room-banner matchers (IMPORT_LINK_EXEMPT, spec §4)",
-  "hotels.ts": "inline reservation/stay capture matchers (capture the value column)",
-  "transport.ts": "multi-column TRANSPORTATION / v1 Driver header matchers (require PHONE/EMAIL/name cols)",
-  "index.ts": "agenda label+value capture matcher",
-  "ops.ts": "whole-cell metadata regexes (/^\\s*COI\\s*$/i) — not col0-header-prefix shaped",
+  "hotels.ts": "inline reservation/stay capture matchers (:507/:519) + /^HOTEL$/i (:356)",
+  "transport.ts": "multi-column TRANSPORTATION headers (:173/:336), v1 Driver (:446), /^TRANSPORTATION\\//i (:285)",
+  "index.ts": "agenda label+value capture matcher (:339)",
+  "event.ts": "references GENERAL SESSION / BREAKOUT as a room-block boundary (:174) — event does not OPEN those",
+  "gear.ts": "room-family classification (/^GENERAL/, /^BREAKOUT/, /^LUNCH/ :97-99) — reuses banners owned by rooms.ts",
+  "scheduleTimes.ts": "consumes the DATES block boundary owned by dates.ts (:114/:122) — not an opener",
+};
+
+// Equality/method literals (registered-section-header tokens) legitimate in a file
+// that does not own the token (a cross-section boundary reference, or a sentinel).
+const EQUALITY_LITERAL_ALLOWLIST: Record<string, readonly string[]> = {
+  "scheduleTimes.ts": ["DATES"], // consumes the dates-block boundary owned by dates.ts (:114/:122)
+  "index.ts": ["CLIENT"], // CLIENT-prefix title-exclusion sentinel (client section owned by client.ts)
 };
 
 // Registry entries no parser opens on but that are intentionally present
@@ -1135,46 +1154,42 @@ describe("known-sections source walker", () => {
     }
   });
 
-  it("BACKSTOP source guards: no un-allowlisted raw col0-header regex / uppercase-equality literal", async () => {
+  it("BACKSTOP (REGISTERED-TOKEN-KEYED, 2 syntactic forms): no un-allowlisted matcher for a registered opener the file does not own", async () => {
     const scanned = await scanFiles();
-    // pipe-anchored header regex literal, e.g. /^\|\s*CREW\s*\|/
-    const PIPE_RE = /\/\^\\s\*\?\\\|[^/\n]*\\\|/;
-    // non-pipe col0.test prefix regex, e.g. /^GENERAL SESSION\b/.test(col0)
-    const COL0_TEST_RE = /\/\^[A-Z][A-Z \\s/&]{2,}[^/\n]*\/\s*\.test\s*\(/;
-    // uppercase equality both orders
-    const EQ_A = /(===|!==)\s*["'][A-Z][A-Z /&]{2,}["']/;
-    const EQ_B = /["'][A-Z][A-Z /&]{2,}["']\s*(===|!==)/;
+
+    // Escape a token for embedding in a RegExp source; tokens may contain / ( ) etc.
+    const esc = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
     for (const s of scanned) {
       if (s.file === "_sectionHeaderMatch.ts") continue;
-      const tokens = ((s.mod.SECTION_HEADER_TOKENS as string[] | undefined) ?? []).map(normalizeHeader);
-      const meta = ((s.mod.METADATA_FIELD_TOKENS as string[] | undefined) ?? []).map(normalizeHeader);
-      const allowedRaw = s.file in RAW_HEADER_REGEX_ALLOWLIST;
+      const ownTokens = new Set(((s.mod.SECTION_HEADER_TOKENS as string[] | undefined) ?? []).map(normalizeHeader));
+      const rawAllowed = s.file in RAW_HEADER_REGEX_ALLOWLIST;
+      const eqAllowed = new Set((EQUALITY_LITERAL_ALLOWLIST[s.file] ?? []).map(normalizeHeader));
 
-      // Equality literals must be ACCOUNTED FOR (a token / metadata / sub-label / terminator sentinel).
-      for (const line of s.source.split("\n")) {
-        const eqMatch = line.match(/["']([A-Z][A-Z /&]{2,})["']\s*(?:===|!==)|(?:===|!==)\s*["']([A-Z][A-Z /&]{2,})["']/);
-        if (!eqMatch) continue;
-        const lit = normalizeHeader(eqMatch[1] ?? eqMatch[2] ?? "");
-        const accounted =
-          tokens.includes(lit) ||
-          meta.includes(lit) ||
-          KNOWN_SUB_LABELS.has(lit) ||
-          EXPECTED_ORPHANS.has(lit) ||
-          lit === "NO_HEADER";
+      for (const token of KNOWN_SECTION_HEADERS) {
+        // Skip tokens the file legitimately owns/allowlists — those are expected.
+        if (ownTokens.has(token) || eqAllowed.has(token)) continue;
+        const T = esc(token);
+
+        // FORM A — equality/method against a QUOTED token: `=== "T"`, `"T" ===`,
+        // `!== "T"`, `.startsWith("T")`, `.includes("T")`. Excludes Set-membership
+        // arrays (`["T", ...]`) and `.includes(var)` — those are not the threat.
+        const FORM_A = new RegExp(
+          `(?:===|!==|\\.startsWith\\(|\\.includes\\()\\s*["']${T}["']|["']${T}["']\\s*(?:===|!==)`,
+          "i",
+        );
+        // FORM B — token inside an ANCHORED col0 regex literal `/^ ... T ... /`.
+        // Real col0 matchers are `^`-anchored, so this excludes prose/comments.
+        const FORM_B = new RegExp(`/\\\\?\\^[^/\\n]*${T}[^/\\n]*/`, "i");
+
+        const hit = FORM_A.test(s.source) || FORM_B.test(s.source);
+        if (!hit) continue;
+
         expect(
-          accounted,
-          `${s.file}: uppercase-equality literal "${lit}" is not accounted for (token/metadata/sub-label/sentinel)`,
+          rawAllowed,
+          `${s.file}: hard-coded matcher for registered section opener "${token}" (which this file does not own) — is this a hidden opener? Export it as a token + build via the factory, or add a RAW_HEADER_REGEX_ALLOWLIST / EQUALITY_LITERAL_ALLOWLIST reason.`,
         ).toBe(true);
       }
-
-      // Raw header regex shapes are only allowed in allowlisted files.
-      if (!allowedRaw) {
-        expect(PIPE_RE.test(s.source), `${s.file}: un-allowlisted pipe-anchored header regex literal`).toBe(false);
-        expect(COL0_TEST_RE.test(s.source), `${s.file}: un-allowlisted col0.test prefix regex`).toBe(false);
-      }
-      // note: EQ_A/EQ_B are covered line-by-line above; retained as documentation of the shapes.
-      void EQ_A; void EQ_B;
     }
   });
 
@@ -1196,24 +1211,42 @@ describe("known-sections source walker", () => {
   });
 });
 
-// Step 9 — non-vacuity proof (each gate rejects a bogus input).
+// Step 9 — non-vacuity proof. Mirrors the two backstop forms so the proof is
+// self-contained; `token` defaults to a REGISTERED opener (GENERAL SESSION).
 describe("known-sections walker non-vacuity proof", () => {
+  const esc = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const hits = (source: string, token = "GENERAL SESSION"): boolean => {
+    const T = esc(token);
+    const FORM_A = new RegExp(`(?:===|!==|\\.startsWith\\(|\\.includes\\()\\s*["']${T}["']|["']${T}["']\\s*(?:===|!==)`, "i");
+    const FORM_B = new RegExp(`/\\\\?\\^[^/\\n]*${T}[^/\\n]*/`, "i");
+    return FORM_A.test(source) || FORM_B.test(source);
+  };
+
   it("(a) an unregistered token fails the exact-subset check", () => {
     expect(KNOWN_SECTION_HEADERS.has(normalizeHeader("ZZZ_UNREGISTERED"))).toBe(false);
   });
   it("(c) a source exporting tokens but not importing the factory fails the import-link regex", () => {
-    const bad = `export const SECTION_HEADER_TOKENS = ["CATERING"];`;
+    const bad = `export const SECTION_HEADER_TOKENS = ["GENERAL SESSION"];`;
     expect(/from\s+["'](?:\.\/|@\/lib\/parser\/blocks\/)_sectionHeaderMatch["']/.test(bad)).toBe(false);
   });
-  it("(d) a raw pipe-header regex, a col0.test prefix, and startsWith are recognized as raw-matcher shapes", () => {
-    const pipe = String.raw`const RE = /^\|\s*CATERING\s*\|/;`;
-    const test = String.raw`if (/^CATERING\b/.test(col0)) {}`;
-    expect(/\/\^\\s\*\?\\\|[^/\n]*\\\|/.test(pipe)).toBe(true);
-    expect(/\/\^[A-Z][A-Z \\s/&]{2,}[^/\n]*\/\s*\.test\s*\(/.test(test)).toBe(true);
+  it("(d) Form B: anchored regex literals referencing a registered token are flagged", () => {
+    expect(hits(String.raw`const RE = /^\|\s*GENERAL SESSION\s*\|/;`)).toBe(true);
+    expect(hits(`if (/^GENERAL SESSION/.test(col0)) {}`)).toBe(true);
   });
-  it("(e)/(f) uppercase equality both orders is detectable", () => {
-    expect(/["']([A-Z][A-Z /&]{2,})["']\s*(?:===|!==)|(?:===|!==)\s*["']([A-Z][A-Z /&]{2,})["']/.test(`label === "CATERING"`)).toBe(true);
-    expect(/["']([A-Z][A-Z /&]{2,})["']\s*(?:===|!==)|(?:===|!==)\s*["']([A-Z][A-Z /&]{2,})["']/.test(`"CATERING" === label`)).toBe(true);
+  it("(e)/(f) Form A: equality (both orders) + startsWith/includes for a registered token are flagged", () => {
+    expect(hits(`label === "GENERAL SESSION"`)).toBe(true);
+    expect(hits(`"GENERAL SESSION" === label`)).toBe(true); // reversed
+    expect(hits(`if (col0.startsWith("GENERAL SESSION")) {}`)).toBe(true);
+    expect(hits(`if (col0.includes("GENERAL SESSION")) {}`)).toBe(true);
+  });
+  it("(g) NEGATIVE CONTROLS: benign patterns are NOT flagged", () => {
+    // column header (not a registered opener):
+    expect(hits(`label === "FLIGHT DETAILS"`, "FLIGHT DETAILS")).toBe(false); // and FLIGHT DETAILS ∉ registry anyway
+    // terminator/membership array literal (no ===/method adjacency):
+    expect(hits(`const T = new Set(["HOTEL", "DATES", "VENUE"]);`, "HOTEL")).toBe(false);
+    expect(hits(`if (["TRAVEL","SET","SHOW","DATES"].includes(labelU)) {}`, "DATES")).toBe(false);
+    // prose/comment mentioning a token (no anchored regex, no equality adjacency):
+    expect(hits(`// the GENERAL SESSION block is owned by rooms.ts`)).toBe(false);
   });
 });
 ```
@@ -1223,9 +1256,9 @@ describe("known-sections walker non-vacuity proof", () => {
 Run: `pnpm vitest run tests/parser/_metaKnownSectionsWalker.test.ts`
 Expected: initially may FAIL if any parser task is incomplete (missing export, missing factory import, un-allowlisted raw regex). Iterate: each failure names the file + reason. Fix by completing the parser's task or adding the correct allowlist/reason entry — NEVER by weakening a PRIMARY gate. Once all parser tasks (3–13) are done, this passes.
 
-- [ ] **Step 3: Tune the source-guard regexes against the REAL source**
+- [ ] **Step 3: Verify the backstop is non-vacuous against the REAL tree**
 
-The `PIPE_RE` / `COL0_TEST_RE` literals above are approximations. Run the guard against the live tree; if it false-positives on an allowlisted file, that's fine (allowlisted). If it false-NEGATIVES (misses a known raw matcher in a NON-allowlisted file), tighten it. Verify by temporarily adding a `/^\|\s*CATERING\s*\|/` literal to a non-allowlisted file (e.g. `dress.ts`) and confirming the guard FAILS, then remove it. Document the verification in the commit body.
+The Form A/B detectors are registry-keyed, so no fragile char-class tuning is needed. Verify against the live tree: (1) the whole walker passes with the allowlists as written (all real cross-section references — `event`/`gear`/`scheduleTimes`/`index`/`hotels`/`transport`/`rooms` — are accounted for); (2) plant a `/^GENERAL SESSION/.test(col0)` line in a NON-allowlisted, non-owning file (e.g. `dress.ts`) and confirm the backstop FAILS naming `dress.ts` + `GENERAL SESSION`; (3) plant `label === "GENERAL SESSION"` and confirm the same; (4) confirm a benign `["HOTEL","DATES"].includes(x)` in that file does NOT fail. Remove the plants. Document the verification in the commit body.
 
 - [ ] **Step 4: Run the full parser suite to confirm no behavior change**
 
@@ -1241,11 +1274,16 @@ test(parser): known-sections source walker meta-test (fails-by-default)
 
 Filesystem-walks lib/parser/blocks/*.ts + index.ts. PRIMARY enforced gates:
 annotation-or-allowlist, non-empty, EXACT registry subset. Import-link nudge
-(rooms exempt). Backstop source guards for hand-rolled matcher shapes + accounted
--for equality literals. no-orphan warn (EXPECTED_ORPHANS: VENUES, IN HOUSE AV,
-LUNCH SESSION). 6-part non-vacuity proof. Declared accepted residual (import !=
-use; exotic private matchers) in the header comment. Verified the raw-matcher
-guard fails on a planted /^\|\s*CATERING\s*\|/ in a non-allowlisted file.
+(rooms exempt). REGISTRY-KEYED backstop (Form A equality/startsWith/includes +
+Form B anchored regex, fires only on a KNOWN_SECTION_HEADERS token the file does
+not own/allowlist). RAW_HEADER_REGEX_ALLOWLIST (rooms/hotels/transport/index +
+event/gear/scheduleTimes boundary refs) + EQUALITY_LITERAL_ALLOWLIST
+(scheduleTimes DATES, index CLIENT) from a complete preflight. no-orphan warn
+(EXPECTED_ORPHANS: VENUES, IN HOUSE AV, LUNCH SESSION). 7-part non-vacuity proof
+incl. negative controls. Declared accepted residual (import != use; exotic /
+unregistered matchers) in the header comment. Verified the backstop fails on a
+planted /^GENERAL SESSION/.test(col0) in a non-allowlisted file and does NOT fire
+on a terminator array.
 
 Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01F2kqoCRpKPwLc4BMynrXwt
