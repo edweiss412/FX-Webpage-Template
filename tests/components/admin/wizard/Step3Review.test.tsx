@@ -199,6 +199,21 @@ describe("Step3Review header + composed summary (Task 3)", () => {
     );
   });
 
+  test("summary: set-aside sheet scopes the clean claim (no unscoped 'no issues', no pointer)", () => {
+    // 1 ready + 1 permanently-ignored. sheetCount=2 but readyCount=1, so the
+    // clean claim must scope to "1 looks clean" (not "we didn't spot any issues"
+    // across 2 sheets), and there is NO attention pointer (nothing is blocking).
+    const { getByTestId } = render(
+      <Step3Review
+        wizardSessionId={WIZARD_SESSION_ID}
+        rows={[cleanRow("a", "staged"), ignoredRow("b")]}
+      />,
+    );
+    expect(norm(getByTestId("wizard-step3-summary"))).toBe(
+      "2 sheets parsed from your Drive folder. 1 looks clean. Give it a quick look before you publish. Nothing publishes until you say so.",
+    );
+  });
+
   test("summary: only blocking rows → attention pointer, no readiness clause, no tail", () => {
     const { getByTestId } = render(
       <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[hardFailRow("a")]} />,

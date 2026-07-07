@@ -883,7 +883,11 @@ function renderSummary(
   let clause: ReactNode;
   if (needsLookCount === 0) {
     clause =
-      blockingCount === 0 ? (
+      // The unscoped "we didn't spot any issues" fires ONLY when every counted
+      // sheet is ready (readyCount === sheetCount). If any sheet is blocking OR
+      // set-aside (readyCount < sheetCount), scope the claim to the ready subset,
+      // so the summary never over-claims and "N sheets ... give it" can't mismatch.
+      readyCount === sheetCount ? (
         // No count in this clause (the head's "N sheets" carries it) → normal weight.
         `We didn't spot any issues. ${giveLook(readyCount)} against your sheet before you publish.`
       ) : (

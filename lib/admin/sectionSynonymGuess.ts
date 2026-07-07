@@ -23,12 +23,18 @@ const SYNONYM_TO_SECTION: Record<string, SectionId> = {
 };
 
 /** Uppercase, collapse internal whitespace, trim, strip trailing punctuation. */
+/** A section header is short; bound the work before any string transforms so a
+ *  pathological rawSnippet can't drive unbounded regex/upcasing. Longest synonym
+ *  key is well under this. */
+const MAX_HEADER_INPUT = 128;
+
 export function normalizeHeaderForGuess(raw: string): string {
   // The live source is the parser's pipe-split `col0` cell (`index.ts:717`,
   // `emitUnknownSection(agg, col0)`) — already pipe-free and uppercase. Stripping
   // pipes here is defense-in-depth: if the emit path ever passed a table-shaped
-  // snippet, a lone header wrapped in pipes ("| LODGING |") still routes.
-  return raw
+  // snippet, a lone header wrapped in pipes ("| LODGING |") still routes. The
+  // length bound is a work cap: an oversized snippet can never be a synonym key.
+  return (raw.length > MAX_HEADER_INPUT ? raw.slice(0, MAX_HEADER_INPUT) : raw)
     .replace(/\|/g, " ")
     .toUpperCase()
     .replace(/\s+/g, " ")
