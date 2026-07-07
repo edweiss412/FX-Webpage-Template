@@ -43,14 +43,17 @@ describe("lptAssign (deterministic LPT over pair weights)", () => {
     // heavy tail like the real corpus: one dominant pair + many small ones
     const weights = W([
       ["big:x", 100],
-      ...Array.from(
-        { length: 40 },
-        (_, i): [string, number] => [`p${String(i).padStart(2, "0")}:x`, 5 + (i % 7)],
-      ),
+      ...Array.from({ length: 40 }, (_, i): [string, number] => [
+        `p${String(i).padStart(2, "0")}:x`,
+        5 + (i % 7),
+      ]),
     ]);
     const r = lptAssign(weights, 4);
     const loads = new Array<number>(4).fill(0);
-    for (const { key, w } of weights) loads[r.get(key)!] += w;
+    for (const { key, w } of weights) {
+      const s = r.get(key)!;
+      loads[s] = loads[s]! + w;
+    }
     const mean = loads.reduce((a, b) => a + b, 0) / 4;
     expect(Math.max(...loads) / mean).toBeLessThan(4 / 3); // LPT's classical guarantee shape
   });
