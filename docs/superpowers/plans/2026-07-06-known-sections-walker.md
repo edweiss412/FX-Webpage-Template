@@ -823,8 +823,10 @@ describe("transport SECTION_HEADER_TOKENS", () => {
   it("exports TRANSPORTATION + DRIVER", () => {
     expect([...SECTION_HEADER_TOKENS].sort()).toEqual(["DRIVER", "TRANSPORTATION"]);
   });
-  it("col0 identity matchers reproduce the header col0 forms", () => {
-    expect(buildCol0HeaderRe(["TRANSPORTATION"]).test("| TRANSPORTATION | TRANSPORTATION | PHONE | EMAIL |")).toBe(true);
+  it("col0 identity pre-checks are case-insensitive SUPERSETS of the retained /im regexes", () => {
+    const tRe = buildCol0HeaderRe(["TRANSPORTATION"], { caseInsensitive: true });
+    expect(tRe.test("| TRANSPORTATION | TRANSPORTATION | PHONE | EMAIL |")).toBe(true);
+    expect(tRe.test("| transportation | transportation | phone | email |")).toBe(true); // /im superset — must accept lowercase
     expect(buildCol0HeaderRe(["DRIVER"], { caseInsensitive: true }).test("| Driver | Name | Phone |")).toBe(true);
   });
 });
@@ -835,7 +837,7 @@ describe("transport SECTION_HEADER_TOKENS", () => {
 Run: `pnpm vitest run tests/parser/transportSectionTokens.test.ts`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement** — add import + token export. The multi-column header regexes at `:172`/`:446` are RETAINED (they require the PHONE/EMAIL columns and capture slash content / driver name+phone). Add above each: `// RAW_HEADER_REGEX_ALLOWLIST: multi-column header matcher; col0 token identity (TRANSPORTATION / DRIVER) is registry-checked via SECTION_HEADER_TOKENS.` Add a module-level factory reference to satisfy the import-link nudge, e.g. `const TRANSPORT_COL0_RE = buildCol0HeaderRe(["TRANSPORTATION"]);` used as a cheap pre-check before the full multi-column regex (behavior-identical — the multi-column regex still gates the actual parse).
+- [ ] **Step 3: Implement** — add import + token export. The multi-column header regexes at `:172`/`:446` are RETAINED (they require the PHONE/EMAIL columns and capture slash content / driver name+phone). Add above each: `// RAW_HEADER_REGEX_ALLOWLIST: multi-column header matcher; col0 token identity (TRANSPORTATION / DRIVER) is registry-checked via SECTION_HEADER_TOKENS.` Add a module-level factory reference to satisfy the import-link nudge — **and it MUST be a behavior-SUPERSET of the retained matcher so it never rejects a header the retained regex would accept** (plan R1 finding: the live `:172` regex is `/im` = case-INsensitive). Build the pre-check case-insensitively: `const TRANSPORT_COL0_RE = buildCol0HeaderRe(["TRANSPORTATION"], { caseInsensitive: true });`. If used as a cheap pre-check before the full multi-column regex, a case-insensitive superset can only pass MORE than the retained regex (which still gates the actual parse), so behavior is preserved. **Do NOT use the case-sensitive default here** — it would reject lowercase/mixed-case `transportation` headers the current parser accepts. (Safest alternative: reference the factory only in the co-located equivalence test rather than gating with it at all; either satisfies the import-link nudge.)
 
 - [ ] **Step 4: Run to verify it passes + no behavior change**
 
