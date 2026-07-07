@@ -72,7 +72,7 @@ describe("EventTimeline", () => {
       />,
     );
     const items = screen.getByTestId("event-log").querySelectorAll("li");
-    expect(items[0].className).not.toContain("border-t");
-    expect(items[1].className).toContain("border-t");
+    expect(items[0]!.className).not.toContain("border-t");
+    expect(items[1]!.className).toContain("border-t");
   });
 });

@@ -36,13 +36,13 @@ const SUMMARY_SIG = "public.admin_alert_summary(text[],text[])";
 describe("telemetry console reads — DB functions", () => {
   it("both functions exist and are service_role-executable, not public", async () => {
     for (const sig of [STATS_SIG, SUMMARY_SIG]) {
-      const [{ oid }] = await sql`select to_regprocedure(${sig})::text as oid`;
-      expect(oid, `${sig} must exist`).not.toBeNull();
-      const [{ svc }] = await sql`select has_function_privilege('service_role', ${sig}, 'EXECUTE') as svc`;
-      expect(svc, `${sig} EXECUTE granted to service_role`).toBe(true);
+      const [oidRow] = await sql`select to_regprocedure(${sig})::text as oid`;
+      expect(oidRow!.oid, `${sig} must exist`).not.toBeNull();
+      const [svcRow] = await sql`select has_function_privilege('service_role', ${sig}, 'EXECUTE') as svc`;
+      expect(svcRow!.svc, `${sig} EXECUTE granted to service_role`).toBe(true);
       for (const role of ["anon", "authenticated"]) {
-        const [{ ok }] = await sql`select has_function_privilege(${role}, ${sig}, 'EXECUTE') as ok`;
-        expect(ok, `${sig} not executable by ${role}`).toBe(false);
+        const [okRow] = await sql`select has_function_privilege(${role}, ${sig}, 'EXECUTE') as ok`;
+        expect(okRow!.ok, `${sig} not executable by ${role}`).toBe(false);
       }
     }
   });
@@ -51,11 +51,11 @@ describe("telemetry console reads — DB functions", () => {
     const NOW = "2020-01-02T05:30:00Z"; // pinned historical hour
     try {
       await sql.begin(async (tx) => {
-        const [{ n }] = await tx`
+        const [nRow] = await tx`
           select count(*)::int as n from public.app_events
           where occurred_at >= (date_trunc('hour', ${NOW}::timestamptz) - interval '23 hours')
             and occurred_at <  (date_trunc('hour', ${NOW}::timestamptz) + interval '1 hour')`;
-        expect(n, "pinned 2020 window must be empty before seeding").toBe(0);
+        expect(nRow!.n, "pinned 2020 window must be empty before seeding").toBe(0);
 
         const cur = "2020-01-02T05:10:00Z"; // current hour → bucket 23
         const older = "2020-01-02T00:15:00Z"; // 5h before cur hour → bucket 18
@@ -74,11 +74,11 @@ describe("telemetry console reads — DB functions", () => {
         }
 
         const [row] = await tx`select * from public.admin_event_stats_24h(${NOW}::timestamptz)`;
-        expect(Number(row.total)).toBe(4);
-        expect(Number(row.error_count)).toBe(2);
-        expect(Number(row.warn_count)).toBe(1);
-        expect(Number(row.info_count)).toBe(1);
-        const buckets = (row.buckets as number[]).map(Number);
+        expect(Number(row!.total)).toBe(4);
+        expect(Number(row!.error_count)).toBe(2);
+        expect(Number(row!.warn_count)).toBe(1);
+        expect(Number(row!.info_count)).toBe(1);
+        const buckets = (row!.buckets as number[]).map(Number);
         expect(buckets.length).toBe(24);
         expect(buckets.reduce((a, b) => a + b, 0)).toBe(4);
         expect(buckets[23]).toBe(3); // current hour: 2 errors + 1 warn
@@ -103,9 +103,9 @@ describe("telemetry console reads — DB functions", () => {
         await tx`insert into public.admin_alerts (code, context) values ('__ts_unlisted__', '{}'::jsonb)`;
 
         const [row] = await tx`select * from public.admin_alert_summary(${H}::text[], ${D}::text[])`;
-        expect(Number(row.total)).toBe(3); // h1, h2, deg unresolved; resolved h1 + unlisted excluded
-        expect(Number(row.degraded)).toBe(1); // deg only
-        expect(Number(row.total) - Number(row.degraded)).toBeGreaterThanOrEqual(0);
+        expect(Number(row!.total)).toBe(3); // h1, h2, deg unresolved; resolved h1 + unlisted excluded
+        expect(Number(row!.degraded)).toBe(1); // deg only
+        expect(Number(row!.total) - Number(row!.degraded)).toBeGreaterThanOrEqual(0);
         throw ROLLBACK;
       });
     } catch (err) {

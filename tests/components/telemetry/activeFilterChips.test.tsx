@@ -44,7 +44,7 @@ describe("ActiveFilterChips", () => {
     spHolder.value = "level=warn,error";
     render(<ActiveFilterChips filters={{ levels: ["warn", "error"] }} />);
     fireEvent.click(screen.getByTestId("chip-remove-level-warn"));
-    const href = push.mock.calls[0][0] as string;
+    const href = push.mock.calls[0]![0] as string;
     expect(href).toContain("level=error");
     expect(href).not.toContain("warn");
   });
