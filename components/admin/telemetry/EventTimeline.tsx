@@ -33,9 +33,12 @@ export function EventTimeline({
   })();
   return (
     <div className="flex flex-col gap-3" style={{ overflowAnchor: "auto" }}>
-      <ul className="flex flex-col gap-2">
-        {result.events.map((e) => (
-          <EventRow key={e.id} event={e} now={now} />
+      <ul
+        data-testid="event-log"
+        className="overflow-hidden rounded-md border border-border bg-surface shadow-tile"
+      >
+        {result.events.map((e, i) => (
+          <EventRow key={e.id} event={e} now={now} isFirst={i === 0} />
         ))}
       </ul>
       {result.hasMore && (

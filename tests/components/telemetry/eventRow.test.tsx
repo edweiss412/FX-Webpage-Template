@@ -72,6 +72,20 @@ describe("EventRow", () => {
     const chip = screen.getByTestId("event-row-request-e1");
     expect(chip.getAttribute("href")).toBe("/admin/dev/telemetry?requestId=req-9&since=all");
   });
+  test("an error row tints its background bg-danger-bg", () => {
+    render(<EventRow event={base} now={now} />); // base.level === "error"
+    expect(screen.getByTestId("event-row-e1").className).toContain("bg-danger-bg");
+  });
+  test("a non-error row does NOT tint danger", () => {
+    render(<EventRow event={{ ...base, level: "info" }} now={now} />);
+    expect(screen.getByTestId("event-row-e1").className).not.toContain("bg-danger-bg");
+  });
+  test("isFirst omits the top divider; non-first carries border-t", () => {
+    const { rerender } = render(<EventRow event={{ ...base, level: "info" }} now={now} isFirst />);
+    expect(screen.getByTestId("event-row-e1").className).not.toContain("border-t");
+    rerender(<EventRow event={{ ...base, level: "info" }} now={now} />);
+    expect(screen.getByTestId("event-row-e1").className).toContain("border-t");
+  });
   test("CRON_RUN_SUMMARY row: card is the collapsed body AND it expands to ContextDetail (AC4)", () => {
     const ev = {
       ...base,

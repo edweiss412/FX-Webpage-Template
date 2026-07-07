@@ -51,4 +51,28 @@ describe("EventTimeline", () => {
     render(<EventTimeline result={{ kind: "infra_error", message: "x" }} now={now} />);
     expect(screen.getByTestId("event-timeline-degraded")).toBeInTheDocument();
   });
+  test("renders ONE bordered event-log container, not gapped cards", () => {
+    render(
+      <EventTimeline
+        result={{ kind: "ok", events: [row("a"), row("b")], hasMore: false, nextCursor: null }}
+        now={now}
+      />,
+    );
+    const log = screen.getByTestId("event-log");
+    expect(log.tagName).toBe("UL");
+    expect(log.className).toContain("border");
+    // rows are <li> children of the single container
+    expect(log.querySelectorAll("li")).toHaveLength(2);
+  });
+  test("non-first rows carry a border-t divider (flush, not gapped)", () => {
+    render(
+      <EventTimeline
+        result={{ kind: "ok", events: [row("a"), row("b")], hasMore: false, nextCursor: null }}
+        now={now}
+      />,
+    );
+    const items = screen.getByTestId("event-log").querySelectorAll("li");
+    expect(items[0].className).not.toContain("border-t");
+    expect(items[1].className).toContain("border-t");
+  });
 });
