@@ -56,7 +56,7 @@
 
 - [ ] **Step 1: Write the failing behavioral route-emit test**
 
-Create `tests/onboarding/scanRouteAlertEmit.test.ts`. **Harness (verified):** mirror `tests/onboarding/scanRoute.test.ts` exactly — it builds a `FakeScanDb`, calls `deps(db, { runOnboardingScan: vi.fn(async () => result) })` to inject the scan result via `ScanRouteDeps` (`runOnboardingScan` IS injectable; `:48` of the route), POSTs a `new Request(".../api/admin/onboarding/scan", { method:"POST", ... })`, and reads the NDJSON stream. `logAdminOutcome` and `upsertAdminAlert` are DIRECT module imports in the route (`:17` + the import you add in Step 4), NOT `ScanRouteDeps` seams — so mock them with `vi.mock`, not via `deps`. Import the `deps` / `FakeScanDb` / request-builder helpers from (or copy the shape of) `tests/onboarding/scanRoute.test.ts`. The route reads `folder.folderId` and `wizardSessionId` internally from `verifyFolder` + reserve; use the same folder/session values the existing test uses (e.g. `"folder-1"`, `W1`) and assert those, not invented ids.
+Create `tests/onboarding/scanRouteAlertEmit.test.ts`. **Harness (verified):** `FakeScanDb`, `deps()`, and the request-builder in `tests/onboarding/scanRoute.test.ts` are LOCAL (not exported) — do NOT import that test file (it would register its tests AND may import the route module before your `vi.mock` hoists). Instead COPY those helpers into the new file (or extract them to a shared `tests/onboarding/_scanRouteHarness.ts` and import from both — cleaner; grep `scanRoute.test.ts:17,29,116` for `FakeScanDb`/`deps`/`request`). Drive the route via the EXPORTED `handleOnboardingScan(request, deps(db, { runOnboardingScan: vi.fn(async () => result) }))` (`app/api/admin/onboarding/scan/route.ts:210`) — `runOnboardingScan` IS an injectable `ScanRouteDeps` seam (`:48`). Read the returned `Response` body's NDJSON stream to completion. `logAdminOutcome` and `upsertAdminAlert` are DIRECT module imports in the route (`:17` + the import you add in Step 4), NOT `ScanRouteDeps` seams — so mock them with `vi.mock` (hoisted, above the route import), not via `deps`. Use the same folder/session values the harness produces (grep `scanRoute.test.ts` for the folderId + wizard-session constants — `runFolder`/`runWiz` below) and assert those, not invented ids.
 
 ```ts
 import { describe, it, expect, vi, beforeEach } from "vitest";
@@ -115,16 +115,37 @@ describe("onboarding scan route — ONBOARDING_SHEET_UNREADABLE emit", () => {
     );
   });
 
-  it("does NOT emit on a non-completed outcome", async () => {
-    const result = { outcome: "schema_missing" as const, code: "WIZARD_ISOLATION_INDEXES_MISSING" };
+  it("does NOT emit on a non-completed outcome even if it carried hard_failed", async () => {
+    // `superseded` carries `processed` and requires the WIZARD_SESSION_SUPERSEDED_DURING_SCAN
+    // code const (import it from @/lib/sync/runOnboardingScan). A hard_failed in a
+    // non-completed result must NOT emit — proves the gate is outcome==="completed",
+    // not "has hard_failed". (schema_missing would ALSO work but requires
+    // { code: WIZARD_ISOLATION_INDEXES_MISSING, missingIndexes: [] } and carries no processed.)
+    const result = {
+      outcome: "superseded" as const,
+      code: WIZARD_SESSION_SUPERSEDED_DURING_SCAN,
+      processed: [{ driveFileId: "d-a", outcome: "hard_failed" as const }],
+    };
     // POST via harness ...
     expect(vi.mocked(upsertAdminAlert)).not.toHaveBeenCalledWith(
       expect.objectContaining({ code: "ONBOARDING_SHEET_UNREADABLE" }),
     );
   });
 
-  it("alert throw does not 500 or suppress logAdminOutcome", async () => {
-    vi.mocked(upsertAdminAlert).mockRejectedValue(new Error("boom"));
+  it("logAdminOutcome throw does NOT suppress the alert (own boundary, direction 1)", async () => {
+    vi.mocked(logAdminOutcome).mockRejectedValue(new Error("log boom"));
+    const result = {
+      outcome: "completed" as const,
+      processed: [{ driveFileId: "d-a", outcome: "hard_failed" as const }],
+    };
+    // POST via harness; the alert must still fire (separate sibling try/catch):
+    expect(vi.mocked(upsertAdminAlert)).toHaveBeenCalledWith(
+      expect.objectContaining({ code: "ONBOARDING_SHEET_UNREADABLE" }),
+    );
+  });
+
+  it("alert throw does NOT 500 or suppress logAdminOutcome (direction 2)", async () => {
+    vi.mocked(upsertAdminAlert).mockRejectedValue(new Error("alert boom"));
     const result = {
       outcome: "completed" as const,
       processed: [{ driveFileId: "d-a", outcome: "hard_failed" as const }],
@@ -134,6 +155,7 @@ describe("onboarding scan route — ONBOARDING_SHEET_UNREADABLE emit", () => {
     expect(vi.mocked(logAdminOutcome)).toHaveBeenCalled(); // own try/catch, not suppressed
   });
 });
+// Import at top: import { WIZARD_SESSION_SUPERSEDED_DURING_SCAN } from "@/lib/sync/runOnboardingScan";
 ```
 
 - [ ] **Step 2: Run it — verify it fails**
@@ -276,6 +298,17 @@ and bump the count assertion (`:72`): `expect(DOUG.length).toBe(19);`
 ```
 and update the test-name numeric anchor "exactly the 44 registered codes" → "45" (the assertion is set-equality, so it passes once FIXTURES + the fixture registry both include the code; update the name string for hygiene).
 
+- [ ] **Step 8b: Numeric-sweep — bump stale count docs (comments + test names)**
+
+Adding the 45th code makes several narrative count anchors stale (some were ALREADY stale at 44). Update each to the new totals — total codes 44→**45**, doug 18→**19**, global identity entries +1 (count the real number in `ALERT_IDENTITY_MAP`; the comment's "13 global / 29 segment" is stale vs the true split — correct it to the accurate 45-based numbers):
+- `tests/messages/_metaAlertAudienceContract.test.ts:70` (the `"17 doug + 26 health = 43"` test-name string)
+- `tests/messages/adminAlertsRegistry.ts:7` (`"42-code list"` comment)
+- `lib/adminAlerts/alertIdentityMap.ts:3` and `:54` (`"42-code matrix"`, `"13 global … 29 with >=1"`)
+- `tests/adminAlerts/alertIdentityMatrix.test.ts:5` and `tests/adminAlerts/_metaAlertIdentityMap.test.ts:39`
+- `tests/messages/_metaAdminAlertCatalog.test.ts:273` (the `"26 + 17 + 1 + 0 = 44"` comment)
+
+**Comment-fragility guard:** these are docstrings/comments/test-name strings, NOT the AST-scanned infra-contract surfaces — but re-run `tests/messages/` + `tests/adminAlerts/` after editing to confirm no comment-position meta-test tripped (per the repo's comment-fragility discipline).
+
 - [ ] **Step 9: Regenerate the two manifests**
 
 Run: `pnpm gen:spec-codes && pnpm gen:internal-code-enums`
@@ -306,7 +339,8 @@ git commit --no-verify -m "feat(onboarding): raise ONBOARDING_SHEET_UNREADABLE a
 ## Task 2: Step2Verify — empty-folder + nothing-ready status blocks (1.1)
 
 **Files:**
-- Modify: `components/admin/wizard/Step2Verify.tsx` (render branch `:445-483`; suppress footer popover when `staged===0`, `:305-307`)
+- Modify: `components/admin/wizard/Step2Verify.tsx` (render branch `:445-483`; suppress footer popover when `staged===0`, `:305-307`; `submitLabel` `:282`)
+- Modify: `tests/components/admin/wizard/Step2Verify.test.tsx` (the existing `"empty folder (total 0) goes straight to success"` test, `~:445-463`, asserts `wizard-step2-success` — it must now expect the empty block)
 - Test: `tests/components/wizard/Step2Verify.emptyState.test.tsx` (new)
 
 **Interfaces:**
@@ -493,18 +527,30 @@ This is gated on `staged === 0` so the staged>0 success path is unchanged (avoid
 Run: `pnpm vitest run tests/components/wizard/Step2Verify.emptyState.test.tsx`
 Expected: PASS.
 
+- [ ] **Step 5b: Update the existing empty-folder test (it asserted the old footer)**
+
+The existing test `tests/components/admin/wizard/Step2Verify.test.tsx` `"empty folder (total 0) goes straight to success without a determinate count"` (`~:445-463`) uses `completedScanBody([], "Empty Folder")` (all-zero totals) and asserts `findByTestId("wizard-step2-success")`. That footer root no longer renders for `staged===0`. Update the assertions to the new empty block:
+
+```tsx
+    expect(await findByTestId("wizard-step2-empty")).toBeTruthy();
+    expect(queryByTestId("wizard-step2-success")).toBeNull();
+    expect(queryByTestId("wizard-step2-count")).toBeNull();
+```
+
+Also scan the rest of `Step2Verify.test.tsx` for any other assertion that expects `wizard-step2-success` on a `completedScanBody([])` / all-zero-totals scan and update those to the empty/nothing-ready block accordingly (grep the file for `wizard-step2-success` and cross-check each against its fixture's totals).
+
 - [ ] **Step 6: Regression — existing Step2Verify tests still green + typecheck + lint**
 
 Run:
 ```bash
-pnpm vitest run tests/**/*Step2Verify* && pnpm exec tsc --noEmit && pnpm exec eslint components/admin/wizard/Step2Verify.tsx
+pnpm vitest run tests/components/admin/wizard/Step2Verify.test.tsx tests/components/wizard/Step2Verify.emptyState.test.tsx && pnpm exec tsc --noEmit && pnpm exec eslint components/admin/wizard/Step2Verify.tsx
 ```
 Expected: PASS / clean (watch the `better-tailwindcss/enforce-canonical-classes` rule — use canonical class names).
 
 - [ ] **Step 7: Commit**
 
 ```bash
-git add components/admin/wizard/Step2Verify.tsx tests/components/wizard/Step2Verify.emptyState.test.tsx
+git add components/admin/wizard/Step2Verify.tsx tests/components/wizard/Step2Verify.emptyState.test.tsx tests/components/admin/wizard/Step2Verify.test.tsx
 git commit --no-verify -m "feat(admin): first-class empty-folder + nothing-ready states in onboarding step 2"
 ```
 
