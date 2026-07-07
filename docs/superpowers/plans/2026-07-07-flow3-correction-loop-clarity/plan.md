@@ -73,11 +73,17 @@ it("rescan mode renders the exact re-scan copy; no affordance required", () => {
   expect(callout).toHaveTextContent(RESCAN);
 });
 
-it("the two modes differ only in the verb (no em dash in either)", () => {
+it("the two modes differ ONLY in the verb (single-source copy) and carry no em dash", () => {
+  // Executable single-source invariant (spec §5): normalizing the verb must make
+  // the two rendered strings identical. Two independently-authored literals would
+  // fail this the moment their prefix/suffix drift.
   const { rerender } = render(<CorrectionLoopCallout mode="resync" />);
-  expect(screen.getByTestId("correction-loop-callout").textContent).not.toMatch(/[—]|--/);
+  const resyncText = screen.getByTestId("correction-loop-callout").textContent ?? "";
   rerender(<CorrectionLoopCallout mode="rescan" />);
-  expect(screen.getByTestId("correction-loop-callout").textContent).not.toMatch(/[—]|--/);
+  const rescanText = screen.getByTestId("correction-loop-callout").textContent ?? "";
+  const norm = (s: string) => s.replace(/re-sync|re-scan/g, "VERB");
+  expect(norm(resyncText)).toBe(norm(rescanText));
+  expect(resyncText + rescanText).not.toMatch(/[—]|--/);
 });
 ```
 
@@ -100,14 +106,24 @@ Expected: FAIL — `Cannot find module '@/components/admin/CorrectionLoopCallout
  * message-catalog code (invariant 5). Rendered via a JS-string expression so the
  * apostrophe in "We'll" does not trip react/no-unescaped-entities.
  *
- * Pure synchronous Server Component (no 'use client'): props in, markup out.
+ * No 'use client' and no server-only imports (no next/headers, no DB, no server
+ * action) — so it is safe to render in BOTH a Server Component tree (the per-show
+ * page) AND a "use client" tree (the wizard's step3ReviewSections). A plain
+ * component imported into a client module simply renders on the client; this is
+ * not an RSC boundary violation. `pnpm build` (Task 5) is the gate that proves it.
+ *
+ * Single-source copy (spec §5): one template string parameterized by a verb map,
+ * NOT two independently-authored literals. Rendered via {expression} so the
+ * apostrophe in "We'll" does not trip react/no-unescaped-entities.
  */
 import type { ReactNode } from "react";
 
-const CORRECTION_LOOP_COPY = {
-  resync: "Fixed it in the sheet? Edit the cell, save, then re-sync. We'll re-parse and clear this.",
-  rescan: "Fixed it in the sheet? Edit the cell, save, then re-scan. We'll re-parse and clear this.",
-} as const;
+const CORRECTION_LOOP_VERB = { resync: "re-sync", rescan: "re-scan" } as const;
+
+/** The shared prefix/suffix live here once; only the verb varies by mode. */
+function correctionLoopCopy(mode: "resync" | "rescan"): string {
+  return `Fixed it in the sheet? Edit the cell, save, then ${CORRECTION_LOOP_VERB[mode]}. We'll re-parse and clear this.`;
+}
 
 export function CorrectionLoopCallout({
   mode,
@@ -121,7 +137,7 @@ export function CorrectionLoopCallout({
       data-testid="correction-loop-callout"
       className="flex flex-col gap-2 rounded-sm border border-border bg-surface-sunken p-3 text-sm text-text-subtle sm:flex-row sm:items-center sm:justify-between"
     >
-      <p className="min-w-0">{CORRECTION_LOOP_COPY[mode]}</p>
+      <p className="min-w-0">{correctionLoopCopy(mode)}</p>
       {children ? <div className="shrink-0">{children}</div> : null}
     </div>
   );
@@ -241,12 +257,23 @@ Expected: PASS (4 tests).
 - [ ] **Step 5: Run the full per-show page suite (guard against regressions to the existing Data-quality tests)**
 
 Run: `pnpm vitest run tests/app/admin/perShowPage.test.tsx`
-Expected: PASS (all, including the pre-existing Data-quality / archived tests).
+Expected: PASS (all, including the pre-existing Data-quality / archived tests). Note: the existing tests at lines 231-238 / 504-509 / 511-515 use `admin-resync-button` with fixtures that have NO active warnings (`showsInternal` reset to `null` in `beforeEach`), so the callout does not mount and there is exactly one `admin-resync-button` — those tests stay green unchanged.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Disambiguate the existing Playwright e2e selector (duplicate-testid strict-mode guard)**
+
+Both the footer `<ReSyncButton>` (inside `<div id="resync">`, `page.tsx:997`) and the new callout `<ReSyncButton>` expose `data-testid="admin-resync-button"`. On a seeded show that happens to carry an active, non-ignored parse warning, BOTH mount — and Playwright's strict mode fails `page.getByTestId("admin-resync-button")` when it matches two nodes. The existing e2e at `tests/e2e/admin-parse-panel.spec.ts:225` clicks the bare testid. Scope it to the footer anchor so it is deterministic regardless of the seed's warning state:
+
+```ts
+// tests/e2e/admin-parse-panel.spec.ts — was: await page.getByTestId("admin-resync-button").click();
+await page.locator("#resync").getByTestId("admin-resync-button").click();
+```
+
+(The `#resync` wrapper contains ONLY the footer instance; the callout instance lives under `data-testid="correction-loop-callout"`. Unit tests need no change — see Step 5.)
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add "app/admin/show/[slug]/page.tsx" tests/app/admin/perShowPage.test.tsx
+git add "app/admin/show/[slug]/page.tsx" tests/app/admin/perShowPage.test.tsx tests/e2e/admin-parse-panel.spec.ts
 git commit --no-verify -m "feat(admin): correction-loop callout on per-show data-quality section (Flow 3 / 3.1)"
 ```
 
@@ -517,18 +544,22 @@ Run: `pnpm format:check` — Expected: clean. (`--no-verify` bypassed the pretti
 
 Run: `pnpm test` (or `pnpm vitest run`) — Expected: all pass. If a shared-chokepoint change broke unrelated tests, fix before proceeding.
 
-- [ ] **Step 5: Impeccable dual-gate (invariant 8) — three UI surfaces touched**
+- [ ] **Step 5: Next production build (RSC/client-boundary gate)**
+
+Run: `pnpm build` — Expected: build succeeds. `CorrectionLoopCallout` (no `'use client'`, no server-only imports) is imported into BOTH a Server Component (`app/admin/show/[slug]/page.tsx`) and a `"use client"` module (`components/admin/wizard/step3ReviewSections.tsx`). Vitest/jsdom does NOT exercise Next's RSC/client bundling, so this gate is the one that proves the shared component crosses that boundary cleanly. If build reports a boundary error, the component has an inadvertent server-only import — remove it (the component is pure markup and must stay client-safe). Do NOT reflexively add `'use client'` — that would force the per-show Server Component tree to ship it as client; the fix is keeping the component import-clean.
+
+- [ ] **Step 6: Impeccable dual-gate (invariant 8) — three UI surfaces touched**
 
 Run `/impeccable critique` AND `/impeccable audit` on the diff (the callout on the per-show Data-quality section, the wizard `WarningsBreakdown`, and the changes-feed row). Both run with the canonical v3 preflight gates (PRODUCT.md / DESIGN.md / register / preflight). HIGH and CRITICAL findings are fixed in-branch OR deferred via a `DEFERRED.md` entry with rationale. Record findings + dispositions for the milestone handoff. This precedes the whole-diff Codex review (Stage 4).
 
-- [ ] **Step 6: Commit any gate fixes**
+- [ ] **Step 7: Commit any gate fixes**
 
 ```bash
 git add -A
 git commit --no-verify -m "chore(admin): quality-gate + impeccable fixes for Flow 3 correction-loop clarity"
 ```
 
-(Skip this commit if Steps 1-5 produced no changes.)
+(Skip this commit if Steps 1-6 produced no changes.)
 
 ---
 
@@ -537,7 +568,7 @@ git commit --no-verify -m "chore(admin): quality-gate + impeccable fixes for Flo
 - **Spec §3.1 (per-show callout, gate `activeActionable.length > 0 && !archived`)** → Task 2 (mount + gate) + 4 tests (active/ignored-only/archived/zero). ✓
 - **Spec §3.2 (wizard callout, copy-only, preserve non-blocking note)** → Task 3 (additive prepend + pinned-note assertion). ✓
 - **Spec §4 (hold explanations, 3 dispositions, only on gate rows)** → Task 4 (helper + 6 tests). ✓
-- **Spec §5 (single-source copy, verb-only diff)** → Task 1 (`CORRECTION_LOOP_COPY` const). ✓
+- **Spec §5 (single-source copy, verb-only diff)** → Task 1 (`correctionLoopCopy()` template + `CORRECTION_LOOP_VERB` map; executable verb-normalization equality test). ✓
 - **Spec §6 (non-catalog)** → Global Constraints + Task 4 comment; no catalog/gen work in any task. ✓
 - **Spec §7 (anti-tautology: exact copy + the re-sync action, not "a button"; per-disposition exact strings)** → Task 2 asserts `admin-resync-button` inside the callout; Task 4 asserts exact per-disposition strings. ✓
 - **Spec §8 (invariant 8 dual-gate; no meta-test)** → Task 5 Step 5; no meta-test task (correctly absent). ✓
