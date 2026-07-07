@@ -37,6 +37,16 @@ export const ENV_BOUND_EXCLUDES = [
   "**/tests/cross-cutting/email-canonicalization.test.ts",
 ];
 
+// The mutation harness (8 LPT shard files + 1 gates file, tests/parser/
+// mutationHarness.*.test.ts — sharding spec §3.3/§3.4) exhaustively parses ~102k
+// mutants — far past any merge-gating leg budget. The files live in NO default
+// project: the serial project excludes them UNCONDITIONALLY, and a third
+// `mutation` project (fileParallelism:true — the sharding speedup) exists ONLY
+// when VITEST_INCLUDE_MUTATION_HARNESS=1 (nightly workflow + local regen runs).
+// (User-directed nightly placement 2026-07-06; parent spec §Non-goals + AC-5.)
+export const MUTATION_TEST_GLOBS = ["tests/parser/mutationHarness.*.test.ts"];
+export const NIGHTLY_ONLY_EXCLUDES = ["**/tests/parser/mutationHarness.*.test.ts"];
+
 export const PARALLEL_TEST_GLOBS = [
   "tests/components/**/*.test.{ts,tsx}",
   "tests/help/**/*.test.{ts,tsx}",

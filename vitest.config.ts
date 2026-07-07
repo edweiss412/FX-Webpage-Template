@@ -4,7 +4,13 @@ import { dirname } from "node:path";
 import mdx from "@mdx-js/rollup";
 import remarkGfm from "remark-gfm";
 
-import { BASE_INCLUDE, PARALLEL_TEST_GLOBS, ENV_BOUND_EXCLUDES } from "./vitest.projects";
+import {
+  BASE_INCLUDE,
+  PARALLEL_TEST_GLOBS,
+  ENV_BOUND_EXCLUDES,
+  MUTATION_TEST_GLOBS,
+  NIGHTLY_ONLY_EXCLUDES,
+} from "./vitest.projects";
 import { WeightBalancedSequencer } from "./vitest.sequencer";
 
 // unit-suite.yml sets VITEST_EXCLUDE_ENV_BOUND=1 to drop the env-bound files
@@ -13,6 +19,12 @@ import { WeightBalancedSequencer } from "./vitest.sequencer";
 // own `exclude`. Gated so the x-audits' direct `vitest run <file>` (and local
 // `pnpm test`) still run those files.
 const envBoundExcludes = process.env.VITEST_EXCLUDE_ENV_BOUND === "1" ? ENV_BOUND_EXCLUDES : [];
+
+// The mutation-harness files are excluded from serial UNCONDITIONALLY — they run
+// only in the env-gated `mutation` project below (fileParallelism:true, the
+// sharding speedup). Project-level exclude, not CLI --exclude (vitest ignores the
+// CLI flag once a project defines its own exclude).
+const nightlyExcludes = NIGHTLY_ONLY_EXCLUDES;
 
 // M11 Phase E real-render assertions: per-page smoke tests `await import`
 // the .mdx page module. Without an MDX→JS transformer in the Vitest graph
@@ -62,7 +74,12 @@ export default defineConfig({
           // `exclude` overrides the default); then everything in the parallel set
           // is removed so it runs ONLY in the parallel project. New dirs default
           // here (safe).
-          exclude: [...configDefaults.exclude, ...PARALLEL_TEST_GLOBS, ...envBoundExcludes],
+          exclude: [
+            ...configDefaults.exclude,
+            ...PARALLEL_TEST_GLOBS,
+            ...envBoundExcludes,
+            ...nightlyExcludes,
+          ],
           fileParallelism: false,
         },
       },
@@ -74,6 +91,22 @@ export default defineConfig({
           fileParallelism: true,
         },
       },
+      // Nightly-only third project (sharding spec §3.4): exists ONLY when the
+      // workflow/dev opts in, so default discovery (`pnpm test`, unit-suite legs)
+      // never even collects the corpus-scale shard files. fileParallelism:true is
+      // the whole point — 8 LPT-balanced shards ride vitest's forks pool.
+      ...(process.env.VITEST_INCLUDE_MUTATION_HARNESS === "1"
+        ? [
+            {
+              extends: true as const,
+              test: {
+                name: "mutation",
+                include: MUTATION_TEST_GLOBS,
+                fileParallelism: true,
+              },
+            },
+          ]
+        : []),
     ],
   },
   resolve: {
