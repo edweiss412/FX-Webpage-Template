@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { type ReactElement, useEffect, useState } from "react";
 import { Navigation } from "lucide-react";
 
 /** Read the pre-hydration-stamped theme (app/layout.tsx NO_FOUC_SCRIPT →
@@ -22,9 +22,15 @@ export function VenueMapTile({
 }: {
   query: string;
   mapHref: string | null;
-}): JSX.Element | null {
+}): ReactElement | null {
+  // SSR/first-render is "light" to match the server; the applied theme was
+  // stamped on <html> by the NO_FOUC_SCRIPT before hydration, so this reads it
+  // once post-mount (mirrors ThemeToggle.tsx:104's post-hydration read).
   const [theme, setTheme] = useState<"light" | "dark">("light");
-  useEffect(() => setTheme(readTheme()), []);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setTheme(readTheme());
+  }, []);
   if (!query) return null;
 
   const src = `/api/admin/venue-map?q=${encodeURIComponent(query)}&theme=${theme}`;
@@ -48,7 +54,10 @@ export function VenueMapTile({
       </span>
       {/* (2) real map overlay — hides itself on error, instantly. §8 declares
           no fade on image load or on the error swap; an opacity animation would
-          be inert here since nothing tweens. */}
+          be inert here since nothing tweens. Plain <img>, not next/image: the
+          src is our same-origin proxy (key-safe) and we need the native onError
+          to reveal the stripe fallback — next/image would obscure that path. */}
+      {/* eslint-disable-next-line @next/next/no-img-element -- proxy PNG stream; native onError drives the fallback */}
       <img
         data-testid="venue-map-img"
         src={src}
@@ -57,7 +66,7 @@ export function VenueMapTile({
         onError={(e) => {
           e.currentTarget.style.visibility = "hidden";
         }}
-        className="absolute inset-0 h-full w-full object-cover"
+        className="absolute inset-0 size-full object-cover"
       />
       {/* (3) Directions visual — only for a real URL. Decorative span (the
           ANCHOR is the whole tile, testid venue-map-tile, and is the 44px
@@ -66,7 +75,7 @@ export function VenueMapTile({
       {mapHref ? (
         <span
           data-testid="venue-directions"
-          className="absolute right-2.5 bottom-2.5 left-2.5 inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface text-xs font-semibold text-text"
+          className="absolute inset-x-2.5 bottom-2.5 inline-flex min-h-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface text-xs font-semibold text-text"
         >
           <Navigation aria-hidden="true" className="size-3.5" />
           Directions

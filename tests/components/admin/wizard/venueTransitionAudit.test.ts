@@ -61,9 +61,7 @@ describe("venue card transition inventory (spec §8 — all instant)", () => {
     // None of these three state changes animates: no transition/AnimatePresence
     // in the VenueBreakdown region (compound transitions — e.g. dock toggling
     // while the map region is absent — are therefore instant by construction).
-    expect(src, "no transition classes in VenueBreakdown").not.toMatch(
-      /\btransition(-\w+)?\b/,
-    );
+    expect(src, "no transition classes in VenueBreakdown").not.toMatch(/\btransition(-\w+)?\b/);
     expect(src, "no AnimatePresence in VenueBreakdown").not.toMatch(/AnimatePresence/);
   });
 });

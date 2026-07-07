@@ -70,7 +70,7 @@ describe("GET /api/admin/venue-map", () => {
     expect(res.headers.get("cache-control")).toContain("private");
     // theme threaded into the upstream URL
     const call = (globalThis.fetch as unknown as ReturnType<typeof vi.fn>).mock
-      .calls[0][0] as string;
+      .calls[0]![0] as string;
     expect(call).toContain("style="); // dark
   });
 

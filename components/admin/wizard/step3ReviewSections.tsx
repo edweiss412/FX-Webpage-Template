@@ -832,7 +832,7 @@ export function VenueBreakdown({ dfid, venue }: { dfid: string; venue: ShowRow["
                 </span>
               ) : null}
               {address || city ? (
-                <span className="mt-1 text-sm leading-snug text-text-subtle">
+                <span className="mt-1 text-sm/snug  text-text-subtle">
                   {address ? <span className="block wrap-break-word">{address}</span> : null}
                   {city ? <span className="block wrap-break-word">{city}</span> : null}
                 </span>
@@ -866,7 +866,7 @@ export function VenueBreakdown({ dfid, venue }: { dfid: string; venue: ShowRow["
                 >
                   Loading dock
                 </span>
-                <p className="mt-0.5 text-sm leading-snug wrap-break-word text-text">{dock}</p>
+                <p className="mt-0.5 text-sm/snug  wrap-break-word text-text">{dock}</p>
               </div>
             </div>
           ) : null}

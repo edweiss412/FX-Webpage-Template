@@ -623,10 +623,9 @@ test("§DI-2 venue map img fills its region box (no letterbox) @ popup 800px", a
 test("§DI-3 venue map region is 172px wide @ popup 800px", async ({ page }) => {
   await openHarness(page, { width: 800, height: 900 });
   const region = await rect(page, '[data-testid="venue-map-region"]');
-  expect(
-    Math.abs(region.width - 172),
-    `region width ${region.width} === 172`,
-  ).toBeLessThanOrEqual(TOL);
+  expect(Math.abs(region.width - 172), `region width ${region.width} === 172`).toBeLessThanOrEqual(
+    TOL,
+  );
 });
 
 test("§DI-5 venue full-bleed body + dock reach the panel inner edges @ popup 800px", async ({
