@@ -33,15 +33,16 @@ const classesWith = (overrides: Record<string, number>): Record<string, number> 
   Object.fromEntries(GAP_CLASSES.map((g) => [g.code, overrides[g.code] ?? 0]));
 
 describe("GAP_CLASSES registry (single source of truth)", () => {
-  it("has exactly 24 entries and includes the newly-counted codes", () => {
-    expect(GAP_CLASSES).toHaveLength(24);
-    expect(DATA_GAP_CODES.size).toBe(24);
+  it("has exactly 25 entries and includes the newly-counted codes", () => {
+    expect(GAP_CLASSES).toHaveLength(25);
+    expect(DATA_GAP_CODES.size).toBe(25);
     for (const c of [
       "UNKNOWN_FIELD",
       "SCHEDULE_TIME_UNPARSED",
       "AGENDA_LINK_NOT_CLICKABLE",
       "PULL_SHEET_ON_ARCHIVED_TAB",
       "UNKNOWN_STAGE_RESTRICTION",
+      "CREW_COLUMN_POSITIONAL_FALLBACK",
     ]) {
       expect(DATA_GAP_CODES.has(c)).toBe(true);
     }
@@ -86,7 +87,7 @@ describe("summarizeDataGaps", () => {
   it("counts EVERY gap class once when given one warn per code (derived from registry)", () => {
     const oneEach = GAP_CLASSES.map((g) => warn(g.code));
     const out = summarizeDataGaps(oneEach);
-    expect(out.total).toBe(GAP_CLASSES.length); // 24
+    expect(out.total).toBe(GAP_CLASSES.length); // 25
     for (const { code } of GAP_CLASSES) expect(out.classes[code]).toBe(1);
   });
 
