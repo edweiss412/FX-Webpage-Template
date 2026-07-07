@@ -27,6 +27,7 @@ vi.mock("@/lib/data/loadShowShareToken", () => ({
   loadShowShareToken: vi.fn(),
 }));
 
+import { buildCrewLinkMailtos } from "@/app/admin/show/[slug]/crewLinkMailto";
 import { CurrentShareLinkPanel } from "@/app/admin/show/[slug]/CurrentShareLinkPanel";
 import { loadShowShareToken } from "@/lib/data/loadShowShareToken";
 
@@ -241,5 +242,84 @@ describe("<CurrentShareLinkPanel>", () => {
     expect(announce.className).toContain("sr-only");
     // Pre-copy: empty announcement so SRs don't say anything.
     expect(announce.textContent).toBe("");
+  });
+});
+
+// Flow 5 (audit 5.2) — persistent "Email this link to crew" anchors.
+// Spec docs/superpowers/specs/2026-07-07-flow5-rotate-disclosure-mailto.md §2.4/§6.3.
+describe("<CurrentShareLinkPanel> — email-crew anchors", () => {
+  const CREW_EMAILS = ["a@example.com", "b@example.com"];
+  const SHOW_TITLE = "RPAS Central";
+
+  test("token + emails → single anchor with helper-derived href", async () => {
+    process.env.NEXT_PUBLIC_SITE_ORIGIN = "https://crew.fxav.show";
+    const { getAllByTestId } = render(
+      await CurrentShareLinkPanel({
+        showId: SHOW_ID,
+        slug: SLUG,
+        token: TOKEN,
+        crewEmails: CREW_EMAILS,
+        showTitle: SHOW_TITLE,
+      }),
+    );
+    const url = `https://crew.fxav.show/show/${SLUG}/${TOKEN}`;
+    const expected = buildCrewLinkMailtos({ emails: CREW_EMAILS, url, showTitle: SHOW_TITLE });
+    expect(expected).toHaveLength(1);
+    const anchors = getAllByTestId("admin-current-share-link-email-button");
+    expect(anchors).toHaveLength(1);
+    expect(anchors[0]!.getAttribute("href")).toBe(expected[0]!.href);
+    expect(anchors[0]!.textContent).toContain("Email this link to crew");
+    expect(anchors[0]!.textContent).not.toMatch(/\(\d+ of \d+\)/);
+  });
+
+  // Adversarial R2 — an implementation rendering only mailtos[0] must fail.
+  test("multi-batch roster: anchor count, (N of M) labels, hrefs match every helper batch", async () => {
+    process.env.NEXT_PUBLIC_SITE_ORIGIN = "https://crew.fxav.show";
+    const bigRoster = Array.from(
+      { length: 60 },
+      (_, i) => `${"a".repeat(60)}${String(i).padStart(4, "0")}@example.com`,
+    );
+    const { getAllByTestId } = render(
+      await CurrentShareLinkPanel({
+        showId: SHOW_ID,
+        slug: SLUG,
+        token: TOKEN,
+        crewEmails: bigRoster,
+        showTitle: SHOW_TITLE,
+      }),
+    );
+    const url = `https://crew.fxav.show/show/${SLUG}/${TOKEN}`;
+    const expected = buildCrewLinkMailtos({ emails: bigRoster, url, showTitle: SHOW_TITLE });
+    expect(expected.length).toBeGreaterThan(1);
+    const anchors = getAllByTestId("admin-current-share-link-email-button");
+    expect(anchors).toHaveLength(expected.length);
+    expected.forEach((m, i) => {
+      expect(anchors[i]!.getAttribute("href")).toBe(m.href);
+      expect(anchors[i]!.textContent).toContain(
+        `Email this link to crew (${m.batch} of ${m.batchCount})`,
+      );
+    });
+  });
+
+  test("token + no emails → no anchor", async () => {
+    process.env.NEXT_PUBLIC_SITE_ORIGIN = "https://crew.fxav.show";
+    const { queryByTestId } = render(
+      await CurrentShareLinkPanel({ showId: SHOW_ID, slug: SLUG, token: TOKEN, crewEmails: [] }),
+    );
+    expect(queryByTestId("admin-current-share-link-email-button")).toBeNull();
+  });
+
+  test("unavailable branch (token null) → no anchor even with emails", async () => {
+    const { queryByTestId, getByTestId } = render(
+      await CurrentShareLinkPanel({
+        showId: SHOW_ID,
+        slug: SLUG,
+        token: null,
+        crewEmails: CREW_EMAILS,
+        showTitle: SHOW_TITLE,
+      }),
+    );
+    expect(getByTestId("admin-current-share-link-unavailable")).toBeTruthy();
+    expect(queryByTestId("admin-current-share-link-email-button")).toBeNull();
   });
 });
