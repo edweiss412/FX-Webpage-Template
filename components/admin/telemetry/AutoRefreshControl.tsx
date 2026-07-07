@@ -112,10 +112,7 @@ export function AutoRefreshControl() {
       </button>
       <span aria-hidden className="h-[18px] w-px bg-border" />
       {agoLabel != null && (
-        <span
-          data-testid="autorefresh-updated"
-          className="text-xs tabular-nums text-text-faint"
-        >
+        <span data-testid="autorefresh-updated" className="text-xs tabular-nums text-text-faint">
           {agoLabel}
         </span>
       )}

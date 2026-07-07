@@ -34,9 +34,10 @@ describe.skipIf(!process.env.RUN_VALIDATION_RPC_SMOKE)(
       // ref: both DB and URL must be loopback. Remote (validation pooler): the
       // `postgres.<REF>@…pooler` username ref must equal the `<REF>.supabase.co` host ref.
       if (isLoopback(DB) || isLoopback(url!)) {
-        expect(isLoopback(DB) && isLoopback(url!), "local DB and local SUPABASE_URL must agree").toBe(
-          true,
-        );
+        expect(
+          isLoopback(DB) && isLoopback(url!),
+          "local DB and local SUPABASE_URL must agree",
+        ).toBe(true);
       } else {
         const dbRef = /postgres\.([a-z0-9]+)@/.exec(DB)?.[1];
         const urlRef = new URL(url!).host.split(".")[0];

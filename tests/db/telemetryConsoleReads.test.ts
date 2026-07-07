@@ -38,7 +38,8 @@ describe("telemetry console reads — DB functions", () => {
     for (const sig of [STATS_SIG, SUMMARY_SIG]) {
       const [oidRow] = await sql`select to_regprocedure(${sig})::text as oid`;
       expect(oidRow!.oid, `${sig} must exist`).not.toBeNull();
-      const [svcRow] = await sql`select has_function_privilege('service_role', ${sig}, 'EXECUTE') as svc`;
+      const [svcRow] =
+        await sql`select has_function_privilege('service_role', ${sig}, 'EXECUTE') as svc`;
       expect(svcRow!.svc, `${sig} EXECUTE granted to service_role`).toBe(true);
       for (const role of ["anon", "authenticated"]) {
         const [okRow] = await sql`select has_function_privilege(${role}, ${sig}, 'EXECUTE') as ok`;
@@ -102,7 +103,8 @@ describe("telemetry console reads — DB functions", () => {
         await tx`insert into public.admin_alerts (code, context, resolved_at) values ('__ts_h1__', '{}'::jsonb, now())`;
         await tx`insert into public.admin_alerts (code, context) values ('__ts_unlisted__', '{}'::jsonb)`;
 
-        const [row] = await tx`select * from public.admin_alert_summary(${H}::text[], ${D}::text[])`;
+        const [row] =
+          await tx`select * from public.admin_alert_summary(${H}::text[], ${D}::text[])`;
         expect(Number(row!.total)).toBe(3); // h1, h2, deg unresolved; resolved h1 + unlisted excluded
         expect(Number(row!.degraded)).toBe(1); // deg only
         expect(Number(row!.total) - Number(row!.degraded)).toBeGreaterThanOrEqual(0);

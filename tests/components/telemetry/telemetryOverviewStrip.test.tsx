@@ -61,12 +61,7 @@ describe("TelemetryOverviewStrip", () => {
 
   test("ok health → Healthy / All clear; open-alerts 0 → No open alerts", () => {
     render(
-      <TelemetryOverviewStrip
-        alertSummary={okSummary}
-        cron={okCron}
-        stats={okStats}
-        now={NOW}
-      />,
+      <TelemetryOverviewStrip alertSummary={okSummary} cron={okCron} stats={okStats} now={NOW} />,
     );
     expect(
       within(screen.getByTestId("stat-system-health")).getByText("Healthy"),
@@ -83,7 +78,9 @@ describe("TelemetryOverviewStrip", () => {
         now={NOW}
       />,
     );
-    expect(within(screen.getByTestId("stat-system-health")).getByText("Notice")).toBeInTheDocument();
+    expect(
+      within(screen.getByTestId("stat-system-health")).getByText("Notice"),
+    ).toBeInTheDocument();
   });
 
   test("events infra_error → em-dash, sparkline still renders", () => {
@@ -126,9 +123,7 @@ describe("TelemetryOverviewStrip", () => {
       />,
     );
     expect(within(screen.getByTestId("stat-cron")).getByText("—")).toBeInTheDocument();
-    expect(
-      within(screen.getByTestId("stat-cron")).getByText(/unavailable/i),
-    ).toBeInTheDocument();
+    expect(within(screen.getByTestId("stat-cron")).getByText(/unavailable/i)).toBeInTheDocument();
   });
 
   test("events total 0 → No events in 24h", () => {

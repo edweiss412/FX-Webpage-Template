@@ -27,8 +27,10 @@ function buildChips(filters: AppEventFilters): Chip[] {
       patch: { level: remaining.length ? remaining.join(",") : null },
     });
   }
-  if (filters.source) chips.push({ key: "source", label: `source: ${filters.source}`, patch: { source: null } });
-  if (filters.code) chips.push({ key: "code", label: `code: ${filters.code}`, patch: { code: null } });
+  if (filters.source)
+    chips.push({ key: "source", label: `source: ${filters.source}`, patch: { source: null } });
+  if (filters.code)
+    chips.push({ key: "code", label: `code: ${filters.code}`, patch: { code: null } });
   if (filters.showId)
     chips.push({ key: "showId", label: `show: ${short(filters.showId)}`, patch: { showId: null } });
   if (filters.requestId)

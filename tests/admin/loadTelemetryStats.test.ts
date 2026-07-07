@@ -59,11 +59,22 @@ describe("loadTelemetryStats", () => {
   it.each([
     [
       "missing field",
-      { total: "4", error_count: "2", warn_count: "1", /* info_count missing */ buckets: Array(24).fill(0) },
+      {
+        total: "4",
+        error_count: "2",
+        warn_count: "1",
+        /* info_count missing */ buckets: Array(24).fill(0),
+      },
     ],
     [
       "non-numeric",
-      { total: "x", error_count: "2", warn_count: "1", info_count: "1", buckets: Array(24).fill(0) },
+      {
+        total: "x",
+        error_count: "2",
+        warn_count: "1",
+        info_count: "1",
+        buckets: Array(24).fill(0),
+      },
     ],
     [
       "non-array buckets",
@@ -71,15 +82,33 @@ describe("loadTelemetryStats", () => {
     ],
     [
       "wrong bucket length",
-      { total: "4", error_count: "2", warn_count: "1", info_count: "1", buckets: Array(12).fill(0) },
+      {
+        total: "4",
+        error_count: "2",
+        warn_count: "1",
+        info_count: "1",
+        buckets: Array(12).fill(0),
+      },
     ],
     [
       "NaN/Infinity",
-      { total: "4", error_count: "Infinity", warn_count: "1", info_count: "1", buckets: Array(24).fill(0) },
+      {
+        total: "4",
+        error_count: "Infinity",
+        warn_count: "1",
+        info_count: "1",
+        buckets: Array(24).fill(0),
+      },
     ],
     [
       "negative",
-      { total: "-1", error_count: "2", warn_count: "1", info_count: "1", buckets: Array(24).fill(0) },
+      {
+        total: "-1",
+        error_count: "2",
+        warn_count: "1",
+        info_count: "1",
+        buckets: Array(24).fill(0),
+      },
     ],
   ])("malformed row (%s) → infra_error", async (_label, row) => {
     rpc.mockResolvedValue({ data: [row], error: null });

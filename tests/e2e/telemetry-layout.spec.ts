@@ -155,7 +155,12 @@ test.describe("telemetry layout + tap targets (§8/G7)", () => {
         const thumb = track.querySelector("span") as HTMLElement;
         const t = track.getBoundingClientRect();
         const h = thumb.getBoundingClientRect();
-        return h.left >= t.left - 0.5 && h.right <= t.right + 0.5 && h.top >= t.top - 0.5 && h.bottom <= t.bottom + 0.5;
+        return (
+          h.left >= t.left - 0.5 &&
+          h.right <= t.right + 0.5 &&
+          h.top >= t.top - 0.5 &&
+          h.bottom <= t.bottom + 0.5
+        );
       });
       expect(within, `switch thumb within track (state ${i})`).toBe(true);
       await toggle.click(); // flip on↔off

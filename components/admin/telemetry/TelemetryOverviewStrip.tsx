@@ -47,7 +47,7 @@ function StatCard({
       data-testid={testId}
       className="flex h-full flex-col gap-2 rounded-md border border-border bg-surface p-4 shadow-tile"
     >
-      <span className="text-[10px] font-semibold uppercase tracking-[0.12em] text-text-subtle">
+      <span className="text-[10px] font-semibold uppercase tracking-eyebrow text-text-subtle">
         {label}
       </span>
       {children}
