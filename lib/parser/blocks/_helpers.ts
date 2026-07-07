@@ -195,8 +195,28 @@ export function normalizeDate(raw: string): string | null {
  * of hard-coding an era. Shared so the hotel + transport parsers stay in lockstep.
  */
 export function inferShowYear(markdown: string): string | null {
-  const m = /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/.exec(markdown);
-  if (!m) return null;
-  const iso = normalizeDate(m[0]);
-  return iso ? iso.slice(0, 4) : null;
+  // Slash FIRST — behavior IDENTICAL to the pre-widening implementation. If ANY slash
+  // token exists (even calendar-invalid, e.g. 13/45/2026), return its normalizeDate
+  // result (year or null) and DO NOT fall back — the fallback runs ONLY when NO slash
+  // token exists at all (spec: "fallback only when no slash date exists"). Gating on the
+  // regex MATCH (not on normalizeDate success) preserves the old "first slash invalid →
+  // null" behavior; gating on success would change it (Codex plan R3).
+  const slash = /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/.exec(markdown);
+  if (slash) {
+    const iso = normalizeDate(slash[0]);
+    return iso ? iso.slice(0, 4) : null;
+  }
+  // Fallback ONLY when no slash token exists: the EARLIEST date in DOCUMENT ORDER
+  // across ISO + long-form (NOT ISO-priority — Codex plan R1: an ISO-first loop would
+  // return the year of a later ISO date over an earlier long-form date on a no-slash sheet).
+  let best: { index: number; iso: string } | null = null;
+  for (const src of [ISO_DATE_RE, LONGFORM_MDY_RE, LONGFORM_DMY_RE]) {
+    const re = new RegExp(src.source, src.flags.includes("g") ? src.flags : src.flags + "g");
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(markdown)) !== null) {
+      const iso = normalizeDate(m[0].trim());
+      if (iso && (best === null || m.index < best.index)) best = { index: m.index, iso };
+    }
+  }
+  return best ? best.iso.slice(0, 4) : null;
 }

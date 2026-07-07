@@ -102,3 +102,33 @@ describe("normalizeDate widened shapes (rec-6d)", () => {
     expect(normalizeDate(raw)).toBeNull();
   });
 });
+
+describe("inferShowYear slash-first fallback (rec-6d)", () => {
+  it("infers from ISO when NO slash date exists", () => {
+    expect(inferShowYear("Header\n2027-03-01 setup\nmore")).toBe("2027");
+  });
+  it("infers from long-form when NO slash date exists", () => {
+    expect(inferShowYear("Show March 1, 2027 onward")).toBe("2027");
+  });
+  it("mixed sheet: an ISO date BEFORE the first slash still yields the SLASH year", () => {
+    // ISO 2027 appears first in document order; slash date is 2025.
+    // Slash-first fallback MUST return 2025 (no regression to a combined alternation).
+    expect(inferShowYear("plan 2027-01-01 ... actual 3/15/2025 ...")).toBe("2025");
+  });
+  it("no-slash sheet: earliest date in DOCUMENT ORDER wins across ISO/long-form", () => {
+    // long-form 2028 appears BEFORE ISO 2029 — must return 2028, not ISO-priority 2029.
+    expect(inferShowYear("kickoff March 1, 2028 then rev 2029-06-01")).toBe("2028");
+  });
+  it("does NOT match an embedded ISO inside a longer digit run", () => {
+    // 12026-07-04 must NOT yield 2026 (self-delimiting \b guard).
+    expect(inferShowYear("code 12026-07-04 only")).toBeNull();
+  });
+  it("an INVALID slash token suppresses the ISO fallback (behavior-preserving)", () => {
+    // A slash token EXISTS (13/45/2026) though calendar-invalid; old behavior returned
+    // null and never scanned further — the ISO 2027 must NOT be picked up.
+    expect(inferShowYear("bad 13/45/2026 then 2027-01-01")).toBeNull();
+  });
+  it("returns null when no date at all", () => {
+    expect(inferShowYear("no dates here")).toBeNull();
+  });
+});
