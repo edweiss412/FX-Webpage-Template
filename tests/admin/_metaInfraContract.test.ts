@@ -344,6 +344,13 @@ const infraRegistry = [
     skipGrepShape: true as const,
   },
   {
+    helper: "loadAlertSummary",
+    path: "lib/admin/loadAlertSummary.ts",
+    contract:
+      "admin_alert_summary RPC (HEALTH_CODES/DEGRADED_HEALTH_CODES params); { data, error } destructure; construction throw + rpc returned {error} + rpc throw + empty/malformed row (non-int, degraded>total) → { kind:'infra_error' }. Shared mock rpc() is not fn-keyed (loadBellFeed precedent) — rpc-throw/error covered in tests/admin/loadAlertSummary.test.ts.",
+    skipGrepShape: true as const,
+  },
+  {
     helper: "queryEvents",
     path: "lib/observe/query/events.ts",
     contract:
