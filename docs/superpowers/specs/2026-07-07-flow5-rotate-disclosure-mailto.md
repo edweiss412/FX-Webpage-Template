@@ -32,19 +32,24 @@ Element structure, ids, testids, and roles are unchanged. Text-only edits.
 New client-safe pure module `app/admin/show/[slug]/crewLinkMailto.ts` (sibling of `resolveOrigin.ts`, which is the established pattern for shared client-safe helpers in this route — `resolveOrigin.ts:9`):
 
 ```ts
-export function buildCrewLinkMailto(opts: {
+export const MAX_MAILTO_HREF_CHARS = 1900;
+
+export type CrewLinkMailto = { href: string; batch: number; batchCount: number };
+
+export function buildCrewLinkMailtos(opts: {
   emails: readonly string[];
   url: string;
   showTitle: string;
-}): string | null;
+}): CrewLinkMailto[];
 ```
 
 Behavior (each clause is a unit-test case):
 
-- **Empty → null.** After filtering, zero recipients returns `null` (callers hide the anchor).
-- **Filter + dedupe.** Drop falsy entries and entries without `"@"`; dedupe exact duplicates preserving first-seen order. (Emails are already canonicalized-or-null at the parse boundary — `lib/parser/blocks/crew.ts:317-318,412` — so no re-canonicalization here; the filter is a belt, not the mechanism. Invariant 3 untouched: this is a read of already-canonical data.)
+- **Empty → `[]`.** After filtering, zero recipients returns an empty array (callers hide the affordance).
+- **Filter + dedupe.** Drop falsy entries, entries without `"@"`, and entries longer than 254 characters (RFC 5321 path ceiling; also guarantees any single recipient fits a batch — see chunking). Dedupe exact duplicates preserving first-seen order. (Emails are already canonicalized-or-null at the parse boundary — `lib/parser/blocks/crew.ts:317-318,412` — so no re-canonicalization here; the filter is a belt, not the mechanism. Invariant 3 untouched: this is a read of already-canonical data.)
 - **BCC, not To.** Recipients go in `bcc` so addresses are not cross-exposed by default. The `to` part of the mailto is empty: `mailto:?bcc=…`.
 - **Encoding.** Each address is `encodeURIComponent`-encoded individually, joined with literal `,` (the RFC 6068 address separator; `,` is legal unencoded in the query part). `subject` and `body` values are `encodeURIComponent`-encoded.
+- **Chunking (deterministic length guard; adversarial R1).** Recipients are greedily packed, in order, into the fewest batches such that each batch's complete href (`mailto:?bcc=<batch>&subject=…&body=…`) is ≤ `MAX_MAILTO_HREF_CHARS` (1900 — under the 2083-character legacy Windows/IE URL floor, the most restrictive mainstream mailto handler; modern clients allow far more). A 254-char address encodes to ≤ 762 chars and subject+body for any realistic title/URL stay well under the remainder, so every filtered recipient lands in some batch — **no recipient is ever silently dropped**. Each result carries `batch` (1-based) and `batchCount` so callers can label multi-batch anchors. The common case (roster ≤ ~50 typical-length addresses) yields exactly one batch.
 - **Subject.** `Crew link — ${showTitle}` when `showTitle` is non-blank after trim; plain `Crew link` otherwise.
 - **Body.** Exactly (before encoding):
 
@@ -58,13 +63,13 @@ Behavior (each clause is a unit-test case):
 
   where the ` for ${showTitle}` fragment is included only when `showTitle` is non-blank after trim.
 
-**Cap/truncation decision (explicit, do not relitigate):** no recipient cap and no href-length truncation. The roster is bounded by the show sheet's CREW/TECH table (real corpus max ≈ 60 rows), giving a worst-case href ≈ 2–3 KB — comfortably inside every mainstream mail client's mailto handling. A cap would silently drop crew from a safety notification, which is worse than a long URL. If a pathological roster ever matters, that's a parser-side concern, not this helper's.
+**Pathological-input floor (explicit decision):** if `showTitle` + `url` alone made a single-recipient href exceed the cap (they can't for real data — titles are sheet-derived short strings, URLs are `origin/show/<slug>/<token>`), the greedy packer still emits one recipient per batch rather than dropping anyone; hrefs may then exceed the cap, which is accepted for that unreachable corner rather than adding a truncation path. Stated so the behavior is deterministic, not undefined.
 
 ### 2.3 Anchor in the rotate success banner
 
-Inside the existing success banner (`RotateShareTokenButton.tsx:209-248`), the URL/Copy row gains a sibling anchor rendered **only when** `newUrl !== null` **and** `buildCrewLinkMailto(...) !== null`:
+Inside the existing success banner (`RotateShareTokenButton.tsx:209-248`), the URL/Copy row gains sibling anchor(s) rendered **only when** `newUrl !== null` **and** `buildCrewLinkMailtos(...)` is non-empty:
 
-- Element: `<a href={mailto} data-testid="admin-rotate-share-token-email-button">Email crew</a>` — plain anchor, no `target`, no `rel` (mailto scheme).
+- Element (one per batch): `<a href={m.href} data-testid="admin-rotate-share-token-email-button">…</a>` — plain anchor, no `target`, no `rel` (mailto scheme). Visible text **Email crew** when `batchCount === 1`; **Email crew (N of M)** per batch otherwise. Multi-batch anchors wrap in the same action row (`flex flex-wrap gap-2`).
 - Placement: a second action row directly below the URL/Copy row, inside the same banner container, full-width start-aligned.
 - Style: secondary bordered button-anchor using existing tokens, matching the compact idle button's recipe (`RotateShareTokenButton.tsx:194`): `inline-flex min-h-tap-min min-w-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring`. A `Mail` icon from `lucide-react` (`size={14}`, `aria-hidden`) precedes the text, matching the icon convention at `RotateShareTokenButton.tsx:199-202`.
 - The Copy button remains the primary (accent) action; the mailto anchor is deliberately secondary.
@@ -73,7 +78,7 @@ The `rotatedInactive` state (`RotateShareTokenButton.tsx:249-262`) is unchanged 
 
 ### 2.4 Anchor in CurrentShareLinkPanel
 
-In `app/admin/show/[slug]/CurrentShareLinkPanel.tsx`, when a token exists (the branch building `url` at `:93`), a new row below the URL/Copy row (`:104-112`) renders the same style of anchor with `data-testid="admin-current-share-link-email-button"` and visible text **Email this link to crew**, `href` from `buildCrewLinkMailto({ emails, url, showTitle })`. Hidden when the helper returns `null`. The token-unavailable branch (`:73-91`) never renders it. This is a Server Component; the anchor is static markup (no client boundary needed).
+In `app/admin/show/[slug]/CurrentShareLinkPanel.tsx`, when a token exists (the branch building `url` at `:93`), a new row below the URL/Copy row (`:104-112`) renders the same style of anchor(s) with `data-testid="admin-current-share-link-email-button"`, hrefs from `buildCrewLinkMailtos({ emails, url, showTitle })`. Visible text **Email this link to crew** for a single batch; **Email this link to crew (N of M)** per batch otherwise. Hidden when the helper returns `[]`. The token-unavailable branch (`:73-91`) never renders it. This is a Server Component; the anchors are static markup (no client boundary needed).
 
 ### 2.5 Prop threading
 
@@ -92,7 +97,7 @@ In `app/admin/show/[slug]/CurrentShareLinkPanel.tsx`, when a token exists (the b
 | Input | null / empty / absent | Behavior |
 | --- | --- | --- |
 | `crewEmails` prop | `undefined` or `[]` | anchors hidden on both surfaces; copy nudge text remains |
-| `crewEmails` entries | `""`, no-`"@"`, duplicates | filtered/deduped inside the helper (server filter is a pre-pass, helper is authoritative) |
+| `crewEmails` entries | `""`, no-`"@"`, longer than 254 chars, duplicates | filtered/deduped inside the helper (server filter is a pre-pass, helper is authoritative) |
 | `showTitle` | `undefined`, `""`, whitespace | subject falls back to `Crew link`; body drops the ` for …` fragment |
 | `crew_members.email` column | `null` (sentinel/unreadable at parse) | dropped by the server-side filter |
 | `readCrew` failure | `crew: []` (existing failure path `page.tsx:244-272`) | `crewEmails` = `[]` → anchors hidden; no new failure surface |
@@ -113,8 +118,8 @@ In `app/admin/show/[slug]/CurrentShareLinkPanel.tsx`, when a token exists (the b
 
 ## 6. Tests (TDD; each lands before its implementation)
 
-1. **`tests/admin/crewLinkMailto.test.ts`** (new, pure unit): empty/whitespace-only/no-`@` inputs → `null`; dedupe preserves first-seen order; bcc joins encoded addresses with literal commas; `subject`/`body` are `encodeURIComponent`-encoded and body contains the raw URL exactly once; blank `showTitle` fallback subject `Crew link` and body without the `for` fragment; non-blank title appears in both. Failure mode caught: malformed hrefs that open a mail client with corrupted recipients, and an anchor rendered for a show with zero usable emails.
-2. **`tests/components/RotateShareTokenButton.test.tsx`** (extend): confirm warning contains the exact new sentence ("will have to re-pick their name"); success banner lead line contains "everyone will re-pick their name"; with `crewEmails` provided, success state renders `admin-rotate-share-token-email-button` whose `href` equals `buildCrewLinkMailto`'s output for the same inputs (assert against the helper — the data source — not a hand-hardcoded string, per the anti-tautology rule; the helper itself is pinned by test 1); with `crewEmails: []` or prop omitted the anchor is absent; in the `isCrewLinkActive={false}` rotated state the anchor is absent. Failure mode caught: disclosure regression (5.1) and anchor leaking into inactive/empty states.
+1. **`tests/admin/crewLinkMailto.test.ts`** (new, pure unit): empty/whitespace-only/no-`@`/over-254-char inputs → `[]` or filtered; dedupe preserves first-seen order; bcc joins encoded addresses with literal commas; `subject`/`body` are `encodeURIComponent`-encoded and each body contains the raw URL exactly once; blank `showTitle` fallback subject `Crew link` and body without the `for` fragment; non-blank title appears in both; **chunking**: a recipient list constructed to cross `MAX_MAILTO_HREF_CHARS` (derive count from address length + the exported constant, never hardcode a magic count) yields >1 batch, every href ≤ the cap, every input recipient appears in exactly one batch, `batch`/`batchCount` are consistent, and a typical roster (e.g. 40 × ~25-char addresses) yields exactly one batch. Failure mode caught: malformed hrefs that open a mail client with corrupted recipients; silent recipient drops past the length cap; an anchor rendered for a show with zero usable emails.
+2. **`tests/components/RotateShareTokenButton.test.tsx`** (extend): confirm warning contains the exact new sentence ("will have to re-pick their name"); success banner lead line contains "everyone will re-pick their name"; with `crewEmails` provided, success state renders `admin-rotate-share-token-email-button` whose `href` equals `buildCrewLinkMailtos`'s single-batch output for the same inputs (assert against the helper — the data source — not a hand-hardcoded string, per the anti-tautology rule; the helper itself is pinned by test 1); with `crewEmails: []` or prop omitted the anchor is absent; in the `isCrewLinkActive={false}` rotated state the anchor is absent. Failure mode caught: disclosure regression (5.1) and anchor leaking into inactive/empty states.
 3. **`tests/components/CurrentShareLinkPanel.test.tsx`** (extend): with token + emails the anchor renders with the helper-derived href; with token + no emails it is absent; in the unavailable branch it is absent. Failure mode caught: dead `mailto:?bcc=` with zero recipients, and an anchor on the broken-token state.
 4. **`tests/app/admin/perShowPage.test.tsx`** (extend): the crew select string includes `email`; with a seeded roster mixing `email: null` and real emails, the rendered panel anchor's `href` contains only the non-null addresses (derives expected values from the fixture rows, not hardcoded counts). Failure mode caught: select not widened (all anchors silently vanish) and null-email rows leaking into recipients.
 
@@ -131,4 +136,4 @@ The diff touches `app/admin/show/[slug]/**` UI files → `/impeccable critique` 
 
 ## 9. Numeric sweep
 
-Literal numbers in this spec: 60 (roster bound estimate, §2.2, appears once), 2–3 KB (href estimate, §2.2, once), line citations (verified against `13df05f33`). No cross-section numeric duplication to drift.
+Literal numbers in this spec: 1900 (`MAX_MAILTO_HREF_CHARS`, defined once in §2.2, referenced by name elsewhere), 2083 (legacy IE floor rationale, once), 254 (RFC 5321 filter, §2.2 + guard table + tests — same value everywhere), 762 (encoded worst case of 254, once), ~50 / 40 (typical-roster illustrations, §2.2 / §6), line citations verified against `13df05f33`. No cross-section numeric contradiction.
