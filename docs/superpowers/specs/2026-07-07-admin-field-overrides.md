@@ -74,17 +74,20 @@ The locked apply transaction is opened at `runScheduledCronSync.ts:1801` (`sql.b
 1. `applyShowSnapshot` (`runScheduledCronSync.ts:1304`) — writes `shows.dates`/`shows.venue` (UPDATE arms at `:1432`,`:1458`). **`show`-domain overrides (dates/venue) must transform the ParseResult *before* this writer consumes it.**
 2. `runPhase2` → `applyParseResult` (`lib/sync/phase2.ts:369`) — writes crew + hotels. **`crew`/`hotel`-domain overrides transform the crew list + hotel rows *before* `applyParseResult`'s delete/upsert.**
 
-Therefore the override transform runs **once, at the earliest point after parse where the full `ParseResult` exists and we are inside the lock**, producing an **overridden `ParseResult`** threaded through both writers. Concretely: a new `applyOverrides(tx, showId, parseResult) → { overriddenParseResult, sheetValues, staleOverrides }` step invoked before `applyShowSnapshot`, threading the overridden result forward. (The plan pins the exact call site; the ParseResult originates upstream of `applyShowSnapshot` in the same locked section.)
+**Two clearly-separated stages — the transform is PURE; the override-table side-effects are gated on the apply actually proceeding.** This separation is mandatory because `runPhase2` can **short-circuit stale**: `applyShowSnapshot` returns `outcome:"stale"` under its modified-time guard and `runPhase2` returns immediately (`lib/sync/phase2.ts:305-306`) — **before** `applyParseResult` (`:369`) and the post-apply slot (`:378`) ever run, yet the surrounding tx still commits. If override-table writes (`sheet_value`, `active=false`) were emitted before `applyShowSnapshot`, a stale/replayed sync would commit them even though no live row changed — pausing valid overrides and refreshing `sheet_value` from a stale parse (a false needs-attention). So:
 
-Readers are **untouched** — no crew-page, picker, auth, or admin read-path change. This preserves invariant 9 boundaries and keeps blast radius to the write path + admin edit surfaces.
+- **Stage A — pure transform (before `applyShowSnapshot`).** `overrideParseResult(parseResult, activeOverrides) → { overriddenParseResult, plannedSheetValues, plannedStale, plannedConflicts }`. Pure: reads the ParseResult + the active overrides, returns the overridden ParseResult **and the *planned* side-effects**, but performs **zero writes** (no live-row writes, no `admin_overrides` writes). If the sync short-circuits stale after this, nothing was persisted — no harm.
+- **Stage B — override-table side-effects (at the post-apply slot `phase2.ts:378`, applied path only).** Only reached when `applyShowSnapshot` returned `updated` and `applyParseResult` ran. Here `commitOverrideSideEffects(tx, plannedSheetValues, plannedStale, plannedConflicts)` writes `sheet_value` refreshes and `active=false` deactivations to `admin_overrides` — atomic with the applied change-log writes already in that slot (`:383-399`). A stale short-circuit never reaches this stage, so `admin_overrides` is untouched on a stale sync.
 
-### 3.3 sheet_value capture + stale detection (same step)
+`overriddenParseResult` (Stage A) is threaded into `applyShowSnapshot` + `applyParseResult`. Readers are **untouched** — no crew-page, picker, auth, or admin read-path change. This preserves invariant 9 boundaries and keeps blast radius to the write path + admin edit surfaces.
 
-`applyOverrides` also, for each active override:
-- Computes the field's **parsed value** by matching `match_key` against the original (pre-transform) ParseResult, and writes it to `admin_overrides.sheet_value` (refreshed every sync — powers the chip).
-- If `match_key` is **not present** in the parsed identifiers (crew name gone, hotel name gone), the override is **deactivated** (`active=false`) and a stale `admin_alert` is emitted (§6). `show`-domain overrides never go stale (singleton always present; if parsed dates/venue is null, `sheet_value=null` and the override still applies).
+### 3.3 sheet_value capture + stale detection
 
-`sheet_value` refresh and `active=false` writes to `admin_overrides` happen **inside** the locked tx (they mutate override state alongside the apply). The stale `admin_alert` emit is **post-commit, outside the lock** (invariant 10).
+The *planned* side-effects computed in Stage A, persisted in Stage B (§3.2):
+- **sheet_value:** each active override's field **parsed value** (matched by `match_key` against the original pre-transform ParseResult) → `admin_overrides.sheet_value` (refreshed every applied sync — powers the chip).
+- **stale/conflict:** if `match_key` is **not present** in the parsed identifiers (crew name gone, hotel name gone), or applying a crew-name override would collide (§6), the override is **deactivated** (`active=false`). `show`-domain overrides never go stale (singleton always present; parsed dates/venue null → `sheet_value=null`, override still applies).
+
+All `admin_overrides` writes happen in **Stage B, inside the locked tx, on the applied path only**. The best-effort `admin_alert` push is **post-commit, outside the lock** (§6, invariant 10) — and is additive to the durable inactive-row signal, never the sole signal.
 
 ---
 
@@ -126,9 +129,12 @@ create index if not exists admin_overrides_show_active_idx
 -- revoked (RLS narrows granted privileges; it does not grant them). RLS is enabled as belt-and-
 -- suspenders (deny-by-default for authenticated; service_role bypasses RLS and has table privileges).
 revoke insert, update, delete, select on table public.admin_overrides from anon, authenticated;
+grant  all privileges on table public.admin_overrides to service_role;  -- service_role retains ALL (reads + RPC writes); required by postgrest-dml-lockdown registry
 alter table public.admin_overrides enable row level security;
--- (no policy: authenticated/anon get zero rows; all reads flow through service_role)
+-- (no policy: authenticated/anon get zero rows; all reads flow through service_role, which bypasses RLS)
 ```
+
+The `grant all ... to service_role` is not optional: `tests/db/postgrest-dml-lockdown.test.ts` asserts every RPC-gated table keeps `service_role` SELECT/INSERT/UPDATE/DELETE = true (existing migrations grant it explicitly; without it, service-role reads/RPC writes can fail on default privileges and the declared lockdown meta-test row fails). The registry row (§12) records `serviceRole: ALL, selectAnon:false, selectAuthenticated:false`.
 
 Idempotency: `create table if not exists` + `create index if not exists`; the REVOKE/GRANT are idempotent. Apply-twice safe.
 
@@ -194,7 +200,7 @@ No transitional dual-value window (single new table, one-shot). No retired colum
 
 ## 6. Stale policy + signal
 
-When `applyOverrides` finds an active override whose `match_key` is absent from the freshly parsed identifiers:
+When Stage A (§3.2) finds an active override whose `match_key` is absent from the freshly parsed identifiers (planned in Stage A, committed in Stage B on the applied path):
 
 1. Set `admin_overrides.active = false` **inside the locked tx** (atomic with the apply). The live row therefore renders the **parsed** value (the override no longer transforms it).
 2. **Durable needs-attention signal = the inactive row itself** (this is the "never silent" guarantee). `loadNeedsAttention` gains a **4th derived stream**: `select … from admin_overrides where not active` (joined to `shows`), added to `buildNeedsAttention` (`lib/admin/loadNeedsAttention.ts:291`, alongside the existing `pending_ingestions`/`pending_syncs`/`admin_alerts` streams; input type in `lib/admin/needsAttention.ts`). Because the row's `active=false` commits in the SAME transaction as the apply, the signal cannot be lost — there is no post-commit step whose failure could hide it. A crash after commit still leaves an inactive row that the next needs-attention load surfaces.
@@ -203,7 +209,7 @@ When `applyOverrides` finds an active override whose `match_key` is absent from 
 
 Deactivate-not-delete means a transient sheet glitch (row briefly dropped) does not lose Doug's correction; he re-points or discards deliberately. Accumulation is bounded: deactivated rows are visible needs-attention items that Doug resolves.
 
-**Runtime name-collision (target present but output collides).** The RPC write-time guard (§7.4) prevents *creating* a colliding crew-name override, but a *later* sync can introduce the collision — e.g. the sheet adds a real crew member whose name equals an existing override's output. If `applyOverrides` detects that applying an active crew-name override would produce two crew rows sharing `(show_id, name)` (fold collision), it **must not** apply the fold (that would collapse rows — the audit-2 finding). Instead it **deactivates** the override (`active=false` in-tx, row renders parsed value) — the same durable inactive-row needs-attention signal as stale (§6 step 2) — and additionally emits a best-effort `admin_alert` `OVERRIDE_NAME_CONFLICT` (§10) bell push whose copy tells Doug his override name now clashes with a real crew member; the needs-attention row offers re-point (choose a different name) or discard. Same deactivate+surface machinery as stale, different code + copy. The `overrideApply` test asserts no row collapse occurs on a manufactured collision (§13).
+**Runtime name-collision (target present but output collides).** The RPC write-time guard (§7.4) prevents *creating* a colliding crew-name override, but a *later* sync can introduce the collision — e.g. the sheet adds a real crew member whose name equals an existing override's output. If Stage A (§3.2) detects that applying an active crew-name override would produce two crew rows sharing `(show_id, name)` (fold collision), it **must not** apply the fold (that would collapse rows — the audit-2 finding). Instead it **deactivates** the override (`active=false` in-tx, row renders parsed value) — the same durable inactive-row needs-attention signal as stale (§6 step 2) — and additionally emits a best-effort `admin_alert` `OVERRIDE_NAME_CONFLICT` (§10) bell push whose copy tells Doug his override name now clashes with a real crew member; the needs-attention row offers re-point (choose a different name) or discard. Same deactivate+surface machinery as stale, different code + copy. The `overrideApply` test asserts no row collapse occurs on a manufactured collision (§13).
 
 ---
 
@@ -331,7 +337,9 @@ The wizard passes `driveFileId` (`s.dfid`) and the parsed values already present
 - **New "Show details" block**: dates + venue, each an `<OverrideableField>`.
 - **New "Hotels" block**: per-reservation hotel_name + hotel_address.
 
-Server action `app/admin/show/[slug]/_actions/overrides.ts` — thin layer: `requireAdminIdentity()` gate → delegate to `lib/overrides/setFieldOverride.ts` helper (which does `createSupabaseServerClient()` + `supabase.rpc("set_field_override", …)` + `mapRpcOutcome` + returns discriminated result), then **post-commit** `logAdminOutcome({ code: "FIELD_OVERRIDE_SET"|"FIELD_OVERRIDE_REVERTED", … })` (§11) + `revalidateShow`. **No inline `.rpc` in the action** (deadlock rule, `feed.ts:10-14`).
+Server action `app/admin/show/[slug]/_actions/overrides.ts` — thin layer: `requireAdminIdentity()` gate → delegate to `lib/overrides/setFieldOverride.ts` helper, then **post-commit** `logAdminOutcome({ code: "FIELD_OVERRIDE_SET"|"FIELD_OVERRIDE_REVERTED", … })` (§11) + `revalidateShow`. **No inline `.rpc` in the action** (deadlock rule, `feed.ts:10-14`).
+
+**Client choice (critical):** `set_field_override` EXECUTE is revoked from `authenticated` and granted only to `service_role` (§7.5), so the helper MUST use **`createSupabaseServiceRoleClient()`**, not `createSupabaseServerClient()`. The latter is cookie-bound and uses the publishable/anon key in this repo — it would pass `requireAdminIdentity()` and then fail `permission denied` at the RPC boundary, making every save/revert path unusable. Mirror the exact precedent `lib/onboarding/setPullSheetOverrideRpc.ts:34` (`const client = (deps?.createClient ?? createSupabaseServiceRoleClient)(); const { data, error } = await client.rpc("set_field_override", params)`). `requireAdminIdentity()` at the action layer is the authorization gate; the service-role client is constructed only after that gate passes. The helper destructures `{ data, error }` + `mapRpcOutcome` (invariant 9) and is registered in the infra-contract meta-test.
 
 ### 8.5 Guard conditions (every prop / state)
 
@@ -419,7 +427,7 @@ Additionally, a user-facing **stale-review** error surfaces on the CAS 409 path 
 
 **Extends:**
 - `lib/admin/loadNeedsAttention.ts` + `lib/admin/needsAttention.ts` — add the 4th derived stream (`admin_overrides where not active`) to `buildNeedsAttention` (`:291`); its existing test file gains a case asserting an inactive override surfaces as a needs-attention row.
-- `tests/db/postgrest-dml-lockdown.test.ts` — add `admin_overrides` to `RPC_GATED_TABLES` (`:147`), `{selectAnon:false, selectAuthenticated:false, postBody:…}`.
+- `tests/db/postgrest-dml-lockdown.test.ts` — add `admin_overrides` to `RPC_GATED_TABLES` (`:147`): `{selectAnon:false, selectAuthenticated:false, postBody:…}`; service_role retains ALL (asserted by the gate; DDL `grant all … to service_role`, §4.1).
 - `tests/auth/advisoryLockRpcDeadlock.test.ts` — add migration filename to `migrationFiles` (`:33`); document `set_field_override` as an in-RPC single holder in the allow-list comments (`:100+`).
 - `tests/log/_auditableMutations.ts` + `tests/log/adminOutcomeBehavior.test.ts` — registry rows + behavioral proof.
 - `tests/messages/_metaAdminAlertCatalog.test.ts`, `tests/cross-cutting/codes.test.ts` — new codes.
@@ -427,7 +435,7 @@ Additionally, a user-facing **stale-review** error surfaces on the CAS 409 path 
 - `tests/admin/no-inline-email-normalization.test.ts` — any name trim carries `// canonicalize-exempt`.
 
 **Creates:**
-- `tests/sync/overrideApply.test.ts` — the pre-write transform: override folds into crew list before delete/upsert; crew_members.id stable across two syncs (the id-churn regression, §3.1); name-collision fold-conflict deactivates without row collapse (§5.2/§6); hotel matched by name across reorder; show dates/venue overridden; sheet_value refreshed; **stale deactivation surfaces via the inactive-row needs-attention stream even when the post-commit alert emit throws** (durability test — §6 step 2 vs step 3).
+- `tests/sync/overrideApply.test.ts` — the pre-write transform: override folds into crew list before delete/upsert; crew_members.id stable across two syncs (the id-churn regression, §3.1); name-collision fold-conflict deactivates without row collapse (§5.2/§6); hotel matched by name across reorder; show dates/venue overridden; sheet_value refreshed; **stale deactivation surfaces via the inactive-row needs-attention stream even when the post-commit alert emit throws** (durability test — §6 step 2 vs step 3); **a stale-short-circuit sync (`applyShowSnapshot` returns `outcome:"stale"`, `phase2.ts:305-306`) leaves `admin_overrides` completely unchanged — no sheet_value refresh, no deactivation** (Stage A pure / Stage B applied-path-only, §3.2).
 - `tests/overrides/setFieldOverride.test.ts` — RPC ops (upsert/revert/repoint/discard), CAS 409, guard rejections (incl. name collision), lock held, **and the active-name-override anchors (§7.6): edit `John`→`Jonathan` and revert `John`→`Jon` both update the correct live row; a wrong anchor (live name moved by a concurrent sync) raises 409, not a silent zero-row no-op.**
 - Real-browser layout assertion for the chip/field-row dimensional invariant (§8.6).
 
