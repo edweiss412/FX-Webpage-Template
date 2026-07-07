@@ -896,6 +896,17 @@ describe("parseCrew — CREW_COLUMN_POSITIONAL_FALLBACK", () => {
     expect(agg.warnings.some((w) => w.code === CODE)).toBe(false);
   });
 
+  it("stays silent when name/role headers are misspelled but fuzzy-corrected (NAM→NAME) — catches fuzzy recognition being treated as a positional guess", () => {
+    const agg = newAggregator();
+    const md = `| CREW | NAM | ROLE | PHONE | EMAIL |
+| | Kevin Weiss | Lighting Designer | 555-1000 | k@x.co |
+`;
+    parseCrew(md, "v4", agg);
+    const codes = agg.warnings.map((w) => w.code);
+    expect(codes).toContain("COLUMN_HEADER_AUTOCORRECTED"); // NAM was fuzzy-corrected...
+    expect(codes).not.toContain(CODE); // ...so name IS recognized → no positional fallback
+  });
+
   it("fires when only role is guessed (NAME recognized, POSITION not) — catches the name-OR-role trigger collapsing to AND", () => {
     const agg = newAggregator();
     const md = `| CREW | NAME | POSITION | PHONE | EMAIL |
