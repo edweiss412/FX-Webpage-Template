@@ -4,7 +4,7 @@
 //
 // Extracted from tests/messages/_metaAdminAlertCatalog.test.ts so BOTH that
 // meta-test AND tests/messages/_metaAlertAudienceContract.test.ts import the
-// SAME 42-code list — the audience contract enforces the FULL registered set,
+// SAME 45-code list — the audience contract enforces the FULL registered set,
 // not a private copy (plan-R3 finding 2).
 export const ADMIN_ALERTS_CODES = [
   "AMBIGUOUS_EMAIL_BINDING", //       lib/auth/validateGoogleSession.ts
@@ -51,4 +51,5 @@ export const ADMIN_ALERTS_CODES = [
   "BRANCH_PROTECTION_DRIFT", //         X.6 branch-protection drift detector
   "BRANCH_PROTECTION_MONITOR_AUTH_FAILED", // X.6 branch-protection monitor auth failure
   "WIZARD_SESSION_SUPERSEDED_RACE", //  F5 wizard-session CAS race post-rollback producer
+  "ONBOARDING_SHEET_UNREADABLE", //     Flow-1 setup-scan hard-fail folder alert
 ] as const;

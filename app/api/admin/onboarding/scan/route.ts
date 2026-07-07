@@ -15,6 +15,7 @@ import {
 } from "@/lib/onboarding/scanProgress";
 import { deriveRequestId, log } from "@/lib/log";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
+import { upsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
 
 // A streamed scan holds the function open for the whole scan; 300s is the
 // platform default ceiling and covers worst-case multi-file folders.
@@ -282,6 +283,31 @@ export async function handleOnboardingScan(
             });
           } catch {
             /* best-effort */
+          }
+          // Flow-1 §1.3: setup-scan hard-fail folder alert. Own best-effort
+          // boundary — independent of the logAdminOutcome emit above. POST-COMMIT
+          // (all per-file txs committed inside runOnboardingScan), no advisory
+          // lock held. Last-write-wins context (NO failedKeys key). Fires for
+          // first-run AND re-run setup; showId null (first-seen parse semantics).
+          const failedIds = Array.from(
+            new Set(
+              result.processed.filter((p) => p.outcome === "hard_failed").map((p) => p.driveFileId),
+            ),
+          ).sort();
+          if (failedIds.length > 0) {
+            try {
+              await upsertAdminAlert({
+                showId: null,
+                code: "ONBOARDING_SHEET_UNREADABLE",
+                context: {
+                  folder_id: folder.folderId,
+                  wizard_session_id: wizardSessionId,
+                  failed_drive_file_ids: failedIds,
+                },
+              });
+            } catch {
+              /* best-effort */
+            }
           }
         }
         emit({

@@ -356,6 +356,16 @@ const FIXTURES: Fixture[] = [
       drive_file_id: DRIVE_FILE_ID,
     },
   },
+  // 43. ONBOARDING_SHEET_UNREADABLE — global (folder-level setup-scan alert).
+  {
+    code: "ONBOARDING_SHEET_UNREADABLE",
+    showId: null,
+    context: {
+      folder_id: "folder-x",
+      wizard_session_id: "wiz-1",
+      failed_drive_file_ids: ["d-a", "d-b"],
+    },
+  },
 ];
 
 function assertMapReadsAtLeastOneFixtureKey(fixture: Fixture, entry: { segments: SegmentSpec[] }) {
@@ -441,7 +451,7 @@ function deriveExpectedTokens(fixture: Fixture, entry: { segments: SegmentSpec[]
 }
 
 describe("ALERT_IDENTITY_MAP x context (spec §9.1 exhaustive matrix)", () => {
-  it("covers exactly the 44 registered codes (numeric-sweep anchor)", () => {
+  it("covers exactly the 45 registered codes (numeric-sweep anchor)", () => {
     expect(FIXTURES.map((f) => f.code).sort()).toEqual([...ADMIN_ALERTS_CODES].sort());
   });
 

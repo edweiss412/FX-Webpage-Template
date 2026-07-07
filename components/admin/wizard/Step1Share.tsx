@@ -190,6 +190,23 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
         </p>
       </details>
 
+      <details
+        data-testid="wizard-step1-no-folder"
+        className="rounded-md border border-border bg-surface-sunken p-tile-pad"
+      >
+        <summary className="cursor-pointer text-sm font-semibold text-text-strong">
+          Don&rsquo;t have a folder yet?
+        </summary>
+        <ol className="mt-3 flex max-w-prose list-decimal flex-col gap-2 pl-5 text-sm text-text-subtle">
+          <li>
+            In Google Drive, click New &rarr; Folder and give it a name (your show name works well).
+          </li>
+          <li>Open the folder and drop your show sheet(s) inside.</li>
+          <li>Share the folder with the email above and give it Viewer access.</li>
+          <li>Come back here and continue.</li>
+        </ol>
+      </details>
+
       {/* Forward nav lives in the shared full-width footer (no Back on step 1,
           the first step). The primary keeps its testid + copy for continuity. */}
       <WizardFooter

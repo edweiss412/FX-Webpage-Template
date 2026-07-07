@@ -442,7 +442,7 @@ describe("Step2Verify", () => {
     expect(await findByTestId("wizard-step2-success")).toBeTruthy();
   });
 
-  test("empty folder (total 0) goes straight to success without a determinate count", async () => {
+  test("empty folder (total 0) renders the first-class empty block, no found-summary popover", async () => {
     fetchMock.mockResolvedValue(
       streamResponse([
         ndjson(
@@ -459,7 +459,10 @@ describe("Step2Verify", () => {
     await act(async () => {
       fireEvent.click(getByTestId("wizard-step2-submit"));
     });
-    expect(await findByTestId("wizard-step2-success")).toBeTruthy();
+    // §1.1: a staged-0 scan surfaces the in-card empty block, NOT the footer
+    // "Found N items" popover (rooted at wizard-step2-success).
+    expect(await findByTestId("wizard-step2-empty")).toBeTruthy();
+    expect(queryByTestId("wizard-step2-success")).toBeNull();
     expect(queryByTestId("wizard-step2-count")).toBeNull();
   });
 

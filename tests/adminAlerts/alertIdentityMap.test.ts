@@ -1,7 +1,7 @@
 /**
  * tests/adminAlerts/alertIdentityMap.test.ts
  *
- * Spot-checks 3 representative rows from the spec §4 42-code matrix against
+ * Spot-checks 3 representative rows from the spec §4 45-code matrix against
  * the hand-authored `ALERT_IDENTITY_MAP`, covering all three entry shapes:
  * a segment-list code with crew+email+show, a `global` code, and a
  * segment-list code mixing a resolved sheet name with literal context
