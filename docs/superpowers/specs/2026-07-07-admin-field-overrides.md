@@ -300,7 +300,12 @@ comment on column public.crew_members.sheet_name is
 
 ## 6. Stale policy + signal
 
-When Stage A (§3.2) finds an active override whose `match_key` is absent from the freshly parsed identifiers **and whose member/row is not being held/protected** (genuine removal — a held row is NOT stale; §3.4 invariant) (planned in Stage A, committed in Stage B on the applied path):
+**Where deactivation is decided, by domain (R13 — no crew deactivation in Stage A):**
+- **crew** (`target_missing` / `name_conflict`): produced **solely by the §3.6 post-hold reconciliation** (it alone knows the hold disposition). NEVER planned in Stage A — a held crew row must not be deactivated, and Stage A is pure (§3.2). This is the only correct source for crew `active=false`.
+- **hotel** (`target_missing`): the (name+dup-ordinal) `match_key` absent from the parsed hotel set (no hold interaction). Planned in Stage A, **committed in Stage B** (applied path only).
+- **show**: never stale.
+
+When any such deactivation fires (committed in Stage B, on the applied path):
 
 1. Set `admin_overrides.active = false` **and `deactivation_code` (`'target_missing'` for a vanished target, `'name_conflict'` for a collision) inside the locked tx** (atomic with the apply). The live row therefore renders the **parsed** value. The reason is now **durable** — it does not depend on the best-effort alert (R12 finding 3).
 2. **Durable needs-attention signal = the inactive row itself** (this is the "never silent" guarantee). BOTH `loadNeedsAttention` (page rows) AND `needsAttentionCount` (nav badge) gain a **4th derived stream**: `select … from admin_overrides where not active` (joined to `shows`), added to `buildNeedsAttention` (`lib/admin/loadNeedsAttention.ts:291`, alongside the existing `pending_ingestions`/`pending_syncs`/`admin_alerts` streams; input type in `lib/admin/needsAttention.ts`). The existing cookie-bound admin client reads it directly under the `admin_only` RLS policy (§9.4) — no service-role loader needed. Because the row's `active=false` commits in the SAME transaction as the apply, the signal cannot be lost — there is no post-commit step whose failure could hide it. A crash (or a thrown `admin_alert` emit) after commit still leaves an inactive row that both the page row and the badge count surface.
@@ -330,7 +335,8 @@ create or replace function public.set_field_override(
   p_override_value jsonb,      -- upsert only
   p_actor         text,        -- canonicalized admin email
   p_expected_sheet_value jsonb,-- CAS: the sheet_value the admin's UI last saw (row-state guard)
-  p_current_ordinal int        -- hotel immediate-apply anchor; null for show/crew
+  p_current_ordinal int,       -- hotel immediate-apply anchor; null for show/crew
+  p_expected_live_hotel_name text -- hotel CAS (R13): the current live hotel_name the loader saw (= currentLiveHotelName, §5.3). Null for show/crew. The RPC verifies the ordinal row's hotel_name = this under the lock before UPDATE; mismatch -> 409 stale_review.
 ) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp
 as $$ ... $$;
@@ -340,7 +346,7 @@ as $$ ... $$;
 
 1. **Per-show advisory lock in-RPC (single holder for this path):** `perform pg_advisory_xact_lock(hashtext('show:' || p_drive_file_id));` — the JS action never locks (mirrors `set_pull_sheet_override:42`, and the MI-11 PF15 no-inline-`.rpc` rule at `feed.ts:10-14`). Resolve `p_drive_file_id → show_id` inside the lock.
 2. **Belt-and-suspenders auth:** `execute` revoked from anon/authenticated, granted to `service_role` only (§7.5). The app-layer gate is `requireAdminIdentity()`.
-3. **Row-state CAS:** read the current `sheet_value` (or current row value) under the lock; if it differs from `p_expected_sheet_value`, raise `errcode 40001` (→ route maps to 409 stale_review), preventing a stale admin page from clobbering a newer sync's value. For hotels, additionally verify `p_current_ordinal` still names the expected hotel.
+3. **Row-state CAS:** read the current `sheet_value` (or current row value) under the lock; if it differs from `p_expected_sheet_value`, raise `errcode 40001` (→ route maps to 409 stale_review), preventing a stale admin page from clobbering a newer sync's value. **For hotels, additionally verify the `p_current_ordinal` row's current `hotel_name = p_expected_live_hotel_name`** (the live name the loader saw — the override value if a `hotel_name` override is active, else the parsed name; §5.3); a mismatch (the row moved/renamed since the page loaded) raises the same 409. This is the hotel analog of the crew §7.6 wrong-anchor 409.
 4. **Op semantics:**
    - `upsert` (**create** — no active override on this target): validate `override_value` (§7.4) incl. the name-collision guard; **capture the current live value (= the parsed/sheet value, since nothing is overridden yet) into `admin_overrides.sheet_value` in the SAME locked tx, BEFORE overwriting the live row**; insert `admin_overrides` (`active=true`, `sheet_value` set); apply `override_value` to the live row (§7.3). No auth-table write (§5.2).
    - `upsert` (**edit** — override already active): validate; update `admin_overrides.override_value` only, **PRESERVE the existing `sheet_value`** (do NOT recapture — the current live value is the *previous override*, not the sheet value); apply the new `override_value` to the live row.
@@ -377,7 +383,7 @@ A name `.trim()` in `lib/sync` or the RPC-adjacent TS is flagged by `tests/admin
 ### 7.5 Grants
 
 ```sql
-revoke execute on function public.set_field_override(text,text,text,text,text,text,jsonb,text,jsonb,int)
+revoke execute on function public.set_field_override(text,text,text,text,text,text,jsonb,text,jsonb,int,text)
   from public, anon, authenticated;
 grant  execute on function public.set_field_override(...) to service_role;
 ```
@@ -429,6 +435,7 @@ type OverrideableFieldProps = {
   currentValue: React.ReactNode | string; // the live (possibly overridden) rendered value
   override: OverrideState | null;          // { overrideValue, sheetValue, active } | null
   currentOrdinal?: number;     // hotel only (CAS anchor)
+  currentLiveHotelName?: string; // hotel only (R13): the live hotel_name the loader saw, for the p_expected_live_hotel_name CAS (§5.3)
   disabled?: boolean;          // e.g. archived show
 };
 ```
