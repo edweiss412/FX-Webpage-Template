@@ -26,6 +26,11 @@ export type OpsResult = Pick<
   "po" | "proposal" | "invoice" | "invoice_notes" | "coi_status"
 >;
 
+// Scalar metadata field tokens ops consumes from the TRANSPORTATION block (cells[1]
+// values, spec §3). NOT section openers — ops exports no SECTION_HEADER_TOKENS.
+// COI is also in KNOWN_SECTION_HEADERS but is consumed here as a scalar field.
+export const METADATA_FIELD_TOKENS = ["COI", "PROPOSAL", "PO", "INVOICE", "INVOICE NOTES"] as const;
+
 // Label patterns that map to ops fields
 const COI_RE = /^\s*COI\s*$/i;
 const PROPOSAL_RE = /^\s*Proposal\s*$/i;
