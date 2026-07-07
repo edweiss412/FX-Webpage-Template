@@ -1504,6 +1504,9 @@ async function postPullSheetOverride(body: unknown): Promise<{ ok: boolean; refr
   return { ok: response.ok, refresh: response.ok || response.status === 409 };
 }
 
+// Generic client-side transport-failure chrome (accept/revoke POST failed with no server code to
+// route through messageFor(); success + 409 both re-fetch the preview). No raw code (invariant 5).
+// not-subject:M5-D8 — friendly fallback copy, not a §12.4-coded message.
 const ARCHIVED_TAB_ERROR =
   "That didn’t go through. Refresh and try again, or contact the developer if it keeps happening.";
 

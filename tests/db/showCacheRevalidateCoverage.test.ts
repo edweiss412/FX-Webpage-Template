@@ -53,11 +53,15 @@ const REVALIDATE_REGISTRY: RegistryEntry[] = [
   // ---- Task 5 (sync chokepoint callers) — already shipped before this milestone's Tasks 6–9 ----
   {
     file: "lib/sync/runScheduledCronSync.ts",
-    siteCount: 20,
+    siteCount: 21,
     disposition: "revalidate",
     revalidateBranches: 2, // processOneFile apply tail + markMissingShow loop
     reason:
-      "sync apply spine; revalidateShowFromResult(result) (cron loop) + revalidateShow(missing show)",
+      "sync apply spine; revalidateShowFromResult(result) (cron loop) + revalidateShow(missing show). " +
+      "The +1 over the Task-5 baseline is the Flow-C durable `update public.shows set pull_sheet_override` " +
+      "(archived-tab override apply/auto-clear) — admin sync-config gating OLD-tab inclusion on the NEXT " +
+      "parse, NOT served crew-page content; it also sits inside the same processOneFile flow the apply-tail " +
+      "revalidate already covers.",
   },
   {
     file: "lib/sync/runManualSyncForShow.ts",
@@ -120,6 +124,17 @@ const REVALIDATE_REGISTRY: RegistryEntry[] = [
     reason:
       "live applied path (runPhase2 mutates show/crew); revalidateShow(result.showId) post-pipeline-lock. " +
       "Wizard path exempt (writes staging only — finalize-cas applies + revalidates).",
+  },
+  {
+    file: "lib/sync/applyStagedCore.ts",
+    siteCount: 1,
+    disposition: "exempt",
+    reason:
+      "archived-tab override propagation (Flow A/B): its only served-table (READ_TABLES) raw-SQL write is " +
+      "`update public.shows set pull_sheet_override` — admin sync-config metadata gating OLD-tab inclusion " +
+      "on the NEXT sync, NOT served crew-page content (the crew page renders parse_result/pullSheet, which the " +
+      "finalize/finalize-cas callers write + revalidate). The pending_syncs delete + sync_audit insert are " +
+      "non-served tables the discovery regex does not count.",
   },
   // ---- Task 8 (lifecycle actions) ----
   {

@@ -501,6 +501,10 @@ async function writeShowPullSheetOverride_unlocked(
   driveFileId: string,
   override: PullSheetOverride | null,
 ): Promise<void> {
+  // not-subject-to-revalidate: this writes ONLY shows.pull_sheet_override — admin sync-config
+  // metadata that gates OLD-tab pull-sheet inclusion on the NEXT parse. It is not served crew-page
+  // content (the crew page renders parse_result/pullSheet), so it cannot stale the served show
+  // cache. The served rows are written + revalidated by the finalize/finalize-cas callers.
   // Raw object → $1::jsonb (postgres.js serializes; never JSON.stringify — that double-encodes).
   await tx.queryOne(
     `update public.shows set pull_sheet_override = $1::jsonb where drive_file_id = $2`,
