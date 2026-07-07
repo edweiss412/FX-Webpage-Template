@@ -122,19 +122,24 @@ create index if not exists admin_overrides_show_active_idx
 -- created_by holds an admin email (PII) → NO select for anon/authenticated either. Crew page never
 -- reads this table (it reads the already-overridden live rows). All admin reads go via service-role
 -- or the admin-only RLS policy below.
--- Reads are SERVICE-ROLE ONLY. The admin UI loads override state server-side (admin pages/actions
--- already hold a service-role client behind requireAdmin/requireAdminIdentity); the crew page never
--- reads this table. So NO SELECT for anon/authenticated and NO authenticated RLS policy — a
--- `for select to authenticated` policy would be dead anyway once the base SELECT privilege is
--- revoked (RLS narrows granted privileges; it does not grant them). RLS is enabled as belt-and-
--- suspenders (deny-by-default for authenticated; service_role bypasses RLS and has table privileges).
-revoke insert, update, delete, select on table public.admin_overrides from anon, authenticated;
-grant  all privileges on table public.admin_overrides to service_role;  -- service_role retains ALL (reads + RPC writes); required by postgrest-dml-lockdown registry
+-- WRITES are RPC-only (INSERT/UPDATE/DELETE revoked from anon+authenticated → only the
+-- service_role SECURITY DEFINER RPC mutates). READS are admin-only via RLS: SELECT is granted to
+-- authenticated but an admin_only policy (public.is_admin()) confines rows to admins, so the
+-- existing cookie-bound admin loaders (loadNeedsAttention, needsAttentionCount) can read the
+-- inactive-override needs-attention stream WITHOUT new service-role plumbing. anon gets nothing.
+-- created_by holds an admin email — visible ONLY to admins under the policy (accepted: admin emails
+-- already surface across the admin UI). The crew page never reads this table.
+revoke insert, update, delete on table public.admin_overrides from anon, authenticated;
+revoke select                 on table public.admin_overrides from anon;
+grant  select                 on table public.admin_overrides to authenticated;   -- gated by admin_only RLS below
+grant  all privileges         on table public.admin_overrides to service_role;    -- service_role retains ALL (reads + RPC writes); required by postgrest-dml-lockdown registry
 alter table public.admin_overrides enable row level security;
--- (no policy: authenticated/anon get zero rows; all reads flow through service_role, which bypasses RLS)
+create policy admin_only on public.admin_overrides
+  for select to authenticated
+  using ( public.is_admin() );   -- canonical predicate (rls_policies.sql, ignored_warnings_rls.sql); service_role bypasses RLS
 ```
 
-The `grant all ... to service_role` is not optional: `tests/db/postgrest-dml-lockdown.test.ts` asserts every RPC-gated table keeps `service_role` SELECT/INSERT/UPDATE/DELETE = true (existing migrations grant it explicitly; without it, service-role reads/RPC writes can fail on default privileges and the declared lockdown meta-test row fails). The registry row (§12) records `serviceRole: ALL, selectAnon:false, selectAuthenticated:false`.
+`grant all ... to service_role` is not optional: `tests/db/postgrest-dml-lockdown.test.ts` asserts every RPC-gated table keeps `service_role` SELECT/INSERT/UPDATE/DELETE = true. The registry row (§12) records `serviceRole: ALL, selectAnon:false, selectAuthenticated:true` (authenticated SELECT is present but RLS-confined to admins — the same posture as `ignored_warnings`). INSERT/UPDATE/DELETE remain revoked from authenticated (the lockdown invariant).
 
 Idempotency: `create table if not exists` + `create index if not exists`; the REVOKE/GRANT are idempotent. Apply-twice safe.
 
@@ -203,7 +208,7 @@ No transitional dual-value window (single new table, one-shot). No retired colum
 When Stage A (§3.2) finds an active override whose `match_key` is absent from the freshly parsed identifiers (planned in Stage A, committed in Stage B on the applied path):
 
 1. Set `admin_overrides.active = false` **inside the locked tx** (atomic with the apply). The live row therefore renders the **parsed** value (the override no longer transforms it).
-2. **Durable needs-attention signal = the inactive row itself** (this is the "never silent" guarantee). `loadNeedsAttention` gains a **4th derived stream**: `select … from admin_overrides where not active` (joined to `shows`), added to `buildNeedsAttention` (`lib/admin/loadNeedsAttention.ts:291`, alongside the existing `pending_ingestions`/`pending_syncs`/`admin_alerts` streams; input type in `lib/admin/needsAttention.ts`). Because the row's `active=false` commits in the SAME transaction as the apply, the signal cannot be lost — there is no post-commit step whose failure could hide it. A crash after commit still leaves an inactive row that the next needs-attention load surfaces.
+2. **Durable needs-attention signal = the inactive row itself** (this is the "never silent" guarantee). BOTH `loadNeedsAttention` (page rows) AND `needsAttentionCount` (nav badge) gain a **4th derived stream**: `select … from admin_overrides where not active` (joined to `shows`), added to `buildNeedsAttention` (`lib/admin/loadNeedsAttention.ts:291`, alongside the existing `pending_ingestions`/`pending_syncs`/`admin_alerts` streams; input type in `lib/admin/needsAttention.ts`). The existing cookie-bound admin client reads it directly under the `admin_only` RLS policy (§9.4) — no service-role loader needed. Because the row's `active=false` commits in the SAME transaction as the apply, the signal cannot be lost — there is no post-commit step whose failure could hide it. A crash (or a thrown `admin_alert` emit) after commit still leaves an inactive row that both the page row and the badge count surface.
 3. **Best-effort push (not the durable guarantee):** post-commit (outside the lock), also emit an `admin_alert` via `upsertAdminAlert` (`lib/adminAlerts/upsertAdminAlert.ts:46`) with a new `AdminAlertCode` (`OVERRIDE_TARGET_MISSING`, or `OVERRIDE_NAME_CONFLICT` for the collision case, §10) so the realtime bell/NotifBell lights up immediately. If this emit fails, the needs-attention row from step 2 still stands — the alert is additive, not load-bearing. The alert is therefore **not** routed via `INBOX_ROUTED_CODES` (avoids double-surfacing the same item as both a derived-stream row and a routed-alert row).
 4. The needs-attention row offers **re-point** (update `match_key` to a current identifier, reactivate) and **discard** (delete the override row) — both via `set_field_override` RPC variants (§7).
 
@@ -278,18 +283,33 @@ revoke execute on function public.set_field_override(text,text,text,text,text,te
 grant  execute on function public.set_field_override(...) to service_role;
 ```
 
-### 7.6 Crew-name immediate-apply anchors (per-op)
+### 7.6 Crew immediate-apply anchoring (comprehensive — all ops × states)
 
-The RPC's immediate live-row `UPDATE` for a **crew name** must anchor on the name the row **currently** holds, which is NOT always `match_key`: once a name override is active, the live `crew_members.name` is the override's `override_value`, not the parsed `match_key`. Anchors per op (all under the advisory lock, with a CAS on the stored override row so a stale UI can't clobber a newer state):
+The RPC's immediate live-row `UPDATE` for a **crew** field (name OR role) cannot blindly anchor on `match_key`, because a prior **active name override** may already have renamed the live row: the parsed `match_key` is `Jon` but the live `crew_members.name` is `John`. One unifying resolver removes every special case.
 
-| Op | Live-row anchor (`WHERE show_id=$1 AND name=…`) | New value | CAS |
-|---|---|---|---|
-| `upsert` — **first** override on this member (no active row yet) | `match_key` (the parsed/live name) | `override_value` | `p_expected_sheet_value` = current parsed name |
-| `upsert` — **edit** an already-active override (e.g. `John`→`Jonathan`) | the **currently stored** `override_value` (the live name `John`) | new `override_value` | expected = the currently stored `override_value` |
-| `revert` | the currently stored `override_value` (live name) | `sheet_value` (the parsed name) | expected = currently stored `override_value` |
-| `repoint` | validate BOTH: old target (`match_key` or stored value) exists to release, new target is a live parsed name to bind | applies to the new target | expected = current row (match_key + active) |
+**Resolver (single rule for all crew ops):**
+> `currentLiveName(show_id, match_key) =` the `override_value` of this member's **active `name` override** if one exists, ELSE `match_key`.
+>
+> Every crew immediate-apply `UPDATE ... WHERE show_id=$1 AND name = currentLiveName(...)`. A role override and a name override on the same member share the same `match_key` (the parsed name), so a role op resolves the live row through the sibling active name override automatically. `crew_members.name` is unique per show, so this resolves exactly one row.
 
-If the anchor matches **zero** rows (the live name isn't what the UI thought — a sync moved it), the RPC raises the CAS 409 `stale_review` (§7.2.3) rather than silently no-op'ing, so the admin UI is told to reload rather than showing a stale value until the next sync. `show`/`hotel` domains anchor on the shows PK / hotel ordinal respectively and do not have this parsed-vs-current ambiguity (single row / ordinal CAS already covers it). Tests: edit-active-name-override and revert-active-name-override both assert the correct live row updates and a wrong-anchor raises 409 (§13).
+**Per op × state** (all under the advisory lock; every op takes a **stored-override-row CAS** on `p_expected_sheet_value` / expected prior state so a stale UI cannot clobber a newer sync):
+
+| Op | Field | Precondition | Live-row anchor | New value |
+|---|---|---|---|---|
+| `upsert` (create) | name | no active name override yet | `match_key` | `override_value` |
+| `upsert` (edit) | name | name override already active | `currentLiveName` (the stored `override_value`) | new `override_value` |
+| `upsert` (create/edit) | role | any | `currentLiveName` (resolves through active sibling name override, else `match_key`) | `override_value` |
+| `revert` | name | active | `currentLiveName` | `sheet_value` (parsed name) |
+| `revert` | role | active | `currentLiveName` | `sheet_value` (parsed role) |
+| `repoint` (**active** override) | name/role | target row still live | validate old target (`currentLiveName`) exists to release **and** new target is a current parsed identifier | apply to new target |
+| `repoint` (**inactive/stale** override) | name/role | old target vanished **by definition** | **do NOT require the old live row.** Validate only: (a) the stored inactive override-row CAS, (b) the new `match_key` is a current parsed identifier with no collision (§7.4). Then set `match_key`=new target, `active=true`, and apply. | apply to new target |
+| `discard` | any | any | — (no live-row change) | — |
+
+**Inactive-repoint is the primary stale-recovery path** (R4 finding): a stale override's parsed target is gone, so repoint MUST NOT require releasing an old live row — otherwise re-point could only ever fail and Doug is forced to discard+recreate. The active vs inactive branch above is mandatory.
+
+If a live-row anchor matches **zero** rows when the UI expected one (a sync moved the row out from under an *active*-override op), the RPC raises CAS 409 `stale_review` (§7.2 item 3) rather than silently no-op'ing — the admin UI reloads instead of showing a stale value until the next sync. `show`/`hotel` domains anchor on the shows PK / hotel ordinal and have no parsed-vs-current ambiguity.
+
+Tests (§13): edit-active-name, revert-active-name, **apply-and-revert-role-while-name-override-active** (finding 3), **repoint-after-target-disappearance** succeeds without an old live row (finding 2), and a wrong active-anchor raises 409.
 
 ---
 
@@ -389,7 +409,7 @@ Compound: editing while a background sync deactivates the same override → on s
 
 ### 9.4 RLS / SELECT posture
 
-`admin_overrides.created_by` holds an admin email (PII). **Decision: reads are service-role only.** The crew page never reads `admin_overrides` (it reads the already-overridden live rows); the admin UI loads override state **server-side** through a service-role client already held behind `requireAdmin`/`requireAdminIdentity` (same pattern as other admin server reads). So: `revoke insert,update,delete,select` from anon+authenticated; `enable row level security` with **no policy** (belt-and-suspenders — authenticated/anon get zero rows even if a base grant later slips; `service_role` bypasses RLS). There is deliberately **no** `for select to authenticated` RLS policy — that would be inert once the base SELECT privilege is revoked (RLS narrows granted privileges, it does not grant them; this was the R2 contradiction). The lockdown meta-test row records `selectAnon=false, selectAuthenticated=false`. No PII reaches any non-service-role client.
+`admin_overrides.created_by` holds an admin email (PII). **Decision: writes RPC-only; reads admin-only via RLS.** INSERT/UPDATE/DELETE are revoked from anon+authenticated (only the service_role RPC mutates — the lockdown invariant). SELECT is **granted to authenticated but confined by an `admin_only` RLS policy** (`public.is_admin()`), so the **existing cookie-bound admin loaders** (`loadNeedsAttention`, `needsAttentionCount`) read the durable inactive-override needs-attention stream directly — no new service-role plumbing, no mixed-client loader. anon gets zero rows. This is the same posture as `ignored_warnings` (`20260702120100_ignored_warnings_rls.sql`). PII (`created_by` admin email) is visible **only to admins** under the policy — accepted, since admin emails already surface across the admin UI. The crew page never reads this table. (This resolves the R2 "pick one posture" contradiction *and* the R4 "service-role-only breaks the cookie loader" finding: authenticated-SELECT-under-RLS is the coherent posture that satisfies both.) The lockdown meta-test row records `selectAnon=false, selectAuthenticated=true (RLS-confined)`.
 
 ---
 
@@ -426,8 +446,8 @@ Additionally, a user-facing **stale-review** error surfaces on the CAS 409 path 
 ## 12. Meta-test inventory (declared per AGENTS.md)
 
 **Extends:**
-- `lib/admin/loadNeedsAttention.ts` + `lib/admin/needsAttention.ts` — add the 4th derived stream (`admin_overrides where not active`) to `buildNeedsAttention` (`:291`); its existing test file gains a case asserting an inactive override surfaces as a needs-attention row.
-- `tests/db/postgrest-dml-lockdown.test.ts` — add `admin_overrides` to `RPC_GATED_TABLES` (`:147`): `{selectAnon:false, selectAuthenticated:false, postBody:…}`; service_role retains ALL (asserted by the gate; DDL `grant all … to service_role`, §4.1).
+- `lib/admin/loadNeedsAttention.ts` (page rows) + `needsAttentionCount` (nav badge) + `lib/admin/needsAttention.ts` — add the 4th derived stream (`admin_overrides where not active`, read under the `admin_only` RLS policy by the existing cookie client) to `buildNeedsAttention` (`:291`); tests assert an inactive override surfaces as **both** a page row and a badge-count increment, **even when the post-commit `admin_alert` emit throws** (the durable-signal proof — §6 step 2).
+- `tests/db/postgrest-dml-lockdown.test.ts` — add `admin_overrides` to `RPC_GATED_TABLES` (`:147`): `{selectAnon:false, selectAuthenticated:true, postBody:…}` (authenticated SELECT present but RLS-confined to admins, like `ignored_warnings`); INSERT/UPDATE/DELETE revoked from anon+authenticated; service_role retains ALL (DDL `grant all … to service_role`, §4.1).
 - `tests/auth/advisoryLockRpcDeadlock.test.ts` — add migration filename to `migrationFiles` (`:33`); document `set_field_override` as an in-RPC single holder in the allow-list comments (`:100+`).
 - `tests/log/_auditableMutations.ts` + `tests/log/adminOutcomeBehavior.test.ts` — registry rows + behavioral proof.
 - `tests/messages/_metaAdminAlertCatalog.test.ts`, `tests/cross-cutting/codes.test.ts` — new codes.
@@ -436,7 +456,7 @@ Additionally, a user-facing **stale-review** error surfaces on the CAS 409 path 
 
 **Creates:**
 - `tests/sync/overrideApply.test.ts` — the pre-write transform: override folds into crew list before delete/upsert; crew_members.id stable across two syncs (the id-churn regression, §3.1); name-collision fold-conflict deactivates without row collapse (§5.2/§6); hotel matched by name across reorder; show dates/venue overridden; sheet_value refreshed; **stale deactivation surfaces via the inactive-row needs-attention stream even when the post-commit alert emit throws** (durability test — §6 step 2 vs step 3); **a stale-short-circuit sync (`applyShowSnapshot` returns `outcome:"stale"`, `phase2.ts:305-306`) leaves `admin_overrides` completely unchanged — no sheet_value refresh, no deactivation** (Stage A pure / Stage B applied-path-only, §3.2).
-- `tests/overrides/setFieldOverride.test.ts` — RPC ops (upsert/revert/repoint/discard), CAS 409, guard rejections (incl. name collision), lock held, **and the active-name-override anchors (§7.6): edit `John`→`Jonathan` and revert `John`→`Jon` both update the correct live row; a wrong anchor (live name moved by a concurrent sync) raises 409, not a silent zero-row no-op.**
+- `tests/overrides/setFieldOverride.test.ts` — RPC ops (upsert/revert/repoint/discard), CAS 409, guard rejections (incl. name collision), lock held, and the full §7.6 anchor matrix: edit `John`→`Jonathan` and revert `John`→`Jon` hit the correct live row; **a role override applied AND reverted while a name override is active resolves the live row through the sibling name override** (§7.6 finding 3); **repoint of an inactive/stale override succeeds with the old parsed target absent** (does not require an old live row — §7.6 finding 2); a wrong active-anchor (live name moved by a concurrent sync) raises 409, not a silent zero-row no-op.
 - Real-browser layout assertion for the chip/field-row dimensional invariant (§8.6).
 
 **Not applicable:** sentinel-hiding walker (no crew-page tile change); `_metaInfraContract` applies to the new override helper (registered).
