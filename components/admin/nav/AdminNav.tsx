@@ -133,10 +133,22 @@ export function AdminNav({
         <div className="flex-1" />
 
         <div className="flex items-center gap-2">
-          {healthRollup ? (
-            <AppHealthIndicator rollup={healthRollup} isDeveloper={viewerIsDeveloper} />
-          ) : null}
-          <NotifBell initialCount={bellCount} viewerIsDeveloper={viewerIsDeveloper} />
+          {/* This `relative` sub-cluster is the positioning context for
+              NotifBell's desktop anchored dropdown (BellPanel's `sm:absolute
+              sm:right-0 sm:top-[calc(100%+10px)]`). The bell is the RIGHTMOST
+              item in it, so `sm:right-0` anchors the panel directly under the
+              bell — NOT past ThemeToggle/UserMenu, which stay OUTSIDE this
+              sub-cluster in the main action row. Scoping the context to exactly
+              <AppHealthIndicator> + the bell trigger also keeps them siblings:
+              the "indicator beside bell" DOM contract in AdminNav.test
+              (bell.parentElement === indicator.parentElement). On mobile the
+              panel is a `fixed` bottom sheet, so the context is inert there. */}
+          <div className="relative flex items-center gap-2">
+            {healthRollup ? (
+              <AppHealthIndicator rollup={healthRollup} isDeveloper={viewerIsDeveloper} />
+            ) : null}
+            <NotifBell initialCount={bellCount} viewerIsDeveloper={viewerIsDeveloper} />
+          </div>
           <ThemeToggle />
           <UserMenu email={email} />
         </div>

@@ -84,6 +84,12 @@ export function NotifBell({
     </button>
   );
 
+  // Fragment (NOT a wrapper div): the trigger stays a DIRECT child of the
+  // AdminNav action cluster so it remains a sibling of <AppHealthIndicator>
+  // (the "indicator beside bell" DOM contract in AdminNav.test). The desktop
+  // dropdown's positioning context is the cluster's own `relative`
+  // (AdminNav.tsx); on mobile BellPanel is a `fixed` bottom sheet, so no
+  // positioned ancestor is needed there.
   return (
     <>
       {trigger}

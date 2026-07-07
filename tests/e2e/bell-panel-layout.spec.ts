@@ -18,28 +18,28 @@
  *      asserted: clicking also expands the row (a separate §13 disclosure
  *      transition) which re-lays-out the vertically-centered popover — expected,
  *      and isolated from the dot by measuring header-relative offsets.
- *   2. Panel width is `w-full max-w-[420px]` (BellPanel.tsx:603). This is the
- *      literal spec contract, verified across a width sweep:
- *        - width < 420 (e.g. 375): `w-full` wins under the cap → the sheet is
- *          full-bleed, inner width === viewport width (±0.5).
- *        - width ≥ 420 (600/768/1024/1280): `max-w-[420px]` wins → inner width
- *          === 420 (±0.5), horizontally centered (`justify-center`).
- *      NOTE ON THE BRIEF: the task brief paraphrased invariant 2 as "width ===
- *      viewport width on mobile (600)". That paraphrase is inaccurate against the
- *      SHIPPED component and the canonical spec §14 — at 600px the `max-w-[420px]`
- *      cap wins (420, centered), because 600 > 420. AGENTS.md invariant 7 makes
- *      the spec canonical over the brief, and §14 states exactly `w-full
- *      max-w-[420px]`; the full-bleed === viewport case is only reachable BELOW
- *      420px, which this sweep exercises at 375px. Encoding the true contract is
- *      what makes the assertion both pass and meaningful.
+ *   2. Panel width + placement (redesign D1 / DI-1 / DI-2). Verified across a
+ *      width sweep crossing BOTH the 420px cap and the 640px sm breakpoint
+ *      (639/640 pins the boundary):
+ *        - width < 640 (mobile bottom-sheet): `w-full max-w-[420px]`, `mx-auto`
+ *          centered, `fixed bottom-0` bottom-anchored. Below 420 the sheet is
+ *          full-bleed (width === viewport); at/above 420 it caps to 420, centered.
+ *        - width ≥ 640 (desktop anchored dropdown): `sm:w-[420px]` fixed, anchored
+ *          below the bell (`sm:absolute sm:right-0 sm:top-[calc(100%+10px)]`) in
+ *          the upper nav region — NOT centered, NOT bottom-anchored — with the
+ *          right edge inside the viewport (no horizontal overflow). There is no
+ *          sub-640 desktop regime, so no `calc()` overflow cap and no narrow-
+ *          desktop case (R6).
  *
- * Vertical placement is a second real-browser signal of the responsive sheet
- * pattern (spec §7.2): below `--breakpoint-sm` (640px) the shell is
- * `items-end` (bottom-anchored sheet, `rounded-t-md`); at/above 640px it is
- * `sm:items-center` (vertically-centered popover). The `sheet-rise` open
- * animation (globals.css:622) animates only `translateY`, so we wait for all
- * running animations to finish before reading any vertical coordinate (width is
- * translate-invariant and safe to read mid-animation, but top/bottom are not).
+ * The `sheet-rise` / `bell-pop-in` open animations animate only transform, so we
+ * wait for all running animations to finish before reading any vertical coordinate
+ * (width is translate-invariant and safe to read mid-animation, but top/bottom are
+ * not). The `bell-panel` element IS the sized dialog container after the redesign
+ * (the width/position classes live on it directly; the sibling backdrop is a
+ * separate NON-INTERACTIVE aria-hidden <div> scrim — a mouse-only click-outside
+ * affordance kept OUT of the a11y tree so no focusable control sits outside the
+ * aria-modal dialog; Esc + the in-dialog close button own keyboard/AT dismissal),
+ * so geometry is measured on `bell-panel` directly.
  *
  * ─────────────────────────────────────────────────────────────────────────────
  * TRANSITION AUDIT (spec §13 — full inventory). Every conditional render in
@@ -242,14 +242,15 @@ async function seedGlobal(code: string, ageMs = 5 * 3600_000): Promise<string> {
   return data.id as string;
 }
 
-/** Click the bell, wait for the overlay. Returns the inner (sized) container. */
+/** Click the bell, wait for the overlay. Returns the sized panel container. */
 async function openPanel(page: Page): Promise<Locator> {
   await page.getByTestId("admin-notif-bell").click();
   await expect(page.getByTestId("bell-panel")).toBeVisible();
   await expect(page.getByTestId("bell-panel-close")).toBeVisible();
-  // The inner container is the panel's only direct-child <div> (the sibling
-  // backdrop is a <button>); it carries `w-full max-w-[420px]`.
-  return page.getByTestId("bell-panel").locator("xpath=./div");
+  // After the redesign the `bell-panel` element IS the sized dialog container
+  // (role=dialog + the width classes live on it directly; the sibling backdrop is
+  // a separate <button>). Measure it directly.
+  return page.getByTestId("bell-panel");
 }
 
 /**
@@ -306,6 +307,12 @@ test.describe("bell panel layout dimensions + transition audit (real browser, §
 
     const dot = page.getByTestId(`bell-unread-dot-${id}`);
     const toggle = page.getByTestId(`bell-entry-toggle-${id}`);
+
+    // DI-4 (redesign): the severity icon-circle is a fixed 34×34 box that never
+    // shrinks in the row flex; the unread pip (the dot) rides its top-right corner.
+    const sev = await rectOf(page.getByTestId(`bell-sev-${id}`));
+    expect(Math.abs(sev.width - 34), "severity circle width 34px").toBeLessThanOrEqual(TOL);
+    expect(Math.abs(sev.height - 34), "severity circle height 34px").toBeLessThanOrEqual(TOL);
 
     // BEFORE the read gesture: dot is a fixed 8×8 box and is visible (opacity 1).
     const dotBefore = await rectOf(dot);
@@ -372,60 +379,68 @@ test.describe("bell panel layout dimensions + transition audit (real browser, §
     ).toHaveCount(0);
   });
 
-  // ── §14 invariant 2: panel width w-full max-w-[420px], across a width sweep
-  // crossing the 420px cap boundary AND the 640px sheet↔popover boundary. ──
-  for (const width of [375, 600, 768, 1024, 1280]) {
+  // ── §14 invariant 2 + redesign D1 (DI-1/DI-2): mobile bottom-sheet vs desktop
+  // anchored dropdown, across a width sweep crossing the 420px cap boundary AND
+  // the 640px sheet↔dropdown boundary. The 639/640 pair pins the sm breakpoint. ──
+  //   - width < 640 (mobile): `w-full max-w-[420px]`, `mx-auto` centered, `fixed
+  //     bottom-0` bottom-anchored. Full-bleed below 420, capped to 420 at/above.
+  //   - width ≥ 640 (desktop): `sm:w-[420px]` fixed, anchored below the bell
+  //     (`sm:absolute sm:right-0 sm:top-[calc(100%+10px)]`) in the upper nav
+  //     region — NOT centered, NOT bottom-anchored — and never overflowing.
+  for (const width of [375, 600, 639, 640, 768, 1024, 1280]) {
     const belowCap = width < PANEL_MAX;
     const sheetMode = width < SM;
-    test(`panel width w-full max-w-[420px] @ ${width}px (${
-      sheetMode ? "sheet" : "popover"
-    }, ${belowCap ? "full-bleed" : "capped"})`, async ({ page }) => {
+    test(`panel geometry @ ${width}px (${sheetMode ? "mobile sheet" : "desktop anchored"})`, async ({
+      page,
+    }) => {
       await seedGlobal(SEED_CODE); // realistic content height for the vertical checks
       await page.setViewportSize({ width, height: VP_HEIGHT });
       await gotoAdmin(page);
-      const inner = await openPanel(page);
-      await settleAnimations(inner);
+      const panel = await openPanel(page);
+      await settleAnimations(panel);
 
-      const r = await rectOf(inner);
+      const r = await rectOf(panel);
 
-      // The cap holds at every width; no document horizontal overflow.
-      expect(r.width, `inner width ≤ 420 @ ${width}px`).toBeLessThanOrEqual(PANEL_MAX + TOL);
+      // The 420 cap holds at every width; no element overflows the viewport and
+      // the document never scrolls horizontally.
+      expect(r.width, `width ≤ 420 @ ${width}px`).toBeLessThanOrEqual(PANEL_MAX + TOL);
+      expect(r.right, `right edge ≤ viewport @ ${width}px`).toBeLessThanOrEqual(width + TOL);
+      expect(r.left, `left edge ≥ 0 @ ${width}px`).toBeGreaterThanOrEqual(-TOL);
       expect(
         await horizontalOverflow(page),
         `document horizontal overflow @ ${width}px`,
       ).toBeLessThanOrEqual(TOL);
-      // Horizontally centered (justify-center) at every width.
-      expect(
-        Math.abs(r.left - (width - r.right)),
-        `panel horizontally centered @ ${width}px`,
-      ).toBeLessThanOrEqual(TOL);
-
-      if (belowCap) {
-        // w-full wins under the cap → the sheet is full-bleed.
-        expect(
-          Math.abs(r.width - width),
-          `full-bleed inner width === viewport @ ${width}px (w-full under cap)`,
-        ).toBeLessThanOrEqual(TOL);
-      } else {
-        // max-w-[420px] wins.
-        expect(
-          Math.abs(r.width - PANEL_MAX),
-          `capped inner width === 420 @ ${width}px`,
-        ).toBeLessThanOrEqual(TOL);
-      }
 
       if (sheetMode) {
-        // items-end → bottom-anchored sheet.
+        // Mobile bottom-sheet: centered (mx-auto) + bottom-anchored (fixed bottom-0).
+        expect(
+          Math.abs(r.left - (width - r.right)),
+          `sheet horizontally centered @ ${width}px`,
+        ).toBeLessThanOrEqual(TOL);
         expect(
           Math.abs(r.bottom - VP_HEIGHT),
-          `sheet bottom-anchored to viewport @ ${width}px (items-end)`,
+          `sheet bottom-anchored to viewport @ ${width}px`,
         ).toBeLessThanOrEqual(TOL);
+        if (belowCap) {
+          expect(
+            Math.abs(r.width - width),
+            `full-bleed width === viewport @ ${width}px (w-full under cap)`,
+          ).toBeLessThanOrEqual(TOL);
+        } else {
+          expect(
+            Math.abs(r.width - PANEL_MAX),
+            `capped width === 420 @ ${width}px`,
+          ).toBeLessThanOrEqual(TOL);
+        }
       } else {
-        // sm:items-center → vertically centered popover, not bottom-anchored.
+        // Desktop anchored dropdown: fixed 420 wide, anchored below the bell in the
+        // upper nav region — not centered, not bottom-anchored.
         expect(
-          r.bottom,
-          `popover vertically centered, not bottom-anchored @ ${width}px (sm:items-center)`,
-        ).toBeLessThan(VP_HEIGHT - TOL);
+          Math.abs(r.width - PANEL_MAX),
+          `desktop width === 420 @ ${width}px`,
+        ).toBeLessThanOrEqual(TOL);
+        expect(r.top, `anchored below the nav bell (upper region) @ ${width}px`).toBeLessThan(200);
+        expect(r.bottom, `not bottom-anchored @ ${width}px`).toBeLessThan(VP_HEIGHT - TOL);
       }
     });
   }

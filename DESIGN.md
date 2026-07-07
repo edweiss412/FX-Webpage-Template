@@ -44,6 +44,8 @@ Color-blind floor: red and green are NEVER used as primary semantic carriers. St
 | `--color-status-warn` / `-text`     | `#B26A16` / `#7A3D00`              | `#E9A23A` / `#F0B454`           | Stale / problem (sync failure). Amber, stronger than review. Dot base + `-text`.                                                                                                                                                                                                                                                    |
 | `--color-status-idle` / `-text`     | `#8B8C92` / `#5A5B62`              | `#74736D` / `#9C9A93`           | Publishing / none / not-yet-synced. **Reuses `--color-text-faint` / `--color-text-subtle`** (neutral/faint), not a new hue.                                                                                                                                                                                                         |
 | `--color-status-degraded` / `-text` | `#B3261E` / `#FFFFFF`              | `#E5534B` / `#1A1A1A`           | App-health **degraded** signal (alert-audience-split). Red — the **third scoped §1.3 exception** to "orange stays alone", introduced for the app-health indicator's worst-active state. Unlike positive/review/warn, the `-text` is drawn ON the filled degraded pill (`bg-status-degraded text-status-degraded-text`), so its floor is text-on-fill (§1.2), not text-on-surface. Always dot/pill + label, never color-only.                                                    |
+| `--color-accent-tint`               | `#FEEEDE`                          | `#2A1E10`                       | Warm low-chroma wash behind the bell panel's **info** severity icon-circle and the **active-count pill**. The info icon on it uses `--color-accent-on-bg` (graphical, ≥3:1); the pill NUMBER uses `--color-text-strong` — NOT `accent-on-bg`, which only reaches ~3.8:1 as text on this tint (below the AA text floor). A quiet tint, never a CTA fill; the ≤10% accent-coverage cap is unaffected (a few-px circle + pill).                                              |
+| `--color-danger-bg`                 | `#FBEAE8`                          | `#3A1E1C`                       | Soft red wash behind the bell panel's **critical** (health-degraded, `isHealth`) severity icon-circle. Icon on it uses `--color-status-degraded`; the tone is always paired with the row title text (never color-alone), holding the §1 color-blind floor. Scoped to the bell panel's severity circles only.                                                                                                                                                          |
 
 ### 1.2 Contrast summary (calculated, not estimated)
 
@@ -64,6 +66,9 @@ Color-blind floor: red and green are NEVER used as primary semantic carriers. St
 | `--color-status-idle` dot on bg/surface           | 3.2:1  | 4.0:1  | ≥3:1 graphical (dot)                                     |
 | `--color-status-degraded` dot on bg/surface       | 6.3:1  | 4.8:1  | ≥3:1 graphical (dot)                                     |
 | `--color-status-degraded-text` on degraded fill   | 6.5:1  | 4.7:1  | AA body (≥4.5:1) — text-on-fill, not on surface         |
+| `--color-status-degraded` icon on `--color-danger-bg` | 5.6:1  | 4.2:1  | ≥3:1 graphical (icon) — bell critical circle            |
+| `--color-accent-on-bg` icon on `--color-accent-tint`  | 3.8:1  | 8.1:1  | ≥3:1 graphical (icon) — bell info circle                |
+| `--color-text-strong` on `--color-accent-tint`        | 16.5:1 | 14.9:1 | AA body (≥4.5:1) — active-count pill number             |
 
 **Direct-sunlight rule:** body text (`--color-text` on `--color-bg`, light mode) must hit ≥7:1 — 16.5:1 clears the bar with margin. Verified.
 

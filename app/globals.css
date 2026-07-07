@@ -61,6 +61,10 @@
   --color-warning-bg: var(--color-warning-bg-runtime);
   --color-warning-text: var(--color-warning-text-runtime);
   --color-info-bg: var(--color-info-bg-runtime);
+  /* Bell notification redesign: warm wash behind the info severity icon-circle +
+     active-count pill; soft red wash behind the critical (health) icon-circle. */
+  --color-accent-tint: var(--color-accent-tint-runtime);
+  --color-danger-bg: var(--color-danger-bg-runtime);
   --color-focus-ring: var(--color-focus-ring-runtime);
   /*
    * Modal overlay scrim. M10 §B Phase 3 / Cluster I-6 added a
@@ -277,6 +281,8 @@
   --color-warning-bg-runtime: #fff3d6;
   --color-warning-text-runtime: #5c3f00;
   --color-info-bg-runtime: #eeeae3;
+  --color-accent-tint-runtime: #feeede;
+  --color-danger-bg-runtime: #fbeae8;
   --color-focus-ring-runtime: rgba(255, 140, 26, 0.55);
   --color-overlay-scrim-runtime: rgba(20, 18, 12, 0.4);
   --shadow-tile-runtime: 0 1px 2px rgba(20, 18, 12, 0.04);
@@ -322,6 +328,8 @@
     --color-warning-bg-runtime: #3a2e14;
     --color-warning-text-runtime: #ffd68a;
     --color-info-bg-runtime: #1f1e22;
+    --color-accent-tint-runtime: #2a1e10;
+    --color-danger-bg-runtime: #3a1e1c;
     --color-focus-ring-runtime: rgba(255, 160, 71, 0.65);
     --color-overlay-scrim-runtime: rgba(0, 0, 0, 0.6);
     --shadow-tile-runtime: 0 1px 3px rgba(0, 0, 0, 0.45);
@@ -361,6 +369,8 @@
   --color-warning-bg-runtime: #3a2e14;
   --color-warning-text-runtime: #ffd68a;
   --color-info-bg-runtime: #1f1e22;
+  --color-accent-tint-runtime: #2a1e10;
+  --color-danger-bg-runtime: #3a1e1c;
   --color-focus-ring-runtime: rgba(255, 160, 71, 0.65);
   --shadow-tile-runtime: 0 1px 3px rgba(0, 0, 0, 0.45);
   --shadow-popover-runtime: 0 10px 28px -6px rgba(0, 0, 0, 0.6);
@@ -667,6 +677,19 @@ body {
   }
   to {
     opacity: 1;
+  }
+}
+/* Bell notification desktop dropdown entrance: a small drop-in from above the
+   anchor, origin top-right. Mobile uses `sheet-rise`. Callers pair with
+   `motion-reduce:animate-none`. */
+@keyframes bell-pop-in {
+  from {
+    opacity: 0;
+    transform: translateY(-6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
   }
 }
 [data-step3-review-scrim] {
