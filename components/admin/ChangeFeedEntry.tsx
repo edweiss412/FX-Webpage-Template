@@ -23,7 +23,31 @@ import { ChangeFeedBadge } from "@/components/admin/ChangeFeedBadge";
 import { ChangeFeedTime } from "@/components/admin/ChangeFeedTime";
 import { Mi11GateActions, type Mi11GateActionResult } from "@/components/admin/Mi11GateActions";
 import { UndoChangeButton, type UndoButtonResult } from "@/components/admin/UndoChangeButton";
-import type { FeedEntry } from "@/lib/sync/holds/types";
+import type { Disposition, FeedEntry } from "@/lib/sync/holds/types";
+
+// Flow 3 (audit 3.3): hard-coded, per-disposition "why held + Approve/Reject
+// consequence" copy. Descriptive absence-of-failure UI copy, NOT a catalog code
+// (mirrors ChangesFeed's hard-coded empty-state/truncation rationale; invariant 5).
+// No em dashes (DESIGN.md:318). Rendered via {expression}, so the apostrophes are
+// safe (no react/no-unescaped-entities).
+//
+// Returns string | null with a `default: null` — fail-quiet on schema drift
+// (spec §4.3). readShowChangeFeed passes sync_holds.proposed_value (runtime DB
+// JSON) straight into gate.disposition, so a future/unknown disposition string is
+// a realistic version-skew path; it must render NO line, never a blank <p> or a
+// raw disposition token.
+function holdExplanation(disposition: Disposition): string | null {
+  switch (disposition.disposition) {
+    case "email_change":
+      return "Held for your review: this crew member's sign-in email changed in the sheet. Approve to update their sign-in address; Reject to keep the current one.";
+    case "rename":
+      return "Held for your review: this crew member was renamed in the sheet. Approve to apply the new name; Reject to keep the current one.";
+    case "removal":
+      return "Held for your review: this crew member was removed from the sheet. Approve to remove them; Reject to keep them.";
+    default:
+      return null;
+  }
+}
 
 type GateServerAction = (
   prev: Mi11GateActionResult | null,
@@ -50,6 +74,9 @@ export function ChangeFeedEntry({
 }) {
   const canUndo = entry.action === "undo" && entry.changeLogId != null;
   const canGate = entry.action === "approve_reject" && entry.gate != null;
+  // Flow 3 (audit 3.3): the "why held + consequence" line for a gate row. null on
+  // non-gate rows AND on an unknown/future disposition (fail-quiet — spec §4.3).
+  const holdCopy = canGate ? holdExplanation(entry.gate!.disposition) : null;
 
   return (
     <li
@@ -60,6 +87,11 @@ export function ChangeFeedEntry({
         <p data-testid="change-feed-summary" className="text-sm text-text-strong">
           {entry.summary}
         </p>
+        {holdCopy ? (
+          <p data-testid="change-feed-hold-explanation" className="text-xs text-text-subtle">
+            {holdCopy}
+          </p>
+        ) : null}
         <div className="flex flex-wrap items-center gap-2">
           <ChangeFeedBadge status={entry.status} />
           <ChangeFeedTime occurredAt={entry.occurredAt} now={now} />

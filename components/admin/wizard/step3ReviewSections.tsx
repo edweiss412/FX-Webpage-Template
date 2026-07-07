@@ -95,6 +95,7 @@ import { avatarColor } from "@/lib/crew/avatarColor";
 import { deriveInitials } from "@/components/atoms/Avatar";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { buildSheetDeepLink, type SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
+import { CorrectionLoopCallout } from "@/components/admin/CorrectionLoopCallout";
 import { stripOpeningReelText } from "@/lib/visibility/openingReelText";
 import { EVENT_DETAILS_LABELS } from "@/lib/crew/eventDetailsSpecs";
 import { partialAttendanceLabel } from "@/lib/crew/partialAttendance";
@@ -2286,6 +2287,9 @@ export function WarningsBreakdown({ dfid, warnings }: { dfid: string; warnings: 
         </p>
       ) : (
         <>
+          {/* Flow 3 (audit 3.1): correction-loop callout (re-scan verb) — copy-only;
+              the wizard already carries RescanSheetButton for the re-scan action. */}
+          <CorrectionLoopCallout mode="rescan" />
           <p
             data-testid={`wizard-step3-card-${dfid}-warnings-nonblocking`}
             className="text-xs text-text-subtle"

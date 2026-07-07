@@ -672,6 +672,33 @@ describe("warnings body (spec §3.10 affirmative empty state + §8 hardening)", 
     const panel = q.getByTestId(`wizard-step3-card-${DFID}-breakdown-warnings`);
     expect(panel.textContent).toContain("No parse warnings for this sheet.");
   });
+
+  // Flow 3 (audit 3.1) — the correction-loop callout (re-scan verb) rides alongside
+  // the existing non-blocking note; copy-only (the wizard already carries RescanSheetButton).
+  test("renders the correction-loop callout (re-scan copy) alongside the non-blocking note when warnings exist", () => {
+    const warnings: ParseWarning[] = [
+      { severity: "warn", code: "UNKNOWN_FIELD", message: "Unrecognized row" },
+    ];
+    const d = sectionData({ warnings });
+    const q = renderBody(d, "warnings");
+    const panel = q.getByTestId(`wizard-step3-card-${DFID}-breakdown-warnings`);
+    const callout = within(panel).getByTestId("correction-loop-callout");
+    expect(callout.textContent).toContain(
+      "Fixed it in the sheet? Edit the cell, save, then re-scan. We'll re-read the sheet and clear this.",
+    );
+    // the existing non-blocking reassurance is NOT lost
+    expect(panel.textContent).toMatch(/don.t block publishing/i);
+    // no em dash in the callout copy
+    expect(callout.textContent).not.toMatch(/[—]|--/);
+  });
+
+  test("zero warnings → no correction-loop callout (nothing to fix)", () => {
+    const d = sectionData({ warnings: [] });
+    const q = renderBody(d, "warnings");
+    const panel = q.getByTestId(`wizard-step3-card-${DFID}-breakdown-warnings`);
+    expect(within(panel).queryByTestId("correction-loop-callout")).toBeNull();
+    expect(panel.textContent).toContain("No parse warnings for this sheet.");
+  });
 });
 
 describe("DiagramsBreakdown body (follow-ups spec §B3 + §K8)", () => {

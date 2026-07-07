@@ -60,6 +60,7 @@ import {
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
 import type { MessageCode } from "@/lib/messages/catalog";
 import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableWarnings";
+import { CorrectionLoopCallout } from "@/components/admin/CorrectionLoopCallout";
 import { DataQualityWarningControls } from "@/components/admin/DataQualityWarningControls";
 import {
   BulkIgnoreControls,
@@ -899,6 +900,16 @@ export default async function AdminShowPage({
               </p>
             </HoverHelp>
           </div>
+          {/* Flow 3 (audit 3.1): correction-loop callout — how to fix a flagged value.
+              Gated on an ACTIVE warning (ignored-only survives re-sync, so "we'll clear
+              this" would be false) AND !archived (a retired show is read-only; the footer
+              Re-sync is likewise suppressed, page.tsx #resync). Mounts its own <ReSyncButton>
+              (data-testid admin-resync-button); the footer instance stays for sync-health. */}
+          {activeActionable.length > 0 && !archived ? (
+            <CorrectionLoopCallout mode="resync">
+              <ReSyncButton slug={show.slug} />
+            </CorrectionLoopCallout>
+          ) : null}
           {/* DQIGNORE-2 — bulk "Ignore all N of this type", shown above the cards it
               acts on. Renders nothing unless a code has >=2 distinct-content active
               ignorable warnings. */}
