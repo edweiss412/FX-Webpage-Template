@@ -330,7 +330,7 @@ EOF
 ### Task 4: `dates.ts` — factory equality matcher
 
 **Files:**
-- Modify: `lib/parser/blocks/dates.ts:84` (and the same `=== "DATES"` at line 84's `hasDatesHeader` scan)
+- Modify: `lib/parser/blocks/dates.ts` — route EVERY `DATES`-header-recognition site through the token/matcher, not just the D1 scan (plan R2 finding 2). The DATES-opener sites are `:84` (`hasDatesHeader` D1 detector), `:105` (`isV1ShapedDatesBlock` header find), `:131`, `:184` (block-start header finds), `:191` (`firstCell.toUpperCase() !== "DATES"` skip-past-header). The `:145` check `!["TRAVEL","SET","SHOW","DATES"].includes(labelU)` is a block-MEMBERSHIP sentinel (DATES is one of several continuation labels, not purely the opener) — leave it as a literal; the walker's equality guard accounts for it because `DATES ∈ SECTION_HEADER_TOKENS`.
 - Test: `tests/parser/datesSectionTokens.test.ts`
 
 **Interfaces:**
@@ -361,16 +361,21 @@ describe("dates SECTION_HEADER_TOKENS", () => {
 Run: `pnpm vitest run tests/parser/datesSectionTokens.test.ts`
 Expected: FAIL — no export.
 
-- [ ] **Step 3: Implement** — add the import + export, replace the inline `.toUpperCase() === "DATES"` at `dates.ts:84` with `matchesSectionHeader(clean(r[0] ?? ""), SECTION_HEADER_TOKENS)`.
+- [ ] **Step 3: Implement** — add the import + export, then replace EACH `DATES`-header-recognition site (`:84`, `:105`, `:131`, `:184`, `:191`) with `matchesSectionHeader(...)`. All are `clean(row[0] ?? "").toUpperCase() === "DATES"` (or its negation at `:191`); `matchesSectionHeader` normalizes identically (`\s+`→single-space, trim, uppercase), so behavior is unchanged for the space-free token `DATES`.
 
 ```ts
 import { matchesSectionHeader } from "./_sectionHeaderMatch";
 export const SECTION_HEADER_TOKENS = ["DATES"] as const;
-// ...
+// :84 (D1 detector)
   const hasDatesHeader = parseTableRows(markdown).some((r) =>
     matchesSectionHeader(clean(r[0] ?? ""), SECTION_HEADER_TOKENS),
   );
+// :105 / :131 / :184 (header finds)
+    if (matchesSectionHeader(clean(row[0] ?? ""), SECTION_HEADER_TOKENS)) found = true; // (or: ... ) { ... }
+// :191 (skip-past-header negation)
+    if (firstCell && !matchesSectionHeader(firstCell, SECTION_HEADER_TOKENS)) { /* left header */ }
 ```
+Leave the `:145` membership list `["TRAVEL","SET","SHOW","DATES"]` as-is (DATES is a block-continuation sentinel there, accounted-for by the walker because it is a token).
 
 - [ ] **Step 4: Run to verify it passes + no behavior change**
 
@@ -817,16 +822,20 @@ EOF
 // tests/parser/transportSectionTokens.test.ts
 import { describe, it, expect } from "vitest";
 import { SECTION_HEADER_TOKENS } from "@/lib/parser/blocks/transport";
-import { buildCol0HeaderRe } from "@/lib/parser/blocks/_sectionHeaderMatch";
+import { buildCol0HeaderRe, buildCol0HeaderAltRe } from "@/lib/parser/blocks/_sectionHeaderMatch";
 
 describe("transport SECTION_HEADER_TOKENS", () => {
   it("exports TRANSPORTATION + DRIVER", () => {
     expect([...SECTION_HEADER_TOKENS].sort()).toEqual(["DRIVER", "TRANSPORTATION"]);
   });
-  it("col0 identity pre-checks are case-insensitive SUPERSETS of the retained /im regexes", () => {
-    const tRe = buildCol0HeaderRe(["TRANSPORTATION"], { caseInsensitive: true });
+  it("col0 identity pre-checks are SUPERSETS of the retained /im regexes (case + slash suffix)", () => {
+    // Live :172 col0 is `TRANSPORTATION(?:\/[^|]*)?` — accepts a slash suffix, so the
+    // pre-check MUST allow a trailing suffix (AltRe), not whole-cell (plan R2 finding 1).
+    const tRe = buildCol0HeaderAltRe(["TRANSPORTATION"], { caseInsensitive: true });
     expect(tRe.test("| TRANSPORTATION | TRANSPORTATION | PHONE | EMAIL |")).toBe(true);
-    expect(tRe.test("| transportation | transportation | phone | email |")).toBe(true); // /im superset — must accept lowercase
+    expect(tRe.test("| transportation | transportation | phone | email |")).toBe(true); // case superset
+    expect(tRe.test("| TRANSPORTATION/Ground | TRANSPORTATION | PHONE | EMAIL |")).toBe(true); // slash-suffix superset
+    // v1 Driver header is whole-cell /^\|\s*Driver\s*\|/im — whole-cell case-insensitive is exact.
     expect(buildCol0HeaderRe(["DRIVER"], { caseInsensitive: true }).test("| Driver | Name | Phone |")).toBe(true);
   });
 });
@@ -837,7 +846,7 @@ describe("transport SECTION_HEADER_TOKENS", () => {
 Run: `pnpm vitest run tests/parser/transportSectionTokens.test.ts`
 Expected: FAIL.
 
-- [ ] **Step 3: Implement** — add import + token export. The multi-column header regexes at `:172`/`:446` are RETAINED (they require the PHONE/EMAIL columns and capture slash content / driver name+phone). Add above each: `// RAW_HEADER_REGEX_ALLOWLIST: multi-column header matcher; col0 token identity (TRANSPORTATION / DRIVER) is registry-checked via SECTION_HEADER_TOKENS.` Add a module-level factory reference to satisfy the import-link nudge — **and it MUST be a behavior-SUPERSET of the retained matcher so it never rejects a header the retained regex would accept** (plan R1 finding: the live `:172` regex is `/im` = case-INsensitive). Build the pre-check case-insensitively: `const TRANSPORT_COL0_RE = buildCol0HeaderRe(["TRANSPORTATION"], { caseInsensitive: true });`. If used as a cheap pre-check before the full multi-column regex, a case-insensitive superset can only pass MORE than the retained regex (which still gates the actual parse), so behavior is preserved. **Do NOT use the case-sensitive default here** — it would reject lowercase/mixed-case `transportation` headers the current parser accepts. (Safest alternative: reference the factory only in the co-located equivalence test rather than gating with it at all; either satisfies the import-link nudge.)
+- [ ] **Step 3: Implement** — add import + token export. The multi-column header regexes at `:172`/`:446` are RETAINED (they require the PHONE/EMAIL columns and capture slash content / driver name+phone). Add above each: `// RAW_HEADER_REGEX_ALLOWLIST: multi-column header matcher; col0 token identity (TRANSPORTATION / DRIVER) is registry-checked via SECTION_HEADER_TOKENS.` Add a module-level factory reference to satisfy the import-link nudge — **and it MUST be a behavior-SUPERSET of the retained matcher so it never rejects a header the retained regex would accept** (plan R1 finding: the live `:172` regex is `/im` = case-INsensitive). Build the pre-check with the **suffix-tolerant** builder (live `:172` col0 is `TRANSPORTATION(?:\/[^|]*)?` — it accepts a slash suffix, so a whole-cell pre-check would WRONGLY reject `| TRANSPORTATION/Ground | ... |`, plan R2 finding 1): `const TRANSPORT_COL0_RE = buildCol0HeaderAltRe(["TRANSPORTATION"], { caseInsensitive: true });`. `buildCol0HeaderAltRe` allows a trailing non-pipe suffix AND is case-insensitive, so it is a true superset of `:172`'s col0 — as a pre-check it can only pass MORE than the retained regex (which still gates the actual parse), so behavior is preserved. **Do NOT use `buildCol0HeaderRe` (whole-cell) or the case-sensitive default here** — either would reject headers the current parser accepts (slash suffix / lowercase). (Safest alternative: satisfy the import-link nudge by importing `matchesSectionHeader` and using it in a behavior-neutral spot rather than gating with a pre-check at all.)
 
 - [ ] **Step 4: Run to verify it passes + no behavior change**
 
