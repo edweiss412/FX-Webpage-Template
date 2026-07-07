@@ -121,8 +121,23 @@ describe("EventFilters surface (spec §6.2 / AC2)", () => {
     rerender(<EventFilters filters={{ sinceHours: 24, levels: ["warn"] }} />);
     expect((screen.getByTestId("filter-source") as HTMLInputElement).value).toBe("");
   });
-  test("requestId mode shows the 'Showing one request' chip", () => {
+  test("renders the toolbar card wrapper", () => {
+    render(<EventFilters filters={{ sinceHours: 24 }} />);
+    expect(screen.getByTestId("event-filter-toolbar")).toBeInTheDocument();
+  });
+  test("renders the active-filter chips row when a filter is active", () => {
+    spHolder.value = "source=cron.x";
+    render(<EventFilters filters={{ sinceHours: 24, source: "cron.x" }} />);
+    expect(screen.getByTestId("active-filter-chips")).toBeInTheDocument();
+    expect(screen.getByTestId("chip-remove-source")).toBeInTheDocument();
+  });
+  test("hides the chips row when no filter is active", () => {
+    render(<EventFilters filters={{ sinceHours: 24 }} />);
+    expect(screen.queryByTestId("active-filter-chips")).not.toBeInTheDocument();
+  });
+  test("requestId mode renders a removable request chip (replaces the old inline pill)", () => {
+    spHolder.value = "requestId=req-9";
     render(<EventFilters filters={{ requestId: "req-9", sinceHours: null }} />);
-    expect(screen.getByText(/Showing one request/)).toBeInTheDocument();
+    expect(screen.getByTestId("chip-remove-requestId")).toBeInTheDocument();
   });
 });

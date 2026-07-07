@@ -50,6 +50,10 @@ function buildChips(filters: AppEventFilters): Chip[] {
   return chips;
 }
 
+export function hasActiveFilters(filters: AppEventFilters): boolean {
+  return buildChips(filters).length > 0;
+}
+
 export function ActiveFilterChips({ filters }: { filters: AppEventFilters }) {
   const router = useRouter();
   const sp = useSearchParams();

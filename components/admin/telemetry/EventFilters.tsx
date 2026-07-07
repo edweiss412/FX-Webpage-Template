@@ -2,7 +2,8 @@
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import type { AppEventFilters } from "@/lib/admin/telemetryTypes";
-import { BASE, buildFilterHref } from "@/lib/admin/telemetryFilterHref";
+import { buildFilterHref } from "@/lib/admin/telemetryFilterHref";
+import { ActiveFilterChips } from "./ActiveFilterChips";
 
 // Controlled text filter: local state mirrors the committed filter value but is NOT reset by an
 // auto-refresh re-render (the `committed` value is unchanged), so focus + in-progress keystrokes
@@ -21,11 +22,13 @@ function FilterTextInput({
   committed,
   placeholder,
   onCommit,
+  className,
 }: {
   name: string;
   committed: string;
   placeholder: string;
   onCommit: (v: string | null) => void;
+  className?: string;
 }) {
   const [value, setValue] = useState(committed);
   const [prevCommitted, setPrevCommitted] = useState(committed);
@@ -40,7 +43,7 @@ function FilterTextInput({
       placeholder={placeholder}
       aria-label={placeholder}
       value={value}
-      className="min-h-tap-min rounded border border-border bg-surface px-2"
+      className={className ?? "min-h-tap-min rounded border border-border bg-surface px-2"}
       onChange={(e) => setValue(e.target.value)}
       onKeyDown={(e) => {
         if (e.key === "Enter" && value !== committed) onCommit(value || null);
@@ -60,84 +63,75 @@ export function EventFilters({ filters }: { filters: AppEventFilters }) {
   const go = (patch: Record<string, string | null>) =>
     router.push(buildFilterHref(new URLSearchParams(spKey), patch));
 
-  if (filters.requestId) {
-    return (
-      <div className="flex items-center gap-2 text-sm">
-        <span className="rounded-pill bg-surface-sunken px-2 py-0.5">Showing one request</span>
-        <button
-          type="button"
-          className="inline-flex min-h-tap-min items-center underline"
-          onClick={() => router.push(BASE)}
-        >
-          Clear
-        </button>
-      </div>
-    );
-  }
   const levels = new Set(filters.levels ?? []);
+  const LEVELS = ["info", "warn", "error"] as const;
   return (
-    <div className="flex flex-wrap items-center gap-2 text-sm">
-      {(["info", "warn", "error"] as const).map((lvl) => (
-        <button
-          key={lvl}
-          type="button"
-          data-testid={`filter-level-${lvl}`}
-          aria-pressed={levels.has(lvl)}
-          className={`inline-flex min-h-tap-min items-center rounded-pill px-3 ${levels.has(lvl) ? "bg-accent text-accent-text" : "bg-surface-sunken text-text-subtle"}`}
-          onClick={() => {
-            const next = new Set(levels);
-            next.has(lvl) ? next.delete(lvl) : next.add(lvl);
-            go({ level: next.size ? [...next].join(",") : null });
-          }}
-        >
-          {lvl}
-        </button>
-      ))}
-      <select
-        data-testid="filter-since"
-        aria-label="Time window"
-        className="min-h-tap-min rounded border border-border bg-surface px-2"
-        value={
-          filters.sinceHours === 1
-            ? "1h"
-            : filters.sinceHours === 168
-              ? "7d"
-              : filters.sinceHours === null
-                ? "all"
-                : "24h"
-        }
-        onChange={(e) => go({ since: e.target.value })}
-      >
-        <option value="1h">Last hour</option>
-        <option value="24h">Last 24h</option>
-        <option value="7d">Last 7 days</option>
-        <option value="all">All</option>
-      </select>
-      {(["source", "code", "showId", "requestId"] as const).map((key) => (
+    <div
+      data-testid="event-filter-toolbar"
+      className="flex flex-col gap-2.5 rounded-md border border-border bg-surface p-3 text-sm shadow-tile"
+    >
+      <div className="flex flex-wrap items-center gap-2">
         <FilterTextInput
-          key={`${key}-${spKey}`}
-          name={key}
-          committed={(filters[key] as string | undefined) ?? ""}
-          placeholder={
-            key === "showId" ? "show id…" : key === "requestId" ? "request id…" : `${key}…`
-          }
-          onCommit={(v) => go({ [key]: v })}
+          key={`q-${spKey}`}
+          name="q"
+          committed={filters.q ?? ""}
+          placeholder="Search message…"
+          onCommit={(v) => go({ q: v })}
+          className="min-h-tap-min flex-1 rounded border border-border bg-surface px-2"
         />
-      ))}
-      <FilterTextInput
-        key={`q-${spKey}`}
-        name="q"
-        committed={filters.q ?? ""}
-        placeholder="Search message…"
-        onCommit={(v) => go({ q: v })}
-      />
-      <button
-        type="button"
-        className="inline-flex min-h-tap-min items-center underline"
-        onClick={() => router.push(BASE)}
-      >
-        Clear filters
-      </button>
+        {/* Segmented level control: one bordered group, dividers between segments. */}
+        <div className="inline-flex min-h-tap-min items-stretch overflow-hidden rounded border border-border">
+          {LEVELS.map((lvl, i) => (
+            <button
+              key={lvl}
+              type="button"
+              data-testid={`filter-level-${lvl}`}
+              aria-pressed={levels.has(lvl)}
+              className={`inline-flex items-center px-3 ${i > 0 ? "border-l border-border" : ""} ${levels.has(lvl) ? "bg-accent text-accent-text" : "text-text-subtle"}`}
+              onClick={() => {
+                const next = new Set(levels);
+                next.has(lvl) ? next.delete(lvl) : next.add(lvl);
+                go({ level: next.size ? [...next].join(",") : null });
+              }}
+            >
+              {lvl}
+            </button>
+          ))}
+        </div>
+        <select
+          data-testid="filter-since"
+          aria-label="Time window"
+          className="min-h-tap-min rounded-pill border border-border bg-surface px-3"
+          value={
+            filters.sinceHours === 1
+              ? "1h"
+              : filters.sinceHours === 168
+                ? "7d"
+                : filters.sinceHours === null
+                  ? "all"
+                  : "24h"
+          }
+          onChange={(e) => go({ since: e.target.value })}
+        >
+          <option value="1h">Last hour</option>
+          <option value="24h">Last 24h</option>
+          <option value="7d">Last 7 days</option>
+          <option value="all">All</option>
+        </select>
+        {(["source", "code", "showId", "requestId"] as const).map((key) => (
+          <FilterTextInput
+            key={`${key}-${spKey}`}
+            name={key}
+            committed={(filters[key] as string | undefined) ?? ""}
+            placeholder={
+              key === "showId" ? "show id…" : key === "requestId" ? "request id…" : `${key}…`
+            }
+            onCommit={(v) => go({ [key]: v })}
+            className="min-h-tap-min rounded border border-border bg-surface px-2"
+          />
+        ))}
+      </div>
+      <ActiveFilterChips filters={filters} />
     </div>
   );
 }
