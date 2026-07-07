@@ -92,6 +92,21 @@ const SECTION_EXACT_TOKENS: ReadonlySet<string> = new Set([
   ...KNOWN_SUB_LABELS,
 ]);
 
+/**
+ * The room-block banner tokens this parser opens on. Registry-checked by the
+ * known-sections walker (tests/parser/_metaKnownSectionsWalker.test.ts). rooms is
+ * IMPORT_LINK_EXEMPT: its capture-extract/shape matchers (v4 prefix regexes,
+ * boBlockRe, lunchRe, additional-room, NEXT_ROOM_HEADER_RE) are not buildable
+ * from the simple presence factory, so they stay raw + allowlisted. NOT
+ * "LUNCH SESSION" (rooms opens LUNCH ROOM; spec §4/R9).
+ */
+export const SECTION_HEADER_TOKENS = [
+  "GENERAL SESSION",
+  "BREAKOUT",
+  "ADDITIONAL ROOM",
+  "LUNCH ROOM",
+] as const;
+
 /** First cell of a markdown table row, trimmed (keeps a literal `&#10;`). */
 function col0Of(line: string): string {
   return (line.split("|")[1] ?? "").trim();
@@ -1101,6 +1116,7 @@ function parseBoRooms(markdown: string, model: RoomHeaderModel): RoomRow[] {
   // BO-field content below (roomHasBoFieldValue) — BL-ROOM-SHOW-PREFIXED-BREAKOUT-HEADER.
   // Case-SENSITIVE (uppercase BREAKOUT + uppercase prefix) so it matches real headers but
   // not mixed-case template field labels like "Breakout Room Setup Date / Time".
+  // RAW_HEADER_REGEX_ALLOWLIST: rooms capture-extract/shape matcher (IMPORT_LINK_EXEMPT, spec §4); banner-token identity is registry-checked via SECTION_HEADER_TOKENS.
   const boBlockRe = /^\|\s*((?:[A-Z0-9]+\s+)?BREAKOUT(?:&#10;|\s)[^|]*?)\s*\|/gm;
   let m: RegExpExecArray | null;
 
@@ -1160,6 +1176,7 @@ function parseBoRooms(markdown: string, model: RoomHeaderModel): RoomRow[] {
   }
 
   // LUNCH ROOM blocks (consultants roundtable)
+  // RAW_HEADER_REGEX_ALLOWLIST: rooms capture-extract/shape matcher (IMPORT_LINK_EXEMPT, spec §4); banner-token identity is registry-checked via SECTION_HEADER_TOKENS.
   const lunchRe = /^\|\s*(LUNCH\s+ROOM[^|]*?)\s*\|/gim;
   while ((m = lunchRe.exec(markdown)) !== null) {
     const rawHeader = m[1]!.replace(/&#10;/g, "\n");
@@ -1292,6 +1309,7 @@ function mergeBoFields(room: RoomRowInternal, blockText: string): void {
 // prefixed breakouts with no blank separator would let the first consume the second's
 // fields (whole-diff R1 f1). The optional prefix mirrors `boBlockRe`; a bare BREAKOUT
 // still matches (empty group), so existing termination is unchanged.
+// RAW_HEADER_REGEX_ALLOWLIST: rooms capture-extract/shape matcher (IMPORT_LINK_EXEMPT, spec §4); banner-token identity is registry-checked via SECTION_HEADER_TOKENS.
 const NEXT_ROOM_HEADER_RE =
   /^\|\s*(GENERAL\s+SESSION|(?:[A-Z0-9]+\s+)?BREAKOUT|ADDITIONAL\s+ROOM|LUNCH\s+ROOM|DETAILS)\b/i;
 
@@ -1370,6 +1388,7 @@ function parseAdditionalRoom(markdown: string, model: RoomHeaderModel): RoomRow 
   // are NOT block headers and must not become phantom all-null rooms. Discriminate
   // by header shape (case), not content-emptiness — the latter also drops the
   // legitimate empty raw block.
+  // RAW_HEADER_REGEX_ALLOWLIST: rooms capture-extract/shape matcher (IMPORT_LINK_EXEMPT, spec §4); banner-token identity is registry-checked via SECTION_HEADER_TOKENS.
   const re = /^\|\s*(ADDITIONAL\s+ROOM[^|]*?)\s*\|/m;
   const m = re.exec(markdown);
   if (!m) return null;
