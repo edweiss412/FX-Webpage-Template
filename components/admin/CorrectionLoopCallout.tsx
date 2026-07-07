@@ -24,7 +24,7 @@ const CORRECTION_LOOP_VERB = { resync: "re-sync", rescan: "re-scan" } as const;
 
 /** The shared prefix/suffix live here once; only the verb varies by mode. */
 function correctionLoopCopy(mode: "resync" | "rescan"): string {
-  return `Fixed it in the sheet? Edit the cell, save, then ${CORRECTION_LOOP_VERB[mode]}. We'll re-parse and clear this.`;
+  return `Fixed it in the sheet? Edit the cell, save, then ${CORRECTION_LOOP_VERB[mode]}. We'll re-read the sheet and clear this.`;
 }
 
 export function CorrectionLoopCallout({

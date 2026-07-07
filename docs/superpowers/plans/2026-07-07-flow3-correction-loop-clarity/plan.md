@@ -23,8 +23,8 @@
 
 | Key | String (verbatim) |
 |---|---|
-| callout `resync` | `Fixed it in the sheet? Edit the cell, save, then re-sync. We'll re-parse and clear this.` |
-| callout `rescan` | `Fixed it in the sheet? Edit the cell, save, then re-scan. We'll re-parse and clear this.` |
+| callout `resync` | `Fixed it in the sheet? Edit the cell, save, then re-sync. We'll re-read the sheet and clear this.` |
+| callout `rescan` | `Fixed it in the sheet? Edit the cell, save, then re-scan. We'll re-read the sheet and clear this.` |
 | hold `email_change` | `Held for your review: this crew member's sign-in email changed in the sheet. Approve to update their sign-in address; Reject to keep the current one.` |
 | hold `rename` | `Held for your review: this crew member was renamed in the sheet. Approve to apply the new name; Reject to keep the current one.` |
 | hold `removal` | `Held for your review: this crew member was removed from the sheet. Approve to remove them; Reject to keep them.` |
@@ -52,8 +52,8 @@ import { CorrectionLoopCallout } from "@/components/admin/CorrectionLoopCallout"
 
 afterEach(cleanup);
 
-const RESYNC = "Fixed it in the sheet? Edit the cell, save, then re-sync. We'll re-parse and clear this.";
-const RESCAN = "Fixed it in the sheet? Edit the cell, save, then re-scan. We'll re-parse and clear this.";
+const RESYNC = "Fixed it in the sheet? Edit the cell, save, then re-sync. We'll re-read the sheet and clear this.";
+const RESCAN = "Fixed it in the sheet? Edit the cell, save, then re-scan. We'll re-read the sheet and clear this.";
 
 it("resync mode renders the exact re-sync copy and its affordance child", () => {
   render(
@@ -122,7 +122,7 @@ const CORRECTION_LOOP_VERB = { resync: "re-sync", rescan: "re-scan" } as const;
 
 /** The shared prefix/suffix live here once; only the verb varies by mode. */
 function correctionLoopCopy(mode: "resync" | "rescan"): string {
-  return `Fixed it in the sheet? Edit the cell, save, then ${CORRECTION_LOOP_VERB[mode]}. We'll re-parse and clear this.`;
+  return `Fixed it in the sheet? Edit the cell, save, then ${CORRECTION_LOOP_VERB[mode]}. We'll re-read the sheet and clear this.`;
 }
 
 export function CorrectionLoopCallout({
@@ -177,7 +177,7 @@ Append to `tests/app/admin/perShowPage.test.tsx` (reuses the file's `actionableW
 ```tsx
 describe("per-show Data quality: correction-loop callout (Flow 3 / 3.1)", () => {
   const RESYNC =
-    "Fixed it in the sheet? Edit the cell, save, then re-sync. We'll re-parse and clear this.";
+    "Fixed it in the sheet? Edit the cell, save, then re-sync. We'll re-read the sheet and clear this.";
   const actionableW = {
     severity: "warn" as const,
     code: "UNKNOWN_FIELD",
@@ -306,7 +306,7 @@ test("renders the correction-loop callout (re-scan copy) alongside the non-block
   // callout present with the exact re-scan copy
   const callout = within(panel).getByTestId("correction-loop-callout");
   expect(callout).toHaveTextContent(
-    "Fixed it in the sheet? Edit the cell, save, then re-scan. We'll re-parse and clear this.",
+    "Fixed it in the sheet? Edit the cell, save, then re-scan. We'll re-read the sheet and clear this.",
   );
   // the existing non-blocking reassurance is NOT lost
   expect(panel.textContent).toMatch(/don.t block publishing/i);
@@ -621,6 +621,15 @@ CLAUDE_PLUGIN_DATA="${CLAUDE_PLUGIN_DATA}/sessions/${CODEX_COMPANION_SESSION_ID:
 - [ ] **Step 2: Triage + fix to APPROVE**
 
 For each finding: fix in-branch (class-sweep the shape first, then patch), OR defer via a `DEFERRED.md`/`BACKLOG.md` row with rationale. Re-run Step 1 after any fix. Iterate until the reviewer returns **APPROVE** (no round budget). Only then advance to push / CI / merge (Stage 4 of the ship pipeline).
+
+---
+
+## Impeccable dual-gate record (invariant 8)
+
+Run on the diff (three UI surfaces) after Tasks 1-5. Deterministic detector: clean (`[]`, exit 0).
+
+- **Critique (design review):** no CRITICAL. **One P1 (HIGH) — FIXED:** callout copy said "We'll re-parse and clear this" — "parse" is developer jargon (PRODUCT.md admin-voice ban) and inconsistent with the sibling Data-quality help copy ("reading this show's sheet", page.tsx:897). Changed to "We'll re-read the sheet and clear this" (both verbs). Fixed as a TDD micro-task: exact-copy tests updated first (failing), then the component template. P2 (twin `admin-resync-button` visual) — the strict-selector risk is already handled by scoping the e2e to `#resync` (Task 2 Step 6); the visual twin is ratified in spec §2 / watchpoint 4 (health vs correction context). P3 (callout body all `text-text-subtle`) — deliberate: the callout is secondary guidance; the `ReSyncButton` is the primary action. Both stand, not blocking.
+- **Audit (technical):** no P0/P1 across a11y / performance / theming / responsive / anti-patterns. `text-text-subtle` on `bg-surface-sunken` ≈ 6.1:1 light / 6.9:1 dark (AA at both text-sm and text-xs). All design tokens, dark-safe, full border (not side-stripe), no nested card, no em dash. Two doc-only notes (document the sunken contrast row; text-xs is the legible floor) — no code action.
 
 ---
 

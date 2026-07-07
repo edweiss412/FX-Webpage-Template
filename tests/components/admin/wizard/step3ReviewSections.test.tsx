@@ -684,7 +684,7 @@ describe("warnings body (spec §3.10 affirmative empty state + §8 hardening)", 
     const panel = q.getByTestId(`wizard-step3-card-${DFID}-breakdown-warnings`);
     const callout = within(panel).getByTestId("correction-loop-callout");
     expect(callout.textContent).toContain(
-      "Fixed it in the sheet? Edit the cell, save, then re-scan. We'll re-parse and clear this.",
+      "Fixed it in the sheet? Edit the cell, save, then re-scan. We'll re-read the sheet and clear this.",
     );
     // the existing non-blocking reassurance is NOT lost
     expect(panel.textContent).toMatch(/don.t block publishing/i);

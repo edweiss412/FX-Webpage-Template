@@ -13,9 +13,9 @@ import { CorrectionLoopCallout } from "@/components/admin/CorrectionLoopCallout"
 afterEach(cleanup);
 
 const RESYNC =
-  "Fixed it in the sheet? Edit the cell, save, then re-sync. We'll re-parse and clear this.";
+  "Fixed it in the sheet? Edit the cell, save, then re-sync. We'll re-read the sheet and clear this.";
 const RESCAN =
-  "Fixed it in the sheet? Edit the cell, save, then re-scan. We'll re-parse and clear this.";
+  "Fixed it in the sheet? Edit the cell, save, then re-scan. We'll re-read the sheet and clear this.";
 
 it("resync mode renders the exact re-sync copy and its affordance child", () => {
   render(

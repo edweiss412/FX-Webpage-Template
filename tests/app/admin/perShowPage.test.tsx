@@ -1037,7 +1037,7 @@ describe("per-show page — ADMIN_SHOW_* emits all carry slug (structural)", () 
 
 describe("per-show Data quality: correction-loop callout (Flow 3 / 3.1)", () => {
   const RESYNC =
-    "Fixed it in the sheet? Edit the cell, save, then re-sync. We'll re-parse and clear this.";
+    "Fixed it in the sheet? Edit the cell, save, then re-sync. We'll re-read the sheet and clear this.";
   const actionableW = {
     severity: "warn" as const,
     code: "UNKNOWN_FIELD",
