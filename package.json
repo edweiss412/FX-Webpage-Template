@@ -46,7 +46,8 @@
     "test:e2e:ui": "playwright test --ui",
     "verify-resync-scheduletimes": "tsx scripts/verify-resync-scheduletimes.ts",
     "worktree:link-env": "bash scripts/worktree-link-env.sh",
-    "preflight": "node scripts/preflight-env.mjs"
+    "preflight": "node scripts/preflight-env.mjs",
+    "db:reset-pool": "node scripts/db-reset-pool.mjs"
   },
   "dependencies": {
     "@mdx-js/loader": "^3.1.1",
