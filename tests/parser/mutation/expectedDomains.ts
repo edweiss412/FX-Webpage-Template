@@ -24,7 +24,10 @@ export const EXPECTED_HEADER_DOMAINS: ReadonlyArray<readonly [string, Domain]> =
   ["EVENT DETAILS", "event_details"],
   ["DETAILS", "event_details"],
   ["GS DETAILS", "event_details"],
+  ["GS DETAILS (FOR BOTH)", "event_details"], // e7a2daa3 registered opener (event-details variant)
+  ["DETAILS/ROOM DIAGRAM", "event_details"], // e7a2daa3 registered opener (event-details variant)
   ["TRANSPORTATION", "transportation"],
+  ["DRIVER", "transportation"], // e7a2daa3 registered opener (transport v1 Driver record table)
   ["DATES", "dates"],
   ["AGENDA", "agenda"],
   ["AGENDA LINK", "agenda"],

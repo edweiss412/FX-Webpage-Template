@@ -52,7 +52,12 @@ export const SECTION_DOMAIN_MAP: Record<string, Domain> = {
   "EVENT DETAILS": "event_details",
   DETAILS: "event_details",
   "GS DETAILS": "event_details",
+  // Registered on main 2026-07-06 (e7a2daa3): transport v1 Driver record table +
+  // event-details block variants — same domains as their un-suffixed neighbors.
+  "GS DETAILS (FOR BOTH)": "event_details",
+  "DETAILS/ROOM DIAGRAM": "event_details",
   TRANSPORTATION: "transportation",
+  DRIVER: "transportation",
   DATES: "dates",
   AGENDA: "agenda",
   "AGENDA LINK": "agenda",
