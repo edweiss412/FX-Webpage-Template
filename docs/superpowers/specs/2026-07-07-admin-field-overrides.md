@@ -115,11 +115,18 @@ create table if not exists public.admin_overrides (
 create index if not exists admin_overrides_show_active_idx
   on public.admin_overrides (show_id) where active;
 
--- PostgREST DML lockdown (RPC-gated table discipline; invariant + BL-ADMIN-POSTGREST-DML-LOCKDOWN):
-revoke insert, update, delete on table public.admin_overrides from anon, authenticated;
-grant  select on table public.admin_overrides to anon, authenticated;  -- read posture preserved; no PII (emails not stored beyond created_by which is admin-only)
--- NOTE: created_by holds an admin email. Re-evaluate select grant: admin_overrides SELECT is admin-only via app gate;
---   RLS below restricts row read. See §9.4.
+-- PostgREST DML lockdown (RPC-gated table discipline; invariant + BL-ADMIN-POSTGREST-DML-LOCKDOWN).
+-- created_by holds an admin email (PII) → NO select for anon/authenticated either. Crew page never
+-- reads this table (it reads the already-overridden live rows). All admin reads go via service-role
+-- or the admin-only RLS policy below.
+revoke insert, update, delete, select on table public.admin_overrides from anon, authenticated;
+alter table public.admin_overrides enable row level security;
+-- Admin-only SELECT policy using the canonical predicate public.is_admin() (the same one used across
+-- supabase/migrations/20260501002000_rls_policies.sql and 20260702120100_ignored_warnings_rls.sql).
+-- service_role bypasses RLS. Policy named `admin_only` per repo convention.
+create policy admin_only on public.admin_overrides
+  for select to authenticated
+  using ( public.is_admin() );
 ```
 
 Idempotency: `create table if not exists` + `create index if not exists`; the REVOKE/GRANT are idempotent. Apply-twice safe.
@@ -166,7 +173,7 @@ No transitional dual-value window (single new table, one-shot). No retired colum
 - `match_key` = the **parsed** crew name (the sheet's name, pre-override).
 - **role override**: in the pre-write transform, for the crew member whose parsed `name === match_key`, set `role = override_value`. Safe (role is display-only, free-text). `sheet_value` = parsed role.
 - **name override**: fold the crew list `name: match_key → override_value` before delete/upsert (§3.1). `sheet_value` = parsed name (= match_key).
-  - **crew_member_auth reconciliation (mandatory):** `crew_member_auth` PK is `(show_id, crew_name)` with **no FK** to `crew_members.id` (`20260501001000_internal_and_admin.sql`). A name change must `UPDATE public.crew_member_auth SET crew_name = <override> WHERE show_id = $1 AND crew_name = <match_key>` **in the same locked tx**, or the auth row orphans. (provision/revoke tx methods are no-ops — `runScheduledCronSync.ts:1601-1609` — so this reconciliation is the *only* auth write.)
+  - **No auth-table write needed.** The signed-link crew-auth table was **retired** in the M9.5 picker cutover (`drop table if exists public.crew_member_auth` — `supabase/migrations/20260523000099_cutover_drop_m9_5.sql:26`; absent from `schema-manifest.json`; zero `lib/` references; the term is on the M9.5 forbidden-surface list `tests/cross-cutting/no-m9-5-surfaces-in-m12-docs.test.ts` `TERMS`). Crew identity is now **id-keyed picker only**, and the apply-path `provisionAddedCrewAuth`/`revokeRemovedCrewAuth` tx methods are no-ops (`runScheduledCronSync.ts:1601-1609`). A name override therefore writes **only** `crew_members.name` (via the pre-write fold) with **no companion auth write** — nothing to reconcile.
   - **picker_epoch:** do **NOT** bump. Picker cookie is id-keyed and the id is stable (§3.1); a parser rename does not bump picker_epoch either (`unpublishShow.ts:152` comment; bumps only in rotate/reset/lifecycle RPCs — `20260523000004:37`, `20260523000003:33`, `20260601*`). Bumping would force an unnecessary re-pick.
   - **MI-7b:** unaffected. MI-7b/rename-staging is a **parser/staging-layer** concern keyed on parse output (`lib/parser/invariants.ts:329+`; crew rename = name set-difference in `applyParseResult.ts:121-126`). The override transforms parse output *before* the diff, so from the diff's perspective the roster is stable at the override value across syncs → no spurious re-stage. (If instead the override were fed back as a *parser* input it would trip MI-7b; it is not.)
 - Both crew overrides go **stale** when `match_key` ∉ parsed crew names.
@@ -194,6 +201,8 @@ When `applyOverrides` finds an active override whose `match_key` is absent from 
 4. The needs-attention row / admin surface offers **re-point** (update `match_key` to a current identifier, reactivate) and **discard** (delete the override row) — both via `set_field_override` RPC variants (§7).
 
 Deactivate-not-delete means a transient sheet glitch (row briefly dropped) does not lose Doug's correction; he re-points or discards deliberately. Accumulation is bounded: deactivated rows are visible needs-attention items that Doug resolves.
+
+**Runtime name-collision (target present but output collides).** The RPC write-time guard (§7.4) prevents *creating* a colliding crew-name override, but a *later* sync can introduce the collision — e.g. the sheet adds a real crew member whose name equals an existing override's output. If `applyOverrides` detects that applying an active crew-name override would produce two crew rows sharing `(show_id, name)` (fold collision), it **must not** apply the fold (that would collapse rows — the audit-2 finding). Instead it **deactivates** the override (`active=false`, row renders parsed value) and emits a distinct `admin_alert` `OVERRIDE_NAME_CONFLICT` (§10) whose copy tells Doug his override name now clashes with a real crew member; the needs-attention row offers re-point (choose a different name) or discard. Same deactivate+surface machinery as stale, different code + copy. The `overrideApply` test asserts no row collapse occurs on a manufactured collision (§13).
 
 ---
 
@@ -226,15 +235,20 @@ as $$ ... $$;
 2. **Belt-and-suspenders auth:** `execute` revoked from anon/authenticated, granted to `service_role` only (§7.5). The app-layer gate is `requireAdminIdentity()`.
 3. **Row-state CAS:** read the current `sheet_value` (or current row value) under the lock; if it differs from `p_expected_sheet_value`, raise `errcode 40001` (→ route maps to 409 stale_review), preventing a stale admin page from clobbering a newer sync's value. For hotels, additionally verify `p_current_ordinal` still names the expected hotel.
 4. **Op semantics:**
-   - `upsert`: validate `override_value` (§7.4); upsert `admin_overrides` (`active=true`); immediately apply to the live row via the shared `applyFieldOverride` routine (§7.3); reconcile `crew_member_auth` on a name change.
-   - `revert`: restore `sheet_value` to the live row (name change → also reconcile auth); delete the override row.
+   - `upsert`: validate `override_value` (§7.4) incl. the name-collision guard; upsert `admin_overrides` (`active=true`); immediately apply to the live row via the RPC immediate-apply helper (§7.3). No auth-table write (§5.2).
+   - `revert`: restore `sheet_value` to the live row; delete the override row. No auth-table write.
    - `repoint`: update `match_key = p_new_match_key`, `active=true`; apply to the newly-targeted live row.
    - `discard`: delete the override row (no live-row change — the row already shows the parsed value since deactivation).
 5. Return a discriminated `jsonb` result (`{ ok, value | code }`) for `mapRpcOutcome` (`mi11GateActions.ts:34`, invariant 9).
 
-### 7.3 Shared apply routine (single source of truth)
+### 7.3 Two distinct apply paths; share ONLY match + validate
 
-Both the RPC (immediate) and the sync transform (durable) apply an override through **one** SQL helper `applyFieldOverride(show_id, domain, field, match_key, value)` so the two paths cannot diverge. The RPC calls it for one override; the sync loop calls it for each active override after the parse transform. (Implementation detail; the plan pins whether it is a SQL function or a shared TS routine executed on the tx.)
+The two paths must **not** share a live-row updater — a shared row-updater is exactly what would let the sync path drift back into post-write live-row UPDATEs and reintroduce the id-churn class (§3.1). They differ in kind:
+
+- **Sync path = pure pre-write transform.** `applyOverridesToParseResult(parseResult, activeOverrides) → { overriddenParseResult, sheetValues, staleOverrides, conflicts }`. Takes and returns a `ParseResult`; performs **no live-row writes**. The overridden `ParseResult` is threaded into `applyShowSnapshot` + `applyParseResult`, which do the delete/upsert exactly as today. This path is id-stable *structurally* — it writes nothing directly; the existing upsert-by-`(show_id,name)` keeps ids stable (§3.1).
+- **RPC path = DB immediate-apply.** `applyOverrideToLiveRow(tx, show_id, override)` — one targeted `UPDATE` of a single live row (shows / crew_members by `(show_id,name)` / hotel_reservations by ordinal), used ONLY by `set_field_override` for instant feedback. Never runs on the sync path.
+
+**Shared, and only these two pure helpers:** `matchOverrideTarget(...)` (natural-id + dup-ordinal matching, §5.3) and `validateOverrideValue(field, value, showContext)` (guards + the name-collision check, §7.4). Matching and validation are identical across paths; *application* is deliberately not shared.
 
 ### 7.4 Value guard conditions (RPC-enforced)
 
@@ -242,7 +256,7 @@ Both the RPC (immediate) and the sync transform (durable) apply an override thro
 |---|---|---|
 | dates | not a valid dates jsonb shape / empty | — |
 | venue | not a valid venue jsonb shape | — |
-| name | empty/whitespace-only after (exempt) trim; or `= match_key` (no-op) | 200 chars |
+| name | empty/whitespace-only after (exempt) trim; `= match_key` (no-op); **or collides** — equals any *other* current parsed crew name, any current live crew name, or any *other* active crew-name override's output for this show (would collapse two `(show_id,name)` rows on upsert). | 200 chars |
 | role | empty/whitespace-only | 120 chars |
 | hotel_name | empty/whitespace-only | 200 chars |
 | hotel_address | empty/whitespace-only | 300 chars |
@@ -353,23 +367,24 @@ Compound: editing while a background sync deactivates the same override → on s
 
 ### 9.4 RLS / SELECT posture
 
-`admin_overrides.created_by` holds an admin email. Options: (a) do not grant SELECT to anon/authenticated and read only via service-role in admin surfaces; (b) grant SELECT under an admin-only RLS policy. **Decision:** follow the `crew_member_auth` precedent — `revoke insert/update/delete` from anon+authenticated, and gate reads through the admin app layer (service-role or admin RLS). The override read for the crew page is **not needed** (crew reads the already-overridden live rows), so no anon SELECT is required. Final grant: `revoke insert,update,delete`; SELECT granted only to `service_role` + admin RLS policy for the admin UI. (The plan pins the exact RLS policy; the lockdown meta-test row records `selectAnon=false, selectAuthenticated=false`.)
+`admin_overrides.created_by` holds an admin email (PII) — so **no SELECT is granted to anon/authenticated**. The crew page does **not** read `admin_overrides` (it reads the already-overridden live rows), so no anon/authenticated read is required at all. **Decision:** `revoke insert,update,delete,select` from anon+authenticated; enable RLS; add an **admin-only SELECT policy** (email ∈ admin set, mirroring the `admin_only` RLS pattern used by other admin tables). All reads for the admin UI go through service-role or that admin RLS policy. The DDL block in §4.1 encodes exactly this posture (no contradictory `grant select`). The lockdown meta-test row records `selectAnon=false, selectAuthenticated=false`.
 
 ---
 
 ## 10. Error / alert codes (§12.4 lockstep)
 
-Three new codes. Each lands in **all** lockstep surfaces in one commit (spec §12.4 prose → `pnpm gen:spec-codes` → `lib/messages/__generated__/spec-codes.ts` → `lib/messages/catalog.ts` → `tests/cross-cutting/code-scenarios.ts` `CODE_SCENARIOS`; parity gate `tests/cross-cutting/codes.test.ts:70,74`).
+Four new codes: **two** forensic outcome codes (`FIELD_OVERRIDE_SET`, `FIELD_OVERRIDE_REVERTED` — logAdminOutcome only, NOT §12.4) and **two** admin-alert codes (`OVERRIDE_TARGET_MISSING`, `OVERRIDE_NAME_CONFLICT`). Only the two admin-alert codes touch §12.4 lockstep; each lands in **all** lockstep surfaces in one commit (spec §12.4 prose → `pnpm gen:spec-codes` → `lib/messages/__generated__/spec-codes.ts` → `lib/messages/catalog.ts` → `tests/cross-cutting/code-scenarios.ts` `CODE_SCENARIOS`; parity gate `tests/cross-cutting/codes.test.ts:70,74`).
 
 | Code | Kind | Audience | Doug-facing copy (draft) |
 |---|---|---|---|
 | `FIELD_OVERRIDE_SET` | forensic outcome (`logAdminOutcome`) | — (not user-rendered) | n/a |
 | `FIELD_OVERRIDE_REVERTED` | forensic outcome (`logAdminOutcome`) | — | n/a |
 | `OVERRIDE_TARGET_MISSING` | `admin_alerts` (new `AdminAlertCode`) | doug | "An override you set no longer matches the sheet. The field is showing the sheet's value again — re-point the override to the right row or discard it." |
+| `OVERRIDE_NAME_CONFLICT` | `admin_alerts` (new `AdminAlertCode`) | doug | "A name override you set now clashes with a real crew member of the same name. We paused it and are showing the sheet's name — re-point it to a different name or discard it." |
 
 **Decided (not deferred):** `FIELD_OVERRIDE_SET` / `FIELD_OVERRIDE_REVERTED` are **forensic outcome codes only** — `logAdminOutcome.code` is a free `string` ("see the meta-test registry", `lib/log/logAdminOutcome.ts:9`), validated by the `AUDITABLE_MUTATIONS` registry, **not** the §12.4 catalog parity gate. They are NOT §12.4 rows and NOT in `catalog.ts` (precedent: `archive.ts:42` emits forensic `SHOW_ARCHIVED`, distinct from the user-rendered catalog code `SHOW_ARCHIVED_BY_ADMIN` at `catalog.ts:1741`). Only `OVERRIDE_TARGET_MISSING` goes through the full lockstep.
 
-`OVERRIDE_TARGET_MISSING` is a new `AdminAlertCode` (`lib/adminAlerts/upsertAdminAlert.ts:3` union, 36 members → 37) → fans out to `tests/messages/_metaAdminAlertCatalog.test.ts`, §12.4 helpfulContext appendix, the audience/identity matrices (~9 surfaces per MEMORY `reference_admin_alert_code_lockstep_surfaces`), and `INBOX_ROUTED_CODES` (`lib/messages/adminSurface.ts`, consumed at `loadNeedsAttention.ts:205`).
+`OVERRIDE_TARGET_MISSING` and `OVERRIDE_NAME_CONFLICT` are **two** new `AdminAlertCode`s (`lib/adminAlerts/upsertAdminAlert.ts:3` union, 36 members → 38). Each fans out to `tests/messages/_metaAdminAlertCatalog.test.ts`, §12.4 prose + helpfulContext appendix, the audience/identity matrices (~9 surfaces each per MEMORY `reference_admin_alert_code_lockstep_surfaces`), and `INBOX_ROUTED_CODES` (`lib/messages/adminSurface.ts`, consumed at `loadNeedsAttention.ts:205`).
 
 Additionally, a user-facing **stale-review** error surfaces on the CAS 409 path — reuse an existing `stale_review`/`SYNC_INFRA_ERROR` code if one fits (`mi11GateActions.ts` maps these); do not invent a new one if an existing code covers "row changed since you opened it."
 
@@ -397,7 +412,7 @@ Additionally, a user-facing **stale-review** error surfaces on the CAS 409 path 
 - `tests/admin/no-inline-email-normalization.test.ts` — any name trim carries `// canonicalize-exempt`.
 
 **Creates:**
-- `tests/sync/overrideApply.test.ts` — the pre-write transform: override folds into crew list before delete/upsert; crew_members.id stable across two syncs (the id-churn regression, §3.1); crew_member_auth crew_name reconciled on name override; hotel matched by name across reorder; show dates/venue overridden; sheet_value refreshed; stale deactivation + alert.
+- `tests/sync/overrideApply.test.ts` — the pre-write transform: override folds into crew list before delete/upsert; crew_members.id stable across two syncs (the id-churn regression, §3.1); name-collision fold-conflict deactivates + alerts (no row collapse, §5.2/§6); hotel matched by name across reorder; show dates/venue overridden; sheet_value refreshed; stale deactivation + alert.
 - `tests/overrides/setFieldOverride.test.ts` — RPC ops (upsert/revert/repoint/discard), CAS 409, guard rejections, lock held.
 - Real-browser layout assertion for the chip/field-row dimensional invariant (§8.6).
 
@@ -423,15 +438,15 @@ Additionally, a user-facing **stale-review** error surfaces on the CAS 409 path 
 | DDL (admin_overrides) | shared table | shared | shared |
 | CHECK | `field in (dates,venue), match_key=''` | `field in (name,role)` | `field in (hotel_name,hotel_address)` |
 | Apply transform | replace parseResult.show before applyShowSnapshot | fold crew list before delete/upsert | replace hotel rows before replace |
-| Live-row write (RPC immediate) | `UPDATE shows` | `UPDATE crew_members` (+auth on name) | `UPDATE hotel_reservations` by ordinal |
-| Auth reconcile | N/A | **name only** → UPDATE crew_member_auth | N/A |
+| Live-row write (RPC immediate) | `UPDATE shows` | `UPDATE crew_members` | `UPDATE hotel_reservations` by ordinal |
+| Auth reconcile | N/A | **none** (auth table retired M9.5; picker id-keyed) | N/A |
 | picker_epoch | N/A | **no bump** | N/A |
 | Stale possible? | no (singleton) | yes | yes |
 | Match key | `''` | parsed name | parsed name + dup-ordinal |
 | Wizard UI | date row + VenueBreakdown | CrewBreakdown rows | hotels body |
 | Live-show UI | **new** Show-details block | crew rows :709-743 | **new** Hotels block |
 | Revert | UPDATE shows = sheet_value | UPDATE crew_members (+auth) | UPDATE hotel by ordinal |
-| Tests | overrideApply + RPC + layout | + id-stability + auth reconcile | + dup-name + reorder |
+| Tests | overrideApply + RPC + layout | + id-stability + collision guard | + dup-name + reorder |
 
 ---
 
@@ -440,7 +455,7 @@ Additionally, a user-facing **stale-review** error surfaces on the CAS 409 path 
 1. **Pre-write transform, NOT post-write rename** — this is a deliberate correctness refinement of the approved "write-time overlay", justified by the crew_members.id-churn/picker-cookie failure of post-write rename (§3.1, cited `resolvePickerSelection.ts:96`, `runScheduledCronSync.ts:1560-1584`). Not a scope change.
 2. **picker_epoch deliberately NOT bumped on name override** — id-keyed cookie survives; matches parser-rename behavior (`unpublishShow.ts:152`). Bumping would be a worse UX (forced re-pick).
 3. **Deactivate-not-delete on stale** — a deliberate anti-data-loss choice (transient sheet glitch must not lose Doug's correction). User-approved in brainstorming.
-4. **crew_member_auth reconciled by explicit UPDATE** — because there is no FK and provision/revoke are no-ops (`runScheduledCronSync.ts:1601-1609`); this is not a missing cascade to "fix" elsewhere.
+4. **No auth-table write on name override** — the signed-link `crew_member_auth` table was retired in the M9.5 picker cutover (`20260523000099_cutover_drop_m9_5.sql:26`); crew identity is id-keyed picker only. A name override writes `crew_members.name` and nothing else. Do not reintroduce any retired M9.5 auth surface.
 5. **Readers untouched** — no crew-page/picker/auth read-path change is required or wanted; the override lives entirely in the write path + admin edit surfaces. Invariant-9 boundaries unchanged.
 6. **`` hotel dup delimiter** — chosen because it cannot occur in a hotel name; UI hides it. Not a hack to relitigate.
 7. **Crew email intentionally excluded** — identity/canonicalization load-bearing (invariant 3).
