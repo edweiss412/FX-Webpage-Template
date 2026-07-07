@@ -55,7 +55,7 @@ Column citations: `shows.dates`/`shows.venue` (`supabase/__generated__/schema-ma
 
 ### 3.1 The mechanism and why pre-write
 
-The user-approved intent (brainstorming): overrides applied at **write-time** in the same per-show advisory-locked transaction; readers (crew page, picker, auth, admin) stay untouched and read normal live rows; the chip needs the sheet value stored on the override row.
+The user-approved intent (brainstorming): overrides applied at **write-time** in the same per-show advisory-locked transaction; readers (crew page, picker, auth, admin) stay untouched and read normal live rows; the chip needs the sheet value stored on the override row. (Refined below: this holds for 5 of 6 fields; the crew **name** override additionally needs one bounded read-side visibility alias — §3.5 — because a rename is a cross-domain identity change, not a pure value swap.)
 
 **Refinement discovered during live-code verification (documented so the reviewer does not relitigate):** the override must be applied as a **transform of the parse output *before* `applyParseResult`'s delete/upsert**, mirroring `holdAwareApply` (`lib/sync/holds/holdAwareApply.ts:151`; consumed at `applyParseResult.ts:100-116`) — **not** as a post-write in-place UPDATE of the just-written row.
 
@@ -71,15 +71,15 @@ The two mechanisms are visually identical to Doug; only the pre-write one is cor
 
 The locked apply transaction is opened at `runScheduledCronSync.ts:1801` (`sql.begin`), lock acquired JS-side in `withShowLock`/`lockedShowTx.ts:57-62,74` (single JS-side holder — invariant 2). Inside it, in order:
 
-1. `applyShowSnapshot` (`runScheduledCronSync.ts:1304`) — writes `shows.dates`/`shows.venue` (UPDATE arms at `:1432`,`:1458`). **`show`-domain overrides (dates/venue) must transform the ParseResult *before* this writer consumes it.**
-2. `runPhase2` → `applyParseResult` (`lib/sync/phase2.ts:369`) — writes crew + hotels. **`crew`/`hotel`-domain overrides transform the crew list + hotel rows *before* `applyParseResult`'s delete/upsert.**
+1. `applyShowSnapshot` (`runScheduledCronSync.ts:1304`) — writes `shows.dates`/`shows.venue` (UPDATE arms at `:1432`,`:1458`). **`show`-domain overrides (dates/venue) transform the ParseResult *before* this writer consumes it.**
+2. `runPhase2` → `applyParseResult` (`lib/sync/phase2.ts:369`) — writes crew + hotels. **`hotel`-domain overrides transform the hotel rows before `replaceHotelReservations`.** **`crew`-domain overrides (name/role) apply to the POST-HOLD crew write list *inside* `applyParseResult` — see the critical hold-ordering rule §3.4.** They must NOT be folded into the ParseResult that `applyParseResult` feeds to the hold engine.
 
 **Two clearly-separated stages — the transform is PURE; the override-table side-effects are gated on the apply actually proceeding.** This separation is mandatory because `runPhase2` can **short-circuit stale**: `applyShowSnapshot` returns `outcome:"stale"` under its modified-time guard and `runPhase2` returns immediately (`lib/sync/phase2.ts:305-306`) — **before** `applyParseResult` (`:369`) and the post-apply slot (`:378`) ever run, yet the surrounding tx still commits. If override-table writes (`sheet_value`, `active=false`) were emitted before `applyShowSnapshot`, a stale/replayed sync would commit them even though no live row changed — pausing valid overrides and refreshing `sheet_value` from a stale parse (a false needs-attention). So:
 
 - **Stage A — pure transform (before `applyShowSnapshot`).** `overrideParseResult(parseResult, activeOverrides) → { overriddenParseResult, plannedSheetValues, plannedStale, plannedConflicts }`. Pure: reads the ParseResult + the active overrides, returns the overridden ParseResult **and the *planned* side-effects**, but performs **zero writes** (no live-row writes, no `admin_overrides` writes). If the sync short-circuits stale after this, nothing was persisted — no harm.
 - **Stage B — override-table side-effects (at the post-apply slot `phase2.ts:378`, applied path only).** Only reached when `applyShowSnapshot` returned `updated` and `applyParseResult` ran. Here `commitOverrideSideEffects(tx, plannedSheetValues, plannedStale, plannedConflicts)` writes `sheet_value` refreshes and `active=false` deactivations to `admin_overrides` — atomic with the applied change-log writes already in that slot (`:383-399`). A stale short-circuit never reaches this stage, so `admin_overrides` is untouched on a stale sync.
 
-`overriddenParseResult` (Stage A) is threaded into `applyShowSnapshot` + `applyParseResult`. Readers are **untouched** — no crew-page, picker, auth, or admin read-path change. This preserves invariant 9 boundaries and keeps blast radius to the write path + admin edit surfaces.
+Stage A's overridden `show`/`hotel` values are threaded into `applyShowSnapshot` / the hotel writer. **Crew overrides are the exception (§3.4): they are applied to the post-hold write list inside `applyParseResult`, NOT folded into the ParseResult the hold engine sees.** Readers are **untouched EXCEPT** the crew-page visibility name-match layer, which gains a bounded override→sheet-name alias (§3.5 — the one deliberate reader exception, required so a renamed viewer still sees their own hotel/transport). All other read paths (picker, auth, admin) are unchanged; invariant-9 boundaries hold.
 
 ### 3.3 sheet_value capture + stale detection
 
@@ -88,6 +88,28 @@ The *planned* side-effects computed in Stage A, persisted in Stage B (§3.2):
 - **stale/conflict:** if `match_key` is **not present** in the parsed identifiers (crew name gone, hotel name gone), or applying a crew-name override would collide (§6), the override is **deactivated** (`active=false`). `show`-domain overrides never go stale (singleton always present; parsed dates/venue null → `sheet_value=null`, override still applies).
 
 All `admin_overrides` writes happen in **Stage B, inside the locked tx, on the applied path only**. The best-effort `admin_alert` push is **post-commit, outside the lock** (§6, invariant 10) — and is additive to the durable inactive-row signal, never the sole signal.
+
+### 3.4 Hold-ordering rule (crew overrides apply AFTER hold-aware planning)
+
+`applyParseResult` runs `planHoldAwareApply` on **`args.parseResult`** (`applyParseResult.ts:100-108`); that engine builds `parseByName` and treats a `match_key` absent from the parse as a **rename/removal** (`holdAwareApply.ts:75-122` — `undoOverrideReleased`, `mi11Reconciled`, reservation logic all key on `hold.entity_key` against `parseByName`). If a crew-name override folded `Jon → John` into the ParseResult *before* hold planning, an open MI-11 hold on `Jon` would see `Jon` as vanished and mis-release / retarget / suppress based on the **override** rather than the **raw sheet** — corrupting guarded-change semantics.
+
+**Rule:** the hold engine consumes the **RAW** parse (`match_key` names). Crew name/role overrides are applied to the **post-hold crew write list** — the `crewMembers` array `planHoldAwareApply` returns (`applyParseResult.ts:112`) — *after* line 116 and *before* the `deleteCrewMembersNotIn` / `upsertCrewMembers` at `:128-129`. Concretely:
+
+1. `planHoldAwareApply(args.parseResult)` → post-hold `crewMembers` (raw names), `protectedNames`, `heldNames`.
+2. **Apply crew overrides** to that post-hold list: fold `name`, set `role`. Compute `nextCrewNames` / `deleteKeepNames` / `added` / `removed` from the **override-folded** names (so `deleteCrewMembersNotIn` keeps the persisted override-named row → id stable, §3.1; and change-log add/remove reflects the folded roster, not a phantom `Jon`-removed/`John`-added pair).
+3. delete/upsert with the override-folded list.
+
+**Hold + override on the same member (edge):** if a crew member's `match_key` has an **open MI-11 hold** *and* an active name override, the hold's identity handling wins for that member **that sync** — the name-override fold is **skipped** for that member (the override stays `active`, unapplied, no stale/deactivation; it re-applies on the next sync once the hold has cleared). Rationale: holds are the stronger guarded-change contract (invariant-adjacent); a display override must never perturb hold release. Tested with an open MI-11 hold + active crew-name override asserting hold release/retarget follows the raw sheet and the override defers.
+
+### 3.5 Crew-name visibility alias (the one reader exception)
+
+A crew **name** override is a **cross-domain identity alias**, not merely a display rename. The crew page resolves the viewer's identity by `crew_members.id` (picker, `resolvePickerSelection.ts:96`) and then reads `viewerName` from `crew_members.name`; name-bearing **parsed reference** fields (`transportation.driver_name`, schedule `assigned_names[]`, `hotel_reservations.names[]`) still carry the **sheet** name and are matched against `viewerName` via `namesRefer` (`lib/visibility/scopeTiles.ts`, `lib/data/nameMatch.ts`). If `viewerName` becomes `John` but those refs still say `Jon`, the viewer's own hotel/transport could disappear — violating success criterion 3.
+
+**Blast radius is narrower than it first appears.** `namesRefer` (`lib/data/nameMatch.ts:63`) compares **surname-only** for two multi-token names (first name intentionally ignored — catches Bill↔William). So `namesRefer('Jon Smith','John Smith') = TRUE`: a **first-name** correction already keeps the viewer matched to their hotel/transport with zero extra work. **Only a surname-changing override** (`'Jon Smith'→'Jon Smyth'`, or a wholesale rename) breaks the match. The alias contract exists to make that remaining case correct.
+
+**Exactly three match sites** (from the reference-surface map): `lib/visibility/scopeTiles.ts:192` (`transportation.driver_name`), `:200` (schedule `assigned_names[]`), and `lib/data/getShowForViewer.ts:104` (`hotelVisibleToViewer` → `hotel_reservations.names[]`). All three call `namesRefer(ref, viewerName)`, where `viewerName` = `crew_members.name` (read by id at `getShowForViewer.ts:291-305`). No other reader matches by crew name (schedule/day gating is by `date_restriction`/`role_flags`, never name; identity resolution is id-based at `resolvePickerSelection.ts:96` and never name).
+
+**Contract — alias colocated on `crew_members`, no `admin_overrides` read in the crew path:** the write transform stores the pre-override sheet name in a new nullable column **`crew_members.sheet_name`** (set to `match_key` when a name override is applied, `NULL` otherwise — §4.4). `getShowForViewer` already fetches the viewer's `crew_members` row by id; it additionally selects `sheet_name` and builds a viewer **alias set** `viewerNames = [name] ++ (sheet_name ? [sheet_name] : [])`. The three sites match a ref if it refers to **any** alias: `viewerNames.some(vn => namesRefer(ref, vn))` via a shared helper `namesReferAny(ref, viewerNames)`. This is **additive only** — it widens the viewer's own matches to include rows still tagged with their sheet name; it never narrows, reassigns, or mutates any parsed ref (no write-time propagation → no "which `Jon` is this" mis-rewrite risk). Because the alias lives on the crew row the crew reader already reads, the crew path never touches the admin-only `admin_overrides` table (no RLS conflict). This is the **only** crew-page reader change.
 
 ---
 
@@ -167,6 +189,23 @@ No transitional dual-value window (single new table, one-shot). No retired colum
 - `venue`: same shape as `shows.venue`.
 - `name`/`role`/`hotel_name`/`hotel_address`: a JSON string. Guard: empty string / whitespace-only rejected by the RPC (a blank override is meaningless — Doug should revert instead). Length-capped (§7.4). `role` accepts any non-empty string (free-text — no enum; `20260501000000_initial_public_schema.sql:37`).
 - `sheet_value` null: field was never matched this sync, OR the parsed value is genuinely null (parsed dates absent). The chip renders "sheet has no value" in that case (§8.5).
+
+### 4.4 `crew_members.sheet_name` — visibility alias column
+
+The crew-name visibility alias (§3.5) requires the crew read path to know a renamed viewer's original sheet name **without** reading the admin-only `admin_overrides` table. A new nullable column carries it, colocated on the row `getShowForViewer` already fetches:
+
+```sql
+-- same migration file as admin_overrides (20260707000000_admin_field_overrides.sql)
+alter table public.crew_members
+  add column if not exists sheet_name text;   -- original parsed name when a name override is active; NULL otherwise
+comment on column public.crew_members.sheet_name is
+  'Set to the pre-override parsed name when an admin name override is active on this row (visibility alias, spec 2026-07-07 §3.5); NULL when name is un-overridden. Written only by the crew override write-transform.';
+```
+
+- **Write rule** (crew override transform, §3.4 step 2): when a `name` override is applied to a member, set `sheet_name = match_key` (the parsed name); when no active name override, `sheet_name = NULL`. Idempotent — recomputed every applied sync from the active overrides.
+- **Guard:** `sheet_name` is display-only (a crew name, non-PII). It is NOT a second identity key (identity stays id-based). A `.trim()`/normalization on it in `lib/sync` needs the `// canonicalize-exempt` comment (§7.4).
+- Fully-replaced-safe: on any sync with no name override, the column resets to `NULL` (no stale alias). `crew_members` is upserted in place (id stable), so `sheet_name` rides along.
+- CHECK/enum: none (free-text nullable). Manifest + validation-parity: the column is introspected by `gen:schema-manifest` and must reach the validation project (§12).
 
 ---
 
@@ -451,15 +490,19 @@ Additionally, a user-facing **stale-review** error surfaces on the CAS 409 path 
 - `tests/auth/advisoryLockRpcDeadlock.test.ts` — add migration filename to `migrationFiles` (`:33`); document `set_field_override` as an in-RPC single holder in the allow-list comments (`:100+`).
 - `tests/log/_auditableMutations.ts` + `tests/log/adminOutcomeBehavior.test.ts` — registry rows + behavioral proof.
 - `tests/messages/_metaAdminAlertCatalog.test.ts`, `tests/cross-cutting/codes.test.ts` — new codes.
-- `tests/db/validation-schema-parity.test.ts` — satisfied by regen manifest + surgical validation apply.
-- `tests/admin/no-inline-email-normalization.test.ts` — any name trim carries `// canonicalize-exempt`.
+- `tests/db/validation-schema-parity.test.ts` — the migration adds BOTH `admin_overrides` (table) AND `crew_members.sheet_name` (column, §4.4); regen manifest + surgical validation apply cover both.
+- `tests/admin/no-inline-email-normalization.test.ts` — any name/`sheet_name` trim carries `// canonicalize-exempt`.
+- `lib/data/getShowForViewer.ts` + `lib/visibility/scopeTiles.ts` — the crew-name visibility alias (§3.5): select `crew_members.sheet_name`, build `viewerNames` alias set, replace the 3 `namesRefer(ref, viewerName)` sites (`scopeTiles.ts:192,200`, `getShowForViewer.ts:104`) with `namesReferAny(ref, viewerNames)`. Additive-only; covered by `tests/crew/nameOverrideVisibilityAlias.test.ts`.
 
 **Creates:**
 - `tests/sync/overrideApply.test.ts` — the pre-write transform: override folds into crew list before delete/upsert; crew_members.id stable across two syncs (the id-churn regression, §3.1); name-collision fold-conflict deactivates without row collapse (§5.2/§6); hotel matched by name across reorder; show dates/venue overridden; sheet_value refreshed; **stale deactivation surfaces via the inactive-row needs-attention stream even when the post-commit alert emit throws** (durability test — §6 step 2 vs step 3); **a stale-short-circuit sync (`applyShowSnapshot` returns `outcome:"stale"`, `phase2.ts:305-306`) leaves `admin_overrides` completely unchanged — no sheet_value refresh, no deactivation** (Stage A pure / Stage B applied-path-only, §3.2).
 - `tests/overrides/setFieldOverride.test.ts` — RPC ops (upsert/revert/repoint/discard), CAS 409, guard rejections (incl. name collision), lock held, and the full §7.6 anchor matrix: edit `John`→`Jonathan` and revert `John`→`Jon` hit the correct live row; **a role override applied AND reverted while a name override is active resolves the live row through the sibling name override** (§7.6 finding 3); **repoint of an inactive/stale override succeeds with the old parsed target absent** (does not require an old live row — §7.6 finding 2); a wrong active-anchor (live name moved by a concurrent sync) raises 409, not a silent zero-row no-op.
 - Real-browser layout assertion for the chip/field-row dimensional invariant (§8.6).
 
-**Not applicable:** sentinel-hiding walker (no crew-page tile change); `_metaInfraContract` applies to the new override helper (registered).
+- `tests/sync/overrideHoldOrdering.test.ts` — an **open MI-11 hold on `Jon` + an active name override `Jon→John`**: hold release/retarget follows the RAW sheet (`Jon` still present) and the override fold is **deferred** for that member that sync (§3.4). Failure mode caught: folding the override into the ParseResult before hold planning, corrupting hold reconciliation.
+- `tests/crew/nameOverrideVisibilityAlias.test.ts` — crew-page render: a **surname-changing** name override (`Jon Smith → Jon Smyth`) — the renamed viewer **still sees their own hotel reservation and transport assignment** (alias set includes `sheet_name`); and a first-name-only override already matches via `namesRefer` surname compare (regression proof the alias doesn't break the working case). Derives expected visibility from fixture names, not hardcoded (§3.5).
+
+**Not applicable:** sentinel-hiding walker (no crew-page tile change; the alias is a match-set widen, not a new rendered element); `_metaInfraContract` applies to the new override helper (registered).
 
 ---
 
@@ -480,8 +523,10 @@ Additionally, a user-facing **stale-review** error surfaces on the CAS 409 path 
 |---|---|---|---|
 | DDL (admin_overrides) | shared table | shared | shared |
 | CHECK | `field in (dates,venue), match_key=''` | `field in (name,role)` | `field in (hotel_name,hotel_address)` |
-| Apply transform | replace parseResult.show before applyShowSnapshot | fold crew list before delete/upsert | replace hotel rows before replace |
-| Live-row write (RPC immediate) | `UPDATE shows` | `UPDATE crew_members` | `UPDATE hotel_reservations` by ordinal |
+| Apply transform | replace parseResult.show before applyShowSnapshot | fold **post-hold** crew list before delete/upsert (§3.4); also set `crew_members.sheet_name` | replace hotel rows before replace |
+| Hold ordering | N/A | holds plan on RAW parse; override applies after (§3.4); hold+override same member → defer override | N/A |
+| Live-row write (RPC immediate) | `UPDATE shows` | `UPDATE crew_members` (+`sheet_name` on name op); anchor via §7.6 resolver | `UPDATE hotel_reservations` by ordinal |
+| Visibility alias | N/A | **name override** → `sheet_name` widens viewer match set at 3 `namesRefer` sites (§3.5); role → N/A | N/A |
 | Auth reconcile | N/A | **none** (auth table retired M9.5; picker id-keyed) | N/A |
 | picker_epoch | N/A | **no bump** | N/A |
 | Stale possible? | no (singleton) | yes | yes |
@@ -489,7 +534,7 @@ Additionally, a user-facing **stale-review** error surfaces on the CAS 409 path 
 | Wizard UI | date row + VenueBreakdown | CrewBreakdown rows | hotels body |
 | Live-show UI | **new** Show-details block | crew rows :709-743 | **new** Hotels block |
 | Revert | UPDATE shows = sheet_value | UPDATE crew_members = sheet_value, **no auth write** (anchor = current override_value, §7.6) | UPDATE hotel by ordinal |
-| Tests | overrideApply + RPC + layout | + id-stability + collision guard | + dup-name + reorder |
+| Tests | overrideApply + RPC + layout | + id-stability + collision guard + hold-ordering + visibility-alias | + dup-name + reorder |
 
 ---
 
@@ -499,6 +544,9 @@ Additionally, a user-facing **stale-review** error surfaces on the CAS 409 path 
 2. **picker_epoch deliberately NOT bumped on name override** — id-keyed cookie survives; matches parser-rename behavior (`unpublishShow.ts:152`). Bumping would be a worse UX (forced re-pick).
 3. **Deactivate-not-delete on stale** — a deliberate anti-data-loss choice (transient sheet glitch must not lose Doug's correction). User-approved in brainstorming.
 4. **No auth-table write on name override** — the signed-link `crew_member_auth` table was retired in the M9.5 picker cutover (`20260523000099_cutover_drop_m9_5.sql:26`); crew identity is id-keyed picker only. A name override writes `crew_members.name` and nothing else. Do not reintroduce any retired M9.5 auth surface.
-5. **Readers untouched** — no crew-page/picker/auth read-path change is required or wanted; the override lives entirely in the write path + admin edit surfaces. Invariant-9 boundaries unchanged.
+5. **Readers untouched EXCEPT one bounded, deliberate exception: the crew-name visibility alias** (§3.5). The single reader change widens the 3 `namesRefer` match sites to a viewer alias set `{name, sheet_name}`; additive-only (never narrows/reassigns), reads a colocated `crew_members` column (no `admin_overrides` read in the crew path, no RLS conflict), mutates no parsed ref. Picker/auth/admin read paths unchanged; invariant-9 boundaries hold. Do not relitigate as "readers must be fully untouched" — a crew NAME override is inherently a cross-domain identity alias, and this is the minimal correct realization.
+5a. **Hold-ordering: crew overrides apply AFTER hold-aware planning** (§3.4). The hold engine MUST see the RAW parse (folding the override in first corrupts MI-11 reconciliation — `holdAwareApply.ts:75-122`). Hold + override on the same member → override defers that sync. Mandatory, not a detail to "simplify."
+5b. **Crew-name propagation is read-side alias, NOT write-side ref rewriting.** We deliberately do NOT rewrite `hotel_reservations.names[]` / `transportation.driver_name` / `assigned_names[]` at write time — that re-solves the "which `Jon`" fuzzy match at write time and risks mis-rewriting a different person. The read-time alias set is provably safe.
+5c. **Crew-name override is the high-complexity field (accepted).** The user explicitly chose the full set INCLUDING crew name over the recommended "exclude name", aware it is "significantly larger, higher risk." Its cross-domain machinery (pre-write fold, hold-ordering, `sheet_name` alias, anchor resolver, collision guard) realizes that accepted cost — not scope creep. The other 5 fields are simple value overlays; a future descope of crew name cleanly removes §3.4/§3.5/§4.4/§7.6-crew + the `sheet_name` column.
 6. **`` hotel dup delimiter** — chosen because it cannot occur in a hotel name; UI hides it. Not a hack to relitigate.
 7. **Crew email intentionally excluded** — identity/canonicalization load-bearing (invariant 3).
