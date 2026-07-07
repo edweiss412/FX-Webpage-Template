@@ -17,11 +17,12 @@
  *     to admin_alerts via the action body, not to the UI).
  */
 
-import { AlertTriangle, RotateCcw } from "lucide-react";
+import { AlertTriangle, Mail, RotateCcw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState, useTransition } from "react";
 
 import { rotateShareToken } from "@/lib/auth/picker/rotateShareToken";
+import { buildCrewLinkMailtos } from "./crewLinkMailto";
 import { resolveOrigin } from "./resolveOrigin";
 
 const AUTO_REVERT_MS = 3_000;
@@ -39,6 +40,8 @@ export function RotateShareTokenButton({
   compact = false,
   rowLabel,
   rowDescription,
+  crewEmails = [],
+  showTitle = "",
 }: {
   showId: string;
   slug: string;
@@ -68,6 +71,12 @@ export function RotateShareTokenButton({
    * not window.location.origin.
    */
   isCrewLinkActive?: boolean;
+  /**
+   * Flow 5 (audit 5.2) — validated roster emails for the post-rotate
+   * "Email crew" re-send anchors. Empty/omitted hides the affordance.
+   */
+  crewEmails?: readonly string[];
+  showTitle?: string;
 }) {
   const router = useRouter();
   const [ui, setUi] = useState<UiState>("idle");
@@ -161,6 +170,9 @@ export function RotateShareTokenButton({
     result?.ok && isCrewLinkActive
       ? `${resolveOrigin()}/show/${slug}/${result.new_share_token}`
       : null;
+  const emailMailtos = newUrl
+    ? buildCrewLinkMailtos({ emails: crewEmails, url: newUrl, showTitle })
+    : [];
   const rotatedInactive = result?.ok === true && !isCrewLinkActive;
   const refusedMessage =
     result && result.ok === false ? "Couldn't rotate the share-token. Please try again." : null;
@@ -217,7 +229,8 @@ export function RotateShareTokenButton({
             <span aria-hidden="true" className="mr-1 font-semibold text-accent">
               ✓
             </span>
-            New share-link ready. Send the URL below to crew; the old link no longer works.
+            New share-link ready. Send the URL below to crew; the old link no longer works and
+            everyone will re-pick their name.
           </p>
           <div className="flex items-start gap-2">
             <code
@@ -236,6 +249,21 @@ export function RotateShareTokenButton({
               {copied ? "Copied" : "Copy"}
             </button>
           </div>
+          {emailMailtos.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2">
+              {emailMailtos.map((m) => (
+                <a
+                  key={m.batch}
+                  href={m.href}
+                  data-testid="admin-rotate-share-token-email-button"
+                  className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                >
+                  <Mail aria-hidden="true" size={14} />
+                  {m.batchCount === 1 ? "Email crew" : `Email crew (${m.batch} of ${m.batchCount})`}
+                </a>
+              ))}
+            </div>
+          )}
           <span
             role="status"
             aria-live="polite"
@@ -294,7 +322,8 @@ export function RotateShareTokenButton({
   // the warning paragraph's id (tighter SR experience).
   const warningP = (
     <p id="admin-rotate-share-token-warning" className="text-sm text-text-subtle">
-      The existing show URL will stop working. Crew need the new URL to reach the page.
+      The existing show URL will stop working. Every crew member will need the new URL and will
+      have to re-pick their name.
     </p>
   );
   const confirmCancelButtons = (
