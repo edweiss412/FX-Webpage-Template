@@ -18,7 +18,9 @@ describe("ops METADATA_FIELD_TOKENS", () => {
     // spec §6.8 disjointness is SECTION_HEADER_TOKENS ∩ METADATA_FIELD_TOKENS per
     // file; ops exports no SECTION_HEADER_TOKENS, so the intersection is empty.
     const sectionTokens = new Set(
-      ((ops as Record<string, unknown>).SECTION_HEADER_TOKENS as string[] | undefined ?? []).map(normalizeHeader),
+      (((ops as Record<string, unknown>).SECTION_HEADER_TOKENS as string[] | undefined) ?? []).map(
+        normalizeHeader,
+      ),
     );
     for (const t of ops.METADATA_FIELD_TOKENS) {
       expect(sectionTokens.has(normalizeHeader(t))).toBe(false);

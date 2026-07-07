@@ -18,13 +18,17 @@ describe("buildCol0HeaderRe", () => {
   });
 
   it("orders alternation longest-first so a short token cannot shadow a longer one", () => {
-    const re = buildCol0HeaderRe(["GS DETAILS", "GS DETAILS (FOR BOTH)"], { caseInsensitive: true });
+    const re = buildCol0HeaderRe(["GS DETAILS", "GS DETAILS (FOR BOTH)"], {
+      caseInsensitive: true,
+    });
     expect(re.test("| GS DETAILS (FOR BOTH) |")).toBe(true);
     expect(re.test("| GS DETAILS |")).toBe(true);
   });
 
   it("collapses literal spaces to \\s+ (tolerates multi-space headers) and escapes regex metachars", () => {
-    const re = buildCol0HeaderRe(["EVENT DETAILS", "DETAILS/ROOM DIAGRAM"], { caseInsensitive: true });
+    const re = buildCol0HeaderRe(["EVENT DETAILS", "DETAILS/ROOM DIAGRAM"], {
+      caseInsensitive: true,
+    });
     expect(re.test("| EVENT  DETAILS |")).toBe(true); // double space
     expect(re.test("| Details/Room Diagram |")).toBe(true); // case-insensitive + slash literal
   });

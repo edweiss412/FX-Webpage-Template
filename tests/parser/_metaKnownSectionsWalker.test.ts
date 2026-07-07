@@ -141,8 +141,13 @@ describe("known-sections source walker", () => {
       // Step 8: disjointness with METADATA_FIELD_TOKENS if both present.
       const meta = s.mod.METADATA_FIELD_TOKENS as readonly string[] | undefined;
       if (meta) {
-        const overlap = tokens.filter((t) => meta.some((m) => normalizeHeader(m) === normalizeHeader(t)));
-        expect(overlap, `${s.file} SECTION_HEADER_TOKENS ∩ METADATA_FIELD_TOKENS not empty`).toEqual([]);
+        const overlap = tokens.filter((t) =>
+          meta.some((m) => normalizeHeader(m) === normalizeHeader(t)),
+        );
+        expect(
+          overlap,
+          `${s.file} SECTION_HEADER_TOKENS ∩ METADATA_FIELD_TOKENS not empty`,
+        ).toEqual([]);
       }
     }
   });
@@ -199,7 +204,8 @@ describe("known-sections source walker", () => {
     const scanned = await scanFiles();
     const claimed = new Set<string>();
     for (const s of scanned) {
-      for (const t of (s.mod.SECTION_HEADER_TOKENS as string[] | undefined) ?? []) claimed.add(normalizeHeader(t));
+      for (const t of (s.mod.SECTION_HEADER_TOKENS as string[] | undefined) ?? [])
+        claimed.add(normalizeHeader(t));
     }
     for (const p of PREFIX_SECTION_FAMILIES) claimed.add(normalizeHeader(p));
     const orphans = [...KNOWN_SECTION_HEADERS].filter(
@@ -207,7 +213,9 @@ describe("known-sections source walker", () => {
     );
     if (orphans.length > 0) {
       // warn, do not fail
-      console.warn(`[known-sections walker] unclaimed registry entries (not EXPECTED_ORPHANS): ${orphans.join(", ")}`);
+      console.warn(
+        `[known-sections walker] unclaimed registry entries (not EXPECTED_ORPHANS): ${orphans.join(", ")}`,
+      );
     }
     expect(true).toBe(true);
   });
@@ -220,7 +228,9 @@ describe("known-sections walker non-vacuity proof", () => {
   // Mirrors the guard: CASE-SENSITIVE Form A + whitespace-normalized anchored-regex Form B.
   const hits = (source: string, token = "GENERAL SESSION"): boolean => {
     const T = esc(token);
-    const FORM_A = new RegExp(`(?:===|!==|\\.startsWith\\(|\\.includes\\()\\s*["']${T}["']|["']${T}["']\\s*(?:===|!==)`);
+    const FORM_A = new RegExp(
+      `(?:===|!==|\\.startsWith\\(|\\.includes\\()\\s*["']${T}["']|["']${T}["']\\s*(?:===|!==)`,
+    );
     const anchored = (source.match(/\/\\?\^[^/\n]+\//g) ?? []).map((lit) =>
       lit.replace(/\\s[*+]?/g, " ").replace(/\s+/g, " "),
     );
@@ -232,7 +242,9 @@ describe("known-sections walker non-vacuity proof", () => {
   });
   it("(c) a source exporting tokens but not importing the factory fails the import-link regex", () => {
     const bad = `export const SECTION_HEADER_TOKENS = ["GENERAL SESSION"];`;
-    expect(/from\s+["'](?:\.\/|@\/lib\/parser\/blocks\/)_sectionHeaderMatch["']/.test(bad)).toBe(false);
+    expect(/from\s+["'](?:\.\/|@\/lib\/parser\/blocks\/)_sectionHeaderMatch["']/.test(bad)).toBe(
+      false,
+    );
   });
   it("(d) Form B: anchored regex literals referencing a registered token are flagged (incl. \\s+ variant)", () => {
     expect(hits(String.raw`const RE = /^\|\s*GENERAL SESSION\s*\|/;`)).toBe(true);

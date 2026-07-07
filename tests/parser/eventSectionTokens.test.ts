@@ -9,7 +9,13 @@ const ORIGINAL =
 describe("event SECTION_HEADER_TOKENS", () => {
   it("exports the 5 canonical variants", () => {
     expect([...SECTION_HEADER_TOKENS].sort()).toEqual(
-      ["DETAILS", "DETAILS/ROOM DIAGRAM", "EVENT DETAILS", "GS DETAILS", "GS DETAILS (FOR BOTH)"].sort(),
+      [
+        "DETAILS",
+        "DETAILS/ROOM DIAGRAM",
+        "EVENT DETAILS",
+        "GS DETAILS",
+        "GS DETAILS (FOR BOTH)",
+      ].sort(),
     );
   });
   it("factory regex matches EXACTLY the original's accepted set", () => {

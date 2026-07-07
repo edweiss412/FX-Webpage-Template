@@ -15,6 +15,8 @@ describe("transport SECTION_HEADER_TOKENS", () => {
     expect(tRe.test("| transportation | transportation | phone | email |")).toBe(true); // case superset
     expect(tRe.test("| TRANSPORTATION/Ground | TRANSPORTATION | PHONE | EMAIL |")).toBe(true); // slash-suffix superset
     // v1 Driver header is whole-cell /^\|\s*Driver\s*\|/im — whole-cell case-insensitive is exact.
-    expect(buildCol0HeaderRe(["DRIVER"], { caseInsensitive: true }).test("| Driver | Name | Phone |")).toBe(true);
+    expect(
+      buildCol0HeaderRe(["DRIVER"], { caseInsensitive: true }).test("| Driver | Name | Phone |"),
+    ).toBe(true);
   });
 });
