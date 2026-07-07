@@ -283,6 +283,39 @@ describe("Step3ReviewModal — header anatomy (spec §9.1)", () => {
   });
 });
 
+// ── Rooms & scope rail sub-nav ───────────────────────────────────────────────
+
+describe("Step3ReviewModal — rooms rail sub-nav", () => {
+  test("renders one indented child per room under Rooms & scope; clicking activates rooms + scrolls the pane to that card", () => {
+    // jsdom has no Element#scrollTo — stub on the prototype so jumpToRoom's
+    // guarded scroll runs.
+    const original = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollTo");
+    const scrollTo = vi.fn();
+    Object.defineProperty(HTMLElement.prototype, "scrollTo", {
+      value: scrollTo,
+      configurable: true,
+      writable: true,
+    });
+    try {
+      const d = sectionData(); // fixture: 4 rooms, "Ballroom 1".."Ballroom 4"
+      const { q } = renderModal({ d });
+      // One child per rendered room, labeled by room name, in order.
+      d.rooms.forEach((r, i) => {
+        expect(q.getByTestId(tid(`rail-room-${i}`)).textContent).toBe(r.name);
+      });
+      // The room card is the scroll target (queryable, no id — twin-nav rule).
+      expect(q.container.querySelector('[data-room-nav="2"]')).not.toBeNull();
+      // Clicking a child keeps the parent "Rooms & scope" item active + scrolls.
+      fireEvent.click(q.getByTestId(tid("rail-room-2")));
+      expect(q.getByTestId(tid("rail-item-rooms")).getAttribute("aria-current")).toBe("true");
+      expect(scrollTo).toHaveBeenCalled();
+    } finally {
+      if (original) Object.defineProperty(HTMLElement.prototype, "scrollTo", original);
+      else delete (HTMLElement.prototype as { scrollTo?: unknown }).scrollTo;
+    }
+  });
+});
+
 // ── Overall status chip (spec §7 header chip) ────────────────────────────────
 
 describe("Step3ReviewModal — overall status chip (spec §7)", () => {
