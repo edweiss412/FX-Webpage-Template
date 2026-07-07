@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  @keyframes tping { 0% { transform: scale(1); opacity: .55; } 70%, 100% { transform: scale(2.6); opacity: 0; } }
+</style>
+</helmet>
+
+<div style="{{ shell }}">
+
+  <!-- ============ ADMIN TOP NAV ============ -->
+  <nav style="display:flex;align-items:center;gap:12px;padding:14px 24px;border-bottom:1px solid var(--border);background:var(--bg);">
+    <div style="display:flex;align-items:center;gap:8px;">
+      <img src="assets/fxav-icon.png" alt="" width="26" height="26" style="width:26px;height:26px;display:block;">
+      <span style="font-size:17px;font-weight:600;letter-spacing:-.02em;color:var(--strong);">FXAV</span>
+      <span style="border:1px solid var(--border);background:var(--raised);border-radius:999px;padding:1px 9px;font-size:11px;font-weight:600;color:var(--subtle);">Admin</span>
+    </div>
+    <div style="display:flex;align-items:center;gap:2px;margin-left:14px;">
+      <span style="display:inline-flex;align-items:center;gap:7px;padding:8px 12px;border-radius:6px;font-size:13px;font-weight:500;color:var(--subtle);">Dashboard</span>
+      <span style="display:inline-flex;align-items:center;gap:7px;padding:8px 12px;border-radius:6px;font-size:13px;font-weight:500;color:var(--subtle);">Settings</span>
+      <span style="display:inline-flex;align-items:center;gap:7px;padding:8px 12px;border-radius:6px;font-size:13px;font-weight:600;color:var(--strong);background:var(--raised);">Telemetry</span>
+    </div>
+    <span style="flex:1;"></span>
+    <div style="display:flex;align-items:center;gap:8px;">
+      <span style="display:inline-flex;align-items:center;gap:6px;background:var(--sunken);border-radius:999px;padding:4px 10px;font-size:12px;font-weight:600;color:var(--text);"><span style="width:7px;height:7px;border-radius:999px;background:var(--degraded);"></span>Degraded</span>
+      <span style="position:relative;display:grid;place-items:center;width:34px;height:34px;border-radius:8px;color:var(--subtle);">bell<span style="position:absolute;top:2px;right:2px;min-width:15px;height:15px;padding:0 4px;border-radius:999px;background:var(--accent);color:var(--accent-text);font-size:10px;font-weight:700;display:grid;place-items:center;font-variant-numeric:tabular-nums;">2</span></span>
+      <span style="display:grid;place-items:center;width:32px;height:32px;border-radius:999px;background:var(--accent-tint);color:var(--accent-on-bg);font-size:12px;font-weight:700;">DK</span>
+    </div>
+  </nav>
+
+  <div style="padding:24px 28px 30px;">
+
+    <!-- ============ PAGE HEADER ============ -->
+    <header style="display:flex;align-items:flex-end;justify-content:space-between;gap:20px;flex-wrap:wrap;padding-bottom:18px;margin-bottom:20px;border-bottom:1px solid var(--border);">
+      <div>
+        <h1 style="margin:0;font-size:28px;font-weight:700;letter-spacing:-.02em;color:var(--strong);line-height:1.1;">Telemetry</h1>
+        <p style="margin:6px 0 0;font-size:14px;color:var(--subtle);">App event log &amp; cron health</p>
+      </div>
+      <!-- live auto-refresh control -->
+      <div style="display:flex;align-items:center;gap:12px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:7px 10px 7px 13px;box-shadow:var(--shadow);">
+        <span style="position:relative;display:inline-flex;width:8px;height:8px;">
+          <span style="position:absolute;inset:0;border-radius:999px;background:var(--accent);animation:tping 2.4s cubic-bezier(0.16,1,0.3,1) infinite;"></span>
+          <span style="position:relative;width:8px;height:8px;border-radius:999px;background:var(--accent);"></span>
+        </span>
+        <span style="font-size:13px;font-weight:500;color:var(--text);">Auto-refresh</span>
+        <span aria-hidden="true" style="position:relative;width:34px;height:20px;border-radius:999px;background:var(--accent);flex:0 0 auto;"><span style="position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:999px;background:#fff;transform:translateX(14px);box-shadow:0 1px 2px rgba(0,0,0,.3);"></span></span>
+        <span style="width:1px;height:18px;background:var(--border);"></span>
+        <span style="font-size:12px;color:var(--faint);font-variant-numeric:tabular-nums;">Updated 4s ago</span>
+        <span style="display:grid;place-items:center;width:30px;height:30px;border-radius:7px;border:1px solid var(--border);color:var(--subtle);">refresh</span>
+      </div>
+    </header>
+
+    <!-- ============ OVERVIEW STRIP ============ -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:24px;">
+      <!-- System health card: dot + "Degraded" + "1 issue needs action" -->
+      <!-- Open alerts card: big "2" + "1 degraded" + "1 notice" -->
+      <!-- Cron jobs card: "5 / 6 healthy" + "1 stale" + "1 idle" -->
+      <!-- Events 24h card: "1,284" + 8-bar sparkline (last bar accent) + "3 errors · 18 warns" -->
+    </div>
+
+    <!-- ============ BODY: LOG (left) + SIDEBAR (right) ============ -->
+    <!-- grid-template-columns: minmax(0,1fr) 340px; gap:20px; align-items:start -->
+    <!-- LEFT: filter toolbar (search + Info/Warn/Error segmented + Last 24h select) -->
+    <!--       + active-filter chips row (warn ×, error ×, source: cron.* ×, Clear filters) -->
+    <!--       + log header ("Activity" / "42 events match · newest first") -->
+    <!--       + divided event log <ul>: row1 ERROR expanded (detail text + 4 meta pairs + JSON pre), -->
+    <!--         row2 WARN, row3 INFO cron-run-summary (ok pill + 842ms + shows/updated/skipped chips), -->
+    <!--         rows 4-8 warn/info/error/info. Each row: level badge, message, source+code, time+requestId+chevron -->
+    <!--       + footer "Showing the 8 most recent matching events." + "Load older" -->
+    <!-- RIGHT sidebar: System health section (h2 + "Action needed" pill) with 2 alert cards -->
+    <!--   (degraded "Sheet sync failed 3 consecutive runs" + notice "Agenda parse dropped low-confidence"); -->
+    <!--   each: title + status pill, body sentence, meta (Raised Xm ago · N occurrences · View show), Resolve btn. -->
+    <!--   Cron health section (h2) with divided list of 6 jobs: Sheet sync OK·2m, Agenda parse Issues·6m, -->
+    <!--   Alert sweep OK·4m, Daily review digest OK·3h, Drive scan Stale·41m (warnbg), Geocode backfill "No run seen" (idle) -->
+
+  </div>
+</div>
+</x-dc>
+<!-- ============ THEME PALETTES (from renderVals) ============ -->
+<!-- DARK:
+  --bg:#0F1014;--surface:#16171C;--raised:#1C1D23;--sunken:#0B0C10;
+  --text:#E8E6E0;--strong:#F5F3EE;--subtle:#9C9A93;--faint:#74736D;
+  --border:#2A2B30;--bstrong:#3A3B40;
+  --accent:#FF8C1A;--accent-text:#0E0F12;--accent-on-bg:#FFA047;--accent-tint:#2A1E10;
+  --warnbg:#3A2E14;--warntext:#FFD68A;--dangerbg:#1F1614;
+  --pos:#5FB0A8;--pos-text:#74C3BB;--review:#E0B84E;--review-text:#F0C860;
+  --warn:#E9A23A;--warns-text:#F0B454;--degraded:#E5534B;--degraded-text:#1A1A1A;
+  --idle:#74736D;--idle-text:#9C9A93;
+  --shadow:0 1px 3px rgba(0,0,0,.45);--pop:0 14px 40px -12px rgba(0,0,0,.7)
+-->
+<!-- LIGHT:
+  --bg:#FAFAF9;--surface:#FFFFFF;--raised:#FFFFFF;--sunken:#F4F3F1;
+  --text:#1A1B1F;--strong:#0E0F12;--subtle:#5A5B62;--faint:#8B8C92;
+  --border:#E5E4E0;--bstrong:#CFCDC7;
+  --accent:#FF8C1A;--accent-text:#FFFFFF;--accent-on-bg:#C25E00;--accent-tint:#FEEEDE;
+  --warnbg:#FFF3D6;--warntext:#5C3F00;--dangerbg:#FBEAE8;
+  --pos:#3F8A83;--pos-text:#2C655F;--review:#A87716;--review-text:#6E4E00;
+  --warn:#B26A16;--warns-text:#7A3D00;--degraded:#B3261E;--degraded-text:#FFFFFF;
+  --idle:#8B8C92;--idle-text:#5A5B62;
+  --shadow:0 1px 2px rgba(20,18,12,.04);--pop:0 14px 40px -14px rgba(20,18,12,.28)
+-->
+<!-- shell width:1200px; body two-col grid minmax(0,1fr) 340px. preview 1240x1640. props.theme enum dark|light default dark -->
+</body>
+</html>
