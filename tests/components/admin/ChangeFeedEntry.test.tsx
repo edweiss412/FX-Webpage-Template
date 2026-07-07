@@ -10,6 +10,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, expect, it, vi } from "vitest";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import { ChangeFeedEntry } from "@/components/admin/ChangeFeedEntry";
+import type { Disposition } from "@/lib/sync/holds/types";
 
 afterEach(cleanup);
 
@@ -153,4 +154,120 @@ it("defensively renders notification-only when approve_reject lacks gate (no dan
   const row = screen.getByTestId("change-feed-entry-e1");
   expect(within(row).queryByTestId("mi11-approve")).toBeNull();
   expect(within(row).queryByTestId("change-feed-undo")).toBeNull();
+});
+
+// Flow 3 (audit 3.3) — per-disposition "why held + Approve/Reject consequence" copy.
+const HOLD_COPY = {
+  email_change:
+    "Held for your review: this crew member's sign-in email changed in the sheet. Approve to update their sign-in address; Reject to keep the current one.",
+  rename:
+    "Held for your review: this crew member was renamed in the sheet. Approve to apply the new name; Reject to keep the current one.",
+  removal:
+    "Held for your review: this crew member was removed from the sheet. Approve to remove them; Reject to keep them.",
+} as const;
+
+const gateFor = (d: "email_change" | "rename" | "removal") => ({
+  holdId: "h1",
+  disposition:
+    d === "removal"
+      ? { disposition: "removal" as const }
+      : { disposition: d, name: "Alice", email: "a@new" },
+  baseModifiedTime: "2026-06-09T10:00:00Z",
+});
+
+for (const d of ["email_change", "rename", "removal"] as const) {
+  it(`approve_reject ${d} row renders the exact ${d} explanation`, () => {
+    render(
+      <ChangeFeedEntry
+        entry={{
+          ...base,
+          status: "pending",
+          action: "approve_reject",
+          summary: "…",
+          gate: gateFor(d),
+        }}
+        now={now}
+        undoAction={noop}
+        approveAction={noop}
+        rejectAction={noop}
+      />,
+    );
+    const row = screen.getByTestId("change-feed-entry-e1");
+    expect(within(row).getByTestId("change-feed-hold-explanation")).toHaveTextContent(HOLD_COPY[d]);
+  });
+}
+
+it("undo row renders NO hold explanation", () => {
+  render(
+    <ChangeFeedEntry
+      entry={{
+        ...base,
+        status: "applied",
+        action: "undo",
+        summary: "Removed Alice",
+        changeLogId: "cl-1",
+      }}
+      now={now}
+      undoAction={noop}
+      approveAction={noop}
+      rejectAction={noop}
+    />,
+  );
+  const row = screen.getByTestId("change-feed-entry-e1");
+  expect(within(row).queryByTestId("change-feed-hold-explanation")).toBeNull();
+});
+
+it("notification-only (none) row renders NO hold explanation", () => {
+  render(
+    <ChangeFeedEntry
+      entry={{ ...base, status: "applied", action: "none", summary: "Section shrank" }}
+      now={now}
+      undoAction={noop}
+      approveAction={noop}
+      rejectAction={noop}
+    />,
+  );
+  const row = screen.getByTestId("change-feed-entry-e1");
+  expect(within(row).queryByTestId("change-feed-hold-explanation")).toBeNull();
+});
+
+it("approve_reject WITHOUT a gate (defensive) renders NO hold explanation", () => {
+  render(
+    <ChangeFeedEntry
+      entry={{ ...base, status: "pending", action: "approve_reject", summary: "Email change" }}
+      now={now}
+      undoAction={noop}
+      approveAction={noop}
+      rejectAction={noop}
+    />,
+  );
+  const row = screen.getByTestId("change-feed-entry-e1");
+  expect(within(row).queryByTestId("change-feed-hold-explanation")).toBeNull();
+});
+
+it("unknown/future disposition (schema drift) renders NO hold explanation (fail-quiet, no blank line)", () => {
+  render(
+    <ChangeFeedEntry
+      entry={{
+        ...base,
+        status: "pending",
+        action: "approve_reject",
+        summary: "Some future hold",
+        gate: {
+          holdId: "h1",
+          // cast an out-of-union value as would arrive from runtime DB JSON
+          disposition: { disposition: "future_kind" } as unknown as Disposition,
+          baseModifiedTime: "2026-06-09T10:00:00Z",
+        },
+      }}
+      now={now}
+      undoAction={noop}
+      approveAction={noop}
+      rejectAction={noop}
+    />,
+  );
+  const row = screen.getByTestId("change-feed-entry-e1");
+  // no explanation node at all (not an empty <p>) — and the raw token never leaks
+  expect(within(row).queryByTestId("change-feed-hold-explanation")).toBeNull();
+  expect(row.textContent).not.toContain("future_kind");
 });
