@@ -481,6 +481,8 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
               formatTotals(state.result.totals) === 0 ? (
                 <div
                   data-testid="wizard-step2-empty"
+                  role="status"
+                  aria-live="polite"
                   className="mt-1 flex flex-col gap-2 rounded-sm border border-border bg-surface-sunken p-3 text-base text-text"
                 >
                   <p className="font-semibold text-text-strong">This folder is empty.</p>
@@ -499,6 +501,8 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
               ) : (
                 <div
                   data-testid="wizard-step2-nothing-ready"
+                  role="status"
+                  aria-live="polite"
                   className="mt-1 flex flex-col gap-2 rounded-sm border border-border bg-surface-sunken p-3 text-base text-text"
                 >
                   <p className="font-semibold text-text-strong">
@@ -509,7 +513,7 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
                   <ul className="flex flex-col gap-1 text-sm">
                     {state.result.totals.hard_failed > 0 ? (
                       <li>
-                        Sheets we could not parse:{" "}
+                        Sheets we couldn&rsquo;t read:{" "}
                         <span className="font-semibold tabular-nums text-text">
                           {state.result.totals.hard_failed}
                         </span>
@@ -517,7 +521,7 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
                     ) : null}
                     {state.result.totals.skipped_non_sheet > 0 ? (
                       <li>
-                        Non-sheet files we skipped:{" "}
+                        Files that aren&rsquo;t show sheets:{" "}
                         <span className="font-semibold tabular-nums text-text">
                           {state.result.totals.skipped_non_sheet}
                         </span>
@@ -525,13 +529,24 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
                     ) : null}
                     {state.result.totals.live_row_conflict > 0 ? (
                       <li>
-                        Live-row conflicts:{" "}
+                        Sheets the live sync is already handling:{" "}
                         <span className="font-semibold tabular-nums text-text">
                           {state.result.totals.live_row_conflict}
                         </span>
                       </li>
                     ) : null}
                   </ul>
+                  <p>Open the folder to check these in Drive, then re-scan.</p>
+                  {parseDriveFolderId(folderUrl) ? (
+                    <a
+                      href={folderUrl.trim()}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex min-h-tap-min items-center self-start text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                    >
+                      Open the folder →
+                    </a>
+                  ) : null}
                 </div>
               )
             ) : null}

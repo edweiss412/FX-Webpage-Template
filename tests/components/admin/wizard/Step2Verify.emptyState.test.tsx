@@ -100,9 +100,9 @@ describe("Step2Verify staged-0 states", () => {
     await scan(["hard_failed", "hard_failed", "skipped_non_sheet"], DRIVE_URL);
     const block = screen.getByTestId("wizard-step2-nothing-ready");
     expect(within(block).getByText(/none are ready to review/i)).toBeInTheDocument();
-    expect(within(block).getByText(/could not parse/i)).toBeInTheDocument();
-    expect(within(block).getByText(/non-sheet files/i)).toBeInTheDocument();
-    expect(within(block).queryByText(/live-row conflicts/i)).not.toBeInTheDocument();
+    expect(within(block).getByText(/couldn.t read/i)).toBeInTheDocument();
+    expect(within(block).getByText(/aren.t show sheets/i)).toBeInTheDocument();
+    expect(within(block).queryByText(/live sync/i)).not.toBeInTheDocument();
     expect(screen.queryByTestId("wizard-step2-success")).not.toBeInTheDocument();
     expect(screen.getByTestId("wizard-step2-submit")).toHaveTextContent("Re-scan");
   });
@@ -110,8 +110,9 @@ describe("Step2Verify staged-0 states", () => {
   it("live-row-conflict-only scan → nothing-ready block, no 'couldn't read' blanket", async () => {
     await scan(["live_row_conflict", "live_row_conflict"], DRIVE_URL);
     const block = screen.getByTestId("wizard-step2-nothing-ready");
-    expect(within(block).getByText(/live-row conflicts/i)).toBeInTheDocument();
-    expect(within(block).queryByText(/couldn.t read any as a show sheet/i)).not.toBeInTheDocument();
+    expect(within(block).getByText(/live sync is already handling/i)).toBeInTheDocument();
+    // the live-row-conflict-only case must NOT claim the sheets were unreadable
+    expect(within(block).queryByText(/couldn.t read/i)).not.toBeInTheDocument();
   });
 
   it("staged>0 → footer popover renders, no empty/nothing-ready block, label unchanged", async () => {
