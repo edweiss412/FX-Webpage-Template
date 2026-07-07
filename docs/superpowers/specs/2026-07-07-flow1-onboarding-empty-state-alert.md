@@ -113,20 +113,21 @@ The alert does NOT get an `ALERT_ACTIONS` entry. Reason: `tests/messages/_metaAl
 ## 4. Design — item 1.1 (zero-scan empty state)
 
 ### 4.1 New render branch in Step2Verify
-When a scan completes with `totals.staged === 0`, replace the footer "Found N items" popover (`Step2FoundSummary`) with a first-class **in-card** block rendered in the form body (same region as the error alert, `:450-460`). Two modes, both derivable from `totals`:
+When a scan completes with `totals.staged === 0`, render a first-class **in-card** status block in the form body ABOVE the persistent action row (same slot as the error alert, `:450-460`; §6.1), and suppress the footer "Found N items" popover. The **Re-scan** action is the existing persistent action-row `<button data-testid="wizard-step2-submit">` (it already re-submits `folderUrl` via `handleSubmit`), relabeled "Re-scan" — the block itself does NOT add a second submit button. Two modes, both derivable from `totals`:
 
-| Mode | Condition | Copy | Actions |
+| Mode | Condition | Copy | Block-local actions |
 |---|---|---|---|
-| **Empty folder** | `formatTotals(totals) === 0` (nothing found at all) | Heading "This folder is empty." Body: "Add a show sheet to the folder, then re-scan." | (a) **Open the folder** link → the pasted `folderUrl` (opens Drive, `target="_blank" rel="noopener noreferrer"`), rendered only when `folderUrl.trim()` is a non-empty parseable Drive URL (else omitted); (b) **Re-scan** button → re-submits the same `folderUrl` (reuse `handleSubmit`). |
-| **Nothing ready to review** | `formatTotals(totals) > 0 && totals.staged === 0` | Neutral heading "We found {formatTotals} item{s}, but none are ready to review yet." Body: a breakdown that renders a line **only for each NON-ZERO** bucket — hard_failed → "Sheets we could not parse", skipped_non_sheet → "Non-sheet files we skipped", live_row_conflict → "Live-row conflicts". NOTE: this is a NEW small breakdown local to the block, NOT a verbatim reuse of `Step2FoundSummary`, which unconditionally renders the staged/hard_failed/skipped lines even at zero (`Step2Verify.tsx:553-565`, only `live_row_conflict` is conditional `:566-571`) — reusing it would print "Sheets we could not parse: 0" and violate the non-zero guard (review R3 finding 3). The block does NOT assert a blanket "couldn't read any as a show sheet" (that would mis-describe a `live_row_conflict`-only scan, which is a live-sync staging conflict, not unreadable content; `formatTotals` includes `live_row_conflict`, `Step2Verify.tsx:95-99`). Each non-zero bucket speaks for itself. | **Continue to Step 3** stays available (the manifest lists every non-staged item); **Re-scan** offered too. |
+| **Empty folder** | `formatTotals(totals) === 0` (nothing found at all) | Heading "This folder is empty." Body: "Add a show sheet to the folder, then re-scan." | **Open the folder** link → the pasted `folderUrl` (opens Drive, `target="_blank" rel="noopener noreferrer"`), rendered only when `folderUrl.trim()` is a non-empty parseable Drive URL (else omitted). Re-scan is the persistent action-row button. |
+| **Nothing ready to review** | `formatTotals(totals) > 0 && totals.staged === 0` | Neutral heading "We found {formatTotals} item{s}, but none are ready to review yet." Body: a breakdown that renders a line **only for each NON-ZERO** bucket — hard_failed → "Sheets we could not parse", skipped_non_sheet → "Non-sheet files we skipped", live_row_conflict → "Live-row conflicts". NOTE: this is a NEW small breakdown local to the block, NOT a verbatim reuse of `Step2FoundSummary`, which unconditionally renders the staged/hard_failed/skipped lines even at zero (`Step2Verify.tsx:553-565`, only `live_row_conflict` is conditional `:566-571`) — reusing it would print "Sheets we could not parse: 0" and violate the non-zero guard (review R3 finding 3). The block does NOT assert a blanket "couldn't read any as a show sheet" (that would mis-describe a `live_row_conflict`-only scan, which is a live-sync staging conflict, not unreadable content; `formatTotals` includes `live_row_conflict`, `Step2Verify.tsx:95-99`). Each non-zero bucket speaks for itself. | Continue-to-Step-3 (footer) is the path to the manifest; Re-scan is the persistent action-row button. |
 
 When `totals.staged > 0` (≥1 sheet to review) → unchanged: footer "Found N items" popover + "Continue to Step 3" primary, exactly as today.
 
-### 4.2 Continue-to-Step-3 in empty modes
-- **Empty folder:** there is nothing in Step 3. "Continue to Step 3" is de-emphasized (secondary) but not removed (Doug may still proceed to finalize an empty setup, matching current `canContinue` behavior which already allows it). The empty-state block's **Re-scan** is the emphasized (accent) action.
-- **Nothing ready to review:** "Continue to Step 3" is the emphasized path (the manifest is the payload); Re-scan is secondary.
+### 4.2 Accent / emphasis in staged-0 modes
+The single-accent-per-card rule (DESIGN.md ≤10% accent, `Step2Verify.tsx:110-117`) already governs which control is accent via the existing `submitIsPrimary`/`continueIsPrimary` logic (`:289-299`): exactly one accent control per state. Intent per mode:
+- **Empty folder:** nothing is in Step 3, so **Re-scan** (the action-row button) is the emphasized/accent action; "Continue to Step 3" (footer) steps down to secondary but is not removed (Doug may still finalize an empty setup, matching today's `canContinue`).
+- **Nothing ready to review:** **Continue to Step 3** (footer) is the emphasized path (the manifest is the payload); the Re-scan button is secondary.
 
-This keeps the single-accent-per-card rule (DESIGN.md ≤10% accent, cited `Step2Verify.tsx:110-117`): exactly one accent control per state.
+No new accent-selection logic is invented — the modes map onto the component's existing primary/secondary button treatment.
 
 ### 4.3 Guard conditions (1.1)
 | `state.kind` | `totals` | Rendered |
@@ -158,10 +159,14 @@ Static content; no props consumed beyond the existing `serviceAccountEmail` (unc
 ## 6. Modes, transitions, dimensions
 
 ### 6.1 Mode boundaries (Step2Verify)
-The card's lower region is a single surface that swaps between: **progress readout** (submitting), **error alert** (error), **empty-folder block** (success+staged0+total0), **nothing-ready block** (success+staged0+total>0), and **action row** (idle / success+staged>0). Exactly one renders at a time. The footer "Found N items" popover renders ONLY in success+staged>0 (removed for the two staged-0 modes — that is the whole point of 1.1). The two new blocks belong to the success state only.
+The card's lower region has **two structural layers** (matching the existing component, `Step2Verify.tsx:397-483`):
+- **Submitting:** the **progress readout** REPLACES the entire lower region (the `isSubmitting && progress` branch, `:397`). No other layer renders.
+- **Not submitting** (`idle` / `success` / `error`): an OPTIONAL **status block** renders ABOVE a **persistent action row** (the `<>…</>` else branch, `:445-482`). At most ONE status block shows, chosen by state: `error-alert` (error), `empty-folder block` (success+staged0+total0), `nothing-ready block` (success+staged0+total>0), or none (idle / success+staged>0). The action row (the Scan/Re-scan `<button>`) is ALWAYS present in this branch — the status block does NOT replace it (this is why, in the staged-0 modes, the persistent button serves as **Re-scan**; the block adds copy + the Open-folder link, §4.1). This mirrors today's error-alert-above-button layout exactly.
 
-### 6.2 Transition inventory (Step2Verify lower-region states)
-States: `A idle-action-row`, `B submitting-progress`, `C success-popover(staged>0)`, `D empty-folder-block`, `E nothing-ready-block`, `F error-alert`. This component uses **no enter/exit animations today** (blocks swap instantly on `state` change; no `AnimatePresence`, no framer-motion). All transitions are **instant — no animation needed**, consistent with the existing component. Enumerated pairs (each instant): A↔B, A↔C, A↔D, A↔E, A↔F, B↔C, B↔D, B↔E, B↔F, C↔D, C↔E, C↔F, D↔E, D↔F, E↔F. Compound transitions: none — `state` is a single discriminated union; only one block is live at a time; no block animates while another is mid-transition.
+The footer "Found N items" popover (a separate surface in `WizardFooter`, not the card body) renders ONLY in success+staged>0 (removed for the two staged-0 modes — the point of 1.1). The two new blocks belong to the success state only.
+
+### 6.2 Transition inventory (Step2Verify lower-region)
+The lower region is NOT a single mutually-exclusive state machine; it is (progress) XOR (optional status block + persistent action row). The status-block slot has 4 values: `∅ none`, `Err error-alert`, `Empty empty-folder-block`, `NR nothing-ready-block`; the whole region also has the `Prog progress-readout` mode which replaces everything. This component uses **no enter/exit animations** (no `AnimatePresence`, no framer-motion; blocks swap instantly on `state` change). All transitions are **instant — no animation needed**. Enumerated status-slot pairs (each instant): ∅↔Err, ∅↔Empty, ∅↔NR, Err↔Empty, Err↔NR, Empty↔NR; plus Prog↔{∅,Err,Empty,NR} (each instant — entering/leaving the submitting branch). Compound transitions: none — `state` is a single discriminated union computed synchronously; the action row is static text/button (no animation) so its coexistence with a status block is not a compound-animation case.
 
 ### 6.3 Dimensional invariants
 The new empty-state blocks are flow-layout `flex flex-col gap-*` inside the auto-height form card — **no fixed-dimension parent with flex/grid children requiring an explicit stretch**. N/A: no `getBoundingClientRect` layout task required. (The blocks size to content exactly like the existing error alert `:450-460`.) Step1's new `<details>` is flow layout — N/A.
@@ -174,17 +179,23 @@ The new empty-state blocks are flow-layout `flex flex-col gap-*` inside the auto
 |---|---|
 | Table DDL | **N/A** — `admin_alerts` table + `upsert_admin_alert` RPC already exist; no column/enum/DDL change. No migration. |
 | Inline CHECK | N/A — `admin_alerts.code` is free `text`; no CHECK enumerates codes. |
-| RPC write path | Reuse existing `public.upsert_admin_alert(uuid,text,jsonb)`; `failedKeys` union-merge path already supports the new producer (no RPC change). |
+| RPC write path | Reuse existing `public.upsert_admin_alert(uuid,text,jsonb)` UNCHANGED. The producer OMITS the magic `failedKeys` key, so the RPC takes its `else p_context` FULL-CONTEXT-REPLACE branch (`...failedkeys_merge.sql:45,68`) — NOT the `failedKeys` union-merge path (§3.2 forbids the union to avoid cross-folder stale ids). No RPC change. |
 | RPC read path | Reuse `PerShowAlertSection` + `messageFor`; no change. |
 | `AdminAlertCode` union | ADD `"ONBOARDING_SHEET_UNREADABLE"` in `lib/adminAlerts/upsertAdminAlert.ts`. |
 | §12.4 spec prose | ADD row in `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` §12.4. |
 | Generated codes | `pnpm gen:spec-codes` → refresh `lib/messages/__generated__/spec-codes.ts`. |
-| Runtime catalog | ADD row in `lib/messages/catalog.ts` (fields per §3.4). |
+| Runtime catalog | ADD row in `lib/messages/catalog.ts` (fields per §3.4, incl. `audience:"doug"` and NO `healthWeight`/`dougSummary` — those are health-only, `_metaAlertAudienceContract.test.ts:83-90`). |
 | Alert registry | ADD to `tests/messages/adminAlertsRegistry.ts` `ADMIN_ALERTS_CODES`. |
+| **Audience contract** | ADD to the `DOUG` array in `tests/messages/_metaAlertAudienceContract.test.ts:7`; bump `expect(DOUG.length).toBe(18)` → `19` (`:72`). `HEALTH`/`DEGRADED`/`NOTICE` unchanged; the `DOUG ∪ HEALTH === ADMIN_ALERTS_CODES` set-equality is auto-satisfied once DOUG includes it. |
+| **Identity map** | ADD `ONBOARDING_SHEET_UNREADABLE: { kind: "global" }` to `ALERT_IDENTITY_MAP` in `lib/adminAlerts/alertIdentityMap.ts` (folder-level onboarding alert — no crew/show identity; mirrors other `kind:"global"` entries). |
+| **Identity fixture** | ADD the code to `tests/adminAlerts/adminAlertCodes.fixture.ts` `ADMIN_ALERTS_CODES` (this fixture is a SECOND registry, separate from `tests/messages/adminAlertsRegistry.ts`, consumed by the identity tests). |
+| **Identity matrix + numeric anchors** | ADD a `{ code:"ONBOARDING_SHEET_UNREADABLE", … }` global fixture to `FIXTURES` in `tests/adminAlerts/alertIdentityMatrix.test.ts` (its `FIXTURES.map(f=>f.code) === ADMIN_ALERTS_CODES` set-equality, `:444-446`). Bump the three numeric-sweep anchors: `_metaAlertIdentityMap.test.ts` `length).toBe(44)` → `45` (`:40`); `alertIdentityMatrix.test.ts` "exactly the 44 registered codes" → `45` (`:444`). |
 | Write-site pattern | ADD `ONBOARDING_SHEET_UNREADABLE: { pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"?ONBOARDING_SHEET_UNREADABLE/ , file: "app/api/admin/onboarding/scan/route.ts" }` in `_metaAdminAlertCatalog.test.ts` `ADMIN_ALERTS_WRITE_SITES`. (Route uses the standalone `upsertAdminAlert` with a string-literal `code:`, hence optional-quote in the regex.) |
 | Lifecycle class | ADD `ONBOARDING_SHEET_UNREADABLE: { class: "event-manual" }` in `ADMIN_ALERTS_LIFECYCLE` (mirror LIVE_ROW_CONFLICT). |
 | Alert action link | **N/A** — deliberately no `ALERT_ACTIONS` entry (§3.5); `ALERT_ACTION_CODES` + `_metaAlertActionsContract.test.ts` untouched. |
-| Emit site | `app/api/admin/onboarding/scan/route.ts`, inside the existing `result.outcome === "completed"` post-commit block (`route.ts:274-286`), calling standalone `upsertAdminAlert` when `result.processed` has ≥1 `hard_failed` (§3.2). |
+| Health/auto guards | **N/A** — code is `audience:"doug"` (not in `HEALTH_CODES` → `healthResolveGuard.test.ts` unaffected) and `event-manual` (not `auto` → `resolveAutoCodeGuard.test.ts` unaffected). |
+| Redaction contract | **N/A** — `kind:"global"` identity emits no identity segments; context (`folder_id`, `failed_drive_file_ids` — opaque Drive ids) carries no email/token/PII, so `_metaAlertsRedactionContract.test.ts` needs no new case. |
+| Emit site | `app/api/admin/onboarding/scan/route.ts`, inside the existing `result.outcome === "completed"` post-commit block (`route.ts:274-286`), in its OWN `try/catch` (§3.2), calling standalone `upsertAdminAlert` when `result.processed` has ≥1 `hard_failed`. |
 | Telemetry (rule 10) | **N/A extra** — the mutation surface is this same route, already in `AUDITABLE_MUTATIONS` with `logAdminOutcome`. The alert is additional signal on an already-instrumented surface, not a new surface → no new registry obligation. |
 | Help page | **N/A edit** — `/help/errors` auto-derives rows from the catalog and groups by code PREFIX (`app/help/errors/_families.ts`). The `ONBOARDING` prefix is already mapped to the `setup-drive` family (`_families.ts:20`), so `ONBOARDING_SHEET_UNREADABLE` auto-assigns; `tests/help/errors-grouping.test.tsx` guarantees no code is dropped. No `_families.ts` change. `helpHref` `/help/errors#ONBOARDING_SHEET_UNREADABLE` resolves to the auto-rendered anchor. |
 | Tests | New behavioral test for the emit (§9); meta-tests above extended. |
@@ -193,7 +204,10 @@ The new empty-state blocks are flow-layout `flex flex-col gap-*` inside the auto
 
 ## 8. Meta-test inventory (created / extended)
 
-- **EXTENDS** `tests/messages/_metaAdminAlertCatalog.test.ts` — new code passes only after union + registry + write-site + lifecycle + catalog rows all land (the meta-test is the structural guard for 1.3).
+- **Admin-alert-code lockstep is the dominant surface (R1→R4 all landed findings here).** A new `AdminAlertCode` fans out to SEVEN test/registry surfaces beyond the code + catalog; §7 enumerates every one with its exact edit + numeric bump. The plan implements all of them in the single alert-code task; the reviewer verifies against §7. This complete enumeration IS the structural defense for the class (per the same-vector-recurrence rule) — no further round should surface a new lockstep surface, because §7 is now derived from a full `grep -rl "ADMIN_ALERTS_CODES\|AdminAlertCode\|alertIdentityMap"` sweep.
+- **EXTENDS** `tests/messages/_metaAdminAlertCatalog.test.ts` — write-site + lifecycle.
+- **EXTENDS** `tests/messages/_metaAlertAudienceContract.test.ts` — `DOUG` array + count 18→19.
+- **EXTENDS** `lib/adminAlerts/alertIdentityMap.ts` + `tests/adminAlerts/adminAlertCodes.fixture.ts` + `tests/adminAlerts/alertIdentityMatrix.test.ts` (identity `global` entry + fixture + matrix + 44→45 numeric anchors in `_metaAlertIdentityMap.test.ts` and `alertIdentityMatrix.test.ts`).
 - **EXTENDS** `tests/messages/adminAlertsRegistry.ts` `ADMIN_ALERTS_CODES`.
 - **EXTENDS** `tests/cross-cutting/codes.test.ts` (`x1-catalog-parity`) — via the §12.4 ↔ catalog 3-way lockstep (spec prose + gen + catalog.ts in one commit).
 - **UNCHANGED** `tests/messages/_metaAlertActionsContract.test.ts` — no action link added (§3.5), so its exactly-10-codes pin is not touched.
@@ -213,7 +227,7 @@ The new empty-state blocks are flow-layout `flex flex-col gap-*` inside the auto
 6. **1.1 nothing-ready block + live_row_conflict guard.** (a) `success` with `{staged:0,hard_failed:2,skipped_non_sheet:1,live_row_conflict:0}` (formatTotals 3) → the nothing-ready block (`data-testid="wizard-step2-nothing-ready"`) renders the neutral "We found 3 items, but none are ready to review yet" heading + a per-bucket breakdown line for hard_failed (2) and skipped_non_sheet (1), no `live_row_conflict` line; "Continue to Step 3" emphasized. (b) `success` with `{staged:0,hard_failed:0,skipped_non_sheet:0,live_row_conflict:2}` → the block renders and the copy does NOT say "couldn't read any as a show sheet" (the only line is "Live-row conflicts: 2"). **Catches:** blanket "couldn't read" copy mis-describing a live-row-conflict-only scan (review R2 finding 3); wrong count.
 7. **1.1 staged>0 unchanged.** `success` with `staged:2` → footer popover renders, no empty/nothing-ready block. **Catches:** regression of the normal path.
 8. **1.2 disclosure present.** Step1Share renders `<details data-testid="wizard-step1-no-folder">` collapsed by default with the 4-step walkthrough. **Catches:** missing/opened-by-default disclosure.
-9. **Catalog/registry green.** `_metaAdminAlertCatalog`, `adminAlertsRegistry`-consuming tests, and `tests/cross-cutting/codes.test.ts` pass with the new code (proves the 3-way lockstep landed).
+9. **Full admin-alert lockstep green.** The new code passes ALL seven surfaces (§7): `_metaAdminAlertCatalog`, `_metaAlertAudienceContract` (DOUG count 19), `_metaAlertIdentityMap` + `alertIdentityMatrix` (count 45), `_metaAlertActionsContract` (unchanged 10), `adminAlertsRegistry`-consuming tests, and `tests/cross-cutting/codes.test.ts` (x1 3-way lockstep). Run the whole `tests/messages/` + `tests/adminAlerts/` dirs before commit — these are the class guard.
 
 Numbers derived from fixtures, never hardcoded expectations that a fixture can't reach.
 
@@ -234,6 +248,6 @@ Numbers derived from fixtures, never hardcoded expectations that a fixture can't
 ## 11. Files touched (summary)
 
 **UI (Opus + impeccable dual-gate):** `components/admin/wizard/Step2Verify.tsx`, `components/admin/wizard/Step1Share.tsx`.
-**Backend/catalog:** `app/api/admin/onboarding/scan/route.ts` (emit site), `lib/adminAlerts/upsertAdminAlert.ts` (`AdminAlertCode` union), `lib/messages/catalog.ts`, `lib/messages/__generated__/spec-codes.ts` (generated), `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (§12.4 row).
-**Tests:** `tests/messages/adminAlertsRegistry.ts`, `tests/messages/_metaAdminAlertCatalog.test.ts` (write-site + lifecycle), route emit test (new), Step2/Step1 component tests (new/extended).
-**No:** migrations, schema-manifest, advisory-lock topology, `alertActions.ts`, `runOnboardingScan.ts` (emit moved to route), parser, crew route.
+**Backend/catalog:** `app/api/admin/onboarding/scan/route.ts` (emit site), `lib/adminAlerts/upsertAdminAlert.ts` (`AdminAlertCode` union), `lib/adminAlerts/alertIdentityMap.ts` (`ALERT_IDENTITY_MAP` global entry), `lib/messages/catalog.ts`, `lib/messages/__generated__/spec-codes.ts` (generated), `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (§12.4 row).
+**Tests:** `tests/messages/adminAlertsRegistry.ts`, `tests/messages/_metaAdminAlertCatalog.test.ts` (write-site + lifecycle), `tests/messages/_metaAlertAudienceContract.test.ts` (DOUG + count), `tests/adminAlerts/adminAlertCodes.fixture.ts`, `tests/adminAlerts/_metaAlertIdentityMap.test.ts` (count), `tests/adminAlerts/alertIdentityMatrix.test.ts` (FIXTURES + count), route emit test (new), Step2/Step1 component tests (new/extended).
+**No:** migrations, schema-manifest, advisory-lock topology, `alertActions.ts` (no action link), `runOnboardingScan.ts` (emit moved to route), parser, crew route.
