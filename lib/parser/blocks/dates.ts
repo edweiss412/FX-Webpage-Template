@@ -16,8 +16,11 @@
  */
 
 import { parseTableRows, clean, presence, normalizeDate, decodeEntities } from "./_helpers";
+import { matchesSectionHeader } from "./_sectionHeaderMatch";
 import type { ShowRow } from "@/lib/parser/types";
 import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
+
+export const SECTION_HEADER_TOKENS = ["DATES"] as const;
 
 // ── Label classification ──────────────────────────────────────────────────────
 
@@ -80,8 +83,8 @@ export function parseDates(
     !out.loadIn &&
     !out.setupTime &&
     !out.setAgendaRaw;
-  const hasDatesHeader = parseTableRows(markdown).some(
-    (r) => clean(r[0] ?? "").toUpperCase() === "DATES",
+  const hasDatesHeader = parseTableRows(markdown).some((r) =>
+    matchesSectionHeader(clean(r[0] ?? ""), SECTION_HEADER_TOKENS),
   );
   if (datesEmpty && hasDatesHeader) emitEmptySection(agg, "dates");
   return out;
@@ -102,7 +105,7 @@ function isV1ShapedDatesBlock(markdown: string): boolean {
   let found = false;
   for (const row of rows) {
     if (!found) {
-      if (clean(row[0] ?? "").toUpperCase() === "DATES") found = true;
+      if (matchesSectionHeader(clean(row[0] ?? ""), SECTION_HEADER_TOKENS)) found = true;
       continue;
     }
     // First non-empty data row after DATES header.
@@ -128,7 +131,7 @@ function parseV1Dates(markdown: string, result: ShowRow["dates"]): ShowRow["date
 
   for (const row of rows) {
     if (!inDatesBlock) {
-      if (clean(row[0] ?? "").toUpperCase() === "DATES") {
+      if (matchesSectionHeader(clean(row[0] ?? ""), SECTION_HEADER_TOKENS)) {
         inDatesBlock = true;
       }
       continue;
@@ -181,14 +184,14 @@ function parseV2V4Dates(markdown: string, result: ShowRow["dates"]): ShowRow["da
 
   for (const row of rows) {
     if (!inDatesBlock) {
-      if (clean(row[0] ?? "").toUpperCase() === "DATES") {
+      if (matchesSectionHeader(clean(row[0] ?? ""), SECTION_HEADER_TOKENS)) {
         inDatesBlock = true;
       }
       continue;
     }
 
     const firstCell = clean(row[0] ?? "");
-    if (firstCell && firstCell.toUpperCase() !== "DATES") {
+    if (firstCell && !matchesSectionHeader(firstCell, SECTION_HEADER_TOKENS)) {
       break;
     }
 
