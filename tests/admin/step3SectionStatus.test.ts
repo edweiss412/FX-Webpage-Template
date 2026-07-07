@@ -415,3 +415,94 @@ describe("SECTION_REGION_MAP", () => {
     expect(SECTION_REGION_MAP.report).toBeNull();
   });
 });
+
+// ── Unit B (spec 2026-07-07 §B): synonym re-routing of UNKNOWN_SECTION_HEADER ──
+import { normalizeSectionHeaders } from "@/lib/parser/sectionHeaderNormalize";
+
+function unknownHeader(rawSnippet: string): ParseWarning {
+  return {
+    severity: "warn",
+    code: "UNKNOWN_SECTION_HEADER",
+    message: "Unrecognized section",
+    rawSnippet,
+    blockRef: { kind: "unknown_section" },
+  };
+}
+
+describe("Unit B — synonym re-routing", () => {
+  // Case 1: per-seed correctness with INDEPENDENT hardcoded literals (not read
+  // from the map under test — a LODGING→venue bug must fail here).
+  test.each([
+    ["STAFF", "crew"],
+    ["PERSONNEL", "crew"],
+    ["LODGING", "hotels"],
+    ["ACCOMMODATION", "hotels"],
+    ["ACCOMMODATIONS", "hotels"],
+    ["HOTEL INFO", "hotels"],
+    ["LOCATION", "venue"],
+    ["VENUE INFO", "venue"],
+  ])("routes rename %s → %s", (header, section) => {
+    expect(sectionForWarning(unknownHeader(header))).toBe(section);
+  });
+
+  test("normalizes case, whitespace, trailing punctuation", () => {
+    expect(sectionForWarning(unknownHeader("  lodging  "))).toBe("hotels");
+    expect(sectionForWarning(unknownHeader("Hotel Info:"))).toBe("hotels");
+    expect(sectionForWarning(unknownHeader("STAFF."))).toBe("crew");
+  });
+
+  // Case 2: negative controls — foreign + contextual phrases that merely CONTAIN
+  // a synonym must NOT route (exact-match, closed allowlist).
+  test.each(["SHIPPING", "CATERING", "CREDENTIALS", "CLIENT HOTEL INFO", "NO HOTEL INFO", "OLD VENUE INFO"])(
+    "does NOT route foreign/contextual header %s",
+    (header) => {
+      expect(sectionForWarning(unknownHeader(header))).toBeNull();
+    },
+  );
+
+  // Local severity+code gate: a non-warn UNKNOWN_SECTION_HEADER never reaches the map.
+  test("does not route a non-warn UNKNOWN_SECTION_HEADER", () => {
+    expect(sectionForWarning({ ...unknownHeader("LODGING"), severity: "info" })).toBeNull();
+  });
+
+  // A non-UNKNOWN_SECTION_HEADER warn with an unmapped kind stays null (no guess).
+  test("does not guess for a non-UNKNOWN_SECTION_HEADER warn", () => {
+    expect(
+      sectionForWarning({
+        severity: "warn",
+        code: "SOME_OTHER_CODE",
+        message: "x",
+        rawSnippet: "LODGING",
+        blockRef: { kind: "unknown_section" },
+      }),
+    ).toBeNull();
+  });
+
+  // Case 3: rendered gate — a mapped rename whose section is NOT rendered → warnings bucket.
+  test("routes a rename to the warnings bucket when its section is not rendered", () => {
+    const rendered = new Set<SectionId>(["crew", "warnings"]); // no hotels
+    const map = warningsBySection([unknownHeader("LODGING")], rendered);
+    expect(map.has("hotels")).toBe(false);
+    expect(map.has("warnings")).toBe(true);
+  });
+
+  test("routes a rename onto its section when that section IS rendered", () => {
+    const rendered = new Set<SectionId>(["hotels", "warnings"]);
+    const map = warningsBySection([unknownHeader("LODGING")], rendered);
+    expect(map.has("hotels")).toBe(true);
+    expect(map.has("warnings")).toBe(false);
+  });
+
+  // Case 4: not-reached-for-typos — a within-tolerance typo autocorrects at the
+  // parser layer (SECTION_HEADER_AUTOCORRECTED, mapped kind), never
+  // UNKNOWN_SECTION_HEADER. Parser-generated, not a hand-built warning.
+  test("a within-tolerance typo autocorrects and never emits UNKNOWN_SECTION_HEADER", () => {
+    const md = "| TRANSPORTATON |\n";
+    const { warnings } = normalizeSectionHeaders(md);
+    const codes = warnings.map((w) => w.code);
+    expect(codes).toContain("SECTION_HEADER_AUTOCORRECTED");
+    expect(codes).not.toContain("UNKNOWN_SECTION_HEADER");
+    const auto = warnings.find((w) => w.code === "SECTION_HEADER_AUTOCORRECTED");
+    expect(auto?.blockRef?.kind).toBe("transportation");
+  });
+});

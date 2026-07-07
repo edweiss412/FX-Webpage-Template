@@ -1,5 +1,6 @@
 import type { ParseWarning } from "@/lib/parser/types";
 import type { RegionId } from "@/lib/sheet-links/buildSheetDeepLink";
+import { guessSectionFromHeader } from "@/lib/admin/sectionSynonymGuess";
 
 export type SectionId =
   | "venue"
@@ -67,8 +68,16 @@ export const SECTION_REGION_MAP: Record<SectionId, RegionId | null> = {
 
 export function sectionForWarning(w: ParseWarning): SectionId | null {
   const kind = w.blockRef?.kind;
-  if (!kind) return null;
-  return KIND_TO_SECTION[kind] ?? null;
+  const mapped = kind ? (KIND_TO_SECTION[kind] ?? null) : null;
+  if (mapped) return mapped;
+  // Best-guess ONLY for unrecognized-header warns (renamed/synonym sections the
+  // parser's Damerau autocorrect can't catch — spec 2026-07-07 §B). Local
+  // severity+code gate, so a direct call with a non-warn or non-header input
+  // cannot reach the synonym map.
+  if (w.severity === "warn" && w.code === "UNKNOWN_SECTION_HEADER") {
+    return guessSectionFromHeader(w.rawSnippet);
+  }
+  return null;
 }
 
 export function warningsBySection(
