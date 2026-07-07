@@ -8,6 +8,7 @@ import {
   BASE_INCLUDE,
   PARALLEL_TEST_GLOBS,
   ENV_BOUND_EXCLUDES,
+  MUTATION_TEST_GLOBS,
   NIGHTLY_ONLY_EXCLUDES,
 } from "./vitest.projects";
 import { WeightBalancedSequencer } from "./vitest.sequencer";
@@ -19,13 +20,11 @@ import { WeightBalancedSequencer } from "./vitest.sequencer";
 // `pnpm test`) still run those files.
 const envBoundExcludes = process.env.VITEST_EXCLUDE_ENV_BOUND === "1" ? ENV_BOUND_EXCLUDES : [];
 
-// The nightly mutation harness is OPT-IN: excluded from the default suite (local
-// `pnpm test` + unit-suite legs) UNLESS the nightly workflow (or a dev) sets
-// VITEST_INCLUDE_MUTATION_HARNESS=1. Same project-level-exclude mechanism as the
-// env-bound gate (CLI --exclude is ignored once a project defines its own exclude);
-// inverted to opt-IN because the safe default is "don't run the ~92-min file".
-const nightlyExcludes =
-  process.env.VITEST_INCLUDE_MUTATION_HARNESS === "1" ? [] : NIGHTLY_ONLY_EXCLUDES;
+// The mutation-harness files are excluded from serial UNCONDITIONALLY — they run
+// only in the env-gated `mutation` project below (fileParallelism:true, the
+// sharding speedup). Project-level exclude, not CLI --exclude (vitest ignores the
+// CLI flag once a project defines its own exclude).
+const nightlyExcludes = NIGHTLY_ONLY_EXCLUDES;
 
 // M11 Phase E real-render assertions: per-page smoke tests `await import`
 // the .mdx page module. Without an MDX→JS transformer in the Vitest graph
@@ -92,6 +91,22 @@ export default defineConfig({
           fileParallelism: true,
         },
       },
+      // Nightly-only third project (sharding spec §3.4): exists ONLY when the
+      // workflow/dev opts in, so default discovery (`pnpm test`, unit-suite legs)
+      // never even collects the corpus-scale shard files. fileParallelism:true is
+      // the whole point — 8 LPT-balanced shards ride vitest's forks pool.
+      ...(process.env.VITEST_INCLUDE_MUTATION_HARNESS === "1"
+        ? [
+            {
+              extends: true as const,
+              test: {
+                name: "mutation",
+                include: MUTATION_TEST_GLOBS,
+                fileParallelism: true,
+              },
+            },
+          ]
+        : []),
     ],
   },
   resolve: {

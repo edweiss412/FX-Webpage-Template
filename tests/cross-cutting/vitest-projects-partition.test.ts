@@ -4,7 +4,12 @@ import { join, relative, sep } from "node:path";
 import { describe, expect, it, vi } from "vitest";
 
 import vitestConfig from "@/vitest.config";
-import { ENV_BOUND_EXCLUDES, NIGHTLY_ONLY_EXCLUDES, PARALLEL_TEST_GLOBS } from "@/vitest.projects";
+import {
+  ENV_BOUND_EXCLUDES,
+  MUTATION_TEST_GLOBS,
+  NIGHTLY_ONLY_EXCLUDES,
+  PARALLEL_TEST_GLOBS,
+} from "@/vitest.projects";
 
 // Structural guard for the two-project vitest split (PR B). The #1 risk of a
 // projects split is a glob typo that drops a whole directory from BOTH projects
@@ -53,10 +58,26 @@ type ProjectEntry = {
 describe("vitest projects split — partition is complete and correctly wired", () => {
   const projects = (vitestConfig as { test?: { projects?: ProjectEntry[] } }).test?.projects ?? [];
 
-  it("defines exactly a 'serial' and a 'parallel' project", () => {
+  it("defines serial + parallel by default, + mutation ONLY when opted in", async () => {
     expect(Array.isArray(projects), "vitest.config.ts must define test.projects").toBe(true);
     const names = projects.map((p) => p.test.name).sort();
-    expect(names).toEqual(["parallel", "serial"]);
+    expect(names).toEqual(["parallel", "serial"]); // default import = no env flag
+
+    vi.resetModules();
+    vi.stubEnv("VITEST_INCLUDE_MUTATION_HARNESS", "1");
+    try {
+      const cfg = (await import("@/vitest.config")).default as {
+        test?: { projects?: ProjectEntry[] };
+      };
+      const gatedNames = (cfg.test?.projects ?? []).map((p) => p.test.name).sort();
+      expect(gatedNames).toEqual(["mutation", "parallel", "serial"]);
+      const mutation = cfg.test!.projects!.find((p) => p.test.name === "mutation")!.test;
+      expect(mutation.include).toEqual(MUTATION_TEST_GLOBS);
+      expect(mutation.fileParallelism, "sharding speedup requires parallel files").toBe(true);
+    } finally {
+      vi.unstubAllEnvs();
+      vi.resetModules();
+    }
   });
 
   it("serial project runs files sequentially; parallel project in parallel", () => {
@@ -178,21 +199,20 @@ describe("vitest projects split — partition is complete and correctly wired", 
     }
   });
 
-  it("the mutation harness is NOT in the parallel set (must be excludable from serial)", () => {
-    for (const glob of NIGHTLY_ONLY_EXCLUDES) {
-      const path = glob.replace(/^\*\*\//, "");
-      expect(allTestFiles, `${path} should exist`).toContain(path);
-      expect(matchesParallel(path), `${path} must be SERIAL so the opt-in gate governs it`).toBe(
-        false,
-      );
+  it("the mutation harness files (8 shards + gates) are NOT in the parallel set", () => {
+    const harnessFiles = allTestFiles.filter((f) =>
+      /^tests\/parser\/mutationHarness\..+\.test\.ts$/.test(f),
+    );
+    expect(harnessFiles.length, "shard+gates files must exist").toBe(9); // 8 shards + gates
+    for (const f of harnessFiles) {
+      expect(matchesParallel(f), `${f} must not be in PARALLEL`).toBe(false);
     }
   });
 
-  it("VITEST_INCLUDE_MUTATION_HARNESS gates the harness in the serial exclude (opt-IN)", async () => {
+  it("harness files are excluded from serial UNCONDITIONALLY (they live in the mutation project)", async () => {
     const serialExcludeFor = async (value: string | undefined): Promise<string[]> => {
       vi.resetModules();
-      if (value === undefined) vi.stubEnv("VITEST_INCLUDE_MUTATION_HARNESS", "");
-      else vi.stubEnv("VITEST_INCLUDE_MUTATION_HARNESS", value);
+      vi.stubEnv("VITEST_INCLUDE_MUTATION_HARNESS", value ?? "");
       try {
         const cfg = (await import("@/vitest.config")).default as {
           test?: { projects?: ProjectEntry[] };
@@ -203,25 +223,21 @@ describe("vitest projects split — partition is complete and correctly wired", 
         vi.resetModules();
       }
     };
-    const optedIn = await serialExcludeFor("1"); // nightly workflow
-    const def = await serialExcludeFor(undefined); // local pnpm test + unit-suite
     for (const f of NIGHTLY_ONLY_EXCLUDES) {
-      expect(def, `${f} excluded by default (kept off the fast path)`).toContain(f);
-      expect(optedIn, `${f} runs when VITEST_INCLUDE_MUTATION_HARNESS=1 (nightly)`).not.toContain(
+      expect(await serialExcludeFor("1"), `${f} excluded from serial even when opted in`).toContain(
+        f,
+      );
+      expect(await serialExcludeFor(undefined), `${f} excluded from serial by default`).toContain(
         f,
       );
     }
   });
 
-  it("the nightly workflow sets the opt-in var and targets the harness file", () => {
+  it("the nightly workflow sets the opt-in var and runs the mutation project", () => {
     const wf = readFileSync(join(ROOT, ".github", "workflows", "mutation-harness.yml"), "utf8");
     expect(
       wf.includes("VITEST_INCLUDE_MUTATION_HARNESS"),
       "workflow must opt IN to the harness",
-    ).toBe(true);
-    expect(
-      wf.includes("tests/parser/mutationHarness.test.ts"),
-      "workflow must target the harness file",
     ).toBe(true);
     expect(
       /schedule:/.test(wf) && /workflow_dispatch:/.test(wf),
@@ -234,6 +250,11 @@ describe("vitest projects split — partition is complete and correctly wired", 
       "workflow must also run on harness-touching PRs (pre-merge proof)",
     ).toBe(true);
   });
+
+  // Flipped from it.todo to it in the workflow task (same commit as the yml edit) —
+  // the config-level wiring commit precedes the workflow edit, so these pins would
+  // fail between the two commits if enabled here (plan Task 4/5 bridge).
+  it.todo("workflow pins — runs `--project mutation` + widened pull_request path glob");
 
   it("unit-suite.yml uses the env var, NOT the (ignored) vitest --exclude flag", () => {
     const wf = readFileSync(join(ROOT, ".github", "workflows", "unit-suite.yml"), "utf8");
