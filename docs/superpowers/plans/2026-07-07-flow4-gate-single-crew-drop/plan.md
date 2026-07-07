@@ -33,8 +33,10 @@
 **Interfaces:**
 - Produces: `Phase1ShowRow` now has `published: boolean` (REQUIRED). Every producer + test double supplies it. Consumed by Task 2's hold predicate.
 
-The 16 test-double files that construct a `Phase1ShowRow` (each supplies `priorParseWarningsRaw` today):
-`tests/sync/recovery-resolution-syncpath.test.ts`, `tests/sync/phase1WarningBridge.test.ts`, `tests/sync/phase1.test.ts`, `tests/sync/phase1.decision-rule.test.ts`, `tests/sync/manual-sync-producer-parity.test.ts`, `tests/sync/resync-shrink-held-producer.test.ts`, `tests/sync/runScheduledCronSync.test.ts`, `tests/sync/phase2.test.ts`, `tests/sync/parseSheetCallSiteGuard.test.ts`, `tests/sync/parse-error-last-good-producer.test.ts`, `tests/sync/qualityRegressionLifecycle.test.ts`, `tests/sync/drive-fetch-failed-producer.test.ts`, `tests/sync/sourceAnchorsPipeline.test.ts`, `tests/sync/readShowPriorWarningsRaw.test.ts`, `tests/sync/runManualSyncForShow.test.ts`, `tests/sync/quality-regressed-producer.test.ts`.
+The 15 test-double files that construct a full `Phase1ShowRow`/fake-row literal (each supplies `priorParseWarningsRaw` today):
+`tests/sync/recovery-resolution-syncpath.test.ts`, `tests/sync/phase1WarningBridge.test.ts`, `tests/sync/phase1.test.ts`, `tests/sync/phase1.decision-rule.test.ts`, `tests/sync/manual-sync-producer-parity.test.ts`, `tests/sync/resync-shrink-held-producer.test.ts`, `tests/sync/runScheduledCronSync.test.ts`, `tests/sync/phase2.test.ts`, `tests/sync/parseSheetCallSiteGuard.test.ts`, `tests/sync/parse-error-last-good-producer.test.ts`, `tests/sync/qualityRegressionLifecycle.test.ts`, `tests/sync/drive-fetch-failed-producer.test.ts`, `tests/sync/sourceAnchorsPipeline.test.ts`, `tests/sync/runManualSyncForShow.test.ts`, `tests/sync/quality-regressed-producer.test.ts`.
+
+(`tests/sync/readShowPriorWarningsRaw.test.ts` is NOT in this list — it only uses `Pick<Phase1ShowRow, ...>` + source-regex assertions, never a full row literal. It is the type-contract host edited in Step 1, not a literal-double site.) The authoritative safety net is `pnpm exec tsc --noEmit` after adding the REQUIRED field: every real omission surfaces as a compile error regardless of this hand-list, so treat the list as a starting map and let tsc find any miss.
 
 (NOT a construct site — do not edit: `lib/sync/phase1.ts` type def itself; `lib/sync/runManualStageForFirstSeen.ts:147` — that `priorParseWarningsRaw: null` is an arg to `evaluateQualityRegression_unlocked`, not a `Phase1ShowRow`; `lib/sync/runOnboardingScan.ts:383` `readShowForPhase1` returns `null`.)
 
@@ -42,11 +44,16 @@ The 16 test-double files that construct a `Phase1ShowRow` (each supplies `priorP
 
 ```ts
 it("Phase1ShowRow carries published as a REQUIRED boolean (type contract)", () => {
-  // Compile-time contract: omitting `published` must fail tsc; present values compile.
+  // Compile-time contract: present values compile as boolean...
   const pub: Pick<Phase1ShowRow, "published"> = { published: true };
   const unpub: Pick<Phase1ShowRow, "published"> = { published: false };
   expect(pub.published).toBe(true);
   expect(unpub.published).toBe(false);
+  // ...and OMITTING it is a type error (proves REQUIRED, not optional). If `published`
+  // were `?:`, this @ts-expect-error would itself error ("unused expect-error") → red.
+  // @ts-expect-error published is REQUIRED on Phase1ShowRow — an empty object must not satisfy it
+  const missing: Pick<Phase1ShowRow, "published"> = {};
+  void missing;
 });
 
 it("the concrete readShowForPhase1 producer maps show.published", () => {
