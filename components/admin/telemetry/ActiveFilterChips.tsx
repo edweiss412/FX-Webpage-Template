@@ -75,7 +75,7 @@ export function ActiveFilterChips({ filters }: { filters: AppEventFilters }) {
             type="button"
             data-testid={`chip-remove-${chip.key}`}
             aria-label={`Remove ${chip.label} filter`}
-            className="inline-flex min-h-tap-min items-center justify-center rounded-full text-text-subtle hover:text-text"
+            className="inline-flex min-h-tap-min items-center justify-center rounded-full px-1 text-text-subtle hover:text-text"
             onClick={() => remove(chip.patch)}
           >
             <X className="size-3.5" aria-hidden />

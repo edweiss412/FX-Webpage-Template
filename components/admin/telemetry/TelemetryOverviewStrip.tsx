@@ -74,6 +74,16 @@ function BigNumber({ children }: { children: React.ReactNode }) {
   );
 }
 
+// A "no data" placeholder — a lone em dash reads oddly to screen readers, so the
+// value carries an explicit label while the glyph stays purely visual.
+function Unavailable() {
+  return (
+    <span className="text-2xl font-semibold tracking-tight text-text" aria-label="Unavailable">
+      <span aria-hidden>—</span>
+    </span>
+  );
+}
+
 // ── System health ────────────────────────────────────────────────────────────
 function SystemHealthCard({ summary }: { summary: AlertSummary }) {
   let dot: StatDotStatus;
@@ -114,7 +124,7 @@ function OpenAlertsCard({ summary }: { summary: AlertSummary }) {
   if (summary.kind === "infra_error") {
     return (
       <StatCard label="Open alerts" testId="stat-open-alerts">
-        <BigNumber>—</BigNumber>
+        <Unavailable />
         <SubLine>Unavailable</SubLine>
       </StatCard>
     );
@@ -130,7 +140,7 @@ function OpenAlertsCard({ summary }: { summary: AlertSummary }) {
   const segments: React.ReactNode[] = [];
   if (summary.degraded > 0) {
     segments.push(
-      <span key="deg" className="flex items-center gap-1">
+      <span key="deg" className="flex items-center gap-1 tabular-nums">
         <StatDot status="degraded" />
         {summary.degraded} degraded
       </span>,
@@ -138,8 +148,8 @@ function OpenAlertsCard({ summary }: { summary: AlertSummary }) {
   }
   if (summary.notice > 0) {
     segments.push(
-      <span key="not" className="flex items-center gap-1">
-        <StatDot status="idle" />
+      <span key="not" className="flex items-center gap-1 tabular-nums">
+        <StatDot status="review" />
         {summary.notice} notice
       </span>,
     );
@@ -159,7 +169,7 @@ function CronCard({ cron, now }: { cron: LoadCronHealthResult; now: Date }) {
   if (cron.kind === "infra_error") {
     return (
       <StatCard label="Cron jobs" testId="stat-cron">
-        <BigNumber>—</BigNumber>
+        <Unavailable />
         <SubLine>Cron health unavailable</SubLine>
       </StatCard>
     );
@@ -183,16 +193,17 @@ function CronCard({ cron, now }: { cron: LoadCronHealthResult; now: Date }) {
 // ── Events · 24h ─────────────────────────────────────────────────────────────
 function EventsCard({ stats }: { stats: LoadTelemetryStatsResult }) {
   const buckets = stats.kind === "ok" ? stats.stats.buckets : [];
+  const isInfra = stats.kind === "infra_error";
   let value: React.ReactNode;
   let sub: string;
-  if (stats.kind === "infra_error") {
-    value = "—";
+  if (isInfra) {
+    value = <Unavailable />;
     sub = "Unavailable";
   } else if (stats.stats.total === 0) {
-    value = "0";
+    value = <BigNumber>0</BigNumber>;
     sub = "No events in 24h";
   } else {
-    value = stats.stats.total;
+    value = <BigNumber>{stats.stats.total}</BigNumber>;
     const segs: string[] = [];
     if (stats.stats.errorCount > 0)
       segs.push(`${stats.stats.errorCount} error${stats.stats.errorCount === 1 ? "" : "s"}`);
@@ -203,7 +214,7 @@ function EventsCard({ stats }: { stats: LoadTelemetryStatsResult }) {
   return (
     <StatCard label="Events · 24h" testId="stat-events">
       <div className="flex items-end justify-between gap-2">
-        <BigNumber>{value}</BigNumber>
+        {value}
         <EventVolumeSparkline buckets={buckets} />
       </div>
       <SubLine>{sub}</SubLine>

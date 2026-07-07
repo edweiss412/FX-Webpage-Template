@@ -77,7 +77,7 @@ export function AutoRefreshControl() {
   };
 
   return (
-    <div className="inline-flex items-center gap-3 rounded-md border border-border bg-surface px-3 py-1.5 shadow-tile">
+    <div className="inline-flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border bg-surface px-3 py-1.5 shadow-tile">
       {/* Pulse dot: live ping ring only when ON; static faint dot when OFF. */}
       <span aria-hidden className="relative inline-flex size-2 shrink-0">
         {on && (
@@ -91,15 +91,16 @@ export function AutoRefreshControl() {
         />
       </span>
       <span className="text-sm text-text">Auto-refresh</span>
-      {/* Switch: 34×20 track, thumb translateX. min-h-tap-min keeps a ≥44px tap target. */}
+      {/* Switch: 34×20 track, thumb translateX. A toggle BUTTON (aria-pressed) — not
+          role="switch" (which would require aria-checked). min-h/w-tap-min keeps a ≥44px
+          tap target around the 34×20 visible track (WCAG 2.5.5). */}
       <button
         type="button"
         data-testid="autorefresh-toggle"
-        role="switch"
         aria-pressed={on}
         aria-label={`Auto-refresh ${on ? "on" : "off"}`}
         onClick={toggle}
-        className="inline-flex min-h-tap-min items-center"
+        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center"
       >
         <span
           className={`relative inline-flex h-5 w-[34px] items-center rounded-full transition-colors ${on ? "bg-accent" : "bg-surface-sunken"}`}
@@ -123,7 +124,7 @@ export function AutoRefreshControl() {
         data-testid="autorefresh-manual"
         aria-label="Refresh now"
         onClick={doRefresh}
-        className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border p-1.5 text-text-subtle hover:bg-surface-sunken hover:text-text"
+        className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border p-1.5 text-text-subtle hover:bg-surface-sunken hover:text-text"
       >
         <RotateCw className="size-4" aria-hidden />
       </button>

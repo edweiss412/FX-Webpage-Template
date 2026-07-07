@@ -56,17 +56,19 @@ export default async function TelemetryPage({
 
       <div className="grid grid-cols-1 gap-section-gap xl:grid-cols-[minmax(0,1fr)_340px] xl:items-start">
         {/* Hero: filter toolbar + activity sub-header + the divided event log. */}
-        <div className="flex flex-col gap-tile-gap">
+        <section aria-labelledby="activity-heading" className="flex flex-col gap-tile-gap">
           {/* EventFilters reads useSearchParams → Suspense boundary (Next 16), same as the dev harness. */}
           <Suspense>
             <EventFilters filters={filters} />
           </Suspense>
           <div className="flex items-baseline justify-between">
-            <h2 className="text-[15px] font-semibold text-text-strong">Activity</h2>
-            <span className="text-xs text-text-subtle">{activityLabel}</span>
+            <h2 id="activity-heading" className="text-[15px] font-semibold text-text-strong">
+              Activity
+            </h2>
+            <span className="text-xs tabular-nums text-text-subtle">{activityLabel}</span>
           </div>
           <EventTimeline result={events} now={now} currentQuery={currentQuery} />
-        </div>
+        </section>
 
         {/* 340px sidebar: developer health-alert detail + compact cron list. */}
         <aside className="flex flex-col gap-section-gap">

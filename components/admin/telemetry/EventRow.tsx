@@ -93,7 +93,7 @@ export function EventRow({
             </>
           )}
         </div>
-        <span className="shrink-0 text-xs text-text-faint">
+        <span className="shrink-0 text-xs tabular-nums text-text-faint">
           {formatRelative(event.occurredAt, now)}
         </span>
         {event.requestId && (
