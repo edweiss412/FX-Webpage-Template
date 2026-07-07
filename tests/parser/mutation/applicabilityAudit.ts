@@ -25,7 +25,11 @@ const DOMAIN_OF: Record<string, string> = {
   "EVENT DETAILS": "event_details",
   DETAILS: "event_details",
   "GS DETAILS": "event_details",
+  // e7a2daa3 registered openers (independent mirror of the classify.ts rows):
+  "GS DETAILS (FOR BOTH)": "event_details",
+  "DETAILS/ROOM DIAGRAM": "event_details",
   TRANSPORTATION: "transportation",
+  DRIVER: "transportation",
   DATES: "dates",
   AGENDA: "agenda",
   "AGENDA LINK": "agenda",
