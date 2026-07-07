@@ -1,20 +1,36 @@
 // @vitest-environment jsdom
 import "@testing-library/jest-dom/vitest";
-import { afterEach, describe, expect, test } from "vitest";
+import { afterEach, describe, expect, test, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { render, screen, fireEvent, cleanup } from "@testing-library/react";
 import { EventRow } from "@/components/admin/telemetry/EventRow";
 import type { AppEventRow } from "@/lib/admin/telemetryTypes";
 
+const refresh = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ refresh, push: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(""),
+}));
+
+import { AutoRefreshControl } from "@/components/admin/telemetry/AutoRefreshControl";
+
 afterEach(cleanup);
 
 const DIR = join(__dirname, "..", "..", "..", "components/admin/telemetry");
 const read = (f: string) => readFileSync(join(DIR, f), "utf8");
+// Every telemetry surface EXCEPT EventRow is instant (no framer-motion). The new
+// console components (overview strip, sparkline, chips, cron list) are deliberately
+// instant per spec §9; the restyled AutoRefreshControl pulse is a CSS keyframe
+// (.telemetry-ping) gated by `on` + prefers-reduced-motion, NOT a JS transition.
 const INSTANT = [
   "CronHealthHeader.tsx",
+  "CronHealthList.tsx",
   "EventTimeline.tsx",
   "EventFilters.tsx",
+  "ActiveFilterChips.tsx",
+  "TelemetryOverviewStrip.tsx",
+  "EventVolumeSparkline.tsx",
   "CronRunSummaryCard.tsx",
   "AutoRefreshControl.tsx",
 ];
@@ -67,6 +83,30 @@ describe("transition inventory (spec §7)", () => {
     expect(screen.getByTestId("event-full-message")).toBeInTheDocument();
     rerender(<EventRow event={ev} now={new Date(now.getTime() + 20_000)} />); // new now, same event
     expect(screen.getByTestId("event-full-message")).toBeInTheDocument();
+    cleanup();
+  });
+  test("the pulse ping is a CSS keyframe gated by `on`, not a JS animation", () => {
+    const src = read("AutoRefreshControl.tsx");
+    expect(src).toContain("telemetry-ping"); // CSS keyframe class (globals.css @keyframes tping)
+    expect(src).toMatch(/on\s*&&/); // ping rendered only when ON
+    expect(src).not.toContain("AnimatePresence");
+  });
+  test("compound: toggling auto-refresh while an event row is expanded — independent subtrees both proceed", () => {
+    render(
+      <div>
+        <AutoRefreshControl />
+        <EventRow event={ev} now={now} />
+      </div>,
+    );
+    // expand the row
+    fireEvent.click(screen.getByTestId("event-row-toggle-x"));
+    expect(screen.getByTestId("event-full-message")).toBeInTheDocument();
+    // ping present while ON
+    expect(screen.getByTestId("autorefresh-ping")).toBeInTheDocument();
+    // toggle auto-refresh OFF mid-expand — the row stays open, the ping disappears
+    fireEvent.click(screen.getByTestId("autorefresh-toggle"));
+    expect(screen.queryByTestId("autorefresh-ping")).toBeNull();
+    expect(screen.getByTestId("event-full-message")).toBeInTheDocument(); // row unaffected
     cleanup();
   });
 });
