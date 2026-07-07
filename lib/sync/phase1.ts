@@ -427,10 +427,23 @@ export async function runPhase1(
   // already empty there today. The explicit `mode` gate makes that robust: onboarding must NEVER
   // mutate `shows`, and PostgresOnboardingScanTx.updateShowShrinkHeld is a throw-only guard — the
   // gate guarantees the hold branch never invokes it.
-  const materialShrinkItems =
+  const materialShrinkItems: TriggeredReviewItem[] =
     show && args.mode !== "onboarding_scan"
       ? reviewItems.filter((item) => item.invariant === "MI-6" || item.invariant === "MI-7")
       : [];
+  // Flow 4.1 (audit P0-1): a PUBLISHED show losing exactly ONE crew member holds last-good instead
+  // of auto-applying silently. MI-6 (lib/parser/invariants.ts) only fires at crewDrop > 1, so the
+  // single-drop case is synthesized HERE, where publish state is known. Pushed into
+  // materialShrinkItems ONLY (never reviewItems): a single removal already yields an MI-13/MI-14
+  // orphan-remove item in reviewItems, so this synthetic item just triggers the hold + labels
+  // describeShrink ("crew N→N-1"). crewDrop === 1 can never coexist with a real MI-6 (needs > 1),
+  // so describeShrink never double-counts. Unpublished / first-seen / onboarding_scan are excluded.
+  if (show && args.mode !== "onboarding_scan" && show.published) {
+    const crewDrop = show.priorParseResult.crewMembers.length - args.parseResult.crewMembers.length;
+    if (crewDrop === 1) {
+      materialShrinkItems.push({ id: randomUUID(), invariant: "MI-6" });
+    }
+  }
   if (materialShrinkItems.length > 0) {
     // Drive's modifiedTime advances on any edit, so a mismatch means Doug edited between the
     // prompt and the confirm — re-hold with fresh counts (the admin must re-confirm).
