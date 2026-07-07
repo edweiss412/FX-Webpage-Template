@@ -21,9 +21,11 @@ on:
       - ".github/workflows/mutation-harness.yml"
       - "tests/parser/mutation/**"
       - "tests/parser/mutationHarness.test.ts"
+# PR-only cancel (ci-workflow-speedup convention): re-pushing a PR cancels its superseded
+# ~92-min run, but scheduled nightly runs never cancel each other.
 concurrency:
   group: mutation-harness-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 jobs:
   mutation-harness:
     runs-on: ubuntu-latest
