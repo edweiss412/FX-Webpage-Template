@@ -1097,6 +1097,20 @@ const EQUALITY_LITERAL_ALLOWLIST: Record<string, readonly string[]> = {
 // (METADATA_FIELD_TOKENS), not opened as a section.
 const EXPECTED_ORPHANS = new Set(["VENUES", "IN HOUSE AV", "LUNCH SESSION", "COI"]);
 
+// POST-IMPLEMENTATION AMENDMENT (whole-diff Codex review R1 [medium] ×2 — shipped
+// tighter than the snippets above; the test file is authoritative):
+//  1. RAW_HEADER_REGEX_ALLOWLIST is TOKEN-SPECIFIC — Record<string, {tokens, reason}>;
+//     the backstop asserts the DETECTED {file, token} is allowed. A file's OWN tokens
+//     are exempt via ownTokens (so hotels/transport/scheduleTimes carry NO entry). The
+//     map lists only cross-section boundary refs: rooms → [DATES,CREW,DRESS,
+//     TRANSPORTATION,HOTEL,VENUE,AGENDA,DETAILS], event/gear/index → [GENERAL SESSION,
+//     BREAKOUT]. Proof (h) pins it. Prevents an allowlisted file hiding drift onto a
+//     DIFFERENT registered token.
+//  2. No-orphan check FAILS (not warns) — a registry entry no parser opens silently
+//     suppresses UNKNOWN_SECTION_HEADER. EXPECTED_ORPHANS expanded to the 8 verified
+//     non-openers: VENUES, HOTELS, IN HOUSE AV, LUNCH SESSION, COI, DOCUMENT FOLDER
+//     LINK, PULL SHEET, FOYER (each consumed elsewhere — reasons travel in-code).
+
 interface Scanned {
   file: string;
   path: string;
@@ -1211,7 +1225,9 @@ describe("known-sections source walker", () => {
     }
   });
 
-  it("no-orphan (warn, non-blocking): registry entries claimed by no parser/prefix/sub-label", async () => {
+  // NOTE (whole-diff R1): shipped as FAILS, not warn — see the post-implementation
+  // amendment above and the authoritative test file.
+  it("no-orphan (FAILS): every registry entry is claimed by a parser/prefix/sub-label or is an EXPECTED_ORPHAN", async () => {
     const scanned = await scanFiles();
     const claimed = new Set<string>();
     for (const s of scanned) {
@@ -1221,11 +1237,7 @@ describe("known-sections source walker", () => {
     const orphans = [...KNOWN_SECTION_HEADERS].filter(
       (h) => !claimed.has(h) && !EXPECTED_ORPHANS.has(h),
     );
-    if (orphans.length > 0) {
-      // warn, do not fail
-      console.warn(`[known-sections walker] unclaimed registry entries (not EXPECTED_ORPHANS): ${orphans.join(", ")}`);
-    }
-    expect(true).toBe(true);
+    expect(orphans, `unclaimed KNOWN_SECTION_HEADERS entries not in EXPECTED_ORPHANS: ${orphans.join(", ")}`).toEqual([]);
   });
 });
 
@@ -1298,11 +1310,12 @@ Filesystem-walks lib/parser/blocks/*.ts + index.ts. PRIMARY enforced gates:
 annotation-or-allowlist, non-empty, EXACT registry subset. Import-link nudge
 (rooms exempt). REGISTRY-KEYED backstop (Form A equality/startsWith/includes +
 Form B anchored regex, fires only on a KNOWN_SECTION_HEADERS token the file does
-not own/allowlist). RAW_HEADER_REGEX_ALLOWLIST (rooms/hotels/transport/index +
-event/gear/scheduleTimes boundary refs) + EQUALITY_LITERAL_ALLOWLIST
-(scheduleTimes DATES, index CLIENT) from a complete preflight. no-orphan warn
-(EXPECTED_ORPHANS: VENUES, IN HOUSE AV, LUNCH SESSION). 7-part non-vacuity proof
-incl. negative controls. Declared accepted residual (import != use; exotic /
+not own/allowlist). TOKEN-SPECIFIC RAW_HEADER_REGEX_ALLOWLIST (whole-diff R1 —
+rooms/event/gear/index cross-section boundary refs only; own-token matchers exempt
+via ownTokens) + EQUALITY_LITERAL_ALLOWLIST (scheduleTimes DATES, index CLIENT).
+no-orphan FAILS (whole-diff R1) for entries outside EXPECTED_ORPHANS (the 8:
+VENUES, HOTELS, IN HOUSE AV, LUNCH SESSION, COI, DOCUMENT FOLDER LINK, PULL SHEET,
+FOYER). 8-part non-vacuity proof incl. negative controls + token-specific proof (h). Declared accepted residual (import != use; exotic /
 unregistered matchers) in the header comment. Verified the backstop fails on a
 planted /^GENERAL SESSION/.test(col0) in a non-allowlisted file and does NOT fire
 on a terminator array.

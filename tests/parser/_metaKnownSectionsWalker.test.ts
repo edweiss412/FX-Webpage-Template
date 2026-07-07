@@ -9,7 +9,11 @@
 // includes against a quoted token; Form B: an anchored /^.../ regex containing
 // the token) whose token is an EXACT KNOWN_SECTION_HEADERS member the file
 // neither owns nor allowlists — high-signal (sub-labels, column headers,
-// terminator arrays, .includes(var), and comments do NOT fire). DECLARED
+// terminator arrays, .includes(var), and comments do NOT fire). The raw-matcher
+// allowlist is TOKEN-SPECIFIC (Codex whole-diff R1): an allowlisted file is still
+// flagged for a NEW registered token not in its enumerated list. The no-orphan
+// check FAILS (not warns): a registry entry no parser opens would silently
+// suppress UNKNOWN_SECTION_HEADER. DECLARED
 // ACCEPTED RESIDUAL (spec §6.7): the walker proves import, NOT exclusive factory
 // USE; and because the backstop is registry-keyed, a hand-rolled matcher for an
 // UNREGISTERED token, or a registered token via an exotic mechanism (computed
@@ -50,22 +54,35 @@ const NO_SECTION_OPENER: Record<string, string> = {
 const IMPORT_LINK_EXEMPT = new Set(["rooms.ts"]);
 
 // Files with a RETAINED raw matcher (regex or equality) referencing a REGISTERED
-// section-opener token — either the file's own token (deliberately kept as a
-// capture-extract/multi-column matcher) or another section's banner reused as a
-// boundary/classification. Reason travels with each entry. (Populated from a
-// complete plan-time preflight scan over the live tree — see plan Task 14 note.)
-const RAW_HEADER_REGEX_ALLOWLIST: Record<string, string> = {
-  "rooms.ts": "capture-extract/shape room-banner matchers (IMPORT_LINK_EXEMPT, spec §4)",
-  "hotels.ts": "inline reservation/stay capture matchers (:507/:519) + /^HOTEL$/i (:356)",
-  "transport.ts":
-    "multi-column TRANSPORTATION headers (:173/:336), v1 Driver (:446), /^TRANSPORTATION\\//i (:285)",
-  "index.ts": "agenda label+value capture matcher (:339)",
-  "event.ts":
-    "references GENERAL SESSION / BREAKOUT as a room-block boundary (:174) — event does not OPEN those",
-  "gear.ts":
-    "room-family classification (/^GENERAL/, /^BREAKOUT/, /^LUNCH/ :97-99) — reuses banners owned by rooms.ts",
-  "scheduleTimes.ts":
-    "consumes the DATES block boundary owned by dates.ts (:114/:122) — not an opener",
+// section-opener token that the file DOES NOT OWN — another section's banner reused
+// as a boundary/classification reference. TOKEN-SPECIFIC (Codex whole-diff R1): each
+// entry lists the exact non-owned registered tokens it may reference. A file already
+// in this map can therefore NO LONGER hide a NEW matcher for a DIFFERENT registered
+// token — that token fires the backstop unless it too is enumerated here with a
+// reason. (A file's OWN section/metadata tokens are exempt via ownTokens and are NOT
+// listed here.) Populated from a complete preflight scan over the live tree; files
+// whose raw matchers reference only their own tokens (hotels/transport) or whose
+// cross-section token is handled by EQUALITY_LITERAL_ALLOWLIST (scheduleTimes→DATES)
+// carry NO entry.
+const RAW_HEADER_REGEX_ALLOWLIST: Record<string, { tokens: readonly string[]; reason: string }> = {
+  "rooms.ts": {
+    tokens: ["DATES", "CREW", "DRESS", "TRANSPORTATION", "HOTEL", "VENUE", "AGENDA", "DETAILS"],
+    reason:
+      "block-terminator alternations (:864/:1048/:1314) — detect the NEXT section's banner to end the room block; rooms does not OPEN these (DETAILS is owned by event.ts) (IMPORT_LINK_EXEMPT, spec §4)",
+  },
+  "event.ts": {
+    tokens: ["GENERAL SESSION", "BREAKOUT"],
+    reason: "room-block boundary break (:181) — event does not open these",
+  },
+  "gear.ts": {
+    tokens: ["GENERAL SESSION", "BREAKOUT"],
+    reason: "room-family classification (:90/:98) — reuses banners owned by rooms.ts",
+  },
+  "index.ts": {
+    tokens: ["GENERAL SESSION", "BREAKOUT"],
+    reason:
+      "ROOM_FAMILY_RE (:434) room-family classification — banners owned by rooms.ts; agenda capture (:353) is index's OWN token",
+  },
 };
 
 // Equality/method literals (registered-section-header tokens) legitimate in a file
@@ -75,11 +92,31 @@ const EQUALITY_LITERAL_ALLOWLIST: Record<string, readonly string[]> = {
   "index.ts": ["CLIENT"], // CLIENT-prefix title-exclusion sentinel (client section owned by client.ts)
 };
 
-// Registry entries no parser OPENS on but that are intentionally present
-// (aliases / prefix-family members / metadata fields) — warned, not failed (spec §6.10).
-// COI is in KNOWN_SECTION_HEADERS but is consumed by ops as a scalar METADATA field
-// (METADATA_FIELD_TOKENS), not opened as a section.
-const EXPECTED_ORPHANS = new Set(["VENUES", "IN HOUSE AV", "LUNCH SESSION", "COI"]);
+// Registry entries no blocks/ token-exporter OPENS but that are INTENTIONALLY in
+// KNOWN_SECTION_HEADERS (aliases / prefix-family variants / scalar-field labels /
+// sections parsed OUTSIDE lib/parser/blocks/) — recognized so their banner is not
+// false-flagged UNKNOWN_SECTION_HEADER. Each MUST be verified as genuinely consumed
+// (not silently dropped) — see reason. The no-orphan check FAILS for anything NOT
+// here (Codex whole-diff R1): a new registry header that nothing opens would suppress
+// UNKNOWN_SECTION_HEADER for a real section.
+//   VENUES        — plural alias of VENUE (venue.ts opens VENUE; same section)
+//   HOTELS        — plural alias of HOTEL (hotels.ts opens HOTEL + reservations/stays)
+//   IN HOUSE AV   — contacts.ts scalar contact-label (cells[1]-only), not a row-opener
+//   LUNCH SESSION — room-family variant; PREFIX_SECTION_FAMILIES member (rooms opens LUNCH ROOM)
+//   COI           — ops.ts scalar METADATA field (METADATA_FIELD_TOKENS), not a section
+//   DOCUMENT FOLDER LINK — scalar drive-anchor field (lib/drive/unknownFieldAnchors.ts), not a section
+//   PULL SHEET    — parsed by the dedicated lib/parser/pull-sheet.ts (parsePullSheet), outside blocks/
+//   FOYER         — room/area name (agenda room-name detection), not a section opener
+const EXPECTED_ORPHANS = new Set([
+  "VENUES",
+  "HOTELS",
+  "IN HOUSE AV",
+  "LUNCH SESSION",
+  "COI",
+  "DOCUMENT FOLDER LINK",
+  "PULL SHEET",
+  "FOYER",
+]);
 
 interface Scanned {
   file: string;
@@ -166,7 +203,9 @@ describe("known-sections source walker", () => {
           ...((s.mod.METADATA_FIELD_TOKENS as string[] | undefined) ?? []),
         ].map(normalizeHeader),
       );
-      const rawAllowed = s.file in RAW_HEADER_REGEX_ALLOWLIST;
+      const rawAllowedTokens = new Set(
+        (RAW_HEADER_REGEX_ALLOWLIST[s.file]?.tokens ?? []).map(normalizeHeader),
+      );
       const eqAllowed = new Set((EQUALITY_LITERAL_ALLOWLIST[s.file] ?? []).map(normalizeHeader));
 
       // Pre-extract anchored regex literals and NORMALIZE their whitespace
@@ -193,14 +232,14 @@ describe("known-sections source walker", () => {
         if (!FORM_A.test(s.source) && !formB) continue;
 
         expect(
-          rawAllowed,
-          `${s.file}: hard-coded matcher for registered section opener "${token}" (which this file does not own) — is this a hidden opener? Export it as a token + build via the factory, or add a RAW_HEADER_REGEX_ALLOWLIST / EQUALITY_LITERAL_ALLOWLIST reason.`,
+          rawAllowedTokens.has(normalizeHeader(token)),
+          `${s.file}: hard-coded matcher for registered section opener "${token}" (which this file does not own and does not allowlist) — is this a hidden opener? Export it as a token + build via the factory, or add "${token}" to RAW_HEADER_REGEX_ALLOWLIST["${s.file}"].tokens (or EQUALITY_LITERAL_ALLOWLIST) with a reason.`,
         ).toBe(true);
       }
     }
   });
 
-  it("no-orphan (warn, non-blocking): registry entries claimed by no parser/prefix/sub-label", async () => {
+  it("no-orphan (FAILS): every registry entry is claimed by a parser/prefix/sub-label or is an EXPECTED_ORPHAN", async () => {
     const scanned = await scanFiles();
     const claimed = new Set<string>();
     for (const s of scanned) {
@@ -211,13 +250,15 @@ describe("known-sections source walker", () => {
     const orphans = [...KNOWN_SECTION_HEADERS].filter(
       (h) => !claimed.has(h) && !EXPECTED_ORPHANS.has(h),
     );
-    if (orphans.length > 0) {
-      // warn, do not fail
-      console.warn(
-        `[known-sections walker] unclaimed registry entries (not EXPECTED_ORPHANS): ${orphans.join(", ")}`,
-      );
-    }
-    expect(true).toBe(true);
+    // FAIL, not warn (Codex whole-diff R1): a header added to KNOWN_SECTION_HEADERS
+    // that NO parser opens silently suppresses UNKNOWN_SECTION_HEADER for that
+    // section (the unknown-section scan treats it as "known" and stops flagging) —
+    // an observability / data-loss regression. Wire a parser to open it, or add it
+    // to EXPECTED_ORPHANS with an explicit reason.
+    expect(
+      orphans,
+      `unclaimed KNOWN_SECTION_HEADERS entries not in EXPECTED_ORPHANS: ${orphans.join(", ")}`,
+    ).toEqual([]);
   });
 });
 
@@ -256,6 +297,15 @@ describe("known-sections walker non-vacuity proof", () => {
     expect(hits(`"GENERAL SESSION" === label`)).toBe(true); // reversed
     expect(hits(`if (col0.startsWith("GENERAL SESSION")) {}`)).toBe(true);
     expect(hits(`if (col0.includes("GENERAL SESSION")) {}`)).toBe(true);
+  });
+  it("(h) token-specific raw allowlist: an allowlisted file is STILL flagged for a registered token NOT in its token list", () => {
+    // event.ts allowlists GENERAL SESSION + BREAKOUT only. A hard-coded matcher for
+    // DATES (registered, not owned by event, not in event's allowed tokens) is
+    // DETECTED and NOT allowed → the backstop assertion fails = the drift is caught.
+    const allowedForEvent = new Set(["GENERAL SESSION", "BREAKOUT"].map(normalizeHeader));
+    expect(hits(`label === "DATES"`, "DATES")).toBe(true); // detected
+    expect(hits(String.raw`const RE = /^\|\s*DATES\s*\|/;`, "DATES")).toBe(true); // detected (Form B)
+    expect(allowedForEvent.has(normalizeHeader("DATES"))).toBe(false); // not allowed → caught
   });
   it("(g) NEGATIVE CONTROLS: benign patterns are NOT flagged", () => {
     // lowercase scalar-label regex (contacts style) — case-sensitive, must NOT fire:
