@@ -245,19 +245,23 @@ describe("Step3SheetCard — summary (§4.2)", () => {
     // Scope to the event-details breakdown only (anti-tautology).
     const txt =
       q.getByTestId(`wizard-step3-card-${DFID}-breakdown-event-details`).textContent ?? "";
-    expect(txt).toContain("Stage size:");
+    // Grouped redesign (spec 3a): sentence-case labels, no trailing colon;
+    // group headers carry hierarchy. Every known spec still renders as-parsed.
+    expect(txt).toContain("Stage & scenic"); // group header
+    expect(txt).toContain("Stage size");
     expect(txt).toContain("8'x24'");
-    expect(txt).toContain("Podium:");
-    expect(txt).toContain("Audience polling:");
-    expect(txt).toContain("Keynote:");
-    expect(txt).toContain("Opening reel:");
+    expect(txt).toContain("Podium");
+    expect(txt).toContain("Audience polling"); // boolean → Yes chip
+    expect(txt).toContain("Yes");
+    expect(txt).toContain("Keynote");
+    expect(txt).toContain("Opening reel");
     expect(txt).toContain("169"); // non-string coerced + shown
     // Sentinels are SHOWN as-parsed on the review surface (existing contract,
     // Step3Review.test.tsx) — the crew card hides them; the operator modal does not.
-    expect(txt).toContain("LED wall:");
+    expect(txt).toContain("LED wall");
     expect(txt).toContain("N/A");
     expect(txt).not.toMatch(/diagrams/i); // folder link excluded (text-key scope)
-    expect(txt).not.toContain("Notes:"); // whitespace-only omitted (empty after trim)
+    expect(txt).not.toContain("Notes"); // whitespace-only omitted (empty after trim)
     expect(txt).not.toContain("https://"); // opening_reel URL stripped
     // Event details is NOT a counted section (owner decision 2026-07-05) — the
     // HEADING drops the parenthetical count even though 7 specs render. Scope to
