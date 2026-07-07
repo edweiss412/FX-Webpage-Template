@@ -9,6 +9,13 @@ export const RAW_UNRECOGNIZED_CAP = 50;
 /** Per-field character cap. Arbitrary sheet content can be arbitrarily long; a
  *  single huge cell must not freeze render or dwarf the modal. */
 export const RAW_UNRECOGNIZED_FIELD_CAP = 200;
+/** WORK caps (not just display caps) so pathological jsonb can't freeze the
+ *  render: cap the raw characters fed to the per-field regex, and cap how many
+ *  array entries are scanned at all. `total` is therefore bounded to
+ *  RAW_UNRECOGNIZED_MAX_ENTRIES (far above any real sheet's unrecognized-row
+ *  count, so it is exact in practice). */
+export const RAW_UNRECOGNIZED_MAX_FIELD_INPUT = RAW_UNRECOGNIZED_FIELD_CAP * 8; // 1600
+export const RAW_UNRECOGNIZED_MAX_ENTRIES = 1000;
 
 export type RawUnrecognizedEntry = { block: string; key: string; value: string };
 export type RawUnrecognizedGroup = {
@@ -30,7 +37,13 @@ const CONTROL_CHARS = /[\x00-\x1F\x7F-\x9F]/g;
 const INVISIBLE_CHARS = /[\u200B-\u200D\u2060\uFEFF\u202A-\u202E\u2066-\u2069]/g;
 
 function cleanField(input: string): string {
-  const cleaned = input
+  // Bound the regex work FIRST: a multi-megabyte cell must not be scanned in
+  // full just to render at most RAW_UNRECOGNIZED_FIELD_CAP chars.
+  const bounded =
+    input.length > RAW_UNRECOGNIZED_MAX_FIELD_INPUT
+      ? input.slice(0, RAW_UNRECOGNIZED_MAX_FIELD_INPUT)
+      : input;
+  const cleaned = bounded
     .replace(CONTROL_CHARS, " ")
     .replace(INVISIBLE_CHARS, "")
     .replace(/\s+/g, " ")
@@ -43,7 +56,10 @@ function cleanField(input: string): string {
 export function sanitizeRawUnrecognized(raw: unknown): RawUnrecognizedEntry[] {
   if (!Array.isArray(raw)) return [];
   const out: RawUnrecognizedEntry[] = [];
-  for (const el of raw) {
+  // Bound entries scanned so a pathologically long array can't freeze the walk.
+  const scan =
+    raw.length > RAW_UNRECOGNIZED_MAX_ENTRIES ? raw.slice(0, RAW_UNRECOGNIZED_MAX_ENTRIES) : raw;
+  for (const el of scan) {
     if (el === null || typeof el !== "object" || Array.isArray(el)) continue;
     const r = el as Record<string, unknown>;
     const key = typeof r.key === "string" ? cleanField(r.key) : "";

@@ -11,6 +11,7 @@ import {
   buildRawUnrecognizedView,
   RAW_UNRECOGNIZED_CAP,
   RAW_UNRECOGNIZED_FIELD_CAP,
+  RAW_UNRECOGNIZED_MAX_ENTRIES,
 } from "@/lib/admin/rawUnrecognized";
 
 describe("sanitizeRawUnrecognized (fail-closed)", () => {
@@ -118,6 +119,24 @@ describe("cleanField hardening (untrusted sheet content)", () => {
     expect(out[0]!.value.length).toBe(RAW_UNRECOGNIZED_FIELD_CAP + 1); // + the "…"
     expect(out[0]!.value.endsWith("…")).toBe(true);
     expect(out[0]!.value.startsWith("z")).toBe(true);
+  });
+
+  test("bounds work: a field far larger than the input cap is still capped, no hang", () => {
+    const huge = "y".repeat(500_000); // 500k chars
+    const out = sanitizeRawUnrecognized([{ block: "b", key: "K", value: huge }]);
+    expect(out[0]!.value.length).toBe(RAW_UNRECOGNIZED_FIELD_CAP + 1);
+    expect(out[0]!.value.endsWith("…")).toBe(true);
+  });
+
+  test("bounds work: total is capped at RAW_UNRECOGNIZED_MAX_ENTRIES for a pathological array", () => {
+    const raw = Array.from({ length: RAW_UNRECOGNIZED_MAX_ENTRIES + 250 }, (_, i) => ({
+      block: "b",
+      key: `k${i}`,
+      value: "v",
+    }));
+    const v = buildRawUnrecognizedView(raw);
+    expect(v.total).toBe(RAW_UNRECOGNIZED_MAX_ENTRIES); // bounded, not 1250
+    expect(v.hiddenCount).toBe(RAW_UNRECOGNIZED_MAX_ENTRIES - RAW_UNRECOGNIZED_CAP);
   });
 
   test("a key that is only invisible/control chars is dropped (unshowable)", () => {
