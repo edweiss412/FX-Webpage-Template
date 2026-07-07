@@ -6,9 +6,13 @@
  * Supabase REST creds) → runs in unit-suite against LOCAL (bootstrap-applied
  * migration) and is correct against validation too.
  *
- * The real service_role rpc() PostgREST smoke lives in the sibling
- * telemetryConsoleReads.rpc.test.ts (validation-scoped, gated by
- * RUN_VALIDATION_RPC_SMOKE) — see spec §14.
+ * This same file IS the validation-deployment proof: the x-audits
+ * `telemetry-rpc-smoke` job re-runs it with TEST_DATABASE_URL pointed at the
+ * validation project (the parity gate can't see functions). A real PostgREST
+ * rpc() smoke is not run in CI — it needs a validation-issued apikey, which is
+ * not a repo secret (SUPABASE_URL/SUPABASE_SECRET_KEY are the local pair). The
+ * `to_regprocedure` signature assertion below pins param types + arity, the
+ * drift that matters for a positional-safe service_role deploy.
  *
  * Behavioral cases run inside a ROLLBACK'd transaction (Symbol sentinel), so no
  * fixture is ever committed to the persistent DB. admin_event_stats_24h uses a
