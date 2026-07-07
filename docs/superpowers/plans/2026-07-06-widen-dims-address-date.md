@@ -293,6 +293,11 @@ describe("inferShowYear slash-first fallback (rec-6d)", () => {
     // 12026-07-04 must NOT yield 2026 (self-delimiting \b guard).
     expect(inferShowYear("code 12026-07-04 only")).toBeNull();
   });
+  it("an INVALID slash token suppresses the ISO fallback (behavior-preserving)", () => {
+    // A slash token EXISTS (13/45/2026) though calendar-invalid; old behavior returned
+    // null and never scanned further — the ISO 2027 must NOT be picked up.
+    expect(inferShowYear("bad 13/45/2026 then 2027-01-01")).toBeNull();
+  });
   it("returns null when no date at all", () => {
     expect(inferShowYear("no dates here")).toBeNull();
   });
@@ -308,13 +313,18 @@ Expected: FAIL (ISO-only returns null today; and a naive combined-alternation im
 
 ```ts
 export function inferShowYear(markdown: string): string | null {
-  // Slash FIRST — unchanged behavior for any sheet with a slash date anywhere.
+  // Slash FIRST — behavior IDENTICAL to the pre-widening implementation. If ANY slash
+  // token exists (even calendar-invalid, e.g. 13/45/2026), return its normalizeDate
+  // result (year or null) and DO NOT fall back — the fallback runs ONLY when NO slash
+  // token exists at all (spec: "fallback only when no slash date exists"). Gating on the
+  // regex MATCH (not on normalizeDate success) preserves the old "first slash invalid →
+  // null" behavior; gating on success would change it (Codex plan R3).
   const slash = /\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/.exec(markdown);
   if (slash) {
     const iso = normalizeDate(slash[0]);
-    if (iso) return iso.slice(0, 4);
+    return iso ? iso.slice(0, 4) : null;
   }
-  // Fallback ONLY when no slash date exists: the EARLIEST date in DOCUMENT ORDER
+  // Fallback ONLY when no slash token exists: the EARLIEST date in DOCUMENT ORDER
   // across ISO + long-form (NOT ISO-priority — Codex plan R1: an ISO-first loop would
   // return the year of a later ISO date over an earlier long-form date on a no-slash sheet).
   let best: { index: number; iso: string } | null = null;
