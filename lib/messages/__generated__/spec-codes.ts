@@ -248,6 +248,12 @@ export const SPEC_CODES = {
     "followUp": null,
     "helpfulContext": null,
   },
+  "CREW_COLUMN_POSITIONAL_FALLBACK": {
+    "crewFacing": null,
+    "dougFacing": "We couldn't recognize the column headers on _<sheet-name>_'s crew table, so we read the columns by position instead. Names and roles may have landed in the wrong fields — check the crew section against your sheet, and add a header row (Name / Role / Phone / Email) so we can read the columns by label.",
+    "followUp": "Doug → verify crew columns",
+    "helpfulContext": "This crew table's header row was missing or used labels we don't recognize (e.g. 'Position' instead of 'Role'), so we couldn't confirm which column is which and read them by position. The rows still parsed, but names and roles may have landed in the wrong fields. Check the crew section against the sheet; adding a standard header row (Name / Role / Phone / Email) removes the guesswork.",
+  },
   "CREW_LINK_UNAVAILABLE": {
     "crewFacing": "This link isn't available. If you had a working link, it may have been reset. Text Doug for the current link.",
     "dougFacing": null,

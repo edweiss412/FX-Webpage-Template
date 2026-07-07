@@ -75,7 +75,11 @@ type ColMap = { name: number; role: number; phone: number; email: number; flight
 const CREW_COLUMN_VOCAB = ["NAME", "ROLE", "PHONE", "EMAIL"] as const;
 type ColCorrection = { raw: string; corrected: string };
 
-function detectColumns(headerLine: string): { colMap: ColMap; corrections: ColCorrection[] } {
+function detectColumns(headerLine: string): {
+  colMap: ColMap;
+  corrections: ColCorrection[];
+  recognized: Set<"name" | "role" | "phone" | "email">;
+} {
   const parts = headerLine.split("|");
   const segments = parts.slice(1, parts.length - 1).map((s) => s.trim().toUpperCase());
   let name = 1;
@@ -84,11 +88,24 @@ function detectColumns(headerLine: string): { colMap: ColMap; corrections: ColCo
   let email = -1;
   let flight = -1;
   const corrections: ColCorrection[] = [];
+  // Columns positively identified from a header token (exact match OR fuzzy-correction).
+  // Columns absent here kept their positional default — the signal for
+  // CREW_COLUMN_POSITIONAL_FALLBACK when name or role was guessed.
+  const recognized = new Set<"name" | "role" | "phone" | "email">();
   const assign = (col: string, i: number) => {
-    if (col === "NAME") name = i;
-    else if (col === "ROLE") role = i;
-    else if (col === "PHONE") phone = i;
-    else if (col === "EMAIL") email = i;
+    if (col === "NAME") {
+      name = i;
+      recognized.add("name");
+    } else if (col === "ROLE") {
+      role = i;
+      recognized.add("role");
+    } else if (col === "PHONE") {
+      phone = i;
+      recognized.add("phone");
+    } else if (col === "EMAIL") {
+      email = i;
+      recognized.add("email");
+    }
   };
   for (let i = 0; i < segments.length; i++) {
     const seg = segments[i] ?? "";
@@ -106,7 +123,7 @@ function detectColumns(headerLine: string): { colMap: ColMap; corrections: ColCo
       }
     }
   }
-  return { colMap: { name, role, phone, email, flight }, corrections };
+  return { colMap: { name, role, phone, email, flight }, corrections, recognized };
 }
 
 function isSeparatorRow(line: string): boolean {
@@ -124,12 +141,23 @@ function parseCrewBlock(
   const members: CrewMemberRow[] = [];
   const localWarnings: ParseWarning[] = [];
   const headerLine = lines[0] ?? "";
-  const { colMap, corrections } = detectColumns(headerLine);
+  const { colMap, corrections, recognized } = detectColumns(headerLine);
   for (const c of corrections) {
     agg?.warnings.push({
       severity: "warn",
       code: "COLUMN_HEADER_AUTOCORRECTED",
       message: `Read likely-misspelled column header '${c.raw}' as '${c.corrected}'`,
+      rawSnippet: headerLine,
+      blockRef: { kind: "crew", index: 0 },
+    });
+  }
+  // Header row missing/unrecognized → name and/or role read by positional default.
+  // Values land verbatim but possibly in the wrong field, with no other signal.
+  if (!recognized.has("name") || !recognized.has("role")) {
+    agg?.warnings.push({
+      severity: "warn",
+      code: "CREW_COLUMN_POSITIONAL_FALLBACK",
+      message: `Crew table header unrecognized; read columns by position: '${headerLine}'`,
       rawSnippet: headerLine,
       blockRef: { kind: "crew", index: 0 },
     });

@@ -853,3 +853,92 @@ describe("parseCrew — malformed stage clause → UNKNOWN_STAGE_RESTRICTION (fa
     expect(pat.stage_restriction).toEqual({ kind: "none" });
   });
 });
+
+const CODE = "CREW_COLUMN_POSITIONAL_FALLBACK";
+
+describe("parseCrew — CREW_COLUMN_POSITIONAL_FALLBACK", () => {
+  it("fires when column labels are unrecognized synonyms (name+role guessed) — catches the silent fallback regressing to no-warning", () => {
+    const agg = newAggregator();
+    const md = `| CREW | STAFF | POSITION | CELL | EMAIL |
+| | Kevin Weiss | Lighting Designer | 555-1000 | k@x.co |
+`;
+    const members = parseCrew(md, "v4", agg);
+    expect(agg.warnings.some((w) => w.code === CODE)).toBe(true);
+    expect(members.length).toBeGreaterThan(0); // rows still parse — assert data landed, not just "a warning exists"
+    expect(members[0]?.name).toBe("Kevin Weiss"); // positional read still lands the name
+  });
+
+  it("fires when the CREW row has no column labels at all — catches the bare-header path", () => {
+    const agg = newAggregator();
+    const md = `| CREW |
+| | Kevin Weiss | Lighting Designer | 555-1000 | k@x.co |
+`;
+    const members = parseCrew(md, "v4", agg);
+    expect(agg.warnings.some((w) => w.code === CODE)).toBe(true);
+    expect(members.length).toBeGreaterThan(0); // rows still parse under positional read
+  });
+
+  it("stays silent on a clean CREW|NAME|ROLE|PHONE|EMAIL header — catches false-positive firing on the common case", () => {
+    const agg = newAggregator();
+    const md = `| CREW | NAME | ROLE | PHONE | EMAIL |
+| | Kevin Weiss | Lighting Designer | 555-1000 | k@x.co |
+`;
+    parseCrew(md, "v4", agg);
+    expect(agg.warnings.some((w) => w.code === CODE)).toBe(false);
+  });
+
+  it("stays silent when the only fuzz is a recognizable header (E-MAIL→EMAIL) — catches treating fuzzy-correction as fallback", () => {
+    const agg = newAggregator();
+    const md = `| CREW | NAME | ROLE | PHONE | E-MAIL |
+| | Kevin Weiss | Lighting Designer | 555-1000 | k@x.co |
+`;
+    parseCrew(md, "v4", agg);
+    expect(agg.warnings.some((w) => w.code === CODE)).toBe(false);
+  });
+
+  it("stays silent when name/role headers are misspelled but fuzzy-corrected (NAM→NAME) — catches fuzzy recognition being treated as a positional guess", () => {
+    const agg = newAggregator();
+    const md = `| CREW | NAM | ROLE | PHONE | EMAIL |
+| | Kevin Weiss | Lighting Designer | 555-1000 | k@x.co |
+`;
+    parseCrew(md, "v4", agg);
+    const codes = agg.warnings.map((w) => w.code);
+    expect(codes).toContain("COLUMN_HEADER_AUTOCORRECTED"); // NAM was fuzzy-corrected...
+    expect(codes).not.toContain(CODE); // ...so name IS recognized → no positional fallback
+  });
+
+  it("fires when only role is guessed (NAME recognized, POSITION not) — catches the name-OR-role trigger collapsing to AND", () => {
+    const agg = newAggregator();
+    const md = `| CREW | NAME | POSITION | PHONE | EMAIL |
+| | Kevin Weiss | Lighting Designer | 555-1000 | k@x.co |
+`;
+    const members = parseCrew(md, "v4", agg);
+    expect(agg.warnings.some((w) => w.code === CODE)).toBe(true);
+    expect(members.length).toBeGreaterThan(0);
+  });
+
+  it("emits the code at most once per block regardless of row count — catches per-row spam", () => {
+    const agg = newAggregator();
+    const md = `| CREW | STAFF | POSITION | CELL |
+| | Kevin Weiss | Lighting Designer | 555-1000 |
+| | Dana Cole | A2 | 555-1001 |
+| | Sam Ruiz | Camera | 555-1002 |
+`;
+    const members = parseCrew(md, "v4", agg);
+    expect(agg.warnings.filter((w) => w.code === CODE).length).toBe(1);
+    expect(members.length).toBe(3); // all rows parsed under positional read
+  });
+
+  it("stamps rawSnippet = the unreadable header line and blockRef.kind = crew — catches losing the operator-visible header", () => {
+    const agg = newAggregator();
+    const md = `| CREW | STAFF | POSITION | CELL |
+| | Kevin Weiss | Lighting Designer | 555-1000 |
+`;
+    const members = parseCrew(md, "v4", agg);
+    expect(members.length).toBeGreaterThan(0);
+    const w = agg.warnings.find((x) => x.code === CODE)!;
+    expect(w.severity).toBe("warn");
+    expect(w.blockRef?.kind).toBe("crew");
+    expect(w.rawSnippet).toContain("POSITION"); // the header line we couldn't read
+  });
+});

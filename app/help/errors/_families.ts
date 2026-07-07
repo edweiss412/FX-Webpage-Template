@@ -78,6 +78,7 @@ export const FAMILIES: Family[] = [
       "STAGE",
       "ROLE",
       "COLUMN",
+      "CREW",
       "IDENTITY",
       "VERSION", // VERSION_AMBIGUOUS — sits with MI-1_VERSION_DETECTION_FAILED (its sibling)
     ],

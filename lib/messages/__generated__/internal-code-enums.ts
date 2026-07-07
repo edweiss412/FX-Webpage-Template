@@ -53,6 +53,9 @@ export const INTERNAL_CODE_ENUMS = {
   CONCURRENT_SYNC_SKIPPED: {
     source: "pending_ingestions.last_error_code"
   },
+  CREW_COLUMN_POSITIONAL_FALLBACK: {
+    source: "parse_warnings.code"
+  },
   DAY_RESTRICTION_DOUBLE_LOCATION: {
     source: "parse_warnings.code"
   },
