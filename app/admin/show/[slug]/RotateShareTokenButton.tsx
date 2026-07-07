@@ -322,8 +322,8 @@ export function RotateShareTokenButton({
   // the warning paragraph's id (tighter SR experience).
   const warningP = (
     <p id="admin-rotate-share-token-warning" className="text-sm text-text-subtle">
-      The existing show URL will stop working. Every crew member will need the new URL and will
-      have to re-pick their name.
+      The existing show URL will stop working. Every crew member will need the new URL and will have
+      to re-pick their name.
     </p>
   );
   const confirmCancelButtons = (

@@ -36,7 +36,6 @@ import { resolveOrigin } from "./resolveOrigin";
 import { ShareLinkCopyButton } from "./ShareLinkCopyButton";
 import { PickerResetControl } from "./PickerResetControl";
 import { RotateShareTokenButton } from "./RotateShareTokenButton";
-import type { PerShowCrewRow } from "@/components/admin/PerShowCrewSection";
 import { ArchiveShowButton } from "@/components/admin/ArchiveShowButton";
 import { UnarchiveShowButton } from "@/components/admin/UnarchiveShowButton";
 import { PublishedToggle } from "@/components/admin/PublishedToggle";

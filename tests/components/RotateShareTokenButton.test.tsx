@@ -400,7 +400,12 @@ describe("RotateShareTokenButton — Flow 5 disclosure + email crew anchors", ()
   test("crewEmails=[] → no email anchor", async () => {
     mockRotateOk();
     render(
-      <RotateShareTokenButton showId={SHOW_ID} slug={SLUG} crewEmails={[]} showTitle={SHOW_TITLE} />,
+      <RotateShareTokenButton
+        showId={SHOW_ID}
+        slug={SLUG}
+        crewEmails={[]}
+        showTitle={SHOW_TITLE}
+      />,
     );
     await clickThroughToSuccess();
     expect(screen.queryByTestId("admin-rotate-share-token-email-button")).toBeNull();

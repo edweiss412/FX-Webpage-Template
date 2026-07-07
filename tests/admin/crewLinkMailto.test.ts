@@ -113,7 +113,10 @@ describe("buildCrewLinkMailtos — chunking (R1) and title budget (R4)", () => {
   const bigRoster = Array.from({ length: 60 }, (_, i) => longAddress(i));
 
   test("typical roster (40 × ~25 chars) yields exactly one batch", () => {
-    const roster = Array.from({ length: 40 }, (_, i) => `crew${String(i).padStart(3, "0")}@example.com`);
+    const roster = Array.from(
+      { length: 40 },
+      (_, i) => `crew${String(i).padStart(3, "0")}@example.com`,
+    );
     const out = buildCrewLinkMailtos({ emails: roster, url: URL, showTitle: TITLE });
     expect(out).toHaveLength(1);
     expect(out[0]).toMatchObject({ batch: 1, batchCount: 1 });
@@ -156,7 +159,11 @@ describe("buildCrewLinkMailtos — chunking (R1) and title budget (R4)", () => {
     // code-POINT slice keeps it whole. Mostly-ASCII so the truncated-title rung
     // stays under the cap and the truncation itself is observable.
     const mixedTitle = `${"T".repeat(MAILTO_TITLE_MAX_CHARS - 1)}😀${"T".repeat(40)}`;
-    const out = buildCrewLinkMailtos({ emails: ["a@example.com"], url: URL, showTitle: mixedTitle });
+    const out = buildCrewLinkMailtos({
+      emails: ["a@example.com"],
+      url: URL,
+      showTitle: mixedTitle,
+    });
     expect(out).toHaveLength(1);
     expect(out[0]!.href.length).toBeLessThanOrEqual(MAX_MAILTO_HREF_CHARS);
     const subject = decodeURIComponent(out[0]!.href.match(/&subject=([^&]*)/)![1]!);
