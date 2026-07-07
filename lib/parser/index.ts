@@ -36,7 +36,19 @@ import { parseAgenda } from "./blocks/agenda";
 import { parseScheduleTimes } from "./blocks/scheduleTimes";
 import { deriveScheduleBookends } from "./blocks/scheduleBookends";
 import { inferShowYear } from "./blocks/_helpers";
+import { buildCol0HeaderAltRe } from "@/lib/parser/blocks/_sectionHeaderMatch";
 import type { ParsedSheet, ParseError, ShowRow, WorkPhase, ScheduleDay, RoomRow } from "./types";
+
+export const SECTION_HEADER_TOKENS = ["AGENDA", "AGENDA LINK"] as const;
+
+// Fast pre-filter for the agenda label+value capture regex below. Built from the
+// registry-checked tokens; a behavior-SUPERSET of the capture regex's label match
+// (suffix-tolerant + case-insensitive + leading-ws), so it can only pass more —
+// the capture regex still performs the actual extraction. Behavior-preserving.
+const AGENDA_LABEL_RE = buildCol0HeaderAltRe(SECTION_HEADER_TOKENS, {
+  caseInsensitive: true,
+  allowLeadingWs: true,
+});
 
 export type { ParsedSheet, ParseResult, ParseWarning, ParseError } from "./types";
 export type {
@@ -336,6 +348,8 @@ function parseAgendaLinks(markdown: string): ShowRow["agenda_links"] {
     // label (the 2024 East Coast template labels the agenda Drive-URL row just
     // "AGENDA"). The bare `AGENDA` alternative is exact-bounded by the trailing
     // `\s*\|`, so "AGENDA DAY"/"AGENDA TAB"-style cells do NOT match.
+    if (!AGENDA_LABEL_RE.test(line)) continue;
+    // RAW_HEADER_REGEX_ALLOWLIST: agenda label+value capture matcher; label identity is registry-checked via SECTION_HEADER_TOKENS (see _metaKnownSectionsWalker).
     const m = line.match(/^\s*\|\s*(AGENDA LINK[^|]*?|AGENDA)\s*\|\s*([^|]+?)\s*\|/i);
     if (!m) continue;
     const label = m[1]?.trim() ?? "";

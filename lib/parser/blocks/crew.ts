@@ -26,8 +26,12 @@ import {
   normalizeStageWords,
 } from "../personalization";
 
-const CREW_HEADER_RE = /^\|\s*CREW\s*\|/m;
-const TECH_HEADER_RE = /^\|\s*TECH\s*\|/m;
+import { buildCol0HeaderRe } from "./_sectionHeaderMatch";
+
+export const SECTION_HEADER_TOKENS = ["CREW", "TECH"] as const;
+
+const CREW_HEADER_RE = buildCol0HeaderRe(["CREW"]);
+const TECH_HEADER_RE = buildCol0HeaderRe(["TECH"]);
 const BLOCK_LABEL_RE = /^\|\s*([A-Z][A-Z\s/]+?)\s*\|/;
 
 const TERMINATING_LABELS = new Set([

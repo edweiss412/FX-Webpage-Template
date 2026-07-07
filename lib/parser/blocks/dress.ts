@@ -9,8 +9,10 @@
  * via the same sentinel-aware precedence parseEventDetails uses (event.ts:314).
  */
 import { clean, presence, splitRow } from "./_helpers";
-import { normalizeHeader } from "@/lib/parser/knownSections";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
+import { matchesSectionHeader } from "./_sectionHeaderMatch";
+
+export const SECTION_HEADER_TOKENS = ["DRESS"] as const;
 
 const isSeparatorRow = (cells: string[]): boolean =>
   cells.length > 0 && cells.every((c) => /^[\s:|*-]*$/.test(c));
@@ -21,7 +23,7 @@ export function parseDress(markdown: string): string | null {
     const t = lines[i]!.trim();
     if (!t.startsWith("|")) continue;
     const cells = splitRow(t);
-    if (normalizeHeader(clean(cells[0] ?? "")) !== "DRESS") continue;
+    if (!matchesSectionHeader(clean(cells[0] ?? ""), SECTION_HEADER_TOKENS)) continue;
 
     // Value reads go through presence() (= decodeEntities(clean(...)).trim()), the
     // value-STORAGE boundary every other event_details writer uses (event.ts:314 via
