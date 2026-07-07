@@ -951,7 +951,7 @@ EOF
 // tests/parser/opsMetadataTokens.test.ts
 import { describe, it, expect } from "vitest";
 import * as ops from "@/lib/parser/blocks/ops";
-import { KNOWN_SECTION_HEADERS, normalizeHeader } from "@/lib/parser/knownSections";
+import { normalizeHeader } from "@/lib/parser/knownSections";
 
 describe("ops METADATA_FIELD_TOKENS", () => {
   it("exports the 5 scalar metadata field tokens", () => {
@@ -962,9 +962,16 @@ describe("ops METADATA_FIELD_TOKENS", () => {
   it("exports NO SECTION_HEADER_TOKENS (ops opens no section)", () => {
     expect("SECTION_HEADER_TOKENS" in ops).toBe(false);
   });
-  it("metadata tokens are DISJOINT from the section registry (not section openers)", () => {
+  it("metadata tokens are DISJOINT from ops' section-opener tokens (spec §6.8 disjointness)", () => {
+    // NOTE: metadata tokens need NOT be disjoint from KNOWN_SECTION_HEADERS — COI
+    // IS a registered header that ops consumes as a scalar field (plan R4). The
+    // spec §6.8 disjointness is SECTION_HEADER_TOKENS ∩ METADATA_FIELD_TOKENS per
+    // file; ops exports no SECTION_HEADER_TOKENS, so the intersection is empty.
+    const sectionTokens = new Set(
+      ((ops as Record<string, unknown>).SECTION_HEADER_TOKENS as string[] | undefined ?? []).map(normalizeHeader),
+    );
     for (const t of ops.METADATA_FIELD_TOKENS) {
-      expect(KNOWN_SECTION_HEADERS.has(normalizeHeader(t))).toBe(false);
+      expect(sectionTokens.has(normalizeHeader(t))).toBe(false);
     }
   });
 });
@@ -1084,9 +1091,11 @@ const EQUALITY_LITERAL_ALLOWLIST: Record<string, readonly string[]> = {
   "index.ts": ["CLIENT"], // CLIENT-prefix title-exclusion sentinel (client section owned by client.ts)
 };
 
-// Registry entries no parser opens on but that are intentionally present
-// (aliases / prefix-family members) — warned, not failed (spec §6.10).
-const EXPECTED_ORPHANS = new Set(["VENUES", "IN HOUSE AV", "LUNCH SESSION"]);
+// Registry entries no parser OPENS on but that are intentionally present
+// (aliases / prefix-family members / metadata fields) — warned, not failed (spec §6.10).
+// COI is in KNOWN_SECTION_HEADERS but is consumed by ops as a scalar METADATA field
+// (METADATA_FIELD_TOKENS), not opened as a section.
+const EXPECTED_ORPHANS = new Set(["VENUES", "IN HOUSE AV", "LUNCH SESSION", "COI"]);
 
 interface Scanned {
   file: string;
@@ -1154,36 +1163,45 @@ describe("known-sections source walker", () => {
     }
   });
 
-  it("BACKSTOP (REGISTERED-TOKEN-KEYED, 2 syntactic forms): no un-allowlisted matcher for a registered opener the file does not own", async () => {
+  it("BACKSTOP (REGISTERED-TOKEN-KEYED, 2 syntactic forms, CASE-SENSITIVE): no un-allowlisted matcher for a registered opener the file does not own", async () => {
     const scanned = await scanFiles();
-
-    // Escape a token for embedding in a RegExp source; tokens may contain / ( ) etc.
     const esc = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
     for (const s of scanned) {
       if (s.file === "_sectionHeaderMatch.ts") continue;
-      const ownTokens = new Set(((s.mod.SECTION_HEADER_TOKENS as string[] | undefined) ?? []).map(normalizeHeader));
+      // A file legitimately "owns" a registered token as a SECTION opener OR as a
+      // scalar METADATA field (e.g. ops owns COI, which is ALSO in the registry).
+      const ownTokens = new Set(
+        [
+          ...((s.mod.SECTION_HEADER_TOKENS as string[] | undefined) ?? []),
+          ...((s.mod.METADATA_FIELD_TOKENS as string[] | undefined) ?? []),
+        ].map(normalizeHeader),
+      );
       const rawAllowed = s.file in RAW_HEADER_REGEX_ALLOWLIST;
       const eqAllowed = new Set((EQUALITY_LITERAL_ALLOWLIST[s.file] ?? []).map(normalizeHeader));
 
+      // Pre-extract anchored regex literals and NORMALIZE their whitespace
+      // (\s, \s+, \s*, literal spaces → single space) so Form B catches both
+      // `/^GENERAL SESSION/` and `/^GENERAL\s+SESSION\b/`. CASE-SENSITIVE: real
+      // section openers are UPPERCASE; scalar/contacts labels are lowercase and
+      // must NOT fire.
+      const anchoredRegexNorm = (s.source.match(/\/\\?\^[^/\n]+\//g) ?? []).map((lit) =>
+        lit.replace(/\\s[*+]?/g, " ").replace(/\s+/g, " "),
+      );
+
       for (const token of KNOWN_SECTION_HEADERS) {
-        // Skip tokens the file legitimately owns/allowlists — those are expected.
-        if (ownTokens.has(token) || eqAllowed.has(token)) continue;
+        if (ownTokens.has(token) || eqAllowed.has(token)) continue; // owned/allowlisted → expected
         const T = esc(token);
 
-        // FORM A — equality/method against a QUOTED token: `=== "T"`, `"T" ===`,
-        // `!== "T"`, `.startsWith("T")`, `.includes("T")`. Excludes Set-membership
-        // arrays (`["T", ...]`) and `.includes(var)` — those are not the threat.
+        // FORM A — quoted token adjacent to an equality/method operator (CASE-SENSITIVE).
+        // Excludes Set-membership arrays (`["T", ...]`) and `.includes(var)`.
         const FORM_A = new RegExp(
           `(?:===|!==|\\.startsWith\\(|\\.includes\\()\\s*["']${T}["']|["']${T}["']\\s*(?:===|!==)`,
-          "i",
         );
-        // FORM B — token inside an ANCHORED col0 regex literal `/^ ... T ... /`.
-        // Real col0 matchers are `^`-anchored, so this excludes prose/comments.
-        const FORM_B = new RegExp(`/\\\\?\\^[^/\\n]*${T}[^/\\n]*/`, "i");
+        // FORM B — the UPPERCASE token appears (whitespace-normalized) inside an anchored regex literal.
+        const formB = anchoredRegexNorm.some((lit) => lit.includes(token));
 
-        const hit = FORM_A.test(s.source) || FORM_B.test(s.source);
-        if (!hit) continue;
+        if (!FORM_A.test(s.source) && !formB) continue;
 
         expect(
           rawAllowed,
@@ -1215,11 +1233,14 @@ describe("known-sections source walker", () => {
 // self-contained; `token` defaults to a REGISTERED opener (GENERAL SESSION).
 describe("known-sections walker non-vacuity proof", () => {
   const esc = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  // Mirrors the guard: CASE-SENSITIVE Form A + whitespace-normalized anchored-regex Form B.
   const hits = (source: string, token = "GENERAL SESSION"): boolean => {
     const T = esc(token);
-    const FORM_A = new RegExp(`(?:===|!==|\\.startsWith\\(|\\.includes\\()\\s*["']${T}["']|["']${T}["']\\s*(?:===|!==)`, "i");
-    const FORM_B = new RegExp(`/\\\\?\\^[^/\\n]*${T}[^/\\n]*/`, "i");
-    return FORM_A.test(source) || FORM_B.test(source);
+    const FORM_A = new RegExp(`(?:===|!==|\\.startsWith\\(|\\.includes\\()\\s*["']${T}["']|["']${T}["']\\s*(?:===|!==)`);
+    const anchored = (source.match(/\/\\?\^[^/\n]+\//g) ?? []).map((lit) =>
+      lit.replace(/\\s[*+]?/g, " ").replace(/\s+/g, " "),
+    );
+    return FORM_A.test(source) || anchored.some((lit) => lit.includes(token));
   };
 
   it("(a) an unregistered token fails the exact-subset check", () => {
@@ -1229,9 +1250,10 @@ describe("known-sections walker non-vacuity proof", () => {
     const bad = `export const SECTION_HEADER_TOKENS = ["GENERAL SESSION"];`;
     expect(/from\s+["'](?:\.\/|@\/lib\/parser\/blocks\/)_sectionHeaderMatch["']/.test(bad)).toBe(false);
   });
-  it("(d) Form B: anchored regex literals referencing a registered token are flagged", () => {
+  it("(d) Form B: anchored regex literals referencing a registered token are flagged (incl. \\s+ variant)", () => {
     expect(hits(String.raw`const RE = /^\|\s*GENERAL SESSION\s*\|/;`)).toBe(true);
     expect(hits(`if (/^GENERAL SESSION/.test(col0)) {}`)).toBe(true);
+    expect(hits(String.raw`if (/^GENERAL\s+SESSION\b/.test(col0)) {}`)).toBe(true); // R4-2: \s+ normalized
   });
   it("(e)/(f) Form A: equality (both orders) + startsWith/includes for a registered token are flagged", () => {
     expect(hits(`label === "GENERAL SESSION"`)).toBe(true);
@@ -1240,8 +1262,8 @@ describe("known-sections walker non-vacuity proof", () => {
     expect(hits(`if (col0.includes("GENERAL SESSION")) {}`)).toBe(true);
   });
   it("(g) NEGATIVE CONTROLS: benign patterns are NOT flagged", () => {
-    // column header (not a registered opener):
-    expect(hits(`label === "FLIGHT DETAILS"`, "FLIGHT DETAILS")).toBe(false); // and FLIGHT DETAILS ∉ registry anyway
+    // lowercase scalar-label regex (contacts style) — case-sensitive, must NOT fire:
+    expect(hits(String.raw`const RE = /^\s*(?:venue|hotel)\s+contact/i;`, "VENUE")).toBe(false);
     // terminator/membership array literal (no ===/method adjacency):
     expect(hits(`const T = new Set(["HOTEL", "DATES", "VENUE"]);`, "HOTEL")).toBe(false);
     expect(hits(`if (["TRAVEL","SET","SHOW","DATES"].includes(labelU)) {}`, "DATES")).toBe(false);
