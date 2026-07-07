@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import { parseHotels } from "@/lib/parser/blocks/hotels";
+import { parseHotels, splitHotelNameAddress } from "@/lib/parser/blocks/hotels";
 import { detectVersion } from "@/lib/parser/schema";
 
 const logMock = vi.hoisted(() => ({
@@ -474,5 +474,32 @@ describe("parseHotels — idx88 dash-prefixed street number is not deleted as a 
     const [h] = parseHotels(hotelTable("Marriott Downtown - 2069 Main St", "X 1 Main St"), "v4");
     expect(h!.hotel_name).toBe("Marriott Downtown");
     expect(h!.hotel_address).toBe("2069 Main St");
+  });
+});
+
+describe("STREET_ADDRESS_RE distinctive suffixes (rec-6d)", () => {
+  // NON-TAUTOLOGICAL (Codex plan R1): each input's ONLY street suffix is a NEWLY-added
+  // one — no St/Ave/Blvd/etc. present — so a passing split PROVES the new suffix works,
+  // not a pre-existing one. Address begins at the house number preceding the new suffix.
+  it.each([
+    ["The Fairmont Hotel 100 Harbour Crescent", "Crescent"],
+    ["Dockside Inn 250 Marina Quay", "Quay"],
+    ["Elmwood Lodge 5 Rosewood Gardens", "Gardens"],
+    ["Harbourfront 12 Kings Esplanade", "Esplanade"],
+  ])("splits on a NEW distinctive suffix only: %s", (cell, suffix) => {
+    const { name, address } = splitHotelNameAddress(cell);
+    expect(name).toBeTruthy();
+    expect(name).not.toMatch(/\d/); // house number went to the address, not the name
+    expect(address).toMatch(new RegExp(suffix));
+  });
+
+  it.each([
+    "5 Bay Club Hotel", // Bay dropped — must NOT split
+    "10 Green Suites", // Green dropped
+    "The Landing Hotel 12", // Landing dropped
+  ])("does NOT split on a dropped ordinary noun: %s", (cell) => {
+    const { name, address } = splitHotelNameAddress(cell);
+    expect(name).toBe(cell.replace(/\s+/g, " ").trim());
+    expect(address).toBeNull();
   });
 });
