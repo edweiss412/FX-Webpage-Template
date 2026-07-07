@@ -194,8 +194,9 @@ describe("parseCrew — CREW_COLUMN_POSITIONAL_FALLBACK", () => {
     const md = `| CREW |
 | | Kevin Weiss | Lighting Designer | 555-1000 | k@x.co |
 `;
-    parseCrew(md, "v4", agg);
+    const members = parseCrew(md, "v4", agg);
     expect(agg.warnings.some((w) => w.code === CODE)).toBe(true);
+    expect(members.length).toBeGreaterThan(0); // rows still parse under positional read
   });
 
   it("stays silent on a clean CREW|NAME|ROLE|PHONE|EMAIL header — catches false-positive firing on the common case", () => {
@@ -221,8 +222,9 @@ describe("parseCrew — CREW_COLUMN_POSITIONAL_FALLBACK", () => {
     const md = `| CREW | NAME | POSITION | PHONE | EMAIL |
 | | Kevin Weiss | Lighting Designer | 555-1000 | k@x.co |
 `;
-    parseCrew(md, "v4", agg);
+    const members = parseCrew(md, "v4", agg);
     expect(agg.warnings.some((w) => w.code === CODE)).toBe(true);
+    expect(members.length).toBeGreaterThan(0);
   });
 
   it("emits the code at most once per block regardless of row count — catches per-row spam", () => {
@@ -232,8 +234,9 @@ describe("parseCrew — CREW_COLUMN_POSITIONAL_FALLBACK", () => {
 | | Dana Cole | A2 | 555-1001 |
 | | Sam Ruiz | Camera | 555-1002 |
 `;
-    parseCrew(md, "v4", agg);
+    const members = parseCrew(md, "v4", agg);
     expect(agg.warnings.filter((w) => w.code === CODE).length).toBe(1);
+    expect(members.length).toBe(3); // all rows parsed under positional read
   });
 
   it("stamps rawSnippet = the unreadable header line and blockRef.kind = crew — catches losing the operator-visible header", () => {
@@ -241,7 +244,8 @@ describe("parseCrew — CREW_COLUMN_POSITIONAL_FALLBACK", () => {
     const md = `| CREW | STAFF | POSITION | CELL |
 | | Kevin Weiss | Lighting Designer | 555-1000 |
 `;
-    parseCrew(md, "v4", agg);
+    const members = parseCrew(md, "v4", agg);
+    expect(members.length).toBeGreaterThan(0);
     const w = agg.warnings.find((x) => x.code === CODE)!;
     expect(w.severity).toBe("warn");
     expect(w.blockRef?.kind).toBe("crew");
