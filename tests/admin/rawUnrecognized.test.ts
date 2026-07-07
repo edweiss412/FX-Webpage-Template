@@ -10,6 +10,7 @@ import {
   sanitizeRawUnrecognized,
   buildRawUnrecognizedView,
   RAW_UNRECOGNIZED_CAP,
+  RAW_UNRECOGNIZED_FIELD_CAP,
 } from "@/lib/admin/rawUnrecognized";
 
 describe("sanitizeRawUnrecognized (fail-closed)", () => {
@@ -94,5 +95,32 @@ describe("buildRawUnrecognizedView (group + cap + order)", () => {
       groups: [],
       hiddenCount: 0,
     });
+  });
+});
+
+describe("cleanField hardening (untrusted sheet content)", () => {
+  test("removes zero-width and bidi-override characters", () => {
+    const zeroWidth = "LOD\u200Bomsg\u200DGING"; // zero-width space + joiner
+    const bidi = "\u202Eabc\u202C"; // RLO + PDF
+    const out = sanitizeRawUnrecognized([{ block: "b", key: zeroWidth, value: bidi }]);
+    expect(out[0]!.key).toBe("LODomsgGING");
+    expect(out[0]!.value).toBe("abc");
+  });
+
+  test("control characters become a space (word boundaries kept), then collapse", () => {
+    const out = sanitizeRawUnrecognized([{ block: "b", key: "A\x07B\tC", value: "x" }]);
+    expect(out[0]!.key).toBe("A B C");
+  });
+
+  test("caps each field at RAW_UNRECOGNIZED_FIELD_CAP with an ellipsis", () => {
+    const huge = "z".repeat(RAW_UNRECOGNIZED_FIELD_CAP + 500);
+    const out = sanitizeRawUnrecognized([{ block: "b", key: "K", value: huge }]);
+    expect(out[0]!.value.length).toBe(RAW_UNRECOGNIZED_FIELD_CAP + 1); // + the "…"
+    expect(out[0]!.value.endsWith("…")).toBe(true);
+    expect(out[0]!.value.startsWith("z")).toBe(true);
+  });
+
+  test("a key that is only invisible/control chars is dropped (unshowable)", () => {
+    expect(sanitizeRawUnrecognized([{ block: "b", key: "\u200B\u200C", value: "x" }])).toEqual([]);
   });
 });

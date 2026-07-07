@@ -6,6 +6,9 @@
  * render "null" / "[object Object]" / "undefined" noise).
  */
 export const RAW_UNRECOGNIZED_CAP = 50;
+/** Per-field character cap. Arbitrary sheet content can be arbitrarily long; a
+ *  single huge cell must not freeze render or dwarf the modal. */
+export const RAW_UNRECOGNIZED_FIELD_CAP = 200;
 
 export type RawUnrecognizedEntry = { block: string; key: string; value: string };
 export type RawUnrecognizedGroup = {
@@ -18,16 +21,36 @@ export type RawUnrecognizedView = {
   hiddenCount: number;
 };
 
+// Characters unsafe to render from untrusted sheet content, even when
+// React-escaped. Control chars (C0/C1) become a space to preserve word
+// boundaries; invisible chars are removed. Bidi overrides (U+202A-202E,
+// U+2066-2069) can visually reorder text (Trojan-source style) and zero-width
+// chars (U+200B-200D, U+2060, U+FEFF) can hide/spoof content.
+const CONTROL_CHARS = /[\x00-\x1F\x7F-\x9F]/g;
+const INVISIBLE_CHARS = /[\u200B-\u200D\u2060\uFEFF\u202A-\u202E\u2066-\u2069]/g;
+
+function cleanField(input: string): string {
+  const cleaned = input
+    .replace(CONTROL_CHARS, " ")
+    .replace(INVISIBLE_CHARS, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  return cleaned.length > RAW_UNRECOGNIZED_FIELD_CAP
+    ? cleaned.slice(0, RAW_UNRECOGNIZED_FIELD_CAP) + "…"
+    : cleaned;
+}
+
 export function sanitizeRawUnrecognized(raw: unknown): RawUnrecognizedEntry[] {
   if (!Array.isArray(raw)) return [];
   const out: RawUnrecognizedEntry[] = [];
   for (const el of raw) {
     if (el === null || typeof el !== "object" || Array.isArray(el)) continue;
     const r = el as Record<string, unknown>;
-    const key = typeof r.key === "string" ? r.key.trim() : "";
+    const key = typeof r.key === "string" ? cleanField(r.key) : "";
     if (!key) continue; // a row with no label is unshowable
-    const block = typeof r.block === "string" && r.block.trim() ? r.block.trim() : "Other";
-    const value = typeof r.value === "string" ? r.value : "";
+    const rawBlock = typeof r.block === "string" ? cleanField(r.block) : "";
+    const block = rawBlock || "Other";
+    const value = typeof r.value === "string" ? cleanField(r.value) : "";
     out.push({ block, key, value });
   }
   return out;

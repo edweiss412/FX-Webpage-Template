@@ -451,6 +451,14 @@ describe("Unit B — synonym re-routing", () => {
     expect(sectionForWarning(unknownHeader("STAFF."))).toBe("crew");
   });
 
+  // The live rawSnippet is the parser's pipe-split col0 (index.ts:717) — already
+  // pipe-free. Defense-in-depth: a pipe-wrapped lone header still routes, so the
+  // feature can't silently no-op if the emit path ever changes shape.
+  test("routes a pipe-wrapped header (defensive)", () => {
+    expect(sectionForWarning(unknownHeader("| LODGING |"))).toBe("hotels");
+    expect(sectionForWarning(unknownHeader("|STAFF|"))).toBe("crew");
+  });
+
   // Case 2: negative controls — foreign + contextual phrases that merely CONTAIN
   // a synonym must NOT route (exact-match, closed allowlist).
   test.each([

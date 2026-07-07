@@ -62,6 +62,16 @@ describe("RawUnrecognizedCallout", () => {
     expect(flat(container)).toContain("+10 more not shown");
   });
 
+  test("collapses when raw changes in place (row swap without remount)", () => {
+    const rawA = [{ block: "b", key: "AKEY", value: "AV" }];
+    const rawB = [{ block: "b", key: "BKEY", value: "BV" }];
+    const { container, rerender } = render(<RawUnrecognizedCallout raw={rawA} />);
+    fireEvent.click(screen.getByRole("button", { name: /Content we couldn't read/ }));
+    expect(flat(container)).toContain("AKEY | AV");
+    rerender(<RawUnrecognizedCallout raw={rawB} />); // same instance, new content
+    expect(flat(container)).not.toContain("BKEY | BV"); // collapsed for the new row
+  });
+
   test("resets to collapsed when remounted (modal reopen)", () => {
     const raw = [{ block: "b", key: "K", value: "V" }];
     const first = render(<RawUnrecognizedCallout raw={raw} />);

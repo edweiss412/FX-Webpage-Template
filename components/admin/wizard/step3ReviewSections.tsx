@@ -3100,6 +3100,15 @@ function reportErrorCopy(code: string | null): string {
 export function RawUnrecognizedCallout({ raw }: { raw: unknown }) {
   const view = buildRawUnrecognizedView(raw);
   const [expanded, setExpanded] = useState(false);
+  // Collapse whenever the underlying content changes, so a modal that swaps rows
+  // WITHOUT remounting never opens the next sheet's callout already-expanded.
+  // React's adjust-state-during-render pattern (not an effect) avoids a stale
+  // open frame and the set-state-in-effect lint.
+  const [prevRaw, setPrevRaw] = useState(raw);
+  if (raw !== prevRaw) {
+    setPrevRaw(raw);
+    setExpanded(false);
+  }
   if (view.total === 0) return null;
   return (
     // Neutral/informational treatment, NOT warning: this content is not

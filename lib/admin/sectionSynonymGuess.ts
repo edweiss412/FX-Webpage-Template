@@ -24,7 +24,12 @@ const SYNONYM_TO_SECTION: Record<string, SectionId> = {
 
 /** Uppercase, collapse internal whitespace, trim, strip trailing punctuation. */
 export function normalizeHeaderForGuess(raw: string): string {
+  // The live source is the parser's pipe-split `col0` cell (`index.ts:717`,
+  // `emitUnknownSection(agg, col0)`) — already pipe-free and uppercase. Stripping
+  // pipes here is defense-in-depth: if the emit path ever passed a table-shaped
+  // snippet, a lone header wrapped in pipes ("| LODGING |") still routes.
   return raw
+    .replace(/\|/g, " ")
     .toUpperCase()
     .replace(/\s+/g, " ")
     .trim()
