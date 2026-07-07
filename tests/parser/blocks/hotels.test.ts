@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from "vitest";
 import { readFileSync } from "node:fs";
-import { parseHotels, splitHotelNameAddress } from "@/lib/parser/blocks/hotels";
+import {
+  parseHotels,
+  splitHotelNameAddress,
+  looksLikeStreetStart,
+} from "@/lib/parser/blocks/hotels";
 import { detectVersion } from "@/lib/parser/schema";
 
 const logMock = vi.hoisted(() => ({
@@ -500,6 +504,17 @@ describe("STREET_ADDRESS_RE distinctive suffixes (rec-6d)", () => {
   ])("does NOT split on a dropped ordinary noun: %s", (cell) => {
     const { name, address } = splitHotelNameAddress(cell);
     expect(name).toBe(cell.replace(/\s+/g, " ").trim());
+    expect(address).toBeNull();
+  });
+});
+
+describe("Canadian postal tail — discriminator (rec-6d)", () => {
+  it("looksLikeStreetStart recognizes a Canadian suffixless street via postal tail", () => {
+    expect(looksLikeStreetStart(" 100 Wellington, ON K1A 0A6")).toBe(true);
+  });
+  it("does NOT split on postal tail (split stays suffix-only)", () => {
+    // A suffixless Canadian address stays glued — SAFE (same as suffixless US).
+    const { address } = splitHotelNameAddress("Hotel 71 Toronto, ON K1A 0A6");
     expect(address).toBeNull();
   });
 });

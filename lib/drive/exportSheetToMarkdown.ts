@@ -45,7 +45,7 @@ function escapeCell(value: string): string {
   return normalizeNewlines(escaped);
 }
 
-function normalizeNewlines(value: string): string {
+export function normalizeNewlines(value: string): string {
   if (!/[\r\n]/.test(value)) return value;
   const normalized = value.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
   if (shouldPreserveNewlines(normalized)) return normalized.replace(/\n/g, "&#10;");
@@ -77,7 +77,11 @@ function shouldPreserveNewlines(value: string): boolean {
   }
   if (lines.some((line) => /^\(\d+\)\s+/.test(line))) return false;
   if (lines.length >= 3) return false;
-  if (lines[1] && /^[A-Z][A-Za-z .'-]+,\s*[A-Z]{2}\s+\d{5}/.test(lines[1])) return false;
+  if (
+    lines[1] &&
+    /^[A-Z][A-Za-z .'-]+,\s*[A-Z]{2}\s+(?:\d{5}|[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d)/.test(lines[1])
+  )
+    return false;
   if (lines[1]?.startsWith("(")) return false;
   if (lines[1]?.startsWith("<")) return false;
   if (lines.slice(1).some((line) => /^[A-Z][A-Za-z ]+:\s/.test(line))) return false;

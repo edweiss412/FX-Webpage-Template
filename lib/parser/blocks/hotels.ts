@@ -262,14 +262,14 @@ const STREET_ADDRESS_RE =
 // The interior (street name + city) is digit-free so it can't run past a conf# or a
 // second number; the comma+state+ZIP tail is what marks it as an address.
 const STREET_ADDRESS_ZIP_RE =
-  /\s(\d{1,5})\s+\p{L}[\p{L}\p{M}\s.'#/-]*?,\s*[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/u;
+  /\s(\d{1,5})\s+\p{L}[\p{L}\p{M}\s.'#/-]*?,\s*[A-Z]{2}\s+(?:\d{5}(?:-\d{4})?|[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d)\b/u;
 
 /** True iff `" " + s.slice(i)` begins a street phrase by SUFFIX or by US ZIP tail.
  * Used ONLY by the Hotel-Stays discriminator to tell a dash-STREET-number from a
  * dash-CONF#. NOT used to SPLIT (splitHotelNameAddress stays strictly suffix-only,
  * so a numeric hotel brand like "Hotel 71 Chicago, IL 60601" is never corrupted —
  * the ZIP tail would otherwise treat "71 Chicago, IL …" as an address, Codex R5). */
-function looksLikeStreetStart(s: string): boolean {
+export function looksLikeStreetStart(s: string): boolean {
   const a = STREET_ADDRESS_RE.exec(s);
   if (a && a.index === 0) return true;
   const b = STREET_ADDRESS_ZIP_RE.exec(s);
