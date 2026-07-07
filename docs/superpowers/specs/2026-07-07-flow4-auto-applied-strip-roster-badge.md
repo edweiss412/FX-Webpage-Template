@@ -241,7 +241,7 @@ Three `(prev, formData) => Result` wrappers (mirror `feed.ts:121`, but revalidat
 
 | Action | Body | Revalidate | `logAdminOutcome` |
 |--------|------|-----------|-------------------|
-| `acceptChangeAction` | `acknowledgeChanges(showId, [changeLogId], null)` | `revalidatePath("/admin","page")` | `{code:"CHANGES_ACKNOWLEDGED", source:"admin.dashboard.autoApplied.accept", actorEmail, showId, extra:{count}}` |
+| `acceptChangeAction` | `acknowledgeChanges(showId, [changeLogId])` | `revalidatePath("/admin","page")` | `{code:"CHANGES_ACKNOWLEDGED", source:"admin.dashboard.autoApplied.accept", actorEmail, showId, extra:{count}}` |
 | `acceptAllAction` | `acknowledgeChanges(showId, acceptableIds)` (`acceptableIds` from hidden field, R4-F1) | `revalidatePath("/admin","page")` | `{code:"CHANGES_ACKNOWLEDGED", source:"admin.dashboard.autoApplied.acceptAll", actorEmail, showId, extra:{count}}` |
 | `undoFromDashboardAction` | `undoChange(changeLogId)` (reuse helper) | `revalidateShow(showId)` + `revalidatePath("/admin","page")` | reuse `{code:"CHANGE_UNDONE", source:"admin.dashboard.autoApplied.undo", ...}` |
 
@@ -331,7 +331,7 @@ Three `(prev, formData) => Result` wrappers (mirror `feed.ts:121`, but revalidat
 **DB / RPC**
 - `acknowledge_changes`: stamps `acknowledged_at`/`acknowledged_by` on matching rows; idempotent (2nd call `count:0`); is_admin gate (42501 when not admin); filters `source`/`status` (won't ack a `mi11_approve` or already-`undone` row); `p_show_id` scoping (won't ack an id belonging to another show even if passed in `p_ids`); **`p_ids='{}'` acks nothing** (`count:0`); **`p_ids IS NULL` raises 22004**. Applied to local DB (invariant 1) + validation project.
 - **Visibility-safe Accept-all (R1-F1/R4-F1):** a row NOT in the passed id set is never acknowledged — so an auto-apply that committed after the loader's read (hence absent from `acceptableIds`) survives Accept-all regardless of its `occurred_at`; the ids the loader DID read are all acknowledged (batch completeness ≤ cap).
-- `roster_shift_counts`: returns per-`show_id` `{added,removed,renamed}` for un-dispositioned roster rows; excludes acked/undone/superseded/non-roster/non-published; a show past the display cap still yields its TRUE count (badge aria-label not truncated by the strip cap).
+- `roster_shift_counts`: returns per-`show_id` `{added,removed,renamed}` for un-dispositioned roster rows among the passed `p_show_ids`; excludes acked/undone/superseded/non-roster rows; a show past the display cap still yields its TRUE count (badge aria-label not truncated by the strip cap). The RPC is **published-agnostic** — it counts whatever ids it is given; the **loader** enforces the published filter by passing only active-published show ids (a separate loader-test assertion: an unpublished show's id is never in `p_show_ids`, so its badge gets no roster contribution — §5.4/§6.4).
 - **Undo-after-Accept (R1-F2):** Accept a row (acknowledged_at set, status still `applied`), then `undo_change` on it SUCCEEDS (status→`undone`, crew reversed) — asserts `acknowledged_at` is not an undo guard and the sequence leaves a harmless acked+undone terminal state.
 - **Clean-start backfill:** a pre-existing `status='applied'` auto_apply row is stamped `acknowledged_at` by the migration (excluded from strip/badge afterward); a row inserted *after* the migration keeps `acknowledged_at IS NULL` (still surfaces). Proves the flood-guard.
 - postgrest-dml-lockdown meta-test still green with new columns (G8).
