@@ -256,27 +256,27 @@ function stripConfTokens(name: string): string {
  * followed by a state+ZIP, so this can't false-split a hotel name or a guest conf#.
  */
 const STREET_ADDRESS_RE =
-  /\s(\d{1,5})\s+(?:(?:[NSEW]{1,2}|North|South|East|West)\.?\s+)?(?:(?:\d{1,3}(?:st|nd|rd|th)|\p{L}[\p{L}.'-]*)\s+){0,4}(?:St|Street|Ave|Avenue|Av|Blvd|Boulevard|Dr|Drive|Rd|Road|Pl|Place|Ln|Lane|Way|Ct|Court|Pkwy|Parkway|Sq|Square|Ter|Terrace|Cir|Circle|Hwy|Highway|Pike|Row|Walk|Trl|Trail|Loop|Path|Plaza)\b/iu;
+  /\s(\d{1,5})\s+(?:(?:[NSEW]{1,2}|North|South|East|West)\.?\s+)?(?:(?:\d{1,3}(?:st|nd|rd|th)|\p{L}[\p{L}.'-]*)\s+){0,4}(?:St|Street|Ave|Avenue|Av|Blvd|Boulevard|Dr|Drive|Rd|Road|Pl|Place|Ln|Lane|Way|Ct|Court|Pkwy|Parkway|Sq|Square|Ter|Terrace|Cir|Circle|Hwy|Highway|Pike|Row|Walk|Trl|Trail|Loop|Path|Plaza|Crescent|Cres|Commons|Close|Mews|Quay|Wharf|Gardens|Gdns|Esplanade|Promenade|Concourse)\b/iu;
 
 // Suffixless street: "<1–5 digit number> <words…>, <2-letter state> <5-digit ZIP>".
 // The interior (street name + city) is digit-free so it can't run past a conf# or a
 // second number; the comma+state+ZIP tail is what marks it as an address.
 const STREET_ADDRESS_ZIP_RE =
-  /\s(\d{1,5})\s+\p{L}[\p{L}\p{M}\s.'#/-]*?,\s*[A-Z]{2}\s+\d{5}(?:-\d{4})?\b/u;
+  /\s(\d{1,5})\s+\p{L}[\p{L}\p{M}\s.'#/-]*?,\s*[A-Z]{2}\s+(?:\d{5}(?:-\d{4})?|[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d)\b/u;
 
 /** True iff `" " + s.slice(i)` begins a street phrase by SUFFIX or by US ZIP tail.
  * Used ONLY by the Hotel-Stays discriminator to tell a dash-STREET-number from a
  * dash-CONF#. NOT used to SPLIT (splitHotelNameAddress stays strictly suffix-only,
  * so a numeric hotel brand like "Hotel 71 Chicago, IL 60601" is never corrupted —
  * the ZIP tail would otherwise treat "71 Chicago, IL …" as an address, Codex R5). */
-function looksLikeStreetStart(s: string): boolean {
+export function looksLikeStreetStart(s: string): boolean {
   const a = STREET_ADDRESS_RE.exec(s);
   if (a && a.index === 0) return true;
   const b = STREET_ADDRESS_ZIP_RE.exec(s);
   return b !== null && b.index === 0;
 }
 
-function splitHotelNameAddress(combined: string | null): {
+export function splitHotelNameAddress(combined: string | null): {
   name: string | null;
   address: string | null;
 } {

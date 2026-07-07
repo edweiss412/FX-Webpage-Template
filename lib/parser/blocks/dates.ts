@@ -15,7 +15,16 @@
  * All date parsing is pure regex + Date construction — no date library dependency.
  */
 
-import { parseTableRows, clean, presence, normalizeDate, decodeEntities } from "./_helpers";
+import {
+  parseTableRows,
+  clean,
+  presence,
+  normalizeDate,
+  decodeEntities,
+  ISO_DATE_RE,
+  LONGFORM_MDY_RE,
+  LONGFORM_DMY_RE,
+} from "./_helpers";
 import { matchesSectionHeader } from "./_sectionHeaderMatch";
 import type { ShowRow } from "@/lib/parser/types";
 import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
@@ -310,16 +319,22 @@ export function extractClockTimes(raw: string): string[] {
   return extractClockTimeTokens(c).map((t) => t.clock);
 }
 
-function extractAllDates(text: string): string[] {
+export function extractAllDates(text: string): string[] {
   const results: string[] = [];
-  const re =
-    /(?:(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Wed|Thu|Fri|Sat|Sun)\.?,?\s*)?(\d{1,2})\/(\d{1,2})\/(\d{2,4})/gi;
-  let m: RegExpExecArray | null;
-  while ((m = re.exec(text)) !== null) {
-    // Route through normalizeDate to enforce calendar-validity (rejects Feb 30, Apr 31, etc.)
-    const iso = normalizeDate(m[0]);
-    if (iso !== null) {
-      results.push(iso);
+  const slash =
+    /(?:(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Wed|Thu|Fri|Sat|Sun)\.?,?\s*)?\d{1,2}\/\d{1,2}\/\d{2,4}/gi;
+  const patterns: RegExp[] = [
+    slash,
+    new RegExp(ISO_DATE_RE.source, "g"),
+    new RegExp(LONGFORM_MDY_RE.source, "gi"),
+    new RegExp(LONGFORM_DMY_RE.source, "gi"),
+  ];
+  for (const re of patterns) {
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(text)) !== null) {
+      // Route through normalizeDate to enforce calendar-validity (rejects Feb 30, Apr 31, etc.)
+      const iso = normalizeDate(m[0].trim());
+      if (iso !== null) results.push(iso);
     }
   }
   return results;
