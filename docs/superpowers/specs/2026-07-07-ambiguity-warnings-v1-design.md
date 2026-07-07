@@ -31,7 +31,6 @@ New file `lib/parser/ambiguityCodes.ts`:
 ```ts
 export const AMBIGUITY_CODES = new Set<string>([
   "CREW_COLUMN_POSITIONAL_FALLBACK", // shipped 7c00c40cb — joins retroactively
-  "AGENDA_DAY_AMBIGUOUS",            // existing (catalog.ts:1346) — joins retroactively
   "ROOM_HEADER_SPLIT_AMBIGUOUS",     // new, §4.1
   "HOTEL_GUEST_SPLIT_AMBIGUOUS",     // new, §4.2
   "DATE_ORDER_SUGGESTS_DMY",         // new, §4.3
@@ -41,7 +40,7 @@ export function isAmbiguityCode(code: string): boolean {
 }
 ```
 
-Location rationale: the class is a parser-emission concept consumed by UI; `lib/parser/` keeps it importable by both without `lib/messages` gaining a parser dependency. `HOTEL_CARDINALITY_EXCEEDED` (§4.2b) is NOT in the registry — it reports a detected problem (truncation), not a judgment call.
+Location rationale: the class is a parser-emission concept consumed by UI; `lib/parser/` keeps it importable by both without `lib/messages` gaining a parser dependency. `HOTEL_CARDINALITY_EXCEEDED` (§4.2b) is NOT in the registry — it reports a detected problem (truncation), not a judgment call. `AGENDA_DAY_AMBIGUOUS` (`catalog.ts:1346`) is likewise NOT in the registry, despite its name: its copy says "we didn't guess" — it is a fail-closed no-value-produced code, i.e. a detected problem, outside the §3.1 definition (judgment call that PRODUCED a value). Membership is semantic, not lexical — this exclusion is the proof case.
 
 ### 3.3 Routing
 
@@ -81,6 +80,8 @@ Numeric slash/dash dates are always read MDY (`lib/parser/blocks/_helpers.ts:154
 Instead, a **block-level sequence check** over the DATES section's dates **in sheet encounter order, captured BEFORE the `result.showDays.sort()` calls** (`lib/parser/blocks/dates.ts:183`, `:281` — both parser versions sort before return, erasing row order; the check therefore runs inside the dates block parse, on the ordered list of successfully-parsed dates as encountered, one entry per parsed date row, ALL row kinds included — travel-in / set / show / travel-out): if that encounter-order sequence is non-monotonic (strictly decreasing at any adjacent pair) under the MDY reading, AND re-interpreting every numeric slash/dash date as DMY yields a non-decreasing sequence, emit ONE warning: `blockRef: { kind: "dates", field: "order" }`, `rawSnippet` = the first out-of-order raw date. This fires exactly in the real mis-read scenario (coordinator wrote DMY) and never on a well-ordered US sheet.
 
 Guard conditions: fewer than 2 parseable dates → no check (vacuously ordered). Dates equal under both readings (e.g. 5/5) contribute to neither violation nor rescue. If BOTH readings are non-monotonic → no warning (sheet is just out of order; existing behavior unchanged). Longform/ISO dates are fixed points (only numeric slash/dash re-interpret).
+
+**Contract narrowing (explicit):** the check runs over **successfully-parsed (MDY-valid) dates only**. A DMY-written row with day > 12 (e.g. `25/3/2026`) fails the MDY parse before the check and never enters the sequence — those rows already emit their own existing unreadable-date warnings, which is independent (and stronger) signal of the same root cause. On a fully-DMY sheet the surviving day-≤-12 rows still trigger the check whenever they are non-monotonic under MDY; a raw numeric-date ledger capturing MDY-invalid tokens was considered and rejected as disproportionate for v1 (the unreadable-date warnings already cover those rows).
 
 ### 4.4 Copy + catalog obligations (all four codes)
 
@@ -139,13 +140,13 @@ Null/unmapped `blockRef.kind` routing is untouched (audit item 2.3 is separate s
 
 `renderSummary()` (`components/admin/wizard/Step3Review.tsx:845-918`, `rowNeedsLook()` at `:828-836`): replace the two-bucket derivation with three counts — **"N clean · M parsed with judgment — spot-check · K flagged."** Exact copy is an impeccable-gate deliverable; the contract here is: three distinct counts, judgment-count wording prompts a glance without implying error, and the sum N+M+K equals the section total.
 
-**Derivation change (required, not optional):** `rowNeedsLook()` today returns true when `summarizeDataGaps(...).total > 0` — since the new codes join `GAP_CLASSES` (§3.3), an unmodified `rowNeedsLook` would put ambiguity-only rows in the needs-look bucket, contradicting this section. The derivation therefore **partitions gap totals by `isAmbiguityCode`**: `rowNeedsLook` is true only when the row's NON-ambiguity gap/warning count is > 0; a row whose warnings are all ambiguity-class lands in the judgment bucket (M). Ambiguity-only sections do NOT join `rowNeedsLook`'s blocking styling and do NOT block publish. Dashboard chip and regression gate are deliberately NOT partitioned — ambiguity codes count there like any gap class (§3.3; the chip is a "glance here" aggregate, same intent).
+**Derivation change (required, not optional):** `rowNeedsLook()` today ORs several conditions — `summarizeDataGaps(...).total > 0` plus non-gap branches (missing preview, finalize failure). ONLY the gap-total clause is partitioned by `isAmbiguityCode`: it contributes true only when the row's NON-ambiguity gap count is > 0. **All other OR branches are preserved unchanged** — a row with a missing preview or finalize failure stays needs-look regardless of warning classes. Precedence: needs-look (any surviving branch true) > judgment (not needs-look AND ≥1 ambiguity-class warning) > clean. Ambiguity-only sections do NOT join `rowNeedsLook`'s blocking styling and do NOT block publish. Dashboard chip and regression gate are deliberately NOT partitioned — ambiguity codes count there like any gap class (§3.3; the chip is a "glance here" aggregate, same intent).
 
 Guard conditions: M=0 renders the existing two-state summary (no empty "0 parsed with judgment" chrome). All-zero (no sections) is the existing empty-wizard state, unchanged. A section with ambiguity + non-ambiguity warnings is **flagged** (K), counted once.
 
 ### 7.3 Section chrome
 
-`SectionFlagCallout` (`components/admin/wizard/step3ReviewSections.tsx:469-514`): judgment sections get a visually distinct callout variant — "We made a judgment call reading this — worth a glance" + the entry list (existing `CALLOUT_MAX_ENTRIES` cap at `:480` applies unchanged) + the existing "In sheet ↗" deep-link (`:548-559`) which is the spot-check affordance. Entry text includes the `blockRef.field` when present ("dims for ROOM A"). Visual treatment (color/token choice distinct from flagged amber and from clean) is an impeccable-gate deliverable within existing `DESIGN.md` tokens.
+`SectionFlagCallout` (`components/admin/wizard/step3ReviewSections.tsx:469-514`): judgment sections get a visually distinct callout variant — "We made a judgment call reading this — worth a glance" + the entry list (existing `CALLOUT_MAX_ENTRIES` cap at `:480` applies unchanged) with its existing per-entry "View details" affordance. The "In sheet ↗" deep-link (`:548-559`) lives in `ModalSectionChrome` at the section heading, NOT inside the callout — it stays there, unchanged, and serves as the judgment state's spot-check affordance. No new per-entry sheet link in v1 (a per-entry link is an impeccable-gate option, not a spec requirement). Entry text includes the `blockRef.field` when present ("dims for ROOM A"). Visual treatment (color/token choice distinct from flagged amber and from clean) is an impeccable-gate deliverable within existing `DESIGN.md` tokens.
 
 ### 7.4 Transition inventory
 
@@ -171,7 +172,7 @@ None — no fixed-height/width parent with flex/grid children is introduced or m
 | DATE_ORDER_SUGGESTS_DMY | yes | yes | yes | yes | judgment state | yes | yes |
 | HOTEL_CARDINALITY_EXCEEDED | yes (promoted from log-only) | yes | yes | yes | flagged state (not ambiguity) | yes | **no** |
 
-Existing registry joiners (`CREW_COLUMN_POSITIONAL_FALLBACK`, `AGENDA_DAY_AMBIGUOUS`): no emission change; their wizard rendering shifts from flagged to judgment when they are a section's only warnings. This is an intentional, disclosed behavior change (they are judgment calls — the new rendering is the truthful one).
+Existing registry joiner (`CREW_COLUMN_POSITIONAL_FALLBACK`): no emission change; its wizard rendering shifts from flagged to judgment when it is a section's only warning. This is an intentional, disclosed behavior change (it is a judgment call — the new rendering is the truthful one). `AGENDA_DAY_AMBIGUOUS` stays outside the registry (§3.2) and renders flagged, unchanged.
 
 ## 10. Testing contract
 
