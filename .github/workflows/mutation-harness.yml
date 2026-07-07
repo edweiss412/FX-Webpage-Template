@@ -26,6 +26,10 @@ on:
       - ".github/workflows/mutation-harness.yml"
       - "tests/parser/mutation/**"
       - "tests/parser/mutationHarness.*.test.ts"
+      # vitest wiring owns the mutation project's existence/includes — a wiring-only
+      # PR must fire the real workflow too (whole-diff review advisory).
+      - "vitest.config.ts"
+      - "vitest.projects.ts"
 # PR-only cancel (ci-workflow-speedup convention): re-pushing a PR cancels its superseded
 # ~70-min run, but scheduled nightly runs never cancel each other.
 concurrency:
