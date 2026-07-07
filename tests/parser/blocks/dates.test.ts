@@ -1,6 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
-import { parseDates, extractClockTimes, extractClockTimeTokens } from "@/lib/parser/blocks/dates";
+import {
+  parseDates,
+  extractClockTimes,
+  extractClockTimeTokens,
+  extractAllDates,
+} from "@/lib/parser/blocks/dates";
 import { normalizeDate } from "@/lib/parser/blocks/_helpers";
 import { detectVersion } from "@/lib/parser/schema";
 import { newAggregator } from "@/lib/parser/warnings";
@@ -556,5 +561,17 @@ describe("extractClockTimeTokens — position core (D-SET1)", () => {
   });
   it("decodes an entity INSIDE a clock (R2 P1d): '7:00&#9;PM' → ['7:00 PM']", () => {
     expect(extractClockTimes("7:00&#9;PM")).toEqual(["7:00 PM"]);
+  });
+});
+
+describe("extractAllDates widened free-scan (rec-6d)", () => {
+  it("picks up ISO and long-form dates", () => {
+    const text = "Load in 2026-07-04, show June 24, 2026 and 7/5/2026.";
+    expect(extractAllDates(text)).toEqual(
+      expect.arrayContaining(["2026-07-04", "2026-06-24", "2026-07-05"]),
+    );
+  });
+  it("does NOT turn ranges/scores/times/dash-dates into dates", () => {
+    expect(extractAllDates("score 12-0, lead 7-4 at 10:30, memo 6-24-2026")).toEqual([]);
   });
 });
