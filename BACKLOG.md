@@ -4,6 +4,19 @@ Speculative / lower-priority hardening items. "Might do" — not blocking, no co
 
 ---
 
+## BL-TEST-PG-CLIENT-TEARDOWN — leak-proof postgres.js clients in DB tests
+
+~55 test files (`tests/db/**`, `tests/notify/**`, `tests/sync/**`, `tests/onboarding/**`, `tests/agenda/**`, `tests/show/**`, `tests/app/admin/**`) create module-level `postgres(DB_URL, { max, prepare: false })` clients with **no `idle_timeout` and no `.end()`**. postgres.js default `idle_timeout` is 0 (never auto-close), so in the serial DB-test worker these pools hold their connections for the whole run and can exhaust local Postgres `max_connections` (~100) after a long session — surfacing as spurious "too many clients" failures on untouched code (the class `pnpm db:reset-pool` mitigates at runtime, added 2026-07-06).
+
+Structural fix (scoped, TDD, needs local DB to verify — do NOT blind-sweep):
+
+1. Shared factory `tests/db/testSql.ts` → `makeTestSql(opts)` returning `postgres(url, { max: 1, idle_timeout: 1, prepare: false, ...opts })`, registered in a module-level set; export `endAllTestSql()`.
+2. Global per-file teardown: `afterAll(endAllTestSql)` (or the vitest global-teardown hook) so any factory client closes at end of each test file.
+3. Migrate the ~55 files to the factory. **Exclude / hand-audit** the connection-hold tests — `*concurrency*`, `advisoryLock*`, deadlock/lock-topology tests — where an aggressive `idle_timeout` could drop a held connection mid-test and break lock semantics. Those keep an explicit long-lived client with a manual `.end()`.
+4. Structural meta-test: fail if a `tests/**` file calls `postgres(` directly instead of `makeTestSql(` (allowlist the audited lock-hold exceptions).
+
+Trigger to promote out of backlog: next time a full local suite exhausts the pool and `db:reset-pool` between runs stops being enough.
+
 ## INFO-tab data-fidelity audit (2026-06-29)
 
 The seven items below were surfaced by a parser → review-modal → crew-page audit of the **AII/III - Consultants Roundtable** show (source sheet `1XQ44uxc44pToYxQnYw4OG9V6DjE7bC5EU08o5iFpxz4`). Every finding carries verified `file:line` evidence (parser re-run on `fixtures/shows/exporter-xlsx/consultants.md`). Full field-by-field table + evidence: **`docs/audits/info-tab-fidelity-audit-2026-06-29.md`**. Suggested order: parser-only cluster first (DRESS, ROOM-DEDUP, TITLE — GS-dims was investigated and is NOT a live parse drop, folded into BL-ROOM-DETAIL-UNRENDERED as render-only) → render surfaces (Opus + impeccable v3) → review-modal completeness.
