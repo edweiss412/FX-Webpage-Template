@@ -74,6 +74,10 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   { path: "app/api/report/route.ts", chain: CREW_SESSION_CHAINS },
   { path: "app/api/admin/admin-alerts/[id]/resolve/route.ts", chain: ["requireAdmin"] },
   { path: "app/api/admin/needs-attention-count/route.ts", chain: ["requireAdmin"] },
+  // Venue card redesign: read-only key-safe Google Static Maps proxy for the
+  // Stage-3 review venue tile, over requireAdminIdentity (needs-attention-count
+  // chain shape).
+  { path: "app/api/admin/venue-map/route.ts", chain: ["requireAdmin"] },
   // Bell notification center (Task 9): read-only feed/count routes over
   // requireAdminIdentity, mirroring needs-attention-count's chain shape.
   { path: "app/api/admin/alerts/bell/feed/route.ts", chain: ["requireAdmin"] },

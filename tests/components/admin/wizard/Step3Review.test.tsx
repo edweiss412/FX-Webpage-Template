@@ -835,7 +835,7 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
     expect(nightsBetween("TBD", "2025-10-10")).toBeNull();
   });
 
-  test("venue breakdown shows address/loading dock/maps as-parsed (BL-REVIEW-MODAL-COMPLETENESS)", () => {
+  test("venue breakdown surfaces name/address/city/dock as-parsed; maps link becomes Directions anchor (BL-REVIEW-MODAL-COMPLETENESS)", () => {
     const pr = {
       ...GEAR_PR,
       show: {
@@ -854,14 +854,21 @@ describe("Step3SheetCard — gear review (per-room scope + event details)", () =
       <Step3Review wizardSessionId={WIZARD_SESSION_ID} rows={[row]} />,
     );
     fireEvent.click(getByTestId("wizard-step3-card-drive-venue-more"));
-    const t = getByTestId("wizard-step3-card-drive-venue-breakdown-venue").textContent ?? "";
-    expect(t).toContain("Address:");
+    const card = getByTestId("wizard-step3-card-drive-venue-breakdown-venue");
+    const t = card.textContent ?? "";
+    // Redesigned bespoke body (spec 2026-07-06 §5): name/address/city/dock still
+    // surfaced (completeness preserved), but no FieldRowList "Label:" prefixes.
+    expect(t).toContain("Four Seasons");
     expect(t).toContain("120 E Delaware Pl");
-    expect(t).toContain("Loading dock:");
-    expect(t).toContain("Maps link:");
-    expect(t).toContain("https://maps.google.com/x"); // raw text, not a live link
-    expect(t).toContain("City:");
-    expect(t).toContain("TBD"); // sentinel as-parsed
+    expect(t).toContain("TBD"); // city sentinel folds into the address block, as-parsed
+    expect(t).toContain("64 East Walton St"); // loading-dock footer
+    // Maps link is now the tile's Directions anchor (href), NOT raw URL text
+    // (no dead/raw link in the UI — spec §5 / invariant 5).
+    const anchor = card.querySelector('[data-testid="venue-map-tile"]') as HTMLAnchorElement;
+    expect(anchor.tagName).toBe("A");
+    expect(anchor.getAttribute("href")).toBe("https://maps.google.com/x");
+    expect(t).not.toContain("https://maps.google.com/x"); // not rendered as text
+    expect(card.querySelector('[data-testid="venue-directions"]')).not.toBeNull();
   });
 
   test("ops breakdown shows COI/Proposal/PO#/Invoice as-parsed, ungated (BL-REVIEW-MODAL-COMPLETENESS)", () => {

@@ -109,6 +109,8 @@ import { labelFromRawSnippet } from "@/lib/parser/rawSnippet";
 import { Avatar } from "@/components/atoms/Avatar";
 import { AgendaScheduleBlock } from "@/components/crew/AgendaScheduleBlock";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
+import { VenueMapTile } from "@/components/admin/wizard/VenueMapTile";
+import { isParseableUrl } from "@/lib/url/isParseableUrl";
 import {
   AGENDA_CLIENT_CONCURRENCY,
   AGENDA_CLIENT_POLL_BUDGET_MS,
@@ -790,6 +792,16 @@ export function VenueBreakdown({ dfid, venue }: { dfid: string; venue: ShowRow["
         ["Maps link", venue.googleLink],
       ])
     : [];
+
+  const name = venue?.name?.trim() ?? "";
+  const address = venue?.address?.trim() ?? "";
+  const city = venue?.city?.trim() ?? "";
+  const dock = venue?.loadingDock?.trim() ?? "";
+  const mapHref = isParseableUrl(venue?.googleLink) ? venue!.googleLink!.trim() : null;
+  // Geocodable query mirrors geocodeQuery (lib/geocoding/client.ts:44). Empty →
+  // the parent collapses the map region (never mounts VenueMapTile).
+  const query = [name, address].filter(Boolean).join(", ");
+
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-venue`}
@@ -799,7 +811,66 @@ export function VenueBreakdown({ dfid, venue }: { dfid: string; venue: ShowRow["
       {rows.length === 0 ? (
         <p className="text-sm text-text-subtle">No venue details parsed.</p>
       ) : (
-        <FieldRowList rows={rows} />
+        // Full-bleed body: cancel the panel p-tile-pad and clip to its radius so
+        // the map divider + dock band reach the card edges (one card, no nesting).
+        <div data-testid="venue-body" className="-m-tile-pad overflow-hidden rounded-md">
+          {/* Region A: two-column (stacks below sm) */}
+          <div className="flex flex-col sm:flex-row sm:items-stretch">
+            <div
+              data-testid="venue-text-col"
+              className="flex min-w-0 flex-1 flex-col gap-1 p-tile-pad"
+            >
+              <span
+                className="text-[10px] font-semibold text-text-faint uppercase"
+                style={{ letterSpacing: "var(--tracking-eyebrow)" }}
+              >
+                Venue
+              </span>
+              {name ? (
+                <span className="text-lg leading-tight font-bold wrap-break-word text-text-strong">
+                  {name}
+                </span>
+              ) : null}
+              {address || city ? (
+                <span className="mt-1 text-sm/snug text-text-subtle">
+                  {address ? <span className="block wrap-break-word">{address}</span> : null}
+                  {city ? <span className="block wrap-break-word">{city}</span> : null}
+                </span>
+              ) : null}
+            </div>
+            {query ? (
+              <div
+                data-testid="venue-map-region"
+                className="h-40 w-full self-stretch border-t border-border sm:h-auto sm:w-[172px] sm:shrink-0 sm:border-t-0 sm:border-l"
+              >
+                <VenueMapTile query={query} mapHref={mapHref} />
+              </div>
+            ) : null}
+          </div>
+          {/* Region B: loading-dock footer — only when present */}
+          {dock ? (
+            <div
+              data-testid="venue-dock"
+              className="flex items-start gap-2.5 border-t border-border bg-surface-sunken p-tile-pad"
+            >
+              <span
+                aria-hidden="true"
+                className="grid size-6 shrink-0 place-items-center rounded-sm border border-border bg-surface text-accent-on-bg"
+              >
+                <Truck className="size-3.5" />
+              </span>
+              <div className="min-w-0">
+                <span
+                  className="text-[10px] font-semibold text-text-faint uppercase"
+                  style={{ letterSpacing: "var(--tracking-eyebrow)" }}
+                >
+                  Loading dock
+                </span>
+                <p className="mt-0.5 text-sm/snug wrap-break-word text-text">{dock}</p>
+              </div>
+            </div>
+          ) : null}
+        </div>
       )}
     </BreakdownSection>
   );
