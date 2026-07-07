@@ -38,9 +38,7 @@ export function normalizeHeaderForGuess(raw: string): string {
  * intentionally do NOT route — that would misroute a flag onto a plausible-but-
  * wrong section. Returns null when there is no exact synonym entry.
  */
-export function guessSectionFromHeader(
-  rawSnippet: string | null | undefined,
-): SectionId | null {
+export function guessSectionFromHeader(rawSnippet: string | null | undefined): SectionId | null {
   if (!rawSnippet) return null;
   const key = normalizeHeaderForGuess(rawSnippet);
   if (!key) return null;

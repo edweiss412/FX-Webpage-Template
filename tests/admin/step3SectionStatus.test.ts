@@ -453,12 +453,16 @@ describe("Unit B — synonym re-routing", () => {
 
   // Case 2: negative controls — foreign + contextual phrases that merely CONTAIN
   // a synonym must NOT route (exact-match, closed allowlist).
-  test.each(["SHIPPING", "CATERING", "CREDENTIALS", "CLIENT HOTEL INFO", "NO HOTEL INFO", "OLD VENUE INFO"])(
-    "does NOT route foreign/contextual header %s",
-    (header) => {
-      expect(sectionForWarning(unknownHeader(header))).toBeNull();
-    },
-  );
+  test.each([
+    "SHIPPING",
+    "CATERING",
+    "CREDENTIALS",
+    "CLIENT HOTEL INFO",
+    "NO HOTEL INFO",
+    "OLD VENUE INFO",
+  ])("does NOT route foreign/contextual header %s", (header) => {
+    expect(sectionForWarning(unknownHeader(header))).toBeNull();
+  });
 
   // Local severity+code gate: a non-warn UNKNOWN_SECTION_HEADER never reaches the map.
   test("does not route a non-warn UNKNOWN_SECTION_HEADER", () => {

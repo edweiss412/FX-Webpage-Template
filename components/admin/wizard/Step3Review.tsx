@@ -908,8 +908,7 @@ function renderSummary(
 
   return (
     <>
-      {head}{" "}
-      {clause}
+      {head} {clause}
       {attention}
       {tail}
     </>

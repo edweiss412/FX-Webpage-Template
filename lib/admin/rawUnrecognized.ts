@@ -26,8 +26,7 @@ export function sanitizeRawUnrecognized(raw: unknown): RawUnrecognizedEntry[] {
     const r = el as Record<string, unknown>;
     const key = typeof r.key === "string" ? r.key.trim() : "";
     if (!key) continue; // a row with no label is unshowable
-    const block =
-      typeof r.block === "string" && r.block.trim() ? r.block.trim() : "Other";
+    const block = typeof r.block === "string" && r.block.trim() ? r.block.trim() : "Other";
     const value = typeof r.value === "string" ? r.value : "";
     out.push({ block, key, value });
   }
