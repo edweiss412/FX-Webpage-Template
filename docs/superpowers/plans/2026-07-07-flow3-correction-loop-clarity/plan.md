@@ -384,7 +384,7 @@ git commit --no-verify -m "feat(admin): correction-loop callout in wizard Warnin
 
 - [ ] **Step 1: Write the failing tests**
 
-Append to `tests/components/admin/ChangeFeedEntry.test.tsx` (reuses `base`, `now`, `noop`):
+Append to `tests/components/admin/ChangeFeedEntry.test.tsx` (reuses `base`, `now`, `noop`). Add `import type { Disposition } from "@/lib/sync/holds/types";` to the file's imports (for the defensive unknown-disposition cast):
 
 ```tsx
 const HOLD_COPY = {
@@ -462,6 +462,33 @@ it("approve_reject WITHOUT a gate (defensive) renders NO hold explanation", () =
   const row = screen.getByTestId("change-feed-entry-e1");
   expect(within(row).queryByTestId("change-feed-hold-explanation")).toBeNull();
 });
+
+it("unknown/future disposition (schema drift) renders NO hold explanation (fail-quiet, no blank line)", () => {
+  render(
+    <ChangeFeedEntry
+      entry={{
+        ...base,
+        status: "pending",
+        action: "approve_reject",
+        summary: "Some future hold",
+        gate: {
+          holdId: "h1",
+          // cast an out-of-union value as would arrive from runtime DB JSON
+          disposition: { disposition: "future_kind" } as unknown as Disposition,
+          baseModifiedTime: "2026-06-09T10:00:00Z",
+        },
+      }}
+      now={now}
+      undoAction={noop}
+      approveAction={noop}
+      rejectAction={noop}
+    />,
+  );
+  const row = screen.getByTestId("change-feed-entry-e1");
+  // no explanation node at all (not an empty <p>) — and the raw token never leaks
+  expect(within(row).queryByTestId("change-feed-hold-explanation")).toBeNull();
+  expect(row.textContent).not.toContain("future_kind");
+});
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
@@ -481,7 +508,13 @@ import type { Disposition, FeedEntry } from "@/lib/sync/holds/types";
 // (mirrors ChangesFeed's hard-coded empty-state/truncation rationale; invariant 5).
 // No em dashes (DESIGN.md:318). Rendered via {expression}, so the apostrophes are
 // safe (no react/no-unescaped-entities).
-function holdExplanation(disposition: Disposition): string {
+//
+// Returns string | null and has a `default: null` — fail-quiet on schema drift
+// (spec §4.3). `readShowChangeFeed` passes sync_holds.proposed_value (runtime DB
+// JSON) straight into gate.disposition, so a future/unknown disposition string is
+// a realistic version-skew path; it must render NO line, never a blank <p> or a
+// raw disposition token.
+function holdExplanation(disposition: Disposition): string | null {
   switch (disposition.disposition) {
     case "email_change":
       return "Held for your review: this crew member's sign-in email changed in the sheet. Approve to update their sign-in address; Reject to keep the current one.";
@@ -489,26 +522,34 @@ function holdExplanation(disposition: Disposition): string {
       return "Held for your review: this crew member was renamed in the sheet. Approve to apply the new name; Reject to keep the current one.";
     case "removal":
       return "Held for your review: this crew member was removed from the sheet. Approve to remove them; Reject to keep them.";
+    default:
+      return null;
   }
 }
 ```
 
-Then, inside the left-column `<div className="flex min-w-0 flex-col gap-1">`, AFTER the summary `<p data-testid="change-feed-summary">…</p>` and BEFORE the `<div className="flex flex-wrap items-center gap-2">` badge/time row, insert:
+Then, inside the component body compute the copy once (after `canGate` is derived at `ChangeFeedEntry.tsx:52`):
 
 ```tsx
-{canGate ? (
+const holdCopy = canGate ? holdExplanation(entry.gate!.disposition) : null;
+```
+
+And inside the left-column `<div className="flex min-w-0 flex-col gap-1">`, AFTER the summary `<p data-testid="change-feed-summary">…</p>` and BEFORE the `<div className="flex flex-wrap items-center gap-2">` badge/time row, insert (renders ONLY when the copy is non-null — an unknown disposition yields `null` and no node):
+
+```tsx
+{holdCopy ? (
   <p data-testid="change-feed-hold-explanation" className="text-xs text-text-subtle">
-    {holdExplanation(entry.gate!.disposition)}
+    {holdCopy}
   </p>
 ) : null}
 ```
 
-(`canGate` is already computed at `ChangeFeedEntry.tsx:52` as `entry.action === "approve_reject" && entry.gate != null`. If the existing `import type { FeedEntry }` line is already present, extend it to also import `Disposition` rather than adding a second import.)
+(`canGate` is already computed at `ChangeFeedEntry.tsx:52` as `entry.action === "approve_reject" && entry.gate != null`. The file already imports `FeedEntry` from `@/lib/sync/holds/types` — extend that line to also import `Disposition` rather than adding a second import.)
 
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `pnpm vitest run tests/components/admin/ChangeFeedEntry.test.tsx -t "explanation"`
-Expected: PASS (6 tests: 3 dispositions + undo + none + no-gate).
+Expected: PASS (7 tests: 3 dispositions + undo + none + no-gate + unknown-disposition).
 
 - [ ] **Step 5: Run the full ChangeFeedEntry suite (guard the existing gate/undo/summary tests)**
 
@@ -550,16 +591,14 @@ Run: `pnpm build` — Expected: build succeeds. `CorrectionLoopCallout` (no `'us
 
 - [ ] **Step 6: Impeccable dual-gate (invariant 8) — three UI surfaces touched**
 
-Run `/impeccable critique` AND `/impeccable audit` on the diff (the callout on the per-show Data-quality section, the wizard `WarningsBreakdown`, and the changes-feed row). Both run with the canonical v3 preflight gates (PRODUCT.md / DESIGN.md / register / preflight). HIGH and CRITICAL findings are fixed in-branch OR deferred via a `DEFERRED.md` entry with rationale. Record findings + dispositions for the milestone handoff. This precedes the whole-diff Codex review (Stage 4).
+Run `/impeccable critique` AND `/impeccable audit` on the diff (the callout on the per-show Data-quality section, the wizard `WarningsBreakdown`, and the changes-feed row). Both run with the canonical v3 preflight gates (PRODUCT.md / DESIGN.md / register / preflight). Record every HIGH/CRITICAL finding + its disposition for the milestone handoff. This precedes the whole-diff Codex review (Task 6).
 
-- [ ] **Step 7: Commit any gate fixes**
+Dispose of each HIGH/CRITICAL one of two ways — TDD is non-negotiable even for late visual/copy fixes:
 
-```bash
-git add -A
-git commit --no-verify -m "chore(admin): quality-gate + impeccable fixes for Flow 3 correction-loop clarity"
-```
+- **Fix in-branch = a new TDD micro-task.** Do NOT batch fixes into a `git add -A` chore commit. For each finding requiring a code change: (1) write or update the failing test that pins the corrected behavior (e.g. an exact-copy assertion, a `data-testid` presence/absence, a scoped-DOM check), (2) run it — confirm it FAILS, (3) implement the minimal fix, (4) re-run that scoped test + `pnpm typecheck && pnpm lint && pnpm format:check && pnpm vitest run` (+ `pnpm build` if the change could affect bundling), (5) commit ONLY the touched files: `git add <specific files>` then `git commit --no-verify -m "fix(admin): <impeccable finding> (Flow 3)"`. One finding = one TDD commit.
+- **Defer = docs-only commit.** If a finding is deferred, add a `DEFERRED.md` row with rationale and commit that file alone: `git add DEFERRED.md && git commit --no-verify -m "docs(admin): defer <finding> (Flow 3, DEFERRED.md)"`.
 
-(Skip this commit if Steps 1-6 produced no changes.)
+If critique + audit surface NO code changes and NO deferrals, this step produces no commit.
 
 ---
 
@@ -589,7 +628,7 @@ For each finding: fix in-branch (class-sweep the shape first, then patch), OR de
 
 - **Spec §3.1 (per-show callout, gate `activeActionable.length > 0 && !archived`)** → Task 2 (mount + gate) + 4 tests (active/ignored-only/archived/zero). ✓
 - **Spec §3.2 (wizard callout, copy-only, preserve non-blocking note)** → Task 3 (additive prepend + pinned-note assertion). ✓
-- **Spec §4 (hold explanations, 3 dispositions, only on gate rows)** → Task 4 (helper + 6 tests). ✓
+- **Spec §4 (hold explanations, 3 dispositions, only on gate rows; §4.3 fail-quiet on unknown disposition)** → Task 4 (`holdExplanation` returns `string | null` with `default: null`; renders `<p>` only when non-null; 7 tests incl. the unknown-disposition schema-drift case). ✓
 - **Spec §5 (single-source copy, verb-only diff)** → Task 1 (`correctionLoopCopy()` template + `CORRECTION_LOOP_VERB` map; executable verb-normalization equality test). ✓
 - **Spec §6 (non-catalog)** → Global Constraints + Task 4 comment; no catalog/gen work in any task. ✓
 - **Spec §7 (anti-tautology: exact copy + the re-sync action, not "a button"; per-disposition exact strings)** → Task 2 asserts `admin-resync-button` inside the callout; Task 4 asserts exact per-disposition strings. ✓
