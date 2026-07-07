@@ -163,17 +163,17 @@ Represented as `RosterShiftSummary = { added: number; removed: number; renamed: 
   type AutoAppliedGroup = {
     showId: string; slug: string; showName: string;
     rows: AutoAppliedRow[];       // display-capped (STRIP_RENDER_CAP), newest first
-    acceptAllIds: string[];       // ALL un-dispositioned auto_apply ids for this show AS OF render
-                                  //   (uncapped by display) — Accept-all's explicit p_ids (R1-F1)
+    acceptAllIds: string[];       // ALL un-dispositioned in-scope auto_apply ids for this show
+                                  //   AS OF render (uncapped by display; no time filter) —
+                                  //   Accept-all's explicit p_ids (R1-F1 render-time set / R2-F2)
     undoableIds: string[];        // undoable subset of the DISPLAYED rows (for Undo-all)
   };
   type RecentAutoApplied =
     | { kind: "ok"; groups: AutoAppliedGroup[]; renderedCount: number; overflowCount: number }
     | { kind: "infra_error"; message: string };
   ```
-- **Filter:** `source='auto_apply' AND status='applied' AND acknowledged_at IS NULL AND change_kind IN (crew_added,crew_removed,crew_renamed,crew_email_changed,field_changed)`.
-- **Window:** `occurred_at >= now() - interval '72 hours'` (display bound only — see §6.4 for why the badge is NOT window-bound).
-- **Cap:** `STRIP_RENDER_CAP = 50` rows total across groups, newest-first; `overflowCount` drives a plain-text `"+N older changes not shown"` line (no link). Groups with zero displayed rows are omitted.
+- **Filter:** `source='auto_apply' AND status='applied' AND acknowledged_at IS NULL AND change_kind IN (crew_added,crew_removed,crew_renamed,crew_email_changed,field_changed)`. **No time window** — the strip's row set is *exactly* the un-dispositioned set the badge reflects (R2-F1: a time window would strand an aged-out un-accepted roster row as a permanently-amber, unclearable badge, since the badge does not time-decay). Un-dispositioned rows are inherently self-limiting (Accept / Undo / supersede remove them), so no window is needed to keep the list "recent."
+- **Cap (display count only):** `STRIP_RENDER_CAP = 50` rows total across groups, newest-first, for **rendering**; `overflowCount` drives a plain-text `"+N older changes not shown"` line (no link). Groups with zero rows are omitted. The cap bounds *what is drawn*, never *what Accept-all clears* — `acceptAllIds` is uncapped (below), so the badge is always fully clearable even when older rows are past the display cap.
 - **Summary text:** the stored `show_change_log.summary` is rendered **verbatim** (G1) — e.g. `Crew member Priya added`, `Crew member Bob renamed to Robert Chen`, `A field changed on this sync`. No re-derivation. (`field_changed`'s generic summary is a known limitation; enrichment filed to BACKLOG, not this PR.)
 
 ### 6.2 4.2 strip — actions per row
@@ -191,7 +191,7 @@ Undo reverses the DB crew row and writes a `sync_holds` `undo_override` (G10 bod
 
 - `DataQualityBadge` gains an optional `rosterShift?: RosterShiftSummary` prop. Badge renders iff **`(dataGaps?.total ?? 0) > 0` OR `(rosterShift?.total ?? 0) > 0`**.
 - Roster-shift contribution is populated **only for published shows** (§5.4). Unpublished shows: `rosterShift` undefined → no roster contribution (data-gap behavior unchanged).
-- **No time-decay.** The badge is a pure function of current un-dispositioned roster state. It clears exactly when the last roster row is Accepted / Undone / superseded — never merely because time passed. (This is why 4.3 required per-row disposition state rather than a decay window; the 72h in §6.1 caps *strip display*, not the badge.)
+- **No time-decay.** The badge is a pure function of current un-dispositioned roster state. It clears exactly when the last roster row is Accepted / Undone / superseded — never merely because time passed. (This is why 4.3 required per-row disposition state rather than a decay window, and why the strip has **no time window** — badge and strip share one un-dispositioned set, §6.1 R2-F1.)
 - **Self-healing (roster rows only — R1-F4):** `cleanup_superseded_before_images` supersedes ONLY `crew_added` / `crew_removed` / `crew_renamed` rows (G10 tail — it filters `change_kind in (...)`). So for **roster-membership** rows, if Doug edits the sheet instead of clicking, the next sync's newer same-entity row supersedes the stale one → it drops from strip AND badge automatically; a *revert* surfaces as the reverse change (its own dispositionable row), not silent-zero. **`field_changed` / `crew_email_changed` rows do NOT self-heal** (cleanup doesn't touch them and they aren't undoable) — they persist in the strip until **Accept**. This is acceptable: those kinds don't drive the badge (badge is roster-only), and Accept is exactly the "seen it" affordance for them.
 - **First-deploy behavior:** the §5.1 clean-start backfill stamps every pre-deploy `status='applied'` auto_apply row as acknowledged, so the first post-deploy render lights amber **only for auto-applies that land after deploy** — no historical flood. (Rows already undone/superseded/mi11-approved were never eligible anyway; the backfill additionally clears the never-undone applied backlog.)
 
@@ -226,7 +226,7 @@ Three `(prev, formData) => Result` wrappers (mirror `feed.ts:121`, but revalidat
 | `acceptAllAction` | `acknowledgeChanges(showId, ids)` (ids from hidden field, the group's `acceptAllIds`) | `revalidatePath("/admin","page")` | `{code:"CHANGES_ACKNOWLEDGED", source:"admin.dashboard.autoApplied.acceptAll", actorEmail, showId, extra:{ids:n}}` |
 | `undoFromDashboardAction` | `undoChange(changeLogId)` (reuse helper) | `revalidateShow(showId)` + `revalidatePath("/admin","page")` | reuse `{code:"CHANGE_UNDONE", source:"admin.dashboard.autoApplied.undo", ...}` |
 
-- `CHANGES_ACKNOWLEDGED` is a **forensic `logAdminOutcome` code**, §12.4-EXEMPT via `_metaAdminOutcomeContract` (same class as `CHANGE_UNDONE`) — NOT a user-facing catalog code (§9 stands). `undoFromDashboardAction` reuses the existing `CHANGE_UNDONE` code with a new `source`.
+- `CHANGES_ACKNOWLEDGED` is a **forensic `logAdminOutcome` code**, §12.4-EXEMPT via `_metaAdminOutcomeContract` (same class as `CHANGE_UNDONE`) — NOT a user-facing catalog code (§9 stands). **It MUST be added to `SANCTIONED_CODES` (`tests/log/_auditableMutations.ts:312`, the set that also holds `CHANGE_UNDONE:343`)** — `_metaAdminOutcomeContract` requires every `AUDITABLE_MUTATIONS` code to be sanctioned; omitting it fails that meta-test (R2-F3). `undoFromDashboardAction` reuses the existing (already-sanctioned) `CHANGE_UNDONE` code with a new `source`, so it needs no new sanctioned entry.
 - **Observability (invariant 10 — admin mutations):** `acceptChangeAction` + `acceptAllAction` + `undoFromDashboardAction` each registered in `AUDITABLE_MUTATIONS` (G21) with executable success-branch behavioral proof in `adminOutcomeBehavior.test.ts` (sink-spy records only after observing the code on the committed-success branch). Emits are POST-COMMIT, fail-open (`try/catch` best-effort), outside any tx — matching `feed.ts:136-146`.
 - No new §12.4 code (§9). Idempotent no-op (`count===0`) is a **success**, never an error.
 - The exact dashboard route segment for `revalidatePath` (`/admin` vs `/admin` with a page arg) is confirmed against `app/admin/page.tsx` at plan time.
@@ -247,7 +247,7 @@ Three `(prev, formData) => Result` wrappers (mirror `feed.ts:121`, but revalidat
 - `components/admin/Dashboard.tsx` — fetch `loadRecentAutoApplied` + per-show `rosterShift`; render `<RecentAutoAppliedStrip>` after `<NeedsAttentionInbox>` (G20 `:690`), concurrently with existing fetches.
 - `components/admin/DataQualityBadge.tsx` — add `rosterShift` prop; OR into visibility; merge aria-label (§6.5).
 - `lib/admin/showDisplay.ts` — add `rosterShift?: RosterShiftSummary` to `ActiveShowRow` (G17); populate from the dashboard aggregate.
-- `tests/log/_auditableMutations.ts` — register `acceptChangeAction`, `acceptAllAction`, `undoFromDashboardAction`.
+- `tests/log/_auditableMutations.ts` — register `acceptChangeAction`, `acceptAllAction`, `undoFromDashboardAction` in `AUDITABLE_MUTATIONS`; add `CHANGES_ACKNOWLEDGED` to `SANCTIONED_CODES` (:312) (R2-F3).
 - `tests/auth/_metaInfraContract.test.ts` — register `acknowledgeChanges` helper (call-boundary invariant 9).
 - `supabase/__generated__/schema-manifest.json` — regen (`pnpm gen:schema-manifest`) + commit; migration applied surgically to validation project (validation-schema-parity gate).
 
@@ -292,7 +292,7 @@ Three `(prev, formData) => Result` wrappers (mirror `feed.ts:121`, but revalidat
 | D2 | **No new §12.4 code** | §9; accept is idempotent-success, infra reuses `SYNC_INFRA_ERROR`. |
 | D3 | Undo **hidden** for field/email rows (not disabled) | `undo_change` undoable set is add/remove/rename only (G10); rendering Undo would guarantee `UNDO_NOT_FOUND`. |
 | D4 | Strip reads + Accept both go through **privileged server paths** (loader server-side, accept via SECURITY DEFINER RPC) | `show_change_log` reads AND writes revoked from authenticated (G7). PostgREST-DML-lockdown respected; no new REVOKE needed (table already locked). |
-| D5 | Badge has **no time-decay**; 72h is display-only | §6.4. The per-row disposition state is the clear signal, deliberately chosen over a decay window. |
+| D5 | Badge has **no time-decay**; strip has **no time window** (they share one un-dispositioned set) | §6.1/§6.4 (R2-F1). Per-row disposition state is the clear signal; a window would strand aged-out rows as unclearable amber. |
 | D6 | `acknowledged_at` needs no CHECK migration; additive nullable columns | §5.1; status/source/change_kind CHECKs untouched (G2/G3/G4). |
 | D7 | Undo-all loops per-row `undo_change` (no batch RPC) | Avoids nesting a second advisory-lock holder inside a batch (M5-R20 class). Sequential, each its own tx. |
 | D8 | Clean-start backfill is **one-shot forward-only**, intentionally NOT re-apply-idempotent | §5.1; guarded by the migration ledger (runs once). A re-run would re-ack post-deploy rows — accepted per one-shot-migration lifecycle; not a defect. |
@@ -312,7 +312,7 @@ Three `(prev, formData) => Result` wrappers (mirror `feed.ts:121`, but revalidat
 - postgrest-dml-lockdown meta-test still green with new columns (G8).
 
 **Loader**
-- `loadRecentAutoApplied`: groups by show; filters to un-dispositioned auto_apply of in-scope kinds; excludes acked/undone/superseded/mi11/undo-source rows; 72h window; `STRIP_RENDER_CAP` + overflow count; `acceptAllIds` covers ALL un-dispositioned ids as-of-render (incl. beyond the display cap), `undoableIds` only the displayed undoable subset; `undoable` flag true only for add/remove/rename with `individually_undoable`; `infra_error` path on client fault (call-boundary invariant 9).
+- `loadRecentAutoApplied`: groups by show; filters to un-dispositioned auto_apply of in-scope kinds; excludes acked/undone/superseded/mi11/undo-source rows; **no time window**; `STRIP_RENDER_CAP` bounds displayed rows + overflow count; `acceptAllIds` covers ALL un-dispositioned ids as-of-render (incl. beyond the display cap), `undoableIds` only the displayed undoable subset; `undoable` flag true only for add/remove/rename with `individually_undoable`; `infra_error` path on client fault (call-boundary invariant 9).
 - **Self-heal scope (R1-F4):** a roster row superseded by a newer same-entity change is absent from the loader result; a `field_changed` / `crew_email_changed` row is NOT superseded by `cleanup_superseded_before_images` and remains until acknowledged.
 
 **Server actions (§7.2)**
@@ -350,9 +350,9 @@ Three `(prev, formData) => Result` wrappers (mirror `feed.ts:121`, but revalidat
 9. **Supabase call-boundary** — `acknowledgeChanges` destructures `{data,error}`, typed infra path (§7).
 10. **Mutation-surface observability** — the three dashboard actions (§7.2) are admin mutations → AUDITABLE_MUTATIONS rows + behavioral proof + post-commit `logAdminOutcome`. New forensic code `CHANGES_ACKNOWLEDGED` is §12.4-EXEMPT via `_metaAdminOutcomeContract` (same class as `CHANGE_UNDONE`).
 
-**Meta-test inventory:** EXTEND `tests/log/_auditableMutations.ts` (register the 3 dashboard actions); EXTEND `tests/auth/_metaInfraContract.test.ts` (register the `acknowledgeChanges` helper); rely on existing `_metaMutationSurfaceObservability` + `_metaAdminOutcomeContract` fails-by-default discovery. No new advisory-lock/email/sentinel/alert-catalog meta-test. postgrest-dml-lockdown (G8) already covers `show_change_log` — new columns don't change it.
+**Meta-test inventory:** EXTEND `tests/log/_auditableMutations.ts` (register the 3 dashboard actions in `AUDITABLE_MUTATIONS` + add `CHANGES_ACKNOWLEDGED` to `SANCTIONED_CODES`, R2-F3); EXTEND `tests/auth/_metaInfraContract.test.ts` (register the `acknowledgeChanges` helper); rely on existing `_metaMutationSurfaceObservability` + `_metaAdminOutcomeContract` fails-by-default discovery. No new advisory-lock/email/sentinel/alert-catalog meta-test. postgrest-dml-lockdown (G8) already covers `show_change_log` — new columns don't change it.
 
-**Numeric literals (single-source):** `STRIP_RENDER_CAP = 50`; strip window `72h`. Referenced by name in §6.1/§6.4/§10/§12; no other section restates the values.
+**Numeric literals (single-source):** `STRIP_RENDER_CAP = 50` (display-count cap only; no time window exists). Referenced by name in §6.1/§10/§12; no other section restates the value.
 
 ---
 
@@ -360,7 +360,7 @@ Three `(prev, formData) => Result` wrappers (mirror `feed.ts:121`, but revalidat
 
 - AC-1: An auto-applied crew add/remove/rename on a published show appears in the strip **and** lights the amber badge on that show's dashboard row.
 - AC-2: Accept (row) → row leaves strip, no crew change; if it was the last un-dispositioned roster row, badge clears.
-- AC-3: Accept all → every un-dispositioned auto_apply row for the show (incl. past the display window) acked; badge clears; one click.
+- AC-3: Accept all → every un-dispositioned auto_apply row for the show as-of render (incl. rows past the display cap `STRIP_RENDER_CAP`) acked via the explicit `acceptAllIds`; badge clears; one click. Rows that landed AFTER render are NOT in `acceptAllIds` and survive (R1-F1).
 - AC-4: Undo (row) → crew reversed + hold written (existing behavior), row leaves strip; badge clears if last.
 - AC-5: Undo all → all undoable rows in the group reversed sequentially; confirm gate shown first.
 - AC-6: field/email rows show Accept but **no** Undo.
