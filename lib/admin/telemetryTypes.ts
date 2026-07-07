@@ -47,6 +47,22 @@ export type LoadCronHealthResult =
   | { kind: "ok"; jobs: CronHealthRow[] }
   | { kind: "infra_error"; message: string };
 
+export type TelemetryStats = {
+  total: number;
+  errorCount: number;
+  warnCount: number;
+  infoCount: number;
+  buckets: number[];
+};
+export type LoadTelemetryStatsResult =
+  | { kind: "ok"; stats: TelemetryStats }
+  | { kind: "infra_error"; message: string };
+
+export type AlertSummary =
+  | { kind: "ok"; degraded: 0; notice: 0; total: 0 }
+  | { kind: "degraded" | "notice"; degraded: number; notice: number; total: number }
+  | { kind: "infra_error" };
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 // ISO-8601 timestamp shape — rejects Date.parse-able junk ("2026", "now", "June 29 2026")
 // while accepting BOTH canonical JS (…Z) and PostgREST (…+00:00, microseconds) forms,
