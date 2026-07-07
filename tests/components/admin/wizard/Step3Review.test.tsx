@@ -1291,17 +1291,25 @@ describe("Step3SheetCard — pack-list review (PULL-tab parity with crew GearSec
     );
   });
 
-  test("caps items per case at 8 with a '+K more items' tail", () => {
+  test("caps items per case at 8, with a 'Show all' toggle that reveals the rest and collapses again", () => {
     const items = Array.from({ length: 10 }, (_, k) => ({ item: `WIDGET-${k}` }));
     const pr = packPr([{ caseLabel: "Big Case", items }] as unknown as ReturnType<
       typeof caseRow
     >[]);
-    const { getByTestId } = openPack("pack-5", pr);
-    const t = getByTestId("wizard-step3-card-pack-5-breakdown-pack-list").textContent ?? "";
-    expect(t).toContain("WIDGET-0"); // first shown
-    expect(t).toContain("WIDGET-7"); // 8th shown (index 7)
-    expect(t).not.toContain("WIDGET-8"); // 9th beyond the item cap
-    expect(t).toContain(`…and ${items.length - 8} more items`); // overflow tail, derived
+    const { getByTestId, getByRole } = openPack("pack-5", pr);
+    const panel = getByTestId("wizard-step3-card-pack-5-breakdown-pack-list");
+    // Collapsed: first 8 shown, overflow hidden behind a derived-count toggle.
+    expect(panel.textContent ?? "").toContain("WIDGET-0"); // first shown
+    expect(panel.textContent ?? "").toContain("WIDGET-7"); // 8th shown (index 7)
+    expect(panel.textContent ?? "").not.toContain("WIDGET-8"); // 9th beyond the item cap
+    const toggle = getByRole("button", { name: `Show all ${items.length} items` });
+    // Expand → every item renders; label flips to collapse.
+    fireEvent.click(toggle);
+    expect(panel.textContent ?? "").toContain("WIDGET-9"); // last item now visible
+    expect(getByRole("button", { name: "Show fewer items" })).toBeTruthy();
+    // Collapse → back to the capped view.
+    fireEvent.click(getByRole("button", { name: "Show fewer items" }));
+    expect(panel.textContent ?? "").not.toContain("WIDGET-8");
   });
 
   test("a zero-item case renders a plain non-expandable line (no <details>), no crash on missing items", () => {
