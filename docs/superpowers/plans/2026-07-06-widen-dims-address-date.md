@@ -94,7 +94,9 @@ const MONTHS: Record<string, number> = {
 };
 const MONTH_ALT = "January|Jan|February|Feb|March|Mar|April|Apr|May|June|Jun|July|Jul|August|Aug|September|Sept|Sep|October|Oct|November|Nov|December|Dec";
 // Exported so extractAllDates (dates.ts) reuses the EXACT same self-delimiting shapes.
-export const ISO_DATE_RE = /(\d{4})-(\d{1,2})-(\d{1,2})/;
+// SELF-DELIMITING: `\b` (or the anchored `^` in normalizeDate) prevents embedded hits
+// like `12026-07-04` (5-digit-prefixed) or `2026-07-041` (trailing digit) — Codex plan R1.
+export const ISO_DATE_RE = /\b(\d{4})-(\d{1,2})-(\d{1,2})\b/;
 export const LONGFORM_MDY_RE = new RegExp(`\\b(${MONTH_ALT})\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?,?\\s+(\\d{4})\\b`, "i");
 export const LONGFORM_DMY_RE = new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th)?\\s+(${MONTH_ALT})\\.?,?\\s+(\\d{4})\\b`, "i");
 ```
@@ -274,6 +276,14 @@ describe("inferShowYear slash-first fallback (rec-6d)", () => {
     // Slash-first fallback MUST return 2025 (no regression to a combined alternation).
     expect(inferShowYear("plan 2027-01-01 ... actual 3/15/2025 ...")).toBe("2025");
   });
+  it("no-slash sheet: earliest date in DOCUMENT ORDER wins across ISO/long-form", () => {
+    // long-form 2028 appears BEFORE ISO 2029 — must return 2028, not ISO-priority 2029.
+    expect(inferShowYear("kickoff March 1, 2028 then rev 2029-06-01")).toBe("2028");
+  });
+  it("does NOT match an embedded ISO inside a longer digit run", () => {
+    // 12026-07-04 must NOT yield 2026 (self-delimiting \b guard).
+    expect(inferShowYear("code 12026-07-04 only")).toBeNull();
+  });
   it("returns null when no date at all", () => {
     expect(inferShowYear("no dates here")).toBeNull();
   });
@@ -295,15 +305,19 @@ export function inferShowYear(markdown: string): string | null {
     const iso = normalizeDate(slash[0]);
     if (iso) return iso.slice(0, 4);
   }
-  // Fallback ONLY when no slash date exists: first ISO or long-form date.
-  for (const re of [ISO_DATE_RE, LONGFORM_MDY_RE, LONGFORM_DMY_RE]) {
-    const m = re.exec(markdown);
-    if (m) {
+  // Fallback ONLY when no slash date exists: the EARLIEST date in DOCUMENT ORDER
+  // across ISO + long-form (NOT ISO-priority — Codex plan R1: an ISO-first loop would
+  // return the year of a later ISO date over an earlier long-form date on a no-slash sheet).
+  let best: { index: number; iso: string } | null = null;
+  for (const src of [ISO_DATE_RE, LONGFORM_MDY_RE, LONGFORM_DMY_RE]) {
+    const re = new RegExp(src.source, src.flags.includes("g") ? src.flags : src.flags + "g");
+    let m: RegExpExecArray | null;
+    while ((m = re.exec(markdown)) !== null) {
       const iso = normalizeDate(m[0].trim());
-      if (iso) return iso.slice(0, 4);
+      if (iso && (best === null || m.index < best.index)) best = { index: m.index, iso };
     }
   }
-  return null;
+  return best ? best.iso.slice(0, 4) : null;
 }
 ```
 
@@ -344,14 +358,19 @@ EOF
 import { splitHotelNameAddress } from "@/lib/parser/blocks/hotels"; // export if needed
 
 describe("STREET_ADDRESS_RE distinctive suffixes (rec-6d)", () => {
+  // NON-TAUTOLOGICAL (Codex plan R1): each input's ONLY street suffix is a NEWLY-added
+  // one — no St/Ave/Blvd/etc. present — so a passing split PROVES the new suffix works,
+  // not a pre-existing one. Address begins at the house number preceding the new suffix.
   it.each([
-    "The Fairmont 100 Front Street Crescent",
-    "Hotel X 250 Harbour Quay",
-    "Lodge 5 Park Gardens",
-  ])("splits on a distinctive suffix: %s", (cell) => {
+    ["The Fairmont Hotel 100 Harbour Crescent", "Crescent"],
+    ["Dockside Inn 250 Marina Quay", "Quay"],
+    ["Elmwood Lodge 5 Rosewood Gardens", "Gardens"],
+    ["Harbourfront 12 Kings Esplanade", "Esplanade"],
+  ])("splits on a NEW distinctive suffix only: %s", (cell, suffix) => {
     const { name, address } = splitHotelNameAddress(cell);
     expect(name).toBeTruthy();
-    expect(address).toMatch(/(Crescent|Quay|Gardens)/);
+    expect(name).not.toMatch(/\d/); // house number went to the address, not the name
+    expect(address).toMatch(new RegExp(suffix));
   });
 
   it.each([
