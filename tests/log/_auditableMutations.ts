@@ -307,6 +307,25 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
     fn: "POST",
     code: "PULL_SHEET_OVERRIDE_CLEARED",
   },
+  // Flow-4 auto-applied strip (Task 4): admin dashboard accept/undo server actions.
+  // Both accept actions emit the NEW forensic CHANGES_ACKNOWLEDGED; undo REUSES
+  // CHANGE_UNDONE (already sanctioned — the per-show feed undoChangeAction stamps it).
+  // Emits are POST-COMMIT, outside any advisory-lock tx (invariant 2/10).
+  {
+    file: "app/admin/_actions/autoApplied.ts",
+    fn: "acceptChangeAction",
+    code: "CHANGES_ACKNOWLEDGED",
+  },
+  {
+    file: "app/admin/_actions/autoApplied.ts",
+    fn: "acceptAllAction",
+    code: "CHANGES_ACKNOWLEDGED",
+  },
+  {
+    file: "app/admin/_actions/autoApplied.ts",
+    fn: "undoFromDashboardAction",
+    code: "CHANGE_UNDONE",
+  },
 ];
 
 export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
@@ -379,6 +398,11 @@ export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
   // Pull-sheet-on-archived-tab override accept/revoke (spec §5.4, Task 8).
   "PULL_SHEET_OVERRIDE_SET",
   "PULL_SHEET_OVERRIDE_CLEARED",
+  // Flow-4 auto-applied strip (Task 4). CHANGE_UNDONE is REUSED (already above via
+  // the per-show feed undo). This is the sole NEW forensic code — mirrors
+  // CHANGE_UNDONE's treatment (forensic/§12.4-exempt: NEW_FORENSIC_CODES via spread,
+  // logAdminOutcome-stamped so it never registers as a §12.4 producer).
+  "CHANGES_ACKNOWLEDGED",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing
