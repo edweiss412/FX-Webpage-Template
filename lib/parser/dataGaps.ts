@@ -268,10 +268,10 @@ export function dataGapClassDetails(
 /**
  * Bounded, human breakdown string for a summary. Ordering: count desc, then
  * GAP_CLASSES registry order (stable tiebreak). Caps at `cap` classes; the
- * remaining classes collapse to "+N more". Used by ALL THREE count-bearing
- * surfaces (badge aria-label/title, per-show alert sub-line, held-row
- * DataGapsChip title) so none is ever unbounded. Empty string when `cap <= 0`
- * or the summary has no gaps (callers already gate on `total > 0`).
+ * remaining classes collapse to "+N more". Used by the count-bearing surfaces
+ * (DataQualityBadge aria-label/title, per-show alert sub-line) so none is ever
+ * unbounded. Empty string when `cap <= 0` or the summary has no gaps (callers
+ * already gate on `total > 0`).
  */
 export function formatDataGapBreakdown(summary: DataGapsSummary, cap = 4): string {
   if (cap <= 0 || summary.total === 0) return "";
