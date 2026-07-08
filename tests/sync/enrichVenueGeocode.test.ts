@@ -218,6 +218,10 @@ describe("VENUE_GEOCODE_UNRESOLVED emit-scope (Flow 6 §4.3)", () => {
     const hits = geoWarns(r);
     expect(hits).toHaveLength(1);
     expect(hits[0]!.severity).toBe("warn");
+    // invariant 5: `.message` is plain language, never the raw §12.4 code — the
+    // staged-review summary renders a non-actionable data-gap message verbatim.
+    expect(hits[0]!.message).not.toBe("VENUE_GEOCODE_UNRESOLVED");
+    expect(hits[0]!.message).not.toMatch(/[A-Z0-9]{2,}_[A-Z]/); // no SCREAMING_SNAKE code token
     expect(r.show.venue!.city).toBeUndefined(); // still falls back to address
   });
 
