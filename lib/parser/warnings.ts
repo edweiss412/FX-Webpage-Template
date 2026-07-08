@@ -121,6 +121,38 @@ export function emitUnknownSection(agg: ParseAggregator | undefined, headerText:
  * is the deep-link RegionId (usually == block; event-details uses 'details').
  * Mirrors emitFieldUnreadable/emitUnknownSection. (unknown-label coverage)
  */
+/**
+ * §4.1 (2026-07-07-ambiguity-warnings-v1) — emit a `severity:"warn"` warning when
+ * `splitRoomHeader` had to CHOOSE between plausible name/dims readings while still
+ * producing a room (an AMBIGUITY_CODES member — never blocks publish). The room is
+ * KEPT; the warning flags a judgment call. Emission is centralized here (callers
+ * attach `ambiguity` metadata to the room object; parseRooms emits once per kept
+ * room at its single commit point) so no call site can go dark or double-emit.
+ *
+ * `blockRef.kind` is ALWAYS the literal `"rooms"` (KIND_TO_SECTION maps "rooms" only;
+ * a RoomKind-valued kind would misroute). `field` names the ambiguous side
+ * ("dims" | "name"). `message` is inline (mirrors the sibling emitters above), NOT
+ * routed through lib/messages/lookup — the code is registered in §12.4 + catalog.ts
+ * so the x1 orphan-code guard passes. No-ops when `agg` is undefined.
+ */
+export const ROOM_HEADER_SPLIT_AMBIGUOUS = "ROOM_HEADER_SPLIT_AMBIGUOUS";
+export function emitRoomSplitAmbiguity(
+  agg: ParseAggregator | undefined,
+  params: { name: string; field: "dims" | "name"; rawHeader: string },
+): void {
+  if (!agg) return;
+  const fieldWord = params.field === "dims" ? "dimensions" : "name";
+  const rawOneLine = params.rawHeader.replace(/\s+/g, " ").trim();
+  const forName = params.name ? ` for "${params.name}"` : "";
+  agg.warnings.push({
+    severity: "warn",
+    code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+    message: `Room line "${rawOneLine}" could be split into name and dimensions more than one way — picked the most likely reading; double-check the ${fieldWord}${forName}.`,
+    blockRef: { kind: "rooms", name: params.name, field: params.field },
+    rawSnippet: params.rawHeader,
+  });
+}
+
 export function emitUnknownField(
   agg: ParseAggregator | undefined,
   opts: { block: string; kind: string; key: string; value: string },
