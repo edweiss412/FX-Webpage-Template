@@ -46,6 +46,24 @@ Location rationale: the class is a parser-emission concept consumed by UI; `lib/
 
 `severity:"warn"` + membership in `GAP_CLASSES` (`lib/parser/dataGaps.ts:30-56`; precedent: `CREW_COLUMN_POSITIONAL_FALLBACK` at line 55). All four new codes (three ambiguity sites + the promoted `HOTEL_CARDINALITY_EXCEEDED`, §9) are appended to `GAP_CLASSES`, so they flow to the dashboard chip, per-show panel, and the `isQualityRegression` gate (`dataGaps.ts:110-118`) exactly like the shipped precedent. Nothing dark: no new severity band, no filter changes.
 
+### 3.4 Gap-class consumer sweep (complete — every `summarizeDataGaps` / `GAP_CLASSES` / `DATA_GAP_CODES` / `isQualityRegression` consumer, grep-derived)
+
+Joining `GAP_CLASSES` feeds MORE than the chip/panel/gate. Full non-test consumer list with the required action per surface — the rule: **surfaces that GATE or STYLE-AS-PROBLEM partition by `isAmbiguityCode`; surfaces that merely COUNT/DISPLAY do not**:
+
+| Consumer | Role | Action |
+|---|---|---|
+| `components/admin/wizard/Step3Review.tsx` (`rowNeedsLook`) | gates needs-look bucket | PARTITION (§7.2) |
+| `components/admin/wizard/Step3SheetCard.tsx:470-471` (`needsLook = gaps.total > 0`) | card-face warn border / "N need a look" chip / Review button | PARTITION — card `needsLook` uses non-ambiguity gap count; ambiguity-only rows get the judgment card chrome (§7.3a), not the warn border. In-scope, tested |
+| `lib/onboarding/rescanDecision.ts:40-48` (`computeRescanDecision` — `gapRegressed`: any class-count increase ⇒ `dirty`) | gates re-review on rescan | PARTITION — `gapRegressed` compares NON-ambiguity classes only; an ambiguity-only count increase does not force dirty (else "never blocks publish" is violated via the rescan side door). Invariant-triggered dirty (`decisionItems`) unchanged. Tested both ways |
+| `lib/onboarding/applyRescanDecisionUnderLock.ts:115,134` | passes prior/new summaries into the decision | inherits the partition via `computeRescanDecision`; no local change |
+| `components/admin/Dashboard.tsx:332` + `DataQualityBadge` | amber glance count | NO partition — deliberate: dashboard badge is "glance here" aggregate (§3.3); ambiguity counts belong in it |
+| `components/admin/PerShowAlertSection.tsx:91` (`formatDataGapBreakdown`) | per-class breakdown display | NO partition — display-only |
+| `components/admin/StagedReviewCard.tsx` (`dataGaps` prop) | staged-row breakdown display | NO partition — display-only |
+| `app/admin/show/staged/[stagedId]/page.tsx:199`, `app/admin/show/[slug]/page.tsx` | page-level summary derivation | NO partition — feeds the display surfaces above |
+| `lib/sync/runScheduledCronSync.ts` (`isQualityRegression`, `GAP_CLASSES` iteration at `:266`) | push-alert threshold gate | NO partition — deliberate: a jump in ambiguity warnings on a published show SHOULD alert (§3.3) |
+
+Any NEW `GAP_CLASSES` consumer added later chooses a side explicitly; the plan adds this table to the walker-adjacent test docs.
+
 ## 4. Warning sites
 
 All emissions go through the `ParseAggregator` (`lib/parser/warnings.ts:15` — `{ warnings: ParseWarning[]; rawUnrecognized[] }`), following the existing emit-helper pattern in `warnings.ts`. Each site's helper lives in `warnings.ts` (or the block's local warnings module, matching `agendaWarnings.ts` precedent). The three AMBIGUITY sites stamp `blockRef` with the new `field` member (§5); `HOTEL_CARDINALITY_EXCEEDED` (§4.2b) intentionally omits `field` — it is section-scoped truncation, not a per-field judgment.
@@ -147,6 +165,10 @@ Null/unmapped `blockRef.kind` routing is untouched (audit item 2.3 is separate s
 **Derivation change (required, not optional):** `rowNeedsLook()` today ORs several conditions — `summarizeDataGaps(...).total > 0` plus non-gap branches (missing preview, finalize failure). ONLY the gap-total clause is partitioned by `isAmbiguityCode`: it contributes true only when the row's NON-ambiguity gap count is > 0. **All other OR branches are preserved unchanged** — a row with a missing preview or finalize failure stays needs-look regardless of warning classes. Precedence: needs-look (any surviving branch true) > judgment (not needs-look AND ≥1 ambiguity-class warning) > clean. Ambiguity-only sections do NOT join `rowNeedsLook`'s blocking styling and do NOT block publish. Dashboard chip and regression gate are deliberately NOT partitioned — ambiguity codes count there like any gap class (§3.3; the chip is a "glance here" aggregate, same intent).
 
 Guard conditions: M=0 renders the existing two-state summary (no empty "0 parsed with judgment" chrome). Zero rows is the existing empty-wizard state, unchanged. Row classification, precise: only non-ambiguity **GAP** warnings (plus the preserved operational branches) force needs-look — a row with a non-ambiguity gap warning + ambiguity warnings is **needs-look** (K), counted once; a row with only benign NON-gap warns + ambiguity gaps is **judgment** (`rowNeedsLook` consumes `summarizeDataGaps`, which never counted non-gap warns — §7.1's universe note). The row-level judgment predicate: NOT needs-look AND ≥1 ambiguity-class warning.
+
+### 7.3a Card-face chrome (Step3SheetCard)
+
+The compact card independently derives `needsLook = summarizeDataGaps(warnings).total > 0` (`Step3SheetCard.tsx:470-471`) — partitioned per §3.4: warn border + "need a look" chip + Review button appear only for non-ambiguity gaps (or operational branches). An ambiguity-only row gets a **judgment card variant**: distinct border/affordance treatment (impeccable-gate deliverable), still opens the same review modal. `DataQualityBadge` on the title keeps the FULL gap count (no partition — §3.4 dashboard rule). Three card states (plain / judgment / needs-look) mirror the §7.2 row buckets; a test pins each derivation.
 
 ### 7.3 Section chrome
 
