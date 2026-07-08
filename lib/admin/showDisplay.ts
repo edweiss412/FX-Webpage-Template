@@ -12,6 +12,12 @@
 
 import type { DataGapsSummary } from "@/lib/parser/dataGaps";
 
+// Flow-4 auto-applied strip (spec §6.1) — per-show roster-shift summary from
+// the roster_shift_counts RPC. `total` is added+removed+renamed. Single-defined
+// here; Task 7 wires the optional `rosterShift?` field onto ActiveShowRow + the
+// badge. This standalone export is imported by lib/admin/loadRecentAutoApplied.ts.
+export type RosterShiftSummary = { added: number; removed: number; renamed: number; total: number };
+
 export type ActiveShowRow = {
   id: string;
   slug: string;
@@ -48,6 +54,13 @@ export type ActiveShowRow = {
   // /admin/unpublished loader that populated this was removed; Held shows now
   // live in the dashboard's Active-shows list, which does not set this field.)
   dataGaps?: DataGapsSummary;
+  // Flow-4 4.3 badge (spec §6.4/§5.4, Task 7) — OPTIONAL per-show roster-shift
+  // summary from the `roster_shift_counts` RPC, populated for PUBLISHED shows
+  // only (unpublished → undefined → no roster contribution). When `total > 0`,
+  // DataQualityBadge lights amber and folds the roster segment into its
+  // accessible name (§6.5). No time-decay: it clears when the last
+  // un-dispositioned roster row is Accepted/Undone/superseded.
+  rosterShift?: RosterShiftSummary;
 };
 
 // Single date-only ISO ('YYYY-MM-DD') → short "M/D/YY", or null for a null input.

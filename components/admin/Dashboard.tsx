@@ -40,6 +40,13 @@ import { loadIgnoredSheets, type IgnoredSheetRow } from "@/lib/admin/loadIgnored
 import { IgnoredSheetsDisclosure } from "@/components/admin/IgnoredSheetsDisclosure";
 import { UnignoreButton } from "@/components/admin/UnignoreButton";
 import { formatRelative } from "@/lib/admin/showDisplay";
+import { loadRecentAutoApplied, type RecentAutoApplied } from "@/lib/admin/loadRecentAutoApplied";
+import { RecentAutoAppliedStrip } from "@/components/admin/RecentAutoAppliedStrip";
+import {
+  acceptChangeAction,
+  acceptAllAction,
+  undoFromDashboardAction,
+} from "@/app/admin/_actions/autoApplied";
 
 // V7 — pinned literals, chosen ≫ FXAV scale and < PostgREST's ~1000 row cap.
 export const ACTIVE_SHOWS_CAP = 500;
@@ -81,6 +88,13 @@ export type DashboardData = {
   // Data-quality read (shows_internal.parse_warnings) faulted → badges suppressed
   // and a visible calm notice shown. Degrade-VISIBLE, never silent (invariant 9).
   dataGapsDegraded: boolean;
+  // Flow-4 (spec §8) — the recently-auto-applied strip payload (un-dispositioned
+  // auto-applies grouped by show + per-show roster-shift counts). Its OWN
+  // discriminated result: an infra_error here renders a bounded in-strip message
+  // (invariant 5) and never blanks the dashboard. Loaded via a SELF-created
+  // service-role client (show_change_log is REVOKEd from authenticated), so it is
+  // NOT part of the cookie-client Promise.all above.
+  recentAutoApplied: RecentAutoApplied;
 };
 
 type DatesJson = {
@@ -236,6 +250,17 @@ export async function fetchDashboardData(
 
   // ── isLive per row (single `now`; shared tz + span helpers), liveCount = Σ ──
   const activeShowIds = showsRows.map((s) => s.id as string);
+
+  // Flow-4 (spec §8) — recently-auto-applied strip + per-show roster-shift badge
+  // counts. `publishedShowIds` is derived from the resolved show list (published
+  // shows only — unpublished shows never carry a roster-shift badge, §6.4). The
+  // loader SELF-CREATES a service-role client, so it is kicked off HERE (after
+  // showsRows resolved) as its OWN promise rather than joining the cookie-client
+  // Wave-2 Promise.all below; it is awaited before the rows map so each row can
+  // pick up its rosterShift. Its typed infra_error degrades in-strip (invariant 5),
+  // never dashboard-wide.
+  const publishedShowIds = showsRows.filter((s) => Boolean(s.published)).map((s) => s.id as string);
+  const recentAutoAppliedPromise = loadRecentAutoApplied({ publishedShowIds });
 
   // Sentinel a wave-2 closure returns instead of throwing, so the outer fn can
   // short-circuit to the typed infra_error AFTER Promise.all resolves (a closure
@@ -426,6 +451,13 @@ export async function fetchDashboardData(
     ? new Map()
     : dataGapsResult;
 
+  // Flow-4 (spec §8) — resolve the strip payload kicked off above (concurrent with
+  // Wave 2). rosterShiftByShow feeds the per-row roster-shift badge; on infra_error
+  // no row carries a rosterShift and the strip renders its own bounded message.
+  const recentAutoApplied = await recentAutoAppliedPromise;
+  const rosterShiftByShow =
+    recentAutoApplied.kind === "ok" ? recentAutoApplied.rosterShiftByShow : {};
+
   let liveCount = 0;
   const rows: ActiveShowRow[] = showsRows.map((s) => {
     const dates = (s.dates as DatesJson | null) ?? null;
@@ -437,6 +469,8 @@ export async function fetchDashboardData(
     // show (from the RPC set above). Archived rows are never finalize-owned.
     const finalizeOwned = !isArchived && !published && finalizeOwnedIds.has(s.id as string);
     const gaps = dataGapsByShow.get(s.id as string);
+    // §6.4 — per-show roster-shift summary (published shows only; absent → omit).
+    const rosterShift = rosterShiftByShow[s.id as string];
     return {
       id: s.id as string,
       slug: s.slug as string,
@@ -452,6 +486,8 @@ export async function fetchDashboardData(
       archivedAt: (s.archived_at as string | null) ?? null,
       // exactOptional: conditional spread so a clean row OMITS the key (§2.3).
       ...(gaps ? { dataGaps: gaps } : {}),
+      // exactOptional: OMIT rosterShift entirely when the show has no roster shift.
+      ...(rosterShift ? { rosterShift } : {}),
     };
   });
 
@@ -473,6 +509,7 @@ export async function fetchDashboardData(
     ignoredSheets,
     ignoredDegraded,
     dataGapsDegraded,
+    recentAutoApplied,
   };
 }
 
@@ -693,6 +730,19 @@ export async function Dashboard(
               renderedCount={result.needsAttention.renderedCount}
               overflowCount={result.needsAttention.overflowCount}
               now={now}
+            />
+            {/* Flow-4 (spec §8) — the recently-auto-applied strip renders directly
+                after the needs-attention inbox (both are review surfaces). It
+                returns null when there is nothing un-dispositioned, so it is a calm
+                no-op in the common case. The three server actions are passed as
+                DIRECT "use server" references — never wrapped in an inline closure,
+                which (as a non-"use server" function created in this Server
+                Component) could not cross the boundary into the client strip. The
+                strip's action-prop types are structurally identical to the domain
+                results, so no adapter is needed. */}
+            <RecentAutoAppliedStrip
+              data={result.recentAutoApplied}
+              actions={{ acceptChangeAction, acceptAllAction, undoFromDashboardAction }}
             />
           </div>
         </section>

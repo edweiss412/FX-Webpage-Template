@@ -32,6 +32,9 @@ const READ_MODULES = [
   "lib/admin/healthRollup.ts",
   "lib/admin/healthAlerts.ts",
   "lib/admin/loadNeedsAttention.ts",
+  // Flow-4 auto-applied strip Task 3 (spec §6.1): the un-dispositioned
+  // show_change_log auto-apply read, bounded via .limit(STRIP_RENDER_CAP + 1).
+  "lib/admin/loadRecentAutoApplied.ts",
   "lib/observe/query/events.ts",
   "lib/observe/query/cronHealth.ts",
   "lib/observe/query/alerts.ts",

@@ -291,6 +291,8 @@
     "video"
   ],
   "show_change_log": [
+    "acknowledged_at",
+    "acknowledged_by",
     "after_image",
     "before_image",
     "change_kind",

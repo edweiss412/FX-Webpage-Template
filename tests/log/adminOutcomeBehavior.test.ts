@@ -266,6 +266,32 @@ import { BELL_LIMITS } from "@/lib/admin/bellConfig";
 import { handlePullSheetOverride } from "@/app/api/admin/onboarding/pull-sheet-override/route";
 import type { ArchivedPullSheetTab } from "@/lib/drive/exportSheetToMarkdown";
 
+// ── Flow-4 Task 4: dashboard auto-applied strip accept/undo server actions ──
+// Mock the guarded helpers so the behavioral proof flips ok/fail cleanly; mock
+// showCacheTag so undo's revalidateShow is a no-op (next/cache above stubs only
+// revalidatePath, not revalidateTag).
+const acknowledgeChangesMock = vi.fn(
+  async (..._a: unknown[]) => ({ ok: true, count: 1 }) as unknown,
+);
+const undoChangeMock = vi.fn(
+  async (..._a: unknown[]) => ({ ok: true, showId: "show-1" }) as unknown,
+);
+vi.mock("@/lib/sync/holds/acknowledgeChanges", () => ({
+  acknowledgeChanges: (...a: unknown[]) => acknowledgeChangesMock(...a),
+}));
+vi.mock("@/lib/sync/holds/undoChange", () => ({
+  undoChange: (...a: unknown[]) => undoChangeMock(...a),
+}));
+vi.mock("@/lib/data/showCacheTag", () => ({
+  revalidateShow: vi.fn(),
+}));
+import {
+  acceptChangeAction,
+  acceptAllAction,
+  undoFromDashboardAction,
+} from "@/app/admin/_actions/autoApplied";
+const AUTO_APPLIED_FILE = "app/admin/_actions/autoApplied.ts";
+
 // ── inline file-local recorder (single-file contract; no cross-file state) ──
 const recorded = new Set<string>(); // "file::fn::code"
 function recordAdminOutcomeBehavior(x: { file: string; fn: string; code: string }) {
@@ -1166,6 +1192,69 @@ describe("Task 8 — pull-sheet override route observes SET/CLEARED success only
       }),
     );
     expect(codes).toContain("PULL_SHEET_OVERRIDE_SET");
+  });
+});
+
+// ── Flow-4 Task 4: dashboard accept/undo actions observe success only ────────
+describe("Flow-4 Task 4 — dashboard accept/undo server actions observe changes", () => {
+  const SHOW = "11111111-1111-1111-1111-111111111111";
+
+  test("acceptChangeAction emits CHANGES_ACKNOWLEDGED on {ok:true}; nothing on a missing showId early-return", async () => {
+    acknowledgeChangesMock.mockImplementation(async () => ({ ok: true, count: 1 }));
+    const fd = new FormData();
+    fd.set("showId", SHOW);
+    fd.set("changeLogId", "cl-1");
+    const codes = await observeSuccessCodes(() => acceptChangeAction(null, fd));
+    expect(codes).toContain("CHANGES_ACKNOWLEDGED");
+    recordAdminOutcomeBehavior({
+      file: AUTO_APPLIED_FILE,
+      fn: "acceptChangeAction",
+      code: "CHANGES_ACKNOWLEDGED",
+    });
+
+    // Missing showId → typed refusal BEFORE the helper; no emit.
+    const noShow = new FormData();
+    noShow.set("changeLogId", "cl-1");
+    const failCodes = await observeCodes(() => acceptChangeAction(null, noShow));
+    expect(failCodes).not.toContain("CHANGES_ACKNOWLEDGED");
+  });
+
+  test("acceptAllAction emits CHANGES_ACKNOWLEDGED on {ok:true}; nothing on a helper failure", async () => {
+    acknowledgeChangesMock.mockImplementation(async () => ({ ok: true, count: 3 }));
+    const fd = new FormData();
+    fd.set("showId", SHOW);
+    fd.set("ids", "a,b,c");
+    const codes = await observeSuccessCodes(() => acceptAllAction(null, fd));
+    expect(codes).toContain("CHANGES_ACKNOWLEDGED");
+    recordAdminOutcomeBehavior({
+      file: AUTO_APPLIED_FILE,
+      fn: "acceptAllAction",
+      code: "CHANGES_ACKNOWLEDGED",
+    });
+
+    acknowledgeChangesMock.mockImplementation(async () => ({
+      ok: false,
+      code: "SYNC_INFRA_ERROR",
+    }));
+    const failCodes = await observeCodes(() => acceptAllAction(null, fd));
+    expect(failCodes).not.toContain("CHANGES_ACKNOWLEDGED");
+  });
+
+  test("undoFromDashboardAction emits CHANGE_UNDONE on {ok:true}; nothing on a helper refusal", async () => {
+    undoChangeMock.mockImplementation(async () => ({ ok: true, showId: "show-1" }));
+    const fd = new FormData();
+    fd.set("changeLogId", "cl-9");
+    const codes = await observeSuccessCodes(() => undoFromDashboardAction(null, fd));
+    expect(codes).toContain("CHANGE_UNDONE");
+    recordAdminOutcomeBehavior({
+      file: AUTO_APPLIED_FILE,
+      fn: "undoFromDashboardAction",
+      code: "CHANGE_UNDONE",
+    });
+
+    undoChangeMock.mockImplementation(async () => ({ ok: false, code: "CHANGE_ALREADY_UNDONE" }));
+    const failCodes = await observeCodes(() => undoFromDashboardAction(null, fd));
+    expect(failCodes).not.toContain("CHANGE_UNDONE");
   });
 });
 
