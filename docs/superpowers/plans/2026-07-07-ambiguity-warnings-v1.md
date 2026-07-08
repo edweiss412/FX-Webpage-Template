@@ -228,7 +228,7 @@ Predicates (spec §4.2, exact): fallback segment with ≥4 name-like tokens (`/^
 ### Task 7: dates site — `collectDateTokens` + `DATE_ORDER_SUGGESTS_DMY`
 
 **Files:**
-- Create: collector + check in `lib/parser/blocks/dates.ts` (exported `collectDateTokens` for unit tests; walker declaration lives here)
+- Create: collector + check in `lib/parser/blocks/dates.ts` (exported `collectDateTokens` for unit tests; the `TRANSFORM_SITES` declaration for this site lands LATER, exclusively in Task 8 — do not add it here, so Task 8's red state stays true)
 - Modify: both walkers (`parseV1Dates` loop ~`:150-181`, `parseV2V4Dates` ~`:189+`) to collect pre-sort and run the check once per DATES block
 - Test: `tests/parser/blocks/dates.ambiguity.test.ts`
 
