@@ -210,7 +210,7 @@ it("splitRoomHeader metadata per branch", () => {
 ```
 
 (Adapt `fixtureWith`/`parseRooms` names to the file's real test harness — the existing rooms tests show the entry point; keep assertions against `agg.warnings`, never rendered output.)
-- [ ] **Step 2:** FAIL. **Step 3:** Implement: pure metadata in `splitRoomHeader` branches; emit in each persisting caller (`rooms.ts:752, :957, :968, :1140, :1187, :1247, :1404` — plan-time note: enumerate at implementation which of these persist vs reject; emit only where the room lands in output, after any placeholder gate). **Step 4:** PASS + run full `tests/parser/blocks/rooms*.test.ts`. **Step 5:** Commit `feat(parser): ROOM_HEADER_SPLIT_AMBIGUOUS on judgment-call room splits`.
+- [ ] **Step 2:** FAIL. **Step 3:** Implement: pure metadata in `splitRoomHeader` branches; emission goes through EXACTLY ONE commit-point call — `emitRoomSplitAmbiguity(agg, ...)` invoked at the single place a split room is committed to parsed output (after any placeholder/reject gate). Callers never emit individually. The seven-site enumeration (`rooms.ts:752, :957, :968, :1140, :1187, :1247, :1404`) is used ONLY to prove each path either reaches that commit point or rejects the candidate — documented as the comment in the test file, not as emit sites. **Step 4:** PASS + run full `tests/parser/blocks/rooms*.test.ts`. **Step 5:** Commit `feat(parser): ROOM_HEADER_SPLIT_AMBIGUOUS on judgment-call room splits`.
 
 ### Task 6: hotels site — guest split + cardinality promotion
 
