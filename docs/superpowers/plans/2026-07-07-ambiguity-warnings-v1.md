@@ -196,7 +196,16 @@ it("warns when strip leaves an empty/degenerate name", () => {
 // of the seven call sites (rooms.ts:752,957,968,1140,1187,1247,1404) lands in the test file as a
 // comment; ONE fixture per PERSISTING caller (not just per RoomKind) asserting exactly 1 warning,
 // plus one rejected-candidate fixture asserting 0.
-it("emits exactly once per kept room, per persisting caller fixture", () => { /* per enumeration above */ });
+// Table-driven, one row per enumerated call site (7 rows — rooms.ts:752,957,968,1140,1187,1247,1404):
+// each row = { site, fixture } where the fixture drives THAT path with one ambiguous header.
+// Persisting sites assert exactly 1 warning; sites the enumeration proves reject/never-persist
+// assert 0 and carry the reason in the row comment. No site may be missing from the table —
+// count of rows is pinned to 7 so a new call site forces a table update.
+it.each(CALLER_TABLE)("$site → $expected warnings", ({ fixture, expected }) => {
+  const agg = newAggregator();
+  parseRooms(fixture, agg);
+  expect(agg.warnings.filter((w) => w.code === "ROOM_HEADER_SPLIT_AMBIGUOUS")).toHaveLength(expected);
+});
 // rejected candidate emits nothing: ambiguous header on a room the placeholder gate drops
 // PURE-HELPER layer (spec §4.1 two-layer testability): direct splitRoomHeader unit tests
 it("splitRoomHeader metadata per branch", () => {
@@ -273,7 +282,13 @@ it("v2/v4: same, through the v2 walker", () => { /* same shape, v2 fixture */ })
 
 **Interfaces — Produces:** walker asserting spec §6 (1)(2)(4)(5): export present on every file; every declared `code` passes `isMessageCode`; five named per-file declarations exist (`crew.ts`: CREW_COLUMN_POSITIONAL_FALLBACK; `rooms.ts`: ROOM_HEADER_SPLIT_AMBIGUOUS; `hotels.ts`: both hotel codes; `dates.ts`: DATE_ORDER_SUGGESTS_DMY); `AMBIGUITY_CODES ⊆ declared codes`. NO catalog-severity assertion (retired R8).
 
-- [ ] **Step 1:** Write walker test (readdirSync over `lib/parser/blocks`, dynamic import, assert export). Run — FAIL (no file has the export). **Step 2:** Add `TRANSFORM_SITES` to every block file (enumerate transform sites per file during implementation; deferred exemption seeds per spec §6 with CONCRETE backlog IDs: `personalization.ts` stage-clause `deterministic`-or-already-warns, `_dimsToken.ts` consumers `deterministic`, hotels inline paths `deferred:BL-PARSER-HOTEL-INLINE-AMBIGUITY`, address parsing `deferred:BL-PARSER-ADDRESS-SPLIT-AMBIGUITY` — never a bare `deferred:BACKLOG` placeholder). Walker additionally asserts every `deferred:<ref>` value matches `/^deferred:BL-[A-Z0-9-]+$/` AND the ref string appears in `BACKLOG.md`. **Step 3:** Add the matching BACKLOG.md rows — the walker stays RED until BOTH the declarations and the backlog rows exist. **Step 4:** Run walker — PASS only now. **Step 5:** Commit `test(parser): transform-sites walker meta-test + per-file declarations`.
+- [ ] **Step 1:** Write walker test (readdirSync over `lib/parser/blocks`, dynamic import, assert export). Run — FAIL (no file has the export). **Step 2:** Add `TRANSFORM_SITES` to every block file. Expected inventory (drawn from the spec's citation passes — the implementer verifies each against the file and adjusts with a comment when a file's real sites differ):
+  - `crew.ts`: `{site:"detectColumns positional fallback", code:"CREW_COLUMN_POSITIONAL_FALLBACK"}` + `{site:"role/stage-word autocorrect", exempt:"deterministic — already warns via *_AUTOCORRECTED"}`
+  - `rooms.ts`: `{site:"splitRoomHeader name/dims split", code:"ROOM_HEADER_SPLIT_AMBIGUOUS"}` + `{site:"field-label fuzzy correction", exempt:"deterministic — warns via FIELD_LABEL_AUTOCORRECTED"}`
+  - `hotels.ts`: `{site:"parseGuestCell structured glue/split", code:"HOTEL_GUEST_SPLIT_AMBIGUOUS"}` + `{site:"cardinality cap", code:"HOTEL_CARDINALITY_EXCEEDED"}` + `{site:"inline guest paths", exempt:"deferred:BL-PARSER-HOTEL-INLINE-AMBIGUITY"}` + `{site:"splitHotelNameAddress", exempt:"deferred:BL-PARSER-ADDRESS-SPLIT-AMBIGUITY"}`
+  - `dates.ts`: `{site:"date order MDY/DMY", code:"DATE_ORDER_SUGGESTS_DMY"}`
+  - `_helpers.ts`, `_dimsToken.ts`, `personalization.ts`, `agendaWarnings.ts`, remaining block files: `[]` or `{exempt:"deterministic"|"verbatim"}` entries per file reality (identity/verbatim fields, deterministic normalizations, already-warning transforms)
+  (deferred exemption seeds per spec §6 with CONCRETE backlog IDs deferred exemption seeds per spec §6 with CONCRETE backlog IDs: `personalization.ts` stage-clause `deterministic`-or-already-warns, `_dimsToken.ts` consumers `deterministic`, hotels inline paths `deferred:BL-PARSER-HOTEL-INLINE-AMBIGUITY`, address parsing `deferred:BL-PARSER-ADDRESS-SPLIT-AMBIGUITY` — never a bare `deferred:BACKLOG` placeholder). Walker additionally asserts every `deferred:<ref>` value matches `/^deferred:BL-[A-Z0-9-]+$/` AND the ref string appears in `BACKLOG.md`. **Step 3:** Add the matching BACKLOG.md rows — the walker stays RED until BOTH the declarations and the backlog rows exist. **Step 4:** Run walker — PASS only now. **Step 5:** Commit `test(parser): transform-sites walker meta-test + per-file declarations`.
 
 ### Task 9: wizard derivations — section/row/card tri-state
 
@@ -281,7 +296,7 @@ it("v2/v4: same, through the v2 walker", () => { /* same shape, v2 fixture */ })
 - Modify: `lib/admin/step3SectionStatus.ts` (section status: flagged / judgment / clean per §7.1)
 - Create: `lib/admin/step3Buckets.ts` — pure derivations extracted from the components: `rowNeedsLookPure`, `rowIsJudgment`, `nonAmbiguityGapTotal`, `deriveStep3Buckets`, `FIELD_LABELS` + `fieldLabelFor` (unknown → null/omit)
 - Modify: `components/admin/wizard/Step3Review.tsx` + `Step3SheetCard.tsx` ONLY to replace their inline derivation bodies with calls to the extracted pure functions. The partition DOES change which existing two-state chrome a row gets (that is the spec'd derivation behavior) — but this task adds NO new JSX, classes, or copy; the third visual state, callout variant, and summary copy are exclusively Task 11's red→green
-- Test: `tests/admin/step3SectionStatus.test.ts`, `tests/admin/step3Buckets.test.ts`
+- Test: `tests/admin/step3SectionStatus.test.ts`, `tests/admin/step3Buckets.test.ts`, PLUS wiring-proof component tests (existing chrome only): render `Step3SheetCard` with an ambiguity-only row and assert the OLD needs-look chrome (`border-border-strong`, Review button) is NOT selected (falls to plain/View for now — the judgment variant arrives in Task 11); render with a non-ambiguity-gap row and assert needs-look chrome IS selected. These prove the extracted predicates are wired in, without asserting any new judgment chrome/copy.
 
 **Interfaces — Consumes:** `isAmbiguityCode` (Task 3), `DATA_GAP_CODES` (`dataGaps.ts:72`). **Produces:** `sectionStatus(warnings): "flagged" | "judgment" | "clean"`; row buckets N/M/K within `publishRows` only; FIELD_LABELS = `{ dims: "dimensions", name: "room name", guests: "guest list", order: "date order" }`, unknown → omit phrase.
 
@@ -363,12 +378,20 @@ it("no animated wrapper introduced for status states (spec §7.4: all pairs inst
   **Red-phase note:** the static count-pin above is a GUARD (green in red phase by design — it exists to catch chrome work adding animation). The RED transition obligation is behavioral and fails pre-implementation: the instant-state test below references the Task 11 judgment hooks (`data-testid="wizard-judgment-callout"`, judgment border class) that don't exist yet:
 
 ```ts
-it("judgment→needs-look re-render is synchronously instant", () => {
-  const { rerender, container } = render(<Step3SheetCard {...judgmentProps} />);
-  expect(container.querySelector('[data-judgment="true"]')).not.toBeNull(); // FAILS red: hook absent
-  rerender(<Step3SheetCard {...needsLookProps} />);
-  // no waitFor — instant: new state class present synchronously
-  expect(container.querySelector('[data-judgment="true"]')).toBeNull();
+// table-driven: ALL three unordered pairs, both directions (props differ per state), + summary counts
+const STATES = { clean: cleanProps, judgment: judgmentProps, needsLook: needsLookProps } as const;
+const PAIRS: Array<[keyof typeof STATES, keyof typeof STATES]> = [
+  ["clean","judgment"], ["judgment","clean"], ["clean","needsLook"],
+  ["needsLook","clean"], ["judgment","needsLook"], ["needsLook","judgment"],
+];
+it.each(PAIRS)("%s→%s re-render is synchronously instant", (from, to) => {
+  const { rerender, container } = render(<Step3SheetCard {...STATES[from]} />);
+  expect(stateHook(container)).toBe(from); // FAILS red for judgment: hook absent pre-implementation
+  rerender(<Step3SheetCard {...STATES[to]} />);
+  expect(stateHook(container)).toBe(to);   // no waitFor — synchronous
+});
+it("summary count transition is instant", () => {
+  // render summary with M=0 props, re-render with M>0 props, assert three-count line present synchronously
 });
 ```
 
