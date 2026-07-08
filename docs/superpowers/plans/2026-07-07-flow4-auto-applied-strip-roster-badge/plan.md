@@ -207,11 +207,11 @@ export async function loadRecentAutoApplied(
 - Consumes: `acknowledgeChanges` (Task 2), `undoChange` helper (`@/lib/sync/holds/undoChange`), `requireAdminIdentity`, `revalidatePath` (`next/cache`), `revalidateShow` (`@/lib/data/showCacheTag`), `logAdminOutcome` (`@/lib/log/logAdminOutcome`).
 - Produces three `(prev, formData) => Result` actions (spec §7.2): `acceptChangeAction`, `acceptAllAction`, `undoFromDashboardAction`.
 
-- [ ] **Step 1: Write failing test.** Mirror the undo-action test for `app/admin/show/[slug]/_actions/feed.ts`. For each action assert: reads `requireAdminIdentity`; calls the right helper with form fields (`acceptChangeAction`→`acknowledgeChanges(showId,[changeLogId])`; `acceptAllAction`→`acknowledgeChanges(showId, acceptableIds)` from a comma-joined hidden field; `undoFromDashboardAction`→`undoChange(changeLogId)`); on success calls `revalidatePath("/admin","page")` (undo also `revalidateShow(showId)`); **behavioral observability proof** — a `logAdminOutcome` spy records ONLY after the committed-success branch, with `code:"CHANGES_ACKNOWLEDGED"` (accept actions) / `"CHANGE_UNDONE"` (undo action) and the documented `source`.
+- [ ] **Step 1: Write failing test.** Mirror the undo-action test for `app/admin/show/[slug]/_actions/feed.ts`. For each action assert: reads `requireAdminIdentity`; reads its form fields and calls the right helper — `acceptChangeAction` reads `showId` + `changeLogId` → `acknowledgeChanges(showId, [changeLogId])`; `acceptAllAction` reads `showId` + comma-joined `ids` → `acknowledgeChanges(showId, acceptableIds)`; `undoFromDashboardAction` reads `changeLogId` → `undoChange(changeLogId)` (no `showId` field — `undoChange` resolves it server-side). **Assert `showId` is required by both accept actions (R4-plan): an accept submit missing `showId` must not call the helper with `undefined`.** On success: `revalidatePath("/admin","page")` (undo also guarded `revalidateShow`); **behavioral observability proof** — a `logAdminOutcome` spy records ONLY after the committed-success branch, with `code:"CHANGES_ACKNOWLEDGED"` (accept) / `"CHANGE_UNDONE"` (undo) + the documented `source`.
 
 - [ ] **Step 2: Run, verify fail.**
 
-- [ ] **Step 3: Implement** `app/admin/_actions/autoApplied.ts` (`"use server"`). Each action mirrors `feed.ts:121-149`: `requireAdminIdentity()` → parse formData → helper → on `ok`: revalidate + post-commit `try { await logAdminOutcome({...}) } catch {}`. `acceptAllAction` parses `acceptableIds` from a hidden field (e.g. `String(formData.get("ids")).split(",").filter(Boolean)`). `undoFromDashboardAction` reuses `undoChange` + **`if (result.showId) revalidateShow(result.showId)`** (guarded — `undoChange` returns `showId?` optional, R2-F2, matching `feed.ts:132`) + `revalidatePath("/admin","page")`.
+- [ ] **Step 3: Implement** `app/admin/_actions/autoApplied.ts` (`"use server"`). Each action mirrors `feed.ts:121-149`: `requireAdminIdentity()` → parse formData → helper → on `ok`: revalidate + post-commit `try { await logAdminOutcome({...}) } catch {}`. Both accept actions read `const showId = String(formData.get("showId") ?? "")` (R4-plan — the RPC is show-scoped); `acceptChangeAction` also reads `changeLogId`; `acceptAllAction` parses `acceptableIds` from a hidden field (e.g. `String(formData.get("ids")).split(",").filter(Boolean)`). `undoFromDashboardAction` reuses `undoChange` + **`if (result.showId) revalidateShow(result.showId)`** (guarded — `undoChange` returns `showId?` optional, R2-F2, matching `feed.ts:132`) + `revalidatePath("/admin","page")`.
 
 - [ ] **Step 4: Run, verify pass.**
 
@@ -235,7 +235,7 @@ export async function loadRecentAutoApplied(
 
 - [ ] **Step 2: Run, verify fail.**
 
-- [ ] **Step 3: Implement** `components/admin/AcceptChangeButton.tsx` — a near-copy of `UndoChangeButton.tsx` (`useActionState(acceptAction,null)`, `<form action={dispatch}>`, hidden inputs, `<SubmitButton disabled={pending} aria-busy={pending}>Accept</SubmitButton>`, `ErrorExplainer` on failure). NO synchronous onClick disable (would cancel the submit — memory `react_form_action_synchronous_disable_cancels_submit`).
+- [ ] **Step 3: Implement** `components/admin/AcceptChangeButton.tsx` — a near-copy of `UndoChangeButton.tsx` (`useActionState(acceptAction,null)`, `<form action={dispatch}>`, `<SubmitButton disabled={pending} aria-busy={pending}>Accept</SubmitButton>`, `ErrorExplainer` on failure). Renders **one `<input type="hidden">` per `hiddenFields` entry** (`Object.entries(hiddenFields).map(([name,value]) => <input key={name} type="hidden" name={name} value={value} />)`) so callers pass `{ showId, changeLogId }` (row) or `{ showId, ids }` (Accept-all). NO synchronous onClick disable (would cancel the submit — memory `react_form_action_synchronous_disable_cancels_submit`).
 
 - [ ] **Step 4: Run, verify pass.**
 
@@ -256,6 +256,7 @@ export async function loadRecentAutoApplied(
 - [ ] **Step 1: Write failing test.** Assert:
   - `kind:'ok'` with 2 groups → one section per show, rows newest-first, verbatim summary text.
   - per-row: an `Accept` control on every row; a `Undo` control ONLY on undoable rows — **absent** for `field_changed`/`crew_email_changed` (query the specific row's testid, clone-and-scope to avoid a sibling match — anti-tautology).
+  - **every accept form (row + Accept-all) includes a `showId` hidden input (R4-plan)** with the group's show id (assert the hidden input's value) — so `acknowledge_changes` is called show-scoped, not with `undefined`.
   - group header: `Accept all` always; `Undo all` only when `undoableIds.length>0`; `Undo all` triggers a confirm before dispatching (assert the confirm gate exists).
   - `overflowCount>0` → renders the plain-text `"+N older changes not shown"` line.
   - `kind:'ok'` with `groups:[]` → component renders **nothing** (no empty card).
@@ -263,7 +264,7 @@ export async function loadRecentAutoApplied(
 
 - [ ] **Step 2: Run, verify fail.**
 
-- [ ] **Step 3: Implement** `components/admin/RecentAutoAppliedStrip.tsx` (client component). Map groups → group cards; each row renders `<AcceptChangeButton>` (hidden `changeLogId`) + conditional `<UndoChangeButton changeLogId undoAction={undoFromDashboardAction}>`; group header renders Accept-all (`<AcceptChangeButton>` variant submitting `ids=acceptableIds.join(",")`) + conditional Undo-all (loops `undoFromDashboardAction` over `undoableIds` behind a confirm). Empty groups → `return null`. Follow existing needs-attention card styling.
+- [ ] **Step 3: Implement** `components/admin/RecentAutoAppliedStrip.tsx` (client component). Map groups → group cards; each row renders `<AcceptChangeButton hiddenFields={{ showId: group.showId, changeLogId: row.id }} acceptAction={acceptChangeAction} />` + conditional `<UndoChangeButton changeLogId={row.id} undoAction={undoFromDashboardAction}>`; group header renders Accept-all (`<AcceptChangeButton hiddenFields={{ showId: group.showId, ids: group.acceptableIds.join(",") }} acceptAction={acceptAllAction} />`) + conditional Undo-all (loops `undoFromDashboardAction` over `undoableIds` behind a confirm). **Every accept form carries `showId` (R4-plan) — the RPC is show-scoped.** Empty groups → `return null`. Follow existing needs-attention card styling.
 
 - [ ] **Step 4: Run, verify pass.**
 
