@@ -41,7 +41,7 @@
 - `components/admin/DataQualityBadge.tsx` — `rosterShift` prop (§6.5).
 - `lib/admin/showDisplay.ts` — `rosterShift?: RosterShiftSummary` on `ActiveShowRow` (:15).
 - `components/admin/ShowsTable.tsx:471` — thread `rosterShift` into `<DataQualityBadge>`.
-- `components/admin/Dashboard.tsx` — fetch `loadRecentAutoApplied` in the `:398` Promise.all; map `rosterShiftByShow` onto rows (`:430`/`:454`); render `<RecentAutoAppliedStrip>` after `<NeedsAttentionInbox>` (`:690`).
+- `components/admin/Dashboard.tsx` — fetch `loadRecentAutoApplied({ publishedShowIds })` AFTER `showsRows` resolves (it needs the published ids; NOT in the `:398` cookie-client Promise.all — R2-F1/R3); map `rosterShiftByShow` onto rows (`:430`/`:454`); render `<RecentAutoAppliedStrip>` after `<NeedsAttentionInbox>` (`:690`).
 - `tests/log/_auditableMutations.ts` — 3 action rows + `CHANGES_ACKNOWLEDGED` in `SANCTIONED_CODES`.
 - `tests/log/adminOutcomeBehavior.test.ts` — behavioral success-branch coverage for the 3 actions (R1-F3).
 - `tests/sync/_metaInfraContract.test.ts` — `acknowledgeChanges` row (R1-F2; the sync-helper registry, not `tests/auth`).
@@ -304,7 +304,7 @@ export async function loadRecentAutoApplied(
 **Interfaces:**
 - Consumes: `loadRecentAutoApplied` (Task 3), `RecentAutoAppliedStrip` (Task 6), the three actions (Task 4).
 
-- [ ] **Step 1: Write failing test.** Assert `fetchDashboardData` runs `loadRecentAutoApplied` in the concurrent block and (a) maps `rosterShiftByShow[show.id]` onto each `ActiveShowRow.rosterShift` (a show with roster counts gets the summary; one without gets `undefined`); (b) passes the loader result to a rendered `<RecentAutoAppliedStrip>`. Self-derive expected from the mock loader output (no hardcoded values).
+- [ ] **Step 1: Write failing test.** Assert `fetchDashboardData` calls `loadRecentAutoApplied({ publishedShowIds })` AFTER `showsRows` resolves — with `publishedShowIds` = the active-published ids derived from `showsRows`, and NO `supabase` arg (R2-F1/R3) — and (a) maps `rosterShiftByShow[show.id]` onto each `ActiveShowRow.rosterShift` (a show with roster counts gets the summary; one without gets `undefined`); (b) passes the loader result to a rendered `<RecentAutoAppliedStrip>`. Self-derive expected from the mock loader output (no hardcoded values).
 
 - [ ] **Step 2: Run, verify fail.**
 
