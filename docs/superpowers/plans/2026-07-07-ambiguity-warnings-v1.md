@@ -32,7 +32,7 @@
 
 **Interfaces — Produces:** catalog codes `ROOM_HEADER_SPLIT_AMBIGUOUS`, `HOTEL_GUEST_SPLIT_AMBIGUOUS`, `DATE_ORDER_SUGGESTS_DMY`, `HOTEL_CARDINALITY_EXCEEDED` (all: `crewFacing: null`, action-first dougFacing naming sheet location).
 
-- [ ] **Step 1:** Run `pnpm vitest run tests/cross-cutting/codes.test.ts` — currently PASS (baseline).
+- [ ] **Step 1 (failing-test phase):** Add the 4 rows to the master spec §12.4 band + YAML appendix (Step 2 content below), run `pnpm gen:spec-codes`, THEN run `pnpm vitest run tests/cross-cutting/codes.test.ts` — expect FAIL (x1 parity: SPEC_CODES has 4 codes with no catalog rows). This is the task's red state.
 - [ ] **Step 2:** Add 4 rows to master spec §12.4 parser-warning band (format matches `:2893` row exactly — 5 columns). Draft copy (final wording may be tuned, structure fixed):
   - `ROOM_HEADER_SPLIT_AMBIGUOUS` | a room header could be split into name/dimensions more than one way; we picked the most likely | "We had to make a judgment call splitting a room line in _<sheet-name>_ into name and dimensions — check the rooms section against your sheet." | — | Doug → spot-check rooms
   - `HOTEL_GUEST_SPLIT_AMBIGUOUS` | a hotel guest cell looked like it might contain several glued-together guests | "A guest line in _<sheet-name>_'s hotel section may contain more than one person — check the hotel guest list against your sheet." | — | Doug → spot-check hotel guests
@@ -67,7 +67,19 @@ it("ambiguity + cardinality codes are gap classes (counted, recovered symmetrica
   const baseline = summarizeDataGaps([]);
   expect(hasRecoveredToBaseline(baseline, s)).toBe(false);
 });
+
+it("regression gate stays UNPARTITIONED for ambiguity + cardinality classes (spec §3.4 carve-out)", () => {
+  const mkN = (code: string, n: number): ParseWarning[] =>
+    Array.from({ length: n }, () => ({ severity: "warn" as const, code, message: "x" }));
+  const prior = summarizeDataGaps([]);
+  // new-class appearance fires the gate for an ambiguity code…
+  expect(isQualityRegression(prior, summarizeDataGaps(mkN("ROOM_HEADER_SPLIT_AMBIGUOUS", 6)))).toBe(true);
+  // …and for the promoted cardinality code
+  expect(isQualityRegression(prior, summarizeDataGaps(mkN("HOTEL_CARDINALITY_EXCEEDED", 6)))).toBe(true);
+});
 ```
+
+(Adapt threshold fixture counts to `isQualityRegression`'s real signature/thresholds at `dataGaps.ts:110-118` — new-class appearance already fires per `buildRegressionPayload` semantics; assert via the gate function the cron path actually calls.)
 
 - [ ] **Step 2:** Run — FAIL (codes not in `GAP_CLASSES`, total 0).
 - [ ] **Step 3:** Append to `GAP_CLASSES`:
@@ -120,7 +132,20 @@ it("AMBIGUITY_CODES ⊆ GAP_CLASSES codes (spec §7.2 invariant)", () => {
 
 **Interfaces — Produces:** `blockRef?: { kind: string; index?: number; iso?: string; name?: string; field?: string }`.
 
-- [ ] **Step 1:** Add `field?: string` to the type. **Step 2:** `pnpm typecheck` — PASS (optional member, exactOptionalPropertyTypes-safe since emitters set it explicitly, never `undefined`). **Step 3:** Run the sweep command; run every hit file's tests — expect NO failures (no existing emitter sets `field`); record sweep in commit body. **Step 4:** Commit `feat(parser): blockRef.field member for per-field warning anchors`.
+- [ ] **Step 1 (failing-test phase):** Write a type-level test in `tests/parser/types.field.test.ts`:
+
+```ts
+import type { ParseWarning } from "@/lib/parser/types";
+it("blockRef accepts a field anchor", () => {
+  const w: ParseWarning = {
+    severity: "warn", code: "ROOM_HEADER_SPLIT_AMBIGUOUS", message: "x",
+    blockRef: { kind: "rooms", name: "LASALLE", field: "dims" },
+  };
+  expect(w.blockRef?.field).toBe("dims");
+});
+```
+
+Run `pnpm typecheck` — expect FAIL (`field` not in blockRef type). **Step 2:** Add `field?: string` to `types.ts:15`. **Step 3:** `pnpm typecheck` + the new test — PASS (optional member, exactOptionalPropertyTypes-safe since emitters set it explicitly, never `undefined`). **Step 4:** Run the sweep command; run every hit file's tests — expect NO failures (no existing emitter sets `field`); record sweep in commit body. **Step 5:** Commit `feat(parser): blockRef.field member for per-field warning anchors`.
 
 ### Task 5: rooms site — `ROOM_HEADER_SPLIT_AMBIGUOUS`
 
