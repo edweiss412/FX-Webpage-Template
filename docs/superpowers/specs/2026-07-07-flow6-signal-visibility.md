@@ -86,7 +86,7 @@ A new `AutoFixChip` rendered adjacent to `DataGapsChip` in the same Held-shows r
 - `total===0` / `undefined` → renders `null` (instant, no animation — matches `DataGapsChip` §4.2 contract).
 - `data-testid={`shows-auto-fixed-chip-${slug}`}`.
 
-The Dashboard `readDataGaps` path gains a parallel `readAutoFixes` (or extends the existing read to return both summaries) so `ShowsTable` receives an `autoFixes?: AutoFixSummary` per row alongside `dataGaps`. Prop is optional; absent → chip hidden.
+The Dashboard `readDataGaps` path (`components/admin/Dashboard.tsx`) **already fetches each show's `parse_warnings` rows** to build the gap summary. `summarizeAutoFixes` is computed from that **same in-memory warnings array** — the read is extended to return both summaries from one fetch, **NOT** a second query. **No new Supabase call site is introduced** (resolves the §6 "no new Supabase boundary" contract — invariant 9 is not triggered because no new `.select` boundary exists). `ShowsTable` receives an `autoFixes?: AutoFixSummary` per row alongside `dataGaps`. Prop is optional; absent → chip hidden.
 
 **Mode boundary.** The auto-fixed chip appears ONLY where `DataGapsChip` appears today (Held-shows row-action bar). It does NOT appear on the crew-facing surface, the wizard Step-3 card, or the archived rows unless those already render `DataGapsChip` (they do not get the new chip in Part 1 — documented scope).
 
@@ -158,6 +158,18 @@ Downstream §12.4 fan-out (from memory "new §12.4 code = 4 more CI gates"): x1 
 | `gateExempt` | literal on the `GAP_CLASSES` entry (`lib/parser/dataGaps.ts`) | authored in the registry only | the 3 gate iterators | class counts on badge/chip/digest but is skipped by the push-alert regression/recovery/payload logic |
 
 Not a zombie flag: every column filled.
+
+### 4.2a New-`GapCode` shape ripple (enumerate — same class as `CREW_COLUMN_POSITIONAL_FALLBACK` 24→25)
+
+Adding a 26th `GAP_CLASSES` entry adds a key to the `Record<GapCode, number>` that `zeroClasses()` / `summarizeDataGaps` produce. Every surface asserting an **exact** `DataGapsSummary.classes` shape shifts by one key. Enumerated (verified consumers, §2 + Codex R2 sweep):
+
+- **`summarizeDataGaps` output** — now carries `VENUE_GEOCODE_UNRESOLVED: 0` in the zeroed record. Any test doing `expect(summary).toEqual({...})` on a full summary must add the key. Expected + mechanical.
+- **Alert-context `baseline`** (`runScheduledCronSync.ts:332` stores `baseline: prior`, a full `DataGapsSummary`) — the persisted `admin_alerts.context.baseline` now includes the geocode key. `gateExempt` keeps geocode OUT of `buildRegressionPayload.breakdown`/`new_classes`/`worsened` (§4.2), so the **push payload** is unchanged; only the stored `baseline` snapshot gains a zero-key. Any exact-shape test on the alert context updates.
+- **`hasRecoveredToBaseline`** iterates `GAP_CLASSES` with the `gateExempt` skip → geocode never blocks recovery (a gate-exempt class that only ever holds a badge count must not keep the alert open).
+- **`PerShowAlertSection` `data_gaps` digest** (`components/admin/PerShowAlertSection.tsx:77` reads `context.data_gaps`) — renders the geocode count when present (desired: badge/panel visibility). No shape break (reads by key, not exact `toEqual`).
+- **Partition meta-test** — §6 (`ALL_PERSISTED_WARNING_CODES` 45→46, `DATA_GAP_CODES` 25→26; the test literally asserts `.size` at `dataGapsClassCompleteness.test.ts:202,206`).
+
+No consumer reads geocode as an *operator-actionable* gap (it is not in `OPERATOR_ACTIONABLE_ANCHORED`), so no source-anchor / deep-link surface changes.
 
 ### 4.3 Emit on `res.error` only (`lib/sync/enrichVenueGeocode.ts`)
 
