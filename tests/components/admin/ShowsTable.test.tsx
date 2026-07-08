@@ -787,20 +787,21 @@ describe("AutoFixChip (Flow 6 6.3 — neutral auto-fixed sibling)", () => {
     },
   });
 
-  it("renders a NEUTRAL auto-fixed chip when total>0, distinct from the amber gap chip", () => {
+  it("renders in the LIVE title area (no rowAction) — neutral, distinct from the amber badge", () => {
+    // The regression this pins: the chip must render WITHOUT a rowAction (the old
+    // row-action-bar surface is dead in the dashboard, which passes no rowAction).
     render(
       <ShowsTable
         rows={[row({ slug: "x", autoFixes: mkAutoFix({ STAGE_WORD_AUTOCORRECTED: 3 }) })]}
         now={now}
         activeCount={1}
         overflowCount={0}
-        rowAction={() => <span>act</span>}
       />,
     );
     const chip = screen.getByTestId("shows-auto-fixed-chip-x");
     expect(chip).toHaveTextContent("3");
     expect(chip).toHaveTextContent(/auto-fixed/i);
-    // neutral, NOT the amber data-gap chip (must not pass by matching status-warn styling):
+    // neutral, NOT the amber DataQualityBadge (must not pass by matching status-warn styling):
     expect(chip.className).not.toMatch(/status-warn/);
   });
 
@@ -811,7 +812,6 @@ describe("AutoFixChip (Flow 6 6.3 — neutral auto-fixed sibling)", () => {
         now={now}
         activeCount={2}
         overflowCount={0}
-        rowAction={() => <span>a</span>}
       />,
     );
     expect(screen.queryByTestId("shows-auto-fixed-chip-y")).toBeNull();
