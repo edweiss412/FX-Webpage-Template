@@ -244,6 +244,12 @@ const NULLCODE_BATCH2_STAMPS: ReadonlyArray<{
   },
   {
     file: "app/admin/show/[slug]/page.tsx",
+    code: "ADMIN_SHOW_CREW_ROSTER_OVERFLOW",
+    level: "error",
+    anchor: '"crew_members roster exceeded read cap:"',
+  },
+  {
+    file: "app/admin/show/[slug]/page.tsx",
     code: "ADMIN_SHOW_CREW_LOOKUP_THREW",
     level: "error",
     anchor: '"crew_members lookup threw:"',
@@ -355,9 +361,9 @@ function findLogErrorWarnCalls(
 describe("BL-NULLCODE-STAMP-BATCH-2 forensic stamps", () => {
   const codes = NULLCODE_BATCH2_STAMPS.map((r) => r.code);
 
-  test("36 rows, all codes distinct + all in NEW_FORENSIC_CODES", () => {
-    expect(NULLCODE_BATCH2_STAMPS.length).toBe(36);
-    expect(new Set(codes).size).toBe(36);
+  test("37 rows, all codes distinct + all in NEW_FORENSIC_CODES", () => {
+    expect(NULLCODE_BATCH2_STAMPS.length).toBe(37);
+    expect(new Set(codes).size).toBe(37);
     for (const c of codes) expect(NEW_FORENSIC_CODES.has(c), `${c} must be registered`).toBe(true);
   });
 

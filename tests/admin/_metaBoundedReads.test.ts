@@ -39,6 +39,10 @@ const READ_MODULES = [
   // Bell notification center Task 10: admin_alerts existence/tier-visibility
   // lookup ahead of the bell_mark_read write — bounded via .limit(1).
   "app/api/admin/alerts/bell/read/route.ts",
+  // Flow 5 — per-show page: crew_members roster read feeds the mailto
+  // distribution list, bounded by CREW_ROSTER_READ_CAP + 1 (fail-closed on
+  // overflow) and the shows lookup carries .limit(1)
+  "app/admin/show/[slug]/page.tsx",
 ];
 
 const UNBOUNDED_TABLES = [

@@ -18,6 +18,7 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ refresh: refreshMock }),
 }));
 
+import { buildCrewLinkMailtos } from "@/app/admin/show/[slug]/crewLinkMailto";
 import { RotateShareTokenButton } from "@/app/admin/show/[slug]/RotateShareTokenButton";
 import { rotateShareToken } from "@/lib/auth/picker/rotateShareToken";
 
@@ -296,5 +297,144 @@ describe("RotateShareTokenButton — two-tap state machine", () => {
       expect(refused.getAttribute("role")).toBe("alert");
       expect(refused.textContent).toContain("Couldn't rotate");
     });
+  });
+});
+
+// Flow 5 (audit 5.1 + 5.2) — re-pick disclosure + mailto re-send anchors.
+// Spec docs/superpowers/specs/2026-07-07-flow5-rotate-disclosure-mailto.md §2.1/§2.3/§6.2.
+describe("RotateShareTokenButton — Flow 5 disclosure + email crew anchors", () => {
+  const CREW_EMAILS = ["a@example.com", "b@example.com"];
+  const SHOW_TITLE = "RPAS Central";
+
+  const mockRotateOk = () => {
+    (rotateShareToken as unknown as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ok: true,
+      new_share_token: NEW_TOKEN,
+      new_epoch: 4,
+    });
+  };
+  const clickThroughToSuccess = async () => {
+    fireEvent.click(idleBtn());
+    await act(async () => {
+      fireEvent.click(confirmBtn());
+      vi.useRealTimers();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() => screen.getByTestId("admin-rotate-share-token-ok"));
+  };
+
+  test("confirm warning discloses the re-pick consequence (audit 5.1)", () => {
+    render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
+    fireEvent.click(idleBtn());
+    const warning = document.getElementById("admin-rotate-share-token-warning");
+    expect(warning?.textContent).toBe(
+      "The existing show URL will stop working. Every crew member will need the new URL and will have to re-pick their name.",
+    );
+  });
+
+  test("success banner lead line includes the re-pick reminder", async () => {
+    mockRotateOk();
+    render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
+    await clickThroughToSuccess();
+    expect(screen.getByTestId("admin-rotate-share-token-ok").textContent).toContain(
+      "the old link no longer works and everyone will re-pick their name",
+    );
+  });
+
+  test("success: renders one 'Email crew' anchor whose href equals the helper output (data-source assertion)", async () => {
+    mockRotateOk();
+    render(
+      <RotateShareTokenButton
+        showId={SHOW_ID}
+        slug={SLUG}
+        crewEmails={CREW_EMAILS}
+        showTitle={SHOW_TITLE}
+      />,
+    );
+    await clickThroughToSuccess();
+    const url = screen.getByTestId("admin-rotate-share-token-url").textContent!;
+    const expected = buildCrewLinkMailtos({ emails: CREW_EMAILS, url, showTitle: SHOW_TITLE });
+    expect(expected).toHaveLength(1);
+    const anchors = screen.getAllByTestId("admin-rotate-share-token-email-button");
+    expect(anchors).toHaveLength(1);
+    expect(anchors[0]!.getAttribute("href")).toBe(expected[0]!.href);
+    expect(anchors[0]!.textContent).toContain("Email crew");
+    expect(anchors[0]!.textContent).not.toMatch(/\(\d+ of \d+\)/);
+    expect(screen.queryByTestId("admin-rotate-share-token-email-note")).toBeNull();
+  });
+
+  // Adversarial R2 — an implementation rendering only mailtos[0] must fail.
+  test("multi-batch roster: anchor count, (N of M) labels, and hrefs match every helper batch", async () => {
+    const bigRoster = Array.from(
+      { length: 60 },
+      (_, i) => `${"a".repeat(60)}${String(i).padStart(4, "0")}@example.com`,
+    );
+    mockRotateOk();
+    render(
+      <RotateShareTokenButton
+        showId={SHOW_ID}
+        slug={SLUG}
+        crewEmails={bigRoster}
+        showTitle={SHOW_TITLE}
+      />,
+    );
+    await clickThroughToSuccess();
+    const url = screen.getByTestId("admin-rotate-share-token-url").textContent!;
+    const expected = buildCrewLinkMailtos({ emails: bigRoster, url, showTitle: SHOW_TITLE });
+    expect(expected.length).toBeGreaterThan(1);
+    const anchors = screen.getAllByTestId("admin-rotate-share-token-email-button");
+    expect(anchors).toHaveLength(expected.length);
+    expected.forEach((m, i) => {
+      expect(anchors[i]!.getAttribute("href")).toBe(m.href);
+      expect(anchors[i]!.textContent).toContain(`Email crew (${m.batch} of ${m.batchCount})`);
+    });
+    // Impeccable critique P1 — partial-distribution trap: multi-batch renders an
+    // instruction naming the batch count so one tap never reads as "done".
+    const note = screen.getByTestId("admin-rotate-share-token-email-note");
+    expect(note.textContent).toContain(`${expected.length} separate emails`);
+  });
+
+  test("no crewEmails prop → no email anchor", async () => {
+    mockRotateOk();
+    render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} />);
+    await clickThroughToSuccess();
+    expect(screen.queryByTestId("admin-rotate-share-token-email-button")).toBeNull();
+  });
+
+  test("crewEmails=[] → no email anchor", async () => {
+    mockRotateOk();
+    render(
+      <RotateShareTokenButton
+        showId={SHOW_ID}
+        slug={SLUG}
+        crewEmails={[]}
+        showTitle={SHOW_TITLE}
+      />,
+    );
+    await clickThroughToSuccess();
+    expect(screen.queryByTestId("admin-rotate-share-token-email-button")).toBeNull();
+  });
+
+  test("inactive crew link (isCrewLinkActive=false) → rotated-inactive message, no email anchor", async () => {
+    mockRotateOk();
+    render(
+      <RotateShareTokenButton
+        showId={SHOW_ID}
+        slug={SLUG}
+        isCrewLinkActive={false}
+        crewEmails={CREW_EMAILS}
+        showTitle={SHOW_TITLE}
+      />,
+    );
+    fireEvent.click(idleBtn());
+    await act(async () => {
+      fireEvent.click(confirmBtn());
+      vi.useRealTimers();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await waitFor(() => screen.getByTestId("admin-rotate-share-token-ok-inactive"));
+    expect(screen.queryByTestId("admin-rotate-share-token-email-button")).toBeNull();
   });
 });

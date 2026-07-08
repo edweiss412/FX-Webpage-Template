@@ -25,9 +25,11 @@
  * Rotate's own success banner is the authoritative "what to copy now" — this
  * panel is the persistent reminder that shows the same thing on next visit.
  */
+import { Mail } from "lucide-react";
 import type { ReactNode } from "react";
 import { loadShowShareToken } from "@/lib/data/loadShowShareToken";
 
+import { buildCrewLinkMailtos } from "./crewLinkMailto";
 import { ShareLinkCopyButton } from "./ShareLinkCopyButton";
 // resolveOrigin moved to a standalone client-safe module (Task 10) so the
 // client RotateShareTokenButton can share it without importing this server
@@ -39,6 +41,8 @@ export async function CurrentShareLinkPanel({
   slug,
   token: tokenProp,
   actions,
+  crewEmails = [],
+  showTitle = "",
 }: {
   showId: string;
   slug: string;
@@ -58,6 +62,12 @@ export async function CurrentShareLinkPanel({
    * reading it itself (standalone use). `null` means "read failed / no token".
    */
   token?: string | null;
+  /**
+   * Flow 5 (audit 5.2) — validated roster emails for the persistent
+   * "Email this link to crew" anchors. Empty/omitted hides the affordance.
+   */
+  crewEmails?: readonly string[];
+  showTitle?: string;
 }) {
   let token: string | null;
   if (tokenProp !== undefined) {
@@ -91,6 +101,7 @@ export async function CurrentShareLinkPanel({
   }
 
   const url = `${resolveOrigin()}/show/${slug}/${token}`;
+  const emailMailtos = buildCrewLinkMailtos({ emails: crewEmails, url, showTitle });
 
   return (
     <div
@@ -110,6 +121,29 @@ export async function CurrentShareLinkPanel({
         </code>
         <ShareLinkCopyButton url={url} />
       </div>
+      {emailMailtos.length > 1 && (
+        <p data-testid="admin-current-share-link-email-note" className="text-xs text-text-subtle">
+          Your crew list needs {emailMailtos.length} separate emails. Send each one; addresses go in
+          Bcc.
+        </p>
+      )}
+      {emailMailtos.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2">
+          {emailMailtos.map((m) => (
+            <a
+              key={m.batch}
+              href={m.href}
+              data-testid="admin-current-share-link-email-button"
+              className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+            >
+              <Mail aria-hidden="true" size={14} />
+              {m.batchCount === 1
+                ? "Email this link to crew"
+                : `Email this link to crew (${m.batch} of ${m.batchCount})`}
+            </a>
+          ))}
+        </div>
+      )}
       {actions}
     </div>
   );
