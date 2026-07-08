@@ -346,9 +346,12 @@ it("no animated wrapper introduced for status states (spec §7.4: all pairs inst
   for (const f of ["Step3Review.tsx", "Step3SheetCard.tsx", "step3ReviewSections.tsx"]) {
     const src = readFileSync(join(WIZARD_DIR, f), "utf8");
     expect(src.includes("AnimatePresence")).toBe(false); // none exist today; spec forbids introducing one for these states
-    expect(src.match(/transition-(?:all|colors|opacity)/g) ?? []).toEqual(
-      /* pin to the file's PRE-EXISTING count captured at implementation time — status chrome must not add new ones */
-      expect.anything(), // implementer replaces with exact literal count
+    // BEFORE implementing chrome (red phase), capture and HARDCODE the pre-existing count per file:
+    //   rg -c "transition-(all|colors|opacity)" <file>   → e.g. { "Step3Review.tsx": 0, ... }
+    // The literal map below is filled with those numbers in the failing-test commit. If chrome work
+    // adds a transition class, this test fails — the red state that proves the pin is live.
+    expect((src.match(/transition-(?:all|colors|opacity)/g) ?? []).length).toBe(
+      PREEXISTING_TRANSITION_COUNTS[f], // exact hardcoded literals, captured pre-implementation
     );
   }
 });
