@@ -15,7 +15,9 @@ import {
 
 type Venue = NonNullable<ParseResult["show"]["venue"]>;
 function makeResult(venue: Partial<Venue> | null): ParseResult {
-  return { show: { venue } } as unknown as ParseResult;
+  // seed `warnings: []` — production ParseResult always carries a warnings array
+  // (typed non-optional); the geocode-failure path pushes into it.
+  return { show: { venue }, warnings: [] } as unknown as ParseResult;
 }
 function deps(over: Partial<EnrichVenueGeocodeDeps> = {}): EnrichVenueGeocodeDeps {
   return {
@@ -200,5 +202,52 @@ describe("enrichVenueGeocode", () => {
     // ...so geocoding is attempted again on the next miss.
     await enrichVenueGeocode(makeResult({ name: "D", address: "" }), d);
     expect(geocode).toHaveBeenCalledTimes(3); // A, B, D (C was a cache hit)
+  });
+});
+
+describe("VENUE_GEOCODE_UNRESOLVED emit-scope (Flow 6 §4.3)", () => {
+  const geoWarns = (r: ParseResult) => r.warnings.filter((w) => w.code === "VENUE_GEOCODE_UNRESOLVED");
+
+  it("pushes exactly one warn on a genuine geocode res.error", async () => {
+    const r = makeResult({ name: "The Hall", address: "1 Main St" });
+    await enrichVenueGeocode(
+      r,
+      deps({ geocode: vi.fn(async () => ({ error: { kind: "timeout" } }) as never) }),
+    );
+    const hits = geoWarns(r);
+    expect(hits).toHaveLength(1);
+    expect(hits[0].severity).toBe("warn");
+    expect(r.show.venue!.city).toBeUndefined(); // still falls back to address
+  });
+
+  it("does NOT emit when unconfigured", async () => {
+    const r = makeResult({ name: "H", address: "A" });
+    await enrichVenueGeocode(r, deps({ isConfigured: () => false }));
+    expect(geoWarns(r)).toHaveLength(0);
+  });
+
+  it("does NOT emit on a null-city SUCCESS (geocoder returned no city)", async () => {
+    const r = makeResult({ name: "Nowhere Hall", address: "A" });
+    await enrichVenueGeocode(r, deps({ geocode: vi.fn(async () => ({ data: { city: null } })) }));
+    expect(geoWarns(r)).toHaveLength(0);
+  });
+
+  it("does NOT emit on a cache hit with a null city", async () => {
+    const r = makeResult({ name: "Mystery Venue", address: "A" });
+    await enrichVenueGeocode(
+      r,
+      deps({ cacheRead: vi.fn(async () => ({ kind: "hit", city: null }) as const) }),
+    );
+    expect(geoWarns(r)).toHaveLength(0);
+  });
+
+  it("does NOT emit while the breaker is open (outage already counted)", async () => {
+    // trip the breaker with 3 consecutive res.error calls on THROWAWAY results, then a 4th call
+    // (breaker open) must NOT emit.
+    const d = deps({ geocode: vi.fn(async () => ({ error: { kind: "down" } }) as never) });
+    for (let i = 0; i < 3; i++) await enrichVenueGeocode(makeResult({ name: `V${i}`, address: "A" }), d);
+    const r = makeResult({ name: "AfterBreaker", address: "A" });
+    await enrichVenueGeocode(r, d); // breaker open → early return, no geocode call, no emit
+    expect(geoWarns(r)).toHaveLength(0);
   });
 });
