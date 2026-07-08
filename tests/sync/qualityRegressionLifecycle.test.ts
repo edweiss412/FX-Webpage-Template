@@ -567,3 +567,51 @@ describe("RESYNC_QUALITY_REGRESSED sheet-rename refresh (helper-level)", () => {
     ).toBe(4);
   });
 });
+
+describe("buildRegressionPayload shares the tuned regressionKind (Flow 6 Task 3)", () => {
+  test("3→7 drift fires AND names the class in worsened (payload uses tuned rule, not old +5-AND)", async () => {
+    const { upsertAdminAlert } = await runEval({
+      openContext: null,
+      showId: "show-1",
+      priorParseWarningsRaw: warns("UNKNOWN_FIELD", 3),
+      nextWarnings: warns("UNKNOWN_FIELD", 7),
+    });
+    expect(upsertAdminAlert).toHaveBeenCalledTimes(1);
+    const call = upsertAdminAlert.mock.calls[0]![0];
+    // Before the fix, buildRegressionPayload's worsened uses `+5 abs AND +50%` → 3→7 (+4) is
+    // EXCLUDED, leaving Doug an empty reason even though the alert opened. Tuned → included.
+    expect(call.context.worsened).toEqual(["UNKNOWN_FIELD"]);
+    expect(call.context.new_classes).toEqual([]);
+  });
+});
+
+describe("VENUE_GEOCODE_UNRESOLVED is gateExempt in the lifecycle (Flow 6 Task 5)", () => {
+  test("geocode-only drift (0→9) upserts NO alert (gateExempt in isQualityRegression)", async () => {
+    const { upsertAdminAlert } = await runEval({
+      openContext: null,
+      showId: "show-1",
+      priorParseWarningsRaw: [],
+      nextWarnings: warns("VENUE_GEOCODE_UNRESOLVED", 9),
+    });
+    expect(upsertAdminAlert).not.toHaveBeenCalled();
+  });
+
+  test("co-occurring geocode is EXCLUDED from the payload while a real class opens the alert", async () => {
+    // A NON-exempt class (FIELD_UNREADABLE 0→9) opens the alert so buildRegressionPayload RUNS;
+    // geocode co-occurs in current. Without the gateExempt skip, `if (n>0) breakdown[code]=n`
+    // would leak VENUE_GEOCODE_UNRESOLVED into breakdown — this asserts it does not.
+    const { upsertAdminAlert } = await runEval({
+      openContext: null,
+      showId: "show-1",
+      priorParseWarningsRaw: [],
+      nextWarnings: [...warns("FIELD_UNREADABLE", 9), ...warns("VENUE_GEOCODE_UNRESOLVED", 5)],
+    });
+    expect(upsertAdminAlert).toHaveBeenCalledTimes(1);
+    const ctx = upsertAdminAlert.mock.calls[0]![0].context;
+    expect(ctx.new_classes).toEqual(["FIELD_UNREADABLE"]);
+    expect(Object.keys(ctx.breakdown as Record<string, number>)).not.toContain(
+      "VENUE_GEOCODE_UNRESOLVED",
+    );
+    expect(ctx.worsened).not.toContain("VENUE_GEOCODE_UNRESOLVED");
+  });
+});
