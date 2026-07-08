@@ -405,7 +405,7 @@ begin
       sheet_value=v_captured, override_value=coalesce(p_override_value, override_value),
       version=version+1, updated_at=now() where id=v_row.id returning * into v_row;
     perform public._apply_override_live(v_show_id, p_domain, p_field,
-      public._resolve_live_id(v_show_id, p_domain, p_new_match_key, p_expected_live_hotel_name), v_row.override_value);
+      public._resolve_live_id(v_show_id, p_domain, p_field, p_new_match_key, p_expected_live_hotel_name), v_row.override_value);
     return jsonb_build_object('ok', true, 'value', v_row.override_value);
   end if;
 
@@ -432,9 +432,113 @@ revoke execute on function public.set_field_override(text,text,text,text,text,te
 grant execute on function public.set_field_override(text,text,text,text,text,text,jsonb,text,int,jsonb,int,text) to service_role;
 ```
 
-Plus two small `security definer` helper functions in the SAME migration (kept private — REVOKE execute from public/anon/authenticated, no grant to authenticated): `public._apply_override_live(show_id,domain,field,target_id,value)` (the single-row `UPDATE shows/crew_members/hotel_reservations SET <field> = value`), `public._current_field_value(...)` + `public._resolve_live_id(...)` (read the current live value / re-resolve the id for a match_key, used by create/repoint). These realize §7.3's "RPC path = one targeted UPDATE" and keep the body readable. (They are internal to the RPC's SECURITY DEFINER context; execute is not granted to anyone — only the outer RPC calls them.)
+Plus **three** small `security definer` helper functions in the SAME migration, defined **BEFORE** `set_field_override` (so it can call them), kept private (REVOKE execute from public/anon/authenticated; no grant to authenticated — only the outer RPC, running in its own SECURITY DEFINER context, calls them). These realize §7.3's "RPC path = one targeted UPDATE" and keep the outer body readable. Complete, implementable bodies:
 
-Apply locally; re-run Step 3.1 → grant assertion PASSES.
+```sql
+-- (H1) Resolve the live row id for a (domain, match_key) under the caller's lock.
+-- crew: currentLiveName (§7.6) = active name override output else match_key; unique per show.
+-- hotel: R20 UNCONDITIONAL exactly-one-live-match on p_expected_live_hotel_name [+ §5.3 disambiguator
+--        recomputed from NON-OVERRIDABLE booking cols check_in[+confirmation_no], NEVER names[] (R30)];
+--        zero-or-many => 40001 (route maps to 409 stale_review), never a guessed row.
+-- show: the singleton shows.id.
+create or replace function public._resolve_live_id(
+  p_show_id uuid, p_domain text, p_field text, p_match_key text, p_expected_live_hotel_name text
+) returns uuid
+language plpgsql security definer set search_path = public, pg_temp
+as $$
+declare
+  v_live_name text;
+  v_disamb text;
+  v_count int;
+  v_id uuid;
+begin
+  if p_domain = 'show' then
+    return p_show_id;
+  elsif p_domain = 'crew' then
+    select coalesce((select (o.override_value #>> '{}') from public.admin_overrides o
+        where o.show_id=p_show_id and o.domain='crew' and o.field='name'
+          and o.match_key=p_match_key and o.active), p_match_key) into v_live_name;
+    select id into v_id from public.crew_members where show_id=p_show_id and name=v_live_name;
+    if v_id is null then
+      raise exception 'crew live row not found for %', v_live_name using errcode='40001'; end if;
+    return v_id;
+  else -- hotel
+    v_disamb := case when position(chr(31) in p_match_key) > 0
+                     then substr(p_match_key, position(chr(31) in p_match_key)+1) else null end;
+    select count(*), min(id) into v_count, v_id from public.hotel_reservations hr
+      where hr.show_id=p_show_id and hr.hotel_name=p_expected_live_hotel_name
+        and (v_disamb is null
+             -- recompute disambiguator from booking columns only (R30): 'YYYY-MM-DD' [+ \x1f + confirmation_no]
+             or (coalesce(to_char(hr.check_in,'YYYY-MM-DD'),'')
+                 || coalesce(chr(31)||hr.confirmation_no,'')) = v_disamb
+             or coalesce(to_char(hr.check_in,'YYYY-MM-DD'),'') = v_disamb);
+    if v_count <> 1 then
+      raise exception 'hotel live row not unique (count=%)', v_count using errcode='40001'; end if;
+    return v_id;
+  end if;
+end $$;
+
+-- (H2) Read the current live field value as jsonb — CAS-B source + create/repoint sheet_value capture.
+-- Reads the exact row _resolve_live_id resolves; dates/venue are jsonb columns, the four text fields
+-- are wrapped with to_jsonb so the RPC's `is distinct from p_expected_current_value` compares like-for-like.
+create or replace function public._current_field_value(
+  p_show_id uuid, p_domain text, p_field text, p_match_key text, p_expected_live_hotel_name text
+) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp
+as $$
+declare
+  v_id uuid;
+  v_val jsonb;
+begin
+  if p_domain='show' then
+    if p_field='dates' then select dates into v_val from public.shows where id=p_show_id;
+    else                    select venue into v_val from public.shows where id=p_show_id; end if;
+    return v_val;
+  end if;
+  v_id := public._resolve_live_id(p_show_id, p_domain, p_field, p_match_key, p_expected_live_hotel_name);
+  if p_domain='crew' then
+    if p_field='name' then select to_jsonb(name) into v_val from public.crew_members where id=v_id;
+    else                    select to_jsonb(role) into v_val from public.crew_members where id=v_id; end if;
+  else -- hotel
+    if p_field='hotel_name' then select to_jsonb(hotel_name) into v_val from public.hotel_reservations where id=v_id;
+    else                          select to_jsonb(hotel_address) into v_val from public.hotel_reservations where id=v_id; end if;
+  end if;
+  return v_val;
+end $$;
+
+-- (H3) Apply a value to ONE live row. shows: WHERE id=p_show_id (singleton); crew/hotel: WHERE id=p_target_id.
+-- jsonb columns (dates/venue) take p_value directly; text columns extract the scalar with #>>'{}'.
+create or replace function public._apply_override_live(
+  p_show_id uuid, p_domain text, p_field text, p_target_id uuid, p_value jsonb
+) returns void
+language plpgsql security definer set search_path = public, pg_temp
+as $$
+begin
+  if p_domain='show' and p_field='dates' then
+    update public.shows set dates=p_value where id=p_show_id;
+  elsif p_domain='show' and p_field='venue' then
+    update public.shows set venue=p_value where id=p_show_id;
+  elsif p_domain='crew' and p_field='name' then
+    update public.crew_members set name=(p_value #>> '{}') where id=p_target_id;
+  elsif p_domain='crew' and p_field='role' then
+    update public.crew_members set role=(p_value #>> '{}') where id=p_target_id;
+  elsif p_domain='hotel' and p_field='hotel_name' then
+    update public.hotel_reservations set hotel_name=(p_value #>> '{}') where id=p_target_id;
+  elsif p_domain='hotel' and p_field='hotel_address' then
+    update public.hotel_reservations set hotel_address=(p_value #>> '{}') where id=p_target_id;
+  else
+    raise exception 'unknown (domain,field) (%,%)', p_domain, p_field using errcode='22023';
+  end if;
+end $$;
+
+revoke execute on function public._resolve_live_id(uuid,text,text,text,text)   from public, anon, authenticated;
+revoke execute on function public._current_field_value(uuid,text,text,text,text) from public, anon, authenticated;
+revoke execute on function public._apply_override_live(uuid,text,text,uuid,jsonb) from public, anon, authenticated;
+```
+
+**Note on `set_field_override`'s inline resolution vs H1:** the outer RPC body above computes `v_target_id` inline for the CAS/apply of the CURRENT `p_match_key` (so it can 409 before mutating), and calls `public._resolve_live_id(...)` only on the **repoint** branch to locate the NEW target (`p_new_match_key`). Both paths use the same fail-closed rules (crew `currentLiveName`; hotel unconditional exactly-one-match → `40001`). A `40001` raised inside H1/H3 propagates out of the RPC; the JS action's `mapRpcOutcome` maps the returned error to `OVERRIDE_STALE_REVIEW`/`SYNC_INFRA_ERROR` (invariant 9) — so H1's raise is equivalent to the inline `return jsonb_build_object('ok',false,'code','OVERRIDE_STALE_REVIEW')` guards. (Both surface as 409 stale-review to the admin UI; no silent no-op.)
+
+Apply locally; re-run Step 3.1 → grant assertion PASSES. Also assert (in `setFieldOverrideGrants.test.ts`) that the three `_`-prefixed helpers have EXECUTE revoked from public/anon/authenticated (internal-only).
 
 ### Step 3.3 — Extend `advisoryLockRpcDeadlock.test.ts`
 
