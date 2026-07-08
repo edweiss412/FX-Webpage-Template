@@ -329,6 +329,9 @@ export const INTERNAL_CODE_ENUMS = {
   UNPUBLISH_TOKEN_EXPIRED: {
     source: "admin_alerts.code"
   },
+  VENUE_GEOCODE_UNRESOLVED: {
+    source: "parse_warnings.code"
+  },
   VERSION_AMBIGUOUS: {
     source: "parse_warnings.code,pending_ingestions.last_error_code"
   },
