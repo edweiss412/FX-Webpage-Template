@@ -34,8 +34,8 @@
 
 **Interfaces — Produces:** catalog codes `ROOM_HEADER_SPLIT_AMBIGUOUS`, `HOTEL_GUEST_SPLIT_AMBIGUOUS`, `DATE_ORDER_SUGGESTS_DMY`, `HOTEL_CARDINALITY_EXCEEDED` (all: `crewFacing: null`, action-first dougFacing naming sheet location).
 
-- [ ] **Step 1 (failing-test phase):** Add the 4 rows to the master spec §12.4 band + YAML appendix (Step 2 content below), run `pnpm gen:spec-codes`, THEN run `pnpm vitest run tests/cross-cutting/codes.test.ts` — expect FAIL (x1 parity: SPEC_CODES has 4 codes with no catalog rows). This is the task's red state.
-- [ ] **Step 2:** Add 4 rows to master spec §12.4 parser-warning band (format matches `:2893` row exactly — 5 columns). Draft copy (final wording may be tuned, structure fixed):
+- [ ] **Step 1 (failing-test phase):** Add the 4 rows to the master spec §12.4 band + YAML appendix — using EXACTLY the row content drafted in Step 2 below (Step 2 is the content reference, not a second edit) — run `pnpm gen:spec-codes`, THEN run `pnpm vitest run tests/cross-cutting/codes.test.ts` — expect FAIL (x1 parity: SPEC_CODES has 4 codes with no catalog rows). This is the task's red state.
+- [ ] **Step 2 (content reference — consumed by Step 1, no separate edit):** the 4 rows for the master spec §12.4 parser-warning band (format matches `:2893` row exactly — 5 columns). Draft copy (final wording may be tuned, structure fixed):
   - `ROOM_HEADER_SPLIT_AMBIGUOUS` | a room header could be split into name/dimensions more than one way; we picked the most likely | "We had to make a judgment call splitting a room line in _<sheet-name>_ into name and dimensions — check the rooms section against your sheet." | — | Doug → spot-check rooms
   - `HOTEL_GUEST_SPLIT_AMBIGUOUS` | a hotel guest cell looked like it might contain several glued-together guests | "A guest line in _<sheet-name>_'s hotel section may contain more than one person — check the hotel guest list against your sheet." | — | Doug → spot-check hotel guests
   - `DATE_ORDER_SUGGESTS_DMY` | the show dates only make sense in order if read day-first; we read them month-first | "The dates in _<sheet-name>_ look out of order the way we read them (month first). If you wrote them day-first, fix the dates in the sheet — we may have every date wrong." | — | Doug → fix sheet dates
@@ -358,7 +358,21 @@ it("no animated wrapper introduced for status states (spec §7.4: all pairs inst
 // synchronously (no waitFor needed = instant), covering clean↔judgment, clean↔flagged, judgment↔flagged pairs.
 ```
 
-  Spec §7.4 inventory inlined: 3 pairs (clean↔judgment, clean↔flagged, judgment↔flagged) + summary counts — ALL instant, no compound transitions, callout expand/collapse unchanged. **Step 3:** Implement chrome. **Step 4:** PASS. **Step 5:** Run `/impeccable critique` + `/impeccable audit` on the diff; fix or DEFERRED.md HIGH/CRITICAL findings. **Step 5b:** After ALL impeccable fixes/deferrals, re-run the full Task 11 test set (render states + transition audit) AND the Task 9 derivation tests — must PASS before commit. **Step 6:** Commit `feat(admin): judgment-state chrome for wizard review surfaces`.
+  Spec §7.4 inventory inlined: 3 pairs (clean↔judgment, clean↔flagged, judgment↔flagged) + summary counts — ALL instant, no compound transitions, callout expand/collapse unchanged.
+
+  **Red-phase note:** the static count-pin above is a GUARD (green in red phase by design — it exists to catch chrome work adding animation). The RED transition obligation is behavioral and fails pre-implementation: the instant-state test below references the Task 11 judgment hooks (`data-testid="wizard-judgment-callout"`, judgment border class) that don't exist yet:
+
+```ts
+it("judgment→needs-look re-render is synchronously instant", () => {
+  const { rerender, container } = render(<Step3SheetCard {...judgmentProps} />);
+  expect(container.querySelector('[data-judgment="true"]')).not.toBeNull(); // FAILS red: hook absent
+  rerender(<Step3SheetCard {...needsLookProps} />);
+  // no waitFor — instant: new state class present synchronously
+  expect(container.querySelector('[data-judgment="true"]')).toBeNull();
+});
+```
+
+  **Step 3:** Implement chrome. **Step 4:** PASS. **Step 5:** Run `/impeccable critique` + `/impeccable audit` on the diff; fix or DEFERRED.md HIGH/CRITICAL findings. **Step 5b:** After ALL impeccable fixes/deferrals, re-run the full Task 11 test set (render states + transition audit) AND the Task 9 derivation tests — must PASS before commit. **Step 6:** Commit `feat(admin): judgment-state chrome for wizard review surfaces`.
 
 ### Task 12: close-out gates
 
