@@ -12,6 +12,12 @@
 
 import type { DataGapsSummary } from "@/lib/parser/dataGaps";
 
+// Flow-4 auto-applied strip (spec §6.1) — per-show roster-shift summary from
+// the roster_shift_counts RPC. `total` is added+removed+renamed. Single-defined
+// here; Task 7 wires the optional `rosterShift?` field onto ActiveShowRow + the
+// badge. This standalone export is imported by lib/admin/loadRecentAutoApplied.ts.
+export type RosterShiftSummary = { added: number; removed: number; renamed: number; total: number };
+
 export type ActiveShowRow = {
   id: string;
   slug: string;
