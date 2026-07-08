@@ -165,7 +165,8 @@ it("warns on double-dims header, field=dims, kept room", () => {
   const rooms = parseRooms(fixtureWith("BREAKOUT 1 LASALLE 50' x 40' 30' x 20'"), agg);
   const w = agg.warnings.filter((x) => x.code === "ROOM_HEADER_SPLIT_AMBIGUOUS");
   expect(w).toHaveLength(1);
-  expect(w[0]!.blockRef).toMatchObject({ kind: "rooms", field: "dims" });
+  expect(w[0]!.blockRef).toMatchObject({ kind: "rooms", field: "dims", name: "LASALLE" }); // parsed room name required
+  expect(w[0]!.rawSnippet).toContain("50' x 40' 30' x 20'"); // rawSnippet = raw header cell
 });
 it("no warn on plain 3-operand dims", () => {
   const agg = newAggregator();
@@ -217,7 +218,7 @@ it("splitRoomHeader metadata per branch", () => {
 
 Predicates (spec §4.2, exact): fallback segment with ≥4 name-like tokens (`/^[\p{L}][\p{L}\p{M}.'-]*$/u` per whitespace-split token) OR interior `/\d{4,}/` run (match neither at index 0 nor segment end); tail-branch append.
 
-- [ ] **Step 1:** Failing tests: glued 4-token fallback cell → exactly 1 warning; "Mary St. Claire" → 0; "José Núñez-Marín" → 0; **interior digit-run independent of token count**: "Bob Smith 103317 Jones" (3 name-like tokens, interior `\d{4,}` unconsumed) → 1 warning; boundary digit runs: "103317 Bob Smith" and "Bob Smith 103317" (run at index 0 / segment end, <4 tokens) → 0; **tail-only isolation**: a cell like "Doug — #103317 Extra Person" (tokenRe matches Doug+conf, un-numbered tail appended as guest; <4 tokens, no interior digit run) → exactly 1 warning; multi-segment cell with both branches → exactly 1; two ambiguous cells → 2; >4 hotels fixture through `parseHotels(..., agg)` → `HOTEL_CARDINALITY_EXCEEDED` in `agg.warnings` with `severity:"warn"`, `blockRef:{kind:"hotels"}` AND counted by `summarizeDataGaps`.
+- [ ] **Step 1:** Failing tests: glued 4-token fallback cell → exactly 1 warning; "Mary St. Claire" → 0; "José Núñez-Marín" → 0; **interior digit-run independent of token count**: "Bob Smith 103317 Jones" (3 name-like tokens, interior `\d{4,}` unconsumed) → 1 warning; boundary digit runs: "103317 Bob Smith" and "Bob Smith 103317" (run at index 0 / segment end, <4 tokens) → 0; **tail-only isolation**: a cell like "Doug — #103317 Extra Person" (tokenRe matches Doug+conf, un-numbered tail appended as guest; <4 tokens, no interior digit run) → exactly 1 warning; **fallback-predicate isolation at the PURE layer**: direct `parseGuestCell` assertions on `ambiguity.reasons` — the interior-digit-run fixture must trigger via the FALLBACK branch (segment with NO tokenRe match, e.g. "Bob Smith x103317 Jones" if `x`-prefix defeats tokenRe — pick a fixture verified to leave tokenRe unmatched) and its `reasons` must name the digit-run predicate, NOT the tail branch; **anchor fields**: every warning asserts `rawSnippet` === the whole raw cell, `blockRef.name` === resolved `hotel_name` on the structured-slot fixture where it resolves BEFORE emit, and `blockRef.name` ABSENT (`"name" in blockRef === false`) on an unresolved-slot fixture; multi-segment cell with both branches → exactly 1; two ambiguous cells → 2; >4 hotels fixture through `parseHotels(..., agg)` → `HOTEL_CARDINALITY_EXCEEDED` in `agg.warnings` with `severity:"warn"`, `blockRef:{kind:"hotels"}` AND counted by `summarizeDataGaps`.
 - [ ] **Step 2:** FAIL. **Step 3:** Implement (thread `agg` into the hotels path — signature change `parseHotels(markdown, agg?)` if not already threaded; keep `log.warn` telemetry alongside if desired, delete local `warn()` when orphaned; the no-inline-email guard scans lib/sync+lib/drive not parser, but re-run `tests/admin/no-inline-email-normalization.test.ts` anyway if any `.toLowerCase()/.trim()` added). **Step 4:** PASS + full hotels tests. **Step 5:** Commit `feat(parser): HOTEL_GUEST_SPLIT_AMBIGUOUS + promote HOTEL_CARDINALITY_EXCEEDED to ParseWarning`.
 
 ### Task 7: dates site — `collectDateTokens` + `DATE_ORDER_SUGGESTS_DMY`
@@ -251,6 +252,7 @@ it("v1: DMY-ordered sheet lands DATE_ORDER_SUGGESTS_DMY in agg.warnings", () => 
   const w = agg.warnings.filter((x) => x.code === "DATE_ORDER_SUGGESTS_DMY");
   expect(w).toHaveLength(1);
   expect(w[0]!.blockRef).toMatchObject({ kind: "dates", field: "order" });
+  expect(w[0]!.rawSnippet).toBe("1/4/2026"); // first out-of-order RAW token, spec §4.3
 });
 it("v2/v4: same, through the v2 walker", () => { /* same shape, v2 fixture */ });
 ```
@@ -280,7 +282,7 @@ it("v2/v4: same, through the v2 walker", () => { /* same shape, v2 fixture */ })
 
 **Interfaces — Consumes:** `isAmbiguityCode` (Task 3), `DATA_GAP_CODES` (`dataGaps.ts:72`). **Produces:** `sectionStatus(warnings): "flagged" | "judgment" | "clean"`; row buckets N/M/K within `publishRows` only; FIELD_LABELS = `{ dims: "dimensions", name: "room name", guests: "guest list", order: "date order" }`, unknown → omit phrase.
 
-- [ ] **Step 1:** Failing derivation tests (all from spec §10): mixed-warning row (non-gap warn + ambiguity gap → row judgment, section flagged); **gap-mixed row precedence** (`FIELD_UNREADABLE` + `ROOM_HEADER_SPLIT_AMBIGUOUS` on one row → needs-look (K), counted once, NOT judgment — precedence needs-look > judgment > clean); M=0 renders two-state summary; blocking rows excluded; set-aside excluded; missing-preview row stays needs-look despite ambiguity; finalize-failure likewise; N+M+K === publishRows.length; ambiguity-only section → judgment; ambiguity+non-ambiguity section → flagged; FIELD_LABELS unknown-value omission.
+- [ ] **Step 1:** Failing derivation tests (all from spec §10): mixed-warning row (non-gap warn + ambiguity gap → row judgment, section flagged); **gap-mixed row precedence** (`FIELD_UNREADABLE` + `ROOM_HEADER_SPLIT_AMBIGUOUS` on one row → needs-look (K), counted once, NOT judgment — precedence needs-look > judgment > clean); M=0 renders two-state summary; blocking rows excluded; set-aside excluded; missing-preview row stays needs-look despite ambiguity; finalize-failure likewise; N+M+K === publishRows.length; ambiguity-only section → judgment; ambiguity+non-ambiguity section → flagged; FIELD_LABELS unknown-value omission; **badge/chrome split** (ambiguity-only row: judgment chrome present AND `DataQualityBadge` shows the FULL gap count — asserts the badge prop/render is NOT partitioned while the border is).
 - [ ] **Step 2:** FAIL. **Step 3:** Implement:
 
 ```ts
