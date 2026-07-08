@@ -81,6 +81,72 @@ export function isDataQualityWarning(w: ParseWarning | null | undefined): boolea
 }
 
 /**
+ * AUTO_FIX_CLASSES — the five benign `*_AUTOCORRECTED` warn codes the parser
+ * emits when it corrected a value (stage word, role token, column/section
+ * header, field label). Semantically POSITIVE ("we fixed it") — surfaced as a
+ * neutral sibling count, NOT a data gap, so it is deliberately NOT in
+ * GAP_CLASSES and does not feed summarizeDataGaps / the regression gate. Plain
+ * labels (invariant 5). Scope is the five autocorrects only (spec §1 / audit
+ * §6.3); the two agenda benign-warn codes are a documented follow-on.
+ */
+export const AUTO_FIX_CLASSES = [
+  { code: "STAGE_WORD_AUTOCORRECTED", label: "corrected stage word" },
+  { code: "ROLE_TOKEN_AUTOCORRECTED", label: "corrected role" },
+  { code: "COLUMN_HEADER_AUTOCORRECTED", label: "corrected column header" },
+  { code: "SECTION_HEADER_AUTOCORRECTED", label: "corrected section header" },
+  { code: "FIELD_LABEL_AUTOCORRECTED", label: "corrected field label" },
+] as const;
+
+export type AutoFixCode = (typeof AUTO_FIX_CLASSES)[number]["code"];
+export type AutoFixSummary = { total: number; classes: Record<AutoFixCode, number> };
+
+const AUTO_FIX_CODES: ReadonlySet<string> = new Set(AUTO_FIX_CLASSES.map((c) => c.code));
+const zeroAutoFix = (): Record<AutoFixCode, number> =>
+  Object.fromEntries(AUTO_FIX_CLASSES.map((c) => [c.code, 0])) as Record<AutoFixCode, number>;
+
+/**
+ * Count the five autocorrect classes in `warnings`. Skips `severity:"info"`
+ * (defensive — these are all `warn`) and any non-autocorrect code.
+ * `null`/`undefined`/`[]` → `{ total: 0 }`. Same fail-safe posture as
+ * summarizeDataGaps; sibling type so the ~8 exact-`toEqual` DataGapsSummary
+ * consumers are untouched.
+ */
+export function summarizeAutoFixes(
+  warnings: readonly ParseWarning[] | null | undefined,
+): AutoFixSummary {
+  const classes = zeroAutoFix();
+  if (!warnings) return { total: 0, classes };
+  let total = 0;
+  for (const w of warnings) {
+    if (w.severity === "info") continue;
+    if (AUTO_FIX_CODES.has(w.code)) {
+      classes[w.code as AutoFixCode] += 1;
+      total += 1;
+    }
+  }
+  return { total, classes };
+}
+
+/**
+ * Bounded, human "N label" breakdown for an AutoFixSummary. Ordering: count
+ * desc, then AUTO_FIX_CLASSES registry order (stable tiebreak). Caps at `cap`
+ * classes; the remainder collapses to "+N more". Empty when `cap <= 0` or no
+ * auto-fixes. Mirrors formatDataGapBreakdown so the chip hover title is bounded.
+ */
+export function formatAutoFixBreakdown(summary: AutoFixSummary, cap = 4): string {
+  if (cap <= 0 || summary.total === 0) return "";
+  const details = AUTO_FIX_CLASSES.map((c) => ({
+    label: c.label,
+    count: summary.classes[c.code],
+  })).filter((d) => d.count > 0);
+  const sorted = [...details].sort((a, b) => b.count - a.count);
+  const shown = sorted.slice(0, cap);
+  const remainder = sorted.length - shown.length;
+  const base = shown.map((d) => `${d.count} ${d.label}`).join(", ");
+  return remainder > 0 ? `${base}, +${remainder} more` : base;
+}
+
+/**
  * Count the three data-quality warning classes in `warnings`, excluding any
  * `severity:"info"` warning (only operator-actionable `warn`-severity drops
  * count) and any non-data-quality code. `null`/`undefined`/`[]` → `{ total: 0 }`.

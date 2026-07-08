@@ -17,6 +17,9 @@ import {
   OPERATOR_ACTIONABLE_ANCHORED,
   stripLegacyUnknownFieldAnchors,
   selectActionableForDisplay,
+  summarizeAutoFixes,
+  formatAutoFixBreakdown,
+  AUTO_FIX_CLASSES,
 } from "@/lib/parser/dataGaps";
 import type { ParseWarning } from "@/lib/parser/types";
 
@@ -314,5 +317,59 @@ describe("selectActionableForDisplay (read-boundary seam)", () => {
       },
     ]);
     expect(items.map((w) => w.sourceCell?.a1).sort()).toEqual(["A56", "A65"]);
+  });
+});
+
+describe("summarizeAutoFixes (6.3 sibling)", () => {
+  const w = (code: string, severity: "warn" | "info" = "warn") => ({ code, severity, message: code });
+
+  it("counts only the five *_AUTOCORRECTED warn codes", () => {
+    const s = summarizeAutoFixes([
+      w("STAGE_WORD_AUTOCORRECTED"),
+      w("STAGE_WORD_AUTOCORRECTED"),
+      w("ROLE_TOKEN_AUTOCORRECTED"),
+      w("FIELD_UNREADABLE"), // a gap, not an autofix → ignored
+    ]);
+    expect(s.total).toBe(3);
+    expect(s.classes.STAGE_WORD_AUTOCORRECTED).toBe(2);
+    expect(s.classes.ROLE_TOKEN_AUTOCORRECTED).toBe(1);
+    expect(s.classes.COLUMN_HEADER_AUTOCORRECTED).toBe(0);
+  });
+
+  it("null/undefined/empty → total 0, all classes zero", () => {
+    for (const input of [null, undefined, []] as const) {
+      const s = summarizeAutoFixes(input);
+      expect(s.total).toBe(0);
+      expect(Object.values(s.classes).every((n) => n === 0)).toBe(true);
+    }
+  });
+
+  it("skips severity:info (defensive)", () => {
+    expect(summarizeAutoFixes([w("STAGE_WORD_AUTOCORRECTED", "info")]).total).toBe(0);
+  });
+
+  it("AUTO_FIX_CLASSES is exactly the five autocorrect codes", () => {
+    expect(AUTO_FIX_CLASSES.map((c) => c.code).sort()).toEqual(
+      [
+        "COLUMN_HEADER_AUTOCORRECTED",
+        "FIELD_LABEL_AUTOCORRECTED",
+        "ROLE_TOKEN_AUTOCORRECTED",
+        "SECTION_HEADER_AUTOCORRECTED",
+        "STAGE_WORD_AUTOCORRECTED",
+      ].sort(),
+    );
+  });
+
+  it("formatAutoFixBreakdown caps at 4 classes with +N more, count-desc order", () => {
+    const s = summarizeAutoFixes([
+      w("STAGE_WORD_AUTOCORRECTED"), w("STAGE_WORD_AUTOCORRECTED"), w("STAGE_WORD_AUTOCORRECTED"),
+      w("ROLE_TOKEN_AUTOCORRECTED"), w("ROLE_TOKEN_AUTOCORRECTED"),
+      w("COLUMN_HEADER_AUTOCORRECTED"),
+      w("SECTION_HEADER_AUTOCORRECTED"),
+      w("FIELD_LABEL_AUTOCORRECTED"),
+    ]);
+    const out = formatAutoFixBreakdown(s, 4);
+    expect(out.startsWith("3 corrected stage word")).toBe(true);
+    expect(out.endsWith("+1 more")).toBe(true);
   });
 });
