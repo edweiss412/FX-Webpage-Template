@@ -60,6 +60,7 @@
     "bell_history_days",
     "daily_review_digest",
     "id",
+    "last_monitor_digest_sent_at",
     "pending_folder_id",
     "pending_folder_name",
     "pending_folder_set_at",
