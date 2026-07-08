@@ -20,6 +20,7 @@ export const REGISTERED: { path: string }[] = [
   { path: "lib/notify/runNotify.ts" },
   // flow 6.2 §10/§11 — monitor-digest DB boundaries under lib/notify.
   { path: "lib/notify/monitorWatermark.ts" },
+  { path: "lib/notify/monitorDigest.ts" },
 ];
 
 // Inline recursive .ts walker (R9/R10 fix — no shared walkTs exists in the repo).
