@@ -98,3 +98,14 @@ describe("isQualityRegression uses the tuned rule", () => {
   it("does not fire on 1→2", () =>
     expect(isQualityRegression(summary({ [A]: 1 }), summary({ [A]: 2 }))).toBe(false));
 });
+
+describe("VENUE_GEOCODE_UNRESOLVED is gateExempt (badge-visible, never gates)", () => {
+  const GEO = "VENUE_GEOCODE_UNRESOLVED" as GapCode;
+  it("isQualityRegression: geocode-only jump 0→9 does NOT fire", () =>
+    expect(isQualityRegression(summary({}), summary({ [GEO]: 9 }))).toBe(false));
+  it("hasRecoveredToBaseline: clean baseline stays 'recovered' even with geocode-only current", () =>
+    // exempt → must NOT keep an open alert from resolving
+    expect(hasRecoveredToBaseline(summary({}), summary({ [GEO]: 9 }))).toBe(true));
+  it("a NON-exempt class still fires even when geocode co-occurs", () =>
+    expect(isQualityRegression(summary({ [A]: 0 }), summary({ [A]: 9, [GEO]: 5 }))).toBe(true));
+});

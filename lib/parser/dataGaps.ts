@@ -53,6 +53,11 @@ export const GAP_CLASSES = [
   { code: "PULL_SHEET_UNKNOWN_VARIANT", label: "unrecognized pull sheet" },
   { code: "PULL_SHEET_ON_ARCHIVED_TAB", label: "pull sheet on archived tab" },
   { code: "CREW_COLUMN_POSITIONAL_FALLBACK", label: "guessed crew columns" },
+  // gateExempt: badge/chip/digest-visible (counts toward `total`) but NEVER trips the
+  // push-alert regression gate — a transient geocode/Google outage must not alarm Doug
+  // (Flow 6 §4.2). Honored by isQualityRegression / hasRecoveredToBaseline /
+  // buildRegressionPayload via the `gateExempt` flag.
+  { code: "VENUE_GEOCODE_UNRESOLVED", label: "unresolved venue location", gateExempt: true },
 ] as const;
 
 export type GapCode = (typeof GAP_CLASSES)[number]["code"];
