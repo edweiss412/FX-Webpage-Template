@@ -22,7 +22,7 @@
 - **Supabase call-boundary (invariant 9):** every client call destructures `{ data, error }`; infra faults → typed `{ ok:false, code:'SYNC_INFRA_ERROR' }`.
 - **UI-is-Opus + impeccable v3 dual-gate (invariant 8):** the UI diff (`DataQualityBadge`, `RecentAutoAppliedStrip`, `AcceptChangeButton`, `Dashboard`/`ShowsTable`) runs `/impeccable critique` + `/impeccable audit` at close-out (Task 9) before the whole-diff Codex review.
 - **Migration reaches validation** (`validation-schema-parity`): apply local → `pnpm gen:schema-manifest` + commit manifest → apply to validation via `psql "$TEST_DATABASE_URL"` (Task 1).
-- **Meta-test inventory:** EXTEND `tests/log/_auditableMutations.ts` (3 actions + `SANCTIONED_CODES`), `tests/auth/_metaInfraContract.test.ts` (`acknowledgeChanges`), `tests/admin/_metaInfraContract.test.ts` + `tests/admin/_metaBoundedReads.test.ts` (`loadRecentAutoApplied`). No new advisory-lock/email/sentinel/alert-catalog meta-test.
+- **Meta-test inventory:** EXTEND `tests/log/_auditableMutations.ts` (3 actions + `SANCTIONED_CODES`) AND add behavioral coverage in `tests/log/adminOutcomeBehavior.test.ts` (R1-F3); `tests/sync/_metaInfraContract.test.ts` (`acknowledgeChanges` — the sync-helper registry where `undoChange` lives, NOT `tests/auth`, R1-F2); `tests/admin/_metaInfraContract.test.ts` + `tests/admin/_metaBoundedReads.test.ts` (`loadRecentAutoApplied`). Also UPDATE two existing pinned tests broken by the changes: `tests/db/show-change-log-schema.test.ts` (exact-column list gains `acknowledged_at`/`acknowledged_by`, R1-F4) and `tests/components/admin/dataGapsTransitionAudit.test.tsx` (badge early-return source line changes; stays INSTANT, R1-F5). No new advisory-lock/email/sentinel/alert-catalog meta-test.
 
 ---
 
@@ -43,8 +43,11 @@
 - `components/admin/ShowsTable.tsx:471` — thread `rosterShift` into `<DataQualityBadge>`.
 - `components/admin/Dashboard.tsx` — fetch `loadRecentAutoApplied` in the `:398` Promise.all; map `rosterShiftByShow` onto rows (`:430`/`:454`); render `<RecentAutoAppliedStrip>` after `<NeedsAttentionInbox>` (`:690`).
 - `tests/log/_auditableMutations.ts` — 3 action rows + `CHANGES_ACKNOWLEDGED` in `SANCTIONED_CODES`.
-- `tests/auth/_metaInfraContract.test.ts` — `acknowledgeChanges` row.
+- `tests/log/adminOutcomeBehavior.test.ts` — behavioral success-branch coverage for the 3 actions (R1-F3).
+- `tests/sync/_metaInfraContract.test.ts` — `acknowledgeChanges` row (R1-F2; the sync-helper registry, not `tests/auth`).
 - `tests/admin/_metaInfraContract.test.ts` + `tests/admin/_metaBoundedReads.test.ts` — `loadRecentAutoApplied` rows.
+- `tests/db/show-change-log-schema.test.ts` — exact-column list + type block gain the 2 new columns (R1-F4).
+- `tests/components/admin/dataGapsTransitionAudit.test.tsx` — updated badge early-return regex; stays INSTANT (R1-F5).
 - `supabase/__generated__/schema-manifest.json` — regen.
 
 **Shared types** (define in `lib/admin/showDisplay.ts` next to `ActiveShowRow`, imported by badge + loader + Dashboard):
@@ -59,7 +62,7 @@ export type RosterShiftSummary = { added: number; removed: number; renamed: numb
 **Files:**
 - Create: `supabase/migrations/<ts>_show_change_log_acknowledged.sql`
 - Create test: `tests/db/acknowledge-changes.test.ts`, `tests/db/roster-shift-counts.test.ts`
-- Modify: `supabase/__generated__/schema-manifest.json` (regen)
+- Modify: `supabase/__generated__/schema-manifest.json` (regen), `tests/db/show-change-log-schema.test.ts` (R1-F4 — exact-column list + type block gain the two new columns)
 
 **Interfaces — Produces:**
 - `public.acknowledge_changes(p_show_id uuid, p_ids uuid[]) returns jsonb` → `{ok:true,count:int}`; raises 42501 (non-admin), 22004 (NULL p_ids).
@@ -79,6 +82,7 @@ export type RosterShiftSummary = { added: number; removed: number; renamed: numb
   - grouped per-show `{added,removed,renamed}` for un-dispositioned roster rows; excludes acked/undone/superseded/non-roster (`field_changed`/`crew_email_changed`) rows.
   - **published-agnostic:** given ids of a published AND an unpublished show, BOTH are counted (proves the RPC does not filter published — the loader does).
   - a show with zero un-dispositioned roster rows is absent from the result.
+  - **grant boundary (R1-F6):** a connection acting as `authenticated` (self-signed role JWT + a valid `apikey`, per the gateway/PostgREST split — memory `gateway_apikey_not_postgrest_jwt`) is DENIED execute on `roster_shift_counts` (spec §5.4 service-role-only); a `service_role` connection succeeds.
 
 - [ ] **Step 2: Run tests, verify they fail.** `pnpm vitest run tests/db/acknowledge-changes.test.ts tests/db/roster-shift-counts.test.ts` → FAIL (functions/columns absent).
 
@@ -97,11 +101,13 @@ export type RosterShiftSummary = { added: number; removed: number; renamed: numb
 
 - [ ] **Step 4: Apply locally + run tests.** Apply to the loopback DB (NOT `TEST_DATABASE_URL`, which is remote/validation): `psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -f supabase/migrations/<ts>_show_change_log_acknowledged.sql` then `psql "…54322/postgres" -c "notify pgrst,'reload schema';"`. Run: `pnpm vitest run tests/db/acknowledge-changes.test.ts tests/db/roster-shift-counts.test.ts` → PASS.
 
+- [ ] **Step 4b: Update the pinned schema test (R1-F4).** `tests/db/show-change-log-schema.test.ts:86` ("has exactly the contract columns") asserts an alpha-ordered column list and a per-column data_type/is_nullable block — add `"acknowledged_at"` + `"acknowledged_by"` (they sort FIRST, before `after_image`) to the expected array and add their type rows (`timestamptz`/`text`, both nullable, no default). Run `pnpm vitest run tests/db/show-change-log-schema.test.ts` → PASS (this test would otherwise fail outside this task's TDD loop).
+
 - [ ] **Step 5: Regen manifest + apply to validation.** `pnpm gen:schema-manifest` (writes `supabase/__generated__/schema-manifest.json`); then apply the same migration to validation: `psql "$TEST_DATABASE_URL" -f supabase/migrations/<ts>_show_change_log_acknowledged.sql` + `psql "$TEST_DATABASE_URL" -c "notify pgrst,'reload schema';"`.
 
 - [ ] **Step 6: Commit.**
   ```bash
-  git add supabase/migrations tests/db/acknowledge-changes.test.ts tests/db/roster-shift-counts.test.ts supabase/__generated__/schema-manifest.json
+  git add supabase/migrations tests/db/acknowledge-changes.test.ts tests/db/roster-shift-counts.test.ts tests/db/show-change-log-schema.test.ts supabase/__generated__/schema-manifest.json
   git commit --no-verify -m "feat(db): acknowledge_changes + roster_shift_counts RPCs + acknowledged_at column"
   ```
 
@@ -112,7 +118,7 @@ export type RosterShiftSummary = { added: number; removed: number; renamed: numb
 **Files:**
 - Create: `lib/sync/holds/acknowledgeChanges.ts`
 - Create test: `tests/sync/acknowledgeChanges.test.ts`
-- Modify: `tests/auth/_metaInfraContract.test.ts`
+- Modify: `tests/sync/_metaInfraContract.test.ts` (R1-F2 — the sync-helper registry where `undoChange` is registered, NOT `tests/auth/_metaInfraContract`)
 
 **Interfaces:**
 - Consumes: the `acknowledge_changes` RPC (Task 1).
@@ -137,7 +143,7 @@ it("returns count on success", async () => {
 
 - [ ] **Step 4: Run, verify pass.**
 
-- [ ] **Step 5: Register in `tests/auth/_metaInfraContract.test.ts`.** Add the helper to the registry the same way `undoChange` is registered (a row naming the file + that it destructures `{data,error}`). Run `pnpm vitest run tests/auth/_metaInfraContract.test.ts` → PASS. (Memory: this meta-test is comment/format-fragile — no stray `;`/comment between `supabase` and `.rpc`.)
+- [ ] **Step 5: Register in `tests/sync/_metaInfraContract.test.ts`** (R1-F2 — the registry where `undoChange` lives; grep it for `undoChange` to find the row shape and mirror it: file path + `{data,error}` destructure contract). Run `pnpm vitest run tests/sync/_metaInfraContract.test.ts` → PASS. (Memory: this meta-test is comment/format-fragile — no stray `;`/comment between `supabase` and `.rpc`.)
 
 - [ ] **Step 6: Commit** `feat(sync): acknowledgeChanges helper (accept auto-applied changes via RPC)`.
 
@@ -160,8 +166,11 @@ export type RecentAutoApplied =
   | { kind: "ok"; groups: AutoAppliedGroup[]; renderedCount: number; overflowCount: number; rosterShiftByShow: Record<string, RosterShiftSummary> }
   | { kind: "infra_error"; message: string };
 export const STRIP_RENDER_CAP = 50;
-export async function loadRecentAutoApplied(deps: { supabase: SupabaseClient }): Promise<RecentAutoApplied>;
+export async function loadRecentAutoApplied(
+  deps: { supabase: SupabaseClient; publishedShowIds: string[] },
+): Promise<RecentAutoApplied>;
 ```
+- **`publishedShowIds` (R1-F1):** the caller (Dashboard, which already has the active show rows) passes the FULL list of active-published show ids. `roster_shift_counts(publishedShowIds)` is driven by THIS list — NOT by the display-capped rows — so a published show whose rows fall outside `STRIP_RENDER_CAP` (or which has zero displayed rows because other shows filled the cap) still gets an accurate badge. The badge is decoupled from the strip's display cap.
 
 - [ ] **Step 1: Write failing test** (`tests/admin/loadRecentAutoApplied.test.ts`, follow `tests/admin/loadNeedsAttention.test.ts` mock shape). Assert against a seeded/mock row set:
   - groups by show, newest-first; `summary` passed through verbatim.
@@ -169,14 +178,14 @@ export async function loadRecentAutoApplied(deps: { supabase: SupabaseClient }):
   - `undoable` true only for `crew_added/removed/renamed` with `individually_undoable=true`; false for `field_changed`/`crew_email_changed`.
   - `acceptableIds` = displayed rows' ids; `undoableIds` = displayed undoable subset.
   - cap: with `STRIP_RENDER_CAP+3` matching rows, `renderedCount===STRIP_RENDER_CAP`, `overflowCount===3`.
-  - `rosterShiftByShow` populated from the `roster_shift_counts` rpc mock (accurate beyond the cap — a show with 60 roster rows still reports `total:60`).
-  - **published filter is the loader's job:** only active-published show ids are passed to `roster_shift_counts` (assert the rpc arg excludes an unpublished show's id).
+  - `rosterShiftByShow` populated from the `roster_shift_counts` rpc mock, driven by the passed `publishedShowIds` (R1-F1: a published show with roster rows but ZERO displayed strip rows — because the cap filled with other shows — STILL gets its badge count; assert its id is in the rpc arg and its count is in `rosterShiftByShow`).
+  - **published filter is the loader's job:** `publishedShowIds` (the caller's active-published list) is exactly what's passed to `roster_shift_counts`; an unpublished show's id is never in it (assert the rpc arg excludes it).
   - client fault → `{ kind:'infra_error' }` (call-boundary invariant 9).
   - **Anti-tautology:** derive expected counts from the fixture rows, not hardcoded; scope each exclusion assertion to the specific row id.
 
 - [ ] **Step 2: Run, verify fail.**
 
-- [ ] **Step 3: Implement** `lib/admin/loadRecentAutoApplied.ts`: (a) one bounded `.from('show_change_log').select(...).eq('source','auto_apply').eq('status','applied').is('acknowledged_at', null).in('change_kind', [...5]).order('occurred_at',{ascending:false}).limit(STRIP_RENDER_CAP+1)` join/lookup show name+slug; slice to cap + compute `overflowCount`; build groups + `acceptableIds`/`undoableIds`; (b) collect active-published show ids and `.rpc('roster_shift_counts',{ p_show_ids })` → map to `rosterShiftByShow` (`total=added+removed+renamed`); each supabase call destructures `{data,error}` → `infra_error` on fault.
+- [ ] **Step 3: Implement** `lib/admin/loadRecentAutoApplied.ts`: (a) one bounded `.from('show_change_log').select(...).eq('source','auto_apply').eq('status','applied').is('acknowledged_at', null).in('change_kind', [...5]).order('occurred_at',{ascending:false}).limit(STRIP_RENDER_CAP+1)` join/lookup show name+slug; slice to cap + compute `overflowCount`; build groups + `acceptableIds`/`undoableIds`; (b) `.rpc('roster_shift_counts',{ p_show_ids: publishedShowIds })` (the caller-supplied list, R1-F1) → map to `rosterShiftByShow` (`total=added+removed+renamed`; shows absent from the result → omitted, so the badge sees `undefined`); each supabase call destructures `{data,error}` → `infra_error` on fault.
 
 - [ ] **Step 4: Run, verify pass.**
 
@@ -191,7 +200,7 @@ export async function loadRecentAutoApplied(deps: { supabase: SupabaseClient }):
 **Files:**
 - Create: `app/admin/_actions/autoApplied.ts`
 - Create test: `tests/admin/autoAppliedActions.test.ts`
-- Modify: `tests/log/_auditableMutations.ts`
+- Modify: `tests/log/_auditableMutations.ts`, `tests/log/adminOutcomeBehavior.test.ts` (R1-F3 — the file-local behavioral recorder that proves every registered admin mutation emits on its success branch)
 
 **Interfaces:**
 - Consumes: `acknowledgeChanges` (Task 2), `undoChange` helper (`@/lib/sync/holds/undoChange`), `requireAdminIdentity`, `revalidatePath` (`next/cache`), `revalidateShow` (`@/lib/data/showCacheTag`), `logAdminOutcome` (`@/lib/log/logAdminOutcome`).
@@ -205,7 +214,7 @@ export async function loadRecentAutoApplied(deps: { supabase: SupabaseClient }):
 
 - [ ] **Step 4: Run, verify pass.**
 
-- [ ] **Step 5: Register observability.** In `tests/log/_auditableMutations.ts`: add three `AUDITABLE_MUTATIONS` rows (`file:"app/admin/_actions/autoApplied.ts"`, `fn`, `code`) mirroring the `undoChangeAction:155` row; add `"CHANGES_ACKNOWLEDGED"` to `SANCTIONED_CODES:312`. Run `pnpm vitest run tests/log/` → the static `_metaMutationSurfaceObservability` + `_metaAdminOutcomeContract` + `adminOutcomeBehavior` all PASS. (Prove fails-by-default once: temporarily delete a registry row → red → restore.)
+- [ ] **Step 5: Register observability.** In `tests/log/_auditableMutations.ts`: add three `AUDITABLE_MUTATIONS` rows (`file:"app/admin/_actions/autoApplied.ts"`, `fn`, `code`) mirroring the `undoChangeAction:155` row; add `"CHANGES_ACKNOWLEDGED"` to `SANCTIONED_CODES:312`. **In `tests/log/adminOutcomeBehavior.test.ts` (R1-F3):** add executable success-branch behavioral coverage for each of the three actions (its file-local recorder must observe the `code` on the committed-success branch — a spy in the Task-4 action test does NOT satisfy this file's assertion). Run `pnpm vitest run tests/log/` → the static `_metaMutationSurfaceObservability` + `_metaAdminOutcomeContract` + `adminOutcomeBehavior` all PASS. (Prove fails-by-default once: temporarily delete a registry row → red → restore.)
 
 - [ ] **Step 6: Commit** `feat(admin): dashboard accept/undo server actions for auto-applied strip`.
 
@@ -264,7 +273,7 @@ export async function loadRecentAutoApplied(deps: { supabase: SupabaseClient }):
 ### Task 7: `DataQualityBadge` roster-shift input
 
 **Files:**
-- Modify: `components/admin/DataQualityBadge.tsx`, `lib/admin/showDisplay.ts` (:15, add `rosterShift` + `RosterShiftSummary`), `components/admin/ShowsTable.tsx:471`
+- Modify: `components/admin/DataQualityBadge.tsx`, `lib/admin/showDisplay.ts` (:15, add `rosterShift` + `RosterShiftSummary`), `components/admin/ShowsTable.tsx:471`, `tests/components/admin/dataGapsTransitionAudit.test.tsx` (R1-F5 — its pinned early-return source regex changes; badge stays INSTANT)
 - Create test: `tests/components/admin/DataQualityBadge.rosterShift.test.tsx`
 
 **Interfaces:**
@@ -277,9 +286,11 @@ export async function loadRecentAutoApplied(deps: { supabase: SupabaseClient }):
 
 - [ ] **Step 3: Implement.** Add `RosterShiftSummary` + `rosterShift?` to `showDisplay.ts`. Extend `DataQualityBadge`: `const rosterTotal = rosterShift?.total ?? 0; const gapTotal = dataGaps?.total ?? 0; if (gapTotal===0 && rosterTotal===0) return null;` build a combined label (roster segment from `rosterShift`, then the existing gap breakdown), keep the `TriangleAlert` glyph. Thread `rosterShift={row.rosterShift}` at `ShowsTable.tsx:471`. (`ArchivedShowRow` shows archived shows — roster-shift is published-only, so pass nothing there; badge behaves as today.)
 
-- [ ] **Step 4: Run, verify pass.**
+- [ ] **Step 4: Update the pinned transition audit (R1-F5).** `tests/components/admin/dataGapsTransitionAudit.test.tsx:147` matches the badge source against `/if \(!dataGaps \|\| dataGaps\.total === 0\) return null;/` and documents it as INSTANT. Update the regex to the new combined early-return (`/if \(gapTotal === 0 && rosterTotal === 0\) return null;/` or the exact form implemented) and the audit-table comment (add the roster-shift input; it remains an INSTANT early-return — no `AnimatePresence`, no animated mount). Run `pnpm vitest run tests/components/admin/dataGapsTransitionAudit.test.tsx` → PASS. (Satisfies spec §12 transition inventory: the new conditional is instant.)
 
-- [ ] **Step 5: Commit** `feat(admin): fold roster-shift into DataQualityBadge (amber until dispositioned)`.
+- [ ] **Step 5: Run, verify pass** (badge test + transition audit).
+
+- [ ] **Step 6: Commit** `feat(admin): fold roster-shift into DataQualityBadge (amber until dispositioned)`.
 
 ---
 
@@ -296,7 +307,7 @@ export async function loadRecentAutoApplied(deps: { supabase: SupabaseClient }):
 
 - [ ] **Step 2: Run, verify fail.**
 
-- [ ] **Step 3: Implement.** Add `loadRecentAutoApplied({supabase})` to the `Promise.all` at `Dashboard.tsx:398`; after rows are built (`:430`), set `rosterShift: recentAutoApplied.kind==='ok' ? recentAutoApplied.rosterShiftByShow[r.id] : undefined` in the `.map`; render `<RecentAutoAppliedStrip data={recentAutoApplied} actions={{...}} />` as a sibling after `<NeedsAttentionInbox>` (`:690`). Infra-error result → strip renders its bounded error; dashboard otherwise unaffected.
+- [ ] **Step 3: Implement.** The loader needs `publishedShowIds` (R1-F1), which come from the active show rows — so it can't sit in the same `Promise.all` that produces those rows if the ids aren't known yet. Options (pick per the actual data flow at `:398`/`:430`): if the active published show ids are known before the parallel block (from an earlier `showsRows` fetch), pass them straight in; otherwise run `loadRecentAutoApplied({ supabase, publishedShowIds })` in a second step after `showsRows` resolves (still concurrent with the row-mapping work). Compute `publishedShowIds = showsRows.filter(published).map(r=>r.id)`. Then set `rosterShift: recentAutoApplied.kind==='ok' ? recentAutoApplied.rosterShiftByShow[r.id] : undefined` in the rows `.map` (`:430`/`:454`); render `<RecentAutoAppliedStrip data={recentAutoApplied} actions={{acceptChangeAction, acceptAllAction, undoFromDashboardAction}} />` as a sibling after `<NeedsAttentionInbox>` (`:690`). Infra-error result → strip renders its bounded error; dashboard otherwise unaffected.
 
 - [ ] **Step 4: Run, verify pass.** Also run the full admin suite: `pnpm vitest run tests/admin tests/components/admin` → green.
 
