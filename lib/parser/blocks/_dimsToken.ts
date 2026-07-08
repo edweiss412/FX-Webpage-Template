@@ -53,3 +53,10 @@ export function dimsStartRe(anchored: boolean): RegExp {
 export function dimsFullRe(): RegExp {
   return new RegExp(DIMS_FULL_SRC, "i");
 }
+
+// TRANSFORM_SITES (spec 2026-07-07-ambiguity-warnings-v1 §6) — value-producing
+// transform sites in this file that rest on a JUDGMENT the parser could get wrong.
+// None here — pure dims-token regex fragments; consumers normalize deterministically.
+export const TRANSFORM_SITES: ReadonlyArray<
+  { site: string; code: string } | { site: string; exempt: string }
+> = [];

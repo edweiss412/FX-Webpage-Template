@@ -1626,3 +1626,15 @@ function buildEmptyRoom(kind: RoomKind, name: string): RoomRowInternal {
     notes: null,
   };
 }
+
+// TRANSFORM_SITES (spec 2026-07-07-ambiguity-warnings-v1 §6) — value-producing
+// transform sites in this file that rest on a JUDGMENT the parser could get wrong.
+export const TRANSFORM_SITES: ReadonlyArray<
+  { site: string; code: string } | { site: string; exempt: string }
+> = [
+  { site: "splitRoomHeader name/dims split", code: "ROOM_HEADER_SPLIT_AMBIGUOUS" },
+  {
+    site: "field-label fuzzy correction",
+    exempt: "deterministic — warns via FIELD_LABEL_AUTOCORRECTED (rooms.ts:853)",
+  },
+];
