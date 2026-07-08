@@ -20,6 +20,7 @@
 //   | Per-show "Data quality" panel   | `failed ? … : active/ignored.length>0 ? … : null` | INSTANT |
 //   | First-published alert sub-line  | `dataGapsDigest ? … : null`          | INSTANT   |
 //   | Data-quality badge (ShowsTable) | early-return null when total===0     | INSTANT   |
+//   | Data-quality badge roster input | early-return null when gap+roster===0 | INSTANT  |
 //   | Data-quality badge (Archived)   | early-return null when total===0     | INSTANT   |
 //   | Degraded-read notice (Dashboard)| `dataGapsDegraded ? … : null`        | INSTANT   |
 //
@@ -146,7 +147,7 @@ describe("data-gap surfaces — transition audit (instant, static parse-state)",
 
   it("DataQualityBadge is an instant early-return null, not an animated presence", () => {
     const s = src("components/admin/DataQualityBadge.tsx");
-    expect(s).toMatch(/if \(!dataGaps \|\| dataGaps\.total === 0\) return null;/); // instant unmount
+    expect(s).toMatch(/if \(gapTotal === 0 && rosterTotal === 0\) return null;/); // instant unmount
     expect(s).not.toMatch(/AnimatePresence|framer-motion|motion\./);
   });
 
