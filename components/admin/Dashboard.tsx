@@ -734,20 +734,15 @@ export async function Dashboard(
             {/* Flow-4 (spec §8) — the recently-auto-applied strip renders directly
                 after the needs-attention inbox (both are review surfaces). It
                 returns null when there is nothing un-dispositioned, so it is a calm
-                no-op in the common case. The strip's `actions` prop speaks the
-                UI-local button-result contract; the real domain server actions are
-                bridged with type-safe wrappers (no `any`): accept's ignored `_prev`
-                is passed as null (AcknowledgeChangesResult requires `count`, which the
-                button-result type omits — the covariant return still satisfies the
-                contract), and undo passes through directly (UndoButtonResult is a
-                structural subtype of UndoChangeResult). */}
+                no-op in the common case. The three server actions are passed as
+                DIRECT "use server" references — never wrapped in an inline closure,
+                which (as a non-"use server" function created in this Server
+                Component) could not cross the boundary into the client strip. The
+                strip's action-prop types are structurally identical to the domain
+                results, so no adapter is needed. */}
             <RecentAutoAppliedStrip
               data={result.recentAutoApplied}
-              actions={{
-                acceptChangeAction: (_prev, formData) => acceptChangeAction(null, formData),
-                acceptAllAction: (_prev, formData) => acceptAllAction(null, formData),
-                undoFromDashboardAction,
-              }}
+              actions={{ acceptChangeAction, acceptAllAction, undoFromDashboardAction }}
             />
           </div>
         </section>

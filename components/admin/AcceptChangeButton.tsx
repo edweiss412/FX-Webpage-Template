@@ -18,7 +18,12 @@
 import { useActionState } from "react";
 import { ErrorExplainer } from "@/components/messages/ErrorExplainer";
 
-export type AcceptButtonResult = { ok: true } | { ok: false; code: string };
+// Structurally identical to lib/sync/holds AcknowledgeChangesResult so the real
+// server actions pass DIRECTLY as props across the RSC boundary (a Server
+// Component cannot hand a non-"use server" wrapper closure to a Client
+// Component — next build rejects it). The button only reads `code` on failure;
+// `count` rides along on success, unused here.
+export type AcceptButtonResult = { ok: true; count: number } | { ok: false; code: string };
 
 type AcceptServerAction = (
   prev: AcceptButtonResult | null,
