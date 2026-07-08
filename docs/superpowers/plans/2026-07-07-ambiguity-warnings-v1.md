@@ -277,12 +277,11 @@ it("v2/v4: same, through the v2 walker", () => { /* same shape, v2 fixture */ })
 
 ### Task 9: wizard derivations — section/row/card tri-state
 
-**Files:**
+**Files (derivation-only — NO component chrome/copy in this task):**
 - Modify: `lib/admin/step3SectionStatus.ts` (section status: flagged / judgment / clean per §7.1)
-- Modify: `components/admin/wizard/Step3Review.tsx` (`rowNeedsLook` partition + three counts per §7.2; judgment predicate `isAmbiguityCode ∧ DATA_GAP_CODES`)
-- Modify: `components/admin/wizard/Step3SheetCard.tsx:470-471` (`needsLook` partition per §7.3a; judgment card variant; `DataQualityBadge` keeps FULL count)
-- Modify: `components/admin/wizard/step3ReviewSections.tsx` (judgment callout variant + FIELD_LABELS map per §7.3)
-- Test: `tests/admin/step3SectionStatus.test.ts`, wizard component tests (existing files for these components)
+- Create: `lib/admin/step3Buckets.ts` — pure derivations extracted from the components: `rowNeedsLookPure`, `rowIsJudgment`, `nonAmbiguityGapTotal`, `deriveStep3Buckets`, `FIELD_LABELS` + `fieldLabelFor` (unknown → null/omit)
+- Modify: `components/admin/wizard/Step3Review.tsx` + `Step3SheetCard.tsx` ONLY to replace their inline derivation bodies with calls to the extracted pure functions. The partition DOES change which existing two-state chrome a row gets (that is the spec'd derivation behavior) — but this task adds NO new JSX, classes, or copy; the third visual state, callout variant, and summary copy are exclusively Task 11's red→green
+- Test: `tests/admin/step3SectionStatus.test.ts`, `tests/admin/step3Buckets.test.ts`
 
 **Interfaces — Consumes:** `isAmbiguityCode` (Task 3), `DATA_GAP_CODES` (`dataGaps.ts:72`). **Produces:** `sectionStatus(warnings): "flagged" | "judgment" | "clean"`; row buckets N/M/K within `publishRows` only; FIELD_LABELS = `{ dims: "dimensions", name: "room name", guests: "guest list", order: "date order" }`, unknown → omit phrase.
 
