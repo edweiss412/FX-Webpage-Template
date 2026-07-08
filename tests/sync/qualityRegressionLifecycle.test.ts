@@ -609,7 +609,9 @@ describe("VENUE_GEOCODE_UNRESOLVED is gateExempt in the lifecycle (Flow 6 Task 5
     expect(upsertAdminAlert).toHaveBeenCalledTimes(1);
     const ctx = upsertAdminAlert.mock.calls[0]![0].context;
     expect(ctx.new_classes).toEqual(["FIELD_UNREADABLE"]);
-    expect(Object.keys(ctx.breakdown as Record<string, number>)).not.toContain("VENUE_GEOCODE_UNRESOLVED");
+    expect(Object.keys(ctx.breakdown as Record<string, number>)).not.toContain(
+      "VENUE_GEOCODE_UNRESOLVED",
+    );
     expect(ctx.worsened).not.toContain("VENUE_GEOCODE_UNRESOLVED");
   });
 });

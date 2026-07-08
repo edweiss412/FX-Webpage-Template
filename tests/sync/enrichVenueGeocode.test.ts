@@ -206,7 +206,8 @@ describe("enrichVenueGeocode", () => {
 });
 
 describe("VENUE_GEOCODE_UNRESOLVED emit-scope (Flow 6 §4.3)", () => {
-  const geoWarns = (r: ParseResult) => r.warnings.filter((w) => w.code === "VENUE_GEOCODE_UNRESOLVED");
+  const geoWarns = (r: ParseResult) =>
+    r.warnings.filter((w) => w.code === "VENUE_GEOCODE_UNRESOLVED");
 
   it("pushes exactly one warn on a genuine geocode res.error", async () => {
     const r = makeResult({ name: "The Hall", address: "1 Main St" });
@@ -245,7 +246,8 @@ describe("VENUE_GEOCODE_UNRESOLVED emit-scope (Flow 6 §4.3)", () => {
     // trip the breaker with 3 consecutive res.error calls on THROWAWAY results, then a 4th call
     // (breaker open) must NOT emit.
     const d = deps({ geocode: vi.fn(async () => ({ error: { kind: "down" } }) as never) });
-    for (let i = 0; i < 3; i++) await enrichVenueGeocode(makeResult({ name: `V${i}`, address: "A" }), d);
+    for (let i = 0; i < 3; i++)
+      await enrichVenueGeocode(makeResult({ name: `V${i}`, address: "A" }), d);
     const r = makeResult({ name: "AfterBreaker", address: "A" });
     await enrichVenueGeocode(r, d); // breaker open → early return, no geocode call, no emit
     expect(geoWarns(r)).toHaveLength(0);

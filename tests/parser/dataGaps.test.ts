@@ -321,7 +321,11 @@ describe("selectActionableForDisplay (read-boundary seam)", () => {
 });
 
 describe("summarizeAutoFixes (6.3 sibling)", () => {
-  const w = (code: string, severity: "warn" | "info" = "warn") => ({ code, severity, message: code });
+  const w = (code: string, severity: "warn" | "info" = "warn") => ({
+    code,
+    severity,
+    message: code,
+  });
 
   it("counts only the five *_AUTOCORRECTED warn codes", () => {
     const s = summarizeAutoFixes([
@@ -362,8 +366,11 @@ describe("summarizeAutoFixes (6.3 sibling)", () => {
 
   it("formatAutoFixBreakdown caps at 4 classes with +N more, count-desc order", () => {
     const s = summarizeAutoFixes([
-      w("STAGE_WORD_AUTOCORRECTED"), w("STAGE_WORD_AUTOCORRECTED"), w("STAGE_WORD_AUTOCORRECTED"),
-      w("ROLE_TOKEN_AUTOCORRECTED"), w("ROLE_TOKEN_AUTOCORRECTED"),
+      w("STAGE_WORD_AUTOCORRECTED"),
+      w("STAGE_WORD_AUTOCORRECTED"),
+      w("STAGE_WORD_AUTOCORRECTED"),
+      w("ROLE_TOKEN_AUTOCORRECTED"),
+      w("ROLE_TOKEN_AUTOCORRECTED"),
       w("COLUMN_HEADER_AUTOCORRECTED"),
       w("SECTION_HEADER_AUTOCORRECTED"),
       w("FIELD_LABEL_AUTOCORRECTED"),

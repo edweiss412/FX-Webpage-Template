@@ -75,7 +75,9 @@ describe("hasRecoveredToBaseline (recovery ≠ ¬opener)", () => {
 
 describe("regressionKind (tuned rule, single-sourced — Flow 6 §3.3)", () => {
   it("consts carry the tuned values", () => {
-    expect([REGRESSION_ABS_JUMP, REGRESSION_REL_FACTOR, REGRESSION_REL_ABS_FLOOR]).toEqual([5, 1.5, 2]);
+    expect([REGRESSION_ABS_JUMP, REGRESSION_REL_FACTOR, REGRESSION_REL_ABS_FLOOR]).toEqual([
+      5, 1.5, 2,
+    ]);
   });
   it("new class: p=0,n>0 → 'new'", () => expect(regressionKind(0, 1)).toBe("new"));
   it("no change on 0,0 / recovery → null", () => {
