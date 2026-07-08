@@ -181,6 +181,19 @@ it("gates Undo all behind a confirm step, then dispatches undo for each undoable
   });
 });
 
+it("moves focus to the safe 'Keep changes' control when the Undo-all confirm opens", async () => {
+  // WCAG 2.4.3 + accidental-bulk-undo safety: the destructive confirm must not
+  // land keyboard focus on the destructive button. Mirrors ReSyncButton.
+  const actions = noopActions();
+  render(<RecentAutoAppliedStrip data={okData()} actions={actions} />);
+
+  const fin = screen.getByTestId(`auto-applied-group-${FIN_ID}`);
+  fireEvent.click(within(fin).getByTestId(`auto-applied-undo-all-${FIN_ID}`));
+
+  const cancelBtn = within(fin).getByTestId(`auto-applied-undo-all-cancel-${FIN_ID}`);
+  await waitFor(() => expect(cancelBtn).toHaveFocus());
+});
+
 it("renders the overflow line when overflowCount > 0", () => {
   render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
   const overflow = screen.getByTestId("auto-applied-overflow");

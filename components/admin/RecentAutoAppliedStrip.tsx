@@ -20,7 +20,7 @@
 //   - data.kind === "infra_error" → a bounded, plain-language sentence; the raw
 //     kind token and internal message NEVER reach the DOM (invariant 5).
 "use client";
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import type {
   AutoAppliedGroup,
   AutoAppliedRow,
@@ -76,7 +76,7 @@ function StripRow({
       <span className="inline-flex shrink-0 items-center rounded-sm border border-border bg-surface-sunken px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-text-subtle">
         {kindLabel(row.changeKind)}
       </span>
-      <span className="flex-1 text-sm text-text-strong">{row.summary}</span>
+      <span className="flex-1 wrap-break-word text-sm text-text-strong">{row.summary}</span>
       <span className="flex flex-wrap items-center gap-2">
         <AcceptChangeButton
           acceptAction={actions.acceptChangeAction}
@@ -100,6 +100,14 @@ function GroupSection({
   const [confirming, setConfirming] = useState(false);
   const [pending, startTransition] = useTransition();
   const undoableCount = group.undoableIds.length;
+
+  // Focus the safe "Keep changes" control when the confirm opens — mirrors
+  // ReSyncButton's keepCurrentRef pattern (WCAG 2.4.3). Prevents a stray Enter
+  // from firing the destructive bulk undo the instant the panel appears.
+  const keepChangesRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    if (confirming) keepChangesRef.current?.focus();
+  }, [confirming]);
 
   function confirmUndoAll() {
     // Dispatch undoFromDashboardAction once per undoableId. Each undo self-resolves
@@ -155,6 +163,7 @@ function GroupSection({
           </p>
           <div className="flex flex-wrap gap-2">
             <button
+              ref={keepChangesRef}
               type="button"
               onClick={() => setConfirming(false)}
               disabled={pending}
@@ -201,7 +210,7 @@ export function RecentAutoAppliedStrip({
     // through ErrorExplainer, so we render a fixed sentence.
     return (
       <section data-testid="recent-auto-applied-strip" className="flex flex-col gap-2">
-        <h2 className="text-sm font-semibold text-text-strong">Recently auto-applied</h2>
+        <h4 className="text-sm font-semibold text-text-strong">Recently auto-applied</h4>
         <p
           role="status"
           data-testid="auto-applied-error"
@@ -222,7 +231,7 @@ export function RecentAutoAppliedStrip({
       className="flex flex-col gap-2"
       aria-label="Recently auto-applied changes"
     >
-      <h2 className="text-sm font-semibold text-text-strong">Recently auto-applied</h2>
+      <h4 className="text-sm font-semibold text-text-strong">Recently auto-applied</h4>
       <ul className="flex flex-col gap-2">
         {data.groups.map((group) => (
           <GroupSection key={group.showId} group={group} actions={actions} />

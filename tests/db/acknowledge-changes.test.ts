@@ -6,8 +6,6 @@
  * Commits its seed (like the Phase-4 undo tests) so the SECURITY DEFINER RPC — called from a separate
  * authed-admin transaction — sees committed rows.
  */
-import { randomUUID } from "node:crypto";
-
 import type { Sql } from "postgres";
 import { afterAll, describe, expect, it } from "vitest";
 
@@ -162,23 +160,38 @@ describe("acknowledge_changes RPC + acknowledged_at/acknowledged_by", () => {
     expect((await readAck(idB)).acknowledged_at).toBeNull();
   });
 
-  it("backfill: pre-migration auto_apply/applied rows were stamped; new rows default NULL", async () => {
-    // The one-shot forward-only backfill stamped rows that existed when the migration ran. A sentinel
-    // auto_apply/applied row was inserted BEFORE the migration (persistent drive_file_id, not swept by
-    // the 'drv-%' cleanup) so the backfill's effect is observable here.
-    const [sentinel] = await holdsSql`
-      select acknowledged_at from public.show_change_log
-      where drive_file_id = 'backfill-sentinel-show' and entity_ref = '__backfill_sentinel__'
-      limit 1`;
-    expect(sentinel).toBeTruthy();
-    expect((sentinel as { acknowledged_at: unknown }).acknowledged_at).not.toBeNull();
+  it("backfill clause stamps pre-existing auto_apply/applied rows, skips others; forward-only", async () => {
+    // Exercises the migration's one-shot backfill CLAUSE reproducibly (a fresh CI DB applies the
+    // migration against zero rows, so asserting historical state is non-portable). We seed a
+    // qualifying row + two non-qualifying rows, run the migration's exact backfill statement scoped
+    // to this test's drive_file_id (so it proves the source/status/acknowledged_at predicate without
+    // disturbing other serial DB tests' rows), and assert the selection.
+    const { showId, driveFileId } = await seedShowWithCrew([]);
+    const qualifies = await seedLog(showId, driveFileId, { change_kind: "crew_added" });
+    const wrongSource = await seedLog(showId, driveFileId, {
+      source: "mi11_approve",
+      change_kind: "crew_added",
+    });
+    const wrongStatus = await seedLog(showId, driveFileId, {
+      change_kind: "crew_removed",
+      status: "pending",
+    });
 
-    // A row inserted AFTER the migration is NOT auto-stamped (no trigger; column defaults NULL).
-    const { showId } = await seedShowWithCrew([]);
+    await holdsSql`
+      update public.show_change_log
+         set acknowledged_at = now()
+       where source = 'auto_apply' and status = 'applied' and acknowledged_at is null
+         and drive_file_id = ${driveFileId}`;
+
+    expect((await readAck(qualifies)).acknowledged_at).not.toBeNull();
+    expect((await readAck(wrongSource)).acknowledged_at).toBeNull();
+    expect((await readAck(wrongStatus)).acknowledged_at).toBeNull();
+
+    // Forward-only: a row inserted AFTER the migration defaults NULL (no trigger auto-stamps).
     const [fresh] = await holdsSql`
       insert into public.show_change_log
         (show_id, drive_file_id, source, change_kind, entity_ref, summary, status)
-      values (${showId}, ${`drv-${randomUUID()}`}, 'auto_apply', 'crew_added', 'New', 's', 'applied')
+      values (${showId}, ${driveFileId}, 'auto_apply', 'crew_added', 'New', 's', 'applied')
       returning acknowledged_at`;
     expect((fresh as { acknowledged_at: unknown }).acknowledged_at).toBeNull();
   });
