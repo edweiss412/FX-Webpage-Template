@@ -216,7 +216,7 @@ describe("VENUE_GEOCODE_UNRESOLVED emit-scope (Flow 6 §4.3)", () => {
     );
     const hits = geoWarns(r);
     expect(hits).toHaveLength(1);
-    expect(hits[0].severity).toBe("warn");
+    expect(hits[0]!.severity).toBe("warn");
     expect(r.show.venue!.city).toBeUndefined(); // still falls back to address
   });
 
