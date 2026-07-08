@@ -512,18 +512,29 @@ describe("VENUE_GEOCODE_UNRESOLVED is gateExempt (badge-visible, never gates)", 
 });
 ```
 
-And a lifecycle proof that `buildRegressionPayload` (via `evaluateQualityRegression_unlocked`) never lists geocode — add to `tests/sync/qualityRegressionLifecycle.test.ts`:
+Two lifecycle proofs — add to `tests/sync/qualityRegressionLifecycle.test.ts`:
 
 ```ts
-it("geocode-only drift (0→9 VENUE_GEOCODE_UNRESOLVED) upserts NO alert and never lists the class", async () => {
-  // drive evaluateQualityRegression_unlocked: prior {}, next {VENUE_GEOCODE_UNRESOLVED: 9}
-  // assert the upsertAdminAlert spy was NOT called (no regression), proving gateExempt in isQualityRegression
-  // AND buildRegressionPayload (the payload is never built because no alert opens).
+it("geocode-only drift (0→9 VENUE_GEOCODE_UNRESOLVED) upserts NO alert", async () => {
+  // prior {}, next {VENUE_GEOCODE_UNRESOLVED: 9}
+  // assert upsertAdminAlert spy NOT called — proves gateExempt in isQualityRegression.
+});
+
+// NON-tautological payload proof (Codex plan-R3 HIGH): a NON-exempt class must OPEN the
+// alert so buildRegressionPayload actually runs, WHILE geocode co-occurs in current.
+// Without the gateExempt skip in buildRegressionPayload, `if (n>0) breakdown[code]=n`
+// would put VENUE_GEOCODE_UNRESOLVED in breakdown — this case fails then.
+it("co-occurring geocode is EXCLUDED from the alert payload (breakdown/new_classes/worsened)", async () => {
+  // prior {FIELD_UNREADABLE: 0}, next {FIELD_UNREADABLE: 9, VENUE_GEOCODE_UNRESOLVED: 5}
+  // assert upsertAdminAlert WAS called (FIELD_UNREADABLE new class fires),
+  // AND the upserted context.breakdown has FIELD_UNREADABLE but NOT VENUE_GEOCODE_UNRESOLVED,
+  // AND context.new_classes === ["FIELD_UNREADABLE"] (geocode absent),
+  // AND context.worsened does not contain VENUE_GEOCODE_UNRESOLVED.
 });
 ```
 
 Run: `pnpm vitest run tests/parser/qualityRegressionComparator.test.ts tests/parser/dataGapsClassCompleteness.test.ts tests/sync/qualityRegressionLifecycle.test.ts`
-Expected: PASS (all three iterators proven to skip the gate-exempt class).
+Expected: PASS (all three iterators proven to skip the gate-exempt class; the payload proof is non-tautological — the alert genuinely opens and the payload is built).
 
 - [ ] **Step 5: Commit**
 
