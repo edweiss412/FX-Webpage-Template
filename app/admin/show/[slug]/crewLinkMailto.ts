@@ -23,8 +23,28 @@ const EMAIL_SHAPE = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
 
 // Unpaired surrogates (external sheet text can carry them) would make
 // encodeURIComponent throw "URI malformed" — replace with U+FFFD first.
-const UNPAIRED_SURROGATE =
-  /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+// Code-unit loop, not a lookbehind regex: this module ships in the client
+// bundle and lookbehind is a hard syntax error on older mobile browsers.
+function replaceUnpairedSurrogates(s: string): string {
+  let out = "";
+  for (let i = 0; i < s.length; i += 1) {
+    const code = s.charCodeAt(i);
+    if (code >= 0xd800 && code <= 0xdbff) {
+      const next = i + 1 < s.length ? s.charCodeAt(i + 1) : 0;
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        out += s.slice(i, i + 2);
+        i += 1;
+      } else {
+        out += "\uFFFD";
+      }
+    } else if (code >= 0xdc00 && code <= 0xdfff) {
+      out += "\uFFFD";
+    } else {
+      out += s[i]!;
+    }
+  }
+  return out;
+}
 
 export type CrewLinkMailto = { href: string; batch: number; batchCount: number };
 
@@ -62,7 +82,7 @@ export function buildCrewLinkMailtos({
   }
   if (recipients.length === 0) return [];
 
-  const trimmed = showTitle.replace(UNPAIRED_SURROGATE, "\uFFFD").trim();
+  const trimmed = replaceUnpairedSurrogates(showTitle).trim();
   // Truncate by CODE POINT, not code unit — a .slice() cutting a surrogate
   // pair would itself mint a lone surrogate and crash the encoder.
   const codePoints = Array.from(trimmed);

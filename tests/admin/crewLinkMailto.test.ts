@@ -191,6 +191,17 @@ describe("buildCrewLinkMailtos — chunking (R1) and title budget (R4)", () => {
     expect(collected).toEqual(roster);
   });
 
+  test("lone LOW surrogate title input: no URIError, replaced with U+FFFD (close-out R1)", () => {
+    const out = buildCrewLinkMailtos({
+      emails: ["a@example.com"],
+      url: URL,
+      showTitle: "bad\uDC00title",
+    });
+    expect(out).toHaveLength(1);
+    const subject = decodeURIComponent(out[0]!.href.match(/&subject=([^&]*)/)![1]!);
+    expect(subject).toBe("Crew link: bad\uFFFDtitle");
+  });
+
   test("lone-surrogate title input: no URIError, surrogate replaced with U+FFFD (plan R1)", () => {
     const out = buildCrewLinkMailtos({
       emails: ["a@example.com"],
