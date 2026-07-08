@@ -249,7 +249,6 @@ Binding rules (spec §4.3): prefix rows (TRAVEL/SET/travel_set) contribute ≤1 
 
 ```ts
 // DMY sheet, day<=12 rows: MDY reading non-monotonic, DMY monotonic → 1 warning
-expect(run(["3/10/2026", "4/10/2026", "5/10/2026", "3/11/2026"])).toHaveLength(0); // MDY already monotonic? pick fixture where MDY decreases:
 expect(run(["10/3/2026", "11/3/2026", "1/4/2026"])).toHaveLength(1); // MDY: Oct3,Nov3,Jan4 ↓; DMY: Mar10,Mar11,Apr1 ↑
 // US sheet typo: 3/25 kills DMY hypothesis → 0
 expect(run(["3/25/2026", "3/20/2026"])).toHaveLength(0);
@@ -352,7 +351,7 @@ const gapRegressed = (Object.keys(newGaps) as Array<keyof typeof newGaps>).some(
 
 Visual treatment within DESIGN.md tokens, distinct from flagged amber and clean. No new chip. `ModalSectionChrome` deep-link untouched. Transition inventory: all state pairs instant (spec §7.4); no AnimatePresence introduced. Dimensional invariants: N/A (spec §7.5).
 
-- [ ] **Step 1:** Render tests for the three visual states (assert on `data-testid`/class hooks, cloned-tree label scans per anti-tautology rule). **Step 2 (transition-audit, mandatory per AGENTS.md writing-plans rule + spec §7.4):** Test that audits the changed wizard files' animation surfaces:
+- [ ] **Step 1:** Render tests for the three visual states (assert on `data-testid`/class hooks, cloned-tree label scans per anti-tautology rule). **Step 2 (transition-audit, mandatory per AGENTS.md writing-plans rule + spec §7.4):** TWO separately-labeled test groups, different TDD roles — **(2a) static no-animation GUARD** (below; MAY be green in red phase — its job is catching chrome work adding animation later) and **(2b) RED behavioral transition tests** (the table-driven all-pairs + summary tests below; MUST FAIL before Step 3 because the judgment hooks don't exist — verify the failure and record it before implementing):
 
 ```ts
 it("no animated wrapper introduced for status states (spec §7.4: all pairs instant)", () => {
