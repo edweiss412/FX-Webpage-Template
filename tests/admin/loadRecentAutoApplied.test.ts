@@ -9,9 +9,10 @@
 // The fake client SIMULATES PostgREST WHERE filtering from the captured
 // .eq/.is/.in calls, so an exclusion assertion is real: if the loader omits a
 // filter, the row it should have excluded leaks into a group and the
-// scoped-by-id assertion fails (anti-tautology). LIMIT is deliberately NOT
-// honored by the mock (the loader owns the slice + overflow arithmetic); the
-// bound is pinned separately via the captured .limit() arg.
+// scoped-by-id assertion fails (anti-tautology). It ALSO models count:"exact":
+// `count` carries the true filtered total while `data` is bounded by the
+// captured limit — so overflowCount is proven to come from the total, not from
+// the capped row count (which production bounds and could never exceed +1).
 import { describe, expect, test } from "vitest";
 import type { loadRecentAutoApplied as LoadFn } from "@/lib/admin/loadRecentAutoApplied";
 
@@ -82,8 +83,11 @@ function makeClient(opts: FakeOpts) {
             const arr = captured.inArgs ?? [];
             rows = rows.filter((r) => arr.includes(r[col]));
           }
-          // NB: captured.limit is intentionally NOT applied (see header).
-          return Promise.resolve({ data: rows, error: null }).then(
+          // Model PostgREST count:"exact": `count` = true filtered total,
+          // `data` = the limit-bounded slice (see header).
+          const total = rows.length;
+          const data = captured.limit != null ? rows.slice(0, captured.limit) : rows;
+          return Promise.resolve({ data, count: total, error: null }).then(
             onf ?? undefined,
             onr ?? undefined,
           );
@@ -251,10 +255,12 @@ describe("loadRecentAutoApplied", () => {
     });
     if (result.kind !== "ok") throw new Error("unreachable");
     expect(result.renderedCount).toBe(STRIP_RENDER_CAP);
+    // overflowCount is the TRUE backlog (cap+3) minus the render cap = 3, sourced
+    // from count:"exact" — NOT from the capped row count (which maxes at the cap).
     expect(result.overflowCount).toBe(3);
     expect(result.groups[0]!.rows.length).toBe(STRIP_RENDER_CAP);
-    // The read is bounded at cap+1 (the +1 is the overflow probe).
-    expect(captured.limit).toBe(STRIP_RENDER_CAP + 1);
+    // The row read is bounded at exactly the render cap.
+    expect(captured.limit).toBe(STRIP_RENDER_CAP);
   });
 
   test("rosterShiftByShow: driven by rpc keyed on publishedShowIds; total=added+removed+renamed; absent shows omitted", async () => {

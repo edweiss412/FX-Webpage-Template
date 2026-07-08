@@ -93,22 +93,29 @@ export async function loadRecentAutoApplied(deps: {
   }
 
   let rawRows: RawRow[];
+  let matchedTotal: number;
   try {
-    const { data, error } = await supabase
+    // `count: "exact"` returns the TRUE total of all matching rows independent
+    // of `.limit()` (PostgREST Content-Range), so the overflow figure is the real
+    // backlog — not `rawRows.length`, which the render cap bounds. Deriving
+    // overflow from the capped row count would forever report at most +1.
+    const { data, count, error } = await supabase
       .from("show_change_log")
       .select(
         "id, show_id, change_kind, summary, occurred_at, individually_undoable, shows(slug, title)",
+        { count: "exact" },
       )
       .eq("source", "auto_apply")
       .eq("status", "applied")
       .is("acknowledged_at", null)
       .in("change_kind", [...STRIP_KINDS])
       .order("occurred_at", { ascending: false })
-      .limit(STRIP_RENDER_CAP + 1);
+      .limit(STRIP_RENDER_CAP);
     if (error) {
       return { kind: "infra_error", message: `show_change_log read failed: ${error.message}` };
     }
     rawRows = (data ?? []) as RawRow[];
+    matchedTotal = count ?? rawRows.length;
   } catch (err) {
     return {
       kind: "infra_error",
@@ -116,8 +123,7 @@ export async function loadRecentAutoApplied(deps: {
     };
   }
 
-  const matched = rawRows.length;
-  const overflowCount = Math.max(0, matched - STRIP_RENDER_CAP);
+  const overflowCount = Math.max(0, matchedTotal - STRIP_RENDER_CAP);
   const displayed = rawRows.slice(0, STRIP_RENDER_CAP);
 
   const groupMap = new Map<string, AutoAppliedGroup>();
