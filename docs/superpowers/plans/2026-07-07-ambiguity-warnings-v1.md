@@ -269,7 +269,7 @@ it("v2/v4: same, through the v2 walker", () => { /* same shape, v2 fixture */ })
 
 **Interfaces — Produces:** walker asserting spec §6 (1)(2)(4)(5): export present on every file; every declared `code` passes `isMessageCode`; five named per-file declarations exist (`crew.ts`: CREW_COLUMN_POSITIONAL_FALLBACK; `rooms.ts`: ROOM_HEADER_SPLIT_AMBIGUOUS; `hotels.ts`: both hotel codes; `dates.ts`: DATE_ORDER_SUGGESTS_DMY); `AMBIGUITY_CODES ⊆ declared codes`. NO catalog-severity assertion (retired R8).
 
-- [ ] **Step 1:** Write walker test (readdirSync over `lib/parser/blocks`, dynamic import, assert export). Run — FAIL (no file has the export). **Step 2:** Add `TRANSFORM_SITES` to every block file (enumerate transform sites per file during implementation; deferred exemption seeds per spec §6: `personalization.ts` stage-clause `deterministic`-or-already-warns, `_dimsToken.ts` consumers `deterministic`, hotels inline paths `deferred:BACKLOG`, address parsing `deferred:BACKLOG`). **Step 3:** PASS. **Step 4:** Add BACKLOG.md entries for each `deferred:` ref. **Step 5:** Commit `test(parser): transform-sites walker meta-test + per-file declarations`.
+- [ ] **Step 1:** Write walker test (readdirSync over `lib/parser/blocks`, dynamic import, assert export). Run — FAIL (no file has the export). **Step 2:** Add `TRANSFORM_SITES` to every block file (enumerate transform sites per file during implementation; deferred exemption seeds per spec §6 with CONCRETE backlog IDs: `personalization.ts` stage-clause `deterministic`-or-already-warns, `_dimsToken.ts` consumers `deterministic`, hotels inline paths `deferred:BL-PARSER-HOTEL-INLINE-AMBIGUITY`, address parsing `deferred:BL-PARSER-ADDRESS-SPLIT-AMBIGUITY` — never a bare `deferred:BACKLOG` placeholder). Walker additionally asserts every `deferred:<ref>` value matches `/^deferred:BL-[A-Z0-9-]+$/` AND the ref string appears in `BACKLOG.md`. **Step 3:** PASS. **Step 4:** Add the matching BACKLOG.md rows (same commit). **Step 5:** Commit `test(parser): transform-sites walker meta-test + per-file declarations`.
 
 ### Task 9: wizard derivations — section/row/card tri-state
 
@@ -334,7 +334,25 @@ const gapRegressed = (Object.keys(newGaps) as Array<keyof typeof newGaps>).some(
 
 Visual treatment within DESIGN.md tokens, distinct from flagged amber and clean. No new chip. `ModalSectionChrome` deep-link untouched. Transition inventory: all state pairs instant (spec §7.4); no AnimatePresence introduced. Dimensional invariants: N/A (spec §7.5).
 
-- [ ] **Step 1:** Render tests for the three visual states (assert on `data-testid`/class hooks, cloned-tree label scans per anti-tautology rule). **Step 2:** Implement chrome. **Step 3:** PASS. **Step 4:** Run `/impeccable critique` + `/impeccable audit` on the diff; fix or DEFERRED.md HIGH/CRITICAL findings. **Step 5:** Commit `feat(admin): judgment-state chrome for wizard review surfaces`.
+- [ ] **Step 1:** Render tests for the three visual states (assert on `data-testid`/class hooks, cloned-tree label scans per anti-tautology rule). **Step 2 (transition-audit, mandatory per AGENTS.md writing-plans rule + spec §7.4):** Test that audits the changed wizard files' animation surfaces:
+
+```ts
+it("no animated wrapper introduced for status states (spec §7.4: all pairs instant)", () => {
+  // static scan of the three changed component sources:
+  for (const f of ["Step3Review.tsx", "Step3SheetCard.tsx", "step3ReviewSections.tsx"]) {
+    const src = readFileSync(join(WIZARD_DIR, f), "utf8");
+    expect(src.includes("AnimatePresence")).toBe(false); // none exist today; spec forbids introducing one for these states
+    expect(src.match(/transition-(?:all|colors|opacity)/g) ?? []).toEqual(
+      /* pin to the file's PRE-EXISTING count captured at implementation time — status chrome must not add new ones */
+      expect.anything(), // implementer replaces with exact literal count
+    );
+  }
+});
+// behavioral: re-render a card from judgment → needs-look props and assert the new class is present
+// synchronously (no waitFor needed = instant), covering clean↔judgment, clean↔flagged, judgment↔flagged pairs.
+```
+
+  Spec §7.4 inventory inlined: 3 pairs (clean↔judgment, clean↔flagged, judgment↔flagged) + summary counts — ALL instant, no compound transitions, callout expand/collapse unchanged. **Step 3:** Implement chrome. **Step 4:** PASS. **Step 5:** Run `/impeccable critique` + `/impeccable audit` on the diff; fix or DEFERRED.md HIGH/CRITICAL findings. **Step 6:** Commit `feat(admin): judgment-state chrome for wizard review surfaces`.
 
 ### Task 12: close-out gates
 
