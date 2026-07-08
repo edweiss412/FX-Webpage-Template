@@ -168,17 +168,48 @@ export function summarizeDataGaps(
   return { total, classes };
 }
 
+// Tuned published-show regression thresholds (Flow 6 §3.3). Single-sourced named
+// consts so the gate literals live in ONE place and the tests derive from them.
+export const REGRESSION_ABS_JUMP = 5;
+export const REGRESSION_REL_FACTOR = 1.5;
+export const REGRESSION_REL_ABS_FLOOR = 2;
+
+/** True iff the GAP_CLASSES entry is exempt from the push-alert regression gate
+ * (badge-visible but never trips RESYNC_QUALITY_REGRESSED — e.g. transient
+ * geocode failures). Read via a widening cast because GAP_CLASSES is `as const`
+ * and only the exempt entries carry the flag. */
+const isGateExempt = (c: (typeof GAP_CLASSES)[number]): boolean =>
+  (c as { gateExempt?: boolean }).gateExempt === true;
+
 /**
- * OPENER dual-gate (spec §6.3): does `next` represent a materially worse parse than `prior`?
- * Fires when EITHER a new gap class appears (0→>0, no magnitude gate) OR an existing class
- * worsens by >=5 absolute AND >=50% relative. Never compares `.total` (show-intrinsic).
+ * Per-class regression classification (Flow 6 §3.3) — single-sourced by BOTH
+ * isQualityRegression (the fire decision) AND buildRegressionPayload (the "why"
+ * payload) so the two can never drift. Tuned rule: a NEW class (0→>0), OR a +5
+ * absolute jump, OR a >=1.5x relative jump WITH a +2 absolute floor (the floor
+ * suppresses 1→2 noise while catching 3→7 drift).
+ */
+export function regressionKind(p: number, n: number): "new" | "worsened" | null {
+  if (p === 0 && n > 0) return "new";
+  if (
+    p > 0 &&
+    (n - p >= REGRESSION_ABS_JUMP ||
+      (n >= p * REGRESSION_REL_FACTOR && n - p >= REGRESSION_REL_ABS_FLOOR))
+  ) {
+    return "worsened";
+  }
+  return null;
+}
+
+/**
+ * OPENER (spec §6.3, tuned Flow 6 §3.3): does `next` represent a materially worse
+ * parse than `prior`? Fires iff any NON-gate-exempt class has a non-null
+ * regressionKind. Never compares `.total` (show-intrinsic). Called only from the
+ * cron applied epilogue (the caller's guard scopes it to published shows).
  */
 export function isQualityRegression(prior: DataGapsSummary, next: DataGapsSummary): boolean {
-  for (const { code } of GAP_CLASSES) {
-    const p = prior.classes[code];
-    const n = next.classes[code];
-    if (p === 0 && n > 0) return true; // rule 1: new class
-    if (p > 0 && n - p >= 5 && n >= p * 1.5) return true; // rule 2: +5 abs AND +50% rel
+  for (const c of GAP_CLASSES) {
+    if (isGateExempt(c)) continue;
+    if (regressionKind(prior.classes[c.code], next.classes[c.code]) !== null) return true;
   }
   return false;
 }
@@ -192,8 +223,9 @@ export function hasRecoveredToBaseline(
   baseline: DataGapsSummary,
   current: DataGapsSummary,
 ): boolean {
-  for (const { code } of GAP_CLASSES) {
-    if (current.classes[code] > baseline.classes[code]) return false;
+  for (const c of GAP_CLASSES) {
+    if (isGateExempt(c)) continue; // a gate-exempt class never opens an alert → must not block recovery
+    if (current.classes[c.code] > baseline.classes[c.code]) return false;
   }
   return true;
 }
