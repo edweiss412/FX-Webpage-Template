@@ -66,7 +66,7 @@ async function callAckNonAdmin(
     return { forbidden: false };
   } catch (err) {
     const e = err as { code?: string };
-    return { forbidden: e.code === "42501", errcode: e.code };
+    return { forbidden: e.code === "42501", ...(e.code ? { errcode: e.code } : {}) };
   }
 }
 
