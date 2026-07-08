@@ -266,6 +266,12 @@ export const SPEC_CODES = {
     "followUp": "Crew → check back later",
     "helpfulContext": null,
   },
+  "DATE_ORDER_SUGGESTS_DMY": {
+    "crewFacing": null,
+    "dougFacing": "The dates in _<sheet-name>_ look out of order the way we read them (month first). If you wrote them day-first, fix the dates in the sheet — we may have every date wrong.",
+    "followUp": "Doug → fix sheet dates",
+    "helpfulContext": "The show dates only line up in chronological order if we read them day-first (like 10/3 meaning 3 October), but we read them month-first (10 March). That usually means the sheet was written day-first. If so, every date we parsed may be wrong — fix the dates in the sheet to an unambiguous format (like 'June 24') and we'll re-read them.",
+  },
   "DAY_RESTRICTION_DOUBLE_LOCATION": {
     "crewFacing": null,
     "dougFacing": "_<crew-name>_ has day restrictions written in both the name and role cells. We're using the role-cell one. Remove the duplicate so the schedule stays clear.",
@@ -397,6 +403,18 @@ export const SPEC_CODES = {
     "dougFacing": null,
     "followUp": "Crew → text Doug",
     "helpfulContext": null,
+  },
+  "HOTEL_CARDINALITY_EXCEEDED": {
+    "crewFacing": null,
+    "dougFacing": "_<sheet-name>_ lists more than 4 hotels — we kept the first 4. Remove old hotel blocks from the sheet if this is wrong.",
+    "followUp": "Doug → trim hotel list",
+    "helpfulContext": "This sheet lists more than four hotels, and we only keep the first four. The extras were dropped. If an old or duplicate hotel block is still in the sheet, remove it so the four we keep are the right ones.",
+  },
+  "HOTEL_GUEST_SPLIT_AMBIGUOUS": {
+    "crewFacing": null,
+    "dougFacing": "A guest line in _<sheet-name>_'s hotel section may contain more than one person — check the hotel guest list against your sheet.",
+    "followUp": "Doug → spot-check hotel guests",
+    "helpfulContext": "A guest cell in this sheet's hotel section looked like it might contain more than one person glued together (several names in a row, or a stray number between names), so we made a judgment call about where one guest ends and the next begins. The guests still parsed; check the hotel guest list against your sheet in case two people were merged or one was split.",
   },
   "IDEMPOTENCY_IN_FLIGHT": {
     "crewFacing": "Hold on, your previous report is still processing. Try again in a moment.",
@@ -1009,6 +1027,12 @@ export const SPEC_CODES = {
     "dougFacing": "We read a likely-misspelled role in _<crew-name>_'s cell (for example 'Content Cretion' as 'Content Creation') and used the corrected version. If it was intentional, update the sheet.",
     "followUp": "Doug → optional fix",
     "helpfulContext": "A multi-word role in this crew member's cell looked misspelled (e.g. 'Content Cretion'), so we read it as the closest real role ('Content Creation') and used that. If the spelling was intentional, update the sheet.",
+  },
+  "ROOM_HEADER_SPLIT_AMBIGUOUS": {
+    "crewFacing": null,
+    "dougFacing": "We had to make a judgment call splitting a room line in _<sheet-name>_ into name and dimensions — check the rooms section against your sheet.",
+    "followUp": "Doug → spot-check rooms",
+    "helpfulContext": "A room line in this sheet could be split into a room name and its dimensions in more than one way — for example the dimensions came before the name, or there were two dimension groups — so we picked the most likely reading. The room still parsed; the name or dimensions might have landed slightly off. Check the rooms section against your sheet.",
   },
   "SCHEDULE_STRIKE_DATE_OFF_SCHEDULE": {
     "crewFacing": null,
