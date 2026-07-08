@@ -521,10 +521,12 @@ git commit --no-verify -m "feat(parser): geocode gap class (gateExempt — badge
 
 **Files:**
 - Modify: `lib/sync/enrichVenueGeocode.ts:98-101`
-- Test: `lib/sync/enrichVenueGeocode.test.ts` (or `tests/sync/enrichVenueGeocode.test.ts` — locate the existing test at implementation time via `grep -rl enrichVenueGeocode tests lib`)
+- Test: `tests/sync/enrichVenueGeocode.test.ts`
 
 **Interfaces:**
 - Consumes: `result.warnings` (mutable `ParseWarning[]` on `ParseResult`).
+
+**MANDATORY pre-req (Codex plan-R1 finding):** the existing `makeResult` helper (`tests/sync/enrichVenueGeocode.test.ts:17`) is `return { show: { venue } } as unknown as ParseResult;` — it does **not** seed `warnings`, so the new `result.warnings.push(...)` would throw `Cannot read properties of undefined`. **First** widen the helper to `return { show: { venue }, warnings: [] } as unknown as ParseResult;`. Production `result` always carries `warnings` (typed non-optional `ParseWarning[]`; the sole caller `enrichWithDrivePins.ts:423` passes a full `ParseResult`), so the impl does NOT add a defensive coalesce — the type guarantees the array; the fixture just has to match the real shape.
 
 - [ ] **Step 1: Write the failing test**
 
@@ -532,7 +534,7 @@ Add cases proving the emit is scoped to `res.error` ONLY:
 
 ```ts
 it("pushes VENUE_GEOCODE_UNRESOLVED exactly once on res.error", async () => {
-  const result = mkResult({ venue: { name: "The Hall", address: "1 Main St" } });
+  const result = makeResult({ venue: { name: "The Hall", address: "1 Main St" } });
   await enrichVenueGeocode(result, {
     isConfigured: () => true,
     cacheRead: async () => ({ kind: "miss" }),
@@ -546,12 +548,12 @@ it("pushes VENUE_GEOCODE_UNRESOLVED exactly once on res.error", async () => {
 
 it("does NOT emit when unconfigured / breaker-open / null-city success / cache hit", async () => {
   // unconfigured:
-  const r1 = mkResult({ venue: { name: "H", address: "A" } });
+  const r1 = makeResult({ venue: { name: "H", address: "A" } });
   await enrichVenueGeocode(r1, { isConfigured: () => false, cacheRead: async () => ({ kind: "miss" }), cacheWrite: async () => {}, geocode: async () => ({}) as never });
   expect(r1.warnings.some((w) => w.code === "VENUE_GEOCODE_UNRESOLVED")).toBe(false);
 
   // geocode SUCCESS with null city:
-  const r2 = mkResult({ venue: { name: "H", address: "A" } });
+  const r2 = makeResult({ venue: { name: "H", address: "A" } });
   await enrichVenueGeocode(r2, { isConfigured: () => true, cacheRead: async () => ({ kind: "miss" }), cacheWrite: async () => {}, geocode: async () => ({ data: { city: null } }) as never });
   expect(r2.warnings.some((w) => w.code === "VENUE_GEOCODE_UNRESOLVED")).toBe(false);
 });
