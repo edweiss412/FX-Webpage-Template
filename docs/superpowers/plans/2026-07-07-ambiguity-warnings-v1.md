@@ -173,6 +173,26 @@ it("no warn on plain 3-operand dims", () => {
   expect(agg.warnings.some((x) => x.code === "ROOM_HEADER_SPLIT_AMBIGUOUS")).toBe(false);
 });
 it("dropped placeholder room emits nothing (spec §11.7)", () => { /* placeholder fixture, assert zero */ });
+// branch (b): dims-leading header — name reconstructed after leading dims strip
+it("warns on dims-leading header, field=name", () => {
+  const agg = newAggregator();
+  parseRooms(fixtureWith("BREAKOUT 1 50' x 40' LASALLE"), agg);
+  const w = agg.warnings.filter((x) => x.code === "ROOM_HEADER_SPLIT_AMBIGUOUS");
+  expect(w).toHaveLength(1);
+  expect(w[0]!.blockRef).toMatchObject({ kind: "rooms", field: "name" });
+});
+// branch (c): degenerate residual name from a non-trivial raw
+it("warns when strip leaves an empty/degenerate name", () => {
+  const agg = newAggregator();
+  parseRooms(fixtureWith("BREAKOUT 1 50' x 40'"), agg); // raw non-trivial, name residual empty
+  expect(agg.warnings.filter((x) => x.code === "ROOM_HEADER_SPLIT_AMBIGUOUS")).toHaveLength(1);
+});
+// exact-once across persisting caller shapes: one warning per KEPT room per fixture
+it("emits exactly once per kept room for gs / breakout / additional shapes", () => {
+  // three fixtures, one per RoomKind entry path (rooms.ts:957 gs, :1140 breakout, :1404 additional),
+  // each with one ambiguous header → each yields exactly 1 warning with kind:"rooms"
+});
+// rejected candidate emits nothing: ambiguous header on a room the placeholder gate drops
 ```
 
 (Adapt `fixtureWith`/`parseRooms` names to the file's real test harness — the existing rooms tests show the entry point; keep assertions against `agg.warnings`, never rendered output.)
@@ -188,7 +208,7 @@ it("dropped placeholder room emits nothing (spec §11.7)", () => { /* placeholde
 
 Predicates (spec §4.2, exact): fallback segment with ≥4 name-like tokens (`/^[\p{L}][\p{L}\p{M}.'-]*$/u` per whitespace-split token) OR interior `/\d{4,}/` run (match neither at index 0 nor segment end); tail-branch append.
 
-- [ ] **Step 1:** Failing tests: glued 4-token fallback cell → exactly 1 warning; "Mary St. Claire" → 0; "José Núñez-Marín" → 0; multi-segment cell with both branches → exactly 1; two ambiguous cells → 2; >4 hotels fixture through `parseHotels(..., agg)` → `HOTEL_CARDINALITY_EXCEEDED` in `agg.warnings` with `severity:"warn"`, `blockRef:{kind:"hotels"}` AND counted by `summarizeDataGaps`.
+- [ ] **Step 1:** Failing tests: glued 4-token fallback cell → exactly 1 warning; "Mary St. Claire" → 0; "José Núñez-Marín" → 0; **interior digit-run independent of token count**: "Bob Smith 103317 Jones" (3 name-like tokens, interior `\d{4,}` unconsumed) → 1 warning; boundary digit runs: "103317 Bob Smith" and "Bob Smith 103317" (run at index 0 / segment end, <4 tokens) → 0; multi-segment cell with both branches → exactly 1; two ambiguous cells → 2; >4 hotels fixture through `parseHotels(..., agg)` → `HOTEL_CARDINALITY_EXCEEDED` in `agg.warnings` with `severity:"warn"`, `blockRef:{kind:"hotels"}` AND counted by `summarizeDataGaps`.
 - [ ] **Step 2:** FAIL. **Step 3:** Implement (thread `agg` into the hotels path — signature change `parseHotels(markdown, agg?)` if not already threaded; keep `log.warn` telemetry alongside if desired, delete local `warn()` when orphaned; the no-inline-email guard scans lib/sync+lib/drive not parser, but re-run `tests/admin/no-inline-email-normalization.test.ts` anyway if any `.toLowerCase()/.trim()` added). **Step 4:** PASS + full hotels tests. **Step 5:** Commit `feat(parser): HOTEL_GUEST_SPLIT_AMBIGUOUS + promote HOTEL_CARDINALITY_EXCEEDED to ParseWarning`.
 
 ### Task 7: dates site — `collectDateTokens` + `DATE_ORDER_SUGGESTS_DMY`
@@ -237,7 +257,7 @@ expect(run(["3/25/2026", "3/20/2026"])).toHaveLength(0);
 
 **Interfaces — Consumes:** `isAmbiguityCode` (Task 3), `DATA_GAP_CODES` (`dataGaps.ts:72`). **Produces:** `sectionStatus(warnings): "flagged" | "judgment" | "clean"`; row buckets N/M/K within `publishRows` only; FIELD_LABELS = `{ dims: "dimensions", name: "room name", guests: "guest list", order: "date order" }`, unknown → omit phrase.
 
-- [ ] **Step 1:** Failing derivation tests (all from spec §10): mixed-warning row (non-gap warn + ambiguity gap → row judgment, section flagged); M=0 renders two-state summary; blocking rows excluded; set-aside excluded; missing-preview row stays needs-look despite ambiguity; finalize-failure likewise; N+M+K === publishRows.length; ambiguity-only section → judgment; ambiguity+non-ambiguity section → flagged; FIELD_LABELS unknown-value omission.
+- [ ] **Step 1:** Failing derivation tests (all from spec §10): mixed-warning row (non-gap warn + ambiguity gap → row judgment, section flagged); **gap-mixed row precedence** (`FIELD_UNREADABLE` + `ROOM_HEADER_SPLIT_AMBIGUOUS` on one row → needs-look (K), counted once, NOT judgment — precedence needs-look > judgment > clean); M=0 renders two-state summary; blocking rows excluded; set-aside excluded; missing-preview row stays needs-look despite ambiguity; finalize-failure likewise; N+M+K === publishRows.length; ambiguity-only section → judgment; ambiguity+non-ambiguity section → flagged; FIELD_LABELS unknown-value omission.
 - [ ] **Step 2:** FAIL. **Step 3:** Implement:
 
 ```ts
