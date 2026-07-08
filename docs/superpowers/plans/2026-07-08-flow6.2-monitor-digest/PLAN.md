@@ -582,7 +582,7 @@ export async function buildMonitorDigestModel(
   }
 }
 
-function groupAutoApplied(rows: AutoApplyRow[]): MonitorShowGroup[] {
+export function groupAutoApplied(rows: AutoApplyRow[]): MonitorShowGroup[] {
   const groups = new Map<string, MonitorShowGroup>();
   for (const r of rows) {
     const g = groups.get(r.show_id) ?? { showTitle: r.title, slug: r.slug, items: [] };
@@ -591,6 +591,24 @@ function groupAutoApplied(rows: AutoApplyRow[]): MonitorShowGroup[] {
   }
   return [...groups.values()];
 }
+```
+
+- [ ] **Step 5b: Add a DIRECT pure-helper unit test** to `tests/notify/monitorDigest.autoApplied.test.ts` (proves grouping independent of SQL):
+
+```typescript
+import { groupAutoApplied } from "@/lib/notify/monitorDigest";
+
+test("groupAutoApplied groups by show_id, preserves row order within a show", () => {
+  const groups = groupAutoApplied([
+    { show_id: "s1", slug: "east", title: "East", summary: "Added Jane", occurred_at: "t2" },
+    { show_id: "s1", slug: "east", title: "East", summary: "Renamed Bob", occurred_at: "t1" },
+    { show_id: "s2", slug: "west", title: "West", summary: "Removed Al", occurred_at: "t3" },
+  ] as never);
+  expect(groups).toEqual([
+    { showTitle: "East", slug: "east", items: ["Added Jane", "Renamed Bob"] },
+    { showTitle: "West", slug: "west", items: ["Removed Al"] },
+  ]);
+});
 ```
 
 > Note (implementer): `AutoFixSummary["classes"]` is `Record<AutoFixCode, number>`; the `{}` cast is a placeholder replaced by a real zero-record in Task 6. If typecheck complains before Task 6, import `summarizeAutoFixes` and seed `summarizeAutoFixes([]).classes`.
@@ -634,32 +652,33 @@ Add the autocorrect query to `buildMonitorDigestModel`: `sync_log ⋈ shows ON d
 
 ```typescript
 import { describe, expect, test } from "vitest";
-import { buildMonitorDigestModel } from "@/lib/notify/monitorDigest";
+import { accumulateAutoFixes } from "@/lib/notify/monitorDigest";
 
-function recordingSql(rowsByCall: unknown[][]) {
-  let i = 0;
-  const fn = (async () => rowsByCall[i++] ?? []) as never;
-  return fn;
-}
-
-describe("buildMonitorDigestModel — autofix roll-up (spec §3, §13.4)", () => {
-  test("counts only autocorrect classes; skips leading payload object", async () => {
-    const eligibleRow = {
-      parse_warnings: [
-        { kind: "delta", outcome: "applied", code: null }, // payload object — skipped
-        { code: "STAGE_WORD_AUTOCORRECTED", severity: "warn", message: "a" },
-        { code: "STAGE_WORD_AUTOCORRECTED", severity: "warn", message: "b" },
-        { code: "FIELD_UNREADABLE", severity: "warn", message: "gap" }, // not an autofix
-      ],
-    };
-    // Query 1 = autoApplied ([]), Query 2 = autofix rows, Query 3 = drift ([]).
-    const sql = recordingSql([[], [eligibleRow], []]);
-    const wm = async () => ({ kind: "value" as const, watermark: new Date("2026-07-08T00:00:00Z") });
-    const r = await buildMonitorDigestModel(new Date("2026-07-08T12:00:00Z"), { sql, getWatermark: wm });
-    if (r.kind !== "ok") throw new Error(`expected ok, got ${r.kind}`);
-    expect(r.model.autofix.total).toBe(2);
-    expect(r.model.autofix.classes.STAGE_WORD_AUTOCORRECTED).toBe(2);
-    expect(r.model.autofix.classes.FIELD_LABEL_AUTOCORRECTED).toBe(0);
+describe("accumulateAutoFixes (spec §3, §13.4)", () => {
+  test("counts only autocorrect classes across rows; skips leading payload object", () => {
+    const rows = [
+      {
+        parse_warnings: [
+          { kind: "delta", outcome: "applied", code: null }, // payload object — skipped (no severity)
+          { code: "STAGE_WORD_AUTOCORRECTED", severity: "warn", message: "a" },
+          { code: "FIELD_UNREADABLE", severity: "warn", message: "gap" }, // not an autofix
+        ],
+      },
+      {
+        parse_warnings: [
+          { code: "STAGE_WORD_AUTOCORRECTED", severity: "warn", message: "b" },
+          { code: "ROLE_TOKEN_AUTOCORRECTED", severity: "warn", message: "c" },
+        ],
+      },
+    ];
+    const s = accumulateAutoFixes(rows);
+    expect(s.total).toBe(3);
+    expect(s.classes.STAGE_WORD_AUTOCORRECTED).toBe(2);
+    expect(s.classes.ROLE_TOKEN_AUTOCORRECTED).toBe(1);
+    expect(s.classes.FIELD_LABEL_AUTOCORRECTED).toBe(0);
+  });
+  test("empty rows → total 0", () => {
+    expect(accumulateAutoFixes([]).total).toBe(0);
   });
 });
 ```
@@ -667,7 +686,7 @@ describe("buildMonitorDigestModel — autofix roll-up (spec §3, §13.4)", () =>
 - [ ] **Step 2: Run to verify failure**
 
 Run: `pnpm vitest run tests/notify/monitorDigest.autofix.test.ts`
-Expected: FAIL — `autofix.total` is 0 (stub).
+Expected: FAIL — `accumulateAutoFixes` not exported yet.
 
 - [ ] **Step 3: Implement** — in `monitorDigest.ts`, add the query + aggregation. Import `summarizeAutoFixes`. Replace the autofix stub:
 
@@ -688,7 +707,7 @@ const autofix = accumulateAutoFixes(autofixRows);
 with the helper (import `summarizeAutoFixes`, `AUTO_FIX_CLASSES`, `type AutoFixCode` from `@/lib/parser/dataGaps`):
 
 ```typescript
-function accumulateAutoFixes(rows: { parse_warnings: unknown[] }[]): AutoFixSummary {
+export function accumulateAutoFixes(rows: { parse_warnings: unknown[] }[]): AutoFixSummary {
   const classes = Object.fromEntries(AUTO_FIX_CLASSES.map((c) => [c.code, 0])) as AutoFixSummary["classes"];
   let total = 0;
   for (const row of rows) {
@@ -699,6 +718,8 @@ function accumulateAutoFixes(rows: { parse_warnings: unknown[] }[]): AutoFixSumm
   return { total, classes };
 }
 ```
+
+The Task-6 unit test (`tests/notify/monitorDigest.autofix.test.ts`, Step 1) tests `accumulateAutoFixes` **directly** (import it), injecting rows whose `parse_warnings` include a leading payload object + mixed autocorrect/gap warnings, asserting the payload is skipped and only autocorrect classes are summed — rather than routing through `buildMonitorDigestModel`. (The `.db.test.ts`, Step 4, covers the SQL filter separately.)
 
 Update the initial `autofix` stub line to `let autofix: AutoFixSummary = accumulateAutoFixes([]);` before the query, then reassign; and replace the Task-5 placeholder `const autofix = { total: 0, classes: {} ... }` accordingly.
 
@@ -745,38 +766,47 @@ Construct fixtures where the drift query returns, per show, a baseline row and a
 ```typescript
 import { describe, expect, test } from "vitest";
 import { regressionKind } from "@/lib/parser/dataGaps";
-import { buildMonitorDigestModel } from "@/lib/notify/monitorDigest";
+import { computeDrift } from "@/lib/notify/monitorDigest";
 
-// Helper: build a sync_log-shaped drift row (one per show × baseline/current).
+// Build a paired sync_log-shaped drift row (the query returns one baseline + one current per show).
 function driftRow(driveFileId: string, slug: string, title: string, phase: "baseline" | "current", warnings: { code: string }[]) {
   return {
     drive_file_id: driveFileId, slug, title, phase,
     parse_warnings: warnings.map((w) => ({ ...w, severity: "warn", message: "x" })),
   };
 }
+const fillGap = (code: string, n: number) => Array(n).fill({ code });
 
-function seq(rowsByCall: unknown[][]) { let i = 0; return (async () => rowsByCall[i++] ?? []) as never; }
-
-describe("buildMonitorDigestModel — sub-threshold drift (spec §3.1, §13.5)", () => {
+describe("computeDrift (spec §3.1, §13.5)", () => {
   test("boundary derived from regressionKind", () => {
     expect(regressionKind(10, 11)).toBeNull();      // sub-threshold
     expect(regressionKind(0, 3)).toBe("new");        // regression
     expect(regressionKind(4, 6)).toBe("worsened");   // regression
   });
 
-  test("reports only genuine sub-threshold, non-gateExempt movement", async () => {
-    const driftRows = [
-      driftRow("f1", "east", "East", "baseline", Array(10).fill({ code: "FIELD_UNREADABLE" })),
-      driftRow("f1", "east", "East", "current", Array(11).fill({ code: "FIELD_UNREADABLE" })),
+  test("reports genuine sub-threshold; excludes regression/gateExempt/no-baseline", () => {
+    const rows = [
+      // (a) sub-threshold 10→11 → REPORTED
+      driftRow("f1", "east", "East", "baseline", fillGap("FIELD_UNREADABLE", 10)),
+      driftRow("f1", "east", "East", "current", fillGap("FIELD_UNREADABLE", 11)),
+      // (b) new 0→3 → EXCLUDED (regression)
       driftRow("f2", "west", "West", "baseline", []),
-      driftRow("f2", "west", "West", "current", Array(3).fill({ code: "FIELD_UNREADABLE" })), // new → excluded
+      driftRow("f2", "west", "West", "current", fillGap("FIELD_UNREADABLE", 3)),
+      // (c) worsened 4→6 → EXCLUDED (regression)
+      driftRow("f3", "north", "North", "baseline", fillGap("FIELD_UNREADABLE", 4)),
+      driftRow("f3", "north", "North", "current", fillGap("FIELD_UNREADABLE", 6)),
+      // (d) no change → EXCLUDED
+      driftRow("f4", "south", "South", "baseline", fillGap("FIELD_UNREADABLE", 2)),
+      driftRow("f4", "south", "South", "current", fillGap("FIELD_UNREADABLE", 2)),
+      // (e) gateExempt-only movement → EXCLUDED
+      driftRow("f5", "gx", "GX", "baseline", []),
+      driftRow("f5", "gx", "GX", "current", fillGap("VENUE_GEOCODE_UNRESOLVED", 2)),
+      // (f) no baseline (only current) → SKIP
+      driftRow("f6", "nb", "NB", "current", fillGap("FIELD_UNREADABLE", 11)),
     ];
-    const sql = seq([[], [], driftRows]); // autoApplied, autofix, drift
-    const wm = async () => ({ kind: "value" as const, watermark: new Date("2026-07-08T00:00:00Z") });
-    const r = await buildMonitorDigestModel(new Date("2026-07-08T12:00:00Z"), { sql, getWatermark: wm });
-    if (r.kind !== "ok") throw new Error(`expected ok, got ${r.kind}`);
-    expect(r.model.drift.map((d) => d.slug)).toEqual(["east"]);
-    expect(r.model.drift[0].classes).toEqual([{ label: "unreadable field", prior: 10, curr: 11 }]);
+    const drift = computeDrift(rows as never);
+    expect(drift.map((d) => d.slug)).toEqual(["east"]);
+    expect(drift[0].classes).toEqual([{ label: "unreadable field", prior: 10, curr: 11 }]);
   });
 });
 ```
@@ -784,7 +814,7 @@ describe("buildMonitorDigestModel — sub-threshold drift (spec §3.1, §13.5)",
 - [ ] **Step 2: Run to verify failure**
 
 Run: `pnpm vitest run tests/notify/monitorDigest.drift.test.ts`
-Expected: FAIL — `drift` is `[]` (stub).
+Expected: FAIL — `computeDrift` not exported yet.
 
 - [ ] **Step 3: Implement** — drift query + pairing + comparison. The query selects, per published show with applied rows, the latest baseline and latest current (`distinct on` or window functions). Simplest robust form:
 
@@ -810,7 +840,7 @@ import { summarizeDataGaps, isQualityRegression, GAP_CLASSES, type DataGapsSumma
 
 type DriftRow = { drive_file_id: string; slug: string | null; title: string | null; phase: "baseline" | "current"; parse_warnings: unknown[] };
 
-function computeDrift(rows: DriftRow[]): MonitorDriftEntry[] {
+export function computeDrift(rows: DriftRow[]): MonitorDriftEntry[] {
   const byShow = new Map<string, { slug: string | null; title: string | null; baseline?: DataGapsSummary; current?: DataGapsSummary }>();
   for (const r of rows) {
     const e = byShow.get(r.drive_file_id) ?? { slug: r.slug, title: r.title };
