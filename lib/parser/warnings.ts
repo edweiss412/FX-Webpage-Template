@@ -153,6 +153,71 @@ export function emitRoomSplitAmbiguity(
   });
 }
 
+/**
+ * §4.2 (2026-07-07-ambiguity-warnings-v1) — emit a `severity:"warn"` warning when
+ * `parseGuestCell` had to guess whether a structured hotel guest cell glued
+ * multiple guests together while still PRODUCING names (an AMBIGUITY_CODES member
+ * — never blocks publish). Exactly ONE warning per triggering guest CELL: the
+ * pure `parseGuestCell` returns `ambiguity.reasons` (which branch(es) fired) and
+ * the caller emits once with the whole raw cell as `rawSnippet`.
+ *
+ * `blockRef.kind` is ALWAYS `"hotels"` (KIND_TO_SECTION routes on it). `field` is
+ * always `"guests"`. `name` is the caller's parsed `hotel_name` when it is already
+ * resolved at emit time (structured left/right-slot path); when the slot's
+ * `hotel_name` is null/unresolved, `name` is OMITTED (exactOptional — the key is
+ * absent, never `undefined`) — `kind` alone routes; `name` only sharpens the
+ * callout. `message` is inline (mirrors the sibling emitters); the code is
+ * registered in §12.4 + catalog.ts so the x1 orphan-code guard passes. No-ops when
+ * `agg` is undefined.
+ */
+export const HOTEL_GUEST_SPLIT_AMBIGUOUS = "HOTEL_GUEST_SPLIT_AMBIGUOUS";
+export function emitHotelGuestSplitAmbiguity(
+  agg: ParseAggregator | undefined,
+  params: { name?: string | null; reasons: string[]; rawCell: string },
+): void {
+  if (!agg) return;
+  const rawOneLine = params.rawCell.replace(/\s+/g, " ").trim();
+  const count = params.reasons.length;
+  const spots = count === 1 ? "spot" : "spots";
+  // Build blockRef with a conditionally-present `name` (exactOptionalPropertyTypes:
+  // never assign `undefined` — omit the key entirely when the hotel is unresolved).
+  const blockRef: { kind: string; name?: string; field: string } = {
+    kind: "hotels",
+    field: "guests",
+  };
+  if (params.name) blockRef.name = params.name;
+  agg.warnings.push({
+    severity: "warn",
+    code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+    message: `Guest cell "${rawOneLine}" may glue multiple guests together (${count} ${spots}) — picked the most likely split; double-check the guest list.`,
+    blockRef,
+    rawSnippet: params.rawCell,
+  });
+}
+
+/**
+ * §4.2b (2026-07-07-ambiguity-warnings-v1) — emit a `severity:"warn"` warning when
+ * the hotel-cardinality cap truncated the reservation list (more than `cap` hotels
+ * found). This is a DETECTED PROBLEM (dropped hotels), NOT a judgment call — it is
+ * a GAP_CLASSES code but is deliberately NOT in AMBIGUITY_CODES. `blockRef` is
+ * section-scoped (`{ kind: "hotels" }`) with NO `field` — it is not a per-field
+ * judgment. The log-only `HOTELS_PARSE_WARNING` telemetry emit stays alongside
+ * (log + aggregator are not mutually exclusive). No-ops when `agg` is undefined.
+ */
+export const HOTEL_CARDINALITY_EXCEEDED = "HOTEL_CARDINALITY_EXCEEDED";
+export function emitHotelCardinalityExceeded(
+  agg: ParseAggregator | undefined,
+  params: { found: number; cap: number },
+): void {
+  if (!agg) return;
+  agg.warnings.push({
+    severity: "warn",
+    code: "HOTEL_CARDINALITY_EXCEEDED",
+    message: `Found ${params.found} hotels — only the first ${params.cap} are shown; the rest were dropped.`,
+    blockRef: { kind: "hotels" },
+  });
+}
+
 export function emitUnknownField(
   agg: ParseAggregator | undefined,
   opts: { block: string; kind: string; key: string; value: string },
