@@ -395,22 +395,16 @@ git commit --no-verify -m "fix(sync): buildRegressionPayload shares tuned regres
 - Modify: `lib/messages/catalog.ts` (new row, template = `CREW_COLUMN_POSITIONAL_FALLBACK` at L1242)
 - Modify: `app/help/errors/_families.ts` (add `VENUE` prefix to the `syncing-sheets` family)
 - Regenerate: `lib/messages/__generated__/spec-codes.ts`, `lib/messages/__generated__/internal-code-enums.ts`
-- Test: `tests/messages/` (catalog parity + internal-code-enums run automatically) + `app/help/errors/_families` test
+- Test: `tests/messages/` (catalog parity + internal-code-enums run automatically) + `tests/help/errors-grouping.test.tsx` (families)
 
 - [ ] **Step 1: Write the failing test**
 
-Run the existing message suite to capture the RED (the new code isn't in the catalog yet, so once you add the spec row the parity gate fails until catalog+gen match):
-
-```bash
-pnpm vitest run tests/messages/codes.test.ts
-```
-
-Add a `_families` assertion (in the existing families test) that `familyFor("VENUE_GEOCODE_UNRESOLVED")` returns `"syncing-sheets"`, not the `Other` fallback.
+Add a families assertion to `tests/help/errors-grouping.test.tsx` that `familyFor("VENUE_GEOCODE_UNRESOLVED")` returns `"syncing-sheets"`, not the `Other` fallback (match the file's existing `familyFor`/`FAMILIES` import + assertion style).
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm vitest run tests/messages`
-Expected: FAIL — new family assertion fails (`Other`); after adding only the spec row, catalog-parity fails.
+Run: `pnpm vitest run tests/help/errors-grouping.test.tsx && pnpm vitest run tests/messages`
+Expected: FAIL — the new family assertion returns `Other` (no `VENUE` prefix yet); and once the §12.4 spec row is added, the `tests/messages/` catalog-parity/coverage suites fail until `catalog.ts` + both `__generated__` files match. (There is no `tests/messages/codes.test.ts` in this repo — run the whole `tests/messages/` dir; `catalog.test.ts` + `codes-coverage.test.ts` carry the parity gates.)
 
 - [ ] **Step 3: Write minimal implementation**
 
@@ -503,15 +497,38 @@ Append to `GAP_CLASSES` (`lib/parser/dataGaps.ts:30-56`):
 
 (The heterogeneous entry is fine under `as const`; the `gateExempt` reads in Tasks 2/3 already tolerate its absence on the other 25.)
 
-- [ ] **Step 4: Run test to verify it passes**
+- [ ] **Step 4: Prove gateExempt across ALL THREE iterators (Codex plan-R2 HIGH)**
 
-Run: `pnpm vitest run tests/parser/dataGapsClassCompleteness.test.ts`
-Expected: PASS. Then re-run `tests/parser/qualityRegressionComparator.test.ts` to confirm the gateExempt skip means the geocode class never fires the gate (add a case: `isQualityRegression(sum({}), sum({VENUE_GEOCODE_UNRESOLVED: 9}))` → `false`).
+The skip is threaded through `isQualityRegression`, `hasRecoveredToBaseline`, AND `buildRegressionPayload` — test each, or the skip could silently regress in two of them. Add to `tests/parser/qualityRegressionComparator.test.ts`:
+
+```ts
+describe("VENUE_GEOCODE_UNRESOLVED is gateExempt (badge-visible, never gates)", () => {
+  it("isQualityRegression: geocode-only jump 0→9 does NOT fire", () =>
+    expect(isQualityRegression(sum({}), sum({ VENUE_GEOCODE_UNRESOLVED: 9 }))).toBe(false));
+
+  it("hasRecoveredToBaseline: a clean baseline stays 'recovered' even when current has geocode-only", () =>
+    // geocode is exempt → it must NOT keep an open alert from resolving
+    expect(hasRecoveredToBaseline(sum({}), sum({ VENUE_GEOCODE_UNRESOLVED: 9 }))).toBe(true));
+});
+```
+
+And a lifecycle proof that `buildRegressionPayload` (via `evaluateQualityRegression_unlocked`) never lists geocode — add to `tests/sync/qualityRegressionLifecycle.test.ts`:
+
+```ts
+it("geocode-only drift (0→9 VENUE_GEOCODE_UNRESOLVED) upserts NO alert and never lists the class", async () => {
+  // drive evaluateQualityRegression_unlocked: prior {}, next {VENUE_GEOCODE_UNRESOLVED: 9}
+  // assert the upsertAdminAlert spy was NOT called (no regression), proving gateExempt in isQualityRegression
+  // AND buildRegressionPayload (the payload is never built because no alert opens).
+});
+```
+
+Run: `pnpm vitest run tests/parser/qualityRegressionComparator.test.ts tests/parser/dataGapsClassCompleteness.test.ts tests/sync/qualityRegressionLifecycle.test.ts`
+Expected: PASS (all three iterators proven to skip the gate-exempt class).
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/parser/dataGaps.ts tests/parser/dataGapsClassCompleteness.test.ts tests/parser/qualityRegressionComparator.test.ts
+git add lib/parser/dataGaps.ts tests/parser/dataGapsClassCompleteness.test.ts tests/parser/qualityRegressionComparator.test.ts tests/sync/qualityRegressionLifecycle.test.ts
 git commit --no-verify -m "feat(parser): geocode gap class (gateExempt — badge-visible, never trips push)"
 ```
 
