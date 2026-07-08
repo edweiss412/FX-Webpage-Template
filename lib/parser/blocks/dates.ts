@@ -27,7 +27,11 @@ import {
 } from "./_helpers";
 import { matchesSectionHeader } from "./_sectionHeaderMatch";
 import type { ShowRow } from "@/lib/parser/types";
-import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
+import {
+  type ParseAggregator,
+  emitEmptySection,
+  emitDateOrderSuggestsDmy,
+} from "@/lib/parser/warnings";
 
 export const SECTION_HEADER_TOKENS = ["DATES"] as const;
 
@@ -77,8 +81,8 @@ export function parseDates(
   // detected by whether the first DATES data row has only 2 cells.
   const out =
     version === "v1" || isV1ShapedDatesBlock(markdown)
-      ? parseV1Dates(markdown, result)
-      : parseV2V4Dates(markdown, result);
+      ? parseV1Dates(markdown, result, agg)
+      : parseV2V4Dates(markdown, result, agg);
 
   // D1: the dates object is fixed-shape (never null), so an absent DATES block and
   // a present-but-unparsed one look identical to the caller. Re-probe for a DATES
@@ -133,10 +137,18 @@ function isV1ShapedDatesBlock(markdown: string): boolean {
 
 // ── v1 parser ─────────────────────────────────────────────────────────────────
 
-function parseV1Dates(markdown: string, result: ShowRow["dates"]): ShowRow["dates"] {
+function parseV1Dates(
+  markdown: string,
+  result: ShowRow["dates"],
+  agg?: ParseAggregator,
+): ShowRow["dates"] {
   const rows = parseTableRows(markdown);
   let inDatesBlock = false;
   let travelCount = 0;
+  // §4.3 — accumulate DATES-block date cells in encounter order, BEFORE the
+  // showDays.sort() below, so the sequence check sees true row order. TRAVEL/SET
+  // are prefix (normalizeDate) parses; SHOW is a multi (extractAllDates) parse.
+  const dateRows: Array<{ kind: "prefix" | "multi"; cell: string }> = [];
 
   for (const row of rows) {
     if (!inDatesBlock) {
@@ -162,6 +174,7 @@ function parseV1Dates(markdown: string, result: ShowRow["dates"]): ShowRow["date
 
     if (labelU === "TRAVEL") {
       travelCount++;
+      dateRows.push({ kind: "prefix", cell: rawValue });
       const iso = normalizeDate(rawValue);
       if (travelCount === 1) {
         result.travelIn = iso;
@@ -169,8 +182,10 @@ function parseV1Dates(markdown: string, result: ShowRow["dates"]): ShowRow["date
         result.travelOut = iso;
       }
     } else if (labelU === "SET") {
+      dateRows.push({ kind: "prefix", cell: rawValue });
       result.set = normalizeDate(rawValue);
     } else if (/^SHOW/.test(labelU)) {
+      dateRows.push({ kind: "multi", cell: rawValue });
       const allDates = extractAllDates(rawValue);
       for (const iso of allDates) {
         if (!result.showDays.includes(iso)) {
@@ -180,16 +195,27 @@ function parseV1Dates(markdown: string, result: ShowRow["dates"]): ShowRow["date
     }
   }
 
+  // §4.3 — run the block-level order check on encounter-order tokens BEFORE sort.
+  checkDateOrder(collectDateTokens(dateRows), agg);
+
   result.showDays.sort();
   return result;
 }
 
 // ── v2/v4 parser ──────────────────────────────────────────────────────────────
 
-function parseV2V4Dates(markdown: string, result: ShowRow["dates"]): ShowRow["dates"] {
+function parseV2V4Dates(
+  markdown: string,
+  result: ShowRow["dates"],
+  agg?: ParseAggregator,
+): ShowRow["dates"] {
   const rows = parseTableRows(markdown);
   let inDatesBlock = false;
   const plainTravelRows: Array<string | null> = [];
+  // §4.3 — encounter-order date cells, captured BEFORE showDays.sort(). Every v2/v4
+  // date row is a prefix (normalizeDate) parse — no multi-token extractAllDates path
+  // exists here — so every collected cell is `kind: "prefix"`.
+  const dateRows: Array<{ kind: "prefix" | "multi"; cell: string }> = [];
 
   for (const row of rows) {
     if (!inDatesBlock) {
@@ -211,6 +237,12 @@ function parseV2V4Dates(markdown: string, result: ShowRow["dates"]): ShowRow["da
     if (!label) continue;
 
     const kind = classifyLabel(label);
+
+    // §4.3 — collect the date cell (col3) for every date-bearing row, in encounter
+    // order, before any sort. All are prefix parses (the walker reads one date/row).
+    if (kind !== "unknown") {
+      dateRows.push({ kind: "prefix", cell: rawDate });
+    }
 
     switch (kind) {
       case "travel_in":
@@ -278,6 +310,9 @@ function parseV2V4Dates(markdown: string, result: ShowRow["dates"]): ShowRow["da
     }
   }
 
+  // §4.3 — run the block-level order check on encounter-order tokens BEFORE sort.
+  checkDateOrder(collectDateTokens(dateRows), agg);
+
   result.showDays.sort();
   return result;
 }
@@ -338,4 +373,164 @@ export function extractAllDates(text: string): string[] {
     }
   }
   return results;
+}
+
+// ── §4.3 DATE_ORDER_SUGGESTS_DMY — token collector + block-level sequence check ─
+//
+// A NEW dedicated pure collector (spec §4.3): `extractAllDates` cannot back this
+// check — it returns normalized ISO (no raw tokens), scans per regex family rather
+// than in true within-cell offset order, and has no numeric-dash family. The
+// collector mirrors EXACTLY what each row's real parser consumes, in cardinality
+// and family: `normalizeDate` rows (TRAVEL / SET / travel_set) are PREFIX parses —
+// at most ONE leading token, ALL families (ISO / numeric slash / numeric 4-digit-
+// year dash / longform); `extractAllDates` rows (v1 SHOW) are MULTI parses — every
+// match in within-cell offset order, NO numeric-dash family. 2-digit dash years are
+// NOT tokens (the parser rejects them). It is read-only relative to parsing.
+
+/** One collected DATES-block date token with both hypothesis readings (spec §4.3). */
+export type DateToken = { raw: string; mdyIso: string | null; dmyIso: string | null };
+
+const DOW_PREFIX_RE =
+  /^(?:Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday|Mon|Tue|Wed|Thu|Fri|Sat|Sun)\.?,?\s*/i;
+
+/**
+ * Calendar-validity builder mirroring `normalizeDate` (`_helpers.ts:178-189`):
+ * bounds ISO/dash years to 2000–2099, rejects out-of-range month/day, and rejects
+ * roll-over dates (Feb 30, Apr 31, …) via a round-trip Date construction.
+ */
+function buildIsoChecked(
+  month: number,
+  day: number,
+  year: number,
+  boundYear: boolean,
+): string | null {
+  if (boundYear && (year < 2000 || year > 2099)) return null;
+  if (month < 1 || month > 12 || day < 1 || day > 31) return null;
+  const date = new Date(year, month - 1, day);
+  if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    return null;
+  }
+  return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+}
+
+/** Dual-read a numeric `a?b?y` token: mdy = a-as-month, dmy = b-as-month. */
+function numericDualRead(
+  a: number,
+  b: number,
+  yearStr: string,
+  boundYear: boolean,
+): { mdyIso: string | null; dmyIso: string | null } {
+  const ry = parseInt(yearStr, 10);
+  // Slash 2-digit years assume 20XX (mirrors normalizeDate `:157-158`); dash years
+  // are always 4-digit so this is a no-op for them.
+  const year = ry < 100 ? 2000 + ry : ry;
+  return {
+    mdyIso: buildIsoChecked(a, b, year, boundYear),
+    dmyIso: buildIsoChecked(b, a, year, boundYear),
+  };
+}
+
+/** ISO / longform tokens are fixed points — the single parsed value fills BOTH reads. */
+function fixedPointToken(raw: string): DateToken {
+  const iso = normalizeDate(raw);
+  return { raw, mdyIso: iso, dmyIso: iso };
+}
+
+/** Classify a single already-isolated date token into a DateToken (with dual read). */
+function tokenFromRaw(raw: string, allowDash: boolean): DateToken | null {
+  if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(raw)) return fixedPointToken(raw);
+  const slash = raw.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if (slash) return { raw, ...numericDualRead(+slash[1]!, +slash[2]!, slash[3]!, false) };
+  if (allowDash) {
+    const dash = raw.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/); // 4-digit year ONLY
+    if (dash) return { raw, ...numericDualRead(+dash[1]!, +dash[2]!, dash[3]!, true) };
+  }
+  // Longform (already matched upstream) — fixed point.
+  return fixedPointToken(raw);
+}
+
+/** Read at most the LEADING date token of a prefix cell (mirrors normalizeDate precedence). */
+function leadingToken(cell: string): DateToken | null {
+  const s = cell.replace(DOW_PREFIX_RE, "");
+  const iso = s.match(/^\d{4}-\d{1,2}-\d{1,2}\b/);
+  if (iso) return fixedPointToken(iso[0]);
+  const slash = s.match(/^\d{1,2}\/\d{1,2}\/\d{2,4}/);
+  if (slash) return tokenFromRaw(slash[0], false);
+  const dash = s.match(/^\d{1,2}-\d{1,2}-\d{4}\b/); // 4-digit year ONLY; 2-digit is not a token
+  if (dash) return tokenFromRaw(dash[0], true);
+  const lfMDY = s.match(LONGFORM_MDY_RE);
+  if (lfMDY && lfMDY.index === 0) return fixedPointToken(lfMDY[0]);
+  const lfDMY = s.match(LONGFORM_DMY_RE);
+  if (lfDMY && lfDMY.index === 0) return fixedPointToken(lfDMY[0]);
+  return null;
+}
+
+// Combined-alternation single pass for MULTI (extractAllDates-path) cells: ISO first,
+// then numeric slash, then longform MDY, then longform DMY — mirroring normalizeDate
+// precedence but WITHOUT the numeric-dash family (SHOW cells never carry it). Matches
+// emerge in genuine within-cell offset order.
+const MULTI_TOKEN_RE = new RegExp(
+  `(?:${ISO_DATE_RE.source})` +
+    `|(?:\\d{1,2}\\/\\d{1,2}\\/\\d{2,4})` +
+    `|(?:${LONGFORM_MDY_RE.source})` +
+    `|(?:${LONGFORM_DMY_RE.source})`,
+  "gi",
+);
+
+/**
+ * Collect DATES-block date tokens per row kind (spec §4.3). `prefix` rows contribute
+ * ≤1 leading token (all families); `multi` rows contribute every match in offset
+ * order (no numeric-dash family). Read-only; feeds ONLY `checkDateOrder`.
+ */
+export function collectDateTokens(
+  rows: Array<{ kind: "prefix" | "multi"; cell: string }>,
+): DateToken[] {
+  const tokens: DateToken[] = [];
+  for (const { kind, cell } of rows) {
+    if (kind === "prefix") {
+      const t = leadingToken(cell);
+      if (t) tokens.push(t);
+    } else {
+      for (const m of cell.matchAll(MULTI_TOKEN_RE)) {
+        const t = tokenFromRaw(m[0], false); // no dash in multi cells
+        if (t) tokens.push(t);
+      }
+    }
+  }
+  return tokens;
+}
+
+/**
+ * Block-level DATE_ORDER_SUGGESTS_DMY check (spec §4.3). Emits ≤1 warning IFF all of:
+ *   (guard) ≥2 parseable tokens (at least one non-null reading each);
+ *   (a) the mdyIso sequence, nulls skipped, strictly DECREASES at some adjacent pair;
+ *   (b) NO token has dmyIso null AND the full dmyIso sequence is NON-decreasing.
+ * `rawSnippet` = the raw token at the first MDY-decreasing position. No-op if `agg`
+ * is undefined.
+ */
+export function checkDateOrder(tokens: DateToken[], agg?: ParseAggregator): void {
+  if (!agg) return;
+
+  // Guard: fewer than 2 parseable dates → vacuously ordered, no check.
+  const parseable = tokens.filter((t) => t.mdyIso !== null || t.dmyIso !== null);
+  if (parseable.length < 2) return;
+
+  // (a) MDY hypothesis violated — first strict decrease across non-null mdy readings.
+  const mdyTokens = tokens.filter((t) => t.mdyIso !== null);
+  let violationRaw: string | null = null;
+  for (let i = 1; i < mdyTokens.length; i++) {
+    if (mdyTokens[i - 1]!.mdyIso! > mdyTokens[i]!.mdyIso!) {
+      violationRaw = mdyTokens[i]!.raw;
+      break;
+    }
+  }
+  if (violationRaw === null) return;
+
+  // (b) DMY hypothesis intact — one DMY-invalid numeric kills it; full seq must be ↑.
+  if (tokens.some((t) => t.dmyIso === null)) return;
+  for (let i = 1; i < tokens.length; i++) {
+    if (tokens[i - 1]!.dmyIso! > tokens[i]!.dmyIso!) return;
+  }
+
+  emitDateOrderSuggestsDmy(agg, { rawSnippet: violationRaw });
 }

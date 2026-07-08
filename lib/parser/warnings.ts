@@ -218,6 +218,33 @@ export function emitHotelCardinalityExceeded(
   });
 }
 
+/**
+ * §4.3 (2026-07-07-ambiguity-warnings-v1) — emit a `severity:"warn"` warning when
+ * the DATES-block sequence check found the show dates only sort into chronological
+ * order if re-read day-first (DMY), while our month-first (MDY) reading has them
+ * decreasing somewhere (an AMBIGUITY_CODES member — never blocks publish; the dates
+ * are KEPT as parsed). This is a JUDGMENT call: the sheet was likely written
+ * day-first. `blockRef` is `{ kind: "dates", field: "order" }` (block-level, not a
+ * per-row anchor). `rawSnippet` is the FIRST out-of-order raw date token (the token
+ * at the first MDY-decreasing position). `message` is inline (mirrors the sibling
+ * emitters); the code is registered in §12.4 + catalog.ts so the x1 orphan-code
+ * guard passes. No-ops when `agg` is undefined.
+ */
+export const DATE_ORDER_SUGGESTS_DMY = "DATE_ORDER_SUGGESTS_DMY";
+export function emitDateOrderSuggestsDmy(
+  agg: ParseAggregator | undefined,
+  params: { rawSnippet: string },
+): void {
+  if (!agg) return;
+  agg.warnings.push({
+    severity: "warn",
+    code: "DATE_ORDER_SUGGESTS_DMY",
+    message: `Show dates in the DATES section only sort in order if read day-first (e.g. "${params.rawSnippet}") — we read them month-first, so every parsed date may be wrong; double-check the date order in the sheet.`,
+    blockRef: { kind: "dates", field: "order" },
+    rawSnippet: params.rawSnippet,
+  });
+}
+
 export function emitUnknownField(
   agg: ParseAggregator | undefined,
   opts: { block: string; kind: string; key: string; value: string },
