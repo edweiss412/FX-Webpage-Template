@@ -69,7 +69,7 @@ export type RosterShiftSummary = { added: number; removed: number; renamed: numb
 - `public.roster_shift_counts(p_show_ids uuid[]) returns table(show_id uuid, added int, removed int, renamed int)` (service-role only).
 - Columns `show_change_log.acknowledged_at timestamptz`, `acknowledged_by text`.
 
-- [ ] **Step 1: Write failing DB tests.** Follow the harness in `tests/db/undo-change-direction-a.test.ts` (same `TEST_DATABASE_URL`/postgres.js pattern + is_admin JWT seeding). `tests/db/acknowledge-changes.test.ts` asserts:
+- [ ] **Step 1: Write failing DB tests.** Follow the harness in `tests/db/undo-change-direction-a.test.ts` + the shared helpers (`tests/db/_holdsHelpers.ts:29` — `DB_URL = process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres"`, postgres.js + is_admin JWT seeding). **NOTE the connection reality (R5-plan):** these tests connect to whatever `TEST_DATABASE_URL` resolves to (in this env it is the remote validation project; in a pure-local setup it is the 54322 loopback). The migration must be applied to THAT database before the tests can pass (Step 4). `tests/db/acknowledge-changes.test.ts` asserts:
   - seeds a show + several `show_change_log` auto_apply `applied` rows; `acknowledge_changes(show, [id1])` stamps `acknowledged_at` + `acknowledged_by=<admin canonical email>` on id1 only; returns `{ok:true,count:1}`.
   - idempotent: 2nd identical call → `count:0`.
   - `p_ids='{}'::uuid[]` → `count:0` (acks nothing).
@@ -99,11 +99,18 @@ export type RosterShiftSummary = { added: number; removed: number; renamed: numb
   ```
   then the `acknowledge_changes` function + grants (spec §5.3) and the `roster_shift_counts` function + grants (spec §5.4). Copy both SQL blocks exactly.
 
-- [ ] **Step 4: Apply locally + run tests.** Apply to the loopback DB (NOT `TEST_DATABASE_URL`, which is remote/validation): `psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -f supabase/migrations/<ts>_show_change_log_acknowledged.sql` then `psql "…54322/postgres" -c "notify pgrst,'reload schema';"`. Run: `pnpm vitest run tests/db/acknowledge-changes.test.ts tests/db/roster-shift-counts.test.ts` → PASS.
+- [ ] **Step 4: Apply to BOTH the test-target DB and the manifest-source DB, then run tests (R5-plan).** The db tests read `$TEST_DATABASE_URL`; `gen:schema-manifest` (Step 5) introspects the local 54322 supabase. Apply the migration to BOTH so the TDD loop is coherent AND the manifest picks it up:
+  ```bash
+  psql "$TEST_DATABASE_URL" -f supabase/migrations/<ts>_show_change_log_acknowledged.sql
+  psql "$TEST_DATABASE_URL" -c "notify pgrst,'reload schema';"
+  psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -f supabase/migrations/<ts>_show_change_log_acknowledged.sql
+  psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -c "notify pgrst,'reload schema';"
+  ```
+  (If `$TEST_DATABASE_URL` already resolves to the 54322 loopback, the second apply is a harmless re-run — `add column if not exists` no-ops and the backfill's `where acknowledged_at is null` excludes already-acked rows.) Since `$TEST_DATABASE_URL` is the validation project here, this apply IS the validation-project apply (no separate Step 5 validation apply needed). Run: `pnpm vitest run tests/db/acknowledge-changes.test.ts tests/db/roster-shift-counts.test.ts` → PASS.
 
 - [ ] **Step 4b: Update the pinned schema test (R1-F4).** `tests/db/show-change-log-schema.test.ts:86` ("has exactly the contract columns") asserts an alpha-ordered column list and a per-column data_type/is_nullable block — add `"acknowledged_at"` + `"acknowledged_by"` (they sort FIRST, before `after_image`) to the expected array and add their type rows (`timestamptz`/`text`, both nullable, no default). Run `pnpm vitest run tests/db/show-change-log-schema.test.ts` → PASS (this test would otherwise fail outside this task's TDD loop).
 
-- [ ] **Step 5: Regen manifest + apply to validation.** `pnpm gen:schema-manifest` (writes `supabase/__generated__/schema-manifest.json`); then apply the same migration to validation: `psql "$TEST_DATABASE_URL" -f supabase/migrations/<ts>_show_change_log_acknowledged.sql` + `psql "$TEST_DATABASE_URL" -c "notify pgrst,'reload schema';"`.
+- [ ] **Step 5: Regen manifest.** `pnpm gen:schema-manifest` (introspects the local 54322 DB — now migrated in Step 4 — and writes `supabase/__generated__/schema-manifest.json`). The validation-project apply already happened in Step 4 (it IS `$TEST_DATABASE_URL` here); if in a different env `$TEST_DATABASE_URL` were loopback, apply to the validation project separately here. Confirm `validation-schema-parity` expectations: validation ⊇ the regenerated manifest.
 
 - [ ] **Step 6: Commit.**
   ```bash
