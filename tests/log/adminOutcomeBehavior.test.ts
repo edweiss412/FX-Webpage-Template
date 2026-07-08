@@ -270,8 +270,12 @@ import type { ArchivedPullSheetTab } from "@/lib/drive/exportSheetToMarkdown";
 // Mock the guarded helpers so the behavioral proof flips ok/fail cleanly; mock
 // showCacheTag so undo's revalidateShow is a no-op (next/cache above stubs only
 // revalidatePath, not revalidateTag).
-const acknowledgeChangesMock = vi.fn(async (..._a: unknown[]) => ({ ok: true, count: 1 }) as unknown);
-const undoChangeMock = vi.fn(async (..._a: unknown[]) => ({ ok: true, showId: "show-1" }) as unknown);
+const acknowledgeChangesMock = vi.fn(
+  async (..._a: unknown[]) => ({ ok: true, count: 1 }) as unknown,
+);
+const undoChangeMock = vi.fn(
+  async (..._a: unknown[]) => ({ ok: true, showId: "show-1" }) as unknown,
+);
 vi.mock("@/lib/sync/holds/acknowledgeChanges", () => ({
   acknowledgeChanges: (...a: unknown[]) => acknowledgeChangesMock(...a),
 }));
@@ -1228,7 +1232,10 @@ describe("Flow-4 Task 4 — dashboard accept/undo server actions observe changes
       code: "CHANGES_ACKNOWLEDGED",
     });
 
-    acknowledgeChangesMock.mockImplementation(async () => ({ ok: false, code: "SYNC_INFRA_ERROR" }));
+    acknowledgeChangesMock.mockImplementation(async () => ({
+      ok: false,
+      code: "SYNC_INFRA_ERROR",
+    }));
     const failCodes = await observeCodes(() => acceptAllAction(null, fd));
     expect(failCodes).not.toContain("CHANGES_ACKNOWLEDGED");
   });

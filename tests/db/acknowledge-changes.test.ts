@@ -36,7 +36,9 @@ async function seedLog(
   return row!.id as string;
 }
 
-async function readAck(id: string): Promise<{ acknowledged_at: unknown; acknowledged_by: unknown }> {
+async function readAck(
+  id: string,
+): Promise<{ acknowledged_at: unknown; acknowledged_by: unknown }> {
   const [row] = await holdsSql`
     select acknowledged_at, acknowledged_by from public.show_change_log where id = ${id}`;
   return row as { acknowledged_at: unknown; acknowledged_by: unknown };

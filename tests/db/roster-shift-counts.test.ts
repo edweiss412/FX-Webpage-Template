@@ -56,14 +56,20 @@ describe("roster_shift_counts RPC", () => {
     const EXP_ADDED = 2;
     const EXP_REMOVED = 1;
     const EXP_RENAMED = 3;
-    for (let i = 0; i < EXP_ADDED; i++) await seedLog(a.showId, a.driveFileId, { change_kind: "crew_added" });
-    for (let i = 0; i < EXP_REMOVED; i++) await seedLog(a.showId, a.driveFileId, { change_kind: "crew_removed" });
-    for (let i = 0; i < EXP_RENAMED; i++) await seedLog(a.showId, a.driveFileId, { change_kind: "crew_renamed" });
+    for (let i = 0; i < EXP_ADDED; i++)
+      await seedLog(a.showId, a.driveFileId, { change_kind: "crew_added" });
+    for (let i = 0; i < EXP_REMOVED; i++)
+      await seedLog(a.showId, a.driveFileId, { change_kind: "crew_removed" });
+    for (let i = 0; i < EXP_RENAMED; i++)
+      await seedLog(a.showId, a.driveFileId, { change_kind: "crew_renamed" });
 
     // Excluded — each scoped to a specific id (anti-tautology).
     const ackedId = await seedLog(a.showId, a.driveFileId, { change_kind: "crew_added" });
     await holdsSql`update public.show_change_log set acknowledged_at = now() where id = ${ackedId}`;
-    const undoneId = await seedLog(a.showId, a.driveFileId, { change_kind: "crew_removed", status: "undone" });
+    const undoneId = await seedLog(a.showId, a.driveFileId, {
+      change_kind: "crew_removed",
+      status: "undone",
+    });
     const supersededId = await seedLog(a.showId, a.driveFileId, {
       change_kind: "crew_renamed",
       status: "superseded",

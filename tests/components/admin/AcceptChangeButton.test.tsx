@@ -35,7 +35,7 @@ it("submits inside a <form action={...}>, is not pre-disabled, and renders one h
   expect(changeLogInput).toHaveAttribute("name", "changeLogId");
 });
 
-it("defaults the button label to \"Accept\" and honors a custom label", () => {
+it('defaults the button label to "Accept" and honors a custom label', () => {
   const action = vi.fn();
   const { rerender } = render(<AcceptChangeButton acceptAction={action} hiddenFields={{}} />);
   expect(screen.getByRole("button", { name: "Accept" })).toBeInTheDocument();

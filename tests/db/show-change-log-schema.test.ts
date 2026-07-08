@@ -111,7 +111,12 @@ describe("public.show_change_log DDL", () => {
 
   it("acknowledged_at/acknowledged_by are nullable timestamptz/text with no default (Flow-4)", async () => {
     const cols = await sql<
-      { column_name: string; data_type: string; is_nullable: string; column_default: string | null }[]
+      {
+        column_name: string;
+        data_type: string;
+        is_nullable: string;
+        column_default: string | null;
+      }[]
     >`
       select column_name, data_type, is_nullable, column_default
       from information_schema.columns
