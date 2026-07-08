@@ -1065,7 +1065,7 @@ Wire the monitor into the digest run (spec §4.4, §5): compute `buildMonitorDig
     },
 ```
 
-Then update the existing digest event-order assertion (`:552`) to include `"build-monitor"` in the correct position (after `recipients`, before/around `build-digest` per the implemented order). Run `pnpm vitest run tests/notify/run-notify.test.ts` and adjust the expected event array to match the new order. (Do this FIRST so the existing suite stays green as you wire the implementation.)
+Then update **every** digest event-order assertion — there are at least TWO (`:552` and `:585`) — to include `"build-monitor"` (and `"write-watermark"` where a send occurs) in the correct position (after `recipients`, around `build-digest` per the implemented order). Run `pnpm vitest run tests/notify/run-notify.test.ts` and adjust each expected event array to match the new order. (Do this FIRST so the existing suite stays green as you wire the implementation.)
 
 - [ ] **Step 1: Write the failing test** (`tests/notify/runDigestNotify.monitor.test.ts`) — spec §13.7 cases (a)-(h):
   - (a) needs-attention `no_send` + monitor `ok` → one email sent, watermark advanced once.
