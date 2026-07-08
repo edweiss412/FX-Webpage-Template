@@ -1472,6 +1472,12 @@ export const SPEC_CODES = {
     "followUp": "Eric → enable the reset flag",
     "helpfulContext": "The Reset-validation-data action (Settings → Maintenance card) reached the correct project but the destructive-reset flag is turned off, which prevents any data from being wiped. The developer needs to enable the flag for this project before resets are allowed. Once enabled, the action will proceed normally.",
   },
+  "VENUE_GEOCODE_UNRESOLVED": {
+    "crewFacing": null,
+    "dougFacing": "We couldn't automatically look up the city for _<venue>_, so the crew page shows the venue address instead of a city name. This often clears on the next sync; if it sticks, double-check the venue address in the sheet.",
+    "followUp": "Doug → optional fix (auto-retries)",
+    "helpfulContext": "We look up each venue's city from its address so the crew page can show a clean location. This time the lookup didn't return a city — often a temporary hiccup with the lookup service, which clears on the next sync. The page falls back to showing the address. If it keeps happening, check the venue address in the sheet for typos.",
+  },
   "VERSION_AMBIGUOUS": {
     "crewFacing": null,
     "dougFacing": "_<sheet-name>_ has some of your show-template markers but not enough for us to be sure which template it is — so we've paused instead of guessing. Check that the sheet's key rows (the Contact block for v4 sheets, or the GS/BO pull-sheet timing rows for v2 sheets) are intact, or tell the developer if your template changed.",

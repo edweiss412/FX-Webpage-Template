@@ -61,6 +61,7 @@ export const FAMILIES: Family[] = [
       "EXTRA",
       "SECTION",
       "FIELD",
+      "VENUE",
     ],
   },
   {

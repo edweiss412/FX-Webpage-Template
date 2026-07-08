@@ -1252,6 +1252,19 @@ export const MESSAGE_CATALOG = {
       "A crew table's header row was missing or used unrecognized labels, so instead of dropping the rows we read the columns by position. The rows parsed but may have landed in the wrong fields. Add a standard header row (Name / Role / Phone / Email) so the columns are read by label.",
     helpHref: "/help/errors#CREW_COLUMN_POSITIONAL_FALLBACK",
   },
+  VENUE_GEOCODE_UNRESOLVED: {
+    code: "VENUE_GEOCODE_UNRESOLVED",
+    dougFacing:
+      "We couldn't automatically look up the city for _<venue>_, so the crew page shows the venue address instead of a city name. This often clears on the next sync; if it sticks, double-check the venue address in the sheet.",
+    crewFacing: null,
+    followUp: "Doug → optional fix (auto-retries)",
+    helpfulContext:
+      "We look up each venue's city from its address so the crew page can show a clean location. This time the lookup didn't return a city — often a temporary hiccup with the lookup service, which clears on the next sync. The page falls back to showing the address. If it keeps happening, check the venue address in the sheet for typos.",
+    title: "Couldn't look up the venue city",
+    longExplanation:
+      "We look up each venue's city from its address so the crew page can show a clean location. The lookup didn't return a city this time — usually a temporary service hiccup that clears on the next sync. The page falls back to the address. If it persists, check the venue address in the sheet.",
+    helpHref: "/help/errors#VENUE_GEOCODE_UNRESOLVED",
+  },
   SECTION_HEADER_AUTOCORRECTED: {
     code: "SECTION_HEADER_AUTOCORRECTED",
     dougFacing:
