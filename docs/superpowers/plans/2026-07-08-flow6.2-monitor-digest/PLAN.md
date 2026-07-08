@@ -26,6 +26,13 @@
 - **EXTENDS** `tests/notify/_metaInfraContract.test.ts` — add `lib/notify/monitorWatermark.ts` + `lib/notify/monitorDigest.ts` to `REGISTERED` (mandatory; fails-by-default `lib/notify` walk).
 - **UNCHANGED** registries: `lib/sync/syncLog.ts` (edited by §3.2) is already REGISTERED in `tests/sync/_metaInfraContract.test.ts:81`. No advisory-lock topology change. No new admin-alert code, RPC-gated table, tile, or inline-email boundary.
 
+## Test strategy — two tiers (anti-tautology, plan R1 F1)
+
+A fake `sql` tag that returns canned rows CANNOT prove the query's `WHERE` filters (`status='applied'`, `s.published`, `acknowledged_at is null`, `occurred_at > windowStart`, orphan-show exclusion) — an implementation that omits a filter still passes. So every signal is tested at **two tiers**:
+
+- **Pure-helper unit tests** (fast, no DB): `monitorDigest.ts` exports its pure aggregation helpers (`groupAutoApplied`, `accumulateAutoFixes`, `computeDrift`) and they are unit-tested directly with injected row arrays — proving grouping/summarizeAutoFixes accumulation/drift comparison logic. Window computation is proven via a **recording `sql`** that captures the bind params (asserts `windowStart` = watermark, or `now-24h` when NULL).
+- **DB-integration filter tests** (`*.db.test.ts`, real local Postgres, skip if down — pattern per `tests/sync/ignoredWarningsOrphanGc.db.test.ts:16-38`): seed BOTH eligible AND excluded rows (non-`applied` status, unpublished show, orphan `drive_file_id`, acked/pre-window rows), run `buildMonitorDigestModel` with the REAL `sql`, and assert only the eligible rows contribute. These prove the SQL `WHERE` clauses. Each seeds inside a transaction it `ROLLBACK`s (or deletes its seed rows in `afterAll`) so the shared DB stays clean.
+
 ## Advisory-lock holder topology
 
 Not touched. The feature reads `show_change_log`/`sync_log`/`shows` and writes only `app_settings` (singleton, lock-free, mirroring `writeSyncCronHeartbeat`). The §3.2 sink runs on its own post-apply connection outside the apply tx. `tests/auth/advisoryLockRpcDeadlock.test.ts` unaffected.
@@ -375,25 +382,33 @@ Build the module skeleton + the window computation + the auto-applied roster/fie
 **Files:**
 - Create: `lib/notify/monitorDigest.ts`
 - Modify: `tests/notify/_metaInfraContract.test.ts` (add `REGISTERED` row — SAME commit)
-- Test: `tests/notify/monitorDigest.window.test.ts`, `tests/notify/monitorDigest.autoApplied.test.ts`, `tests/notify/monitorDigest.filterParity.test.ts`
+- Test (unit): `tests/notify/monitorDigest.window.test.ts`, `tests/notify/monitorDigest.autoApplied.test.ts`, `tests/notify/monitorDigest.filterParity.test.ts`
+- Test (DB-integration filter proof): `tests/notify/monitorDigest.autoApplied.db.test.ts`
 
 **Interfaces:**
 - Consumes: `getMonitorDigestWatermark` (Task 4), `STRIP_KINDS` (Task 3), `DigestBuilderSql` (`lib/notify/digest.ts:11`).
 - Produces (this task's partial surface; final shape in Task 8):
   - `MONITOR_FIRST_RUN_LOOKBACK_MS = 24 * 60 * 60 * 1000`
   - `type MonitorShowGroup = { showTitle: string | null; slug: string | null; items: string[] }`
+  - `export function groupAutoApplied(rows): MonitorShowGroup[]` (pure helper, unit-tested directly)
   - `buildMonitorDigestModel(now: Date, deps?: { sql?: DigestBuilderSql; getWatermark?: typeof getMonitorDigestWatermark }): Promise<MonitorDigestResult>`
 
 - [ ] **Step 1: Write the failing window test** (`tests/notify/monitorDigest.window.test.ts`)
 
 ```typescript
-import { describe, expect, test, vi } from "vitest";
+import { describe, expect, test } from "vitest";
 import { buildMonitorDigestModel, MONITOR_FIRST_RUN_LOOKBACK_MS } from "@/lib/notify/monitorDigest";
 
-const emptySql = (() => {
-  const fn = (async () => []) as never;
-  return fn;
-})();
+// Recording sql: captures the bind params of each query so we can prove windowStart.
+function recordingSql(rowsByCall: unknown[][] = []) {
+  const calls: { params: unknown[] }[] = [];
+  let i = 0;
+  const fn = (async (_strings: TemplateStringsArray, ...params: unknown[]) => {
+    calls.push({ params });
+    return rowsByCall[i++] ?? [];
+  }) as never;
+  return { fn, calls };
+}
 
 function watermark(value: Date | null) {
   return async () => ({ kind: "value" as const, watermark: value });
@@ -401,18 +416,28 @@ function watermark(value: Date | null) {
 
 describe("buildMonitorDigestModel — window (spec §4.3)", () => {
   const now = new Date("2026-07-08T12:00:00Z");
-  test("NULL watermark → windowStart = now - 24h", async () => {
-    const r = await buildMonitorDigestModel(now, { sql: emptySql, getWatermark: watermark(null) });
-    expect(r.kind).toBe("empty"); // no rows seeded
-    // windowStart proven via the autoApplied query param in the autoApplied test.
+  test("NULL watermark → windowStart bound as now - 24h in the first query", async () => {
+    const { fn, calls } = recordingSql();
+    await buildMonitorDigestModel(now, { sql: fn, getWatermark: watermark(null) });
+    const expected = new Date(now.getTime() - MONITOR_FIRST_RUN_LOOKBACK_MS).toISOString();
+    // Every query binds windowStart; assert the FIRST (auto-applied) carries now-24h, not `now`/epoch.
+    expect(calls[0].params).toContain(expected);
     expect(MONITOR_FIRST_RUN_LOOKBACK_MS).toBe(24 * 60 * 60 * 1000);
   });
-  test("watermark read infra_error → infra_error, no fabricated window", async () => {
+  test("non-NULL watermark → windowStart bound as the watermark", async () => {
+    const wmDate = new Date("2026-07-08T06:00:00Z");
+    const { fn, calls } = recordingSql();
+    await buildMonitorDigestModel(now, { sql: fn, getWatermark: watermark(wmDate) });
+    expect(calls[0].params).toContain(wmDate.toISOString());
+  });
+  test("watermark read infra_error → infra_error, no fabricated window (no query issued)", async () => {
+    const { fn, calls } = recordingSql();
     const r = await buildMonitorDigestModel(now, {
-      sql: emptySql,
+      sql: fn,
       getWatermark: async () => ({ kind: "infra_error" as const }),
     });
     expect(r).toEqual({ kind: "infra_error" });
+    expect(calls).toHaveLength(0); // fail-closed: no query on watermark fault
   });
 });
 ```
@@ -576,15 +601,17 @@ function groupAutoApplied(rows: AutoApplyRow[]): MonitorShowGroup[] {
   { path: "lib/notify/monitorDigest.ts" },
 ```
 
-- [ ] **Step 7: Run tests**
+- [ ] **Step 7: Write the DB-integration filter proof** (`tests/notify/monitorDigest.autoApplied.db.test.ts`) — real local Postgres, skip if down (pattern per `tests/sync/ignoredWarningsOrphanGc.db.test.ts:16-38`). Seed one published show + `show_change_log` rows: ONE eligible (`source='auto_apply', status='applied', acknowledged_at NULL, change_kind='crew_added', occurred_at > windowStart`) and FOUR excluded — (i) `acknowledged_at` set, (ii) `occurred_at < windowStart`, (iii) `source='manual'`, (iv) `change_kind='some_other_kind'`. Run `buildMonitorDigestModel(now, { getWatermark: () => watermark })` with the REAL default `sql` (point it at the seeded DB via `TEST_DATABASE_URL`/local). Assert `model.autoApplied` contains ONLY the eligible row's summary. Delete the seeded rows in `afterAll` (or wrap in a rolled-back tx). This proves the `WHERE` filters that the unit test's canned rows cannot.
 
-Run: `pnpm vitest run tests/notify/monitorDigest.window.test.ts tests/notify/monitorDigest.autoApplied.test.ts tests/notify/monitorDigest.filterParity.test.ts tests/notify/_metaInfraContract.test.ts`
-Expected: PASS.
+- [ ] **Step 8: Run tests**
 
-- [ ] **Step 8: Commit**
+Run: `pnpm vitest run tests/notify/monitorDigest.window.test.ts tests/notify/monitorDigest.autoApplied.test.ts tests/notify/monitorDigest.filterParity.test.ts tests/notify/monitorDigest.autoApplied.db.test.ts tests/notify/_metaInfraContract.test.ts`
+Expected: PASS (the `.db.test.ts` runs against local Postgres — confirm it does NOT skip; if it skips, the local DB is down — start it before proceeding).
+
+- [ ] **Step 9: Commit**
 
 ```bash
-git add lib/notify/monitorDigest.ts tests/notify/monitorDigest.window.test.ts tests/notify/monitorDigest.autoApplied.test.ts tests/notify/monitorDigest.filterParity.test.ts tests/notify/_metaInfraContract.test.ts
+git add lib/notify/monitorDigest.ts tests/notify/monitorDigest.window.test.ts tests/notify/monitorDigest.autoApplied.test.ts tests/notify/monitorDigest.filterParity.test.ts tests/notify/monitorDigest.autoApplied.db.test.ts tests/notify/_metaInfraContract.test.ts
 git commit --no-verify -m "feat(notify): monitor-digest builder — window + auto-applied query (flow 6.2 §3,§4.3)"
 ```
 
@@ -595,12 +622,13 @@ git commit --no-verify -m "feat(notify): monitor-digest builder — window + aut
 Add the autocorrect query to `buildMonitorDigestModel`: `sync_log ⋈ shows ON drive_file_id WHERE shows.published AND status='applied' AND occurred_at > windowStart`, summing `summarizeAutoFixes` over each row's `parse_warnings`.
 
 **Files:**
-- Modify: `lib/notify/monitorDigest.ts`
-- Test: `tests/notify/monitorDigest.autofix.test.ts`
+- Modify: `lib/notify/monitorDigest.ts` (add `export function accumulateAutoFixes` + the autofix query)
+- Test (unit): `tests/notify/monitorDigest.autofix.test.ts` (pure `accumulateAutoFixes` + assembled-model)
+- Test (DB filter proof): `tests/notify/monitorDigest.autofix.db.test.ts`
 
 **Interfaces:**
-- Consumes: `summarizeAutoFixes` (`lib/parser/dataGaps.ts:119`), `AutoFixSummary`, `AUTO_FIX_CLASSES`.
-- Produces: `model.autofix: AutoFixSummary` (total + per-class counts).
+- Consumes: `summarizeAutoFixes` (`lib/parser/dataGaps.ts:119`), `AutoFixSummary`, `AUTO_FIX_CLASSES`, `AutoFixCode`.
+- Produces: `export function accumulateAutoFixes(rows): AutoFixSummary`; `model.autofix: AutoFixSummary`.
 
 - [ ] **Step 1: Write the failing test** (`tests/notify/monitorDigest.autofix.test.ts`) — spec §13.4
 
@@ -674,15 +702,17 @@ function accumulateAutoFixes(rows: { parse_warnings: unknown[] }[]): AutoFixSumm
 
 Update the initial `autofix` stub line to `let autofix: AutoFixSummary = accumulateAutoFixes([]);` before the query, then reassign; and replace the Task-5 placeholder `const autofix = { total: 0, classes: {} ... }` accordingly.
 
-- [ ] **Step 4: Run tests**
+- [ ] **Step 4: Write the DB filter proof** (`tests/notify/monitorDigest.autofix.db.test.ts`) — seed a PUBLISHED show with an applied `sync_log` row whose `parse_warnings` contains 2× `STAGE_WORD_AUTOCORRECTED`; plus excluded rows: (i) same show, `status='drive_error'` (non-applied) with an autocorrect warning, (ii) an applied row for an UNPUBLISHED show, (iii) an applied row whose `drive_file_id` matches NO `shows` row. Run `buildMonitorDigestModel` with real `sql`; assert `model.autofix.total === 2` (only the eligible row counted). Clean up in `afterAll`. Proves `status='applied' AND s.published AND join`.
 
-Run: `pnpm vitest run tests/notify/monitorDigest.autofix.test.ts tests/notify/monitorDigest.autoApplied.test.ts`
-Expected: PASS (both — autoApplied unaffected).
+- [ ] **Step 5: Run tests**
 
-- [ ] **Step 5: Commit**
+Run: `pnpm vitest run tests/notify/monitorDigest.autofix.test.ts tests/notify/monitorDigest.autofix.db.test.ts tests/notify/monitorDigest.autoApplied.test.ts`
+Expected: PASS (autoApplied unaffected; `.db.test.ts` must not skip).
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add lib/notify/monitorDigest.ts tests/notify/monitorDigest.autofix.test.ts
+git add lib/notify/monitorDigest.ts tests/notify/monitorDigest.autofix.test.ts tests/notify/monitorDigest.autofix.db.test.ts
 git commit --no-verify -m "feat(notify): monitor-digest autocorrect roll-up (flow 6.2 §3 signal 2)"
 ```
 
@@ -693,12 +723,13 @@ git commit --no-verify -m "feat(notify): monitor-digest autocorrect roll-up (flo
 Add the drift computation (spec §3.1): per published show, baseline (latest applied row `occurred_at <= windowStart`) vs current (latest applied row `occurred_at > windowStart`); report iff summaries differ on a non-`gateExempt` `GapCode` AND `isQualityRegression===false`. Skip shows with no baseline or no in-window row.
 
 **Files:**
-- Modify: `lib/notify/monitorDigest.ts`
-- Test: `tests/notify/monitorDigest.drift.test.ts`
+- Modify: `lib/notify/monitorDigest.ts` (add `export function computeDrift` + the drift query)
+- Test (unit): `tests/notify/monitorDigest.drift.test.ts` (pure `computeDrift` + assembled-model)
+- Test (DB filter proof): `tests/notify/monitorDigest.drift.db.test.ts`
 
 **Interfaces:**
 - Consumes: `summarizeDataGaps`, `isQualityRegression`, `GAP_CLASSES`, `type DataGapsSummary` (`lib/parser/dataGaps.ts`), `REGRESSION_ABS_JUMP`/`REGRESSION_REL_FACTOR`/`REGRESSION_REL_ABS_FLOOR`.
-- Produces: `model.drift: MonitorDriftEntry[]`.
+- Produces: `export function computeDrift(rows): MonitorDriftEntry[]`; `model.drift: MonitorDriftEntry[]`.
 
 - [ ] **Step 1: Write the failing test** (`tests/notify/monitorDigest.drift.test.ts`) — spec §13.5
 
@@ -806,15 +837,17 @@ function computeDrift(rows: DriftRow[]): MonitorDriftEntry[] {
 
 Wire: `const drift = computeDrift(await sql<DriftRow>`...`);` replacing the Task-5 `drift` stub, and update the `empty`/`ok` gate to use the computed `drift`.
 
-- [ ] **Step 4: Run tests**
+- [ ] **Step 4: Write the DB filter proof** (`tests/notify/monitorDigest.drift.db.test.ts`) — seed a PUBLISHED show with TWO applied `sync_log` rows (baseline `occurred_at <= windowStart` with 10× `FIELD_UNREADABLE`; current `occurred_at > windowStart` with 11×) → REPORTED. Plus a NON-applied row (`status='drive_error'`) for the same show at the latest `occurred_at` — assert it does NOT become the current row (would zero the summary and fabricate drift). Plus an unpublished show with drift → excluded. Run `buildMonitorDigestModel` with real `sql`; assert `model.drift` reports only the published show's `10→11`. Clean up in `afterAll`. Proves `status='applied' AND s.published` in the drift CTE (the round-3/4 contamination guard).
 
-Run: `pnpm vitest run tests/notify/monitorDigest.drift.test.ts tests/notify/monitorDigest.autofix.test.ts tests/notify/monitorDigest.autoApplied.test.ts tests/notify/monitorDigest.window.test.ts`
-Expected: PASS (all four).
+- [ ] **Step 5: Run tests**
 
-- [ ] **Step 5: Commit**
+Run: `pnpm vitest run tests/notify/monitorDigest.drift.test.ts tests/notify/monitorDigest.drift.db.test.ts tests/notify/monitorDigest.autofix.test.ts tests/notify/monitorDigest.autoApplied.test.ts tests/notify/monitorDigest.window.test.ts`
+Expected: PASS (all; `.db.test.ts` must not skip).
+
+- [ ] **Step 6: Commit**
 
 ```bash
-git add lib/notify/monitorDigest.ts tests/notify/monitorDigest.drift.test.ts
+git add lib/notify/monitorDigest.ts tests/notify/monitorDigest.drift.test.ts tests/notify/monitorDigest.drift.db.test.ts
 git commit --no-verify -m "feat(notify): monitor-digest sub-threshold drift (flow 6.2 §3.1 signal 3)"
 ```
 
@@ -948,13 +981,33 @@ git commit --no-verify -m "feat(notify): renderDigest 'applied automatically' se
 - Consumes: `MonitorDigestModel`.
 - Produces: `deliverDigest(input: { model: DigestModel; origin: string; monitor?: MonitorDigestModel | null }, deps?)`.
 
-- [ ] **Step 1: Write the failing test** — assert (a) `renderDigest` receives the monitor (email contains the section), (b) recorded `context.monitor_totals` = `{ autoAppliedShows, autoAppliedRows, autofixTotal, driftShows }` with no crew PII, (c) `dedupKey` still `digest:${dateET}`.
+- [ ] **Step 1: Write the failing test** — three cases:
+  - (a) monitor present → `renderDigest` receives it (email contains the section) AND recorded `context` = `{ date_et, source_totals, monitor_totals: { autoAppliedShows, autoAppliedRows, autofixTotal, driftShows } }` with no crew PII.
+  - (b) **monitor absent/null → context is BYTE-IDENTICAL to today** (`{ date_et, source_totals }`, NO `monitor_totals` key). This guards the existing exact-context assertion (`tests/notify/deliver.test.ts:570-573`) which does an exact `context: { date_et, source_totals }` match — an unconditional `monitor_totals` add would break it.
+  - (c) `dedupKey` still `digest:${dateET}` in both cases.
 
 - [ ] **Step 2: Run → FAIL** (`deliverDigest` doesn't accept `monitor` yet).
 
-- [ ] **Step 3: Implement** — add `monitor` to `input`; pass `renderDigest({ origin, shows: model.shows, monitor: input.monitor ?? undefined })`; extend `context` with `monitor_totals` computed from the model (`autoApplied.length`, sum of `items.length`, `autofix.total`, `drift.length`).
+- [ ] **Step 3: Implement** — add optional `monitor?: MonitorDigestModel | null` to `input`; pass `renderDigest({ origin, shows: model.shows, monitor: input.monitor ?? undefined })`; extend `context` **conditionally** so the null-monitor path is unchanged:
 
-- [ ] **Step 4: Run → PASS.**
+```typescript
+context: {
+  date_et: input.model.dateET,
+  source_totals: input.model.sourceTotals,
+  ...(input.monitor
+    ? {
+        monitor_totals: {
+          autoAppliedShows: input.monitor.autoApplied.length,
+          autoAppliedRows: input.monitor.autoApplied.reduce((n, g) => n + g.items.length, 0),
+          autofixTotal: input.monitor.autofix.total,
+          driftShows: input.monitor.drift.length,
+        },
+      }
+    : {}),
+},
+```
+
+- [ ] **Step 4: Run the new test + the existing deliver suite** — `pnpm vitest run tests/notify/deliver.test.ts <new test>`. Expected: PASS (the existing `:570` exact-context test stays green because null-monitor omits `monitor_totals`).
 
 - [ ] **Step 5: Commit** — `feat(notify): deliverDigest threads monitor section + records monitor_totals (flow 6.2 §5,§8)`
 
@@ -965,8 +1018,24 @@ git commit --no-verify -m "feat(notify): renderDigest 'applied automatically' se
 Wire the monitor into the digest run (spec §4.4, §5): compute `buildMonitorDigestModel(now)` ONCE before the recipient loop; change the send condition; accumulate `{sent,failed,skipped,retryLater}`; advance the watermark iff `monitor.kind==='ok' && sent>0 && failed===0 && retryLater===0`.
 
 **Files:**
-- Modify: `lib/notify/runNotify.ts` (`runDigestNotify`, `:398-457`)
-- Test: `tests/notify/runDigestNotify.monitor.test.ts`
+- Modify: `lib/notify/runNotify.ts` (`runDigestNotify`, `:398-457`; add `buildMonitorDigestModel` + `writeMonitorDigestWatermark` to `NotifyDeps`)
+- Modify (regression): `tests/notify/run-notify.test.ts` — its `baseDeps` (`:11`) injects `buildDigestModel`/`deliverDigest` but NO monitor deps; add default stubs there and update the digest event-order assertion (`:552`), or the existing `runDigestNotify` tests fall through to the REAL `buildMonitorDigestModel` (hits the DB) and the event sequence changes. **This is a required part of Task 11, not optional.**
+- Test (new): `tests/notify/runDigestNotify.monitor.test.ts`
+
+- [ ] **Step 0: Update `baseDeps` in `tests/notify/run-notify.test.ts`** — add to the returned `NotifyDeps`:
+
+```typescript
+    buildMonitorDigestModel: async () => {
+      events.push("build-monitor");
+      return { kind: "empty" as const };
+    },
+    writeMonitorDigestWatermark: async () => {
+      events.push("write-watermark");
+      return { kind: "ok" as const };
+    },
+```
+
+Then update the existing digest event-order assertion (`:552`) to include `"build-monitor"` in the correct position (after `recipients`, before/around `build-digest` per the implemented order). Run `pnpm vitest run tests/notify/run-notify.test.ts` and adjust the expected event array to match the new order. (Do this FIRST so the existing suite stays green as you wire the implementation.)
 
 - [ ] **Step 1: Write the failing test** (`tests/notify/runDigestNotify.monitor.test.ts`) — spec §13.7 cases (a)-(h):
   - (a) needs-attention `no_send` + monitor `ok` → one email sent, watermark advanced once.
