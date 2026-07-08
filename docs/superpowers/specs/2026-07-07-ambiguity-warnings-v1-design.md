@@ -48,7 +48,7 @@ Location rationale: the class is a parser-emission concept consumed by UI; `lib/
 
 ### 3.4 Gap-class consumer sweep (complete — every `summarizeDataGaps` / `GAP_CLASSES` / `DATA_GAP_CODES` / `isQualityRegression` consumer, grep-derived)
 
-Joining `GAP_CLASSES` feeds MORE than the chip/panel/gate. Full non-test consumer list with the required action per surface — the rule: **surfaces that GATE or STYLE-AS-PROBLEM partition by `isAmbiguityCode`; surfaces that merely COUNT/DISPLAY do not**:
+Joining `GAP_CLASSES` feeds MORE than the chip/panel/gate. Full non-test consumer list with the required action per surface — the rule: **surfaces that gate PUBLISH/RE-REVIEW or style a row AS-A-PROBLEM partition by `isAmbiguityCode`; alert/recovery threshold gates and count/display surfaces deliberately do NOT** (ambiguity belongs in monitoring aggregates — a jump should alert, and recovery must be symmetric with regression):
 
 | Consumer | Role | Action |
 |---|---|---|
