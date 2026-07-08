@@ -46,8 +46,7 @@ import { HelpSheet } from "@/components/admin/HelpSheet";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { Step3SheetCard } from "@/components/admin/wizard/Step3SheetCard";
-import { arr } from "@/components/admin/wizard/step3ReviewSections";
-import { summarizeDataGaps, stripLegacyUnknownFieldAnchors } from "@/lib/parser/dataGaps";
+import { rowNeedsLookPure } from "@/lib/admin/step3Buckets";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
@@ -823,16 +822,13 @@ export function computeUncheckedCleanNames(rows: Step3Row[]): string[] {
 }
 
 // A clean row "needs a look" when it has no reviewable preview, has been demoted
-// by a per-sheet re-scan, OR carries at least one data-quality parse warning.
-// Drives the header's ready/needs-look split (§4.2).
+// by a per-sheet re-scan, OR carries at least one NON-ambiguity data-quality gap
+// warning (spec 2026-07-07 §7.2: only the gap-total clause is partitioned by
+// isAmbiguityCode — the preview/finalize branches are preserved). Derivation lives
+// in lib/admin/step3Buckets (rowNeedsLookPure); ambiguity-only rows fall to the
+// judgment bucket, not needs-look. Drives the header's ready/needs-look split.
 function rowNeedsLook(row: Step3Row): boolean {
-  return (
-    !hasReviewablePreview(row) ||
-    row.lastFinalizeFailureCode != null ||
-    summarizeDataGaps(
-      stripLegacyUnknownFieldAnchors(arr((row.parseResult as ParseResult)?.warnings)),
-    ).total > 0
-  );
+  return rowNeedsLookPure(row);
 }
 
 // Composed summary line (§4.2 copy catalog + spec 2026-07-07 §A.2): honest,

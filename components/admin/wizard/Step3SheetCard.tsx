@@ -42,6 +42,7 @@ import type { RunOfShow } from "@/lib/parser/types";
 import { Step3RowBadge, type Step3Row } from "@/components/admin/wizard/Step3Review";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { summarizeDataGaps, stripLegacyUnknownFieldAnchors } from "@/lib/parser/dataGaps";
+import { nonAmbiguityGapTotal } from "@/lib/admin/step3Buckets";
 import { venueDisplay } from "@/lib/venue/venueLocation";
 // The section bodies + agenda live-fill machine live in the section module
 // (Task 3, spec §4/§6.1) and are rendered by the review modal's registry.
@@ -464,11 +465,13 @@ export function Step3SheetCard({
   const ros: RunOfShow = pr.runOfShow ?? {};
   const warnings = stripLegacyUnknownFieldAnchors(arr(pr.warnings));
   // Data-quality gap count drives the compact card's "needs a look" state: a
-  // clean row WITH parse warnings gets the warn border + chip + Review button;
-  // a clean row without gets the plain border + View. The per-class breakdown
-  // now lives in the review modal, not the card face.
+  // clean row WITH a NON-ambiguity gap warning gets the warn border + Review
+  // button; an ambiguity-only (judgment) or clean row gets the plain border +
+  // View (spec 2026-07-07 §7.3a — the needs-look chrome is partitioned by
+  // isAmbiguityCode via rowNeedsLookPure/nonAmbiguityGapTotal). `gaps` (the FULL
+  // count) still feeds DataQualityBadge, which keeps the un-partitioned total.
   const gaps = summarizeDataGaps(warnings);
-  const needsLook = gaps.total > 0;
+  const needsLook = nonAmbiguityGapTotal(row) > 0;
 
   const title = pr.show.title || titleFallback;
   const client = pr.show.client_label || null;
