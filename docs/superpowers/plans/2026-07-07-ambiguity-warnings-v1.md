@@ -193,6 +193,15 @@ it("emits exactly once per kept room for gs / breakout / additional shapes", () 
   // each with one ambiguous header → each yields exactly 1 warning with kind:"rooms"
 });
 // rejected candidate emits nothing: ambiguous header on a room the placeholder gate drops
+// PURE-HELPER layer (spec §4.1 two-layer testability): direct splitRoomHeader unit tests
+it("splitRoomHeader metadata per branch", () => {
+  expect(splitRoomHeader("LASALLE 50' x 40' 30' x 20'", "breakout").ambiguity).toMatchObject({ field: "dims" });
+  expect(splitRoomHeader("50' x 40' LASALLE", "breakout").ambiguity).toMatchObject({ field: "name" });
+  expect(splitRoomHeader("BREAKOUT 1 50' x 40'", "breakout").ambiguity).toMatchObject({ field: "name" }); // empty residual
+  expect(splitRoomHeader("- 50' x 40'", "breakout").ambiguity).toMatchObject({ field: "name" }); // punctuation-only residual
+  expect(splitRoomHeader("X 50' x 40'", "breakout").ambiguity).toMatchObject({ field: "name" }); // single-char residual
+  expect(splitRoomHeader("LASALLE 75' x 37' x 16'", "breakout").ambiguity).toBeUndefined(); // 3-operand negative
+});
 ```
 
 (Adapt `fixtureWith`/`parseRooms` names to the file's real test harness — the existing rooms tests show the entry point; keep assertions against `agg.warnings`, never rendered output.)
@@ -208,7 +217,7 @@ it("emits exactly once per kept room for gs / breakout / additional shapes", () 
 
 Predicates (spec §4.2, exact): fallback segment with ≥4 name-like tokens (`/^[\p{L}][\p{L}\p{M}.'-]*$/u` per whitespace-split token) OR interior `/\d{4,}/` run (match neither at index 0 nor segment end); tail-branch append.
 
-- [ ] **Step 1:** Failing tests: glued 4-token fallback cell → exactly 1 warning; "Mary St. Claire" → 0; "José Núñez-Marín" → 0; **interior digit-run independent of token count**: "Bob Smith 103317 Jones" (3 name-like tokens, interior `\d{4,}` unconsumed) → 1 warning; boundary digit runs: "103317 Bob Smith" and "Bob Smith 103317" (run at index 0 / segment end, <4 tokens) → 0; multi-segment cell with both branches → exactly 1; two ambiguous cells → 2; >4 hotels fixture through `parseHotels(..., agg)` → `HOTEL_CARDINALITY_EXCEEDED` in `agg.warnings` with `severity:"warn"`, `blockRef:{kind:"hotels"}` AND counted by `summarizeDataGaps`.
+- [ ] **Step 1:** Failing tests: glued 4-token fallback cell → exactly 1 warning; "Mary St. Claire" → 0; "José Núñez-Marín" → 0; **interior digit-run independent of token count**: "Bob Smith 103317 Jones" (3 name-like tokens, interior `\d{4,}` unconsumed) → 1 warning; boundary digit runs: "103317 Bob Smith" and "Bob Smith 103317" (run at index 0 / segment end, <4 tokens) → 0; **tail-only isolation**: a cell like "Doug — #103317 Extra Person" (tokenRe matches Doug+conf, un-numbered tail appended as guest; <4 tokens, no interior digit run) → exactly 1 warning; multi-segment cell with both branches → exactly 1; two ambiguous cells → 2; >4 hotels fixture through `parseHotels(..., agg)` → `HOTEL_CARDINALITY_EXCEEDED` in `agg.warnings` with `severity:"warn"`, `blockRef:{kind:"hotels"}` AND counted by `summarizeDataGaps`.
 - [ ] **Step 2:** FAIL. **Step 3:** Implement (thread `agg` into the hotels path — signature change `parseHotels(markdown, agg?)` if not already threaded; keep `log.warn` telemetry alongside if desired, delete local `warn()` when orphaned; the no-inline-email guard scans lib/sync+lib/drive not parser, but re-run `tests/admin/no-inline-email-normalization.test.ts` anyway if any `.toLowerCase()/.trim()` added). **Step 4:** PASS + full hotels tests. **Step 5:** Commit `feat(parser): HOTEL_GUEST_SPLIT_AMBIGUOUS + promote HOTEL_CARDINALITY_EXCEEDED to ParseWarning`.
 
 ### Task 7: dates site — `collectDateTokens` + `DATE_ORDER_SUGGESTS_DMY`
@@ -233,7 +242,21 @@ expect(run(["3/25/2026", "3/20/2026"])).toHaveLength(0);
 // both orders broken → 0 ; <2 dates → 0 ; MDY-invalid token participates in DMY seq
 ```
 
-- [ ] **Step 2:** FAIL. **Step 3:** Implement collector + check; wire BOTH walkers pre-`showDays.sort()`. **Step 4:** Placement-proof tests: v1 AND v2/v4 fixtures whose dates sort clean but encounter dirty (e.g. `SHOW 11/3/2026`, `SHOW 1/4/2026` after a `10/3/2026` travel row) — post-sort implementation fails. PASS. **Step 5:** Commit `feat(parser): DATE_ORDER_SUGGESTS_DMY block-level sequence check`.
+- [ ] **Step 1b (integration red):** End-to-end aggregator tests, one per parser version, calling the real entry point with an aggregator (thread `agg` into `parseV1Dates` / `parseV2V4Dates` — today the walkers don't receive it):
+
+```ts
+it("v1: DMY-ordered sheet lands DATE_ORDER_SUGGESTS_DMY in agg.warnings", () => {
+  const agg = newAggregator();
+  parseDates(v1FixtureWithDmyDates, "v1", agg);
+  const w = agg.warnings.filter((x) => x.code === "DATE_ORDER_SUGGESTS_DMY");
+  expect(w).toHaveLength(1);
+  expect(w[0]!.blockRef).toMatchObject({ kind: "dates", field: "order" });
+});
+it("v2/v4: same, through the v2 walker", () => { /* same shape, v2 fixture */ });
+```
+
+(Adapt entry-point name/signature to `dates.ts`'s real exported parse function — verified: `parseDates(..., agg?)` exists; the change is passing `agg` down to both walkers.) These tests are what prove the persisted-warning path is not dark — unit tests on the collector alone are insufficient.
+- [ ] **Step 2:** FAIL. **Step 3:** Implement collector + check; wire BOTH walkers pre-`showDays.sort()`, passing `agg` through. **Step 4:** Placement-proof tests: v1 AND v2/v4 fixtures whose dates sort clean but encounter dirty (e.g. `SHOW 11/3/2026`, `SHOW 1/4/2026` after a `10/3/2026` travel row) — post-sort implementation fails. PASS. **Step 5:** Commit `feat(parser): DATE_ORDER_SUGGESTS_DMY block-level sequence check`.
 
 ### Task 8: transform-sites walker meta-test
 
