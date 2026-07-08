@@ -190,11 +190,13 @@ it("warns when strip leaves an empty/degenerate name", () => {
   parseRooms(fixtureWith("BREAKOUT 1 50' x 40'"), agg); // raw non-trivial, name residual empty
   expect(agg.warnings.filter((x) => x.code === "ROOM_HEADER_SPLIT_AMBIGUOUS")).toHaveLength(1);
 });
-// exact-once across persisting caller shapes: one warning per KEPT room per fixture
-it("emits exactly once per kept room for gs / breakout / additional shapes", () => {
-  // three fixtures, one per RoomKind entry path (rooms.ts:957 gs, :1140 breakout, :1404 additional),
-  // each with one ambiguous header → each yields exactly 1 warning with kind:"rooms"
-});
+// exact-once across persisting caller shapes: centralize emission behind ONE post-keep helper
+// (emitRoomSplitAmbiguity called at the single point where a split room is COMMITTED to output),
+// so no caller can go dark or double-emit. Coverage: implementation-time persist/reject enumeration
+// of the seven call sites (rooms.ts:752,957,968,1140,1187,1247,1404) lands in the test file as a
+// comment; ONE fixture per PERSISTING caller (not just per RoomKind) asserting exactly 1 warning,
+// plus one rejected-candidate fixture asserting 0.
+it("emits exactly once per kept room, per persisting caller fixture", () => { /* per enumeration above */ });
 // rejected candidate emits nothing: ambiguous header on a room the placeholder gate drops
 // PURE-HELPER layer (spec §4.1 two-layer testability): direct splitRoomHeader unit tests
 it("splitRoomHeader metadata per branch", () => {
@@ -354,7 +356,7 @@ it("no animated wrapper introduced for status states (spec §7.4: all pairs inst
 // synchronously (no waitFor needed = instant), covering clean↔judgment, clean↔flagged, judgment↔flagged pairs.
 ```
 
-  Spec §7.4 inventory inlined: 3 pairs (clean↔judgment, clean↔flagged, judgment↔flagged) + summary counts — ALL instant, no compound transitions, callout expand/collapse unchanged. **Step 3:** Implement chrome. **Step 4:** PASS. **Step 5:** Run `/impeccable critique` + `/impeccable audit` on the diff; fix or DEFERRED.md HIGH/CRITICAL findings. **Step 6:** Commit `feat(admin): judgment-state chrome for wizard review surfaces`.
+  Spec §7.4 inventory inlined: 3 pairs (clean↔judgment, clean↔flagged, judgment↔flagged) + summary counts — ALL instant, no compound transitions, callout expand/collapse unchanged. **Step 3:** Implement chrome. **Step 4:** PASS. **Step 5:** Run `/impeccable critique` + `/impeccable audit` on the diff; fix or DEFERRED.md HIGH/CRITICAL findings. **Step 5b:** After ALL impeccable fixes/deferrals, re-run the full Task 11 test set (render states + transition audit) AND the Task 9 derivation tests — must PASS before commit. **Step 6:** Commit `feat(admin): judgment-state chrome for wizard review surfaces`.
 
 ### Task 12: close-out gates
 
