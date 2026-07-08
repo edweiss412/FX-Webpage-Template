@@ -61,6 +61,7 @@ vi.mock("@/lib/supabase/server", () => ({
       builder.is = pass;
       builder.not = pass;
       builder.order = pass;
+      builder.limit = pass;
       builder.returns = pass;
       builder.maybeSingle = async () => ({
         data: table === "shows" ? state.show : null,
