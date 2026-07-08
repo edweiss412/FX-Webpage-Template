@@ -10,7 +10,7 @@
  * (spec §13).
  */
 
-import type { DataGapsSummary } from "@/lib/parser/dataGaps";
+import type { DataGapsSummary, AutoFixSummary } from "@/lib/parser/dataGaps";
 
 // Flow-4 auto-applied strip (spec §6.1) — per-show roster-shift summary from
 // the roster_shift_counts RPC. `total` is added+removed+renamed. Single-defined
@@ -61,6 +61,12 @@ export type ActiveShowRow = {
   // accessible name (§6.5). No time-decay: it clears when the last
   // un-dispositioned roster row is Accepted/Undone/superseded.
   rosterShift?: RosterShiftSummary;
+  // Flow 6 §3.2 (6.3) — OPTIONAL per-show auto-fix summary (the five
+  // *_AUTOCORRECTED codes) from the SAME shows_internal.parse_warnings read.
+  // Producers omit it → undefined → ShowsTable renders no auto-fixed chip; when
+  // supplied and `total > 0`, ShowsTable renders a NEUTRAL "N auto-fixed" pill
+  // (distinct from the amber data-gaps chip — a benign "we fixed it" notice).
+  autoFixes?: AutoFixSummary;
 };
 
 // Single date-only ISO ('YYYY-MM-DD') → short "M/D/YY", or null for a null input.

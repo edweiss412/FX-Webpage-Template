@@ -19,7 +19,12 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { nowDate } from "@/lib/time/now";
 import { type ActiveShowRow } from "@/lib/admin/showDisplay";
-import { summarizeDataGaps, type DataGapsSummary } from "@/lib/parser/dataGaps";
+import {
+  summarizeDataGaps,
+  summarizeAutoFixes,
+  type DataGapsSummary,
+  type AutoFixSummary,
+} from "@/lib/parser/dataGaps";
 import type { ParseWarning } from "@/lib/parser/types";
 import { DashboardFooter } from "@/components/admin/DashboardFooter";
 import { StatStrip } from "@/components/admin/StatStrip";
@@ -334,9 +339,14 @@ export async function fetchDashboardData(
   // (invariant 9, registered in _metaInfraContract); the CALLER degrades VISIBLE.
   // shows_internal.show_id is a PK → .in(show_id) is a 1:1 lookup within the
   // already-capped id set (non-UNBOUNDED table → no .limit() needed).
-  const readDataGaps = async (): Promise<Map<string, DataGapsSummary> | InfraResult> => {
+  type DataQualityMaps = {
+    gaps: Map<string, DataGapsSummary>;
+    autoFixes: Map<string, AutoFixSummary>;
+  };
+  const readDataGaps = async (): Promise<DataQualityMaps | InfraResult> => {
     const byShow = new Map<string, DataGapsSummary>();
-    if (activeShowIds.length === 0) return byShow;
+    const autoByShow = new Map<string, AutoFixSummary>();
+    if (activeShowIds.length === 0) return { gaps: byShow, autoFixes: autoByShow };
     try {
       const { data, error } = await supabase
         .from("shows_internal")
@@ -353,14 +363,19 @@ export async function fetchDashboardData(
         // summarizeDataGaps and is caught PER-ROW so one corrupt row cannot
         // degrade every badge (spec §2.1). parse_warnings is plain jsonb.
         if (!Array.isArray(r.parse_warnings)) continue;
+        // Both summaries derive from the SAME already-fetched warnings array —
+        // NO second Supabase read (Flow 6 §3.2; invariant 9 untriggered).
         try {
-          const summary = summarizeDataGaps(r.parse_warnings as ParseWarning[]);
+          const warns = r.parse_warnings as ParseWarning[];
+          const summary = summarizeDataGaps(warns);
           if (summary.total > 0) byShow.set(r.show_id, summary);
+          const auto = summarizeAutoFixes(warns);
+          if (auto.total > 0) autoByShow.set(r.show_id, auto);
         } catch {
           // malformed element → skip this row only
         }
       }
-      return byShow;
+      return { gaps: byShow, autoFixes: autoByShow };
     } catch (err) {
       return {
         kind: "infra_error",
@@ -449,7 +464,10 @@ export async function fetchDashboardData(
   const dataGapsDegraded = isInfra(dataGapsResult);
   const dataGapsByShow: Map<string, DataGapsSummary> = dataGapsDegraded
     ? new Map()
-    : dataGapsResult;
+    : dataGapsResult.gaps;
+  const autoFixByShow: Map<string, AutoFixSummary> = dataGapsDegraded
+    ? new Map()
+    : dataGapsResult.autoFixes;
 
   // Flow-4 (spec §8) — resolve the strip payload kicked off above (concurrent with
   // Wave 2). rosterShiftByShow feeds the per-row roster-shift badge; on infra_error
@@ -471,6 +489,7 @@ export async function fetchDashboardData(
     const gaps = dataGapsByShow.get(s.id as string);
     // §6.4 — per-show roster-shift summary (published shows only; absent → omit).
     const rosterShift = rosterShiftByShow[s.id as string];
+    const autoFixes = autoFixByShow.get(s.id as string);
     return {
       id: s.id as string,
       slug: s.slug as string,
@@ -488,6 +507,7 @@ export async function fetchDashboardData(
       ...(gaps ? { dataGaps: gaps } : {}),
       // exactOptional: OMIT rosterShift entirely when the show has no roster shift.
       ...(rosterShift ? { rosterShift } : {}),
+      ...(autoFixes ? { autoFixes } : {}),
     };
   });
 

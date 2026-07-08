@@ -773,3 +773,48 @@ describe("ShowsTable", () => {
     expect(badge.getAttribute("aria-label")).not.toMatch(/unrecognized role/);
   });
 });
+
+describe("AutoFixChip (Flow 6 6.3 — neutral auto-fixed sibling)", () => {
+  const mkAutoFix = (over: Record<string, number>) => ({
+    total: Object.values(over).reduce((a, b) => a + b, 0),
+    classes: {
+      STAGE_WORD_AUTOCORRECTED: 0,
+      ROLE_TOKEN_AUTOCORRECTED: 0,
+      COLUMN_HEADER_AUTOCORRECTED: 0,
+      SECTION_HEADER_AUTOCORRECTED: 0,
+      FIELD_LABEL_AUTOCORRECTED: 0,
+      ...over,
+    },
+  });
+
+  it("renders a NEUTRAL auto-fixed chip when total>0, distinct from the amber gap chip", () => {
+    render(
+      <ShowsTable
+        rows={[row({ slug: "x", autoFixes: mkAutoFix({ STAGE_WORD_AUTOCORRECTED: 3 }) })]}
+        now={now}
+        activeCount={1}
+        overflowCount={0}
+        rowAction={() => <span>act</span>}
+      />,
+    );
+    const chip = screen.getByTestId("shows-auto-fixed-chip-x");
+    expect(chip).toHaveTextContent("3");
+    expect(chip).toHaveTextContent(/auto-fixed/i);
+    // neutral, NOT the amber data-gap chip (must not pass by matching status-warn styling):
+    expect(chip.className).not.toMatch(/status-warn/);
+  });
+
+  it("hides the auto-fixed chip when autoFixes is absent or total 0", () => {
+    render(
+      <ShowsTable
+        rows={[row({ slug: "y" }), row({ slug: "z", autoFixes: mkAutoFix({}) })]}
+        now={now}
+        activeCount={2}
+        overflowCount={0}
+        rowAction={() => <span>a</span>}
+      />,
+    );
+    expect(screen.queryByTestId("shows-auto-fixed-chip-y")).toBeNull();
+    expect(screen.queryByTestId("shows-auto-fixed-chip-z")).toBeNull();
+  });
+});

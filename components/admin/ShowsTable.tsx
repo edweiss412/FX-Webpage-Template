@@ -30,7 +30,12 @@ import {
 import { StatusIndicator } from "@/components/admin/StatusIndicator";
 import { HoverHelp } from "@/components/admin/HoverHelp";
 import { syncStatusBucket, type SyncBucket } from "@/lib/admin/syncStatus";
-import { formatDataGapBreakdown, type DataGapsSummary } from "@/lib/parser/dataGaps";
+import {
+  formatDataGapBreakdown,
+  formatAutoFixBreakdown,
+  type DataGapsSummary,
+  type AutoFixSummary,
+} from "@/lib/parser/dataGaps";
 import { DataQualityBadge } from "@/components/admin/DataQualityBadge";
 
 type ShowsTableProps = {
@@ -252,6 +257,26 @@ function DataGapsChip({ slug, dataGaps }: { slug: string; dataGaps: DataGapsSumm
       <span aria-hidden="true" className="size-1.5 rounded-full bg-status-warn" />
       <span className="tabular-nums">{dataGaps.total}</span>{" "}
       {dataGaps.total === 1 ? "data gap" : "data gaps"}
+    </span>
+  );
+}
+
+// Flow 6 §3.2 (6.3) — NEUTRAL sibling to DataGapsChip: the count of benign
+// `*_AUTOCORRECTED` fixes the parser applied. Deliberately NOT status-warn styled
+// (this is a positive "we fixed it" notice, not a data-quality warning). Renders
+// only when total>0 (absent/undefined → nothing — instant, no animation). The
+// per-class breakdown rides the hover title, bounded (≤4 + "+N more").
+function AutoFixChip({ slug, autoFixes }: { slug: string; autoFixes: AutoFixSummary | undefined }) {
+  if (!autoFixes || autoFixes.total === 0) return null;
+  const breakdown = formatAutoFixBreakdown(autoFixes);
+  return (
+    <span
+      data-testid={`shows-auto-fixed-chip-${slug}`}
+      title={breakdown}
+      className="inline-flex items-center gap-1.5 rounded-pill border border-border px-2 py-0.5 text-xs font-medium text-text-subtle"
+    >
+      <span aria-hidden="true" className="size-1.5 rounded-full bg-text-subtle" />
+      <span className="tabular-nums">{autoFixes.total}</span> auto-fixed
     </span>
   );
 }
@@ -546,6 +571,7 @@ export function ShowsTable({
                       data-testid={`shows-row-action-${row.slug}`}
                       className="flex flex-wrap items-center gap-3 border-t border-border bg-surface-sunken px-4 py-3"
                     >
+                      <AutoFixChip slug={row.slug} autoFixes={row.autoFixes} />
                       <DataGapsChip slug={row.slug} dataGaps={row.dataGaps} />
                       {rowAction(row)}
                     </div>
