@@ -20,6 +20,8 @@ import {
   summarizeAutoFixes,
   formatAutoFixBreakdown,
   AUTO_FIX_CLASSES,
+  hasRecoveredToBaseline,
+  isQualityRegression,
 } from "@/lib/parser/dataGaps";
 import type { ParseWarning } from "@/lib/parser/types";
 
@@ -31,14 +33,14 @@ const warn = (code: string, severity: ParseWarning["severity"] = "warn"): ParseW
 
 // A summary whose `classes` has every GAP_CLASSES key at 0 EXCEPT the given
 // overrides — derived from the registry so the expectation tracks the real set
-// (anti-tautology: never hardcode the 24-key shape).
+// (anti-tautology: never hardcode the 30-key shape).
 const classesWith = (overrides: Record<string, number>): Record<string, number> =>
   Object.fromEntries(GAP_CLASSES.map((g) => [g.code, overrides[g.code] ?? 0]));
 
 describe("GAP_CLASSES registry (single source of truth)", () => {
-  it("has exactly 26 entries and includes the newly-counted codes", () => {
-    expect(GAP_CLASSES).toHaveLength(26);
-    expect(DATA_GAP_CODES.size).toBe(26);
+  it("has exactly 30 entries and includes the newly-counted codes", () => {
+    expect(GAP_CLASSES).toHaveLength(30);
+    expect(DATA_GAP_CODES.size).toBe(30);
     for (const c of [
       "UNKNOWN_FIELD",
       "SCHEDULE_TIME_UNPARSED",
@@ -61,6 +63,29 @@ describe("GAP_CLASSES registry (single source of truth)", () => {
       // Plain-language acronyms like "PDF" ARE allowed (Codex plan R1): do NOT assert lowercase-only.
     }
     expect(DATA_GAP_CLASS_LABELS.AGENDA_PDF_UNREADABLE).toContain("PDF");
+  });
+});
+
+describe("Task 2 — ambiguity + cardinality gap classes (spec §3.4)", () => {
+  it("ambiguity + cardinality codes are gap classes (counted, recovered symmetrically)", () => {
+    const s = summarizeDataGaps([
+      warn("ROOM_HEADER_SPLIT_AMBIGUOUS"),
+      warn("HOTEL_GUEST_SPLIT_AMBIGUOUS"),
+      warn("DATE_ORDER_SUGGESTS_DMY"),
+      warn("HOTEL_CARDINALITY_EXCEEDED"),
+    ]);
+    expect(s.total).toBe(4);
+    // recovery symmetry: an ambiguity regression blocks recovery to baseline
+    expect(hasRecoveredToBaseline(summarizeDataGaps([]), s)).toBe(false);
+  });
+
+  it("regression gate stays UNPARTITIONED for ambiguity + cardinality classes (§3.4 carve-out)", () => {
+    const prior = summarizeDataGaps([]);
+    const many = (code: string) => summarizeDataGaps(Array.from({ length: 6 }, () => warn(code)));
+    // new-class appearance fires isQualityRegression for an ambiguity code…
+    expect(isQualityRegression(prior, many("ROOM_HEADER_SPLIT_AMBIGUOUS"))).toBe(true);
+    // …and for the promoted cardinality code
+    expect(isQualityRegression(prior, many("HOTEL_CARDINALITY_EXCEEDED"))).toBe(true);
   });
 });
 
@@ -90,7 +115,7 @@ describe("summarizeDataGaps", () => {
   it("counts EVERY gap class once when given one warn per code (derived from registry)", () => {
     const oneEach = GAP_CLASSES.map((g) => warn(g.code));
     const out = summarizeDataGaps(oneEach);
-    expect(out.total).toBe(GAP_CLASSES.length); // 26
+    expect(out.total).toBe(GAP_CLASSES.length); // 30
     for (const { code } of GAP_CLASSES) expect(out.classes[code]).toBe(1);
   });
 

@@ -25,7 +25,7 @@ import type { ParseWarning } from "@/lib/parser/types";
  * display order. Curated allow-list (NOT "all warn-severity" — five autocorrect
  * codes are warn yet benign); see the spec's §2 for the verified taxonomy and the
  * drift-guard meta-test (tests/parser/dataGapsClassCompleteness.test.ts) that pins
- * the full 42-code persisted-ParseWarning partition.
+ * the full 49-code persisted-ParseWarning partition.
  */
 export const GAP_CLASSES = [
   { code: "FIELD_UNREADABLE", label: "unreadable field" },
@@ -58,6 +58,10 @@ export const GAP_CLASSES = [
   // (Flow 6 §4.2). Honored by isQualityRegression / hasRecoveredToBaseline /
   // buildRegressionPayload via the `gateExempt` flag.
   { code: "VENUE_GEOCODE_UNRESOLVED", label: "unresolved venue location", gateExempt: true },
+  { code: "ROOM_HEADER_SPLIT_AMBIGUOUS", label: "unclear room split" },
+  { code: "HOTEL_GUEST_SPLIT_AMBIGUOUS", label: "possibly merged hotel guests" },
+  { code: "DATE_ORDER_SUGGESTS_DMY", label: "dates may be day-first" },
+  { code: "HOTEL_CARDINALITY_EXCEEDED", label: "too many hotels" },
 ] as const;
 
 export type GapCode = (typeof GAP_CLASSES)[number]["code"];
