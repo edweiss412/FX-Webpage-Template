@@ -157,7 +157,7 @@ it("returns count on success", async () => {
 - Modify: `tests/admin/_metaInfraContract.test.ts`, `tests/admin/_metaBoundedReads.test.ts`
 
 **Interfaces:**
-- Consumes: `roster_shift_counts` RPC (Task 1); the service-role supabase client pattern from `lib/admin/loadNeedsAttention.ts`.
+- Consumes: `roster_shift_counts` RPC (Task 1); the **service-role** client `createSupabaseServiceRoleClient` (`@/lib/supabase/server`) — the pattern from `lib/observe/query/changeLog.ts:43` (NOT the cookie client, R2-F1).
 - Produces (spec §6.1):
 ```ts
 export type AutoAppliedRow = { id: string; changeKind: string; summary: string; occurredAt: string; undoable: boolean };
@@ -167,9 +167,10 @@ export type RecentAutoApplied =
   | { kind: "infra_error"; message: string };
 export const STRIP_RENDER_CAP = 50;
 export async function loadRecentAutoApplied(
-  deps: { supabase: SupabaseClient; publishedShowIds: string[] },
+  deps: { publishedShowIds: string[]; supabase?: SupabaseClient },
 ): Promise<RecentAutoApplied>;
 ```
+- **Service-role client (R2-F1):** `show_change_log` is REVOKEd from `authenticated` (deny-by-default, service-role only), and `roster_shift_counts` is granted to `service_role` only. So the loader MUST use a service-role client — NOT the dashboard's cookie-bound `createSupabaseServerClient` (which would degrade every call to `infra_error`). The loader defaults `supabase` to `createSupabaseServiceRoleClient()` (`@/lib/supabase/server`) internally — mirroring `lib/observe/query/changeLog.ts:43` — and accepts an injected client only for tests. Dashboard does NOT pass a client (Task 8).
 - **`publishedShowIds` (R1-F1):** the caller (Dashboard, which already has the active show rows) passes the FULL list of active-published show ids. `roster_shift_counts(publishedShowIds)` is driven by THIS list — NOT by the display-capped rows — so a published show whose rows fall outside `STRIP_RENDER_CAP` (or which has zero displayed rows because other shows filled the cap) still gets an accurate badge. The badge is decoupled from the strip's display cap.
 
 - [ ] **Step 1: Write failing test** (`tests/admin/loadRecentAutoApplied.test.ts`, follow `tests/admin/loadNeedsAttention.test.ts` mock shape). Assert against a seeded/mock row set:
@@ -185,7 +186,7 @@ export async function loadRecentAutoApplied(
 
 - [ ] **Step 2: Run, verify fail.**
 
-- [ ] **Step 3: Implement** `lib/admin/loadRecentAutoApplied.ts`: (a) one bounded `.from('show_change_log').select(...).eq('source','auto_apply').eq('status','applied').is('acknowledged_at', null).in('change_kind', [...5]).order('occurred_at',{ascending:false}).limit(STRIP_RENDER_CAP+1)` join/lookup show name+slug; slice to cap + compute `overflowCount`; build groups + `acceptableIds`/`undoableIds`; (b) `.rpc('roster_shift_counts',{ p_show_ids: publishedShowIds })` (the caller-supplied list, R1-F1) → map to `rosterShiftByShow` (`total=added+removed+renamed`; shows absent from the result → omitted, so the badge sees `undefined`); each supabase call destructures `{data,error}` → `infra_error` on fault.
+- [ ] **Step 3: Implement** `lib/admin/loadRecentAutoApplied.ts`: use `const supabase = deps.supabase ?? createSupabaseServiceRoleClient()` (R2-F1 — service-role, not cookie); (a) one bounded `.from('show_change_log').select(...).eq('source','auto_apply').eq('status','applied').is('acknowledged_at', null).in('change_kind', [...5]).order('occurred_at',{ascending:false}).limit(STRIP_RENDER_CAP+1)` join/lookup show name+slug; slice to cap + compute `overflowCount`; build groups + `acceptableIds`/`undoableIds`; (b) `.rpc('roster_shift_counts',{ p_show_ids: publishedShowIds })` (the caller-supplied list, R1-F1) → map to `rosterShiftByShow` (`total=added+removed+renamed`; shows absent from the result → omitted, so the badge sees `undefined`); each supabase call destructures `{data,error}` → `infra_error` on fault.
 
 - [ ] **Step 4: Run, verify pass.**
 
@@ -210,7 +211,7 @@ export async function loadRecentAutoApplied(
 
 - [ ] **Step 2: Run, verify fail.**
 
-- [ ] **Step 3: Implement** `app/admin/_actions/autoApplied.ts` (`"use server"`). Each action mirrors `feed.ts:121-149`: `requireAdminIdentity()` → parse formData → helper → on `ok`: revalidate + post-commit `try { await logAdminOutcome({...}) } catch {}`. `acceptAllAction` parses `acceptableIds` from a hidden field (e.g. `String(formData.get("ids")).split(",").filter(Boolean)`). `undoFromDashboardAction` reuses `undoChange` + `revalidateShow(result.showId)` + `revalidatePath("/admin","page")`.
+- [ ] **Step 3: Implement** `app/admin/_actions/autoApplied.ts` (`"use server"`). Each action mirrors `feed.ts:121-149`: `requireAdminIdentity()` → parse formData → helper → on `ok`: revalidate + post-commit `try { await logAdminOutcome({...}) } catch {}`. `acceptAllAction` parses `acceptableIds` from a hidden field (e.g. `String(formData.get("ids")).split(",").filter(Boolean)`). `undoFromDashboardAction` reuses `undoChange` + **`if (result.showId) revalidateShow(result.showId)`** (guarded — `undoChange` returns `showId?` optional, R2-F2, matching `feed.ts:132`) + `revalidatePath("/admin","page")`.
 
 - [ ] **Step 4: Run, verify pass.**
 
@@ -307,7 +308,7 @@ export async function loadRecentAutoApplied(
 
 - [ ] **Step 2: Run, verify fail.**
 
-- [ ] **Step 3: Implement.** The loader needs `publishedShowIds` (R1-F1), which come from the active show rows — so it can't sit in the same `Promise.all` that produces those rows if the ids aren't known yet. Options (pick per the actual data flow at `:398`/`:430`): if the active published show ids are known before the parallel block (from an earlier `showsRows` fetch), pass them straight in; otherwise run `loadRecentAutoApplied({ supabase, publishedShowIds })` in a second step after `showsRows` resolves (still concurrent with the row-mapping work). Compute `publishedShowIds = showsRows.filter(published).map(r=>r.id)`. Then set `rosterShift: recentAutoApplied.kind==='ok' ? recentAutoApplied.rosterShiftByShow[r.id] : undefined` in the rows `.map` (`:430`/`:454`); render `<RecentAutoAppliedStrip data={recentAutoApplied} actions={{acceptChangeAction, acceptAllAction, undoFromDashboardAction}} />` as a sibling after `<NeedsAttentionInbox>` (`:690`). Infra-error result → strip renders its bounded error; dashboard otherwise unaffected.
+- [ ] **Step 3: Implement.** The loader needs `publishedShowIds` (R1-F1), which come from the active show rows — so it runs AFTER `showsRows` resolves (not blindly in the `:398` cookie-client `Promise.all`). Compute `publishedShowIds = showsRows.filter(published).map(r=>r.id)`, then `const recentAutoApplied = await loadRecentAutoApplied({ publishedShowIds })` — **no `supabase` arg** (the loader self-creates a service-role client, R2-F1; the dashboard's cookie client can't read `show_change_log`). Set `rosterShift: recentAutoApplied.kind==='ok' ? recentAutoApplied.rosterShiftByShow[r.id] : undefined` in the rows `.map` (`:430`/`:454`); render `<RecentAutoAppliedStrip data={recentAutoApplied} actions={{acceptChangeAction, acceptAllAction, undoFromDashboardAction}} />` as a sibling after `<NeedsAttentionInbox>` (`:690`). Infra-error result → strip renders its bounded error; dashboard otherwise unaffected.
 
 - [ ] **Step 4: Run, verify pass.** Also run the full admin suite: `pnpm vitest run tests/admin tests/components/admin` → green.
 
