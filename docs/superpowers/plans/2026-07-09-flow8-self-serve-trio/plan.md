@@ -355,26 +355,30 @@ git commit --no-verify -m "feat(crew-page): persistent PICKER_NAME_NOT_LISTED af
 **Interfaces:**
 - Produces: `export class UnmatchedViewerError extends Error` (sibling of `MalformedProjectionError`). `resolveViewerContext` throws it for a `crew`/`admin_preview` viewer whose id is absent from a well-formed `crewMembers` array. `admin` viewer unchanged (`{none}` + `SCOPE_TILE_UNLOCKING_FLAGS`).
 
-- [ ] **Step 1: Write the failing test**
+- [ ] **Step 1: INVERT the existing contradictory test + add the admin-unchanged assertion**
 
-Add to `tests/data/viewerContext.test.ts`:
+`tests/data/viewerContext.test.ts:130-145` currently asserts the OLD fail-open (`crew viewer with no matching row → falls back to none restrictions`). That contract is exactly what 8.2 reverses, so **REPLACE that test in place** (do not add a duplicate — the suite would otherwise contradict itself and never reach green). Add `UnmatchedViewerError` to the existing `import { resolveViewerContext, … } from "@/lib/data/viewerContext"` at the top of the file. Replace the `:130-145` test body with:
 
 ```ts
-import { resolveViewerContext, UnmatchedViewerError } from "@/lib/data/viewerContext";
-// … existing imports/helpers …
-
-test("crew viewer unmatched in a well-formed array throws UnmatchedViewerError (was {none} fail-open)", () => {
-  const data = { crewMembers: [{ id: "other", name: "X", role: "A1", roleFlags: [], dateRestriction: { kind: "none" }, stageRestriction: { kind: "none" } }] } as any;
-  expect(() => resolveViewerContext({ kind: "crew", crewMemberId: "missing" }, data)).toThrow(UnmatchedViewerError);
-});
-
-test("admin viewer with an empty array still returns {none} + all-flags (unchanged)", () => {
-  const ctx = resolveViewerContext({ kind: "admin" } as any, { crewMembers: [] } as any);
-  expect(ctx.dateRestriction).toEqual({ kind: "none" });
-  expect(ctx.viewerFlags.length).toBeGreaterThan(0);
-  expect(ctx.isAdmin).toBe(true);
-});
+  test("crew viewer with no matching row in a well-formed array THROWS UnmatchedViewerError (8.2: was the {none} whole-show fail-open)", () => {
+    const viewer: Viewer = { kind: "crew", crewMemberId: "crew-missing" };
+    const data = makeData([crewRowAlice]); // well-formed array, id absent
+    expect(() => resolveViewerContext(viewer, data)).toThrow(UnmatchedViewerError);
+  });
 ```
+
+Then ADD (new test, keeps the admin limb pinned):
+
+```ts
+  test("admin viewer with an empty well-formed array still returns {none} + all-flags (unchanged)", () => {
+    const ctx = resolveViewerContext({ kind: "admin" } as Viewer, makeData([]));
+    expect(ctx.dateRestriction).toEqual({ kind: "none" });
+    expect(ctx.viewerFlags).toEqual([...SCOPE_TILE_UNLOCKING_FLAGS]);
+    expect(ctx.isAdmin).toBe(true);
+  });
+```
+
+> `makeData`, `crewRowAlice`, `Viewer`, and `SCOPE_TILE_UNLOCKING_FLAGS` are already imported/defined in this test file (see `:60-92`). Do NOT redefine them. Also grep the rest of the file for any OTHER assertion of the old none-fallback for an unmatched *crew/admin_preview* viewer and invert those too (the admin-viewer none case at `:87-92` stays — that limb is unchanged).
 
 - [ ] **Step 2: Run to verify it fails**
 
