@@ -38,14 +38,14 @@ import { TerminalFailure } from "@/components/auth/TerminalFailure";
 import { buildShowPageChainRequest } from "@/lib/auth/picker/showPageChainRequest";
 import { resolveShowPageAccess } from "@/lib/auth/picker/resolveShowPageAccess";
 import { ShowUnavailable } from "./ShowUnavailable";
-import { getShowForViewer, type Viewer } from "@/lib/data/getShowForViewer";
+import { getShowForViewer, CrewMemberNotInShowError, type Viewer } from "@/lib/data/getShowForViewer";
 import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
 import { BASE_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { sanitizePickerRoster } from "@/lib/auth/picker/sanitizePickerRoster";
 
 import { CrewShell } from "./_CrewShell";
-import { PickerInterstitial } from "./_PickerInterstitial";
+import { PickerInterstitial, type PickerInterstitialBannerCode } from "./_PickerInterstitial";
 import { SignInOrSkipGate } from "./_SignInOrSkipGate";
 import { staleBannerFor } from "./staleBanner";
 
@@ -66,6 +66,110 @@ async function loadRoster(showId: string): Promise<RosterRow[]> {
     .order("name", { ascending: true });
   if (error) throw new Error("roster lookup failed");
   return sanitizePickerRoster((data ?? []) as RosterRow[]);
+}
+
+async function loadShowAvailability(showId: string): Promise<"available" | "missing" | "archived" | "unpublished"> {
+  const supabase = createSupabaseServiceRoleClient();
+  // not-subject-to-meta: page.tsx-local read; {data,error} + fail-closed; covered by route tests (mirrors loadRoster)
+  const { data, error } = await supabase
+    .from("shows")
+    .select("published, archived")
+    .eq("id", showId)
+    .maybeSingle();
+  if (error) throw new Error("show availability lookup failed");
+  // DISCRIMINATED — mirrors the existing published-toggle contract (page.tsx switch):
+  // archived/missing 404; unpublished renders the paused-link page (HTTP 200), NOT a 404.
+  if (!data) return "missing";
+  if (data.archived === true) return "archived";
+  if (data.published !== true) return "unpublished";
+  return "available";
+}
+
+async function renderPickerRepick(args: {
+  showId: string;
+  slug: string;
+  shareToken: string;
+  s: string | undefined;
+  banner: PickerInterstitialBannerCode | null;
+  staleCleanupHint: { expectedEpoch: number; expectedCrewMemberId: string } | null;
+  // Optional preloaded roster: renderRacedCrewMiss reads the roster ITSELF (to sequence it before the
+  // final availability gate) and passes it here so the picker JSX stays single-sourced. undefined → read now.
+  preloadedRoster?: RosterRow[];
+}): Promise<React.ReactElement> {
+  let roster = args.preloadedRoster;
+  if (roster === undefined) {
+    try {
+      roster = await loadRoster(args.showId);
+    } catch {
+      return (
+        <TerminalFailure
+          code="PICKER_RESOLVER_LOOKUP_FAILED"
+          retryHref={`/show/${args.slug}/${args.shareToken}`}
+        />
+      );
+    }
+  }
+  return (
+    <PickerInterstitial
+      slug={args.slug}
+      shareToken={args.shareToken}
+      showId={args.showId}
+      roster={roster}
+      banner={args.banner}
+      staleCleanupHint={args.staleCleanupHint}
+      s={args.s}
+    />
+  );
+}
+
+// CRITICAL ORDERING (TOCTOU fix): read the roster FIRST, then re-check availability LAST — the final
+// await before render. A show-delete cascade (crew_members.show_id ON DELETE CASCADE) that empties the
+// roster between the two reads is then caught by the availability gate (→ notFound), never rendering an
+// EMPTY picker for a deleted show.
+// CRITICAL: notFound() throws a Next navigation sentinel (NEXT_NOT_FOUND) — it MUST NOT sit inside a
+// try/catch that would convert it to a TerminalFailure. Each read's try/catch is scoped to the READ ONLY;
+// notFound() / <ShowUnavailable /> / renderPickerRepick run OUTSIDE any catch, and callers invoke this
+// helper with NO surrounding catch.
+async function renderRacedCrewMiss(args: {
+  showId: string;
+  slug: string;
+  shareToken: string;
+  s: string | undefined;
+}): Promise<React.ReactElement> {
+  let roster: RosterRow[];
+  try {
+    roster = await loadRoster(args.showId); // FIRST — a cascade may have already emptied this to []
+  } catch {
+    return (
+      <TerminalFailure
+        code="PICKER_RESOLVER_LOOKUP_FAILED"
+        retryHref={`/show/${args.slug}/${args.shareToken}`}
+      />
+    );
+  }
+  let availability: "available" | "missing" | "archived" | "unpublished";
+  try {
+    availability = await loadShowAvailability(args.showId); // LAST — final gate; reflects post-cascade state
+  } catch {
+    return (
+      <TerminalFailure
+        code="PICKER_RESOLVER_LOOKUP_FAILED"
+        retryHref={`/show/${args.slug}/${args.shareToken}`}
+      />
+    );
+  }
+  // Mirror the published-toggle contract EXACTLY — outside every catch so notFound()'s sentinel propagates:
+  //   missing (deleted/cascade) OR archived → notFound() (404)
+  //   unpublished (paused link)             → <ShowUnavailable /> (HTTP 200, republish restores)
+  //   available                             → guided re-pick
+  if (availability === "missing" || availability === "archived") notFound();
+  if (availability === "unpublished") return <ShowUnavailable />;
+  return renderPickerRepick({
+    ...args,
+    banner: "PICKER_REMOVED_FROM_ROSTER_BANNER",
+    staleCleanupHint: null,
+    preloadedRoster: roster,
+  });
 }
 
 export default async function ShowPage({
@@ -158,7 +262,16 @@ export default async function ShowPage({
       let data;
       try {
         data = await getShowForViewer(result.showId, viewer);
-      } catch {
+      } catch (err) {
+        // Point A (8.2 §4.1): a crew-row miss (raced removal OR show-delete
+        // cascade) is a typed CrewMemberNotInShowError → guided re-pick after
+        // re-validating show availability (renderRacedCrewMiss owns its own infra
+        // catch + notFound()/ShowUnavailable). NO try/catch wraps that call — its
+        // notFound() sentinel must escape. Any other error (infra, :317/:321 plain
+        // Error) → TerminalFailure.
+        if (err instanceof CrewMemberNotInShowError) {
+          return renderRacedCrewMiss({ showId: result.showId, slug, shareToken, s: allowlistedS });
+        }
         return (
           <TerminalFailure
             code="PICKER_RESOLVER_LOOKUP_FAILED"
@@ -166,16 +279,23 @@ export default async function ShowPage({
           />
         );
       }
-      // Display-only chip derivation; fail-open is fine HERE because the
-      // chip carries no restriction semantics. The `?.` is still required:
-      // this runs in the page function, BEFORE React renders <ShowBody>, so
-      // an unguarded `.find` on a malformed projection would TypeError into
-      // Next's generic boundary (P-R5 Fix-1) and bypass the real fail-closed
-      // gate — resolveViewerContext throws MalformedProjectionError inside
-      // ShowBody, which renders <TerminalFailure
-      // code="PICKER_RESOLVER_LOOKUP_FAILED" />. On malformed data the chip
-      // value computed here is never shown; the page terminates in ShowBody.
-      const crew = data.crewMembers?.find((c) => c.id === result.crewMemberId);
+      // Point B: compute `crew` ONLY for a well-formed ARRAY projection.
+      // `Array.isArray` — never optional chaining — is the guard: a degraded
+      // TRUTHY non-array would throw "find is not a function" HERE (in the page
+      // function, BEFORE React renders CrewShell) and bypass the real fail-closed
+      // gate. Instead:
+      //   - well-formed array + id present → CrewShell with the identity chip
+      //   - well-formed array + id MISSING → guided re-pick (renderRacedCrewMiss)
+      //   - non-array / malformed          → crew stays null; fall through to
+      //     CrewShell, whose resolveViewerContext throws MalformedProjectionError
+      //     → _CrewShell catch → cataloged TerminalFailure (existing contract).
+      let crew: (typeof data.crewMembers)[number] | null = null;
+      if (Array.isArray(data.crewMembers)) {
+        crew = data.crewMembers.find((c) => c.id === result.crewMemberId) ?? null;
+        if (!crew) {
+          return renderRacedCrewMiss({ showId: result.showId, slug, shareToken, s: allowlistedS });
+        }
+      }
       return (
         <CrewShell
           data={data}
@@ -234,34 +354,21 @@ export default async function ShowPage({
     case "epoch_stale":
     case "removed_from_roster":
     case "selection_reset":
-    case "identity_invalidated": {
-      let roster;
-      try {
-        roster = await loadRoster(result.showId);
-      } catch {
-        return (
-          <TerminalFailure
-            code="PICKER_RESOLVER_LOOKUP_FAILED"
-            retryHref={`/show/${slug}/${shareToken}`}
-          />
-        );
-      }
-      const banner = staleBannerFor(result.kind);
-      return (
-        <PickerInterstitial
-          slug={slug}
-          shareToken={shareToken}
-          showId={result.showId}
-          roster={roster}
-          banner={banner}
-          staleCleanupHint={{
-            expectedEpoch: result.expectedEpoch,
-            expectedCrewMemberId: result.expectedCrewMemberId,
-          }}
-          s={allowlistedS}
-        />
-      );
-    }
+    case "identity_invalidated":
+      // Shared picker-repick render. The resolver already live-validated show
+      // availability for these kinds (resolvePickerSelection), so no availability
+      // recheck here — that is exclusive to the resolved-case race (renderRacedCrewMiss).
+      return renderPickerRepick({
+        showId: result.showId,
+        slug,
+        shareToken,
+        s: allowlistedS,
+        banner: staleBannerFor(result.kind),
+        staleCleanupHint: {
+          expectedEpoch: result.expectedEpoch,
+          expectedCrewMemberId: result.expectedCrewMemberId,
+        },
+      });
 
     default: {
       // assertNever exhaustiveness — typeScript errors at compile time
