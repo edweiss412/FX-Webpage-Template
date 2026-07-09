@@ -188,3 +188,10 @@ export function parseGearTab(markdown: string): GearRoom[] {
   flush();
   return out;
 }
+
+// TRANSFORM_SITES (spec 2026-07-07-ambiguity-warnings-v1 §6) — value-producing
+// transform sites in this file that rest on a JUDGMENT the parser could get wrong.
+// None here — classifies rooms it does not open; deterministic family reuse (owned by rooms.ts).
+export const TRANSFORM_SITES: ReadonlyArray<
+  { site: string; code: string } | { site: string; exempt: string }
+> = [];

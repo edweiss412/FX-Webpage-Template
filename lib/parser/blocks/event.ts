@@ -406,3 +406,10 @@ function toCanonicalKey(label: string): string {
   // Fallback: lowercase + underscores
   return lower.replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
 }
+
+// TRANSFORM_SITES (spec 2026-07-07-ambiguity-warnings-v1 §6) — value-producing
+// transform sites in this file that rest on a JUDGMENT the parser could get wrong.
+// None here — event_details fields captured verbatim; label aliases are deterministic.
+export const TRANSFORM_SITES: ReadonlyArray<
+  { site: string; code: string } | { site: string; exempt: string }
+> = [];

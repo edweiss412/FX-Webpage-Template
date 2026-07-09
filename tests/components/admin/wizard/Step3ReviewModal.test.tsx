@@ -84,6 +84,17 @@ function warning(kind: string): ParseWarning {
   return { severity: "warn", code: "SOME_CODE", message: "", blockRef: { kind } };
 }
 
+// A judgment (ambiguity-class) warning routed to a section (spec 2026-07-07 §7.1).
+// The optional field drives the FIELD_LABELS entry-text enrichment (§7.3).
+function judgmentWarning(kind: string, field?: string): ParseWarning {
+  return {
+    severity: "warn",
+    code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+    message: "",
+    blockRef: field ? { kind, field } : { kind },
+  };
+}
+
 /** Assemble the modal's SectionData from the shared fixture builders. */
 function sectionData(
   prOverrides: Partial<ParseResult> = {},
@@ -1247,6 +1258,30 @@ describe("Step3ReviewModal — section panels (spec §6.4/§5.2/§15)", () => {
     const warnSec = q.getByTestId(tid("section-warnings"));
     expect(within(warnSec).getByText("Needs a look")).toBeTruthy();
     expect(warnSec.querySelector(".border-border-strong.rounded-md")).not.toBeNull();
+  });
+
+  // spec 2026-07-07 §7.1/§7.3 — a section whose only warns are ambiguity-class is
+  // JUDGMENT, not flagged: calm info-tone chrome, a "Parsed with judgment" pill (NOT
+  // "Needs a look"), the judgment callout with its lead line + FIELD_LABELS entry text.
+  test("judgment section: info-tone chip + 'Parsed with judgment' pill + judgment callout (never amber)", () => {
+    const d = sectionData({ warnings: [judgmentWarning("rooms", "dims")] });
+    const { q } = renderModal({ d });
+
+    const roomsSec = q.getByTestId(tid("section-rooms"));
+    // Judgment pill, not the amber "Needs a look".
+    expect(within(roomsSec).getByText("Parsed with judgment")).toBeTruthy();
+    expect(within(roomsSec).queryByText("Needs a look")).toBeNull();
+    // Icon chip uses the info tone, never the amber warn tone.
+    const iconChip = roomsSec.querySelector(".size-7")!;
+    expect(iconChip.className).toMatch(/\bbg-info-bg\b/);
+    expect(iconChip.className).not.toMatch(/\bbg-warning-bg\b/);
+    // The callout renders in the judgment variant with its lead line + field label.
+    const callout = q.getByTestId(`wizard-step3-card-${DFID}-section-rooms-flag-callout`);
+    expect(callout.getAttribute("data-variant")).toBe("judgment");
+    expect(callout.className).toMatch(/\bbg-info-bg\b/);
+    expect(callout.className).not.toMatch(/\bbg-warning-bg\b/);
+    expect(callout.textContent).toContain("We made a judgment call reading this. Worth a glance.");
+    expect(callout.textContent).toContain("(dimensions)"); // FIELD_LABELS: dims → dimensions
   });
 });
 

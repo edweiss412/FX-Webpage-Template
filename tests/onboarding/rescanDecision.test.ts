@@ -152,4 +152,39 @@ describe("computeRescanDecision", () => {
   test("decision set is exactly the crew-change family", () => {
     expect([...DECISION_REQUIRING_INVARIANTS].sort()).toEqual(["MI-11", "MI-12", "MI-13", "MI-14"]);
   });
+
+  // Task 10 (spec §3.4): an ambiguity-only gap increase is NOT a regression — a
+  // judgment call never marks a re-scan dirty (ambiguity never blocks publish).
+  const ambiguity = (n: number): ParseWarning[] =>
+    Array.from({ length: n }, (_, i) => ({
+      severity: "warn" as const,
+      code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+      message: `ambiguous room split ${i}`,
+    }));
+
+  test("ambiguity-only gap INCREASE (0 → 2 ROOM_HEADER_SPLIT_AMBIGUOUS) → CLEAN", () => {
+    const priorGaps = mkDataGaps({});
+    const refreshed = makeParse([{ name: "Ada Lovelace", email: "ada@x.example" }], ambiguity(2));
+    expect(computeRescanDecision(PRIOR, refreshed, priorGaps).dirty).toBe(false);
+  });
+
+  test("mixed increase (ambiguity + a non-ambiguity gap) → DIRTY on the non-ambiguity class", () => {
+    const priorGaps = mkDataGaps({});
+    const refreshed = makeParse(
+      [{ name: "Ada Lovelace", email: "ada@x.example" }],
+      [...ambiguity(2), ...unreadable(1)],
+    );
+    expect(computeRescanDecision(PRIOR, refreshed, priorGaps).dirty).toBe(true);
+  });
+
+  test("ambiguity increase does NOT suppress an invariant-triggered dirty (MI-11 email change)", () => {
+    const priorGaps = mkDataGaps({});
+    const refreshed = makeParse(
+      [{ name: "Ada Lovelace", email: "ada-new@x.example" }],
+      ambiguity(2),
+    );
+    const { dirty, decisionItems } = computeRescanDecision(PRIOR, refreshed, priorGaps);
+    expect(dirty).toBe(true);
+    expect(decisionItems.length).toBeGreaterThan(0);
+  });
 });

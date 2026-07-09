@@ -31,3 +31,10 @@ export function travelFlightAmbiguousTable(): ParseWarning {
     blockRef: travel(),
   };
 }
+
+// TRANSFORM_SITES (spec 2026-07-07-ambiguity-warnings-v1 §6) — value-producing
+// transform sites in this file that rest on a JUDGMENT the parser could get wrong.
+// None here — warning emission only; produces no field values.
+export const TRANSFORM_SITES: ReadonlyArray<
+  { site: string; code: string } | { site: string; exempt: string }
+> = [];

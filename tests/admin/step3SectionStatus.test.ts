@@ -11,6 +11,7 @@ import {
   sectionForWarning,
   deriveSectionStatuses,
   warningsBySection,
+  sectionStatus,
   SECTION_REGION_MAP,
   type SectionId,
 } from "@/lib/admin/step3SectionStatus";
@@ -413,6 +414,49 @@ describe("SECTION_REGION_MAP", () => {
     expect(SECTION_REGION_MAP.diagrams).toBeNull();
     expect(SECTION_REGION_MAP.warnings).toBeNull();
     expect(SECTION_REGION_MAP.report).toBeNull();
+  });
+});
+
+// ── Task 9 (spec §7.1): tri-state section status over routed warn-severity ──
+// warnings. flagged = ≥1 non-ambiguity warn; judgment = ≥1 warn AND all
+// isAmbiguityCode; clean = zero warn-severity warnings.
+describe("sectionStatus (§7.1 tri-state)", () => {
+  // A gap class that is ALSO an ambiguity code (ambiguityCodes.ts).
+  const AMB = "ROOM_HEADER_SPLIT_AMBIGUOUS";
+  // Non-ambiguity warn codes (one gap class, one non-gap) — both flag the section.
+  const NON_AMB_GAP = "FIELD_UNREADABLE";
+  const NON_GAP = "SECTION_HEADER_AUTOCORRECTED";
+  const cw = (code: string, severity: "warn" | "info" = "warn"): ParseWarning => ({
+    severity,
+    code,
+    message: code,
+  });
+
+  test("zero warn-severity warnings → clean", () => {
+    expect(sectionStatus([])).toBe("clean");
+    expect(sectionStatus([cw(AMB, "info")])).toBe("clean");
+  });
+
+  test("ambiguity-only section → judgment", () => {
+    expect(sectionStatus([cw(AMB)])).toBe("judgment");
+    expect(sectionStatus([cw(AMB), cw("DATE_ORDER_SUGGESTS_DMY")])).toBe("judgment");
+  });
+
+  test("info ambiguity noise does not demote a judgment section", () => {
+    expect(sectionStatus([cw(AMB), cw(NON_GAP, "info")])).toBe("judgment");
+  });
+
+  test("any non-ambiguity warn → flagged (gap class)", () => {
+    expect(sectionStatus([cw(NON_AMB_GAP)])).toBe("flagged");
+  });
+
+  test("any non-ambiguity warn → flagged (non-gap warn too)", () => {
+    expect(sectionStatus([cw(NON_GAP)])).toBe("flagged");
+  });
+
+  test("ambiguity + non-ambiguity warns → flagged (a mixed section is flagged)", () => {
+    expect(sectionStatus([cw(AMB), cw(NON_AMB_GAP)])).toBe("flagged");
+    expect(sectionStatus([cw(AMB), cw(NON_GAP)])).toBe("flagged");
   });
 });
 
