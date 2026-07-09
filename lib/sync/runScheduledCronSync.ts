@@ -97,6 +97,8 @@ import {
   type RoleFlagsNotice,
   type Phase2Tx,
 } from "@/lib/sync/phase2";
+import type { FullCrewRow } from "@/lib/sync/reconcileCrewOverrides";
+import type { ActiveOverrideRow } from "@/lib/sync/overrideShowHotel";
 import { promoteSnapshotUpload as defaultPromoteSnapshotUpload } from "@/lib/sync/promoteSnapshot";
 import {
   type DeferredIngestionRow,
@@ -1328,12 +1330,14 @@ class PostgresPipelineTx implements SyncPipelineTx {
           stage_restriction: unknown;
           flight_info: string | null;
           claimed_via_oauth_at: string | null;
+          selections_reset_at: string | null;
         }>(
           // PF38 (resolution #24): id + claimed_via_oauth_at are load-bearing for Phase-4 undo
-          // identity continuity (picker-cookie key + OAuth claim). Widened from name/email/phone/...
+          // identity continuity (picker-cookie key + OAuth claim). §3.6: selections_reset_at joins the
+          // lifecycle set the id-keyed crew reconciliation preserves.
           `
             select id, name, email, phone, role, role_flags, date_restriction, stage_restriction,
-                   flight_info, claimed_via_oauth_at
+                   flight_info, claimed_via_oauth_at, selections_reset_at
               from public.crew_members
              where show_id = $1
              order by name
@@ -1553,6 +1557,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
           row.stage_restriction as ParseResult["crewMembers"][number]["stage_restriction"],
         flight_info: row.flight_info,
         claimed_via_oauth_at: row.claimed_via_oauth_at,
+        selections_reset_at: row.selections_reset_at,
       })),
     };
   }
@@ -1593,6 +1598,109 @@ class PostgresPipelineTx implements SyncPipelineTx {
           member.date_restriction,
           member.stage_restriction,
           member.flight_info,
+        ],
+      );
+    }
+  }
+
+  // §3.6 (admin field overrides): the single locked-tx read of this show's ACTIVE admin_overrides
+  // (SYNC-1/SYNC-2). Reads via the same PostgresTransaction (the JS-held show lock; no nested lock).
+  // {data,error} discipline is owned by lib/sync/loadActiveOverrides — a thrown DB fault surfaces
+  // there as `thrown_error`; a successful read returns { data, error: null }.
+  // not-subject-to-meta: service-role SQL inside the JS-held show lock (no Supabase client here).
+  async loadActiveOverrides(driveFileId: string) {
+    const data = await this.rows<ActiveOverrideRow>(
+      `
+        select o.id, o.domain, o.field, o.match_key, o.override_value
+          from public.admin_overrides o
+          join public.shows s on s.id = o.show_id
+         where s.drive_file_id = $1
+           and o.active
+         order by o.id
+      `,
+      [driveFileId],
+    );
+    return { data, error: null };
+  }
+
+  // §3.6 four-phase crew write executor (R24) — deletes → parkAtSentinel → insertFull → assignFinals.
+  async crewDeleteByIds(showId: string, ids: string[]) {
+    if (ids.length === 0) return;
+    await this.rows("delete from public.crew_members where show_id = $1 and id = any($2::uuid[])", [
+      showId,
+      ids,
+    ]);
+  }
+
+  async crewParkAtSentinel(showId: string, ids: string[]) {
+    if (ids.length === 0) return;
+    // chr(31) is the \x1f unit-separator; it cannot occur in a parsed crew name, and appending the id
+    // makes each sentinel unique, so no surviving row holds any final display name after this phase.
+    await this.rows(
+      `update public.crew_members
+          set name = chr(31) || '__reassign__' || id::text
+        where show_id = $1 and id = any($2::uuid[])`,
+      [showId, ids],
+    );
+  }
+
+  async crewInsertFull(showId: string, rows: FullCrewRow[]) {
+    for (const row of rows) {
+      await this.rows(
+        `
+          insert into public.crew_members (
+            show_id, name, email, phone, role, role_flags, date_restriction,
+            stage_restriction, flight_info, sheet_name
+          )
+          values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10)
+        `,
+        [
+          showId,
+          row.name,
+          row.email,
+          row.phone,
+          row.role,
+          row.role_flags,
+          row.date_restriction,
+          row.stage_restriction,
+          row.flight_info,
+          row.sheet_name,
+        ],
+      );
+    }
+  }
+
+  async crewAssignFinals(
+    showId: string,
+    finals: { id: string; row: FullCrewRow; sheetName: string | null }[],
+  ) {
+    for (const { id, row, sheetName } of finals) {
+      await this.rows(
+        `
+          update public.crew_members
+             set name = $3,
+                 email = $4,
+                 phone = $5,
+                 role = $6,
+                 role_flags = $7,
+                 date_restriction = $8::jsonb,
+                 stage_restriction = $9::jsonb,
+                 flight_info = $10,
+                 sheet_name = $11
+           where show_id = $1 and id = $2
+        `,
+        [
+          showId,
+          id,
+          row.name,
+          row.email,
+          row.phone,
+          row.role,
+          row.role_flags,
+          row.date_restriction,
+          row.stage_restriction,
+          row.flight_info,
+          sheetName,
         ],
       );
     }

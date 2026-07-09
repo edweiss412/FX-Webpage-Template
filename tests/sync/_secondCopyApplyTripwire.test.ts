@@ -48,6 +48,10 @@ const ALLOWED: ReadonlyArray<{ file: string; symbol: string }> = [
   { file: "lib/sync/runScheduledCronSync.ts", symbol: "async applyShowSnapshot(" },
   { file: "lib/sync/runScheduledCronSync.ts", symbol: "async deleteCrewMembersNotIn(" },
   { file: "lib/sync/runScheduledCronSync.ts", symbol: "async upsertCrewMembers(" },
+  // §3.6 id-keyed crew reconciliation executor (four-phase; delete + insert by id, override-active
+  // shows only) — the id-keyed peer of deleteCrewMembersNotIn/upsertCrewMembers.
+  { file: "lib/sync/runScheduledCronSync.ts", symbol: "async crewDeleteByIds(" },
+  { file: "lib/sync/runScheduledCronSync.ts", symbol: "async crewInsertFull(" },
   { file: "lib/sync/runScheduledCronSync.ts", symbol: "async replaceHotelReservations(" },
   { file: "lib/sync/runScheduledCronSync.ts", symbol: "async replaceRooms(" },
   { file: "lib/sync/runScheduledCronSync.ts", symbol: "async replaceTransportation(" },

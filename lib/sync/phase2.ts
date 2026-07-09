@@ -16,6 +16,7 @@ import {
   type ActiveOverridesReadResult,
 } from "@/lib/sync/loadActiveOverrides";
 import { overrideShowHotel, type OverrideSideEffect } from "@/lib/sync/overrideShowHotel";
+import type { ActiveCrewOverride } from "@/lib/sync/reconcileCrewOverrides";
 import type { Phase1Binding } from "@/lib/sync/phase1";
 import type { ResolvedSyncMode } from "@/lib/sync/perFileProcessor";
 import type { SnapshotAssetsResult } from "@/lib/sync/snapshotAssets";
@@ -259,6 +260,9 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
   // Stage A (admin field overrides): planned show/hotel admin_overrides side-effects, committed in
   // Stage B (Task 8). Populated by the pre-snapshot override transform below; [] when no port.
   let showHotelSideEffects: OverrideSideEffect[] = [];
+  // §3.6: the CREW partition of the single loadActiveOverrides read (SYNC-2), threaded into
+  // applyParseResult so the id-keyed reconciliation runs post-hold. [] when no override port / none.
+  let activeCrewOverrides: ActiveCrewOverride[] = [];
   const verifyReelOnApply =
     args.verifyReelOnApply === false ? null : (args.verifyReelOnApply ?? defaultVerifyReelOnApply);
   if (verifyReelOnApply && parseResult.openingReel) {
@@ -314,6 +318,16 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
     const overridden = overrideShowHotel(parseResult, activeOverrides);
     parseResult = overridden.overriddenParseResult;
     showHotelSideEffects = overridden.showHotelSideEffects;
+    // SYNC-2: partition the SAME single read into the crew slice for the post-hold §3.6 reconciliation
+    // (never a second query). field is narrowed to name/role by the crew domain filter.
+    activeCrewOverrides = activeOverrides
+      .filter((o) => o.domain === "crew")
+      .map((o) => ({
+        id: o.id,
+        field: o.field as "name" | "role",
+        match_key: o.match_key,
+        override_value: o.override_value,
+      }));
   }
 
   const snapshot = await callTx("applyShowSnapshot", () =>
@@ -405,6 +419,8 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
       // Carry the prepare-stage region anchors so applyParseResult can re-anchor the
       // apply-only AGENDA_DAY_EMPTIED warning it appends (deep link to the schedule tab).
       ...(args.sourceAnchors !== undefined ? { sourceAnchors: args.sourceAnchors } : {}),
+      // §3.6: the crew override partition (SYNC-2) drives the post-hold id-keyed reconciliation.
+      ...(activeCrewOverrides.length > 0 ? { activeCrewOverrides } : {}),
     }),
   );
 
@@ -475,6 +491,9 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
   // Stage B slot (Task 8): the show/hotel override side-effects planned in Stage A ride out on the
   // applied result so the caller can commit them (sheet_value refresh / deactivations) in the same
   // locked tx. Carried only when the override-read port was wired (else []).
-  if (showHotelSideEffects.length > 0) applied.showHotelSideEffects = showHotelSideEffects;
+  // Stage B carries ALL override side-effects: show/hotel from Stage A + crew from the post-hold
+  // §3.6 reconciliation (Task 8 commits them uniformly in the same locked tx).
+  const overrideSideEffects = [...showHotelSideEffects, ...(applyOutcome.crewSideEffects ?? [])];
+  if (overrideSideEffects.length > 0) applied.showHotelSideEffects = overrideSideEffects;
   return applied;
 }
