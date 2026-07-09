@@ -11,7 +11,6 @@ import { logAdminOutcome } from "@/lib/log/logAdminOutcome"; // NOT re-exported 
 import type { LogRecord } from "@/lib/log";
 import { collectSurfaceUnits } from "./mutationSurface/enumerate";
 import { AUDITABLE_MUTATIONS } from "./_auditableMutations";
-import { ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER } from "./mutationSurface/exemptions";
 
 // ── shared auth/Next mocks (Tasks 7-15) ─────────────────────────────────────
 // Per plan Tasks 7-16: NEVER mock @/lib/log or @/lib/log/logAdminOutcome here —
@@ -641,7 +640,10 @@ type LeaseStmt = {
   rows?: unknown[];
   mandatory?: boolean;
 };
-type FakeLeasePool = ((strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]>) & {
+type FakeLeasePool = ((
+  strings: TemplateStringsArray,
+  ...values: unknown[]
+) => Promise<unknown[]>) & {
   begin<R>(fn: (tx: unknown) => Promise<R>): Promise<R>;
   assertConsumed(): void;
 };
@@ -668,8 +670,7 @@ function fakeLeasePool(script: LeaseStmt[][]): FakeLeasePool {
     const tx = (async (strings: TemplateStringsArray, ...values: unknown[]) => {
       const text = norm(strings);
       const exp = block[stmtPtr];
-      if (!exp)
-        throw new Error(`fakeLeasePool: over-run in tx#${txIndex}: ${text.slice(0, 80)}`);
+      if (!exp) throw new Error(`fakeLeasePool: over-run in tx#${txIndex}: ${text.slice(0, 80)}`);
       if (!exp.match.test(text))
         throw new Error(
           `fakeLeasePool: out-of-order/unexpected SQL in tx#${txIndex} at position ${stmtPtr} (expected ${exp.name}): ${text.slice(0, 120)}`,
@@ -1619,9 +1620,9 @@ describe("Flow-4 Task 4 — dashboard accept/undo server actions observe changes
   });
 });
 
-// ── Batch 1: grandfathered per-show server actions graduate to inline proof ──
-// BL-ADMIN-OUTCOME-BEHAVIOR (spec §3): each of the 6 actions was in
-// ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER (now removed). Each drives its committed-success
+// ── Batch 1: formerly-grandfathered per-show server actions graduate to inline proof ──
+// BL-ADMIN-OUTCOME-BEHAVIOR (spec §3): each of the 6 actions was in the behavioral-coverage
+// grandfather baseline (now removed entirely). Each drives its committed-success
 // branch through observeSuccessCodes (records ONLY after observing the real emit) and
 // is paired with a refusal case proving the emit is committed-success-gated. archive/
 // unarchive/setPublished resolve the show via the shared swappable serverClientImpl
@@ -2665,8 +2666,7 @@ describe("Batch 3 — final grandfathered surfaces graduate to inline proof", ()
 
   // >>> BATCH-3 PROOF BLOCK START
   test("A1 wizard staged approve emits STAGE_APPROVED", async () => {
-    const file =
-      "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/approve/route.ts";
+    const file = "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/approve/route.ts";
     const ctx = { params: Promise.resolve({ wizardSessionId: B3_WSID, driveFileId: B3_DFID }) };
     const request = () => new Request("https://x/approve", { method: "POST" });
     // 3-branch queryOne (copied from the proven shape in tests/api/wizard-approve-route.test.ts):
@@ -2713,7 +2713,8 @@ describe("Batch 3 — final grandfathered surfaces graduate to inline proof", ()
       // (route.ts:1436) → SHOW_FINALIZED (route.ts:1563). @/lib/log is NOT mocked here (the
       // copy-source finalize.test.ts mocks logAdminOutcome; Batch 3 relies on the real sink).
       code: "SHOW_FINALIZED",
-      success: () => handleOnboardingFinalize(finalizeRequest(), finalizeFakeDeps(new FakeFinalizeDb())),
+      success: () =>
+        handleOnboardingFinalize(finalizeRequest(), finalizeFakeDeps(new FakeFinalizeDb())),
       failure: (mark) => {
         const db = new FakeFinalizeDb();
         db.activeSessionId = null; // readCandidateSessionId → null → 409 CHECKPOINT_MISSING
@@ -2754,7 +2755,8 @@ describe("Batch 3 — final grandfathered surfaces graduate to inline proof", ()
       // success: one shadow row committed via applyShadow → SHOW_FINALIZED per committed row
       // (route.ts:814). @/lib/log unmocked; deps supply subscribeToWatchedFolder (Drive) as vi.fn.
       code: "SHOW_FINALIZED",
-      success: () => handleOnboardingFinalizeCas(finalizeCasRequest(), finalizeCasFakeDeps(seededDb())),
+      success: () =>
+        handleOnboardingFinalizeCas(finalizeCasRequest(), finalizeCasFakeDeps(seededDb())),
       failure: (mark) => {
         const db = new FakeFinalizeCasDb();
         db.activeSessionId = null; // readSession → null → 409 CHECKPOINT_MISSING
@@ -2773,8 +2775,7 @@ describe("Batch 3 — final grandfathered surfaces graduate to inline proof", ()
   });
 
   test("A4 extract-agenda emits AGENDA_EXTRACT_COMPLETED", async () => {
-    const file =
-      "app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts";
+    const file = "app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts";
     const A4_WSID = "11111111-1111-4111-8111-111111111111";
     const A4_DFID = "xa-a4";
     const A4_SID = "33333333-3333-4333-8333-333333333333";
@@ -2783,7 +2784,9 @@ describe("Batch 3 — final grandfathered surfaces graduate to inline proof", ()
     const A4_PR = { warnings: [], show: { title: "X", agenda_links: [] } };
     const isStr = (v: unknown) => typeof v === "string";
     const isObj = (v: unknown) => typeof v === "object" && v !== null;
-    const a4Ctx = () => ({ params: Promise.resolve({ wizardSessionId: A4_WSID, driveFileId: A4_DFID }) });
+    const a4Ctx = () => ({
+      params: Promise.resolve({ wizardSessionId: A4_WSID, driveFileId: A4_DFID }),
+    });
     const a4Req = () => new Request("https://x/extract-agenda", { method: "POST" });
 
     // The full committed-success SQL script (verified from extractAgendaLease.ts + route.ts:240-470).
@@ -2877,7 +2880,17 @@ describe("Batch 3 — final grandfathered surfaces graduate to inline proof", ()
               /staged_modified_time/,
             ],
             // positional deep-equal (v0 merged jsonb = shape; v1..v8 exact, owner carried from #5).
-            binds: () => [isObj, A4_WSID, A4_DFID, A4_SID, A4_MT, A4_WSID, A4_WSID, A4_DFID, cap.owner as string],
+            binds: () => [
+              isObj,
+              A4_WSID,
+              A4_DFID,
+              A4_SID,
+              A4_MT,
+              A4_WSID,
+              A4_WSID,
+              A4_DFID,
+              cap.owner as string,
+            ],
             rows: [{ ok: true }],
             mandatory: true,
           },
@@ -3086,34 +3099,23 @@ describe("Batch 3 — final grandfathered surfaces graduate to inline proof", ()
 
 // ── Task 18: executable behavioral-coverage assertion (spec §4.2 / §9 / §10.5) ──
 // Runs LAST: every recording test above has populated the file-local `recorded` set
-// within this one module scope (spec R11 F2 — no cross-file recorder). This is the
-// teeth of the admin contract: a registered admin surface that is NOT grandfathered
-// MUST have driven its success branch and been observed emitting its code.
-describe("Task 18 — admin behavioral coverage (every registered non-grandfather admin mutation is proven)", () => {
+// within this one module scope (spec R11 F2 — no cross-file recorder). The grandfather
+// mechanism is fully retired (BL-ADMIN-OUTCOME-BEHAVIOR closed, Batch 3) — this is now
+// a STRICT completeness assertion with no escape hatch: EVERY registered admin
+// AUDITABLE_MUTATIONS surface must have driven its committed-success branch and been
+// observed emitting its code in this file. A new admin surface fails-by-default until
+// it carries a real proof.
+describe("Task 18 — admin behavioral coverage (every registered admin mutation is proven, no exemptions)", () => {
   const adminUnits = collectSurfaceUnits(["app", "lib", "components"]).filter((u) => u.admin);
   const adminKeys = new Set(adminUnits.map((u) => `${u.file}::${u.fn}`));
-  const grandfather = new Set(ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER.map((g) => `${g.file}::${g.fn}`));
 
-  test("the grandfather baseline matches the frozen pin (8 after Batch 2) and each entry is still a live admin surface", () => {
-    expect(ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER.length).toBe(8);
-    // No stale entries — a grandfather row must still resolve to a live admin surface
-    // (fails if a route/action was deleted or renamed out from under the baseline).
-    const stale = ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER.filter(
-      (g) => !adminKeys.has(`${g.file}::${g.fn}`),
-    );
-    expect(
-      stale,
-      `stale grandfather entries:\n${stale.map((g) => `${g.file}::${g.fn}`).join("\n")}`,
-    ).toEqual([]);
-  });
-
-  test("every registered admin mutation NOT in the grandfather baseline has an observed behavioral record", () => {
+  test("every registered admin mutation is proven (no exemptions)", () => {
     // Registry rows scoped to ADMIN surfaces only (the one non-admin registry row —
     // the emailed-link unpublish ROUTE — passes the discovery floor via its emit and
     // is not subject to the admin behavioral contract).
-    const missing = AUDITABLE_MUTATIONS.filter((r) => adminKeys.has(`${r.file}::${r.fn}`))
-      .filter((r) => !grandfather.has(`${r.file}::${r.fn}`))
-      .filter((r) => !recorded.has(`${r.file}::${r.fn}::${r.code}`));
+    const missing = AUDITABLE_MUTATIONS.filter((r) => adminKeys.has(`${r.file}::${r.fn}`)).filter(
+      (r) => !recorded.has(`${r.file}::${r.fn}::${r.code}`),
+    );
     expect(
       missing,
       `unproven admin mutations (registered but no observed success emit in this file):\n${missing
