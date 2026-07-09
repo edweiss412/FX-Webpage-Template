@@ -219,6 +219,7 @@ export function TodaySection({
           const transportVisible = transportTileVisible({
             transportation: data.transportation,
             viewerName: data.viewerName,
+            viewerNameAliases: data.viewerNameAliases,
             isAdmin: ctx.isAdmin,
           });
           const todays =

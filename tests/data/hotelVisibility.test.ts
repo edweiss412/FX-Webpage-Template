@@ -25,16 +25,18 @@ const res = (names: string[]): HotelReservationRow => ({
 describe("hotelVisibleToViewer — explicit cases", () => {
   it("a first-name guest is visible to the full-roster viewer", () => {
     // failure mode: substring `.includes` would hide this (carl ⊉ 'carl fenton')
-    expect(hotelVisibleToViewer(res(["Carl"]), "Carl Fenton")).toBe(true);
+    expect(hotelVisibleToViewer(res(["Carl"]), ["Carl Fenton"])).toBe(true);
   });
   it("a same-first-name DIFFERENT-surname guest is NOT visible (over-match guard)", () => {
-    expect(hotelVisibleToViewer(res(["Eric Carroll"]), "Eric Weiss")).toBe(false);
+    expect(hotelVisibleToViewer(res(["Eric Carroll"]), ["Eric Weiss"])).toBe(false);
   });
   it("legacy '/'-merged persisted row is visible via the sub-name", () => {
-    expect(hotelVisibleToViewer(res(["David Johnson / Jeffrey Justice"]), "DJ Johnson")).toBe(true);
+    expect(hotelVisibleToViewer(res(["David Johnson / Jeffrey Justice"]), ["DJ Johnson"])).toBe(
+      true,
+    );
   });
   it("empty names → not visible (no crash)", () => {
-    expect(hotelVisibleToViewer(res([]), "Carl Fenton")).toBe(false);
+    expect(hotelVisibleToViewer(res([]), ["Carl Fenton"])).toBe(false);
   });
 });
 
@@ -53,7 +55,7 @@ describe("hotelVisibleToViewer — fixture-derived (real parsed shows, self-grou
       // sanity: a broken show must have ≥1 crew member with a matchable hotel
       expect(expectedToSeeOne.length).toBeGreaterThan(0);
       for (const cn of expectedToSeeOne) {
-        const visible = r.hotelReservations.filter((res2) => hotelVisibleToViewer(res2, cn));
+        const visible = r.hotelReservations.filter((res2) => hotelVisibleToViewer(res2, [cn]));
         // failure mode: a wiring/extraction bug would surface nothing for a real crew name
         expect(visible.length, `${slug}: "${cn}" should see ≥1 hotel`).toBeGreaterThan(0);
       }

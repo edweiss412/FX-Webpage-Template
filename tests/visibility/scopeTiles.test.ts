@@ -175,6 +175,7 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
       transportTileVisible({
         transportation: null,
         viewerName: "Alice",
+        viewerNameAliases: ["Alice"],
         isAdmin: false,
       }),
     ).toBe(false);
@@ -185,6 +186,7 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
       transportTileVisible({
         transportation: baseTransport,
         viewerName: null,
+        viewerNameAliases: [],
         isAdmin: true,
       }),
     ).toBe(true);
@@ -195,6 +197,7 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
       transportTileVisible({
         transportation: baseTransport,
         viewerName: "Cara",
+        viewerNameAliases: ["Cara"],
         isAdmin: false,
       }),
     ).toBe(true);
@@ -205,6 +208,7 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
       transportTileVisible({
         transportation: baseTransport,
         viewerName: "Alice",
+        viewerNameAliases: ["Alice"],
         isAdmin: false,
       }),
     ).toBe(true);
@@ -215,6 +219,7 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
       transportTileVisible({
         transportation: baseTransport,
         viewerName: "Bob",
+        viewerNameAliases: ["Bob"],
         isAdmin: false,
       }),
     ).toBe(false);
@@ -225,6 +230,7 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
       transportTileVisible({
         transportation: baseTransport,
         viewerName: null,
+        viewerNameAliases: [],
         isAdmin: false,
       }),
     ).toBe(false);
@@ -237,6 +243,7 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
       transportTileVisible({
         transportation: { ...baseTransport, schedule: [] },
         viewerName: "Alice",
+        viewerNameAliases: ["Alice"],
         isAdmin: false,
       }),
     ).toBe(false);
@@ -260,16 +267,31 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
 
   test("driver match is now case- + trim-insensitive ('cara', 'Cara ' match 'Cara')", () => {
     expect(
-      transportTileVisible({ transportation: baseTransport, viewerName: "cara", isAdmin: false }),
+      transportTileVisible({
+        transportation: baseTransport,
+        viewerName: "cara",
+        viewerNameAliases: ["cara"],
+        isAdmin: false,
+      }),
     ).toBe(true);
     expect(
-      transportTileVisible({ transportation: baseTransport, viewerName: "Cara ", isAdmin: false }),
+      transportTileVisible({
+        transportation: baseTransport,
+        viewerName: "Cara ",
+        viewerNameAliases: ["Cara "],
+        isAdmin: false,
+      }),
     ).toBe(true);
   });
 
   test("assigned_names match is now case-insensitive ('alice' matches tagged 'Alice')", () => {
     expect(
-      transportTileVisible({ transportation: baseTransport, viewerName: "alice", isAdmin: false }),
+      transportTileVisible({
+        transportation: baseTransport,
+        viewerName: "alice",
+        viewerNameAliases: ["alice"],
+        isAdmin: false,
+      }),
     ).toBe(true);
   });
 
@@ -279,6 +301,7 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
       transportTileVisible({
         transportation: withDriver("Doug"),
         viewerName: "Doug Larson",
+        viewerNameAliases: ["Doug Larson"],
         isAdmin: false,
       }),
     ).toBe(true);
@@ -286,6 +309,7 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
       transportTileVisible({
         transportation: withDriver("Douglas Larson"),
         viewerName: "Doug Larson",
+        viewerNameAliases: ["Doug Larson"],
         isAdmin: false,
       }),
     ).toBe(true);
@@ -296,6 +320,7 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
       transportTileVisible({
         transportation: withDriver(null, ["Douglas Larson"]),
         viewerName: "Doug Larson",
+        viewerNameAliases: ["Doug Larson"],
         isAdmin: false,
       }),
     ).toBe(true);
@@ -306,6 +331,7 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
       transportTileVisible({
         transportation: withDriver("Eric Carroll"),
         viewerName: "Eric Weiss",
+        viewerNameAliases: ["Eric Weiss"],
         isAdmin: false,
       }),
     ).toBe(false);
@@ -313,6 +339,7 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
       transportTileVisible({
         transportation: withDriver(null, ["Eric Carroll"]),
         viewerName: "Eric Weiss",
+        viewerNameAliases: ["Eric Weiss"],
         isAdmin: false,
       }),
     ).toBe(false);
