@@ -42,6 +42,7 @@ import { getShowForViewer, type Viewer } from "@/lib/data/getShowForViewer";
 import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
 import { BASE_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+import { sanitizePickerRoster } from "@/lib/auth/picker/sanitizePickerRoster";
 
 import { CrewShell } from "./_CrewShell";
 import { PickerInterstitial } from "./_PickerInterstitial";
@@ -64,7 +65,7 @@ async function loadRoster(showId: string): Promise<RosterRow[]> {
     .eq("show_id", showId)
     .order("name", { ascending: true });
   if (error) throw new Error("roster lookup failed");
-  return (data ?? []) as RosterRow[];
+  return sanitizePickerRoster((data ?? []) as RosterRow[]);
 }
 
 export default async function ShowPage({
