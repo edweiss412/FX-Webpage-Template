@@ -147,7 +147,7 @@ export function emitRoomSplitAmbiguity(
   agg.warnings.push({
     severity: "warn",
     code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
-    message: `Room line "${rawOneLine}" could be split into name and dimensions more than one way — picked the most likely reading; double-check the ${fieldWord}${forName}.`,
+    message: `Room line "${rawOneLine}" could be split into name and dimensions more than one way, so we picked the most likely reading; double-check the ${fieldWord}${forName}.`,
     blockRef: { kind: "rooms", name: params.name, field: params.field },
     rawSnippet: params.rawHeader,
   });
@@ -189,7 +189,7 @@ export function emitHotelGuestSplitAmbiguity(
   agg.warnings.push({
     severity: "warn",
     code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
-    message: `Guest cell "${rawOneLine}" may glue multiple guests together (${count} ${spots}) — picked the most likely split; double-check the guest list.`,
+    message: `Guest cell "${rawOneLine}" may glue multiple guests together (${count} ${spots}), so we picked the most likely split; double-check the guest list.`,
     blockRef,
     rawSnippet: params.rawCell,
   });
@@ -213,7 +213,7 @@ export function emitHotelCardinalityExceeded(
   agg.warnings.push({
     severity: "warn",
     code: "HOTEL_CARDINALITY_EXCEEDED",
-    message: `Found ${params.found} hotels — only the first ${params.cap} are shown; the rest were dropped.`,
+    message: `Found ${params.found} hotels; only the first ${params.cap} are shown; the rest were dropped.`,
     blockRef: { kind: "hotels" },
   });
 }
@@ -239,7 +239,7 @@ export function emitDateOrderSuggestsDmy(
   agg.warnings.push({
     severity: "warn",
     code: "DATE_ORDER_SUGGESTS_DMY",
-    message: `Show dates in the DATES section only sort in order if read day-first (e.g. "${params.rawSnippet}") — we read them month-first, so every parsed date may be wrong; double-check the date order in the sheet.`,
+    message: `Show dates in the DATES section only sort in order if read day-first (e.g. "${params.rawSnippet}"); we read them month-first, so every parsed date may be wrong; double-check the date order in the sheet.`,
     blockRef: { kind: "dates", field: "order" },
     rawSnippet: params.rawSnippet,
   });

@@ -151,4 +151,18 @@ describe("parseHotels — HOTEL_CARDINALITY_EXCEEDED aggregator warning", () => 
     parseHotels(md, "v2", agg);
     expect(summarizeDataGaps(agg.warnings).classes.HOTEL_CARDINALITY_EXCEEDED).toBe(1);
   });
+
+  // Off-by-one boundary: the guard is `> cap`, so EXACTLY cap (4) hotels must NOT
+  // warn (the 5-entry `md` above is the +1 case; this is the at-cap case).
+  it("does NOT warn at exactly the cap (4 hotels — boundary is strictly greater-than)", () => {
+    const atCap =
+      "| Hotel Reservations | Grand Hotel Doug Larson - 1001 Check In: 3/1 Check Out: 3/2 " +
+      "Eric Weiss - 1002 Check In: 3/1 Check Out: 3/2 " +
+      "John Carleo - 1003 Check In: 3/1 Check Out: 3/2 " +
+      "Jane Doe - 1004 Check In: 3/1 Check Out: 3/2 |";
+    const agg = newAggregator();
+    const hotels = parseHotels(atCap, "v2", agg);
+    expect(hotels).toHaveLength(4); // all kept, none dropped
+    expect(agg.warnings.filter((x) => x.code === "HOTEL_CARDINALITY_EXCEEDED")).toHaveLength(0);
+  });
 });

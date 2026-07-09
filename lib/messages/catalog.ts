@@ -1268,11 +1268,11 @@ export const MESSAGE_CATALOG = {
   ROOM_HEADER_SPLIT_AMBIGUOUS: {
     code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
     dougFacing:
-      "We had to make a judgment call splitting a room line in _<sheet-name>_ into name and dimensions — check the rooms section against your sheet.",
+      "We had to make a judgment call splitting a room line in _<sheet-name>_ into name and dimensions; check the rooms section against your sheet.",
     crewFacing: null,
     followUp: "Doug → spot-check rooms",
     helpfulContext:
-      "A room line in this sheet could be split into a room name and its dimensions in more than one way — for example the dimensions came before the name, or there were two dimension groups — so we picked the most likely reading. The room still parsed; the name or dimensions might have landed slightly off. Check the rooms section against your sheet.",
+      "A room line in this sheet could be split into a room name and its dimensions in more than one way (for example the dimensions came before the name, or there were two dimension groups), so we picked the most likely reading. The room still parsed; the name or dimensions might have landed slightly off. Check the rooms section against your sheet.",
     title: "Made a judgment call splitting a room line",
     longExplanation:
       "A room header could be read as name-then-dimensions in more than one way, so we picked the most likely split rather than dropping the room. The room still parsed, but the name or dimensions may have landed slightly off. Spot-check the rooms section against your sheet.",
@@ -1281,7 +1281,7 @@ export const MESSAGE_CATALOG = {
   HOTEL_GUEST_SPLIT_AMBIGUOUS: {
     code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
     dougFacing:
-      "A guest line in _<sheet-name>_'s hotel section may contain more than one person — check the hotel guest list against your sheet.",
+      "A guest line in _<sheet-name>_'s hotel section may contain more than one person; check the hotel guest list against your sheet.",
     crewFacing: null,
     followUp: "Doug → spot-check hotel guests",
     helpfulContext:
@@ -1294,25 +1294,25 @@ export const MESSAGE_CATALOG = {
   DATE_ORDER_SUGGESTS_DMY: {
     code: "DATE_ORDER_SUGGESTS_DMY",
     dougFacing:
-      "The dates in _<sheet-name>_ look out of order the way we read them (month first). If you wrote them day-first, fix the dates in the sheet — we may have every date wrong.",
+      "The dates in _<sheet-name>_ look out of order the way we read them (month first). If you wrote them day-first, fix the dates in the sheet; we may have every date wrong.",
     crewFacing: null,
     followUp: "Doug → fix sheet dates",
     helpfulContext:
-      "The show dates only line up in chronological order if we read them day-first (like 10/3 meaning 3 October), but we read them month-first (10 March). That usually means the sheet was written day-first. If so, every date we parsed may be wrong — fix the dates in the sheet to an unambiguous format (like 'June 24') and we'll re-read them.",
+      "The show dates only line up in chronological order if we read them day-first (like 10/3 meaning 3 October), but we read them month-first (10 March). That usually means the sheet was written day-first. If so, every date we parsed may be wrong; fix the dates in the sheet to an unambiguous format (like 'June 24') and we'll re-read them.",
     title: "Show dates may be written day-first",
     longExplanation:
-      "The show dates only sort into order if read day-first, but we read them month-first — which usually means the sheet was written day-first. If so, every date we parsed may be wrong. Fix the dates in the sheet to an unambiguous format (like 'June 24') and we'll re-read them.",
+      "The show dates only sort into order if read day-first, but we read them month-first, which usually means the sheet was written day-first. If so, every date we parsed may be wrong. Fix the dates in the sheet to an unambiguous format (like 'June 24') and we'll re-read them.",
     helpHref: "/help/errors#DATE_ORDER_SUGGESTS_DMY",
   },
   HOTEL_CARDINALITY_EXCEEDED: {
     code: "HOTEL_CARDINALITY_EXCEEDED",
     dougFacing:
-      "_<sheet-name>_ lists more than 4 hotels — we kept the first 4. Remove old hotel blocks from the sheet if this is wrong.",
+      "_<sheet-name>_ lists more than 4 hotels; we kept the first 4. Remove old hotel blocks from the sheet if this is wrong.",
     crewFacing: null,
     followUp: "Doug → trim hotel list",
     helpfulContext:
       "This sheet lists more than four hotels, and we only keep the first four. The extras were dropped. If an old or duplicate hotel block is still in the sheet, remove it so the four we keep are the right ones.",
-    title: "More than four hotels — kept the first four",
+    title: "More than four hotels, kept the first four",
     longExplanation:
       "This sheet lists more than four hotels, and we only keep the first four; the extras were dropped. If an old or duplicate hotel block is still in the sheet, remove it so the four we keep are the right ones.",
     helpHref: "/help/errors#HOTEL_CARDINALITY_EXCEEDED",
