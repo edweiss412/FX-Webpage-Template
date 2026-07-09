@@ -75,7 +75,7 @@ Route #14 records **three** codes: one success drive of `handleWizardPendingInge
 
 ### 3.4 Grandfather removal + pin
 
-Delete the 16 route rows from `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER` (`exemptions.ts`), leaving **8** (the 4 heavy DI-seam + 4 plain-POST route POSTs for Batch 3). Update the pins `toBe(24)` → `toBe(8)` in `adminOutcomeBehavior.test.ts` (Task 18a) and `exemptions.test.ts` (length + Set.size). Update `exemptions.test.ts`'s "all N remaining are route POSTs" assertion to `8`. Update the doc-comment in `exemptions.ts` (keep "frozen, never grows"; note Batch 2 graduated the 16 clean DI-seam routes → 8 remain: 4 heavy DI-seam + 4 plain-POST). Update the Batch-1 pin-test title to reflect the new pin.
+Delete the 16 route rows from `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER` (`exemptions.ts`), leaving **8** (the 4 heavy DI-seam + 4 plain-POST route POSTs for Batch 3). Update the pins `toBe(24)` → `toBe(8)` at `adminOutcomeBehavior.test.ts:1443` (Task 18a) and `exemptions.test.ts:31` (`.length`) + `:33` (Set size). Update `exemptions.test.ts:37`'s `routeRows.length` assertion `24` → `8`. Update the doc-comment in `exemptions.ts` (keep "frozen, never grows"; note Batch 2 graduated the 16 clean DI-seam routes → 8 remain: 4 heavy DI-seam + 4 plain-POST). Update the Batch-1 pin-test title to reflect the new pin.
 
 ## 4. Guard conditions / edge cases
 
@@ -100,3 +100,35 @@ Momentary manual checks during implementation (restore after):
 - **DO NOT RELITIGATE** the batch re-cut (16 clean / 4 heavy+4 plain). It is a difficulty refinement of the Batch-1 spec's explicit "Batches 2 & 3 get their own specs" clause (`docs/superpowers/specs/2026-07-05-admin-outcome-behavioral-coverage-registry.md:36`), not a scope contradiction. The 4 deferred DI-seam routes are named with their reason (harness / DB-backed-only proof).
 - **DO NOT RELITIGATE** using direct `routeDeps` injection instead of module `vi.mock`s — this is the deliberate mechanism to keep additions inert and dodge the Batch-1 shared-mock collision class.
 - Test-only; no `pg_advisory*`, no new §12.4 code, no Supabase call-boundary surface, no meta-test created (EXTENDS `adminOutcomeBehavior.test.ts` + edits `exemptions.ts` registry data).
+
+## 7. Live-code citation ledger (verified against the tree at `origin/main` = `2ee9f5c9e`)
+
+Every factual code claim in §3 is pinned here to `file:line`. `AM` = `tests/log/_auditableMutations.ts`; each route file is `app/api/admin/<path>/route.ts`. The `routeDeps` type name for each route is declared inline on its handler-signature line (imported from the route's own module or an adjacent `_deps`/lib file).
+
+| # | route | handler sig `route.ts:L` | committed emit `route.ts:L` | code(s) `AM:L` |
+| --- | --- | --- | --- | --- |
+| 1 | onboarding/staged/[wsid]/[dfid]/apply | :122 | :175 (`wizard_applied`), :190 (`restaged_inline`) | STAGE_APPLIED `AM:17` |
+| 3 | onboarding/staged/[wsid]/[dfid]/unapprove | :119 | :168 | STAGE_UNAPPROVED `AM:27` |
+| 4 | onboarding/staged/[wsid]/[dfid]/discard | :98 | :196 | STAGE_DISCARDED `AM:32` |
+| 7 | show/staged/[stagedId]/apply | :133 | :176 | SHOW_APPLIED `AM:41` |
+| 8 | pending-ingestions/[id]/retry | :325 | :474 | PENDING_INGESTION_RETRIED `AM:47` |
+| 9 | show/[slug]/data-quality/ignore | :56 | :135 | WARNING_IGNORED `AM:81` |
+| 10 | show/[slug]/data-quality/unignore | :56 | :131 | WARNING_UNIGNORED `AM:86` |
+| 11 | admin-alerts/[id]/resolve | :80 | :171 | ADMIN_ALERT_RESOLVED `AM:97` |
+| 12 | show/[slug]/alerts/[id]/resolve | :80 | :173 | ADMIN_ALERT_RESOLVED `AM:102` |
+| 13 | pending-ingestions/[id]/discard | :85 | :153 | PENDING_INGESTION_DISCARDED `AM:107` |
+| 14 | onboarding/pending_ingestions/[id]/retry | retry :596; action export `handleWizardPendingIngestionAction` :608 | :439 (retry), :526 (defer/ignore) | DEFERRED `AM:115`, IGNORED `AM:120`, RETRIED `AM:125` |
+| 15 | onboarding/rescan-sheet | :52 | :118 | SHEET_RESCANNED `AM:130` |
+| 16 | onboarding/cleanup-abandoned-finalize/[sessionId] | :176 | :232 | FINALIZE_CLEANUP_DONE `AM:135` |
+| 17 | show/staged/[stagedId]/discard | :47 | :105 | STAGE_DISCARDED `AM:140` |
+| 18 | onboarding/scan | :211 | :277 | ONBOARDING_SCAN_COMPLETED `AM:160` |
+| 20 | ignored-sheets/[driveFileId]/unignore | :56 | :93 (unconditional after `withRowTx`) | IGNORED_SHEET_UNIGNORED `AM:178` |
+
+**Structural citations:**
+
+- Grandfather array (16 rows to remove + 8 that remain): `tests/log/mutationSurface/exemptions.ts` (the `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER` literal).
+- Pins to flip `24`→`8`: `adminOutcomeBehavior.test.ts:1443` (Task 18a) and `exemptions.test.ts:31` (`.length`), `:33` (Set size), `:37` (`routeRows.length`).
+- `requireAdmin`/`requireAdminIdentity` mock (satisfies #15's module gate + provides the injected-identity default shape): `adminOutcomeBehavior.test.ts:34` (`vi.mock("@/lib/auth/requireAdmin", …)`).
+- File-local recorder + observe helpers: `recordAdminOutcomeBehavior` / `observeSuccessCodes` / `observeCodes` in `adminOutcomeBehavior.test.ts` (Batch-1 infrastructure, reused verbatim).
+- Existing driver tests (injection recipe per route) are cited inline in §3.1's "existing driver" column; those are the copy-source for the `routeDeps`/`fakeTx` shapes, not runtime dependencies of this batch.
+- Handler-signature verification note: `apply`(#1), `unapprove`(#3), `discard`(#4), `live-staged apply`(#7), `live-retry`(#8), `ignore`(#9), `unignore`(#10), `alert global/show resolve`(#11/#12), `live-discard`(#13), `cleanup`(#16), `live-staged discard`(#17), `extract-agenda`-family, `ignored-sheets unignore`(#20) take `(request, context, routeDeps = {})`; `finalize`/`finalize-cas`/`rescan`(#15)/`scan`(#18) take **no `context`** (`(request, routeDeps)` / `(request, deps?)`) — verified from the handler-signature lines above. Test drives must match (omit `context` for #15/#18).
