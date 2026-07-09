@@ -625,7 +625,13 @@ describe("deliverDigest — monitor section (flow 6.2 §5, §8)", () => {
         FIELD_LABEL_AUTOCORRECTED: 0,
       },
     },
-    drift: [{ showTitle: "West", slug: "west", classes: [{ label: "unreadable field", prior: 10, curr: 11 }] }],
+    drift: [
+      {
+        showTitle: "West",
+        slug: "west",
+        classes: [{ label: "unreadable field", prior: 10, curr: 11 }],
+      },
+    ],
   };
 
   test("monitor present → email contains the section AND context records monitor_totals (counts only)", async () => {

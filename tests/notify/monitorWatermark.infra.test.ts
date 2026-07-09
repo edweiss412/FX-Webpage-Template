@@ -29,7 +29,9 @@ function clientThrowing() {
 
 describe("monitorWatermark infra contract (invariant 9)", () => {
   test("read: returned error → infra_error", async () => {
-    expect(await getMonitorDigestWatermark(clientReturningError())).toEqual({ kind: "infra_error" });
+    expect(await getMonitorDigestWatermark(clientReturningError())).toEqual({
+      kind: "infra_error",
+    });
   });
   test("read: thrown → infra_error", async () => {
     expect(await getMonitorDigestWatermark(clientThrowing())).toEqual({ kind: "infra_error" });
@@ -66,14 +68,18 @@ describe("monitorWatermark infra contract (invariant 9)", () => {
   });
   test("write: empty update data → infra_error", async () => {
     const client = {
-      from: () => ({ update: () => ({ eq: () => ({ select: async () => ({ data: [], error: null }) }) }) }),
+      from: () => ({
+        update: () => ({ eq: () => ({ select: async () => ({ data: [], error: null }) }) }),
+      }),
     } as never;
     expect(await writeMonitorDigestWatermark(new Date(), client)).toEqual({ kind: "infra_error" });
   });
   test("write: success", async () => {
     const client = {
       from: () => ({
-        update: () => ({ eq: () => ({ select: async () => ({ data: [{ id: "default" }], error: null }) }) }),
+        update: () => ({
+          eq: () => ({ select: async () => ({ data: [{ id: "default" }], error: null }) }),
+        }),
       }),
     } as never;
     expect(await writeMonitorDigestWatermark(new Date(), client)).toEqual({ kind: "ok" });

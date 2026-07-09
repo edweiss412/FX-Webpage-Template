@@ -100,7 +100,12 @@ type DriftRow = {
 export function computeDrift(rows: DriftRow[]): MonitorDriftEntry[] {
   const byShow = new Map<
     string,
-    { slug: string | null; title: string | null; baseline?: DataGapsSummary; current?: DataGapsSummary }
+    {
+      slug: string | null;
+      title: string | null;
+      baseline?: DataGapsSummary;
+      current?: DataGapsSummary;
+    }
   >();
   for (const r of rows) {
     const e = byShow.get(r.drive_file_id) ?? { slug: r.slug, title: r.title };

@@ -22,7 +22,12 @@ const monitorModel: MonitorDigestModel = {
 };
 
 function digestModel(recipient: string): DigestModel {
-  return { recipient, dateET: "2026-06-02", shows: [{ showTitle: "S", slug: "s", items: ["x"] }], sourceTotals: { ingestions: 1, syncs: 0, shows: 1 } };
+  return {
+    recipient,
+    dateET: "2026-06-02",
+    shows: [{ showTitle: "S", slug: "s", items: ["x"] }],
+    sourceTotals: { ingestions: 1, syncs: 0, shows: 1 },
+  };
 }
 
 // Minimal happy-path deps; each test overrides what it needs.
@@ -32,7 +37,10 @@ function deps(over: Partial<NotifyDeps> = {}): NotifyDeps {
     configValid: () => ({ ok: true, origin: "https://crew.fxav.app" }),
     getDailyReviewDigest: async () => ({ kind: "value", enabled: true }),
     activeRecipients: async () => ({ kind: "ok", recipients: ["doug@fxav.net"] }),
-    buildDigestModel: async () => ({ kind: "no_send", sourceTotals: { ingestions: 0, syncs: 0, shows: 0 } }),
+    buildDigestModel: async () => ({
+      kind: "no_send",
+      sourceTotals: { ingestions: 0, syncs: 0, shows: 0 },
+    }),
     buildMonitorDigestModel: async () => ({ kind: "ok", model: monitorModel }),
     deliverDigest: async () => ({ kind: "ok", sent: 1, failed: 0, skipped: 0, retryLater: 0 }),
     writeMonitorDigestWatermark: async () => ({ kind: "ok" }),
@@ -43,8 +51,17 @@ function deps(over: Partial<NotifyDeps> = {}): NotifyDeps {
 describe("runDigestNotify — monitor wiring (spec §4.4, §5, §13.7)", () => {
   test("(a) needs-attention no_send + monitor ok → one email sent, watermark advanced once", async () => {
     const write = vi.fn(async () => ({ kind: "ok" as const }));
-    const deliver = vi.fn(async () => ({ kind: "ok" as const, sent: 1, failed: 0, skipped: 0, retryLater: 0 }));
-    const r = await runDigestNotify({ now: NOW, deps: deps({ writeMonitorDigestWatermark: write, deliverDigest: deliver }) });
+    const deliver = vi.fn(async () => ({
+      kind: "ok" as const,
+      sent: 1,
+      failed: 0,
+      skipped: 0,
+      retryLater: 0,
+    }));
+    const r = await runDigestNotify({
+      now: NOW,
+      deps: deps({ writeMonitorDigestWatermark: write, deliverDigest: deliver }),
+    });
     expect(r.delivery).toMatchObject({ kind: "ok", sent: 1 });
     expect(deliver).toHaveBeenCalledTimes(1);
     expect(write).toHaveBeenCalledTimes(1);
@@ -92,10 +109,20 @@ describe("runDigestNotify — monitor wiring (spec §4.4, §5, §13.7)", () => {
 
   test("(d) monitor empty + needs-attention empty → no send, watermark unchanged", async () => {
     const write = vi.fn(async () => ({ kind: "ok" as const }));
-    const deliver = vi.fn(async () => ({ kind: "ok" as const, sent: 1, failed: 0, skipped: 0, retryLater: 0 }));
+    const deliver = vi.fn(async () => ({
+      kind: "ok" as const,
+      sent: 1,
+      failed: 0,
+      skipped: 0,
+      retryLater: 0,
+    }));
     const r = await runDigestNotify({
       now: NOW,
-      deps: deps({ buildMonitorDigestModel: async () => ({ kind: "empty" }), deliverDigest: deliver, writeMonitorDigestWatermark: write }),
+      deps: deps({
+        buildMonitorDigestModel: async () => ({ kind: "empty" }),
+        deliverDigest: deliver,
+        writeMonitorDigestWatermark: write,
+      }),
     });
     expect(deliver).not.toHaveBeenCalled();
     expect(write).not.toHaveBeenCalled();
@@ -107,7 +134,10 @@ describe("runDigestNotify — monitor wiring (spec §4.4, §5, §13.7)", () => {
       now: NOW,
       deps: deps({ writeMonitorDigestWatermark: async () => ({ kind: "infra_error" }) }),
     });
-    expect(r.delivery).toMatchObject({ kind: "infra_error", source: "writeMonitorDigestWatermark" });
+    expect(r.delivery).toMatchObject({
+      kind: "infra_error",
+      source: "writeMonitorDigestWatermark",
+    });
   });
 
   test("(f) skipped does NOT block advance: sent>0, skipped>0, failed=0 → watermark advanced", async () => {
@@ -141,7 +171,13 @@ describe("runDigestNotify — monitor wiring (spec §4.4, §5, §13.7)", () => {
 
   test("(h) monitor infra_error → needs-attention still sent, watermark untouched, run is infra_error", async () => {
     const write = vi.fn(async () => ({ kind: "ok" as const }));
-    const deliver = vi.fn(async () => ({ kind: "ok" as const, sent: 1, failed: 0, skipped: 0, retryLater: 0 }));
+    const deliver = vi.fn(async () => ({
+      kind: "ok" as const,
+      sent: 1,
+      failed: 0,
+      skipped: 0,
+      retryLater: 0,
+    }));
     const r = await runDigestNotify({
       now: NOW,
       deps: deps({

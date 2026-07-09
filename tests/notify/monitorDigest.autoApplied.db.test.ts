@@ -12,7 +12,12 @@ const LOCAL_URL =
 let sql: ReturnType<typeof postgres> | null = null;
 let dbUp = false;
 try {
-  const probe = postgres(LOCAL_URL, { max: 2, idle_timeout: 2, connect_timeout: 3, prepare: false });
+  const probe = postgres(LOCAL_URL, {
+    max: 2,
+    idle_timeout: 2,
+    connect_timeout: 3,
+    prepare: false,
+  });
   await probe.unsafe("select 1", []);
   sql = probe;
   dbUp = true;

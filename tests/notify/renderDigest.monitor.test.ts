@@ -16,12 +16,21 @@ const monitor: MonitorDigestModel = {
       FIELD_LABEL_AUTOCORRECTED: 0,
     },
   },
-  drift: [{ showTitle: "West", slug: "west", classes: [{ label: "unreadable field", prior: 10, curr: 11 }] }],
+  drift: [
+    {
+      showTitle: "West",
+      slug: "west",
+      classes: [{ label: "unreadable field", prior: 10, curr: 11 }],
+    },
+  ],
 };
 
 describe("renderDigest — monitor section (spec §8, §13.6)", () => {
   test("absent monitor → no section, subject unchanged", () => {
-    const r = renderDigest({ origin, shows: [{ showTitle: "S", slug: "s", items: ["needs review"] }] });
+    const r = renderDigest({
+      origin,
+      shows: [{ showTitle: "S", slug: "s", items: ["needs review"] }],
+    });
     expect(r.html).not.toContain("Applied automatically");
     expect(r.subject).toContain("show needs attention"); // 1 show → singular, unchanged behavior
   });

@@ -158,10 +158,7 @@ export function renderDigest(input: DigestInput): RenderedEmail {
 
   if (monitorSection) {
     textLines.push("", "Applied automatically since your last digest", ...monitorSection.text);
-    htmlParts.push(
-      `<h2>Applied automatically since your last digest</h2>`,
-      ...monitorSection.html,
-    );
+    htmlParts.push(`<h2>Applied automatically since your last digest</h2>`, ...monitorSection.html);
   }
 
   // Items arrive pre-resolved from the digest builder (Task 3.8 → resolveIngestionCopy,

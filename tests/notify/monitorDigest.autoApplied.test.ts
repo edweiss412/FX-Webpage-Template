@@ -34,8 +34,20 @@ describe("buildMonitorDigestModel — auto-applied query shape (spec §3)", () =
   // rows group correctly. Row-level exclusion is proven only by the .db.test.ts.
   test("query carries the Flow-4 security predicates + windowStart; rows group by show", async () => {
     const rows = [
-      { show_id: "s1", slug: "east", title: "East Coast", summary: "Added Jane Doe", occurred_at: "2026-07-08T10:00:00Z" },
-      { show_id: "s1", slug: "east", title: "East Coast", summary: "Renamed Bob", occurred_at: "2026-07-08T09:00:00Z" },
+      {
+        show_id: "s1",
+        slug: "east",
+        title: "East Coast",
+        summary: "Added Jane Doe",
+        occurred_at: "2026-07-08T10:00:00Z",
+      },
+      {
+        show_id: "s1",
+        slug: "east",
+        title: "East Coast",
+        summary: "Renamed Bob",
+        occurred_at: "2026-07-08T09:00:00Z",
+      },
     ];
     const { fn, calls } = recordingSql([rows, [], []]);
     const r = await buildMonitorDigestModel(now, { sql: fn, getWatermark: wm });

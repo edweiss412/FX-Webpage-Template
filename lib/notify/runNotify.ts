@@ -478,12 +478,7 @@ export async function runDigestNotify(
     // Flow 6.2 §4.4 — advance the watermark once per run, ONLY on real delivery of the
     // monitor content (sent>0) with no transient failure (failed/retryLater==0). `skipped`
     // is deliberately NOT a blocker (already-sent dedup / revoked / retry-exhausted).
-    if (
-      monitorModel &&
-      totals.sent > 0 &&
-      totals.failed === 0 &&
-      totals.retryLater === 0
-    ) {
+    if (monitorModel && totals.sent > 0 && totals.failed === 0 && totals.retryLater === 0) {
       const written = await (deps.writeMonitorDigestWatermark ?? writeMonitorDigestWatermark)(now);
       if (written.kind === "infra_error") {
         return {

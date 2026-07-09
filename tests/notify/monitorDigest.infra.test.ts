@@ -18,6 +18,8 @@ describe("buildMonitorDigestModel — infra + empty", () => {
 
   test("all three signals empty → empty", async () => {
     const sql = (async () => []) as never;
-    expect(await buildMonitorDigestModel(now, { sql, getWatermark: wm })).toEqual({ kind: "empty" });
+    expect(await buildMonitorDigestModel(now, { sql, getWatermark: wm })).toEqual({
+      kind: "empty",
+    });
   });
 });

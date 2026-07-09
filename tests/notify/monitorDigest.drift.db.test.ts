@@ -13,7 +13,12 @@ const LOCAL_URL =
 let sql: ReturnType<typeof postgres> | null = null;
 let dbUp = false;
 try {
-  const probe = postgres(LOCAL_URL, { max: 2, idle_timeout: 2, connect_timeout: 3, prepare: false });
+  const probe = postgres(LOCAL_URL, {
+    max: 2,
+    idle_timeout: 2,
+    connect_timeout: 3,
+    prepare: false,
+  });
   await probe.unsafe("select 1", []);
   sql = probe;
   dbUp = true;
@@ -27,11 +32,14 @@ const MARK = `f62dr-${Date.now()}`;
 const PUB = `${MARK}-pub`;
 const UNPUB = `${MARK}-unpub`;
 const ORPHAN = `${MARK}-orphan`;
-const gaps = (n: number) => Array(n).fill({ code: "FIELD_UNREADABLE", severity: "warn", message: "x" });
+const gaps = (n: number) =>
+  Array(n).fill({ code: "FIELD_UNREADABLE", severity: "warn", message: "x" });
 
 afterAll(async () => {
   if (!sql) return;
-  await sql`delete from public.sync_log where drive_file_id in (${PUB}, ${UNPUB}, ${ORPHAN})`.catch(() => {});
+  await sql`delete from public.sync_log where drive_file_id in (${PUB}, ${UNPUB}, ${ORPHAN})`.catch(
+    () => {},
+  );
   await sql`delete from public.shows where drive_file_id in (${PUB}, ${UNPUB})`.catch(() => {});
   await sql.end().catch(() => {});
 });
