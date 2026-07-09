@@ -338,6 +338,12 @@ begin
    where show_id=v_show_id and domain=p_domain and field=p_field and match_key=p_match_key;
   v_found := found;   -- F1: capture NOW; crew/hotel resolution + _current_field_value below RESET `found`.
 
+  -- RPC2-3: revert/repoint/discard are EXISTING-row ops — they MUST carry the version CAS (never the
+  -- NULL-expected create path), else an inactive row could be repointed/discarded without a version check
+  -- (CAS-A's NULL branch only guards ACTIVE rows). Force them into the version-match else-branch below.
+  if p_op in ('revert','repoint','discard') and p_expected_version is null then
+    return jsonb_build_object('ok', false, 'code', 'OVERRIDE_STALE_REVIEW'); end if;
+
   -- CAS-A (R15): version guards the override row. NULL expected => create (assert no ACTIVE row).
   if p_expected_version is null then
     if v_found and v_row.active then
@@ -381,7 +387,7 @@ begin
     if p_op in ('upsert','revert') then
       -- unconditional exactly-one-live-match on p_expected_live_hotel_name [+ recomputed disambiguator] (R20).
       -- (repoint resolves A + B itself in its branch; discard is inactive-only and applies to no live row.)
-      select count(*), min(id) into v_match_count, v_target_id from public.hotel_reservations hr
+      select count(*), (array_agg(id))[1] into v_match_count, v_target_id from public.hotel_reservations hr -- RPC2-1: min(uuid) not in PG
         where hr.show_id=v_show_id and hr.hotel_name=p_expected_live_hotel_name
           and (v_disamb is null
                or (coalesce(to_char(hr.check_in,'YYYY-MM-DD'),'')
@@ -440,29 +446,14 @@ begin
   if p_op = 'repoint' then
     if p_domain='crew' and p_field='name' and v_row.active then
       return jsonb_build_object('ok', false, 'code', 'OVERRIDE_INVALID_STATE'); end if; -- R25 active-name repoint
-    -- CAS-B against the NEW target B (F2), required on every repoint-to-new (R3b-4 — NOT skipped on
-    -- NULL expected; `is distinct from` handles NULL). p_expected_live_hotel_name describes B (F2 INVARIANT).
-    v_bval := public._current_field_value(v_show_id, p_domain, p_field, p_new_match_key, p_expected_live_hotel_name);
-    if coalesce(v_bval,'null'::jsonb) is distinct from coalesce(p_expected_current_value,'null'::jsonb) then -- RPC-6 normalize
-      return jsonb_build_object('ok', false, 'code', 'OVERRIDE_STALE_REVIEW'); end if;
-    -- §7.4 value guard on the (possibly new) override value, targeting B (F3).
-    v_reason := public._validate_override_value(v_show_id, p_domain, p_field, p_new_match_key,
-                  public._resolve_live_id(v_show_id, p_domain, p_field, p_new_match_key, p_expected_live_hotel_name),
-                  coalesce(p_override_value, v_row.override_value));
-    if v_reason is not null then return jsonb_build_object('ok', false, 'code', 'OVERRIDE_STALE_REVIEW'); end if;
-    -- target-key collision at the new key (R29): active => 409; inactive => supersede (delete) in-tx.
-    perform 1 from public.admin_overrides
-      where show_id=v_show_id and domain=p_domain and field=p_field and match_key=p_new_match_key and id<>v_row.id and active;
-    if found then return jsonb_build_object('ok', false, 'code', 'OVERRIDE_INVALID_STATE'); end if;
-    delete from public.admin_overrides
-      where show_id=v_show_id and domain=p_domain and field=p_field and match_key=p_new_match_key and id<>v_row.id and not active;
+    -- Resolve OLD target A's release id UP FRONT (active repoint only), BEFORE the §7.4 collision check, so
+    -- that check can exclude A (RPC2-2 — A still holds the override value now but is about to be released;
+    -- without the exclusion, repointing a hotel_name override to B keeping the same value self-conflicts).
+    -- Resolve A from its OWN identity (F2), NOT p_expected_live_hotel_name (which = B).
     if v_row.active then
-      -- release OLD target A to its stored sheet_value (role/hotel only — active name repoint rejected above).
-      -- Resolve A from its OWN identity (F2), NOT p_expected_live_hotel_name (which = B):
       if p_domain='crew' then
-        -- RPC-1: the crew resolver above is gated to upsert/revert, so v_target_id is NULL on repoint —
-        -- resolve A HERE via currentLiveName(p_match_key). (Active crew-NAME repoint is rejected above, so
-        -- this release is only ever a crew-ROLE repoint; A's live name = active sibling name override else match_key.)
+        -- RPC-1: crew resolver above is gated to upsert/revert, so v_target_id is NULL on repoint — resolve A
+        -- HERE via currentLiveName(p_match_key). (Active crew-NAME repoint rejected above ⇒ only crew-ROLE here.)
         select coalesce((select (o.override_value #>> '{}') from public.admin_overrides o
             where o.show_id=v_show_id and o.domain='crew' and o.field='name'
               and o.match_key=p_match_key and o.active), p_match_key) into v_live_name;
@@ -475,6 +466,25 @@ begin
           split_part(p_match_key, chr(31), 1)) into v_live_name;
         v_release_id := public._resolve_live_id(v_show_id, 'hotel', p_field, p_match_key, v_live_name);
       end if;
+    end if;
+    -- CAS-B against the NEW target B (F2), required on every repoint-to-new (R3b-4 — NOT skipped on
+    -- NULL expected; `is distinct from` handles NULL). p_expected_live_hotel_name describes B (F2 INVARIANT).
+    v_bval := public._current_field_value(v_show_id, p_domain, p_field, p_new_match_key, p_expected_live_hotel_name);
+    if coalesce(v_bval,'null'::jsonb) is distinct from coalesce(p_expected_current_value,'null'::jsonb) then -- RPC-6 normalize
+      return jsonb_build_object('ok', false, 'code', 'OVERRIDE_STALE_REVIEW'); end if;
+    -- §7.4 value guard on the (possibly new) override value, targeting B, EXCLUDING the releasing A (RPC2-2).
+    v_reason := public._validate_override_value(v_show_id, p_domain, p_field, p_new_match_key,
+                  public._resolve_live_id(v_show_id, p_domain, p_field, p_new_match_key, p_expected_live_hotel_name),
+                  coalesce(p_override_value, v_row.override_value), v_release_id);
+    if v_reason is not null then return jsonb_build_object('ok', false, 'code', 'OVERRIDE_STALE_REVIEW'); end if;
+    -- target-key collision at the new key (R29): active => 409; inactive => supersede (delete) in-tx.
+    perform 1 from public.admin_overrides
+      where show_id=v_show_id and domain=p_domain and field=p_field and match_key=p_new_match_key and id<>v_row.id and active;
+    if found then return jsonb_build_object('ok', false, 'code', 'OVERRIDE_INVALID_STATE'); end if;
+    delete from public.admin_overrides
+      where show_id=v_show_id and domain=p_domain and field=p_field and match_key=p_new_match_key and id<>v_row.id and not active;
+    if v_row.active then
+      -- release OLD target A to its stored sheet_value (role/hotel only — active name repoint rejected above).
       perform public._apply_override_live(v_show_id, p_domain, p_field, v_release_id, v_row.sheet_value, null);
     end if;
     -- capture B's parsed value (un-overridden => live == sheet) and apply. sheet_name→p_new_match_key on a
@@ -552,7 +562,7 @@ begin
   else -- hotel
     v_disamb := case when position(chr(31) in p_match_key) > 0
                      then substr(p_match_key, position(chr(31) in p_match_key)+1) else null end;
-    select count(*), min(id) into v_count, v_id from public.hotel_reservations hr
+    select count(*), (array_agg(id))[1] into v_count, v_id from public.hotel_reservations hr -- RPC2-1: min(uuid) not in PG
       where hr.show_id=p_show_id and hr.hotel_name=p_expected_live_hotel_name
         and (v_disamb is null
              -- recompute disambiguator from booking columns only (R30): 'YYYY-MM-DD' [+ \x1f + confirmation_no]
@@ -634,8 +644,12 @@ end $$;
 -- validateOverrideValue gives the precise pre-RPC UI message). Returns NULL = ok, else a reason token.
 -- Overrides are write-time applied, so every live crew_members.name / hotel_reservations.hotel_name
 -- ALREADY equals its FINAL name (R27) — a collision is equality against ANOTHER live row's current value.
+-- p_exclude_id_2 (RPC2-2): a SECOND live id to exclude from the collision check — the OLD target A of an
+-- active repoint, which still holds the override value at validation time but is about to be released.
+-- NULL for every non-repoint call (`id is distinct from NULL` never filters).
 create or replace function public._validate_override_value(
-  p_show_id uuid, p_domain text, p_field text, p_match_key text, p_target_id uuid, p_value jsonb
+  p_show_id uuid, p_domain text, p_field text, p_match_key text, p_target_id uuid, p_value jsonb,
+  p_exclude_id_2 uuid default null
 ) returns text
 language plpgsql security definer set search_path = public, pg_temp
 as $$
@@ -662,7 +676,7 @@ begin
     -- the member's active name-override match_key if it has one, else its live name.
     if exists(
       select 1 from public.crew_members cm
-       where cm.show_id=p_show_id and cm.id is distinct from p_target_id
+       where cm.show_id=p_show_id and cm.id is distinct from p_target_id and cm.id is distinct from p_exclude_id_2
          and (cm.name = v_text
               or coalesce(
                    (select o.match_key from public.admin_overrides o
@@ -672,7 +686,8 @@ begin
     then return 'name_conflict'; end if;
   elsif p_field='hotel_name' then             -- collide vs any OTHER reservation's live (= FINAL) hotel_name (R27: FINAL only, never parsed).
     if exists(select 1 from public.hotel_reservations hr
-                where hr.show_id=p_show_id and hr.id is distinct from p_target_id and hr.hotel_name=v_text)
+                where hr.show_id=p_show_id and hr.id is distinct from p_target_id
+                  and hr.id is distinct from p_exclude_id_2 and hr.hotel_name=v_text)
     then return 'name_conflict'; end if;
   end if;
   return null;
@@ -681,7 +696,7 @@ end $$;
 revoke execute on function public._resolve_live_id(uuid,text,text,text,text)   from public, anon, authenticated;
 revoke execute on function public._current_field_value(uuid,text,text,text,text) from public, anon, authenticated;
 revoke execute on function public._apply_override_live(uuid,text,text,uuid,jsonb,text) from public, anon, authenticated;
-revoke execute on function public._validate_override_value(uuid,text,text,text,uuid,jsonb) from public, anon, authenticated;
+revoke execute on function public._validate_override_value(uuid,text,text,text,uuid,jsonb,uuid) from public, anon, authenticated;
 ```
 
 **Note on `set_field_override`'s inline resolution vs H1:** the outer RPC body above computes `v_target_id` inline for the CAS/apply of the CURRENT `p_match_key` (so it can 409 before mutating), and calls `public._resolve_live_id(...)` only on the **repoint** branch to locate the NEW target (`p_new_match_key`). Both paths use the same fail-closed rules (crew `currentLiveName`; hotel unconditional exactly-one-match → `40001`). A `40001` raised inside H1/H3 propagates out of the RPC; the JS action's `mapRpcOutcome` maps the returned error to `OVERRIDE_STALE_REVIEW`/`SYNC_INFRA_ERROR` (invariant 9) — so H1's raise is equivalent to the inline `return jsonb_build_object('ok',false,'code','OVERRIDE_STALE_REVIEW')` guards. (Both surface as 409 stale-review to the admin UI; no silent no-op.)
@@ -765,6 +780,9 @@ Run Step 4.1 → PASSES. Confirm `_metaInfraContract` still green (the inline `/
 - **RPC-2/3 op-on-missing/inactive row:** `revert`/`repoint`/`discard` with `p_expected_version=NULL` against a NON-existent override row → 409, nothing mutated (no `where id=NULL` delete/apply); `revert` on an INACTIVE row → `OVERRIDE_INVALID_STATE`.
 - **RPC-5 unknown (domain,field):** e.g. `('show','name')` or `('crew','hotel_name')` → `OVERRIDE_INVALID_OP`, nothing written.
 - **RPC-7 apply-matches-no-live-row (STRUCTURAL):** force a resolved target to vanish between resolution and apply (delete the crew/hotel row inside a concurrent tx, or feed a domain whose live row was removed) → the RPC raises SQLSTATE 40001 → helper maps to `OVERRIDE_STALE_REVIEW`, and the `admin_overrides` row is UNCHANGED (the raise rolls the whole locked tx back). Pins the `_apply_override_live` FOUND-assert that closes the silent-live-no-op class.
+- **RPC2-1 hotel resolver returns a real row:** any two-same-name hotel resolution path (create/edit/repoint) actually resolves the disambiguated row (regression guard: `min(uuid)` does not exist in PG — the resolver uses `(array_agg(id))[1]`; a `min(id)` transcription would error every hotel op).
+- **RPC2-2 active hotel_name repoint keeping the same value:** an active `hotel_name` override on A (value `Hilton`) repointed to a new reservation B, `p_override_value` omitted → SUCCEEDS (A is excluded from the FINAL-name collision because it is the releasing target); A reverts to its parsed name, B becomes `Hilton`, exactly one live `Hilton`.
+- **RPC2-3 non-create ops require a version:** `revert`/`repoint`/`discard` called with `p_expected_version=NULL` → 409 `OVERRIDE_STALE_REVIEW` (they must carry the version CAS; an inactive row cannot be repointed/discarded via the create path).
 - **canonical `created_by`:** a mixed-case `p_actor` is stored `lower(trim())` (or rejected by the CHECK).
 - **lock held:** assert `pg_advisory_xact_lock` is taken (structural — via the deadlock pin in Task 3; this suite asserts a concurrent conflicting op serializes).
 
