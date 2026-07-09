@@ -49,6 +49,6 @@ describe("computeDrift (spec §3.1, §13.5)", () => {
     ];
     const drift = computeDrift(rows as never);
     expect(drift.map((d) => d.slug)).toEqual(["east"]);
-    expect(drift[0].classes).toEqual([{ label: "unreadable field", prior: 10, curr: 11 }]);
+    expect(drift[0]!.classes).toEqual([{ label: "unreadable field", prior: 10, curr: 11 }]);
   });
 });

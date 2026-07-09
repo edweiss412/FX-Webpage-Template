@@ -6,7 +6,7 @@ import { makePostgresSyncLogSink } from "@/lib/sync/syncLog";
 // warningsFor). parse_warnings is the LAST positional param of the insert.
 describe("sync_log sink — parse-warnings persistence (flow 6.2 §3.2)", () => {
   test("applied entry appends parseWarnings after the payload row", async () => {
-    const unsafe = vi.fn(async () => []);
+    const unsafe = vi.fn(async (_sql: string, _params?: unknown[]): Promise<unknown[]> => []);
     const sink = makePostgresSyncLogSink({ unsafe });
     const parseWarnings = [
       { code: "STAGE_WORD_AUTOCORRECTED", severity: "warn", message: "x" },
@@ -18,7 +18,7 @@ describe("sync_log sink — parse-warnings persistence (flow 6.2 §3.2)", () => 
       payload: { kind: "delta" },
       parseWarnings,
     } as never);
-    const params = unsafe.mock.calls[0][1] as unknown[];
+    const params = unsafe.mock.calls[0]![1] as unknown[];
     expect(params[params.length - 1]).toEqual([
       { kind: "delta", outcome: "applied", code: null },
       ...parseWarnings,
@@ -26,7 +26,7 @@ describe("sync_log sink — parse-warnings persistence (flow 6.2 §3.2)", () => 
   });
 
   test("entry with no parseWarnings is byte-identical to today (payload row only)", async () => {
-    const unsafe = vi.fn(async () => []);
+    const unsafe = vi.fn(async (_sql: string, _params?: unknown[]): Promise<unknown[]> => []);
     const sink = makePostgresSyncLogSink({ unsafe });
     await sink({
       driveFileId: "file-2",
@@ -34,18 +34,18 @@ describe("sync_log sink — parse-warnings persistence (flow 6.2 §3.2)", () => 
       code: "WEBHOOK_NOOP_ALREADY_SYNCED",
       payload: { kind: "watermark" },
     } as never);
-    const params = unsafe.mock.calls[0][1] as unknown[];
+    const params = unsafe.mock.calls[0]![1] as unknown[];
     expect(params[params.length - 1]).toEqual([
       { kind: "watermark", outcome: "skipped", code: "WEBHOOK_NOOP_ALREADY_SYNCED" },
     ]);
   });
 
   test("applied entry with parseWarnings and no payload has no leading payload row", async () => {
-    const unsafe = vi.fn(async () => []);
+    const unsafe = vi.fn(async (_sql: string, _params?: unknown[]): Promise<unknown[]> => []);
     const sink = makePostgresSyncLogSink({ unsafe });
     const parseWarnings = [{ code: "ROLE_TOKEN_AUTOCORRECTED", severity: "warn", message: "z" }];
     await sink({ driveFileId: "file-3", outcome: "applied", parseWarnings } as never);
-    const params = unsafe.mock.calls[0][1] as unknown[];
+    const params = unsafe.mock.calls[0]![1] as unknown[];
     expect(params[params.length - 1]).toEqual([...parseWarnings]);
   });
 });

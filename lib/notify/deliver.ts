@@ -509,7 +509,7 @@ export async function deliverDigest(
         content: renderDigest({
           origin: input.origin,
           shows: input.model.shows,
-          monitor: input.monitor ?? undefined,
+          ...(input.monitor ? { monitor: input.monitor } : {}),
         }),
       },
       rawRecipient: input.model.recipient,

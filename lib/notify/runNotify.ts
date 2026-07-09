@@ -10,7 +10,9 @@ import {
   DIGEST_TIMEZONE,
   SYNC_PROBLEM_CODES,
 } from "@/lib/notify/constants";
-import { buildDigestModel } from "@/lib/notify/digest";
+import { buildDigestModel, dateET, type DigestModel } from "@/lib/notify/digest";
+import { buildMonitorDigestModel } from "@/lib/notify/monitorDigest";
+import { writeMonitorDigestWatermark } from "@/lib/notify/monitorWatermark";
 import { listRealtimeCandidates } from "@/lib/notify/detect/candidates";
 import { reconcileEmailDeliveryState } from "@/lib/notify/detect/emailDeliveryFailed";
 import {
@@ -72,6 +74,8 @@ export type NotifyDeps = {
   deliverRealtimeCandidates?: typeof deliverRealtimeCandidates;
   buildDigestModel?: typeof buildDigestModel;
   deliverDigest?: typeof deliverDigest;
+  buildMonitorDigestModel?: typeof buildMonitorDigestModel;
+  writeMonitorDigestWatermark?: typeof writeMonitorDigestWatermark;
 };
 
 export type MaintenanceDeps = {
@@ -419,7 +423,15 @@ export async function runDigestNotify(
         delivery: { kind: "infra_error", source: "activeRecipients" },
       };
     }
-    let sent = 0;
+    // Flow 6.2 §5 — compute the monitor content ONCE before the loop (multi-recipient
+    // correctness: a per-recipient rebuild would let one recipient's send blank another's
+    // window). A monitor read fault does NOT suppress needs-attention (§5.2): the loop still
+    // runs with monitor=null, but the run is marked infra_error so the cron route 5xxs.
+    const monitor = await (deps.buildMonitorDigestModel ?? buildMonitorDigestModel)(now);
+    const monitorInfra = monitor.kind === "infra_error";
+    const monitorModel = monitor.kind === "ok" ? monitor.model : null;
+
+    const totals = { sent: 0, failed: 0, skipped: 0, retryLater: 0 };
     for (const recipient of recipients.recipients) {
       const model: DigestModelResult = await (deps.buildDigestModel ?? buildDigestModel)(
         recipient,
@@ -432,10 +444,23 @@ export async function runDigestNotify(
           delivery: { kind: "infra_error", source: "buildDigestModel" },
         };
       }
-      if (model.kind === "no_send") continue;
+      // Send when needs-attention has content OR there is a monitor section to deliver.
+      // When needs-attention is no_send but the monitor is present, synthesize an empty
+      // needs-attention model so the email renders with only the monitor section.
+      let deliverModel: DigestModel | null = model.kind === "ok" ? model.model : null;
+      if (!deliverModel) {
+        if (!monitorModel) continue;
+        deliverModel = {
+          recipient,
+          dateET: dateET(now),
+          shows: [],
+          sourceTotals: { ingestions: 0, syncs: 0, shows: 0 },
+        };
+      }
       const delivered = await (deps.deliverDigest ?? deliverDigest)({
-        model: model.model,
+        model: deliverModel,
         origin: config.origin,
+        monitor: monitorModel,
       });
       if (delivered.kind === "infra_error") {
         return {
@@ -444,9 +469,39 @@ export async function runDigestNotify(
           delivery: { kind: "infra_error", source: "deliverDigest" },
         };
       }
-      sent += delivered.sent;
+      totals.sent += delivered.sent;
+      totals.failed += delivered.failed;
+      totals.skipped += delivered.skipped;
+      totals.retryLater += delivered.retryLater;
     }
-    return { kind: "ok", maintenance, delivery: { kind: "ok", sent } };
+
+    // Flow 6.2 §4.4 — advance the watermark once per run, ONLY on real delivery of the
+    // monitor content (sent>0) with no transient failure (failed/retryLater==0). `skipped`
+    // is deliberately NOT a blocker (already-sent dedup / revoked / retry-exhausted).
+    if (
+      monitorModel &&
+      totals.sent > 0 &&
+      totals.failed === 0 &&
+      totals.retryLater === 0
+    ) {
+      const written = await (deps.writeMonitorDigestWatermark ?? writeMonitorDigestWatermark)(now);
+      if (written.kind === "infra_error") {
+        return {
+          kind: "ok",
+          maintenance,
+          delivery: { kind: "infra_error", source: "writeMonitorDigestWatermark" },
+        };
+      }
+    }
+
+    if (monitorInfra) {
+      return {
+        kind: "ok",
+        maintenance,
+        delivery: { kind: "infra_error", source: "buildMonitorDigestModel" },
+      };
+    }
+    return { kind: "ok", maintenance, delivery: { kind: "ok", sent: totals.sent } };
   } catch {
     return {
       kind: "ok",

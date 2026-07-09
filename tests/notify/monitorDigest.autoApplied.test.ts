@@ -39,7 +39,7 @@ describe("buildMonitorDigestModel — auto-applied query shape (spec §3)", () =
     ];
     const { fn, calls } = recordingSql([rows, [], []]);
     const r = await buildMonitorDigestModel(now, { sql: fn, getWatermark: wm });
-    const q = calls[0].text.toLowerCase();
+    const q = calls[0]!.text.toLowerCase();
     expect(q).toContain("show_change_log");
     expect(q).toContain("source");
     expect(q).toContain("auto_apply");
@@ -47,7 +47,7 @@ describe("buildMonitorDigestModel — auto-applied query shape (spec §3)", () =
     expect(q).toContain("status");
     expect(q).toContain("change_kind");
     expect(q).toContain("occurred_at >");
-    expect(calls[0].params).toContain(new Date("2026-07-08T00:00:00Z").toISOString());
+    expect(calls[0]!.params).toContain(new Date("2026-07-08T00:00:00Z").toISOString());
     if (r.kind !== "ok") throw new Error(`expected ok, got ${r.kind}`);
     expect(r.model.autoApplied).toEqual([
       { showTitle: "East Coast", slug: "east", items: ["Added Jane Doe", "Renamed Bob"] },

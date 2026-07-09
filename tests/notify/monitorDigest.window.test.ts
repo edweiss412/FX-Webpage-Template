@@ -23,7 +23,7 @@ describe("buildMonitorDigestModel — window (spec §4.3)", () => {
     const { fn, calls } = recordingSql();
     await buildMonitorDigestModel(now, { sql: fn, getWatermark: watermark(null) });
     const expected = new Date(now.getTime() - MONITOR_FIRST_RUN_LOOKBACK_MS).toISOString();
-    expect(calls[0].params).toContain(expected);
+    expect(calls[0]!.params).toContain(expected);
     expect(MONITOR_FIRST_RUN_LOOKBACK_MS).toBe(24 * 60 * 60 * 1000);
   });
 
@@ -31,7 +31,7 @@ describe("buildMonitorDigestModel — window (spec §4.3)", () => {
     const wmDate = new Date("2026-07-08T06:00:00Z");
     const { fn, calls } = recordingSql();
     await buildMonitorDigestModel(now, { sql: fn, getWatermark: watermark(wmDate) });
-    expect(calls[0].params).toContain(wmDate.toISOString());
+    expect(calls[0]!.params).toContain(wmDate.toISOString());
   });
 
   test("watermark read infra_error → infra_error, no query issued", async () => {

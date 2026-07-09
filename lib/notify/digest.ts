@@ -61,7 +61,7 @@ function databaseUrl(): string {
   return "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 }
 
-function dateET(value: string | Date): string {
+export function dateET(value: string | Date): string {
   if (typeof value === "string") return value;
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "America/New_York",

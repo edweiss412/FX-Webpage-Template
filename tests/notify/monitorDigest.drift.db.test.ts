@@ -72,6 +72,6 @@ describe.runIf(dbUp)("buildMonitorDigestModel — drift DB filter proof", () => 
 
     if (r.kind !== "ok") throw new Error(`expected ok, got ${r.kind}`);
     expect(r.model.drift.map((d) => d.slug)).toEqual([MARK + "-ps"]);
-    expect(r.model.drift[0].classes).toEqual([{ label: "unreadable field", prior: 10, curr: 11 }]);
+    expect(r.model.drift[0]!.classes).toEqual([{ label: "unreadable field", prior: 10, curr: 11 }]);
   });
 });

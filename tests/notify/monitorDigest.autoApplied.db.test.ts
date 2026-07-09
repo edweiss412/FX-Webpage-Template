@@ -39,11 +39,12 @@ describe.runIf(dbUp)("buildMonitorDigestModel — auto-applied DB filter proof",
     const inWin = "2026-07-08T10:00:00Z";
     const preWin = "2026-07-07T10:00:00Z";
 
-    const [{ id: showId }] = await sql<{ id: string }[]>`
+    const showRows = await sql<{ id: string }[]>`
       insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
       values (${DRIVE}, ${MARK + "-slug"}, ${"Marked Show"}, ${"client"}, ${"v1"}, true)
       returning id
     `;
+    const showId = showRows[0]!.id;
 
     const base = (
       source: string,
