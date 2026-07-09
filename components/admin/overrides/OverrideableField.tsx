@@ -154,6 +154,12 @@ export function OverrideableField(props: OverrideableFieldProps) {
   const testId = `overrideable-field-${domain}-${field}`;
   const valueTestId = `override-value-${domain}-${field}`;
   const isEmpty = currentValue === null || currentValue === undefined || currentValue === "";
+  // show `dates`/`venue` are structured jsonb OBJECTS, not scalar strings — the RPC
+  // rejects a non-object p_override_value (invalid_shape). The editor therefore edits
+  // the object's JSON shape (§8: "reuse the existing structured shapes; no rich
+  // editor") and saveEdit parses it back to an object; the four text fields keep the
+  // scalar-string path (the RPC wants a JSON string for those).
+  const isStructured = domain === "show";
 
   async function submit(params: SetFieldOverrideParams) {
     setPending(true);
@@ -191,18 +197,45 @@ export function OverrideableField(props: OverrideableFieldProps) {
   }
 
   function openEditor() {
-    setDraft(
-      override && override.active
-        ? toEditableString(override.overrideValue)
-        : typeof currentValue === "string"
-          ? currentValue
-          : "",
-    );
+    if (isStructured) {
+      // Seed the JSON editor with the current structured value (the active override
+      // object, else the raw live object from the loader — never the rendered display).
+      const seed =
+        override && override.active ? override.overrideValue : (expectedCurrentValue ?? null);
+      setDraft(seed == null ? "" : JSON.stringify(seed));
+    } else {
+      setDraft(
+        override && override.active
+          ? toEditableString(override.overrideValue)
+          : typeof currentValue === "string"
+            ? currentValue
+            : "",
+      );
+    }
     setError(null);
     setMode("editing");
   }
 
   function saveEdit() {
+    if (isStructured) {
+      // dates/venue: parse the JSON draft to the structured object the RPC requires.
+      // Pass the parsed value RAW (postgres.js sends it to $N::jsonb; never
+      // JSON.stringify a value bound to ::jsonb — that double-encodes to a string
+      // scalar and the RPC's object-shape check rejects it).
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(draft);
+      } catch {
+        setError("That isn't valid JSON. Fix the value and try again.");
+        return;
+      }
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        setError("This field needs a structured value (a JSON object).");
+        return;
+      }
+      void submit({ ...baseParams("upsert"), p_override_value: parsed });
+      return;
+    }
     void submit({ ...baseParams("upsert"), p_override_value: draft });
   }
 

@@ -204,3 +204,80 @@ describe("OverrideableField — CAS-B expectedCurrentValue passthrough (R17)", (
     expect(params.p_expected_version).toBe(3);
   });
 });
+
+// Adversarial R1 (Codex round 1, HIGH): show `dates`/`venue` are structured jsonb
+// OBJECTS; the RPC rejects a non-object p_override_value (invalid_shape). A single
+// text-draft path would submit a STRING and every Dates/Venue override would fail.
+// Failure mode this catches: `saveEdit` sending `draft` (string) for a show field.
+describe("OverrideableField — structured show fields submit an object, not a string (R1)", () => {
+  const datesObject = { travelIn: "2026-07-01", travelOut: "2026-07-10" };
+
+  function showDates(onSave: ReturnType<typeof okSpy>) {
+    return render(
+      <OverrideableField
+        driveFileId="drive-file-1"
+        domain="show"
+        field="dates"
+        matchKey=""
+        currentValue="Jul 1 – Jul 10"
+        expectedCurrentValue={datesObject}
+        override={null}
+        onSave={onSave}
+      />,
+    );
+  }
+
+  it("edit → save (unchanged) submits p_override_value as an OBJECT equal to the live shape", async () => {
+    const onSave = okSpy();
+    const { getByTestId } = showDates(onSave);
+    fireEvent.click(getByTestId("override-edit-show-dates"));
+    fireEvent.click(getByTestId("override-save-show-dates"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const v = (onSave.mock.calls[0]?.[0] as SetFieldOverrideParams).p_override_value;
+    expect(typeof v).toBe("object");
+    expect(v).not.toBeNull();
+    expect(typeof v).not.toBe("string"); // the exact R1 defect
+    expect(v).toEqual(datesObject);
+  });
+
+  it("edit → change to a new object → save submits the edited OBJECT", async () => {
+    const onSave = okSpy();
+    const { getByTestId } = showDates(onSave);
+    fireEvent.click(getByTestId("override-edit-show-dates"));
+    fireEvent.change(getByTestId("override-input-show-dates"), {
+      target: { value: '{"travelIn":"2026-08-01","travelOut":"2026-08-09"}' },
+    });
+    fireEvent.click(getByTestId("override-save-show-dates"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const v = (onSave.mock.calls[0]?.[0] as SetFieldOverrideParams).p_override_value;
+    expect(v).toEqual({ travelIn: "2026-08-01", travelOut: "2026-08-09" });
+  });
+
+  it("malformed JSON → inline error, onSave NOT called", async () => {
+    const onSave = okSpy();
+    const { getByTestId } = showDates(onSave);
+    fireEvent.click(getByTestId("override-edit-show-dates"));
+    fireEvent.change(getByTestId("override-input-show-dates"), {
+      target: { value: "not json {" },
+    });
+    fireEvent.click(getByTestId("override-save-show-dates"));
+    await waitFor(() =>
+      expect(getByTestId("override-error-show-dates").textContent).toContain("valid JSON"),
+    );
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it("a non-object JSON (string/array) → inline error, onSave NOT called", async () => {
+    const onSave = okSpy();
+    const { getByTestId } = showDates(onSave);
+    fireEvent.click(getByTestId("override-edit-show-dates"));
+    fireEvent.change(getByTestId("override-input-show-dates"), {
+      target: { value: '"just a string"' },
+    });
+    fireEvent.click(getByTestId("override-save-show-dates"));
+    await waitFor(() =>
+      expect(getByTestId("override-error-show-dates").textContent).toContain("structured value"),
+    );
+    expect(onSave).not.toHaveBeenCalled();
+  });
+});

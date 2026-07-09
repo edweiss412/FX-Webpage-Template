@@ -110,12 +110,6 @@ function displayValue(v: unknown): string {
   }
 }
 
-// The name portion of a hotel match_key (everything before the first separator).
-function hotelNamePart(matchKey: string): string {
-  const idx = matchKey.indexOf(HOTEL_DISAMBIGUATOR_SEP);
-  return idx === -1 ? matchKey : matchKey.slice(0, idx);
-}
-
 export async function loadShowOverrides(
   supabase: ServerClient,
   input: {
@@ -241,10 +235,15 @@ export async function loadShowOverrides(
     const nameOverride = overrideRows.find((r) => {
       if (r.domain !== "hotel" || r.field !== "hotel_name") return false;
       if (r.active) return displayValue(r.override_value) === liveName;
-      // stale: live row shows the parsed name; the disambiguator (from stable booking
-      // cols) still identifies the reservation.
-      const np = hotelNamePart(r.match_key);
-      return np === liveName;
+      // stale: the live row shows the parsed name again, so the name alone is NOT a
+      // unique key inside a same-name group (§5.3). Match on the parsed name AND, when
+      // the stored key carries a `\x1f`-delimited disambiguator, require it to equal
+      // THIS reservation's disambiguator — otherwise two paused overrides for two
+      // same-name reservations would both bind to whichever row renders first, and a
+      // discard/repoint would act on the wrong override (adversarial R1).
+      const sepIdx = r.match_key.indexOf(HOTEL_DISAMBIGUATOR_SEP);
+      if (sepIdx < 0) return r.match_key === liveName; // name-only key (unique at create)
+      return r.match_key.slice(0, sepIdx) === liveName && r.match_key.slice(sepIdx + 1) === disamb;
     });
 
     // matchKey (§8.2a): the override's stored parsed key when present, else the
