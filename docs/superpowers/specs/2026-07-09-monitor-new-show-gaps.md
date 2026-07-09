@@ -8,7 +8,7 @@
 
 ## 1. Intent
 
-Flow 6.2 deferred "New data gaps as a first-class digest line" until `ambiguity-warnings-v1` landed (flow 6.2 spec §"Out of scope", line 34). That branch reshaped `lib/parser/dataGaps.ts` `GAP_CLASSES` (adding `ROOM_HEADER_SPLIT_AMBIGUOUS` → "unclear room split" and `HOTEL_GUEST_SPLIT_AMBIGUOUS` → "possibly merged hotel guests"), so the deferral is now clear.
+Flow 6.2 deferred "New data gaps as a first-class digest line" until `ambiguity-warnings-v1` landed (flow 6.2 spec §"Out of scope", line 34). That branch added **four** ambiguity codes to `lib/parser/dataGaps.ts` `GAP_CLASSES` (`ROOM_HEADER_SPLIT_AMBIGUOUS` → "unclear room split", `HOTEL_GUEST_SPLIT_AMBIGUOUS` → "possibly merged hotel guests", `DATE_ORDER_SUGGESTS_DMY` → "dates may be day-first", `HOTEL_CARDINALITY_EXCEEDED` → "too many hotels"; `dataGaps.ts:61-64`), so the deferral is now clear.
 
 **The genuine coverage hole.** The flow 6.2 sub-threshold **drift** signal (`computeDrift`, `lib/notify/monitorDigest.ts:100`) reports a class going `0 → N` on a show — **but only for shows that have a prior *baseline* applied sync** (a row with `occurred_at <= windowStart`). Line 119 explicitly drops any show missing a baseline: `if (!e.baseline || !e.current) continue; // §3.1 no-baseline / no-current guard`.
 
@@ -27,10 +27,11 @@ So a show whose **first-ever applied sync lands inside the digest window** (no b
 - New render sub-block 4 in `renderMonitorSection` (`lib/notify/templates/digest.ts:26-102`), placed after quiet drift.
 - Tests: pure-helper units + a `.db.test.ts` first-seen filter proof.
 
+**Class set in scope.** Every `GAP_CLASSES` entry (`dataGaps.ts:30-64`) **except the single `gateExempt` one** — including all 4 ambiguity codes (`ROOM_HEADER_SPLIT_AMBIGUOUS`, `HOTEL_GUEST_SPLIT_AMBIGUOUS`, `DATE_ORDER_SUGGESTS_DMY`, `HOTEL_CARDINALITY_EXCEEDED`). This is exactly the class set `summarizeDataGaps` counts (`DATA_GAP_CODES`, minus the one gate-exempt entry), and the same set `computeDrift` iterates (`monitorDigest.ts:122-123`) — one consistent class filter shared with drift.
+
 ### Out of scope (deferred, with reason)
-- **The 2 ambiguity codes outside `GAP_CLASSES`** — `HOTEL_CARDINALITY_EXCEEDED`, `DATE_ORDER_SUGGESTS_DMY` (added by `ambiguity-warnings-v1` but NOT registered in `GAP_CLASSES`, so `summarizeDataGaps` does not count them; `lib/parser/dataGaps.ts:30-66`). This signal is scoped to `GAP_CLASSES` exactly, for one consistent class filter shared with drift. Surfacing non-`GAP_CLASSES` ambiguity codes is a separate future signal.
 - **Brand-new classes on shows *with* a baseline** — already reported as `0 → N` by the existing drift sub-block. Not re-surfaced here (see §3.3, no-double-report guarantee).
-- **Gate-exempt classes** (`VENUE_GEOCODE_UNRESOLVED`; the `gateExempt` flag on a `GAP_CLASSES` entry). Excluded for parity with drift's own class filter (`monitorDigest.ts:123`). See §3.2 Resolved Decision D1.
+- **Gate-exempt classes** (`VENUE_GEOCODE_UNRESOLVED`; the `gateExempt: true` flag at `dataGaps.ts:60`). Excluded for parity with drift's own class filter (`monitorDigest.ts:123`). See §3.2 Resolved Decision D1.
 
 ---
 
@@ -186,7 +187,8 @@ Failure modes each test catches:
 - **First-seen isolation:** rows for show A (`current` only) + show B (`baseline` + `current`) → only A returned. Catches a helper that ignores the baseline check and double-reports B (already in drift).
 - **Clean first-seen skipped:** show with `current` row, zero gaps → not returned. Catches emitting empty-item groups.
 - **Gate-exempt excluded (D1):** first-seen show whose only gap is the gate-exempt class → not returned. Catches dropping the `gateExempt` filter.
-- **Label mapping:** first-seen show with `ROOM_HEADER_SPLIT_AMBIGUOUS` + `HOTEL_GUEST_SPLIT_AMBIGUOUS` → `items === ["unclear room split", "possibly merged hotel guests"]` (order = `GAP_CLASSES` order). Derives expected labels from `GAP_CLASSES`, not hardcoded strings divorced from the source.
+- **Label mapping (incl. ambiguity codes):** first-seen show with `ROOM_HEADER_SPLIT_AMBIGUOUS` + `HOTEL_GUEST_SPLIT_AMBIGUOUS` + `DATE_ORDER_SUGGESTS_DMY` → `items === ["unclear room split", "possibly merged hotel guests", "dates may be day-first"]` (order = `GAP_CLASSES` order). **Expected labels are derived by looking up each seeded code in `GAP_CLASSES` at test-build time (not hardcoded)**, so the assertion tracks the source. Explicitly includes `DATE_ORDER_SUGGESTS_DMY` to pin that all in-scope ambiguity codes surface (the R1 corrected-scope guard).
+- **All non-gate-exempt classes surface / gate-exempt does not:** a first-seen show seeded with `VENUE_GEOCODE_UNRESOLVED` (gate-exempt) PLUS one non-exempt class → `items` contains only the non-exempt label; "unresolved venue location" is absent. Catches dropping the `gateExempt` filter AND catches a filter that also drops a legit class.
 - **`current`-only with `baseline` present is NOT first-seen:** show with both phases and a new `0→N` class → NOT in `newShowGaps` (drift's job). Pins §3.3.
 
 ### 6.2 Render — `tests/notify/renderDigest.newShowGaps.test.ts`
@@ -203,6 +205,13 @@ Failure modes each test catches:
 - **ORPHAN** (applied `sync_log` row, no matching `shows`) → **NOT** reported (inner join).
 Asserts `model.newShowGaps.map(g => g.slug)` equals only the PUB-firstseen slug, and its `items` equal `["unclear room split"]`.
 
+### 6.4 Existing-fixture updates (required-field blast radius)
+Adding a **required** `newShowGaps` field to `MonitorDigestModel` breaks every hand-built model literal in the existing suite at typecheck. These get `newShowGaps: []` added in the same task that adds the field:
+- `tests/notify/renderDigest.monitor.test.ts` — the `monitor: MonitorDigestModel` literal.
+- `tests/notify/runDigestNotify.monitor.test.ts` — the `monitorModel: MonitorDigestModel` literal (`:8`).
+- Any other `tests/notify/*` literal the typecheck flags (result-asserting `.db.test.ts` / unit tests read the field off the builder output and need no change, but any `toEqual(expectedModel)` comparison does).
+`deliver.test.ts` `monitor_totals` expectation gains `newShowGapsShows`. The `pnpm typecheck` + `pnpm build` gate is the backstop that proves none were missed.
+
 Full-suite gate before push: `pnpm typecheck && pnpm build && pnpm lint && pnpm format:check`; `pnpm vitest run tests/notify tests/sync tests/log`.
 
 ---
@@ -210,13 +219,13 @@ Full-suite gate before push: `pnpm typecheck && pnpm build && pnpm lint && pnpm 
 ## 7. Numeric sweep / cross-references
 
 - Caps `12` / `5` — single-sourced from `DIGEST_MAX_SHOWS` / `DIGEST_MAX_ITEMS_PER_SHOW` (`lib/notify/constants.ts:16-17`); never re-literaled in new code.
-- `GAP_CLASSES` ambiguity additions: `ROOM_HEADER_SPLIT_AMBIGUOUS` ("unclear room split"), `HOTEL_GUEST_SPLIT_AMBIGUOUS` ("possibly merged hotel guests") — `lib/parser/dataGaps.ts:61-62`.
-- 2 out-of-`GAP_CLASSES` ambiguity codes (out of scope): `HOTEL_CARDINALITY_EXCEEDED`, `DATE_ORDER_SUGGESTS_DMY`.
+- All 4 `GAP_CLASSES` ambiguity additions (`lib/parser/dataGaps.ts:61-64`, all in scope): `ROOM_HEADER_SPLIT_AMBIGUOUS` ("unclear room split"), `HOTEL_GUEST_SPLIT_AMBIGUOUS` ("possibly merged hotel guests"), `DATE_ORDER_SUGGESTS_DMY` ("dates may be day-first"), `HOTEL_CARDINALITY_EXCEEDED` ("too many hotels").
+- The single gate-exempt entry (excluded): `VENUE_GEOCODE_UNRESOLVED` (`dataGaps.ts:60`).
 - First-seen guard cited at `lib/notify/monitorDigest.ts:119`; gate-exempt filter at `:123`.
 
 ## 8. Disagreement-loop preempt (for the reviewer)
 
 - **Reusing `driftRows` (no new query) is deliberate**, not an oversight — first-seen shows are already fetched by the drift CTE (`monitorDigest.ts:175-191`), which has no lower bound on `baseline`. A separate query would duplicate the join and risk divergence.
-- **Excluding the 2 non-`GAP_CLASSES` ambiguity codes is a ratified scope boundary** (§2 out-of-scope), keeping one class filter shared with drift. Not a missed requirement.
+- **All 4 ambiguity codes ARE in scope** (they are all in `GAP_CLASSES`, `dataGaps.ts:61-64`). A first-seen show whose only gap is `DATE_ORDER_SUGGESTS_DMY` renders "dates may be day-first" — intended. (An earlier draft wrongly claimed 2 of them were outside `GAP_CLASSES`; corrected R1.)
 - **Excluding gate-exempt classes (D1)** matches drift (`:123`); intentional parity, not asymmetric behavior.
 - **No dedup code** because `newShowGaps` ∩ `drift` = ∅ structurally (§3.3). A reviewer expecting explicit dedup should verify the baseline-presence complementarity instead.
