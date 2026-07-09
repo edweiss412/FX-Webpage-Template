@@ -217,6 +217,17 @@ export function PickerInterstitial({
           </ul>
         )}
 
+        {/* Flow 8.1 (spec §4.2 / D7): persistent "can't find your name" affordance.
+            Rendered UNCONDITIONALLY in BOTH roster modes (empty + non-empty) — a
+            sanitized-to-empty roster is itself a "can't find myself" path. Cataloged
+            crewFacing copy (invariant 5), no PII, no live admin contact (D5). */}
+        <p
+          data-testid="picker-name-not-listed"
+          className="text-center text-xs text-text-subtle"
+        >
+          {messageFor("PICKER_NAME_NOT_LISTED").crewFacing}
+        </p>
+
         {staleCleanupHint && (
           <StaleCleanupAutoSubmit
             slug={slug}
