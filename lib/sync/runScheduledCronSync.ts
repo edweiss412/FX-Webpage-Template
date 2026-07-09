@@ -98,7 +98,8 @@ import {
   type Phase2Tx,
 } from "@/lib/sync/phase2";
 import type { FullCrewRow } from "@/lib/sync/reconcileCrewOverrides";
-import type { ActiveOverrideRow } from "@/lib/sync/overrideShowHotel";
+import type { ActiveOverrideRow, OverrideSideEffect } from "@/lib/sync/overrideShowHotel";
+import { emitOverrideDeactivationAlerts } from "@/lib/adminAlerts/resolveOverrideAlertsForShow";
 import { promoteSnapshotUpload as defaultPromoteSnapshotUpload } from "@/lib/sync/promoteSnapshot";
 import {
   type DeferredIngestionRow,
@@ -390,6 +391,11 @@ export type ProcessOneFileResult =
       // coreResult.parseWarnings). [] is a valid empty value; the per-caller runtime tests pin
       // correct SOURCING.
       parseWarnings: ParseResult["warnings"];
+      // Admin field overrides (§6 step 3): the override side-effects Stage B committed this apply
+      // (sheet_value refresh + fail-closed deactivations). Rides out on the applied result so the
+      // POST-COMMIT tail can emit the best-effort coarse deactivation bell (outside the lock).
+      // Optional — absent when no override overlay ran.
+      showHotelSideEffects?: OverrideSideEffect[];
     }
   | { outcome: "stale"; code: string }
   | { outcome: "revision_race"; code: typeof STAGED_PARSE_REVISION_RACE }
@@ -2792,6 +2798,16 @@ export async function processOneFile(
     await (deps.promoteSnapshotUpload ?? defaultPromoteSnapshotUpload)(result.snapshotRevisionId);
   }
   await emitDeferredRoleFlagsNotice(result, deps);
+  // Admin field overrides (§6 step 3 / §10 R30): best-effort coarse deactivation bell +
+  // auto-resolve re-derivation, POST-COMMIT and OUTSIDE the advisory lock (invariants 2 + 10).
+  // Swallows its own failures — the durable inactive-row needs-attention stream is authoritative.
+  if (!("skipped" in result) && result.outcome === "applied" && result.showHotelSideEffects) {
+    await emitOverrideDeactivationAlerts(
+      result.showId,
+      result.showHotelSideEffects,
+      deps.upsertAdminAlert ? { upsertAdminAlert: deps.upsertAdminAlert } : {},
+    );
+  }
   return result;
 }
 
@@ -3546,6 +3562,7 @@ export async function processOneFile_unlocked(
   };
   if (phase2.roleFlagsNotice) result.roleFlagsNotice = phase2.roleFlagsNotice;
   if (phase2.snapshotRevisionId) result.snapshotRevisionId = phase2.snapshotRevisionId;
+  if (phase2.showHotelSideEffects) result.showHotelSideEffects = phase2.showHotelSideEffects;
   await emitSuccessfulPhase2Tail({
     tx,
     result,

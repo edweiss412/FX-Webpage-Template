@@ -356,6 +356,10 @@ const FIXTURES: Fixture[] = [
       drive_file_id: DRIVE_FILE_ID,
     },
   },
+  // 43-44. lib/adminAlerts/resolveOverrideAlertsForShow.ts emitOverrideDeactivationAlerts —
+  // global (per-show doug bell; identity lives on the durable needs-attention row, §10).
+  { code: "OVERRIDE_TARGET_MISSING", showId: SHOW_ID, context: { show_id: SHOW_ID } },
+  { code: "OVERRIDE_NAME_CONFLICT", showId: SHOW_ID, context: { show_id: SHOW_ID } },
 ];
 
 function assertMapReadsAtLeastOneFixtureKey(fixture: Fixture, entry: { segments: SegmentSpec[] }) {

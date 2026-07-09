@@ -36,8 +36,8 @@ describe("_metaAlertIdentityMap", () => {
     }
   });
 
-  it("has exactly 43 codes in the registry (numeric-sweep anchor, spec §4)", () => {
-    expect(ADMIN_ALERTS_CODES.length).toBe(44);
+  it("has exactly 46 codes in the registry (numeric-sweep anchor, spec §4)", () => {
+    expect(ADMIN_ALERTS_CODES.length).toBe(46);
   });
 
   it("has no stray map entries for codes outside the registry", () => {
