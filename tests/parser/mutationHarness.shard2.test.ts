@@ -42,8 +42,28 @@ describe(`mutation harness shard ${SHARD}/${SHARD_COUNT} — ledger slice`, () =
     // computeShardAssignment() here costs ~20 s of generation and timed out
     // vitest's 5 s default testTimeout on the first full run.
     const slice = KNOWN_SILENT_HOLES.filter((h) => shardOfSiteId(h.siteId, R.assignment) === SHARD);
-    const { newAlarms, staleRows } = reconcileLedger(R.alarms, slice);
-    expect(newAlarms, `NEW/changed alarms not in ledger:\n${newAlarms.join("\n")}`).toEqual([]);
-    expect(staleRows, `stale ledger rows (fixed or drifted):\n${staleRows.join("\n")}`).toEqual([]);
+    const rec = reconcileLedger(R.alarms, slice);
+    // Three-way classification so a red nightly is triaged in seconds, not audited (see
+    // reconcileLedger docs). REGRESSION — a (siteId,kind) that never survived mutation now does;
+    // do NOT re-bless, investigate the parser change that stopped catching these mutants.
+    expect(
+      rec.newHoles,
+      `NEW untested holes — REGRESSION (a parser change stopped catching these mutants):\n${rec.newHoles.join("\n")}`,
+    ).toEqual([]);
+    // FIXED — a ledgered hole no longer survives. Coverage win: DELETE these rows from knownHoles.ts.
+    expect(
+      rec.fixedHoles,
+      `FIXED holes — coverage improved; remove these rows from the ledger:\n${rec.fixedHoles.join("\n")}`,
+    ).toEqual([]);
+    // DRIFT — a ledgered hole survives with a CHANGED fingerprint (output shape shifted). Benign IFF
+    // the output change was intentional; re-bless by regenerating the ledger (BL-MUTATION-LEDGER-*).
+    expect(
+      rec.driftedAlarms,
+      `DRIFTED fingerprints — benign IF output changed on purpose; regenerate the ledger (BL-MUTATION-LEDGER-*):\n${rec.driftedAlarms.join("\n")}`,
+    ).toEqual([]);
+    expect(
+      rec.driftedStale,
+      `DRIFTED ledger rows (stale side) — a known hole's fingerprint moved; regenerate the ledger (BL-MUTATION-LEDGER-*):\n${rec.driftedStale.join("\n")}`,
+    ).toEqual([]);
   });
 });
