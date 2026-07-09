@@ -106,8 +106,8 @@ For every planted entity, **either** it round-trips correctly **or** an attribut
 | crew.name | verbatim (whitespace-canon) | verbatim-storage, audit §6 2.1 findings |
 | crew.role | verbatim (day-clause stripped when restriction dial applied) | `crew.ts:308,386` cleanedRole |
 | crew.phone | whitespace-canon equality | `crew.ts:190` near-verbatim `clean()` |
-| crew.email | whitespace-canon equality when planted; absent stays absent | `crew.ts:191` |
-| crew.dayRestriction | parsed `date_restriction` kind `explicit` with ISO-day set equal to model when a restriction dial value applied; `{kind:'none'}` when not | `crew.ts:416` |
+| crew.email | equality under `canonicalize()` — the parser lowercases at the boundary (invariant 3), so the oracle compares `canonicalize(planted)` to parsed; absent stays absent | `lib/email/canonicalize.ts:2-5`, `crew.ts:317-318` |
+| crew.dayRestriction | parsed `date_restriction` kind `explicit` with day-token multiset equal to the model's days rendered as the parser's stored `M/D` token format (parser stores raw `M/D` tokens, NOT ISO — `groundTruth.ts` converts model ISO days to `M/D` before comparing); `{kind:'none'}` when no restriction planted | `lib/parser/personalization.ts:57-64,142-145`; `crew.ts:416`; storage shape pinned by `tests/parser/blocks/crew.test.ts:56` |
 | dates (travel-in/show/travel-out) | ISO-equal to model | `_helpers.ts:127-190` |
 | rooms.name + rooms.dims | name whitespace-canon; dims numerically equal after normalization | `_dimsToken.ts` |
 | hotels.name | whitespace-canon equality | `hotels.ts` splitHotelNameAddress name side |
