@@ -1,10 +1,19 @@
-# Flow 8 — Crew self-serve hardening trio (8.1 / 8.2 / 8.4)
+# Flow 8 — Crew self-serve hardening: closes 8.1 + 8.2 (8.4 audit item deferred to 8.3)
 
 **Date:** 2026-07-09
 **Slug:** `flow8-self-serve-trio`
-**Source:** `docs/audits/e2e-real-world-variation-preparedness-2026-07-07.md` §6 "Flow 8 — Crew self-serve (B+ → A−)", items 8.1, 8.2, 8.4.
+**Source:** `docs/audits/e2e-real-world-variation-preparedness-2026-07-07.md` §6 "Flow 8 — Crew self-serve (B+ → A−)".
 **Scope owner:** Opus / Claude Code (8.1 is UI → Opus-only per AGENTS.md routing).
-**Out of scope:** 8.3 (venue timezone at enrich) — separate later spec, different domain (sync/geocode/migration). Item 8.4's id-resolution + enrich-time no-match admin warning are **deferred into that 8.3 spec**, not this one (see §4.3).
+
+**What this milestone CLOSES (audit done-when met):**
+- **8.1** — picker hardening + persistent "can't find your name" affordance.
+- **8.2** — fail-closed viewer resolution + guided re-pick for the unmatched-crew race.
+
+**What this milestone does NOT close (explicit, to remove any "Flow 8 done" contradiction):**
+- **8.4 (transport visibility)** — the audited failure mode "a hard name mis-parse hides a driver's own itinerary" is **NOT closed here**. Its real fix (enrich-time crew-id resolution for transport assignments + id-based visibility + no-match admin warning) is **deferred wholesale to the 8.3 spec** (same enrich/geocode domain), tracked as `BACKLOG.md` → `BL-TRANSPORT-ID-RESOLUTION`. This milestone ships only a **defensive regression pin** over the *already-shipped* `namesRefer` fuzzy matching (so a future parser/predicate change can't silently regress the coverage that exists) — see §4.3. The regression pin is NOT an 8.4 closure and must not be described as one in the PR or handoff. A crew member CAN still miss their own ride on a hard mis-parse until 8.3 lands; the picker affordance (8.1) is the only crew-facing recourse in the interim.
+- **8.3** (venue timezone at enrich) — separate later spec, different domain (sync/geocode/migration).
+
+The PR title + handoff MUST read "closes Flow 8 items 8.1 + 8.2; 8.4 + 8.3 deferred" — never "closes Flow 8."
 
 ---
 
@@ -14,7 +23,7 @@ The audit's "Done-when" for Flow 8: _every "can't find myself / can't see my stu
 
 - **8.2 (fail-open — security):** `resolveViewerContext` (`lib/data/viewerContext.ts:112-151`) returns `{ kind: "none" }` restrictions when a `crew` / `admin_preview` viewer's id matches **no row** in a **well-formed** `crewMembers` array. `{ kind: "none" }` = whole-show visibility (every day, every phase). The intended semantics for an unmatched crew viewer is fail-**closed**, not whole-show. This mirrors the already-shipped `MalformedProjectionError` fail-closed limb (`viewerContext.ts:114-124`) which fails closed when `crewMembers` is not an array; the unmatched-row-in-a-well-formed-array case was left falling open.
 - **8.1 (picker hardening — UI):** `_PickerInterstitial.tsx` renders every roster row verbatim. A row whose `name` is a generic sentinel (`""`, `"TBD"`, `"N/A"`, `"TBA"`, `"-"`, `"—"`) renders an un-identifiable identity button; two rows carrying the **same crew_member id** (accidental double-entry) render twice; and a crew member who does not see their name has no guided next step.
-- **8.4 (transport visibility — regression harden):** `transportTileVisible` (`lib/visibility/scopeTiles.ts:177-202`) already matches by **fuzzy name** (`namesRefer`, `lib/data/nameMatch.ts`) — tolerant of nickname / legal-name / case / trim / prefix variance. This shipped 2026-06-26 (`c0165ad05`), **before** the audit was written (2026-07-07). The residual risk the audit names ("a name mis-parse can't hide a driver's own itinerary") is only partially closable by fuzzy matching, and the robust fix (id-based matching) requires new enrich-domain data plumbing that belongs with 8.3. This spec's 8.4 scope is therefore **regression-test hardening only** — pin the fuzzy tolerance so a future parser or predicate change cannot silently regress it.
+- **Transport visibility — defensive regression pin ONLY (8.4 audit item NOT closed here).** `transportTileVisible` (`lib/visibility/scopeTiles.ts:177-202`) already matches by **fuzzy name** (`namesRefer`, `lib/data/nameMatch.ts`) — tolerant of nickname / legal-name / case / trim / prefix variance (shipped `c0165ad05`, 2026-06-26, before the audit). The audited failure mode (a **hard** mis-parse hiding a driver's itinerary) is **NOT closed by this milestone** — that needs id-based enrich-domain plumbing, deferred wholesale to 8.3 (`BL-TRANSPORT-ID-RESOLUTION`). Here we only **pin the existing fuzzy tolerance** against regression + document the residual with a known-gap fixture. This is a defensive add, not the audit closure (§4.3).
 
 ---
 
@@ -193,7 +202,7 @@ Uses existing design tokens (`text-text-subtle`, `text-xs`, `text-center`) alrea
 
 **Mode boundaries (8.1):** the picker has two roster modes already — empty (`PICKER_EMPTY_ROSTER` centered block) and non-empty (roster list). The affordance belongs to the **non-empty** mode only. Claimed vs active rows (`_PickerInterstitial.tsx:153-215`) are unchanged; sanitize runs before that split and preserves `claimed_via_oauth_at`.
 
-### 4.3 — 8.4 Transport visibility (regression harden only — audited failure mode NOT closed here)
+### 4.3 — Transport visibility: defensive regression pin only (8.4 audit item deferred to 8.3)
 
 **Scope-honesty statement (Round-5 finding).** This milestone does **NOT** close 8.4's audited failure mode ("a name mis-parse can hide a driver's own itinerary"). Fuzzy `namesRefer` matching — which already shipped `c0165ad05` — closes the *common* variance (nickname / legal-name / case / trim / prefix); a hard mis-parse **outside** that tolerance (garbled/merged-cell names that share no surname token) can still hide a driver's transport, with no transport-specific affordance and no operator warning. The robust closure (enrich-time id resolution + no-match admin warning) is **deferred to the 8.3 spec** by the user's explicit scope decision (Opt-1 over full-id-resolution), because it shares the enrich/geocode domain and admin-warning machinery with 8.3. It is tracked, not dropped: a `BACKLOG.md` entry `BL-TRANSPORT-ID-RESOLUTION` records the residual and its dependency on 8.3. **8.4's deliverable in THIS milestone is purely defensive:** pin the *current* fuzzy tolerance so a future parser/predicate change cannot silently regress the coverage that already exists. Do not read the 8.4 tests as "closing" the audit item — the audit's Flow-8 "Done-when" is met for 8.1 (picker affordance) and 8.2 (fail-closed + guided re-pick); 8.4's audited transport path remains **open pending 8.3** and is labeled so in the handoff.
 
