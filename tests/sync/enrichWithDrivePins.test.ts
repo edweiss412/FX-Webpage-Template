@@ -10,7 +10,7 @@ import { describe, expect, test } from "vitest";
 import { enrichWithDrivePins } from "@/lib/sync/enrichWithDrivePins";
 import type { DriveClient } from "@/lib/sync/enrichWithDrivePins";
 import { mockDriveClient } from "@/lib/sync/mocks/mockDriveClient";
-import type { ParsedSheet } from "@/lib/parser/types";
+import type { CrewMemberRow, ParsedSheet, TransportationRow } from "@/lib/parser/types";
 
 function emptyParsed(overrides: Partial<ParsedSheet> = {}): ParsedSheet {
   return {
@@ -217,5 +217,21 @@ describe("enrichWithDrivePins — M3 contract", () => {
     });
     const result = await enrichWithDrivePins(parsed, mockDriveClient, baseCtx);
     expect(result.diagrams.embeddedImages).toEqual([]);
+  });
+});
+
+describe("enrichWithDrivePins — transport-assignee no-match wiring (Flow 8.4)", () => {
+  test("wires enrichTransportAssignees: a hard mis-parsed driver → one TRAVEL_TRANSPORT_NAME_UNMATCHED", async () => {
+    const parsed = emptyParsed({
+      crewMembers: [{ name: "Doug Larson" } as unknown as CrewMemberRow],
+      transportation: {
+        driver_name: "Doug Larson Loadout",
+        schedule: [],
+      } as unknown as TransportationRow,
+    });
+    const result = await enrichWithDrivePins(parsed, mockDriveClient, baseCtx);
+    const hits = result.warnings.filter((w) => w.code === "TRAVEL_TRANSPORT_NAME_UNMATCHED");
+    expect(hits).toHaveLength(1);
+    expect(hits[0]!.message).toContain("Doug Larson Loadout");
   });
 });

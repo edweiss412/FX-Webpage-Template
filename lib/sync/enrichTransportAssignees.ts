@@ -1,5 +1,5 @@
 // lib/sync/enrichTransportAssignees.ts
-import type { CrewMemberRow, TransportationRow } from "@/lib/parser/types";
+import type { CrewMemberRow, ParseResult, TransportationRow } from "@/lib/parser/types";
 import { namesRefer } from "@/lib/data/nameMatch";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState"; // canonicalize-exempt: assignee name, not an email
 
@@ -81,4 +81,30 @@ export function classifyUnmatchedAssignees(
     }
   }
   return warned;
+}
+
+const MAX_NAMED = 5; // spec §5
+
+/**
+ * Best-effort ingest-time step: push one admin-only aggregate data-gap warning when a
+ * transportation assignee references a crew member who would not see their own tile. Mutates
+ * result.warnings only; never throws (mirrors enrichVenueGeocode). Spec §2.4.
+ */
+export function enrichTransportAssignees(result: ParseResult): void {
+  try {
+    const warned = classifyUnmatchedAssignees(result.transportation, result.crewMembers);
+    if (warned.length === 0) return;
+    const shown = warned
+      .slice(0, MAX_NAMED)
+      .map((n) => `"${n}"`)
+      .join(", ");
+    const more = warned.length > MAX_NAMED ? `, and ${warned.length - MAX_NAMED} more` : "";
+    result.warnings.push({
+      severity: "warn",
+      code: "TRAVEL_TRANSPORT_NAME_UNMATCHED",
+      message: `Some transport names don't clearly match a crew member — possibly a typo or two names merged into one cell: ${shown}${more}. Check the transport section, or add the person if they're missing.`,
+    });
+  } catch {
+    // never throw out of enrichment
+  }
 }

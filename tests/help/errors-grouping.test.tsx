@@ -45,6 +45,10 @@ describe("Chunk 4 — /help/errors family grouping", () => {
     expect(familyFor("VENUE_GEOCODE_UNRESOLVED").id).toBe("syncing-sheets");
   });
 
+  it("TRAVEL_TRANSPORT_NAME_UNMATCHED maps to the crew-schedule family (Flow 8.4)", () => {
+    expect(familyFor("TRAVEL_TRANSPORT_NAME_UNMATCHED").id).toBe("crew-schedule");
+  });
+
   it("renders a #<code> heading for EVERY renderable code (helpHref deep-link targets)", () => {
     const { container } = render(<ErrorsPage />);
     const codes = renderableCodes();
