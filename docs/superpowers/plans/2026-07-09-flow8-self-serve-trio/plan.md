@@ -582,13 +582,9 @@ git commit --no-verify -m "fix(crew-page): typed CrewMemberNotInShowError at cre
 
 - [ ] **Step 1: Write the failing tests**
 
-```tsx
-// tests/show/flow8Repick.test.tsx  (part 1 — helpers exported for test via a thin re-export is NOT allowed;
-// instead exercise them through the route in Task 7. Here we unit-test renderPickerRepick's fail-closed
-// contract by mocking loadRoster at the module boundary.)
-```
+`renderPickerRepick`'s roster-load catch is a **behavior-preserving extraction** of the stale arms' EXISTING inline `try { loadRoster } catch { TerminalFailure }` (`page.tsx:238-247`). The TDD form for a refactor is a guard test that is green before, stays green after the CORRECT extraction, and goes **red** if the extracted helper omits the catch. Task 6 carries TWO such guards (exercised via the `removed_from_roster` stale arm, which Step 4 refactors onto `renderPickerRepick`): (a) `StaleCleanupAutoSubmit` still mounts, (b) a roster-read failure still yields `TerminalFailure` (not a thrown render). The genuinely NEW roster-fail path (Point A/B → `renderPickerRepick`, which previously never loaded a roster) is red-first in Task 7.
 
-Because `page.tsx` helpers are module-private, prove `renderPickerRepick`'s fail-closed contract at the route level in Task 7. For THIS task, the deliverable test is the **stale-arm non-regression** (that the refactor preserves `StaleCleanupAutoSubmit`). Write in `tests/show/flow8Repick.test.tsx`:
+Write in `tests/show/flow8Repick.test.tsx`:
 
 ```tsx
 // @vitest-environment jsdom
@@ -609,17 +605,29 @@ function mockRosterClient(rows: unknown[]) {
   const q: any = { select: () => q, eq: () => q, order: () => Promise.resolve({ data: rows, error: null }) };
   (createSupabaseServiceRoleClient as any).mockReturnValue({ from: () => q });
 }
+function mockRosterError() {
+  const q: any = { select: () => q, eq: () => q, order: () => Promise.resolve({ data: null, error: { message: "roster boom" } }) };
+  (createSupabaseServiceRoleClient as any).mockReturnValue({ from: () => q });
+}
+const removedAccess = { kind: "removed_from_roster", showId: "sid", expectedEpoch: 3, expectedCrewMemberId: "cm1" };
 
 test("removed_from_roster arm still mounts StaleCleanupAutoSubmit after the renderPickerRepick refactor", async () => {
-  (resolveShowPageAccess as any).mockResolvedValue({ kind: "removed_from_roster", showId: "sid", expectedEpoch: 3, expectedCrewMemberId: "cm1" });
+  (resolveShowPageAccess as any).mockResolvedValue(removedAccess);
   mockRosterClient([{ id: "cm1", name: "Doug", role: "A1", role_flags: [], claimed_via_oauth_at: null }]);
-  const ui = await ShowPage({ params: Promise.resolve({ slug: "s", shareToken: "t" }), searchParams: Promise.resolve({}) });
-  const { container } = render(ui);
+  const { container } = render(await ShowPage({ params: Promise.resolve({ slug: "s", shareToken: "t" }), searchParams: Promise.resolve({}) }));
   expect(container.querySelector('[data-testid="stale-cleanup-auto-submit"]')).not.toBeNull();
+});
+
+test("renderPickerRepick refactor-guard: removed_from_roster with a roster-read error still yields TerminalFailure, not a thrown render", async () => {
+  (resolveShowPageAccess as any).mockResolvedValue(removedAccess);
+  mockRosterError();
+  const { container } = render(await ShowPage({ params: Promise.resolve({ slug: "s", shareToken: "t" }), searchParams: Promise.resolve({}) }));
+  expect(container.querySelector('[data-testid="terminal-failure"]')).not.toBeNull();
+  expect(container.querySelector('[data-testid="picker-interstitial-root"]')).toBeNull();
 });
 ```
 
-> Before writing, confirm the `StaleCleanupAutoSubmit` root `data-testid` by reading `_StaleCleanupAutoSubmit.tsx`; if it differs, use the actual test id (and note it in the commit). If it renders nothing observable in jsdom, assert on the presence of the hidden form/input it mounts instead.
+> Before writing, confirm the `StaleCleanupAutoSubmit` root `data-testid` (`stale-cleanup-auto-submit`, verified) and `TerminalFailure`'s (`terminal-failure`, verified). Both refactor-guards are GREEN before Step 4 (the stale arm's inline catch) and MUST stay green after — an extraction that drops `renderPickerRepick`'s catch turns the second one red.
 
 - [ ] **Step 2: Run to verify it fails / establishes the baseline**
 
@@ -713,6 +721,7 @@ Add to `tests/show/flow8Repick.test.tsx` (reuse the mocks from Task 6; add `getS
 ```tsx
 import { getShowForViewer, CrewMemberNotInShowError } from "@/lib/data/getShowForViewer";
 import { notFound } from "next/navigation";
+import { messageFor } from "@/lib/messages/lookup";
 
 function availabilityClient(showRow: { published: boolean; archived: boolean } | null, rosterRows: unknown[] = []) {
   (createSupabaseServiceRoleClient as any).mockReturnValue({
@@ -725,13 +734,17 @@ function availabilityClient(showRow: { published: boolean; archived: boolean } |
 }
 const resolvedAccess = { kind: "resolved", showId: "sid", crewMemberId: "cm1" };
 
-test("Point A: CrewMemberNotInShowError + available show → PickerInterstitial re-pick, not TerminalFailure", async () => {
+test("Point A: CrewMemberNotInShowError + available show → PickerInterstitial re-pick w/ REMOVED_FROM_ROSTER banner, not TerminalFailure", async () => {
   (resolveShowPageAccess as any).mockResolvedValue(resolvedAccess);
   (getShowForViewer as any).mockRejectedValue(new CrewMemberNotInShowError());
   availabilityClient({ published: true, archived: false }, [{ id: "cmX", name: "Someone", role: "A1", role_flags: [], claimed_via_oauth_at: null }]);
   const { container } = render(await ShowPage({ params: Promise.resolve({ slug: "s", shareToken: "t" }), searchParams: Promise.resolve({}) }));
   expect(container.querySelector('[data-testid="picker-interstitial-root"]')).not.toBeNull();
   expect(container.querySelector('[data-testid="terminal-failure"]')).toBeNull();
+  // Pin the guided banner — spec requires PICKER_REMOVED_FROM_ROSTER_BANNER (not null / wrong banner).
+  expect(container.querySelector('[data-testid="picker-banner"]')?.textContent).toContain(
+    messageFor("PICKER_REMOVED_FROM_ROSTER_BANNER").crewFacing!,
+  );
 });
 
 test("Point A: CrewMemberNotInShowError + deleted show (cascade) → notFound(), not picker", async () => {
@@ -741,12 +754,15 @@ test("Point A: CrewMemberNotInShowError + deleted show (cascade) → notFound(),
   await expect(ShowPage({ params: Promise.resolve({ slug: "s", shareToken: "t" }), searchParams: Promise.resolve({}) })).rejects.toThrow("NEXT_NOT_FOUND");
 });
 
-test("Point B: well-formed projection missing the resolved id + available → re-pick", async () => {
+test("Point B: well-formed projection missing the resolved id + available → re-pick w/ REMOVED_FROM_ROSTER banner", async () => {
   (resolveShowPageAccess as any).mockResolvedValue(resolvedAccess);
   (getShowForViewer as any).mockResolvedValue({ crewMembers: [{ id: "other", name: "X" }] });
   availabilityClient({ published: true, archived: false }, [{ id: "other", name: "X", role: "A1", role_flags: [], claimed_via_oauth_at: null }]);
   const { container } = render(await ShowPage({ params: Promise.resolve({ slug: "s", shareToken: "t" }), searchParams: Promise.resolve({}) }));
   expect(container.querySelector('[data-testid="picker-interstitial-root"]')).not.toBeNull();
+  expect(container.querySelector('[data-testid="picker-banner"]')?.textContent).toContain(
+    messageFor("PICKER_REMOVED_FROM_ROSTER_BANNER").crewFacing!,
+  );
 });
 
 test("Point B: projection missing id + deleted show (cascade) → notFound(), not picker", async () => {
