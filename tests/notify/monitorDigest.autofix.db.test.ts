@@ -38,7 +38,9 @@ afterAll(async () => {
 describe.runIf(dbUp)("buildMonitorDigestModel — autofix DB filter proof", () => {
   test("counts only the applied row of a published show; excludes non-applied/unpublished/orphan", async () => {
     if (!sql) throw new Error("db not up");
-    const inWin = "2026-07-08T10:00:00Z";
+    // Far-future window isolates from concurrent ~now() sibling .db.test.ts rows
+    // (production query filter is occurred_at > windowStart, lower bound only).
+    const inWin = "2099-01-01T10:00:00Z";
 
     await sql`insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
       values (${PUB}, ${MARK + "-ps"}, ${"Pub"}, ${"c"}, ${"v1"}, true)`;
@@ -55,9 +57,9 @@ describe.runIf(dbUp)("buildMonitorDigestModel — autofix DB filter proof", () =
     await log(UNPUB, "applied", "STAGE_WORD_AUTOCORRECTED"); // unpublished → excluded
     await log(ORPHAN, "applied", "STAGE_WORD_AUTOCORRECTED"); // orphan drive_file_id → excluded
 
-    const r = await buildMonitorDigestModel(new Date("2026-07-08T12:00:00Z"), {
+    const r = await buildMonitorDigestModel(new Date("2099-01-01T12:00:00Z"), {
       sql: sql as unknown as DigestBuilderSql,
-      getWatermark: async () => ({ kind: "value", watermark: new Date("2026-07-08T00:00:00Z") }),
+      getWatermark: async () => ({ kind: "value", watermark: new Date("2098-01-01T00:00:00Z") }),
     });
 
     if (r.kind !== "ok") throw new Error(`expected ok, got ${r.kind}`);

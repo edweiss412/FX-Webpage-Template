@@ -35,9 +35,12 @@ afterAll(async () => {
 describe.runIf(dbUp)("buildMonitorDigestModel — auto-applied DB filter proof", () => {
   test("returns ONLY the eligible row; excludes acked/pre-window/non-auto_apply/off-kind/non-applied", async () => {
     if (!sql) throw new Error("db not up");
-    const windowStart = new Date("2026-07-08T00:00:00Z");
-    const inWin = "2026-07-08T10:00:00Z";
-    const preWin = "2026-07-07T10:00:00Z";
+    // Far-future window: the production query filters occurred_at > windowStart (lower
+    // bound only), so any concurrent sibling .db.test.ts row at ~now() (< 2098) is
+    // excluded — this test is isolated from shared-Postgres pollution.
+    const windowStart = new Date("2098-01-01T00:00:00Z");
+    const inWin = "2099-01-01T10:00:00Z";
+    const preWin = "2097-01-01T10:00:00Z";
 
     const showRows = await sql<{ id: string }[]>`
       insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
@@ -67,7 +70,7 @@ describe.runIf(dbUp)("buildMonitorDigestModel — auto-applied DB filter proof",
     await base("auto_apply", "some_other_kind", "applied", "EXCL off-kind", inWin, false); // off-list kind
     await base("auto_apply", "crew_added", "undone", "EXCL undone-status", inWin, false); // non-applied status
 
-    const r = await buildMonitorDigestModel(new Date("2026-07-08T12:00:00Z"), {
+    const r = await buildMonitorDigestModel(new Date("2099-01-01T12:00:00Z"), {
       sql: sql as unknown as DigestBuilderSql,
       getWatermark: async () => ({ kind: "value", watermark: windowStart }),
     });
