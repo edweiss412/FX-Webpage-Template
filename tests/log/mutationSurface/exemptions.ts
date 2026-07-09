@@ -101,53 +101,38 @@ export type GrandfatherUnit = { file: string; fn: string };
  * computed from the tree) that NEVER grows and only SHRINKS as surfaces graduate
  * to inline proof (BL-ADMIN-OUTCOME-BEHAVIOR, delivered in batches).
  * Batch 1 (2026-07-05) graduated the 6 per-show action functions → 24 route POSTs
- * remain. `manifest/…/ignore` and `reap-stale-sessions` are deliberately NOT here —
- * they were seeded WITH inline proof, not pre-existing (Codex R15 F3 / plan-R3 F4). */
+ * remain. Batch 2 (2026-07-09) graduated the 16 clean DI-seam route POSTs (mutation
+ * dep / faked-tx, each with a DB-independent driver) to inline paired-proof coverage
+ * in adminOutcomeBehavior.test.ts → 8 remain: the 4 heavy DI-seam routes (approve,
+ * finalize, finalize-cas, extract-agenda) + the 4 plain-POST routes (staged/[fileId]/
+ * apply, sync/[slug], snapshot-rollback/[id]/repair, staged/[fileId]/discard), all
+ * deferred to Batch 3. `manifest/…/ignore` and `reap-stale-sessions` are deliberately
+ * NOT here — they were seeded WITH inline proof, not pre-existing (Codex R15 F3 /
+ * plan-R3 F4). */
 export const ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER: readonly GrandfatherUnit[] = [
-  {
-    file: "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route.ts",
-    fn: "POST",
-  },
+  // Batch 3 — 4 heavy DI-seam route POSTs (full in-memory harness / DB-backed-only proof):
   {
     file: "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/approve/route.ts",
     fn: "POST",
   },
-  {
-    file: "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/unapprove/route.ts",
-    fn: "POST",
-  },
-  {
-    file: "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/discard/route.ts",
-    fn: "POST",
-  },
   { file: "app/api/admin/onboarding/finalize/route.ts", fn: "POST" },
   { file: "app/api/admin/onboarding/finalize-cas/route.ts", fn: "POST" },
-  { file: "app/api/admin/staged/[fileId]/apply/route.ts", fn: "POST" },
-  { file: "app/api/admin/show/staged/[stagedId]/apply/route.ts", fn: "POST" },
-  { file: "app/api/admin/sync/[slug]/route.ts", fn: "POST" },
-  { file: "app/api/admin/pending-ingestions/[id]/retry/route.ts", fn: "POST" },
-  { file: "app/api/admin/snapshot-rollback/[id]/repair/route.ts", fn: "POST" },
-  { file: "app/api/admin/show/[slug]/data-quality/ignore/route.ts", fn: "POST" },
-  { file: "app/api/admin/show/[slug]/data-quality/unignore/route.ts", fn: "POST" },
-  { file: "app/api/admin/admin-alerts/[id]/resolve/route.ts", fn: "POST" },
-  { file: "app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts", fn: "POST" },
-  { file: "app/api/admin/pending-ingestions/[id]/discard/route.ts", fn: "POST" },
-  { file: "app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts", fn: "POST" },
-  { file: "app/api/admin/onboarding/rescan-sheet/route.ts", fn: "POST" },
-  {
-    file: "app/api/admin/onboarding/cleanup-abandoned-finalize/[sessionId]/route.ts",
-    fn: "POST",
-  },
-  { file: "app/api/admin/show/staged/[stagedId]/discard/route.ts", fn: "POST" },
-  { file: "app/api/admin/onboarding/scan/route.ts", fn: "POST" },
   {
     file: "app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts",
     fn: "POST",
   },
+  // Batch 3 — 4 plain-POST route POSTs (no testable handle* seam yet):
+  { file: "app/api/admin/staged/[fileId]/apply/route.ts", fn: "POST" },
+  { file: "app/api/admin/sync/[slug]/route.ts", fn: "POST" },
+  { file: "app/api/admin/snapshot-rollback/[id]/repair/route.ts", fn: "POST" },
   { file: "app/api/admin/staged/[fileId]/discard/route.ts", fn: "POST" },
-  { file: "app/api/admin/ignored-sheets/[driveFileId]/unignore/route.ts", fn: "POST" },
   // Batch 1 (2026-07-05) — the 6 per-show admin action functions GRADUATED to inline
   // observeSuccessCodes proof in adminOutcomeBehavior.test.ts (BL-ADMIN-OUTCOME-BEHAVIOR):
   //   archive.ts::archiveShowAction, unarchive.ts::unarchiveShowAction,
   //   setPublished.ts::setShowPublishedAction, feed.ts::{mi11ApproveAction,mi11RejectAction,undoChangeAction}.
+  // Batch 2 (2026-07-09) — the 16 clean DI-seam route POSTs GRADUATED to inline
+  // proveAdminOutcomeBehavior paired proof (apply/unapprove/discard wizard-staged,
+  // live-staged apply/discard, live + wizard pending-ingestion retry/discard,
+  // data-quality ignore/unignore, admin-alerts global + show-scoped resolve,
+  // rescan-sheet, cleanup-abandoned-finalize, onboarding scan, ignored-sheets unignore).
 ];

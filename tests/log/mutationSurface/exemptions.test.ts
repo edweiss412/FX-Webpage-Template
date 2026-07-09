@@ -26,17 +26,17 @@ describe("KNOWN_UNINSTRUMENTED — empty (BL-CREW-PICKER-OBSERVABILITY closed 20
   });
 });
 
-describe("ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER — hardcoded literal, exactly 24 {file,fn} units after Batch 1", () => {
-  test("exactly 24 rows, all distinct", () => {
-    expect(ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER.length).toBe(24);
+describe("ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER — hardcoded literal, exactly 8 {file,fn} units after Batch 2", () => {
+  test("exactly 8 rows, all distinct", () => {
+    expect(ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER.length).toBe(8);
     const keys = ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER.map((r) => `${r.file}::${r.fn}`);
-    expect(new Set(keys).size).toBe(24);
+    expect(new Set(keys).size).toBe(8);
   });
-  test("all 24 remaining rows are route POSTs; the 6 pre-existing action functions graduated to inline proof (Batch 1)", () => {
+  test("all 8 remaining rows are route POSTs; the action functions + 16 clean DI-seam routes graduated to inline proof (Batch 1 + 2)", () => {
     const routeRows = ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER.filter((r) => r.fn === "POST");
-    expect(routeRows.length).toBe(24);
+    expect(routeRows.length).toBe(8);
     // Batch 1 (BL-ADMIN-OUTCOME-BEHAVIOR) graduated the 6 per-show admin action functions
-    // (archive/unarchive/setPublished/feed×3) to inline observeSuccessCodes proof in
+    // and Batch 2 graduated the 16 clean DI-seam route POSTs to inline proof in
     // adminOutcomeBehavior.test.ts, so NO non-POST (action-function) rows remain grandfathered.
     const actionRows = ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER.filter((r) => r.fn !== "POST");
     expect(actionRows).toEqual([]);
