@@ -340,6 +340,11 @@ begin
   -- (show,field). Without this, a caller passing a different p_match_key would bypass the active-create
   -- collision check and insert a SECOND active show override writing the same `shows` field.
   if p_domain='show' then p_match_key := ''; p_new_match_key := ''; end if;
+  -- RPC5+ (class-close for NULL required inputs): the typed JS caller never sends these NULL, but the RPC
+  -- is the security boundary — fail closed before touching state. (p_match_key '' is valid; p_override_value
+  -- NULL is caught by §7.4 _validate_override_value; p_drive_file_id NULL already yields SHOW_NOT_FOUND.)
+  if p_match_key is null or p_actor is null or (p_op='repoint' and p_new_match_key is null) then
+    return jsonb_build_object('ok', false, 'code', 'OVERRIDE_INVALID_OP'); end if;
 
   -- read the current override row for (target) under the lock.
   select * into v_row from public.admin_overrides
