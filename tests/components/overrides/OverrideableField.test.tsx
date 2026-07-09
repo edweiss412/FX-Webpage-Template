@@ -69,22 +69,30 @@ describe("OverrideableField — guard states (§8.5)", () => {
     expect(queryByTestId("override-chip-crew-name")).toBeNull();
   });
 
-  it("active + non-null sheetValue → chip (title sheet says) + Edit + Revert", () => {
+  it("active + non-null sheetValue → visible sheet line + SR aria + Edit + Revert", () => {
     const { getByTestId } = render(
       <OverrideableField {...baseProps()} override={activeOverride} />,
     );
+    // §8.5 / PRODUCT (no hover-only): the sheet value is a VISIBLE muted line,
+    // reachable by keyboard + touch — never a hover `title`.
+    expect(getByTestId("override-sheet-value-crew-name").textContent).toBe('Sheet: "Jon"');
+    // The chip carries the same comparison for screen readers via aria-label
+    // (title is not reliably announced), and NO `title` attribute survives.
     const chip = getByTestId("override-chip-crew-name");
-    expect(chip.getAttribute("title")).toContain('sheet says "Jon"');
+    expect(chip.getAttribute("aria-label")).toContain('the sheet says "Jon"');
+    expect(chip.getAttribute("title")).toBeNull();
     expect(getByTestId("override-edit-crew-name")).toBeTruthy();
     expect(getByTestId("override-revert-crew-name")).toBeTruthy();
   });
 
-  it("active + null sheetValue → chip reads 'sheet has no value'", () => {
+  it("active + null sheetValue → visible 'Sheet has no value' line", () => {
     const { getByTestId } = render(
       <OverrideableField {...baseProps()} override={{ ...activeOverride, sheetValue: null }} />,
     );
-    const chip = getByTestId("override-chip-crew-name");
-    expect(chip.getAttribute("title")).toContain("sheet has no value");
+    expect(getByTestId("override-sheet-value-crew-name").textContent).toBe("Sheet has no value");
+    expect(getByTestId("override-chip-crew-name").getAttribute("aria-label")).toContain(
+      "the sheet has no value",
+    );
   });
 
   it("active === false (stale) → parsed value + muted paused note + Re-point/Discard, no chip", () => {
@@ -95,7 +103,7 @@ describe("OverrideableField — guard states (§8.5)", () => {
       />,
     );
     expect(getByTestId("override-stale-note-crew-name").textContent).toContain(
-      "Override paused — sheet no longer has «Jon»",
+      "Override paused: the sheet no longer has «Jon»",
     );
     expect(getByTestId("override-repoint-crew-name")).toBeTruthy();
     expect(getByTestId("override-discard-crew-name")).toBeTruthy();

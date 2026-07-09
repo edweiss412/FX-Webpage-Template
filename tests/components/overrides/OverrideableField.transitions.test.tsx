@@ -105,11 +105,12 @@ describe("OverrideableField — compound editing×sync path (§8.7 / §16.2)", (
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
 
     const err = await waitFor(() => getByTestId("override-error-crew-name"));
-    // role="status" is the inline error live region (OverrideableField.tsx:222).
-    expect(err.getAttribute("role")).toBe("status");
-    // The MAPPED copy (OVERRIDE_RPC_COPY) — asserted verbatim so a copy drift
-    // or a fallthrough to GENERIC_ERROR is caught.
-    expect(err.textContent).toBe("This field changed since you opened it — reload and try again.");
+    // role="alert" (assertive): a failed save should interrupt SR speech, not
+    // queue behind it (impeccable audit P2). It is the inline error live region.
+    expect(err.getAttribute("role")).toBe("alert");
+    // The MAPPED copy (OVERRIDE_RPC_COPY), asserted verbatim so a copy drift
+    // or a fallthrough to GENERIC_ERROR is caught. No em dash (PRODUCT copy rule).
+    expect(err.textContent).toBe("This field changed since you opened it. Reload and try again.");
 
     // Invariant 5: the raw RPC code must NOT appear anywhere in the field DOM.
     // Assert on the whole field container (input row + error), not just the

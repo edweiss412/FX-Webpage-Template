@@ -794,7 +794,7 @@ export function ContactsBreakdown({
 // R15: a genuinely first-seen show has no `shows` row, so `set_field_override`
 // has no live target until finalize. The widget is read-only until then.
 export const OVERRIDE_UNAVAILABLE_HINT =
-  "Overrides become available after you publish this show — until then, correct values in the sheet and Re-sync.";
+  "Overrides become available after you publish this show. Until then, correct values in the sheet and Re-sync.";
 
 /**
  * One overridable field inside a review-wizard breakdown (spec §8.3).

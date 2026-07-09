@@ -409,3 +409,31 @@ Source: invariant-8 impeccable v3 dual-gate on branch `feat/telemetry-console-re
 - **What:** `EventRow.tsx` expands via framer-motion `height: 0 → auto` (a layout-property animation), against the impeccable "transform/opacity only" motion rule.
 - **Why accepted (not a defect):** this is the spec's single, deliberately-chosen disclosure animation (spec §9 transition inventory), reduced-motion-guarded to `duration: 0` via `useReducedMotion`, single-instance per expanded row. The grid-rows `1fr` transform alternative degrades content measurement for the CronRunSummaryCard/ContextDetail disclosure. No user-visible frame drop at this scale.
 - **Trigger:** only if a future perf audit measures actual jank on low-end devices with many simultaneously-expanded rows.
+
+## Admin field overrides — impeccable gate (2026-07-09)
+
+Source: invariant-8 impeccable v3 dual-gate (critique + audit) on branch `feat/admin-field-overrides` for the P6 UI diff (Tasks 13–16). Full findings + dispositions in `docs/superpowers/plans/2026-07-07-admin-field-overrides/IMPECCABLE-REPORT.md`. Verdict: critique 25/40, audit 18/20, deterministic detector `[]` (0 new; the one `<img>` hit is a pre-existing/intentional diagrams-grid revert outside this diff), zero CRITICAL/P0. FIXED in-branch: sheet-value now a VISIBLE line + chip `aria-label` (was hover-only `title`); error `role="status"` → `role="alert"`; em dashes removed from all 5 rendered copy strings. The entries below are deferred/accepted.
+
+### OVR-1 — [P1→deferred] Destructive Revert/Discard: no confirm, no undo, no danger styling
+
+- **What:** `OverrideableField.tsx` Revert (active state) and Discard (stale state) fire on a single tap, share the neutral `BUTTON_CLASS`, and sit immediately beside Edit / Re-point. A mis-tap on the venue floor destroys an override (Revert) with no confirmation, undo, or visual danger cue.
+- **Why deferred:** spec §7 defines Revert/Discard as single-op mutations and is **silent on any confirmation step**; PRODUCT.md explicitly bans multi-step modals ("no five-step modals") and the surface is phone-primary, so a modal confirm is the wrong instrument. Revert is **recoverable** (re-create the override on the same target — the RPC's reactivate-on-conflict path, §7.2 R28); Discard is valid ONLY on an already-inactive row (spec §7.2 — the live row already shows the parsed value, so "destroy" is low-stakes). A consistent destructive-action affordance is a cross-admin design decision, not an override-specific defect; the critique is not authoritative vs the spec/mock (project rule).
+- **Trigger:** a project-wide "destructive admin action" confirmation/undo pass (would also cover Rescan, role changes, etc.), OR the first real report of an accidental override loss.
+
+### OVR-2 — [P2→deferred] No post-save confirmation ("Saving…" / "Saved")
+
+- **What:** `submit()` flips `mode` to `idle` on success with no transient "Saved" signal and no `Saving…` label on the Save button during `pending`.
+- **Why deferred:** the save is optimistic and the surface **re-renders into the overridden state** — the "Overridden" chip + the new value + the visible `Sheet: "X"` line ARE the confirmation. A transient toast/label is a polish nicety, not a correctness gap; the disabled-while-pending state already prevents double-submit.
+- **Trigger:** the next override-UI polish pass, or if usability testing shows Doug re-tapping Save uncertain it applied.
+
+### OVR-3 — [P3→deferred] Nested card in ShowOverrideBlocks (hotel row)
+
+- **What:** `ShowOverrideBlocks.tsx` renders each hotel reservation row as a `rounded-md border bg-bg` block inside the outer `rounded-md border bg-surface` Hotels block — a card-in-card.
+- **Why deferred:** mild — the inner surface is differentiated by **background token** (`bg-bg` vs `bg-surface`), not a redundant border-in-border stack, and it mirrors the existing wizard hotel-row grouping. Not an AI-slop tell in isolation.
+- **Trigger:** the next `ShowOverrideBlocks` layout pass, or a DESIGN.md ruling on nested-surface treatment.
+
+### OVR-4 — [P3→deferred] Repoint-input aria-label exposes DB nomenclature
+
+- **What:** the re-point input's `aria-label` names the internal "match key" concept rather than the user-facing "sheet value to match".
+- **Why deferred:** screen-reader-only clarity nicety; the visible label + stale note already frame the action ("Re-point", "the sheet no longer has «X»"). No sighted-user impact.
+- **Trigger:** the next crew/admin a11y sweep, or any SR audit of the override surface.

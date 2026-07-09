@@ -57,9 +57,9 @@ export type OverrideableFieldProps = {
 // friendly copy so invariant 5 holds (raw code never rendered). The stale copy is
 // the §8.7 :536 CAS-409 wording.
 const OVERRIDE_RPC_COPY: Record<string, string> = {
-  OVERRIDE_STALE_REVIEW: "This field changed since you opened it — reload and try again.",
+  OVERRIDE_STALE_REVIEW: "This field changed since you opened it. Reload and try again.",
   OVERRIDE_INVALID_OP: "That action isn't available for this field right now.",
-  OVERRIDE_INVALID_STATE: "This override changed since you opened it — reload and try again.",
+  OVERRIDE_INVALID_STATE: "This override changed since you opened it. Reload and try again.",
 };
 
 const GENERIC_ERROR = "Something went wrong saving this override. Reload and try again.";
@@ -87,23 +87,37 @@ const BUTTON_CLASS =
 const INPUT_CLASS =
   "min-h-tap-min rounded-sm border border-border-strong bg-surface px-2 py-1 text-sm text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring";
 
+// Sheet-value presentation (§8.5): the "sheet says X" comparison is the chip's
+// whole purpose, so it must be reachable by keyboard AND touch (Doug on a phone),
+// never hover-only `title` (PRODUCT: no hover-only affordances). Scalar sheet
+// values (crew name/role, hotel name/address) render as a visible muted line;
+// object-valued fields (show dates/venue) have no clean one-liner, so the chip's
+// aria-label carries the state for screen readers and the visible override value
+// cell already shows the correction.
+function formatSheetValue(v: unknown): { visible: string | null; aria: string } {
+  if (v === null || v === undefined) {
+    return { visible: "Sheet has no value", aria: "Overridden; the sheet has no value" };
+  }
+  if (typeof v === "string" || typeof v === "number") {
+    const s = String(v);
+    return { visible: `Sheet: "${s}"`, aria: `Overridden; the sheet says "${s}"` };
+  }
+  return { visible: null, aria: "Overridden; see the sheet for the previous value" };
+}
+
 function OverrideChip({
   domain,
   field,
-  sheetValue,
+  ariaLabel,
 }: {
   domain: string;
   field: string;
-  sheetValue: unknown;
+  ariaLabel: string;
 }) {
-  const title =
-    sheetValue === null || sheetValue === undefined
-      ? "Overridden — sheet has no value"
-      : `sheet says "${String(sheetValue)}"`;
   return (
     <span
       data-testid={`override-chip-${domain}-${field}`}
-      title={title}
+      aria-label={ariaLabel}
       className="inline-flex shrink-0 items-center rounded-pill px-2.5 py-0.5 text-xs font-medium bg-info-bg text-text-subtle"
     >
       Overridden
@@ -219,7 +233,7 @@ export function OverrideableField(props: OverrideableFieldProps) {
     <p
       data-testid={`override-error-${domain}-${field}`}
       className="mt-1 text-sm text-warning-text"
-      role="status"
+      role="alert"
     >
       {error}
     </p>
@@ -336,20 +350,21 @@ export function OverrideableField(props: OverrideableFieldProps) {
           data-testid={`override-stale-note-${domain}-${field}`}
           className="mt-1 text-sm text-text-subtle"
         >
-          {`Override paused — sheet no longer has «${matchKey}»`}
+          {`Override paused: the sheet no longer has «${matchKey}»`}
         </p>
         {errorNode}
       </div>
     );
   }
 
-  // Active override: value + chip + Edit/Revert.
+  // Active override: value + chip + visible sheet-value line + Edit/Revert.
   if (override && override.active) {
+    const sheet = formatSheetValue(override.sheetValue);
     return (
       <div data-testid={testId} className="min-w-0">
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           {valueCell}
-          <OverrideChip domain={domain} field={field} sheetValue={override.sheetValue} />
+          <OverrideChip domain={domain} field={field} ariaLabel={sheet.aria} />
           <button
             type="button"
             data-testid={`override-edit-${domain}-${field}`}
@@ -368,6 +383,14 @@ export function OverrideableField(props: OverrideableFieldProps) {
             Revert
           </button>
         </div>
+        {sheet.visible ? (
+          <p
+            data-testid={`override-sheet-value-${domain}-${field}`}
+            className="mt-1 text-xs text-text-subtle"
+          >
+            {sheet.visible}
+          </p>
+        ) : null}
         {errorNode}
       </div>
     );
