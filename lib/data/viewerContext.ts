@@ -73,6 +73,22 @@ export class MalformedProjectionError extends Error {
   }
 }
 
+/**
+ * Thrown when a crew/admin_preview viewer's id has NO matching row in a
+ * WELL-FORMED crewMembers array (Flow 8.2 / spec §4.1 Point C). The original
+ * code fell open to `{ kind: "none" }` = whole-show visibility; this fails
+ * CLOSED instead. _CrewShell catches it and renders the route's infra arm.
+ * Admin viewers never reach this (they take the isAdmin limb).
+ */
+export class UnmatchedViewerError extends Error {
+  constructor(viewerKind: string, crewMemberId: string) {
+    super(
+      `No crew_members row matches viewer id '${crewMemberId}' for viewer kind '${viewerKind}' in a well-formed projection`,
+    );
+    this.name = "UnmatchedViewerError";
+  }
+}
+
 export type ViewerContext = {
   viewerCrew: ShowForViewer["crewMembers"][number] | null;
   dateRestriction: DateRestriction;
@@ -97,9 +113,12 @@ export type ViewerContext = {
  *     surface-level admin posture (sticky preview banner, requireAdmin
  *     gate) is the page's responsibility, not this helper's.
  *   - crew/admin_preview viewer with NO matching row in a WELL-FORMED
- *     array → defense-in-depth fallback: empty flags, null name, none
- *     restrictions, isAdmin false. Shouldn't happen post-getShowForViewer
- *     cross-show check, but mirrors the original IIFE's tolerance.
+ *     array → throws UnmatchedViewerError (Flow 8.2 / spec §4.1 Point C).
+ *     The former {none} fallback was fail-OPEN = whole-show visibility;
+ *     this fails CLOSED. _CrewShell catches it and renders the infra arm.
+ *     (On the crew route the Point A/B guards in page.tsx pre-empt this;
+ *     it stays as the render-layer backstop so no future caller can
+ *     reintroduce the fail-open.)
  *   - crew/admin_preview viewer with a MALFORMED projection
  *     (crewMembers not an array) → throws MalformedProjectionError.
  *     Restrictions could not be VERIFIED, which is different from
@@ -122,30 +141,28 @@ export function resolveViewerContext(viewer: Viewer, data: ShowForViewer): Viewe
     // none-restrictions like the missing-row case.
     throw new MalformedProjectionError(viewer.kind);
   }
-  const viewerCrew =
-    viewer.kind === "crew" || viewer.kind === "admin_preview"
-      ? (data.crewMembers.find((c) => c.id === viewer.crewMemberId) ?? null)
-      : null;
-
-  const dateRestriction: DateRestriction = viewerCrew
-    ? viewerCrew.dateRestriction
-    : { kind: "none" };
-  const stageRestriction: StageRestriction = viewerCrew
-    ? viewerCrew.stageRestriction
-    : { kind: "none" };
-  const viewerFlags: RoleFlag[] = viewerCrew
-    ? viewerCrew.roleFlags
-    : isAdmin
-      ? [...SCOPE_TILE_UNLOCKING_FLAGS]
-      : [];
-  const viewerName = viewerCrew ? viewerCrew.name : null;
-
+  if (viewer.kind === "crew" || viewer.kind === "admin_preview") {
+    const viewerCrew = data.crewMembers.find((c) => c.id === viewer.crewMemberId) ?? null;
+    if (!viewerCrew) {
+      // Fail CLOSED (was `{ kind: "none" }` = whole-show fail-open). Spec §4.1 Point C.
+      throw new UnmatchedViewerError(viewer.kind, viewer.crewMemberId);
+    }
+    return {
+      viewerCrew,
+      dateRestriction: viewerCrew.dateRestriction,
+      stageRestriction: viewerCrew.stageRestriction,
+      viewerFlags: viewerCrew.roleFlags,
+      viewerName: viewerCrew.name,
+      isAdmin,
+    };
+  }
+  // admin viewer: whole-show is legitimate (sees every show day / phase).
   return {
-    viewerCrew,
-    dateRestriction,
-    stageRestriction,
-    viewerFlags,
-    viewerName,
+    viewerCrew: null,
+    dateRestriction: { kind: "none" },
+    stageRestriction: { kind: "none" },
+    viewerFlags: [...SCOPE_TILE_UNLOCKING_FLAGS],
+    viewerName: null,
     isAdmin,
   };
 }
