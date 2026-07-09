@@ -66,7 +66,24 @@ The file already mocks `@/lib/auth/requireAdmin`, `@/lib/supabase/server` (swapp
 
 ### 3.3 Per-surface test shape
 
-**The atomic helper is the SOLE recording path (Codex plan-R2/R3).** Every Batch-2 row calls **only** `proveAdminOutcomeBehavior({ file, fn: "POST", code, success, failure })`. The helper — and ONLY the helper — calls `observeSuccessCodes`, `observeCodes`, and `recordAdminOutcomeBehavior`; it (1) runs `success`, asserts the `code` observed, (2) runs `failure`, asserts the `code` ABSENT, (3) then records. A row therefore cannot graduate with a success-only proof. **No Batch-2 test body calls `observeSuccessCodes`, `observeCodes`, or `recordAdminOutcomeBehavior` directly** — the `success`/`failure` callbacks only build `routeDeps`/`context`/`request` and invoke the handler (plus route-specific setup like the #18 body drain).
+**The atomic helper is the SOLE recording path, and BOTH drives are proven-real (Codex plan-R2/R3/R6).** Every Batch-2 row calls **only** `proveAdminOutcomeBehavior({ file, fn: "POST", code, success, failure })`. Signature:
+
+```
+proveAdminOutcomeBehavior({
+  file, fn, code,
+  success: () => Promise<unknown>,              // drives the committed branch (emits code)
+  failure: (mark: { hit: boolean }) => Promise<unknown>,  // drives the refusal branch; MUST set mark.hit=true INSIDE the injected seam
+})
+```
+
+The helper — and ONLY the helper — calls `observeSuccessCodes`, `observeCodes`, and `recordAdminOutcomeBehavior`. It:
+
+1. `const ok = await observeSuccessCodes(success); expect(ok).toContain(code)` — success emits the code. (The emit is post-commit, so observing it already proves the committed branch ran — success is self-proving.)
+2. `const mark = { hit: false }; const bad = await observeCodes(() => failure(mark)); expect(bad).not.toContain(code)` — failure does NOT emit the code.
+3. **`expect(mark.hit, "failure must drive the route's real refusal branch").toBe(true)`** — the ANTI-HOLLOW guard. Each row's `failure` sets `mark.hit = true` **inside the injected mutation/tx seam** it drives to the non-committing outcome (e.g. `discardStagedUnlocked: async () => { mark.hit = true; return { outcome: "not_found" }; }`, or inside the `fakeTx.queryOne` that returns the refusal row, or inside `withRowTx` just before #20's throw). So the marker fires ONLY if the handler actually reached and invoked that seam. A no-op `failure` (or one that returns before invoking the handler) leaves `mark.hit=false` → helper RED. This works for both return-refusal and throw-refusal routes (the marker is set before any throw; `observeCodes` swallows the throw but `mark` was already mutated).
+4. Only then `recordAdminOutcomeBehavior({ file, fn, code })`.
+
+A row therefore cannot graduate with a success-only proof NOR with a hollow (no-op) failure. **No Batch-2 test body calls `observeSuccessCodes`, `observeCodes`, or `recordAdminOutcomeBehavior` directly** — the `success`/`failure` callbacks only build `routeDeps`/`context`/`request`, set `mark.hit` inside the driven refusal seam, and invoke the handler (plus route-specific setup like the #18 body drain).
 
 **Structural guard (CI-enforced).** Wrap the Batch-2 block between two sentinel comments — `// >>> BATCH-2 PROOF BLOCK START` / `// <<< BATCH-2 PROOF BLOCK END` — and add a guard `test` that reads this file's own source, slices between the sentinels, and asserts the slice matches **none** of `/\brecordAdminOutcomeBehavior\s*\(/`, `/\bobserveSuccessCodes\s*\(/`, `/\bobserveCodes\s*\(/` (only `proveAdminOutcomeBehavior(` may appear). This makes "record directly, skip the failure drive" fail at CI, not just by convention. (The guard reads `import.meta`-relative source or a hard-coded repo-relative path to `adminOutcomeBehavior.test.ts`; it is Batch-2-scoped, leaving Batch-1's direct-`record` rows untouched.)
 
