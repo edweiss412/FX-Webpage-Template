@@ -443,14 +443,24 @@ begin
       -- release OLD target A to its stored sheet_value (role/hotel only — active name repoint rejected above).
       perform public._apply_override_live(v_show_id, p_domain, p_field, v_release_id, v_row.sheet_value, null);
     end if;
-    -- capture B's parsed value (un-overridden => live == sheet) and apply. sheet_name→p_new_match_key on a
+    -- RPC-10 (crew-name inactive-repoint fix): resolve B's live id NOW — BEFORE the activating UPDATE.
+    -- While the override still sits at its OLD (inactive) match_key, _resolve_live_id(crew) reads B's
+    -- PARSED name at p_new_match_key and finds B's real row. Re-resolving AFTER the UPDATE (as the prior
+    -- code did) would derive B's expected name from the JUST-activated override output — a name no crew
+    -- member has yet (the apply is what renames B) — and false-RAISE 40001 (the RPC-7 apply-no-live-row
+    -- circularity), which broke the §7.2/§7.6 "inactive-repoint is the PRIMARY stale-recovery path"
+    -- contract for the crew-NAME field. hotel/crew-role resolve identically pre/post-UPDATE (they key on
+    -- p_expected_live_hotel_name / B's own separate name override, both unaffected by this UPDATE), so
+    -- pre-resolving yields the same id there — this fix is crew-name-correct and domain-neutral.
+    v_target_id := public._resolve_live_id(v_show_id, p_domain, p_field, p_new_match_key, p_expected_live_hotel_name);
+    -- capture B's parsed value (un-overridden => live == sheet). sheet_name→p_new_match_key on a
     -- crew-name (inactive) repoint (R3b-3); ignored by role/hotel arms.
     v_captured := public._current_field_value(v_show_id, p_domain, p_field, p_new_match_key, p_expected_live_hotel_name);
     update public.admin_overrides set match_key=p_new_match_key, active=true, deactivation_code=null,
       sheet_value=v_captured, override_value=coalesce(p_override_value, override_value),
       version=version+1, updated_at=now() where id=v_row.id returning * into v_row;
-    perform public._apply_override_live(v_show_id, p_domain, p_field,
-      public._resolve_live_id(v_show_id, p_domain, p_field, p_new_match_key, p_expected_live_hotel_name),
+    -- apply to B using the id resolved BEFORE activation (see RPC-10 above — never the post-activation re-resolve).
+    perform public._apply_override_live(v_show_id, p_domain, p_field, v_target_id,
       v_row.override_value, p_new_match_key);
     return jsonb_build_object('ok', true, 'value', v_row.override_value);
   end if;

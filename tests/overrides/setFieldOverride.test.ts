@@ -7,15 +7,6 @@ import { randomUUID } from "node:crypto";
 // the admin_overrides row state. Every expected value is DERIVED from the seeded fixture (anti-tautology:
 // never hardcode a value a fixture could contradict). Mirrors tests/overrides/setFieldOverrideCore.test.ts
 // (postgres.js, max:1, inTx rollback, first() narrowing, jb() jsonb cast).
-//
-// NOTE (Task-4 finding — flagged for Task-3/plan review): the §7.6 bullet "inactive/stale crew-NAME
-// repoint succeeds with no old live row" does NOT hold against the committed RPC. Crew-name repoint's
-// apply step re-resolves the target via _resolve_live_id on the freshly-activated override at
-// p_new_match_key, so it looks for a crew member ALREADY named the override output — which never exists
-// pre-apply. The RPC therefore RAISES SQLSTATE 40001 (→ helper maps to OVERRIDE_STALE_REVIEW) and rolls
-// the locked tx back, leaving admin_overrides unchanged. That is exactly the RPC-7 "apply matched no live
-// row" structural class, so this file asserts the REAL raise+rollback behavior (see the §7.6 / RPC-7
-// tests below). The literal "succeeds" wording is unreachable with the committed migration.
 const url =
   process.env.TEST_DATABASE_URL ?? "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
@@ -864,17 +855,19 @@ describe.skipIf(!url)("set_field_override — full RPC matrix (§12)", () => {
       });
     });
 
-    it("inactive crew-name repoint with the overridden live row gone → RAISES 40001 (committed RPC rejects; see file NOTE)", async () => {
-      // §7.6 / RPC-7: the committed apply step re-resolves the target via the freshly-activated override at
-      // p_new_match_key, so it can never find the pre-apply row → SQLSTATE 40001 (helper → OVERRIDE_STALE_REVIEW).
-      // Asserts the raise-and-rollback contract: admin_overrides UNCHANGED.
+    it("inactive crew-name repoint to a live B → reactivates at B, renames B to the override value, sheet_name=B (§7.6 PRIMARY stale-recovery path)", async () => {
+      // §7.2 line 377 / §7.6 line 435: inactive-repoint is the PRIMARY stale-recovery path and MUST NOT
+      // require an old live row. The "→Jonathan" correction (stale since A vanished) is repointed onto the
+      // live parsed member "Bob". Failure mode caught (RPC-10 regression): the apply step re-resolving B via
+      // the JUST-activated override output (a name no row has pre-apply) false-RAISEs 40001 and strands the
+      // whole recovery path — the fix pre-resolves B's id BEFORE activation.
       await inTx(async (tx) => {
         const { showId, drive } = await seedShow(tx);
-        await seedCrew(tx, showId, "Bob", "Sound"); // only B exists; old A ("Jonathan") is gone.
+        const bid = await seedCrew(tx, showId, "Bob", "Sound"); // B exists; old A ("Jonathan") is gone.
         await tx`insert into public.admin_overrides
           (show_id,domain,field,match_key,override_value,sheet_value,active,deactivation_code,created_by,version)
           values (${showId},'crew','name','Jon',to_jsonb('Jonathan'::text),to_jsonb('Jon'::text),false,'target_missing','admin@fx.co',3)`;
-        const code = await rpcRaises(tx, {
+        const res = await callRpc(tx, {
           drive,
           op: "repoint",
           domain: "crew",
@@ -882,14 +875,26 @@ describe.skipIf(!url)("set_field_override — full RPC matrix (§12)", () => {
           matchKey: "Jon",
           newMatchKey: "Bob",
           expectedVersion: 3,
-          expectedCurrent: "Bob",
+          expectedCurrent: "Bob", // CAS-B vs B's current live name
         });
-        expect(code).toBe("40001");
-        // rolled back to the savepoint: the inactive row is exactly as seeded.
-        const ov = await mustOverride(tx, showId, "crew", "name", "Jon");
-        expect(ov.active).toBe(false);
-        expect(ov.version).toBe(3);
+        expect(res).toEqual({ ok: true, value: "Jonathan" });
+        // B's live row renamed to the override value; sheet_name alias set to the new match_key (R3b-3).
+        expect(await crewCol(tx, showId, "name", bid)).toBe("Jonathan");
+        const cm = first(
+          await tx<
+            { sheet_name: string | null }[]
+          >`select sheet_name from public.crew_members where id=${bid}`,
+        );
+        expect(cm.sheet_name).toBe("Bob");
+        // override row reactivated AT THE NEW KEY, version bumped, sheet_value = B's captured parsed value.
+        const ov = await mustOverride(tx, showId, "crew", "name", "Bob");
+        expect(ov.active).toBe(true);
+        expect(ov.version).toBe(4);
         expect(ov.override_value).toBe("Jonathan");
+        expect(ov.sheet_value).toBe("Bob"); // captured B's parsed value at repoint (un-overridden ⇒ live==sheet)
+        expect(ov.deactivation_code).toBeNull();
+        // the OLD key no longer holds a row (match_key moved to "Bob").
+        expect(await readOverride(tx, showId, "crew", "name", "Jon")).toBeUndefined();
       });
     });
   });
