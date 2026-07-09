@@ -19,6 +19,7 @@ const monitorModel: MonitorDigestModel = {
     },
   },
   drift: [],
+  newShowGaps: [],
 };
 
 function digestModel(recipient: string): DigestModel {

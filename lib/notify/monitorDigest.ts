@@ -35,6 +35,7 @@ export type MonitorDigestModel = {
   autoApplied: MonitorShowGroup[];
   autofix: AutoFixSummary;
   drift: MonitorDriftEntry[];
+  newShowGaps: MonitorShowGroup[];
 };
 export type MonitorDigestResult =
   | { kind: "ok"; model: MonitorDigestModel }
@@ -130,6 +131,42 @@ export function computeDrift(rows: DriftRow[]): MonitorDriftEntry[] {
   return out;
 }
 
+/**
+ * "New shows this period" (spec §3.2). Complement of computeDrift: for each show with a
+ * current applied row but NO baseline row (first-seen inside the window), lists the
+ * non-gateExempt GAP_CLASSES present (count > 0) in that current sync. Labels only (inv 5).
+ * newShowGaps ∩ drift = ∅ by construction (drift needs a baseline; this needs none).
+ */
+export function computeNewShowGaps(rows: DriftRow[]): MonitorShowGroup[] {
+  const byShow = new Map<
+    string,
+    {
+      slug: string | null;
+      title: string | null;
+      baseline?: DataGapsSummary;
+      current?: DataGapsSummary;
+    }
+  >();
+  for (const r of rows) {
+    const e = byShow.get(r.drive_file_id) ?? { slug: r.slug, title: r.title };
+    const summary = summarizeDataGaps(r.parse_warnings as never);
+    if (r.phase === "baseline") e.baseline = summary;
+    else e.current = summary;
+    byShow.set(r.drive_file_id, e);
+  }
+  const out: MonitorShowGroup[] = [];
+  for (const e of byShow.values()) {
+    if (e.baseline || !e.current) continue; // first-seen only: has current, no baseline
+    const items: string[] = [];
+    for (const g of GAP_CLASSES) {
+      if ((g as { gateExempt?: boolean }).gateExempt) continue; // parity with drift (spec D1)
+      if (e.current.classes[g.code] > 0) items.push(g.label);
+    }
+    if (items.length > 0) out.push({ showTitle: e.title, slug: e.slug, items });
+  }
+  return out;
+}
+
 export async function buildMonitorDigestModel(
   now: Date,
   deps: { sql?: DigestBuilderSql; getWatermark?: typeof getMonitorDigestWatermark } = {},
@@ -190,11 +227,20 @@ export async function buildMonitorDigestModel(
        where rn = 1
     `;
     const drift = computeDrift(driftRows);
+    const newShowGaps = computeNewShowGaps(driftRows);
 
-    if (autoApplied.length === 0 && autofix.total === 0 && drift.length === 0) {
+    if (
+      autoApplied.length === 0 &&
+      autofix.total === 0 &&
+      drift.length === 0 &&
+      newShowGaps.length === 0
+    ) {
       return { kind: "empty" };
     }
-    return { kind: "ok", model: { windowStart: windowIso, autoApplied, autofix, drift } };
+    return {
+      kind: "ok",
+      model: { windowStart: windowIso, autoApplied, autofix, drift, newShowGaps },
+    };
   } catch {
     return { kind: "infra_error" };
   } finally {

@@ -23,6 +23,7 @@ const monitor: MonitorDigestModel = {
       classes: [{ label: "unreadable field", prior: 10, curr: 11 }],
     },
   ],
+  newShowGaps: [],
 };
 
 describe("renderDigest — monitor section (spec §8, §13.6)", () => {

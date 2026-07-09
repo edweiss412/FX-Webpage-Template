@@ -500,6 +500,7 @@ export async function deliverDigest(
                 autoAppliedRows: input.monitor.autoApplied.reduce((n, g) => n + g.items.length, 0),
                 autofixTotal: input.monitor.autofix.total,
                 driftShows: input.monitor.drift.length,
+                newShowGapsShows: input.monitor.newShowGaps.length,
               },
             }
           : {}),
