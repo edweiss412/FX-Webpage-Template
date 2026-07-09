@@ -63,8 +63,10 @@ jobs:
       # anyone reads), so surface it as ONE deduped tracking issue. Scheduled/dispatch only: a
       # pull_request run already shows red on the PR's checks, so filing an issue there is noise.
       # Uses only trusted context.* values (no untrusted user input) — no injection surface.
+      # Default-branch runs only: a workflow_dispatch on a feature branch must NOT open/close the
+      # main-tracking issue (a green branch run could otherwise close a still-red-main issue).
       - name: Surface a red nightly as a tracking issue
-        if: ${{ failure() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+        if: ${{ failure() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref_name == github.event.repository.default_branch)) }}
         uses: actions/github-script@v7
         with:
           script: |
@@ -89,7 +91,7 @@ jobs:
             }
       # Close the tracking issue automatically once a scheduled run goes green again.
       - name: Auto-close the tracking issue on green
-        if: ${{ success() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+        if: ${{ success() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref_name == github.event.repository.default_branch)) }}
         uses: actions/github-script@v7
         with:
           script: |
