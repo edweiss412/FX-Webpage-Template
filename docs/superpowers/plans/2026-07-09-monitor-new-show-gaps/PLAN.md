@@ -21,16 +21,17 @@
 
 ---
 
-### Task 1: `computeNewShowGaps` helper + `newShowGaps` model field
+### Task 1: `computeNewShowGaps` pure helper (no model change)
+
+**Rationale for boundary:** the helper is a pure function over already-fetched `DriftRow[]`; exporting it does NOT touch `MonitorDigestModel`, so it cannot break typecheck elsewhere. The `newShowGaps` **required field** is deferred to Task 2, where it lands atomically with the builder return AND every typed fixture (a required field must update all construction sites in one task to keep "green then commit").
 
 **Files:**
-- Modify: `lib/notify/monitorDigest.ts` (add field to `MonitorDigestModel:33-38`; add helper after `computeDrift:131`)
+- Modify: `lib/notify/monitorDigest.ts` (add helper after `computeDrift:131` — no type change)
 - Test: `tests/notify/monitorNewShowGaps.test.ts` (create)
-- Modify (fixture compat): `tests/notify/renderDigest.monitor.test.ts`, `tests/notify/runDigestNotify.monitor.test.ts`
 
 **Interfaces:**
 - Consumes: `DriftRow` (`monitorDigest.ts:85-91`), `summarizeDataGaps` / `GAP_CLASSES` / `DataGapsSummary` (`lib/parser/dataGaps.ts`), `MonitorShowGroup` (`monitorDigest.ts:27`).
-- Produces: `export function computeNewShowGaps(rows: DriftRow[]): MonitorShowGroup[]`; `MonitorDigestModel.newShowGaps: MonitorShowGroup[]`.
+- Produces: `export function computeNewShowGaps(rows: DriftRow[]): MonitorShowGroup[]`.
 
 - [ ] **Step 1: Write the failing test** — `tests/notify/monitorNewShowGaps.test.ts`
 
@@ -101,19 +102,7 @@ describe("computeNewShowGaps (spec §3.2, §3.3)", () => {
 Run: `pnpm vitest run tests/notify/monitorNewShowGaps.test.ts`
 Expected: FAIL — `computeNewShowGaps` is not exported.
 
-- [ ] **Step 3: Add the field to `MonitorDigestModel`** (`lib/notify/monitorDigest.ts:33-38`)
-
-```ts
-export type MonitorDigestModel = {
-  windowStart: string;
-  autoApplied: MonitorShowGroup[];
-  autofix: AutoFixSummary;
-  drift: MonitorDriftEntry[];
-  newShowGaps: MonitorShowGroup[];
-};
-```
-
-- [ ] **Step 4: Implement `computeNewShowGaps`** — insert after `computeDrift` (after `monitorDigest.ts:131`)
+- [ ] **Step 3: Implement `computeNewShowGaps`** — insert after `computeDrift` (after `monitorDigest.ts:131`)
 
 ```ts
 /**
@@ -147,36 +136,34 @@ export function computeNewShowGaps(rows: DriftRow[]): MonitorShowGroup[] {
 }
 ```
 
-- [ ] **Step 5: Fix existing typed fixtures** — add `newShowGaps: []` to each hand-built `MonitorDigestModel` literal.
-  - `tests/notify/renderDigest.monitor.test.ts` — the `monitor: MonitorDigestModel` object (has `drift: [...]`).
-  - `tests/notify/runDigestNotify.monitor.test.ts` — the `monitorModel: MonitorDigestModel` object (`:8`).
-  - Any other literal `pnpm typecheck` flags.
-
-- [ ] **Step 6: Run tests + typecheck**
+- [ ] **Step 4: Run tests + typecheck**
 
 Run: `pnpm vitest run tests/notify/monitorNewShowGaps.test.ts && pnpm typecheck`
-Expected: PASS (helper green; no typecheck error from the new required field).
+Expected: PASS (helper green; no type change, so typecheck stays green).
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 5: Commit**
 
 ```bash
-git add lib/notify/monitorDigest.ts tests/notify/monitorNewShowGaps.test.ts tests/notify/renderDigest.monitor.test.ts tests/notify/runDigestNotify.monitor.test.ts
-git commit --no-verify -m "feat(notify): computeNewShowGaps helper + newShowGaps model field"
+git add lib/notify/monitorDigest.ts tests/notify/monitorNewShowGaps.test.ts
+git commit --no-verify -m "feat(notify): computeNewShowGaps pure helper (first-seen show gap classes)"
 ```
 
 ---
 
-### Task 2: Wire `newShowGaps` into `buildMonitorDigestModel`
+### Task 2: `newShowGaps` model field + builder wiring + typed-fixture updates (atomic)
+
+**Rationale:** adding the **required** `newShowGaps` field to `MonitorDigestModel` forces every construction site to update in the SAME commit — the builder return (`:197`) and every hand-built typed `MonitorDigestModel` literal in the suite — or `pnpm typecheck` breaks. All of it lands here, ending typecheck-green.
 
 **Files:**
-- Modify: `lib/notify/monitorDigest.ts` (`buildMonitorDigestModel`, empty-check `:194`, return `:197`)
+- Modify: `lib/notify/monitorDigest.ts` (`MonitorDigestModel:33-38`; `buildMonitorDigestModel` empty-check `:194`, return `:197`)
+- Modify (typed-fixture compat): `tests/notify/renderDigest.monitor.test.ts` (`monitor: {...}` literal), `tests/notify/runDigestNotify.monitor.test.ts` (`monitorModel: MonitorDigestModel` literal `:8`), `tests/notify/deliver.test.ts` (the monitor fixture passed to typed `deliverDigest`, ~`:641`), plus **any other literal `pnpm typecheck` flags** — the typecheck error list is the authoritative enumeration.
 - Test: `tests/notify/monitorNewShowGaps.db.test.ts` (create)
 
 **Interfaces:**
 - Consumes: `computeNewShowGaps` (Task 1), the existing `driftRows` (`monitorDigest.ts:175-191`).
-- Produces: builder output `model.newShowGaps`; `{ kind: "empty" }` when all four signals empty.
+- Produces: `MonitorDigestModel.newShowGaps: MonitorShowGroup[]`; builder output `model.newShowGaps`; `{ kind: "empty" }` when all four signals empty.
 
-- [ ] **Step 1: Write the failing DB filter-proof test** — `tests/notify/monitorNewShowGaps.db.test.ts`
+- [ ] **Step 1: Write the failing DB filter-proof test** — `tests/notify/monitorNewShowGaps.db.test.ts` (written BEFORE any code change, so it drives the wiring)
 
 ```ts
 import { afterAll, describe, expect, test } from "vitest";
@@ -256,10 +243,21 @@ describe.runIf(dbUp)("buildMonitorDigestModel — new-show-gaps DB filter proof"
 - [ ] **Step 2: Run — verify it fails**
 
 Run: `pnpm vitest run tests/notify/monitorNewShowGaps.db.test.ts`
-Expected: FAIL — `r.model.newShowGaps` is `undefined` (builder doesn't populate it yet); `.map` throws.
+Expected: FAIL — with this seed the other three signals are empty (no auto-applied rows, `autofix.total === 0`, and `computeDrift` skips the current-only show), and `newShowGaps` is not yet in the empty-check, so the builder returns `{ kind: "empty" }` → the test throws `expected ok, got empty`. (vitest strips types, so the not-yet-added field does not block the run.)
 
-- [ ] **Step 3: Wire the builder** (`lib/notify/monitorDigest.ts`) — after `const drift = computeDrift(driftRows);` (`:192`):
+- [ ] **Step 3: Add the required field + wire the builder + fix typed fixtures (atomic)**
 
+(a) `MonitorDigestModel` (`lib/notify/monitorDigest.ts:33-38`):
+```ts
+export type MonitorDigestModel = {
+  windowStart: string;
+  autoApplied: MonitorShowGroup[];
+  autofix: AutoFixSummary;
+  drift: MonitorDriftEntry[];
+  newShowGaps: MonitorShowGroup[];
+};
+```
+(b) Builder (`lib/notify/monitorDigest.ts`), after `const drift = computeDrift(driftRows);` (`:192`):
 ```ts
     const drift = computeDrift(driftRows);
     const newShowGaps = computeNewShowGaps(driftRows);
@@ -274,17 +272,18 @@ Expected: FAIL — `r.model.newShowGaps` is `undefined` (builder doesn't populat
     }
     return { kind: "ok", model: { windowStart: windowIso, autoApplied, autofix, drift, newShowGaps } };
 ```
+(c) Add `newShowGaps: []` to every hand-built typed `MonitorDigestModel` literal so `pnpm typecheck` is green. Run `pnpm typecheck` and treat its error list as the authoritative set (at minimum: `tests/notify/renderDigest.monitor.test.ts`, `tests/notify/runDigestNotify.monitor.test.ts:8`, `tests/notify/deliver.test.ts` ~`:641`). Do NOT touch the `deliver.test.ts` `monitor_totals` **assertion** (`:652`) — it stays 4-field until Task 4 changes code + assertion together.
 
-- [ ] **Step 4: Run tests**
+- [ ] **Step 4: Run tests + typecheck**
 
-Run: `pnpm vitest run tests/notify/monitorNewShowGaps.db.test.ts`
-Expected: PASS (first-seen show reported; baselined/unpublished/orphan excluded).
+Run: `pnpm vitest run tests/notify/monitorNewShowGaps.db.test.ts && pnpm typecheck`
+Expected: PASS (first-seen show reported; baselined/unpublished/orphan excluded) and typecheck green.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/notify/monitorDigest.ts tests/notify/monitorNewShowGaps.db.test.ts
-git commit --no-verify -m "feat(notify): populate newShowGaps in buildMonitorDigestModel + DB filter proof"
+git add lib/notify/monitorDigest.ts tests/notify/monitorNewShowGaps.db.test.ts tests/notify/renderDigest.monitor.test.ts tests/notify/runDigestNotify.monitor.test.ts tests/notify/deliver.test.ts
+git commit --no-verify -m "feat(notify): newShowGaps model field + builder wiring + DB filter proof"
 ```
 
 ---
@@ -366,8 +365,10 @@ describe("renderDigest — new-show-gaps sub-block (spec §3.5)", () => {
         })),
       }),
     });
-    expect(r.html).toContain("+1 more"); // 6 items → +1 more
-    expect(r.html).toContain("+1 more shows"); // 13 shows → +1
+    // Item-overflow note (distinct from show-overflow): show 0 renders "gap 0..gap 4, +1 more".
+    // Asserting the item-tail substring proves the 5-item cap independently of the shows note.
+    expect(r.html).toContain("gap 4, +1 more"); // 6 items → per-show +1 more
+    expect(r.html).toContain("+1 more shows"); // 13 shows → +1 more shows
   });
 });
 ```
@@ -472,12 +473,14 @@ git commit --no-verify -m "feat(notify): surface newShowGapsShows in deliver mon
 
 ## Self-Review
 
-**Spec coverage:** §3.2 helper → Task 1; §3.4 model + empty-check → Task 1/2; §3.5 render → Task 3; §3.6 deliver context → Task 4; §6.1 units → Task 1; §6.2 render tests → Task 3; §6.3 db proof → Task 2; §6.4 fixture updates → Task 1 Step 5. Covered.
+**Spec coverage:** §3.2 helper → Task 1; §3.4 model field + builder empty-check/return → Task 2; §3.5 render → Task 3; §3.6 deliver context → Task 4; §6.1 units → Task 1; §6.2 render tests → Task 3; §6.3 db proof → Task 2; §6.4 fixture updates → Task 2 Step 3(c). Covered.
 
 **Placeholder scan:** none — every code step carries full code.
 
-**Type consistency:** `computeNewShowGaps(rows: DriftRow[]): MonitorShowGroup[]` used identically in Tasks 1-2; `newShowGaps: MonitorShowGroup[]` field used in Tasks 1-4; `newShowGapsShows` (context) is a distinct name from `newShowGaps` (model) — intentional, matches sibling `driftShows`/`drift`.
+**Green-then-commit per task:** Task 1 adds only an exported pure function (no type change → no cross-file typecheck break). Task 2 lands the required-field addition + builder return + ALL typed-fixture updates in ONE commit (typecheck green before commit). Task 4 changes the `monitor_totals` code + its assertion together. No task leaves the tree red.
 
-**Anti-tautology:** Task 1 label test derives expected labels from `GAP_CLASSES` (not hardcoded); gate-exempt test asserts BOTH inclusion of the non-exempt label AND absence of the exempt one; first-seen-isolation test proves a baselined show is NOT reported (the no-double-report guarantee, not just "function runs"). Task 2 db proof seeds 4 distinct exclusion reasons.
+**Type consistency:** `computeNewShowGaps(rows: DriftRow[]): MonitorShowGroup[]` used identically in Tasks 1-2; `newShowGaps: MonitorShowGroup[]` field added in Task 2, consumed in Tasks 3-4; `newShowGapsShows` (context, Task 4) is a distinct name from `newShowGaps` (model) — intentional, matches sibling `driftShows`/`drift`.
+
+**Anti-tautology:** Task 1 label test derives expected labels from `GAP_CLASSES` (not hardcoded); gate-exempt test asserts BOTH inclusion of the non-exempt label AND absence of the exempt one; first-seen-isolation test proves a baselined show is NOT reported (the no-double-report guarantee, not just "function runs"). Task 2 db proof seeds 4 distinct exclusion reasons; fail-first is the empty-return (not a `.map` throw). Task 3 caps test asserts the item-overflow tail (`gap 4, +1 more`) distinctly from the show-overflow note.
 
 **Meta-test inventory:** none created/extended (declared). **Advisory-lock topology:** N/A (no `pg_advisory*`).
