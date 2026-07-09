@@ -31,6 +31,7 @@ import {
   type SetFieldOverrideParams,
   type SetFieldOverrideResult,
 } from "@/lib/overrides/setFieldOverride";
+import { validateOverrideValue } from "@/lib/overrides/validateOverrideValue";
 import { resolveOverrideAlertsForShow } from "@/lib/adminAlerts/resolveOverrideAlertsForShow";
 
 // op → distinct forensic outcome code (§11 R9: repoint/discard are real mutations,
@@ -74,6 +75,24 @@ export async function setFieldOverrideAction(
   // (b) canonicalize the actor at the boundary (invariant 3). Empty ("") if the
   //     identity email is somehow blank — the CHECK safety-net rejects it downstream.
   const actor = canonicalize(identity.email) ?? "";
+
+  // (b2) §7.4 dates/venue SHAPE guard — the authoritative TS validation the spec
+  //      designates (§389/391 shared helper; migration §178 "precise pre-RPC UI
+  //      message"). The RPC only rejects null / non-object / empty for show fields, so
+  //      a valid-JSON-but-wrong-shape object (e.g. {"foo":"bar"}) would otherwise be
+  //      written straight into shows.dates/venue (adversarial R2 HIGH). Only ops that
+  //      carry a value to write (upsert/repoint) on the show domain need this.
+  if (
+    params.p_domain === "show" &&
+    (params.p_field === "dates" || params.p_field === "venue") &&
+    (params.p_op === "upsert" || params.p_op === "repoint") &&
+    params.p_override_value != null
+  ) {
+    const shape = validateOverrideValue(params.p_field, params.p_override_value, {
+      matchKey: params.p_match_key,
+    });
+    if (!shape.ok) return { ok: false, code: "OVERRIDE_INVALID_SHAPE" };
+  }
 
   // (c) delegate to the service-role RPC helper — NO inline `.rpc` (deadlock rule).
   const result = await setFieldOverride({ ...params, p_actor: actor });

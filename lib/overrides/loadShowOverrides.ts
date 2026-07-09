@@ -242,7 +242,14 @@ export async function loadShowOverrides(
       // same-name reservations would both bind to whichever row renders first, and a
       // discard/repoint would act on the wrong override (adversarial R1).
       const sepIdx = r.match_key.indexOf(HOTEL_DISAMBIGUATOR_SEP);
-      if (sepIdx < 0) return r.match_key === liveName; // name-only key (unique at create)
+      if (sepIdx < 0) {
+        // Name-only key (target was unique at create). Bind ONLY while the live name is
+        // STILL unique — if a later sync introduced a second same-name reservation, this
+        // key can no longer identify one row, so it must NOT attach to every duplicate
+        // (adversarial R2 MEDIUM). It stays in the non-row needs-attention stream until
+        // Doug re-points it to a disambiguated target.
+        return unique && r.match_key === liveName;
+      }
       return r.match_key.slice(0, sepIdx) === liveName && r.match_key.slice(sepIdx + 1) === disamb;
     });
 

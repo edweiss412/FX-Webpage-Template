@@ -38,8 +38,17 @@ vi.mock("@/components/admin/wizard/VenueMapTile", () => ({
   VenueMapTile: () => h("div", { "data-testid": "venue-map-stub" }),
 }));
 
-import { VenueBreakdown } from "@/components/admin/wizard/step3ReviewSections";
+import {
+  VenueBreakdown,
+  CrewBreakdown,
+  HotelsBreakdown,
+} from "@/components/admin/wizard/step3ReviewSections";
 import type { ShowOverridesView } from "@/lib/overrides/loadShowOverrides";
+import type { CrewMemberRow, HotelReservationRow } from "@/lib/parser/types";
+import {
+  HOTEL_DISAMBIGUATOR_SEP,
+  computeHotelDisambiguator,
+} from "@/lib/overrides/hotelDisambiguator";
 
 const PENDING_VENUE = {
   name: "PENDING HALL",
@@ -135,5 +144,138 @@ describe("wizard override widgets — first-seen gate (R15)", () => {
     expect(screen.getByTestId("override-unavailable-show-venue").textContent).toContain(
       "Overrides become available after you publish this show",
     );
+  });
+});
+
+// Adversarial R2 (Codex round 2, HIGH): the wizard matched crew rows by the live
+// DISPLAY value, not the parsed key. With an active `Jon→John` override the live view
+// renders currentValue="John" while matchKey stays "Jon" and the pending parse still
+// emits name="Jon" — a currentValue match MISSES the live row, disables the controls,
+// and hides the active chip. Must match on matchKey (§8.2a).
+describe("wizard crew widget — matches the PARSED key under an active rename (R2)", () => {
+  function crewMember(name: string): CrewMemberRow {
+    return {
+      name,
+      email: null,
+      phone: null,
+      role: "A1",
+      role_flags: [],
+      date_restriction: { kind: "none" },
+      stage_restriction: { kind: "none" },
+      flight_info: null,
+    };
+  }
+  function liveCrewView(): ShowOverridesView {
+    return {
+      show: {
+        dates: { currentValue: "", expectedCurrentValue: null, override: null },
+        venue: { currentValue: "", expectedCurrentValue: null, override: null },
+      },
+      crew: [
+        {
+          id: "crew-1",
+          matchKey: "Jon", // durable parsed key
+          name: {
+            currentValue: "John", // live display AFTER the active rename
+            expectedCurrentValue: "John",
+            override: {
+              overrideValue: "John",
+              sheetValue: "Jon",
+              active: true,
+              deactivationCode: null,
+              version: 4,
+            },
+          },
+          role: { currentValue: "A1", expectedCurrentValue: "A1", override: null },
+        },
+      ],
+      hotels: [],
+    };
+  }
+
+  it("resolves the live view (edit enabled, active chip) and saves under matchKey='Jon'", async () => {
+    render(
+      h(CrewBreakdown, {
+        dfid: "dfid-live",
+        // Pending parse still emits the parsed name "Jon" (stable-parse re-sync).
+        members: [crewMember("Jon")],
+        liveOverrides: liveCrewView(),
+      }),
+    );
+    // The widget resolved to the live row → the Edit affordance is present (NOT disabled)
+    // and the active "Overridden" chip shows. Under the old currentValue match both fail.
+    expect(screen.getByTestId("override-chip-crew-name")).toBeTruthy();
+    const edit = screen.getByTestId("override-edit-crew-name");
+    fireEvent.click(edit);
+    fireEvent.click(screen.getByTestId("override-save-crew-name"));
+    await waitFor(() => expect(onSaveSpy).toHaveBeenCalledTimes(1));
+    const p = onSaveSpy.mock.calls[0]![0] as Record<string, unknown>;
+    expect(p.p_match_key).toBe("Jon"); // the parsed key, not "John"
+  });
+});
+
+// Adversarial R2 (Codex round 2, HIGH): the wizard matched hotels by
+// currentLiveHotelName, so two same-name reservations both resolved to the FIRST
+// live view — editing the 2nd would send the 1st reservation's matchKey and mutate the
+// WRONG hotel. Must match by the parsed name + §5.3 disambiguator.
+describe("wizard hotel widget — duplicate names bind to the correct reservation (R2)", () => {
+  function hotel(name: string, checkIn: string, conf: string): HotelReservationRow {
+    return {
+      ordinal: 1,
+      hotel_name: name,
+      hotel_address: "addr",
+      names: [],
+      confirmation_no: conf,
+      check_in: checkIn,
+      check_out: null,
+      notes: null,
+    };
+  }
+  const resA = hotel("Grand Marriott", "2026-07-01", "AAA");
+  const resB = hotel("Grand Marriott", "2026-08-01", "BBB");
+  const keyA = `Grand Marriott${HOTEL_DISAMBIGUATOR_SEP}${computeHotelDisambiguator(resA)}`;
+  const keyB = `Grand Marriott${HOTEL_DISAMBIGUATOR_SEP}${computeHotelDisambiguator(resB)}`;
+
+  function liveHotelView(): ShowOverridesView {
+    const nameField = (mk: string) => ({
+      id: mk,
+      matchKey: mk,
+      currentLiveHotelName: "Grand Marriott",
+      currentOrdinal: 1,
+      hotel_name: {
+        currentValue: "Grand Marriott",
+        expectedCurrentValue: "Grand Marriott",
+        override: null,
+      },
+      hotel_address: { currentValue: "addr", expectedCurrentValue: "addr", override: null },
+    });
+    return {
+      show: {
+        dates: { currentValue: "", expectedCurrentValue: null, override: null },
+        venue: { currentValue: "", expectedCurrentValue: null, override: null },
+      },
+      crew: [],
+      hotels: [nameField(keyA), nameField(keyB)],
+    };
+  }
+
+  it("editing the SECOND duplicate reservation saves under ITS OWN matchKey, not the first's", async () => {
+    render(
+      h(HotelsBreakdown, {
+        dfid: "dfid-live",
+        hotels: [resA, resB],
+        liveOverrides: liveHotelView(),
+      }),
+    );
+    // Two hotel_name widgets share a testid (DOM order = [A, B]). Open the SECOND one.
+    const editButtons = screen.getAllByTestId("override-edit-hotel-hotel_name");
+    expect(editButtons.length).toBe(2);
+    fireEvent.click(editButtons[1]!);
+    fireEvent.click(screen.getByTestId("override-save-hotel-hotel_name"));
+    await waitFor(() => expect(onSaveSpy).toHaveBeenCalledTimes(1));
+    const p = onSaveSpy.mock.calls[0]![0] as Record<string, unknown>;
+    // The crux: reservation B's OWN key — the old code sent keyA (first view) for both.
+    expect(p.p_match_key).toBe(keyB);
+    expect(p.p_match_key).not.toBe(keyA);
   });
 });

@@ -116,6 +116,10 @@ import { VenueMapTile } from "@/components/admin/wizard/VenueMapTile";
 import { isParseableUrl } from "@/lib/url/isParseableUrl";
 import { OverrideableField } from "@/components/admin/overrides/OverrideableField";
 import type { ShowOverridesView, OverrideFieldView } from "@/lib/overrides/loadShowOverrides";
+import {
+  HOTEL_DISAMBIGUATOR_SEP,
+  computeHotelDisambiguator,
+} from "@/lib/overrides/hotelDisambiguator";
 // Task 15 (§8.3): the review wizard's <OverrideableField> save/revert/repoint/
 // discard path. Direct server-action ref (RSC-safe — never an inline closure),
 // passed straight to the widget's `onSave`.
@@ -1293,8 +1297,13 @@ export function CrewBreakdown({
             // name + role SHARE the member's matchKey (§8.2a). No match on a live show
             // (pending-only member) → disabled (no live target). matchKey falls back to
             // the pending name only for the disabled/first-seen read-only render.
+            // Match on the DURABLE PARSED key (§8.2a), NOT the live display value:
+            // with an active `Jon→John` name override the live view renders
+            // currentValue="John" while matchKey stays "Jon" and the pending parse
+            // still emits m.name="Jon" — matching on currentValue would MISS the live
+            // row, disable the controls, and hide the active chip (adversarial R2).
             const crewView = liveOverrides
-              ? liveOverrides.crew.find((c) => c.name.currentValue === m.name)
+              ? liveOverrides.crew.find((c) => c.matchKey === m.name)
               : undefined;
             const crewMatchKey = crewView?.matchKey ?? m.name;
             return (
@@ -2349,13 +2358,26 @@ export function HotelsBreakdown({
       ) : (
         <div className="flex flex-col gap-3">
           {shown.map((h, i) => {
-            // R18: match this PENDING reservation to its LIVE loader view by hotel
-            // name; hotel_name + hotel_address SHARE the reservation's matchKey
-            // (§8.2a). No match on a live show → disabled (no live target).
+            // Match this PENDING reservation to its LIVE loader view by the DURABLE
+            // PARSED key (§8.2a), NOT the live display name. Matching on
+            // currentLiveHotelName breaks two ways: (a) an active hotel_name override
+            // renames the live row, so currentLiveHotelName ≠ the parsed name; (b) two
+            // same-name reservations share currentLiveHotelName and `find` returns the
+            // FIRST view for BOTH pending rows — editing the 2nd would send the 1st
+            // reservation's matchKey / expected value / locator and mutate the WRONG
+            // hotel (adversarial R2). The view's matchKey is the parsed name (unique) or
+            // name+`\x1f`disambiguator (dup group); build the same key from THIS pending
+            // row and match it. No unique match → undefined → disabled (no live target).
+            const pendingHotelName = h.hotel_name ?? "";
+            const pendingHotelDisambKey = `${pendingHotelName}${HOTEL_DISAMBIGUATOR_SEP}${computeHotelDisambiguator(
+              { check_in: h.check_in, confirmation_no: h.confirmation_no },
+            )}`;
             const hotelView = liveOverrides
-              ? liveOverrides.hotels.find((v) => v.currentLiveHotelName === (h.hotel_name ?? ""))
+              ? liveOverrides.hotels.find(
+                  (v) => v.matchKey === pendingHotelName || v.matchKey === pendingHotelDisambKey,
+                )
               : undefined;
-            const hotelMatchKey = hotelView?.matchKey ?? h.hotel_name ?? "";
+            const hotelMatchKey = hotelView?.matchKey ?? pendingHotelName;
             return (
               <Fragment key={`${h.hotel_name ?? "hotel"}-${i}`}>
                 <HotelCard h={h} flat={flatSolo} />

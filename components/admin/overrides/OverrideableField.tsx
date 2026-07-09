@@ -60,6 +60,8 @@ const OVERRIDE_RPC_COPY: Record<string, string> = {
   OVERRIDE_STALE_REVIEW: "This field changed since you opened it. Reload and try again.",
   OVERRIDE_INVALID_OP: "That action isn't available for this field right now.",
   OVERRIDE_INVALID_STATE: "This override changed since you opened it. Reload and try again.",
+  OVERRIDE_INVALID_SHAPE:
+    "That value isn't the right shape for this field. Check it and try again.",
 };
 
 // Last-resort fallback for an unrecognized RPC code (§10 leaves the override RPC
