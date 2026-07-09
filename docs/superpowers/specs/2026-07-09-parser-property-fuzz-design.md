@@ -92,7 +92,7 @@ Model-free hostile input for Tier 1 only: random line soup biased toward `|`, `\
 
 1. **Never throws:** `parseSheet` returns for every input. `parseSheet` has no internal catch-all — today the only net is the cron call-site guard (`runScheduledCronSync.ts:2865-2884`, `PARSE_SHEET_THREW` fail-closed); this property establishes empirically that the parser never needs it.
 2. **Deterministic:** parsing the same input twice yields deeply-equal `ParsedSheet` (via `tests/parser/mutation/oracle.ts:103` `fingerprint` or vitest `toEqual`).
-3. **Structurally valid:** output satisfies `assertParsedSheetShape` — every REQUIRED field of `ParsedSheet` (`lib/parser/types.ts:378-402`) present with correct container types; optional fields (`runOfShow?`) validated only when present; `warnings[]`/`hardErrors[]` entries carry non-empty string `code`; payload is JSON-round-trippable.
+3. **Structurally valid:** output satisfies `assertParsedSheetShape` — every REQUIRED field of `ParsedSheet` (`lib/parser/types.ts:378-402`) present with correct container types; optional fields (`runOfShow?`) validated only when present; `warnings[]` entries carry the full `ParseWarning` required shape — non-empty string `code`, valid `severity`, non-empty `message` (`lib/parser/types.ts:7-10`) — and `hardErrors[]` the full `ParseError` shape — non-empty `code` + `message` (`types.ts:29`); payload is JSON-round-trippable.
 4. **Bounded:** completes within the property timeout (structural guard against catastrophic-backtracking regex regressions).
 
 (No "sentinel leak" property: parser payload legitimately carries sentinel strings like `TBD` — hiding them is the UI contract enforced by `tests/components/tiles/_metaSentinelHidingContract.test.ts`, not a parser invariant.)
