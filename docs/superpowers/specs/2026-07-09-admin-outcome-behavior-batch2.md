@@ -114,11 +114,9 @@ Route #14 records **three** codes: one success drive of `handleWizardPendingInge
 **#14 defer/ignore success + failure drives are DB-free by construction (Codex spec-R3 MED).** The `WizardPendingIngestionRouteDeps` seam (`route.ts:46-47`) exposes `upsertAdminAlert` and `readCurrentWizardSessionId` as injectable — the live rollback branch (`route.ts:549-562`) calls their **Supabase-backed defaults** unless injected, so any drive that reaches the `WizardSessionSupersededRollbackError` catch MUST inject both. Concretely:
 
 - **Success (emit present):** inject a `withRowTx = (_id, fn) => fn(tx)` whose `tx` returns the committed shape (manifest transitioned, deferral written, pending-ingestion deleted) so the callback sets `committedAction` and the post-tx `logAdminOutcome` at `route.ts:526` fires. No alert deps are reached on the committed branch.
-- **Failure (emit absent) — pick ONE; both INVOKE the real callback and are explicitly DB-free:**
-  1. **Callback-invoking pre-mutation refusal (preferred):** inject `withRowTx = (_id, fn) => fn(tx)` (invokes the callback, production-shaped) with a faked `tx` whose locked-row read returns `null`, so `requireCurrentWizardRow(tx, id)` returns its `{ ok: false, response: 404 PENDING_INGESTION_NOT_FOUND }` (`route.ts:209-210`). The callback returns that non-committing response BEFORE any mutation → `committedAction` never set → no emit at `route.ts:526`. Because it returns (not throws), the `WizardSessionSupersededRollbackError` catch and its alert deps are never reached → no alert-dep injection needed, fully DB-free, yet it exercises `requireCurrentWizardRow` and the real callback entry.
-  2. **Real rollback branch:** inject `withRowTx = (_id, fn) => fn(tx)` whose faked `tx` drives a 0-row mutating outcome so the callback throws `WizardSessionSupersededRollbackError` (`route.ts:483-487`), **and** inject `upsertAdminAlert: async () => null` + `readCurrentWizardSessionId: async () => null` (matching the existing telemetry driver) so the catch (`route.ts:549-562`) stays DB-free while exercising the real no-emit rollback path.
+- **Failure (emit absent) — MANDATED single recipe: the callback-invoking pre-mutation refusal (Codex plan-R9).** Inject `withRowTx = (_id, fn) => fn(tx)` (invokes the callback, production-shaped) with a faked `tx` whose locked-row read returns `null`, so `requireCurrentWizardRow(tx, id)` returns its `{ ok: false, response: 404 PENDING_INGESTION_NOT_FOUND }` (`route.ts:209-210`). Set `mark.hit = true` inside that faked `tx` read (proves the callback was entered). The callback returns the non-committing 404 BEFORE any mutation → `committedAction` never set → no emit at `route.ts:526`; `failureExpect = { status: 404, code: "PENDING_INGESTION_NOT_FOUND" }`. Because it RETURNS (not throws) and never reaches the `WizardSessionSupersededRollbackError` catch, the rollback alert deps (`defaultUpsertAdminAlert`, `readCurrentWizardSessionIdBestEffort`) are NEVER invoked — this matters because those defaults route through the file's MOCKED `@/lib/supabase/server` / a best-effort reader that **swallows DB errors and returns null**, so neither the DSN-poison nor a throwing client would surface a missed injection there. Mandating the pre-mutation refusal removes that blind spot entirely.
 
-Do NOT (a) use a `withRowTx` that resolves WITHOUT invoking the callback — that bypasses `requireCurrentWizardRow` and the real defer/ignore refusal logic, so the absence proof is hollow; nor (b) leave `upsertAdminAlert`/`readCurrentWizardSessionId` at their Supabase defaults while hitting the rollback catch — that touches real Supabase.
+**The rollback-branch failure drive is DISALLOWED for #14** (it would reach `defaultUpsertAdminAlert` + `readCurrentWizardSessionIdBestEffort`, whose swallow-and-return-null behavior evades every poison). Also do NOT use a `withRowTx` that resolves WITHOUT invoking the callback — that bypasses `requireCurrentWizardRow` and the real refusal logic (hollow absence).
 
 ### 3.5 Complete injection inventory — EVERY DB / Drive / lock seam must be injected (Codex plan-R4)
 
@@ -136,7 +134,7 @@ The adminOutcomeBehavior test runs with **no DB connection**; any `deps.*` left 
 | 11 | alert global resolve | `withTx=(fn)=>fn(fakeTx)` | `queryOne`(show_id:null)+update → committed | show_id!=null / row null |
 | 12 | alert show resolve | `withTx=(fn)=>fn(fakeTx)` | committed → `committedShowId` | not-found |
 | 13 | live discard | **`readDriveFileIdForPendingIngestion`**, `withRowTryLock=(_id,fn)=>fn(fakeTx)` | tx upsert+delete → `discarded` | tx `skipped` |
-| 14 | wizard retry | `readDriveFileIdForPendingIngestion`, `readWizardSessionForPendingIngestion`, `withRowTx=(_id,fn)=>fn(fakeTx)`, `retrySingleFile`; + `upsertAdminAlert:async()=>null`, `readCurrentWizardSessionId:async()=>null` for the defer/ignore failure rollback path (§3.3) | per §3.3 | per §3.3 (callback-invoking, DB-free) |
+| 14 | wizard retry | `readDriveFileIdForPendingIngestion`, `readWizardSessionForPendingIngestion`, `withRowTx=(_id,fn)=>fn(fakeTx)`, `retrySingleFile`. Defer/ignore failure = MANDATED pre-mutation 404 refusal (faked `tx` locked-row read → null); alert deps NOT injected because the disallowed rollback branch is never reached (§3.3) | per §3.3 | pre-mutation 404 (`failureExpect={status:404,code:"PENDING_INGESTION_NOT_FOUND"}`) |
 | 15 | rescan | `rescanWizardSheet:async()=>({status:"updated",...})` (owns its own tx/Drive internally — the single injected seam is fully DB-free); module `requireAdmin` mock | `{status:"updated"}` | `{status:"busy"}` |
 | 16 | cleanup | **`withTx=(fn)=>fn(fakeTx)`**, `cleanupAbandonedFinalize`, `randomUUID` (optional, non-DB) | `cleanupAbandonedFinalize`→`{status:"cleaned"}` | `status!="cleaned"` |
 | 17 | live-staged discard | `readDriveFileIdForStagedId`, `discardStaged` (owns its own lock — no `withRowTx`) | `discardStaged`→`{outcome:"discarded"}` | `{outcome:"not_found"}` |
@@ -147,17 +145,27 @@ The adminOutcomeBehavior test runs with **no DB connection**; any `deps.*` left 
 
 **Structural closure of the DB-free vector — DETERMINISTIC env poison, NOT a CI-environment assumption (Codex plan-R5/R8).** §3.5 (the exhaustive `deps.*` sweep) plus **copying each cited driver's deps-builder verbatim** is the primary defense. The enforcement is deterministic and self-contained — it does NOT rely on CI lacking a database (it does NOT: `.github/workflows/unit-suite.yml:80` boots local Supabase via `scripts/ci/supabase-local-bootstrap.sh`, and `databaseUrl()` falls back to the local DSN `…54322`, so a missed seam would otherwise silently hit the booted DB in CI). Instead, the Batch-2 block **poisons the DB/Drive env for the duration of its own tests**:
 
+There are THREE default-infra channels a missed seam could reach — `postgres(databaseUrl())`, the mocked `@/lib/supabase/server` client (`serverClientImpl`/`serviceRoleClientImpl`), and Google Drive — and the poison closes all three:
+
 ```
 // in the Batch-2 describe:
-const POISON = {};
+const POISON_ENV = {};
 beforeAll(() => {
-  for (const k of ["TEST_DATABASE_URL", "DATABASE_URL"]) { POISON[k] = process.env[k]; process.env[k] = "postgresql://poison:poison@127.0.0.1:1/none"; }  // port 1 = unreachable
-  POISON.GOOGLE_SERVICE_ACCOUNT_JSON = process.env.GOOGLE_SERVICE_ACCOUNT_JSON; delete process.env.GOOGLE_SERVICE_ACCOUNT_JSON;  // Drive defaults throw
+  for (const k of ["TEST_DATABASE_URL", "DATABASE_URL"]) { POISON_ENV[k] = process.env[k]; process.env[k] = "postgresql://poison:poison@127.0.0.1:1/none"; }  // port 1 = unreachable
+  POISON_ENV.GOOGLE_SERVICE_ACCOUNT_JSON = process.env.GOOGLE_SERVICE_ACCOUNT_JSON; delete process.env.GOOGLE_SERVICE_ACCOUNT_JSON;  // Drive defaults throw
 });
-afterAll(() => { for (const [k, v] of Object.entries(POISON)) v === undefined ? delete process.env[k] : (process.env[k] = v); });
+afterAll(() => { for (const [k, v] of Object.entries(POISON_ENV)) v === undefined ? delete process.env[k] : (process.env[k] = v); });
+// The client stubs MUST be a Batch-2-scoped beforeEach: the file-level beforeEach
+// (adminOutcomeBehavior.test.ts:425) resets serverClientImpl.current to a benign
+// client before EVERY test; a NESTED beforeEach runs AFTER the parent's → wins.
+// (No restore needed — the file-level beforeEach re-benigns them for later tests.)
+beforeEach(() => {
+  serverClientImpl.current = () => { throw new Error("Batch-2: Supabase client must be injected via routeDeps, not defaulted"); };
+  serviceRoleClientImpl.current = () => { throw new Error("Batch-2: service-role client must be injected, not defaulted"); };
+});
 ```
 
-With the DSN pinned to `127.0.0.1:1`, ANY un-injected `defaultWith{Tx,RowTx,RowTryLock}` → `postgres(databaseUrl())` → **ECONNREFUSED throw**; any un-injected `defaultVerifyFolder`/`defaultFetchDriveFileMetadata` → **missing `GOOGLE_SERVICE_ACCOUNT_JSON` throw**. On the SUCCESS drive `observeSuccessCodes` rethrows → RED; on the FAILURE drive `observeFailure` captures `thrown` (defined) → the helper's `expect(thrown).toBeUndefined()` → RED. **False DB-free coverage is therefore impossible on ANY runner** (local or CI, DB booted or not) — green ⟺ every seam on both driven paths was injected. The poison is scoped to the Batch-2 block (`beforeAll`/`afterAll` restore), so Batch-1 / Task-14 tests in the same file are unaffected (they inject their own stubs and never call `databaseUrl()`). This replaces the earlier (incorrect) "CI has no DB" backstop.
+With the DSN pinned to `127.0.0.1:1`, any un-injected `defaultWith{Tx,RowTx,RowTryLock}` → `postgres(databaseUrl())` → **ECONNREFUSED throw**; any un-injected `defaultVerifyFolder`/`defaultFetchDriveFileMetadata` → **missing `GOOGLE_SERVICE_ACCOUNT_JSON` throw**; any un-injected default that reaches the Supabase client → the **throwing `serverClientImpl`/`serviceRoleClientImpl` stub** throws. On the SUCCESS drive `observeSuccessCodes` rethrows → RED; on the FAILURE drive `observeFailure` captures `thrown` (defined) → `expect(thrown).toBeUndefined()` → RED. The ONE default that no poison can catch — `readCurrentWizardSessionIdBestEffort` (swallows its own DB error, returns null) — is reached ONLY on #14's rollback branch, which §3.3 now **disallows** in favour of the pre-mutation 404 refusal. **False DB-free coverage is therefore impossible on ANY runner** (local or CI, DB booted or not) — green ⟺ every seam on both driven paths was injected. Scoped to the Batch-2 block (`beforeAll`/`afterAll` restore), so Batch-1 / Task-14 tests in the same file are unaffected. This replaces the earlier (incorrect) "CI has no DB" backstop.
 
 ### 3.4 Grandfather removal + pin
 
