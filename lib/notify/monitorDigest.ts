@@ -1,6 +1,6 @@
 import postgres from "postgres";
 import { STRIP_KINDS } from "@/lib/admin/loadRecentAutoApplied";
-import { summarizeAutoFixes, type AutoFixSummary } from "@/lib/parser/dataGaps";
+import { summarizeAutoFixes, AUTO_FIX_CLASSES, type AutoFixSummary } from "@/lib/parser/dataGaps";
 import { getMonitorDigestWatermark } from "@/lib/notify/monitorWatermark";
 import type { DigestBuilderSql } from "@/lib/notify/digest";
 
@@ -60,6 +60,20 @@ export function groupAutoApplied(rows: AutoApplyRow[]): MonitorShowGroup[] {
   return [...groups.values()];
 }
 
+type WarningsRow = { parse_warnings: unknown[] };
+
+/** Sum summarizeAutoFixes over every applied row's parse_warnings (§3 signal 2). */
+export function accumulateAutoFixes(rows: WarningsRow[]): AutoFixSummary {
+  const classes = summarizeAutoFixes([]).classes;
+  let total = 0;
+  for (const row of rows) {
+    const s = summarizeAutoFixes(row.parse_warnings as never);
+    total += s.total;
+    for (const c of AUTO_FIX_CLASSES) classes[c.code] += s.classes[c.code];
+  }
+  return { total, classes };
+}
+
 export async function buildMonitorDigestModel(
   now: Date,
   deps: { sql?: DigestBuilderSql; getWatermark?: typeof getMonitorDigestWatermark } = {},
@@ -89,8 +103,18 @@ export async function buildMonitorDigestModel(
     `;
     const autoApplied = groupAutoApplied(autoRows);
 
-    // Signals 2 & 3 filled in Tasks 6-7.
-    const autofix: AutoFixSummary = { total: 0, classes: summarizeAutoFixes([]).classes };
+    // Signal 2 — autocorrects over applied sync_log rows of published shows (§3).
+    const autofixRows = await sql<WarningsRow>`
+      select sl.parse_warnings
+        from public.sync_log sl
+        join public.shows s on s.drive_file_id = sl.drive_file_id
+       where s.published = true
+         and sl.status = 'applied'
+         and sl.occurred_at > ${windowIso}
+    `;
+    const autofix = accumulateAutoFixes(autofixRows);
+
+    // Signal 3 filled in Task 7.
     const drift: MonitorDriftEntry[] = [];
 
     if (autoApplied.length === 0 && autofix.total === 0 && drift.length === 0) {
