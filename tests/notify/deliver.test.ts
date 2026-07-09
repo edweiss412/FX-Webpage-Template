@@ -632,7 +632,7 @@ describe("deliverDigest — monitor section (flow 6.2 §5, §8)", () => {
         classes: [{ label: "unreadable field", prior: 10, curr: 11 }],
       },
     ],
-    newShowGaps: [],
+    newShowGaps: [{ showTitle: "RPAS", slug: "rpas", items: ["unclear room split"] }],
   };
 
   test("monitor present → email contains the section AND context records monitor_totals (counts only)", async () => {
@@ -650,7 +650,13 @@ describe("deliverDigest — monitor section (flow 6.2 §5, §8)", () => {
     );
     expect(contextParam).toMatchObject({
       date_et: "2026-06-02",
-      monitor_totals: { autoAppliedShows: 1, autoAppliedRows: 2, autofixTotal: 2, driftShows: 1 },
+      monitor_totals: {
+        autoAppliedShows: 1,
+        autoAppliedRows: 2,
+        autofixTotal: 2,
+        driftShows: 1,
+        newShowGapsShows: 1,
+      },
     });
   });
 
