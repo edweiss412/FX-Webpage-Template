@@ -145,3 +145,27 @@ describe("parseRooms — ROOM_HEADER_SPLIT_AMBIGUOUS emission (single commit poi
     expect(RSA(agg)).toHaveLength(expected);
   });
 });
+
+describe("parseRooms — ambiguity survives GS reconciliation (single commit point)", () => {
+  // A CLEAN general session (name only, no dims → no ambiguity) plus a same-named
+  // BREAKOUT whose header is an ambiguous double-dims split and whose fields are a
+  // lossless SUBSET of the GS room. Reconciliation absorbs the breakout INTO the GS
+  // room (its dims copy in), removing it from `reconciled`. The absorbed breakout's
+  // split ambiguity MUST follow its values into the GS room so the single commit
+  // point still emits exactly one ROOM_HEADER_SPLIT_AMBIGUOUS — otherwise a
+  // value-producing ambiguous split ships with no warning (mirrors the transfer
+  // already done in mergeBreakoutSessions).
+  const gsClean = "| GENERAL SESSION LASALLE | |\n| GS Setup | 100 chairs |\n";
+  const boAmbiguousSubset =
+    "| BREAKOUT 1&#10;LASALLE 50' x 40' 30' x 20' | |\n| BO Setup | 100 chairs |\n";
+
+  it("an absorbed ambiguous breakout still emits exactly one warning (via the GS room)", () => {
+    const agg = newAggregator();
+    const rooms = parseRooms(gsClean + boAmbiguousSubset, "v1", agg);
+    // reconciliation collapsed the subset breakout into the GS room (one physical room)
+    expect(rooms.filter((r) => (r.name ?? "").toUpperCase() === "LASALLE")).toHaveLength(1);
+    const w = RSA(agg);
+    expect(w).toHaveLength(1);
+    expect(w[0]!.blockRef).toMatchObject({ kind: "rooms", field: "dims", name: "LASALLE" });
+  });
+});

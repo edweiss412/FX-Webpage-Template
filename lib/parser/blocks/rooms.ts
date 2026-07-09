@@ -463,6 +463,11 @@ export function parseRooms(
           for (const f of RECONCILE_FIELDS) {
             if (gs[f] == null && r[f] != null) gs[f] = r[f];
           }
+          // A lossless-absorbed breakout's split ambiguity must follow its values into
+          // the GS room so the single commit point (below) still emits — otherwise a
+          // value-producing ambiguous split ships silent. Mirrors mergeBreakoutSessions.
+          const rAmb = (r as RoomRowInternal)._ambiguity;
+          if (!gs._ambiguity && rAmb) gs._ambiguity = rAmb;
           return false; // pure subset — absorbed into the GS room
         });
 
