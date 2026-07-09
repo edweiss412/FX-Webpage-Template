@@ -611,6 +611,62 @@ describe("deliverDigest", () => {
   });
 });
 
+describe("deliverDigest — monitor section (flow 6.2 §5, §8)", () => {
+  const monitor = {
+    windowStart: "2026-07-08T00:00:00Z",
+    autoApplied: [{ showTitle: "East", slug: "east", items: ["Added Jane", "Renamed Bob"] }],
+    autofix: {
+      total: 2,
+      classes: {
+        STAGE_WORD_AUTOCORRECTED: 2,
+        ROLE_TOKEN_AUTOCORRECTED: 0,
+        COLUMN_HEADER_AUTOCORRECTED: 0,
+        SECTION_HEADER_AUTOCORRECTED: 0,
+        FIELD_LABEL_AUTOCORRECTED: 0,
+      },
+    },
+    drift: [{ showTitle: "West", slug: "west", classes: [{ label: "unreadable field", prior: 10, curr: 11 }] }],
+  };
+
+  test("monitor present → email contains the section AND context records monitor_totals (counts only)", async () => {
+    const { sql, state } = fakeSql();
+    const { sendEmail, sends } = sender([{ ok: true, messageId: "digest-msg-1" }]);
+    const result = await deliverDigest(
+      { model: digestModel(), origin: ORIGIN, monitor },
+      { sql, sendEmail },
+    );
+    expect(result).toMatchObject({ kind: "ok", sent: 1 });
+    expect(sends[0]?.html).toContain("Applied automatically since your last digest");
+    const contextParam = state.sentRows[0]?.values.find(
+      (value): value is Record<string, unknown> =>
+        typeof value === "object" && value !== null && "source_totals" in value,
+    );
+    expect(contextParam).toMatchObject({
+      date_et: "2026-06-02",
+      monitor_totals: { autoAppliedShows: 1, autoAppliedRows: 2, autofixTotal: 2, driftShows: 1 },
+    });
+  });
+
+  test("monitor absent → context is byte-identical to today (no monitor_totals key)", async () => {
+    const { sql, state } = fakeSql();
+    const { sendEmail } = sender([{ ok: true, messageId: "digest-msg-2" }]);
+    await deliverDigest({ model: digestModel(), origin: ORIGIN }, { sql, sendEmail });
+    const contextParam = state.sentRows[0]?.values.find(
+      (value): value is Record<string, unknown> =>
+        typeof value === "object" && value !== null && "source_totals" in value,
+    );
+    expect(contextParam).not.toHaveProperty("monitor_totals");
+    expect(Object.keys(contextParam ?? {}).sort()).toEqual(["date_et", "source_totals"]);
+  });
+
+  test("dedup key stays digest:${dateET} with a monitor", async () => {
+    const { sql, state } = fakeSql();
+    const { sendEmail } = sender([{ ok: true, messageId: "digest-msg-3" }]);
+    await deliverDigest({ model: digestModel(), origin: ORIGIN, monitor }, { sql, sendEmail });
+    expect(state.sentRows[0]?.values).toEqual(expect.arrayContaining(["digest:2026-06-02"]));
+  });
+});
+
 describe("email_deliveries recipient canonicalization audit coverage", () => {
   test("a raw recipient write in lib/notify/deliver.ts fails the live audit layer", () => {
     const findings = auditEmailCanonicalizationSources([
