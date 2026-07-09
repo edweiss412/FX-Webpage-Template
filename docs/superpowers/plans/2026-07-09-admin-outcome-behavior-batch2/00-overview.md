@@ -6,22 +6,28 @@ Spec: `docs/superpowers/specs/2026-07-09-admin-outcome-behavior-batch2.md`. **Te
 
 **Anti-tautology posture:** every one of the 18 code-rows is proven by a `observeSuccessCodes` success drive (code observed on the committed branch) **paired** with an `observeCodes` failure drive (same code ABSENT) — so no record can pass unconditionally. The recorded value is keyed `${file}::${fn}::${code}` and asserted by Task 18 against `AUDITABLE_MUTATIONS`, not against any self-rendered container.
 
-## Task 1 — test scaffolding (helpers + describe block), still GREEN
+## Commit structure (invariant 6: commit-per-task, green-per-commit)
+
+This is a **single atomic TDD task** → **exactly one commit**. Removing a grandfather row while its inline proof does not yet exist leaves the suite RED, so the RED state is a **transient in-development checkpoint that is NEVER committed** — a mid-way commit would violate green-per-commit. The one commit lands only after the full green verification below. (This mirrors Batch 1 / PR #365, which shipped its RED→GREEN as one commit for the same reason.) The substeps A–E below are the ordered work WITHIN that one task, not separate commits.
+
+## Task 1 (the only task) — graduate the 16 routes, single commit after green
+
+### Substep A — scaffolding (transient state stays GREEN)
 
 - Add a local `fakeTx(overrides)` helper in the Batch-2 region: returns a `tx` object whose `queryOne`/`run` (and the specific reads each route uses — `readLockedPendingIngestion`, alert-row select, etc.) resolve the per-route committed/refusal shapes from spec §3.1. Scoped to the Batch-2 block; touches no existing test.
 - Add a local `drainNdjson(res)` helper (read `res.body` to EOF, mirror `tests/onboarding/scanRoute.test.ts:143`) for route #18.
 - Import the 16 handlers (+ `handleWizardPendingIngestionAction` for #14) from their route modules.
 - Add the `describe("Batch 2 — clean DI-seam admin route POSTs observe success only")` shell with the per-route `routeDeps` builders (default `requireAdminIdentity: async () => ({ email: "admin@example.com" })`; #15 rescan uses the existing module `requireAdmin` mock — no identity dep).
 
-Verify: `pnpm typecheck` + `pnpm vitest run tests/log/adminOutcomeBehavior.test.ts` green, grandfather still 24. (No proofs recorded yet — the describe has no `test()`s or only skipped placeholders, so Task 18 is unaffected.)
+Verify (transient): `pnpm typecheck` + `pnpm vitest run tests/log/adminOutcomeBehavior.test.ts` green, grandfather still 24. (No proofs recorded yet — the describe has no `test()`s or only skipped placeholders, so Task 18 is unaffected.)
 
-## Task 2 — RED: remove 16 grandfather rows + flip pins
+### Substep B — RED (transient, NOT committed): remove 16 grandfather rows + flip pins
 
 - Delete the 16 route rows from `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER` (`exemptions.ts`), leaving **8** (4 heavy DI-seam + 4 plain-POST for Batch 3). Update the doc-comment (keep "frozen, never grows"; note Batch 2 graduated the 16 clean DI-seam routes → 8 remain).
 - Flip pins `24`→`8`: `adminOutcomeBehavior.test.ts:1443` (Task 18a), `exemptions.test.ts:31` (`.length`), `:33` (Set size), `:37` (`routeRows.length`).
-- Confirm the suite is **RED**: Task 18 coverage test names the 18 now-unproven `file::fn::code` rows (records the negative-regression baseline — the contract has teeth).
+- Confirm the suite is **RED**: Task 18 coverage test names the 18 now-unproven `file::fn::code` rows (records the negative-regression baseline — the contract has teeth). This RED state is transient and stays in the working tree only; do NOT commit here.
 
-## Task 3 — GREEN: add the 16 inline behavioral proofs (18 code-rows)
+### Substep C — GREEN: add the 16 inline behavioral proofs (18 code-rows)
 
 One `test(...)` per route in the Batch-2 describe, each: success drive via `observeSuccessCodes` → assert code observed → `recordAdminOutcomeBehavior({ file, fn: "POST", code })`; paired failure drive via `observeCodes` → assert code absent. Per spec §3.1 recipe. Notes:
 
@@ -33,12 +39,15 @@ One `test(...)` per route in the Batch-2 describe, each: success drive via `obse
 
 Confirm suite **GREEN**; grandfather = 8, all pins `8`.
 
-## Task 4 — verify + commit
+### Substep D — verify (green gate before the single commit)
 
 - `pnpm vitest run tests/log/adminOutcomeBehavior.test.ts tests/log/mutationSurface/exemptions.test.ts tests/log/_metaMutationSurfaceObservability.test.ts` green.
 - Negative-regression (spec §5), restore after each: (a) leave a pin at 24 → RED; (b) drop one `record` call → Task 18 RED naming the row; (c) delete a paired failure assertion / force an unconditional emit → the `observeCodes` absence assertion RED.
 - `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, then full `pnpm test`. Triage DB-touching failures as concurrent-worktree shared-Supabase contention (re-run ambiguous non-`tests/log` files in isolation to confirm) — `tests/log` MUST be fully green.
-- One commit: `test(log): inline behavioral coverage for 16 clean DI-seam admin routes (grandfather 24→8)`.
+
+### Substep E — the single commit (only after Substep D is green)
+
+- Exactly one commit for the whole task: `test(log): inline behavioral coverage for 16 clean DI-seam admin routes (grandfather 24→8)`. Nothing is committed before this point (the Substep-B RED never reaches history).
 
 ## Failure-mode notes (per spec)
 
