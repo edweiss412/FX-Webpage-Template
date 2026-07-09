@@ -585,8 +585,8 @@ git commit --no-verify -m "fix(crew-page): typed CrewMemberNotInShowError at cre
 - Consumes: `CrewMemberNotInShowError` (Task 5), existing `loadRoster`, `PickerInterstitial`, `TerminalFailure`, `staleBannerFor`, `createSupabaseServiceRoleClient`, `notFound` (from `next/navigation`).
 - Produces (all module-private in `page.tsx`):
   - `async function loadShowAvailability(showId: string): Promise<"available" | "unavailable">` — reads `shows(published, archived)`; `{data,error}` discipline; on Supabase error THROWS; missing/archived/`published !== true` → `"unavailable"`.
-  - `async function renderPickerRepick(args: { showId: string; slug: string; shareToken: string; s: string | undefined; banner: PickerInterstitialBannerCode; staleCleanupHint: { expectedEpoch: number; expectedCrewMemberId: string } | null }): Promise<JSX.Element>` — `try { roster = await loadRoster(showId) } catch { return <TerminalFailure … retryHref/> }`, else `<PickerInterstitial …/>`. Never re-throws.
-  - `async function renderRacedCrewMiss(args: { showId; slug; shareToken; s }): Promise<JSX.Element>` — catches ONLY the `loadShowAvailability` read (→ `TerminalFailure`); OUTSIDE that catch: `"unavailable"` → `notFound()`, else `renderPickerRepick({ …, banner: "PICKER_REMOVED_FROM_ROSTER_BANNER", staleCleanupHint: null })`.
+  - `async function renderPickerRepick(args: { showId: string; slug: string; shareToken: string; s: string | undefined; banner: PickerInterstitialBannerCode; staleCleanupHint: { expectedEpoch: number; expectedCrewMemberId: string } | null; preloadedRoster?: RosterRow[] }): Promise<JSX.Element>` — if `preloadedRoster` is `undefined`, `try { roster = await loadRoster(showId) } catch { return <TerminalFailure … retryHref/> }`; else use the preloaded roster (no read). Renders `<PickerInterstitial …/>`. Never re-throws.
+  - `async function renderRacedCrewMiss(args: { showId; slug; shareToken; s }): Promise<JSX.Element>` — reads the roster FIRST (`loadRoster`; its own catch → `TerminalFailure`), THEN re-checks availability LAST (`loadShowAvailability`; its own catch → `TerminalFailure`). OUTSIDE every catch: `"unavailable"` → `notFound()` (final gate closes the show-delete cascade window), else `renderPickerRepick({ …, banner: "PICKER_REMOVED_FROM_ROSTER_BANNER", staleCleanupHint: null, preloadedRoster: roster })`.
 
 - [ ] **Step 1: Write the shared harness + the two stale-arm regression companions**
 
@@ -655,6 +655,21 @@ function availabilityClient(showRow: { published: boolean; archived: boolean } |
 }
 const resolvedAccess = { kind: "resolved", showId: "sid", crewMemberId: "cm1" };
 
+// A COMPLETE minimal ShowForViewer projection (mirrors tests/data/viewerContext.test.ts makeData). CrewShell
+// dereferences `data.tileErrors` (Object.keys, _CrewShell.tsx:155) and — only when tileErrors is non-empty —
+// `data.show.title` BEFORE resolveViewerContext (:213). With tileErrors:{} the shell reaches resolveViewerContext,
+// which is where the malformed-projection throw belongs. `crewMembers` is overridden per test.
+function fullShowForViewer(crewMembers: unknown) {
+  return {
+    show: { title: "S", client_label: null, dates: null, venue: null },
+    crewMembers,
+    hotelReservations: [], rooms: [], transportation: null, contacts: [],
+    pullSheet: null, viewerName: null, viewerFlightInfo: null, viewerVersionToken: "",
+    diagrams: null, openingReelHasVideo: false, lastSyncedAt: null, lastSyncStatus: null,
+    tileErrors: {}, runOfShow: null, driveFileId: null, sourceAnchors: {},
+  } as any;
+}
+
 test("Point A: CrewMemberNotInShowError + available show → PickerInterstitial re-pick w/ REMOVED_FROM_ROSTER banner, not TerminalFailure", async () => {
   (resolveShowPageAccess as any).mockResolvedValue(resolvedAccess);
   (getShowForViewer as any).mockRejectedValue(new CrewMemberNotInShowError());
@@ -708,7 +723,7 @@ test("Point B fail-closed: TRUTHY NON-ARRAY crewMembers → NO page-level throw;
   // the non-array reaches resolveViewerContext, which throws MalformedProjectionError → _CrewShell catch →
   // cataloged terminal-failure. A regressed page.tsx makes `render(await ShowPage(...))` REJECT instead.
   (resolveShowPageAccess as any).mockResolvedValue(resolvedAccess);
-  (getShowForViewer as any).mockResolvedValue({ crewMembers: { length: 1 } }); // truthy, NOT an array
+  (getShowForViewer as any).mockResolvedValue(fullShowForViewer({ length: 1 })); // complete fixture; crewMembers truthy, NOT an array
   const { container } = render(await ShowPage({ params: Promise.resolve({ slug: "s", shareToken: "t" }), searchParams: Promise.resolve({}) }));
   expect(container.querySelector('[data-testid="terminal-failure"]')).not.toBeNull();
   expect(container.querySelector('[data-testid="picker-interstitial-root"]')).toBeNull();
@@ -717,13 +732,40 @@ test("Point B fail-closed: TRUTHY NON-ARRAY crewMembers → NO page-level throw;
 test("availability read infra error (Point A) → TerminalFailure, notFound NOT swallowed elsewhere", async () => {
   (resolveShowPageAccess as any).mockResolvedValue(resolvedAccess);
   (getShowForViewer as any).mockRejectedValue(new CrewMemberNotInShowError());
-  // shows read returns a Supabase { error } → loadShowAvailability throws → caught INSIDE renderRacedCrewMiss.
+  // Roster read SUCCEEDS (roster is read first now); the shows read returns a Supabase { error } →
+  // loadShowAvailability throws → caught INSIDE renderRacedCrewMiss's availability try/catch → TerminalFailure.
   (createSupabaseServiceRoleClient as any).mockReturnValue({
-    from: () => ({ select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: { message: "boom" } }) }) }) }),
+    from: (table: string) => {
+      if (table === "shows") return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: { message: "boom" } }) }) }) };
+      const q: any = { select: () => q, eq: () => q, order: () => Promise.resolve({ data: [{ id: "cmX", name: "Someone", role: "A1", role_flags: [], claimed_via_oauth_at: null }], error: null }) };
+      return q;
+    },
   });
   const { container } = render(await ShowPage({ params: Promise.resolve({ slug: "s", shareToken: "t" }), searchParams: Promise.resolve({}) }));
   expect(container.querySelector('[data-testid="terminal-failure"]')).not.toBeNull();
   expect(container.querySelector('[data-testid="picker-interstitial-root"]')).toBeNull();
+});
+
+test("Point A/B TOCTOU: roster (crew_members) is read BEFORE availability (shows); cascade-emptied roster + deleted show → notFound(), NOT an empty picker", async () => {
+  // Concrete failure mode this catches: checking availability FIRST, then reading a now-empty roster and
+  // rendering an EMPTY picker for a show that was deleted mid-request (crew_members ON DELETE CASCADE).
+  // The fix reads the roster first and makes availability the FINAL gate, so an empty-roster+deleted-show
+  // interleaving lands on notFound(). The ordering assertion pins WHY it is safe (not just the outcome).
+  (resolveShowPageAccess as any).mockResolvedValue(resolvedAccess);
+  (getShowForViewer as any).mockRejectedValue(new CrewMemberNotInShowError());
+  const reads: string[] = [];
+  (createSupabaseServiceRoleClient as any).mockReturnValue({
+    from: (table: string) => {
+      reads.push(table);
+      if (table === "shows") return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: null }) }) }) }; // deleted
+      const q: any = { select: () => q, eq: () => q, order: () => Promise.resolve({ data: [], error: null }) }; // cascade-emptied
+      return q;
+    },
+  });
+  await expect(ShowPage({ params: Promise.resolve({ slug: "s", shareToken: "t" }), searchParams: Promise.resolve({}) })).rejects.toThrow("NEXT_NOT_FOUND");
+  // Availability must be the FINAL read: crew_members (roster) precedes shows (availability).
+  expect(reads.indexOf("crew_members")).toBeGreaterThanOrEqual(0);
+  expect(reads.indexOf("crew_members")).toBeLessThan(reads.indexOf("shows"));
 });
 
 test("renderPickerRepick roster-load failure (available show, crew_members read errors) → TerminalFailure, NOT a thrown render", async () => {
@@ -751,16 +793,19 @@ test("negative: generic getShowForViewer error → TerminalFailure, not re-pick"
 });
 ```
 
-> `loadRoster` throws (`new Error("roster lookup failed")`) when the crew_members read returns `{ error }` — so this exercises `renderPickerRepick`'s own `try/catch`. An implementation that drops that catch fails here (the throw escapes to Next's generic boundary instead of `terminal-failure`).
+> The roster-fail case exercises `renderRacedCrewMiss`'s roster `try/catch`: with roster-first ordering, `loadRoster` throws (`new Error("roster lookup failed")`) when the crew_members read returns `{ error }`, and the catch returns `TerminalFailure`. An implementation that drops that catch fails here (the throw escapes to Next's generic boundary instead of `terminal-failure`).
 
-This covers the full matrix for **both** points: Point A {available→picker, deleted→notFound, infra→TerminalFailure} and Point B {available→picker, deleted→notFound, unpublished→notFound, **truthy-non-array→malformed-projection TerminalFailure (fail-closed, no page-level throw)**}. The infra case also pins the round-1 fix — `notFound()` is not swallowed because `renderRacedCrewMiss` catches only the availability read, not the `notFound()`. The truthy-non-array case pins the round-8 fix — `crew` is computed only inside an `Array.isArray` block, so a degraded projection routes through `CrewShell`→`resolveViewerContext`'s existing `MalformedProjectionError` fail-closed path instead of throwing `find is not a function` at the page level.
+This covers the full matrix for **both** points: Point A {available→picker, cascade-deleted→notFound, roster-infra→TerminalFailure, availability-infra→TerminalFailure} and Point B {available→picker, deleted→notFound, unpublished→notFound, **truthy-non-array→malformed-projection TerminalFailure (fail-closed, no page-level throw)**}, plus the **TOCTOU ordering** case {roster read precedes availability read; cascade-emptied roster + deleted show → notFound, never an empty picker}. Three pins:
+> - **round-1 fix** — `notFound()` is not swallowed: each read's catch is scoped to the READ only, so `notFound()` (from the `"unavailable"` gate) propagates.
+> - **round-7 fix** — `crew` is computed only inside an `Array.isArray` block, so a degraded truthy-non-array projection routes through `CrewShell`→`resolveViewerContext`'s existing `MalformedProjectionError` fail-closed path instead of throwing `find is not a function` at the page level.
+> - **round-8 fix** — the availability re-check is the FINAL await before render (roster read first), closing the show-delete cascade window that would otherwise render an empty picker for a deleted show; the ordering assertion (`crew_members` index < `shows` index) pins it structurally.
 
 > Confirm `TerminalFailure`'s root `data-testid` (`components/auth/TerminalFailure.tsx`) and `PickerInterstitial`'s (`picker-interstitial-root`, verified) before running; adjust selectors to the real ids.
 
 - [ ] **Step 3: Run to verify the RED cases fail (and the stale-arm guards still pass)**
 
 Run: `pnpm vitest run tests/show/flow8Repick.test.tsx`
-Expected: the Point A/B + cascade + infra + roster-fail + truthy-non-array cases FAIL (current `resolved` case renders `CrewShell` or catches every error as a generic `TerminalFailure`, and its `data.crewMembers?.find(...)` throws `find is not a function` on the truthy-non-array shape → `render(await ShowPage(...))` rejects; no `renderRacedCrewMiss` exists yet). The two Step-1 stale-arm refactor-guards still PASS (green-before — they pin the pre-existing inline stale-arm behavior the refactor must preserve; they are NOT the red-first proof for this task, the Point A/B cases are). The `negative` case may already pass (plain `Error` already routes to `TerminalFailure`); that's fine — it is a guard against over-catching.
+Expected: the Point A/B + cascade + TOCTOU-ordering + infra + roster-fail + truthy-non-array cases FAIL (current `resolved` case renders `CrewShell` or catches every error as a generic `TerminalFailure` — so the `CrewMemberNotInShowError`-driven cases render `terminal-failure` instead of the picker / instead of throwing `NEXT_NOT_FOUND`, and its `data.crewMembers?.find(...)` throws `find is not a function` on the truthy-non-array shape → `render(await ShowPage(...))` rejects; no `renderRacedCrewMiss` exists yet). The two Step-1 stale-arm refactor-guards still PASS (green-before — they pin the pre-existing inline stale-arm behavior the refactor must preserve; they are NOT the red-first proof for this task, the Point A/B cases are). The `negative` case may already pass (plain `Error` already routes to `TerminalFailure`); that's fine — it is a guard against over-catching.
 
 - [ ] **Step 4: Add the three helpers (`loadShowAvailability` + `renderPickerRepick` + `renderRacedCrewMiss`)**
 
@@ -784,12 +829,17 @@ async function renderPickerRepick(args: {
   showId: string; slug: string; shareToken: string; s: string | undefined;
   banner: PickerInterstitialBannerCode;
   staleCleanupHint: { expectedEpoch: number; expectedCrewMemberId: string } | null;
+  // Optional preloaded roster: `renderRacedCrewMiss` reads the roster ITSELF (to sequence it before the
+  // final availability gate) and passes it here so the picker JSX stays single-sourced. `undefined` → read now.
+  preloadedRoster?: RosterRow[];
 }): Promise<JSX.Element> {
-  let roster;
-  try {
-    roster = await loadRoster(args.showId);
-  } catch {
-    return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" retryHref={`/show/${args.slug}/${args.shareToken}`} />;
+  let roster = args.preloadedRoster;
+  if (roster === undefined) {
+    try {
+      roster = await loadRoster(args.showId);
+    } catch {
+      return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" retryHref={`/show/${args.slug}/${args.shareToken}`} />;
+    }
   }
   return (
     <PickerInterstitial
@@ -799,23 +849,36 @@ async function renderPickerRepick(args: {
   );
 }
 
+// CRITICAL ORDERING (TOCTOU fix): read the roster FIRST, then re-check availability LAST — the final
+// await before render. A show-delete cascade (`crew_members.show_id ON DELETE CASCADE`) that empties the
+// roster between the two reads is then caught by the availability gate (→ notFound), never rendering an
+// EMPTY picker for a deleted show. If availability were checked first, an available→delete race would
+// leave an empty roster rendering as a picker. No await sits between the availability gate and the
+// synchronous render, so the window is closed.
 // CRITICAL: notFound() throws a Next navigation sentinel (NEXT_NOT_FOUND) — it MUST NOT sit inside a
-// try/catch that would convert it to a TerminalFailure. The availability-read try/catch is scoped to
-// the READ ONLY; notFound() and renderPickerRepick run OUTSIDE it, and callers invoke this helper with
-// NO surrounding catch.
+// try/catch that would convert it to a TerminalFailure. Each read's try/catch is scoped to the READ ONLY;
+// notFound() and renderPickerRepick run OUTSIDE any catch, and callers invoke this helper with NO
+// surrounding catch.
 async function renderRacedCrewMiss(args: { showId: string; slug: string; shareToken: string; s: string | undefined }): Promise<JSX.Element> {
-  let availability: "available" | "unavailable";
+  let roster: RosterRow[];
   try {
-    availability = await loadShowAvailability(args.showId);
+    roster = await loadRoster(args.showId); // FIRST — a cascade may have already emptied this to []
   } catch {
-    // ONLY the infra read is caught here — fail-closed to TerminalFailure.
     return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" retryHref={`/show/${args.slug}/${args.shareToken}`} />;
   }
-  // Outside the catch: notFound() throws NEXT_NOT_FOUND and MUST propagate to Next.
+  let availability: "available" | "unavailable";
+  try {
+    availability = await loadShowAvailability(args.showId); // LAST — final gate; reflects post-cascade state
+  } catch {
+    return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" retryHref={`/show/${args.slug}/${args.shareToken}`} />;
+  }
+  // Outside every catch: notFound() throws NEXT_NOT_FOUND and MUST propagate to Next.
   if (availability === "unavailable") notFound(); // show-deleted cascade → show_unavailable semantics (page.tsx:102-106)
-  return renderPickerRepick({ ...args, banner: "PICKER_REMOVED_FROM_ROSTER_BANNER", staleCleanupHint: null });
+  return renderPickerRepick({ ...args, banner: "PICKER_REMOVED_FROM_ROSTER_BANNER", staleCleanupHint: null, preloadedRoster: roster });
 }
 ```
+
+> The stale-arm block (`epoch_stale` / `removed_from_roster` / …) keeps calling `renderPickerRepick` WITHOUT a preloaded roster and WITHOUT the availability re-check — that path's cascade posture is pre-existing (the arm comes from `resolveShowPageAccess`, which already validated the show) and out of scope for 8.2 (spec §4.1 scopes the fix to the `resolved` race). Only `renderRacedCrewMiss` reorders.
 
 - [ ] **Step 5: Refactor the stale-arm block to `renderPickerRepick`, then rewrite the `resolved` case (Point A/B wiring)**
 
