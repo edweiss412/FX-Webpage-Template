@@ -70,7 +70,10 @@ test("parking renders only when transportTileVisible; map link only when isParse
   const unassigned = render(
     <VenueSection
       data={data}
-      viewer={{ kind: "crew", crewMemberId: "nobody" }}
+      // c1 (default fixture row): a real roster member with empty flags; the transport row
+      // has driver_name null → gate closed, parking PII hidden. Post-8.2 an unmatched id
+      // fails closed upstream, so the non-assignee case uses a matched-but-unassigned row.
+      viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={TODAY}
       showId={SHOW_ID}
     />,
