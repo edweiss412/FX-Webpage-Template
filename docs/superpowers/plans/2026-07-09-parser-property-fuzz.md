@@ -81,12 +81,18 @@ pnpm add -D fast-check
 
 ```ts
 // tests/parser/fuzz/seeds.test.ts
-import { describe, it, expect, afterEach } from "vitest";
-import { fuzzRunConfig, PR_SEED, PR_NUM_RUNS, DEEP_NUM_RUNS } from "./seeds";
+// seeds.ts resolves its config ONCE at module evaluation (singleton — the
+// deep seed must be one replay coordinate per process). Tests therefore set
+// process.env BEFORE a fresh dynamic import, via vi.resetModules().
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
 const ENV_KEYS = ["FUZZ_DEEP", "FUZZ_SEED", "FUZZ_NUM_RUNS"] as const;
 const saved: Record<string, string | undefined> = {};
 for (const k of ENV_KEYS) saved[k] = process.env[k];
+beforeEach(() => {
+  vi.resetModules();
+  for (const k of ENV_KEYS) delete process.env[k];
+});
 afterEach(() => {
   for (const k of ENV_KEYS) {
     if (saved[k] === undefined) delete process.env[k];
@@ -94,25 +100,32 @@ afterEach(() => {
   }
 });
 
+const load = () => import("./seeds");
+
 describe("fuzzRunConfig", () => {
-  it("defaults to the fixed PR seed and PR run count (deterministic PR runs)", () => {
-    for (const k of ENV_KEYS) delete process.env[k];
-    expect(fuzzRunConfig()).toEqual({ seed: PR_SEED, numRuns: PR_NUM_RUNS, deep: false });
+  it("defaults to the fixed PR seed and PR run count (deterministic PR runs)", async () => {
+    const m = await load();
+    expect(m.fuzzRunConfig()).toEqual({ seed: m.PR_SEED, numRuns: m.PR_NUM_RUNS, deep: false });
   });
-  it("FUZZ_DEEP=1 raises numRuns to DEEP_NUM_RUNS and randomizes the seed", () => {
+  it("FUZZ_DEEP=1 raises numRuns to DEEP_NUM_RUNS and randomizes the seed", async () => {
     process.env.FUZZ_DEEP = "1";
-    delete process.env.FUZZ_SEED;
-    delete process.env.FUZZ_NUM_RUNS;
-    const a = fuzzRunConfig();
+    const m = await load();
+    const a = m.fuzzRunConfig();
     expect(a.deep).toBe(true);
-    expect(a.numRuns).toBe(DEEP_NUM_RUNS);
+    expect(a.numRuns).toBe(m.DEEP_NUM_RUNS);
     expect(Number.isInteger(a.seed)).toBe(true);
   });
-  it("FUZZ_SEED and FUZZ_NUM_RUNS give exact replay", () => {
+  it("FUZZ_SEED and FUZZ_NUM_RUNS give exact replay", async () => {
     process.env.FUZZ_DEEP = "1";
     process.env.FUZZ_SEED = "424242";
     process.env.FUZZ_NUM_RUNS = "77";
-    expect(fuzzRunConfig()).toEqual({ seed: 424242, numRuns: 77, deep: true });
+    const m = await load();
+    expect(m.fuzzRunConfig()).toEqual({ seed: 424242, numRuns: 77, deep: true });
+  });
+  it("is a stable singleton within one module instance", async () => {
+    process.env.FUZZ_DEEP = "1";
+    const m = await load();
+    expect(m.fuzzRunConfig().seed).toBe(m.fuzzRunConfig().seed);
   });
 });
 ```
@@ -191,7 +204,7 @@ git commit --no-verify -m "infra: fast-check dep + fuzz run-config single source
 - Consumes: `ParsedSheet` type (`lib/parser/types.ts:378-402`), `parseSheet` (`lib/parser/index.ts:546`).
 - Produces: `assertParsedSheetShape(p: unknown): asserts p is ParsedSheet` — throws with a path-labeled message on the first violation.
 
-Required fields (spec §4.1): every REQUIRED `ParsedSheet` field present with correct container type. CAUTION — not all fields are arrays: `transportation: TransportationRow | null` (`types.ts:383`) and `diagrams` is an OBJECT `{ linkedFolder, embeddedImages, linkedFolderItems }` (`types.ts:386`). Read `lib/parser/types.ts:378-402` and mirror it field-by-field exactly (arrays: `crewMembers`/`hotelReservations`/`rooms`/`raw_unrecognized`/`warnings`/`archivedPullSheetTabs`/`hardErrors`; the rest per their declared types); `runOfShow` validated only when present; each `warnings[]` entry has non-empty string `code`, valid `severity`, non-empty `message` (`types.ts:7-10`); each `hardErrors[]` entry non-empty `code` + `message` (`types.ts:29`); whole value JSON-round-trippable (`JSON.parse(JSON.stringify(p))` does not throw and produces deep-equal payload via the mutation oracle's `payloadOf` + `fingerprint`).
+Required fields (spec §4.1): every REQUIRED `ParsedSheet` field present with correct container type. CAUTION — not all fields are arrays: `transportation: TransportationRow | null` (`types.ts:383`) and `diagrams` is an OBJECT `{ linkedFolder, embeddedImages, linkedFolderItems }` (`types.ts:386`). Read `lib/parser/types.ts:378-402` and mirror it field-by-field exactly (arrays: `crewMembers`/`hotelReservations`/`rooms`/`raw_unrecognized`/`warnings`/`archivedPullSheetTabs`/`hardErrors`; the rest per their declared types); `runOfShow` validated only when present; each `warnings[]` entry has non-empty string `code`, valid `severity`, non-empty `message` (`types.ts:7-10`); each `hardErrors[]` entry non-empty `code` + `message` (`types.ts:29`); whole value JSON-round-trippable (`JSON.parse(JSON.stringify(p))` does not throw; note the round-trip drops `undefined`-valued keys, which is toEqual-equivalent under the oracle's canon — assert with vitest `toEqual`, not `toStrictEqual`, and not `fingerprint` which always returns a hash).
 
 - [ ] **Step 1: Write the failing test** — three cases: (a) `assertParsedSheetShape(parseSheet(realFixtureMarkdown, "f.md"))` passes for a real fixture read from `fixtures/shows/raw/2025-04-asset-mgmt-cfo-coo.md`; (b) a hand-built object missing `warnings` throws mentioning `warnings`; (c) a valid parse with one warning mutated to `{code: ""}` throws mentioning `code`.
 - [ ] **Step 2: Run — expect FAIL (module missing).** `pnpm vitest run tests/parser/fuzz/shape.test.ts`
@@ -223,7 +236,7 @@ import { describe, it } from "vitest";
 import { parseSheet } from "@/lib/parser";
 import { fuzzRunConfig } from "./seeds";
 import { assertParsedSheetShape } from "./shape";
-import { payloadOf, fingerprint } from "../mutation/oracle";
+import { payloadChanged, signalEq } from "../mutation/oracle";
 import { chaosMarkdown } from "./chaos";
 
 const { seed, numRuns } = fuzzRunConfig();
@@ -243,11 +256,13 @@ describe("Tier 1 robustness — chaos inputs", () => {
         const b = parseSheet(md, "fuzz.md");
         assertParsedSheetShape(a);
         JSON.stringify(a);                      // JSON-round-trippable
-        // determinism: fingerprint(base, mutant) diffs the two parses — the live
-        // signature is fingerprint(b: ParsedSheet, m: ParsedSheet): string
-        // (tests/parser/mutation/oracle.ts:111); identical parses diff empty.
-        const diff = fingerprint(a, b);
-        if (diff.length > 0) throw new Error(`parseSheet nondeterministic: ${diff}`);
+        // determinism via the oracle's boolean comparators (oracle.ts:45-48):
+        // payloadChanged(a,b) diffs payloads, signalEq(a,b) diffs the three
+        // signal channels — both use the toEqual-parity canon(). Do NOT use
+        // fingerprint() here: it returns a 16-char hash for EVERY input pair
+        // (never an empty string), so hash-length checks are meaningless.
+        if (payloadChanged(a, b) || !signalEq(a, b))
+          throw new Error("parseSheet nondeterministic on identical input");
       }),
       { seed, numRuns, verbose: 2 },
     );
@@ -345,7 +360,7 @@ Section templates — copied from the live fixture `fixtures/shows/raw/2025-04-a
 - **DATES (5-col v4):** `| DATES | | DAY | DATE | TIME |` header; rows `| | TRAVEL IN | <weekday> | <renderDateToken(travelIn, fmt)> | |`, `| | SHOW DAY <n> | <weekday> | <token> | |`, `| | TRAVEL OUT | ... |`. Weekday computed from the ISO date (`Intl` or manual table — must be CORRECT; a wrong weekday is an unplanted inconsistency).
 - **CREW:** the parser ALWAYS consumes the section's first line as the header row and starts data at `i = 1` (`crew.ts:140-167`) — so "headerless" means "header row with NO recognized column labels", never "data in row 0". Three `dials.crewHeader` variants: labeled `| CREW | NAME | ROLE | PHONE | EMAIL |`; permuted (the four vocab labels permuted, data cells permuted identically); headerless `| CREW | | | | |` (label-only row 0 — `detectColumns` recognizes nothing, positional fallback fires, data rows still start at row 1 with name/role/phone in positional columns 1/2/3 per `crew.ts:80-84`). All crew data rows are `| | <name> | <role> | <phone> | <email?> |`. Role cell gets ` (<M/D> & <M/D> ONLY)` appended when that member has `dayRestriction` and `dials.dayRestrictionOn`.
 - **VENUE:** `| VENUE | VENUE NAME | <name> |` + `| | VENUE ADDRESS | <address> |`.
-- **HOTEL (structured):** re-grep the structured `HOTEL` opener region in the fixture (`hotels.ts:381-384` opener) and copy its exact row shape for name/address/guest rows; guests one per row per the fixture shape.
+- **HOTEL (structured):** copy the fixture's exact reservation-column shape (`fixtures/shows/raw/2026-04-asset-mgmt-cfo-coo-waldorf.md:66-74`; opener gate `hotels.ts:381-384`): `| HOTEL | RESERVATION #1 | ... |` header, then label/value row pairs — `Hotel Name / Address` → `<name> <address>` (glued cell; `splitHotelNameAddress` separates on the suffix-bearing street), `Names on Reservation` → ALL guests in ONE cell as `<Guest1> - #<conf1> <Guest2> - #<conf2>` (the parser consumes a single value row after the label, `parseHotelTable` `hotels.ts:468-527`, and glue-splits the multi-guest cell `hotels.ts:129-151` — one-guest-per-row is NOT the parsed shape), `Check In Date`/`Check Out Date` → date cells. Conf numbers are generator serials (`#3<six digits>`), unique per guest, screened by the identity-disjointness gate.
 - **ROOMS:** each kind has its OWN admitted header shape — enumerate ALL FOUR from `rooms.ts` before implementing (v4 gates live around `rooms.ts:640-760`): BREAKOUT requires a NUMBERED header `^BREAKOUT \d` (`rooms.ts:689-695`) so render emits `BREAKOUT <n> <name> <dims> Floor 1`; GENERAL SESSION / ADDITIONAL ROOM / LUNCH ROOM per their gate lines (grep each token's gate; ADDITIONAL ROOM is content-gated like BREAKOUT — a room must carry real dims and/or populated fields to survive the placeholder rejection). Dims via the dial's format: `50' x 40'`, `50 x 40`, `50′ × 40′` (`DIMS_FULL_SRC` `_dimsToken.ts:40-47`). Header cell followed by structured bare-label rows (`SETUP`, `SET TIME`, `SHOW TIME`, `STRIKE TIME`, `AUDIO`, `VIDEO`, `LIGHTING`, `SCENIC`, `POWER`, `DIGITAL SIGNAGE`, `OTHER`, `NOTES`) each as `| <LABEL> | |`, with at least one populated field so `roomHasContent` admits it. **Anchor test (g) below covers ALL FOUR kinds, one room each — not just GENERAL SESSION** (a kind whose render shape misses its gate must fail at the anchor, not surface later as Tier-2 generator overreach).
 - **Assembly:** sections ordered per `dials.sectionOrder` permutation, joined with `"\n".repeat(dials.blankPadding + 1)` wait — joined with `1 + blankPadding` newlines is wrong arithmetic; a "blank row" between sections means `"\n\n"` minimum (one blank line). Use `sections.join("\n" + "\n".repeat(dials.blankPadding))` and unit-test that `blankPadding=1` yields exactly one empty line. Scaffold appended last, after a blank line.
 
