@@ -118,6 +118,18 @@ class WiringFakeTx {
     };
   }
 
+  // Stage B (Task 8): the two admin_overrides write ports commitOverrideSideEffects dispatches to.
+  sheetValueRefreshes: { overrideId: string; sheetValue: unknown }[] = [];
+  deactivations: { overrideId: string; code: string }[] = [];
+  async refreshOverrideSheetValue(overrideId: string, sheetValue: unknown) {
+    this.sheetValueRefreshes.push({ overrideId, sheetValue });
+    this.operations.push("refreshOverrideSheetValue");
+  }
+  async deactivateOverride(overrideId: string, code: "target_missing" | "name_conflict") {
+    this.deactivations.push({ overrideId, code });
+    this.operations.push("deactivateOverride");
+  }
+
   async deleteCrewMembersNotIn() {}
   async upsertCrewMembers() {}
   async provisionAddedCrewAuth() {}
@@ -201,6 +213,13 @@ describe("runPhase2 override wiring (SYNC-1)", () => {
       overrideId: "ov-show",
       sheetValue: PARSED_DATES,
     });
+    // Stage B (Task 8): the side-effect is not merely carried on the result — it is COMMITTED inside
+    // the locked tx via the refresh port (a benign sheet_value refresh; no deactivation here).
+    expect(tx.sheetValueRefreshes).toContainEqual({
+      overrideId: "ov-show",
+      sheetValue: PARSED_DATES,
+    });
+    expect(tx.deactivations).toEqual([]);
   });
 
   test("no override-read port → transform skipped, parsed values written unchanged", async () => {

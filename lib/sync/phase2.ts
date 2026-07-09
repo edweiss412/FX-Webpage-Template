@@ -16,6 +16,7 @@ import {
   type ActiveOverridesReadResult,
 } from "@/lib/sync/loadActiveOverrides";
 import { overrideShowHotel, type OverrideSideEffect } from "@/lib/sync/overrideShowHotel";
+import { commitOverrideSideEffects } from "@/lib/sync/commitOverrideSideEffects";
 import type { ActiveCrewOverride } from "@/lib/sync/reconcileCrewOverrides";
 import type { Phase1Binding } from "@/lib/sync/phase1";
 import type { ResolvedSyncMode } from "@/lib/sync/perFileProcessor";
@@ -41,6 +42,11 @@ export type Phase2Tx = ApplyParseResultTx & {
   // ACTIVE admin_overrides (SYNC-1). Optional — legacy callers omit it and the transform is skipped.
   // The concrete service-role read lives in the tx-port impl; loadActiveOverrides owns {data,error}.
   loadActiveOverrides?(driveFileId: string): Promise<ActiveOverridesReadResult>;
+  // Stage B (admin field overrides): the two write executors commitOverrideSideEffects dispatches to.
+  // Optional — present only when the override overlay is wired; both ride the JS-held show lock (no
+  // nested lock). refresh does NOT bump version (R30); deactivate does. Applied-path-only writer.
+  refreshOverrideSheetValue?(overrideId: string, sheetValue: unknown): Promise<void>;
+  deactivateOverride?(overrideId: string, code: "target_missing" | "name_conflict"): Promise<void>;
   applyShowSnapshot(args: {
     driveFileId: string;
     modifiedTime: string;
@@ -494,6 +500,27 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
   // Stage B carries ALL override side-effects: show/hotel from Stage A + crew from the post-hold
   // §3.6 reconciliation (Task 8 commits them uniformly in the same locked tx).
   const overrideSideEffects = [...showHotelSideEffects, ...(applyOutcome.crewSideEffects ?? [])];
-  if (overrideSideEffects.length > 0) applied.showHotelSideEffects = overrideSideEffects;
+  if (overrideSideEffects.length > 0) {
+    applied.showHotelSideEffects = overrideSideEffects;
+    // Stage B (§3.2): commit ALL planned admin_overrides mutations (show/hotel from Stage A + crew from
+    // the post-hold §3.6 reconciliation) INSIDE this locked tx, on the applied path only. We are past the
+    // stale short-circuit above, so a stale/no-op sync never reaches here — admin_overrides stays intact.
+    // Side-effects are non-empty only when the override overlay ran, which requires the write ports.
+    const { refreshOverrideSheetValue, deactivateOverride } = tx;
+    if (!refreshOverrideSheetValue || !deactivateOverride) {
+      throw new Error(
+        "runPhase2: committing override side-effects requires the refreshOverrideSheetValue/deactivateOverride tx-port methods",
+      );
+    }
+    await callTx("commitOverrideSideEffects", () =>
+      commitOverrideSideEffects(
+        {
+          refreshOverrideSheetValue: refreshOverrideSheetValue.bind(tx),
+          deactivateOverride: deactivateOverride.bind(tx),
+        },
+        overrideSideEffects,
+      ),
+    );
+  }
   return applied;
 }

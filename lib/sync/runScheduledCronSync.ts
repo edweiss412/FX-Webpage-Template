@@ -1706,6 +1706,38 @@ class PostgresPipelineTx implements SyncPipelineTx {
     }
   }
 
+  // Stage B (§3.2/§6): the two admin_overrides write executors commitOverrideSideEffects dispatches to.
+  // Raw SQL inside the JS-held show lock (no nested lock, invariant 2); a DB fault throws and rolls the
+  // whole locked tx back — atomic with the crew/show/hotel writes, so the durable inactive-row signal
+  // (§6) can never diverge from the live rows. Applied-path-only (phase2 calls past the stale guard).
+  // not-subject-to-meta: service-role SQL inside the JS-held show lock (no Supabase client here).
+  async refreshOverrideSheetValue(overrideId: string, sheetValue: unknown) {
+    // R30 benign refresh — updates the display-only chip; DELIBERATELY does NOT bump `version`, so a
+    // routine cron between an admin's UI-load and save does not false-409 an open edit (spec line 182).
+    // postgres.js serializes a $N::jsonb param ONCE — pass the RAW value (object for dates/venue, string
+    // for name/role/hotel, null), never JSON.stringify (that double-encodes to a jsonb string scalar and
+    // breaks revert; feedback_postgres_js_jsonb_param_double_encode). undefined→null (postgres.js rejects
+    // undefined binds). A string sheetValue serializes to a jsonb string, matching the RPC's to_jsonb().
+    await this.rows(
+      `update public.admin_overrides
+          set sheet_value = $2::jsonb, updated_at = now()
+        where id = $1`,
+      [overrideId, sheetValue === undefined ? null : sheetValue],
+    );
+  }
+
+  async deactivateOverride(overrideId: string, code: "target_missing" | "name_conflict") {
+    // Genuine state change — pauses the override AND bumps `version` so an admin's open edit against the
+    // now-stale row 409s (CAS-A). `and active` keeps it idempotent (a re-run over an already-paused row
+    // is a no-op, never a second version bump).
+    await this.rows(
+      `update public.admin_overrides
+          set active = false, deactivation_code = $2, version = version + 1, updated_at = now()
+        where id = $1 and active`,
+      [overrideId, code],
+    );
+  }
+
   async provisionAddedCrewAuth(showId: string, names: string[]) {
     void showId;
     void names;
