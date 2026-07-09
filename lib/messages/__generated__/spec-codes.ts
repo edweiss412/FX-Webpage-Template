@@ -710,6 +710,18 @@ export const SPEC_CODES = {
     "followUp": "Doug → open the parent folder and copy that folder link",
     "helpfulContext": "The wizard scans every sheet inside one folder. A direct Google Sheet link cannot be used for setup because it does not tell the app which sibling sheets belong in the same onboarding run.",
   },
+  "OVERRIDE_NAME_CONFLICT": {
+    "crewFacing": null,
+    "dougFacing": "A name override you set now clashes with another row of the same name (a real crew member, or another hotel). We paused it and are showing the sheet's value — re-point it to a different name or discard it.",
+    "followUp": "Doug → re-point or discard the override",
+    "helpfulContext": "A name override lets you show a different name than the sheet has. After a later sync that override's name now matches another real row of the same name — either a crew member your sheet added, or another hotel — which would be ambiguous, so we paused the override and put the sheet's own value back. Nothing is broken and no data was lost. Open Needs attention to re-point the override to a different name, or discard it; the needs-attention row tells you exactly which name clashed.",
+  },
+  "OVERRIDE_TARGET_MISSING": {
+    "crewFacing": null,
+    "dougFacing": "An override you set no longer matches the sheet. The field is showing the sheet's value again — re-point the override to the right row or discard it.",
+    "followUp": "Doug → re-point or discard the override",
+    "helpfulContext": "An override pins a specific field to a value you chose, matched to a specific row in your sheet. On a later sync that row was no longer there — it was removed, or its key values changed — so there was nothing left to override, and the field went back to showing whatever your sheet now says. Nothing is broken and no data was lost; the override is just paused. Open Needs attention to re-point it to the right row, or discard it if it's no longer needed.",
+  },
   "PAGE_RENDER_FAILED": {
     "crewFacing": "This page ran into a problem. Try reloading — if it keeps happening, text Doug.",
     "dougFacing": null,
