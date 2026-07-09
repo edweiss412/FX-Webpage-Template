@@ -35,6 +35,7 @@ export type MonitorDigestModel = {
   autoApplied: MonitorShowGroup[];
   autofix: AutoFixSummary;
   drift: MonitorDriftEntry[];
+  newShowGaps: MonitorShowGroup[];
 };
 export type MonitorDigestResult =
   | { kind: "ok"; model: MonitorDigestModel }
@@ -226,11 +227,17 @@ export async function buildMonitorDigestModel(
        where rn = 1
     `;
     const drift = computeDrift(driftRows);
+    const newShowGaps = computeNewShowGaps(driftRows);
 
-    if (autoApplied.length === 0 && autofix.total === 0 && drift.length === 0) {
+    if (
+      autoApplied.length === 0 &&
+      autofix.total === 0 &&
+      drift.length === 0 &&
+      newShowGaps.length === 0
+    ) {
       return { kind: "empty" };
     }
-    return { kind: "ok", model: { windowStart: windowIso, autoApplied, autofix, drift } };
+    return { kind: "ok", model: { windowStart: windowIso, autoApplied, autofix, drift, newShowGaps } };
   } catch {
     return { kind: "infra_error" };
   } finally {

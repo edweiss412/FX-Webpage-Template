@@ -632,6 +632,7 @@ describe("deliverDigest — monitor section (flow 6.2 §5, §8)", () => {
         classes: [{ label: "unreadable field", prior: 10, curr: 11 }],
       },
     ],
+    newShowGaps: [],
   };
 
   test("monitor present → email contains the section AND context records monitor_totals (counts only)", async () => {
