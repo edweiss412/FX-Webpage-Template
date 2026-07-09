@@ -610,9 +610,9 @@ git commit --no-verify -m "fix(crew-page): typed CrewMemberNotInShowError at cre
 **Interfaces:**
 - Consumes: `CrewMemberNotInShowError` (Task 5), existing `loadRoster`, `PickerInterstitial`, `TerminalFailure`, `staleBannerFor`, `createSupabaseServiceRoleClient`, `notFound` (from `next/navigation`).
 - Produces (all module-private in `page.tsx`):
-  - `async function loadShowAvailability(showId: string): Promise<"available" | "unavailable">` — reads `shows(published, archived)`; `{data,error}` discipline; on Supabase error THROWS; missing/archived/`published !== true` → `"unavailable"`.
+  - `async function loadShowAvailability(showId: string): Promise<"available" | "missing" | "archived" | "unpublished">` — reads `shows(published, archived)`; `{data,error}` discipline; on Supabase error THROWS; no row → `"missing"`; `archived === true` → `"archived"`; `published !== true` → `"unpublished"`; else `"available"`. The discriminated result mirrors the published-toggle contract (page.tsx:90-107) so the caller can 404 missing/archived but render the paused page for unpublished.
   - `async function renderPickerRepick(args: { showId: string; slug: string; shareToken: string; s: string | undefined; banner: PickerInterstitialBannerCode; staleCleanupHint: { expectedEpoch: number; expectedCrewMemberId: string } | null; preloadedRoster?: RosterRow[] }): Promise<JSX.Element>` — if `preloadedRoster` is `undefined`, `try { roster = await loadRoster(showId) } catch { return <TerminalFailure … retryHref/> }`; else use the preloaded roster (no read). Renders `<PickerInterstitial …/>`. Never re-throws.
-  - `async function renderRacedCrewMiss(args: { showId; slug; shareToken; s }): Promise<JSX.Element>` — reads the roster FIRST (`loadRoster`; its own catch → `TerminalFailure`), THEN re-checks availability LAST (`loadShowAvailability`; its own catch → `TerminalFailure`). OUTSIDE every catch: `"unavailable"` → `notFound()` (final gate closes the show-delete cascade window), else `renderPickerRepick({ …, banner: "PICKER_REMOVED_FROM_ROSTER_BANNER", staleCleanupHint: null, preloadedRoster: roster })`.
+  - `async function renderRacedCrewMiss(args: { showId; slug; shareToken; s }): Promise<JSX.Element>` — reads the roster FIRST (`loadRoster`; its own catch → `TerminalFailure`), THEN re-checks availability LAST (`loadShowAvailability`; its own catch → `TerminalFailure`). OUTSIDE every catch (final gate — closes the show-delete cascade window): `"missing"`/`"archived"` → `notFound()`; `"unpublished"` → `<ShowUnavailable />` (paused page, HTTP 200); `"available"` → `renderPickerRepick({ …, banner: "PICKER_REMOVED_FROM_ROSTER_BANNER", staleCleanupHint: null, preloadedRoster: roster })`.
 
 - [ ] **Step 1: Write the shared harness + the two stale-arm regression companions**
 
@@ -727,18 +727,37 @@ test("Point B: well-formed projection missing the resolved id + available → re
   );
 });
 
-test("Point B: projection missing id + deleted show (cascade) → notFound(), not picker", async () => {
+test("Point B: projection missing id + deleted/missing show (cascade) → notFound(), not picker", async () => {
   (resolveShowPageAccess as any).mockResolvedValue(resolvedAccess);
   (getShowForViewer as any).mockResolvedValue({ crewMembers: [{ id: "other", name: "X" }] });
-  availabilityClient(null); // show gone
+  availabilityClient(null); // show gone → "missing"
   await expect(ShowPage({ params: Promise.resolve({ slug: "s", shareToken: "t" }), searchParams: Promise.resolve({}) })).rejects.toThrow("NEXT_NOT_FOUND");
 });
 
-test("Point B: projection missing id + unpublished show → notFound()", async () => {
+test("Point B: projection missing id + ARCHIVED show → notFound() (archived 404s, matches page.tsx:90-94)", async () => {
   (resolveShowPageAccess as any).mockResolvedValue(resolvedAccess);
   (getShowForViewer as any).mockResolvedValue({ crewMembers: [{ id: "other", name: "X" }] });
-  availabilityClient({ published: false, archived: false });
+  availabilityClient({ published: true, archived: true }); // archived → "archived"
   await expect(ShowPage({ params: Promise.resolve({ slug: "s", shareToken: "t" }), searchParams: Promise.resolve({}) })).rejects.toThrow("NEXT_NOT_FOUND");
+});
+
+test("Point A: CrewMemberNotInShowError + UNPUBLISHED show → paused page (ShowUnavailable, HTTP 200), NOT notFound()", async () => {
+  // Concrete failure mode this catches: collapsing `published !== true` into notFound(). The published-toggle
+  // contract (page.tsx:96-100) renders <ShowUnavailable/> for a paused link so republish restores it; a 404
+  // would break that. loadShowAvailability's discriminated "unpublished" arm must route here.
+  //
+  // REACHABILITY: the unpublished→renderRacedCrewMiss path is reachable ONLY via Point A (crew row gone →
+  // :301 CrewMemberNotInShowError fires BEFORE getShowForViewer's own :320/:321 published check). A crew row
+  // that is PRESENT on an unpublished show makes getShowForViewer throw a PLAIN Error at :321 (non-admin
+  // published-gate) → the resolved-case catch routes that to TerminalFailure, never reaching Point B's
+  // resolved-projection branch. So there is deliberately NO "Point B + unpublished" test — that state cannot
+  // occur through real getShowForViewer; only Point A + unpublished (crew removed AND show paused) can.
+  (resolveShowPageAccess as any).mockResolvedValue(resolvedAccess);
+  (getShowForViewer as any).mockRejectedValue(new CrewMemberNotInShowError());
+  availabilityClient({ published: false, archived: false }); // unpublished → "unpublished"
+  const { container } = render(await ShowPage({ params: Promise.resolve({ slug: "s", shareToken: "t" }), searchParams: Promise.resolve({}) }));
+  expect(container.querySelector('[data-testid="crew-show-paused-root"]')).not.toBeNull();
+  expect(container.querySelector('[data-testid="picker-interstitial-root"]')).toBeNull();
 });
 
 test("Point B fail-closed: TRUTHY NON-ARRAY crewMembers → NO page-level throw; CrewShell surfaces malformed-projection TerminalFailure (NOT the picker, NOT re-pick, NOT a raw Next error)", async () => {
@@ -842,10 +861,11 @@ test("negative: generic getShowForViewer error → TerminalFailure, not re-pick"
 
 > The roster-fail case exercises `renderRacedCrewMiss`'s roster `try/catch`: with roster-first ordering, `loadRoster` throws (`new Error("roster lookup failed")`) when the crew_members read returns `{ error }`, and the catch returns `TerminalFailure`. An implementation that drops that catch fails here (the throw escapes to Next's generic boundary instead of `terminal-failure`).
 
-This covers the full matrix for **both** points: Point A {available→picker, cascade-deleted→notFound, roster-infra→TerminalFailure, availability-infra→TerminalFailure} and Point B {available→picker, deleted→notFound, unpublished→notFound, **truthy-non-array→malformed-projection TerminalFailure (fail-closed, no page-level throw)**}, plus the **TOCTOU ordering** cases for BOTH resolved-race paths {Point A via rejected `CrewMemberNotInShowError` AND Point B via a returned projection missing the id — each asserts roster read precedes availability read; cascade-emptied roster + deleted show → notFound, never an empty picker}. Three pins:
-> - **round-1 fix** — `notFound()` is not swallowed: each read's catch is scoped to the READ only, so `notFound()` (from the `"unavailable"` gate) propagates.
+This covers the full matrix for **both** points. The `loadShowAvailability` result is DISCRIMINATED (`available` | `missing` | `archived` | `unpublished`), so each availability outcome is pinned separately, matching the published-toggle contract (page.tsx:90-107): Point A {available→picker, missing/cascade→notFound, **archived→notFound**, **unpublished→ShowUnavailable (HTTP 200, NOT 404)**, roster-infra→TerminalFailure, availability-infra→TerminalFailure} and Point B {available→picker, missing→notFound, **archived→notFound**, **truthy-non-array→malformed-projection TerminalFailure (fail-closed, no page-level throw)**}, plus the **TOCTOU ordering** cases for BOTH resolved-race paths {Point A via rejected `CrewMemberNotInShowError` AND Point B via a returned projection missing the id — each asserts roster read precedes availability read; cascade-emptied roster + missing show → notFound, never an empty picker}. (Unpublished is deliberately Point-A-only: a crew row PRESENT on an unpublished show makes `getShowForViewer` throw plain at `:321` → TerminalFailure, so Point B's *resolved-projection* branch is never reached for unpublished — see the Point A unpublished test's reachability note.) Four pins:
+> - **round-1 fix** — `notFound()` is not swallowed: each read's catch is scoped to the READ only, so `notFound()` (from the missing/archived gate) propagates.
 > - **round-7 fix** — `crew` is computed only inside an `Array.isArray` block, so a degraded truthy-non-array projection routes through `CrewShell`→`resolveViewerContext`'s existing `MalformedProjectionError` fail-closed path instead of throwing `find is not a function` at the page level.
 > - **round-8 fix** — the availability re-check is the FINAL await before render (roster read first), closing the show-delete cascade window that would otherwise render an empty picker for a deleted show; the ordering assertion (`crew_members` index < `shows` index) pins it structurally.
+> - **round-12 fix** — `loadShowAvailability` is DISCRIMINATED (not a boolean `available|unavailable`): `unpublished` routes to `<ShowUnavailable />` (paused link, HTTP 200) not `notFound()`, preserving the published-toggle contract so a republish restores the link; `missing`/`archived` still 404.
 
 > Confirm `TerminalFailure`'s root `data-testid` (`components/auth/TerminalFailure.tsx`) and `PickerInterstitial`'s (`picker-interstitial-root`, verified) before running; adjust selectors to the real ids.
 
@@ -856,10 +876,10 @@ Expected: the Point A/B + cascade + TOCTOU-ordering + infra + roster-fail + trut
 
 - [ ] **Step 4: Add the three helpers (`loadShowAvailability` + `renderPickerRepick` + `renderRacedCrewMiss`)**
 
-In `page.tsx`, add module-scope helpers (near `loadRoster`). Import `PickerInterstitialBannerCode` type from `./_PickerInterstitial`; `createSupabaseServiceRoleClient` is already imported (used by `loadRoster`), and `notFound` is already imported from `next/navigation` (used by `archived`/`show_unavailable`):
+In `page.tsx`, add module-scope helpers (near `loadRoster`). Import `PickerInterstitialBannerCode` type from `./_PickerInterstitial`; `createSupabaseServiceRoleClient` is already imported (used by `loadRoster`), `notFound` is already imported from `next/navigation` (used by `archived`/`show_unavailable`), and `ShowUnavailable` is already imported from `./ShowUnavailable` (page.tsx:40, used by the `unpublished` arm):
 
 ```tsx
-async function loadShowAvailability(showId: string): Promise<"available" | "unavailable"> {
+async function loadShowAvailability(showId: string): Promise<"available" | "missing" | "archived" | "unpublished"> {
   const supabase = createSupabaseServiceRoleClient();
   // not-subject-to-meta: page.tsx-local read; {data,error} + fail-closed; covered by route tests (mirrors loadRoster)
   const { data, error } = await supabase
@@ -868,7 +888,11 @@ async function loadShowAvailability(showId: string): Promise<"available" | "unav
     .eq("id", showId)
     .maybeSingle();
   if (error) throw new Error("show availability lookup failed");
-  if (!data || data.archived === true || data.published !== true) return "unavailable";
+  // DISCRIMINATED — mirrors the existing published-toggle contract (page.tsx:90-107):
+  // archived/missing 404; unpublished renders the paused-link page (HTTP 200), NOT a 404.
+  if (!data) return "missing";
+  if (data.archived === true) return "archived";
+  if (data.published !== true) return "unpublished";
   return "available";
 }
 
@@ -913,14 +937,19 @@ async function renderRacedCrewMiss(args: { showId: string; slug: string; shareTo
   } catch {
     return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" retryHref={`/show/${args.slug}/${args.shareToken}`} />;
   }
-  let availability: "available" | "unavailable";
+  let availability: "available" | "missing" | "archived" | "unpublished";
   try {
     availability = await loadShowAvailability(args.showId); // LAST — final gate; reflects post-cascade state
   } catch {
     return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" retryHref={`/show/${args.slug}/${args.shareToken}`} />;
   }
-  // Outside every catch: notFound() throws NEXT_NOT_FOUND and MUST propagate to Next.
-  if (availability === "unavailable") notFound(); // show-deleted cascade → show_unavailable semantics (page.tsx:102-106)
+  // Mirror the published-toggle contract (page.tsx:90-107) EXACTLY — outside every catch so notFound()'s
+  // NEXT_NOT_FOUND sentinel propagates:
+  //   missing (deleted/cascade) OR archived → notFound()  (404)
+  //   unpublished (paused link)             → <ShowUnavailable />  (HTTP 200, republish restores)
+  //   available                             → guided re-pick
+  if (availability === "missing" || availability === "archived") notFound();
+  if (availability === "unpublished") return <ShowUnavailable />;
   return renderPickerRepick({ ...args, banner: "PICKER_REMOVED_FROM_ROSTER_BANNER", staleCleanupHint: null, preloadedRoster: roster });
 }
 ```
