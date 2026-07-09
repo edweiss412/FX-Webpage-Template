@@ -39,6 +39,11 @@ jobs:
   mutation-harness:
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    # issues:write lets the schedule-only notify steps open/close the single red-nightly tracking
+    # issue via the built-in GITHUB_TOKEN (no external secret). contents:read is the default floor.
+    permissions:
+      contents: read
+      issues: write
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -54,3 +59,48 @@ jobs:
         env:
           VITEST_INCLUDE_MUTATION_HARNESS: "1"
         run: pnpm exec vitest run --project mutation
+      # A scheduled red run is otherwise invisible (no required check, no default notification that
+      # anyone reads), so surface it as ONE deduped tracking issue. Scheduled/dispatch only: a
+      # pull_request run already shows red on the PR's checks, so filing an issue there is noise.
+      # Uses only trusted context.* values (no untrusted user input) — no injection surface.
+      - name: Surface a red nightly as a tracking issue
+        if: ${{ failure() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const label = "mutation-harness-red";
+            const { owner, repo } = context.repo;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const body = [
+              `The nightly mutation-harness run failed: ${runUrl}`,
+              "",
+              "Triage by the labeled bucket in the failing shard assertion (reconcileLedger classification):",
+              "- NEW untested holes (REGRESSION): a parser change stopped catching mutants. Investigate; do NOT re-bless.",
+              "- FIXED holes: coverage improved. Delete those rows from tests/parser/mutation/knownHoles.ts (shrink the ledger).",
+              "- DRIFTED fingerprints: benign IF parser output changed on purpose. Regenerate the ledger (BL-MUTATION-LEDGER-*).",
+              "",
+              "Auto-filed by mutation-harness.yml; auto-closes on the next green scheduled run.",
+            ].join("\n");
+            const open = await github.rest.issues.listForRepo({ owner, repo, state: "open", labels: label });
+            if (open.data.length > 0) {
+              await github.rest.issues.createComment({ owner, repo, issue_number: open.data[0].number, body });
+            } else {
+              await github.rest.issues.create({ owner, repo, title: "Mutation harness nightly is red", body, labels: [label] });
+            }
+      # Close the tracking issue automatically once a scheduled run goes green again.
+      - name: Auto-close the tracking issue on green
+        if: ${{ success() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const label = "mutation-harness-red";
+            const { owner, repo } = context.repo;
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            const open = await github.rest.issues.listForRepo({ owner, repo, state: "open", labels: label });
+            for (const iss of open.data) {
+              await github.rest.issues.createComment({
+                owner, repo, issue_number: iss.number,
+                body: `Nightly mutation-harness is green again: ${runUrl}. Closing.`,
+              });
+              await github.rest.issues.update({ owner, repo, issue_number: iss.number, state: "closed" });
+            }
