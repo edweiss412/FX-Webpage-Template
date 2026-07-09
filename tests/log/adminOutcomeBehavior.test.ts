@@ -392,6 +392,10 @@ import { createInMemorySlotStore } from "@/lib/agenda/extractAgendaLease";
 // so ONLY the mutation entry point of each is overridden. @/lib/log is NEVER mocked.
 import type { ApplyStagedResult } from "@/lib/sync/applyStaged";
 import { PENDING_SYNC_NOT_FOUND } from "@/lib/sync/applyStaged";
+import type {
+  PromoteSnapshotResult,
+  RepairSnapshotRollbackResult,
+} from "@/lib/sync/promoteSnapshot";
 import { POST as stagedApplyPost } from "@/app/api/admin/staged/[fileId]/apply/route";
 
 const applyStagedMock = vi.fn(
@@ -405,9 +409,14 @@ vi.mock("@/lib/sync/applyStaged", async (importActual) => ({
   applyStaged: (...a: unknown[]) => applyStagedMock(...a),
 }));
 
-const promoteSnapshotUploadMock = vi.fn(async (..._a: unknown[]): Promise<unknown> => ({}));
+const promoteSnapshotUploadMock = vi.fn(
+  async (..._a: unknown[]): Promise<PromoteSnapshotResult> => ({
+    outcome: "already_promoted",
+    snapshotRevisionId: "snap-1",
+  }),
+);
 const repairSnapshotRollbackMock = vi.fn(
-  async (..._a: unknown[]): Promise<unknown> => ({
+  async (..._a: unknown[]): Promise<RepairSnapshotRollbackResult> => ({
     outcome: "not_stuck",
     snapshotRevisionId: "snap-1",
   }),
@@ -2998,6 +3007,43 @@ describe("Batch 3 — final grandfathered surfaces graduate to inline proof", ()
         return syncSlugPost(req(), ctx());
       },
       failureExpect: { status: 409 },
+    });
+  });
+
+  test("B3 snapshot-rollback repair (/[id]) emits SNAPSHOT_ROLLBACK_REPAIRED", async () => {
+    const file = "app/api/admin/snapshot-rollback/[id]/repair/route.ts";
+    const ROLLBACK_ID = "22222222-2222-4222-8222-222222222222"; // matches UUID_RE
+    const ctx = () => ({ params: Promise.resolve({ id: ROLLBACK_ID }) });
+    const req = () => new NextRequest("https://x/repair", { method: "POST" });
+    const withLedgerClient = () => {
+      // Ledger row read via service-role BEFORE repairSnapshotRollback (Codex plan-R1 MEDIUM).
+      serviceRoleClientImpl.current = () =>
+        makeClient({
+          from: { data: { drive_file_id: "df-1", snapshot_revision_id: "snap-1" }, error: null },
+        });
+    };
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "SNAPSHOT_ROLLBACK_REPAIRED",
+      success: () => {
+        withLedgerClient();
+        repairSnapshotRollbackMock.mockImplementation(async () => ({
+          outcome: "repaired",
+          snapshotRevisionId: "snap-1",
+        }));
+        return snapshotRepairPost(req(), ctx());
+      },
+      failure: (mark) => {
+        withLedgerClient();
+        // Real not_stuck union member (snapshotRevisionId REQUIRED) → 409.
+        repairSnapshotRollbackMock.mockImplementation(async () => {
+          mark.hit = true;
+          return { outcome: "not_stuck", snapshotRevisionId: "snap-1" };
+        });
+        return snapshotRepairPost(req(), ctx());
+      },
+      failureExpect: { status: 409 }, // body key `error`
     });
   });
   // <<< BATCH-3 PROOF BLOCK END
