@@ -32,6 +32,21 @@
     "revoked_at",
     "revoked_by"
   ],
+  "admin_overrides": [
+    "active",
+    "created_at",
+    "created_by",
+    "deactivation_code",
+    "domain",
+    "field",
+    "id",
+    "match_key",
+    "override_value",
+    "sheet_value",
+    "show_id",
+    "updated_at",
+    "version"
+  ],
   "agenda_extract_leases": [
     "drive_file_id",
     "expires_at",
@@ -60,6 +75,7 @@
     "bell_history_days",
     "daily_review_digest",
     "id",
+    "last_monitor_digest_sent_at",
     "pending_folder_id",
     "pending_folder_name",
     "pending_folder_set_at",
@@ -94,6 +110,7 @@
     "role",
     "role_flags",
     "selections_reset_at",
+    "sheet_name",
     "show_id",
     "stage_restriction"
   ],
@@ -291,6 +308,8 @@
     "video"
   ],
   "show_change_log": [
+    "acknowledged_at",
+    "acknowledged_by",
     "after_image",
     "before_image",
     "change_kind",
