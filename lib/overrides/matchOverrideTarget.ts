@@ -1,4 +1,7 @@
-import { HOTEL_DISAMBIGUATOR_SEP, computeHotelDisambiguator } from "@/lib/overrides/hotelDisambiguator";
+import {
+  HOTEL_DISAMBIGUATOR_SEP,
+  computeHotelDisambiguator,
+} from "@/lib/overrides/hotelDisambiguator";
 
 // §5.3 / §3.6 — resolve an override's `match_key` against the current parsed identity
 // set. Shared by the sync transform and the RPC-adjacent TS (matching is identical
@@ -32,7 +35,10 @@ export type MatchOutcome = {
   disambiguatorUnique: boolean;
 };
 
-export function matchOverrideTarget(override: OverrideTarget, parsed: ParsedIdentity): MatchOutcome {
+export function matchOverrideTarget(
+  override: OverrideTarget,
+  parsed: ParsedIdentity,
+): MatchOutcome {
   if (override.domain === "crew") {
     const names = parsed.crewNames ?? [];
     return { matched: names.includes(override.matchKey), disambiguatorUnique: true };

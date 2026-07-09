@@ -71,7 +71,8 @@ export function validateOverrideValue(
 ): ValidateOverrideResult {
   // --- show domain: dates / venue jsonb shape ---
   if (field === "dates" || field === "venue") {
-    if (!isPlainObject(value) || Object.keys(value).length === 0) return { ok: false, code: "invalid_shape" };
+    if (!isPlainObject(value) || Object.keys(value).length === 0)
+      return { ok: false, code: "invalid_shape" };
     if (field === "dates" && !isValidDatesShape(value)) return { ok: false, code: "invalid_shape" };
     if (field === "venue" && !isValidVenueShape(value)) return { ok: false, code: "invalid_shape" };
     return { ok: true };
@@ -108,7 +109,8 @@ export function validateOverrideValue(
     ]);
     if (others.has(text)) return { ok: false, code: "name_conflict" };
   } else if (field === "hotel_name") {
-    if (new Set(ctx.otherFinalHotelNames ?? []).has(text)) return { ok: false, code: "name_conflict" };
+    if (new Set(ctx.otherFinalHotelNames ?? []).has(text))
+      return { ok: false, code: "name_conflict" };
   }
 
   return { ok: true };

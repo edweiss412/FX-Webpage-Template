@@ -35,7 +35,9 @@ describe("computeHotelDisambiguator", () => {
 
   it("null check_in / null confirmation_no → ''-substituted, never the literal string 'null'", () => {
     expect(computeHotelDisambiguator({ check_in: null, confirmation_no: null })).toBe("");
-    expect(computeHotelDisambiguator({ check_in: null, confirmation_no: null })).not.toContain("null");
+    expect(computeHotelDisambiguator({ check_in: null, confirmation_no: null })).not.toContain(
+      "null",
+    );
 
     // A null check_in with a present confirmation_no substitutes '' for the date part,
     // never the string 'null' — the separator + confirmation still trails.

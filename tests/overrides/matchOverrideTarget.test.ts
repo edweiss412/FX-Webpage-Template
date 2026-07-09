@@ -14,7 +14,10 @@ const SEP = "\x1f";
 
 /** Build the hotel `match_key` exactly as the override layer does: name, plus the
  *  content disambiguator when the name is part of a same-name group. */
-function hotelMatchKey(name: string, res?: { check_in: string | null; confirmation_no: string | null }): string {
+function hotelMatchKey(
+  name: string,
+  res?: { check_in: string | null; confirmation_no: string | null },
+): string {
   return res ? `${name}${SEP}${computeHotelDisambiguator(res)}` : name;
 }
 
@@ -24,12 +27,19 @@ describe("matchOverrideTarget — hotel domain", () => {
       { hotel_name: "Marriott Downtown", check_in: "2026-04-15", confirmation_no: "M1" },
       { hotel_name: "Hilton Bayfront", check_in: "2026-04-15", confirmation_no: "H1" },
     ];
-    const res = matchOverrideTarget({ domain: "hotel", matchKey: hotelMatchKey("Marriott Downtown") }, { hotels });
+    const res = matchOverrideTarget(
+      { domain: "hotel", matchKey: hotelMatchKey("Marriott Downtown") },
+      { hotels },
+    );
     expect(res).toEqual({ matched: true, disambiguatorUnique: true });
   });
 
   it("a same-name pair resolves via the `check_in` disambiguator to exactly one", () => {
-    const target: HotelRow = { hotel_name: "Airport Inn", check_in: "2026-04-14", confirmation_no: null };
+    const target: HotelRow = {
+      hotel_name: "Airport Inn",
+      check_in: "2026-04-14",
+      confirmation_no: null,
+    };
     const hotels: HotelRow[] = [
       target,
       { hotel_name: "Airport Inn", check_in: "2026-04-20", confirmation_no: null },
@@ -42,7 +52,11 @@ describe("matchOverrideTarget — hotel domain", () => {
   it("a same-name pair with SAME check_in but DIFFERENT confirmation_no resolves to exactly one via check_in + \\x1f + confirmation_no (REST2-4)", () => {
     // This is the whole reason the `\x1f` second stage exists: check_in alone collides,
     // so confirmation_no is the tiebreaker and MUST resolve to exactly one row.
-    const target: HotelRow = { hotel_name: "Grand Plaza", check_in: "2026-04-15", confirmation_no: "AAA" };
+    const target: HotelRow = {
+      hotel_name: "Grand Plaza",
+      check_in: "2026-04-15",
+      confirmation_no: "AAA",
+    };
     const hotels: HotelRow[] = [
       target,
       { hotel_name: "Grand Plaza", check_in: "2026-04-15", confirmation_no: "BBB" },
@@ -55,7 +69,11 @@ describe("matchOverrideTarget — hotel domain", () => {
   });
 
   it("a same-name pair whose disambiguator FULLY collides (equal check_in AND equal confirmation_no) → disambiguatorUnique:false (fail-closed)", () => {
-    const target: HotelRow = { hotel_name: "Grand Plaza", check_in: "2026-04-15", confirmation_no: "AAA" };
+    const target: HotelRow = {
+      hotel_name: "Grand Plaza",
+      check_in: "2026-04-15",
+      confirmation_no: "AAA",
+    };
     const hotels: HotelRow[] = [
       target,
       { hotel_name: "Grand Plaza", check_in: "2026-04-15", confirmation_no: "AAA" }, // fully identical disambiguator
@@ -73,7 +91,10 @@ describe("matchOverrideTarget — hotel domain", () => {
       { hotel_name: "Marriott Downtown", check_in: "2026-04-15", confirmation_no: "M1" },
       { hotel_name: "Marriott Downtown", check_in: "2026-04-18", confirmation_no: "M2" },
     ];
-    const res = matchOverrideTarget({ domain: "hotel", matchKey: hotelMatchKey("Marriott Downtown") }, { hotels });
+    const res = matchOverrideTarget(
+      { domain: "hotel", matchKey: hotelMatchKey("Marriott Downtown") },
+      { hotels },
+    );
     expect(res).toEqual({ matched: true, disambiguatorUnique: false });
   });
 
@@ -81,7 +102,10 @@ describe("matchOverrideTarget — hotel domain", () => {
     const hotels: HotelRow[] = [
       { hotel_name: "Hilton Bayfront", check_in: "2026-04-15", confirmation_no: "H1" },
     ];
-    const res = matchOverrideTarget({ domain: "hotel", matchKey: hotelMatchKey("Marriott Downtown") }, { hotels });
+    const res = matchOverrideTarget(
+      { domain: "hotel", matchKey: hotelMatchKey("Marriott Downtown") },
+      { hotels },
+    );
     expect(res).toEqual({ matched: false, disambiguatorUnique: false });
   });
 });
@@ -89,17 +113,21 @@ describe("matchOverrideTarget — hotel domain", () => {
 describe("matchOverrideTarget — crew domain", () => {
   it("matches a parsed crew name", () => {
     const crewNames = ["Alice Smith", "Bob Jones"];
-    expect(matchOverrideTarget({ domain: "crew", matchKey: "Alice Smith" }, { crewNames })).toEqual({
-      matched: true,
-      disambiguatorUnique: true,
-    });
+    expect(matchOverrideTarget({ domain: "crew", matchKey: "Alice Smith" }, { crewNames })).toEqual(
+      {
+        matched: true,
+        disambiguatorUnique: true,
+      },
+    );
   });
 
   it("a removed crew member → matched:false", () => {
     const crewNames = ["Bob Jones"];
-    expect(matchOverrideTarget({ domain: "crew", matchKey: "Alice Smith" }, { crewNames })).toEqual({
-      matched: false,
-      disambiguatorUnique: true,
-    });
+    expect(matchOverrideTarget({ domain: "crew", matchKey: "Alice Smith" }, { crewNames })).toEqual(
+      {
+        matched: false,
+        disambiguatorUnique: true,
+      },
+    );
   });
 });
