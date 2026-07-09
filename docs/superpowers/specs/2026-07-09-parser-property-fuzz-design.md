@@ -65,7 +65,7 @@ Every dial is registered in `dials.ts` with `{ name, contract, arbitrary }` wher
 | `crewColumns` | header-row column-order permutations of the crew vocab; headerless positional layout | `lib/parser/blocks/crew.ts:75` (`CREW_COLUMN_VOCAB`), `:80-84` (positional defaults) |
 | `sectionOrder` | permutation of section order; omission of optional sections | `lib/parser/index.ts` block dispatch (sections independent) |
 | `blankPadding` | 0–3 blank rows between sections; trailing blank cells | segmentation contract, `tests/parser/mutation/rows.ts` |
-| `address` | US suffix-bearing streets, suffixless `…, ST ZIP` tails, Canadian postal tails | `lib/parser/blocks/hotels.ts:319-320` (`STREET_ADDRESS_RE`), `:325-326` (`STREET_ADDRESS_ZIP_RE`, Canadian alternative `[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d`) |
+| `address` | US suffix-bearing streets ONLY (incl. Crescent/Commons/Mews-class suffixes) | `lib/parser/blocks/hotels.ts:319-320` (`STREET_ADDRESS_RE`) — the split contract. Suffixless `…, ST ZIP`/Canadian-postal tails (`STREET_ADDRESS_ZIP_RE`, `:325-326`) are deliberately EXCLUDED: that regex is a dash-discriminator only, never a split trigger (`hotels.ts:330-333` "NOT used to SPLIT"); suffixless addresses stay glued-safe in `hotel_name` by design, so they are not a round-trip contract |
 
 **Ambiguity guard (dateFormat):** when the dial renders a slash/dash date whose day ≤ 12 (order-ambiguous), ground truth is the parser's MDY-first slash/dash order (`lib/parser/blocks/_helpers.ts:154-162` — `month = slash[1]`); the model may also receive the `DATE_ORDER_SUGGESTS_DMY` warning (ambiguity-warnings-v1, PR #367) — Tier 2 counts that as a signal, never as a failure. The dial never plants a date whose **intended** semantics are DMY in an ambiguous rendering.
 
@@ -83,19 +83,21 @@ Model-free hostile input for Tier 1 only: random line soup biased toward `|`, `\
 
 1. **Never throws:** `parseSheet` returns for every input (its internal try/catch discipline holds; the cron-path guard `runScheduledCronSync.ts:2865-2884` must never be the only net).
 2. **Deterministic:** parsing the same input twice yields deeply-equal `ParsedSheet` (via `tests/parser/mutation/oracle.ts:103` `fingerprint` or vitest `toEqual`).
-3. **Structurally valid:** output satisfies `assertParsedSheetShape` — every field of `ParsedSheet` (`lib/parser/types.ts:378-402`) present with correct container types; `warnings[]`/`hardErrors[]` entries carry non-empty string `code`; payload is JSON-round-trippable.
+3. **Structurally valid:** output satisfies `assertParsedSheetShape` — every REQUIRED field of `ParsedSheet` (`lib/parser/types.ts:378-402`) present with correct container types; optional fields (`runOfShow?`) validated only when present; `warnings[]`/`hardErrors[]` entries carry non-empty string `code`; payload is JSON-round-trippable.
 4. **Bounded:** completes within the property timeout (structural guard against catastrophic-backtracking regex regressions).
 
 (No "sentinel leak" property: parser payload legitimately carries sentinel strings like `TBD` — hiding them is the UI contract enforced by `tests/components/tiles/_metaSentinelHidingContract.test.ts`, not a parser invariant.)
 
 ### 4.2 Tier 2 — plant-and-find (inputs: model-rendered only)
 
-For every planted entity, **either** it round-trips correctly **or** an attributable signal fired:
+**Precondition — no hardErrors, ever, on model-rendered input.** Every dial is in-contract by construction, so a hardError on model-rendered input is itself a property failure — the render layer MUST plant sufficient confident version markers (≥2 markers across ≥2 independent blocks, `lib/parser/schema.ts:88-101`) so `classifyVersion` never returns ambiguous; `VERSION_AMBIGUOUS` (or any other hardError) on generated input fails the property outright. This closes the vacuous-pass path where a sheet-level hardError would absolve every planted miss at once. hardErrors are therefore NOT an absolution channel in Tier 2 at all.
+
+For every planted entity, **either** it round-trips correctly **or** an attributable non-fatal signal fired:
 
 - **Found correctly:** entity appears in the payload section it was planted into with matching identity fields (crew: name + role verbatim per the verbatim-storage contract, audit §6 2.1 findings; dates: ISO-equal to model; rooms: name + normalized dims; hotels: name + guests ⊆ planted names).
-- **Attributable signal:** a warning/hardError whose `blockRef.kind` (`lib/parser/types.ts:7-29`) maps to the entity's section, **or** any hardError (sheet-level failures gate apply anyway), **or** a `raw_unrecognized` row containing the planted value.
+- **Attributable signal:** a warning whose `blockRef.kind` (`lib/parser/types.ts:7-28`) maps to the entity's section, **or** a `raw_unrecognized` row whose `block` field maps to the entity's section AND whose content contains the planted value. Both channels are section-scoped — value match alone is not enough (crew names are deliberately reused as hotel guests, so a cross-section value collision must not mask a miss).
 
-An unrelated section's warning does NOT absolve a miss elsewhere — this prevents one noisy section from masking silent drops (the mutation harness's `SILENT_WRONG` discipline, `tests/parser/mutation/oracle.ts:67-76`, applied with ground truth instead of baseline-diff).
+An unrelated section's warning or `raw_unrecognized` row does NOT absolve a miss elsewhere — this prevents one noisy section from masking silent drops (the mutation harness's `SILENT_WRONG` discipline, `tests/parser/mutation/oracle.ts:67-76`, applied with ground truth instead of baseline-diff).
 
 Expected-signal cases are first-class: the headerless-crew dial value asserts `CREW_COLUMN_POSITIONAL_FALLBACK` (`lib/parser/blocks/crew.ts:159`) actually fires — the property net double-covers audit item 2.1's fix.
 
@@ -141,7 +143,7 @@ All run-count/seed numbers live in `seeds.ts` — single source; the table below
 
 ## 8. Meta-test inventory (AGENTS.md writing-plans requirement)
 
-- **CREATES** `tests/parser/fuzz/_metaDialRegistry.test.ts`: walks `dials.ts` exports; every dial must be registered with a non-empty `contract` citation whose file path exists in the repo (fails-by-default for a new dial added without a contract — mirrors the known-sections-walker pattern, `tests/parser/_metaKnownSectionsWalker.test.ts`, PR #351).
+- **CREATES** `tests/parser/fuzz/_metaDialRegistry.test.ts`: walks `dials.ts` exports; every dial must be registered with a `contract` citation of the form `<repo-relative-file>:<symbol>` where the file exists AND the named symbol string occurs in that file's current content (symbol-presence, not line-number pinning — line pins rot; a deleted/renamed contract symbol fails the walker). Fails-by-default for a new dial added without a contract — mirrors the known-sections-walker pattern, `tests/parser/_metaKnownSectionsWalker.test.ts`, PR #351.
 - **EXTENDS:** none. Mutation-harness registries untouched. Not applicable: `_metaInfraContract` (no Supabase calls), sentinel-hiding walker (no tiles), admin-alert catalog (no new codes — fuzz asserts existing codes fire; it introduces none).
 
 ## 9. Success criteria
