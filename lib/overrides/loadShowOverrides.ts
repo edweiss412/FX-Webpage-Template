@@ -248,17 +248,32 @@ export async function loadShowOverrides(
   // sibling as "unique" and mint a disambiguator-LESS key for the un-renamed twin — a key that can
   // no longer identify its row once the rename is discarded (both revert to the shared parsed name)
   // or on the next full-replace re-sync (the overlay re-derives match_key from the parsed name).
-  // The parsed name of a live row = the name-part of its ACTIVE hotel_name override's stored
-  // match_key (the override records the parsed identity it was created against) else the live name.
+  // Does an ACTIVE hotel_name override row `r` rename the live reservation identified by
+  // (liveName, disamb)? Binding by `override_value === liveName` ALONE cross-binds when two live
+  // rows share a name (R3 R4 HIGH): row A parsed `Hilton` (un-renamed) beside row B actively renamed
+  // `Marriott → Hilton` would let A pick up B's override — miskeying A's parsed identity AND handing
+  // A the wrong matchKey. So the bind also requires the override to TARGET this row: a disambiguated
+  // key must match THIS row's booking disambiguator (check_in[+confirmation_no] — stable, not
+  // overridable, so it survives the rename); a name-only key (created when the name was unique) binds
+  // only while the live name is STILL unique. ONE predicate feeds BOTH the parsed-identity count and
+  // the per-row override resolver below, so the two can never drift (class-sweep — R4).
+  const activeRenameBindsRow = (r: OverrideRow, liveName: string, disamb: string): boolean => {
+    if (r.domain !== "hotel" || r.field !== "hotel_name" || !r.active) return false;
+    if (displayValue(r.override_value) !== liveName) return false;
+    const sepIdx = r.match_key.indexOf(HOTEL_DISAMBIGUATOR_SEP);
+    if (sepIdx < 0) {
+      // Name-only key: bind only if exactly one live row currently carries this name.
+      return hotelRows.filter((x) => (x.hotel_name ?? "") === liveName).length === 1;
+    }
+    return r.match_key.slice(sepIdx + 1) === disamb;
+  };
+
+  // The parsed name of a live row = the name-part of the ACTIVE hotel_name override that renamed it
+  // (its stored match_key records the parsed identity it was created against) else the live name.
   const parsedHotelName = (h: HotelRow): string => {
     const liveName = h.hotel_name ?? "";
-    const activeRename = overrideRows.find(
-      (r) =>
-        r.domain === "hotel" &&
-        r.field === "hotel_name" &&
-        r.active &&
-        displayValue(r.override_value) === liveName,
-    );
+    const disamb = computeHotelDisambiguator(h);
+    const activeRename = overrideRows.find((r) => activeRenameBindsRow(r, liveName, disamb));
     if (!activeRename) return liveName;
     const sepIdx = activeRename.match_key.indexOf(HOTEL_DISAMBIGUATOR_SEP);
     return sepIdx < 0 ? activeRename.match_key : activeRename.match_key.slice(0, sepIdx);
@@ -283,7 +298,9 @@ export async function loadShowOverrides(
     const nameOverride = mark(
       overrideRows.find((r) => {
         if (r.domain !== "hotel" || r.field !== "hotel_name") return false;
-        if (r.active) return displayValue(r.override_value) === liveName;
+        // ACTIVE: bind only if this override actually renamed THIS row (row-targeted, R4) —
+        // NOT merely value === liveName, which cross-binds a same-live-name sibling.
+        if (r.active) return activeRenameBindsRow(r, liveName, disamb);
         // stale: the live row shows the parsed name again, so the name alone is NOT a
         // unique key inside a same-name group (§5.3). Match on the parsed name AND, when
         // the stored key carries a `\x1f`-delimited disambiguator, require it to equal

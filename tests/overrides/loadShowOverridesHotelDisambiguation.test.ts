@@ -223,4 +223,57 @@ describe("loadShowOverrides — duplicate hotel-name paused overrides bind by di
     expect(hotelB!.matchKey).toContain(HOTEL_DISAMBIGUATOR_SEP);
     expect(hotelB!.matchKey).not.toBe("Grand Marriott"); // the pre-fix (bare-name) value
   });
+
+  // Adversarial R4 (Codex round 4, HIGH — G1 hardening): binding an active hotel_name
+  // override to a live row by `override_value === liveName` ALONE cross-binds when two
+  // rows share a live name. Row A parses "Hilton" (un-renamed) beside row B actively
+  // renamed "Marriott → Hilton": A would pick up B's override and be miskeyed "Marriott",
+  // then over-disambiguated (nameCounts["Marriott"] === 2). The parsed-identity resolver
+  // must additionally require the override to target THIS row (booking disambiguator).
+  it("an un-renamed row is NOT cross-bound to a sibling's active override that renamed TO its name", async () => {
+    const resA = {
+      id: "res-A",
+      ordinal: 1,
+      hotel_name: "Hilton", // parsed "Hilton", NO override
+      hotel_address: "1 A St",
+      check_in: "2026-07-01",
+      confirmation_no: "AAA",
+    };
+    const resB = {
+      id: "res-B",
+      ordinal: 2,
+      hotel_name: "Hilton", // parsed "Marriott", actively renamed TO "Hilton"
+      hotel_address: "2 B St",
+      check_in: "2026-08-01",
+      confirmation_no: "BBB",
+    };
+    const disambB = computeHotelDisambiguator(resB);
+    const overrides = [
+      {
+        domain: "hotel",
+        field: "hotel_name",
+        match_key: `Marriott${HOTEL_DISAMBIGUATOR_SEP}${disambB}`,
+        override_value: "Hilton",
+        sheet_value: "Marriott",
+        active: true,
+        deactivation_code: null,
+        version: 1,
+      },
+    ];
+    const supabase = fakeSupabase({
+      admin_overrides: overrides,
+      hotel_reservations: [resA, resB],
+    });
+    const view = await loadShowOverrides(supabase, {
+      showId: "show-1",
+      crew: [],
+      showDates: null,
+      showVenue: null,
+    });
+    const hotelA = view.hotels.find((h) => h.id === "res-A")!;
+    // A parses to a genuinely-unique "Hilton" → bare key, NOT cross-bound / over-disambiguated.
+    expect(hotelA.matchKey).toBe("Hilton");
+    expect(hotelA.matchKey).not.toContain(HOTEL_DISAMBIGUATOR_SEP);
+    expect(hotelA.hotel_name.override).toBeNull(); // A owns no override
+  });
 });

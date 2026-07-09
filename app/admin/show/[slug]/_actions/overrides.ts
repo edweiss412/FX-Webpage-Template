@@ -67,6 +67,15 @@ async function resolveShowId(driveFileId: string): Promise<string | null> {
   }
 }
 
+// The pre-RPC shape-guard status code. It belongs to the LOCAL override-RPC-status
+// family (§10 leaves these UNcataloged — mapped to copy in OverrideableField's
+// OVERRIDE_RPC_COPY, alongside OVERRIDE_STALE_REVIEW / OVERRIDE_INVALID_OP /
+// OVERRIDE_INVALID_STATE), NOT the §12.4 catalog. Held as a named const (referenced,
+// never an inline `code: "..."` literal) so the §12.4 producer scan
+// (lib/messages/__internal__/codeProducers.ts) does not misread a local RPC-status code
+// as an orphan catalog producer — matching how the sibling codes stay off that scan.
+const OVERRIDE_INVALID_SHAPE = "OVERRIDE_INVALID_SHAPE" as const;
+
 export async function setFieldOverrideAction(
   params: SetFieldOverrideParams,
 ): Promise<SetFieldOverrideResult> {
@@ -91,7 +100,7 @@ export async function setFieldOverrideAction(
     const shape = validateOverrideValue(params.p_field, params.p_override_value, {
       matchKey: params.p_match_key,
     });
-    if (!shape.ok) return { ok: false, code: "OVERRIDE_INVALID_SHAPE" };
+    if (!shape.ok) return { ok: false, code: OVERRIDE_INVALID_SHAPE };
   }
 
   // (c) delegate to the service-role RPC helper — NO inline `.rpc` (deadlock rule).

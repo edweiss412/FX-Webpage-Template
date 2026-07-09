@@ -228,10 +228,12 @@ export function OverrideableField(props: OverrideableFieldProps) {
       try {
         parsed = JSON.parse(draft);
       } catch {
+        // not-subject:M5-D8 — client-side pre-submit JSON hint, never a §12.4 server code.
         setError("That isn't valid JSON. Fix the value and try again.");
         return;
       }
       if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+        // not-subject:M5-D8 — client-side pre-submit JSON hint, never a §12.4 server code.
         setError("This field needs a structured value (a JSON object).");
         return;
       }
