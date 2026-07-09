@@ -16,7 +16,7 @@ A property-based layer generates those shapes and asserts invariants the parser 
 
 **Phase 1 (this milestone):** generate markdown directly, feed `parseSheet(markdown, filename?)` (`lib/parser/index.ts:546`). Tier 1 + Tier 2 properties, chaos arbitrary, PR CI job, nightly deep job, regression corpus.
 
-**Phase 2 (separate follow-up milestone; designed here, not planned here):** generate workbook grids, `XLSX.write` to buffer, feed `synthesizeMarkdownFromXlsx(buffer, opts?)` (`lib/drive/exportSheetToMarkdown.ts:301`), then `parseSheet`. Adds exporter-normalization coverage (grid→table serialization, OLD-tab dropping, pull-sheet region detection). Same property set; exporter-specific Tier-1 additions (§6.3).
+**Phase 2 (separate follow-up milestone; designed here, not planned here):** generate workbook grids, `XLSX.write` to buffer, feed `synthesizeMarkdownFromXlsx(buffer, opts?)` (`lib/drive/exportSheetToMarkdown.ts:301`), then `parseSheet`. Adds exporter-normalization coverage (grid→table serialization, OLD-tab dropping, pull-sheet region detection). Same property set; exporter-specific Tier-1 additions (§6.1).
 
 **Out of scope (both phases):** sync/apply layers (`runOnboardingScan`, `runScheduledCronSync`); DB; UI; the per-field provenance model (the other open half of audit §7 item 5); replacing or modifying the mutation harness; fuzzing `parsePullSheet` internals beyond what flows through the two entry points.
 
@@ -65,9 +65,9 @@ Every dial is registered in `dials.ts` with `{ name, contract, arbitrary }` wher
 | `crewColumns` | header-row column-order permutations of the crew vocab; headerless positional layout | `lib/parser/blocks/crew.ts:75` (`CREW_COLUMN_VOCAB`), `:80-84` (positional defaults) |
 | `sectionOrder` | permutation of section order; omission of optional sections | `lib/parser/index.ts` block dispatch (sections independent) |
 | `blankPadding` | 0–3 blank rows between sections; trailing blank cells | segmentation contract, `tests/parser/mutation/rows.ts` |
-| `address` | US street/state/zip and Canadian street/province/postal shapes | `lib/parser/blocks/hotels.ts:258,265` |
+| `address` | US suffix-bearing streets, suffixless `…, ST ZIP` tails, Canadian postal tails | `lib/parser/blocks/hotels.ts:319-320` (`STREET_ADDRESS_RE`), `:325-326` (`STREET_ADDRESS_ZIP_RE`, Canadian alternative `[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d`) |
 
-**Ambiguity guard (dateFormat):** when the dial renders a slash/dash date whose day ≤ 12 (order-ambiguous), ground truth is the parser's documented MDY default; the model may also receive the `DATE_ORDER_SUGGESTS_DMY` warning (ambiguity-warnings-v1, PR #367) — Tier 2 counts that as a signal, never as a failure. The dial never plants a date whose **intended** semantics are DMY in an ambiguous rendering.
+**Ambiguity guard (dateFormat):** when the dial renders a slash/dash date whose day ≤ 12 (order-ambiguous), ground truth is the parser's MDY-first slash/dash order (`lib/parser/blocks/_helpers.ts:154-162` — `month = slash[1]`); the model may also receive the `DATE_ORDER_SUGGESTS_DMY` warning (ambiguity-warnings-v1, PR #367) — Tier 2 counts that as a signal, never as a failure. The dial never plants a date whose **intended** semantics are DMY in an ambiguous rendering.
 
 **Typo-dial guard:** `headerTypo` applies at most one edit and never produces a string that collides with a different vocab entry or a `KNOWN_SUB_LABELS` entry (`lib/parser/knownSections.ts:99` inference would reclassify it — that's the known silent-exit class from audit §5 P1-5, out of contract).
 
@@ -123,7 +123,7 @@ All run-count/seed numbers live in `seeds.ts` — single source; the table below
    - **Dial overreach** (generator claimed contract the code never made): narrow the dial with an inline `// contract-narrowed: <reason>` comment + BACKLOG entry if the capability gap is worth closing later.
 4. No large known-holes ledger. The mutation harness pins an 8k-row verdict inventory because its input space is fixed; generated space is unbounded — the honesty mechanism is the dial contract, not a ledger.
 
-### 6.3 Phase-2 exporter additions (designed, not planned here)
+### 6.1 Phase-2 exporter additions (designed, not planned here)
 
 - Grid arbitrary: model → 2-D cell grid with merged-region simulation, then `XLSX.write` → buffer.
 - Exporter Tier-1: `synthesizeMarkdownFromXlsx` never throws; deterministic; OLD-tab exclusion invariant (any `\bOLD\b`-named tab's content absent from markdown unless `includePullSheetFromTab` names it, `lib/drive/exportSheetToMarkdown.ts:323-349`).
