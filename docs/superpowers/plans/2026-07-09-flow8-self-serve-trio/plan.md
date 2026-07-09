@@ -135,9 +135,51 @@ export function sanitizePickerRoster<T extends { id: string; name: string }>(
 Run: `pnpm vitest run tests/auth/picker/sanitizePickerRoster.test.ts`
 Expected: PASS (4 tests).
 
-- [ ] **Step 5: Wire into `loadRoster`**
+- [ ] **Step 5: Write the FAILING `loadRoster` boundary route test (BEFORE wiring — TDD for the wiring)**
 
-In `app/show/[slug]/[shareToken]/page.tsx`, add the import near the other `@/lib/auth/picker` imports and change `loadRoster`'s return (`:67`):
+This is the load-bearing proof that raw rows are sanitized on the common `no_auth` first-contact picker path (which renders directly from `loadRoster`, not `renderPickerRepick`). It MUST be written and fail before the wiring in Step 6.
+
+```tsx
+// tests/show/loadRosterSanitizeBoundary.test.tsx
+// @vitest-environment jsdom
+import { render } from "@testing-library/react";
+import { describe, expect, test, vi } from "vitest";
+
+vi.mock("@/lib/auth/picker/showPageChainRequest", () => ({ buildShowPageChainRequest: vi.fn(async () => new Request("http://internal/")) }));
+vi.mock("@/lib/auth/picker/resolveShowPageAccess", () => ({ resolveShowPageAccess: vi.fn() }));
+vi.mock("@/lib/supabase/server", () => ({ createSupabaseServiceRoleClient: vi.fn() }));
+vi.mock("next/navigation", () => ({ notFound: vi.fn(() => { throw new Error("NEXT_NOT_FOUND"); }), redirect: vi.fn(() => { throw new Error("NEXT_REDIRECT"); }) }));
+
+import ShowPage from "@/app/show/[slug]/[shareToken]/page";
+import { resolveShowPageAccess } from "@/lib/auth/picker/resolveShowPageAccess";
+import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
+
+describe("loadRoster sanitize boundary (no_auth first-contact path)", () => {
+  test("raw roster with a sentinel name + duplicate id renders only the sanitized row", async () => {
+    (resolveShowPageAccess as any).mockResolvedValue({ kind: "no_auth", reason: "first_contact", showId: "sid" });
+    const rawRows = [
+      { id: "1", name: "TBD", role: "A1", role_flags: [], claimed_via_oauth_at: null },
+      { id: "2", name: "Doug Larson", role: "A1", role_flags: [], claimed_via_oauth_at: null },
+      { id: "2", name: "Doug dup", role: "A1", role_flags: [], claimed_via_oauth_at: null },
+    ];
+    const q: any = { select: () => q, eq: () => q, order: () => Promise.resolve({ data: rawRows, error: null }) };
+    (createSupabaseServiceRoleClient as any).mockReturnValue({ from: () => q });
+
+    const ui = await ShowPage({ params: Promise.resolve({ slug: "s", shareToken: "t" }), searchParams: Promise.resolve({ gate: "skip" }) });
+    const { container } = render(ui);
+    const rows = container.querySelectorAll('[data-testid="picker-roster-row"]');
+    expect(rows.length).toBe(1); // "TBD" dropped, duplicate id "2" collapsed → one row
+    expect(rows[0]?.textContent).toContain("Doug Larson");
+  });
+});
+```
+
+- [ ] **Step 6: Run to verify it fails, then wire `loadRoster`**
+
+Run: `pnpm vitest run tests/show/loadRosterSanitizeBoundary.test.tsx`
+Expected: FAIL — renders 3 rows (raw, unsanitized) because `loadRoster` returns raw rows.
+
+Then in `app/show/[slug]/[shareToken]/page.tsx`, add the import near the other `@/lib/auth/picker` imports and change `loadRoster`'s return (`:67`):
 
 ```ts
 import { sanitizePickerRoster } from "@/lib/auth/picker/sanitizePickerRoster";
@@ -146,14 +188,16 @@ import { sanitizePickerRoster } from "@/lib/auth/picker/sanitizePickerRoster";
   return sanitizePickerRoster((data ?? []) as RosterRow[]);
 ```
 
-- [ ] **Step 6: Typecheck + commit**
+- [ ] **Step 7: Run both tests + typecheck**
 
-Run: `pnpm vitest run tests/auth/picker/sanitizePickerRoster.test.ts && pnpm exec tsc --noEmit -p tsconfig.json`
-Expected: tests PASS; tsc clean.
+Run: `pnpm vitest run tests/auth/picker/sanitizePickerRoster.test.ts tests/show/loadRosterSanitizeBoundary.test.tsx && pnpm exec tsc --noEmit -p tsconfig.json`
+Expected: both PASS (boundary now renders 1 row); tsc clean.
+
+- [ ] **Step 8: Commit**
 
 ```bash
-git add lib/auth/picker/sanitizePickerRoster.ts tests/auth/picker/sanitizePickerRoster.test.ts "app/show/[slug]/[shareToken]/page.tsx"
-git commit --no-verify -m "feat(auth): sanitizePickerRoster (sentinel-guard + id-dedup) wired into loadRoster"
+git add lib/auth/picker/sanitizePickerRoster.ts tests/auth/picker/sanitizePickerRoster.test.ts tests/show/loadRosterSanitizeBoundary.test.tsx "app/show/[slug]/[shareToken]/page.tsx"
+git commit --no-verify -m "feat(auth): sanitizePickerRoster (sentinel-guard + id-dedup) wired into loadRoster + first-contact boundary proof"
 ```
 
 ---
@@ -819,8 +863,8 @@ describe("transportTileVisible fuzzy-tolerance regression pin (8.4 defensive —
     expect(transportTileVisible({ transportation: t({}), viewerName: null, isAdmin: true })).toBe(true);
   });
 
-  test("KNOWN GAP (BL-TRANSPORT-ID-RESOLUTION): a hard mis-parse with no shared surname token is NOT visible — documents the residual deferred to 8.3, does not assert closure", () => {
-    expect(transportTileVisible({ transportation: t({ driver_name: "DougLarsonHotelBallroom" }), viewerName: "Doug Larson", isAdmin: false })).toBe(false);
+  test("KNOWN GAP (BL-TRANSPORT-ID-RESOLUTION): a merged-cell overflow that shifts the surname token is NOT visible — documents the residual deferred to 8.3, does not assert closure. Verified against live namesRefer: 'Doug Larson Loadout' vs 'Doug Larson' → false (the multi-token rule compares last tokens 'loadout' vs 'larson').", () => {
+    expect(transportTileVisible({ transportation: t({ driver_name: "Doug Larson Loadout" }), viewerName: "Doug Larson", isAdmin: false })).toBe(false);
   });
 });
 ```
@@ -846,22 +890,12 @@ git commit --no-verify -m "test(crew-page): transport fuzzy-tolerance regression
 
 ---
 
-### Task 9: `loadRoster` sanitize-boundary route test + full-suite gate + impeccable dual-gate
+### Task 9: full-suite gate + impeccable dual-gate
 
 **Files:**
-- Modify: `tests/show/pickerAffordance.test.tsx` (add the `no_auth` gate-skip boundary case)
 - Modify: `DEFERRED.md` (only if impeccable surfaces a deferred HIGH/CRITICAL)
 
-- [ ] **Step 1: Write the `no_auth` boundary render test**
-
-Add to `tests/show/pickerAffordance.test.tsx` a route-level case (mirror the Task 6/7 mocks): `resolveShowPageAccess` → `{ kind: "no_auth", reason: "first_contact", showId: "sid" }` with `searchParams` `{ gate: "skip" }`, and the roster Supabase mock returning raw rows `[{id:"1",name:"TBD",…}, {id:"2",name:"Doug",…}, {id:"2",name:"Doug dup",…}]`. Assert the rendered picker shows exactly ONE roster row (the sanitized `Doug`) via `data-testid="picker-roster-row"` count === 1, AND the `picker-name-not-listed` affordance is present.
-
-> Verify the exact `no_auth` gate-skip precondition in `page.tsx:191-231` (it requires `reason === "first_contact"` + `gate=skip`) and shape the mock to reach `loadRoster`.
-
-- [ ] **Step 2: Run to verify pass (sanitize already wired in Task 1)**
-
-Run: `pnpm vitest run tests/show/pickerAffordance.test.tsx`
-Expected: PASS — proves the common first-contact path renders sanitized rows (raw `TBD` dropped, dup id collapsed) because `loadRoster` sanitizes.
+(The `loadRoster` sanitize-boundary route test lives in Task 1, Step 5 — failing-first, per TDD invariant 1. This task is gates only.)
 
 - [ ] **Step 3: Full-suite + quality gates**
 
@@ -879,11 +913,12 @@ Expected: all green. (Full suite per the repo's "scoped gates miss regressions" 
 
 Run `/impeccable critique` then `/impeccable audit` on the picker diff (`_PickerInterstitial.tsx`). Fix HIGH/CRITICAL inline, or record a `DEFERRED.md` entry with rationale. Findings + dispositions go in the milestone handoff §12.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Commit (only if impeccable produced a DEFERRED.md disposition; otherwise no commit — the gates are verification, not changes)**
 
 ```bash
-git add tests/show/pickerAffordance.test.tsx DEFERRED.md
-git commit --no-verify -m "test(crew-page): loadRoster sanitize-boundary proof on no_auth first-contact path + impeccable dispositions"
+# only if DEFERRED.md changed:
+git add DEFERRED.md
+git commit --no-verify -m "docs(crew-page): impeccable dual-gate dispositions for the picker affordance diff"
 ```
 
 ---
