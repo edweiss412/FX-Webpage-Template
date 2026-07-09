@@ -1670,7 +1670,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
         [
           showId,
           row.name,
-          row.email,
+          canonicalize(row.email),
           row.phone,
           row.role,
           row.role_flags,
@@ -1706,7 +1706,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
           showId,
           id,
           row.name,
-          row.email,
+          canonicalize(row.email),
           row.phone,
           row.role,
           row.role_flags,

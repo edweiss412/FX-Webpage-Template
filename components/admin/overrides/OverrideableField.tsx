@@ -62,6 +62,11 @@ const OVERRIDE_RPC_COPY: Record<string, string> = {
   OVERRIDE_INVALID_STATE: "This override changed since you opened it. Reload and try again.",
 };
 
+// Last-resort fallback for an unrecognized RPC code (§10 leaves the override RPC
+// status codes uncataloged); routing through messageFor(code) is impossible when the
+// code is not in §12.4. Invariant-5 (raw code never rendered) is upheld by
+// errorCopyFor below, the sole render path.
+// not-subject:M5-D8
 const GENERIC_ERROR = "Something went wrong saving this override. Reload and try again.";
 
 function errorCopyFor(code: string): string {
