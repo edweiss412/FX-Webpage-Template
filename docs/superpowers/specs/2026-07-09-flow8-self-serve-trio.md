@@ -37,7 +37,7 @@ The audit's "Done-when" for Flow 8: _every "can't find myself / can't see my stu
 | D4 | **8.1 sentinel-guard uses the existing `shouldHideGenericOptional` predicate** (`lib/visibility/emptyState.ts:79`, set `GENERIC_OPTIONAL_HIDE` at `:56`). | One sentinel authority repo-wide; no new sentinel list. |
 | D5 | **8.1 "contact" affordance is cataloged copy with NO PII and NO config** — new §12.4 code `PICKER_NAME_NOT_LISTED`, crew-facing copy routes crew back to whoever shared the link. | No crew-facing admin email/phone exists in the app; the picker footer already credits "Doug Larson" as issuer. Invariant 5 (no raw codes; catalog-driven copy). |
 | D6 | **8.1 roster sanitization is a pure helper** `sanitizePickerRoster` (new, `lib/auth/picker/sanitizePickerRoster.ts`), applied where the roster is built. The picker component stays presentational. | Testable without a render harness; single transform, single call site (`loadRoster` in `page.tsx`). |
-| D7 | **8.1 affordance is persistent** — rendered below the roster on **every non-empty** picker render, independent of banner/stale state. | The audit calls for a "persistent" affordance. Empty-roster already has its own `PICKER_EMPTY_ROSTER` copy; the affordance is for the non-empty "my name isn't here" case. |
+| D7 | **8.1 affordance is persistent** — rendered on **every** picker render, in BOTH the empty and non-empty roster modes, independent of banner/stale state. | The audit calls for a "persistent" affordance covering every "can't find myself" path. A sanitized-to-empty roster (raw rows all sentinel/dropped) is itself such a path, so the affordance must show in the empty mode too, complementing `PICKER_EMPTY_ROSTER` (Round-9). |
 | D8 | **8.4 is regression-test-only and does NOT close its audited failure mode** (tracked as `BL-TRANSPORT-ID-RESOLUTION`, dependent on 8.3). No production code change to `transportTileVisible`. No per-tile "don't see your ride?" affordance. | The predicate already fuzzy-matches; a per-tile affordance can't distinguish "assigned but mis-parsed" from "genuinely not assigned," so it would leak transport-exists and spam non-drivers. Hard mis-parse closure needs enrich-time id resolution = 8.3 domain (user Opt-1 decision). Tests pin current tolerance + document the residual; the milestone ships 8.1+8.2 as the audit closures, 8.4 as defensive-only. |
 | D9 | **No DB migration, no advisory-lock surface, no new admin_alert code, no new telemetry surface.** | None of the three items mutate a locked table, add an RPC-gated table, or add a mutation surface. `sanitizePickerRoster` is pure; `resolveViewerContext` is pure; 8.4 is tests. |
 
@@ -178,29 +178,27 @@ Applied in `page.tsx` `loadRoster` return: `return sanitizePickerRoster((data ??
 - crewFacing: `"Don't see your name? Ask the person who shared this link to add you."`
 - dougFacing `null`, followUp `"Crew → ask the link sender"`, all other fields `null` — exact mirror of `PICKER_EMPTY_ROSTER`'s shape.
 
-Rendered in `_PickerInterstitial.tsx` as a new element **below** the roster `<ul>` and **only when `roster.length > 0`** (empty-roster already shows `PICKER_EMPTY_ROSTER`). Placement: between the roster list and the `staleCleanupHint` mount. Exact markup:
+Rendered in `_PickerInterstitial.tsx` **unconditionally** — on EVERY picker render, in BOTH the empty and non-empty roster modes (Round-9 finding: a sanitized-to-empty roster is itself a "can't find myself" case and must still get the guided next step). Placement: after the roster region (the `<ul>` in non-empty mode / the `PICKER_EMPTY_ROSTER` block in empty mode) and before the `staleCleanupHint` mount. In empty mode it complements `PICKER_EMPTY_ROSTER` ("nobody added yet" + "ask the link sender"); in sanitized-empty mode (raw rows all dropped) it is the crew member's only recourse; in non-empty mode it sits below the list. Exact markup:
 
 ```tsx
-{roster.length > 0 && (
-  <p
-    data-testid="picker-name-not-listed"
-    className="text-center text-xs text-text-subtle"
-  >
-    {messageFor("PICKER_NAME_NOT_LISTED").crewFacing}
-  </p>
-)}
+<p
+  data-testid="picker-name-not-listed"
+  className="text-center text-xs text-text-subtle"
+>
+  {messageFor("PICKER_NAME_NOT_LISTED").crewFacing}
+</p>
 ```
 
 Uses existing design tokens (`text-text-subtle`, `text-xs`, `text-center`) already used by the sub-instruction (`_PickerInterstitial.tsx:111-113`) and footer — no new tokens, no new `@theme` block.
 
 **Guard conditions (8.1):**
-- `sanitizePickerRoster([])` → `[]` (empty in, empty out; picker renders `PICKER_EMPTY_ROSTER`).
-- All-sentinel roster → `[]` after sanitize → picker renders `PICKER_EMPTY_ROSTER` (not the affordance, since `length === 0`). Acceptable: a roster of only un-nameable rows is functionally empty.
+- `sanitizePickerRoster([])` → `[]` (empty in, empty out; picker renders `PICKER_EMPTY_ROSTER` block **plus** the always-on `PICKER_NAME_NOT_LISTED` affordance).
+- All-sentinel / sanitized-to-empty roster (raw non-empty, every row dropped) → `[]` after sanitize → picker renders the `PICKER_EMPTY_ROSTER` block **plus** the affordance. The crew member whose only row was a sentinel still gets "ask the link sender" — the done-when is met, not suppressed.
 - `row.name` a sentinel in **any case** (`"tbd"`, `"N/a"`) → dropped. `shouldHideGenericOptional` normalizes via `value.trim().toUpperCase()` (`emptyState.ts:81`) before the set check, so case and surrounding whitespace do not matter.
 - Whitespace-only name (`"   "`) → `.trim()` → `""` ∈ `GENERIC_OPTIONAL_HIDE` → dropped. Confirmed by the predicate's trim, not assumed.
 - Two rows, same id → one kept. Two rows, same name, different id → both kept.
 
-**Mode boundaries (8.1):** the picker has two roster modes already — empty (`PICKER_EMPTY_ROSTER` centered block) and non-empty (roster list). The affordance belongs to the **non-empty** mode only. Claimed vs active rows (`_PickerInterstitial.tsx:153-215`) are unchanged; sanitize runs before that split and preserves `claimed_via_oauth_at`.
+**Mode boundaries (8.1):** the picker has two roster modes — empty (`PICKER_EMPTY_ROSTER` centered block) and non-empty (roster list). The `PICKER_NAME_NOT_LISTED` affordance is a **shared element rendered in BOTH modes** (see the render contract above). Claimed vs active rows (`_PickerInterstitial.tsx:153-215`) are unchanged; sanitize runs before that split and preserves `claimed_via_oauth_at`.
 
 ### 4.3 — Transport visibility: defensive regression pin only (8.4 audit item deferred to 8.3)
 
@@ -230,7 +228,7 @@ New/extended test file pins `transportTileVisible` fuzzy tolerance against name-
 - **8.2 stale-cleanup non-regression (Round-3 HIGH):** after refactoring the existing stale arms onto `renderPickerRepick`, assert the `removed_from_roster` render STILL mounts `StaleCleanupAutoSubmit` (i.e. the helper received a non-null `staleCleanupHint` for that arm), and that the new Point A/B re-pick renders it with `staleCleanupHint={null}`. Failure mode caught: a helper extraction silently dropping the stale-cookie cleanup so reloads never converge.
 - **8.2 admin-preview backstop href-safety (Round-3 MEDIUM):** assert the `UnmatchedViewerError` catch in `_CrewShell` renders `TerminalFailure` with NO `retryHref` (so the admin-preview caller, which passes no `shareToken`, never produces `/show/${slug}/undefined`). Failure mode caught: a broken retry URL on the shareToken-less admin-preview render.
 - **8.1 sanitize:** table-driven unit test over `sanitizePickerRoster` — sentinel drop (each token in `GENERIC_OPTIONAL_HIDE`), id-dedup (first-wins, order preserved), same-name-different-id both-kept, empty→empty, all-sentinel→empty. Derive expected from the input fixtures; do not hardcode a length the fixture can't produce.
-- **8.1 affordance render:** render `PickerInterstitial` with a non-empty roster → assert `data-testid="picker-name-not-listed"` present and text equals `messageFor("PICKER_NAME_NOT_LISTED").crewFacing` (assert against the catalog source, not a literal string, so copy edits don't desync the test). Render with empty roster → assert the affordance is **absent** and `PICKER_EMPTY_ROSTER` copy present.
+- **8.1 affordance render (both modes — Round-9):** render `PickerInterstitial` with (a) a non-empty roster, (b) an empty roster, and (c) a raw-non-empty roster that `sanitizePickerRoster` reduces to `[]` (all-sentinel) → in **all three** assert `data-testid="picker-name-not-listed"` present with text equal to `messageFor("PICKER_NAME_NOT_LISTED").crewFacing` (assert against the catalog source, not a literal string). For (b)/(c) additionally assert `PICKER_EMPTY_ROSTER` copy is present alongside the affordance. Failure mode caught: a `roster.length > 0` gate suppressing the guided next step for sentinel-heavy/sanitized-empty rosters.
 - **8.1 catalog lockstep:** extend `tests/messages/picker-codes.test.ts` `PICKER_MESSAGE_CODES` with `PICKER_NAME_NOT_LISTED`; the x1-catalog-parity gate asserts §12.4 prose ↔ generated spec-codes ↔ catalog agreement.
 - **8.4:** the fixtures above; each assertion states the mis-parse shape it catches.
 
