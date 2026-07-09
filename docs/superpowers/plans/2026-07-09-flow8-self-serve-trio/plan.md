@@ -671,6 +671,32 @@ test("Point B: well-formed projection missing the resolved id + available → re
   expect(container.querySelector('[data-testid="picker-interstitial-root"]')).not.toBeNull();
 });
 
+test("Point B: projection missing id + deleted show (cascade) → notFound(), not picker", async () => {
+  (resolveShowPageAccess as any).mockResolvedValue(resolvedAccess);
+  (getShowForViewer as any).mockResolvedValue({ crewMembers: [{ id: "other", name: "X" }] });
+  availabilityClient(null); // show gone
+  await expect(ShowPage({ params: Promise.resolve({ slug: "s", shareToken: "t" }), searchParams: Promise.resolve({}) })).rejects.toThrow("NEXT_NOT_FOUND");
+});
+
+test("Point B: projection missing id + unpublished show → notFound()", async () => {
+  (resolveShowPageAccess as any).mockResolvedValue(resolvedAccess);
+  (getShowForViewer as any).mockResolvedValue({ crewMembers: [{ id: "other", name: "X" }] });
+  availabilityClient({ published: false, archived: false });
+  await expect(ShowPage({ params: Promise.resolve({ slug: "s", shareToken: "t" }), searchParams: Promise.resolve({}) })).rejects.toThrow("NEXT_NOT_FOUND");
+});
+
+test("availability read infra error (Point A) → TerminalFailure, notFound NOT swallowed elsewhere", async () => {
+  (resolveShowPageAccess as any).mockResolvedValue(resolvedAccess);
+  (getShowForViewer as any).mockRejectedValue(new CrewMemberNotInShowError());
+  // shows read returns a Supabase { error } → loadShowAvailability throws → caught INSIDE renderRacedCrewMiss.
+  (createSupabaseServiceRoleClient as any).mockReturnValue({
+    from: () => ({ select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: { message: "boom" } }) }) }) }),
+  });
+  const { container } = render(await ShowPage({ params: Promise.resolve({ slug: "s", shareToken: "t" }), searchParams: Promise.resolve({}) }));
+  expect(container.querySelector('[data-testid="terminal-failure"]')).not.toBeNull();
+  expect(container.querySelector('[data-testid="picker-interstitial-root"]')).toBeNull();
+});
+
 test("negative: generic getShowForViewer error → TerminalFailure, not re-pick", async () => {
   (resolveShowPageAccess as any).mockResolvedValue(resolvedAccess);
   (getShowForViewer as any).mockRejectedValue(new Error("PICKER_CREW_MEMBER_WRONG_SHOW")); // plain Error = :317/:321 shape
@@ -679,6 +705,8 @@ test("negative: generic getShowForViewer error → TerminalFailure, not re-pick"
   expect(container.querySelector('[data-testid="picker-interstitial-root"]')).toBeNull();
 });
 ```
+
+This covers the full matrix for **both** points: Point A {available→picker, deleted→notFound, infra→TerminalFailure} and Point B {available→picker, deleted→notFound, unpublished→notFound}. The infra case also pins the round-1 fix — `notFound()` is not swallowed because `renderRacedCrewMiss` catches only the availability read, not the `notFound()`.
 
 > Confirm `TerminalFailure`'s root `data-testid` (`components/auth/TerminalFailure.tsx`) and `PickerInterstitial`'s (`picker-interstitial-root`, verified) before running; adjust selectors to the real ids.
 
@@ -689,17 +717,24 @@ Expected: the four new cases FAIL (current `resolved` case renders `CrewShell` /
 
 - [ ] **Step 3: Add `renderRacedCrewMiss` + rewrite the `resolved` case**
 
-Add helper:
+Add helper. **CRITICAL: `notFound()` throws a Next navigation sentinel (`NEXT_NOT_FOUND`) — it MUST NOT sit inside a `try/catch` that would convert it to `TerminalFailure`.** The availability-read `try/catch` is scoped to the READ ONLY; `notFound()` and `renderPickerRepick` run OUTSIDE it, and callers invoke the helper with NO surrounding catch:
 
 ```tsx
 async function renderRacedCrewMiss(args: { showId: string; slug: string; shareToken: string; s: string | undefined }): Promise<JSX.Element> {
-  const availability = await loadShowAvailability(args.showId); // throws on infra → caller wraps
+  let availability: "available" | "unavailable";
+  try {
+    availability = await loadShowAvailability(args.showId);
+  } catch {
+    // ONLY the infra read is caught here — fail-closed to TerminalFailure.
+    return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" retryHref={`/show/${args.slug}/${args.shareToken}`} />;
+  }
+  // Outside the catch: notFound() throws NEXT_NOT_FOUND and MUST propagate to Next.
   if (availability === "unavailable") notFound(); // show-deleted cascade → show_unavailable semantics (page.tsx:102-106)
   return renderPickerRepick({ ...args, banner: "PICKER_REMOVED_FROM_ROSTER_BANNER", staleCleanupHint: null });
 }
 ```
 
-Rewrite the `resolved` case (`:152-189`):
+Rewrite the `resolved` case (`:152-189`) — note NO try/catch wraps `renderRacedCrewMiss` (it handles its own infra read; its `notFound()` must escape):
 
 ```tsx
     case "resolved": {
@@ -709,23 +744,16 @@ Rewrite the `resolved` case (`:152-189`):
         data = await getShowForViewer(result.showId, viewer);
       } catch (err) {
         // Point A: crew-row miss (raced removal OR show-delete cascade) → guided re-pick after
-        // re-validating show availability. Any other error (infra, :317/:321) → TerminalFailure.
+        // re-validating show availability (renderRacedCrewMiss owns its own infra catch + notFound()).
+        // Any other error (infra, :317/:321) → TerminalFailure.
         if (err instanceof CrewMemberNotInShowError) {
-          try {
-            return await renderRacedCrewMiss({ showId: result.showId, slug, shareToken, s: allowlistedS });
-          } catch {
-            return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" retryHref={`/show/${slug}/${shareToken}`} />;
-          }
+          return renderRacedCrewMiss({ showId: result.showId, slug, shareToken, s: allowlistedS });
         }
         return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" retryHref={`/show/${slug}/${shareToken}`} />;
       }
-      // Point B: well-formed projection missing the resolved id → same guided re-pick.
+      // Point B: well-formed projection missing the resolved id → same guided re-pick (NO wrapping catch).
       if (Array.isArray(data.crewMembers) && !data.crewMembers.find((c) => c.id === result.crewMemberId)) {
-        try {
-          return await renderRacedCrewMiss({ showId: result.showId, slug, shareToken, s: allowlistedS });
-        } catch {
-          return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" retryHref={`/show/${slug}/${shareToken}`} />;
-        }
+        return renderRacedCrewMiss({ showId: result.showId, slug, shareToken, s: allowlistedS });
       }
       const crew = data.crewMembers?.find((c) => c.id === result.crewMemberId);
       return (
