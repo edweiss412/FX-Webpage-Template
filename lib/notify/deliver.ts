@@ -4,6 +4,7 @@ import { canonicalize } from "@/lib/email/canonicalize";
 import { SEND_RETRY_CAP } from "@/lib/notify/constants";
 import type { RealtimeCandidate } from "@/lib/notify/detect/candidates";
 import type { DigestModel } from "@/lib/notify/digest";
+import type { MonitorDigestModel } from "@/lib/notify/monitorDigest";
 import { baseKey, reissueKey } from "@/lib/notify/idempotencyKey";
 import { sendEmail, type SendArgs, type SendResult } from "@/lib/notify/send";
 import { renderAutoPublishUndo } from "@/lib/notify/templates/autoPublishUndo";
@@ -458,7 +459,7 @@ export async function deliverRealtimeCandidates(
 }
 
 export async function deliverDigest(
-  input: { model: DigestModel; origin: string },
+  input: { model: DigestModel; origin: string; monitor?: MonitorDigestModel | null },
   deps: DeliveryDeps = {},
 ): Promise<DeliveryResult> {
   const sql =
@@ -490,10 +491,26 @@ export async function deliverDigest(
       context: {
         date_et: input.model.dateET,
         source_totals: input.model.sourceTotals,
+        // Flow 6.2 §8: counts only (no crew PII). Omitted entirely when there is no
+        // monitor section so the null-monitor context stays byte-identical to pre-6.2.
+        ...(input.monitor
+          ? {
+              monitor_totals: {
+                autoAppliedShows: input.monitor.autoApplied.length,
+                autoAppliedRows: input.monitor.autoApplied.reduce((n, g) => n + g.items.length, 0),
+                autofixTotal: input.monitor.autofix.total,
+                driftShows: input.monitor.drift.length,
+              },
+            }
+          : {}),
       },
       email: {
         mode: "static",
-        content: renderDigest({ origin: input.origin, shows: input.model.shows }),
+        content: renderDigest({
+          origin: input.origin,
+          shows: input.model.shows,
+          ...(input.monitor ? { monitor: input.monitor } : {}),
+        }),
       },
       rawRecipient: input.model.recipient,
       counts,

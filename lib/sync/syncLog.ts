@@ -23,8 +23,17 @@ function messageFor(entry: SyncLogEntry): string {
 }
 
 function warningsFor(entry: SyncLogEntry): Array<Record<string, unknown>> {
-  if (!entry.payload) return [];
-  return [{ ...entry.payload, outcome: entry.outcome, code: entry.code ?? null }];
+  // Flow 6.2 §3.2: persist the applied-outcome parse warnings that logSync threads
+  // into entry.parseWarnings (previously dropped here — the cron sink diverged from
+  // the recovery sink insertSyncLog). Payload row first, then the parse warnings.
+  const rows: Array<Record<string, unknown>> = [];
+  if (entry.payload) {
+    rows.push({ ...entry.payload, outcome: entry.outcome, code: entry.code ?? null });
+  }
+  if (entry.parseWarnings) {
+    rows.push(...(entry.parseWarnings as Array<Record<string, unknown>>));
+  }
+  return rows;
 }
 
 export function makePostgresSyncLogSink(sql: SyncLogSql): (entry: SyncLogEntry) => Promise<void> {

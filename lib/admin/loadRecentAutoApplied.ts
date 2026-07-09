@@ -52,7 +52,9 @@ export const STRIP_RENDER_CAP = 50;
 
 // The 5 change_kinds the strip surfaces. crew_* kinds are undoable (subject to
 // individually_undoable); field_changed / crew_email_changed are never undoable.
-const STRIP_KINDS = [
+// Exported for monitor-digest filter parity (flow 6.2 §3, §13.3): the email
+// digest's auto-applied query MUST use this same change-kind allow-list.
+export const STRIP_KINDS = [
   "crew_added",
   "crew_removed",
   "crew_renamed",
