@@ -3046,6 +3046,41 @@ describe("Batch 3 — final grandfathered surfaces graduate to inline proof", ()
       failureExpect: { status: 409 }, // body key `error`
     });
   });
+
+  test("B4 live staged discard (/[fileId]) emits STAGE_DISCARDED", async () => {
+    const file = "app/api/admin/staged/[fileId]/discard/route.ts";
+    const ctx = () => ({ params: Promise.resolve({ fileId: B3_DFID }) });
+    const req = () =>
+      new NextRequest("https://x/discard", {
+        method: "POST",
+        body: JSON.stringify({ source_scope: "live", staged_id: STAGED_UUID }),
+        headers: { "content-type": "application/json" },
+      });
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "STAGE_DISCARDED",
+      success: () => {
+        withAdminServerClient();
+        // discarded branch → STAGE_DISCARDED (route.ts:161 fail-open try/catch; the real
+        // logger inside still hits the sink).
+        discardStagedMock.mockImplementation(async () => ({
+          outcome: "discarded",
+          variant: "try_again",
+        }));
+        return stagedDiscardPost(req(), ctx());
+      },
+      failure: (mark) => {
+        withAdminServerClient();
+        discardStagedMock.mockImplementation(async () => {
+          mark.hit = true;
+          return { outcome: "not_found", code: PENDING_SYNC_NOT_FOUND };
+        });
+        return stagedDiscardPost(req(), ctx());
+      },
+      failureExpect: { status: 404 },
+    });
+  });
   // <<< BATCH-3 PROOF BLOCK END
 });
 
