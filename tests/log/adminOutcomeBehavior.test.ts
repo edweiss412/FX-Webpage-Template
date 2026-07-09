@@ -466,7 +466,7 @@ async function proveAdminOutcomeBehavior(args: {
   code: string;
   success: () => Promise<unknown>;
   failure: (mark: { hit: boolean }) => Promise<unknown>;
-  failureExpect: { status: number; code?: string };
+  failureExpect: { status: number; code?: string; bodyCode?: string };
 }): Promise<void> {
   const { file, fn, code, success, failure, failureExpect } = args;
   const key = `${file}::${fn}::${code}`;
@@ -485,6 +485,15 @@ async function proveAdminOutcomeBehavior(args: {
   if (failureExpect.code) {
     expect(codes, `failure drive for ${key} missing the intended refusal telemetry`).toContain(
       failureExpect.code,
+    );
+  }
+  // Typed refusals return `{ ok:false, code }` in the response body (no log-sink
+  // telemetry). Pinning the exact body code stops a silent regression to the wrong
+  // JSON code / no code on a same-status path (whole-diff R1).
+  if (failureExpect.bodyCode) {
+    const body = (await (result as Response).clone().json()) as { code?: string };
+    expect(body.code, `failure drive for ${key} returned the wrong body code`).toBe(
+      failureExpect.bodyCode,
     );
   }
 
@@ -2163,9 +2172,9 @@ describe("Batch 2 — clean DI-seam admin route POSTs observe success only", () 
           } as never,
           "defer_until_modified",
         ),
-      // 404 PENDING_INGESTION_NOT_FOUND — a response-body code, not a log-sink code,
-      // so no `failureExpect.code` is asserted (see report / spec deviation).
-      failureExpect: { status: 404 },
+      // 404 PENDING_INGESTION_NOT_FOUND — a response-body code (not log-sink), pinned
+      // via `bodyCode` so a regression to the wrong/absent JSON code on this 404 path fails.
+      failureExpect: { status: 404, bodyCode: "PENDING_INGESTION_NOT_FOUND" },
     });
 
     // IGNORED leg
@@ -2196,7 +2205,7 @@ describe("Batch 2 — clean DI-seam admin route POSTs observe success only", () 
           } as never,
           "permanent_ignore",
         ),
-      failureExpect: { status: 404 },
+      failureExpect: { status: 404, bodyCode: "PENDING_INGESTION_NOT_FOUND" },
     });
   });
 
