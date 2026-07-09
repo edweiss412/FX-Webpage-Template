@@ -379,6 +379,11 @@ import {
   deps as finalizeCasFakeDeps,
   request as finalizeCasRequest,
 } from "../onboarding/_finalizeCasFake";
+import {
+  handleExtractAgenda,
+  type ExtractAgendaDeps,
+} from "@/app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route";
+import { createInMemorySlotStore } from "@/lib/agenda/extractAgendaLease";
 
 // ── inline file-local recorder (single-file contract; no cross-file state) ──
 const recorded = new Set<string>(); // "file::fn::code"
@@ -538,6 +543,104 @@ function fakeTx(overrides: Record<string, unknown> = {}): Record<string, unknown
  * `readNdjson` drain in tests/onboarding/scanRoute.test.ts:143. */
 async function drainNdjson(res: Response): Promise<void> {
   await res.text();
+}
+
+// ── A4 (extract-agenda) in-memory tagged-template lease pool (spec §4.2) ─────
+// Reaching AGENDA_EXTRACT_COMPLETED DB-free requires emulating the THREE
+// sql.begin(...) transactions the route issues (tx#1a claim, tx#1b staged read,
+// tx#2 persist). A bare unmatched-only dispatcher is INSUFFICIENT for a proof: a
+// regression that SKIPS a required statement (an advisory lock, the owner-scoped
+// UPDATE, the release DELETE) while still reaching the emit would stay green. This
+// fake is therefore script-driven + consumption-asserting: every statement is
+// matched IN ORDER against a per-begin script; unexpected / out-of-order / over-run
+// SQL throws; identity-bearing binds deep-equal the whole `values` array BY POSITION
+// (not `.includes` — an id in the wrong placeholder must fail); the claim's
+// {wiz,drive,owner} triple is captured at the INSERT and carried into the persist
+// UPDATE + release DELETE (proving ONE durable lease claim→persist→release); and the
+// mandatory statement set is asserted consumed after the drive.
+type BindMatcher = string | ((v: unknown) => boolean);
+type LeaseStmt = {
+  name: string;
+  match: RegExp;
+  contains?: RegExp[]; // additional fence substrings the statement text MUST contain
+  binds?: () => BindMatcher[]; // positional matchers, deep-equal by index (lazy → carry)
+  onMatch?: (values: unknown[]) => void;
+  rows?: unknown[];
+  mandatory?: boolean;
+};
+type FakeLeasePool = ((strings: TemplateStringsArray, ...values: unknown[]) => Promise<unknown[]>) & {
+  begin<R>(fn: (tx: unknown) => Promise<R>): Promise<R>;
+  assertConsumed(): void;
+};
+
+function fakeLeasePool(script: LeaseStmt[][]): FakeLeasePool {
+  let beginPtr = 0;
+  const consumed = new Set<string>();
+  const norm = (strings: TemplateStringsArray): string =>
+    strings.join(" $ ").replace(/\s+/g, " ").trim();
+
+  const pool = (() => {
+    throw new Error("fakeLeasePool: unexpected top-level (non-.begin) SQL");
+  }) as unknown as FakeLeasePool;
+
+  pool.begin = async <R>(fn: (tx: unknown) => Promise<R>): Promise<R> => {
+    const block = script[beginPtr];
+    if (!block)
+      throw new Error(
+        `fakeLeasePool: unexpected sql.begin #${beginPtr + 1} (no more scripted transactions)`,
+      );
+    beginPtr += 1;
+    const txIndex = beginPtr;
+    let stmtPtr = 0;
+    const tx = (async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const text = norm(strings);
+      const exp = block[stmtPtr];
+      if (!exp)
+        throw new Error(`fakeLeasePool: over-run in tx#${txIndex}: ${text.slice(0, 80)}`);
+      if (!exp.match.test(text))
+        throw new Error(
+          `fakeLeasePool: out-of-order/unexpected SQL in tx#${txIndex} at position ${stmtPtr} (expected ${exp.name}): ${text.slice(0, 120)}`,
+        );
+      for (const c of exp.contains ?? [])
+        if (!c.test(text))
+          throw new Error(
+            `fakeLeasePool: ${exp.name} missing required fence ${c}: ${text.slice(0, 200)}`,
+          );
+      if (exp.binds) {
+        const matchers = exp.binds();
+        if (matchers.length !== values.length)
+          throw new Error(
+            `fakeLeasePool: ${exp.name} bind arity ${values.length} !== ${matchers.length} (values=${JSON.stringify(values)})`,
+          );
+        matchers.forEach((m, i) => {
+          const ok = typeof m === "function" ? m(values[i]) : Object.is(values[i], m);
+          if (!ok)
+            throw new Error(
+              `fakeLeasePool: ${exp.name} positional bind mismatch at $${i} (got ${JSON.stringify(values[i])}, expected ${typeof m === "function" ? "<predicate>" : JSON.stringify(m)})`,
+            );
+        });
+      }
+      exp.onMatch?.(values);
+      consumed.add(exp.name);
+      stmtPtr += 1;
+      return exp.rows ?? [];
+    }) as unknown;
+    return fn(tx);
+  };
+
+  pool.assertConsumed = () => {
+    const missing = script
+      .flat()
+      .filter((s) => s.mandatory)
+      .map((s) => s.name)
+      .filter((n) => !consumed.has(n));
+    if (missing.length > 0)
+      throw new Error(`fakeLeasePool: mandatory statements not consumed: ${missing.join(", ")}`);
+    if (beginPtr !== script.length)
+      throw new Error(`fakeLeasePool: expected ${script.length} sql.begin calls, saw ${beginPtr}`);
+  };
+
+  return pool;
 }
 
 afterEach(() => resetLogSink());
@@ -2593,6 +2696,164 @@ describe("Batch 3 — final grandfathered surfaces graduate to inline proof", ()
         );
       },
       failureExpect: { status: 409, bodyCode: "WIZARD_FINALIZE_CHECKPOINT_MISSING" },
+    });
+  });
+
+  test("A4 extract-agenda emits AGENDA_EXTRACT_COMPLETED", async () => {
+    const file =
+      "app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts";
+    const A4_WSID = "11111111-1111-4111-8111-111111111111";
+    const A4_DFID = "xa-a4";
+    const A4_SID = "33333333-3333-4333-8333-333333333333";
+    const A4_MT = "2026-06-01T00:00:00.000Z"; // staged_modified_time; fetchMeta returns the same instant
+    const A4_FOLDER = "xa-folder";
+    const A4_PR = { warnings: [], show: { title: "X", agenda_links: [] } };
+    const isStr = (v: unknown) => typeof v === "string";
+    const isObj = (v: unknown) => typeof v === "object" && v !== null;
+    const a4Ctx = () => ({ params: Promise.resolve({ wizardSessionId: A4_WSID, driveFileId: A4_DFID }) });
+    const a4Req = () => new Request("https://x/extract-agenda", { method: "POST" });
+
+    // The full committed-success SQL script (verified from extractAgendaLease.ts + route.ts:240-470).
+    // A fresh capture per drive holds the route-generated `owner` nonce bound at the tx#1a INSERT.
+    const buildFake = () => {
+      const cap: { owner?: unknown } = {};
+      const script: LeaseStmt[][] = [
+        // tx#1a — claimExtractLease (admit lock → GC → live-lease check → cap → INSERT).
+        [
+          {
+            name: "admit-lock",
+            match: /pg_advisory_xact_lock\(hashtext\('agenda-extract-admit'/,
+            rows: [],
+            mandatory: true,
+          },
+          {
+            name: "gc-expired",
+            match: /DELETE FROM public\.agenda_extract_leases WHERE expires_at <= now\(\)/,
+            rows: [],
+          },
+          {
+            name: "live-lease-check",
+            match: /SELECT 1 AS one\s+FROM public\.agenda_extract_leases/,
+            binds: () => [A4_WSID, A4_DFID],
+            rows: [], // no live lease
+          },
+          {
+            name: "global-cap",
+            match: /SELECT count\(\*\)::int AS cnt FROM public\.agenda_extract_leases/,
+            rows: [{ cnt: 0 }],
+          },
+          {
+            name: "claim-insert",
+            match: /INSERT INTO public\.agenda_extract_leases[\s\S]*RETURNING owner/,
+            binds: () => [A4_WSID, A4_DFID, isStr, isStr], // v0/v1 pinned; v2 owner captured; v3 expiresAt shape
+            onMatch: (values) => {
+              cap.owner = values[2];
+            },
+            rows: [{ owner: "claimed" }],
+            mandatory: true,
+          },
+        ],
+        // tx#1b — staged read (session-active guard + folder + generation).
+        [
+          {
+            name: "staged-read",
+            match: /SELECT ps\.staged_id[\s\S]*FROM public\.pending_syncs ps/,
+            binds: () => [A4_WSID, A4_DFID, A4_WSID], // session_active expr, WHERE drive, WHERE wizard
+            rows: [
+              {
+                staged_id: A4_SID,
+                staged_modified_time: A4_MT,
+                parse_result: A4_PR,
+                session_active: true,
+                pending_folder_id: A4_FOLDER,
+              },
+            ],
+            mandatory: true,
+          },
+        ],
+        // tx#2 — persist (settings re-read → show-lock → parse re-read → owner-fenced UPDATE → release).
+        [
+          {
+            name: "settings-reread",
+            match: /SELECT pending_folder_id FROM public\.app_settings WHERE id = 'default'/,
+            rows: [{ pending_folder_id: A4_FOLDER }],
+          },
+          {
+            name: "show-lock",
+            match: /pg_advisory_xact_lock\(hashtext\('show:'/,
+            binds: () => [A4_DFID],
+            rows: [],
+            mandatory: true,
+          },
+          {
+            name: "parse-reread",
+            match: /SELECT parse_result FROM public\.pending_syncs/,
+            binds: () => [A4_WSID, A4_DFID],
+            rows: [{ parse_result: A4_PR }],
+          },
+          {
+            name: "persist-update",
+            match: /UPDATE public\.pending_syncs/,
+            // fence-tight: active-session EXISTS + lease-owned EXISTS + staged generation fences.
+            contains: [
+              /pending_wizard_session_id/,
+              /agenda_extract_leases/,
+              /owner/,
+              /expires_at > now\(\)/,
+              /staged_id/,
+              /staged_modified_time/,
+            ],
+            // positional deep-equal (v0 merged jsonb = shape; v1..v8 exact, owner carried from #5).
+            binds: () => [isObj, A4_WSID, A4_DFID, A4_SID, A4_MT, A4_WSID, A4_WSID, A4_DFID, cap.owner as string],
+            rows: [{ ok: true }],
+            mandatory: true,
+          },
+          {
+            name: "release-delete",
+            match: /DELETE FROM public\.agenda_extract_leases[\s\S]*owner/,
+            binds: () => [A4_WSID, A4_DFID, cap.owner as string], // owner carried from #5
+            rows: [],
+            mandatory: true,
+          },
+        ],
+      ];
+      return fakeLeasePool(script);
+    };
+
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "AGENDA_EXTRACT_COMPLETED",
+      success: async () => {
+        const fake = buildFake();
+        const deps: ExtractAgendaDeps = {
+          requireAdminIdentity: admin,
+          sql: fake as unknown as NonNullable<ExtractAgendaDeps["sql"]>,
+          slotStore: createInMemorySlotStore(),
+          fetchMeta: async () => ({ modifiedTime: A4_MT, parents: [A4_FOLDER] }),
+          enrichAgenda: async () => ({ perLink: [] }),
+          driveClient: {} as never,
+          deadlineMs: 60_000,
+        };
+        const res = await handleExtractAgenda(a4Req(), a4Ctx(), deps);
+        // Prove the emit is downstream of the FULL committed lock+persist+release sequence.
+        fake.assertConsumed();
+        return res;
+      },
+      failure: (mark) =>
+        handleExtractAgenda(a4Req(), a4Ctx(), {
+          requireAdminIdentity: admin,
+          slotStore: createInMemorySlotStore(),
+          driveClient: {} as never,
+          // First .begin short-circuits claimExtractLease with a cap-refusal → pendingResponse("queued") = 202.
+          sql: {
+            begin: async () => {
+              mark.hit = true;
+              return { ok: false, reason: "queued" };
+            },
+          } as unknown as NonNullable<ExtractAgendaDeps["sql"]>,
+        }),
+      failureExpect: { status: 202 }, // body {status:"pending",reason} has NO code key
     });
   });
   // <<< BATCH-3 PROOF BLOCK END
