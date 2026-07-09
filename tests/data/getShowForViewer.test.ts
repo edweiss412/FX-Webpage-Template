@@ -16,7 +16,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { createClient } from "@supabase/supabase-js";
-import { getShowForViewer } from "@/lib/data/getShowForViewer";
+import { getShowForViewer, CrewMemberNotInShowError } from "@/lib/data/getShowForViewer";
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? "http://127.0.0.1:54321";
 const SUPABASE_SERVICE_ROLE_KEY =
@@ -370,6 +370,47 @@ describe("getShowForViewer (§7.4)", () => {
     // would make ScheduleTile render all days / crash PackList stage filtering.
     expect(me?.dateRestriction.kind).toBe("explicit");
     expect(me?.stageRestriction).toEqual({ kind: "explicit", stages: ["Show"] });
+  });
+
+  // 8.2 Point A (spec §4.1): the :301 crew id+show lookup miss becomes a distinct
+  // SUBCLASS so page.tsx can instanceof-route the resolved-case race to a guided
+  // re-pick, while .message stays "PICKER_CREW_MEMBER_WRONG_SHOW" (back-compat).
+  test("crew-row miss (:301) throws CrewMemberNotInShowError with the WRONG_SHOW message preserved", async () => {
+    const showA = await seedShow({ title: "A" });
+    const aliceId = await seedCrew({ showId: showA, name: "Alice", roleFlags: ["A1"] });
+    const showB = await seedShow({ title: "B" });
+    await seedCrew({ showId: showB, name: "Bob", roleFlags: ["A1"] });
+    const err = await getShowForViewer(showB, { kind: "crew", crewMemberId: aliceId }).catch((e) => e);
+    expect(err).toBeInstanceOf(CrewMemberNotInShowError);
+    expect((err as Error).message).toBe("PICKER_CREW_MEMBER_WRONG_SHOW");
+  });
+
+  // NEGATIVE guards: prove the OTHER two WRONG_SHOW throw sites stay PLAIN Error —
+  // NOT the subclass. Message + the source literal both survive subclassing, so
+  // neither the existing `.toThrow("PICKER_CREW_MEMBER_WRONG_SHOW")` assertions NOR
+  // a source grep would catch an over-broad edit that converts :317/:321 to the
+  // subclass. Concrete failure mode caught: a show-deleted or unpublished race
+  // would then instanceof-route through page.tsx's guided re-pick (Point A) instead
+  // of the correct TerminalFailure/notFound path. needsCrewLookup is
+  // `crew || admin_preview` (getShowForViewer.ts:277), so an ADMIN viewer skips the
+  // :301 crew lookup and reaches :312/:317; `shows.published` defaults `true`
+  // (initial_public_schema.sql:26), so :321 needs an explicit unpublish.
+  test(":317 show-missing branch stays a PLAIN Error, NOT CrewMemberNotInShowError (admin viewer, nonexistent show)", async () => {
+    const err = await getShowForViewer(crypto.randomUUID(), { kind: "admin" }).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(CrewMemberNotInShowError);
+    expect((err as Error).message).toBe("PICKER_CREW_MEMBER_WRONG_SHOW");
+  });
+
+  test(":321 unpublished branch stays a PLAIN Error, NOT CrewMemberNotInShowError (non-admin crew, published=false)", async () => {
+    const showId = await seedShow({ title: "Unpub" });
+    const crewId = await seedCrew({ showId, name: "Uma", roleFlags: ["A1"] });
+    const { error: upErr } = await admin.from("shows").update({ published: false }).eq("id", showId);
+    if (upErr) throw new Error(`unpublish failed: ${upErr.message}`);
+    const err = await getShowForViewer(showId, { kind: "crew", crewMemberId: crewId }).catch((e) => e);
+    expect(err).toBeInstanceOf(Error);
+    expect(err).not.toBeInstanceOf(CrewMemberNotInShowError);
+    expect((err as Error).message).toBe("PICKER_CREW_MEMBER_WRONG_SHOW");
   });
 });
 

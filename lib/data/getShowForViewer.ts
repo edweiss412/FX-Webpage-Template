@@ -93,6 +93,20 @@ export type Viewer =
   | { kind: "admin_preview"; crewMemberId: string };
 
 /**
+ * Flow 8.2 (spec §4.1 Point A): the crew id+show lookup miss (`:301`). Distinct
+ * SUBCLASS so page.tsx can `instanceof`-route the resolved-case race to a guided
+ * re-pick, while `.message` stays "PICKER_CREW_MEMBER_WRONG_SHOW" so message-based
+ * consumers (admin-preview notFound, throw-assert tests) are UNCHANGED. Sites
+ * :317/:321 (show deleted/unpublished) keep plain Error — different destination.
+ */
+export class CrewMemberNotInShowError extends Error {
+  constructor() {
+    super("PICKER_CREW_MEMBER_WRONG_SHOW");
+    this.name = "CrewMemberNotInShowError";
+  }
+}
+
+/**
  * Whether a hotel reservation should surface for a viewer — true iff any guest on
  * the reservation refers to the viewer (`namesRefer`, tolerant of first-name /
  * nickname / initial / `/`-merged forms). Replaces a naive `guest.includes(viewer)`
@@ -298,7 +312,7 @@ async function readShowDataForViewer(
       throw new Error(`getShowForViewer: crew lookup failed: ${lookup.error.message}`);
     }
     if (!lookup.data) {
-      throw new Error("PICKER_CREW_MEMBER_WRONG_SHOW");
+      throw new CrewMemberNotInShowError();
     }
     derivedFlags = (lookup.data.role_flags as RoleFlag[]) ?? [];
     viewerName = (lookup.data.name as string) ?? null;
