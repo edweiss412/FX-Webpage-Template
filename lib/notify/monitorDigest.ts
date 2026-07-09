@@ -1,6 +1,14 @@
 import postgres from "postgres";
 import { STRIP_KINDS } from "@/lib/admin/loadRecentAutoApplied";
-import { summarizeAutoFixes, AUTO_FIX_CLASSES, type AutoFixSummary } from "@/lib/parser/dataGaps";
+import {
+  summarizeAutoFixes,
+  summarizeDataGaps,
+  isQualityRegression,
+  AUTO_FIX_CLASSES,
+  GAP_CLASSES,
+  type AutoFixSummary,
+  type DataGapsSummary,
+} from "@/lib/parser/dataGaps";
 import { getMonitorDigestWatermark } from "@/lib/notify/monitorWatermark";
 import type { DigestBuilderSql } from "@/lib/notify/digest";
 
@@ -74,6 +82,49 @@ export function accumulateAutoFixes(rows: WarningsRow[]): AutoFixSummary {
   return { total, classes };
 }
 
+type DriftRow = {
+  drive_file_id: string;
+  slug: string | null;
+  title: string | null;
+  phase: "baseline" | "current";
+  parse_warnings: unknown[];
+};
+
+/**
+ * Sub-threshold drift (§3.1). Pairs each show's latest baseline (occurred_at <=
+ * windowStart) and current (> windowStart) applied rows; reports iff the summaries
+ * differ on a non-gateExempt GapCode AND isQualityRegression is false (a true
+ * regression already fired RESYNC_QUALITY_REGRESSED). Shows missing a baseline or
+ * current row are skipped (no synthetic zero baseline).
+ */
+export function computeDrift(rows: DriftRow[]): MonitorDriftEntry[] {
+  const byShow = new Map<
+    string,
+    { slug: string | null; title: string | null; baseline?: DataGapsSummary; current?: DataGapsSummary }
+  >();
+  for (const r of rows) {
+    const e = byShow.get(r.drive_file_id) ?? { slug: r.slug, title: r.title };
+    const summary = summarizeDataGaps(r.parse_warnings as never);
+    if (r.phase === "baseline") e.baseline = summary;
+    else e.current = summary;
+    byShow.set(r.drive_file_id, e);
+  }
+  const out: MonitorDriftEntry[] = [];
+  for (const e of byShow.values()) {
+    if (!e.baseline || !e.current) continue; // §3.1 no-baseline / no-current guard
+    if (isQualityRegression(e.baseline, e.current)) continue; // already RESYNC_QUALITY_REGRESSED
+    const classes: MonitorDriftEntry["classes"] = [];
+    for (const g of GAP_CLASSES) {
+      if ((g as { gateExempt?: boolean }).gateExempt) continue; // §3.1 gateExempt exclusion
+      const prior = e.baseline.classes[g.code];
+      const curr = e.current.classes[g.code];
+      if (prior !== curr) classes.push({ label: g.label, prior, curr });
+    }
+    if (classes.length > 0) out.push({ showTitle: e.title, slug: e.slug, classes });
+  }
+  return out;
+}
+
 export async function buildMonitorDigestModel(
   now: Date,
   deps: { sql?: DigestBuilderSql; getWatermark?: typeof getMonitorDigestWatermark } = {},
@@ -114,8 +165,26 @@ export async function buildMonitorDigestModel(
     `;
     const autofix = accumulateAutoFixes(autofixRows);
 
-    // Signal 3 filled in Task 7.
-    const drift: MonitorDriftEntry[] = [];
+    // Signal 3 — sub-threshold drift across applied sync_log rows of published shows (§3.1).
+    // Per show + phase, the latest row (row_number window) is the baseline/current.
+    const driftRows = await sql<DriftRow>`
+      with applied as (
+        select sl.drive_file_id, s.slug, s.title, sl.parse_warnings, sl.occurred_at,
+               case when sl.occurred_at <= ${windowIso} then 'baseline' else 'current' end as phase
+          from public.sync_log sl
+          join public.shows s on s.drive_file_id = sl.drive_file_id
+         where s.published = true and sl.status = 'applied'
+      ),
+      ranked as (
+        select applied.*,
+               row_number() over (partition by drive_file_id, phase order by occurred_at desc) as rn
+          from applied
+      )
+      select drive_file_id, slug, title, phase, parse_warnings
+        from ranked
+       where rn = 1
+    `;
+    const drift = computeDrift(driftRows);
 
     if (autoApplied.length === 0 && autofix.total === 0 && drift.length === 0) {
       return { kind: "empty" };
