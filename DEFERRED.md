@@ -438,6 +438,28 @@ Source: invariant-8 impeccable v3 dual-gate (critique + audit) on branch `feat/a
 - **Why deferred:** screen-reader-only clarity nicety; the visible label + stale note already frame the action ("Re-point", "the sheet no longer has «X»"). No sighted-user impact.
 - **Trigger:** the next crew/admin a11y sweep, or any SR audit of the override surface.
 
+## Admin field overrides — orphaned-override block (R3 G2) impeccable gate (2026-07-09)
+
+Source: invariant-8 impeccable v3 dual-gate on the NEW `OrphanedOverridesBlock` (Codex R3 G2 fix — the show page now renders overrides whose sheet target vanished, so the "Override paused" needs-attention deep-link lands on a real Re-point/Discard control instead of a dead end). Verdict: audit 19/20 (no P0/P1), critique AI-slop PASS (clean, 100% tokens, no bans) with two P1/HIGH. Both HIGH FIXED in-branch: (a) the block carries `id="paused-overrides"` and a target_missing card deep-links `#paused-overrides` (name_conflict stays inline, lands at top); (b) the orphan value cell renders Doug's actual override value (`override.overrideValue`) instead of the "—" no-data glyph, so he can decide Re-point vs Discard without recalling his correction. Deterministic detector `[]` (0 findings). The P2/P3 below are deferred.
+
+### OVR-5 — [P2→deferred] Orphan-block controls share generic Re-point/Discard accessible names
+
+- **What:** the reused `OverrideableField` paused branch renders "Re-point"/"Discard" with no field qualifier; a screen-reader user tabbing multiple orphan rows hears the pair repeated, and the visible `ORPHAN_FIELD_LABEL` span isn't linked via `aria-labelledby` (WCAG 2.4.6).
+- **Why deferred:** an INHERITED pattern shared by every override surface (sibling crew/hotel blocks have the same shape), not introduced by G2; the per-row stale note carries the «matchKey» so context is partially conveyed. Fixing it belongs at the shared `OverrideableField` level across all surfaces, not in the orphan block alone.
+- **Trigger:** a shared-`OverrideableField` a11y pass (would also close OVR-4). Backlog: `BL-OVERRIDE-CONTROL-ARIA-FIELD-QUALIFIER`.
+
+### OVR-6 — [P2→deferred] Orphan block lacks attention salience + "Re-point" jargon
+
+- **What:** the "Paused overrides" section is styled with the same calm neutral tokens (`border-border`/`bg-surface`) as the non-actionable Show-details/Hotels blocks, so nothing signals it needs action; and "Re-point" is jargon for a non-technical operator (no HelpAffordance).
+- **Why deferred:** the durable needs-attention stream (nav badge + inbox card with `status="warn"`) already draws Doug to the item; this block is the deep-link TARGET, not the primary alert. A warn accent + plainer microcopy are enhancements, not correctness. Consistent with the calm inline-edit tone of the sibling override blocks.
+- **Trigger:** `/impeccable polish` on the override surfaces, or a Doug-confusion report. Backlog: `BL-OVERRIDE-ORPHAN-SALIENCE`.
+
+### OVR-7 — [P3→deferred] Section `aria-label` differs from visible heading; intro/per-row copy overlap
+
+- **What:** the section `aria-label="Paused overrides needing attention"` doesn't match the visible `<h2>Paused overrides</h2>` (siblings keep them identical); and the section intro ("The sheet no longer has these targets…") restates the per-row paused note framing.
+- **Why deferred:** both cosmetic — the aria-label is a valid (more descriptive) accessible name, not a WCAG failure; the mild copy overlap doesn't impede comprehension.
+- **Trigger:** bundled with OVR-6 polish. Backlog: none (nicety).
+
 ## Flow 4 PR #2 — auto-applied strip + roster badge — invariant-8 impeccable dual-gate (2026-07-07)
 
 Source: invariant-8 impeccable v3 dual-gate on branch `feat/flow4-auto-applied-strip`. Verdict: critique 33/40 Good, audit 18/20 Strong, deterministic detector `[]` (0 findings), anti-patterns PASS, zero CRITICAL/P0. FIXED in-branch: Undo-all confirm now focuses the safe "Keep changes" control on open (`keepChangesRef` + `useEffect`, mirrors `ReSyncButton.tsx:76-78`; WCAG 2.4.3 — a stray Enter can no longer fire the destructive bulk undo) — this closed the one HIGH/P1 finding; heading rank inversion (`<h2>` under Dashboard's `<h3>Needs attention</h3>` → `<h4>`, WCAG 1.3.1); long-summary overflow (`wrap-break-word` on the row summary span, prevents unbroken `crew_email_changed` emails overflowing the ~320px inbox column). The entries below are deferred.

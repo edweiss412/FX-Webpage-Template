@@ -39,7 +39,9 @@ import {
   ShowDetailsOverrideBlock,
   CrewOverrideFields,
   HotelsOverrideBlock,
+  OrphanedOverridesBlock,
 } from "@/components/admin/overrides/ShowOverrideBlocks";
+import type { OrphanOverrideView } from "@/lib/overrides/loadShowOverrides";
 import { loadShowOverrides } from "@/lib/overrides/loadShowOverrides";
 import { setFieldOverrideAction } from "@/app/admin/show/[slug]/_actions/overrides";
 
@@ -164,5 +166,106 @@ describe("Surface-B live-show override presenters render all six fields (REST2-2
     expect(byKey.get("hotel.hotel_name")!.expectedCurrentValue).toBe("Hilton Downtown");
     expect(byKey.get("hotel.hotel_address")!.matchKey).toBe("Hilton Downtown");
     expect(byKey.get("hotel.hotel_address")!.expectedCurrentValue).toBe("1 Market St");
+  });
+
+  // R3 G2: the orphan block mounts an <OverrideableField> per orphaned override, wired
+  // with the orphan's parsed matchKey + its paused (active:false) state + the real
+  // action — so the paused-override needs-attention deep-link lands on a real
+  // Re-point/Discard control instead of a dead end.
+  test("OrphanedOverridesBlock mounts a paused OverrideableField for each orphan (G2)", async () => {
+    const orphans: OrphanOverrideView[] = [
+      {
+        domain: "crew",
+        field: "name",
+        matchKey: "Jon",
+        override: {
+          overrideValue: "John",
+          sheetValue: "Jon",
+          active: false,
+          deactivationCode: "target_missing",
+          version: 2,
+        },
+      },
+      {
+        domain: "hotel",
+        field: "hotel_name",
+        matchKey: "Grand Marriott",
+        override: {
+          overrideValue: "Marriott Downtown",
+          sheetValue: "Grand Marriott",
+          active: false,
+          deactivationCode: "target_missing",
+          version: 2,
+        },
+      },
+    ];
+
+    render(
+      <OrphanedOverridesBlock
+        driveFileId={DRIVE_FILE_ID}
+        orphans={orphans}
+        onSave={setFieldOverrideAction}
+      />,
+    );
+
+    const byKey = new Map(captured.map((c) => [`${c.domain}.${c.field}`, c]));
+    // One field per orphan, keyed on the parsed matchKey (not any display value).
+    expect(captured.map((c) => `${c.domain}.${c.field}`).sort()).toEqual([
+      "crew.name",
+      "hotel.hotel_name",
+    ]);
+    expect(byKey.get("crew.name")!.matchKey).toBe("Jon");
+    expect(byKey.get("hotel.hotel_name")!.matchKey).toBe("Grand Marriott");
+    // Wired paused (so OverrideableField renders the Re-point/Discard branch) + real action.
+    for (const c of captured) {
+      expect(c.onSave).toBe(setFieldOverrideAction);
+      expect((c as unknown as { override: { active: boolean } }).override.active).toBe(false);
+    }
+    // critique P1: the value cell shows Doug's OWN correction (override value), not "—",
+    // so he can decide Re-point vs Discard without recalling what he typed.
+    expect((byKey.get("crew.name") as unknown as { currentValue: string }).currentValue).toBe(
+      "John",
+    );
+    expect(
+      (byKey.get("hotel.hotel_name") as unknown as { currentValue: string }).currentValue,
+    ).toBe("Marriott Downtown");
+  });
+
+  // critique P1: the block carries the #paused-overrides scroll anchor the needs-attention
+  // deep-link targets, so a target_missing card lands here, not at the page top.
+  test("OrphanedOverridesBlock section carries the #paused-overrides deep-link anchor (G2)", () => {
+    const { container } = render(
+      <OrphanedOverridesBlock
+        driveFileId={DRIVE_FILE_ID}
+        orphans={[
+          {
+            domain: "crew",
+            field: "name",
+            matchKey: "Jon",
+            override: {
+              overrideValue: "John",
+              sheetValue: "Jon",
+              active: false,
+              deactivationCode: "target_missing",
+              version: 2,
+            },
+          },
+        ]}
+        onSave={setFieldOverrideAction}
+      />,
+    );
+    expect(container.querySelector("section#paused-overrides")).not.toBeNull();
+  });
+
+  test("OrphanedOverridesBlock renders nothing when there are no orphans", () => {
+    const { container } = render(
+      <OrphanedOverridesBlock
+        driveFileId={DRIVE_FILE_ID}
+        orphans={[]}
+        onSave={setFieldOverrideAction}
+      />,
+    );
+    expect(container.querySelector('[data-testid="per-show-orphaned-overrides-block"]')).toBeNull();
+    expect(captured).toHaveLength(0);
   });
 });

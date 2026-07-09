@@ -77,6 +77,12 @@ export type ReconcileCrewOverridesResult = {
   crewSideEffects: OverrideSideEffect[];
   /** final display name → its `sheet_name` (parsed name when a name override is active, else null). */
   sheetNameByFinal: Map<string, string | null>;
+  /**
+   * The post-hold crew list under the names/roles actually written (displayName / finalRole).
+   * Symmetric with the LIVE `previousCrewMembers` the auto-apply change-log diffs against, so a
+   * stable display-rename override is neither an add nor a remove (spec §3.6 line 150 / R3 G3).
+   */
+  appliedCrew: CrewMemberRow[];
 };
 
 type Desired = {
@@ -259,9 +265,23 @@ export function reconcileCrewOverrides(
     }
   }
 
+  // The FINAL applied crew list — each post-hold member under the name/role it was
+  // actually written with (displayName / finalRole after collision resolution). This is
+  // what now lives in crew_members, so the auto-apply change-log must diff against THIS
+  // (not the raw parse): with a stable `Jon→John` override the applied name is "John",
+  // matching the previous live row "John" — a pure display rename is then neither an add
+  // nor a remove (spec §3.6 line 150 / R2 finding G3). Membership is identical to the raw
+  // post-hold list (held-retained excluded, SYNC-4), so held/removal behavior is unchanged.
+  const appliedCrew = desired.map((d) => ({
+    ...d.parsedRow,
+    name: d.displayName,
+    role: d.finalRole,
+  }));
+
   return {
     writes: { deletes, parks, inserts, finals },
     crewSideEffects,
     sheetNameByFinal,
+    appliedCrew,
   };
 }

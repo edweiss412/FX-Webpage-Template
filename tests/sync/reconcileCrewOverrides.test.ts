@@ -296,4 +296,30 @@ describe("reconcileCrewOverrides", () => {
       false,
     );
   });
+
+  it("G3 (R3): appliedCrew carries the WRITTEN display name + final role, not the raw parse", () => {
+    // Failure mode caught: applyParseResult returning the raw parsed crew list as appliedCrewMembers,
+    // so writeAutoApplyChanges (which diffs the LIVE previousCrewMembers "John" against nextCrewMembers)
+    // sees "John" removed + "Jon" added on a STABLE display-rename sync — bogus crew_removed/crew_added
+    // feed rows for a pure display rename (spec §3.6 line 150). appliedCrew must be the display view.
+    const result = reconcileCrewOverrides(
+      baseArgs({
+        postHoldCrew: [crew("Jon", { role: "A2" }), crew("Kim", { role: "A1" })],
+        previousCrewMembers: [prev("id-jon", crew("John")), prev("id-kim", crew("Kim"))],
+        activeCrewOverrides: [
+          { id: "ov-name", field: "name", match_key: "Jon", override_value: "John" },
+          { id: "ov-role", field: "role", match_key: "Kim", override_value: "Lead" },
+        ],
+      }),
+    );
+    const byName = new Map(result.appliedCrew.map((m) => [m.name, m]));
+    // The name-overridden member appears under its DISPLAY name (matches the live row → no diff).
+    expect(byName.has("John")).toBe(true);
+    expect(byName.has("Jon")).toBe(false); // raw parsed name must NOT leak into the applied list
+    // The role-overridden member carries the FINAL (overridden) role.
+    expect(byName.get("Kim")?.role).toBe("Lead");
+    // Full-column identity is preserved (email from the parsed row, not invented).
+    expect(byName.get("John")?.email).toBe(canonicalize("jon@example.com"));
+    expect(result.appliedCrew).toHaveLength(2);
+  });
 });

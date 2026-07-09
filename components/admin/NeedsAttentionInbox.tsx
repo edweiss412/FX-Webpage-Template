@@ -152,10 +152,19 @@ function ItemCard({ item, now }: { item: NeedsAttentionItem; now: Date }) {
             live (Task 14) — this card carries NO inline action buttons, exactly
             like sync_problem. Row-specific aria-label with the unique overrideId
             discriminator (WCAG 2.4.4) so repeated paused-override cards on one
-            show have distinct accessible names. */}
+            show have distinct accessible names.
+            target_missing = the target row is GONE, so its control lives in the
+            dedicated "Paused overrides" block — anchor straight to it (#paused-
+            overrides) instead of the page top (§6 step 4 / critique P1). A
+            name_conflict override's target is still live, so its control is inline
+            in the crew/hotel section; that card lands at the page top (unchanged). */}
         <Link
           data-testid={`needs-attention-link-override-paused-${item.overrideId}`}
-          href={`/admin/show/${encodeURIComponent(item.slug)}`}
+          href={
+            item.deactivationCode === "target_missing"
+              ? `/admin/show/${encodeURIComponent(item.slug)}#paused-overrides`
+              : `/admin/show/${encodeURIComponent(item.slug)}`
+          }
           aria-label={
             item.title
               ? `Fix paused override for ${item.title} (${item.matchKey})`

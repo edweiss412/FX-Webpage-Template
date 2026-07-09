@@ -21,6 +21,7 @@ import {
 import type {
   CrewOverrideView,
   HotelOverrideView,
+  OrphanOverrideView,
   ShowOverridesView,
 } from "@/lib/overrides/loadShowOverrides";
 
@@ -164,6 +165,74 @@ function HotelOverrideRow({
         />
       </div>
     </div>
+  );
+}
+
+// Human label for an orphaned override's field (its live row is gone, so we can't
+// borrow the inline section's label). Domain-qualified so Doug can tell a crew orphan
+// from a hotel one at a glance.
+const ORPHAN_FIELD_LABEL: Record<OrphanOverrideView["field"], string> = {
+  name: "Crew name",
+  role: "Crew role",
+  hotel_name: "Hotel",
+  hotel_address: "Hotel address",
+};
+
+// §6 step 4 / G2: deactivated overrides whose parsed target vanished from the sheet
+// (crew member dropped, hotel reservation removed) have no live field to attach to.
+// This block gives them the SAME <OverrideableField> paused UI (Re-point / Discard) so
+// the "Override paused" needs-attention deep-link resolves to a real control instead of
+// a dead end. Rendered only when there is at least one orphan.
+export function OrphanedOverridesBlock({
+  driveFileId,
+  orphans,
+  onSave,
+}: {
+  driveFileId: string;
+  orphans: readonly OrphanOverrideView[];
+  onSave: OnSave;
+}) {
+  if (orphans.length === 0) return null;
+  return (
+    <section
+      // Scroll target for the "Override paused" needs-attention deep-link (§6 step 4):
+      // a target_missing card links to /admin/show/<slug>#paused-overrides so Doug lands
+      // on this block instead of the page top (impeccable critique P1).
+      id="paused-overrides"
+      data-testid="per-show-orphaned-overrides-block"
+      aria-label="Paused overrides needing attention"
+      className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad"
+    >
+      <h2 className="text-lg font-semibold text-text-strong">Paused overrides</h2>
+      <p className="text-sm text-text-subtle">
+        The sheet no longer has these targets. Re-point each to a current row or discard it.
+      </p>
+      <div className="flex flex-col gap-2">
+        {orphans.map((orphan) => (
+          <div
+            key={`${orphan.domain}-${orphan.field}-${orphan.matchKey}`}
+            data-testid={`orphaned-override-row-${orphan.domain}-${orphan.field}-${orphan.matchKey}`}
+            className={ROW_CLASS}
+          >
+            <span className={FIELD_LABEL_CLASS}>{ORPHAN_FIELD_LABEL[orphan.field]}</span>
+            <OverrideableField
+              driveFileId={driveFileId}
+              domain={orphan.domain}
+              field={orphan.field}
+              matchKey={orphan.matchKey}
+              // The target row is gone, so there is no live value to show. Render Doug's
+              // OWN correction (the override value) as the value cell so he can decide
+              // Re-point vs Discard without recalling what he typed (critique P1). Orphan
+              // overrides are always crew/hotel scalars (show is never orphaned).
+              currentValue={String(orphan.override.overrideValue ?? "")}
+              expectedCurrentValue={null}
+              override={orphan.override}
+              onSave={onSave}
+            />
+          </div>
+        ))}
+      </div>
+    </section>
   );
 }
 

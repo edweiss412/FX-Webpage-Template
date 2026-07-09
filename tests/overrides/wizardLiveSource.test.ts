@@ -87,6 +87,7 @@ function liveView(): ShowOverridesView {
     },
     crew: [],
     hotels: [],
+    orphans: [],
   };
 }
 
@@ -190,6 +191,7 @@ describe("wizard crew widget — matches the PARSED key under an active rename (
         },
       ],
       hotels: [],
+      orphans: [],
     };
   }
 
@@ -256,6 +258,7 @@ describe("wizard hotel widget — duplicate names bind to the correct reservatio
       },
       crew: [],
       hotels: [nameField(keyA), nameField(keyB)],
+      orphans: [],
     };
   }
 

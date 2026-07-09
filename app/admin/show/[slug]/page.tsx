@@ -41,6 +41,7 @@ import { loadShowOverrides } from "@/lib/overrides/loadShowOverrides";
 import {
   ShowDetailsOverrideBlock,
   HotelsOverrideBlock,
+  OrphanedOverridesBlock,
   CrewOverrideFields,
 } from "@/components/admin/overrides/ShowOverrideBlocks";
 import { setFieldOverrideAction } from "./_actions/overrides";
@@ -690,6 +691,13 @@ export default async function AdminShowPage({
       <HotelsOverrideBlock
         driveFileId={show.drive_file_id}
         hotels={overrides.hotels}
+        onSave={setFieldOverrideAction}
+      />
+      {/* §6 step 4 / G2: overrides whose sheet target vanished — the paused-override
+          needs-attention deep-link lands here on real Re-point/Discard controls. */}
+      <OrphanedOverridesBlock
+        driveFileId={show.drive_file_id}
+        orphans={overrides.orphans}
         onSave={setFieldOverrideAction}
       />
 

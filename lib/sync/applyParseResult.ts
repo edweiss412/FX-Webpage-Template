@@ -160,6 +160,10 @@ export async function applyParseResult(
   // Runs POST-HOLD (protectedNames/heldNames from the hold plan), inside the existing show lock.
   const activeCrewOverrides = args.activeCrewOverrides ?? [];
   let crewSideEffects: OverrideSideEffect[] = [];
+  // The crew list under the names/roles actually WRITTEN. Defaults to the raw post-hold parse; when
+  // crew overrides are active it is replaced by the reconciliation's display-name view (G3) so the
+  // auto-apply change-log diffs live-vs-live and a stable display rename produces no bogus add/remove.
+  let appliedCrewMembers = crewMembers;
   if (activeCrewOverrides.length > 0) {
     if (
       !tx.crewDeleteByIds ||
@@ -183,6 +187,7 @@ export async function applyParseResult(
       activeCrewOverrides,
     });
     crewSideEffects = reconciled.crewSideEffects;
+    appliedCrewMembers = reconciled.appliedCrew;
     // FOUR-PHASE ORDER (R24) — delete → park → insert → assign-finals. SKIP the legacy crew write.
     await tx.crewDeleteByIds(args.snapshot.showId, reconciled.writes.deletes);
     await tx.crewParkAtSentinel(
@@ -278,7 +283,7 @@ export async function applyParseResult(
   });
   await tx.deleteLivePendingIngestion(args.driveFileId);
   return {
-    appliedCrewMembers: crewMembers,
+    appliedCrewMembers,
     ...(crewSideEffects.length > 0 ? { crewSideEffects } : {}),
   };
 }

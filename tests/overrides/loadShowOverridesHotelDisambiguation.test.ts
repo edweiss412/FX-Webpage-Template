@@ -161,4 +161,66 @@ describe("loadShowOverrides — duplicate hotel-name paused overrides bind by di
     expect(hotelA!.hotel_name.override).toBeNull();
     expect(hotelB!.hotel_name.override).toBeNull();
   });
+
+  // Adversarial R3 (Codex round 3, HIGH — G1): uniqueness was counted over LIVE display
+  // names. An ACTIVE hotel_name override renames its live row, so a same-name sibling looked
+  // "unique" and its matchKey was minted WITHOUT a disambiguator — a key that stops
+  // identifying the row the moment the rename is discarded (both revert to the shared parsed
+  // name) or on the next full-replace re-sync. Uniqueness must be counted over PARSED names.
+  it("an un-renamed twin of an ACTIVELY-renamed same-name hotel still carries a disambiguator", async () => {
+    // Parsed identity of BOTH rows is "Grand Marriott" (a same-name group of 2).
+    const resA = {
+      id: "res-A",
+      ordinal: 1,
+      // resA was renamed live by an ACTIVE override → its live name is the override value.
+      hotel_name: "Marriott Downtown",
+      hotel_address: "1 A St",
+      check_in: "2026-07-01",
+      confirmation_no: "AAA",
+    };
+    const resB = {
+      id: "res-B",
+      ordinal: 2,
+      hotel_name: "Grand Marriott", // un-renamed — still shows the parsed name
+      hotel_address: "2 B St",
+      check_in: "2026-08-01",
+      confirmation_no: "BBB",
+    };
+    const disambA = computeHotelDisambiguator(resA);
+    const disambB = computeHotelDisambiguator(resB);
+    const keyA = `Grand Marriott${HOTEL_DISAMBIGUATOR_SEP}${disambA}`;
+    const keyB = `Grand Marriott${HOTEL_DISAMBIGUATOR_SEP}${disambB}`;
+    // The ACTIVE rename on resA; resB has NO override at all.
+    const overrides = [
+      {
+        domain: "hotel",
+        field: "hotel_name",
+        match_key: keyA,
+        override_value: "Marriott Downtown",
+        sheet_value: "Grand Marriott",
+        active: true,
+        deactivation_code: null,
+        version: 1,
+      },
+    ];
+    const supabase = fakeSupabase({
+      admin_overrides: overrides,
+      hotel_reservations: [resA, resB],
+    });
+    const view = await loadShowOverrides(supabase, {
+      showId: "show-1",
+      crew: [],
+      showDates: null,
+      showVenue: null,
+    });
+    const hotelA = view.hotels.find((h) => h.id === "res-A");
+    const hotelB = view.hotels.find((h) => h.id === "res-B");
+    // resA binds its active override by the stored disambiguated key.
+    expect(hotelA!.matchKey).toBe(keyA);
+    // THE CRUX (G1): resB — un-renamed but part of the same parsed-name group — must NOT be
+    // treated as unique. Its matchKey carries the disambiguator, not the bare parsed name.
+    expect(hotelB!.matchKey).toBe(keyB);
+    expect(hotelB!.matchKey).toContain(HOTEL_DISAMBIGUATOR_SEP);
+    expect(hotelB!.matchKey).not.toBe("Grand Marriott"); // the pre-fix (bare-name) value
+  });
 });

@@ -81,10 +81,26 @@ export type HotelOverrideView = {
   hotel_address: OverrideFieldView;
 };
 
+// An ORPHANED deactivated override (R3 G2 / spec §6 step 4): active=false and its
+// parsed match_key matches NO live row in its domain (crew member dropped, hotel
+// reservation removed). It has no live field to render inline, so the show page
+// surfaces it in a dedicated block whose Re-point/Discard controls back the paused-
+// override needs-attention deep-link (otherwise a dead end). show-domain overrides are
+// never orphaned (singleton always present); name_conflict overrides keep a live row
+// (the member/reservation reverts to its parsed name) and bind inline, so orphans are
+// always target_missing.
+export type OrphanOverrideView = {
+  domain: "crew" | "hotel";
+  field: "name" | "role" | "hotel_name" | "hotel_address";
+  matchKey: string; // the DURABLE PARSED key the override was created against (§8.2a)
+  override: OverrideState; // always active:false
+};
+
 export type ShowOverridesView = {
   show: { dates: OverrideFieldView; venue: OverrideFieldView };
   crew: CrewOverrideView[];
   hotels: HotelOverrideView[];
+  orphans: OrphanOverrideView[];
 };
 
 function toOverrideState(row: OverrideRow | undefined): OverrideState | null {
@@ -179,6 +195,14 @@ export async function loadShowOverrides(
     });
   }
 
+  // Every override row bound to a live field is recorded here; any deactivated row NOT
+  // in this set (and not show-domain) is an ORPHAN (§6 step 4 / G2) surfaced separately.
+  const consumed = new Set<OverrideRow>();
+  const mark = (r: OverrideRow | undefined): OverrideRow | undefined => {
+    if (r) consumed.add(r);
+    return r;
+  };
+
   const showRow = (field: "dates" | "venue") =>
     overrideRows.find((r) => r.domain === "show" && r.field === field && r.match_key === "");
   const crewRow = (field: "name" | "role", matchKey: string) =>
@@ -189,12 +213,12 @@ export async function loadShowOverrides(
     dates: {
       currentValue: displayValue(showDates),
       expectedCurrentValue: showDates ?? null,
-      override: toOverrideState(showRow("dates")),
+      override: toOverrideState(mark(showRow("dates"))),
     },
     venue: {
       currentValue: displayValue(showVenue),
       expectedCurrentValue: showVenue ?? null,
-      override: toOverrideState(showRow("venue")),
+      override: toOverrideState(mark(showRow("venue"))),
     },
   };
 
@@ -207,51 +231,79 @@ export async function loadShowOverrides(
       name: {
         currentValue: m.name,
         expectedCurrentValue: m.name,
-        override: toOverrideState(crewRow("name", matchKey)),
+        override: toOverrideState(mark(crewRow("name", matchKey))),
       },
       role: {
         currentValue: m.role ?? "",
         expectedCurrentValue: m.role ?? null,
-        override: toOverrideState(crewRow("role", matchKey)),
+        override: toOverrideState(mark(crewRow("role", matchKey))),
       },
     };
   });
 
   // ── hotels (hotel_name + hotel_address share a matchKey) ────────────────────
+  // §5.3 uniqueness that decides whether a matchKey needs a `\x1f`-disambiguator must be
+  // computed over PARSED names, NOT live DISPLAY names (R3 G1). An ACTIVE hotel_name override
+  // renames its live row to override_value, so counting live names would see a renamed same-name
+  // sibling as "unique" and mint a disambiguator-LESS key for the un-renamed twin — a key that can
+  // no longer identify its row once the rename is discarded (both revert to the shared parsed name)
+  // or on the next full-replace re-sync (the overlay re-derives match_key from the parsed name).
+  // The parsed name of a live row = the name-part of its ACTIVE hotel_name override's stored
+  // match_key (the override records the parsed identity it was created against) else the live name.
+  const parsedHotelName = (h: HotelRow): string => {
+    const liveName = h.hotel_name ?? "";
+    const activeRename = overrideRows.find(
+      (r) =>
+        r.domain === "hotel" &&
+        r.field === "hotel_name" &&
+        r.active &&
+        displayValue(r.override_value) === liveName,
+    );
+    if (!activeRename) return liveName;
+    const sepIdx = activeRename.match_key.indexOf(HOTEL_DISAMBIGUATOR_SEP);
+    return sepIdx < 0 ? activeRename.match_key : activeRename.match_key.slice(0, sepIdx);
+  };
+
   const nameCounts = new Map<string, number>();
   for (const h of hotelRows) {
-    const n = h.hotel_name ?? "";
+    const n = parsedHotelName(h);
     nameCounts.set(n, (nameCounts.get(n) ?? 0) + 1);
   }
 
   const hotelViews: HotelOverrideView[] = hotelRows.map((res) => {
     const liveName = res.hotel_name ?? "";
-    const unique = (nameCounts.get(liveName) ?? 0) <= 1;
+    // Uniqueness is keyed on the PARSED name (G1) — a row un-renamed but sharing its parsed name
+    // with a renamed sibling is NOT unique and must carry a disambiguator in its matchKey.
+    const unique = (nameCounts.get(parsedHotelName(res)) ?? 0) <= 1;
     const disamb = computeHotelDisambiguator(res);
 
     // An ACTIVE hotel_name override renamed the live row to override_value; a STALE
     // one released the row (live name === parsed name). Resolve the name override for
     // THIS reservation from either shape.
-    const nameOverride = overrideRows.find((r) => {
-      if (r.domain !== "hotel" || r.field !== "hotel_name") return false;
-      if (r.active) return displayValue(r.override_value) === liveName;
-      // stale: the live row shows the parsed name again, so the name alone is NOT a
-      // unique key inside a same-name group (§5.3). Match on the parsed name AND, when
-      // the stored key carries a `\x1f`-delimited disambiguator, require it to equal
-      // THIS reservation's disambiguator — otherwise two paused overrides for two
-      // same-name reservations would both bind to whichever row renders first, and a
-      // discard/repoint would act on the wrong override (adversarial R1).
-      const sepIdx = r.match_key.indexOf(HOTEL_DISAMBIGUATOR_SEP);
-      if (sepIdx < 0) {
-        // Name-only key (target was unique at create). Bind ONLY while the live name is
-        // STILL unique — if a later sync introduced a second same-name reservation, this
-        // key can no longer identify one row, so it must NOT attach to every duplicate
-        // (adversarial R2 MEDIUM). It stays in the non-row needs-attention stream until
-        // Doug re-points it to a disambiguated target.
-        return unique && r.match_key === liveName;
-      }
-      return r.match_key.slice(0, sepIdx) === liveName && r.match_key.slice(sepIdx + 1) === disamb;
-    });
+    const nameOverride = mark(
+      overrideRows.find((r) => {
+        if (r.domain !== "hotel" || r.field !== "hotel_name") return false;
+        if (r.active) return displayValue(r.override_value) === liveName;
+        // stale: the live row shows the parsed name again, so the name alone is NOT a
+        // unique key inside a same-name group (§5.3). Match on the parsed name AND, when
+        // the stored key carries a `\x1f`-delimited disambiguator, require it to equal
+        // THIS reservation's disambiguator — otherwise two paused overrides for two
+        // same-name reservations would both bind to whichever row renders first, and a
+        // discard/repoint would act on the wrong override (adversarial R1).
+        const sepIdx = r.match_key.indexOf(HOTEL_DISAMBIGUATOR_SEP);
+        if (sepIdx < 0) {
+          // Name-only key (target was unique at create). Bind ONLY while the live name is
+          // STILL unique — if a later sync introduced a second same-name reservation, this
+          // key can no longer identify one row, so it must NOT attach to every duplicate
+          // (adversarial R2 MEDIUM). It stays in the non-row needs-attention stream until
+          // Doug re-points it to a disambiguated target.
+          return unique && r.match_key === liveName;
+        }
+        return (
+          r.match_key.slice(0, sepIdx) === liveName && r.match_key.slice(sepIdx + 1) === disamb
+        );
+      }),
+    );
 
     // matchKey (§8.2a): the override's stored parsed key when present, else the
     // §5.3 name[+disambiguator] key (NOT plain hotel_name for a same-name group).
@@ -261,8 +313,10 @@ export async function loadShowOverrides(
         ? liveName
         : `${liveName}${HOTEL_DISAMBIGUATOR_SEP}${disamb}`;
 
-    const addressOverride = overrideRows.find(
-      (r) => r.domain === "hotel" && r.field === "hotel_address" && r.match_key === matchKey,
+    const addressOverride = mark(
+      overrideRows.find(
+        (r) => r.domain === "hotel" && r.field === "hotel_address" && r.match_key === matchKey,
+      ),
     );
 
     return {
@@ -283,5 +337,19 @@ export async function loadShowOverrides(
     };
   });
 
-  return { show, crew: crewViews, hotels: hotelViews };
+  // ── orphaned overrides (§6 step 4 / G2) ─────────────────────────────────────
+  // A deactivated override NOT bound to any live field above, and not show-domain
+  // (singleton never orphans). These are the target_missing rows whose crew member /
+  // hotel reservation is gone — the show page renders them so the paused-override
+  // needs-attention deep-link lands on a real Re-point/Discard control.
+  const orphans: OrphanOverrideView[] = overrideRows
+    .filter((r) => !r.active && r.domain !== "show" && !consumed.has(r))
+    .map((r) => ({
+      domain: r.domain as "crew" | "hotel",
+      field: r.field as OrphanOverrideView["field"],
+      matchKey: r.match_key,
+      override: toOverrideState(r)!,
+    }));
+
+  return { show, crew: crewViews, hotels: hotelViews, orphans };
 }
