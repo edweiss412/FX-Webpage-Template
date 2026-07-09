@@ -182,7 +182,7 @@ git commit --no-verify -m "infra: fast-check dep + fuzz run-config single source
 - Consumes: `ParsedSheet` type (`lib/parser/types.ts:378-402`), `parseSheet` (`lib/parser/index.ts:546`).
 - Produces: `assertParsedSheetShape(p: unknown): asserts p is ParsedSheet` — throws with a path-labeled message on the first violation.
 
-Required fields (spec §4.1): every REQUIRED `ParsedSheet` field present with correct container type (`show` object; `crewMembers`/`hotelReservations`/`rooms`/`transportation`/`contacts`/`diagrams`/`raw_unrecognized`/`warnings`/`archivedPullSheetTabs`/`hardErrors` arrays; `pullSheet`/`openingReel` per their declared types — read `lib/parser/types.ts:378-402` and mirror it exactly); `runOfShow` validated only when present; each `warnings[]` entry has non-empty string `code`, valid `severity`, non-empty `message` (`types.ts:7-10`); each `hardErrors[]` entry non-empty `code` + `message` (`types.ts:29`); whole value JSON-round-trippable (`JSON.parse(JSON.stringify(p))` does not throw and produces deep-equal payload via the mutation oracle's `payloadOf` + `fingerprint`).
+Required fields (spec §4.1): every REQUIRED `ParsedSheet` field present with correct container type. CAUTION — not all fields are arrays: `transportation: TransportationRow | null` (`types.ts:383`) and `diagrams` is an OBJECT `{ linkedFolder, embeddedImages, linkedFolderItems }` (`types.ts:386`). Read `lib/parser/types.ts:378-402` and mirror it field-by-field exactly (arrays: `crewMembers`/`hotelReservations`/`rooms`/`raw_unrecognized`/`warnings`/`archivedPullSheetTabs`/`hardErrors`; the rest per their declared types); `runOfShow` validated only when present; each `warnings[]` entry has non-empty string `code`, valid `severity`, non-empty `message` (`types.ts:7-10`); each `hardErrors[]` entry non-empty `code` + `message` (`types.ts:29`); whole value JSON-round-trippable (`JSON.parse(JSON.stringify(p))` does not throw and produces deep-equal payload via the mutation oracle's `payloadOf` + `fingerprint`).
 
 - [ ] **Step 1: Write the failing test** — three cases: (a) `assertParsedSheetShape(parseSheet(realFixtureMarkdown, "f.md"))` passes for a real fixture read from `fixtures/shows/raw/2025-04-asset-mgmt-cfo-coo.md`; (b) a hand-built object missing `warnings` throws mentioning `warnings`; (c) a valid parse with one warning mutated to `{code: ""}` throws mentioning `code`.
 - [ ] **Step 2: Run — expect FAIL (module missing).** `pnpm vitest run tests/parser/fuzz/shape.test.ts`
@@ -218,6 +218,13 @@ import { payloadOf, fingerprint } from "../mutation/oracle";
 import { chaosMarkdown } from "./chaos";
 
 const { seed, numRuns } = fuzzRunConfig();
+// Replay coordinates — the deep-job summary greps this exact prefix (spec §5:
+// seed + numRuns + fast-check version must be recoverable from CI output).
+// (ESM: no bare require) — createRequire for the version lookup.
+import { createRequire } from "node:module";
+const fcVersion = createRequire(import.meta.url)("fast-check/package.json").version as string;
+// eslint-disable-next-line no-console
+console.log(`FUZZ-CONFIG seed=${seed} numRuns=${numRuns} fast-check=${fcVersion}`);
 
 describe("Tier 1 robustness — chaos inputs", () => {
   it("parseSheet never throws, is deterministic, and returns a structurally valid ParsedSheet", () => {
@@ -243,7 +250,39 @@ describe("Tier 1 robustness — chaos inputs", () => {
 
 ---
 
-### Task 4: model.ts — ShowModel arbitraries + validateGeneratedCase
+### Task 4: dials.ts registry + DialChoices + walker meta-test
+
+(Ordered BEFORE model.ts so Task 5 can import `DialChoices` from an existing module — no forward dependency.)
+
+**Files:**
+- Create: `tests/parser/fuzz/dials.ts`, `tests/parser/fuzz/_metaDialRegistry.test.ts`
+
+**Interfaces:**
+- Produces: `type DialChoices = { dateFormat: "slash" | "dash" | "iso" | "longMDY" | "longDMY"; dimsFormat: "unit" | "bare" | "unicode"; crewSectionToken: "CREW" | "TECH"; crewHeader: "labeled" | "permuted" | "headerless"; sectionOrder: number /* permutation index over model.sections */; blankPadding: 1 | 2 | 3; headerTypo: null | { section: "long" | "short"; which: string }; dayRestrictionOn: boolean }`; `dialChoices: fc.Arbitrary<DialChoices>`; `DIAL_REGISTRY: ReadonlyArray<{ name: string; contractFile: string; contractSymbol: string; note?: string; coversKeys: readonly (keyof DialChoices)[] }>`. (`sectionHeader` dial = `crewSectionToken` — crew is the only multi-token opener in Phase 1; room-section variation rides `RoomModel.kind`; `dimsFormat` maps to the three `DIMS_FULL_SRC` shapes.)
+
+Registry rows (from spec §3.2 dial table — contractFile/contractSymbol per row):
+
+| name | contractFile | contractSymbol | note | coversKeys |
+|---|---|---|---|---|
+| sectionHeader | lib/parser/blocks/crew.ts | SECTION_HEADER_TOKENS | (token,layout) pairs; hotels Phase 1 = structured HOTEL only | crewSectionToken |
+| headerTypo | lib/parser/sectionHeaderNormalize.ts | LONG_SECTION_VOCAB | short-vocab typos require field-band row; never composes with headerless | headerTypo |
+| dateFormat | lib/parser/blocks/_helpers.ts | normalizeDate | | dateFormat |
+| dimsFormat | lib/parser/blocks/_dimsToken.ts | DIMS_FULL_SRC | | dimsFormat |
+| crewColumns | lib/parser/blocks/crew.ts | CREW_COLUMN_VOCAB | headerless = positional defaults, warning expected + full round-trip | crewHeader |
+| dayRestriction | lib/parser/personalization.ts | PAREN_ONLY_PATTERN | sole producer of restriction clauses | dayRestrictionOn |
+| sectionOrder | lib/parser/index.ts | parseSheet | structural: blocks scan whole doc, order-independent given ≥1 blank-line separation | sectionOrder |
+| blankPadding | lib/parser/index.ts | parseSheet | structural: 1–3 blank rows; 0 out of contract (exporter join("\n\n")) | blankPadding |
+| address | lib/parser/blocks/hotels.ts | STREET_ADDRESS_RE | suffix-bearing only; ZIP-tail regex is discriminator-only | (model-side, no DialChoices key) |
+
+- [ ] **Step 1: Write the failing meta-test** (`_metaDialRegistry.test.ts`): for every `DIAL_REGISTRY` row — (a) `existsSync(contractFile)` from repo root; (b) file content matches `new RegExp(String.raw`^\s*(export\s+)?(const|let|function|class|type)\s+${escapeRegExp(contractSymbol)}\b`, "m")` (declaration match, not string mention); (c) rows anchored on `parseSheet` have non-empty `note`. Plus fails-by-default coverage BOTH directions: every key of `DialChoices` (via a literal key list kept next to the type, asserted equal to `Object.keys` of a sample) appears in exactly one row's `coversKeys`, AND every `coversKeys` entry is a real `DialChoices` key — a new dial key without a registry row fails, and a stale row fails.
+- [ ] **Step 2: Run — FAIL.** `pnpm vitest run tests/parser/fuzz/_metaDialRegistry.test.ts`
+- [ ] **Step 3: Implement `dials.ts`** (type + registry + `dialChoices` arbitrary; composition exclusion headerTypo(short)×headerless enforced in `validateGeneratedCase` (Task 5) — dials.ts declares data only).
+- [ ] **Step 4: Run — PASS.**
+- [ ] **Step 5: Commit** `test(parser): dial registry with declaration-matched contract citations + walker meta-test`
+
+---
+
+### Task 5: model.ts — ShowModel arbitraries + validateGeneratedCase
 
 **Files:**
 - Create: `tests/parser/fuzz/model.ts`
@@ -251,11 +290,12 @@ describe("Tier 1 robustness — chaos inputs", () => {
 
 **Interfaces:**
 - Produces:
-  - `type ShowModel = { version: "v4"; year: number; dates: { travelIn: IsoDate; showDays: IsoDate[]; travelOut: IsoDate }; crew: CrewModel[]; hotels: HotelModel[]; rooms: RoomModel[]; venue: { name: string; address: string } }` with `CrewModel = { name: string; role: string; phone: string; email?: string; dayRestriction?: IsoDate[] }`, `HotelModel = { name: string; address: string; guests: string[] }`, `RoomModel = { kind: "GENERAL SESSION" | "BREAKOUT" | "ADDITIONAL ROOM" | "LUNCH ROOM"; name: string; dims: { w: number; d: number } }`.
+  - `type SectionKind = "crew" | "hotels" | "rooms" | "venue" | "dates"`
+  - `type ShowModel = { version: "v4"; year: number; dates: { travelIn: IsoDate; showDays: IsoDate[]; travelOut: IsoDate }; crew: CrewModel[]; hotels: HotelModel[]; rooms: RoomModel[]; venue: { name: string; address: string }; sections: SectionKind[] }` — `sections` is the ORDERED list of present sections (spec §3.1 presence/content coupling: always contains crew/venue/dates; contains hotels/rooms iff their list is non-empty; `dials.sectionOrder` permutes THIS list at render). `CrewModel = { name: string; role: string; phone: string; email?: string; dayRestriction?: IsoDate[] }`, `HotelModel = { name: string; address: string; guests: string[] }`, `RoomModel = { kind: "GENERAL SESSION" | "BREAKOUT" | "ADDITIONAL ROOM" | "LUNCH ROOM"; name: string; dims: { w: number; d: number } }`.
   - `showModel: fc.Arbitrary<ShowModel>`
   - `validateGeneratedCase(model: ShowModel, dials: DialChoices): void` (throws on violation)
-  - `mdToken(d: IsoDate): string` (yearless `M/D`), `renderDateToken(d: IsoDate, fmt: DateFormat): string`
-- Consumes: `DialChoices` type from Task 5 (declare it here as an import type; Task 5 exports it — implement Tasks 4+5 in one worktree sitting if needed, tests keep them separable).
+  - `mdToken(d: IsoDate): string` (yearless `M/D`), `renderDateToken(d: IsoDate, fmt: DialChoices["dateFormat"]): string`
+- Consumes: `DialChoices` from `./dials` (Task 4 — already exists).
 
 Construction rules (spec §3.1, all enforced in the arbitrary AND re-checked by `validateGeneratedCase`):
 
@@ -276,36 +316,6 @@ Construction rules (spec §3.1, all enforced in the arbitrary AND re-checked by 
 
 ---
 
-### Task 5: dials.ts registry + walker meta-test
-
-**Files:**
-- Create: `tests/parser/fuzz/dials.ts`, `tests/parser/fuzz/_metaDialRegistry.test.ts`
-
-**Interfaces:**
-- Produces: `type DialChoices = { dateFormat: "slash" | "dash" | "iso" | "longMDY" | "longDMY"; crewHeader: "labeled" | "permuted" | "headerless"; sectionOrder: number /* permutation index */; blankPadding: 1 | 2 | 3; headerTypo: null | { section: "long" | "short"; which: string }; dayRestrictionOn: boolean }`; `dialChoices: fc.Arbitrary<DialChoices>`; `DIAL_REGISTRY: ReadonlyArray<{ name: string; contractFile: string; contractSymbol: string; note?: string }>`.
-
-Registry rows (from spec §3.2 dial table — contractFile/contractSymbol per row):
-
-| name | contractFile | contractSymbol | note |
-|---|---|---|---|
-| sectionHeader | lib/parser/blocks/crew.ts | SECTION_HEADER_TOKENS | (token,layout) pairs; hotels Phase 1 = structured HOTEL only |
-| headerTypo | lib/parser/sectionHeaderNormalize.ts | LONG_SECTION_VOCAB | short-vocab typos require field-band row; never composes with headerless |
-| dateFormat | lib/parser/blocks/_helpers.ts | normalizeDate | |
-| dimsFormat | lib/parser/blocks/_dimsToken.ts | DIMS_FULL_SRC | |
-| crewColumns | lib/parser/blocks/crew.ts | CREW_COLUMN_VOCAB | headerless = positional defaults, warning expected + full round-trip |
-| dayRestriction | lib/parser/personalization.ts | PAREN_ONLY_PATTERN | sole producer of restriction clauses |
-| sectionOrder | lib/parser/index.ts | parseSheet | structural: blocks scan whole doc, order-independent given ≥1 blank-line separation |
-| blankPadding | lib/parser/index.ts | parseSheet | structural: 1–3 blank rows; 0 out of contract (exporter join("\n\n")) |
-| address | lib/parser/blocks/hotels.ts | STREET_ADDRESS_RE | suffix-bearing only; ZIP-tail regex is discriminator-only |
-
-- [ ] **Step 1: Write the failing meta-test** (`_metaDialRegistry.test.ts`): for every `DIAL_REGISTRY` row — (a) `existsSync(contractFile)` from repo root; (b) file content matches `new RegExp(String.raw`^\s*(export\s+)?(const|let|function|class|type)\s+${escapeRegExp(contractSymbol)}\b`, "m")` (declaration match, not string mention); (c) rows anchored on `parseSheet` have non-empty `note`. Plus fails-by-default coverage: every key of `DialChoices` (via a literal key list kept next to the type) has a registry row whose `name` covers it — a new dial key without a row fails.
-- [ ] **Step 2: Run — FAIL.**
-- [ ] **Step 3: Implement `dials.ts`** (registry + `dialChoices` arbitrary; composition exclusion headerTypo(short)×headerless enforced in `validateGeneratedCase` per Task 4 — dials.ts only declares data).
-- [ ] **Step 4: Run — PASS.**
-- [ ] **Step 5: Commit** `test(parser): dial registry with declaration-matched contract citations + walker meta-test`
-
----
-
 ### Task 6: render.ts — deterministic serialization
 
 **Files:**
@@ -318,7 +328,7 @@ Registry rows (from spec §3.2 dial table — contractFile/contractSymbol per ro
 
 Section templates — copied from the live fixture `fixtures/shows/raw/2025-04-asset-mgmt-cfo-coo.md` (verbatim shapes verified in the pre-draft pass; re-grep before implementing):
 
-- **v4 scaffold (byte-constant, first):** marker label rows for `contact` + `rental` blocks (`V4_BLOCKS` `schema.ts:91-94`): rows `| CONTACT OFFICE | 000-000-0000 |`, `| CONTACT CELL | 000-000-0000 |`, `| CONTACT EMAIL | scaffold@fuzz.example |`, `| RENTAL PICKUP | TBD |`, `| RENTAL RETURN | TBD |`. Byte-identical across every case. FIRST STEP of this task: parse the scaffold alone + assert `classifyVersion` confident-v4 and zero rooms/crew/hotels payload (guards the fabrication concern before anything composes).
+- **v4 scaffold (byte-constant, always rendered LAST — after the final planted section and a blank line; placement is fixed, not dialed):** marker label rows for `contact` + `rental` blocks (`V4_BLOCKS` `schema.ts:91-94`): rows `| CONTACT OFFICE | 000-000-0000 |`, `| CONTACT CELL | 000-000-0000 |`, `| CONTACT EMAIL | scaffold@fuzz.example |`, `| RENTAL PICKUP | TBD |`, `| RENTAL RETURN | TBD |`. Byte-identical across every case. FIRST TEST of this task (ordering of tests, not of output): parse the scaffold alone + assert `classifyVersion` confident-v4 and zero rooms/crew/hotels payload (guards the fabrication concern before anything composes).
 - **DATES (5-col v4):** `| DATES | | DAY | DATE | TIME |` header; rows `| | TRAVEL IN | <weekday> | <renderDateToken(travelIn, fmt)> | |`, `| | SHOW DAY <n> | <weekday> | <token> | |`, `| | TRAVEL OUT | ... |`. Weekday computed from the ISO date (`Intl` or manual table — must be CORRECT; a wrong weekday is an unplanted inconsistency).
 - **CREW:** header `| CREW | NAME | ROLE | PHONE | EMAIL |` (labeled), a `dials.crewHeader === "permuted"` variant permuting the four vocab labels (data cells permuted identically), or headerless (`| CREW | <name> | <role> | <phone> | |` first data row directly — positional contract `crew.ts:80-84`). Role cell gets ` (<M/D> & <M/D> ONLY)` appended when that member has `dayRestriction` and `dials.dayRestrictionOn`.
 - **VENUE:** `| VENUE | VENUE NAME | <name> |` + `| | VENUE ADDRESS | <address> |`.
@@ -450,11 +460,11 @@ describe("Tier 2 plant-and-find", () => {
         run: |
           set -o pipefail
           pnpm test:fuzz:deep 2>&1 | tee parser-fuzz-deep.log
-      - name: Surface seed in summary
+      - name: Surface replay coordinates in summary
         if: always()
         shell: bash
         run: |
-          { echo '## parser-fuzz-deep'; grep -E "seed|Counterexample|Shrunk" parser-fuzz-deep.log | head -50; } >> "$GITHUB_STEP_SUMMARY" || true
+          { echo '## parser-fuzz-deep'; grep -E "FUZZ-CONFIG|seed|numRuns|Counterexample|Shrunk" parser-fuzz-deep.log | head -60; } >> "$GITHUB_STEP_SUMMARY" || true
       - name: Upload log
         if: always()
         uses: actions/upload-artifact@v4
