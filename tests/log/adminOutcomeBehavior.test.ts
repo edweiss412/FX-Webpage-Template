@@ -385,6 +385,39 @@ import {
 } from "@/app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route";
 import { createInMemorySlotStore } from "@/lib/agenda/extractAgendaLease";
 
+// ── Batch 3: Class B plain-POST module mocks (spec §5.1) — MANDATORY partial
+// (spread-importActual) form. A whole-module factory would clobber sibling exports
+// that A2/A3/A4 + already-proven rows import from these same modules
+// (revisionTimesMatch, STAGED_REVIEW_ITEMS_CORRUPT, *_unlocked, FINALIZE_OWNED_SHOW),
+// so ONLY the mutation entry point of each is overridden. @/lib/log is NEVER mocked.
+import type { ApplyStagedResult } from "@/lib/sync/applyStaged";
+import { PENDING_SYNC_NOT_FOUND } from "@/lib/sync/applyStaged";
+import { POST as stagedApplyPost } from "@/app/api/admin/staged/[fileId]/apply/route";
+
+const applyStagedMock = vi.fn(
+  async (..._a: unknown[]): Promise<ApplyStagedResult> => ({
+    outcome: "not_found",
+    code: PENDING_SYNC_NOT_FOUND,
+  }),
+);
+vi.mock("@/lib/sync/applyStaged", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/sync/applyStaged")>()),
+  applyStaged: (...a: unknown[]) => applyStagedMock(...a),
+}));
+
+const promoteSnapshotUploadMock = vi.fn(async (..._a: unknown[]): Promise<unknown> => ({}));
+const repairSnapshotRollbackMock = vi.fn(
+  async (..._a: unknown[]): Promise<unknown> => ({
+    outcome: "not_stuck",
+    snapshotRevisionId: "snap-1",
+  }),
+);
+vi.mock("@/lib/sync/promoteSnapshot", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/sync/promoteSnapshot")>()),
+  promoteSnapshotUpload: (...a: unknown[]) => promoteSnapshotUploadMock(...a),
+  repairSnapshotRollback: (...a: unknown[]) => repairSnapshotRollbackMock(...a),
+}));
+
 // ── inline file-local recorder (single-file contract; no cross-file state) ──
 const recorded = new Set<string>(); // "file::fn::code"
 function recordAdminOutcomeBehavior(x: { file: string; fn: string; code: string }) {
@@ -2854,6 +2887,51 @@ describe("Batch 3 — final grandfathered surfaces graduate to inline proof", ()
           } as unknown as NonNullable<ExtractAgendaDeps["sql"]>,
         }),
       failureExpect: { status: 202 }, // body {status:"pending",reason} has NO code key
+    });
+  });
+
+  const STAGED_UUID = "22222222-2222-4222-8222-222222222222";
+  // The routes read the admin email / resolve the slug / read the ledger via the Supabase
+  // client BEFORE the mutation dep, so BOTH legs must inject the working client (Codex plan-R1
+  // MEDIUM): under env-poison a failure leg that only configured the mock would throw first.
+  const withAdminServerClient = () => {
+    serverClientImpl.current = async () =>
+      makeClient({ getUser: { data: { user: { email: "admin@example.com" } }, error: null } });
+  };
+
+  test("B1 live staged apply (/[fileId]) emits SHOW_APPLIED", async () => {
+    const file = "app/api/admin/staged/[fileId]/apply/route.ts";
+    const ctx = () => ({ params: Promise.resolve({ fileId: B3_DFID }) });
+    const req = () =>
+      new NextRequest("https://x/apply", {
+        method: "POST",
+        body: JSON.stringify({ source_scope: "live", staged_id: STAGED_UUID }),
+        headers: { "content-type": "application/json" },
+      });
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "SHOW_APPLIED",
+      success: () => {
+        withAdminServerClient();
+        // Real ApplyStagedResult.applied; OMIT snapshotRevisionId → skip the after() promote path.
+        applyStagedMock.mockImplementation(async () => ({
+          outcome: "applied",
+          showId: "show-1",
+          syncAuditId: null,
+          derivedSideEffects: { revokeFloorForNames: [] },
+        }));
+        return stagedApplyPost(req(), ctx());
+      },
+      failure: (mark) => {
+        withAdminServerClient();
+        applyStagedMock.mockImplementation(async () => {
+          mark.hit = true;
+          return { outcome: "not_found", code: PENDING_SYNC_NOT_FOUND };
+        });
+        return stagedApplyPost(req(), ctx());
+      },
+      failureExpect: { status: 404 }, // body key is `error`, not `code` → no bodyCode
     });
   });
   // <<< BATCH-3 PROOF BLOCK END
