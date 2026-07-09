@@ -292,6 +292,49 @@ import {
 } from "@/app/admin/_actions/autoApplied";
 const AUTO_APPLIED_FILE = "app/admin/_actions/autoApplied.ts";
 
+// ── Batch 1: grandfathered per-show server-action deps (spec §3.2) ──────────
+// The 6 actions delegate to a mockable lifecycle caller / hold-gate helper; each
+// emits its code via the REAL logAdminOutcome on the committed-success branch, so
+// we mock ONLY the delegate (never @/lib/log — file rule at top). Show resolution
+// runs against the shared swappable `serverClientImpl` (resolveShowBySlug/ById).
+// undoChange + showCacheTag.revalidateShow are already mocked above for the
+// dashboard auto-applied actions; feed.undoChangeAction reuses undoChangeMock.
+const archiveShowMock = vi.fn(async (..._a: unknown[]) => ({ ok: true }) as unknown);
+const unarchiveShowMock = vi.fn(async (..._a: unknown[]) => ({ ok: true }) as unknown);
+const publishShowMock = vi.fn(async (..._a: unknown[]) => ({ ok: true }) as unknown);
+const unpublishShowMock = vi.fn(async (..._a: unknown[]) => ({ ok: true }) as unknown);
+vi.mock("@/lib/showLifecycle/archiveShow", () => ({
+  archiveShow: (...a: unknown[]) => archiveShowMock(...a),
+}));
+vi.mock("@/lib/showLifecycle/unarchiveShow", () => ({
+  unarchiveShow: (...a: unknown[]) => unarchiveShowMock(...a),
+}));
+vi.mock("@/lib/showLifecycle/publishShow", () => ({
+  publishShow: (...a: unknown[]) => publishShowMock(...a),
+}));
+vi.mock("@/lib/showLifecycle/unpublishShow", () => ({
+  unpublishShow: (...a: unknown[]) => unpublishShowMock(...a),
+}));
+
+const approveMi11HoldMock = vi.fn(
+  async (..._a: unknown[]) => ({ ok: true, showId: "show-77" }) as unknown,
+);
+const rejectMi11HoldMock = vi.fn(async (..._a: unknown[]) => ({ ok: true }) as unknown);
+vi.mock("@/lib/sync/holds/mi11GateActions", () => ({
+  approveMi11Hold: (...a: unknown[]) => approveMi11HoldMock(...a),
+  rejectMi11Hold: (...a: unknown[]) => rejectMi11HoldMock(...a),
+}));
+
+// ── Batch 1: grandfathered per-show server actions (spec §3.1) ──────────────
+import { archiveShowAction } from "@/app/admin/show/[slug]/_actions/archive";
+import { unarchiveShowAction } from "@/app/admin/show/[slug]/_actions/unarchive";
+import { setShowPublishedAction } from "@/app/admin/show/[slug]/_actions/setPublished";
+import {
+  mi11ApproveAction,
+  mi11RejectAction,
+  undoChangeAction,
+} from "@/app/admin/show/[slug]/_actions/feed";
+
 // ── inline file-local recorder (single-file contract; no cross-file state) ──
 const recorded = new Set<string>(); // "file::fn::code"
 function recordAdminOutcomeBehavior(x: { file: string; fn: string; code: string }) {
@@ -460,6 +503,13 @@ beforeEach(() => {
     channelId: "chan-1",
   }));
   resolveAdminAlertMock.mockImplementation(async () => undefined);
+  // Batch 1 per-show action delegates (success defaults; failure set per-test):
+  archiveShowMock.mockImplementation(async () => ({ ok: true }));
+  unarchiveShowMock.mockImplementation(async () => ({ ok: true }));
+  publishShowMock.mockImplementation(async () => ({ ok: true }));
+  unpublishShowMock.mockImplementation(async () => ({ ok: true }));
+  approveMi11HoldMock.mockImplementation(async () => ({ ok: true, showId: "show-77" }));
+  rejectMi11HoldMock.mockImplementation(async () => ({ ok: true }));
 });
 
 // ── Task 7: settings toggles (spec §3.1 A, §5.2) ────────────────────────────
@@ -1258,6 +1308,127 @@ describe("Flow-4 Task 4 — dashboard accept/undo server actions observe changes
   });
 });
 
+// ── Batch 1: grandfathered per-show server actions graduate to inline proof ──
+// BL-ADMIN-OUTCOME-BEHAVIOR (spec §3): each of the 6 actions was in
+// ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER (now removed). Each drives its committed-success
+// branch through observeSuccessCodes (records ONLY after observing the real emit) and
+// is paired with a refusal case proving the emit is committed-success-gated. archive/
+// unarchive/setPublished resolve the show via the shared swappable serverClientImpl
+// (resolveShowBySlug / resolveShowById in _actions/shared.ts).
+const FOUND_SHOW = { id: "show-b1", drive_file_id: "drive-b1" };
+function resolvedShowClient() {
+  return async () => makeClient({ from: { data: FOUND_SHOW, error: null } });
+}
+
+describe("Batch 1 — grandfathered per-show server actions observe success only", () => {
+  test("archiveShowAction emits SHOW_ARCHIVED on committed success; nothing when archiveShow refuses", async () => {
+    serverClientImpl.current = resolvedShowClient();
+    const codes = await observeSuccessCodes(() => archiveShowAction("slug-b1"));
+    expect(codes).toContain("SHOW_ARCHIVED");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/show/[slug]/_actions/archive.ts",
+      fn: "archiveShowAction",
+      code: "SHOW_ARCHIVED",
+    });
+
+    archiveShowMock.mockImplementation(async () => ({ ok: false, code: "ARCHIVE_BLOCKED" }));
+    const failCodes = await observeCodes(() => archiveShowAction("slug-b1"));
+    expect(failCodes).not.toContain("SHOW_ARCHIVED");
+  });
+
+  test("unarchiveShowAction emits SHOW_UNARCHIVED_BY_ADMIN on committed success; nothing when the RPC refuses", async () => {
+    serverClientImpl.current = resolvedShowClient();
+    const codes = await observeSuccessCodes(() => unarchiveShowAction("show-b1"));
+    expect(codes).toContain("SHOW_UNARCHIVED_BY_ADMIN");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/show/[slug]/_actions/unarchive.ts",
+      fn: "unarchiveShowAction",
+      code: "SHOW_UNARCHIVED_BY_ADMIN",
+    });
+
+    unarchiveShowMock.mockImplementation(async () => ({ ok: false }));
+    const failCodes = await observeCodes(() => unarchiveShowAction("show-b1"));
+    expect(failCodes).not.toContain("SHOW_UNARCHIVED_BY_ADMIN");
+  });
+
+  test("setShowPublishedAction emits SHOW_PUBLISHED (next=true) and SHOW_UNPUBLISHED_BY_ADMIN (next=false); nothing on refusal", async () => {
+    serverClientImpl.current = resolvedShowClient();
+    const pubCodes = await observeSuccessCodes(() => setShowPublishedAction("slug-b1", true));
+    expect(pubCodes).toContain("SHOW_PUBLISHED");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/show/[slug]/_actions/setPublished.ts",
+      fn: "setShowPublishedAction",
+      code: "SHOW_PUBLISHED",
+    });
+
+    const unpubCodes = await observeSuccessCodes(() => setShowPublishedAction("slug-b1", false));
+    expect(unpubCodes).toContain("SHOW_UNPUBLISHED_BY_ADMIN");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/show/[slug]/_actions/setPublished.ts",
+      fn: "setShowPublishedAction",
+      code: "SHOW_UNPUBLISHED_BY_ADMIN",
+    });
+
+    unpublishShowMock.mockImplementation(async () => ({ ok: false, code: "FINALIZE_OWNED_SHOW" }));
+    const failCodes = await observeCodes(() => setShowPublishedAction("slug-b1", false));
+    expect(failCodes).not.toContain("SHOW_UNPUBLISHED_BY_ADMIN");
+  });
+
+  test("mi11ApproveAction emits MI11_HOLD_APPROVED on {ok:true}; nothing on refusal", async () => {
+    const fd = new FormData();
+    fd.set("holdId", "hold-b1");
+    const codes = await observeSuccessCodes(() => mi11ApproveAction(null, fd));
+    expect(codes).toContain("MI11_HOLD_APPROVED");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/show/[slug]/_actions/feed.ts",
+      fn: "mi11ApproveAction",
+      code: "MI11_HOLD_APPROVED",
+    });
+
+    approveMi11HoldMock.mockImplementation(async () => ({
+      ok: false,
+      code: "IDENTITY_WOULD_COLLIDE",
+    }));
+    const failCodes = await observeCodes(() => mi11ApproveAction(null, fd));
+    expect(failCodes).not.toContain("MI11_HOLD_APPROVED");
+  });
+
+  test("mi11RejectAction emits MI11_HOLD_REJECTED on {ok:true}; nothing on refusal", async () => {
+    const fd = new FormData();
+    fd.set("holdId", "hold-b1");
+    const codes = await observeSuccessCodes(() => mi11RejectAction(null, fd));
+    expect(codes).toContain("MI11_HOLD_REJECTED");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/show/[slug]/_actions/feed.ts",
+      fn: "mi11RejectAction",
+      code: "MI11_HOLD_REJECTED",
+    });
+
+    rejectMi11HoldMock.mockImplementation(async () => ({ ok: false, code: "MI11_HOLD_GONE" }));
+    const failCodes = await observeCodes(() => mi11RejectAction(null, fd));
+    expect(failCodes).not.toContain("MI11_HOLD_REJECTED");
+  });
+
+  test("undoChangeAction emits CHANGE_UNDONE on {ok:true}; nothing on refusal", async () => {
+    // undoChangeMock is shared with the dashboard auto-applied undo test (which runs
+    // earlier and leaves it at failure) and is NOT reset in beforeEach — set success here.
+    undoChangeMock.mockImplementation(async () => ({ ok: true, showId: "show-9" }));
+    const fd = new FormData();
+    fd.set("changeLogId", "cl-b1");
+    const codes = await observeSuccessCodes(() => undoChangeAction(null, fd));
+    expect(codes).toContain("CHANGE_UNDONE");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/show/[slug]/_actions/feed.ts",
+      fn: "undoChangeAction",
+      code: "CHANGE_UNDONE",
+    });
+
+    undoChangeMock.mockImplementation(async () => ({ ok: false, code: "CHANGE_ALREADY_UNDONE" }));
+    const failCodes = await observeCodes(() => undoChangeAction(null, fd));
+    expect(failCodes).not.toContain("CHANGE_UNDONE");
+  });
+});
+
 // ── Task 18: executable behavioral-coverage assertion (spec §4.2 / §9 / §10.5) ──
 // Runs LAST: every recording test above has populated the file-local `recorded` set
 // within this one module scope (spec R11 F2 — no cross-file recorder). This is the
@@ -1268,8 +1439,8 @@ describe("Task 18 — admin behavioral coverage (every registered non-grandfathe
   const adminKeys = new Set(adminUnits.map((u) => `${u.file}::${u.fn}`));
   const grandfather = new Set(ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER.map((g) => `${g.file}::${g.fn}`));
 
-  test("the grandfather baseline is exactly the frozen 30 and each entry is still a live admin surface", () => {
-    expect(ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER.length).toBe(30);
+  test("the grandfather baseline matches the frozen pin (24 after Batch 1) and each entry is still a live admin surface", () => {
+    expect(ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER.length).toBe(24);
     // No stale entries — a grandfather row must still resolve to a live admin surface
     // (fails if a route/action was deleted or renamed out from under the baseline).
     const stale = ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER.filter(
