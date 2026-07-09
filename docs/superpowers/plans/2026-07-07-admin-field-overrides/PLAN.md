@@ -335,6 +335,11 @@ begin
           or (p_domain='crew'  and p_field in ('name','role'))
           or (p_domain='hotel' and p_field in ('hotel_name','hotel_address'))) then
     return jsonb_build_object('ok', false, 'code', 'OVERRIDE_INVALID_OP'); end if;
+  -- RPC5-1: show is a SINGLETON — force the canonical empty match_key so CAS-A, the unique key
+  -- `(show_id,domain,field,match_key)`, and every lookup collapse to exactly ONE override row per
+  -- (show,field). Without this, a caller passing a different p_match_key would bypass the active-create
+  -- collision check and insert a SECOND active show override writing the same `shows` field.
+  if p_domain='show' then p_match_key := ''; p_new_match_key := ''; end if;
 
   -- read the current override row for (target) under the lock.
   select * into v_row from public.admin_overrides
@@ -793,6 +798,8 @@ Run Step 4.1 → PASSES. Confirm `_metaInfraContract` still green (the inline `/
 - **RPC2-1 hotel resolver returns a real row:** any two-same-name hotel resolution path (create/edit/repoint) actually resolves the disambiguated row (regression guard: `min(uuid)` does not exist in PG — the resolver uses `(array_agg(id))[1]`; a `min(id)` transcription would error every hotel op).
 - **RPC2-2 active hotel_name repoint keeping the same value:** an active `hotel_name` override on A (value `Hilton`) repointed to a new reservation B, `p_override_value` omitted → SUCCEEDS (A is excluded from the FINAL-name collision because it is the releasing target); A reverts to its parsed name, B becomes `Hilton`, exactly one live `Hilton`.
 - **RPC2-3 non-create ops require a version:** `revert`/`repoint`/`discard` called with `p_expected_version=NULL` → 409 `OVERRIDE_STALE_REVIEW` (they must carry the version CAS; an inactive row cannot be repointed/discarded via the create path).
+- **RPC3-1 NULL/invalid discriminators:** `p_op`/`p_domain`/`p_field` = NULL or an unknown value → `OVERRIDE_INVALID_OP`, never falls through to the upsert block.
+- **RPC5-1 show singleton match_key:** a second show `dates` create with a DIFFERENT `p_match_key` than the first is treated as the SAME target (match_key canonicalized to `''`) → blocked by the active-create collision (one active show override per field, never two).
 - **canonical `created_by`:** a mixed-case `p_actor` is stored `lower(trim())` (or rejected by the CHECK).
 - **lock held:** assert `pg_advisory_xact_lock` is taken (structural — via the deadlock pin in Task 3; this suite asserts a concurrent conflicting op serializes).
 
