@@ -27,13 +27,14 @@ describe.skipIf(!url)("admin_overrides schema + lockdown", () => {
     }
     expect(has("anon", "SELECT")).toBe(false);
     expect(has("authenticated", "SELECT")).toBe(true); // RLS-confined by admin_only
-    for (const p of ["SELECT", "INSERT", "UPDATE", "DELETE"]) expect(has("service_role", p)).toBe(true);
+    for (const p of ["SELECT", "INSERT", "UPDATE", "DELETE"])
+      expect(has("service_role", p)).toBe(true);
   });
 
   it("admin_overrides: RLS enabled + admin_only SELECT policy present", async () => {
-    const [{ relrowsecurity }] = await sql<{ relrowsecurity: boolean }[]>`
+    const rls = await sql<{ relrowsecurity: boolean }[]>`
       select relrowsecurity from pg_class where oid='public.admin_overrides'::regclass`;
-    expect(relrowsecurity).toBe(true);
+    expect(rls[0]!.relrowsecurity).toBe(true);
     // pg_policies (the view) exposes the policy name as `policyname`; `polname` is on the
     // pg_policy catalog table. Query the view's actual column so the admin_only assertion runs.
     const pol = await sql<{ policyname: string; cmd: string }[]>`
@@ -49,9 +50,9 @@ describe.skipIf(!url)("admin_overrides schema + lockdown", () => {
     expect(names.has("admin_overrides_created_by_canonical")).toBe(true);
     expect(names.has("admin_overrides_domain_field_chk")).toBe(true);
     expect(names.has("admin_overrides_uniq")).toBe(true);
-    const [{ exists }] = await sql<{ exists: boolean }[]>`
+    const idx = await sql<{ exists: boolean }[]>`
       select exists(select 1 from pg_indexes where indexname='admin_overrides_show_active_idx') as exists`;
-    expect(exists).toBe(true);
+    expect(idx[0]!.exists).toBe(true);
   });
 
   it("crew_members.sheet_name exists, nullable, no default", async () => {
@@ -59,8 +60,8 @@ describe.skipIf(!url)("admin_overrides schema + lockdown", () => {
       select is_nullable, column_default from information_schema.columns
       where table_name='crew_members' and column_name='sheet_name'`;
     expect(cols).toHaveLength(1);
-    expect(cols[0].is_nullable).toBe("YES");
-    expect(cols[0].column_default).toBeNull();
+    expect(cols[0]!.is_nullable).toBe("YES");
+    expect(cols[0]!.column_default).toBeNull();
   });
 
   it("domain_field CHECK admits the 6 valid pairs and rejects show-with-nonempty-key + unknown field", async () => {
@@ -71,9 +72,10 @@ describe.skipIf(!url)("admin_overrides schema + lockdown", () => {
         let showId = (await tx`select id from public.shows limit 1`)[0]?.id as string | undefined;
         if (!showId) {
           const sfx = `affo-chk-${Math.random().toString(36).slice(2)}`;
-          [{ id: showId }] = await tx<{ id: string }[]>`
+          const inserted = await tx<{ id: string }[]>`
             insert into public.shows (drive_file_id, slug, title, client_label, template_version)
             values (${sfx}, ${sfx}, 'AFFO CHECK fixture', 'AFFO', 'v1') returning id`;
+          showId = inserted[0]!.id;
         }
         const ins = (t: typeof tx, d: string, f: string, k: string) =>
           t`insert into public.admin_overrides(show_id,domain,field,match_key,override_value,created_by)
@@ -97,5 +99,36 @@ describe.skipIf(!url)("admin_overrides schema + lockdown", () => {
       .catch((e) => {
         if (!/rollback/.test(String(e))) throw e;
       });
+  });
+
+  it("set_field_override: execute revoked from public/anon/authenticated, granted service_role", async () => {
+    const rows = await sql<{ grantee: string }[]>`
+      select grantee from information_schema.role_routine_grants
+      where routine_name='set_field_override' and privilege_type='EXECUTE'`;
+    const g = new Set(rows.map((r) => r.grantee));
+    expect(g.has("service_role")).toBe(true);
+    expect(g.has("authenticated")).toBe(false);
+    expect(g.has("anon")).toBe(false);
+    expect(g.has("PUBLIC")).toBe(false);
+  });
+
+  it("all four _-prefixed helpers have EXECUTE revoked from public/anon/authenticated (internal-only)", async () => {
+    // The four SECURITY DEFINER helpers are called only by the outer RPC (same owner) — never
+    // exposed to PostgREST roles. Granting any of them to authenticated/anon would re-expose an
+    // unguarded live-row apply / resolver. service_role is NOT granted either (spec §7.3 ownership note).
+    for (const fn of [
+      "_resolve_live_id",
+      "_current_field_value",
+      "_apply_override_live",
+      "_validate_override_value",
+    ]) {
+      const rows = await sql<{ grantee: string }[]>`
+        select grantee from information_schema.role_routine_grants
+        where routine_name=${fn} and privilege_type='EXECUTE'`;
+      const g = new Set(rows.map((r) => r.grantee));
+      expect(g.has("authenticated"), `${fn} must not grant authenticated`).toBe(false);
+      expect(g.has("anon"), `${fn} must not grant anon`).toBe(false);
+      expect(g.has("PUBLIC"), `${fn} must not grant PUBLIC`).toBe(false);
+    }
   });
 });
