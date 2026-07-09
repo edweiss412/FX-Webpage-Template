@@ -698,6 +698,11 @@ begin
   return null;
 end $$;
 
+-- Ownership note (RPC4-1): all FIVE functions (set_field_override + these 4 helpers) are created in THIS
+-- one migration file, applied by a single role — so they share an owner. A SECURITY DEFINER function runs
+-- as its owner, and an owner ALWAYS retains EXECUTE on its own functions regardless of REVOKE; these REVOKEs
+-- only strip public/anon/authenticated. So the outer RPC can always call the helpers. (No cross-owner grant
+-- is needed; do NOT grant helper EXECUTE to service_role — that would re-expose them via PostgREST.)
 revoke execute on function public._resolve_live_id(uuid,text,text,text,text)   from public, anon, authenticated;
 revoke execute on function public._current_field_value(uuid,text,text,text,text) from public, anon, authenticated;
 revoke execute on function public._apply_override_live(uuid,text,text,uuid,jsonb,text) from public, anon, authenticated;
