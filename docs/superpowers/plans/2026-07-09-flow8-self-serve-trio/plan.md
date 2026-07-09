@@ -430,9 +430,43 @@ Then replace the `viewerCrew`/restriction derivation (`:125-141`) so the crew/ad
   };
 ```
 
-- [ ] **Step 4: Catch it in `_CrewShell`**
+- [ ] **Step 4: Run the helper test to verify it passes**
 
-In `app/show/[slug]/[shareToken]/_CrewShell.tsx`, extend the existing catch (`:214-218`):
+Run: `pnpm vitest run tests/data/viewerContext.test.ts`
+Expected: PASS (helper now throws / admin unchanged).
+
+- [ ] **Step 5: Write the FAILING `_CrewShell` catch test (TDD for the backstop catch)**
+
+The `UnmatchedViewerError` catch is reachable on the **admin-preview** route (the crew route's Point B guard pre-empts it), so pin it by rendering `CrewShell` directly with an `admin_preview` viewer whose id is absent from a well-formed `crewMembers` array. Mirror the existing `tests/show/resolvedArmCrewMembersGuard.test.tsx` harness (read it first for the exact mock set + how it renders `CrewShell`). Create `tests/show/crewShellUnmatchedViewer.test.tsx`:
+
+```tsx
+// @vitest-environment jsdom
+import { render } from "@testing-library/react";
+import { describe, expect, test } from "vitest";
+import CrewShell from "@/app/show/[slug]/[shareToken]/_CrewShell"; // use the actual export (default or named — confirm)
+import type { ShowForViewer } from "@/lib/data/getShowForViewer";
+
+// Minimal well-formed projection whose crewMembers OMITS the viewer id.
+const data = { /* fill per ShowForViewer shape used by resolvedArmCrewMembersGuard; crewMembers: [{ id: "other", … }] */ } as unknown as ShowForViewer;
+
+describe("_CrewShell backstop: UnmatchedViewerError → TerminalFailure (no retryHref)", () => {
+  test("admin_preview viewer absent from a well-formed array renders terminal-failure without a retry link", async () => {
+    const ui = await CrewShell({ data, viewer: { kind: "admin_preview", crewMemberId: "missing" }, showId: "sid", rawSection: undefined, slug: "s", shareToken: undefined as any, identityChip: null } as any);
+    const { container } = render(ui);
+    expect(container.querySelector('[data-testid="terminal-failure"]')).not.toBeNull();
+    expect(container.querySelector('[data-testid="terminal-failure-retry"]')).toBeNull(); // NO retryHref
+  });
+});
+```
+
+> Read `resolvedArmCrewMembersGuard.test.tsx` for the exact `CrewShell` invocation/props + the `ShowForViewer` fixture shape, and copy them; the block above is a scaffold, not final. Confirm `CrewShell`'s export form and prop names before finalizing.
+
+- [ ] **Step 6: Run to verify it fails, then add the `_CrewShell` catch**
+
+Run: `pnpm vitest run tests/show/crewShellUnmatchedViewer.test.tsx`
+Expected: FAIL — `UnmatchedViewerError` propagates uncaught (no `terminal-failure`), because `_CrewShell` does not yet catch it.
+
+Then in `app/show/[slug]/[shareToken]/_CrewShell.tsx`, extend the existing catch (`:214-218`) and import:
 
 ```tsx
   } catch (err) {
@@ -445,16 +479,16 @@ In `app/show/[slug]/[shareToken]/_CrewShell.tsx`, extend the existing catch (`:2
 
 Add `UnmatchedViewerError` to the existing `import { MalformedProjectionError, … } from "@/lib/data/viewerContext"` (`:65`).
 
-- [ ] **Step 5: Run tests to verify pass**
+- [ ] **Step 7: Run all + typecheck**
 
-Run: `pnpm vitest run tests/data/viewerContext.test.ts && pnpm exec tsc --noEmit -p tsconfig.json`
-Expected: PASS; tsc clean. (No retryHref on the `TerminalFailure` — route-agnostic for the shareToken-less admin-preview caller, spec §4.1.)
+Run: `pnpm vitest run tests/data/viewerContext.test.ts tests/show/crewShellUnmatchedViewer.test.tsx tests/show/resolvedArmCrewMembersGuard.test.tsx && pnpm exec tsc --noEmit -p tsconfig.json`
+Expected: PASS (backstop catches; malformed-projection guard unaffected); tsc clean. (No retryHref — route-agnostic for the shareToken-less admin-preview caller, spec §4.1.)
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add lib/data/viewerContext.ts "app/show/[slug]/[shareToken]/_CrewShell.tsx" tests/data/viewerContext.test.ts
-git commit --no-verify -m "fix(crew-page): resolveViewerContext fails closed (UnmatchedViewerError) instead of whole-show {none}"
+git add lib/data/viewerContext.ts "app/show/[slug]/[shareToken]/_CrewShell.tsx" tests/data/viewerContext.test.ts tests/show/crewShellUnmatchedViewer.test.tsx
+git commit --no-verify -m "fix(crew-page): resolveViewerContext fails closed (UnmatchedViewerError) + _CrewShell backstop catch"
 ```
 
 ---
@@ -741,6 +775,22 @@ test("availability read infra error (Point A) → TerminalFailure, notFound NOT 
   expect(container.querySelector('[data-testid="picker-interstitial-root"]')).toBeNull();
 });
 
+test("renderPickerRepick roster-load failure (available show, crew_members read errors) → TerminalFailure, NOT a thrown render", async () => {
+  (resolveShowPageAccess as any).mockResolvedValue(resolvedAccess);
+  (getShowForViewer as any).mockRejectedValue(new CrewMemberNotInShowError()); // Point A → renderRacedCrewMiss → renderPickerRepick
+  // shows read: available; crew_members read: Supabase error → loadRoster throws → renderPickerRepick's OWN catch → TerminalFailure.
+  (createSupabaseServiceRoleClient as any).mockReturnValue({
+    from: (table: string) => {
+      if (table === "shows") return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: { published: true, archived: false }, error: null }) }) }) };
+      const q: any = { select: () => q, eq: () => q, order: () => Promise.resolve({ data: null, error: { message: "roster boom" } }) };
+      return q;
+    },
+  });
+  const { container } = render(await ShowPage({ params: Promise.resolve({ slug: "s", shareToken: "t" }), searchParams: Promise.resolve({}) }));
+  expect(container.querySelector('[data-testid="terminal-failure"]')).not.toBeNull();
+  expect(container.querySelector('[data-testid="picker-interstitial-root"]')).toBeNull();
+});
+
 test("negative: generic getShowForViewer error → TerminalFailure, not re-pick", async () => {
   (resolveShowPageAccess as any).mockResolvedValue(resolvedAccess);
   (getShowForViewer as any).mockRejectedValue(new Error("PICKER_CREW_MEMBER_WRONG_SHOW")); // plain Error = :317/:321 shape
@@ -749,6 +799,8 @@ test("negative: generic getShowForViewer error → TerminalFailure, not re-pick"
   expect(container.querySelector('[data-testid="picker-interstitial-root"]')).toBeNull();
 });
 ```
+
+> `loadRoster` throws (`new Error("roster lookup failed")`) when the crew_members read returns `{ error }` — so this exercises `renderPickerRepick`'s own `try/catch`. An implementation that drops that catch fails here (the throw escapes to Next's generic boundary instead of `terminal-failure`).
 
 This covers the full matrix for **both** points: Point A {available→picker, deleted→notFound, infra→TerminalFailure} and Point B {available→picker, deleted→notFound, unpublished→notFound}. The infra case also pins the round-1 fix — `notFound()` is not swallowed because `renderRacedCrewMiss` catches only the availability read, not the `notFound()`.
 
