@@ -46,7 +46,7 @@ import { HelpSheet } from "@/components/admin/HelpSheet";
 import { MESSAGE_CATALOG, type MessageCode } from "@/lib/messages/catalog";
 import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { Step3SheetCard } from "@/components/admin/wizard/Step3SheetCard";
-import { rowNeedsLookPure } from "@/lib/admin/step3Buckets";
+import { deriveStep3Buckets } from "@/lib/admin/step3Buckets";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
@@ -822,25 +822,23 @@ export function computeUncheckedCleanNames(rows: Step3Row[]): string[] {
 }
 
 // A clean row "needs a look" when it has no reviewable preview, has been demoted
-// by a per-sheet re-scan, OR carries at least one NON-ambiguity data-quality gap
-// warning (spec 2026-07-07 §7.2: only the gap-total clause is partitioned by
-// isAmbiguityCode — the preview/finalize branches are preserved). Derivation lives
-// in lib/admin/step3Buckets (rowNeedsLookPure); ambiguity-only rows fall to the
-// judgment bucket, not needs-look. Drives the header's ready/needs-look split.
-function rowNeedsLook(row: Step3Row): boolean {
-  return rowNeedsLookPure(row);
-}
-
-// Composed summary line (§4.2 copy catalog + spec 2026-07-07 §A.2): honest,
+// Composed summary line (§4.2 copy catalog + spec 2026-07-07 §A.2 / §7.2): honest,
 // pluralized, guard-branched. A clean row means only "no known warning," never
 // "verified" — so the copy nudges a spot-check instead of claiming "ready to
 // publish." Accounts for every sheet that still needs forward action
 // (ready + needs-look + blocking); set-aside rows have their own sections.
 // No em dashes (DESIGN.md:318). Emphasis is presentation only — the normalized
 // textContent equals the plaintext the tests pin.
+//
+// `readyCount` = clean + judgment (the not-needs-look publish rows). When
+// judgmentCount === 0 the copy is IDENTICAL to the two-state version (spec §7.2
+// guard: no empty "0 parsed with judgment" chrome). When judgmentCount > 0 the
+// ready subset splits into "N look clean" + "M parsed with judgment (worth a
+// spot-check)" — a calm, non-error nudge — plus the existing needs-look clause.
 function renderSummary(
   sheetCount: number,
   readyCount: number,
+  judgmentCount: number,
   needsLookCount: number,
   blockingCount: number,
 ) {
@@ -873,11 +871,47 @@ function renderSummary(
   const looksClean = (n: number) => (n === 1 ? "1 looks clean" : `${n} look clean`);
   // Capitalized: begins a sentence in the dash-free copy (DESIGN.md:318).
   const giveLook = (n: number) => (n === 1 ? "Give it a quick look" : "Give them a quick look");
+  const needsLookClause = (n: number) => {
+    const verb = n === 1 ? "needs" : "need";
+    const pron = n === 1 ? "it goes" : "they go";
+    return (
+      <span className="text-warning-text">{`${n} ${verb} a quick look before ${pron} live.`}</span>
+    );
+  };
 
   // Emphasis carries the COUNTS, not the nudge prose (impeccable critique). The
   // head already bolds the sheet count; here we bold only count-bearing phrases.
   let clause: ReactNode;
-  if (needsLookCount === 0) {
+
+  if (judgmentCount > 0) {
+    // Three-count copy (spec §7.2). readyCount = clean + judgment; split it.
+    const nClean = readyCount - judgmentCount;
+    const judgmentPhrase = (
+      <>
+        {strong(`${judgmentCount} parsed with judgment`)}
+        {" (worth a spot-check)"}
+      </>
+    );
+    clause = (
+      <>
+        {nClean > 0 ? (
+          <>
+            {strong(looksClean(nClean))}
+            {", "}
+          </>
+        ) : null}
+        {judgmentPhrase}
+        {needsLookCount > 0 ? (
+          <>
+            {", "}
+            {needsLookClause(needsLookCount)}
+          </>
+        ) : (
+          "."
+        )}
+      </>
+    );
+  } else if (needsLookCount === 0) {
     clause =
       // The unscoped "we didn't spot any issues" fires ONLY when every counted
       // sheet is ready (readyCount === sheetCount). If any sheet is blocking OR
@@ -893,22 +927,15 @@ function renderSummary(
         </>
       );
   } else {
-    const verb = needsLookCount === 1 ? "needs" : "need";
-    const pron = needsLookCount === 1 ? "it goes" : "they go";
-    const look = (
-      <span className="text-warning-text">
-        {`${needsLookCount} ${verb} a quick look before ${pron} live.`}
-      </span>
-    );
     clause =
       readyCount > 0 ? (
         <>
           {strong(looksClean(readyCount))}
           {", "}
-          {look}
+          {needsLookClause(needsLookCount)}
         </>
       ) : (
-        look
+        needsLookClause(needsLookCount)
       );
   }
 
@@ -956,10 +983,15 @@ export function Step3Review({
   const skippedRows = rows.filter((r) => r.status === "skipped_non_sheet");
   const hasSetAside = ignoredRows.length + deferredRows.length + skippedRows.length > 0;
 
-  // Header summary counts (§4.2). readyCount/needsLookCount partition the clean
-  // rows; sheetCount is every non-skipped row (blocking rows are still "sheets").
-  const readyCount = publishRows.filter((r) => !rowNeedsLook(r)).length;
-  const needsLookCount = publishRows.length - readyCount;
+  // Header summary counts (§4.2 + spec 2026-07-07 §7.2). The publish-grid rows
+  // split three ways — clean (N) + judgment (M) + needs-look (K) — via the pure
+  // deriveStep3Buckets model. sheetCount is every non-skipped row (blocking rows
+  // are still "sheets"). When M===0 the summary renders the existing two-state
+  // copy (no empty "0 parsed with judgment" chrome).
+  const buckets = deriveStep3Buckets(publishRows);
+  const readyCleanCount = buckets.clean;
+  const judgmentCount = buckets.judgment;
+  const needsLookCount = buckets.needsLook;
   const sheetCount = rows.length - skippedRows.length;
 
   // Per-card details now open in a self-managed MODAL overlay (the card's "More"
@@ -1291,7 +1323,13 @@ export function Step3Review({
             publish badges, so it is suppressed just like the Select-all header. */}
         {rows.length > 0 && checkpointStatus === null ? (
           <p data-testid="wizard-step3-summary" className="max-w-prose text-base text-text-subtle">
-            {renderSummary(sheetCount, readyCount, needsLookCount, blockingCount)}
+            {renderSummary(
+              sheetCount,
+              readyCleanCount + judgmentCount,
+              judgmentCount,
+              needsLookCount,
+              blockingCount,
+            )}
           </p>
         ) : null}
         {/* Spec §4.2 rule 7: the Select-all / publish-intent header exists ONLY

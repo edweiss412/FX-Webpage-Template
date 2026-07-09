@@ -42,7 +42,7 @@ import type { RunOfShow } from "@/lib/parser/types";
 import { Step3RowBadge, type Step3Row } from "@/components/admin/wizard/Step3Review";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
 import { summarizeDataGaps, stripLegacyUnknownFieldAnchors } from "@/lib/parser/dataGaps";
-import { nonAmbiguityGapTotal } from "@/lib/admin/step3Buckets";
+import { nonAmbiguityGapTotal, rowIsJudgment } from "@/lib/admin/step3Buckets";
 import { venueDisplay } from "@/lib/venue/venueLocation";
 // The section bodies + agenda live-fill machine live in the section module
 // (Task 3, spec §4/§6.1) and are rendered by the review modal's registry.
@@ -472,6 +472,12 @@ export function Step3SheetCard({
   // count) still feeds DataQualityBadge, which keeps the un-partitioned total.
   const gaps = summarizeDataGaps(warnings);
   const needsLook = nonAmbiguityGapTotal(row) > 0;
+  // Third state (spec 2026-07-07 §7.3a): a row with NO needs-look gap but ≥1
+  // ambiguity-class warning is "parsed with judgment" — a calm, informational
+  // affordance (never the amber warn tone), still opening the same review modal
+  // for a spot-check. Distinct from clean (adds the chip) and from needs-look
+  // (keeps the plain border + View, so the judgment card stays lighter-weight).
+  const isJudgment = rowIsJudgment(row);
 
   const title = pr.show.title || titleFallback;
   const client = pr.show.client_label || null;
@@ -528,6 +534,19 @@ export function Step3SheetCard({
     >
       <span aria-hidden="true" className="size-1.5 rounded-full bg-status-review" />
       {text}
+    </span>
+  );
+
+  // The judgment chip (spec §7.3a): calm INFO tone (bg-info-bg + neutral dot),
+  // deliberately NOT the amber warn tone of reviewChip — a judgment call is worth
+  // a glance, not an error. Text-paired per the color-blind floor (DESIGN.md §1).
+  const judgmentChip = (
+    <span
+      data-testid={`wizard-step3-card-${dfid}-judgment-chip`}
+      className="inline-flex items-center gap-1.5 rounded-pill border border-border bg-info-bg px-2.5 py-0.5 text-xs font-medium text-text-subtle"
+    >
+      <span aria-hidden="true" className="size-1.5 rounded-full bg-text-faint" />
+      Parsed with judgment
     </span>
   );
 
@@ -687,6 +706,7 @@ export function Step3SheetCard({
           overflowing the card at ~390px. Desktop is content-sized and never
           wraps, so the shipped desktop layout is unchanged. */}
       <div className="flex shrink-0 items-center gap-3 max-sm:w-full max-sm:flex-wrap max-sm:justify-between">
+        {isJudgment ? judgmentChip : null}
         {triggerButton(needsLook ? "Review" : "View")}
         {checkpointStatus !== null && row.displayState ? (
           <Step3RowBadge displayState={row.displayState} />

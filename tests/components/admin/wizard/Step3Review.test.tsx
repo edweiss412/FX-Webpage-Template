@@ -109,6 +109,20 @@ function warnRow(dfid: string): Step3Row {
     } as unknown as ParseResult,
   };
 }
+// A judgment row (spec 2026-07-07 §7.2): a staged row whose ONLY warning is an
+// ambiguity-class code — nonAmbiguityGapTotal === 0, so it lands in the judgment
+// bucket (M), never needs-look (K).
+function judgmentRow(dfid: string): Step3Row {
+  return {
+    driveFileId: dfid,
+    driveFileName: `${dfid}.gsheet`,
+    status: "staged",
+    parseResult: {
+      show: { title: dfid },
+      warnings: [{ code: "ROOM_HEADER_SPLIT_AMBIGUOUS", severity: "warn" }],
+    } as unknown as ParseResult,
+  };
+}
 function hardFailRow(dfid: string): Step3Row {
   return {
     driveFileId: dfid,
@@ -185,6 +199,41 @@ describe("Step3Review header + composed summary (Task 3)", () => {
     expect(norm(getByTestId("wizard-step3-summary"))).toBe(
       "2 sheets parsed from your Drive folder. 2 need a quick look before they go live. Nothing publishes until you say so.",
     );
+  });
+
+  // spec 2026-07-07 §7.2 — the third count.
+  test("summary: three counts — clean + judgment + needs-look (M>0)", () => {
+    const { getByTestId } = render(
+      <Step3Review
+        wizardSessionId={WIZARD_SESSION_ID}
+        rows={[cleanRow("a", "staged"), judgmentRow("b"), warnRow("c")]}
+      />,
+    );
+    expect(norm(getByTestId("wizard-step3-summary"))).toBe(
+      "3 sheets parsed from your Drive folder. 1 looks clean, 1 parsed with judgment (worth a spot-check), 1 needs a quick look before it goes live. Nothing publishes until you say so.",
+    );
+  });
+
+  test("summary: clean + judgment only (K===0) → ends after the judgment clause", () => {
+    const { getByTestId } = render(
+      <Step3Review
+        wizardSessionId={WIZARD_SESSION_ID}
+        rows={[cleanRow("a", "staged"), judgmentRow("b")]}
+      />,
+    );
+    expect(norm(getByTestId("wizard-step3-summary"))).toBe(
+      "2 sheets parsed from your Drive folder. 1 looks clean, 1 parsed with judgment (worth a spot-check). Nothing publishes until you say so.",
+    );
+  });
+
+  test("summary guard: M===0 renders the two-state copy (no 'parsed with judgment')", () => {
+    const { getByTestId } = render(
+      <Step3Review
+        wizardSessionId={WIZARD_SESSION_ID}
+        rows={[cleanRow("a", "staged"), warnRow("b")]}
+      />,
+    );
+    expect(norm(getByTestId("wizard-step3-summary"))).not.toContain("parsed with judgment");
   });
 
   test("summary: SOME-READY — scoped clean claim + attention pointer (1 ready, 1 blocking)", () => {
