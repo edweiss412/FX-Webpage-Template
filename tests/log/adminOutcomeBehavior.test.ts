@@ -371,6 +371,14 @@ import {
   deps as finalizeFakeDeps,
   request as finalizeRequest,
 } from "../onboarding/_finalizeFake";
+import { handleOnboardingFinalizeCas } from "@/app/api/admin/onboarding/finalize-cas/route";
+import {
+  W1 as CAS_W1,
+  FakeFinalizeCasDb,
+  shadowPayload,
+  deps as finalizeCasFakeDeps,
+  request as finalizeCasRequest,
+} from "../onboarding/_finalizeCasFake";
 
 // ── inline file-local recorder (single-file contract; no cross-file state) ──
 const recorded = new Set<string>(); // "file::fn::code"
@@ -2536,6 +2544,47 @@ describe("Batch 3 — final grandfathered surfaces graduate to inline proof", ()
         return handleOnboardingFinalize(
           finalizeRequest(),
           finalizeFakeDeps(db, {
+            withTx: async (fn) => {
+              mark.hit = true;
+              return fn(db);
+            },
+          }),
+        );
+      },
+      failureExpect: { status: 409, bodyCode: "WIZARD_FINALIZE_CHECKPOINT_MISSING" },
+    });
+  });
+
+  test("A3 onboarding finalize-cas emits SHOW_FINALIZED", async () => {
+    const file = "app/api/admin/onboarding/finalize-cas/route.ts";
+    const seededDb = () => {
+      const db = new FakeFinalizeCasDb(); // checkpoint all_batches_complete (default)
+      db.shadowRows = [
+        {
+          wizard_session_id: CAS_W1,
+          drive_file_id: "existing-1",
+          show_id: "22222222-2222-4222-8222-222222222222",
+          applied_by_email: "apply-admin@example.com",
+          applied_at_intent: "2026-05-08T12:00:00.000Z",
+          payload: shadowPayload(),
+        },
+      ];
+      db.sessionCreatedDriveIds = ["first-seen-1"];
+      return db;
+    };
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      // success: one shadow row committed via applyShadow → SHOW_FINALIZED per committed row
+      // (route.ts:814). @/lib/log unmocked; deps supply subscribeToWatchedFolder (Drive) as vi.fn.
+      code: "SHOW_FINALIZED",
+      success: () => handleOnboardingFinalizeCas(finalizeCasRequest(), finalizeCasFakeDeps(seededDb())),
+      failure: (mark) => {
+        const db = new FakeFinalizeCasDb();
+        db.activeSessionId = null; // readSession → null → 409 CHECKPOINT_MISSING
+        return handleOnboardingFinalizeCas(
+          finalizeCasRequest(),
+          finalizeCasFakeDeps(db, {
             withTx: async (fn) => {
               mark.hit = true;
               return fn(db);
