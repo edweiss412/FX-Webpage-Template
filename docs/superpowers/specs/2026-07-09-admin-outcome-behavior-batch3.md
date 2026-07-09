@@ -136,25 +136,45 @@ Add `// >>> BATCH-3 PROOF BLOCK START` / `// <<< BATCH-3 PROOF BLOCK END` around
 
 ## 6. Pin-0 and grandfather deletion (mechanism retirement)
 
-After the 8 proofs land and the 8 rows are removed, `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER` is empty. Rather than pin it at `toBe(0)`, **delete the mechanism** so there is no dormant escape hatch. Enumerated sites (from `grep -rn ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER`):
+### 6.1 Ordering — proofs first, atomic retirement last (Codex R2 HIGH, closed)
+
+**The grandfather array and both pin tests (`toBe(8)`) stay intact and unmodified while the 8 proofs are added.** This is the "add all 8 proofs while keeping the grandfather list intact, then delete the entire grandfather mechanism in one final green commit" ordering (reviewer-blessed). It is safe **because Task 18's completeness assertion is a subset check, not a bijection**: `adminOutcomeBehavior.test.ts:2449-2452` computes `missing = AUDITABLE_MUTATIONS(admin) − grandfather − recorded` and asserts `missing === []`. Recording a still-grandfathered row adds an entry to `recorded` that Task 18 simply does not check — **nothing forbids extra `recorded` entries**, so a proof for a row that is still in the grandfather array passes with no pin churn.
+
+Sequence (every commit green):
+
+- **Tasks 1–8** (one per surface, TDD): add the surface's `proveAdminOutcomeBehavior` case. Grandfather array + both `toBe(8)` pins untouched → the pin tests stay green (still 8 rows) and the new proof passes. The per-surface **red** is demonstrated by AC-6's teeth-check (drop the injected seam / mock refusal → the proof's own `success` leg fails), not by mutating the shared pin.
+- **Task 9 (final, atomic mechanism retirement):** remove all 8 rows → array empty → delete the array, the type, every consuming import/assertion, and the grandfather term inside Task 18 — in ONE commit. Green because all 8 are already in `recorded`, so once Task 18 stops subtracting `grandfather` it still finds `missing === []`.
+
+**The single per-surface removal that R2 flagged (row removed while pin still says 8) never happens** — no row leaves the array until Task 9, and Task 9 deletes the pins in the same commit that empties the array.
+
+### 6.2 Full deletion inventory (from live `grep -rn "ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER\|GrandfatherUnit\|grandfather" tests/ lib/`, Codex R2 MEDIUM)
+
+Task 9 must action **every** row below and then re-run the grep to confirm AC-2:
 
 | Site | Action |
 |---|---|
-| `tests/log/mutationSurface/exemptions.ts:112` | Delete the `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER` export (and the `GrandfatherUnit` type **iff** unused elsewhere — verify at plan time). |
-| `tests/log/mutationSurface/exemptions.test.ts:6,29-45` | Delete the import and the entire `describe("ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER …")` block. |
+| `tests/log/mutationSurface/exemptions.ts:112` | Delete the `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER` export (all 8 rows). |
+| `tests/log/mutationSurface/exemptions.ts:94` | Delete the `GrandfatherUnit` type (grep confirms it is used ONLY by the array — no other consumer). |
+| `tests/log/mutationSurface/exemptions.ts:1-2` | Trim "grandfather" from the file header comment (leave "exemption / ledger registries"). |
+| `tests/log/mutationSurface/exemptions.test.ts:6` | Delete the `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER` import. |
+| `tests/log/mutationSurface/exemptions.test.ts:29-46` | Delete the entire `describe("ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER …")` block (the `toBe(8)` / Set-size / routeRows / actionRows / plan-R3-F4 regression tests). The R3-F4 regression assertion (manifest/ignore + reap-stale not grandfathered) is subsumed by Task 18 now covering every admin surface strictly — no separate guard needed once the array is gone. |
 | `tests/log/adminOutcomeBehavior.test.ts:14` | Delete the import. |
-| `tests/log/adminOutcomeBehavior.test.ts:2430-2436` | Delete the grandfather-pin `it(...)` (the `new Set(...)` + `toBe(8)` + stale-entry check). |
-| `tests/log/adminOutcomeBehavior.test.ts:1428` (comment) | Update the block comment to state the grandfather is fully retired (all admin surfaces proven). |
-| Task 18 completeness assertion | Verify it no longer subtracts the grandfather set (it iterated `AUDITABLE_MUTATIONS` minus grandfather). After deletion it must assert **every** admin row has a `recorded` entry with **no exclusion**. This is the load-bearing strictness gain; the plan's final task re-reads Task 18 and removes any grandfather-subtraction term. |
+| `tests/log/adminOutcomeBehavior.test.ts:2430` | Delete the `const grandfather = new Set(...)`. |
+| `tests/log/adminOutcomeBehavior.test.ts:2432-2443` | Delete the first Task-18 test (grandfather baseline `toBe(8)` + stale-entry check). |
+| `tests/log/adminOutcomeBehavior.test.ts:2445-2461` | Edit the second Task-18 test: drop the `.filter((r) => !grandfather.has(...))` term so `missing` = every admin row minus `recorded`. Rename the `describe`/`test` titles from "non-grandfather admin mutation" → "every registered admin mutation is proven (no exemptions)". |
+| `tests/log/adminOutcomeBehavior.test.ts:2423-2427` (Task-18 lead comment) | Rewrite to state the grandfather mechanism is fully retired; every admin surface now carries a live proof. |
+| `tests/log/adminOutcomeBehavior.test.ts:296,329,1426,1438` (Batch-1 section-header comments) | **Keep** — these are accurate history ("grandfathered per-show server actions graduate to inline proof" describes what those rows *were*). Optionally reword "grandfathered" → "formerly-grandfathered" for clarity; not load-bearing. |
+| `tests/log/adminOutcomeBehavior.test.ts:1428` (comment) | Already reads "ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER (now removed)" — verify it stays accurate. |
+| `tests/log/_metaMutationSurfaceObservability.test.ts:3` (comment) | Trim "grandfather" from the descriptive comment ("exemption/ledger registries"); no code dependency (grep confirms comment-only). |
 
-**Ordering constraint (TDD):** the grandfather rows must be removed and the proofs added in the **same commit per surface** (removing a row without its proof reddens Task 18; adding a proof without removing the row is harmless but leaves the row). The mechanism-deletion (empty-array removal + pin-test deletion) is the **final** task, after all 8 proofs are green.
+**Task 9 completion gate:** re-run `grep -rn "ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER\|GrandfatherUnit" tests/ lib/` → **zero** matches (the constant + type are gone). Residual lowercase-"grandfather" mentions are permitted ONLY in the Batch-1/2/3 historical section-header comments; a `grep -rin "\bgrandfather\b"` is expected to surface only those, and the plan's Task-9 checklist lists them explicitly so any *new* match is caught.
 
 ---
 
 ## 7. Acceptance criteria
 
 - **AC-1** All 8 surfaces have an inline `proveAdminOutcomeBehavior` case inside the Batch-3 sentinel block; `pnpm vitest run tests/log/adminOutcomeBehavior.test.ts` green.
-- **AC-2** `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER` and all its consuming pin logic/tests are deleted; `grep -rn ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER tests/ lib/` returns nothing.
+- **AC-2** `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER` + `GrandfatherUnit` and all consuming imports/Sets/pin-tests are deleted: `grep -rn "ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER\|GrandfatherUnit" tests/ lib/` returns **zero** matches. `grep -rin "\bgrandfather\b" tests/ lib/` surfaces ONLY the enumerated Batch-1/2/3 historical section-header comments (§6.2) — any other match fails the gate.
 - **AC-3** Task 18 (completeness) asserts every admin `AUDITABLE_MUTATIONS` row has a `recorded` entry with no grandfather exclusion; green.
 - **AC-4** `_metaMutationSurfaceObservability.test.ts` green (static discovery unaffected — no new/removed surfaces).
 - **AC-5** The structural source-scan guard slices BOTH sentinel blocks and passes (each contains `proveAdminOutcomeBehavior(`, none contains a direct `record`/`observe*` call).
@@ -180,6 +200,8 @@ Pre-loaded for the adversarial reviewer (cite the ratification, don't re-derive)
 7. **Failure-status specificity.** Each failure leg pins an exact HTTP status (A1 409, A2 409, A3 409, A4 202, B1 404, B2 409, B3 409, B4 404) and, where the route emits a typed body `code`, `failureExpect.bodyCode`. Where the body key is `error` (not `code`) or absent (A4 202), only `status` is asserted — this is deliberate (the body-code assertion is opportunistic, the status is mandatory).
 8. **`@/lib/sync/*` mocks are partial (spread-`importActual`), not whole-module (Codex R1 HIGH, closed §5.1).** A whole-module factory would clobber sibling exports (`revisionTimesMatch`, `*_unlocked`, `FINALIZE_OWNED_SHOW`) that other proven rows import from the same modules. The partial form is mandatory, not stylistic — do not propose reverting to a terse whole-module mock.
 9. **A4 `fakeLeasePool` is script-driven with ordered-consumption assertion (Codex R1 MEDIUM, closed §4.2).** Unmatched-only throwing is insufficient for a proof; the fake asserts every required statement (both advisory locks, owner-scoped UPDATE, release DELETE) was consumed. Do not propose weakening it back to a bare regex dispatcher.
+10. **Grandfather retirement is proofs-first, atomic-last — NOT per-surface row removal (Codex R2 HIGH, closed §6.1).** Task 18 is a subset check, so proofs for still-grandfathered rows pass with the `toBe(8)` pins intact; no row leaves the array until the final Task 9, which deletes the array + both pins in one green commit. Do not propose decrementing the pin per surface (that would redden the pin mid-batch).
+11. **Deletion inventory is the full live grep, comments included (Codex R2 MEDIUM, closed §6.2).** The constant + `GrandfatherUnit` type + every import/Set/pin-test are removed; historical section-header comments are deliberately kept. AC-2's two-part grep is the completion gate.
 
 ---
 
