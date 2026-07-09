@@ -513,7 +513,8 @@ Add to `tests/data/getShowForViewer.test.ts` (uses the existing `seedShow`/`seed
 ```ts
 import { getShowForViewer, CrewMemberNotInShowError } from "@/lib/data/getShowForViewer";
 
-test("crew-row miss throws CrewMemberNotInShowError with the WRONG_SHOW message preserved", async () => {
+// PRIMARY red-first test for this task: the :301 crew id+show lookup miss must become the SUBCLASS.
+test("crew-row miss (:301) throws CrewMemberNotInShowError with the WRONG_SHOW message preserved", async () => {
   const showA = await seedShow({ title: "A" });
   const aliceId = await seedCrew({ showId: showA, name: "Alice", roleFlags: ["A1"] });
   const showB = await seedShow({ title: "B" });
@@ -522,12 +523,38 @@ test("crew-row miss throws CrewMemberNotInShowError with the WRONG_SHOW message 
   expect(err).toBeInstanceOf(CrewMemberNotInShowError);
   expect((err as Error).message).toBe("PICKER_CREW_MEMBER_WRONG_SHOW");
 });
+
+// NEGATIVE guards (same task): prove the OTHER two WRONG_SHOW throw sites stay PLAIN Error — NOT the
+// subclass. Message + the source literal both survive subclassing, so neither the existing
+// `.toThrow("PICKER_CREW_MEMBER_WRONG_SHOW")` assertions NOR a source grep would catch an over-broad edit
+// that converts :317/:321 to CrewMemberNotInShowError. Concrete failure mode caught: a show-deleted or
+// unpublished race would then instanceof-route through page.tsx's guided re-pick (Task 6 Point A) instead
+// of the correct TerminalFailure/notFound path. `needsCrewLookup` is `crew || admin_preview`
+// (getShowForViewer.ts:277), so an ADMIN viewer skips the :301 crew lookup and reaches :312/:317 directly;
+// `shows.published` defaults `true` (initial_public_schema.sql:26), so :321 needs an explicit unpublish.
+test(":317 show-missing branch stays a PLAIN Error, NOT CrewMemberNotInShowError (admin viewer, nonexistent show)", async () => {
+  const err = await getShowForViewer(crypto.randomUUID(), { kind: "admin" }).catch((e) => e);
+  expect(err).toBeInstanceOf(Error);
+  expect(err).not.toBeInstanceOf(CrewMemberNotInShowError);
+  expect((err as Error).message).toBe("PICKER_CREW_MEMBER_WRONG_SHOW");
+});
+
+test(":321 unpublished branch stays a PLAIN Error, NOT CrewMemberNotInShowError (non-admin crew, published=false)", async () => {
+  const showId = await seedShow({ title: "Unpub" });
+  const crewId = await seedCrew({ showId, name: "Uma", roleFlags: ["A1"] });
+  const { error: upErr } = await admin.from("shows").update({ published: false }).eq("id", showId);
+  if (upErr) throw new Error(`unpublish failed: ${upErr.message}`);
+  const err = await getShowForViewer(showId, { kind: "crew", crewMemberId: crewId }).catch((e) => e);
+  expect(err).toBeInstanceOf(Error);
+  expect(err).not.toBeInstanceOf(CrewMemberNotInShowError);
+  expect((err as Error).message).toBe("PICKER_CREW_MEMBER_WRONG_SHOW");
+});
 ```
 
 - [ ] **Step 2: Run to verify it fails**
 
 Run: `pnpm vitest run tests/data/getShowForViewer.test.ts -t "CrewMemberNotInShowError"`
-Expected: FAIL — not exported / thrown as plain `Error`.
+Expected: the PRIMARY `:301` test FAILS (not exported / thrown as plain `Error`). The two negative `:317`/`:321` guards ALSO fail at import-resolution time in the same file (the `CrewMemberNotInShowError` symbol does not exist yet), which is expected — they go green once Step 3 exports the class, and they would go RED again if a future edit over-broadens the subclass to those sites.
 
 - [ ] **Step 3: Add the class + throw it at `:301` only**
 
@@ -562,7 +589,7 @@ Leave `:317` and `:321` as `throw new Error("PICKER_CREW_MEMBER_WRONG_SHOW");` u
 - [ ] **Step 4: Verify pass + back-compat suite**
 
 Run: `pnpm vitest run tests/data/getShowForViewer.test.ts tests/data/show-page-role-spoof.test.ts`
-Expected: PASS — the new test AND the existing `:243`/`:260` `.rejects.toThrow("PICKER_CREW_MEMBER_WRONG_SHOW")` (message-substring match still holds) AND `show-page-role-spoof.test.ts:48` (source still contains the literal at `:317`/`:321`).
+Expected: PASS — the primary `:301` subclass test, BOTH negative `:317`/`:321` "stays plain Error" guards, the existing `:243`/`:260` `.rejects.toThrow("PICKER_CREW_MEMBER_WRONG_SHOW")` (message-substring match still holds), AND `show-page-role-spoof.test.ts:48` (source still contains the literal at `:317`/`:321`).
 
 - [ ] **Step 5: Commit**
 
@@ -955,13 +982,15 @@ git commit --no-verify -m "feat(crew-page): guided re-pick for unmatched-crew ra
 
 ---
 
-### Task 7: Transport regression pin (8.4 defensive) + warm-cache bound test
+### Task 7: Transport regression pin (8.4 defensive) + warm-cache bound test — CHARACTERIZATION task (declared invariant-1 exemption)
 
 **Files:**
 - Create: `tests/visibility/transportTileVisibleRegression.test.ts`
 - Create: `tests/data/getShowForViewerCacheStaleness.test.ts` (or extend an existing `getShowForViewer.cache.test.ts` if the harness fits)
 
 **Interfaces:** none new — tests over existing `transportTileVisible` (`lib/visibility/scopeTiles.ts:177`) and the cache behavior.
+
+> **INVARIANT-1 EXEMPTION (declared, not a violation).** This task ships **zero production code** — by spec design. 8.4 was scoped to *regression-harden only*: the fuzzy `namesRefer`/`transportTileVisible` matcher already ships (`lib/visibility/scopeTiles.ts:177`), and the real id-resolution fix is deferred to the 8.3 spec (`BL-TRANSPORT-ID-RESOLUTION`). Point C's fail-closed backstop (8.2) already landed in Task 4. These tests are **characterization pins** that LOCK existing behavior so a future refactor that narrows fuzzy tolerance or reintroduces the whole-show fail-open fails CI. Invariant 1 ("never write implementation before the test that exercises it") governs *implementation-bearing* tasks — there is no implementation here for a test to precede, so red-first is *inapplicable*, not waived-away. The tests ARE committed because an uncommitted pin protects nothing. Each pin below names the concrete future regression it guards. This is the **only** task in the plan without a red phase, and it does NOT claim to satisfy the red→green→commit workflow; it satisfies the characterization-pin contract instead. (Every other task — 1-6, 8 — is red-first.)
 
 - [ ] **Step 1: Write the transport regression tests**
 
@@ -1058,3 +1087,4 @@ git commit --no-verify -m "docs(crew-page): impeccable dual-gate dispositions fo
 - **Type consistency:** `CrewMemberNotInShowError` (T5) consumed in T6; `UnmatchedViewerError` (T4); `renderPickerRepick`/`loadShowAvailability`/`renderRacedCrewMiss` all defined and consumed within T6; `PICKER_NAME_NOT_LISTED` (T2) consumed in T3.
 - **Verification-before-claim:** several tasks note "confirm the real `data-testid`/precondition before running" — those are live-code checks the implementer performs, not placeholders.
 - **Meta/CI:** §12.4 lockstep (T2) + full-suite/tsc/build/format/lint (T8) + impeccable (T8).
+- **Invariant-1 (red-first TDD):** T1-T6 and T8 are all red-first. T7 is the SOLE exception — a declared characterization/regression-pin task shipping zero production code (8.4 is regression-harden-only per spec; the real fix is deferred to 8.3/`BL-TRANSPORT-ID-RESOLUTION`). Its exemption is stated inline at the task head with rationale; red-first is inapplicable (no implementation to precede), not silently skipped. T5 additionally carries two negative guards (`:317`/`:321` stay plain `Error`, not the subclass) alongside its red-first `:301` test, closing the over-broad-subclassing hole that message+literal checks miss.
