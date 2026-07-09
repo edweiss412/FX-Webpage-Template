@@ -19,7 +19,11 @@ function monitor(over: Partial<MonitorDigestModel> = {}): MonitorDigestModel {
     },
     drift: [],
     newShowGaps: [
-      { showTitle: "RPAS", slug: "rpas", items: ["possibly merged hotel guests", "dates may be day-first"] },
+      {
+        showTitle: "RPAS",
+        slug: "rpas",
+        items: ["possibly merged hotel guests", "dates may be day-first"],
+      },
     ],
     ...over,
   };

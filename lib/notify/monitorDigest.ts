@@ -237,7 +237,10 @@ export async function buildMonitorDigestModel(
     ) {
       return { kind: "empty" };
     }
-    return { kind: "ok", model: { windowStart: windowIso, autoApplied, autofix, drift, newShowGaps } };
+    return {
+      kind: "ok",
+      model: { windowStart: windowIso, autoApplied, autofix, drift, newShowGaps },
+    };
   } catch {
     return { kind: "infra_error" };
   } finally {
