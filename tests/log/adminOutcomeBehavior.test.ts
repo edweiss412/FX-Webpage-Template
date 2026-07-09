@@ -418,6 +418,37 @@ vi.mock("@/lib/sync/promoteSnapshot", async (importActual) => ({
   repairSnapshotRollback: (...a: unknown[]) => repairSnapshotRollbackMock(...a),
 }));
 
+import type { ManualSyncResult } from "@/lib/sync/runManualSyncForShow";
+import { FINALIZE_OWNED_SHOW } from "@/lib/sync/runManualSyncForShow";
+import { POST as syncSlugPost } from "@/app/api/admin/sync/[slug]/route";
+
+const runManualSyncForShowMock = vi.fn(
+  async (..._a: unknown[]): Promise<ManualSyncResult> => ({
+    outcome: "blocked",
+    code: FINALIZE_OWNED_SHOW,
+  }),
+);
+vi.mock("@/lib/sync/runManualSyncForShow", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/sync/runManualSyncForShow")>()),
+  runManualSyncForShow: (...a: unknown[]) => runManualSyncForShowMock(...a),
+}));
+
+import type { DiscardStagedResult } from "@/lib/sync/discardStaged";
+import { POST as stagedDiscardPost } from "@/app/api/admin/staged/[fileId]/discard/route";
+
+const discardStagedMock = vi.fn(
+  async (..._a: unknown[]): Promise<DiscardStagedResult> => ({
+    outcome: "not_found",
+    code: PENDING_SYNC_NOT_FOUND,
+  }),
+);
+vi.mock("@/lib/sync/discardStaged", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/sync/discardStaged")>()),
+  discardStaged: (...a: unknown[]) => discardStagedMock(...a),
+}));
+
+import { POST as snapshotRepairPost } from "@/app/api/admin/snapshot-rollback/[id]/repair/route";
+
 // ── inline file-local recorder (single-file contract; no cross-file state) ──
 const recorded = new Set<string>(); // "file::fn::code"
 function recordAdminOutcomeBehavior(x: { file: string; fn: string; code: string }) {
@@ -2932,6 +2963,41 @@ describe("Batch 3 — final grandfathered surfaces graduate to inline proof", ()
         return stagedApplyPost(req(), ctx());
       },
       failureExpect: { status: 404 }, // body key is `error`, not `code` → no bodyCode
+    });
+  });
+
+  test("B2 manual sync (/[slug]) emits SHOW_SYNCED_MANUAL", async () => {
+    const file = "app/api/admin/sync/[slug]/route.ts";
+    const ctx = () => ({ params: Promise.resolve({ slug: "first-seen-show" }) });
+    const req = () => new NextRequest("https://x/sync", { method: "POST" });
+    const withSlugClient = () => {
+      // Slug is resolved via service-role BEFORE runManualSyncForShow (Codex plan-R1 MEDIUM).
+      serviceRoleClientImpl.current = () =>
+        makeClient({ from: { data: { drive_file_id: "df-1" }, error: null } });
+    };
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "SHOW_SYNCED_MANUAL",
+      success: () => {
+        withSlugClient();
+        // Real ProcessOneFileResult.applied (parseWarnings REQUIRED on the tail-caller surface).
+        runManualSyncForShowMock.mockImplementation(async () => ({
+          outcome: "applied",
+          showId: "show-1",
+          parseWarnings: [],
+        }));
+        return syncSlugPost(req(), ctx());
+      },
+      failure: (mark) => {
+        withSlugClient();
+        runManualSyncForShowMock.mockImplementation(async () => {
+          mark.hit = true;
+          return { outcome: "blocked", code: FINALIZE_OWNED_SHOW };
+        });
+        return syncSlugPost(req(), ctx());
+      },
+      failureExpect: { status: 409 },
     });
   });
   // <<< BATCH-3 PROOF BLOCK END
