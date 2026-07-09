@@ -296,39 +296,49 @@ as $$
 declare
   v_show_id uuid;
   v_row public.admin_overrides%rowtype;
+  v_found boolean;          -- F1: PIN the override-row lookup's FOUND; every later SELECT resets `found`.
   v_disamb text;            -- §5.3 content disambiguator carried in p_match_key (after \x1f), or null
   v_target_id uuid;         -- resolved live-row id (crew/hotel)
+  v_release_id uuid;        -- F2: OLD target A id for a repoint release (resolved from A's own identity)
   v_live_name text;         -- currentLiveName (crew) / currentLiveHotelName (hotel)
   v_match_count int;
   v_captured jsonb;
+  v_bval jsonb;             -- F2: CAS-B value of the NEW target B on repoint
+  v_reason text;            -- F3: _validate_override_value result (NULL = ok, else a reason token)
 begin
   -- (1) single-holder advisory lock in-RPC; resolve show inside the lock.
   perform pg_advisory_xact_lock(hashtext('show:' || p_drive_file_id));
   select id into v_show_id from public.shows where drive_file_id = p_drive_file_id;
   if v_show_id is null then return jsonb_build_object('ok', false, 'code', 'SHOW_NOT_FOUND'); end if;
 
-  -- validate op + domain/field (mirror the CHECK); guards §7.4 for upsert.
+  -- validate op discriminator (domain/field value guards are enforced by _validate_override_value, F3).
   if p_op not in ('upsert','revert','repoint','discard') then
     return jsonb_build_object('ok', false, 'code', 'OVERRIDE_INVALID_OP'); end if;
 
   -- read the current override row for (target) under the lock.
   select * into v_row from public.admin_overrides
    where show_id=v_show_id and domain=p_domain and field=p_field and match_key=p_match_key;
+  v_found := found;   -- F1: capture NOW; crew/hotel resolution + _current_field_value below RESET `found`.
 
   -- CAS-A (R15): version guards the override row. NULL expected => create (assert no ACTIVE row).
   if p_expected_version is null then
-    if found and v_row.active then
+    if v_found and v_row.active then
       return jsonb_build_object('ok', false, 'code', 'OVERRIDE_STALE_REVIEW'); end if; -- active create-collision
   else
-    if not found or v_row.version <> p_expected_version then
+    if not v_found or v_row.version <> p_expected_version then
       return jsonb_build_object('ok', false, 'code', 'OVERRIDE_STALE_REVIEW'); end if; -- 409 (mismatch)
   end if;
 
-  -- ===== resolve the live target row + current live value (per domain) =====
+  -- ===== resolve the CURRENT/CREATE target row (per domain) =====
+  -- F2 INVARIANT: `p_expected_live_hotel_name` ALWAYS describes the target being created / repointed-TO
+  -- (B for repoint; the sole target for create/edit/revert). The OLD target A in a repoint is resolved
+  -- from the override row's OWN stored identity (v_row.override_value for a hotel_name repoint / the
+  -- active hotel_name override output for a hotel_address repoint; currentLiveName(p_match_key) for crew)
+  -- inside the repoint branch — NOT from p_expected_live_hotel_name (which now = B).
   if p_domain = 'show' then
     v_target_id := v_show_id; -- singleton, PK anchor
   elsif p_domain = 'crew' then
-    -- currentLiveName = active name override output else match_key (§7.6).
+    -- currentLiveName = active name override output else match_key (§7.6). For create/edit/revert this is A.
     select coalesce((select (o.override_value #>> '{}') from public.admin_overrides o
         where o.show_id=v_show_id and o.domain='crew' and o.field='name'
           and o.match_key=p_match_key and o.active), p_match_key) into v_live_name;
@@ -337,38 +347,39 @@ begin
   elsif p_domain = 'hotel' then
     v_disamb := case when position(chr(31) in p_match_key) > 0
                      then substr(p_match_key, position(chr(31) in p_match_key)+1) else null end;
-    -- unconditional exactly-one-live-match on p_expected_live_hotel_name [+ recomputed disambiguator] (R20).
-    select count(*), min(id) into v_match_count, v_target_id from public.hotel_reservations hr
-      where hr.show_id=v_show_id and hr.hotel_name=p_expected_live_hotel_name
-        and (v_disamb is null
-             or (coalesce(to_char(hr.check_in,'YYYY-MM-DD'),'')
-                 || coalesce(chr(31)||hr.confirmation_no,'')) = v_disamb
-             or coalesce(to_char(hr.check_in,'YYYY-MM-DD'),'') = v_disamb);
-    if p_op <> 'repoint' or v_row.active then
+    if p_op in ('upsert','revert') then
+      -- unconditional exactly-one-live-match on p_expected_live_hotel_name [+ recomputed disambiguator] (R20).
+      -- (repoint resolves A + B itself in its branch; discard is inactive-only and applies to no live row.)
+      select count(*), min(id) into v_match_count, v_target_id from public.hotel_reservations hr
+        where hr.show_id=v_show_id and hr.hotel_name=p_expected_live_hotel_name
+          and (v_disamb is null
+               or (coalesce(to_char(hr.check_in,'YYYY-MM-DD'),'')
+                   || coalesce(chr(31)||hr.confirmation_no,'')) = v_disamb
+               or coalesce(to_char(hr.check_in,'YYYY-MM-DD'),'') = v_disamb);
       if v_match_count <> 1 then
         return jsonb_build_object('ok', false, 'code', 'OVERRIDE_STALE_REVIEW'); end if; -- 0 or >1 => 409
     end if;
   end if;
 
-  -- CAS-B (R16): on create + repoint-to-new, live field must still equal p_expected_current_value.
-  if (p_op='upsert' and p_expected_version is null) or (p_op='repoint') then
-    if p_expected_current_value is not null then
-      if p_domain='show' and p_field='dates' and
-         (select dates from public.shows where id=v_show_id) is distinct from p_expected_current_value then
+  -- CAS-B (R16) — CREATE-ONLY (F2). The live field of the create target must still equal
+  -- p_expected_current_value; repoint's CAS-B is against NEW target B and runs in the repoint branch.
+  -- (edit is guarded by CAS-A version; revert/discard need no value CAS.)
+  if p_op = 'upsert' and p_expected_version is null and p_expected_current_value is not null then
+    if p_domain='show' and p_field='dates' and
+       (select dates from public.shows where id=v_show_id) is distinct from p_expected_current_value then
+      return jsonb_build_object('ok', false, 'code', 'OVERRIDE_STALE_REVIEW'); end if;
+    if p_domain='show' and p_field='venue' and
+       (select venue from public.shows where id=v_show_id) is distinct from p_expected_current_value then
+      return jsonb_build_object('ok', false, 'code', 'OVERRIDE_STALE_REVIEW'); end if;
+    if p_domain='crew' then
+      if (select to_jsonb(case when p_field='name' then name else role end)
+            from public.crew_members where id=v_target_id) is distinct from p_expected_current_value then
         return jsonb_build_object('ok', false, 'code', 'OVERRIDE_STALE_REVIEW'); end if;
-      if p_domain='show' and p_field='venue' and
-         (select venue from public.shows where id=v_show_id) is distinct from p_expected_current_value then
+    end if;
+    if p_domain='hotel' then
+      if (select to_jsonb(case when p_field='hotel_name' then hotel_name else hotel_address end)
+            from public.hotel_reservations where id=v_target_id) is distinct from p_expected_current_value then
         return jsonb_build_object('ok', false, 'code', 'OVERRIDE_STALE_REVIEW'); end if;
-      if p_domain='crew' then
-        if (select to_jsonb(case when p_field='name' then name else role end)
-              from public.crew_members where id=v_target_id) is distinct from p_expected_current_value then
-          return jsonb_build_object('ok', false, 'code', 'OVERRIDE_STALE_REVIEW'); end if;
-      end if;
-      if p_domain='hotel' then
-        if (select to_jsonb(case when p_field='hotel_name' then hotel_name else hotel_address end)
-              from public.hotel_reservations where id=v_target_id) is distinct from p_expected_current_value then
-          return jsonb_build_object('ok', false, 'code', 'OVERRIDE_STALE_REVIEW'); end if;
-      end if;
     end if;
   end if;
 
@@ -389,6 +400,18 @@ begin
   if p_op = 'repoint' then
     if p_domain='crew' and p_field='name' and v_row.active then
       return jsonb_build_object('ok', false, 'code', 'OVERRIDE_INVALID_STATE'); end if; -- R25 active-name repoint
+    -- CAS-B against the NEW target B (F2): B's live field must still equal what the UI showed.
+    -- (p_expected_live_hotel_name describes B — see the F2 INVARIANT comment above.)
+    if p_expected_current_value is not null then
+      v_bval := public._current_field_value(v_show_id, p_domain, p_field, p_new_match_key, p_expected_live_hotel_name);
+      if v_bval is distinct from p_expected_current_value then
+        return jsonb_build_object('ok', false, 'code', 'OVERRIDE_STALE_REVIEW'); end if;
+    end if;
+    -- §7.4 value guard on the (possibly new) override value, targeting B (F3).
+    v_reason := public._validate_override_value(v_show_id, p_domain, p_field, p_new_match_key,
+                  public._resolve_live_id(v_show_id, p_domain, p_field, p_new_match_key, p_expected_live_hotel_name),
+                  coalesce(p_override_value, v_row.override_value));
+    if v_reason is not null then return jsonb_build_object('ok', false, 'code', 'OVERRIDE_STALE_REVIEW'); end if;
     -- target-key collision at the new key (R29): active => 409; inactive => supersede (delete) in-tx.
     perform 1 from public.admin_overrides
       where show_id=v_show_id and domain=p_domain and field=p_field and match_key=p_new_match_key and id<>v_row.id and active;
@@ -396,8 +419,19 @@ begin
     delete from public.admin_overrides
       where show_id=v_show_id and domain=p_domain and field=p_field and match_key=p_new_match_key and id<>v_row.id and not active;
     if v_row.active then
-      -- release old target A to its stored sheet_value (role/hotel only — name active is rejected above).
-      perform public._apply_override_live(v_show_id, p_domain, p_field, v_target_id, v_row.sheet_value);
+      -- release OLD target A to its stored sheet_value (role/hotel only — active name repoint rejected above).
+      -- Resolve A from its OWN identity (F2), NOT p_expected_live_hotel_name (which = B):
+      if p_domain='crew' then
+        v_release_id := v_target_id;                     -- A via currentLiveName(p_match_key), resolved above
+      else -- hotel: A's current live hotel_name = active hotel_name override output else the parsed name in p_match_key
+        select coalesce(
+          (select o.override_value #>> '{}' from public.admin_overrides o
+             where o.show_id=v_show_id and o.domain='hotel' and o.field='hotel_name'
+               and o.match_key=p_match_key and o.active),
+          split_part(p_match_key, chr(31), 1)) into v_live_name;
+        v_release_id := public._resolve_live_id(v_show_id, 'hotel', p_field, p_match_key, v_live_name);
+      end if;
+      perform public._apply_override_live(v_show_id, p_domain, p_field, v_release_id, v_row.sheet_value);
     end if;
     -- capture B's parsed value (un-overridden => live == sheet) and apply.
     v_captured := public._current_field_value(v_show_id, p_domain, p_field, p_new_match_key, p_expected_live_hotel_name);
@@ -410,7 +444,10 @@ begin
   end if;
 
   -- p_op = 'upsert' (create or edit)
-  if not found or not v_row.active then
+  -- §7.4 value guard on the create/edit target (F3); target self excluded from collision via v_target_id.
+  v_reason := public._validate_override_value(v_show_id, p_domain, p_field, p_match_key, v_target_id, p_override_value);
+  if v_reason is not null then return jsonb_build_object('ok', false, 'code', 'OVERRIDE_STALE_REVIEW'); end if;
+  if not v_found or not v_row.active then
     -- CREATE (or reactivate a retained inactive row — R28). capture the CURRENT live value as sheet_value.
     v_captured := public._current_field_value(v_show_id, p_domain, p_field, p_match_key, p_expected_live_hotel_name);
     insert into public.admin_overrides(show_id,domain,field,match_key,override_value,sheet_value,active,deactivation_code,created_by,version)
@@ -432,7 +469,7 @@ revoke execute on function public.set_field_override(text,text,text,text,text,te
 grant execute on function public.set_field_override(text,text,text,text,text,text,jsonb,text,int,jsonb,int,text) to service_role;
 ```
 
-Plus **three** small `security definer` helper functions in the SAME migration, defined **BEFORE** `set_field_override` (so it can call them), kept private (REVOKE execute from public/anon/authenticated; no grant to authenticated — only the outer RPC, running in its own SECURITY DEFINER context, calls them). These realize §7.3's "RPC path = one targeted UPDATE" and keep the outer body readable. Complete, implementable bodies:
+Plus **four** small `security definer` helper functions in the SAME migration, defined **BEFORE** `set_field_override` (so it can call them), kept private (REVOKE execute from public/anon/authenticated; no grant to authenticated — only the outer RPC, running in its own SECURITY DEFINER context, calls them). H1–H3 realize §7.3's "RPC path = one targeted UPDATE"; **H4 `_validate_override_value` enforces the §7.4 value guards RPC-side under the lock (F3)** — the race-safe backstop to the TS `validateOverrideValue` (Task 5). They keep the outer body readable. Complete, implementable bodies:
 
 ```sql
 -- (H1) Resolve the live row id for a (domain, match_key) under the caller's lock.
@@ -531,14 +568,61 @@ begin
   end if;
 end $$;
 
+-- (H4, F3) §7.4 value guards — enforced RPC-side under the lock (race-safe backstop; the TS
+-- validateOverrideValue gives the precise pre-RPC UI message). Returns NULL = ok, else a reason token.
+-- Overrides are write-time applied, so every live crew_members.name / hotel_reservations.hotel_name
+-- ALREADY equals its FINAL name (R27) — a collision is equality against ANOTHER live row's current value.
+create or replace function public._validate_override_value(
+  p_show_id uuid, p_domain text, p_field text, p_match_key text, p_target_id uuid, p_value jsonb
+) returns text
+language plpgsql security definer set search_path = public, pg_temp
+as $$
+declare
+  v_text text;
+begin
+  if p_domain='show' then                    -- dates/venue: must be a non-null jsonb object.
+    if p_value is null or jsonb_typeof(p_value) <> 'object' then return 'invalid_shape'; end if;
+    return null;
+  end if;
+  v_text := p_value #>> '{}';                 -- the four text fields extract the scalar.
+  if v_text is null or btrim(v_text) = '' then return 'empty'; end if;
+  if p_field='name'          and v_text = p_match_key then return 'noop'; end if;
+  if p_field='hotel_name'    and v_text = split_part(p_match_key, chr(31), 1) then return 'noop'; end if; -- name part before the §5.3 disambiguator
+  if p_field='name'          and length(v_text) > 200 then return 'too_long'; end if;
+  if p_field='role'          and length(v_text) > 120 then return 'too_long'; end if;
+  if p_field='hotel_name'    and length(v_text) > 200 then return 'too_long'; end if;
+  if p_field='hotel_address' and length(v_text) > 300 then return 'too_long'; end if;
+  if p_field='name' then
+    -- collide vs any OTHER member's FINAL live name OR its PARSED identity (§7.4: a future revert that
+    -- de-overrides that member would otherwise collapse two (show_id,name) rows). Parsed identity =
+    -- the member's active name-override match_key if it has one, else its live name.
+    if exists(
+      select 1 from public.crew_members cm
+       where cm.show_id=p_show_id and cm.id is distinct from p_target_id
+         and (cm.name = v_text
+              or coalesce(
+                   (select o.match_key from public.admin_overrides o
+                      where o.show_id=p_show_id and o.domain='crew' and o.field='name' and o.active
+                        and (o.override_value #>> '{}') = cm.name),
+                   cm.name) = v_text))
+    then return 'name_conflict'; end if;
+  elsif p_field='hotel_name' then             -- collide vs any OTHER reservation's live (= FINAL) hotel_name (R27: FINAL only, never parsed).
+    if exists(select 1 from public.hotel_reservations hr
+                where hr.show_id=p_show_id and hr.id is distinct from p_target_id and hr.hotel_name=v_text)
+    then return 'name_conflict'; end if;
+  end if;
+  return null;
+end $$;
+
 revoke execute on function public._resolve_live_id(uuid,text,text,text,text)   from public, anon, authenticated;
 revoke execute on function public._current_field_value(uuid,text,text,text,text) from public, anon, authenticated;
 revoke execute on function public._apply_override_live(uuid,text,text,uuid,jsonb) from public, anon, authenticated;
+revoke execute on function public._validate_override_value(uuid,text,text,text,uuid,jsonb) from public, anon, authenticated;
 ```
 
 **Note on `set_field_override`'s inline resolution vs H1:** the outer RPC body above computes `v_target_id` inline for the CAS/apply of the CURRENT `p_match_key` (so it can 409 before mutating), and calls `public._resolve_live_id(...)` only on the **repoint** branch to locate the NEW target (`p_new_match_key`). Both paths use the same fail-closed rules (crew `currentLiveName`; hotel unconditional exactly-one-match → `40001`). A `40001` raised inside H1/H3 propagates out of the RPC; the JS action's `mapRpcOutcome` maps the returned error to `OVERRIDE_STALE_REVIEW`/`SYNC_INFRA_ERROR` (invariant 9) — so H1's raise is equivalent to the inline `return jsonb_build_object('ok',false,'code','OVERRIDE_STALE_REVIEW')` guards. (Both surface as 409 stale-review to the admin UI; no silent no-op.)
 
-Apply locally; re-run Step 3.1 → grant assertion PASSES. Also assert (in `setFieldOverrideGrants.test.ts`) that the three `_`-prefixed helpers have EXECUTE revoked from public/anon/authenticated (internal-only).
+Apply locally; re-run Step 3.1 → grant assertion PASSES. Also assert (in `setFieldOverrideGrants.test.ts`) that all **four** `_`-prefixed helpers (`_resolve_live_id`, `_current_field_value`, `_apply_override_live`, `_validate_override_value`) have EXECUTE revoked from public/anon/authenticated (internal-only).
 
 ### Step 3.3 — Extend `advisoryLockRpcDeadlock.test.ts`
 
@@ -608,7 +692,9 @@ Run Step 4.1 → PASSES. Confirm `_metaInfraContract` still green (the inline `/
 - **R29 repoint target-key collision:** into an active override → 409; into an inactive → superseded (deleted), exactly one row at the key; for both active and inactive source overrides.
 - **CAS-B live-value (R16/R17):** a sync correcting the underlying field (per field) between UI-load and create/repoint-to-new → 409; value sent as RAW loader-source jsonb so dates/venue don't false-409.
 - **hotel row-locator (R19/R20):** two same-name reservations with a reorder/insert-before between load and save → 409 (both fields); a UNIQUE-at-load name gaining a same-name sibling → 409 via the unconditional gate; a benign pure reorder keeping the name unique still resolves with no false 409.
-- **guards §7.4:** crew name collision + hotel_name FINAL-name collision rejected at create/edit; empty/whitespace/`= match_key` no-op rejected; caps.
+- **guards §7.4:** crew name collision + hotel_name FINAL-name collision rejected at create/edit; empty/whitespace/`= match_key` no-op rejected; caps. (RPC-enforced via `_validate_override_value`, F3 — the tests hit the RPC directly, not the TS helper.)
+- **F1 create-row durability:** create for each domain with NO pre-existing override row asserts the `admin_overrides` row EXISTS afterward (query it back), NOT merely the live-row change — guards the stale-PL/pgSQL-`FOUND` regression where a create silently falls into the edit branch (`where id=<null>` no-op) and never inserts while the live apply still runs.
+- **F2 inactive repoint no false-409:** an INACTIVE role + hotel override repointed to a live B with `p_expected_current_value` SET succeeds (old target A vanished → must NOT false-409); asserts CAS-B was evaluated against B (the new target), not the gone A.
 - **canonical `created_by`:** a mixed-case `p_actor` is stored `lower(trim())` (or rejected by the CHECK).
 - **lock held:** assert `pg_advisory_xact_lock` is taken (structural — via the deadlock pin in Task 3; this suite asserts a concurrent conflicting op serializes).
 
@@ -650,7 +736,7 @@ Run → all PASS. (Anti-tautology: every hotel/CAS assertion derives expected va
 **Spec:** §3.2 Stage A, §5.1, §5.3, §6 (hotel deactivation). **Files:**
 - `lib/sync/overrideShowHotel.ts` (NEW)
 - `lib/sync/loadActiveOverrides.ts` (NEW — reads `admin_overrides where show_id=? and active` inside the tx via the tx port; `{data,error}` discipline)
-- `lib/sync/runScheduledCronSync.ts` (WIRE — call `overrideShowHotel` before `applyShowSnapshot:1304`, thread `overriddenParseResult` into it; carry `plannedShowHotelSideEffects` to the Stage B slot)
+- `lib/sync/phase2.ts` (WIRE — `runPhase2` is the single owner of the parse: local `let parseResult = args.parseResult` (`phase2.ts:244`); the `applyShowSnapshot` CALL is `phase2.ts:288`; the `applyParseResult` CALL is `phase2.ts:368`. Call `overrideShowHotel` BEFORE the `applyShowSnapshot` call and **REBIND the local `parseResult` to `overriddenParseResult`** so BOTH the snapshot writer (`:288`) AND the later `applyParseResult` (`:368`) consume the SAME overridden parse; carry `plannedShowHotelSideEffects` to the Stage B slot at `phase2.ts:380`. NOTE: `applyShowSnapshot`/`deleteCrewMembersNotIn`/`upsertCrewMembers` at `runScheduledCronSync.ts:1304/1560/1567` are the tx-PORT *implementations*, not the call sites — the overlay must inject at the `phase2.ts` call sites, not the port bodies.)
 - `tests/sync/overrideShowHotel.test.ts` (NEW)
 
 **Interfaces — Produces:** `overrideShowHotel(parseResult, activeOverrides): { overriddenParseResult: ParseResult; showHotelSideEffects: OverrideSideEffect[] }` where `OverrideSideEffect = { overrideId: string; sheetValue: unknown } | { overrideId: string; deactivate: 'target_missing'|'name_conflict' }`. **PURE** — zero DB writes.
@@ -794,15 +880,14 @@ An inactive override surfaces as BOTH a page row and a badge-count increment; co
 
 **Spec:** §10, §11, §12. **Files:**
 - `tests/log/_auditableMutations.ts` (ADD 4 rows `{ file:"app/admin/show/[slug]/_actions/overrides.ts", fn:"setFieldOverrideAction", code }` for `FIELD_OVERRIDE_SET`/`REVERTED`/`REPOINTED`/`DISCARDED`; register in the forensic-code set `NEW_FORENSIC_CODES:390` or `SANCTIONED_CODES:312`)
-- `tests/log/adminOutcomeBehavior.test.ts` (ADD a describe with a `setLogSink` spy asserting each code fires ONLY on the committed-success branch)
 
-Note: forensic codes are NOT §12.4 rows / NOT in `catalog.ts` (precedent `archive.ts` `SHOW_ARCHIVED`). The action itself is written in Task 14 (per-op code mapping). This task pre-registers the contract so Task 14's action fails-by-default until instrumented.
+Note: forensic codes are NOT §12.4 rows / NOT in `catalog.ts` (precedent `archive.ts` `SHOW_ARCHIVED`). The action itself is written in Task 14 (per-op code mapping). This task **only pre-registers the static contract** — the registry rows + code-set entries. **The executable behavioral spy (`adminOutcomeBehavior.test.ts`) is NOT written here; it lands RED→GREEN inside Task 14** alongside the action (F4 — a task must not commit a knowingly-RED test across its boundary; invariant 1). The static meta-test `_metaMutationSurfaceObservability.test.ts` walks the filesystem, so a registry row referencing the not-yet-existent action file `app/admin/show/[slug]/_actions/overrides.ts` is inert (no discovered surface fails) — this task's commit is fully GREEN.
 
-### Step 12.1 — Add the 4 registry rows + code-set entries. Running `tests/log/_metaMutationSurfaceObservability.test.ts` now EXPECTS `setFieldOverrideAction` to emit these codes; since the action doesn't exist yet (Task 14), keep this task's assertion as: the registry rows exist and reference the code literals the action will emit (a pure-registry test). The behavioral proof in `adminOutcomeBehavior.test.ts` is written here as a failing test and satisfied in Task 14 (cross-task TDD: the behavioral spy is RED until Task 14 wires the action).
-### Step 12.2 — Confirm the registry + code-set additions typecheck and the meta-test discovery walk sees the new codes. Run → the pure-registry assertions PASS; the behavioral spy is RED pending Task 14 (documented handoff to Task 14).
+### Step 12.1 — Add the 4 registry rows + forensic-code-set entries. These are pure static data. Run `tests/log/_metaMutationSurfaceObservability.test.ts` + the registry's own assertions → the registry rows exist and reference the exact code literals the Task-14 action will emit; the filesystem walk sees no new admin surface yet (action file absent) → GREEN.
+### Step 12.2 — Confirm the registry + code-set additions typecheck and the meta-test discovery walk parses cleanly. Run → all assertions PASS (nothing RED is committed; the behavioral proof is Task 14's deliverable).
 
-**Deliverable:** forensic-code registry + behavioral contract staged (behavioral GREEN lands in Task 14).
-**Commit:** `test(log): register FIELD_OVERRIDE_* forensic codes + behavioral contract`
+**Deliverable:** forensic-code registry + code-set entries landed GREEN (the executable behavioral spy is written and made green in Task 14, with the action).
+**Commit:** `test(log): register FIELD_OVERRIDE_* forensic codes (static registry)`
 
 
 # PHASE 6 — UI (Opus + impeccable v3 dual-gate, invariant 8)
@@ -827,13 +912,13 @@ Note: forensic codes are NOT §12.4 rows / NOT in `catalog.ts` (precedent `archi
 - `app/admin/show/[slug]/page.tsx` (WRAP crew rows `:709-745` name+role in `<OverrideableField>`; ADD net-new "Show details" block (dates+venue) + "Hotels" block (per-reservation hotel_name+hotel_address); load the live override state via a new loader reading `admin_overrides` for the show)
 - `app/admin/show/[slug]/_actions/overrides.ts` (NEW server action `setFieldOverrideAction`)
 - `lib/overrides/loadShowOverrides.ts` (NEW — reads `admin_overrides` + computes `matchKey`/`currentLiveHotelName`/`expectedCurrentValue` per §8.2a)
-- `tests/log/adminOutcomeBehavior.test.ts` (satisfy the Task-12 behavioral spy)
+- `tests/log/adminOutcomeBehavior.test.ts` (NEW behavioral describe — WRITE it here (RED) and make it GREEN within this task, F4; a `setLogSink`/sink-spy asserting each per-op forensic code fires ONLY on the committed-success branch)
 
 **Server action (`setFieldOverrideAction`)** — thin, per §8.4: `requireAdminIdentity()` gate → canonicalize actor email via `lib/email/canonicalize.ts` → delegate to `lib/overrides/setFieldOverride.ts` (service-role client — NOT cookie client; §8.4 critical) → **post-commit** `logAdminOutcome({ code: mapOpToCode(op), source:"admin.show.overrides", actorEmail, driveFileId, showId })` (per-op: upsert→SET, revert→REVERTED, repoint→REPOINTED, discard→DISCARDED) + `revalidateShow`. **NO inline `.rpc` in the action** (deadlock rule `feed.ts:10-14`) — the RPC call lives in the helper. `mapRpcOutcome`-shaped result surfaces to the client; a 409 renders mapped stale-review copy (invariant 5).
 
 **`matchKey` derivation (§8.2a, R17)** in `loadShowOverrides`: crew → `sheet_name ?? name`; hotel → active override's stored `match_key`, else the SAME name+disambiguator `match_key` as §5.3 for same-name groups (NOT plain `hotel_name`); show → `''`. Pass `currentLiveHotelName` + advisory `currentOrdinal`. `expectedCurrentValue` = RAW loader-source jsonb (R17), not rendered text.
 
-### Step 14.1 — Failing tests: the action gates on `requireAdminIdentity`; uses the service-role client (assert via injected dep, not cookie client); emits the correct per-op forensic code post-commit (the Task-12 `adminOutcomeBehavior` spy goes GREEN here); a 409 surfaces mapped copy. `loadShowOverrides` derives `matchKey`/`expectedCurrentValue` from source not display (fold `matchKeyDurability` assertions where they touch the loader). Run → FAIL.
+### Step 14.1 — Failing tests: the action gates on `requireAdminIdentity`; uses the service-role client (assert via injected dep, not cookie client); the NEW `adminOutcomeBehavior` behavioral spy (written here) asserts each per-op forensic code fires post-commit ONLY on the committed-success branch — RED until 14.2 wires the action; a 409 surfaces mapped copy. `loadShowOverrides` derives `matchKey`/`expectedCurrentValue` from source not display (fold `matchKeyDurability` assertions where they touch the loader). Run → FAIL.
 ### Step 14.2 — Implement the action + loader + the two net-new blocks + crew-row wrap. Run → PASS. Run `tests/log/adminOutcomeBehavior.test.ts` + `_metaMutationSurfaceObservability.test.ts` → GREEN (admin surface fully covered).
 
 **Deliverable:** Surface B live-show editing for all 6 fields; admin-surface telemetry complete.
