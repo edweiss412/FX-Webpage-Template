@@ -133,13 +133,18 @@ export const PR_SEED = 20260709;
 export const PR_NUM_RUNS = 100;
 export const DEEP_NUM_RUNS = 5000;
 
-export function fuzzRunConfig(): { seed: number; numRuns: number; deep: boolean } {
+// MODULE-LEVEL SINGLETON: the random deep seed is drawn ONCE per process, so
+// every fuzz test file (robustness + plantAndFind, separate vitest imports of
+// this module in the SAME serial-project process) shares one replay coordinate.
+// If vitest ever isolates the files into separate processes, each logs its own
+// FUZZ-CONFIG line — still replayable, one line per file.
+const RESOLVED: { seed: number; numRuns: number; deep: boolean } = (() => {
   const deep = process.env.FUZZ_DEEP === "1";
   const seed = process.env.FUZZ_SEED
     ? Number.parseInt(process.env.FUZZ_SEED, 10)
     : deep
-      ? // Date.now is fine here: deep runs WANT a fresh seed; the seed is
-        // printed by fast-check on failure and replayed via FUZZ_SEED.
+      ? // Date.now is fine here: deep runs WANT a fresh seed; drawn once,
+        // printed via FUZZ-CONFIG, replayed via FUZZ_SEED.
         Date.now() % 2 ** 31
       : PR_SEED;
   const numRuns = process.env.FUZZ_NUM_RUNS
@@ -148,6 +153,10 @@ export function fuzzRunConfig(): { seed: number; numRuns: number; deep: boolean 
       ? DEEP_NUM_RUNS
       : PR_NUM_RUNS;
   return { seed, numRuns, deep };
+})();
+
+export function fuzzRunConfig(): { seed: number; numRuns: number; deep: boolean } {
+  return RESOLVED;
 }
 ```
 
@@ -234,9 +243,11 @@ describe("Tier 1 robustness — chaos inputs", () => {
         const b = parseSheet(md, "fuzz.md");
         assertParsedSheetShape(a);
         JSON.stringify(a);                      // JSON-round-trippable
-        // determinism: canonical fingerprints equal
-        if (JSON.stringify(fingerprint(payloadOf(a))) !== JSON.stringify(fingerprint(payloadOf(b))))
-          throw new Error("parseSheet nondeterministic on identical input");
+        // determinism: fingerprint(base, mutant) diffs the two parses — the live
+        // signature is fingerprint(b: ParsedSheet, m: ParsedSheet): string
+        // (tests/parser/mutation/oracle.ts:111); identical parses diff empty.
+        const diff = fingerprint(a, b);
+        if (diff.length > 0) throw new Error(`parseSheet nondeterministic: ${diff}`);
       }),
       { seed, numRuns, verbose: 2 },
     );
@@ -258,7 +269,7 @@ describe("Tier 1 robustness — chaos inputs", () => {
 - Create: `tests/parser/fuzz/dials.ts`, `tests/parser/fuzz/_metaDialRegistry.test.ts`
 
 **Interfaces:**
-- Produces: `type DialChoices = { dateFormat: "slash" | "dash" | "iso" | "longMDY" | "longDMY"; dimsFormat: "unit" | "bare" | "unicode"; crewSectionToken: "CREW" | "TECH"; crewHeader: "labeled" | "permuted" | "headerless"; sectionOrder: number /* permutation index over model.sections */; blankPadding: 1 | 2 | 3; headerTypo: null | { section: "long" | "short"; which: string }; dayRestrictionOn: boolean }`; `DIAL_REGISTRY: ReadonlyArray<{ name: string; contractFile: string; contractSymbol: string; note?: string; key: keyof DialChoices | null; arbitrary: fc.Arbitrary<unknown> | null }>` — the spec-normative row shape (`{name, contractFile, contractSymbol, note?, arbitrary}` spec §3.2) plus `key` binding each row to its `DialChoices` field. `dialChoices: fc.Arbitrary<DialChoices>` is COMPOSED FROM the registry (`fc.record` over the keyed rows' arbitraries) — the registry row IS the source of each dial's range, so ranges cannot drift from their contract rows. `key: null` rows are model-side contracts (address) or pure guards (short-vocab exclude); their `arbitrary` is the model-side generator or null for guards. (`sectionHeader` dial = `crewSectionToken` — crew is the only multi-token opener in Phase 1; room-section variation rides `RoomModel.kind`; `dimsFormat` maps to the three `DIMS_FULL_SRC` shapes.)
+- Produces: `type DialChoices = { dateFormat: "slash" | "dash" | "iso" | "longMDY" | "longDMY"; dimsFormat: "unit" | "bare" | "unicode"; crewSectionToken: "CREW" /* Phase 1: CREW only — TECH routes to parseTechBlock (crew.ts:64-66,214+) which expects a DIFFERENT layout (Name - Role merged col0, no email); a TECH dial value needs its own layout template + oracle rules, deferred to Phase 1.5 with the other layout-family deferrals (spec §3.2 (token,layout) pairing) */; crewHeader: "labeled" | "permuted" | "headerless"; sectionOrder: number /* permutation index over model.sections */; blankPadding: 1 | 2 | 3; headerTypo: null | { section: "long" | "short"; which: string }; dayRestrictionOn: boolean }`; `DIAL_REGISTRY: ReadonlyArray<{ name: string; contractFile: string; contractSymbol: string; note?: string; key: keyof DialChoices | null; arbitrary: fc.Arbitrary<unknown> | null }>` — the spec-normative row shape (`{name, contractFile, contractSymbol, note?, arbitrary}` spec §3.2) plus `key` binding each row to its `DialChoices` field. `dialChoices: fc.Arbitrary<DialChoices>` is COMPOSED FROM the registry (`fc.record` over the keyed rows' arbitraries) — the registry row IS the source of each dial's range, so ranges cannot drift from their contract rows. `key: null` rows are model-side contracts (address) or pure guards (short-vocab exclude); their `arbitrary` is the model-side generator or null for guards. (`sectionHeader` dial = `crewSectionToken` — crew is the only multi-token opener in Phase 1; room-section variation rides `RoomModel.kind`; `dimsFormat` maps to the three `DIMS_FULL_SRC` shapes.)
 
 Registry rows (from spec §3.2 dial table — contractFile/contractSymbol per row):
 
@@ -276,7 +287,7 @@ Registry rows (from spec §3.2 dial table — contractFile/contractSymbol per ro
 | blankPadding | lib/parser/index.ts | parseSheet | structural: 1–3 blank rows; 0 out of contract (exporter join("\n\n")) | blankPadding |
 | address | lib/parser/blocks/hotels.ts | STREET_ADDRESS_RE | suffix-bearing only; ZIP-tail regex is discriminator-only | null (model-side; `arbitrary` = the address generator model.ts consumes) |
 
-- [ ] **Step 1: Write the failing meta-test** (`_metaDialRegistry.test.ts`): for every `DIAL_REGISTRY` row — (a) `existsSync(contractFile)` from repo root; (b) file content matches `new RegExp(String.raw`^\s*(export\s+)?(const|let|function|class|type)\s+${escapeRegExp(contractSymbol)}\b`, "m")` (declaration match, not string mention); (c) rows anchored on `parseSheet` have non-empty `note`. Plus fails-by-default coverage BOTH directions: every key of `DialChoices` (via a literal key list kept next to the type, asserted equal to `Object.keys` of a sample) appears in ≥1 row's `key`, AND every non-null row `key` is a real `DialChoices` key — a new dial key without a registry row fails, and a stale row fails. Every keyed row has non-null `arbitrary`; `dialChoices` composition from the registry is asserted (sample `dialChoices`, check each field's value is producible by its row's arbitrary — or simpler: assert `dialChoices` is literally built via the exported `buildDialChoices(DIAL_REGISTRY)` helper and the helper throws on a keyed row with null arbitrary).
+- [ ] **Step 1: Write the failing meta-test** (`_metaDialRegistry.test.ts`): for every `DIAL_REGISTRY` row — (a) `existsSync(contractFile)` from repo root; (b) file content matches `new RegExp(String.raw`^\s*(export\s+)?(const|let|function|class|type)\s+${escapeRegExp(contractSymbol)}\b`, "m")` (declaration match, not string mention); (c) rows anchored on `parseSheet` have non-empty `note`. Plus fails-by-default coverage BOTH directions: every key of `DialChoices` (via a literal key list kept next to the type, asserted equal to `Object.keys` of a sample) appears in ≥1 row's `key`, AND every non-null row `key` is a real `DialChoices` key — a new dial key without a registry row fails, and a stale row fails. Every keyed row has non-null `arbitrary`; `dialChoices` composition from the registry is asserted: `dialChoices` is literally built via the exported `buildDialChoices(DIAL_REGISTRY)` helper. Duplicate-key semantics (headerTypo has two keyed rows): rows sharing a `key` each carry an arbitrary over the SAME field type; `buildDialChoices` unions them with `fc.oneof(...rowArbs)` — grouping is by key, order-independent, and the helper throws if any keyed group is empty or a keyed row's arbitrary is null.
 - [ ] **Step 2: Run — FAIL.** `pnpm vitest run tests/parser/fuzz/_metaDialRegistry.test.ts`
 - [ ] **Step 3: Implement `dials.ts`** (type + registry + `dialChoices` arbitrary; composition exclusion headerTypo(short)×headerless enforced in `validateGeneratedCase` (Task 5) — dials.ts declares data only).
 - [ ] **Step 4: Run — PASS.**
@@ -411,7 +422,7 @@ describe("Tier 2 plant-and-find", () => {
 ```
 
 - [ ] **Step 3: Run.** If it fails: shrunk case is either a render-template bug (fix render, re-run) or a REAL parser finding — commit the counterexample under `regressions/` (Task 9 harness), triage per spec §6 (fix parser TDD, or `// contract-narrowed:` + BACKLOG).
-- [ ] **Step 4: Sabotage sensitivity test (spec success criterion 3 — proves the oracle is not tautological)** in the same file: render a fixed 3-crew case, then post-process the markdown by swapping the ROLE and PHONE data cells (out-of-contract corruption the parser cannot detect on a labeled header — values land in wrong fields), parse, and `expect(checkPlantAndFind(...).ok).toBe(false)`. Concrete failure mode caught: a future oracle refactor that stops comparing field values (e.g., matches on name only) turns Tier 2 vacuous — this test fails then.
+- [ ] **Step 4: Sabotage sensitivity test (spec success criterion 3 — proves the oracle is not tautological)** in the same file. Sabotage must be BOTH silent (no warning the oracle could attribute) AND payload-corrupting; cell-swap can emit attributable warnings, so don't use it. Instead sabotage the ORACLE'S INPUT, not the markdown: render + parse a fixed 3-crew case normally (green path — zero warnings, verified by the anchor tests), then hand the oracle a `parsed` object whose `crewMembers[1].phone` digits are altered and whose warnings array is UNTOUCHED (still empty of crew signals) — `expect(checkPlantAndFind(model, dials, tampered).ok).toBe(false)`. This simulates exactly the P0-2 class (confident wrong value, zero signal) end-to-end at the oracle boundary. Concrete failure mode caught: a future oracle refactor that stops comparing field values (e.g., matches on name only) turns Tier 2 vacuous — this test fails then. Second variant: delete `crewMembers[2]` entirely (still no signals) → must also be `ok: false`.
 - [ ] **Step 5: Run — PASS. Record total fuzz-suite wall time; must be < 60 s (Global Constraints). If over: reduce per-property numRuns is FORBIDDEN (spec pins 100); instead profile render/oracle overhead.**
 - [ ] **Step 6: Commit** `test(parser): Tier-1 model-rendered + Tier-2 plant-and-find properties + sabotage sensitivity`
 
