@@ -56,6 +56,9 @@ export const INTERNAL_CODE_ENUMS = {
   CREW_COLUMN_POSITIONAL_FALLBACK: {
     source: "parse_warnings.code"
   },
+  DATE_ORDER_SUGGESTS_DMY: {
+    source: "parse_warnings.code"
+  },
   DAY_RESTRICTION_DOUBLE_LOCATION: {
     source: "parse_warnings.code"
   },
@@ -100,6 +103,12 @@ export const INTERNAL_CODE_ENUMS = {
   },
   GOOGLE_NO_CREW_MATCH: {
     source: "admin_alerts.code"
+  },
+  HOTEL_CARDINALITY_EXCEEDED: {
+    source: "parse_warnings.code"
+  },
+  HOTEL_GUEST_SPLIT_AMBIGUOUS: {
+    source: "parse_warnings.code"
   },
   IDEMPOTENCY_IN_FLIGHT: {
     source: "admin_alerts.code"
@@ -216,6 +225,9 @@ export const INTERNAL_CODE_ENUMS = {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   ROLE_TOKEN_AUTOCORRECTED: {
+    source: "parse_warnings.code"
+  },
+  ROOM_HEADER_SPLIT_AMBIGUOUS: {
     source: "parse_warnings.code"
   },
   SCHEDULE_STRIKE_DATE_OFF_SCHEDULE: {
