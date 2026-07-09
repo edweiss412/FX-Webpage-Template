@@ -1406,6 +1406,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → check sheet",
     "helpfulContext": "A flight in the TRAVEL tab's FLIGHT DETAILS table couldn't be attached because the cell contained no recognizable flight date. The flight is skipped; check that the format starts each leg with an M/D date (e.g. '3/22 AA123 JFK - LAX').",
   },
+  "TRAVEL_TRANSPORT_NAME_UNMATCHED": {
+    "crewFacing": null,
+    "dougFacing": "A transport assignment in _<sheet-name>_ doesn't clearly match a crew member — possibly a typo, or two names merged into one cell — so that person won't see their transport details. Check the transport section, or add the crew member if they're genuinely missing.",
+    "followUp": "Doug → fix the transport name or add the crew member",
+    "helpfulContext": "Each transport assignment is matched to a crew member by name so that person can see their own ride details. This time an assignee name didn't clearly match one crew member — usually a typo, or two names merged into a single cell during import. Check the transport section for a misspelling or a merged name, or add the crew member if they're genuinely missing.",
+  },
   "TYPO_NORMALIZED": {
     "crewFacing": null,
     "dougFacing": null,

@@ -41,6 +41,9 @@ export const GAP_CLASSES = [
   { code: "TRAVEL_FLIGHT_UNPARSEABLE", label: "unreadable flight" },
   { code: "TRAVEL_FLIGHT_NAME_UNMATCHED", label: "unmatched flight passenger" },
   { code: "TRAVEL_FLIGHT_AMBIGUOUS_TABLE", label: "unclear flight list" },
+  // gateExempt: staged-review/badge/digest-visible but never trips the push-regression gate —
+  // Flow 8.4 §2.6 (this is a data-quality signal for staged review, not a push-worthy alert).
+  { code: "TRAVEL_TRANSPORT_NAME_UNMATCHED", label: "unmatched transport name", gateExempt: true },
   { code: "AGENDA_GRID_MALFORMED", label: "unreadable agenda" },
   { code: "AGENDA_BLOCK_UNRESOLVED", label: "unplaced agenda section" },
   { code: "AGENDA_DAY_AMBIGUOUS", label: "unclear agenda day" },
