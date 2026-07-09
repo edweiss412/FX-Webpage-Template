@@ -46,7 +46,7 @@
 | `tests/show/pickerAffordance.test.tsx` | Create | `_PickerInterstitial` affordance both modes; `loadRoster` boundary |
 | `tests/visibility/transportTileVisibleRegression.test.ts` | Create | 8.4 defensive fuzzy-tolerance pin + known-gap fixture |
 
-`BACKLOG.md` → `BL-TRANSPORT-ID-RESOLUTION` is **already added** (landed with the spec commit); no plan task re-creates it. Task 8 references it.
+`BACKLOG.md` → `BL-TRANSPORT-ID-RESOLUTION` is **already added** (landed with the spec commit); no plan task re-creates it. Task 7 references it.
 
 ---
 
@@ -573,22 +573,24 @@ git commit --no-verify -m "fix(crew-page): typed CrewMemberNotInShowError at cre
 
 ---
 
-### Task 6: `loadShowAvailability` + `renderPickerRepick` + stale-arm refactor (8.2 primary, part 1)
+### Task 6: 8.2 primary — `loadShowAvailability` + `renderPickerRepick` + `renderRacedCrewMiss` + Point A/B wiring + stale-arm refactor
+
+> Tasks 6 and 7 are **merged** (invariant 1 needs a red-first proof for the new helpers, which only exists once Point A/B are wired). The RED-first tests are the Point A/B **re-pick** + **cascade** route cases: pre-implementation the `resolved` case sends `CrewMemberNotInShowError` to `TerminalFailure` (catch-all) and renders `CrewShell` for a returned projection, so every "expect `PickerInterstitial` / expect `notFound()`" assertion FAILS first. The two stale-arm cases are regression companions (green before; must stay green — they go red only if the extraction drops a catch/hint).
 
 **Files:**
-- Modify: `app/show/[slug]/[shareToken]/page.tsx` (add two module-scope helpers; refactor the stale-arm block `:233-263`)
+- Modify: `app/show/[slug]/[shareToken]/page.tsx` (three module-scope helpers; refactor the stale-arm block `:233-263`; rewrite the `resolved` case `:152-189`)
+- Create/Modify: `tests/show/flow8Repick.test.tsx`
 
 **Interfaces:**
-- Produces:
-  - `async function loadShowAvailability(showId: string): Promise<"available" | "unavailable">` — reads `shows(published, archived)`; `{data,error}` discipline; on Supabase error THROWS (caller wraps → `TerminalFailure`); missing/archived/`published !== true` → `"unavailable"`.
+- Consumes: `CrewMemberNotInShowError` (Task 5), existing `loadRoster`, `PickerInterstitial`, `TerminalFailure`, `staleBannerFor`, `createSupabaseServiceRoleClient`, `notFound` (from `next/navigation`).
+- Produces (all module-private in `page.tsx`):
+  - `async function loadShowAvailability(showId: string): Promise<"available" | "unavailable">` — reads `shows(published, archived)`; `{data,error}` discipline; on Supabase error THROWS; missing/archived/`published !== true` → `"unavailable"`.
   - `async function renderPickerRepick(args: { showId: string; slug: string; shareToken: string; s: string | undefined; banner: PickerInterstitialBannerCode; staleCleanupHint: { expectedEpoch: number; expectedCrewMemberId: string } | null }): Promise<JSX.Element>` — `try { roster = await loadRoster(showId) } catch { return <TerminalFailure … retryHref/> }`, else `<PickerInterstitial …/>`. Never re-throws.
-- Consumes: existing `loadRoster`, `PickerInterstitial`, `TerminalFailure`, `staleBannerFor`, `createSupabaseServiceRoleClient`.
+  - `async function renderRacedCrewMiss(args: { showId; slug; shareToken; s }): Promise<JSX.Element>` — catches ONLY the `loadShowAvailability` read (→ `TerminalFailure`); OUTSIDE that catch: `"unavailable"` → `notFound()`, else `renderPickerRepick({ …, banner: "PICKER_REMOVED_FROM_ROSTER_BANNER", staleCleanupHint: null })`.
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Write the shared harness + the two stale-arm regression companions**
 
-`renderPickerRepick`'s roster-load catch is a **behavior-preserving extraction** of the stale arms' EXISTING inline `try { loadRoster } catch { TerminalFailure }` (`page.tsx:238-247`). The TDD form for a refactor is a guard test that is green before, stays green after the CORRECT extraction, and goes **red** if the extracted helper omits the catch. Task 6 carries TWO such guards (exercised via the `removed_from_roster` stale arm, which Step 4 refactors onto `renderPickerRepick`): (a) `StaleCleanupAutoSubmit` still mounts, (b) a roster-read failure still yields `TerminalFailure` (not a thrown render). The genuinely NEW roster-fail path (Point A/B → `renderPickerRepick`, which previously never loaded a roster) is red-first in Task 7.
-
-Write in `tests/show/flow8Repick.test.tsx`:
+Write in `tests/show/flow8Repick.test.tsx` (shared mock harness + both stale-arm regression companions; the Point A/B / cascade / infra / roster-fail / negative cases are added in Step 2):
 
 ```tsx
 // @vitest-environment jsdom
@@ -633,94 +635,9 @@ test("renderPickerRepick refactor-guard: removed_from_roster with a roster-read 
 
 > Before writing, confirm the `StaleCleanupAutoSubmit` root `data-testid` (`stale-cleanup-auto-submit`, verified) and `TerminalFailure`'s (`terminal-failure`, verified). Both refactor-guards are GREEN before Step 4 (the stale arm's inline catch) and MUST stay green after — an extraction that drops `renderPickerRepick`'s catch turns the second one red.
 
-- [ ] **Step 2: Run to verify it fails / establishes the baseline**
+- [ ] **Step 2: Add the Point A/B / cascade / infra / roster-fail / negative tests (same file)**
 
-Run: `pnpm vitest run tests/show/flow8Repick.test.tsx`
-Expected: initially FAIL only if the refactor has regressed the mount; if it passes pre-refactor, keep it as the guard and proceed (it must STILL pass post-refactor).
-
-- [ ] **Step 3: Add `loadShowAvailability` + `renderPickerRepick`**
-
-In `page.tsx`, add module-scope helpers (near `loadRoster`):
-
-```tsx
-async function loadShowAvailability(showId: string): Promise<"available" | "unavailable"> {
-  const supabase = createSupabaseServiceRoleClient();
-  // not-subject-to-meta: page.tsx-local read; {data,error} + fail-closed; covered by route tests (mirrors loadRoster)
-  const { data, error } = await supabase
-    .from("shows")
-    .select("published, archived")
-    .eq("id", showId)
-    .maybeSingle();
-  if (error) throw new Error("show availability lookup failed");
-  if (!data || data.archived === true || data.published !== true) return "unavailable";
-  return "available";
-}
-
-async function renderPickerRepick(args: {
-  showId: string; slug: string; shareToken: string; s: string | undefined;
-  banner: PickerInterstitialBannerCode;
-  staleCleanupHint: { expectedEpoch: number; expectedCrewMemberId: string } | null;
-}): Promise<JSX.Element> {
-  let roster;
-  try {
-    roster = await loadRoster(args.showId);
-  } catch {
-    return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" retryHref={`/show/${args.slug}/${args.shareToken}`} />;
-  }
-  return (
-    <PickerInterstitial
-      slug={args.slug} shareToken={args.shareToken} showId={args.showId}
-      roster={roster} banner={args.banner} staleCleanupHint={args.staleCleanupHint} s={args.s}
-    />
-  );
-}
-```
-
-Import `PickerInterstitialBannerCode` type from `./_PickerInterstitial` and ensure `createSupabaseServiceRoleClient` is imported (it already is, used by `loadRoster`).
-
-- [ ] **Step 4: Refactor the stale-arm block to call `renderPickerRepick`**
-
-Replace the `case "epoch_stale" | … | "identity_invalidated"` body (`:233-263`) with:
-
-```tsx
-    case "epoch_stale":
-    case "removed_from_roster":
-    case "selection_reset":
-    case "identity_invalidated":
-      return renderPickerRepick({
-        showId: result.showId, slug, shareToken, s: allowlistedS,
-        banner: staleBannerFor(result.kind),
-        staleCleanupHint: { expectedEpoch: result.expectedEpoch, expectedCrewMemberId: result.expectedCrewMemberId },
-      });
-```
-
-- [ ] **Step 5: Run tests + typecheck + build**
-
-Run: `pnpm vitest run tests/show/flow8Repick.test.tsx tests/show/pageSelectionResetBanner.test.ts && pnpm exec tsc --noEmit -p tsconfig.json`
-Expected: PASS (stale-cleanup mount preserved; existing selection-reset banner test still green). Then `pnpm build` is deferred to Task 7 (Server/Client wiring is complete only after Point A/B lands).
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add "app/show/[slug]/[shareToken]/page.tsx" tests/show/flow8Repick.test.tsx
-git commit --no-verify -m "refactor(crew-page): extract loadShowAvailability + renderPickerRepick; stale arms reuse it (hint preserved)"
-```
-
----
-
-### Task 7: `renderRacedCrewMiss` + Point A/B wiring + route tests (8.2 primary, part 2)
-
-**Files:**
-- Modify: `app/show/[slug]/[shareToken]/page.tsx` (`renderRacedCrewMiss` helper + `resolved`-case rewrite `:152-189`)
-- Modify: `tests/show/flow8Repick.test.tsx` (add Point A/B + cascade + back-compat cases)
-
-**Interfaces:**
-- Consumes: `CrewMemberNotInShowError` (Task 5), `loadShowAvailability` + `renderPickerRepick` (Task 6), `notFound` from `next/navigation`.
-- Produces: `async function renderRacedCrewMiss(args: { showId; slug; shareToken; s }): Promise<JSX.Element>` — `loadShowAvailability` → `"unavailable"` calls `notFound()`; `"available"` → `renderPickerRepick({ …, banner: "PICKER_REMOVED_FROM_ROSTER_BANNER", staleCleanupHint: null })`. On the availability read throwing, the `resolved`-case caller wraps → `TerminalFailure`.
-
-- [ ] **Step 1: Write the failing route-level tests**
-
-Add to `tests/show/flow8Repick.test.tsx` (reuse the mocks from Task 6; add `getShowForViewer` + `notFound` control):
+Continue `tests/show/flow8Repick.test.tsx` with these cases (the RED-first proofs — the re-pick + cascade cases fail against the current `resolved` case):
 
 ```tsx
 import { getShowForViewer, CrewMemberNotInShowError } from "@/lib/data/getShowForViewer";
@@ -826,16 +743,52 @@ This covers the full matrix for **both** points: Point A {available→picker, de
 
 > Confirm `TerminalFailure`'s root `data-testid` (`components/auth/TerminalFailure.tsx`) and `PickerInterstitial`'s (`picker-interstitial-root`, verified) before running; adjust selectors to the real ids.
 
-- [ ] **Step 2: Run to verify failures**
+- [ ] **Step 3: Run to verify the RED cases fail (and the stale-arm guards still pass)**
 
 Run: `pnpm vitest run tests/show/flow8Repick.test.tsx`
-Expected: the four new cases FAIL (current `resolved` case renders `CrewShell` / catches all errors as `TerminalFailure`).
+Expected: the Point A/B + cascade + infra + roster-fail cases FAIL (current `resolved` case renders `CrewShell` or catches every error as a generic `TerminalFailure`; no `renderRacedCrewMiss` exists yet). The two Step-1 stale-arm refactor-guards still PASS (green-before — they pin the pre-existing inline stale-arm behavior the refactor must preserve; they are NOT the red-first proof for this task, the Point A/B cases are). The `negative` case may already pass (plain `Error` already routes to `TerminalFailure`); that's fine — it is a guard against over-catching.
 
-- [ ] **Step 3: Add `renderRacedCrewMiss` + rewrite the `resolved` case**
+- [ ] **Step 4: Add the three helpers (`loadShowAvailability` + `renderPickerRepick` + `renderRacedCrewMiss`)**
 
-Add helper. **CRITICAL: `notFound()` throws a Next navigation sentinel (`NEXT_NOT_FOUND`) — it MUST NOT sit inside a `try/catch` that would convert it to `TerminalFailure`.** The availability-read `try/catch` is scoped to the READ ONLY; `notFound()` and `renderPickerRepick` run OUTSIDE it, and callers invoke the helper with NO surrounding catch:
+In `page.tsx`, add module-scope helpers (near `loadRoster`). Import `PickerInterstitialBannerCode` type from `./_PickerInterstitial`; `createSupabaseServiceRoleClient` is already imported (used by `loadRoster`), and `notFound` is already imported from `next/navigation` (used by `archived`/`show_unavailable`):
 
 ```tsx
+async function loadShowAvailability(showId: string): Promise<"available" | "unavailable"> {
+  const supabase = createSupabaseServiceRoleClient();
+  // not-subject-to-meta: page.tsx-local read; {data,error} + fail-closed; covered by route tests (mirrors loadRoster)
+  const { data, error } = await supabase
+    .from("shows")
+    .select("published, archived")
+    .eq("id", showId)
+    .maybeSingle();
+  if (error) throw new Error("show availability lookup failed");
+  if (!data || data.archived === true || data.published !== true) return "unavailable";
+  return "available";
+}
+
+async function renderPickerRepick(args: {
+  showId: string; slug: string; shareToken: string; s: string | undefined;
+  banner: PickerInterstitialBannerCode;
+  staleCleanupHint: { expectedEpoch: number; expectedCrewMemberId: string } | null;
+}): Promise<JSX.Element> {
+  let roster;
+  try {
+    roster = await loadRoster(args.showId);
+  } catch {
+    return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" retryHref={`/show/${args.slug}/${args.shareToken}`} />;
+  }
+  return (
+    <PickerInterstitial
+      slug={args.slug} shareToken={args.shareToken} showId={args.showId}
+      roster={roster} banner={args.banner} staleCleanupHint={args.staleCleanupHint} s={args.s}
+    />
+  );
+}
+
+// CRITICAL: notFound() throws a Next navigation sentinel (NEXT_NOT_FOUND) — it MUST NOT sit inside a
+// try/catch that would convert it to a TerminalFailure. The availability-read try/catch is scoped to
+// the READ ONLY; notFound() and renderPickerRepick run OUTSIDE it, and callers invoke this helper with
+// NO surrounding catch.
 async function renderRacedCrewMiss(args: { showId: string; slug: string; shareToken: string; s: string | undefined }): Promise<JSX.Element> {
   let availability: "available" | "unavailable";
   try {
@@ -850,7 +803,23 @@ async function renderRacedCrewMiss(args: { showId: string; slug: string; shareTo
 }
 ```
 
-Rewrite the `resolved` case (`:152-189`) — note NO try/catch wraps `renderRacedCrewMiss` (it handles its own infra read; its `notFound()` must escape):
+- [ ] **Step 5: Refactor the stale-arm block to `renderPickerRepick`, then rewrite the `resolved` case (Point A/B wiring)**
+
+Replace the `case "epoch_stale" | … | "identity_invalidated"` body (`:233-263`) with a call to the shared helper (this is what the Step-1 refactor-guards protect — the `staleCleanupHint` must survive the extraction):
+
+```tsx
+    case "epoch_stale":
+    case "removed_from_roster":
+    case "selection_reset":
+    case "identity_invalidated":
+      return renderPickerRepick({
+        showId: result.showId, slug, shareToken, s: allowlistedS,
+        banner: staleBannerFor(result.kind),
+        staleCleanupHint: { expectedEpoch: result.expectedEpoch, expectedCrewMemberId: result.expectedCrewMemberId },
+      });
+```
+
+Then rewrite the `resolved` case (`:152-189`) — note NO try/catch wraps `renderRacedCrewMiss` (it handles its own infra read; its `notFound()` must escape):
 
 ```tsx
     case "resolved": {
@@ -882,23 +851,23 @@ Rewrite the `resolved` case (`:152-189`) — note NO try/catch wraps `renderRace
     }
 ```
 
-Add `CrewMemberNotInShowError` to the `@/lib/data/getShowForViewer` import; ensure `notFound` is imported from `next/navigation` (it already is, used by `archived`/`show_unavailable`).
+Add `CrewMemberNotInShowError` to the `@/lib/data/getShowForViewer` import.
 
-- [ ] **Step 4: Run tests + typecheck + build**
+- [ ] **Step 6: Run tests + typecheck + build**
 
-Run: `pnpm vitest run tests/show/flow8Repick.test.tsx tests/show/resolvedArmCrewMembersGuard.test.tsx && pnpm exec tsc --noEmit -p tsconfig.json && pnpm build`
-Expected: all PASS (incl. the pre-existing malformed-projection guard); tsc clean; `pnpm build` succeeds (Server Component action/prop wiring — RSC boundary check per the repo's build-before-push rule).
+Run: `pnpm vitest run tests/show/flow8Repick.test.tsx tests/show/resolvedArmCrewMembersGuard.test.tsx tests/show/pageSelectionResetBanner.test.ts && pnpm exec tsc --noEmit -p tsconfig.json && pnpm build`
+Expected: all PASS — the RED Point A/B/cascade/infra/roster-fail cases now go green; the Step-1 stale-arm guards stay green (hint preserved); the pre-existing malformed-projection guard and selection-reset banner test stay green; tsc clean; `pnpm build` succeeds (Server Component action/prop wiring — RSC boundary check per the repo's build-before-push rule).
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
 git add "app/show/[slug]/[shareToken]/page.tsx" tests/show/flow8Repick.test.tsx
-git commit --no-verify -m "feat(crew-page): guided re-pick for unmatched-crew race (Point A/B + show-cascade disambiguation)"
+git commit --no-verify -m "feat(crew-page): guided re-pick for unmatched-crew race — loadShowAvailability + renderPickerRepick + renderRacedCrewMiss (Point A/B + show-cascade disambiguation; stale arms reuse it)"
 ```
 
 ---
 
-### Task 8: Transport regression pin (8.4 defensive) + warm-cache bound test
+### Task 7: Transport regression pin (8.4 defensive) + warm-cache bound test
 
 **Files:**
 - Create: `tests/visibility/transportTileVisibleRegression.test.ts`
@@ -962,14 +931,14 @@ git commit --no-verify -m "test(crew-page): transport fuzzy-tolerance regression
 
 ---
 
-### Task 9: full-suite gate + impeccable dual-gate
+### Task 8: full-suite gate + impeccable dual-gate
 
 **Files:**
 - Modify: `DEFERRED.md` (only if impeccable surfaces a deferred HIGH/CRITICAL)
 
 (The `loadRoster` sanitize-boundary route test lives in Task 1, Step 5 — failing-first, per TDD invariant 1. This task is gates only.)
 
-- [ ] **Step 3: Full-suite + quality gates**
+- [ ] **Step 1: Full-suite + quality gates**
 
 Run:
 ```bash
@@ -981,11 +950,11 @@ pnpm lint
 ```
 Expected: all green. (Full suite per the repo's "scoped gates miss regressions" rule; `format:check` + `lint` because `--no-verify` bypassed the hook; `build` for the RSC boundary.)
 
-- [ ] **Step 4: Impeccable dual-gate (invariant 8 — 8.1 touched `_PickerInterstitial.tsx`)**
+- [ ] **Step 2: Impeccable dual-gate (invariant 8 — 8.1 touched `_PickerInterstitial.tsx`)**
 
 Run `/impeccable critique` then `/impeccable audit` on the picker diff (`_PickerInterstitial.tsx`). Fix HIGH/CRITICAL inline, or record a `DEFERRED.md` entry with rationale. Findings + dispositions go in the milestone handoff §12.
 
-- [ ] **Step 5: Commit (only if impeccable produced a DEFERRED.md disposition; otherwise no commit — the gates are verification, not changes)**
+- [ ] **Step 3: Commit (only if impeccable produced a DEFERRED.md disposition; otherwise no commit — the gates are verification, not changes)**
 
 ```bash
 # only if DEFERRED.md changed:
@@ -997,7 +966,7 @@ git commit --no-verify -m "docs(crew-page): impeccable dual-gate dispositions fo
 
 ## Self-review notes (author)
 
-- **Spec coverage:** 8.1 sanitize (T1) + code (T2) + affordance both modes (T3) + boundary proof (T9); 8.2 Point C (T4) + Point A type (T5) + primary A/B + cascade + stale-arm (T6/T7) + warm-cache bound (T8); 8.4 defensive pin + known-gap (T8); BACKLOG row (pre-added). Every §4/§5 item maps to a task.
-- **Type consistency:** `CrewMemberNotInShowError` (T5) consumed in T7; `UnmatchedViewerError` (T4); `renderPickerRepick`/`loadShowAvailability` (T6) consumed by `renderRacedCrewMiss` (T7); `PICKER_NAME_NOT_LISTED` (T2) consumed in T3.
+- **Spec coverage:** 8.1 sanitize (T1) + code (T2) + affordance both modes (T3) + boundary proof (T8); 8.2 Point C (T4) + Point A type (T5) + primary A/B + cascade + stale-arm refactor, all three helpers in one red-first task (T6, merged ex-T6/T7) + warm-cache bound (T7); 8.4 defensive pin + known-gap (T7); BACKLOG row (pre-added). Every §4/§5 item maps to a task.
+- **Type consistency:** `CrewMemberNotInShowError` (T5) consumed in T6; `UnmatchedViewerError` (T4); `renderPickerRepick`/`loadShowAvailability`/`renderRacedCrewMiss` all defined and consumed within T6; `PICKER_NAME_NOT_LISTED` (T2) consumed in T3.
 - **Verification-before-claim:** several tasks note "confirm the real `data-testid`/precondition before running" — those are live-code checks the implementer performs, not placeholders.
-- **Meta/CI:** §12.4 lockstep (T2) + full-suite/tsc/build/format/lint (T9) + impeccable (T9).
+- **Meta/CI:** §12.4 lockstep (T2) + full-suite/tsc/build/format/lint (T8) + impeccable (T8).
