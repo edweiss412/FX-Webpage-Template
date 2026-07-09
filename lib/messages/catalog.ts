@@ -3122,6 +3122,16 @@ export const MESSAGE_CATALOG = {
     longExplanation: null,
     helpHref: null,
   },
+  PICKER_NAME_NOT_LISTED: {
+    code: "PICKER_NAME_NOT_LISTED",
+    dougFacing: null,
+    crewFacing: "Don't see your name? Ask the person who shared this link to add you.",
+    followUp: "Crew → ask the link sender",
+    helpfulContext: null,
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
   PICKER_SHOW_UNAVAILABLE: {
     code: "PICKER_SHOW_UNAVAILABLE",
     dougFacing: null,

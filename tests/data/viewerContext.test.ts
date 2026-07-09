@@ -23,7 +23,11 @@
  * extraction.
  */
 import { describe, expect, test } from "vitest";
-import { MalformedProjectionError, resolveViewerContext } from "@/lib/data/viewerContext";
+import {
+  MalformedProjectionError,
+  UnmatchedViewerError,
+  resolveViewerContext,
+} from "@/lib/data/viewerContext";
 import type { Viewer, ShowForViewer } from "@/lib/data/getShowForViewer";
 import type { RoleFlag } from "@/lib/parser/types";
 import { SCOPE_TILE_UNLOCKING_FLAGS } from "@/lib/visibility/scopeTiles";
@@ -127,21 +131,26 @@ describe("resolveViewerContext", () => {
     expect(ctx.isAdmin).toBe(false);
   });
 
-  test("crew viewer with no matching row → falls back to none restrictions + empty flags + null name", () => {
-    // This branch matches the original IIFE behavior: when the crew row
-    // is missing (shouldn't happen post-getShowForViewer cross-show
-    // check, but the IIFE guards anyway), the page renders with empty
-    // flags so no scope tile unlocks. Defense-in-depth.
+  test("crew viewer with no matching row in a well-formed array THROWS UnmatchedViewerError (8.2: was the {none} whole-show fail-open)", () => {
+    // 8.2 Point C reverses the old defense-in-depth {none} fallback: an
+    // unmatched crew id in a WELL-FORMED array now fails CLOSED. Returning
+    // {none} = whole-show visibility (every day, every phase) was fail-OPEN.
     const viewer: Viewer = { kind: "crew", crewMemberId: "crew-missing" };
-    const data = makeData([crewRowAlice]);
-    const ctx = resolveViewerContext(viewer, data);
+    const data = makeData([crewRowAlice]); // well-formed array, id absent
+    expect(() => resolveViewerContext(viewer, data)).toThrow(UnmatchedViewerError);
+  });
 
-    expect(ctx.viewerCrew).toBeNull();
-    expect(ctx.viewerFlags).toEqual([]);
-    expect(ctx.viewerName).toBeNull();
+  test("admin_preview viewer with no matching row in a well-formed array ALSO throws UnmatchedViewerError (same fail-closed limb)", () => {
+    const viewer: Viewer = { kind: "admin_preview", crewMemberId: "crew-missing" };
+    const data = makeData([crewRowAlice]);
+    expect(() => resolveViewerContext(viewer, data)).toThrow(UnmatchedViewerError);
+  });
+
+  test("admin viewer with an empty well-formed array still returns {none} + all-flags (unchanged)", () => {
+    const ctx = resolveViewerContext({ kind: "admin" } as Viewer, makeData([]));
     expect(ctx.dateRestriction).toEqual({ kind: "none" });
-    expect(ctx.stageRestriction).toEqual({ kind: "none" });
-    expect(ctx.isAdmin).toBe(false);
+    expect(ctx.viewerFlags).toEqual([...SCOPE_TILE_UNLOCKING_FLAGS]);
+    expect(ctx.isAdmin).toBe(true);
   });
 
   test("crew viewer with UNDEFINED crewMembers array → throws MalformedProjectionError (fail closed)", () => {

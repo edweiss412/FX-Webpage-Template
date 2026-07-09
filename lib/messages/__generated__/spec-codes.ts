@@ -866,6 +866,12 @@ export const SPEC_CODES = {
     "followUp": "Crew → ask Doug for latest link",
     "helpfulContext": "The selection action re-validated the slug and share token inside the show lock and found that the token no longer matches the show, usually because the share link was rotated.",
   },
+  "PICKER_NAME_NOT_LISTED": {
+    "crewFacing": "Don't see your name? Ask the person who shared this link to add you.",
+    "dougFacing": null,
+    "followUp": "Crew → ask the link sender",
+    "helpfulContext": null,
+  },
   "PICKER_REMOVED_FROM_ROSTER_BANNER": {
     "crewFacing": "Your selection is no longer on the roster. Pick your name again.",
     "dougFacing": null,

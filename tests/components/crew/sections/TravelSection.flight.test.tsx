@@ -9,7 +9,11 @@ import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 
 afterEach(cleanup);
 
-const VIEWER: Viewer = { kind: "crew", crewMemberId: "nobody" };
+// Post-8.2: an unmatched viewer id now fails closed upstream (never reaches a section),
+// so the viewer must be a real roster member. c1 (the default fixture crew row) has empty
+// flags + {none} restrictions — behaviorally identical to the old whole-show fallback these
+// flight cases relied on, and flight content comes from data.viewerFlightInfo regardless.
+const VIEWER: Viewer = { kind: "crew", crewMemberId: "c1" };
 const TODAY = new Date("2024-05-13T12:00:00Z");
 
 // Reuse the shared, fully-typed fixture (viewerFlightInfo defaults to null after

@@ -63,6 +63,7 @@ import type { ShowForViewer, Viewer } from "@/lib/data/getShowForViewer";
 import { buildCardReportContext } from "@/lib/crew/cardReportContext";
 import {
   MalformedProjectionError,
+  UnmatchedViewerError,
   resolveViewerContext,
   type ViewerContext,
 } from "@/lib/data/viewerContext";
@@ -212,7 +213,10 @@ export async function CrewShell({
   try {
     ctx = resolveViewerContext(viewer, data);
   } catch (err) {
-    if (err instanceof MalformedProjectionError) {
+    // 8.2 Point C: an unmatched viewer in a well-formed array now fails CLOSED
+    // (UnmatchedViewerError) too, alongside the malformed-projection arm. No
+    // retryHref — route-agnostic for the shareToken-less admin-preview caller.
+    if (err instanceof MalformedProjectionError || err instanceof UnmatchedViewerError) {
       return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" />;
     }
     throw err;
