@@ -117,12 +117,13 @@ describe("parseHotels — HOTEL_GUEST_SPLIT_AMBIGUOUS emission (structured path)
     expect(w[0]!.rawSnippet).toBe("John Smith Jane Doe");
   });
 
-  it("blockRef.name ABSENT when the slot's hotel_name is unresolved at emit time", () => {
-    // Dash-only "Hotel Name / Address" value → slot.hotel_name never set → name omitted.
+  it("NO warning for a discarded (dash-only / unresolved) hotel slot", () => {
+    // Dash-only "Hotel Name / Address" leaves hotel_name unset, so the slot is dropped at
+    // the survival loop. Emitting a judgment warning for a hotel that ships no kept value
+    // would violate the ambiguity contract + single-commit discipline (Codex R3 HIGH), so
+    // the guest-split emit is gated on slot survival and nothing fires here.
     const w = guestWarnings(singleCell("John Smith Jane Doe", "-"));
-    expect(w).toHaveLength(1);
-    expect(w[0]!.blockRef).toMatchObject({ kind: "hotels", field: "guests" });
-    expect("name" in (w[0]!.blockRef ?? {})).toBe(false);
+    expect(w).toHaveLength(0);
   });
 });
 

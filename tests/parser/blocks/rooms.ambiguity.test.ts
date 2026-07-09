@@ -169,3 +169,40 @@ describe("parseRooms — ambiguity survives GS reconciliation (single commit poi
     expect(w[0]!.blockRef).toMatchObject({ kind: "rooms", field: "dims", name: "LASALLE" });
   });
 });
+
+describe("parseRooms — dims-harvest paths detect double-dims ambiguity (spec §4.1, Codex R3)", () => {
+  // The DAY-range group path and the same-name harvest path both pull dimensions from a
+  // continuation header line via a direct dims regex, BYPASSING splitRoomHeader. A
+  // continuation line carrying >1 complete dims group is ambiguous (which is THE room
+  // dimensions?) — the same trigger (a) splitRoomHeader uses — so these paths must attach
+  // `_ambiguity` too, else a kept room ships a picked-first dims value with no warning.
+
+  it("DAY-range breakout: double-dims continuation line → one warning", () => {
+    const md = "| MERIDIAN&#10;DAY 1 & 2&#10;60' x 45' 30' x 20' | |\n| BO Setup | 100 chairs |\n";
+    const agg = newAggregator();
+    const rooms = parseRooms(md, "v2", agg);
+    expect(rooms.some((r) => (r.name ?? "").toUpperCase().includes("MERIDIAN"))).toBe(true);
+    const w = RSA(agg);
+    expect(w).toHaveLength(1);
+    expect(w[0]!.blockRef).toMatchObject({ kind: "rooms", field: "dims" });
+  });
+
+  it("DAY-range breakout: single-dims continuation line → no warning (control)", () => {
+    const md = "| MERIDIAN&#10;DAY 1 & 2&#10;60' x 45' | |\n| BO Setup | 100 chairs |\n";
+    const agg = newAggregator();
+    parseRooms(md, "v2", agg);
+    expect(RSA(agg)).toHaveLength(0);
+  });
+
+  it("same-name harvest: a non-DAY same-name header with double-dims → one warning", () => {
+    // The DAY-range MERIDIAN room carries no dims in its own header; a separate same-name
+    // (non-DAY, no field block → not its own room) header supplies double-dims via harvest.
+    const md =
+      "| MERIDIAN&#10;DAY 1 & 2 | |\n| BO Setup | 100 chairs |\n" +
+      "| MERIDIAN&#10;60' x 45' 30' x 20' | |\n";
+    const agg = newAggregator();
+    parseRooms(md, "v2", agg);
+    expect(RSA(agg)).toHaveLength(1);
+    expect(RSA(agg)[0]!.blockRef).toMatchObject({ kind: "rooms", field: "dims" });
+  });
+});

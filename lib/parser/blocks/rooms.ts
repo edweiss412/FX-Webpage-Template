@@ -1253,7 +1253,15 @@ function parseBoRooms(markdown: string, model: RoomHeaderModel): RoomRow[] {
       // dims may ride in the header ("APPROXIMATELY 60' x 45'")
       for (const hl of rawHeader.split("\n").slice(1)) {
         const dimMatch = dimsFullRe().exec(hl);
-        if (dimMatch && !room.dimensions) room.dimensions = dimMatch[1]!;
+        if (!dimMatch) continue;
+        if (!room.dimensions) room.dimensions = dimMatch[1]!;
+        // §4.1 peer (Codex R3): this dims harvest bypasses splitRoomHeader, so replicate
+        // its trigger (a) inline — a continuation header line carrying >1 complete dims
+        // group is ambiguous (which is THE room dimensions?). Attach so the single commit
+        // point in parseRooms emits ROOM_HEADER_SPLIT_AMBIGUOUS for the kept room.
+        if (!room._ambiguity && (hl.match(new RegExp(DIMS_FULL_SRC, "gi")) ?? []).length >= 2) {
+          room._ambiguity = { field: "dims", rawHeader };
+        }
       }
       mergeBoFields(room, extractBoBlock(model.lines, candidate.lineIndex, model));
     }
@@ -1263,7 +1271,15 @@ function parseBoRooms(markdown: string, model: RoomHeaderModel): RoomRow[] {
     // breakout via the old name-keyed merge. Harvest those dims if none rode the DAY header.
     if (!room.dimensions) {
       const nameKeys = new Set(candidates.map((c) => c.displayName.toUpperCase()));
-      room.dimensions = harvestSameNameHeaderDims(model, nameKeys);
+      const harvested = harvestSameNameHeaderDims(model, nameKeys);
+      if (harvested) {
+        room.dimensions = harvested.dims;
+        // §4.1 peer (Codex R3): a same-name continuation header with >1 complete dims
+        // group is ambiguous — attach so the single commit point emits for the kept room.
+        if (harvested.ambiguous && !room._ambiguity) {
+          room._ambiguity = { field: "dims", rawHeader: harvested.rawHeader };
+        }
+      }
     }
     if (roomHasContent(room)) rooms.push(room);
   }
@@ -1304,14 +1320,18 @@ function parseBoRooms(markdown: string, model: RoomHeaderModel): RoomRow[] {
 function harvestSameNameHeaderDims(
   model: RoomHeaderModel,
   nameKeys: ReadonlySet<string>,
-): string | null {
+): { dims: string; ambiguous: boolean; rawHeader: string } | null {
   for (const line of model.lines) {
     if (!line.trim().startsWith("|")) continue;
-    const parts = col0Of(line).replace(/&#10;/g, "\n").split("\n");
+    const rawHeader = col0Of(line).replace(/&#10;/g, "\n");
+    const parts = rawHeader.split("\n");
     if (!nameKeys.has(parts[0]!.trim().toUpperCase())) continue;
     for (const hl of parts.slice(1)) {
       const dimMatch = dimsFullRe().exec(hl);
-      if (dimMatch) return dimMatch[1]!;
+      if (dimMatch) {
+        const ambiguous = (hl.match(new RegExp(DIMS_FULL_SRC, "gi")) ?? []).length >= 2;
+        return { dims: dimMatch[1]!, ambiguous, rawHeader };
+      }
     }
   }
   return null;

@@ -495,12 +495,14 @@ function parseHotelTable(markdown: string, agg?: ParseAggregator): HotelReservat
         // conf# is parsed only to strip it out of the names, NOT persisted.
         const parsed = parseGuestCell(col1);
         leftSlot.names.push(...parsed.names);
-        // §4.2: emit ONE glue/split-ambiguity warning per triggering cell. hotel_name
-        // is already resolved on the prior "Hotel Name / Address" row; pass it so the
-        // callout can name the hotel (omitted when the slot is unresolved/dash-only).
-        if (parsed.ambiguity) {
+        // §4.2: emit ONE glue/split-ambiguity warning per triggering cell — but ONLY for
+        // a slot that will survive (hotel_name is resolved on the prior "Hotel Name /
+        // Address" row, which always precedes this "names" row; a dash-only/unresolved
+        // slot is discarded at the survival loop below, so a judgment warning for a
+        // dropped hotel would violate the ambiguity contract + single-commit discipline).
+        if (parsed.ambiguity && leftSlot.hotel_name) {
           emitHotelGuestSplitAmbiguity(agg, {
-            name: leftSlot.hotel_name ?? null,
+            name: leftSlot.hotel_name,
             reasons: parsed.ambiguity.reasons,
             rawCell: col1,
           });
@@ -509,9 +511,9 @@ function parseHotelTable(markdown: string, agg?: ParseAggregator): HotelReservat
       if (rightSlot && col3 && col3 !== "\\-" && col3 !== "-") {
         const parsed = parseGuestCell(col3);
         rightSlot.names.push(...parsed.names);
-        if (parsed.ambiguity) {
+        if (parsed.ambiguity && rightSlot.hotel_name) {
           emitHotelGuestSplitAmbiguity(agg, {
-            name: rightSlot.hotel_name ?? null,
+            name: rightSlot.hotel_name,
             reasons: parsed.ambiguity.reasons,
             rawCell: col3,
           });
