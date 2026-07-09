@@ -981,11 +981,11 @@ An inactive override surfaces as BOTH a page row and a badge-count increment; co
 **Auto-resolve lifecycle (R30) — ONE shared helper, TWO post-commit call sites (R3b-7).** `resolveOverrideAlertsForShow(showId, code)` re-derives per (show, code): ZERO remaining `active=false` rows of that code → `resolveAdminAlert`; else leave open. It is invoked post-commit from **(1) the SYNC path** (Stage B, wired + tested HERE in Task 11) and **(2) the ADMIN-OP server action** (`discard`/`repoint`/`reactivate` that clears a paused row — wired + tested in **Task 14**, where the action exists; the RPC itself cannot emit post-commit, being in-tx). Task 11 owns the helper + codes + the sync-side wiring/test; the admin-op-side wiring/test is Task 14's deliverable (R3b-7 — a task cannot test a post-commit hook whose action is created two tasks later). Codes are **auto-resolve-only** (not in `INBOX_ROUTED_CODES` — the durable inactive-row stream already surfaces them; routing would double-list). Dedup is coarse per-(show,code) via `20260618000000...:47`.
 
 ### Step 11.1 — Failing lockstep test: run `pnpm test:audit:x1-catalog-parity` → FAILS (spec prose has the rows but catalog/generated lack them, or vice-versa). Also `_metaAdminAlertCatalog` fails (union member has no `dougFacing`). Record RED.
-### Step 11.2 — Land all three lockstep surfaces + the union edit + the emit/resolve wiring in ONE commit. Re-run x1 + `_metaAdminAlertCatalog` → GREEN. Verify `tests/cross-cutting/codes.test.ts` + `extract-spec-codes.test.ts` pass. Confirm the two codes are NOT added to `INBOX_ROUTED_CODES`.
-### Step 11.3 — SYNC-driven lifecycle test (folds into `deactivationReason.test.ts` from Task 8, or a new `tests/overrides/alertLifecycle.test.ts`): drive it through the **sync path only** (the action does not exist yet — R3b-7): two overrides paused by a sync → one unresolved alert + two rows; a later sync that clears the last paused row → alert resolved; stays open while ≥1 paused; every best-effort emit/resolve failure leaves the row stream correct (load-bearing). Assert `resolveOverrideAlertsForShow` is the single re-derivation point. Run → PASS. (Admin-op-driven resolution — discard/repoint/reactivate — is Task 14's lifecycle test.)
+### Step 11.2 — Land the three lockstep surfaces + the union edit in ONE commit (codes ONLY — NOT the emit/resolve wiring, T912-1). Re-run x1 + `_metaAdminAlertCatalog` → GREEN. Verify `tests/cross-cutting/codes.test.ts` + `extract-spec-codes.test.ts` pass. Confirm the two codes are NOT added to `INBOX_ROUTED_CODES`. Commit: `feat(admin): OVERRIDE_TARGET_MISSING/OVERRIDE_NAME_CONFLICT §12.4 lockstep`.
+### Step 11.3 — Failing SYNC-driven lifecycle test — RED FIRST (T912-1: precedes the helper + sync wiring). In `tests/overrides/alertLifecycle.test.ts` (or folded into `deactivationReason.test.ts`), drive the **sync path only** (the action does not exist yet — R3b-7): two overrides paused by a sync → one unresolved alert + two rows; a later sync that clears the last paused row → alert resolved; stays open while ≥1 paused; every best-effort emit/resolve failure leaves the row stream correct (load-bearing); assert `resolveOverrideAlertsForShow` is the single re-derivation point. Run → **FAILS** (`resolveOverrideAlertsForShow` + the sync-side emit/resolve wiring absent).
+### Step 11.4 — Implement `resolveOverrideAlertsForShow` (the shared per-(show,code) re-derivation helper) + wire the best-effort emit at the Stage-B sync deactivation post-commit path + the sync-side resolve call → Step 11.3 **PASS**. Commit: `feat(admin): resolveOverrideAlertsForShow + sync-side auto-resolve lifecycle`.
 
-**Deliverable:** 2 admin-alert codes fully lockstepped; shared `resolveOverrideAlertsForShow` helper + sync-side best-effort coarse bell with auto-resolve; row stream authoritative.
-**Commit:** `feat(admin): OVERRIDE_TARGET_MISSING/OVERRIDE_NAME_CONFLICT alerts (§12.4 lockstep + auto-resolve)`
+**Deliverable:** 2 admin-alert codes fully lockstepped; shared `resolveOverrideAlertsForShow` helper + sync-side best-effort coarse bell with auto-resolve; row stream authoritative. (Admin-op-driven resolution — discard/repoint/reactivate — is Task 14's lifecycle test.)
 
 ## Task 12 — Four forensic `FIELD_OVERRIDE_*` codes (AUDITABLE_MUTATIONS + adminOutcomeBehavior)
 
@@ -994,10 +994,10 @@ An inactive override surfaces as BOTH a page row and a badge-count increment; co
 
 Note: forensic codes are NOT §12.4 rows / NOT in `catalog.ts` (precedent `archive.ts` `SHOW_ARCHIVED`). The action itself is written in Task 14 (per-op code mapping). This task **only pre-registers the static contract** — the registry rows + code-set entries. **The executable behavioral spy (`adminOutcomeBehavior.test.ts`) is NOT written here; it lands RED→GREEN inside Task 14** alongside the action (F4 — a task must not commit a knowingly-RED test across its boundary; invariant 1). The static meta-test `_metaMutationSurfaceObservability.test.ts` walks the filesystem, so a registry row referencing the not-yet-existent action file `app/admin/show/[slug]/_actions/overrides.ts` is inert (no discovered surface fails) — this task's commit is fully GREEN.
 
-### Step 12.1 — Add the 4 registry rows + forensic-code-set entries. These are pure static data. Run `tests/log/_metaMutationSurfaceObservability.test.ts` + the registry's own assertions → the registry rows exist and reference the exact code literals the Task-14 action will emit; the filesystem walk sees no new admin surface yet (action file absent) → GREEN.
-### Step 12.2 — Confirm the registry + code-set additions typecheck and the meta-test discovery walk parses cleanly. Run → all assertions PASS (nothing RED is committed; the behavioral proof is Task 14's deliverable).
+### Step 12.1 — Failing meta-test — RED FIRST (T912-2). Add ONLY the 4 `AUDITABLE_MUTATIONS` registry rows (referencing `FIELD_OVERRIDE_SET`/`REVERTED`/`REPOINTED`/`DISCARDED`) — do NOT yet add them to the sanctioning forensic code-set. Run `tests/log/_metaAdminOutcomeContract.test.ts` → **FAILS** (`_metaAdminOutcomeContract` asserts every `AUDITABLE_MUTATIONS` code is in `SANCTIONED_CODES`/`NEW_FORENSIC_CODES`; the four are not yet). Record RED.
+### Step 12.2 — Add the 4 codes to the forensic code-set (`NEW_FORENSIC_CODES:390` / `SANCTIONED_CODES:312`). Re-run `_metaAdminOutcomeContract` + `_metaMutationSurfaceObservability` → GREEN (the filesystem walk sees no new admin surface yet — the action file is absent until Task 14 — so nothing else fails). Confirm typecheck. Nothing RED is committed; the executable behavioral spy is Task 14's deliverable.
 
-**Deliverable:** forensic-code registry + code-set entries landed GREEN (the executable behavioral spy is written and made green in Task 14, with the action).
+**Deliverable:** forensic-code registry + code-set entries landed via a real RED→GREEN (the executable behavioral spy is written and made green in Task 14, with the action).
 **Commit:** `test(log): register FIELD_OVERRIDE_* forensic codes (static registry)`
 
 
@@ -1099,14 +1099,15 @@ On every adversarial finding, grep the codebase for the same bug SHAPE before pa
 **MANDATORY** per AGENTS.md writing-plans additions. Between self-review and execution handoff:
 
 ### Self-review
-Full-suite verification before push (scoped gates miss regressions — run ALL):
+**FIRST — rebase, so the full suite verifies the FINAL diff (T912-3: verification run against a pre-rebase base is stale if the rebase changes anything):** `git fetch && git rebase origin/main` + re-diff. THEN run the full-suite gates below against the rebased tree. **If any later fetch/rebase (e.g. before push) changes the diff, RE-RUN every gate below before review/Codex/push** — a green suite on a superseded base does not count.
+
+Full-suite verification (scoped gates miss regressions — run ALL, on the rebased tree):
 - `pnpm test` (full — a shared-chokepoint change can break dozens of tests scoped gates miss)
 - `pnpm typecheck` (vitest strips types; `next build`/quality-tsc catches TS errors vitest won't — e.g. `tx.unsafe` is `unknown[]`, use `RETURNING`+`.length`)
 - `pnpm lint` (CI `quality` runs eslint; canonical-Tailwind ERROR class)
 - `pnpm format:check` (`--no-verify` bypasses the prettier hook; CI Format check fails otherwise) — **never prettier the master spec** (§12.4 x1 divergence)
 - `pnpm test:audit:x1-catalog-parity` (the 2 new admin-alert codes) + `tests/messages/_metaAdminAlertCatalog.test.ts`
 - the advisory-lock + auditable-mutation + DML-lockdown + validation-schema-parity + no-inline-email + infra-contract meta-tests
-- Verify `origin/main` hasn't advanced mid-arc (stale-base misread): `git fetch && git rebase origin/main` + re-diff BEFORE review/Codex/push.
 
 ### Impeccable dual-gate (Task 17) recorded — external attestation.
 
