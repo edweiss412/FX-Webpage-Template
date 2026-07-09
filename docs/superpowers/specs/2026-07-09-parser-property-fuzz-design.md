@@ -71,6 +71,8 @@ Every dial is registered in `dials.ts` with `{ name, contractFile, contractSymbo
 
 **Typo-dial guard:** `headerTypo` applies at most one edit and never produces a string that collides with a different vocab entry or a `KNOWN_SUB_LABELS` entry (`lib/parser/knownSections.ts:99` inference would reclassify it — that's the known silent-exit class from audit §5 P1-5, out of contract).
 
+**Dial composition constraints (render-enforced):** dial combinations must stay jointly in-contract, not just individually. Known exclusions, enforced in `render.ts` and documented per-dial in the registry: (a) `headerTypo` over `SHORT_SECTION_VOCAB` (CREW/TECH) applies ONLY when the section renders WITH its header row carrying the field-band corroboration — live `normalizeSectionHeaders` corrects short-vocab typos only with a field-header band on the same row, never label-only (`lib/parser/sectionHeaderNormalize.ts:95-108`); it therefore NEVER composes with the headerless `crewColumns` state (a typo'd bare `CREW` row is out of contract — not correctable, not positional-fallback-eligible). New exclusions discovered during implementation are added to the same per-dial registry documentation.
+
 Dial growth rule: adding a dial for shape X requires the contract citation; if the parser has no contract for X, X is not a dial — file it in BACKLOG as a parser-capability gap instead.
 
 ### 3.3 Chaos arbitrary (`chaos.ts`)
@@ -81,7 +83,7 @@ Model-free hostile input for Tier 1 only: random line soup biased toward `|`, `\
 
 ### 4.1 Tier 1 — robustness (inputs: model-rendered AND chaos)
 
-1. **Never throws:** `parseSheet` returns for every input (its internal try/catch discipline holds; the cron-path guard `runScheduledCronSync.ts:2865-2884` must never be the only net).
+1. **Never throws:** `parseSheet` returns for every input. `parseSheet` has no internal catch-all — today the only net is the cron call-site guard (`runScheduledCronSync.ts:2865-2884`, `PARSE_SHEET_THREW` fail-closed); this property establishes empirically that the parser never needs it.
 2. **Deterministic:** parsing the same input twice yields deeply-equal `ParsedSheet` (via `tests/parser/mutation/oracle.ts:103` `fingerprint` or vitest `toEqual`).
 3. **Structurally valid:** output satisfies `assertParsedSheetShape` — every REQUIRED field of `ParsedSheet` (`lib/parser/types.ts:378-402`) present with correct container types; optional fields (`runOfShow?`) validated only when present; `warnings[]`/`hardErrors[]` entries carry non-empty string `code`; payload is JSON-round-trippable.
 4. **Bounded:** completes within the property timeout (structural guard against catastrophic-backtracking regex regressions).
