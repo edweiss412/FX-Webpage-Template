@@ -188,8 +188,15 @@ describe.skipIf(!url)("admin_overrides schema + lockdown", () => {
 
   it("domain_field CHECK admits the 6 valid pairs and rejects show-with-nonempty-key + unknown field", async () => {
     await sql.begin(async (tx) => {
-      const showId = (await tx`select id from public.shows limit 1`)[0]?.id;
-      if (!showId) return; // no shows seeded — CHECK shape already asserted above
+      // REST3-2: NEVER silently skip the behavioral proof — seed a scratch show (rolled back with the tx)
+      // so the six-valid-pairs + reject assertions ALWAYS run, not just the constraint-name checks.
+      let showId = (await tx`select id from public.shows limit 1`)[0]?.id as string | undefined;
+      if (!showId) {
+        const sfx = `affo-chk-${Math.random().toString(36).slice(2)}`;
+        [{ id: showId }] = await tx<{ id: string }[]>`
+          insert into public.shows (drive_file_id, slug, title, client_label, template_version)
+          values (${sfx}, ${sfx}, 'AFFO CHECK fixture', 'AFFO', 'v1') returning id`;
+      }
       const ins = (t: typeof tx, d: string, f: string, k: string) =>
         t`insert into public.admin_overrides(show_id,domain,field,match_key,override_value,created_by)
           values (${showId},${d},${f},${k},'"x"'::jsonb,'a@b.co') returning id`;
@@ -1034,9 +1041,8 @@ Note: forensic codes are NOT §12.4 rows / NOT in `catalog.ts` (precedent `archi
 
 **`matchKey` derivation (§8.2a, R17)** in `loadShowOverrides`: crew → `sheet_name ?? name`; hotel → active override's stored `match_key`, else the SAME name+disambiguator `match_key` as §5.3 for same-name groups (NOT plain `hotel_name`); show → `''`. Pass `currentLiveHotelName` + advisory `currentOrdinal`. `expectedCurrentValue` = RAW loader-source jsonb (R17), not rendered text.
 
-### Step 14.1 — Failing tests: the action gates on `requireAdminIdentity`; uses the service-role client (assert via injected dep, not cookie client); the NEW `adminOutcomeBehavior` behavioral spy (written here) asserts each per-op forensic code fires post-commit ONLY on the committed-success branch — RED until 14.2 wires the action; a 409 surfaces mapped copy. `loadShowOverrides` derives `matchKey`/`expectedCurrentValue` from source not display (fold `matchKeyDurability` assertions where they touch the loader). **Surface-B render test (REST2-2, `tests/admin/showOverrideBlocks.test.tsx`): the live-show page presenter renders ALL SIX overridable fields through `<OverrideableField>` — show `dates`+`venue`, each crew row's `name`+`role`, each hotel's `hotel_name`+`hotel_address` — each wired with its loader-derived `matchKey`/`expectedCurrentValue`/`currentLiveHotelName` and the real `setFieldOverrideAction` bound as `onSave`. Assert one `OverrideableField` per (domain,field,row) with the correct props (derive expected `matchKey` from a fixture, not hardcoded). RED until 14.2.** Run → FAIL.
-### Step 14.2 — Implement the action + loader + the two net-new blocks + crew-row wrap + the two post-commit `resolveOverrideAlertsForShow` calls. Run → PASS. Run `tests/log/adminOutcomeBehavior.test.ts` + `_metaMutationSurfaceObservability.test.ts` → GREEN (admin surface fully covered).
-### Step 14.3 — Admin-op alert lifecycle test (`adminOpAlertLifecycle.test.ts`, R3b-7): a sync pauses an override (bell open); the admin then **discards** (or **repoints**, or **reactivates via create**) the last paused row of that code → the post-commit path resolves the bell; while ≥1 paused row of the code remains, the bell stays open; a best-effort resolve failure leaves the durable row stream correct. Run → PASS.
+### Step 14.1 — Failing tests: the action gates on `requireAdminIdentity`; uses the service-role client (assert via injected dep, not cookie client); the NEW `adminOutcomeBehavior` behavioral spy (written here) asserts each per-op forensic code fires post-commit ONLY on the committed-success branch — RED until 14.2 wires the action; a 409 surfaces mapped copy. `loadShowOverrides` derives `matchKey`/`expectedCurrentValue` from source not display (fold `matchKeyDurability` assertions where they touch the loader). **Surface-B render test (REST2-2, `tests/admin/showOverrideBlocks.test.tsx`): the live-show page presenter renders ALL SIX overridable fields through `<OverrideableField>` — show `dates`+`venue`, each crew row's `name`+`role`, each hotel's `hotel_name`+`hotel_address` — each wired with its loader-derived `matchKey`/`expectedCurrentValue`/`currentLiveHotelName` and the real `setFieldOverrideAction` bound as `onSave`. Assert one `OverrideableField` per (domain,field,row) with the correct props (derive expected `matchKey` from a fixture, not hardcoded). RED until 14.2.** **Admin-op alert lifecycle (REST3-1 — RED HERE before the resolve calls exist, `adminOpAlertLifecycle.test.ts`, R3b-7): a sync pauses an override (bell open); the admin then discards (or repoints, or reactivates via create) the last paused row of that code → the post-commit path resolves the bell; while ≥1 paused row of the code remains, the bell stays open; a best-effort resolve failure leaves the durable row stream correct.** Run → FAIL.
+### Step 14.2 — Implement the action + loader + the two net-new blocks + crew-row wrap + the two post-commit `resolveOverrideAlertsForShow` calls. Run → **all Step-14.1 tests PASS** (behavioral spy, render test, AND the admin-op alert lifecycle). Run `tests/log/adminOutcomeBehavior.test.ts` + `_metaMutationSurfaceObservability.test.ts` → GREEN (admin surface fully covered).
 
 **Deliverable:** Surface B live-show editing for all 6 fields; admin-surface telemetry complete.
 **Commit:** `feat(admin): live-show override surface + setFieldOverrideAction (service-role, post-commit telemetry)`
