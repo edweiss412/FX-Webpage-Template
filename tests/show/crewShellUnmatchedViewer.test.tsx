@@ -21,7 +21,18 @@ import { CrewShell } from "@/app/show/[slug]/[shareToken]/_CrewShell";
 // Well-formed projection whose crewMembers OMITS the viewer id.
 const data = {
   show: {} as ShowForViewer["show"],
-  crewMembers: [{ id: "other", name: "Someone", email: null, phone: null, role: "A1", roleFlags: ["A1"], dateRestriction: { kind: "none" }, stageRestriction: { kind: "none" } }],
+  crewMembers: [
+    {
+      id: "other",
+      name: "Someone",
+      email: null,
+      phone: null,
+      role: "A1",
+      roleFlags: ["A1"],
+      dateRestriction: { kind: "none" },
+      stageRestriction: { kind: "none" },
+    },
+  ],
   hotelReservations: [],
   rooms: [],
   transportation: null,

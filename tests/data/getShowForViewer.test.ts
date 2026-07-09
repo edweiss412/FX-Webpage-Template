@@ -380,7 +380,9 @@ describe("getShowForViewer (§7.4)", () => {
     const aliceId = await seedCrew({ showId: showA, name: "Alice", roleFlags: ["A1"] });
     const showB = await seedShow({ title: "B" });
     await seedCrew({ showId: showB, name: "Bob", roleFlags: ["A1"] });
-    const err = await getShowForViewer(showB, { kind: "crew", crewMemberId: aliceId }).catch((e) => e);
+    const err = await getShowForViewer(showB, { kind: "crew", crewMemberId: aliceId }).catch(
+      (e) => e,
+    );
     expect(err).toBeInstanceOf(CrewMemberNotInShowError);
     expect((err as Error).message).toBe("PICKER_CREW_MEMBER_WRONG_SHOW");
   });
@@ -405,9 +407,14 @@ describe("getShowForViewer (§7.4)", () => {
   test(":321 unpublished branch stays a PLAIN Error, NOT CrewMemberNotInShowError (non-admin crew, published=false)", async () => {
     const showId = await seedShow({ title: "Unpub" });
     const crewId = await seedCrew({ showId, name: "Uma", roleFlags: ["A1"] });
-    const { error: upErr } = await admin.from("shows").update({ published: false }).eq("id", showId);
+    const { error: upErr } = await admin
+      .from("shows")
+      .update({ published: false })
+      .eq("id", showId);
     if (upErr) throw new Error(`unpublish failed: ${upErr.message}`);
-    const err = await getShowForViewer(showId, { kind: "crew", crewMemberId: crewId }).catch((e) => e);
+    const err = await getShowForViewer(showId, { kind: "crew", crewMemberId: crewId }).catch(
+      (e) => e,
+    );
     expect(err).toBeInstanceOf(Error);
     expect(err).not.toBeInstanceOf(CrewMemberNotInShowError);
     expect((err as Error).message).toBe("PICKER_CREW_MEMBER_WRONG_SHOW");

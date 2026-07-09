@@ -2,11 +2,25 @@
 import { describe, expect, test } from "vitest";
 import { sanitizePickerRoster } from "@/lib/auth/picker/sanitizePickerRoster";
 
-const row = (id: string, name: string) => ({ id, name, role: "A1", role_flags: [], claimed_via_oauth_at: null });
+const row = (id: string, name: string) => ({
+  id,
+  name,
+  role: "A1",
+  role_flags: [],
+  claimed_via_oauth_at: null,
+});
 
 describe("sanitizePickerRoster", () => {
   test("drops sentinel-named rows (each GENERIC_OPTIONAL_HIDE token, any case, trimmed)", () => {
-    const raw = [row("1", "Doug Larson"), row("2", "TBD"), row("3", "n/a"), row("4", "  TBA "), row("5", "-"), row("6", "—"), row("7", "")];
+    const raw = [
+      row("1", "Doug Larson"),
+      row("2", "TBD"),
+      row("3", "n/a"),
+      row("4", "  TBA "),
+      row("5", "-"),
+      row("6", "—"),
+      row("7", ""),
+    ];
     expect(sanitizePickerRoster(raw).map((r) => r.id)).toEqual(["1"]);
   });
 

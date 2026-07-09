@@ -23,7 +23,11 @@
  * extraction.
  */
 import { describe, expect, test } from "vitest";
-import { MalformedProjectionError, UnmatchedViewerError, resolveViewerContext } from "@/lib/data/viewerContext";
+import {
+  MalformedProjectionError,
+  UnmatchedViewerError,
+  resolveViewerContext,
+} from "@/lib/data/viewerContext";
 import type { Viewer, ShowForViewer } from "@/lib/data/getShowForViewer";
 import type { RoleFlag } from "@/lib/parser/types";
 import { SCOPE_TILE_UNLOCKING_FLAGS } from "@/lib/visibility/scopeTiles";

@@ -38,7 +38,11 @@ import { TerminalFailure } from "@/components/auth/TerminalFailure";
 import { buildShowPageChainRequest } from "@/lib/auth/picker/showPageChainRequest";
 import { resolveShowPageAccess } from "@/lib/auth/picker/resolveShowPageAccess";
 import { ShowUnavailable } from "./ShowUnavailable";
-import { getShowForViewer, CrewMemberNotInShowError, type Viewer } from "@/lib/data/getShowForViewer";
+import {
+  getShowForViewer,
+  CrewMemberNotInShowError,
+  type Viewer,
+} from "@/lib/data/getShowForViewer";
 import { buildShowReturnUrl } from "@/lib/crew/buildShowReturnUrl";
 import { BASE_SECTION_IDS } from "@/lib/crew/resolveActiveSection";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
@@ -68,7 +72,9 @@ async function loadRoster(showId: string): Promise<RosterRow[]> {
   return sanitizePickerRoster((data ?? []) as RosterRow[]);
 }
 
-async function loadShowAvailability(showId: string): Promise<"available" | "missing" | "archived" | "unpublished"> {
+async function loadShowAvailability(
+  showId: string,
+): Promise<"available" | "missing" | "archived" | "unpublished"> {
   const supabase = createSupabaseServiceRoleClient();
   // not-subject-to-meta: page.tsx-local read; {data,error} + fail-closed; covered by route tests (mirrors loadRoster)
   const { data, error } = await supabase
