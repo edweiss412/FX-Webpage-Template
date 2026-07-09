@@ -52,6 +52,7 @@ import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import type { Step3DisplayState } from "@/lib/admin/step3DisplayState";
+import type { ShowOverridesView } from "@/lib/overrides/loadShowOverrides";
 
 function lookupDougFacing(code: string | undefined | null): string | null {
   if (!code) return null;
@@ -139,6 +140,13 @@ export type Step3Row = {
   // backfills its client · dates · venue line + a View from THIS instead of
   // rendering a bare title. Absent when no show is linked.
   linkedShowSummary?: LiveShowSummary | null;
+  // Task 15 (§8.3): the LIVE admin-override state for this show, loaded server-side
+  // in fetchStep3Data (loadShowOverrides, Task 14). It is the ONLY source for the
+  // wizard <OverrideableField>'s value / CAS-B / override state (R18: NOT the
+  // pending parse). `null` = a first-seen show with no `shows` row (R15 → widgets
+  // disabled + publish hint); absent = the row had no server-side override load
+  // (degraded / non-clean row → no override affordance rendered).
+  liveOverrides?: ShowOverridesView | null;
 };
 
 // The linked live show's display summary — raw `public.shows` columns (venue/

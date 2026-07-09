@@ -113,6 +113,12 @@ import { AgendaScheduleBlock } from "@/components/crew/AgendaScheduleBlock";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import { VenueMapTile } from "@/components/admin/wizard/VenueMapTile";
 import { isParseableUrl } from "@/lib/url/isParseableUrl";
+import { OverrideableField } from "@/components/admin/overrides/OverrideableField";
+import type { ShowOverridesView, OverrideFieldView } from "@/lib/overrides/loadShowOverrides";
+// Task 15 (§8.3): the review wizard's <OverrideableField> save/revert/repoint/
+// discard path. Direct server-action ref (RSC-safe — never an inline closure),
+// passed straight to the widget's `onSave`.
+import { setFieldOverrideAction } from "@/app/admin/show/[slug]/_actions/overrides";
 import {
   AGENDA_CLIENT_CONCURRENCY,
   AGENDA_CLIENT_POLL_BUDGET_MS,
@@ -784,7 +790,92 @@ export function ContactsBreakdown({
   );
 }
 
-export function VenueBreakdown({ dfid, venue }: { dfid: string; venue: ShowRow["venue"] }) {
+// ── Admin field overrides (spec §8.3, Surface A) ────────────────────────────
+// R15: a genuinely first-seen show has no `shows` row, so `set_field_override`
+// has no live target until finalize. The widget is read-only until then.
+export const OVERRIDE_UNAVAILABLE_HINT =
+  "Overrides become available after you publish this show — until then, correct values in the sheet and Re-sync.";
+
+/**
+ * One overridable field inside a review-wizard breakdown (spec §8.3).
+ *
+ * R18 (the crux): the widget's `currentValue` / `expectedCurrentValue` (CAS-B) /
+ * `override` state come from the LIVE loader `view` — NEVER the pending parse the
+ * surrounding breakdown renders. The pending parse is review context only; feeding
+ * it as CAS-B would false-409 a legitimate save or capture the wrong `sheet_value`.
+ *
+ * Tri-state on `liveOverrides` (decided by the caller):
+ *   • `view` present  → the show exists (R15 satisfied); enabled, LIVE-sourced.
+ *   • `firstSeen`     → no `shows` row yet; disabled read-only + the publish hint.
+ * A breakdown that receives `liveOverrides === undefined` (legacy / non-override
+ * render context) renders NO override affordance at all — callers gate on that.
+ */
+function WizardOverrideRow({
+  label,
+  driveFileId,
+  domain,
+  field,
+  matchKey,
+  view,
+  firstSeen,
+  fallbackDisplay,
+  currentLiveHotelName,
+  currentOrdinal,
+}: {
+  label: string;
+  driveFileId: string;
+  domain: "show" | "crew" | "hotel";
+  field: "dates" | "venue" | "name" | "role" | "hotel_name" | "hotel_address";
+  matchKey: string;
+  view: OverrideFieldView | null;
+  firstSeen: boolean;
+  fallbackDisplay?: string;
+  currentLiveHotelName?: string;
+  currentOrdinal?: number;
+}) {
+  const disabled = firstSeen || view == null;
+  return (
+    <div
+      data-testid={`wizard-override-${domain}-${field}`}
+      className="flex flex-col gap-1 border-b border-border py-2 last:border-0"
+    >
+      <span className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
+        {label}:
+      </span>
+      <OverrideableField
+        driveFileId={driveFileId}
+        domain={domain}
+        field={field}
+        matchKey={matchKey}
+        currentValue={view ? view.currentValue : (fallbackDisplay ?? "")}
+        expectedCurrentValue={view ? view.expectedCurrentValue : null}
+        override={view ? view.override : null}
+        disabled={disabled}
+        onSave={setFieldOverrideAction}
+        {...(currentLiveHotelName !== undefined ? { currentLiveHotelName } : {})}
+        {...(currentOrdinal !== undefined ? { currentOrdinal } : {})}
+      />
+      {firstSeen ? (
+        <p
+          data-testid={`override-unavailable-${domain}-${field}`}
+          className="text-xs text-text-subtle"
+        >
+          {OVERRIDE_UNAVAILABLE_HINT}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+export function VenueBreakdown({
+  dfid,
+  venue,
+  liveOverrides,
+}: {
+  dfid: string;
+  venue: ShowRow["venue"];
+  liveOverrides?: ShowOverridesView | null;
+}) {
   const rows = venue
     ? contentRows([
         ["Venue", venue.name],
@@ -810,6 +901,18 @@ export function VenueBreakdown({ dfid, venue }: { dfid: string; venue: ShowRow["
       label="Venue"
       count={rows.length}
     >
+      {liveOverrides !== undefined ? (
+        <WizardOverrideRow
+          label="Venue"
+          driveFileId={dfid}
+          domain="show"
+          field="venue"
+          matchKey=""
+          view={liveOverrides?.show.venue ?? null}
+          firstSeen={liveOverrides === null}
+          fallbackDisplay={venue?.name ?? ""}
+        />
+      ) : null}
       {rows.length === 0 ? (
         <p className="text-sm text-text-subtle">No venue details parsed.</p>
       ) : (
@@ -1115,9 +1218,18 @@ export function OpsBreakdown({ dfid, show }: { dfid: string; show: ShowRow }) {
   );
 }
 
-export function CrewBreakdown({ dfid, members }: { dfid: string; members: CrewMemberRow[] }) {
+export function CrewBreakdown({
+  dfid,
+  members,
+  liveOverrides,
+}: {
+  dfid: string;
+  members: CrewMemberRow[];
+  liveOverrides?: ShowOverridesView | null;
+}) {
   const shown = members.slice(0, CREW_CAP);
   const note = overflowNote(members.length, CREW_CAP, "people");
+  const firstSeen = liveOverrides === null;
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-crew`}
@@ -1132,49 +1244,83 @@ export function CrewBreakdown({ dfid, members }: { dfid: string; members: CrewMe
             const partial = partialAttendanceLabel(m.date_restriction, { humanize: false });
             const name = m.name || "Unnamed";
             const subline = [m.role, partial].filter((x): x is string => hasContent(x)).join(" · ");
+            // R18: match this PENDING member to its LIVE loader view by parsed name;
+            // name + role SHARE the member's matchKey (§8.2a). No match on a live show
+            // (pending-only member) → disabled (no live target). matchKey falls back to
+            // the pending name only for the disabled/first-seen read-only render.
+            const crewView = liveOverrides
+              ? liveOverrides.crew.find((c) => c.name.currentValue === m.name)
+              : undefined;
+            const crewMatchKey = crewView?.matchKey ?? m.name;
             return (
-              <li key={`${m.name}-${i}`} className="flex items-center gap-3 py-1">
-                <Avatar name={m.name || null} />
-                <span className="min-w-0 flex-1">
-                  <span className="block wrap-break-word text-sm font-medium text-text-strong">
-                    {name}
-                  </span>
-                  {subline ? (
-                    <span className="block wrap-break-word text-xs text-text-subtle">
-                      {subline}
+              <Fragment key={`${m.name}-${i}`}>
+                <li className="flex items-center gap-3 py-1">
+                  <Avatar name={m.name || null} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block wrap-break-word text-sm font-medium text-text-strong">
+                      {name}
                     </span>
-                  ) : null}
-                </span>
-                {/* §8 exact anchor DOM: the INTERACTIVE <a> is the 44×44
+                    {subline ? (
+                      <span className="block wrap-break-word text-xs text-text-subtle">
+                        {subline}
+                      </span>
+                    ) : null}
+                  </span>
+                  {/* §8 exact anchor DOM: the INTERACTIVE <a> is the 44×44
                     border box (`size-tap-min`); the bordered 32px square is a
                     nested NON-interactive visual. Adjacent anchors sit flush
                     (no gap, no negative margins) so hit areas never overlap;
                     the centered visuals leave a natural 12px gutter. */}
-                <span className="flex shrink-0 items-center">
-                  {hasContent(m.phone) ? (
-                    <a
-                      href={`tel:${m.phone}`}
-                      aria-label={`Call ${name}`}
-                      className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-                    >
-                      <span className="grid size-8 place-items-center rounded-sm border border-border text-text-subtle">
-                        <Phone aria-hidden="true" className="size-4" />
-                      </span>
-                    </a>
-                  ) : null}
-                  {hasContent(m.email) ? (
-                    <a
-                      href={`mailto:${m.email}`}
-                      aria-label={`Email ${name}`}
-                      className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-                    >
-                      <span className="grid size-8 place-items-center rounded-sm border border-border text-text-subtle">
-                        <Mail aria-hidden="true" className="size-4" />
-                      </span>
-                    </a>
-                  ) : null}
-                </span>
-              </li>
+                  <span className="flex shrink-0 items-center">
+                    {hasContent(m.phone) ? (
+                      <a
+                        href={`tel:${m.phone}`}
+                        aria-label={`Call ${name}`}
+                        className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                      >
+                        <span className="grid size-8 place-items-center rounded-sm border border-border text-text-subtle">
+                          <Phone aria-hidden="true" className="size-4" />
+                        </span>
+                      </a>
+                    ) : null}
+                    {hasContent(m.email) ? (
+                      <a
+                        href={`mailto:${m.email}`}
+                        aria-label={`Email ${name}`}
+                        className="inline-flex size-tap-min items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+                      >
+                        <span className="grid size-8 place-items-center rounded-sm border border-border text-text-subtle">
+                          <Mail aria-hidden="true" className="size-4" />
+                        </span>
+                      </a>
+                    ) : null}
+                  </span>
+                </li>
+                {liveOverrides !== undefined ? (
+                  <li className="pb-2">
+                    <WizardOverrideRow
+                      label="Name"
+                      driveFileId={dfid}
+                      domain="crew"
+                      field="name"
+                      matchKey={crewMatchKey}
+                      view={crewView?.name ?? null}
+                      firstSeen={firstSeen}
+                      fallbackDisplay={name}
+                    />
+                    <WizardOverrideRow
+                      label="Role"
+                      driveFileId={dfid}
+                      domain="crew"
+                      field="role"
+                      matchKey={crewMatchKey}
+                      view={crewView?.role ?? null}
+                      firstSeen={firstSeen}
+                      fallbackDisplay={m.role ?? ""}
+                    />
+                  </li>
+                ) : null}
+              </Fragment>
             );
           })}
         </ul>
@@ -1337,10 +1483,12 @@ export function ScheduleBreakdown({
   dfid,
   ros,
   dates = EMPTY_DATES,
+  liveOverrides,
 }: {
   dfid: string;
   ros: RunOfShow;
   dates?: ShowRow["dates"];
+  liveOverrides?: ShowOverridesView | null;
 }) {
   // Merged day domain (bug #316 item 1) = the full schedule aggregate
   // (travelIn/set/showDays/travelOut, phase-labeled) UNION any ros-only day the
@@ -1381,6 +1529,18 @@ export function ScheduleBreakdown({
       label="Crew Schedule"
       count={mergedDays.length}
     >
+      {liveOverrides !== undefined ? (
+        <WizardOverrideRow
+          label="Show dates"
+          driveFileId={dfid}
+          domain="show"
+          field="dates"
+          matchKey=""
+          view={liveOverrides?.show.dates ?? null}
+          firstSeen={liveOverrides === null}
+          fallbackDisplay={dateSummarySegments(dates).join(" · ")}
+        />
+      ) : null}
       {mergedDays.length === 0 ? (
         <p className="text-sm text-text-subtle">No run-of-show parsed.</p>
       ) : (
@@ -2115,10 +2275,19 @@ function ArchivedTabIncludedNote({
   );
 }
 
-export function HotelsBreakdown({ dfid, hotels }: { dfid: string; hotels: HotelReservationRow[] }) {
+export function HotelsBreakdown({
+  dfid,
+  hotels,
+  liveOverrides,
+}: {
+  dfid: string;
+  hotels: HotelReservationRow[];
+  liveOverrides?: ShowOverridesView | null;
+}) {
   const chrome = useContext(Step3SectionChromeContext);
   const shown = hotels.slice(0, HOTELS_CAP);
   const note = overflowNote(hotels.length, HOTELS_CAP, "hotels");
+  const firstSeen = liveOverrides === null;
   // A single reservation inside the modal's section chrome would otherwise be a
   // card-within-a-card (chrome card + HotelCard border). Flatten the lone card so
   // the chrome IS the single card; nest sub-cards only when there are 2+ rows.
@@ -2134,9 +2303,56 @@ export function HotelsBreakdown({ dfid, hotels }: { dfid: string; hotels: HotelR
         <p className="text-sm text-text-subtle">No hotels parsed.</p>
       ) : (
         <div className="flex flex-col gap-3">
-          {shown.map((h, i) => (
-            <HotelCard key={`${h.hotel_name ?? "hotel"}-${i}`} h={h} flat={flatSolo} />
-          ))}
+          {shown.map((h, i) => {
+            // R18: match this PENDING reservation to its LIVE loader view by hotel
+            // name; hotel_name + hotel_address SHARE the reservation's matchKey
+            // (§8.2a). No match on a live show → disabled (no live target).
+            const hotelView = liveOverrides
+              ? liveOverrides.hotels.find((v) => v.currentLiveHotelName === (h.hotel_name ?? ""))
+              : undefined;
+            const hotelMatchKey = hotelView?.matchKey ?? h.hotel_name ?? "";
+            return (
+              <Fragment key={`${h.hotel_name ?? "hotel"}-${i}`}>
+                <HotelCard h={h} flat={flatSolo} />
+                {liveOverrides !== undefined ? (
+                  <div className="flex flex-col">
+                    <WizardOverrideRow
+                      label="Hotel name"
+                      driveFileId={dfid}
+                      domain="hotel"
+                      field="hotel_name"
+                      matchKey={hotelMatchKey}
+                      view={hotelView?.hotel_name ?? null}
+                      firstSeen={firstSeen}
+                      fallbackDisplay={h.hotel_name ?? ""}
+                      {...(hotelView?.currentLiveHotelName !== undefined
+                        ? { currentLiveHotelName: hotelView.currentLiveHotelName }
+                        : {})}
+                      {...(hotelView?.currentOrdinal !== undefined
+                        ? { currentOrdinal: hotelView.currentOrdinal }
+                        : {})}
+                    />
+                    <WizardOverrideRow
+                      label="Hotel address"
+                      driveFileId={dfid}
+                      domain="hotel"
+                      field="hotel_address"
+                      matchKey={hotelMatchKey}
+                      view={hotelView?.hotel_address ?? null}
+                      firstSeen={firstSeen}
+                      fallbackDisplay={h.hotel_address ?? ""}
+                      {...(hotelView?.currentLiveHotelName !== undefined
+                        ? { currentLiveHotelName: hotelView.currentLiveHotelName }
+                        : {})}
+                      {...(hotelView?.currentOrdinal !== undefined
+                        ? { currentOrdinal: hotelView.currentOrdinal }
+                        : {})}
+                    />
+                  </div>
+                ) : null}
+              </Fragment>
+            );
+          })}
           {note ? <p className="text-xs text-text-subtle">{note}</p> : null}
         </div>
       )}
@@ -2850,6 +3066,12 @@ export type SectionData = {
   ros: RunOfShow;
   warnings: ParseWarning[];
   agendaBaseline: AdminAgendaItem[];
+  // Task 15 (§8.3): the LIVE admin-override state for THIS show, from
+  // loadShowOverrides (Task 14) — the source for every wizard <OverrideableField>'s
+  // value / CAS-B / override state (R18: NOT the pending parse above). `null` = a
+  // first-seen show with no `shows` row (R15 → disabled + publish hint); absent =
+  // no override affordance rendered (legacy / non-override render context).
+  liveOverrides?: ShowOverridesView | null;
 };
 
 export type Step3SectionDef = {
@@ -3340,7 +3562,13 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       group: "The show",
       Icon: MapPin,
       railCount: null,
-      render: (s) => <VenueBreakdown dfid={s.dfid} venue={s.pr.show.venue} />,
+      render: (s) => (
+        <VenueBreakdown
+          dfid={s.dfid}
+          venue={s.pr.show.venue}
+          {...(s.liveOverrides !== undefined ? { liveOverrides: s.liveOverrides } : {})}
+        />
+      ),
     },
     {
       id: "event",
@@ -3356,7 +3584,13 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       group: "People",
       Icon: Users,
       railCount: (s) => s.crewMembers.length,
-      render: (s) => <CrewBreakdown dfid={s.dfid} members={s.crewMembers} />,
+      render: (s) => (
+        <CrewBreakdown
+          dfid={s.dfid}
+          members={s.crewMembers}
+          {...(s.liveOverrides !== undefined ? { liveOverrides: s.liveOverrides } : {})}
+        />
+      ),
     },
     {
       id: "contacts",
@@ -3382,7 +3616,14 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       // No rail count (owner decision, 2026-07-05): only Crew, Contacts, Rooms,
       // and Parse warnings show a count. Keep in lockstep with COUNT_SECTIONS.
       railCount: null,
-      render: (s) => <ScheduleBreakdown dfid={s.dfid} ros={s.ros} dates={s.pr.show.dates} />,
+      render: (s) => (
+        <ScheduleBreakdown
+          dfid={s.dfid}
+          ros={s.ros}
+          dates={s.pr.show.dates}
+          {...(s.liveOverrides !== undefined ? { liveOverrides: s.liveOverrides } : {})}
+        />
+      ),
     },
   ];
   if (d.agendaBaseline.length > 0) {
@@ -3410,7 +3651,13 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       Icon: BedDouble,
       // No rail count (owner decision, 2026-07-05) — see COUNT_SECTIONS.
       railCount: null,
-      render: (s) => <HotelsBreakdown dfid={s.dfid} hotels={s.hotels} />,
+      render: (s) => (
+        <HotelsBreakdown
+          dfid={s.dfid}
+          hotels={s.hotels}
+          {...(s.liveOverrides !== undefined ? { liveOverrides: s.liveOverrides } : {})}
+        />
+      ),
     },
     {
       id: "transport",
