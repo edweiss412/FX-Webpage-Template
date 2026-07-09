@@ -700,6 +700,20 @@ test("Point B: projection missing id + unpublished show → notFound()", async (
   await expect(ShowPage({ params: Promise.resolve({ slug: "s", shareToken: "t" }), searchParams: Promise.resolve({}) })).rejects.toThrow("NEXT_NOT_FOUND");
 });
 
+test("Point B fail-closed: TRUTHY NON-ARRAY crewMembers → NO page-level throw; CrewShell surfaces malformed-projection TerminalFailure (NOT the picker, NOT re-pick, NOT a raw Next error)", async () => {
+  // Concrete failure mode this catches: computing `crew` via `data.crewMembers?.find(...)` outside an
+  // Array.isArray block. Optional chaining does NOT protect a truthy non-array — `.find` would throw
+  // "find is not a function" in page.tsx BEFORE _CrewShell can catch MalformedProjectionError, degrading
+  // to a raw Next error boundary. CrewShell + resolveViewerContext render for real here (NOT mocked), so
+  // the non-array reaches resolveViewerContext, which throws MalformedProjectionError → _CrewShell catch →
+  // cataloged terminal-failure. A regressed page.tsx makes `render(await ShowPage(...))` REJECT instead.
+  (resolveShowPageAccess as any).mockResolvedValue(resolvedAccess);
+  (getShowForViewer as any).mockResolvedValue({ crewMembers: { length: 1 } }); // truthy, NOT an array
+  const { container } = render(await ShowPage({ params: Promise.resolve({ slug: "s", shareToken: "t" }), searchParams: Promise.resolve({}) }));
+  expect(container.querySelector('[data-testid="terminal-failure"]')).not.toBeNull();
+  expect(container.querySelector('[data-testid="picker-interstitial-root"]')).toBeNull();
+});
+
 test("availability read infra error (Point A) → TerminalFailure, notFound NOT swallowed elsewhere", async () => {
   (resolveShowPageAccess as any).mockResolvedValue(resolvedAccess);
   (getShowForViewer as any).mockRejectedValue(new CrewMemberNotInShowError());
@@ -739,14 +753,14 @@ test("negative: generic getShowForViewer error → TerminalFailure, not re-pick"
 
 > `loadRoster` throws (`new Error("roster lookup failed")`) when the crew_members read returns `{ error }` — so this exercises `renderPickerRepick`'s own `try/catch`. An implementation that drops that catch fails here (the throw escapes to Next's generic boundary instead of `terminal-failure`).
 
-This covers the full matrix for **both** points: Point A {available→picker, deleted→notFound, infra→TerminalFailure} and Point B {available→picker, deleted→notFound, unpublished→notFound}. The infra case also pins the round-1 fix — `notFound()` is not swallowed because `renderRacedCrewMiss` catches only the availability read, not the `notFound()`.
+This covers the full matrix for **both** points: Point A {available→picker, deleted→notFound, infra→TerminalFailure} and Point B {available→picker, deleted→notFound, unpublished→notFound, **truthy-non-array→malformed-projection TerminalFailure (fail-closed, no page-level throw)**}. The infra case also pins the round-1 fix — `notFound()` is not swallowed because `renderRacedCrewMiss` catches only the availability read, not the `notFound()`. The truthy-non-array case pins the round-8 fix — `crew` is computed only inside an `Array.isArray` block, so a degraded projection routes through `CrewShell`→`resolveViewerContext`'s existing `MalformedProjectionError` fail-closed path instead of throwing `find is not a function` at the page level.
 
 > Confirm `TerminalFailure`'s root `data-testid` (`components/auth/TerminalFailure.tsx`) and `PickerInterstitial`'s (`picker-interstitial-root`, verified) before running; adjust selectors to the real ids.
 
 - [ ] **Step 3: Run to verify the RED cases fail (and the stale-arm guards still pass)**
 
 Run: `pnpm vitest run tests/show/flow8Repick.test.tsx`
-Expected: the Point A/B + cascade + infra + roster-fail cases FAIL (current `resolved` case renders `CrewShell` or catches every error as a generic `TerminalFailure`; no `renderRacedCrewMiss` exists yet). The two Step-1 stale-arm refactor-guards still PASS (green-before — they pin the pre-existing inline stale-arm behavior the refactor must preserve; they are NOT the red-first proof for this task, the Point A/B cases are). The `negative` case may already pass (plain `Error` already routes to `TerminalFailure`); that's fine — it is a guard against over-catching.
+Expected: the Point A/B + cascade + infra + roster-fail + truthy-non-array cases FAIL (current `resolved` case renders `CrewShell` or catches every error as a generic `TerminalFailure`, and its `data.crewMembers?.find(...)` throws `find is not a function` on the truthy-non-array shape → `render(await ShowPage(...))` rejects; no `renderRacedCrewMiss` exists yet). The two Step-1 stale-arm refactor-guards still PASS (green-before — they pin the pre-existing inline stale-arm behavior the refactor must preserve; they are NOT the red-first proof for this task, the Point A/B cases are). The `negative` case may already pass (plain `Error` already routes to `TerminalFailure`); that's fine — it is a guard against over-catching.
 
 - [ ] **Step 4: Add the three helpers (`loadShowAvailability` + `renderPickerRepick` + `renderRacedCrewMiss`)**
 
@@ -836,11 +850,22 @@ Then rewrite the `resolved` case (`:152-189`) — note NO try/catch wraps `rende
         }
         return <TerminalFailure code="PICKER_RESOLVER_LOOKUP_FAILED" retryHref={`/show/${slug}/${shareToken}`} />;
       }
-      // Point B: well-formed projection missing the resolved id → same guided re-pick (NO wrapping catch).
-      if (Array.isArray(data.crewMembers) && !data.crewMembers.find((c) => c.id === result.crewMemberId)) {
-        return renderRacedCrewMiss({ showId: result.showId, slug, shareToken, s: allowlistedS });
+      // Point B: compute `crew` ONLY for a well-formed ARRAY projection. `Array.isArray` — never optional
+      // chaining — is the guard: `data.crewMembers?.find(...)` only protects null/undefined, so a degraded
+      // TRUTHY non-array (e.g. `{ length: 1 }`, a string) would throw "find is not a function" HERE, in
+      // page.tsx, BEFORE _CrewShell can surface the cataloged malformed-projection TerminalFailure.
+      //   - well-formed array + id present  → CrewShell with the identity chip
+      //   - well-formed array + id MISSING  → guided re-pick (renderRacedCrewMiss; NO wrapping catch)
+      //   - non-array / malformed           → crew stays null; fall through to CrewShell, whose
+      //     resolveViewerContext throws MalformedProjectionError → _CrewShell catch → cataloged TerminalFailure
+      //     (the existing fail-closed contract; viewerContext.test.ts:162 pins the non-array throw).
+      let crew: (typeof data.crewMembers)[number] | null = null;
+      if (Array.isArray(data.crewMembers)) {
+        crew = data.crewMembers.find((c) => c.id === result.crewMemberId) ?? null;
+        if (!crew) {
+          return renderRacedCrewMiss({ showId: result.showId, slug, shareToken, s: allowlistedS });
+        }
       }
-      const crew = data.crewMembers?.find((c) => c.id === result.crewMemberId);
       return (
         <CrewShell
           data={data} viewer={viewer} showId={result.showId} rawSection={s}
