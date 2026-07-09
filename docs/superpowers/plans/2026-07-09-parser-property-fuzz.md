@@ -183,7 +183,7 @@ export function fuzzRunConfig(): { seed: number; numRuns: number; deep: boolean 
 - [ ] **Step 6: Run test to verify it passes**
 
 Run: `pnpm vitest run tests/parser/fuzz/seeds.test.ts`
-Expected: PASS (3 tests).
+Expected: PASS (4 tests).
 
 - [ ] **Step 7: Commit**
 
@@ -327,7 +327,7 @@ Registry rows (from spec §3.2 dial table — contractFile/contractSymbol per ro
 
 Construction rules (spec §3.1, all enforced in the arbitrary AND re-checked by `validateGeneratedCase`):
 
-1. Identity serials: every identity string embeds a unique token — generate `names = ["Amara Q1 Quinn", "Boris Q2 Trask", ...]` via `fc.uniqueArray` over a letter-name arbitrary, then stamp `Q<n>` serials. Same pattern for hotel names (`Harborview H1 Hotel`), room names (`ALPINE R1`, uppercase to satisfy `roomHeaderNameShape` `rooms.ts:134-152`), venue (`Vantage V1 Center`). Substring-disjointness follows from the serials; the gate re-checks pairwise.
+1. Identity serials: every identity string embeds a unique token — LETTERS ONLY (spec §3.1 letter-safe; the hotel guest tokenizer `hotels.ts:185` `/[\p{L}][\p{L}\p{M}.'\- ]*?/` accepts no digits in names — a digit-bearing name truncates at the digit). Serials are FIXED-WIDTH letter codes: index → base-26 two-letter code (`AA`, `AB`, …, fixed width so no serial is a prefix of another) with a section prefix letter — crew `QAA`/`QAB`, hotels `HAA`, rooms `RAA` (uppercase, inside `roomHeaderNameShape`), venue `VAA`. Names like `Amara QAB Quinn` via `fc.uniqueArray` over a letter-name arbitrary + stamped serial. Same pattern for hotel names (`Harborview HAA Hotel`), room names (`ALPINE RAA`, uppercase to satisfy `roomHeaderNameShape` `rooms.ts:134-152`), venue (`Vantage VAA Center`). Substring-disjointness follows from the fixed-width serials; the gate re-checks pairwise.
 2. Role vocab: fixed clean list `["Video Engineer", "Audio A2", "LED Tech", "Camera Op", "Graphics Op"]` — screened: no `ONLY`, no `***`, no `\d{1,2}/\d{1,2}`, no parens, and NO stage-clause words (Load In / Set / Strike / Load Out / Show are the stage-restriction grammar tokens — `parseStageClause` `lib/parser/personalization.ts:162-195` — so none of them may appear in a role; the screen is asserted in the model test, not just eyeballed).
 3. Dates: pick `year ∈ [2020,2035]`, pick 3–6 distinct month/day pairs in that year, sort; first = travelIn, last = travelOut, middle = showDays. Distinct days ⇒ ISO, rendered, and `M/D` tokens all unique (invariant g).
 4. `dayRestriction` (optional per crew member): non-empty subset of `showDays` — rendered later by the `dayRestriction` dial as `(<M/D> & <M/D> ONLY)` appended to the role cell (grammar: `PAREN_ONLY_PATTERN` `personalization.ts:58`; expected parse `{kind:'explicit', days:[mdToken(...)]}`).
@@ -460,10 +460,13 @@ describe("Tier 2 plant-and-find", () => {
 ### Task 10: nightly deep job (x-audits.yml) + docs
 
 **Files:**
+- Create: `tests/parser/fuzz/_metaDeepJob.test.ts` (structural pin for the workflow wiring)
 - Modify: `.github/workflows/x-audits.yml` (new job `parser-fuzz-deep`)
 - Modify: `docs/audits/e2e-real-world-variation-preparedness-2026-07-07.md` (§7 item 5: mark fuzz half shipped, cite this spec/plan)
 
-- [ ] **Step 1: Add the job** (template mirrors `x1-catalog-parity` `:81-121`, but schedule/dispatch-gated):
+- [ ] **Step 1: Write the failing structural test** — `_metaDeepJob.test.ts` reads `.github/workflows/x-audits.yml` as text and asserts: (a) a `parser-fuzz-deep:` job key exists; (b) its `if:` line matches `github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'`; (c) the job body invokes `test:fuzz:deep`; (d) the summary step greps for `FUZZ-CONFIG` (so the replay-coordinate contract can't be silently dropped in a later workflow edit). Text-level assertions on the committed YAML — same pattern as other structural pins; run `pnpm vitest run tests/parser/fuzz/_metaDeepJob.test.ts`, expect FAIL (no job yet).
+
+- [ ] **Step 2: Add the job** (template mirrors `x1-catalog-parity` `:81-121`, but schedule/dispatch-gated):
 
 ```yaml
   parser-fuzz-deep:
@@ -502,9 +505,9 @@ describe("Tier 2 plant-and-find", () => {
           path: parser-fuzz-deep.log
 ```
 
-- [ ] **Step 2: Validate workflow syntax** — `gh workflow list` after push (or `actionlint` if available locally: `command -v actionlint && actionlint .github/workflows/x-audits.yml`).
-- [ ] **Step 3: Update the audit doc** §7 item 5 status line: fuzz half shipped (leave provenance-model half open).
-- [ ] **Step 4: Commit** `infra: nightly parser-fuzz-deep job (schedule + workflow_dispatch) + audit-doc status`
+- [ ] **Step 3: Run the structural test — PASS.** Then validate workflow syntax: `command -v actionlint && actionlint .github/workflows/x-audits.yml` (and `gh workflow list` after push).
+- [ ] **Step 4: Update the audit doc** §7 item 5 status line: fuzz half shipped (leave provenance-model half open).
+- [ ] **Step 5: Commit** `infra: nightly parser-fuzz-deep job (schedule + workflow_dispatch) + structural pin + audit-doc status`
 
 ---
 
