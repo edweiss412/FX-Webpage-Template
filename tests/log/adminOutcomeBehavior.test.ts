@@ -3,7 +3,8 @@
 // recorder module (spec R11 F2 — a cross-file in-memory recorder is
 // unreliable under Vitest's per-file isolation/workers/sharding).
 
-import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
+import { readFileSync } from "node:fs";
 import { NextRequest } from "next/server";
 import { setLogSink, resetLogSink } from "@/lib/log";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome"; // NOT re-exported from @/lib/log (verified live)
@@ -335,6 +336,30 @@ import {
   undoChangeAction,
 } from "@/app/admin/show/[slug]/_actions/feed";
 
+// ── Batch 2: 16 clean DI-seam admin route POST handlers (spec §3.1) ─────────
+// Driven by direct `routeDeps` injection (mutation dep / faked-tx) — NO module
+// vi.mock is added (spec §3.2 / §6). Names collide across data-quality vs
+// ignored-sheets un-ignore, so alias on import.
+import { handleWizardStagedApply } from "@/app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route";
+import { handleWizardStagedUnapprove } from "@/app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/unapprove/route";
+import { handleWizardStagedDiscard } from "@/app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/discard/route";
+import { handleLiveStagedApply } from "@/app/api/admin/show/staged/[stagedId]/apply/route";
+import { handleLiveStagedDiscard } from "@/app/api/admin/show/staged/[stagedId]/discard/route";
+import { handleLivePendingIngestionRetry } from "@/app/api/admin/pending-ingestions/[id]/retry/route";
+import { handleLivePendingIngestionDiscard } from "@/app/api/admin/pending-ingestions/[id]/discard/route";
+import { handleIgnore as handleDataQualityIgnore } from "@/app/api/admin/show/[slug]/data-quality/ignore/route";
+import { handleUnignore as handleDataQualityUnignore } from "@/app/api/admin/show/[slug]/data-quality/unignore/route";
+import { handleAdminAlertGlobalResolve } from "@/app/api/admin/admin-alerts/[id]/resolve/route";
+import { handleAdminAlertShowResolve } from "@/app/api/admin/show/[slug]/alerts/[id]/resolve/route";
+import {
+  handleWizardPendingIngestionRetry,
+  handleWizardPendingIngestionAction,
+} from "@/app/api/admin/onboarding/pending_ingestions/[id]/retry/route";
+import { handleRescanSheet } from "@/app/api/admin/onboarding/rescan-sheet/route";
+import { handleCleanupAbandonedFinalize } from "@/app/api/admin/onboarding/cleanup-abandoned-finalize/[sessionId]/route";
+import { handleOnboardingScan } from "@/app/api/admin/onboarding/scan/route";
+import { handleUnignore as handleIgnoredSheetUnignore } from "@/app/api/admin/ignored-sheets/[driveFileId]/unignore/route";
+
 // ── inline file-local recorder (single-file contract; no cross-file state) ──
 const recorded = new Set<string>(); // "file::fn::code"
 function recordAdminOutcomeBehavior(x: { file: string; fn: string; code: string }) {
@@ -405,6 +430,96 @@ async function observeSuccessCodes(
   }
   return codes;
 }
+
+// ── Batch 2 shared infra (OUTSIDE the sentinel block — may call observers) ──
+// A NON-swallowing failure observer: unlike `observeCodes`, it captures any throw
+// in `thrown` and the handler return in `result` instead of hiding it, so the
+// paired-proof helper can prove the failure was the INTENDED refusal (exact
+// status, no escaped infra throw) — spec §3.3 steps 5-6 / plan Substep A.
+async function observeFailure(
+  run: () => Promise<unknown>,
+): Promise<{ codes: string[]; thrown: unknown; result: unknown }> {
+  const codes: string[] = [];
+  setLogSink((r: LogRecord) => {
+    if (r.code) codes.push(r.code);
+  });
+  let thrown: unknown;
+  let result: unknown;
+  try {
+    result = await run();
+  } catch (err) {
+    thrown = err;
+  } finally {
+    resetLogSink();
+  }
+  return { codes, thrown, result };
+}
+
+/** The SOLE recording path for every Batch-2 row (spec §3.3). Proves BOTH drives
+ * are real AND the failure is the intended refusal, not a swallowed infra error:
+ * success emits the code (post-commit ⇒ committed branch ran); failure has the
+ * code ABSENT, reached the injected refusal seam (`mark.hit`), let no throw escape
+ * the handler, and returned the EXACT intended refusal status. Only then records. */
+async function proveAdminOutcomeBehavior(args: {
+  file: string;
+  fn: string;
+  code: string;
+  success: () => Promise<unknown>;
+  failure: (mark: { hit: boolean }) => Promise<unknown>;
+  failureExpect: { status: number; code?: string; bodyCode?: string };
+}): Promise<void> {
+  const { file, fn, code, success, failure, failureExpect } = args;
+  const key = `${file}::${fn}::${code}`;
+  const ok = await observeSuccessCodes(success);
+  expect(ok, `success drive for ${key} did not emit ${code}`).toContain(code);
+
+  const mark = { hit: false };
+  const { codes, thrown, result } = await observeFailure(() => failure(mark));
+  expect(codes, `failure drive for ${key} still emitted the success code`).not.toContain(code);
+  expect(mark.hit, `failure drive for ${key} never reached the injected refusal seam`).toBe(true);
+  expect(thrown, `failure drive for ${key} let a throw escape the handler`).toBeUndefined();
+  expect(result, `failure drive for ${key} did not return a Response`).toBeInstanceOf(Response);
+  expect((result as Response).status, `failure drive for ${key} returned the wrong status`).toBe(
+    failureExpect.status,
+  );
+  if (failureExpect.code) {
+    expect(codes, `failure drive for ${key} missing the intended refusal telemetry`).toContain(
+      failureExpect.code,
+    );
+  }
+  // Typed refusals return `{ ok:false, code }` in the response body (no log-sink
+  // telemetry). Pinning the exact body code stops a silent regression to the wrong
+  // JSON code / no code on a same-status path (whole-diff R1).
+  if (failureExpect.bodyCode) {
+    const body = (await (result as Response).clone().json()) as { code?: string };
+    expect(body.code, `failure drive for ${key} returned the wrong body code`).toBe(
+      failureExpect.bodyCode,
+    );
+  }
+
+  recordAdminOutcomeBehavior({ file, fn, code });
+}
+
+/** A minimal in-memory transaction double for the withTx/withRowTx/withRowTryLock
+ * seams. Defaults resolve nothing; per-route committed/refusal shapes are supplied
+ * via `overrides` (typically a `queryOne`/`query`/`deleteLiveDeferral` override).
+ * Scoped to Batch 2; touches no existing test. */
+function fakeTx(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    queryOne: async () => null,
+    run: async () => undefined,
+    holdPort: () => ({ unsafe: async () => [] as unknown[] }),
+    ...overrides,
+  };
+}
+
+/** Read a streaming NDJSON response body to EOF so an emit inside
+ * `ReadableStream.start()` (route #18) actually runs. Mirrors the local
+ * `readNdjson` drain in tests/onboarding/scanRoute.test.ts:143. */
+async function drainNdjson(res: Response): Promise<void> {
+  await res.text();
+}
+
 afterEach(() => resetLogSink());
 
 describe("behavioral scaffold smoke", () => {
@@ -1429,6 +1544,881 @@ describe("Batch 1 — grandfathered per-show server actions observe success only
   });
 });
 
+// ── Batch 2: 16 clean DI-seam admin route POSTs graduate to inline proof ────
+// Each row calls ONLY `proveAdminOutcomeBehavior` (structural guard below). Every
+// DB/Drive/lock seam is injected per spec §3.5 so no default Postgres/advisory/
+// Drive impl is reached; the env-poison below makes any missed seam throw.
+describe("Batch 2 — clean DI-seam admin route POSTs observe success only", () => {
+  const W1 = "11111111-1111-4111-8111-111111111111";
+  const STAGED = "22222222-2222-4222-8222-222222222222";
+  const A1 = "44444444-4444-4444-8444-444444444444";
+  const PID = "33333333-3333-4333-8333-333333333333";
+  const DFID = "df-batch2-unignore";
+  const admin = async () => ({ email: "admin@example.com" });
+
+  // Deterministic DB/Drive/client-free enforcement (spec §3.5) — poison all THREE
+  // default-infra channels for the duration of this block. Any un-injected
+  // postgres()/Drive/Supabase-client default then throws (ECONNREFUSED /
+  // missing-cred / thrown stub) → RED on both drives.
+  const POISON_ENV: Record<string, string | undefined> = {};
+  beforeAll(() => {
+    for (const k of ["TEST_DATABASE_URL", "DATABASE_URL"]) {
+      POISON_ENV[k] = process.env[k];
+      process.env[k] = "postgresql://poison:poison@127.0.0.1:1/none"; // port 1 = unreachable
+    }
+    POISON_ENV.GOOGLE_SERVICE_ACCOUNT_JSON = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+    delete process.env.GOOGLE_SERVICE_ACCOUNT_JSON; // Drive defaults throw
+  });
+  afterAll(() => {
+    for (const [k, v] of Object.entries(POISON_ENV)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  });
+  // Runs AFTER the file-level beforeEach (which re-benigns the clients) → wins.
+  beforeEach(() => {
+    serverClientImpl.current = () => {
+      throw new Error("Batch-2: Supabase client must be injected via routeDeps, not defaulted");
+    };
+    serviceRoleClientImpl.current = () => {
+      throw new Error("Batch-2: service-role client must be injected, not defaulted");
+    };
+  });
+
+  // >>> BATCH-2 PROOF BLOCK START
+  test("#1 wizard staged apply emits STAGE_APPLIED", async () => {
+    const file = "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route.ts";
+    const ctx = { params: Promise.resolve({ wizardSessionId: W1, driveFileId: "file-1" }) };
+    const request = () =>
+      new Request("https://x/apply", {
+        method: "POST",
+        body: JSON.stringify({ stagedId: STAGED, reviewerChoicesVersion: 1, reviewerChoices: [] }),
+        headers: { "content-type": "application/json" },
+      });
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "STAGE_APPLIED",
+      success: () =>
+        handleWizardStagedApply(request(), ctx, {
+          requireAdminIdentity: admin,
+          withRowTx: async (_id, fn) => fn(fakeTx() as never),
+          applyStaged: async () => ({
+            outcome: "wizard_applied",
+            wizardSessionId: W1,
+            stagedId: STAGED,
+          }),
+          upsertAdminAlert: async () => null,
+        }),
+      failure: (mark) =>
+        handleWizardStagedApply(request(), ctx, {
+          requireAdminIdentity: admin,
+          withRowTx: async (_id, fn) => fn(fakeTx() as never),
+          applyStaged: async () => {
+            mark.hit = true;
+            return { outcome: "superseded", code: "STAGED_PARSE_SUPERSEDED" };
+          },
+          upsertAdminAlert: async () => null,
+        }),
+      failureExpect: { status: 409 },
+    });
+  });
+
+  test("#3 wizard staged unapprove emits STAGE_UNAPPROVED", async () => {
+    const file =
+      "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/unapprove/route.ts";
+    const ctx = { params: Promise.resolve({ wizardSessionId: W1, driveFileId: "file-1" }) };
+    const request = () => new Request("https://x/unapprove", { method: "POST" });
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "STAGE_UNAPPROVED",
+      success: () =>
+        handleWizardStagedUnapprove(request(), ctx, {
+          requireAdminIdentity: admin,
+          withRowTx: async (_id, fn) =>
+            fn(fakeTx({ queryOne: async () => ({ unapproved: true }) }) as never),
+        }),
+      failure: (mark) =>
+        handleWizardStagedUnapprove(request(), ctx, {
+          requireAdminIdentity: admin,
+          withRowTx: async (_id, fn) =>
+            fn(
+              fakeTx({
+                queryOne: async () => {
+                  mark.hit = true;
+                  return null;
+                },
+              }) as never,
+            ),
+        }),
+      failureExpect: { status: 409 },
+    });
+  });
+
+  test("#4 wizard staged discard emits STAGE_DISCARDED", async () => {
+    const file = "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/discard/route.ts";
+    const ctx = { params: Promise.resolve({ wizardSessionId: W1, driveFileId: "file-1" }) };
+    const request = () =>
+      new Request("https://x/discard", {
+        method: "POST",
+        body: JSON.stringify({ stagedId: STAGED, kind: "try_again_next_sync" }),
+        headers: { "content-type": "application/json" },
+      });
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "STAGE_DISCARDED",
+      success: () =>
+        handleWizardStagedDiscard(request(), ctx, {
+          requireAdminIdentity: admin,
+          withRowTx: async (_id, fn) => fn(fakeTx() as never),
+          discardStagedUnlocked: async () => ({ outcome: "discarded", variant: "try_again" }),
+        }),
+      failure: (mark) =>
+        handleWizardStagedDiscard(request(), ctx, {
+          requireAdminIdentity: admin,
+          withRowTx: async (_id, fn) => fn(fakeTx() as never),
+          discardStagedUnlocked: async () => {
+            mark.hit = true;
+            return { outcome: "not_found", code: "PENDING_SYNC_NOT_FOUND" };
+          },
+        }),
+      failureExpect: { status: 409 }, // wizard not_found → 409 STALE_DISCARD_REJECTED
+    });
+  });
+
+  test("#7 live-staged apply emits SHOW_APPLIED", async () => {
+    const file = "app/api/admin/show/staged/[stagedId]/apply/route.ts";
+    const ctx = { params: Promise.resolve({ stagedId: STAGED }) };
+    const stagedTx = () =>
+      fakeTx({
+        queryOne: async (sql: string) => {
+          const s = sql.replace(/\s+/g, " ").trim().toLowerCase();
+          if (s.includes("pg_locks")) return { held: true };
+          if (s.startsWith("select drive_file_id")) return { drive_file_id: "file-1" };
+          if (s.startsWith("select slug")) return { slug: "first-seen-show" };
+          return null;
+        },
+      });
+    const request = () =>
+      new Request("https://x/apply", {
+        method: "POST",
+        body: JSON.stringify({ reviewer_choices: [] }),
+        headers: { "content-type": "application/json" },
+      });
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "SHOW_APPLIED",
+      success: () =>
+        handleLiveStagedApply(request(), ctx, {
+          requireAdminIdentity: admin,
+          withRowTx: async (_id, fn) => fn(stagedTx() as never),
+          readDriveFileIdForStagedId: async () => "file-1",
+          readShowSlug: async () => "first-seen-show",
+          applyStaged: async () => ({
+            outcome: "applied",
+            showId: "show-1",
+            syncAuditId: null,
+            derivedSideEffects: { revokeFloorForNames: [] },
+          }),
+        }),
+      failure: (mark) =>
+        handleLiveStagedApply(request(), ctx, {
+          requireAdminIdentity: admin,
+          withRowTx: async (_id, fn) => fn(stagedTx() as never),
+          readDriveFileIdForStagedId: async () => "file-1",
+          readShowSlug: async () => "first-seen-show",
+          applyStaged: async () => {
+            mark.hit = true;
+            return { outcome: "superseded", code: "STAGED_PARSE_SUPERSEDED" };
+          },
+        }),
+      failureExpect: { status: 409 },
+    });
+  });
+
+  test("#8 live pending-ingestion retry emits PENDING_INGESTION_RETRIED", async () => {
+    const file = "app/api/admin/pending-ingestions/[id]/retry/route.ts";
+    const ctx = { params: Promise.resolve({ id: PID }) };
+    const lockTx = () =>
+      fakeTx({
+        queryOne: async (sql: string) => {
+          const s = sql.replace(/\s+/g, " ").trim().toLowerCase();
+          if (s.includes("pg_locks")) return { held: true };
+          if (s.startsWith("select id, drive_file_id"))
+            return {
+              id: PID,
+              drive_file_id: "file-1",
+              wizard_session_id: null,
+              last_seen_modified_time: "2026-05-08T12:00:00.000Z",
+            };
+          if (s.startsWith("select exists")) return { exists: true };
+          if (s.startsWith("select archived")) return { archived: false };
+          if (s.startsWith("select watched_folder_id")) return { watched_folder_id: "folder-1" };
+          if (s.startsWith("select slug")) return { slug: "show-slug" };
+          return null;
+        },
+      });
+    const baseDeps = () => ({
+      requireAdminIdentity: admin,
+      readDriveFileIdForPendingIngestion: async () => "file-1",
+      withRowTryLock: async (_id: string, fn: (tx: never) => unknown) => fn(lockTx() as never),
+      readFinalizeOwnershipGuardUnlocked: async () => false,
+      fetchDriveFileMetadata: async (driveFileId: string) => ({
+        driveFileId,
+        name: `${driveFileId}.xlsx`,
+        mimeType: "application/vnd.google-apps.spreadsheet",
+        modifiedTime: "2026-05-08T12:00:00.000Z",
+        parents: ["folder-1"],
+      }),
+    });
+    const request = () =>
+      new Request("https://x/retry", {
+        method: "POST",
+        body: JSON.stringify({}),
+        headers: { "content-type": "application/json" },
+      });
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "PENDING_INGESTION_RETRIED",
+      success: () =>
+        handleLivePendingIngestionRetry(request(), ctx, {
+          ...baseDeps(),
+          runManualSyncForShowUnlocked: async () => ({
+            outcome: "applied",
+            showId: "show-1",
+            parseWarnings: [],
+          }),
+        } as never),
+      failure: (mark) =>
+        handleLivePendingIngestionRetry(request(), ctx, {
+          ...baseDeps(),
+          runManualSyncForShowUnlocked: async () => {
+            mark.hit = true;
+            return { outcome: "hard_fail", code: "PARSE_ERROR" };
+          },
+        } as never),
+      failureExpect: { status: 200 }, // still_failed JSON, no telemetry code
+    });
+  });
+
+  test("#9 data-quality ignore emits WARNING_IGNORED", async () => {
+    const file = "app/api/admin/show/[slug]/data-quality/ignore/route.ts";
+    const ctx = { params: Promise.resolve({ slug: "rpas" }) };
+    const request = () =>
+      new Request("https://x/ignore", {
+        method: "POST",
+        body: JSON.stringify({ code: "UNKNOWN_FIELD", rawSnippet: "Storage | x" }),
+      });
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "WARNING_IGNORED",
+      success: () =>
+        handleDataQualityIgnore(request(), ctx, {
+          requireAdminIdentity: admin,
+          withTx: async (fn) =>
+            fn(
+              fakeTx({
+                queryOne: async (sql: string) => {
+                  if (/from public\.shows/.test(sql)) return { id: "sid" };
+                  if (/insert into public\.ignored_warnings/.test(sql))
+                    return { fingerprint: "fp" };
+                  return null;
+                },
+              }) as never,
+            ),
+        }),
+      failure: (mark) =>
+        handleDataQualityIgnore(request(), ctx, {
+          requireAdminIdentity: admin,
+          withTx: async (fn) =>
+            fn(
+              fakeTx({
+                queryOne: async (sql: string) => {
+                  if (/from public\.shows/.test(sql)) return { id: "sid" };
+                  if (/insert into public\.ignored_warnings/.test(sql)) {
+                    mark.hit = true;
+                    return null; // ON CONFLICT no-op → not mutated → no emit
+                  }
+                  return null;
+                },
+              }) as never,
+            ),
+        }),
+      failureExpect: { status: 200 },
+    });
+  });
+
+  test("#10 data-quality unignore emits WARNING_UNIGNORED", async () => {
+    const file = "app/api/admin/show/[slug]/data-quality/unignore/route.ts";
+    const ctx = { params: Promise.resolve({ slug: "rpas" }) };
+    const request = () =>
+      new Request("https://x/unignore", {
+        method: "POST",
+        body: JSON.stringify({ code: "UNKNOWN_FIELD", rawSnippet: "Storage | x" }),
+      });
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "WARNING_UNIGNORED",
+      success: () =>
+        handleDataQualityUnignore(request(), ctx, {
+          requireAdminIdentity: admin,
+          withTx: async (fn) =>
+            fn(
+              fakeTx({
+                queryOne: async (sql: string) => {
+                  if (/from public\.shows/.test(sql)) return { id: "sid" };
+                  if (/delete from public\.ignored_warnings/.test(sql))
+                    return { fingerprint: "fp" };
+                  return null;
+                },
+              }) as never,
+            ),
+        }),
+      failure: (mark) =>
+        handleDataQualityUnignore(request(), ctx, {
+          requireAdminIdentity: admin,
+          withTx: async (fn) =>
+            fn(
+              fakeTx({
+                queryOne: async (sql: string) => {
+                  if (/from public\.shows/.test(sql)) return { id: "sid" };
+                  if (/delete from public\.ignored_warnings/.test(sql)) {
+                    mark.hit = true;
+                    return null; // 0 rows → not mutated → no emit
+                  }
+                  return null;
+                },
+              }) as never,
+            ),
+        }),
+      failureExpect: { status: 200 },
+    });
+  });
+
+  test("#11 admin-alerts global resolve emits ADMIN_ALERT_RESOLVED", async () => {
+    const file = "app/api/admin/admin-alerts/[id]/resolve/route.ts";
+    const ctx = { params: Promise.resolve({ id: A1 }) };
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "ADMIN_ALERT_RESOLVED",
+      success: () => {
+        let row: {
+          id: string;
+          show_id: string | null;
+          slug: string | null;
+          resolved_at: string | null;
+        } | null = { id: A1, show_id: null, slug: null, resolved_at: null };
+        return handleAdminAlertGlobalResolve(new Request("https://x"), ctx, {
+          requireAdminIdentity: admin,
+          withTx: async (fn) =>
+            fn(
+              fakeTx({
+                queryOne: async (sql: string) => {
+                  const s = sql.replace(/\s+/g, " ").trim();
+                  if (s.startsWith("select")) return row;
+                  if (s.startsWith("update public.admin_alerts")) {
+                    if (!row || row.show_id !== null) return null;
+                    row = { ...row, resolved_at: "DB_NOW" };
+                    return row;
+                  }
+                  return null;
+                },
+              }) as never,
+            ),
+        });
+      },
+      failure: (mark) =>
+        handleAdminAlertGlobalResolve(new Request("https://x"), ctx, {
+          requireAdminIdentity: admin,
+          withTx: async (fn) =>
+            fn(
+              fakeTx({
+                queryOne: async (sql: string) => {
+                  if (sql.replace(/\s+/g, " ").trim().startsWith("select")) {
+                    mark.hit = true;
+                    return null; // alert not found → 404, never commits
+                  }
+                  return null;
+                },
+              }) as never,
+            ),
+        }),
+      failureExpect: { status: 404 },
+    });
+  });
+
+  test("#12 show-scoped alert resolve emits ADMIN_ALERT_RESOLVED", async () => {
+    const file = "app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts";
+    const ctx = { params: Promise.resolve({ slug: "test-show", id: A1 }) };
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "ADMIN_ALERT_RESOLVED",
+      success: () => {
+        let alert: {
+          id: string;
+          show_id: string;
+          resolved_at: string | null;
+          code: string;
+        } | null = { id: A1, show_id: "show-1", resolved_at: null, code: "LIVE_ROW_CONFLICT" };
+        const show = { id: "show-1", slug: "test-show" };
+        return handleAdminAlertShowResolve(new Request("https://x"), ctx, {
+          requireAdminIdentity: admin,
+          withTx: async (fn) =>
+            fn(
+              fakeTx({
+                queryOne: async (sql: string, params: unknown[]) => {
+                  const s = sql.replace(/\s+/g, " ").trim();
+                  if (s.startsWith("select id, slug")) return show;
+                  if (s.startsWith("select id, show_id")) {
+                    if (!alert || alert.id !== params[0]) return null;
+                    if (alert.show_id !== params[1]) return null;
+                    return alert;
+                  }
+                  if (s.startsWith("update public.admin_alerts")) {
+                    if (!alert || alert.show_id !== params[1]) return null;
+                    alert = { ...alert, resolved_at: "DB_NOW" };
+                    return alert;
+                  }
+                  return null;
+                },
+              }) as never,
+            ),
+        });
+      },
+      failure: (mark) =>
+        handleAdminAlertShowResolve(new Request("https://x"), ctx, {
+          requireAdminIdentity: admin,
+          withTx: async (fn) =>
+            fn(
+              fakeTx({
+                queryOne: async (sql: string) => {
+                  const s = sql.replace(/\s+/g, " ").trim();
+                  if (s.startsWith("select id, slug")) return { id: "show-1", slug: "test-show" };
+                  if (s.startsWith("select id, show_id")) {
+                    mark.hit = true;
+                    return null; // cross-show / not found → 404, never commits
+                  }
+                  return null;
+                },
+              }) as never,
+            ),
+        }),
+      failureExpect: { status: 404 },
+    });
+  });
+
+  test("#13 live pending-ingestion discard emits PENDING_INGESTION_DISCARDED", async () => {
+    const file = "app/api/admin/pending-ingestions/[id]/discard/route.ts";
+    const ctx = { params: Promise.resolve({ id: "pi-1" }) };
+    const request = () =>
+      new Request("https://x/discard", {
+        method: "POST",
+        body: JSON.stringify({ kind: "permanent_ignore" }),
+        headers: { "content-type": "application/json" },
+      });
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "PENDING_INGESTION_DISCARDED",
+      success: () =>
+        handleLivePendingIngestionDiscard(request(), ctx, {
+          requireAdminIdentity: admin,
+          readDriveFileIdForPendingIngestion: async () => "df-1",
+          withRowTryLock: async (_id: string, fn: (tx: never) => unknown) =>
+            fn(
+              fakeTx({
+                queryOne: async (sql: string) => {
+                  if (/from public\.pending_ingestions/.test(sql) && /for update/.test(sql))
+                    return {
+                      id: "pi-1",
+                      drive_file_id: "df-1",
+                      wizard_session_id: null,
+                      last_seen_modified_time: "2026-05-08T12:00:00.000Z",
+                      drive_file_name: "Sheet.xlsx",
+                    };
+                  return { upserted: true };
+                },
+              }) as never,
+            ),
+        } as never),
+      failure: (mark) =>
+        handleLivePendingIngestionDiscard(request(), ctx, {
+          requireAdminIdentity: admin,
+          readDriveFileIdForPendingIngestion: async () => "df-1",
+          withRowTryLock: async () => {
+            mark.hit = true;
+            return { skipped: "CONCURRENT_SYNC_SKIPPED" };
+          },
+        } as never),
+      failureExpect: { status: 409 },
+    });
+  });
+
+  test("#14 wizard pending-ingestion retry/defer/ignore emit RETRIED + DEFERRED + IGNORED", async () => {
+    const file = "app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts";
+    const ctx = () => ({ params: Promise.resolve({ id: PID }) });
+    const retryDeps = () => ({
+      requireAdminIdentity: admin,
+      withRowTx: async (_id: string, fn: (tx: never) => unknown) => fn(fakeTx() as never),
+      readDriveFileIdForPendingIngestion: async () => "file-1",
+      readWizardSessionForPendingIngestion: async () => W1,
+      upsertAdminAlert: async () => "alert-id",
+      readCurrentWizardSessionId: async () => W1,
+    });
+    // The committed defer/ignore tx: locked row present + manifest/deferral/delete
+    // all affect a row so `committedAction` is set and the emit fires post-commit.
+    const committingTx = () =>
+      fakeTx({
+        queryOne: async (sql: string) => {
+          const s = sql.replace(/\s+/g, " ").trim();
+          if (/pg_locks/i.test(s)) return { held: true };
+          if (s.startsWith("select drive_file_id"))
+            return {
+              id: PID,
+              drive_file_id: "file-1",
+              wizard_session_id: W1,
+              discovered_during_folder_id: "folder-1",
+              last_seen_modified_time: "2026-05-08T12:00:00.000Z",
+              drive_file_name: "Sheet One.gsheet",
+            };
+          if (s.startsWith("select pending_wizard_session_id"))
+            return { pending_wizard_session_id: W1, pending_folder_id: "folder-1" };
+          if (s.startsWith("update public.onboarding_scan_manifest")) return { updated: true };
+          if (s.startsWith("insert into public.deferred_ingestions")) return { upserted: true };
+          if (s.startsWith("delete from public.pending_ingestions")) return { deleted: true };
+          return null;
+        },
+      });
+    // MANDATED pre-mutation 404 refusal: the pre-tx guard passes (real id), but the
+    // in-tx locked-row read returns null → requireCurrentWizardRow 404, BEFORE any
+    // mutation and WITHOUT reaching the rollback alert deps (spec §3.3).
+    const notFoundTx = (mark: { hit: boolean }) =>
+      fakeTx({
+        queryOne: async (sql: string) => {
+          const s = sql.replace(/\s+/g, " ").trim();
+          if (/pg_locks/i.test(s)) return { held: true };
+          if (s.startsWith("select drive_file_id")) {
+            mark.hit = true;
+            return null;
+          }
+          if (s.startsWith("select pending_wizard_session_id"))
+            return { pending_wizard_session_id: W1, pending_folder_id: "folder-1" };
+          return null;
+        },
+      });
+
+    // RETRIED leg
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "PENDING_INGESTION_RETRIED",
+      success: () =>
+        handleWizardPendingIngestionRetry(
+          new Request("https://x/retry", { method: "POST" }),
+          ctx(),
+          {
+            ...retryDeps(),
+            retrySingleFile: async () => ({ outcome: "retried", status: "staged" }),
+          } as never,
+        ),
+      failure: (mark) =>
+        handleWizardPendingIngestionRetry(
+          new Request("https://x/retry", { method: "POST" }),
+          ctx(),
+          {
+            ...retryDeps(),
+            retrySingleFile: async () => {
+              mark.hit = true;
+              return { outcome: "wizard_superseded", code: "WIZARD_SESSION_SUPERSEDED" };
+            },
+          } as never,
+        ),
+      failureExpect: { status: 409 },
+    });
+
+    // DEFERRED leg (via the shared action handler)
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "PENDING_INGESTION_DEFERRED",
+      success: () =>
+        handleWizardPendingIngestionAction(
+          ctx(),
+          {
+            ...retryDeps(),
+            withRowTx: async (_id: string, fn: (tx: never) => unknown) =>
+              fn(committingTx() as never),
+            retrySingleFile: async () => ({ outcome: "retried", status: "staged" }),
+          } as never,
+          "defer_until_modified",
+        ),
+      failure: (mark) =>
+        handleWizardPendingIngestionAction(
+          ctx(),
+          {
+            ...retryDeps(),
+            readDriveFileIdForPendingIngestion: async () => "file-1",
+            withRowTx: async (_id: string, fn: (tx: never) => unknown) =>
+              fn(notFoundTx(mark) as never),
+            retrySingleFile: async () => ({ outcome: "retried", status: "staged" }),
+          } as never,
+          "defer_until_modified",
+        ),
+      // 404 PENDING_INGESTION_NOT_FOUND — a response-body code (not log-sink), pinned
+      // via `bodyCode` so a regression to the wrong/absent JSON code on this 404 path fails.
+      failureExpect: { status: 404, bodyCode: "PENDING_INGESTION_NOT_FOUND" },
+    });
+
+    // IGNORED leg
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "PENDING_INGESTION_IGNORED",
+      success: () =>
+        handleWizardPendingIngestionAction(
+          ctx(),
+          {
+            ...retryDeps(),
+            withRowTx: async (_id: string, fn: (tx: never) => unknown) =>
+              fn(committingTx() as never),
+            retrySingleFile: async () => ({ outcome: "retried", status: "staged" }),
+          } as never,
+          "permanent_ignore",
+        ),
+      failure: (mark) =>
+        handleWizardPendingIngestionAction(
+          ctx(),
+          {
+            ...retryDeps(),
+            readDriveFileIdForPendingIngestion: async () => "file-1",
+            withRowTx: async (_id: string, fn: (tx: never) => unknown) =>
+              fn(notFoundTx(mark) as never),
+            retrySingleFile: async () => ({ outcome: "retried", status: "staged" }),
+          } as never,
+          "permanent_ignore",
+        ),
+      failureExpect: { status: 404, bodyCode: "PENDING_INGESTION_NOT_FOUND" },
+    });
+  });
+
+  test("#15 rescan-sheet emits SHEET_RESCANNED", async () => {
+    const file = "app/api/admin/onboarding/rescan-sheet/route.ts";
+    const request = () =>
+      new Request("https://x/rescan", {
+        method: "POST",
+        body: JSON.stringify({ driveFileId: "df-1", wizardSessionId: W1 }),
+        headers: { "content-type": "application/json" },
+      });
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "SHEET_RESCANNED",
+      success: () =>
+        handleRescanSheet(request(), {
+          rescanWizardSheet: (async () => ({
+            status: "updated",
+            needsReview: false,
+            changed: true,
+          })) as never,
+        }),
+      failure: (mark) =>
+        handleRescanSheet(request(), {
+          rescanWizardSheet: (async () => {
+            mark.hit = true;
+            return { status: "busy", code: "RESCAN_BUSY" };
+          }) as never,
+        }),
+      failureExpect: { status: 200 },
+    });
+  });
+
+  test("#16 cleanup-abandoned-finalize emits FINALIZE_CLEANUP_DONE", async () => {
+    const file = "app/api/admin/onboarding/cleanup-abandoned-finalize/[sessionId]/route.ts";
+    const ctx = { params: Promise.resolve({ sessionId: W1 }) };
+    const cleanupTx = () =>
+      fakeTx({
+        query: async (sql: string) => {
+          if (/insert into public\.sync_audit/.test(sql))
+            return { rows: [{ id: "audit-1" }], rowCount: 1 };
+          return {
+            rows: [{ applied_manifest_count: 0, shadow_count: 0, unresolved_manifest_count: 0 }],
+            rowCount: 1,
+          };
+        },
+      });
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "FINALIZE_CLEANUP_DONE",
+      success: () =>
+        handleCleanupAbandonedFinalize(new Request("https://x"), ctx, {
+          requireAdminIdentity: admin,
+          withTx: async (fn: (tx: never) => unknown) => fn(cleanupTx() as never),
+          cleanupAbandonedFinalize: async () => ({ status: "cleaned" }),
+          randomUUID: () => STAGED,
+        } as never),
+      failure: (mark) =>
+        handleCleanupAbandonedFinalize(new Request("https://x"), ctx, {
+          requireAdminIdentity: admin,
+          withTx: async (fn: (tx: never) => unknown) => fn(cleanupTx() as never),
+          cleanupAbandonedFinalize: async () => {
+            mark.hit = true;
+            return { status: "already_cleaned" };
+          },
+          randomUUID: () => STAGED,
+        } as never),
+      failureExpect: { status: 200 },
+    });
+  });
+
+  test("#17 live-staged discard emits STAGE_DISCARDED", async () => {
+    const file = "app/api/admin/show/staged/[stagedId]/discard/route.ts";
+    const ctx = { params: Promise.resolve({ stagedId: STAGED }) };
+    const request = () =>
+      new Request("https://x/discard", {
+        method: "POST",
+        body: JSON.stringify({ kind: "defer_until_modified" }),
+        headers: { "content-type": "application/json" },
+      });
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "STAGE_DISCARDED",
+      success: () =>
+        handleLiveStagedDiscard(request(), ctx, {
+          requireAdminIdentity: admin,
+          readDriveFileIdForStagedId: async () => "file-1",
+          readShowSlug: async () => "first-seen-show",
+          discardStaged: async () => ({ outcome: "discarded", variant: "defer_until_modified" }),
+        }),
+      failure: (mark) =>
+        handleLiveStagedDiscard(request(), ctx, {
+          requireAdminIdentity: admin,
+          readDriveFileIdForStagedId: async () => "file-1",
+          readShowSlug: async () => "first-seen-show",
+          discardStaged: async () => {
+            mark.hit = true;
+            return { outcome: "not_found", code: "PENDING_SYNC_NOT_FOUND" };
+          },
+        }),
+      failureExpect: { status: 404 }, // live not_found → 404 STALE_DISCARD_REJECTED
+    });
+  });
+
+  test("#18 onboarding scan (streaming) emits ONBOARDING_SCAN_COMPLETED", async () => {
+    const file = "app/api/admin/onboarding/scan/route.ts";
+    const request = () =>
+      new Request("https://x/scan", {
+        method: "POST",
+        body: JSON.stringify({ folderUrl: "https://drive.google.com/drive/folders/folder-1" }),
+        headers: { "content-type": "application/json" },
+      });
+    const scanTx = () => fakeTx({ query: async () => ({ rows: [] as unknown[], rowCount: 0 }) });
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "ONBOARDING_SCAN_COMPLETED",
+      success: async () => {
+        const res = await handleOnboardingScan(request(), {
+          requireAdminIdentity: admin,
+          randomUUID: () => W1,
+          verifyFolder: async () => ({
+            ok: true,
+            folderId: "folder-1",
+            folderName: "FXAV Onboarding",
+          }),
+          withTx: async (fn: (tx: never) => unknown) => fn(scanTx() as never),
+          runOnboardingScan: async () => ({ outcome: "completed", processed: [] }),
+        } as never);
+        await drainNdjson(res); // run the stream so start()'s emit fires
+        return res;
+      },
+      failure: async (mark) => {
+        const res = await handleOnboardingScan(request(), {
+          requireAdminIdentity: admin,
+          randomUUID: () => W1,
+          verifyFolder: async () => ({
+            ok: true,
+            folderId: "folder-1",
+            folderName: "FXAV Onboarding",
+          }),
+          withTx: async (fn: (tx: never) => unknown) => fn(scanTx() as never),
+          runOnboardingScan: async () => {
+            mark.hit = true;
+            return {
+              outcome: "superseded",
+              code: "WIZARD_SESSION_SUPERSEDED_DURING_SCAN",
+              processed: [],
+            };
+          },
+        } as never);
+        await drainNdjson(res); // drain so the absence is real, not trivially true
+        return res;
+      },
+      failureExpect: { status: 200 }, // stream Response is always 200
+    });
+  });
+
+  test("#20 ignored-sheets unignore emits IGNORED_SHEET_UNIGNORED", async () => {
+    const file = "app/api/admin/ignored-sheets/[driveFileId]/unignore/route.ts";
+    const ctx = { params: Promise.resolve({ driveFileId: DFID }) };
+    const request = () => new Request("https://x/unignore", { method: "POST" });
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "IGNORED_SHEET_UNIGNORED",
+      success: () =>
+        handleIgnoredSheetUnignore(request(), ctx, {
+          requireAdminIdentity: admin,
+          withRowTx: async (_id, fn) =>
+            fn(fakeTx({ deleteLiveDeferral: async () => undefined }) as never),
+        }),
+      failure: (mark) =>
+        handleIgnoredSheetUnignore(request(), ctx, {
+          requireAdminIdentity: admin,
+          withRowTx: async () => {
+            mark.hit = true;
+            throw new Error("boom"); // only non-emit path is the caught-throw → 500
+          },
+        }),
+      // The handler CATCHES internally (no escaped throw), logs the sink code, and
+      // returns 500 SYNC_INFRA_ERROR — the intended refusal telemetry discriminates it.
+      failureExpect: { status: 500, code: "IGNORED_SHEET_UNIGNORE_FAILED" },
+    });
+  });
+  // <<< BATCH-2 PROOF BLOCK END
+});
+
+// Structural guard (spec §3.3 / plan Substep A, Codex plan-R3): the Batch-2 proof
+// block records ONLY through the paired-proof helper. Reading this file's own
+// source and slicing between the sentinels makes "record directly / skip the
+// failure drive" a CI failure, not a convention. The helper + observers live
+// OUTSIDE the sentinels (shared infra) so they may call each other freely.
+describe("Batch 2 — structural guard (paired-proof helper is the sole recording path)", () => {
+  test("no direct observe*/record calls appear inside the Batch-2 proof block", () => {
+    const src = readFileSync(new URL(import.meta.url), "utf8");
+    const start = src.indexOf("// >>> BATCH-2 PROOF BLOCK START");
+    const end = src.indexOf("// <<< BATCH-2 PROOF BLOCK END");
+    expect(start).toBeGreaterThan(-1);
+    expect(end).toBeGreaterThan(start);
+    const slice = src.slice(start, end);
+    expect(slice).not.toMatch(/\brecordAdminOutcomeBehavior\s*\(/);
+    expect(slice).not.toMatch(/\bobserveSuccessCodes\s*\(/);
+    expect(slice).not.toMatch(/\bobserveCodes\s*\(/);
+    expect(slice).not.toMatch(/\bobserveFailure\s*\(/);
+    // Sanity: the block DOES route through the paired-proof helper.
+    expect(slice).toMatch(/\bproveAdminOutcomeBehavior\s*\(/);
+  });
+});
+
 // ── Task 18: executable behavioral-coverage assertion (spec §4.2 / §9 / §10.5) ──
 // Runs LAST: every recording test above has populated the file-local `recorded` set
 // within this one module scope (spec R11 F2 — no cross-file recorder). This is the
@@ -1439,8 +2429,8 @@ describe("Task 18 — admin behavioral coverage (every registered non-grandfathe
   const adminKeys = new Set(adminUnits.map((u) => `${u.file}::${u.fn}`));
   const grandfather = new Set(ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER.map((g) => `${g.file}::${g.fn}`));
 
-  test("the grandfather baseline matches the frozen pin (24 after Batch 1) and each entry is still a live admin surface", () => {
-    expect(ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER.length).toBe(24);
+  test("the grandfather baseline matches the frozen pin (8 after Batch 2) and each entry is still a live admin surface", () => {
+    expect(ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER.length).toBe(8);
     // No stale entries — a grandfather row must still resolve to a live admin surface
     // (fails if a route/action was deleted or renamed out from under the baseline).
     const stale = ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER.filter(
