@@ -1,10 +1,5 @@
 import { describe, expect, test } from "vitest";
-import {
-  NO_TELEMETRY_RE,
-  ADMIN_SURFACE_EXEMPTIONS,
-  KNOWN_UNINSTRUMENTED,
-  ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER,
-} from "./exemptions";
+import { NO_TELEMETRY_RE, ADMIN_SURFACE_EXEMPTIONS, KNOWN_UNINSTRUMENTED } from "./exemptions";
 
 describe("NO_TELEMETRY_RE", () => {
   test("rejects a bare `// no-telemetry:` with no reason text", () => {
@@ -23,32 +18,6 @@ describe("KNOWN_UNINSTRUMENTED — empty (BL-CREW-PICKER-OBSERVABILITY closed 20
     // ledger is closed. A NEW uninstrumented picker mutation is caught by the discovery
     // floor, not this ledger.
     expect(KNOWN_UNINSTRUMENTED).toHaveLength(0);
-  });
-});
-
-describe("ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER — hardcoded literal, exactly 8 {file,fn} units after Batch 2", () => {
-  test("exactly 8 rows, all distinct", () => {
-    expect(ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER.length).toBe(8);
-    const keys = ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER.map((r) => `${r.file}::${r.fn}`);
-    expect(new Set(keys).size).toBe(8);
-  });
-  test("all 8 remaining rows are route POSTs; the action functions + 16 clean DI-seam routes graduated to inline proof (Batch 1 + 2)", () => {
-    const routeRows = ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER.filter((r) => r.fn === "POST");
-    expect(routeRows.length).toBe(8);
-    // Batch 1 (BL-ADMIN-OUTCOME-BEHAVIOR) graduated the 6 per-show admin action functions
-    // and Batch 2 graduated the 16 clean DI-seam route POSTs to inline proof in
-    // adminOutcomeBehavior.test.ts, so NO non-POST (action-function) rows remain grandfathered.
-    const actionRows = ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER.filter((r) => r.fn !== "POST");
-    expect(actionRows).toEqual([]);
-  });
-  test("regression (Codex plan-R3 F4 scope bound): manifest/ignore + reap-stale-sessions are NOT grandfathered — they are seeded now, not pre-existing", () => {
-    const keys = new Set(ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER.map((r) => `${r.file}::${r.fn}`));
-    expect(
-      keys.has(
-        "app/api/admin/onboarding/manifest/[wizardSessionId]/[driveFileId]/ignore/route.ts::POST",
-      ),
-    ).toBe(false);
-    expect(keys.has("app/api/admin/onboarding/reap-stale-sessions/route.ts::POST")).toBe(false);
   });
 });
 

@@ -11,7 +11,6 @@ import { logAdminOutcome } from "@/lib/log/logAdminOutcome"; // NOT re-exported 
 import type { LogRecord } from "@/lib/log";
 import { collectSurfaceUnits } from "./mutationSurface/enumerate";
 import { AUDITABLE_MUTATIONS } from "./_auditableMutations";
-import { ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER } from "./mutationSurface/exemptions";
 
 // ── shared auth/Next mocks (Tasks 7-15) ─────────────────────────────────────
 // Per plan Tasks 7-16: NEVER mock @/lib/log or @/lib/log/logAdminOutcome here —
@@ -360,6 +359,104 @@ import { handleCleanupAbandonedFinalize } from "@/app/api/admin/onboarding/clean
 import { handleOnboardingScan } from "@/app/api/admin/onboarding/scan/route";
 import { handleUnignore as handleIgnoredSheetUnignore } from "@/app/api/admin/ignored-sheets/[driveFileId]/unignore/route";
 
+// ── Batch 3: the final 8 grandfathered admin surfaces (spec §2) ─────────────
+// Class A (A1-A4): injected via routeDeps / in-memory fakes. Class B (B1-B4):
+// module-mocked @/lib/sync/* entry points (partial spread-importActual — §5.1)
+// driven through the exported POST + a swapped Supabase client.
+import { handleWizardStagedApprove } from "@/app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/approve/route";
+import { handleOnboardingFinalize } from "@/app/api/admin/onboarding/finalize/route";
+import {
+  FakeFinalizeDb,
+  deps as finalizeFakeDeps,
+  request as finalizeRequest,
+} from "../onboarding/_finalizeFake";
+import { handleOnboardingFinalizeCas } from "@/app/api/admin/onboarding/finalize-cas/route";
+import {
+  W1 as CAS_W1,
+  FakeFinalizeCasDb,
+  shadowPayload,
+  deps as finalizeCasFakeDeps,
+  request as finalizeCasRequest,
+} from "../onboarding/_finalizeCasFake";
+import {
+  handleExtractAgenda,
+  type ExtractAgendaDeps,
+} from "@/app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route";
+import { createInMemorySlotStore } from "@/lib/agenda/extractAgendaLease";
+
+// ── Batch 3: Class B plain-POST module mocks (spec §5.1) — MANDATORY partial
+// (spread-importActual) form. A whole-module factory would clobber sibling exports
+// that A2/A3/A4 + already-proven rows import from these same modules
+// (revisionTimesMatch, STAGED_REVIEW_ITEMS_CORRUPT, *_unlocked, FINALIZE_OWNED_SHOW),
+// so ONLY the mutation entry point of each is overridden. @/lib/log is NEVER mocked.
+import type { ApplyStagedResult } from "@/lib/sync/applyStaged";
+import { PENDING_SYNC_NOT_FOUND } from "@/lib/sync/applyStaged";
+import type {
+  PromoteSnapshotResult,
+  RepairSnapshotRollbackResult,
+} from "@/lib/sync/promoteSnapshot";
+import { POST as stagedApplyPost } from "@/app/api/admin/staged/[fileId]/apply/route";
+
+const applyStagedMock = vi.fn(
+  async (..._a: unknown[]): Promise<ApplyStagedResult> => ({
+    outcome: "not_found",
+    code: PENDING_SYNC_NOT_FOUND,
+  }),
+);
+vi.mock("@/lib/sync/applyStaged", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/sync/applyStaged")>()),
+  applyStaged: (...a: unknown[]) => applyStagedMock(...a),
+}));
+
+const promoteSnapshotUploadMock = vi.fn(
+  async (..._a: unknown[]): Promise<PromoteSnapshotResult> => ({
+    outcome: "already_promoted",
+    snapshotRevisionId: "snap-1",
+  }),
+);
+const repairSnapshotRollbackMock = vi.fn(
+  async (..._a: unknown[]): Promise<RepairSnapshotRollbackResult> => ({
+    outcome: "not_stuck",
+    snapshotRevisionId: "snap-1",
+  }),
+);
+vi.mock("@/lib/sync/promoteSnapshot", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/sync/promoteSnapshot")>()),
+  promoteSnapshotUpload: (...a: unknown[]) => promoteSnapshotUploadMock(...a),
+  repairSnapshotRollback: (...a: unknown[]) => repairSnapshotRollbackMock(...a),
+}));
+
+import type { ManualSyncResult } from "@/lib/sync/runManualSyncForShow";
+import { FINALIZE_OWNED_SHOW } from "@/lib/sync/runManualSyncForShow";
+import { POST as syncSlugPost } from "@/app/api/admin/sync/[slug]/route";
+
+const runManualSyncForShowMock = vi.fn(
+  async (..._a: unknown[]): Promise<ManualSyncResult> => ({
+    outcome: "blocked",
+    code: FINALIZE_OWNED_SHOW,
+  }),
+);
+vi.mock("@/lib/sync/runManualSyncForShow", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/sync/runManualSyncForShow")>()),
+  runManualSyncForShow: (...a: unknown[]) => runManualSyncForShowMock(...a),
+}));
+
+import type { DiscardStagedResult } from "@/lib/sync/discardStaged";
+import { POST as stagedDiscardPost } from "@/app/api/admin/staged/[fileId]/discard/route";
+
+const discardStagedMock = vi.fn(
+  async (..._a: unknown[]): Promise<DiscardStagedResult> => ({
+    outcome: "not_found",
+    code: PENDING_SYNC_NOT_FOUND,
+  }),
+);
+vi.mock("@/lib/sync/discardStaged", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/sync/discardStaged")>()),
+  discardStaged: (...a: unknown[]) => discardStagedMock(...a),
+}));
+
+import { POST as snapshotRepairPost } from "@/app/api/admin/snapshot-rollback/[id]/repair/route";
+
 // ── inline file-local recorder (single-file contract; no cross-file state) ──
 const recorded = new Set<string>(); // "file::fn::code"
 function recordAdminOutcomeBehavior(x: { file: string; fn: string; code: string }) {
@@ -518,6 +615,106 @@ function fakeTx(overrides: Record<string, unknown> = {}): Record<string, unknown
  * `readNdjson` drain in tests/onboarding/scanRoute.test.ts:143. */
 async function drainNdjson(res: Response): Promise<void> {
   await res.text();
+}
+
+// ── A4 (extract-agenda) in-memory tagged-template lease pool (spec §4.2) ─────
+// Reaching AGENDA_EXTRACT_COMPLETED DB-free requires emulating the THREE
+// sql.begin(...) transactions the route issues (tx#1a claim, tx#1b staged read,
+// tx#2 persist). A bare unmatched-only dispatcher is INSUFFICIENT for a proof: a
+// regression that SKIPS a required statement (an advisory lock, the owner-scoped
+// UPDATE, the release DELETE) while still reaching the emit would stay green. This
+// fake is therefore script-driven + consumption-asserting: every statement is
+// matched IN ORDER against a per-begin script; unexpected / out-of-order / over-run
+// SQL throws; identity-bearing binds deep-equal the whole `values` array BY POSITION
+// (not `.includes` — an id in the wrong placeholder must fail); the claim's
+// {wiz,drive,owner} triple is captured at the INSERT and carried into the persist
+// UPDATE + release DELETE (proving ONE durable lease claim→persist→release); and the
+// mandatory statement set is asserted consumed after the drive.
+type BindMatcher = string | ((v: unknown) => boolean);
+type LeaseStmt = {
+  name: string;
+  match: RegExp;
+  contains?: RegExp[]; // additional fence substrings the statement text MUST contain
+  binds?: () => BindMatcher[]; // positional matchers, deep-equal by index (lazy → carry)
+  onMatch?: (values: unknown[]) => void;
+  rows?: unknown[];
+  mandatory?: boolean;
+};
+type FakeLeasePool = ((
+  strings: TemplateStringsArray,
+  ...values: unknown[]
+) => Promise<unknown[]>) & {
+  begin<R>(fn: (tx: unknown) => Promise<R>): Promise<R>;
+  assertConsumed(): void;
+};
+
+function fakeLeasePool(script: LeaseStmt[][]): FakeLeasePool {
+  let beginPtr = 0;
+  const consumed = new Set<string>();
+  const norm = (strings: TemplateStringsArray): string =>
+    strings.join(" $ ").replace(/\s+/g, " ").trim();
+
+  const pool = (() => {
+    throw new Error("fakeLeasePool: unexpected top-level (non-.begin) SQL");
+  }) as unknown as FakeLeasePool;
+
+  pool.begin = async <R>(fn: (tx: unknown) => Promise<R>): Promise<R> => {
+    const block = script[beginPtr];
+    if (!block)
+      throw new Error(
+        `fakeLeasePool: unexpected sql.begin #${beginPtr + 1} (no more scripted transactions)`,
+      );
+    beginPtr += 1;
+    const txIndex = beginPtr;
+    let stmtPtr = 0;
+    const tx = (async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      const text = norm(strings);
+      const exp = block[stmtPtr];
+      if (!exp) throw new Error(`fakeLeasePool: over-run in tx#${txIndex}: ${text.slice(0, 80)}`);
+      if (!exp.match.test(text))
+        throw new Error(
+          `fakeLeasePool: out-of-order/unexpected SQL in tx#${txIndex} at position ${stmtPtr} (expected ${exp.name}): ${text.slice(0, 120)}`,
+        );
+      for (const c of exp.contains ?? [])
+        if (!c.test(text))
+          throw new Error(
+            `fakeLeasePool: ${exp.name} missing required fence ${c}: ${text.slice(0, 200)}`,
+          );
+      if (exp.binds) {
+        const matchers = exp.binds();
+        if (matchers.length !== values.length)
+          throw new Error(
+            `fakeLeasePool: ${exp.name} bind arity ${values.length} !== ${matchers.length} (values=${JSON.stringify(values)})`,
+          );
+        matchers.forEach((m, i) => {
+          const ok = typeof m === "function" ? m(values[i]) : Object.is(values[i], m);
+          if (!ok)
+            throw new Error(
+              `fakeLeasePool: ${exp.name} positional bind mismatch at $${i} (got ${JSON.stringify(values[i])}, expected ${typeof m === "function" ? "<predicate>" : JSON.stringify(m)})`,
+            );
+        });
+      }
+      exp.onMatch?.(values);
+      consumed.add(exp.name);
+      stmtPtr += 1;
+      return exp.rows ?? [];
+    }) as unknown;
+    return fn(tx);
+  };
+
+  pool.assertConsumed = () => {
+    const missing = script
+      .flat()
+      .filter((s) => s.mandatory)
+      .map((s) => s.name)
+      .filter((n) => !consumed.has(n));
+    if (missing.length > 0)
+      throw new Error(`fakeLeasePool: mandatory statements not consumed: ${missing.join(", ")}`);
+    if (beginPtr !== script.length)
+      throw new Error(`fakeLeasePool: expected ${script.length} sql.begin calls, saw ${beginPtr}`);
+  };
+
+  return pool;
 }
 
 afterEach(() => resetLogSink());
@@ -1423,9 +1620,9 @@ describe("Flow-4 Task 4 — dashboard accept/undo server actions observe changes
   });
 });
 
-// ── Batch 1: grandfathered per-show server actions graduate to inline proof ──
-// BL-ADMIN-OUTCOME-BEHAVIOR (spec §3): each of the 6 actions was in
-// ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER (now removed). Each drives its committed-success
+// ── Batch 1: formerly-grandfathered per-show server actions graduate to inline proof ──
+// BL-ADMIN-OUTCOME-BEHAVIOR (spec §3): each of the 6 actions was in the behavioral-coverage
+// grandfather baseline (now removed entirely). Each drives its committed-success
 // branch through observeSuccessCodes (records ONLY after observing the real emit) and
 // is paired with a refusal case proving the emit is committed-success-gated. archive/
 // unarchive/setPublished resolve the show via the shared swappable serverClientImpl
@@ -2397,58 +2594,528 @@ describe("Batch 2 — clean DI-seam admin route POSTs observe success only", () 
   // <<< BATCH-2 PROOF BLOCK END
 });
 
-// Structural guard (spec §3.3 / plan Substep A, Codex plan-R3): the Batch-2 proof
-// block records ONLY through the paired-proof helper. Reading this file's own
-// source and slicing between the sentinels makes "record directly / skip the
-// failure drive" a CI failure, not a convention. The helper + observers live
-// OUTSIDE the sentinels (shared infra) so they may call each other freely.
-describe("Batch 2 — structural guard (paired-proof helper is the sole recording path)", () => {
-  test("no direct observe*/record calls appear inside the Batch-2 proof block", () => {
+// Structural guard (spec §3.3 / §5.2, plan Substep A + Task 1): the Batch-2 AND
+// Batch-3 proof blocks record ONLY through the paired-proof helper. Reading this
+// file's own source and slicing between EACH sentinel pair makes "record directly
+// / skip the failure drive" a CI failure, not a convention — and generalized over
+// both pairs so a Batch-N block can never be added later without a matching guard.
+// The helper + observers live OUTSIDE the sentinels (shared infra) so they may call
+// each other freely.
+describe("structural guard (paired-proof helper is the sole recording path in every proof block)", () => {
+  test("no direct observe*/record calls appear inside the Batch-2 or Batch-3 proof blocks", () => {
     const src = readFileSync(new URL(import.meta.url), "utf8");
-    const start = src.indexOf("// >>> BATCH-2 PROOF BLOCK START");
-    const end = src.indexOf("// <<< BATCH-2 PROOF BLOCK END");
-    expect(start).toBeGreaterThan(-1);
-    expect(end).toBeGreaterThan(start);
-    const slice = src.slice(start, end);
-    expect(slice).not.toMatch(/\brecordAdminOutcomeBehavior\s*\(/);
-    expect(slice).not.toMatch(/\bobserveSuccessCodes\s*\(/);
-    expect(slice).not.toMatch(/\bobserveCodes\s*\(/);
-    expect(slice).not.toMatch(/\bobserveFailure\s*\(/);
-    // Sanity: the block DOES route through the paired-proof helper.
-    expect(slice).toMatch(/\bproveAdminOutcomeBehavior\s*\(/);
+    for (const label of ["BATCH-2", "BATCH-3"]) {
+      const start = src.indexOf(`// >>> ${label} PROOF BLOCK START`);
+      const end = src.indexOf(`// <<< ${label} PROOF BLOCK END`);
+      expect(start, `${label} START sentinel present`).toBeGreaterThan(-1);
+      expect(end, `${label} END sentinel after START`).toBeGreaterThan(start);
+      const slice = src.slice(start, end);
+      expect(slice, `${label}: no direct recordAdminOutcomeBehavior`).not.toMatch(
+        /\brecordAdminOutcomeBehavior\s*\(/,
+      );
+      expect(slice, `${label}: no direct observeSuccessCodes`).not.toMatch(
+        /\bobserveSuccessCodes\s*\(/,
+      );
+      expect(slice, `${label}: no direct observeCodes`).not.toMatch(/\bobserveCodes\s*\(/);
+      expect(slice, `${label}: no direct observeFailure`).not.toMatch(/\bobserveFailure\s*\(/);
+      // Sanity: the block DOES route through the paired-proof helper.
+      expect(slice, `${label}: routes through proveAdminOutcomeBehavior`).toMatch(
+        /\bproveAdminOutcomeBehavior\s*\(/,
+      );
+    }
   });
+});
+
+// ── Batch 3: the final 8 grandfathered admin surfaces graduate to inline proof ──
+// Closes BL-ADMIN-OUTCOME-BEHAVIOR. Same 3-channel env-poison as Batch 2 (any
+// un-injected DB / Drive / Supabase-client seam THROWS), same sole-recording
+// contract (proveAdminOutcomeBehavior). Class A rows (A1-A4) inject via routeDeps /
+// in-memory fakes; Class B rows (B1-B4) drive the module-mocked @/lib/sync/* entry
+// points (partial spread-importActual mocks at file top) + a swapped Supabase client.
+describe("Batch 3 — final grandfathered surfaces graduate to inline proof", () => {
+  const admin = async () => ({ email: "admin@example.com" });
+  const B3_WSID = "11111111-1111-4111-8111-111111111111";
+  const B3_DFID = "df-batch3";
+
+  // Deterministic DB/Drive/client-free enforcement (spec §3 / §3.1) — poison all THREE
+  // default-infra channels for the duration of this block, identical to Batch 2.
+  const POISON_ENV: Record<string, string | undefined> = {};
+  beforeAll(() => {
+    for (const k of ["TEST_DATABASE_URL", "DATABASE_URL"]) {
+      POISON_ENV[k] = process.env[k];
+      process.env[k] = "postgresql://poison:poison@127.0.0.1:1/none"; // port 1 = unreachable
+    }
+    POISON_ENV.GOOGLE_SERVICE_ACCOUNT_JSON = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+    delete process.env.GOOGLE_SERVICE_ACCOUNT_JSON; // Drive defaults throw
+  });
+  afterAll(() => {
+    for (const [k, v] of Object.entries(POISON_ENV)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  });
+  // Runs AFTER the file-level beforeEach (which re-benigns the clients) → wins.
+  beforeEach(() => {
+    serverClientImpl.current = () => {
+      throw new Error("Batch-3: Supabase client must be injected, not defaulted");
+    };
+    serviceRoleClientImpl.current = () => {
+      throw new Error("Batch-3: service-role client must be injected, not defaulted");
+    };
+  });
+
+  // >>> BATCH-3 PROOF BLOCK START
+  test("A1 wizard staged approve emits STAGE_APPROVED", async () => {
+    const file = "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/approve/route.ts";
+    const ctx = { params: Promise.resolve({ wizardSessionId: B3_WSID, driveFileId: B3_DFID }) };
+    const request = () => new Request("https://x/approve", { method: "POST" });
+    // 3-branch queryOne (copied from the proven shape in tests/api/wizard-approve-route.test.ts):
+    // read → live row (session active, no demotion code); approve UPDATE → 1 row; manifest UPDATE → 1 row.
+    const approveTx = () =>
+      fakeTx({
+        queryOne: async (sql: string) => {
+          if (/select ps\.triggered_review_items/i.test(sql))
+            return { triggered_review_items: [{ id: "rev-1" }], last_finalize_failure_code: null };
+          if (/update public\.pending_syncs/i.test(sql)) return { approved: true };
+          if (/update public\.onboarding_scan_manifest/i.test(sql)) return { updated: true };
+          return null;
+        },
+      });
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "STAGE_APPROVED",
+      success: () =>
+        handleWizardStagedApprove(request(), ctx, {
+          requireAdminIdentity: admin,
+          withRowTx: async (_id, fn) => fn(approveTx() as never),
+        }),
+      failure: (mark) =>
+        handleWizardStagedApprove(request(), ctx, {
+          requireAdminIdentity: admin,
+          withRowTx: async (_id, fn) => {
+            mark.hit = true;
+            // read → null → readPendingForActiveSession null → 409 WIZARD_SESSION_SUPERSEDED.
+            return fn(fakeTx({ queryOne: async () => null }) as never);
+          },
+        }),
+      failureExpect: { status: 409, bodyCode: "WIZARD_SESSION_SUPERSEDED" },
+    });
+  });
+
+  test("A2 onboarding finalize emits SHOW_FINALIZED", async () => {
+    const file = "app/api/admin/onboarding/finalize/route.ts";
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      // success: a fresh FakeFinalizeDb (active session W1, ensured in_progress checkpoint,
+      // ZERO finishable rows, ZERO unresolved) → the approvedRows.length===0 tail branch
+      // (route.ts:1436) → SHOW_FINALIZED (route.ts:1563). @/lib/log is NOT mocked here (the
+      // copy-source finalize.test.ts mocks logAdminOutcome; Batch 3 relies on the real sink).
+      code: "SHOW_FINALIZED",
+      success: () =>
+        handleOnboardingFinalize(finalizeRequest(), finalizeFakeDeps(new FakeFinalizeDb())),
+      failure: (mark) => {
+        const db = new FakeFinalizeDb();
+        db.activeSessionId = null; // readCandidateSessionId → null → 409 CHECKPOINT_MISSING
+        return handleOnboardingFinalize(
+          finalizeRequest(),
+          finalizeFakeDeps(db, {
+            withTx: async (fn) => {
+              mark.hit = true;
+              return fn(db);
+            },
+          }),
+        );
+      },
+      failureExpect: { status: 409, bodyCode: "WIZARD_FINALIZE_CHECKPOINT_MISSING" },
+    });
+  });
+
+  test("A3 onboarding finalize-cas emits SHOW_FINALIZED", async () => {
+    const file = "app/api/admin/onboarding/finalize-cas/route.ts";
+    const seededDb = () => {
+      const db = new FakeFinalizeCasDb(); // checkpoint all_batches_complete (default)
+      db.shadowRows = [
+        {
+          wizard_session_id: CAS_W1,
+          drive_file_id: "existing-1",
+          show_id: "22222222-2222-4222-8222-222222222222",
+          applied_by_email: "apply-admin@example.com",
+          applied_at_intent: "2026-05-08T12:00:00.000Z",
+          payload: shadowPayload(),
+        },
+      ];
+      db.sessionCreatedDriveIds = ["first-seen-1"];
+      return db;
+    };
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      // success: one shadow row committed via applyShadow → SHOW_FINALIZED per committed row
+      // (route.ts:814). @/lib/log unmocked; deps supply subscribeToWatchedFolder (Drive) as vi.fn.
+      code: "SHOW_FINALIZED",
+      success: () =>
+        handleOnboardingFinalizeCas(finalizeCasRequest(), finalizeCasFakeDeps(seededDb())),
+      failure: (mark) => {
+        const db = new FakeFinalizeCasDb();
+        db.activeSessionId = null; // readSession → null → 409 CHECKPOINT_MISSING
+        return handleOnboardingFinalizeCas(
+          finalizeCasRequest(),
+          finalizeCasFakeDeps(db, {
+            withTx: async (fn) => {
+              mark.hit = true;
+              return fn(db);
+            },
+          }),
+        );
+      },
+      failureExpect: { status: 409, bodyCode: "WIZARD_FINALIZE_CHECKPOINT_MISSING" },
+    });
+  });
+
+  test("A4 extract-agenda emits AGENDA_EXTRACT_COMPLETED", async () => {
+    const file = "app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts";
+    const A4_WSID = "11111111-1111-4111-8111-111111111111";
+    const A4_DFID = "xa-a4";
+    const A4_SID = "33333333-3333-4333-8333-333333333333";
+    const A4_MT = "2026-06-01T00:00:00.000Z"; // staged_modified_time; fetchMeta returns the same instant
+    const A4_FOLDER = "xa-folder";
+    const A4_PR = { warnings: [], show: { title: "X", agenda_links: [] } };
+    const isStr = (v: unknown) => typeof v === "string";
+    const isObj = (v: unknown) => typeof v === "object" && v !== null;
+    const a4Ctx = () => ({
+      params: Promise.resolve({ wizardSessionId: A4_WSID, driveFileId: A4_DFID }),
+    });
+    const a4Req = () => new Request("https://x/extract-agenda", { method: "POST" });
+
+    // The full committed-success SQL script (verified from extractAgendaLease.ts + route.ts:240-470).
+    // A fresh capture per drive holds the route-generated `owner` nonce bound at the tx#1a INSERT.
+    const buildFake = () => {
+      const cap: { owner?: unknown } = {};
+      const script: LeaseStmt[][] = [
+        // tx#1a — claimExtractLease (admit lock → GC → live-lease check → cap → INSERT).
+        [
+          {
+            name: "admit-lock",
+            match: /pg_advisory_xact_lock\(hashtext\('agenda-extract-admit'/,
+            rows: [],
+            mandatory: true,
+          },
+          {
+            name: "gc-expired",
+            match: /DELETE FROM public\.agenda_extract_leases WHERE expires_at <= now\(\)/,
+            rows: [],
+          },
+          {
+            name: "live-lease-check",
+            match: /SELECT 1 AS one\s+FROM public\.agenda_extract_leases/,
+            binds: () => [A4_WSID, A4_DFID],
+            rows: [], // no live lease
+          },
+          {
+            name: "global-cap",
+            match: /SELECT count\(\*\)::int AS cnt FROM public\.agenda_extract_leases/,
+            rows: [{ cnt: 0 }],
+          },
+          {
+            name: "claim-insert",
+            match: /INSERT INTO public\.agenda_extract_leases[\s\S]*RETURNING owner/,
+            binds: () => [A4_WSID, A4_DFID, isStr, isStr], // v0/v1 pinned; v2 owner captured; v3 expiresAt shape
+            onMatch: (values) => {
+              cap.owner = values[2];
+            },
+            rows: [{ owner: "claimed" }],
+            mandatory: true,
+          },
+        ],
+        // tx#1b — staged read (session-active guard + folder + generation).
+        [
+          {
+            name: "staged-read",
+            match: /SELECT ps\.staged_id[\s\S]*FROM public\.pending_syncs ps/,
+            binds: () => [A4_WSID, A4_DFID, A4_WSID], // session_active expr, WHERE drive, WHERE wizard
+            rows: [
+              {
+                staged_id: A4_SID,
+                staged_modified_time: A4_MT,
+                parse_result: A4_PR,
+                session_active: true,
+                pending_folder_id: A4_FOLDER,
+              },
+            ],
+            mandatory: true,
+          },
+        ],
+        // tx#2 — persist (settings re-read → show-lock → parse re-read → owner-fenced UPDATE → release).
+        [
+          {
+            name: "settings-reread",
+            match: /SELECT pending_folder_id FROM public\.app_settings WHERE id = 'default'/,
+            rows: [{ pending_folder_id: A4_FOLDER }],
+          },
+          {
+            name: "show-lock",
+            match: /pg_advisory_xact_lock\(hashtext\('show:'/,
+            binds: () => [A4_DFID],
+            rows: [],
+            mandatory: true,
+          },
+          {
+            name: "parse-reread",
+            match: /SELECT parse_result FROM public\.pending_syncs/,
+            binds: () => [A4_WSID, A4_DFID],
+            rows: [{ parse_result: A4_PR }],
+          },
+          {
+            name: "persist-update",
+            match: /UPDATE public\.pending_syncs/,
+            // fence-tight: active-session EXISTS + lease-owned EXISTS + staged generation fences.
+            contains: [
+              /pending_wizard_session_id/,
+              /agenda_extract_leases/,
+              /owner/,
+              /expires_at > now\(\)/,
+              /staged_id/,
+              /staged_modified_time/,
+            ],
+            // positional deep-equal (v0 merged jsonb = shape; v1..v8 exact, owner carried from #5).
+            binds: () => [
+              isObj,
+              A4_WSID,
+              A4_DFID,
+              A4_SID,
+              A4_MT,
+              A4_WSID,
+              A4_WSID,
+              A4_DFID,
+              cap.owner as string,
+            ],
+            rows: [{ ok: true }],
+            mandatory: true,
+          },
+          {
+            name: "release-delete",
+            match: /DELETE FROM public\.agenda_extract_leases[\s\S]*owner/,
+            binds: () => [A4_WSID, A4_DFID, cap.owner as string], // owner carried from #5
+            rows: [],
+            mandatory: true,
+          },
+        ],
+      ];
+      return fakeLeasePool(script);
+    };
+
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "AGENDA_EXTRACT_COMPLETED",
+      success: async () => {
+        const fake = buildFake();
+        const deps: ExtractAgendaDeps = {
+          requireAdminIdentity: admin,
+          sql: fake as unknown as NonNullable<ExtractAgendaDeps["sql"]>,
+          slotStore: createInMemorySlotStore(),
+          fetchMeta: async () => ({ modifiedTime: A4_MT, parents: [A4_FOLDER] }),
+          enrichAgenda: async () => ({ perLink: [] }),
+          driveClient: {} as never,
+          deadlineMs: 60_000,
+        };
+        const res = await handleExtractAgenda(a4Req(), a4Ctx(), deps);
+        // Prove the emit is downstream of the FULL committed lock+persist+release sequence.
+        fake.assertConsumed();
+        return res;
+      },
+      failure: (mark) =>
+        handleExtractAgenda(a4Req(), a4Ctx(), {
+          requireAdminIdentity: admin,
+          slotStore: createInMemorySlotStore(),
+          driveClient: {} as never,
+          // First .begin short-circuits claimExtractLease with a cap-refusal → pendingResponse("queued") = 202.
+          sql: {
+            begin: async () => {
+              mark.hit = true;
+              return { ok: false, reason: "queued" };
+            },
+          } as unknown as NonNullable<ExtractAgendaDeps["sql"]>,
+        }),
+      failureExpect: { status: 202 }, // body {status:"pending",reason} has NO code key
+    });
+  });
+
+  const STAGED_UUID = "22222222-2222-4222-8222-222222222222";
+  // The routes read the admin email / resolve the slug / read the ledger via the Supabase
+  // client BEFORE the mutation dep, so BOTH legs must inject the working client (Codex plan-R1
+  // MEDIUM): under env-poison a failure leg that only configured the mock would throw first.
+  const withAdminServerClient = () => {
+    serverClientImpl.current = async () =>
+      makeClient({ getUser: { data: { user: { email: "admin@example.com" } }, error: null } });
+  };
+
+  test("B1 live staged apply (/[fileId]) emits SHOW_APPLIED", async () => {
+    const file = "app/api/admin/staged/[fileId]/apply/route.ts";
+    const ctx = () => ({ params: Promise.resolve({ fileId: B3_DFID }) });
+    const req = () =>
+      new NextRequest("https://x/apply", {
+        method: "POST",
+        body: JSON.stringify({ source_scope: "live", staged_id: STAGED_UUID }),
+        headers: { "content-type": "application/json" },
+      });
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "SHOW_APPLIED",
+      success: () => {
+        withAdminServerClient();
+        // Real ApplyStagedResult.applied; OMIT snapshotRevisionId → skip the after() promote path.
+        applyStagedMock.mockImplementation(async () => ({
+          outcome: "applied",
+          showId: "show-1",
+          syncAuditId: null,
+          derivedSideEffects: { revokeFloorForNames: [] },
+        }));
+        return stagedApplyPost(req(), ctx());
+      },
+      failure: (mark) => {
+        withAdminServerClient();
+        applyStagedMock.mockImplementation(async () => {
+          mark.hit = true;
+          return { outcome: "not_found", code: PENDING_SYNC_NOT_FOUND };
+        });
+        return stagedApplyPost(req(), ctx());
+      },
+      failureExpect: { status: 404 }, // body key is `error`, not `code` → no bodyCode
+    });
+  });
+
+  test("B2 manual sync (/[slug]) emits SHOW_SYNCED_MANUAL", async () => {
+    const file = "app/api/admin/sync/[slug]/route.ts";
+    const ctx = () => ({ params: Promise.resolve({ slug: "first-seen-show" }) });
+    const req = () => new NextRequest("https://x/sync", { method: "POST" });
+    const withSlugClient = () => {
+      // Slug is resolved via service-role BEFORE runManualSyncForShow (Codex plan-R1 MEDIUM).
+      serviceRoleClientImpl.current = () =>
+        makeClient({ from: { data: { drive_file_id: "df-1" }, error: null } });
+    };
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "SHOW_SYNCED_MANUAL",
+      success: () => {
+        withSlugClient();
+        // Real ProcessOneFileResult.applied (parseWarnings REQUIRED on the tail-caller surface).
+        runManualSyncForShowMock.mockImplementation(async () => ({
+          outcome: "applied",
+          showId: "show-1",
+          parseWarnings: [],
+        }));
+        return syncSlugPost(req(), ctx());
+      },
+      failure: (mark) => {
+        withSlugClient();
+        runManualSyncForShowMock.mockImplementation(async () => {
+          mark.hit = true;
+          return { outcome: "blocked", code: FINALIZE_OWNED_SHOW };
+        });
+        return syncSlugPost(req(), ctx());
+      },
+      failureExpect: { status: 409 },
+    });
+  });
+
+  test("B3 snapshot-rollback repair (/[id]) emits SNAPSHOT_ROLLBACK_REPAIRED", async () => {
+    const file = "app/api/admin/snapshot-rollback/[id]/repair/route.ts";
+    const ROLLBACK_ID = "22222222-2222-4222-8222-222222222222"; // matches UUID_RE
+    const ctx = () => ({ params: Promise.resolve({ id: ROLLBACK_ID }) });
+    const req = () => new NextRequest("https://x/repair", { method: "POST" });
+    const withLedgerClient = () => {
+      // Ledger row read via service-role BEFORE repairSnapshotRollback (Codex plan-R1 MEDIUM).
+      serviceRoleClientImpl.current = () =>
+        makeClient({
+          from: { data: { drive_file_id: "df-1", snapshot_revision_id: "snap-1" }, error: null },
+        });
+    };
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "SNAPSHOT_ROLLBACK_REPAIRED",
+      success: () => {
+        withLedgerClient();
+        repairSnapshotRollbackMock.mockImplementation(async () => ({
+          outcome: "repaired",
+          snapshotRevisionId: "snap-1",
+        }));
+        return snapshotRepairPost(req(), ctx());
+      },
+      failure: (mark) => {
+        withLedgerClient();
+        // Real not_stuck union member (snapshotRevisionId REQUIRED) → 409.
+        repairSnapshotRollbackMock.mockImplementation(async () => {
+          mark.hit = true;
+          return { outcome: "not_stuck", snapshotRevisionId: "snap-1" };
+        });
+        return snapshotRepairPost(req(), ctx());
+      },
+      failureExpect: { status: 409 }, // body key `error`
+    });
+  });
+
+  test("B4 live staged discard (/[fileId]) emits STAGE_DISCARDED", async () => {
+    const file = "app/api/admin/staged/[fileId]/discard/route.ts";
+    const ctx = () => ({ params: Promise.resolve({ fileId: B3_DFID }) });
+    const req = () =>
+      new NextRequest("https://x/discard", {
+        method: "POST",
+        body: JSON.stringify({ source_scope: "live", staged_id: STAGED_UUID }),
+        headers: { "content-type": "application/json" },
+      });
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "STAGE_DISCARDED",
+      success: () => {
+        withAdminServerClient();
+        // discarded branch → STAGE_DISCARDED (route.ts:161 fail-open try/catch; the real
+        // logger inside still hits the sink).
+        discardStagedMock.mockImplementation(async () => ({
+          outcome: "discarded",
+          variant: "try_again",
+        }));
+        return stagedDiscardPost(req(), ctx());
+      },
+      failure: (mark) => {
+        withAdminServerClient();
+        discardStagedMock.mockImplementation(async () => {
+          mark.hit = true;
+          return { outcome: "not_found", code: PENDING_SYNC_NOT_FOUND };
+        });
+        return stagedDiscardPost(req(), ctx());
+      },
+      failureExpect: { status: 404 },
+    });
+  });
+  // <<< BATCH-3 PROOF BLOCK END
 });
 
 // ── Task 18: executable behavioral-coverage assertion (spec §4.2 / §9 / §10.5) ──
 // Runs LAST: every recording test above has populated the file-local `recorded` set
-// within this one module scope (spec R11 F2 — no cross-file recorder). This is the
-// teeth of the admin contract: a registered admin surface that is NOT grandfathered
-// MUST have driven its success branch and been observed emitting its code.
-describe("Task 18 — admin behavioral coverage (every registered non-grandfather admin mutation is proven)", () => {
+// within this one module scope (spec R11 F2 — no cross-file recorder). The grandfather
+// mechanism is fully retired (BL-ADMIN-OUTCOME-BEHAVIOR closed, Batch 3) — this is now
+// a STRICT completeness assertion with no escape hatch: EVERY registered admin
+// AUDITABLE_MUTATIONS surface must have driven its committed-success branch and been
+// observed emitting its code in this file. A new admin surface fails-by-default until
+// it carries a real proof.
+describe("Task 18 — admin behavioral coverage (every registered admin mutation is proven, no exemptions)", () => {
   const adminUnits = collectSurfaceUnits(["app", "lib", "components"]).filter((u) => u.admin);
   const adminKeys = new Set(adminUnits.map((u) => `${u.file}::${u.fn}`));
-  const grandfather = new Set(ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER.map((g) => `${g.file}::${g.fn}`));
 
-  test("the grandfather baseline matches the frozen pin (8 after Batch 2) and each entry is still a live admin surface", () => {
-    expect(ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER.length).toBe(8);
-    // No stale entries — a grandfather row must still resolve to a live admin surface
-    // (fails if a route/action was deleted or renamed out from under the baseline).
-    const stale = ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER.filter(
-      (g) => !adminKeys.has(`${g.file}::${g.fn}`),
-    );
-    expect(
-      stale,
-      `stale grandfather entries:\n${stale.map((g) => `${g.file}::${g.fn}`).join("\n")}`,
-    ).toEqual([]);
-  });
-
-  test("every registered admin mutation NOT in the grandfather baseline has an observed behavioral record", () => {
+  test("every registered admin mutation is proven (no exemptions)", () => {
     // Registry rows scoped to ADMIN surfaces only (the one non-admin registry row —
     // the emailed-link unpublish ROUTE — passes the discovery floor via its emit and
     // is not subject to the admin behavioral contract).
-    const missing = AUDITABLE_MUTATIONS.filter((r) => adminKeys.has(`${r.file}::${r.fn}`))
-      .filter((r) => !grandfather.has(`${r.file}::${r.fn}`))
-      .filter((r) => !recorded.has(`${r.file}::${r.fn}::${r.code}`));
+    const missing = AUDITABLE_MUTATIONS.filter((r) => adminKeys.has(`${r.file}::${r.fn}`)).filter(
+      (r) => !recorded.has(`${r.file}::${r.fn}::${r.code}`),
+    );
     expect(
       missing,
       `unproven admin mutations (registered but no observed success emit in this file):\n${missing

@@ -1,5 +1,7 @@
-// Exemption / ledger / grandfather registries for the mutation-surface discovery
-// meta-test (invariant #10, spec §4.3 escape hatches + §4.2 grandfather baseline).
+// Exemption / ledger registries for the mutation-surface discovery meta-test
+// (invariant #10, spec §4.3 escape hatches). The behavioral-coverage grandfather
+// baseline was fully retired when BL-ADMIN-OUTCOME-BEHAVIOR closed (Batch 3): every
+// admin surface now carries a live proof, so there is no longer a grandfather escape.
 
 import ts from "typescript";
 
@@ -91,48 +93,9 @@ export type KnownUninstrumented = { file: string; fn: string; backlog: string };
  * NEW uninstrumented picker mutation fails the discovery floor by default, not here. */
 export const KNOWN_UNINSTRUMENTED: readonly KnownUninstrumented[] = [];
 
-export type GrandfatherUnit = { file: string; fn: string };
-
-/** The scope-bound behavioral-coverage baseline (spec §4.2, §9): admin surfaces
- * that ALREADY emitted a success outcome at `origin/main` HEAD but whose INLINE
- * `observeSuccessCodes` proof in `adminOutcomeBehavior.test.ts` is still being
- * backfilled. Originally 30 (24 pre-existing admin route POSTs + 6 pre-existing
- * admin action functions). This is a HARDCODED LITERAL (Codex plan-R3 F4 — NOT
- * computed from the tree) that NEVER grows and only SHRINKS as surfaces graduate
- * to inline proof (BL-ADMIN-OUTCOME-BEHAVIOR, delivered in batches).
- * Batch 1 (2026-07-05) graduated the 6 per-show action functions → 24 route POSTs
- * remain. Batch 2 (2026-07-09) graduated the 16 clean DI-seam route POSTs (mutation
- * dep / faked-tx, each with a DB-independent driver) to inline paired-proof coverage
- * in adminOutcomeBehavior.test.ts → 8 remain: the 4 heavy DI-seam routes (approve,
- * finalize, finalize-cas, extract-agenda) + the 4 plain-POST routes (staged/[fileId]/
- * apply, sync/[slug], snapshot-rollback/[id]/repair, staged/[fileId]/discard), all
- * deferred to Batch 3. `manifest/…/ignore` and `reap-stale-sessions` are deliberately
- * NOT here — they were seeded WITH inline proof, not pre-existing (Codex R15 F3 /
- * plan-R3 F4). */
-export const ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER: readonly GrandfatherUnit[] = [
-  // Batch 3 — 4 heavy DI-seam route POSTs (full in-memory harness / DB-backed-only proof):
-  {
-    file: "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/approve/route.ts",
-    fn: "POST",
-  },
-  { file: "app/api/admin/onboarding/finalize/route.ts", fn: "POST" },
-  { file: "app/api/admin/onboarding/finalize-cas/route.ts", fn: "POST" },
-  {
-    file: "app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts",
-    fn: "POST",
-  },
-  // Batch 3 — 4 plain-POST route POSTs (no testable handle* seam yet):
-  { file: "app/api/admin/staged/[fileId]/apply/route.ts", fn: "POST" },
-  { file: "app/api/admin/sync/[slug]/route.ts", fn: "POST" },
-  { file: "app/api/admin/snapshot-rollback/[id]/repair/route.ts", fn: "POST" },
-  { file: "app/api/admin/staged/[fileId]/discard/route.ts", fn: "POST" },
-  // Batch 1 (2026-07-05) — the 6 per-show admin action functions GRADUATED to inline
-  // observeSuccessCodes proof in adminOutcomeBehavior.test.ts (BL-ADMIN-OUTCOME-BEHAVIOR):
-  //   archive.ts::archiveShowAction, unarchive.ts::unarchiveShowAction,
-  //   setPublished.ts::setShowPublishedAction, feed.ts::{mi11ApproveAction,mi11RejectAction,undoChangeAction}.
-  // Batch 2 (2026-07-09) — the 16 clean DI-seam route POSTs GRADUATED to inline
-  // proveAdminOutcomeBehavior paired proof (apply/unapprove/discard wizard-staged,
-  // live-staged apply/discard, live + wizard pending-ingestion retry/discard,
-  // data-quality ignore/unignore, admin-alerts global + show-scoped resolve,
-  // rescan-sheet, cleanup-abandoned-finalize, onboarding scan, ignored-sheets unignore).
-];
+// The behavioral-coverage grandfather baseline array + its unit type were fully
+// retired when BL-ADMIN-OUTCOME-BEHAVIOR closed (Batch 3, 2026-07-09): all 30
+// originally-grandfathered admin surfaces (6 per-show actions → Batch 1; 16 clean
+// DI-seam route POSTs → Batch 2; the final 8 → Batch 3) now carry a live inline
+// `proveAdminOutcomeBehavior` proof in adminOutcomeBehavior.test.ts. Task 18 there is
+// now a STRICT completeness assertion with no escape hatch.
