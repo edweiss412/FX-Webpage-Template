@@ -85,6 +85,16 @@ describe("parseHotels — HOTEL_GUEST_SPLIT_AMBIGUOUS emission (structured path)
     expect(guestWarnings(singleCell("Alice - #51111"))).toHaveLength(0);
   });
 
+  it("tokenized cell whose NAME is itself glued (4 tokens before the conf#) → 1 warning", () => {
+    // The conf# token matches and consumes "John Smith Jane Doe" as ONE name; the glued
+    // multi-guest name must still be flagged (Codex R4 HIGH — matched path bypassed it).
+    expect(guestWarnings(singleCell("John Smith Jane Doe - #1234"))).toHaveLength(1);
+  });
+
+  it("tokenized cell with a clean 2-token name + conf# → no warning (control)", () => {
+    expect(guestWarnings(singleCell("Douglas Larson - #2069854"))).toHaveLength(0);
+  });
+
   it("multi-segment cell (fallback + tail branches) → exactly 1 warning per cell", () => {
     expect(
       guestWarnings(singleCell("John Smith Jane Doe / Doug - #103317 Extra Person")),

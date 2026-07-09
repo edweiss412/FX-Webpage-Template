@@ -183,10 +183,17 @@ export function parseGuestCell(cell: string): {
     let matched = false;
     let m: RegExpExecArray | null;
     while ((m = tokenRe.exec(seg)) !== null) {
-      names.push(clean(m[1]!));
+      const nm = clean(m[1]!);
+      names.push(nm);
       confs.push(m[2]!);
       consumedEnd = m.index + m[0].length;
       matched = true;
+      // §4.2: a tokenized guest's NAME can itself be several people glued together
+      // before the conf# ("John Smith Jane Doe - #1234") — the token match consumes
+      // the whole run as one name, so run the same glued-name predicate on the captured
+      // name, else a structured ambiguous cell ships a merged guest with no warning.
+      const nameReason = fallbackGuestAmbiguityReason(nm);
+      if (nameReason) reasons.push(nameReason);
     }
     if (!matched) {
       names.push(seg); // no conf# tokens in this segment — it is just a guest name
