@@ -795,6 +795,27 @@ test("Point A/B TOCTOU: roster (crew_members) is read BEFORE availability (shows
   expect(reads.indexOf("crew_members")).toBeLessThan(reads.indexOf("shows"));
 });
 
+test("Point B TOCTOU: RESOLVED projection missing the id (not a rejection) + cascade-emptied roster + deleted show → notFound(), roster read BEFORE availability", async () => {
+  // Point B reaches renderRacedCrewMiss via a RETURNED projection whose crewMembers omits the resolved id
+  // (distinct from Point A's rejected promise). Pins the SAME roster-first/availability-last ordering on the
+  // Point B path so a divergent Point B implementation that skips the shared helper can't render an empty
+  // picker for a deleted show and still pass.
+  (resolveShowPageAccess as any).mockResolvedValue(resolvedAccess);
+  (getShowForViewer as any).mockResolvedValue({ crewMembers: [{ id: "other", name: "X" }] }); // well-formed array, id absent
+  const reads: string[] = [];
+  (createSupabaseServiceRoleClient as any).mockReturnValue({
+    from: (table: string) => {
+      reads.push(table);
+      if (table === "shows") return { select: () => ({ eq: () => ({ maybeSingle: () => Promise.resolve({ data: null, error: null }) }) }) }; // deleted
+      const q: any = { select: () => q, eq: () => q, order: () => Promise.resolve({ data: [], error: null }) }; // cascade-emptied
+      return q;
+    },
+  });
+  await expect(ShowPage({ params: Promise.resolve({ slug: "s", shareToken: "t" }), searchParams: Promise.resolve({}) })).rejects.toThrow("NEXT_NOT_FOUND");
+  expect(reads.indexOf("crew_members")).toBeGreaterThanOrEqual(0);
+  expect(reads.indexOf("crew_members")).toBeLessThan(reads.indexOf("shows"));
+});
+
 test("renderPickerRepick roster-load failure (available show, crew_members read errors) → TerminalFailure, NOT a thrown render", async () => {
   (resolveShowPageAccess as any).mockResolvedValue(resolvedAccess);
   (getShowForViewer as any).mockRejectedValue(new CrewMemberNotInShowError()); // Point A → renderRacedCrewMiss → renderPickerRepick
@@ -822,7 +843,7 @@ test("negative: generic getShowForViewer error → TerminalFailure, not re-pick"
 
 > The roster-fail case exercises `renderRacedCrewMiss`'s roster `try/catch`: with roster-first ordering, `loadRoster` throws (`new Error("roster lookup failed")`) when the crew_members read returns `{ error }`, and the catch returns `TerminalFailure`. An implementation that drops that catch fails here (the throw escapes to Next's generic boundary instead of `terminal-failure`).
 
-This covers the full matrix for **both** points: Point A {available→picker, cascade-deleted→notFound, roster-infra→TerminalFailure, availability-infra→TerminalFailure} and Point B {available→picker, deleted→notFound, unpublished→notFound, **truthy-non-array→malformed-projection TerminalFailure (fail-closed, no page-level throw)**}, plus the **TOCTOU ordering** case {roster read precedes availability read; cascade-emptied roster + deleted show → notFound, never an empty picker}. Three pins:
+This covers the full matrix for **both** points: Point A {available→picker, cascade-deleted→notFound, roster-infra→TerminalFailure, availability-infra→TerminalFailure} and Point B {available→picker, deleted→notFound, unpublished→notFound, **truthy-non-array→malformed-projection TerminalFailure (fail-closed, no page-level throw)**}, plus the **TOCTOU ordering** cases for BOTH resolved-race paths {Point A via rejected `CrewMemberNotInShowError` AND Point B via a returned projection missing the id — each asserts roster read precedes availability read; cascade-emptied roster + deleted show → notFound, never an empty picker}. Three pins:
 > - **round-1 fix** — `notFound()` is not swallowed: each read's catch is scoped to the READ only, so `notFound()` (from the `"unavailable"` gate) propagates.
 > - **round-7 fix** — `crew` is computed only inside an `Array.isArray` block, so a degraded truthy-non-array projection routes through `CrewShell`→`resolveViewerContext`'s existing `MalformedProjectionError` fail-closed path instead of throwing `find is not a function` at the page level.
 > - **round-8 fix** — the availability re-check is the FINAL await before render (roster read first), closing the show-delete cascade window that would otherwise render an empty picker for a deleted show; the ordering assertion (`crew_members` index < `shows` index) pins it structurally.
