@@ -360,6 +360,12 @@ import { handleCleanupAbandonedFinalize } from "@/app/api/admin/onboarding/clean
 import { handleOnboardingScan } from "@/app/api/admin/onboarding/scan/route";
 import { handleUnignore as handleIgnoredSheetUnignore } from "@/app/api/admin/ignored-sheets/[driveFileId]/unignore/route";
 
+// ── Batch 3: the final 8 grandfathered admin surfaces (spec §2) ─────────────
+// Class A (A1-A4): injected via routeDeps / in-memory fakes. Class B (B1-B4):
+// module-mocked @/lib/sync/* entry points (partial spread-importActual — §5.1)
+// driven through the exported POST + a swapped Supabase client.
+import { handleWizardStagedApprove } from "@/app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/approve/route";
+
 // ── inline file-local recorder (single-file contract; no cross-file state) ──
 const recorded = new Set<string>(); // "file::fn::code"
 function recordAdminOutcomeBehavior(x: { file: string; fn: string; code: string }) {
@@ -2397,26 +2403,116 @@ describe("Batch 2 — clean DI-seam admin route POSTs observe success only", () 
   // <<< BATCH-2 PROOF BLOCK END
 });
 
-// Structural guard (spec §3.3 / plan Substep A, Codex plan-R3): the Batch-2 proof
-// block records ONLY through the paired-proof helper. Reading this file's own
-// source and slicing between the sentinels makes "record directly / skip the
-// failure drive" a CI failure, not a convention. The helper + observers live
-// OUTSIDE the sentinels (shared infra) so they may call each other freely.
-describe("Batch 2 — structural guard (paired-proof helper is the sole recording path)", () => {
-  test("no direct observe*/record calls appear inside the Batch-2 proof block", () => {
+// Structural guard (spec §3.3 / §5.2, plan Substep A + Task 1): the Batch-2 AND
+// Batch-3 proof blocks record ONLY through the paired-proof helper. Reading this
+// file's own source and slicing between EACH sentinel pair makes "record directly
+// / skip the failure drive" a CI failure, not a convention — and generalized over
+// both pairs so a Batch-N block can never be added later without a matching guard.
+// The helper + observers live OUTSIDE the sentinels (shared infra) so they may call
+// each other freely.
+describe("structural guard (paired-proof helper is the sole recording path in every proof block)", () => {
+  test("no direct observe*/record calls appear inside the Batch-2 or Batch-3 proof blocks", () => {
     const src = readFileSync(new URL(import.meta.url), "utf8");
-    const start = src.indexOf("// >>> BATCH-2 PROOF BLOCK START");
-    const end = src.indexOf("// <<< BATCH-2 PROOF BLOCK END");
-    expect(start).toBeGreaterThan(-1);
-    expect(end).toBeGreaterThan(start);
-    const slice = src.slice(start, end);
-    expect(slice).not.toMatch(/\brecordAdminOutcomeBehavior\s*\(/);
-    expect(slice).not.toMatch(/\bobserveSuccessCodes\s*\(/);
-    expect(slice).not.toMatch(/\bobserveCodes\s*\(/);
-    expect(slice).not.toMatch(/\bobserveFailure\s*\(/);
-    // Sanity: the block DOES route through the paired-proof helper.
-    expect(slice).toMatch(/\bproveAdminOutcomeBehavior\s*\(/);
+    for (const label of ["BATCH-2", "BATCH-3"]) {
+      const start = src.indexOf(`// >>> ${label} PROOF BLOCK START`);
+      const end = src.indexOf(`// <<< ${label} PROOF BLOCK END`);
+      expect(start, `${label} START sentinel present`).toBeGreaterThan(-1);
+      expect(end, `${label} END sentinel after START`).toBeGreaterThan(start);
+      const slice = src.slice(start, end);
+      expect(slice, `${label}: no direct recordAdminOutcomeBehavior`).not.toMatch(
+        /\brecordAdminOutcomeBehavior\s*\(/,
+      );
+      expect(slice, `${label}: no direct observeSuccessCodes`).not.toMatch(
+        /\bobserveSuccessCodes\s*\(/,
+      );
+      expect(slice, `${label}: no direct observeCodes`).not.toMatch(/\bobserveCodes\s*\(/);
+      expect(slice, `${label}: no direct observeFailure`).not.toMatch(/\bobserveFailure\s*\(/);
+      // Sanity: the block DOES route through the paired-proof helper.
+      expect(slice, `${label}: routes through proveAdminOutcomeBehavior`).toMatch(
+        /\bproveAdminOutcomeBehavior\s*\(/,
+      );
+    }
   });
+});
+
+// ── Batch 3: the final 8 grandfathered admin surfaces graduate to inline proof ──
+// Closes BL-ADMIN-OUTCOME-BEHAVIOR. Same 3-channel env-poison as Batch 2 (any
+// un-injected DB / Drive / Supabase-client seam THROWS), same sole-recording
+// contract (proveAdminOutcomeBehavior). Class A rows (A1-A4) inject via routeDeps /
+// in-memory fakes; Class B rows (B1-B4) drive the module-mocked @/lib/sync/* entry
+// points (partial spread-importActual mocks at file top) + a swapped Supabase client.
+describe("Batch 3 — final grandfathered surfaces graduate to inline proof", () => {
+  const admin = async () => ({ email: "admin@example.com" });
+  const B3_WSID = "11111111-1111-4111-8111-111111111111";
+  const B3_DFID = "df-batch3";
+
+  // Deterministic DB/Drive/client-free enforcement (spec §3 / §3.1) — poison all THREE
+  // default-infra channels for the duration of this block, identical to Batch 2.
+  const POISON_ENV: Record<string, string | undefined> = {};
+  beforeAll(() => {
+    for (const k of ["TEST_DATABASE_URL", "DATABASE_URL"]) {
+      POISON_ENV[k] = process.env[k];
+      process.env[k] = "postgresql://poison:poison@127.0.0.1:1/none"; // port 1 = unreachable
+    }
+    POISON_ENV.GOOGLE_SERVICE_ACCOUNT_JSON = process.env.GOOGLE_SERVICE_ACCOUNT_JSON;
+    delete process.env.GOOGLE_SERVICE_ACCOUNT_JSON; // Drive defaults throw
+  });
+  afterAll(() => {
+    for (const [k, v] of Object.entries(POISON_ENV)) {
+      if (v === undefined) delete process.env[k];
+      else process.env[k] = v;
+    }
+  });
+  // Runs AFTER the file-level beforeEach (which re-benigns the clients) → wins.
+  beforeEach(() => {
+    serverClientImpl.current = () => {
+      throw new Error("Batch-3: Supabase client must be injected, not defaulted");
+    };
+    serviceRoleClientImpl.current = () => {
+      throw new Error("Batch-3: service-role client must be injected, not defaulted");
+    };
+  });
+
+  // >>> BATCH-3 PROOF BLOCK START
+  test("A1 wizard staged approve emits STAGE_APPROVED", async () => {
+    const file =
+      "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/approve/route.ts";
+    const ctx = { params: Promise.resolve({ wizardSessionId: B3_WSID, driveFileId: B3_DFID }) };
+    const request = () => new Request("https://x/approve", { method: "POST" });
+    // 3-branch queryOne (copied from the proven shape in tests/api/wizard-approve-route.test.ts):
+    // read → live row (session active, no demotion code); approve UPDATE → 1 row; manifest UPDATE → 1 row.
+    const approveTx = () =>
+      fakeTx({
+        queryOne: async (sql: string) => {
+          if (/select ps\.triggered_review_items/i.test(sql))
+            return { triggered_review_items: [{ id: "rev-1" }], last_finalize_failure_code: null };
+          if (/update public\.pending_syncs/i.test(sql)) return { approved: true };
+          if (/update public\.onboarding_scan_manifest/i.test(sql)) return { updated: true };
+          return null;
+        },
+      });
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      code: "STAGE_APPROVED",
+      success: () =>
+        handleWizardStagedApprove(request(), ctx, {
+          requireAdminIdentity: admin,
+          withRowTx: async (_id, fn) => fn(approveTx() as never),
+        }),
+      failure: (mark) =>
+        handleWizardStagedApprove(request(), ctx, {
+          requireAdminIdentity: admin,
+          withRowTx: async (_id, fn) => {
+            mark.hit = true;
+            // read → null → readPendingForActiveSession null → 409 WIZARD_SESSION_SUPERSEDED.
+            return fn(fakeTx({ queryOne: async () => null }) as never);
+          },
+        }),
+      failureExpect: { status: 409, bodyCode: "WIZARD_SESSION_SUPERSEDED" },
+    });
+  });
+  // <<< BATCH-3 PROOF BLOCK END
 });
 
 // ── Task 18: executable behavioral-coverage assertion (spec §4.2 / §9 / §10.5) ──
