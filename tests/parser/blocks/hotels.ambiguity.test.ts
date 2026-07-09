@@ -177,3 +177,44 @@ describe("parseHotels — HOTEL_CARDINALITY_EXCEEDED aggregator warning", () => 
     expect(agg.warnings.filter((x) => x.code === "HOTEL_CARDINALITY_EXCEEDED")).toHaveLength(0);
   });
 });
+
+// ── Structured-table overflow: RESERVATION #5+ must reach the cardinality cap AND
+//    an over-cap ambiguous guest cell must stay silent (kept-hotels-only) — Codex R5 ──
+describe("parseHotels — structured table overflow (>4 reservations)", () => {
+  // Five RESERVATION slots across three row-groups. The 5th guest cell is glued
+  // (4 tokens) — it must NOT warn because slot #5 is truncated by the cap.
+  const fiveResTable = [
+    "| HOTEL | RESERVATION \\#1 |  | RESERVATION \\#2 |",
+    "| :---: | :---: | :---: | :---: |",
+    "|  | Hotel Name / Address |  | Hotel Name / Address |",
+    "|  | Hotel One |  | Hotel Two |",
+    "|  | Names on Reservation |  | Names on Reservation |",
+    "|  | Alice Brown |  | Bob Carter |",
+    "|  | RESERVATION \\#3 |  | RESERVATION \\#4 |",
+    "|  | Hotel Name / Address |  | Hotel Name / Address |",
+    "|  | Hotel Three |  | Hotel Four |",
+    "|  | Names on Reservation |  | Names on Reservation |",
+    "|  | Carol Diaz |  | Dave Evans |",
+    "|  | RESERVATION \\#5 |  |  |",
+    "|  | Hotel Name / Address |  |  |",
+    "|  | Hotel Five |  |  |",
+    "|  | Names on Reservation |  |  |",
+    "|  | John Smith Jane Doe |  |  |",
+  ].join("\n");
+
+  it("emits HOTEL_CARDINALITY_EXCEEDED and truncates to 4 (structured RESERVATION #5)", () => {
+    const agg = newAggregator();
+    const hotels = parseHotels(fiveResTable, "v4", agg);
+    expect(hotels).toHaveLength(4);
+    expect(agg.warnings.filter((x) => x.code === "HOTEL_CARDINALITY_EXCEEDED")).toHaveLength(1);
+  });
+
+  it("does NOT emit HOTEL_GUEST_SPLIT_AMBIGUOUS for the truncated over-cap hotel", () => {
+    // Only hotel #5's guest cell is ambiguous, and #5 is dropped by the cap — so no
+    // guest-split warning fires (a warning for a hotel that is not shown would violate
+    // the ambiguity contract + kept-hotels-only single-commit discipline).
+    const agg = newAggregator();
+    parseHotels(fiveResTable, "v4", agg);
+    expect(agg.warnings.filter((x) => x.code === "HOTEL_GUEST_SPLIT_AMBIGUOUS")).toHaveLength(0);
+  });
+});

@@ -106,6 +106,10 @@ type SlotData = {
   check_in?: string | null;
   check_out?: string | null;
   notes: null;
+  // §4.2 (Codex R5): guest-split ambiguities are STASHED per triggering cell during
+  // parsing and emitted only for slots that survive the cardinality cap (kept hotels),
+  // so a dropped RESERVATION #5+ slot never warns for a hotel that isn't shown.
+  guestAmbiguities: Array<{ reasons: string[]; rawCell: string }>;
 };
 
 /**
@@ -434,6 +438,7 @@ function parseHotelTable(markdown: string, agg?: ParseAggregator): HotelReservat
           names: [],
           confirmation_no: null,
           notes: null,
+          guestAmbiguities: [],
         });
       }
       if (rightNum > 0 && !slots.has(rightNum)) {
@@ -443,6 +448,7 @@ function parseHotelTable(markdown: string, agg?: ParseAggregator): HotelReservat
           names: [],
           confirmation_no: null,
           notes: null,
+          guestAmbiguities: [],
         });
       }
       continue;
@@ -502,28 +508,19 @@ function parseHotelTable(markdown: string, agg?: ParseAggregator): HotelReservat
         // conf# is parsed only to strip it out of the names, NOT persisted.
         const parsed = parseGuestCell(col1);
         leftSlot.names.push(...parsed.names);
-        // §4.2: emit ONE glue/split-ambiguity warning per triggering cell — but ONLY for
-        // a slot that will survive (hotel_name is resolved on the prior "Hotel Name /
-        // Address" row, which always precedes this "names" row; a dash-only/unresolved
-        // slot is discarded at the survival loop below, so a judgment warning for a
-        // dropped hotel would violate the ambiguity contract + single-commit discipline).
-        if (parsed.ambiguity && leftSlot.hotel_name) {
-          emitHotelGuestSplitAmbiguity(agg, {
-            name: leftSlot.hotel_name,
-            reasons: parsed.ambiguity.reasons,
-            rawCell: col1,
-          });
+        // §4.2 (Codex R5): STASH one glue/split ambiguity per triggering cell; it is
+        // emitted in the materialization loop below ONLY for a hotel that survives the
+        // cardinality cap (single commit point, kept-hotels-only) — a dropped dash-only or
+        // over-cap slot must never warn for a hotel that is not shown.
+        if (parsed.ambiguity) {
+          leftSlot.guestAmbiguities.push({ reasons: parsed.ambiguity.reasons, rawCell: col1 });
         }
       }
       if (rightSlot && col3 && col3 !== "\\-" && col3 !== "-") {
         const parsed = parseGuestCell(col3);
         rightSlot.names.push(...parsed.names);
-        if (parsed.ambiguity && rightSlot.hotel_name) {
-          emitHotelGuestSplitAmbiguity(agg, {
-            name: rightSlot.hotel_name,
-            reasons: parsed.ambiguity.reasons,
-            rawCell: col3,
-          });
+        if (parsed.ambiguity) {
+          rightSlot.guestAmbiguities.push({ reasons: parsed.ambiguity.reasons, rawCell: col3 });
         }
       }
       rowState = "idle";
@@ -557,12 +554,28 @@ function parseHotelTable(markdown: string, agg?: ParseAggregator): HotelReservat
     }
   }
 
+  // Materialize ALL name-resolved slots in reservation order so the cardinality cap in
+  // cap() sees the TRUE hotel count — a structured RESERVATION #5+ overflow used to be
+  // silently dropped by a 1..MAX_HOTELS loop here, before cap() could emit
+  // HOTEL_CARDINALITY_EXCEEDED (Codex R5).
   const result: HotelReservationRow[] = [];
-  for (let i = 1; i <= MAX_HOTELS; i++) {
-    const slot = slots.get(i);
-    if (!slot) continue;
+  for (const i of [...slots.keys()].sort((a, b) => a - b)) {
+    const slot = slots.get(i)!;
     // Only include slots that have at minimum a hotel_name (skip dash-only placeholders)
     if (!slot.hotel_name) continue;
+    // §4.2 single commit point: a stashed guest-split ambiguity emits ONLY when the hotel
+    // survives the cap. cap() keeps the first MAX_HOTELS name-resolved slots, so a row
+    // whose rank (result.length before push) is < MAX_HOTELS is kept; later ones are
+    // truncated and stay silent.
+    if (result.length < MAX_HOTELS) {
+      for (const amb of slot.guestAmbiguities) {
+        emitHotelGuestSplitAmbiguity(agg, {
+          name: slot.hotel_name,
+          reasons: amb.reasons,
+          rawCell: amb.rawCell,
+        });
+      }
+    }
     result.push({
       ordinal: i,
       hotel_name: slot.hotel_name ?? null,
