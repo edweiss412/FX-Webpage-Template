@@ -324,13 +324,16 @@ begin
   if v_show_id is null then return jsonb_build_object('ok', false, 'code', 'SHOW_NOT_FOUND'); end if;
 
   -- validate op discriminator (domain/field value guards are enforced by _validate_override_value, F3).
-  if p_op not in ('upsert','revert','repoint','discard') then
+  -- RPC3-1: NULL-safe — a NULL boolean in an IF is NOT true, so a NULL p_op would otherwise skip every
+  -- op branch and fall through to the (unguarded) upsert block.
+  if p_op is null or p_op not in ('upsert','revert','repoint','discard') then
     return jsonb_build_object('ok', false, 'code', 'OVERRIDE_INVALID_OP'); end if;
-  -- RPC-5: reject any unknown (domain,field) pair up front, so no later CASE/else silently mistreats it
-  -- (e.g. an unknown show field falling through to the venue arm).
-  if not ((p_domain='show'  and p_field in ('dates','venue'))
-       or (p_domain='crew'  and p_field in ('name','role'))
-       or (p_domain='hotel' and p_field in ('hotel_name','hotel_address'))) then
+  -- RPC-5 + RPC3-1: reject NULL or unknown (domain,field) up front, so no later CASE/else silently
+  -- mistreats it (e.g. an unknown show field falling through to the venue arm).
+  if p_domain is null or p_field is null
+     or not ((p_domain='show'  and p_field in ('dates','venue'))
+          or (p_domain='crew'  and p_field in ('name','role'))
+          or (p_domain='hotel' and p_field in ('hotel_name','hotel_address'))) then
     return jsonb_build_object('ok', false, 'code', 'OVERRIDE_INVALID_OP'); end if;
 
   -- read the current override row for (target) under the lock.
@@ -499,7 +502,9 @@ begin
     return jsonb_build_object('ok', true, 'value', v_row.override_value);
   end if;
 
-  -- p_op = 'upsert' (create or edit)
+  -- p_op = 'upsert' (create or edit). RPC3-1: explicitly gate — reaching here with any non-upsert op would
+  -- be a logic error (all others returned above); fail closed rather than run create/edit for it.
+  if p_op <> 'upsert' then return jsonb_build_object('ok', false, 'code', 'OVERRIDE_INVALID_OP'); end if;
   -- §7.4 value guard on the create/edit target (F3); target self excluded from collision via v_target_id.
   -- RPC-9: a value-guard failure collapses to OVERRIDE_STALE_REVIEW deliberately (spec §10:574 "reuse an
   -- existing code; do not invent one") — the TS validateOverrideValue (Task 5) gives the precise pre-RPC UI
