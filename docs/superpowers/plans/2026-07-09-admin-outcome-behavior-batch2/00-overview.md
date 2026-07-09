@@ -14,6 +14,7 @@ This is a **single atomic TDD task** → **exactly one commit**. Removing a gran
 
 ### Substep A — scaffolding (transient state stays GREEN)
 
+- Add a local **`proveAdminOutcomeBehavior({ file, fn, code, success, failure })`** helper (Codex plan-R2) that STRUCTURALLY ties every `recordAdminOutcomeBehavior` call to a paired failure proof: it (1) `const ok = await observeSuccessCodes(success); expect(ok).toContain(code)`, (2) `const bad = await observeCodes(failure); expect(bad).not.toContain(code)`, (3) ONLY then `recordAdminOutcomeBehavior({ file, fn, code })`. `success`/`failure` are async drive callbacks (they internally do the drain for #18 and pick the DB-free failure for #14). No row can record without providing — and passing — a failure drive. Do NOT call `recordAdminOutcomeBehavior` directly in any Batch-2 row.
 - Add a local `fakeTx(overrides)` helper in the Batch-2 region: returns a `tx` object whose `queryOne`/`run` (and the specific reads each route uses — `readLockedPendingIngestion`, alert-row select, etc.) resolve the per-route committed/refusal shapes from spec §3.1. Scoped to the Batch-2 block; touches no existing test.
 - Add a local `drainNdjson(res)` helper (read `res.body` to EOF, mirror `tests/onboarding/scanRoute.test.ts:143`) for route #18.
 - Import the 16 handlers (+ `handleWizardPendingIngestionAction` for #14) from their route modules.
@@ -29,7 +30,7 @@ Verify (transient): `pnpm typecheck` + `pnpm vitest run tests/log/adminOutcomeBe
 
 ### Substep C — GREEN: add the 16 inline behavioral proofs (18 code-rows)
 
-One `test(...)` per route in the Batch-2 describe, each: success drive via `observeSuccessCodes` → assert code observed → `recordAdminOutcomeBehavior({ file, fn: "POST", code })`; paired failure drive via `observeCodes` → assert code absent. Per spec §3.1 recipe. Notes:
+One `test(...)` per route in the Batch-2 describe, each calling **`proveAdminOutcomeBehavior({ file, fn: "POST", code, success, failure })`** (never `recordAdminOutcomeBehavior` directly) — the helper runs the success drive (asserts code observed), runs the failure drive (asserts code absent), then records. `success`/`failure` build the per-route `routeDeps`/`context` per spec §3.1. Notes:
 
 - **`context`** = `{ params: Promise.resolve({...}) }` for the 12 routes that take it; OMIT for #15 rescan / #18 scan (no-context signatures).
 - **#14** records 3 codes under the one file key: `handleWizardPendingIngestionRetry` → `PENDING_INGESTION_RETRIED`; `handleWizardPendingIngestionAction(ctx, deps, "defer_until_modified"|"permanent_ignore")` → `PENDING_INGESTION_DEFERRED`/`PENDING_INGESTION_IGNORED`. Failure drives are **callback-invoking + DB-free** per spec §3.3 (faked tx → `requireCurrentWizardRow` 404, OR rollback + injected `upsertAdminAlert`/`readCurrentWizardSessionId` fakes). Never drive the sibling delegator routes.
@@ -42,7 +43,10 @@ Confirm suite **GREEN**; grandfather = 8, all pins `8`.
 ### Substep D — verify (green gate before the single commit)
 
 - `pnpm vitest run tests/log/adminOutcomeBehavior.test.ts tests/log/mutationSurface/exemptions.test.ts tests/log/_metaMutationSurfaceObservability.test.ts` green.
-- Negative-regression (spec §5), restore after each: (a) leave a pin at 24 → RED; (b) drop one `record` call → Task 18 RED naming the row; (c) delete a paired failure assertion / force an unconditional emit → the `observeCodes` absence assertion RED.
+- Negative-regression (spec §5) — each mutation leaves an EXECUTABLE assertion in place that must fail (no "delete the assertion" checks); restore after each:
+  - (a) leave a pin at 24 → the Task-18a pin assertion RED.
+  - (b) drop one `proveAdminOutcomeBehavior` call for a route → Task 18 coverage RED naming the now-unproven `file::fn::code`.
+  - (c) **make one row's `failure` callback drive the committed-SUCCESS branch (so it emits the code)** → `proveAdminOutcomeBehavior`'s internal `expect(bad).not.toContain(code)` RED. This proves the paired failure guard is real and structurally enforced (the helper aborts before `record`), replacing the old vacuous "delete the assertion" check.
 - `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, then full `pnpm test`. Triage DB-touching failures as concurrent-worktree shared-Supabase contention (re-run ambiguous non-`tests/log` files in isolation to confirm) — `tests/log` MUST be fully green.
 
 ### Substep E — the single commit (only after Substep D is green)

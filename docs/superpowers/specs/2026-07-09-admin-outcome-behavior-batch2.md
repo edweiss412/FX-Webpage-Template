@@ -66,7 +66,9 @@ The file already mocks `@/lib/auth/requireAdmin`, `@/lib/supabase/server` (swapp
 
 ### 3.3 Per-surface test shape
 
-For each route, one `test(...)` inside a new `describe("Batch 2 — clean DI-seam admin route POSTs observe success only")`:
+**Structural pairing guard (Codex plan-R2).** The success+failure pairing is enforced by an atomic helper `proveAdminOutcomeBehavior({ file, fn, code, success, failure })` — it runs the success drive (asserts the code observed), runs the failure drive (asserts the code ABSENT), and only then calls `recordAdminOutcomeBehavior`. No Batch-2 row calls `recordAdminOutcomeBehavior` directly, so a surface cannot be graduated with a success-only proof (the record is unreachable without a passing failure drive). The plan's negative-regression check makes a `failure` callback emit the code and confirms the helper's absence assertion goes RED.
+
+For each route, one `test(...)` inside a new `describe("Batch 2 — clean DI-seam admin route POSTs observe success only")` that calls `proveAdminOutcomeBehavior` with:
 
 - **Success:** build `routeDeps` (mutation dep / `fakeTx`) that reaches the committed branch + `context` with resolved `params`; drive `observeSuccessCodes(() => handler(request, context, routeDeps))`; assert the code observed; `recordAdminOutcomeBehavior({ file, fn: "POST", code })`. `request` is a minimal `new Request("https://x/", { method: "POST", body })` shaped to what the handler reads (most read only `params`/deps; #9/#10/#15/#18 may read a JSON body — supply the minimal valid body).
 - **Failure/refusal (paired, non-tautology):** the mutation dep / tx returns a non-committing outcome (per §3.1 "failure" column); drive `observeCodes`; assert the code **absent**. Proves the record is committed-success-gated, not unconditional.
