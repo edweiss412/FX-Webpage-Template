@@ -97,6 +97,31 @@ Route #14 records **three** codes: one success drive of `handleWizardPendingInge
 
 Do NOT (a) use a `withRowTx` that resolves WITHOUT invoking the callback — that bypasses `requireCurrentWizardRow` and the real defer/ignore refusal logic, so the absence proof is hollow; nor (b) leave `upsertAdminAlert`/`readCurrentWizardSessionId` at their Supabase defaults while hitting the rollback catch — that touches real Supabase.
 
+### 3.5 Complete injection inventory — EVERY DB / Drive / lock seam must be injected (Codex plan-R4)
+
+The adminOutcomeBehavior test runs with **no DB connection**; any `deps.*` left at its default falls through to a Postgres/advisory-lock/Drive-network impl (`defaultWithTx`, `defaultWithRowTx`, `defaultWithRowTryLock`, `defaultVerifyFolder`, `default*` readers) and either throws or hits real infra — violating the test-only/DB-free premise. Each route's `success` drive MUST inject **every** seam listed below (all beyond `requireAdminIdentity`, which is injected for all 15 non-rescan routes; #15 uses the module `requireAdmin` mock). The `failure` drive injects the same set, differing only in the outcome. **Safest implementation rule: copy the existing driver test's deps-builder verbatim** (each cited driver in §3.1 already injects the complete working set), then vary only the mutation outcome. A live-code sweep of all 16 routes' `deps.X ?? defaultX` / destructured-default sites produced this inventory:
+
+| # | route | injected seams (beyond `requireAdminIdentity`) | success outcome | failure outcome |
+| --- | --- | --- | --- | --- |
+| 1 | staged apply | `withRowTx=(_id,fn)=>fn(fakeTx)`, `applyStaged`, `upsertAdminAlert:async()=>null` | `applyStaged`→`{outcome:"wizard_applied"}` | `applyStaged`→`{outcome:"superseded",code}` |
+| 3 | staged unapprove | `withRowTx=(_id,fn)=>fn(fakeTx)` | `fakeTx.queryOne`→`{unapproved:true}` | `fakeTx.queryOne`→`null` |
+| 4 | staged discard | **`withRowTx=(_id,fn)=>fn(fakeTx)`**, `discardStagedUnlocked` | `discardStagedUnlocked`→`{outcome:"discarded"}` | `discardStagedUnlocked`→`{outcome:"not_found"}` |
+| 7 | live-staged apply | `applyStaged`, `readDriveFileIdForStagedId`, **`readShowSlug`** | `applyStaged`→`{outcome:"applied"}` | `applyStaged`→`{outcome:"superseded"}` |
+| 8 | live retry | `readDriveFileIdForPendingIngestion`, `withRowTryLock=(_id,fn)=>fn(fakeTx)`, `runManualSyncForShowUnlocked` (existing-show path — avoids `prepareFirstSeenStage`/`fetchDriveFileMetadata`) | `runManualSyncForShowUnlocked`→`{outcome:"applied",showId}` | →non-`applied` |
+| 9 | dq ignore | `withTx=(fn)=>fn(fakeTx)` | insert affects row → `mutated` | insert no-op |
+| 10 | dq unignore | `withTx=(fn)=>fn(fakeTx)` | delete affects rows | delete 0 rows |
+| 11 | alert global resolve | `withTx=(fn)=>fn(fakeTx)` | `queryOne`(show_id:null)+update → committed | show_id!=null / row null |
+| 12 | alert show resolve | `withTx=(fn)=>fn(fakeTx)` | committed → `committedShowId` | not-found |
+| 13 | live discard | **`readDriveFileIdForPendingIngestion`**, `withRowTryLock=(_id,fn)=>fn(fakeTx)` | tx upsert+delete → `discarded` | tx `skipped` |
+| 14 | wizard retry | `readDriveFileIdForPendingIngestion`, `readWizardSessionForPendingIngestion`, `withRowTx=(_id,fn)=>fn(fakeTx)`, `retrySingleFile`; + `upsertAdminAlert:async()=>null`, `readCurrentWizardSessionId:async()=>null` for the defer/ignore failure rollback path (§3.3) | per §3.3 | per §3.3 (callback-invoking, DB-free) |
+| 15 | rescan | `rescanWizardSheet:async()=>({status:"updated",...})` (owns its own tx/Drive internally — the single injected seam is fully DB-free); module `requireAdmin` mock | `{status:"updated"}` | `{status:"busy"}` |
+| 16 | cleanup | **`withTx=(fn)=>fn(fakeTx)`**, `cleanupAbandonedFinalize`, `randomUUID` (optional, non-DB) | `cleanupAbandonedFinalize`→`{status:"cleaned"}` | `status!="cleaned"` |
+| 17 | live-staged discard | `readDriveFileIdForStagedId`, `discardStaged` (owns its own lock — no `withRowTx`) | `discardStaged`→`{outcome:"discarded"}` | `{outcome:"not_found"}` |
+| 18 | scan (STREAMING) | **`withTx=(fn)=>fn(fakeTx)`**, **`verifyFolder`** (default hits Drive), `runOnboardingScan`, `randomUUID` (optional) | `runOnboardingScan`→`{outcome:"completed",processed:[]}` | `outcome!="completed"` |
+| 20 | ignored unignore | `withRowTx=(_id,fn)=>fn({deleteLiveDeferral:async()=>{}})` | emit unconditional after tx | make `withRowTx` throw |
+
+**Bold** = seams that were missing from the §3.1 recipe and are load-bearing to stay DB-free. Any route entering `withTx`/`withRowTx`/`withRowTryLock` MUST inject it as a callback-invoking passthrough `(…, fn) => fn(fakeTx)` (never a no-op that skips the callback — that reintroduces the hollow-absence class from §3.3). If ANY seam is left defaulted, the test throws on the absent DB connection — a loud failure, but the inventory is the primary defense.
+
 ### 3.4 Grandfather removal + pin
 
 Delete the 16 route rows from `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER` (`exemptions.ts`), leaving **8** (the 4 heavy DI-seam + 4 plain-POST route POSTs for Batch 3). Update the pins `toBe(24)` → `toBe(8)` at `adminOutcomeBehavior.test.ts:1443` (Task 18a) and `exemptions.test.ts:31` (`.length`) + `:33` (Set size). Update `exemptions.test.ts:37`'s `routeRows.length` assertion `24` → `8`. Update the doc-comment in `exemptions.ts` (keep "frozen, never grows"; note Batch 2 graduated the 16 clean DI-seam routes → 8 remain: 4 heavy DI-seam + 4 plain-POST). Update the Batch-1 pin-test title to reflect the new pin.
