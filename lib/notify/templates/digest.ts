@@ -97,6 +97,30 @@ function renderMonitorSection(
     }
   }
 
+  // Sub-block 4: new shows this period (first-seen shows carrying data gaps, spec §3.5).
+  if (monitor.newShowGaps.length > 0) {
+    text.push("New shows this period:");
+    html.push("<h3>New shows this period</h3>");
+    const shown = monitor.newShowGaps.slice(0, DIGEST_MAX_SHOWS);
+    const rowsHtml: string[] = [];
+    for (const g of shown) {
+      const title = g.showTitle ?? "Untitled show";
+      const shownItems = g.items.slice(0, DIGEST_MAX_ITEMS_PER_SHOW);
+      const overflowItems = Math.max(0, g.items.length - DIGEST_MAX_ITEMS_PER_SHOW);
+      const clsText = shownItems.join(", ");
+      const suffix = overflowItems > 0 ? `, +${overflowItems} more` : "";
+      text.push(`  ${title}: ${clsText}${suffix}`);
+      rowsHtml.push(`<li>${escapeHtml(`${title}: ${clsText}${suffix}`)}</li>`);
+    }
+    html.push(`<ul>${rowsHtml.join("")}</ul>`);
+    const overflowShows = Math.max(0, monitor.newShowGaps.length - DIGEST_MAX_SHOWS);
+    if (overflowShows > 0) {
+      const more = `+${overflowShows} more shows`;
+      text.push(`${more}: ${dashboard}`);
+      html.push(`<p><a href="${escapeHtml(dashboard)}">${escapeHtml(more)}</a></p>`);
+    }
+  }
+
   if (text.length === 0) return null;
   return { text, html };
 }
