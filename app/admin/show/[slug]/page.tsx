@@ -36,6 +36,13 @@ import { ShareLinkCopyButton } from "./ShareLinkCopyButton";
 import { PickerResetControl } from "./PickerResetControl";
 import { RotateShareTokenButton } from "./RotateShareTokenButton";
 import type { PerShowCrewRow } from "@/components/admin/PerShowCrewSection";
+import { loadShowOverrides } from "@/lib/overrides/loadShowOverrides";
+import {
+  ShowDetailsOverrideBlock,
+  HotelsOverrideBlock,
+  CrewOverrideFields,
+} from "@/components/admin/overrides/ShowOverrideBlocks";
+import { setFieldOverrideAction } from "./_actions/overrides";
 import { ArchiveShowButton } from "@/components/admin/ArchiveShowButton";
 import { UnarchiveShowButton } from "@/components/admin/UnarchiveShowButton";
 import { PublishedToggle } from "@/components/admin/PublishedToggle";
@@ -86,6 +93,7 @@ type ShowLookupRow = {
   title: string;
   client_label: string | null;
   dates: ShowDatesJson | null;
+  venue: unknown;
   drive_file_id: string;
   published: boolean;
   archived: boolean;
@@ -97,6 +105,7 @@ type CrewMemberRow = {
   id: string;
   name: string;
   role: string | null;
+  sheet_name: string | null;
 };
 
 function initialsFor(name: string): string {
@@ -166,7 +175,7 @@ export default async function AdminShowPage({
     const { data, error: showError } = await supabase
       .from("shows")
       .select(
-        "id, slug, title, client_label, dates, drive_file_id, published, archived, last_synced_at, last_sync_status",
+        "id, slug, title, client_label, dates, venue, drive_file_id, published, archived, last_synced_at, last_sync_status",
       )
       .eq("slug", slug)
       .maybeSingle<ShowLookupRow>();
@@ -245,7 +254,7 @@ export default async function AdminShowPage({
     try {
       const { data, error } = await supabase
         .from("crew_members")
-        .select("id, name, role")
+        .select("id, name, role, sheet_name")
         .eq("show_id", show.id)
         .order("name", { ascending: true })
         .returns<CrewMemberRow[]>();
@@ -377,6 +386,23 @@ export default async function AdminShowPage({
     nowDate(),
     loadIgnoredWarnings(show.id),
   ]);
+
+  // Live field-override state for the 6 overridable fields (§8.2a / §8.4). Reads
+  // admin_overrides (admin_only RLS) + live hotel_reservations via the same
+  // cookie-bound admin client; derives matchKey/expectedCurrentValue from SOURCE
+  // (never the display value, R17). Degrades to plain values on read fault.
+  const overrides = await loadShowOverrides(supabase, {
+    showId: show.id,
+    crew: crew.map((m) => ({
+      id: (m as { id?: string }).id ?? "",
+      name: (m as { name?: string }).name ?? "",
+      role: (m as { role?: string | null }).role ?? null,
+      sheet_name: (m as { sheet_name?: string | null }).sheet_name ?? null,
+    })),
+    showDates: show.dates,
+    showVenue: show.venue,
+  });
+  const overridesByCrewId = new Map(overrides.crew.map((c) => [c.id, c]));
 
   // Operator-actionable parse warnings (filtered + deduped ONCE here, not in the
   // JSX condition and again in the component — whole-diff R1). selectActionableForDisplay
@@ -627,6 +653,20 @@ export default async function AdminShowPage({
         </section>
       ) : null}
 
+      {/* Net-new override surfaces (§8.4): Show details (dates + venue) + Hotels
+          (per-reservation hotel_name + hotel_address), each an <OverrideableField>
+          wired to the live loader + the setFieldOverrideAction server action. */}
+      <ShowDetailsOverrideBlock
+        driveFileId={show.drive_file_id}
+        show={overrides.show}
+        onSave={setFieldOverrideAction}
+      />
+      <HotelsOverrideBlock
+        driveFileId={show.drive_file_id}
+        hotels={overrides.hotels}
+        onSave={setFieldOverrideAction}
+      />
+
       {/* Two-col split: Crew ⟷ Share & access. min-[720px]:items-stretch gives equal
           column height on desktop (Tailwind v4 default is NOT stretch, DESIGN
           §7). The columns must NOT also set h-full — height:100% on a flex child
@@ -725,8 +765,22 @@ export default async function AdminShowPage({
                           {initialsFor(name)}
                         </span>
                         <div className="flex flex-col">
-                          <span className="text-base font-semibold text-text-strong">{name}</span>
-                          {role ? <span className="text-xs text-text-subtle">{role}</span> : null}
+                          {overridesByCrewId.has(id) ? (
+                            <CrewOverrideFields
+                              driveFileId={show.drive_file_id}
+                              view={overridesByCrewId.get(id)!}
+                              onSave={setFieldOverrideAction}
+                            />
+                          ) : (
+                            <>
+                              <span className="text-base font-semibold text-text-strong">
+                                {name}
+                              </span>
+                              {role ? (
+                                <span className="text-xs text-text-subtle">{role}</span>
+                              ) : null}
+                            </>
+                          )}
                         </div>
                       </div>
                       {published && !archived ? (

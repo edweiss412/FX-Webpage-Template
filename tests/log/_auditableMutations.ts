@@ -307,6 +307,30 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
     fn: "POST",
     code: "PULL_SHEET_OVERRIDE_CLEARED",
   },
+  // Admin field overrides (spec 2026-07-07 §11, Task 14; folded Task 12). One
+  // "use server" action (setFieldOverrideAction) emits a DISTINCT per-op forensic
+  // outcome code post-commit — repoint/discard are real mutations (R9), so each op
+  // gets first-class audit coverage. NOT §12.4 rows (forensic-only, like SHOW_ARCHIVED).
+  {
+    file: "app/admin/show/[slug]/_actions/overrides.ts",
+    fn: "setFieldOverrideAction",
+    code: "FIELD_OVERRIDE_SET",
+  },
+  {
+    file: "app/admin/show/[slug]/_actions/overrides.ts",
+    fn: "setFieldOverrideAction",
+    code: "FIELD_OVERRIDE_REVERTED",
+  },
+  {
+    file: "app/admin/show/[slug]/_actions/overrides.ts",
+    fn: "setFieldOverrideAction",
+    code: "FIELD_OVERRIDE_REPOINTED",
+  },
+  {
+    file: "app/admin/show/[slug]/_actions/overrides.ts",
+    fn: "setFieldOverrideAction",
+    code: "FIELD_OVERRIDE_DISCARDED",
+  },
 ];
 
 export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
@@ -379,6 +403,12 @@ export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
   // Pull-sheet-on-archived-tab override accept/revoke (spec §5.4, Task 8).
   "PULL_SHEET_OVERRIDE_SET",
   "PULL_SHEET_OVERRIDE_CLEARED",
+  // Admin field overrides (spec 2026-07-07 §11, Task 14) — one forensic outcome
+  // code per RPC op on setFieldOverrideAction (upsert/revert/repoint/discard).
+  "FIELD_OVERRIDE_SET",
+  "FIELD_OVERRIDE_REVERTED",
+  "FIELD_OVERRIDE_REPOINTED",
+  "FIELD_OVERRIDE_DISCARDED",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing

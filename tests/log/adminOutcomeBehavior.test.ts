@@ -57,8 +57,10 @@ vi.mock("@/lib/auth/requireDeveloper", () => ({
 }));
 
 const revalidatePathMock = vi.fn((..._a: unknown[]) => undefined);
+const revalidateTagMock = vi.fn((..._a: unknown[]) => undefined);
 vi.mock("next/cache", () => ({
   revalidatePath: (...a: unknown[]) => revalidatePathMock(...a),
+  revalidateTag: (...a: unknown[]) => revalidateTagMock(...a),
 }));
 
 const redirectMock = vi.fn((url: string) => {
@@ -265,6 +267,10 @@ import { BELL_LIMITS } from "@/lib/admin/bellConfig";
 // ── Task 8 (pull-sheet-on-archived-tab override): accept/revoke route ──────
 import { handlePullSheetOverride } from "@/app/api/admin/onboarding/pull-sheet-override/route";
 import type { ArchivedPullSheetTab } from "@/lib/drive/exportSheetToMarkdown";
+
+// ── Task 14 (admin field overrides): setFieldOverrideAction (spec 2026-07-07 §11) ──
+import { setFieldOverrideAction } from "@/app/admin/show/[slug]/_actions/overrides";
+import type { SetFieldOverrideParams } from "@/lib/overrides/setFieldOverride";
 
 // ── inline file-local recorder (single-file contract; no cross-file state) ──
 const recorded = new Set<string>(); // "file::fn::code"
@@ -1167,6 +1173,67 @@ describe("Task 8 — pull-sheet override route observes SET/CLEARED success only
     );
     expect(codes).toContain("PULL_SHEET_OVERRIDE_SET");
   });
+});
+
+// ── Task 14 (admin field overrides): per-op forensic outcome (spec 2026-07-07 §11) ──
+// setFieldOverrideAction is an admin surface (body calls requireAdminIdentity()). It
+// delegates to the service-role RPC helper and, on the committed-success branch,
+// emits ONE of four distinct forensic codes per op — POST-COMMIT, outside any lock.
+const OVERRIDE_ACTION_FILE = "app/admin/show/[slug]/_actions/overrides.ts";
+const OVERRIDE_SHOW_ID = "44444444-4444-4444-8444-444444444444";
+
+function overrideParams(op: SetFieldOverrideParams["p_op"]): SetFieldOverrideParams {
+  return {
+    p_drive_file_id: "drive-ovr",
+    p_op: op,
+    p_domain: "crew",
+    p_field: "name",
+    p_match_key: "Jon",
+    p_new_match_key: op === "repoint" ? "Jonathan" : null,
+    p_override_value: "John",
+    p_actor: "", // the action canonicalizes requireAdminIdentity().email and overwrites this
+    p_expected_version: 1,
+    p_expected_current_value: "John",
+    p_current_ordinal: null,
+    p_expected_live_hotel_name: null,
+  };
+}
+
+describe("Task 14 — setFieldOverrideAction emits a distinct forensic code per op (success only)", () => {
+  const OPS = [
+    ["upsert", "FIELD_OVERRIDE_SET"],
+    ["revert", "FIELD_OVERRIDE_REVERTED"],
+    ["repoint", "FIELD_OVERRIDE_REPOINTED"],
+    ["discard", "FIELD_OVERRIDE_DISCARDED"],
+  ] as const;
+
+  for (const [op, code] of OPS) {
+    test(`${op} → ${code} on the committed-success branch; nothing on an {ok:false} RPC result`, async () => {
+      // RPC delegate returns ok; the post-commit show-id lookup + alert re-derivation
+      // read both resolve against the same service-role double.
+      serviceRoleClientImpl.current = () =>
+        makeClient({
+          rpc: { data: { ok: true, value: "applied" }, error: null },
+          from: { data: { id: OVERRIDE_SHOW_ID }, error: null },
+        });
+      const codes = await observeSuccessCodes(() => setFieldOverrideAction(overrideParams(op)));
+      expect(codes).toContain(code);
+      recordAdminOutcomeBehavior({
+        file: OVERRIDE_ACTION_FILE,
+        fn: "setFieldOverrideAction",
+        code,
+      });
+
+      // {ok:false} (e.g. a CAS 409 stale-review) → early return BEFORE the emit → nothing.
+      serviceRoleClientImpl.current = () =>
+        makeClient({
+          rpc: { data: { ok: false, code: "OVERRIDE_STALE_REVIEW" }, error: null },
+          from: { data: { id: OVERRIDE_SHOW_ID }, error: null },
+        });
+      const failCodes = await observeCodes(() => setFieldOverrideAction(overrideParams(op)));
+      expect(failCodes).not.toContain(code);
+    });
+  }
 });
 
 // ── Task 18: executable behavioral-coverage assertion (spec §4.2 / §9 / §10.5) ──
