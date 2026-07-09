@@ -74,5 +74,28 @@ export async function loadNeedsAttentionCount(): Promise<NeedsAttentionCountResu
     }
   }
 
-  return { kind: "ok", count: pendingTotal + syncProblemCount };
+  // Fourth stream (spec 2026-07-07 §6 step 2): paused field overrides. The
+  // durable inactive-row signal — `admin_overrides where not active` — folded
+  // into the badge total. Unconditional (no code-set gate); read under the
+  // admin_only RLS policy (§9.4). Own try/catch keeps every builder/await
+  // wrapped (invariant 9). A null count with no error is an integrity failure.
+  let overrideCount = 0;
+  try {
+    const {
+      data: _overrideData,
+      count: overrideCountRaw,
+      error: overrideError,
+    } = await supabase
+      .from("admin_overrides")
+      .select("id", { count: "exact", head: true })
+      .eq("active", false);
+    void _overrideData;
+    if (overrideError) return { kind: "infra_error" };
+    if (typeof overrideCountRaw !== "number") return { kind: "infra_error" };
+    overrideCount = overrideCountRaw;
+  } catch {
+    return { kind: "infra_error" };
+  }
+
+  return { kind: "ok", count: pendingTotal + syncProblemCount + overrideCount };
 }

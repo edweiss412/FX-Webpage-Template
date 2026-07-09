@@ -139,6 +139,36 @@ function ItemCard({ item, now }: { item: NeedsAttentionItem; now: Date }) {
     );
   }
 
+  if (item.variant === "override_paused") {
+    return (
+      <li
+        data-testid={`needs-attention-item-override-paused-${item.overrideId}`}
+        className="flex flex-col gap-2 rounded-md border border-border bg-surface p-tile-pad shadow-tile"
+      >
+        <CardHeader item={item} now={now} status="warn" label="Override paused" />
+        <p className="text-sm font-semibold text-text-strong">{item.title ?? item.slug}</p>
+        <p className="text-sm text-text-subtle">{item.copy}</p>
+        {/* Deep-links the show detail page where the re-point/discard controls
+            live (Task 14) — this card carries NO inline action buttons, exactly
+            like sync_problem. Row-specific aria-label with the unique overrideId
+            discriminator (WCAG 2.4.4) so repeated paused-override cards on one
+            show have distinct accessible names. */}
+        <Link
+          data-testid={`needs-attention-link-override-paused-${item.overrideId}`}
+          href={`/admin/show/${encodeURIComponent(item.slug)}`}
+          aria-label={
+            item.title
+              ? `Fix paused override for ${item.title} (${item.matchKey})`
+              : `Fix paused override for ${item.slug} (${item.matchKey})`
+          }
+          className={reviewLinkClass}
+        >
+          Fix it →
+        </Link>
+      </li>
+    );
+  }
+
   // existing_staged
   return (
     <li
