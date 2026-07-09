@@ -48,13 +48,13 @@ Registry rows live in `tests/log/_auditableMutations.ts`; existing real-sink / f
 | 10 | show/[slug]/data-quality/unignore | `handleUnignore(req,ctx,deps)` | `WARNING_UNIGNORED` | `withTx`, delete affects rows → `mutated` | delete 0 rows | `dataQualityUnignore.test.ts:62` |
 | 11 | admin-alerts/[id]/resolve | `handleAdminAlertGlobalResolve(_req,ctx,deps)` | `ADMIN_ALERT_RESOLVED` | `withTx` `FakeGlobalAlertTx`, `queryOne`(`show_id:null`)+update row → `committed` | `show_id!=null`/row null | `adminAlertsGlobalResolve.test.ts:47` |
 | 12 | show/[slug]/alerts/[id]/resolve | `handleAdminAlertShowResolve(_req,ctx,deps)` | `ADMIN_ALERT_RESOLVED` | `withTx` committed → `committedShowId` | not-found/idempotent | `adminAlertsShowScopedResolve.test.ts:60` |
-| 13 | pending-ingestions/[id]/discard | `handleLivePendingIngestionDiscard(req,ctx,deps)` | `PENDING_INGESTION_DISCARDED` | `withRowTryLock` faked tx (`upsertLiveDeferral`+`deletePendingIngestion`) → `discarded` | tx `skipped` | `pendingIngestionAction-telemetry.test.ts` |
+| 13 | pending-ingestions/[id]/discard | `handleLivePendingIngestionDiscard(req,ctx,deps)` | `PENDING_INGESTION_DISCARDED` | `withRowTryLock` faked tx (`upsertLiveDeferral`+`deletePendingIngestion`) → `discarded` | tx `skipped` | `tests/api/admin/pendingIngestionAction-telemetry.test.ts:55` |
 | 14 | onboarding/pending_ingestions/[id]/retry | `handleWizardPendingIngestionRetry(_req,ctx,deps)` **and** `handleWizardPendingIngestionAction(ctx,deps,action)` | `PENDING_INGESTION_RETRIED` **+** `PENDING_INGESTION_DEFERRED` **+** `PENDING_INGESTION_IGNORED` | RETRIED: `retrySingleFile`→`{outcome:"retried"}`. DEFERRED/IGNORED: `handleWizardPendingIngestionAction(ctx,deps,"defer_until_modified"\|"permanent_ignore")` + faked `withRowTx` | retry `{outcome:"wizard_superseded"}`; defer/ignore tx no-op | `pendingIngestionsWizardActions.test.ts:144` |
 | 15 | onboarding/rescan-sheet | `handleRescanSheet(req,deps?)` **no ctx** | `SHEET_RESCANNED` | `rescanWizardSheet`→`{status:"updated",...}` | `{status:"busy"}` | `onboardingMutations-telemetry.test.ts:37` |
 | 16 | onboarding/cleanup-abandoned-finalize/[sessionId] | `handleCleanupAbandonedFinalize(req,ctx,deps)` | `FINALIZE_CLEANUP_DONE` | `cleanupAbandonedFinalize`→`{status:"cleaned"}` | `status!="cleaned"` | `cleanupAbandonedFinalize.test.ts:55` |
 | 17 | show/staged/[stagedId]/discard | `handleLiveStagedDiscard(req,ctx,deps)` | `STAGE_DISCARDED` (reused) | `discardStaged`→`{outcome:"discarded"}` + `readDriveFileIdForStagedId` | `{outcome:"not_found"}` | `firstSeenLiveStaged.test.ts:137` |
-| 18 | onboarding/scan | `handleOnboardingScan(req,deps)` **no ctx** | `ONBOARDING_SCAN_COMPLETED` | `runOnboardingScan`→`{outcome:"completed",processed}` | `outcome!="completed"` | `scanRoute.test.ts:164` |
-| 20 | ignored-sheets/[driveFileId]/unignore | `handleUnignore(req,ctx,deps)` | `IGNORED_SHEET_UNIGNORED` | `withRowTx`=`(_id,fn)=>fn({deleteLiveDeferral:async()=>{}})` — emit is unconditional after tx resolves | make `withRowTx` throw (→`*_UNIGNORE_FAILED`, no success emit) | `unignore-route.test.ts` |
+| 18 | onboarding/scan | `handleOnboardingScan(req,deps)` **no ctx — STREAMING** | `ONBOARDING_SCAN_COMPLETED` | `runOnboardingScan`→`{outcome:"completed",processed}`; **emit is inside `ReadableStream.start()` (`route.ts:277`) — drain body before observing (see §3.3 / §4)** | `outcome!="completed"` | `tests/onboarding/scanRoute.test.ts:171` (drive) + `:143`/`:178` (`readNdjson` drain) |
+| 20 | ignored-sheets/[driveFileId]/unignore | `handleUnignore(req,ctx,deps)` | `IGNORED_SHEET_UNIGNORED` | `withRowTx`=`(_id,fn)=>fn({deleteLiveDeferral:async()=>{}})` — emit is unconditional after tx resolves | make `withRowTx` throw (→`*_UNIGNORE_FAILED`, no success emit) | `tests/api/unignore-route.test.ts:164` |
 
 **16 grandfather units → 18 `recorded` rows** (route #14 carries 3 codes; the other 15 carry 1 each — `admin-alerts/[id]/resolve` and `show/[slug]/alerts/[id]/resolve` each independently record `ADMIN_ALERT_RESOLVED` under their own file key). All codes are pre-existing SHOUTY producers — no new §12.4 codes.
 
@@ -71,6 +71,17 @@ For each route, one `test(...)` inside a new `describe("Batch 2 — clean DI-sea
 - **Success:** build `routeDeps` (mutation dep / `fakeTx`) that reaches the committed branch + `context` with resolved `params`; drive `observeSuccessCodes(() => handler(request, context, routeDeps))`; assert the code observed; `recordAdminOutcomeBehavior({ file, fn: "POST", code })`. `request` is a minimal `new Request("https://x/", { method: "POST", body })` shaped to what the handler reads (most read only `params`/deps; #9/#10/#15/#18 may read a JSON body — supply the minimal valid body).
 - **Failure/refusal (paired, non-tautology):** the mutation dep / tx returns a non-committing outcome (per §3.1 "failure" column); drive `observeCodes`; assert the code **absent**. Proves the record is committed-success-gated, not unconditional.
 
+**Route #18 (`onboarding/scan`) is STREAMING — special-cased.** `handleOnboardingScan` returns an NDJSON `ReadableStream` `Response` and emits `ONBOARDING_SCAN_COMPLETED` **inside** `stream.start()` (`route.ts:277`), which runs only when the body is consumed — AFTER the handler promise resolves. `observeSuccessCodes` resets the sink the moment its `run()` callback resolves, so a bare `observeSuccessCodes(() => handleOnboardingScan(req, deps))` would reset the sink before the emit fires (missing the code / flaky on microtask timing). Drive it as:
+
+```
+const codes = await observeSuccessCodes(async () => {
+  const res = await handleOnboardingScan(scanRequest, scanDeps);
+  await drainNdjson(res); // read the stream to completion so start()'s emit runs
+});
+```
+
+where `drainNdjson` reads `res.body` to EOF — mirror the local `readNdjson` helper at `tests/onboarding/scanRoute.test.ts:143` (add a small equivalent in the Batch-2 block, or read `await res.text()`). The paired **failure** case (`runOnboardingScan`→`{outcome:"failed"|...}`) must ALSO drain the body under `observeCodes` before asserting `ONBOARDING_SCAN_COMPLETED` is absent — otherwise the absence is trivially true because the stream never ran. (No other Batch-2 route streams — verified: `onboarding/scan` is the only `ReadableStream` responder in the 16.)
+
 Route #14 records **three** codes: one success drive of `handleWizardPendingIngestionRetry` (→`PENDING_INGESTION_RETRIED`) and two drives of `handleWizardPendingIngestionAction(ctx, deps, "defer_until_modified")` / `("permanent_ignore")` (→`PENDING_INGESTION_DEFERRED` / `PENDING_INGESTION_IGNORED`), each recorded under the SAME file key `app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts::POST`. Do NOT drive the sibling `defer_until_modified/` / `permanent_ignore/` delegator routes — those record under their own file paths and remain `ADMIN_SURFACE_EXEMPTIONS` delegators.
 
 ### 3.4 Grandfather removal + pin
@@ -85,6 +96,7 @@ Delete the 16 route rows from `ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER` (`exemptions.
 - **`STAGE_DISCARDED` shared across #4/#17.** Same — two file keys, two records.
 - **#20 unconditional emit.** `ignored-sheets/unignore` emits after `withRowTx` resolves regardless of rows affected; its failure case must make `withRowTx` THROW (→ the `*_UNIGNORE_FAILED` catch path) to prove absence, since there is no "no-op success" branch.
 - **#15 rescan gate.** Uses module `requireAdmin()` (already mocked), not `routeDeps.requireAdminIdentity`; do not inject an identity dep it doesn't read.
+- **#18 scan is a streaming responder.** Its `ONBOARDING_SCAN_COMPLETED` emit runs inside `ReadableStream.start()` (`route.ts:277`) only when the body is consumed. BOTH the success (`observeSuccessCodes`) and failure (`observeCodes`) drives MUST drain the response body before returning (per §3.3), or the success proof misses the code and the failure proof is trivially/falsely "absent." This is the one Batch-2 route whose drive is not the plain `handler(...)` call.
 - **Shared-mock hygiene (from Batch 1 rebase).** Do not introduce a module `vi.mock` for anything already mocked in the file; Batch 2 uses direct `routeDeps` injection precisely to avoid that class. `beforeEach` runs `vi.clearAllMocks()` (does not restore impls) — Batch 2 tests are self-contained (per-test `routeDeps` literals), so no cross-test mock bleed.
 
 ## 5. Negative-regression proofs (the contract has teeth)
