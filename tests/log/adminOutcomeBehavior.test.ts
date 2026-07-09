@@ -365,6 +365,12 @@ import { handleUnignore as handleIgnoredSheetUnignore } from "@/app/api/admin/ig
 // module-mocked @/lib/sync/* entry points (partial spread-importActual — §5.1)
 // driven through the exported POST + a swapped Supabase client.
 import { handleWizardStagedApprove } from "@/app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/approve/route";
+import { handleOnboardingFinalize } from "@/app/api/admin/onboarding/finalize/route";
+import {
+  FakeFinalizeDb,
+  deps as finalizeFakeDeps,
+  request as finalizeRequest,
+} from "../onboarding/_finalizeFake";
 
 // ── inline file-local recorder (single-file contract; no cross-file state) ──
 const recorded = new Set<string>(); // "file::fn::code"
@@ -2510,6 +2516,34 @@ describe("Batch 3 — final grandfathered surfaces graduate to inline proof", ()
           },
         }),
       failureExpect: { status: 409, bodyCode: "WIZARD_SESSION_SUPERSEDED" },
+    });
+  });
+
+  test("A2 onboarding finalize emits SHOW_FINALIZED", async () => {
+    const file = "app/api/admin/onboarding/finalize/route.ts";
+    await proveAdminOutcomeBehavior({
+      file,
+      fn: "POST",
+      // success: a fresh FakeFinalizeDb (active session W1, ensured in_progress checkpoint,
+      // ZERO finishable rows, ZERO unresolved) → the approvedRows.length===0 tail branch
+      // (route.ts:1436) → SHOW_FINALIZED (route.ts:1563). @/lib/log is NOT mocked here (the
+      // copy-source finalize.test.ts mocks logAdminOutcome; Batch 3 relies on the real sink).
+      code: "SHOW_FINALIZED",
+      success: () => handleOnboardingFinalize(finalizeRequest(), finalizeFakeDeps(new FakeFinalizeDb())),
+      failure: (mark) => {
+        const db = new FakeFinalizeDb();
+        db.activeSessionId = null; // readCandidateSessionId → null → 409 CHECKPOINT_MISSING
+        return handleOnboardingFinalize(
+          finalizeRequest(),
+          finalizeFakeDeps(db, {
+            withTx: async (fn) => {
+              mark.hit = true;
+              return fn(db);
+            },
+          }),
+        );
+      },
+      failureExpect: { status: 409, bodyCode: "WIZARD_FINALIZE_CHECKPOINT_MISSING" },
     });
   });
   // <<< BATCH-3 PROOF BLOCK END
