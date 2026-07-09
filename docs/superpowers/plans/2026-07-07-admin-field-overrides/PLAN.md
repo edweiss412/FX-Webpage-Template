@@ -216,6 +216,8 @@ Re-run Step 1.1 → **PASSES**.
 
 ### Step 1.3 — Extend `postgrest-dml-lockdown.test.ts` `RPC_GATED_TABLES`
 
+**Lockdown RED-first note (REST-1):** the lockdown BEHAVIOR (INS/UPD/DEL revoked from anon+authenticated) is proven RED-first in **Step 1.1** — the grant assertions (lines 149–152) FAIL until Step 1.2's migration applies the REVOKE. Step 1.3 adds the **structural bidirectional-parity registry row** to the shared meta-test (the standard "structural pin added once the behavior exists" pattern — like every other `RPC_GATED_TABLES` entry); it is not a second, tautological green. To see the registry row itself go RED→GREEN, apply the migration WITHOUT the REVOKE lines, add the row, run → the live-POST parity test FAILS (anon INSERT succeeds); then add the REVOKE → GREEN.
+
 Add to `RPC_GATED_TABLES` (`:147`) — match the existing `RpcGatedTable` shape (`{ table, closed_at, selectAnon, selectAuthenticated, postBody, rowFilter }`):
 
 ```ts
@@ -826,7 +828,7 @@ Run → all PASS. (Anti-tautology: every hotel/CAS assertion derives expected va
 
 **Spec:** §5.3, §7.3, §7.4. **Files:**
 - `lib/overrides/validateOverrideValue.ts` (NEW), `lib/overrides/matchOverrideTarget.ts` (NEW), `lib/overrides/hotelDisambiguator.ts` (NEW)
-- `tests/overrides/validateOverrideValue.test.ts`, `tests/overrides/matchOverrideTarget.test.ts` (NEW)
+- `tests/overrides/validateOverrideValue.test.ts`, `tests/overrides/matchOverrideTarget.test.ts`, `tests/overrides/hotelDisambiguator.test.ts` (NEW)
 
 **Interfaces — Produces:**
 - `validateOverrideValue(field, value, ctx: { currentParsedNames?: string[]; currentLiveNames?: string[]; otherActiveNameOutputs?: string[]; otherFinalHotelNames?: string[]; matchKey: string }): { ok:true } | { ok:false; code:string }` — the §7.4 guard table (empty/whitespace reject; `= match_key` no-op; crew name collision; hotel_name FINAL-name collision; caps 200/120/200/300; dates/venue shape). Used by BOTH the RPC-adjacent TS validation path and the sync transform.
@@ -834,7 +836,7 @@ Run → all PASS. (Anti-tautology: every hotel/CAS assertion derives expected va
 - `matchOverrideTarget(override, parsed: { crewNames?: string[]; hotels?: HotelRow[] }): { matched: boolean; disambiguatorUnique: boolean }` — parsed-identity + disambiguator matching (§5.3/§3.6); fail-closed when a same-name hotel group's disambiguator resolves to ≠1.
 
 ### Step 5.1 — Failing tests
-`validateOverrideValue.test.ts`: each of the 6 fields' reject cases + caps; **derive** collision inputs from a fixture crew/hotel list (not hardcoded); assert `= match_key` → no-op reject; assert a `.trim()`-exempt path for names carries the `// canonicalize-exempt` comment (grep the source in-test). `matchOverrideTarget.test.ts`: a unique hotel name matches; a same-name pair resolves via `check_in` disambiguator; a same-name pair whose disambiguator collides (equal check_in AND equal confirmation_no) → `disambiguatorUnique:false` (fail-closed). Run → FAIL (modules absent).
+`validateOverrideValue.test.ts`: each of the 6 fields' reject cases + caps; **derive** collision inputs from a fixture crew/hotel list (not hardcoded); assert `= match_key` → no-op reject; assert a `.trim()`-exempt path for names carries the `// canonicalize-exempt` comment (grep the source in-test). `matchOverrideTarget.test.ts`: a unique hotel name matches; a same-name pair resolves via `check_in` disambiguator; a same-name pair whose disambiguator collides (equal check_in AND equal confirmation_no) → `disambiguatorUnique:false` (fail-closed). `hotelDisambiguator.test.ts` (REST-2 — directly pin `computeHotelDisambiguator`): `check_in` only → `'YYYY-MM-DD'`; `check_in` + `confirmation_no` → `'YYYY-MM-DD' + \x1f + confirmation_no` (exact `\x1f` byte); null `check_in`/`confirmation_no` → `''`-substituted, never `'null'`; assert the function signature takes ONLY `{check_in, confirmation_no}` and never reads `names[]` (R30). Run → FAIL (modules absent).
 
 ### Step 5.2 — Implement (minimal). Full guard table per §7.4; `\x1f` delimiter; NaN/null guards (empty→reject, null hotel fields→`''` in disambiguator). Add `// canonicalize-exempt: crew display name, not an email` on any name `.trim()` (the no-inline-email meta-test walks `lib/sync`; these helpers are `lib/overrides` — but the sync transform in Task 6/7 imports them into `lib/sync`, so keep trims out of `lib/sync` files or exempt them there). Run → PASS.
 
@@ -1023,7 +1025,7 @@ Note: forensic codes are NOT §12.4 rows / NOT in `catalog.ts` (precedent `archi
 - `app/admin/show/[slug]/page.tsx` (WRAP crew rows `:709-745` name+role in `<OverrideableField>`; ADD net-new "Show details" block (dates+venue) + "Hotels" block (per-reservation hotel_name+hotel_address); load the live override state via a new loader reading `admin_overrides` for the show)
 - `app/admin/show/[slug]/_actions/overrides.ts` (NEW server action `setFieldOverrideAction`)
 - `lib/overrides/loadShowOverrides.ts` (NEW — reads `admin_overrides` + computes `matchKey`/`currentLiveHotelName`/`expectedCurrentValue` per §8.2a)
-- `tests/log/adminOutcomeBehavior.test.ts` (NEW behavioral describe — WRITE it here (RED) and make it GREEN within this task, F4; a `setLogSink`/sink-spy asserting each per-op forensic code fires ONLY on the committed-success branch)
+- `tests/log/adminOutcomeBehavior.test.ts` (EXTEND — this file ALREADY EXISTS and enforces admin behavioral coverage, invariant 10; REST-3: ADD a new `describe` for `setFieldOverrideAction`, PRESERVING every existing case — do NOT rewrite/replace the file. The added describe is RED here and made GREEN within this task, F4; a `setLogSink`/sink-spy asserting each per-op forensic code fires ONLY on the committed-success branch)
 - `tests/overrides/adminOpAlertLifecycle.test.ts` (NEW — R3b-7 admin-op-driven auto-resolve, written + GREEN here)
 
 **Server action (`setFieldOverrideAction`)** — thin, per §8.4: `requireAdminIdentity()` gate → canonicalize actor email via `lib/email/canonicalize.ts` → delegate to `lib/overrides/setFieldOverride.ts` (service-role client — NOT cookie client; §8.4 critical) → on `ok`, **post-commit** (a) `logAdminOutcome({ code: mapOpToCode(op), source:"admin.show.overrides", actorEmail, driveFileId, showId })` (per-op: upsert→SET, revert→REVERTED, repoint→REPOINTED, discard→DISCARDED); (b) **`resolveOverrideAlertsForShow(showId, "OVERRIDE_TARGET_MISSING")` AND `(…, "OVERRIDE_NAME_CONFLICT")`** (R3b-7 — a discard/repoint/reactivate that cleared the last paused row of a code resolves its bell; best-effort, idempotent, outside any tx); (c) `revalidateShow`. **NO inline `.rpc` in the action** (deadlock rule `feed.ts:10-14`) — the RPC call lives in the helper. `mapRpcOutcome`-shaped result surfaces to the client; a 409 renders mapped stale-review copy (invariant 5).
@@ -1072,10 +1074,10 @@ Real-browser assertion (Playwright — jsdom insufficient per Tailwind-v4-no-def
 1. Run `/impeccable critique` on the P6 UI diff (Tasks 13–16) with the canonical v3 preflight gates. Record findings.
 2. Run `/impeccable audit` on the same diff. Record findings.
 3. Every HIGH/CRITICAL finding is fixed (new commit) OR explicitly deferred via a `DEFERRED.md` entry with rationale. External attestation (not self-attested) per the dual-gate contract.
-4. Record findings + dispositions in the milestone handoff §12 (or this plan's close-out note).
+4. Record findings + dispositions in the milestone handoff §12 (or this plan's close-out note) — **this write is MANDATORY and commit-bound every time the gate runs (REST-4), even when there are zero code fixes** (a passing gate still records "critique + audit run, N findings, all dispositions").
 
-**Deliverable:** dual-gate passed; HIGH/CRITICAL resolved or deferred; external attestation recorded. Runs BEFORE the cross-model adversarial review (Task 18).
-**Commit (if fixes):** `fix(admin): impeccable dual-gate findings on override UI` (else a docs-only DEFERRED.md commit).
+**Deliverable:** dual-gate passed; HIGH/CRITICAL resolved or deferred; external attestation recorded; **the handoff §12 findings+dispositions block updated and committed** (never left uncommitted). Runs BEFORE the cross-model adversarial review (Task 18).
+**Commit:** ALWAYS lands — `fix(admin): impeccable dual-gate findings on override UI` when there are code fixes, else `docs(admin): impeccable dual-gate dispositions on override UI (§12)` carrying the §12 update (+ any `DEFERRED.md` entry). The §12 write is part of the commit either way.
 
 ---
 
