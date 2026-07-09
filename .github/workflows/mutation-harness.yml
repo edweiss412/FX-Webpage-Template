@@ -39,11 +39,11 @@ jobs:
   mutation-harness:
     runs-on: ubuntu-latest
     timeout-minutes: 180
-    # issues:write lets the schedule-only notify steps open/close the single red-nightly tracking
-    # issue via the built-in GITHUB_TOKEN (no external secret). contents:read is the default floor.
+    # Runs UNTRUSTED code (pnpm install + tests) on PR/feature-branch runs, so it holds NO
+    # issues:write — least privilege (Codex #369 R2). All issue mutation is isolated to the
+    # separate, gated `notify` job below, which runs no untrusted code.
     permissions:
       contents: read
-      issues: write
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -59,14 +59,24 @@ jobs:
         env:
           VITEST_INCLUDE_MUTATION_HARNESS: "1"
         run: pnpm exec vitest run --project mutation
-      # A scheduled red run is otherwise invisible (no required check, no default notification that
-      # anyone reads), so surface it as ONE deduped tracking issue. Scheduled/dispatch only: a
-      # pull_request run already shows red on the PR's checks, so filing an issue there is noise.
-      # Uses only trusted context.* values (no untrusted user input) — no injection surface.
-      # Default-branch runs only: a workflow_dispatch on a feature branch must NOT open/close the
-      # main-tracking issue (a green branch run could otherwise close a still-red-main issue).
+
+  # Surface a scheduled red run as ONE deduped tracking issue (otherwise invisible: a non-required
+  # check with no notification anyone reads). SEPARATE job so issues:write never reaches the
+  # untrusted harness job. Gated to schedule OR a DEFAULT-BRANCH workflow_dispatch — a feature-branch
+  # dispatch must not open/close the main-tracking issue, and pull_request runs already show red on
+  # the PR's checks. Runs no untrusted code (github-script + API only; no checkout, no install) and
+  # uses only trusted context.* values — no injection surface. always() so it still fires when the
+  # harness job failed; it then branches on needs.mutation-harness.result.
+  notify:
+    needs: mutation-harness
+    if: ${{ always() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref_name == github.event.repository.default_branch)) }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
       - name: Surface a red nightly as a tracking issue
-        if: ${{ failure() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref_name == github.event.repository.default_branch)) }}
+        if: ${{ needs.mutation-harness.result == 'failure' }}
         uses: actions/github-script@v7
         with:
           script: |
@@ -89,9 +99,8 @@ jobs:
             } else {
               await github.rest.issues.create({ owner, repo, title: "Mutation harness nightly is red", body, labels: [label] });
             }
-      # Close the tracking issue automatically once a scheduled run goes green again.
       - name: Auto-close the tracking issue on green
-        if: ${{ success() && (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && github.ref_name == github.event.repository.default_branch)) }}
+        if: ${{ needs.mutation-harness.result == 'success' }}
         uses: actions/github-script@v7
         with:
           script: |
