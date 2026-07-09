@@ -72,15 +72,18 @@ A4 is the only surface with no in-memory `sql` fake in the repo — every existi
 2. **tx#1b — staged read** (`route.ts:260`): `SELECT …` returning one valid staged row (parse_result / settings shape the route reads).
 3. **tx#2 — persist** (`route.ts:393`): settings re-read; `pg_advisory_xact_lock`; parse_result re-read; owner-scoped `UPDATE … RETURNING true` → truthy 1 row; `releaseExtractLease` `DELETE`. Yields `leaseReleased = true` → emit at `:473`.
 
-### 4.2 Design
+### 4.2 Design — script-driven with ordered-consumption assertion (Codex R1 MEDIUM)
 
-Add a test-only helper `fakeLeasePool(script)` in `adminOutcomeBehavior.test.ts` (NOT a production file). It returns a `RoutePool`-shaped object:
+Add a test-only helper `fakeLeasePool(script)` in `adminOutcomeBehavior.test.ts` (NOT a production file). A bare regex-dispatcher that only throws on *unmatched* SQL is **insufficient** for a behavioral proof: if the route regressed by *skipping* a required statement (e.g. dropped the tx#2 `pg_advisory_xact_lock`, or skipped `releaseExtractLease`'s DELETE) while still reaching the emit, an unmatched-only fake would stay green — a false proof on the hardest row. The fake is therefore **script-driven and consumption-asserting**:
 
-- The callable form `pool\`SQL\`` and the `tx` passed into `.begin` both dispatch on the **first meaningful token(s)** of `strings.join(" ? ")` (regex branch, mirroring the proven `fakeTx.queryOne` regex pattern already in the file and in `tests/api/wizard-approve-route.test.ts`). Each branch returns canned rows keyed to the statement.
-- `.begin(fn)` constructs a per-transaction `tx` (same dispatcher) and returns `await fn(tx)`.
-- Unmatched statement → **throw** `Error("fakeLeasePool: unmapped SQL: <first 80 chars>")`, so an incomplete fake fails loudly (never silently returns `[]` and masks a missing branch).
+- `fakeLeasePool(script)` takes an ordered list of `begin`-blocks; each block is an ordered list of `{ match, rows }` expectations. It returns a `RoutePool`-shaped object.
+- `.begin(fn)` pops the next expected begin-block, constructs a per-transaction `tx` whose callable form matches statements **in order** against that block's expectation list, marks each expectation **consumed exactly once**, and returns `await fn(tx)`. The pool's own callable form (non-`begin` statements, if any) matches against a top-level list.
+- The statement matcher keys on the first meaningful token(s) of `strings.join(" ? ")` (mirroring the proven `fakeTx.queryOne` regex pattern in this file and `tests/api/wizard-approve-route.test.ts`). Each matched branch returns its canned rows.
+- **Unmatched** statement → **throw** `Error("fakeLeasePool: unexpected SQL: <first 80 chars>")` (an emitted statement not in the script).
+- **Out-of-order or double-consumed** statement → **throw** (the route issued statements in an order the proof does not attest).
+- **End-of-leg completeness assertion:** after the A4 success leg runs, assert **every** scripted expectation across tx#1a / tx#1b / tx#2 was consumed — explicitly including: the tx#1a `agenda-extract-admit` advisory lock, the tx#1a `INSERT … RETURNING owner` claim, the tx#1b staged read, the tx#2 `pg_advisory_xact_lock`, the tx#2 owner-scoped `UPDATE … RETURNING`, and the `releaseExtractLease` `DELETE`. Any unconsumed expectation fails the row. This makes the emit provably downstream of the full committed lock+persist+release sequence, not merely reachable.
 
-The exact statement inventory (all SQL the three tx callbacks issue, with return shapes) is enumerated in the **plan's A4 task body** after a per-statement grep of `extractAgendaLease.ts` + `route.ts:240-470`; the spec fixes the approach, the plan fixes the strings. If, during TDD, the statement set proves intractable to fake faithfully (e.g. a dynamic query the dispatcher can't disambiguate), the fallback is §9 — flagged to the user, not silently taken.
+The exact statement inventory (all SQL the three tx callbacks issue, with return shapes and match anchors) is enumerated in the **plan's A4 task body** after a per-statement grep of `extractAgendaLease.ts` + `route.ts:240-470`; the spec fixes the approach + the mandatory-consumption set, the plan fixes the strings. If, during TDD, the statement set proves intractable to fake faithfully (e.g. a dynamic query the dispatcher can't disambiguate), the fallback is §9 — flagged to the user, not silently taken.
 
 ### 4.3 A4 failure leg (cheap)
 
@@ -94,14 +97,34 @@ The 4 plain-POST routes have no `routeDeps` seam — their mutation deps are mod
 
 **Never mocked:** `@/lib/log`, `@/lib/log/logAdminOutcome` (invariant — the real logger + `setLogSink` is the capture mechanism). Every copy-source driver test (`admin-staged-apply-route.test.ts` etc.) mocks `logAdminOutcome`; Batch 3 **drops** that mock and asserts via the sink instead — this is exactly what `proveAdminOutcomeBehavior` does.
 
-### 5.1 New module `vi.mock`s (file top)
+### 5.1 New module `vi.mock`s (file top) — MANDATORY partial (spread-`importActual`) form
 
-| Module | Exports the mock must provide | Consumed by |
+**Critical hazard (Codex R1 HIGH, confirmed):** `vi.mock` hoists module-wide for the entire `adminOutcomeBehavior.test.ts` file. A whole-module factory that returns only the mutation entry point would set every *other* named export of that module to `undefined`, breaking already-proven rows and the A2/A3/A4 rows that import siblings from the same modules:
+
+- `@/lib/sync/applyStaged` also exports **`revisionTimesMatch`** (imported by A2 `finalize/route.ts:19`, A3 `finalize-cas/route.ts:15`, A4 `extract-agenda/route.ts:19`) and **`STAGED_REVIEW_ITEMS_CORRUPT`** (A2 `finalize/route.ts:19`).
+- `@/lib/sync/runManualSyncForShow` also exports **`readFinalizeOwnershipGuard_unlocked`** + **`runManualSyncForShow_unlocked`** (imported by `pending-ingestions/[id]/retry/route.ts:23-24`, a proven surface).
+- `@/lib/sync/discardStaged` also exports **`discardStaged_unlocked`** (imported by wizard `staged/[wizardSessionId]/[driveFileId]/discard/route.ts:5`, a proven surface).
+- `@/lib/sync/promoteSnapshot` exports both **`promoteSnapshotUpload`** (B1) and **`repairSnapshotRollback`** (B3).
+
+**Mandate:** every Batch-3 `@/lib/sync/*` mock MUST be a **partial mock that spreads the real module** and overrides ONLY the mutation entry point(s):
+
+```ts
+vi.mock("@/lib/sync/applyStaged", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/sync/applyStaged")>()),
+  applyStaged: (...a) => applyStagedMock(...a),
+}));
+```
+
+This keeps every sibling export (`revisionTimesMatch`, `STAGED_REVIEW_ITEMS_CORRUPT`, `*_unlocked`, `FINALIZE_OWNED_SHOW`, etc.) at its real value, so no already-proven row and no A2/A3/A4 row regresses. Only these entry points are overridden:
+
+| Module | Overridden export(s) (spread the rest via `importActual`) | Consumed by |
 |---|---|---|
-| `@/lib/sync/applyStaged` | `applyStaged` (+ any named exports the route imports — verify at plan time) | B1 |
-| `@/lib/sync/promoteSnapshot` | `promoteSnapshotUpload`, `repairSnapshotRollback` (ONE shared mock) | B1, B3 |
-| `@/lib/sync/runManualSyncForShow` | `runManualSyncForShow`, `FINALIZE_OWNED_SHOW` | B2 |
-| `@/lib/sync/discardStaged` | `discardStaged` (+ variant const if imported) | B4 |
+| `@/lib/sync/applyStaged` | `applyStaged` | B1 |
+| `@/lib/sync/promoteSnapshot` | `promoteSnapshotUpload`, `repairSnapshotRollback` (ONE shared mock, both overridden) | B1, B3 |
+| `@/lib/sync/runManualSyncForShow` | `runManualSyncForShow` (leave `FINALIZE_OWNED_SHOW` + both `*_unlocked` real) | B2 |
+| `@/lib/sync/discardStaged` | `discardStaged` (leave `discardStaged_unlocked` real) | B4 |
+
+**Plan pre-draft obligation:** before adding each mock, grep every named export the target module actually has AND every consumer of that module inside `adminOutcomeBehavior.test.ts`'s route set, and confirm the spread preserves all of them (a structural belt-and-suspenders on top of `importActual`).
 
 Each success leg configures the mock to return the committed-success shape (see per-route detail in the plan) and swaps `serverClientImpl.current` / `serviceRoleClientImpl.current` to a working `makeClient({...})`. Each failure leg sets the mock to return a refusal code AND sets `mark.hit = true` inside the mock impl. `mock.mockReset()` in the proof block's own scope (NOT relying on the file-level `clearAllMocks`, which does not restore implementations — see [[reference_single_file_contract_shared_mock_rebase_dedup]]).
 
@@ -136,6 +159,8 @@ After the 8 proofs land and the 8 rows are removed, `ADMIN_OUTCOME_BEHAVIOR_GRAN
 - **AC-4** `_metaMutationSurfaceObservability.test.ts` green (static discovery unaffected — no new/removed surfaces).
 - **AC-5** The structural source-scan guard slices BOTH sentinel blocks and passes (each contains `proveAdminOutcomeBehavior(`, none contains a direct `record`/`observe*` call).
 - **AC-6** "Poison has teeth" negative check documented for A1 + A4: dropping one injected seam turns the row RED with a connect/throw error (proves DB-free enforcement is real, not incidental).
+- **AC-6b** A4 `fakeLeasePool` is script-driven: unexpected/out-of-order/double-consumed SQL throws, AND the success leg asserts every scripted expectation (both advisory locks, tx#1a claim INSERT, tx#1b staged read, tx#2 owner-scoped UPDATE, release DELETE) was consumed exactly once. A regression that skips a required statement fails the row.
+- **AC-6c** Every Batch-3 `@/lib/sync/*` `vi.mock` is a partial spread-`importActual` mock overriding only the mutation entry point; all sibling exports (`revisionTimesMatch`, `STAGED_REVIEW_ITEMS_CORRUPT`, `*_unlocked`, `FINALIZE_OWNED_SHOW`) remain real — verified by the full suite staying green (A2/A3/A4 + the retry/wizard-discard proven rows unaffected).
 - **AC-7** `@/lib/log` / `@/lib/log/logAdminOutcome` are NOT mocked anywhere in `adminOutcomeBehavior.test.ts`.
 - **AC-8** Full `pnpm test` green modulo the four known env-dependent live-integration tests (`email-canonicalization`, `pg-cron-coverage`, `validation-schema-parity`, `test-auth-gate` Layer-2) — verified pre-existing at merge-base, not regressions.
 - **AC-9** Real GitHub Actions CI green on the PR (`unit-suite` required check + both shards); `mergeStateStatus == CLEAN`.
@@ -153,6 +178,8 @@ Pre-loaded for the adversarial reviewer (cite the ratification, don't re-derive)
 5. **`clearAllMocks` does not restore implementations.** Success-leg mock impls are set inline per-case; shared mocks (`promoteSnapshot` for B1+B3) are `mockReset` + re-implemented in each leg. Ratified Batch-1 rebase ([[reference_single_file_contract_shared_mock_rebase_dedup]]).
 6. **Single-file contract.** All proofs stay in the one `adminOutcomeBehavior.test.ts` (cross-file in-memory recorders are unreliable under Vitest per-file isolation — spec R11 F2, ratified). Do not propose splitting.
 7. **Failure-status specificity.** Each failure leg pins an exact HTTP status (A1 409, A2 409, A3 409, A4 202, B1 404, B2 409, B3 409, B4 404) and, where the route emits a typed body `code`, `failureExpect.bodyCode`. Where the body key is `error` (not `code`) or absent (A4 202), only `status` is asserted — this is deliberate (the body-code assertion is opportunistic, the status is mandatory).
+8. **`@/lib/sync/*` mocks are partial (spread-`importActual`), not whole-module (Codex R1 HIGH, closed §5.1).** A whole-module factory would clobber sibling exports (`revisionTimesMatch`, `*_unlocked`, `FINALIZE_OWNED_SHOW`) that other proven rows import from the same modules. The partial form is mandatory, not stylistic — do not propose reverting to a terse whole-module mock.
+9. **A4 `fakeLeasePool` is script-driven with ordered-consumption assertion (Codex R1 MEDIUM, closed §4.2).** Unmatched-only throwing is insufficient for a proof; the fake asserts every required statement (both advisory locks, owner-scoped UPDATE, release DELETE) was consumed. Do not propose weakening it back to a bare regex dispatcher.
 
 ---
 
