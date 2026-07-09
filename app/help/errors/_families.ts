@@ -62,6 +62,9 @@ export const FAMILIES: Family[] = [
       "SECTION",
       "FIELD",
       "VENUE",
+      "ROOM", // ROOM_HEADER_SPLIT_AMBIGUOUS — a parsed sheet section
+      "HOTEL", // HOTEL_GUEST_SPLIT_AMBIGUOUS, HOTEL_CARDINALITY_EXCEEDED
+      "DATE", // DATE_ORDER_SUGGESTS_DMY — show-date reading
     ],
   },
   {

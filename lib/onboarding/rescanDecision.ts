@@ -1,5 +1,6 @@
 import { runInvariants } from "@/lib/parser/invariants";
 import { summarizeDataGaps, type DataGapsSummary } from "@/lib/parser/dataGaps";
+import { isAmbiguityCode } from "@/lib/parser/ambiguityCodes";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 
 /**
@@ -39,8 +40,11 @@ export function computeRescanDecision(
 
   const newGaps = summarizeDataGaps(refreshedParse.warnings ?? []).classes;
   const priorGaps = priorDataGaps?.classes;
+  // Ambiguity-class gaps (spec §3.4) are judgment calls, not degradations — an
+  // increase in one never marks a re-scan dirty (ambiguity never blocks publish).
+  // Only NON-ambiguity gap classes drive the dirty gate.
   const gapRegressed = (Object.keys(newGaps) as Array<keyof typeof newGaps>).some(
-    (cls) => newGaps[cls] > (priorGaps?.[cls] ?? 0),
+    (cls) => !isAmbiguityCode(cls) && newGaps[cls] > (priorGaps?.[cls] ?? 0),
   );
 
   return { dirty: decisionItems.length > 0 || gapRegressed, decisionItems };

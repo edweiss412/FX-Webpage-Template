@@ -418,3 +418,16 @@ function buildCrewMember(params: {
     flight_info: flightRaw ? presence(flightRaw) : null,
   };
 }
+
+// TRANSFORM_SITES (spec 2026-07-07-ambiguity-warnings-v1 §6) — value-producing
+// transform sites in this file that rest on a JUDGMENT the parser could get wrong.
+export const TRANSFORM_SITES: ReadonlyArray<
+  { site: string; code: string } | { site: string; exempt: string }
+> = [
+  { site: "detectColumns positional fallback", code: "CREW_COLUMN_POSITIONAL_FALLBACK" },
+  {
+    site: "column-header / role stage-word autocorrect",
+    exempt:
+      "deterministic — already warns via COLUMN_HEADER_AUTOCORRECTED / STAGE_WORD_AUTOCORRECTED",
+  },
+];

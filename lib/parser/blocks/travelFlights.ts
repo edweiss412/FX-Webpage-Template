@@ -139,3 +139,10 @@ export function parseTravelFlights(
     if (matches[0]!.flight_info == null) matches[0]!.flight_info = flightInfo; // TECH precedence
   }
 }
+
+// TRANSFORM_SITES (spec 2026-07-07-ambiguity-warnings-v1 §6) — value-producing
+// transform sites in this file that rest on a JUDGMENT the parser could get wrong.
+// None here — flight rows captured verbatim.
+export const TRANSFORM_SITES: ReadonlyArray<
+  { site: string; code: string } | { site: string; exempt: string }
+> = [];

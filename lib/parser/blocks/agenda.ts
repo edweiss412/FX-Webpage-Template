@@ -391,3 +391,10 @@ export function parseAgenda(markdown: string, dates?: ShowRow["dates"]): ParseAg
   });
   return { runOfShow, warnings };
 }
+
+// TRANSFORM_SITES (spec 2026-07-07-ambiguity-warnings-v1 §6) — value-producing
+// transform sites in this file that rest on a JUDGMENT the parser could get wrong.
+// None here — agenda schedule rows parsed positionally/verbatim; no ambiguous split or guess.
+export const TRANSFORM_SITES: ReadonlyArray<
+  { site: string; code: string } | { site: string; exempt: string }
+> = [];

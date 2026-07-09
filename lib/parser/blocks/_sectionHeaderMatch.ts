@@ -45,3 +45,10 @@ export function matchesSectionHeader(col0: string, tokens: readonly string[]): b
   const n = normalizeHeader(col0);
   return tokens.some((t) => normalizeHeader(t) === n);
 }
+
+// TRANSFORM_SITES (spec 2026-07-07-ambiguity-warnings-v1 §6) — value-producing
+// transform sites in this file that rest on a JUDGMENT the parser could get wrong.
+// None here — section-header presence factory; no field-value transforms.
+export const TRANSFORM_SITES: ReadonlyArray<
+  { site: string; code: string } | { site: string; exempt: string }
+> = [];
