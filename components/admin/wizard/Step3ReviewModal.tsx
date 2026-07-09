@@ -47,11 +47,7 @@ import {
 import { AlertTriangle, Check, ExternalLink, X } from "lucide-react";
 import { useDialogFocus } from "@/lib/a11y/dialogFocus";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
-import {
-  deriveSectionStatuses,
-  warningsBySection,
-  type SectionId,
-} from "@/lib/admin/step3SectionStatus";
+import { sectionStatus, warningsBySection, type SectionId } from "@/lib/admin/step3SectionStatus";
 import {
   dateSummarySegments,
   NotPublishableNote,
@@ -306,18 +302,27 @@ export function Step3ReviewModal({
   // ── Section registry + statuses (spec §6.1/§7) — ONE memoized derivation
   // feeds the header chip, footer note, both navs, and the section panels. ──
   const sections = useMemo(() => step3Sections(data), [data]);
-  const { flagged, flaggedCount } = useMemo(() => {
-    const rendered = new Set<SectionId>(sections.map((s) => s.id));
-    return deriveSectionStatuses(data.warnings, rendered);
-  }, [sections, data.warnings]);
   // §E3 callout map: warn-severity warnings keyed by section (index = FULL
-  // warnings-array position — the §E4 jump-target key). Derived from the SAME
-  // helper deriveSectionStatuses refactored onto (§E2), so flags and callouts
-  // can never disagree.
+  // warnings-array position — the §E4 jump-target key). The §7.1 section-status
+  // split reads from THIS map so flags and callouts can never disagree.
   const bySection = useMemo(
     () => warningsBySection(data.warnings, new Set(sections.map((s) => s.id))),
     [sections, data.warnings],
   );
+  // §7.1 (spec 2026-07-07): each section carrying warnings is either flagged
+  // (≥1 NON-ambiguity warn) or judgment (≥1 warn, ALL ambiguity-class) — mutually
+  // exclusive. A judgment section gets the calm judgment callout, never the amber
+  // flag; flaggedCount (the header/footer "needs a look" count) excludes judgment.
+  const { flagged, judgment, flaggedCount } = useMemo(() => {
+    const flagged = new Set<SectionId>();
+    const judgment = new Set<SectionId>();
+    for (const [sid, entries] of bySection) {
+      const st = sectionStatus(entries.map((e) => e.warning));
+      if (st === "flagged") flagged.add(sid);
+      else if (st === "judgment") judgment.add(sid);
+    }
+    return { flagged, judgment, flaggedCount: flagged.size };
+  }, [bySection]);
   // Row-local warnings dot (§6.2): red iff ≥1 warn-severity warning exists,
   // MAPPED OR NOT — the checks row summarizes the whole list. Deliberately
   // different from the §7 flagged-set rule (which only adds `warnings` for
@@ -1280,6 +1285,7 @@ export function Step3ReviewModal({
                     Icon: s.Icon,
                     label: s.label,
                     flagged: flagged.has(s.id),
+                    judgment: judgment.has(s.id),
                     getActiveSection,
                     dfid,
                     sectionId: s.id,

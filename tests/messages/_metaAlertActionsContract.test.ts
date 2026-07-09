@@ -159,7 +159,7 @@ describe("alert-action registry parity (spec §6.3)", () => {
     expect(Object.keys(ALERT_ACTIONS).sort()).toEqual(SPEC_CODES);
     expect([...ALERT_ACTION_CODES].sort()).toEqual(SPEC_CODES);
   });
-  test("every registry key is in the 42-code ADMIN_ALERTS_CODES universe", () => {
+  test("every registry key is in the 45-code ADMIN_ALERTS_CODES universe", () => {
     // Parse the shared registry module's source — do NOT import a meta-test
     // (its top level registers tests; importing would re-register them here).
     // noUncheckedIndexedAccess: index accesses stay string | undefined, so

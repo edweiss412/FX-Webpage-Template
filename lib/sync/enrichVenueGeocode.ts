@@ -97,6 +97,17 @@ export async function enrichVenueGeocode(
     });
     if (res.error) {
       recordGeocodeFailure(); // a request failure trips the breaker (not_configured can't reach here)
+      // Badge-visible signal (Flow 6 §4.3): a GENUINE lookup failure — not the quiet
+      // unconfigured/breaker-open/null-city paths — persists as a gate-exempt data-gap so
+      // Doug sees "unresolved venue location" without a push alert. One emit per venue.
+      // PLAIN-LANGUAGE message (invariant 5): the staged-review summary
+      // (app/admin/show/staged/[stagedId]/page.tsx) renders a non-actionable
+      // data-gap warning's `.message` verbatim, so it must never be the raw code.
+      result.warnings.push({
+        severity: "warn",
+        code: "VENUE_GEOCODE_UNRESOLVED",
+        message: "Couldn't look up the venue city from its address",
+      });
       return; // leave venue.city unset (offline fallback)
     }
     consecutiveFailures = 0;

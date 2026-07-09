@@ -437,3 +437,49 @@ Source: invariant-8 impeccable v3 dual-gate (critique + audit) on branch `feat/a
 - **What:** the re-point input's `aria-label` names the internal "match key" concept rather than the user-facing "sheet value to match".
 - **Why deferred:** screen-reader-only clarity nicety; the visible label + stale note already frame the action ("Re-point", "the sheet no longer has «X»"). No sighted-user impact.
 - **Trigger:** the next crew/admin a11y sweep, or any SR audit of the override surface.
+
+## Flow 4 PR #2 — auto-applied strip + roster badge — invariant-8 impeccable dual-gate (2026-07-07)
+
+Source: invariant-8 impeccable v3 dual-gate on branch `feat/flow4-auto-applied-strip`. Verdict: critique 33/40 Good, audit 18/20 Strong, deterministic detector `[]` (0 findings), anti-patterns PASS, zero CRITICAL/P0. FIXED in-branch: Undo-all confirm now focuses the safe "Keep changes" control on open (`keepChangesRef` + `useEffect`, mirrors `ReSyncButton.tsx:76-78`; WCAG 2.4.3 — a stray Enter can no longer fire the destructive bulk undo) — this closed the one HIGH/P1 finding; heading rank inversion (`<h2>` under Dashboard's `<h3>Needs attention</h3>` → `<h4>`, WCAG 1.3.1); long-summary overflow (`wrap-break-word` on the row summary span, prevents unbroken `crew_email_changed` emails overflowing the ~320px inbox column). The entries below are deferred.
+
+### FLOW4-1 — [P1→deferred] No mobile parity for auto-applied disposition
+
+- **What:** `RecentAutoAppliedStrip` mounts only inside `dashboard-inbox-desktop` (`Dashboard.tsx:704`, `hidden min-[720px]:flex`); the `<720px` branch (`:701`) renders only `NeedsAttentionSummaryCard` with no auto-applied count. The roster-shift `DataQualityBadge` IS visible on mobile via `ShowsTable`, so Doug on the venue floor sees the amber signal but has no path to review/count/Accept/Undo.
+- **Why deferred:** Spec §8 scopes the strip's placement to the needs-attention inbox column, which is desktop-only by the EXISTING dashboard convention (the full `NeedsAttentionInbox` is already `<720px`-hidden; mobile gets the summary card for every needs-attention concern, not just this one). Dispositioning auto-applied diffs is inherently a desk task; the mobile badge is a deliberate awareness cue ("roster changed — review at desk"), and the strip's list self-heals on revalidate so nothing is lost. A mobile disposition surface is a net-new UI scope beyond this PR.
+- **Trigger:** a real report of Doug needing to disposition auto-applies from his phone, OR a dashboard mobile-parity pass. Backlog: `BL-FLOW4-MOBILE-AUTOAPPLIED-PARITY`.
+
+### FLOW4-2 — [P2→deferred] Badge detail is hover/SR-only for sighted touch/keyboard users
+
+- **What:** `DataQualityBadge.tsx` exposes the roster/gap breakdown to AT via `role="img"` + `aria-label`, but sighted users reach the detail only through the `title` tooltip on a non-focusable `<span>` — invisible on touch (venue-floor phone) and keyboard.
+- **Why deferred:** This is the PRE-EXISTING badge mechanism (data-gaps already used `title` + `aria-label` + the amber `TriangleAlert` before Flow 4). Task 7 folded roster-shift into that same established affordance; it did not introduce the hover-only pattern. Reworking the badge into a focusable/tap popover is a change to a shared, pre-existing component beyond this PR's spec.
+- **Trigger:** a badge-affordance a11y pass across the shows table. Backlog: `BL-DATAQUALITY-BADGE-TOUCH-DETAIL`.
+
+### FLOW4-3 — [P2→deferred] One amber glyph now conflates parse-gaps and roster-shift
+
+- **What:** `DataQualityBadge` renders both data-gaps and roster-shift with the same amber `TriangleAlert`; a sighted glance can't distinguish "parse gaps" from "roster changed" (the `aria-label` DOES distinguish them for AT).
+- **Why deferred:** The combined amber signal is intentional per spec §6.4 (both are "this show needs a glance" states sharing the data-quality badge). A distinct glyph/count-chip per segment is a visual-design decision on a shared component; the aria-label already carries the semantic split for AT. Not a defect, an enhancement.
+- **Trigger:** a DESIGN.md decision to split data-quality signal types. Backlog: `BL-DATAQUALITY-BADGE-SEGMENT-GLYPH`.
+
+### FLOW4-4 — [P2→deferred] Bulk Undo-all does not surface per-item typed failures
+
+- **What:** `RecentAutoAppliedStrip.tsx` `confirmUndoAll` awaits `undoFromDashboardAction` per id and discards each result, closing the confirm panel regardless. Per-row Undo surfaces `<ErrorExplainer>` on `{ok:false}`; the bulk loop does not, so a partial failure (e.g. `UNDO_SUPERSEDED`) gives no explicit message.
+- **Why deferred:** Softened by self-healing — the strip revalidates after the loop, so any row that failed to undo REMAINS visible (it isn't removed), giving Doug implicit "that one didn't go" feedback. It is NOT an invariant-5 leak (no raw code shown). Undo failures on freshly-auto-applied roster rows are rare. Surfacing an aggregate bulk-error banner is a real improvement but net-new UI.
+- **Trigger:** the next auto-applied-strip robustness pass, or a real partial-undo confusion report. Backlog: `BL-FLOW4-BULK-UNDO-ERROR-SURFACE`.
+
+### FLOW4-5 — [P2→deferred] Destructive confirm-go not visually differentiated from cancel
+
+- **What:** In the Undo-all confirm, "Keep changes" (`bg-bg`) and "Undo all N" (`bg-surface`) are near-identical neutral buttons; mis-tap risk on a phone.
+- **Why deferred:** The primary accidental-activation vector (keyboard Enter on open) is already closed by the focus-on-safe fix shipped in this PR. Visual danger-styling of the destructive control is polish; the confirm step + safe-focus already gate the action. A danger token treatment is a small design decision deferrable to the next polish pass.
+- **Trigger:** `/impeccable polish` on the strip, or a mis-tap report. Backlog: `BL-FLOW4-CONFIRM-DANGER-STYLE`.
+
+### FLOW4-6 — [P3→deferred] Focus falls to body after bulk undo completes
+
+- **What:** `confirmUndoAll` unmounts the confirm panel while focus may sit on the confirm-go button → focus drops to `<body>` (WCAG 2.4.3, soft).
+- **Why deferred:** Soft — the strip revalidates and re-renders after the loop, so focus context changes anyway. Cheap to address alongside FLOW4-5 in a polish pass.
+- **Trigger:** bundled with FLOW4-5. Backlog: `BL-FLOW4-CONFIRM-DANGER-STYLE`.
+
+### FLOW4-7 — [P3→deferred] Section carries both aria-label and a matching heading
+
+- **What:** The strip `<section>` has `aria-label="Recently auto-applied changes"` AND a matching `<h4>`; `aria-labelledby` the heading would avoid the duplication.
+- **Why deferred:** Harmless (aria-label wins for the section's accessible name; the heading still contributes to the outline). Trivial nicety, not a defect.
+- **Trigger:** bundled with any future strip edit. Backlog: none (nicety).

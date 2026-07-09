@@ -12,7 +12,11 @@ export type ParseWarning = {
   // key used to attach a `sourceCell` anchor at scan time (correlated against the
   // raw grid by date, NOT by markdown row index, which the synthesis pipeline can
   // shift).
-  blockRef?: { kind: string; index?: number; iso?: string; name?: string };
+  // `field` (when present) names the specific field within the block the warning
+  // is about — e.g. a room split's `"dims"` / `"name"`, a hotel cell's `"guests"`,
+  // a DATES block's `"order"` (spec 2026-07-07-ambiguity-warnings-v1 §5). Emitters
+  // set it explicitly (never `undefined`), so it stays exactOptionalPropertyTypes-safe.
+  blockRef?: { kind: string; index?: number; iso?: string; name?: string; field?: string };
   rawSnippet?: string;
   // Optional deep-link anchor to the exact source cell that triggered the warning
   // (e.g. the DATES-tab TIME cell for SCHEDULE_TIME_UNPARSED). Attached at scan

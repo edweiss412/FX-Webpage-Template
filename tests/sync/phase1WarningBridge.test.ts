@@ -16,6 +16,7 @@ type FakeShowRow = {
   lastSyncError: string | null;
   priorParseResult: ParseResult;
   priorParseWarningsRaw: ParseResult["warnings"] | null;
+  published: boolean;
 };
 
 type FakePendingSync = {
@@ -192,6 +193,7 @@ async function runWithWarning(
     lastSyncError: null,
     priorParseResult: parseResult(),
     priorParseWarningsRaw: null,
+    published: true,
   });
   const next = parseResult({
     ...overrides,

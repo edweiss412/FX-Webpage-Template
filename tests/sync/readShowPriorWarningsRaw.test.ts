@@ -27,3 +27,24 @@ describe("Unit C read-path — priorParseWarningsRaw (C2)", () => {
     expect(src).toMatch(/warnings:\s*internal\?\.parse_warnings \?\? \[\]/);
   });
 });
+
+describe("Flow 4.1 read-path — published (publish-state threading)", () => {
+  it("Phase1ShowRow carries published as a REQUIRED boolean (type contract)", () => {
+    // Compile-time contract: present values compile as boolean...
+    const pub: Pick<Phase1ShowRow, "published"> = { published: true };
+    const unpub: Pick<Phase1ShowRow, "published"> = { published: false };
+    expect(pub.published).toBe(true);
+    expect(unpub.published).toBe(false);
+    // ...and OMITTING it is a type error (proves REQUIRED, not optional). If `published`
+    // were `?:`, this @ts-expect-error would itself error ("unused expect-error") → red.
+    // @ts-expect-error published is REQUIRED on Phase1ShowRow — an empty object must not satisfy it
+    const missing: Pick<Phase1ShowRow, "published"> = {};
+    void missing;
+  });
+
+  it("the concrete readShowForPhase1 producer maps show.published", () => {
+    const src = readFileSync("lib/sync/runScheduledCronSync.ts", "utf8");
+    // producer returns the raw column onto Phase1ShowRow.published (not a hardcoded literal)
+    expect(src).toMatch(/published:\s*show\.published/);
+  });
+});

@@ -52,7 +52,10 @@ test("unassigned crew see no ground-transport PII; admin sees the full field set
   const crew = render(
     <TravelSection
       data={data}
-      viewer={{ kind: "crew", crewMemberId: "nobody" }}
+      // c1 (default fixture row) is a real roster member but NOT the driver "Pat" nor in
+      // assigned_names → transport gate stays closed, PII hidden. Post-8.2 an unmatched id
+      // would fail closed upstream, so the non-assignee case uses a matched-but-unassigned row.
+      viewer={{ kind: "crew", crewMemberId: "c1" }}
       today={TODAY}
       showId={SHOW_ID}
     />,

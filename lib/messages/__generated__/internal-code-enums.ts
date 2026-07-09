@@ -53,6 +53,12 @@ export const INTERNAL_CODE_ENUMS = {
   CONCURRENT_SYNC_SKIPPED: {
     source: "pending_ingestions.last_error_code"
   },
+  CREW_COLUMN_POSITIONAL_FALLBACK: {
+    source: "parse_warnings.code"
+  },
+  DATE_ORDER_SUGGESTS_DMY: {
+    source: "parse_warnings.code"
+  },
   DAY_RESTRICTION_DOUBLE_LOCATION: {
     source: "parse_warnings.code"
   },
@@ -90,13 +96,19 @@ export const INTERNAL_CODE_ENUMS = {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   FOLDER_NOT_FOUND: {
-    source: "pending_ingestions.last_error_code"
+    source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   FOLDER_NOT_SHARED: {
-    source: "pending_ingestions.last_error_code"
+    source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   GOOGLE_NO_CREW_MATCH: {
     source: "admin_alerts.code"
+  },
+  HOTEL_CARDINALITY_EXCEEDED: {
+    source: "parse_warnings.code"
+  },
+  HOTEL_GUEST_SPLIT_AMBIGUOUS: {
+    source: "parse_warnings.code"
   },
   IDEMPOTENCY_IN_FLIGHT: {
     source: "admin_alerts.code"
@@ -140,11 +152,14 @@ export const INTERNAL_CODE_ENUMS = {
   ONBOARDING_LEGACY_ROW_AMBIGUOUS: {
     source: "pending_ingestions.last_error_code"
   },
+  ONBOARDING_SHEET_UNREADABLE: {
+    source: "admin_alerts.code,pending_ingestions.last_error_code"
+  },
   OPERATOR_ERROR_INCOMPLETE_FOLDER_METADATA: {
-    source: "pending_ingestions.last_error_code"
+    source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   OPERATOR_ERROR_NOT_FOLDER: {
-    source: "pending_ingestions.last_error_code"
+    source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   OVERRIDE_NAME_CONFLICT: {
     source: "admin_alerts.code"
@@ -216,6 +231,9 @@ export const INTERNAL_CODE_ENUMS = {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
   ROLE_TOKEN_AUTOCORRECTED: {
+    source: "parse_warnings.code"
+  },
+  ROOM_HEADER_SPLIT_AMBIGUOUS: {
     source: "parse_warnings.code"
   },
   SCHEDULE_STRIKE_DATE_OFF_SCHEDULE: {
@@ -328,6 +346,9 @@ export const INTERNAL_CODE_ENUMS = {
   },
   UNPUBLISH_TOKEN_EXPIRED: {
     source: "admin_alerts.code"
+  },
+  VENUE_GEOCODE_UNRESOLVED: {
+    source: "parse_warnings.code"
   },
   VERSION_AMBIGUOUS: {
     source: "parse_warnings.code,pending_ingestions.last_error_code"

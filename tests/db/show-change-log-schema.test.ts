@@ -90,6 +90,8 @@ describe("public.show_change_log DDL", () => {
       order by column_name
     `;
     expect(cols.map((c) => c.column_name)).toEqual([
+      "acknowledged_at",
+      "acknowledged_by",
       "after_image",
       "before_image",
       "change_kind",
@@ -105,6 +107,32 @@ describe("public.show_change_log DDL", () => {
       "summary",
       "undo_of",
     ]);
+  });
+
+  it("acknowledged_at/acknowledged_by are nullable timestamptz/text with no default (Flow-4)", async () => {
+    const cols = await sql<
+      {
+        column_name: string;
+        data_type: string;
+        is_nullable: string;
+        column_default: string | null;
+      }[]
+    >`
+      select column_name, data_type, is_nullable, column_default
+      from information_schema.columns
+      where table_schema = 'public' and table_name = 'show_change_log'
+        and column_name in ('acknowledged_at', 'acknowledged_by')
+      order by column_name
+    `;
+    expect(cols).toHaveLength(2);
+    const at = cols.find((c) => c.column_name === "acknowledged_at")!;
+    expect(at.data_type).toBe("timestamp with time zone");
+    expect(at.is_nullable).toBe("YES");
+    expect(at.column_default).toBeNull();
+    const by = cols.find((c) => c.column_name === "acknowledged_by")!;
+    expect(by.data_type).toBe("text");
+    expect(by.is_nullable).toBe("YES");
+    expect(by.column_default).toBeNull();
   });
 
   it("individually_undoable is boolean NOT NULL defaulting to true (P4-F4)", async () => {

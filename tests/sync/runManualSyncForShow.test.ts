@@ -122,6 +122,7 @@ function fakeTx(held = true): FakeTx {
         lastSyncError: show.lastSyncError,
         priorParseResult: parseResult,
         priorParseWarningsRaw: null,
+        published: true,
       };
     },
     async readLivePendingSync() {

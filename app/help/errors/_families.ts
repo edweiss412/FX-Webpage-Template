@@ -61,6 +61,10 @@ export const FAMILIES: Family[] = [
       "EXTRA",
       "SECTION",
       "FIELD",
+      "VENUE",
+      "ROOM", // ROOM_HEADER_SPLIT_AMBIGUOUS — a parsed sheet section
+      "HOTEL", // HOTEL_GUEST_SPLIT_AMBIGUOUS, HOTEL_CARDINALITY_EXCEEDED
+      "DATE", // DATE_ORDER_SUGGESTS_DMY — show-date reading
     ],
   },
   {
@@ -78,6 +82,7 @@ export const FAMILIES: Family[] = [
       "STAGE",
       "ROLE",
       "COLUMN",
+      "CREW",
       "IDENTITY",
       "VERSION", // VERSION_AMBIGUOUS — sits with MI-1_VERSION_DETECTION_FAILED (its sibling)
     ],

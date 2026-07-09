@@ -1,6 +1,7 @@
 import type { ParseWarning } from "@/lib/parser/types";
 import type { RegionId } from "@/lib/sheet-links/buildSheetDeepLink";
 import { guessSectionFromHeader } from "@/lib/admin/sectionSynonymGuess";
+import { isAmbiguityCode } from "@/lib/parser/ambiguityCodes";
 
 export type SectionId =
   | "venue"
@@ -94,6 +95,22 @@ export function warningsBySection(
     else map.set(target, [{ warning, index }]);
   });
   return map;
+}
+
+// Task 9 (spec §7.1): the tri-state readiness of a single section, derived from
+// the warn-severity warnings ROUTED to that section. Distinct from the row-level
+// buckets (step3Buckets.ts), which use the narrower GAP_CLASSES universe:
+//   - flagged  — ≥1 non-ambiguity warn (a section with BOTH is flagged);
+//   - judgment — ≥1 warn AND every warn is `isAmbiguityCode`;
+//   - clean    — zero warn-severity warnings.
+// Info-severity warnings are ignored (mirrors deriveSectionStatuses). Task 11
+// wires the section chrome to this; Task 9 delivers the pure derivation only.
+export type SectionStatus = "flagged" | "judgment" | "clean";
+
+export function sectionStatus(warnings: readonly ParseWarning[]): SectionStatus {
+  const warns = warnings.filter((w) => w.severity === "warn");
+  if (warns.length === 0) return "clean";
+  return warns.every((w) => isAmbiguityCode(w.code)) ? "judgment" : "flagged";
 }
 
 export function deriveSectionStatuses(

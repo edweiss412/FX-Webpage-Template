@@ -1,5 +1,7 @@
-// Exemption / ledger / grandfather registries for the mutation-surface discovery
-// meta-test (invariant #10, spec §4.3 escape hatches + §4.2 grandfather baseline).
+// Exemption / ledger registries for the mutation-surface discovery meta-test
+// (invariant #10, spec §4.3 escape hatches). The behavioral-coverage grandfather
+// baseline was fully retired when BL-ADMIN-OUTCOME-BEHAVIOR closed (Batch 3): every
+// admin surface now carries a live proof, so there is no longer a grandfather escape.
 
 import ts from "typescript";
 
@@ -91,61 +93,9 @@ export type KnownUninstrumented = { file: string; fn: string; backlog: string };
  * NEW uninstrumented picker mutation fails the discovery floor by default, not here. */
 export const KNOWN_UNINSTRUMENTED: readonly KnownUninstrumented[] = [];
 
-export type GrandfatherUnit = { file: string; fn: string };
-
-/** The FROZEN scope-bound baseline (spec §4.2, §9): exactly the admin surfaces
- * that ALREADY emitted a success outcome at `origin/main` HEAD — 24 pre-existing
- * admin route POSTs + 6 pre-existing admin action functions. This is a HARDCODED
- * LITERAL (Codex plan-R3 F4 — NOT computed from the tree), and never grows.
- * `manifest/…/ignore` and `reap-stale-sessions` are deliberately NOT here — they
- * are seeded by this change, not pre-existing (Codex R15 F3 / plan-R3 F4). */
-export const ADMIN_OUTCOME_BEHAVIOR_GRANDFATHER: readonly GrandfatherUnit[] = [
-  {
-    file: "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/apply/route.ts",
-    fn: "POST",
-  },
-  {
-    file: "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/approve/route.ts",
-    fn: "POST",
-  },
-  {
-    file: "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/unapprove/route.ts",
-    fn: "POST",
-  },
-  {
-    file: "app/api/admin/onboarding/staged/[wizardSessionId]/[driveFileId]/discard/route.ts",
-    fn: "POST",
-  },
-  { file: "app/api/admin/onboarding/finalize/route.ts", fn: "POST" },
-  { file: "app/api/admin/onboarding/finalize-cas/route.ts", fn: "POST" },
-  { file: "app/api/admin/staged/[fileId]/apply/route.ts", fn: "POST" },
-  { file: "app/api/admin/show/staged/[stagedId]/apply/route.ts", fn: "POST" },
-  { file: "app/api/admin/sync/[slug]/route.ts", fn: "POST" },
-  { file: "app/api/admin/pending-ingestions/[id]/retry/route.ts", fn: "POST" },
-  { file: "app/api/admin/snapshot-rollback/[id]/repair/route.ts", fn: "POST" },
-  { file: "app/api/admin/show/[slug]/data-quality/ignore/route.ts", fn: "POST" },
-  { file: "app/api/admin/show/[slug]/data-quality/unignore/route.ts", fn: "POST" },
-  { file: "app/api/admin/admin-alerts/[id]/resolve/route.ts", fn: "POST" },
-  { file: "app/api/admin/show/[slug]/alerts/[id]/resolve/route.ts", fn: "POST" },
-  { file: "app/api/admin/pending-ingestions/[id]/discard/route.ts", fn: "POST" },
-  { file: "app/api/admin/onboarding/pending_ingestions/[id]/retry/route.ts", fn: "POST" },
-  { file: "app/api/admin/onboarding/rescan-sheet/route.ts", fn: "POST" },
-  {
-    file: "app/api/admin/onboarding/cleanup-abandoned-finalize/[sessionId]/route.ts",
-    fn: "POST",
-  },
-  { file: "app/api/admin/show/staged/[stagedId]/discard/route.ts", fn: "POST" },
-  { file: "app/api/admin/onboarding/scan/route.ts", fn: "POST" },
-  {
-    file: "app/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]/route.ts",
-    fn: "POST",
-  },
-  { file: "app/api/admin/staged/[fileId]/discard/route.ts", fn: "POST" },
-  { file: "app/api/admin/ignored-sheets/[driveFileId]/unignore/route.ts", fn: "POST" },
-  { file: "app/admin/show/[slug]/_actions/archive.ts", fn: "archiveShowAction" },
-  { file: "app/admin/show/[slug]/_actions/unarchive.ts", fn: "unarchiveShowAction" },
-  { file: "app/admin/show/[slug]/_actions/setPublished.ts", fn: "setShowPublishedAction" },
-  { file: "app/admin/show/[slug]/_actions/feed.ts", fn: "mi11ApproveAction" },
-  { file: "app/admin/show/[slug]/_actions/feed.ts", fn: "mi11RejectAction" },
-  { file: "app/admin/show/[slug]/_actions/feed.ts", fn: "undoChangeAction" },
-];
+// The behavioral-coverage grandfather baseline array + its unit type were fully
+// retired when BL-ADMIN-OUTCOME-BEHAVIOR closed (Batch 3, 2026-07-09): all 30
+// originally-grandfathered admin surfaces (6 per-show actions → Batch 1; 16 clean
+// DI-seam route POSTs → Batch 2; the final 8 → Batch 3) now carry a live inline
+// `proveAdminOutcomeBehavior` proof in adminOutcomeBehavior.test.ts. Task 18 there is
+// now a STRICT completeness assertion with no escape hatch.

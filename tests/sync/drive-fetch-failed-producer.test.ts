@@ -40,6 +40,7 @@ describe("DRIVE_FETCH_FAILED producer", () => {
           lastSyncError: null,
           priorParseResult: null,
           priorParseWarningsRaw: null,
+          published: true,
           title: "FXAV Spring Tour",
         };
       },

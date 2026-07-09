@@ -1,6 +1,6 @@
 // Static discovery meta-test (invariant #10, spec §4 / §10). Composes Tasks 2-4:
 // `scanBody`/directives/import-binding (enumerate.ts), surface enumeration +
-// admin classification (enumerate.ts), and the exemption/ledger/grandfather
+// admin classification (enumerate.ts), and the exemption/ledger
 // registries (exemptions.ts). Fixture/negative tests run now; the live
 // "zero unaccounted" assertion is `.skip`ped until Task 17 seeds the 21
 // surfaces + wires the exemption/ledger comments.

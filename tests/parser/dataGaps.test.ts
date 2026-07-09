@@ -17,6 +17,11 @@ import {
   OPERATOR_ACTIONABLE_ANCHORED,
   stripLegacyUnknownFieldAnchors,
   selectActionableForDisplay,
+  summarizeAutoFixes,
+  formatAutoFixBreakdown,
+  AUTO_FIX_CLASSES,
+  hasRecoveredToBaseline,
+  isQualityRegression,
 } from "@/lib/parser/dataGaps";
 import type { ParseWarning } from "@/lib/parser/types";
 
@@ -28,20 +33,21 @@ const warn = (code: string, severity: ParseWarning["severity"] = "warn"): ParseW
 
 // A summary whose `classes` has every GAP_CLASSES key at 0 EXCEPT the given
 // overrides — derived from the registry so the expectation tracks the real set
-// (anti-tautology: never hardcode the 24-key shape).
+// (anti-tautology: never hardcode the 30-key shape).
 const classesWith = (overrides: Record<string, number>): Record<string, number> =>
   Object.fromEntries(GAP_CLASSES.map((g) => [g.code, overrides[g.code] ?? 0]));
 
 describe("GAP_CLASSES registry (single source of truth)", () => {
-  it("has exactly 24 entries and includes the newly-counted codes", () => {
-    expect(GAP_CLASSES).toHaveLength(24);
-    expect(DATA_GAP_CODES.size).toBe(24);
+  it("has exactly 30 entries and includes the newly-counted codes", () => {
+    expect(GAP_CLASSES).toHaveLength(30);
+    expect(DATA_GAP_CODES.size).toBe(30);
     for (const c of [
       "UNKNOWN_FIELD",
       "SCHEDULE_TIME_UNPARSED",
       "AGENDA_LINK_NOT_CLICKABLE",
       "PULL_SHEET_ON_ARCHIVED_TAB",
       "UNKNOWN_STAGE_RESTRICTION",
+      "CREW_COLUMN_POSITIONAL_FALLBACK",
     ]) {
       expect(DATA_GAP_CODES.has(c)).toBe(true);
     }
@@ -57,6 +63,29 @@ describe("GAP_CLASSES registry (single source of truth)", () => {
       // Plain-language acronyms like "PDF" ARE allowed (Codex plan R1): do NOT assert lowercase-only.
     }
     expect(DATA_GAP_CLASS_LABELS.AGENDA_PDF_UNREADABLE).toContain("PDF");
+  });
+});
+
+describe("Task 2 — ambiguity + cardinality gap classes (spec §3.4)", () => {
+  it("ambiguity + cardinality codes are gap classes (counted, recovered symmetrically)", () => {
+    const s = summarizeDataGaps([
+      warn("ROOM_HEADER_SPLIT_AMBIGUOUS"),
+      warn("HOTEL_GUEST_SPLIT_AMBIGUOUS"),
+      warn("DATE_ORDER_SUGGESTS_DMY"),
+      warn("HOTEL_CARDINALITY_EXCEEDED"),
+    ]);
+    expect(s.total).toBe(4);
+    // recovery symmetry: an ambiguity regression blocks recovery to baseline
+    expect(hasRecoveredToBaseline(summarizeDataGaps([]), s)).toBe(false);
+  });
+
+  it("regression gate stays UNPARTITIONED for ambiguity + cardinality classes (§3.4 carve-out)", () => {
+    const prior = summarizeDataGaps([]);
+    const many = (code: string) => summarizeDataGaps(Array.from({ length: 6 }, () => warn(code)));
+    // new-class appearance fires isQualityRegression for an ambiguity code…
+    expect(isQualityRegression(prior, many("ROOM_HEADER_SPLIT_AMBIGUOUS"))).toBe(true);
+    // …and for the promoted cardinality code
+    expect(isQualityRegression(prior, many("HOTEL_CARDINALITY_EXCEEDED"))).toBe(true);
   });
 });
 
@@ -86,7 +115,7 @@ describe("summarizeDataGaps", () => {
   it("counts EVERY gap class once when given one warn per code (derived from registry)", () => {
     const oneEach = GAP_CLASSES.map((g) => warn(g.code));
     const out = summarizeDataGaps(oneEach);
-    expect(out.total).toBe(GAP_CLASSES.length); // 24
+    expect(out.total).toBe(GAP_CLASSES.length); // 30
     for (const { code } of GAP_CLASSES) expect(out.classes[code]).toBe(1);
   });
 
@@ -313,5 +342,66 @@ describe("selectActionableForDisplay (read-boundary seam)", () => {
       },
     ]);
     expect(items.map((w) => w.sourceCell?.a1).sort()).toEqual(["A56", "A65"]);
+  });
+});
+
+describe("summarizeAutoFixes (6.3 sibling)", () => {
+  const w = (code: string, severity: "warn" | "info" = "warn") => ({
+    code,
+    severity,
+    message: code,
+  });
+
+  it("counts only the five *_AUTOCORRECTED warn codes", () => {
+    const s = summarizeAutoFixes([
+      w("STAGE_WORD_AUTOCORRECTED"),
+      w("STAGE_WORD_AUTOCORRECTED"),
+      w("ROLE_TOKEN_AUTOCORRECTED"),
+      w("FIELD_UNREADABLE"), // a gap, not an autofix → ignored
+    ]);
+    expect(s.total).toBe(3);
+    expect(s.classes.STAGE_WORD_AUTOCORRECTED).toBe(2);
+    expect(s.classes.ROLE_TOKEN_AUTOCORRECTED).toBe(1);
+    expect(s.classes.COLUMN_HEADER_AUTOCORRECTED).toBe(0);
+  });
+
+  it("null/undefined/empty → total 0, all classes zero", () => {
+    for (const input of [null, undefined, []] as const) {
+      const s = summarizeAutoFixes(input);
+      expect(s.total).toBe(0);
+      expect(Object.values(s.classes).every((n) => n === 0)).toBe(true);
+    }
+  });
+
+  it("skips severity:info (defensive)", () => {
+    expect(summarizeAutoFixes([w("STAGE_WORD_AUTOCORRECTED", "info")]).total).toBe(0);
+  });
+
+  it("AUTO_FIX_CLASSES is exactly the five autocorrect codes", () => {
+    expect(AUTO_FIX_CLASSES.map((c) => c.code).sort()).toEqual(
+      [
+        "COLUMN_HEADER_AUTOCORRECTED",
+        "FIELD_LABEL_AUTOCORRECTED",
+        "ROLE_TOKEN_AUTOCORRECTED",
+        "SECTION_HEADER_AUTOCORRECTED",
+        "STAGE_WORD_AUTOCORRECTED",
+      ].sort(),
+    );
+  });
+
+  it("formatAutoFixBreakdown caps at 4 classes with +N more, count-desc order", () => {
+    const s = summarizeAutoFixes([
+      w("STAGE_WORD_AUTOCORRECTED"),
+      w("STAGE_WORD_AUTOCORRECTED"),
+      w("STAGE_WORD_AUTOCORRECTED"),
+      w("ROLE_TOKEN_AUTOCORRECTED"),
+      w("ROLE_TOKEN_AUTOCORRECTED"),
+      w("COLUMN_HEADER_AUTOCORRECTED"),
+      w("SECTION_HEADER_AUTOCORRECTED"),
+      w("FIELD_LABEL_AUTOCORRECTED"),
+    ]);
+    const out = formatAutoFixBreakdown(s, 4);
+    expect(out.startsWith("3 corrected stage word")).toBe(true);
+    expect(out.endsWith("+1 more")).toBe(true);
   });
 });

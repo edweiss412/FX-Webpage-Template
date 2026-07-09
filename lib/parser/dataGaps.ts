@@ -25,7 +25,7 @@ import type { ParseWarning } from "@/lib/parser/types";
  * display order. Curated allow-list (NOT "all warn-severity" — five autocorrect
  * codes are warn yet benign); see the spec's §2 for the verified taxonomy and the
  * drift-guard meta-test (tests/parser/dataGapsClassCompleteness.test.ts) that pins
- * the full 42-code persisted-ParseWarning partition.
+ * the full 49-code persisted-ParseWarning partition.
  */
 export const GAP_CLASSES = [
   { code: "FIELD_UNREADABLE", label: "unreadable field" },
@@ -52,6 +52,16 @@ export const GAP_CLASSES = [
   { code: "PULL_SHEET_AMBIGUOUS_FORMAT", label: "unclear pull sheet" },
   { code: "PULL_SHEET_UNKNOWN_VARIANT", label: "unrecognized pull sheet" },
   { code: "PULL_SHEET_ON_ARCHIVED_TAB", label: "pull sheet on archived tab" },
+  { code: "CREW_COLUMN_POSITIONAL_FALLBACK", label: "guessed crew columns" },
+  // gateExempt: badge/chip/digest-visible (counts toward `total`) but NEVER trips the
+  // push-alert regression gate — a transient geocode/Google outage must not alarm Doug
+  // (Flow 6 §4.2). Honored by isQualityRegression / hasRecoveredToBaseline /
+  // buildRegressionPayload via the `gateExempt` flag.
+  { code: "VENUE_GEOCODE_UNRESOLVED", label: "unresolved venue location", gateExempt: true },
+  { code: "ROOM_HEADER_SPLIT_AMBIGUOUS", label: "unclear room split" },
+  { code: "HOTEL_GUEST_SPLIT_AMBIGUOUS", label: "possibly merged hotel guests" },
+  { code: "DATE_ORDER_SUGGESTS_DMY", label: "dates may be day-first" },
+  { code: "HOTEL_CARDINALITY_EXCEEDED", label: "too many hotels" },
 ] as const;
 
 export type GapCode = (typeof GAP_CLASSES)[number]["code"];
@@ -80,6 +90,72 @@ export function isDataQualityWarning(w: ParseWarning | null | undefined): boolea
 }
 
 /**
+ * AUTO_FIX_CLASSES — the five benign `*_AUTOCORRECTED` warn codes the parser
+ * emits when it corrected a value (stage word, role token, column/section
+ * header, field label). Semantically POSITIVE ("we fixed it") — surfaced as a
+ * neutral sibling count, NOT a data gap, so it is deliberately NOT in
+ * GAP_CLASSES and does not feed summarizeDataGaps / the regression gate. Plain
+ * labels (invariant 5). Scope is the five autocorrects only (spec §1 / audit
+ * §6.3); the two agenda benign-warn codes are a documented follow-on.
+ */
+export const AUTO_FIX_CLASSES = [
+  { code: "STAGE_WORD_AUTOCORRECTED", label: "corrected stage word" },
+  { code: "ROLE_TOKEN_AUTOCORRECTED", label: "corrected role" },
+  { code: "COLUMN_HEADER_AUTOCORRECTED", label: "corrected column header" },
+  { code: "SECTION_HEADER_AUTOCORRECTED", label: "corrected section header" },
+  { code: "FIELD_LABEL_AUTOCORRECTED", label: "corrected field label" },
+] as const;
+
+export type AutoFixCode = (typeof AUTO_FIX_CLASSES)[number]["code"];
+export type AutoFixSummary = { total: number; classes: Record<AutoFixCode, number> };
+
+const AUTO_FIX_CODES: ReadonlySet<string> = new Set(AUTO_FIX_CLASSES.map((c) => c.code));
+const zeroAutoFix = (): Record<AutoFixCode, number> =>
+  Object.fromEntries(AUTO_FIX_CLASSES.map((c) => [c.code, 0])) as Record<AutoFixCode, number>;
+
+/**
+ * Count the five autocorrect classes in `warnings`. Skips `severity:"info"`
+ * (defensive — these are all `warn`) and any non-autocorrect code.
+ * `null`/`undefined`/`[]` → `{ total: 0 }`. Same fail-safe posture as
+ * summarizeDataGaps; sibling type so the ~8 exact-`toEqual` DataGapsSummary
+ * consumers are untouched.
+ */
+export function summarizeAutoFixes(
+  warnings: readonly ParseWarning[] | null | undefined,
+): AutoFixSummary {
+  const classes = zeroAutoFix();
+  if (!warnings) return { total: 0, classes };
+  let total = 0;
+  for (const w of warnings) {
+    if (w.severity === "info") continue;
+    if (AUTO_FIX_CODES.has(w.code)) {
+      classes[w.code as AutoFixCode] += 1;
+      total += 1;
+    }
+  }
+  return { total, classes };
+}
+
+/**
+ * Bounded, human "N label" breakdown for an AutoFixSummary. Ordering: count
+ * desc, then AUTO_FIX_CLASSES registry order (stable tiebreak). Caps at `cap`
+ * classes; the remainder collapses to "+N more". Empty when `cap <= 0` or no
+ * auto-fixes. Mirrors formatDataGapBreakdown so the chip hover title is bounded.
+ */
+export function formatAutoFixBreakdown(summary: AutoFixSummary, cap = 4): string {
+  if (cap <= 0 || summary.total === 0) return "";
+  const details = AUTO_FIX_CLASSES.map((c) => ({
+    label: c.label,
+    count: summary.classes[c.code],
+  })).filter((d) => d.count > 0);
+  const sorted = [...details].sort((a, b) => b.count - a.count);
+  const shown = sorted.slice(0, cap);
+  const remainder = sorted.length - shown.length;
+  const base = shown.map((d) => `${d.count} ${d.label}`).join(", ");
+  return remainder > 0 ? `${base}, +${remainder} more` : base;
+}
+
+/**
  * Count the three data-quality warning classes in `warnings`, excluding any
  * `severity:"info"` warning (only operator-actionable `warn`-severity drops
  * count) and any non-data-quality code. `null`/`undefined`/`[]` → `{ total: 0 }`.
@@ -101,17 +177,48 @@ export function summarizeDataGaps(
   return { total, classes };
 }
 
+// Tuned published-show regression thresholds (Flow 6 §3.3). Single-sourced named
+// consts so the gate literals live in ONE place and the tests derive from them.
+export const REGRESSION_ABS_JUMP = 5;
+export const REGRESSION_REL_FACTOR = 1.5;
+export const REGRESSION_REL_ABS_FLOOR = 2;
+
+/** True iff the GAP_CLASSES entry is exempt from the push-alert regression gate
+ * (badge-visible but never trips RESYNC_QUALITY_REGRESSED — e.g. transient
+ * geocode failures). Read via a widening cast because GAP_CLASSES is `as const`
+ * and only the exempt entries carry the flag. */
+const isGateExempt = (c: (typeof GAP_CLASSES)[number]): boolean =>
+  (c as { gateExempt?: boolean }).gateExempt === true;
+
 /**
- * OPENER dual-gate (spec §6.3): does `next` represent a materially worse parse than `prior`?
- * Fires when EITHER a new gap class appears (0→>0, no magnitude gate) OR an existing class
- * worsens by >=5 absolute AND >=50% relative. Never compares `.total` (show-intrinsic).
+ * Per-class regression classification (Flow 6 §3.3) — single-sourced by BOTH
+ * isQualityRegression (the fire decision) AND buildRegressionPayload (the "why"
+ * payload) so the two can never drift. Tuned rule: a NEW class (0→>0), OR a +5
+ * absolute jump, OR a >=1.5x relative jump WITH a +2 absolute floor (the floor
+ * suppresses 1→2 noise while catching 3→7 drift).
+ */
+export function regressionKind(p: number, n: number): "new" | "worsened" | null {
+  if (p === 0 && n > 0) return "new";
+  if (
+    p > 0 &&
+    (n - p >= REGRESSION_ABS_JUMP ||
+      (n >= p * REGRESSION_REL_FACTOR && n - p >= REGRESSION_REL_ABS_FLOOR))
+  ) {
+    return "worsened";
+  }
+  return null;
+}
+
+/**
+ * OPENER (spec §6.3, tuned Flow 6 §3.3): does `next` represent a materially worse
+ * parse than `prior`? Fires iff any NON-gate-exempt class has a non-null
+ * regressionKind. Never compares `.total` (show-intrinsic). Called only from the
+ * cron applied epilogue (the caller's guard scopes it to published shows).
  */
 export function isQualityRegression(prior: DataGapsSummary, next: DataGapsSummary): boolean {
-  for (const { code } of GAP_CLASSES) {
-    const p = prior.classes[code];
-    const n = next.classes[code];
-    if (p === 0 && n > 0) return true; // rule 1: new class
-    if (p > 0 && n - p >= 5 && n >= p * 1.5) return true; // rule 2: +5 abs AND +50% rel
+  for (const c of GAP_CLASSES) {
+    if (isGateExempt(c)) continue;
+    if (regressionKind(prior.classes[c.code], next.classes[c.code]) !== null) return true;
   }
   return false;
 }
@@ -125,8 +232,9 @@ export function hasRecoveredToBaseline(
   baseline: DataGapsSummary,
   current: DataGapsSummary,
 ): boolean {
-  for (const { code } of GAP_CLASSES) {
-    if (current.classes[code] > baseline.classes[code]) return false;
+  for (const c of GAP_CLASSES) {
+    if (isGateExempt(c)) continue; // a gate-exempt class never opens an alert → must not block recovery
+    if (current.classes[c.code] > baseline.classes[c.code]) return false;
   }
   return true;
 }
@@ -164,10 +272,10 @@ export function dataGapClassDetails(
 /**
  * Bounded, human breakdown string for a summary. Ordering: count desc, then
  * GAP_CLASSES registry order (stable tiebreak). Caps at `cap` classes; the
- * remaining classes collapse to "+N more". Used by ALL THREE count-bearing
- * surfaces (badge aria-label/title, per-show alert sub-line, held-row
- * DataGapsChip title) so none is ever unbounded. Empty string when `cap <= 0`
- * or the summary has no gaps (callers already gate on `total > 0`).
+ * remaining classes collapse to "+N more". Used by the count-bearing surfaces
+ * (DataQualityBadge aria-label/title, per-show alert sub-line) so none is ever
+ * unbounded. Empty string when `cap <= 0` or the summary has no gaps (callers
+ * already gate on `total > 0`).
  */
 export function formatDataGapBreakdown(summary: DataGapsSummary, cap = 4): string {
   if (cap <= 0 || summary.total === 0) return "";

@@ -1269,6 +1269,84 @@ export const MESSAGE_CATALOG = {
       "A column header on a crew table looked misspelled, so we read it as the closest real header and used that column — the crew rows still parse into the right fields. If it was intentional, update the sheet.",
     helpHref: "/help/errors#COLUMN_HEADER_AUTOCORRECTED",
   },
+  CREW_COLUMN_POSITIONAL_FALLBACK: {
+    code: "CREW_COLUMN_POSITIONAL_FALLBACK",
+    dougFacing:
+      "We couldn't recognize the column headers on _<sheet-name>_'s crew table, so we read the columns by position instead. Names and roles may have landed in the wrong fields — check the crew section against your sheet, and add a header row (Name / Role / Phone / Email) so we can read the columns by label.",
+    crewFacing: null,
+    followUp: "Doug → verify crew columns",
+    helpfulContext:
+      "This crew table's header row was missing or used labels we don't recognize (e.g. 'Position' instead of 'Role'), so we couldn't confirm which column is which and read them by position. The rows still parsed, but names and roles may have landed in the wrong fields. Check the crew section against the sheet; adding a standard header row (Name / Role / Phone / Email) removes the guesswork.",
+    title: "Guessed crew table columns by position",
+    longExplanation:
+      "A crew table's header row was missing or used unrecognized labels, so instead of dropping the rows we read the columns by position. The rows parsed but may have landed in the wrong fields. Add a standard header row (Name / Role / Phone / Email) so the columns are read by label.",
+    helpHref: "/help/errors#CREW_COLUMN_POSITIONAL_FALLBACK",
+  },
+  VENUE_GEOCODE_UNRESOLVED: {
+    code: "VENUE_GEOCODE_UNRESOLVED",
+    dougFacing:
+      "We couldn't automatically look up the city for _<venue>_, so the crew page shows the venue address instead of a city name. This often clears on the next sync; if it sticks, double-check the venue address in the sheet.",
+    crewFacing: null,
+    followUp: "Doug → optional fix (auto-retries)",
+    helpfulContext:
+      "We look up each venue's city from its address so the crew page can show a clean location. This time the lookup didn't return a city — often a temporary hiccup with the lookup service, which clears on the next sync. The page falls back to showing the address. If it keeps happening, check the venue address in the sheet for typos.",
+    title: "Couldn't look up the venue city",
+    longExplanation:
+      "We look up each venue's city from its address so the crew page can show a clean location. The lookup didn't return a city this time — usually a temporary service hiccup that clears on the next sync. The page falls back to the address. If it persists, check the venue address in the sheet.",
+    helpHref: "/help/errors#VENUE_GEOCODE_UNRESOLVED",
+  },
+  ROOM_HEADER_SPLIT_AMBIGUOUS: {
+    code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+    dougFacing:
+      "We had to make a judgment call splitting a room line in _<sheet-name>_ into name and dimensions; check the rooms section against your sheet.",
+    crewFacing: null,
+    followUp: "Doug → spot-check rooms",
+    helpfulContext:
+      "A room line in this sheet could be split into a room name and its dimensions in more than one way (for example the dimensions came before the name, or there were two dimension groups), so we picked the most likely reading. The room still parsed; the name or dimensions might have landed slightly off. Check the rooms section against your sheet.",
+    title: "Made a judgment call splitting a room line",
+    longExplanation:
+      "A room header could be read as name-then-dimensions in more than one way, so we picked the most likely split rather than dropping the room. The room still parsed, but the name or dimensions may have landed slightly off. Spot-check the rooms section against your sheet.",
+    helpHref: "/help/errors#ROOM_HEADER_SPLIT_AMBIGUOUS",
+  },
+  HOTEL_GUEST_SPLIT_AMBIGUOUS: {
+    code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+    dougFacing:
+      "A guest line in _<sheet-name>_'s hotel section may contain more than one person; check the hotel guest list against your sheet.",
+    crewFacing: null,
+    followUp: "Doug → spot-check hotel guests",
+    helpfulContext:
+      "A guest cell in this sheet's hotel section looked like it might contain more than one person glued together (several names in a row, or a stray number between names), so we made a judgment call about where one guest ends and the next begins. The guests still parsed; check the hotel guest list against your sheet in case two people were merged or one was split.",
+    title: "A hotel guest cell may hold more than one person",
+    longExplanation:
+      "A hotel guest cell looked like it might contain several guests glued together, so we made a judgment call about where one guest ends and the next begins. The guests still parsed; spot-check the hotel guest list in case two people were merged or one was split.",
+    helpHref: "/help/errors#HOTEL_GUEST_SPLIT_AMBIGUOUS",
+  },
+  DATE_ORDER_SUGGESTS_DMY: {
+    code: "DATE_ORDER_SUGGESTS_DMY",
+    dougFacing:
+      "The dates in _<sheet-name>_ look out of order the way we read them (month first). If you wrote them day-first, fix the dates in the sheet; we may have every date wrong.",
+    crewFacing: null,
+    followUp: "Doug → fix sheet dates",
+    helpfulContext:
+      "The show dates only line up in chronological order if we read them day-first (like 10/3 meaning 3 October), but we read them month-first (10 March). That usually means the sheet was written day-first. If so, every date we parsed may be wrong; fix the dates in the sheet to an unambiguous format (like 'June 24') and we'll re-read them.",
+    title: "Show dates may be written day-first",
+    longExplanation:
+      "The show dates only sort into order if read day-first, but we read them month-first, which usually means the sheet was written day-first. If so, every date we parsed may be wrong. Fix the dates in the sheet to an unambiguous format (like 'June 24') and we'll re-read them.",
+    helpHref: "/help/errors#DATE_ORDER_SUGGESTS_DMY",
+  },
+  HOTEL_CARDINALITY_EXCEEDED: {
+    code: "HOTEL_CARDINALITY_EXCEEDED",
+    dougFacing:
+      "_<sheet-name>_ lists more than 4 hotels; we kept the first 4. Remove old hotel blocks from the sheet if this is wrong.",
+    crewFacing: null,
+    followUp: "Doug → trim hotel list",
+    helpfulContext:
+      "This sheet lists more than four hotels, and we only keep the first four. The extras were dropped. If an old or duplicate hotel block is still in the sheet, remove it so the four we keep are the right ones.",
+    title: "More than four hotels, kept the first four",
+    longExplanation:
+      "This sheet lists more than four hotels, and we only keep the first four; the extras were dropped. If an old or duplicate hotel block is still in the sheet, remove it so the four we keep are the right ones.",
+    helpHref: "/help/errors#HOTEL_CARDINALITY_EXCEEDED",
+  },
   SECTION_HEADER_AUTOCORRECTED: {
     code: "SECTION_HEADER_AUTOCORRECTED",
     dougFacing:
@@ -1914,6 +1992,21 @@ export const MESSAGE_CATALOG = {
     longExplanation:
       "Setup tried to stage a parse for a sheet that the live folder sync is already processing. We skipped the wizard's stage to avoid clobbering the live row. Resolve the live row from the dashboard (either Apply or Discard it), then re-run setup if you still need to.",
     helpHref: "/help/errors#LIVE_ROW_CONFLICT",
+  },
+  ONBOARDING_SHEET_UNREADABLE: {
+    code: "ONBOARDING_SHEET_UNREADABLE",
+    resolution: "manual",
+    audience: "doug",
+    dougFacing:
+      "Some sheets in your show folder couldn't be read during setup and were skipped. To see which ones and fix them, re-run setup from Settings.",
+    crewFacing: null,
+    followUp: "Doug → Settings → Re-run setup; fix the flagged sheets in Drive; re-scan",
+    helpfulContext:
+      "During setup we scanned your Drive folder and found one or more files we couldn't read as a show sheet, so we skipped them — they aren't staged and won't appear on any crew page. The setup wizard's Step 3 lists each skipped sheet by name while setup is open; after setup you can see them again by re-running setup from Settings. Fix the sheet's layout in Drive (most often a missing or renamed section header), then re-scan.",
+    title: "Some sheets couldn't be read",
+    longExplanation:
+      "During setup we scanned your Drive folder and found one or more files we couldn't read as a show sheet, so we skipped them. They aren't staged and won't appear on any crew page. The setup wizard's Step 3 lists each skipped sheet by name; after setup, re-run setup from Settings to see them again. Fix the sheet's layout in Drive, then re-scan.",
+    helpHref: "/help/errors#ONBOARDING_SHEET_UNREADABLE",
   },
   WIZARD_ISOLATION_INDEXES_MISSING: {
     code: "WIZARD_ISOLATION_INDEXES_MISSING",
@@ -3054,6 +3147,16 @@ export const MESSAGE_CATALOG = {
     dougFacing: null,
     crewFacing: "Doug hasn't added crew yet — check back soon.",
     followUp: "Crew → check back; Doug → update sheet",
+    helpfulContext: null,
+    title: null,
+    longExplanation: null,
+    helpHref: null,
+  },
+  PICKER_NAME_NOT_LISTED: {
+    code: "PICKER_NAME_NOT_LISTED",
+    dougFacing: null,
+    crewFacing: "Don't see your name? Ask the person who shared this link to add you.",
+    followUp: "Crew → ask the link sender",
     helpfulContext: null,
     title: null,
     longExplanation: null,

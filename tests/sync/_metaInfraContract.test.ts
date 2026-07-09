@@ -355,6 +355,12 @@ const infraRegistry = [
       "feed Undo action (WM-F5): a THROWN createSupabaseServerClient / supabase.rpc fault, a returned {error}, AND a null/unexpected RPC shape ALL map to { ok:false, code:'SYNC_INFRA_ERROR' }; a typed data.ok===false code (e.g. UNDO_SUPERSEDED) passes through unclobbered and data.ok===true → { ok:true }; never an uncaught throw / untyped admin 500 (invariant 9). Enforced by tests/sync/holds/undoChange.infra.test.ts",
   },
   {
+    helper: "acknowledgeChanges",
+    path: "lib/sync/holds/acknowledgeChanges.ts",
+    contract:
+      "Flow-4 accept action (Task 2): a THROWN createSupabaseServerClient / supabase.rpc fault, a returned {error}, AND a null/unexpected RPC shape ALL map to { ok:false, code:'SYNC_INFRA_ERROR' }; a well-formed { ok:true, count:int } → { ok:true, count }; never an uncaught throw / untyped admin 500 (invariant 9). Behavioral coverage in tests/sync/acknowledgeChanges.test.ts",
+  },
+  {
     helper: "downloadFileBytes",
     path: "lib/drive/agendaDrive.ts",
     contract:

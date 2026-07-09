@@ -21,7 +21,12 @@
  */
 
 import type { HotelReservationRow } from "../types";
-import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
+import {
+  type ParseAggregator,
+  emitEmptySection,
+  emitHotelGuestSplitAmbiguity,
+  emitHotelCardinalityExceeded,
+} from "@/lib/parser/warnings";
 import { clean, presence, normalizeDate, parseTableRows, inferShowYear } from "./_helpers";
 import { buildCol0HeaderRe, matchesSectionHeader } from "./_sectionHeaderMatch";
 import { log } from "@/lib/log";
@@ -51,8 +56,8 @@ export function parseHotels(
   agg?: ParseAggregator,
 ): HotelReservationRow[] {
   // Try the structured HOTEL table first (v4 + v2 newer layouts)
-  const fromTable = parseHotelTable(markdown);
-  if (fromTable.length > 0) return cap(fromTable);
+  const fromTable = parseHotelTable(markdown, agg);
+  if (fromTable.length > 0) return cap(fromTable, agg);
 
   // Inline rows carry yearless "Check In: M/D"; infer the show's year from its
   // dates so we don't hard-code an era (the cell alone lacks the year).
@@ -60,11 +65,11 @@ export function parseHotels(
 
   // Try the inline "Hotel Reservations" row (v2 older layout, RIA forum, DCI RPAS)
   const fromInline = parseInlineHotelRow(markdown, contextYear);
-  if (fromInline.length > 0) return cap(fromInline);
+  if (fromInline.length > 0) return cap(fromInline, agg);
 
   // Try v1 "Hotel Stays" row (2024-05 east coast family office)
   const fromStays = parseHotelStaysRow(markdown, contextYear);
-  if (fromStays.length > 0) return cap(fromStays);
+  if (fromStays.length > 0) return cap(fromStays, agg);
 
   // D1: a recognized HOTEL / "Hotel Reservations" / "Hotel Stays" header that
   // parsed zero reservations (sub-parsers content-gate to []) is a silent
@@ -79,9 +84,12 @@ export function parseHotels(
   return [];
 }
 
-function cap(hotels: HotelReservationRow[]): HotelReservationRow[] {
+function cap(hotels: HotelReservationRow[], agg?: ParseAggregator): HotelReservationRow[] {
   if (hotels.length > MAX_HOTELS) {
+    // Log-only telemetry stays (HOTELS_PARSE_WARNING forensic stream); the aggregator
+    // emit (§4.2b) promotes the same event to an operator-visible ParseWarning.
     warn(`HOTEL_CARDINALITY_EXCEEDED: found ${hotels.length} hotels; truncating to ${MAX_HOTELS}.`);
+    emitHotelCardinalityExceeded(agg, { found: hotels.length, cap: MAX_HOTELS });
     return hotels.slice(0, MAX_HOTELS);
   }
   return hotels;
@@ -98,6 +106,10 @@ type SlotData = {
   check_in?: string | null;
   check_out?: string | null;
   notes: null;
+  // §4.2 (Codex R5): guest-split ambiguities are STASHED per triggering cell during
+  // parsing and emitted only for slots that survive the cardinality cap (kept hotels),
+  // so a dropped RESERVATION #5+ slot never warns for a hotel that isn't shown.
+  guestAmbiguities: Array<{ reasons: string[]; rawCell: string }>;
 };
 
 /**
@@ -114,7 +126,39 @@ type SlotData = {
  * schema + per-viewer access (per-name RLS or an RPC) — see DEFERRED.md
  * AUDIT-2026-06-18-PARSE-FIDELITY round 3.
  */
-function parseGuestCell(cell: string): { names: string[]; confs: string[] } {
+/**
+ * §4.2 fallback-segment ambiguity predicate. Operates on a trimmed guest SEGMENT
+ * that the no-token fallback consumed whole (no "<name> <dash> #?<conf>" token
+ * matched). Returns a reason string when the segment's shape suggests multiple
+ * guests were glued together, else null:
+ *   (i)  "fallback-4-tokens" — ≥ 4 name-like tokens (a maximal whitespace-split
+ *        run matching /^[\p{L}][\p{L}\p{M}.'-]*$/u; same character class as the
+ *        name side of `tokenRe`, minus the space). Threshold 4 because the dominant
+ *        glued shape is First Last First Last; an accepted false positive is a
+ *        4-token single-person name ("Mary Anne St. Claire") — spec §4.2.
+ *   (ii) "interior-digit-run" — a /\d{4,}/ (conf-shaped) run whose match neither
+ *        starts at index 0 nor ends at the segment end (a boundary run is a leading
+ *        or trailing conf#, not glue).
+ */
+function fallbackGuestAmbiguityReason(seg: string): string | null {
+  const nameLikeRe = /^[\p{L}][\p{L}\p{M}.'-]*$/u;
+  const nameLike = seg.split(/\s+/).filter((t) => nameLikeRe.test(t));
+  if (nameLike.length >= 4) return "fallback-4-tokens";
+  const digitRe = /\d{4,}/g;
+  let dm: RegExpExecArray | null;
+  while ((dm = digitRe.exec(seg)) !== null) {
+    const start = dm.index;
+    const end = dm.index + dm[0].length;
+    if (start !== 0 && end !== seg.length) return "interior-digit-run";
+  }
+  return null;
+}
+
+export function parseGuestCell(cell: string): {
+  names: string[];
+  confs: string[];
+  ambiguity?: { reasons: string[] };
+} {
   // clean() first so a markdown-escaped hash ("\#2069854") becomes "#2069854"
   // before token matching — self-contained even if a caller passes a raw cell
   // (current callers pre-clean col1/col3, but don't depend on that here).
@@ -123,6 +167,10 @@ function parseGuestCell(cell: string): { names: string[]; confs: string[] } {
 
   const names: string[] = [];
   const confs: string[] = [];
+  // §4.2 ambiguity reasons — which branch(es) flagged a possible glued-guest cell.
+  // parseGuestCell stays PURE (no emission): the caller reads `ambiguity.reasons`
+  // and emits ONE HOTEL_GUEST_SPLIT_AMBIGUOUS per triggering cell.
+  const reasons: string[] = [];
   // A " / " separates DISTINCT guests in one cell ("David Johnson / Jeffrey
   // Justice") — split FIRST so each guest (and its own conf#) is parsed
   // independently, then run the per-guest token extraction over each segment.
@@ -139,21 +187,34 @@ function parseGuestCell(cell: string): { names: string[]; confs: string[] } {
     let matched = false;
     let m: RegExpExecArray | null;
     while ((m = tokenRe.exec(seg)) !== null) {
-      names.push(clean(m[1]!));
+      const nm = clean(m[1]!);
+      names.push(nm);
       confs.push(m[2]!);
       consumedEnd = m.index + m[0].length;
       matched = true;
+      // §4.2: a tokenized guest's NAME can itself be several people glued together
+      // before the conf# ("John Smith Jane Doe - #1234") — the token match consumes
+      // the whole run as one name, so run the same glued-name predicate on the captured
+      // name, else a structured ambiguous cell ships a merged guest with no warning.
+      const nameReason = fallbackGuestAmbiguityReason(nm);
+      if (nameReason) reasons.push(nameReason);
     }
     if (!matched) {
       names.push(seg); // no conf# tokens in this segment — it is just a guest name
+      const reason = fallbackGuestAmbiguityReason(seg);
+      if (reason) reasons.push(reason);
     } else {
       const tail = clean(seg.slice(consumedEnd));
-      if (/\p{L}/u.test(tail)) names.push(tail); // a trailing un-numbered guest
+      if (/\p{L}/u.test(tail)) {
+        names.push(tail); // a trailing un-numbered guest
+        reasons.push("tail-guest-appended");
+      }
     }
   }
   // Belt-and-suspenders: a conf# must NEVER survive in a persisted name, even on
   // the fallback / unmatched-alphabet path — `names` is also show-wide readable.
-  return { names: names.map(stripConfTokens).filter((n) => n.length > 0), confs };
+  const cleaned = { names: names.map(stripConfTokens).filter((n) => n.length > 0), confs };
+  return reasons.length > 0 ? { ...cleaned, ambiguity: { reasons } } : cleaned;
 }
 
 /**
@@ -317,7 +378,7 @@ export function splitHotelNameAddress(combined: string | null): {
  *   |       | RESERVATION #3 |   | RESERVATION #4 |  (optional)
  *   ... repeat for res 3+4
  */
-function parseHotelTable(markdown: string): HotelReservationRow[] {
+function parseHotelTable(markdown: string, agg?: ParseAggregator): HotelReservationRow[] {
   const HOTEL_HEADER_RE = buildCol0HeaderRe(["HOTEL"]);
   const headerMatch = HOTEL_HEADER_RE.exec(markdown);
   if (!headerMatch) return [];
@@ -377,6 +438,7 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
           names: [],
           confirmation_no: null,
           notes: null,
+          guestAmbiguities: [],
         });
       }
       if (rightNum > 0 && !slots.has(rightNum)) {
@@ -386,6 +448,7 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
           names: [],
           confirmation_no: null,
           notes: null,
+          guestAmbiguities: [],
         });
       }
       continue;
@@ -443,10 +506,22 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
       if (leftSlot && col1 && col1 !== "\\-" && col1 !== "-") {
         // split the (&#10;- or space-delimited) guest cell into clean names; the
         // conf# is parsed only to strip it out of the names, NOT persisted.
-        leftSlot.names.push(...parseGuestCell(col1).names);
+        const parsed = parseGuestCell(col1);
+        leftSlot.names.push(...parsed.names);
+        // §4.2 (Codex R5): STASH one glue/split ambiguity per triggering cell; it is
+        // emitted in the materialization loop below ONLY for a hotel that survives the
+        // cardinality cap (single commit point, kept-hotels-only) — a dropped dash-only or
+        // over-cap slot must never warn for a hotel that is not shown.
+        if (parsed.ambiguity) {
+          leftSlot.guestAmbiguities.push({ reasons: parsed.ambiguity.reasons, rawCell: col1 });
+        }
       }
       if (rightSlot && col3 && col3 !== "\\-" && col3 !== "-") {
-        rightSlot.names.push(...parseGuestCell(col3).names);
+        const parsed = parseGuestCell(col3);
+        rightSlot.names.push(...parsed.names);
+        if (parsed.ambiguity) {
+          rightSlot.guestAmbiguities.push({ reasons: parsed.ambiguity.reasons, rawCell: col3 });
+        }
       }
       rowState = "idle";
       continue;
@@ -479,12 +554,28 @@ function parseHotelTable(markdown: string): HotelReservationRow[] {
     }
   }
 
+  // Materialize ALL name-resolved slots in reservation order so the cardinality cap in
+  // cap() sees the TRUE hotel count — a structured RESERVATION #5+ overflow used to be
+  // silently dropped by a 1..MAX_HOTELS loop here, before cap() could emit
+  // HOTEL_CARDINALITY_EXCEEDED (Codex R5).
   const result: HotelReservationRow[] = [];
-  for (let i = 1; i <= MAX_HOTELS; i++) {
-    const slot = slots.get(i);
-    if (!slot) continue;
+  for (const i of [...slots.keys()].sort((a, b) => a - b)) {
+    const slot = slots.get(i)!;
     // Only include slots that have at minimum a hotel_name (skip dash-only placeholders)
     if (!slot.hotel_name) continue;
+    // §4.2 single commit point: a stashed guest-split ambiguity emits ONLY when the hotel
+    // survives the cap. cap() keeps the first MAX_HOTELS name-resolved slots, so a row
+    // whose rank (result.length before push) is < MAX_HOTELS is kept; later ones are
+    // truncated and stay silent.
+    if (result.length < MAX_HOTELS) {
+      for (const amb of slot.guestAmbiguities) {
+        emitHotelGuestSplitAmbiguity(agg, {
+          name: slot.hotel_name,
+          reasons: amb.reasons,
+          rawCell: amb.rawCell,
+        });
+      }
+    }
     result.push({
       ordinal: i,
       hotel_name: slot.hotel_name ?? null,
@@ -870,3 +961,14 @@ function parseLinesIntoRows(lines: string[]): string[][] {
   }
   return rows;
 }
+
+// TRANSFORM_SITES (spec 2026-07-07-ambiguity-warnings-v1 §6) — value-producing
+// transform sites in this file that rest on a JUDGMENT the parser could get wrong.
+export const TRANSFORM_SITES: ReadonlyArray<
+  { site: string; code: string } | { site: string; exempt: string }
+> = [
+  { site: "parseGuestCell structured glue/split", code: "HOTEL_GUEST_SPLIT_AMBIGUOUS" },
+  { site: "cardinality cap (MAX_HOTELS truncation)", code: "HOTEL_CARDINALITY_EXCEEDED" },
+  { site: "inline guest paths", exempt: "deferred:BL-PARSER-HOTEL-INLINE-AMBIGUITY" },
+  { site: "splitHotelNameAddress", exempt: "deferred:BL-PARSER-ADDRESS-SPLIT-AMBIGUITY" },
+];

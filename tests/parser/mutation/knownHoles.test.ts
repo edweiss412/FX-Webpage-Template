@@ -23,7 +23,14 @@ const H = (siteId: string, kind: KnownHole["kind"], fingerprint: string): KnownH
 
 describe("reconcileLedger is bidirectional (plan-R9)", () => {
   it("empty vs empty → clean", () => {
-    expect(reconcileLedger([], [])).toEqual({ newAlarms: [], staleRows: [] });
+    expect(reconcileLedger([], [])).toEqual({
+      newAlarms: [],
+      staleRows: [],
+      newHoles: [],
+      driftedAlarms: [],
+      fixedHoles: [],
+      driftedStale: [],
+    });
   });
   it("actual ∖ ledger → newAlarms (a NEW silent hole fails)", () => {
     const r = reconcileLedger([A("s1", "wrong", "fp")], []);
@@ -51,7 +58,62 @@ describe("reconcileLedger is bidirectional (plan-R9)", () => {
         [A("a", "wrong", "1"), A("b", "signal_loss", "2")],
         [H("b", "signal_loss", "2"), H("a", "wrong", "1")],
       ),
-    ).toEqual({ newAlarms: [], staleRows: [] });
+    ).toEqual({
+      newAlarms: [],
+      staleRows: [],
+      newHoles: [],
+      driftedAlarms: [],
+      fixedHoles: [],
+      driftedStale: [],
+    });
+  });
+});
+
+describe("reconcileLedger classifies drift vs new/fixed holes (triage ergonomics)", () => {
+  // A red nightly harness must tell the triager WHICH of three things happened, because two
+  // are benign re-bless and one is a genuine regression:
+  //   • newHoles     — a (siteId,kind) that NEVER had a ledger row now survives  → REGRESSION
+  //   • fixedHoles   — a ledgered (siteId,kind) no longer survives               → coverage win (shrink)
+  //   • drifted*     — a ledgered (siteId,kind) survives with a CHANGED fingerprint (parser output
+  //                    shape changed) → benign IFF the output change was intentional (re-bless)
+  it("brand-new (siteId,kind) → newHoles, never driftedAlarms", () => {
+    const r = reconcileLedger([A("s1", "wrong", "fp")], []);
+    expect(r.newHoles).toEqual(["s1|wrong|fp"]);
+    expect(r.driftedAlarms).toEqual([]);
+    // union invariant: newAlarms is exactly newHoles ∪ driftedAlarms
+    expect([...r.newHoles, ...r.driftedAlarms].sort()).toEqual([...r.newAlarms].sort());
+  });
+  it("changed fingerprint at a known (siteId,kind) → driftedAlarms + driftedStale, NOT new/fixed", () => {
+    const r = reconcileLedger([A("s1", "wrong", "fpNEW")], [H("s1", "wrong", "fpOLD")]);
+    expect(r.driftedAlarms).toEqual(["s1|wrong|fpNEW"]);
+    expect(r.driftedStale).toEqual(["s1|wrong|fpOLD"]);
+    expect(r.newHoles).toEqual([]);
+    expect(r.fixedHoles).toEqual([]);
+  });
+  it("ledgered (siteId,kind) with no surviving alarm → fixedHoles, never driftedStale", () => {
+    const r = reconcileLedger([], [H("s1", "wrong", "fp")]);
+    expect(r.fixedHoles).toEqual(["s1|wrong|fp"]);
+    expect(r.driftedStale).toEqual([]);
+    // union invariant: staleRows is exactly fixedHoles ∪ driftedStale
+    expect([...r.fixedHoles, ...r.driftedStale].sort()).toEqual([...r.staleRows].sort());
+  });
+  it("kind is part of the drift key — same siteId, DIFFERENT kind is a new hole, not drift", () => {
+    // ledger has (s1, wrong); actual has (s1, signal_loss) → different (siteId,kind) → newHole.
+    const r = reconcileLedger([A("s1", "signal_loss", "fp")], [H("s1", "wrong", "fp")]);
+    expect(r.newHoles).toEqual(["s1|signal_loss|fp"]);
+    expect(r.driftedAlarms).toEqual([]);
+    expect(r.fixedHoles).toEqual(["s1|wrong|fp"]);
+    expect(r.driftedStale).toEqual([]);
+  });
+  it("mixed batch classifies each row independently", () => {
+    const r = reconcileLedger(
+      [A("new", "wrong", "x"), A("drift", "wrong", "fpNEW"), A("keep", "wrong", "k")],
+      [H("drift", "wrong", "fpOLD"), H("fixed", "wrong", "g"), H("keep", "wrong", "k")],
+    );
+    expect(r.newHoles).toEqual(["new|wrong|x"]);
+    expect(r.driftedAlarms).toEqual(["drift|wrong|fpNEW"]);
+    expect(r.fixedHoles).toEqual(["fixed|wrong|g"]);
+    expect(r.driftedStale).toEqual(["drift|wrong|fpOLD"]);
   });
 });
 

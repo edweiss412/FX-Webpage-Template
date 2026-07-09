@@ -29,7 +29,12 @@ const ADMIN: Viewer = { kind: "admin" };
 const CREW: Viewer = { kind: "crew", crewMemberId: "c1" };
 // A crew viewer with no matching row → empty flags, none restrictions, not a
 // transport assignee. Used to prove the transportation gate stays closed.
-const UNASSIGNED: Viewer = { kind: "crew", crewMemberId: "nobody" };
+// A crew viewer who IS on the roster (c2) but holds NO transport assignment and has empty
+// flags → proves the transportation gate stays closed for a non-assignee. Post-8.2 an
+// UNMATCHED viewer id fails closed UPSTREAM (page.tsx re-pick / _CrewShell TerminalFailure)
+// and never reaches a section, so the "not the assignee" case must use a matched-but-
+// unassigned roster row, not a bogus id. The two renders below add this c2 row to the fixture.
+const UNASSIGNED: Viewer = { kind: "crew", crewMemberId: "c2" };
 
 /** A populated transportation row so the transport gate is open for its assignee. */
 const TRANSPORT = {
@@ -46,6 +51,17 @@ const TRANSPORT = {
 
 function err(key: string) {
   return { tileErrors: { [key]: "boom" } };
+}
+
+// Append a c2 bench roster row (empty flags, no transport assignment) so the UNASSIGNED
+// viewer matches a real row. Required post-8.2: an unmatched viewer id fails closed
+// upstream and can no longer reach a section, so a non-assignee must be matched-but-unassigned.
+function withBench(over: Parameters<typeof makeShowForViewer>[0]) {
+  const built = makeShowForViewer(over);
+  return {
+    ...built,
+    crewMembers: [...built.crewMembers, { ...built.crewMembers[0]!, id: "c2" }],
+  };
 }
 
 // TodaySection renders RightNowHero, whose usePrefersReducedMotion hook calls
@@ -147,7 +163,7 @@ test("transportation fetch error: admin sees degraded; assigned crew sees degrad
   // admin is isAdmin (always true); for crew it folds in transportTileVisible
   // which is false without a transportation row → unassigned crew never sees a
   // degraded block (no boundary widening).
-  const data = makeShowForViewer(err("transportation"));
+  const data = withBench(err("transportation"));
 
   const admin = render(<TravelSection data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />);
   const block = admin.container.querySelector('[data-testid="section-tile-error-transportation"]');
@@ -167,7 +183,7 @@ test("transportation fetch error: admin sees degraded; assigned crew sees degrad
 });
 
 test("transportation fetch error on Venue parking: admin degraded, unassigned crew omission", () => {
-  const data = makeShowForViewer(err("transportation"));
+  const data = withBench(err("transportation"));
   const admin = render(<VenueSection data={data} viewer={ADMIN} today={TODAY} showId={SHOW_ID} />);
   expect(
     admin.container.querySelector('[data-testid="section-tile-error-transportation"]'),

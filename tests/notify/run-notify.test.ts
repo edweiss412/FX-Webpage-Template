@@ -50,6 +50,14 @@ function baseDeps(events: string[] = []): NotifyDeps {
       events.push("deliver-digest");
       return { kind: "ok", sent: 1, failed: 0, skipped: 0, retryLater: 0 };
     },
+    buildMonitorDigestModel: async () => {
+      events.push("build-monitor");
+      return { kind: "empty" as const };
+    },
+    writeMonitorDigestWatermark: async () => {
+      events.push("write-watermark");
+      return { kind: "ok" as const };
+    },
   };
 }
 
@@ -549,6 +557,7 @@ describe("runDigestNotify", () => {
       "config",
       "digest-toggle",
       "recipients",
+      "build-monitor",
       "build-digest",
     ]);
   });
@@ -586,6 +595,7 @@ describe("runDigestNotify", () => {
       "maintenance",
       "config",
       "digest-toggle",
+      "build-monitor",
       "build-digest:doug@fxav.net",
       "deliver-digest:doug@fxav.net",
       "build-digest:ops@fxav.net",

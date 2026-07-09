@@ -65,3 +65,10 @@ export function mergeDressCode(eventDetails: Record<string, string>, dress: stri
   if (incomingIsSentinel && existingIsReal) return;
   eventDetails["dress_code"] = dress;
 }
+
+// TRANSFORM_SITES (spec 2026-07-07-ambiguity-warnings-v1 §6) — value-producing
+// transform sites in this file that rest on a JUDGMENT the parser could get wrong.
+// None here — dress block captured as label-retaining verbatim text.
+export const TRANSFORM_SITES: ReadonlyArray<
+  { site: string; code: string } | { site: string; exempt: string }
+> = [];

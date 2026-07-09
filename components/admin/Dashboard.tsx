@@ -19,7 +19,12 @@
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { nowDate } from "@/lib/time/now";
 import { type ActiveShowRow } from "@/lib/admin/showDisplay";
-import { summarizeDataGaps, type DataGapsSummary } from "@/lib/parser/dataGaps";
+import {
+  summarizeDataGaps,
+  summarizeAutoFixes,
+  type DataGapsSummary,
+  type AutoFixSummary,
+} from "@/lib/parser/dataGaps";
 import type { ParseWarning } from "@/lib/parser/types";
 import { DashboardFooter } from "@/components/admin/DashboardFooter";
 import { StatStrip } from "@/components/admin/StatStrip";
@@ -40,6 +45,13 @@ import { loadIgnoredSheets, type IgnoredSheetRow } from "@/lib/admin/loadIgnored
 import { IgnoredSheetsDisclosure } from "@/components/admin/IgnoredSheetsDisclosure";
 import { UnignoreButton } from "@/components/admin/UnignoreButton";
 import { formatRelative } from "@/lib/admin/showDisplay";
+import { loadRecentAutoApplied, type RecentAutoApplied } from "@/lib/admin/loadRecentAutoApplied";
+import { RecentAutoAppliedStrip } from "@/components/admin/RecentAutoAppliedStrip";
+import {
+  acceptChangeAction,
+  acceptAllAction,
+  undoFromDashboardAction,
+} from "@/app/admin/_actions/autoApplied";
 
 // V7 — pinned literals, chosen ≫ FXAV scale and < PostgREST's ~1000 row cap.
 export const ACTIVE_SHOWS_CAP = 500;
@@ -81,6 +93,13 @@ export type DashboardData = {
   // Data-quality read (shows_internal.parse_warnings) faulted → badges suppressed
   // and a visible calm notice shown. Degrade-VISIBLE, never silent (invariant 9).
   dataGapsDegraded: boolean;
+  // Flow-4 (spec §8) — the recently-auto-applied strip payload (un-dispositioned
+  // auto-applies grouped by show + per-show roster-shift counts). Its OWN
+  // discriminated result: an infra_error here renders a bounded in-strip message
+  // (invariant 5) and never blanks the dashboard. Loaded via a SELF-created
+  // service-role client (show_change_log is REVOKEd from authenticated), so it is
+  // NOT part of the cookie-client Promise.all above.
+  recentAutoApplied: RecentAutoApplied;
 };
 
 type DatesJson = {
@@ -237,6 +256,17 @@ export async function fetchDashboardData(
   // ── isLive per row (single `now`; shared tz + span helpers), liveCount = Σ ──
   const activeShowIds = showsRows.map((s) => s.id as string);
 
+  // Flow-4 (spec §8) — recently-auto-applied strip + per-show roster-shift badge
+  // counts. `publishedShowIds` is derived from the resolved show list (published
+  // shows only — unpublished shows never carry a roster-shift badge, §6.4). The
+  // loader SELF-CREATES a service-role client, so it is kicked off HERE (after
+  // showsRows resolved) as its OWN promise rather than joining the cookie-client
+  // Wave-2 Promise.all below; it is awaited before the rows map so each row can
+  // pick up its rosterShift. Its typed infra_error degrades in-strip (invariant 5),
+  // never dashboard-wide.
+  const publishedShowIds = showsRows.filter((s) => Boolean(s.published)).map((s) => s.id as string);
+  const recentAutoAppliedPromise = loadRecentAutoApplied({ publishedShowIds });
+
   // Sentinel a wave-2 closure returns instead of throwing, so the outer fn can
   // short-circuit to the typed infra_error AFTER Promise.all resolves (a closure
   // cannot `return` out of fetchDashboardData).
@@ -309,9 +339,14 @@ export async function fetchDashboardData(
   // (invariant 9, registered in _metaInfraContract); the CALLER degrades VISIBLE.
   // shows_internal.show_id is a PK → .in(show_id) is a 1:1 lookup within the
   // already-capped id set (non-UNBOUNDED table → no .limit() needed).
-  const readDataGaps = async (): Promise<Map<string, DataGapsSummary> | InfraResult> => {
+  type DataQualityMaps = {
+    gaps: Map<string, DataGapsSummary>;
+    autoFixes: Map<string, AutoFixSummary>;
+  };
+  const readDataGaps = async (): Promise<DataQualityMaps | InfraResult> => {
     const byShow = new Map<string, DataGapsSummary>();
-    if (activeShowIds.length === 0) return byShow;
+    const autoByShow = new Map<string, AutoFixSummary>();
+    if (activeShowIds.length === 0) return { gaps: byShow, autoFixes: autoByShow };
     try {
       const { data, error } = await supabase
         .from("shows_internal")
@@ -328,14 +363,19 @@ export async function fetchDashboardData(
         // summarizeDataGaps and is caught PER-ROW so one corrupt row cannot
         // degrade every badge (spec §2.1). parse_warnings is plain jsonb.
         if (!Array.isArray(r.parse_warnings)) continue;
+        // Both summaries derive from the SAME already-fetched warnings array —
+        // NO second Supabase read (Flow 6 §3.2; invariant 9 untriggered).
         try {
-          const summary = summarizeDataGaps(r.parse_warnings as ParseWarning[]);
+          const warns = r.parse_warnings as ParseWarning[];
+          const summary = summarizeDataGaps(warns);
           if (summary.total > 0) byShow.set(r.show_id, summary);
+          const auto = summarizeAutoFixes(warns);
+          if (auto.total > 0) autoByShow.set(r.show_id, auto);
         } catch {
           // malformed element → skip this row only
         }
       }
-      return byShow;
+      return { gaps: byShow, autoFixes: autoByShow };
     } catch (err) {
       return {
         kind: "infra_error",
@@ -424,7 +464,17 @@ export async function fetchDashboardData(
   const dataGapsDegraded = isInfra(dataGapsResult);
   const dataGapsByShow: Map<string, DataGapsSummary> = dataGapsDegraded
     ? new Map()
-    : dataGapsResult;
+    : dataGapsResult.gaps;
+  const autoFixByShow: Map<string, AutoFixSummary> = dataGapsDegraded
+    ? new Map()
+    : dataGapsResult.autoFixes;
+
+  // Flow-4 (spec §8) — resolve the strip payload kicked off above (concurrent with
+  // Wave 2). rosterShiftByShow feeds the per-row roster-shift badge; on infra_error
+  // no row carries a rosterShift and the strip renders its own bounded message.
+  const recentAutoApplied = await recentAutoAppliedPromise;
+  const rosterShiftByShow =
+    recentAutoApplied.kind === "ok" ? recentAutoApplied.rosterShiftByShow : {};
 
   let liveCount = 0;
   const rows: ActiveShowRow[] = showsRows.map((s) => {
@@ -437,6 +487,9 @@ export async function fetchDashboardData(
     // show (from the RPC set above). Archived rows are never finalize-owned.
     const finalizeOwned = !isArchived && !published && finalizeOwnedIds.has(s.id as string);
     const gaps = dataGapsByShow.get(s.id as string);
+    // §6.4 — per-show roster-shift summary (published shows only; absent → omit).
+    const rosterShift = rosterShiftByShow[s.id as string];
+    const autoFixes = autoFixByShow.get(s.id as string);
     return {
       id: s.id as string,
       slug: s.slug as string,
@@ -452,6 +505,9 @@ export async function fetchDashboardData(
       archivedAt: (s.archived_at as string | null) ?? null,
       // exactOptional: conditional spread so a clean row OMITS the key (§2.3).
       ...(gaps ? { dataGaps: gaps } : {}),
+      // exactOptional: OMIT rosterShift entirely when the show has no roster shift.
+      ...(rosterShift ? { rosterShift } : {}),
+      ...(autoFixes ? { autoFixes } : {}),
     };
   });
 
@@ -473,6 +529,7 @@ export async function fetchDashboardData(
     ignoredSheets,
     ignoredDegraded,
     dataGapsDegraded,
+    recentAutoApplied,
   };
 }
 
@@ -693,6 +750,19 @@ export async function Dashboard(
               renderedCount={result.needsAttention.renderedCount}
               overflowCount={result.needsAttention.overflowCount}
               now={now}
+            />
+            {/* Flow-4 (spec §8) — the recently-auto-applied strip renders directly
+                after the needs-attention inbox (both are review surfaces). It
+                returns null when there is nothing un-dispositioned, so it is a calm
+                no-op in the common case. The three server actions are passed as
+                DIRECT "use server" references — never wrapped in an inline closure,
+                which (as a non-"use server" function created in this Server
+                Component) could not cross the boundary into the client strip. The
+                strip's action-prop types are structurally identical to the domain
+                results, so no adapter is needed. */}
+            <RecentAutoAppliedStrip
+              data={result.recentAutoApplied}
+              actions={{ acceptChangeAction, acceptAllAction, undoFromDashboardAction }}
             />
           </div>
         </section>

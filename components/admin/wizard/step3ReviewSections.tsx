@@ -81,6 +81,7 @@ import type {
 import { useRouter } from "next/navigation";
 import type { Step3Row } from "@/components/admin/wizard/Step3Review";
 import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";
+import { fieldLabelFor } from "@/lib/admin/step3Buckets";
 import { buildRawUnrecognizedView } from "@/lib/admin/rawUnrecognized";
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
 import {
@@ -412,8 +413,13 @@ export type Step3SectionChrome = {
   Icon: LucideIcon;
   /** Registry label (§6.1) — ditto (NOT the body's legacy h4 label). */
   label: string;
-  /** §7 flagged-set membership (drives icon-chip tone, chip, panel border). */
+  /** §7 flagged-set membership (drives icon-chip tone, chip, panel border). A
+   *  section is flagged when it has ≥1 NON-ambiguity warn (spec 2026-07-07 §7.1). */
   flagged: boolean;
+  /** §7.1 judgment status (spec 2026-07-07): the section has ≥1 warn and ALL of
+   *  them are ambiguity-class — a calm judgment-call callout, NOT the amber flag.
+   *  Mutually exclusive with `flagged`. Optional/ABSENT (exactOptionalPropertyTypes). */
+  judgment?: boolean;
   /**
    * Heading level for the §6.4 heading row. Top-level sections use `3` (the
    * default → `<h3>`, keeping the modal outline h2→h3). A section rendered as a
@@ -477,25 +483,51 @@ function SectionFlagCallout({
   sectionId,
   entries,
   onJump,
+  variant = "flagged",
 }: {
   dfid: string;
   sectionId: SectionId;
   entries: readonly { warning: ParseWarning; index: number }[];
   onJump: (index: number | null) => void;
+  /** spec 2026-07-07 §7.3: "judgment" swaps the amber warn tone for a calm
+   *  informational tone + a lead "we made a judgment call" line. Default flagged. */
+  variant?: "flagged" | "judgment";
 }) {
   const shown = entries.slice(0, CALLOUT_MAX_ENTRIES);
   const extra = entries.length - shown.length;
+  const isJudgment = variant === "judgment";
+  const EntryIcon = isJudgment ? Info : AlertTriangle;
   return (
     <div
       data-testid={`wizard-step3-card-${dfid}-section-${sectionId}-flag-callout`}
-      className="flex flex-col gap-1 rounded-md border border-border-strong bg-warning-bg px-3 py-2 text-xs text-warning-text"
+      data-variant={variant}
+      className={`flex flex-col gap-1 rounded-md border px-3 py-2 text-xs ${
+        isJudgment
+          ? "border-border bg-info-bg text-text-subtle"
+          : "border-border-strong bg-warning-bg text-warning-text"
+      }`}
     >
+      {isJudgment ? (
+        // Lead line (spec §7.3): a judgment call is worth a glance, not an error.
+        // Dash-free (DESIGN.md §copy). The section heading's "In sheet" link is the
+        // spot-check affordance — no per-entry sheet link added in v1.
+        <p className="font-medium text-text">
+          We made a judgment call reading this. Worth a glance.
+        </p>
+      ) : null}
       {shown.map(({ warning, index }) => {
         const title = reviewWarningTitle(warning); // §8 hardening applies transitively
+        // Entry text names the specific field when the warning carries one
+        // (spec §7.3): "<title> (dimensions)". Unknown/empty field → omit the
+        // phrase (fieldLabelFor returns null); raw tokens never leak (invariant 5).
+        const fieldLabel = fieldLabelFor(warning.blockRef?.field);
         return (
           <div key={index} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-            <AlertTriangle aria-hidden="true" className="size-3.5 shrink-0" />
-            <span className="min-w-0 wrap-break-word font-medium">{title}</span>
+            <EntryIcon aria-hidden="true" className="size-3.5 shrink-0" />
+            <span className="min-w-0 wrap-break-word font-medium">
+              {title}
+              {fieldLabel ? ` (${fieldLabel})` : ""}
+            </span>
             <button
               type="button"
               onClick={() => onJump(index)}
@@ -543,6 +575,9 @@ function ModalSectionChrome({
   children: React.ReactNode;
 }) {
   const { Icon, label, flagged, headingLevel = 3 } = chrome;
+  // §7.1 judgment status (spec 2026-07-07): mutually exclusive with flagged. Drives
+  // a calm info-tone icon chip + pill + callout variant, never the amber flag tone.
+  const judgment = chrome.judgment === true && !flagged;
   // Level 4 = a SUB-block heading (Diagrams under Rooms & scope): smaller chip +
   // text so it reads as subordinate to its parent section, not a peer.
   const sub = headingLevel === 4;
@@ -569,7 +604,11 @@ function ModalSectionChrome({
         <span
           aria-hidden="true"
           className={`grid ${sub ? "size-6" : "size-7"} shrink-0 place-items-center rounded-sm ${
-            flagged ? "bg-warning-bg text-warning-text" : "bg-surface-sunken text-text-subtle"
+            flagged
+              ? "bg-warning-bg text-warning-text"
+              : judgment
+                ? "border border-border bg-info-bg text-text"
+                : "bg-surface-sunken text-text-subtle"
           }`}
         >
           <Icon className={sub ? "size-3.5" : "size-4"} />
@@ -590,6 +629,11 @@ function ModalSectionChrome({
         {flagged ? (
           <span className="shrink-0 rounded-pill border border-border-strong bg-warning-bg px-2 py-0.5 text-xs font-semibold whitespace-nowrap text-warning-text">
             Needs a look
+          </span>
+        ) : judgment ? (
+          // §7.3: a calm judgment pill (info tone), distinct from the amber flag.
+          <span className="shrink-0 rounded-pill border border-border bg-info-bg px-2 py-0.5 text-xs font-medium whitespace-nowrap text-text-subtle">
+            Parsed with judgment
           </span>
         ) : null}
         {/* §11: instant — deliberate (link presence follows data, not a state transition) */}
@@ -624,6 +668,7 @@ function ModalSectionChrome({
             sectionId={chrome.sectionId}
             entries={chrome.calloutEntries}
             onJump={chrome.onJumpToWarning}
+            variant={judgment ? "judgment" : "flagged"}
           />
         ) : null}
         {children}

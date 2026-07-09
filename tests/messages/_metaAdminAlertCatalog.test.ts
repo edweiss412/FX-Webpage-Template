@@ -56,7 +56,7 @@ function adminAlertCodeUnionMembers(): string[] {
 
 // Registry: every catalog code currently used in a production admin_alerts.upsert
 // call. Extracted to tests/messages/adminAlertsRegistry.ts (imported above) so the
-// audience contract meta-test enforces the SAME 42-code set.
+// audience contract meta-test enforces the SAME 45-code set.
 
 type WriteSite = { path: string; pattern: RegExp };
 
@@ -122,6 +122,10 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
   LIVE_ROW_CONFLICT: {
     path: "lib/sync/runOnboardingScan.ts",
     pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*LIVE_ROW_CONFLICT/,
+  },
+  ONBOARDING_SHEET_UNREADABLE: {
+    path: "app/api/admin/onboarding/scan/route.ts",
+    pattern: /upsertAdminAlert\(\{[\s\S]*code:\s*"ONBOARDING_SHEET_UNREADABLE"/,
   },
   ROLE_FLAGS_NOTICE: {
     path: "lib/sync/runScheduledCronSync.ts",
@@ -276,10 +280,10 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
  * Counts (spec §3, incl. alert-resolve-truthing §6 + re-sync quality gate): 7 precedent AUTO +
  * 14 NEW + GITHUB_BOT_LOGIN_MISSING + RESYNC_SHRINK_HELD + RESYNC_QUALITY_REGRESSED
  * + 2 BRANCH_PROTECTION (bell-notification-center §9.3) + 2 OVERRIDE (admin-field-overrides §10)
- * = 28 "auto"; 17 "event-manual" (spec's 18 EVENT rows minus TILE_SERVER_RENDER_FAILED, which the
- * registry splits into its own "state-manual-justified" class); 1 "state-manual-justified"; 0
- * "deferred" (BRANCH_PROTECTION_* promoted by bell-notification-center §9.3).
- * 28 + 17 + 1 + 0 = 46, matching ADMIN_ALERTS_CODES.length.
+ * = 28 "auto"; 18 "event-manual" (spec's 18 EVENT rows minus TILE_SERVER_RENDER_FAILED, which the
+ * registry splits into its own "state-manual-justified" class, plus Flow-1 ONBOARDING_SHEET_UNREADABLE);
+ * 1 "state-manual-justified"; 0 "deferred" (BRANCH_PROTECTION_* promoted by bell-notification-center §9.3).
+ * 28 + 18 + 1 + 0 = 47, matching ADMIN_ALERTS_CODES.length.
  */
 type ResolveSite = { file: string; pattern: RegExp };
 type Lifecycle =
@@ -470,9 +474,10 @@ const ADMIN_ALERTS_LIFECYCLE: Record<(typeof ADMIN_ALERTS_CODES)[number], Lifecy
   // --- state-manual-justified (1): STATE-shaped, deliberately NOT auto-resolved ---
   TILE_SERVER_RENDER_FAILED: { class: "state-manual-justified" },
 
-  // --- event-manual (17): one-shot EVENT notices, manual by design ---
+  // --- event-manual (18): one-shot EVENT notices, manual by design ---
   AMBIGUOUS_EMAIL_BINDING: { class: "event-manual" },
   LIVE_ROW_CONFLICT: { class: "event-manual" },
+  ONBOARDING_SHEET_UNREADABLE: { class: "event-manual" },
   ROLE_FLAGS_NOTICE: { class: "event-manual" },
   SHOW_FIRST_PUBLISHED: { class: "event-manual" },
   OAUTH_IDENTITY_CLAIMED: { class: "event-manual" },
@@ -729,7 +734,7 @@ describe("META admin_alerts catalog contract", () => {
   // every code: registry "auto" ⇒ catalog "auto"; everything else ⇒ catalog "manual". This is
   // the guard that keeps the promoted runtime metadata (isAutoResolving / the suppressed manual
   // button) honest against the test-only lifecycle classification.
-  test("catalog.resolution matches registry class for all 43 codes", () => {
+  test("catalog.resolution matches registry class for all 45 codes", () => {
     for (const code of ADMIN_ALERTS_CODES) {
       const entry = MESSAGE_CATALOG[code as keyof typeof MESSAGE_CATALOG] as
         | { resolution?: "auto" | "manual" }

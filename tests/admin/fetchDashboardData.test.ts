@@ -224,6 +224,16 @@ vi.mock("@/lib/supabase/server", () => ({
 const nowDateSpy = vi.hoisted(() => vi.fn(async () => new Date("2026-06-03T12:00:00.000Z")));
 vi.mock("@/lib/time/now", () => ({ nowDate: nowDateSpy }));
 
+// Flow-4 Task 8 — the recently-auto-applied loader is mocked for EVERY test: the
+// real loader self-creates a service-role client (show_change_log is REVOKEd from
+// authenticated), which must never touch a live DB from a unit test. Default is a
+// benign empty ok payload so pre-existing tests (which do not care about the strip)
+// stay green; the wiring tests below override it.
+const loadRecentAutoAppliedMock = vi.hoisted(() => vi.fn());
+vi.mock("@/lib/admin/loadRecentAutoApplied", () => ({
+  loadRecentAutoApplied: loadRecentAutoAppliedMock,
+}));
+
 const FULL_DATES = {
   travelIn: "2026-06-01",
   set: null,
@@ -247,6 +257,14 @@ beforeEach(() => {
   state.rpcOwnedIds = [];
   state.rpcResolvedOwned = [];
   nowDateSpy.mockClear();
+  loadRecentAutoAppliedMock.mockReset();
+  loadRecentAutoAppliedMock.mockResolvedValue({
+    kind: "ok",
+    groups: [],
+    renderedCount: 0,
+    overflowCount: 0,
+    rosterShiftByShow: {},
+  });
 });
 afterEach(() => vi.resetModules());
 
@@ -766,5 +784,86 @@ describe("fetchDashboardData parallelization (nav-perf phase 1)", () => {
     expect("dataGaps" in result.rows.find((r) => r.slug === "nonarray")!).toBe(false);
     expect("dataGaps" in result.rows.find((r) => r.slug === "badel")!).toBe(false);
     expect(result.rows.find((r) => r.slug === "valid")!.dataGaps?.total).toBe(1);
+  });
+});
+
+// ── Flow-4 Task 8 — recently-auto-applied strip + roster-shift badge wiring ──
+describe("fetchDashboardData — recently auto-applied strip wiring (Flow-4 Task 8)", () => {
+  function showRow(id: string, published: boolean) {
+    return {
+      id,
+      slug: `s${id}`,
+      title: `S${id}`,
+      drive_file_id: `d${id}`,
+      dates: FULL_DATES,
+      venue: null,
+      published,
+    };
+  }
+
+  it("calls loadRecentAutoApplied with publishedShowIds from showsRows and NO supabase arg; threads rosterShift onto rows", async () => {
+    state.seed = {
+      showsList: [showRow("pub1", true), showRow("pub2", true), showRow("unpub", false)],
+      showsActiveCount: 3,
+    };
+    // A show WITH counts gets its summary; a published show ABSENT from the map
+    // gets no rosterShift. Self-derive expected values from this mock output.
+    const rosterSummary = { added: 2, removed: 1, renamed: 0, total: 3 };
+    const rosterShiftByShow = { pub1: rosterSummary }; // pub2 absent
+    loadRecentAutoAppliedMock.mockResolvedValue({
+      kind: "ok",
+      groups: [],
+      renderedCount: 0,
+      overflowCount: 0,
+      rosterShiftByShow,
+    });
+
+    const r = (await run()) as {
+      rows: Array<{ id: string; rosterShift?: typeof rosterSummary }>;
+      recentAutoApplied: unknown;
+    };
+
+    // Called exactly once, with the derived publishedShowIds (unpublished excluded)
+    // and NO `supabase` property (the loader self-creates a service-role client).
+    expect(loadRecentAutoAppliedMock).toHaveBeenCalledTimes(1);
+    const callArg = loadRecentAutoAppliedMock.mock.calls[0]![0] as {
+      publishedShowIds: string[];
+      supabase?: unknown;
+    };
+    expect([...callArg.publishedShowIds].sort()).toEqual(["pub1", "pub2"]);
+    expect("supabase" in callArg).toBe(false);
+    // Ran AFTER showsRows resolved: the ids are the real show ids, not an empty set.
+    expect(callArg.publishedShowIds.length).toBeGreaterThan(0);
+
+    // rosterShift threaded per row, self-derived from the mock's rosterShiftByShow.
+    const pub1 = r.rows.find((x) => x.id === "pub1")!;
+    expect(pub1.rosterShift).toBe(rosterShiftByShow.pub1); // same reference, not a copy
+    const pub2 = r.rows.find((x) => x.id === "pub2")!;
+    expect(pub2.rosterShift).toBe(rosterShiftByShow["pub2" as keyof typeof rosterShiftByShow]); // both undefined
+    expect("rosterShift" in pub2).toBe(false); // exactOptional: key OMITTED when absent
+    const unpub = r.rows.find((x) => x.id === "unpub")!;
+    expect("rosterShift" in unpub).toBe(false);
+
+    // The loader result is threaded onto DashboardData for the strip to render.
+    expect(r.recentAutoApplied).toEqual({
+      kind: "ok",
+      groups: [],
+      renderedCount: 0,
+      overflowCount: 0,
+      rosterShiftByShow,
+    });
+  });
+
+  it("loader infra_error leaves rows unaffected (no rosterShift) and threads the error result", async () => {
+    state.seed = { showsList: [showRow("pub1", true)], showsActiveCount: 1 };
+    loadRecentAutoAppliedMock.mockResolvedValue({ kind: "infra_error", message: "boom" });
+
+    const r = (await run()) as {
+      rows: Array<{ id: string }>;
+      recentAutoApplied: { kind: string };
+    };
+    expect("kind" in r).toBe(false); // dashboard NOT aborted for a strip infra fault
+    expect(r.recentAutoApplied.kind).toBe("infra_error");
+    expect("rosterShift" in r.rows.find((x) => x.id === "pub1")!).toBe(false);
   });
 });

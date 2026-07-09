@@ -109,6 +109,25 @@ describe("stagedRowFromLiveFirstSeen — P2 data-gap surfacing", () => {
     expect(staged.dataGaps?.total).toBe(1);
   });
 
+  // Flow 6 6.4 [whole-diff R3 HIGH]: VENUE_GEOCODE_UNRESOLVED is a non-actionable
+  // DQ gap code, so it DOES surface in warningSummary — via its PLAIN message, never
+  // the raw §12.4 code literal (invariant 5).
+  test("surfaces VENUE_GEOCODE_UNRESOLVED as plain language, never the raw code", () => {
+    const warnings: ParseWarning[] = [
+      {
+        severity: "warn",
+        code: "VENUE_GEOCODE_UNRESOLVED",
+        message: "Couldn't look up the venue city from its address",
+      },
+    ];
+    const staged = stagedRowFromLiveFirstSeen(
+      liveRow({ parse_result: { show: { title: "X" }, warnings } }),
+    );
+    expect(staged.warningSummary).toBe("Couldn't look up the venue city from its address");
+    expect(staged.warningSummary).not.toContain("VENUE_GEOCODE_UNRESOLVED");
+    expect(staged.dataGaps?.total).toBe(1);
+  });
+
   // audit idx45/#217: the staged surface must route its operator-actionable read
   // through selectActionableForDisplay (which applies stripLegacyUnknownFieldAnchors
   // BEFORE filter+dedup), matching the per-show surface. Two LEGACY UNKNOWN_FIELD

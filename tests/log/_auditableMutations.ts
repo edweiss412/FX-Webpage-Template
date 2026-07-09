@@ -331,6 +331,25 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
     fn: "setFieldOverrideAction",
     code: "FIELD_OVERRIDE_DISCARDED",
   },
+  // Flow-4 auto-applied strip (Task 4): admin dashboard accept/undo server actions.
+  // Both accept actions emit the NEW forensic CHANGES_ACKNOWLEDGED; undo REUSES
+  // CHANGE_UNDONE (already sanctioned — the per-show feed undoChangeAction stamps it).
+  // Emits are POST-COMMIT, outside any advisory-lock tx (invariant 2/10).
+  {
+    file: "app/admin/_actions/autoApplied.ts",
+    fn: "acceptChangeAction",
+    code: "CHANGES_ACKNOWLEDGED",
+  },
+  {
+    file: "app/admin/_actions/autoApplied.ts",
+    fn: "acceptAllAction",
+    code: "CHANGES_ACKNOWLEDGED",
+  },
+  {
+    file: "app/admin/_actions/autoApplied.ts",
+    fn: "undoFromDashboardAction",
+    code: "CHANGE_UNDONE",
+  },
 ];
 
 export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
@@ -409,6 +428,11 @@ export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
   "FIELD_OVERRIDE_REVERTED",
   "FIELD_OVERRIDE_REPOINTED",
   "FIELD_OVERRIDE_DISCARDED",
+  // Flow-4 auto-applied strip (Task 4). CHANGE_UNDONE is REUSED (already above via
+  // the per-show feed undo). This is the sole NEW forensic code — mirrors
+  // CHANGE_UNDONE's treatment (forensic/§12.4-exempt: NEW_FORENSIC_CODES via spread,
+  // logAdminOutcome-stamped so it never registers as a §12.4 producer).
+  "CHANGES_ACKNOWLEDGED",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing
@@ -518,6 +542,7 @@ export const NEW_FORENSIC_CODES: ReadonlySet<string> = new Set([
   "ADMIN_SHOW_LOOKUP_THREW",
   "ADMIN_SHOW_CHANGE_FEED_READ_FAILED",
   "ADMIN_SHOW_CREW_LOOKUP_FAILED",
+  "ADMIN_SHOW_CREW_ROSTER_OVERFLOW",
   "ADMIN_SHOW_CREW_LOOKUP_THREW",
   "ADMIN_SHOW_INTERNAL_PARSE_WARNINGS_READ_FAILED",
   "ADMIN_SHOW_INTERNAL_PARSE_WARNINGS_READ_THREW",

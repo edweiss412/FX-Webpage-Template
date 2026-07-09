@@ -30,7 +30,7 @@ import {
 import { StatusIndicator } from "@/components/admin/StatusIndicator";
 import { HoverHelp } from "@/components/admin/HoverHelp";
 import { syncStatusBucket, type SyncBucket } from "@/lib/admin/syncStatus";
-import { formatDataGapBreakdown, type DataGapsSummary } from "@/lib/parser/dataGaps";
+import { formatAutoFixBreakdown, type AutoFixSummary } from "@/lib/parser/dataGaps";
 import { DataQualityBadge } from "@/components/admin/DataQualityBadge";
 
 type ShowsTableProps = {
@@ -232,26 +232,23 @@ function rowTitle(row: ActiveShowRow): string {
   return row.title ?? row.slug;
 }
 
-// parse-data-quality-warnings §6.2b — compact per-row data-gaps chip rendered in
-// the Held-shows row-action bar, before the Publish control. Renders only when
-// the summary has total>0 (absent/undefined → nothing — instant, no animation).
-// The total reads "N data gap(s)"; the per-class breakdown rides the title
-// attribute (hover) so the row stays compact. PLAIN-LANGUAGE only — never the
-// raw §12.4 code literal (invariant 5).
-function DataGapsChip({ slug, dataGaps }: { slug: string; dataGaps: DataGapsSummary | undefined }) {
-  if (!dataGaps || dataGaps.total === 0) return null;
-  // Bounded (≤4 classes + "+N more") via the shared cap helper so the hover
-  // title never grows unbounded across the 22 gap classes.
-  const breakdown = formatDataGapBreakdown(dataGaps);
+// Flow 6 §3.2 (6.3) — NEUTRAL "N auto-fixed" count of the benign `*_AUTOCORRECTED`
+// fixes the parser applied, rendered in the live row title area next to
+// DataQualityBadge. Deliberately NOT status-warn styled (a positive "we fixed it"
+// notice, not a data-quality warning). Renders only when total>0 (absent/undefined
+// → nothing — instant, no animation). The per-class breakdown rides the hover
+// title, bounded (≤4 + "+N more"). PLAIN-LANGUAGE only (invariant 5).
+function AutoFixChip({ slug, autoFixes }: { slug: string; autoFixes: AutoFixSummary | undefined }) {
+  if (!autoFixes || autoFixes.total === 0) return null;
+  const breakdown = formatAutoFixBreakdown(autoFixes);
   return (
     <span
-      data-testid={`shows-data-gaps-chip-${slug}`}
+      data-testid={`shows-auto-fixed-chip-${slug}`}
       title={breakdown}
-      className="inline-flex items-center gap-1.5 rounded-pill border border-status-warn px-2 py-0.5 text-xs font-semibold text-status-warn-text"
+      className="inline-flex shrink-0 items-center gap-1.5 rounded-pill border border-border px-2 py-0.5 text-xs font-medium text-text-subtle"
     >
-      <span aria-hidden="true" className="size-1.5 rounded-full bg-status-warn" />
-      <span className="tabular-nums">{dataGaps.total}</span>{" "}
-      {dataGaps.total === 1 ? "data gap" : "data gaps"}
+      <span aria-hidden="true" className="size-1.5 rounded-full bg-text-subtle" />
+      <span className="tabular-nums">{autoFixes.total}</span> auto-fixed
     </span>
   );
 }
@@ -468,7 +465,15 @@ export function ShowsTable({
                         </span>
                         {/* parse-data-quality-warnings badge (spec §3.2 site A) —
                             after the title, before the inline status pill. */}
-                        <DataQualityBadge slug={row.slug} dataGaps={row.dataGaps} />
+                        <DataQualityBadge
+                          slug={row.slug}
+                          dataGaps={row.dataGaps}
+                          rosterShift={row.rosterShift}
+                        />
+                        {/* Flow 6 6.3 — neutral auto-fixed signal on the SAME live
+                            title-area surface as the badge (the old row-action-bar
+                            chip surface is dead in the dashboard). */}
+                        <AutoFixChip slug={row.slug} autoFixes={row.autoFixes} />
                         {/* Inline pill — visible <960px (stacked + 5-col bands); hidden
                             ≥960px where the dedicated Status column takes over (§4.1). */}
                         <span className="min-[960px]:hidden">
@@ -542,7 +547,6 @@ export function ShowsTable({
                       data-testid={`shows-row-action-${row.slug}`}
                       className="flex flex-wrap items-center gap-3 border-t border-border bg-surface-sunken px-4 py-3"
                     >
-                      <DataGapsChip slug={row.slug} dataGaps={row.dataGaps} />
                       {rowAction(row)}
                     </div>
                   ) : null}

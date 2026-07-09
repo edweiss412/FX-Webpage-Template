@@ -11,7 +11,7 @@
 //     the crew show-scoping check; the drive_file_id form is display-only
 //     (the batched `shows(drive_file_id,title,slug)` read has no `id`
 //     column, so it can never feed the scoping check) — this is fine
-//     because every code in the shipped 42-code matrix that has a
+//     because every code in the shipped 45-code matrix that has a
 //     `crewName` segment also sets `row.show_id` directly (OAUTH_IDENTITY_
 //     CLAIMED, PICKER_SELECTION_RACE), so the scoping check always has a
 //     UUID to compare against when a crew segment is in play.

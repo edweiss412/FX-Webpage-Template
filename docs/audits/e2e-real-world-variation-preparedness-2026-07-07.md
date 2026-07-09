@@ -124,12 +124,23 @@ Done-when: a Doug with an empty folder or a garbage sheet gets an explicit next 
 
 | # | Action | Effort | Evidence anchor |
 |---|---|---|---|
-| 2.1 | **Raw-snippet side-by-side.** Per reviewed section, render the captured sheet snippet next to the parsed card (collapsible). The provenance data already exists (`rawSnippet.ts`); this converts "proofread from memory" into "compare two panes" — the only mitigation that reaches the no-signal mis-parse class (P0-2). | M | `lib/parser/rawSnippet.ts`; `step3ReviewSections.tsx` |
+| 2.1 | **Warn on silent transforms** (REVISED 2026-07-07 — original "raw-snippet side-by-side" retired after investigation; see findings below). The raw-pane idea does not survive the parser's actual architecture: it stores identity fields **verbatim** and already **warns** on every transform it makes, and where it does silently transform (rooms/hotels/dates) the existing per-section "In sheet ↗" deep-link already exposes source. The real P0-2 gap is **no signal prompting Doug to look**, not "can't see source." Fix: emit warnings on ambiguous/low-confidence transforms, riding the existing warn→panel→deep-link machinery. **First step (this item):** warn when `detectColumns` falls back to positional column defaults (silent crew column mis-map). | S | `lib/parser/blocks/crew.ts:78-110`; `lib/parser/warnings.ts` |
 | 2.2 | Surface `raw_unrecognized[]` in the wizard as a "Content we couldn't read" callout (count + expandable raw rows), not just `/admin/dev`. | S | `lib/parser/index.ts:524`; `app/admin/dev/page.tsx` |
 | 2.3 | Route warnings with null/unmapped `blockRef.kind` to their best-guess section instead of the generic bucket, so the flag appears where Doug is looking. | S | `step3SectionStatus.ts:68-88` |
 | 2.4 | Honest readiness copy: replace "N ready to publish" framing with "N with no known issues — spot-check the highlighted sections against your sheet." Distinguish "no crew found in the sheet" vs "we couldn't read the crew section" (empty-vs-unreadable is knowable from warnings). | S | `Step3Review.tsx:841-886`; `step3ReviewSections.tsx:1125-1126` |
 
 Done-when: a plausible-but-wrong parse is detectable by glancing at the pane pair, and everything the parser *captured but didn't understand* is visible in the wizard.
+
+#### 2.1 investigation findings (2026-07-07)
+
+Brainstorming 2.1 pressure-tested the "raw side-by-side" premise against the live parser and it collapsed. Recorded so the class isn't re-litigated:
+
+- **Value-drift is already closed for identity fields.** Crew `role` is stored **verbatim** (`cleanedRole` = raw cell minus a stripped day-clause, `crew.ts:308,386`); `name`/`email`/`phone` likewise near-verbatim. Every interpretation the parser makes (stage-word / role-token autocorrect, restriction extraction) **emits a warning** with before→after (`STAGE_WORD_AUTOCORRECTED` etc., `catalog.ts:1206-1263`). For these fields there is no silent drift to reveal — source next to parsed is the same string twice.
+- **Transform-heavy blocks (rooms/hotels/dates) DO silently transform** — regex name/dims split (`rooms.ts`), guest glue-and-split (`hotels.ts:129-151`), date parsing — with no warning on an ambiguous/wrong split. Here parsed ≠ source, so a source view *is* informative. **But** the existing per-section "In sheet ↗" deep-link (`step3ReviewSections.tsx:547-599`) already exposes that source, and for the *coverage* sub-class (dropped/mis-segmented rows) the live sheet strictly beats any captured copy. So the residual gap is a **signal to look**, not access to source.
+- **A captured in-app snapshot is strictly worse than the deep-link for coverage** (lossy, capped, sanitized copy vs complete live sheet) and re-adds a Drive dependency the `persist-source-anchors` work deliberately removed.
+- **Genuinely uncovered, silent, structural:** `detectColumns` defaults to positional columns (name=1/role=2/phone=3) with **no warning** when the crew header is missing/unrecognized (`crew.ts:81-84`) → every value verbatim but in the wrong field. Low-frequency (standardized-template sheets) but zero-signal. This is item 2.1's concrete deliverable.
+
+Net: replace the raw-pane build with targeted **ambiguous-transform warnings** on the existing machinery. Column-fallback is the first; room-split / hotel-glue / ambiguous-date confidence warnings are the natural follow-ons (BACKLOG).
 
 ### Flow 3 — Correct a bad parse (C → A−)
 
@@ -188,7 +199,7 @@ Done-when: every "can't find myself / can't see my stuff" path lands on a guided
 
 ### Cross-flow note
 
-The P0-2 class (confident wrong values) is not fully closable by any per-flow item — 2.1 (side-by-side review) is the detection layer, 3.2 (overrides) the correction layer, 6.2 (digest) the monitoring layer. Together they bound the class; a per-field provenance/confidence model (§7 item 5) is the eventual structural fix.
+The P0-2 class (confident wrong values) is not fully closable by any per-flow item — 2.1 (**warn on silent transforms** — revised from side-by-side, see the 2.1 findings) is the detection layer, 3.2 (overrides) the correction layer, 6.2 (digest) the monitoring layer. Together they bound the class; a per-field provenance/confidence model (§7 item 5) is the eventual structural fix. Note the detection layer is *signal*, not *source access* — the deep-link already gives source access; what P0-2 lacks is a prompt to look.
 
 ---
 

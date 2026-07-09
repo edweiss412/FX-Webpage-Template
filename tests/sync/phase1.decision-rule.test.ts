@@ -19,6 +19,7 @@ type FakeShowRow = {
   lastSyncError: string | null;
   priorParseResult: ParseResult;
   priorParseWarningsRaw: ParseResult["warnings"] | null;
+  published: boolean;
 };
 
 function crew(name: string, overrides: Partial<CrewMemberRow> = {}): CrewMemberRow {
@@ -188,7 +189,7 @@ async function runWith(
   return runPhase1(tx as never, { ...baseArgs, parseResult: next, ...overrides }, deps);
 }
 
-function seedPriorShow(tx: FakePhase1Tx, prior: ParseResult) {
+function seedPriorShow(tx: FakePhase1Tx, prior: ParseResult, opts: { published?: boolean } = {}) {
   tx.shows.set("file-1", {
     showId: "show-1",
     driveFileId: "file-1",
@@ -197,6 +198,7 @@ function seedPriorShow(tx: FakePhase1Tx, prior: ParseResult) {
     lastSyncError: null,
     priorParseResult: prior,
     priorParseWarningsRaw: null,
+    published: opts.published ?? true,
   });
 }
 
@@ -462,11 +464,67 @@ describe("re-sync quality gate — material-shrink hold", () => {
     expect(grow.outcome).toBe("auto_apply_with_holds");
     expect(txGrow.shrinkHeldCalls).toEqual([]);
 
-    // (b) crewDrop == 1 (5→4) → applies (drop is not > 1).
+    // (b) crewDrop == 1 (5→4) on an UNPUBLISHED show → applies (below the MI-6 >1 threshold;
+    // Flow 4.1 holds a single drop ONLY when the show is published — see the Flow 4.1 block below).
     const txDrop1 = new FakePhase1Tx();
-    seedPriorShow(txDrop1, parseResult({ crewMembers: crewList(5) }));
+    seedPriorShow(txDrop1, parseResult({ crewMembers: crewList(5) }), { published: false });
     const drop1 = await runWith(txDrop1, parseResult({ crewMembers: crewList(4) }));
     expect(["pass", "auto_apply_with_holds"]).toContain(drop1.outcome);
     expect(txDrop1.shrinkHeldCalls).toEqual([]);
+  });
+});
+
+describe("single-crew drop gate on published shows (Flow 4.1)", () => {
+  test("published single-drop (cron) → shrink_held with exactly one MI-6", async () => {
+    const tx = new FakePhase1Tx();
+    const prior = parseResult({ crewMembers: crewList(5) });
+    seedPriorShow(tx, prior); // published defaults true
+    const next = parseResult({ crewMembers: crewList(4) }); // subset → crewDrop === 1
+    const res = await runWith(tx, next);
+    expect(res.outcome).toBe("shrink_held");
+    if (res.outcome !== "shrink_held") throw new Error("unreachable");
+    // failure mode caught: P0-1 — a live single-crew drop applying silently
+    expect(res.shrinkItems.filter((i) => i.invariant === "MI-6")).toHaveLength(1);
+    // count derived from fixture lengths, not hardcoded
+    expect(res.message).toContain(`${prior.crewMembers.length}→${next.crewMembers.length}`);
+    expect(res.message.toLowerCase()).toContain("crew");
+    expect(tx.shrinkHeldCalls).toHaveLength(1);
+  });
+
+  test("unpublished single-drop → applies (not held)", async () => {
+    const tx = new FakePhase1Tx();
+    seedPriorShow(tx, parseResult({ crewMembers: crewList(5) }), { published: false });
+    const res = await runWith(tx, parseResult({ crewMembers: crewList(4) }));
+    // failure mode caught: over-gating drafts with setup friction
+    expect(res.outcome).not.toBe("shrink_held");
+    expect(tx.shrinkHeldCalls).toEqual([]);
+  });
+
+  test("published multi-drop still holds with exactly one MI-6 (no synthetic double)", async () => {
+    const tx = new FakePhase1Tx();
+    const prior = parseResult({ crewMembers: crewList(5) });
+    seedPriorShow(tx, prior);
+    const next = parseResult({ crewMembers: crewList(2) }); // crewDrop === 3
+    const res = await runWith(tx, next);
+    expect(res.outcome).toBe("shrink_held");
+    if (res.outcome !== "shrink_held") throw new Error("unreachable");
+    // failure mode caught: synthetic MI-6 double-firing → duplicate "crew" part in describeShrink
+    expect(res.shrinkItems.filter((i) => i.invariant === "MI-6")).toHaveLength(1);
+    expect(res.message).toContain(`${prior.crewMembers.length}→${next.crewMembers.length}`);
+  });
+
+  test("published single-drop with version-bound accept applies (bypass); no hold write", async () => {
+    const tx = new FakePhase1Tx();
+    seedPriorShow(tx, parseResult({ crewMembers: crewList(5) }));
+    const res = await runWith(tx, parseResult({ crewMembers: crewList(4) }), {
+      acceptShrink: true,
+      expectedModifiedTime: baseArgs.binding.modifiedTime,
+    });
+    // failure mode caught: the accept fall-through broken by the new branch
+    expect(["pass", "auto_apply_with_holds"]).toContain(res.outcome);
+    expect(tx.shrinkHeldCalls).toEqual([]);
+    // Layer note: the single removal's show_change_log orphan-remove row is written by the
+    // phase2/scheduled-sync apply path (lib/sync/runScheduledCronSync.ts:3313+), which this change
+    // does NOT touch and which existing phase2/producer tests already cover — out of runPhase1's layer.
   });
 });

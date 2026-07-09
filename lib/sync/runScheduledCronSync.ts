@@ -20,6 +20,7 @@ import {
   summarizeDataGaps,
   isQualityRegression,
   hasRecoveredToBaseline,
+  regressionKind,
   GAP_CLASSES,
   type DataGapsSummary,
 } from "@/lib/parser/dataGaps";
@@ -266,12 +267,16 @@ function buildRegressionPayload(
   const breakdown: Record<string, number> = {};
   const new_classes: string[] = [];
   const worsened: string[] = [];
-  for (const { code } of GAP_CLASSES) {
-    const p = prior.classes[code];
-    const n = current.classes[code];
-    if (n > 0) breakdown[code] = n;
-    if (p === 0 && n > 0) new_classes.push(code);
-    else if (p > 0 && n - p >= 5 && n >= p * 1.5) worsened.push(code);
+  for (const c of GAP_CLASSES) {
+    // Gate-exempt classes (e.g. VENUE_GEOCODE_UNRESOLVED) are badge-visible but never
+    // open/populate a push alert — skip so they can't leak into the payload breakdown.
+    if ((c as { gateExempt?: boolean }).gateExempt) continue;
+    const p = prior.classes[c.code];
+    const n = current.classes[c.code];
+    if (n > 0) breakdown[c.code] = n;
+    const kind = regressionKind(p, n); // single-sourced with isQualityRegression (no drift)
+    if (kind === "new") new_classes.push(c.code);
+    else if (kind === "worsened") worsened.push(c.code);
   }
   return { breakdown, new_classes, worsened };
 }
@@ -796,6 +801,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
       last_sync_status: string | null;
       last_sync_error: string | null;
       last_seen_modified_time: string | null;
+      published: boolean;
     }>(
       `
         select *
@@ -872,6 +878,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
       driveFileId: show.drive_file_id,
       lastSeenModifiedTime: show.last_seen_modified_time,
       lastSyncStatus: show.last_sync_status,
+      published: show.published,
       lastSyncError: show.last_sync_error,
       priorParseResult: {
         show: {

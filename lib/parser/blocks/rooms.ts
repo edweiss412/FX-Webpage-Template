@@ -27,9 +27,13 @@
  */
 
 import type { RoomRow, RoomKind } from "../types";
-import { type ParseAggregator, emitEmptySection } from "@/lib/parser/warnings";
+import {
+  type ParseAggregator,
+  emitEmptySection,
+  emitRoomSplitAmbiguity,
+} from "@/lib/parser/warnings";
 import { clean, presence, splitRow } from "./_helpers";
-import { dimsStartRe, dimsFullRe, DIMS_SEP, DIMS_START_SRC } from "./_dimsToken";
+import { dimsStartRe, dimsFullRe, DIMS_SEP, DIMS_START_SRC, DIMS_FULL_SRC } from "./_dimsToken";
 import { gatedVocabCorrect } from "@/lib/parser/typoGate";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState";
 import { classifyGearItem } from "@/lib/parser/gearClassification";
@@ -378,6 +382,12 @@ function distinctSessionValues(
 function mergeBreakoutSessions(sessions: RoomRowInternal[]): RoomRowInternal {
   const base = sessions[0]!;
   if (sessions.length === 1) return base;
+  // Carry a §4.1 ambiguity flag from any constituent session so a merged room still
+  // reaches the single commit-point emit (the first block need not be the ambiguous one).
+  if (!base._ambiguity) {
+    const amb = sessions.find((s) => s._ambiguity)?._ambiguity;
+    if (amb) base._ambiguity = amb;
+  }
   // Physical specs (same physical room): first non-null wins (values should agree).
   for (const s of sessions.slice(1)) {
     for (const f of BO_PHYSICAL_FIELDS) if (base[f] == null && s[f] != null) base[f] = s[f];
@@ -453,6 +463,11 @@ export function parseRooms(
           for (const f of RECONCILE_FIELDS) {
             if (gs[f] == null && r[f] != null) gs[f] = r[f];
           }
+          // A lossless-absorbed breakout's split ambiguity must follow its values into
+          // the GS room so the single commit point (below) still emits — otherwise a
+          // value-producing ambiguous split ships silent. Mirrors mergeBreakoutSessions.
+          const rAmb = (r as RoomRowInternal)._ambiguity;
+          if (!gs._ambiguity && rAmb) gs._ambiguity = rAmb;
           return false; // pure subset — absorbed into the GS room
         });
 
@@ -467,7 +482,17 @@ export function parseRooms(
   ) {
     emitEmptySection(agg, "rooms");
   }
-  return reconciled;
+
+  // §4.1 SINGLE COMMIT POINT: every room that survived merge/reconcile/placeholder gating
+  // and carries split-ambiguity metadata emits EXACTLY ONE warning here — the only emit
+  // site, so a dropped/rejected/absorbed room stays silent and no split call site can
+  // double-emit. `_ambiguity` is then stripped so it never leaks into persisted RoomRow.
+  for (const room of reconciled) {
+    const amb = (room as RoomRowInternal)._ambiguity;
+    if (amb)
+      emitRoomSplitAmbiguity(agg, { name: room.name, field: amb.field, rawHeader: amb.rawHeader });
+  }
+  return reconciled.map(({ _ambiguity: _a, _nextLine: _n, ...rest }: RoomRowInternal) => rest);
 }
 
 // Merge two room lists, deduping by kind+name (case/whitespace-insensitive). The
@@ -536,7 +561,14 @@ function matchFieldValue(markdown: string, labelRe: RegExp): string | null {
 
 // ── v4 structured block parser ────────────────────────────────────────────────
 
-type RoomRowInternal = RoomRow & { _nextLine?: number };
+// `_ambiguity` (transient, §4.1) rides the room object from the splitRoomHeader call site
+// to the SINGLE commit-point emit loop in parseRooms. It carries the raw header cell so the
+// emitted warning's rawSnippet/message match the source; it is STRIPPED before parseRooms
+// returns (like `_nextLine`) so it never leaks into persisted RoomRow output.
+type RoomRowInternal = RoomRow & {
+  _nextLine?: number;
+  _ambiguity?: { field: "dims" | "name"; rawHeader: string };
+};
 
 // Bare v4 field labels (the rows under a v4 GENERAL SESSION / BREAKOUT header).
 // v2 blocks use "GS Setup" / "BO Setup" prefixes instead, so the presence of a
@@ -749,10 +781,11 @@ function parseV4RoomBlock(
   kind: RoomKind,
   agg?: ParseAggregator,
 ): { room: RoomRowInternal; nextLine: number } {
-  const { name, dimensions, floor } = splitRoomHeader(headerText, kind);
-  const room = buildEmptyRoom(kind, name);
-  room.dimensions = dimensions;
-  room.floor = floor;
+  const split = splitRoomHeader(headerText, kind);
+  const room = buildEmptyRoom(kind, split.name);
+  room.dimensions = split.dimensions;
+  room.floor = split.floor;
+  annotateAmbiguity(room, split, headerText);
 
   let j = startLine;
 
@@ -958,6 +991,7 @@ function parseGsRoom(markdown: string, model: RoomHeaderModel): RoomRow | null {
     room.name = split.name;
     room.dimensions = split.dimensions;
     room.floor = split.floor;
+    annotateAmbiguity(room, split, gsHeaderMatch[1]!);
   } else {
     // Some v1 sheets (east-coast) head the General Session block with a venue cell
     // ("MABEL 1\nAPPROXIMATELY 60' x 45'") instead of a "GENERAL SESSION" label —
@@ -970,6 +1004,7 @@ function parseGsRoom(markdown: string, model: RoomHeaderModel): RoomRow | null {
       room.name = split.name;
       room.dimensions = split.dimensions;
       room.floor = split.floor;
+      annotateAmbiguity(room, split, venueHeader!);
     } else {
       room.name = "General Session";
     }
@@ -1144,6 +1179,7 @@ function parseBoRooms(markdown: string, model: RoomHeaderModel): RoomRow[] {
     const room = buildEmptyRoom("breakout", name);
     room.dimensions = split.dimensions;
     room.floor = split.floor;
+    annotateAmbiguity(room, split, rawHeader);
 
     const blockText = extractBoBlock(model.lines, lineIndexOfOffset(markdown, m.index), model);
     applyBoFields(room, blockText);
@@ -1193,6 +1229,7 @@ function parseBoRooms(markdown: string, model: RoomHeaderModel): RoomRow[] {
     const room = buildEmptyRoom("breakout", name);
     room.dimensions = split.dimensions;
     room.floor = split.floor;
+    annotateAmbiguity(room, split, rawHeader);
     const blockText = extractBoBlock(model.lines, lineIndexOfOffset(markdown, m.index), model);
     applyBoFields(room, blockText);
     rooms.push(room);
@@ -1216,7 +1253,15 @@ function parseBoRooms(markdown: string, model: RoomHeaderModel): RoomRow[] {
       // dims may ride in the header ("APPROXIMATELY 60' x 45'")
       for (const hl of rawHeader.split("\n").slice(1)) {
         const dimMatch = dimsFullRe().exec(hl);
-        if (dimMatch && !room.dimensions) room.dimensions = dimMatch[1]!;
+        if (!dimMatch) continue;
+        if (!room.dimensions) room.dimensions = dimMatch[1]!;
+        // §4.1 peer (Codex R3): this dims harvest bypasses splitRoomHeader, so replicate
+        // its trigger (a) inline — a continuation header line carrying >1 complete dims
+        // group is ambiguous (which is THE room dimensions?). Attach so the single commit
+        // point in parseRooms emits ROOM_HEADER_SPLIT_AMBIGUOUS for the kept room.
+        if (!room._ambiguity && (hl.match(new RegExp(DIMS_FULL_SRC, "gi")) ?? []).length >= 2) {
+          room._ambiguity = { field: "dims", rawHeader };
+        }
       }
       mergeBoFields(room, extractBoBlock(model.lines, candidate.lineIndex, model));
     }
@@ -1226,7 +1271,15 @@ function parseBoRooms(markdown: string, model: RoomHeaderModel): RoomRow[] {
     // breakout via the old name-keyed merge. Harvest those dims if none rode the DAY header.
     if (!room.dimensions) {
       const nameKeys = new Set(candidates.map((c) => c.displayName.toUpperCase()));
-      room.dimensions = harvestSameNameHeaderDims(model, nameKeys);
+      const harvested = harvestSameNameHeaderDims(model, nameKeys);
+      if (harvested) {
+        room.dimensions = harvested.dims;
+        // §4.1 peer (Codex R3): a same-name continuation header with >1 complete dims
+        // group is ambiguous — attach so the single commit point emits for the kept room.
+        if (harvested.ambiguous && !room._ambiguity) {
+          room._ambiguity = { field: "dims", rawHeader: harvested.rawHeader };
+        }
+      }
     }
     if (roomHasContent(room)) rooms.push(room);
   }
@@ -1244,12 +1297,14 @@ function parseBoRooms(markdown: string, model: RoomHeaderModel): RoomRow[] {
   const extraTerm = new Set(boVenue.map((h) => h.headerLine));
   for (const h of boVenue) {
     if (!h.admit) continue;
-    const split = splitRoomHeader(h.header.replace(/&#10;/g, "\n"), "breakout");
+    const rawHeader = h.header.replace(/&#10;/g, "\n");
+    const split = splitRoomHeader(rawHeader, "breakout");
     const key = split.name.toUpperCase();
     if (!split.name || emitted.has(key)) continue;
     const room = buildEmptyRoom("breakout", split.name);
     room.dimensions = split.dimensions;
     room.floor = split.floor;
+    annotateAmbiguity(room, split, rawHeader);
     applyBoFields(room, extractBoBlock(model.lines, h.headerLine, model, extraTerm));
     if (!roomHasContent(room)) continue;
     emitted.add(key);
@@ -1265,14 +1320,18 @@ function parseBoRooms(markdown: string, model: RoomHeaderModel): RoomRow[] {
 function harvestSameNameHeaderDims(
   model: RoomHeaderModel,
   nameKeys: ReadonlySet<string>,
-): string | null {
+): { dims: string; ambiguous: boolean; rawHeader: string } | null {
   for (const line of model.lines) {
     if (!line.trim().startsWith("|")) continue;
-    const parts = col0Of(line).replace(/&#10;/g, "\n").split("\n");
+    const rawHeader = col0Of(line).replace(/&#10;/g, "\n");
+    const parts = rawHeader.split("\n");
     if (!nameKeys.has(parts[0]!.trim().toUpperCase())) continue;
     for (const hl of parts.slice(1)) {
       const dimMatch = dimsFullRe().exec(hl);
-      if (dimMatch) return dimMatch[1]!;
+      if (dimMatch) {
+        const ambiguous = (hl.match(new RegExp(DIMS_FULL_SRC, "gi")) ?? []).length >= 2;
+        return { dims: dimMatch[1]!, ambiguous, rawHeader };
+      }
     }
   }
   return null;
@@ -1405,6 +1464,7 @@ function parseAdditionalRoom(markdown: string, model: RoomHeaderModel): RoomRow 
   const room = buildEmptyRoom("additional", split.name);
   room.dimensions = split.dimensions;
   room.floor = split.floor;
+  annotateAmbiguity(room, split, rawHeader);
 
   const blockText = extractBoBlock(model.lines, lineIndexOfOffset(markdown, m.index), model);
   applyBoFields(room, blockText);
@@ -1436,11 +1496,21 @@ function parseAdditionalRoom(markdown: string, model: RoomHeaderModel): RoomRow 
 //      left behind by an unfilled stub.
 // `name` falls back to "General Session" for a GS header that reduces to nothing;
 // other kinds keep an empty name so the caller's placeholder gate can drop the stub.
+export type RoomSplitAmbiguity = { field: "dims" | "name"; reason: string };
+
 export function splitRoomHeader(
   raw: string,
   kind: RoomKind,
-): { name: string; dimensions: string | null; floor: string | null } {
+): {
+  name: string;
+  dimensions: string | null;
+  floor: string | null;
+  ambiguity?: RoomSplitAmbiguity;
+} {
   let s = clean(raw.replace(/&#10;/g, " ")).replace(/\s+/g, " ").trim();
+  // Cleaned-raw snapshot for the §4.1 ambiguity check (before any prefix/floor/dims
+  // mutation) — counts complete dims groups on the header AS DELIVERED.
+  const s0 = s;
 
   // 1. kind label prefix + stray leading separator. A show-code prefix (a single
   // UPPERCASE alnum token) before an UPPERCASE `BREAKOUT` keyword is stripped first,
@@ -1517,9 +1587,48 @@ export function splitRoomHeader(
     prevName = name;
     name = name.replace(/\s*\b(?:Dimensions|Floor|Name\(s\))\s*$/i, "").trim();
   } while (name !== prevName);
+
+  // ── §4.1 ambiguity: the split had to choose between plausible readings ──────────
+  // Compute on the RESIDUAL name BEFORE the "General Session" fallback (the fallback
+  // masks a consumed residual). Two triggers, one warning (dims wins on overlap):
+  //   (a) >1 COMPLETE dims group in the delivered header (which one is THE dims?);
+  //   (b)/(c) a dims strip fired AND the residual name is empty or degenerate
+  //       (≤1 alphanumeric char) while the raw was non-trivial — the strip consumed
+  //       what may have been the name (covers dims-leading + degenerate-residual).
+  // A single multi-operand dimension ("75' x 37' x 16'") is ONE group, never (a).
+  let ambiguity: RoomSplitAmbiguity | undefined;
+  const dimsGroupCount = (s0.match(new RegExp(DIMS_FULL_SRC, "gi")) ?? []).length;
+  const residualAlnum = name.replace(/[^\p{L}\p{N}]/gu, "");
+  const rawNonTrivial = s0.replace(/\s+/g, "").length > 3;
+  if (dimsGroupCount >= 2) {
+    ambiguity = {
+      field: "dims",
+      reason: `header carries ${dimsGroupCount} complete dimension groups; picked the first as the room dimensions`,
+    };
+  } else if (dimensions != null && residualAlnum.length <= 1 && rawNonTrivial) {
+    ambiguity = {
+      field: "name",
+      reason:
+        "a dimension strip left an empty or single-character room name; the name was inferred",
+    };
+  }
+
   if (!name && kind === "gs") name = "General Session";
 
-  return { name, dimensions, floor };
+  return ambiguity ? { name, dimensions, floor, ambiguity } : { name, dimensions, floor };
+}
+
+// Attach §4.1 split-ambiguity metadata to a room BEING BUILT (never emits). `rawHeader`
+// is the exact header cell the split consumed, carried so the single commit-point emit in
+// parseRooms produces a rawSnippet/message that matches the source. Called at each
+// splitRoomHeader site; emission is centralized, so a room dropped by a later gate stays
+// silent and no site can double-emit.
+function annotateAmbiguity(
+  room: RoomRowInternal,
+  split: { ambiguity?: RoomSplitAmbiguity },
+  rawHeader: string,
+): void {
+  if (split.ambiguity) room._ambiguity = { field: split.ambiguity.field, rawHeader };
 }
 
 function buildEmptyRoom(kind: RoomKind, name: string): RoomRowInternal {
@@ -1542,3 +1651,15 @@ function buildEmptyRoom(kind: RoomKind, name: string): RoomRowInternal {
     notes: null,
   };
 }
+
+// TRANSFORM_SITES (spec 2026-07-07-ambiguity-warnings-v1 §6) — value-producing
+// transform sites in this file that rest on a JUDGMENT the parser could get wrong.
+export const TRANSFORM_SITES: ReadonlyArray<
+  { site: string; code: string } | { site: string; exempt: string }
+> = [
+  { site: "splitRoomHeader name/dims split", code: "ROOM_HEADER_SPLIT_AMBIGUOUS" },
+  {
+    site: "field-label fuzzy correction",
+    exempt: "deterministic — warns via FIELD_LABEL_AUTOCORRECTED (rooms.ts:853)",
+  },
+];

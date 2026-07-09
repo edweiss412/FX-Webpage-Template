@@ -41,6 +41,10 @@ describe("Chunk 4 — /help/errors family grouping", () => {
     expect(orphans, `unmapped code prefixes: ${orphans.map(codePrefix).join(", ")}`).toEqual([]);
   });
 
+  it("VENUE_GEOCODE_UNRESOLVED maps to the syncing-sheets family (Flow 6 §4)", () => {
+    expect(familyFor("VENUE_GEOCODE_UNRESOLVED").id).toBe("syncing-sheets");
+  });
+
   it("renders a #<code> heading for EVERY renderable code (helpHref deep-link targets)", () => {
     const { container } = render(<ErrorsPage />);
     const codes = renderableCodes();

@@ -20,6 +20,7 @@
 //   | Per-show "Data quality" panel   | `failed ? … : active/ignored.length>0 ? … : null` | INSTANT |
 //   | First-published alert sub-line  | `dataGapsDigest ? … : null`          | INSTANT   |
 //   | Data-quality badge (ShowsTable) | early-return null when total===0     | INSTANT   |
+//   | Data-quality badge roster input | early-return null when gap+roster===0 | INSTANT  |
 //   | Data-quality badge (Archived)   | early-return null when total===0     | INSTANT   |
 //   | Degraded-read notice (Dashboard)| `dataGapsDegraded ? … : null`        | INSTANT   |
 //
@@ -35,8 +36,6 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { ShowsTable } from "@/components/admin/ShowsTable";
 import type { ActiveShowRow } from "@/lib/admin/showDisplay";
-import type { DataGapsSummary } from "@/lib/parser/dataGaps";
-import { mkDataGaps } from "../../helpers/dataGapsFixture";
 
 afterEach(cleanup);
 
@@ -59,10 +58,6 @@ const DATA_GAP_SOURCE_FILES = [
 ] as const;
 
 const now = new Date("2026-06-03T12:00:00.000Z");
-
-function gaps(total: number): DataGapsSummary {
-  return mkDataGaps({ FIELD_UNREADABLE: total });
-}
 
 function row(over: Partial<ActiveShowRow> & { slug: string }): ActiveShowRow {
   return {
@@ -98,16 +93,18 @@ describe("data-gap surfaces — transition audit (instant, static parse-state)",
     }
   });
 
-  // Failure mode: the chip stops being a plain early-return (e.g. it becomes a
-  // conditional CSS class on an always-mounted element, or an AnimatePresence
-  // child) — which would keep a stale chip in the DOM or animate its removal.
-  it("the data-gaps chip is gated by a plain early-return null (ShowsTable)", () => {
+  // Failure mode: the auto-fixed chip (Flow 6 6.3) stops being a plain early-return
+  // (e.g. becomes a conditional CSS class on an always-mounted element, or an
+  // AnimatePresence child) — which would keep a stale chip in the DOM or animate
+  // its removal. It lives in the LIVE title area (the old row-action-bar chip was
+  // retired 2026-07-08 with the dormant DataGapsChip).
+  it("the auto-fixed chip is gated by a plain early-return null (ShowsTable)", () => {
     const s = src("components/admin/ShowsTable.tsx");
-    // The chip component bails before rendering any element when there is no gap.
-    expect(s).toMatch(/if \(!dataGaps \|\| dataGaps\.total === 0\) return null;/);
-    // …and is rendered as a bare conditional sibling, not wrapped in a motion/
-    // presence container.
-    expect(s).toMatch(/<DataGapsChip slug=\{row\.slug\} dataGaps=\{row\.dataGaps\} \/>/);
+    // The chip component bails before rendering any element when there is no fix.
+    expect(s).toMatch(/if \(!autoFixes \|\| autoFixes\.total === 0\) return null;/);
+    // …and is rendered as a bare conditional sibling in the title area, not wrapped
+    // in a motion/presence container.
+    expect(s).toMatch(/<AutoFixChip slug=\{row\.slug\} autoFixes=\{row\.autoFixes\} \/>/);
   });
 
   // Failure mode: the Step-3 detail, per-show panel, or alert sub-line gets
@@ -146,7 +143,7 @@ describe("data-gap surfaces — transition audit (instant, static parse-state)",
 
   it("DataQualityBadge is an instant early-return null, not an animated presence", () => {
     const s = src("components/admin/DataQualityBadge.tsx");
-    expect(s).toMatch(/if \(!dataGaps \|\| dataGaps\.total === 0\) return null;/); // instant unmount
+    expect(s).toMatch(/if \(gapTotal === 0 && rosterTotal === 0\) return null;/); // instant unmount
     expect(s).not.toMatch(/AnimatePresence|framer-motion|motion\./);
   });
 
@@ -156,21 +153,28 @@ describe("data-gap surfaces — transition audit (instant, static parse-state)",
   // keep an exiting child mounted). Failure mode: an animated removal would
   // leave the chip (or a wrapper with opacity/transform style) in the DOM after
   // the count drops to zero.
-  it("chip is present iff total>0 and renders with no animation wrapper", () => {
-    const rowAction = (r: ActiveShowRow) => (
-      <button data-testid={`publish-${r.slug}`}>Publish</button>
-    );
+  it("auto-fixed chip is present iff total>0 and renders with no animation wrapper", () => {
+    const autoFix = (n: number) => ({
+      total: n,
+      classes: {
+        STAGE_WORD_AUTOCORRECTED: n,
+        ROLE_TOKEN_AUTOCORRECTED: 0,
+        COLUMN_HEADER_AUTOCORRECTED: 0,
+        SECTION_HEADER_AUTOCORRECTED: 0,
+        FIELD_LABEL_AUTOCORRECTED: 0,
+      },
+    });
 
+    // Rendered in the live title area — no rowAction needed.
     const { rerender } = render(
       <ShowsTable
-        rows={[row({ slug: "g", dataGaps: gaps(2) })]}
+        rows={[row({ slug: "g", autoFixes: autoFix(2) })]}
         now={now}
         activeCount={1}
         overflowCount={0}
-        rowAction={rowAction}
       />,
     );
-    const chip = screen.getByTestId("shows-data-gaps-chip-g");
+    const chip = screen.getByTestId("shows-auto-fixed-chip-g");
     expect(chip).toBeInTheDocument();
     // Static element: no inline transition/animation, no framer presence marker.
     expect(chip.getAttribute("style") ?? "").not.toMatch(/transition|animation|opacity|transform/);
@@ -182,15 +186,12 @@ describe("data-gap surfaces — transition audit (instant, static parse-state)",
     // total===0 → the chip unmounts entirely (no lingering animated exit).
     rerender(
       <ShowsTable
-        rows={[row({ slug: "g", dataGaps: gaps(0) })]}
+        rows={[row({ slug: "g", autoFixes: autoFix(0) })]}
         now={now}
         activeCount={1}
         overflowCount={0}
-        rowAction={rowAction}
       />,
     );
-    expect(screen.queryByTestId("shows-data-gaps-chip-g")).not.toBeInTheDocument();
-    // The action sibling is unaffected by the chip's absence.
-    expect(screen.getByTestId("publish-g")).toBeInTheDocument();
+    expect(screen.queryByTestId("shows-auto-fixed-chip-g")).not.toBeInTheDocument();
   });
 });
