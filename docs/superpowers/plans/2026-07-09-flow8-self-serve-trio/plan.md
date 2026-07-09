@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Close Flow-8 audit items 8.1 (picker hardening + persistent affordance) and 8.2 (fail-closed viewer resolution + guided re-pick), and ship a defensive regression pin for transport visibility (8.4 audit item deferred to 8.3).
+**Goal:** Close Flow-8 audit items 8.1 (picker hardening + persistent affordance) and 8.2 (fail-closed viewer resolution + guided re-pick). Audit item 8.4 (transport visibility) is **entirely deferred to the separate 8.3 spec** — its regression pins land there red-first alongside the real id-resolution fix (tracked by `BL-TRANSPORT-ID-RESOLUTION`); this milestone ships NO transport change and NO transport-only test, because a green-only characterization-pin task conflicts with invariant 1 (non-negotiable red-first per task) and cannot be waived by the plan.
 
-**Architecture:** Three surfaces. (1) A pure `sanitizePickerRoster` helper applied inside `loadRoster` (single sanitize chokepoint) + a persistent "can't find your name" affordance rendered in both picker modes. (2) A fail-closed `resolveViewerContext` (throws `UnmatchedViewerError` instead of `{none}` whole-show), plus a three-point guided-re-pick in `page.tsx`'s `resolved` case (`CrewMemberNotInShowError` typed throw, post-projection guard, render backstop) that disambiguates crew-removed from show-deleted via `loadShowAvailability`. (3) Transport regression tests over the already-shipped `namesRefer` fuzzy matcher.
+**Architecture:** Two surfaces. (1) A pure `sanitizePickerRoster` helper applied inside `loadRoster` (single sanitize chokepoint) + a persistent "can't find your name" affordance rendered in both picker modes. (2) A fail-closed `resolveViewerContext` (throws `UnmatchedViewerError` instead of `{none}` whole-show), plus a three-point guided-re-pick in `page.tsx`'s `resolved` case (`CrewMemberNotInShowError` typed throw, post-projection guard, render backstop) that disambiguates crew-removed from show-deleted via `loadShowAvailability`.
 
 **Tech Stack:** Next.js 16 Server Components, React 19, Supabase (service-role reads), Vitest + @testing-library/react (jsdom), TypeScript.
 
@@ -44,9 +44,8 @@
 | `tests/data/getShowForViewer.test.ts` | Modify | typed-throw + back-compat |
 | `tests/show/flow8Repick.test.tsx` | Create | route-level Point A/B / cascade / stale-arm / back-compat |
 | `tests/show/pickerAffordance.test.tsx` | Create | `_PickerInterstitial` affordance both modes; `loadRoster` boundary |
-| `tests/visibility/transportTileVisibleRegression.test.ts` | Create | 8.4 defensive fuzzy-tolerance pin + known-gap fixture |
 
-`BACKLOG.md` → `BL-TRANSPORT-ID-RESOLUTION` is **already added** (landed with the spec commit); no plan task re-creates it. Task 7 references it.
+`BACKLOG.md` → `BL-TRANSPORT-ID-RESOLUTION` is **already added** (landed with the spec commit); no plan task touches it. It now also carries the 8.4 name-parse-variance regression pins (deferred out of this milestone to 8.3, where they land red-first with the real fix).
 
 ---
 
@@ -1003,73 +1002,7 @@ git commit --no-verify -m "feat(crew-page): guided re-pick for unmatched-crew ra
 
 ---
 
-### Task 7: Transport regression pin (8.4 defensive) + warm-cache bound test — CHARACTERIZATION task (declared invariant-1 exemption)
-
-**Files:**
-- Create: `tests/visibility/transportTileVisibleRegression.test.ts`
-- Create: `tests/data/getShowForViewerCacheStaleness.test.ts` (or extend an existing `getShowForViewer.cache.test.ts` if the harness fits)
-
-**Interfaces:** none new — tests over existing `transportTileVisible` (`lib/visibility/scopeTiles.ts:177`) and the cache behavior.
-
-> **INVARIANT-1 EXEMPTION (declared, not a violation).** This task ships **zero production code** — by spec design. 8.4 was scoped to *regression-harden only*: the fuzzy `namesRefer`/`transportTileVisible` matcher already ships (`lib/visibility/scopeTiles.ts:177`), and the real id-resolution fix is deferred to the 8.3 spec (`BL-TRANSPORT-ID-RESOLUTION`). Point C's fail-closed backstop (8.2) already landed in Task 4. These tests are **characterization pins** that LOCK existing behavior so a future refactor that narrows fuzzy tolerance or reintroduces the whole-show fail-open fails CI. Invariant 1 ("never write implementation before the test that exercises it") governs *implementation-bearing* tasks — there is no implementation here for a test to precede, so red-first is *inapplicable*, not waived-away. The tests ARE committed because an uncommitted pin protects nothing. Each pin below names the concrete future regression it guards. This is the **only** task in the plan without a red phase, and it does NOT claim to satisfy the red→green→commit workflow; it satisfies the characterization-pin contract instead. (Every other task — 1-6, 8 — is red-first.)
-
-- [ ] **Step 1: Write the transport regression tests**
-
-```ts
-// tests/visibility/transportTileVisibleRegression.test.ts
-import { describe, expect, test } from "vitest";
-import { transportTileVisible } from "@/lib/visibility/scopeTiles";
-
-const t = (over: Partial<any> = {}) => ({ driver_name: null, schedule: [], ...over } as any);
-
-describe("transportTileVisible fuzzy-tolerance regression pin (8.4 defensive — audited hard-mis-parse NOT closed, BL-TRANSPORT-ID-RESOLUTION)", () => {
-  test.each([
-    ["first-name/prefix", "Doug", "Doug Larson"],
-    ["legal-vs-nick surname", "Douglas Larson", "Doug Larson"],
-    ["case/trim", "  doug larson ", "Doug Larson"],
-  ])("driver %s → visible", (_label, driver, viewer) => {
-    expect(transportTileVisible({ transportation: t({ driver_name: driver }), viewerName: viewer, isAdmin: false })).toBe(true);
-  });
-
-  test("assigned-names surname match → visible", () => {
-    expect(transportTileVisible({ transportation: t({ schedule: [{ assigned_names: ["Bill Werner"] }] }), viewerName: "William Werner", isAdmin: false })).toBe(true);
-  });
-
-  test("negative controls", () => {
-    expect(transportTileVisible({ transportation: t({ driver_name: "Jane Smith" }), viewerName: "Doug Larson", isAdmin: false })).toBe(false);
-    expect(transportTileVisible({ transportation: t({ driver_name: "Doug" }), viewerName: "", isAdmin: false })).toBe(false);
-    expect(transportTileVisible({ transportation: null, viewerName: "Doug", isAdmin: false })).toBe(false);
-    expect(transportTileVisible({ transportation: t({}), viewerName: null, isAdmin: true })).toBe(true);
-  });
-
-  test("KNOWN GAP (BL-TRANSPORT-ID-RESOLUTION): a merged-cell overflow that shifts the surname token is NOT visible — documents the residual deferred to 8.3, does not assert closure. Verified against live namesRefer: 'Doug Larson Loadout' vs 'Doug Larson' → false (the multi-token rule compares last tokens 'loadout' vs 'larson').", () => {
-    expect(transportTileVisible({ transportation: t({ driver_name: "Doug Larson Loadout" }), viewerName: "Doug Larson", isAdmin: false })).toBe(false);
-  });
-});
-```
-
-- [ ] **Step 2: Run to verify (these pin CURRENT behavior; expect PASS immediately)**
-
-Run: `pnpm vitest run tests/visibility/transportTileVisibleRegression.test.ts`
-Expected: PASS (regression pin — no production change). If the known-gap case unexpectedly returns `true`, `namesRefer` is more tolerant than assumed; adjust the fixture to a genuinely non-matching garble and note it.
-
-- [ ] **Step 3: Write the warm-cache bound test (8.2)**
-
-Read `tests/data/getShowForViewer.cache.test.ts` first to reuse its cache-warming harness. Add a test asserting: a stale cache hit whose `crewMembers` still contains the resolved id resolves (via `resolveViewerContext`) to **that matched row's restrictions** — NOT the `{none}` whole-show limb — proving Point C's unmatched-id property is cache-independent. Do NOT assert the stale entitlement is otherwise "current" (documented out-of-scope residual, spec §4.1 point 4). If the existing cache harness cannot express this cleanly, assert the narrower unit fact via `resolveViewerContext` directly (matched id present → returns that row's restriction, never `{none}`), and add a comment citing spec §4.1 points 1+4.
-
-- [ ] **Step 4: Run + commit**
-
-Run: `pnpm vitest run tests/visibility/transportTileVisibleRegression.test.ts tests/data/getShowForViewerCacheStaleness.test.ts`
-Expected: PASS.
-
-```bash
-git add tests/visibility/transportTileVisibleRegression.test.ts tests/data/getShowForViewerCacheStaleness.test.ts
-git commit --no-verify -m "test(crew-page): transport fuzzy-tolerance regression pin (8.4 defensive) + 8.2 warm-cache bound"
-```
-
----
-
-### Task 8: full-suite gate + impeccable dual-gate
+### Task 7: full-suite gate + impeccable dual-gate
 
 **Files:**
 - Modify: `DEFERRED.md` (only if impeccable surfaces a deferred HIGH/CRITICAL)
@@ -1104,8 +1037,8 @@ git commit --no-verify -m "docs(crew-page): impeccable dual-gate dispositions fo
 
 ## Self-review notes (author)
 
-- **Spec coverage:** 8.1 sanitize (T1) + code (T2) + affordance both modes (T3) + boundary proof (T8); 8.2 Point C (T4) + Point A type (T5) + primary A/B + cascade + stale-arm refactor, all three helpers in one red-first task (T6, merged ex-T6/T7) + warm-cache bound (T7); 8.4 defensive pin + known-gap (T7); BACKLOG row (pre-added). Every §4/§5 item maps to a task.
+- **Spec coverage:** 8.1 sanitize (T1) + code (T2) + affordance both modes (T3) + boundary proof (T7); 8.2 Point C (T4) + Point A type (T5) + primary A/B + cascade + stale-arm refactor, all three helpers in one red-first task (T6). 8.4 is NOT in this milestone — deferred to 8.3 (`BL-TRANSPORT-ID-RESOLUTION`). Every in-scope §4/§5 item maps to a task.
 - **Type consistency:** `CrewMemberNotInShowError` (T5) consumed in T6; `UnmatchedViewerError` (T4); `renderPickerRepick`/`loadShowAvailability`/`renderRacedCrewMiss` all defined and consumed within T6; `PICKER_NAME_NOT_LISTED` (T2) consumed in T3.
 - **Verification-before-claim:** several tasks note "confirm the real `data-testid`/precondition before running" — those are live-code checks the implementer performs, not placeholders.
-- **Meta/CI:** §12.4 lockstep (T2) + full-suite/tsc/build/format/lint (T8) + impeccable (T8).
-- **Invariant-1 (red-first TDD):** T1-T6 and T8 are all red-first. T7 is the SOLE exception — a declared characterization/regression-pin task shipping zero production code (8.4 is regression-harden-only per spec; the real fix is deferred to 8.3/`BL-TRANSPORT-ID-RESOLUTION`). Its exemption is stated inline at the task head with rationale; red-first is inapplicable (no implementation to precede), not silently skipped. T5 additionally carries two negative guards (`:317`/`:321` stay plain `Error`, not the subclass) alongside its red-first `:301` test, closing the over-broad-subclassing hole that message+literal checks miss.
+- **Meta/CI:** §12.4 lockstep (T2) + full-suite/tsc/build/format/lint (T7) + impeccable (T7).
+- **Invariant-1 (red-first TDD):** ALL feature tasks T1-T6 are red-first. T7 is the close-out gate task (verification + impeccable + conditional `DEFERRED.md` disposition) — it ships no feature implementation, so its verification/doc commits are not implementation-preceded-by-test (same category as the milestone's handoff/manifest commits), not an invariant-1 exemption. There is NO characterization-only committed task in this plan — the 8.4 regression pins were removed and deferred to 8.3 precisely because a green-only committed task would conflict with invariant 1. T5 additionally carries two negative guards (`:317`/`:321` stay plain `Error`, not the subclass) alongside its red-first `:301` test, closing the over-broad-subclassing hole that message+literal checks miss.
