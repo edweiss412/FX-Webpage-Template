@@ -10,17 +10,63 @@ export type KnownHole = Alarm & {
  *  old row AND a new alarm, never silently absorbed (plan-R9). */
 export const ledgerKey = (a: Alarm): string => `${a.siteId}|${a.kind}|${a.fingerprint}`;
 
-/** Bidirectional set diff: newAlarms = actual ∖ ledger (fail — undocumented hole),
- *  staleRows = ledger ∖ actual (fail — fixed/drifted; forces the ledger to shrink). */
+/** Result of a ledger reconciliation. `newAlarms`/`staleRows` are the raw bidirectional set
+ *  diff (kept for callers that only care whether the run is clean); the four `*Holes`/`drifted*`
+ *  fields PARTITION those two lists so a red nightly is triageable in seconds instead of an audit:
+ *    newAlarms  = newHoles ∪ driftedAlarms
+ *    staleRows  = fixedHoles ∪ driftedStale
+ *  The partition key is (siteId, kind) — one level coarser than the full (siteId, kind, fingerprint)
+ *  identity — so a fingerprint-only change (parser output shape shifted at a KNOWN hole) reads as
+ *  DRIFT on both sides, distinct from a genuinely new/absent (siteId, kind). */
+export type LedgerReconciliation = {
+  /** actual ∖ ledger by full key (union of the two classified buckets below). */
+  newAlarms: string[];
+  /** ledger ∖ actual by full key (union of the two classified buckets below). */
+  staleRows: string[];
+  /** newAlarms whose (siteId, kind) has NO ledger row at all → genuine REGRESSION (a site that
+   *  never survived mutation now does). Never re-bless blindly; investigate the parser change. */
+  newHoles: string[];
+  /** newAlarms whose (siteId, kind) IS ledgered but the fingerprint changed → benign IFF the parser
+   *  output change was intentional. Re-bless by regenerating the ledger (BL-MUTATION-LEDGER-*). */
+  driftedAlarms: string[];
+  /** staleRows whose (siteId, kind) has NO surviving alarm → hole CLOSED (coverage win). Shrink the
+   *  ledger by deleting these rows. */
+  fixedHoles: string[];
+  /** staleRows that are the ledger side of a drift pair (their (siteId, kind) still survives with a
+   *  different fingerprint). Same benign-drift class as driftedAlarms. */
+  driftedStale: string[];
+};
+
+/** Bidirectional set diff, then partitioned by (siteId, kind) into regression / fixed / drift so the
+ *  nightly harness failure message names WHICH happened (a red run is triaged, not auto-healed — a
+ *  golden baseline that auto-accepts its own new state cannot detect regressions). */
 export function reconcileLedger(
   actual: readonly Alarm[],
   ledger: readonly KnownHole[],
-): { newAlarms: string[]; staleRows: string[] } {
+): LedgerReconciliation {
   const a = new Set(actual.map(ledgerKey));
   const l = new Set(ledger.map(ledgerKey));
+  const newAlarms = [...a].filter((k) => !l.has(k));
+  const staleRows = [...l].filter((k) => !a.has(k));
+
+  // (siteId, kind) presence on each side — the coarser key that separates drift from new/fixed.
+  const siteKind = (x: Alarm): string => `${x.siteId}|${x.kind}`;
+  const actualSK = new Set(actual.map(siteKind));
+  const ledgerSK = new Set(ledger.map(siteKind));
+  // Map each full key back to its (siteId, kind) without re-parsing the string: siteId contains ':'
+  // but never '|', kind and fingerprint are pipe-free, so the objects are the reliable source.
+  const skByKey = new Map<string, string>();
+  for (const x of actual) skByKey.set(ledgerKey(x), siteKind(x));
+  for (const x of ledger) skByKey.set(ledgerKey(x), siteKind(x));
+  const skOf = (k: string): string => skByKey.get(k)!;
+
   return {
-    newAlarms: [...a].filter((k) => !l.has(k)),
-    staleRows: [...l].filter((k) => !a.has(k)),
+    newAlarms,
+    staleRows,
+    newHoles: newAlarms.filter((k) => !ledgerSK.has(skOf(k))),
+    driftedAlarms: newAlarms.filter((k) => ledgerSK.has(skOf(k))),
+    fixedHoles: staleRows.filter((k) => !actualSK.has(skOf(k))),
+    driftedStale: staleRows.filter((k) => actualSK.has(skOf(k))),
   };
 }
 
