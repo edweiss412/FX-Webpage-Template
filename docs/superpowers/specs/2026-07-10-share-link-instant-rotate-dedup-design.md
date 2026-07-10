@@ -157,8 +157,7 @@ Render:
 
 ### 3.5 `RotateShareTokenButton` changes
 
-- **Add** prop `onRotated?: (newToken: string) => void`.
-- **`onRotated` signature** `(newToken: string, newEpoch: number) => void` — carries the epoch so the context's monotonic gate (§3.2) can order it.
+- **Add** prop **`onRotated?: (newToken: string, newEpoch: number) => void`** — the single, canonical signature (carries the epoch so the context's monotonic gate (§3.2) can order it). This exact two-arg shape is the one referenced by every consumer, the guard table, and every test below; there is no one-arg variant.
 - **Success branch** (`onConfirmClick`, after `setResult(r)`): call `onRotated?.(r.new_share_token, r.new_epoch)` **only when `r.ok && isCrewLinkActive`** (resolves the R1 finding-2 contradiction — inactive success must not surface a copyable URL). Then `router.refresh()` on any `r.ok` (backstop for server-derived data). `{ok:false}` → no `onRotated`.
 - **Banner (current lines 221-285) → confirmation-only:**
   ```
@@ -200,7 +199,7 @@ Render:
 | `crewEmails` | 1 addr | Single "Email this link to crew" button, no batch note. |
 | rotate `result` | `{ok:false}` | `refused` banner; token unchanged; `onRotated` NOT called. |
 | rotate `result` | `{ok:true}` & `isCrewLinkActive===false` | `rotatedInactive` banner; `onRotated` NOT called; token unchanged (no copyable URL surfaces). |
-| rotate `result` | `{ok:true}` & `isCrewLinkActive===true` | `onRotated(new_share_token)` → context `setToken` → A/B/C update instantly; confirmation banner. |
+| rotate `result` | `{ok:true}` & `isCrewLinkActive===true` | `onRotated(new_share_token, new_epoch)` → context `applyRotated` (epoch-gated) → A/B/C update instantly; confirmation banner. |
 | `useShareToken` | outside provider | throws (dev guard) — every consumer is inside the page-level provider. |
 
 ## 5. Transition inventory (rotate button visual states)
@@ -220,10 +219,10 @@ TDD per task (invariant 1). Anti-tautology per project rules.
 - **Visibility/focus freshness:** with `next/navigation` `router.refresh` mocked, assert each trigger fires it: window `focus` event → `router.refresh` called; `pageshow` → called; `visibilitychange` with `document.visibilityState==="visible"` → called; **`visibilitychange` with state `"hidden"` → NOT called** (the discriminating case — a naive "any visibilitychange" impl fails here); and a window `focus` while `visibilityState` is already `"visible"` → still called (the R3 window-switch gap — a `visibilitychange`-only impl fails this). All listeners removed on unmount. Proves the refresh *fires* on tab/window return (which in prod re-pulls the fresh token); absolute never-expose-OLD-while-focused is out of scope per §2.1.
 
 ### 6.2 New — `tests/components/shareTokenInstantUpdate.test.tsx` (the load-bearing test)
-- Render the provider wrapping BOTH a `ShareChip` (or other `ShareLinkCopyButton`-bearing consumer) AND `ShareLinkBody`, seeded `initialToken="OLD"`.
-- Assert every copy surface shows `OLD`.
-- Drive `RotateShareTokenButton` success with `rotateShareToken` mocked → `{ok:true,new_share_token:"NEW",new_epoch:n}` **and `next/navigation` `router.refresh` mocked to a no-op**.
-- Assert **no copy surface still exposes `OLD`** and all show `NEW`. **Failure mode caught:** any surface left on refresh-only (the Codex R1 header-chip hazard) still shows `OLD` with `refresh` stubbed. Expected values derived from the mock token, not hardcoded.
+- Render **one** `ShareTokenProvider` (seeded `initialToken="OLD"`, `initialEpoch=5`) wrapping the **actual** A/B/C consumers **together** — `<ShareChip>`, `<CrewPageLink>`, AND `<ShareLinkBody>` (which itself hosts `RotateShareTokenButton`). No substitute/stand-in consumer is permitted; the point is to catch a real surface being left refresh-only.
+- Assert every surface exposes `OLD`: `ShareLinkBody`'s `admin-current-share-link-url` code + its Copy-button URL, the `admin-show-share-chip` `title`/`<code>`/copy-button URL, and the `CrewPageLink` `href`.
+- Drive `RotateShareTokenButton` success with `rotateShareToken` mocked → `{ok:true,new_share_token:"NEW",new_epoch:6}` **and `next/navigation` `router.refresh` mocked to a no-op**.
+- Assert **`OLD` appears nowhere** — not in any visible text, not in any `href`/`title` attribute, not in any copy-button target URL — and every surface now shows `NEW`. **Failure mode caught:** any surface left server-fed/refresh-only (the Codex R1 header-chip / R5 open-link hazard) still exposes `OLD` with `refresh` stubbed. Expected values derived from the mock token, not hardcoded.
 
 ### 6.3 New — `tests/components/ShareLinkBody.test.tsx`
 - token present → URL/Copy/email; token null → unavailable + rotate reachable; empty `crewEmails` → no email buttons; `resetSlot` rendered.
@@ -233,7 +232,7 @@ TDD per task (invariant 1). Anti-tautology per project rules.
 
 ### 6.5 Update — `tests/components/RotateShareTokenButton.test.tsx`
 - Remove assertions for `admin-rotate-share-token-url`, `-copy-button`, `-copy-announce`, `-email-note`, `-email-button`.
-- Success (active) → `admin-rotate-share-token-ok` present, confirmation copy, **no URL, no Copy**; `onRotated` called once with new token.
+- Success (active) → `admin-rotate-share-token-ok` present, confirmation copy, **no URL, no Copy**; `onRotated` called once with **both args** `(new_share_token, new_epoch)` (assert the second arg is the epoch, not undefined).
 - `{ok:false}` → `refused`; `onRotated` not called.
 - inactive-success → `rotatedInactive`; `onRotated` not called.
 
