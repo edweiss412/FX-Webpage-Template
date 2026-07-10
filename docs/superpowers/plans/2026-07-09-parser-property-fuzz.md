@@ -70,14 +70,7 @@ package.json                     + fast-check devDep, + test:fuzz / test:fuzz:de
 **Interfaces:**
 - Produces: `fuzzRunConfig(): { seed: number; numRuns: number; deep: boolean }`; constants `PR_SEED = 20260709`, `PR_NUM_RUNS = 100`, `DEEP_NUM_RUNS = 5000`.
 
-- [ ] **Step 1: Install fast-check**
-
-```bash
-cd /Users/ericweiss/FX-Webpage-Template/.claude/worktrees/parser-property-fuzz
-pnpm add -D fast-check
-```
-
-- [ ] **Step 2: Write the failing test**
+- [ ] **Step 1: Write the failing test**
 
 ```ts
 // tests/parser/fuzz/seeds.test.ts
@@ -130,10 +123,17 @@ describe("fuzzRunConfig", () => {
 });
 ```
 
-- [ ] **Step 3: Run test to verify it fails**
+- [ ] **Step 2: Run test to verify it fails**
 
 Run: `pnpm vitest run tests/parser/fuzz/seeds.test.ts`
 Expected: FAIL — `Cannot find module './seeds'`.
+
+- [ ] **Step 3: Install fast-check** (needed by every later task; seeds.ts itself is dependency-free)
+
+```bash
+cd /Users/ericweiss/FX-Webpage-Template/.claude/worktrees/parser-property-fuzz
+pnpm add -D fast-check
+```
 
 - [ ] **Step 4: Write minimal implementation**
 
@@ -284,15 +284,15 @@ describe("Tier 1 robustness — chaos inputs", () => {
 - Create: `tests/parser/fuzz/dials.ts`, `tests/parser/fuzz/_metaDialRegistry.test.ts`
 
 **Interfaces:**
-- Produces: `type DialChoices = { dateFormat: "slash" | "dash" | "iso" | "longMDY" | "longDMY"; dimsFormat: "unit" | "bare" | "unicode"; crewSectionToken: "CREW" /* Phase 1: CREW only — TECH routes to parseTechBlock (crew.ts:64-66,214+) which expects a DIFFERENT layout (Name - Role merged col0, no email); a TECH dial value needs its own layout template + oracle rules, deferred to Phase 1.5 with the other layout-family deferrals (spec §3.2 (token,layout) pairing) */; crewHeader: "labeled" | "permuted" | "headerless"; sectionOrder: number /* permutation index over model.sections */; blankPadding: 1 | 2 | 3; headerTypo: null | { section: "long" | "short"; which: string }; dayRestrictionOn: boolean }`; `DIAL_REGISTRY: ReadonlyArray<{ name: string; contractFile: string; contractSymbol: string; note?: string; key: keyof DialChoices | null; arbitrary: fc.Arbitrary<unknown> | null }>` — the spec-normative row shape (`{name, contractFile, contractSymbol, note?, arbitrary}` spec §3.2) plus `key` binding each row to its `DialChoices` field. `dialChoices: fc.Arbitrary<DialChoices>` is COMPOSED FROM the registry (`fc.record` over the keyed rows' arbitraries) — the registry row IS the source of each dial's range, so ranges cannot drift from their contract rows. `key: null` rows are model-side contracts (address) or pure guards (short-vocab exclude); their `arbitrary` is the model-side generator or null for guards. (`sectionHeader` dial = `crewSectionToken` — crew is the only multi-token opener in Phase 1; room-section variation rides `RoomModel.kind`; `dimsFormat` maps to the three `DIMS_FULL_SRC` shapes.)
+- Produces: `type DialChoices = { dateFormat: "slash" | "dash" | "iso" | "longMDY" | "longDMY"; dimsFormat: "unit" | "bare" | "unicode"; crewSectionToken: "CREW" /* Phase 1: CREW only — TECH routes to parseTechBlock (crew.ts:64-66,214+) which expects a DIFFERENT layout (Name - Role merged col0, no email); a TECH dial value needs its own layout template + oracle rules, deferred to Phase 1.5 with the other layout-family deferrals (spec §3.2 (token,layout) pairing) */; crewHeader: "labeled" | "permuted" | "headerless"; sectionOrder: number /* permutation index over model.sections */; blankPadding: 1 | 2 | 3; headerTypo: null | { typoedCrewLabel: string } /* Phase 1: SHORT vocab (CREW) only — one Damerau distance-1 edit of "CREW" screened against SHORT_SECTION_VOCAB_EXCLUDE and KNOWN_SUB_LABELS collisions (a fixed pre-screened list like "CRWE"/"CERW" is fine). LONG vocab (TRANSPORTATION/EVENT DETAILS/GS DETAILS) names sections OUTSIDE the Phase-1 model — deferred to Phase 1.5 with those sections */; dayRestrictionOn: boolean }`; `DIAL_REGISTRY: ReadonlyArray<{ name: string; contractFile: string; contractSymbol: string; note?: string; key: keyof DialChoices | null; arbitrary: fc.Arbitrary<unknown> | null }>` — the spec-normative row shape (`{name, contractFile, contractSymbol, note?, arbitrary}` spec §3.2) plus `key` binding each row to its `DialChoices` field. `dialChoices: fc.Arbitrary<DialChoices>` is COMPOSED FROM the registry (`fc.record` over the keyed rows' arbitraries) — the registry row IS the source of each dial's range, so ranges cannot drift from their contract rows. `key: null` rows are model-side contracts (address) or pure guards (short-vocab exclude); their `arbitrary` is the model-side generator or null for guards. (`sectionHeader` dial = `crewSectionToken` — crew is the only multi-token opener in Phase 1; room-section variation rides `RoomModel.kind`; `dimsFormat` maps to the three `DIMS_FULL_SRC` shapes.)
 
 Registry rows (from spec §3.2 dial table — contractFile/contractSymbol per row):
 
 | name | contractFile | contractSymbol | note | key |
 |---|---|---|---|---|
 | sectionHeader | lib/parser/blocks/crew.ts | SECTION_HEADER_TOKENS | (token,layout) pairs; hotels Phase 1 = structured HOTEL only | crewSectionToken |
-| headerTypo-long | lib/parser/sectionHeaderNormalize.ts | LONG_SECTION_VOCAB | long-vocab typos label-only OK | headerTypo |
-| headerTypo-short | lib/parser/sectionHeaderNormalize.ts | SHORT_SECTION_VOCAB | short-vocab typos require field-band row; never composes with headerless | headerTypo (shared key with -long; meta-test allows N rows per key) |
+| headerTypo-short | lib/parser/sectionHeaderNormalize.ts | SHORT_SECTION_VOCAB | Phase 1: CREW typos only; require field-band row; never composes with headerless | headerTypo |
+| headerTypo-long | lib/parser/sectionHeaderNormalize.ts | LONG_SECTION_VOCAB | guard/deferral row: long-vocab sections outside Phase-1 model; dial deferred to Phase 1.5 | null (guard) |
 | headerTypo-short-exclude | lib/parser/sectionHeaderNormalize.ts | SHORT_SECTION_VOCAB_EXCLUDE | guard row: typo dial must never emit an excluded plural | null (guard) |
 | dateFormat | lib/parser/blocks/_helpers.ts | normalizeDate | | dateFormat |
 | dimsFormat | lib/parser/blocks/_dimsToken.ts | DIMS_FULL_SRC | | dimsFormat |
@@ -358,13 +358,13 @@ Section templates — copied from the live fixture `fixtures/shows/raw/2025-04-a
 
 - **v4 scaffold (byte-constant, always rendered LAST — after the final planted section and a blank line; placement is fixed, not dialed):** marker label rows for `contact` + `rental` blocks (`V4_BLOCKS` `schema.ts:91-94`): rows `| CONTACT OFFICE | 000-000-0000 |`, `| CONTACT CELL | 000-000-0000 |`, `| CONTACT EMAIL | scaffold@fuzz.example |`, `| RENTAL PICKUP | TBD |`, `| RENTAL RETURN | TBD |`. Byte-identical across every case. FIRST TEST of this task (ordering of tests, not of output): parse the scaffold alone + assert `classifyVersion` confident-v4 and zero rooms/crew/hotels payload (guards the fabrication concern before anything composes).
 - **DATES (5-col v4):** `| DATES | | DAY | DATE | TIME |` header; rows `| | TRAVEL IN | <weekday> | <renderDateToken(travelIn, fmt)> | |`, `| | SHOW DAY <n> | <weekday> | <token> | |`, `| | TRAVEL OUT | ... |`. Weekday computed from the ISO date (`Intl` or manual table — must be CORRECT; a wrong weekday is an unplanted inconsistency).
-- **CREW:** the parser ALWAYS consumes the section's first line as the header row and starts data at `i = 1` (`crew.ts:140-167`) — so "headerless" means "header row with NO recognized column labels", never "data in row 0". Three `dials.crewHeader` variants: labeled `| CREW | NAME | ROLE | PHONE | EMAIL |`; permuted (the four vocab labels permuted, data cells permuted identically); headerless `| CREW | | | | |` (label-only row 0 — `detectColumns` recognizes nothing, positional fallback fires, data rows still start at row 1 with name/role/phone in positional columns 1/2/3 per `crew.ts:80-84`). All crew data rows are `| | <name> | <role> | <phone> | <email?> |`. Role cell gets ` (<M/D> & <M/D> ONLY)` appended when that member has `dayRestriction` and `dials.dayRestrictionOn`.
+- **CREW:** the parser ALWAYS consumes the section's first line as the header row and starts data at `i = 1` (`crew.ts:140-167`) — so "headerless" means "header row with NO recognized column labels", never "data in row 0". Three `dials.crewHeader` variants: labeled `| CREW | NAME | ROLE | PHONE | EMAIL |`; permuted (the four vocab labels permuted, data cells permuted identically); headerless `| CREW | | | | |` (label-only row 0 — `detectColumns` recognizes nothing, positional fallback fires, data rows still start at row 1 with name/role/phone in positional columns 1/2/3 per `crew.ts:80-84`). All crew data rows are `| | <name> | <role> | <phone> | <email?> |`. Role cell gets ` (<M/D> & <M/D> ONLY)` appended when that member has `dayRestriction` and `dials.dayRestrictionOn`. **`dials.headerTypo` applies HERE:** when non-null (and `crewHeader !== "headerless"` — the gate enforces the exclusion), the section label cell renders `dials.headerTypo.typoedCrewLabel` instead of `CREW`; the field-band labels stay intact so `normalizeSectionHeaders` corrects it (`sectionHeaderNormalize.ts:95-108`). Expected signals: `SECTION_HEADER_AUTOCORRECTED` warning + full crew round-trip.
 - **VENUE:** `| VENUE | VENUE NAME | <name> |` + `| | VENUE ADDRESS | <address> |`.
 - **HOTEL (structured):** copy the fixture's exact reservation-column shape (`fixtures/shows/raw/2026-04-asset-mgmt-cfo-coo-waldorf.md:66-74`; opener gate `hotels.ts:381-384`): `| HOTEL | RESERVATION #1 | ... |` header, then label/value row pairs — `Hotel Name / Address` → `<name> <address>` (glued cell; `splitHotelNameAddress` separates on the suffix-bearing street), `Names on Reservation` → ALL guests in ONE cell as `<Guest1> - #<conf1> <Guest2> - #<conf2>` (the parser consumes a single value row after the label, `parseHotelTable` `hotels.ts:468-527`, and glue-splits the multi-guest cell `hotels.ts:129-151` — one-guest-per-row is NOT the parsed shape), `Check In Date`/`Check Out Date` → date cells. Conf numbers are generator serials (`#3<six digits>`), unique per guest, screened by the identity-disjointness gate.
 - **ROOMS:** each kind has its OWN admitted header shape — enumerate ALL FOUR from `rooms.ts` before implementing (v4 gates live around `rooms.ts:640-760`): BREAKOUT requires a NUMBERED header `^BREAKOUT \d` (`rooms.ts:689-695`) so render emits `BREAKOUT <n> <name> <dims> Floor 1`; GENERAL SESSION / ADDITIONAL ROOM / LUNCH ROOM per their gate lines (grep each token's gate; ADDITIONAL ROOM is content-gated like BREAKOUT — a room must carry real dims and/or populated fields to survive the placeholder rejection). Dims via the dial's format: `50' x 40'`, `50 x 40`, `50′ × 40′` (`DIMS_FULL_SRC` `_dimsToken.ts:40-47`). Header cell followed by structured bare-label rows (`SETUP`, `SET TIME`, `SHOW TIME`, `STRIKE TIME`, `AUDIO`, `VIDEO`, `LIGHTING`, `SCENIC`, `POWER`, `DIGITAL SIGNAGE`, `OTHER`, `NOTES`) each as `| <LABEL> | |`, with at least one populated field so `roomHasContent` admits it. **Anchor test (g) below covers ALL FOUR kinds, one room each — not just GENERAL SESSION** (a kind whose render shape misses its gate must fail at the anchor, not surface later as Tier-2 generator overreach).
 - **Assembly:** sections ordered per `dials.sectionOrder` permutation, joined with `"\n".repeat(dials.blankPadding + 1)` wait — joined with `1 + blankPadding` newlines is wrong arithmetic; a "blank row" between sections means `"\n\n"` minimum (one blank line). Use `sections.join("\n" + "\n".repeat(dials.blankPadding))` and unit-test that `blankPadding=1` yields exactly one empty line. Scaffold appended last, after a blank line.
 
-- [ ] **Step 1 (TDD anchor tests, failing first):** deterministic unit tests, no fast-check — fixed model + fixed dials per section: (a) scaffold-only guard test above; (b) plant 2 crew (one with restriction) → `parseSheet` returns both names verbatim, roles cleaned, restriction `{kind:'explicit', days:[...mdTokens]}`; (c) headerless variant → `CREW_COLUMN_POSITIONAL_FALLBACK` warning fires AND both crew round-trip; (d) dates → travelIn/showDays/travelOut ISO-equal; (e) venue name+address; (f) 1 hotel + 2 guests round-trip; (g) FOUR room anchors — one per kind (GENERAL SESSION, `BREAKOUT 1`, ADDITIONAL ROOM, LUNCH ROOM), each round-tripping name+dims; (h) render is deterministic (two calls byte-equal); (i) blankPadding=1 emits exactly one blank line between sections.
+- [ ] **Step 1 (TDD anchor tests, failing first):** deterministic unit tests, no fast-check — fixed model + fixed dials per section: (a) scaffold-only guard test above; (b) plant 2 crew (one with restriction) → `parseSheet` returns both names verbatim, roles cleaned, restriction `{kind:'explicit', days:[...mdTokens]}`; (c) headerless variant → `CREW_COLUMN_POSITIONAL_FALLBACK` warning fires AND both crew round-trip; (c2) headerTypo variant (`CRWE` label + labeled field-band) → section-header autocorrect warning fires AND both crew round-trip; (d) dates → travelIn/showDays/travelOut ISO-equal; (e) venue name+address; (f) 1 hotel + 2 guests round-trip; (g) FOUR room anchors — one per kind (GENERAL SESSION, `BREAKOUT 1`, ADDITIONAL ROOM, LUNCH ROOM), each round-tripping name+dims; (h) render is deterministic (two calls byte-equal); (i) blankPadding=1 emits exactly one blank line between sections.
 - [ ] **Step 2: Run — FAIL.**
 - [ ] **Step 3: Implement `render.ts`.** Iterate until anchors pass — if an anchor cannot pass because the parser genuinely rejects an in-contract shape, STOP: that is either a render-template bug (most likely — recheck the fixture) or a real parser finding (then: record it, fix via TDD in a separate commit, class-sweep).
 - [ ] **Step 4: Run — PASS.**
