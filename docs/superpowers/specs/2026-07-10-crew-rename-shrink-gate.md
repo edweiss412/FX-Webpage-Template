@@ -124,9 +124,24 @@ update public.crew_members
 
 Tx interface: `renameCrewMember` is added as a **required** method on `ApplyParseResultTx` (`applyParseResult.ts:33` region) and implemented once in the shared Postgres tx (`runScheduledCronSync.ts:1577` region, same `this.rows` style). Plan must grep test fakes implementing the interface and update each (fail-loud beats an optional method silently skipped).
 
-### 3.5 What does NOT change
+### 3.5 Undo becomes identity-link aware (`undo_change` migration)
 
-- No DB schema change, no migration, no RPC, no PostgREST surface. The UPDATE rides the existing service-role postgres.js tx inside the existing per-show advisory lock (invariant 2: no new lock holder at any layer; topology untouched).
+The existing `crew_renamed` undo is a true reversal of the delete+insert model: it deletes the successor row by name, then reinserts the `before_image` (restoring the original `id` + `claimed_via_oauth_at`) (`supabase/migrations/20260608000003_undo_change_rpc.sql:173-262`). For an **identity-linked** rename the successor row **is** the prior row (`before_image.id` == the live successor's `id`), so delete+reinsert of the same UUID is semantically wrong and fires `ON DELETE SET NULL` on anything referencing `crew_members(id)`.
+
+Corruption-severity check (adversarial R1): the only such FK is `link_sessions.crew_member_id` (`supabase/migrations/20260501001000_internal_and_admin.sql:120`), and `link_sessions` has **zero references anywhere in `lib/` or `app/`** (retired with the M9.5 auth teardown) — so there is no *live* session-corruption path today. The picker cookie is client-side (no FK) and the reinsert restores the same UUID, so even the unfixed path resolves. We fix it anyway: the delete is a latent hazard for any future FK and the wrong semantics for a linked rename.
+
+**Fix (new migration, function-only, no DDL):** in `undo_change`'s `crew_renamed` branch, after the existing guards and the `select id into v_succ_id ... for update`, branch on identity:
+
+- `v_succ_id = (v_before->>'id')::uuid` (linked rename) → **UPDATE in place**: set the successor row's `name`, `email`, `phone`, `role`, `role_flags`, `date_restriction`, `stage_restriction`, `flight_info`, `claimed_via_oauth_at` back from `before_image` (same field list + casts as the existing restore INSERT; `last_changed_at = clock_timestamp()`), skip the delete and skip the restore INSERT. Same ROW_COUNT = 1 fail-safe.
+- Otherwise (replaced rename, the only shape that exists in historical rows) → existing delete + reinsert, byte-for-byte unchanged.
+
+Everything downstream of the restore (held-present override insert, undo log row, status flip) is shared and unchanged. All guards (email-collision, name-collision, status, lock) run before either branch, preserving the zero-mutation-on-reject contract. `crew_removed` / `crew_added` directions untouched. The branch is self-selecting from data — no new `change_kind`, no feed or catalog fan-out.
+
+Migration checklist (per AGENTS.md validation-parity rule): apply locally + DB tests; `pnpm gen:schema-manifest` + commit (function bodies aren't manifest content — expect a no-op regen, commit if changed); apply surgically to the validation project + `notify pgrst, 'reload schema'`.
+
+### 3.6 What does NOT change
+
+- No DB **schema** change (one function-body migration per §3.5; no DDL, no new RPC, no PostgREST surface). The apply-path UPDATE rides the existing service-role postgres.js tx inside the existing per-show advisory lock (invariant 2: no new lock holder at any layer; `undo_change` keeps its existing in-RPC lock — its single-holder topology is untouched).
 - No UI files. The hold message is a string through the existing shrink surface (admin alert detail + ReSyncButton confirm at `tests/components/ReSyncButton.test.tsx`'s subject). Invariant 8 (impeccable) not triggered.
 - No new §12.4 code. The existing `RESYNC_SHRINK_HELD` alert producer at the caller is untouched; only the `message` text gains rename/removal parts.
 - No new mutation surface (invariant 10): no new route or server action; existing instrumented paths.
@@ -154,7 +169,7 @@ Tx interface: `renameCrewMember` is added as a **required** method on `ApplyPars
 
 | Layer | Action |
 | --- | --- |
-| Table DDL / CHECKs / migrations | N/A — no schema change; `unique (show_id, name)` already guards rename collisions. |
+| Table DDL / CHECKs / migrations | No DDL. One function-only migration re-creating `undo_change` (§3.5) — apply local + validation, regen manifest. `unique (show_id, name)` already guards rename collisions. |
 | Write path | New `renameCrewMember` on the shared tx (`runScheduledCronSync.ts`); ordered rename → delete → upsert in `applyParseResult`. |
 | RPC / PostgREST | N/A — no new RPC; table already RPC-free service-role-written on this path. |
 | Triggers | Existing `crew_members_bump_last_changed_at` covers the UPDATE. |
@@ -184,6 +199,11 @@ Apply — `tests/sync/` applyParseResult coverage:
 12. **Feed parity:** linked rename still yields exactly one `crew_renamed` row (no `crew_removed`/`crew_added` for the pair).
 
 DB — `tests/sync/resyncShrinkHold.db.test.ts` extension: end-to-end rename-hold → confirm → row id preserved (real Postgres; loopback-guarded like siblings).
+
+Undo (real Postgres, alongside existing undo DB tests):
+
+13. **Linked-rename undo, update-in-place:** seed crew row (capture id), write an applied `crew_renamed` change row whose `before_image.id` equals the live row's id (linked shape), seed a `link_sessions` row pointing at the id, call `undo_change` → prior name/email restored, `crew_members.id` unchanged, `link_sessions.crew_member_id` still set (proves no delete fired — the assertion that cannot pass under delete+reinsert), held-present override + undone flip written as today.
+14. **Replaced-rename undo regression:** historical shape (`before_image.id` differs from successor id) → existing delete+reinsert path byte-identical: successor gone, prior id restored, guards still zero-mutation on reject (`UNDO_EMAIL_CLAIMED` / `UNDO_SUPERSEDED` paths re-run green).
 
 Anti-tautology notes: expected names/ids derive from fixtures; id-preservation asserts on `crew_members.id` equality across the apply, which cannot pass under delete+insert; hold assertions check the `outcome` discriminant, not message substrings alone (message asserted separately).
 
