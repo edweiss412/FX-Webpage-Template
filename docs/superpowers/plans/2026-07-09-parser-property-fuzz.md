@@ -228,7 +228,7 @@ Required fields (spec §4.1): every REQUIRED `ParsedSheet` field present with co
 - [ ] **Step 2: Run — FAIL (module missing).**
 - [ ] **Step 3: Implement `chaos.ts`** — two line families, each with a BYTE-budgeted generator (budgets are in BYTES, so all length caps below are measured after UTF-8 encoding — enforce by generating in code points then asserting `Buffer.byteLength`, worst case 4B/code point in the arithmetic):
   - **long lines** (≤ 20): one cell of ≤ 2,560 code points (≤ 10,240B at 4B/cp);
-  - **short lines** (≤ 380): pipe-delimited rows — cells from `fc.string({maxUnits: ...})` sized so each LINE is ≤ 500 code points INCLUDING pipes (≤ 2,000B at 4B/cp); a "wide row" variant reaches 120 cells only with 1-3-char cells (still under the 500-cp line cap); occasional zero-width `‌`, bidi `‮`, control chars, CRLF, header-ish tokens from `["CREW","HOTEL","DATES","VENUE","GENERAL SESSION","| | |"]`.
+  - **short lines** (≤ 380): pipe-delimited rows — cells from `fc.string({maxLength: n, unit: "grapheme"})` or plain `fc.string({maxLength: n})` (`maxLength` counts the string's UTF-16 length — verify the installed fast-check major's string API in its typings before coding; keep the BYTE guarantee via an explicit `.filter`-free construction: choose per-cell maxLength so worst-case UTF-8 bytes stay in budget) sized so each LINE is ≤ 500 code points INCLUDING pipes (≤ 2,000B at 4B/cp); a "wide row" variant reaches 120 cells only with 1-3-char cells (still under the 500-cp line cap); occasional zero-width `‌`, bidi `‮`, control chars, CRLF, header-ish tokens from `["CREW","HOTEL","DATES","VENUE","GENERAL SESSION","| | |"]`.
   Worst case: 20 × 10,240 + 380 × 2,000 + 400 newlines = 204,800 + 760,000 — EXCEEDS the cap, so the short-line budget must be tighter: short lines ≤ 380 × 128B means ≤ 32 code points/line at 4B/cp, too thin for 120-cell rows. Resolve by SPLITTING the budget: ≤ 20 long lines × 10,240B (204,800B) + ≤ 8 wide rows × 2,048B (16,384B) + ≤ 372 normal lines × 100B (37,200B) + 400 newlines = 258,784B — still over 262,144? No: 204,800 + 16,384 + 37,200 + 400 = 258,784 < 262,144 ✓. Wide rows: 120 cells × ≤3 ASCII chars + 121 pipes ≤ 481B — well inside 2,048B. Normal lines: ≤ 25 code points at 4B/cp = 100B. Comment this exact arithmetic in the file; the cap test proves it empirically over samples AND the constants are asserted statically (`20*10240 + 8*2048 + 372*100 + 400 < 262144`). `fc.pre`/truncation remain FORBIDDEN (silent truncation misreports coverage) — the budget is structural.
 - [ ] **Step 4: Run cap test — PASS.**
 - [ ] **Step 5: Write the Tier-1 property test** in `robustness.fuzz.test.ts`:
@@ -324,6 +324,7 @@ Registry rows (from spec §3.2 dial table — contractFile/contractSymbol per ro
   - `type SectionKind = "crew" | "hotels" | "rooms" | "venue" | "dates"`
   - `type ShowModel = { version: "v4"; year: number; dates: { travelIn: IsoDate; showDays: IsoDate[]; travelOut: IsoDate }; crew: CrewModel[]; hotels: HotelModel[]; rooms: RoomModel[]; venue: { name: string; address: string }; sections: SectionKind[] }` — `sections` is the ORDERED list of present sections (spec §3.1 presence/content coupling: always contains crew/venue/dates; contains hotels/rooms iff their list is non-empty; `dials.sectionOrder` permutes THIS list at render). `CrewModel = { name: string; role: string; phone: string; email?: string; dayRestriction?: IsoDate[] }`, `HotelModel = { name: string; address: string; guests: string[] }`, `RoomModel = { kind: "GENERAL SESSION" | "BREAKOUT" | "ADDITIONAL ROOM" | "LUNCH ROOM"; name: string; dims: { w: number; d: number } }`.
   - `showModel: fc.Arbitrary<ShowModel>`
+  - `caseArb: fc.Arbitrary<readonly [ShowModel, DialChoices]>` — `fc.tuple(showModel, dialChoices).map(normalizeCombo)`; normalizeCombo resolves cross-dial exclusions by construction (headerless wins: `headerTypo := null`). The pair arbitrary every property samples.
   - `validateGeneratedCase(model: ShowModel, dials: DialChoices): void` (throws on violation)
   - `mdToken(d: IsoDate): string` (yearless `M/D`), `renderDateToken(d: IsoDate, fmt: DialChoices["dateFormat"]): string`
 - Consumes: `DialChoices` from `./dials` (Task 4 — already exists).
@@ -417,8 +418,7 @@ import fc from "fast-check";
 import { describe, it, expect } from "vitest";
 import { parseSheet } from "@/lib/parser";
 import { fuzzRunConfig } from "./seeds";
-import { showModel, validateGeneratedCase } from "./model";
-import { dialChoices } from "./dials";
+import { caseArb, validateGeneratedCase } from "./model";
 import { renderCase } from "./render";
 import { checkPlantAndFind } from "./groundTruth";
 
