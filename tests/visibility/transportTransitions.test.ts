@@ -14,8 +14,11 @@ import {
   TRANSPORT_TRANSITION_MATRIX,
   transportTransitionTreatment,
   directedTransportTreatment,
+  transportNetVisible,
+  transportVisibilityTreatment,
   type TransportBranchState,
   type TransportTreatment,
+  type TransportVisibilityAxes,
 } from "@/lib/visibility/transportTransitions";
 import { transportTileVisible } from "@/lib/visibility/scopeTiles";
 import {
@@ -384,5 +387,45 @@ describe("Compound transport transitions (review Important 4)", () => {
     // tile's visibility flipped false→true. Two independent contracts,
     // both derived from the SAME post-sync state — no half-applied
     // intermediate is observable to the renderer.
+  });
+});
+
+// ── Flow 8.3b — id-owner axis (net-visibility treatment model) ────────────────
+const A = (o: Partial<TransportVisibilityAxes> = {}): TransportVisibilityAxes => ({
+  isAdmin: false,
+  idOwnerMatch: false,
+  driverNameMatch: false,
+  scheduleTagMatch: false,
+  ...o,
+});
+
+describe("id-owner axis (8.3b) — net-visibility transition model", () => {
+  test("idOwnerMatch alone is net-visible (was FF=hidden in the 2-axis model)", () => {
+    expect(transportNetVisible(A({ idOwnerMatch: true }))).toBe(true);
+    expect(transportNetVisible(A())).toBe(false);
+  });
+
+  test("id-only hidden→visible = fade-in-mount", () => {
+    expect(transportVisibilityTreatment(A(), A({ idOwnerMatch: true }))).toBe("fade-in-mount");
+  });
+
+  test("id-only visible→hidden = fade-out-unmount", () => {
+    expect(transportVisibilityTreatment(A({ idOwnerMatch: true }), A())).toBe("fade-out-unmount");
+  });
+
+  test("GARBLE MID-EDIT: driver-name-visible → id-only-visible stays mounted (no flicker)", () => {
+    // sheet garbles driver_name: NAME branch flips false, ID branch keeps it visible.
+    const before = A({ driverNameMatch: true });
+    const after = A({ driverNameMatch: false, idOwnerMatch: true });
+    expect(transportVisibilityTreatment(before, after)).toBe("stay-mounted-pulse");
+  });
+
+  test("hidden→hidden returns null (nothing renders)", () => {
+    expect(transportVisibilityTreatment(A(), A())).toBeNull();
+  });
+
+  test("identical VISIBLE axes = no-op → null, NOT a pulse (Codex plan R10)", () => {
+    const s = A({ idOwnerMatch: true, driverNameMatch: true });
+    expect(transportVisibilityTreatment(s, { ...s })).toBeNull(); // unchanged tile must not pulse on re-sync
   });
 });
