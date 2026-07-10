@@ -50,7 +50,7 @@ Codex R1 correctly flagged that removing D's URL while leaving A refresh-only wo
 - The `useEffect` re-sync (§3.2) means **any** server refresh (`router.refresh()` from rotate/reset/publish actions, navigation, or the new visibility trigger) re-seeds the token — parity-or-better vs the server-only status quo.
 - Making copy *provably* never expose an old token requires realtime epoch subscription or copy-time epoch validation — durable-signal infra disproportionate to this UI dedup, and orthogonal to the user's complaint. Filed as a BACKLOG follow-up (§7 note), not built here.
 
-Non-goals: no change to `rotateShareToken` server action, its telemetry, the advisory lock, or the token-read RPC. No realtime/epoch-subscription infra. No visual redesign beyond removing the duplicated block.
+Non-goals: no change to `rotateShareToken` server action, its telemetry, the advisory lock, or the token-read RPC. The epoch gate consumes `new_epoch`, which the action's result **already** returns (`lib/auth/picker/rotateShareToken.ts:12`) — no new field, no signature change (see §3.5 citation). No realtime/epoch-subscription infra. No visual redesign beyond removing the duplicated block.
 
 ## 3. Approach (A-solid + shared token context — chosen)
 
@@ -158,6 +158,7 @@ Render:
 ### 3.5 `RotateShareTokenButton` changes
 
 - **Add** prop **`onRotated?: (newToken: string, newEpoch: number) => void`** — the single, canonical signature (carries the epoch so the context's monotonic gate (§3.2) can order it). This exact two-arg shape is the one referenced by every consumer, the guard table, and every test below; there is no one-arg variant.
+- **No server-action change needed — `new_epoch` already exists.** The current `rotateShareToken` success result is already `{ ok: true; new_share_token: string; new_epoch: number }` (`lib/auth/picker/rotateShareToken.ts:12`; the value is read from the RPC row at `:16-23` and returned), and `RotateShareTokenButton` already types its `Result` union with `new_epoch` (`RotateShareTokenButton.tsx:32`). The button receives `r.new_epoch` today; this change simply *uses* it (previously it was ignored). So `onRotated(r.new_share_token, r.new_epoch)` reads only already-present fields — the "no server-action signature change" scope holds (verified against live code, not assumed).
 - **Success branch** (`onConfirmClick`, after `setResult(r)`): call `onRotated?.(r.new_share_token, r.new_epoch)` **only when `r.ok && isCrewLinkActive`** (resolves the R1 finding-2 contradiction — inactive success must not surface a copyable URL). Then `router.refresh()` on any `r.ok` (backstop for server-derived data). `{ok:false}` → no `onRotated`.
 - **Banner (current lines 221-285) → confirmation-only:**
   ```
