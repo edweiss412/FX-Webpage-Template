@@ -25,17 +25,11 @@ export function covers(cSig: string[], mSig: string[]): boolean {
   return mSig.length > 0 && mSig.every((mt) => cSig.includes(mt));
 }
 
-/** Minimal structural roster shape — reads id + name + sheet_name ONLY. Fed a
- *  SERVER-ONLY roster built inside getShowForViewer (`ownerResolveRoster`) — NOT
- *  `ShowForViewer["crewMembers"]`: `sheet_name` is deliberately KEPT OFF the returned /
- *  client-visible projection (data minimization — exposing every member's pre-override
- *  name to the crew-page payload is a privacy regression). The ids are DB-assigned at
- *  apply, which is why this resolver is read-time-only and never runs in the enrich/parse
- *  pass. `sheet_name` (crew_members.sheet_name) is the PRE-override parsed name, present
- *  only while a name override is active — the name transport rows still key on. Resolving
- *  against BOTH `name` and `sheet_name` is required: a surname-changing override PLUS a
- *  garbled cell defeats both the current-name id path AND the render-time alias fallback. */
-type ResolvableCrew = ReadonlyArray<{ id: string; name: string; sheet_name: string | null }>;
+/** Minimal structural roster shape — reads id + name ONLY. Fed a SERVER-ONLY roster
+ *  built inside getShowForViewer (`ownerResolveRoster`) — NOT `ShowForViewer["crewMembers"]`.
+ *  The ids are DB-assigned at apply, which is why this resolver is read-time-only and never
+ *  runs in the enrich/parse pass. */
+type ResolvableCrew = ReadonlyArray<{ id: string; name: string }>;
 
 /**
  * Read-time resolution of free-text transport assignee names → the set of crew
@@ -44,10 +38,9 @@ type ResolvableCrew = ReadonlyArray<{ id: string; name: string; sheet_name: stri
  *
  * A candidate name resolves to a crew id when `covers` (whole-name subset — catches
  * the "Doug Larson Loadout" ⊇ "Doug Larson" garble) OR `namesRefer` (nickname / prefix
- * — catches "Bill Werner" ↔ "William Werner" that `covers` misses), matched against
- * EITHER of that member's aliases (current name + pre-override sheet_name). Union,
- * because neither matcher subsumes the other. A candidate that covers ≥2 roster members
- * (a merged multi-person cell) resolves to ALL of them — benign over-match (UX-not-security).
+ * — catches "Bill Werner" ↔ "William Werner" that `covers` misses), matched against the
+ * member's `crew_members.name`. A candidate that covers ≥2 roster members (a merged
+ * multi-person cell) resolves to ALL of them — benign over-match (UX-not-security).
  */
 export function resolveTransportOwners(
   transportation: TransportationRow | null,
@@ -56,9 +49,7 @@ export function resolveTransportOwners(
   if (!transportation) return [];
   if (crewMembers.length === 0) return [];
   const roster = crewMembers.map((c) => {
-    // [current name, pre-override sheet_name?] — the alias set transport rows may key on.
-    const aliases =
-      c.sheet_name && c.sheet_name.trim().length > 0 ? [c.name, c.sheet_name] : [c.name];
+    const aliases = [c.name];
     return { id: c.id, aliases: aliases.map((a) => ({ name: a, sig: significantTokens(a) })) };
   });
   // Runtime-defensive: driver_name/schedule/assigned_names are STRING-typed but arrive

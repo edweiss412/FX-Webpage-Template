@@ -1126,9 +1126,8 @@ describe("per-show Data quality: correction-loop callout (Flow 3 / 3.1)", () => 
 describe("per-show page — crew email threading (Flow 5)", () => {
   it("crew_members select is widened to include email", async () => {
     await renderPage();
-    // Widened union: Flow-5 needs `email`; the admin-field-override loader (§8.4)
-    // needs `sheet_name` (crew matchKey = sheet_name ?? name). One crew read serves both.
-    expect(state.selectColsByTable.crew_members).toBe("id, name, role, sheet_name, email");
+    // Flow-5 needs `email` alongside the id/name/role the roster renders.
+    expect(state.selectColsByTable.crew_members).toBe("id, name, role, email");
   });
 
   // Plan adversarial R1 — pin the EXACT bound: .limit(CREW_ROSTER_READ_CAP) or

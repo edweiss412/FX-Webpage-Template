@@ -185,11 +185,9 @@ export function transportTileVisible(opts: {
   // and namesRefer catch DISJOINT classes (garble vs nickname/prefix).
   transportationOwnerIds: string[];
   viewerName: string | null;
-  // §3.5 — the viewer's name alias set `[live name, sheet_name?]`. NAME MATCHING
-  // (both branches below) runs against THIS set, not the scalar `viewerName`, so a
-  // renamed crew member whose transport rows still key on their pre-override
-  // `sheet_name` still sees their own ride. An EMPTY alias set matches nothing
-  // (namesReferAny over [] is false) — identical to the old no-viewer case.
+  // §3.5 — the viewer's name alias set (`[live name]`). NAME MATCHING (both branches
+  // below) runs against THIS set, not the scalar `viewerName`. An EMPTY alias set
+  // matches nothing (namesReferAny over [] is false) — the admin / no-viewer case.
   viewerNameAliases: string[];
   isAdmin: boolean;
 }): boolean {

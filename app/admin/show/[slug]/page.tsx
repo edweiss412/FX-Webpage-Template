@@ -98,7 +98,6 @@ type CrewMemberRow = {
   id: string;
   name: string;
   role: string | null;
-  sheet_name: string | null;
   email: string | null;
 };
 
@@ -249,7 +248,7 @@ export default async function AdminShowPage({
     try {
       const { data, error } = await supabase
         .from("crew_members")
-        .select("id, name, role, sheet_name, email")
+        .select("id, name, role, email")
         .eq("show_id", show.id)
         .order("name", { ascending: true })
         .limit(CREW_ROSTER_READ_CAP + 1)
