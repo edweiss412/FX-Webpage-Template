@@ -4,7 +4,6 @@
 // line regex mis-fires.
 import { describe, expect, it } from "vitest";
 import {
-  collectDroppedPublicTables,
   diffManifestAgainstLive,
   manifestFromRows,
   parseAlterAddColumns,
@@ -98,6 +97,63 @@ describe("parseAlterAddColumns", () => {
     expect(parseAlterAddColumns(sql)).toEqual([]);
   });
 
+  it("excludes a surviving-table column that is added then later dropped (final state)", () => {
+    // The admin-field-override teardown vector: crew_members.sheet_name added by the
+    // feature migration and dropped by its teardown; the table survives, so only the
+    // add-then-drop column must net out of the final-state tripwire.
+    const sql =
+      "alter table public.crew_members add column if not exists sheet_name text;\n" +
+      "alter table public.crew_members drop column if exists sheet_name;";
+    expect(parseAlterAddColumns(sql)).toEqual([]);
+  });
+
+  it("keeps a surviving column even when a DIFFERENT column on the same table is dropped", () => {
+    const sql =
+      "alter table public.crew_members add column if not exists sheet_name text;\n" +
+      "alter table public.crew_members add column if not exists keep_me text;\n" +
+      "alter table public.crew_members drop column if exists sheet_name;";
+    expect(parseAlterAddColumns(sql)).toEqual([{ table: "crew_members", column: "keep_me" }]);
+  });
+
+  it("re-adds a column dropped earlier in the same migration (final state = present)", () => {
+    // Order-aware final-state: DROP COLUMN then ADD COLUMN (a recreate) leaves the
+    // column PRESENT, so the tripwire must still demand it of the manifest. An
+    // order-insensitive "excluded if dropped anywhere" rule would wrongly net it
+    // out and blind the parity gate to a surviving re-added column.
+    const sql =
+      "alter table public.crew_members drop column if exists reissued;\n" +
+      "alter table public.crew_members add column if not exists reissued text;";
+    expect(parseAlterAddColumns(sql)).toEqual([{ table: "crew_members", column: "reissued" }]);
+  });
+
+  it("nets add→drop→add (last op wins = present)", () => {
+    const sql =
+      "alter table public.crew_members add column if not exists churned text;\n" +
+      "alter table public.crew_members drop column if exists churned;\n" +
+      "alter table public.crew_members add column if not exists churned text;";
+    expect(parseAlterAddColumns(sql)).toEqual([{ table: "crew_members", column: "churned" }]);
+  });
+
+  it("demands columns added to a table dropped THEN recreated (final table = present)", () => {
+    // Order-aware table lifecycle: DROP TABLE t; CREATE TABLE t; ADD COLUMN c leaves
+    // t present, so t.c must be demanded of the manifest. An order-insensitive
+    // "dropped anywhere" table guard would suppress every column op on t and blind
+    // the tripwire to the recreated table's columns.
+    const sql =
+      "drop table if exists public.rebuilt;\n" +
+      "create table public.rebuilt (id text primary key);\n" +
+      "alter table public.rebuilt add column if not exists note text;";
+    expect(parseAlterAddColumns(sql)).toEqual([{ table: "rebuilt", column: "note" }]);
+  });
+
+  it("excludes columns of a table created, added-to, then dropped (final table = absent)", () => {
+    const sql =
+      "create table public.scratch (id text primary key);\n" +
+      "alter table public.scratch add column if not exists note text;\n" +
+      "drop table if exists public.scratch;";
+    expect(parseAlterAddColumns(sql)).toEqual([]);
+  });
+
   it("is case-insensitive and dedupes repeated (table,column) pairs", () => {
     const sql =
       "ALTER TABLE PUBLIC.app_settings ADD COLUMN IF NOT EXISTS rotated_at timestamptz;\n" +
@@ -141,20 +197,20 @@ describe("parseCreatedPublicTables", () => {
     expect(parseCreatedPublicTables(sql)).toEqual([]);
   });
 
+  it("re-creates a table dropped earlier in the same migration (final state = present)", () => {
+    // Same order-aware final-state rule as columns: DROP TABLE then CREATE TABLE
+    // leaves the table PRESENT, so it must survive the tripwire.
+    const sql =
+      "drop table if exists public.rebuilt;\n" +
+      "create table public.rebuilt (id text primary key);";
+    expect(parseCreatedPublicTables(sql)).toEqual(["rebuilt"]);
+  });
+
   it("matches `create unlogged table` but not temp tables", () => {
     const sql =
       "create unlogged table public.report_rate_limits (id text);\n" +
       "create temporary table public.scratch (x int);";
     expect(parseCreatedPublicTables(sql)).toEqual(["report_rate_limits"]);
-  });
-});
-
-describe("collectDroppedPublicTables", () => {
-  it("collects public drops and ignores non-public", () => {
-    const dropped = collectDroppedPublicTables(
-      "drop table if exists public.a; drop table b; drop table if exists dev.c;",
-    );
-    expect([...dropped].sort()).toEqual(["a", "b"]);
   });
 });
 

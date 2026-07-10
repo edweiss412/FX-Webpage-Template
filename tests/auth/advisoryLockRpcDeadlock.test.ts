@@ -70,12 +70,6 @@ function lockTakingRpcNames(): string[] {
     // acquires pg_advisory_xact_lock(hashtext('show:' || p_drive_file_id)) FIRST in its own
     // body (sole show: holder; the JS route never locks). Advisory-then-row (no FOR UPDATE).
     "supabase/migrations/20260706000000_pull_sheet_override.sql",
-    // Admin field overrides (spec 2026-07-07 §7.2, Task 3) — set_field_override acquires
-    // pg_advisory_xact_lock(hashtext('show:' || p_drive_file_id)) FIRST in its own body
-    // (in-RPC single holder; the JS action never locks). Its four SECURITY DEFINER helpers
-    // take NO advisory lock (they run inside the RPC's already-held lock), so only the RPC
-    // itself is detected as a lock-taker.
-    "supabase/migrations/20260707000000_admin_field_overrides.sql",
   ];
 
   const names = new Set<string>();
@@ -132,10 +126,6 @@ describe("advisory-lock RPC deadlock guard", () => {
     // a single-holder admin lock-taker; the JS route awaits it via the service-role client
     // and never wraps it in withShowAdvisoryLock (nesting would deadlock, M5 R20 class).
     expect(lockTakingNames).toContain("set_pull_sheet_override");
-    // set_field_override — in-RPC single holder (spec §7.2); the JS action never locks.
-    // (Admin field overrides, Task 3.) Its four helpers self-take no advisory lock — they run
-    // under the RPC's already-held show: lock — so only the RPC is detected as a lock-taker.
-    expect(lockTakingNames).toContain("set_field_override");
 
     const sourceFiles = [
       // middleware.ts removed 2026-05-27 (Phase 0.A finding 5 / commit b5999c8).

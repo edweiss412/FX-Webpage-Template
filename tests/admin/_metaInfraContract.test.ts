@@ -225,7 +225,7 @@ const infraRegistry = [
     helper: "loadNeedsAttention",
     path: "lib/admin/loadNeedsAttention.ts",
     contract:
-      "pending_ingestions/pending_syncs/shows/admin_alerts/admin_overrides await throws + construction throw → infra_error (admin_overrides = 4th paused-override stream, spec 2026-07-07 §6 step 2)",
+      "pending_ingestions/pending_syncs/shows/admin_alerts await throws + construction throw → infra_error",
   },
   {
     helper: "loadRecentAutoApplied",
@@ -249,7 +249,7 @@ const infraRegistry = [
     helper: "loadNeedsAttentionCount",
     path: "lib/admin/needsAttentionCount.ts",
     contract:
-      "pending_ingestions/pending_syncs/admin_overrides head-count throws + construction throw → infra_error (admin_overrides = 4th paused-override stream, spec 2026-07-07 §6 step 2)",
+      "pending_ingestions/pending_syncs head-count throws + construction throw → infra_error",
   },
   {
     helper: "fetchHealthRollup",
@@ -689,7 +689,6 @@ describe("META §B Supabase call-boundary contract", () => {
     test.each([
       ["pending_ingestions", /pending_ingestions.*threw/],
       ["pending_syncs", /pending_syncs.*threw/],
-      ["admin_overrides", /admin_overrides.*threw/],
     ])(
       "from('%s') throw → typed infra_error with table-specific message",
       async (table, messageRe) => {
@@ -743,7 +742,7 @@ describe("META §B Supabase call-boundary contract", () => {
       });
     });
 
-    test.each([["pending_ingestions"], ["pending_syncs"], ["admin_overrides"]])(
+    test.each([["pending_ingestions"], ["pending_syncs"]])(
       "from('%s') throw → { kind: 'infra_error' }",
       async (table) => {
         infraMock.throwOnFromTable = table;

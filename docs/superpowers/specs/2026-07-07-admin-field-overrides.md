@@ -1,5 +1,7 @@
 # Spec — Admin Field Override Layer (audit 3.2)
 
+> **↩️ SUPERSEDED 2026-07-10 — feature REMOVED.** This spec shipped as PR #376, then the feature was torn out on product review. An admin override is a **second source of truth** fighting FXAV's sheet-canonical promise (`PRODUCT.md`); the narrow field set is verbatim/sheet-editable and already covered by the "Fix in sheet" + Re-sync loop (3.1 #358) + report flow. This document is retained for history only — it no longer describes live code. Removal spec (canonical): **`docs/superpowers/specs/2026-07-10-remove-admin-field-overrides.md`**. Residual needs filed as `BL-EXTEND-ROLE-SCOPE-VOCAB` + `BL-STRUCTURAL-TRANSFORM-USE-RAW`.
+
 **Date:** 2026-07-07
 **Slug:** admin-field-overrides
 **Audit source:** `docs/audits/e2e-real-world-variation-preparedness-2026-07-07.md` §6 Flow 3 item 3.2 (also §5 P0-2, §5 seam scenario I, §7 item 3).

@@ -112,10 +112,9 @@ export class CrewMemberNotInShowError extends Error {
  * the reservation refers to ANY name in the viewer's alias set (`namesReferAny`,
  * tolerant of first-name / nickname / initial / `/`-merged forms). Replaces a naive
  * `guest.includes(viewer)` substring that hid most crew's own hotels. The alias set
- * (§3.5) is `[live name, sheet_name?]` — a SURNAME-changing override keeps the
- * renamed viewer's OWN reservation (still keyed on the pre-override `sheet_name`)
- * visible. UX-not-security per the owner determination (BL-HOTEL-VIEWER-NAME-MATCH);
- * applied only on the non-admin branch, and an empty alias set surfaces nothing.
+ * (§3.5) is `[live name]` — the viewer's current `crew_members.name`. UX-not-security
+ * per the owner determination (BL-HOTEL-VIEWER-NAME-MATCH); applied only on the
+ * non-admin branch, and an empty alias set surfaces nothing.
  */
 export function hotelVisibleToViewer(
   res: HotelReservationRow,
@@ -236,14 +235,11 @@ export type ShowForViewer = {
   viewerName: string | null;
 
   /**
-   * The active viewer's name alias set (§3.5) — `[live name, sheet_name?]`. The
-   * live `crew_members.name` plus the PRE-override parsed name
-   * (`crew_members.sheet_name`, present only while a name override is active)
-   * that hotel/transportation rows still key on. `transportTileVisible` and the
-   * hotel projection filter match against THIS set (not the scalar `viewerName`)
-   * so a SURNAME-changing override keeps the renamed viewer's OWN transport +
-   * hotel visible. Empty `[]` for the admin viewer (no crew row); every alias-set
-   * matcher is a no-op on `[]`, so admins gate on `isAdmin`, not names.
+   * The active viewer's name alias set (§3.5) — `[live name]`, the live
+   * `crew_members.name`. `transportTileVisible` and the hotel projection filter
+   * match against THIS set (not the scalar `viewerName`). Empty `[]` for the admin
+   * viewer (no crew row); every alias-set matcher is a no-op on `[]`, so admins gate
+   * on `isAdmin`, not names.
    */
   viewerNameAliases: string[];
 
@@ -260,8 +256,8 @@ export type ShowForViewer = {
    * schedule[*].assigned_names) via `resolveTransportOwners` (Flow 8.3b). Read-time,
    * in-memory over the roster. A viewer whose id is in this set sees the transport
    * tile regardless of render-time name garble. Empty when transportation is null /
-   * roster empty / nothing resolves. The resolver's `sheet_name` alias source is
-   * SERVER-ONLY (never projected onto `crewMembers` — data minimization).
+   * roster empty / nothing resolves. The resolver roster (id + name) is SERVER-ONLY
+   * (never projected onto `crewMembers`).
    */
   transportationOwnerIds: string[];
 
@@ -331,18 +327,14 @@ async function readShowDataForViewer(
   // for this show at all).
   let derivedFlags: RoleFlag[] = [];
   let viewerName: string | null = null;
-  // §3.5 — the viewer's name alias set. `[live name, sheet_name?]`: the current
-  // crew_members.name plus the PRE-override parsed name (crew_members.sheet_name,
-  // non-null only while a name override is active) that hotel/transport rows still
-  // key on. Empty `[]` for the admin viewer (no crew row / no name resolved), which
-  // makes every alias-set matcher a no-op — admins gate on `isAdmin`, not names.
+  // §3.5 — the viewer's name alias set: just the current `crew_members.name`.
+  // Empty `[]` for the admin viewer (no crew row / no name resolved), which makes
+  // every alias-set matcher a no-op — admins gate on `isAdmin`, not names.
   let viewerNameAliases: string[] = [];
   let viewerFlightInfo: string | null = null;
-  // Flow 8.3b — SERVER-ONLY roster (id + name + pre-override sheet_name) for
-  // resolveTransportOwners. `sheet_name` is deliberately kept OFF the returned
-  // ShowForViewer.crewMembers projection (data minimization); it lives here only.
+  // Flow 8.3b — SERVER-ONLY roster (id + name) for resolveTransportOwners.
   // Populated inside readCrewMembers (mirrors the viewerName outer-let assignment).
-  let ownerResolveRoster: Array<{ id: string; name: string; sheet_name: string | null }> = [];
+  let ownerResolveRoster: Array<{ id: string; name: string }> = [];
 
   if (needsCrewLookup) {
     // Bind lookup to BOTH id AND show_id. The dual constraint is the
@@ -351,7 +343,7 @@ async function readShowDataForViewer(
     // applied to the requested show.
     const lookup = await supabase
       .from("crew_members")
-      .select("role_flags, name, flight_info, sheet_name")
+      .select("role_flags, name, flight_info")
       .eq("id", viewer.crewMemberId)
       .eq("show_id", showId)
       .maybeSingle();
@@ -363,10 +355,9 @@ async function readShowDataForViewer(
     }
     derivedFlags = (lookup.data.role_flags as RoleFlag[]) ?? [];
     viewerName = (lookup.data.name as string) ?? null;
-    const sheetName = (lookup.data.sheet_name as string | null) ?? null;
-    // Build the alias set only when a viewer name resolved; sheet_name joins it
-    // when present (an active name override). Filtered to non-null.
-    viewerNameAliases = viewerName === null ? [] : [viewerName, ...(sheetName ? [sheetName] : [])];
+    // The viewer's name alias set is just their current crew_members.name (§3.5).
+    // Post field-override teardown there is no pre-override sheet_name alias.
+    viewerNameAliases = viewerName === null ? [] : [viewerName];
     const rawFlight = (lookup.data.flight_info as string | null) ?? null;
     viewerFlightInfo = rawFlight && rawFlight.trim().length > 0 ? rawFlight : null;
   }
@@ -458,19 +449,15 @@ async function readShowDataForViewer(
   const readCrewMembers = async (): Promise<CrewMember[]> => {
     const crewRes = await supabase
       .from("crew_members")
-      .select(
-        "id, name, sheet_name, email, phone, role, role_flags, date_restriction, stage_restriction",
-      )
+      .select("id, name, email, phone, role, role_flags, date_restriction, stage_restriction")
       .eq("show_id", showId);
     if (crewRes.error) {
       throw new Error(`getShowForViewer: crew fetch failed: ${crewRes.error.message}`);
     }
-    // Flow 8.3b — capture the SERVER-ONLY resolver roster (id + name + pre-override
-    // sheet_name). `sheet_name` never enters the public projection below.
+    // Flow 8.3b — capture the SERVER-ONLY resolver roster (id + name).
     ownerResolveRoster = (crewRes.data ?? []).map((row) => ({
       id: row.id as string,
       name: row.name as string,
-      sheet_name: (row.sheet_name as string | null) ?? null,
     }));
     return (crewRes.data ?? []).map((row) => {
       const stageRestriction = decodeJsonbColumn<StageRestriction>(row.stage_restriction) ?? {

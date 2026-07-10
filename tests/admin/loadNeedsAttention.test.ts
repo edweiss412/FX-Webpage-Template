@@ -437,24 +437,15 @@ describe("loadNeedsAttention", () => {
       /const\s*\{\s*data:\s*_syncProblemCountData\s*,\s*count:\s*syncProblemHeadCount\s*,\s*error:\s*syncProblemCountError\s*,?\s*\}\s*=\s*await\s+supabase\s*\.from\("admin_alerts"\)/,
     );
     expect(src).toMatch(/void\s+_syncProblemCountData;/);
-    // 8. admin_overrides paused-override rows (4th derived stream, §6 step 2)
-    expect(src).toMatch(
-      /const\s*\{\s*data:\s*overrideData\s*,\s*error:\s*overrideRowsError\s*,?\s*\}\s*=\s*await\s+supabase\s*\.from\("admin_overrides"\)/,
-    );
-    // 9. admin_overrides paused-override head-count
-    expect(src).toMatch(
-      /const\s*\{\s*data:\s*_overrideCountData\s*,\s*count:\s*overrideHeadCount\s*,\s*error:\s*overrideCountError\s*,?\s*\}\s*=\s*await\s+supabase\s*\.from\("admin_overrides"\)/,
-    );
-    expect(src).toMatch(/void\s+_overrideCountData;/);
     // Negative sweep: NO read keeps a whole-response handle under any name —
     // `const <ident> = await supabase` (a non-destructured binding) must not
     // appear anywhere in the helper except the client construction itself.
     const bareHandles = src.match(/const\s+[A-Za-z_$][\w$]*\s*=\s*await\s+supabase\b/g) ?? [];
     expect(bareHandles).toEqual([]);
-    // Exactly nine destructured awaits — one per query surface (5 pending + 2
-    // sync-problem + 2 paused-override rows/head-count, §6 step 2).
+    // Exactly seven destructured awaits — one per query surface (5 pending +
+    // 2 sync-problem rows/head-count).
     const destructured = src.match(/=\s*await\s+supabase\s*\.from\(/g) ?? [];
-    expect(destructured).toHaveLength(9);
+    expect(destructured).toHaveLength(7);
   });
 
   test("third stream: emits a sync_problem item + total, with the archived/inbox/show_id filters applied", async () => {
@@ -496,6 +487,65 @@ describe("loadNeedsAttention", () => {
     const countCall = calls.find((c) => c.table === "admin_alerts" && c.head)!;
     expect(countCall.inArgs).toEqual(INBOX_ROUTED_CODES);
     expect(countCall.eqArgs).toContainEqual(["shows.archived", false]);
+  });
+
+  test("teardown: no paused-override stream — no override_paused items; total excludes overrides", async () => {
+    // A paused admin_overrides row would previously surface as the 4th stream
+    // (an override_paused item + a contribution to totalCount). After the
+    // field-override teardown the loader must ignore admin_overrides entirely.
+    const ingestions = [ingRow(1, "df-i1", iso(50)), ingRow(2, "df-i2", iso(40))];
+    const syncs = [syncRow(1, "df-s1", iso(30))];
+    const alertRow = {
+      id: "alert-1",
+      code: "SHEET_UNAVAILABLE",
+      raised_at: iso(45),
+      show_id: "show-1",
+      context: { sheet_name: "East Coast" },
+      shows: { slug: "east-coast", title: "East Coast" },
+    };
+    const overrideRow = {
+      id: "ovr-1",
+      show_id: "show-1",
+      domain: "crew",
+      field: "name",
+      match_key: "Old Name",
+      deactivation_code: "target_missing",
+      shows: { slug: "east-coast", title: "East Coast" },
+    };
+    // Per-stream head-counts, distinct so the sum is unambiguous. overrideCount
+    // is deliberately non-zero: if the loader still folded it in, totalCount
+    // would exceed the surviving-stream sum and the assertion below would fail.
+    const ingestionCount = 2;
+    const syncCount = 1;
+    const syncProblemCount = 1;
+    const overrideCount = 3;
+    const { client } = makeClient({
+      rowsByTable: {
+        pending_ingestions: ingestions,
+        pending_syncs: syncs,
+        shows: [],
+        admin_alerts: [alertRow],
+        admin_overrides: [overrideRow],
+      },
+      countByTable: {
+        pending_ingestions: ingestionCount,
+        pending_syncs: syncCount,
+        admin_alerts: syncProblemCount,
+        admin_overrides: overrideCount,
+      },
+    });
+    const loadNeedsAttention = await loader();
+    const result = await loadNeedsAttention({
+      cap: 20,
+      supabase: client as unknown as InjectedClient,
+    });
+    expect("kind" in result).toBe(false);
+    if ("kind" in result) throw new Error("unreachable");
+    // No paused-override affordance survives the teardown.
+    expect(result.items.some((i) => (i.variant as string) === "override_paused")).toBe(false);
+    // total = the SUM of the surviving stream head-counts, derived from the
+    // fixture counts (anti-tautology: never a hardcoded literal).
+    expect(result.totalCount).toBe(ingestionCount + syncCount + syncProblemCount);
   });
 
   test("third stream: a null-slug embed row is skipped (no dead link)", async () => {

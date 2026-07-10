@@ -18,10 +18,9 @@ const tx = (over: Partial<TransportationRow>): TransportationRow => ({
   notes: null,
   ...over,
 });
-const crew = (id: string, name: string, sheet_name: string | null = null) => ({
+const crew = (id: string, name: string) => ({
   id,
   name,
-  sheet_name,
 });
 
 describe("resolveTransportOwners", () => {
@@ -94,17 +93,21 @@ describe("resolveTransportOwners", () => {
       ]),
     ).toEqual(["doug"]);
   });
-  it("11. name-override + garble resolves via sheet_name alias, not current name", () => {
-    const renamed = [crew("doug", "Doug Newname", "Doug Larson")];
-    expect(resolveTransportOwners(tx({ driver_name: "Doug Larson Loadout" }), renamed)).toEqual([
-      "doug",
-    ]);
-    // sheet_name null → the alias isn't there → no coincidental match
+  it("11. resolves against the current crew name only — a non-matching name does not resolve", () => {
+    // Post field-override teardown the alias set is `[current name]` (no pre-override
+    // sheet_name alias). A member whose current name does not refer to the driver token
+    // is not resolved — the sheet is the single source of truth for the name.
     expect(
       resolveTransportOwners(tx({ driver_name: "Doug Larson Loadout" }), [
         crew("doug", "Doug Newname"),
       ]),
     ).toEqual([]);
+    // The same member, once their sheet name matches, resolves via covers.
+    expect(
+      resolveTransportOwners(tx({ driver_name: "Doug Larson Loadout" }), [
+        crew("doug", "Doug Larson"),
+      ]),
+    ).toEqual(["doug"]);
   });
   it("12. malformed decoded JSONB is total (never throws) — page-critical projection guard", () => {
     const roster = [crew("doug", "Doug Larson")];

@@ -197,8 +197,7 @@ describe("getShowForViewer source-scan — flight_info read on the own-row looku
   const src = readFileSync("lib/data/getShowForViewer.ts", "utf8");
 
   it("the own-row lookup SELECT includes flight_info", () => {
-    // sheet_name (§3.5 visibility-alias) rides the SAME own-row lookup as flight_info.
-    expect(src).toContain('.select("role_flags, name, flight_info, sheet_name")');
+    expect(src).toContain('.select("role_flags, name, flight_info")');
   });
 
   it("the roster SELECT does NOT include flight_info, and flight_info is in exactly one select", () => {
@@ -206,7 +205,7 @@ describe("getShowForViewer source-scan — flight_info read on the own-row looku
     // column-list string literal itself (proves the roster columns, no flight_info) rather
     // than the single-line `.select("...")` call shape.
     expect(src).toContain(
-      '"id, name, sheet_name, email, phone, role, role_flags, date_restriction, stage_restriction"',
+      '"id, name, email, phone, role, role_flags, date_restriction, stage_restriction"',
     );
     const selectFlightHits = (src.match(/\.select\("[^"]*flight_info[^"]*"\)/g) ?? []).length;
     expect(selectFlightHits).toBe(1);

@@ -277,12 +277,4 @@ export const ALERT_IDENTITY_MAP: Record<string, IdentityMapEntry> = {
       { kind: "contextField", key: "attempted_action", label: "Action" },
     ],
   },
-
-  // 43. OVERRIDE_TARGET_MISSING — global (per-show doug bell; the durable
-  //     needs-attention row carries the per-override identity, so the coarse
-  //     alert needs no per-entity segment — the row's show_id names the show).
-  OVERRIDE_TARGET_MISSING: { kind: "global" },
-
-  // 44. OVERRIDE_NAME_CONFLICT — global (same rationale as OVERRIDE_TARGET_MISSING).
-  OVERRIDE_NAME_CONFLICT: { kind: "global" },
 };
