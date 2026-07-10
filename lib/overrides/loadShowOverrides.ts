@@ -103,6 +103,38 @@ export type ShowOverridesView = {
   orphans: OrphanOverrideView[];
 };
 
+// A SERIALIZABLE lookup of every live target's CAS-B inputs, keyed by the DURABLE parsed
+// matchKey (§8.2a). Passed from the Server Component page to the client <OverrideableField>
+// (a closure/resolver CANNOT cross the RSC boundary — only serializable data can), which does
+// the repoint lookup client-side. The RPC validates CAS-B against the NEW target B (not the
+// old paused target) and resolves B's hotel row via p_expected_live_hotel_name, so the client
+// must supply B's live value (+ live hotel name) for the entered key (R6 HIGH). A key that
+// matches no entry → null CAS-B → the RPC fail-closes (409) instead of guessing a row.
+export type RepointTargetIndex = {
+  crew: Record<string, { name: unknown; role: unknown }>;
+  hotel: Record<
+    string,
+    { hotel_name: unknown; hotel_address: unknown; liveHotelName: string | null }
+  >;
+};
+
+// Build the serializable repoint index from an already-loaded ShowOverridesView (pure).
+export function makeRepointTargetIndex(view: ShowOverridesView): RepointTargetIndex {
+  const crew: RepointTargetIndex["crew"] = {};
+  for (const c of view.crew) {
+    crew[c.matchKey] = { name: c.name.expectedCurrentValue, role: c.role.expectedCurrentValue };
+  }
+  const hotel: RepointTargetIndex["hotel"] = {};
+  for (const h of view.hotels) {
+    hotel[h.matchKey] = {
+      hotel_name: h.hotel_name.expectedCurrentValue,
+      hotel_address: h.hotel_address.expectedCurrentValue,
+      liveHotelName: h.currentLiveHotelName,
+    };
+  }
+  return { crew, hotel };
+}
+
 function toOverrideState(row: OverrideRow | undefined): OverrideState | null {
   if (!row) return null;
   return {

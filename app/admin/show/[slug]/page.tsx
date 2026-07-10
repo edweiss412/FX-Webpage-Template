@@ -37,7 +37,7 @@ import { ShareLinkCopyButton } from "./ShareLinkCopyButton";
 import { PickerResetControl } from "./PickerResetControl";
 import { RotateShareTokenButton } from "./RotateShareTokenButton";
 import type { PerShowCrewRow } from "@/components/admin/PerShowCrewSection";
-import { loadShowOverrides } from "@/lib/overrides/loadShowOverrides";
+import { loadShowOverrides, makeRepointTargetIndex } from "@/lib/overrides/loadShowOverrides";
 import {
   ShowDetailsOverrideBlock,
   HotelsOverrideBlock,
@@ -423,6 +423,9 @@ export default async function AdminShowPage({
     showVenue: show.venue,
   });
   const overridesByCrewId = new Map(overrides.crew.map((c) => [c.id, c]));
+  // Serializable CAS-B lookup for repoint (R6) — passed to every paused-override-capable
+  // field so a re-point resolves the NEW target B's live value by the entered key.
+  const repointTargets = makeRepointTargetIndex(overrides);
 
   // Flow 5 (audit 5.2) — distribution list for the "Email crew" affordances.
   // Emails are canonicalized-or-null at the parse boundary; this filter drops
@@ -691,6 +694,7 @@ export default async function AdminShowPage({
       <HotelsOverrideBlock
         driveFileId={show.drive_file_id}
         hotels={overrides.hotels}
+        repointTargets={repointTargets}
         onSave={setFieldOverrideAction}
       />
       {/* §6 step 4 / G2: overrides whose sheet target vanished — the paused-override
@@ -698,6 +702,7 @@ export default async function AdminShowPage({
       <OrphanedOverridesBlock
         driveFileId={show.drive_file_id}
         orphans={overrides.orphans}
+        repointTargets={repointTargets}
         onSave={setFieldOverrideAction}
       />
 
@@ -803,6 +808,7 @@ export default async function AdminShowPage({
                             <CrewOverrideFields
                               driveFileId={show.drive_file_id}
                               view={overridesByCrewId.get(id)!}
+                              repointTargets={repointTargets}
                               onSave={setFieldOverrideAction}
                             />
                           ) : (

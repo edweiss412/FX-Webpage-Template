@@ -22,10 +22,14 @@ import type {
   CrewOverrideView,
   HotelOverrideView,
   OrphanOverrideView,
+  RepointTargetIndex,
   ShowOverridesView,
 } from "@/lib/overrides/loadShowOverrides";
 
 type OnSave = OverrideableFieldProps["onSave"];
+// Serializable CAS-B lookup for repoint (R6), threaded to every paused-override-capable field
+// (crew, hotel, orphans); show fields are singletons and never repoint.
+type Resolver = RepointTargetIndex;
 
 const FIELD_LABEL_CLASS = "text-xs font-medium uppercase tracking-wide text-text-subtle";
 const ROW_CLASS = "grid grid-cols-[7.5rem_minmax(0,1fr)] items-start gap-3";
@@ -80,10 +84,12 @@ export function CrewOverrideFields({
   driveFileId,
   view,
   onSave,
+  repointTargets,
 }: {
   driveFileId: string;
   view: CrewOverrideView;
   onSave: OnSave;
+  repointTargets?: Resolver;
 }) {
   return (
     <div data-testid={`crew-override-fields-${view.id}`} className="flex flex-col gap-2">
@@ -97,6 +103,7 @@ export function CrewOverrideFields({
           currentValue={view.name.currentValue}
           expectedCurrentValue={view.name.expectedCurrentValue}
           override={view.name.override}
+          {...(repointTargets !== undefined ? { repointTargets } : {})}
           onSave={onSave}
         />
       </div>
@@ -110,6 +117,7 @@ export function CrewOverrideFields({
           currentValue={view.role.currentValue}
           expectedCurrentValue={view.role.expectedCurrentValue}
           override={view.role.override}
+          {...(repointTargets !== undefined ? { repointTargets } : {})}
           onSave={onSave}
         />
       </div>
@@ -121,10 +129,12 @@ function HotelOverrideRow({
   driveFileId,
   hotel,
   onSave,
+  repointTargets,
 }: {
   driveFileId: string;
   hotel: HotelOverrideView;
   onSave: OnSave;
+  repointTargets?: Resolver;
 }) {
   // exactOptionalPropertyTypes: only pass currentOrdinal when observed (advisory, R20).
   const ordinalProp =
@@ -146,6 +156,7 @@ function HotelOverrideRow({
           override={hotel.hotel_name.override}
           currentLiveHotelName={hotel.currentLiveHotelName}
           {...ordinalProp}
+          {...(repointTargets !== undefined ? { repointTargets } : {})}
           onSave={onSave}
         />
       </div>
@@ -161,6 +172,7 @@ function HotelOverrideRow({
           override={hotel.hotel_address.override}
           currentLiveHotelName={hotel.currentLiveHotelName}
           {...ordinalProp}
+          {...(repointTargets !== undefined ? { repointTargets } : {})}
           onSave={onSave}
         />
       </div>
@@ -187,10 +199,12 @@ export function OrphanedOverridesBlock({
   driveFileId,
   orphans,
   onSave,
+  repointTargets,
 }: {
   driveFileId: string;
   orphans: readonly OrphanOverrideView[];
   onSave: OnSave;
+  repointTargets?: Resolver;
 }) {
   if (orphans.length === 0) return null;
   return (
@@ -227,6 +241,7 @@ export function OrphanedOverridesBlock({
               currentValue={String(orphan.override.overrideValue ?? "")}
               expectedCurrentValue={null}
               override={orphan.override}
+              {...(repointTargets !== undefined ? { repointTargets } : {})}
               onSave={onSave}
             />
           </div>
@@ -240,10 +255,12 @@ export function HotelsOverrideBlock({
   driveFileId,
   hotels,
   onSave,
+  repointTargets,
 }: {
   driveFileId: string;
   hotels: readonly HotelOverrideView[];
   onSave: OnSave;
+  repointTargets?: Resolver;
 }) {
   if (hotels.length === 0) return null;
   return (
@@ -259,6 +276,7 @@ export function HotelsOverrideBlock({
             key={hotel.id}
             driveFileId={driveFileId}
             hotel={hotel}
+            {...(repointTargets !== undefined ? { repointTargets } : {})}
             onSave={onSave}
           />
         ))}

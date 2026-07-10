@@ -26,6 +26,7 @@ import { useState } from "react";
 
 import { getDougFacing, isMessageCode } from "@/lib/messages/lookup";
 import type { SetFieldOverrideParams } from "@/lib/overrides/setFieldOverride";
+import type { RepointTargetIndex } from "@/lib/overrides/loadShowOverrides";
 
 export type OverrideState = {
   overrideValue: unknown;
@@ -50,6 +51,12 @@ export type OverrideableFieldProps = {
   currentOrdinal?: number; // hotel only — advisory (R20)
   currentLiveHotelName?: string; // hotel only (R13) — the p_expected_live_hotel_name CAS row locator
   disabled?: boolean; // archived / first-seen show — suppresses affordances
+  // Serializable lookup of live targets' CAS-B inputs for repoint (R6): the RPC validates
+  // p_expected_current_value against the NEW target B, so the client resolves B's live value
+  // (+ live hotel name) for the entered key from this index. A closure cannot cross the RSC
+  // boundary, so the Server page passes DATA. Absent / no match → repoint sends null CAS-B
+  // (RPC fail-closes 409); surfaces that offer repoint MUST pass it.
+  repointTargets?: RepointTargetIndex;
   onSave: OnSave;
 };
 
@@ -144,6 +151,7 @@ export function OverrideableField(props: OverrideableFieldProps) {
     currentOrdinal,
     currentLiveHotelName,
     disabled,
+    repointTargets,
     onSave,
   } = props;
 
@@ -257,11 +265,42 @@ export function OverrideableField(props: OverrideableFieldProps) {
     setMode("repointing");
   }
 
+  function resolveRepointTarget(): {
+    expectedCurrentValue: unknown;
+    expectedLiveHotelName: string | null;
+  } | null {
+    if (!repointTargets) return null;
+    if (domain === "crew") {
+      const t = repointTargets.crew[newKeyDraft];
+      if (!t) return null;
+      return {
+        expectedCurrentValue: field === "name" ? t.name : t.role,
+        expectedLiveHotelName: null,
+      };
+    }
+    if (domain === "hotel") {
+      const t = repointTargets.hotel[newKeyDraft];
+      if (!t) return null;
+      return {
+        expectedCurrentValue: field === "hotel_name" ? t.hotel_name : t.hotel_address,
+        expectedLiveHotelName: t.liveHotelName,
+      };
+    }
+    return null; // show is a singleton; repoint does not apply.
+  }
+
   function saveRepoint() {
+    // R6 HIGH: the RPC validates CAS-B against the NEW target B (not the old paused target
+    // baseParams carries) and, for hotel, resolves B's row via p_expected_live_hotel_name.
+    // Resolve B's live values from the loaded views by the entered key; null (no match) →
+    // send null so the RPC fail-closes 409 rather than guessing a wrong row.
+    const target = resolveRepointTarget();
     void submit({
       ...baseParams("repoint"),
       p_new_match_key: newKeyDraft,
       p_override_value: override ? override.overrideValue : null,
+      p_expected_current_value: target ? target.expectedCurrentValue : null,
+      p_expected_live_hotel_name: target ? target.expectedLiveHotelName : null,
     });
   }
 

@@ -281,3 +281,126 @@ describe("OverrideableField — structured show fields submit an object, not a s
     expect(onSave).not.toHaveBeenCalled();
   });
 });
+
+// R6 HIGH (the repoint break): the RPC validates CAS-B against the NEW target B (the row the
+// user re-points TO), not the old paused target the widget was rendered against. A repoint that
+// submits the paused target's expected value 409s every legitimate re-point. The serializable
+// `repointTargets` index resolves B's live value (+ live hotel name) by the entered key so
+// saveRepoint sends B's value. These tests are ANTI-TAUTOLOGICAL: the paused override renders
+// overrideValue "John" / sheetValue "Jon", and B's value is a THIRD distinct string ("Bob") —
+// asserting `p_expected_current_value === "Bob"` fails on any code path that reuses the paused
+// value. Failure mode caught: saveRepoint falling back to baseParams' old expectedCurrentValue.
+describe("OverrideableField — repoint CAS-B targets the NEW row (R6)", () => {
+  const stale: OverrideState = {
+    overrideValue: "John",
+    sheetValue: "Jon",
+    active: false,
+    deactivationCode: "target_missing",
+    version: 3,
+  };
+
+  function repoint(getByTestId: ReturnType<typeof render>["getByTestId"], newKey: string) {
+    fireEvent.click(getByTestId("override-repoint-crew-name"));
+    fireEvent.change(getByTestId("override-repoint-input-crew-name"), {
+      target: { value: newKey },
+    });
+    fireEvent.click(getByTestId("override-repoint-save-crew-name"));
+  }
+
+  it("crew name: sends B's live name, NOT the paused target's value", async () => {
+    const onSave = okSpy();
+    const { getByTestId } = render(
+      <OverrideableField
+        {...baseProps()}
+        onSave={onSave}
+        override={stale}
+        repointTargets={{ crew: { Bob: { name: "Bob", role: "Sound" } }, hotel: {} }}
+      />,
+    );
+    repoint(getByTestId, "Bob");
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const params = onSave.mock.calls[0]?.[0] as SetFieldOverrideParams;
+    expect(params.p_op).toBe("repoint");
+    expect(params.p_new_match_key).toBe("Bob");
+    // B's value — not the paused "Jon" (sheetValue) or "John" (overrideValue).
+    expect(params.p_expected_current_value).toBe("Bob");
+    expect(params.p_expected_current_value).not.toBe("Jon");
+    expect(params.p_expected_current_value).not.toBe("John");
+    expect(params.p_expected_live_hotel_name).toBeNull();
+  });
+
+  it("crew role: sends B's role (field-specific resolution)", async () => {
+    const onSave = okSpy();
+    const { getByTestId } = render(
+      <OverrideableField
+        {...baseProps()}
+        field="role"
+        currentValue="Camera"
+        expectedCurrentValue="Camera"
+        onSave={onSave}
+        override={stale}
+        repointTargets={{ crew: { Bob: { name: "Bob", role: "Sound" } }, hotel: {} }}
+      />,
+    );
+    fireEvent.click(getByTestId("override-repoint-crew-role"));
+    fireEvent.change(getByTestId("override-repoint-input-crew-role"), { target: { value: "Bob" } });
+    fireEvent.click(getByTestId("override-repoint-save-crew-role"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const params = onSave.mock.calls[0]?.[0] as SetFieldOverrideParams;
+    expect(params.p_expected_current_value).toBe("Sound");
+    expect(params.p_expected_live_hotel_name).toBeNull();
+  });
+
+  it("hotel name: sends B's hotel_name AND B's live hotel name (row locator)", async () => {
+    const onSave = okSpy();
+    const { getByTestId } = render(
+      <OverrideableField
+        driveFileId="drive-file-1"
+        domain="hotel"
+        field="hotel_name"
+        matchKey="Old Inn"
+        currentValue="Old Inn"
+        expectedCurrentValue="Old Inn"
+        onSave={onSave}
+        override={stale}
+        repointTargets={{
+          crew: {},
+          hotel: {
+            "New Hotel": {
+              hotel_name: "New Hotel",
+              hotel_address: "9 Rd",
+              liveHotelName: "New Hotel",
+            },
+          },
+        }}
+      />,
+    );
+    fireEvent.click(getByTestId("override-repoint-hotel-hotel_name"));
+    fireEvent.change(getByTestId("override-repoint-input-hotel-hotel_name"), {
+      target: { value: "New Hotel" },
+    });
+    fireEvent.click(getByTestId("override-repoint-save-hotel-hotel_name"));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const params = onSave.mock.calls[0]?.[0] as SetFieldOverrideParams;
+    expect(params.p_expected_current_value).toBe("New Hotel");
+    expect(params.p_expected_live_hotel_name).toBe("New Hotel");
+  });
+
+  it("unknown key (no index match): fail-closed null CAS-B, never the paused value", async () => {
+    const onSave = okSpy();
+    const { getByTestId } = render(
+      <OverrideableField
+        {...baseProps()}
+        onSave={onSave}
+        override={stale}
+        repointTargets={{ crew: { Bob: { name: "Bob", role: "Sound" } }, hotel: {} }}
+      />,
+    );
+    repoint(getByTestId, "Nobody");
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    const params = onSave.mock.calls[0]?.[0] as SetFieldOverrideParams;
+    expect(params.p_new_match_key).toBe("Nobody");
+    expect(params.p_expected_current_value).toBeNull();
+    expect(params.p_expected_live_hotel_name).toBeNull();
+  });
+});

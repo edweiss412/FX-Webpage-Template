@@ -115,7 +115,12 @@ import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import { VenueMapTile } from "@/components/admin/wizard/VenueMapTile";
 import { isParseableUrl } from "@/lib/url/isParseableUrl";
 import { OverrideableField } from "@/components/admin/overrides/OverrideableField";
-import type { ShowOverridesView, OverrideFieldView } from "@/lib/overrides/loadShowOverrides";
+import {
+  makeRepointTargetIndex,
+  type ShowOverridesView,
+  type OverrideFieldView,
+  type RepointTargetIndex,
+} from "@/lib/overrides/loadShowOverrides";
 import {
   HOTEL_DISAMBIGUATOR_SEP,
   computeHotelDisambiguator,
@@ -870,6 +875,7 @@ function WizardOverrideRow({
   fallbackDisplay,
   currentLiveHotelName,
   currentOrdinal,
+  repointTargets,
 }: {
   label: string;
   driveFileId: string;
@@ -881,6 +887,10 @@ function WizardOverrideRow({
   fallbackDisplay?: string;
   currentLiveHotelName?: string;
   currentOrdinal?: number;
+  // R6 CAS-B repoint index (serializable): resolves the NEW target's current value +
+  // live hotel name so a Re-point sends B's expected value, not the paused target's.
+  // Only threaded for crew/hotel (show fields are singletons and never repoint).
+  repointTargets?: RepointTargetIndex;
 }) {
   const disabled = firstSeen || view == null;
   return (
@@ -903,6 +913,7 @@ function WizardOverrideRow({
         onSave={setFieldOverrideAction}
         {...(currentLiveHotelName !== undefined ? { currentLiveHotelName } : {})}
         {...(currentOrdinal !== undefined ? { currentOrdinal } : {})}
+        {...(repointTargets !== undefined ? { repointTargets } : {})}
       />
       {firstSeen ? (
         <p
@@ -1279,6 +1290,8 @@ export function CrewBreakdown({
   const shown = members.slice(0, CREW_CAP);
   const note = overflowNote(members.length, CREW_CAP, "people");
   const firstSeen = liveOverrides === null;
+  // R6: one serializable CAS-B index for every crew Re-point on this card.
+  const repointTargets = liveOverrides ? makeRepointTargetIndex(liveOverrides) : undefined;
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-crew`}
@@ -1361,6 +1374,7 @@ export function CrewBreakdown({
                       view={crewView?.name ?? null}
                       firstSeen={firstSeen}
                       fallbackDisplay={name}
+                      {...(repointTargets !== undefined ? { repointTargets } : {})}
                     />
                     <WizardOverrideRow
                       label="Role"
@@ -1371,6 +1385,7 @@ export function CrewBreakdown({
                       view={crewView?.role ?? null}
                       firstSeen={firstSeen}
                       fallbackDisplay={m.role ?? ""}
+                      {...(repointTargets !== undefined ? { repointTargets } : {})}
                     />
                   </li>
                 ) : null}
@@ -2342,6 +2357,8 @@ export function HotelsBreakdown({
   const shown = hotels.slice(0, HOTELS_CAP);
   const note = overflowNote(hotels.length, HOTELS_CAP, "hotels");
   const firstSeen = liveOverrides === null;
+  // R6: one serializable CAS-B index for every hotel Re-point on this card.
+  const repointTargets = liveOverrides ? makeRepointTargetIndex(liveOverrides) : undefined;
   // A single reservation inside the modal's section chrome would otherwise be a
   // card-within-a-card (chrome card + HotelCard border). Flatten the lone card so
   // the chrome IS the single card; nest sub-cards only when there are 2+ rows.
@@ -2398,6 +2415,7 @@ export function HotelsBreakdown({
                       {...(hotelView?.currentOrdinal !== undefined
                         ? { currentOrdinal: hotelView.currentOrdinal }
                         : {})}
+                      {...(repointTargets !== undefined ? { repointTargets } : {})}
                     />
                     <WizardOverrideRow
                       label="Hotel address"
@@ -2414,6 +2432,7 @@ export function HotelsBreakdown({
                       {...(hotelView?.currentOrdinal !== undefined
                         ? { currentOrdinal: hotelView.currentOrdinal }
                         : {})}
+                      {...(repointTargets !== undefined ? { repointTargets } : {})}
                     />
                   </div>
                 ) : null}
