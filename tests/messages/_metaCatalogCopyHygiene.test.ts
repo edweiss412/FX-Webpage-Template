@@ -71,4 +71,36 @@ describe("Catalog copy hygiene (Phase E meta-test after Codex R10)", () => {
     }
     expect(violations, violations.join("\n\n")).toEqual([]);
   });
+
+  // Flow-7 error-copy polish (e2e-real-world-variation-preparedness-2026-07-07,
+  // Flow 7 + class sweep): Doug-visible copy must never point at an internal
+  // parser code by name ("the MI-N code") or name an internal sync mechanism
+  // ("sync-suppression rule"). Both were the ONLY live instances of their shape
+  // (dougFacing jargon sweep found a single hit); this pin closes the class so a
+  // future edit can't reintroduce either. Scoped to the two exact phrases so it
+  // never false-positives on legitimately developer/Eric-audience helpfulContext
+  // that references RPCs, advisory locks, or table names.
+  const JARGON_LEAK_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
+    [/sync-suppression/i, 'internal mechanism name "sync-suppression"'],
+    [/\bMI-[0-9N][0-9a-z]*\s+code\b/i, 'internal parser code pointer ("MI-N code")'],
+  ];
+
+  it("no Doug-visible copy names an internal parser code or sync mechanism", () => {
+    const violations: string[] = [];
+    for (const [code, entry] of Object.entries(MESSAGE_CATALOG)) {
+      for (const field of ["dougFacing", "crewFacing", "helpfulContext"] as const) {
+        const value = entry[field];
+        if (typeof value !== "string") continue;
+        for (const [pattern, name] of JARGON_LEAK_PATTERNS) {
+          if (pattern.test(value)) {
+            violations.push(
+              `${code}.${field}: internal jargon leaked — ${name}\n  Value: ${value.slice(0, 200)}${value.length > 200 ? "…" : ""}`,
+            );
+            break;
+          }
+        }
+      }
+    }
+    expect(violations, violations.join("\n\n")).toEqual([]);
+  });
 });

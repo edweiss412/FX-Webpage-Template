@@ -322,7 +322,7 @@ export const SPEC_CODES = {
   },
   "DRIVE_METADATA_MISSING": {
     "crewFacing": null,
-    "dougFacing": "Google Drive did not return the sheet revision metadata we need to sync safely.",
+    "dougFacing": "Google Drive didn't return the revision details we need to sync safely. We'll retry automatically on the next sync — no action needed.",
     "followUp": "Eric → inspect Drive metadata response",
     "helpfulContext": "The sync engine requires a head revision id so markdown export, enrichment, and final apply all describe the same sheet revision.",
   },
@@ -762,7 +762,7 @@ export const SPEC_CODES = {
     "crewFacing": "We couldn't read the latest edit to Doug's sheet. Showing what we had at _<time>_.",
     "dougFacing": "_<sheet-name>_'s latest edit didn't parse. The previous approved version is still showing to crew. See the per-show parse panel for the error detail.",
     "followUp": "Doug → fix sheet (see parse panel); Crew → mention to Doug",
-    "helpfulContext": "A recent edit to the sheet introduced something the parser couldn't read, but we kept the previously approved version live so crew aren't blocked. Open the per-show parse panel to see the specific MI-N code explaining what went wrong, fix it in the sheet, and the next sync will replace the stale data.",
+    "helpfulContext": "A recent edit to the sheet introduced something the parser couldn't read, but we kept the previously approved version live so crew aren't blocked. Open the per-show parse panel to see exactly what went wrong, fix it in the sheet, and the next sync will replace the stale data.",
   },
   "PENDING_INGESTION_NOT_FOUND": {
     "crewFacing": null,
@@ -910,9 +910,9 @@ export const SPEC_CODES = {
   },
   "PUBLISH_BLOCKED_PENDING_REVIEW": {
     "crewFacing": null,
-    "dougFacing": "This show has unsynced changes, a pending review, or a sync-suppression rule. Re-sync and clear it, then publish.",
+    "dougFacing": "This show has changes from its sheet that haven't been synced or reviewed yet. Re-sync, clear anything pending, then publish.",
     "followUp": "Doug → re-sync + clear, then publish",
-    "helpfulContext": "We can't publish this show because it isn't in a clean, fully-reconciled state: there are unsynced changes, a pending review in the inbox, or an active sync-suppression rule on the sheet. Re-sync the show from Drive and clear whatever is pending (apply or discard the staged change, resolve the review), then publish.",
+    "helpfulContext": "We can't publish this show until it's fully caught up with its sheet: it has unsynced changes, a staged edit waiting in the inbox, or an update that's being held. Re-sync the show from Drive and clear whatever is pending (apply or discard the staged change, resolve the review), then publish.",
   },
   "PULL_SHEET_AMBIGUOUS_FORMAT": {
     "crewFacing": null,
