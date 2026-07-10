@@ -63,22 +63,34 @@ export type DialChoices = {
 };
 
 /**
- * The literal, exhaustive list of `DialChoices` keys — kept next to the type
- * so `_metaDialRegistry.test.ts` can assert it in BOTH directions against
- * `DIAL_REGISTRY`'s `key` column (`Object.keys` of a sample value would only
- * prove "this sample has these keys", not "this is the exhaustive set" — the
- * literal array is the actual source of truth the meta-test pins).
+ * The exhaustive list of `DialChoices` keys — kept next to the type so
+ * `_metaDialRegistry.test.ts` can assert it in BOTH directions against
+ * `DIAL_REGISTRY`'s `key` column (`Object.keys` of a `dialChoices` sample
+ * would only prove "this sample has these keys", not "this is the exhaustive
+ * set" — and since the sample is BUILT from this same list, comparing it back
+ * would be tautological). Exhaustiveness is guaranteed at COMPILE time by the
+ * witness below.
  */
-export const DIAL_CHOICES_KEYS = [
-  "dateFormat",
-  "dimsFormat",
-  "crewSectionToken",
-  "crewHeader",
-  "sectionOrder",
-  "blankPadding",
-  "headerTypo",
-  "dayRestrictionOn",
-] as const satisfies ReadonlyArray<keyof DialChoices>;
+// COMPILE-TIME-EXHAUSTIVE witness: `Record<keyof DialChoices, true>` fails
+// compilation on a MISSING key (a new DialChoices field whose witness wasn't
+// updated) AND on an EXCESS key (a removed field leaving a stale witness
+// entry). A plain `as const satisfies ReadonlyArray<keyof DialChoices>`
+// literal only constrains listed keys to be VALID (a subset) — it does NOT
+// force exhaustiveness, so a new dial field would stay green. Deriving
+// `DIAL_CHOICES_KEYS` from this witness means the meta-test's key-coverage
+// assertion is backed by a compile-time exhaustiveness guarantee, not a
+// runtime sample that can't diverge from its own input (which was tautological).
+const _ALL_DIAL_KEYS: Record<keyof DialChoices, true> = {
+  dateFormat: true,
+  dimsFormat: true,
+  crewSectionToken: true,
+  crewHeader: true,
+  sectionOrder: true,
+  blankPadding: true,
+  headerTypo: true,
+  dayRestrictionOn: true,
+};
+export const DIAL_CHOICES_KEYS = Object.keys(_ALL_DIAL_KEYS) as (keyof DialChoices)[];
 
 // ---------------------------------------------------------------------------
 // Registry row shape (spec §3.2 normative row: {name, contractFile,
