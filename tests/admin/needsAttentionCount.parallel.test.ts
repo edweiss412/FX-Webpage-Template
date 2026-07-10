@@ -33,10 +33,10 @@ vi.mock("@/lib/supabase/server", () => ({
           order: () => builder,
           then: (onF: (r: Result) => unknown) => {
             state.started.push(table);
-            // The sequential 3rd (admin_alerts) + 4th (admin_overrides §6 step 2)
-            // streams auto-resolve count 0 so the pending-only gates don't need to
-            // release them (they run only after the gated Promise.all resolves).
-            if (table === "admin_alerts" || table === "admin_overrides") {
+            // The sequential 3rd (admin_alerts) stream auto-resolves count 0 so
+            // the pending-only gates don't need to release it (it runs only after
+            // the gated Promise.all resolves).
+            if (table === "admin_alerts") {
               return Promise.resolve({ data: null, count: 0, error: null }).then(onF);
             }
             return new Promise<Result>((res) => {
