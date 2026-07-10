@@ -40,7 +40,7 @@ Codex R1 correctly flagged that removing D's URL while leaving A refresh-only wo
 
 - **Single instant source of truth** for the crew URL across every surface on the admin page (A, B, C), so that a rotate performed **in this tab** updates all of them **instantly** — closing the same-tab refresh-lag window that would otherwise let an admin copy the dead URL from A or C in the sub-second after their own rotate.
 - Rotate success banner (D) becomes a **confirmation-only** status (no URL, no Copy, no email) that points at the updated card, safe to drop its own URL because A/C now update instantly.
-- Plus a cheap freshness improvement (§3.2): a `visibilitychange`/focus-triggered `router.refresh()` so returning to a backgrounded tab re-syncs the token — the realistic multi-admin path (admin switches away, another admin rotates, admin returns).
+- Plus a cheap freshness improvement (§3.2): `router.refresh()` on tab **visibility regain** (`visibilitychange`→visible), window **focus**, and **`pageshow`** (bfcache) so returning to the tab/window re-syncs the token — the realistic multi-admin path (admin switches away, another admin rotates, admin returns). Both triggers matter: a window can regain focus without the tab ever going `hidden`, so `visibilitychange` alone would miss a window switch.
 
 ### 2.1 Explicit scope boundary — external-rotation freshness (pre-existing, out of scope)
 
@@ -80,15 +80,25 @@ export function ShareTokenProvider({ initialToken, children }: { initialToken: s
   const router = useRouter();
   const [token, setToken] = useState(initialToken);
   useEffect(() => setToken(initialToken), [initialToken]); // re-sync when a server refresh delivers a newer token
-  // Freshness improvement: when this tab regains visibility/focus, pull fresh
-  // server state so a rotation performed elsewhere while the tab was backgrounded
-  // is picked up (→ new initialToken → the effect above re-syncs). Bounded,
-  // debounce-free (admin-only low-traffic page); does NOT remount client state
-  // (soft refresh), so the rotate two-tap confirm survives a tab switch.
+  // Freshness improvement: when this tab regains visibility OR the window
+  // regains focus (switching windows/apps can re-focus without the tab ever
+  // going `hidden`, so `visibilitychange` alone misses it), pull fresh server
+  // state so a rotation performed elsewhere while the tab was away is picked up
+  // (→ new initialToken → the effect above re-syncs). `pageshow` covers bfcache
+  // restore. Bounded, debounce-free (admin-only low-traffic page); a soft
+  // refresh does NOT remount client state, so the rotate two-tap confirm
+  // survives a tab/window switch.
   useEffect(() => {
-    const onVisible = () => { if (document.visibilityState === "visible") router.refresh(); };
+    const refresh = () => router.refresh();
+    const onVisible = () => { if (document.visibilityState === "visible") refresh(); };
+    window.addEventListener("focus", refresh);
+    window.addEventListener("pageshow", refresh);
     document.addEventListener("visibilitychange", onVisible);
-    return () => document.removeEventListener("visibilitychange", onVisible);
+    return () => {
+      window.removeEventListener("focus", refresh);
+      window.removeEventListener("pageshow", refresh);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
   }, [router]);
   return <ShareTokenContext.Provider value={{ token, setToken }}>{children}</ShareTokenContext.Provider>;
 }
@@ -177,7 +187,7 @@ TDD per task (invariant 1). Anti-tautology per project rules.
 - Provider seeds `token` from `initialToken`; `useShareToken().setToken` updates consumers.
 - Re-render with new `initialToken` → consumers reflect it (server-refresh sync).
 - `useShareToken` outside provider throws.
-- **Visibility freshness:** with `next/navigation` `router.refresh` mocked, dispatch a `visibilitychange` with `document.visibilityState==="visible"` → `router.refresh` called; with state `"hidden"` → not called; listener removed on unmount. (This is the bounded freshness mechanism for external rotation — it proves the refresh *fires*, which in prod re-pulls the fresh token; absolute never-expose-OLD-while-focused is out of scope per §2.1.)
+- **Visibility/focus freshness:** with `next/navigation` `router.refresh` mocked, assert each trigger fires it: window `focus` event → `router.refresh` called; `pageshow` → called; `visibilitychange` with `document.visibilityState==="visible"` → called; **`visibilitychange` with state `"hidden"` → NOT called** (the discriminating case — a naive "any visibilitychange" impl fails here); and a window `focus` while `visibilityState` is already `"visible"` → still called (the R3 window-switch gap — a `visibilitychange`-only impl fails this). All listeners removed on unmount. Proves the refresh *fires* on tab/window return (which in prod re-pulls the fresh token); absolute never-expose-OLD-while-focused is out of scope per §2.1.
 
 ### 6.2 New — `tests/components/shareTokenInstantUpdate.test.tsx` (the load-bearing test)
 - Render the provider wrapping BOTH a `ShareChip` (or other `ShareLinkCopyButton`-bearing consumer) AND `ShareLinkBody`, seeded `initialToken="OLD"`.
