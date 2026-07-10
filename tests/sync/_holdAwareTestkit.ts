@@ -18,7 +18,6 @@ import type {
   PreviousCrewMember,
 } from "@/lib/sync/applyParseResult";
 import type { HoldPort } from "@/lib/sync/holds/holdPort";
-import type { FullCrewRow } from "@/lib/sync/reconcileCrewOverrides";
 
 export function holdPort(tx: Sql): HoldPort {
   return {
@@ -183,42 +182,6 @@ export function applyTx(tx: Sql): ApplyParseResultTx {
             email = excluded.email, phone = excluded.phone, role = excluded.role,
             role_flags = excluded.role_flags, date_restriction = excluded.date_restriction,
             stage_restriction = excluded.stage_restriction, flight_info = excluded.flight_info
-        `;
-      }
-    },
-    // §3.6 four-phase crew reconciliation executor (R24) — mirrors runScheduledCronSync's impls.
-    async crewDeleteByIds(showId: string, ids: string[]) {
-      if (ids.length === 0) return;
-      await tx`delete from public.crew_members where show_id = ${showId} and id = any(${ids}::uuid[])`;
-    },
-    async crewParkAtSentinel(showId: string, ids: string[]) {
-      if (ids.length === 0) return;
-      await tx`update public.crew_members set name = chr(31) || '__reassign__' || id::text
-                where show_id = ${showId} and id = any(${ids}::uuid[])`;
-    },
-    async crewInsertFull(showId: string, rows: FullCrewRow[]) {
-      for (const r of rows) {
-        await tx`
-          insert into public.crew_members
-            (show_id, name, email, phone, role, role_flags, date_restriction,
-             stage_restriction, flight_info, sheet_name)
-          values (${showId}, ${r.name}, ${r.email}, ${r.phone}, ${r.role}, ${r.role_flags},
-                  ${tx.json(r.date_restriction)}, ${tx.json(r.stage_restriction)}, ${r.flight_info}, ${r.sheet_name})
-        `;
-      }
-    },
-    async crewAssignFinals(
-      showId: string,
-      finals: { id: string; row: FullCrewRow; sheetName: string | null }[],
-    ) {
-      for (const { id, row: r, sheetName } of finals) {
-        await tx`
-          update public.crew_members set
-            name = ${r.name}, email = ${r.email}, phone = ${r.phone}, role = ${r.role},
-            role_flags = ${r.role_flags}, date_restriction = ${tx.json(r.date_restriction)},
-            stage_restriction = ${tx.json(r.stage_restriction)}, flight_info = ${r.flight_info},
-            sheet_name = ${sheetName}
-          where show_id = ${showId} and id = ${id}
         `;
       }
     },

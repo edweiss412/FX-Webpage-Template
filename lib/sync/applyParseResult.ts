@@ -4,12 +4,6 @@ import { agendaDayEmptied } from "@/lib/parser/blocks/agendaWarnings";
 import { attachSourceCellAnchors } from "@/lib/drive/showDayTimeAnchors";
 import { planHoldAwareApply } from "@/lib/sync/holds/holdAwareApply";
 import { readOpenHolds, type HoldPort } from "@/lib/sync/holds/holdPort";
-import {
-  reconcileCrewOverrides,
-  type ActiveCrewOverride,
-  type FullCrewRow,
-} from "@/lib/sync/reconcileCrewOverrides";
-import type { OverrideSideEffect } from "@/lib/sync/overrideShowHotel";
 
 // PF38 (resolution #24): the prior-crew snapshot carries id + claimed_via_oauth_at so the
 // auto-apply before_image can restore the ORIGINAL crew identity (picker-cookie key + OAuth
@@ -37,16 +31,6 @@ export type ApplyParseResultSnapshot = {
 export type ApplyParseResultTx = {
   deleteCrewMembersNotIn(showId: string, names: string[]): Promise<void>;
   upsertCrewMembers(showId: string, members: ParseResult["crewMembers"]): Promise<void>;
-  // §3.6 id-keyed crew reconciliation executor (four-phase order, R24). Optional — only the
-  // override-active path needs them; legacy name-keyed callers omit them. Applied strictly in the
-  // order deletes → parkAtSentinel → insertFull → assignFinals.
-  crewDeleteByIds?(showId: string, ids: string[]): Promise<void>;
-  crewParkAtSentinel?(showId: string, ids: string[]): Promise<void>;
-  crewInsertFull?(showId: string, rows: FullCrewRow[]): Promise<void>;
-  crewAssignFinals?(
-    showId: string,
-    finals: { id: string; row: FullCrewRow; sheetName: string | null }[],
-  ): Promise<void>;
   provisionAddedCrewAuth(showId: string, names: string[]): Promise<void>;
   revokeRemovedCrewAuth(showId: string, names: string[]): Promise<void>;
   replaceHotelReservations(showId: string, rows: ParseResult["hotelReservations"]): Promise<void>;
@@ -93,13 +77,6 @@ export type ApplyParseResultArgs = {
    * consume this to persist the anchors via the shows UPDATE.
    */
   sourceAnchors?: Record<string, SourceAnchor>;
-  /**
-   * §3.6 (admin field overrides): this show's ACTIVE `crew`-domain overrides (name/role), partitioned
-   * from the single locked-tx `loadActiveOverrides` read (SYNC-2). When present and non-empty, the
-   * crew write routes through the id-keyed parsed-identity reconciliation instead of the legacy
-   * name-keyed delete/upsert pair. Absent / empty → the legacy path runs unchanged.
-   */
-  activeCrewOverrides?: ActiveCrewOverride[];
 };
 
 function difference(left: string[], right: string[]): string[] {
@@ -112,9 +89,6 @@ export type ApplyParseResultOutcome = {
   // identity-pinned). The change-log writer must derive crew_added/removed/renamed from THIS, not
   // the raw parse list, so a reservation-suppressed row never gets a phantom auto_apply row.
   appliedCrewMembers: ParseResult["crewMembers"];
-  // §3.6 Stage-B input: the crew `admin_overrides` side-effects (sheet_value refresh / deactivation)
-  // produced POST-HOLD by the id-keyed reconciliation. Absent when no crew override was active.
-  crewSideEffects?: OverrideSideEffect[];
 };
 
 export async function applyParseResult(
@@ -154,52 +128,12 @@ export async function applyParseResult(
     (name) => !heldNames.has(name),
   );
 
-  // §3.6 crew write: when ANY crew override is active, route through the id-keyed parsed-identity
-  // reconciliation (four-phase order, R24) instead of the legacy name-keyed delete/upsert pair —
-  // that pair reintroduces id churn / identity reassignment under rename/collision/hold (R7/R10/R11).
-  // Runs POST-HOLD (protectedNames/heldNames from the hold plan), inside the existing show lock.
-  const activeCrewOverrides = args.activeCrewOverrides ?? [];
-  let crewSideEffects: OverrideSideEffect[] = [];
-  // The crew list under the names/roles actually WRITTEN. Defaults to the raw post-hold parse; when
-  // crew overrides are active it is replaced by the reconciliation's display-name view (G3) so the
-  // auto-apply change-log diffs live-vs-live and a stable display rename produces no bogus add/remove.
-  let appliedCrewMembers = crewMembers;
-  if (activeCrewOverrides.length > 0) {
-    if (
-      !tx.crewDeleteByIds ||
-      !tx.crewParkAtSentinel ||
-      !tx.crewInsertFull ||
-      !tx.crewAssignFinals
-    ) {
-      throw new Error(
-        "applyParseResult: crew override reconciliation requires the crewDeleteByIds/crewParkAtSentinel/crewInsertFull/crewAssignFinals tx-port methods",
-      );
-    }
-    const reconciled = reconcileCrewOverrides({
-      showId: args.snapshot.showId,
-      postHoldCrew: crewMembers,
-      // Held-retained members carry no parsed row; the reconciliation classifies them as retain via
-      // protectedNames/heldNames (SYNC-4), so no separate row list is threaded here.
-      heldRetained: [],
-      protectedNames: new Set(deleteProtectedNames),
-      heldNames,
-      previousCrewMembers: args.snapshot.previousCrewMembers ?? [],
-      activeCrewOverrides,
-    });
-    crewSideEffects = reconciled.crewSideEffects;
-    appliedCrewMembers = reconciled.appliedCrew;
-    // FOUR-PHASE ORDER (R24) — delete → park → insert → assign-finals. SKIP the legacy crew write.
-    await tx.crewDeleteByIds(args.snapshot.showId, reconciled.writes.deletes);
-    await tx.crewParkAtSentinel(
-      args.snapshot.showId,
-      reconciled.writes.parks.map((p) => p.id),
-    );
-    await tx.crewInsertFull(args.snapshot.showId, reconciled.writes.inserts);
-    await tx.crewAssignFinals(args.snapshot.showId, reconciled.writes.finals);
-  } else {
-    await tx.deleteCrewMembersNotIn(args.snapshot.showId, deleteKeepNames);
-    await tx.upsertCrewMembers(args.snapshot.showId, crewMembers);
-  }
+  // Crew write: full-replace of the post-hold parse. deleteKeepNames protects held names from
+  // deletion; the upsert writes the parsed identities verbatim. appliedCrewMembers is the raw
+  // post-hold crew list — the auto-apply change-log diffs against it (P2-F2).
+  const appliedCrewMembers = crewMembers;
+  await tx.deleteCrewMembersNotIn(args.snapshot.showId, deleteKeepNames);
+  await tx.upsertCrewMembers(args.snapshot.showId, crewMembers);
   // provision/revoke are no-ops (auth table retired M9.5, §5.2) — kept for tx-contract stability.
   await tx.provisionAddedCrewAuth(args.snapshot.showId, addedCrewNames);
   await tx.revokeRemovedCrewAuth(args.snapshot.showId, removedCrewNames);
@@ -284,6 +218,5 @@ export async function applyParseResult(
   await tx.deleteLivePendingIngestion(args.driveFileId);
   return {
     appliedCrewMembers,
-    ...(crewSideEffects.length > 0 ? { crewSideEffects } : {}),
   };
 }

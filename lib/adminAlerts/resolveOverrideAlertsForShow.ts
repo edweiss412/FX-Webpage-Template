@@ -14,7 +14,9 @@
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { resolveAdminAlert } from "@/lib/adminAlerts/resolveAdminAlert";
 import { upsertAdminAlert as defaultUpsertAdminAlert } from "@/lib/adminAlerts/upsertAdminAlert";
-import type { OverrideSideEffect } from "@/lib/sync/overrideShowHotel";
+type OverrideSideEffect =
+  | { overrideId: string; sheetValue: unknown }
+  | { overrideId: string; deactivate: "target_missing" | "name_conflict" };
 import { log } from "@/lib/log";
 
 type Client = ReturnType<typeof createSupabaseServiceRoleClient>;
