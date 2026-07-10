@@ -4,7 +4,6 @@
 // line regex mis-fires.
 import { describe, expect, it } from "vitest";
 import {
-  collectDroppedPublicTables,
   diffManifestAgainstLive,
   manifestFromRows,
   parseAlterAddColumns,
@@ -135,6 +134,26 @@ describe("parseAlterAddColumns", () => {
     expect(parseAlterAddColumns(sql)).toEqual([{ table: "crew_members", column: "churned" }]);
   });
 
+  it("demands columns added to a table dropped THEN recreated (final table = present)", () => {
+    // Order-aware table lifecycle: DROP TABLE t; CREATE TABLE t; ADD COLUMN c leaves
+    // t present, so t.c must be demanded of the manifest. An order-insensitive
+    // "dropped anywhere" table guard would suppress every column op on t and blind
+    // the tripwire to the recreated table's columns.
+    const sql =
+      "drop table if exists public.rebuilt;\n" +
+      "create table public.rebuilt (id text primary key);\n" +
+      "alter table public.rebuilt add column if not exists note text;";
+    expect(parseAlterAddColumns(sql)).toEqual([{ table: "rebuilt", column: "note" }]);
+  });
+
+  it("excludes columns of a table created, added-to, then dropped (final table = absent)", () => {
+    const sql =
+      "create table public.scratch (id text primary key);\n" +
+      "alter table public.scratch add column if not exists note text;\n" +
+      "drop table if exists public.scratch;";
+    expect(parseAlterAddColumns(sql)).toEqual([]);
+  });
+
   it("is case-insensitive and dedupes repeated (table,column) pairs", () => {
     const sql =
       "ALTER TABLE PUBLIC.app_settings ADD COLUMN IF NOT EXISTS rotated_at timestamptz;\n" +
@@ -192,15 +211,6 @@ describe("parseCreatedPublicTables", () => {
       "create unlogged table public.report_rate_limits (id text);\n" +
       "create temporary table public.scratch (x int);";
     expect(parseCreatedPublicTables(sql)).toEqual(["report_rate_limits"]);
-  });
-});
-
-describe("collectDroppedPublicTables", () => {
-  it("collects public drops and ignores non-public", () => {
-    const dropped = collectDroppedPublicTables(
-      "drop table if exists public.a; drop table b; drop table if exists dev.c;",
-    );
-    expect([...dropped].sort()).toEqual(["a", "b"]);
   });
 });
 
