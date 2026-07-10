@@ -36,9 +36,7 @@ export type AdminAlertCode =
   | "CALLBACK_CLAIM_THREW"
   | "PICKER_SELECTION_RACE"
   | "PICKER_EPOCH_RESET"
-  | "WIZARD_SESSION_SUPERSEDED_RACE"
-  | "OVERRIDE_TARGET_MISSING"
-  | "OVERRIDE_NAME_CONFLICT";
+  | "WIZARD_SESSION_SUPERSEDED_RACE";
 
 export type UpsertAdminAlertInput = {
   showId: string | null;
