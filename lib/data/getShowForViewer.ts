@@ -45,6 +45,7 @@
 import { unstable_cache } from "next/cache";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { namesReferAny } from "@/lib/data/nameMatch";
+import { resolveTransportOwners } from "@/lib/data/transportOwnerResolve";
 import { showCacheTag } from "@/lib/data/showCacheTag";
 import { decodeJsonbColumn } from "@/lib/db/coerceJsonbObject";
 import { decodeRunOfShow } from "@/lib/data/decodeRunOfShow";
@@ -247,6 +248,24 @@ export type ShowForViewer = {
   viewerNameAliases: string[];
 
   /**
+   * The viewer's OWN crew id (`crew_members.id`), or null for admin / no-crew-row
+   * viewers. Feeds `transportTileVisible`'s garble-proof id path (Flow 8.3b) — a
+   * viewer whose id is in `transportationOwnerIds` sees the transport tile even when
+   * the sheet garbled the driver name past name-matching.
+   */
+  viewerId: string | null;
+
+  /**
+   * Crew ids resolved from the transport assignee names (driver_name +
+   * schedule[*].assigned_names) via `resolveTransportOwners` (Flow 8.3b). Read-time,
+   * in-memory over the roster. A viewer whose id is in this set sees the transport
+   * tile regardless of render-time name garble. Empty when transportation is null /
+   * roster empty / nothing resolves. The resolver's `sheet_name` alias source is
+   * SERVER-ONLY (never projected onto `crewMembers` — data minimization).
+   */
+  transportationOwnerIds: string[];
+
+  /**
    * The viewer's OWN flight itinerary (crew_members.flight_info), read on the
    * same own-row lookup as viewerName, blank-normalized to null. NOT on the
    * crewMembers[] roster — the Travel card shows the viewer their own flight
@@ -319,6 +338,11 @@ async function readShowDataForViewer(
   // makes every alias-set matcher a no-op — admins gate on `isAdmin`, not names.
   let viewerNameAliases: string[] = [];
   let viewerFlightInfo: string | null = null;
+  // Flow 8.3b — SERVER-ONLY roster (id + name + pre-override sheet_name) for
+  // resolveTransportOwners. `sheet_name` is deliberately kept OFF the returned
+  // ShowForViewer.crewMembers projection (data minimization); it lives here only.
+  // Populated inside readCrewMembers (mirrors the viewerName outer-let assignment).
+  let ownerResolveRoster: Array<{ id: string; name: string; sheet_name: string | null }> = [];
 
   if (needsCrewLookup) {
     // Bind lookup to BOTH id AND show_id. The dual constraint is the
@@ -434,11 +458,18 @@ async function readShowDataForViewer(
   const readCrewMembers = async (): Promise<CrewMember[]> => {
     const crewRes = await supabase
       .from("crew_members")
-      .select("id, name, email, phone, role, role_flags, date_restriction, stage_restriction")
+      .select("id, name, sheet_name, email, phone, role, role_flags, date_restriction, stage_restriction")
       .eq("show_id", showId);
     if (crewRes.error) {
       throw new Error(`getShowForViewer: crew fetch failed: ${crewRes.error.message}`);
     }
+    // Flow 8.3b — capture the SERVER-ONLY resolver roster (id + name + pre-override
+    // sheet_name). `sheet_name` never enters the public projection below.
+    ownerResolveRoster = (crewRes.data ?? []).map((row) => ({
+      id: row.id as string,
+      name: row.name as string,
+      sheet_name: (row.sheet_name as string | null) ?? null,
+    }));
     return (crewRes.data ?? []).map((row) => {
       const stageRestriction = decodeJsonbColumn<StageRestriction>(row.stage_restriction) ?? {
         kind: "none" as const,
@@ -573,23 +604,39 @@ async function readShowDataForViewer(
         // to defend against a future projector dropping `assigned_names`
         // (regression test #7 enforces this).
         // decodeJsonbColumn: a legacy double-encoded transportation.schedule is a
-        schedule:
-          // STRING scalar from Supabase-JS; without decoding, `.map` throws (R8).
-          (
-            decodeJsonbColumn<
-              Array<{
+        // STRING scalar from Supabase-JS; without decoding, `.map` throws (R8).
+        // Flow 8.3b: array-guard + skip malformed (null/non-object) entries so a corrupt
+        // schedule coerces to [] with the ROW intact — otherwise `.map`/`entry.stage`
+        // would throw into the outer catch and null the WHOLE transportation row,
+        // dropping a valid garbled driver's block (Codex plan-review R12).
+        schedule: (() => {
+          const decoded = decodeJsonbColumn<
+            Array<{
+              stage: string;
+              date: string | null;
+              time: string | null;
+              assigned_names: string[];
+            }>
+          >(transRes.data.schedule);
+          if (!Array.isArray(decoded)) return [];
+          return decoded
+            .filter(
+              (
+                e,
+              ): e is {
                 stage: string;
                 date: string | null;
                 time: string | null;
                 assigned_names: string[];
-              }>
-            >(transRes.data.schedule) ?? []
-          ).map((entry) => ({
-            stage: entry.stage,
-            date: entry.date ?? null,
-            time: entry.time ?? null,
-            assigned_names: Array.isArray(entry.assigned_names) ? entry.assigned_names : [],
-          })),
+              } => e != null && typeof e === "object",
+            )
+            .map((entry) => ({
+              stage: entry.stage,
+              date: entry.date ?? null,
+              time: entry.time ?? null,
+              assigned_names: Array.isArray(entry.assigned_names) ? entry.assigned_names : [],
+            }));
+        })(),
         notes: (transRes.data.notes as string | null) ?? null,
       };
     } catch (e) {
@@ -715,6 +762,14 @@ async function readShowDataForViewer(
       ? allHotels
       : allHotels.filter((res) => hotelVisibleToViewer(res, viewerNameAliases));
 
+  // Flow 8.3b — resolve transport assignee names → crew ids read-time (over the
+  // SERVER-ONLY roster captured in readCrewMembers). The viewer's OWN id feeds the
+  // garble-proof id path in transportTileVisible; admin uses the isAdmin branch.
+  const transportationOwnerIds = resolveTransportOwners(transportation, ownerResolveRoster);
+  const viewerId = needsCrewLookup
+    ? (viewer as { crewMemberId: string }).crewMemberId
+    : null;
+
   let runOfShow: Record<string, ScheduleDay> | null = runOfShowRaw;
 
   // Intersection (D-4): emit only days that survive (decoded keys) ∩
@@ -787,6 +842,8 @@ async function readShowDataForViewer(
     pullSheet,
     viewerName,
     viewerNameAliases,
+    viewerId,
+    transportationOwnerIds,
     viewerFlightInfo,
     diagrams,
     openingReelHasVideo,
@@ -838,7 +895,10 @@ function cachedShowData(
   return unstable_cache(
     () => readShowDataForViewer(showId, viewer),
     [
-      "getShowForViewer",
+      // Flow 8.3b — version bump: the projection shape gained viewerId +
+      // transportationOwnerIds. Bumping the key makes pre-deploy cached entries
+      // (which lack the new fields) unreachable so every post-deploy read recomputes.
+      "getShowForViewer:v2-transport-owners",
       showId,
       viewer.kind,
       viewer.kind === "admin" ? "admin" : viewer.crewMemberId,

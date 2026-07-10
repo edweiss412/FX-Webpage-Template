@@ -203,7 +203,7 @@ describe("getShowForViewer source-scan — flight_info read on the own-row looku
 
   it("the roster SELECT does NOT include flight_info, and flight_info is in exactly one select", () => {
     expect(src).toContain(
-      '.select("id, name, email, phone, role, role_flags, date_restriction, stage_restriction")',
+      '.select("id, name, sheet_name, email, phone, role, role_flags, date_restriction, stage_restriction")',
     );
     const selectFlightHits = (src.match(/\.select\("[^"]*flight_info[^"]*"\)/g) ?? []).length;
     expect(selectFlightHits).toBe(1);
