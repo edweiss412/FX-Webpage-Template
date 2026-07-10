@@ -116,6 +116,10 @@ export type ShowRow = {
     // Google Geocoding API and writes the city here. venueDisplay prefers it over
     // the address/name fallbacks. Absent on un-enriched / pre-feature rows.
     city?: string | null;
+    // Best-effort IANA timezone (Flow 8.3a). NOT set by the parser — the ingest-time
+    // enrichment derives it from the geocode coords via lib/time/coordsToTimezone.ts.
+    // resolveShowTimezone reads it; absent → America/New_York default.
+    timezone?: string | null;
   } | null;
   dates: {
     travelIn: string | null;

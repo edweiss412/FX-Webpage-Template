@@ -72,6 +72,8 @@ describe("geocode cache emits warn on infra fault (behavioral)", () => {
       venueName: "v",
       venueAddress: "a",
       city: "c",
+      lat: null,
+      lng: null,
     });
     expect(result).toEqual({ kind: "infra_error" });
     expect(recs.some((r) => r.level === "warn" && r.source === "geocoding/cache")).toBe(true);

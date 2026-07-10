@@ -165,6 +165,8 @@
     "city",
     "expires_at",
     "geocoded_at",
+    "lat",
+    "lng",
     "query_hash",
     "venue_address",
     "venue_name"

@@ -376,7 +376,7 @@ const infraRegistry = [
     helper: "readGeocodeCache",
     path: "lib/geocoding/cache.ts",
     contract:
-      "geocode cache read (geocoding-at-ingest): a thrown service-role construction / .from() fault AND a returned {error} both map to { kind:'infra_error' } (never a silent miss); a non-expired row → { kind:'hit', city } (city may be null), absent → { kind:'miss' }. Never throws so the enrichment treats a fault as a cache miss (invariant 9).",
+      "geocode cache read (geocoding-at-ingest): a thrown service-role construction / .from() fault AND a returned {error} both map to { kind:'infra_error' } (never a silent miss); a non-expired row → { kind:'hit', city, lat, lng } (city/coords may be null), absent → { kind:'miss' }. Never throws so the enrichment treats a fault as a cache miss (invariant 9).",
   },
   {
     helper: "writeGeocodeCache",
@@ -952,7 +952,14 @@ describe("sync Supabase infra-failure contract", () => {
       vi.resetModules();
       return import("@/lib/geocoding/cache");
     }
-    const ARGS = { queryHash: "h", venueName: null, venueAddress: null, city: null };
+    const ARGS = {
+      queryHash: "h",
+      venueName: null,
+      venueAddress: null,
+      city: null,
+      lat: null,
+      lng: null,
+    };
 
     test("readGeocodeCache: service-role construction throw → infra_error (no throw)", async () => {
       infraMock.throwOnConstruct = true;

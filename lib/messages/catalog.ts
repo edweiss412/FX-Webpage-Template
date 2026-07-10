@@ -1295,6 +1295,19 @@ export const MESSAGE_CATALOG = {
       "We look up each venue's city from its address so the crew page can show a clean location. The lookup didn't return a city this time — usually a temporary service hiccup that clears on the next sync. The page falls back to the address. If it persists, check the venue address in the sheet.",
     helpHref: "/help/errors#VENUE_GEOCODE_UNRESOLVED",
   },
+  VENUE_TIMEZONE_UNRESOLVED: {
+    code: "VENUE_TIMEZONE_UNRESOLVED",
+    dougFacing:
+      "We couldn't work out the time zone for _<venue>_, so the crew page shows times in Eastern Time. This often clears on the next sync once the venue's location resolves; if it sticks, double-check the venue address in the sheet.",
+    crewFacing: null,
+    followUp: "Doug → optional fix (auto-retries)",
+    helpfulContext:
+      "We work out each venue's time zone from its location so the crew page shows the right local times. This time we couldn't, so the page falls back to Eastern Time. It usually clears on the next sync once the location resolves. If it keeps happening, check the venue address in the sheet.",
+    title: "Couldn't determine the venue's time zone",
+    longExplanation:
+      "We derive each venue's time zone from its location so the crew page shows the right local times. We couldn't this time, so the page falls back to Eastern Time — usually a temporary gap that clears on the next sync once the location resolves. If it persists, check the venue address in the sheet.",
+    helpHref: "/help/errors#VENUE_TIMEZONE_UNRESOLVED",
+  },
   ROOM_HEADER_SPLIT_AMBIGUOUS: {
     code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
     dougFacing:

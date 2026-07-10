@@ -53,14 +53,33 @@ describe("geocodeCacheKey", () => {
 });
 
 describe("readGeocodeCache", () => {
-  it("hit → { kind:'hit', city }", async () => {
+  it("hit → { kind:'hit', city, lat, lng }", async () => {
     state.read = { data: { city: "Chicago", expires_at: "2099-01-01T00:00:00Z" }, error: null };
-    expect(await readGeocodeCache("h")).toEqual({ kind: "hit", city: "Chicago" });
+    expect(await readGeocodeCache("h")).toEqual({
+      kind: "hit",
+      city: "Chicago",
+      lat: null,
+      lng: null,
+    });
   });
 
   it("a cached NULL city is still a hit (avoids re-querying a venue Google can't resolve)", async () => {
     state.read = { data: { city: null, expires_at: "2099-01-01T00:00:00Z" }, error: null };
-    expect(await readGeocodeCache("h")).toEqual({ kind: "hit", city: null });
+    expect(await readGeocodeCache("h")).toEqual({ kind: "hit", city: null, lat: null, lng: null });
+  });
+
+  // Flow 8.3a: the hit carries lat/lng so ingest enrich can derive venue.timezone offline.
+  it("a hit carries lat/lng from the row", async () => {
+    state.read = {
+      data: { city: "Austin", lat: 30.2672, lng: -97.7431, expires_at: "2099-01-01T00:00:00Z" },
+      error: null,
+    };
+    expect(await readGeocodeCache("h")).toEqual({
+      kind: "hit",
+      city: "Austin",
+      lat: 30.2672,
+      lng: -97.7431,
+    });
   });
 
   it("no row → miss", async () => {
@@ -82,11 +101,15 @@ describe("writeGeocodeCache", () => {
       venueName: "Four Seasons",
       venueAddress: null,
       city: "Chicago",
+      lat: 41.8976,
+      lng: -87.6205,
     });
     expect(res).toEqual({ kind: "ok" });
     const row = state.lastUpsert!.row;
     expect(row.query_hash).toBe("h");
     expect(row.city).toBe("Chicago");
+    expect(row.lat).toBe(41.8976); // Flow 8.3a: coords persisted for offline tz derivation
+    expect(row.lng).toBe(-87.6205);
     expect(state.lastUpsert!.opts).toEqual({ onConflict: "query_hash" });
     const expiresAt = new Date(row.expires_at as string).getTime();
     const days = (expiresAt - before) / (24 * 60 * 60 * 1000);
@@ -97,7 +120,14 @@ describe("writeGeocodeCache", () => {
   it("a returned Supabase error → infra_error", async () => {
     state.write = { error: { message: "denied" } };
     expect(
-      await writeGeocodeCache({ queryHash: "h", venueName: null, venueAddress: null, city: null }),
+      await writeGeocodeCache({
+        queryHash: "h",
+        venueName: null,
+        venueAddress: null,
+        city: null,
+        lat: null,
+        lng: null,
+      }),
     ).toEqual({ kind: "infra_error" });
   });
 });
@@ -127,6 +157,8 @@ describe("cache-fault warns are enriched + distinguishable", () => {
       venueName: null,
       venueAddress: null,
       city: null,
+      lat: null,
+      lng: null,
     });
     expect(log.warn).toHaveBeenCalledWith(
       "geocode cache infra fault",
@@ -170,7 +202,14 @@ describe("cache-fault warns are enriched + distinguishable", () => {
     state.read = { data: null, error: { message: "r" } };
     await readGeocodeCache("k1");
     state.write = { error: { message: "w" } };
-    await writeGeocodeCache({ queryHash: "k2", venueName: null, venueAddress: null, city: null });
+    await writeGeocodeCache({
+      queryHash: "k2",
+      venueName: null,
+      venueAddress: null,
+      city: null,
+      lat: null,
+      lng: null,
+    });
 
     const ops = vi.mocked(log.warn).mock.calls.map((c) => (c[1] as { op?: string }).op);
     expect(ops).toContain("read");

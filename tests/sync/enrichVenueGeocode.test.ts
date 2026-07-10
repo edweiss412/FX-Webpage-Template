@@ -22,7 +22,7 @@ function makeResult(venue: Partial<Venue> | null): ParseResult {
 function deps(over: Partial<EnrichVenueGeocodeDeps> = {}): EnrichVenueGeocodeDeps {
   return {
     isConfigured: () => true,
-    geocode: vi.fn(async () => ({ data: { city: "Chicago" } })),
+    geocode: vi.fn(async () => ({ data: { city: "Chicago", lat: null, lng: null } })),
     cacheRead: vi.fn(async () => ({ kind: "miss" }) as const),
     cacheWrite: vi.fn(async () => ({ kind: "ok" }) as const),
     ...over,
@@ -54,7 +54,11 @@ describe("enrichVenueGeocode", () => {
   });
 
   it("cache hit with a city → sets venue.city WITHOUT calling Google", async () => {
-    const d = deps({ cacheRead: vi.fn(async () => ({ kind: "hit", city: "Denver" }) as const) });
+    const d = deps({
+      cacheRead: vi.fn(
+        async () => ({ kind: "hit", city: "Denver", lat: null, lng: null }) as const,
+      ),
+    });
     const r = makeResult({ name: "The Brown Palace", address: "" });
     await enrichVenueGeocode(r, d);
     expect(r.show.venue!.city).toBe("Denver");
@@ -63,7 +67,9 @@ describe("enrichVenueGeocode", () => {
   });
 
   it("cache hit with a NULL city → leaves venue.city unset (display falls back)", async () => {
-    const d = deps({ cacheRead: vi.fn(async () => ({ kind: "hit", city: null }) as const) });
+    const d = deps({
+      cacheRead: vi.fn(async () => ({ kind: "hit", city: null, lat: null, lng: null }) as const),
+    });
     const r = makeResult({ name: "Mystery Venue", address: "" });
     await enrichVenueGeocode(r, d);
     expect(r.show.venue!.city).toBeUndefined();
@@ -73,7 +79,7 @@ describe("enrichVenueGeocode", () => {
   it("cache miss → geocodes, sets venue.city, and caches the result", async () => {
     const d = deps({
       cacheRead: vi.fn(async () => ({ kind: "miss" }) as const),
-      geocode: vi.fn(async () => ({ data: { city: "Fort Lauderdale" } })),
+      geocode: vi.fn(async () => ({ data: { city: "Fort Lauderdale", lat: null, lng: null } })),
     });
     const r = makeResult({ name: "Four Seasons Fort Lauderdale", address: "" });
     await enrichVenueGeocode(r, d);
@@ -85,7 +91,9 @@ describe("enrichVenueGeocode", () => {
   });
 
   it("geocode returns no city → caches null, leaves venue.city unset", async () => {
-    const d = deps({ geocode: vi.fn(async () => ({ data: { city: null } })) });
+    const d = deps({
+      geocode: vi.fn(async () => ({ data: { city: null, lat: null, lng: null } })),
+    });
     const r = makeResult({ name: "Nowhere Hall", address: "" });
     await enrichVenueGeocode(r, d);
     expect(r.show.venue!.city).toBeUndefined();
@@ -97,7 +105,7 @@ describe("enrichVenueGeocode", () => {
   it("a cache infra_error still proceeds to geocode (degraded, not blocked)", async () => {
     const d = deps({
       cacheRead: vi.fn(async () => ({ kind: "infra_error" }) as const),
-      geocode: vi.fn(async () => ({ data: { city: "Boston" } })),
+      geocode: vi.fn(async () => ({ data: { city: "Boston", lat: null, lng: null } })),
     });
     const r = makeResult({ name: "The Liberty", address: "" });
     await enrichVenueGeocode(r, d);
@@ -153,7 +161,9 @@ describe("enrichVenueGeocode", () => {
     expect(geocode).toHaveBeenCalledTimes(3); // breaker now open
     const dHit = deps({
       geocode,
-      cacheRead: vi.fn(async () => ({ kind: "hit", city: "Austin" }) as const),
+      cacheRead: vi.fn(
+        async () => ({ kind: "hit", city: "Austin", lat: null, lng: null }) as const,
+      ),
     });
     const rHit = makeResult({ name: "Cached Venue", address: "" });
     await enrichVenueGeocode(rHit, dHit);
@@ -195,7 +205,7 @@ describe("enrichVenueGeocode", () => {
     await enrichVenueGeocode(makeResult({ name: "B", address: "" }), d);
     // A reachable cache hit resets the failure count...
     const d2 = deps({
-      cacheRead: vi.fn(async () => ({ kind: "hit", city: "Reno" }) as const),
+      cacheRead: vi.fn(async () => ({ kind: "hit", city: "Reno", lat: null, lng: null }) as const),
       geocode,
     });
     await enrichVenueGeocode(makeResult({ name: "C", address: "" }), d2);
@@ -233,7 +243,10 @@ describe("VENUE_GEOCODE_UNRESOLVED emit-scope (Flow 6 §4.3)", () => {
 
   it("does NOT emit on a null-city SUCCESS (geocoder returned no city)", async () => {
     const r = makeResult({ name: "Nowhere Hall", address: "A" });
-    await enrichVenueGeocode(r, deps({ geocode: vi.fn(async () => ({ data: { city: null } })) }));
+    await enrichVenueGeocode(
+      r,
+      deps({ geocode: vi.fn(async () => ({ data: { city: null, lat: null, lng: null } })) }),
+    );
     expect(geoWarns(r)).toHaveLength(0);
   });
 
@@ -241,7 +254,9 @@ describe("VENUE_GEOCODE_UNRESOLVED emit-scope (Flow 6 §4.3)", () => {
     const r = makeResult({ name: "Mystery Venue", address: "A" });
     await enrichVenueGeocode(
       r,
-      deps({ cacheRead: vi.fn(async () => ({ kind: "hit", city: null }) as const) }),
+      deps({
+        cacheRead: vi.fn(async () => ({ kind: "hit", city: null, lat: null, lng: null }) as const),
+      }),
     );
     expect(geoWarns(r)).toHaveLength(0);
   });
@@ -255,5 +270,111 @@ describe("VENUE_GEOCODE_UNRESOLVED emit-scope (Flow 6 §4.3)", () => {
     const r = makeResult({ name: "AfterBreaker", address: "A" });
     await enrichVenueGeocode(r, d); // breaker open → early return, no geocode call, no emit
     expect(geoWarns(r)).toHaveLength(0);
+  });
+});
+
+describe("Flow 8.3a — venue.timezone (derive + set from coords)", () => {
+  it("sets venue.timezone from cache-hit coords", async () => {
+    const r = makeResult({ name: "V", address: "Austin TX" });
+    await enrichVenueGeocode(
+      r,
+      deps({
+        cacheRead: vi.fn(
+          async () => ({ kind: "hit", city: "Austin", lat: 30.2672, lng: -97.7431 }) as const,
+        ),
+      }),
+    );
+    expect(r.show.venue!.timezone).toBe("America/Chicago");
+    expect(r.warnings).toHaveLength(0);
+  });
+
+  it("sets venue.timezone from live-success coords and caches them", async () => {
+    const write = vi.fn(async () => ({ kind: "ok" }) as const);
+    const r = makeResult({ name: "V", address: "LA CA" });
+    await enrichVenueGeocode(
+      r,
+      deps({
+        cacheRead: vi.fn(async () => ({ kind: "miss" }) as const),
+        geocode: vi.fn(async () => ({
+          data: { city: "Los Angeles", lat: 34.0522, lng: -118.2437 },
+        })),
+        cacheWrite: write,
+      }),
+    );
+    expect(r.show.venue!.timezone).toBe("America/Los_Angeles");
+    expect(write).toHaveBeenCalledWith(expect.objectContaining({ lat: 34.0522, lng: -118.2437 }));
+    expect(r.warnings).toHaveLength(0);
+  });
+});
+
+describe("Flow 8.3a — VENUE_TIMEZONE_UNRESOLVED emit", () => {
+  const codes = (r: ParseResult) => r.warnings.map((w) => w.code);
+
+  it("warns on a cache-hit with NULL coords (legacy / un-coordinatable venue)", async () => {
+    const r = makeResult({ name: "V", address: "A" });
+    await enrichVenueGeocode(
+      r,
+      deps({
+        cacheRead: vi.fn(async () => ({ kind: "hit", city: "X", lat: null, lng: null }) as const),
+      }),
+    );
+    expect(r.show.venue!.timezone).toBeUndefined();
+    expect(codes(r)).toEqual(["VENUE_TIMEZONE_UNRESOLVED"]);
+  });
+
+  it("warns on a live ZERO_RESULTS (city + coords both null)", async () => {
+    const r = makeResult({ name: "V", address: "A" });
+    await enrichVenueGeocode(
+      r,
+      deps({
+        cacheRead: vi.fn(async () => ({ kind: "miss" }) as const),
+        geocode: vi.fn(async () => ({ data: { city: null, lat: null, lng: null } })),
+      }),
+    );
+    expect(codes(r)).toEqual(["VENUE_TIMEZONE_UNRESOLVED"]);
+  });
+
+  it("network-fail emits VENUE_GEOCODE_UNRESOLVED and NOT the tz code (structural dedup)", async () => {
+    const r = makeResult({ name: "V", address: "A" });
+    await enrichVenueGeocode(
+      r,
+      deps({
+        cacheRead: vi.fn(async () => ({ kind: "miss" }) as const),
+        geocode: vi.fn(async () => ({ error: { kind: "request_failed" as const, message: "x" } })),
+      }),
+    );
+    expect(codes(r)).toEqual(["VENUE_GEOCODE_UNRESOLVED"]);
+  });
+
+  it("unconfigured → zero warnings, no timezone", async () => {
+    const r = makeResult({ name: "V", address: "A" });
+    await enrichVenueGeocode(r, deps({ isConfigured: () => false }));
+    expect(r.warnings).toHaveLength(0);
+    expect(r.show.venue!.timezone).toBeUndefined();
+  });
+
+  it("breaker-open → NO VENUE_TIMEZONE_UNRESOLVED (silent, §6)", async () => {
+    const geocode = vi.fn(async () => ({
+      error: { kind: "request_failed" as const, message: "down" },
+    }));
+    const d = deps({ geocode, cacheRead: vi.fn(async () => ({ kind: "miss" }) as const) });
+    for (let i = 0; i < 3; i++)
+      await enrichVenueGeocode(makeResult({ name: `H${i}`, address: "" }), d);
+    const fourth = makeResult({ name: "H4", address: "" });
+    await enrichVenueGeocode(fourth, d);
+    expect(codes(fourth)).not.toContain("VENUE_TIMEZONE_UNRESOLVED");
+    expect(fourth.show.venue!.timezone).toBeUndefined();
+  });
+
+  it("idempotency (city-set short-circuit): second enrich is a no-op", async () => {
+    const cacheRead = vi.fn(
+      async () => ({ kind: "hit", city: "Austin", lat: 30.2672, lng: -97.7431 }) as const,
+    );
+    const r = makeResult({ name: "V", address: "A" });
+    await enrichVenueGeocode(r, deps({ cacheRead }));
+    await enrichVenueGeocode(r, deps({ cacheRead })); // venue.city now set → :75 short-circuits
+    expect(r.show.venue!.timezone).toBe("America/Chicago");
+    expect(r.warnings).toHaveLength(0);
+    expect(cacheRead).toHaveBeenCalledTimes(1); // second call returned before the cache read
   });
 });

@@ -23,7 +23,7 @@ const DEFAULT_BACKOFF_MS = 200;
 export type GeocodeErrorKind = "not_configured" | "request_failed" | "api_error";
 export type GeocodeError = { kind: GeocodeErrorKind; message: string; status?: number };
 export type GeocodeResult =
-  | { data: { city: string | null }; error?: undefined }
+  | { data: { city: string | null; lat: number | null; lng: number | null }; error?: undefined }
   | { data?: undefined; error: GeocodeError };
 
 export type GeocodeOptions = {
@@ -83,6 +83,23 @@ function extractCity(results: unknown): string | null {
 }
 
 /**
+ * First result's geometry.location (Flow 8.3a), when present and finite. Google returns
+ * it on OK responses; null when absent so the caller writes null coords (→ ET fallback).
+ */
+function extractCoords(results: unknown): { lat: number; lng: number } | null {
+  if (!Array.isArray(results) || results.length === 0) return null;
+  const loc = (results[0] as { geometry?: { location?: { lat?: unknown; lng?: unknown } } })
+    ?.geometry?.location;
+  const lat = loc?.lat;
+  const lng = loc?.lng;
+  if (typeof lat !== "number" || typeof lng !== "number") return null;
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng };
+}
+
+const NO_COORDS = { lat: null, lng: null } as const;
+
+/**
  * Resolve the city for a venue via Google Geocoding. Returns `{ data: { city } }`
  * (city may be null when Google found no locality) or `{ error }`. Never throws.
  */
@@ -96,7 +113,7 @@ export async function geocodeVenueCity(
     return { error: { kind: "not_configured", message: "GOOGLE_GEOCODING_API_KEY is not set" } };
   }
   const query = geocodeQuery(name, address);
-  if (!query) return { data: { city: null } };
+  if (!query) return { data: { city: null, ...NO_COORDS } };
 
   const timeoutMs = opts.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxRetries = opts.maxRetries ?? DEFAULT_MAX_RETRIES;
@@ -141,8 +158,13 @@ export async function geocodeVenueCity(
     }
 
     const apiStatus = body.status;
-    if (apiStatus === "OK") return { data: { city: extractCity(body.results) } };
-    if (apiStatus === "ZERO_RESULTS") return { data: { city: null } };
+    if (apiStatus === "OK") {
+      const c = extractCoords(body.results);
+      return {
+        data: { city: extractCity(body.results), lat: c?.lat ?? null, lng: c?.lng ?? null },
+      };
+    }
+    if (apiStatus === "ZERO_RESULTS") return { data: { city: null, ...NO_COORDS } };
     if (apiStatus === "OVER_QUERY_LIMIT") {
       if (canRetry) {
         await sleep(backoffMs * 2 ** attempt);

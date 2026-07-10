@@ -34,7 +34,7 @@ export function geocodeCacheKey(
 }
 
 export type GeocodeCacheRead =
-  | { kind: "hit"; city: string | null }
+  | { kind: "hit"; city: string | null; lat: number | null; lng: number | null }
   | { kind: "miss" }
   | { kind: "infra_error" };
 
@@ -56,7 +56,7 @@ export async function readGeocodeCache(queryHash: string): Promise<GeocodeCacheR
   try {
     const { data, error } = await supabase
       .from(TABLE)
-      .select("city, expires_at")
+      .select("city, lat, lng, expires_at")
       .eq("query_hash", queryHash)
       .gt("expires_at", new Date().toISOString())
       .maybeSingle();
@@ -71,7 +71,12 @@ export async function readGeocodeCache(queryHash: string): Promise<GeocodeCacheR
       return { kind: "infra_error" };
     }
     if (!data) return { kind: "miss" };
-    return { kind: "hit", city: (data as { city: string | null }).city ?? null };
+    return {
+      kind: "hit",
+      city: (data as { city: string | null }).city ?? null,
+      lat: (data as { lat: number | null }).lat ?? null,
+      lng: (data as { lng: number | null }).lng ?? null,
+    };
   } catch (error) {
     void log.warn("geocode cache infra fault", {
       source: "geocoding/cache",
@@ -92,6 +97,8 @@ export async function writeGeocodeCache(args: {
   venueName: string | null;
   venueAddress: string | null;
   city: string | null;
+  lat: number | null;
+  lng: number | null;
 }): Promise<GeocodeCacheWrite> {
   let supabase: ReturnType<typeof createSupabaseServiceRoleClient>;
   try {
@@ -114,6 +121,8 @@ export async function writeGeocodeCache(args: {
         venue_name: args.venueName,
         venue_address: args.venueAddress,
         city: args.city,
+        lat: args.lat,
+        lng: args.lng,
         geocoded_at: new Date(now).toISOString(),
         expires_at: new Date(now + GEOCODE_CACHE_TTL_MS).toISOString(),
       },

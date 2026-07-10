@@ -61,6 +61,10 @@ export const GAP_CLASSES = [
   // (Flow 6 §4.2). Honored by isQualityRegression / hasRecoveredToBaseline /
   // buildRegressionPayload via the `gateExempt` flag.
   { code: "VENUE_GEOCODE_UNRESOLVED", label: "unresolved venue location", gateExempt: true },
+  // gateExempt: staged-review/badge/digest-visible but never trips the push-regression
+  // gate — an un-coordinatable venue defaulting to ET is a data-quality signal, not a
+  // push-worthy alert (Flow 8.3a §6/§10). Mirrors VENUE_GEOCODE_UNRESOLVED.
+  { code: "VENUE_TIMEZONE_UNRESOLVED", label: "undetermined venue time zone", gateExempt: true },
   { code: "ROOM_HEADER_SPLIT_AMBIGUOUS", label: "unclear room split" },
   { code: "HOTEL_GUEST_SPLIT_AMBIGUOUS", label: "possibly merged hotel guests" },
   { code: "DATE_ORDER_SUGGESTS_DMY", label: "dates may be day-first" },
