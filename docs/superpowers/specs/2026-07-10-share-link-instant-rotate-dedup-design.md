@@ -56,8 +56,8 @@ A page-level client **token context** seeded by the server-read token; every cre
 
 | Component | Kind | Responsibility |
 |---|---|---|
-| `page.tsx` | server | Reads `token` once (admin RPC). Wraps returned content in `<ShareTokenProvider initialToken={isShowEligibleForCrewLink ? token : null}>`. Replaces inline chip (A) with `<ShareChip>`, inline crew-page anchor (B) with `<CrewPageLink>`. Renders `<CurrentShareLinkPanel>` (C) with structured props + server-built `resetSlot`. |
-| **`ShareTokenContext.tsx` (NEW)** | client | `ShareTokenProvider` owns `token` state (seeded `initialToken`, `useEffect` re-syncs on server refresh with a **null-preserving guard**); `useShareToken()` → `{ token, setToken }`. |
+| `page.tsx` | server | Reads `token` once (admin RPC). Wraps returned content in `<ShareTokenProvider key={show.id} initialToken={isShowEligibleForCrewLink ? token : null}>` (**keyed by show identity**, §3.2). Replaces inline chip (A) with `<ShareChip>`, inline crew-page anchor (B) with `<CrewPageLink>`. Renders `<CurrentShareLinkPanel>` (C) with structured props + server-built `resetSlot`. |
+| **`ShareTokenContext.tsx` (NEW)** | client | `ShareTokenProvider` owns `token` state (seeded `initialToken`, `useEffect` re-syncs on server refresh with a **null-preserving guard**); `useShareToken()` → `{ token, setToken }`. Show-scoped via the caller's `key={show.id}` (remounts on show change). |
 | **`ShareChip.tsx` (NEW)** | client | Header chip (A). Props `slug`, `isEligible`. Reads `token`; renders chip-or-null (visibility = `isEligible && token != null`). |
 | **`CrewPageLink.tsx` (NEW)** | client | "Open crew page" link (B). Props `slug`, `isEligible`. Reads `token`; renders `<a href>` or nothing. |
 | **`ShareLinkBody.tsx` (NEW)** | client | Card body (C). Reads `token`. Renders URL/Copy/email (token) OR unavailable notice (null); hosts `RotateShareTokenButton` (wired `onRotated`) + `resetSlot`. |
@@ -74,11 +74,14 @@ const ShareTokenContext = createContext<Ctx | null>(null);
 
 export function ShareTokenProvider({ initialToken, children }: { initialToken: string | null; children: ReactNode }) {
   const [token, setToken] = useState(initialToken);
-  // Re-sync when a server refresh (rotate/reset/publish action, or navigation)
+  // Re-sync when a SAME-SHOW server refresh (rotate/reset/publish action)
   // delivers a new token. NULL-PRESERVING: a transient token-read failure yields
-  // initialToken=null; ignore it rather than blanking a known-good URL — the
-  // token only changes via rotation (which delivers a non-null new token), so a
-  // null here is a read fault, not a real removal (Codex R7-2).
+  // initialToken=null; ignore it rather than blanking a known-good URL — within a
+  // single show the token only changes via rotation (which delivers a non-null
+  // new token), so a null here is a read fault, not a real removal (Codex R7-2).
+  // Cross-SHOW identity changes are NOT handled here — the caller keys the
+  // provider by show.id (§3.7), so navigating A→B remounts with a fresh seed
+  // and no A-token can survive into B's render (Codex R8).
   useEffect(() => {
     if (initialToken !== null) setToken(initialToken);
   }, [initialToken]);
@@ -92,7 +95,9 @@ export function useShareToken(): Ctx {
 }
 ```
 
-**Ordering safety (no epoch needed in same-tab scope):** the only `router.refresh()` sources on this page are user actions (rotate, picker-reset, publish/unpublish, unarchive) and navigation — there is **no background/interval/realtime refresh** (verified, §2). Each such action disables its control while resolving, so two same-tab mutations do not overlap; every action-driven refresh is causally **after** its mutation committed and therefore delivers the current (or newer) token. Rotate installs the new token via `setToken` *before* its own `router.refresh()` (which then re-delivers the same value → no-op). There is thus no "stale refresh started before the rotate" in same-tab operation once the freshness triggers are removed. The provider wraps server-rendered children (standard RSC pattern — no server code enters the client bundle). External multi-admin rotation is the documented out-of-scope case (§2).
+**Show-identity scoping (Codex R8):** on App Router client navigation between two shows the same `ShareTokenProvider` component type can be **reconciled without remounting**, so a `useState`-held token from show A could otherwise survive into show B's render — and consumers would build `/show/${slugB}/${tokenA}`, a *wrong-token* exposure (worse if B's seed is `null` from ineligibility/read-fault, since the null-preserving guard would retain `tokenA` indefinitely). Fix: `page.tsx` renders the provider with **`key={show.id}`**. A show-identity change ⇒ new key ⇒ React unmounts A's provider and mounts B's fresh, re-seeding `useState` from B's `initialToken` (or `null`). This cleanly separates the two null cases: a **cross-show** null seed lands on a *fresh mount* (no prior token to preserve → `null` shows unavailable/hidden), while a **same-show transient** null is ignored by the guard (valid token preserved). Same-show refresh (same `key`) does not remount, so the sync effect handles same-tab rotate.
+
+**Ordering safety (no epoch needed in same-tab scope):** the only `router.refresh()` sources on this page are user actions (rotate, picker-reset, publish/unpublish, unarchive) — there is **no background/interval/realtime refresh** (verified, §2). Each disables its control while resolving, so two same-tab mutations do not overlap; every action-driven refresh is causally **after** its mutation committed and delivers the current (or newer) token. Rotate installs the new token via `setToken` *before* its own `router.refresh()` (which then re-delivers the same value → no-op). There is thus no "stale refresh started before the rotate" in same-tab operation once the freshness triggers are removed. The provider wraps server-rendered children (standard RSC pattern — no server code enters the client bundle). External multi-admin rotation is the documented out-of-scope case (§2).
 
 ### 3.3 Consumers A / B / C
 
@@ -136,7 +141,7 @@ Render:
 
 ### 3.7 `page.tsx` changes
 
-- Wrap the returned JSX body in `<ShareTokenProvider initialToken={isShowEligibleForCrewLink ? token : null}> … </ShareTokenProvider>`. **Eligibility-gate the seed** so an unpublished/archived show's token is NOT serialized into the client provider payload — matching today's behavior where no token-derived client surface mounts for ineligible shows (Codex R4-1; preserves "No new token exposure").
+- Wrap the returned JSX body in `<ShareTokenProvider key={show.id} initialToken={isShowEligibleForCrewLink ? token : null}> … </ShareTokenProvider>`. **`key={show.id}`** scopes provider state to show identity — navigating A→B remounts, so no cross-show token can leak (Codex R8, §3.2). **Eligibility-gate the seed** so an unpublished/archived show's token is NOT serialized into the client provider payload — matching today's behavior where no token-derived client surface mounts for ineligible shows (Codex R4-1; preserves "No new token exposure").
 - Replace inline chip (555-577) with `<ShareChip slug={show.slug} isEligible={isShowEligibleForCrewLink}/>`.
 - Replace inline crew-page anchor (693-705) with `<CrewPageLink slug={show.slug} isEligible={isShowEligibleForCrewLink}/>`.
 - `<CurrentShareLinkPanel>` call (813-838): remove `token` + `actions`; add `isCrewLinkActive={isShowEligibleForCrewLink}` and `resetSlot={<PickerResetControl showId={show.id} crew={crew}/>}`.
@@ -148,7 +153,8 @@ Render:
 |---|---|---|
 | `token` (context) | `null` | A hidden, B hidden, C shows unavailable notice; rotate + reset still render (rotate reachable to recover — R1/R27). |
 | `token` | new non-null value from a server refresh | `useEffect` re-syncs → A/B/C update. |
-| `token` | server refresh delivers `null` (transient read fault) after a token was known | **ignored** — context keeps the last-known non-null token; no blank/erase (Codex R7-2). |
+| `token` | server refresh delivers `null` (transient read fault) after a token was known, **same show** | **ignored** — context keeps the last-known non-null token; no blank/erase (Codex R7-2). |
+| navigation to a **different show** (`show.id` changes), incl. B ineligible / B token-read null | provider `key={show.id}` changes | provider **remounts** → fresh seed from B's `initialToken` (or `null`); show A's token cannot survive into B (Codex R8). No wrong-token exposure. |
 | show ineligible (`!published \|\| archived`) | server has a token | provider seeded `initialToken=null` → token NOT serialized to client (parity with today; no exposure widening — Codex R4-1). A/B/C also gate on `isEligible`. |
 | `crewEmails` | `[]` | No email note/buttons (`.length` guards, unchanged). |
 | `crewEmails` | 1 addr | Single "Email this link to crew" button, no batch note. |
@@ -169,7 +175,8 @@ TDD per task (invariant 1). Anti-tautology per project rules.
 ### 6.1 New — `tests/components/ShareTokenContext.test.tsx`
 - Provider seeds `token` from `initialToken`; `setToken(NEW)` updates consumers.
 - Re-render with a new non-null `initialToken` → consumers reflect it (server-refresh sync).
-- **Null-preserving (Codex R7-2):** seed `initialToken="TOK"`; re-render with `initialToken={null}` (transient read fault) → consumers **still show `TOK`** (not blanked). Failure mode caught: a naive `setToken(initialToken)` blanks a known-good URL on a transient null.
+- **Null-preserving, same show (Codex R7-2):** seed `initialToken="TOK"`; re-render **same `key`** with `initialToken={null}` (transient read fault) → consumers **still show `TOK`** (not blanked). Failure mode caught: a naive `setToken(initialToken)` blanks a known-good URL on a transient null.
+- **Show-identity scoping (Codex R8):** render a consumer under `<ShareTokenProvider key="showA" initialToken="TA">` (assert `TA`), then re-render as `<ShareTokenProvider key="showB" initialToken={null}>` (navigated to ineligible/failed show B) → consumer shows **neither `TA`** (no leak) nor a `/show/…/TA` URL; it is unavailable/hidden. Also `key="showB" initialToken="TB"` → shows `TB`, never `TA`. Failure mode caught: reconcile-without-remount retains show A's token into show B. (RTL re-render with a changed `key` on the same element remounts, exercising the real navigation semantics.)
 - `useShareToken` outside provider throws.
 
 ### 6.2 New — `tests/components/shareTokenInstantUpdate.test.tsx` (the load-bearing test)
@@ -202,7 +209,7 @@ TDD per task (invariant 1). Anti-tautology per project rules.
 - **Inv 5 (no raw error codes in UI):** unaffected — `refused` copy is static prose.
 - **Inv 8 (impeccable dual-gate):** UI surfaces changed (`app/admin/**`, new `app/admin/show/[slug]/*` client files) → `/impeccable critique` + `/impeccable audit` on the diff before close-out; HIGH/CRITICAL fixed or `DEFERRED.md`'d.
 - **Inv 10 (mutation telemetry):** no mutation surface added/changed. The mutating surface `rotateShareToken` (`lib/auth/picker/`, emits `epoch_<n>`, never the token) is untouched. New context/leaf components are non-mutating UI.
-- **Security:** the admin-only token read stays server-side in `page.tsx` (`loadShowShareToken`). `ShareTokenProvider` is seeded with the already-authorized token string ONLY for eligible shows (`isShowEligibleForCrewLink ? token : null`, §3.7) — identical trust boundary to today's eligible-only client surfaces; an ineligible show's token is never serialized to the client (Codex R4-1). No new token exposure; no token read moves to the client.
+- **Security:** the admin-only token read stays server-side in `page.tsx` (`loadShowShareToken`). `ShareTokenProvider` is seeded with the already-authorized token string ONLY for eligible shows (`isShowEligibleForCrewLink ? token : null`, §3.7) — identical trust boundary to today's eligible-only client surfaces; an ineligible show's token is never serialized to the client (Codex R4-1). The provider is **keyed by `show.id`** so a token never crosses show identity into another show's URL (Codex R8). No new token exposure; no token read moves to the client.
 - **Meta-test inventory:** none created/extended. No Supabase call boundary, advisory lock, admin-alert catalog, or tile-sentinel surface touched. Declared explicitly per writing-plans rule.
 - **BACKLOG follow-up:** `BL-SHARE-LINK-EPOCH-FRESHNESS` — give the admin per-show page true external-rotation freshness (realtime `picker_epoch` subscription, or copy-time token/epoch validation, seeded from an **atomic** token+epoch read — which requires extending the token RPC/DB layer, out of this UI-only change's scope). Pre-existing gap (§2), not a regression from this change.
 
