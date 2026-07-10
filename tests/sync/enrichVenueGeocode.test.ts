@@ -22,7 +22,7 @@ function makeResult(venue: Partial<Venue> | null): ParseResult {
 function deps(over: Partial<EnrichVenueGeocodeDeps> = {}): EnrichVenueGeocodeDeps {
   return {
     isConfigured: () => true,
-    geocode: vi.fn(async () => ({ data: { city: "Chicago" } })),
+    geocode: vi.fn(async () => ({ data: { city: "Chicago", lat: null, lng: null } })),
     cacheRead: vi.fn(async () => ({ kind: "miss" }) as const),
     cacheWrite: vi.fn(async () => ({ kind: "ok" }) as const),
     ...over,
@@ -73,7 +73,7 @@ describe("enrichVenueGeocode", () => {
   it("cache miss → geocodes, sets venue.city, and caches the result", async () => {
     const d = deps({
       cacheRead: vi.fn(async () => ({ kind: "miss" }) as const),
-      geocode: vi.fn(async () => ({ data: { city: "Fort Lauderdale" } })),
+      geocode: vi.fn(async () => ({ data: { city: "Fort Lauderdale", lat: null, lng: null } })),
     });
     const r = makeResult({ name: "Four Seasons Fort Lauderdale", address: "" });
     await enrichVenueGeocode(r, d);
@@ -85,7 +85,7 @@ describe("enrichVenueGeocode", () => {
   });
 
   it("geocode returns no city → caches null, leaves venue.city unset", async () => {
-    const d = deps({ geocode: vi.fn(async () => ({ data: { city: null } })) });
+    const d = deps({ geocode: vi.fn(async () => ({ data: { city: null, lat: null, lng: null } })) });
     const r = makeResult({ name: "Nowhere Hall", address: "" });
     await enrichVenueGeocode(r, d);
     expect(r.show.venue!.city).toBeUndefined();
@@ -97,7 +97,7 @@ describe("enrichVenueGeocode", () => {
   it("a cache infra_error still proceeds to geocode (degraded, not blocked)", async () => {
     const d = deps({
       cacheRead: vi.fn(async () => ({ kind: "infra_error" }) as const),
-      geocode: vi.fn(async () => ({ data: { city: "Boston" } })),
+      geocode: vi.fn(async () => ({ data: { city: "Boston", lat: null, lng: null } })),
     });
     const r = makeResult({ name: "The Liberty", address: "" });
     await enrichVenueGeocode(r, d);
@@ -233,7 +233,7 @@ describe("VENUE_GEOCODE_UNRESOLVED emit-scope (Flow 6 §4.3)", () => {
 
   it("does NOT emit on a null-city SUCCESS (geocoder returned no city)", async () => {
     const r = makeResult({ name: "Nowhere Hall", address: "A" });
-    await enrichVenueGeocode(r, deps({ geocode: vi.fn(async () => ({ data: { city: null } })) }));
+    await enrichVenueGeocode(r, deps({ geocode: vi.fn(async () => ({ data: { city: null, lat: null, lng: null } })) }));
     expect(geoWarns(r)).toHaveLength(0);
   });
 

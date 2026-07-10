@@ -60,7 +60,7 @@ describe("geocodeVenueCity", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     const res = await geocodeVenueCity("", "");
-    expect(res).toEqual({ data: { city: null } });
+    expect(res).toEqual({ data: { city: null, lat: null, lng: null } });
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
@@ -74,7 +74,7 @@ describe("geocodeVenueCity", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
     const res = await geocodeVenueCity("Four Seasons Hotel Chicago", "");
-    expect(res).toEqual({ data: { city: "Chicago" } });
+    expect(res).toEqual({ data: { city: "Chicago", lat: null, lng: null } });
     const url = String(fetchMock.mock.calls[0]![0]);
     expect(url).toContain("address=Four%20Seasons%20Hotel%20Chicago");
     expect(url).toContain(`key=${KEY}`);
@@ -86,7 +86,7 @@ describe("geocodeVenueCity", () => {
     );
     vi.stubGlobal("fetch", fetchMock);
     const res = await geocodeVenueCity("Some Venue", "123 Rural Rd");
-    expect(res).toEqual({ data: { city: "Springfield Township" } });
+    expect(res).toEqual({ data: { city: "Springfield Township", lat: null, lng: null } });
   });
 
   it("ZERO_RESULTS → city:null (a valid, cacheable 'no city' answer)", async () => {
@@ -94,7 +94,7 @@ describe("geocodeVenueCity", () => {
       "fetch",
       vi.fn(async () => jsonResponse({ status: "ZERO_RESULTS", results: [] })),
     );
-    expect(await geocodeVenueCity("Nowhere", "")).toEqual({ data: { city: null } });
+    expect(await geocodeVenueCity("Nowhere", "")).toEqual({ data: { city: null, lat: null, lng: null } });
   });
 
   it("retries on 429 then succeeds", async () => {
@@ -104,7 +104,7 @@ describe("geocodeVenueCity", () => {
       .mockResolvedValueOnce(okGeocode([{ types: ["locality"], long_name: "Denver" }]));
     vi.stubGlobal("fetch", fetchMock);
     const res = await geocodeVenueCity("Hotel", "Denver", { sleep: noSleep });
-    expect(res).toEqual({ data: { city: "Denver" } });
+    expect(res).toEqual({ data: { city: "Denver", lat: null, lng: null } });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
@@ -134,5 +134,40 @@ describe("geocodeVenueCity", () => {
     const res = await geocodeVenueCity("Hotel", "X", { sleep: noSleep });
     expect(res.error).toEqual({ kind: "api_error", message: "REQUEST_DENIED" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  // Flow 8.3a: the response's geometry.location was previously discarded — capture it
+  // so ingest enrich can derive venue.timezone offline. Failure mode caught: coords
+  // silently dropped again (the whole feature depends on this capture).
+  it("captures lat/lng from an OK response with geometry", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () =>
+        jsonResponse({
+          status: "OK",
+          results: [
+            {
+              address_components: [{ types: ["locality"], long_name: "Austin" }],
+              geometry: { location: { lat: 30.2672, lng: -97.7431 } },
+            },
+          ],
+        }),
+      ),
+    );
+    const res = await geocodeVenueCity("Venue", "Austin TX");
+    expect(res.data).toEqual({ city: "Austin", lat: 30.2672, lng: -97.7431 });
+  });
+
+  it("returns null coords for ZERO_RESULTS and for an empty query", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => jsonResponse({ status: "ZERO_RESULTS", results: [] })),
+    );
+    expect((await geocodeVenueCity("V", "nowhere")).data).toEqual({
+      city: null,
+      lat: null,
+      lng: null,
+    });
+    expect((await geocodeVenueCity("", "")).data).toEqual({ city: null, lat: null, lng: null });
   });
 });
