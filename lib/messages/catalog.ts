@@ -146,7 +146,7 @@ export const MESSAGE_CATALOG = {
       "We couldn't read the latest edit to Doug's sheet. Showing what we had at _<time>_.",
     followUp: "Doug → fix sheet (see parse panel); Crew → mention to Doug",
     helpfulContext:
-      "A recent edit to the sheet introduced something the parser couldn't read, but we kept the previously approved version live so crew aren't blocked. Open the per-show parse panel to see the specific MI-N code explaining what went wrong, fix it in the sheet, and the next sync will replace the stale data.",
+      "A recent edit to the sheet introduced something the parser couldn't read, but we kept the previously approved version live so crew aren't blocked. Open the per-show parse panel to see exactly what went wrong, fix it in the sheet, and the next sync will replace the stale data.",
     title: "Latest edit didn't parse",
     longExplanation:
       "A recent edit to the sheet introduced something the parser couldn't read. The previously approved version is still serving crew. Open the per-show parse panel for the specific underlying error, fix the sheet, and the next sync will replace the stale data.",
@@ -1897,14 +1897,14 @@ export const MESSAGE_CATALOG = {
   PUBLISH_BLOCKED_PENDING_REVIEW: {
     code: "PUBLISH_BLOCKED_PENDING_REVIEW",
     dougFacing:
-      "This show has unsynced changes, a pending review, or a sync-suppression rule. Re-sync and clear it, then publish.",
+      "This show has changes from its sheet that haven't been synced or reviewed yet. Re-sync, clear anything pending, then publish.",
     crewFacing: null,
     followUp: "Doug → re-sync + clear, then publish",
     helpfulContext:
-      "We can't publish this show because it isn't in a clean, fully-reconciled state: there are unsynced changes, a pending review in the inbox, or an active sync-suppression rule on the sheet. Re-sync the show from Drive and clear whatever is pending (apply or discard the staged change, resolve the review), then publish.",
+      "We can't publish this show until it's fully caught up with its sheet: it has unsynced changes, a staged edit waiting in the inbox, or an update that's being held. Re-sync the show from Drive and clear whatever is pending (apply or discard the staged change, resolve the review), then publish.",
     title: "Can't publish yet — not fully synced",
     longExplanation:
-      "Publishing is blocked because the show isn't fully reconciled with its sheet: there are unsynced changes, a pending review in the inbox, or an active sync-suppression rule. Re-sync from Drive and clear whatever is pending (apply or discard the staged change, resolve the review), then publish.",
+      "Publishing is blocked until the show is fully caught up with its sheet: there are unsynced changes, a staged edit waiting in the inbox, or an update that's being held. Re-sync from Drive and clear whatever is pending (apply or discard the staged change, resolve the review), then publish.",
     helpHref: "/help/errors#PUBLISH_BLOCKED_PENDING_REVIEW",
   },
   SHOW_AWAITING_PUBLISH_APPROVAL: {
@@ -2643,7 +2643,8 @@ export const MESSAGE_CATALOG = {
   },
   DRIVE_METADATA_MISSING: {
     code: "DRIVE_METADATA_MISSING",
-    dougFacing: "Google Drive did not return the sheet revision metadata we need to sync safely.",
+    dougFacing:
+      "Google Drive didn't return the revision details we need to sync safely. We'll retry automatically on the next sync — no action needed.",
     crewFacing: null,
     followUp: "Eric → inspect Drive metadata response",
     helpfulContext:

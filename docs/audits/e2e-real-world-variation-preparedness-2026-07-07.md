@@ -110,24 +110,37 @@ Live-sheet probe confirms coordinators rename/invent headers constantly (`TECH` 
 
 Each plan lists only what moves the grade; items are ordered by grade-leverage within the flow. Effort: **config** (env/copy only), **S** (< 1 day), **M** (1–3 days), **L** (multi-day/structural). New admin-visible codes follow the §12.4 three-way-lockstep + telemetry invariants (AGENTS.md rules 5/10) — not restated per item.
 
+> **Shipped status (updated 2026-07-09).** The `Status` column tracks execution. 16 of 20 action items merged in PRs #357–#372 (landed 2026-07-07 → 2026-07-09). Remaining open: 3.2 admin-overrides (L, split to a later milestone), 6.1 Resend key (config, still unset), 8.3 venue timezone (M, its own spec), 8.4 transport id-resolution (deferred to the 8.3 spec, `BL-TRANSPORT-ID-RESOLUTION`). Also landed adjacent to the plan: **§7 item 5** partially, via ambiguity-warnings-v1 (#367 — lean per-field confidence + wizard third state), which also shipped the 2.1 room-split / hotel-glue / ambiguous-date follow-ons. Flow 7 held its A− grade; its three optional-polish copy edits + a class-sweep jargon pin landed 2026-07-09.
+
+| Flow | Grade path | Shipped | Open |
+|---|---|---|---|
+| 1 Add a show | B → A− | 1.1, 1.2, 1.3 (#360) | — |
+| 2 Review output | C+ → A− | 2.1 (#361; follow-ons #367), 2.2/2.3/2.4 (#357) | — |
+| 3 Correct a parse | C → A− | 3.1, 3.3 (#358) | 3.2 (L, later milestone) |
+| 4 Live-show re-sync | C− → A− | 4.1 (#359), 4.2/4.3 (#363) | — |
+| 5 Share crew links | B → A− | 5.1, 5.2 (#362) | — |
+| 6 Notice breakage | C+ → A− | 6.2 (#366, +#370), 6.3, 6.4 (#364) | 6.1 (config) |
+| 7 Error copy | A− (hold) | polish (3 copy edits + jargon pin, 2026-07-09) | — |
+| 8 Crew self-serve | B+ → A− | 8.1, 8.2 (#372) | 8.3, 8.4 (8.4 → BL-TRANSPORT-ID-RESOLUTION) |
+
 ### Flow 1 — Add a new show (B → A−)
 
-| # | Action | Effort | Evidence anchor |
-|---|---|---|---|
-| 1.1 | Promote "Found 0 items" from hover popover to a first-class empty state with a "Add a sheet to the folder, then Rescan" CTA and the watched-folder link inline. | S | `Step2Verify.tsx:168-181,528-552` |
-| 1.2 | First-run guidance in Step 1: short "create a folder → drop your show sheets → paste the folder URL" walkthrough (reuse help-page copy), plus a "no folder yet?" branch. | S | `Step1Share` |
-| 1.3 | Raise an admin alert on **first-seen hard-fail** (currently manifest-only, invisible outside the wizard). New pushed code, audience "doug", copy naming the sheet + the MI reason in plain language. | S | `runOnboardingScan.ts:856-878`; `runScheduledCronSync.ts:3220` guard `if (show?.showId)` |
+| # | Action | Effort | Evidence anchor | Status |
+|---|---|---|---|---|
+| 1.1 | Promote "Found 0 items" from hover popover to a first-class empty state with a "Add a sheet to the folder, then Rescan" CTA and the watched-folder link inline. | S | `Step2Verify.tsx:168-181,528-552` | ✅ #360 |
+| 1.2 | First-run guidance in Step 1: short "create a folder → drop your show sheets → paste the folder URL" walkthrough (reuse help-page copy), plus a "no folder yet?" branch. | S | `Step1Share` | ✅ #360 |
+| 1.3 | Raise an admin alert on **first-seen hard-fail** (currently manifest-only, invisible outside the wizard). New pushed code, audience "doug", copy naming the sheet + the MI reason in plain language. | S | `runOnboardingScan.ts:856-878`; `runScheduledCronSync.ts:3220` guard `if (show?.showId)` | ✅ #360 (`ONBOARDING_SHEET_UNREADABLE`) |
 
 Done-when: a Doug with an empty folder or a garbage sheet gets an explicit next step without opening a popover or the wizard.
 
 ### Flow 2 — Review parsed output before publish (C+ → A−)
 
-| # | Action | Effort | Evidence anchor |
-|---|---|---|---|
-| 2.1 | **Warn on silent transforms** (REVISED 2026-07-07 — original "raw-snippet side-by-side" retired after investigation; see findings below). The raw-pane idea does not survive the parser's actual architecture: it stores identity fields **verbatim** and already **warns** on every transform it makes, and where it does silently transform (rooms/hotels/dates) the existing per-section "In sheet ↗" deep-link already exposes source. The real P0-2 gap is **no signal prompting Doug to look**, not "can't see source." Fix: emit warnings on ambiguous/low-confidence transforms, riding the existing warn→panel→deep-link machinery. **First step (this item):** warn when `detectColumns` falls back to positional column defaults (silent crew column mis-map). | S | `lib/parser/blocks/crew.ts:78-110`; `lib/parser/warnings.ts` |
-| 2.2 | Surface `raw_unrecognized[]` in the wizard as a "Content we couldn't read" callout (count + expandable raw rows), not just `/admin/dev`. | S | `lib/parser/index.ts:524`; `app/admin/dev/page.tsx` |
-| 2.3 | Route warnings with null/unmapped `blockRef.kind` to their best-guess section instead of the generic bucket, so the flag appears where Doug is looking. | S | `step3SectionStatus.ts:68-88` |
-| 2.4 | Honest readiness copy: replace "N ready to publish" framing with "N with no known issues — spot-check the highlighted sections against your sheet." Distinguish "no crew found in the sheet" vs "we couldn't read the crew section" (empty-vs-unreadable is knowable from warnings). | S | `Step3Review.tsx:841-886`; `step3ReviewSections.tsx:1125-1126` |
+| # | Action | Effort | Evidence anchor | Status |
+|---|---|---|---|---|
+| 2.1 | **Warn on silent transforms** (REVISED 2026-07-07 — original "raw-snippet side-by-side" retired after investigation; see findings below). The raw-pane idea does not survive the parser's actual architecture: it stores identity fields **verbatim** and already **warns** on every transform it makes, and where it does silently transform (rooms/hotels/dates) the existing per-section "In sheet ↗" deep-link already exposes source. The real P0-2 gap is **no signal prompting Doug to look**, not "can't see source." Fix: emit warnings on ambiguous/low-confidence transforms, riding the existing warn→panel→deep-link machinery. **First step (this item):** warn when `detectColumns` falls back to positional column defaults (silent crew column mis-map). | S | `lib/parser/blocks/crew.ts:78-110`; `lib/parser/warnings.ts` | ✅ #361 (`CREW_COLUMN_POSITIONAL_FALLBACK`) |
+| 2.2 | Surface `raw_unrecognized[]` in the wizard as a "Content we couldn't read" callout (count + expandable raw rows), not just `/admin/dev`. | S | `lib/parser/index.ts:524`; `app/admin/dev/page.tsx` | ✅ #357 (`RawUnrecognizedCallout`) |
+| 2.3 | Route warnings with null/unmapped `blockRef.kind` to their best-guess section instead of the generic bucket, so the flag appears where Doug is looking. | S | `step3SectionStatus.ts:68-88` | ✅ #357 (`sectionSynonymGuess`) |
+| 2.4 | Honest readiness copy: replace "N ready to publish" framing with "N with no known issues — spot-check the highlighted sections against your sheet." Distinguish "no crew found in the sheet" vs "we couldn't read the crew section" (empty-vs-unreadable is knowable from warnings). | S | `Step3Review.tsx:841-886`; `step3ReviewSections.tsx:1125-1126` | ✅ #357 |
 
 Done-when: a plausible-but-wrong parse is detectable by glancing at the pane pair, and everything the parser *captured but didn't understand* is visible in the wizard.
 
@@ -140,45 +153,45 @@ Brainstorming 2.1 pressure-tested the "raw side-by-side" premise against the liv
 - **A captured in-app snapshot is strictly worse than the deep-link for coverage** (lossy, capped, sanitized copy vs complete live sheet) and re-adds a Drive dependency the `persist-source-anchors` work deliberately removed.
 - **Genuinely uncovered, silent, structural:** `detectColumns` defaults to positional columns (name=1/role=2/phone=3) with **no warning** when the crew header is missing/unrecognized (`crew.ts:81-84`) → every value verbatim but in the wrong field. Low-frequency (standardized-template sheets) but zero-signal. This is item 2.1's concrete deliverable.
 
-Net: replace the raw-pane build with targeted **ambiguous-transform warnings** on the existing machinery. Column-fallback is the first; room-split / hotel-glue / ambiguous-date confidence warnings are the natural follow-ons (BACKLOG).
+Net: replace the raw-pane build with targeted **ambiguous-transform warnings** on the existing machinery. Column-fallback is the first; room-split / hotel-glue / ambiguous-date confidence warnings are the natural follow-ons (BACKLOG). **UPDATE 2026-07-09:** those follow-ons shipped in **#367 (ambiguity-warnings-v1)** — `ROOM_HEADER_SPLIT_AMBIGUOUS`, `HOTEL_GUEST_SPLIT_AMBIGUOUS`, `DATE_ORDER_SUGGESTS_DMY`, `HOTEL_CARDINALITY_EXCEEDED`, plus `blockRef.field` per-field anchors and a wizard "parsed with judgment" third state — realizing the lean per-field-confidence half of §7 item 5.
 
 ### Flow 3 — Correct a bad parse (C → A−)
 
-| # | Action | Effort | Evidence anchor |
-|---|---|---|---|
-| 3.1 | **Make the sheet-edit loop first-class.** On every reviewed/flagged field that has a source anchor, render "Fix in sheet" deep-linking to the exact cell (anchor infra exists), plus inline one-line loop copy ("edit → save → Re-sync from Drive re-parses") and a Re-sync button in the same view. | S–M | `lib/drive/sourceAnchors.ts:205-211`; `ReSyncButton.tsx:143`; loop copy exists at `app/help/admin/parse-warnings/page.mdx:19-20` |
-| 3.2 | **Admin override layer for a narrow field set** (show dates, crew name/role, hotel name/address, venue): an `admin_overrides` table applied AFTER `applyParseResult`, surviving full-replace re-syncs, with a visible "overridden — sheet says X" chip and one-click revert. This also closes seam scenario I (re-sync clobbering corrections). | L | `applyParseResult.ts:132-135` unconditional replace |
-| 3.3 | Explain holds where they appear: one sentence ("We held this change for your approval because …") + approve/reject consequences, in the changes feed row. | S | `writeMi11Holds.ts:63-67` |
+| # | Action | Effort | Evidence anchor | Status |
+|---|---|---|---|---|
+| 3.1 | **Make the sheet-edit loop first-class.** On every reviewed/flagged field that has a source anchor, render "Fix in sheet" deep-linking to the exact cell (anchor infra exists), plus inline one-line loop copy ("edit → save → Re-sync from Drive re-parses") and a Re-sync button in the same view. | S–M | `lib/drive/sourceAnchors.ts:205-211`; `ReSyncButton.tsx:143`; loop copy exists at `app/help/admin/parse-warnings/page.mdx:19-20` | ✅ #358 (`CorrectionLoopCallout`; reaches B+, not A−) |
+| 3.2 | **Admin override layer for a narrow field set** (show dates, crew name/role, hotel name/address, venue): an `admin_overrides` table applied AFTER `applyParseResult`, surviving full-replace re-syncs, with a visible "overridden — sheet says X" chip and one-click revert. This also closes seam scenario I (re-sync clobbering corrections). | L | `applyParseResult.ts:132-135` unconditional replace | ⏳ Open — split to a later milestone (A− requires it) |
+| 3.3 | Explain holds where they appear: one sentence ("We held this change for your approval because …") + approve/reject consequences, in the changes feed row. | S | `writeMi11Holds.ts:63-67` | ✅ #358 |
 
 Done-when: Doug can fix a wrong value either in-app (narrow set) or via a deep link to the exact cell, and his fix survives the next sync. 3.1 + 3.3 alone reach B+; A− requires 3.2.
 
 ### Flow 4 — Re-sync that changed data on a live show (C− → A−)
 
-| # | Action | Effort | Evidence anchor |
-|---|---|---|---|
-| 4.1 | **Gate single-crew drops on published shows**: `crewDrop >= 1` (published) routes through the existing `shrink_held` confirm path. One-line class fix; the UX already exists. Kills P0-1. | S | `invariants.ts:39-40`; `phase1.ts:92-120` |
-| 4.2 | Auto-applied changes digest: needs-attention gains a "Recently auto-applied" strip (crew add/rename, field changes) with per-row undo — the changes-feed rows already exist and are undoable, they're just not surfaced anywhere Doug looks. | M | `phase2.ts:389` `writeAutoApplyChanges`; `needs-attention/page.tsx:46-48` |
-| 4.3 | Count crew-membership changes as a data-gap-adjacent badge input so a roster that shifted since publish shows amber until Doug glances at it. | S | `DataQualityBadge.tsx:16-20`; `blockDisappearance.ts:59-86` |
+| # | Action | Effort | Evidence anchor | Status |
+|---|---|---|---|---|
+| 4.1 | **Gate single-crew drops on published shows**: `crewDrop >= 1` (published) routes through the existing `shrink_held` confirm path. One-line class fix; the UX already exists. Kills P0-1. | S | `invariants.ts:39-40`; `phase1.ts:92-120` | ✅ #359 (kills P0-1) |
+| 4.2 | Auto-applied changes digest: needs-attention gains a "Recently auto-applied" strip (crew add/rename, field changes) with per-row undo — the changes-feed rows already exist and are undoable, they're just not surfaced anywhere Doug looks. | M | `phase2.ts:389` `writeAutoApplyChanges`; `needs-attention/page.tsx:46-48` | ✅ #363 (`RecentAutoAppliedStrip`) |
+| 4.3 | Count crew-membership changes as a data-gap-adjacent badge input so a roster that shifted since publish shows amber until Doug glances at it. | S | `DataQualityBadge.tsx:16-20`; `blockDisappearance.ts:59-86` | ✅ #363 (`roster_shift_counts`) |
 
 Done-when: no mutation of a published show's roster is invisible; material shrink confirms, small drift is surfaced.
 
 ### Flow 5 — Publish + share crew links (B → A−)
 
-| # | Action | Effort | Evidence anchor |
-|---|---|---|---|
-| 5.1 | Complete the rotate warning: add "every crew member will need to re-pick their name on the new link" to the confirm copy (the epoch bump is documented in the component's own comment but not disclosed). | config/S | `RotateShareTokenButton.tsx:296-298` vs `:7-10` |
-| 5.2 | Post-rotate handoff: success state immediately presents the NEW link with copy button + "re-send this to your crew" nudge (optionally a prefilled SMS/email `mailto:`/share-sheet using roster contacts already parsed). | S–M | `RotateShareTokenButton.tsx:220`; `CurrentShareLinkPanel.tsx` |
+| # | Action | Effort | Evidence anchor | Status |
+|---|---|---|---|---|
+| 5.1 | Complete the rotate warning: add "every crew member will need to re-pick their name on the new link" to the confirm copy (the epoch bump is documented in the component's own comment but not disclosed). | config/S | `RotateShareTokenButton.tsx:296-298` vs `:7-10` | ✅ #362 |
+| 5.2 | Post-rotate handoff: success state immediately presents the NEW link with copy button + "re-send this to your crew" nudge (optionally a prefilled SMS/email `mailto:`/share-sheet using roster contacts already parsed). | S–M | `RotateShareTokenButton.tsx:220`; `CurrentShareLinkPanel.tsx` | ✅ #362 (`crewLinkMailto`) |
 
 Done-when: rotation never surprises Doug about identity resets, and re-distribution is one tap, not a manual hunt.
 
 ### Flow 6 — Notice something broke (C+ → A−)
 
-| # | Action | Effort | Evidence anchor |
-|---|---|---|---|
-| 6.1 | **Set the Resend key + recipient.** Delivery infra is built and recipient-safe; this converts every existing push alert to email. Highest leverage in the audit. | config | `lib/notify/config.ts:7` |
-| 6.2 | Daily/weekly digest email for the pull-only band: new data gaps since last digest, autocorrects applied, auto-applied roster changes, sub-threshold drift. (Digest formatting groundwork exists in the data-gap summary utilities.) | M | `dataGaps.ts:95`; `summarizeDataGaps` |
-| 6.3 | Include `*_AUTOCORRECTED` codes in the dashboard chip (or a sibling "auto-fixed" count) and make the regression gate OR-based (+5 absolute OR +50%) for published shows. | S | `dataGaps.ts:109-117,199-207` |
-| 6.4 | Wire geocode failure to a warn-level, badge-visible signal instead of silent breaker-open fallback. | S | `enrichVenueGeocode.ts:99-100` |
+| # | Action | Effort | Evidence anchor | Status |
+|---|---|---|---|---|
+| 6.1 | **Set the Resend key + recipient.** Delivery infra is built and recipient-safe; this converts every existing push alert to email. Highest leverage in the audit. | config | `lib/notify/config.ts:7` | ⏳ Open — config only, Resend still unset |
+| 6.2 | Daily/weekly digest email for the pull-only band: new data gaps since last digest, autocorrects applied, auto-applied roster changes, sub-threshold drift. (Digest formatting groundwork exists in the data-gap summary utilities.) | M | `dataGaps.ts:95`; `summarizeDataGaps` | ✅ #366 (auto-applied + autocorrects + drift) + #370 (new-show gaps, 4th signal) |
+| 6.3 | Include `*_AUTOCORRECTED` codes in the dashboard chip (or a sibling "auto-fixed" count) and make the regression gate OR-based (+5 absolute OR +50%) for published shows. | S | `dataGaps.ts:109-117,199-207` | ✅ #364 (`AUTO_FIX_CLASSES` + tuned `regressionKind`) |
+| 6.4 | Wire geocode failure to a warn-level, badge-visible signal instead of silent breaker-open fallback. | S | `enrichVenueGeocode.ts:99-100` | ✅ #364 (`VENUE_GEOCODE_UNRESOLVED`) |
 
 Done-when: a Doug who never opens the app still learns about failures and drift within a day.
 
@@ -186,30 +199,32 @@ Done-when: a Doug who never opens the app still learns about failures and drift 
 
 Already at target. Optional polish, in order: replace "sync-suppression rule" with plain language + say WHICH condition blocks publish (`catalog.ts:1791`); stop pointing Doug at "the MI-N code" — name the problem in the alert itself (`catalog.ts:143,149`); give `DRIVE_METADATA_MISSING` either a next action ("we'll retry automatically") or a null dougFacing (`catalog.ts:2523`). All S.
 
+**✅ Shipped 2026-07-09.** All three copy edits landed with the §12.4 three-way lockstep (spec table + helpfulContext appendix + regen `spec-codes.ts` + `catalog.ts`): `PUBLISH_BLOCKED_PENDING_REVIEW` dropped "sync-suppression rule" for plain "changes not yet synced/reviewed… a staged edit… an update being held" (verified against the real publish gate — `requires_resync` / non-wizard `pending_syncs` / `pending_ingestions` / `deferred_ingestions`); `PARSE_ERROR_LAST_GOOD` dropped "the specific MI-N code" for "exactly what went wrong" (parse panel still shows detail); `DRIVE_METADATA_MISSING` gained an auto-retry next-action. Class sweep found these were the ONLY live instances of their shape (whole-catalog `dougFacing` jargon scan returned a single hit); a structural jargon pin in `tests/messages/_metaCatalogCopyHygiene.test.ts` closes the class.
+
 ### Flow 8 — Crew self-serve (B+ → A−)
 
-| # | Action | Effort | Evidence anchor |
-|---|---|---|---|
-| 8.1 | Picker hardening: sentinel-guard roster names, collapse exact duplicates, and add a persistent "Don't see your name? Contact <admin contact>" affordance (covers missing-from-roster + typo'd-name cases without exposing parse internals). | S | `_PickerInterstitial.tsx:134-217` |
-| 8.2 | Fail closed in `resolveViewerContext` when a crew viewer's id has no matching row in a well-formed array (currently falls open to `{kind:'none'}` restrictions = whole-show visibility). Return the same re-pick path the resolver uses. | S | `viewerContext.ts:125-141`; `resolvePickerSelection.ts:105` |
-| 8.3 | Timezone: populate `venue.timezone` at enrich time (geocode already runs; tz lookup from coordinates) with the ET default emitting an admin-visible warning when used on a published show. | M | `rightNow.ts:202`; `showTimezone.ts:10-17`; `enrichVenueGeocode.ts` |
-| 8.4 | Transport visibility: match assigned crew by crew-member id (or normalized/fuzzy name) instead of exact `viewerName` string, so a name mis-parse can't hide a driver's own itinerary. | S–M | `TravelSection.tsx:172-177`; `lib/visibility/scopeTiles.ts` |
+| # | Action | Effort | Evidence anchor | Status |
+|---|---|---|---|---|
+| 8.1 | Picker hardening: sentinel-guard roster names, collapse exact duplicates, and add a persistent "Don't see your name? Contact <admin contact>" affordance (covers missing-from-roster + typo'd-name cases without exposing parse internals). | S | `_PickerInterstitial.tsx:134-217` | ✅ #372 (`sanitizePickerRoster` + `PICKER_NAME_NOT_LISTED`) |
+| 8.2 | Fail closed in `resolveViewerContext` when a crew viewer's id has no matching row in a well-formed array (currently falls open to `{kind:'none'}` restrictions = whole-show visibility). Return the same re-pick path the resolver uses. | S | `viewerContext.ts:125-141`; `resolvePickerSelection.ts:105` | ✅ #372 (`UnmatchedViewerError`, fail-closed + guided re-pick) |
+| 8.3 | Timezone: populate `venue.timezone` at enrich time (geocode already runs; tz lookup from coordinates) with the ET default emitting an admin-visible warning when used on a published show. | M | `rightNow.ts:202`; `showTimezone.ts:10-17`; `enrichVenueGeocode.ts` | ⏳ Open — own spec |
+| 8.4 | Transport visibility: match assigned crew by crew-member id (or normalized/fuzzy name) instead of exact `viewerName` string, so a name mis-parse can't hide a driver's own itinerary. | S–M | `TravelSection.tsx:172-177`; `lib/visibility/scopeTiles.ts` | ⏳ Open — deferred to 8.3 spec (`BL-TRANSPORT-ID-RESOLUTION`) |
 
 Done-when: every "can't find myself / can't see my stuff" path lands on a guided affordance, and no fail-open remains.
 
 ### Cross-flow note
 
-The P0-2 class (confident wrong values) is not fully closable by any per-flow item — 2.1 (**warn on silent transforms** — revised from side-by-side, see the 2.1 findings) is the detection layer, 3.2 (overrides) the correction layer, 6.2 (digest) the monitoring layer. Together they bound the class; a per-field provenance/confidence model (§7 item 5) is the eventual structural fix. Note the detection layer is *signal*, not *source access* — the deep-link already gives source access; what P0-2 lacks is a prompt to look.
+The P0-2 class (confident wrong values) is not fully closable by any per-flow item — 2.1 (**warn on silent transforms** — revised from side-by-side, see the 2.1 findings) is the detection layer, 3.2 (overrides) the correction layer, 6.2 (digest) the monitoring layer. Together they bound the class; a per-field provenance/confidence model (§7 item 5) is the eventual structural fix. Note the detection layer is *signal*, not *source access* — the deep-link already gives source access; what P0-2 lacks is a prompt to look. **UPDATE 2026-07-09:** the detection layer shipped (2.1 #361 + ambiguity-warnings-v1 #367) and the monitoring layer shipped (6.2 #366/#370); the class is now bounded by detection + monitoring. **Only the correction layer 3.2 (overrides) remains open** — until it lands, a caught-and-flagged wrong value still can't be fixed in-app, only via the sheet-edit loop.
 
 ---
 
 ## 7. Cheapest changes that most raise confidence
 
-1. **Zero code: set the Resend key + recipient.** The entire in-app alert infrastructure is built and recipient-safe; delivery is one env var away. Converts every existing push signal from "if Doug is looking" to "Doug's inbox." Biggest confidence-per-effort ratio in the audit.
-2. **One-line class fix: gate single-crew drops on published shows.** Change the MI-6 threshold (`invariants.ts:39-40`) to `crewDrop >= 1` when the show is published (or route 1-drops through the existing shrink_held path). The shrink-held UX already exists; this just widens what feeds it. Kills P0-1 outright.
-3. **Small: surface the last-good vs new diff in the re-sync/review UI.** The seam's structural answer isn't more parser warnings (P0-2 parses emit none by definition) — it's showing Doug *what changed against the sheet snippet* (raw-snippet side-by-side per section, data already captured in `rawSnippet.ts`). Turns "proofread everything" into "glance at what moved."
-4. **Small: include autocorrect codes in the dashboard chip** (add to `GAP_CLASSES` or a sibling count) and lower/AND→OR the regression gate for published shows.
-5. **Medium (structural, from prior audit, still the right long-term move):** property-based fuzz over the exporter+parser (mutation harness exists; `fast-check` layer still absent) and a per-field provenance/confidence model so the wizard can render uncertainty instead of binary flagged/clean.
+1. **Zero code: set the Resend key + recipient.** The entire in-app alert infrastructure is built and recipient-safe; delivery is one env var away. Converts every existing push signal from "if Doug is looking" to "Doug's inbox." Biggest confidence-per-effort ratio in the audit. — ⏳ **still open** (config, Resend unset; item 6.1).
+2. **One-line class fix: gate single-crew drops on published shows.** Change the MI-6 threshold (`invariants.ts:39-40`) to `crewDrop >= 1` when the show is published (or route 1-drops through the existing shrink_held path). The shrink-held UX already exists; this just widens what feeds it. Kills P0-1 outright. — ✅ **shipped #359**.
+3. **Small: surface the last-good vs new diff in the re-sync/review UI.** The seam's structural answer isn't more parser warnings (P0-2 parses emit none by definition) — it's showing Doug *what changed against the sheet snippet* (raw-snippet side-by-side per section, data already captured in `rawSnippet.ts`). Turns "proofread everything" into "glance at what moved." — 🔄 **retired/revised** — the raw-side-by-side premise collapsed under the 2.1 investigation (see §6 Flow 2, item 2.1 findings); replaced by targeted ambiguous-transform warnings, first of which shipped #361.
+4. **Small: include autocorrect codes in the dashboard chip** (add to `GAP_CLASSES` or a sibling count) and lower/AND→OR the regression gate for published shows. — ✅ **shipped #364**.
+5. **Medium (structural, from prior audit, still the right long-term move):** property-based fuzz over the exporter+parser (mutation harness exists; `fast-check` layer still absent) and a per-field provenance/confidence model so the wizard can render uncertainty instead of binary flagged/clean. — 🟡 **partial** — the per-field-confidence half shipped as **ambiguity-warnings-v1 (#367)**: four judgment-call warn codes + `blockRef.field` anchors + a wizard "parsed with judgment" third state (no longer binary flagged/clean). Still open: `fast-check` property fuzz layer, and a full provenance model beyond the ambiguity subset.
 
 ---
 
