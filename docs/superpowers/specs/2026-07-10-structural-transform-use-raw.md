@@ -38,11 +38,18 @@ PR #382 removed `admin_overrides` + `set_field_override`. This feature is its **
 
 ---
 
-## 3. Data model
+## 3. Data model — two homes, staged → persisted
 
-New column: `shows_internal.use_raw_decisions jsonb not null default '[]'::jsonb`.
+The two admin surfaces live in **different lifecycle phases** (verified against the onboarding flow), so the decision set has two storage homes and a one-way migration at finalize:
 
-`shows_internal` (`supabase/migrations/20260501001000_internal_and_admin.sql:1-6`) has PK `show_id uuid references public.shows(id) on delete cascade` and already carries `parse_warnings jsonb` — it is the canonical per-show internal parse-metadata table and the correct home for this preference set. (The `pull_sheet_override` jsonb precedent lives on `pending_syncs`/`shows`, a different per-show jsonb-column precedent; both confirm jsonb-column-per-show is the established pattern — no new table needed.)
+- **Wizard (Step-3 review) is PRE-CREATE.** No `shows`/`shows_internal` row exists yet; the parse result + warnings live in `pending_syncs.parse_result jsonb`, keyed by `wizard_session_id`/`drive_file_id` (there is **no `showId`**); the `shows` row is INSERTed only at finalize (`lib/sync/applyStagedCore.ts:434`, via `app/api/admin/onboarding/finalize/route.ts`). So a wizard decision cannot be written to `shows_internal`.
+- **Per-show admin page is POST-PUBLISH.** `shows` + `shows_internal` exist; warnings are read from `shows_internal.parse_warnings` (`app/admin/show/[slug]/page.tsx:335-338`).
+
+**Two new jsonb columns (one migration file), same `UseRawDecision[]` shape + default `'[]'::jsonb`:**
+1. `pending_syncs.use_raw_decisions jsonb not null default '[]'` — the **staged** home; written by the wizard action, keyed by the pending-sync row (`wizard_session_id`/`drive_file_id`). `pending_syncs` is an invariant-2 advisory-lock table.
+2. `shows_internal.use_raw_decisions jsonb not null default '[]'` — the **persisted** home; written by the per-show action + by finalize/apply. `shows_internal` (`supabase/migrations/20260501001000_internal_and_admin.sql:1-6`, PK `show_id → shows`) already carries `parse_warnings jsonb`.
+
+**Staged → persisted migration at finalize.** When onboarding finalizes (`applyStagedCore` → `applyParseResult`), the staged `pending_syncs.use_raw_decisions` are read, passed to the overlay (§7), applied to the parse result, and the surviving (`kept`) set is persisted to `shows_internal.use_raw_decisions` — all inside the finalize's existing per-show advisory-lock tx. After finalize the persisted home is authoritative; the staged row is consumed with the rest of the pending-sync.
 
 **Entry shape** (`UseRawDecision`):
 
@@ -60,7 +67,7 @@ No stored corrected value. `contentHash` is the only thing binding the decision 
 
 **Guard conditions:** an empty array (default) means "no decisions — every transform applies normally." A malformed or non-array `use_raw_decisions` (should be impossible given the write path, but defensively) is treated as empty (`[]`) and logged, never throwing. A decision whose `code` is not one of the three in-scope codes is ignored (forward/backward-compat guard).
 
-**PostgREST DML posture:** `use_raw_decisions` is written ONLY through the SECURITY DEFINER admin path (the server action → RPC under the per-show advisory lock, §9). Direct `authenticated`/`anon` DML on `shows_internal` is already REVOKEd (verify in the plan's pre-draft pass; if not, add the REVOKE — RPC-gated-table lockdown, AGENTS.md cross-cutting discipline). No new table, so no new grant surface beyond confirming the existing lockdown.
+**PostgREST DML posture:** both `use_raw_decisions` columns are written ONLY through the SECURITY DEFINER admin path (the server actions under the per-show advisory lock, §9). The plan's pre-draft pass MUST confirm `authenticated`/`anon` `INSERT`/`UPDATE`/`DELETE` are REVOKEd on BOTH `shows_internal` AND `pending_syncs` (RPC-gated-table lockdown, AGENTS.md cross-cutting discipline); if either is missing, add the REVOKE. No new tables, so no new grant surface beyond confirming/extending the existing lockdown.
 
 ---
 
@@ -74,7 +81,7 @@ Each transform declines its structuring and substitutes a value **derived from t
 | Hotel guest glue | `HOTEL_GUEST_SPLIT_AMBIGUOUS` | hotel reservation `guests` | the raw cell (`warning.rawSnippet` = `params.rawCell`, `warnings.ts`) rendered as a **single** guest entry; no per-guest split, no confirmation-number extraction. |
 | Inverted dates | `DATE_ORDER_SUGGESTS_DMY` | the show's parsed dates (whole DATES block) | the **DMY reinterpretation**: each `DateToken` already carries `{raw, mdyIso, dmyIso}` (`dates.ts:391`); "use raw" applies `dmyIso` for every token in the block instead of `mdyIso`. Deterministic reinterpretation of the raw tokens, not a typed value. |
 
-**Rooms/hotels are "use raw verbatim"; dates are "use the alternate deterministic interpretation of the raw."** Both are sheet-derived. The date case is the only one needing a parser change (§6) because the warning currently carries a single token (`violationRaw`, `dates.ts:535`) rather than the block-wide alternate.
+**Rooms/hotels are "use raw verbatim"; dates are "use the alternate deterministic interpretation of the raw."** Both are sheet-derived. The overlay (§7) and both UIs consume these values from `warning.resolution.replacement` (§6), which the parser precomputes and persists on the warning — no downstream recomputation. The date case is the reason the parser must populate `resolution` (the raw warning carries only a single token `violationRaw`, `dates.ts:535`, not the block-wide alternate).
 
 **Guard conditions (partial/empty raw):**
 - Room: if `rawSnippet` is empty/whitespace after cleaning, the control is **disabled** with copy "no raw text to fall back to" — never store a decision that would blank the room name. (Should not occur — the split only fires on non-empty headers — but guarded.)
@@ -85,14 +92,13 @@ Each transform declines its structuring and substitutes a value **derived from t
 
 ## 5. Decision identity, content-pin, and auto-invalidate lifecycle
 
-**Canonical pinned raw serialization** (input to `contentHash`), per transform — the SAME serialization is computed by the parser side (for `datesDmyAlternative`, §6) and by the admin write path (when the admin toggles), so the two never drift:
-- Room: `collapse(warning.rawSnippet)` where `collapse(s) = s.replace(/\s+/g, " ").trim()` (matches the warning's already-collapsed `rawHeader`, `warnings.ts:145`). A single string → `sha256hex(collapse(rawSnippet))`.
-- Hotel: `sha256hex(collapse(warning.rawSnippet))` (the collapsed `rawCell`). A single string.
-- Date: a **length-prefixed, order-preserving** join of the block's raw date tokens, NOT a plain concatenation (a plain join is ambiguous: `["1","23"]` vs `["12","3"]`). Serialization = for each token in `collectDateTokens` document/encounter order (`dates.ts:485`, pre-sort), emit `collapse(token.raw).length + ":" + collapse(token.raw)`, joined by `"\x1f"` (ASCII unit separator, cannot occur in a sheet cell). Empty/omitted tokens serialize as `0:` to preserve positional meaning. `contentHash = sha256hex(thatString)`. Block-wide so any edit to any date in the block re-decides.
+**`contentHash` is precomputed by the parser** into `warning.resolution.contentHash` (§6) — the admin write path (§9) does NOT recompute it; it copies `warning.resolution.contentHash` into the stored decision. This guarantees the pin the decision was made against is byte-identical to what the overlay later compares, with a single serialization owner (the parser). The serialization the parser uses, per transform:
+- Room / Hotel: `sha256hex(collapse(rawSnippet))` where `collapse(s) = s.replace(/\s+/g, " ").trim()` (a single collapsed string — matches the already-collapsed `rawHeader`, `warnings.ts:145`).
+- Date: a **length-prefixed, order-preserving** join (a plain concatenation is ambiguous: `["1","23"]` vs `["12","3"]`). For each token in `collectDateTokens` document/encounter order (`dates.ts:485`, pre-sort), emit `collapse(token.raw).length + ":" + collapse(token.raw)`, joined by `"\x1f"` (ASCII unit separator, cannot occur in a sheet cell); empty/omitted tokens serialize as `0:`. `sha256hex(thatString)`. Block-wide so any edit to any date in the block re-decides.
 
-**Uniqueness invariant.** `use_raw_decisions` holds **at most one** entry per `(code, target)` identity. The write path (§9) upserts by `(code, target)` — a new toggle for the same warning **replaces** any existing entry regardless of `contentHash` (it never appends a second). So overlay matching always finds ≤1 decision; there is no ordering/dedupe ambiguity. A malformed persisted array with duplicate `(code, target)` (should be impossible) is de-duplicated keep-last on read, and the dedup is logged.
+**Uniqueness invariant.** Each `use_raw_decisions` column holds **at most one** entry per `(code, target)` identity. The write path (§9) upserts by `(code, target)` — a new toggle for the same warning **replaces** any existing entry regardless of `contentHash` (never appends a second). So overlay matching always finds ≤1 decision; no ordering/dedupe ambiguity. A malformed persisted array with duplicate `(code, target)` (should be impossible) is de-duplicated keep-last on read, and the dedup is logged.
 
-**Matching on re-parse.** On every parse-apply, the parser runs pure and emits warnings. For each still-firing in-scope ambiguity warning, the overlay looks for the (unique) stored decision with the same `(code, target)` where `target` = the warning's `blockRef` identity (room matched by `name`; hotel by `name`+`field`; date by `field:"order"` — there is exactly one dates block per show). Then:
+**Matching on parse-apply.** On every apply (finalize AND re-sync), the parser runs pure and emits warnings (each recoverable one carrying `resolution`). For each still-firing in-scope ambiguity warning, the overlay looks for the (unique) decision (from the phase-appropriate column, §7) with the same `(code, target)` where `target` = the warning's `blockRef` identity (room matched by `name`; hotel by `name`+`field`; date by `field:"order"` — exactly one dates block per show). Then compares `decision.contentHash` against the current `warning.resolution.contentHash`:
 
 1. **Warning fires + decision found + `contentHash` matches** → apply the §4 raw-derived value to the target field(s). The decision is **live**.
 2. **Warning fires + decision found + `contentHash` differs** (the pinned cell was edited) → the decision is **stale**: the overlay returns it in the `stale` partition and does NOT apply. The transform's normal (possibly-again-ambiguous) output stands.
@@ -104,18 +110,31 @@ Each transform declines its structuring and substitutes a value **derived from t
 
 | Storage | Write path(s) | Read path(s) | Effect on output |
 |---|---|---|---|
-| `shows_internal.use_raw_decisions jsonb` | (a) server action → RPC (admin toggles a decision, under per-show advisory lock); (b) overlay prune during apply (auto-invalidate/GC) | the overlay `applyUseRawDecisions` at apply-time; the two admin UIs (to render current state) | when a live decision matches a firing warning, the target field is set to the raw-derived value in the parse result that gets persisted by `applyParseResult` |
+| `pending_syncs.use_raw_decisions jsonb` (staged) | `setStagedUseRawDecisionAction` (wizard toggle, under per-show lock) | `applyParseResult` at **finalize** (via `applyStagedCore`); the wizard UI (render current state, preview from `warning.resolution`) | at finalize, live staged decisions apply to the overlaid parse result; the `kept` set migrates to `shows_internal.use_raw_decisions` |
+| `shows_internal.use_raw_decisions jsonb` (persisted) | (a) `setUseRawDecisionAction` (per-show toggle, under lock); (b) finalize migration from the staged column; (c) overlay prune during apply (auto-invalidate/GC of stale+moot, writing back `kept`) | `applyParseResult` at **re-sync**; the per-show UI (render current state) | when a live decision matches a firing warning, the target field is set to `warning.resolution.replacement` in the parse result persisted by `applyParseResult` |
 
 ---
 
-## 6. Parser changes
+## 6. Parser changes — the `resolution` payload (single source for overlay + both UIs)
 
-Minimal, transform-local, and **preserve parser purity** (no admin state enters the parser — the fuzz/mutation layer assumes a pure `parseSheet`).
+The overlay and BOTH admin surfaces need, per recoverable warning: (a) the raw-derived replacement value, and (b) the content-pin. These MUST travel with the persisted warning, because the surfaces read from **persisted** state, not a live parse: the wizard reads `pending_syncs.parse_result.warnings` (`OnboardingWizard.tsx:426-431,538-546`) and the per-show page reads `shows_internal.parse_warnings` (`app/admin/show/[slug]/page.tsx:335-338`) — both are the persisted `ParseWarning[]` (full objects incl. `rawSnippet`, persisted by `applyParseResult.ts:214`). Neither re-parses. So the parser attaches everything to the warning itself:
 
-- **Rooms/hotels: none.** `rawSnippet` already carries the exact raw the overlay needs (`warnings.ts:154` room, hotel `rawCell`). Confirmed in the citation pass.
-- **Dates: carry the block-wide alternate + pin.** When `DATE_ORDER_SUGGESTS_DMY` fires, expose on the parse result a single optional `datesDmyAlternative?: { contentHash: string; dmyDates: <parsed-dates shape> }` computed from the same `DateToken[]` (`dates.ts:391,485`) by preferring `dmyIso`. `contentHash` = the canonical block-raw pin (§5). This is one optional field on the result (there is at most one DATES block per show), not a per-warning payload, so no warning-shape bloat. The overlay consumes it when a live date decision exists.
+Extend `ParseWarning` (`lib/parser/types.ts:7-28`) with ONE optional field, populated ONLY for the three recoverable codes (absent on all other warnings, so no bloat to the common shape):
 
-The three warnings' shapes are otherwise unchanged; `ParseWarning` (`lib/parser/types.ts:7-28`) stays `{severity, code, message, blockRef?, rawSnippet?, sourceCell?}`.
+```ts
+resolution?: {
+  contentHash: string; // §5 canonical pin, precomputed by the parser
+  replacement:
+    | { kind: "rooms"; name: string; dimensions: null; floor: null }   // name = raw header
+    | { kind: "hotels"; guests: string }                                // guests = raw cell verbatim
+    | { kind: "dates"; dmyDates: <parsed-dates shape> };                // DMY reinterpretation of the block
+};
+```
+
+- **Rooms/hotels:** `replacement` derived from the warning's own `rawSnippet` (collapsed `rawHeader` / `rawCell`); `contentHash = sha256hex(collapse(rawSnippet))` (§5).
+- **Dates:** `replacement.dmyDates` computed from the block's `DateToken[]` (`dates.ts:391,485`) by preferring `dmyIso`; `contentHash` = the §5 length-prefixed token serialization. There is one DATES block per show. **Guard:** if any token has a null `dmyIso` (invalid as DMY), the parser OMITS `resolution` entirely → the UI renders the disabled-guard state (§8) and no decision can be stored (§4).
+
+**Parser purity preserved** — `resolution` is computed purely from sheet data the parser already holds (`rawSnippet`, `DateToken`), with NO admin state entering `parseSheet`; the fuzz/mutation layer still sees a pure parser (it just emits a richer warning). The overlay (§7) and both surfaces read `warning.resolution`; nothing recomputes it downstream.
 
 ---
 
@@ -130,18 +149,18 @@ applyUseRawDecisions(
 ): { result: ParseResult; kept: UseRawDecision[]; stale: UseRawDecision[]; moot: UseRawDecision[] };
 ```
 
-- Pure: input parse result + decisions → new parse result + the partition (kept/stale/moot) for the caller to persist + surface. No I/O, no clock (timestamps passed in), deterministic.
-- Runs in `applyParseResult` (`lib/sync/applyParseResult.ts:94-97`) BEFORE the full-replace writes (crew `:135-136`, rooms `:141`, hotels `replaceHotelReservations`, `parse_warnings` `:207-214`). The overlaid `parseResult` is what gets persisted, so the stored `crew_members`/rooms/`hotel_reservations`/dates rows are canonical — every downstream reader (crew page, report, exports) sees the corrected value with no per-consumer overlay.
-- `applyParseResult` already runs inside the per-show advisory-lock tx (`lib/sync/lockedShowTx.ts:57-62`, hashkey `hashtext('show:' || driveFileId)`, single holder — it takes `tx`, does not self-lock). The overlay itself is pure (no I/O); `applyParseResult` — as the caller, in that same tx — persists the pruned `use_raw_decisions` (`kept` only) and writes the `USE_RAW_DECISION_STALE` change-log rows for `stale` entries (§5 write-back). Single-holder preserved, no new lock layer.
+- Pure: input parse result (warnings carry `resolution`, §6) + decisions → new parse result + the partition (kept/stale/moot) for the caller to persist + surface. Applies `warning.resolution.replacement` to the target field(s) for each `kept` decision; matches via `(code,target)` + `contentHash` (§5). No I/O, no clock (timestamps passed in), deterministic — no re-parse, no recomputation of `resolution`.
+- Runs in `applyParseResult` (`lib/sync/applyParseResult.ts:94-97`) BEFORE the full-replace writes (crew `:135-136`, rooms `:141`, hotels `replaceHotelReservations`, `parse_warnings` `:207-214`), on **both** apply paths: onboarding **finalize** (`applyStagedCore` → `applyParseResult`, decisions read from the STAGED `pending_syncs.use_raw_decisions`) and post-publish **re-sync** (decisions read from the PERSISTED `shows_internal.use_raw_decisions`). The overlaid `parseResult` is what gets persisted, so the stored `crew_members`/rooms/`hotel_reservations`/dates rows are canonical — every downstream reader (crew page, report, exports) sees the corrected value with no per-consumer overlay. `applyParseResult` gains one parameter: the decisions array (the caller supplies the phase-appropriate column).
+- `applyParseResult` already runs inside the per-show advisory-lock tx (`lib/sync/lockedShowTx.ts:57-62`, single holder — takes `tx`, does not self-lock). The overlay itself is pure (no I/O); `applyParseResult` — as the caller, in that same tx — persists the pruned `kept` set to `shows_internal.use_raw_decisions` (the persisted home, even when the source was the staged column — this IS the §3 staged→persisted migration at finalize) and writes the `USE_RAW_DECISION_STALE` change-log rows for `stale` entries (§5 write-back). Single-holder preserved, no new lock layer.
 
 ---
 
 ## 8. UI (Opus + impeccable v3 dual-gate)
 
-One shared client component `<UseRawControl warning decision onToggle state />` rendered in both surfaces:
+One shared **presentational** client component `<UseRawControl warning decision state onToggle />` (reads its preview from `warning.resolution.replacement`, §6 — persisted on the warning in both phases, so NEITHER surface re-parses). The two surfaces differ only in which server action `onToggle` binds to and which id it carries:
 
-- **Wizard judgment callout** — `components/admin/wizard/step3ReviewSections.tsx:494-547`. Today each entry renders `reviewWarningTitle(warning)` + `fieldLabelFor(warning.blockRef?.field)` + a `View details` jump button (`:513,517,525-531`); there is **no** per-entry action slot yet. Add the control inline per entry (only for the three in-scope codes).
-- **Per-show admin page** — `components/admin/PerShowActionableWarnings.tsx`, via its existing `renderItemControls?: (w: ParseWarning, i: number) => ReactNode` prop (`:31`, rendered `:103`). Pass `<UseRawControl>` through that slot.
+- **Wizard judgment callout** — `components/admin/wizard/step3ReviewSections.tsx:494-547`. Today each entry renders `reviewWarningTitle(warning)` + `fieldLabelFor(warning.blockRef?.field)` + a `View details` jump button (`:513,517,525-531`); there is **no** per-entry action slot yet. Add the control inline per entry (only for the three in-scope codes). `onToggle` → `setStagedUseRawDecisionAction` keyed by `wizardSessionId` + `driveFileId` (NO showId in this phase, §3); the decision + warning list live in `pending_syncs.parse_result`, so the wizard re-reads the staged row after toggling.
+- **Per-show admin page** — `components/admin/PerShowActionableWarnings.tsx`, via its existing `renderItemControls?: (w: ParseWarning, i: number) => ReactNode` prop (`:31`, rendered `:103`). Pass `<UseRawControl>` through that slot. `onToggle` → `setUseRawDecisionAction` keyed by `showId`; warnings come from `shows_internal.parse_warnings`.
 
 **States** (a small state machine, enumerate every transition in the plan's transition-audit task):
 - `transform-active` (default) — shows the transform's structured result + a "Use the sheet's raw value instead" affordance with an inline **preview** of what raw would render.
@@ -151,18 +170,17 @@ One shared client component `<UseRawControl warning decision onToggle state />` 
 
 Toggling calls the server action (§9), then the surface re-reads. **Copy scope (invariant 5 boundary):** invariant 5 governs *error/warning CODES* — no raw code string like `USE_RAW_DECISION_STALE` ever renders; such codes route through `lib/messages/lookup.ts` (the stale notification in the changes feed is the only message-code surface here, §10). The control's own **static UI microcopy** — button labels ("Use the sheet's raw value instead", "Switch back to the parsed version"), the state headings, and the disabled-guard reasons (§4) — are plain component copy, NOT catalog-routed message codes and NOT subject to §12.4 lockstep (they carry no code). This is the same posture as every other static admin-UI label. Both surfaces get `/impeccable critique` + `/impeccable audit` on the diff (invariant 8); HIGH/CRITICAL fixed or `DEFERRED.md`.
 
-**Guard conditions (props):** `warning` with a `code` outside the three in-scope codes → the control renders nothing (the caller already filters, but the component guards too). `decision` null/absent → `transform-active`. Missing `rawSnippet` → `disabled`.
+**Guard conditions (props):** `warning` with a `code` outside the three in-scope codes → the control renders nothing (the caller already filters, but the component guards too). `decision` null/absent → `transform-active`. **Missing `warning.resolution`** (the parser omitted it — empty raw, or invalid-DMY dates, §6) → `disabled` with the reason; no toggle. This single check covers all three transforms' guards (§4) since the parser is the sole owner of whether a warning is resolvable.
 
 ---
 
 ## 9. Server action + telemetry (invariants 2, 9, 10)
 
-`setUseRawDecisionAction(showId, warningRef, useRaw: boolean)` — a module-level `"use server"` admin action:
+Two thin `"use server"` admin actions, one per phase (§3), sharing a decision-core helper (upsert-by-`(code,target)`, copy `contentHash` from `warning.resolution.contentHash`, §5). Both admin-gated (`requireAdminIdentity`) → **admin mutations** → each gets its own `AUDITABLE_MUTATIONS` row + executable success-branch behavioral proof (`tests/log/adminOutcomeBehavior.test.ts`), invariant 10. Both destructure `{data,error}` with typed infra-fault results + meta-test registration (invariant 9). Both emit `logAdminOutcome` POST-COMMIT (outside the lock tx) with forensic codes `USE_RAW_DECISION_SET`/`USE_RAW_DECISION_CLEARED` (§10); never log raw sheet content beyond the already-persisted warnings.
 
-- Admin-gated (`requireAdminIdentity`), so it is an **admin mutation** → `AUDITABLE_MUTATIONS` registry row + executable success-branch behavioral proof (`tests/log/adminOutcomeBehavior.test.ts`), per invariant 10.
-- **Single lock acquisition, single holder (invariant 2).** The action acquires the per-show advisory lock **exactly once** via the existing locked-tx helper (`lib/sync/lockedShowTx.ts:57-62`, blocking `pg_advisory_xact_lock(hashtext('show:' || driveFileId))`). Inside that one `tx` it performs, in order: (1) obtain the current `ParseResult` by re-parsing the show's **latest stored sheet snapshot** — the plan MUST verify the exact snapshot source (candidates: a stored raw sheet on `pending_syncs`/a snapshot table; if NO in-DB snapshot exists, the plan falls back to routing through the existing sync-apply entry the `ReSyncButton` uses, which itself takes the lock once — in that case the action DELEGATES to that entry rather than acquiring the lock itself, still single-holder); (2) upsert-by-`(code,target)`/remove the decision in `shows_internal.use_raw_decisions`, computing `contentHash` from the §5 canonical serialization of the current warning's raw; (3) call `applyParseResult(tx, …)` — which runs the §7 overlay + full-replace write. `applyParseResult` takes `tx` and does **not** self-lock (§7), so calling it inside the already-held lock adds **no** second acquisition. **The lock is required** because step 3 mutates invariant-2 tables (`crew_members`, and rooms/hotels/shows), not merely `shows_internal`. There is **no new hashkey and no new holder layer** (reuses the existing single `show:<driveFileId>` holder), so `tests/auth/advisoryLockRpcDeadlock.test.ts` topology is unchanged — BUT the plan MUST add executable coverage asserting this action path holds the lock across steps 1-3 (a test that the action runs within `lockedShowTx` and does not acquire twice), per invariant 2's "tests assert the lock is held."
-- Supabase call-boundary discipline (invariant 9): destructure `{ data, error }`, typed infra-fault result; register in the relevant meta-test.
-- `logAdminOutcome` POST-COMMIT (outside the lock tx): forensic codes `USE_RAW_DECISION_SET` / `USE_RAW_DECISION_CLEARED` (admin-outcome codes, §12.4-exempt per `_metaAdminOutcomeContract`, like other admin-outcome forensics). Never logs raw sheet content beyond the already-persisted `parse_warnings`.
+**(a) `setStagedUseRawDecisionAction(wizardSessionId, driveFileId, warningRef, useRaw)` — wizard/pre-create.** Under the per-show advisory lock (`lockedShowTx`, key `show:<driveFileId>`), upsert/remove the decision in `pending_syncs.use_raw_decisions` (an invariant-2 table). It does **NOT** re-apply — there is no show yet; the wizard re-reads `pending_syncs.parse_result` (warnings carry `resolution`, so the preview reflects the decision immediately) and the decision materializes at finalize (§7). One lock acquisition, single holder.
+
+**(b) `setUseRawDecisionAction(showId, warningRef, useRaw)` — per-show/post-publish.** Because the immediate apply must re-parse the current sheet and re-run the full pipeline, this action **delegates to the existing re-sync/apply entry** (the same path `ReSyncButton` triggers) after writing the decision, rather than reimplementing apply. Sequence: (1) under `lockedShowTx`, upsert/remove the decision in `shows_internal.use_raw_decisions` (commit); (2) invoke the existing re-sync entry, which acquires the lock **once** on its own and runs `applyParseResult` (overlay reads the now-updated persisted decisions, §7). These are **two sequential** lock acquisitions (write, then re-sync), NOT nested — the single-holder rule forbids nested/simultaneous double-holding of one hashkey, which this does not do. **No new hashkey and no new holder layer**; `tests/auth/advisoryLockRpcDeadlock.test.ts` topology unchanged. The plan MUST add executable coverage that: each action writes its decision under `lockedShowTx`; the per-show action's re-sync delegation does not nest the lock (sequential, not nested); and the finalize path (§7) applies + migrates staged decisions. (Invariant 2's "tests assert the lock is held" is satisfied per-path; the re-apply that mutates `crew_members`/rooms/hotels happens inside the re-sync entry's own lock, which is already covered.)
 
 ---
 
@@ -182,29 +200,32 @@ Full new-code CI touchpoints (per the "new §12.4 code = 4 more gates" lesson): 
 | Layer | Rooms | Hotels | Dates |
 |---|---|---|---|
 | Warning emit (existing) | `warnings.ts:139-155` / `rooms.ts:493` | `warnings.ts:174-197` / `hotels.ts:572` | `warnings.ts:234-246` / `dates.ts:535` |
-| Parser change | none (rawSnippet sufficient) | none (rawSnippet sufficient) | add `datesDmyAlternative` + block pin (§6) |
-| Raw-derived value | name=rawHeader, dims/floor=null | guests=rawCell (single entry) | dmyIso for all tokens |
+| Parser change | populate `warning.resolution` from `rawSnippet` | populate `warning.resolution` from `rawSnippet` | populate `warning.resolution.replacement.dmyDates` from `DateToken[]`; omit if invalid-DMY (§6) |
+| `resolution.replacement` | name=rawHeader, dims/floor=null | guests=rawCell (single entry) | dmyIso for all tokens |
 | Overlay field rewrite | room row | hotel_reservation row | show dates |
-| contentHash input | rawHeader | rawCell | block-raw join |
-| UI control | wizard + per-show | wizard + per-show | wizard + per-show |
-| Tests | rooms overlay + guard + pin | hotels overlay + guard + pin | dates parser-alt + overlay + guard + pin |
+| contentHash input | collapse(rawSnippet) | collapse(rawSnippet) | length-prefixed \x1f-joined block tokens |
+| UI control | wizard (staged) + per-show (persisted) | wizard + per-show | wizard + per-show |
+| Tests | resolution+overlay+guard+pin | resolution+overlay+guard+pin | parser dmy-alt + overlay + guard + pin |
 
-DB: one migration (add jsonb column) → local apply + `gen:schema-manifest` + surgical validation apply (validation-schema-parity gate). No CHECK/enum change (jsonb column, no constraint). No trigger/cleanup function change.
+Cross-cutting layers (not per-transform): `ParseWarning.resolution` type (§6); overlay `applyUseRawDecisions` (§7); the two server actions + staged→persisted finalize migration (§9); two UI surfaces (§8); `USE_RAW_DECISION_STALE` §12.4 lockstep + forensic codes (§10).
+
+DB: **one migration** adding TWO jsonb columns (`pending_syncs.use_raw_decisions`, `shows_internal.use_raw_decisions`), both `default '[]'` → local apply + `gen:schema-manifest` (validation-schema-parity Layer-1 tripwire now sees two add-column vectors) + surgical validation apply. No CHECK/enum change (jsonb, no constraint). No trigger/cleanup change. Confirm PostgREST DML REVOKE on both tables (§3).
 
 ---
 
 ## 12. Testing
 
-TDD per task. Meta-test inventory this milestone touches: `AUDITABLE_MUTATIONS` (new admin action row + behavioral proof), `_metaInfraContract` (new Supabase call site if any in the action path), `_metaAdminOutcomeContract` (register the two forensic codes as exempt), §12.4 catalog parity (new `USE_RAW_DECISION_STALE`), validation-schema-parity (new column).
+TDD per task. Meta-test inventory this milestone touches: `AUDITABLE_MUTATIONS` (TWO new admin action rows + behavioral proofs — staged + persisted), `_metaInfraContract` (new Supabase call sites in the action paths), `_metaAdminOutcomeContract` (register the two forensic codes as exempt), §12.4 catalog parity (new `USE_RAW_DECISION_STALE`), validation-schema-parity (two new columns).
 
-**Advisory-lock topology (invariant 2).** No NEW hashkey and no NEW holder LAYER — the action (§9) reuses the existing single `show:<driveFileId>` holder (`lockedShowTx`), so `tests/auth/advisoryLockRpcDeadlock.test.ts` topology is **unchanged** (no new pin). BUT invariant 2 requires "tests assert the lock is held" for every path mutating invariant-2 tables, and the action's step-3 re-apply mutates `crew_members`/rooms/hotels — so the plan MUST add **executable coverage** that (a) `setUseRawDecisionAction` runs its write + re-apply inside `lockedShowTx` (lock held across steps 1-3), and (b) it acquires the lock exactly once (no nested/second acquisition — the single-holder assertion). This is behavioral coverage of the new *route into* the existing holder, distinct from a topology-pin change.
+**Advisory-lock topology (invariant 2).** No NEW hashkey and no NEW holder LAYER — both actions (§9) reuse the existing single `show:<driveFileId>` holder (`lockedShowTx`), so `tests/auth/advisoryLockRpcDeadlock.test.ts` topology is **unchanged** (no new pin). Executable coverage the plan MUST add: (a) `setStagedUseRawDecisionAction` writes `pending_syncs.use_raw_decisions` inside `lockedShowTx`; (b) `setUseRawDecisionAction` writes `shows_internal.use_raw_decisions` inside `lockedShowTx` and its re-sync delegation is **sequential, not nested** (the lock is released between the decision write and the re-sync's own acquisition — no double-hold of one hashkey); (c) the invariant-2-table mutations (`crew_members`/rooms/hotels) happen inside the re-sync entry's already-covered lock. This is behavioral coverage of new *routes into* the existing holder, distinct from a topology-pin change.
 
 Key tests (anti-tautology — assert the persisted overlaid value against the raw source, not the render container):
-- Overlay unit: each transform's raw-derivation from a fixture warning; hash-match → applied; hash-mismatch → dropped + reported (stale partition); warning-absent → moot partition. Derive expected values from fixture raw, never hardcode.
-- Content-pin: a decision made against raw R stays live when R is unchanged, auto-invalidates when the pinned cell changes (assert the `USE_RAW_DECISION_STALE` surfacing + the pruned column), GCs when the ambiguity resolves.
-- Parser: `datesDmyAlternative` carries the correct DMY dates + a stable block hash; unchanged for shows with no date ambiguity.
-- Server action: behavioral proof it emits the admin-outcome code on the committed-success branch (sink-spy), runs under the advisory lock, destructures `{data,error}`.
-- Real-browser (Playwright, not jsdom): the `<UseRawControl>` renders in both the wizard judgment callout and the per-show page; toggling flips `transform-active`↔`raw-active`; disabled-guard state renders when raw is empty. Transition-audit task covers all state pairs incl. the compound optimistic-`pending` case.
+- Overlay unit: each transform's application from a fixture warning's `resolution.replacement`; hash-match → applied (`kept`); hash-mismatch → `stale`; warning-absent → `moot`. Derive expected values from fixture raw, never hardcode.
+- Content-pin: a decision made against raw R stays live when R is unchanged, auto-invalidates when the pinned cell changes (assert the `USE_RAW_DECISION_STALE` change-log surfacing + the pruned column), GCs (moot) when the ambiguity resolves.
+- Parser: `warning.resolution` carries the correct `replacement` + stable `contentHash` for each recoverable code; absent for non-recoverable codes; OMITTED for invalid-DMY dates (guard). Fuzz/mutation layer still sees a pure parser.
+- **Staged → persisted finalize migration:** a staged `pending_syncs.use_raw_decisions` decision applies at finalize and lands in `shows_internal.use_raw_decisions` (`kept`); a staged decision whose cell changed before finalize is `stale` (not migrated, surfaced). Assert against the persisted row, not the wizard render.
+- Server actions (both): behavioral proof each emits its admin-outcome code on the committed-success branch (sink-spy), writes under `lockedShowTx`, destructures `{data,error}`.
+- Real-browser (Playwright, not jsdom): `<UseRawControl>` renders in BOTH the wizard judgment callout (staged, preview from `warning.resolution`) and the per-show page (persisted); toggling flips `transform-active`↔`raw-active`; disabled-guard renders when `warning.resolution` is absent. Transition-audit task covers all state pairs incl. the compound optimistic-`pending` case.
 
 ---
 
@@ -212,7 +233,10 @@ Key tests (anti-tautology — assert the persisted overlaid value against the ra
 
 - **This is NOT the removed #376 feature.** No typed value is stored; the corrected value is re-derived from the sheet's raw every sync; the persisted preference is content-pinned + auto-invalidating. Ratified in `BACKLOG.md` BL-STRUCTURAL-TRANSFORM-USE-RAW and §1.1. Do not argue it reintroduces a second source of truth.
 - **`shows_internal` is the correct storage home** (`:1-6`, already holds `parse_warnings`); `pull_sheet_override` living on `pending_syncs`/`shows` is a *different* jsonb precedent, not a contradiction. Do not argue for a new table.
-- **Parser stays pure** — admin decisions never enter `parseSheet`; the overlay is a post-parse layer. The date `datesDmyAlternative` is computed by the parser from tokens it already has, not from admin state.
+- **Parser stays pure** — admin decisions never enter `parseSheet`; the overlay is a post-parse layer. `warning.resolution` (§6) is computed by the parser purely from sheet data it already holds (`rawSnippet`, `DateToken`), NOT from admin state.
+- **`ParseWarning.resolution` is an intentional, bounded field** (§6) — optional, populated ONLY for the three recoverable codes, carrying the precomputed replacement + content-pin. It exists because both surfaces read from PERSISTED warnings (wizard: `pending_syncs.parse_result`; per-show: `shows_internal.parse_warnings`) and neither re-parses — so the value must travel on the persisted warning. Do not argue it bloats the common warning shape (it is absent on every other warning) or that the overlay/UI should recompute it (single-owner = the parser).
+- **Two storage homes + finalize migration is required by the lifecycle, not gratuitous** (§3) — the Step-3 wizard is PRE-CREATE (no `shows`/`shows_internal`/`showId`; parse in `pending_syncs.parse_result`, `applyStagedCore.ts:434` creates the show only at finalize), so staged decisions MUST live on `pending_syncs` and migrate to `shows_internal` at finalize. Do not argue for a single `shows_internal`-only home (it cannot exist during onboarding review).
+- **The per-show action delegates re-apply to the existing re-sync entry** (§9b) — two SEQUENTIAL lock acquisitions (write, then re-sync), which is NOT the nested double-holding the single-holder rule forbids. Do not conflate sequential re-acquisition with a nested deadlock (M5 R20 was nested/simultaneous).
 - **Rooms "use raw" intentionally clears dimensions/floor** — that is the honest "we don't trust the split" behavior (§4), not data loss. The raw is fully visible in the name.
 - **Dates use the alternate DMY interpretation, not a raw string** — because dates must stay structured; this is still sheet-derived (§4), not fabricated.
 - **Auto-invalidate is never silent** for the stale case (§5 case 2) — matches the codebase anti-stale principle; the moot case is silent by design (the parse is now unambiguous).
