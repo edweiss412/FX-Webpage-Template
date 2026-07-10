@@ -829,13 +829,7 @@ export function ContactsBreakdown({
   );
 }
 
-export function VenueBreakdown({
-  dfid,
-  venue,
-}: {
-  dfid: string;
-  venue: ShowRow["venue"];
-}) {
+export function VenueBreakdown({ dfid, venue }: { dfid: string; venue: ShowRow["venue"] }) {
   const rows = venue
     ? contentRows([
         ["Venue", venue.name],
@@ -1166,13 +1160,7 @@ export function OpsBreakdown({ dfid, show }: { dfid: string; show: ShowRow }) {
   );
 }
 
-export function CrewBreakdown({
-  dfid,
-  members,
-}: {
-  dfid: string;
-  members: CrewMemberRow[];
-}) {
+export function CrewBreakdown({ dfid, members }: { dfid: string; members: CrewMemberRow[] }) {
   const shown = members.slice(0, CREW_CAP);
   const note = overflowNote(members.length, CREW_CAP, "people");
   return (
@@ -2174,13 +2162,7 @@ function ArchivedTabIncludedNote({
   );
 }
 
-export function HotelsBreakdown({
-  dfid,
-  hotels,
-}: {
-  dfid: string;
-  hotels: HotelReservationRow[];
-}) {
+export function HotelsBreakdown({ dfid, hotels }: { dfid: string; hotels: HotelReservationRow[] }) {
   const chrome = useContext(Step3SectionChromeContext);
   const shown = hotels.slice(0, HOTELS_CAP);
   const note = overflowNote(hotels.length, HOTELS_CAP, "hotels");
@@ -3409,9 +3391,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       group: "The show",
       Icon: MapPin,
       railCount: null,
-      render: (s) => (
-        <VenueBreakdown dfid={s.dfid} venue={s.pr.show.venue} />
-      ),
+      render: (s) => <VenueBreakdown dfid={s.dfid} venue={s.pr.show.venue} />,
     },
     {
       id: "event",
@@ -3427,9 +3407,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       group: "People",
       Icon: Users,
       railCount: (s) => s.crewMembers.length,
-      render: (s) => (
-        <CrewBreakdown dfid={s.dfid} members={s.crewMembers} />
-      ),
+      render: (s) => <CrewBreakdown dfid={s.dfid} members={s.crewMembers} />,
     },
     {
       id: "contacts",
@@ -3455,9 +3433,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       // No rail count (owner decision, 2026-07-05): only Crew, Contacts, Rooms,
       // and Parse warnings show a count. Keep in lockstep with COUNT_SECTIONS.
       railCount: null,
-      render: (s) => (
-        <ScheduleBreakdown dfid={s.dfid} ros={s.ros} dates={s.pr.show.dates} />
-      ),
+      render: (s) => <ScheduleBreakdown dfid={s.dfid} ros={s.ros} dates={s.pr.show.dates} />,
     },
   ];
   if (d.agendaBaseline.length > 0) {
@@ -3485,9 +3461,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       Icon: BedDouble,
       // No rail count (owner decision, 2026-07-05) — see COUNT_SECTIONS.
       railCount: null,
-      render: (s) => (
-        <HotelsBreakdown dfid={s.dfid} hotels={s.hotels} />
-      ),
+      render: (s) => <HotelsBreakdown dfid={s.dfid} hotels={s.hotels} />,
     },
     {
       id: "transport",

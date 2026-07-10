@@ -43,10 +43,7 @@ function recordingTx() {
 
 describe("applyParseResult — raw parse commits via unconditional full-replace (override overlay removed)", () => {
   it("drives deleteCrewMembersNotIn + upsertCrewMembers with the parsed members verbatim, ignoring override input, and returns no crew side-effects", async () => {
-    const members = [
-      crew("Alice", { role: "A1" }),
-      crew("Bob", { role: "V1" }),
-    ];
+    const members = [crew("Alice", { role: "A1" }), crew("Bob", { role: "V1" })];
     const parsed = parseResult(members);
     const expectedNames = members.map((m) => m.name);
 

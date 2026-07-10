@@ -449,9 +449,7 @@ async function readShowDataForViewer(
   const readCrewMembers = async (): Promise<CrewMember[]> => {
     const crewRes = await supabase
       .from("crew_members")
-      .select(
-        "id, name, email, phone, role, role_flags, date_restriction, stage_restriction",
-      )
+      .select("id, name, email, phone, role, role_flags, date_restriction, stage_restriction")
       .eq("show_id", showId);
     if (crewRes.error) {
       throw new Error(`getShowForViewer: crew fetch failed: ${crewRes.error.message}`);
