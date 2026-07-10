@@ -458,7 +458,9 @@ async function readShowDataForViewer(
   const readCrewMembers = async (): Promise<CrewMember[]> => {
     const crewRes = await supabase
       .from("crew_members")
-      .select("id, name, sheet_name, email, phone, role, role_flags, date_restriction, stage_restriction")
+      .select(
+        "id, name, sheet_name, email, phone, role, role_flags, date_restriction, stage_restriction",
+      )
       .eq("show_id", showId);
     if (crewRes.error) {
       throw new Error(`getShowForViewer: crew fetch failed: ${crewRes.error.message}`);
@@ -766,9 +768,7 @@ async function readShowDataForViewer(
   // SERVER-ONLY roster captured in readCrewMembers). The viewer's OWN id feeds the
   // garble-proof id path in transportTileVisible; admin uses the isAdmin branch.
   const transportationOwnerIds = resolveTransportOwners(transportation, ownerResolveRoster);
-  const viewerId = needsCrewLookup
-    ? (viewer as { crewMemberId: string }).crewMemberId
-    : null;
+  const viewerId = needsCrewLookup ? (viewer as { crewMemberId: string }).crewMemberId : null;
 
   let runOfShow: Record<string, ScheduleDay> | null = runOfShowRaw;
 

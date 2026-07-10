@@ -84,7 +84,8 @@ export function resolveTransportOwners(
       const cSig = significantTokens(name);
       if (cSig.length === 0) continue; // rule 2 — lone initial would else match namesRefer's initial support
       for (const m of roster) {
-        if (m.aliases.some((a) => covers(cSig, a.sig) || namesRefer(a.name, name))) owners.add(m.id);
+        if (m.aliases.some((a) => covers(cSig, a.sig) || namesRefer(a.name, name)))
+          owners.add(m.id);
       }
     }
   }

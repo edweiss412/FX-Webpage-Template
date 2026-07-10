@@ -193,8 +193,14 @@ export function transportTileVisible(opts: {
   viewerNameAliases: string[];
   isAdmin: boolean;
 }): boolean {
-  const { transportation, viewerId, transportationOwnerIds, viewerName, viewerNameAliases, isAdmin } =
-    opts;
+  const {
+    transportation,
+    viewerId,
+    transportationOwnerIds,
+    viewerName,
+    viewerNameAliases,
+    isAdmin,
+  } = opts;
   if (!transportation) return false;
   // Branch 3 — admin sees the tile when transportation exists.
   if (isAdmin) return true;
