@@ -76,13 +76,21 @@ function sectionOfBlock(kind: string | undefined | null): SectionKind | null {
 // is found (no absolution). Adding it here would be a soundness hole.
 // ---------------------------------------------------------------------------
 
-const T2_SECTION_STRUCTURAL_ALLOWLIST: Readonly<Record<string, string>> = {
+// A `Set` (not a plain object) so membership is `.has(...)` — an OWN-key test that
+// reads as intent and, critically on this soundness boundary, cannot be satisfied
+// by an `Object.prototype` member name. A plain object + `in` walks the prototype
+// chain, so a warning whose `code` was e.g. `"toString"` / `"__proto__"` /
+// `"constructor"` would spuriously pass and OVER-ABSOLVE a real miss.
+const T2_SECTION_STRUCTURAL_ALLOWLIST: ReadonlySet<string> = new Set([
   // emitEmptySection (warnings.ts:42-50): "recognized this section's header but
   // parsed ZERO fields — section dropped." Whole-section unreadable ⇒ absolves
   // every planted entity of the section named by blockRef.kind. The ONLY Phase-1
   // code with whole-section semantics.
-  SECTION_HEADER_NO_FIELDS: "empty section: header recognized, zero fields parsed, section dropped",
-};
+  "SECTION_HEADER_NO_FIELDS",
+  // CREW_COLUMN_POSITIONAL_FALLBACK is DELIBERATELY ABSENT (see the block comment
+  // above): positional read ≠ section-unreadable; the headerless dial must still
+  // fully round-trip, so it is never a section-structural absolution.
+]);
 
 // ---------------------------------------------------------------------------
 // Boundary-delimited containment (spec §3.1 "belt and suspenders" + §4.2). A
@@ -175,7 +183,7 @@ function warningText(w: ParseWarning): string {
 function isAttributed(entity: MissedEntity, parsed: ParsedSheet): boolean {
   // t2 — section-structural.
   for (const w of parsed.warnings) {
-    if (!w.code || !(w.code in T2_SECTION_STRUCTURAL_ALLOWLIST)) continue;
+    if (!w.code || !T2_SECTION_STRUCTURAL_ALLOWLIST.has(w.code)) continue;
     if (sectionOfBlock(w.blockRef?.kind) === entity.section) return true;
   }
 

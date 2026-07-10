@@ -449,3 +449,47 @@ describe("checkPlantAndFind — (j) domain-aware date matcher", () => {
     expect(checkPlantAndFind(model, dials(), parsed)).toEqual({ ok: true });
   });
 });
+
+// ---------------------------------------------------------------------------
+// t2-allowlist hardening — a prototype-chain member name is NOT a member.
+//
+// RED under the OLD `w.code in T2_SECTION_STRUCTURAL_ALLOWLIST` form: `in` walks
+// the Object.prototype chain, so a warning coded "toString" (or "__proto__",
+// "constructor", …) passed the membership test and, being in the same section as
+// a real miss, absolved it — `checkPlantAndFind(...).ok` would have been `true`.
+// The `Set.has(...)` form is an own-membership test, so it stays a miss.
+// ---------------------------------------------------------------------------
+
+describe("checkPlantAndFind — t2 allowlist rejects prototype-chain codes", () => {
+  it("a same-section warning coded 'toString' does NOT absolve a crew miss", () => {
+    const model = twoCrewModel();
+    const parsed = perfectParse(model);
+    parsed.crewMembers = parsed.crewMembers.filter((c) => c.name !== "Boris QAB Stone");
+    parsed.warnings = [
+      {
+        severity: "warn",
+        code: "toString", // Object.prototype member name — must NOT be an allowlist hit
+        message: "unrelated section-level note",
+        blockRef: { kind: "crew" },
+      },
+    ];
+    const res = checkPlantAndFind(model, dials(), parsed);
+    expect(res.ok).toBe(false);
+    if (!res.ok) expect(res.misses[0]).toContain("Boris QAB Stone");
+  });
+
+  it("'__proto__' likewise does not absolve", () => {
+    const model = twoCrewModel();
+    const parsed = perfectParse(model);
+    parsed.crewMembers = parsed.crewMembers.filter((c) => c.name !== "Boris QAB Stone");
+    parsed.warnings = [
+      {
+        severity: "warn",
+        code: "__proto__",
+        message: "unrelated section-level note",
+        blockRef: { kind: "crew" },
+      },
+    ];
+    expect(checkPlantAndFind(model, dials(), parsed).ok).toBe(false);
+  });
+});
