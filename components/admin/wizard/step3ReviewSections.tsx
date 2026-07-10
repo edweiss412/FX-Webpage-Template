@@ -114,22 +114,6 @@ import { AgendaScheduleBlock } from "@/components/crew/AgendaScheduleBlock";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import { VenueMapTile } from "@/components/admin/wizard/VenueMapTile";
 import { isParseableUrl } from "@/lib/url/isParseableUrl";
-import { OverrideableField } from "@/components/admin/overrides/OverrideableField";
-import type { ShowOverridesView, OverrideFieldView } from "@/lib/overrides/loadShowOverrides";
-// Client surface: VALUE-import the pure repoint builder from its own module — NOT via
-// loadShowOverrides — so its server-only chain never reaches the client bundle (R6 build break).
-import {
-  makeRepointTargetIndex,
-  type RepointTargetIndex,
-} from "@/lib/overrides/repointTargetIndex";
-import {
-  HOTEL_DISAMBIGUATOR_SEP,
-  computeHotelDisambiguator,
-} from "@/lib/overrides/hotelDisambiguator";
-// Task 15 (§8.3): the review wizard's <OverrideableField> save/revert/repoint/
-// discard path. Direct server-action ref (RSC-safe — never an inline closure),
-// passed straight to the widget's `onSave`.
-import { setFieldOverrideAction } from "@/app/admin/show/[slug]/_actions/overrides";
 import {
   AGENDA_CLIENT_CONCURRENCY,
   AGENDA_CLIENT_POLL_BUDGET_MS,
@@ -845,97 +829,12 @@ export function ContactsBreakdown({
   );
 }
 
-// ── Admin field overrides (spec §8.3, Surface A) ────────────────────────────
-// R15: a genuinely first-seen show has no `shows` row, so `set_field_override`
-// has no live target until finalize. The widget is read-only until then.
-export const OVERRIDE_UNAVAILABLE_HINT =
-  "Overrides become available after you publish this show. Until then, correct values in the sheet and Re-sync.";
-
-/**
- * One overridable field inside a review-wizard breakdown (spec §8.3).
- *
- * R18 (the crux): the widget's `currentValue` / `expectedCurrentValue` (CAS-B) /
- * `override` state come from the LIVE loader `view` — NEVER the pending parse the
- * surrounding breakdown renders. The pending parse is review context only; feeding
- * it as CAS-B would false-409 a legitimate save or capture the wrong `sheet_value`.
- *
- * Tri-state on `liveOverrides` (decided by the caller):
- *   • `view` present  → the show exists (R15 satisfied); enabled, LIVE-sourced.
- *   • `firstSeen`     → no `shows` row yet; disabled read-only + the publish hint.
- * A breakdown that receives `liveOverrides === undefined` (legacy / non-override
- * render context) renders NO override affordance at all — callers gate on that.
- */
-function WizardOverrideRow({
-  label,
-  driveFileId,
-  domain,
-  field,
-  matchKey,
-  view,
-  firstSeen,
-  fallbackDisplay,
-  currentLiveHotelName,
-  currentOrdinal,
-  repointTargets,
-}: {
-  label: string;
-  driveFileId: string;
-  domain: "show" | "crew" | "hotel";
-  field: "dates" | "venue" | "name" | "role" | "hotel_name" | "hotel_address";
-  matchKey: string;
-  view: OverrideFieldView | null;
-  firstSeen: boolean;
-  fallbackDisplay?: string;
-  currentLiveHotelName?: string;
-  currentOrdinal?: number;
-  // R6 CAS-B repoint index (serializable): resolves the NEW target's current value +
-  // live hotel name so a Re-point sends B's expected value, not the paused target's.
-  // Only threaded for crew/hotel (show fields are singletons and never repoint).
-  repointTargets?: RepointTargetIndex;
-}) {
-  const disabled = firstSeen || view == null;
-  return (
-    <div
-      data-testid={`wizard-override-${domain}-${field}`}
-      className="flex flex-col gap-1 border-b border-border py-2 last:border-0"
-    >
-      <span className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
-        {label}:
-      </span>
-      <OverrideableField
-        driveFileId={driveFileId}
-        domain={domain}
-        field={field}
-        matchKey={matchKey}
-        currentValue={view ? view.currentValue : (fallbackDisplay ?? "")}
-        expectedCurrentValue={view ? view.expectedCurrentValue : null}
-        override={view ? view.override : null}
-        disabled={disabled}
-        onSave={setFieldOverrideAction}
-        {...(currentLiveHotelName !== undefined ? { currentLiveHotelName } : {})}
-        {...(currentOrdinal !== undefined ? { currentOrdinal } : {})}
-        {...(repointTargets !== undefined ? { repointTargets } : {})}
-      />
-      {firstSeen ? (
-        <p
-          data-testid={`override-unavailable-${domain}-${field}`}
-          className="text-xs text-text-subtle"
-        >
-          {OVERRIDE_UNAVAILABLE_HINT}
-        </p>
-      ) : null}
-    </div>
-  );
-}
-
 export function VenueBreakdown({
   dfid,
   venue,
-  liveOverrides,
 }: {
   dfid: string;
   venue: ShowRow["venue"];
-  liveOverrides?: ShowOverridesView | null;
 }) {
   const rows = venue
     ? contentRows([
@@ -962,18 +861,6 @@ export function VenueBreakdown({
       label="Venue"
       count={rows.length}
     >
-      {liveOverrides !== undefined ? (
-        <WizardOverrideRow
-          label="Venue"
-          driveFileId={dfid}
-          domain="show"
-          field="venue"
-          matchKey=""
-          view={liveOverrides?.show.venue ?? null}
-          firstSeen={liveOverrides === null}
-          fallbackDisplay={venue?.name ?? ""}
-        />
-      ) : null}
       {rows.length === 0 ? (
         <p className="text-sm text-text-subtle">No venue details parsed.</p>
       ) : (
@@ -1282,17 +1169,12 @@ export function OpsBreakdown({ dfid, show }: { dfid: string; show: ShowRow }) {
 export function CrewBreakdown({
   dfid,
   members,
-  liveOverrides,
 }: {
   dfid: string;
   members: CrewMemberRow[];
-  liveOverrides?: ShowOverridesView | null;
 }) {
   const shown = members.slice(0, CREW_CAP);
   const note = overflowNote(members.length, CREW_CAP, "people");
-  const firstSeen = liveOverrides === null;
-  // R6: one serializable CAS-B index for every crew Re-point on this card.
-  const repointTargets = liveOverrides ? makeRepointTargetIndex(liveOverrides) : undefined;
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-crew`}
@@ -1307,19 +1189,6 @@ export function CrewBreakdown({
             const partial = partialAttendanceLabel(m.date_restriction, { humanize: false });
             const name = m.name || "Unnamed";
             const subline = [m.role, partial].filter((x): x is string => hasContent(x)).join(" · ");
-            // R18: match this PENDING member to its LIVE loader view by parsed name;
-            // name + role SHARE the member's matchKey (§8.2a). No match on a live show
-            // (pending-only member) → disabled (no live target). matchKey falls back to
-            // the pending name only for the disabled/first-seen read-only render.
-            // Match on the DURABLE PARSED key (§8.2a), NOT the live display value:
-            // with an active `Jon→John` name override the live view renders
-            // currentValue="John" while matchKey stays "Jon" and the pending parse
-            // still emits m.name="Jon" — matching on currentValue would MISS the live
-            // row, disable the controls, and hide the active chip (adversarial R2).
-            const crewView = liveOverrides
-              ? liveOverrides.crew.find((c) => c.matchKey === m.name)
-              : undefined;
-            const crewMatchKey = crewView?.matchKey ?? m.name;
             return (
               <Fragment key={`${m.name}-${i}`}>
                 <li className="flex items-center gap-3 py-1">
@@ -1364,32 +1233,6 @@ export function CrewBreakdown({
                     ) : null}
                   </span>
                 </li>
-                {liveOverrides !== undefined ? (
-                  <li className="pb-2">
-                    <WizardOverrideRow
-                      label="Name"
-                      driveFileId={dfid}
-                      domain="crew"
-                      field="name"
-                      matchKey={crewMatchKey}
-                      view={crewView?.name ?? null}
-                      firstSeen={firstSeen}
-                      fallbackDisplay={name}
-                      {...(repointTargets !== undefined ? { repointTargets } : {})}
-                    />
-                    <WizardOverrideRow
-                      label="Role"
-                      driveFileId={dfid}
-                      domain="crew"
-                      field="role"
-                      matchKey={crewMatchKey}
-                      view={crewView?.role ?? null}
-                      firstSeen={firstSeen}
-                      fallbackDisplay={m.role ?? ""}
-                      {...(repointTargets !== undefined ? { repointTargets } : {})}
-                    />
-                  </li>
-                ) : null}
               </Fragment>
             );
           })}
@@ -1553,12 +1396,10 @@ export function ScheduleBreakdown({
   dfid,
   ros,
   dates = EMPTY_DATES,
-  liveOverrides,
 }: {
   dfid: string;
   ros: RunOfShow;
   dates?: ShowRow["dates"];
-  liveOverrides?: ShowOverridesView | null;
 }) {
   // Merged day domain (bug #316 item 1) = the full schedule aggregate
   // (travelIn/set/showDays/travelOut, phase-labeled) UNION any ros-only day the
@@ -1599,18 +1440,6 @@ export function ScheduleBreakdown({
       label="Crew Schedule"
       count={mergedDays.length}
     >
-      {liveOverrides !== undefined ? (
-        <WizardOverrideRow
-          label="Show dates"
-          driveFileId={dfid}
-          domain="show"
-          field="dates"
-          matchKey=""
-          view={liveOverrides?.show.dates ?? null}
-          firstSeen={liveOverrides === null}
-          fallbackDisplay={dateSummarySegments(dates).join(" · ")}
-        />
-      ) : null}
       {mergedDays.length === 0 ? (
         <p className="text-sm text-text-subtle">No run-of-show parsed.</p>
       ) : (
@@ -2348,18 +2177,13 @@ function ArchivedTabIncludedNote({
 export function HotelsBreakdown({
   dfid,
   hotels,
-  liveOverrides,
 }: {
   dfid: string;
   hotels: HotelReservationRow[];
-  liveOverrides?: ShowOverridesView | null;
 }) {
   const chrome = useContext(Step3SectionChromeContext);
   const shown = hotels.slice(0, HOTELS_CAP);
   const note = overflowNote(hotels.length, HOTELS_CAP, "hotels");
-  const firstSeen = liveOverrides === null;
-  // R6: one serializable CAS-B index for every hotel Re-point on this card.
-  const repointTargets = liveOverrides ? makeRepointTargetIndex(liveOverrides) : undefined;
   // A single reservation inside the modal's section chrome would otherwise be a
   // card-within-a-card (chrome card + HotelCard border). Flatten the lone card so
   // the chrome IS the single card; nest sub-cards only when there are 2+ rows.
@@ -2376,67 +2200,9 @@ export function HotelsBreakdown({
       ) : (
         <div className="flex flex-col gap-3">
           {shown.map((h, i) => {
-            // Match this PENDING reservation to its LIVE loader view by the DURABLE
-            // PARSED key (§8.2a), NOT the live display name. Matching on
-            // currentLiveHotelName breaks two ways: (a) an active hotel_name override
-            // renames the live row, so currentLiveHotelName ≠ the parsed name; (b) two
-            // same-name reservations share currentLiveHotelName and `find` returns the
-            // FIRST view for BOTH pending rows — editing the 2nd would send the 1st
-            // reservation's matchKey / expected value / locator and mutate the WRONG
-            // hotel (adversarial R2). The view's matchKey is the parsed name (unique) or
-            // name+`\x1f`disambiguator (dup group); build the same key from THIS pending
-            // row and match it. No unique match → undefined → disabled (no live target).
-            const pendingHotelName = h.hotel_name ?? "";
-            const pendingHotelDisambKey = `${pendingHotelName}${HOTEL_DISAMBIGUATOR_SEP}${computeHotelDisambiguator(
-              { check_in: h.check_in, confirmation_no: h.confirmation_no },
-            )}`;
-            const hotelView = liveOverrides
-              ? liveOverrides.hotels.find(
-                  (v) => v.matchKey === pendingHotelName || v.matchKey === pendingHotelDisambKey,
-                )
-              : undefined;
-            const hotelMatchKey = hotelView?.matchKey ?? pendingHotelName;
             return (
               <Fragment key={`${h.hotel_name ?? "hotel"}-${i}`}>
                 <HotelCard h={h} flat={flatSolo} />
-                {liveOverrides !== undefined ? (
-                  <div className="flex flex-col">
-                    <WizardOverrideRow
-                      label="Hotel name"
-                      driveFileId={dfid}
-                      domain="hotel"
-                      field="hotel_name"
-                      matchKey={hotelMatchKey}
-                      view={hotelView?.hotel_name ?? null}
-                      firstSeen={firstSeen}
-                      fallbackDisplay={h.hotel_name ?? ""}
-                      {...(hotelView?.currentLiveHotelName !== undefined
-                        ? { currentLiveHotelName: hotelView.currentLiveHotelName }
-                        : {})}
-                      {...(hotelView?.currentOrdinal !== undefined
-                        ? { currentOrdinal: hotelView.currentOrdinal }
-                        : {})}
-                      {...(repointTargets !== undefined ? { repointTargets } : {})}
-                    />
-                    <WizardOverrideRow
-                      label="Hotel address"
-                      driveFileId={dfid}
-                      domain="hotel"
-                      field="hotel_address"
-                      matchKey={hotelMatchKey}
-                      view={hotelView?.hotel_address ?? null}
-                      firstSeen={firstSeen}
-                      fallbackDisplay={h.hotel_address ?? ""}
-                      {...(hotelView?.currentLiveHotelName !== undefined
-                        ? { currentLiveHotelName: hotelView.currentLiveHotelName }
-                        : {})}
-                      {...(hotelView?.currentOrdinal !== undefined
-                        ? { currentOrdinal: hotelView.currentOrdinal }
-                        : {})}
-                      {...(repointTargets !== undefined ? { repointTargets } : {})}
-                    />
-                  </div>
-                ) : null}
               </Fragment>
             );
           })}
@@ -3153,12 +2919,6 @@ export type SectionData = {
   ros: RunOfShow;
   warnings: ParseWarning[];
   agendaBaseline: AdminAgendaItem[];
-  // Task 15 (§8.3): the LIVE admin-override state for THIS show, from
-  // loadShowOverrides (Task 14) — the source for every wizard <OverrideableField>'s
-  // value / CAS-B / override state (R18: NOT the pending parse above). `null` = a
-  // first-seen show with no `shows` row (R15 → disabled + publish hint); absent =
-  // no override affordance rendered (legacy / non-override render context).
-  liveOverrides?: ShowOverridesView | null;
 };
 
 export type Step3SectionDef = {
@@ -3650,11 +3410,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       Icon: MapPin,
       railCount: null,
       render: (s) => (
-        <VenueBreakdown
-          dfid={s.dfid}
-          venue={s.pr.show.venue}
-          {...(s.liveOverrides !== undefined ? { liveOverrides: s.liveOverrides } : {})}
-        />
+        <VenueBreakdown dfid={s.dfid} venue={s.pr.show.venue} />
       ),
     },
     {
@@ -3672,11 +3428,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       Icon: Users,
       railCount: (s) => s.crewMembers.length,
       render: (s) => (
-        <CrewBreakdown
-          dfid={s.dfid}
-          members={s.crewMembers}
-          {...(s.liveOverrides !== undefined ? { liveOverrides: s.liveOverrides } : {})}
-        />
+        <CrewBreakdown dfid={s.dfid} members={s.crewMembers} />
       ),
     },
     {
@@ -3704,12 +3456,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       // and Parse warnings show a count. Keep in lockstep with COUNT_SECTIONS.
       railCount: null,
       render: (s) => (
-        <ScheduleBreakdown
-          dfid={s.dfid}
-          ros={s.ros}
-          dates={s.pr.show.dates}
-          {...(s.liveOverrides !== undefined ? { liveOverrides: s.liveOverrides } : {})}
-        />
+        <ScheduleBreakdown dfid={s.dfid} ros={s.ros} dates={s.pr.show.dates} />
       ),
     },
   ];
@@ -3739,11 +3486,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       // No rail count (owner decision, 2026-07-05) — see COUNT_SECTIONS.
       railCount: null,
       render: (s) => (
-        <HotelsBreakdown
-          dfid={s.dfid}
-          hotels={s.hotels}
-          {...(s.liveOverrides !== undefined ? { liveOverrides: s.liveOverrides } : {})}
-        />
+        <HotelsBreakdown dfid={s.dfid} hotels={s.hotels} />
       ),
     },
     {
