@@ -226,7 +226,10 @@ Required fields (spec §4.1): every REQUIRED `ParsedSheet` field present with co
 
 - [ ] **Step 1: Write failing cap test** — `fc.sample(chaosMarkdown, {numRuns: 200, seed: 1})` and assert for every sample: `Buffer.byteLength(s) <= 262144`, `s.split("\n").length <= 400`, every line's `split("|").length - 1 <= 121` guard, no cell > 10k chars.
 - [ ] **Step 2: Run — FAIL (module missing).**
-- [ ] **Step 3: Implement `chaos.ts`** — compose `fc.array` of line arbitraries biased toward: pipe-delimited rows of `fc.string({maxLength: 100})` cells (some with zero-width `‌`, bidi `‮`, control chars, CRLF), occasional 10k-char cell (bounded count so the 256KB doc cap binds), occasional 120-cell row, occasional header-ish tokens drawn from `["CREW","HOTEL","DATES","VENUE","GENERAL SESSION","| | |"]`. Enforce the total-byte cap structurally: build lines, then `fc.pre`-free truncation is FORBIDDEN (silent truncation misreports coverage) — instead constrain generators so worst case ≤ 256KB by construction: ≤ 20 long-cell lines × 10,240B = 204,800B, plus ≤ 380 short lines × 128B = 48,640B, plus ≤ 400 newlines = 253,840B < 262,144B. Comment this exact arithmetic in the file; the cap test proves it empirically over samples AND the constants are asserted statically (20×10240 + 380×128 + 400 < 262144).
+- [ ] **Step 3: Implement `chaos.ts`** — two line families, each with a BYTE-budgeted generator (budgets are in BYTES, so all length caps below are measured after UTF-8 encoding — enforce by generating in code points then asserting `Buffer.byteLength`, worst case 4B/code point in the arithmetic):
+  - **long lines** (≤ 20): one cell of ≤ 2,560 code points (≤ 10,240B at 4B/cp);
+  - **short lines** (≤ 380): pipe-delimited rows — cells from `fc.string({maxUnits: ...})` sized so each LINE is ≤ 500 code points INCLUDING pipes (≤ 2,000B at 4B/cp); a "wide row" variant reaches 120 cells only with 1-3-char cells (still under the 500-cp line cap); occasional zero-width `‌`, bidi `‮`, control chars, CRLF, header-ish tokens from `["CREW","HOTEL","DATES","VENUE","GENERAL SESSION","| | |"]`.
+  Worst case: 20 × 10,240 + 380 × 2,000 + 400 newlines = 204,800 + 760,000 — EXCEEDS the cap, so the short-line budget must be tighter: short lines ≤ 380 × 128B means ≤ 32 code points/line at 4B/cp, too thin for 120-cell rows. Resolve by SPLITTING the budget: ≤ 20 long lines × 10,240B (204,800B) + ≤ 8 wide rows × 2,048B (16,384B) + ≤ 372 normal lines × 100B (37,200B) + 400 newlines = 258,784B — still over 262,144? No: 204,800 + 16,384 + 37,200 + 400 = 258,784 < 262,144 ✓. Wide rows: 120 cells × ≤3 ASCII chars + 121 pipes ≤ 481B — well inside 2,048B. Normal lines: ≤ 25 code points at 4B/cp = 100B. Comment this exact arithmetic in the file; the cap test proves it empirically over samples AND the constants are asserted statically (`20*10240 + 8*2048 + 372*100 + 400 < 262144`). `fc.pre`/truncation remain FORBIDDEN (silent truncation misreports coverage) — the budget is structural.
 - [ ] **Step 4: Run cap test — PASS.**
 - [ ] **Step 5: Write the Tier-1 property test** in `robustness.fuzz.test.ts`:
 
@@ -406,7 +409,7 @@ Implements spec §4.2 exactly:
 
 **Interfaces:** consumes everything above.
 
-- [ ] **Step 1: Add model-rendered Tier-1 property** — same assertions as chaos Tier-1 but over `fc.tuple(showModel, dialChoices)` → `validateGeneratedCase` → `renderCase` → parse. Run: PASS expected (fails only on a real parser bug — triage per spec §6).
+- [ ] **Step 1: Add model-rendered Tier-1 property** — same assertions as chaos Tier-1 but over `caseArb` (the exclusion-normalized pair arbitrary from model.ts, see Step 2 comment) → `validateGeneratedCase` → `renderCase` → parse. Run: PASS expected (fails only on a real parser bug — triage per spec §6).
 - [ ] **Step 2: Write the Tier-2 property:**
 
 ```ts
@@ -421,10 +424,20 @@ import { checkPlantAndFind } from "./groundTruth";
 
 const { seed, numRuns } = fuzzRunConfig();
 
+// caseArb resolves cross-dial exclusions BY CONSTRUCTION so every sampled
+// pair is gate-valid: validateGeneratedCase stays a pure assertion that MUST
+// never throw in properties (a throw is a generator bug — normalization means
+// fast-check can never legitimately hit one). Exported from model.ts.
+//   export const caseArb = fc.tuple(showModel, dialChoices).map(([model, dials]) =>
+//     dials.crewHeader === "headerless" && dials.headerTypo !== null
+//       ? [model, { ...dials, headerTypo: null }] as const   // headerless wins
+//       : [model, dials] as const,
+//   );
+
 describe("Tier 2 plant-and-find", () => {
   it("every planted entity round-trips or an attributable signal fires", () => {
     fc.assert(
-      fc.property(showModel, dialChoices, (model, dials) => {
+      fc.property(caseArb, ([model, dials]) => {
         validateGeneratedCase(model, dials); // throws = generator bug, not parser finding
         const parsed = parseSheet(renderCase(model, dials), "fuzz.md");
         const verdict = checkPlantAndFind(model, dials, parsed);
