@@ -52,7 +52,7 @@ Hashkey `show:<driveFileId>`. Existing holders: `withShowLock` JS-wrapper (calle
 **Create:**
 - `lib/sync/useRawOverlay.ts` — pure `applyUseRawDecisions` + `UseRawDecision`/`DateOrderFields` types.
 - `app/admin/show/[slug]/_actions/useRaw.ts` — `setUseRawDecisionAction` (per-show).
-- `components/admin/OnboardingWizard.useRaw.ts` (or colocated) — `setStagedUseRawDecisionAction` (wizard-staged) — a `"use server"` module.
+- `app/admin/onboarding/_actions/useRawStaged.ts` — `setStagedUseRawDecisionAction` (wizard-staged) — a `"use server"` module (`app/admin/onboarding/` exists; `_actions` matches the `app/admin/show/[slug]/_actions` convention). This exact path is used consistently in Task 8, the UI wiring, `AUDITABLE_MUTATIONS`, and `_metaInfraContract`.
 - `components/admin/UseRawControl.tsx` — shared presentational control.
 - `supabase/migrations/<ts>_use_raw_decisions.sql` — 2 jsonb columns.
 - Tests mirroring each under `tests/**`.
