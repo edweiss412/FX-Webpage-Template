@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  html, body { margin: 0; background: #0F1014; }
+  * { box-sizing: border-box; }
+  body { font-family: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif; -webkit-font-smoothing: antialiased; color: #E8E6E0; }
+  a { color: #FFA047; text-decoration: none; }
+  a:hover { color: #FF8C1A; }
+  summary::-webkit-details-marker { display: none; }
+  summary { list-style: none; }
+  .chev { transition: transform 220ms cubic-bezier(0.25, 1, 0.5, 1); flex: none; }
+  details[open] .chev { transform: rotate(180deg); }
+  .tnum { font-variant-numeric: tabular-nums; font-feature-settings: "tnum" 1, "cv11" 1; }
+</style>
+</helmet>
+
+<div style="min-height: 100vh; max-width: 1600px; margin: 0 auto; padding: 32px;">
+
+  <!-- onboarding top bar -->
+  <header style="display: flex; align-items: center; gap: 12px; border-bottom: 1px solid #2A2B30; padding-bottom: 12px; margin-bottom: 16px;">
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <img src="brand/fxav-icon.png" alt="" width="28" height="28" style="width: 28px; height: 28px; flex: none;">
+      <span style="font-size: 18px; font-weight: 600; letter-spacing: -0.01em; color: #F5F3EE;">FXAV</span>
+      <span style="border: 1px solid #2A2B30; background: #1C1D23; border-radius: 999px; padding: 2px 8px; font-size: 12px; font-weight: 600; color: #9C9A93;">Setup</span>
+    </div>
+    <div style="flex: 1;"></div>
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <span style="width: 8px; height: 8px; border-radius: 999px; background: #FF8C1A;"></span>
+      <span style="font-size: 14px; color: #9C9A93;">you@example.com</span>
+      <span style="font-size: 14px; font-weight: 500; color: #9C9A93; padding: 0 8px;">Sign out</span>
+    </div>
+  </header>
+
+  <!-- wizard column -->
+  <div style="max-width: 672px; margin: 0 auto; display: flex; flex-direction: column; gap: 32px; padding-top: 24px; padding-bottom: 48px;">
+
+    <!-- step indicator -->
+    <nav style="display: flex; align-items: center; gap: 12px;">
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span class="tnum" style="width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 999px; background: #FF8C1A; color: #0E0F12; font-size: 12px; font-weight: 600;">1</span>
+        <span style="font-size: 14px; font-weight: 600; color: #F5F3EE;">Share folder</span>
+      </div>
+      <span style="height: 1px; max-width: 60px; flex: 1; border-radius: 999px; background: #2A2B30;"></span>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span class="tnum" style="width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 999px; background: #0B0C10; color: #9C9A93; font-size: 12px; font-weight: 600;">2</span>
+        <span style="font-size: 14px; font-weight: 500; color: #9C9A93;">Verify</span>
+      </div>
+      <span style="height: 1px; max-width: 60px; flex: 1; border-radius: 999px; background: #2A2B30;"></span>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <span class="tnum" style="width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; border-radius: 999px; background: #0B0C10; color: #9C9A93; font-size: 12px; font-weight: 600;">3</span>
+        <span style="font-size: 14px; font-weight: 500; color: #9C9A93;">Review &amp; publish</span>
+      </div>
+    </nav>
+
+    <!-- header -->
+    <div style="display: flex; flex-direction: column; gap: 8px;">
+      <p style="margin: 0; font-size: 12px; font-weight: 500; letter-spacing: 0.12em; text-transform: uppercase; color: #9C9A93;">Step 1 of 3</p>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <h1 style="margin: 0; font-size: 24px; font-weight: 600; letter-spacing: -0.012em; color: #F5F3EE;">Share your show folder</h1>
+        <span style="display: inline-flex; width: 28px; height: 28px; align-items: center; justify-content: center; border-radius: 999px; background: #0B0C10; font-size: 14px; font-weight: 600; color: #9C9A93; cursor: pointer;">?</span>
+      </div>
+      <p style="margin: 0; max-width: 65ch; font-size: 16px; line-height: 1.55; color: #9C9A93;">The app reads sheets out of one Google Drive folder you pick. Share that folder with the email below so the app can see what is inside.</p>
+    </div>
+
+    <!-- steps -->
+    <ol style="margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 16px; font-size: 16px; line-height: 1.5; color: #E8E6E0;">
+      <li style="display: flex; flex-direction: column; gap: 10px;">
+        <div style="display: flex; gap: 12px;">
+          <span class="tnum" style="flex: none; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border-radius: 999px; background: #0B0C10; font-size: 14px; font-weight: 600; color: #9C9A93;">1</span>
+          <span>In Google Drive, find the folder where you keep your show sheets (or make a new one).</span>
+        </div>
+        <!-- inline helper: no folder yet -->
+        <details style="margin-left: 36px;">
+          <summary style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 14px; font-weight: 500; color: #FFA047; text-decoration: underline; text-underline-offset: 2px; width: fit-content; min-height: 28px;">
+            Don&rsquo;t have a folder yet?
+            <svg class="chev" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+          </summary>
+          <ol style="margin: 10px 0 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; line-height: 1.55; color: #9C9A93; max-width: 56ch;">
+            <li>In Google Drive, click New &rarr; Folder and give it a name (your show name works well).</li>
+            <li>Open the folder and drop your show sheet(s) inside.</li>
+            <li>Share the folder with the email below and give it Viewer access, then come back here.</li>
+          </ol>
+        </details>
+      </li>
+
+      <li style="display: flex; gap: 12px;">
+        <span class="tnum" style="flex: none; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border-radius: 999px; background: #0B0C10; font-size: 14px; font-weight: 600; color: #9C9A93;">2</span>
+        <span>Click &ldquo;Share&rdquo; on the folder.</span>
+      </li>
+
+      <li style="display: flex; flex-direction: column; gap: 12px;">
+        <div style="display: flex; gap: 12px;">
+          <span class="tnum" style="flex: none; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border-radius: 999px; background: #0B0C10; font-size: 14px; font-weight: 600; color: #9C9A93;">3</span>
+          <span>Paste this email and give it Viewer access:</span>
+        </div>
+        <div style="margin-left: 36px; display: flex; flex-direction: column; gap: 10px;">
+          <div style="display: flex; align-items: center; gap: 16px; border: 1px solid #2A2B30; background: #16171C; border-radius: 12px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.45);">
+            <code class="tnum" style="flex: 1; word-break: break-all; font-size: 15px; font-weight: 500; color: #F5F3EE;">fxav-reader@fxav-crew-pages.iam.gserviceaccount.com</code>
+            <button style="flex: none; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; border: 1px solid #3A3B40; background: #0F1014; color: #F5F3EE; border-radius: 6px; padding: 0 18px; font-size: 14px; font-weight: 600; cursor: pointer; font-family: inherit;">Copy</button>
+          </div>
+          <!-- inline helper: why this email -->
+          <details>
+            <summary style="display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: 14px; font-weight: 500; color: #9C9A93; width: fit-content; min-height: 28px;" style-hover="{{ subtleHover }}">
+              <svg class="chev" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+              Why this email?
+            </summary>
+            <p style="margin: 8px 0 0 21px; font-size: 14px; line-height: 1.55; color: #74736d; max-width: 52ch;">It is the app&rsquo;s identity inside your Drive. It can only see the one folder you share with it, and only what is inside it. Removing the share at any time revokes the app&rsquo;s access.</p>
+          </details>
+        </div>
+      </li>
+
+      <li style="display: flex; gap: 12px;">
+        <span class="tnum" style="flex: none; width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; border-radius: 999px; background: #0B0C10; font-size: 14px; font-weight: 600; color: #9C9A93;">4</span>
+        <span>Come back here and click &ldquo;I&rsquo;ve shared the folder.&rdquo;</span>
+      </li>
+    </ol>
+
+    <!-- start over -->
+    <hr style="border: none; border-top: 1px solid #2A2B30; margin: 0;">
+    <div>
+      <span style="font-size: 14px; font-weight: 500; color: #9C9A93; text-decoration-line: underline; text-underline-offset: 4px; cursor: pointer;">Start over</span>
+    </div>
+  </div>
+
+  <!-- sticky footer -->
+  <div style="position: sticky; bottom: 0; margin-top: 24px;">
+    <div style="max-width: 1600px; margin: 0 auto;">
+      <div style="display: flex; justify-content: flex-end; border-top: 1px solid #2A2B30; background: #0F1014; padding-top: 12px; padding-bottom: 12px;">
+        <span style="display: inline-flex; align-items: center; min-height: 44px; background: #FF8C1A; color: #0E0F12; border-radius: 6px; padding: 0 24px; font-size: 16px; font-weight: 600; cursor: pointer;">I&rsquo;ve shared the folder</span>
+      </div>
+    </div>
+  </div>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      subtleHover: { color: "#E8E6E0" },
+    };
+  }
+}
+</script>
+</body>
+</html>
