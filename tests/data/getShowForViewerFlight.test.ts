@@ -202,8 +202,11 @@ describe("getShowForViewer source-scan — flight_info read on the own-row looku
   });
 
   it("the roster SELECT does NOT include flight_info, and flight_info is in exactly one select", () => {
+    // Wrap-tolerant: prettier may break the long .select(...) across lines, so assert the
+    // column-list string literal itself (proves the roster columns, no flight_info) rather
+    // than the single-line `.select("...")` call shape.
     expect(src).toContain(
-      '.select("id, name, sheet_name, email, phone, role, role_flags, date_restriction, stage_restriction")',
+      '"id, name, sheet_name, email, phone, role, role_flags, date_restriction, stage_restriction"',
     );
     const selectFlightHits = (src.match(/\.select\("[^"]*flight_info[^"]*"\)/g) ?? []).length;
     expect(selectFlightHits).toBe(1);
