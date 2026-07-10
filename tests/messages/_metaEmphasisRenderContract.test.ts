@@ -46,6 +46,11 @@ const MARKER_RE = /\*\*[^*]+\*\*|\*[^*]+\*|(^|[\s("'])_(\S(?:.*?\S)?)_(?=[\s)"'.
  * renderEmphasis and delete the row.
  */
 const SAFE_PLAINTEXT_REGISTRY: ReadonlyArray<{ file: string; reason: string }> = [
+  {
+    file: "components/admin/overrides/OverrideableField.tsx",
+    reason:
+      "Override save-error copy: §10 uncataloged RPC status codes + generic fallback (local OVERRIDE_RPC_COPY) plus getDougFacing for the rare cataloged code; all marker-free plain sentences rendered in the inline error <p>.",
+  },
   { file: "app/admin/error.tsx", reason: "ADMIN_ROUTE_LOAD_FAILED only; marker-free." },
   {
     file: "app/show/[slug]/[shareToken]/ShowUnavailable.tsx",

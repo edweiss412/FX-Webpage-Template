@@ -600,6 +600,11 @@ export function Step3SheetCard({
             ros,
             warnings,
             agendaBaseline: arr(row.adminAgendaPreview),
+            // Task 15 (§8.3): thread the LIVE admin-override state down so the
+            // modal's <OverrideableField>s source their CAS-B from the live rows,
+            // NOT the pending parse (R18). Absent → no override affordance (legacy);
+            // null → first-seen show (R15 disabled + hint).
+            ...(row.liveOverrides !== undefined ? { liveOverrides: row.liveOverrides } : {}),
           }}
           checked={checked}
           isDirtyRescan={isDirtyRescan}

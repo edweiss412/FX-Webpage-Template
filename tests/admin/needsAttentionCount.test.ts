@@ -19,6 +19,7 @@ function resetTables() {
     pending_ingestions: { count: 31, error: null },
     pending_syncs: { count: 47, error: null },
     admin_alerts: { count: 0, error: null },
+    admin_overrides: { count: 0, error: null },
   };
 }
 
@@ -75,6 +76,21 @@ it("ok path SUMS the two head-counts (31 + 47 → 78)", async () => {
 it("SUMS the third (inbox-routed) stream: 31 + 47 + 5 → 83", async () => {
   state.tables.admin_alerts = { count: 5, error: null };
   expect(await loadNeedsAttentionCount()).toEqual({ kind: "ok", count: 83 });
+});
+
+it("SUMS the fourth (paused-override) stream: 31 + 47 + 0 + 4 → 82 (§6 step 2)", async () => {
+  state.tables.admin_overrides = { count: 4, error: null };
+  expect(await loadNeedsAttentionCount()).toEqual({ kind: "ok", count: 82 });
+});
+
+it("returned .error on the admin_overrides (paused-override) count → infra_error", async () => {
+  state.tables.admin_overrides = { count: null, error: { message: "rls" } };
+  expect(await loadNeedsAttentionCount()).toEqual({ kind: "infra_error" });
+});
+
+it("count:null with NO error on admin_overrides → infra_error (integrity failure)", async () => {
+  state.tables.admin_overrides = { count: null, error: null };
+  expect(await loadNeedsAttentionCount()).toEqual({ kind: "infra_error" });
 });
 
 it("returned .error on the admin_alerts (sync-problem) count → infra_error", async () => {

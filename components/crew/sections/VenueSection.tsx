@@ -129,6 +129,7 @@ export function VenueSection({
   const transportVisible = transportTileVisible({
     transportation: data.transportation,
     viewerName: data.viewerName,
+    viewerNameAliases: data.viewerNameAliases,
     isAdmin: ctx.isAdmin,
   });
   const rawParking = data.transportation?.parking ?? null;

@@ -410,6 +410,56 @@ Source: invariant-8 impeccable v3 dual-gate on branch `feat/telemetry-console-re
 - **Why accepted (not a defect):** this is the spec's single, deliberately-chosen disclosure animation (spec §9 transition inventory), reduced-motion-guarded to `duration: 0` via `useReducedMotion`, single-instance per expanded row. The grid-rows `1fr` transform alternative degrades content measurement for the CronRunSummaryCard/ContextDetail disclosure. No user-visible frame drop at this scale.
 - **Trigger:** only if a future perf audit measures actual jank on low-end devices with many simultaneously-expanded rows.
 
+## Admin field overrides — impeccable gate (2026-07-09)
+
+Source: invariant-8 impeccable v3 dual-gate (critique + audit) on branch `feat/admin-field-overrides` for the P6 UI diff (Tasks 13–16). Full findings + dispositions in `docs/superpowers/plans/2026-07-07-admin-field-overrides/IMPECCABLE-REPORT.md`. Verdict: critique 25/40, audit 18/20, deterministic detector `[]` (0 new; the one `<img>` hit is a pre-existing/intentional diagrams-grid revert outside this diff), zero CRITICAL/P0. FIXED in-branch: sheet-value now a VISIBLE line + chip `aria-label` (was hover-only `title`); error `role="status"` → `role="alert"`; em dashes removed from all 5 rendered copy strings. The entries below are deferred/accepted.
+
+### OVR-1 — [P1→deferred] Destructive Revert/Discard: no confirm, no undo, no danger styling
+
+- **What:** `OverrideableField.tsx` Revert (active state) and Discard (stale state) fire on a single tap, share the neutral `BUTTON_CLASS`, and sit immediately beside Edit / Re-point. A mis-tap on the venue floor destroys an override (Revert) with no confirmation, undo, or visual danger cue.
+- **Why deferred:** spec §7 defines Revert/Discard as single-op mutations and is **silent on any confirmation step**; PRODUCT.md explicitly bans multi-step modals ("no five-step modals") and the surface is phone-primary, so a modal confirm is the wrong instrument. Revert is **recoverable** (re-create the override on the same target — the RPC's reactivate-on-conflict path, §7.2 R28); Discard is valid ONLY on an already-inactive row (spec §7.2 — the live row already shows the parsed value, so "destroy" is low-stakes). A consistent destructive-action affordance is a cross-admin design decision, not an override-specific defect; the critique is not authoritative vs the spec/mock (project rule).
+- **Trigger:** a project-wide "destructive admin action" confirmation/undo pass (would also cover Rescan, role changes, etc.), OR the first real report of an accidental override loss.
+
+### OVR-2 — [P2→deferred] No post-save confirmation ("Saving…" / "Saved")
+
+- **What:** `submit()` flips `mode` to `idle` on success with no transient "Saved" signal and no `Saving…` label on the Save button during `pending`.
+- **Why deferred:** the save is optimistic and the surface **re-renders into the overridden state** — the "Overridden" chip + the new value + the visible `Sheet: "X"` line ARE the confirmation. A transient toast/label is a polish nicety, not a correctness gap; the disabled-while-pending state already prevents double-submit.
+- **Trigger:** the next override-UI polish pass, or if usability testing shows Doug re-tapping Save uncertain it applied.
+
+### OVR-3 — [P3→deferred] Nested card in ShowOverrideBlocks (hotel row)
+
+- **What:** `ShowOverrideBlocks.tsx` renders each hotel reservation row as a `rounded-md border bg-bg` block inside the outer `rounded-md border bg-surface` Hotels block — a card-in-card.
+- **Why deferred:** mild — the inner surface is differentiated by **background token** (`bg-bg` vs `bg-surface`), not a redundant border-in-border stack, and it mirrors the existing wizard hotel-row grouping. Not an AI-slop tell in isolation.
+- **Trigger:** the next `ShowOverrideBlocks` layout pass, or a DESIGN.md ruling on nested-surface treatment.
+
+### OVR-4 — [P3→deferred] Repoint-input aria-label exposes DB nomenclature
+
+- **What:** the re-point input's `aria-label` names the internal "match key" concept rather than the user-facing "sheet value to match".
+- **Why deferred:** screen-reader-only clarity nicety; the visible label + stale note already frame the action ("Re-point", "the sheet no longer has «X»"). No sighted-user impact.
+- **Trigger:** the next crew/admin a11y sweep, or any SR audit of the override surface.
+
+## Admin field overrides — orphaned-override block (R3 G2) impeccable gate (2026-07-09)
+
+Source: invariant-8 impeccable v3 dual-gate on the NEW `OrphanedOverridesBlock` (Codex R3 G2 fix — the show page now renders overrides whose sheet target vanished, so the "Override paused" needs-attention deep-link lands on a real Re-point/Discard control instead of a dead end). Verdict: audit 19/20 (no P0/P1), critique AI-slop PASS (clean, 100% tokens, no bans) with two P1/HIGH. Both HIGH FIXED in-branch: (a) the block carries `id="paused-overrides"` and a target_missing card deep-links `#paused-overrides` (name_conflict stays inline, lands at top); (b) the orphan value cell renders Doug's actual override value (`override.overrideValue`) instead of the "—" no-data glyph, so he can decide Re-point vs Discard without recalling his correction. Deterministic detector `[]` (0 findings). The P2/P3 below are deferred.
+
+### OVR-5 — [P2→deferred] Orphan-block controls share generic Re-point/Discard accessible names
+
+- **What:** the reused `OverrideableField` paused branch renders "Re-point"/"Discard" with no field qualifier; a screen-reader user tabbing multiple orphan rows hears the pair repeated, and the visible `ORPHAN_FIELD_LABEL` span isn't linked via `aria-labelledby` (WCAG 2.4.6).
+- **Why deferred:** an INHERITED pattern shared by every override surface (sibling crew/hotel blocks have the same shape), not introduced by G2; the per-row stale note carries the «matchKey» so context is partially conveyed. Fixing it belongs at the shared `OverrideableField` level across all surfaces, not in the orphan block alone.
+- **Trigger:** a shared-`OverrideableField` a11y pass (would also close OVR-4). Backlog: `BL-OVERRIDE-CONTROL-ARIA-FIELD-QUALIFIER`.
+
+### OVR-6 — [P2→deferred] Orphan block lacks attention salience + "Re-point" jargon
+
+- **What:** the "Paused overrides" section is styled with the same calm neutral tokens (`border-border`/`bg-surface`) as the non-actionable Show-details/Hotels blocks, so nothing signals it needs action; and "Re-point" is jargon for a non-technical operator (no HelpAffordance).
+- **Why deferred:** the durable needs-attention stream (nav badge + inbox card with `status="warn"`) already draws Doug to the item; this block is the deep-link TARGET, not the primary alert. A warn accent + plainer microcopy are enhancements, not correctness. Consistent with the calm inline-edit tone of the sibling override blocks.
+- **Trigger:** `/impeccable polish` on the override surfaces, or a Doug-confusion report. Backlog: `BL-OVERRIDE-ORPHAN-SALIENCE`.
+
+### OVR-7 — [P3→deferred] Section `aria-label` differs from visible heading; intro/per-row copy overlap
+
+- **What:** the section `aria-label="Paused overrides needing attention"` doesn't match the visible `<h2>Paused overrides</h2>` (siblings keep them identical); and the section intro ("The sheet no longer has these targets…") restates the per-row paused note framing.
+- **Why deferred:** both cosmetic — the aria-label is a valid (more descriptive) accessible name, not a WCAG failure; the mild copy overlap doesn't impede comprehension.
+- **Trigger:** bundled with OVR-6 polish. Backlog: none (nicety).
+
 ## Flow 4 PR #2 — auto-applied strip + roster badge — invariant-8 impeccable dual-gate (2026-07-07)
 
 Source: invariant-8 impeccable v3 dual-gate on branch `feat/flow4-auto-applied-strip`. Verdict: critique 33/40 Good, audit 18/20 Strong, deterministic detector `[]` (0 findings), anti-patterns PASS, zero CRITICAL/P0. FIXED in-branch: Undo-all confirm now focuses the safe "Keep changes" control on open (`keepChangesRef` + `useEffect`, mirrors `ReSyncButton.tsx:76-78`; WCAG 2.4.3 — a stray Enter can no longer fire the destructive bulk undo) — this closed the one HIGH/P1 finding; heading rank inversion (`<h2>` under Dashboard's `<h3>Needs attention</h3>` → `<h4>`, WCAG 1.3.1); long-summary overflow (`wrap-break-word` on the row summary span, prevents unbroken `crew_email_changed` emails overflowing the ~320px inbox column). The entries below are deferred.

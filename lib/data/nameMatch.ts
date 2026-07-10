@@ -63,3 +63,18 @@ function refersSingle(a: string, b: string): boolean {
 export function namesRefer(a: string, b: string): boolean {
   return a.split("/").some((pa) => b.split("/").some((pb) => refersSingle(pa, pb)));
 }
+
+/**
+ * Whether `ref` refers to the same person as ANY alias in `aliases` (§3.5 —
+ * the crew-name override visibility alias). A renamed crew member's alias set
+ * is `[live name, sheet_name?]`: their current `crew_members.name` plus the
+ * PRE-override parsed name (`crew_members.sheet_name`) that hotel/transport
+ * rows still key on. A SURNAME-changing override would break the surname-
+ * anchored scalar match, hiding the viewer's OWN hotel/transport — matching
+ * against the alias set restores it. Null entries are skipped; an EMPTY alias
+ * set matches nothing (behaves exactly like the old no-viewer case — no false
+ * visibility). Same UX-not-security posture as `namesRefer`.
+ */
+export function namesReferAny(ref: string, aliases: (string | null)[]): boolean {
+  return aliases.some((a) => a != null && namesRefer(ref, a));
+}

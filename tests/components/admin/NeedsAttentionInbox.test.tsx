@@ -90,6 +90,58 @@ describe("NeedsAttentionInbox", () => {
     expect(es.getAttribute("href")).toBe("/admin/show/known-show");
   });
 
+  // R3 G2 / critique P1: a target_missing paused override's control lives in the
+  // dedicated "Paused overrides" block, so its deep-link anchors straight to
+  // #paused-overrides; a name_conflict override's control is inline (target still
+  // live), so it lands at the page top (no fragment).
+  it("override_paused deep-link anchors to #paused-overrides only for target_missing", () => {
+    const items: NeedsAttentionItem[] = [
+      {
+        variant: "override_paused",
+        key: "override:ov-gone",
+        overrideId: "ov-gone",
+        showId: "sh1",
+        slug: "my-show",
+        title: "My Show",
+        domain: "crew",
+        field: "name",
+        matchKey: "Jon",
+        deactivationCode: "target_missing",
+        copy: "sheet no longer has «Jon»",
+        activityAt: null,
+      },
+      {
+        variant: "override_paused",
+        key: "override:ov-clash",
+        overrideId: "ov-clash",
+        showId: "sh1",
+        slug: "my-show",
+        title: "My Show",
+        domain: "crew",
+        field: "name",
+        matchKey: "Kim",
+        deactivationCode: "name_conflict",
+        copy: "clashes with a real crew member",
+        activityAt: null,
+      },
+    ];
+    render(
+      <NeedsAttentionInbox
+        items={items}
+        totalCount={2}
+        renderedCount={2}
+        overflowCount={0}
+        now={NOW}
+      />,
+    );
+    expect(
+      screen.getByTestId("needs-attention-link-override-paused-ov-gone").getAttribute("href"),
+    ).toBe("/admin/show/my-show#paused-overrides");
+    expect(
+      screen.getByTestId("needs-attention-link-override-paused-ov-clash").getAttribute("href"),
+    ).toBe("/admin/show/my-show");
+  });
+
   // M12.12 follow-up + Codex R2 MEDIUM — the "Review →" / "Open show →"
   // arrows are decorative; aria-label carries the arrow-free accessible
   // name (text runs stay UNSPLIT — splitting them drops the inline-flex

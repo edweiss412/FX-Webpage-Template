@@ -23,6 +23,8 @@ const DOUG = [
   "PICKER_EPOCH_RESET",
   "SYNC_STALLED",
   "WATCH_CHANNEL_ORPHANED",
+  "OVERRIDE_TARGET_MISSING",
+  "OVERRIDE_NAME_CONFLICT",
   "ONBOARDING_SHEET_UNREADABLE",
 ] as const;
 const DEGRADED = [
@@ -68,8 +70,8 @@ const cat = MESSAGE_CATALOG as Record<
 >;
 
 describe("alert audience contract", () => {
-  test("partition counts: 19 doug + 26 health = 45; 16 degraded + 10 notice", () => {
-    expect(DOUG.length).toBe(19);
+  test("partition counts: 21 doug + 26 health = 47; 16 degraded + 10 notice", () => {
+    expect(DOUG.length).toBe(21);
     expect(HEALTH.length).toBe(26);
     expect(DEGRADED.length).toBe(16);
     expect(NOTICE.length).toBe(10);

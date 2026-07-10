@@ -356,7 +356,7 @@ const FIXTURES: Fixture[] = [
       drive_file_id: DRIVE_FILE_ID,
     },
   },
-  // 43. ONBOARDING_SHEET_UNREADABLE — global (folder-level setup-scan alert).
+  // ONBOARDING_SHEET_UNREADABLE — global (folder-level setup-scan alert).
   {
     code: "ONBOARDING_SHEET_UNREADABLE",
     showId: null,
@@ -366,6 +366,10 @@ const FIXTURES: Fixture[] = [
       failed_drive_file_ids: ["d-a", "d-b"],
     },
   },
+  // lib/adminAlerts/resolveOverrideAlertsForShow.ts emitOverrideDeactivationAlerts —
+  // global (per-show doug bell; identity lives on the durable needs-attention row, §10).
+  { code: "OVERRIDE_TARGET_MISSING", showId: SHOW_ID, context: { show_id: SHOW_ID } },
+  { code: "OVERRIDE_NAME_CONFLICT", showId: SHOW_ID, context: { show_id: SHOW_ID } },
 ];
 
 function assertMapReadsAtLeastOneFixtureKey(fixture: Fixture, entry: { segments: SegmentSpec[] }) {

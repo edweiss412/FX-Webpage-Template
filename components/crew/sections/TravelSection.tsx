@@ -172,6 +172,7 @@ export function TravelSection({
           const transportVisible = transportTileVisible({
             transportation: data.transportation,
             viewerName: data.viewerName,
+            viewerNameAliases: data.viewerNameAliases,
             isAdmin: ctx.isAdmin,
           });
           const transportation = transportVisible ? data.transportation : null;

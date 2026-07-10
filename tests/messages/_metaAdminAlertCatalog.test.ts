@@ -254,6 +254,15 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
       pattern: /code:\s*"WIZARD_SESSION_SUPERSEDED_RACE"/,
     },
   ],
+  // §10: the sync-side best-effort coarse deactivation bell (post-commit, outside the lock).
+  OVERRIDE_TARGET_MISSING: {
+    path: "lib/adminAlerts/resolveOverrideAlertsForShow.ts",
+    pattern: /code:\s*"OVERRIDE_TARGET_MISSING"/,
+  },
+  OVERRIDE_NAME_CONFLICT: {
+    path: "lib/adminAlerts/resolveOverrideAlertsForShow.ts",
+    pattern: /code:\s*"OVERRIDE_NAME_CONFLICT"/,
+  },
 };
 
 /**
@@ -270,11 +279,11 @@ const ADMIN_ALERTS_WRITE_SITES: Record<
  *
  * Counts (spec §3, incl. alert-resolve-truthing §6 + re-sync quality gate): 7 precedent AUTO +
  * 14 NEW + GITHUB_BOT_LOGIN_MISSING + RESYNC_SHRINK_HELD + RESYNC_QUALITY_REGRESSED
- * + 2 BRANCH_PROTECTION (bell-notification-center §9.3) = 26 "auto"; 17 "event-manual" (spec's
- * 18 EVENT rows minus TILE_SERVER_RENDER_FAILED, which the registry splits into its own
- * "state-manual-justified" class); 1 "state-manual-justified"; 0 "deferred" (BRANCH_PROTECTION_*
- * promoted by bell-notification-center §9.3).
- * 26 + 19 = 45, matching ADMIN_ALERTS_CODES.length.
+ * + 2 BRANCH_PROTECTION (bell-notification-center §9.3) + 2 OVERRIDE (admin-field-overrides §10)
+ * = 28 "auto"; 18 "event-manual" (spec's 18 EVENT rows minus TILE_SERVER_RENDER_FAILED, which the
+ * registry splits into its own "state-manual-justified" class, plus Flow-1 ONBOARDING_SHEET_UNREADABLE);
+ * 1 "state-manual-justified"; 0 "deferred" (BRANCH_PROTECTION_* promoted by bell-notification-center §9.3).
+ * 28 + 18 + 1 + 0 = 47, matching ADMIN_ALERTS_CODES.length.
  */
 type ResolveSite = { file: string; pattern: RegExp };
 type Lifecycle =
@@ -444,6 +453,21 @@ const ADMIN_ALERTS_LIFECYCLE: Record<(typeof ADMIN_ALERTS_CODES)[number], Lifecy
         file: "app/show/[slug]/[shareToken]/_CrewShell.tsx",
         pattern: /resolveAdminAlert\(\{[\s\S]*code:\s*"TILE_PROJECTION_FETCH_FAILED"/,
       },
+    ],
+  },
+
+  // --- auto (§10 R30): override deactivation bells re-derived per (show,code) via the single
+  // resolveOverrideAlertsForShow point (zero remaining active=false rows of the code → resolve) ---
+  OVERRIDE_TARGET_MISSING: {
+    class: "auto",
+    resolveSites: [
+      { file: "lib/adminAlerts/resolveOverrideAlertsForShow.ts", pattern: /resolveAdminAlert/ },
+    ],
+  },
+  OVERRIDE_NAME_CONFLICT: {
+    class: "auto",
+    resolveSites: [
+      { file: "lib/adminAlerts/resolveOverrideAlertsForShow.ts", pattern: /resolveAdminAlert/ },
     ],
   },
 
@@ -680,11 +704,11 @@ describe("META admin_alerts catalog contract", () => {
 
     // Counts cross-check spec §3: 7 precedent AUTO + 14 NEW + GITHUB_BOT_LOGIN_MISSING +
     // RESYNC_SHRINK_HELD + RESYNC_QUALITY_REGRESSED + 2 BRANCH_PROTECTION
-    // (bell-notification-center §9.3) = 26 auto codes.
+    // (bell-notification-center §9.3) + 2 OVERRIDE (admin-field-overrides §10) = 28 auto codes.
     expect(
       autoCodes.length,
-      "spec §3 + bell-notification-center §9.3 pins 26 auto codes (7 precedent AUTO + 14 NEW + GITHUB_BOT_LOGIN_MISSING + RESYNC_SHRINK_HELD + RESYNC_QUALITY_REGRESSED + 2 BRANCH_PROTECTION)",
-    ).toBe(26);
+      "spec §3 + bell-notification-center §9.3 + admin-field-overrides §10 pins 28 auto codes (7 precedent AUTO + 14 NEW + GITHUB_BOT_LOGIN_MISSING + RESYNC_SHRINK_HELD + RESYNC_QUALITY_REGRESSED + 2 BRANCH_PROTECTION + 2 OVERRIDE)",
+    ).toBe(28);
 
     for (const code of autoCodes) {
       const lifecycle = ADMIN_ALERTS_LIFECYCLE[code];

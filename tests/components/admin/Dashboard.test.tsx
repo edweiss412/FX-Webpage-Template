@@ -225,6 +225,7 @@ describe("Dashboard composition", () => {
       ingestionTotal: 31,
       syncTotal: 47,
       syncProblemTotal: 0,
+      overrideTotal: 0,
     };
     await renderDashboard();
 

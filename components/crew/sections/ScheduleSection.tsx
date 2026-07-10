@@ -103,6 +103,7 @@ export function ScheduleSection({
   const transportVisible = transportTileVisible({
     transportation: data.transportation,
     viewerName: data.viewerName,
+    viewerNameAliases: data.viewerNameAliases,
     isAdmin,
   });
 

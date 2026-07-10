@@ -51,5 +51,7 @@ export const ADMIN_ALERTS_CODES = [
   "BRANCH_PROTECTION_DRIFT", //         X.6 branch-protection drift detector
   "BRANCH_PROTECTION_MONITOR_AUTH_FAILED", // X.6 branch-protection monitor auth failure
   "WIZARD_SESSION_SUPERSEDED_RACE", //  F5 wizard-session CAS race post-rollback producer
+  "OVERRIDE_TARGET_MISSING", //          field-override target vanished on a later sync (§10, auto-resolve)
+  "OVERRIDE_NAME_CONFLICT", //           name-override output collides with another row (§10, auto-resolve)
   "ONBOARDING_SHEET_UNREADABLE", //     Flow-1 setup-scan hard-fail folder alert
 ] as const;

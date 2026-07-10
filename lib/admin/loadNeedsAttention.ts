@@ -288,6 +288,93 @@ export async function loadNeedsAttention(opts: {
     ];
   });
 
+  // ── Fourth stream (spec 2026-07-07 §6 step 2): paused field overrides ──
+  // The DURABLE inactive-row signal: `admin_overrides where not active`, joined to
+  // its show for the slug/title the card deep-links + renders. Read directly via
+  // the existing cookie-bound admin client under the `admin_only` RLS policy
+  // (§9.4) — NO service-role plumbing. Bounded row read (.limit(cap+1)) + exact
+  // head-count, same discipline as the pending streams. Each await is destructured
+  // { data, error } and wrapped in its own try/catch (invariant 9).
+  let overrideRows: ReadonlyArray<Record<string, unknown>>;
+  try {
+    const { data: overrideData, error: overrideRowsError } = await supabase
+      .from("admin_overrides")
+      .select("id, show_id, domain, field, match_key, deactivation_code, shows!inner(slug, title)")
+      .eq("active", false)
+      .order("updated_at", { ascending: false })
+      .limit(opts.cap + 1);
+    if (overrideRowsError) {
+      return {
+        kind: "infra_error",
+        message: `admin_overrides query failed: ${overrideRowsError.message}`,
+      };
+    }
+    overrideRows = (overrideData ?? []) as ReadonlyArray<Record<string, unknown>>;
+  } catch (err) {
+    return {
+      kind: "infra_error",
+      message: `admin_overrides query threw: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  let overrideCount: number;
+  try {
+    const {
+      data: _overrideCountData,
+      count: overrideHeadCount,
+      error: overrideCountError,
+    } = await supabase
+      .from("admin_overrides")
+      .select("id", { count: "exact", head: true })
+      .eq("active", false);
+    void _overrideCountData;
+    if (overrideCountError) {
+      return {
+        kind: "infra_error",
+        message: `admin_overrides count query failed: ${overrideCountError.message}`,
+      };
+    }
+    if (typeof overrideHeadCount !== "number") {
+      return { kind: "infra_error", message: "admin_overrides head-count returned non-number" };
+    }
+    overrideCount = overrideHeadCount;
+  } catch (err) {
+    return {
+      kind: "infra_error",
+      message: `admin_overrides count query threw: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  // Map rows → override inputs; skip (with a warn) any row whose shows!inner embed
+  // is missing a slug (defensive — the FK guarantees a show, but a missing slug
+  // would produce a dead /admin/show/undefined link).
+  const overrides = overrideRows.flatMap((r) => {
+    const embed = r.shows as
+      | { slug?: string; title?: string | null }
+      | Array<{ slug?: string; title?: string | null }>
+      | null;
+    const show = Array.isArray(embed) ? embed[0] : embed;
+    if (!show?.slug) {
+      void log.warn("paused override missing show slug", {
+        source: "admin.loadNeedsAttention",
+        overrideId: r.id as string,
+      });
+      return [];
+    }
+    return [
+      {
+        overrideId: r.id as string,
+        showId: r.show_id as string,
+        slug: show.slug,
+        title: (show.title as string | null) ?? null,
+        domain: r.domain as string,
+        field: r.field as string,
+        matchKey: (r.match_key as string | null) ?? "",
+        deactivationCode: r.deactivation_code as "target_missing" | "name_conflict",
+      },
+    ];
+  });
+
   return buildNeedsAttention({
     ingestions: ingestionRows.map((r) => ({
       id: r.id as string,
@@ -306,8 +393,14 @@ export async function loadNeedsAttention(opts: {
       };
     }),
     syncProblems,
+    overrides,
     existence,
-    totalCounts: { ingestions: ingestionCount, syncs: syncCount, syncProblems: syncProblemCount },
+    totalCounts: {
+      ingestions: ingestionCount,
+      syncs: syncCount,
+      syncProblems: syncProblemCount,
+      overrides: overrideCount,
+    },
     cap: opts.cap,
   });
 }

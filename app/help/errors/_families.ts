@@ -111,6 +111,7 @@ export const FAMILIES: Family[] = [
       "TILE",
       "EMAIL",
       "ALERT",
+      "OVERRIDE", // OVERRIDE_TARGET_MISSING / OVERRIDE_NAME_CONFLICT — field-override needs-attention alerts
       "GITHUB",
       "IDEMPOTENCY",
       "LAST",

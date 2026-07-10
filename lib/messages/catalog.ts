@@ -1096,6 +1096,36 @@ export const MESSAGE_CATALOG = {
       "This show has been unpublished — from the Published toggle on its page or via the emailed undo link. Its crew link is paused: crew who open it see a 'not available right now' page with no show details. Nothing else changed — the same link works again when you republish, and the sheet keeps syncing. Turn Published back on from the show's page when you're ready.",
     helpHref: "/help/errors#SHOW_UNPUBLISHED",
   },
+  OVERRIDE_TARGET_MISSING: {
+    code: "OVERRIDE_TARGET_MISSING",
+    resolution: "auto",
+    audience: "doug",
+    dougFacing:
+      "An override you set no longer matches the sheet. The field is showing the sheet's value again — re-point the override to the right row or discard it.",
+    crewFacing: null,
+    followUp: "Doug → re-point or discard the override",
+    helpfulContext:
+      "An override pins a specific field to a value you chose, matched to a specific row in your sheet. On a later sync that row was no longer there — it was removed, or its key values changed — so there was nothing left to override, and the field went back to showing whatever your sheet now says. Nothing is broken and no data was lost; the override is just paused. Open Needs attention to re-point it to the right row, or discard it if it's no longer needed.",
+    title: "Override no longer matches the sheet",
+    longExplanation:
+      "A field override was pinned to a specific sheet row that a later sync removed or renamed, so the override no longer applies and the field reverted to the sheet's value. The override is paused, not lost. Re-point it to the correct row or discard it from Needs attention.",
+    helpHref: "/help/errors#OVERRIDE_TARGET_MISSING",
+  },
+  OVERRIDE_NAME_CONFLICT: {
+    code: "OVERRIDE_NAME_CONFLICT",
+    resolution: "auto",
+    audience: "doug",
+    dougFacing:
+      "A name override you set now clashes with another row of the same name (a real crew member, or another hotel). We paused it and are showing the sheet's value — re-point it to a different name or discard it.",
+    crewFacing: null,
+    followUp: "Doug → re-point or discard the override",
+    helpfulContext:
+      "A name override lets you show a different name than the sheet has. After a later sync that override's name now matches another real row of the same name — either a crew member your sheet added, or another hotel — which would be ambiguous, so we paused the override and put the sheet's own value back. Nothing is broken and no data was lost. Open Needs attention to re-point the override to a different name, or discard it; the needs-attention row tells you exactly which name clashed.",
+    title: "Name override clashes with another row",
+    longExplanation:
+      "A name override's output now collides with another row of the same name (a crew member the sheet added, or another hotel), so it was paused and the sheet's value restored. Re-point the override to a different name or discard it from Needs attention.",
+    helpHref: "/help/errors#OVERRIDE_NAME_CONFLICT",
+  },
   UNPUBLISH_TOKEN_CONSUMED: {
     code: "UNPUBLISH_TOKEN_CONSUMED",
     dougFacing:

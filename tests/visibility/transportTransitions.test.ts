@@ -250,6 +250,7 @@ describe("Compound transport transitions (review Important 4)", () => {
     const beforeVisible = transportTileVisible({
       transportation: baseTransport,
       viewerName: "Jamie Brooks",
+      viewerNameAliases: ["Jamie Brooks"],
       isAdmin: false,
     });
     expect(beforeVisible).toBe(true);
@@ -261,6 +262,7 @@ describe("Compound transport transitions (review Important 4)", () => {
     const duringVisible = transportTileVisible({
       transportation: baseTransport,
       viewerName: "Taylor Quinn",
+      viewerNameAliases: ["Taylor Quinn"],
       isAdmin: false,
     });
     expect(duringVisible).toBe(false);
@@ -274,6 +276,7 @@ describe("Compound transport transitions (review Important 4)", () => {
     const afterVisible = transportTileVisible({
       transportation: reTaggedTransport,
       viewerName: "Taylor Quinn",
+      viewerNameAliases: ["Taylor Quinn"],
       isAdmin: false,
     });
     expect(afterVisible).toBe(true);
@@ -342,6 +345,7 @@ describe("Compound transport transitions (review Important 4)", () => {
     const beforeVisible = transportTileVisible({
       transportation: beforeTransport,
       viewerName: "Viewer Name",
+      viewerNameAliases: ["Viewer Name"],
       isAdmin: false,
     });
     expect(beforeVisible).toBe(false);
@@ -355,6 +359,7 @@ describe("Compound transport transitions (review Important 4)", () => {
     const afterVisible = transportTileVisible({
       transportation: afterTransport,
       viewerName: "Viewer Name",
+      viewerNameAliases: ["Viewer Name"],
       isAdmin: false,
     });
     expect(afterVisible).toBe(true);

@@ -44,7 +44,7 @@
  */
 import { unstable_cache } from "next/cache";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
-import { namesRefer } from "@/lib/data/nameMatch";
+import { namesReferAny } from "@/lib/data/nameMatch";
 import { showCacheTag } from "@/lib/data/showCacheTag";
 import { decodeJsonbColumn } from "@/lib/db/coerceJsonbObject";
 import { decodeRunOfShow } from "@/lib/data/decodeRunOfShow";
@@ -108,14 +108,19 @@ export class CrewMemberNotInShowError extends Error {
 
 /**
  * Whether a hotel reservation should surface for a viewer — true iff any guest on
- * the reservation refers to the viewer (`namesRefer`, tolerant of first-name /
- * nickname / initial / `/`-merged forms). Replaces a naive `guest.includes(viewer)`
- * substring that hid most crew's own hotels. UX-not-security per the owner
- * determination (BL-HOTEL-VIEWER-NAME-MATCH); applied only on the non-admin,
- * non-null-`viewerName` branch.
+ * the reservation refers to ANY name in the viewer's alias set (`namesReferAny`,
+ * tolerant of first-name / nickname / initial / `/`-merged forms). Replaces a naive
+ * `guest.includes(viewer)` substring that hid most crew's own hotels. The alias set
+ * (§3.5) is `[live name, sheet_name?]` — a SURNAME-changing override keeps the
+ * renamed viewer's OWN reservation (still keyed on the pre-override `sheet_name`)
+ * visible. UX-not-security per the owner determination (BL-HOTEL-VIEWER-NAME-MATCH);
+ * applied only on the non-admin branch, and an empty alias set surfaces nothing.
  */
-export function hotelVisibleToViewer(res: HotelReservationRow, viewerName: string): boolean {
-  return res.names.some((n) => namesRefer(n, viewerName));
+export function hotelVisibleToViewer(
+  res: HotelReservationRow,
+  viewerNameAliases: string[],
+): boolean {
+  return res.names.some((n) => namesReferAny(n, viewerNameAliases));
 }
 
 // Crew-page-shaped projection of a show. Mirrors `ParsedSheet` from
@@ -230,6 +235,18 @@ export type ShowForViewer = {
   viewerName: string | null;
 
   /**
+   * The active viewer's name alias set (§3.5) — `[live name, sheet_name?]`. The
+   * live `crew_members.name` plus the PRE-override parsed name
+   * (`crew_members.sheet_name`, present only while a name override is active)
+   * that hotel/transportation rows still key on. `transportTileVisible` and the
+   * hotel projection filter match against THIS set (not the scalar `viewerName`)
+   * so a SURNAME-changing override keeps the renamed viewer's OWN transport +
+   * hotel visible. Empty `[]` for the admin viewer (no crew row); every alias-set
+   * matcher is a no-op on `[]`, so admins gate on `isAdmin`, not names.
+   */
+  viewerNameAliases: string[];
+
+  /**
    * The viewer's OWN flight itinerary (crew_members.flight_info), read on the
    * same own-row lookup as viewerName, blank-normalized to null. NOT on the
    * crewMembers[] roster — the Travel card shows the viewer their own flight
@@ -295,6 +312,12 @@ async function readShowDataForViewer(
   // for this show at all).
   let derivedFlags: RoleFlag[] = [];
   let viewerName: string | null = null;
+  // §3.5 — the viewer's name alias set. `[live name, sheet_name?]`: the current
+  // crew_members.name plus the PRE-override parsed name (crew_members.sheet_name,
+  // non-null only while a name override is active) that hotel/transport rows still
+  // key on. Empty `[]` for the admin viewer (no crew row / no name resolved), which
+  // makes every alias-set matcher a no-op — admins gate on `isAdmin`, not names.
+  let viewerNameAliases: string[] = [];
   let viewerFlightInfo: string | null = null;
 
   if (needsCrewLookup) {
@@ -304,7 +327,7 @@ async function readShowDataForViewer(
     // applied to the requested show.
     const lookup = await supabase
       .from("crew_members")
-      .select("role_flags, name, flight_info")
+      .select("role_flags, name, flight_info, sheet_name")
       .eq("id", viewer.crewMemberId)
       .eq("show_id", showId)
       .maybeSingle();
@@ -316,6 +339,10 @@ async function readShowDataForViewer(
     }
     derivedFlags = (lookup.data.role_flags as RoleFlag[]) ?? [];
     viewerName = (lookup.data.name as string) ?? null;
+    const sheetName = (lookup.data.sheet_name as string | null) ?? null;
+    // Build the alias set only when a viewer name resolved; sheet_name joins it
+    // when present (an active name override). Filtered to non-null.
+    viewerNameAliases = viewerName === null ? [] : [viewerName, ...(sheetName ? [sheetName] : [])];
     const rawFlight = (lookup.data.flight_info as string | null) ?? null;
     viewerFlightInfo = rawFlight && rawFlight.trim().length > 0 ? rawFlight : null;
   }
@@ -686,7 +713,7 @@ async function readShowDataForViewer(
   const hotelReservations: HotelReservationRow[] =
     isAdmin || viewerName === null
       ? allHotels
-      : allHotels.filter((res) => hotelVisibleToViewer(res, viewerName as string));
+      : allHotels.filter((res) => hotelVisibleToViewer(res, viewerNameAliases));
 
   let runOfShow: Record<string, ScheduleDay> | null = runOfShowRaw;
 
@@ -759,6 +786,7 @@ async function readShowDataForViewer(
     contacts,
     pullSheet,
     viewerName,
+    viewerNameAliases,
     viewerFlightInfo,
     diagrams,
     openingReelHasVideo,

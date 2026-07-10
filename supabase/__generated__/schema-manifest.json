@@ -32,6 +32,21 @@
     "revoked_at",
     "revoked_by"
   ],
+  "admin_overrides": [
+    "active",
+    "created_at",
+    "created_by",
+    "deactivation_code",
+    "domain",
+    "field",
+    "id",
+    "match_key",
+    "override_value",
+    "sheet_value",
+    "show_id",
+    "updated_at",
+    "version"
+  ],
   "agenda_extract_leases": [
     "drive_file_id",
     "expires_at",
@@ -95,6 +110,7 @@
     "role",
     "role_flags",
     "selections_reset_at",
+    "sheet_name",
     "show_id",
     "stage_restriction"
   ],

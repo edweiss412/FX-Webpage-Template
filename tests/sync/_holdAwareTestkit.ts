@@ -18,6 +18,7 @@ import type {
   PreviousCrewMember,
 } from "@/lib/sync/applyParseResult";
 import type { HoldPort } from "@/lib/sync/holds/holdPort";
+import type { FullCrewRow } from "@/lib/sync/reconcileCrewOverrides";
 
 export function holdPort(tx: Sql): HoldPort {
   return {
@@ -185,6 +186,42 @@ export function applyTx(tx: Sql): ApplyParseResultTx {
         `;
       }
     },
+    // §3.6 four-phase crew reconciliation executor (R24) — mirrors runScheduledCronSync's impls.
+    async crewDeleteByIds(showId: string, ids: string[]) {
+      if (ids.length === 0) return;
+      await tx`delete from public.crew_members where show_id = ${showId} and id = any(${ids}::uuid[])`;
+    },
+    async crewParkAtSentinel(showId: string, ids: string[]) {
+      if (ids.length === 0) return;
+      await tx`update public.crew_members set name = chr(31) || '__reassign__' || id::text
+                where show_id = ${showId} and id = any(${ids}::uuid[])`;
+    },
+    async crewInsertFull(showId: string, rows: FullCrewRow[]) {
+      for (const r of rows) {
+        await tx`
+          insert into public.crew_members
+            (show_id, name, email, phone, role, role_flags, date_restriction,
+             stage_restriction, flight_info, sheet_name)
+          values (${showId}, ${r.name}, ${r.email}, ${r.phone}, ${r.role}, ${r.role_flags},
+                  ${tx.json(r.date_restriction)}, ${tx.json(r.stage_restriction)}, ${r.flight_info}, ${r.sheet_name})
+        `;
+      }
+    },
+    async crewAssignFinals(
+      showId: string,
+      finals: { id: string; row: FullCrewRow; sheetName: string | null }[],
+    ) {
+      for (const { id, row: r, sheetName } of finals) {
+        await tx`
+          update public.crew_members set
+            name = ${r.name}, email = ${r.email}, phone = ${r.phone}, role = ${r.role},
+            role_flags = ${r.role_flags}, date_restriction = ${tx.json(r.date_restriction)},
+            stage_restriction = ${tx.json(r.stage_restriction)}, flight_info = ${r.flight_info},
+            sheet_name = ${sheetName}
+          where show_id = ${showId} and id = ${id}
+        `;
+      }
+    },
     async provisionAddedCrewAuth() {},
     async revokeRemovedCrewAuth() {},
     async replaceHotelReservations() {},
@@ -225,7 +262,7 @@ export function phase2Tx(tx: Sql) {
       const showId = show!.id;
       const previous = (await tx`
         select id, name, email, phone, role, role_flags, date_restriction, stage_restriction,
-               flight_info, claimed_via_oauth_at
+               flight_info, claimed_via_oauth_at, selections_reset_at
           from public.crew_members where show_id = ${showId} order by name
       `) as unknown as PreviousCrewMember[];
       await tx`
@@ -249,6 +286,7 @@ export function phase2Tx(tx: Sql) {
           stage_restriction: p.stage_restriction,
           flight_info: p.flight_info,
           claimed_via_oauth_at: p.claimed_via_oauth_at,
+          selections_reset_at: p.selections_reset_at,
         })),
       };
     },
@@ -264,8 +302,13 @@ export function snapshot(showId: string, previous: PreviousCrewMember[]): ApplyP
 }
 
 export function prevMember(
-  row: { id: string; claimed_via_oauth_at: string | null },
+  row: { id: string; claimed_via_oauth_at: string | null; selections_reset_at?: string | null },
   member: CrewMemberRow,
 ): PreviousCrewMember {
-  return { ...member, id: row.id, claimed_via_oauth_at: row.claimed_via_oauth_at };
+  return {
+    ...member,
+    id: row.id,
+    claimed_via_oauth_at: row.claimed_via_oauth_at,
+    selections_reset_at: row.selections_reset_at ?? null,
+  };
 }

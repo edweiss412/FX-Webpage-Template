@@ -161,6 +161,12 @@ export const INTERNAL_CODE_ENUMS = {
   OPERATOR_ERROR_NOT_FOLDER: {
     source: "admin_alerts.code,pending_ingestions.last_error_code"
   },
+  OVERRIDE_NAME_CONFLICT: {
+    source: "admin_alerts.code"
+  },
+  OVERRIDE_TARGET_MISSING: {
+    source: "admin_alerts.code"
+  },
   parse_error: {
     source: "shows.last_sync_status"
   },

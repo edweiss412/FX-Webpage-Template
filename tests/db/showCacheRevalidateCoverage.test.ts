@@ -53,7 +53,7 @@ const REVALIDATE_REGISTRY: RegistryEntry[] = [
   // ---- Task 5 (sync chokepoint callers) — already shipped before this milestone's Tasks 6–9 ----
   {
     file: "lib/sync/runScheduledCronSync.ts",
-    siteCount: 21,
+    siteCount: 25,
     disposition: "revalidate",
     revalidateBranches: 2, // processOneFile apply tail + markMissingShow loop
     reason:
@@ -61,7 +61,11 @@ const REVALIDATE_REGISTRY: RegistryEntry[] = [
       "The +1 over the Task-5 baseline is the Flow-C durable `update public.shows set pull_sheet_override` " +
       "(archived-tab override apply/auto-clear) — admin sync-config gating OLD-tab inclusion on the NEXT " +
       "parse, NOT served crew-page content; it also sits inside the same processOneFile flow the apply-tail " +
-      "revalidate already covers.",
+      "revalidate already covers. The +4 (21→25) is the admin-field-override §3.6 crew reconciliation " +
+      "(delete removed + rename update + insert + role update on public.crew_members), a getShowForViewer " +
+      "read table — those writes run in Stage B of the SAME applied-sync path the apply-tail " +
+      "revalidateShowFromResult already covers post-commit. (The two `update public.admin_overrides` " +
+      "writes are NOT counted: admin_overrides is admin-surface-only, not a getShowForViewer read table.)",
   },
   {
     file: "lib/sync/runManualSyncForShow.ts",

@@ -98,6 +98,9 @@ import {
   type RoleFlagsNotice,
   type Phase2Tx,
 } from "@/lib/sync/phase2";
+import type { FullCrewRow } from "@/lib/sync/reconcileCrewOverrides";
+import type { ActiveOverrideRow, OverrideSideEffect } from "@/lib/sync/overrideShowHotel";
+import { emitOverrideDeactivationAlerts } from "@/lib/adminAlerts/resolveOverrideAlertsForShow";
 import { promoteSnapshotUpload as defaultPromoteSnapshotUpload } from "@/lib/sync/promoteSnapshot";
 import {
   type DeferredIngestionRow,
@@ -393,6 +396,11 @@ export type ProcessOneFileResult =
       // coreResult.parseWarnings). [] is a valid empty value; the per-caller runtime tests pin
       // correct SOURCING.
       parseWarnings: ParseResult["warnings"];
+      // Admin field overrides (§6 step 3): the override side-effects Stage B committed this apply
+      // (sheet_value refresh + fail-closed deactivations). Rides out on the applied result so the
+      // POST-COMMIT tail can emit the best-effort coarse deactivation bell (outside the lock).
+      // Optional — absent when no override overlay ran.
+      showHotelSideEffects?: OverrideSideEffect[];
     }
   | { outcome: "stale"; code: string }
   | { outcome: "revision_race"; code: typeof STAGED_PARSE_REVISION_RACE }
@@ -1335,12 +1343,14 @@ class PostgresPipelineTx implements SyncPipelineTx {
           stage_restriction: unknown;
           flight_info: string | null;
           claimed_via_oauth_at: string | null;
+          selections_reset_at: string | null;
         }>(
           // PF38 (resolution #24): id + claimed_via_oauth_at are load-bearing for Phase-4 undo
-          // identity continuity (picker-cookie key + OAuth claim). Widened from name/email/phone/...
+          // identity continuity (picker-cookie key + OAuth claim). §3.6: selections_reset_at joins the
+          // lifecycle set the id-keyed crew reconciliation preserves.
           `
             select id, name, email, phone, role, role_flags, date_restriction, stage_restriction,
-                   flight_info, claimed_via_oauth_at
+                   flight_info, claimed_via_oauth_at, selections_reset_at
               from public.crew_members
              where show_id = $1
              order by name
@@ -1560,6 +1570,7 @@ class PostgresPipelineTx implements SyncPipelineTx {
           row.stage_restriction as ParseResult["crewMembers"][number]["stage_restriction"],
         flight_info: row.flight_info,
         claimed_via_oauth_at: row.claimed_via_oauth_at,
+        selections_reset_at: row.selections_reset_at,
       })),
     };
   }
@@ -1603,6 +1614,141 @@ class PostgresPipelineTx implements SyncPipelineTx {
         ],
       );
     }
+  }
+
+  // §3.6 (admin field overrides): the single locked-tx read of this show's ACTIVE admin_overrides
+  // (SYNC-1/SYNC-2). Reads via the same PostgresTransaction (the JS-held show lock; no nested lock).
+  // {data,error} discipline is owned by lib/sync/loadActiveOverrides — a thrown DB fault surfaces
+  // there as `thrown_error`; a successful read returns { data, error: null }.
+  // not-subject-to-meta: service-role SQL inside the JS-held show lock (no Supabase client here).
+  async loadActiveOverrides(driveFileId: string) {
+    const data = await this.rows<ActiveOverrideRow>(
+      `
+        select o.id, o.domain, o.field, o.match_key, o.override_value
+          from public.admin_overrides o
+          join public.shows s on s.id = o.show_id
+         where s.drive_file_id = $1
+           and o.active
+         order by o.id
+      `,
+      [driveFileId],
+    );
+    return { data, error: null };
+  }
+
+  // §3.6 four-phase crew write executor (R24) — deletes → parkAtSentinel → insertFull → assignFinals.
+  async crewDeleteByIds(showId: string, ids: string[]) {
+    if (ids.length === 0) return;
+    await this.rows("delete from public.crew_members where show_id = $1 and id = any($2::uuid[])", [
+      showId,
+      ids,
+    ]);
+  }
+
+  async crewParkAtSentinel(showId: string, ids: string[]) {
+    if (ids.length === 0) return;
+    // chr(31) is the \x1f unit-separator; it cannot occur in a parsed crew name, and appending the id
+    // makes each sentinel unique, so no surviving row holds any final display name after this phase.
+    await this.rows(
+      `update public.crew_members
+          set name = chr(31) || '__reassign__' || id::text
+        where show_id = $1 and id = any($2::uuid[])`,
+      [showId, ids],
+    );
+  }
+
+  async crewInsertFull(showId: string, rows: FullCrewRow[]) {
+    for (const row of rows) {
+      await this.rows(
+        `
+          insert into public.crew_members (
+            show_id, name, email, phone, role, role_flags, date_restriction,
+            stage_restriction, flight_info, sheet_name
+          )
+          values ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10)
+        `,
+        [
+          showId,
+          row.name,
+          canonicalize(row.email),
+          row.phone,
+          row.role,
+          row.role_flags,
+          row.date_restriction,
+          row.stage_restriction,
+          row.flight_info,
+          row.sheet_name,
+        ],
+      );
+    }
+  }
+
+  async crewAssignFinals(
+    showId: string,
+    finals: { id: string; row: FullCrewRow; sheetName: string | null }[],
+  ) {
+    for (const { id, row, sheetName } of finals) {
+      await this.rows(
+        `
+          update public.crew_members
+             set name = $3,
+                 email = $4,
+                 phone = $5,
+                 role = $6,
+                 role_flags = $7,
+                 date_restriction = $8::jsonb,
+                 stage_restriction = $9::jsonb,
+                 flight_info = $10,
+                 sheet_name = $11
+           where show_id = $1 and id = $2
+        `,
+        [
+          showId,
+          id,
+          row.name,
+          canonicalize(row.email),
+          row.phone,
+          row.role,
+          row.role_flags,
+          row.date_restriction,
+          row.stage_restriction,
+          row.flight_info,
+          sheetName,
+        ],
+      );
+    }
+  }
+
+  // Stage B (§3.2/§6): the two admin_overrides write executors commitOverrideSideEffects dispatches to.
+  // Raw SQL inside the JS-held show lock (no nested lock, invariant 2); a DB fault throws and rolls the
+  // whole locked tx back — atomic with the crew/show/hotel writes, so the durable inactive-row signal
+  // (§6) can never diverge from the live rows. Applied-path-only (phase2 calls past the stale guard).
+  // not-subject-to-meta: service-role SQL inside the JS-held show lock (no Supabase client here).
+  async refreshOverrideSheetValue(overrideId: string, sheetValue: unknown) {
+    // R30 benign refresh — updates the display-only chip; DELIBERATELY does NOT bump `version`, so a
+    // routine cron between an admin's UI-load and save does not false-409 an open edit (spec line 182).
+    // postgres.js serializes a $N::jsonb param ONCE — pass the RAW value (object for dates/venue, string
+    // for name/role/hotel, null), never JSON.stringify (that double-encodes to a jsonb string scalar and
+    // breaks revert; feedback_postgres_js_jsonb_param_double_encode). undefined→null (postgres.js rejects
+    // undefined binds). A string sheetValue serializes to a jsonb string, matching the RPC's to_jsonb().
+    await this.rows(
+      `update public.admin_overrides
+          set sheet_value = $2::jsonb, updated_at = now()
+        where id = $1`,
+      [overrideId, sheetValue === undefined ? null : sheetValue],
+    );
+  }
+
+  async deactivateOverride(overrideId: string, code: "target_missing" | "name_conflict") {
+    // Genuine state change — pauses the override AND bumps `version` so an admin's open edit against the
+    // now-stale row 409s (CAS-A). `and active` keeps it idempotent (a re-run over an already-paused row
+    // is a no-op, never a second version bump).
+    await this.rows(
+      `update public.admin_overrides
+          set active = false, deactivation_code = $2, version = version + 1, updated_at = now()
+        where id = $1 and active`,
+      [overrideId, code],
+    );
   }
 
   async provisionAddedCrewAuth(showId: string, names: string[]) {
@@ -2659,6 +2805,16 @@ export async function processOneFile(
     await (deps.promoteSnapshotUpload ?? defaultPromoteSnapshotUpload)(result.snapshotRevisionId);
   }
   await emitDeferredRoleFlagsNotice(result, deps);
+  // Admin field overrides (§6 step 3 / §10 R30): best-effort coarse deactivation bell +
+  // auto-resolve re-derivation, POST-COMMIT and OUTSIDE the advisory lock (invariants 2 + 10).
+  // Swallows its own failures — the durable inactive-row needs-attention stream is authoritative.
+  if (!("skipped" in result) && result.outcome === "applied" && result.showHotelSideEffects) {
+    await emitOverrideDeactivationAlerts(
+      result.showId,
+      result.showHotelSideEffects,
+      deps.upsertAdminAlert ? { upsertAdminAlert: deps.upsertAdminAlert } : {},
+    );
+  }
   return result;
 }
 
@@ -3413,6 +3569,7 @@ export async function processOneFile_unlocked(
   };
   if (phase2.roleFlagsNotice) result.roleFlagsNotice = phase2.roleFlagsNotice;
   if (phase2.snapshotRevisionId) result.snapshotRevisionId = phase2.snapshotRevisionId;
+  if (phase2.showHotelSideEffects) result.showHotelSideEffects = phase2.showHotelSideEffects;
   await emitSuccessfulPhase2Tail({
     tx,
     result,

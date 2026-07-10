@@ -34,6 +34,11 @@ import { Step2Verify } from "@/components/admin/wizard/Step2Verify";
 import type { Step3Row, Step3ManifestStatus } from "@/components/admin/wizard/Step3Review";
 import { Step3ReviewWithFinalize } from "@/components/admin/wizard/Step3ReviewWithFinalize";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
+import {
+  loadShowOverrides,
+  type ShowOverridesView,
+  type CrewInput,
+} from "@/lib/overrides/loadShowOverrides";
 import { driveFolderUrl } from "@/lib/drive/driveFolderUrl";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
@@ -512,6 +517,68 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
     else candidatesByDfid.set(dfid, [candidate]);
   }
 
+  // Task 15 (spec §8.3, R18/R15): the LIVE admin-override state per EXISTING show.
+  // The review wizard renders a PENDING (not-yet-applied) parse; but every
+  // <OverrideableField>'s value / CAS-B (`p_expected_current_value`) / override
+  // state MUST come from the LIVE rows, never the pending parse — `set_field_override`
+  // mutates live rows and compares CAS-B against the live field, so feeding the
+  // pending parse would false-409 a legitimate save or capture the wrong sheet_value.
+  // A show with a candidate has a live `shows` row (R15 satisfied → editable);
+  // a first-seen show (no candidate) has none → `null` (widgets disabled + hint).
+  const showIdByDfid = new Map<string, string>();
+  for (const [dfid, list] of candidatesByDfid) {
+    // set_field_override resolves drive_file_id → show_id (unique); mirror that.
+    const first = list[0];
+    if (first) showIdByDfid.set(dfid, first.id);
+  }
+  const overrideShowIds = [...showIdByDfid.values()];
+  // Live crew rows (id/name/role/sheet_name) — loadShowOverrides derives each
+  // member's durable matchKey (§8.2a) from sheet_name ?? name. {data,error}
+  // discipline (invariant 9); a fault degrades to no crew (show/hotel views still
+  // load), never a thrown page.
+  const liveCrewByShowId = new Map<string, CrewInput[]>();
+  if (overrideShowIds.length > 0) {
+    try {
+      const { data, error } = await supabase
+        .from("crew_members")
+        .select("id, name, role, sheet_name, show_id")
+        .in("show_id", overrideShowIds);
+      if (!error && data) {
+        for (const c of data as ReadonlyArray<Record<string, unknown>>) {
+          const sid = c.show_id as string;
+          const list = liveCrewByShowId.get(sid) ?? [];
+          list.push({
+            id: c.id as string,
+            name: (c.name as string | null) ?? "",
+            role: (c.role as string | null) ?? null,
+            sheet_name: (c.sheet_name as string | null) ?? null,
+          });
+          liveCrewByShowId.set(sid, list);
+        }
+      }
+    } catch {
+      /* degrade: no live crew → show/hotel override views still load */
+    }
+  }
+  // Per existing show, load the override views. loadShowOverrides itself reads
+  // admin_overrides + hotel_reservations and degrades per-field on fault. A THROW
+  // leaves the dfid absent (no affordance) rather than a false first-seen hint.
+  const liveOverridesByDfid = new Map<string, ShowOverridesView>();
+  for (const [dfid, showId] of showIdByDfid) {
+    const cand = candidatesByDfid.get(dfid)?.[0];
+    try {
+      const view = await loadShowOverrides(supabase, {
+        showId,
+        crew: liveCrewByShowId.get(showId) ?? [],
+        showDates: cand?.dates ?? null,
+        showVenue: cand?.venue ?? null,
+      });
+      liveOverridesByDfid.set(dfid, view);
+    } catch {
+      /* degrade: leave absent so the row renders no override affordance */
+    }
+  }
+
   // Raw pending_syncs row by drive_file_id (buildStep3Row's nullable pending input).
   const rawPendingByDfid = new Map<string, PendingSyncRowForBuild>();
   for (const ps of pendingSyncsRows) {
@@ -636,6 +703,18 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
     return base;
   });
 
+  // Task 15 (§8.3): attach the LIVE override state per row. A row whose show exists
+  // carries its loaded view (or ABSENT if the load threw — no affordance, never a
+  // false hint); a first-seen show (no candidate) carries `null` (R15 → the wizard
+  // widgets render disabled + the publish-first hint).
+  const rowsWithOverrides: Step3Row[] = rows.map((r) => {
+    const hasShow = (candidatesByDfid.get(r.driveFileId)?.length ?? 0) > 0;
+    const lo: ShowOverridesView | null | undefined = hasShow
+      ? liveOverridesByDfid.get(r.driveFileId)
+      : null;
+    return lo !== undefined ? { ...r, liveOverrides: lo } : r;
+  });
+
   // §7.3: the UI half of the `finishable` predicate. A row blocks finish iff
   // it is in a genuine error/conflict state needing acknowledgement. The
   // canonical blocking set is the identical 3-element set the server gate
@@ -649,7 +728,7 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
   const finishable =
     rows.length === 0 || rows.every((r) => !BLOCKING.has(r.status) && !r.lastFinalizeFailureCode);
 
-  return { kind: "ok", rows, finishable };
+  return { kind: "ok", rows: rowsWithOverrides, finishable };
 }
 
 async function Step3Container({

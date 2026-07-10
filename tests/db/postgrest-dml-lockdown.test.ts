@@ -471,6 +471,21 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
     postBody: { admin_email: "lockdown-test@example.com" },
     rowFilter: "?admin_email=eq.no-such-row%40example.com",
   },
+  {
+    table: "admin_overrides",
+    closed_at: "20260707000000_admin_field_overrides.sql:219",
+    selectAnon: false,
+    selectAuthenticated: true, // RLS-confined to admins via admin_only (like ignored_warnings)
+    postBody: {
+      show_id: "00000000-0000-0000-0000-000000000000",
+      domain: "show",
+      field: "dates",
+      match_key: "",
+      override_value: {},
+      created_by: "a@b.co",
+    },
+    rowFilter: "?domain=eq.show",
+  },
 ] as const;
 
 // =============================================================================

@@ -61,6 +61,23 @@ export type NeedsAttentionSyncProblemInput = {
   raisedAt: string | null;
 };
 
+// A paused (deactivated) admin field override — the DURABLE inactive-row signal
+// (spec 2026-07-07 §6 step 2). Sourced from `admin_overrides where not active`
+// joined to its show. `deactivationCode` is the durable pause reason (§6 step 1)
+// from which the card's domain-aware copy is computed HERE in the builder — NOT
+// the best-effort alert (§6 step 4), so the operator sees the right reason even
+// when the step-3 alert emit failed.
+export type NeedsAttentionOverrideInput = {
+  overrideId: string;
+  showId: string;
+  slug: string;
+  title: string | null;
+  domain: string;
+  field: string;
+  matchKey: string;
+  deactivationCode: "target_missing" | "name_conflict";
+};
+
 export type BuildNeedsAttentionInput = {
   ingestions: NeedsAttentionIngestionInput[];
   syncs: NeedsAttentionSyncInput[];
@@ -68,13 +85,38 @@ export type BuildNeedsAttentionInput = {
   // `syncProblems` nor `totalCounts.syncProblems`; both default to []/0 so the
   // digest produces zero sync_problem items (byte-identical behavior).
   syncProblems?: NeedsAttentionSyncProblemInput[];
+  // OPTIONAL (spec 2026-07-07 §6 step 2): the 4th derived stream — paused field
+  // overrides. Defaults to []/0 for callers (e.g. the digest) that don't feed it.
+  overrides?: NeedsAttentionOverrideInput[];
   // keyed by drive_file_id; spans ALL shows (published/unpublished/archived)
   existence: Record<string, ShowExistence>;
-  totalCounts: { ingestions: number; syncs: number; syncProblems?: number };
+  totalCounts: { ingestions: number; syncs: number; syncProblems?: number; overrides?: number };
   // Render cap for the merged slice; defaults to RENDER_CAP (dashboard inbox).
   // The needs-attention page threads PAGE_RENDER_CAP (spec §4.1).
   cap?: number;
 };
+
+/**
+ * Domain-aware needs-attention copy for a paused override, derived from the
+ * durable `deactivation_code` column (spec 2026-07-07 §6 step 4). Never renders
+ * a raw code. `target_missing` interpolates the override's match_key; the two
+ * `name_conflict` reasons are domain-specific (crew vs hotel) and must NOT
+ * collapse — an operator reading a hotel row must not see the crew wording.
+ */
+export function resolveOverridePausedCopy(input: {
+  domain: string;
+  deactivationCode: "target_missing" | "name_conflict";
+  matchKey: string;
+}): string {
+  if (input.deactivationCode === "target_missing") {
+    return `sheet no longer has «${input.matchKey}»`;
+  }
+  // name_conflict — domain-aware (show never goes stale, so it never reaches here;
+  // any non-hotel domain uses the crew wording).
+  return input.domain === "hotel"
+    ? "clashes with another hotel's name"
+    : "clashes with a real crew member";
+}
 
 // `activityAt` = the ISO activity time the card was sorted by (pending_ingestion
 // → last_attempt_at; sync variants → staged_modified_time). Null when the source
@@ -117,6 +159,23 @@ export type NeedsAttentionItem =
       code: string; // SHEET_UNAVAILABLE | PARSE_ERROR_LAST_GOOD (unconstrained DB string)
       copy: string; // catalog-safe, already resolved
       activityAt: string | null;
+    }
+  | {
+      // Paused (deactivated) field override (spec 2026-07-07 §6 step 2). Deep-links
+      // /admin/show/{slug} where the re-point/discard controls live (Task 14). No
+      // activity time (a durable pause has no event timestamp) → activityAt null.
+      variant: "override_paused";
+      key: string;
+      overrideId: string; // unique row discriminator (aria-label + card key)
+      showId: string;
+      slug: string; // non-null (null-slug rows are skipped at build time)
+      title: string | null;
+      domain: string;
+      field: string;
+      matchKey: string;
+      deactivationCode: "target_missing" | "name_conflict";
+      copy: string; // domain-aware, computed from deactivationCode in the builder
+      activityAt: string | null;
     };
 
 export type NeedsAttention = {
@@ -129,6 +188,7 @@ export type NeedsAttention = {
   ingestionTotal: number;
   syncTotal: number;
   syncProblemTotal: number;
+  overrideTotal: number;
 };
 
 // Per-code generic fallbacks for a sync-problem card when no sheet name is
@@ -226,6 +286,18 @@ type MergedEntry =
       title: string | null;
       code: string;
       sheetName: string | null;
+    }
+  | {
+      kind: "override";
+      sortKey: string; // "" — a durable pause has no activity time (sorts last, tie-broken by id)
+      id: string; // overrideId (tie-break + card key)
+      showId: string;
+      slug: string;
+      title: string | null;
+      domain: string;
+      field: string;
+      matchKey: string;
+      deactivationCode: "target_missing" | "name_conflict";
     };
 
 export function buildNeedsAttention(input: BuildNeedsAttentionInput): NeedsAttention {
@@ -266,6 +338,23 @@ export function buildNeedsAttention(input: BuildNeedsAttentionInput): NeedsAtten
           sheetName: sp.sheetName,
         }),
       ),
+    // 4th stream (spec 2026-07-07 §6 step 2): paused field overrides. No activity
+    // time (sortKey "") — they sort AFTER the timed pending/sync-problem entries,
+    // tie-broken by overrideId ascending (deterministic).
+    ...(input.overrides ?? []).map(
+      (ov): MergedEntry => ({
+        kind: "override",
+        sortKey: "",
+        id: ov.overrideId,
+        showId: ov.showId,
+        slug: ov.slug,
+        title: ov.title,
+        domain: ov.domain,
+        field: ov.field,
+        matchKey: ov.matchKey,
+        deactivationCode: ov.deactivationCode,
+      }),
+    ),
   ];
 
   // Newest-first by activity time; tie-break by id ascending for determinism.
@@ -309,6 +398,26 @@ export function buildNeedsAttention(input: BuildNeedsAttentionInput): NeedsAtten
         activityAt,
       };
     }
+    if (entry.kind === "override") {
+      return {
+        variant: "override_paused",
+        key: `override:${entry.id}`,
+        overrideId: entry.id,
+        showId: entry.showId,
+        slug: entry.slug,
+        title: entry.title,
+        domain: entry.domain,
+        field: entry.field,
+        matchKey: entry.matchKey,
+        deactivationCode: entry.deactivationCode,
+        copy: resolveOverridePausedCopy({
+          domain: entry.domain,
+          deactivationCode: entry.deactivationCode,
+          matchKey: entry.matchKey,
+        }),
+        activityAt,
+      };
+    }
     const existing = input.existence[entry.driveFileId];
     if (existing) {
       return {
@@ -332,7 +441,9 @@ export function buildNeedsAttention(input: BuildNeedsAttentionInput): NeedsAtten
   });
 
   const syncProblemsTotal = input.totalCounts.syncProblems ?? 0;
-  const totalCount = input.totalCounts.ingestions + input.totalCounts.syncs + syncProblemsTotal;
+  const overridesTotal = input.totalCounts.overrides ?? 0;
+  const totalCount =
+    input.totalCounts.ingestions + input.totalCounts.syncs + syncProblemsTotal + overridesTotal;
   const renderedCount = items.length;
   return {
     items,
@@ -342,5 +453,6 @@ export function buildNeedsAttention(input: BuildNeedsAttentionInput): NeedsAtten
     ingestionTotal: input.totalCounts.ingestions,
     syncTotal: input.totalCounts.syncs,
     syncProblemTotal: syncProblemsTotal,
+    overrideTotal: overridesTotal,
   };
 }

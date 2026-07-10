@@ -45,7 +45,7 @@
  * Server-safe (pure functions; no environment reads, no side effects).
  */
 import type { RoleFlag, TransportationRow } from "@/lib/parser/types";
-import { namesRefer } from "@/lib/data/nameMatch";
+import { namesReferAny } from "@/lib/data/nameMatch";
 
 /**
  * Canonical "all-flags" set for the bare admin viewer's tile-grid
@@ -177,19 +177,28 @@ export function financialsVisible(flags: RoleFlag[], isAdmin: boolean): boolean 
 export function transportTileVisible(opts: {
   transportation: TransportationRow | null;
   viewerName: string | null;
+  // §3.5 — the viewer's name alias set `[live name, sheet_name?]`. NAME MATCHING
+  // (both branches below) runs against THIS set, not the scalar `viewerName`, so a
+  // renamed crew member whose transport rows still key on their pre-override
+  // `sheet_name` still sees their own ride. An EMPTY alias set matches nothing
+  // (namesReferAny over [] is false) — identical to the old no-viewer case.
+  viewerNameAliases: string[];
   isAdmin: boolean;
 }): boolean {
-  const { transportation, viewerName, isAdmin } = opts;
+  const { transportation, viewerName, viewerNameAliases, isAdmin } = opts;
   if (!transportation) return false;
   // Branch 3 — admin sees the tile when transportation exists.
   if (isAdmin) return true;
   if (!viewerName) return false;
   // Branch 1 — assigned driver. `driver_name` is FREE-TEXT (not roster-validated),
-  // so match by NAME (namesRefer), tolerant of the first-name / nickname / case /
-  // trim differences between a sheet "Driver: Doug" and roster "Doug Larson" —
-  // exact `===` hid the driver-crew-member's own transport (BL-HOTEL-VIEWER-NAME-
-  // MATCH sibling). UX-not-security per the owner determination.
-  if (transportation.driver_name !== null && namesRefer(transportation.driver_name, viewerName))
+  // so match by NAME (namesReferAny over the alias set), tolerant of the first-name
+  // / nickname / case / trim differences between a sheet "Driver: Doug" and roster
+  // "Doug Larson" — exact `===` hid the driver-crew-member's own transport
+  // (BL-HOTEL-VIEWER-NAME-MATCH sibling). UX-not-security per the owner determination.
+  if (
+    transportation.driver_name !== null &&
+    namesReferAny(transportation.driver_name, viewerNameAliases)
+  )
     return true;
   // Branch 2 — viewer is tagged on at least one schedule leg's assigned_names.
   // assigned_names are mostly roster-canonical (splitNames' isNameLike), but a
@@ -197,6 +206,6 @@ export function transportTileVisible(opts: {
   // name-aware matching. The `assigned_names` shape contract lives at
   // lib/parser/types.ts:147-152.
   return transportation.schedule.some((s) =>
-    s.assigned_names.some((n) => namesRefer(n, viewerName)),
+    s.assigned_names.some((n) => namesReferAny(n, viewerNameAliases)),
   );
 }

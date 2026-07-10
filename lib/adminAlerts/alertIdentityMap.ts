@@ -51,8 +51,9 @@ export type SegmentSpec =
 export type IdentityMapEntry = { kind: "global" } | { segments: SegmentSpec[] };
 
 /**
- * The full 45-code matrix (spec §4). 14 `global` entries, 31 with >=1
- * segment. Row numbers in comments match the spec §4 table for traceability.
+ * The full 47-code matrix (spec §4 + admin-field-overrides §10). 18 `global`
+ * entries, 29 with >=1 segment. Row numbers in comments match the spec §4 table
+ * for traceability.
  */
 export const ALERT_IDENTITY_MAP: Record<string, IdentityMapEntry> = {
   // 1. AMBIGUOUS_EMAIL_BINDING — Show · email · "N crew rows"
@@ -276,4 +277,12 @@ export const ALERT_IDENTITY_MAP: Record<string, IdentityMapEntry> = {
       { kind: "contextField", key: "attempted_action", label: "Action" },
     ],
   },
+
+  // 43. OVERRIDE_TARGET_MISSING — global (per-show doug bell; the durable
+  //     needs-attention row carries the per-override identity, so the coarse
+  //     alert needs no per-entity segment — the row's show_id names the show).
+  OVERRIDE_TARGET_MISSING: { kind: "global" },
+
+  // 44. OVERRIDE_NAME_CONFLICT — global (same rationale as OVERRIDE_TARGET_MISSING).
+  OVERRIDE_NAME_CONFLICT: { kind: "global" },
 };

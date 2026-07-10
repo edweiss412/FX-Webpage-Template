@@ -437,14 +437,24 @@ describe("loadNeedsAttention", () => {
       /const\s*\{\s*data:\s*_syncProblemCountData\s*,\s*count:\s*syncProblemHeadCount\s*,\s*error:\s*syncProblemCountError\s*,?\s*\}\s*=\s*await\s+supabase\s*\.from\("admin_alerts"\)/,
     );
     expect(src).toMatch(/void\s+_syncProblemCountData;/);
+    // 8. admin_overrides paused-override rows (4th derived stream, §6 step 2)
+    expect(src).toMatch(
+      /const\s*\{\s*data:\s*overrideData\s*,\s*error:\s*overrideRowsError\s*,?\s*\}\s*=\s*await\s+supabase\s*\.from\("admin_overrides"\)/,
+    );
+    // 9. admin_overrides paused-override head-count
+    expect(src).toMatch(
+      /const\s*\{\s*data:\s*_overrideCountData\s*,\s*count:\s*overrideHeadCount\s*,\s*error:\s*overrideCountError\s*,?\s*\}\s*=\s*await\s+supabase\s*\.from\("admin_overrides"\)/,
+    );
+    expect(src).toMatch(/void\s+_overrideCountData;/);
     // Negative sweep: NO read keeps a whole-response handle under any name —
     // `const <ident> = await supabase` (a non-destructured binding) must not
     // appear anywhere in the helper except the client construction itself.
     const bareHandles = src.match(/const\s+[A-Za-z_$][\w$]*\s*=\s*await\s+supabase\b/g) ?? [];
     expect(bareHandles).toEqual([]);
-    // Exactly seven destructured awaits — one per query surface (5 pending + 2 sync-problem).
+    // Exactly nine destructured awaits — one per query surface (5 pending + 2
+    // sync-problem + 2 paused-override rows/head-count, §6 step 2).
     const destructured = src.match(/=\s*await\s+supabase\s*\.from\(/g) ?? [];
-    expect(destructured).toHaveLength(7);
+    expect(destructured).toHaveLength(9);
   });
 
   test("third stream: emits a sync_problem item + total, with the archived/inbox/show_id filters applied", async () => {
