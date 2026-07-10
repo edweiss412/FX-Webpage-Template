@@ -104,6 +104,8 @@ const DEFAULT: ShowForViewer = {
   runOfShow: null,
   viewerName: "Test Crew",
   viewerNameAliases: ["Test Crew"],
+  viewerId: null,
+  transportationOwnerIds: [],
   viewerFlightInfo: null,
   viewerVersionToken: "v1",
   driveFileId: null,

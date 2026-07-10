@@ -115,6 +115,8 @@ describe("transportTileVisible — alias set on both match branches", () => {
     const t: TransportationRow = { ...base, driver_name: SHEET_NAME };
     expect(
       transportTileVisible({
+        viewerId: null,
+        transportationOwnerIds: [],
         transportation: t,
         viewerName: LIVE_NAME,
         viewerNameAliases: ALIASES,
@@ -123,6 +125,8 @@ describe("transportTileVisible — alias set on both match branches", () => {
     ).toBe(true);
     expect(
       transportTileVisible({
+        viewerId: null,
+        transportationOwnerIds: [],
         transportation: t,
         viewerName: LIVE_NAME,
         viewerNameAliases: SCALAR_ONLY,
@@ -146,6 +150,8 @@ describe("transportTileVisible — alias set on both match branches", () => {
     };
     expect(
       transportTileVisible({
+        viewerId: null,
+        transportationOwnerIds: [],
         transportation: t,
         viewerName: LIVE_NAME,
         viewerNameAliases: ALIASES,
@@ -154,6 +160,8 @@ describe("transportTileVisible — alias set on both match branches", () => {
     ).toBe(true);
     expect(
       transportTileVisible({
+        viewerId: null,
+        transportationOwnerIds: [],
         transportation: t,
         viewerName: LIVE_NAME,
         viewerNameAliases: SCALAR_ONLY,
@@ -166,6 +174,8 @@ describe("transportTileVisible — alias set on both match branches", () => {
     const t: TransportationRow = { ...base, driver_name: SHEET_NAME };
     expect(
       transportTileVisible({
+        viewerId: null,
+        transportationOwnerIds: [],
         transportation: t,
         viewerName: LIVE_NAME,
         viewerNameAliases: [],

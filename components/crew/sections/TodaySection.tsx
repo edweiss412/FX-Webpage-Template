@@ -218,6 +218,8 @@ export function TodaySection({
           // run-of-show). Also reused below for the 5-source notes transport gate.
           const transportVisible = transportTileVisible({
             transportation: data.transportation,
+            viewerId: data.viewerId,
+            transportationOwnerIds: data.transportationOwnerIds,
             viewerName: data.viewerName,
             viewerNameAliases: data.viewerNameAliases,
             isAdmin: ctx.isAdmin,

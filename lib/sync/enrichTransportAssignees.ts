@@ -2,30 +2,11 @@
 import type { CrewMemberRow, ParseResult, TransportationRow } from "@/lib/parser/types";
 import { namesRefer } from "@/lib/data/nameMatch";
 import { shouldHideGenericOptional } from "@/lib/visibility/emptyState"; // canonicalize-exempt: assignee name, not an email
-
-// Significant tokens (spec §2.3): lowercase, diacritic-fold, drop generational suffixes,
-// keep letter tokens of length >= 2. PRIVATE — deliberately NOT exported and NOT added to
-// nameMatch.ts, whose `toks` keeps one-letter tokens for initial matching (spec §2.3).
-function significantTokens(s: string): string[] {
-  return s
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .toLowerCase() // canonicalize-exempt: assignee name normalization, not an email
-    .replace(/\b(?:jr|sr|ii|iii|iv)\b/g, " ")
-    .replace(/[^\p{L}\s-]/gu, " ")
-    .split(/\s+/)
-    .map((t) => t.replace(/^-+|-+$/g, ""))
-    .filter((t) => t.length >= 2);
-}
+// `significantTokens` + `covers` moved to the shared transport matcher module so the 8.4
+// enrich-warning path and the 8.3b read-time owner resolver use ONE matcher (spec §4.2).
+import { covers, significantTokens } from "@/lib/data/transportOwnerResolve";
 
 type RosterToken = { name: string; sig: string[] };
-
-// True iff member M's WHOLE name appears verbatim (token-for-token, EXACT equality) in C.
-// EXACT, not prefix-compat: `covers` must be strictly stricter than `namesRefer`, so same-surname
-// near-neighbors ("Annie Lee" vs "Ann Lee") do NOT cover each other (spec §2.2, R5 finding 1).
-function covers(cSig: string[], mSig: string[]): boolean {
-  return mSig.length > 0 && mSig.every((mt) => cSig.includes(mt));
-}
 
 /** Spec §2.2 rules 1-5 for ONE already-split, trimmed candidate. */
 function isWarned(candidate: string, roster: RosterToken[]): boolean {

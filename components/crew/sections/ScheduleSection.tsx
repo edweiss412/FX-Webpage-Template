@@ -102,6 +102,8 @@ export function ScheduleSection({
   // scheduleEntriesForViewer only ever drops kind:"loadout" when this is false.
   const transportVisible = transportTileVisible({
     transportation: data.transportation,
+    viewerId: data.viewerId,
+    transportationOwnerIds: data.transportationOwnerIds,
     viewerName: data.viewerName,
     viewerNameAliases: data.viewerNameAliases,
     isAdmin,

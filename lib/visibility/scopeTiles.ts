@@ -176,6 +176,14 @@ export function financialsVisible(flags: RoleFlag[], isAdmin: boolean): boolean 
  */
 export function transportTileVisible(opts: {
   transportation: TransportationRow | null;
+  // Flow 8.3b — the viewer's OWN crew id, or null (admin / no crew row). Feeds the
+  // garble-proof id path: a viewer resolved as a transport owner sees the tile even
+  // when driver_name is mis-parsed such that namesRefer fails ("Doug Larson Loadout").
+  viewerId: string | null;
+  // Flow 8.3b — crew ids resolved from the transport assignee names (getShowForViewer
+  // via resolveTransportOwners). Union with the name branches below, because covers
+  // and namesRefer catch DISJOINT classes (garble vs nickname/prefix).
+  transportationOwnerIds: string[];
   viewerName: string | null;
   // §3.5 — the viewer's name alias set `[live name, sheet_name?]`. NAME MATCHING
   // (both branches below) runs against THIS set, not the scalar `viewerName`, so a
@@ -185,18 +193,37 @@ export function transportTileVisible(opts: {
   viewerNameAliases: string[];
   isAdmin: boolean;
 }): boolean {
-  const { transportation, viewerName, viewerNameAliases, isAdmin } = opts;
+  const {
+    transportation,
+    viewerId,
+    transportationOwnerIds,
+    viewerName,
+    viewerNameAliases,
+    isAdmin,
+  } = opts;
   if (!transportation) return false;
   // Branch 3 — admin sees the tile when transportation exists.
   if (isAdmin) return true;
+  // Branch 0 (Flow 8.3b) — garble-proof id path. Inert when viewerId is null or the
+  // owner set is empty. typeof/Array.isArray guards also tolerate an OLD cached
+  // ShowForViewer shape (pre-deploy entry lacking these fields → undefined) without
+  // throwing — defense-in-depth alongside the getShowForViewer cache-key bump.
+  if (
+    typeof viewerId === "string" &&
+    Array.isArray(transportationOwnerIds) &&
+    transportationOwnerIds.includes(viewerId)
+  )
+    return true;
   if (!viewerName) return false;
   // Branch 1 — assigned driver. `driver_name` is FREE-TEXT (not roster-validated),
   // so match by NAME (namesReferAny over the alias set), tolerant of the first-name
   // / nickname / case / trim differences between a sheet "Driver: Doug" and roster
   // "Doug Larson" — exact `===` hid the driver-crew-member's own transport
   // (BL-HOTEL-VIEWER-NAME-MATCH sibling). UX-not-security per the owner determination.
+  // typeof guard: a corrupt decoded-JSONB driver_name must not crash the page (namesRefer
+  // does `.split`); mirrors resolveTransportOwners' totality.
   if (
-    transportation.driver_name !== null &&
+    typeof transportation.driver_name === "string" &&
     namesReferAny(transportation.driver_name, viewerNameAliases)
   )
     return true;
@@ -204,8 +231,15 @@ export function transportTileVisible(opts: {
   // assigned_names are mostly roster-canonical (splitNames' isNameLike), but a
   // nickname/legal-name variant ("Douglas Larson" vs "Doug Larson") still needs
   // name-aware matching. The `assigned_names` shape contract lives at
-  // lib/parser/types.ts:147-152.
-  return transportation.schedule.some((s) =>
-    s.assigned_names.some((n) => namesReferAny(n, viewerNameAliases)),
+  // lib/parser/types.ts:147-152. Array/element guards mirror the resolver so a
+  // malformed schedule can't crash the page.
+  return (
+    Array.isArray(transportation.schedule) &&
+    transportation.schedule.some(
+      (s) =>
+        s != null &&
+        Array.isArray(s.assigned_names) &&
+        s.assigned_names.some((n) => typeof n === "string" && namesReferAny(n, viewerNameAliases)),
+    )
   );
 }

@@ -237,7 +237,12 @@ describe("getShowForViewer — data cached, version token live (Task 2)", () => 
     expect(rec.opts).toEqual({ tags: [showCacheTag(SHOW_ID)], revalidate: 300 });
     expect(rec.opts.tags).toEqual([`show-${SHOW_ID}`]);
     // key parts include show + viewer.kind + crewMemberId-or-admin
-    expect(rec.keyParts).toEqual(["getShowForViewer", SHOW_ID, "admin", "admin"]);
+    expect(rec.keyParts).toEqual([
+      "getShowForViewer:v2-transport-owners",
+      SHOW_ID,
+      "admin",
+      "admin",
+    ]);
   });
 
   test("showCacheTag / revalidateShow are exported and well-formed", () => {

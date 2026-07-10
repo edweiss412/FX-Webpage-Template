@@ -17,6 +17,7 @@ import path from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { createClient } from "@supabase/supabase-js";
 import { getShowForViewer, CrewMemberNotInShowError } from "@/lib/data/getShowForViewer";
+import { resolveTransportOwners } from "@/lib/data/transportOwnerResolve";
 
 const SUPABASE_URL = process.env.SUPABASE_URL ?? "http://127.0.0.1:54321";
 const SUPABASE_SERVICE_ROLE_KEY =
@@ -75,6 +76,7 @@ async function seedCrew(opts: {
   email?: string | null;
   roleFlags: string[];
   role?: string;
+  sheetName?: string | null;
 }): Promise<string> {
   const { data, error } = await admin
     .from("crew_members")
@@ -84,11 +86,25 @@ async function seedCrew(opts: {
       email: opts.email ?? null,
       role: opts.role ?? "A1",
       role_flags: opts.roleFlags,
+      sheet_name: opts.sheetName ?? null,
     })
     .select("id")
     .single();
   if (error || !data) throw new Error(`seedCrew failed: ${error?.message}`);
   return data.id as string;
+}
+
+async function seedTransportation(opts: {
+  showId: string;
+  driverName: string | null;
+  schedule?: unknown; // may be a malformed value (non-array / [null]) to exercise projection hardening
+}): Promise<void> {
+  const { error } = await admin.from("transportation").insert({
+    show_id: opts.showId,
+    driver_name: opts.driverName,
+    schedule: opts.schedule ?? [],
+  });
+  if (error) throw new Error(`seedTransportation failed: ${error.message}`);
 }
 
 async function seedHotel(opts: {
@@ -552,5 +568,59 @@ describe("getShowForViewer — schedule_phases projection (Task 4.9 prerequisite
     });
 
     expect(r.show.schedule_phases).toEqual({});
+  });
+
+  // ── Flow 8.3b — transport owner id resolution + privacy + row survival ──────
+  test("8.3b: resolves garbled driver to the owner via sheet_name; excludes non-owner; sheet_name is server-only", async () => {
+    const showId = await seedShow({ title: "Transport Owner Resolution" });
+    // Owner: a name-override row (public "Doug Newname", pre-override "Doug Larson") who is
+    // the garbled transport driver. Non-owner: unrelated crew, not driver / not tagged.
+    const ownerCrewId = await seedCrew({
+      showId,
+      name: "Doug Newname",
+      sheetName: "Doug Larson",
+      roleFlags: ["A1"],
+    });
+    const nonOwnerCrewId = await seedCrew({ showId, name: "Sam Stranger", roleFlags: ["A1"] });
+    await seedTransportation({ showId, driverName: "Doug Larson Loadout" });
+
+    const data = await getShowForViewer(showId, { kind: "crew", crewMemberId: ownerCrewId });
+
+    expect(data.viewerId).toBe(ownerCrewId);
+    // owner resolves via the SERVER-ONLY sheet_name alias + covers("Doug Larson Loadout" ⊇ "Doug Larson")
+    expect(data.transportationOwnerIds).toContain(ownerCrewId);
+    // R11a — the non-owner must NOT be resolved (a resolver returning every roster id would
+    // make unassigned crew see transport PII).
+    expect(data.transportationOwnerIds).not.toContain(nonOwnerCrewId);
+    // R5 + R11b — privacy: no sheet_name-ish key on ANY crew row, AND the pre-override value
+    // ("Doug Larson", differing from the public "Doug Newname") never serializes.
+    for (const c of data.crewMembers)
+      expect(Object.keys(c).some((k) => /sheet.?name/i.test(k))).toBe(false);
+    expect(JSON.stringify(data.crewMembers)).not.toContain("Doug Larson");
+    expect(JSON.stringify(data.crewMembers)).toContain("Doug Newname");
+  });
+
+  test("8.3b: transportation row SURVIVES a malformed schedule (garbled driver keeps their block)", async () => {
+    const showId = await seedShow({ title: "Transport Malformed Schedule" });
+    const ownerCrewId = await seedCrew({ showId, name: "Doug Larson", roleFlags: ["A1"] });
+    // Corrupt stored schedule: an array with a null entry. Pre-hardening readTransportation
+    // would throw in .map (entry.stage on null) and null the WHOLE transportation row.
+    await seedTransportation({
+      showId,
+      driverName: "Doug Larson Loadout",
+      schedule: [null],
+    });
+
+    const data = await getShowForViewer(showId, { kind: "crew", crewMemberId: ownerCrewId });
+
+    expect(data.transportation).not.toBeNull(); // row NOT dropped despite corrupt schedule
+    expect(data.transportation!.driver_name).toBe("Doug Larson Loadout"); // driver facts intact
+    expect(data.transportationOwnerIds).toContain(ownerCrewId); // id path still resolves the driver
+    // anti-tautology: the projection's owner set matches the resolver over the SAME transportation
+    expect(data.transportationOwnerIds).toEqual(
+      resolveTransportOwners(data.transportation, [
+        { id: ownerCrewId, name: "Doug Larson", sheet_name: null },
+      ]),
+    );
   });
 });

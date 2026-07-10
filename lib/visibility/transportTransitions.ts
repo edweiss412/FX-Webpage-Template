@@ -229,3 +229,51 @@ export function directedTransportTreatment(
   if (inverse.treatment === "fade-out-unmount") return "fade-in-mount";
   return inverse.treatment;
 }
+
+/**
+ * Post-8.3b id-owner axis (BL-TRANSPORT-ID-RESOLUTION). `transportTileVisible` gained a
+ * THIRD owner reason — the viewer's crew id ∈ transportationOwnerIds (garble-proof). For
+ * AnimatePresence, all owner reasons compose via NET visibility: the tile mounts/unmounts
+ * on net visible↔hidden, and any reason swap that keeps net-visible TRUE (e.g. a sheet edit
+ * garbles driver_name so the NAME branch flips false while the ID branch holds it visible)
+ * is stay-mounted-pulse — the tile MUST NOT flicker. The 4-name-state matrix above is the
+ * idOwnerMatch=false plane of this model.
+ */
+export interface TransportVisibilityAxes {
+  isAdmin: boolean;
+  idOwnerMatch: boolean;
+  driverNameMatch: boolean;
+  scheduleTagMatch: boolean;
+}
+
+export function transportNetVisible(a: TransportVisibilityAxes): boolean {
+  return a.isAdmin || a.idOwnerMatch || a.driverNameMatch || a.scheduleTagMatch;
+}
+
+/**
+ * AnimatePresence treatment as a pure function of NET-visibility change (the treatment
+ * never depends on WHICH reason changed — only whether the tile is net-visible before/after).
+ * Returns null for a no-op (identical axes) and for hidden→hidden (nothing renders).
+ */
+export function transportVisibilityTreatment(
+  from: TransportVisibilityAxes,
+  to: TransportVisibilityAxes,
+): TransportTreatment | null {
+  // No-op: identical axes (a re-render/sync that changed nothing) — no animation, mirroring
+  // the name-state matrix's `from === to → null` diagonal. MUST precede the pulse branch so an
+  // unchanged visible tile stays stable instead of pulsing every sync (Codex plan R10).
+  if (
+    from.isAdmin === to.isAdmin &&
+    from.idOwnerMatch === to.idOwnerMatch &&
+    from.driverNameMatch === to.driverNameMatch &&
+    from.scheduleTagMatch === to.scheduleTagMatch
+  ) {
+    return null;
+  }
+  const fromV = transportNetVisible(from);
+  const toV = transportNetVisible(to);
+  if (!fromV && !toV) return null;
+  if (!fromV && toV) return "fade-in-mount";
+  if (fromV && !toV) return "fade-out-unmount";
+  return "stay-mounted-pulse"; // visible→visible with ≥1 axis changed (reason swap)
+}

@@ -171,6 +171,8 @@ export function TravelSection({
           // omitted, so no driver / vehicle / plate / parking PII reaches the DOM.
           const transportVisible = transportTileVisible({
             transportation: data.transportation,
+            viewerId: data.viewerId,
+            transportationOwnerIds: data.transportationOwnerIds,
             viewerName: data.viewerName,
             viewerNameAliases: data.viewerNameAliases,
             isAdmin: ctx.isAdmin,

@@ -173,6 +173,8 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
   test("null transportation → predicate false (nothing to render)", () => {
     expect(
       transportTileVisible({
+        viewerId: null,
+        transportationOwnerIds: [],
         transportation: null,
         viewerName: "Alice",
         viewerNameAliases: ["Alice"],
@@ -184,6 +186,8 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
   test("admin viewer + transportation present → predicate true (admin sees all)", () => {
     expect(
       transportTileVisible({
+        viewerId: null,
+        transportationOwnerIds: [],
         transportation: baseTransport,
         viewerName: null,
         viewerNameAliases: [],
@@ -195,6 +199,8 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
   test("branch 1: viewerName === driver_name → predicate true", () => {
     expect(
       transportTileVisible({
+        viewerId: null,
+        transportationOwnerIds: [],
         transportation: baseTransport,
         viewerName: "Cara",
         viewerNameAliases: ["Cara"],
@@ -206,6 +212,8 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
   test("branch 2: viewerName in schedule[*].assigned_names (driver mismatch) → predicate true", () => {
     expect(
       transportTileVisible({
+        viewerId: null,
+        transportationOwnerIds: [],
         transportation: baseTransport,
         viewerName: "Alice",
         viewerNameAliases: ["Alice"],
@@ -217,6 +225,8 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
   test("neither branch matches → predicate false", () => {
     expect(
       transportTileVisible({
+        viewerId: null,
+        transportationOwnerIds: [],
         transportation: baseTransport,
         viewerName: "Bob",
         viewerNameAliases: ["Bob"],
@@ -228,6 +238,8 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
   test("null viewerName + non-admin → predicate false (defense in depth)", () => {
     expect(
       transportTileVisible({
+        viewerId: null,
+        transportationOwnerIds: [],
         transportation: baseTransport,
         viewerName: null,
         viewerNameAliases: [],
@@ -241,6 +253,8 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
     // schedule must short-circuit to false, never throw or default true.
     expect(
       transportTileVisible({
+        viewerId: null,
+        transportationOwnerIds: [],
         transportation: { ...baseTransport, schedule: [] },
         viewerName: "Alice",
         viewerNameAliases: ["Alice"],
@@ -268,6 +282,8 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
   test("driver match is now case- + trim-insensitive ('cara', 'Cara ' match 'Cara')", () => {
     expect(
       transportTileVisible({
+        viewerId: null,
+        transportationOwnerIds: [],
         transportation: baseTransport,
         viewerName: "cara",
         viewerNameAliases: ["cara"],
@@ -276,6 +292,8 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
     ).toBe(true);
     expect(
       transportTileVisible({
+        viewerId: null,
+        transportationOwnerIds: [],
         transportation: baseTransport,
         viewerName: "Cara ",
         viewerNameAliases: ["Cara "],
@@ -287,6 +305,8 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
   test("assigned_names match is now case-insensitive ('alice' matches tagged 'Alice')", () => {
     expect(
       transportTileVisible({
+        viewerId: null,
+        transportationOwnerIds: [],
         transportation: baseTransport,
         viewerName: "alice",
         viewerNameAliases: ["alice"],
@@ -299,6 +319,8 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
     // failure mode: exact `===` hid this — "Doug" ≠ "Doug Larson" → driver missed transport.
     expect(
       transportTileVisible({
+        viewerId: null,
+        transportationOwnerIds: [],
         transportation: withDriver("Doug"),
         viewerName: "Doug Larson",
         viewerNameAliases: ["Doug Larson"],
@@ -307,6 +329,8 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
     ).toBe(true);
     expect(
       transportTileVisible({
+        viewerId: null,
+        transportationOwnerIds: [],
         transportation: withDriver("Douglas Larson"),
         viewerName: "Doug Larson",
         viewerNameAliases: ["Doug Larson"],
@@ -318,6 +342,8 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
   test("nickname/variant assigned_name matches the roster viewer", () => {
     expect(
       transportTileVisible({
+        viewerId: null,
+        transportationOwnerIds: [],
         transportation: withDriver(null, ["Douglas Larson"]),
         viewerName: "Doug Larson",
         viewerNameAliases: ["Doug Larson"],
@@ -329,6 +355,8 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
   test("over-match guard: a same-first-name DIFFERENT-surname driver/assignee is NOT visible", () => {
     expect(
       transportTileVisible({
+        viewerId: null,
+        transportationOwnerIds: [],
         transportation: withDriver("Eric Carroll"),
         viewerName: "Eric Weiss",
         viewerNameAliases: ["Eric Weiss"],
@@ -337,12 +365,106 @@ describe("transportTileVisible predicate (Task 4.7, §8.1)", () => {
     ).toBe(false);
     expect(
       transportTileVisible({
+        viewerId: null,
+        transportationOwnerIds: [],
         transportation: withDriver(null, ["Eric Carroll"]),
         viewerName: "Eric Weiss",
         viewerNameAliases: ["Eric Weiss"],
         isAdmin: false,
       }),
     ).toBe(false);
+  });
+
+  // ── Flow 8.3b — garble-proof id path (BL-TRANSPORT-ID-RESOLUTION) ────────────
+  // The name branches (namesRefer) miss a hard mis-parse like "Doug Larson Loadout"
+  // (surname token shifted). The id path resolves it via covers() upstream and matches
+  // by viewerId, so the driver sees their own ride. Union — name branches stay for the
+  // nickname/prefix class covers misses.
+  const garbledTransport = withDriver("Doug Larson Loadout");
+
+  test("id path: garbled driver visible to owner via viewerId (name-fuzzy alone is false)", () => {
+    expect(
+      transportTileVisible({
+        transportation: garbledTransport,
+        viewerId: "doug",
+        transportationOwnerIds: ["doug"],
+        viewerName: "Doug Larson",
+        viewerNameAliases: ["Doug Larson"],
+        isAdmin: false,
+      }),
+    ).toBe(true);
+  });
+
+  test("id path inert when viewerId null → falls to name paths (garble → false)", () => {
+    expect(
+      transportTileVisible({
+        transportation: garbledTransport,
+        viewerId: null,
+        transportationOwnerIds: ["doug"],
+        viewerName: "Doug Larson",
+        viewerNameAliases: ["Doug Larson"],
+        isAdmin: false,
+      }),
+    ).toBe(false);
+  });
+
+  test("id path inert when owner set empty → name path (first-name prefix) still works", () => {
+    expect(
+      transportTileVisible({
+        transportation: withDriver("Doug"),
+        viewerId: "doug",
+        transportationOwnerIds: [],
+        viewerName: "Doug Larson",
+        viewerNameAliases: ["Doug Larson"],
+        isAdmin: false,
+      }),
+    ).toBe(true);
+  });
+
+  test("negative: non-owner id + non-matching name → not visible", () => {
+    expect(
+      transportTileVisible({
+        transportation: garbledTransport,
+        viewerId: "jane",
+        transportationOwnerIds: ["doug"],
+        viewerName: "Jane Smith",
+        viewerNameAliases: ["Jane Smith"],
+        isAdmin: false,
+      }),
+    ).toBe(false);
+  });
+
+  test("name branch never throws on malformed JSONB (page-safety, Codex plan R4)", () => {
+    const bad = {
+      ...baseTransport,
+      driver_name: 7 as unknown as string,
+      schedule: [{ stage: "s", date: null, time: null, assigned_names: [null] }] as never,
+    } as TransportationRow;
+    const call = () =>
+      transportTileVisible({
+        transportation: bad,
+        viewerId: null,
+        transportationOwnerIds: [],
+        viewerName: "Jane Smith",
+        viewerNameAliases: ["Jane Smith"],
+        isAdmin: false,
+      });
+    expect(call).not.toThrow();
+    expect(call()).toBe(false);
+  });
+
+  test("old cached shape (undefined new fields) never throws (cache skew, Codex plan R6)", () => {
+    const call = () =>
+      transportTileVisible({
+        transportation: withDriver("Doug Larson"),
+        viewerId: undefined as never,
+        transportationOwnerIds: undefined as never,
+        viewerName: "Doug Larson",
+        viewerNameAliases: ["Doug Larson"],
+        isAdmin: false,
+      });
+    expect(call).not.toThrow();
+    expect(call()).toBe(true); // falls through to the name path (exact match)
   });
 });
 
