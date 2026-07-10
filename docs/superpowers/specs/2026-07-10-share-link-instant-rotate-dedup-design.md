@@ -1,8 +1,8 @@
 # Share-link instant-rotate + success-banner dedup — design
 
 **Date:** 2026-07-10
-**Status:** Draft (brainstorming → spec)
-**Scope:** Admin per-show page share-link card. UI-only refactor. No DB, no advisory-lock, no server-action signature change.
+**Status:** Draft (brainstorming → spec) · rev 2 (post Codex R1)
+**Scope:** Admin per-show page share-link surfaces. UI-only refactor. No DB, no advisory-lock, no server-action signature change.
 
 ---
 
@@ -15,146 +15,182 @@ On the admin per-show page (`app/admin/show/[slug]/page.tsx`), after rotating th
 
 Screenshot: `scratchpad/shots/11-post-rotate-success.png`. Both blocks render the identical new URL, stacked ~2 rows apart. Redundant.
 
-### 1.1 Why the redundancy exists today (root cause)
+### 1.1 Token-derived surfaces on the page (root cause)
 
-`CurrentShareLinkPanel` is a **Server Component** — it renders the URL from a `token` prop read server-side (`app/admin/show/[slug]/page.tsx:294-387`, admin-only `loadShowShareToken` RPC). `RotateShareTokenButton` is a **client** sibling nested inside the panel via its `actions` prop (`page.tsx:819-837`).
+Every crew-URL surface renders from a single server-read `token` (`page.tsx:294-387`, admin-only `loadShowShareToken` RPC → `page.tsx:495-498` derives `hasCrewLinkUrl` / `crewUrl` / `crewPathDisplay`):
 
-On rotate success (`RotateShareTokenButton.tsx:136-151`) the client:
-- sets local `result` (new token) → banner renders the new URL **instantly**, then
-- calls `router.refresh()` → the whole page re-renders server-side → the panel re-reads the new token.
+| # | Surface | Location | Kind | Copy? |
+|---|---|---|---|---|
+| A | Header share chip | `page.tsx:555-577` (`admin-show-share-chip`) — `title={crewUrl}` + `crewPathDisplay` `<code>` + `<ShareLinkCopyButton url={crewUrl}/>` | client leaf, server-fed url | **yes** |
+| B | "Open crew page" link | `page.tsx:693-705` — `<a href={crewUrl}>` | server anchor | no (navigation) |
+| C | Current-share-link card | `CurrentShareLinkPanel` → URL + `ShareLinkCopyButton` + email | server, `token` prop | **yes** |
+| D | Rotate-success banner | `RotateShareTokenButton` banner — URL + Copy + email | client, own `result` token | **yes** (the redundant duplicate) |
 
-Because the panel can only update via a server round-trip, the banner carries its own copy of the new URL to cover the **refresh-lag window** — the interval where the panel still shows the OLD (now-dead) token but its Copy button is live. Comment `CurrentShareLinkPanel.tsx:21-27` documents this "banner is authoritative during refresh" contract.
+All of A/B/C are **Server-Component-fed** — they update only after a full server round-trip. `RotateShareTokenButton` (D) is a client sibling nested in the card via the panel's `actions` prop (`page.tsx:819-837`). On rotate success (`RotateShareTokenButton.tsx:136-151`) the client sets local `result` (new token) → banner renders the new URL **instantly**, then calls `router.refresh()` → the whole page re-renders server-side → A/B/C re-read the new token.
 
-**Consequence:** persistent duplicated URL/Copy/email in steady state, plus a real (if sub-second) hazard — during the refresh window an admin could copy the panel's dead URL and send it to crew.
+Because A/B/C can only update via that server round-trip, banner D carries its own copy of the new URL to cover the **refresh-lag window** — the interval where the surfaces still show the OLD (now-dead) token but their Copy buttons are live. Comment `CurrentShareLinkPanel.tsx:21-27` documents this "banner is authoritative during refresh" contract.
+
+**Consequences:**
+1. Persistent duplicated URL/Copy/email between C and D in steady state (the user-visible complaint).
+2. A real (sub-second) hazard: during the refresh window an admin can copy the **dead** URL from copy surfaces A or C and send it to crew.
+
+Codex R1 correctly flagged that removing D's URL while leaving A refresh-only would move the hazard, not remove it. The fix must make **all** token-derived surfaces update instantly from one source.
 
 ## 2. Goal
 
-- **Single source of truth** for the copyable share URL = the persistent card.
-- Rotate success updates the displayed URL **instantly** (no refresh-lag window, no dead-URL copy hazard).
-- Rotate success banner becomes a **confirmation-only** status (no URL, no Copy, no email buttons) that points at the updated card.
+- **Single instant source of truth** for the crew URL across every surface on the admin page (A, B, C).
+- Rotate success updates all of them **instantly** — no refresh-lag window, no dead-URL copy hazard on any surface.
+- Rotate success banner (D) becomes a **confirmation-only** status (no URL, no Copy, no email) that points at the updated card.
 
-Non-goals: no change to `rotateShareToken` server action, its telemetry, the advisory lock, or the token-read RPC. No visual redesign of the card beyond removing the duplicated block.
+Non-goals: no change to `rotateShareToken` server action, its telemetry, the advisory lock, or the token-read RPC. No visual redesign beyond removing the duplicated block.
 
-## 3. Approach (A-solid — chosen)
+## 3. Approach (A-solid + shared token context — chosen)
 
-Give the token display **client state** seeded by the server token, updated directly by rotate. Rejected alternative "A-lite" (banner→confirmation-only, rely on `router.refresh()`) leaves the theoretical dead-URL race; user chose the race-free path.
+Introduce a client **token context** seeded by the server-read token, updated directly by rotate. Every crew-URL surface consumes it, so a single `setToken` updates them all with no server round-trip. Rejected: "A-lite" (banner→confirmation-only, rely on `router.refresh()`) — leaves the dead-URL race on A and C.
 
 ### 3.1 Component structure after
 
 | Component | Kind | Responsibility |
 |---|---|---|
-| `page.tsx` | server | Reads `token` once (admin RPC). Renders `<CurrentShareLinkPanel>` with structured props (below). Builds `resetSlot={<PickerResetControl showId crew/>}` server-side (keeps `crew` off the client). |
-| `CurrentShareLinkPanel.tsx` | server | Token resolution (prop or self-read fallback) + card chrome/heading. Renders client `<ShareLinkBody initialToken={token} …/>`. |
-| **`ShareLinkBody.tsx` (NEW)** | client | Owns `token` state. Renders URL/Copy/email (token) OR unavailable notice (null); hosts `RotateShareTokenButton` (with `onRotated`) + `resetSlot`. |
-| `RotateShareTokenButton.tsx` | client | Two-tap confirm + rotate action. Success → `onRotated?.(newToken)` + `router.refresh()` backstop. Banner is confirmation-only. |
-| `ShareLinkCopyButton.tsx`, `PickerResetControl.tsx`, `crewLinkMailto.ts`, `resolveOrigin.ts` | unchanged | Reused. All client-safe. |
+| `page.tsx` | server | Reads `token` once (admin RPC). Wraps returned content in `<ShareTokenProvider initialToken={token}>`. Replaces inline chip (A) with `<ShareChip>`, inline crew-page anchor (B) with `<CrewPageLink>`. Renders `<CurrentShareLinkPanel>` (C) with structured props + server-built `resetSlot`. |
+| **`ShareTokenContext.tsx` (NEW)** | client | `ShareTokenProvider` owns `token` state (seeded `initialToken`, `useEffect` re-syncs on prop change); `useShareToken()` hook exposes `{ token, setToken }`. |
+| **`ShareChip.tsx` (NEW)** | client | Header chip (A). Props `slug`, `isEligible`. Reads `token` from context; renders chip-or-null (visibility = `isEligible && token != null`). |
+| **`CrewPageLink.tsx` (NEW)** | client | "Open crew page" link (B). Props `slug`, `isEligible`, plus any static presentational props. Reads `token`; renders `<a href>` or nothing. |
+| **`ShareLinkBody.tsx` (NEW)** | client | Card body (C). Reads `token` from context. Renders URL/Copy/email (token) OR unavailable notice (null); hosts `RotateShareTokenButton` (wired `onRotated`) + `resetSlot`. |
+| `CurrentShareLinkPanel.tsx` | server | Card chrome + heading only; renders `<ShareLinkBody …/>`. Drops `token`/`actions` props; gains `resetSlot`, `isCrewLinkActive`. |
+| `RotateShareTokenButton.tsx` | client | Two-tap confirm + rotate. Success → `onRotated?.(newToken)` (gated, §3.5) + `router.refresh()` backstop. Banner is confirmation-only. |
+| `ShareLinkCopyButton`, `PickerResetControl`, `crewLinkMailto`, `resolveOrigin` | unchanged | Reused. All client-safe. |
 
-### 3.2 `ShareLinkBody` (new client component)
+### 3.2 `ShareTokenContext` (new client module)
 
-Props:
-- `initialToken: string | null`
-- `slug: string`
-- `showId: string`
-- `crewEmails: readonly string[]`
-- `showTitle: string`
-- `isCrewLinkActive: boolean`
-- `resetSlot: ReactNode` (server-rendered `PickerResetControl`)
-
-State:
 ```ts
-const [token, setToken] = useState(initialToken);
-useEffect(() => setToken(initialToken), [initialToken]);
+"use client";
+type Ctx = { token: string | null; setToken: (t: string | null) => void };
+const ShareTokenContext = createContext<Ctx | null>(null);
+
+export function ShareTokenProvider({ initialToken, children }: { initialToken: string | null; children: ReactNode }) {
+  const [token, setToken] = useState(initialToken);
+  useEffect(() => setToken(initialToken), [initialToken]); // re-sync on server refresh / external rotation
+  return <ShareTokenContext.Provider value={{ token, setToken }}>{children}</ShareTokenContext.Provider>;
+}
+
+export function useShareToken(): Ctx {
+  const ctx = useContext(ShareTokenContext);
+  if (!ctx) throw new Error("useShareToken must be used within ShareTokenProvider");
+  return ctx;
+}
 ```
 
+**Why `useEffect` re-sync:** our own rotate calls `setToken(newToken)` instantly; the follow-up `router.refresh()` delivers the same value as a new `initialToken` (effect no-op). An **external** rotation (another admin/tab) arrives only via server refresh → new `initialToken` → effect re-syncs. `token` state is the single render source in all cases. The provider wraps server-rendered children (standard RSC pattern — server children pass through a client provider as `children`; no server code enters the client bundle).
+
+### 3.3 Consumers A / B / C
+
+Each computes its URL client-side from context `token` + props:
+- `url = token ? ${resolveOrigin()}/show/${slug}/${token} : null` (only where eligible).
+- Visibility: `isEligible && token != null` (mirrors current `hasCrewLinkUrl`; `isEligible` = `isShowEligibleForCrewLink`, passed as a serializable prop).
+- **A `ShareChip`** — chip markup identical to current `page.tsx:555-577`; `title`, `<code>` path, and `<ShareLinkCopyButton url>` all from context url. Keeps `data-testid="admin-show-share-chip"`.
+- **B `CrewPageLink`** — anchor identical to `page.tsx:693-705`; `href` from context url. Same aria-label "Open crew page".
+- **C `ShareLinkBody`** — see §3.4.
+
+Server-side `page.tsx` no longer derives `crewUrl`/`crewPathDisplay`/`hasCrewLinkUrl` for A/B/C (moved client-side). It still computes `isShowEligibleForCrewLink` (server, from `published && !archived`) and passes it down. Any OTHER server use of those three derived vars is migrated or removed (verify at implementation: grep confirms only A, B, C use them).
+
+### 3.4 `ShareLinkBody` (card body, new client)
+
+Props: `slug`, `showId`, `crewEmails: readonly string[]`, `showTitle`, `isCrewLinkActive: boolean`, `resetSlot: ReactNode`. Reads `{ token, setToken } = useShareToken()`.
+
 Render:
-- **`token` present** → `url = ${resolveOrigin()}/show/${slug}/${token}`; render `<code data-testid="admin-current-share-link-url">{url}</code>` + `<ShareLinkCopyButton url={url}/>` + email note/buttons via `buildCrewLinkMailtos({emails:crewEmails,url,showTitle})` (same testids as today's panel: `admin-current-share-link-email-note`, `admin-current-share-link-email-button`).
-- **`token` null** → existing "unavailable" notice (`admin-current-share-link-unavailable`).
+- **`token` present** → `url = ${resolveOrigin()}/show/${slug}/${token}`; `<code data-testid="admin-current-share-link-url">{url}</code>` + `<ShareLinkCopyButton url={url}/>` + email note/buttons via `buildCrewLinkMailtos({emails:crewEmails,url,showTitle})` (testids `admin-current-share-link-email-note`, `admin-current-share-link-email-button`).
+- **`token` null** → "unavailable" notice (`admin-current-share-link-unavailable`).
 - **Always** → divider actions block (`border-t divide-y`): `<RotateShareTokenButton showId slug isCrewLinkActive onRotated={setToken} compact rowLabel="Rotate share link" rowDescription="Mint a new link; the old one stops working immediately."/>` then `{resetSlot}`.
 
-**Why `useEffect` sync:** our own rotate sets `token` instantly; the follow-up `router.refresh()` delivers the same value as a new `initialToken` (effect no-op). An **external** rotation (another admin/tab) arrives only via server refresh → new `initialToken` → effect syncs the display. `token` state is the single render source in all cases.
+### 3.5 `RotateShareTokenButton` changes
 
-### 3.3 `CurrentShareLinkPanel` changes
-
-- Keep: token resolution (`tokenProp !== undefined ? tokenProp : try loadShowShareToken`), card outer chrome, `<h3>Current share-link</h3>` + the "Send this URL…" description.
-- Replace the inline URL/Copy/email/unavailable/`{actions}` body with a single `<ShareLinkBody initialToken={token} slug={slug} showId={showId} crewEmails={crewEmails} showTitle={showTitle} isCrewLinkActive={isCrewLinkActive} resetSlot={resetSlot}/>`.
-- **Props:** remove opaque `actions?: ReactNode`; add `resetSlot?: ReactNode` and `isCrewLinkActive?: boolean` (default `true`). Keep `showId, slug, token?, crewEmails, showTitle`.
-- The `token`-null branch's "unavailable" copy + the `admin-current-share-link-panel` wrapper testid move into `ShareLinkBody` (panel still wraps the card border). The panel remains a Server Component (token read stays server-side — security invariant).
-
-### 3.4 `RotateShareTokenButton` changes
-
-- **Add** prop `onRotated?: (newToken: string) => void`. Default omitted (standalone/legacy uses unaffected).
-- **`onConfirmClick` success branch:** after `setResult(r)`, if `r.ok` call `onRotated?.(r.new_share_token)` **then** `router.refresh()` (backstop for the header chip + other server-derived data).
-- **Banner (`newUrl` block, current lines 221-285) → confirmation-only:**
+- **Add** prop `onRotated?: (newToken: string) => void`.
+- **Success branch** (`onConfirmClick`, after `setResult(r)`): call `onRotated?.(r.new_share_token)` **only when `r.ok && isCrewLinkActive`** (resolves the R1 finding-2 contradiction — inactive success must not surface a copyable URL). Then `router.refresh()` on any `r.ok` (backstop for server-derived data). `{ok:false}` → no `onRotated`.
+- **Banner (current lines 221-285) → confirmation-only:**
   ```
   ✓ New share-link ready. The old link no longer works and everyone will
     re-pick their name — the updated link is shown above.
   ```
   Keep `data-testid="admin-rotate-share-token-ok"`, `role="status"`, `aria-live="polite"`.
-- **Remove:** the URL `<code>`, the Copy button, email note, email buttons, the sr-only copy-announce span. **Delete now-dead code:** `onCopyClick`, `copied` state, `copyResetRef` + its `clearCopyReset`/cleanup, `emailMailtos`, the `newUrl`-for-display use, `buildCrewLinkMailtos` + `Mail` imports (verify `Mail` unused elsewhere in file first).
-- **Drop props** `crewEmails`, `showTitle` (email affordance now lives solely in `ShareLinkBody`).
-- **Keep:** `rotatedInactive` branch (`admin-rotate-share-token-ok-inactive`), `refused` branch (`admin-rotate-share-token-refused`), the whole two-tap confirm/cancel state machine, `AUTO_REVERT_MS`, aria wiring, compact/rowLabel layout.
-- **Note:** `isCrewLinkActive` prop is retained — the `rotatedInactive` message still depends on it. In the page path it is always `true` (the panel only renders when the show is crew-link-eligible, `page.tsx:799`), but the branch is kept for standalone/test use per the original R27 intent.
+- **Remove:** URL `<code>` + Copy button + email note + email buttons + sr-only copy-announce span. **Delete now-dead code:** `onCopyClick`, `copied` state, `copyResetRef` + `clearCopyReset` + its cleanup, `emailMailtos`, the `newUrl`-for-display use, `buildCrewLinkMailtos` import, `Mail` import (used only by the removed email buttons — verify no other use).
+- **Drop props** `crewEmails`, `showTitle`.
+- **Keep:** `rotatedInactive` branch (`admin-rotate-share-token-ok-inactive`), `refused` branch (`admin-rotate-share-token-refused`), the two-tap confirm/cancel state machine, `AUTO_REVERT_MS`, aria wiring, compact/rowLabel layout, `isCrewLinkActive` prop.
 
-### 3.5 `page.tsx` changes
+### 3.6 `CurrentShareLinkPanel` changes
 
-Replace the `<CurrentShareLinkPanel>` call (`page.tsx:813-838`):
-- Remove `actions={<div className="…divide-y…"><RotateShareTokenButton …/><PickerResetControl …/></div>}`.
-- Add `isCrewLinkActive={isShowEligibleForCrewLink}` and `resetSlot={<PickerResetControl showId={show.id} crew={crew}/>}`.
-- Keep `showId, slug, token, crewEmails, showTitle`.
-- Remove the now-unused `RotateShareTokenButton` import if no other use in the file (verify).
+- Keep: card outer chrome, `<h3>Current share-link</h3>` + the "Send this URL…" description.
+- Body → single `<ShareLinkBody slug={slug} showId={showId} crewEmails={crewEmails} showTitle={showTitle} isCrewLinkActive={isCrewLinkActive} resetSlot={resetSlot}/>`.
+- **Props:** remove `token?`, remove opaque `actions?`; add `resetSlot?: ReactNode`, `isCrewLinkActive?: boolean` (default `true`). Keep `slug, showId, crewEmails, showTitle`. Remains a Server Component. Token now comes from context (provider seeded server-side in `page.tsx`) — the admin-only token read stays server-side; no change to who can read the token.
+
+### 3.7 `page.tsx` changes
+
+- Wrap the returned JSX body in `<ShareTokenProvider initialToken={token}> … </ShareTokenProvider>`.
+- Replace inline chip (555-577) with `<ShareChip slug={show.slug} isEligible={isShowEligibleForCrewLink}/>`.
+- Replace inline crew-page anchor (693-705) with `<CrewPageLink slug={show.slug} isEligible={isShowEligibleForCrewLink}/>`.
+- `<CurrentShareLinkPanel>` call (813-838): remove `token` + `actions`; add `isCrewLinkActive={isShowEligibleForCrewLink}` and `resetSlot={<PickerResetControl showId={show.id} crew={crew}/>}`.
+- Remove the now-unused `RotateShareTokenButton` import (verify no other use). Keep `ShareLinkCopyButton` import only if still used directly in page.tsx after A/B/C move to leaf components (verify; drop if unused).
+- Drop the server-side `crewUrl`/`crewPathDisplay`/`hasCrewLinkUrl` derivations if no residual server use remains after A/B/C move client-side (verify).
 
 ## 4. Guard conditions (per-input)
 
 | Input | null / empty / edge | Behavior |
 |---|---|---|
-| `initialToken` | `null` | `ShareLinkBody` renders unavailable notice; rotate + reset still render (rotate reachable to recover — original R1/R27 contract). |
-| `initialToken` | new value from refresh | `useEffect` resyncs `token` state. |
-| `crewEmails` | `[]` | No email note, no email buttons (both `.length` guards, unchanged from today). |
-| `crewEmails` | 1 addr | Single "Email this link to crew" button, no batch note (`emailMailtos.length === 1`). |
-| rotate `result` | `{ok:false}` | `refused` banner; `token` state unchanged; no `onRotated` call. |
-| rotate `result` | `{ok:true}` while `isCrewLinkActive===false` | `rotatedInactive` banner; **no** `onRotated` call (no live URL to show); `token` state unchanged. |
-| `onRotated` | omitted | Rotate falls back to `router.refresh()`-only (legacy behavior); banner still confirmation-only. |
+| `token` (context) | `null` | A hidden, B hidden, C shows unavailable notice; rotate + reset still render (rotate reachable to recover — R1/R27). |
+| `token` | new value from refresh / external rotation | provider `useEffect` re-syncs → A/B/C all update. |
+| `crewEmails` | `[]` | No email note/buttons (`.length` guards, unchanged). |
+| `crewEmails` | 1 addr | Single "Email this link to crew" button, no batch note. |
+| rotate `result` | `{ok:false}` | `refused` banner; token unchanged; `onRotated` NOT called. |
+| rotate `result` | `{ok:true}` & `isCrewLinkActive===false` | `rotatedInactive` banner; `onRotated` NOT called; token unchanged (no copyable URL surfaces). |
+| rotate `result` | `{ok:true}` & `isCrewLinkActive===true` | `onRotated(new_share_token)` → context `setToken` → A/B/C update instantly; confirmation banner. |
+| `useShareToken` | outside provider | throws (dev guard) — every consumer is inside the page-level provider. |
 
 ## 5. Transition inventory (rotate button visual states)
 
-States: `idle` (± persistent banner), `confirm`, `resolving`. Unchanged by this work except the success banner's content. No new animated transitions introduced; all state swaps remain instant (existing behavior — no `AnimatePresence` in this component). The URL-display update in `ShareLinkBody` is an instant text swap (no animation).
+States: `idle` (± persistent confirmation banner), `confirm`, `resolving`. Unchanged except the success banner content. No `AnimatePresence` in scope; all state swaps remain instant (existing behavior). The URL updates on A/B/C are instant text/attr swaps (no animation).
 
 ## 6. Testing
 
 TDD per task (invariant 1). Anti-tautology per project rules.
 
-### 6.1 New — `tests/components/ShareLinkBody.test.tsx`
-- **Key behavior (the whole point):** render `<ShareLinkBody initialToken="OLD" …/>`; assert `admin-current-share-link-url` contains `OLD`. Simulate rotate success by driving `RotateShareTokenButton` with `rotateShareToken` mocked to `{ok:true,new_share_token:"NEW",new_epoch:n}` **and `next/navigation` `router.refresh` mocked to a no-op**. Assert `admin-current-share-link-url` now contains `NEW`. **This proves the instant, refresh-independent update** — the failure mode it catches: reverting to refresh-only leaves the URL at `OLD`. Assert expected values derived from the mock token, not hardcoded elsewhere.
-- Unavailable path: `initialToken={null}` → `admin-current-share-link-unavailable`; rotate + resetSlot still present.
-- External sync: rerender with a new `initialToken` prop → URL reflects it.
-- Empty `crewEmails` → no email buttons.
+### 6.1 New — `tests/components/ShareTokenContext.test.tsx`
+- Provider seeds `token` from `initialToken`; `useShareToken().setToken` updates consumers.
+- Re-render with new `initialToken` → consumers reflect it (external-rotation sync).
+- `useShareToken` outside provider throws.
 
-### 6.2 Update — `tests/components/RotateShareTokenButton.test.tsx`
+### 6.2 New — `tests/components/shareTokenInstantUpdate.test.tsx` (the load-bearing test)
+- Render the provider wrapping BOTH a `ShareChip` (or other `ShareLinkCopyButton`-bearing consumer) AND `ShareLinkBody`, seeded `initialToken="OLD"`.
+- Assert every copy surface shows `OLD`.
+- Drive `RotateShareTokenButton` success with `rotateShareToken` mocked → `{ok:true,new_share_token:"NEW",new_epoch:n}` **and `next/navigation` `router.refresh` mocked to a no-op**.
+- Assert **no copy surface still exposes `OLD`** and all show `NEW`. **Failure mode caught:** any surface left on refresh-only (the Codex R1 header-chip hazard) still shows `OLD` with `refresh` stubbed. Expected values derived from the mock token, not hardcoded.
+
+### 6.3 New — `tests/components/ShareLinkBody.test.tsx`
+- token present → URL/Copy/email; token null → unavailable + rotate reachable; empty `crewEmails` → no email buttons; `resetSlot` rendered.
+
+### 6.4 New — `tests/components/ShareChip.test.tsx`, `tests/components/CrewPageLink.test.tsx`
+- Visibility gates on `isEligible && token != null`; url/href derived from context token; update on `setToken`.
+
+### 6.5 Update — `tests/components/RotateShareTokenButton.test.tsx`
 - Remove assertions for `admin-rotate-share-token-url`, `-copy-button`, `-copy-announce`, `-email-note`, `-email-button`.
-- Success → `admin-rotate-share-token-ok` present, contains confirmation copy, **contains no URL** and no Copy button.
-- Success → `onRotated` called once with the new token.
-- `{ok:false}` → `refused`, `onRotated` not called.
-- inactive-success → `rotatedInactive`, `onRotated` not called.
+- Success (active) → `admin-rotate-share-token-ok` present, confirmation copy, **no URL, no Copy**; `onRotated` called once with new token.
+- `{ok:false}` → `refused`; `onRotated` not called.
+- inactive-success → `rotatedInactive`; `onRotated` not called.
 
-### 6.3 Update — `tests/components/CurrentShareLinkPanel.test.tsx`
-- Panel now renders `ShareLinkBody`; assert URL/Copy still reachable via `admin-current-share-link-url` / copy button through the child.
-- Panel forwards `resetSlot` (reset control present) and `isCrewLinkActive`.
-- token-null → unavailable notice + rotate reachable.
-
-### 6.4 Update — `tests/app/admin/perShowPage.test.tsx`, `tests/components/admin/per-show-lifecycle.test.tsx`, `tests/app/admin/rotateShareToken.test.tsx`
-- Fix call sites / assertions for the new panel prop shape (`resetSlot`/`isCrewLinkActive` instead of `actions`) and the removed rotate-banner URL/Copy.
+### 6.6 Update — `tests/components/CurrentShareLinkPanel.test.tsx`, `tests/app/admin/perShowPage.test.tsx`, `tests/components/admin/per-show-lifecycle.test.tsx`, `tests/app/admin/rotateShareToken.test.tsx`
+- Wrap rendered subtrees in `ShareTokenProvider` where needed. Fix panel prop shape (`resetSlot`/`isCrewLinkActive`, no `token`/`actions`). Fix removed rotate-banner URL/Copy assertions. Chip/crew-link assertions read from provider-seeded token.
 
 ## 7. Invariants / contracts touched
 
 - **Inv 1 (TDD):** every task failing-test-first.
-- **Inv 5 (no raw error codes in UI):** unaffected — `refused` copy is already static prose, not a code.
-- **Inv 8 (impeccable dual-gate):** UI surfaces changed (`app/admin/**`, new `components`/`app` client file) → `/impeccable critique` + `/impeccable audit` on the diff before close-out; HIGH/CRITICAL fixed or `DEFERRED.md`'d.
-- **Inv 10 (mutation telemetry):** no mutation surface added/changed. The mutating surface is `rotateShareToken` (`lib/auth/picker/`), already instrumented (emits `epoch_<n>`, never the token) — untouched. `ShareLinkBody`/panel/button are non-mutating UI.
-- **Security:** admin-only token read stays server-side (`page.tsx` → `loadShowShareToken`). `ShareLinkBody` receives an already-authorized token string, identical to today's `ShareLinkCopyButton` client boundary. No new token exposure.
+- **Inv 5 (no raw error codes in UI):** unaffected — `refused` copy is static prose.
+- **Inv 8 (impeccable dual-gate):** UI surfaces changed (`app/admin/**`, new `app/admin/show/[slug]/*` client files) → `/impeccable critique` + `/impeccable audit` on the diff before close-out; HIGH/CRITICAL fixed or `DEFERRED.md`'d.
+- **Inv 10 (mutation telemetry):** no mutation surface added/changed. The mutating surface `rotateShareToken` (`lib/auth/picker/`, emits `epoch_<n>`, never the token) is untouched. New context/leaf components are non-mutating UI.
+- **Security:** the admin-only token read stays server-side in `page.tsx` (`loadShowShareToken`). `ShareTokenProvider` is seeded with the already-authorized token string and hands it to client leaves — identical trust boundary to today's `ShareLinkCopyButton` (already a client component receiving the URL). No new token exposure; no token read moves to the client.
 - **Meta-test inventory:** none created/extended. No Supabase call boundary, advisory lock, admin-alert catalog, or tile-sentinel surface touched. Declared explicitly per writing-plans rule.
 
 ## 8. Out of scope
 
 - `rotateShareToken` action, RPC, advisory lock, epoch bump.
-- Any change to the header share-chip (`page.tsx:575` `ShareLinkCopyButton`) beyond it continuing to update via `router.refresh()`.
-- Crew-facing routes; help MDX (`app/help/admin/sharing-links`) — verify copy still accurate but no behavior change expected.
+- Crew-facing routes.
+- Help MDX (`app/help/admin/sharing-links`) — verify copy still accurate; no behavior change expected.
+- Any surface NOT derived from the show share `token` (unaffected by the context).
