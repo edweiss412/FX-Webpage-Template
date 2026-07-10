@@ -60,8 +60,8 @@ Introduce a client **token context** seeded by the server-read token, updated di
 
 | Component | Kind | Responsibility |
 |---|---|---|
-| `page.tsx` | server | Reads `token` once (admin RPC). Wraps returned content in `<ShareTokenProvider initialToken={token}>`. Replaces inline chip (A) with `<ShareChip>`, inline crew-page anchor (B) with `<CrewPageLink>`. Renders `<CurrentShareLinkPanel>` (C) with structured props + server-built `resetSlot`. |
-| **`ShareTokenContext.tsx` (NEW)** | client | `ShareTokenProvider` owns `token` state (seeded `initialToken`, `useEffect` re-syncs on prop change); `useShareToken()` hook exposes `{ token, setToken }`. |
+| `page.tsx` | server | Reads `token` (admin RPC) + `picker_epoch` (show row). Wraps returned content in `<ShareTokenProvider initialToken={isShowEligibleForCrewLink ? token : null} initialEpoch={picker_epoch}>`. Replaces inline chip (A) with `<ShareChip>`, inline crew-page anchor (B) with `<CrewPageLink>`. Renders `<CurrentShareLinkPanel>` (C) with structured props + server-built `resetSlot`. |
+| **`ShareTokenContext.tsx` (NEW)** | client | `ShareTokenProvider` owns `{token, epoch}` state, epoch-gated so a stale server-refresh can't overwrite a newer token; `useShareToken()` hook exposes `{ token, applyRotated(token, epoch) }`. Visibility/focus/pageshow → `router.refresh()`. |
 | **`ShareChip.tsx` (NEW)** | client | Header chip (A). Props `slug`, `isEligible`. Reads `token` from context; renders chip-or-null (visibility = `isEligible && token != null`). |
 | **`CrewPageLink.tsx` (NEW)** | client | "Open crew page" link (B). Props `slug`, `isEligible`, plus any static presentational props. Reads `token`; renders `<a href>` or nothing. |
 | **`ShareLinkBody.tsx` (NEW)** | client | Card body (C). Reads `token` from context. Renders URL/Copy/email (token) OR unavailable notice (null); hosts `RotateShareTokenButton` (wired `onRotated`) + `resetSlot`. |
@@ -73,13 +73,32 @@ Introduce a client **token context** seeded by the server-read token, updated di
 
 ```ts
 "use client";
-type Ctx = { token: string | null; setToken: (t: string | null) => void };
+// Consumers read `token` for display. `applyRotated(token, epoch)` is how the
+// rotate button installs a new token WITH its epoch. All updates — server-refresh
+// AND rotate — are gated by a monotonic epoch so an out-of-order stale payload can
+// never overwrite a newer token (Codex R4). `epoch` = shows.picker_epoch, bumped
+// atomically by rotate (R40) and by picker-reset; strictly increasing.
+type Ctx = { token: string | null; applyRotated: (token: string, epoch: number) => void };
 const ShareTokenContext = createContext<Ctx | null>(null);
 
-export function ShareTokenProvider({ initialToken, children }: { initialToken: string | null; children: ReactNode }) {
+export function ShareTokenProvider({
+  initialToken,
+  initialEpoch,
+  children,
+}: { initialToken: string | null; initialEpoch: number; children: ReactNode }) {
   const router = useRouter();
-  const [token, setToken] = useState(initialToken);
-  useEffect(() => setToken(initialToken), [initialToken]); // re-sync when a server refresh delivers a newer token
+  const [state, setState] = useState({ token: initialToken, epoch: initialEpoch });
+  // Server refresh delivered (initialToken, initialEpoch). Accept ONLY if its epoch
+  // is >= the epoch we currently hold — rejecting a stale in-flight refresh that
+  // resolves after a local rotate already installed a newer token (Codex R4).
+  useEffect(() => {
+    setState((prev) => (initialEpoch >= prev.epoch ? { token: initialToken, epoch: initialEpoch } : prev));
+  }, [initialToken, initialEpoch]);
+  const applyRotated = useCallback(
+    (token: string, epoch: number) =>
+      setState((prev) => (epoch >= prev.epoch ? { token, epoch } : prev)),
+    [],
+  );
   // Freshness improvement: when this tab regains visibility OR the window
   // regains focus (switching windows/apps can re-focus without the tab ever
   // going `hidden`, so `visibilitychange` alone misses it), pull fresh server
@@ -100,7 +119,11 @@ export function ShareTokenProvider({ initialToken, children }: { initialToken: s
       document.removeEventListener("visibilitychange", onVisible);
     };
   }, [router]);
-  return <ShareTokenContext.Provider value={{ token, setToken }}>{children}</ShareTokenContext.Provider>;
+  return (
+    <ShareTokenContext.Provider value={{ token: state.token, applyRotated }}>
+      {children}
+    </ShareTokenContext.Provider>
+  );
 }
 
 export function useShareToken(): Ctx {
@@ -110,7 +133,7 @@ export function useShareToken(): Ctx {
 }
 ```
 
-**Why `useEffect` re-sync:** our own rotate calls `setToken(newToken)` instantly; the follow-up `router.refresh()` delivers the same value as a new `initialToken` (effect no-op). A refresh from any other action/navigation, or the visibility trigger above, delivers a possibly-newer `initialToken` → effect re-syncs. `token` state is the single render source in all cases. The provider wraps server-rendered children (standard RSC pattern — server children pass through a client provider as `children`; no server code enters the client bundle). **Bound:** a rotation by another admin while this tab stays open-and-focused is not pushed here (see §2.1 — pre-existing, parity with the server-rendered status quo, BACKLOG).
+**Why epoch-gated:** our own rotate calls `applyRotated(NEW, e_new)` instantly (e_new > current); the follow-up `router.refresh()` re-delivers `(NEW, e_new)` (effect applies, no-op). A **stale** refresh that started before the rotate resolves later carrying `(OLD, e_old)` with `e_old < e_new` → **rejected** by the epoch gate, so copy surfaces never revert to the dead URL (Codex R4). A genuinely newer external rotation carries `e > e_new` → applied. Both the server-refresh path and the rotate path funnel through the same monotonic gate, so arrival order is irrelevant. The provider wraps server-rendered children (standard RSC pattern — no server code enters the client bundle). **Bound:** a rotation by another admin while this tab stays open-and-focused is not *pushed* here (§2.1 — pre-existing, BACKLOG); the visibility/focus/pageshow triggers pull it on tab/window return.
 
 ### 3.3 Consumers A / B / C
 
@@ -125,17 +148,18 @@ Server-side `page.tsx` no longer derives `crewUrl`/`crewPathDisplay`/`hasCrewLin
 
 ### 3.4 `ShareLinkBody` (card body, new client)
 
-Props: `slug`, `showId`, `crewEmails: readonly string[]`, `showTitle`, `isCrewLinkActive: boolean`, `resetSlot: ReactNode`. Reads `{ token, setToken } = useShareToken()`.
+Props: `slug`, `showId`, `crewEmails: readonly string[]`, `showTitle`, `isCrewLinkActive: boolean`, `resetSlot: ReactNode`. Reads `{ token, applyRotated } = useShareToken()`.
 
 Render:
 - **`token` present** → `url = ${resolveOrigin()}/show/${slug}/${token}`; `<code data-testid="admin-current-share-link-url">{url}</code>` + `<ShareLinkCopyButton url={url}/>` + email note/buttons via `buildCrewLinkMailtos({emails:crewEmails,url,showTitle})` (testids `admin-current-share-link-email-note`, `admin-current-share-link-email-button`).
 - **`token` null** → "unavailable" notice (`admin-current-share-link-unavailable`).
-- **Always** → divider actions block (`border-t divide-y`): `<RotateShareTokenButton showId slug isCrewLinkActive onRotated={setToken} compact rowLabel="Rotate share link" rowDescription="Mint a new link; the old one stops working immediately."/>` then `{resetSlot}`.
+- **Always** → divider actions block (`border-t divide-y`): `<RotateShareTokenButton showId slug isCrewLinkActive onRotated={applyRotated} compact rowLabel="Rotate share link" rowDescription="Mint a new link; the old one stops working immediately."/>` then `{resetSlot}`.
 
 ### 3.5 `RotateShareTokenButton` changes
 
 - **Add** prop `onRotated?: (newToken: string) => void`.
-- **Success branch** (`onConfirmClick`, after `setResult(r)`): call `onRotated?.(r.new_share_token)` **only when `r.ok && isCrewLinkActive`** (resolves the R1 finding-2 contradiction — inactive success must not surface a copyable URL). Then `router.refresh()` on any `r.ok` (backstop for server-derived data). `{ok:false}` → no `onRotated`.
+- **`onRotated` signature** `(newToken: string, newEpoch: number) => void` — carries the epoch so the context's monotonic gate (§3.2) can order it.
+- **Success branch** (`onConfirmClick`, after `setResult(r)`): call `onRotated?.(r.new_share_token, r.new_epoch)` **only when `r.ok && isCrewLinkActive`** (resolves the R1 finding-2 contradiction — inactive success must not surface a copyable URL). Then `router.refresh()` on any `r.ok` (backstop for server-derived data). `{ok:false}` → no `onRotated`.
 - **Banner (current lines 221-285) → confirmation-only:**
   ```
   ✓ New share-link ready. The old link no longer works and everyone will
@@ -154,7 +178,8 @@ Render:
 
 ### 3.7 `page.tsx` changes
 
-- Wrap the returned JSX body in `<ShareTokenProvider initialToken={token}> … </ShareTokenProvider>`.
+- Add `picker_epoch` to the show `.select(...)` (`page.tsx:175`) and to the `ShowLookupRow` type; `const initialEpoch = show.picker_epoch ?? 0` (coalesce for safety — verify NOT NULL in schema; the column is a `+1`-bumped counter so a default is expected).
+- Wrap the returned JSX body in `<ShareTokenProvider initialToken={isShowEligibleForCrewLink ? token : null} initialEpoch={initialEpoch}> … </ShareTokenProvider>`. **Eligibility-gate the token seed** so an unpublished/archived show's token is NOT serialized into the client provider payload — matching today's behavior where no token-derived client surface mounts for ineligible shows (Codex R4 finding-1; preserves the `No new token exposure` claim). `initialEpoch` is always seeded (a non-secret counter).
 - Replace inline chip (555-577) with `<ShareChip slug={show.slug} isEligible={isShowEligibleForCrewLink}/>`.
 - Replace inline crew-page anchor (693-705) with `<CrewPageLink slug={show.slug} isEligible={isShowEligibleForCrewLink}/>`.
 - `<CurrentShareLinkPanel>` call (813-838): remove `token` + `actions`; add `isCrewLinkActive={isShowEligibleForCrewLink}` and `resetSlot={<PickerResetControl showId={show.id} crew={crew}/>}`.
@@ -166,6 +191,9 @@ Render:
 | Input | null / empty / edge | Behavior |
 |---|---|---|
 | `token` (context) | `null` | A hidden, B hidden, C shows unavailable notice; rotate + reset still render (rotate reachable to recover — R1/R27). |
+| show ineligible (`!published \|\| archived`) | server has a token | provider seeded `initialToken=null` → token NOT serialized to client (parity with today; no exposure widening — Codex R4-1). |
+| stale server refresh (epoch `e_old` < local `e_new`) | resolves after a local rotate installed `e_new` | epoch gate **rejects** it; context keeps the newer token — no revert to dead URL (Codex R4-2). |
+| newer external rotation (epoch `e` > local) | delivered via refresh | epoch gate accepts → surfaces update. |
 | `token` | new value delivered via `initialToken` (server refresh from any action/nav or the visibility trigger) | provider `useEffect` re-syncs → A/B/C all update. |
 | external rotation while tab open + focused | no server refresh fires | A/C keep the old token until the next refresh/nav/visibility-regain — **pre-existing**, parity with today's server render (§2.1), BACKLOG. |
 | `crewEmails` | `[]` | No email note/buttons (`.length` guards, unchanged). |
@@ -184,8 +212,10 @@ States: `idle` (± persistent confirmation banner), `confirm`, `resolving`. Unch
 TDD per task (invariant 1). Anti-tautology per project rules.
 
 ### 6.1 New — `tests/components/ShareTokenContext.test.tsx`
-- Provider seeds `token` from `initialToken`; `useShareToken().setToken` updates consumers.
-- Re-render with new `initialToken` → consumers reflect it (server-refresh sync).
+- Provider seeds `token` from `initialToken`; `applyRotated(NEW, e+1)` updates consumers.
+- Re-render with new `initialToken` + higher `initialEpoch` → consumers reflect it (server-refresh sync).
+- **Epoch gate — stale reject (Codex R4-2):** seed `{OLD, epoch:5}`; call `applyRotated("NEW", 6)` → shows NEW; then re-render with `initialToken="OLD", initialEpoch=5` (a stale in-flight refresh landing late) → **still NEW** (not reverted). Failure mode caught: a blind `setToken(initialToken)` reverts to OLD.
+- **Epoch gate — newer accept:** seed `{OLD,5}`; re-render `{NEWER, 7}` → shows NEWER.
 - `useShareToken` outside provider throws.
 - **Visibility/focus freshness:** with `next/navigation` `router.refresh` mocked, assert each trigger fires it: window `focus` event → `router.refresh` called; `pageshow` → called; `visibilitychange` with `document.visibilityState==="visible"` → called; **`visibilitychange` with state `"hidden"` → NOT called** (the discriminating case — a naive "any visibilitychange" impl fails here); and a window `focus` while `visibilityState` is already `"visible"` → still called (the R3 window-switch gap — a `visibilitychange`-only impl fails this). All listeners removed on unmount. Proves the refresh *fires* on tab/window return (which in prod re-pulls the fresh token); absolute never-expose-OLD-while-focused is out of scope per §2.1.
 
@@ -207,8 +237,11 @@ TDD per task (invariant 1). Anti-tautology per project rules.
 - `{ok:false}` → `refused`; `onRotated` not called.
 - inactive-success → `rotatedInactive`; `onRotated` not called.
 
-### 6.6 Update — `tests/components/CurrentShareLinkPanel.test.tsx`, `tests/app/admin/perShowPage.test.tsx`, `tests/components/admin/per-show-lifecycle.test.tsx`, `tests/app/admin/rotateShareToken.test.tsx`
-- Wrap rendered subtrees in `ShareTokenProvider` where needed. Fix panel prop shape (`resetSlot`/`isCrewLinkActive`, no `token`/`actions`). Fix removed rotate-banner URL/Copy assertions. Chip/crew-link assertions read from provider-seeded token.
+### 6.6 New — `tests/app/admin/perShowPage.inactiveTokenExposure.test.tsx` (or a case in perShowPage)
+- Render the admin page for an **ineligible** show (`published:false` or `archived:true`) whose server token read returns a real token. Assert the token string does **not** appear anywhere in the rendered client output / serialized provider payload (`isShowEligibleForCrewLink ? token : null` seed). Failure mode caught: unconditional `initialToken={token}` leaks the token for inactive shows (Codex R4-1).
+
+### 6.7 Update — `tests/components/CurrentShareLinkPanel.test.tsx`, `tests/app/admin/perShowPage.test.tsx`, `tests/components/admin/per-show-lifecycle.test.tsx`, `tests/app/admin/rotateShareToken.test.tsx`
+- Wrap rendered subtrees in `ShareTokenProvider` (with `initialEpoch`) where needed. Fix panel prop shape (`resetSlot`/`isCrewLinkActive`, no `token`/`actions`). Fix removed rotate-banner URL/Copy assertions. Chip/crew-link assertions read from provider-seeded token.
 
 ## 7. Invariants / contracts touched
 
@@ -216,7 +249,7 @@ TDD per task (invariant 1). Anti-tautology per project rules.
 - **Inv 5 (no raw error codes in UI):** unaffected — `refused` copy is static prose.
 - **Inv 8 (impeccable dual-gate):** UI surfaces changed (`app/admin/**`, new `app/admin/show/[slug]/*` client files) → `/impeccable critique` + `/impeccable audit` on the diff before close-out; HIGH/CRITICAL fixed or `DEFERRED.md`'d.
 - **Inv 10 (mutation telemetry):** no mutation surface added/changed. The mutating surface `rotateShareToken` (`lib/auth/picker/`, emits `epoch_<n>`, never the token) is untouched. New context/leaf components are non-mutating UI.
-- **Security:** the admin-only token read stays server-side in `page.tsx` (`loadShowShareToken`). `ShareTokenProvider` is seeded with the already-authorized token string and hands it to client leaves — identical trust boundary to today's `ShareLinkCopyButton` (already a client component receiving the URL). No new token exposure; no token read moves to the client.
+- **Security:** the admin-only token read stays server-side in `page.tsx` (`loadShowShareToken`). `ShareTokenProvider` is seeded with the already-authorized token string ONLY for eligible shows (`isShowEligibleForCrewLink ? token : null`, §3.7) — identical trust boundary to today's eligible-only client surfaces; an ineligible show's token is never serialized to the client (Codex R4-1). `initialEpoch` is a non-secret monotonic counter. No new token exposure; no token read moves to the client.
 - **Meta-test inventory:** none created/extended. No Supabase call boundary, advisory lock, admin-alert catalog, or tile-sentinel surface touched. Declared explicitly per writing-plans rule.
 - **BACKLOG follow-up (absolute external-rotation freshness):** a `BL-SHARE-LINK-EPOCH-FRESHNESS` entry — subscribe the admin per-show page to the show's `picker_epoch` change signal (realtime) or validate token/epoch at copy-time — so copy surfaces can never expose a token rotated by another admin even while this tab stays focused. Out of scope here (§2.1); pre-existing gap, not a regression from this change.
 
