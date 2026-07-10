@@ -22,12 +22,22 @@
 // here (mirrors setFieldOverride.ts).
 
 import type { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { OverrideState } from "@/components/admin/overrides/OverrideableField";
 import {
   HOTEL_DISAMBIGUATOR_SEP,
   computeHotelDisambiguator,
 } from "@/lib/overrides/hotelDisambiguator";
 import { log } from "@/lib/log";
+
+// Inlined from the removed OverrideableField component (teardown Task 2): this whole
+// module is deleted in Task 6, so the type is inlined here only to keep the interim
+// build green rather than re-introduce the deleted UI dependency.
+type OverrideState = {
+  overrideValue: unknown;
+  sheetValue: unknown;
+  active: boolean;
+  deactivationCode: "target_missing" | "name_conflict" | null;
+  version: number;
+};
 
 type ServerClient = Awaited<ReturnType<typeof createSupabaseServerClient>>;
 
