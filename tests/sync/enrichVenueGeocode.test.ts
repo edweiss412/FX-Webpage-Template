@@ -54,7 +54,11 @@ describe("enrichVenueGeocode", () => {
   });
 
   it("cache hit with a city → sets venue.city WITHOUT calling Google", async () => {
-    const d = deps({ cacheRead: vi.fn(async () => ({ kind: "hit", city: "Denver", lat: null, lng: null }) as const) });
+    const d = deps({
+      cacheRead: vi.fn(
+        async () => ({ kind: "hit", city: "Denver", lat: null, lng: null }) as const,
+      ),
+    });
     const r = makeResult({ name: "The Brown Palace", address: "" });
     await enrichVenueGeocode(r, d);
     expect(r.show.venue!.city).toBe("Denver");
@@ -63,7 +67,9 @@ describe("enrichVenueGeocode", () => {
   });
 
   it("cache hit with a NULL city → leaves venue.city unset (display falls back)", async () => {
-    const d = deps({ cacheRead: vi.fn(async () => ({ kind: "hit", city: null, lat: null, lng: null }) as const) });
+    const d = deps({
+      cacheRead: vi.fn(async () => ({ kind: "hit", city: null, lat: null, lng: null }) as const),
+    });
     const r = makeResult({ name: "Mystery Venue", address: "" });
     await enrichVenueGeocode(r, d);
     expect(r.show.venue!.city).toBeUndefined();
@@ -85,7 +91,9 @@ describe("enrichVenueGeocode", () => {
   });
 
   it("geocode returns no city → caches null, leaves venue.city unset", async () => {
-    const d = deps({ geocode: vi.fn(async () => ({ data: { city: null, lat: null, lng: null } })) });
+    const d = deps({
+      geocode: vi.fn(async () => ({ data: { city: null, lat: null, lng: null } })),
+    });
     const r = makeResult({ name: "Nowhere Hall", address: "" });
     await enrichVenueGeocode(r, d);
     expect(r.show.venue!.city).toBeUndefined();
@@ -153,7 +161,9 @@ describe("enrichVenueGeocode", () => {
     expect(geocode).toHaveBeenCalledTimes(3); // breaker now open
     const dHit = deps({
       geocode,
-      cacheRead: vi.fn(async () => ({ kind: "hit", city: "Austin", lat: null, lng: null }) as const),
+      cacheRead: vi.fn(
+        async () => ({ kind: "hit", city: "Austin", lat: null, lng: null }) as const,
+      ),
     });
     const rHit = makeResult({ name: "Cached Venue", address: "" });
     await enrichVenueGeocode(rHit, dHit);
@@ -233,7 +243,10 @@ describe("VENUE_GEOCODE_UNRESOLVED emit-scope (Flow 6 §4.3)", () => {
 
   it("does NOT emit on a null-city SUCCESS (geocoder returned no city)", async () => {
     const r = makeResult({ name: "Nowhere Hall", address: "A" });
-    await enrichVenueGeocode(r, deps({ geocode: vi.fn(async () => ({ data: { city: null, lat: null, lng: null } })) }));
+    await enrichVenueGeocode(
+      r,
+      deps({ geocode: vi.fn(async () => ({ data: { city: null, lat: null, lng: null } })) }),
+    );
     expect(geoWarns(r)).toHaveLength(0);
   });
 
@@ -241,7 +254,9 @@ describe("VENUE_GEOCODE_UNRESOLVED emit-scope (Flow 6 §4.3)", () => {
     const r = makeResult({ name: "Mystery Venue", address: "A" });
     await enrichVenueGeocode(
       r,
-      deps({ cacheRead: vi.fn(async () => ({ kind: "hit", city: null, lat: null, lng: null }) as const) }),
+      deps({
+        cacheRead: vi.fn(async () => ({ kind: "hit", city: null, lat: null, lng: null }) as const),
+      }),
     );
     expect(geoWarns(r)).toHaveLength(0);
   });
@@ -287,9 +302,7 @@ describe("Flow 8.3a — venue.timezone (derive + set from coords)", () => {
       }),
     );
     expect(r.show.venue!.timezone).toBe("America/Los_Angeles");
-    expect(write).toHaveBeenCalledWith(
-      expect.objectContaining({ lat: 34.0522, lng: -118.2437 }),
-    );
+    expect(write).toHaveBeenCalledWith(expect.objectContaining({ lat: 34.0522, lng: -118.2437 }));
     expect(r.warnings).toHaveLength(0);
   });
 });
@@ -301,7 +314,9 @@ describe("Flow 8.3a — VENUE_TIMEZONE_UNRESOLVED emit", () => {
     const r = makeResult({ name: "V", address: "A" });
     await enrichVenueGeocode(
       r,
-      deps({ cacheRead: vi.fn(async () => ({ kind: "hit", city: "X", lat: null, lng: null }) as const) }),
+      deps({
+        cacheRead: vi.fn(async () => ({ kind: "hit", city: "X", lat: null, lng: null }) as const),
+      }),
     );
     expect(r.show.venue!.timezone).toBeUndefined();
     expect(codes(r)).toEqual(["VENUE_TIMEZONE_UNRESOLVED"]);
@@ -339,9 +354,12 @@ describe("Flow 8.3a — VENUE_TIMEZONE_UNRESOLVED emit", () => {
   });
 
   it("breaker-open → NO VENUE_TIMEZONE_UNRESOLVED (silent, §6)", async () => {
-    const geocode = vi.fn(async () => ({ error: { kind: "request_failed" as const, message: "down" } }));
+    const geocode = vi.fn(async () => ({
+      error: { kind: "request_failed" as const, message: "down" },
+    }));
     const d = deps({ geocode, cacheRead: vi.fn(async () => ({ kind: "miss" }) as const) });
-    for (let i = 0; i < 3; i++) await enrichVenueGeocode(makeResult({ name: `H${i}`, address: "" }), d);
+    for (let i = 0; i < 3; i++)
+      await enrichVenueGeocode(makeResult({ name: `H${i}`, address: "" }), d);
     const fourth = makeResult({ name: "H4", address: "" });
     await enrichVenueGeocode(fourth, d);
     expect(codes(fourth)).not.toContain("VENUE_TIMEZONE_UNRESOLVED");

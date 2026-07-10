@@ -160,7 +160,9 @@ export async function geocodeVenueCity(
     const apiStatus = body.status;
     if (apiStatus === "OK") {
       const c = extractCoords(body.results);
-      return { data: { city: extractCity(body.results), lat: c?.lat ?? null, lng: c?.lng ?? null } };
+      return {
+        data: { city: extractCity(body.results), lat: c?.lat ?? null, lng: c?.lng ?? null },
+      };
     }
     if (apiStatus === "ZERO_RESULTS") return { data: { city: null, ...NO_COORDS } };
     if (apiStatus === "OVER_QUERY_LIMIT") {

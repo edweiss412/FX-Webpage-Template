@@ -120,7 +120,14 @@ describe("writeGeocodeCache", () => {
   it("a returned Supabase error → infra_error", async () => {
     state.write = { error: { message: "denied" } };
     expect(
-      await writeGeocodeCache({ queryHash: "h", venueName: null, venueAddress: null, city: null, lat: null, lng: null }),
+      await writeGeocodeCache({
+        queryHash: "h",
+        venueName: null,
+        venueAddress: null,
+        city: null,
+        lat: null,
+        lng: null,
+      }),
     ).toEqual({ kind: "infra_error" });
   });
 });
@@ -195,7 +202,14 @@ describe("cache-fault warns are enriched + distinguishable", () => {
     state.read = { data: null, error: { message: "r" } };
     await readGeocodeCache("k1");
     state.write = { error: { message: "w" } };
-    await writeGeocodeCache({ queryHash: "k2", venueName: null, venueAddress: null, city: null, lat: null, lng: null });
+    await writeGeocodeCache({
+      queryHash: "k2",
+      venueName: null,
+      venueAddress: null,
+      city: null,
+      lat: null,
+      lng: null,
+    });
 
     const ops = vi.mocked(log.warn).mock.calls.map((c) => (c[1] as { op?: string }).op);
     expect(ops).toContain("read");

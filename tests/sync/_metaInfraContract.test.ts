@@ -952,7 +952,14 @@ describe("sync Supabase infra-failure contract", () => {
       vi.resetModules();
       return import("@/lib/geocoding/cache");
     }
-    const ARGS = { queryHash: "h", venueName: null, venueAddress: null, city: null, lat: null, lng: null };
+    const ARGS = {
+      queryHash: "h",
+      venueName: null,
+      venueAddress: null,
+      city: null,
+      lat: null,
+      lng: null,
+    };
 
     test("readGeocodeCache: service-role construction throw → infra_error (no throw)", async () => {
       infraMock.throwOnConstruct = true;

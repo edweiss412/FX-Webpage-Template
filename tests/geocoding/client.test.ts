@@ -94,7 +94,9 @@ describe("geocodeVenueCity", () => {
       "fetch",
       vi.fn(async () => jsonResponse({ status: "ZERO_RESULTS", results: [] })),
     );
-    expect(await geocodeVenueCity("Nowhere", "")).toEqual({ data: { city: null, lat: null, lng: null } });
+    expect(await geocodeVenueCity("Nowhere", "")).toEqual({
+      data: { city: null, lat: null, lng: null },
+    });
   });
 
   it("retries on 429 then succeeds", async () => {
