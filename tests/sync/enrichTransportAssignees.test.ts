@@ -1,4 +1,6 @@
 // tests/sync/enrichTransportAssignees.test.ts
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { CrewMemberRow, ParseResult, TransportationRow } from "@/lib/parser/types";
 import {
@@ -209,5 +211,15 @@ describe("enrichTransportAssignees (emit)", () => {
     expect(() =>
       enrichTransportAssignees({ warnings: [] } as unknown as ParseResult),
     ).not.toThrow();
+  });
+
+  it("imports significantTokens/covers from the shared module (no re-inlined copy)", () => {
+    const src = readFileSync(
+      path.join(process.cwd(), "lib/sync/enrichTransportAssignees.ts"),
+      "utf8",
+    );
+    expect(src).toMatch(/from "@\/lib\/data\/transportOwnerResolve"/);
+    expect(src).not.toMatch(/^function significantTokens/m);
+    expect(src).not.toMatch(/^function covers/m);
   });
 });
