@@ -18,6 +18,8 @@ Detailed agent outputs are summarized here; file:line citations were verified by
 
 **6.5 / 10** — on a scale where 10 = "hand Doug the URL and walk away" and 5 = "works if a developer checks in weekly."
 
+> **Superseded by the 2026-07-10 re-rating (§10): 7.5 / 10** after PRs #357–#382 shipped the action plans. §1–§5 below are the historical 07-07 assessment; §10 is current.
+
 Why not lower: the 2026-07-04 audit's Tier-1 ingestion findings are now substantially **fixed** (see §2) — version misclassification stages instead of guessing, material shrinkage holds last-good, stage restrictions use a real grammar, dims/address/date formats widened, the mutation harness manufactures the missing corpus. Hard failures are loud, error copy is genuinely excellent (A−, zero raw-code leaks), and the crew surface never renders a sentinel or a confident wrong *state*.
 
 Why not higher: the seam. The system verifies **presence of known errors, not fidelity to the sheet**. A parse that is plausible-but-wrong (mis-split room, glued hotel guests, mis-read date, wrong per-crew days, wrong autocorrect canonical) emits no signal, renders green in the review wizard, and displays as authoritative to a crew member on-site. And every alert is in-app only — email delivery is config-blocked (Resend unset), so a Doug who isn't looking at `/admin` learns nothing, ever.
@@ -110,7 +112,7 @@ Live-sheet probe confirms coordinators rename/invent headers constantly (`TECH` 
 
 Each plan lists only what moves the grade; items are ordered by grade-leverage within the flow. Effort: **config** (env/copy only), **S** (< 1 day), **M** (1–3 days), **L** (multi-day/structural). New admin-visible codes follow the §12.4 three-way-lockstep + telemetry invariants (AGENTS.md rules 5/10) — not restated per item.
 
-> **Shipped status (updated 2026-07-10).** The `Status` column tracks execution. 19 of 20 action items merged in PRs #357–#379 (landed 2026-07-07 → 2026-07-10). **Only open: 6.1 Resend key** (config, still unset). Closed since the 07-09 pass: 3.2 admin field-override layer (#376 — durable `admin_overrides`, survives full-replace re-sync, "overridden — sheet says X" chip + Re-point/Discard) — **↩️ subsequently REMOVED 2026-07-10 (this PR): the override layer was a second source of truth fighting the sheet-canonical promise; its narrow field set is verbatim/sheet-editable and already covered by the "Fix in sheet" + Re-sync loop (3.1 #358) + report flow, so it was torn out. See item 3.2 below.** 8.3 venue timezone (#377 — `venue.timezone` from geocode coords + `VENUE_TIMEZONE_UNRESOLVED` ET-fallback warn), 8.4 transport no-match (#374 — `TRAVEL_TRANSPORT_NAME_UNMATCHED` admin warn; id-persistence remainder still deferred to `BL-TRANSPORT-ID-RESOLUTION`). Also landed adjacent to the plan: **§7 item 5** — ambiguity-warnings-v1 (#367 — lean per-field confidence + wizard third state, also shipped the 2.1 room-split / hotel-glue / ambiguous-date follow-ons) PLUS the `fast-check` property-fuzz layer (#379 — Phase 1, markdown→parseSheet; xlsx Phase 2 + full provenance model still open). Flow 7 held its A− grade; its three optional-polish copy edits + a class-sweep jargon pin landed 2026-07-09 (#378).
+> **Shipped status (updated 2026-07-10).** The `Status` column tracks execution. 18 of 20 action items shipped across PRs #357–#381 (landed 2026-07-07 → 2026-07-10); 3.2 was shipped (#376) then **removed by design** (#382 — anti-canonical second source of truth, see item 3.2); **the only open item is 6.1 Resend key** (config, still unset). Closed since the 07-09 pass: 3.2 admin field-override layer (#376 — durable `admin_overrides`, survives full-replace re-sync, "overridden — sheet says X" chip + Re-point/Discard) — **↩️ subsequently REMOVED 2026-07-10 (this PR): the override layer was a second source of truth fighting the sheet-canonical promise; its narrow field set is verbatim/sheet-editable and already covered by the "Fix in sheet" + Re-sync loop (3.1 #358) + report flow, so it was torn out. See item 3.2 below.** 8.3 venue timezone (#377 — `venue.timezone` from geocode coords + `VENUE_TIMEZONE_UNRESOLVED` ET-fallback warn), 8.4 transport visibility **fully closed** (#374 `TRAVEL_TRANSPORT_NAME_UNMATCHED` admin warn + #380 id-based transport-tile visibility — the deferred `BL-TRANSPORT-ID-RESOLUTION` half; a garbled driver name can no longer hide a driver's own tile). Also landed adjacent to the plan: **§7 item 5** — ambiguity-warnings-v1 (#367 — lean per-field confidence + wizard third state, also shipped the 2.1 room-split / hotel-glue / ambiguous-date follow-ons) PLUS the `fast-check` property-fuzz layer (#379 — Phase 1, markdown→parseSheet; xlsx Phase 2 + full provenance model still open). Flow 7 held its A− grade; its three optional-polish copy edits + a class-sweep jargon pin landed 2026-07-09 (#378). Adjacent UI: onboarding wizard Step 1 body redesigned to the design-mock (#381 — inline disclosures + rotating chevron; §9.0 copy verbatim, no new token; impeccable critique 35/40 + audit 18/20).
 
 | Flow | Grade path | Shipped | Open |
 |---|---|---|---|
@@ -121,7 +123,7 @@ Each plan lists only what moves the grade; items are ordered by grade-leverage w
 | 5 Share crew links | B → A− | 5.1, 5.2 (#362) | — |
 | 6 Notice breakage | C+ → A− | 6.2 (#366, +#370), 6.3, 6.4 (#364) | 6.1 (config) |
 | 7 Error copy | A− (hold) | polish (3 copy edits + jargon pin, 2026-07-09) | — |
-| 8 Crew self-serve | B+ → A− | 8.1, 8.2 (#372), 8.3 (#377), 8.4 (#374) | — (8.4 id-persistence remainder → BL-TRANSPORT-ID-RESOLUTION) |
+| 8 Crew self-serve | B+ → A− | 8.1, 8.2 (#372), 8.3 (#377), 8.4 (#374 + #380) | — (8.4 id-resolution remainder now closed by #380) |
 
 ### Flow 1 — Add a new show (B → A−)
 
@@ -208,7 +210,7 @@ Already at target. Optional polish, in order: replace "sync-suppression rule" wi
 | 8.1 | Picker hardening: sentinel-guard roster names, collapse exact duplicates, and add a persistent "Don't see your name? Contact <admin contact>" affordance (covers missing-from-roster + typo'd-name cases without exposing parse internals). | S | `_PickerInterstitial.tsx:134-217` | ✅ #372 (`sanitizePickerRoster` + `PICKER_NAME_NOT_LISTED`) |
 | 8.2 | Fail closed in `resolveViewerContext` when a crew viewer's id has no matching row in a well-formed array (currently falls open to `{kind:'none'}` restrictions = whole-show visibility). Return the same re-pick path the resolver uses. | S | `viewerContext.ts:125-141`; `resolvePickerSelection.ts:105` | ✅ #372 (`UnmatchedViewerError`, fail-closed + guided re-pick) |
 | 8.3 | Timezone: populate `venue.timezone` at enrich time (geocode already runs; tz lookup from coordinates) with the ET default emitting an admin-visible warning when used on a published show. | M | `rightNow.ts:202`; `showTimezone.ts:10-17`; `enrichVenueGeocode.ts` | ✅ #377 — `coordsToTimezone` (offline `tz-lookup` on captured geocode lat/lng, no new API call); `VENUE_TIMEZONE_UNRESOLVED` gate-exempt warn on ET fallback |
-| 8.4 | Transport visibility: match assigned crew by crew-member id (or normalized/fuzzy name) instead of exact `viewerName` string, so a name mis-parse can't hide a driver's own itinerary. | S–M | `TravelSection.tsx:172-177`; `lib/visibility/scopeTiles.ts` | ✅ #374 — `classifyUnmatchedAssignees` emits `TRAVEL_TRANSPORT_NAME_UNMATCHED` admin warn on garble/fusion (detection). Id-based resolution/persistence remainder still deferred (`BL-TRANSPORT-ID-RESOLUTION`; no crew `id` exists at enrich time) |
+| 8.4 | Transport visibility: match assigned crew by crew-member id (or normalized/fuzzy name) instead of exact `viewerName` string, so a name mis-parse can't hide a driver's own itinerary. | S–M | `TravelSection.tsx:172-177`; `lib/visibility/scopeTiles.ts` | ✅ #374 + #380 — **fully closed.** #374 = `classifyUnmatchedAssignees` admin warn on garble/fusion (detection). #380 ("8.3b") = the deferred id-resolution half of `BL-TRANSPORT-ID-RESOLUTION`: read-time in-memory owner resolution in `getShowForViewer` (no DB column) so visibility = `isAdmin OR id-match OR namesRefer` — a garbled `driver_name` can no longer hide a driver's own tile. `sheet_name` kept server-only (privacy-pinned); sentinel + malformed-JSONB guards |
 
 Done-when: every "can't find myself / can't see my stuff" path lands on a guided affordance, and no fail-open remains.
 
@@ -241,3 +243,36 @@ The P0-2 class (confident wrong values) is not fully closable by any per-flow it
 ## 9. Sources
 
 Five investigations 2026-07-07 (prior-finding delta verification; admin UX flows 1–7; crew degraded-data render; seam signal-routing; live-sheet variation probe via gsheets MCP over all 7 real shows). Prior art: `edge-case-preparedness-audit-2026-07-04.md`, `sheet-data-grounding-audit-2026-06-18.md`. Working tree at `dea2d9adc` + cosmetic `step3ReviewSections.tsx` edit.
+
+---
+
+## 10. Re-rating — 2026-07-10 (post-execution)
+
+Two parallel code-verification investigations at `main` `bbb6ac91a` (after PRs #357–#382 executed the §6 action plans): (a) seam signal-routing matrix re-derived row-by-row against live code; (b) every §5 failure mode re-verified with file:line evidence. Doc claims were verified, not trusted.
+
+### 10.1 Confidence: **7.5 / 10** (was 6.5) — ~8.5 the day the Resend key is set
+
+Same scale as §1. The seam — the 07-07 "why not higher" — is now substantially instrumented: detection (5 ambiguity/fallback warn codes + wizard "Parsed with judgment" third state, `lib/admin/step3SectionStatus.ts:108-113`, `Step3SheetCard.tsx:543-549`), monitoring (weekly digest `lib/notify/monitorDigest.ts`, OR-based regression gate `lib/parser/dataGaps.ts:207-213`), correction (fix-in-sheet deep-link loop; override layer removed as anti-canonical, zero dangling refs). What still caps the rating: **delivery is config-blocked** (`lib/notify/config.ts:6-11`, Resend unset — 6.1, the only open action item), so every push signal still reaches only a Doug who is already in the app.
+
+### 10.2 Failure-mode verdicts (verified at HEAD)
+
+| §5 item | Verdict | Evidence |
+|---|---|---|
+| P0-1 single-crew drop | **FIXED** — `crewDrop === 1` on published shows routes through `shrink_held` (`phase1.ts:441-444`). **New residual found:** rename = drop+add nets crew delta 0 → silent member replacement on a published show → filed `BL-CREW-RENAME-SILENT-REPLACEMENT`. By-design carve-outs: unpublished auto-apply (`phase1.ts:44`), `onboarding_scan` mode. |
+| P0-2 confident wrong values | **BOUNDED, not closed** — all four #367 codes + `CREW_COLUMN_POSITIONAL_FALLBACK` fire where claimed (`ambiguityCodes.ts:20-23`; `crew.ts:159`, `hotels.ts:91,970-971`, `dates.ts:504-542`). Zero-signal residuals: a mis-read date that stays MDY-monotone (DMY heuristic needs a strict sequence violation, `dates.ts:513-534`); a wrong-but-`explicit` `date_restriction`; mis-splits that don't trip the heuristics. Structural fix remains the provenance model (§7 item 5, partial). In-flight: `BL-STRUCTURAL-TRANSFORM-USE-RAW` (spec drafted 2026-07-10) closes the correction affordance on the three recoverable transforms. |
+| P1-3 in-app only | **UNCHANGED (config)** — infra built + recipient-safe; blocked solely on `RESEND_API_KEY`/`EMAIL_FROM`. Post-config, the digest covers the pull-only band; `shrink_held` holds + wizard judgment states stay in-app-only by design. |
+| P1-4 sub-threshold drift | **FIXED** — OR gate: new class (0→>0) OR +5 absolute OR ≥1.5× with +2 floor (`dataGaps.ts:190-228`); `AUTO_FIX_CLASSES` chip + digest roll-up, deliberately gate-exempt. |
+| P1-5 vocab silent exits | **DETECTION ADDED, exits intact** — `emitUnknownSection` now warns on unknown recognized-shape headers (`index.ts:~700-718`); still silent: `KNOWN_SUB_LABELS` collision skip, HOTEL/VENUE/DATES typo exclusion (`sectionHeaderNormalize.ts:22-23`), `OLD`-tab skip (`exportSheetToMarkdown.ts:316-349`). Property-fuzz (#379) oracles the parser but doesn't change runtime exits. |
+
+Also verified: 8.2 fail-closed `UnmatchedViewerError` (`viewerContext.ts:83-148`); 8.4 id-based transport visibility (`getShowForViewer.ts:248-262` + `transportOwnerResolve.ts`); #382 teardown clean (zero `admin_overrides|set_field_override|liveOverrides` hits in app/, lib/, components/).
+
+### 10.3 Seam matrix delta
+
+07-07 had four emitted-but-dark classes + the no-signal structural class. Now: first-seen hard-fails alert (`ONBOARDING_SHEET_UNREADABLE`, scan route), `raw_unrecognized[]` renders in the wizard Step 3 callout, autocorrects surface via chip + digest, structural mis-parses have an ambiguity-warning layer with per-block `TRANSFORM_SITES` registries pinning coverage. Remaining dark/silent: **info-severity warnings** (filtered by every surface — `dataGaps.ts:137,178,353`, `phase1.ts:198`), **`HOTELS_PARSE_WARNING`** (app_events-only, `hotels.ts:49`), agenda forensic codes (app_events-only, deliberate), and two deferred hotel ambiguity exemptions (`BL-PARSER-HOTEL-INLINE-AMBIGUITY`, `BL-PARSER-ADDRESS-SPLIT-AMBIGUITY`, `hotels.ts:972-973`). No new dark classes introduced by #357–#381.
+
+### 10.4 Path to higher
+
+1. **Set the Resend key** (6.1, config) → ~8.5. Unchanged as the highest-leverage single action since 07-07.
+2. **Close the rename hole** (`BL-CREW-RENAME-SILENT-REPLACEMENT`, S–M) — the surviving sliver of P0-1's class.
+3. **Ship structural-transform use-raw** (in flight, spec at `docs/superpowers/specs/2026-07-10-structural-transform-use-raw.md`) — correction layer for the recoverable transform subset.
+4. **Provenance model** (§7 item 5 remainder) — the long-term move for the P0-2 zero-signal residuals; 9+ territory.
