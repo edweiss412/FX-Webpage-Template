@@ -7,7 +7,7 @@
 //   2. `showModel` / `caseArb` — the fast-check arbitraries that generate honest
 //      `ShowModel`s (and `[ShowModel, DialChoices]` pairs).
 //   3. `validateGeneratedCase` — the ONE honesty gate. Every construction rule the
-//      arbitrary claims to obey is RE-CHECKED here (invariants a–g). `render.ts`
+//      arbitrary claims to obey is RE-CHECKED here (invariants a–h). `render.ts`
 //      (Task 6) never checks honesty; it trusts a model that has passed this gate.
 //      Because it is the soundness boundary of the whole layer, every invariant is a
 //      separately-callable function and a violation throws `GeneratorInvariantViolation`
@@ -363,11 +363,12 @@ export const showModel: fc.Arbitrary<ShowModel> = fc
     year: fc.integer({ min: 2020, max: 2035 }),
     // 3–6 distinct days-of-year (capped at 359 so every year — leap or not — is valid).
     doys: fc.uniqueArray(fc.integer({ min: 0, max: 359 }), { minLength: 3, maxLength: 6 }),
-    crew: fc.array(rawCrewArb, { minLength: 1, maxLength: 8 }),
+    // Ranges match the plan's Global Constraints: crew 1–12, hotels 0–3, rooms 0–6.
+    crew: fc.array(rawCrewArb, { minLength: 1, maxLength: 12 }),
     hotels: fc.array(rawHotelArb, { minLength: 0, maxLength: 3 }),
-    rooms: fc.array(rawRoomArb, { minLength: 0, maxLength: 3 }),
-    // One slot per potential crew member (max 8); −1 = unhoused.
-    hotelAssign: fc.array(fc.integer({ min: -1, max: 2 }), { minLength: 8, maxLength: 8 }),
+    rooms: fc.array(rawRoomArb, { minLength: 0, maxLength: 6 }),
+    // One slot per potential crew member (max 12); −1 = unhoused; max index 2 = hotels max−1.
+    hotelAssign: fc.array(fc.integer({ min: -1, max: 2 }), { minLength: 12, maxLength: 12 }),
     venueWordIdx: fc.nat({ max: VENUE_WORDS.length - 1 }),
     venueNum: fc.integer({ min: 1, max: 9999 }),
     venueStreetIdx: fc.nat({ max: STREET_NAMES.length - 1 }),
@@ -428,7 +429,7 @@ export const caseArb: fc.Arbitrary<readonly [ShowModel, DialChoices]> = fc
   .map(normalizeCombo);
 
 // ---------------------------------------------------------------------------
-// validateGeneratedCase — the single honesty gate (invariants a–g)
+// validateGeneratedCase — the single honesty gate (invariants a–h)
 // ---------------------------------------------------------------------------
 
 export class GeneratorInvariantViolation extends Error {
@@ -616,7 +617,101 @@ export function checkDateDistinctness(model: ShowModel): void {
 }
 
 /**
- * The single honesty gate. Runs every invariant a–g in order and, defensively,
+ * Alphanumeric-boundary containment — mirrors the oracle's
+ * `containsDelimitedIdentity` (groundTruth.ts:104-125): a needle counts as
+ * contained only when the characters immediately before/after it are NOT
+ * alphanumeric, so `"Ann"` ⊄ `"Annette"` and a serial `"QAA"` ⊄ `"QAABC"`.
+ * Kept LOCAL (not imported from groundTruth) so model.ts — the soundness
+ * boundary render.ts trusts — has no dependency on the oracle module.
+ */
+function containsIdentityDelimited(hay: string, needle: string): boolean {
+  if (needle.length === 0) return false;
+  const boundary = /[A-Za-z0-9]/;
+  let from = 0;
+  for (;;) {
+    const idx = hay.indexOf(needle, from);
+    if (idx < 0) return false;
+    const before = idx > 0 ? hay[idx - 1]! : "";
+    const after = idx + needle.length < hay.length ? hay[idx + needle.length]! : "";
+    if ((before === "" || !boundary.test(before)) && (after === "" || !boundary.test(after))) {
+      return true;
+    }
+    from = idx + 1;
+  }
+}
+
+/**
+ * Per-entity identity strings + non-identity field values, used by invariant (h).
+ * `identities` are the strings the oracle attributes/absolves BY (a NAME and its
+ * fixed-width serial); `fields` are the free-text NON-identity values a
+ * same-section warning might echo (crew role/phone/email, hotel & venue address,
+ * room dims). Hotel `guests` are deliberately EXCLUDED from `fields` — they are
+ * OTHER crew members' identity strings by design (the guest partition, invariant
+ * b), not a non-identity field, so echoing a guest name is legitimate.
+ */
+function entityFieldTable(
+  model: ShowModel,
+): { owner: string; identities: string[]; fields: string[] }[] {
+  const out: { owner: string; identities: string[]; fields: string[] }[] = [];
+  model.crew.forEach((c, i) => {
+    const fields = [c.role, c.phone];
+    if (c.email !== undefined) fields.push(c.email);
+    out.push({ owner: `crew[${i}]`, identities: [c.name, serial("Q", i)], fields });
+  });
+  model.hotels.forEach((h, i) => {
+    out.push({ owner: `hotels[${i}]`, identities: [h.name, serial("H", i)], fields: [h.address] });
+  });
+  model.rooms.forEach((r, i) => {
+    out.push({
+      owner: `rooms[${i}]`,
+      identities: [r.name, serial("R", i)],
+      fields: [`${r.dims.w} x ${r.dims.d}`],
+    });
+  });
+  out.push({
+    owner: "venue",
+    identities: [model.venue.name, serial("V", 0)],
+    fields: [model.venue.address],
+  });
+  return out;
+}
+
+/**
+ * (h) Cross-entity field containment (defensive soundness guard). No entity's
+ * identity string — a crew/hotel/room/venue NAME or its fixed-width serial — may
+ * appear as a boundary-delimited substring of ANY OTHER entity's NON-identity
+ * field value (crew role/phone/email, hotel/venue address, room dims). If it did,
+ * a non-fatal warning attributed to the FIELD's owner whose message/rawSnippet
+ * echoes that field could spuriously ABSOLVE the IDENTITY's owner's silent miss
+ * via the oracle's t2/t3 value-containment channel (groundTruth.ts:202,212) —
+ * e.g. crew A's role carrying crew B's name lets an A-warning blanket-absolve B.
+ * Currently UNREACHABLE (roles are the fixed recognized vocab with no names;
+ * phones/emails/addresses/dims are digit/lowercase/street-word shaped) — but this
+ * gate is the soundness boundary and must fail-closed against a future generator
+ * edit, exactly like the compile-time key witness in dials.ts. Uses the SAME
+ * alphanumeric-boundary matcher discipline as the oracle (so `Ann` ⊄ `Annette`).
+ */
+export function checkCrossEntityFieldContainment(model: ShowModel): void {
+  const table = entityFieldTable(model);
+  for (const src of table) {
+    for (const dst of table) {
+      if (src.owner === dst.owner) continue;
+      for (const id of src.identities) {
+        for (const field of dst.fields) {
+          if (containsIdentityDelimited(field, id)) {
+            fail(
+              "h",
+              `identity "${id}" of ${src.owner} appears as a boundary-delimited substring of ${dst.owner}'s non-identity field "${field}"`,
+            );
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * The single honesty gate. Runs every invariant a–h in order and, defensively,
  * re-checks the headerless/headerTypo cross-dial exclusion `normalizeCombo`
  * resolves by construction. Throws `GeneratorInvariantViolation` on the first
  * violation.
@@ -629,8 +724,9 @@ export function validateGeneratedCase(model: ShowModel, dials: DialChoices): voi
   checkNoMarkerLiterals(model); // (e)
   checkSectionCoupling(model); // (f)
   checkDateDistinctness(model); // (g)
+  checkCrossEntityFieldContainment(model); // (h)
 
-  // Cross-dial exclusion (not an a–g model invariant; defense-in-depth for the
+  // Cross-dial exclusion (not an a–h model invariant; defense-in-depth for the
   // one dial combination normalizeCombo forbids by construction).
   if (dials.crewHeader === "headerless" && dials.headerTypo !== null) {
     throw new GeneratorInvariantViolation(

@@ -20,6 +20,7 @@ import {
   showModel,
   caseArb,
   validateGeneratedCase,
+  checkCrossEntityFieldContainment,
   GeneratorInvariantViolation,
   CLEAN_ROLE_VOCAB,
   mdToken,
@@ -89,6 +90,14 @@ describe("validateGeneratedCase — positive (generator honesty)", () => {
 
   it("validBase() is itself honest", () => {
     expect(() => validateGeneratedCase(validBase(), defaultDials())).not.toThrow();
+  });
+
+  it("no sampled model plants an identity in another entity's non-identity field (h)", () => {
+    const samples = fc.sample(showModel, { seed: 7, numRuns: 25 });
+    expect(samples.length).toBe(25);
+    for (const model of samples) {
+      expect(() => checkCrossEntityFieldContainment(model)).not.toThrow();
+    }
   });
 });
 
@@ -166,6 +175,17 @@ describe("validateGeneratedCase — negative (one broken invariant each)", () =>
     const m = clone(validBase());
     m.dates.travelOut = m.dates.travelIn;
     expect(() => validateGeneratedCase(m, defaultDials())).toThrow(/invariant \(g\)/);
+  });
+
+  it("(h) crew role contains another crew member's name (cross-entity)", () => {
+    const m = clone(validBase());
+    // crew[1] is "Boris QAB Stone". Planting it inside crew[0]'s role would let a
+    // crew[0]-attributed warning whose rawSnippet echoes the role spuriously ABSOLVE
+    // crew[1]'s miss (the oracle's t2/t3 value-containment channel). The role passes
+    // the (c) screen (no stage/ONLY/date/paren), so (h) is the sole violation.
+    m.crew[0]!.role = `A1 ${m.crew[1]!.name}`;
+    expect(() => validateGeneratedCase(m, defaultDials())).toThrow(GeneratorInvariantViolation);
+    expect(() => validateGeneratedCase(m, defaultDials())).toThrow(/invariant \(h\)/);
   });
 });
 
