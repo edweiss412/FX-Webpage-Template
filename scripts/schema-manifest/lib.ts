@@ -108,6 +108,10 @@ export function stripSqlNoise(sql: string): string {
  *   - Pairs whose table is dropped by any `drop table ... <table>` are excluded
  *     (a column added then the table removed must not be demanded of the
  *     manifest, which reflects final state).
+ *   - Pairs whose column is dropped by a later `alter table <table> ... drop
+ *     column <column>` are excluded (a one-shot add-then-drop column lifecycle —
+ *     e.g. crew_members.sheet_name added by the admin-field-override migration and
+ *     dropped by its teardown — must not be demanded of the final-state manifest).
  * Deliberately does NOT parse `create table` column lists — those are fragile to
  * regex and are covered instead by the table-existence side of the manifest plus
  * the local introspection-equality freshness check. New-table columns ride along
@@ -118,6 +122,7 @@ export function parseAlterAddColumns(sql: string): ExpectedColumn[] {
   const clean = stripSqlNoise(sql);
   const statements = clean.split(";");
   const dropped = collectDroppedPublicTables(clean);
+  const droppedCols = collectDroppedPublicColumns(clean);
   const pairs: ExpectedColumn[] = [];
   const seen = new Set<string>();
 
@@ -138,11 +143,37 @@ export function parseAlterAddColumns(sql: string): ExpectedColumn[] {
       if (!column) continue;
       const key = `${table}.${column}`;
       if (seen.has(key)) continue;
+      if (droppedCols.has(key)) continue; // added then dropped — not in final state
       seen.add(key);
       pairs.push({ table, column });
     }
   }
   return pairs;
+}
+
+/**
+ * Public `table.column` pairs removed by an `alter table [if exists] [only]
+ * [public.]<table> ... drop column [if exists] <column>` anywhere in the SQL.
+ * Mirrors collectDroppedPublicTables at the column grain so the add-column
+ * tripwire nets a one-shot add-then-drop lifecycle (final-state semantics).
+ */
+export function collectDroppedPublicColumns(cleanSql: string): Set<string> {
+  const droppedCols = new Set<string>();
+  for (const stmt of cleanSql.split(";")) {
+    const head = /\balter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?(?:(\w+)\.)?(\w+)/i.exec(stmt);
+    if (!head) continue;
+    const schema = head[1]?.toLowerCase();
+    const table = head[2];
+    if (!table) continue;
+    if (schema && schema !== "public") continue;
+    const dropRe = /\bdrop\s+column\s+(?:if\s+exists\s+)?(\w+)/gi;
+    let m: RegExpExecArray | null;
+    while ((m = dropRe.exec(stmt)) !== null) {
+      const column = m[1];
+      if (column) droppedCols.add(`${table}.${column}`);
+    }
+  }
+  return droppedCols;
 }
 
 /** Public tables removed by `drop table [if exists] [public.]<table>`. */

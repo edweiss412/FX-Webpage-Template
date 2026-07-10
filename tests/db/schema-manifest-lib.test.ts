@@ -98,6 +98,24 @@ describe("parseAlterAddColumns", () => {
     expect(parseAlterAddColumns(sql)).toEqual([]);
   });
 
+  it("excludes a surviving-table column that is added then later dropped (final state)", () => {
+    // The admin-field-override teardown vector: crew_members.sheet_name added by the
+    // feature migration and dropped by its teardown; the table survives, so only the
+    // add-then-drop column must net out of the final-state tripwire.
+    const sql =
+      "alter table public.crew_members add column if not exists sheet_name text;\n" +
+      "alter table public.crew_members drop column if exists sheet_name;";
+    expect(parseAlterAddColumns(sql)).toEqual([]);
+  });
+
+  it("keeps a surviving column even when a DIFFERENT column on the same table is dropped", () => {
+    const sql =
+      "alter table public.crew_members add column if not exists sheet_name text;\n" +
+      "alter table public.crew_members add column if not exists keep_me text;\n" +
+      "alter table public.crew_members drop column if exists sheet_name;";
+    expect(parseAlterAddColumns(sql)).toEqual([{ table: "crew_members", column: "keep_me" }]);
+  });
+
   it("is case-insensitive and dedupes repeated (table,column) pairs", () => {
     const sql =
       "ALTER TABLE PUBLIC.app_settings ADD COLUMN IF NOT EXISTS rotated_at timestamptz;\n" +
