@@ -19,4 +19,27 @@ describe("Step1Share — no-folder disclosure", () => {
     expect(within(details).getByText(/drop your show sheet/i)).toBeInTheDocument();
     expect(within(details).getByText(/viewer access/i)).toBeInTheDocument();
   });
+
+  it("nests the no-folder disclosure inside step 1, after its prompt row", () => {
+    render(<Step1Share serviceAccountEmail="svc@example.iam.gserviceaccount.com" />);
+    const details = screen.getByTestId("wizard-step1-no-folder");
+    const step1Li = details.closest("li");
+    expect(step1Li).not.toBeNull();
+    const prompt = within(step1Li as HTMLElement).getByText(
+      /find the folder where you keep your show sheets/i,
+    );
+    const promptRow = prompt.closest("div") as HTMLElement;
+    // disclosure is a sibling AFTER the prompt row, not inside the horizontal row
+    expect(promptRow.contains(details)).toBe(false);
+    expect(
+      promptRow.compareDocumentPosition(details) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("directs first-time users to the email BELOW, never above (placement fix)", () => {
+    render(<Step1Share serviceAccountEmail="svc@example.iam.gserviceaccount.com" />);
+    const text = screen.getByTestId("wizard-step1-no-folder").textContent ?? "";
+    expect(text).toMatch(/the email below/i);
+    expect(text).not.toMatch(/the email above/i);
+  });
 });

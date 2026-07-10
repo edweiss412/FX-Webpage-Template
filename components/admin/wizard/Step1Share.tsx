@@ -1,34 +1,33 @@
 "use client";
 
 /**
- * components/admin/wizard/Step1Share.tsx (M10 §B Task 10.2 / Phase 1)
+ * components/admin/wizard/Step1Share.tsx
  *
  * Wizard step 1 — "Share your show folder." Renders the spec §9.0 step-1
  * microcopy verbatim, displays the service-account email with a copy
- * affordance, exposes the "What's this email?" disclosure, and links
+ * affordance, and exposes two inline helper disclosures: "Don't have a
+ * folder yet?" (nested in step 1) and "What's this email?" (directly below
+ * the email card). Both are native <details> with a chevron that rotates on
+ * open (group-open) and the browser's default marker suppressed. Links
  * forward to step 2 (`/admin?step=2`).
  *
+ * Design mock: docs/superpowers/specs/2026-07-09-step1-share-folder-mock/.
+ * Spec: docs/superpowers/specs/2026-07-09-step1-share-folder-redesign.md.
+ *
  * Client Component — owns the copy-to-clipboard interaction and the
- * "Copied!" feedback state. The service-account email is supplied by
- * the server-side wizard shell (OnboardingWizard) which is responsible
- * for resolving it from `GOOGLE_SERVICE_ACCOUNT_JSON`; this component
- * trusts the prop to be a non-empty email.
+ * "Copied!" feedback state. The service-account email is supplied by the
+ * server-side wizard shell (OnboardingWizard); this component trusts the
+ * prop to be a non-empty email.
  *
- * Spec contract:
- *   §9.0 step 1 four numbered prompts are rendered verbatim.
- *   The advance affordance reads "I’ve shared the folder."
- *   No raw error codes are surfaced (invariant 5).
- *
- * DESIGN.md tokens:
- *   - --color-surface, --color-border, --color-text, --color-text-subtle,
- *     --color-accent-on-bg used through Tailwind utilities.
- *   - --spacing-tap-min (44px) on every interactive element.
- *   - --radius-md (12px) on the email card; --radius-sm on the copy
- *     button.
- *   - Curly apostrophes throughout (impeccable typography contract).
+ * Contract highlights:
+ *   §9.0 step-1 four prompts rendered verbatim; the advance affordance
+ *   reads "I've shared the folder." No raw error codes (invariant 5).
+ *   Every interactive control ≥44px (DESIGN.md:185); text-text-subtle is
+ *   never a summary label (DESIGN.md:27). Curly apostrophes throughout.
  */
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { HelpSheet } from "@/components/admin/HelpSheet";
 import { WizardFooter } from "@/components/admin/wizard/WizardFooter";
 
@@ -106,17 +105,40 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
       </header>
 
       <ol data-testid="wizard-step1-steps" className="flex flex-col gap-4 text-base text-text">
-        <li className="flex gap-3">
-          <span
-            aria-hidden="true"
-            className="flex size-6 shrink-0 items-center justify-center rounded-pill bg-surface-sunken text-sm font-semibold text-text-subtle tabular-nums"
-          >
-            1
-          </span>
-          <span>
-            In Google Drive, find the folder where you keep your show sheets (or make a new one).
-          </span>
+        {/* Step 1 — row+column: prompt row, then the nested no-folder helper. */}
+        <li className="flex flex-col gap-3">
+          <div className="flex gap-3">
+            <span
+              aria-hidden="true"
+              className="flex size-6 shrink-0 items-center justify-center rounded-pill bg-surface-sunken text-sm font-semibold text-text-subtle tabular-nums"
+            >
+              1
+            </span>
+            <span>
+              In Google Drive, find the folder where you keep your show sheets (or make a new one).
+            </span>
+          </div>
+          <details data-testid="wizard-step1-no-folder" className="group ml-9">
+            <summary className="flex min-h-tap-min w-fit cursor-pointer list-none items-center gap-1.5 rounded-sm text-sm font-medium text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden">
+              Don&rsquo;t have a folder yet?
+              <ChevronDown
+                aria-hidden="true"
+                className="size-4 shrink-0 transition-transform duration-normal group-open:rotate-180"
+              />
+            </summary>
+            <ol className="mt-2 flex max-w-prose list-decimal flex-col gap-2 pl-5 text-sm text-text-subtle">
+              <li>
+                In Google Drive, click New &rarr; Folder and give it a name (your show name works
+                well).
+              </li>
+              <li>Open the folder and drop your show sheet(s) inside.</li>
+              <li>Share the folder with the email below and give it Viewer access.</li>
+              <li>Come back here and continue.</li>
+            </ol>
+          </details>
         </li>
+
+        {/* Step 2 — unchanged. */}
         <li className="flex gap-3">
           <span
             aria-hidden="true"
@@ -126,6 +148,9 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
           </span>
           <span>Click &quot;Share&quot; on the folder.</span>
         </li>
+
+        {/* Step 3 — prompt row, then an indented column holding the email card
+            and the "What's this email?" helper as siblings. */}
         <li className="flex flex-col gap-3">
           <div className="flex gap-3">
             <span
@@ -136,32 +161,56 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
             </span>
             <span>Paste this email and give it Viewer access:</span>
           </div>
-          <div className="ml-9 flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad shadow-(--shadow-tile) sm:flex-row sm:items-center sm:gap-4">
-            <code
-              data-testid="wizard-step1-service-account-email"
-              className="break-all text-sm font-medium tabular-nums text-text-strong sm:flex-1 sm:text-base"
+          <div className="ml-9 flex flex-col gap-3">
+            <div
+              data-testid="wizard-step1-email-card"
+              className="flex flex-col gap-3 rounded-md border border-border bg-surface p-tile-pad shadow-(--shadow-tile) sm:flex-row sm:items-center sm:gap-4"
             >
-              {serviceAccountEmail}
-            </code>
-            <button
-              type="button"
-              data-testid="wizard-step1-copy-email-button"
-              onClick={handleCopy}
-              aria-label={`Copy ${serviceAccountEmail} to clipboard`}
-              className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-            >
-              {copied ? "Copied" : "Copy"}
-            </button>
-            <span
-              role="status"
-              aria-live="polite"
-              data-testid="wizard-step1-copy-feedback"
-              className="text-xs text-text-subtle sm:min-w-[6ch]"
-            >
-              {copied ? "Copied to clipboard" : ""}
-            </span>
+              <code
+                data-testid="wizard-step1-service-account-email"
+                className="break-all text-sm font-medium tabular-nums text-text-strong sm:flex-1 sm:text-base"
+              >
+                {serviceAccountEmail}
+              </code>
+              <button
+                type="button"
+                data-testid="wizard-step1-copy-email-button"
+                onClick={handleCopy}
+                aria-label={`Copy ${serviceAccountEmail} to clipboard`}
+                className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-semibold text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+              >
+                {copied ? "Copied" : "Copy"}
+              </button>
+              <span
+                role="status"
+                aria-live="polite"
+                data-testid="wizard-step1-copy-feedback"
+                className="text-xs text-text-subtle sm:min-w-[6ch]"
+              >
+                {copied ? "Copied to clipboard" : ""}
+              </span>
+            </div>
+            <details data-testid="wizard-step1-explainer" className="group">
+              <summary
+                data-testid="wizard-step1-explainer-summary"
+                className="flex min-h-tap-min w-fit cursor-pointer list-none items-center gap-1.5 rounded-sm text-sm font-medium text-text focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden"
+              >
+                <ChevronDown
+                  aria-hidden="true"
+                  className="size-4 shrink-0 text-text-subtle transition-transform duration-normal group-open:rotate-180"
+                />
+                What&rsquo;s this email?
+              </summary>
+              <p className="mt-3 max-w-prose text-sm text-text-subtle">
+                It is the app&rsquo;s identity inside your Drive. It can only see what you share
+                with it, and only the folder you choose. Removing the share at any time revokes the
+                app&rsquo;s access.
+              </p>
+            </details>
           </div>
         </li>
+
+        {/* Step 4 — unchanged. */}
         <li className="flex gap-3">
           <span
             aria-hidden="true"
@@ -172,40 +221,6 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
           <span>Come back here and click &quot;I&rsquo;ve shared the folder.&quot;</span>
         </li>
       </ol>
-
-      <details
-        data-testid="wizard-step1-explainer"
-        className="rounded-md border border-border bg-surface-sunken p-tile-pad"
-      >
-        <summary
-          data-testid="wizard-step1-explainer-summary"
-          className="cursor-pointer text-sm font-semibold text-text-strong"
-        >
-          What&rsquo;s this email?
-        </summary>
-        <p className="mt-3 max-w-prose text-sm text-text-subtle">
-          It is the app&rsquo;s identity inside your Drive. It can only see what you share with it,
-          and only the folder you choose. Removing the share at any time revokes the app&rsquo;s
-          access.
-        </p>
-      </details>
-
-      <details
-        data-testid="wizard-step1-no-folder"
-        className="rounded-md border border-border bg-surface-sunken p-tile-pad"
-      >
-        <summary className="cursor-pointer text-sm font-semibold text-text-strong">
-          Don&rsquo;t have a folder yet?
-        </summary>
-        <ol className="mt-3 flex max-w-prose list-decimal flex-col gap-2 pl-5 text-sm text-text-subtle">
-          <li>
-            In Google Drive, click New &rarr; Folder and give it a name (your show name works well).
-          </li>
-          <li>Open the folder and drop your show sheet(s) inside.</li>
-          <li>Share the folder with the email above and give it Viewer access.</li>
-          <li>Come back here and continue.</li>
-        </ol>
-      </details>
 
       {/* Forward nav lives in the shared full-width footer (no Back on step 1,
           the first step). The primary keeps its testid + copy for continuity. */}
