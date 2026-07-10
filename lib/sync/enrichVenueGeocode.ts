@@ -114,7 +114,14 @@ export async function enrichVenueGeocode(
     const city = res.data.city; // string | null
     // Cache the answer (including a null city) so we don't re-query this venue. The
     // write is independently fault-tolerant (its own infra_error is ignored).
-    await deps.cacheWrite({ queryHash: hash, venueName: name, venueAddress: address, city });
+    await deps.cacheWrite({
+      queryHash: hash,
+      venueName: name,
+      venueAddress: address,
+      city,
+      lat: res.data.lat,
+      lng: res.data.lng,
+    });
     if (city) venue.city = city;
   } catch {
     // never throw out of enrichment
