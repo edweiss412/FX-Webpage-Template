@@ -26,7 +26,7 @@ import { useState } from "react";
 
 import { getDougFacing, isMessageCode } from "@/lib/messages/lookup";
 import type { SetFieldOverrideParams } from "@/lib/overrides/setFieldOverride";
-import type { RepointTargetIndex } from "@/lib/overrides/loadShowOverrides";
+import type { RepointTargetIndex } from "@/lib/overrides/repointTargetIndex";
 
 export type OverrideState = {
   overrideValue: unknown;

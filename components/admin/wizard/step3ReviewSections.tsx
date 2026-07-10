@@ -115,12 +115,13 @@ import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import { VenueMapTile } from "@/components/admin/wizard/VenueMapTile";
 import { isParseableUrl } from "@/lib/url/isParseableUrl";
 import { OverrideableField } from "@/components/admin/overrides/OverrideableField";
+import type { ShowOverridesView, OverrideFieldView } from "@/lib/overrides/loadShowOverrides";
+// Client surface: VALUE-import the pure repoint builder from its own module — NOT via
+// loadShowOverrides — so its server-only chain never reaches the client bundle (R6 build break).
 import {
   makeRepointTargetIndex,
-  type ShowOverridesView,
-  type OverrideFieldView,
   type RepointTargetIndex,
-} from "@/lib/overrides/loadShowOverrides";
+} from "@/lib/overrides/repointTargetIndex";
 import {
   HOTEL_DISAMBIGUATOR_SEP,
   computeHotelDisambiguator,

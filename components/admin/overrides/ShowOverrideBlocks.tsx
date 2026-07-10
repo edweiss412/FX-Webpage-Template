@@ -22,9 +22,9 @@ import type {
   CrewOverrideView,
   HotelOverrideView,
   OrphanOverrideView,
-  RepointTargetIndex,
   ShowOverridesView,
 } from "@/lib/overrides/loadShowOverrides";
+import type { RepointTargetIndex } from "@/lib/overrides/repointTargetIndex";
 
 type OnSave = OverrideableFieldProps["onSave"];
 // Serializable CAS-B lookup for repoint (R6), threaded to every paused-override-capable field
