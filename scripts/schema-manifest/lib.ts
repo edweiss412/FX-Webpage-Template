@@ -99,8 +99,8 @@ export function stripSqlNoise(sql: string): string {
 /**
  * Parse `alter table [if exists] [only] [public.]<table> ... add column
  * [if not exists] <column> ...` occurrences across migration SQL and return the
- * public-schema (table, column) pairs. This is the EXACT #9 vector (columns
- * added to an existing table). Notes:
+ * public-schema (table, column) pairs that survive to FINAL STATE. This is the
+ * EXACT #9 vector (columns added to an existing table). Notes:
  *   - Multiple `add column`s in one alter (comma-separated, multi-line) are all
  *     captured.
  *   - Schema-qualified non-public alters (`dev.crew_members`) are excluded; a
@@ -108,10 +108,14 @@ export function stripSqlNoise(sql: string): string {
  *   - Pairs whose table is dropped by any `drop table ... <table>` are excluded
  *     (a column added then the table removed must not be demanded of the
  *     manifest, which reflects final state).
- *   - Pairs whose column is dropped by a later `alter table <table> ... drop
- *     column <column>` are excluded (a one-shot add-then-drop column lifecycle —
- *     e.g. crew_members.sheet_name added by the admin-field-override migration and
- *     dropped by its teardown — must not be demanded of the final-state manifest).
+ *   - Column lifecycle is resolved ORDER-AWARE: every `add column` / `drop
+ *     column` op for a `public.<table>.<column>` is walked in document order and
+ *     the LAST op wins. `add` (add-only, or drop→add re-add) → the column is
+ *     PRESENT and demanded of the manifest; `drop` (add→drop teardown — e.g.
+ *     crew_members.sheet_name added by the admin-field-override migration and
+ *     dropped by its teardown) → excluded. An order-INSENSITIVE "excluded if
+ *     dropped anywhere" rule would wrongly net out a surviving re-added column
+ *     and blind the parity gate to it.
  * Deliberately does NOT parse `create table` column lists — those are fragile to
  * regex and are covered instead by the table-existence side of the manifest plus
  * the local introspection-equality freshness check. New-table columns ride along
@@ -122,9 +126,10 @@ export function parseAlterAddColumns(sql: string): ExpectedColumn[] {
   const clean = stripSqlNoise(sql);
   const statements = clean.split(";");
   const dropped = collectDroppedPublicTables(clean);
-  const droppedCols = collectDroppedPublicColumns(clean);
-  const pairs: ExpectedColumn[] = [];
-  const seen = new Set<string>();
+  // Ordered add/drop ops across the whole migration; last op per key wins.
+  // Map insertion order = first-encounter order, preserving the historical
+  // document-order return order for add-only migrations.
+  const finalOp = new Map<string, "add" | "drop">();
 
   for (const stmt of statements) {
     // statement head: alter table [if exists] [only] [schema.]table
@@ -136,44 +141,30 @@ export function parseAlterAddColumns(sql: string): ExpectedColumn[] {
     if (schema && schema !== "public") continue; // dev.* and others excluded
     if (dropped.has(table)) continue;
 
+    // Collect this statement's column ops with their match position, then apply
+    // them in textual order so an in-statement drop→add (or add→drop) resolves
+    // correctly before moving to the next statement.
+    const ops: Array<{ index: number; column: string; op: "add" | "drop" }> = [];
     const addRe = /\badd\s+column\s+(?:if\s+not\s+exists\s+)?(\w+)/gi;
-    let m: RegExpExecArray | null;
-    while ((m = addRe.exec(stmt)) !== null) {
-      const column = m[1];
-      if (!column) continue;
-      const key = `${table}.${column}`;
-      if (seen.has(key)) continue;
-      if (droppedCols.has(key)) continue; // added then dropped — not in final state
-      seen.add(key);
-      pairs.push({ table, column });
-    }
-  }
-  return pairs;
-}
-
-/**
- * Public `table.column` pairs removed by an `alter table [if exists] [only]
- * [public.]<table> ... drop column [if exists] <column>` anywhere in the SQL.
- * Mirrors collectDroppedPublicTables at the column grain so the add-column
- * tripwire nets a one-shot add-then-drop lifecycle (final-state semantics).
- */
-export function collectDroppedPublicColumns(cleanSql: string): Set<string> {
-  const droppedCols = new Set<string>();
-  for (const stmt of cleanSql.split(";")) {
-    const head = /\balter\s+table\s+(?:if\s+exists\s+)?(?:only\s+)?(?:(\w+)\.)?(\w+)/i.exec(stmt);
-    if (!head) continue;
-    const schema = head[1]?.toLowerCase();
-    const table = head[2];
-    if (!table) continue;
-    if (schema && schema !== "public") continue;
     const dropRe = /\bdrop\s+column\s+(?:if\s+exists\s+)?(\w+)/gi;
     let m: RegExpExecArray | null;
-    while ((m = dropRe.exec(stmt)) !== null) {
-      const column = m[1];
-      if (column) droppedCols.add(`${table}.${column}`);
+    while ((m = addRe.exec(stmt)) !== null) {
+      if (m[1]) ops.push({ index: m.index, column: m[1], op: "add" });
     }
+    while ((m = dropRe.exec(stmt)) !== null) {
+      if (m[1]) ops.push({ index: m.index, column: m[1], op: "drop" });
+    }
+    ops.sort((a, b) => a.index - b.index);
+    for (const o of ops) finalOp.set(`${table}.${o.column}`, o.op);
   }
-  return droppedCols;
+
+  const pairs: ExpectedColumn[] = [];
+  for (const [key, op] of finalOp) {
+    if (op !== "add") continue; // final state = dropped → not demanded of the manifest
+    const dot = key.indexOf(".");
+    pairs.push({ table: key.slice(0, dot), column: key.slice(dot + 1) });
+  }
+  return pairs;
 }
 
 /** Public tables removed by `drop table [if exists] [public.]<table>`. */
@@ -206,19 +197,35 @@ export function collectDroppedPublicTables(cleanSql: string): Set<string> {
  */
 export function parseCreatedPublicTables(sql: string): string[] {
   const clean = stripSqlNoise(sql);
-  const dropped = collectDroppedPublicTables(clean);
-  const created = new Set<string>();
-  const re = /\bcreate\s+(?:unlogged\s+)?table\s+(?:if\s+not\s+exists\s+)?(?:(\w+)\.)?(\w+)/gi;
+  // Order-aware final-state, mirroring parseAlterAddColumns: walk every
+  // `create table` / `drop table` op for a public table in document order; the
+  // LAST op wins. `create` (create-only, or drop→create recreate) → the table is
+  // PRESENT; `drop` (create→drop scratch) → excluded. An order-insensitive
+  // "excluded if dropped anywhere" rule would wrongly net out a recreated table.
+  const finalOp = new Map<string, "create" | "drop">();
+  const createRe =
+    /\bcreate\s+(?:unlogged\s+)?table\s+(?:if\s+not\s+exists\s+)?(?:(\w+)\.)?(\w+)/gi;
+  const dropRe = /\bdrop\s+table\s+(?:if\s+exists\s+)?(?:(\w+)\.)?(\w+)/gi;
+  const ops: Array<{ index: number; table: string; op: "create" | "drop" }> = [];
   let m: RegExpExecArray | null;
-  while ((m = re.exec(clean)) !== null) {
+  while ((m = createRe.exec(clean)) !== null) {
     const schema = m[1]?.toLowerCase();
     const table = m[2];
-    if (!table) continue;
-    if (schema && schema !== "public") continue; // dev.* and others excluded
-    if (dropped.has(table)) continue;
-    created.add(table);
+    if (!table || (schema && schema !== "public")) continue; // dev.* and others excluded
+    ops.push({ index: m.index, table, op: "create" });
   }
-  return [...created].sort();
+  while ((m = dropRe.exec(clean)) !== null) {
+    const schema = m[1]?.toLowerCase();
+    const table = m[2];
+    if (!table || (schema && schema !== "public")) continue;
+    ops.push({ index: m.index, table, op: "drop" });
+  }
+  ops.sort((a, b) => a.index - b.index);
+  for (const o of ops) finalOp.set(o.table, o.op);
+  return [...finalOp.entries()]
+    .filter(([, op]) => op === "create")
+    .map(([t]) => t)
+    .sort();
 }
 
 /** SQL that lists public base tables and their columns (one row per column). */

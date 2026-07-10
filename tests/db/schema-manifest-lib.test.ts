@@ -116,6 +116,25 @@ describe("parseAlterAddColumns", () => {
     expect(parseAlterAddColumns(sql)).toEqual([{ table: "crew_members", column: "keep_me" }]);
   });
 
+  it("re-adds a column dropped earlier in the same migration (final state = present)", () => {
+    // Order-aware final-state: DROP COLUMN then ADD COLUMN (a recreate) leaves the
+    // column PRESENT, so the tripwire must still demand it of the manifest. An
+    // order-insensitive "excluded if dropped anywhere" rule would wrongly net it
+    // out and blind the parity gate to a surviving re-added column.
+    const sql =
+      "alter table public.crew_members drop column if exists reissued;\n" +
+      "alter table public.crew_members add column if not exists reissued text;";
+    expect(parseAlterAddColumns(sql)).toEqual([{ table: "crew_members", column: "reissued" }]);
+  });
+
+  it("nets add→drop→add (last op wins = present)", () => {
+    const sql =
+      "alter table public.crew_members add column if not exists churned text;\n" +
+      "alter table public.crew_members drop column if exists churned;\n" +
+      "alter table public.crew_members add column if not exists churned text;";
+    expect(parseAlterAddColumns(sql)).toEqual([{ table: "crew_members", column: "churned" }]);
+  });
+
   it("is case-insensitive and dedupes repeated (table,column) pairs", () => {
     const sql =
       "ALTER TABLE PUBLIC.app_settings ADD COLUMN IF NOT EXISTS rotated_at timestamptz;\n" +
@@ -157,6 +176,15 @@ describe("parseCreatedPublicTables", () => {
       "create table public.legacy_scratch (id text);\n" +
       "drop table if exists public.legacy_scratch;";
     expect(parseCreatedPublicTables(sql)).toEqual([]);
+  });
+
+  it("re-creates a table dropped earlier in the same migration (final state = present)", () => {
+    // Same order-aware final-state rule as columns: DROP TABLE then CREATE TABLE
+    // leaves the table PRESENT, so it must survive the tripwire.
+    const sql =
+      "drop table if exists public.rebuilt;\n" +
+      "create table public.rebuilt (id text primary key);";
+    expect(parseCreatedPublicTables(sql)).toEqual(["rebuilt"]);
   });
 
   it("matches `create unlogged table` but not temp tables", () => {
