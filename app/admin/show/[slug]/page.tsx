@@ -36,7 +36,6 @@ import { resolveOrigin } from "./resolveOrigin";
 import { ShareLinkCopyButton } from "./ShareLinkCopyButton";
 import { PickerResetControl } from "./PickerResetControl";
 import { RotateShareTokenButton } from "./RotateShareTokenButton";
-import type { PerShowCrewRow } from "@/components/admin/PerShowCrewSection";
 import { loadShowOverrides, makeRepointTargetIndex } from "@/lib/overrides/loadShowOverrides";
 import {
   ShowDetailsOverrideBlock,
