@@ -115,6 +115,9 @@ describe("Tier 2 oracle sabotage sensitivity", () => {
     // warnings array verbatim). The oracle matches by name, so the planted twin of
     // this row now field-mismatches on phone with no signal to absolve it.
     const tampered = structuredClone(parsed);
+    // Guard against a vacuous pass: the corruption value must actually differ from
+    // the planted phone, or "ok:false" would prove nothing.
+    expect(tampered.crewMembers[1]!.phone).not.toBe("999-999-9999");
     tampered.crewMembers[1]!.phone = "999-999-9999";
     assertNoCrewSignal(tampered); // sabotage is SILENT
     expect(checkPlantAndFind(SABOTAGE_MODEL, SABOTAGE_DIALS, tampered).ok).toBe(false);
@@ -194,6 +197,9 @@ describe("Tier 2 property-distribution non-vacuousness", () => {
     // Corrupt the first parsed crew row's phone to a value no planted member
     // carries; warnings/hardErrors copied verbatim by structuredClone stay empty.
     const tampered = structuredClone(parsed);
+    // Guard against a vacuous pass: the corruption value must actually differ from
+    // the planted phone, or "ok:false" would prove nothing.
+    expect(tampered.crewMembers[0]!.phone).not.toBe("999-999-9999");
     tampered.crewMembers[0]!.phone = "999-999-9999";
     assertNoCrewSignal(tampered); // sabotage is SILENT
     expect(checkPlantAndFind(model, dials, tampered).ok).toBe(false);

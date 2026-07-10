@@ -410,6 +410,7 @@ export function normalizeCombo(
 
   const nextModel: ShowModel = {
     ...model,
+    // contract-narrowed: EMAIL is header-gated (crew.ts:88 email=-1 positional default; col-4 is ambiguous notes-vs-EMAIL, crew.ts:9-10), so headerless crew cannot recover email positionally — strip it from the model rather than plant an unrecoverable value. No BACKLOG entry: the notes-vs-EMAIL ambiguity makes positional email recovery genuinely out-of-contract, not a bug worth fixing.
     crew: model.crew.map((c) => {
       if (c.email === undefined) return c;
       // Omit the `email` key entirely (not `email: undefined`) so the oracle's
