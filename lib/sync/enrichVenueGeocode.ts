@@ -14,6 +14,7 @@
 import type { ParseResult } from "@/lib/parser/types";
 import { geocodeVenueCity, isGeocodingConfigured } from "@/lib/geocoding/client";
 import { geocodeCacheKey, readGeocodeCache, writeGeocodeCache } from "@/lib/geocoding/cache";
+import { coordsToTimezone } from "@/lib/time/coordsToTimezone";
 
 // Tight per-venue budget: one retry, 6s per attempt → ~12s worst case, then fall back.
 const ENRICH_TIMEOUT_MS = 6_000;
@@ -86,6 +87,8 @@ export async function enrichVenueGeocode(
     if (cached.kind === "hit") {
       consecutiveFailures = 0; // a reachable cache resets the breaker
       if (cached.city) venue.city = cached.city; // null-city hit → leave unset (fallback)
+      const tz = coordsToTimezone(cached.lat, cached.lng); // Flow 8.3a
+      if (tz) venue.timezone = tz;
       return;
     }
     // miss OR infra_error → a fresh geocode is a NETWORK call; gate ONLY this on the
@@ -123,6 +126,8 @@ export async function enrichVenueGeocode(
       lng: res.data.lng,
     });
     if (city) venue.city = city;
+    const tz = coordsToTimezone(res.data.lat, res.data.lng); // Flow 8.3a
+    if (tz) venue.timezone = tz;
   } catch {
     // never throw out of enrichment
   }

@@ -257,3 +257,39 @@ describe("VENUE_GEOCODE_UNRESOLVED emit-scope (Flow 6 §4.3)", () => {
     expect(geoWarns(r)).toHaveLength(0);
   });
 });
+
+describe("Flow 8.3a — venue.timezone (derive + set from coords)", () => {
+  it("sets venue.timezone from cache-hit coords", async () => {
+    const r = makeResult({ name: "V", address: "Austin TX" });
+    await enrichVenueGeocode(
+      r,
+      deps({
+        cacheRead: vi.fn(
+          async () => ({ kind: "hit", city: "Austin", lat: 30.2672, lng: -97.7431 }) as const,
+        ),
+      }),
+    );
+    expect(r.show.venue!.timezone).toBe("America/Chicago");
+    expect(r.warnings).toHaveLength(0);
+  });
+
+  it("sets venue.timezone from live-success coords and caches them", async () => {
+    const write = vi.fn(async () => ({ kind: "ok" }) as const);
+    const r = makeResult({ name: "V", address: "LA CA" });
+    await enrichVenueGeocode(
+      r,
+      deps({
+        cacheRead: vi.fn(async () => ({ kind: "miss" }) as const),
+        geocode: vi.fn(async () => ({
+          data: { city: "Los Angeles", lat: 34.0522, lng: -118.2437 },
+        })),
+        cacheWrite: write,
+      }),
+    );
+    expect(r.show.venue!.timezone).toBe("America/Los_Angeles");
+    expect(write).toHaveBeenCalledWith(
+      expect.objectContaining({ lat: 34.0522, lng: -118.2437 }),
+    );
+    expect(r.warnings).toHaveLength(0);
+  });
+});
