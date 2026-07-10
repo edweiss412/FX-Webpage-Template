@@ -408,6 +408,41 @@ jobs:
           if-no-files-found: warn
           path: validation-schema-parity.log
 
+  parser-fuzz-deep:
+    # Deep property-fuzz exploration (spec 2026-07-09-parser-property-fuzz §5).
+    # Random seed each run; failures print seed + shrunk counterexample —
+    # replay locally: FUZZ_DEEP=1 FUZZ_SEED=<seed> FUZZ_NUM_RUNS=<numRuns> pnpm test:fuzz
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Deep fuzz run
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm test:fuzz:deep 2>&1 | tee parser-fuzz-deep.log
+      - name: Surface replay coordinates in summary
+        if: always()
+        shell: bash
+        run: |
+          { echo '## parser-fuzz-deep'; grep -E "FUZZ-CONFIG|seed|numRuns|Counterexample|Shrunk" parser-fuzz-deep.log | head -60; } >> "$GITHUB_STEP_SUMMARY" || true
+      - name: Upload log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: parser-fuzz-deep-${{ github.run_id }}-${{ github.run_attempt }}
+          if-no-files-found: warn
+          path: parser-fuzz-deep.log
+
   telemetry-rpc-smoke:
     # Validation-DEPLOYMENT proof for the function-only migration
     # 20260706120000 (admin_event_stats_24h / admin_alert_summary). The
