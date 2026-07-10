@@ -3424,6 +3424,19 @@ export const MESSAGE_CATALOG = {
       "More than one TRAVEL flight table was found in the sheet. Flights are not attached from any of them; remove or rename the duplicate so only one remains.",
     helpHref: "/help/errors#TRAVEL_FLIGHT_AMBIGUOUS_TABLE",
   },
+  TRAVEL_TRANSPORT_NAME_UNMATCHED: {
+    code: "TRAVEL_TRANSPORT_NAME_UNMATCHED",
+    dougFacing:
+      "A transport assignment in _<sheet-name>_ doesn't clearly match a crew member — possibly a typo, or two names merged into one cell — so that person won't see their transport details. Check the transport section, or add the crew member if they're genuinely missing.",
+    crewFacing: null,
+    followUp: "Doug → fix the transport name or add the crew member",
+    helpfulContext:
+      "Each transport assignment is matched to a crew member by name so that person can see their own ride details. This time an assignee name didn't clearly match one crew member — usually a typo, or two names merged into a single cell during import. Check the transport section for a misspelling or a merged name, or add the crew member if they're genuinely missing.",
+    title: "Transport name doesn't match a crew member",
+    longExplanation:
+      "We match each transport assignment to a crew member by name. This name didn't clearly match one crew member — usually a typo, or two names merged into one cell — so that person won't see their transport details. Fix the transport section of the sheet, or add the crew member if they're genuinely missing.",
+    helpHref: "/help/errors#TRAVEL_TRANSPORT_NAME_UNMATCHED",
+  },
   WEBHOOK_HEADERS_MISSING: {
     code: "WEBHOOK_HEADERS_MISSING",
     dougFacing: "A Drive webhook request was missing required Google headers.",

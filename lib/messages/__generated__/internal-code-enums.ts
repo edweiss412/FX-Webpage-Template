@@ -323,6 +323,9 @@ export const INTERNAL_CODE_ENUMS = {
   TRAVEL_FLIGHT_UNPARSEABLE: {
     source: "parse_warnings.code"
   },
+  TRAVEL_TRANSPORT_NAME_UNMATCHED: {
+    source: "parse_warnings.code"
+  },
   TYPO_NORMALIZED: {
     source: "parse_warnings.code"
   },

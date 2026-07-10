@@ -28,6 +28,7 @@ import { sha256Base64Url } from "@/lib/crypto/sha256";
 import { extractEmbeddedObjects, type ExtractedEmbeddedObjects } from "@/lib/drive/embeddedObjects";
 import { enrichAgenda } from "@/lib/sync/enrichAgenda";
 import { enrichVenueGeocode } from "@/lib/sync/enrichVenueGeocode";
+import { enrichTransportAssignees } from "@/lib/sync/enrichTransportAssignees";
 
 export const MAX_TOTAL_DIAGRAM_ITEMS = 60;
 
@@ -421,6 +422,11 @@ export async function enrichWithDrivePins(
   // Geocoding API (cached), so the city works for venues anywhere — not just the
   // curated name-split fallback. Mutates result.show.venue.city; never throws.
   await enrichVenueGeocode(result);
+
+  // Transport-assignee no-match (spec 2026-07-09-flow8.4): flag drivers/assignees whose
+  // name references a crew member who would not see their own transport tile. Pure; never
+  // throws; mutates result.warnings only.
+  enrichTransportAssignees(result);
 
   return result;
 }
