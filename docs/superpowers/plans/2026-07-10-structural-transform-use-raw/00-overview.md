@@ -62,7 +62,7 @@ Hashkey `show:<driveFileId>`. Existing holders: `withShowLock` JS-wrapper (calle
 - `lib/parser/warnings.ts` — the three emit builders populate `resolution`.
 - `lib/sync/applyParseResult.ts` — accept `useRawDecisions`, run overlay, persist `kept`/change-log `invalidated`/GC `reverted`.
 - `lib/sync/applyStagedCore.ts` + `lib/sync/runManualSyncForShow.ts` — pass the phase-appropriate decisions column.
-- `components/admin/PerShowActionableWarnings.tsx` + `components/admin/show/[slug]/page.tsx` wiring — render control (per-show).
+- `components/admin/PerShowActionableWarnings.tsx` + `app/admin/show/[slug]/page.tsx` wiring — render control (per-show).
 - `components/admin/wizard/step3ReviewSections.tsx` + `OnboardingWizard.tsx` — render control (wizard).
 - `lib/messages/catalog.ts` + master spec §12.4 + generated files — new code.
 - Meta-test registries listed above.
