@@ -66,6 +66,34 @@ const defaultDeps: EnrichVenueGeocodeDeps = {
   cacheWrite: writeGeocodeCache,
 };
 
+/**
+ * Flow 8.3a: set venue.timezone from coords, or emit the gate-exempt
+ * VENUE_TIMEZONE_UNRESOLVED data-gap when none can be derived (ET fallback). Called
+ * only at the cache-hit and live-success paths (a geocode WAS attempted); the network-
+ * fail path emits VENUE_GEOCODE_UNRESOLVED and returns before this, so the two codes
+ * are mutually exclusive per venue by control flow (spec §6/§6.1).
+ */
+function applyTimezoneOrWarn(
+  result: ParseResult,
+  venue: NonNullable<ParseResult["show"]["venue"]>,
+  lat: number | null,
+  lng: number | null,
+): void {
+  const tz = coordsToTimezone(lat, lng);
+  if (tz) {
+    venue.timezone = tz;
+    return;
+  }
+  // No coords / unresolvable → the show renders in the ET default. Gate-exempt data-gap:
+  // staged-review-visible, excluded from the push digest. PLAIN-LANGUAGE message
+  // (invariant 5): the staged-review UI renders `.message` verbatim.
+  result.warnings.push({
+    severity: "warn",
+    code: "VENUE_TIMEZONE_UNRESOLVED",
+    message: "Couldn't determine the venue's time zone, so times will show in Eastern Time",
+  });
+}
+
 export async function enrichVenueGeocode(
   result: ParseResult,
   deps: EnrichVenueGeocodeDeps = defaultDeps,
@@ -87,8 +115,7 @@ export async function enrichVenueGeocode(
     if (cached.kind === "hit") {
       consecutiveFailures = 0; // a reachable cache resets the breaker
       if (cached.city) venue.city = cached.city; // null-city hit → leave unset (fallback)
-      const tz = coordsToTimezone(cached.lat, cached.lng); // Flow 8.3a
-      if (tz) venue.timezone = tz;
+      applyTimezoneOrWarn(result, venue, cached.lat, cached.lng); // Flow 8.3a
       return;
     }
     // miss OR infra_error → a fresh geocode is a NETWORK call; gate ONLY this on the
@@ -126,8 +153,7 @@ export async function enrichVenueGeocode(
       lng: res.data.lng,
     });
     if (city) venue.city = city;
-    const tz = coordsToTimezone(res.data.lat, res.data.lng); // Flow 8.3a
-    if (tz) venue.timezone = tz;
+    applyTimezoneOrWarn(result, venue, res.data.lat, res.data.lng); // Flow 8.3a
   } catch {
     // never throw out of enrichment
   }

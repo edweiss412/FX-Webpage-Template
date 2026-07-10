@@ -1526,6 +1526,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → optional fix (auto-retries)",
     "helpfulContext": "We look up each venue's city from its address so the crew page can show a clean location. This time the lookup didn't return a city — often a temporary hiccup with the lookup service, which clears on the next sync. The page falls back to showing the address. If it keeps happening, check the venue address in the sheet for typos.",
   },
+  "VENUE_TIMEZONE_UNRESOLVED": {
+    "crewFacing": null,
+    "dougFacing": "We couldn't work out the time zone for _<venue>_, so the crew page shows times in Eastern Time. This often clears on the next sync once the venue's location resolves; if it sticks, double-check the venue address in the sheet.",
+    "followUp": "Doug → optional fix (auto-retries)",
+    "helpfulContext": "We work out each venue's time zone from its location so the crew page shows the right local times. This time we couldn't, so the page falls back to Eastern Time. It usually clears on the next sync once the location resolves. If it keeps happening, check the venue address in the sheet.",
+  },
   "VERSION_AMBIGUOUS": {
     "crewFacing": null,
     "dougFacing": "_<sheet-name>_ has some of your show-template markers but not enough for us to be sure which template it is — so we've paused instead of guessing. Check that the sheet's key rows (the Contact block for v4 sheets, or the GS/BO pull-sheet timing rows for v2 sheets) are intact, or tell the developer if your template changed.",

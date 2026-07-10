@@ -111,3 +111,14 @@ describe("VENUE_GEOCODE_UNRESOLVED is gateExempt (badge-visible, never gates)", 
   it("a NON-exempt class still fires even when geocode co-occurs", () =>
     expect(isQualityRegression(summary({ [A]: 0 }), summary({ [A]: 9, [GEO]: 5 }))).toBe(true));
 });
+
+describe("VENUE_TIMEZONE_UNRESOLVED is gateExempt (badge-visible, never gates)", () => {
+  const TZ = "VENUE_TIMEZONE_UNRESOLVED" as GapCode;
+  it("isQualityRegression: tz-only jump 0→9 does NOT fire", () =>
+    expect(isQualityRegression(summary({}), summary({ [TZ]: 9 }))).toBe(false));
+  it("hasRecoveredToBaseline: clean baseline stays 'recovered' with tz-only current", () =>
+    // exempt → must NOT keep an open alert from resolving
+    expect(hasRecoveredToBaseline(summary({}), summary({ [TZ]: 9 }))).toBe(true));
+  it("a NON-exempt class still fires even when tz co-occurs", () =>
+    expect(isQualityRegression(summary({ [A]: 0 }), summary({ [A]: 9, [TZ]: 5 }))).toBe(true));
+});
