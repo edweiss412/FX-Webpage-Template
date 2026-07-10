@@ -14,6 +14,8 @@ import { fuzzRunConfig } from "./seeds";
 import { assertParsedSheetShape } from "./shape";
 import { payloadChanged, signalEq } from "../mutation/oracle";
 import { chaosMarkdown } from "./chaos";
+import { caseArb, validateGeneratedCase } from "./model";
+import { renderCase } from "./render";
 
 const { seed, numRuns } = fuzzRunConfig();
 
@@ -60,5 +62,26 @@ export function runTier1(input: string): void {
 describe("Tier 1 robustness — chaos inputs", () => {
   it("parseSheet never throws, is deterministic, and returns a structurally valid ParsedSheet", () => {
     fc.assert(fc.property(chaosMarkdown, runTier1), { seed, numRuns, verbose: 2 });
+  }, 120_000);
+});
+
+// Tier-1 over model-rendered (in-contract) markdown. Same three assertions as the
+// chaos block above (never throws / deterministic / structurally valid + JSON-
+// round-trippable), but the input is a `renderCase(model, dials)` v4 sheet derived
+// from a validated `ShowModel`. Chaos proves the parser survives HOSTILE bytes;
+// this proves the same robustness invariants hold on the WELL-FORMED-sheet
+// distribution the Tier-2 oracle also drives (a nondeterminism or shape violation
+// on an honest sheet is just as much a bug). `caseArb` normalizes cross-dial
+// exclusions by construction, so `validateGeneratedCase` never legitimately throws
+// here — a throw is a generator bug, not a parser finding (spec §3.1 / §4.1).
+describe("Tier 1 robustness — model-rendered inputs", () => {
+  it("parseSheet never throws, is deterministic, and returns a structurally valid ParsedSheet", () => {
+    fc.assert(
+      fc.property(caseArb, ([model, dials]) => {
+        validateGeneratedCase(model, dials);
+        runTier1(renderCase(model, dials));
+      }),
+      { seed, numRuns, verbose: 2 },
+    );
   }, 120_000);
 });
