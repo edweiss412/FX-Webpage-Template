@@ -38,11 +38,19 @@ Codex R1 correctly flagged that removing D's URL while leaving A refresh-only wo
 
 ## 2. Goal
 
-- **Single instant source of truth** for the crew URL across every surface on the admin page (A, B, C).
-- Rotate success updates all of them **instantly** — no refresh-lag window, no dead-URL copy hazard on any surface.
-- Rotate success banner (D) becomes a **confirmation-only** status (no URL, no Copy, no email) that points at the updated card.
+- **Single instant source of truth** for the crew URL across every surface on the admin page (A, B, C), so that a rotate performed **in this tab** updates all of them **instantly** — closing the same-tab refresh-lag window that would otherwise let an admin copy the dead URL from A or C in the sub-second after their own rotate.
+- Rotate success banner (D) becomes a **confirmation-only** status (no URL, no Copy, no email) that points at the updated card, safe to drop its own URL because A/C now update instantly.
+- Plus a cheap freshness improvement (§3.2): a `visibilitychange`/focus-triggered `router.refresh()` so returning to a backgrounded tab re-syncs the token — the realistic multi-admin path (admin switches away, another admin rotates, admin returns).
 
-Non-goals: no change to `rotateShareToken` server action, its telemetry, the advisory lock, or the token-read RPC. No visual redesign beyond removing the duplicated block.
+### 2.1 Explicit scope boundary — external-rotation freshness (pre-existing, out of scope)
+
+**Absolute** freshness against another admin/tab rotating while this tab stays open and focused (so copy surfaces can *never* expose an old token) is **NOT** solved here and is **not a regression** introduced by this change:
+
+- Today the surfaces are Server-Component-rendered from `token`. The admin show page is `force-dynamic` (`page.tsx:74`) but has **no realtime subscription, no polling, no `revalidate` interval, and no visibility refresh** (verified: no `supabase.channel` / `setInterval` / `refetchInterval` / `visibilitychange` under `app/admin/show/[slug]/`). So an admin sitting on the page today, while another admin rotates, keeps a stale server-rendered token with a live Copy button until they navigate/refresh — identical staleness to the client-cached token this design introduces.
+- The `useEffect` re-sync (§3.2) means **any** server refresh (`router.refresh()` from rotate/reset/publish actions, navigation, or the new visibility trigger) re-seeds the token — parity-or-better vs the server-only status quo.
+- Making copy *provably* never expose an old token requires realtime epoch subscription or copy-time epoch validation — durable-signal infra disproportionate to this UI dedup, and orthogonal to the user's complaint. Filed as a BACKLOG follow-up (§7 note), not built here.
+
+Non-goals: no change to `rotateShareToken` server action, its telemetry, the advisory lock, or the token-read RPC. No realtime/epoch-subscription infra. No visual redesign beyond removing the duplicated block.
 
 ## 3. Approach (A-solid + shared token context — chosen)
 
@@ -69,8 +77,19 @@ type Ctx = { token: string | null; setToken: (t: string | null) => void };
 const ShareTokenContext = createContext<Ctx | null>(null);
 
 export function ShareTokenProvider({ initialToken, children }: { initialToken: string | null; children: ReactNode }) {
+  const router = useRouter();
   const [token, setToken] = useState(initialToken);
-  useEffect(() => setToken(initialToken), [initialToken]); // re-sync on server refresh / external rotation
+  useEffect(() => setToken(initialToken), [initialToken]); // re-sync when a server refresh delivers a newer token
+  // Freshness improvement: when this tab regains visibility/focus, pull fresh
+  // server state so a rotation performed elsewhere while the tab was backgrounded
+  // is picked up (→ new initialToken → the effect above re-syncs). Bounded,
+  // debounce-free (admin-only low-traffic page); does NOT remount client state
+  // (soft refresh), so the rotate two-tap confirm survives a tab switch.
+  useEffect(() => {
+    const onVisible = () => { if (document.visibilityState === "visible") router.refresh(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => document.removeEventListener("visibilitychange", onVisible);
+  }, [router]);
   return <ShareTokenContext.Provider value={{ token, setToken }}>{children}</ShareTokenContext.Provider>;
 }
 
@@ -81,7 +100,7 @@ export function useShareToken(): Ctx {
 }
 ```
 
-**Why `useEffect` re-sync:** our own rotate calls `setToken(newToken)` instantly; the follow-up `router.refresh()` delivers the same value as a new `initialToken` (effect no-op). An **external** rotation (another admin/tab) arrives only via server refresh → new `initialToken` → effect re-syncs. `token` state is the single render source in all cases. The provider wraps server-rendered children (standard RSC pattern — server children pass through a client provider as `children`; no server code enters the client bundle).
+**Why `useEffect` re-sync:** our own rotate calls `setToken(newToken)` instantly; the follow-up `router.refresh()` delivers the same value as a new `initialToken` (effect no-op). A refresh from any other action/navigation, or the visibility trigger above, delivers a possibly-newer `initialToken` → effect re-syncs. `token` state is the single render source in all cases. The provider wraps server-rendered children (standard RSC pattern — server children pass through a client provider as `children`; no server code enters the client bundle). **Bound:** a rotation by another admin while this tab stays open-and-focused is not pushed here (see §2.1 — pre-existing, parity with the server-rendered status quo, BACKLOG).
 
 ### 3.3 Consumers A / B / C
 
@@ -137,7 +156,8 @@ Render:
 | Input | null / empty / edge | Behavior |
 |---|---|---|
 | `token` (context) | `null` | A hidden, B hidden, C shows unavailable notice; rotate + reset still render (rotate reachable to recover — R1/R27). |
-| `token` | new value from refresh / external rotation | provider `useEffect` re-syncs → A/B/C all update. |
+| `token` | new value delivered via `initialToken` (server refresh from any action/nav or the visibility trigger) | provider `useEffect` re-syncs → A/B/C all update. |
+| external rotation while tab open + focused | no server refresh fires | A/C keep the old token until the next refresh/nav/visibility-regain — **pre-existing**, parity with today's server render (§2.1), BACKLOG. |
 | `crewEmails` | `[]` | No email note/buttons (`.length` guards, unchanged). |
 | `crewEmails` | 1 addr | Single "Email this link to crew" button, no batch note. |
 | rotate `result` | `{ok:false}` | `refused` banner; token unchanged; `onRotated` NOT called. |
@@ -155,8 +175,9 @@ TDD per task (invariant 1). Anti-tautology per project rules.
 
 ### 6.1 New — `tests/components/ShareTokenContext.test.tsx`
 - Provider seeds `token` from `initialToken`; `useShareToken().setToken` updates consumers.
-- Re-render with new `initialToken` → consumers reflect it (external-rotation sync).
+- Re-render with new `initialToken` → consumers reflect it (server-refresh sync).
 - `useShareToken` outside provider throws.
+- **Visibility freshness:** with `next/navigation` `router.refresh` mocked, dispatch a `visibilitychange` with `document.visibilityState==="visible"` → `router.refresh` called; with state `"hidden"` → not called; listener removed on unmount. (This is the bounded freshness mechanism for external rotation — it proves the refresh *fires*, which in prod re-pulls the fresh token; absolute never-expose-OLD-while-focused is out of scope per §2.1.)
 
 ### 6.2 New — `tests/components/shareTokenInstantUpdate.test.tsx` (the load-bearing test)
 - Render the provider wrapping BOTH a `ShareChip` (or other `ShareLinkCopyButton`-bearing consumer) AND `ShareLinkBody`, seeded `initialToken="OLD"`.
@@ -187,6 +208,7 @@ TDD per task (invariant 1). Anti-tautology per project rules.
 - **Inv 10 (mutation telemetry):** no mutation surface added/changed. The mutating surface `rotateShareToken` (`lib/auth/picker/`, emits `epoch_<n>`, never the token) is untouched. New context/leaf components are non-mutating UI.
 - **Security:** the admin-only token read stays server-side in `page.tsx` (`loadShowShareToken`). `ShareTokenProvider` is seeded with the already-authorized token string and hands it to client leaves — identical trust boundary to today's `ShareLinkCopyButton` (already a client component receiving the URL). No new token exposure; no token read moves to the client.
 - **Meta-test inventory:** none created/extended. No Supabase call boundary, advisory lock, admin-alert catalog, or tile-sentinel surface touched. Declared explicitly per writing-plans rule.
+- **BACKLOG follow-up (absolute external-rotation freshness):** a `BL-SHARE-LINK-EPOCH-FRESHNESS` entry — subscribe the admin per-show page to the show's `picker_epoch` change signal (realtime) or validate token/epoch at copy-time — so copy surfaces can never expose a token rotated by another admin even while this tab stays focused. Out of scope here (§2.1); pre-existing gap, not a regression from this change.
 
 ## 8. Out of scope
 
