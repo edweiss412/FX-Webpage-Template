@@ -110,18 +110,18 @@ Live-sheet probe confirms coordinators rename/invent headers constantly (`TECH` 
 
 Each plan lists only what moves the grade; items are ordered by grade-leverage within the flow. Effort: **config** (env/copy only), **S** (< 1 day), **M** (1–3 days), **L** (multi-day/structural). New admin-visible codes follow the §12.4 three-way-lockstep + telemetry invariants (AGENTS.md rules 5/10) — not restated per item.
 
-> **Shipped status (updated 2026-07-09).** The `Status` column tracks execution. 16 of 20 action items merged in PRs #357–#372 (landed 2026-07-07 → 2026-07-09). Remaining open: 3.2 admin-overrides (L, split to a later milestone), 6.1 Resend key (config, still unset), 8.3 venue timezone (M, its own spec), 8.4 transport id-resolution (deferred to the 8.3 spec, `BL-TRANSPORT-ID-RESOLUTION`). Also landed adjacent to the plan: **§7 item 5** partially, via ambiguity-warnings-v1 (#367 — lean per-field confidence + wizard third state), which also shipped the 2.1 room-split / hotel-glue / ambiguous-date follow-ons. Flow 7 held its A− grade; its three optional-polish copy edits + a class-sweep jargon pin landed 2026-07-09.
+> **Shipped status (updated 2026-07-10).** The `Status` column tracks execution. 19 of 20 action items merged in PRs #357–#379 (landed 2026-07-07 → 2026-07-10). **Only open: 6.1 Resend key** (config, still unset). Closed since the 07-09 pass: 3.2 admin field-override layer (#376 — durable `admin_overrides`, survives full-replace re-sync, "overridden — sheet says X" chip + Re-point/Discard), 8.3 venue timezone (#377 — `venue.timezone` from geocode coords + `VENUE_TIMEZONE_UNRESOLVED` ET-fallback warn), 8.4 transport no-match (#374 — `TRAVEL_TRANSPORT_NAME_UNMATCHED` admin warn; id-persistence remainder still deferred to `BL-TRANSPORT-ID-RESOLUTION`). Also landed adjacent to the plan: **§7 item 5** — ambiguity-warnings-v1 (#367 — lean per-field confidence + wizard third state, also shipped the 2.1 room-split / hotel-glue / ambiguous-date follow-ons) PLUS the `fast-check` property-fuzz layer (#379 — Phase 1, markdown→parseSheet; xlsx Phase 2 + full provenance model still open). Flow 7 held its A− grade; its three optional-polish copy edits + a class-sweep jargon pin landed 2026-07-09 (#378).
 
 | Flow | Grade path | Shipped | Open |
 |---|---|---|---|
 | 1 Add a show | B → A− | 1.1, 1.2, 1.3 (#360) | — |
 | 2 Review output | C+ → A− | 2.1 (#361; follow-ons #367), 2.2/2.3/2.4 (#357) | — |
-| 3 Correct a parse | C → A− | 3.1, 3.3 (#358) | 3.2 (L, later milestone) |
+| 3 Correct a parse | C → A− | 3.1, 3.3 (#358), 3.2 (#376) | — |
 | 4 Live-show re-sync | C− → A− | 4.1 (#359), 4.2/4.3 (#363) | — |
 | 5 Share crew links | B → A− | 5.1, 5.2 (#362) | — |
 | 6 Notice breakage | C+ → A− | 6.2 (#366, +#370), 6.3, 6.4 (#364) | 6.1 (config) |
 | 7 Error copy | A− (hold) | polish (3 copy edits + jargon pin, 2026-07-09) | — |
-| 8 Crew self-serve | B+ → A− | 8.1, 8.2 (#372) | 8.3, 8.4 (8.4 → BL-TRANSPORT-ID-RESOLUTION) |
+| 8 Crew self-serve | B+ → A− | 8.1, 8.2 (#372), 8.3 (#377), 8.4 (#374) | — (8.4 id-persistence remainder → BL-TRANSPORT-ID-RESOLUTION) |
 
 ### Flow 1 — Add a new show (B → A−)
 
@@ -160,10 +160,10 @@ Net: replace the raw-pane build with targeted **ambiguous-transform warnings** o
 | # | Action | Effort | Evidence anchor | Status |
 |---|---|---|---|---|
 | 3.1 | **Make the sheet-edit loop first-class.** On every reviewed/flagged field that has a source anchor, render "Fix in sheet" deep-linking to the exact cell (anchor infra exists), plus inline one-line loop copy ("edit → save → Re-sync from Drive re-parses") and a Re-sync button in the same view. | S–M | `lib/drive/sourceAnchors.ts:205-211`; `ReSyncButton.tsx:143`; loop copy exists at `app/help/admin/parse-warnings/page.mdx:19-20` | ✅ #358 (`CorrectionLoopCallout`; reaches B+, not A−) |
-| 3.2 | **Admin override layer for a narrow field set** (show dates, crew name/role, hotel name/address, venue): an `admin_overrides` table applied AFTER `applyParseResult`, surviving full-replace re-syncs, with a visible "overridden — sheet says X" chip and one-click revert. This also closes seam scenario I (re-sync clobbering corrections). | L | `applyParseResult.ts:132-135` unconditional replace | ⏳ Open — split to a later milestone (A− requires it) |
+| 3.2 | **Admin override layer for a narrow field set** (show dates, crew name/role, hotel name/address, venue): an `admin_overrides` table applied AFTER `applyParseResult`, surviving full-replace re-syncs, with a visible "overridden — sheet says X" chip and one-click revert. This also closes seam scenario I (re-sync clobbering corrections). | L | `applyParseResult.ts:132-135` unconditional replace | ✅ #376 — `admin_overrides` (6 fields) via `set_field_override` RPC; write-time overlay in the per-show locked txn; stale `match_key` deactivates + Re-point/Discard (never silent); wizard + live-show detail share `<OverrideableField>` |
 | 3.3 | Explain holds where they appear: one sentence ("We held this change for your approval because …") + approve/reject consequences, in the changes feed row. | S | `writeMi11Holds.ts:63-67` | ✅ #358 |
 
-Done-when: Doug can fix a wrong value either in-app (narrow set) or via a deep link to the exact cell, and his fix survives the next sync. 3.1 + 3.3 alone reach B+; A− requires 3.2.
+Done-when: Doug can fix a wrong value either in-app (narrow set) or via a deep link to the exact cell, and his fix survives the next sync. 3.1 + 3.3 alone reach B+; A− requires 3.2. **A− reached (2026-07-10, #376).**
 
 ### Flow 4 — Re-sync that changed data on a live show (C− → A−)
 
@@ -207,14 +207,14 @@ Already at target. Optional polish, in order: replace "sync-suppression rule" wi
 |---|---|---|---|---|
 | 8.1 | Picker hardening: sentinel-guard roster names, collapse exact duplicates, and add a persistent "Don't see your name? Contact <admin contact>" affordance (covers missing-from-roster + typo'd-name cases without exposing parse internals). | S | `_PickerInterstitial.tsx:134-217` | ✅ #372 (`sanitizePickerRoster` + `PICKER_NAME_NOT_LISTED`) |
 | 8.2 | Fail closed in `resolveViewerContext` when a crew viewer's id has no matching row in a well-formed array (currently falls open to `{kind:'none'}` restrictions = whole-show visibility). Return the same re-pick path the resolver uses. | S | `viewerContext.ts:125-141`; `resolvePickerSelection.ts:105` | ✅ #372 (`UnmatchedViewerError`, fail-closed + guided re-pick) |
-| 8.3 | Timezone: populate `venue.timezone` at enrich time (geocode already runs; tz lookup from coordinates) with the ET default emitting an admin-visible warning when used on a published show. | M | `rightNow.ts:202`; `showTimezone.ts:10-17`; `enrichVenueGeocode.ts` | ⏳ Open — own spec |
-| 8.4 | Transport visibility: match assigned crew by crew-member id (or normalized/fuzzy name) instead of exact `viewerName` string, so a name mis-parse can't hide a driver's own itinerary. | S–M | `TravelSection.tsx:172-177`; `lib/visibility/scopeTiles.ts` | ⏳ Open — deferred to 8.3 spec (`BL-TRANSPORT-ID-RESOLUTION`) |
+| 8.3 | Timezone: populate `venue.timezone` at enrich time (geocode already runs; tz lookup from coordinates) with the ET default emitting an admin-visible warning when used on a published show. | M | `rightNow.ts:202`; `showTimezone.ts:10-17`; `enrichVenueGeocode.ts` | ✅ #377 — `coordsToTimezone` (offline `tz-lookup` on captured geocode lat/lng, no new API call); `VENUE_TIMEZONE_UNRESOLVED` gate-exempt warn on ET fallback |
+| 8.4 | Transport visibility: match assigned crew by crew-member id (or normalized/fuzzy name) instead of exact `viewerName` string, so a name mis-parse can't hide a driver's own itinerary. | S–M | `TravelSection.tsx:172-177`; `lib/visibility/scopeTiles.ts` | ✅ #374 — `classifyUnmatchedAssignees` emits `TRAVEL_TRANSPORT_NAME_UNMATCHED` admin warn on garble/fusion (detection). Id-based resolution/persistence remainder still deferred (`BL-TRANSPORT-ID-RESOLUTION`; no crew `id` exists at enrich time) |
 
 Done-when: every "can't find myself / can't see my stuff" path lands on a guided affordance, and no fail-open remains.
 
 ### Cross-flow note
 
-The P0-2 class (confident wrong values) is not fully closable by any per-flow item — 2.1 (**warn on silent transforms** — revised from side-by-side, see the 2.1 findings) is the detection layer, 3.2 (overrides) the correction layer, 6.2 (digest) the monitoring layer. Together they bound the class; a per-field provenance/confidence model (§7 item 5) is the eventual structural fix. Note the detection layer is *signal*, not *source access* — the deep-link already gives source access; what P0-2 lacks is a prompt to look. **UPDATE 2026-07-09:** the detection layer shipped (2.1 #361 + ambiguity-warnings-v1 #367) and the monitoring layer shipped (6.2 #366/#370); the class is now bounded by detection + monitoring. **Only the correction layer 3.2 (overrides) remains open** — until it lands, a caught-and-flagged wrong value still can't be fixed in-app, only via the sheet-edit loop.
+The P0-2 class (confident wrong values) is not fully closable by any per-flow item — 2.1 (**warn on silent transforms** — revised from side-by-side, see the 2.1 findings) is the detection layer, 3.2 (overrides) the correction layer, 6.2 (digest) the monitoring layer. Together they bound the class; a per-field provenance/confidence model (§7 item 5) is the eventual structural fix. Note the detection layer is *signal*, not *source access* — the deep-link already gives source access; what P0-2 lacks is a prompt to look. **UPDATE 2026-07-09:** the detection layer shipped (2.1 #361 + ambiguity-warnings-v1 #367) and the monitoring layer shipped (6.2 #366/#370); the class is now bounded by detection + monitoring. **UPDATE 2026-07-10:** the correction layer shipped too — **3.2 durable field-overrides (#376)** — so a caught-and-flagged wrong value is now fixable in-app (narrow field set) and the fix survives full-replace re-syncs. **All three layers of the P0-2 class are shipped.** The eventual structural fix (per-field provenance/confidence, §7 item 5) is partway there: ambiguity-warnings-v1 (#367) + the `fast-check` property-fuzz layer (#379); a full provenance model remains the long-term move.
 
 ---
 
