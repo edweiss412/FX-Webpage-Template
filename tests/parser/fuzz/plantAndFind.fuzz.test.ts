@@ -11,7 +11,7 @@ import fc from "fast-check";
 import { describe, it, expect } from "vitest";
 import type { ParsedSheet } from "@/lib/parser/types";
 import { parseSheet } from "@/lib/parser";
-import { fuzzRunConfig } from "./seeds";
+import { fuzzRunConfig, PR_SEED } from "./seeds";
 import { caseArb, validateGeneratedCase, type ShowModel } from "./model";
 import type { DialChoices } from "./dials";
 import { renderCase } from "./render";
@@ -128,5 +128,84 @@ describe("Tier 2 oracle sabotage sensitivity", () => {
     tampered.crewMembers.splice(2, 1);
     assertNoCrewSignal(tampered); // sabotage is SILENT
     expect(checkPlantAndFind(SABOTAGE_MODEL, SABOTAGE_DIALS, tampered).ok).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Property-distribution non-vacuousness (spec §4.2). The sabotage block above
+// proves the oracle catches a silent crew miss on a HAND-BUILT fixture. This
+// block proves the same on a case the PROPERTY ITSELF generates — closing the
+// gap that made Tier-2's crew clause vacuous before this fix.
+//
+// WHY THIS EXISTS: with an UNRECOGNIZED role vocab (the old "Video Engineer"
+// etc.), parseSheet emitted a per-member UNKNOWN_ROLE_TOKEN warning stamped
+// blockRef={kind:"crew", name:<crew name>} (crew.ts:293,367-372). The oracle's
+// t1 channel absolves any crew miss when blockRef.name === entity.identityValue
+// (groundTruth.ts:201), so EVERY planted crew member carried its own blanket
+// absolution — a corrupted phone or a dropped member both sailed through as
+// ok:true, and crewFieldMismatch was dead code. CLEAN_ROLE_VOCAB now uses
+// RECOGNIZED ROLE_NORMALIZATIONS keys (model.ts CLEAN_ROLE_VOCAB), which emit
+// NO such warning, so a crew regression has nothing to absolve it.
+//
+// CONCRETE FAILURE MODE THIS CATCHES: EITHER (a) a regression to unrecognized
+// roles that re-introduces the self-naming UNKNOWN_ROLE_TOKEN absolution, OR
+// (b) a future oracle that stops comparing crew FIELD VALUES / existence — both
+// turn Tier-2's crew clause vacuous, and under either, one of the two assertions
+// below flips to ok:true and this test fails loudly. It draws its case from the
+// SAME caseArb the property samples (PR_SEED), so it is genuinely
+// property-representative, not a curated fixture.
+
+/**
+ * The first case in the deterministic PR_SEED draw that (a) parses to ok:true,
+ * (b) carries ZERO crew-kind warnings (so nothing could legitimately absolve a
+ * crew miss — excludes headerless/positional-fallback and typo-autocorrect
+ * cases), and (c) plants >=2 crew members (so we can corrupt one phone and drop
+ * a different member). Selected by scan (not a hardcoded index) so it survives a
+ * fast-check sampling-order change without silently degrading into a vacuous case.
+ */
+function firstCleanMultiCrewCase(): readonly [ShowModel, DialChoices] {
+  const sample = fc.sample(caseArb, { seed: PR_SEED, numRuns: 60 });
+  for (const [model, dials] of sample) {
+    if (model.crew.length < 2) continue;
+    const parsed = parseSheet(renderCase(model, dials), "prop.md");
+    const hasCrewWarn = parsed.warnings.some((w) => w.blockRef?.kind === "crew");
+    if (hasCrewWarn) continue;
+    if (!checkPlantAndFind(model, dials, parsed).ok) continue;
+    return [model, dials];
+  }
+  throw new Error("no clean multi-crew case found in the PR_SEED draw (sample-shape regression)");
+}
+
+describe("Tier 2 property-distribution non-vacuousness", () => {
+  const [model, dials] = firstCleanMultiCrewCase();
+
+  it("green path: a property-generated multi-crew case round-trips with zero crew signals", () => {
+    validateGeneratedCase(model, dials);
+    const parsed = parseSheet(renderCase(model, dials), "prop.md");
+    // Load-bearing preconditions: if the baseline weren't clean+ok, the two
+    // sabotage assertions below would be meaningless.
+    assertNoCrewSignal(parsed);
+    expect(parsed.crewMembers.length).toBeGreaterThanOrEqual(2);
+    expect(checkPlantAndFind(model, dials, parsed).ok).toBe(true);
+  });
+
+  it("catches a confident-wrong phone on a property-generated case (no attributable signal)", () => {
+    const parsed = parseSheet(renderCase(model, dials), "prop.md");
+    // Corrupt the first parsed crew row's phone to a value no planted member
+    // carries; warnings/hardErrors copied verbatim by structuredClone stay empty.
+    const tampered = structuredClone(parsed);
+    tampered.crewMembers[0]!.phone = "999-999-9999";
+    assertNoCrewSignal(tampered); // sabotage is SILENT
+    expect(checkPlantAndFind(model, dials, tampered).ok).toBe(false);
+  });
+
+  it("catches a silently dropped crew member on a property-generated case (no attributable signal)", () => {
+    const parsed = parseSheet(renderCase(model, dials), "prop.md");
+    // Delete the LAST parsed crew row (still no warnings) → its planted twin is
+    // now absent with nothing to attribute the absence to.
+    const tampered = structuredClone(parsed);
+    tampered.crewMembers.splice(tampered.crewMembers.length - 1, 1);
+    assertNoCrewSignal(tampered); // sabotage is SILENT
+    expect(checkPlantAndFind(model, dials, tampered).ok).toBe(false);
   });
 });

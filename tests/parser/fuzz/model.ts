@@ -93,18 +93,29 @@ export type ShowModel = {
 // ---------------------------------------------------------------------------
 
 /**
- * The clean role vocabulary (spec §3.1 rule 2). Screened — and RE-ASSERTED in
- * `model.test.ts` against the live `parseStageClause` grammar — to contain NONE
- * of the 5 stage tokens (Load In / Set / Show / Strike / Load Out), no `ONLY`,
- * no `***`, no `\d{1,2}/\d{1,2}` date token, and no parens.
+ * The clean role vocabulary (spec §3.1 rule 2). Two constraints, both RE-ASSERTED
+ * in `model.test.ts`:
+ *
+ *   1. Invariant (c) screen: contains NONE of the 5 stage tokens (Load In / Set /
+ *      Show / Strike / Load Out), no `ONLY`, no `***`, no `\d{1,2}/\d{1,2}` date
+ *      token, and no parens (checked against the live `parseStageClause` grammar).
+ *
+ *   2. RECOGNIZED tokens only — every entry is a key of `ROLE_NORMALIZATIONS`
+ *      (personalization.ts:18-42), so the parser recognizes it and emits ZERO crew
+ *      warnings for it (verbatim round-trip: planted "A1" → parsed role "A1").
+ *      This is LOAD-BEARING for Tier-2 soundness: an UNRECOGNIZED role (e.g. the
+ *      old "Video Engineer") makes the parser emit a per-member `UNKNOWN_ROLE_TOKEN`
+ *      warning stamped `blockRef = {kind:"crew", name:<crew name>}` (crew.ts:293,
+ *      367-372). The oracle's t1 channel absolves any crew miss when
+ *      `blockRef.name === entity.identityValue` (groundTruth.ts:201) — so a
+ *      self-naming role warning would blanket-absolve EVERY crew field/existence
+ *      miss, making the Tier-2 property's crew clause trivially satisfied and its
+ *      phone/email/date_restriction comparators dead code. Recognized tokens emit
+ *      no such warning, so a crew regression (dropped member, wrong phone) has
+ *      NOTHING to absolve it and the property genuinely catches it. Proven by
+ *      `plantAndFind.fuzz.test.ts`'s property-distribution regression test.
  */
-export const CLEAN_ROLE_VOCAB = [
-  "Video Engineer",
-  "Audio A2",
-  "LED Tech",
-  "Camera Op",
-  "Graphics Op",
-] as const;
+export const CLEAN_ROLE_VOCAB = ["LEAD", "A1", "A2", "V1", "L1"] as const;
 
 export const ROOM_KINDS: readonly RoomModel["kind"][] = [
   "GENERAL SESSION",
@@ -369,18 +380,45 @@ export const showModel: fc.Arbitrary<ShowModel> = fc
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve cross-dial exclusions BY CONSTRUCTION (spec §3.2): a headerless crew
- * header carries no header row at all, so a header-cell typo cannot coexist with
- * it — "headerless wins" ⇒ `headerTypo := null`. Returns a fresh dials object.
+ * Resolve cross-dial exclusions BY CONSTRUCTION (spec §3.2) so every case
+ * `caseArb` yields is in-contract (the parser is contractually required to
+ * handle it). Two headerless-crew resolutions, both returning a fresh pair:
+ *
+ *   1. A headerless crew header carries no header row at all, so a header-cell
+ *      typo cannot coexist with it — "headerless wins" ⇒ `headerTypo := null`.
+ *
+ *   2. EMAIL is HEADER-GATED: `detectColumns`' positional default is `email=-1`
+ *      (crew.ts:85-88) — positionally column 4 is ambiguous (`notes` OR `EMAIL`
+ *      in the v2 layout, crew.ts:9-10), so the parser deliberately refuses to
+ *      recover an email without an explicit `EMAIL` header token. A headerless
+ *      crew table therefore CANNOT round-trip email, so an honest in-contract
+ *      case plants none — drop `email` from every crew member here. The oracle
+ *      then expects `null` (matching the parser) while name / role / phone /
+ *      date_restriction / existence stay FULLY compared. This is a model-side
+ *      honesty resolution, NOT an oracle relaxation: `groundTruth.ts` is
+ *      untouched and still strictly compares every recoverable crew field.
  */
 export function normalizeCombo(
   pair: readonly [ShowModel, DialChoices],
 ): readonly [ShowModel, DialChoices] {
   const [model, dials] = pair;
-  if (dials.crewHeader === "headerless" && dials.headerTypo !== null) {
-    return [model, { ...dials, headerTypo: null }];
-  }
-  return [model, dials];
+  if (dials.crewHeader !== "headerless") return [model, dials];
+
+  const nextDials = dials.headerTypo !== null ? { ...dials, headerTypo: null } : dials;
+  const needsEmailStrip = model.crew.some((c) => c.email !== undefined);
+  if (!needsEmailStrip) return [model, nextDials];
+
+  const nextModel: ShowModel = {
+    ...model,
+    crew: model.crew.map((c) => {
+      if (c.email === undefined) return c;
+      // Omit the `email` key entirely (not `email: undefined`) so the oracle's
+      // `planted.email ?? null` reads as an unplanted email under this dial.
+      const { email: _drop, ...rest } = c;
+      return rest;
+    }),
+  };
+  return [nextModel, nextDials];
 }
 
 /** The `[ShowModel, DialChoices]` pair every property samples. */

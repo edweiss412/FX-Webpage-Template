@@ -251,7 +251,7 @@ export const DIAL_REGISTRY: DialRegistry = [
     name: "crewColumns",
     contractFile: "lib/parser/blocks/crew.ts",
     contractSymbol: "CREW_COLUMN_VOCAB",
-    note: "headerless = positional defaults, warning expected + full round-trip",
+    note: "headerless = positional defaults (name/role/phone; EMAIL is header-gated so unrecoverable positionally — normalizeCombo strips it), warning expected + those fields round-trip",
     key: "crewHeader",
     arbitrary: crewHeaderArb,
   },
