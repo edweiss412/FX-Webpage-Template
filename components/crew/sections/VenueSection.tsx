@@ -128,6 +128,8 @@ export function VenueSection({
   // --- Parking: transportTileVisible-gated -----------------------------------
   const transportVisible = transportTileVisible({
     transportation: data.transportation,
+    viewerId: data.viewerId,
+    transportationOwnerIds: data.transportationOwnerIds,
     viewerName: data.viewerName,
     viewerNameAliases: data.viewerNameAliases,
     isAdmin: ctx.isAdmin,

@@ -248,6 +248,8 @@ describe("Compound transport transitions (review Important 4)", () => {
     // Step A — BEFORE rename: viewer.name = "Jamie Brooks", schedule tags
     // include "Jamie Brooks". Driver branch false; schedule-tag branch true.
     const beforeVisible = transportTileVisible({
+      viewerId: null,
+      transportationOwnerIds: [],
       transportation: baseTransport,
       viewerName: "Jamie Brooks",
       viewerNameAliases: ["Jamie Brooks"],
@@ -260,6 +262,8 @@ describe("Compound transport transitions (review Important 4)", () => {
     // refers to "Taylor Quinn" — distinct surname from "Jamie Brooks").
     // Tile MUST unmount → FT → FF.
     const duringVisible = transportTileVisible({
+      viewerId: null,
+      transportationOwnerIds: [],
       transportation: baseTransport,
       viewerName: "Taylor Quinn",
       viewerNameAliases: ["Taylor Quinn"],
@@ -274,6 +278,8 @@ describe("Compound transport transitions (review Important 4)", () => {
       schedule: [{ ...baseTransport.schedule[0]!, assigned_names: ["Taylor Quinn"] }],
     };
     const afterVisible = transportTileVisible({
+      viewerId: null,
+      transportationOwnerIds: [],
       transportation: reTaggedTransport,
       viewerName: "Taylor Quinn",
       viewerNameAliases: ["Taylor Quinn"],
@@ -343,6 +349,8 @@ describe("Compound transport transitions (review Important 4)", () => {
       notes: null,
     };
     const beforeVisible = transportTileVisible({
+      viewerId: null,
+      transportationOwnerIds: [],
       transportation: beforeTransport,
       viewerName: "Viewer Name",
       viewerNameAliases: ["Viewer Name"],
@@ -357,6 +365,8 @@ describe("Compound transport transitions (review Important 4)", () => {
       driver_name: "Viewer Name",
     };
     const afterVisible = transportTileVisible({
+      viewerId: null,
+      transportationOwnerIds: [],
       transportation: afterTransport,
       viewerName: "Viewer Name",
       viewerNameAliases: ["Viewer Name"],
