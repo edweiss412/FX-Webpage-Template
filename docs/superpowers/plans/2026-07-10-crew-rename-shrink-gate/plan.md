@@ -16,7 +16,7 @@
 - No raw codes in user-visible strings: `describeShrink` emits human words only.
 - exactOptionalPropertyTypes discipline: spread-conditional optional fields (`...(x !== undefined ? { x } : {})`), never `x: undefined`.
 - Meta-test inventory (spec §7): none created/extended. `_metaInfraContract` N/A (postgres.js tx, no supabase client calls); `advisoryLockRpcDeadlock` unchanged (no new holder); mutation-surface walker unaffected (no new route/action); no-inline-email-normalization unaffected. Do NOT mention retired m9.5 surface names (e.g. the dropped session table) in any test file — `tests/cross-cutting/no-m9-5-surfaces.test.ts` walks `tests/`.
-- Run the module-scoped suites after each task; FULL `pnpm test` + `pnpm typecheck` + `pnpm lint` + `pnpm format:check` + `pnpm build` in Task 6 before review/push.
+- Run the module-scoped suites after each task; FULL `pnpm test` + `pnpm typecheck` + `pnpm lint` + `pnpm format:check` + `pnpm build` in Task 5 before review/push.
 
 ## File Structure
 
@@ -26,7 +26,7 @@
 - Modify `lib/sync/runScheduledCronSync.ts` — `PostgresPipelineTx.renameCrewMember` (Task 2); orchestrator computation + Phase2 arg (Task 3)
 - Modify `lib/sync/phase2.ts` — `Phase2Args.identityLinkRenames` + threading (Task 3)
 - Modify `tests/sync/_applyStagedCoreTestkit.ts` — `spyTx()` stub for `renameCrewMember` (Task 2)
-- Modify `tests/sync/phase1.test.ts` (Task 1), `tests/sync/applyParseResult.identityLink.test.ts` NEW (Task 2), `tests/sync/identityLinkRenames.test.ts` NEW (Task 3), `tests/sync/resyncShrinkHold.db.test.ts` (Task 4), `tests/db/undo-change-direction-a.test.ts` (Task 5)
+- Modify `tests/sync/phase1.test.ts` (Task 1), `tests/sync/applyParseResult.identityLink.test.ts` NEW (Task 2), `tests/sync/identityLinkRenames.test.ts` NEW (Task 3), `tests/sync/resyncShrinkHold.db.test.ts` (Task 3), `tests/db/undo-change-direction-a.test.ts` (Task 4)
 
 ---
 
@@ -149,7 +149,21 @@ describe("crew removal-class publish gate (BL-CREW-RENAME-SILENT-REPLACEMENT)", 
 
 Fill the two sketched bodies (`unpublished`, `acceptShrink`) with the same concrete helper calls — the acceptShrink overrides object is passed as `runWith(tx, next, { acceptShrink: true, expectedModifiedTime: ... })` (fields land on Phase1Args; see existing accept tests in this file if present, else `lib/sync/phase1.ts` Phase1Args fields).
 
-Note: the MI-14 pair shape (both emails null) is covered by adding one more test cloning the MI-13 case with `email: null` on both sides — include it.
+Note: the MI-14 pair shape (both emails null) is covered by adding one more test cloning the MI-13 case with `email: null` on both sides — include it. The `→` arrow inside message assertions is intentional ratified spec copy (§3.2), not an ASCII-rule violation.
+
+Also add the onboarding pin (spec test 6):
+
+```ts
+  test("onboarding_scan mode: same rename edit never holds", async () => {
+    const tx = new FakePhase1Tx();
+    publishedShow(tx, parseResult({ crewMembers: [crew("Jon Smith", { email: "jon@x.example" })] }));
+    const next = parseResult({ crewMembers: [crew("John Smith", { email: "john@x.example" })] });
+    const result = await runWith(tx, next, { mode: "onboarding_scan" });
+    expect(result.outcome).not.toBe("shrink_held");
+  });
+```
+
+(Belt over the real path's blinded `readShowForPhase1`: even with a show row visible, the explicit `mode` gate must refuse the hold. No orchestrator-level onboarding link pin is needed — `notableItems` is only computed for `pass`/`auto_apply_with_holds` outcomes (`runScheduledCronSync.ts:3329-3333`) and onboarding stages, never applies.)
 
 - [ ] **Step 2: Run** `pnpm exec vitest run tests/sync/phase1.test.ts` — new tests FAIL (net-zero cases currently pass through; cap test gets uncapped message).
 
@@ -231,10 +245,16 @@ test("linked pair renames BEFORE delete and both before upsert", async () => {
 test("pair skipped when removedName not in previous crew", async () => { /* no renameCrewMember op */ });
 test("pair skipped when addedName absent from post-hold next crew", async () => { /* no op */ });
 test("pair skipped when removedName is held", async () => {
-  // pass holds port via the same fake-hold-port pattern used in tests/sync/_holdAwareTestkit.ts,
-  // or simpler: assert via deleteProtectedNames path by driving planHoldAwareApply — if wiring a
-  // hold port is heavy, test the guard directly: heldNames comes from the hold plan; simulate by
-  // an open MI-11 hold via the holdAwareTestkit helpers.
+  // CONCRETE CONTRACT (plan-R1 M3): use tests/sync/_holdAwareTestkit.ts REAL-DB helpers —
+  // `seedShow`, `seedCrew`, `holdPort(tx)` (exports at _holdAwareTestkit.ts:22,84,95). Seed the
+  // show + crew "Jon"; insert an open sync_holds row with domain 'crew_identity' and
+  // entity_key 'Jon' (copy the insert shape an existing test in tests/sync/holdAwareApply*
+  // uses with this testkit); run applyParseResult with holds: { port, baseModifiedTime } and
+  // identityLinkRenames [{removedName:"Jon", addedName:"John"}]. The hold plan puts "Jon" in
+  // heldNames → assert the crew row still has its ORIGINAL name (no rename applied) via
+  // readCrew (_holdAwareTestkit.ts:119). This is a .db test — put it in the db-suite variant
+  // of this file (applyParseResult.identityLink.db.test.ts) alongside the direct SQL tests in
+  // Step 1b if mixing unit+db in one file fights the project config.
 });
 test("duplicate pair (same removedName twice) consumes first only", async () => {
   // identityLinkRenames [{Jon→John}, {Jon→Johnny}] → exactly one renameCrewMember op
@@ -245,6 +265,25 @@ test("empty/absent identityLinkRenames leaves op sequence identical to today", a
 ```
 
 Write real bodies (fixture crew objects with `name`/`email`/`phone`/`role`/`role_flags`/`date_restriction`/`stage_restriction`/`flight_info`, mirroring `parseResult().crewMembers` element shape from `tests/sync/phase1.test.ts:105-140`), a minimal `args.snapshot` (`showId`, `previousCrewNames`, plus whatever `applyParseResult` requires — copy from an existing applyParseResult-driving test such as `tests/sync/applyParseResultScheduleDay.test.ts`).
+
+- [ ] **Step 1b: Write failing DIRECT SQL tests** in new `tests/sync/applyParseResult.identityLink.db.test.ts` (real Postgres, loopback-guarded like siblings), against the exported real tx factory `makeSyncPipelineTx(tx)` (`lib/sync/runScheduledCronSync.ts:1777`) — NOT a copy of the SQL (anti-tautology). Rationale (plan-R1 M4): a sync-produced pair's `addedName` is next-minus-prior by construction, so a target-name collision is unreachable through the pipeline; the `NOT EXISTS` guard is defensive and must be pinned at the method level:
+
+```ts
+test("renameCrewMember renames in place preserving id", async () => {
+  // seedShow + seedCrew(["Jon"]) via _holdAwareTestkit; capture id via readCrew
+  // await sql.begin((tx) => makeSyncPipelineTx(tx).renameCrewMember(showId, "Jon", "John"))
+  // readCrew → one row "John" with the captured id; no row "Jon"
+});
+test("renameCrewMember no-ops on target-name collision (no unique violation)", async () => {
+  // seedCrew(["Jon", "John"]); call renameCrewMember(showId, "Jon", "John")
+  // expect NO throw; both rows unchanged (names and ids identical to seed)
+});
+test("renameCrewMember no-ops when source row missing", async () => {
+  // call renameCrewMember(showId, "Ghost", "Anyone") → no throw, crew table unchanged
+});
+```
+
+Plus the held-guard test from Step 1 (it needs the real hold port — same file).
 
 - [ ] **Step 2: Run** `pnpm exec vitest run tests/sync/applyParseResult.identityLink.test.ts` — FAIL (`renameCrewMember` not a function / arg unknown).
 
@@ -307,17 +346,17 @@ Write real bodies (fixture crew objects with `name`/`email`/`phone`/`role`/`role
 
 (e) `spyTx()` in `_applyStagedCoreTestkit.ts`: add a `renameCrewMember` stub recording to `ops` like its siblings. (f) Typecheck sweep: `pnpm typecheck` — fix EVERY fake/mock the compiler flags for the new required method (expected: the testkit(s) + any inline fakes in `tests/sync/applyRawParseNoOverride.test.ts`, `tests/sync/applyStagedCore.test.ts`, `tests/sync/sourceAnchorsPipeline.test.ts`, `tests/sync/quality-regressed-producer.test.ts`, `tests/sync/_holdAwareTestkit.ts`, `tests/onboarding/wizardApplyLivePartitionCoexistence.db.test.ts` — add the same one-line stub to each).
 
-- [ ] **Step 4: Run** `pnpm exec vitest run tests/sync/applyParseResult.identityLink.test.ts tests/sync/applyStagedCore.test.ts tests/sync/applyRawParseNoOverride.test.ts && pnpm typecheck` — PASS.
+- [ ] **Step 4: Run** `pnpm exec vitest run tests/sync/applyParseResult.identityLink.test.ts tests/sync/applyParseResult.identityLink.db.test.ts tests/sync/applyStagedCore.test.ts tests/sync/applyRawParseNoOverride.test.ts && pnpm typecheck` — PASS (db file needs local Supabase up; `pnpm preflight` green first).
 
 - [ ] **Step 5: Commit** `feat(sync): identity-preserving crew rename in applyParseResult (renameCrewMember tx)`
 
-### Task 3: Classifier + orchestration threading (spec §3.3; test 7's link-set half)
+### Task 3: Classifier + orchestration threading, driven RED by the DB seam tests (spec §3.3; tests 12–14)
 
 **Files:**
 - Create: `lib/sync/identityLinkRenames.ts`
 - Modify: `lib/sync/phase2.ts:76-118` (Phase2Args) + apply call (~369)
 - Modify: `lib/sync/runScheduledCronSync.ts:3382-3401` (arg build in `processOneFile_unlocked`)
-- Test: `tests/sync/identityLinkRenames.test.ts` (new), `tests/sync/phase2.test.ts` (threading case)
+- Test: `tests/sync/identityLinkRenames.test.ts` (new), `tests/sync/phase2.test.ts` (threading case), `tests/sync/resyncShrinkHold.db.test.ts` (e2e seam tests — written RED in this task, per TDD; they are the acceptance tests this task exists to satisfy)
 
 **Interfaces:**
 - Consumes: `TriggeredReviewItem[]` (`notableItems` at `runScheduledCronSync.ts:3329`), `deps.acceptShrink`/`deps.expectedModifiedTime` (`runScheduledCronSync.ts:3212-3213` region), `pipeline.binding.modifiedTime`.
@@ -352,7 +391,31 @@ test("empty items → empty", () => {
 
 And in `tests/sync/phase2.test.ts` a threading case: build the file's existing fake Phase2Tx (it now has `renameCrewMember` from Task 2's sweep), call `runPhase2` with `identityLinkRenames: [{ removedName, addedName }]` matching a prior→next crew rename, assert the fake recorded a `renameCrewMember` call (proves Phase2Args→applyParseResult threading; copy the fixture pattern of an existing apply-path test in that file).
 
-- [ ] **Step 2: Run** `pnpm exec vitest run tests/sync/identityLinkRenames.test.ts tests/sync/phase2.test.ts` — FAIL (module missing / arg dropped).
+- [ ] **Step 1b: Write the failing END-TO-END seam tests** in `tests/sync/resyncShrinkHold.db.test.ts` (same harness: `processOneFile` + `runManualSyncForShow`, `makeParse` — file lines 40-100; add a local `readCrewRow(showId, name)` helper mirroring the file's existing row reads). These go RED now because nothing threads `identityLinkRenames` yet — they are the acceptance tests for this task (plan-R1 H1):
+
+```ts
+test("MI-12 rename end-to-end: no hold, crew_members.id preserved, feed parity", async () => {
+  // seed + first sync with crew [{name: "Link Crew A", email: "linka@x.example"}] (published)
+  // const before = await readCrewRow(showId, "Link Crew A"); // capture id
+  // re-sync (cron processOneFile) with crew [{name: "Link Crew A2", email: "linka@x.example"}]
+  // assert applied (not shrink_held)
+  // const after = await readCrewRow(showId, "Link Crew A2");
+  // expect(after.id).toBe(before.id); expect(await readCrewRow(showId, "Link Crew A")).toBeNull();
+  // FEED PARITY (spec test 12): exactly one crew_renamed auto_apply row, zero crew_removed/added
+  // rows naming either side (select change_kind, entity_ref from show_change_log for this show).
+});
+test("MI-13 rename end-to-end: hold; STALE accept stays held; version-bound accept links", async () => {
+  // re-sync with {name: "Link Crew A2", email: "different@x.example"} → expect shrink_held
+  // manual re-sync with acceptShrink: true + expectedModifiedTime: "2020-01-01T00:00:00.000Z"
+  //   → STILL shrink_held; crew row unchanged (id + old name). Pins the version-bound predicate
+  //   end-to-end (plan-R1 M5); the orchestrator predicate can only diverge inertly (phase1
+  //   re-holds first), and this assertion locks that behavior.
+  // manual re-sync with acceptShrink: true + expectedModifiedTime = the HELD modifiedTime
+  //   → applies; same id; new name AND new email on the row.
+});
+```
+
+- [ ] **Step 2: Run** `pnpm exec vitest run tests/sync/identityLinkRenames.test.ts tests/sync/phase2.test.ts` — FAIL (module missing / arg dropped); run the db file (same invocation the file documents) — the two new e2e tests FAIL (id changes on rename; MI-13 accept applies without link).
 
 - [ ] **Step 3: Implement.**
 
@@ -414,55 +477,11 @@ export function computeIdentityLinkRenames(
       ...(identityLinkRenames.length > 0 ? { identityLinkRenames } : {}),
 ```
 
-- [ ] **Step 4: Run** `pnpm exec vitest run tests/sync/identityLinkRenames.test.ts tests/sync/phase2.test.ts tests/sync/runScheduledCronSync.test.ts && pnpm typecheck` — PASS.
+- [ ] **Step 4: Run** `pnpm exec vitest run tests/sync/identityLinkRenames.test.ts tests/sync/phase2.test.ts tests/sync/runScheduledCronSync.test.ts && pnpm typecheck`, then the db file — ALL PASS including the Step-1b e2e tests.
 
 - [ ] **Step 5: Commit** `feat(sync): thread MI-12/accepted-MI-13/14 identity-link renames into apply`
 
-### Task 4: DB end-to-end seam tests (spec tests 11, 13, 14)
-
-**Files:**
-- Modify: `tests/sync/resyncShrinkHold.db.test.ts` (same harness: `processOneFile` + `runManualSyncForShow`, `makeParse`, seeded crew — see file lines 40-100)
-
-**Interfaces:** Consumes the file's existing seed/parse helpers and DB read helpers. No production code changes in this task — it can only surface bugs in Tasks 1-3; fix them here if red.
-
-- [ ] **Step 1: Write the three tests** (adapt the file's existing seed→re-sync→assert pattern; derive names/emails from local fixture consts):
-
-```ts
-test("MI-12 rename end-to-end: no hold, crew_members.id preserved", async () => {
-  // seed + first sync with crew [{name: "Link Crew A", email: "linka@x.example"}] (published)
-  // capture: const before = await readCrewRow(showId, "Link Crew A"); // id
-  // re-sync (cron processOneFile) with crew [{name: "Link Crew A2", email: "linka@x.example"}]
-  // assert: outcome applied (not shrink_held)
-  // const after = await readCrewRow(showId, "Link Crew A2");
-  // expect(after.id).toBe(before.id); expect(await readCrewRow(showId, "Link Crew A")).toBeNull();
-  // FEED PARITY (spec test 12): show_change_log for this sync has EXACTLY ONE crew_renamed row
-  // for the pair and ZERO crew_removed/crew_added rows naming either side:
-  // const rows = await sql`select change_kind, entity_ref from public.show_change_log where show_id = ${showId} and source = 'auto_apply'`;
-  // expect(rows.filter((r) => r.change_kind === "crew_renamed").length).toBe(1);
-  // expect(rows.some((r) => r.change_kind === "crew_removed" && r.entity_ref === "Link Crew A")).toBe(false);
-  // expect(rows.some((r) => r.change_kind === "crew_added" && r.entity_ref === "Link Crew A2")).toBe(false);
-});
-test("MI-13 rename end-to-end: hold, then accepted re-sync links identity", async () => {
-  // re-sync with {name: "Link Crew A2", email: "different@x.example"} → expect shrink_held
-  // manual re-sync with acceptShrink: true + expectedModifiedTime = held modifiedTime
-  // assert applied, same id, new name AND new email on the row
-});
-test("rename collision: pre-existing target-name row degrades to replace without error", async () => {
-  // seed crew [{A, a@x}, {B, b@x}]; craft next parse where A is removed and a NEW member
-  // named exactly "B" (same name as existing B) appears with A's email → MI-12 pairs (A→B) but
-  // target name "B" already lives → renameCrewMember no-ops; apply completes; exactly one row
-  // named "B"; no unique-violation throw. Accept the hold first if one fires (B's own row also
-  // changes shape); the assertion is: apply completes and crew_members has no duplicate names.
-});
-```
-
-Use the file's actual row-reading helpers (grep `select` helpers within the file; add a `readCrewRow(showId, name)` local helper mirroring existing reads if absent). Real assertions on `crew_members.id` — the value delete+insert cannot preserve.
-
-- [ ] **Step 2: Run** `pnpm exec vitest run --project db tests/sync/resyncShrinkHold.db.test.ts` (match the file's existing project/loopback-guard invocation — copy the command other `.db.test.ts` docs use; local Supabase must be up, `pnpm preflight` green) — the two rename tests FAIL before Tasks 1-3 are correct, PASS after; the collision test must pass without production changes.
-
-- [ ] **Step 3: Commit** `test(sync): end-to-end MI-12 auto-link, MI-13 confirm-link, collision degrade (db)`
-
-### Task 5: Undo round-trip pins (spec §3.5; tests 15–16)
+### Task 4: Undo round-trip pins (spec §3.5; tests 15–16)
 
 **Files:**
 - Modify: `tests/db/undo-change-direction-a.test.ts` (helpers: `seedShowWithCrew`, `runAutoApply`, `readChangeLog`, `callUndoAsAdmin`, `readCrewByName` — see imports at lines 14-26)
@@ -495,7 +514,7 @@ test("replaced-shape crew_renamed undo still deletes successor and restores prio
 
 - [ ] **Step 3: Commit** `test(db): pin crew_renamed undo round-trip for linked and replaced shapes`
 
-### Task 6: Close-out gates
+### Task 5: Close-out gates
 
 - [ ] `pnpm test` (FULL suite — shared-chokepoint rule; includes `tests/messages/`, meta-tests, structural walkers)
 - [ ] `pnpm typecheck` && `pnpm lint` && `pnpm format:check` (prettier the new/edited files first: `pnpm exec prettier --write <files>`; NEVER prettier the master spec)
