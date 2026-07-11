@@ -124,24 +124,19 @@ update public.crew_members
 
 Tx interface: `renameCrewMember` is added as a **required** method on `ApplyParseResultTx` (`applyParseResult.ts:33` region) and implemented once in the shared Postgres tx (`runScheduledCronSync.ts:1577` region, same `this.rows` style). Plan must grep test fakes implementing the interface and update each (fail-loud beats an optional method silently skipped).
 
-### 3.5 Undo becomes identity-link aware (`undo_change` migration)
+### 3.5 Undo interaction — analyzed, deliberately unchanged
 
-The existing `crew_renamed` undo is a true reversal of the delete+insert model: it deletes the successor row by name, then reinserts the `before_image` (restoring the original `id` + `claimed_via_oauth_at`) (`supabase/migrations/20260608000003_undo_change_rpc.sql:173-262`). For an **identity-linked** rename the successor row **is** the prior row (`before_image.id` == the live successor's `id`), so delete+reinsert of the same UUID is semantically wrong and fires `ON DELETE SET NULL` on anything referencing `crew_members(id)`.
+The existing `crew_renamed` undo is a true reversal of the delete+insert model: it deletes the successor row by name, then reinserts the `before_image`, restoring **both** identity columns — the original `id` and `claimed_via_oauth_at` (PF38, `supabase/migrations/20260608000003_undo_change_rpc.sql:173-262`). Adversarial R1 asked whether that delete corrupts references when the rename was identity-**linked** (successor row IS the prior row, same UUID). It does not, for the live schema:
 
-Corruption-severity check (adversarial R1): the only such FK is `link_sessions.crew_member_id` (`supabase/migrations/20260501001000_internal_and_admin.sql:120`), and `link_sessions` has **zero references anywhere in `lib/` or `app/`** (retired with the M9.5 auth teardown) — so there is no *live* session-corruption path today. The picker cookie is client-side (no FK) and the reinsert restores the same UUID, so even the unfixed path resolves. We fix it anyway: the delete is a latent hazard for any future FK and the wrong semantics for a linked rename.
+- **No FK references `crew_members(id)` anywhere in the final schema.** The only one that ever did — the M9.5 signed-link session table's `crew_member_id` (`supabase/migrations/20260501001000_internal_and_admin.sql:120`) — was dropped whole-table at the M11.5 G3 cutover (`supabase/migrations/20260523000099_cutover_drop_m9_5.sql:24`; absence pinned by `tests/db/cutover-drop-m9-5.test.ts`). A repo-wide grep for `references public.crew_members` confirms no other FK exists.
+- **The picker reference is client-side, not an FK.** The cookie stores the UUID (`cookieEnvelope.ts:9`); undo's reinsert restores that exact UUID plus the OAuth claim, so the cookie resolves identically before and after. The transient in-tx delete is never visible to readers.
+- For a **linked** rename the undo guards behave correctly as-is: the email-collision guard excludes the successor by name (`undo_change_rpc.sql:186-198`), and the prior-name row cannot exist (the rename moved it), so the name-collision guard can't fire spuriously.
 
-**Fix (new migration, function-only, no DDL):** in `undo_change`'s `crew_renamed` branch, after the existing guards and the `select id into v_succ_id ... for update`, branch on identity:
-
-- `v_succ_id = (v_before->>'id')::uuid` (linked rename) → **UPDATE in place**: set the successor row's `name`, `email`, `phone`, `role`, `role_flags`, `date_restriction`, `stage_restriction`, `flight_info`, `claimed_via_oauth_at` back from `before_image` (same field list + casts as the existing restore INSERT; `last_changed_at = clock_timestamp()`), skip the delete and skip the restore INSERT. Same ROW_COUNT = 1 fail-safe.
-- Otherwise (replaced rename, the only shape that exists in historical rows) → existing delete + reinsert, byte-for-byte unchanged.
-
-Everything downstream of the restore (held-present override insert, undo log row, status flip) is shared and unchanged. All guards (email-collision, name-collision, status, lock) run before either branch, preserving the zero-mutation-on-reject contract. `crew_removed` / `crew_added` directions untouched. The branch is self-selecting from data — no new `change_kind`, no feed or catalog fan-out.
-
-Migration checklist (per AGENTS.md validation-parity rule): apply locally + DB tests; `pnpm gen:schema-manifest` + commit (function bodies aren't manifest content — expect a no-op regen, commit if changed); apply surgically to the validation project + `notify pgrst, 'reload schema'`.
+Therefore `undo_change` ships **unchanged**. The linked shape is pinned behaviorally instead (test 13): undoing a linked-shape `crew_renamed` row restores the prior name on the **same** `crew_members.id`, proving the undo round-trip preserves the identity this feature preserves on apply. If a future migration ever adds an FK to `crew_members(id)`, that migration owns revisiting the undo delete (noted in §8).
 
 ### 3.6 What does NOT change
 
-- No DB **schema** change (one function-body migration per §3.5; no DDL, no new RPC, no PostgREST surface). The apply-path UPDATE rides the existing service-role postgres.js tx inside the existing per-show advisory lock (invariant 2: no new lock holder at any layer; `undo_change` keeps its existing in-RPC lock — its single-holder topology is untouched).
+- No DB change at all: no DDL, no migration, no new RPC, no PostgREST surface (`undo_change` unchanged — §3.5). The apply-path UPDATE rides the existing service-role postgres.js tx inside the existing per-show advisory lock (invariant 2: no new lock holder at any layer; topology untouched).
 - No UI files. The hold message is a string through the existing shrink surface (admin alert detail + ReSyncButton confirm at `tests/components/ReSyncButton.test.tsx`'s subject). Invariant 8 (impeccable) not triggered.
 - No new §12.4 code. The existing `RESYNC_SHRINK_HELD` alert producer at the caller is untouched; only the `message` text gains rename/removal parts.
 - No new mutation surface (invariant 10): no new route or server action; existing instrumented paths.
@@ -169,7 +164,7 @@ Migration checklist (per AGENTS.md validation-parity rule): apply locally + DB t
 
 | Layer | Action |
 | --- | --- |
-| Table DDL / CHECKs / migrations | No DDL. One function-only migration re-creating `undo_change` (§3.5) — apply local + validation, regen manifest. `unique (show_id, name)` already guards rename collisions. |
+| Table DDL / CHECKs / migrations | N/A — no schema change, no migration (`undo_change` unchanged per §3.5 analysis). `unique (show_id, name)` already guards rename collisions. |
 | Write path | New `renameCrewMember` on the shared tx (`runScheduledCronSync.ts`); ordered rename → delete → upsert in `applyParseResult`. |
 | RPC / PostgREST | N/A — no new RPC; table already RPC-free service-role-written on this path. |
 | Triggers | Existing `crew_members_bump_last_changed_at` covers the UPDATE. |
@@ -200,10 +195,10 @@ Apply — `tests/sync/` applyParseResult coverage:
 
 DB — `tests/sync/resyncShrinkHold.db.test.ts` extension: end-to-end rename-hold → confirm → row id preserved (real Postgres; loopback-guarded like siblings).
 
-Undo (real Postgres, alongside existing undo DB tests):
+Undo (real Postgres, alongside existing undo DB tests; `undo_change` source unchanged — these pin the linked shape against the existing function):
 
-13. **Linked-rename undo, update-in-place:** seed crew row (capture id), write an applied `crew_renamed` change row whose `before_image.id` equals the live row's id (linked shape), seed a `link_sessions` row pointing at the id, call `undo_change` → prior name/email restored, `crew_members.id` unchanged, `link_sessions.crew_member_id` still set (proves no delete fired — the assertion that cannot pass under delete+reinsert), held-present override + undone flip written as today.
-14. **Replaced-rename undo regression:** historical shape (`before_image.id` differs from successor id) → existing delete+reinsert path byte-identical: successor gone, prior id restored, guards still zero-mutation on reject (`UNDO_EMAIL_CLAIMED` / `UNDO_SUPERSEDED` paths re-run green).
+13. **Linked-shape undo round-trip:** seed crew row (capture id), rename it in place to the new name (simulating a linked apply), write an applied `crew_renamed` change row whose `before_image.id` equals the live row's id, call `undo_change` → prior name/email restored **on the same `crew_members.id`**, `claimed_via_oauth_at` restored, held-present override + undone flip written as today. (Failure mode caught: any future undo edit that loses the identity this feature preserves on apply.)
+14. **Replaced-shape undo regression:** historical shape (`before_image.id` differs from successor id) → successor gone, prior id restored; reject guards (`UNDO_EMAIL_CLAIMED` / `UNDO_SUPERSEDED`) still zero-mutation. (Pins that the linked-shape analysis changed nothing for the existing path.)
 
 Anti-tautology notes: expected names/ids derive from fixtures; id-preservation asserts on `crew_members.id` equality across the apply, which cannot pass under delete+insert; hold assertions check the `outcome` discriminant, not message substrings alone (message asserted separately).
 
@@ -220,3 +215,4 @@ Anti-tautology notes: expected names/ids derive from fixtures; id-preservation a
 - Surfacing the changes feed to Doug (the "unsurfaced feed row" half of the backlog note) — separate surface, unchanged here.
 - Room/contact rename identity (MI-7b class) — rooms have no picker identity; existing re-stage behavior stands.
 - Any UI affordance that itemizes rename pairs in the ReSyncButton confirm beyond the message string — the string is the ratified scope.
+- `undo_change` restructuring for the linked-rename shape — analyzed sound as-is (§3.5); any future migration adding an FK to `crew_members(id)` owns revisiting the successor delete.
