@@ -193,7 +193,10 @@ Apply — `tests/sync/` applyParseResult coverage:
 11. **Collision:** pre-existing target-name row → rename no-ops, no unique violation, apply completes.
 12. **Feed parity:** linked rename still yields exactly one `crew_renamed` row (no `crew_removed`/`crew_added` for the pair).
 
-DB — `tests/sync/resyncShrinkHold.db.test.ts` extension: end-to-end rename-hold → confirm → row id preserved (real Postgres; loopback-guarded like siblings).
+DB — `tests/sync/resyncShrinkHold.db.test.ts` extension (real Postgres; loopback-guarded like siblings), driving the real sync entry point (same harness the file already uses) — these are the seam-threading proofs, not unit re-checks:
+
+15. **MI-12 end-to-end auto-link:** existing published show synced once; re-sync with the sheet renamed (same email) → sync applies with NO shrink hold AND the crew row keeps its original `crew_members.id` with the new name. (Failure mode caught: an implementation that computes the gate correctly but omits MI-12 pairs from the orchestrator's `identityLinkRenames` mapping — tests 2 and 9 alone would still pass while picker continuity silently stays broken.)
+16. **MI-13 end-to-end hold → confirm → link:** re-sync with name+email both changed (Levenshtein-close) → `shrink_held`; re-run with `acceptShrink` + held `modifiedTime` → applies, row keeps original id, new name+email. (Proves the accepted-run threading, not just the phase1 fall-through.)
 
 Undo (real Postgres, alongside existing undo DB tests; `undo_change` source unchanged — these pin the linked shape against the existing function):
 
