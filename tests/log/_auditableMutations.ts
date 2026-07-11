@@ -326,6 +326,30 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
     fn: "undoFromDashboardAction",
     code: "CHANGE_UNDONE",
   },
+  // Structural-transform use-raw (spec 2026-07-10 §9): the two admin toggle actions.
+  // Each emits BOTH directions' forensic codes (useRaw ? SET : CLEARED), so — like the
+  // setPublished dispatcher above — each fn is registered TWICE (one row per code). Emits
+  // are POST-COMMIT, outside the advisory-lock tx (invariant 2/10).
+  {
+    file: "app/admin/show/[slug]/_actions/useRaw.ts",
+    fn: "setUseRawDecisionAction",
+    code: "USE_RAW_DECISION_SET",
+  },
+  {
+    file: "app/admin/show/[slug]/_actions/useRaw.ts",
+    fn: "setUseRawDecisionAction",
+    code: "USE_RAW_DECISION_CLEARED",
+  },
+  {
+    file: "app/admin/onboarding/_actions/useRawStaged.ts",
+    fn: "setStagedUseRawDecisionAction",
+    code: "USE_RAW_DECISION_SET",
+  },
+  {
+    file: "app/admin/onboarding/_actions/useRawStaged.ts",
+    fn: "setStagedUseRawDecisionAction",
+    code: "USE_RAW_DECISION_CLEARED",
+  },
 ];
 
 export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
@@ -403,6 +427,12 @@ export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
   // CHANGE_UNDONE's treatment (forensic/§12.4-exempt: NEW_FORENSIC_CODES via spread,
   // logAdminOutcome-stamped so it never registers as a §12.4 producer).
   "CHANGES_ACKNOWLEDGED",
+  // Structural-transform use-raw (spec 2026-07-10 §9/§10): forensic outcome codes for
+  // the two admin toggle actions. Both actions emit each code (useRaw ? SET : CLEARED),
+  // so each is used by ≥1 AUDITABLE_MUTATIONS row (Assertion 3). §12.4-exempt (stamped on
+  // logAdminOutcome → stripped from the producer scan); flow into NEW_FORENSIC_CODES via spread.
+  "USE_RAW_DECISION_SET",
+  "USE_RAW_DECISION_CLEARED",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing

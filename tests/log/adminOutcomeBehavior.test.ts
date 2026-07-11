@@ -443,6 +443,54 @@ vi.mock("@/lib/sync/runManualSyncForShow", async (importActual) => ({
   runManualSyncForShow: (...a: unknown[]) => runManualSyncForShowMock(...a),
 }));
 
+// ── Structural-transform use-raw (spec 2026-07-10 §9) behavioral proof plumbing ──
+// The two toggle actions read/write under withShowLock via a raw postgres tx. Mock
+// withShowLock to run the callback with a scripted fake tx (no DB) — the real one
+// opens a postgres connection, which the high-level sync entries above never reach
+// (all mocked). `useRawTxState` scripts the in-lock reads so computeUseRawToggle
+// reaches its mutated branch and the post-commit emit fires.
+const useRawTxState: { warnings: unknown[]; decisions: unknown[]; pendingRow: boolean } = {
+  warnings: [],
+  decisions: [],
+  pendingRow: true,
+};
+const withShowLockMock = vi.fn(async (_driveFileId: string, fn: (tx: unknown) => unknown) => {
+  const tx = {
+    queryOne: async (sql: string) => {
+      const s = sql.toLowerCase();
+      if (s.includes("update")) return null;
+      if (s.includes("pending_syncs")) {
+        return useRawTxState.pendingRow
+          ? {
+              parse_result: { warnings: useRawTxState.warnings },
+              use_raw_decisions: useRawTxState.decisions,
+            }
+          : null;
+      }
+      if (s.includes("parse_warnings")) return { parse_warnings: useRawTxState.warnings };
+      if (s.includes("use_raw_decisions")) return { use_raw_decisions: useRawTxState.decisions };
+      return null;
+    },
+  };
+  return await fn(tx);
+});
+// PARTIAL mock: intercept ONLY this feature's lock key ("df-uraw"); every other
+// driveFileId (finalize-cas et al.) delegates to the REAL withShowLock so existing
+// proofs are unaffected.
+vi.mock("@/lib/sync/lockedShowTx", async (importActual) => {
+  const actual = await importActual<typeof import("@/lib/sync/lockedShowTx")>();
+  return {
+    ...actual,
+    withShowLock: (...a: unknown[]) =>
+      a[0] === "df-uraw"
+        ? (withShowLockMock as unknown as (...x: unknown[]) => unknown)(...a)
+        : (actual.withShowLock as unknown as (...x: unknown[]) => unknown)(...a),
+  };
+});
+
+import { setUseRawDecisionAction } from "@/app/admin/show/[slug]/_actions/useRaw";
+import { setStagedUseRawDecisionAction } from "@/app/admin/onboarding/_actions/useRawStaged";
+
 import type { DiscardStagedResult } from "@/lib/sync/discardStaged";
 import { POST as stagedDiscardPost } from "@/app/api/admin/staged/[fileId]/discard/route";
 
@@ -3097,6 +3145,148 @@ describe("Batch 3 — final grandfathered surfaces graduate to inline proof", ()
     });
   });
   // <<< BATCH-3 PROOF BLOCK END
+});
+
+// ── Structural-transform use-raw toggle actions (spec 2026-07-10 §9) ──────────
+// Both actions emit the forensic code ONLY on the committed-mutation branch
+// (useRaw ? USE_RAW_DECISION_SET : USE_RAW_DECISION_CLEARED), post-commit, outside
+// the advisory-lock tx. Each action → 2 registry rows (SET + CLEARED), so all four
+// {file,fn,code} keys are proven here (Task 18 strict coverage). Negative branch: a
+// stale observedContentHash yields a validation error → no mutation → no emit.
+describe("use-raw toggle actions — post-commit forensic emit", () => {
+  const RESOLVABLE_ROOM_WARNING = {
+    severity: "warn",
+    code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+    message: "room header split is ambiguous",
+    blockRef: { kind: "rooms", name: "GENERAL SESSION" },
+    resolution: {
+      resolvable: true,
+      contentHash: "hash-abc",
+      parsed: { kind: "rooms", name: "GENERAL SESSION", dimensions: "40x60", floor: null },
+      replacement: {
+        kind: "rooms",
+        name: "GENERAL SESSION / 40x60",
+        dimensions: null,
+        floor: null,
+      },
+    },
+  };
+  const REF = {
+    code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+    blockRef: { kind: "rooms", name: "GENERAL SESSION" },
+    observedContentHash: "hash-abc",
+  };
+  const rawDecision = (applied: boolean) => ({
+    code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+    contentHash: "hash-abc",
+    target: { kind: "rooms", name: "GENERAL SESSION" },
+    preference: "raw" as const,
+    applied,
+    decidedAt: "2026-07-10T00:00:00.000Z",
+    decidedBy: "admin@example.com",
+  });
+
+  const PERSHOW_FILE = "app/admin/show/[slug]/_actions/useRaw.ts";
+  const STAGED_FILE = "app/admin/onboarding/_actions/useRawStaged.ts";
+
+  // resolveShowById (per-show) reads via createSupabaseServerClient().from().maybeSingle().
+  function seedPerShowResolve() {
+    serverClientImpl.current = async () =>
+      makeClient({ from: { data: { id: "show-uraw", drive_file_id: "df-uraw" }, error: null } });
+  }
+  // resolveStagedByWarning awaits the pending_syncs list builder directly (thenable).
+  function seedStagedResolve() {
+    serverClientImpl.current = async () =>
+      makeClient({
+        from: {
+          data: [
+            { drive_file_id: "df-uraw", parse_result: { warnings: [RESOLVABLE_ROOM_WARNING] } },
+          ],
+          error: null,
+        },
+      });
+  }
+
+  test("setUseRawDecisionAction emits SET (toggle on) + CLEARED (toggle off); nothing when stale", async () => {
+    runManualSyncForShowMock.mockImplementation(async () => ({
+      outcome: "applied",
+      showId: "show-uraw",
+      parseWarnings: [],
+    }));
+
+    // toggle ON from transform-active → writes {raw,false} → emits SET.
+    seedPerShowResolve();
+    useRawTxState.warnings = [RESOLVABLE_ROOM_WARNING];
+    useRawTxState.decisions = [];
+    const setCodes = await observeSuccessCodes(() =>
+      setUseRawDecisionAction("show-uraw", REF, true),
+    );
+    expect(setCodes).toContain("USE_RAW_DECISION_SET");
+    recordAdminOutcomeBehavior({
+      file: PERSHOW_FILE,
+      fn: "setUseRawDecisionAction",
+      code: "USE_RAW_DECISION_SET",
+    });
+
+    // toggle OFF from raw-active → writes {transform,false} → emits CLEARED.
+    seedPerShowResolve();
+    useRawTxState.decisions = [rawDecision(true)];
+    const clearedCodes = await observeSuccessCodes(() =>
+      setUseRawDecisionAction("show-uraw", REF, false),
+    );
+    expect(clearedCodes).toContain("USE_RAW_DECISION_CLEARED");
+    recordAdminOutcomeBehavior({
+      file: PERSHOW_FILE,
+      fn: "setUseRawDecisionAction",
+      code: "USE_RAW_DECISION_CLEARED",
+    });
+
+    // stale observedContentHash → validation error → no write → no emit.
+    seedPerShowResolve();
+    useRawTxState.decisions = [];
+    const staleCodes = await observeCodes(() =>
+      setUseRawDecisionAction("show-uraw", { ...REF, observedContentHash: "stale" }, true),
+    );
+    expect(staleCodes).not.toContain("USE_RAW_DECISION_SET");
+  });
+
+  test("setStagedUseRawDecisionAction emits SET (toggle on) + CLEARED (toggle off); nothing when stale", async () => {
+    // toggle ON from absent → upserts {raw,false} → emits SET.
+    seedStagedResolve();
+    useRawTxState.pendingRow = true;
+    useRawTxState.warnings = [RESOLVABLE_ROOM_WARNING];
+    useRawTxState.decisions = [];
+    const setCodes = await observeSuccessCodes(() =>
+      setStagedUseRawDecisionAction("wiz-uraw", REF, true),
+    );
+    expect(setCodes).toContain("USE_RAW_DECISION_SET");
+    recordAdminOutcomeBehavior({
+      file: STAGED_FILE,
+      fn: "setStagedUseRawDecisionAction",
+      code: "USE_RAW_DECISION_SET",
+    });
+
+    // toggle OFF from apply-pending ({raw,false}) → hard-delete → emits CLEARED.
+    seedStagedResolve();
+    useRawTxState.decisions = [rawDecision(false)];
+    const clearedCodes = await observeSuccessCodes(() =>
+      setStagedUseRawDecisionAction("wiz-uraw", REF, false),
+    );
+    expect(clearedCodes).toContain("USE_RAW_DECISION_CLEARED");
+    recordAdminOutcomeBehavior({
+      file: STAGED_FILE,
+      fn: "setStagedUseRawDecisionAction",
+      code: "USE_RAW_DECISION_CLEARED",
+    });
+
+    // stale observedContentHash → validation error → no write → no emit.
+    seedStagedResolve();
+    useRawTxState.decisions = [];
+    const staleCodes = await observeCodes(() =>
+      setStagedUseRawDecisionAction("wiz-uraw", { ...REF, observedContentHash: "stale" }, true),
+    );
+    expect(staleCodes).not.toContain("USE_RAW_DECISION_SET");
+  });
 });
 
 // ── Task 18: executable behavioral-coverage assertion (spec §4.2 / §9 / §10.5) ──
