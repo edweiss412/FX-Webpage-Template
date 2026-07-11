@@ -831,19 +831,31 @@ describe("runPhase1 routing and writes", () => {
         expect(result.mi11Items).toEqual(
           expect.arrayContaining([expect.objectContaining({ invariant: "MI-11" })]),
         );
-      } else if (expectedInvariant === "MI-6" || expectedInvariant === "MI-7") {
-        // Re-sync quality gate (audit finding #3): count-based MATERIAL shrinkage now HOLDS
-        // last-good instead of auto-applying. Full hold coverage lives in
-        // phase1.decision-rule.test.ts; here we only assert the routing changed.
+      } else if (
+        expectedInvariant === "MI-6" ||
+        expectedInvariant === "MI-7" ||
+        expectedInvariant === "MI-13" ||
+        expectedInvariant === "MI-14"
+      ) {
+        // Re-sync quality gate (audit finding #3) + BL-CREW-RENAME-SILENT-REPLACEMENT: count-based
+        // MATERIAL shrinkage AND removal-class rename candidates (MI-13/MI-14 pairs + orphan
+        // removes) on a PUBLISHED show now HOLD last-good instead of auto-applying. MI-12 (same
+        // canonical email) stays auto-apply — it identity-links instead. Full hold coverage lives
+        // in phase1.decision-rule.test.ts and the removal-class describe block below.
         expect(result.outcome).toBe("shrink_held");
         expect(tx.operations).toContain("updateShowShrinkHeld:file-1");
       } else {
-        // Every other invariant (MI-8..MI-14 except MI-11) is a notification → auto-applies → pass.
+        // Every other invariant (MI-8..MI-12 except MI-11) is a notification → auto-applies → pass.
         expect(result.outcome).toBe("pass");
       }
-      // MI-6/MI-7 now commit 'shrink_held'; the legacy pending_review status flip is still gone.
+      // Shrink-class invariants commit 'shrink_held'; the legacy pending_review status flip is gone.
       expect(tx.shows.get("file-1")?.lastSyncStatus).toBe(
-        expectedInvariant === "MI-6" || expectedInvariant === "MI-7" ? "shrink_held" : "ok",
+        expectedInvariant === "MI-6" ||
+          expectedInvariant === "MI-7" ||
+          expectedInvariant === "MI-13" ||
+          expectedInvariant === "MI-14"
+          ? "shrink_held"
+          : "ok",
       );
     },
   );
@@ -969,5 +981,131 @@ describe("runPhase1 routing and writes", () => {
 
     expect(tx.pendingSyncs.map((row) => row.driveFileId)).not.toContain("old-wizard-file");
     expect(tx.pendingSyncs.map((row) => row.driveFileId)).toContain("current-wizard-file");
+  });
+});
+
+describe("crew removal-class publish gate (BL-CREW-RENAME-SILENT-REPLACEMENT)", () => {
+  function publishedShow(tx: FakePhase1Tx, prior: ParseResult, published = true) {
+    tx.shows.set("file-1", {
+      id: "show-1",
+      driveFileId: "file-1",
+      lastSeenModifiedTime: "2026-05-01T00:00:00.000Z",
+      lastSyncStatus: "ok",
+      lastSyncError: null,
+      priorParseResult: prior,
+      priorParseWarningsRaw: null,
+      published,
+    });
+  }
+
+  test("net-zero MI-13-shape rename (email differs, similar name) holds", async () => {
+    const tx = new FakePhase1Tx();
+    publishedShow(tx, parseResult({ crewMembers: [crew("Jon Smith", { email: "jon@x.example" })] }));
+    const next = parseResult({ crewMembers: [crew("John Smith", { email: "john@x.example" })] });
+    const result = await runWith(tx, next);
+    expect(result.outcome).toBe("shrink_held");
+    if (result.outcome !== "shrink_held") throw new Error("unreachable");
+    expect(result.message).toContain('possible rename: "Jon Smith" → "John Smith"');
+  });
+
+  test("net-zero MI-14-shape rename (both emails null, similar name) holds", async () => {
+    const tx = new FakePhase1Tx();
+    publishedShow(tx, parseResult({ crewMembers: [crew("Jon Smith", { email: null })] }));
+    const next = parseResult({ crewMembers: [crew("John Smith", { email: null })] });
+    const result = await runWith(tx, next);
+    expect(result.outcome).toBe("shrink_held");
+    if (result.outcome !== "shrink_held") throw new Error("unreachable");
+    expect(result.message).toContain('possible rename: "Jon Smith" → "John Smith"');
+  });
+
+  test("net-zero MI-12 rename (same canonical email) does NOT hold", async () => {
+    const tx = new FakePhase1Tx();
+    publishedShow(tx, parseResult({ crewMembers: [crew("Jon Smith", { email: "jon@x.example" })] }));
+    const next = parseResult({ crewMembers: [crew("John Smith", { email: "JON@x.example" })] });
+    const result = await runWith(tx, next);
+    expect(result.outcome).not.toBe("shrink_held");
+  });
+
+  test("net-zero swap (dissimilar names, different emails) holds with crew-removed part", async () => {
+    const tx = new FakePhase1Tx();
+    publishedShow(
+      tx,
+      parseResult({ crewMembers: [crew("Sally Alpha", { email: "sally@x.example" })] }),
+    );
+    const next = parseResult({ crewMembers: [crew("Bob Zulu", { email: "bob@x.example" })] });
+    const result = await runWith(tx, next);
+    expect(result.outcome).toBe("shrink_held");
+    if (result.outcome !== "shrink_held") throw new Error("unreachable");
+    expect(result.message).toContain('crew removed: "Sally Alpha"');
+  });
+
+  test("single drop with no add still holds (regression pin for #359)", async () => {
+    const tx = new FakePhase1Tx();
+    const prior = parseResult({
+      crewMembers: [
+        crew("Alice", { email: "alice@x.example" }),
+        crew("Bob", { email: "bob@x.example" }),
+      ],
+    });
+    publishedShow(tx, prior);
+    const next = parseResult({ crewMembers: [crew("Alice", { email: "alice@x.example" })] });
+    const result = await runWith(tx, next);
+    expect(result.outcome).toBe("shrink_held");
+  });
+
+  test("unpublished show: same rename edit auto-applies (no hold)", async () => {
+    const tx = new FakePhase1Tx();
+    publishedShow(
+      tx,
+      parseResult({ crewMembers: [crew("Jon Smith", { email: "jon@x.example" })] }),
+      false,
+    );
+    const next = parseResult({ crewMembers: [crew("John Smith", { email: "john@x.example" })] });
+    const result = await runWith(tx, next);
+    expect(result.outcome).not.toBe("shrink_held");
+  });
+
+  test("onboarding_scan mode: same rename edit never holds", async () => {
+    const tx = new FakePhase1Tx();
+    publishedShow(tx, parseResult({ crewMembers: [crew("Jon Smith", { email: "jon@x.example" })] }));
+    const next = parseResult({ crewMembers: [crew("John Smith", { email: "john@x.example" })] });
+    const result = await runWith(tx, next, { mode: "onboarding_scan" });
+    expect(result.outcome).not.toBe("shrink_held");
+  });
+
+  test("acceptShrink + matching modifiedTime falls through; mismatch re-holds", async () => {
+    const prior = parseResult({ crewMembers: [crew("Jon Smith", { email: "jon@x.example" })] });
+    const next = parseResult({ crewMembers: [crew("John Smith", { email: "john@x.example" })] });
+
+    const txAccept = new FakePhase1Tx();
+    publishedShow(txAccept, prior);
+    const accepted = await runWith(txAccept, next, {
+      acceptShrink: true,
+      expectedModifiedTime: baseArgs.binding.modifiedTime,
+    });
+    expect(accepted.outcome).not.toBe("shrink_held");
+
+    const txStale = new FakePhase1Tx();
+    publishedShow(txStale, prior);
+    const stale = await runWith(txStale, next, {
+      acceptShrink: true,
+      expectedModifiedTime: "2020-01-01T00:00:00.000Z",
+    });
+    expect(stale.outcome).toBe("shrink_held");
+  });
+
+  test("message caps at 8 parts with +N more", async () => {
+    // 10 prior members, 1 survivor → 9 orphan removals + one MI-6 count part = 10 parts.
+    const priorCrew = Array.from({ length: 10 }, (_, i) =>
+      crew(`Member Q${i}`, { email: `q${i}@x.example` }),
+    );
+    const tx = new FakePhase1Tx();
+    publishedShow(tx, parseResult({ crewMembers: priorCrew }));
+    const next = parseResult({ crewMembers: [priorCrew[0]!] });
+    const result = await runWith(tx, next);
+    expect(result.outcome).toBe("shrink_held");
+    if (result.outcome !== "shrink_held") throw new Error("unreachable");
+    expect(result.message.split("; ").length).toBe(9); // 8 parts + "+N more"
+    expect(result.message).toMatch(/\+\d+ more$/);
   });
 });
