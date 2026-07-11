@@ -56,8 +56,8 @@ A page-level client **token context** seeded by the server-read token; every cre
 
 | Component | Kind | Responsibility |
 |---|---|---|
-| `page.tsx` | server | Reads `token` once (admin RPC). Wraps returned content in `<ShareTokenProvider key={show.id} initialToken={isShowEligibleForCrewLink ? token : null}>` (**keyed by show identity**, §3.2). Replaces inline chip (A) with `<ShareChip>`, inline crew-page anchor (B) with `<CrewPageLink>`. Renders `<CurrentShareLinkPanel>` (C) with structured props + server-built `resetSlot`. |
-| **`ShareTokenContext.tsx` (NEW)** | client | `ShareTokenProvider` owns `token` state + a local **rotate latch** (`rotatedRef`); server-refresh sync rejects stale/non-matching tokens after a local rotate and fails closed on null (§3.2); `useShareToken()` → `{ token, applyRotated }`. Show-scoped via the caller's `key={show.id}` (remounts on show change). |
+| `page.tsx` | server | Reads `token` once (admin RPC). Wraps returned content in `<ShareTokenProvider key={show.id} initialToken={isShowEligibleForCrewLink ? token : null} isEligible={isShowEligibleForCrewLink}>` (**keyed by show identity**, §3.2). Replaces inline chip (A) with `<ShareChip>`, inline crew-page anchor (B) with `<CrewPageLink>`. Renders `<CurrentShareLinkPanel>` (C) with structured props + server-built `resetSlot`. |
+| **`ShareTokenContext.tsx` (NEW)** | client | `ShareTokenProvider({ initialToken, isEligible, children })` owns `token` state + a local **rotate latch** (`rotatedRef`); server-refresh sync rejects stale/non-matching tokens after a local rotate, fails closed on null, and clears the latch when `!isEligible` (lifecycle rotations, §3.2); `useShareToken()` → `{ token, applyRotated }`. Show-scoped via the caller's `key={show.id}` (remounts on show change). |
 | **`ShareChip.tsx` (NEW)** | client | Header chip (A). Props `slug`, `isEligible`. Reads `token`; renders chip-or-null (visibility = `isEligible && token != null`). |
 | **`CrewPageLink.tsx` (NEW)** | client | "Open crew page" link (B). Props `slug`, `isEligible`. Reads `token`; renders `<a href>` or nothing. |
 | **`ShareLinkBody.tsx` (NEW)** | client | Card body (C). Reads `token`. Renders URL/Copy/email (token) OR unavailable notice (null); hosts `RotateShareTokenButton` (wired `onRotated`) + `resetSlot`. |
@@ -77,7 +77,11 @@ A page-level client **token context** seeded by the server-read token; every cre
 type Ctx = { token: string | null; applyRotated: (newToken: string) => void };
 const ShareTokenContext = createContext<Ctx | null>(null);
 
-export function ShareTokenProvider({ initialToken, children }: { initialToken: string | null; children: ReactNode }) {
+export function ShareTokenProvider({
+  initialToken,
+  isEligible,
+  children,
+}: { initialToken: string | null; isEligible: boolean; children: ReactNode }) {
   const [token, setToken] = useState(initialToken);
   // `rotatedRef` = the token this admin locally rotated to (null until they do).
   // Once armed, it is the ONLY token the server may echo; everything else is
@@ -90,8 +94,20 @@ export function ShareTokenProvider({ initialToken, children }: { initialToken: s
   }, []);
 
   useEffect(() => {
+    if (!isEligible) {
+      // Show is unpublished/archived. EVERY non-rotate-button token rotation
+      // funnels through here: archive_show and unarchive_show both rotate
+      // share_token AND set published=false (verified: migrations
+      // 20260601000000 :43-48 / 20260602000002 :37-41). Clearing the latch here
+      // means the freshly-rotated token is accepted when the admin re-publishes,
+      // instead of the armed latch rejecting it and re-exposing the dead token
+      // (Codex R10). Surfaces are hidden while ineligible regardless.
+      rotatedRef.current = null;
+      setToken(null);
+      return;
+    }
     if (initialToken === null) {
-      // Token-read fault (or ineligible) → server says "no token".
+      // Eligible but token-read fault → server says "no token".
       // FAIL CLOSED (match today's page.tsx: hide surfaces, never a dead URL)
       // UNLESS we hold a locally-minted token — that one is proven-current, so a
       // transient null read must not blank it (Codex R7-2 vs R9-2 reconciled).
@@ -105,7 +121,7 @@ export function ShareTokenProvider({ initialToken, children }: { initialToken: s
     // BEFORE any local rotate (ref null), track server truth normally.
     if (rotatedRef.current !== null && initialToken !== rotatedRef.current) return;
     setToken(initialToken);
-  }, [initialToken]);
+  }, [initialToken, isEligible]);
 
   return (
     <ShareTokenContext.Provider value={{ token, applyRotated }}>{children}</ShareTokenContext.Provider>
@@ -119,7 +135,9 @@ export function useShareToken(): Ctx {
 }
 ```
 
-**Same-tab stale-refresh defense (Codex R9-1) — why a local token latch, not a server epoch.** The admin page mounts MANY independent `router.refresh()` callers besides rotate — verified: `ReSyncButton` (`page.tsx:940,1049` → `components/admin/ReSyncButton.tsx:116`), `PublishedToggle`, `ArchiveShowButton`, `ParsePanel`, the pending-panel buttons, and nav badge hooks (`useBellBadge`, `useNeedsAttentionBadge`). Any of these can have a refresh **in flight that started with the OLD token and resolves after** the admin's rotate installed NEW. The latch defeats this without a server-read epoch: `applyRotated(NEW)` (fed the token from the atomic `rotateShareToken` result — no separate read, so the R7-1 non-atomic-pair problem does not arise) arms `rotatedRef=NEW`; thereafter the sync effect applies a server token **only if it equals NEW**, so a late `OLD` payload is rejected no matter the arrival order. A subsequent local rotate to `NEW2` re-arms the latch (`applyRotated` always wins). Since within one show the token changes ONLY via the admin's own rotate (external rotation is out of scope, §2), locking to the last locally-minted token loses nothing in scope.
+**Same-tab stale-refresh defense (Codex R9-1) — why a local token latch, not a server epoch.** The admin page mounts MANY independent `router.refresh()` callers besides rotate — verified: `ReSyncButton` (`page.tsx:940,1049` → `components/admin/ReSyncButton.tsx:116`), `PublishedToggle`, `ArchiveShowButton`, `ParsePanel`, the pending-panel buttons, and nav badge hooks (`useBellBadge`, `useNeedsAttentionBadge`). Any of these can have a refresh **in flight that started with the OLD token and resolves after** the admin's rotate installed NEW. The latch defeats this without a server-read epoch: `applyRotated(NEW)` (fed the token from the atomic `rotateShareToken` result — no separate read, so the R7-1 non-atomic-pair problem does not arise) arms `rotatedRef=NEW`; thereafter the sync effect applies a server token **only if it equals NEW**, so a late `OLD` payload is rejected no matter the arrival order. A subsequent local rotate to `NEW2` re-arms the latch (`applyRotated` always wins).
+
+**Latch cleared on ineligibility, so lifecycle rotations aren't rejected (Codex R10).** The token is NOT rotated *only* by the rotate button. `archive_show` and `unarchive_show` also mint a fresh `share_token` (verified: `supabase/migrations/20260601000000_b2_show_lifecycle.sql:43-48`, `20260602000002_b2_r8_unarchive_returns_transition_flag.sql:37-41`) — and both set `published=false`, so the show passes through the **ineligible** state (`rotate_show_share_token` is the only eligible→eligible token change, and it goes through `applyRotated`). The sync effect therefore **clears the latch whenever `!isEligible`**: a `rotate → archive → unarchive → publish` sequence (same `show.id`, no `key` remount) clears the armed latch on archive, so the freshly-rotated token read on re-publish is accepted rather than rejected. This does not reopen R9-1 (the stale-refresh window is the seconds right after a rotate, long closed before an admin runs a multi-step archive/unarchive/publish flow, and the surfaces are hidden throughout the ineligible span).
 
 **Fail-closed on token-read fault (Codex R9-2).** Today `page.tsx` renders `token=null` on a `loadShowShareToken` failure and hides all crew-link surfaces (no dead URL). The provider preserves that: a `null` seed with an un-armed latch → `setToken(null)` → surfaces hide (fail closed). The ONLY null we ignore is a transient one *after* a local rotate, where the retained token is the one we just minted and proved current — not a fail-open on an unverified cached token.
 
@@ -167,7 +185,7 @@ Render:
 
 ### 3.7 `page.tsx` changes
 
-- Wrap the returned JSX body in `<ShareTokenProvider key={show.id} initialToken={isShowEligibleForCrewLink ? token : null}> … </ShareTokenProvider>`. **`key={show.id}`** scopes provider state to show identity — navigating A→B remounts, so no cross-show token can leak (Codex R8, §3.2). **Eligibility-gate the seed** so an unpublished/archived show's token is NOT serialized into the client provider payload — matching today's behavior where no token-derived client surface mounts for ineligible shows (Codex R4-1; preserves "No new token exposure").
+- Wrap the returned JSX body in `<ShareTokenProvider key={show.id} initialToken={isShowEligibleForCrewLink ? token : null} isEligible={isShowEligibleForCrewLink}> … </ShareTokenProvider>`. **`key={show.id}`** scopes provider state to show identity — navigating A→B remounts, so no cross-show token can leak (Codex R8, §3.2). **Eligibility-gate the seed** (`isShowEligibleForCrewLink ? token : null`) so an unpublished/archived show's token is NOT serialized into the client provider payload — matching today's behavior where no token-derived client surface mounts for ineligible shows (Codex R4-1; preserves "No new token exposure"). **`isEligible`** is passed as its own (non-secret) boolean so the provider can clear the rotate latch on lifecycle-driven token rotations (Codex R10, §3.2).
 - Replace inline chip (555-577) with `<ShareChip slug={show.slug} isEligible={isShowEligibleForCrewLink}/>`.
 - Replace inline crew-page anchor (693-705) with `<CrewPageLink slug={show.slug} isEligible={isShowEligibleForCrewLink}/>`.
 - `<CurrentShareLinkPanel>` call (813-838): remove `token` + `actions`; add `isCrewLinkActive={isShowEligibleForCrewLink}` and `resetSlot={<PickerResetControl showId={show.id} crew={crew}/>}`.
@@ -182,6 +200,7 @@ Render:
 | `token` | server refresh delivers a token **≠ locally-rotated token** after a local rotate (stale in-flight refresh, e.g. ReSync started with OLD; or external rotation) | **rejected** by the latch — context keeps the rotated token; no revert to dead URL, any arrival order (Codex R9-1). |
 | `token` | server refresh delivers `null`, **no local rotate** (latch un-armed) | `setToken(null)` → surfaces hide — **fail closed**, matches today's `page.tsx` token-read-fault behavior (Codex R9-2). |
 | `token` | server refresh delivers `null`, **after a local rotate** (latch armed) | **ignored** — retains the just-minted, proven-current token; no blank on a transient read fault (Codex R7-2). |
+| lifecycle: local rotate → **archive → unarchive → publish** (same `show.id`; archive/unarchive rotate the token server-side) | `isEligible` goes false on archive | latch **cleared** on `!isEligible`; the freshly-rotated token read on re-publish is accepted (not rejected as stale) — no dead-token exposure (Codex R10). |
 | navigation to a **different show** (`show.id` changes), incl. B ineligible / B token-read null | provider `key={show.id}` changes | provider **remounts** → fresh seed from B's `initialToken` (or `null`); show A's token cannot survive into B (Codex R8). No wrong-token exposure. |
 | show ineligible (`!published \|\| archived`) | server has a token | provider seeded `initialToken=null` → token NOT serialized to client (parity with today; no exposure widening — Codex R4-1). A/B/C also gate on `isEligible`. |
 | `crewEmails` | `[]` | No email note/buttons (`.length` guards, unchanged). |
@@ -205,12 +224,13 @@ TDD per task (invariant 1). Anti-tautology per project rules.
 - Re-render with a new non-null `initialToken` **before any rotate** → consumers reflect it (server-refresh tracks truth when latch un-armed).
 - **Stale-refresh rejected after rotate (Codex R9-1):** seed `initialToken="OLD"`; `applyRotated("NEW")` → shows NEW; then re-render (same `key`) with `initialToken="OLD"` (a ReSync-style refresh that started before the rotate, resolving late) → consumers **still show `NEW`** (latch rejects OLD). Repeat with the stale re-render arriving *after* a `initialToken="NEW"` echo re-render → still NEW (order-independent). Failure mode caught: a blind `setToken(initialToken)` reverts to the dead OLD URL.
 - **Fail-closed on null, un-armed (Codex R9-2):** seed `initialToken="TOK"` (no rotate); re-render (same `key`) `initialToken={null}` (token-read fault) → consumers **hide / show unavailable** (NOT `TOK`). Failure mode caught: fail-open preserving an unverified cached token that another admin may have invalidated.
-- **Null-preserve after rotate (Codex R7-2):** seed `"OLD"`; `applyRotated("NEW")`; re-render `initialToken={null}` → **still `NEW`** (just-minted token preserved through a transient read fault).
+- **Null-preserve after rotate (Codex R7-2):** seed `"OLD"` (`isEligible`); `applyRotated("NEW")`; re-render `initialToken={null}`, still `isEligible` → **still `NEW`** (just-minted token preserved through a transient read fault).
+- **Latch cleared on ineligibility (Codex R10):** seed `"OLD"` (`isEligible=true`); `applyRotated("NEW")` → shows NEW; re-render `isEligible={false}, initialToken={null}` (archived — token rotated server-side, hidden) → surfaces hidden; then re-render `isEligible={true}, initialToken="T3"` (re-published with the lifecycle-rotated token) → consumers show **`T3`**, NOT the stale `NEW`. Failure mode caught: a latch that survives the ineligible span rejects `T3` and re-exposes the dead `NEW`.
 - **Show-identity scoping (Codex R8):** render under `<ShareTokenProvider key="showA" initialToken="TA">` (assert `TA`), then re-render `<ShareTokenProvider key="showB" initialToken={null}>` (navigated to ineligible/failed show B) → consumer shows **neither `TA`** nor a `/show/…/TA` URL; unavailable/hidden. Also `key="showB" initialToken="TB"` → `TB`, never `TA`. Also: `applyRotated` on show A must NOT leak its latch into show B (changed `key` remounts, resetting `rotatedRef`). (RTL re-render with a changed `key` remounts, exercising real navigation semantics.)
 - `useShareToken` outside provider throws.
 
 ### 6.2 New — `tests/components/shareTokenInstantUpdate.test.tsx` (the load-bearing test)
-- Render **one** `ShareTokenProvider` (seeded `initialToken="OLD"`) wrapping the **actual** A/B/C consumers **together** — `<ShareChip>`, `<CrewPageLink>`, AND `<ShareLinkBody>` (which hosts `RotateShareTokenButton`). No substitute/stand-in consumer permitted.
+- Render **one** `ShareTokenProvider` (seeded `initialToken="OLD"`, `isEligible={true}`) wrapping the **actual** A/B/C consumers **together** — `<ShareChip>`, `<CrewPageLink>`, AND `<ShareLinkBody>` (which hosts `RotateShareTokenButton`). No substitute/stand-in consumer permitted.
 - Assert every surface exposes `OLD`: `admin-current-share-link-url` code + its Copy-button target, the `admin-show-share-chip` `title`/`<code>`/copy target, and the `CrewPageLink` `href`.
 - Drive `RotateShareTokenButton` success with `rotateShareToken` mocked → `{ok:true,new_share_token:"NEW",new_epoch:6}` **and `next/navigation` `router.refresh` mocked to a no-op**.
 - Assert **`OLD` appears nowhere** — not in visible text, not in any `href`/`title`, not in any copy-button target URL (assert copy targets by mocking `navigator.clipboard.writeText` and clicking each Copy button, expecting the `NEW` URL) — and every surface now shows `NEW`. **Failure mode caught:** any surface left server-fed/refresh-only (the R1 chip / R5 open-link hazard) still exposes `OLD` with `refresh` stubbed. Expected values derived from the mock token, not hardcoded.
