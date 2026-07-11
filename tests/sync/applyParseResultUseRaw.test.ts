@@ -18,7 +18,6 @@ import { messageFor, plainCatalogText } from "@/lib/messages/lookup";
 // ---- Fixtures -----------------------------------------------------------------
 
 const ROOM_HASH = "room-content-hash-abc";
-const HOTEL_HASH = "hotel-content-hash-def";
 const DATE_HASH = "date-content-hash-ghi";
 const GONE_HASH = "no-current-warning-matches-this";
 

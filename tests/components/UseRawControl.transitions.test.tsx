@@ -6,7 +6,7 @@
  * `<UseRawControl>` is deliberately INSTANT: every state swap is a plain
  * conditional render with NO framer-motion wrapper (`AnimatePresence` / `motion.`).
  * The render state is a PURE function of the persisted `(preference, applied)` +
- * `inFlight`, so every transition is verified by driving `useRawControlState`
+ * `inFlight`, so every transition is verified by driving `deriveUseRawControlState`
  * through the target persisted shape and asserting the resulting state string.
  * Each transition below is "instant — no animation needed."
  */
@@ -15,7 +15,7 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { ParseWarning, UseRawResolution } from "@/lib/parser/types";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
-import { useRawControlState } from "@/components/admin/UseRawControl";
+import { deriveUseRawControlState } from "@/components/admin/UseRawControl";
 
 const HASH = "content-hash-1";
 const resolution: Extract<UseRawResolution, { resolvable: true }> = {
@@ -48,7 +48,7 @@ function mk(preference: "raw" | "transform", applied: boolean): UseRawDecision {
 }
 
 const stateFor = (d: UseRawDecision | undefined, inFlight = false) =>
-  useRawControlState(w, d, inFlight);
+  deriveUseRawControlState(w, d, inFlight);
 
 describe("UseRawControl transition audit — spec §8 matrix", () => {
   it("base persisted-state derivations (the matrix cells)", () => {
@@ -101,8 +101,10 @@ describe("UseRawControl transition audit — spec §8 matrix", () => {
   it("the deriver is a pure function (same inputs → same output across calls)", () => {
     // Determinism proof — the basis for calling every transition "instant, no
     // animation needed": there is no hidden state machine to animate between.
-    expect(useRawControlState(w, RAW_ACTIVE, false)).toBe(useRawControlState(w, RAW_ACTIVE, false));
-    expect(useRawControlState(w, NONE, false)).toBe(useRawControlState(w, NONE, false));
+    expect(deriveUseRawControlState(w, RAW_ACTIVE, false)).toBe(
+      deriveUseRawControlState(w, RAW_ACTIVE, false),
+    );
+    expect(deriveUseRawControlState(w, NONE, false)).toBe(deriveUseRawControlState(w, NONE, false));
   });
 });
 

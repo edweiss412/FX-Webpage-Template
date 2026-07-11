@@ -5,7 +5,7 @@ import {
   type UseRawDecision,
 } from "@/lib/sync/useRawOverlay";
 import { buildParseResult } from "../components/admin/wizard/_step3ReviewFixture";
-import type { ParseResult, ParseWarning, RoomRow, HotelReservationRow } from "@/lib/parser/types";
+import type { ParseWarning, RoomRow, HotelReservationRow } from "@/lib/parser/types";
 
 // Task 3 (spec §5, §7): the PURE post-parse overlay. Matches decisions to current
 // warnings by (code, contentHash) — NEVER by target — applies the raw replacement
@@ -44,7 +44,11 @@ function hotelRow(names: string[], confirmation_no: string | null): HotelReserva
   };
 }
 
-function roomWarning(hash: string, parsed: { name: string; dimensions: string | null; floor: string | null }, rawName: string): ParseWarning {
+function roomWarning(
+  hash: string,
+  parsed: { name: string; dimensions: string | null; floor: string | null },
+  rawName: string,
+): ParseWarning {
   return {
     severity: "warn",
     code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
@@ -59,7 +63,12 @@ function roomWarning(hash: string, parsed: { name: string; dimensions: string | 
   };
 }
 
-function hotelWarning(hash: string, index: number, parsedNames: string[], rawCell: string): ParseWarning {
+function hotelWarning(
+  hash: string,
+  index: number,
+  parsedNames: string[],
+  rawCell: string,
+): ParseWarning {
   return {
     severity: "warn",
     code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
@@ -85,11 +94,21 @@ function dateWarning(hash: string): ParseWarning {
       contentHash: hash,
       parsed: {
         kind: "dates",
-        dates: { travelIn: "2026-10-03", set: null, showDays: ["2026-01-04", "2026-11-03"], travelOut: null },
+        dates: {
+          travelIn: "2026-10-03",
+          set: null,
+          showDays: ["2026-01-04", "2026-11-03"],
+          travelOut: null,
+        },
       },
       replacement: {
         kind: "dates",
-        dmyDates: { travelIn: "2026-03-10", set: null, showDays: ["2026-03-11", "2026-04-01"], travelOut: null },
+        dmyDates: {
+          travelIn: "2026-03-10",
+          set: null,
+          showDays: ["2026-03-11", "2026-04-01"],
+          travelOut: null,
+        },
       },
     },
   };
@@ -113,7 +132,13 @@ describe("applyUseRawDecisions — match by content hash, not target", () => {
     const room = roomRow("LASALLE", "50x40", "2");
     const pr = buildParseResult({
       rooms: [room],
-      warnings: [roomWarning(HASH_ROOM, { name: "LASALLE", dimensions: "50x40", floor: "2" }, "LASALLE 50x40 30x20")],
+      warnings: [
+        roomWarning(
+          HASH_ROOM,
+          { name: "LASALLE", dimensions: "50x40", floor: "2" },
+          "LASALLE 50x40 30x20",
+        ),
+      ],
     });
     const out = applyUseRawDecisions(pr, [decision({})]);
     // Anti-tautology: assert against the warning's replacement, not the room fixture
@@ -130,7 +155,9 @@ describe("applyUseRawDecisions — match by content hash, not target", () => {
     const room = roomRow("LASALLE", "50x40", "2");
     const pr = buildParseResult({
       rooms: [room],
-      warnings: [roomWarning("some-other-hash", { name: "LASALLE", dimensions: "50x40", floor: "2" }, "RAW")],
+      warnings: [
+        roomWarning("some-other-hash", { name: "LASALLE", dimensions: "50x40", floor: "2" }, "RAW"),
+      ],
     });
     const out = applyUseRawDecisions(pr, [decision({ contentHash: HASH_ROOM })]);
     expect(out.result.rooms[0]!.name).toBe("LASALLE"); // untouched
@@ -146,7 +173,11 @@ describe("applyUseRawDecisions — match by content hash, not target", () => {
       warnings: [hotelWarning(HASH_HOTEL, 0, ["John Smith", "Jane Doe"], "John Smith Jane Doe")],
     });
     const out = applyUseRawDecisions(pr, [
-      decision({ code: "HOTEL_GUEST_SPLIT_AMBIGUOUS", contentHash: HASH_HOTEL, target: { kind: "hotels", index: 0 } }),
+      decision({
+        code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+        contentHash: HASH_HOTEL,
+        target: { kind: "hotels", index: 0 },
+      }),
     ]);
     expect(out.result.hotelReservations[0]!.names).toEqual(["John Smith Jane Doe"]);
     expect(out.result.hotelReservations[0]!.confirmation_no).toBeNull();
@@ -165,7 +196,11 @@ describe("applyUseRawDecisions — match by content hash, not target", () => {
     pr.show.dates.showDays = ["2026-01-04", "2026-11-03"];
     pr.show.dates.loadIn = "8:00 AM";
     const out = applyUseRawDecisions(pr, [
-      decision({ code: "DATE_ORDER_SUGGESTS_DMY", contentHash: HASH_DATE, target: { kind: "dates" } }),
+      decision({
+        code: "DATE_ORDER_SUGGESTS_DMY",
+        contentHash: HASH_DATE,
+        target: { kind: "dates" },
+      }),
     ]);
     expect(out.result.show.dates.travelIn).toBe("2026-03-10");
     expect(out.result.show.dates.showDays).toEqual(["2026-03-11", "2026-04-01"]);
@@ -199,7 +234,9 @@ describe("applyUseRawDecisions — reverted partition", () => {
     const room = roomRow("LASALLE", "50x40", "2");
     const pr = buildParseResult({
       rooms: [room],
-      warnings: [roomWarning(HASH_ROOM, { name: "LASALLE", dimensions: "50x40", floor: "2" }, "RAW")],
+      warnings: [
+        roomWarning(HASH_ROOM, { name: "LASALLE", dimensions: "50x40", floor: "2" }, "RAW"),
+      ],
     });
     const out = applyUseRawDecisions(pr, [decision({ preference: "transform" })]);
     expect(out.result.rooms[0]!.name).toBe("LASALLE"); // transform value kept
@@ -211,7 +248,9 @@ describe("applyUseRawDecisions — reverted partition", () => {
 
   it("preference:transform matching no warning → also reverted (silently dropped)", () => {
     const pr = buildParseResult({ rooms: [roomRow("A", null, null)], warnings: [] });
-    const out = applyUseRawDecisions(pr, [decision({ preference: "transform", contentHash: "ghost" })]);
+    const out = applyUseRawDecisions(pr, [
+      decision({ preference: "transform", contentHash: "ghost" }),
+    ]);
     expect(out.reverted).toHaveLength(1);
     expect(out.kept).toHaveLength(0);
     expect(out.invalidated).toHaveLength(0);
@@ -223,7 +262,9 @@ describe("applyUseRawDecisions — purity", () => {
     const room = roomRow("LASALLE", "50x40", "2");
     const pr = buildParseResult({
       rooms: [room],
-      warnings: [roomWarning(HASH_ROOM, { name: "LASALLE", dimensions: "50x40", floor: "2" }, "RAW")],
+      warnings: [
+        roomWarning(HASH_ROOM, { name: "LASALLE", dimensions: "50x40", floor: "2" }, "RAW"),
+      ],
     });
     applyUseRawDecisions(pr, [decision({})]);
     expect(pr.rooms[0]!.name).toBe("LASALLE"); // input unchanged

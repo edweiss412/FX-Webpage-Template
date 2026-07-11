@@ -1,9 +1,5 @@
 import { describe, it, expect, expectTypeOf } from "vitest";
-import type {
-  ParseWarning,
-  UseRawResolution,
-  DateOrderFields,
-} from "@/lib/parser/types";
+import type { ParseWarning, UseRawResolution, DateOrderFields } from "@/lib/parser/types";
 
 // Task 1 (spec §6): ParseWarning gains an optional `resolution` payload carrying
 // the parsed transform value, the raw replacement, and the content hash used to
@@ -22,7 +18,12 @@ describe("UseRawResolution / DateOrderFields type surface", () => {
       resolvable: true,
       contentHash: "deadbeef",
       parsed: { kind: "rooms", name: "Grand Ballroom", dimensions: "40x60", floor: "2" },
-      replacement: { kind: "rooms", name: "Grand Ballroom 40x60 Fl 2", dimensions: null, floor: null },
+      replacement: {
+        kind: "rooms",
+        name: "Grand Ballroom 40x60 Fl 2",
+        dimensions: null,
+        floor: null,
+      },
     };
     expect(res.resolvable).toBe(true);
     if (res.resolvable) {

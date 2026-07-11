@@ -50,7 +50,7 @@ const IN_SCOPE = new Set([
  * exported + free-standing so the transition-audit test can drive every cell
  * without rendering. `inFlight` overlays the optimistic `pending` state.
  */
-export function useRawControlState(
+export function deriveUseRawControlState(
   warning: Pick<ParseWarning, "code" | "resolution">,
   decision: UseRawDecision | undefined,
   inFlight: boolean,
@@ -136,7 +136,7 @@ export function UseRawControl({
   // discriminant, never a code string, and this copy is static.
   const [failed, setFailed] = useState(false);
 
-  const state = useRawControlState(warning, decision, isPending);
+  const state = deriveUseRawControlState(warning, decision, isPending);
   if (state === null) return null;
 
   const fire = (useRaw: boolean) => {

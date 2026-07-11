@@ -22,7 +22,7 @@ import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
  */
 
 /** Human phrase for a decision's target — used for BOTH the summary param and `entity_ref`. */
-export function useRawTargetLabel(d: UseRawDecision): string {
+export function formatUseRawTarget(d: UseRawDecision): string {
   if (d.target.kind === "rooms") {
     return d.target.name ? `the room "${d.target.name}"` : "a room header";
   }
@@ -42,7 +42,7 @@ export async function writeUseRawStaleChanges(args: {
   invalidated: UseRawDecision[];
 }): Promise<void> {
   for (const decision of args.invalidated) {
-    const label = useRawTargetLabel(decision);
+    const label = formatUseRawTarget(decision);
     const summary = plainCatalogText(messageFor("USE_RAW_DECISION_STALE").dougFacing ?? "", {
       target: label,
     });

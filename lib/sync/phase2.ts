@@ -1,7 +1,7 @@
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { deriveSlug } from "@/lib/parser/slug";
-import type { AgendaEntry, ParseResult, RunOfShow, TriggeredReviewItem } from "@/lib/parser/types";
+import type { ParseResult, RunOfShow, TriggeredReviewItem } from "@/lib/parser/types";
 import { writeAutoApplyChanges } from "@/lib/sync/changeLog/writeAutoApplyChanges";
 import { writeUseRawStaleChanges } from "@/lib/sync/changeLog/writeUseRawStaleChanges";
 import { applyUseRawDecisions, type UseRawDecision } from "@/lib/sync/useRawOverlay";

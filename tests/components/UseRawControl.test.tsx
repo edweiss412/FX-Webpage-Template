@@ -5,7 +5,7 @@
  * The shared presentational "use the sheet's raw value" control (spec
  * 2026-07-10-structural-transform-use-raw §8). Two concerns:
  *
- *   1. `useRawControlState` — the PURE guard-precedence + persisted-state deriver.
+ *   1. `deriveUseRawControlState` — the PURE guard-precedence + persisted-state deriver.
  *      Asserts all 7 states + null for out-of-scope, and the exact §8 precedence
  *      (out-of-scope → null; resolution absent → legacy-unavailable; resolvable:false
  *      → disabled; resolvable + no decision → transform-active; the four decision
@@ -20,7 +20,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import type { ParseWarning, UseRawResolution } from "@/lib/parser/types";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
-import { UseRawControl, useRawControlState } from "@/components/admin/UseRawControl";
+import { UseRawControl, deriveUseRawControlState } from "@/components/admin/UseRawControl";
 
 afterEach(() => cleanup());
 
@@ -63,12 +63,12 @@ function decision(over: Partial<UseRawDecision> = {}): UseRawDecision {
 }
 
 // ── 1. state derivation (guard precedence + 4 decision shapes + pending) ────
-describe("useRawControlState — guard precedence + all 7 states + null", () => {
+describe("deriveUseRawControlState — guard precedence + all 7 states + null", () => {
   it("(1) out-of-scope code → null", () => {
-    expect(useRawControlState({ code: "UNKNOWN_FIELD" }, undefined, false)).toBe(null);
+    expect(deriveUseRawControlState({ code: "UNKNOWN_FIELD" }, undefined, false)).toBe(null);
     // Even with a decision + inFlight, an out-of-scope code is null (the guard is first).
     expect(
-      useRawControlState(
+      deriveUseRawControlState(
         { code: "SCHEDULE_TIME_UNPARSED", resolution: roomsResolution },
         decision(),
         true,
@@ -77,19 +77,19 @@ describe("useRawControlState — guard precedence + all 7 states + null", () => 
   });
 
   it("(2) in-scope + resolution absent → legacy-unavailable", () => {
-    expect(useRawControlState(legacyWarning(), undefined, false)).toBe("legacy-unavailable");
+    expect(deriveUseRawControlState(legacyWarning(), undefined, false)).toBe("legacy-unavailable");
   });
 
   it("(3) resolvable:false → disabled", () => {
     expect(
-      useRawControlState(
+      deriveUseRawControlState(
         warning({ resolution: { resolvable: false, reason: "empty-raw" } }),
         undefined,
         false,
       ),
     ).toBe("disabled");
     expect(
-      useRawControlState(
+      deriveUseRawControlState(
         warning({ resolution: { resolvable: false, reason: "invalid-dmy" } }),
         undefined,
         false,
@@ -98,24 +98,28 @@ describe("useRawControlState — guard precedence + all 7 states + null", () => 
   });
 
   it("(4) resolvable + no decision → transform-active", () => {
-    expect(useRawControlState(warning(), undefined, false)).toBe("transform-active");
+    expect(deriveUseRawControlState(warning(), undefined, false)).toBe("transform-active");
   });
 
   it("{raw, applied:false} → apply-pending", () => {
     expect(
-      useRawControlState(warning(), decision({ preference: "raw", applied: false }), false),
+      deriveUseRawControlState(warning(), decision({ preference: "raw", applied: false }), false),
     ).toBe("apply-pending");
   });
 
   it("{raw, applied:true} → raw-active", () => {
     expect(
-      useRawControlState(warning(), decision({ preference: "raw", applied: true }), false),
+      deriveUseRawControlState(warning(), decision({ preference: "raw", applied: true }), false),
     ).toBe("raw-active");
   });
 
   it("{transform, applied:false} → clear-pending", () => {
     expect(
-      useRawControlState(warning(), decision({ preference: "transform", applied: false }), false),
+      deriveUseRawControlState(
+        warning(),
+        decision({ preference: "transform", applied: false }),
+        false,
+      ),
     ).toBe("clear-pending");
   });
 
@@ -126,7 +130,7 @@ describe("useRawControlState — guard precedence + all 7 states + null", () => 
       decision({ preference: "raw", applied: true }),
       decision({ preference: "transform", applied: false }),
     ]) {
-      expect(useRawControlState(warning(), d, true)).toBe("pending");
+      expect(deriveUseRawControlState(warning(), d, true)).toBe("pending");
     }
   });
 });

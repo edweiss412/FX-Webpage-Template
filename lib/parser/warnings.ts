@@ -233,7 +233,11 @@ export function emitHotelGuestSplitAmbiguity(
       : {
           resolvable: true,
           contentHash: contentHashForRawSnippet(params.rawCell),
-          parsed: { kind: "hotels", names: params.parsedNames, confirmationNo: params.confirmationNo },
+          parsed: {
+            kind: "hotels",
+            names: params.parsedNames,
+            confirmationNo: params.confirmationNo,
+          },
           replacement: { kind: "hotels", names: [rawOneLine], confirmationNo: null },
         };
   agg.warnings.push({

@@ -568,12 +568,20 @@ export function tokensFromCell(kind: "prefix" | "multi", cell: string): DateToke
  * invalid-DMY block — but the guard keeps the resolution honest if the builder is
  * ever reached with such a token.
  */
-function buildDateResolution(tokens: DateToken[], slots: DateSlotTokens | undefined): UseRawResolution {
+function buildDateResolution(
+  tokens: DateToken[],
+  slots: DateSlotTokens | undefined,
+): UseRawResolution {
   const contentHash = contentHashForDateTokens(tokens.map((t) => t.raw));
   if (tokens.some((t) => t.dmyIso === null)) {
     return { resolvable: false, reason: "invalid-dmy" };
   }
-  const s: DateSlotTokens = slots ?? { travelIn: null, set: null, showDays: tokens, travelOut: null };
+  const s: DateSlotTokens = slots ?? {
+    travelIn: null,
+    set: null,
+    showDays: tokens,
+    travelOut: null,
+  };
   const scalar = (t: DateToken | null, which: "mdyIso" | "dmyIso") => (t ? t[which] : null);
   const showDaysBy = (which: "mdyIso" | "dmyIso") =>
     s.showDays
