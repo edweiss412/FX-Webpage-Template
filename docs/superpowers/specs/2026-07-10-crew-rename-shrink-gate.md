@@ -85,7 +85,7 @@ Each pair maps to `{ removedName: item.removed_name, addedName: item.added_name 
 Notes:
 
 - `notableItems` is only computed for `pass` / `auto_apply_with_holds` outcomes (`runScheduledCronSync.ts:3329-3333`) — exactly the outcomes that reach apply. A held sync returns `shrink_held` before Phase 2, so no link set exists for it (correct).
-- MI-12 pairs are unique per email: duplicate crew emails in a parse are a hard-fail before MI-6..14 evaluate (`invariants.ts:196-231`), and the pairing loop marks `pairedAdded` (`invariants.ts:640-648`).
+- **All pairing is one-to-one by construction.** MI-12: duplicate crew emails hard-fail before MI-6..14 evaluate (`invariants.ts:196-231`) and the loop skips already-paired additions (`invariants.ts:634,647`). MI-13/MI-14: the greedy Levenshtein loops iterate removed names (each emits ≤1 pair) and skip already-claimed additions (`invariants.ts:687,705` / `invariants.ts:764,781`); the MI-14 candidate sets exclude anything MI-12/MI-13 already paired (`invariants.ts:748`). So no two pairs can share a `removed_name` or an `added_name`. Defensive belt anyway (§3.4): the apply loop tracks consumed names and skips any pair whose removed or added name was already consumed — first pair wins, later duplicates degrade to delete+insert.
 - An unpublished show never holds on MI-13/14, and its admin UI never offers a shrink confirm, so `acceptShrink` is absent → heuristic pairs stay delete+insert there. If an admin nonetheless sends `acceptShrink` on a manual sync, linking is acceptable (explicit admin action).
 - First-seen / onboarding_scan: `notableItems` empty → no linking.
 
@@ -98,6 +98,7 @@ For each pair, **skip** unless all of:
 - `removedName ∈ args.snapshot.previousCrewNames` (row actually exists to rename),
 - `addedName ∈ nextCrewNames` (post-hold-plan crew list, `applyParseResult.ts:121` — a hold-suppressed addition must not be linked),
 - neither name ∈ `heldNames` and `removedName ∉ deleteProtectedNames` (`applyParseResult.ts:103-118` — never mutate a hold-protected row behind its hold),
+- neither name already consumed by an earlier pair in this apply (defensive one-to-one belt; pairing is one-to-one by construction per §3.3, so this only fires on malformed input — first pair wins, the duplicate degrades to delete+insert),
 
 then call the new tx method:
 
@@ -132,7 +133,7 @@ The existing `crew_renamed` undo is a true reversal of the delete+insert model: 
 - **The picker reference is client-side, not an FK.** The cookie stores the UUID (`cookieEnvelope.ts:9`); undo's reinsert restores that exact UUID plus the OAuth claim, so the cookie resolves identically before and after. The transient in-tx delete is never visible to readers.
 - For a **linked** rename the undo guards behave correctly as-is: the email-collision guard excludes the successor by name (`undo_change_rpc.sql:186-198`), and the prior-name row cannot exist (the rename moved it), so the name-collision guard can't fire spuriously.
 
-Therefore `undo_change` ships **unchanged**. The linked shape is pinned behaviorally instead (test 13): undoing a linked-shape `crew_renamed` row restores the prior name on the **same** `crew_members.id`, proving the undo round-trip preserves the identity this feature preserves on apply. If a future migration ever adds an FK to `crew_members(id)`, that migration owns revisiting the undo delete (noted in §8).
+Therefore `undo_change` ships **unchanged**. The linked shape is pinned behaviorally instead (test 15): undoing a linked-shape `crew_renamed` row restores the prior name on the **same** `crew_members.id`, proving the undo round-trip preserves the identity this feature preserves on apply. If a future migration ever adds an FK to `crew_members(id)`, that migration owns revisiting the undo delete (noted in §8).
 
 ### 3.6 What does NOT change
 
@@ -195,13 +196,13 @@ Apply — `tests/sync/` applyParseResult coverage:
 
 DB — `tests/sync/resyncShrinkHold.db.test.ts` extension (real Postgres; loopback-guarded like siblings), driving the real sync entry point (same harness the file already uses) — these are the seam-threading proofs, not unit re-checks:
 
-15. **MI-12 end-to-end auto-link:** existing published show synced once; re-sync with the sheet renamed (same email) → sync applies with NO shrink hold AND the crew row keeps its original `crew_members.id` with the new name. (Failure mode caught: an implementation that computes the gate correctly but omits MI-12 pairs from the orchestrator's `identityLinkRenames` mapping — tests 2 and 9 alone would still pass while picker continuity silently stays broken.)
-16. **MI-13 end-to-end hold → confirm → link:** re-sync with name+email both changed (Levenshtein-close) → `shrink_held`; re-run with `acceptShrink` + held `modifiedTime` → applies, row keeps original id, new name+email. (Proves the accepted-run threading, not just the phase1 fall-through.)
+13. **MI-12 end-to-end auto-link:** existing published show synced once; re-sync with the sheet renamed (same email) → sync applies with NO shrink hold AND the crew row keeps its original `crew_members.id` with the new name. (Failure mode caught: an implementation that computes the gate correctly but omits MI-12 pairs from the orchestrator's `identityLinkRenames` mapping — tests 2 and 9 alone would still pass while picker continuity silently stays broken.)
+14. **MI-13 end-to-end hold → confirm → link:** re-sync with name+email both changed (Levenshtein-close) → `shrink_held`; re-run with `acceptShrink` + held `modifiedTime` → applies, row keeps original id, new name+email. (Proves the accepted-run threading, not just the phase1 fall-through.)
 
 Undo (real Postgres, alongside existing undo DB tests; `undo_change` source unchanged — these pin the linked shape against the existing function):
 
-13. **Linked-shape undo round-trip:** seed crew row (capture id), rename it in place to the new name (simulating a linked apply), write an applied `crew_renamed` change row whose `before_image.id` equals the live row's id, call `undo_change` → prior name/email restored **on the same `crew_members.id`**, `claimed_via_oauth_at` restored, held-present override + undone flip written as today. (Failure mode caught: any future undo edit that loses the identity this feature preserves on apply.)
-14. **Replaced-shape undo regression:** historical shape (`before_image.id` differs from successor id) → successor gone, prior id restored; reject guards (`UNDO_EMAIL_CLAIMED` / `UNDO_SUPERSEDED`) still zero-mutation. (Pins that the linked-shape analysis changed nothing for the existing path.)
+15. **Linked-shape undo round-trip:** seed crew row (capture id), rename it in place to the new name (simulating a linked apply), write an applied `crew_renamed` change row whose `before_image.id` equals the live row's id, call `undo_change` → prior name/email restored **on the same `crew_members.id`**, `claimed_via_oauth_at` restored, held-present override + undone flip written as today. (Failure mode caught: any future undo edit that loses the identity this feature preserves on apply.)
+16. **Replaced-shape undo regression:** historical shape (`before_image.id` differs from successor id) → successor gone, prior id restored; reject guards (`UNDO_EMAIL_CLAIMED` / `UNDO_SUPERSEDED`) still zero-mutation. (Pins that the linked-shape analysis changed nothing for the existing path.)
 
 Anti-tautology notes: expected names/ids derive from fixtures; id-preservation asserts on `crew_members.id` equality across the apply, which cannot pass under delete+insert; hold assertions check the `outcome` discriminant, not message substrings alone (message asserted separately).
 
