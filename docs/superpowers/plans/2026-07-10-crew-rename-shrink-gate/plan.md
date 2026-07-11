@@ -163,7 +163,7 @@ Also add the onboarding pin (spec test 6):
   });
 ```
 
-(Belt over the real path's blinded `readShowForPhase1`: even with a show row visible, the explicit `mode` gate must refuse the hold. No orchestrator-level onboarding link pin is needed — `notableItems` is only computed for `pass`/`auto_apply_with_holds` outcomes (`runScheduledCronSync.ts:3329-3333`) and onboarding stages, never applies.)
+(Belt over the real path's blinded `readShowForPhase1`: even with a show row visible, the explicit `mode` gate must refuse the hold. The orchestrator-level onboarding NO-LINK pin lives in Task 3.)
 
 - [ ] **Step 2: Run** `pnpm exec vitest run tests/sync/phase1.test.ts` — new tests FAIL (net-zero cases currently pass through; cap test gets uncapped message).
 
