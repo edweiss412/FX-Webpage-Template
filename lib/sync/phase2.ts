@@ -11,6 +11,7 @@ import {
 } from "@/lib/sync/applyParseResult";
 import { writeMi11Holds, type Mi11Item, type LiveCrewRow } from "@/lib/sync/holds/writeMi11Holds";
 import type { HoldPort } from "@/lib/sync/holds/holdPort";
+import type { IdentityLinkRename } from "@/lib/sync/identityLinkRenames";
 import type { Phase1Binding } from "@/lib/sync/phase1";
 import type { ResolvedSyncMode } from "@/lib/sync/perFileProcessor";
 import type { SnapshotAssetsResult } from "@/lib/sync/snapshotAssets";
@@ -115,6 +116,12 @@ export type Phase2Args = {
    * do not yet supply bytes; Task 6 persists these via the shows UPDATE.
    */
   sourceAnchors?: Record<string, SourceAnchor>;
+  /**
+   * BL-CREW-RENAME-SILENT-REPLACEMENT (spec §3.3): classified rename pairs the apply must land
+   * as identity-preserving in-place renames (same crew_members.id). Computed by the orchestrator
+   * via computeIdentityLinkRenames (MI-12 always; MI-13/14 only on the version-bound accept).
+   */
+  identityLinkRenames?: IdentityLinkRename[];
 };
 
 export type RoleFlagsNotice = {
@@ -374,6 +381,10 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
       // Carry the prepare-stage region anchors so applyParseResult can re-anchor the
       // apply-only AGENDA_DAY_EMPTIED warning it appends (deep link to the schedule tab).
       ...(args.sourceAnchors !== undefined ? { sourceAnchors: args.sourceAnchors } : {}),
+      // Identity-link renames (spec §3.3) — pairs the apply lands as in-place renames.
+      ...(args.identityLinkRenames !== undefined
+        ? { identityLinkRenames: args.identityLinkRenames }
+        : {}),
     }),
   );
 
