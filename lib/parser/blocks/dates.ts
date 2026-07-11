@@ -26,12 +26,13 @@ import {
   LONGFORM_DMY_RE,
 } from "./_helpers";
 import { matchesSectionHeader } from "./_sectionHeaderMatch";
-import type { ShowRow } from "@/lib/parser/types";
+import type { ShowRow, UseRawResolution, DateOrderFields } from "@/lib/parser/types";
 import {
   type ParseAggregator,
   emitEmptySection,
   emitDateOrderSuggestsDmy,
 } from "@/lib/parser/warnings";
+import { contentHashForDateTokens } from "@/lib/parser/useRawContentHash";
 
 export const SECTION_HEADER_TOKENS = ["DATES"] as const;
 
@@ -149,6 +150,8 @@ function parseV1Dates(
   // showDays.sort() below, so the sequence check sees true row order. TRAVEL/SET
   // are prefix (normalizeDate) parses; SHOW is a multi (extractAllDates) parse.
   const dateRows: Array<{ kind: "prefix" | "multi"; cell: string }> = [];
+  // §6 — slot-tagged tokens (parallel to dateRows) for the "use raw" resolution.
+  const slotTokens: DateSlotTokens = { travelIn: null, set: null, showDays: [], travelOut: null };
 
   for (const row of rows) {
     if (!inDatesBlock) {
@@ -176,16 +179,21 @@ function parseV1Dates(
       travelCount++;
       dateRows.push({ kind: "prefix", cell: rawValue });
       const iso = normalizeDate(rawValue);
+      const tok = tokensFromCell("prefix", rawValue)[0] ?? null;
       if (travelCount === 1) {
         result.travelIn = iso;
+        slotTokens.travelIn = tok;
       } else {
         result.travelOut = iso;
+        slotTokens.travelOut = tok;
       }
     } else if (labelU === "SET") {
       dateRows.push({ kind: "prefix", cell: rawValue });
       result.set = normalizeDate(rawValue);
+      slotTokens.set = tokensFromCell("prefix", rawValue)[0] ?? null;
     } else if (/^SHOW/.test(labelU)) {
       dateRows.push({ kind: "multi", cell: rawValue });
+      slotTokens.showDays.push(...tokensFromCell("multi", rawValue));
       const allDates = extractAllDates(rawValue);
       for (const iso of allDates) {
         if (!result.showDays.includes(iso)) {
@@ -196,7 +204,7 @@ function parseV1Dates(
   }
 
   // §4.3 — run the block-level order check on encounter-order tokens BEFORE sort.
-  checkDateOrder(collectDateTokens(dateRows), agg);
+  checkDateOrder(collectDateTokens(dateRows), agg, slotTokens);
 
   result.showDays.sort();
   return result;
@@ -216,6 +224,12 @@ function parseV2V4Dates(
   // date row is a prefix (normalizeDate) parse — no multi-token extractAllDates path
   // exists here — so every collected cell is `kind: "prefix"`.
   const dateRows: Array<{ kind: "prefix" | "multi"; cell: string }> = [];
+  // §6 — slot-tagged tokens (parallel to result/dateRows) for the "use raw"
+  // resolution. `plainTravelTokens` mirrors `plainTravelRows` through the same
+  // first=in/last=out disambiguation below.
+  const slotTokens: DateSlotTokens = { travelIn: null, set: null, showDays: [], travelOut: null };
+  const plainTravelTokens: Array<DateToken | null> = [];
+  const firstTok = (raw: string) => tokensFromCell("prefix", raw)[0] ?? null;
 
   for (const row of rows) {
     if (!inDatesBlock) {
@@ -247,20 +261,28 @@ function parseV2V4Dates(
     switch (kind) {
       case "travel_in":
         result.travelIn = presence(rawDate) ? normalizeDate(rawDate) : null;
+        slotTokens.travelIn = presence(rawDate) ? firstTok(rawDate) : null;
         break;
 
       case "travel_out":
         if (label.toUpperCase() === "TRAVEL") {
           plainTravelRows.push(presence(rawDate) ? normalizeDate(rawDate) : null);
+          plainTravelTokens.push(presence(rawDate) ? firstTok(rawDate) : null);
         } else {
           result.travelOut = presence(rawDate) ? normalizeDate(rawDate) : null;
+          slotTokens.travelOut = presence(rawDate) ? firstTok(rawDate) : null;
         }
         break;
 
       case "travel_set": {
         const iso = presence(rawDate) ? normalizeDate(rawDate) : null;
+        const tok = presence(rawDate) ? firstTok(rawDate) : null;
         result.set = iso;
-        if (!result.travelIn) result.travelIn = iso;
+        slotTokens.set = tok;
+        if (!result.travelIn) {
+          result.travelIn = iso;
+          slotTokens.travelIn = tok;
+        }
         const times = extractClockTimes(row[4] ?? "");
         if (times[0] && !result.loadIn) result.loadIn = times[0]; // travel_set fills loadIn only if unset
         if (times[1] && result.setupTime == null) result.setupTime = times[1];
@@ -273,6 +295,7 @@ function parseV2V4Dates(
 
       case "set": {
         result.set = presence(rawDate) ? normalizeDate(rawDate) : null;
+        slotTokens.set = presence(rawDate) ? firstTok(rawDate) : null;
         const times = extractClockTimes(row[4] ?? "");
         if (times[0]) result.loadIn = times[0]; // explicit SET row overrides any travel_set value
         if (times[1]) result.setupTime = times[1];
@@ -285,6 +308,8 @@ function parseV2V4Dates(
         const iso = presence(rawDate) ? normalizeDate(rawDate) : null;
         if (iso && !result.showDays.includes(iso)) {
           result.showDays.push(iso);
+          const tok = firstTok(rawDate);
+          if (tok) slotTokens.showDays.push(tok);
         }
         break;
       }
@@ -296,22 +321,26 @@ function parseV2V4Dates(
 
   // Disambiguate plain "TRAVEL" rows: first = travelIn, last = travelOut.
   // If travelIn is already set (e.g. from a TRAVEL / SET combined row), ALL
-  // plain TRAVEL rows are treated as travelOut (take the last one).
+  // plain TRAVEL rows are treated as travelOut (take the last one). The slot
+  // tokens mirror this exactly so the "use raw" resolution's date fields align.
   if (plainTravelRows.length >= 1) {
     if (!result.travelIn) {
       // No explicit travelIn yet: first plain TRAVEL = in, last = out
       result.travelIn = plainTravelRows[0] ?? null;
+      slotTokens.travelIn = plainTravelTokens[0] ?? null;
       if (plainTravelRows.length >= 2) {
         result.travelOut = plainTravelRows[plainTravelRows.length - 1] ?? null;
+        slotTokens.travelOut = plainTravelTokens[plainTravelTokens.length - 1] ?? null;
       }
     } else {
       // travelIn already known (explicit TRAVEL IN or TRAVEL/SET): last plain TRAVEL = out
       result.travelOut = plainTravelRows[plainTravelRows.length - 1] ?? null;
+      slotTokens.travelOut = plainTravelTokens[plainTravelTokens.length - 1] ?? null;
     }
   }
 
   // §4.3 — run the block-level order check on encounter-order tokens BEFORE sort.
-  checkDateOrder(collectDateTokens(dateRows), agg);
+  checkDateOrder(collectDateTokens(dateRows), agg, slotTokens);
 
   result.showDays.sort();
   return result;
@@ -501,14 +530,91 @@ export function collectDateTokens(
 }
 
 /**
+ * Slot-tagged DATES tokens (spec §6). Parallel to the flat `collectDateTokens`
+ * list but tagged by which ShowRow.dates slot each token feeds, so the "use raw"
+ * resolution can build both the MDY (`parsed`) and DMY (`replacement`) date fields.
+ */
+export type DateSlotTokens = {
+  travelIn: DateToken | null;
+  set: DateToken | null;
+  showDays: DateToken[];
+  travelOut: DateToken | null;
+};
+
+/** Tokens for one date cell — prefix cells yield ≤1 leading token; multi cells all. */
+export function tokensFromCell(kind: "prefix" | "multi", cell: string): DateToken[] {
+  if (kind === "prefix") {
+    const t = leadingToken(cell);
+    return t ? [t] : [];
+  }
+  const out: DateToken[] = [];
+  for (const m of cell.matchAll(MULTI_TOKEN_RE)) {
+    const t = tokenFromRaw(m[0], false);
+    if (t) out.push(t);
+  }
+  return out;
+}
+
+/**
+ * Build the DATE_ORDER_SUGGESTS_DMY "use raw" resolution (spec §6). `parsed.dates`
+ * = the MDY interpretation, `replacement.dmyDates` = the DMY reinterpretation of
+ * the SAME slot tokens; scalar slots map their token's mdyIso/dmyIso (or null),
+ * showDays maps every token's reading, nulls dropped, sorted ascending (matching
+ * how ShowRow.dates.showDays is stored). `contentHash` pins the whole ordered
+ * block via the §5 length-prefixed token serialization.
+ *
+ * The `invalid-dmy` guard is defensive: `checkDateOrder` returns early when any
+ * token's dmyIso is null (condition b), so this warning never fires on an
+ * invalid-DMY block — but the guard keeps the resolution honest if the builder is
+ * ever reached with such a token.
+ */
+function buildDateResolution(tokens: DateToken[], slots: DateSlotTokens | undefined): UseRawResolution {
+  const contentHash = contentHashForDateTokens(tokens.map((t) => t.raw));
+  if (tokens.some((t) => t.dmyIso === null)) {
+    return { resolvable: false, reason: "invalid-dmy" };
+  }
+  const s: DateSlotTokens = slots ?? { travelIn: null, set: null, showDays: tokens, travelOut: null };
+  const scalar = (t: DateToken | null, which: "mdyIso" | "dmyIso") => (t ? t[which] : null);
+  const showDaysBy = (which: "mdyIso" | "dmyIso") =>
+    s.showDays
+      .map((t) => t[which])
+      .filter((x): x is string => x !== null)
+      .sort();
+  const parsed: DateOrderFields = {
+    travelIn: scalar(s.travelIn, "mdyIso"),
+    set: scalar(s.set, "mdyIso"),
+    showDays: showDaysBy("mdyIso"),
+    travelOut: scalar(s.travelOut, "mdyIso"),
+  };
+  const dmy: DateOrderFields = {
+    travelIn: scalar(s.travelIn, "dmyIso"),
+    set: scalar(s.set, "dmyIso"),
+    showDays: showDaysBy("dmyIso"),
+    travelOut: scalar(s.travelOut, "dmyIso"),
+  };
+  return {
+    resolvable: true,
+    contentHash,
+    parsed: { kind: "dates", dates: parsed },
+    replacement: { kind: "dates", dmyDates: dmy },
+  };
+}
+
+/**
  * Block-level DATE_ORDER_SUGGESTS_DMY check (spec §4.3). Emits ≤1 warning IFF all of:
  *   (guard) ≥2 parseable tokens (at least one non-null reading each);
  *   (a) the mdyIso sequence, nulls skipped, strictly DECREASES at some adjacent pair;
  *   (b) NO token has dmyIso null AND the full dmyIso sequence is NON-decreasing.
  * `rawSnippet` = the raw token at the first MDY-decreasing position. No-op if `agg`
- * is undefined.
+ * is undefined. `slots` (spec §6) carries the slot→token mapping the emitted
+ * warning's `resolution` needs; the low-level unit callers omit it (they do not
+ * inspect `resolution`).
  */
-export function checkDateOrder(tokens: DateToken[], agg?: ParseAggregator): void {
+export function checkDateOrder(
+  tokens: DateToken[],
+  agg?: ParseAggregator,
+  slots?: DateSlotTokens,
+): void {
   if (!agg) return;
 
   // Guard: fewer than 2 parseable dates → vacuously ordered, no check.
@@ -532,7 +638,10 @@ export function checkDateOrder(tokens: DateToken[], agg?: ParseAggregator): void
     if (tokens[i - 1]!.dmyIso! > tokens[i]!.dmyIso!) return;
   }
 
-  emitDateOrderSuggestsDmy(agg, { rawSnippet: violationRaw });
+  emitDateOrderSuggestsDmy(agg, {
+    rawSnippet: violationRaw,
+    resolution: buildDateResolution(tokens, slots),
+  });
 }
 
 // TRANSFORM_SITES (spec 2026-07-07-ambiguity-warnings-v1 §6) — value-producing

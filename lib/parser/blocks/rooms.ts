@@ -490,7 +490,13 @@ export function parseRooms(
   for (const room of reconciled) {
     const amb = (room as RoomRowInternal)._ambiguity;
     if (amb)
-      emitRoomSplitAmbiguity(agg, { name: room.name, field: amb.field, rawHeader: amb.rawHeader });
+      emitRoomSplitAmbiguity(agg, {
+        name: room.name,
+        field: amb.field,
+        rawHeader: amb.rawHeader,
+        dimensions: room.dimensions,
+        floor: room.floor,
+      });
   }
   return reconciled.map(({ _ambiguity: _a, _nextLine: _n, ...rest }: RoomRowInternal) => rest);
 }

@@ -573,6 +573,11 @@ function parseHotelTable(markdown: string, agg?: ParseAggregator): HotelReservat
           name: slot.hotel_name,
           reasons: amb.reasons,
           rawCell: amb.rawCell,
+          // The reservation about to be pushed occupies `result.length` in the
+          // final hotels array — the overlay's `blockRef.index` anchor (spec §7).
+          index: result.length,
+          parsedNames: slot.names,
+          confirmationNo: null, // parsed-but-not-persisted (mirrors the pushed row)
         });
       }
     }
