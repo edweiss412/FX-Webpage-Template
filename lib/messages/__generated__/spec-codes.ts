@@ -1484,6 +1484,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → toggle Published off from the show's page",
     "helpfulContext": "The auto-publish unpublish link is short-lived. It stays valid for 24 hours after issuance; after that, the safety net closes — the show is treated as a normal published show. To take it offline now, open the show's page and flip the Published toggle off.",
   },
+  "USE_RAW_DECISION_STALE": {
+    "crewFacing": null,
+    "dougFacing": "You'd chosen to use the sheet's raw text for _<target>_; that cell changed, so we're reading it fresh again.",
+    "followUp": "Doug → re-choose if still needed",
+    "helpfulContext": "You had chosen to keep the sheet's raw text for an ambiguous cell (a room header, a hotel guest list, or the show dates) instead of our split-out reading. That cell has since been edited, so the text you pinned is no longer what the sheet says. We dropped the old choice and went back to reading the cell the normal way. If you still want the raw text for the updated cell, open the show and choose 'use the sheet's raw value' again.",
+  },
   "VALIDATION_RESEED_FAILED": {
     "crewFacing": null,
     "dougFacing": "Reseeding the validation fixtures couldn't finish. Please try again.",

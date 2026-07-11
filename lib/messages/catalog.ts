@@ -184,6 +184,22 @@ export const MESSAGE_CATALOG = {
       "The latest sync applied but read fewer fields or sections than the previous version — a data-quality regression, not a hard failure. The update is already live for crew. Open the parse panel to see what degraded, fix the sheet, and a recovered sync clears this on its own.",
     helpHref: "/help/errors#RESYNC_QUALITY_REGRESSED",
   },
+  USE_RAW_DECISION_STALE: {
+    code: "USE_RAW_DECISION_STALE",
+    resolution: "auto",
+    audience: "doug",
+    // NO adminSurface → changes-feed/banner (spec §10), not inbox-routed.
+    dougFacing:
+      "You'd chosen to use the sheet's raw text for _<target>_; that cell changed, so we're reading it fresh again.",
+    crewFacing: null,
+    followUp: "Doug → re-choose if still needed",
+    helpfulContext:
+      "You had chosen to keep the sheet's raw text for an ambiguous cell (a room header, a hotel guest list, or the show dates) instead of our split-out reading. That cell has since been edited, so the text you pinned is no longer what the sheet says. We dropped the old choice and went back to reading the cell the normal way. If you still want the raw text for the updated cell, open the show and choose 'use the sheet's raw value' again.",
+    title: "Using the sheet's raw text was reset",
+    longExplanation:
+      "You'd told us to keep an ambiguous cell's raw text as-is instead of our automatic split. The cell was edited since, so the pinned text no longer matches the sheet. We dropped that choice and resumed reading the cell normally. Re-open the show and choose 'use the sheet's raw value' again if you still want it for the updated cell.",
+    helpHref: "/help/errors#USE_RAW_DECISION_STALE",
+  },
   STALE_WRITE_ABORTED: {
     code: "STALE_WRITE_ABORTED",
     dougFacing: null,
