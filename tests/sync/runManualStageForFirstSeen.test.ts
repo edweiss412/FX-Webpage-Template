@@ -95,6 +95,9 @@ class FakeManualStageTx implements RunManualStageForFirstSeenTx {
   async deleteCrewMembersNotIn() {
     this.operations.push("deleteCrewMembersNotIn");
   }
+  async renameCrewMember() {
+    this.operations.push("renameCrewMember");
+  }
   async upsertCrewMembers() {
     this.operations.push("upsertCrewMembers");
   }

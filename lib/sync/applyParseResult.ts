@@ -31,6 +31,10 @@ export type ApplyParseResultSnapshot = {
 export type ApplyParseResultTx = {
   deleteCrewMembersNotIn(showId: string, names: string[]): Promise<void>;
   upsertCrewMembers(showId: string, members: ParseResult["crewMembers"]): Promise<void>;
+  // Identity-preserving rename (spec 2026-07-10 §3.4): guarded in-place UPDATE of crew_members.name
+  // so the row's id (the picker cookie key) survives a classified rename. Idempotent, at-most-one
+  // row; a target-name collision or missing source is a silent no-op (fail-safe delete+insert).
+  renameCrewMember(showId: string, removedName: string, addedName: string): Promise<void>;
   provisionAddedCrewAuth(showId: string, names: string[]): Promise<void>;
   revokeRemovedCrewAuth(showId: string, names: string[]): Promise<void>;
   replaceHotelReservations(showId: string, rows: ParseResult["hotelReservations"]): Promise<void>;
@@ -77,6 +81,13 @@ export type ApplyParseResultArgs = {
    * consume this to persist the anchors via the shows UPDATE.
    */
   sourceAnchors?: Record<string, SourceAnchor>;
+  /**
+   * Identity-link renames (spec 2026-07-10 §3.3/§3.4): classified rename pairs to apply as an
+   * in-place UPDATE (same crew_members.id) instead of delete+insert. MI-12 pairs always; MI-13/
+   * MI-14 pairs only on the version-bound accepted apply. A skipped/absent pair degrades to
+   * today's delete+insert (fail-safe re-pick, never a wrong identity).
+   */
+  identityLinkRenames?: Array<{ removedName: string; addedName: string }>;
 };
 
 function difference(left: string[], right: string[]): string[] {
@@ -132,6 +143,27 @@ export async function applyParseResult(
   // deletion; the upsert writes the parsed identities verbatim. appliedCrewMembers is the raw
   // post-hold crew list — the auto-apply change-log diffs against it (P2-F2).
   const appliedCrewMembers = crewMembers;
+  // Identity-preserving renames (spec §3.4): rename the prior row in place so crew_members.id
+  // (the picker cookie key) survives. MUST run before deleteCrewMembersNotIn — delete-first would
+  // drop the old-name row and leave nothing to rename. Guards: pair names must exist on their
+  // respective sides, never touch hold-protected rows, and consume each name at most once
+  // (pairing is one-to-one by construction — invariants.ts pairing cascade — so the consumed-set
+  // is a defensive belt; a skipped pair degrades to today's delete+insert, which is fail-safe).
+  const previousNamesSet = new Set(args.snapshot.previousCrewNames);
+  const nextNamesSet = new Set(nextCrewNames);
+  const consumedRenameNames = new Set<string>();
+  for (const pair of args.identityLinkRenames ?? []) {
+    if (!previousNamesSet.has(pair.removedName)) continue;
+    if (!nextNamesSet.has(pair.addedName)) continue;
+    if (heldNames.has(pair.removedName) || heldNames.has(pair.addedName)) continue;
+    if (deleteProtectedNames.includes(pair.removedName)) continue;
+    if (consumedRenameNames.has(pair.removedName) || consumedRenameNames.has(pair.addedName)) {
+      continue;
+    }
+    consumedRenameNames.add(pair.removedName);
+    consumedRenameNames.add(pair.addedName);
+    await tx.renameCrewMember(args.snapshot.showId, pair.removedName, pair.addedName);
+  }
   await tx.deleteCrewMembersNotIn(args.snapshot.showId, deleteKeepNames);
   await tx.upsertCrewMembers(args.snapshot.showId, crewMembers);
   // provision/revoke are no-ops (auth table retired M9.5, §5.2) — kept for tx-contract stability.

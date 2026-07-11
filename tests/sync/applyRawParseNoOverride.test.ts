@@ -26,6 +26,7 @@ function recordingTx() {
     async deleteCrewMembersNotIn(showId: string, names: string[]) {
       deleteCalls.push({ showId, names });
     },
+    async renameCrewMember() {},
     async upsertCrewMembers(showId: string, members: ParseResult["crewMembers"]) {
       upsertCalls.push({ showId, members });
     },

@@ -26,6 +26,7 @@ function makeTx() {
   const captured: { run_of_show?: Record<string, ScheduleDay> | null } = {};
   const tx = {
     deleteCrewMembersNotIn: vi.fn(),
+    renameCrewMember: vi.fn(),
     upsertCrewMembers: vi.fn(),
     provisionAddedCrewAuth: vi.fn(),
     revokeRemovedCrewAuth: vi.fn(),

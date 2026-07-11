@@ -393,6 +393,9 @@ function tx(): PipelineTx {
     async deleteCrewMembersNotIn() {
       this.operations.push("deleteCrewMembersNotIn");
     },
+    async renameCrewMember() {
+      this.operations.push("renameCrewMember");
+    },
     async upsertCrewMembers() {
       this.operations.push("upsertCrewMembers");
     },

@@ -1574,6 +1574,24 @@ class PostgresPipelineTx implements SyncPipelineTx {
     ]);
   }
 
+  async renameCrewMember(showId: string, removedName: string, addedName: string) {
+    // Identity-preserving rename (spec 2026-07-10 §3.4): guarded, idempotent, at-most-one-row.
+    // The NOT EXISTS makes a target-name collision or a re-run a no-op instead of a
+    // unique (show_id, name) violation; the subsequent upsertCrewMembers refreshes every parsed
+    // field on the renamed row. Runs on the already-locked show tx (no new lock holder).
+    await this.rows(
+      `
+        update public.crew_members
+           set name = $3
+         where show_id = $1 and name = $2
+           and not exists (
+             select 1 from public.crew_members where show_id = $1 and name = $3
+           )
+      `,
+      [showId, removedName, addedName],
+    );
+  }
+
   async upsertCrewMembers(showId: string, members: ParseResult["crewMembers"]) {
     for (const member of members) {
       await this.rows(

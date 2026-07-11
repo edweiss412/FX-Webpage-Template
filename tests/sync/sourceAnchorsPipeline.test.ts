@@ -270,6 +270,7 @@ function makeTx(): PipelineTx {
     async deleteWizardPendingSyncsExcept() {},
     // ApplyParseResultTx
     async deleteCrewMembersNotIn() {},
+    async renameCrewMember() {},
     async upsertCrewMembers() {},
     async provisionAddedCrewAuth() {},
     async revokeRemovedCrewAuth() {},

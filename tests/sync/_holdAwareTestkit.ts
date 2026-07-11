@@ -171,6 +171,18 @@ export function applyTx(tx: Sql): ApplyParseResultTx {
     async deleteCrewMembersNotIn(showId: string, names: string[]) {
       await tx`delete from public.crew_members where show_id = ${showId} and not (name = any(${names}))`;
     },
+    async renameCrewMember(showId: string, removedName: string, addedName: string) {
+      // Mirrors PostgresPipelineTx.renameCrewMember (runScheduledCronSync.ts): guarded in-place
+      // rename preserving crew_members.id.
+      await tx`
+        update public.crew_members
+           set name = ${addedName}
+         where show_id = ${showId} and name = ${removedName}
+           and not exists (
+             select 1 from public.crew_members where show_id = ${showId} and name = ${addedName}
+           )
+      `;
+    },
     async upsertCrewMembers(showId: string, members: ParseResult["crewMembers"]) {
       for (const m of members) {
         await tx`
