@@ -87,3 +87,17 @@ Plan Task 7 described computing the new `applied` flag by scanning the entity ro
 ## Task list
 
 See `01-tasks.md` for the full TDD task breakdown. Task order is dependency-safe (parser types → overlay → apply integration → migration → actions → UI → messages/meta-tests) so the build never breaks mid-way (consumers land with or after the symbols they consume).
+
+---
+
+## Impeccable v3 dual-gate — dispositions (Task 9 UI, invariant 8)
+
+Register = product. Ran on the affected diff (`components/admin/UseRawControl.tsx`, `UseRawControlBoundary.tsx`, `app/admin/show/[slug]/page.tsx`, `components/admin/wizard/step3ReviewSections.tsx` + threading). Two isolated assessments (design critique + technical audit) plus the deterministic detector (`npx impeccable --json` → `[]`, clean).
+
+- **AUDIT: 19/20** (A11y 3, Perf 4, Theme 4, Resp 4, Anti-patterns 4). No P0/P1.
+- **CRITIQUE: 30/40, AI-slop PASS.** Two P1s, both FIXED (no deferrals):
+  - **P1 — accent CTA below AA-large + DESIGN §1.1 breach.** The "use the sheet's raw value" toggle was `bg-accent text-accent-text` at `text-xs` (12px). DESIGN.md:33 restricts accent-bg text to bold ≥14pt (white-on-orange is 4.07:1, AA-large only). **Fix:** both toggle directions demoted to the neutral outline treatment (`border-border-strong bg-surface text-sm font-medium text-text-strong`), matching `RecentAutoAppliedStrip`'s data-quality micro-actions.
+  - **P1 — accent proliferation / hierarchy inversion.** A per-warning orange fill out-shouted Re-sync/Report and risked the ≤10%-viewport cap. Same fix reserves the accent.
+- **P2s (both independently flagged, FIXED):** context-wrong `focus-visible:ring-offset-warning-bg` (control also mounts on `info-bg`) → dropped the offset colour; post-action error `role="status"` → `role="alert"` (assertive).
+
+Detector re-run clean and 20/20 component tests green after the restyle. No `DEFERRED.md` entry required (all HIGH/CRITICAL fixed).

@@ -151,6 +151,7 @@ function sectionData(
     ros: pr.runOfShow ?? {},
     warnings: pr.warnings,
     agendaBaseline: [],
+    useRawDecisions: [],
     ...dataOverrides,
   };
 }

@@ -600,6 +600,9 @@ export function Step3SheetCard({
             ros,
             warnings,
             agendaBaseline: arr(row.adminAgendaPreview),
+            // spec §8: the staged use-raw decisions drive the judgment callout's
+            // per-warning toggle (matched by code + resolution.contentHash).
+            useRawDecisions: row.useRawDecisions ?? [],
           }}
           checked={checked}
           isDirtyRescan={isDirtyRescan}

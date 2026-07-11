@@ -57,6 +57,8 @@ import {
   OPERATOR_ACTIONABLE_ANCHORED,
   DATA_GAP_CLASS_LABELS,
 } from "@/lib/parser/dataGaps";
+import { normalizeUseRawDecisions, type UseRawDecision } from "@/lib/sync/useRawOverlay";
+import { UseRawControlBoundary } from "@/components/admin/UseRawControlBoundary";
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
 import type { MessageCode } from "@/lib/messages/catalog";
 import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableWarnings";
@@ -328,18 +330,23 @@ export default async function AdminShowPage({
   const readDataQuality = async (): Promise<{
     digest: ParseWarning[];
     actionable: ParseWarning[];
+    useRawDecisions: UseRawDecision[];
     failed: boolean;
   }> => {
     // The supabase await + its error handling stay TIGHT in the try/catch (invariant 9 / the
     // _metaInfraContract proximity guard); the pure warnings→messages processing (no await, can't
     // throw the supabase fault) runs AFTER the try.
     let warnings: ParseWarning[];
+    // Persisted use-raw decisions (spec §8): the SINGLE jsonb read boundary is
+    // normalizeUseRawDecisions. A read fault → [] (the control degrades to
+    // transform-active, never crashes the panel).
+    let useRawDecisions: UseRawDecision[] = [];
     try {
       const { data, error } = await supabase
         .from("shows_internal")
-        .select("parse_warnings")
+        .select("parse_warnings, use_raw_decisions")
         .eq("show_id", show.id)
-        .maybeSingle<{ parse_warnings: ParseWarning[] | null }>();
+        .maybeSingle<{ parse_warnings: ParseWarning[] | null; use_raw_decisions: unknown }>();
       if (error) {
         void log.error("shows_internal read failed:", {
           source: "admin.show",
@@ -348,9 +355,10 @@ export default async function AdminShowPage({
           showId: show.id,
           error: error.message,
         });
-        return { digest: [], actionable: [], failed: true };
+        return { digest: [], actionable: [], useRawDecisions: [], failed: true };
       }
       warnings = Array.isArray(data?.parse_warnings) ? data!.parse_warnings : [];
+      useRawDecisions = normalizeUseRawDecisions(data?.use_raw_decisions ?? null);
     } catch (err) {
       void log.error("shows_internal read threw:", {
         source: "admin.show",
@@ -359,7 +367,7 @@ export default async function AdminShowPage({
         showId: show.id,
         error: err,
       });
-      return { digest: [], actionable: [], failed: true };
+      return { digest: [], actionable: [], useRawDecisions: [], failed: true };
     }
     // Gate on the three DATA-QUALITY codes before rendering .message (R1 [high]):
     // shows_internal.parse_warnings also holds non-DQ warn warnings whose message
@@ -382,7 +390,7 @@ export default async function AdminShowPage({
     );
     // Carry the full warnings through too so the panel can render the operator-actionable subset
     // WITH their source-sheet deep links (selectActionableForDisplay filters + dedups).
-    return { digest, actionable: warnings, failed: false };
+    return { digest, actionable: warnings, useRawDecisions, failed: false };
   };
 
   const [
@@ -430,6 +438,16 @@ export default async function AdminShowPage({
     displayWarnings,
     ignoredFingerprints,
   );
+  // spec §8: the persisted use-raw decision for a warning is matched by
+  // (code, resolution.contentHash) — NEVER by target. `<UseRawControl>` self-guards
+  // out-of-scope / unresolvable warnings to null, so it's rendered unconditionally.
+  const decisionFor = (w: ParseWarning): UseRawDecision | undefined =>
+    dataQuality.useRawDecisions.find(
+      (d) =>
+        d.code === w.code &&
+        w.resolution?.resolvable === true &&
+        d.contentHash === w.resolution.contentHash,
+    );
   // DQIGNORE-2 — bulk "Ignore all N of this type": for any code with >=2 distinct-content
   // ACTIVE ignorable warnings, offer a single action that fans out one precise
   // per-fingerprint ignore. The label is the plain-language type (catalog title, else the
@@ -914,14 +932,24 @@ export default async function AdminShowPage({
               items={activeActionable}
               driveFileId={show.drive_file_id}
               renderItemControls={(w) => (
-                <DataQualityWarningControls
-                  slug={show.slug}
-                  showId={show.id}
-                  warning={w}
-                  driveFileId={show.drive_file_id}
-                  mode="active"
-                  reportSurfaceId={buildReportSurfaceId(show.slug, w)}
-                />
+                <>
+                  <DataQualityWarningControls
+                    slug={show.slug}
+                    showId={show.id}
+                    warning={w}
+                    driveFileId={show.drive_file_id}
+                    mode="active"
+                    reportSurfaceId={buildReportSurfaceId(show.slug, w)}
+                  />
+                  {/* spec §8: use-raw toggle for the 3 recoverable structural-transform
+                      warnings; self-hides (null) for every other code. */}
+                  <UseRawControlBoundary
+                    surface="show"
+                    showId={show.id}
+                    warning={w}
+                    decision={decisionFor(w)}
+                  />
+                </>
               )}
             />
             {/* Collapsible "Ignored (N)" subsection — content-keyed ignores that survive
@@ -946,14 +974,24 @@ export default async function AdminShowPage({
                     driveFileId={show.drive_file_id}
                     tone="muted"
                     renderItemControls={(w) => (
-                      <DataQualityWarningControls
-                        slug={show.slug}
-                        showId={show.id}
-                        warning={w}
-                        driveFileId={show.drive_file_id}
-                        mode="ignored"
-                        reportSurfaceId={buildReportSurfaceId(show.slug, w)}
-                      />
+                      <>
+                        <DataQualityWarningControls
+                          slug={show.slug}
+                          showId={show.id}
+                          warning={w}
+                          driveFileId={show.drive_file_id}
+                          mode="ignored"
+                          reportSurfaceId={buildReportSurfaceId(show.slug, w)}
+                        />
+                        {/* spec §8: use-raw toggle also available on an ignored in-scope
+                            warning; self-hides (null) for every other code. */}
+                        <UseRawControlBoundary
+                          surface="show"
+                          showId={show.id}
+                          warning={w}
+                          decision={decisionFor(w)}
+                        />
+                      </>
                     )}
                   />
                 </div>
