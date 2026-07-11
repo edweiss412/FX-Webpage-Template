@@ -60,8 +60,9 @@ Hashkey `show:<driveFileId>`. Existing holders: `withShowLock` JS-wrapper (calle
 **Modify:**
 - `lib/parser/types.ts` — add `resolution?` to `ParseWarning`; export `UseRawResolution`/`DateOrderFields`.
 - `lib/parser/warnings.ts` — the three emit builders populate `resolution`.
-- `lib/sync/applyParseResult.ts` — accept `useRawDecisions`, run overlay, persist `kept`/change-log `invalidated`/GC `reverted`.
-- `lib/sync/applyStagedCore.ts` + `lib/sync/runManualSyncForShow.ts` — pass the phase-appropriate decisions column.
+- `lib/sync/applyParseResult.ts` — accept `useRawDecisions`, run overlay, persist `kept`(applied:true) / GC `reverted`, return `useRawInvalidated`.
+- `lib/sync/phase2.ts` — thread `Phase2Args.useRawDecisions` into the single `applyParseResult` call (`:369`); ONE **ungated** `writeUseRawStaleChanges` branch (both paths flow through here; NOT inside the first-seen-skipped crew-diff guard).
+- `lib/sync/applyStagedCore.ts` (finalize) + `lib/sync/runScheduledCronSync.ts` (re-sync `processOneFile`) — each reads the phase-appropriate decisions column into `Phase2Args.useRawDecisions`.
 - `components/admin/PerShowActionableWarnings.tsx` + `app/admin/show/[slug]/page.tsx` wiring — render control (per-show).
 - `components/admin/wizard/step3ReviewSections.tsx` + `OnboardingWizard.tsx` — render control (wizard).
 - `lib/messages/catalog.ts` + master spec §12.4 + generated files — new code.
