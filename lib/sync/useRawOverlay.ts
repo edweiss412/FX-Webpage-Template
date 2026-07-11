@@ -106,7 +106,10 @@ export function applyUseRawDecisions(
 
   for (const decision of decisions) {
     const matches = result.warnings.filter(
-      (w) => w.code === decision.code && resolvable(w) && w.resolution.contentHash === decision.contentHash,
+      (w) =>
+        w.code === decision.code &&
+        resolvable(w) &&
+        w.resolution.contentHash === decision.contentHash,
     );
 
     if (decision.preference === "transform") {
@@ -141,12 +144,14 @@ export function normalizeUseRawDecisions(raw: unknown): UseRawDecision[] {
     if (entry === null || typeof entry !== "object") continue;
     const e = entry as Record<string, unknown>;
     if (typeof e.code !== "string" || !IN_SCOPE.has(e.code)) continue;
-    if (typeof e.contentHash !== "string" || e.contentHash.trim() === "") continue;
+    if (typeof e.contentHash !== "string" || e.contentHash.trim() === "") continue; // canonicalize-exempt: contentHash blank-check (SHA-256 hex pin), never an email
     if (e.preference !== "raw" && e.preference !== "transform") continue;
     if (typeof e.applied !== "boolean") continue;
     if (typeof e.decidedAt !== "string" || typeof e.decidedBy !== "string") continue;
     const target =
-      e.target !== null && typeof e.target === "object" ? (e.target as UseRawDecision["target"]) : { kind: "" };
+      e.target !== null && typeof e.target === "object"
+        ? (e.target as UseRawDecision["target"])
+        : { kind: "" };
     out.push({
       code: e.code as UseRawCode,
       contentHash: e.contentHash,

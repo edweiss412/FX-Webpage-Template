@@ -287,6 +287,11 @@ export function makeFakePipelineTx(db: FakeFinalizeCasDb): SyncPipelineTx {
         db.pullSheetOverrideWrites.push({ driveFileId: params[1] as string, override: params[0] });
         return {} as T;
       }
+      if (normalized.startsWith("select use_raw_decisions from public.pending_syncs")) {
+        // Task 6 (use-raw): CAS finalize reads the STAGED "use raw" decisions under the lock.
+        // The behavioral fixture has none → empty column (normalizeUseRawDecisions → []).
+        return { use_raw_decisions: [] } as T;
+      }
       throw new Error(`Unhandled pipelineTx SQL in finalize-cas fake: ${normalized}`);
     },
     holdPort() {
