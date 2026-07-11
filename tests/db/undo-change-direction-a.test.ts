@@ -111,6 +111,94 @@ describe("undo_change Direction A — restore removed/renamed crew", () => {
     expect(aliceBack!.claimed_via_oauth_at).toBeNull();
   });
 
+  it("LINKED-shape rename undo (spec 2026-07-10 §3.5, test 15): prior name restored on the SAME id, claim intact", async () => {
+    // The identity-linked apply keeps the prior row's id under the new name, so the applied
+    // crew_renamed row's before_image.id EQUALS the live successor's id. undo_change ships
+    // UNCHANGED for this shape (no FK references crew_members(id) in the final schema); this
+    // pins the round-trip: any future undo edit that loses the preserved identity goes red.
+    const { showId, driveFileId } = await seedShowWithCrew([
+      { name: "Undo Link A", email: "ula@x.example", claimed: ALICE_CLAIMED_AT },
+    ]);
+    const live = await readCrewByName(showId, "Undo Link A");
+    const LINK_ID = live!.id;
+    const LINK_CLAIM = live!.claimed_via_oauth_at;
+
+    const items: TriggeredReviewItem[] = [
+      {
+        id: "1",
+        invariant: "MI-12",
+        removed_name: "Undo Link A",
+        added_name: "Undo Link A2",
+        email: "ula@x.example",
+      },
+    ];
+    await runAutoApply(driveFileId, {
+      crew: [{ name: "Undo Link A2", email: "ula@x.example" }],
+      triggeredItems: items,
+      identityLinkRenames: [{ removedName: "Undo Link A", addedName: "Undo Link A2" }],
+    });
+    // Linked shape landed: same id under the new name; before_image carries that same id.
+    const successor = await readCrewByName(showId, "Undo Link A2");
+    expect(successor!.id).toBe(LINK_ID);
+    const renamed = await readChangeLog(showId, {
+      change_kind: "crew_renamed",
+      entity_ref: "Undo Link A",
+    });
+    expect(renamed.before_image?.id).toBe(LINK_ID);
+
+    const res = await callUndoAsAdmin(renamed.id);
+    expect(res.ok).toBe(true);
+
+    const back = await readCrewByName(showId, "Undo Link A");
+    expect(back).not.toBeNull();
+    expect(back!.id).toBe(LINK_ID); // identity survives the full apply→undo round-trip
+    expect(new Date(back!.claimed_via_oauth_at as string).toISOString()).toBe(
+      new Date(LINK_CLAIM as string).toISOString(),
+    );
+    expect(await readCrewByName(showId, "Undo Link A2")).toBeNull();
+    // Shared undo tail unchanged: held-present override + baseline signature.
+    const hold = await readHold(showId, { entity_key: "Undo Link A" });
+    expect(hold!.kind).toBe("undo_override");
+    expect(hold!.held_value.baseline).toEqual({
+      kind: "rename",
+      suppressed_added: { name: "Undo Link A2", email: "ula@x.example" },
+    });
+  });
+
+  it("REPLACED-shape rename undo regression (spec test 16): successor (distinct id) deleted, prior id restored", async () => {
+    const { showId, driveFileId } = await seedShowWithCrew([
+      { name: "Undo Repl A", email: "ura@x.example" },
+    ]);
+    const PRIOR_ID = (await readCrewByName(showId, "Undo Repl A"))!.id;
+
+    const items: TriggeredReviewItem[] = [
+      {
+        id: "1",
+        invariant: "MI-12",
+        removed_name: "Undo Repl A",
+        added_name: "Undo Repl A2",
+        email: "ura@x.example",
+      },
+    ];
+    // NO identityLinkRenames → historical delete+insert shape: successor gets a fresh id.
+    await runAutoApply(driveFileId, {
+      crew: [{ name: "Undo Repl A2", email: "ura@x.example" }],
+      triggeredItems: items,
+    });
+    const successor = await readCrewByName(showId, "Undo Repl A2");
+    expect(successor!.id).not.toBe(PRIOR_ID); // proves the replaced shape, not linked
+
+    const renamed = await readChangeLog(showId, {
+      change_kind: "crew_renamed",
+      entity_ref: "Undo Repl A",
+    });
+    const res = await callUndoAsAdmin(renamed.id);
+    expect(res.ok).toBe(true);
+
+    expect(await readCrewByName(showId, "Undo Repl A2")).toBeNull(); // successor deleted
+    expect((await readCrewByName(showId, "Undo Repl A"))!.id).toBe(PRIOR_ID); // prior id back
+  });
+
   it("undo of a RENAME restores the prior row; baseline records suppressed_added name+email", async () => {
     const { showId, driveFileId } = await seedShowWithCrew([
       { name: "Alice", email: "alice@old", claimed: ALICE_CLAIMED_AT },

@@ -94,6 +94,8 @@ export type AutoApplyInput = {
   crew: CrewSeed[];
   /** Optional triggered review items (e.g. an MI-12 rename so a crew_renamed feed row is written). */
   triggeredItems?: TriggeredReviewItem[];
+  /** Optional identity-link pairs (spec 2026-07-10 §3.3) — lands the rename as an in-place UPDATE. */
+  identityLinkRenames?: Array<{ removedName: string; addedName: string }>;
   modifiedTime?: string;
 };
 
@@ -130,6 +132,9 @@ export async function runAutoApply(driveFileId: string, input: AutoApplyInput): 
       verifyReelOnApply: false as const,
       mi11Items: [] as never,
       notableItems: (input.triggeredItems ?? []) as TriggeredReviewItem[],
+      ...(input.identityLinkRenames !== undefined
+        ? { identityLinkRenames: input.identityLinkRenames }
+        : {}),
     });
   });
 }
