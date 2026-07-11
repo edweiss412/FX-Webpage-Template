@@ -43,8 +43,8 @@ Codex R1 correctly flagged that removing D's URL while leaving A/C refresh-only 
 **Out of scope — external-rotation freshness (pre-existing, parity, BACKLOG).** Making copy surfaces update when *another* admin/tab rotates while this tab stays open is **not solved here and is not a regression**:
 
 - Today the surfaces are Server-Component-rendered from `token`. The page is `force-dynamic` (`page.tsx:74`) but has **no realtime subscription, no polling, no `revalidate` interval, and no visibility/focus refresh** (verified: no `supabase.channel` / `setInterval` / `refetchInterval` / `visibilitychange` under `app/admin/show/[slug]/`). An admin sitting on the page today, while another admin rotates, keeps a stale server-rendered token with a live Copy button until they navigate/refresh — **identical** staleness to the client-cached token this design introduces. The client cache is parity, not a regression.
-- A **sound** external-rotation freshness fix requires either a realtime `picker_epoch` subscription or a copy-time epoch/token validation — and any *epoch-ordered* client gate needs the token and its epoch read from **one atomic DB snapshot**. Today the token comes from the `admin_read_share_token` RPC (`lib/data/loadShowShareToken.ts:13`, `show_share_tokens`) and the epoch from a separate `shows` row read — two snapshots. Making them atomic means changing the token RPC/DB layer, which is **outside this UI-only change's scope** (it would pull in a migration, schema-manifest regen, validation-parity apply, and RPC tests). Considered and deliberately deferred (Codex R2/R4/R7 explored the epoch-gate path; it is correct but disproportionate here). Filed as `BL-SHARE-LINK-EPOCH-FRESHNESS` (§7).
-- **No freshness-trigger machinery** (visibility/focus/pageshow `router.refresh()`) and **no client epoch gate** are added — they are unsound without the atomic read and add complexity for a benefit (multi-admin freshness) that today's page does not provide either.
+- A **sound** external-rotation freshness fix requires either a realtime `picker_epoch` subscription or a copy-time epoch/token validation — and any *server-epoch-ordered* client gate needs the token and its epoch read from **one atomic DB snapshot**. Today the token comes from the `admin_read_share_token` RPC (`lib/data/loadShowShareToken.ts:13`, `show_share_tokens`) and the epoch from a separate `shows` row read — two snapshots. Making them atomic means changing the token RPC/DB layer, which is **outside this UI-only change's scope** (it would pull in a migration, schema-manifest regen, validation-parity apply, and RPC tests). Considered and deliberately deferred (Codex R2/R4/R7 explored the server-epoch-gate path; it is correct but disproportionate here). Filed as `BL-SHARE-LINK-EPOCH-FRESHNESS` (§7).
+- **No freshness-trigger machinery** (visibility/focus/pageshow `router.refresh()`) is added — it would only serve multi-admin freshness, which today's page does not provide either. Note: the same-tab **stale-refresh** hazard is handled WITHOUT a server epoch, via a purely-local rotate latch keyed on the token minted by this admin's own rotate (§3.2) — that value is atomic from the rotate RPC result, so it does not need the atomic *read* the server-epoch path would.
 
 **Non-goals:** no change to `rotateShareToken`, its telemetry, the advisory lock, or the token-read RPC. No realtime/epoch infra. No visual redesign beyond removing the duplicated block.
 
@@ -57,7 +57,7 @@ A page-level client **token context** seeded by the server-read token; every cre
 | Component | Kind | Responsibility |
 |---|---|---|
 | `page.tsx` | server | Reads `token` once (admin RPC). Wraps returned content in `<ShareTokenProvider key={show.id} initialToken={isShowEligibleForCrewLink ? token : null}>` (**keyed by show identity**, §3.2). Replaces inline chip (A) with `<ShareChip>`, inline crew-page anchor (B) with `<CrewPageLink>`. Renders `<CurrentShareLinkPanel>` (C) with structured props + server-built `resetSlot`. |
-| **`ShareTokenContext.tsx` (NEW)** | client | `ShareTokenProvider` owns `token` state (seeded `initialToken`, `useEffect` re-syncs on server refresh with a **null-preserving guard**); `useShareToken()` → `{ token, setToken }`. Show-scoped via the caller's `key={show.id}` (remounts on show change). |
+| **`ShareTokenContext.tsx` (NEW)** | client | `ShareTokenProvider` owns `token` state + a local **rotate latch** (`rotatedRef`); server-refresh sync rejects stale/non-matching tokens after a local rotate and fails closed on null (§3.2); `useShareToken()` → `{ token, applyRotated }`. Show-scoped via the caller's `key={show.id}` (remounts on show change). |
 | **`ShareChip.tsx` (NEW)** | client | Header chip (A). Props `slug`, `isEligible`. Reads `token`; renders chip-or-null (visibility = `isEligible && token != null`). |
 | **`CrewPageLink.tsx` (NEW)** | client | "Open crew page" link (B). Props `slug`, `isEligible`. Reads `token`; renders `<a href>` or nothing. |
 | **`ShareLinkBody.tsx` (NEW)** | client | Card body (C). Reads `token`. Renders URL/Copy/email (token) OR unavailable notice (null); hosts `RotateShareTokenButton` (wired `onRotated`) + `resetSlot`. |
@@ -69,23 +69,47 @@ A page-level client **token context** seeded by the server-read token; every cre
 
 ```ts
 "use client";
-type Ctx = { token: string | null; setToken: (t: string | null) => void };
+// Consumers read `token` for display. `applyRotated(newToken)` is how the rotate
+// button installs the token IT just minted (via a successful rotateShareToken RPC).
+// That minted value is authoritative + proven-current, so it also arms a local
+// LATCH that makes the server-refresh sync ignore any non-matching token — the
+// same-tab stale-refresh defense (Codex R9-1), with no server epoch needed.
+type Ctx = { token: string | null; applyRotated: (newToken: string) => void };
 const ShareTokenContext = createContext<Ctx | null>(null);
 
 export function ShareTokenProvider({ initialToken, children }: { initialToken: string | null; children: ReactNode }) {
   const [token, setToken] = useState(initialToken);
-  // Re-sync when a SAME-SHOW server refresh (rotate/reset/publish action)
-  // delivers a new token. NULL-PRESERVING: a transient token-read failure yields
-  // initialToken=null; ignore it rather than blanking a known-good URL — within a
-  // single show the token only changes via rotation (which delivers a non-null
-  // new token), so a null here is a read fault, not a real removal (Codex R7-2).
-  // Cross-SHOW identity changes are NOT handled here — the caller keys the
-  // provider by show.id (§3.7), so navigating A→B remounts with a fresh seed
-  // and no A-token can survive into B's render (Codex R8).
+  // `rotatedRef` = the token this admin locally rotated to (null until they do).
+  // Once armed, it is the ONLY token the server may echo; everything else is
+  // stale or an out-of-scope external rotation and is ignored.
+  const rotatedRef = useRef<string | null>(null);
+
+  const applyRotated = useCallback((newToken: string) => {
+    rotatedRef.current = newToken; // proven-current (we just minted it)
+    setToken(newToken);
+  }, []);
+
   useEffect(() => {
-    if (initialToken !== null) setToken(initialToken);
+    if (initialToken === null) {
+      // Token-read fault (or ineligible) → server says "no token".
+      // FAIL CLOSED (match today's page.tsx: hide surfaces, never a dead URL)
+      // UNLESS we hold a locally-minted token — that one is proven-current, so a
+      // transient null read must not blank it (Codex R7-2 vs R9-2 reconciled).
+      if (rotatedRef.current === null) setToken(null);
+      return;
+    }
+    // Non-null server token. AFTER a local rotate, accept ONLY the echo of our
+    // minted token; reject a stale in-flight refresh (e.g. a ReSyncButton
+    // router.refresh that started with OLD and resolved after our rotate) and any
+    // out-of-scope external rotation — regardless of arrival order (Codex R9-1).
+    // BEFORE any local rotate (ref null), track server truth normally.
+    if (rotatedRef.current !== null && initialToken !== rotatedRef.current) return;
+    setToken(initialToken);
   }, [initialToken]);
-  return <ShareTokenContext.Provider value={{ token, setToken }}>{children}</ShareTokenContext.Provider>;
+
+  return (
+    <ShareTokenContext.Provider value={{ token, applyRotated }}>{children}</ShareTokenContext.Provider>
+  );
 }
 
 export function useShareToken(): Ctx {
@@ -95,9 +119,11 @@ export function useShareToken(): Ctx {
 }
 ```
 
-**Show-identity scoping (Codex R8):** on App Router client navigation between two shows the same `ShareTokenProvider` component type can be **reconciled without remounting**, so a `useState`-held token from show A could otherwise survive into show B's render — and consumers would build `/show/${slugB}/${tokenA}`, a *wrong-token* exposure (worse if B's seed is `null` from ineligibility/read-fault, since the null-preserving guard would retain `tokenA` indefinitely). Fix: `page.tsx` renders the provider with **`key={show.id}`**. A show-identity change ⇒ new key ⇒ React unmounts A's provider and mounts B's fresh, re-seeding `useState` from B's `initialToken` (or `null`). This cleanly separates the two null cases: a **cross-show** null seed lands on a *fresh mount* (no prior token to preserve → `null` shows unavailable/hidden), while a **same-show transient** null is ignored by the guard (valid token preserved). Same-show refresh (same `key`) does not remount, so the sync effect handles same-tab rotate.
+**Same-tab stale-refresh defense (Codex R9-1) — why a local token latch, not a server epoch.** The admin page mounts MANY independent `router.refresh()` callers besides rotate — verified: `ReSyncButton` (`page.tsx:940,1049` → `components/admin/ReSyncButton.tsx:116`), `PublishedToggle`, `ArchiveShowButton`, `ParsePanel`, the pending-panel buttons, and nav badge hooks (`useBellBadge`, `useNeedsAttentionBadge`). Any of these can have a refresh **in flight that started with the OLD token and resolves after** the admin's rotate installed NEW. The latch defeats this without a server-read epoch: `applyRotated(NEW)` (fed the token from the atomic `rotateShareToken` result — no separate read, so the R7-1 non-atomic-pair problem does not arise) arms `rotatedRef=NEW`; thereafter the sync effect applies a server token **only if it equals NEW**, so a late `OLD` payload is rejected no matter the arrival order. A subsequent local rotate to `NEW2` re-arms the latch (`applyRotated` always wins). Since within one show the token changes ONLY via the admin's own rotate (external rotation is out of scope, §2), locking to the last locally-minted token loses nothing in scope.
 
-**Ordering safety (no epoch needed in same-tab scope):** the only `router.refresh()` sources on this page are user actions (rotate, picker-reset, publish/unpublish, unarchive) — there is **no background/interval/realtime refresh** (verified, §2). Each disables its control while resolving, so two same-tab mutations do not overlap; every action-driven refresh is causally **after** its mutation committed and delivers the current (or newer) token. Rotate installs the new token via `setToken` *before* its own `router.refresh()` (which then re-delivers the same value → no-op). There is thus no "stale refresh started before the rotate" in same-tab operation once the freshness triggers are removed. The provider wraps server-rendered children (standard RSC pattern — no server code enters the client bundle). External multi-admin rotation is the documented out-of-scope case (§2).
+**Fail-closed on token-read fault (Codex R9-2).** Today `page.tsx` renders `token=null` on a `loadShowShareToken` failure and hides all crew-link surfaces (no dead URL). The provider preserves that: a `null` seed with an un-armed latch → `setToken(null)` → surfaces hide (fail closed). The ONLY null we ignore is a transient one *after* a local rotate, where the retained token is the one we just minted and proved current — not a fail-open on an unverified cached token.
+
+**Show-identity scoping (Codex R8).** On App Router client navigation between two shows the same `ShareTokenProvider` type can be **reconciled without remounting**, so show A's `useState` token (and its armed latch) could survive into show B — consumers would build `/show/${slugB}/${tokenA}`, a wrong-token exposure. Fix: `page.tsx` renders the provider with **`key={show.id}`**. A show-identity change ⇒ new key ⇒ React unmounts A and mounts B fresh, re-seeding `useState` and resetting `rotatedRef` from B's props. Same-show refresh (same `key`) does not remount, so the sync effect handles the same-tab rotate. The provider wraps server-rendered children (standard RSC pattern — no server code enters the client bundle).
 
 ### 3.3 Consumers A / B / C
 
@@ -112,12 +138,12 @@ Server-side `page.tsx` no longer derives `crewUrl`/`crewPathDisplay`/`hasCrewLin
 
 ### 3.4 `ShareLinkBody` (card body, new client)
 
-Props: `slug`, `showId`, `crewEmails: readonly string[]`, `showTitle`, `isCrewLinkActive: boolean`, `resetSlot: ReactNode`. Reads `{ token, setToken } = useShareToken()`.
+Props: `slug`, `showId`, `crewEmails: readonly string[]`, `showTitle`, `isCrewLinkActive: boolean`, `resetSlot: ReactNode`. Reads `{ token, applyRotated } = useShareToken()`.
 
 Render:
 - **`token` present** → `url = ${resolveOrigin()}/show/${slug}/${token}`; `<code data-testid="admin-current-share-link-url">{url}</code>` + `<ShareLinkCopyButton url={url}/>` + email note/buttons via `buildCrewLinkMailtos({emails:crewEmails,url,showTitle})` (testids `admin-current-share-link-email-note`, `admin-current-share-link-email-button`).
 - **`token` null** → "unavailable" notice (`admin-current-share-link-unavailable`).
-- **Always** → divider actions block (`border-t divide-y`): `<RotateShareTokenButton showId slug isCrewLinkActive onRotated={setToken} compact rowLabel="Rotate share link" rowDescription="Mint a new link; the old one stops working immediately."/>` then `{resetSlot}`.
+- **Always** → divider actions block (`border-t divide-y`): `<RotateShareTokenButton showId slug isCrewLinkActive onRotated={applyRotated} compact rowLabel="Rotate share link" rowDescription="Mint a new link; the old one stops working immediately."/>` then `{resetSlot}`.
 
 ### 3.5 `RotateShareTokenButton` changes
 
@@ -152,8 +178,10 @@ Render:
 | Input | null / empty / edge | Behavior |
 |---|---|---|
 | `token` (context) | `null` | A hidden, B hidden, C shows unavailable notice; rotate + reset still render (rotate reachable to recover — R1/R27). |
-| `token` | new non-null value from a server refresh | `useEffect` re-syncs → A/B/C update. |
-| `token` | server refresh delivers `null` (transient read fault) after a token was known, **same show** | **ignored** — context keeps the last-known non-null token; no blank/erase (Codex R7-2). |
+| `token` | new non-null server refresh, **no local rotate yet** (latch un-armed) | `useEffect` applies it → A/B/C track server truth. |
+| `token` | server refresh delivers a token **≠ locally-rotated token** after a local rotate (stale in-flight refresh, e.g. ReSync started with OLD; or external rotation) | **rejected** by the latch — context keeps the rotated token; no revert to dead URL, any arrival order (Codex R9-1). |
+| `token` | server refresh delivers `null`, **no local rotate** (latch un-armed) | `setToken(null)` → surfaces hide — **fail closed**, matches today's `page.tsx` token-read-fault behavior (Codex R9-2). |
+| `token` | server refresh delivers `null`, **after a local rotate** (latch armed) | **ignored** — retains the just-minted, proven-current token; no blank on a transient read fault (Codex R7-2). |
 | navigation to a **different show** (`show.id` changes), incl. B ineligible / B token-read null | provider `key={show.id}` changes | provider **remounts** → fresh seed from B's `initialToken` (or `null`); show A's token cannot survive into B (Codex R8). No wrong-token exposure. |
 | show ineligible (`!published \|\| archived`) | server has a token | provider seeded `initialToken=null` → token NOT serialized to client (parity with today; no exposure widening — Codex R4-1). A/B/C also gate on `isEligible`. |
 | `crewEmails` | `[]` | No email note/buttons (`.length` guards, unchanged). |
@@ -173,10 +201,12 @@ States: `idle` (± persistent confirmation banner), `confirm`, `resolving`. Unch
 TDD per task (invariant 1). Anti-tautology per project rules.
 
 ### 6.1 New — `tests/components/ShareTokenContext.test.tsx`
-- Provider seeds `token` from `initialToken`; `setToken(NEW)` updates consumers.
-- Re-render with a new non-null `initialToken` → consumers reflect it (server-refresh sync).
-- **Null-preserving, same show (Codex R7-2):** seed `initialToken="TOK"`; re-render **same `key`** with `initialToken={null}` (transient read fault) → consumers **still show `TOK`** (not blanked). Failure mode caught: a naive `setToken(initialToken)` blanks a known-good URL on a transient null.
-- **Show-identity scoping (Codex R8):** render a consumer under `<ShareTokenProvider key="showA" initialToken="TA">` (assert `TA`), then re-render as `<ShareTokenProvider key="showB" initialToken={null}>` (navigated to ineligible/failed show B) → consumer shows **neither `TA`** (no leak) nor a `/show/…/TA` URL; it is unavailable/hidden. Also `key="showB" initialToken="TB"` → shows `TB`, never `TA`. Failure mode caught: reconcile-without-remount retains show A's token into show B. (RTL re-render with a changed `key` on the same element remounts, exercising the real navigation semantics.)
+- Provider seeds `token` from `initialToken`; `applyRotated(NEW)` updates consumers.
+- Re-render with a new non-null `initialToken` **before any rotate** → consumers reflect it (server-refresh tracks truth when latch un-armed).
+- **Stale-refresh rejected after rotate (Codex R9-1):** seed `initialToken="OLD"`; `applyRotated("NEW")` → shows NEW; then re-render (same `key`) with `initialToken="OLD"` (a ReSync-style refresh that started before the rotate, resolving late) → consumers **still show `NEW`** (latch rejects OLD). Repeat with the stale re-render arriving *after* a `initialToken="NEW"` echo re-render → still NEW (order-independent). Failure mode caught: a blind `setToken(initialToken)` reverts to the dead OLD URL.
+- **Fail-closed on null, un-armed (Codex R9-2):** seed `initialToken="TOK"` (no rotate); re-render (same `key`) `initialToken={null}` (token-read fault) → consumers **hide / show unavailable** (NOT `TOK`). Failure mode caught: fail-open preserving an unverified cached token that another admin may have invalidated.
+- **Null-preserve after rotate (Codex R7-2):** seed `"OLD"`; `applyRotated("NEW")`; re-render `initialToken={null}` → **still `NEW`** (just-minted token preserved through a transient read fault).
+- **Show-identity scoping (Codex R8):** render under `<ShareTokenProvider key="showA" initialToken="TA">` (assert `TA`), then re-render `<ShareTokenProvider key="showB" initialToken={null}>` (navigated to ineligible/failed show B) → consumer shows **neither `TA`** nor a `/show/…/TA` URL; unavailable/hidden. Also `key="showB" initialToken="TB"` → `TB`, never `TA`. Also: `applyRotated` on show A must NOT leak its latch into show B (changed `key` remounts, resetting `rotatedRef`). (RTL re-render with a changed `key` remounts, exercising real navigation semantics.)
 - `useShareToken` outside provider throws.
 
 ### 6.2 New — `tests/components/shareTokenInstantUpdate.test.tsx` (the load-bearing test)
