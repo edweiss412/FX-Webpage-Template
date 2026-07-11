@@ -182,12 +182,13 @@ async function cleanup(): Promise<void> {
   }
 }
 
-/** Seed a published last-good show + its crew (committed). `lastSyncedAt` defaults to now(). */
+/** Seed a last-good show + its crew (committed; published by default). `lastSyncedAt` defaults to now(). */
 async function seedShow(opts: {
   driveFileId: string;
   crew: Crew[];
   lastSeen: string;
   lastSyncedAt?: string;
+  published?: boolean;
 }): Promise<string> {
   const row = one<{ id: string }>(
     await sql!.unsafe(
@@ -195,9 +196,15 @@ async function seedShow(opts: {
          (drive_file_id, slug, title, client_label, template_version,
           last_seen_modified_time, last_synced_at, published, last_sync_status)
        values ($1, $2, 'RSH Show', 'Client', 'v4', $3::timestamptz,
-               coalesce($4::timestamptz, now()), true, 'ok')
+               coalesce($4::timestamptz, now()), $5, 'ok')
        returning id`,
-      [opts.driveFileId, `slug-${opts.driveFileId}`, opts.lastSeen, opts.lastSyncedAt ?? null],
+      [
+        opts.driveFileId,
+        `slug-${opts.driveFileId}`,
+        opts.lastSeen,
+        opts.lastSyncedAt ?? null,
+        opts.published ?? true,
+      ],
     ),
   );
   for (const member of opts.crew) {
@@ -525,6 +532,32 @@ describe("crew rename identity-link (end-to-end, real DB)", () => {
       expect(after).not.toBeNull();
       expect(after!.id).toBe(before!.id);
       expect(after!.email).toBe(renamed[0]!.email); // upsert refreshed the linked row's fields
+      expect(await readCrewRow(showId, LINK_CREW[0]!.name)).toBeNull();
+    },
+  );
+
+  test.skipIf(!shouldRun)(
+    "unpublished MI-13 rename with NO accept: applies without hold AND without identity link (whole-diff R1 F3)",
+    async () => {
+      // Contract pin: the unpublished carve-out auto-applies, but an UNCONFIRMED heuristic pair
+      // must never identity-link (spec §3.3 — MI-13/14 link only on the version-bound accept).
+      // Failure mode caught: a future "simplification" that links heuristic pairs unconditionally.
+      const drive = newDrive();
+      const showId = await seedShow({
+        driveFileId: drive,
+        crew: LINK_CREW,
+        lastSeen: T0,
+        published: false,
+      });
+      const before = await readCrewRow(showId, LINK_CREW[0]!.name);
+
+      const renamed: Crew[] = [{ name: "Link Crew A2", email: "different@x.example" }];
+      const result = await runCron(drive, { modifiedTime: T1, parse: makeParse(renamed) });
+      expect(result.outcome).toBe("applied"); // no hold on unpublished
+
+      const after = await readCrewRow(showId, renamed[0]!.name);
+      expect(after).not.toBeNull();
+      expect(after!.id).not.toBe(before!.id); // delete+insert — NOT linked without a confirm
       expect(await readCrewRow(showId, LINK_CREW[0]!.name)).toBeNull();
     },
   );
