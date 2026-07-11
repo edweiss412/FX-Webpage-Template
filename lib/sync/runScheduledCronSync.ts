@@ -107,6 +107,7 @@ import {
   SyncInfraError,
   type SyncMode,
 } from "@/lib/sync/perFileProcessor";
+import { normalizeUseRawDecisions } from "@/lib/sync/useRawOverlay";
 
 export const STAGED_PARSE_REVISION_RACE = "STAGED_PARSE_REVISION_RACE" as const;
 export const STAGED_PARSE_REVISION_RACE_COOLDOWN = "STAGED_PARSE_REVISION_RACE_COOLDOWN" as const;
@@ -856,9 +857,10 @@ class PostgresPipelineTx implements SyncPipelineTx {
     const internal = await this.one<{
       parse_warnings: ParseResult["warnings"] | null;
       raw_unrecognized: ParseResult["raw_unrecognized"] | null;
+      use_raw_decisions: unknown;
     }>(
       `
-        select parse_warnings, raw_unrecognized
+        select parse_warnings, raw_unrecognized, use_raw_decisions
           from public.shows_internal
          where show_id = $1
          limit 1
@@ -913,6 +915,9 @@ class PostgresPipelineTx implements SyncPipelineTx {
       // §6.5: RAW nullable prior warnings — null when the column is NULL OR no shows_internal row
       // (untrustworthy baseline → Unit C skips). NOT coalesced to [] like `warnings` above.
       priorParseWarningsRaw: internal?.parse_warnings ?? null,
+      // Task 6: the stored "use raw" decisions, normalized at the single JSONB boundary. First-seen
+      // (no shows_internal row / null column) → []. Threaded into runPhase2's overlay on re-sync.
+      useRawDecisions: normalizeUseRawDecisions(internal?.use_raw_decisions ?? null),
     };
   }
 
@@ -1750,23 +1755,28 @@ class PostgresPipelineTx implements SyncPipelineTx {
   ) {
     await this.rows(
       `
-        insert into public.shows_internal (show_id, financials, parse_warnings, raw_unrecognized, run_of_show)
-        values ($1, $2::jsonb, $3::jsonb, $4::jsonb, $5::jsonb)
+        insert into public.shows_internal (show_id, financials, parse_warnings, raw_unrecognized, run_of_show, use_raw_decisions)
+        values ($1, $2::jsonb, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb)
         on conflict (show_id)
         do update set
           financials = excluded.financials,
           parse_warnings = excluded.parse_warnings,
           raw_unrecognized = excluded.raw_unrecognized,
-          run_of_show = excluded.run_of_show
+          run_of_show = excluded.run_of_show,
+          use_raw_decisions = excluded.use_raw_decisions
       `,
-      // $5: pass the computed object/null RAW — postgres.js serializes $N::jsonb itself; a manual
-      // JSON.stringify would double-encode (the postgres.js jsonb param trap).
+      // $5/$6: pass the computed object/null/array RAW — postgres.js serializes $N::jsonb itself; a
+      // manual JSON.stringify would double-encode (the postgres.js jsonb param trap).
       [
         showId,
         payload.financials,
         payload.parse_warnings,
         payload.raw_unrecognized,
         payload.run_of_show,
+        // Coalesce: the payload field is optional (direct tx-double callers may omit it); the DB
+        // column is NOT NULL, and postgres.js rejects an undefined bind param. applyParseResult
+        // always supplies an array, so this only guards standalone upsertShowsInternal doubles.
+        payload.use_raw_decisions ?? [],
       ],
     );
     // DQIGNORE-3 — prune ignored_warnings orphaned by this parse: any standing ignore whose content
@@ -3426,6 +3436,9 @@ export async function processOneFile_unlocked(
       // Task 2.9: drive the auto-apply changes feed.
       notableItems,
       ...(identityLinkRenames.length > 0 ? { identityLinkRenames } : {}),
+      // Task 6: thread the prior show's stored "use raw" decisions into the runPhase2 overlay.
+      // Only an EXISTING show (pass / auto_apply_with_holds) has a priorShow; first-seen → [].
+      ...(priorShow?.useRawDecisions ? { useRawDecisions: priorShow.useRawDecisions } : {}),
       // Task 5: thread source-region anchors into applyShowSnapshot (Task 6 persists them).
       ...(pipeline.sourceAnchors !== undefined ? { sourceAnchors: pipeline.sourceAnchors } : {}),
     },

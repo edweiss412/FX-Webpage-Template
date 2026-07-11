@@ -47,6 +47,14 @@ Hashkey `show:<driveFileId>`. Existing holders: `withShowLock` JS-wrapper (calle
 
 ---
 
+## Ratified amendment 1 (implementation, Task 6) — overlay runs in `runPhase2`, not inside `applyParseResult`
+
+The spec §7 / plan Task 6 wording places the overlay "inside `applyParseResult` before the full-replace writes." A live-code trace during implementation found that `runPhase2` (`phase2.ts:236`) persists `shows.dates` via `tx.applyShowSnapshot(...)` at `phase2.ts:288` — which runs BEFORE `applyParseResult` (`phase2.ts:369`). Because the DATES transform rewrites `show.dates.{travelIn,set,showDays,travelOut}`, an overlay confined to `applyParseResult` would write overlaid rooms/hotels but leave `shows.dates` at the un-overlaid (transform) value — the dates "use raw" affordance would silently no-op on the crew page.
+
+**Resolution (single, correct integration point):** the pure overlay runs ONCE in `runPhase2` immediately after `parseResult` is finalized (right after `phase2.ts:244`), BEFORE `applyShowSnapshot`. The overlaid `parseResult` then flows into BOTH `applyShowSnapshot` (dates → `shows`) and `applyParseResult` (rooms/hotels → their tables), so every entity persists overlaid. `applyParseResult` still owns persistence of `shows_internal.use_raw_decisions = kept` (each `applied:true`) via the same `upsertShowsInternal` that writes `parse_warnings`. The single ungated `writeUseRawStaleChanges` branch for `invalidated` stays in `runPhase2` (guarded only by `invalidated.length > 0 && port`), covering finalize + re-sync identically — NOT nested in the `phase2.ts:383` crew-diff block a first-seen finalize skips. `applyParseResult` remains pure w.r.t. locking (takes `tx`, never self-locks). This is the spec's INTENT ("the overlaid parseResult is what gets persisted"); only the code LOCATION moves up one frame so the dates write is included. Codex whole-diff review (Stage 4) validates.
+
+---
+
 ## File structure
 
 **Create:**

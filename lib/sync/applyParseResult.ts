@@ -4,6 +4,7 @@ import { agendaDayEmptied } from "@/lib/parser/blocks/agendaWarnings";
 import { attachSourceCellAnchors } from "@/lib/drive/showDayTimeAnchors";
 import { planHoldAwareApply } from "@/lib/sync/holds/holdAwareApply";
 import { readOpenHolds, type HoldPort } from "@/lib/sync/holds/holdPort";
+import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
 
 // PF38 (resolution #24): the prior-crew snapshot carries id + claimed_via_oauth_at so the
 // auto-apply before_image can restore the ORIGINAL crew identity (picker-cookie key + OAuth
@@ -56,6 +57,11 @@ export type ApplyParseResultTx = {
       // days, or null when none remain. Persisted as $5::jsonb (postgres.js serializes; never
       // JSON.stringify — double-encode trap).
       run_of_show: Record<string, ScheduleDay> | null;
+      // Task 6: the KEPT "use raw" decisions (applied:true) re-persisted verbatim as jsonb. []
+      // when none — the overlay ran in runPhase2; this file only forwards the partition to store.
+      // Optional so existing tx doubles that call upsertShowsInternal directly need not supply it;
+      // applyParseResult ALWAYS sets it (args.useRawKept ?? []), and every impl coalesces `?? []`.
+      use_raw_decisions?: UseRawDecision[];
     },
   ): Promise<void>;
   deleteLivePendingIngestion(driveFileId: string): Promise<void>;
@@ -88,6 +94,9 @@ export type ApplyParseResultArgs = {
    * today's delete+insert (fail-safe re-pick, never a wrong identity).
    */
   identityLinkRenames?: Array<{ removedName: string; addedName: string }>;
+  // Task 6: KEPT "use raw" decisions from the runPhase2 overlay. Forwarded verbatim to
+  // upsertShowsInternal.use_raw_decisions (applied:true). Absent → [] (no decisions to store).
+  useRawKept?: UseRawDecision[];
 };
 
 function difference(left: string[], right: string[]): string[] {
@@ -246,6 +255,7 @@ export async function applyParseResult(
     parse_warnings: args.parseResult.warnings,
     raw_unrecognized: args.parseResult.raw_unrecognized,
     run_of_show: runOfShowToStore,
+    use_raw_decisions: args.useRawKept ?? [],
   });
   await tx.deleteLivePendingIngestion(args.driveFileId);
   return {

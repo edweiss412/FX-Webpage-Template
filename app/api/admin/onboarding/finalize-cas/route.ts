@@ -15,6 +15,7 @@ import { evaluateFinalizeOverrideGate } from "@/lib/sync/pullSheetOverride";
 import { revisionTimesMatch } from "@/lib/sync/applyStaged";
 import { SHOW_ARCHIVED_IMMUTABLE, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import { adoptShowLockHeld } from "@/lib/sync/lockedShowTx";
+import { normalizeUseRawDecisions } from "@/lib/sync/useRawOverlay";
 import { makeSyncPipelineTx, type SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 import { revalidateShow } from "@/lib/data/showCacheTag";
 import { severityForFinalizeRowCode } from "@/lib/onboarding/finalizeRowSeverity";
@@ -447,9 +448,20 @@ async function applyShadow(
     return { drive_file_id: row.drive_file_id, code: overrideGate.code };
   }
 
+  // Task 6: read the staged "use raw" decisions under the held show: lock. The Flow B CAS path
+  // consumes the shadow payload for parseResult, but the decisions live on pending_syncs — read them
+  // directly (keyed by session + drive file). A consumed/absent row normalizes to [] (overlay no-op).
+  const useRawRow = await lockedTx.queryOne<{ use_raw_decisions: unknown } | undefined>(
+    `select use_raw_decisions from public.pending_syncs
+      where wizard_session_id = $1::uuid and drive_file_id = $2
+      limit 1`,
+    [row.wizard_session_id, row.drive_file_id],
+  );
+
   const core = await applyStagedCore(lockedTx, {
     sourceScope: "wizard",
     driveFileId: row.drive_file_id,
+    useRawDecisions: normalizeUseRawDecisions(useRawRow?.use_raw_decisions ?? null),
     show: {
       showId: live.id,
       lastSeenModifiedTime: normalizeTimestamptz(live.last_seen_modified_time),
