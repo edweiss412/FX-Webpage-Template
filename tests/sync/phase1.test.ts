@@ -1000,7 +1000,10 @@ describe("crew removal-class publish gate (BL-CREW-RENAME-SILENT-REPLACEMENT)", 
 
   test("net-zero MI-13-shape rename (email differs, similar name) holds", async () => {
     const tx = new FakePhase1Tx();
-    publishedShow(tx, parseResult({ crewMembers: [crew("Jon Smith", { email: "jon@x.example" })] }));
+    publishedShow(
+      tx,
+      parseResult({ crewMembers: [crew("Jon Smith", { email: "jon@x.example" })] }),
+    );
     const next = parseResult({ crewMembers: [crew("John Smith", { email: "john@x.example" })] });
     const result = await runWith(tx, next);
     expect(result.outcome).toBe("shrink_held");
@@ -1020,7 +1023,10 @@ describe("crew removal-class publish gate (BL-CREW-RENAME-SILENT-REPLACEMENT)", 
 
   test("net-zero MI-12 rename (same canonical email) does NOT hold", async () => {
     const tx = new FakePhase1Tx();
-    publishedShow(tx, parseResult({ crewMembers: [crew("Jon Smith", { email: "jon@x.example" })] }));
+    publishedShow(
+      tx,
+      parseResult({ crewMembers: [crew("Jon Smith", { email: "jon@x.example" })] }),
+    );
     const next = parseResult({ crewMembers: [crew("John Smith", { email: "JON@x.example" })] });
     const result = await runWith(tx, next);
     expect(result.outcome).not.toBe("shrink_held");
@@ -1067,7 +1073,10 @@ describe("crew removal-class publish gate (BL-CREW-RENAME-SILENT-REPLACEMENT)", 
 
   test("onboarding_scan mode: same rename edit never holds", async () => {
     const tx = new FakePhase1Tx();
-    publishedShow(tx, parseResult({ crewMembers: [crew("Jon Smith", { email: "jon@x.example" })] }));
+    publishedShow(
+      tx,
+      parseResult({ crewMembers: [crew("Jon Smith", { email: "jon@x.example" })] }),
+    );
     const next = parseResult({ crewMembers: [crew("John Smith", { email: "john@x.example" })] });
     const result = await runWith(tx, next, { mode: "onboarding_scan" });
     expect(result.outcome).not.toBe("shrink_held");

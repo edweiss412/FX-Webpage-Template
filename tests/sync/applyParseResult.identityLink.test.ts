@@ -77,7 +77,11 @@ describe("applyParseResult — identity-link renames (spec §3.4)", () => {
       tx,
       baseArgs(["Jon"], [crew("John")], [{ removedName: "Jon", addedName: "John" }]),
     );
-    expect(ops).toEqual(["renameCrewMember:Jon→John", "deleteCrewMembersNotIn", "upsertCrewMembers"]);
+    expect(ops).toEqual([
+      "renameCrewMember:Jon→John",
+      "deleteCrewMembersNotIn",
+      "upsertCrewMembers",
+    ]);
     expect(tx.renameCrewMember).toHaveBeenCalledWith("s1", "Jon", "John");
   });
 

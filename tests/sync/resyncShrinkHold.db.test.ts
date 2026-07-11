@@ -478,9 +478,7 @@ describe("crew rename identity-link (end-to-end, real DB)", () => {
       )) as unknown as Array<{ change_kind: string; entity_ref: string }>;
       expect(feed.filter((r) => r.change_kind === "crew_renamed")).toHaveLength(1);
       expect(
-        feed.some(
-          (r) => r.change_kind === "crew_removed" && r.entity_ref === LINK_CREW[0]!.name,
-        ),
+        feed.some((r) => r.change_kind === "crew_removed" && r.entity_ref === LINK_CREW[0]!.name),
       ).toBe(false);
       expect(
         feed.some((r) => r.change_kind === "crew_added" && r.entity_ref === renamed[0]!.name),
