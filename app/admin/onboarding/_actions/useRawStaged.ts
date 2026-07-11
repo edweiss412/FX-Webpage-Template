@@ -144,7 +144,7 @@ export async function setStagedUseRawDecisionAction(
         target: lookup.target,
         useRaw,
         decidedBy: email,
-        now: new Date().toISOString(),
+        now: new Date().toISOString(), // not-render-side: mutation timestamp (use-raw decision decidedAt)
         // Pre-create: no entity rows exist to already-match, so a decision is never
         // applied:true and clear-pending is unreachable (§9a).
         allowApplied: false,

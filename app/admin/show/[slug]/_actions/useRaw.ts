@@ -91,7 +91,7 @@ export async function setUseRawDecisionAction(
         target: lookup.target,
         useRaw,
         decidedBy: email,
-        now: new Date().toISOString(),
+        now: new Date().toISOString(), // not-render-side: mutation timestamp (use-raw decision decidedAt)
         allowApplied: true,
       });
 
