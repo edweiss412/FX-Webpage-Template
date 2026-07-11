@@ -55,6 +55,12 @@ The spec §7 / plan Task 6 wording places the overlay "inside `applyParseResult`
 
 ---
 
+## Ratified amendment 2 (implementation, Task 7) — `applied` is derived from the current persisted row, per spec §3 (NOT an entity-row equivalence-class scan)
+
+Plan Task 7 described computing the new `applied` flag by scanning the entity rows of the WHOLE `(code, contentHash)` equivalence class (all/none/MIXED → true/false/false). Spec §3 (lines 88-97, the "single toggle-write rule" table) is more precise and CONTRADICTS that: `applied` "MEANS 'the entity rows already reflect this preference,' … which is **fully determined by the CURRENT persisted row (no need to read the entity rows themselves)**," and gives the exact four-row transition table (absent→raw `{raw,false}`; `{raw,false}`→transform delete; `{raw,true}`→transform `{transform,false}`; `{transform,false}`→raw `{raw,true}`). Per invariant 7 (spec is canonical; the plan supersedes it only in ratified amendments) the SPEC governs. Equivalence-class governance is not lost — it lives in the OVERLAY (§7): a single content-scoped decision is applied by `applyUseRawDecisions` to EVERY current warning sharing that `(code, contentHash)`, and the per-show toggle ALWAYS delegates to `runManualSyncForShow` (which re-parses + re-runs the overlay) after the write, so any transiently-new duplicate-content cell is settled by that immediate re-sync. `computeUseRawToggle` (`lib/sync/useRawDecisionState.ts`) implements the spec §3 table verbatim; `findLiveResolvableWarning` re-reads live warnings in-lock. The plan's MIXED-case test is therefore N/A (that state cannot durably persist across an apply); the action tests cover the spec §3 table + the overlay's content-scoping (Task 3) instead.
+
+---
+
 ## File structure
 
 **Create:**
