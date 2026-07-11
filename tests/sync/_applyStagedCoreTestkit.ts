@@ -119,6 +119,9 @@ export function spyTx(): SpyTx {
     async deleteCrewMembersNotIn() {
       tx.ops.push("deleteCrewMembersNotIn");
     },
+    async renameCrewMember(_id: string, removedName: string, addedName: string) {
+      tx.ops.push(`renameCrewMember:${removedName}→${addedName}`);
+    },
     async upsertCrewMembers() {
       tx.ops.push("upsertCrewMembers");
     },

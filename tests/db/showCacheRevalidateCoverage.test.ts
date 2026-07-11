@@ -53,7 +53,7 @@ const REVALIDATE_REGISTRY: RegistryEntry[] = [
   // ---- Task 5 (sync chokepoint callers) — already shipped before this milestone's Tasks 6–9 ----
   {
     file: "lib/sync/runScheduledCronSync.ts",
-    siteCount: 21,
+    siteCount: 22,
     disposition: "revalidate",
     revalidateBranches: 2, // processOneFile apply tail + markMissingShow loop
     reason:
@@ -62,7 +62,10 @@ const REVALIDATE_REGISTRY: RegistryEntry[] = [
       "(archived-tab override apply/auto-clear) — admin sync-config gating OLD-tab inclusion on the NEXT " +
       "parse, NOT served crew-page content; it also sits inside the same processOneFile flow the apply-tail " +
       "revalidate already covers. (The admin field-override crew-reconciliation writes and the two " +
-      "`update public.admin_overrides` writes were removed with the field-override teardown, #376.)",
+      "`update public.admin_overrides` writes were removed with the field-override teardown, #376.) " +
+      "The 22nd site is renameCrewMember's identity-preserving `update public.crew_members set name` " +
+      "(BL-CREW-RENAME-SILENT-REPLACEMENT) — it runs inside applyParseResult within the same " +
+      "processOneFile apply flow, so the existing apply-tail revalidateShowFromResult covers it.",
   },
   {
     file: "lib/sync/runManualSyncForShow.ts",

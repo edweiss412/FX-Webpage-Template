@@ -18,6 +18,7 @@ import type {
   PreviousCrewMember,
 } from "@/lib/sync/applyParseResult";
 import type { HoldPort } from "@/lib/sync/holds/holdPort";
+import { makeSyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 
 export function holdPort(tx: Sql): HoldPort {
   return {
@@ -170,6 +171,11 @@ export function applyTx(tx: Sql): ApplyParseResultTx {
   return {
     async deleteCrewMembersNotIn(showId: string, names: string[]) {
       await tx`delete from public.crew_members where show_id = ${showId} and not (name = any(${names}))`;
+    },
+    async renameCrewMember(showId: string, removedName: string, addedName: string) {
+      // Delegate to the PRODUCTION tx (whole-diff R1 F2) so this testkit can never drift from
+      // PostgresPipelineTx.renameCrewMember's guarded in-place SQL.
+      await makeSyncPipelineTx(tx as never).renameCrewMember(showId, removedName, addedName);
     },
     async upsertCrewMembers(showId: string, members: ParseResult["crewMembers"]) {
       for (const m of members) {

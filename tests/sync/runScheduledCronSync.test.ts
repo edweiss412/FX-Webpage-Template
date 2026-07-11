@@ -393,6 +393,9 @@ function tx(): PipelineTx {
     async deleteCrewMembersNotIn() {
       this.operations.push("deleteCrewMembersNotIn");
     },
+    async renameCrewMember() {
+      this.operations.push("renameCrewMember");
+    },
     async upsertCrewMembers() {
       this.operations.push("upsertCrewMembers");
     },
@@ -1628,6 +1631,28 @@ describe("processOneFile", () => {
     ).resolves.toEqual({ outcome: "stage", stagedId: "staged-1" });
 
     expect(fakeTx.operations).not.toContain("readRevisionRaceCooldown:file-1:token-1");
+  });
+
+  test("onboarding_scan never threads identity links (no renameCrewMember, spec §4)", async () => {
+    // BL-CREW-RENAME-SILENT-REPLACEMENT: onboarding stages (first-seen semantics) and never
+    // applies, so no roster shape — MI-12-like or otherwise — may reach the identity-link apply.
+    const fakeTx = tx();
+    const result = await processOneFile_unlocked(
+      fakeTx as LockedShowTx<PipelineTx>,
+      "file-1",
+      "onboarding_scan",
+      { ...fileMeta("file-1"), headRevisionId: "token-1" },
+      deps({
+        fetchMarkdownAtRevision: vi.fn(async () => "# v4\nShow"),
+        runPhase1: vi.fn(async () => ({
+          outcome: "stage" as const,
+          stagedId: "staged-1",
+          triggeredReviewItems: [],
+        })),
+      }),
+    );
+    expect(result).toEqual({ outcome: "stage", stagedId: "staged-1" });
+    expect(fakeTx.operations.filter((op) => op.startsWith("renameCrewMember"))).toEqual([]);
   });
 
   test("spreadsheet file gone during xlsx fetch is STAGED_PARSE_SOURCE_GONE, not a race", async () => {

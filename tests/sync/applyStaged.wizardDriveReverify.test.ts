@@ -140,6 +140,7 @@ function fakeTx(): LockedShowTx<FakeTx> {
       return { outcome: "updated", showId: "show-1", previousCrewNames: [], priorRunOfShow: null };
     },
     async deleteCrewMembersNotIn() {},
+    async renameCrewMember() {},
     async upsertCrewMembers() {},
     async provisionAddedCrewAuth() {},
     async revokeRemovedCrewAuth() {},

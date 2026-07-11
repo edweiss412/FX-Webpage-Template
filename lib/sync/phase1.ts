@@ -217,6 +217,10 @@ const SHRINK_SECTION_LABELS: Record<
 // MI-6's TriggeredReviewItem carries no counts (lib/parser/types.ts:436), so the crew delta is
 // computed from the parse results; MI-7 items embed { section, prior_count, new_count }. Emits e.g.
 // "crew 5→2; hotels 4→1". Never a bare code (invariant 5) nor a raw section token.
+// Cap so a pathological sheet edit (mass removals → one part per name) can't grow the admin
+// alert detail unbounded; overflow renders as "+N more" (spec §3.2).
+const MAX_SHRINK_PARTS = 8;
+
 function describeShrink(
   items: TriggeredReviewItem[],
   priorParseResult: ParseResult,
@@ -231,7 +235,18 @@ function describeShrink(
     } else if (item.invariant === "MI-7") {
       const mi7 = item as Extract<TriggeredReviewItem, { invariant: "MI-7" }>;
       parts.push(`${SHRINK_SECTION_LABELS[mi7.section]} ${mi7.prior_count}→${mi7.new_count}`);
+    } else if (item.invariant === "MI-13" || item.invariant === "MI-14") {
+      parts.push(`possible rename: "${item.removed_name}" → "${item.added_name}"`);
+    } else if (
+      item.invariant === "MI-13-orphan-remove" ||
+      item.invariant === "MI-14-orphan-remove"
+    ) {
+      parts.push(`crew removed: "${item.removed_name}"`);
     }
+  }
+  if (parts.length > MAX_SHRINK_PARTS) {
+    const extra = parts.length - MAX_SHRINK_PARTS;
+    return [...parts.slice(0, MAX_SHRINK_PARTS), `+${extra} more`].join("; ");
   }
   return parts.join("; ");
 }
@@ -431,17 +446,25 @@ export async function runPhase1(
     show && args.mode !== "onboarding_scan"
       ? reviewItems.filter((item) => item.invariant === "MI-6" || item.invariant === "MI-7")
       : [];
-  // Flow 4.1 (audit P0-1): a PUBLISHED show losing exactly ONE crew member holds last-good instead
-  // of auto-applying silently. MI-6 (lib/parser/invariants.ts) only fires at crewDrop > 1, so the
-  // single-drop case is synthesized HERE, where publish state is known. Pushed into
-  // materialShrinkItems ONLY (never reviewItems): a single removal already yields an MI-13/MI-14
-  // orphan-remove item in reviewItems, so this synthetic item just triggers the hold + labels
-  // describeShrink ("crew N→N-1"). crewDrop === 1 can never coexist with a real MI-6 (needs > 1),
-  // so describeShrink never double-counts. Unpublished / first-seen / onboarding_scan are excluded.
+  // BL-CREW-RENAME-SILENT-REPLACEMENT (spec 2026-07-10; supersedes the Flow 4.1 crewDrop === 1
+  // synthetic): a PUBLISHED show holds on EVERY crew-removal-class item — MI-13/MI-14 pairs
+  // (heuristic rename candidates) and their orphan-removes (true removals, incl. the net-zero
+  // drop+add swap the net-count synthetic missed). MI-12 pairs are deliberately EXCLUDED: same
+  // canonical email = same person → identity-linked auto-apply (computeIdentityLinkRenames in
+  // the orchestrator). Coverage lemma: every removed name lands in exactly one of MI-12/MI-13/
+  // MI-14 pair or MI-13/MI-14-orphan-remove (invariants.ts pairing cascade), so this subsumes
+  // the single-drop synthesis it replaces — a single silent drop now holds via its orphan-remove
+  // item. Unpublished / first-seen / onboarding_scan are excluded, as before.
   if (show && args.mode !== "onboarding_scan" && show.published) {
-    const crewDrop = show.priorParseResult.crewMembers.length - args.parseResult.crewMembers.length;
-    if (crewDrop === 1) {
-      materialShrinkItems.push({ id: randomUUID(), invariant: "MI-6" });
+    for (const item of reviewItems) {
+      if (
+        item.invariant === "MI-13" ||
+        item.invariant === "MI-14" ||
+        item.invariant === "MI-13-orphan-remove" ||
+        item.invariant === "MI-14-orphan-remove"
+      ) {
+        materialShrinkItems.push(item);
+      }
     }
   }
   if (materialShrinkItems.length > 0) {

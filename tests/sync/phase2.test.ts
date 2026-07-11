@@ -202,6 +202,14 @@ class FakePhase2Tx {
     if (show) show.crewNames = show.crewNames.filter((name) => names.includes(name));
   }
 
+  async renameCrewMember(showId: string, removedName: string, addedName: string) {
+    this.operations.push(`renameCrewMember:${showId}:${removedName}→${addedName}`);
+    const show = [...this.shows.values()].find((row) => row.id === showId);
+    if (show) {
+      show.crewNames = show.crewNames.map((name) => (name === removedName ? addedName : name));
+    }
+  }
+
   async upsertCrewMembers(showId: string, members: CrewMemberRow[]) {
     this.operations.push(`upsertCrewMembers:${showId}`);
     const show = [...this.shows.values()].find((row) => row.id === showId);
@@ -461,6 +469,32 @@ describe("runPhase2 destructive snapshot", () => {
 
     expect(tx.operations.indexOf("deleteCrewMembersNotIn:show-1:Alice New")).toBeLessThan(
       tx.operations.indexOf("upsertCrewMembers:show-1"),
+    );
+  });
+
+  test("identityLinkRenames threads through to the apply as an in-place rename before delete", async () => {
+    // BL-CREW-RENAME-SILENT-REPLACEMENT spec §3.3: Phase2Args.identityLinkRenames must reach
+    // applyParseResult. Failure mode caught: an orchestrator that computes pairs but a phase2
+    // that drops the arg — apply would silently fall back to delete+insert (id churn).
+    const tx = new FakePhase2Tx();
+    tx.shows.set("file-1", {
+      id: "show-1",
+      driveFileId: "file-1",
+      lastSeenModifiedTime: "2026-05-08T11:00:00.000Z",
+      lastSyncStatus: "ok",
+      lastSyncError: null,
+      crewNames: ["Jon Smith"],
+    });
+
+    await runWith(tx, {
+      parseResult: parseResult({ crewMembers: [crew("John Smith", "same@example.com")] }),
+      identityLinkRenames: [{ removedName: "Jon Smith", addedName: "John Smith" }],
+    });
+
+    const renameIdx = tx.operations.indexOf("renameCrewMember:show-1:Jon Smith→John Smith");
+    expect(renameIdx).toBeGreaterThan(-1);
+    expect(renameIdx).toBeLessThan(
+      tx.operations.findIndex((op) => op.startsWith("deleteCrewMembersNotIn:show-1")),
     );
   });
 

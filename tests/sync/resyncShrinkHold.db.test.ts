@@ -182,12 +182,13 @@ async function cleanup(): Promise<void> {
   }
 }
 
-/** Seed a published last-good show + its crew (committed). `lastSyncedAt` defaults to now(). */
+/** Seed a last-good show + its crew (committed; published by default). `lastSyncedAt` defaults to now(). */
 async function seedShow(opts: {
   driveFileId: string;
   crew: Crew[];
   lastSeen: string;
   lastSyncedAt?: string;
+  published?: boolean;
 }): Promise<string> {
   const row = one<{ id: string }>(
     await sql!.unsafe(
@@ -195,9 +196,15 @@ async function seedShow(opts: {
          (drive_file_id, slug, title, client_label, template_version,
           last_seen_modified_time, last_synced_at, published, last_sync_status)
        values ($1, $2, 'RSH Show', 'Client', 'v4', $3::timestamptz,
-               coalesce($4::timestamptz, now()), true, 'ok')
+               coalesce($4::timestamptz, now()), $5, 'ok')
        returning id`,
-      [opts.driveFileId, `slug-${opts.driveFileId}`, opts.lastSeen, opts.lastSyncedAt ?? null],
+      [
+        opts.driveFileId,
+        `slug-${opts.driveFileId}`,
+        opts.lastSeen,
+        opts.lastSyncedAt ?? null,
+        opts.published ?? true,
+      ],
     ),
   );
   for (const member of opts.crew) {
@@ -428,6 +435,130 @@ describe("re-sync material-shrink HOLD (retain / alert / status / auto-resolve /
       expect(restale.outcome).toBe("shrink_held");
 
       expect(await crewCount(showId)).toBe(SEED_CREW_COUNT); // still last-good
+    },
+  );
+});
+
+// ---------------------------------------------------------------------------------------------
+// BL-CREW-RENAME-SILENT-REPLACEMENT (spec 2026-07-10) — identity-link seam, end-to-end.
+// These drive the REAL sync entry points; the id-preservation assertions cannot pass under
+// delete+insert (anti-tautology: ids read back from crew_members, the data source).
+// ---------------------------------------------------------------------------------------------
+describe("crew rename identity-link (end-to-end, real DB)", () => {
+  const LINK_CREW: Crew[] = [{ name: "Link Crew A", email: "linka@x.example" }];
+
+  async function readCrewRow(
+    showId: string,
+    name: string,
+  ): Promise<{ id: string; name: string; email: string | null } | null> {
+    const rows = (await sql!.unsafe(
+      `select id, name, email from public.crew_members where show_id = $1 and name = $2`,
+      [showId, name],
+    )) as unknown as Array<{ id: string; name: string; email: string | null }>;
+    return rows[0] ?? null;
+  }
+
+  test.skipIf(!shouldRun)(
+    "MI-12 rename end-to-end: no hold, crew_members.id preserved, feed parity",
+    async () => {
+      const drive = newDrive();
+      const showId = await seedShow({ driveFileId: drive, crew: LINK_CREW, lastSeen: T0 });
+      const before = await readCrewRow(showId, LINK_CREW[0]!.name);
+      expect(before).not.toBeNull();
+
+      // Same canonical email, new name → MI-12 → auto-link, no hold.
+      const renamed: Crew[] = [{ name: "Link Crew A2", email: LINK_CREW[0]!.email }];
+      const result = await runCron(drive, { modifiedTime: T1, parse: makeParse(renamed) });
+      expect(result.outcome).toBe("applied");
+
+      const after = await readCrewRow(showId, renamed[0]!.name);
+      expect(after).not.toBeNull();
+      expect(after!.id).toBe(before!.id); // the assertion delete+insert cannot pass
+      expect(await readCrewRow(showId, LINK_CREW[0]!.name)).toBeNull();
+
+      // FEED PARITY (spec test 12): exactly one crew_renamed auto_apply row for the pair, and no
+      // crew_removed/crew_added rows naming either side.
+      const feed = (await sql!.unsafe(
+        `select change_kind, entity_ref from public.show_change_log
+          where show_id = $1 and source = 'auto_apply'`,
+        [showId],
+      )) as unknown as Array<{ change_kind: string; entity_ref: string }>;
+      expect(feed.filter((r) => r.change_kind === "crew_renamed")).toHaveLength(1);
+      expect(
+        feed.some((r) => r.change_kind === "crew_removed" && r.entity_ref === LINK_CREW[0]!.name),
+      ).toBe(false);
+      expect(
+        feed.some((r) => r.change_kind === "crew_added" && r.entity_ref === renamed[0]!.name),
+      ).toBe(false);
+    },
+  );
+
+  test.skipIf(!shouldRun)(
+    "MI-13 rename end-to-end: hold; STALE accept stays held; version-bound accept links",
+    async () => {
+      const drive = newDrive();
+      const showId = await seedShow({ driveFileId: drive, crew: LINK_CREW, lastSeen: T0 });
+      const before = await readCrewRow(showId, LINK_CREW[0]!.name);
+
+      // Name AND email both change (Levenshtein-close name) → MI-13 → hold.
+      const renamed: Crew[] = [{ name: "Link Crew A2", email: "different@x.example" }];
+      const held = await runManual(drive, { modifiedTime: T1, parse: makeParse(renamed) });
+      expect(held.outcome).toBe("shrink_held");
+      const heldModifiedTime = (held as Extract<typeof held, { outcome: "shrink_held" }>)
+        .heldModifiedTime;
+      // Row untouched while held.
+      expect((await readCrewRow(showId, LINK_CREW[0]!.name))!.id).toBe(before!.id);
+
+      // GUARD (plan-R2 F4): a STALE accept can never apply/link — re-holds, row untouched.
+      const stale = await runManual(drive, {
+        modifiedTime: T1,
+        parse: makeParse(renamed),
+        acceptShrink: true,
+        expectedModifiedTime: "2020-01-01T00:00:00.000Z",
+      });
+      expect(stale.outcome).toBe("shrink_held");
+      expect((await readCrewRow(showId, LINK_CREW[0]!.name))!.id).toBe(before!.id);
+      expect(await readCrewRow(showId, renamed[0]!.name)).toBeNull();
+
+      // Version-bound accept → applies AND identity-links (confirm = vouch).
+      const accepted = await runManual(drive, {
+        modifiedTime: T1,
+        parse: makeParse(renamed),
+        acceptShrink: true,
+        expectedModifiedTime: heldModifiedTime,
+      });
+      expect(accepted.outcome).toBe("applied");
+      const after = await readCrewRow(showId, renamed[0]!.name);
+      expect(after).not.toBeNull();
+      expect(after!.id).toBe(before!.id);
+      expect(after!.email).toBe(renamed[0]!.email); // upsert refreshed the linked row's fields
+      expect(await readCrewRow(showId, LINK_CREW[0]!.name)).toBeNull();
+    },
+  );
+
+  test.skipIf(!shouldRun)(
+    "unpublished MI-13 rename with NO accept: applies without hold AND without identity link (whole-diff R1 F3)",
+    async () => {
+      // Contract pin: the unpublished carve-out auto-applies, but an UNCONFIRMED heuristic pair
+      // must never identity-link (spec §3.3 — MI-13/14 link only on the version-bound accept).
+      // Failure mode caught: a future "simplification" that links heuristic pairs unconditionally.
+      const drive = newDrive();
+      const showId = await seedShow({
+        driveFileId: drive,
+        crew: LINK_CREW,
+        lastSeen: T0,
+        published: false,
+      });
+      const before = await readCrewRow(showId, LINK_CREW[0]!.name);
+
+      const renamed: Crew[] = [{ name: "Link Crew A2", email: "different@x.example" }];
+      const result = await runCron(drive, { modifiedTime: T1, parse: makeParse(renamed) });
+      expect(result.outcome).toBe("applied"); // no hold on unpublished
+
+      const after = await readCrewRow(showId, renamed[0]!.name);
+      expect(after).not.toBeNull();
+      expect(after!.id).not.toBe(before!.id); // delete+insert — NOT linked without a confirm
+      expect(await readCrewRow(showId, LINK_CREW[0]!.name)).toBeNull();
     },
   );
 });

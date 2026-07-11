@@ -98,6 +98,7 @@ import {
   type RoleFlagsNotice,
   type Phase2Tx,
 } from "@/lib/sync/phase2";
+import { computeIdentityLinkRenames } from "@/lib/sync/identityLinkRenames";
 import { promoteSnapshotUpload as defaultPromoteSnapshotUpload } from "@/lib/sync/promoteSnapshot";
 import {
   type DeferredIngestionRow,
@@ -1572,6 +1573,24 @@ class PostgresPipelineTx implements SyncPipelineTx {
       showId,
       names,
     ]);
+  }
+
+  async renameCrewMember(showId: string, removedName: string, addedName: string) {
+    // Identity-preserving rename (spec 2026-07-10 §3.4): guarded, idempotent, at-most-one-row.
+    // The NOT EXISTS makes a target-name collision or a re-run a no-op instead of a
+    // unique (show_id, name) violation; the subsequent upsertCrewMembers refreshes every parsed
+    // field on the renamed row. Runs on the already-locked show tx (no new lock holder).
+    await this.rows(
+      `
+        update public.crew_members
+           set name = $3
+         where show_id = $1 and name = $2
+           and not exists (
+             select 1 from public.crew_members where show_id = $1 and name = $3
+           )
+      `,
+      [showId, removedName, addedName],
+    );
   }
 
   async upsertCrewMembers(showId: string, members: ParseResult["crewMembers"]) {
@@ -3377,6 +3396,16 @@ export async function processOneFile_unlocked(
     }
   }
 
+  // BL-CREW-RENAME-SILENT-REPLACEMENT (spec §3.3): classified rename pairs to land as
+  // identity-preserving in-place renames. MI-12 always; MI-13/MI-14 only when THIS run is the
+  // version-bound accepted apply — the same predicate phase1's hold fall-through uses
+  // (acceptShrink + expectedModifiedTime === binding.modifiedTime), recomputed here where the
+  // Phase-2 args are built. Onboarding/first-seen never reach this with items (notableItems is
+  // pass/auto-apply-only above).
+  const acceptedShrinkThisVersion =
+    deps.acceptShrink === true && deps.expectedModifiedTime === pipeline.binding.modifiedTime;
+  const identityLinkRenames = computeIdentityLinkRenames(notableItems, acceptedShrinkThisVersion);
+
   const phase2 = await runPhase2_unlocked(
     tx,
     {
@@ -3396,6 +3425,7 @@ export async function processOneFile_unlocked(
       ...(phase1.outcome === "auto_apply_with_holds" ? { mi11Items: phase1.mi11Items } : {}),
       // Task 2.9: drive the auto-apply changes feed.
       notableItems,
+      ...(identityLinkRenames.length > 0 ? { identityLinkRenames } : {}),
       // Task 5: thread source-region anchors into applyShowSnapshot (Task 6 persists them).
       ...(pipeline.sourceAnchors !== undefined ? { sourceAnchors: pipeline.sourceAnchors } : {}),
     },

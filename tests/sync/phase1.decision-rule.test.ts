@@ -475,19 +475,27 @@ describe("re-sync quality gate — material-shrink hold", () => {
 });
 
 describe("single-crew drop gate on published shows (Flow 4.1)", () => {
-  test("published single-drop (cron) → shrink_held with exactly one MI-6", async () => {
+  test("published single-drop (cron) → shrink_held via its removal-class orphan item", async () => {
     const tx = new FakePhase1Tx();
     const prior = parseResult({ crewMembers: crewList(5) });
     seedPriorShow(tx, prior); // published defaults true
-    const next = parseResult({ crewMembers: crewList(4) }); // subset → crewDrop === 1
+    const next = parseResult({ crewMembers: crewList(4) }); // subset → one removal, no adds
     const res = await runWith(tx, next);
     expect(res.outcome).toBe("shrink_held");
     if (res.outcome !== "shrink_held") throw new Error("unreachable");
-    // failure mode caught: P0-1 — a live single-crew drop applying silently
-    expect(res.shrinkItems.filter((i) => i.invariant === "MI-6")).toHaveLength(1);
-    // count derived from fixture lengths, not hardcoded
-    expect(res.message).toContain(`${prior.crewMembers.length}→${next.crewMembers.length}`);
-    expect(res.message.toLowerCase()).toContain("crew");
+    // failure mode caught: P0-1 — a live single-crew drop applying silently. Since
+    // BL-CREW-RENAME-SILENT-REPLACEMENT the hold rides the removal's own MI-13-orphan-remove
+    // item (the removed member has an email), not a synthetic net-count MI-6.
+    const removedName = prior.crewMembers[prior.crewMembers.length - 1]!.name; // derived, not hardcoded
+    expect(
+      res.shrinkItems.filter(
+        (i) =>
+          (i.invariant === "MI-13-orphan-remove" || i.invariant === "MI-14-orphan-remove") &&
+          i.removed_name === removedName,
+      ),
+    ).toHaveLength(1);
+    expect(res.shrinkItems.filter((i) => i.invariant === "MI-6")).toHaveLength(0); // below MI-6's >1 threshold
+    expect(res.message).toContain(`crew removed: "${removedName}"`);
     expect(tx.shrinkHeldCalls).toHaveLength(1);
   });
 
