@@ -105,8 +105,9 @@ async function toResult(
       verifyReelOnApply: false,
       autoPublishFirstSeen,
       // Phase 2 parity with the cron path. A first-seen sheet has no prior — no notable diffs
-      // to log and no MI-11 holds.
+      // to log and no MI-11 holds and no rename pairs to identity-link.
       notableItems: [],
+      identityLinkRenames: [],
     });
     if (phase2.outcome === "stale") {
       return { outcome: "hard_failed", errorCode: phase2.code };
