@@ -159,6 +159,15 @@ const REVALIDATE_REGISTRY: RegistryEntry[] = [
     disposition: "revalidate",
     reason: "publish_show/unpublish_show dispatcher (Published toggle); revalidateShow(id) on ok",
   },
+  // ---- Feature B (structural-transform use-raw decision toggle) ----
+  {
+    file: "app/admin/show/[slug]/_actions/useRaw.ts",
+    siteCount: 1,
+    disposition: "revalidate",
+    reason:
+      "content-pinned use-raw decision write (`update public.shows_internal set use_raw_decisions`); " +
+      "revalidateShow(id) on every mutated-success branch (alreadySettled + post-re-sync apply_pending)",
+  },
   // ---- Task 9 (feed + unpublish + validation + exemptions) ----
   {
     file: "app/admin/show/[slug]/_actions/feed.ts",

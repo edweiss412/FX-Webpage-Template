@@ -95,6 +95,9 @@ const NON_GAP_CATALOG_CODES = new Set<string>([
   "FINALIZE_OWNED_SHOW",
   "ONBOARDING_SCAN_REVIEW",
   "ROLE_FLAGS_NOTICE",
+  // use-raw decision auto-invalidation (sync path): a content-pinned use-raw decision
+  // whose cell changed is dropped + logged via show_change_log, not a parse-warning data gap
+  "USE_RAW_DECISION_STALE",
   // sync-problem / infra codes (surface as admin alerts / results, not parse warnings)
   "SHEET_UNAVAILABLE",
   "PARSE_ERROR_LAST_GOOD",
