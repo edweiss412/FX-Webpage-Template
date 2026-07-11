@@ -244,18 +244,8 @@ test("linked pair renames BEFORE delete and both before upsert", async () => {
 });
 test("pair skipped when removedName not in previous crew", async () => { /* no renameCrewMember op */ });
 test("pair skipped when addedName absent from post-hold next crew", async () => { /* no op */ });
-test("pair skipped when removedName is held", async () => {
-  // CONCRETE CONTRACT (plan-R1 M3): use tests/sync/_holdAwareTestkit.ts REAL-DB helpers —
-  // `seedShow`, `seedCrew`, `holdPort(tx)` (exports at _holdAwareTestkit.ts:22,84,95). Seed the
-  // show + crew "Jon"; insert an open sync_holds row with domain 'crew_identity' and
-  // entity_key 'Jon' (copy the insert shape an existing test in tests/sync/holdAwareApply*
-  // uses with this testkit); run applyParseResult with holds: { port, baseModifiedTime } and
-  // identityLinkRenames [{removedName:"Jon", addedName:"John"}]. The hold plan puts "Jon" in
-  // heldNames → assert the crew row still has its ORIGINAL name (no rename applied) via
-  // readCrew (_holdAwareTestkit.ts:119). This is a .db test — put it in the db-suite variant
-  // of this file (applyParseResult.identityLink.db.test.ts) alongside the direct SQL tests in
-  // Step 1b if mixing unit+db in one file fights the project config.
-});
+// NOTE (plan-R2 F3): the held-name skip guard is deliberately NOT in this unit file — it lives
+// as exactly ONE concrete .db test in Step 1b's file. Do not duplicate it here.
 test("duplicate pair (same removedName twice) consumes first only", async () => {
   // identityLinkRenames [{Jon→John}, {Jon→Johnny}] → exactly one renameCrewMember op
 });
@@ -283,9 +273,21 @@ test("renameCrewMember no-ops when source row missing", async () => {
 });
 ```
 
-Plus the held-guard test from Step 1 (it needs the real hold port — same file).
+Plus the SINGLE held-guard acceptance test (its only home, plan-R2 F3):
 
-- [ ] **Step 2: Run** `pnpm exec vitest run tests/sync/applyParseResult.identityLink.test.ts` — FAIL (`renameCrewMember` not a function / arg unknown).
+```ts
+test("held removedName: linked pair is skipped, row keeps original name", async () => {
+  // tests/sync/_holdAwareTestkit.ts REAL-DB helpers — seedShow (:84), seedCrew (:95),
+  // holdPort(tx) (:22). Seed show + crew "Jon"; insert an open sync_holds row with domain
+  // 'crew_identity', entity_key 'Jon' (copy the insert shape an existing holdAwareApply*
+  // test uses with this testkit); run applyParseResult with holds: { port, baseModifiedTime }
+  // and identityLinkRenames [{removedName:"Jon", addedName:"John"}].
+  // Assert via readCrew (:119): the row still carries name "Jon" and its original id —
+  // no rename fired behind the hold.
+});
+```
+
+- [ ] **Step 2 (RED): Run** `pnpm exec vitest run tests/sync/applyParseResult.identityLink.test.ts` AND the db file `tests/sync/applyParseResult.identityLink.db.test.ts` (same invocation style as sibling `.db.test.ts` files; local Supabase up) — ALL new tests FAIL (`renameCrewMember` not a function / arg unknown).
 
 - [ ] **Step 3: Implement.**
 
@@ -407,11 +409,21 @@ test("MI-12 rename end-to-end: no hold, crew_members.id preserved, feed parity",
 test("MI-13 rename end-to-end: hold; STALE accept stays held; version-bound accept links", async () => {
   // re-sync with {name: "Link Crew A2", email: "different@x.example"} → expect shrink_held
   // manual re-sync with acceptShrink: true + expectedModifiedTime: "2020-01-01T00:00:00.000Z"
-  //   → STILL shrink_held; crew row unchanged (id + old name). Pins the version-bound predicate
-  //   end-to-end (plan-R1 M5); the orchestrator predicate can only diverge inertly (phase1
-  //   re-holds first), and this assertion locks that behavior.
+  //   → STILL shrink_held; crew row unchanged (id + old name). GUARD assertion (plan-R2 F4):
+  //   this pins that a stale accept can never apply/link — the version-bound predicate's
+  //   POSITIVE proof is the next step (matching accept links); the stale case guards behavior,
+  //   it does not by itself prove the orchestrator's own predicate recomputation.
   // manual re-sync with acceptShrink: true + expectedModifiedTime = the HELD modifiedTime
   //   → applies; same id; new name AND new email on the row.
+});
+test("onboarding_scan never threads identity links", async () => {
+  // plan-R2 F2 (spec §4 'never on first-seen/onboarding'): clone an existing onboarding_scan
+  // case from tests/sync/runScheduledCronSync.test.ts (or this file's harness if it drives
+  // onboarding mode) with a roster shaped like an MI-12 rename against a visible prior show.
+  // Assert the sync tx recorded ZERO renameCrewMember calls (fake tx ops) — or, on the real-DB
+  // harness, that no crew row changed name/id — pinning that onboarding's staging outcome
+  // never reaches computeIdentityLinkRenames→apply (notableItems is pass/auto-apply-only,
+  // runScheduledCronSync.ts:3329-3333).
 });
 ```
 
@@ -519,8 +531,8 @@ test("replaced-shape crew_renamed undo still deletes successor and restores prio
 - [ ] `pnpm test` (FULL suite — shared-chokepoint rule; includes `tests/messages/`, meta-tests, structural walkers)
 - [ ] `pnpm typecheck` && `pnpm lint` && `pnpm format:check` (prettier the new/edited files first: `pnpm exec prettier --write <files>`; NEVER prettier the master spec)
 - [ ] `pnpm build` (RSC/bundle regressions — required before push per repo lessons)
-- [ ] Update `BACKLOG.md`: mark `BL-CREW-RENAME-SILENT-REPLACEMENT` resolved with PR ref + one-line outcome (branch commit; BACKLOG.md lives in main checkout tree — edit the worktree copy).
-- [ ] Commit `docs(plan): close out BL-CREW-RENAME-SILENT-REPLACEMENT` then whole-diff adversarial review → push → PR → real CI green → merge (pipeline Stage 4).
+- [ ] BACKLOG close-out is its own commit, separate from the verification gates above (plan-R2 F1): update the worktree `BACKLOG.md` — mark `BL-CREW-RENAME-SILENT-REPLACEMENT` resolved with PR ref + one-line outcome — and commit as `docs(backlog): resolve BL-CREW-RENAME-SILENT-REPLACEMENT`. The gates themselves produce no commit (any fix they force belongs to the task it fixes, amended or as `fix(sync): <what>`).
+- [ ] Then: whole-diff adversarial review → push → PR → real CI green → merge (pipeline Stage 4).
 
 ## Advisory-lock holder topology (declared)
 
