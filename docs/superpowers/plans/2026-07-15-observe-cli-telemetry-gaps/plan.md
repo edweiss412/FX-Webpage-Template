@@ -431,8 +431,7 @@ export type QueryStagedResult =
 // lib/observe/query/staged.ts
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { sanitizeIdentityString } from "@/lib/adminAlerts/sanitizeIdentityString";
-import { serializeWarningArray } from "./serializeWarning";
-import { emitClassDCode } from "./serializeWarning";
+import { emitClassDCode, serializeWarningArray } from "./serializeWarning";
 import { clampLimit, type QueryStagedResult, type StagedFilters, type StagedRow } from "./types";
 
 // §5.0-allowlisted projection. parse_result is NEVER selected wholesale — the
@@ -1223,7 +1222,7 @@ it("staged --session not-a-uuid: exit 1, query never called (fail-closed at disp
 });
 ```
 
-- [ ] **Step 2: FAIL** → **Step 3: Implementation.** Formatters follow `formatChanges` shape (`scripts/observe/format.ts:45`). `formatStaged` table line: `${r.parsedAt}  ${r.driveFileId.padEnd(44)}  ${r.sourceKind.padEnd(15)}  ${r.wizardApproved ? "approved" : "pending "}  w:${r.warnings.length}  ${codeCell(r.lastFinalizeFailureCode, r.lastFinalizeFailureCodeUnrecognized).padEnd(28)}  ${trunc(r.warningSummary, 60)}` (finalize-code cell included — the row models it, the table must show it; Codex plan-R1 F4), plus when `full`: warning lines `    ${w.severity.padEnd(5)}  ${w.code.padEnd(28)}  ${trunc(w.message)}`. Class-D display helper: `const codeCell = (code: string, unrecognized: boolean) => (unrecognized ? "UNKNOWN_CODE" : code || "-");` — used by `formatStaged` AND `formatFailures`; formatter test covers `UNKNOWN_CODE` and `-` renderings for both. `runObserve` branches (after `changes`, same shape): destructure new deps; `staged`/`deferred` emit the reveal-email stderr warning when `parsed.revealEmail`. USAGE gains six lines. Entry `deps` object gains the six real imports.
+- [ ] **Step 2: FAIL** → **Step 3: Implementation.** Formatters follow `formatChanges` shape (`scripts/observe/format.ts:45`). `formatStaged` table line: `${r.parsedAt}  ${r.driveFileId.padEnd(44)}  ${r.sourceKind.padEnd(15)}  ${r.wizardApproved ? "approved" : "pending "}  w:${r.warnings.length}  ${codeCell(r.lastFinalizeFailureCode, r.lastFinalizeFailureCodeUnrecognized).padEnd(28)}  ${trunc(r.warningSummary, 60)}` (finalize-code cell included — the row models it, the table must show it; Codex plan-R1 F4), plus when `full`: warning lines `    ${w.severity.padEnd(5)}  ${w.code.padEnd(28)}  ${trunc(w.message)}`. Class-D display helper: `const codeCell = (code: string, unrecognized: boolean) => (unrecognized ? "UNKNOWN_CODE" : code || "-");` — used by `formatStaged` AND `formatFailures`; formatter test covers `UNKNOWN_CODE` and `-` renderings for both. `runObserve` branches (after `changes`, same shape): destructure new deps; ALL FIVE PII-capable commands (`staged`, `failures`, `warnings`, `synclog`, `deferred`) emit the reveal-email stderr warning when `parsed.revealEmail` (same string as alerts — factor a `piiWarning(parsed.revealEmail)` helper returning the string or `""` and use it in all six branches incl. alerts). USAGE gains six lines. Entry `deps` object gains the six real imports.
 
 - [ ] **Step 4: PASS**: `pnpm vitest run tests/observe/format.test.ts tests/observe/dispatch.test.ts`
 - [ ] **Step 5: Commit** — `feat(infra): observe staged/failures/warnings/synclog/deferred/watch CLI wiring`
