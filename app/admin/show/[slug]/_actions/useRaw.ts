@@ -139,10 +139,21 @@ export async function setUseRawDecisionAction(
 
   // (3) Non-settled write → delegate the apply to the re-sync entry (its OWN lock —
   // sequential, not nested). On success the decision flips to its durable applied
-  // state; on failure the decision stays durable (apply-pending / clear-pending).
-  const sync = await runManualSyncForShow(driveFileId);
-  const applied =
-    sync && typeof sync === "object" && "outcome" in sync && sync.outcome === "applied";
+  // state; on a RETURNED failure the decision stays durable (apply-pending).
+  let applied = false;
+  try {
+    const sync = await runManualSyncForShow(driveFileId);
+    applied =
+      sync !== null && typeof sync === "object" && "outcome" in sync && sync.outcome === "applied";
+  } catch {
+    // A THROWN infra fault from the re-sync entry (it returns typed outcomes for known
+    // faults; an unexpected throw is rare) must NOT escape after the decision has already
+    // committed and the audit outcome emitted. The decision is durable, so we surface the
+    // SAME apply_pending state the UI self-heals to (spec §9b — the decision applies on the
+    // next successful sync), never a raw client error (invariant-9 spirit: a thrown fault
+    // becomes a typed result). runManualSyncForShow logs the underlying fault internally.
+    applied = false;
+  }
   revalidateShow(id);
   return { ok: true, state: applied ? "settled" : "apply_pending" };
 }

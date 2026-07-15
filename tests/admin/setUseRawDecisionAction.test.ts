@@ -223,6 +223,22 @@ describe("toggle-off / on failure symmetry (R8)", () => {
     expect(writtenDecisions()![0]).toMatchObject({ preference: "raw", applied: false });
     expect(r).toEqual({ ok: true, state: "apply_pending" });
   });
+
+  test("a THROWN re-sync fault does NOT escape after the decision committed → apply_pending (Codex R6 F3)", async () => {
+    // The decision is committed BEFORE the sync + the audit outcome already emitted, so a
+    // thrown (not returned) sync fault must surface as the durable apply_pending state the UI
+    // self-heals to (spec §9b), never a raw client error. Before the fix, the throw escaped.
+    runManualSyncForShowMock.mockImplementation(async () => {
+      callOrder.push("resync");
+      throw new Error("postgres connection reset mid-apply");
+    });
+    txScript.decisions = [];
+    const r = await setUseRawDecisionAction("show-1", ref(), true);
+    // The decision is still durably written (preference:raw, not yet applied)...
+    expect(writtenDecisions()![0]).toMatchObject({ preference: "raw", applied: false });
+    // ...and the action resolves to apply_pending instead of rejecting.
+    expect(r).toEqual({ ok: true, state: "apply_pending" });
+  });
 });
 
 describe("warningRef validation (three branches)", () => {
