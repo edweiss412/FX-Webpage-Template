@@ -7,13 +7,12 @@ import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { clampLimit, type QueryWatchResult, type WatchFilters, type WatchRow } from "./types";
 
 const SELECT =
-  "id, status, watched_folder_id, resource_id, expires_at, created_at, activated_at, superseded_at, stopped_at";
+  "id, status, watched_folder_id, expires_at, created_at, activated_at, superseded_at, stopped_at";
 
 type RawRow = {
   id: string;
   status: string;
   watched_folder_id: string;
-  resource_id: string | null;
   expires_at: string | null;
   created_at: string;
   activated_at: string | null;
@@ -35,7 +34,6 @@ export async function queryWatchChannels(filters: WatchFilters): Promise<QueryWa
         id: r.id,
         status: r.status,
         watchedFolderId: r.watched_folder_id,
-        resourceId: r.resource_id,
         expiresAt: r.expires_at,
         createdAt: r.created_at,
         activatedAt: r.activated_at,

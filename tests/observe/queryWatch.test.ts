@@ -42,7 +42,6 @@ const baseRow = {
   id: "11111111-1111-4111-8111-111111111111",
   status: "active",
   watched_folder_id: "1abc2def3ghi4jkl5mno6pqr7stu8vwx",
-  resource_id: "res_123",
   expires_at: "2026-08-15T00:00:00Z",
   created_at: "2026-07-15T05:19:14Z",
   activated_at: "2026-07-15T05:20:00Z",
@@ -59,16 +58,18 @@ beforeEach(() => {
 });
 
 describe("queryWatchChannels", () => {
-  it("STRUCTURAL PIN: module source never references webhook_secret and never selects *", () => {
+  it("STRUCTURAL PIN: module source never references webhook_secret, resource_id, and never selects *", () => {
     const src = readFileSync(join(process.cwd(), "lib/observe/query/watch.ts"), "utf8");
     expect(src).not.toContain("webhook_secret");
+    expect(src).not.toContain("resource_id");
     expect(src).not.toMatch(/select\(\s*["'`]\s*\*\s*["'`]/);
   });
   it("SELECT is the exact §5.0-allowlisted projection", async () => {
     await queryWatchChannels({});
     expect(state.selectArg).toBe(
-      "id, status, watched_folder_id, resource_id, expires_at, created_at, activated_at, superseded_at, stopped_at",
+      "id, status, watched_folder_id, expires_at, created_at, activated_at, superseded_at, stopped_at",
     );
+    expect(state.selectArg).not.toContain("resource_id");
   });
   it("orders created_at desc and applies bound", async () => {
     await queryWatchChannels({ limit: 7 });
@@ -101,7 +102,7 @@ describe("queryWatchChannels", () => {
     expect(row.id).toBe("11111111-1111-4111-8111-111111111111");
     expect(row.status).toBe("active");
     expect(row.watchedFolderId).toBe("1abc2def3ghi4jkl5mno6pqr7stu8vwx");
-    expect(row.resourceId).toBe("res_123");
+    expect(row).not.toHaveProperty("resourceId");
     expect(row.expiresAt).toBe("2026-08-15T00:00:00Z");
     expect(row.createdAt).toBe("2026-07-15T05:19:14Z");
     expect(row.activatedAt).toBe("2026-07-15T05:20:00Z");

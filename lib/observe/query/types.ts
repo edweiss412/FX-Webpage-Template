@@ -161,7 +161,6 @@ export type WatchRow = {
   id: string;
   status: string;
   watchedFolderId: string;
-  resourceId: string | null;
   expiresAt: string | null;
   createdAt: string;
   activatedAt: string | null;

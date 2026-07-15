@@ -70,7 +70,7 @@ Data-Quality parity for post-publish polling.
 ### 2.6 `watch` — drive_watch_channels (Drive push health)
 
 - Table: `public.drive_watch_channels` (`…001000_internal_and_admin.sql:284`).
-- SELECT: `id, status, watched_folder_id, resource_id, expires_at, created_at, activated_at, superseded_at, stopped_at`.
+- SELECT: `id, status, watched_folder_id, expires_at, created_at, activated_at, superseded_at, stopped_at`.
 - **`webhook_secret` is NEVER selected. This is a hard invariant** — it is a live shared secret; a structural test pins that the module's SELECT string does not contain `webhook_secret` and does not select `*`.
 - Flags: `--limit` (default 100 clamp; channel count is small in practice), `--json`, `--env`. No other filters.
 - Ordering: `created_at` desc.
@@ -151,11 +151,11 @@ Structural closure of the recurring redaction vector (R2–R5 each found one mor
 | B — CHECK-constrained enum in DDL | raw | `source_kind` (`…001000_internal_and_admin.sql:158`), `deferred_kind` (`:254`), `drive_watch_channels.status` (`:295`) |
 | C — free text / unconstrained text with no enum | `sanitizeIdentityString` | `warning_summary`, `drive_file_name`, `last_error_message`, `reason`, `sync_log.message`, `sync_log.status` |
 | D — code-valued but unconstrained in DDL | raw ONLY on membership in `INTERNAL_CODE_ENUMS` ∪ the §12.4 message catalog (`isMessageCode`, `lib/messages/lookup.ts:91`) — both finite generated/curated sets, so the union stays token-proof; else `UNKNOWN_CODE` / flagged-empty in `--json`. Union, not `INTERNAL_CODE_ENUMS` alone: real finalize codes are catalog codes absent from the internal enum — e.g. `RESCAN_REVIEW_REQUIRED` (`lib/messages/catalog.ts:2987`) is written to `pending_syncs.last_finalize_failure_code` by the finalize route; rendering it `UNKNOWN_CODE` would hide the exact recovery reason (Codex R6 F1). Regression test: `last_finalize_failure_code = "RESCAN_REVIEW_REQUIRED"` preserved verbatim in table + `--json`. | `last_error_code`, `last_finalize_failure_code` |
-| E — opaque identifier (Drive/channel IDs; token-shaped but non-secret, printed raw by existing commands) | raw | `drive_file_id`, `watched_folder_id`, `resource_id`, `drive_watch_channels.id` |
+| E — opaque identifier (Drive/channel IDs; token-shaped but non-secret, printed raw by existing commands) | raw | `drive_file_id`, `watched_folder_id`, `drive_watch_channels.id` |
 | F — email (PII) | not selected unless `--reveal-email` | `wizard_approved_by_email`, `deferred_by_email` |
 | G — jsonb warning arrays | §5.1 serializer, per element | `parse_result->warnings`, `last_warnings`, `shows_internal.parse_warnings`, `sync_log.parse_warnings` |
 | H — embedded show metadata | raw (posture pinned by the existing `events`/`alerts` surfaces, which already print `shows(title, slug)` raw — `lib/observe/query/events.ts:17`, `lib/observe/query/alerts.ts:15`; `title` is sheet-derived but this precedent is deliberate CLI-wide consistency) | `shows.title`, `shows.slug` (command: `warnings`) |
-| NEVER emitted | — | `webhook_secret`, `parse_result` (wholesale), `financials`, `raw_unrecognized`, `wizard_reviewer_choices`, `triggered_review_items`, `prior_last_sync_error`, `before_image`/`after_image` |
+| NEVER emitted | — | `webhook_secret`, `resource_id` (participates in the Drive-webhook acceptance predicate — `app/api/drive/webhook/route.ts:266,306` requires the X-Goog-Resource-ID header to match; ratified class-E raw in earlier rounds, corrected at whole-diff R2), `parse_result` (wholesale), `financials`, `raw_unrecognized`, `wizard_reviewer_choices`, `triggered_review_items`, `prior_last_sync_error`, `before_image`/`after_image` |
 
 A unit test per command asserts its SELECT string contains ONLY columns from this table (and its formatter emits only the classified fields), so a future column addition fails closed.
 
@@ -174,7 +174,7 @@ One serializer, `serializeParseWarning(raw: unknown, opts: { includePii: boolean
 Everything else — `rawSnippet`, `blockRef`, `sourceCell`, unknown future fields — is DROPPED, never emitted (drop, not sanitize: anchors and snippets serve the admin UI deep-link feature, not CLI polling; dropping is the smaller surface). Non-object elements serialize to `{ severity: "", code: "", message: "" }`. This applies identically to `parse_result->warnings` (staged), `last_warnings` (failures), `shows_internal.parse_warnings` (warnings), and `sync_log.parse_warnings` (synclog) — all four are the same `ParseWarning` jsonb shape. Unit tests: (a) a warning whose `rawSnippet` contains an email + a 30-char token — neither substring appears anywhere in `--json` or `--full` output, `--reveal-email` on and off; (b) malicious values in EVERY pass-through field (`severity: "info<script>"`, `code` carrying an email, `iso` carrying free text) — each is emptied/omitted, never emitted; (c) token-shaped values that would PASS a naive shape regex — `code: "AAAAAAAAAAAAAAAAAAAAAAAA"` (24 A's, not an enum member → `""`), `field: "abcdefghijklmnopqrstuvwxyz"` (26 chars, exceeds the 23-char cap → omitted) — never emitted (Codex R3 F1 regression cases); (d) a REAL long enum code (`STAGED_PARSE_OUTDATED_AT_PHASE_D`) passes through intact.
 
 - Sanitize: free-text fields only (warning messages, `warning_summary`, `drive_file_name`, `last_error_message`, sync_log `message`, `reason`).
-- Never sanitize: identifier/enum/timestamp-shaped columns (`drive_file_id`, `wizard_session_id`, codes, statuses, `watched_folder_id`, `resource_id`, ISO dates) — the token redactor corrupts long Drive IDs (44-char base64-alphabet), and these columns are non-PII identifiers already printed raw by existing commands (`events` prints `drive_file_id` raw today via `lib/observe/query/events.ts:17`).
+- Never sanitize: identifier/enum/timestamp-shaped columns (`drive_file_id`, `wizard_session_id`, codes, statuses, `watched_folder_id`, ISO dates) — the token redactor corrupts long Drive IDs (44-char base64-alphabet), and these columns are non-PII identifiers already printed raw by existing commands (`events` prints `drive_file_id` raw today via `lib/observe/query/events.ts:17`).
 - Email columns (`wizard_approved_by_email`, `deferred_by_email`): excluded from the SELECT by default; included only under `--reveal-email`, which also prints the existing PII stderr warning (`scripts/observe.ts:110-112`). Note this is deliberately STRONGER than the alerts posture (which selects context and redacts in-process): for plain email columns we can simply not fetch them.
 - Secrets: `webhook_secret` never selected (structural pin); `parse_result` never selected wholesale (aliased `->warnings` projection only); `financials`, `raw_unrecognized`, `before_image`/`after_image` untouched (`queryChangeLog` posture unchanged).
 
@@ -194,7 +194,7 @@ Everything else — `rawSnippet`, `blockRef`, `sourceCell`, unknown future field
 | `--warnings-only` / `warnings` DB-side filter with non-array scalar/object `parse_warnings` | excluded DB-side by the `->0 not is null` predicate (never consumes the page cap); if such a row reaches JS via an unfiltered command (`synclog`, `failures`), the array guard renders count 0 |
 | jsonb projection returns `null` (`parse_result` lacks `warnings` key) | treated as `[]` |
 | 0 rows | `(no rows)` matching existing formatter behavior |
-| `deferred_at_modified_time` / `resource_id` / `expires_at` null | printed as `-` in table output, `null` in `--json` |
+| `deferred_at_modified_time` / `expires_at` null | printed as `-` in table output, `null` in `--json` |
 
 ## 7. Testing
 

@@ -260,7 +260,6 @@ describe("formatWatch", () => {
     id: "w1",
     status: "active",
     watchedFolderId: "folder-abc",
-    resourceId: "res-1",
     expiresAt: "2026-07-10T00:00:00.000Z",
     createdAt: "2026-07-01T00:00:00.000Z",
     activatedAt: "2026-07-01T00:00:00.000Z",
