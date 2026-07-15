@@ -35,7 +35,9 @@ vi.mock("@/app/admin/show/[slug]/CurrentShareLinkPanel", async () => {
 });
 vi.mock("@/lib/auth/requireAdmin", () => ({ requireAdmin: async () => {} }));
 vi.mock("@/lib/time/now", () => ({ nowDate: async () => new Date("2026-06-03T12:00:00.000Z") }));
-vi.mock("@/lib/data/loadShowShareToken", () => ({ loadShowShareToken: async () => "tok-123" }));
+vi.mock("@/lib/data/loadShowShareToken", () => ({
+  loadShowShareToken: async () => ({ token: "tok-123", epoch: 7 }),
+}));
 vi.mock("next/navigation", () => ({
   notFound: () => {
     throw new Error("NEXT_NOT_FOUND");
