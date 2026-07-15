@@ -16,7 +16,7 @@
 - Invariant 5: failures surface via `ErrorExplainer` catalog copy; raw codes never reach DOM.
 - Invariant 9: helper already wraps Supabase boundaries; actions only pass through typed results.
 - Invariant 10: new actions ⇒ `AUDITABLE_MUTATIONS` rows + behavioral proof (Task 2). Refusals never emit telemetry.
-- `FeedEntry` new fields are REQUIRED (no `?:`) — every literal constructor updates (Tasks 1, 3, 4, 5).
+- `FeedEntry` new fields are REQUIRED (no `?:`) — every literal constructor updates (Tasks 1 and 3).
 - Heading display text ONLY changes; testids / `id="admin-changes-feed-heading"` / help anchor `#changes-feed` stay.
 - **Meta-test inventory (declared):** EXTENDS `tests/log/_auditableMutations.ts` (2 rows). RE-RUNS (no edits expected): `tests/log/_metaMutationSurfaceObservability.test.ts`, `tests/log/adminOutcomeBehavior.test.ts` (extended, Task 2), `tests/sync/_metaInfraContract.test.ts` (readShowChangeFeed registered `:346-349`; select edit is format-fragile), `tests/auth/advisoryLockRpcDeadlock.test.ts`. No new meta-test class.
 - Commits: conventional style, one task per commit, `--no-verify` (worktree), so **run `pnpm format:check` + `pnpm lint` + `pnpm typecheck` before push** (hooks bypassed).
@@ -86,7 +86,7 @@ Log-row builder adds (alongside existing fields):
 
 Hold-row builder adds `acceptable: false, acknowledgedAt: null,`.
 
-- [ ] **Step 4: Fix every literal `FeedEntry` constructor that now fails typecheck.** Run `pnpm typecheck`; expected failures ONLY in: `tests/components/admin/ChangesFeed.a11y.test.tsx`, `tests/components/admin/ChangesFeed.test.tsx`, `tests/components/admin/ChangeFeedEntry.test.tsx`, `tests/components/admin/Mi11GateActions.test.tsx`, `tests/app/admin/perShowPage.test.tsx`, `tests/admin/showPageFeed.test.tsx`, `tests/admin/feedTelemetry.test.tsx` (grep-verified inventory). Add `acceptable: false, acknowledgedAt: null,` to each fixture literal (Task 3/4 flip specific fixtures). If any file uses exact `toEqual` on produced entries, extend the expected object — never loosen to `toMatchObject`.
+- [ ] **Step 4: Fix every literal `FeedEntry` constructor that now fails typecheck.** Run `pnpm typecheck`; expected failures ONLY in: `tests/components/admin/ChangesFeed.a11y.test.tsx`, `tests/components/admin/ChangesFeed.test.tsx`, `tests/components/admin/ChangeFeedEntry.test.tsx`, `tests/components/admin/Mi11GateActions.test.tsx`, `tests/app/admin/perShowPage.test.tsx`, `tests/admin/showPageFeed.test.tsx`, `tests/admin/feedTelemetry.test.tsx` (grep-verified inventory). Add `acceptable: false, acknowledgedAt: null,` to each fixture literal (Task 3a/3b flip specific fixtures). If any file uses exact `toEqual` on produced entries, extend the expected object — never loosen to `toMatchObject`.
 - [ ] **Step 5: Run** the feed test file + `pnpm typecheck` — PASS. Also `pnpm vitest run tests/sync/_metaInfraContract.test.ts tests/admin/_metaBoundedReads.test.ts` (select-list edit is comment/format-fragile).
 - [ ] **Step 6: Commit** `feat(sync): FeedEntry disposition fields (acceptable/acknowledgedAt) from show_change_log`
 
@@ -224,7 +224,7 @@ export async function acceptAllAction(
 
 **Interfaces:**
 - Consumes: `AcceptChangeButton` (`components/admin/AcceptChangeButton.tsx` — props `{acceptAction, hiddenFields, label?, stretch?}`, testid `change-feed-accept`); Task 1 `FeedEntry` fields; Task 2 action type.
-- Produces: `ChangeFeedEntry` gains required props `showId: string` and `acceptAction: AcceptServerAction` (type alias local, structurally `(prev: AcceptButtonResult | null, formData: FormData) => ...` — import `AcceptButtonResult` from the button module). Task 4 threads them.
+- Produces: `ChangeFeedEntry` gains required props `showId: string` and `acceptAction: AcceptServerAction` (type alias local, structurally `(prev: AcceptButtonResult | null, formData: FormData) => ...` — import `AcceptButtonResult` from the button module). Task 3b threads them.
 
 - [ ] **Step 1: Failing tests** (pattern-match the file's existing render helpers; pass new props `showId="show-1"` + a vi.fn async acceptAction everywhere):
 
@@ -273,7 +273,7 @@ Anti-tautology: assert the accept form's hidden `changeLogId` equals the fixture
 
 **Interfaces:**
 - Consumes: Task 3 `ChangeFeedEntry` props; Task 2 `acceptAllAction`.
-- Produces: `ChangesFeed` gains required props `showId: string`, `acceptAction`, `acceptAllAction` (same action type). Task 5 threads them from the page.
+- Produces: `ChangesFeed` gains required props `showId: string`, `acceptAction`, `acceptAllAction` (same action type). Task 3c threads them from the page.
 
 - [ ] **Step 1: Failing tests.**
 
@@ -378,13 +378,13 @@ describe("help copy names the per-show feed 'Sheet changes' (spec 2026-07-15 §5
 ### Task 5: Gates + close-out sweeps
 
 - [ ] **Step 1: Class sweeps.** `rg -n '"Changes"' tests/ components/ app/` (any remaining display-text pin); `rg -ln "readShowChangeFeed" tests/` (hand-rolled mocks of the feed return missing new fields); `rg -n "change-feed-accept" tests/` (companion-file check — memory: env-bound/e2e tests excluded from `pnpm test`).
-- [ ] **Step 2: Full local gates.** `pnpm test` (FULL suite — scoped gates miss chokepoint regressions), `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm build` (if not already green in Task 5), e2e `admin-changes-feed-layout.spec.ts` if runnable locally (selector `/changes/i` tolerant — verify).
+- [ ] **Step 2: Full local gates.** `pnpm test` (FULL suite — scoped gates miss chokepoint regressions), `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm build` (already proven in Task 3c; re-run only if later tasks touched app code), e2e `admin-changes-feed-layout.spec.ts` if runnable locally (selector `/changes/i` tolerant — verify).
 - [ ] **Step 3: Impeccable dual-gate** (invariant 8): `/impeccable critique` + `/impeccable audit` on the FULL affected UI surface: `components/admin/ChangeFeedEntry.tsx`, `components/admin/ChangesFeed.tsx`, `app/admin/show/[slug]/page.tsx` (page wiring diff — `app/` non-api is UI surface per invariant 8), and the two help mdx pages. P0/P1 fixed or `DEFERRED.md`. **Record every finding + disposition in `docs/superpowers/plans/2026-07-15-feed-disposition-accept/HANDOFF.md` §12** (create the handoff doc with a §12 findings table — this feature's close-out doc; invariant 8 requires the recorded dispositions, not just the passing runs).
 - [ ] **Step 4:** Whole-diff Codex adversarial review (fresh-eyes, REVIEWER ONLY) → APPROVE.
 - [ ] **Step 5: Ship + terminal verification.** Fetch/rebase onto origin/main if it moved; push; `gh pr create`; watch checks via PR NUMBER (`gh pr checks <PR#> --watch`) and confirm `mergeStateStatus == CLEAN`; `gh pr merge <PR#> --merge`; then `git checkout main && git pull --ff-only` in the MAIN checkout and verify `git rev-list --left-right --count main...origin/main` prints `0	0`. Pipeline is not done at remote merge — the local-main fast-forward check is the terminal gate.
 
 ## Self-review notes
 
-- Spec coverage: §2→T1, §3→T2, §4.1→T3, §4.2→T4+T5, §5→T4+T6, §6.1-6.7→T1-T7 test steps. No gaps found.
+- Spec coverage: §2→T1, §3→T2, §4.1→T3a, §4.2→T3b+T3c, §5→T3b+T4, §6.1-6.7→T1-T5 test steps. No gaps found.
 - Type consistency: action type = `(prev: AcknowledgeChangesResult | null, formData: FormData) => Promise<AcknowledgeChangesResult>`; `AcceptButtonResult` is structurally identical (`AcceptChangeButton.tsx:26` comment) so direct prop pass is legal — used consistently T2-T5.
 - Anti-tautology: T1 derives ack timestamp from stored DB value; T3 uses distinct id sentinels; T4 derives N/ids from fixtures.
