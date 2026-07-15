@@ -30,6 +30,7 @@ function makeClient(opts: FakeOpts) {
   const captured = {
     rpcFn: null as string | null,
     rpcArgs: null as { p_show_ids?: unknown } | null,
+    select: null as string | null,
     eq: [] as [string, unknown][],
     is: [] as [string, unknown][],
     inCol: null as string | null,
@@ -40,8 +41,10 @@ function makeClient(opts: FakeOpts) {
   const client = {
     from(_table: string) {
       const builder: Record<string, unknown> = {};
-      const pass = () => builder;
-      builder.select = pass;
+      builder.select = (proj?: string) => {
+        if (typeof proj === "string") captured.select = proj;
+        return builder;
+      };
       builder.eq = (c: string, v: unknown) => {
         captured.eq.push([c, v]);
         return builder;
@@ -310,5 +313,134 @@ describe("loadRecentAutoApplied", () => {
       supabase: client as unknown as InjectedClient,
     });
     expect(result.kind).toBe("infra_error");
+  });
+
+  test("diff projection: name-only From→To per kind; select pulls the images; no PII leaks", async () => {
+    const S = "show-diff";
+    // before/after images carry PII that MUST NOT surface (email/phone/id/oauth).
+    const renamed = clRow({
+      id: "d1",
+      show_id: S,
+      occurred_at: iso(50),
+      change_kind: "crew_renamed",
+      before_image: {
+        id: "u1",
+        name: "Jon Clark",
+        email: "jon@x.io",
+        phone: "555-1",
+        claimed_via_oauth_at: "2026-01-01",
+      },
+      after_image: { name: "John Clark", email: "john@x.io" },
+    });
+    const added = clRow({
+      id: "d2",
+      show_id: S,
+      occurred_at: iso(49),
+      change_kind: "crew_added",
+      before_image: null,
+      after_image: { name: "Maria Chen", email: "maria@x.io" },
+    });
+    const removed = clRow({
+      id: "d3",
+      show_id: S,
+      occurred_at: iso(48),
+      change_kind: "crew_removed",
+      before_image: { id: "u3", name: "Devin Park", email: "devin@x.io", phone: "555-3" },
+      after_image: null,
+    });
+    const field = clRow({
+      id: "d4",
+      show_id: S,
+      occurred_at: iso(47),
+      change_kind: "field_changed",
+    });
+    const email = clRow({
+      id: "d5",
+      show_id: S,
+      occurred_at: iso(46),
+      change_kind: "crew_email_changed",
+    });
+
+    const { client, captured } = makeClient({ rows: [renamed, added, removed, field, email] });
+    const { loadRecentAutoApplied } = await loader();
+    const result = await loadRecentAutoApplied({
+      publishedShowIds: [S],
+      supabase: client as unknown as InjectedClient,
+    });
+    if (result.kind !== "ok") throw new Error("unreachable");
+    const g = result.groups.find((x) => x.showId === S)!;
+    const byId = Object.fromEntries(g.rows.map((r) => [r.id, r.diff]));
+
+    expect(byId.d1).toEqual({ kind: "fromTo", from: "Jon Clark", to: "John Clark" });
+    expect(byId.d2).toEqual({ kind: "single", caption: "Added", value: "Maria Chen" });
+    expect(byId.d3).toEqual({ kind: "single", caption: "Removed", value: "Devin Park" });
+    expect(byId.d4).toEqual({ kind: "none" });
+    expect(byId.d5).toEqual({ kind: "none" });
+
+    // Binds green to the REAL column list, not just fixture shape.
+    expect(captured.select).toContain("before_image");
+    expect(captured.select).toContain("after_image");
+
+    // PII exclusion: no email/phone/id/oauth value appears anywhere in the returned rows.
+    const serialized = JSON.stringify(g.rows);
+    for (const pii of [
+      "jon@x.io",
+      "john@x.io",
+      "maria@x.io",
+      "devin@x.io",
+      "555-1",
+      "555-3",
+      "u1",
+      "u3",
+      "2026-01-01",
+    ]) {
+      expect(serialized).not.toContain(pii);
+    }
+  });
+
+  test("diff guards: null / empty / non-string name → diff:none (never a partial diff)", async () => {
+    const S = "show-guard";
+    const r1 = clRow({
+      id: "g1",
+      show_id: S,
+      occurred_at: iso(50),
+      change_kind: "crew_renamed",
+      before_image: null,
+      after_image: { name: "X" },
+    });
+    const r2 = clRow({
+      id: "g2",
+      show_id: S,
+      occurred_at: iso(49),
+      change_kind: "crew_added",
+      before_image: null,
+      after_image: {},
+    });
+    const r3 = clRow({
+      id: "g3",
+      show_id: S,
+      occurred_at: iso(48),
+      change_kind: "crew_removed",
+      before_image: { name: "" },
+      after_image: null,
+    });
+    const r4 = clRow({
+      id: "g4",
+      show_id: S,
+      occurred_at: iso(47),
+      change_kind: "crew_added",
+      before_image: null,
+      after_image: { name: 123 },
+    });
+    const { client } = makeClient({ rows: [r1, r2, r3, r4] });
+    const { loadRecentAutoApplied } = await loader();
+    const result = await loadRecentAutoApplied({
+      publishedShowIds: [S],
+      supabase: client as unknown as InjectedClient,
+    });
+    if (result.kind !== "ok") throw new Error("unreachable");
+    for (const row of result.groups.find((x) => x.showId === S)!.rows) {
+      expect(row.diff).toEqual({ kind: "none" });
+    }
   });
 });

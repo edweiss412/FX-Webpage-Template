@@ -379,3 +379,19 @@ Transform sites the transform-sites walker (`tests/parser/_metaTransformSitesWal
 **Status:** OPEN (2026-07-07, ambiguity-warnings-v1) · **Severity:** low · **Class:** PARSER AMBIGUITY COVERAGE
 
 `splitHotelNameAddress` (`hotels.ts:329`) splits a combined `<hotel name> <street address>` string into a name and an address by a suffix-only heuristic — a genuine judgment call that produces a value but emits no ambiguity warning when the boundary is uncertain. Deferred: the current heuristic is strictly suffix-anchored and low-risk; adding an ambiguity signal needs a defined uncertainty threshold + its own emit unit test to avoid warn-spam on the common unambiguous case. Declared as `{ site: "splitHotelNameAddress", exempt: "deferred:BL-PARSER-ADDRESS-SPLIT-AMBIGUITY" }` in `hotels.ts` `TRANSFORM_SITES`. Trigger to promote: a live show where a name/address split lands wrong with no operator signal.
+
+### BL-AUTOAPPLIED-CARD-LAYOUT-E2E — real-browser width-distribution assertion for the auto-applied card button grid
+
+**Status:** OPEN (2026-07-14, recent-auto-applied-redesign) · **Severity:** low · **Class:** UI LAYOUT COVERAGE
+
+The redesigned "Recently auto-applied" change card distributes Accept/Undo via CSS grid (`grid-cols-2` 1fr/1fr, or `grid-cols-1`) + `w-full` buttons. The jsdom suite pins the mechanism (grid template + `w-full`); a real-browser Playwright assertion of the actual pixel widths (each button ≈ half / full card content width) is deferred because 1fr columns split equally by CSS-grid spec (not the flex-stretch failure mode). Trigger to promote: an auto-applied-strip e2e harness lands, or the button layout moves off CSS-grid `1fr`.
+
+### BL-AUTOAPPLIED-SINGLETON-FLATTEN — flatten card-in-card for single-change groups
+
+**Status:** OPEN (2026-07-14, recent-auto-applied-redesign) · **Severity:** low · **Class:** UI POLISH
+A per-show group with one change renders a group-card wrapper around a single inner change-card (card-in-card). Consider dropping the inner border/padding when `rows.length === 1`. Deferred: marginal gain, adds a render branch, matches the approved mock.
+
+### BL-AUTOAPPLIED-FIELD-STRUCTURED-DIFF — structured field-level From→To for field_changed
+
+**Status:** OPEN (2026-07-14, recent-auto-applied-redesign) · **Severity:** low · **Class:** FEATURE / DB WRITE-PATH
+`field_changed` rows show a generic summary ("A field changed on this sync"); naming the field / showing its From→To needs structured before/after stored at write time (`writeAutoApplyChanges.ts`) — the DB write-path arc this read-only redesign excluded. Trigger: the spec §1 "Full fidelity" option, if pursued.

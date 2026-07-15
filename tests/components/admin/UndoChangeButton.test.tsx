@@ -60,3 +60,25 @@ it("renders NO error panel on a successful undo ({ok:true}) — P6-F1", async ()
   });
   expect(screen.queryByTestId("change-feed-undo-result")).toBeNull();
 });
+
+it("stretch=false (default) → button not w-full; stretch → form + button w-full", () => {
+  const action = vi.fn().mockResolvedValue({ ok: true });
+  const { rerender } = render(<UndoChangeButton changeLogId="c" undoAction={action} />);
+  const btn = screen.getByTestId("change-feed-undo");
+  expect(btn.className).not.toMatch(/\bw-full\b/);
+  rerender(<UndoChangeButton changeLogId="c" undoAction={action} stretch />);
+  const stretched = screen.getByTestId("change-feed-undo");
+  expect(stretched.className).toMatch(/\bw-full\b/);
+  expect(stretched.closest("form")!.className).toMatch(/\bw-full\b/);
+});
+
+it("quiet=false (default) → bordered; quiet → borderless transparent (recessive secondary)", () => {
+  const action = vi.fn().mockResolvedValue({ ok: true });
+  const { rerender } = render(<UndoChangeButton changeLogId="c" undoAction={action} />);
+  expect(screen.getByTestId("change-feed-undo").className).toMatch(/border-border-strong/);
+  rerender(<UndoChangeButton changeLogId="c" undoAction={action} quiet />);
+  const q = screen.getByTestId("change-feed-undo");
+  expect(q.className).toMatch(/border-transparent/);
+  expect(q.className).toMatch(/bg-transparent/);
+  expect(q.className).not.toMatch(/border-border-strong/);
+});
