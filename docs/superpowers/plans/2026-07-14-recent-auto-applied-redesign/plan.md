@@ -336,13 +336,44 @@ it("shows a per-group count badge = rendered rows", () => {
   expect(within(screen.getByTestId(`auto-applied-group-${RIA_ID}`)).getByTestId(`auto-applied-count-${RIA_ID}`)).toHaveTextContent("1");
 });
 
-it("renders each crew kind's uppercase pill label", () => {
-  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
-  expect(within(screen.getByTestId("auto-applied-row-r1")).getByText("Added")).toBeInTheDocument();
-  expect(within(screen.getByTestId("auto-applied-row-r2")).getByText("Renamed")).toBeInTheDocument();
+it("maps EVERY kind to its status-token pill (label + token classes, incl. removed/email/fallback)", () => {
+  // Local fixture: one group, one row per kind (incl. crew_removed + an unknown
+  // fallback kind) so no path can be broken/unmapped while tests pass.
+  const P = "show-pills";
+  const mk = (id: string, changeKind: string, diff: AutoAppliedRow["diff"]) => ({
+    id, changeKind, summary: `summary-${id}`, occurredAt: `2026-07-07T0${id.length}:00:00Z`, undoable: false, diff,
+  });
+  const data: Extract<RecentAutoApplied, { kind: "ok" }> = {
+    kind: "ok", renderedCount: 6, overflowCount: 0, rosterShiftByShow: {},
+    groups: [{
+      showId: P, slug: "p", showName: "Pills",
+      rows: [
+        mk("p1", "crew_added", { kind: "single", caption: "Added", value: "A" }),
+        mk("p2", "crew_renamed", { kind: "fromTo", from: "B", to: "C" }),
+        mk("p3", "crew_removed", { kind: "single", caption: "Removed", value: "D" }),
+        mk("p4", "field_changed", { kind: "none" }),
+        mk("p5", "crew_email_changed", { kind: "none" }),
+        mk("p6", "totally_unknown_kind", { kind: "none" }),
+      ],
+      acceptableIds: ["p1","p2","p3","p4","p5","p6"], undoableIds: [],
+    }],
+  };
+  render(<RecentAutoAppliedStrip data={data} actions={noopActions()} />);
+  const pill = (rowId: string, label: string) =>
+    within(screen.getByTestId(`auto-applied-row-${rowId}`)).getByText(label);
+  // Each pill carries the mapped token text class (and the colored kinds carry the /12 fill).
+  expect(pill("p1", "Added").className).toMatch(/text-status-positive-text/);
+  expect(pill("p1", "Added").className).toMatch(/bg-status-positive\/12/);
+  expect(pill("p2", "Renamed").className).toMatch(/text-status-review-text/);
+  expect(pill("p2", "Renamed").className).toMatch(/bg-status-review\/12/);
+  expect(pill("p3", "Removed").className).toMatch(/text-status-warn-text/);
+  expect(pill("p3", "Removed").className).toMatch(/bg-status-warn\/12/);
+  expect(pill("p4", "Field").className).toMatch(/text-status-idle-text/);
+  expect(pill("p5", "Email").className).toMatch(/text-status-idle-text/);
+  expect(pill("p6", "Change").className).toMatch(/text-status-idle-text/); // unknown → neutral fallback
 });
 ```
-Keep ALL other existing tests unchanged (order, accept-on-every-row, undo-only-on-undoable, hidden inputs, accept-all/undo-all presence, confirm gate + per-id dispatch, focus-to-keep, overflow, null-on-empty, infra_error-no-leak). Delete only the now-obsolete crew-verbatim assertions in the original "summary verbatim" test (keep its section/order assertions, or fold them into the new test).
+This test also imports `AutoAppliedRow` and `RecentAutoApplied` from `@/lib/admin/loadRecentAutoApplied` (extend the existing type import at the top of the file). Keep ALL other existing tests unchanged (order, accept-on-every-row, undo-only-on-undoable, hidden inputs, accept-all/undo-all presence, confirm gate + per-id dispatch, focus-to-keep, overflow, null-on-empty, infra_error-no-leak). Delete only the now-obsolete crew-verbatim assertions in the original "summary verbatim" test (keep its section/order assertions, or fold them into the new test).
 
 - [ ] **Step 2: Run to verify fail.**
 
@@ -351,36 +382,57 @@ Expected: FAIL — no diff blocks, no `auto-applied-count-*` badge, no pill labe
 
 - [ ] **Step 3: Implement the card rewrite.** In `components/admin/RecentAutoAppliedStrip.tsx`:
 
-(a) Add a `KIND_PILL` map + `KindPill` component (tokens per spec §4). After `kindLabel`:
+(a) Add a `KIND_PILL` map + `KindPill` component. **Every token class is a FULL LITERAL string (no interpolation of the token name)** — this is mandatory: Tailwind v4 JIT only emits utilities whose complete class string appears verbatim in source. A `bg-${token}/12` template would silently produce a class the compiler never generates (and `pnpm build` would NOT fail), so the pill would render with no background. After `kindLabel`:
 ```tsx
-// Token family per change kind (spec §4). dot = base, text = -text, fill = /12 wash.
-const KIND_PILL: Record<string, { label: string; token: string }> = {
-  crew_added: { label: "Added", token: "status-positive" },
-  crew_renamed: { label: "Renamed", token: "status-review" },
-  crew_removed: { label: "Removed", token: "status-warn" },
-  field_changed: { label: "Field", token: "status-idle" },
-  crew_email_changed: { label: "Email", token: "status-idle" },
+// Full literal token classes per change kind (spec §4). Tailwind v4 JIT scans
+// source for complete class strings — these MUST stay literals, never `${token}`
+// interpolation, or the utility is never emitted and the pill renders bg-less.
+const KIND_PILL: Record<string, { label: string; cls: string; dot: string }> = {
+  crew_added: {
+    label: "Added",
+    cls: "border-status-positive/40 bg-status-positive/12 text-status-positive-text",
+    dot: "bg-status-positive",
+  },
+  crew_renamed: {
+    label: "Renamed",
+    cls: "border-status-review/40 bg-status-review/12 text-status-review-text",
+    dot: "bg-status-review",
+  },
+  crew_removed: {
+    label: "Removed",
+    cls: "border-status-warn/40 bg-status-warn/12 text-status-warn-text",
+    dot: "bg-status-warn",
+  },
+  field_changed: {
+    label: "Field",
+    cls: "border-border bg-surface-sunken text-status-idle-text",
+    dot: "bg-status-idle",
+  },
+  crew_email_changed: {
+    label: "Email",
+    cls: "border-border bg-surface-sunken text-status-idle-text",
+    dot: "bg-status-idle",
+  },
+};
+const FALLBACK_PILL = {
+  label: "Change",
+  cls: "border-border bg-surface-sunken text-status-idle-text",
+  dot: "bg-status-idle",
 };
 
 function KindPill({ changeKind }: { changeKind: string }) {
-  const pill = KIND_PILL[changeKind] ?? { label: "Change", token: "status-idle" };
-  const neutral = pill.token === "status-idle";
+  const pill = KIND_PILL[changeKind] ?? FALLBACK_PILL;
   return (
     <span
-      className={
-        "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wide " +
-        (neutral
-          ? "border-border bg-surface-sunken text-status-idle-text"
-          : `border-${pill.token}/40 bg-${pill.token}/12 text-${pill.token}-text`)
-      }
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wide ${pill.cls}`}
     >
-      <span className={`h-1.5 w-1.5 rounded-full bg-${pill.token}`} />
+      <span className={`h-1.5 w-1.5 rounded-full ${pill.dot}`} />
       {pill.label}
     </span>
   );
 }
 ```
-> NOTE for implementer: Tailwind v4 needs literal class strings to generate utilities. The dynamic `bg-${pill.token}/12` etc. must be **safelisted or written as literals**. If the JIT does not emit them, replace `KindPill` with an explicit per-kind literal-class branch (a `switch` returning fully-written classNames) — verify the pill actually has a colored background in the browser during the impeccable step, not just in jsdom. This is the one place dynamic classnames can silently no-op.
+Note: `bg-status-positive/12` = a 12% alpha wash on the `--color-status-positive` token (Tailwind v4 `color-mix`), border `/40` likewise. The dot uses the full-strength token. All five entries + fallback are literal — nothing is interpolated from the token name.
 
 (b) Add a `DiffBlock`:
 ```tsx
