@@ -191,12 +191,12 @@ If "None," say so explicitly.
 
 **Required only when the milestone ships any UI surface** (any file under `app/` except `app/api/**`, any file under `components/`, any new `app/globals.css` `@theme` block, any change to `DESIGN.md` or `tailwind.config.*`). For backend-only milestones, mark this section "N/A — no UI surface" and skip.
 
-The dual run happens AFTER per-task implementation closes and BEFORE adversarial review. Both commands run with the canonical v3 preflight gates (`load-context.mjs` → product gate → command-reference gate → register identification → preflight signal). Each surface reviewed:
+The dual run happens AFTER per-task implementation closes and BEFORE adversarial review. Both commands run with the canonical v3 setup gates: `context.mjs` context load (PRODUCT.md + DESIGN.md) → register reference read (`brand.md` or `product.md`). (Skill ≥3.9 dropped the `IMPECCABLE_PREFLIGHT` structured signal and renamed `load-context.mjs` to `context.mjs`.) Each surface reviewed:
 
-- [ ] `/impeccable critique <surface>` — UX heuristic scoring, persona walkthroughs, AI-slop test, absolute-ban scan.
+- [ ] `/impeccable critique <surface>` — UX heuristic scoring, persona walkthroughs, AI-slop test, absolute-ban scan. Findings scored P0-P3.
   - Score sheet attached: visual hierarchy, IA, cognitive load, emotional resonance, a11y floor, persona-specific scan-speed rule (e.g., "five-second answer rule" for the FXAV crew page).
-  - HIGH findings fixed OR logged in `DEFERRED.md` with a target milestone.
-  - MEDIUM findings triaged: fix-now / defer to in-milestone polish / defer to a future polish milestone.
+  - P0/P1 findings fixed OR logged in `DEFERRED.md` with a target milestone.
+  - P2/P3 findings triaged: fix-now / defer to in-milestone polish / defer to a future polish milestone.
 
 - [ ] `/impeccable audit <surface>` — Technical quality checks (a11y, performance, responsive, theming, anti-patterns). Scored P0-P3.
   - P0/P1 findings fixed before adversarial review (these are spec-blocking).
