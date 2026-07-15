@@ -459,6 +459,12 @@ describe("per-show page (§6)", () => {
           action: "none",
           summary: "Section shrank",
           entityRef: null,
+          // Required FeedEntry disposition fields — state.feed is untyped
+          // (Record<string, unknown>), so typecheck can't enforce these; an
+          // omitted acknowledgedAt renders a phantom Accepted tag
+          // (undefined !== null). Keep fixtures shape-complete.
+          acceptable: false,
+          acknowledgedAt: null,
         },
       ],
       truncated: false,

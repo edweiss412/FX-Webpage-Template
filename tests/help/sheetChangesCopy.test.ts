@@ -21,6 +21,13 @@ describe("help copy names the per-show feed 'Sheet changes' (spec 2026-07-15 §5
     expect(normalize(panel)).not.toMatch(/changes feed/i);
   });
 
+  it("no standalone '**Changes.**' feed-section label survives (whole-diff R1 F1 class)", () => {
+    // The parts-list label form ("- **Changes.** The show's feed…") names the
+    // feed without the word "feed", dodging the phrase check above.
+    expect(dash).not.toMatch(/\*\*Changes\.\*\*/);
+    expect(panel).not.toMatch(/\*\*Changes\.\*\*/);
+  });
+
   it("both pages use the new name; the anchor id stays stable", () => {
     expect(dash).toMatch(/Sheet changes/);
     expect(panel).toMatch(/Sheet changes/);

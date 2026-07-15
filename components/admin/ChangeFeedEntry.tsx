@@ -111,7 +111,7 @@ export function ChangeFeedEntry({
               acknowledgedAt is set, REGARDLESS of status — acknowledgement is a
               historical fact (undo never clears it), so an accepted-then-undone
               row shows the Undone badge AND this tag. Muted badge tokens. */}
-          {entry.acknowledgedAt !== null ? (
+          {entry.acknowledgedAt != null ? (
             <span
               data-testid="change-feed-accepted-tag"
               title="You accepted this change."
