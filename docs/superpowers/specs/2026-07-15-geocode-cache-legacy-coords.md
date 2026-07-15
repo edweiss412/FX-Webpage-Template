@@ -60,6 +60,10 @@ do $$
 declare
   n integer;
 begin
+  -- Fuse atomicity (R6): fence concurrent service-role cache writes so the counted
+  -- set IS the mutated set (READ COMMITTED would otherwise let the UPDATE see rows
+  -- committed after the count). Held for the block's few milliseconds only.
+  lock table public.geocode_cache in share row exclusive mode;
   -- Blast-radius fuse (R5): enforced IN the transaction, not by operator discipline.
   select count(*) into n
     from public.geocode_cache
@@ -179,10 +183,13 @@ Per AGENTS.md validation-parity rule, in the same PR: apply locally + test →
 `pnpm gen:schema-manifest` + commit regenerated manifest (no table DDL changes, so the
 manifest is expected byte-identical; run it regardless and commit if changed) → apply the
 migration surgically to the validation project (`psql "$TEST_DATABASE_URL" -f ...` then
-`notify pgrst, 'reload schema';`). The migration is idempotent (`create or replace`; ACL
-re-asserts; the expiry UPDATE's `expires_at > now()` predicate makes a second apply a
-no-op) — apply-twice safe. One-shot data effect: fresh coord-less rows become expired
-(a cache miss on the next read); the reset-RPC cache clear happens on the next reset
+`notify pgrst, 'reload schema';`). The function replacement and ACL re-asserts are
+idempotent; the expiry DO block is one-shot (owned by `schema_migrations` on the normal
+path) and a manual RE-apply is bounded-but-wasteful, NOT a no-op — see §3.1. The
+surgical validation apply is performed exactly once and recorded in the PR's apply log
+(validation has no `schema_migrations` bookkeeping for surgical applies — the operator
+record is the guard). One-shot data effect: fresh coord-less rows become expired (a
+cache miss on the next read); the reset-RPC cache clear happens on the next reset
 invocation.
 
 Note: applying this to validation immediately expires its 6 legacy rows — the observed
@@ -209,7 +216,8 @@ exclusivity `:337`) continues to pin the unchanged runtime behavior.
 3. **Over-threshold fuse abort:** seed >1,000 fresh coord-less rows (generate_series),
    run the extracted DO block, assert it raises AND that no seeded row's `expires_at`
    moved (catches: fuse missing/non-atomic — the R5 high; mutation-before-check
-   ordering).
+   ordering). Also assert the block's source contains the `lock table` fence ahead of
+   the count (catches: the R6 READ COMMITTED count/update divergence regressing).
 4. **Post-apply DB invariant:** against the local all-migrations-applied DB, insert a
    coord-less row with a future `expires_at` DIRECTLY (simulating a legacy row), run the
    migration's UPDATE statement verbatim (extracted from the file), and assert the row's
