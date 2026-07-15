@@ -60,6 +60,8 @@ describe("ShareLinkBody", () => {
 
   test("multiple crewEmails → email buttons present", () => {
     wrap("TOK", { crewEmails: ["a@example.com"], showTitle: "RPAS" });
-    expect(screen.getAllByTestId("admin-current-share-link-email-button").length).toBeGreaterThan(0);
+    expect(screen.getAllByTestId("admin-current-share-link-email-button").length).toBeGreaterThan(
+      0,
+    );
   });
 });

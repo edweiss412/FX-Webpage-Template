@@ -26,15 +26,7 @@
  * another show's URL.
  */
 
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 
 type Ctx = { token: string | null; applyRotated: (token: string, epoch: number) => void };
 
@@ -56,7 +48,14 @@ export function ShareTokenProvider({
     [],
   );
 
-  useEffect(() => {
+  // Reconcile a new server seed (a router.refresh bringing a fresh token/epoch)
+  // through the SAME monotonic-epoch gate — done DURING render (the React-blessed
+  // "adjust state when a prop changes" pattern) rather than in an effect, so there
+  // is no extra commit/flash and no cascading-render lint hazard. `seed` records
+  // the last server pair we reconciled; a change to either prop fires the gate once.
+  const [seed, setSeed] = useState({ token: initialToken, epoch: initialEpoch });
+  if (seed.token !== initialToken || seed.epoch !== initialEpoch) {
+    setSeed({ token: initialToken, epoch: initialEpoch });
     setState((p) => {
       if (initialEpoch < p.epoch) return p; // stale refresh — reject
       if (initialToken === null) {
@@ -68,7 +67,7 @@ export function ShareTokenProvider({
       }
       return { token: initialToken, epoch: initialEpoch };
     });
-  }, [initialToken, initialEpoch]);
+  }
 
   // Stable value ref so the three consumers only re-render when the token itself
   // changes (applyRotated is already stable). Without this, every provider render
