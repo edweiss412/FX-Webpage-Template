@@ -21,8 +21,8 @@ The headline gap: staged parse warnings mid-wizard.
 - Flags:
   - `--session <uuid>` → `.eq("wizard_session_id", v)` (non-UUID dropped, same posture as `--show` in `scripts/observe/args.ts:82-83`)
   - `--file <driveFileId>` → `.eq("drive_file_id", v)` (capped via `cap()`, `scripts/observe/args.ts:27`)
-  - `--warnings-only` → post-fetch filter: rows whose warnings array is non-empty
-  - `--full` → print each warning (`severity`, `code`, sanitized `message`, plus `iso`/`field` when present — shape per `ParseWarning`, `lib/parser/types.ts:7`); default output prints `warning_summary` (already a human summary column) + warning count
+  - `--warnings-only` → DB-side filter `.filter("parse_result->warnings", "neq", "[]")` applied BEFORE the row cap (a post-fetch filter could return `(no rows)` when the first page is all warning-free rows while matching rows sit beyond the limit — Codex R1 F2). Rows whose `parse_result` lacks a `warnings` key evaluate NULL ≠ `[]` → excluded, which is correct (no warnings). A non-array scalar passes the filter and renders count 0 via the §6 guard.
+  - `--full` → print each warning through the single warning serializer (§5.1); default output prints `warning_summary` (already a human summary column) + warning count
   - `--since 1h|24h|7d|all` → `.gte("parsed_at", …)` via `sinceToHours` (`scripts/observe/args.ts:32`); default 24h
   - `--limit N`, `--reveal-email`, `--json`, `--env`
 - Ordering: `parsed_at` desc.
@@ -35,7 +35,7 @@ The headline gap: staged parse warnings mid-wizard.
 - SELECT: `id, drive_file_id, drive_file_name, first_seen_at, last_attempt_at, attempt_count, last_error_code, last_error_message, last_warnings, wizard_session_id`.
 - Flags: `--session <uuid>`, `--code <C>` (→ `.eq("last_error_code", v)`), `--since` (on `last_attempt_at`, default 24h), `--limit`, `--json`, `--env`.
 - Ordering: `last_attempt_at` desc.
-- Output row: `last_attempt_at  drive_file_id  attempt_count  last_error_code  drive_file_name(sanitized, truncated)`; `--json` adds `last_error_message` (sanitized) + `last_warnings` (array-guarded; each message sanitized).
+- Output row: `last_attempt_at  drive_file_id  attempt_count  last_error_code  drive_file_name(sanitized, truncated)`; `--json` adds `last_error_message` (sanitized) + `last_warnings` (array-guarded; each element through the §5.1 serializer).
 - Redaction: `drive_file_name` and `last_error_message` are free text → `sanitizeIdentityString`. `last_error_code` is a code → raw.
 
 ### 2.3 `warnings` — shows_internal.parse_warnings (published shows)
@@ -44,8 +44,8 @@ Data-Quality parity for post-publish polling.
 
 - Table: `public.shows_internal` (`…001000_internal_and_admin.sql:1`), FK `show_id → shows(id)` so the PostgREST embed works: SELECT `show_id, parse_warnings, shows(title, slug)` (embed pattern per `lib/observe/query/events.ts:17`).
 - Flags: `--show <uuid>` (→ `.eq("show_id", v)`), `--limit`, `--json`, `--env`. No `--since` (shows_internal has no timestamp column).
-- Ordering: none guaranteed by table; order by `show_id` for determinism. Only rows whose warnings array is non-empty are printed (a published show with zero warnings is noise).
-- Output row: `show_title(slug)  warning_count`, then one line per warning: `severity  code  message(sanitized)`.
+- Ordering: none guaranteed by table; order by `show_id` for determinism. Warning-free rows are excluded DB-side and BEFORE the row cap: `.neq("parse_warnings", "[]")` (same false-empty-page rationale as §2.1 `--warnings-only`; NULL `parse_warnings` is excluded by `neq`, correct — no warnings).
+- Output row: `show_title(slug)  warning_count`, then one line per warning: `severity  code  message` (fields via the §5.1 serializer).
 - Redaction: warning `message` sanitized; `financials`/`raw_unrecognized` are NEVER selected.
 
 ### 2.4 `synclog` — sync_log (per-file sync history)
@@ -55,7 +55,7 @@ Data-Quality parity for post-publish polling.
 - Flags: `--show <uuid>` (→ `.eq("show_id", v)`), `--file <driveFileId>`, `--status <s>` (capped string, `.eq`), `--since` (on `occurred_at`, default 24h), `--limit`, `--json`, `--env`.
 - Ordering: `occurred_at` desc.
 - Output row: `occurred_at  drive_file_id  status  warning_count  duration_ms  message(sanitized, truncated)`.
-- Guard: `parse_warnings` can be non-array jsonb (live validation data threw `cannot get array length of a scalar`). JS side: `Array.isArray(v) ? v.length : 0` for the count; `--json` passes the raw value through only when it is an array, else `[]`.
+- Guard: `parse_warnings` can be non-array jsonb (live validation data threw `cannot get array length of a scalar`). JS side: `Array.isArray(v) ? v.length : 0` for the count; `--json` emits the array mapped through the §5.1 serializer when it is an array, else `[]` (never the raw jsonb value).
 
 ### 2.5 `deferred` — deferred_ingestions
 
@@ -139,6 +139,19 @@ Sanitizer import: `sanitizeIdentityString` lives in `lib/adminAlerts/` and impor
 
 Per the AGENTS.md telemetry contract: token-like substrings (hex/base64 ≥24 chars) ALWAYS redacted in sanitized fields regardless of flags; control/bidi/zero-width chars stripped; sanitized strings length-capped — all supplied by `sanitizeIdentityString` (`lib/adminAlerts/sanitizeIdentityString.ts:50`, TOKEN/EMAIL regexes at :34-35; the module is import-free — no `lib/log` exposure for the read core).
 
+### 5.1 Warning serializer (single chokepoint)
+
+`ParseWarning` carries free-text sibling fields beyond `message` — `rawSnippet?: string` (verbatim sheet text: can contain names, emails, phones, token-like values; `lib/parser/types.ts:20`), `blockRef.name` (sheet-derived block name), and `sourceCell` anchors. Sanitizing only `message` would leak these through every `--json` and `--full` path (Codex R1 F1).
+
+One serializer, `serializeParseWarning(raw: unknown, opts: { includePii: boolean })` in `lib/observe/query/`, is the ONLY way a warning element reaches any output path (table, `--full`, `--json`, every command). It ALLOWLISTS:
+
+- `severity` (enum-shaped, raw)
+- `code` (code-shaped, raw)
+- `message` → `sanitizeIdentityString`
+- `iso` (date-shaped, raw), `field` (identifier-shaped, raw)
+
+Everything else — `rawSnippet`, `blockRef`, `sourceCell`, unknown future fields — is DROPPED, never emitted (drop, not sanitize: anchors and snippets serve the admin UI deep-link feature, not CLI polling; dropping is the smaller surface). Non-object elements serialize to `{ severity: "", code: "", message: "" }`. This applies identically to `parse_result->warnings` (staged), `last_warnings` (failures), `shows_internal.parse_warnings` (warnings), and `sync_log.parse_warnings` (synclog) — all four are the same `ParseWarning` jsonb shape. Unit tests feed a warning whose `rawSnippet` contains an email + a 30-char token and assert neither substring appears anywhere in `--json` or `--full` output, with `--reveal-email` both on and off.
+
 - Sanitize: free-text fields only (warning messages, `warning_summary`, `drive_file_name`, `last_error_message`, sync_log `message`, `reason`).
 - Never sanitize: identifier/enum/timestamp-shaped columns (`drive_file_id`, `wizard_session_id`, codes, statuses, `watched_folder_id`, `resource_id`, ISO dates) — the token redactor corrupts long Drive IDs (44-char base64-alphabet), and these columns are non-PII identifiers already printed raw by existing commands (`events` prints `drive_file_id` raw today via `lib/observe/query/events.ts:17`).
 - Email columns (`wizard_approved_by_email`, `deferred_by_email`): excluded from the SELECT by default; included only under `--reveal-email`, which also prints the existing PII stderr warning (`scripts/observe.ts:110-112`). Note this is deliberately STRONGER than the alerts posture (which selects context and redacts in-process): for plain email columns we can simply not fetch them.
@@ -152,14 +165,15 @@ Per the AGENTS.md telemetry contract: token-like substrings (hex/base64 ≥24 ch
 | `--file` / `--status` / `--code` empty or >200 chars | dropped via `cap()` (`scripts/observe/args.ts:27-31`) |
 | `--limit` NaN / <1 / >500 | `clampLimit` default 100, clamp [1,500] (`lib/observe/query/types.ts:11`) |
 | `parse_warnings` / `last_warnings` / `parse_result->warnings` non-array jsonb (scalar/null/object) | count 0; `--full`/`--json` emit `[]`; never throws (live-verified failure mode) |
-| warning element missing `message`/`code`/`severity` | render empty string for missing member; row still printed |
+| warning element missing `message`/`code`/`severity`, or non-object element | §5.1 serializer emits empty strings for missing members; row still printed |
+| `--warnings-only` / `warnings` DB-side non-empty filter with non-array scalar `parse_warnings` | row passes the `neq "[]"` filter, renders count 0 via the array guard |
 | jsonb projection returns `null` (`parse_result` lacks `warnings` key) | treated as `[]` |
 | 0 rows | `(no rows)` matching existing formatter behavior |
 | `deferred_at_modified_time` / `resource_id` / `expires_at` null | printed as `-` in table output, `null` in `--json` |
 
 ## 7. Testing
 
-- **Unit tests per query module** (`tests/observe/`): mocked builder chain; assert SELECT string (including that `staged` uses the aliased `->warnings` projection and that `watch`'s SELECT excludes `webhook_secret`), filter application, bound, `{data,error}` handling, non-array jsonb guards, sanitizer application to exactly the free-text fields (anti-tautology: feed a warning message containing a 30-char token + an email and assert the token is redacted with `--reveal-email` on AND off, the email only without `--reveal-email`).
+- **Unit tests per query module** (`tests/observe/`): mocked builder chain; assert SELECT string (including that `staged` uses the aliased `->warnings` projection and that `watch`'s SELECT excludes `webhook_secret`), filter application, bound, `{data,error}` handling, non-array jsonb guards, sanitizer/serializer application to exactly the free-text fields (anti-tautology: feed a warning whose `message` AND `rawSnippet` contain a 30-char token + an email; assert the token never appears in any output regardless of `--reveal-email`; the email appears in `message` only with `--reveal-email`; nothing from `rawSnippet` ever appears — §5.1).
 - **Structural**:
   - `tests/observe/_metaReadOnlyQueryCore.test.ts` is a recursive filesystem walk (`:12-20`) — auto-covers all six new modules, no edit needed (the `>= 5` floor still passes).
   - `tests/admin/_metaBoundedReads.test.ts` — add all six modules to `READ_MODULES` (`:30`); `pending_syncs`/`pending_ingestions` are already in `UNBOUNDED_TABLES` (`:51`); add `sync_log`, `deferred_ingestions`, `drive_watch_channels` to `UNBOUNDED_TABLES` (grep-verified: no currently registered module reads them). `shows_internal` is deliberately NOT added: two registered reads (`components/admin/Dashboard.tsx:352` — `.in("show_id", activeShowIds)`, parent-bounded by the active-show list; `app/admin/show/[slug]/page.tsx:335` — `.maybeSingle()`) are genuinely bounded but unrecognized by the meta-test's bound heuristic (`:81-84` accepts only `.limit`/`.range`/`count:'exact'`/`.in("drive_file_id"|"id")`), and patching them would touch UI files (invariant-8 gate) for zero behavior change. The new `warnings.ts` read carries `.limit(clampLimit(…))` regardless, enforced by its unit test.
