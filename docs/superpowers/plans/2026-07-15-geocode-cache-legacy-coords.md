@@ -467,10 +467,12 @@ Expected: PASS (pre-existing failures, if any, must be shown absent at merge-bas
 Run: `pnpm typecheck && pnpm lint && pnpm format:check`
 Expected: all exit 0.
 
-- [ ] **Step 3: Rollout gate (spec §3.1 R7) — verify validation's deployment postdates Flow 8.3a.** Positive containment proof against the DEPLOYED sha (ancestry-of-HEAD proves nothing — a pre-8.3a deploy is also an ancestor):
+- [ ] **Step 3: Rollout gate (spec §3.1 R7) — verify validation's deployment runs the coords-capable WRITER.** Prove the runtime writer, not the schema migration (P-R6: the migration file landed in an earlier commit than the `lib/geocoding/cache.ts` coords write — a deploy between the two would pass a migration-file check yet still write coord-less rows). Positive content proof against the DEPLOYED sha, both halves of the write chain:
 
-Run: `git cat-file -e <deployed-sha>:supabase/migrations/20260709000000_geocode_cache_coords.sql && echo COORDS-CAPABLE`
-Expected: `COORDS-CAPABLE` (exit 0). Alternatively `git merge-base --is-ancestor <flow-8.3a-merge-sha> <deployed-sha>`. Record the exact command + SHA + output in the apply log. If the file is absent from the deployed tree, STOP — deploy validation first.
+Run:
+`git show <deployed-sha>:lib/geocoding/cache.ts | grep -c "lat: args.lat"` — expected `1` (the upsert persists coords, `lib/geocoding/cache.ts:124-125` at HEAD), and
+`git show <deployed-sha>:lib/sync/enrichVenueGeocode.ts | grep -c "lat: res.data.lat"` — expected `1` (the enrichment caller passes them, `lib/sync/enrichVenueGeocode.ts:152` at HEAD).
+Record the exact commands + SHA + outputs in the apply log. If either grep returns 0, STOP — deploy validation first. (The migration-file/ancestry check may be recorded as a schema-history supplement, but it is NOT the gate.)
 
 - [ ] **Step 4: Preflight count on validation (courtesy — the in-DB fuse is the real guard).**
 
@@ -507,6 +509,6 @@ select count(*) from geocode_cache where lat is null or lng is null;           -
 
 plus `pnpm observe staged --env validation --warnings-only` showing NEITHER `VENUE_TIMEZONE_UNRESOLVED` NOR `VENUE_GEOCODE_UNRESOLVED`, plus a spot-check that a staged parse's venue timezone is populated (`pnpm observe staged --env validation --full` → venue tz non-ET-fallback for a known non-Eastern venue, e.g. the Chicago shows). If any check fails, wait out the 60s breaker cooldown and re-run the rescan until all pass.
 
-- [ ] **Step 2: Prod rollout gate (spec R7 — mirrors validation's).** BEFORE the prod DB apply: prove the ACTIVE prod deployment contains the coords writer — `git cat-file -e <prod-deployed-sha>:supabase/migrations/20260709000000_geocode_cache_coords.sql && echo COORDS-CAPABLE` (record command + SHA + output in the apply log, exactly like validation). If absent, or if an older deployment could still serve traffic (mid-rollback), STOP — do not apply until all traffic is on a coords-capable build. (Prod migrations riding the deploy pipeline satisfy this by construction — the applying deploy IS a current-main build — but record the proof rather than assuming it.)
+- [ ] **Step 2: Prod rollout gate (spec R7 — mirrors validation's).** BEFORE the prod DB apply: prove the ACTIVE prod deployment runs the coords-capable WRITER — same two runtime-writer greps as the validation gate (`git show <prod-deployed-sha>:lib/geocoding/cache.ts | grep -c "lat: args.lat"` = 1 AND `git show <prod-deployed-sha>:lib/sync/enrichVenueGeocode.ts | grep -c "lat: res.data.lat"` = 1; record commands + SHA + outputs in the apply log). If either grep returns 0, or if an older deployment could still serve traffic (mid-rollback), STOP — do not apply until all traffic is on a coords-capable build. (Prod migrations riding the deploy pipeline satisfy this by construction — the applying deploy IS a current-main build — but record the proof rather than assuming it.)
 
 - [ ] **Step 3: Prod close-out (spec R10/R14).** After the prod apply (deploy pipeline), run `pnpm observe warnings --env prod`, `pnpm observe staged --env prod --warnings-only`, `pnpm observe failures --env prod`, filtering for `VENUE_TIMEZONE_UNRESOLVED` and `VENUE_GEOCODE_UNRESOLVED`. All empty → record zero-affected proof. Any hit → per-show admin re-sync, then POSITIVELY confirm each re-synced venue's cache row EXISTS with `lat is not null and lng is not null` (existence + coords, not merely absence of coord-less rows — P-R4), repeat the enumeration until empty (60s breaker cooldown between attempts if Google is flaky).
