@@ -44,35 +44,65 @@ refresh self-heals prod on next parse); no change to cache TTL or breaker consta
 
 ### 3.1 Fix 1 — legacy-row refresh in `enrichVenueGeocode`
 
-**Discriminator.** A cache hit is a **legacy/incomplete row** iff
-`cached.city !== null && (cached.lat === null || cached.lng === null)`.
+**Discriminator.** A cache hit is a **legacy row** iff ALL of:
+
+```
+cached.city !== null
+&& (cached.lat === null || cached.lng === null)
+&& cached.geocodedAt < LEGACY_COORDS_CUTOFF
+```
+
+where `LEGACY_COORDS_CUTOFF = '2026-07-09T00:00:00Z'` — the timestamp prefix of the
+coords migration (`supabase/migrations/20260709000000_geocode_cache_coords.sql`). Only
+rows geocoded BEFORE the `lat`/`lng` columns existed can qualify. Every cache write stamps
+`geocoded_at: new Date(now).toISOString()` (`lib/geocoding/cache.ts` `writeGeocodeCache`),
+so **any row a refresh writes is post-cutoff and can never be classified legacy again —
+refresh loops are impossible by construction**, regardless of what the live geocode
+returns.
+
+`readGeocodeCache` (`lib/geocoding/cache.ts:59`) gains `geocoded_at` in its select and a
+`geocodedAt: string` field on the hit variant of its return type. (Same table, same call
+site, no new Supabase call boundary.)
 
 - `city` NULL rows (genuine cached ZERO_RESULTS — see `NO_COORDS` and
-  `extractCity`/`extractCoords` in `lib/geocoding/client.ts:89-100,164`) are NOT refreshed:
-  they keep today's behavior (leave city unset, warn `VENUE_TIMEZONE_UNRESOLVED` via the
-  null-coords path). Refreshing them would re-query Google every parse for venues that
-  legitimately don't resolve.
+  `extractCity`/`extractCoords` in `lib/geocoding/client.ts:89-100,164`) are NOT refreshed
+  regardless of age: they keep today's behavior (leave city unset, warn
+  `VENUE_TIMEZONE_UNRESOLVED` via the null-coords path). Pre-cutoff ZERO_RESULTS rows
+  expire by 2026-07-28 (30-day TTL) and re-resolve via the ordinary miss path.
 - `city` non-null with both coords present → normal hit, unchanged.
-- `city` non-null with either coord NULL → legacy row (pre-7/09 write) or the
-  near-impossible "city without geometry" response; both are honest coords gaps worth one
-  live retry per parse. Retries are bounded by the existing per-venue timeout/retry budget
+- Post-cutoff `city` non-null / coords-null rows (only producible by a live "city without
+  geometry" response, near-impossible per the Geocoding API) → normal hit, warn — terminal,
+  never re-queried.
+- Legacy rows (all three conditions) → one live refresh per parse until a refresh succeeds;
+  each attempt is bounded by the existing per-venue timeout/retry budget
   (`ENRICH_TIMEOUT_MS`/`ENRICH_MAX_RETRIES`, `lib/sync/enrichVenueGeocode.ts:20-21`) and
-  the circuit breaker.
+  gated by the circuit breaker.
 
-**Behavior on legacy hit.** The hit still resets the breaker (`consecutiveFailures = 0`)
-and still sets `venue.city` from the cached city immediately (no regression if the refresh
-fails). Then, instead of `applyTimezoneOrWarn` + return, control falls through to the
-refresh path (a live geocode), carrying the cached city as `legacyCity: string`:
+**Behavior on legacy hit.** The hit does **NOT** reset the breaker (see below) but still
+sets `venue.city` from the cached city immediately (no regression if the refresh fails).
+Then, instead of `applyTimezoneOrWarn` + return, control falls through to the refresh path
+(a live geocode), carrying the cached city as `legacyCity: string`:
 
 | Refresh outcome | venue.city | venue.timezone | Warning | Cache write | Breaker |
 |---|---|---|---|---|---|
 | Breaker open | cached city (kept) | unset | `VENUE_TIMEZONE_UNRESOLVED` | none | untouched |
 | Geocode `res.error` | cached city (kept) | unset | `VENUE_TIMEZONE_UNRESOLVED` (NOT `VENUE_GEOCODE_UNRESOLVED` — city IS resolved; the only gap is the timezone) | none (legacy row kept so a later parse retries) | `recordGeocodeFailure()` |
 | Success, coords resolve to a tz | `res.data.city ?? legacyCity` | set via `coordsToTimezone` | none | upsert with `city: res.data.city ?? legacyCity`, fresh coords | reset |
-| Success, coords null / tz unresolvable | `res.data.city ?? legacyCity` | unset | `VENUE_TIMEZONE_UNRESOLVED` | upsert with `city: res.data.city ?? legacyCity`, coords as returned | reset |
+| Success, coords null / tz unresolvable | `res.data.city ?? legacyCity` | unset | `VENUE_TIMEZONE_UNRESOLVED` | upsert with `city: res.data.city ?? legacyCity`, coords as returned (row is now post-cutoff → terminal) | reset |
 
 The `?? legacyCity` preserve means a refresh can never clobber a previously-resolved city
-with null (e.g. a transient ZERO_RESULTS on a venue that resolved in June).
+with null (e.g. a transient ZERO_RESULTS on a venue that resolved in June); the cutoff
+discriminator makes the resulting city-non-null/coords-null row terminal rather than a
+refresh loop.
+
+**Breaker semantics.** Today's `consecutiveFailures = 0` on cache hit
+(`lib/sync/enrichVenueGeocode.ts:116`) exists because a hit ends the venue's flow without
+a Google call. A legacy hit is about to MAKE a Google call, so it must not pre-clear the
+failure count — otherwise a scan over many legacy rows during a Google outage oscillates
+`0 → fail → 1 → 0 → …` and the breaker never opens, adding the full timeout budget to
+every legacy venue. Rule: **complete hits** (the paths that return without a live call)
+reset the breaker as today; **legacy hits** leave it untouched, and only the refresh
+outcome moves it (failure records, success resets — identical to the cold path).
 
 **Warning-code semantics (§6/§6.1 alignment).** Today the legacy hit emits
 `VENUE_TIMEZONE_UNRESOLVED`; after this change every legacy-hit terminal state still emits
@@ -143,11 +173,13 @@ next time "Reset validation data" + rescan runs, independent of Fix 1's deploy t
 ### `tests/sync/enrichVenueGeocode.test.ts` (extend/modify)
 
 1. **MODIFY** existing "warns on a cache-hit with NULL coords (legacy / un-coordinatable
-   venue)" (currently `:313`): split into the two now-divergent cases —
-   a. `city` NULL + coords NULL (cached ZERO_RESULTS): unchanged behavior — warn, **no**
-      `geocode` call (catches: refresh over-triggering on ZERO_RESULTS rows, which would
-      re-query Google every parse).
-   b. `city` non-null + coords NULL: now refreshes (below).
+   venue)" (currently `:313`): split into the now-divergent cases —
+   a. `city` NULL + coords NULL (cached ZERO_RESULTS, any age): unchanged behavior — warn,
+      **no** `geocode` call (catches: refresh over-triggering on ZERO_RESULTS rows, which
+      would re-query Google every parse).
+   b. `city` non-null + coords NULL + `geocodedAt` **post-cutoff**: unchanged behavior —
+      warn, **no** `geocode` call (catches: refresh loop on rows a refresh itself wrote).
+   c. `city` non-null + coords NULL + `geocodedAt` pre-cutoff: now refreshes (below).
 2. Legacy hit + refresh success with coords → `venue.city` set, `venue.timezone` set, NO
    warning, `cacheWrite` called with fresh coords and the resolved city (catches: coords
    never backfilled / warning persists — the original bug).
@@ -163,7 +195,17 @@ next time "Reset validation data" + rescan runs, independent of Fix 1's deploy t
    silent-drop of the warning users see today).
 6. Normal hit (city + coords present) → NO `geocode` call (catches: refresh
    over-triggering on healthy rows).
-7. Existing suites (idempotency, unconfigured, cold-path exclusivity `:337`) stay green
+7. **Breaker accumulation across legacy rows:** three consecutive legacy-refresh failures
+   open the breaker; a fourth legacy hit makes NO `geocode` call and lands in the
+   breaker-open row of the outcome table (catches: legacy hits pre-clearing
+   `consecutiveFailures` so the breaker never opens during an outage — reviewer R1 high).
+8. **Two-parse no-loop regression:** legacy hit → refresh succeeds with null coords
+   (`city: null, lat: null, lng: null` live result) → cache write observed; a second
+   enrich pass whose cache hit returns that written row (city = preserved legacy city,
+   coords null, fresh `geocodedAt`) makes NO `geocode` call (catches: refresh rewriting
+   the legacy discriminator shape and re-querying Google every parse — reviewer R1
+   medium).
+9. Existing suites (idempotency, unconfigured, cold-path exclusivity `:337`) stay green
    unmodified except (1).
 
 Expected values derive from fixture constants (e.g. the fixture's lat/lng and
@@ -200,11 +242,15 @@ consistent with the file's existing pattern.
 
 ## 6. Watchpoints (do-not-relitigate preempts)
 
-- **Why refresh keys on `city !== null` rather than a `geocoded_at` cutoff:** a cutoff
-  constant would rot and requires selecting `geocoded_at` in `readGeocodeCache`; the
-  city/coords shape discriminator is stable, and the only false-positive class
-  (city-without-geometry live responses) is near-impossible per the Geocoding API (geometry
-  is a required member of every result) and degrades to one bounded retry per parse.
+- **Why the discriminator includes a `geocoded_at` cutoff (R1 revision):** a value-shape
+  discriminator alone (`city` non-null + coords NULL) loops: a refresh that returns null
+  coords rewrites the exact same shape with a fresh TTL and re-queries Google every parse.
+  The cutoff is a fixed historical constant tied to migration `20260709000000` — it cannot
+  rot (it references a past event, not a moving target), and it self-obsoletes: after the
+  30-day TTL horizon (2026-08-08) no pre-cutoff row can exist in any environment, at which
+  point the legacy branch is provably dead code that can be deleted at leisure. Selecting
+  `geocoded_at` in `readGeocodeCache` is a one-line select-list addition on an existing
+  call site.
 - **Why refresh-failure emits `VENUE_TIMEZONE_UNRESOLVED`, not `VENUE_GEOCODE_UNRESOLVED`:**
   the city IS resolved (from cache); `VENUE_GEOCODE_UNRESOLVED`'s catalog copy is
   "Couldn't look up the venue city from its address" which would be false. The tz code's
