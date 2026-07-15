@@ -56,11 +56,28 @@ Instead, the migration that ships Fix 2 (§3.2) also runs a one-shot expiry over
 fresh coord-less row:
 
 ```sql
+do $$
+declare
+  n integer;
+begin
   update public.geocode_cache
      set expires_at = now()
    where (lat is null or lng is null)
      and expires_at > now();
+  get diagnostics n = row_count;
+  raise notice 'geocode_cache one-shot expiry: % coord-less row(s) expired', n;
+end $$;
 ```
+
+**Blast-radius control (R4).** Each environment apply is preceded by the count preflight
+`select count(*) from geocode_cache where (lat is null or lng is null) and expires_at >
+now();` and the DO block reports the actual expired count in the apply output. Acceptable
+threshold: **1,000 rows** — the table's cardinality is distinct-venues-scanned-per-30-days
+(observed: 6 on validation; the product's domain is one AV company's show venues, so
+hundreds is already implausible), and even the threshold costs ~US$5 of Geocoding API
+quota spread across subsequent scans (successful cold-path calls are per-venue,
+once-per-30-days, and remain bounded per-scan by the 6s/1-retry budget). If a preflight
+ever exceeds the threshold, stop and batch the expiry instead — do not apply blind.
 
 Effects:
 
@@ -116,6 +133,18 @@ carries BOTH fixes: the §3.1 one-shot expiry UPDATE, and
   is unconstrained (placed with the other clear-explicit residue); the drive-keyed and FK
   audit registries (`tests/db/resetValidationDataDriveKeyedAudit.test.ts`,
   `tests/db/resetValidationDataFkAudit.test.ts`) need no rows.
+- **Concurrency scope (R4, accepted limitation):** venue enrichment writes `geocode_cache`
+  OUTSIDE the per-show advisory-lock window (enrichment precedes the staging mutation), so
+  a reset racing an in-flight scan can be followed by that scan re-inserting cache rows —
+  the reset's advisory locks cannot fence them. This residue is bounded to quota-cache
+  rows (never show/fixture data), is semantically harmless (a warm cache entry), and
+  self-corrects (TTL, or the next reset). The reset is a manual maintenance action on the
+  gate-enabled validation environment; requiring quiescence is its existing operational
+  posture (same as every other non-lock-fenced side effect of an in-flight scan, e.g. a
+  Drive fetch completing post-reset). A dedicated global advisory lock spanning
+  `writeGeocodeCache` and the RPC would add a new cross-surface lock topology (holder
+  analysis, deadlock meta-test, breaker interplay) to close a cosmetic race on a
+  cache — rejected as disproportionate. Documented here so reviews don't re-derive it.
 - Re-assert the function ACL exactly as `20260622000003` does (`revoke ... from public,
   anon, authenticated; grant execute ... to service_role;`) so the migration is
   self-contained and idempotent on any apply order.
@@ -211,6 +240,13 @@ exclusivity `:337`) continues to pin the unchanged runtime behavior.
   OK-but-no-locality are indistinguishable (R3 finding 2) — expiring both lets venues
   with real geometry recover coords/timezone; a genuine ZERO_RESULTS venue re-caches the
   same null answer once and returns to today's terminal behavior.
+- **Why reset-vs-scan cache residue is accepted rather than locked away:** see §3.2
+  "Concurrency scope" — quota-cache rows only, self-correcting, manual-maintenance
+  context; a new global lock surface is disproportionate to a cosmetic race.
+- **Why the expiry is not batched/gated by default:** the DO block reports the expired
+  count and the documented preflight bounds it (§3.1); the 1,000-row threshold exceeds
+  any plausible cardinality of this domain by an order of magnitude while costing ~US$5
+  of quota if ever hit.
 - **Why the reset deletes rather than expires the cache:** virgin state is the action's
   contract (this spec's origin); expiry-bumping would leave rows visible to future audits
   and save nothing (the next scan re-geocodes either way).
