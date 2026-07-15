@@ -7,6 +7,8 @@ export { queryStagedParses } from "./staged";
 export { queryIngestFailures } from "./failures";
 export { queryPublishedWarnings } from "./warnings";
 export { querySyncLog } from "./syncLog";
+export { queryDeferred } from "./deferred";
+export { queryWatchChannels } from "./watch";
 export { isUuid, clampLimit } from "./types";
 export type {
   AlertFilters,
@@ -27,6 +29,12 @@ export type {
   SyncLogFilters,
   SyncLogRow,
   QuerySyncLogResult,
+  DeferredFilters,
+  DeferredRow,
+  QueryDeferredResult,
+  WatchFilters,
+  WatchRow,
+  QueryWatchResult,
 } from "./types";
 export {
   serializeParseWarning,

@@ -140,3 +140,34 @@ export type SyncLogRow = {
 export type QuerySyncLogResult =
   | { kind: "ok"; rows: SyncLogRow[] }
   | { kind: "infra_error"; message: string };
+
+export type DeferredFilters = { limit?: number; includePii?: boolean };
+export type DeferredRow = {
+  id: string;
+  driveFileId: string;
+  wizardSessionId: string | null;
+  deferredKind: string;
+  deferredAt: string;
+  deferredAtModifiedTime: string | null;
+  reason: string;
+  deferredByEmail?: string | null;
+};
+export type QueryDeferredResult =
+  | { kind: "ok"; rows: DeferredRow[] }
+  | { kind: "infra_error"; message: string };
+
+export type WatchFilters = { limit?: number };
+export type WatchRow = {
+  id: string;
+  status: string;
+  watchedFolderId: string;
+  resourceId: string | null;
+  expiresAt: string | null;
+  createdAt: string;
+  activatedAt: string | null;
+  supersededAt: string | null;
+  stoppedAt: string | null;
+};
+export type QueryWatchResult =
+  | { kind: "ok"; rows: WatchRow[] }
+  | { kind: "infra_error"; message: string };
