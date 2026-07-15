@@ -11,6 +11,7 @@
 // not catalog failure codes (mirrors ParsePanel's empty-state rationale).
 "use client";
 
+import { AcceptChangeButton, type AcceptButtonResult } from "@/components/admin/AcceptChangeButton";
 import { ChangeFeedEntry } from "@/components/admin/ChangeFeedEntry";
 import type { Mi11GateActionResult } from "@/components/admin/Mi11GateActions";
 import type { UndoButtonResult } from "@/components/admin/UndoChangeButton";
@@ -26,26 +27,51 @@ type UndoServerAction = (
   formData: FormData,
 ) => UndoButtonResult | Promise<UndoButtonResult>;
 
+type AcceptServerAction = (
+  prev: AcceptButtonResult | null,
+  formData: FormData,
+) => AcceptButtonResult | Promise<AcceptButtonResult>;
+
 export function ChangesFeed({
   entries,
   truncated,
   now,
+  showId,
   undoAction,
+  acceptAction,
+  acceptAllAction,
   approveAction,
   rejectAction,
 }: {
   entries: FeedEntry[];
   truncated: boolean;
   now: Date;
+  showId: string;
   undoAction: UndoServerAction;
+  acceptAction: AcceptServerAction;
+  acceptAllAction: AcceptServerAction;
   approveAction: GateServerAction;
   rejectAction: GateServerAction;
 }) {
+  // Accept-all payload (spec 2026-07-15 §4.2): exactly the acceptable RENDERED
+  // entries, feed order. Bounded by the feed cap (50) — same semantics as the
+  // dashboard strip's per-show group. No confirm gate: accept is
+  // non-destructive (rows stay in history) — strip parity.
+  const acceptableIds = entries.filter((e) => e.acceptable).map((e) => e.id);
   return (
     <section aria-labelledby="admin-changes-feed-heading" className="flex flex-col gap-3">
-      <h2 id="admin-changes-feed-heading" className="text-lg font-semibold text-text-strong">
-        Changes
-      </h2>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h2 id="admin-changes-feed-heading" className="text-lg font-semibold text-text-strong">
+          Sheet changes
+        </h2>
+        {acceptableIds.length > 0 ? (
+          <AcceptChangeButton
+            acceptAction={acceptAllAction}
+            hiddenFields={{ showId, ids: acceptableIds.join(",") }}
+            label={`Accept all (${acceptableIds.length})`}
+          />
+        ) : null}
+      </div>
       {entries.length === 0 ? (
         <p
           data-testid="change-feed-empty"
@@ -60,7 +86,9 @@ export function ChangesFeed({
               key={entry.id}
               entry={entry}
               now={now}
+              showId={showId}
               undoAction={undoAction}
+              acceptAction={acceptAction}
               approveAction={approveAction}
               rejectAction={rejectAction}
             />

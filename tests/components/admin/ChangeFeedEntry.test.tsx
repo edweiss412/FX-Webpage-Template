@@ -23,6 +23,7 @@ const base = {
 };
 const now = new Date("2026-06-09T12:00:00Z");
 const noop = vi.fn();
+const acceptNoop = vi.fn(async () => ({ ok: true as const, count: 1 }));
 
 it("auto_applied crew row offers Undo, no Approve/Reject", () => {
   render(
@@ -35,7 +36,9 @@ it("auto_applied crew row offers Undo, no Approve/Reject", () => {
         changeLogId: "cl-1",
       }}
       now={now}
+      showId="show-1"
       undoAction={noop}
+      acceptAction={acceptNoop}
       approveAction={noop}
       rejectAction={noop}
     />,
@@ -53,7 +56,9 @@ it("notification-only (none) row offers NO action button", () => {
     <ChangeFeedEntry
       entry={{ ...base, status: "applied", action: "none", summary: "Section shrank" }}
       now={now}
+      showId="show-1"
       undoAction={noop}
+      acceptAction={acceptNoop}
       approveAction={noop}
       rejectAction={noop}
     />,
@@ -67,7 +72,9 @@ it("superseded row renders the muted badge and NO action (PF21)", () => {
     <ChangeFeedEntry
       entry={{ ...base, status: "superseded", action: "none", summary: "Removed Alice" }}
       now={now}
+      showId="show-1"
       undoAction={noop}
+      acceptAction={acceptNoop}
       approveAction={noop}
       rejectAction={noop}
     />,
@@ -98,7 +105,9 @@ it("pending MI-11 row renders old→new from entry.summary and mounts Approve/Re
         },
       }}
       now={now}
+      showId="show-1"
       undoAction={noop}
+      acceptAction={acceptNoop}
       approveAction={approve}
       rejectAction={noop}
     />,
@@ -135,7 +144,9 @@ it("undo row wires the Undo button to entry.changeLogId", () => {
         changeLogId: "cl-9",
       }}
       now={now}
+      showId="show-1"
       undoAction={noop}
+      acceptAction={acceptNoop}
       approveAction={noop}
       rejectAction={noop}
     />,
@@ -152,7 +163,9 @@ it("defensively renders notification-only when approve_reject lacks gate (no dan
     <ChangeFeedEntry
       entry={{ ...base, status: "pending", action: "approve_reject", summary: "Email change" }}
       now={now}
+      showId="show-1"
       undoAction={noop}
+      acceptAction={acceptNoop}
       approveAction={noop}
       rejectAction={noop}
     />,
@@ -193,7 +206,9 @@ for (const d of ["email_change", "rename", "removal"] as const) {
           gate: gateFor(d),
         }}
         now={now}
+        showId="show-1"
         undoAction={noop}
+        acceptAction={acceptNoop}
         approveAction={noop}
         rejectAction={noop}
       />,
@@ -214,7 +229,9 @@ it("undo row renders NO hold explanation", () => {
         changeLogId: "cl-1",
       }}
       now={now}
+      showId="show-1"
       undoAction={noop}
+      acceptAction={acceptNoop}
       approveAction={noop}
       rejectAction={noop}
     />,
@@ -228,7 +245,9 @@ it("notification-only (none) row renders NO hold explanation", () => {
     <ChangeFeedEntry
       entry={{ ...base, status: "applied", action: "none", summary: "Section shrank" }}
       now={now}
+      showId="show-1"
       undoAction={noop}
+      acceptAction={acceptNoop}
       approveAction={noop}
       rejectAction={noop}
     />,
@@ -242,7 +261,9 @@ it("approve_reject WITHOUT a gate (defensive) renders NO hold explanation", () =
     <ChangeFeedEntry
       entry={{ ...base, status: "pending", action: "approve_reject", summary: "Email change" }}
       now={now}
+      showId="show-1"
       undoAction={noop}
+      acceptAction={acceptNoop}
       approveAction={noop}
       rejectAction={noop}
     />,
@@ -267,7 +288,9 @@ it("unknown/future disposition (schema drift) renders NO hold explanation (fail-
         },
       }}
       now={now}
+      showId="show-1"
       undoAction={noop}
+      acceptAction={acceptNoop}
       approveAction={noop}
       rejectAction={noop}
     />,
@@ -276,4 +299,113 @@ it("unknown/future disposition (schema drift) renders NO hold explanation (fail-
   // no explanation node at all (not an empty <p>) — and the raw token never leaks
   expect(within(row).queryByTestId("change-feed-hold-explanation")).toBeNull();
   expect(row.textContent).not.toContain("future_kind");
+});
+
+// ── Disposition axis (spec 2026-07-15 §4.1) ─────────────────────────────────
+// Failure modes caught: Accept offered on a non-acceptable row; Accept payload
+// wired to entry.changeLogId instead of entry.id; Accepted tag keyed on status
+// instead of acknowledgedAt (accepted-then-undone loses the tag); Accept and
+// Accepted co-rendering.
+
+it("acceptable row renders Accept with hidden showId + changeLogId = entry.id (NOT entry.changeLogId)", () => {
+  render(
+    <ChangeFeedEntry
+      entry={{
+        ...base,
+        id: "row-id-1",
+        status: "applied",
+        action: "none",
+        summary: "Field changed: dates",
+        acceptable: true,
+      }}
+      now={now}
+      showId="show-1"
+      undoAction={noop}
+      acceptAction={acceptNoop}
+      approveAction={noop}
+      rejectAction={noop}
+    />,
+  );
+  const row = screen.getByTestId("change-feed-entry-row-id-1");
+  expect(within(row).getByTestId("change-feed-accept")).toBeInTheDocument();
+  // payload: the accept form carries the LOG ROW id (entry.id), plus showId.
+  const idInput = within(row)
+    .getAllByDisplayValue("row-id-1")
+    .filter((el) => el.getAttribute("name") === "changeLogId");
+  expect(idInput).toHaveLength(1);
+  const showInput = within(row)
+    .getAllByDisplayValue("show-1")
+    .filter((el) => el.getAttribute("name") === "showId");
+  expect(showInput).toHaveLength(1);
+  expect(within(row).queryByTestId("change-feed-accepted-tag")).toBeNull();
+});
+
+it("acceptable + undoable crew row renders BOTH Accept and Undo", () => {
+  render(
+    <ChangeFeedEntry
+      entry={{
+        ...base,
+        status: "applied",
+        action: "undo",
+        summary: "Crew added: Bob",
+        changeLogId: "e1",
+        acceptable: true,
+      }}
+      now={now}
+      showId="show-1"
+      undoAction={noop}
+      acceptAction={acceptNoop}
+      approveAction={noop}
+      rejectAction={noop}
+    />,
+  );
+  const row = screen.getByTestId("change-feed-entry-e1");
+  expect(within(row).getByTestId("change-feed-accept")).toBeInTheDocument();
+  expect(within(row).getByTestId("change-feed-undo")).toBeInTheDocument();
+});
+
+it("acknowledged row renders the Accepted tag and no Accept button", () => {
+  render(
+    <ChangeFeedEntry
+      entry={{
+        ...base,
+        status: "applied",
+        action: "none",
+        summary: "Field changed: dates",
+        acknowledgedAt: "2026-07-15T10:00:00.000Z",
+      }}
+      now={now}
+      showId="show-1"
+      undoAction={noop}
+      acceptAction={acceptNoop}
+      approveAction={noop}
+      rejectAction={noop}
+    />,
+  );
+  const row = screen.getByTestId("change-feed-entry-e1");
+  expect(within(row).getByTestId("change-feed-accepted-tag")).toHaveTextContent("Accepted");
+  expect(within(row).queryByTestId("change-feed-accept")).toBeNull();
+});
+
+it("accepted-then-undone row: Undone badge AND Accepted tag co-render (§4.1 total rule)", () => {
+  render(
+    <ChangeFeedEntry
+      entry={{
+        ...base,
+        status: "undone",
+        action: "none",
+        summary: "Crew added: Bob",
+        acknowledgedAt: "2026-07-15T10:00:00.000Z",
+      }}
+      now={now}
+      showId="show-1"
+      undoAction={noop}
+      acceptAction={acceptNoop}
+      approveAction={noop}
+      rejectAction={noop}
+    />,
+  );
+  const row = screen.getByTestId("change-feed-entry-e1");
+  expect(within(row).getByText("Undone")).toBeInTheDocument();
+  expect(within(row).getByTestId("change-feed-accepted-tag")).toBeInTheDocument();
 });

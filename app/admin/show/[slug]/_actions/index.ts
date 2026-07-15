@@ -12,4 +12,10 @@ export { unarchiveShowAction } from "./unarchive";
 export { setShowPublishedAction } from "./setPublished";
 // Phase 6 — changes-feed undo / MI-11 gate actions (delegate to the lock-taking
 // Phase 3/4 helpers; never wrap the RPC in a JS show lock — PF15).
-export { mi11ApproveAction, mi11RejectAction, undoChangeAction } from "./feed";
+export {
+  acceptAllAction,
+  acceptChangeAction,
+  mi11ApproveAction,
+  mi11RejectAction,
+  undoChangeAction,
+} from "./feed";

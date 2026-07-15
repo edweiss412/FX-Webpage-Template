@@ -46,6 +46,8 @@ import {
   mi11ApproveAction,
   mi11RejectAction,
   undoChangeAction,
+  acceptChangeAction,
+  acceptAllAction,
 } from "./_actions";
 import { ChangesFeed } from "@/components/admin/ChangesFeed";
 import { readShowChangeFeed } from "@/lib/sync/feed/readShowChangeFeed";
@@ -851,7 +853,10 @@ export default async function AdminShowPage({
             entries={feed.entries}
             truncated={feed.truncated}
             now={now}
+            showId={show.id}
             undoAction={undoChangeAction}
+            acceptAction={acceptChangeAction}
+            acceptAllAction={acceptAllAction}
             approveAction={mi11ApproveAction}
             rejectAction={mi11RejectAction}
           />
