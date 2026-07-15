@@ -154,9 +154,18 @@ Effects:
   gate-exempt data-gap (`lib/parser/dataGaps.ts:67`, `gateExempt: true`): staged-review
   visible, deliberately non-blocking, with the ET fallback as the designed degraded
   display. Making this spec block finalize on it would change a shipped product contract
-  far beyond a cache bugfix. On prod (no reset button; gate disabled), any hypothetical
-  pre-fix staged row finalizes exactly as today's design permits and self-corrects on the
-  next sheet-modification re-stage.
+  far beyond a cache bugfix.
+  **Prod close-out gate (R10, mandatory before ship is declared done):** prod has no
+  reset button (gate disabled), so after the prod apply, enumerate affected artifacts
+  explicitly rather than waiting for an eventual sheet edit:
+  `pnpm observe warnings --env prod` (published shows' persisted warnings),
+  `pnpm observe staged --env prod --warnings-only`, and
+  `pnpm observe failures --env prod`, filtering for `VENUE_TIMEZONE_UNRESOLVED`. If all
+  three are empty, record the zero-affected proof in the PR's apply log and stop. For any
+  hit, trigger a per-show re-sync from the admin surface (a re-parse runs the cold
+  geocode path against the now-expired cache and re-stages with coords); re-run the
+  enumeration until empty. Published pages meanwhile show the designed ET-fallback
+  degradation, never corrupted data.
 
 **Guard conditions / unchanged behavior:** every path in `enrichVenueGeocode` is
 untouched — venue absent/blank name, city already set, unconfigured, cache infra_error,
