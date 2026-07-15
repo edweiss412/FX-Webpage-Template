@@ -12,3 +12,9 @@ export type {
   ChangeRow,
   QueryChangeLogResult,
 } from "./types";
+export {
+  serializeParseWarning,
+  serializeWarningArray,
+  emitClassDCode,
+  type SerializedWarning,
+} from "./serializeWarning";
