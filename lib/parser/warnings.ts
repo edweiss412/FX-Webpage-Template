@@ -8,7 +8,9 @@
  * Pattern: functional (plain object), not a class — per Task 1.10 scope decision.
  */
 
-import type { ParseWarning } from "./types";
+import type { ParseWarning, UseRawResolution } from "./types";
+import { collapse, contentHashForRawSnippet, contentHashForDateTokens } from "./useRawContentHash";
+import { stripConfirmationTokens } from "./blocks/hotelConfTokens";
 
 export type RawUnrecognized = { block: string; key: string; value: string };
 
@@ -138,18 +140,49 @@ export function emitUnknownSection(agg: ParseAggregator | undefined, headerText:
 export const ROOM_HEADER_SPLIT_AMBIGUOUS = "ROOM_HEADER_SPLIT_AMBIGUOUS";
 export function emitRoomSplitAmbiguity(
   agg: ParseAggregator | undefined,
-  params: { name: string; field: "dims" | "name"; rawHeader: string },
+  params: {
+    name: string;
+    field: "dims" | "name";
+    rawHeader: string;
+    // The transform's split values, captured so the "use raw" resolution can show
+    // parsed-vs-raw and the overlay can restore the parsed side (spec §6).
+    dimensions: string | null;
+    floor: string | null;
+    // Room position in the FINAL rooms array — the overlay locates the row to rewrite
+    // via `blockRef.index` (spec §6/§7), the same anchor hotels use. Required because
+    // two distinct rooms can parse to the same {name, dimensions, floor} from different
+    // raw headers; tuple-match alone cannot disambiguate them (Codex R3 F1/F2).
+    index: number;
+  },
 ): void {
   if (!agg) return;
   const fieldWord = params.field === "dims" ? "dimensions" : "name";
-  const rawOneLine = params.rawHeader.replace(/\s+/g, " ").trim();
+  const rawOneLine = collapse(params.rawHeader);
   const forName = params.name ? ` for "${params.name}"` : "";
+  // §6 resolution: `parsed` = the transform's split; `replacement` = the raw
+  // header as the room name with dims/floor cleared. Empty-raw guard when the
+  // collapsed header is blank (nothing to substitute).
+  const resolution: UseRawResolution =
+    rawOneLine === ""
+      ? { resolvable: false, reason: "empty-raw" }
+      : {
+          resolvable: true,
+          contentHash: contentHashForRawSnippet(params.rawHeader),
+          parsed: {
+            kind: "rooms",
+            name: params.name,
+            dimensions: params.dimensions,
+            floor: params.floor,
+          },
+          replacement: { kind: "rooms", name: rawOneLine, dimensions: null, floor: null },
+        };
   agg.warnings.push({
     severity: "warn",
     code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
     message: `Room line "${rawOneLine}" could be split into name and dimensions more than one way, so we picked the most likely reading; double-check the ${fieldWord}${forName}.`,
-    blockRef: { kind: "rooms", name: params.name, field: params.field },
+    blockRef: { kind: "rooms", name: params.name, field: params.field, index: params.index },
     rawSnippet: params.rawHeader,
+    resolution,
   });
 }
 
@@ -173,25 +206,58 @@ export function emitRoomSplitAmbiguity(
 export const HOTEL_GUEST_SPLIT_AMBIGUOUS = "HOTEL_GUEST_SPLIT_AMBIGUOUS";
 export function emitHotelGuestSplitAmbiguity(
   agg: ParseAggregator | undefined,
-  params: { name?: string | null; reasons: string[]; rawCell: string },
+  params: {
+    name?: string | null;
+    reasons: string[];
+    rawCell: string;
+    // Reservation position in the final hotels array — the overlay locates the row
+    // to rewrite via `blockRef.index` (spec §6/§7).
+    index: number;
+    // The transform's split, captured for the "use raw" resolution (spec §6).
+    parsedNames: string[];
+    confirmationNo: string | null;
+  },
 ): void {
   if (!agg) return;
-  const rawOneLine = params.rawCell.replace(/\s+/g, " ").trim();
+  const rawOneLine = collapse(params.rawCell);
+  // The crew-readable raw replacement value: the raw guest cell as ONE names entry, but
+  // with confirmation-number tokens stripped — `hotel_reservations.names` is crew-readable
+  // and the normal parse removes conf#s, so the "use raw" value must too (Codex R10 HIGH).
+  const strippedRaw = stripConfirmationTokens(params.rawCell);
   const count = params.reasons.length;
   const spots = count === 1 ? "spot" : "spots";
   // Build blockRef with a conditionally-present `name` (exactOptionalPropertyTypes:
   // never assign `undefined` — omit the key entirely when the hotel is unresolved).
-  const blockRef: { kind: string; name?: string; field: string } = {
+  const blockRef: { kind: string; name?: string; field: string; index: number } = {
     kind: "hotels",
     field: "guests",
+    index: params.index,
   };
   if (params.name) blockRef.name = params.name;
+  // §6 resolution: `parsed` = the transform's split; `replacement` = the raw cell as a
+  // SINGLE names entry with confirmation tokens stripped (crew-privacy — see strippedRaw).
+  // Empty-raw guard when the cell is blank OR reduces to nothing but conf tokens (an
+  // all-conf cell has no crew-safe name to show, so use-raw is not offered).
+  const resolution: UseRawResolution =
+    strippedRaw === ""
+      ? { resolvable: false, reason: "empty-raw" }
+      : {
+          resolvable: true,
+          contentHash: contentHashForRawSnippet(params.rawCell),
+          parsed: {
+            kind: "hotels",
+            names: params.parsedNames,
+            confirmationNo: params.confirmationNo,
+          },
+          replacement: { kind: "hotels", names: [strippedRaw], confirmationNo: null },
+        };
   agg.warnings.push({
     severity: "warn",
     code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
     message: `Guest cell "${rawOneLine}" may glue multiple guests together (${count} ${spots}), so we picked the most likely split; double-check the guest list.`,
     blockRef,
     rawSnippet: params.rawCell,
+    resolution,
   });
 }
 
@@ -233,7 +299,10 @@ export function emitHotelCardinalityExceeded(
 export const DATE_ORDER_SUGGESTS_DMY = "DATE_ORDER_SUGGESTS_DMY";
 export function emitDateOrderSuggestsDmy(
   agg: ParseAggregator | undefined,
-  params: { rawSnippet: string },
+  // `resolution` is built by the caller (dates.ts) — it owns DateToken + the
+  // slot→date mapping and the block token list needed for the content hash, so
+  // building it there avoids a warnings.ts ↔ dates.ts import cycle (spec §6).
+  params: { rawSnippet: string; resolution: UseRawResolution },
 ): void {
   if (!agg) return;
   agg.warnings.push({
@@ -242,6 +311,7 @@ export function emitDateOrderSuggestsDmy(
     message: `Show dates in the DATES section only sort in order if read day-first (e.g. "${params.rawSnippet}"); we read them month-first, so every parsed date may be wrong; double-check the date order in the sheet.`,
     blockRef: { kind: "dates", field: "order" },
     rawSnippet: params.rawSnippet,
+    resolution: params.resolution,
   });
 }
 

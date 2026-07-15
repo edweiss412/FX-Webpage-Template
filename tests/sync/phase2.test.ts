@@ -619,6 +619,8 @@ describe("runPhase2 destructive snapshot", () => {
       raw_unrecognized: baseArgs.parseResult.raw_unrecognized,
       // §02: CONFIRMED-ONLY run_of_show. baseArgs has no AGENDA (runOfShow undefined) → null.
       run_of_show: null,
+      // Task 6: applyParseResult always forwards the kept "use raw" decisions ([] when none).
+      use_raw_decisions: [],
     });
   });
 

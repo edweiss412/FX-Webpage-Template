@@ -1,8 +1,10 @@
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { deriveSlug } from "@/lib/parser/slug";
-import type { AgendaEntry, ParseResult, RunOfShow, TriggeredReviewItem } from "@/lib/parser/types";
+import type { ParseResult, RunOfShow, TriggeredReviewItem } from "@/lib/parser/types";
 import { writeAutoApplyChanges } from "@/lib/sync/changeLog/writeAutoApplyChanges";
+import { writeUseRawStaleChanges } from "@/lib/sync/changeLog/writeUseRawStaleChanges";
+import { applyUseRawDecisions, type UseRawDecision } from "@/lib/sync/useRawOverlay";
 import { readOpenHolds } from "@/lib/sync/holds/holdPort";
 import {
   applyParseResult,
@@ -122,6 +124,11 @@ export type Phase2Args = {
    * via computeIdentityLinkRenames (MI-12 always; MI-13/14 only on the version-bound accept).
    */
   identityLinkRenames?: IdentityLinkRename[];
+  // "Use the sheet's raw value" decisions read (through normalizeUseRawDecisions) from the
+  // show/staged JSONB column. The overlay runs ONCE up top so the raw substitution flows into
+  // BOTH applyShowSnapshot (dates→shows) AND applyParseResult (rooms/hotels→their tables).
+  // Absent/[] → overlay no-op.
+  useRawDecisions?: UseRawDecision[];
 };
 
 export type RoleFlagsNotice = {
@@ -249,6 +256,13 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
   }
 
   let parseResult = args.parseResult;
+  // "Use the sheet's raw value" overlay — runs ONCE here, BEFORE applyShowSnapshot (which persists
+  // shows.dates, the DMY dates target) and applyParseResult (rooms/hotels), so the raw substitution
+  // flows into both. PURE (deep-clones); [] when no decisions. `kept` re-stores applied:true;
+  // `invalidated` drives the STALE change-log branch after the apply commits.
+  const useRawOutcome = applyUseRawDecisions(parseResult, args.useRawDecisions ?? []);
+  parseResult = useRawOutcome.result;
+  const useRawKept = useRawOutcome.kept.map((d) => ({ ...d, applied: true }));
   let snapshotRevisionId: string | undefined;
   const verifyReelOnApply =
     args.verifyReelOnApply === false ? null : (args.verifyReelOnApply ?? defaultVerifyReelOnApply);
@@ -283,12 +297,18 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
       ? await callTx("readCurrentDiagrams", () => tx.readCurrentDiagrams!(args.driveFileId))
       : null;
     parseResult = {
-      ...args.parseResult,
+      // Spread the CURRENT parseResult (post use-raw overlay + post reel-verify), NOT
+      // `args.parseResult` (the original pre-overlay parse) — otherwise the raw room/hotel/date
+      // substitutions from applyUseRawDecisions above are silently dropped for shows WITH diagrams
+      // while `useRawKept` still records the decision as applied:true (crew-visible parsed value vs
+      // persisted-active decision mismatch). Diagrams are not overlaid, so the snapshot input still
+      // reads args.parseResult.diagrams.
+      ...parseResult,
       diagrams: {
         current,
         pending: snapshot.pending,
       } as unknown as ParseResult["diagrams"],
-      warnings: [...args.parseResult.warnings, ...snapshot.warnings],
+      warnings: [...parseResult.warnings, ...snapshot.warnings],
     };
   }
 
@@ -377,6 +397,9 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
       driveFileId: args.driveFileId,
       parseResult,
       snapshot,
+      // Kept "use raw" decisions (applied:true) re-persisted to shows_internal.use_raw_decisions.
+      // Unconditional — [] when empty.
+      useRawKept,
       ...(port ? { holds: { port, baseModifiedTime: args.binding.modifiedTime } } : {}),
       // Carry the prepare-stage region anchors so applyParseResult can re-anchor the
       // apply-only AGENDA_DAY_EMPTIED warning it appends (deep link to the schedule tab).
@@ -423,6 +446,22 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
     // not-subject-to-meta: service-role SQL inside the JS-held show lock (no {data,error} client).
     await callTx("cleanupSupersededBeforeImages", () =>
       port.unsafe("select public.cleanup_superseded_before_images($1)", [snapshot.showId]),
+    );
+  }
+
+  // Task 6: STALE "use raw" decisions — its OWN branch, NOT nested in the crew-diff block above
+  // (which a first-seen finalize skips because it has no previousCrewMembers). A decision whose
+  // pinned raw cell changed matched no current warning → write one notification-only use_raw_stale
+  // change-log row so Doug sees why the value reverted to the transform. Runs inside the locked txn
+  // via the same service-role port (no new lock).
+  if (port && useRawOutcome.invalidated.length > 0) {
+    await callTx("writeUseRawStaleChanges", () =>
+      writeUseRawStaleChanges({
+        port,
+        showId: snapshot.showId,
+        driveFileId: args.driveFileId,
+        invalidated: useRawOutcome.invalidated,
+      }),
     );
   }
 

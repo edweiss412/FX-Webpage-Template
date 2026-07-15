@@ -65,6 +65,7 @@ export const FAMILIES: Family[] = [
       "ROOM", // ROOM_HEADER_SPLIT_AMBIGUOUS — a parsed sheet section
       "HOTEL", // HOTEL_GUEST_SPLIT_AMBIGUOUS, HOTEL_CARDINALITY_EXCEEDED
       "DATE", // DATE_ORDER_SUGGESTS_DMY — show-date reading
+      "USE", // USE_RAW_DECISION_STALE — "use the sheet's raw value" pin went stale
     ],
   },
   {

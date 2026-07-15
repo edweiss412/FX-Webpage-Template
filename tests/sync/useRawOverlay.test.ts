@@ -1,0 +1,398 @@
+import { describe, it, expect } from "vitest";
+import {
+  applyUseRawDecisions,
+  normalizeUseRawDecisions,
+  type UseRawDecision,
+} from "@/lib/sync/useRawOverlay";
+import { buildParseResult } from "../components/admin/wizard/_step3ReviewFixture";
+import type { ParseWarning, RoomRow, HotelReservationRow } from "@/lib/parser/types";
+
+// Task 3 (spec §5, §7): the PURE post-parse overlay. Matches decisions to current
+// warnings by (code, contentHash) — NEVER by target — applies the raw replacement
+// for matched preference:"raw" decisions, and partitions kept/invalidated/reverted.
+// Anti-tautology: assert the mutated result fields against the warning's own
+// resolution.replacement, not a container that renders both.
+
+// Valid content pins are 64 lowercase hex chars (sha256hex). The normalize boundary
+// now format-checks them (Codex whole-diff R9 F2), so fixtures must be real hashes.
+const HASH_ROOM = "a".repeat(64);
+const HASH_HOTEL = "b".repeat(64);
+const HASH_DATE = "c".repeat(64);
+
+function roomRow(name: string, dimensions: string | null, floor: string | null): RoomRow {
+  return {
+    kind: "gs",
+    name,
+    dimensions,
+    floor,
+    setup: null,
+    set_time: null,
+    show_time: null,
+    strike_time: null,
+    audio: null,
+  } as RoomRow;
+}
+
+function hotelRow(names: string[], confirmation_no: string | null): HotelReservationRow {
+  return {
+    ordinal: 1,
+    hotel_name: "Grand Plaza",
+    hotel_address: "1 Main St",
+    names,
+    confirmation_no,
+    check_in: "2026-01-01",
+    check_out: "2026-01-02",
+    notes: "keep-me",
+  };
+}
+
+function roomWarning(
+  hash: string,
+  parsed: { name: string; dimensions: string | null; floor: string | null },
+  rawName: string,
+  index?: number,
+): ParseWarning {
+  const blockRef: ParseWarning["blockRef"] = { kind: "rooms", name: parsed.name, field: "dims" };
+  if (index !== undefined) blockRef.index = index;
+  return {
+    severity: "warn",
+    code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+    message: "m",
+    blockRef,
+    resolution: {
+      resolvable: true,
+      contentHash: hash,
+      parsed: { kind: "rooms", ...parsed },
+      replacement: { kind: "rooms", name: rawName, dimensions: null, floor: null },
+    },
+  };
+}
+
+function hotelWarning(
+  hash: string,
+  index: number,
+  parsedNames: string[],
+  rawCell: string,
+): ParseWarning {
+  return {
+    severity: "warn",
+    code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+    message: "m",
+    blockRef: { kind: "hotels", field: "guests", index },
+    resolution: {
+      resolvable: true,
+      contentHash: hash,
+      parsed: { kind: "hotels", names: parsedNames, confirmationNo: null },
+      replacement: { kind: "hotels", names: [rawCell], confirmationNo: null },
+    },
+  };
+}
+
+function dateWarning(hash: string): ParseWarning {
+  return {
+    severity: "warn",
+    code: "DATE_ORDER_SUGGESTS_DMY",
+    message: "m",
+    blockRef: { kind: "dates", field: "order" },
+    resolution: {
+      resolvable: true,
+      contentHash: hash,
+      parsed: {
+        kind: "dates",
+        dates: {
+          travelIn: "2026-10-03",
+          set: null,
+          showDays: ["2026-01-04", "2026-11-03"],
+          travelOut: null,
+        },
+      },
+      replacement: {
+        kind: "dates",
+        dmyDates: {
+          travelIn: "2026-03-10",
+          set: null,
+          showDays: ["2026-03-11", "2026-04-01"],
+          travelOut: null,
+        },
+      },
+    },
+  };
+}
+
+function decision(over: Partial<UseRawDecision>): UseRawDecision {
+  return {
+    code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+    contentHash: HASH_ROOM,
+    target: { kind: "rooms" },
+    preference: "raw",
+    applied: false,
+    decidedAt: "2026-07-10T00:00:00.000Z",
+    decidedBy: "admin@x.com",
+    ...over,
+  };
+}
+
+describe("applyUseRawDecisions — match by content hash, not target", () => {
+  it("rooms: a preference:raw decision matched by hash rewrites name/dims/floor from replacement", () => {
+    const room = roomRow("LASALLE", "50x40", "2");
+    const pr = buildParseResult({
+      rooms: [room],
+      warnings: [
+        roomWarning(
+          HASH_ROOM,
+          { name: "LASALLE", dimensions: "50x40", floor: "2" },
+          "LASALLE 50x40 30x20",
+        ),
+      ],
+    });
+    const out = applyUseRawDecisions(pr, [decision({})]);
+    // Anti-tautology: assert against the warning's replacement, not the room fixture
+    const rep = (pr.warnings[0]!.resolution as { replacement: { name: string } }).replacement;
+    expect(out.result.rooms[0]!.name).toBe(rep.name);
+    expect(out.result.rooms[0]!.dimensions).toBeNull();
+    expect(out.result.rooms[0]!.floor).toBeNull();
+    expect(out.kept).toHaveLength(1);
+    expect(out.invalidated).toHaveLength(0);
+    expect(out.reverted).toHaveLength(0);
+  });
+
+  it("rooms: a decision whose hash matches NO current warning is invalidated (not applied)", () => {
+    const room = roomRow("LASALLE", "50x40", "2");
+    const pr = buildParseResult({
+      rooms: [room],
+      warnings: [
+        roomWarning("some-other-hash", { name: "LASALLE", dimensions: "50x40", floor: "2" }, "RAW"),
+      ],
+    });
+    const out = applyUseRawDecisions(pr, [decision({ contentHash: HASH_ROOM })]);
+    expect(out.result.rooms[0]!.name).toBe("LASALLE"); // untouched
+    expect(out.result.rooms[0]!.dimensions).toBe("50x40");
+    expect(out.invalidated).toHaveLength(1);
+    expect(out.kept).toHaveLength(0);
+  });
+
+  it("hotels: rewrites the reservation at blockRef.index — names=[raw], confirmation cleared, other fields untouched", () => {
+    const hotel = hotelRow(["John Smith", "Jane Doe"], "CONF123");
+    const pr = buildParseResult({
+      hotelReservations: [hotel],
+      warnings: [hotelWarning(HASH_HOTEL, 0, ["John Smith", "Jane Doe"], "John Smith Jane Doe")],
+    });
+    const out = applyUseRawDecisions(pr, [
+      decision({
+        code: "HOTEL_GUEST_SPLIT_AMBIGUOUS",
+        contentHash: HASH_HOTEL,
+        target: { kind: "hotels", index: 0 },
+      }),
+    ]);
+    expect(out.result.hotelReservations[0]!.names).toEqual(["John Smith Jane Doe"]);
+    expect(out.result.hotelReservations[0]!.confirmation_no).toBeNull();
+    // untouched fields
+    expect(out.result.hotelReservations[0]!.hotel_name).toBe("Grand Plaza");
+    expect(out.result.hotelReservations[0]!.check_in).toBe("2026-01-01");
+    expect(out.result.hotelReservations[0]!.notes).toBe("keep-me");
+    expect(out.kept).toHaveLength(1);
+  });
+
+  it("dates: rewrites ONLY dates.{travelIn,set,showDays,travelOut} from dmyDates; clock fields untouched", () => {
+    const pr = buildParseResult({
+      warnings: [dateWarning(HASH_DATE)],
+    });
+    pr.show.dates.travelIn = "2026-10-03";
+    pr.show.dates.showDays = ["2026-01-04", "2026-11-03"];
+    pr.show.dates.loadIn = "8:00 AM";
+    const out = applyUseRawDecisions(pr, [
+      decision({
+        code: "DATE_ORDER_SUGGESTS_DMY",
+        contentHash: HASH_DATE,
+        target: { kind: "dates" },
+      }),
+    ]);
+    expect(out.result.show.dates.travelIn).toBe("2026-03-10");
+    expect(out.result.show.dates.showDays).toEqual(["2026-03-11", "2026-04-01"]);
+    expect(out.result.show.dates.travelOut).toBeNull();
+    expect(out.result.show.dates.loadIn).toBe("8:00 AM"); // clock field untouched
+    expect(out.kept).toHaveLength(1);
+  });
+});
+
+describe("applyUseRawDecisions — content-scoped equivalence class", () => {
+  it("two warnings share one contentHash → one decision keeps BOTH; both rooms rewritten", () => {
+    const r1 = roomRow("LASALLE", "50x40", "2");
+    const r2 = roomRow("LASALLE", "50x40", "2"); // identical content → same hash
+    const pr = buildParseResult({
+      rooms: [r1, r2],
+      warnings: [
+        roomWarning(HASH_ROOM, { name: "LASALLE", dimensions: "50x40", floor: "2" }, "LASALLE RAW"),
+        roomWarning(HASH_ROOM, { name: "LASALLE", dimensions: "50x40", floor: "2" }, "LASALLE RAW"),
+      ],
+    });
+    const out = applyUseRawDecisions(pr, [decision({})]);
+    expect(out.result.rooms[0]!.name).toBe("LASALLE RAW");
+    expect(out.result.rooms[1]!.name).toBe("LASALLE RAW");
+    expect(out.kept).toHaveLength(1); // ONE decision, not two
+    expect(out.invalidated).toHaveLength(0);
+  });
+
+  it("ONE matched warning rewrites ONE room, not every same-tuple room (Codex F3-rooms)", () => {
+    // Two rooms parse to the identical {name, dimensions, floor}, but only ONE is the ambiguous
+    // use-raw target (one warning, one decision). A distinct room that happens to share the parsed
+    // tuple — from a different raw header, so no matching warning/hash — must KEEP its parsed value.
+    const warned = roomRow("LASALLE", "50x40", "2");
+    const distinct = roomRow("LASALLE", "50x40", "2"); // same tuple, different origin, no warning
+    const pr = buildParseResult({
+      rooms: [warned, distinct],
+      warnings: [
+        roomWarning(HASH_ROOM, { name: "LASALLE", dimensions: "50x40", floor: "2" }, "LASALLE RAW"),
+      ],
+    });
+    const out = applyUseRawDecisions(pr, [decision({})]);
+    // Exactly ONE room carries the raw value (before the fix, BOTH were overwritten).
+    const rawCount = out.result.rooms.filter((r) => r.name === "LASALLE RAW").length;
+    expect(rawCount).toBe(1);
+    expect(out.result.rooms[1]!.name).toBe("LASALLE"); // the distinct room is untouched
+    expect(out.kept).toHaveLength(1);
+  });
+
+  it("distinct-tuple rooms: a decision matching ONLY the second warning rewrites the SECOND room (Codex R3 F1)", () => {
+    // Two rooms parse to the identical {name, dimensions, floor} from DIFFERENT raw headers
+    // (distinct contentHashes). Only the SECOND is a use-raw target. The overlay must write the
+    // raw onto the SECOND room (the one that produced the matched warning, located by
+    // blockRef.index), never the first — tuple-match alone would grab the first (wrong) row.
+    const first = roomRow("LASALLE", "50x40", "2");
+    const second = roomRow("LASALLE", "50x40", "2");
+    const pr = buildParseResult({
+      rooms: [first, second],
+      warnings: [
+        roomWarning("hash-A", { name: "LASALLE", dimensions: "50x40", floor: "2" }, "FIRST RAW", 0),
+        roomWarning(
+          "hash-B",
+          { name: "LASALLE", dimensions: "50x40", floor: "2" },
+          "SECOND RAW",
+          1,
+        ),
+      ],
+    });
+    const out = applyUseRawDecisions(pr, [decision({ contentHash: "hash-B" })]);
+    expect(out.result.rooms[1]!.name).toBe("SECOND RAW"); // the warning's OWN row (index 1)
+    expect(out.result.rooms[0]!.name).toBe("LASALLE"); // first room untouched (its hash-A decision absent)
+    expect(out.kept).toHaveLength(1);
+  });
+});
+
+describe("applyUseRawDecisions — reverted partition", () => {
+  it("preference:transform matched → applies NOTHING (transform kept), decision in reverted", () => {
+    const room = roomRow("LASALLE", "50x40", "2");
+    const pr = buildParseResult({
+      rooms: [room],
+      warnings: [
+        roomWarning(HASH_ROOM, { name: "LASALLE", dimensions: "50x40", floor: "2" }, "RAW"),
+      ],
+    });
+    const out = applyUseRawDecisions(pr, [decision({ preference: "transform" })]);
+    expect(out.result.rooms[0]!.name).toBe("LASALLE"); // transform value kept
+    expect(out.result.rooms[0]!.dimensions).toBe("50x40");
+    expect(out.reverted).toHaveLength(1);
+    expect(out.kept).toHaveLength(0);
+    expect(out.invalidated).toHaveLength(0);
+  });
+
+  it("preference:transform matching no warning → also reverted (silently dropped)", () => {
+    const pr = buildParseResult({ rooms: [roomRow("A", null, null)], warnings: [] });
+    const out = applyUseRawDecisions(pr, [
+      decision({ preference: "transform", contentHash: "ghost" }),
+    ]);
+    expect(out.reverted).toHaveLength(1);
+    expect(out.kept).toHaveLength(0);
+    expect(out.invalidated).toHaveLength(0);
+  });
+});
+
+describe("applyUseRawDecisions — purity", () => {
+  it("does not mutate the input parseResult (returns a fresh result)", () => {
+    const room = roomRow("LASALLE", "50x40", "2");
+    const pr = buildParseResult({
+      rooms: [room],
+      warnings: [
+        roomWarning(HASH_ROOM, { name: "LASALLE", dimensions: "50x40", floor: "2" }, "RAW"),
+      ],
+    });
+    applyUseRawDecisions(pr, [decision({})]);
+    expect(pr.rooms[0]!.name).toBe("LASALLE"); // input unchanged
+    expect(pr.rooms[0]!.dimensions).toBe("50x40");
+  });
+});
+
+describe("normalizeUseRawDecisions — the single JSONB validation boundary", () => {
+  const valid = decision({});
+  it("non-array input → []", () => {
+    expect(normalizeUseRawDecisions(null)).toEqual([]);
+    expect(normalizeUseRawDecisions(undefined)).toEqual([]);
+    expect(normalizeUseRawDecisions({})).toEqual([]);
+    expect(normalizeUseRawDecisions("[]")).toEqual([]);
+  });
+  it("drops an out-of-scope code", () => {
+    expect(normalizeUseRawDecisions([{ ...valid, code: "SOMETHING_ELSE" }])).toEqual([]);
+  });
+  it("drops a missing/blank/malformed contentHash (Codex R9 F2 — 64-hex pin, not nonblank)", () => {
+    expect(normalizeUseRawDecisions([{ ...valid, contentHash: "" }])).toEqual([]);
+    const { contentHash: _c, ...noHash } = valid;
+    expect(normalizeUseRawDecisions([noHash])).toEqual([]);
+    // Nonblank but NOT a real content pin → dropped (the pre-R9 check let these survive).
+    expect(normalizeUseRawDecisions([{ ...valid, contentHash: "not-a-hash" }])).toEqual([]);
+    expect(normalizeUseRawDecisions([{ ...valid, contentHash: "a".repeat(63) }])).toEqual([]); // too short
+    expect(normalizeUseRawDecisions([{ ...valid, contentHash: "A".repeat(64) }])).toEqual([]); // uppercase
+    expect(normalizeUseRawDecisions([{ ...valid, contentHash: "g".repeat(64) }])).toEqual([]); // non-hex char
+    // A real 64-lowercase-hex pin survives.
+    expect(normalizeUseRawDecisions([{ ...valid, contentHash: "f".repeat(64) }])).toHaveLength(1);
+  });
+  it("drops a bad preference or applied shape", () => {
+    expect(normalizeUseRawDecisions([{ ...valid, preference: "maybe" }])).toEqual([]);
+    expect(normalizeUseRawDecisions([{ ...valid, applied: "yes" }])).toEqual([]);
+  });
+  it("drops a malformed decidedAt / blank decidedBy (Codex R9 F2)", () => {
+    expect(normalizeUseRawDecisions([{ ...valid, decidedAt: "x" }])).toEqual([]); // unparseable
+    expect(normalizeUseRawDecisions([{ ...valid, decidedAt: "" }])).toEqual([]);
+    expect(normalizeUseRawDecisions([{ ...valid, decidedBy: "" }])).toEqual([]); // blank decider
+    expect(normalizeUseRawDecisions([{ ...valid, decidedBy: "   " }])).toEqual([]); // whitespace-only
+    // A valid ISO timestamp + nonblank decider survives.
+    expect(
+      normalizeUseRawDecisions([{ ...valid, decidedAt: "2026-07-15T12:00:00.000Z" }]),
+    ).toHaveLength(1);
+  });
+  it("passes a valid array through", () => {
+    expect(normalizeUseRawDecisions([valid])).toEqual([valid]);
+  });
+  it("never throws on garbage", () => {
+    expect(() => normalizeUseRawDecisions([1, "x", null, { code: 5 }])).not.toThrow();
+    expect(normalizeUseRawDecisions([1, "x", null, { code: 5 }])).toEqual([]);
+  });
+  it("cleans a malformed target: bad-typed kind/name/index/field are dropped (Codex R3 F3)", () => {
+    const bad = { ...valid, target: { kind: 5, name: 7, index: "x", field: {} } };
+    const [out] = normalizeUseRawDecisions([bad]);
+    expect(out!.target).toEqual({ kind: "" }); // kind coerced to "", non-string/number fields dropped
+  });
+  it("keeps well-typed target fields", () => {
+    const good = { ...valid, target: { kind: "rooms", name: "LASALLE", index: 2, field: "dims" } };
+    const [out] = normalizeUseRawDecisions([good]);
+    expect(out!.target).toEqual({ kind: "rooms", name: "LASALLE", index: 2, field: "dims" });
+  });
+  it("drops a non-integer target index", () => {
+    const bad = { ...valid, target: { kind: "rooms", index: 1.5 } };
+    const [out] = normalizeUseRawDecisions([bad]);
+    expect(out!.target).toEqual({ kind: "rooms" });
+  });
+  it("drops a negative target index (Codex R4 F2)", () => {
+    const bad = { ...valid, target: { kind: "rooms", index: -1 } };
+    const [out] = normalizeUseRawDecisions([bad]);
+    expect(out!.target).toEqual({ kind: "rooms" });
+  });
+  it("drops the impossible {transform, applied:true} state (Codex R4 F2)", () => {
+    const impossible = { ...valid, preference: "transform", applied: true };
+    expect(normalizeUseRawDecisions([impossible])).toEqual([]);
+  });
+  it("keeps the valid {transform, applied:false} and {raw, applied:true} states", () => {
+    const revertPending = { ...valid, preference: "transform" as const, applied: false };
+    const rawActive = { ...valid, preference: "raw" as const, applied: true };
+    expect(normalizeUseRawDecisions([revertPending, rawActive])).toHaveLength(2);
+  });
+});

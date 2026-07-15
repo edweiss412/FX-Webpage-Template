@@ -233,6 +233,7 @@
     "staged_id",
     "staged_modified_time",
     "triggered_review_items",
+    "use_raw_decisions",
     "warning_summary",
     "wizard_approved",
     "wizard_approved_at",
@@ -358,7 +359,8 @@
     "parse_warnings",
     "raw_unrecognized",
     "run_of_show",
-    "show_id"
+    "show_id",
+    "use_raw_decisions"
   ],
   "shows_pending_changes": [
     "applied_at_intent",

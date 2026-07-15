@@ -38,6 +38,7 @@ import { driveFolderUrl } from "@/lib/drive/driveFolderUrl";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import { buildAdminAgendaPreview, type AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
+import { normalizeUseRawDecisions, type UseRawDecision } from "@/lib/sync/useRawOverlay";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import { isStructurallyValidReviewItem } from "@/lib/staging/reviewPayloadGuards";
 import { deriveStep3DisplayState } from "@/lib/admin/step3DisplayState";
@@ -426,7 +427,7 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
     const { data, error } = await supabase
       .from("pending_syncs")
       .select(
-        "staged_id, drive_file_id, staged_modified_time, parse_result, source_anchors, last_finalize_failure_code, triggered_review_items",
+        "staged_id, drive_file_id, staged_modified_time, parse_result, source_anchors, last_finalize_failure_code, triggered_review_items, use_raw_decisions",
       )
       .eq("wizard_session_id", wizardSessionId);
     if (error) {
@@ -533,6 +534,7 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
       adminAgendaPreview: AdminAgendaItem[];
       agendaStateKey: string;
       lastFinalizeFailureCode: string | null;
+      useRawDecisions: UseRawDecision[];
     }
   >();
   for (const ps of pendingSyncsRows) {
@@ -572,6 +574,9 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
       agendaStateKey,
       // Task 5b (spec §6.1): the demotion code drives the card's dirty re-scan state.
       lastFinalizeFailureCode: (ps.last_finalize_failure_code as string | null) ?? null,
+      // spec §8/§9a: staged use-raw decisions (jsonb) read through the single
+      // normalize boundary; the wizard judgment callout renders the toggle from these.
+      useRawDecisions: normalizeUseRawDecisions(ps.use_raw_decisions ?? null),
     });
   }
 
@@ -620,6 +625,7 @@ export async function fetchStep3Data(wizardSessionId: string): Promise<Step3Fetc
           sourceAnchors: staged.sourceAnchors,
           adminAgendaPreview: staged.adminAgendaPreview,
           agendaStateKey: staged.agendaStateKey,
+          useRawDecisions: staged.useRawDecisions,
         };
         if (staged.title) return { ...withParse, stagedShowTitle: staged.title };
         return withParse;

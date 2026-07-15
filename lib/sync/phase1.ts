@@ -6,6 +6,7 @@ import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import { MI8_DEBOUNCE_MS } from "@/lib/sync/constants";
 import type { ResolvedSyncMode, SyncMode } from "@/lib/sync/perFileProcessor";
 import type { OverrideSnapshot } from "@/lib/sync/pullSheetOverride";
+import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
 import {
   getAutoPublishCleanFirstSeen as defaultGetAutoPublishCleanFirstSeen,
   type AutoPublishCleanFirstSeenResult,
@@ -44,6 +45,10 @@ export type Phase1ShowRow = {
    * a published show holds a 1-member drop via shrink_held; an unpublished one auto-applies.
    */
   published: boolean;
+  // Task 6: the stored "use raw" decisions (normalized). Optional so existing Phase1ShowRow test
+  // doubles that never populate it read as "no decisions"; the live reader (readShowForPhase1)
+  // always sets it (normalizeUseRawDecisions → []). Threaded into runPhase2's overlay on re-sync.
+  useRawDecisions?: UseRawDecision[];
 };
 
 export type Phase1PendingSyncRow = {

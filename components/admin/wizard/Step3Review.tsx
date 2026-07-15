@@ -48,6 +48,7 @@ import { renderEmphasis } from "@/components/messages/renderEmphasis";
 import { Step3SheetCard } from "@/components/admin/wizard/Step3SheetCard";
 import { deriveStep3Buckets } from "@/lib/admin/step3Buckets";
 import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
+import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
 import type { AdminAgendaItem } from "@/lib/agenda/agendaAdminPreview";
 import type { SourceAnchor } from "@/lib/sheet-links/buildSheetDeepLink";
 import type { Step3DisplayState } from "@/lib/admin/step3DisplayState";
@@ -105,6 +106,11 @@ export type Step3Row = {
   // pending_syncs.source_anchors jsonb in fetchStep3Data. Absent/malformed → `{}`.
   // Consumed by the step-3 modal's per-section "In sheet" heading links.
   sourceAnchors?: Record<string, SourceAnchor>;
+  // spec 2026-07-10-structural-transform-use-raw §8/§9a: staged use-raw decisions
+  // (from pending_syncs.use_raw_decisions), read through normalizeUseRawDecisions.
+  // Threaded into the modal's SectionData so the judgment callout renders the
+  // per-warning use-raw toggle. Absent → the callout falls back to no decisions.
+  useRawDecisions?: UseRawDecision[];
   // ── Step-3 consolidation (spec §4.3.1) — the unified read threads these so the
   // folded modal can resolve a re-apply row + the derivation can classify it. ──
   // The staged_id of this row's pending_syncs row (clean rows only), needed for

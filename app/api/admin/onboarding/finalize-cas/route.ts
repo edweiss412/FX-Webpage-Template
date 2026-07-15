@@ -447,9 +447,15 @@ async function applyShadow(
     return { drive_file_id: row.drive_file_id, code: overrideGate.code };
   }
 
+  // Feature-B F1 (Codex whole-diff review): the staged "use raw" decisions are consumed from the
+  // SHADOW PAYLOAD, not re-read from pending_syncs. Phase B (finalize/route.ts stageExistingShowShadow
+  // → deleteApprovedPending) deletes the pending_syncs row right after staging, so a pending_syncs
+  // re-read here would ALWAYS return [] for an existing show and silently drop the admin's toggle.
+  // parseShadowPayloadForApply normalizes the payload field (absent/malformed → [] overlay no-op).
   const core = await applyStagedCore(lockedTx, {
     sourceScope: "wizard",
     driveFileId: row.drive_file_id,
+    useRawDecisions: parsed.useRawDecisions,
     show: {
       showId: live.id,
       lastSeenModifiedTime: normalizeTimestamptz(live.last_seen_modified_time),

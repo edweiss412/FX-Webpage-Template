@@ -49,6 +49,7 @@ function sectionData(): SectionData {
     ros: pr.runOfShow ?? {},
     warnings: pr.warnings,
     agendaBaseline: [],
+    useRawDecisions: [],
   };
 }
 

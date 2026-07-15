@@ -4,6 +4,37 @@ import type { ArchivedPullSheetTab } from "@/lib/drive/exportSheetToMarkdown";
 
 export type { ArchivedPullSheetTab };
 
+// Order-preserved, index-aligned date slots for the DATES-block "inverted dates"
+// warning (spec §6). `showDays` mirrors ShowRow.dates.showDays exactly. Used for
+// both the parsed (MDY) interpretation and the raw (DMY) replacement.
+export type DateOrderFields = {
+  travelIn: string | null;
+  set: string | null;
+  showDays: string[]; // ISO, order-preserved, index-aligned to the parsed block
+  travelOut: string | null;
+};
+
+// The precomputed "use the sheet's raw value" resolution attached to each of the
+// three recoverable structural-transform warnings (spec §6). `parsed` is the
+// current transform value; `replacement` is what applying the raw value yields;
+// `contentHash` pins the decision to the canonical (whitespace-collapsed) raw
+// cell so a later edit auto-invalidates the decision. `{resolvable:false}` marks
+// a warning whose raw cell can't be substituted (empty raw / invalid DMY re-read).
+export type UseRawResolution =
+  | {
+      resolvable: true;
+      contentHash: string;
+      parsed:
+        | { kind: "rooms"; name: string; dimensions: string | null; floor: string | null }
+        | { kind: "hotels"; names: string[]; confirmationNo: string | null }
+        | { kind: "dates"; dates: DateOrderFields };
+      replacement:
+        | { kind: "rooms"; name: string; dimensions: null; floor: null }
+        | { kind: "hotels"; names: [string]; confirmationNo: null }
+        | { kind: "dates"; dmyDates: DateOrderFields };
+    }
+  | { resolvable: false; reason: "empty-raw" | "invalid-dmy" };
+
 export type ParseWarning = {
   severity: "info" | "warn";
   code: string;
@@ -18,6 +49,16 @@ export type ParseWarning = {
   // set it explicitly (never `undefined`), so it stays exactOptionalPropertyTypes-safe.
   blockRef?: { kind: string; index?: number; iso?: string; name?: string; field?: string };
   rawSnippet?: string;
+  // Precomputed "use the sheet's raw value" resolution payload (spec
+  // 2026-07-10-structural-transform-use-raw §6). ALWAYS set for the three
+  // recoverable structural-transform codes (ROOM_HEADER_SPLIT_AMBIGUOUS,
+  // HOTEL_GUEST_SPLIT_AMBIGUOUS, DATE_ORDER_SUGGESTS_DMY) — carries the parsed
+  // transform value, the raw replacement, and the content hash used to pin an
+  // admin decision (or `{resolvable:false, reason}` when the raw can't be used).
+  // ABSENT on every other warning: absence discriminates a legacy/non-recoverable
+  // warning from an in-scope one. jsonb-persisted on shows_internal.parse_warnings
+  // and pending_syncs.parse_result — backward-compatible, no migration.
+  resolution?: UseRawResolution;
   // Optional deep-link anchor to the exact source cell that triggered the warning
   // (e.g. the DATES-tab TIME cell for SCHEDULE_TIME_UNPARSED). Attached at scan
   // time when the raw workbook + tab gids are available (see

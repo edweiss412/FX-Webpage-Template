@@ -1292,6 +1292,10 @@ export function Step3ReviewModal({
                     // Bug #316 item 3: the staged row's per-region source-sheet anchors,
                     // so each section's "In sheet" heading link opens at its cell range.
                     sourceAnchors: data.row.sourceAnchors ?? {},
+                    // spec §8/§9a: staged use-raw decisions + session so the §E3
+                    // judgment callout can render the per-warning use-raw toggle.
+                    useRawDecisions: data.useRawDecisions,
+                    wizardSessionId,
                     // §E3: callout entries for every flagged section EXCEPT
                     // `warnings` (its body IS the warning list — circular).
                     // exactOptional discipline: ABSENT, never undefined.

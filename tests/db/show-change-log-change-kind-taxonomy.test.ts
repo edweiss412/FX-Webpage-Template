@@ -19,6 +19,7 @@ const ALLOWED = new Set([
   "field_changed",
   "section_shrunk",
   "asset_drift",
+  "use_raw_stale",
 ]);
 
 // Captures change_kind assignments in both SQL (= 'x' / values ... 'x') and TS

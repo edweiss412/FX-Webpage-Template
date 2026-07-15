@@ -80,6 +80,8 @@ import type {
 } from "@/lib/parser/types";
 import { useRouter } from "next/navigation";
 import type { Step3Row } from "@/components/admin/wizard/Step3Review";
+import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
+import { UseRawControlBoundary } from "@/components/admin/UseRawControlBoundary";
 import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";
 import { fieldLabelFor } from "@/lib/admin/step3Buckets";
 import { buildRawUnrecognizedView } from "@/lib/admin/rawUnrecognized";
@@ -459,6 +461,16 @@ export type Step3SectionChrome = {
    * lookup yields undefined → buildSheetDeepLink #gid=0 fallback.
    */
   sourceAnchors?: Record<string, SourceAnchor>;
+  /**
+   * spec 2026-07-10-structural-transform-use-raw §8/§9a: the staged use-raw
+   * decisions + the wizard session id, so the §E3 judgment callout can render the
+   * per-warning use-raw toggle (`setStagedUseRawDecisionAction(wizardSessionId, …)`).
+   * The modal (sole production provider) always passes both; optional so
+   * standalone/section-test provider mounts stay valid (exactOptionalPropertyTypes:
+   * present or ABSENT, never `undefined`). Absent → no toggle rendered.
+   */
+  useRawDecisions?: UseRawDecision[];
+  wizardSessionId?: string;
 };
 export const Step3SectionChromeContext = createContext<Step3SectionChrome | null>(null);
 
@@ -478,6 +490,8 @@ function SectionFlagCallout({
   entries,
   onJump,
   variant = "flagged",
+  useRawDecisions,
+  wizardSessionId,
 }: {
   dfid: string;
   sectionId: SectionId;
@@ -486,7 +500,22 @@ function SectionFlagCallout({
   /** spec 2026-07-07 §7.3: "judgment" swaps the amber warn tone for a calm
    *  informational tone + a lead "we made a judgment call" line. Default flagged. */
   variant?: "flagged" | "judgment";
+  /** spec 2026-07-10 §8/§9a: staged use-raw decisions + wizard session, so each
+   *  in-scope entry renders the use-raw toggle. Absent (section-test mounts) → no
+   *  toggle (the boundary needs a session to bind the staged action). */
+  useRawDecisions?: UseRawDecision[];
+  wizardSessionId?: string;
 }) {
+  // spec §8: match the persisted decision by (code, resolution.contentHash) — never
+  // by target. The `<UseRawControl>` inside the boundary self-hides out-of-scope /
+  // unresolvable warnings, so it is rendered for every entry when a session exists.
+  const decisionFor = (w: ParseWarning): UseRawDecision | undefined =>
+    useRawDecisions?.find(
+      (d) =>
+        d.code === w.code &&
+        w.resolution?.resolvable === true &&
+        d.contentHash === w.resolution.contentHash,
+    );
   const shown = entries.slice(0, CALLOUT_MAX_ENTRIES);
   const extra = entries.length - shown.length;
   const isJudgment = variant === "judgment";
@@ -516,19 +545,33 @@ function SectionFlagCallout({
         // phrase (fieldLabelFor returns null); raw tokens never leak (invariant 5).
         const fieldLabel = fieldLabelFor(warning.blockRef?.field);
         return (
-          <div key={index} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-            <EntryIcon aria-hidden="true" className="size-3.5 shrink-0" />
-            <span className="min-w-0 wrap-break-word font-medium">
-              {title}
-              {fieldLabel ? ` (${fieldLabel})` : ""}
-            </span>
-            <button
-              type="button"
-              onClick={() => onJump(index)}
-              className="inline-flex min-h-tap-min items-center font-semibold underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-            >
-              View details<span className="sr-only"> for {title}</span>
-            </button>
+          <div key={index} className="flex flex-col gap-0.5">
+            <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <EntryIcon aria-hidden="true" className="size-3.5 shrink-0" />
+              <span className="min-w-0 wrap-break-word font-medium">
+                {title}
+                {fieldLabel ? ` (${fieldLabel})` : ""}
+              </span>
+              <button
+                type="button"
+                onClick={() => onJump(index)}
+                className="inline-flex min-h-tap-min items-center font-semibold underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+              >
+                View details<span className="sr-only"> for {title}</span>
+              </button>
+            </div>
+            {/* spec §8: use-raw toggle for the 3 recoverable structural-transform
+                warnings; self-hides (null) for every other code. Needs a wizard
+                session to bind the staged action. */}
+            {wizardSessionId ? (
+              <UseRawControlBoundary
+                surface="wizard"
+                wizardSessionId={wizardSessionId}
+                driveFileId={dfid}
+                warning={warning}
+                decision={decisionFor(warning)}
+              />
+            ) : null}
           </div>
         );
       })}
@@ -663,6 +706,12 @@ function ModalSectionChrome({
             entries={chrome.calloutEntries}
             onJump={chrome.onJumpToWarning}
             variant={judgment ? "judgment" : "flagged"}
+            {...(chrome.useRawDecisions !== undefined
+              ? { useRawDecisions: chrome.useRawDecisions }
+              : {})}
+            {...(chrome.wizardSessionId !== undefined
+              ? { wizardSessionId: chrome.wizardSessionId }
+              : {})}
           />
         ) : null}
         {children}
@@ -2901,6 +2950,9 @@ export type SectionData = {
   ros: RunOfShow;
   warnings: ParseWarning[];
   agendaBaseline: AdminAgendaItem[];
+  // spec §8/§9a: the staged use-raw decisions (matched by code + resolution.contentHash)
+  // that drive the judgment callout's per-warning use-raw toggle.
+  useRawDecisions: UseRawDecision[];
 };
 
 export type Step3SectionDef = {

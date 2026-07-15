@@ -11,6 +11,7 @@ import {
 } from "@/lib/sync/phase2";
 import type { SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 import type { PullSheetOverride } from "@/lib/sync/pullSheetOverride";
+import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
 
 /**
  * F1 — the shared "apply a staged parse_result with reviewer choices under an ALREADY-HELD
@@ -449,6 +450,10 @@ export type ApplyStagedCoreArgs = {
   // live-partition:n/a — a `shows`-only value carrier (no partition-table statement here); the override
   // read lives in the finalize route, and the shows write is partition-agnostic.
   pullSheetOverride?: PullSheetOverride | null;
+  // Task 6: the staged "use raw" decisions read (through normalizeUseRawDecisions) from
+  // pending_syncs.use_raw_decisions by each caller. Forwarded to runPhase2, which runs the overlay.
+  // Absent → the overlay is a no-op ([]).
+  useRawDecisions?: UseRawDecision[];
 };
 
 export type ApplyStagedCoreResult =
@@ -574,6 +579,8 @@ export async function applyStagedCore(
     ...(args.sourceAnchors !== undefined ? { sourceAnchors: args.sourceAnchors } : {}),
     verifyReelOnApply: false,
     ...(args.mi11Items.length > 0 ? { mi11Items: args.mi11Items } : {}),
+    // Task 6: forward the staged "use raw" decisions to runPhase2's overlay (staged finalize path).
+    ...(args.useRawDecisions ? { useRawDecisions: args.useRawDecisions } : {}),
     // NOTE (deviation from the plan's literal `feedItems.length > 0` spread): the live feed
     // writer's gate is `args.notableItems !== undefined` (phase2.ts writeAutoApplyChanges block)
     // — choice_aware must pass notableItems even when the filtered list is EMPTY, otherwise an

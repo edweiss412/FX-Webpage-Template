@@ -20,6 +20,7 @@ import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import { isStructurallyValidReviewItem } from "@/lib/staging/reviewPayloadGuards";
 import { SHOW_ARCHIVED_IMMUTABLE, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import { asParseResult, JsonbCoercionError } from "@/lib/db/coerceJsonbObject";
+import { normalizeUseRawDecisions, type UseRawDecision } from "@/lib/sync/useRawOverlay";
 import {
   assertShowLockHeld,
   type ConcurrentSyncSkipped,
@@ -152,6 +153,11 @@ export type PendingSyncForApply = {
    * (undefined → null at the gate); the real read path (mapPendingSyncRowForApply) always sets it.
    */
   pullSheetOverrideApplied?: OverrideSnapshot;
+  // Task 6: the staged "use raw" decisions, normalized at the single JSONB boundary. [] for legacy
+  // rows / no decisions. Optional (like pullSheetOverrideApplied) so existing pending-sync test
+  // doubles that never populate it read as "no decisions"; the real read path
+  // (mapPendingSyncRowForApply) always sets it. Forwarded to applyStagedCore → runPhase2's overlay.
+  useRawDecisions?: UseRawDecision[];
 };
 
 type LivePendingIngestionInput = {
@@ -459,6 +465,8 @@ export type PendingSyncForApplyRow = {
   // §5.8: stored as overrideSnapshot({tabName,fingerprint})|null jsonb — read verbatim (already
   // the audit-free projection, NOT a full PullSheetOverride). Absent on legacy rows → null.
   pull_sheet_override_applied?: OverrideSnapshot;
+  // Task 6: raw jsonb "use raw" decisions column (default '[]'). Normalized in the mapper.
+  use_raw_decisions?: unknown;
 };
 
 /**
@@ -518,6 +526,8 @@ export function mapPendingSyncRowForApply(row: PendingSyncForApplyRow): PendingS
     // §5.8: the stored value is already an OverrideSnapshot ({tabName,fingerprint}|null); a legacy
     // row that predates the column comes back undefined → coalesce to null (no override at stage).
     pullSheetOverrideApplied: row.pull_sheet_override_applied ?? null,
+    // Task 6: normalize the staged decisions at the single JSONB boundary (non-array/legacy → []).
+    useRawDecisions: normalizeUseRawDecisions(row.use_raw_decisions ?? null),
   };
 }
 
@@ -530,7 +540,8 @@ async function defaultReadLivePendingSyncForApply(
       select drive_file_id, staged_id, source_kind, wizard_session_id,
              base_modified_time, staged_modified_time, parse_result,
              triggered_review_items, prior_last_sync_status,
-             prior_last_sync_error, warning_summary, pull_sheet_override_applied
+             prior_last_sync_error, warning_summary, pull_sheet_override_applied,
+             use_raw_decisions
         from public.pending_syncs
        where drive_file_id = $1
          and wizard_session_id is null
@@ -552,7 +563,8 @@ async function defaultReadWizardPendingSyncForApply(
       select drive_file_id, staged_id, source_kind, wizard_session_id,
              base_modified_time, staged_modified_time, parse_result,
              triggered_review_items, prior_last_sync_status,
-             prior_last_sync_error, warning_summary, pull_sheet_override_applied
+             prior_last_sync_error, warning_summary, pull_sheet_override_applied,
+             use_raw_decisions
         from public.pending_syncs
        where drive_file_id = $1
          and wizard_session_id = $2::uuid
@@ -1368,6 +1380,10 @@ export async function applyStaged_unlocked(
       // R36-1: today's dashboard apply passes no notableItems → no feed write; parity preserved
       // (D-2 feed semantics for the dashboard staged path are out of F1 scope).
       feedPolicy: { kind: "none" },
+      // Task 6: thread the staged "use raw" decisions read at the Apply boundary into the overlay.
+      // Conditional spread: `useRawDecisions` is optional on PendingSyncForApply (test doubles omit
+      // it) and exactOptionalPropertyTypes forbids passing an explicit `undefined`.
+      ...(pending.useRawDecisions ? { useRawDecisions: pending.useRawDecisions } : {}),
       ...(snapshotAssetsForApply ? { snapshotAssetsForApply } : {}),
       ...(autoPublishFirstSeen ? { autoPublishFirstSeen } : {}),
     },

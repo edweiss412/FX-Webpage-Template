@@ -23,6 +23,7 @@ import {
   normalizeTimestamptz,
   type ReviewerChoice,
 } from "@/lib/sync/applyStagedCore";
+import { normalizeUseRawDecisions, type UseRawDecision } from "@/lib/sync/useRawOverlay";
 import { adoptShowLockHeld } from "@/lib/sync/lockedShowTx";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import { asParseResult, coerceJsonbArray, coerceJsonbObject } from "@/lib/db/coerceJsonbObject";
@@ -616,6 +617,11 @@ async function stageExistingShowShadow(
   // override to shows.pull_sheet_override (and Task 11's gate can compare applied vs desired).
   pullSheetOverride: PullSheetOverride | null,
   pullSheetOverrideApplied: OverrideSnapshot,
+  // Feature-B F1: the staged "use raw" decisions must ride INSIDE the shadow payload. Phase B
+  // deletes the pending_syncs row right after this INSERT, so the Phase-D CAS apply can no longer
+  // re-read them from pending_syncs — without this, an existing show publishes the parsed value
+  // despite the admin's toggle (Codex whole-diff review).
+  useRawDecisions: UseRawDecision[],
 ): Promise<void> {
   // F1 Task 1.4: deleteApprovedPending consumes the pending_syncs row right after this INSERT,
   // so triggered_review_items + base_modified_time exist ONLY in this payload by Phase D —
@@ -651,7 +657,11 @@ async function stageExistingShowShadow(
                -- serializes). Consumed at Phase-D by finalize-cas applyShadow (propagation) and by
                -- Task 11's finalize consistency gate.
                'pull_sheet_override', $11::jsonb,
-               'pull_sheet_override_applied', $12::jsonb
+               'pull_sheet_override_applied', $12::jsonb,
+               -- Feature-B F1: staged use-raw decisions travel with the shadow (raw array →
+               -- $::jsonb; postgres.js serializes). Consumed at Phase-D by finalize-cas applyShadow
+               -- (parseShadowPayloadForApply → parsed.useRawDecisions → the runPhase2 overlay).
+               'use_raw_decisions', $13::jsonb
              ),
              $7, $10::timestamptz
         from public.shows s
@@ -678,6 +688,7 @@ async function stageExistingShowShadow(
       normalizeTimestamptz(row.wizard_approved_at),
       pullSheetOverride,
       pullSheetOverrideApplied,
+      useRawDecisions,
     ],
   );
 }
@@ -962,6 +973,8 @@ async function processApprovedRow(input: {
     // read under the same generation-scoped show: lock so publish propagates the current values.
     pull_sheet_override: unknown;
     pull_sheet_override_applied: unknown;
+    // Task 6: staged "use raw" decisions, read under the same generation-scoped show: lock.
+    use_raw_decisions: unknown;
   }>(
     `select parse_result,
             wizard_approved,
@@ -970,7 +983,8 @@ async function processApprovedRow(input: {
             last_finalize_failure_code,
             source_anchors,
             pull_sheet_override,
-            pull_sheet_override_applied
+            pull_sheet_override_applied,
+            use_raw_decisions
        from public.pending_syncs
       where wizard_session_id = $1::uuid
         and drive_file_id = $2
@@ -1129,6 +1143,7 @@ async function processApprovedRow(input: {
         parsedItems.items,
         pullSheetOverride,
         pullSheetOverrideApplied,
+        normalizeUseRawDecisions(locked.use_raw_decisions),
       );
       await stampManifestPublishIntent(tx, wizardSessionId, row.drive_file_id, true);
       await deleteApprovedPending(tx, wizardSessionId, row);
@@ -1239,6 +1254,9 @@ async function processApprovedRow(input: {
     // R59-1/R60-1: threaded ApplyStagedCoreArgs → Phase2Args → applyShowSnapshot → the
     // first-seen INSERT writes shows.wizard_created_session_id in the SAME statement.
     wizardCreatedSessionId: wizardSessionId,
+    // Task 6: thread the staged "use raw" decisions (read under the generation-scoped lock) into
+    // the runPhase2 overlay. First-seen wizard finalize still honors an admin's use-raw choice.
+    useRawDecisions: normalizeUseRawDecisions(locked.use_raw_decisions),
     // Deep-link anchors (computed pre-lock) → the first-seen INSERT writes shows.source_anchors so
     // "In sheet" links resolve to the right tab immediately, matching the cron path. Omitted (never
     // {}) on a Drive failure so the apply still succeeds (the #gid=0 fallback keeps links safe).

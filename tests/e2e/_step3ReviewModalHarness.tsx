@@ -152,6 +152,7 @@ export function buildSectionData(
     ros: pr.runOfShow ?? {},
     warnings: pr.warnings,
     agendaBaseline: [],
+    useRawDecisions: [],
   };
 }
 
