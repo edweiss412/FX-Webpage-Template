@@ -147,6 +147,11 @@ export function emitRoomSplitAmbiguity(
     // parsed-vs-raw and the overlay can restore the parsed side (spec §6).
     dimensions: string | null;
     floor: string | null;
+    // Room position in the FINAL rooms array — the overlay locates the row to rewrite
+    // via `blockRef.index` (spec §6/§7), the same anchor hotels use. Required because
+    // two distinct rooms can parse to the same {name, dimensions, floor} from different
+    // raw headers; tuple-match alone cannot disambiguate them (Codex R3 F1/F2).
+    index: number;
   },
 ): void {
   if (!agg) return;
@@ -174,7 +179,7 @@ export function emitRoomSplitAmbiguity(
     severity: "warn",
     code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
     message: `Room line "${rawOneLine}" could be split into name and dimensions more than one way, so we picked the most likely reading; double-check the ${fieldWord}${forName}.`,
-    blockRef: { kind: "rooms", name: params.name, field: params.field },
+    blockRef: { kind: "rooms", name: params.name, field: params.field, index: params.index },
     rawSnippet: params.rawHeader,
     resolution,
   });

@@ -80,15 +80,28 @@ export function findLiveResolvableWarning(
     (w) => w.code === ref.code && blockRefMatches(w.blockRef, ref.blockRef),
   );
   if (candidates.length === 0) return { ok: false, reason: "not_found" };
-  // Prefer a resolvable candidate if the blockRef is ambiguous; otherwise the first.
-  const w = candidates.find((c) => c.resolution?.resolvable === true) ?? candidates[0]!;
-  if (!w.resolution || w.resolution.resolvable !== true) {
-    return { ok: false, reason: "not_resolvable" };
+  // Select by the client's observedContentHash, NOT "first resolvable then check hash".
+  // A non-unique blockRef (two rooms with the same name+field but distinct raw content)
+  // yields multiple candidates; picking the first would report `stale` for a valid decision
+  // on a later duplicate and leave it permanently unreachable (Codex R3 F2). The observed
+  // hash names the exact equivalence class — `(code, contentHash)` is the match key
+  // everywhere else in this feature, so it is the correct disambiguator here too.
+  const exact = candidates.find(
+    (c) =>
+      c.resolution?.resolvable === true && c.resolution.contentHash === ref.observedContentHash,
+  );
+  if (exact && exact.resolution?.resolvable === true) {
+    return {
+      ok: true,
+      contentHash: exact.resolution.contentHash,
+      target: targetFromWarning(exact),
+    };
   }
-  if (w.resolution.contentHash !== ref.observedContentHash) {
-    return { ok: false, reason: "stale" };
-  }
-  return { ok: true, contentHash: w.resolution.contentHash, target: targetFromWarning(w) };
+  // No live resolvable warning matches the observed hash. Distinguish "the cell changed
+  // under a re-parse" (a resolvable warning exists, different hash → stale) from "no
+  // resolvable warning at all" (not_resolvable).
+  const anyResolvable = candidates.some((c) => c.resolution?.resolvable === true);
+  return { ok: false, reason: anyResolvable ? "stale" : "not_resolvable" };
 }
 
 export type ComputeToggleInput = {

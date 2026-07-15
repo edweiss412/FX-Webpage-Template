@@ -48,12 +48,15 @@ function roomWarning(
   hash: string,
   parsed: { name: string; dimensions: string | null; floor: string | null },
   rawName: string,
+  index?: number,
 ): ParseWarning {
+  const blockRef: ParseWarning["blockRef"] = { kind: "rooms", name: parsed.name, field: "dims" };
+  if (index !== undefined) blockRef.index = index;
   return {
     severity: "warn",
     code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
     message: "m",
-    blockRef: { kind: "rooms", name: parsed.name, field: "dims" },
+    blockRef,
     resolution: {
       resolvable: true,
       contentHash: hash,
@@ -247,6 +250,31 @@ describe("applyUseRawDecisions — content-scoped equivalence class", () => {
     expect(out.result.rooms[1]!.name).toBe("LASALLE"); // the distinct room is untouched
     expect(out.kept).toHaveLength(1);
   });
+
+  it("distinct-tuple rooms: a decision matching ONLY the second warning rewrites the SECOND room (Codex R3 F1)", () => {
+    // Two rooms parse to the identical {name, dimensions, floor} from DIFFERENT raw headers
+    // (distinct contentHashes). Only the SECOND is a use-raw target. The overlay must write the
+    // raw onto the SECOND room (the one that produced the matched warning, located by
+    // blockRef.index), never the first — tuple-match alone would grab the first (wrong) row.
+    const first = roomRow("LASALLE", "50x40", "2");
+    const second = roomRow("LASALLE", "50x40", "2");
+    const pr = buildParseResult({
+      rooms: [first, second],
+      warnings: [
+        roomWarning("hash-A", { name: "LASALLE", dimensions: "50x40", floor: "2" }, "FIRST RAW", 0),
+        roomWarning(
+          "hash-B",
+          { name: "LASALLE", dimensions: "50x40", floor: "2" },
+          "SECOND RAW",
+          1,
+        ),
+      ],
+    });
+    const out = applyUseRawDecisions(pr, [decision({ contentHash: "hash-B" })]);
+    expect(out.result.rooms[1]!.name).toBe("SECOND RAW"); // the warning's OWN row (index 1)
+    expect(out.result.rooms[0]!.name).toBe("LASALLE"); // first room untouched (its hash-A decision absent)
+    expect(out.kept).toHaveLength(1);
+  });
 });
 
 describe("applyUseRawDecisions — reverted partition", () => {
@@ -318,5 +346,20 @@ describe("normalizeUseRawDecisions — the single JSONB validation boundary", ()
   it("never throws on garbage", () => {
     expect(() => normalizeUseRawDecisions([1, "x", null, { code: 5 }])).not.toThrow();
     expect(normalizeUseRawDecisions([1, "x", null, { code: 5 }])).toEqual([]);
+  });
+  it("cleans a malformed target: bad-typed kind/name/index/field are dropped (Codex R3 F3)", () => {
+    const bad = { ...valid, target: { kind: 5, name: 7, index: "x", field: {} } };
+    const [out] = normalizeUseRawDecisions([bad]);
+    expect(out!.target).toEqual({ kind: "" }); // kind coerced to "", non-string/number fields dropped
+  });
+  it("keeps well-typed target fields", () => {
+    const good = { ...valid, target: { kind: "rooms", name: "LASALLE", index: 2, field: "dims" } };
+    const [out] = normalizeUseRawDecisions([good]);
+    expect(out!.target).toEqual({ kind: "rooms", name: "LASALLE", index: 2, field: "dims" });
+  });
+  it("drops a non-integer target index", () => {
+    const bad = { ...valid, target: { kind: "rooms", index: 1.5 } };
+    const [out] = normalizeUseRawDecisions([bad]);
+    expect(out!.target).toEqual({ kind: "rooms" });
   });
 });

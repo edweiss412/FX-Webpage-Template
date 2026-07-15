@@ -47,6 +47,22 @@ export type ApplyUseRawResult = {
 
 const IN_SCOPE = new Set<string>(USE_RAW_CODES);
 
+/**
+ * Coerce a raw jsonb `target` to the display-only locator shape, dropping any
+ * bad-typed field. `target` is NEVER the match key (that is `(code, contentHash)`),
+ * but it flows into stale change-log formatting + UI metadata, so the single
+ * validation boundary must not let a malformed shape through (Codex R3 F3).
+ */
+function normalizeTarget(raw: unknown): UseRawDecision["target"] {
+  if (raw === null || typeof raw !== "object") return { kind: "" };
+  const t = raw as Record<string, unknown>;
+  const out: UseRawDecision["target"] = { kind: typeof t.kind === "string" ? t.kind : "" };
+  if (typeof t.name === "string") out.name = t.name;
+  if (typeof t.index === "number" && Number.isInteger(t.index)) out.index = t.index;
+  if (typeof t.field === "string") out.field = t.field;
+  return out;
+}
+
 /** True when `resolution` is present AND resolvable (a raw value can be substituted). */
 function resolvable(
   w: ParseWarning,
@@ -65,20 +81,34 @@ function applyReplacement(result: ParseResult, w: ParseWarning, consumedRooms: S
   const rep = w.resolution.replacement;
   const parsed = w.resolution.parsed;
   if (rep.kind === "rooms" && parsed.kind === "rooms") {
-    // Each ROOM_HEADER_SPLIT_AMBIGUOUS warning identifies EXACTLY ONE ambiguous room. Rooms carry
-    // no stable per-row hash (only the warnings do), so we locate the room by the transform's parsed
-    // identity — but claim the FIRST not-yet-rewritten match and stop, rather than rewriting every
-    // row sharing that tuple. Otherwise a distinct room that happens to parse to the same
-    // {name, dimensions, floor} from a DIFFERENT raw header (no matching decision hash) would be
-    // wrongly overwritten. N matched warnings → N rooms rewritten, never all duplicates (Codex
-    // whole-diff review F3-rooms).
-    const idx = result.rooms.findIndex(
-      (room, i) =>
-        !consumedRooms.has(i) &&
-        room.name === parsed.name &&
-        room.dimensions === parsed.dimensions &&
-        room.floor === parsed.floor,
-    );
+    // Each ROOM_HEADER_SPLIT_AMBIGUOUS warning identifies EXACTLY ONE ambiguous room, anchored by
+    // `blockRef.index` (its position in the fresh parse's rooms array — the same anchor hotels use).
+    // We locate by that index because two DISTINCT rooms can parse to the same {name, dimensions,
+    // floor} from different raw headers; tuple-match alone cannot tell them apart and would rewrite
+    // the wrong row when only one of them has a matching decision (Codex R3 F1). The tuple guard
+    // confirms the indexed row is the one that produced the warning (same-parse invariant); if the
+    // index is absent or has drifted, fall back to the first not-yet-consumed tuple match so a
+    // legacy/index-less warning still resolves to ONE room, never every duplicate (Codex F3-rooms).
+    const bi = w.blockRef?.index;
+    let idx = -1;
+    if (
+      typeof bi === "number" &&
+      bi >= 0 &&
+      bi < result.rooms.length &&
+      result.rooms[bi]!.name === parsed.name &&
+      result.rooms[bi]!.dimensions === parsed.dimensions &&
+      result.rooms[bi]!.floor === parsed.floor
+    ) {
+      idx = bi;
+    } else {
+      idx = result.rooms.findIndex(
+        (room, i) =>
+          !consumedRooms.has(i) &&
+          room.name === parsed.name &&
+          room.dimensions === parsed.dimensions &&
+          room.floor === parsed.floor,
+      );
+    }
     if (idx !== -1) {
       const room = result.rooms[idx]!;
       room.name = rep.name;
@@ -161,14 +191,10 @@ export function normalizeUseRawDecisions(raw: unknown): UseRawDecision[] {
     if (e.preference !== "raw" && e.preference !== "transform") continue;
     if (typeof e.applied !== "boolean") continue;
     if (typeof e.decidedAt !== "string" || typeof e.decidedBy !== "string") continue;
-    const target =
-      e.target !== null && typeof e.target === "object"
-        ? (e.target as UseRawDecision["target"])
-        : { kind: "" };
     out.push({
       code: e.code as UseRawCode,
       contentHash: e.contentHash,
-      target,
+      target: normalizeTarget(e.target),
       preference: e.preference,
       applied: e.applied,
       decidedAt: e.decidedAt,

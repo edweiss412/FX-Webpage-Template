@@ -487,7 +487,11 @@ export function parseRooms(
   // and carries split-ambiguity metadata emits EXACTLY ONE warning here — the only emit
   // site, so a dropped/rejected/absorbed room stays silent and no split call site can
   // double-emit. `_ambiguity` is then stripped so it never leaks into persisted RoomRow.
-  for (const room of reconciled) {
+  // `index` is the room's position in `reconciled`, which is preserved verbatim into the
+  // returned array (the `.map` below strips internal fields but keeps order) and downstream
+  // through `mergeGearIntoRooms` (spreads `parsed`, only APPENDS gear-only rooms) — so it
+  // equals the room's final index in `result.rooms`, the anchor the overlay rewrites by.
+  reconciled.forEach((room, index) => {
     const amb = (room as RoomRowInternal)._ambiguity;
     if (amb)
       emitRoomSplitAmbiguity(agg, {
@@ -496,8 +500,9 @@ export function parseRooms(
         rawHeader: amb.rawHeader,
         dimensions: room.dimensions,
         floor: room.floor,
+        index,
       });
-  }
+  });
   return reconciled.map(({ _ambiguity: _a, _nextLine: _n, ...rest }: RoomRowInternal) => rest);
 }
 
