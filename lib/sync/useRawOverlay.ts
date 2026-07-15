@@ -205,7 +205,9 @@ export function normalizeUseRawDecisions(raw: unknown): UseRawDecision[] {
     // decidedBy is the deciding admin's email (display-only) — require nonblank. Either
     // malformed → corrupt jsonb → drop.
     if (typeof e.decidedAt !== "string" || Number.isNaN(Date.parse(e.decidedAt))) continue;
-    if (typeof e.decidedBy !== "string" || e.decidedBy.trim() === "") continue;
+    // decidedBy comes from the already-canonicalized admin identity upstream (requireAdminIdentity);
+    // this is a corrupt-jsonb blank-check, not email normalization.
+    if (typeof e.decidedBy !== "string" || e.decidedBy.trim() === "") continue; // canonicalize-exempt: blank-check of a validation field, not email normalization
     out.push({
       code: e.code as UseRawCode,
       contentHash: e.contentHash,
