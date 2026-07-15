@@ -46,3 +46,12 @@ Scores (0-4): A11y **3** · Performance **4** · Theming **4** · Responsive **4
 - Anti-patterns: detector clean; no bans triggered.
 
 P0: none. P1: none. → Gate PASSES (P2 fixed in-diff; P3s dispositioned above).
+
+## Whole-diff adversarial review (Codex, inlined exec fallback)
+
+- R1: 1 BLOCKING (stale "**Changes.**" parts-list label in per-show-panel help) + 1 ADVISORY (untyped page fixture missing disposition fields → phantom Accepted tag) — both fixed; tag condition hardened to `!= null`.
+- R2: 1 BLOCKING (same stale-copy class, third page: review-queues bold-split "**Changes** feed") — fixed + structural defense: `sheetChangesCopy.test.ts` now walks EVERY `app/help/**/*.mdx` (fails-by-default on new pages).
+- R3: 2 findings were stale-base artifacts (origin/main advanced 50 commits mid-arc; use-raw feature merged upstream) — branch rebased onto current origin/main (one additive registry conflict resolved, both blocks kept); 1 finding (requireAdminIdentity vs requireAdmin) refuted with citation (`lib/auth/requireAdmin.ts:279-320` — requireAdmin delegates to the same identity gate).
+- R4 (post-rebase, current base): **APPROVE**, zero actionable findings.
+
+Post-rebase verification: 207 diff-relevant test files / 2125 tests green; `pnpm build` exit 0; lint 0 errors; prettier clean.
