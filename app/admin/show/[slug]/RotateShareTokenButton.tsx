@@ -19,7 +19,7 @@
  *     via the action body, not to the UI).
  */
 
-import { AlertTriangle, RotateCcw } from "lucide-react";
+import { AlertTriangle, Check, RotateCcw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState, useTransition } from "react";
 
@@ -121,7 +121,7 @@ export function RotateShareTokenButton({
   const rotatedActive = result?.ok === true && isCrewLinkActive;
   const rotatedInactive = result?.ok === true && !isCrewLinkActive;
   const refusedMessage =
-    result && result.ok === false ? "Couldn't rotate the share-token. Please try again." : null;
+    result && result.ok === false ? "Couldn't rotate the share link. Please try again." : null;
   const isResolving = ui === "resolving" || isPending;
 
   const labelHeader =
@@ -165,13 +165,13 @@ export function RotateShareTokenButton({
           data-testid="admin-rotate-share-token-ok"
           role="status"
           aria-live="polite"
-          className="w-full max-w-md rounded-sm bg-surface-raised px-2 py-1 text-sm text-text-strong"
+          className="flex w-full max-w-md items-start gap-1.5 rounded-sm border border-border bg-surface-raised px-2 py-1 text-sm text-text-strong"
         >
-          <span aria-hidden="true" className="mr-1 font-semibold text-accent">
-            ✓
+          <Check aria-hidden="true" size={16} className="mt-0.5 shrink-0 text-accent" />
+          <span>
+            New share-link ready. The old link no longer works and everyone will re-pick their name.
+            The updated link is shown above.
           </span>
-          New share-link ready. The old link no longer works and everyone will re-pick their name —
-          the updated link is shown above.
         </p>
       )}
       {rotatedInactive && (
@@ -179,13 +179,13 @@ export function RotateShareTokenButton({
           data-testid="admin-rotate-share-token-ok-inactive"
           role="status"
           aria-live="polite"
-          className="w-full max-w-md rounded-sm bg-surface-raised px-2 py-1 text-sm text-text-strong"
+          className="flex w-full max-w-md items-start gap-1.5 rounded-sm border border-border bg-surface-raised px-2 py-1 text-sm text-text-strong"
         >
-          <span aria-hidden="true" className="mr-1 font-semibold text-accent">
-            ✓
+          <Check aria-hidden="true" size={16} className="mt-0.5 shrink-0 text-accent" />
+          <span>
+            Share link rotated. The crew link stays inactive while this show is unpublished or
+            archived.
           </span>
-          Share-token rotated. The crew link stays inactive while this show is unpublished or
-          archived.
         </p>
       )}
       {refusedMessage && (
