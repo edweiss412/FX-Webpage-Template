@@ -163,7 +163,12 @@ export async function setStagedUseRawDecisionAction(
     } catch {
       return { kind: "infra_error" };
     }
-  });
+  }).catch(
+    // Outer fault from the lock wrapper itself (acquisition / connection setup — the
+    // callback catches only its OWN in-lock faults) becomes the same typed infra result,
+    // never an escaping reject (invariant 9, Codex R8 F1).
+    (): LockOutcome => ({ kind: "infra_error" }),
+  );
 
   if (locked && typeof locked === "object" && "skipped" in locked) {
     return { ok: false, code: "concurrent" };

@@ -64,8 +64,8 @@ export async function setUseRawDecisionAction(
   // (1) Pre-lock: derive the lock key from the server-loaded row (never a client arg).
   // `id` and `driveFileId` come from the SAME atomic `shows` row (resolveShowById), and
   // `shows.drive_file_id` is an IMMUTABLE unique natural key (`text not null unique`,
-  // 20260501000000_initial_public_schema.sql:5 — never reassigned at runtime; every
-  // `update public.shows` uses it only in WHERE). So the (id ↔ driveFileId) pairing is
+  // 20260501000000_initial_public_schema.sql:5 — never reassigned at runtime; runtime SQL
+  // references it only as a WHERE-clause lookup key, never a write target). So the pairing is
   // stable and bijective: locking `show:<driveFileId>` while writing `shows_internal`
   // by `show_id = id` always guards the SAME show, and no concurrent sync can lock a
   // different key for it — no in-lock re-verification of the pairing is needed (spec §9b).
@@ -115,7 +115,12 @@ export async function setUseRawDecisionAction(
       // (invariant 9), never a silent success or a benign not-found.
       return { kind: "infra_error" };
     }
-  });
+  }).catch(
+    // Outer fault from the lock wrapper itself (acquisition / connection setup — the
+    // callback catches only its OWN in-lock faults) becomes the same typed infra result,
+    // never an escaping reject (invariant 9, Codex R8 F1).
+    (): LockOutcome => ({ kind: "infra_error" }),
+  );
 
   if (locked && typeof locked === "object" && "skipped" in locked) {
     // Blocking lock never skips; guard defensively.

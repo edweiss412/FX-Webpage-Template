@@ -278,6 +278,17 @@ describe("infra-fault typed result", () => {
     expect(r).toEqual({ ok: false, code: "infra_error" });
     expect(logAdminOutcomeMock).not.toHaveBeenCalled();
   });
+
+  test("an OUTER lock-acquisition throw → typed infra_error, never an escaping reject (Codex R8 F1)", async () => {
+    // The callback catches its OWN in-lock faults; this simulates the lock WRAPPER itself
+    // throwing (acquisition / connection setup). It must surface as a typed result
+    // (invariant 9), not reject the server action.
+    withShowLockMock.mockImplementationOnce(async () => {
+      throw new Error("advisory lock acquisition failed");
+    });
+    const r = await setStagedUseRawDecisionAction("wiz-1", "df-uraw", ref(), true);
+    expect(r).toEqual({ ok: false, code: "infra_error" });
+  });
 });
 
 describe("post-commit forensic emit", () => {

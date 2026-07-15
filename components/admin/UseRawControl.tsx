@@ -56,10 +56,16 @@ export function deriveUseRawControlState(
   inFlight: boolean,
 ): UseRawControlState | null {
   if (!IN_SCOPE.has(warning.code)) return null; // (1) out of scope → render nothing
-  if (inFlight) return "pending"; // optimistic in-flight overlays every steady state
+  // Resolution guards precede the optimistic in-flight overlay: a warning with no
+  // resolvable resolution can never show a "pending" raw substitution. A refresh mid-toggle
+  // can deliver an unresolvable version of the SAME in-scope warning while `inFlight` is
+  // still set; guarding first keeps "pending" resolvable-only, so the resolvable cast in the
+  // render (`warning.resolution as {resolvable:true}`) is always sound and never crashes on
+  // an undefined/`{resolvable:false}` resolution (Codex R8 F2).
   if (warning.resolution === undefined) return "legacy-unavailable"; // (2) pre-feature warning
   if (warning.resolution.resolvable === false) return "disabled"; // (3) §4 guard
-  // (4) resolvable → derive from the persisted decision
+  if (inFlight) return "pending"; // (4) optimistic in-flight overlay (resolvable only)
+  // (5) resolvable → derive from the persisted decision
   if (!decision) return "transform-active";
   if (decision.preference === "raw") return decision.applied ? "raw-active" : "apply-pending";
   return "clear-pending"; // preference "transform" (applied:false is the only persisted form)

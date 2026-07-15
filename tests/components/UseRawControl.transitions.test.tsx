@@ -98,6 +98,24 @@ describe("UseRawControl transition audit — spec §8 matrix", () => {
     }
   });
 
+  it("in-flight does NOT override the resolution guards → 'pending' is resolvable-only (Codex R8 F2)", () => {
+    // A refresh mid-toggle can deliver an unresolvable version of the same in-scope warning
+    // while inFlight is still set. Such a warning must stay in its guarded state, NOT
+    // "pending" — the render casts resolution as {resolvable:true}, so a "pending" on an
+    // undefined / {resolvable:false} resolution would crash reading .parsed.
+    // Legacy = the `resolution` key is ABSENT (pre-feature warning), not `undefined`
+    // (exactOptionalPropertyTypes). `deriveUseRawControlState` reads it as undefined at runtime.
+    const legacy: Pick<ParseWarning, "code" | "resolution"> = {
+      code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+    };
+    const unresolvable: Pick<ParseWarning, "code" | "resolution"> = {
+      code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+      resolution: { resolvable: false, reason: "empty-raw" },
+    };
+    expect(deriveUseRawControlState(legacy, undefined, true)).toBe("legacy-unavailable");
+    expect(deriveUseRawControlState(unresolvable, undefined, true)).toBe("disabled");
+  });
+
   it("the deriver is a pure function (same inputs → same output across calls)", () => {
     // Determinism proof — the basis for calling every transition "instant, no
     // animation needed": there is no hidden state machine to animate between.
