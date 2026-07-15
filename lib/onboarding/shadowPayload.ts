@@ -2,6 +2,7 @@ import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
 import type { Mi11Item } from "@/lib/sync/holds/writeMi11Holds";
 import type { ReviewerChoice } from "@/lib/sync/applyStagedCore";
 import type { OverrideSnapshot, PullSheetOverride } from "@/lib/sync/pullSheetOverride";
+import { normalizeUseRawDecisions, type UseRawDecision } from "@/lib/sync/useRawOverlay";
 import { asParseResult, coerceJsonbArray } from "@/lib/db/coerceJsonbObject";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import { isReviewerChoice, isStructurallyValidReviewItem } from "@/lib/staging/reviewPayloadGuards";
@@ -55,6 +56,11 @@ export type ParsedShadowPayloadForApply =
       // Carried so Task 11's finalize gate can compare applied === overrideSnapshot(desired)
       // payload-internally. Task 9 surfaces it but does NOT gate on it (propagation only).
       pullSheetOverrideApplied: OverrideSnapshot;
+      // Feature-B F1 (Codex whole-diff review): the staged "use raw" decisions carried IN the shadow
+      // payload. Flow B deletes the pending_syncs row in Phase B, so the Phase-D CAS apply can no
+      // longer re-read them from pending_syncs — they must travel with the shadow or an existing show
+      // publishes the parsed value despite the toggle. Tolerant: absent/malformed → [] (overlay no-op).
+      useRawDecisions: UseRawDecision[];
     }
   | { ok: false; code: ShadowPayloadRefusalCode };
 
@@ -245,5 +251,8 @@ export function parseShadowPayloadForApply(payload: unknown): ParsedShadowPayloa
     baseModifiedTime,
     pullSheetOverride: parsedOverride.value,
     pullSheetOverrideApplied: parsedOverrideApplied.value,
+    // Tolerant normalizer (the single JSONB boundary): absent key / null / malformed → [] (overlay
+    // no-op), never a refusal — a corrupt decision list must not block an otherwise-valid publish.
+    useRawDecisions: normalizeUseRawDecisions(obj.use_raw_decisions ?? null),
   };
 }

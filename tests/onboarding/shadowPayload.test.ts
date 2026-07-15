@@ -57,6 +57,46 @@ describe("parseShadowPayloadForApply (fail-closed identity gate)", () => {
     expect(parsed.baseModifiedTime).toBe(BASE);
   });
 
+  test("F1 — use_raw_decisions in the payload round-trips to parsed.useRawDecisions (existing-show shadow carry)", () => {
+    // The F1 bug: Flow B deletes pending_syncs in Phase B, so finalize-cas re-reading the decisions
+    // from pending_syncs at Phase D always got [] — an existing show published the parsed value
+    // despite the admin toggle. The fix carries the decisions IN the shadow payload; this proves the
+    // parse boundary surfaces them so applyShadow can feed them into the runPhase2 overlay.
+    const decision = {
+      code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+      contentHash: "hash-xyz",
+      target: { kind: "rooms", name: "GENERAL SESSION" },
+      preference: "raw",
+      applied: false,
+      decidedAt: "2026-07-11T00:00:00.000Z",
+      decidedBy: "admin@example.com",
+    };
+    const parsed = parseShadowPayloadForApply(payload({ use_raw_decisions: [decision] }));
+    expect(parsed).toMatchObject({ ok: true });
+    if (!parsed.ok) return;
+    expect(parsed.useRawDecisions).toHaveLength(1);
+    expect(parsed.useRawDecisions[0]).toMatchObject({
+      code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
+      contentHash: "hash-xyz",
+      preference: "raw",
+      applied: false,
+    });
+  });
+
+  test("F1 — absent use_raw_decisions → [] (legacy/new-show shadows; overlay no-op, never a refusal)", () => {
+    const parsed = parseShadowPayloadForApply(payload());
+    expect(parsed).toMatchObject({ ok: true });
+    if (!parsed.ok) return;
+    expect(parsed.useRawDecisions).toEqual([]);
+  });
+
+  test("F1 — malformed use_raw_decisions is tolerated → [] (never blocks an otherwise-valid publish)", () => {
+    const parsed = parseShadowPayloadForApply(payload({ use_raw_decisions: "not-an-array" }));
+    expect(parsed).toMatchObject({ ok: true });
+    if (!parsed.ok) return;
+    expect(parsed.useRawDecisions).toEqual([]);
+  });
+
   test("MISSING triggered_review_items key is REFUSED, never coerced to [] (an MI-11 would apply ungated)", () => {
     const { triggered_review_items: _omit, ...rest } = payload();
     const parsed = parseShadowPayloadForApply(rest);
