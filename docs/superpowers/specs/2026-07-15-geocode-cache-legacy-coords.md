@@ -141,9 +141,22 @@ Effects:
   no-geometry/ZERO_RESULTS terminal entry) would be expired and re-geocoded once —
   harmless (one bounded Google call per such row, and the fuse still applies) but wasteful,
   so don't re-run it casually. Safeupdate-safe: the UPDATE carries a real WHERE clause.
-- `while the parse-time behavior is unchanged`, the transitional VENUE_TIMEZONE_UNRESOLVED
-  warnings on already-staged rows disappear only when those shows are re-parsed (next
-  scan/sync or reset+rescan) — acceptable; staged rows are consumed at finalize anyway.
+- Parse-time behavior is unchanged, so already-staged parse results produced from legacy
+  cache rows still carry the ET fallback + warning until re-parsed. **Mandatory
+  validation close-out (R9):** immediately after the surgical validation apply, run
+  "Reset validation data" + a fresh onboarding rescan (the reset now clears
+  `geocode_cache` too, and the rescan re-parses every show through the cold geocode
+  path), then verify `pnpm observe staged --env validation --warnings-only` shows no
+  `VENUE_TIMEZONE_UNRESOLVED` rows. This guarantees no pre-fix staged row survives to be
+  finalized as validation state. Recorded in the PR's apply log.
+  **Scope boundary (do not relitigate):** finalize semantics are untouched. A staged row
+  with `VENUE_TIMEZONE_UNRESOLVED` remains finalizable BY DESIGN — the code is a
+  gate-exempt data-gap (`lib/parser/dataGaps.ts:67`, `gateExempt: true`): staged-review
+  visible, deliberately non-blocking, with the ET fallback as the designed degraded
+  display. Making this spec block finalize on it would change a shipped product contract
+  far beyond a cache bugfix. On prod (no reset button; gate disabled), any hypothetical
+  pre-fix staged row finalizes exactly as today's design permits and self-corrects on the
+  next sheet-modification re-stage.
 
 **Guard conditions / unchanged behavior:** every path in `enrichVenueGeocode` is
 untouched — venue absent/blank name, city already set, unconfigured, cache infra_error,
