@@ -87,7 +87,7 @@ function KindPill({ changeKind }: { changeKind: string }) {
   return (
     <span
       data-testid="auto-applied-kind-pill"
-      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wide ${pill.cls}`}
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs font-bold uppercase tracking-wide ${pill.cls}`}
     >
       <span className={`size-1.5 rounded-full ${pill.dot}`} />
       {pill.label}
@@ -102,7 +102,10 @@ function DiffBlock({ row }: { row: AutoAppliedRow }) {
   if (d.kind === "none") {
     return <p className="wrap-break-word text-sm text-text-strong">{row.summary}</p>;
   }
-  const cap = "text-[10.5px] font-semibold uppercase tracking-wide text-text-faint";
+  // text-subtle (not faint): these captions carry the diff DIRECTION — the
+  // non-color mechanism (From/To/Added/Removed) — so they must clear AA-body
+  // contrast, and DESIGN forbids faint on actionable/meaningful copy.
+  const cap = "text-xs font-semibold uppercase tracking-wide text-text-subtle";
   if (d.kind === "fromTo") {
     return (
       <div className="grid grid-cols-[auto_1fr] items-baseline gap-x-2.5 gap-y-0.5">
@@ -165,6 +168,7 @@ function StripRow({
             changeLogId={row.id}
             undoAction={actions.undoFromDashboardAction}
             stretch
+            quiet
           />
         ) : null}
       </div>
@@ -217,7 +221,8 @@ function GroupSection({
           </span>
           <span
             data-testid={`auto-applied-count-${group.showId}`}
-            className="shrink-0 rounded-full border border-border bg-surface px-[7px] text-xs font-semibold text-text-subtle"
+            aria-label={`${group.rows.length} ${group.rows.length === 1 ? "change" : "changes"}`}
+            className="shrink-0 rounded-full border border-border bg-surface px-2 text-xs font-semibold text-text-subtle"
           >
             {group.rows.length}
           </span>

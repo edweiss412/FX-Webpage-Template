@@ -32,18 +32,27 @@ function SubmitButton({
   pending,
   label,
   stretch,
+  quiet,
 }: {
   pending: boolean;
   label: string;
   stretch: boolean;
+  quiet: boolean;
 }) {
+  // Quiet = a recessive/secondary treatment (borderless, transparent fill) so the
+  // reverting action reads as clearly secondary next to a bordered Accept — the
+  // consequential control must not be a visual twin of the safe one. Text stays
+  // text-strong (actionable contrast), differentiation is by weight, not hue.
+  const frame = quiet
+    ? "border border-transparent bg-transparent"
+    : "border border-border-strong bg-surface";
   return (
     <button
       type="submit"
       disabled={pending}
       aria-busy={pending}
       data-testid="change-feed-undo"
-      className={`min-h-tap-min min-w-tap-min rounded-sm border border-border-strong bg-surface px-4 py-2 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60${stretch ? " w-full" : ""}`}
+      className={`min-h-tap-min min-w-tap-min rounded-sm ${frame} px-4 py-2 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60${stretch ? " w-full" : ""}`}
     >
       {pending ? "Undoing…" : label}
     </button>
@@ -54,6 +63,7 @@ export function UndoChangeButton({
   changeLogId,
   undoAction,
   stretch = false,
+  quiet = false,
 }: {
   changeLogId: string;
   // The bound undo server action; returns a typed UndoButtonResult so the typed
@@ -62,6 +72,9 @@ export function UndoChangeButton({
   // When true, the form + button fill their container width (grid-cell layout).
   // Default false preserves the intrinsic-width per-show feed rendering.
   stretch?: boolean;
+  // When true, renders a recessive/secondary treatment (see SubmitButton). Default
+  // false keeps the standard bordered button for the per-show feed page.
+  quiet?: boolean;
 }) {
   const [result, dispatch, pending] = useActionState(undoAction, null);
   const failing = result && result.ok === false ? result : null;
@@ -70,7 +83,7 @@ export function UndoChangeButton({
     <div className="flex flex-col gap-2">
       <form action={dispatch} className={stretch ? "w-full" : undefined}>
         <input type="hidden" name="changeLogId" value={changeLogId} />
-        <SubmitButton pending={pending} label="Undo this change" stretch={stretch} />
+        <SubmitButton pending={pending} label="Undo this change" stretch={stretch} quiet={quiet} />
       </form>
       {failing ? (
         <div

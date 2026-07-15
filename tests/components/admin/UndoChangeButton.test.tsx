@@ -71,3 +71,14 @@ it("stretch=false (default) → button not w-full; stretch → form + button w-f
   expect(stretched.className).toMatch(/\bw-full\b/);
   expect(stretched.closest("form")!.className).toMatch(/\bw-full\b/);
 });
+
+it("quiet=false (default) → bordered; quiet → borderless transparent (recessive secondary)", () => {
+  const action = vi.fn().mockResolvedValue({ ok: true });
+  const { rerender } = render(<UndoChangeButton changeLogId="c" undoAction={action} />);
+  expect(screen.getByTestId("change-feed-undo").className).toMatch(/border-border-strong/);
+  rerender(<UndoChangeButton changeLogId="c" undoAction={action} quiet />);
+  const q = screen.getByTestId("change-feed-undo");
+  expect(q.className).toMatch(/border-transparent/);
+  expect(q.className).toMatch(/bg-transparent/);
+  expect(q.className).not.toMatch(/border-border-strong/);
+});
