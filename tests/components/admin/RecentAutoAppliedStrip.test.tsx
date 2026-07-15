@@ -12,7 +12,7 @@ import "@testing-library/jest-dom/vitest";
 import { afterEach, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { RecentAutoAppliedStrip } from "@/components/admin/RecentAutoAppliedStrip";
-import type { RecentAutoApplied } from "@/lib/admin/loadRecentAutoApplied";
+import type { AutoAppliedRow, RecentAutoApplied } from "@/lib/admin/loadRecentAutoApplied";
 
 afterEach(cleanup);
 
@@ -45,6 +45,7 @@ function okData(): Extract<RecentAutoApplied, { kind: "ok" }> {
             summary: "Crew member Priya Nair added",
             occurredAt: "2026-07-07T10:00:00Z",
             undoable: true,
+            diff: { kind: "single", caption: "Added", value: "Priya Nair" },
           },
           {
             id: "r2",
@@ -52,6 +53,7 @@ function okData(): Extract<RecentAutoApplied, { kind: "ok" }> {
             summary: "Crew member Bob renamed to Robert Chen",
             occurredAt: "2026-07-07T09:00:00Z",
             undoable: true,
+            diff: { kind: "fromTo", from: "Bob", to: "Robert Chen" },
           },
           {
             id: "r3",
@@ -59,6 +61,7 @@ function okData(): Extract<RecentAutoApplied, { kind: "ok" }> {
             summary: "A field changed on this sync",
             occurredAt: "2026-07-07T08:00:00Z",
             undoable: false,
+            diff: { kind: "none" },
           },
         ],
         acceptableIds: ["r1", "r2", "r3"],
@@ -75,6 +78,7 @@ function okData(): Extract<RecentAutoApplied, { kind: "ok" }> {
             summary: "A field changed on this sync · Dana Lee",
             occurredAt: "2026-07-07T05:00:00Z",
             undoable: false,
+            diff: { kind: "none" },
           },
         ],
         acceptableIds: ["r4"],
@@ -84,7 +88,7 @@ function okData(): Extract<RecentAutoApplied, { kind: "ok" }> {
   };
 }
 
-it("renders one section per show, rows in order, with the stored summary verbatim", () => {
+it("renders one section per show, rows in data order", () => {
   render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
 
   // one section per show
@@ -93,17 +97,114 @@ it("renders one section per show, rows in order, with the stored summary verbati
   expect(screen.getByText("II - FinTech Forum CTO Summit 2026")).toBeInTheDocument();
   expect(screen.getByText("II - RIA Investment Forum - Central 2025")).toBeInTheDocument();
 
-  // summaries rendered verbatim
-  expect(screen.getByText("Crew member Priya Nair added")).toBeInTheDocument();
-  expect(screen.getByText("Crew member Bob renamed to Robert Chen")).toBeInTheDocument();
-  expect(screen.getByText("A field changed on this sync · Dana Lee")).toBeInTheDocument();
-
   // rows appear newest-first (data-provided order) inside the FinTech group
   const fin = screen.getByTestId(`auto-applied-group-${FIN_ID}`);
   const rowIds = within(fin)
     .getAllByTestId(/^auto-applied-row-/)
     .map((el) => el.getAttribute("data-testid"));
   expect(rowIds).toEqual(["auto-applied-row-r1", "auto-applied-row-r2", "auto-applied-row-r3"]);
+});
+
+it("renders crew changes as From→To / single-value diffs and none-rows as summary", () => {
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
+  // fromTo (r2): To value emphasized/not struck; From value struck — scoped to the row.
+  const renamed = screen.getByTestId("auto-applied-row-r2");
+  expect(within(renamed).getByText("Robert Chen").className).not.toMatch(/line-through/);
+  expect(within(renamed).getByText("Bob").className).toMatch(/line-through/);
+  // single Added (r1): value present, not struck.
+  const added = screen.getByTestId("auto-applied-row-r1");
+  expect(within(added).getByText("Priya Nair").className).not.toMatch(/line-through/);
+  // none rows (r3 field, r4 email): verbatim summary preserved.
+  expect(
+    within(screen.getByTestId("auto-applied-row-r3")).getByText("A field changed on this sync"),
+  ).toBeInTheDocument();
+  expect(
+    within(screen.getByTestId("auto-applied-row-r4")).getByText(
+      "A field changed on this sync · Dana Lee",
+    ),
+  ).toBeInTheDocument();
+});
+
+it("shows a per-group count badge = rendered rows", () => {
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
+  expect(
+    within(screen.getByTestId(`auto-applied-group-${FIN_ID}`)).getByTestId(
+      `auto-applied-count-${FIN_ID}`,
+    ),
+  ).toHaveTextContent("3");
+  expect(
+    within(screen.getByTestId(`auto-applied-group-${RIA_ID}`)).getByTestId(
+      `auto-applied-count-${RIA_ID}`,
+    ),
+  ).toHaveTextContent("1");
+});
+
+it("maps EVERY kind to its status-token pill (label + token classes, incl. removed/email/fallback)", () => {
+  // Local fixture: one group, one row per kind (incl. crew_removed + an unknown
+  // fallback kind) so no path can be broken/unmapped while tests pass.
+  const P = "show-pills";
+  const mk = (id: string, changeKind: string, diff: AutoAppliedRow["diff"]): AutoAppliedRow => ({
+    id,
+    changeKind,
+    summary: `summary-${id}`,
+    occurredAt: `2026-07-07T0${id.length}:00:00Z`,
+    undoable: false,
+    diff,
+  });
+  const data: Extract<RecentAutoApplied, { kind: "ok" }> = {
+    kind: "ok",
+    renderedCount: 6,
+    overflowCount: 0,
+    rosterShiftByShow: {},
+    groups: [
+      {
+        showId: P,
+        slug: "p",
+        showName: "Pills",
+        rows: [
+          mk("p1", "crew_added", { kind: "single", caption: "Added", value: "A" }),
+          mk("p2", "crew_renamed", { kind: "fromTo", from: "B", to: "C" }),
+          mk("p3", "crew_removed", { kind: "single", caption: "Removed", value: "D" }),
+          mk("p4", "field_changed", { kind: "none" }),
+          mk("p5", "crew_email_changed", { kind: "none" }),
+          mk("p6", "totally_unknown_kind", { kind: "none" }),
+        ],
+        acceptableIds: ["p1", "p2", "p3", "p4", "p5", "p6"],
+        undoableIds: [],
+      },
+    ],
+  };
+  render(<RecentAutoAppliedStrip data={data} actions={noopActions()} />);
+  // Target the PILL element specifically (a crew_added row also renders the
+  // caption "Added" in its diff block, so getByText would be ambiguous).
+  const pill = (rowId: string) =>
+    within(screen.getByTestId(`auto-applied-row-${rowId}`)).getByTestId("auto-applied-kind-pill");
+  // Label + colored token classes: text + /12 fill + /40 border ALL pinned.
+  expect(pill("p1")).toHaveTextContent("Added");
+  expect(pill("p1").className).toMatch(/text-status-positive-text/);
+  expect(pill("p1").className).toMatch(/bg-status-positive\/12/);
+  expect(pill("p1").className).toMatch(/border-status-positive\/40/);
+  expect(pill("p2")).toHaveTextContent("Renamed");
+  expect(pill("p2").className).toMatch(/text-status-review-text/);
+  expect(pill("p2").className).toMatch(/bg-status-review\/12/);
+  expect(pill("p2").className).toMatch(/border-status-review\/40/);
+  expect(pill("p3")).toHaveTextContent("Removed");
+  expect(pill("p3").className).toMatch(/text-status-warn-text/);
+  expect(pill("p3").className).toMatch(/bg-status-warn\/12/);
+  expect(pill("p3").className).toMatch(/border-status-warn\/40/);
+  // Neutral kinds (field / email / unknown fallback): text + neutral bg + neutral border pinned.
+  for (const [id, label] of [
+    ["p4", "Field"],
+    ["p5", "Email"],
+    ["p6", "Change"],
+  ] as const) {
+    expect(pill(id)).toHaveTextContent(label);
+    const cls = pill(id).className;
+    expect(cls).toMatch(/text-status-idle-text/);
+    expect(cls).toMatch(/bg-surface-sunken/);
+    expect(cls).toMatch(/border-border/);
+    expect(cls).not.toMatch(/bg-status-\w+\/12/); // never a colored fill on a neutral kind
+  }
 });
 
 it("puts an Accept control on EVERY row and an Undo control ONLY on undoable rows", () => {

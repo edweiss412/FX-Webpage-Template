@@ -45,18 +45,89 @@ export type RecentAutoAppliedStripActions = {
   undoFromDashboardAction: UndoAction;
 };
 
-// Human labels for the 5 strip change_kinds (spec §6.1 STRIP_KINDS). Unknown
-// kinds fall back to a neutral "Change" tag rather than leaking the raw enum.
-const KIND_LABEL: Record<string, string> = {
-  crew_added: "Added",
-  crew_removed: "Removed",
-  crew_renamed: "Renamed",
-  field_changed: "Field",
-  crew_email_changed: "Email",
+// Full literal token classes per change kind (spec §4). Tailwind v4 JIT scans
+// source for complete class strings — these MUST stay literals, never `${token}`
+// interpolation, or the utility is never emitted and the pill renders bg-less.
+const KIND_PILL: Record<string, { label: string; cls: string; dot: string }> = {
+  crew_added: {
+    label: "Added",
+    cls: "border-status-positive/40 bg-status-positive/12 text-status-positive-text",
+    dot: "bg-status-positive",
+  },
+  crew_renamed: {
+    label: "Renamed",
+    cls: "border-status-review/40 bg-status-review/12 text-status-review-text",
+    dot: "bg-status-review",
+  },
+  crew_removed: {
+    label: "Removed",
+    cls: "border-status-warn/40 bg-status-warn/12 text-status-warn-text",
+    dot: "bg-status-warn",
+  },
+  field_changed: {
+    label: "Field",
+    cls: "border-border bg-surface-sunken text-status-idle-text",
+    dot: "bg-status-idle",
+  },
+  crew_email_changed: {
+    label: "Email",
+    cls: "border-border bg-surface-sunken text-status-idle-text",
+    dot: "bg-status-idle",
+  },
+};
+// Unknown kinds fall back to a neutral "Change" pill rather than leaking the raw enum.
+const FALLBACK_PILL = {
+  label: "Change",
+  cls: "border-border bg-surface-sunken text-status-idle-text",
+  dot: "bg-status-idle",
 };
 
-function kindLabel(changeKind: string): string {
-  return KIND_LABEL[changeKind] ?? "Change";
+function KindPill({ changeKind }: { changeKind: string }) {
+  const pill = KIND_PILL[changeKind] ?? FALLBACK_PILL;
+  return (
+    <span
+      data-testid="auto-applied-kind-pill"
+      className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-0.5 text-[10.5px] font-bold uppercase tracking-wide ${pill.cls}`}
+    >
+      <span className={`size-1.5 rounded-full ${pill.dot}`} />
+      {pill.label}
+    </span>
+  );
+}
+
+// The From→To / single-value diff block. `none` renders the summary sentence
+// (field_changed / crew_email_changed / unknown — no structured diff stored).
+function DiffBlock({ row }: { row: AutoAppliedRow }) {
+  const d = row.diff;
+  if (d.kind === "none") {
+    return <p className="wrap-break-word text-sm text-text-strong">{row.summary}</p>;
+  }
+  const cap = "text-[10.5px] font-semibold uppercase tracking-wide text-text-faint";
+  if (d.kind === "fromTo") {
+    return (
+      <div className="grid grid-cols-[auto_1fr] items-baseline gap-x-2.5 gap-y-0.5">
+        <span className={cap}>From</span>
+        <span className="text-sm text-text-subtle line-through">{d.from}</span>
+        <span className={cap}>To</span>
+        <span className="text-sm font-semibold text-text-strong">{d.to}</span>
+      </div>
+    );
+  }
+  const removed = d.caption === "Removed";
+  return (
+    <div className="grid grid-cols-[auto_1fr] items-baseline gap-x-2.5 gap-y-0.5">
+      <span className={cap}>{d.caption}</span>
+      <span
+        className={
+          removed
+            ? "text-sm text-text-subtle line-through"
+            : "text-sm font-semibold text-text-strong"
+        }
+      >
+        {d.value}
+      </span>
+    </div>
+  );
 }
 
 function StripRow({
@@ -68,24 +139,35 @@ function StripRow({
   group: AutoAppliedGroup;
   actions: RecentAutoAppliedStripActions;
 }) {
+  // Crew kinds carry a structured diff → show a "Crew member" entity label; the
+  // none-kinds (field/email/unknown) render their summary sentence instead.
+  const isCrew = row.diff.kind !== "none";
   return (
     <li
       data-testid={`auto-applied-row-${row.id}`}
-      className="flex flex-col gap-2 border-b border-border p-tile-pad last:border-b-0 sm:flex-row sm:items-center sm:gap-3"
+      className="flex flex-col gap-2 rounded-md border border-border bg-surface p-3"
     >
-      <span className="inline-flex shrink-0 items-center rounded-sm border border-border bg-surface-sunken px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-text-subtle">
-        {kindLabel(row.changeKind)}
-      </span>
-      <span className="flex-1 wrap-break-word text-sm text-text-strong">{row.summary}</span>
-      <span className="flex flex-wrap items-center gap-2">
+      <div className="flex items-center gap-2">
+        <KindPill changeKind={row.changeKind} />
+        {isCrew ? (
+          <span className="text-sm font-semibold text-text-strong">Crew member</span>
+        ) : null}
+      </div>
+      <DiffBlock row={row} />
+      <div className={`grid gap-1.5 ${row.undoable ? "grid-cols-2" : "grid-cols-1"}`}>
         <AcceptChangeButton
           acceptAction={actions.acceptChangeAction}
           hiddenFields={{ showId: group.showId, changeLogId: row.id }}
+          stretch
         />
         {row.undoable ? (
-          <UndoChangeButton changeLogId={row.id} undoAction={actions.undoFromDashboardAction} />
+          <UndoChangeButton
+            changeLogId={row.id}
+            undoAction={actions.undoFromDashboardAction}
+            stretch
+          />
         ) : null}
-      </span>
+      </div>
     </li>
   );
 }
@@ -128,8 +210,18 @@ function GroupSection({
       data-testid={`auto-applied-group-${group.showId}`}
       className="flex flex-col rounded-md border border-border bg-surface shadow-tile"
     >
-      <div className="flex flex-col gap-2 border-b border-border bg-surface-sunken p-tile-pad sm:flex-row sm:items-center sm:justify-between">
-        <p className="text-sm font-semibold text-text-strong">{group.showName}</p>
+      <div className="flex min-w-0 flex-col gap-2 border-b border-border bg-surface-sunken p-tile-pad sm:flex-row sm:items-center sm:justify-between">
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="wrap-break-word text-sm font-semibold text-text-strong">
+            {group.showName}
+          </span>
+          <span
+            data-testid={`auto-applied-count-${group.showId}`}
+            className="shrink-0 rounded-full border border-border bg-surface px-[7px] text-xs font-semibold text-text-subtle"
+          >
+            {group.rows.length}
+          </span>
+        </span>
         <span className="flex flex-wrap items-center gap-2">
           <span data-testid={`auto-applied-accept-all-${group.showId}`}>
             <AcceptChangeButton
@@ -188,7 +280,7 @@ function GroupSection({
         </div>
       ) : null}
 
-      <ul className="flex flex-col">
+      <ul className="flex flex-col gap-2.5 p-tile-pad">
         {group.rows.map((row) => (
           <StripRow key={row.id} row={row} group={group} actions={actions} />
         ))}
