@@ -385,3 +385,13 @@ Transform sites the transform-sites walker (`tests/parser/_metaTransformSitesWal
 **Status:** OPEN (2026-07-14, recent-auto-applied-redesign) · **Severity:** low · **Class:** UI LAYOUT COVERAGE
 
 The redesigned "Recently auto-applied" change card distributes Accept/Undo via CSS grid (`grid-cols-2` 1fr/1fr, or `grid-cols-1`) + `w-full` buttons. The jsdom suite pins the mechanism (grid template + `w-full`); a real-browser Playwright assertion of the actual pixel widths (each button ≈ half / full card content width) is deferred because 1fr columns split equally by CSS-grid spec (not the flex-stretch failure mode). Trigger to promote: an auto-applied-strip e2e harness lands, or the button layout moves off CSS-grid `1fr`.
+
+### BL-AUTOAPPLIED-SINGLETON-FLATTEN — flatten card-in-card for single-change groups
+
+**Status:** OPEN (2026-07-14, recent-auto-applied-redesign) · **Severity:** low · **Class:** UI POLISH
+A per-show group with one change renders a group-card wrapper around a single inner change-card (card-in-card). Consider dropping the inner border/padding when `rows.length === 1`. Deferred: marginal gain, adds a render branch, matches the approved mock.
+
+### BL-AUTOAPPLIED-FIELD-STRUCTURED-DIFF — structured field-level From→To for field_changed
+
+**Status:** OPEN (2026-07-14, recent-auto-applied-redesign) · **Severity:** low · **Class:** FEATURE / DB WRITE-PATH
+`field_changed` rows show a generic summary ("A field changed on this sync"); naming the field / showing its From→To needs structured before/after stored at write time (`writeAutoApplyChanges.ts`) — the DB write-path arc this read-only redesign excluded. Trigger: the spec §1 "Full fidelity" option, if pursued.

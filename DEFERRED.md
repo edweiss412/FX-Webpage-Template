@@ -511,3 +511,15 @@ Source: invariant-8 impeccable v3 dual-gate on branch `feat/flow4-auto-applied-s
 - **What:** The redesigned auto-applied change card lays Accept/Undo out in a CSS grid (`grid-cols-2` = two `1fr` cells, or `grid-cols-1`) with `w-full` buttons. Spec §6 called for a real-browser Playwright assertion that each button ≈ half (undoable) / full (single) card width.
 - **Why deferred:** The half/full split here comes from CSS-grid `1fr` column semantics + `w-full`, NOT the fragile flex-`items-stretch` gotcha the real-browser rule targets — `1fr 1fr` splits equally by spec regardless of content. The MECHANISM is pinned in jsdom (`RecentAutoAppliedStrip.test.tsx`: grid template `grid-cols-2`/`grid-cols-1` + `w-full` on the stretched buttons, plus the button-level `stretch` w-full tests). A standalone esbuild+Playwright harness for pixel-width distribution is disproportionate for a grid whose distribution is a CSS invariant. Pill background emission (the genuine dynamic-class risk) is verified at build + in the impeccable real-browser pass, not deferred.
 - **Trigger:** the next auto-applied-strip e2e pass, or any change that moves the button layout off CSS-grid `1fr`. Backlog: `BL-AUTOAPPLIED-CARD-LAYOUT-E2E`.
+
+### AUTOAPPLIED-REDESIGN-2 — [P2→deferred] Singleton group renders card-in-card
+
+- **What:** A per-show group with exactly one change renders the full group-card wrapper (border + header) around a single inner change-card — card-in-card for one row reads slightly heavy (impeccable critique P2).
+- **Why deferred:** The nested card is justified for multi-row groups (per-change pill+diff+buttons genuinely group), and the header (show name + count + Accept-all/Undo-all) is load-bearing even for one row. Flattening only the singleton case adds a render branch + a divergent layout for marginal gain. Matches the approved mock (which shows a single-row group as a full card).
+- **Trigger:** next auto-applied-strip polish pass. Backlog: `BL-AUTOAPPLIED-SINGLETON-FLATTEN`.
+
+### AUTOAPPLIED-REDESIGN-3 — [P2→deferred] Generic field_changed summary ("A field changed on this sync")
+
+- **What:** `field_changed` / `crew_email_changed` rows render the stored summary sentence, which is generic ("A field changed on this sync") — Doug accepts without seeing which field (impeccable critique P2).
+- **Why deferred:** The summary text is produced at write time (`writeAutoApplyChanges.ts`) and is out of this redesign's read-only scope; naming the field requires storing structured field before/after — the same DB write-path arc this redesign explicitly excluded (spec §1 out-of-scope). Not a regression: the prior flat-row design showed the same generic summary.
+- **Trigger:** the field-level From→To DB arc (spec §1 "Full fidelity" option), if pursued. Backlog: `BL-AUTOAPPLIED-FIELD-STRUCTURED-DIFF`.
