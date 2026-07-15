@@ -155,6 +155,15 @@ describe("emitClassDCode (INTERNAL_CODE_ENUMS ∪ message catalog)", () => {
     expect(emitClassDCode(EMAIL)).toEqual({ code: "", unrecognized: true });
     expect(emitClassDCode(42)).toEqual({ code: "", unrecognized: true });
   });
+  it("rejects inherited/prototype property names (Codex plan-R1 F1)", () => {
+    for (const name of ["toString", "constructor", "hasOwnProperty", "__proto__"]) {
+      expect(emitClassDCode(name)).toEqual({ code: "", unrecognized: true });
+      expect(
+        serializeParseWarning({ severity: "warn", code: name, message: "m" }, { includePii: false })
+          .code,
+      ).toBe("");
+    }
+  });
 });
 ```
 
@@ -189,9 +198,13 @@ export type SerializedWarning = {
 const ISO_RE = /^\d{4}-\d{2}-\d{2}$/;
 const FIELD_RE = /^[a-z][a-zA-Z0-9_.-]{0,22}$/;
 
+// Object.hasOwn + shape guard: `code in INTERNAL_CODE_ENUMS` would treat
+// inherited names ("toString", "constructor") as members, and unguarded
+// `.source.includes` could throw on a non-conforming value (Codex plan-R1 F1).
 function isParseWarningCode(code: string): boolean {
-  const entry = INTERNAL_CODE_ENUMS[code as keyof typeof INTERNAL_CODE_ENUMS];
-  return entry !== undefined && entry.source.includes("parse_warnings.code");
+  if (!Object.hasOwn(INTERNAL_CODE_ENUMS, code)) return false;
+  const entry = (INTERNAL_CODE_ENUMS as Record<string, { source?: unknown }>)[code];
+  return typeof entry?.source === "string" && entry.source.includes("parse_warnings.code");
 }
 
 export function serializeParseWarning(
@@ -226,7 +239,7 @@ export function serializeWarningArray(
 export function emitClassDCode(raw: unknown): { code: string; unrecognized: boolean } {
   if (
     typeof raw === "string" &&
-    (raw in INTERNAL_CODE_ENUMS || isMessageCode(raw))
+    (Object.hasOwn(INTERNAL_CODE_ENUMS, raw) || isMessageCode(raw))
   ) {
     return { code: raw, unrecognized: false };
   }
@@ -1054,6 +1067,9 @@ describe("new-command fail-closed validation (Codex R4 F1 / R5 F1)", () => {
     [["failures", "--code", "x".repeat(201)], /--code/],
     [["staged", "--since", "30d"], /--since must be 1h\|24h\|7d\|all/],
     [["synclog", "--status", ""], /--status/],
+    [["failures", "--code", "A,B"], /--code must be a single/],
+    [["synclog", "--status", "ok,error"], /--status must be a single/],
+    [["staged", "--file", "a,b"], /--file must be a single/],
   ])("%j → kind error", (argv, re) => {
     const p = parseObserveArgs(argv as string[]);
     expect(p.kind).toBe("error");
@@ -1148,9 +1164,16 @@ function requireValid(command: string, values: Record<string, unknown>): { kind:
     return err("--session must be a UUID");
   if (typeof values.show === "string" && !isUuid(values.show.trim()))
     return err("--show must be a UUID");
-  if (bad(values.file)) return err("--file must be a non-empty string of at most 200 chars");
-  if (bad(values.status)) return err("--status must be a non-empty string of at most 200 chars");
-  if (bad(values.code)) return err("--code must be a non-empty string of at most 200 chars");
+  // New-command flags are SINGLE-VALUE by contract (comma lists are events/tail
+  // only) — a comma would otherwise flow into a raw .eq() equality filter and
+  // silently match nothing (Codex plan-R1 F2).
+  const singleValue = (v: unknown) => typeof v === "string" && !v.includes(",");
+  if (bad(values.file) || (typeof values.file === "string" && !singleValue(values.file)))
+    return err("--file must be a single non-empty value (no commas) of at most 200 chars");
+  if (bad(values.status) || (typeof values.status === "string" && !singleValue(values.status)))
+    return err("--status must be a single non-empty value (no commas) of at most 200 chars");
+  if (bad(values.code) || (typeof values.code === "string" && !singleValue(values.code)))
+    return err("--code must be a single non-empty value (no commas) of at most 200 chars");
   if (typeof values.since === "string" && !SINCE_TOKENS.has(values.since))
     return err("--since must be 1h|24h|7d|all");
   return null;
@@ -1169,7 +1192,7 @@ const sourceTokens = (values.source ?? "").split(",").map((s) => s.trim()).filte
 ...(codeTokens.length > 1 ? { codes: codeTokens } : {}),
 ```
 
-NOTE: `alertFilters.code` keeps the old single-value `cap(values.code)` (comma-list out of scope for alerts). New-command filter objects built with `exactOptionalPropertyTypes`-safe spreads (same idiom as `eventFilters`, `scripts/observe/args.ts:99-107`), each including `includePii: revealEmail` for `staged`/`deferred` and `...(limit !== undefined ? { limit } : {})`. `ParsedArgs` ok-variant gains `full: boolean` and the six filter objects.
+NOTE: `alertFilters.code` keeps the old single-value `cap(values.code)` (comma-list out of scope for alerts). New-command filter objects built with `exactOptionalPropertyTypes`-safe spreads (same idiom as `eventFilters`, `scripts/observe/args.ts:99-107`), each including `...(limit !== undefined ? { limit } : {})`. `includePii: revealEmail` goes on ALL five warning/PII-bearing filter objects — `stagedFilters`, `failureFilters`, `warningsFilters`, `syncLogFilters`, `deferredFilters` (Codex plan-R1 F3: `failures`/`warnings`/`synclog` sanitize messages/warnings with `includePii`, so `--reveal-email` must reach them; `watchFilters` has no `includePii` — nothing sanitized there). `ParsedArgs` ok-variant gains `full: boolean` and the six filter objects. Args test: `--reveal-email` sets `includePii: true` on all five (parameterized over the five commands).
 
 - [ ] **Step 4: Run — expect PASS**: `pnpm vitest run tests/observe/args.test.ts tests/observe/queryEvents.test.ts`
 - [ ] **Step 5: Commit**
@@ -1189,7 +1212,7 @@ git commit --no-verify -m "feat(infra): observe new-command args (fail-closed) +
 
 **Interfaces (Produces):** `formatStaged(rows, json, full)`, `formatFailures(rows, json)`, `formatPublishedWarnings(rows, json)`, `formatSyncLog(rows, json)`, `formatDeferred(rows, json)`, `formatWatch(rows, json)` — all `(rows: XRow[], json: boolean) => string`, `(no rows)` on empty. `ObserveDeps` gains the six query functions.
 
-- [ ] **Step 1: Failing tests.** `format.test.ts`: per formatter — empty → `(no rows)`; `--json` → `JSON.stringify(rows)`; table line contains the §2 output-row fields; `formatStaged` with `full=false` shows `warningSummary` + count, with `full=true` one line per serialized warning (`severity  code  message`); class-D `UNKNOWN_CODE` rendering when `lastErrorCodeUnrecognized`. `dispatch.test.ts` (extends existing `runObserve` tests — read the file's dep-stub pattern first): each new command routes to its query dep with the parsed filters; infra_error → exit 1; `--reveal-email` on `staged`/`deferred` prints the PII stderr warning (same string as alerts, `scripts/observe.ts:110-112`); invalid-filter args error → exit 1 and the query dep is NEVER called:
+- [ ] **Step 1: Failing tests.** `format.test.ts`: per formatter — empty → `(no rows)`; `--json` → `JSON.stringify(rows)`; table line contains the §2 output-row fields; `formatStaged` with `full=false` shows `warningSummary` + count, with `full=true` one line per serialized warning (`severity  code  message`); class-D `UNKNOWN_CODE` rendering when `lastErrorCodeUnrecognized`. `dispatch.test.ts` (extends existing `runObserve` tests — read the file's dep-stub pattern first): each new command routes to its query dep with the parsed filters; infra_error → exit 1; `--reveal-email` on ANY of the five PII-capable new commands (`staged`, `failures`, `warnings`, `synclog`, `deferred`) prints the PII stderr warning (same string as alerts, `scripts/observe.ts:110-112`; Codex plan-R1 F3); invalid-filter args error → exit 1 and the query dep is NEVER called:
 
 ```ts
 it("staged --session not-a-uuid: exit 1, query never called (fail-closed at dispatch)", async () => {
@@ -1200,7 +1223,7 @@ it("staged --session not-a-uuid: exit 1, query never called (fail-closed at disp
 });
 ```
 
-- [ ] **Step 2: FAIL** → **Step 3: Implementation.** Formatters follow `formatChanges` shape (`scripts/observe/format.ts:45`). `formatStaged` table line: `${r.parsedAt}  ${r.driveFileId.padEnd(44)}  ${r.sourceKind.padEnd(15)}  ${r.wizardApproved ? "approved" : "pending "}  w:${r.warnings.length}  ${trunc(r.warningSummary, 60)}`, plus when `full`: warning lines `    ${w.severity.padEnd(5)}  ${w.code.padEnd(28)}  ${trunc(w.message)}`. Class-D display helper: `const codeCell = (code: string, unrecognized: boolean) => (unrecognized ? "UNKNOWN_CODE" : code || "-");`. `runObserve` branches (after `changes`, same shape): destructure new deps; `staged`/`deferred` emit the reveal-email stderr warning when `parsed.revealEmail`. USAGE gains six lines. Entry `deps` object gains the six real imports.
+- [ ] **Step 2: FAIL** → **Step 3: Implementation.** Formatters follow `formatChanges` shape (`scripts/observe/format.ts:45`). `formatStaged` table line: `${r.parsedAt}  ${r.driveFileId.padEnd(44)}  ${r.sourceKind.padEnd(15)}  ${r.wizardApproved ? "approved" : "pending "}  w:${r.warnings.length}  ${codeCell(r.lastFinalizeFailureCode, r.lastFinalizeFailureCodeUnrecognized).padEnd(28)}  ${trunc(r.warningSummary, 60)}` (finalize-code cell included — the row models it, the table must show it; Codex plan-R1 F4), plus when `full`: warning lines `    ${w.severity.padEnd(5)}  ${w.code.padEnd(28)}  ${trunc(w.message)}`. Class-D display helper: `const codeCell = (code: string, unrecognized: boolean) => (unrecognized ? "UNKNOWN_CODE" : code || "-");` — used by `formatStaged` AND `formatFailures`; formatter test covers `UNKNOWN_CODE` and `-` renderings for both. `runObserve` branches (after `changes`, same shape): destructure new deps; `staged`/`deferred` emit the reveal-email stderr warning when `parsed.revealEmail`. USAGE gains six lines. Entry `deps` object gains the six real imports.
 
 - [ ] **Step 4: PASS**: `pnpm vitest run tests/observe/format.test.ts tests/observe/dispatch.test.ts`
 - [ ] **Step 5: Commit** — `feat(infra): observe staged/failures/warnings/synclog/deferred/watch CLI wiring`
