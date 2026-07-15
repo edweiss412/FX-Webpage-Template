@@ -73,4 +73,9 @@ export function applyResolvedTarget(
   if (target.kind !== "ok" || !target.url || !target.key) return;
   env.SUPABASE_URL = target.url;
   env.SUPABASE_SECRET_KEY = target.key;
+  // Defense in depth: the service-role client currently prefers
+  // SUPABASE_SECRET_KEY over SUPABASE_SERVICE_ROLE_KEY (lib/supabase/server.ts),
+  // but an ambient service-role key for a DIFFERENT project must never be able
+  // to win if that precedence ever changes — pin both names to the mapped key.
+  env.SUPABASE_SERVICE_ROLE_KEY = target.key;
 }

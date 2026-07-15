@@ -93,4 +93,14 @@ describe("applyResolvedTarget (Codex R5 F2)", () => {
     applyResolvedTarget({ kind: "ok", envName: "local" }, env2 as NodeJS.ProcessEnv);
     expect(env2.SUPABASE_URL).toBeUndefined();
   });
+  test("pins SUPABASE_SERVICE_ROLE_KEY too — an ambient service-role key for another project must never win (whole-diff R1 F2)", () => {
+    const env: Record<string, string | undefined> = {
+      SUPABASE_SERVICE_ROLE_KEY: "ambient-prod-service-role-key",
+    };
+    applyResolvedTarget(
+      { kind: "ok", envName: "validation", url: "u", key: "k" },
+      env as NodeJS.ProcessEnv,
+    );
+    expect(env.SUPABASE_SERVICE_ROLE_KEY).toBe("k");
+  });
 });
