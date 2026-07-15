@@ -60,6 +60,16 @@ do $$
 declare
   n integer;
 begin
+  -- Blast-radius fuse (R5): enforced IN the transaction, not by operator discipline.
+  select count(*) into n
+    from public.geocode_cache
+   where (lat is null or lng is null)
+     and expires_at > now();
+  if n > 1000 then
+    raise exception
+      'geocode_cache one-shot expiry: % coord-less rows exceeds the 1000-row fuse — batch the expiry instead of applying blind',
+      n;
+  end if;
   update public.geocode_cache
      set expires_at = now()
    where (lat is null or lng is null)
@@ -69,15 +79,16 @@ begin
 end $$;
 ```
 
-**Blast-radius control (R4).** Each environment apply is preceded by the count preflight
-`select count(*) from geocode_cache where (lat is null or lng is null) and expires_at >
-now();` and the DO block reports the actual expired count in the apply output. Acceptable
-threshold: **1,000 rows** — the table's cardinality is distinct-venues-scanned-per-30-days
-(observed: 6 on validation; the product's domain is one AV company's show venues, so
-hundreds is already implausible), and even the threshold costs ~US$5 of Geocoding API
-quota spread across subsequent scans (successful cold-path calls are per-venue,
-once-per-30-days, and remain bounded per-scan by the 6s/1-retry budget). If a preflight
-ever exceeds the threshold, stop and batch the expiry instead — do not apply blind.
+**Blast-radius control (R4/R5).** The fuse is enforced atomically inside the DO block:
+the transaction counts matching rows first and RAISEs (aborting the apply, zero rows
+mutated) above **1,000 rows**; below it, the UPDATE runs and the block reports the actual
+expired count via NOTICE. The threshold rationale: the table's cardinality is
+distinct-venues-scanned-per-30-days (observed: 6 on validation; the product's domain is
+one AV company's show venues, so hundreds is already implausible), and even the full
+threshold costs ~US$5 of Geocoding API quota spread across subsequent scans (successful
+cold-path calls are per-venue, once-per-30-days, and remain bounded per-scan by the
+6s/1-retry budget). The operator preflight count remains documented as a courtesy check,
+but safety does not depend on it.
 
 Effects:
 
@@ -100,8 +111,13 @@ Effects:
 - Cost: one extra Google geocode per distinct affected venue (6 rows on validation,
   bounded by the per-venue timeout/retry budget and circuit breaker on the cold path);
   cached-forever behavior resumes with the fresh 30-day row.
-- Idempotent: a second apply matches nothing (`expires_at > now()` is false for rows the
-  first apply expired). Safeupdate-safe: the UPDATE carries a real WHERE clause.
+- One-shot execution is owned by `schema_migrations` (a migration runs once per
+  environment); the surgical validation apply (§3.3) is likewise performed once. A manual
+  RE-apply is NOT a strict no-op: rows the first apply expired no longer match
+  (`expires_at > now()`), but any coord-less row written AFTER the first apply (a genuine
+  no-geometry/ZERO_RESULTS terminal entry) would be expired and re-geocoded once —
+  harmless (one bounded Google call per such row, and the fuse still applies) but wasteful,
+  so don't re-run it casually. Safeupdate-safe: the UPDATE carries a real WHERE clause.
 - `while the parse-time behavior is unchanged`, the transitional VENUE_TIMEZONE_UNRESOLVED
   warnings on already-staged rows disappear only when those shows are re-parsed (next
   scan/sync or reset+rescan) — acceptable; staged rows are consumed at finalize anyway.
@@ -190,13 +206,17 @@ exclusivity `:337`) continues to pin the unchanged runtime behavior.
    contains the one-shot UPDATE with `(lat is null or lng is null)` and a real WHERE
    clause (safeupdate discipline) (catches: the expire statement dropped or rewritten
    without a WHERE in a future edit; fails before the migration exists).
-3. **Post-apply DB invariant:** against the local all-migrations-applied DB, insert a
+3. **Over-threshold fuse abort:** seed >1,000 fresh coord-less rows (generate_series),
+   run the extracted DO block, assert it raises AND that no seeded row's `expires_at`
+   moved (catches: fuse missing/non-atomic — the R5 high; mutation-before-check
+   ordering).
+4. **Post-apply DB invariant:** against the local all-migrations-applied DB, insert a
    coord-less row with a future `expires_at` DIRECTLY (simulating a legacy row), run the
    migration's UPDATE statement verbatim (extracted from the file), and assert the row's
    `expires_at <= now()` while a coords-bearing sibling row keeps its future expiry
    (catches: the WHERE matching too much — expiring healthy rows — or too little; derives
    expectations from the seeded fixtures, not hardcoded row counts).
-4. **Miss-path integration proof:** after (3), `readGeocodeCache` for the expired row's
+5. **Miss-path integration proof:** after (3), `readGeocodeCache` for the expired row's
    hash returns `{ kind: "miss" }` (catches: the expiry not actually flowing through the
    `.gt("expires_at", ...)` read filter — i.e. the fix not fixing the bug).
 
@@ -243,10 +263,10 @@ exclusivity `:337`) continues to pin the unchanged runtime behavior.
 - **Why reset-vs-scan cache residue is accepted rather than locked away:** see §3.2
   "Concurrency scope" — quota-cache rows only, self-correcting, manual-maintenance
   context; a new global lock surface is disproportionate to a cosmetic race.
-- **Why the expiry is not batched/gated by default:** the DO block reports the expired
-  count and the documented preflight bounds it (§3.1); the 1,000-row threshold exceeds
-  any plausible cardinality of this domain by an order of magnitude while costing ~US$5
-  of quota if ever hit.
+- **Why the expiry is not batched/gated by default:** the in-transaction fuse aborts
+  above 1,000 rows with zero mutation (§3.1); the threshold exceeds any plausible
+  cardinality of this domain by an order of magnitude while costing ~US$5 of quota if
+  ever hit. Batching machinery for a table observed at 6 rows is speculative complexity.
 - **Why the reset deletes rather than expires the cache:** virgin state is the action's
   contract (this spec's origin); expiry-bumping would leave rows visible to future audits
   and save nothing (the next scan re-geocodes either way).
