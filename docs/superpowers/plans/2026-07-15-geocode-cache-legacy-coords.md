@@ -508,8 +508,16 @@ Expected: `has_delete = t`. (The behavioral half — reset → `count(geocode_ca
 
 - [ ] **Step 7: Validation-parity CI precondition check.**
 
-Run: `pnpm vitest run tests/db/validation-schema-parity.test.ts`
-Expected: PASS (manifest unchanged + validation superset holds).
+Run (P-R9: the parity test falls back to the LOCAL DB when `TEST_DATABASE_URL` is unset — an unsourced run records a green gate that never touched validation; source in a subshell and fail closed):
+
+```bash
+( set -a; source .env.local; set +a;
+  [ -n "$TEST_DATABASE_URL" ] || { echo "TEST_DATABASE_URL unset — parity not proven"; exit 1; }
+  case "$TEST_DATABASE_URL" in *127.0.0.1*|*localhost*) echo "TEST_DATABASE_URL is local — parity not proven"; exit 1;; esac
+  pnpm vitest run tests/db/validation-schema-parity.test.ts )
+```
+
+Expected: PASS (manifest unchanged + validation superset holds), with `TEST_DATABASE_URL` resolving to the validation session pooler.
 
 ### Task 3: Close-out gates (Stage 4, after merge/deploy — operational, recorded in PR)
 
