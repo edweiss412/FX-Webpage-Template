@@ -108,7 +108,9 @@ it("Accept all (N) renders iff >=1 acceptable entry; ids = exactly the acceptabl
   );
   // label count derived from the fixture's acceptable subset (2 of 3)
   const expectedIds = entries.filter((e) => e.acceptable).map((e) => e.id);
-  expect(screen.getByRole("button", { name: `Accept all (${expectedIds.length})` })).toBeInTheDocument();
+  expect(
+    screen.getByRole("button", { name: `Accept all (${expectedIds.length})` }),
+  ).toBeInTheDocument();
   const idsInput = document.querySelector('input[name="ids"]');
   expect(idsInput).toHaveAttribute("value", expectedIds.join(","));
   const showInput = document.querySelector('input[name="showId"][value="show-1"]');
