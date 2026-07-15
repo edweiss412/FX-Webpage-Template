@@ -21,6 +21,7 @@
 
 import { ChangeFeedBadge } from "@/components/admin/ChangeFeedBadge";
 import { ChangeFeedTime } from "@/components/admin/ChangeFeedTime";
+import { AcceptChangeButton, type AcceptButtonResult } from "@/components/admin/AcceptChangeButton";
 import { Mi11GateActions, type Mi11GateActionResult } from "@/components/admin/Mi11GateActions";
 import { UndoChangeButton, type UndoButtonResult } from "@/components/admin/UndoChangeButton";
 import type { Disposition, FeedEntry } from "@/lib/sync/holds/types";
@@ -59,16 +60,28 @@ type UndoServerAction = (
   formData: FormData,
 ) => UndoButtonResult | Promise<UndoButtonResult>;
 
+type AcceptServerAction = (
+  prev: AcceptButtonResult | null,
+  formData: FormData,
+) => AcceptButtonResult | Promise<AcceptButtonResult>;
+
 export function ChangeFeedEntry({
   entry,
   now,
+  showId,
   undoAction,
+  acceptAction,
   approveAction,
   rejectAction,
 }: {
   entry: FeedEntry;
   now: Date;
+  // Spec 2026-07-15 §3: the accept form carries showId (sanctioned dashboard
+  // precedent — the RPC WHERE requires show_id AND id to match, so a foreign
+  // pair no-ops).
+  showId: string;
   undoAction: UndoServerAction;
+  acceptAction: AcceptServerAction;
   approveAction: GateServerAction;
   rejectAction: GateServerAction;
 }) {
@@ -94,22 +107,44 @@ export function ChangeFeedEntry({
         ) : null}
         <div className="flex flex-wrap items-center gap-2">
           <ChangeFeedBadge status={entry.status} />
+          {/* Disposition tag (spec 2026-07-15 §4.1 total rule): renders iff
+              acknowledgedAt is set, REGARDLESS of status — acknowledgement is a
+              historical fact (undo never clears it), so an accepted-then-undone
+              row shows the Undone badge AND this tag. Muted badge tokens. */}
+          {entry.acknowledgedAt != null ? (
+            <span
+              data-testid="change-feed-accepted-tag"
+              title="You accepted this change."
+              className="inline-flex items-center rounded-pill bg-surface-sunken px-2 py-0.5 text-xs font-semibold text-text-subtle"
+            >
+              Accepted
+            </span>
+          ) : null}
           <ChangeFeedTime occurredAt={entry.occurredAt} now={now} />
         </div>
       </div>
-      {canUndo ? (
-        <div className="shrink-0">
-          <UndoChangeButton changeLogId={entry.changeLogId!} undoAction={undoAction} />
-        </div>
-      ) : canGate ? (
-        <div className="shrink-0">
-          <Mi11GateActions
-            holdId={entry.gate!.holdId}
-            disposition={entry.gate!.disposition}
-            baseModifiedTime={entry.gate!.baseModifiedTime}
-            approveAction={approveAction}
-            rejectAction={rejectAction}
-          />
+      {/* Action column: Accept is an independent axis (spec §4.1) — an
+          acceptable crew row co-renders Accept AND Undo. changeLogId here is
+          the LOG ROW id (entry.id) — entry.changeLogId stays undo-only. */}
+      {entry.acceptable || canUndo || canGate ? (
+        <div className="flex shrink-0 flex-wrap items-start gap-2">
+          {entry.acceptable ? (
+            <AcceptChangeButton
+              acceptAction={acceptAction}
+              hiddenFields={{ showId, changeLogId: entry.id }}
+            />
+          ) : null}
+          {canUndo ? (
+            <UndoChangeButton changeLogId={entry.changeLogId!} undoAction={undoAction} />
+          ) : canGate ? (
+            <Mi11GateActions
+              holdId={entry.gate!.holdId}
+              disposition={entry.gate!.disposition}
+              baseModifiedTime={entry.gate!.baseModifiedTime}
+              approveAction={approveAction}
+              rejectAction={rejectAction}
+            />
+          ) : null}
         </div>
       ) : null}
     </li>

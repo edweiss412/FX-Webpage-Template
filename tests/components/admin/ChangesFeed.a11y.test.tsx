@@ -20,6 +20,7 @@ afterEach(cleanup);
 
 const now = new Date("2026-06-09T12:00:00Z");
 const noop = vi.fn();
+const acceptNoop = vi.fn(async () => ({ ok: true as const, count: 1 }));
 
 describe("ChangesFeed a11y", () => {
   it("the feed section is labelled by its heading (aria-labelledby → an h2)", () => {
@@ -28,7 +29,10 @@ describe("ChangesFeed a11y", () => {
         entries={[]}
         truncated={false}
         now={now}
+        showId="show-1"
         undoAction={noop}
+        acceptAction={acceptNoop}
+        acceptAllAction={acceptNoop}
         approveAction={noop}
         rejectAction={noop}
       />,
@@ -39,7 +43,9 @@ describe("ChangesFeed a11y", () => {
     expect(labelId).toBeTruthy();
     const heading = container.querySelector(`#${labelId}`);
     expect(heading?.tagName.toLowerCase()).toBe("h2");
-    expect(heading).toHaveTextContent("Changes");
+    // Exact text (spec 2026-07-15 §5) — toHaveTextContent is substring-based,
+    // so pin the full string to catch a stale "Changes" heading.
+    expect(heading?.textContent).toBe("Sheet changes");
   });
 
   it("every action button has a non-empty accessible name (Undo + Approve + Reject)", () => {
@@ -53,6 +59,8 @@ describe("ChangesFeed a11y", () => {
             action: "undo",
             summary: "Removed Alice",
             entityRef: "Alice",
+            acceptable: false,
+            acknowledgedAt: null,
             changeLogId: "cl-1",
           },
           {
@@ -62,6 +70,8 @@ describe("ChangesFeed a11y", () => {
             action: "approve_reject",
             summary: "Email change for Bob",
             entityRef: "Bob",
+            acceptable: false,
+            acknowledgedAt: null,
             gate: {
               holdId: "h1",
               disposition: { disposition: "email_change", name: "Bob", email: "b@new" },
@@ -71,7 +81,10 @@ describe("ChangesFeed a11y", () => {
         ]}
         truncated={false}
         now={now}
+        showId="show-1"
         undoAction={noop}
+        acceptAction={acceptNoop}
+        acceptAllAction={acceptNoop}
         approveAction={noop}
         rejectAction={noop}
       />,
@@ -99,11 +112,16 @@ describe("ChangesFeed a11y", () => {
             action: "none",
             summary: "Email change rejected",
             entityRef: "Cara",
+            acceptable: false,
+            acknowledgedAt: null,
           },
         ]}
         truncated={false}
         now={now}
+        showId="show-1"
         undoAction={noop}
+        acceptAction={acceptNoop}
+        acceptAllAction={acceptNoop}
         approveAction={noop}
         rejectAction={noop}
       />,

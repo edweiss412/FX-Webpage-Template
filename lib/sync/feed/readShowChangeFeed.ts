@@ -74,6 +74,8 @@ type ChangeLogRow = {
   entity_ref: string | null;
   change_kind: string;
   individually_undoable: boolean;
+  source: string;
+  acknowledged_at: string | null;
 };
 
 type HoldRow = {
@@ -219,7 +221,9 @@ export async function readShowChangeFeed(
     runFeedRead<ChangeLogRow[]>("readShowChangeFeed.showChangeLog", () =>
       supabase
         .from("show_change_log")
-        .select("id, occurred_at, status, summary, entity_ref, change_kind, individually_undoable")
+        .select(
+          "id, occurred_at, status, summary, entity_ref, change_kind, individually_undoable, source, acknowledged_at",
+        )
         .eq("show_id", showId)
         .order("occurred_at", { ascending: false })
         .limit(limit),
@@ -258,6 +262,12 @@ export async function readShowChangeFeed(
       summary: row.summary,
       action: "none",
       entityRef: row.entity_ref,
+      // Disposition axis (spec 2026-07-15 §2): keyed on the RAW selected
+      // acknowledged_at being SQL NULL — mirrors the acknowledge_changes RPC
+      // WHERE (source/status/acknowledged_at) exactly.
+      acceptable:
+        row.source === "auto_apply" && row.status === "applied" && row.acknowledged_at == null,
+      acknowledgedAt: toIso(row.acknowledged_at),
     };
     // Undo iff crew-domain change_kind AND status='applied' AND
     // individually_undoable (resolution #P4-F4). The third conjunct hides the
@@ -294,6 +304,9 @@ export async function readShowChangeFeed(
       summary: renderPendingSummary(hold),
       action: "approve_reject",
       entityRef: hold.entity_key,
+      // Hold-derived entries never carry the disposition axis (spec §2).
+      acceptable: false,
+      acknowledgedAt: null,
       gate,
     };
   });

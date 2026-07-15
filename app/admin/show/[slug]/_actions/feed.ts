@@ -1,11 +1,13 @@
 /**
  * app/admin/show/[slug]/_actions/feed.ts (Phase 6 T6.7 — changes-feed actions)
  *
- * THREE thin admin server actions for the per-show changes feed: undoChangeAction,
- * mi11ApproveAction, mi11RejectAction. Each is `"use server"`-scoped (this file
- * carries the directive), requireAdmin()s FIRST (defense in depth — the page
- * already gated, but a direct dispatch must re-authorize), reads its field(s) from
- * FormData, then DELEGATES to the already-advisory-lock-guarded Phase 3/4 helpers.
+ * FIVE thin admin server actions for the per-show Sheet-changes feed:
+ * undoChangeAction, mi11ApproveAction, mi11RejectAction, acceptChangeAction,
+ * acceptAllAction. Each is `"use server"`-scoped (this file carries the
+ * directive), requireAdmin()s FIRST (defense in depth — the page already gated,
+ * but a direct dispatch must re-authorize), reads its field(s) from FormData,
+ * then DELEGATES to the already-guarded helpers (advisory-lock-guarded Phase 3/4
+ * RPC helpers; lock-FREE acknowledgeChanges for the accept pair).
  *
  * PF15: these actions NEVER call supabase.rpc() inline and NEVER wrap the call in
  * withShowAdvisoryLock — the lock-taking SECURITY DEFINER RPCs self-lock; wrapping
@@ -16,7 +18,10 @@
  * PF23: approve/reject forward ONLY holdId (plus the PF40 token below); undo
  * forwards ONLY changeLogId. The page/client NEVER binds showId/driveFileId — the
  * helpers resolve drive_file_id from the hold/log server-side (a holdId from
- * another show would otherwise re-check the wrong file).
+ * another show would otherwise re-check the wrong file). CARVE-OUT (spec
+ * 2026-07-15 §3): the accept pair DOES read a form-carried showId — sanctioned
+ * dashboard precedent; acknowledge_changes does no drive re-check and its WHERE
+ * requires show_id AND id to match, so a mismatched pair no-ops (count 0).
  *
  * PF40: approve/reject ALSO read the CLIENT-SUBMITTED expectedBaseModifiedTime form
  * field (the value the feed RENDERED, mirroring how holdId is read) and forward it
@@ -42,6 +47,10 @@ import {
   rejectMi11Hold,
   type Mi11GateResult,
 } from "@/lib/sync/holds/mi11GateActions";
+import {
+  acknowledgeChanges,
+  type AcknowledgeChangesResult,
+} from "@/lib/sync/holds/acknowledgeChanges";
 import { undoChange, type UndoChangeResult } from "@/lib/sync/holds/undoChange";
 
 /** "" (a null base_modified_time round-tripped through the hidden input) → null. */
@@ -140,6 +149,81 @@ export async function undoChangeAction(
         actorEmail: admin.email,
         ...(result.showId ? { showId: result.showId } : {}),
         extra: { changeLogId },
+      });
+    } catch {
+      /* best-effort */
+    }
+  }
+  return result;
+}
+
+/**
+ * Accept a SINGLE auto-applied change from the per-show Sheet-changes feed
+ * (spec 2026-07-15 §3). Near-copy of the dashboard acceptChangeAction
+ * (app/admin/_actions/autoApplied.ts) with one deliberate tightening: an empty
+ * changeLogId is refused client-side instead of reaching the RPC's uuid[] cast.
+ * acknowledgeChanges is LOCK-FREE (sets acknowledged_at/by only) — never wrap
+ * in withShowAdvisoryLock (single-holder, invariant 2 / PF15).
+ */
+export async function acceptChangeAction(
+  _prev: AcknowledgeChangesResult | null,
+  formData: FormData,
+): Promise<AcknowledgeChangesResult> {
+  const admin = await requireAdminIdentity();
+  const showId = String(formData.get("showId") ?? "");
+  const changeLogId = String(formData.get("changeLogId") ?? "");
+  // Spec §3 input guards: refusals never call the helper and never emit telemetry.
+  if (!showId || !changeLogId) return { ok: false, code: "SYNC_INFRA_ERROR" };
+  const result = await acknowledgeChanges(showId, [changeLogId]);
+  if (result.ok) {
+    // POST-COMMIT: the feed row flips to Accepted here AND the dashboard strip
+    // must drop the row. No revalidateShow — acknowledgement mutates no
+    // crew-facing data (contrast undoChangeAction above).
+    revalidatePath("/admin/show/[slug]", "page");
+    revalidatePath("/admin", "page");
+    try {
+      await logAdminOutcome({
+        code: "CHANGES_ACKNOWLEDGED",
+        source: "admin.show.feed.accept",
+        actorEmail: admin.email,
+        showId,
+        extra: { changeLogId, count: result.count },
+      });
+    } catch {
+      /* best-effort */
+    }
+  }
+  return result;
+}
+
+/** Accept ALL currently-acceptable changes rendered in one show's feed (spec §3). */
+export async function acceptAllAction(
+  _prev: AcknowledgeChangesResult | null,
+  formData: FormData,
+): Promise<AcknowledgeChangesResult> {
+  const admin = await requireAdminIdentity();
+  const showId = String(formData.get("showId") ?? "");
+  const ids = Array.from(
+    new Set(
+      String(formData.get("ids") ?? "")
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean),
+    ),
+  );
+  // Empty payload is a malformed submission (the button renders only with N>=1).
+  if (!showId || ids.length === 0) return { ok: false, code: "SYNC_INFRA_ERROR" };
+  const result = await acknowledgeChanges(showId, ids);
+  if (result.ok) {
+    revalidatePath("/admin/show/[slug]", "page");
+    revalidatePath("/admin", "page");
+    try {
+      await logAdminOutcome({
+        code: "CHANGES_ACKNOWLEDGED",
+        source: "admin.show.feed.acceptAll",
+        actorEmail: admin.email,
+        showId,
+        extra: { count: result.count, requested: ids.length },
       });
     } catch {
       /* best-effort */

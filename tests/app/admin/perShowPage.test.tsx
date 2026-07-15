@@ -459,6 +459,12 @@ describe("per-show page (§6)", () => {
           action: "none",
           summary: "Section shrank",
           entityRef: null,
+          // Required FeedEntry disposition fields — state.feed is untyped
+          // (Record<string, unknown>), so typecheck can't enforce these; an
+          // omitted acknowledgedAt renders a phantom Accepted tag
+          // (undefined !== null). Keep fixtures shape-complete.
+          acceptable: false,
+          acknowledgedAt: null,
         },
       ],
       truncated: false,
@@ -466,6 +472,35 @@ describe("per-show page (§6)", () => {
     };
     await renderPage();
     expect(screen.getByTestId("change-feed-entry-e1")).toBeInTheDocument();
+  });
+
+  // Spec 2026-07-15 — page wiring for the feed disposition axis: an acceptable
+  // entry renders the Accept control (server action + showId threaded through
+  // ChangesFeed), and the section heading carries the renamed label.
+  it("renders Accept + Accept all for an acceptable feed entry, under the 'Sheet changes' heading", async () => {
+    state.feed = {
+      entries: [
+        {
+          id: "e-acc",
+          occurredAt: "2026-06-03T09:00:00.000Z",
+          status: "applied",
+          action: "none",
+          summary: "Field changed: dates",
+          entityRef: null,
+          acceptable: true,
+          acknowledgedAt: null,
+        },
+      ],
+      truncated: false,
+      totalShown: 1,
+    };
+    await renderPage();
+    const row = screen.getByTestId("change-feed-entry-e-acc");
+    expect(within(row).getByTestId("change-feed-accept")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Accept all (1)" })).toBeInTheDocument();
+    expect(document.getElementById("admin-changes-feed-heading")?.textContent).toBe(
+      "Sheet changes",
+    );
   });
 
   it("degrades to a calm notice when the feed read throws a SyncInfraError", async () => {

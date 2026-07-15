@@ -73,6 +73,9 @@ describe("readShowChangeFeed", () => {
     expect(pending!.entityRef).toBe("Alice");
     expect(pending!.summary).toContain("alice@old"); // old, from held_value
     expect(pending!.summary).toContain("alice@new"); // proposed, from proposed_value
+    // Hold-derived entries never carry the disposition axis (spec §2 guard grid).
+    expect(pending!.acceptable).toBe(false);
+    expect(pending!.acknowledgedAt).toBeNull();
 
     const added = entries.find((e) => e.entityRef === "Bob");
     expect(added!.status).toBe("applied");
@@ -138,6 +141,69 @@ describe("readShowChangeFeed", () => {
 
     expect(truncated).toBe(false);
     expect(totalShown).toBe(entries.length);
+  });
+
+  test("disposition axis (spec 2026-07-15 §2): acceptable mirrors the acknowledge_changes WHERE; acknowledgedAt survives undo", async () => {
+    showId = runPsql(`
+      with s as (
+        insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
+        values (${q(prefix + "-d")}, ${q(prefix + "-d")}, 'Feed Test', 'FXAV', 'v4', true)
+        returning id
+      ),
+      open_row as (
+        insert into public.show_change_log
+          (show_id, drive_file_id, occurred_at, source, change_kind, entity_ref, summary, after_image, status)
+        select id, ${q(prefix + "-d")}, now() - interval '4 min',
+          'auto_apply', 'crew_added', 'Open', 'Crew added: Open', '{"name":"Open"}'::jsonb, 'applied' from s
+      ),
+      acked_row as (
+        insert into public.show_change_log
+          (show_id, drive_file_id, occurred_at, source, change_kind, entity_ref, summary, after_image, status, acknowledged_at)
+        select id, ${q(prefix + "-d")}, now() - interval '3 min',
+          'auto_apply', 'field_changed', 'Acked', 'Field changed: Acked', '{}'::jsonb, 'applied', now() - interval '1 min' from s
+      ),
+      foreign_source as (
+        insert into public.show_change_log
+          (show_id, drive_file_id, occurred_at, source, change_kind, entity_ref, summary, after_image, status)
+        select id, ${q(prefix + "-d")}, now() - interval '2 min',
+          'mi11_approve', 'crew_renamed', 'Gate', 'Approved: Gate', '{}'::jsonb, 'applied' from s
+      ),
+      acked_then_undone as (
+        insert into public.show_change_log
+          (show_id, drive_file_id, occurred_at, source, change_kind, entity_ref, summary, after_image, status, acknowledged_at)
+        select id, ${q(prefix + "-d")}, now() - interval '1 min',
+          'auto_apply', 'crew_added', 'Undone', 'Crew added: Undone', '{"name":"Undone"}'::jsonb, 'undone', now() - interval '30 sec' from s
+      )
+      select id from s;
+    `);
+
+    const { entries } = await readShowChangeFeed(showId);
+
+    // (a) un-acknowledged auto_apply+applied — the ONLY acceptable shape.
+    const open = entries.find((e) => e.entityRef === "Open");
+    expect(open!.acceptable).toBe(true);
+    expect(open!.acknowledgedAt).toBeNull();
+
+    // (b) acknowledged — not acceptable; acknowledgedAt = toIso(raw stored value).
+    // Raw ::text carries the UTC offset, so new Date(raw).toISOString() is
+    // session-timezone safe (never to_char with a literal "Z").
+    const storedAckRawText = runPsql(
+      `select acknowledged_at::text from public.show_change_log where show_id = ${q(showId)} and entity_ref = 'Acked';`,
+    );
+    const acked = entries.find((e) => e.entityRef === "Acked");
+    expect(acked!.acceptable).toBe(false);
+    expect(acked!.acknowledgedAt).toBe(new Date(storedAckRawText).toISOString());
+
+    // (c) non-auto_apply source — never acceptable even applied+unacknowledged.
+    const gate = entries.find((e) => e.entityRef === "Gate");
+    expect(gate!.acceptable).toBe(false);
+    expect(gate!.acknowledgedAt).toBeNull();
+
+    // (d) accepted-then-undone — acknowledgement is a historical fact (§4.1
+    // total rule): not acceptable, but acknowledgedAt is retained.
+    const undone = entries.find((e) => e.entityRef === "Undone");
+    expect(undone!.acceptable).toBe(false);
+    expect(undone!.acknowledgedAt).not.toBeNull();
   });
 
   test("undo_override holds are NOT pending feed entries", async () => {
