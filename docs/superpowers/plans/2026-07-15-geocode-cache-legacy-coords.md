@@ -114,6 +114,15 @@ if (!LOCAL_DB_URL_REGEX.test(DB_URL)) {
   );
 }
 
+// Force the Supabase READ boundary to the same local instance the fixtures are
+// written to: readGeocodeCache builds its client from ambient SUPABASE_URL at call
+// time (lib/supabase/server.ts:80-90). In an env-sourced shell that could silently
+// point at validation/prod — pin it to local PostgREST + the demo service key
+// fallback (same posture as resetValidationDataPostgrest.test.ts:42-45).
+process.env.SUPABASE_URL = "http://127.0.0.1:54321";
+delete process.env.SUPABASE_SECRET_KEY;
+delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
 const sql: Sql = postgres(DB_URL, { max: 2, prepare: false });
 
 const MIGRATION = join(
@@ -431,7 +440,10 @@ Expected: PASS (pre-existing failures, if any, must be shown absent at merge-bas
 Run: `pnpm typecheck && pnpm lint && pnpm format:check`
 Expected: all exit 0.
 
-- [ ] **Step 3: Rollout gate (spec §3.1 R7) — verify validation's deployment postdates Flow 8.3a.** Confirm the validation Vercel deployment is built from a commit containing `supabase/migrations/20260709000000_geocode_cache_coords.sql` (e.g. `git merge-base --is-ancestor <deployed-sha> HEAD` on origin/main history, or the Vercel deployment list). Record the checked SHA in the apply log.
+- [ ] **Step 3: Rollout gate (spec §3.1 R7) — verify validation's deployment postdates Flow 8.3a.** Positive containment proof against the DEPLOYED sha (ancestry-of-HEAD proves nothing — a pre-8.3a deploy is also an ancestor):
+
+Run: `git cat-file -e <deployed-sha>:supabase/migrations/20260709000000_geocode_cache_coords.sql && echo COORDS-CAPABLE`
+Expected: `COORDS-CAPABLE` (exit 0). Alternatively `git merge-base --is-ancestor <flow-8.3a-merge-sha> <deployed-sha>`. Record the exact command + SHA + output in the apply log. If the file is absent from the deployed tree, STOP — deploy validation first.
 
 - [ ] **Step 4: Preflight count on validation (courtesy — the in-DB fuse is the real guard).**
 
