@@ -49,16 +49,24 @@ gate and calls `reset_validation_data()`, but unlike `resetValidationDataPostgre
 it has NO remote-URL refusal — an env-sourced shell leaking the validation
 `TEST_DATABASE_URL` into vitest would aim a destructive reset at validation). Insert
 directly after the `DB_URL` constant (`tests/db/resetValidationData.test.ts:28-31`),
-copying the existing guard verbatim:
+copying the existing guard's shape but with a credential-redacting message (P-R8: the
+guard fires exactly when a credential-bearing remote URL leaked — never echo it):
 
 ```ts
 // SAFETY: this test WIPES all shows via the reset RPC — never run it against a remote DB
-// (same guard as tests/db/resetValidationDataPostgrest.test.ts).
+// (same guard shape as tests/db/resetValidationDataPostgrest.test.ts, message redacted).
+function redactedDbHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "<unparseable>";
+  }
+}
 const LOCAL_DB_URL_REGEX =
   /^postgres(?:ql)?:\/\/[^@]+@(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?\//i;
 if (!LOCAL_DB_URL_REGEX.test(DB_URL)) {
   throw new Error(
-    `resetValidationData.test.ts: TEST_DATABASE_URL='${DB_URL}' is not local. ` +
+    `resetValidationData.test.ts: TEST_DATABASE_URL host '${redactedDbHost(DB_URL)}' is not local. ` +
       "reset_validation_data() wipes ALL shows — refusing to run against a remote URL.",
   );
 }
@@ -127,12 +135,20 @@ const DB_URL =
   "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
 // SAFETY: tests 2-4 write to public.geocode_cache — never run against a remote DB
-// (same guard as tests/db/resetValidationDataPostgrest.test.ts:32-40).
+// (same guard shape as tests/db/resetValidationDataPostgrest.test.ts:32-40; message
+// redacts credentials — the guard fires exactly when a secret-bearing URL leaked).
+function redactedDbHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "<unparseable>";
+  }
+}
 const LOCAL_DB_URL_REGEX =
   /^postgres(?:ql)?:\/\/[^@]+@(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?\//i;
 if (!LOCAL_DB_URL_REGEX.test(DB_URL)) {
   throw new Error(
-    `geocodeCacheCoordExpiry.test.ts: TEST_DATABASE_URL='${DB_URL}' is not local — refusing.`,
+    `geocodeCacheCoordExpiry.test.ts: TEST_DATABASE_URL host '${redactedDbHost(DB_URL)}' is not local — refusing.`,
   );
 }
 
