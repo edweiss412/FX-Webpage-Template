@@ -53,6 +53,8 @@ describe("ChangesFeed a11y", () => {
             action: "undo",
             summary: "Removed Alice",
             entityRef: "Alice",
+            acceptable: false,
+            acknowledgedAt: null,
             changeLogId: "cl-1",
           },
           {
@@ -62,6 +64,8 @@ describe("ChangesFeed a11y", () => {
             action: "approve_reject",
             summary: "Email change for Bob",
             entityRef: "Bob",
+            acceptable: false,
+            acknowledgedAt: null,
             gate: {
               holdId: "h1",
               disposition: { disposition: "email_change", name: "Bob", email: "b@new" },
@@ -99,6 +103,8 @@ describe("ChangesFeed a11y", () => {
             action: "none",
             summary: "Email change rejected",
             entityRef: "Cara",
+            acceptable: false,
+            acknowledgedAt: null,
           },
         ]}
         truncated={false}

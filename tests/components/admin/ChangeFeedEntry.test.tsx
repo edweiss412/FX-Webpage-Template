@@ -14,7 +14,13 @@ import type { Disposition } from "@/lib/sync/holds/types";
 
 afterEach(cleanup);
 
-const base = { id: "e1", occurredAt: "2026-06-09T11:00:00Z", entityRef: "Alice" };
+const base = {
+  id: "e1",
+  occurredAt: "2026-06-09T11:00:00Z",
+  entityRef: "Alice",
+  acceptable: false,
+  acknowledgedAt: null,
+};
 const now = new Date("2026-06-09T12:00:00Z");
 const noop = vi.fn();
 

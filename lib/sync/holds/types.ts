@@ -64,6 +64,14 @@ export type FeedEntry = {
   summary: string;
   action: "undo" | "approve_reject" | "none";
   entityRef: string | null;
+  // Disposition axis (spec 2026-07-15 §2): true iff source='auto_apply' AND
+  // status='applied' AND raw acknowledged_at IS NULL — mirrors the
+  // acknowledge_changes RPC WHERE exactly, so the UI never offers an Accept
+  // the RPC would no-op. Independent of `action` (a row can be undoable AND
+  // acceptable).
+  acceptable: boolean;
+  // toIso(acknowledged_at) — non-null ⟺ the admin accepted; NEVER cleared by undo.
+  acknowledgedAt: string | null;
   gate?: FeedGate; // set ⟺ action==='approve_reject' (an open mi11_pending hold)
   changeLogId?: string; // set ⟺ action==='undo' (the show_change_log.id passed to undo_change)
 };

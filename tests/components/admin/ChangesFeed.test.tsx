@@ -21,6 +21,8 @@ const mk = (id: string, t: string) => ({
   action: "none" as const,
   summary: `change ${id}`,
   entityRef: null,
+  acceptable: false,
+  acknowledgedAt: null,
 });
 
 it("renders entries in array order and shows the truncation note when capped", () => {
