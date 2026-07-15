@@ -77,7 +77,11 @@ it("stretch=false (default) → button not w-full; stretch → form + button w-f
   const btn = screen.getByTestId("change-feed-accept");
   expect(btn.className).not.toMatch(/\bw-full\b/);
   rerender(
-    <AcceptChangeButton acceptAction={action} hiddenFields={{ showId: "s", changeLogId: "c" }} stretch />,
+    <AcceptChangeButton
+      acceptAction={action}
+      hiddenFields={{ showId: "s", changeLogId: "c" }}
+      stretch
+    />,
   );
   const stretched = screen.getByTestId("change-feed-accept");
   expect(stretched.className).toMatch(/\bw-full\b/);

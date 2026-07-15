@@ -41,7 +41,6 @@ function makeClient(opts: FakeOpts) {
   const client = {
     from(_table: string) {
       const builder: Record<string, unknown> = {};
-      const pass = () => builder;
       builder.select = (proj?: string) => {
         if (typeof proj === "string") captured.select = proj;
         return builder;
@@ -349,7 +348,12 @@ describe("loadRecentAutoApplied", () => {
       before_image: { id: "u3", name: "Devin Park", email: "devin@x.io", phone: "555-3" },
       after_image: null,
     });
-    const field = clRow({ id: "d4", show_id: S, occurred_at: iso(47), change_kind: "field_changed" });
+    const field = clRow({
+      id: "d4",
+      show_id: S,
+      occurred_at: iso(47),
+      change_kind: "field_changed",
+    });
     const email = clRow({
       id: "d5",
       show_id: S,
