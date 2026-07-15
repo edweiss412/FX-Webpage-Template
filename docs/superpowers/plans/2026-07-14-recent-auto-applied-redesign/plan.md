@@ -362,15 +362,24 @@ it("maps EVERY kind to its status-token pill (label + token classes, incl. remov
   const pill = (rowId: string, label: string) =>
     within(screen.getByTestId(`auto-applied-row-${rowId}`)).getByText(label);
   // Each pill carries the mapped token text class (and the colored kinds carry the /12 fill).
+  // Colored kinds: text + /12 fill + /40 border ALL pinned (a dropped border still fails).
   expect(pill("p1", "Added").className).toMatch(/text-status-positive-text/);
   expect(pill("p1", "Added").className).toMatch(/bg-status-positive\/12/);
+  expect(pill("p1", "Added").className).toMatch(/border-status-positive\/40/);
   expect(pill("p2", "Renamed").className).toMatch(/text-status-review-text/);
   expect(pill("p2", "Renamed").className).toMatch(/bg-status-review\/12/);
+  expect(pill("p2", "Renamed").className).toMatch(/border-status-review\/40/);
   expect(pill("p3", "Removed").className).toMatch(/text-status-warn-text/);
   expect(pill("p3", "Removed").className).toMatch(/bg-status-warn\/12/);
-  expect(pill("p4", "Field").className).toMatch(/text-status-idle-text/);
-  expect(pill("p5", "Email").className).toMatch(/text-status-idle-text/);
-  expect(pill("p6", "Change").className).toMatch(/text-status-idle-text/); // unknown → neutral fallback
+  expect(pill("p3", "Removed").className).toMatch(/border-status-warn\/40/);
+  // Neutral kinds (field / email / unknown fallback): text + neutral bg + neutral border pinned.
+  for (const [id, label] of [["p4", "Field"], ["p5", "Email"], ["p6", "Change"]] as const) {
+    const cls = pill(id, label).className;
+    expect(cls).toMatch(/text-status-idle-text/);
+    expect(cls).toMatch(/bg-surface-sunken/);
+    expect(cls).toMatch(/border-border/);
+    expect(cls).not.toMatch(/bg-status-\w+\/12/); // never a colored fill on a neutral kind
+  }
 });
 ```
 This test also imports `AutoAppliedRow` and `RecentAutoApplied` from `@/lib/admin/loadRecentAutoApplied` (extend the existing type import at the top of the file). Keep ALL other existing tests unchanged (order, accept-on-every-row, undo-only-on-undoable, hidden inputs, accept-all/undo-all presence, confirm gate + per-id dispatch, focus-to-keep, overflow, null-on-empty, infra_error-no-leak). Delete only the now-obsolete crew-verbatim assertions in the original "summary verbatim" test (keep its section/order assertions, or fold them into the new test).
