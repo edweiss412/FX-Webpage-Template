@@ -1,29 +1,29 @@
 "use client";
 
 /**
- * app/admin/show/[slug]/RotateShareTokenButton.tsx (M11.5 §B Task F3)
+ * app/admin/show/[slug]/RotateShareTokenButton.tsx
  *
  * Section-level admin action that rotates the show's share-token via
  * Pin-2's `rotateShareToken({ showId })` Server Action. The RPC also
  * bumps shows.picker_epoch atomically (R40), so existing devices'
- * picker cookies and the old URL go stale together — Doug re-shares
- * the new URL.
+ * picker cookies and the old URL go stale together.
  *
  * UX:
  *   - Two-tap state machine (idle → confirm → resolving → idle).
  *   - Confirm copy WARNS that the existing URL will stop working.
- *   - On success: render the new full URL with a Copy button.
- *   - On failure: generic refused banner (the typed code surfaces
- *     to admin_alerts via the action body, not to the UI).
+ *   - On success the new token+epoch flow to the shared ShareTokenProvider via
+ *     `onRotated`, so the always-visible share-link card (and header chip / crew
+ *     link) update INSTANTLY. The success banner is therefore CONFIRMATION-ONLY —
+ *     it points at the updated card rather than duplicating the URL/Copy/email.
+ *   - On failure: generic refused banner (the typed code surfaces to admin_alerts
+ *     via the action body, not to the UI).
  */
 
-import { AlertTriangle, Mail, RotateCcw } from "lucide-react";
+import { AlertTriangle, RotateCcw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useId, useRef, useState, useTransition } from "react";
 
 import { rotateShareToken } from "@/lib/auth/picker/rotateShareToken";
-import { buildCrewLinkMailtos } from "./crewLinkMailto";
-import { resolveOrigin } from "./resolveOrigin";
 
 const AUTO_REVERT_MS = 3_000;
 
@@ -40,51 +40,33 @@ export function RotateShareTokenButton({
   compact = false,
   rowLabel,
   rowDescription,
-  crewEmails = [],
-  showTitle = "",
+  onRotated,
 }: {
   showId: string;
   slug: string;
   /**
-   * M12.6 — compact rendering for the share-link card's labeled action ROW
-   * (label/description on the left, this button on the right). The idle button
-   * becomes a small neutral "Rotate" (the destructive warning lives in the
-   * confirm step). Non-compact keeps the standalone warning-styled button.
+   * M12.2 Phase A (§6 / R27) — published && !archived && token. When false,
+   * the rotate-success state shows a NON-LINK "crew link inactive" message and
+   * does NOT call `onRotated` (an inactive show never surfaces a copyable URL).
    */
+  isCrewLinkActive?: boolean;
+  /** Compact share-card labeled-row rendering (label/description left, button right). */
   compact?: boolean;
-  /**
-   * M12.7 — when compact, the component OWNS the share-card action ROW: it renders
-   * the label + one-line description on the left and the small button on the
-   * right, and (crucially) renders its two-tap confirm + rotate-success states
-   * FULL-WIDTH below that label row instead of cramped in a right cell. The idle
-   * button gets a descriptive aria-label ("Rotate share link", containing the
-   * visible "Rotate" for WCAG 2.5.3) + aria-describedby to the (internal) row
-   * description so the destructive consequence is announced out of visual context.
-   */
   rowLabel?: string;
   rowDescription?: string;
   /**
-   * M12.2 Phase A (§6 / R27) — published && !archived && token. When false,
-   * the rotate-success state shows a NON-LINK "crew link inactive" message
-   * (no URL, no copy) so rotating an inactive show never surfaces a dead URL.
-   * The active success URL uses the canonical NEXT_PUBLIC_SITE_ORIGIN (R28),
-   * not window.location.origin.
+   * Called on a successful rotate of an ACTIVE crew link with the freshly-minted
+   * token and its epoch (both from the atomic rotateShareToken result). The
+   * ShareTokenProvider's monotonic-epoch gate uses these to update every crew-URL
+   * surface instantly. Omitted for standalone use.
    */
-  isCrewLinkActive?: boolean;
-  /**
-   * Flow 5 (audit 5.2) — validated roster emails for the post-rotate
-   * "Email crew" re-send anchors. Empty/omitted hides the affordance.
-   */
-  crewEmails?: readonly string[];
-  showTitle?: string;
+  onRotated?: (newToken: string, newEpoch: number) => void;
 }) {
   const router = useRouter();
   const [ui, setUi] = useState<UiState>("idle");
   const [result, setResult] = useState<Result>(null);
-  const [copied, setCopied] = useState(false);
   const [isPending, startTransition] = useTransition();
   const autoRevertRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const copyResetRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const descId = useId(); // compact row-description id (aria-describedby target)
 
   const clearAutoRevert = () => {
@@ -93,20 +75,8 @@ export function RotateShareTokenButton({
       autoRevertRef.current = null;
     }
   };
-  const clearCopyReset = () => {
-    if (copyResetRef.current !== null) {
-      clearTimeout(copyResetRef.current);
-      copyResetRef.current = null;
-    }
-  };
 
-  useEffect(
-    () => () => {
-      clearAutoRevert();
-      clearCopyReset();
-    },
-    [],
-  );
+  useEffect(() => () => clearAutoRevert(), []);
 
   useEffect(() => {
     if (!isPending && result !== null && ui === "resolving") {
@@ -118,10 +88,8 @@ export function RotateShareTokenButton({
   const onRotateClick = () => {
     clearAutoRevert();
     // Clear any prior result so a stale OK/refused banner doesn't reappear
-    // when the user re-enters confirm from an idle-with-banner state and
-    // then cancels — the banner would otherwise outlive its context.
+    // when the user re-enters confirm from an idle-with-banner state.
     setResult(null);
-    setCopied(false);
     setUi("confirm");
     autoRevertRef.current = setTimeout(() => {
       setUi((prev) => (prev === "confirm" ? "idle" : prev));
@@ -136,52 +104,26 @@ export function RotateShareTokenButton({
   const onConfirmClick = () => {
     clearAutoRevert();
     setUi("resolving");
-    setCopied(false);
     startTransition(async () => {
       const r = await rotateShareToken({ showId });
       setResult(r);
       if (r.ok) {
-        // Re-render the admin show page server-side so
-        // <CurrentShareLinkPanel> re-reads the new share token. Rotate's
-        // own success banner shows the new URL directly; this keeps the
-        // persistent panel in sync without a hard navigation.
+        // Push the new token+epoch into the shared cache so the card / chip / crew
+        // link update instantly (only for an active crew link — an inactive show
+        // must not surface a copyable URL). router.refresh() is the backstop that
+        // re-reads other server-derived data.
+        if (isCrewLinkActive) onRotated?.(r.new_share_token, r.new_epoch);
         router.refresh();
       }
     });
   };
 
-  const onCopyClick = async (url: string) => {
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      clearCopyReset();
-      copyResetRef.current = setTimeout(() => setCopied(false), 2_000);
-    } catch {
-      // Clipboard unavailable — the URL is still visible for manual
-      // selection; no destructive consequence.
-    }
-  };
-
-  // Active success URL uses the canonical NEXT_PUBLIC_SITE_ORIGIN (R28), NOT
-  // window.location.origin — rotating from an admin/internal host must still
-  // copy the crew-facing origin. When the crew link is inactive, no URL is
-  // built (the success state shows a non-link message instead, R27).
-  const newUrl =
-    result?.ok && isCrewLinkActive
-      ? `${resolveOrigin()}/show/${slug}/${result.new_share_token}`
-      : null;
-  const emailMailtos = newUrl
-    ? buildCrewLinkMailtos({ emails: crewEmails, url: newUrl, showTitle })
-    : [];
+  const rotatedActive = result?.ok === true && isCrewLinkActive;
   const rotatedInactive = result?.ok === true && !isCrewLinkActive;
   const refusedMessage =
     result && result.ok === false ? "Couldn't rotate the share-token. Please try again." : null;
   const isResolving = ui === "resolving" || isPending;
 
-  // M12.7 — share-card labeled row owned by this component when compact, so the
-  // confirm/success states can render FULL-WIDTH below the label (not in a
-  // cramped right cell). The description carries the id the idle button points to
-  // via aria-describedby (announces the destructive consequence out of context).
   const labelHeader =
     compact && rowLabel ? (
       <div className="min-w-0">
@@ -218,70 +160,19 @@ export function RotateShareTokenButton({
 
   const banners = (
     <>
-      {newUrl && (
-        <div
+      {rotatedActive && (
+        <p
           data-testid="admin-rotate-share-token-ok"
           role="status"
           aria-live="polite"
-          className="flex w-full max-w-md flex-col gap-1 rounded-sm bg-surface-raised px-2 py-1"
+          className="w-full max-w-md rounded-sm bg-surface-raised px-2 py-1 text-sm text-text-strong"
         >
-          <p className="text-sm text-text-strong">
-            <span aria-hidden="true" className="mr-1 font-semibold text-accent">
-              ✓
-            </span>
-            New share-link ready. Send the URL below to crew; the old link no longer works and
-            everyone will re-pick their name.
-          </p>
-          <div className="flex items-start gap-2">
-            <code
-              data-testid="admin-rotate-share-token-url"
-              className="min-w-0 flex-1 break-all rounded-sm bg-surface px-2 py-1 text-xs text-text-strong"
-            >
-              {newUrl}
-            </code>
-            <button
-              type="button"
-              onClick={() => void onCopyClick(newUrl)}
-              data-testid="admin-rotate-share-token-copy-button"
-              aria-label={copied ? "URL copied to clipboard" : "Copy URL"}
-              className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-accent px-3 py-1.5 text-sm font-semibold text-accent-text transition-colors duration-fast hover:bg-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-            >
-              {copied ? "Copied" : "Copy"}
-            </button>
-          </div>
-          {emailMailtos.length > 1 && (
-            <p
-              data-testid="admin-rotate-share-token-email-note"
-              className="text-xs text-text-subtle"
-            >
-              Your crew list needs {emailMailtos.length} separate emails. Send each one; addresses
-              go in Bcc.
-            </p>
-          )}
-          {emailMailtos.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
-              {emailMailtos.map((m) => (
-                <a
-                  key={m.batch}
-                  href={m.href}
-                  data-testid="admin-rotate-share-token-email-button"
-                  className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center gap-1.5 rounded-sm border border-border-strong bg-surface px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
-                >
-                  <Mail aria-hidden="true" size={14} />
-                  {m.batchCount === 1 ? "Email crew" : `Email crew (${m.batch} of ${m.batchCount})`}
-                </a>
-              ))}
-            </div>
-          )}
-          <span
-            role="status"
-            aria-live="polite"
-            className="sr-only"
-            data-testid="admin-rotate-share-token-copy-announce"
-          >
-            {copied ? "URL copied to clipboard" : ""}
+          <span aria-hidden="true" className="mr-1 font-semibold text-accent">
+            ✓
           </span>
-        </div>
+          New share-link ready. The old link no longer works and everyone will re-pick their name —
+          the updated link is shown above.
+        </p>
       )}
       {rotatedInactive && (
         <p
@@ -310,7 +201,6 @@ export function RotateShareTokenButton({
   );
 
   if (ui === "idle") {
-    // Compact: the label row owns the layout; banners render FULL-WIDTH below it.
     return compact && rowLabel ? (
       <div className="flex flex-col gap-2 py-3">
         <div className="flex items-start justify-between gap-3">
@@ -327,8 +217,6 @@ export function RotateShareTokenButton({
     );
   }
 
-  // M11.5-IMP-5 item 4: aria-describedby links the destructive Confirm button to
-  // the warning paragraph's id (tighter SR experience).
   const warningP = (
     <p id="admin-rotate-share-token-warning" className="text-sm text-text-subtle">
       The existing show URL will stop working. Every crew member will need the new URL and will have
@@ -360,9 +248,6 @@ export function RotateShareTokenButton({
     </div>
   );
 
-  // Compact confirm: the label is its OWN top row; the warning AND the
-  // Confirm/Cancel controls both render FULL-WIDTH below it — never cramped in a
-  // right cell beside the label (adversarial M12.7).
   return compact && rowLabel ? (
     <div
       data-testid="admin-rotate-share-token-confirm-row"
