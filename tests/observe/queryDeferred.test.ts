@@ -25,13 +25,6 @@ vi.mock("@/lib/supabase/server", () => ({
   },
 }));
 
-vi.mock("@/lib/adminAlerts/sanitizeIdentityString", () => ({
-  sanitizeIdentityString: (s: string | null, _opts: unknown) => {
-    if (s === null) return "";
-    return s.replace(/[A-F0-9]{32}/g, "");
-  },
-}));
-
 import { queryDeferred } from "@/lib/observe/query/deferred";
 
 const TOKEN = "AAAABBBBCCCCDDDDEEEEFFFF1234567890";
