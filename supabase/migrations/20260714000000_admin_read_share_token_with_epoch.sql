@@ -1,4 +1,4 @@
--- 20260710000000_admin_read_share_token_with_epoch.sql
+-- 20260714000000_admin_read_share_token_with_epoch.sql
 -- Return the admin-gated share token AND the show's monotonic picker_epoch from
 -- ONE snapshot, so the admin per-show page's client token cache can order token
 -- versions (spec docs/superpowers/specs/2026-07-10-share-link-instant-rotate-dedup-design.md §3.0).

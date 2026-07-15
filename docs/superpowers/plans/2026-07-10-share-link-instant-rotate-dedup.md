@@ -27,7 +27,7 @@
 ### Task 1: Atomic token+epoch read RPC (migration)
 
 **Files:**
-- Create: `supabase/migrations/20260710000000_admin_read_share_token_with_epoch.sql`
+- Create: `supabase/migrations/20260714000000_admin_read_share_token_with_epoch.sql`
 - Test: `tests/db/admin_read_share_token.test.ts` (modify), `tests/db/_b2Helpers.ts` (modify if it calls the RPC)
 
 **Interfaces:**
@@ -39,7 +39,7 @@
 
 - [ ] **Step 3: Write the migration.**
 ```sql
--- 20260710000000_admin_read_share_token_with_epoch.sql
+-- 20260714000000_admin_read_share_token_with_epoch.sql
 -- Return the admin-gated share token AND the show's monotonic picker_epoch from
 -- ONE snapshot, so the client can order token versions (spec §3.0).
 drop function if exists public.admin_read_share_token(uuid);
@@ -63,7 +63,7 @@ grant execute on function public.admin_read_share_token(uuid) to authenticated;
 
 - [ ] **Step 4: Apply locally + verify test passes.**
 ```bash
-psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -f supabase/migrations/20260710000000_admin_read_share_token_with_epoch.sql
+psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -f supabase/migrations/20260714000000_admin_read_share_token_with_epoch.sql
 psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -c "notify pgrst, 'reload schema';"
 pnpm vitest run tests/db/admin_read_share_token.test.ts
 ```
@@ -73,13 +73,13 @@ Expected: PASS.
 
 - [ ] **Step 6: Commit.**
 ```bash
-git add supabase/migrations/20260710000000_admin_read_share_token_with_epoch.sql tests/db/admin_read_share_token.test.ts tests/db/_b2Helpers.ts supabase/**/schema-manifest.json
+git add supabase/migrations/20260714000000_admin_read_share_token_with_epoch.sql tests/db/admin_read_share_token.test.ts tests/db/_b2Helpers.ts supabase/**/schema-manifest.json
 git commit --no-verify -m "feat(db): admin_read_share_token returns (share_token, picker_epoch) atomically"
 ```
 
 - [ ] **Step 7: Apply to the validation project** (before push; the `validation-schema-parity` gate asserts it). Using the `TEST_DATABASE_URL` from the MAIN checkout `.env.local`:
 ```bash
-psql "$TEST_DATABASE_URL" -f supabase/migrations/20260710000000_admin_read_share_token_with_epoch.sql
+psql "$TEST_DATABASE_URL" -f supabase/migrations/20260714000000_admin_read_share_token_with_epoch.sql
 psql "$TEST_DATABASE_URL" -c "notify pgrst, 'reload schema';"
 ```
 (If `supabase db query --linked` is the established path, use it instead — either applies the same SQL.)
