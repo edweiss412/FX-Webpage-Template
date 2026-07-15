@@ -583,11 +583,15 @@ function buildDateResolution(
     travelOut: null,
   };
   const scalar = (t: DateToken | null, which: "mdyIso" | "dmyIso") => (t ? t[which] : null);
+  // DEDUPE to match the real parse path: `parseDates` stores each show day only via
+  // `if (!result.showDays.includes(iso))` (dates.ts §v1/§v2), so a raw block with a
+  // repeated show-date token yields ONE crew-visible entry. `s.showDays` holds every raw
+  // token, so map+filter+dedupe+sort here — otherwise the DMY overlay would persist
+  // duplicate `show.dates.showDays` the normal parse never would (Codex whole-diff R9 F1).
   const showDaysBy = (which: "mdyIso" | "dmyIso") =>
-    s.showDays
-      .map((t) => t[which])
-      .filter((x): x is string => x !== null)
-      .sort();
+    Array.from(
+      new Set(s.showDays.map((t) => t[which]).filter((x): x is string => x !== null)),
+    ).sort();
   const parsed: DateOrderFields = {
     travelIn: scalar(s.travelIn, "mdyIso"),
     set: scalar(s.set, "mdyIso"),

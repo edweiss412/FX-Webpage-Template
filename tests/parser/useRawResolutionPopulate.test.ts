@@ -150,6 +150,38 @@ describe("Task 2 — parser populates warning.resolution", () => {
     expect(res.contentHash).toBe(hashDateTokens(["10/3/2026", "11/3/2026", "1/4/2026"]));
   });
 
+  it("DMY replacement DEDUPES repeated show-date tokens like the real parse (Codex R9 F1)", () => {
+    // A raw block with a REPEATED show token + an MDY order inversion + ascending DMY.
+    // The real parse stores each show day once (`!result.showDays.includes(iso)`), so the
+    // DMY overlay must NOT persist a duplicate crew-visible show day the normal parse never
+    // would. showDays multi-tokens: 11/3/2026, 11/3/2026 (dup), 1/4/2026.
+    const md = [
+      "| DATES | |",
+      "| :---: | :---: |",
+      "| Travel | 10/3/2026 |",
+      "| Show | 11/3/2026 |",
+      "| Show | 11/3/2026 |",
+      "| Show | 1/4/2026 |",
+    ].join("\n");
+    const agg = newAggregator();
+    const d = parseDates(md, "v1", agg);
+    const w = only(agg, "DATE_ORDER_SUGGESTS_DMY");
+    expect(w.resolution!.resolvable).toBe(true);
+    if (!w.resolution!.resolvable) throw new Error("expected resolvable");
+    const res = w.resolution!;
+    if (res.parsed.kind !== "dates" || res.replacement.kind !== "dates") throw new Error("kind");
+
+    // Real parse deduped the repeated 11/3 token → two distinct show days.
+    expect(d.showDays).toEqual(["2026-01-04", "2026-11-03"]);
+    // parsed (MDY) mirrors the deduped real parse; replacement (DMY) is ALSO deduped —
+    // NOT ["2026-03-11","2026-03-11","2026-04-01"].
+    expect(res.parsed.dates.showDays).toEqual(d.showDays);
+    expect(res.replacement.dmyDates.showDays).toEqual(["2026-03-11", "2026-04-01"]);
+    expect(new Set(res.replacement.dmyDates.showDays).size).toBe(
+      res.replacement.dmyDates.showDays.length,
+    );
+  });
+
   it("exactly ONE DATE_ORDER_SUGGESTS_DMY per block (multi-token, pin cardinality)", () => {
     const md = [
       "| DATES | |",
