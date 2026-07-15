@@ -10,6 +10,7 @@
 
 import type { ParseWarning, UseRawResolution } from "./types";
 import { collapse, contentHashForRawSnippet, contentHashForDateTokens } from "./useRawContentHash";
+import { stripConfirmationTokens } from "./blocks/_helpers";
 
 export type RawUnrecognized = { block: string; key: string; value: string };
 
@@ -219,6 +220,10 @@ export function emitHotelGuestSplitAmbiguity(
 ): void {
   if (!agg) return;
   const rawOneLine = collapse(params.rawCell);
+  // The crew-readable raw replacement value: the raw guest cell as ONE names entry, but
+  // with confirmation-number tokens stripped — `hotel_reservations.names` is crew-readable
+  // and the normal parse removes conf#s, so the "use raw" value must too (Codex R10 HIGH).
+  const strippedRaw = stripConfirmationTokens(params.rawCell);
   const count = params.reasons.length;
   const spots = count === 1 ? "spot" : "spots";
   // Build blockRef with a conditionally-present `name` (exactOptionalPropertyTypes:
@@ -229,11 +234,12 @@ export function emitHotelGuestSplitAmbiguity(
     index: params.index,
   };
   if (params.name) blockRef.name = params.name;
-  // §6 resolution: `parsed` = the transform's split; `replacement` = the raw cell
-  // as a SINGLE names entry, confirmation number cleared. Empty-raw guard when the
-  // collapsed cell is blank.
+  // §6 resolution: `parsed` = the transform's split; `replacement` = the raw cell as a
+  // SINGLE names entry with confirmation tokens stripped (crew-privacy — see strippedRaw).
+  // Empty-raw guard when the cell is blank OR reduces to nothing but conf tokens (an
+  // all-conf cell has no crew-safe name to show, so use-raw is not offered).
   const resolution: UseRawResolution =
-    rawOneLine === ""
+    strippedRaw === ""
       ? { resolvable: false, reason: "empty-raw" }
       : {
           resolvable: true,
@@ -243,7 +249,7 @@ export function emitHotelGuestSplitAmbiguity(
             names: params.parsedNames,
             confirmationNo: params.confirmationNo,
           },
-          replacement: { kind: "hotels", names: [rawOneLine], confirmationNo: null },
+          replacement: { kind: "hotels", names: [strippedRaw], confirmationNo: null },
         };
   agg.warnings.push({
     severity: "warn",

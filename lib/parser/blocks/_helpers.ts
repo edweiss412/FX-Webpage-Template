@@ -67,6 +67,25 @@ export function decodeEntities(s: string): string {
   return s.replace(/&#10;/g, " ").replace(/&#9;/g, " ");
 }
 
+/**
+ * Remove trailing "<dash> #?<conf>" confirmation tokens from a raw guest cell,
+ * leaving the guest names glued as ONE whitespace-collapsed string. This mirrors the
+ * crew-privacy policy the hotel parser applies when building `hotel_reservations.names`
+ * (`hotels.ts` tokenRe keeps only capture group 1, the name; the conf# is removed) —
+ * that table is crew-readable (`can_read_show`, SELECT granted to `authenticated`), so
+ * a raw guest value persisted through the "use the sheet's raw value" affordance MUST
+ * NOT carry confirmation numbers either. Runs `clean()` + `decodeEntities()` first
+ * (mirrors the parser) so markdown-escaped "\-"/"\#" and `&#10;` guest separators are
+ * normalized before matching. Only dash-prefixed 4+-digit conf tokens are removed — a
+ * bare un-dashed "#1234" is left in the name exactly as the normal parse leaves it.
+ */
+export function stripConfirmationTokens(rawCell: string): string {
+  return decodeEntities(clean(rawCell))
+    .replace(/\s*[-–—]{1,3}\s*#?\s*\d{4,}/gu, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** Return value if non-empty after cleaning + entity-decoding, else null. */
 export function presence(s: string): string | null {
   const c = decodeEntities(clean(s)).trim();

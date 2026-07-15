@@ -4,6 +4,7 @@ import { parseRooms } from "@/lib/parser/blocks/rooms";
 import { parseHotels } from "@/lib/parser/blocks/hotels";
 import { parseDates } from "@/lib/parser/blocks/dates";
 import { newAggregator } from "@/lib/parser/warnings";
+import { stripConfirmationTokens } from "@/lib/parser/blocks/_helpers";
 import type { ParseWarning } from "@/lib/parser/types";
 
 // Task 2 (spec §6): the three recoverable warning builders attach a `resolution`
@@ -111,6 +112,52 @@ describe("Task 2 — parser populates warning.resolution", () => {
       confirmationNo: null,
     });
     expect(res.contentHash).toBe(hashRaw(w.rawSnippet!));
+  });
+
+  it("hotel raw replacement STRIPS confirmation numbers from crew-readable names (Codex R10)", () => {
+    // A glued guest cell (warns) that ALSO carries a "- #conf" token. `hotel_reservations.names`
+    // is crew-readable and the normal parse removes conf#s, so the raw replacement must too.
+    const md = [
+      "| HOTEL | RESERVATION \\#1 |  |  |",
+      "| :---: | :---: | :---: | :---: |",
+      "|  | Hotel Name / Address |  |  |",
+      "|  | Grand Plaza Hotel |  |  |",
+      "|  | Names on Reservation |  |  |",
+      "|  | John Smith Jane Doe - #2069854 |  |  |",
+      "|  | Check In Date | Check Out Date |  |",
+      "|  | 1/1/26 | 1/2/26 |  |",
+    ].join("\n");
+    const agg = newAggregator();
+    parseHotels(md, "v4", agg);
+    const w = only(agg, "HOTEL_GUEST_SPLIT_AMBIGUOUS");
+    // Sanity: the raw cell DID contain the confirmation number (so we prove stripping).
+    expect(w.rawSnippet).toContain("2069854");
+    expect(w.resolution!.resolvable).toBe(true);
+    if (!w.resolution!.resolvable) throw new Error("expected resolvable");
+    const res = w.resolution!;
+    if (res.replacement.kind !== "hotels") throw new Error("kind");
+    // The replacement is the glued names WITHOUT the conf token — never the leaky raw.
+    expect(res.replacement.names).toEqual(["John Smith Jane Doe"]);
+    for (const n of res.replacement.names) {
+      expect(n).not.toMatch(/#|\d{4,}/); // no "#" and no 4+-digit conf sequence
+    }
+    expect(res.replacement.confirmationNo).toBeNull();
+  });
+
+  it("stripConfirmationTokens mirrors the parser conf policy (Codex R10)", () => {
+    // Dash-prefixed 4+-digit conf tokens removed; markdown-escaped "\-"/"\#" + &#10;
+    // separators normalized; bare un-dashed "#1234" left as the normal parse leaves it;
+    // an all-conf cell reduces to "" (→ the emitter's empty-raw guard, never names:[""]).
+    expect(stripConfirmationTokens("Douglas Larson - #2069854 John Carleo - #2069855")).toBe(
+      "Douglas Larson John Carleo",
+    );
+    expect(stripConfirmationTokens("Anne-Marie Smith - #1234")).toBe("Anne-Marie Smith");
+    expect(stripConfirmationTokens("Douglas Larson \\- \\#2069854&#10;John Carleo \\- \\#2069855")).toBe(
+      "Douglas Larson John Carleo",
+    );
+    expect(stripConfirmationTokens("- #2069854")).toBe("");
+    expect(stripConfirmationTokens("Bob #12")).toBe("Bob #12"); // 2 digits, no dash → not a conf
+    expect(stripConfirmationTokens("Room #1234 Guest")).toBe("Room #1234 Guest"); // bare #, no dash
   });
 
   // ── Dates ──────────────────────────────────────────────────────────────────
