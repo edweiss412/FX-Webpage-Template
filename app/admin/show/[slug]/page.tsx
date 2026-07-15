@@ -32,10 +32,10 @@ import { syncStatusBucket } from "@/lib/admin/syncStatus";
 import { loadShowShareToken } from "@/lib/data/loadShowShareToken";
 import { CREW_ROSTER_READ_CAP } from "./crewLinkMailto";
 import { CurrentShareLinkPanel } from "./CurrentShareLinkPanel";
-import { resolveOrigin } from "./resolveOrigin";
-import { ShareLinkCopyButton } from "./ShareLinkCopyButton";
+import { ShareTokenProvider } from "./ShareTokenContext";
+import { ShareChip } from "./ShareChip";
+import { CrewPageLink } from "./CrewPageLink";
 import { PickerResetControl } from "./PickerResetControl";
-import { RotateShareTokenButton } from "./RotateShareTokenButton";
 import { ArchiveShowButton } from "@/components/admin/ArchiveShowButton";
 import { UnarchiveShowButton } from "@/components/admin/UnarchiveShowButton";
 import { PublishedToggle } from "@/components/admin/PublishedToggle";
@@ -90,6 +90,7 @@ type ShowLookupRow = {
   drive_file_id: string;
   published: boolean;
   archived: boolean;
+  picker_epoch: number;
   last_synced_at: string | null;
   last_sync_status: string | null;
 };
@@ -168,7 +169,7 @@ export default async function AdminShowPage({
     const { data, error: showError } = await supabase
       .from("shows")
       .select(
-        "id, slug, title, client_label, dates, venue, drive_file_id, published, archived, last_synced_at, last_sync_status",
+        "id, slug, title, client_label, dates, venue, drive_file_id, published, archived, picker_epoch, last_synced_at, last_sync_status",
       )
       .eq("slug", slug)
       .limit(1)
@@ -293,7 +294,7 @@ export default async function AdminShowPage({
 
   // Share token (admin-only RPC). Wrapped per the CurrentShareLinkPanel
   // pattern — a thrown/absent token → no crew-link surfaces, never a dead URL.
-  const readToken = async (): Promise<string | null> => {
+  const readToken = async (): Promise<{ token: string | null; epoch: number }> => {
     try {
       return await loadShowShareToken(show.id);
     } catch (err) {
@@ -308,7 +309,10 @@ export default async function AdminShowPage({
         showId: show.id,
         error: err,
       });
-      return null;
+      // SAME fallback (crew-link surfaces hide on token=null); best-effort epoch
+      // baseline from the show row so the client provider's monotonic gate has a
+      // floor even when the atomic read faulted.
+      return { token: null, epoch: show.picker_epoch ?? 1 };
     }
   };
 
@@ -384,7 +388,7 @@ export default async function AdminShowPage({
   const [
     { feed, feedInfraError },
     { crew, crewLookupFailed },
-    token,
+    { token, epoch: tokenEpoch },
     dataQuality,
     now,
     ignoredResult,
@@ -488,14 +492,15 @@ export default async function AdminShowPage({
   // (Codex R1). Rotate/reset visibility + the rotate-success URL + the
   // Share-panel CurrentShareLinkPanel-vs-inactive-notice decision key off this.
   const isShowEligibleForCrewLink = published && !archived;
-  // TOKEN-dependent surfaces (header chip, Open crew page, the real crew URL)
-  // need an actual token — never render /show/<slug>/null. CurrentShareLinkPanel
-  // owns its OWN token-null "unavailable / rotate to recover" state, so it is
-  // gated on show-eligibility, not token presence.
-  const hasCrewLinkUrl = isShowEligibleForCrewLink && token !== null;
-  const crewUrl = hasCrewLinkUrl ? `${resolveOrigin()}/show/${slug}/${token}` : null;
-  // Host-stripped display of the real crew URL (never the prototype's fake host).
-  const crewPathDisplay = hasCrewLinkUrl ? `/show/${slug}/${token}` : null;
+  // Instant-rotate rework: the token-dependent surfaces (header ShareChip, Open
+  // crew page CrewPageLink, the share URL in ShareLinkBody) now read the token
+  // from ShareTokenProvider (seeded below) so a rotate updates them instantly.
+  // The provider is seeded with the token ONLY for an eligible show — an
+  // ineligible show never serializes the token to the client — and with the
+  // atomic-read epoch as the monotonic floor. The child surfaces self-gate on
+  // (isEligible && token != null), so an ineligible show or a null token hides
+  // them without ever rendering /show/<slug>/null.
+  const initialEpoch = tokenEpoch;
 
   // #16 subtitle = client · dates (e.g. "Northwind Bank · 6/14/26 → 6/15/26").
   // Replaces the removed "Slug:" line (#18). Guard: render client alone when
@@ -547,510 +552,466 @@ export default async function AdminShowPage({
       <StatusIndicator status={statusPill.status} label={statusPill.label} />
     </span>
   );
-  // #16 compact crew-link chip (design crewchip.png): a single pill showing the
-  // host-stripped path (truncated) + a copy affordance — NOT the full URL splayed
-  // inline (the old wide-input/full-URL chrome). The full URL stays reachable via
-  // the copy action (clipboard payload) AND the title attribute for hover.
-  const chip =
-    hasCrewLinkUrl && crewUrl && crewPathDisplay ? (
-      <div
-        data-testid="admin-show-share-chip"
-        title={crewUrl}
-        className="inline-flex max-w-[16rem] items-center gap-1.5 rounded-pill border border-border bg-surface px-2.5 py-1 text-xs text-text-subtle"
-      >
-        <svg
-          aria-hidden="true"
-          viewBox="0 0 24 24"
-          className="size-3.5 shrink-0 text-text-subtle"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M10 13a5 5 0 0 0 7.07 0l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-          <path d="M14 11a5 5 0 0 0-7.07 0l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-        </svg>
-        <code className="min-w-0 truncate font-mono text-text-strong">{crewPathDisplay}</code>
-        <ShareLinkCopyButton url={crewUrl} compact />
-      </div>
-    ) : null;
+  // #16 compact crew-link chip (design crewchip.png). Now a client component that
+  // reads the token from ShareTokenProvider and self-gates on
+  // (isEligible && token != null) — updates instantly after a rotate.
+  const chip = <ShareChip slug={show.slug} isEligible={isShowEligibleForCrewLink} />;
 
   return (
-    <main data-testid="admin-show-page" className="space-y-section-gap">
-      <AdminPageHeader
-        crumb="Admin › Active shows"
-        backHref="/admin"
-        title={show.title}
-        /* #16 subtitle = client · dates, rendered INSIDE the header (directly
+    <ShareTokenProvider
+      key={show.id}
+      initialToken={isShowEligibleForCrewLink ? token : null}
+      initialEpoch={initialEpoch}
+    >
+      <main data-testid="admin-show-page" className="space-y-section-gap">
+        <AdminPageHeader
+          crumb="Admin › Active shows"
+          backHref="/admin"
+          title={show.title}
+          /* #16 subtitle = client · dates, rendered INSIDE the header (directly
            under the title, above the header divider) via subSlot. #18 removed
            the prior "Slug:" line — slug stays in routing but is noise for Doug. */
-        subSlot={
-          subtitle ? (
-            <p data-testid="admin-show-subtitle" className="text-sm text-text-subtle">
-              {subtitle}
-            </p>
-          ) : undefined
-        }
-        /* M12.9: the status pill is appended INLINE after the title
+          subSlot={
+            subtitle ? (
+              <p data-testid="admin-show-subtitle" className="text-sm text-text-subtle">
+                {subtitle}
+              </p>
+            ) : undefined
+          }
+          /* M12.9: the status pill is appended INLINE after the title
            ("… (R5) [Published]"); the share-link chip stays on the right,
            vertically centered against the title+subtitle block. */
-        titleAppendSlot={pill}
-        rightSlot={chip}
-      />
+          titleAppendSlot={pill}
+          rightSlot={chip}
+        />
 
-      <PerShowAlertSection
-        showId={show.id}
-        slug={show.slug}
-        highlightAlertId={sp.alert_id ?? null}
-      />
+        <PerShowAlertSection
+          showId={show.id}
+          slug={show.slug}
+          highlightAlertId={sp.alert_id ?? null}
+        />
 
-      {/* Lifecycle actions + state disclosures (spec §2.2–§2.4). Mode boundaries:
+        {/* Lifecycle actions + state disclosures (spec §2.2–§2.4). Mode boundaries:
           - Archived → persistent "links are dead" disclosure + one-tap Unarchive.
           - Held → "not published" disclosure + one-tap Publish + Archive (grouped).
           - Live → NO lifecycle section; the Archive control is grouped into the
             page footer alongside Re-sync (M12.5 — was an orphaned standalone row).
           - Publishing… (finalize-owned) → nothing (mid-publish; immutable).
           The section renders ONLY when it has content (archived OR held). */}
-      {archived || isHeld ? (
-        <section
-          data-testid="per-show-lifecycle"
-          aria-label="Show lifecycle"
-          className="flex flex-col gap-3"
-        >
-          {archived ? (
-            <>
-              <p
-                data-testid="archived-disclosure"
-                role="status"
-                className="rounded-sm border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
-              >
-                This show is archived. Crew links are dead. Unarchive and re-publish to bring it
-                back.
-              </p>
-              <div className="flex">
-                <UnarchiveShowButton showId={show.id} unarchiveAction={unarchiveShowAction} />
-              </div>
-            </>
-          ) : (
-            <>
-              <p
-                data-testid="held-disclosure"
-                role="status"
-                className="rounded-sm border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
-              >
-                Held — not published. Turn on{" "}
-                <a href="#share-access" className="font-semibold text-text-strong underline">
-                  Published in Share &amp; access
-                </a>{" "}
-                to make it live.
-              </p>
-              <div className="flex flex-wrap items-start gap-3">
-                <ArchiveShowButton archiveAction={archiveShowAction.bind(null, show.slug)} />
-              </div>
-            </>
-          )}
-        </section>
-      ) : null}
+        {archived || isHeld ? (
+          <section
+            data-testid="per-show-lifecycle"
+            aria-label="Show lifecycle"
+            className="flex flex-col gap-3"
+          >
+            {archived ? (
+              <>
+                <p
+                  data-testid="archived-disclosure"
+                  role="status"
+                  className="rounded-sm border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
+                >
+                  This show is archived. Crew links are dead. Unarchive and re-publish to bring it
+                  back.
+                </p>
+                <div className="flex">
+                  <UnarchiveShowButton showId={show.id} unarchiveAction={unarchiveShowAction} />
+                </div>
+              </>
+            ) : (
+              <>
+                <p
+                  data-testid="held-disclosure"
+                  role="status"
+                  className="rounded-sm border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
+                >
+                  Held — not published. Turn on{" "}
+                  <a href="#share-access" className="font-semibold text-text-strong underline">
+                    Published in Share &amp; access
+                  </a>{" "}
+                  to make it live.
+                </p>
+                <div className="flex flex-wrap items-start gap-3">
+                  <ArchiveShowButton archiveAction={archiveShowAction.bind(null, show.slug)} />
+                </div>
+              </>
+            )}
+          </section>
+        ) : null}
 
-      {/* Two-col split: Crew ⟷ Share & access. min-[720px]:items-stretch gives equal
+        {/* Two-col split: Crew ⟷ Share & access. min-[720px]:items-stretch gives equal
           column height on desktop (Tailwind v4 default is NOT stretch, DESIGN
           §7). The columns must NOT also set h-full — height:100% on a flex child
           is a non-auto cross-size that SUPPRESSES align-items:stretch (the
           real-browser layout test caught this). Stacks on mobile. */}
-      <div
-        data-testid="per-show-split"
-        className="flex flex-col gap-tile-gap min-[720px]:flex-row min-[720px]:items-stretch"
-      >
-        {/* Crew column (preview-as merged into each row) */}
-        <section
-          data-testid="per-show-crew-col"
-          aria-label="Crew"
-          className="flex min-w-0 flex-col gap-3 min-[720px]:flex-1"
+        <div
+          data-testid="per-show-split"
+          className="flex flex-col gap-tile-gap min-[720px]:flex-row min-[720px]:items-stretch"
         >
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            {/* M12.12 matrix row 9 — div wrapper (not span): HoverHelp's root
+          {/* Crew column (preview-as merged into each row) */}
+          <section
+            data-testid="per-show-crew-col"
+            aria-label="Crew"
+            className="flex min-w-0 flex-col gap-3 min-[720px]:flex-1"
+          >
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              {/* M12.12 matrix row 9 — div wrapper (not span): HoverHelp's root
                 is a div, and span>div is invalid nesting. */}
-            <div className="flex items-center gap-2">
-              <h2 className="text-lg font-semibold text-text-strong">Crew</h2>
-              <HoverHelp
-                label="Help: Crew"
-                testId="per-show-crew-help"
-                rootTestId="help-affordance--per-show-crew--tooltip"
-                learnMore={{ href: "/help/admin/preview-as-crew" }}
-              >
-                {/* M12.12 follow-up — per-row Preview as links render only when
+              <div className="flex items-center gap-2">
+                <h2 className="text-lg font-semibold text-text-strong">Crew</h2>
+                <HoverHelp
+                  label="Help: Crew"
+                  testId="per-show-crew-help"
+                  rootTestId="help-affordance--per-show-crew--tooltip"
+                  learnMore={{ href: "/help/admin/preview-as-crew" }}
+                >
+                  {/* M12.12 follow-up — per-row Preview as links render only when
                     published && !archived (the gate below), so this copy scopes
                     the promise to the published state instead of describing a
                     link an unpublished/archived render doesn't contain. */}
-                <p>
-                  Everyone on this show&apos;s crew, one row per person. Once the show is published
-                  (and not archived), each row gets a Preview as link to see their page exactly as
-                  they do.
-                </p>
-              </HoverHelp>
+                  <p>
+                    Everyone on this show&apos;s crew, one row per person. Once the show is
+                    published (and not archived), each row gets a Preview as link to see their page
+                    exactly as they do.
+                  </p>
+                </HoverHelp>
+              </div>
+              <CrewPageLink slug={show.slug} isEligible={isShowEligibleForCrewLink} />
             </div>
-            {hasCrewLinkUrl && crewUrl ? (
-              // aria-label drops the decorative "→" from the accessible name
-              // without splitting the text run (inline-flex drops the space
-              // between split items — byte-level screenshot drift).
-              <a
-                data-testid="admin-show-open-crew"
-                href={crewUrl}
-                target="_blank"
-                rel="noreferrer"
-                aria-label="Open crew page"
-                className="inline-flex min-h-tap-min items-center text-sm font-semibold text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+
+            {crewLookupFailed ? (
+              <p
+                data-testid="per-show-crew-lookup-failed"
+                className="rounded-sm border border-border bg-warning-bg p-3 text-sm text-warning-text"
               >
-                Open crew page →
-              </a>
-            ) : null}
-          </div>
-
-          {crewLookupFailed ? (
-            <p
-              data-testid="per-show-crew-lookup-failed"
-              className="rounded-sm border border-border bg-warning-bg p-3 text-sm text-warning-text"
-            >
-              We could not load the crew list right now. Refresh the page; if the problem repeats,
-              contact the developer.
-            </p>
-          ) : crew.length === 0 ? (
-            <p data-testid="per-show-crew-empty" className="text-sm text-text-subtle">
-              No crew members on this show yet. Once a sync brings them in, they will appear here.
-            </p>
-          ) : (
-            <>
-              {!(published && !archived) ? (
-                <p
-                  data-testid="admin-show-preview-as-unavailable"
-                  className="rounded-sm border border-border bg-info-bg p-3 text-sm text-text-subtle"
-                >
-                  {archived
-                    ? "This show is archived. Preview-as is unavailable."
-                    : "This show is not published to crew yet. Preview becomes available once publishing finishes."}
-                </p>
-              ) : null}
-              <ul className="flex flex-col gap-2">
-                {crew.map((member) => {
-                  const id = (member as { id?: string }).id ?? "";
-                  const name = (member as { name?: string }).name ?? "";
-                  const role = (member as { role?: string }).role ?? null;
-                  if (!id || !name) return null;
-                  return (
-                    <li
-                      key={id}
-                      data-testid={`admin-show-crew-row-${id}`}
-                      className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface p-tile-pad"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span
-                          aria-hidden="true"
-                          className="inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-sunken text-xs font-semibold text-text-subtle"
-                        >
-                          {initialsFor(name)}
-                        </span>
-                        <div className="flex flex-col">
-                          <span className="text-base font-semibold text-text-strong">{name}</span>
-                          {role ? <span className="text-xs text-text-subtle">{role}</span> : null}
+                We could not load the crew list right now. Refresh the page; if the problem repeats,
+                contact the developer.
+              </p>
+            ) : crew.length === 0 ? (
+              <p data-testid="per-show-crew-empty" className="text-sm text-text-subtle">
+                No crew members on this show yet. Once a sync brings them in, they will appear here.
+              </p>
+            ) : (
+              <>
+                {!(published && !archived) ? (
+                  <p
+                    data-testid="admin-show-preview-as-unavailable"
+                    className="rounded-sm border border-border bg-info-bg p-3 text-sm text-text-subtle"
+                  >
+                    {archived
+                      ? "This show is archived. Preview-as is unavailable."
+                      : "This show is not published to crew yet. Preview becomes available once publishing finishes."}
+                  </p>
+                ) : null}
+                <ul className="flex flex-col gap-2">
+                  {crew.map((member) => {
+                    const id = (member as { id?: string }).id ?? "";
+                    const name = (member as { name?: string }).name ?? "";
+                    const role = (member as { role?: string }).role ?? null;
+                    if (!id || !name) return null;
+                    return (
+                      <li
+                        key={id}
+                        data-testid={`admin-show-crew-row-${id}`}
+                        className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-border bg-surface p-tile-pad"
+                      >
+                        <div className="flex items-center gap-3">
+                          <span
+                            aria-hidden="true"
+                            className="inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-surface-sunken text-xs font-semibold text-text-subtle"
+                          >
+                            {initialsFor(name)}
+                          </span>
+                          <div className="flex flex-col">
+                            <span className="text-base font-semibold text-text-strong">{name}</span>
+                            {role ? <span className="text-xs text-text-subtle">{role}</span> : null}
+                          </div>
                         </div>
-                      </div>
-                      {published && !archived ? (
-                        <Link
-                          data-testid={`admin-show-preview-as-link-${id}`}
-                          href={`/admin/show/${encodeURIComponent(show.slug)}/preview/${encodeURIComponent(id)}`}
-                          className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-                        >
-                          Preview as
-                        </Link>
-                      ) : null}
-                    </li>
-                  );
-                })}
-              </ul>
-            </>
-          )}
-        </section>
+                        {published && !archived ? (
+                          <Link
+                            data-testid={`admin-show-preview-as-link-${id}`}
+                            href={`/admin/show/${encodeURIComponent(show.slug)}/preview/${encodeURIComponent(id)}`}
+                            className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-3 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                          >
+                            Preview as
+                          </Link>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
+            )}
+          </section>
 
-        {/* Share & access column (rotate/reset folded in, gated) */}
-        <section
-          id="share-access"
-          data-testid="per-show-share-col"
-          aria-label="Share & access"
-          className="flex scroll-mt-4 flex-col gap-3 min-[720px]:w-96 min-[720px]:shrink-0 min-[1280px]:w-120"
-        >
-          <h2 className="text-lg font-semibold text-text-strong">Share &amp; access</h2>
-          <p className="text-sm text-text-subtle">
-            One share-link reaches the whole crew. Rotate the link if it leaks; reset the picker if
-            a crew member needs to re-pick their identity.
-          </p>
-          {/* Published toggle (spec §3.3, D2/D3): the single publish control — replaces the
+          {/* Share & access column (rotate/reset folded in, gated) */}
+          <section
+            id="share-access"
+            data-testid="per-show-share-col"
+            aria-label="Share & access"
+            className="flex scroll-mt-4 flex-col gap-3 min-[720px]:w-96 min-[720px]:shrink-0 min-[1280px]:w-120"
+          >
+            <h2 className="text-lg font-semibold text-text-strong">Share &amp; access</h2>
+            <p className="text-sm text-text-subtle">
+              One share-link reaches the whole crew. Rotate the link if it leaks; reset the picker
+              if a crew member needs to re-pick their identity.
+            </p>
+            {/* Published toggle (spec §3.3, D2/D3): the single publish control — replaces the
               window-gated Undo auto-publish and the Held Publish button. Hidden ONLY on
               archived shows (their lifecycle section owns Unarchive); disabled whenever a
               finalize owns the show, in BOTH published states. */}
-          {!archived ? (
-            <PublishedToggle
-              slug={show.slug}
-              published={published}
-              finalizeOwned={finalizeOwned}
-              setPublished={setShowPublishedAction.bind(null, show.slug)}
-            />
-          ) : null}
-          {isShowEligibleForCrewLink ? (
-            // Pass the page's SINGLE token snapshot (Codex R2) so the header
-            // chip and this panel can never render two different tokens from a
-            // concurrent rotation. CurrentShareLinkPanel renders the URL when
-            // the token exists and its own "unavailable — refresh / rotate"
-            // recovery state when token is null — so a transient read failure on
-            // a published show is NOT mislabeled "unpublished/archived" (R1).
-            //
-            // M12.5: Rotate + Reset are folded INTO the share-link card as a
-            // divider-separated actions block (was a separate block below the
-            // card). Gated on published && !archived (R29 — finalize-owned write
-            // hazard); server-side RPC guard is §16 DEF-1. isCrewLinkActive =
-            // show eligibility (NOT token presence, spec §6 R27) so a rotate
-            // success URL shows even if the initial token read failed (R1).
-            <CurrentShareLinkPanel
-              showId={show.id}
-              slug={show.slug}
-              token={token}
-              crewEmails={crewEmails}
-              showTitle={show.title}
-              actions={
-                // M12.6/M12.7: align with the design — each management action is a
-                // labeled row (label + description left, compact button right) that
-                // the button component OWNS, so its two-tap confirm + success states
-                // render FULL-WIDTH below the label row (not cramped in a right cell).
-                <div className="flex flex-col divide-y divide-border border-t border-border">
-                  <RotateShareTokenButton
-                    showId={show.id}
-                    slug={show.slug}
-                    isCrewLinkActive={isShowEligibleForCrewLink}
-                    crewEmails={crewEmails}
-                    showTitle={show.title}
-                    compact
-                    rowLabel="Rotate share link"
-                    rowDescription="Mint a new link; the old one stops working immediately."
-                  />
-                  <PickerResetControl showId={show.id} crew={crew} />
-                </div>
-              }
-            />
-          ) : (
-            <p
-              data-testid="admin-share-link-inactive"
-              className="rounded-sm border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
-            >
-              The crew link is inactive while this show is {archived ? "archived" : "unpublished"}.
-              It will be available once the show is published.
-            </p>
-          )}
-        </section>
-      </div>
+            {!archived ? (
+              <PublishedToggle
+                slug={show.slug}
+                published={published}
+                finalizeOwned={finalizeOwned}
+                setPublished={setShowPublishedAction.bind(null, show.slug)}
+              />
+            ) : null}
+            {isShowEligibleForCrewLink ? (
+              // Pass the page's SINGLE token snapshot (Codex R2) so the header
+              // chip and this panel can never render two different tokens from a
+              // concurrent rotation. CurrentShareLinkPanel renders the URL when
+              // the token exists and its own "unavailable — refresh / rotate"
+              // recovery state when token is null — so a transient read failure on
+              // a published show is NOT mislabeled "unpublished/archived" (R1).
+              //
+              // M12.5: Rotate + Reset are folded INTO the share-link card as a
+              // divider-separated actions block (was a separate block below the
+              // card). Gated on published && !archived (R29 — finalize-owned write
+              // hazard); server-side RPC guard is §16 DEF-1. isCrewLinkActive =
+              // show eligibility (NOT token presence, spec §6 R27) so a rotate
+              // success URL shows even if the initial token read failed (R1).
+              <CurrentShareLinkPanel
+                showId={show.id}
+                slug={show.slug}
+                crewEmails={crewEmails}
+                showTitle={show.title}
+                isCrewLinkActive={isShowEligibleForCrewLink}
+                // The rotate row lives inside ShareLinkBody (it reads the token from
+                // the provider so a rotate updates the URL instantly). The page only
+                // passes the reset control as a slot, rendered below the rotate row.
+                resetSlot={<PickerResetControl showId={show.id} crew={crew} />}
+              />
+            ) : (
+              <p
+                data-testid="admin-share-link-inactive"
+                className="rounded-sm border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
+              >
+                The crew link is inactive while this show is {archived ? "archived" : "unpublished"}
+                . It will be available once the show is published.
+              </p>
+            )}
+          </section>
+        </div>
 
-      {/* Changes feed (Phase 6) — replaces the retired live whole-parse review
+        {/* Changes feed (Phase 6) — replaces the retired live whole-parse review
           mount. Routine sheet edits auto-apply and land here with a per-item Undo;
           MI-11 (existing-crew email change) pending holds surface inline with
           Approve/Reject. A feed read infra fault degrades to a calm notice rather
           than an unclassified 500 (invariant 9). */}
-      {feedInfraError || feed === null ? (
-        <section aria-labelledby="admin-changes-feed-error-heading" className="flex flex-col gap-3">
-          <h2
-            id="admin-changes-feed-error-heading"
-            className="text-lg font-semibold text-text-strong"
+        {feedInfraError || feed === null ? (
+          <section
+            aria-labelledby="admin-changes-feed-error-heading"
+            className="flex flex-col gap-3"
           >
-            Changes
-          </h2>
-          <p
-            data-testid="change-feed-infra-error"
-            className="rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
-          >
-            We couldn&rsquo;t load this show&rsquo;s changes right now. Refresh to try again.
-          </p>
-        </section>
-      ) : (
-        <ChangesFeed
-          entries={feed.entries}
-          truncated={feed.truncated}
-          now={now}
-          undoAction={undoChangeAction}
-          approveAction={mi11ApproveAction}
-          rejectAction={mi11RejectAction}
-        />
-      )}
+            <h2
+              id="admin-changes-feed-error-heading"
+              className="text-lg font-semibold text-text-strong"
+            >
+              Changes
+            </h2>
+            <p
+              data-testid="change-feed-infra-error"
+              className="rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
+            >
+              We couldn&rsquo;t load this show&rsquo;s changes right now. Refresh to try again.
+            </p>
+          </section>
+        ) : (
+          <ChangesFeed
+            entries={feed.entries}
+            truncated={feed.truncated}
+            now={now}
+            undoAction={undoChangeAction}
+            approveAction={mi11ApproveAction}
+            rejectAction={mi11RejectAction}
+          />
+        )}
 
-      {/* parse-data-quality-warnings §6.5 — the durable per-show "Data quality"
+        {/* parse-data-quality-warnings §6.5 — the durable per-show "Data quality"
           panel: each warn-severity parse warning's human .message (invariant 5 —
           never a raw code). Mode boundaries: a read FAILURE degrades to a calm
           notice (invariant 9, mirroring the Changes-feed degrade above); a clean
           read with zero warn-severity messages renders NOTHING (no empty shell).
           Static parse state → present/absent is instant, no animation. */}
-      {dataQuality.failed ? (
-        <section
-          aria-labelledby="per-show-data-quality-error-heading"
-          className="flex flex-col gap-3"
-        >
-          <h2
-            id="per-show-data-quality-error-heading"
-            className="text-lg font-semibold text-text-strong"
+        {dataQuality.failed ? (
+          <section
+            aria-labelledby="per-show-data-quality-error-heading"
+            className="flex flex-col gap-3"
           >
-            Data quality
-          </h2>
-          <p
-            data-testid="per-show-data-quality-error"
-            className="rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
-          >
-            We couldn&rsquo;t read this show&rsquo;s data-quality notes right now. Refresh to try
-            again.
-          </p>
-        </section>
-      ) : activeActionable.length > 0 || ignoredActionable.length > 0 ? (
-        <section
-          data-testid="per-show-data-quality"
-          aria-labelledby="per-show-data-quality-heading"
-          className="flex flex-col gap-3"
-        >
-          <div className="flex items-center gap-2">
             <h2
-              id="per-show-data-quality-heading"
+              id="per-show-data-quality-error-heading"
               className="text-lg font-semibold text-text-strong"
             >
               Data quality
             </h2>
-            <HoverHelp
-              label="Help: Data quality"
-              testId="per-show-data-quality-help"
-              rootTestId="help-affordance--per-show-data-quality--tooltip"
-              learnMore={{ href: "/help/admin/parse-warnings" }}
+            <p
+              data-testid="per-show-data-quality-error"
+              className="rounded-md border border-border bg-surface-sunken p-tile-pad text-sm text-text-subtle"
             >
-              <p>
-                Things we noticed while reading this show&apos;s sheet that may have dropped data:
-                an unreadable field, an unrecognized section, or a block that vanished since the
-                last sync. These are advisory — the show still published.
-              </p>
-            </HoverHelp>
-          </div>
-          {/* Flow 3 (audit 3.1): correction-loop callout — how to fix a flagged value.
+              We couldn&rsquo;t read this show&rsquo;s data-quality notes right now. Refresh to try
+              again.
+            </p>
+          </section>
+        ) : activeActionable.length > 0 || ignoredActionable.length > 0 ? (
+          <section
+            data-testid="per-show-data-quality"
+            aria-labelledby="per-show-data-quality-heading"
+            className="flex flex-col gap-3"
+          >
+            <div className="flex items-center gap-2">
+              <h2
+                id="per-show-data-quality-heading"
+                className="text-lg font-semibold text-text-strong"
+              >
+                Data quality
+              </h2>
+              <HoverHelp
+                label="Help: Data quality"
+                testId="per-show-data-quality-help"
+                rootTestId="help-affordance--per-show-data-quality--tooltip"
+                learnMore={{ href: "/help/admin/parse-warnings" }}
+              >
+                <p>
+                  Things we noticed while reading this show&apos;s sheet that may have dropped data:
+                  an unreadable field, an unrecognized section, or a block that vanished since the
+                  last sync. These are advisory — the show still published.
+                </p>
+              </HoverHelp>
+            </div>
+            {/* Flow 3 (audit 3.1): correction-loop callout — how to fix a flagged value.
               Gated on an ACTIVE warning (ignored-only survives re-sync, so "we'll clear
               this" would be false) AND !archived (a retired show is read-only; the footer
               Re-sync is likewise suppressed, page.tsx #resync). Mounts its own <ReSyncButton>
               (data-testid admin-resync-button); the footer instance stays for sync-health. */}
-          {activeActionable.length > 0 && !archived ? (
-            <CorrectionLoopCallout mode="resync">
-              <ReSyncButton slug={show.slug} />
-            </CorrectionLoopCallout>
-          ) : null}
-          {/* DQIGNORE-2 — bulk "Ignore all N of this type", shown above the cards it
+            {activeActionable.length > 0 && !archived ? (
+              <CorrectionLoopCallout mode="resync">
+                <ReSyncButton slug={show.slug} />
+              </CorrectionLoopCallout>
+            ) : null}
+            {/* DQIGNORE-2 — bulk "Ignore all N of this type", shown above the cards it
               acts on. Renders nothing unless a code has >=2 distinct-content active
               ignorable warnings. */}
-          <BulkIgnoreControls slug={show.slug} groups={bulkIgnoreGroups} />
-          {/* Every ACTIVE data-quality warning as a per-warning card: the data-gap
+            <BulkIgnoreControls slug={show.slug} groups={bulkIgnoreGroups} />
+            {/* Every ACTIVE data-quality warning as a per-warning card: the data-gap
               digest (unknown section / removed block) leads, followed by the
               operator-actionable warnings (role/day/schedule/field) with a source-
               sheet deep link when the scan resolved the cell. Each card carries a
               Report control and (when the warning is content-fingerprintable) an
               Ignore control. Renders nothing when there are none. */}
-          <PerShowActionableWarnings
-            items={activeActionable}
-            driveFileId={show.drive_file_id}
-            renderItemControls={(w) => (
-              <DataQualityWarningControls
-                slug={show.slug}
-                showId={show.id}
-                warning={w}
-                driveFileId={show.drive_file_id}
-                mode="active"
-                reportSurfaceId={buildReportSurfaceId(show.slug, w)}
-              />
-            )}
-          />
-          {/* Collapsible "Ignored (N)" subsection — content-keyed ignores that survive
-              re-sync. Native <details>: chevron transform only, body instant (D9). */}
-          {ignoredActionable.length > 0 ? (
-            <details data-testid="per-show-ignored-warnings" className="group">
-              <summary
-                data-testid="per-show-ignored-summary"
-                className="cursor-pointer list-none text-xs font-semibold uppercase tracking-eyebrow text-text-subtle hover:text-text [&::-webkit-details-marker]:hidden"
-              >
-                Ignored ({ignoredActionable.length}){" "}
-                <span
-                  aria-hidden="true"
-                  className="ml-1 inline-block transition-transform group-open:rotate-90"
-                >
-                  ▸
-                </span>
-              </summary>
-              <div className="mt-3" data-testid="per-show-ignored-list">
-                <PerShowActionableWarnings
-                  items={ignoredActionable}
+            <PerShowActionableWarnings
+              items={activeActionable}
+              driveFileId={show.drive_file_id}
+              renderItemControls={(w) => (
+                <DataQualityWarningControls
+                  slug={show.slug}
+                  showId={show.id}
+                  warning={w}
                   driveFileId={show.drive_file_id}
-                  tone="muted"
-                  renderItemControls={(w) => (
-                    <DataQualityWarningControls
-                      slug={show.slug}
-                      showId={show.id}
-                      warning={w}
-                      driveFileId={show.drive_file_id}
-                      mode="ignored"
-                      reportSurfaceId={buildReportSurfaceId(show.slug, w)}
-                    />
-                  )}
+                  mode="active"
+                  reportSurfaceId={buildReportSurfaceId(show.slug, w)}
                 />
-              </div>
-            </details>
-          ) : null}
-        </section>
-      ) : null}
+              )}
+            />
+            {/* Collapsible "Ignored (N)" subsection — content-keyed ignores that survive
+              re-sync. Native <details>: chevron transform only, body instant (D9). */}
+            {ignoredActionable.length > 0 ? (
+              <details data-testid="per-show-ignored-warnings" className="group">
+                <summary
+                  data-testid="per-show-ignored-summary"
+                  className="cursor-pointer list-none text-xs font-semibold uppercase tracking-eyebrow text-text-subtle hover:text-text [&::-webkit-details-marker]:hidden"
+                >
+                  Ignored ({ignoredActionable.length}){" "}
+                  <span
+                    aria-hidden="true"
+                    className="ml-1 inline-block transition-transform group-open:rotate-90"
+                  >
+                    ▸
+                  </span>
+                </summary>
+                <div className="mt-3" data-testid="per-show-ignored-list">
+                  <PerShowActionableWarnings
+                    items={ignoredActionable}
+                    driveFileId={show.drive_file_id}
+                    tone="muted"
+                    renderItemControls={(w) => (
+                      <DataQualityWarningControls
+                        slug={show.slug}
+                        showId={show.id}
+                        warning={w}
+                        driveFileId={show.drive_file_id}
+                        mode="ignored"
+                        reportSurfaceId={buildReportSurfaceId(show.slug, w)}
+                      />
+                    )}
+                  />
+                </div>
+              </details>
+            ) : null}
+          </section>
+        ) : null}
 
-      {/* Quiet sync footer (replaces the standalone Sync health section). */}
-      <footer
-        data-testid="admin-show-sync-footer"
-        className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4"
-      >
-        {/* M12.12 matrix row 7 — the help affordance rides the status side of
+        {/* Quiet sync footer (replaces the standalone Sync health section). */}
+        <footer
+          data-testid="admin-show-sync-footer"
+          className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4"
+        >
+          {/* M12.12 matrix row 7 — the help affordance rides the status side of
             the justified-between footer (div wrapper, not span: HoverHelp's
             root is a div and span>div is invalid nesting). */}
-        <div className="flex items-center gap-2">
-          <StatusIndicator status={syncBucket.bucket} label={syncFooterLabel} />
-          <HoverHelp
-            label="Help: Sync status"
-            testId="per-show-sync-help"
-            rootTestId="help-affordance--per-show-sync-footer--tooltip"
-            learnMore={{ href: "/help/admin/per-show-panel#sync-health" }}
-          >
-            <p>
-              How the last sync with this show&apos;s sheet went. We re-check on a schedule; Re-sync
-              forces a fresh read right now.
-            </p>
-          </HoverHelp>
-        </div>
-        {/* Page-level "manage this show" actions, grouped right (M12.5 — the
+          <div className="flex items-center gap-2">
+            <StatusIndicator status={syncBucket.bucket} label={syncFooterLabel} />
+            <HoverHelp
+              label="Help: Sync status"
+              testId="per-show-sync-help"
+              rootTestId="help-affordance--per-show-sync-footer--tooltip"
+              learnMore={{ href: "/help/admin/per-show-panel#sync-health" }}
+            >
+              <p>
+                How the last sync with this show&apos;s sheet went. We re-check on a schedule;
+                Re-sync forces a fresh read right now.
+              </p>
+            </HoverHelp>
+          </div>
+          {/* Page-level "manage this show" actions, grouped right (M12.5 — the
             Live-case Archive control moved here from a standalone mid-page row).
             Archive shows ONLY for a Live show (published && !archived); Held
             keeps Archive grouped with Publish above, Archived shows Unarchive. */}
-        <div className="flex flex-wrap items-center gap-3">
-          {isShowEligibleForCrewLink ? (
-            <ArchiveShowButton archiveAction={archiveShowAction.bind(null, show.slug)} compact />
-          ) : null}
-          {/* #resync — fragment target for the RESYNC_SHRINK_HELD alert action link
+          <div className="flex flex-wrap items-center gap-3">
+            {isShowEligibleForCrewLink ? (
+              <ArchiveShowButton archiveAction={archiveShowAction.bind(null, show.slug)} compact />
+            ) : null}
+            {/* #resync — fragment target for the RESYNC_SHRINK_HELD alert action link
               ("Review & re-sync", lib/adminAlerts/alertActions.ts). Plain block wrapper so
               it's a single flex item and does not disturb the actions-row layout. */}
-          <div id="resync">
-            {archived ? (
-              // Archived shows are the read-only surface; Re-sync mutates shows /
-              // pending_syncs via /api/admin/sync, whose only server gate is
-              // finalize-ownership (NOT archived — lib/sync/runManualSyncForShow.ts).
-              // Suppress the CTA so this page never invites mutating a retired show.
-              // The server-side archived refusal is deferred (DEFERRED.md DEF-3).
-              <span data-testid="admin-show-resync-archived" className="text-sm text-text-subtle">
-                Re-sync is paused while this show is archived.
-              </span>
-            ) : (
-              <ReSyncButton slug={show.slug} />
-            )}
+            <div id="resync">
+              {archived ? (
+                // Archived shows are the read-only surface; Re-sync mutates shows /
+                // pending_syncs via /api/admin/sync, whose only server gate is
+                // finalize-ownership (NOT archived — lib/sync/runManualSyncForShow.ts).
+                // Suppress the CTA so this page never invites mutating a retired show.
+                // The server-side archived refusal is deferred (DEFERRED.md DEF-3).
+                <span data-testid="admin-show-resync-archived" className="text-sm text-text-subtle">
+                  Re-sync is paused while this show is archived.
+                </span>
+              ) : (
+                <ReSyncButton slug={show.slug} />
+              )}
+            </div>
           </div>
-        </div>
-      </footer>
-    </main>
+        </footer>
+      </main>
+    </ShareTokenProvider>
   );
 }

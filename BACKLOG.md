@@ -395,3 +395,21 @@ A per-show group with one change renders a group-card wrapper around a single in
 
 **Status:** OPEN (2026-07-14, recent-auto-applied-redesign) · **Severity:** low · **Class:** FEATURE / DB WRITE-PATH
 `field_changed` rows show a generic summary ("A field changed on this sync"); naming the field / showing its From→To needs structured before/after stored at write time (`writeAutoApplyChanges.ts`) — the DB write-path arc this read-only redesign excluded. Trigger: the spec §1 "Full fidelity" option, if pursued.
+
+### BL-CREWPAGE-ROTATE-URL-FLASH — one-shot highlight on the crew URL when it updates after a rotate
+
+**Status:** OPEN (2026-07-14, share-link-instant-rotate-dedup) · **Severity:** low · **Class:** UI POLISH
+
+The instant-rotate rework updates the crew URL on every surface (header ShareChip, ShareLinkBody card, CrewPageLink) the moment a rotate resolves, and the confirmation-only banner says "The updated link is shown above." The swap itself is silent — the token is an opaque random string, so an admin watching the banner may not register that the URL above just changed. Deferred (impeccable critique P2): a brief reduced-motion-safe highlight/flash on `admin-current-share-link-url` (and the chip) keyed on the epoch advance would draw the eye, but it introduces a new transient visual state that needs its own transition-inventory + reduced-motion handling + test, and the banner copy already directs attention upward. Trigger to promote: admin feedback that a rotate's new URL is easy to miss.
+
+### BL-CREWPAGE-SHARE-CHIP-TOKEN-DISCIPLINE — replace `max-w-[16rem]` magic + confirm tap-target width on crew-link chrome
+
+**Status:** OPEN (2026-07-14, share-link-instant-rotate-dedup) · **Severity:** low · **Class:** UI TOKEN DISCIPLINE
+
+`ShareChip.tsx` uses an arbitrary `max-w-[16rem]` (pre-existing, mirrored from the prior inline chip) rather than a named width token, and `CrewPageLink.tsx` sets `min-h-tap-min` but no `min-w` (text width clears 44px in practice but is not guaranteed). Both are pre-existing patterns carried forward verbatim by the component-extraction refactor, not regressions. Deferred: token-izing the width + adding an explicit min-width is cosmetic and app-wide (the same magic appears elsewhere); batch it with a DESIGN token pass. Trigger to promote: a DESIGN.md token-discipline sweep.
+
+### BL-CREWPAGE-ROTATE-FOCUS-MGMT — restore keyboard focus across the two-tap rotate state edges
+
+**Status:** OPEN (2026-07-14, share-link-instant-rotate-dedup) · **Severity:** low · **Class:** A11Y
+
+The `RotateShareTokenButton` two-tap state machine (idle → confirm → resolving → idle) unmounts the focused button on each edge, so a keyboard user's focus drops to `<body>` after tapping Rotate and again after the action resolves. Pre-existing (the state machine + 3s auto-revert predate the instant-rotate dedup; this diff only changed the success-banner content), and impeccable-audit-rated P2 (not a WCAG-A blocker — the controls remain reachable by re-tabbing). Deferred: a correct fix moves focus to the Confirm button on entering confirm and to the idle Rotate button (or the banner) on resolve via a ref/effect, plus `waitFor`-based focus assertions (async activeElement). Out of scope for a dedup/instant-update refactor. Trigger to promote: an a11y pass on the admin per-show action rows.

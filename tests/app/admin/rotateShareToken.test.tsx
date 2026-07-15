@@ -1,9 +1,15 @@
 // @vitest-environment jsdom
-// M12.2 Phase A Task 10 (spec §6 / R27/R28) — RotateShareTokenButton:
-//   R28: the ACTIVE rotate-success crew URL uses the canonical
-//        NEXT_PUBLIC_SITE_ORIGIN (resolveOrigin), NOT window.location.origin.
-//   R27: when isCrewLinkActive=false, the success state shows a NON-LINK
-//        "crew link inactive" message — no URL, no copy button.
+// M12.2 Phase A Task 10 (spec §6 / R27/R28) — RotateShareTokenButton.
+//
+// share-link-instant-rotate-dedup: the ACTIVE success banner is now
+// CONFIRMATION-ONLY — it no longer renders the crew URL / Copy (that duplicated
+// the always-visible share-link card). Instead the rotate hands the new
+// token+epoch to the shared ShareTokenProvider via onRotated, and every crew-URL
+// surface updates instantly. The R28 canonical-origin guarantee therefore now
+// lives on the CARD surfaces (ShareChip / CrewPageLink / ShareLinkBody, all via
+// resolveOrigin), pinned in tests/components/shareTokenInstantUpdate.test.tsx.
+// Here we pin (test 1) that the active banner is confirmation-only and drives
+// onRotated with the fresh token+epoch, and (test 2, R27) the inactive gating.
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
@@ -47,16 +53,25 @@ async function rotate() {
 }
 
 describe("RotateShareTokenButton — canonical origin + inactive gating", () => {
-  test("active success URL uses NEXT_PUBLIC_SITE_ORIGIN, not window.location.origin (R28)", async () => {
-    // jsdom window.location.origin is http://localhost:3000 — distinct from CANONICAL_ORIGIN.
-    expect(window.location.origin).not.toBe(CANONICAL_ORIGIN);
-    render(<RotateShareTokenButton showId={SHOW_ID} slug={SLUG} isCrewLinkActive={true} />);
+  test("active success banner is confirmation-only (NO URL/copy) and drives onRotated(token, epoch)", async () => {
+    const onRotated = vi.fn();
+    render(
+      <RotateShareTokenButton
+        showId={SHOW_ID}
+        slug={SLUG}
+        isCrewLinkActive={true}
+        onRotated={onRotated}
+      />,
+    );
     await rotate();
-    await waitFor(() => {
-      const url = screen.getByTestId("admin-rotate-share-token-url").textContent ?? "";
-      expect(url).toBe(`${CANONICAL_ORIGIN}/show/${SLUG}/${NEW_TOKEN}`);
-      expect(url).not.toContain(window.location.origin);
-    });
+    await waitFor(() => screen.getByTestId("admin-rotate-share-token-ok"));
+    // dedup: the banner no longer duplicates the URL / Copy the card shows.
+    expect(screen.queryByTestId("admin-rotate-share-token-url")).toBeNull();
+    expect(screen.queryByTestId("admin-rotate-share-token-copy-button")).toBeNull();
+    // the fresh token+epoch flow to the shared cache → the card/chip/link update
+    // instantly (the canonical-origin URL is pinned on those surfaces in
+    // tests/components/shareTokenInstantUpdate.test.tsx).
+    expect(onRotated).toHaveBeenCalledWith(NEW_TOKEN, 4);
   });
 
   test("isCrewLinkActive=false → non-link 'crew link inactive' success, no URL/copy (R27)", async () => {

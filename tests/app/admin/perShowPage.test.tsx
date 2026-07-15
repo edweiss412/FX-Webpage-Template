@@ -55,11 +55,19 @@ vi.mock("@/components/admin/PerShowAlertSection", () => ({
 vi.mock("@/app/admin/show/[slug]/CurrentShareLinkPanel", async () => {
   const React = await import("react");
   return {
-    // M12.5: Rotate/Reset are folded INTO this panel via the `actions` prop, so
-    // the stub MUST render props.actions — otherwise the rotate/reset visibility
-    // assertions below would stop exercising the real composition (adversarial R4).
+    // Instant-rotate rework: the panel is now a thin server shell delegating the
+    // token-dependent body + rotate row + reset slot to the client <ShareLinkBody>
+    // (which reads the token from <ShareTokenProvider>). The `token`/`actions`
+    // props are gone; the page passes `resetSlot` + `isCrewLinkActive` +
+    // crewEmails/showTitle. The rotate button + reset control now live INSIDE this
+    // (mocked-away) real panel, so the stub renders a placeholder rotate button
+    // and the page-passed resetSlot so the page-level presence/absence assertions
+    // (gated on panel presence = show eligibility) still exercise the gating, and
+    // exposes crewEmails/showTitle/isCrewLinkActive as data attributes (the page
+    // forgetting to thread them cannot be caught at the component level).
     CurrentShareLinkPanel: (props: {
-      actions?: React.ReactNode;
+      resetSlot?: React.ReactNode;
+      isCrewLinkActive?: boolean;
       crewEmails?: readonly string[];
       showTitle?: string;
     }) =>
@@ -69,26 +77,11 @@ vi.mock("@/app/admin/show/[slug]/CurrentShareLinkPanel", async () => {
           "data-testid": "admin-current-share-link-panel",
           "data-crew-emails": JSON.stringify(props.crewEmails ?? null),
           "data-show-title": props.showTitle ?? "",
+          "data-is-crew-link-active": String(props.isCrewLinkActive ?? ""),
         },
-        props.actions,
+        React.createElement("button", { "data-testid": "admin-rotate-share-token-button" }),
+        props.resetSlot,
       ),
-    resolveOrigin: () => "https://crew.example.com",
-  };
-});
-
-// Flow 5 adversarial R3 — page-level prop-threading pin. The stub keeps the real
-// testid so every existing presence/absence assertion still exercises the page's
-// gating, and exposes the two new props as data attributes (component-level tests
-// cannot catch the page forgetting to pass them).
-vi.mock("@/app/admin/show/[slug]/RotateShareTokenButton", async () => {
-  const React = await import("react");
-  return {
-    RotateShareTokenButton: (props: { crewEmails?: readonly string[]; showTitle?: string }) =>
-      React.createElement("button", {
-        "data-testid": "admin-rotate-share-token-button",
-        "data-crew-emails": JSON.stringify(props.crewEmails ?? null),
-        "data-show-title": props.showTitle ?? "",
-      }),
   };
 });
 
@@ -118,7 +111,9 @@ vi.mock("@/lib/data/loadShowShareToken", () => ({
   loadShowShareToken: async () => {
     state.tokenReadCalls += 1;
     if (state.tokenThrows) throw new Error("META: token read fault");
-    return state.token;
+    // Atomic token+epoch read (instant-rotate rework): the loader now returns
+    // both from ONE snapshot. epoch is a constant here — no per-show test varies it.
+    return { token: state.token, epoch: 7 };
   },
 }));
 vi.mock("next/navigation", () => ({
@@ -373,6 +368,21 @@ describe("per-show page (§6)", () => {
     expect(screen.getByTestId("admin-share-link-inactive")).toBeInTheDocument();
     // ineligible show → the inactive notice REPLACES CurrentShareLinkPanel
     expect(screen.queryByTestId("admin-current-share-link-panel")).toBeNull();
+  });
+
+  it("ineligible show (unpublished) never serializes the real token to the client — §6.6 non-exposure", async () => {
+    // The atomic read returns a REAL token, but the show is unpublished, so the
+    // ShareTokenProvider seed is `null` (initialToken = eligible ? token : null).
+    // The token string must therefore appear NOWHERE in the rendered DOM — no
+    // chip title/code, no crew href, no card URL — closing the client-exposure
+    // hole where an ineligible show still shipped its token to the browser.
+    state.show = { ...baseShow, published: false, archived: false };
+    state.token = "s3cr3ttokenvalue9f8e7d6c5b4a";
+    await renderPage();
+    expect(document.body.innerHTML).not.toContain(state.token);
+    expect(screen.getByTestId("admin-share-link-inactive")).toBeInTheDocument();
+    expect(screen.queryByTestId("admin-show-share-chip")).toBeNull();
+    expect(screen.queryByTestId("admin-show-open-crew")).toBeNull();
   });
 
   it("token-read failure on a PUBLISHED ACTIVE show: token surfaces hidden but Share panel recovers (NOT the unpublished/archived notice) — Codex R1", async () => {
@@ -1137,7 +1147,11 @@ describe("per-show page — crew email threading (Flow 5)", () => {
     expect(state.limitByTable.crew_members).toBe(CREW_ROSTER_READ_CAP + 1);
   });
 
-  it("threads fixture-derived non-null emails + show.title into BOTH share surfaces (null emails dropped)", async () => {
+  it("threads fixture-derived non-null emails + show.title into the share-link panel (null emails dropped)", async () => {
+    // Instant-rotate rework: the "Email crew" affordances live in ShareLinkBody
+    // (inside CurrentShareLinkPanel); the rotate banner is confirmation-only and
+    // no longer receives crewEmails/showTitle. So the page threads them into the
+    // PANEL only (which owns the email buttons).
     state.crew = [
       { id: "c1", name: "Ann", role: "A1", email: "ann@example.com" },
       { id: "c2", name: "Bob", role: "A2", email: null },
@@ -1147,9 +1161,6 @@ describe("per-show page — crew email threading (Flow 5)", () => {
     const expectedEmails = state.crew
       .map((c) => c.email)
       .filter((e): e is string => typeof e === "string");
-    const rotate = screen.getByTestId("admin-rotate-share-token-button");
-    expect(JSON.parse(rotate.getAttribute("data-crew-emails")!)).toEqual(expectedEmails);
-    expect(rotate.getAttribute("data-show-title")).toBe(String(baseShow.title));
     const panel = screen.getByTestId("admin-current-share-link-panel");
     expect(JSON.parse(panel.getAttribute("data-crew-emails")!)).toEqual(expectedEmails);
     expect(panel.getAttribute("data-show-title")).toBe(String(baseShow.title));
@@ -1168,8 +1179,6 @@ describe("per-show page — crew email threading (Flow 5)", () => {
     }));
     await renderPage();
     expect(screen.getByTestId("per-show-crew-lookup-failed")).toBeInTheDocument();
-    const rotate = screen.getByTestId("admin-rotate-share-token-button");
-    expect(JSON.parse(rotate.getAttribute("data-crew-emails")!)).toEqual([]);
     const panel = screen.getByTestId("admin-current-share-link-panel");
     expect(JSON.parse(panel.getAttribute("data-crew-emails")!)).toEqual([]);
   });
@@ -1177,7 +1186,7 @@ describe("per-show page — crew email threading (Flow 5)", () => {
   it("crew lookup returned-error still yields empty crewEmails (existing fail path unchanged)", async () => {
     state.errorOnFromTable = "crew_members";
     await renderPage();
-    const rotate = screen.getByTestId("admin-rotate-share-token-button");
-    expect(JSON.parse(rotate.getAttribute("data-crew-emails")!)).toEqual([]);
+    const panel = screen.getByTestId("admin-current-share-link-panel");
+    expect(JSON.parse(panel.getAttribute("data-crew-emails")!)).toEqual([]);
   });
 });

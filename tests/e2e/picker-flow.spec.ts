@@ -303,12 +303,18 @@ test.skip("Admin Reset + Rotate flow: changing the share-token invalidates the o
     await expect(page.getByTestId("admin-current-share-link-panel")).toBeVisible();
     await expect(page.getByTestId("admin-current-share-link-url")).toContainText(show.shareToken);
 
-    // 5+6: rotate the share-token (two-tap), capture the new URL from the banner.
+    // 5+6: rotate the share-token (two-tap). The success banner is now
+    // confirmation-only; the new URL updates INSTANTLY on the share-link card
+    // (share-link-instant-rotate-dedup) via the shared ShareTokenProvider, so we
+    // read the fresh token from the card URL — which also proves the instant swap.
     await page.getByTestId("admin-rotate-share-token-button").click();
     await page.getByTestId("admin-rotate-share-token-confirm-button").click();
     await expect(page.getByTestId("admin-rotate-share-token-ok")).toBeVisible();
+    await expect(page.getByTestId("admin-current-share-link-url")).not.toContainText(
+      show.shareToken,
+    );
     const newFullUrl = (await page
-      .getByTestId("admin-rotate-share-token-url")
+      .getByTestId("admin-current-share-link-url")
       .textContent())!.trim();
     const newToken = newFullUrl.split("/").pop()!;
     expect(newToken).not.toBe(show.shareToken);
