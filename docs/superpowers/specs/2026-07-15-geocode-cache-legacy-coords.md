@@ -52,9 +52,16 @@ cached.city !== null
 && cached.geocodedAt < LEGACY_COORDS_CUTOFF
 ```
 
-where `LEGACY_COORDS_CUTOFF = '2026-07-09T00:00:00Z'` — the timestamp prefix of the
-coords migration (`supabase/migrations/20260709000000_geocode_cache_coords.sql`). Only
-rows geocoded BEFORE the `lat`/`lng` columns existed can qualify. Every cache write stamps
+where `LEGACY_COORDS_CUTOFF = '2026-07-15T00:00:00Z'` — the timestamp prefix of THIS
+fix's own migration (`20260715000000`, §3.2). The cutoff is deliberately NOT the coords
+migration's prefix (`20260709000000`): a row written after 2026-07-09 but before the
+coords-writing code was actually deployed to a given environment would carry city +
+NULL coords with a post-7/09 stamp, and a 7/09 cutoff would strand it (never refreshed,
+warning until TTL expiry). Any row stamped before 2026-07-15 predates refresh-capable
+code in EVERY environment (this fix does not exist before its own migration date), so it
+gets one refresh; any row stamped after is written either by coords-capable enrichment
+(its NULL-coords rows are genuine terminal states) or by this fix itself. Every cache
+write stamps
 `geocoded_at: new Date(now).toISOString()` (`lib/geocoding/cache.ts` `writeGeocodeCache`),
 so **any row a refresh writes is post-cutoff and can never be classified legacy again —
 refresh loops are impossible by construction**, regardless of what the live geocode
@@ -71,8 +78,8 @@ site, no new Supabase call boundary.)
   expire by 2026-07-28 (30-day TTL) and re-resolve via the ordinary miss path.
 - `city` non-null with both coords present → normal hit, unchanged.
 - Post-cutoff `city` non-null / coords-null rows (only producible by a live "city without
-  geometry" response, near-impossible per the Geocoding API) → normal hit, warn — terminal,
-  never re-queried.
+  geometry" response, near-impossible per the Geocoding API, or by a legacy refresh that
+  came back coord-less) → normal hit, warn — terminal, never re-queried.
 - Legacy rows (all three conditions) → one live refresh per parse until a refresh succeeds;
   each attempt is bounded by the existing per-venue timeout/retry budget
   (`ENRICH_TIMEOUT_MS`/`ENRICH_MAX_RETRIES`, `lib/sync/enrichVenueGeocode.ts:20-21`) and
@@ -179,7 +186,10 @@ next time "Reset validation data" + rescan runs, independent of Fix 1's deploy t
       would re-query Google every parse).
    b. `city` non-null + coords NULL + `geocodedAt` **post-cutoff**: unchanged behavior —
       warn, **no** `geocode` call (catches: refresh loop on rows a refresh itself wrote).
-   c. `city` non-null + coords NULL + `geocodedAt` pre-cutoff: now refreshes (below).
+   c. `city` non-null + coords NULL + `geocodedAt` pre-cutoff: now refreshes (below) —
+      include a case with `geocodedAt` BETWEEN 2026-07-09 and the cutoff (the
+      coords-migration-applied-but-code-not-deployed window; reviewer R2 high) proving it
+      still refreshes.
 2. Legacy hit + refresh success with coords → `venue.city` set, `venue.timezone` set, NO
    warning, `cacheWrite` called with fresh coords and the resolved city (catches: coords
    never backfilled / warning persists — the original bug).
@@ -245,10 +255,13 @@ consistent with the file's existing pattern.
 - **Why the discriminator includes a `geocoded_at` cutoff (R1 revision):** a value-shape
   discriminator alone (`city` non-null + coords NULL) loops: a refresh that returns null
   coords rewrites the exact same shape with a fresh TTL and re-queries Google every parse.
-  The cutoff is a fixed historical constant tied to migration `20260709000000` — it cannot
-  rot (it references a past event, not a moving target), and it self-obsoletes: after the
-  30-day TTL horizon (2026-08-08) no pre-cutoff row can exist in any environment, at which
-  point the legacy branch is provably dead code that can be deleted at leisure. Selecting
+  The cutoff is a fixed historical constant tied to THIS fix's migration prefix
+  (`20260715000000`) — it cannot rot (it references a past event, not a moving target),
+  it cannot strand deploy-gap rows (no environment ran refresh-capable code before that
+  date, and rows stamped 2026-07-09→2026-07-15 during any migration-applied-but-code-
+  not-deployed window remain below it and refreshable — R2), and it self-obsoletes: after
+  the 30-day TTL horizon (2026-08-14) no pre-cutoff row can exist in any environment, at
+  which point the legacy branch is provably dead code that can be deleted at leisure. Selecting
   `geocoded_at` in `readGeocodeCache` is a one-line select-list addition on an existing
   call site.
 - **Why refresh-failure emits `VENUE_TIMEZONE_UNRESOLVED`, not `VENUE_GEOCODE_UNRESOLVED`:**
