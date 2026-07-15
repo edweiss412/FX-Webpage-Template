@@ -567,6 +567,7 @@ function SectionFlagCallout({
               <UseRawControlBoundary
                 surface="wizard"
                 wizardSessionId={wizardSessionId}
+                driveFileId={dfid}
                 warning={warning}
                 decision={decisionFor(warning)}
               />

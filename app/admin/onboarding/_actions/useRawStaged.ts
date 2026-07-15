@@ -10,13 +10,19 @@
  * `{preference:"raw", applied:false}`; toggle-OFF hard-deletes (no `clear-pending`).
  *
  * Sequence (invariant 2 — single lock holder):
- *   (1) pre-lock: load the session's `pending_syncs` rows and pick the sheet whose
- *       `parse_result.warnings` owns the `warningRef` → its `drive_file_id` is the
- *       server-derived lock key (never a client arg);
- *   (2) under `withShowLock(drive_file_id)`: RE-READ that row's `parse_result` +
+ *   (1) pre-lock: the client passes the callout's `driveFileId` (the wizard UI knows
+ *       exactly which staged sheet it rendered the control for). Two staged sheets in
+ *       ONE session can share a warning's `(code, blockRef, contentHash)` — same
+ *       ambiguous room text or same inverted date tokens — so the `warningRef` alone is
+ *       NOT a safe row locator (it could resolve to the wrong sheet; Codex whole-diff
+ *       review F3). SERVER-VERIFY the `(wizardSessionId, driveFileId)` pairing exists in
+ *       `pending_syncs` before locking, so a client arg can never steer the advisory
+ *       lock onto an unrelated show; that verified `driveFileId` is the lock key.
+ *   (2) under `withShowLock(driveFileId)`: RE-READ THAT exact row's `parse_result` +
  *       current `use_raw_decisions` (locked re-read wins over the stale pre-lock
  *       snapshot — a concurrent re-ingestion cannot cause a stale validation),
- *       validate the `warningRef`, upsert/delete, commit.
+ *       validate the `warningRef` against that sheet's live warnings, upsert/delete,
+ *       commit.
  *
  * POST-COMMIT (outside the lock tx, invariant 10) it emits the forensic
  * `USE_RAW_DECISION_SET` / `USE_RAW_DECISION_CLEARED` outcome.
@@ -45,10 +51,7 @@ type LockOutcome =
   | { kind: "validation_error"; reason: "not_found" | "not_resolvable" | "stale" }
   | { kind: "toggled"; mutated: boolean };
 
-type StagedResolution =
-  | { kind: "found"; driveFileId: string }
-  | { kind: "not_found" }
-  | { kind: "infra_error" };
+type StagedResolution = { kind: "found" } | { kind: "not_found" } | { kind: "infra_error" };
 
 const VALIDATION_CODE = {
   not_found: "warning_not_found",
@@ -65,17 +68,19 @@ function warningsOf(parseResult: unknown): ParseWarning[] {
 }
 
 /**
- * Derive the lock key: the session may have MANY staged sheets (one `pending_syncs`
- * row per `drive_file_id`), so pick the sheet whose `parse_result.warnings` OWNS the
- * `warningRef` (a code+blockRef candidate exists — a stale hash still identifies the
- * sheet; the strict 3-branch check runs in-lock). Every await destructures
- * `{ data, error }`; a returned error OR a thrown fault → `infra_error` (invariant 9).
- * not-subject-to-meta: server-action mutation — the write path is the privileged
- * in-lock postgres tx below; this pre-lock read only derives the advisory-lock key.
+ * Server-verify the client-supplied `(wizardSessionId, driveFileId)` pairing before
+ * locking. The client passes `driveFileId` (the wizard callout knows which staged sheet
+ * it rendered), but a client arg must never steer the advisory lock onto an unrelated
+ * show — so confirm a `pending_syncs` row for THIS session + file exists first. Warning
+ * ownership is validated authoritatively IN-LOCK (`findLiveResolvableWarning` on the
+ * locked re-read of that exact row). Every await destructures `{ data, error }`; a
+ * returned error OR a thrown fault → `infra_error` (invariant 9).
+ * not-subject-to-meta: server-action mutation — the write path is the privileged in-lock
+ * postgres tx below; this pre-lock read only verifies the lock-key pairing.
  */
-async function resolveStagedByWarning(
+async function verifyStagedSheet(
   wizardSessionId: string,
-  ref: UseRawWarningRef,
+  driveFileId: string,
 ): Promise<StagedResolution> {
   let supabase: Awaited<ReturnType<typeof createSupabaseServerClient>>;
   try {
@@ -86,19 +91,13 @@ async function resolveStagedByWarning(
   try {
     const { data, error } = await supabase
       .from("pending_syncs")
-      .select("drive_file_id, parse_result")
-      .eq("wizard_session_id", wizardSessionId);
+      .select("drive_file_id")
+      .eq("wizard_session_id", wizardSessionId)
+      .eq("drive_file_id", driveFileId)
+      .limit(1);
     if (error) return { kind: "infra_error" };
-    const rows = (data ?? []) as Array<{ drive_file_id: string; parse_result: unknown }>;
-    for (const row of rows) {
-      const lookup = findLiveResolvableWarning(warningsOf(row.parse_result), ref);
-      // reason "not_found" == this sheet has no such warning; anything else (ok /
-      // not_resolvable / stale) means THIS sheet owns the ref → its drive_file_id.
-      if (lookup.ok || lookup.reason !== "not_found") {
-        return { kind: "found", driveFileId: row.drive_file_id };
-      }
-    }
-    return { kind: "not_found" };
+    const rows = (data ?? []) as Array<{ drive_file_id: string }>;
+    return rows.length > 0 ? { kind: "found" } : { kind: "not_found" };
   } catch {
     return { kind: "infra_error" };
   }
@@ -106,17 +105,19 @@ async function resolveStagedByWarning(
 
 export async function setStagedUseRawDecisionAction(
   wizardSessionId: string,
+  driveFileId: string,
   warningRef: UseRawWarningRef,
   useRaw: boolean,
 ): Promise<SetStagedUseRawDecisionResult> {
   await requireAdmin();
   const { email } = await requireAdminIdentity();
 
-  // (1) Pre-lock: derive the lock key from the server-loaded staged row.
-  const resolved = await resolveStagedByWarning(wizardSessionId, warningRef);
+  // (1) Pre-lock: server-verify the client-supplied (session, driveFileId) pairing so a
+  // client arg can never steer the lock onto an unrelated show. The exact row locator is
+  // the driveFileId, NOT the warningRef (two staged sheets can share a warning hash — F3).
+  const resolved = await verifyStagedSheet(wizardSessionId, driveFileId);
   if (resolved.kind === "infra_error") return { ok: false, code: "infra_error" };
   if (resolved.kind === "not_found") return { ok: false, code: "session_not_found" };
-  const { driveFileId } = resolved;
 
   // (2) Under the per-show lock: RE-READ live staged state, validate, upsert/delete.
   const locked = await withShowLock<LockableSyncTx, LockOutcome>(driveFileId, async (tx) => {

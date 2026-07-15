@@ -20,8 +20,9 @@
  *     and `router.refresh()`es on success so the durably-derived control state
  *     re-reads from persisted data.
  *
- * Serializable props only (the Server Component passes `warning`, `decision`,
- * `showId`) — no functions cross the boundary from the server side.
+ * Serializable props only (the Server Component passes `warning`, `decision`, and the
+ * surface locator — `showId`, or `wizardSessionId` + `driveFileId`) — no functions cross
+ * the boundary from the server side.
  */
 
 import { useRouter } from "next/navigation";
@@ -33,7 +34,10 @@ import { setStagedUseRawDecisionAction } from "@/app/admin/onboarding/_actions/u
 
 type SurfaceProps =
   | { surface: "show"; showId: string }
-  | { surface: "wizard"; wizardSessionId: string };
+  // `driveFileId` is the exact staged-sheet row locator: two sheets in one wizard session
+  // can share a warning's (code, blockRef, contentHash), so the action needs the sheet id,
+  // not just the warningRef, to write the decision to the right pending_syncs row (F3).
+  | { surface: "wizard"; wizardSessionId: string; driveFileId: string };
 
 export function UseRawControlBoundary(
   props: {
@@ -62,7 +66,12 @@ export function UseRawControlBoundary(
     const result =
       props.surface === "show"
         ? await setUseRawDecisionAction(props.showId, warningRef, useRaw)
-        : await setStagedUseRawDecisionAction(props.wizardSessionId, warningRef, useRaw);
+        : await setStagedUseRawDecisionAction(
+            props.wizardSessionId,
+            props.driveFileId,
+            warningRef,
+            useRaw,
+          );
     // Throw on any typed failure so `<UseRawControl>` shows its plain error copy
     // (the code string is NEVER rendered — invariant 5).
     if (!result.ok) throw new Error(result.code);

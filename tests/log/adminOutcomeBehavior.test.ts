@@ -3257,7 +3257,7 @@ describe("use-raw toggle actions — post-commit forensic emit", () => {
     useRawTxState.warnings = [RESOLVABLE_ROOM_WARNING];
     useRawTxState.decisions = [];
     const setCodes = await observeSuccessCodes(() =>
-      setStagedUseRawDecisionAction("wiz-uraw", REF, true),
+      setStagedUseRawDecisionAction("wiz-uraw", "df-uraw", REF, true),
     );
     expect(setCodes).toContain("USE_RAW_DECISION_SET");
     recordAdminOutcomeBehavior({
@@ -3270,7 +3270,7 @@ describe("use-raw toggle actions — post-commit forensic emit", () => {
     seedStagedResolve();
     useRawTxState.decisions = [rawDecision(false)];
     const clearedCodes = await observeSuccessCodes(() =>
-      setStagedUseRawDecisionAction("wiz-uraw", REF, false),
+      setStagedUseRawDecisionAction("wiz-uraw", "df-uraw", REF, false),
     );
     expect(clearedCodes).toContain("USE_RAW_DECISION_CLEARED");
     recordAdminOutcomeBehavior({
@@ -3283,7 +3283,12 @@ describe("use-raw toggle actions — post-commit forensic emit", () => {
     seedStagedResolve();
     useRawTxState.decisions = [];
     const staleCodes = await observeCodes(() =>
-      setStagedUseRawDecisionAction("wiz-uraw", { ...REF, observedContentHash: "stale" }, true),
+      setStagedUseRawDecisionAction(
+        "wiz-uraw",
+        "df-uraw",
+        { ...REF, observedContentHash: "stale" },
+        true,
+      ),
     );
     expect(staleCodes).not.toContain("USE_RAW_DECISION_SET");
   });

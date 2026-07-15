@@ -4,8 +4,10 @@
  *
  * Pre-create: writes to pending_syncs.use_raw_decisions under withShowLock; toggle-ON
  * upserts {raw, applied:false}; toggle-OFF hard-deletes; NO re-apply (no show yet).
- * Lock key + drive_file_id are server-derived from the staged row; warningRef gets the
- * same three-branch validation (against the row's parse_result.warnings, in-lock);
+ * The client passes driveFileId (the exact staged-sheet row locator — two sheets in one
+ * session can share a warning hash, F3); the action SERVER-VERIFIES the (session,
+ * driveFileId) pairing before locking so a client arg can't steer the lock. warningRef
+ * gets the three-branch validation (against that row's parse_result.warnings, in-lock);
  * stored contentHash/target come from the live staged warning; infra faults are typed.
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
@@ -35,7 +37,7 @@ let throwOnConstruct = false;
 function makeClient(result: { data: unknown; error: unknown }) {
   const node: Record<string, unknown> = {};
   const self = () => node;
-  for (const m of ["select", "eq"]) node[m] = self;
+  for (const m of ["select", "eq", "limit"]) node[m] = self;
   node.then = (onF: (v: unknown) => unknown, onR?: (e: unknown) => unknown) =>
     Promise.resolve(result).then(onF, onR);
   return { from: () => node };
@@ -137,7 +139,7 @@ afterEach(() => vi.clearAllMocks());
 
 describe("staged write", () => {
   test("toggle ON from absent upserts {raw, applied:false}", async () => {
-    const r = await setStagedUseRawDecisionAction("wiz-1", ref(), true);
+    const r = await setStagedUseRawDecisionAction("wiz-1", "df-uraw", ref(), true);
     const d = writtenDecisions()!;
     expect(d).toHaveLength(1);
     expect(d[0]).toMatchObject({ preference: "raw", applied: false, contentHash: "hash-abc" });
@@ -149,31 +151,45 @@ describe("staged write", () => {
       parse_result: { warnings: [roomWarning()] },
       use_raw_decisions: [rawDecision(false)],
     };
-    const r = await setStagedUseRawDecisionAction("wiz-1", ref(), false);
+    const r = await setStagedUseRawDecisionAction("wiz-1", "df-uraw", ref(), false);
     expect(writtenDecisions()).toEqual([]);
     expect(r).toEqual({ ok: true, state: "saved" });
   });
 
   test("staged decisions are NEVER applied:true (no entity rows pre-create)", async () => {
-    const r = await setStagedUseRawDecisionAction("wiz-1", ref(), true);
+    const r = await setStagedUseRawDecisionAction("wiz-1", "df-uraw", ref(), true);
     expect(writtenDecisions()![0]!.applied).toBe(false);
     void r;
   });
 });
 
-describe("server-derived lock key + provenance", () => {
-  test("drive_file_id / lock key derived from the staged row, not a client arg", async () => {
+describe("verified lock key + exact-row locator + provenance", () => {
+  test("the passed driveFileId is the (server-verified) lock key AND the exact write row", async () => {
+    // Pairing exists → verified; the passed driveFileId is BOTH the lock key and the
+    // `where … drive_file_id = $2` row locator (never re-derived from the warningRef scan).
+    preLockResult = { data: [{ drive_file_id: "df-from-staged" }], error: null };
+    await setStagedUseRawDecisionAction("wiz-1", "df-from-staged", ref(), true);
+    expect(lockKeys).toEqual(["df-from-staged"]);
+    expect(capturedWrite?.params[1]).toBe("df-from-staged");
+  });
+
+  test("F3 — two staged sheets sharing a warning hash: writes ONLY the passed driveFileId's row", async () => {
+    // Both sheets in the session own an identical warningRef (code+blockRef+contentHash) —
+    // the collision the old warningRef-scan resolver mis-attributed to the FIRST sheet.
+    // The explicit driveFileId must win: lock + write target sheet-B, never sheet-A.
     preLockResult = {
-      data: [{ drive_file_id: "df-from-staged", parse_result: { warnings: [roomWarning()] } }],
+      data: [{ drive_file_id: "sheet-A" }, { drive_file_id: "sheet-B" }],
       error: null,
     };
-    await setStagedUseRawDecisionAction("wiz-1", ref(), true);
-    expect(lockKeys).toEqual(["df-from-staged"]);
+    txScript.row = { parse_result: { warnings: [roomWarning()] }, use_raw_decisions: [] };
+    await setStagedUseRawDecisionAction("wiz-1", "sheet-B", ref(), true);
+    expect(lockKeys).toEqual(["sheet-B"]);
+    expect(capturedWrite?.params[1]).toBe("sheet-B");
   });
 
   test("decidedBy from requireAdminIdentity; decidedAt is a server-clock ISO", async () => {
     requireAdminIdentityMock.mockResolvedValue({ email: "staged-admin@fx.test" });
-    await setStagedUseRawDecisionAction("wiz-1", ref(), true);
+    await setStagedUseRawDecisionAction("wiz-1", "df-uraw", ref(), true);
     const d = writtenDecisions()![0]!;
     expect(d.decidedBy).toBe("staged-admin@fx.test");
     expect(new Date(d.decidedAt).toISOString()).toBe(d.decidedAt);
@@ -185,19 +201,18 @@ describe("server-derived lock key + provenance", () => {
       error: null,
     };
     txScript.row = { parse_result: { warnings: [roomWarning("live")] }, use_raw_decisions: [] };
-    await setStagedUseRawDecisionAction("wiz-1", ref("live"), true);
+    await setStagedUseRawDecisionAction("wiz-1", "df-uraw", ref("live"), true);
     expect(writtenDecisions()![0]!.contentHash).toBe("live");
     expect(writtenDecisions()![0]!.target).toEqual({ kind: "rooms", name: "GENERAL SESSION" });
   });
 });
 
 describe("warningRef validation (against live parse_result.warnings)", () => {
-  test("no sheet owns the ref → session_not_found (no lock, no write)", async () => {
-    preLockResult = {
-      data: [{ drive_file_id: "df-uraw", parse_result: { warnings: [] } }],
-      error: null,
-    };
-    const r = await setStagedUseRawDecisionAction("wiz-1", ref(), true);
+  test("no pending_syncs row for (session, driveFileId) → session_not_found (no lock, no write)", async () => {
+    // The verified-pairing check fails: the client-supplied driveFileId is not staged in
+    // this session, so we NEVER acquire that show's lock (client cannot steer the lock key).
+    preLockResult = { data: [], error: null };
+    const r = await setStagedUseRawDecisionAction("wiz-1", "df-bogus", ref(), true);
     expect(r).toEqual({ ok: false, code: "session_not_found" });
     expect(lockKeys).toEqual([]);
     expect(capturedWrite).toBeNull();
@@ -214,7 +229,7 @@ describe("warningRef validation (against live parse_result.warnings)", () => {
       parse_result: { warnings: [roomWarning("hash-abc", false)] },
       use_raw_decisions: [],
     };
-    const r = await setStagedUseRawDecisionAction("wiz-1", ref(), true);
+    const r = await setStagedUseRawDecisionAction("wiz-1", "df-uraw", ref(), true);
     expect(r).toEqual({ ok: false, code: "warning_not_resolvable" });
     expect(capturedWrite).toBeNull();
   });
@@ -225,7 +240,7 @@ describe("warningRef validation (against live parse_result.warnings)", () => {
       error: null,
     };
     txScript.row = { parse_result: { warnings: [roomWarning("live")] }, use_raw_decisions: [] };
-    const r = await setStagedUseRawDecisionAction("wiz-1", ref("client-old"), true);
+    const r = await setStagedUseRawDecisionAction("wiz-1", "df-uraw", ref("client-old"), true);
     expect(r).toEqual({ ok: false, code: "warning_stale" });
     expect(capturedWrite).toBeNull();
   });
@@ -238,7 +253,7 @@ describe("warningRef validation (against live parse_result.warnings)", () => {
       error: null,
     };
     txScript.row = { parse_result: { warnings: [] }, use_raw_decisions: [] };
-    const r = await setStagedUseRawDecisionAction("wiz-1", ref(), true);
+    const r = await setStagedUseRawDecisionAction("wiz-1", "df-uraw", ref(), true);
     expect(r).toEqual({ ok: false, code: "warning_not_found" });
     expect(capturedWrite).toBeNull();
   });
@@ -247,19 +262,19 @@ describe("warningRef validation (against live parse_result.warnings)", () => {
 describe("infra-fault typed result", () => {
   test("pre-lock client construction throw → infra_error", async () => {
     throwOnConstruct = true;
-    const r = await setStagedUseRawDecisionAction("wiz-1", ref(), true);
+    const r = await setStagedUseRawDecisionAction("wiz-1", "df-uraw", ref(), true);
     expect(r).toEqual({ ok: false, code: "infra_error" });
   });
 
   test("pre-lock returned error → infra_error", async () => {
     preLockResult = { data: null, error: { message: "boom" } };
-    const r = await setStagedUseRawDecisionAction("wiz-1", ref(), true);
+    const r = await setStagedUseRawDecisionAction("wiz-1", "df-uraw", ref(), true);
     expect(r).toEqual({ ok: false, code: "infra_error" });
   });
 
   test("in-lock postgres throw → infra_error, no emit", async () => {
     txScript.throwOnRead = true;
-    const r = await setStagedUseRawDecisionAction("wiz-1", ref(), true);
+    const r = await setStagedUseRawDecisionAction("wiz-1", "df-uraw", ref(), true);
     expect(r).toEqual({ ok: false, code: "infra_error" });
     expect(logAdminOutcomeMock).not.toHaveBeenCalled();
   });
@@ -267,7 +282,7 @@ describe("infra-fault typed result", () => {
 
 describe("post-commit forensic emit", () => {
   test("toggle ON emits USE_RAW_DECISION_SET (source admin.onboarding.useRawStaged)", async () => {
-    await setStagedUseRawDecisionAction("wiz-1", ref(), true);
+    await setStagedUseRawDecisionAction("wiz-1", "df-uraw", ref(), true);
     expect(logAdminOutcomeMock).toHaveBeenCalledWith(
       expect.objectContaining({
         code: "USE_RAW_DECISION_SET",
@@ -284,7 +299,7 @@ describe("post-commit forensic emit", () => {
       parse_result: { warnings: [roomWarning()] },
       use_raw_decisions: [rawDecision(false)],
     };
-    await setStagedUseRawDecisionAction("wiz-1", ref(), false);
+    await setStagedUseRawDecisionAction("wiz-1", "df-uraw", ref(), false);
     expect(logAdminOutcomeMock).toHaveBeenCalledWith(
       expect.objectContaining({ code: "USE_RAW_DECISION_CLEARED" }),
     );
@@ -296,7 +311,7 @@ describe("post-commit forensic emit", () => {
       use_raw_decisions: [rawDecision(false)],
     };
     // toggle ON when already {raw,false} (apply-pending) → no-op.
-    await setStagedUseRawDecisionAction("wiz-1", ref(), true);
+    await setStagedUseRawDecisionAction("wiz-1", "df-uraw", ref(), true);
     expect(logAdminOutcomeMock).not.toHaveBeenCalled();
     expect(capturedWrite).toBeNull();
   });
