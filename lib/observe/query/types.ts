@@ -102,3 +102,18 @@ export type FailureRow = {
 export type QueryFailuresResult =
   | { kind: "ok"; rows: FailureRow[] }
   | { kind: "infra_error"; message: string };
+
+export type PublishedWarningsFilters = {
+  showId?: string;
+  limit?: number;
+  includePii?: boolean;
+};
+export type PublishedWarningsRow = {
+  showId: string;
+  showTitle: string | null;
+  showSlug: string | null;
+  warnings: SerializedWarning[];
+};
+export type QueryPublishedWarningsResult =
+  | { kind: "ok"; rows: PublishedWarningsRow[] }
+  | { kind: "infra_error"; message: string };
