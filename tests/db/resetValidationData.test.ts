@@ -29,6 +29,25 @@ const DB_URL =
   process.env.DATABASE_URL ??
   "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
 
+// SAFETY: this test WIPES all shows via the reset RPC — never run it against a remote DB
+// (same guard shape as tests/db/resetValidationDataPostgrest.test.ts, message redacted:
+// the guard fires exactly when a credential-bearing remote URL leaked — never echo it).
+function redactedDbHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "<unparseable>";
+  }
+}
+const LOCAL_DB_URL_REGEX =
+  /^postgres(?:ql)?:\/\/[^@]+@(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?\//i;
+if (!LOCAL_DB_URL_REGEX.test(DB_URL)) {
+  throw new Error(
+    `resetValidationData.test.ts: TEST_DATABASE_URL host '${redactedDbHost(DB_URL)}' is not local. ` +
+      "reset_validation_data() wipes ALL shows — refusing to run against a remote URL.",
+  );
+}
+
 const sql: Sql = postgres(DB_URL, { max: 4, prepare: false });
 
 /**
@@ -121,6 +140,16 @@ describe("reset_validation_data() — full reset behaviour", () => {
     const adminEmail = `reset-test-${randomUUID()}@example.invalid`;
     await sql`insert into public.admin_emails (email) values (${adminEmail}) on conflict do nothing`;
 
+    // geocode_cache: venue-keyed quota cache — reset must clear it (spec 2026-07-15 §3.2).
+    // Seed both a coord-less legacy shape and a coords-bearing row; BOTH must be deleted.
+    await sql`
+      insert into public.geocode_cache
+        (query_hash, venue_name, venue_address, city, lat, lng, expires_at)
+      values
+        (${"test-reset-legacy-" + a.driveFileId}, 'Legacy Venue', '', 'Chicago', null, null, now() + interval '10 days'),
+        (${"test-reset-coords-" + a.driveFileId}, 'Coords Venue', '', 'Chicago', 41.88, -87.63, now() + interval '10 days')
+    `;
+
     const showsBefore = await count("shows");
     expect(showsBefore).toBeGreaterThanOrEqual(2);
 
@@ -144,6 +173,8 @@ describe("reset_validation_data() — full reset behaviour", () => {
     expect(await count("deferred_ingestions")).toBe(0);
     // validation_state cleared.
     expect(await count("validation_state")).toBe(0);
+    // Venue-keyed geocode quota cache cleared (virgin state, spec 2026-07-15 §3.2).
+    expect(await count("geocode_cache")).toBe(0);
 
     // --- assert: app_settings persists, pointers nulled, watched_folder_id unchanged ---
     const [settings] = await sql`
