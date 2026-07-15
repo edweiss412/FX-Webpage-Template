@@ -135,11 +135,13 @@ Per AGENTS.md validation-parity rule, in the same PR: apply locally + test →
 manifest is expected byte-identical; run it regardless and commit if changed) → apply the
 migration surgically to the validation project (`psql "$TEST_DATABASE_URL" -f ...` then
 `notify pgrst, 'reload schema';`). The migration is idempotent (`create or replace`; ACL
-re-asserts) — apply-twice safe. One-shot data effect: none (function definition only; the
-actual cache clear happens on the next reset invocation).
+re-asserts; the expiry UPDATE's `expires_at > now()` predicate makes a second apply a
+no-op) — apply-twice safe. One-shot data effect: fresh coord-less rows become expired
+(a cache miss on the next read); the reset-RPC cache clear happens on the next reset
+invocation.
 
-Note: applying this to validation also *immediately* fixes the observed warning storm the
-next time "Reset validation data" + rescan runs, independent of Fix 1's deploy timing.
+Note: applying this to validation immediately expires its 6 legacy rows — the observed
+warning storm ends at the next scan/re-parse, no reset required.
 
 ## 4. Test plan (TDD; concrete failure modes)
 
