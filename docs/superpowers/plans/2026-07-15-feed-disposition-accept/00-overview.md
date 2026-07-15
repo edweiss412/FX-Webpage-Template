@@ -339,16 +339,44 @@ Thread `showId` + `acceptAction` into each `ChangeFeedEntry`. No confirm gate (s
 **Files:**
 - Modify: `app/help/admin/dashboard/page.mdx:41,53`, `app/help/admin/per-show-panel/page.mdx:12,14` (+ any other "Changes feed" refs — re-grep at edit time)
 
-- [ ] **Step 1:** `rg -n -i "changes feed|\bChanges\b" app/help/` — enumerate live refs (spec counted 3 + h2; re-count now).
-- [ ] **Step 2:** Update display copy to "Sheet changes feed" / heading "The Sheet changes feed" — anchors (`id="changes-feed"`) and hrefs unchanged. Mention the new Accept affordance in per-show-panel copy in ONE sentence: "Auto-applied changes you haven't reviewed yet show an **Accept** button (and **Accept all** in the header); accepted entries keep a quiet Accepted tag." Plain language, no code tokens.
-- [ ] **Step 3:** `pnpm vitest run tests/help` — help meta-tests green (coverage/asset-existence walkers; no screenshot manifest change — no captured route renders the feed heading, spec §5).
-- [ ] **Step 4: Commit** `docs(help): Sheet changes rename + Accept affordance copy`
+- [ ] **Step 1: Write the failing test** — new `tests/help/sheetChangesCopy.test.ts` pinning the rename contract in the two help pages:
+
+```ts
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+
+const dash = readFileSync("app/help/admin/dashboard/page.mdx", "utf8");
+const panel = readFileSync("app/help/admin/per-show-panel/page.mdx", "utf8");
+
+describe("help copy names the per-show feed 'Sheet changes' (spec 2026-07-15 §5)", () => {
+  it("no page still says 'Changes feed' (stale pre-rename copy)", () => {
+    expect(dash).not.toMatch(/\bChanges feed\b/); // case-sensitive: "Sheet changes feed" stays legal
+    expect(panel).not.toMatch(/\bChanges feed\b/); // case-sensitive: "Sheet changes feed" stays legal
+  });
+  it("both pages use the new name; anchor id stays stable", () => {
+    expect(dash).toMatch(/Sheet changes/);
+    expect(panel).toMatch(/Sheet changes/);
+    expect(panel).toContain('id="changes-feed"'); // anchor NEVER renamed
+  });
+  it("per-show panel documents the Accept affordance", () => {
+    expect(panel).toMatch(/Accept all/);
+    expect(panel).toMatch(/Accepted/);
+  });
+});
+```
+
+(Adjust the stale-copy regex to the exact phrases Step 2's grep enumerates — e.g. `\bChanges feed\b` case-sensitive, since "sheet changes feed" contains "changes feed" lowercase. Failure mode caught: a later copy edit reverting to the old name, or the anchor id getting renamed with the heading.)
+
+- [ ] **Step 2: Run** `pnpm vitest run tests/help/sheetChangesCopy.test.ts` — FAIL (old copy present, new absent). Also `rg -n -i "changes feed" app/help/` to enumerate every live ref (spec counted 3 + h2; re-count now).
+- [ ] **Step 3: Implement.** Update display copy to "Sheet changes feed" / heading "The Sheet changes feed" — anchors (`id="changes-feed"`) and hrefs unchanged. Mention the new Accept affordance in per-show-panel copy in ONE sentence: "Auto-applied changes you haven't reviewed yet show an **Accept** button (and **Accept all** in the header); accepted entries keep a quiet Accepted tag." Plain language, no code tokens.
+- [ ] **Step 4: Run** `pnpm vitest run tests/help` — new test PASSES + help meta-tests green (coverage/asset-existence walkers; no screenshot manifest change — no captured route renders the feed heading, spec §5).
+- [ ] **Step 5: Commit** `docs(help): Sheet changes rename + Accept affordance copy (pinned by copy test)`
 
 ### Task 5: Gates + close-out sweeps
 
 - [ ] **Step 1: Class sweeps.** `rg -n '"Changes"' tests/ components/ app/` (any remaining display-text pin); `rg -ln "readShowChangeFeed" tests/` (hand-rolled mocks of the feed return missing new fields); `rg -n "change-feed-accept" tests/` (companion-file check — memory: env-bound/e2e tests excluded from `pnpm test`).
 - [ ] **Step 2: Full local gates.** `pnpm test` (FULL suite — scoped gates miss chokepoint regressions), `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm build` (if not already green in Task 5), e2e `admin-changes-feed-layout.spec.ts` if runnable locally (selector `/changes/i` tolerant — verify).
-- [ ] **Step 3: Impeccable dual-gate** (invariant 8): `/impeccable critique` + `/impeccable audit` on the UI diff (`components/admin/ChangeFeedEntry.tsx`, `ChangesFeed.tsx`, help mdx). P0/P1 fixed or `DEFERRED.md`. **Record every finding + disposition in `docs/superpowers/plans/2026-07-15-feed-disposition-accept/HANDOFF.md` §12** (create the handoff doc with a §12 findings table — this feature's close-out doc; invariant 8 requires the recorded dispositions, not just the passing runs).
+- [ ] **Step 3: Impeccable dual-gate** (invariant 8): `/impeccable critique` + `/impeccable audit` on the FULL affected UI surface: `components/admin/ChangeFeedEntry.tsx`, `components/admin/ChangesFeed.tsx`, `app/admin/show/[slug]/page.tsx` (page wiring diff — `app/` non-api is UI surface per invariant 8), and the two help mdx pages. P0/P1 fixed or `DEFERRED.md`. **Record every finding + disposition in `docs/superpowers/plans/2026-07-15-feed-disposition-accept/HANDOFF.md` §12** (create the handoff doc with a §12 findings table — this feature's close-out doc; invariant 8 requires the recorded dispositions, not just the passing runs).
 - [ ] **Step 4:** Whole-diff Codex adversarial review (fresh-eyes, REVIEWER ONLY) → APPROVE.
 - [ ] **Step 5: Ship + terminal verification.** Fetch/rebase onto origin/main if it moved; push; `gh pr create`; watch checks via PR NUMBER (`gh pr checks <PR#> --watch`) and confirm `mergeStateStatus == CLEAN`; `gh pr merge <PR#> --merge`; then `git checkout main && git pull --ff-only` in the MAIN checkout and verify `git rev-list --left-right --count main...origin/main` prints `0	0`. Pipeline is not done at remote merge — the local-main fast-forward check is the terminal gate.
 
