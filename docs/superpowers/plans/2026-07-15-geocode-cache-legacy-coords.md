@@ -42,7 +42,29 @@
 - Consumes: `latestResetValidationDataBody()` from `tests/db/_resetRpcSource.ts`; the `sql`/`count`/`seedShowGraph`/`callResetAsServiceRole` helpers already in `resetValidationData.test.ts`.
 - Produces: the migration file (later tasks apply it to validation); test file `tests/db/geocodeCacheCoordExpiry.test.ts` exporting nothing (pure test).
 
-- [ ] **Step 1: Extend the reset realdb test (failing first).** In `tests/db/resetValidationData.test.ts`, find the main post-reset assertion block (the `test(...)` that calls `callResetAsServiceRole()` and asserts `count(...) === 0` for the residue tables) and add a geocode_cache seed before the reset + an assertion after. Seed (place alongside the existing seeds, before the RPC call):
+- [ ] **Step 1: Extend the reset realdb test (failing first).** In `tests/db/resetValidationData.test.ts`:
+
+(a) **Add the local-only refusal guard first** (P-R3: this file enables the destructive
+gate and calls `reset_validation_data()`, but unlike `resetValidationDataPostgrest.test.ts:32-40`
+it has NO remote-URL refusal — an env-sourced shell leaking the validation
+`TEST_DATABASE_URL` into vitest would aim a destructive reset at validation). Insert
+directly after the `DB_URL` constant (`tests/db/resetValidationData.test.ts:28-31`),
+copying the existing guard verbatim:
+
+```ts
+// SAFETY: this test WIPES all shows via the reset RPC — never run it against a remote DB
+// (same guard as tests/db/resetValidationDataPostgrest.test.ts).
+const LOCAL_DB_URL_REGEX =
+  /^postgres(?:ql)?:\/\/[^@]+@(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?\//i;
+if (!LOCAL_DB_URL_REGEX.test(DB_URL)) {
+  throw new Error(
+    `resetValidationData.test.ts: TEST_DATABASE_URL='${DB_URL}' is not local. ` +
+      "reset_validation_data() wipes ALL shows — refusing to run against a remote URL.",
+  );
+}
+```
+
+(b) Find the main post-reset assertion block (the `test(...)` that calls `callResetAsServiceRole()` and asserts `count(...) === 0` for the residue tables) and add a geocode_cache seed before the reset + an assertion after. Seed (place alongside the existing seeds, before the RPC call):
 
 ```ts
 // geocode_cache: venue-keyed quota cache — reset must clear it (spec 2026-07-15 §3.2).
@@ -432,7 +454,12 @@ git commit --no-verify -m "fix(db): reset clears geocode_cache; one-shot expiry 
 
 - [ ] **Step 1: Full local suite (shared-chokepoint discipline — scoped gates miss regressions).**
 
-Run: `pnpm test`
+Run: `pnpm test` — **from a shell that has NOT sourced `.env.local`** (P-R3: a sourced
+shell leaks the validation `TEST_DATABASE_URL` into vitest; the realdb tests would
+target the remote pooler and the reset tests would now refuse loudly via the Step-1a
+guard — but don't rely on the guard, keep the envs separated). Steps 4-6 below source
+`.env.local` in a SUBSHELL (`( set -a; source .env.local; set +a; psql ... )`) so the
+suite shell stays clean.
 Expected: PASS (pre-existing failures, if any, must be shown absent at merge-base before blaming this diff).
 
 - [ ] **Step 2: Quality gates.**
