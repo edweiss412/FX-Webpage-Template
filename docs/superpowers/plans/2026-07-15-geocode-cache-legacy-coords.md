@@ -497,6 +497,14 @@ Expected: PASS (manifest unchanged + validation superset holds).
 
 **Files:** none — operator/orchestrator steps from spec §3.1, listed here so the executing session carries them to completion; each step's output is appended to the PR apply log.
 
-- [ ] **Step 1: Validation close-out (spec R9/R12/R14, ordered).** (a) Run "Reset validation data" from the admin UI (or `select public.reset_validation_data();` as service-role with the gate enabled); (b) assert `select count(*) from geocode_cache` = 0 on validation — behavioral RPC proof seeded by the expired rows; (c) run a fresh onboarding rescan; (d) verify `pnpm observe staged --env validation --warnings-only` shows NEITHER `VENUE_TIMEZONE_UNRESOLVED` NOR `VENUE_GEOCODE_UNRESOLVED`, AND `psql "$TEST_DATABASE_URL" -c "select count(*) from geocode_cache where lat is null or lng is null;"` returns 0. If a check fails, wait out the 60s breaker cooldown and re-run the rescan until clean.
+- [ ] **Step 1: Validation close-out (spec R9/R12/R14, ordered).** (a) Run "Reset validation data" from the admin UI (or `select public.reset_validation_data();` as service-role with the gate enabled); (b) assert `select count(*) from geocode_cache` = 0 on validation — behavioral RPC proof seeded by the expired rows; (c) run a fresh onboarding rescan; (d) **positive recovery proof** (P-R4: a zero coord-less count is vacuously true on an EMPTY cache — a breaker-open scan writes nothing and would pass it):
 
-- [ ] **Step 2: Prod close-out (spec R10/R14).** After the prod apply (deploy pipeline), run `pnpm observe warnings --env prod`, `pnpm observe staged --env prod --warnings-only`, `pnpm observe failures --env prod`, filtering for `VENUE_TIMEZONE_UNRESOLVED` and `VENUE_GEOCODE_UNRESOLVED`. All empty → record zero-affected proof. Any hit → per-show admin re-sync, confirm the re-synced venues' cache rows carry non-null coords, repeat the enumeration until empty (60s breaker cooldown between attempts if Google is flaky).
+```sql
+-- both must hold; N = distinct venues in the rescanned folder (6 at spec time)
+select count(*) from geocode_cache where lat is not null and lng is not null;  -- >= N
+select count(*) from geocode_cache where lat is null or lng is null;           -- = 0
+```
+
+plus `pnpm observe staged --env validation --warnings-only` showing NEITHER `VENUE_TIMEZONE_UNRESOLVED` NOR `VENUE_GEOCODE_UNRESOLVED`, plus a spot-check that a staged parse's venue timezone is populated (`pnpm observe staged --env validation --full` → venue tz non-ET-fallback for a known non-Eastern venue, e.g. the Chicago shows). If any check fails, wait out the 60s breaker cooldown and re-run the rescan until all pass.
+
+- [ ] **Step 2: Prod close-out (spec R10/R14).** After the prod apply (deploy pipeline), run `pnpm observe warnings --env prod`, `pnpm observe staged --env prod --warnings-only`, `pnpm observe failures --env prod`, filtering for `VENUE_TIMEZONE_UNRESOLVED` and `VENUE_GEOCODE_UNRESOLVED`. All empty → record zero-affected proof. Any hit → per-show admin re-sync, then POSITIVELY confirm each re-synced venue's cache row EXISTS with `lat is not null and lng is not null` (existence + coords, not merely absence of coord-less rows — P-R4), repeat the enumeration until empty (60s breaker cooldown between attempts if Google is flaky).
