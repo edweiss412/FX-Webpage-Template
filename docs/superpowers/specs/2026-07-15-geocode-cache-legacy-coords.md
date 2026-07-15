@@ -154,8 +154,14 @@ Effects:
      the expired-but-still-present legacy rows (the expiry only marks rows stale; only
      the new RPC removes them).
   3. Fresh onboarding rescan (re-parses every show through the cold geocode path).
-  4. Verify `pnpm observe staged --env validation --warnings-only` shows no
-     `VENUE_TIMEZONE_UNRESOLVED` rows.
+  4. **Positive recovery proof (R14)** — absence of the old warning is not enough (the
+     forced cold path can newly fail with `VENUE_GEOCODE_UNRESOLVED`, or return silently
+     breaker-open): verify `pnpm observe staged --env validation --warnings-only` shows
+     NEITHER `VENUE_TIMEZONE_UNRESOLVED` NOR `VENUE_GEOCODE_UNRESOLVED`, AND assert
+     `select count(*) from geocode_cache where lat is null or lng is null` = 0 on
+     validation (every rescanned venue actually re-cached with coords — catches the
+     silent breaker-open miss, which writes nothing). If either check fails, re-run the
+     rescan after the breaker cooldown (60s) / Google recovery and repeat until clean.
   This guarantees no pre-fix staged row survives to be finalized as validation state AND
   that validation's reset is proven virgin-capable (goal 2) independently of the expiry.
   **Scope boundary (do not relitigate):** finalize semantics are untouched. A staged row
@@ -169,12 +175,16 @@ Effects:
   explicitly rather than waiting for an eventual sheet edit:
   `pnpm observe warnings --env prod` (published shows' persisted warnings),
   `pnpm observe staged --env prod --warnings-only`, and
-  `pnpm observe failures --env prod`, filtering for `VENUE_TIMEZONE_UNRESOLVED`. If all
-  three are empty, record the zero-affected proof in the PR's apply log and stop. For any
-  hit, trigger a per-show re-sync from the admin surface (a re-parse runs the cold
-  geocode path against the now-expired cache and re-stages with coords); re-run the
-  enumeration until empty. Published pages meanwhile show the designed ET-fallback
-  degradation, never corrupted data.
+  `pnpm observe failures --env prod`, filtering for BOTH `VENUE_TIMEZONE_UNRESOLVED` and
+  `VENUE_GEOCODE_UNRESOLVED` (R14 — the remediation itself forces the cold path, which
+  can newly fail with the latter). If all three are empty for both codes, record the
+  zero-affected proof in the PR's apply log and stop. For any hit, trigger a per-show
+  re-sync from the admin surface (a re-parse runs the cold geocode path against the
+  now-expired cache and re-stages with coords), and confirm the re-synced venues' cache
+  rows carry coords (`lat`/`lng` non-null — catches the silent breaker-open miss, which
+  writes nothing); re-run the enumeration until empty, waiting out the 60s breaker
+  cooldown between attempts if Google is flaky. Published pages meanwhile show the
+  designed ET-fallback degradation, never corrupted data.
 
 **Guard conditions / unchanged behavior:** every path in `enrichVenueGeocode` is
 untouched — venue absent/blank name, city already set, unconfigured, cache infra_error,
