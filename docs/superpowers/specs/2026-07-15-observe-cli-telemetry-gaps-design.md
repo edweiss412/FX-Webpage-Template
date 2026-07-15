@@ -19,8 +19,8 @@ The headline gap: staged parse warnings mid-wizard.
   `id, drive_file_id, parsed_at, staged_modified_time, source_kind, wizard_session_id, wizard_approved, warning_summary, last_finalize_failure_code, warnings:parse_result->warnings`
   The `warnings:parse_result->warnings` aliased jsonb projection keeps the rest of `parse_result` out of the wire response entirely.
 - Flags:
-  - `--session <uuid>` → `.eq("wizard_session_id", v)` (non-UUID dropped, same posture as `--show` in `scripts/observe/args.ts:82-83`)
-  - `--file <driveFileId>` → `.eq("drive_file_id", v)` (capped via `cap()`, `scripts/observe/args.ts:27`)
+  - `--session <uuid>` → `.eq("wizard_session_id", v)` (non-UUID → CLI error, §6 fail-closed rule)
+  - `--file <driveFileId>` → `.eq("drive_file_id", v)` (empty/overlong → CLI error, §6 fail-closed rule)
   - `--warnings-only` → DB-side first-element-exists filter `.not("parse_result->warnings->0", "is", null)` applied BEFORE the row cap (a post-fetch filter could return `(no rows)` when the first page is all warning-free rows while matching rows sit beyond the limit — Codex R1 F2). `->0` is NULL for empty arrays, missing keys, scalars, AND objects — so malformed non-array jsonb is also excluded before the cap and cannot consume the page (Codex R2 F3). Only rows with a genuinely non-empty warnings array reach the page.
   - `--full` → print each warning through the single warning serializer (§5.1); default output prints `warning_summary` (already a human summary column) + warning count
   - `--since 1h|24h|7d|all` → `.gte("parsed_at", …)` via `sinceToHours` (`scripts/observe/args.ts:32`); default 24h
@@ -160,10 +160,13 @@ Everything else — `rawSnippet`, `blockRef`, `sourceCell`, unknown future field
 
 ## 6. Guard conditions
 
+**Fail-closed rule for the six new commands (Codex R4 F1):** an explicitly supplied but invalid filter value is a CLI ERROR (exit 1, message naming the flag and why), NEVER a silent drop. Silent dropping turns a scoped forensic query into an unscoped read of the default recent page — unacceptable on PII-bearing surfaces where `--reveal-email` may be in effect (`staged --session <typo> --reveal-email` must not widen to every recent staged row). The existing commands (`events`/`alerts`/`changes`/`tail`) keep their current drop posture unchanged (`scripts/observe/args.ts:82-83` — behavior compatibility; they are lower-sensitivity and their posture is pinned by existing tests). An ABSENT flag is not an error — only present-but-invalid fails.
+
 | Input | Behavior |
 | --- | --- |
-| `--session` / `--show` non-UUID | filter dropped (matches existing `--show` posture, `scripts/observe/args.ts:82-83`) |
-| `--file` / `--status` / `--code` empty or >200 chars | dropped via `cap()` (`scripts/observe/args.ts:27-31`) |
+| `--session` / `--show` non-UUID (new commands) | CLI error, exit 1: `--session must be a UUID` |
+| `--file` / `--status` / `--code` empty or >200 chars (new commands) | CLI error, exit 1, naming the flag |
+| `--show` non-UUID on existing `events`/`changes` | dropped (unchanged posture, `scripts/observe/args.ts:82-83`) |
 | `--limit` NaN / <1 / >500 | `clampLimit` default 100, clamp [1,500] (`lib/observe/query/types.ts:11`) |
 | `parse_warnings` / `last_warnings` / `parse_result->warnings` non-array jsonb (scalar/null/object) | count 0; `--full`/`--json` emit `[]`; never throws (live-verified failure mode) |
 | warning element missing `message`/`code`/`severity`, or non-object element | §5.1 serializer emits empty strings for missing members; row still printed |
@@ -179,7 +182,7 @@ Everything else — `rawSnippet`, `blockRef`, `sourceCell`, unknown future field
   - `tests/observe/_metaReadOnlyQueryCore.test.ts` is a recursive filesystem walk (`:12-20`) — auto-covers all six new modules, no edit needed (the `>= 5` floor still passes).
   - `tests/admin/_metaBoundedReads.test.ts` — add all six modules to `READ_MODULES` (`:30`); `pending_syncs`/`pending_ingestions` are already in `UNBOUNDED_TABLES` (`:51`); add `sync_log`, `deferred_ingestions`, `drive_watch_channels` to `UNBOUNDED_TABLES` (grep-verified: no currently registered module reads them). `shows_internal` is deliberately NOT added: two registered reads (`components/admin/Dashboard.tsx:352` — `.in("show_id", activeShowIds)`, parent-bounded by the active-show list; `app/admin/show/[slug]/page.tsx:335` — `.maybeSingle()`) are genuinely bounded but unrecognized by the meta-test's bound heuristic (`:81-84` accepts only `.limit`/`.range`/`count:'exact'`/`.in("drive_file_id"|"id")`), and patching them would touch UI files (invariant-8 gate) for zero behavior change. The new `warnings.ts` read carries `.limit(clampLimit(…))` regardless, enforced by its unit test.
   - New structural pin: `watch` module file must not contain `webhook_secret` in any SELECT and must not call `.select("*")` (simple lexical test in the module's unit test file, justified by the secret's blast radius).
-- **Args tests**: comma-list split for `--code`/`--source` (single → singular field, multi → plural, empties dropped); new command flags; `--reveal-email` plumbing into staged/deferred filters.
+- **Args tests**: comma-list split for `--code`/`--source` (single → singular field, multi → plural, empties dropped); new command flags; `--reveal-email` plumbing into staged/deferred filters; **fail-closed regression cases (Codex R4 F1)**: `staged --session not-a-uuid` (with and without `--reveal-email`), `warnings --show not-a-uuid`, `synclog --file ""`, `failures --code <201 chars>` — each exits 1 with a flag-naming error and NO query executes (assert the query function is never called); existing `events --show not-a-uuid` still silently drops (posture boundary pinned).
 - **Env tests** (`resolveTarget`): `--env validation` is `VALIDATION_*`-only — full valid triple (URL + secret + matching ref, hosted https) → ok+mapped, regardless of ambient `SUPABASE_URL`; **every incomplete/invalid configuration is a hard error, never a fall-through**, each asserted individually: URL absent, URL loopback, secret absent, ref absent, ref mismatched, branch-preview host (`<ref>--<branch>.supabase.co`), plain-`http` URL — and specifically: ambient non-loopback prod-like `SUPABASE_URL` + incomplete `VALIDATION_*` still ERRORS (the Codex R3 F2 regression case — ambient must never satisfy `--env validation`); prod path unchanged (ambient-remote + secret required); local path unchanged (non-loopback ambient still refused without `--env`).
 - **Meta-test inventory (declared per AGENTS.md writing-plans additions)**: EXTENDS `tests/admin/_metaBoundedReads.test.ts` (registry rows + UNBOUNDED_TABLES rows); RELIES ON `tests/observe/_metaReadOnlyQueryCore.test.ts` (auto-walk, no edit); CREATES the `webhook_secret`-exclusion lexical pin. Advisory-lock topology: N/A — zero `pg_advisory*` surfaces touched (read-only feature). Mutation-surface observability (invariant 10): N/A — zero new mutation surfaces.
 - Manual verification: run `staged --session 8e5568a8-b3cd-4033-9840-18cba07a55c6 --env validation` against the live validation project (7 rows, 14 warnings total as of 2026-07-15).
