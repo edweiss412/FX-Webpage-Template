@@ -4,6 +4,7 @@ export { getCronHealth, type QueryCronHealthResult } from "./cronHealth";
 export { queryAlerts } from "./alerts";
 export { queryChangeLog } from "./changeLog";
 export { queryStagedParses } from "./staged";
+export { queryIngestFailures } from "./failures";
 export { isUuid, clampLimit } from "./types";
 export type {
   AlertFilters,
@@ -15,6 +16,9 @@ export type {
   StagedFilters,
   StagedRow,
   QueryStagedResult,
+  FailureFilters,
+  FailureRow,
+  QueryFailuresResult,
 } from "./types";
 export {
   serializeParseWarning,

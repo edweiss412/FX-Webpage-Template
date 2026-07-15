@@ -78,3 +78,27 @@ export type StagedRow = {
 export type QueryStagedResult =
   | { kind: "ok"; rows: StagedRow[] }
   | { kind: "infra_error"; message: string };
+
+export type FailureFilters = {
+  sessionId?: string;
+  code?: string;
+  sinceHours?: number | null;
+  limit?: number;
+  includePii?: boolean;
+};
+export type FailureRow = {
+  id: string;
+  driveFileId: string;
+  driveFileName: string;
+  firstSeenAt: string;
+  lastAttemptAt: string;
+  attemptCount: number;
+  lastErrorCode: string;
+  lastErrorCodeUnrecognized: boolean;
+  lastErrorMessage: string;
+  lastWarnings: SerializedWarning[];
+  wizardSessionId: string | null;
+};
+export type QueryFailuresResult =
+  | { kind: "ok"; rows: FailureRow[] }
+  | { kind: "infra_error"; message: string };
