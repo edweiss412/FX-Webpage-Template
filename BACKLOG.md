@@ -358,6 +358,14 @@ The rec-5 mutation-testing harness (`tests/parser/mutationHarness.test.ts`, nigh
 
 ---
 
+### BL-EXPORT-BLANK-ROW-SEGMENTATION — blank-row block segmentation fuses/splits sections silently (audit #10)
+
+**Status:** OPEN (2026-07-15; audit finding #10, 2026-07-04) · **Severity:** medium · **Class:** EXPORT/PARSER ROBUSTNESS
+
+`splitBlocks` (`lib/drive/exportSheetToMarkdown.ts:127-144`) segments the sheet grid into blocks using fully-blank rows as the **only** delimiter. Two failure modes, both silent: (a) a stray value in a spacer row (normal authoring noise — a forgotten cell, a note typed into the gap) **fuses** two adjacent sections into one block, so the downstream parser attributes one section's rows to another; (b) a blank row inserted mid-section **splits** one section into two blocks, orphaning the tail rows from their header. Neither emits a signal — mis-grouped sections flow into the parser as plausible structure. The 2026-07-07 e2e audit re-verified this unchanged; the 2026-07-10 re-rating (§10) left it as the only numbered finding with zero movement (2 fixed, 2 partial, 1 by-design). The mutation harness pins the blast radius (`blank-row:inject` / `blank-row:remove` holes in `knownHoles.ts`, mapped via `OPERATOR_FINDING_MAP` — see BL-MUTATION-HARNESS-OPEN-HOLES above) but detection-in-tests is not detection-at-runtime. **Fix directions (pick at spec time):** (a) near-blank-row heuristic — a row with exactly one short non-blank cell adjacent to blank rows emits a warn-severity `ParseWarning` instead of fusing; (b) section-header-aware segmentation — a row matching a `KNOWN_SECTION_HEADERS` shape mid-block starts a new block (closes the fuse case structurally); (c) orphan-block detection — a block with no recognizable header row adjacent to a recognized section warns as a probable split. Any fix hardens a mutation-harness class → the corresponding ledger holes become `staleRows` per the ratchet above. Trigger to promote: a live show where a spacer-row stray value or mid-section blank row mis-groups data with no operator signal.
+
+---
+
 ### BL-TRANSPORT-ID-RESOLUTION — id-based transport visibility + no-match admin warning (deferred from Flow 8.4 to 8.3)
 
 **Status:** PARTIALLY CLOSED (2026-07-09, Flow 8.4 PR #374) · **Severity:** medium · **Class:** CREW VISIBILITY / ENRICH
@@ -403,6 +411,16 @@ A per-show group with one change renders a group-card wrapper around a single in
 
 **Status:** OPEN (2026-07-14, recent-auto-applied-redesign) · **Severity:** low · **Class:** FEATURE / DB WRITE-PATH
 `field_changed` rows show a generic summary ("A field changed on this sync"); naming the field / showing its From→To needs structured before/after stored at write time (`writeAutoApplyChanges.ts`) — the DB write-path arc this read-only redesign excluded. Trigger: the spec §1 "Full fidelity" option, if pursued.
+
+### BL-AUTOAPPLIED-COLLAPSED-KIND-HINT — surface change kind in the collapsed group header
+
+**Status:** OPEN (2026-07-15, auto-applied-collapsible-groups) · **Severity:** low · **Class:** UI TRIAGE DENSITY
+Collapsed-by-default group headers (per explicit user directive) show only showName + a bare count; the change kind (incl. a destructive "Removed") is hidden until expand. Consider a small per-kind dot cluster / severity chip in the collapsed header so a destructive auto-apply is visible without expanding. Net-new affordance beyond the requested change; needs its own impeccable pass + tests. Trigger: a Doug report of a missed destructive auto-apply behind a collapsed header, or a dashboard triage-density pass. See `DEFERRED.md` AUTOAPPLIED-COLLAPSE-1.
+
+### BL-DISCLOSURE-FAMILY-HEIGHT-MORPH — animate the disclosure family (accordions) at once
+
+**Status:** OPEN (2026-07-15, auto-applied-collapsible-groups) · **Severity:** low · **Class:** UI MOTION / SYSTEM-WIDE
+The dashboard disclosure components (`RecentAutoAppliedStrip` groups, `IgnoredSheetsDisclosure`, `AddAdminDisclosure`) all mount/unmount their panels instantly while the chevron animates; DESIGN.md lists "accordion expand" at `duration-normal`. Adopt the `globals.css` height-morph disclosure pattern across the whole family in one deliberate pass (animating just one diverges from the shared idiom). Trigger: a cross-cutting disclosure-motion pass. See `DEFERRED.md` AUTOAPPLIED-COLLAPSE-2.
 
 ### BL-CREWPAGE-ROTATE-URL-FLASH — one-shot highlight on the crew URL when it updates after a rotate
 

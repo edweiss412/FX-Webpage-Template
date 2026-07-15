@@ -88,8 +88,53 @@ function okData(): Extract<RecentAutoApplied, { kind: "ok" }> {
   };
 }
 
-it("renders one section per show, rows in data order", () => {
+it("collapses every group by default (dashboard): rows + bulk actions hidden, count still shown", () => {
   render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
+  const toggle = screen.getByTestId(`auto-applied-toggle-${FIN_ID}`);
+  expect(toggle).toHaveAttribute("aria-expanded", "false");
+  // count badge shows even while collapsed (it lives in the header toggle)
+  expect(screen.getByTestId(`auto-applied-count-${FIN_ID}`)).toHaveTextContent("3");
+  // disclosed panel absent → rows + bulk Accept-all not mounted
+  expect(screen.queryByTestId("auto-applied-row-r1")).toBeNull();
+  expect(screen.queryByTestId(`auto-applied-accept-all-${FIN_ID}`)).toBeNull();
+  expect(screen.queryByTestId(`auto-applied-panel-${FIN_ID}`)).toBeNull();
+});
+
+it("expands a group on toggle click: rows + bulk Accept all appear, aria-expanded flips", () => {
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
+  const toggle = screen.getByTestId(`auto-applied-toggle-${FIN_ID}`);
+  fireEvent.click(toggle);
+  expect(toggle).toHaveAttribute("aria-expanded", "true");
+  expect(screen.getByTestId("auto-applied-row-r1")).toBeInTheDocument();
+  expect(screen.getByTestId(`auto-applied-accept-all-${FIN_ID}`)).toBeInTheDocument();
+});
+
+it("renders groups expanded when defaultExpanded is set (show-page usage)", () => {
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);
+  expect(screen.getByTestId(`auto-applied-toggle-${FIN_ID}`)).toHaveAttribute(
+    "aria-expanded",
+    "true",
+  );
+  expect(screen.getByTestId("auto-applied-row-r1")).toBeInTheDocument();
+  expect(screen.getByTestId(`auto-applied-accept-all-${FIN_ID}`)).toBeInTheDocument();
+});
+
+it("places bulk Accept all / Undo all below the header, never inside the toggle button", () => {
+  // "Underneath the show name, not in the same row" + interactive controls must
+  // never nest inside the toggle <button> (a11y: <button> takes phrasing content).
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);
+  const toggle = screen.getByTestId(`auto-applied-toggle-${FIN_ID}`);
+  const acceptAll = screen.getByTestId(`auto-applied-accept-all-${FIN_ID}`);
+  const undoAll = screen.getByTestId(`auto-applied-undo-all-${FIN_ID}`);
+  expect(toggle.contains(acceptAll)).toBe(false);
+  expect(toggle.contains(undoAll)).toBe(false);
+  const panel = screen.getByTestId(`auto-applied-panel-${FIN_ID}`);
+  expect(panel.contains(acceptAll)).toBe(true);
+  expect(panel.contains(undoAll)).toBe(true);
+});
+
+it("renders one section per show, rows in data order", () => {
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);
 
   // one section per show
   expect(screen.getByTestId(`auto-applied-group-${FIN_ID}`)).toBeInTheDocument();
@@ -106,7 +151,7 @@ it("renders one section per show, rows in data order", () => {
 });
 
 it("renders crew changes as From→To / single-value diffs and none-rows as summary", () => {
-  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);
   // fromTo (r2): To value emphasized/not struck; From value struck — scoped to the row.
   const renamed = screen.getByTestId("auto-applied-row-r2");
   expect(within(renamed).getByText("Robert Chen").className).not.toMatch(/line-through/);
@@ -130,7 +175,7 @@ it("lays out buttons in a stretch grid: 2 cols (w-full accept+undo) when undoabl
   // from a CSS-grid template (grid-cols-2 = two equal 1fr cells) + w-full buttons,
   // NOT fragile flex stretch. Real-browser width-distribution is deferred
   // (BL-AUTOAPPLIED-CARD-LAYOUT-E2E) since 1fr columns split equally by grid spec.
-  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);
   const undoable = screen.getByTestId("auto-applied-row-r1"); // crew_added, undoable
   const uGrid = within(undoable).getByTestId("change-feed-accept").closest("div.grid")!;
   expect(uGrid.className).toMatch(/grid-cols-2/);
@@ -192,7 +237,7 @@ it("maps EVERY kind to its status-token pill (label + token classes, incl. remov
       },
     ],
   };
-  render(<RecentAutoAppliedStrip data={data} actions={noopActions()} />);
+  render(<RecentAutoAppliedStrip data={data} actions={noopActions()} defaultExpanded />);
   // Target the PILL element specifically (a crew_added row also renders the
   // caption "Added" in its diff block, so getByText would be ambiguous).
   const pill = (rowId: string) =>
@@ -226,7 +271,7 @@ it("maps EVERY kind to its status-token pill (label + token classes, incl. remov
 });
 
 it("puts an Accept control on EVERY row and an Undo control ONLY on undoable rows", () => {
-  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);
 
   // ANTI-TAUTOLOGY: scope every query INSIDE the specific row's container so a
   // sibling row's control can never satisfy the assertion.
@@ -245,7 +290,7 @@ it("puts an Accept control on EVERY row and an Undo control ONLY on undoable row
 });
 
 it("carries the group's showId as a hidden input in every accept form (row + Accept-all)", () => {
-  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);
 
   // each FinTech row's accept form carries showId=FIN_ID
   for (const rid of ["r1", "r2", "r3"]) {
@@ -264,7 +309,7 @@ it("carries the group's showId as a hidden input in every accept form (row + Acc
 });
 
 it("always shows Accept all; shows Undo all only when undoableIds is non-empty", () => {
-  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} defaultExpanded />);
 
   const fin = screen.getByTestId(`auto-applied-group-${FIN_ID}`);
   const ria = screen.getByTestId(`auto-applied-group-${RIA_ID}`);
@@ -279,7 +324,7 @@ it("always shows Accept all; shows Undo all only when undoableIds is non-empty",
 
 it("gates Undo all behind a confirm step, then dispatches undo for each undoableId", async () => {
   const actions = noopActions();
-  render(<RecentAutoAppliedStrip data={okData()} actions={actions} />);
+  render(<RecentAutoAppliedStrip data={okData()} actions={actions} defaultExpanded />);
 
   // Scope everything to the FinTech group (anti-tautology).
   const fin = screen.getByTestId(`auto-applied-group-${FIN_ID}`);
@@ -304,7 +349,7 @@ it("moves focus to the safe 'Keep changes' control when the Undo-all confirm ope
   // WCAG 2.4.3 + accidental-bulk-undo safety: the destructive confirm must not
   // land keyboard focus on the destructive button. Mirrors ReSyncButton.
   const actions = noopActions();
-  render(<RecentAutoAppliedStrip data={okData()} actions={actions} />);
+  render(<RecentAutoAppliedStrip data={okData()} actions={actions} defaultExpanded />);
 
   const fin = screen.getByTestId(`auto-applied-group-${FIN_ID}`);
   fireEvent.click(within(fin).getByTestId(`auto-applied-undo-all-${FIN_ID}`));

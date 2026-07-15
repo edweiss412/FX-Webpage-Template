@@ -2,10 +2,13 @@
 //
 // The admin dashboard's "Recently auto-applied" strip: the un-dispositioned
 // auto-applied changes loaded by lib/admin/loadRecentAutoApplied.ts, grouped by
-// show. Each group is a card (mirroring NeedsAttentionInbox's card styling) with
-// a header (showName + "Accept all" always, "Undo all" when undoableIds is
-// non-empty) and one row per change (kind tag, verbatim summary, Accept on every
-// row, Undo only on undoable rows).
+// show. Each group is a card (mirroring NeedsAttentionInbox's card styling) whose
+// header is a collapse toggle (chevron + showName + count badge; WAI accordion,
+// collapsed by default on the dashboard). Expanding discloses a panel holding the
+// bulk actions on their own row ("Accept all" always, "Undo all" when undoableIds
+// is non-empty), then one row per change (kind pill, diff/summary, Accept on every
+// row, Undo only on undoable rows). `defaultExpanded` opens groups flat for a
+// show-scoped surface (one group, no click to reveal).
 //
 // Accept controls delegate to <AcceptChangeButton> (form-action submit-safe,
 // typed-failure surfacing via ErrorExplainer — invariant 5). Per-row Undo
@@ -21,6 +24,7 @@
 //     kind token and internal message NEVER reach the DOM (invariant 5).
 "use client";
 import { useEffect, useRef, useState, useTransition } from "react";
+import { ChevronRight } from "lucide-react";
 import type {
   AutoAppliedGroup,
   AutoAppliedRow,
@@ -179,13 +183,19 @@ function StripRow({
 function GroupSection({
   group,
   actions,
+  defaultExpanded,
 }: {
   group: AutoAppliedGroup;
   actions: RecentAutoAppliedStripActions;
+  // Collapsed-by-default on the admin dashboard (defaultExpanded=false); a
+  // show-scoped surface passes defaultExpanded so its single group opens flat.
+  defaultExpanded: boolean;
 }) {
+  const [open, setOpen] = useState(defaultExpanded);
   const [confirming, setConfirming] = useState(false);
   const [pending, startTransition] = useTransition();
   const undoableCount = group.undoableIds.length;
+  const panelId = `auto-applied-panel-${group.showId}`;
 
   // Focus the safe "Keep changes" control when the confirm opens — mirrors
   // ReSyncButton's keepCurrentRef pattern (WCAG 2.4.3). Prevents a stray Enter
@@ -214,82 +224,124 @@ function GroupSection({
       data-testid={`auto-applied-group-${group.showId}`}
       className="flex flex-col rounded-md border border-border bg-surface shadow-tile"
     >
-      <div className="flex min-w-0 flex-col gap-2 border-b border-border bg-surface-sunken p-tile-pad sm:flex-row sm:items-center sm:justify-between">
-        <span className="flex min-w-0 items-center gap-2">
-          <span className="wrap-break-word text-sm font-semibold text-text-strong">
+      {/* Collapsible header: the whole bar IS the disclosure toggle (WAI accordion
+          pattern — an <h5> wraps the <button> so the heading role survives; a
+          <button> takes phrasing content only, so the bulk Accept/Undo controls
+          live in the disclosed panel below, never nested inside the trigger).
+          Level is h5: it descends from the strip's own <h4> "Recently
+          auto-applied", which itself sits under the dashboard section's <h3>
+          "Needs attention" — so an h5 keeps the SR outline monotonic (h3→h4→h5).
+          (The IgnoredSheetsDisclosure mirror legitimately uses h3 because it is a
+          top-level section, not nested under a heading; the level is not portable.) */}
+      <h5 className="min-w-0">
+        <button
+          type="button"
+          data-testid={`auto-applied-toggle-${group.showId}`}
+          aria-expanded={open}
+          // Only reference the panel while it exists (mounted on expand) — a
+          // dangling aria-controls idref confuses strict screen readers.
+          aria-controls={open ? panelId : undefined}
+          onClick={() => setOpen((v) => !v)}
+          // ring-inset (not the token's offset ring) is deliberate: this toggle is
+          // a full-bleed sunken bar flush to the card's top edge + rounded-t
+          // corners, so an outset ring would protrude past the card border. The
+          // sibling bulk buttons below keep the standard offset ring.
+          className={`group flex min-h-tap-min w-full min-w-0 items-center gap-2 bg-surface-sunken p-tile-pad text-left transition-colors duration-fast hover:bg-surface focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus-ring ${
+            open ? "rounded-t-md border-b border-border" : "rounded-md"
+          }`}
+        >
+          <ChevronRight
+            aria-hidden="true"
+            className={`size-4 shrink-0 text-text-subtle transition-transform duration-fast group-hover:text-text-strong ${
+              open ? "rotate-90" : ""
+            }`}
+          />
+          <span className="min-w-0 flex-1 wrap-break-word text-sm font-semibold text-text-strong">
             {group.showName}
           </span>
           <span
             data-testid={`auto-applied-count-${group.showId}`}
             aria-label={`${group.rows.length} ${group.rows.length === 1 ? "change" : "changes"}`}
-            className="shrink-0 rounded-full border border-border bg-surface px-2 text-xs font-semibold text-text-subtle"
+            className="shrink-0 rounded-full border border-border bg-surface px-2 text-xs font-semibold tabular-nums text-text-subtle"
           >
             {group.rows.length}
           </span>
-        </span>
-        <span className="flex flex-wrap items-center gap-2">
-          <span data-testid={`auto-applied-accept-all-${group.showId}`}>
-            <AcceptChangeButton
-              acceptAction={actions.acceptAllAction}
-              hiddenFields={{ showId: group.showId, ids: group.acceptableIds.join(",") }}
-              label="Accept all"
-            />
-          </span>
-          {undoableCount > 0 ? (
-            <button
-              type="button"
-              data-testid={`auto-applied-undo-all-${group.showId}`}
-              onClick={() => setConfirming(true)}
-              className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border-strong bg-surface px-4 py-2 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
-            >
-              Undo all
-            </button>
-          ) : null}
-        </span>
-      </div>
+        </button>
+      </h5>
 
-      {confirming ? (
+      {open ? (
         <div
-          role="status"
-          data-testid={`auto-applied-undo-all-confirm-${group.showId}`}
-          className="flex flex-col gap-2 border-b border-border bg-warning-bg p-tile-pad text-warning-text"
+          id={panelId}
+          data-testid={panelId}
+          role="region"
+          aria-label={`Auto-applied changes for ${group.showName}`}
         >
-          <p className="text-sm">
-            Undo all {undoableCount} roster {undoableCount === 1 ? "change" : "changes"} for this
-            show? Each is reversed and a hold is written.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            <button
-              ref={keepChangesRef}
-              type="button"
-              onClick={() => setConfirming(false)}
-              disabled={pending}
-              data-testid={`auto-applied-undo-all-cancel-${group.showId}`}
-              className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              Keep changes
-            </button>
-            <button
-              type="button"
-              onClick={confirmUndoAll}
-              disabled={pending}
-              aria-busy={pending}
-              data-testid={`auto-applied-undo-all-confirm-go-${group.showId}`}
-              className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-surface px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {pending
-                ? "Undoing…"
-                : `Undo all ${undoableCount} ${undoableCount === 1 ? "change" : "changes"}`}
-            </button>
+          {/* Bulk actions sit on their OWN row underneath the show name, not beside
+              it — and outside the toggle <button> (a11y: no nested interactives). */}
+          <div className="flex flex-wrap items-center gap-2 border-b border-border p-tile-pad">
+            <span data-testid={`auto-applied-accept-all-${group.showId}`}>
+              <AcceptChangeButton
+                acceptAction={actions.acceptAllAction}
+                hiddenFields={{ showId: group.showId, ids: group.acceptableIds.join(",") }}
+                label="Accept all"
+              />
+            </span>
+            {undoableCount > 0 ? (
+              <button
+                type="button"
+                data-testid={`auto-applied-undo-all-${group.showId}`}
+                onClick={() => setConfirming(true)}
+                className="inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm border border-border-strong bg-surface px-4 py-2 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+              >
+                Undo all
+              </button>
+            ) : null}
           </div>
+
+          {confirming ? (
+            <div
+              role="status"
+              data-testid={`auto-applied-undo-all-confirm-${group.showId}`}
+              className="flex flex-col gap-2 border-b border-border bg-warning-bg p-tile-pad text-warning-text"
+            >
+              <p className="text-sm">
+                Undo all {undoableCount} roster {undoableCount === 1 ? "change" : "changes"} for
+                this show? Each is reversed and a hold is written.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  ref={keepChangesRef}
+                  type="button"
+                  onClick={() => setConfirming(false)}
+                  disabled={pending}
+                  data-testid={`auto-applied-undo-all-cancel-${group.showId}`}
+                  className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-bg px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Keep changes
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmUndoAll}
+                  disabled={pending}
+                  aria-busy={pending}
+                  data-testid={`auto-applied-undo-all-confirm-go-${group.showId}`}
+                  className="inline-flex min-h-tap-min items-center justify-center rounded-sm border border-border-strong bg-surface px-4 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {pending
+                    ? "Undoing…"
+                    : `Undo all ${undoableCount} ${undoableCount === 1 ? "change" : "changes"}`}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          <ul className="flex flex-col gap-2.5 p-tile-pad">
+            {group.rows.map((row) => (
+              <StripRow key={row.id} row={row} group={group} actions={actions} />
+            ))}
+          </ul>
         </div>
       ) : null}
-
-      <ul className="flex flex-col gap-2.5 p-tile-pad">
-        {group.rows.map((row) => (
-          <StripRow key={row.id} row={row} group={group} actions={actions} />
-        ))}
-      </ul>
     </li>
   );
 }
@@ -297,9 +349,14 @@ function GroupSection({
 export function RecentAutoAppliedStrip({
   data,
   actions,
+  defaultExpanded = false,
 }: {
   data: RecentAutoApplied;
   actions: RecentAutoAppliedStripActions;
+  // Per-group starting disclosure state. Omitted on the admin dashboard → every
+  // group is collapsed by default; a show-scoped surface passes `defaultExpanded`
+  // so its group renders flat (no click to reveal).
+  defaultExpanded?: boolean;
 }) {
   if (data.kind === "infra_error") {
     // Bounded, plain-language fallback — never the raw kind token or internal
@@ -331,7 +388,12 @@ export function RecentAutoAppliedStrip({
       <h4 className="text-sm font-semibold text-text-strong">Recently auto-applied</h4>
       <ul className="flex flex-col gap-2">
         {data.groups.map((group) => (
-          <GroupSection key={group.showId} group={group} actions={actions} />
+          <GroupSection
+            key={group.showId}
+            group={group}
+            actions={actions}
+            defaultExpanded={defaultExpanded}
+          />
         ))}
       </ul>
       {data.overflowCount > 0 ? (
