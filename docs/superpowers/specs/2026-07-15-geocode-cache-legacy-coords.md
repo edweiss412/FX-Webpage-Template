@@ -143,12 +143,21 @@ Effects:
   so don't re-run it casually. Safeupdate-safe: the UPDATE carries a real WHERE clause.
 - Parse-time behavior is unchanged, so already-staged parse results produced from legacy
   cache rows still carry the ET fallback + warning until re-parsed. **Mandatory
-  validation close-out (R9):** immediately after the surgical validation apply, run
-  "Reset validation data" + a fresh onboarding rescan (the reset now clears
-  `geocode_cache` too, and the rescan re-parses every show through the cold geocode
-  path), then verify `pnpm observe staged --env validation --warnings-only` shows no
-  `VENUE_TIMEZONE_UNRESOLVED` rows. This guarantees no pre-fix staged row survives to be
-  finalized as validation state. Recorded in the PR's apply log.
+  validation close-out (R9/R12, ordered; each step recorded in the PR's apply log):**
+  1. Surgical apply of the migration to validation (capture the fuse NOTICE count).
+  2. **Reset-RPC proof (R12)** — the step-4 warning check alone cannot distinguish the
+     expiry fix from the RPC fix (a broken RPC would leave expired rows that the rescan
+     simply overwrites), so prove the RPC BEFORE the rescan: assert
+     `pg_get_functiondef('public.reset_validation_data()'::regprocedure)` contains
+     `delete from public.geocode_cache`; run "Reset validation data"; assert
+     `select count(*) from geocode_cache` = 0 on validation — behavioral proof seeded by
+     the expired-but-still-present legacy rows (the expiry only marks rows stale; only
+     the new RPC removes them).
+  3. Fresh onboarding rescan (re-parses every show through the cold geocode path).
+  4. Verify `pnpm observe staged --env validation --warnings-only` shows no
+     `VENUE_TIMEZONE_UNRESOLVED` rows.
+  This guarantees no pre-fix staged row survives to be finalized as validation state AND
+  that validation's reset is proven virgin-capable (goal 2) independently of the expiry.
   **Scope boundary (do not relitigate):** finalize semantics are untouched. A staged row
   with `VENUE_TIMEZONE_UNRESOLVED` remains finalizable BY DESIGN — the code is a
   gate-exempt data-gap (`lib/parser/dataGaps.ts:67`, `gateExempt: true`): staged-review
