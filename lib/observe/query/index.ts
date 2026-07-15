@@ -6,6 +6,7 @@ export { queryChangeLog } from "./changeLog";
 export { queryStagedParses } from "./staged";
 export { queryIngestFailures } from "./failures";
 export { queryPublishedWarnings } from "./warnings";
+export { querySyncLog } from "./syncLog";
 export { isUuid, clampLimit } from "./types";
 export type {
   AlertFilters,
@@ -23,6 +24,9 @@ export type {
   PublishedWarningsFilters,
   PublishedWarningsRow,
   QueryPublishedWarningsResult,
+  SyncLogFilters,
+  SyncLogRow,
+  QuerySyncLogResult,
 } from "./types";
 export {
   serializeParseWarning,

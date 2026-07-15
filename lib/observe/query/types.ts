@@ -117,3 +117,26 @@ export type PublishedWarningsRow = {
 export type QueryPublishedWarningsResult =
   | { kind: "ok"; rows: PublishedWarningsRow[] }
   | { kind: "infra_error"; message: string };
+
+export type SyncLogFilters = {
+  showId?: string;
+  driveFileId?: string;
+  status?: string;
+  sinceHours?: number | null;
+  limit?: number;
+  includePii?: boolean;
+};
+export type SyncLogRow = {
+  id: string;
+  showId: string | null;
+  driveFileId: string | null;
+  status: string;
+  message: string;
+  warningCount: number;
+  warnings: SerializedWarning[];
+  durationMs: number | null;
+  occurredAt: string;
+};
+export type QuerySyncLogResult =
+  | { kind: "ok"; rows: SyncLogRow[] }
+  | { kind: "infra_error"; message: string };
