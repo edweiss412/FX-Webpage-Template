@@ -17,7 +17,7 @@ The headline gap: staged parse warnings mid-wizard.
 - Table: `public.pending_syncs` (`supabase/migrations/20260501001000_internal_and_admin.sql:138`).
 - SELECT (never the whole row — `parse_result` embeds the full parsed show payload including crew emails):
   `id, drive_file_id, parsed_at, staged_modified_time, source_kind, wizard_session_id, wizard_approved, warning_summary, last_finalize_failure_code, warnings:parse_result->warnings`
-  (`last_finalize_failure_code` is unconstrained text in the DDL → emitted under the same `INTERNAL_CODE_ENUMS`-membership rule as §2.2 `last_error_code` — §5.2 class D)
+  (`last_finalize_failure_code` is unconstrained text in the DDL → emitted under the §5.0 class-D union-membership rule, same as §2.2 `last_error_code`)
   The `warnings:parse_result->warnings` aliased jsonb projection keeps the rest of `parse_result` out of the wire response entirely.
 - Flags:
   - `--session <uuid>` → `.eq("wizard_session_id", v)` (non-UUID → CLI error, §6 fail-closed rule)
@@ -37,7 +37,7 @@ The headline gap: staged parse warnings mid-wizard.
 - Flags: `--session <uuid>`, `--code <C>` (→ `.eq("last_error_code", v)`), `--since` (on `last_attempt_at`, default 24h), `--limit`, `--json`, `--env`.
 - Ordering: `last_attempt_at` desc.
 - Output row: `last_attempt_at  drive_file_id  attempt_count  last_error_code  drive_file_name(sanitized, truncated)`; `--json` adds `last_error_message` (sanitized) + `last_warnings` (array-guarded; each element through the §5.1 serializer).
-- Redaction: `drive_file_name` and `last_error_message` are free text → `sanitizeIdentityString`. `last_error_code` is emitted raw ONLY if it is an `INTERNAL_CODE_ENUMS` member (the column is unconstrained text in the DDL — a buggy writer could persist an email/token-shaped value; same enum-membership rule as §5.1 warning codes, Codex R5 F3); non-members render as `UNKNOWN_CODE` in table output and `{ lastErrorCode: "", lastErrorCodeUnrecognized: true }` in `--json`. The `--code` DB filter still matches the raw column value exactly (filtering by an exact string the operator typed is not an emission).
+- Redaction: `drive_file_name` and `last_error_message` are free text → `sanitizeIdentityString`. `last_error_code` is emitted raw ONLY on §5.0 class-D union membership (`INTERNAL_CODE_ENUMS` ∪ `isMessageCode` — the column is unconstrained text in the DDL, a buggy writer could persist an email/token-shaped value; Codex R5 F3 + R6 F1); non-members render as `UNKNOWN_CODE` in table output and `{ lastErrorCode: "", lastErrorCodeUnrecognized: true }` in `--json`. The `--code` DB filter still matches the raw column value exactly (filtering by an exact string the operator typed is not an emission).
 
 ### 2.3 `warnings` — shows_internal.parse_warnings (published shows)
 
@@ -150,7 +150,7 @@ Structural closure of the recurring redaction vector (R2–R5 each found one mor
 | A — schema-typed non-text (uuid, timestamptz, int, bool) | raw | `id`, `show_id`, `wizard_session_id`, `parsed_at`, `staged_modified_time`, `first_seen_at`, `last_attempt_at`, `attempt_count`, `wizard_approved`, `occurred_at`, `duration_ms`, `deferred_at`, `deferred_at_modified_time`, `created_at`, `activated_at`, `superseded_at`, `stopped_at`, `expires_at` |
 | B — CHECK-constrained enum in DDL | raw | `source_kind` (`…001000_internal_and_admin.sql:158`), `deferred_kind` (`:254`), `drive_watch_channels.status` (`:295`) |
 | C — free text / unconstrained text with no enum | `sanitizeIdentityString` | `warning_summary`, `drive_file_name`, `last_error_message`, `reason`, `sync_log.message`, `sync_log.status` |
-| D — code-valued but unconstrained in DDL | raw ONLY on `INTERNAL_CODE_ENUMS` membership, else `UNKNOWN_CODE` / flagged-empty in `--json` | `last_error_code`, `last_finalize_failure_code` |
+| D — code-valued but unconstrained in DDL | raw ONLY on membership in `INTERNAL_CODE_ENUMS` ∪ the §12.4 message catalog (`isMessageCode`, `lib/messages/lookup.ts:91`) — both finite generated/curated sets, so the union stays token-proof; else `UNKNOWN_CODE` / flagged-empty in `--json`. Union, not `INTERNAL_CODE_ENUMS` alone: real finalize codes are catalog codes absent from the internal enum — e.g. `RESCAN_REVIEW_REQUIRED` (`lib/messages/catalog.ts:2987`) is written to `pending_syncs.last_finalize_failure_code` by the finalize route; rendering it `UNKNOWN_CODE` would hide the exact recovery reason (Codex R6 F1). Regression test: `last_finalize_failure_code = "RESCAN_REVIEW_REQUIRED"` preserved verbatim in table + `--json`. | `last_error_code`, `last_finalize_failure_code` |
 | E — opaque identifier (Drive/channel IDs; token-shaped but non-secret, printed raw by existing commands) | raw | `drive_file_id`, `watched_folder_id`, `resource_id`, `drive_watch_channels.id` |
 | F — email (PII) | not selected unless `--reveal-email` | `wizard_approved_by_email`, `deferred_by_email` |
 | G — jsonb warning arrays | §5.1 serializer, per element | `parse_result->warnings`, `last_warnings`, `shows_internal.parse_warnings`, `sync_log.parse_warnings` |
