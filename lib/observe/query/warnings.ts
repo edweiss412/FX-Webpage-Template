@@ -15,7 +15,10 @@ const SELECT = "show_id, parse_warnings, shows(title, slug)";
 type RawRow = {
   show_id: string;
   parse_warnings: unknown;
-  shows: { title: string | null; slug: string | null } | { title: string | null; slug: string | null }[] | null;
+  shows:
+    | { title: string | null; slug: string | null }
+    | { title: string | null; slug: string | null }[]
+    | null;
 };
 
 export async function queryPublishedWarnings(

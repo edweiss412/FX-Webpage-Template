@@ -10,7 +10,8 @@ const state = vi.hoisted(() => ({
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServiceRoleClient: () => {
     const builder: Record<string, unknown> = {};
-    const chain = (method: string) =>
+    const chain =
+      (method: string) =>
       (...args: unknown[]) => {
         state.calls.push({ method, args });
         if (method === "select") state.selectArg = args[0] as string;
@@ -62,7 +63,13 @@ describe("queryStagedParses", () => {
     expect(state.selectArg).toContain("wizard_approved_by_email");
   });
   it("applies filters: session eq, file eq, since gte, warningsOnly ->0 not-is-null pre-cap, bound", async () => {
-    await queryStagedParses({ sessionId: SESSION, driveFileId: "1N1PK", warningsOnly: true, sinceHours: 168, limit: 7 });
+    await queryStagedParses({
+      sessionId: SESSION,
+      driveFileId: "1N1PK",
+      warningsOnly: true,
+      sinceHours: 168,
+      limit: 7,
+    });
     const names = state.calls.map((c) => c.method);
     expect(names).toContain("not");
     const not = state.calls.find((c) => c.method === "not")!;

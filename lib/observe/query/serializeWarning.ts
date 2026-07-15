@@ -59,10 +59,7 @@ export function serializeWarningArray(
 // generated/curated sets (union: real finalize codes like RESCAN_REVIEW_REQUIRED
 // are catalog-only).
 export function emitClassDCode(raw: unknown): { code: string; unrecognized: boolean } {
-  if (
-    typeof raw === "string" &&
-    (Object.hasOwn(INTERNAL_CODE_ENUMS, raw) || isMessageCode(raw))
-  ) {
+  if (typeof raw === "string" && (Object.hasOwn(INTERNAL_CODE_ENUMS, raw) || isMessageCode(raw))) {
     return { code: raw, unrecognized: false };
   }
   return { code: "", unrecognized: true };

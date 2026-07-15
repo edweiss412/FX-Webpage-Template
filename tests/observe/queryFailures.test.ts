@@ -10,7 +10,8 @@ const state = vi.hoisted(() => ({
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServiceRoleClient: () => {
     const builder: Record<string, unknown> = {};
-    const chain = (method: string) =>
+    const chain =
+      (method: string) =>
       (...args: unknown[]) => {
         state.calls.push({ method, args });
         if (method === "select") state.selectArg = args[0] as string;
@@ -37,7 +38,9 @@ const baseRow = {
   attempt_count: 3,
   last_error_code: "DRIVE_FETCH_FAILED",
   last_error_message: "fetch failed",
-  last_warnings: [{ severity: "warn", code: "AGENDA_DAY_EMPTIED", message: "m", rawSnippet: "snippet" }],
+  last_warnings: [
+    { severity: "warn", code: "AGENDA_DAY_EMPTIED", message: "m", rawSnippet: "snippet" },
+  ],
   wizard_session_id: null,
 };
 
@@ -76,7 +79,9 @@ describe("queryIngestFailures", () => {
         attempt_count: 3,
         last_error_code: TOKEN, // token-shaped garbage — not a member
         last_error_message: `msg ${TOKEN}`,
-        last_warnings: [{ severity: "warn", code: "AGENDA_DAY_EMPTIED", message: "m", rawSnippet: TOKEN }],
+        last_warnings: [
+          { severity: "warn", code: "AGENDA_DAY_EMPTIED", message: "m", rawSnippet: TOKEN },
+        ],
         wizard_session_id: null,
       },
     ];
@@ -109,10 +114,9 @@ describe("queryIngestFailures", () => {
   it("filters: sessionId eq", async () => {
     const SESSION = "8e5568a8-b3cd-4033-9840-18cba07a55c6";
     await queryIngestFailures({ sessionId: SESSION });
-    expect(state.calls.find((c) => c.method === "eq" && c.args[0] === "wizard_session_id")!.args).toEqual([
-      "wizard_session_id",
-      SESSION,
-    ]);
+    expect(
+      state.calls.find((c) => c.method === "eq" && c.args[0] === "wizard_session_id")!.args,
+    ).toEqual(["wizard_session_id", SESSION]);
   });
 
   it("sinceHours default 24 when undefined", async () => {
@@ -120,7 +124,7 @@ describe("queryIngestFailures", () => {
     const gteCall = state.calls.find((c) => c.method === "gte")!;
     const since = new Date(gteCall.args[1] as string).getTime();
     const now = Date.now();
-    const diffHours = (now - since) / (3_600_000);
+    const diffHours = (now - since) / 3_600_000;
     expect(diffHours).toBeGreaterThanOrEqual(23.9);
     expect(diffHours).toBeLessThanOrEqual(24.1);
   });

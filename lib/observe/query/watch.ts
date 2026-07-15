@@ -30,17 +30,19 @@ export async function queryWatchChannels(filters: WatchFilters): Promise<QueryWa
       .order("created_at", { ascending: false })
       .limit(clampLimit(filters.limit, 100));
     if (error) return { kind: "infra_error", message: "drive_watch_channels read failed" };
-    const rows = ((data ?? []) as unknown as RawRow[]).map((r): WatchRow => ({
-      id: r.id,
-      status: r.status,
-      watchedFolderId: r.watched_folder_id,
-      resourceId: r.resource_id,
-      expiresAt: r.expires_at,
-      createdAt: r.created_at,
-      activatedAt: r.activated_at,
-      supersededAt: r.superseded_at,
-      stoppedAt: r.stopped_at,
-    }));
+    const rows = ((data ?? []) as unknown as RawRow[]).map(
+      (r): WatchRow => ({
+        id: r.id,
+        status: r.status,
+        watchedFolderId: r.watched_folder_id,
+        resourceId: r.resource_id,
+        expiresAt: r.expires_at,
+        createdAt: r.created_at,
+        activatedAt: r.activated_at,
+        supersededAt: r.superseded_at,
+        stoppedAt: r.stopped_at,
+      }),
+    );
     return { kind: "ok", rows };
   } catch {
     return { kind: "infra_error", message: "drive_watch_channels read threw" };

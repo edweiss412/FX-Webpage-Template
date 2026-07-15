@@ -72,9 +72,7 @@ describe("--env validation is VALIDATION_*-only (Codex R3 F2)", () => {
   });
   test("local + prod paths byte-identical to before", () => {
     expect(resolveTarget(undefined, {})).toEqual({ kind: "ok", envName: "local" });
-    expect(resolveTarget(undefined, { SUPABASE_URL: "https://x.supabase.co" }).kind).toBe(
-      "error",
-    );
+    expect(resolveTarget(undefined, { SUPABASE_URL: "https://x.supabase.co" }).kind).toBe("error");
     expect(
       resolveTarget("prod", { SUPABASE_URL: "https://x.supabase.co", SUPABASE_SECRET_KEY: "k" }),
     ).toEqual({ kind: "ok", envName: "prod" });

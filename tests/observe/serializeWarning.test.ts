@@ -66,8 +66,10 @@ describe("serializeParseWarning", () => {
   });
   it("rejects malformed severity and non-object elements", () => {
     expect(
-      serializeParseWarning({ severity: "info<script>", code: "X", message: "m" }, { includePii: false })
-        .severity,
+      serializeParseWarning(
+        { severity: "info<script>", code: "X", message: "m" },
+        { includePii: false },
+      ).severity,
     ).toBe("");
     expect(serializeParseWarning("scalar", { includePii: false })).toEqual({
       severity: "",
@@ -97,7 +99,10 @@ describe("serializeWarningArray", () => {
 
 describe("emitClassDCode (INTERNAL_CODE_ENUMS ∪ message catalog)", () => {
   it("passes internal-enum codes", () => {
-    expect(emitClassDCode("AGENDA_DAY_EMPTIED")).toEqual({ code: "AGENDA_DAY_EMPTIED", unrecognized: false });
+    expect(emitClassDCode("AGENDA_DAY_EMPTIED")).toEqual({
+      code: "AGENDA_DAY_EMPTIED",
+      unrecognized: false,
+    });
   });
   it("passes catalog-only codes verbatim (Codex R6 F1 — RESCAN_REVIEW_REQUIRED)", () => {
     expect(emitClassDCode("RESCAN_REVIEW_REQUIRED")).toEqual({

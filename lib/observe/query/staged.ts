@@ -45,7 +45,9 @@ export async function queryStagedParses(filters: StagedFilters): Promise<QuerySt
     const rows = ((data ?? []) as unknown as RawRow[]).map((r): StagedRow => {
       const rawCode = r.last_finalize_failure_code;
       const finalize =
-        rawCode == null || rawCode === "" ? { code: "", unrecognized: false } : emitClassDCode(rawCode);
+        rawCode == null || rawCode === ""
+          ? { code: "", unrecognized: false }
+          : emitClassDCode(rawCode);
       const out: StagedRow = {
         id: r.id,
         driveFileId: r.drive_file_id,

@@ -1,14 +1,10 @@
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { sanitizeIdentityString } from "@/lib/adminAlerts/sanitizeIdentityString";
 import { serializeWarningArray } from "./serializeWarning";
-import {
-  clampLimit,
-  type QuerySyncLogResult,
-  type SyncLogFilters,
-  type SyncLogRow,
-} from "./types";
+import { clampLimit, type QuerySyncLogResult, type SyncLogFilters, type SyncLogRow } from "./types";
 
-const SELECT = "id, show_id, drive_file_id, status, message, parse_warnings, duration_ms, occurred_at";
+const SELECT =
+  "id, show_id, drive_file_id, status, message, parse_warnings, duration_ms, occurred_at";
 
 type RawRow = {
   id: string;
@@ -37,19 +33,21 @@ export async function querySyncLog(filters: SyncLogFilters): Promise<QuerySyncLo
       .order("occurred_at", { ascending: false })
       .limit(clampLimit(filters.limit, 100));
     if (error) return { kind: "infra_error", message: "sync_log read failed" };
-    const rows = ((data ?? []) as unknown as RawRow[]).map((r): SyncLogRow => ({
-      id: r.id,
-      showId: r.show_id,
-      driveFileId: r.drive_file_id,
-      // §5.0 class C: sync_log.status is unconstrained text in the DDL — sanitized
-      // (lossless for real values like "watermark"; token-proof for garbage).
-      status: sanitizeIdentityString(r.status, { includePii }),
-      message: sanitizeIdentityString(r.message, { includePii }),
-      warningCount: Array.isArray(r.parse_warnings) ? r.parse_warnings.length : 0,
-      warnings: serializeWarningArray(r.parse_warnings, { includePii }),
-      durationMs: r.duration_ms,
-      occurredAt: r.occurred_at,
-    }));
+    const rows = ((data ?? []) as unknown as RawRow[]).map(
+      (r): SyncLogRow => ({
+        id: r.id,
+        showId: r.show_id,
+        driveFileId: r.drive_file_id,
+        // §5.0 class C: sync_log.status is unconstrained text in the DDL — sanitized
+        // (lossless for real values like "watermark"; token-proof for garbage).
+        status: sanitizeIdentityString(r.status, { includePii }),
+        message: sanitizeIdentityString(r.message, { includePii }),
+        warningCount: Array.isArray(r.parse_warnings) ? r.parse_warnings.length : 0,
+        warnings: serializeWarningArray(r.parse_warnings, { includePii }),
+        durationMs: r.duration_ms,
+        occurredAt: r.occurred_at,
+      }),
+    );
     return { kind: "ok", rows };
   } catch {
     return { kind: "infra_error", message: "sync_log read threw" };

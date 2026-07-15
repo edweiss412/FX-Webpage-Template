@@ -1,7 +1,12 @@
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { sanitizeIdentityString } from "@/lib/adminAlerts/sanitizeIdentityString";
 import { emitClassDCode, serializeWarningArray } from "./serializeWarning";
-import { clampLimit, type FailureFilters, type FailureRow, type QueryFailuresResult } from "./types";
+import {
+  clampLimit,
+  type FailureFilters,
+  type FailureRow,
+  type QueryFailuresResult,
+} from "./types";
 
 const SELECT =
   "id, drive_file_id, drive_file_name, first_seen_at, last_attempt_at, attempt_count, last_error_code, last_error_message, last_warnings, wizard_session_id";

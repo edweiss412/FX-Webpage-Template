@@ -10,7 +10,8 @@ const state = vi.hoisted(() => ({
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServiceRoleClient: () => {
     const builder: Record<string, unknown> = {};
-    const chain = (method: string) =>
+    const chain =
+      (method: string) =>
       (...args: unknown[]) => {
         state.calls.push({ method, args });
         if (method === "select") state.selectArg = args[0] as string;
