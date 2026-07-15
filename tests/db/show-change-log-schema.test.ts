@@ -192,6 +192,24 @@ describe("public.show_change_log DDL", () => {
     });
   });
 
+  it("accepts the use_raw_stale notification row shape (auto_apply / applied) — real DB, no allowlist rejects change_kind", async () => {
+    // Codex whole-diff review R5 F1 refutation + regression pin: writeUseRawStaleChanges
+    // inserts change_kind='use_raw_stale' with source='auto_apply', status='applied'. The
+    // change_kind CHECK is length>0 (not an enum), so the value is accepted; this real-DB
+    // insert PROVES no source/status allowlist or hidden constraint rejects it (a mocked
+    // test could not). If a future migration converts change_kind to an enum CHECK, this
+    // fails loudly unless 'use_raw_stale' is included.
+    await inRollback(async (tx) => {
+      const showId = await seedShow(tx);
+      const id = await insertLog(tx, showId, {
+        source: "auto_apply",
+        change_kind: "use_raw_stale",
+        status: "applied",
+      });
+      expect(id).toBeTruthy();
+    });
+  });
+
   it("accepts every contract status value incl. superseded", async () => {
     await inRollback(async (tx) => {
       const showId = await seedShow(tx);
