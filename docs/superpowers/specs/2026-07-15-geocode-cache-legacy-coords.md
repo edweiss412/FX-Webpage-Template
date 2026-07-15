@@ -102,12 +102,27 @@ Effects:
   (upsert on `query_hash`, `lib/geocoding/cache.ts`), `venue.timezone` set via
   `coordsToTimezone`, warning gone. No new control flow, no breaker interaction beyond
   the cold path's existing rules, no refresh loop possible (there is no refresh).
-- Authorship is irrelevant: the UPDATE acts on rows that EXIST at migration-apply time,
-  and every environment's deployed writer has been coords-capable since the Flow 8.3a
-  code shipped (migration `20260709000000`; later migrations `20260710000000`,
-  `20260714000000` prove subsequent deploys). Rows written after the apply carry coords,
-  or carry genuine NULL coords from a no-geometry/ZERO_RESULTS answer — which warn
-  correctly and are not re-queried, exactly today's intended terminal behavior.
+- Authorship is irrelevant for rows that EXIST at apply time (all expired). For rows
+  written AFTER the apply, the writer-version question is closed per environment by an
+  explicit **rollout gate** (R7), not by assumption:
+  - **Local/CI:** migrations apply to a fresh DB before any writer runs — no skew
+    possible.
+  - **Prod:** migrations apply through the deploy pipeline, atomically with promoting a
+    build of current `main` — which has contained the coords-capable writer since Flow
+    8.3a. Vercel routes all traffic to the promoted deployment, so no pre-coords bundle
+    can execute a write after the apply.
+  - **Validation (manual surgical apply):** before applying, verify the environment's
+    active deployment postdates Flow 8.3a — confirm the current Vercel deployment's
+    commit contains `supabase/migrations/20260709000000_geocode_cache_coords.sql`
+    (`git merge-base --is-ancestor <deployed-sha> ...` or the deployment list); apply
+    only then. Recorded in the PR's apply log alongside the NOTICE count.
+  Post-apply writes therefore carry coords, or carry genuine NULL coords from a
+  no-geometry/ZERO_RESULTS answer — which warn correctly and are not re-queried, exactly
+  today's intended terminal behavior.
+  **Residual risk, bounded:** if a coord-less skew row nonetheless appeared, the failure
+  mode is today's status quo (VENUE_TIMEZONE_UNRESOLVED until that row's ≤30-day TTL),
+  visible via `pnpm observe staged --warnings-only` / `observe warnings` — a bounded
+  degradation, never data corruption.
 - Null-city coord-less rows (pre-coords ZERO_RESULTS *or* OK-but-no-locality — the two
   are indistinguishable in old rows, R3 finding 2) are expired too, so a venue that
   actually has geometry gets its coords and timezone on the next parse instead of
@@ -224,9 +239,12 @@ exclusivity `:337`) continues to pin the unchanged runtime behavior.
    `expires_at <= now()` while a coords-bearing sibling row keeps its future expiry
    (catches: the WHERE matching too much — expiring healthy rows — or too little; derives
    expectations from the seeded fixtures, not hardcoded row counts).
-5. **Miss-path integration proof:** after (3), `readGeocodeCache` for the expired row's
-   hash returns `{ kind: "miss" }` (catches: the expiry not actually flowing through the
-   `.gt("expires_at", ...)` read filter — i.e. the fix not fixing the bug).
+5. **Miss-path integration proof:** after the SUCCESSFUL expiry scenario in (4) — i.e.
+   with the coord-less row's `expires_at` asserted moved to `<= now()` — `readGeocodeCache`
+   for that row's hash returns `{ kind: "miss" }`, while the coords-bearing sibling's hash
+   still returns a hit (catches: the expiry not actually flowing through the
+   `.gt("expires_at", ...)` read filter — i.e. the fix not fixing the bug; NOT wired to
+   the abort scenario in (3), which must leave rows unchanged).
 
 ### Structural/meta suites (must stay green; no new registry rows needed)
 
