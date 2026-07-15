@@ -33,9 +33,12 @@ return validation to a virgin state for this table. Omission by timing, not deci
    `lat`/`lng`) re-geocodes it once via the existing cold path, backfilling coords + city
    and setting `venue.timezone` — the warning stops without waiting out the 30-day TTL.
 2. `reset_validation_data()` also clears `public.geocode_cache`, restoring virgin state.
-3. No behavior change for: fresh rows with coords, cached ZERO_RESULTS rows (`city` NULL),
-   unconfigured geocoding, breaker-open cold paths, or the VENUE_GEOCODE_UNRESOLVED /
-   VENUE_TIMEZONE_UNRESOLVED mutual-exclusivity contract on the *cold* (no-cache-row) path.
+3. No RUNTIME behavior change anywhere (`enrichVenueGeocode`, `readGeocodeCache`,
+   `writeGeocodeCache`, warning semantics are all untouched). Data-wise, the one-shot
+   expiry deliberately covers ALL fresh coord-less rows including `city` NULL ones
+   (pre-coords ZERO_RESULTS and OK-but-no-locality are indistinguishable, §3.1): each such
+   venue is re-geocoded ONCE on its next parse, then returns to cached-terminal behavior.
+   Coords-bearing rows are never touched.
 
 Non-goals: no new §12.4 codes; no admin UI change; no `enrichVenueGeocode` /
 `readGeocodeCache` behavior change; no change to cache TTL or breaker constants.
@@ -53,7 +56,8 @@ structural: **there is no runtime discriminator and no change to
 `lib/sync/enrichVenueGeocode.ts` at all.**
 
 Instead, the migration that ships Fix 2 (§3.2) also runs a one-shot expiry over every
-fresh coord-less row:
+fresh coord-less row (expiry lands a full day in the PAST, not `now()`, so an app clock
+lagging the DB clock can never re-read the row as a hit — R8):
 
 ```sql
 do $$
@@ -75,7 +79,7 @@ begin
       n;
   end if;
   update public.geocode_cache
-     set expires_at = now()
+     set expires_at = now() - interval '1 day'
    where (lat is null or lng is null)
      and expires_at > now();
   get diagnostics n = row_count;
@@ -233,12 +237,15 @@ exclusivity `:337`) continues to pin the unchanged runtime behavior.
    moved (catches: fuse missing/non-atomic — the R5 high; mutation-before-check
    ordering). Also assert the block's source contains the `lock table` fence ahead of
    the count (catches: the R6 READ COMMITTED count/update divergence regressing).
-4. **Post-apply DB invariant:** against the local all-migrations-applied DB, insert a
-   coord-less row with a future `expires_at` DIRECTLY (simulating a legacy row), run the
-   migration's UPDATE statement verbatim (extracted from the file), and assert the row's
-   `expires_at <= now()` while a coords-bearing sibling row keeps its future expiry
-   (catches: the WHERE matching too much — expiring healthy rows — or too little; derives
-   expectations from the seeded fixtures, not hardcoded row counts).
+4. **Post-apply DB invariant:** against the local all-migrations-applied DB, insert BOTH
+   coord-less shapes DIRECTLY with future `expires_at` — one `city` non-null (the
+   validation storm shape) and one `city` NULL (pre-coords ZERO_RESULTS/no-locality
+   shape) — run the migration's DO block verbatim (extracted from the file), and assert
+   both rows' `expires_at < now() - interval '12 hours'` (the past-shifted expiry
+   defeats app/DB clock skew — R8) while a coords-bearing sibling row keeps its future
+   expiry (catches: the WHERE matching too much — expiring healthy rows — or too little,
+   e.g. excluding null-city rows against the §2.3 contract; derives expectations from the
+   seeded fixtures, not hardcoded row counts).
 5. **Miss-path integration proof:** after the SUCCESSFUL expiry scenario in (4) — i.e.
    with the coord-less row's `expires_at` asserted moved to `<= now()` — `readGeocodeCache`
    for that row's hash returns `{ kind: "miss" }`, while the coords-bearing sibling's hash
