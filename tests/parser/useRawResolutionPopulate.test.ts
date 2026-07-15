@@ -4,7 +4,7 @@ import { parseRooms } from "@/lib/parser/blocks/rooms";
 import { parseHotels } from "@/lib/parser/blocks/hotels";
 import { parseDates } from "@/lib/parser/blocks/dates";
 import { newAggregator } from "@/lib/parser/warnings";
-import { stripConfirmationTokens } from "@/lib/parser/blocks/_helpers";
+import { stripConfirmationTokens } from "@/lib/parser/blocks/hotelConfTokens";
 import type { ParseWarning } from "@/lib/parser/types";
 
 // Task 2 (spec §6): the three recoverable warning builders attach a `resolution`
@@ -144,20 +144,28 @@ describe("Task 2 — parser populates warning.resolution", () => {
     expect(res.replacement.confirmationNo).toBeNull();
   });
 
-  it("stripConfirmationTokens mirrors the parser conf policy (Codex R10)", () => {
-    // Dash-prefixed 4+-digit conf tokens removed; markdown-escaped "\-"/"\#" + &#10;
-    // separators normalized; bare un-dashed "#1234" left as the normal parse leaves it;
-    // an all-conf cell reduces to "" (→ the emitter's empty-raw guard, never names:[""]).
+  it("stripConfirmationTokens shares the parser's full conf policy (Codex R10/R11)", () => {
+    // Delegates to the SAME stripConfTokens the hotel parser applies per guest name, so
+    // EVERY shape the parser strips is stripped here too: dash-#, bare "#1234", and bare
+    // 6+ digit runs; markdown-escaped "\-"/"\#" + &#10; separators normalize first; ZIP+4
+    // and short numbers survive; an all-conf cell reduces to "" (emitter → empty-raw).
     expect(stripConfirmationTokens("Douglas Larson - #2069854 John Carleo - #2069855")).toBe(
       "Douglas Larson John Carleo",
     );
     expect(stripConfirmationTokens("Anne-Marie Smith - #1234")).toBe("Anne-Marie Smith");
-    expect(stripConfirmationTokens("Douglas Larson \\- \\#2069854&#10;John Carleo \\- \\#2069855")).toBe(
-      "Douglas Larson John Carleo",
-    );
+    expect(
+      stripConfirmationTokens("Douglas Larson \\- \\#2069854&#10;John Carleo \\- \\#2069855"),
+    ).toBe("Douglas Larson John Carleo");
     expect(stripConfirmationTokens("- #2069854")).toBe("");
-    expect(stripConfirmationTokens("Bob #12")).toBe("Bob #12"); // 2 digits, no dash → not a conf
-    expect(stripConfirmationTokens("Room #1234 Guest")).toBe("Room #1234 Guest"); // bare #, no dash
+    // R11 shapes the weaker regex MISSED: bare "#1234" (no dash) and a bare 6+ digit run.
+    expect(stripConfirmationTokens("Room #1234 Guest")).toBe("Room Guest");
+    expect(stripConfirmationTokens("Eric Weiss 2004173 In on the 6th")).toBe(
+      "Eric Weiss In on the 6th",
+    );
+    // A conf# after a 5-digit token is stripped; a real ZIP+4 is preserved (no over-strip).
+    expect(stripConfirmationTokens("Suite 12345-2069854")).toBe("Suite 12345");
+    expect(stripConfirmationTokens("Chicago IL 60611-1234")).toBe("Chicago IL 60611-1234");
+    expect(stripConfirmationTokens("Bob #12")).toBe("Bob #12"); // 2 digits → not a conf
   });
 
   // ── Dates ──────────────────────────────────────────────────────────────────

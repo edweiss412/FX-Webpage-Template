@@ -20,7 +20,7 @@
 //   - hotel guest tokenizer rejects digits in names — `lib/parser/blocks/hotels.ts:185`.
 //   - room header name shape `/^[A-Z0-9][A-Z0-9 &',./-]*$/` — `rooms.ts:134-152`
 //     (⇒ room names are UPPERCASE).
-//   - US suffix-bearing street address — `STREET_ADDRESS_RE` `hotels.ts:319-320`.
+//   - US suffix-bearing street address — `STREET_ADDRESS_RE` `hotelConfTokens.ts`.
 //   - 4-digit-year date shapes bounded to 2000–2099 — `normalizeDate` `_helpers.ts:178`
 //     (our [2020,2035] window sits safely inside it for every dateFormat dial value).
 //   - day-restriction / date tokens `\d{1,2}/\d{1,2}` — `PAREN_ONLY_PATTERN`
@@ -147,7 +147,7 @@ const HOTEL_WORDS = ["Harborview", "Bayside", "Grand", "Summit", "Riverside", "B
 const ROOM_WORDS = ["ALPINE", "MERIDIAN", "HARBOR", "SUMMIT", "AZURE", "CEDAR"] as const;
 const VENUE_WORDS = ["Vantage", "Cascade", "Horizon", "Vista", "Keystone"] as const;
 
-// STREET_ADDRESS_RE suffix subset (hotels.ts:320). Letter-only street names +
+// STREET_ADDRESS_RE suffix subset (hotelConfTokens.ts). Letter-only street names +
 // a suffix drawn from the regex's own list; the house number carries the only
 // digits, and no marker literal (ONLY/***/#/`\d/\d`/parens) can appear.
 const STREET_NAMES = ["Main", "Oak", "Maple", "Highland", "Cedar", "Birch"] as const;

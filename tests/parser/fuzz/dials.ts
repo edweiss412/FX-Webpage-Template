@@ -281,7 +281,7 @@ export const DIAL_REGISTRY: DialRegistry = [
   },
   {
     name: "address",
-    contractFile: "lib/parser/blocks/hotels.ts",
+    contractFile: "lib/parser/blocks/hotelConfTokens.ts",
     contractSymbol: "STREET_ADDRESS_RE",
     note: "suffix-bearing only; ZIP-tail regex is discriminator-only",
     key: null,

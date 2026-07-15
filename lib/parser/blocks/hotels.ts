@@ -28,8 +28,13 @@ import {
   emitHotelCardinalityExceeded,
 } from "@/lib/parser/warnings";
 import { clean, presence, normalizeDate, parseTableRows, inferShowYear } from "./_helpers";
+import { stripConfTokens, looksLikeStreetStart, STREET_ADDRESS_RE } from "./hotelConfTokens";
 import { buildCol0HeaderRe, matchesSectionHeader } from "./_sectionHeaderMatch";
 import { log } from "@/lib/log";
+
+// Re-export for external importers that referenced this from `hotels.ts` before the
+// conf-token policy moved to its single-source leaf module (tests/parser/blocks/hotels.test.ts).
+export { looksLikeStreetStart };
 
 export const SECTION_HEADER_TOKENS = [
   "HOTEL",
@@ -218,70 +223,6 @@ export function parseGuestCell(cell: string): {
 }
 
 /**
- * Remove any confirmation number from a string, alphabet-agnostic. Covers all
- * inline shapes in the corpus: dash/#-prefixed ("Doug--- 103317", "Eric - #2069853")
- * AND the legacy BARE form ("Eric Weiss 2004173 In on the 6th"). Bare runs are
- * gated at 6+ digits so a US ZIP (5) or street number survives.
- */
-function stripConfTokens(name: string): string {
-  return (
-    name
-      // dash-prefixed conf# (#optional). Preserve ONLY a true ZIP+4 hyphen: a
-      // word-boundary 5-digit ZIP immediately before, a SINGLE "-" with NO separator, and
-      // EXACTLY 4 trailing digits ("…IL 60611-1234"), so the crew-visible "+4" is not
-      // clipped (audit idx4). Every other dash-number is a conf# and is stripped — including
-      // a conf# after a 5-digit token ("Suite 12345-2069854"), a #/spaced/multi-dash conf#,
-      // and any run of 5+ trailing digits (Codex R1/R2). A left-only lookbehind can't gate
-      // the right side, so use a replacer that inspects both.
-      .replace(
-        /(\s*)([-–—]{1,3})(\s*#?\s*)(\d{4,})/g,
-        (
-          whole,
-          ws: string,
-          dashes: string,
-          sep: string,
-          digits: string,
-          offset: number,
-          str: string,
-        ) => {
-          // The predicate is EXACTLY `\b\d{5}-\d{4}\b`: a boundary 5-digit ZIP before, an
-          // ASCII hyphen (en/em-dash is a conf# delimiter — Codex R3), no separator, exactly
-          // 4 digits, and a trailing word boundary (Codex R4 — "60611-1234A" is not a ZIP+4).
-          const afterMatch = str.charAt(offset + whole.length);
-          const isZip4 =
-            dashes === "-" &&
-            sep.length === 0 &&
-            digits.length === 4 &&
-            /\b\d{5}$/.test(str.slice(0, offset + ws.length)) &&
-            (afterMatch === "" || !/\w/.test(afterMatch));
-          if (isZip4) return whole;
-          // idx88: a dash-prefixed number that BEGINS A STREET PHRASE is a street
-          // address, not a conf#. Deleting it strands splitHotelNameAddress with no
-          // street number to split on, collapsing the whole cell into hotel_name with
-          // a null address ("Hyatt Regency - 1515 Madison Ave …" → the "- 1515" is
-          // dropped). looksLikeStreetStart is the SAME street-vs-conf discriminator the
-          // Hotel-Stays path uses (suffixed street OR "…, ST ZIP" tail). A "#"-marked
-          // run ("- #1515") is always a conf#, so only a plain dash qualifies. Keep the
-          // NUMBER but DROP the separator dash, yielding the flattened "name number
-          // street" form splitHotelNameAddress expects (matching the inline no-guest
-          // path). A dash-number that is NOT a street phrase stays stripped.
-          if (
-            !sep.includes("#") &&
-            looksLikeStreetStart(" " + digits + str.slice(offset + whole.length))
-          ) {
-            return " " + digits;
-          }
-          return " ";
-        },
-      )
-      .replace(/\s*#\s*\d{4,}/g, " ") // #-prefixed, no dash
-      .replace(/\b\d{6,}\b/g, " ") // bare 6+ digit run (conf#; longer than any ZIP)
-      .replace(/\s+/g, " ")
-      .trim()
-  );
-}
-
-/**
  * Split a flattened "<hotel name> <street address>" string into the venue name
  * and the street address (§2.6 / BL-PARSER #3). The production exporter flattens
  * the source cell's `name⏎street⏎city` newlines to spaces, so the boundary is
@@ -316,26 +257,6 @@ function stripConfTokens(name: string): string {
  * via its trailing US ZIP tail ("…, <ST> <ZIP>") — a confirmation number is never
  * followed by a state+ZIP, so this can't false-split a hotel name or a guest conf#.
  */
-const STREET_ADDRESS_RE =
-  /\s(\d{1,5})\s+(?:(?:[NSEW]{1,2}|North|South|East|West)\.?\s+)?(?:(?:\d{1,3}(?:st|nd|rd|th)|\p{L}[\p{L}.'-]*)\s+){0,4}(?:St|Street|Ave|Avenue|Av|Blvd|Boulevard|Dr|Drive|Rd|Road|Pl|Place|Ln|Lane|Way|Ct|Court|Pkwy|Parkway|Sq|Square|Ter|Terrace|Cir|Circle|Hwy|Highway|Pike|Row|Walk|Trl|Trail|Loop|Path|Plaza|Crescent|Cres|Commons|Close|Mews|Quay|Wharf|Gardens|Gdns|Esplanade|Promenade|Concourse)\b/iu;
-
-// Suffixless street: "<1–5 digit number> <words…>, <2-letter state> <5-digit ZIP>".
-// The interior (street name + city) is digit-free so it can't run past a conf# or a
-// second number; the comma+state+ZIP tail is what marks it as an address.
-const STREET_ADDRESS_ZIP_RE =
-  /\s(\d{1,5})\s+\p{L}[\p{L}\p{M}\s.'#/-]*?,\s*[A-Z]{2}\s+(?:\d{5}(?:-\d{4})?|[A-Za-z]\d[A-Za-z]\s?\d[A-Za-z]\d)\b/u;
-
-/** True iff `" " + s.slice(i)` begins a street phrase by SUFFIX or by US ZIP tail.
- * Used ONLY by the Hotel-Stays discriminator to tell a dash-STREET-number from a
- * dash-CONF#. NOT used to SPLIT (splitHotelNameAddress stays strictly suffix-only,
- * so a numeric hotel brand like "Hotel 71 Chicago, IL 60601" is never corrupted —
- * the ZIP tail would otherwise treat "71 Chicago, IL …" as an address, Codex R5). */
-export function looksLikeStreetStart(s: string): boolean {
-  const a = STREET_ADDRESS_RE.exec(s);
-  if (a && a.index === 0) return true;
-  const b = STREET_ADDRESS_ZIP_RE.exec(s);
-  return b !== null && b.index === 0;
-}
 
 export function splitHotelNameAddress(combined: string | null): {
   name: string | null;

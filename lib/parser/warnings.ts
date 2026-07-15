@@ -10,7 +10,7 @@
 
 import type { ParseWarning, UseRawResolution } from "./types";
 import { collapse, contentHashForRawSnippet, contentHashForDateTokens } from "./useRawContentHash";
-import { stripConfirmationTokens } from "./blocks/_helpers";
+import { stripConfirmationTokens } from "./blocks/hotelConfTokens";
 
 export type RawUnrecognized = { block: string; key: string; value: string };
 
