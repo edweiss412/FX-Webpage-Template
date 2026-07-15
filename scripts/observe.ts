@@ -10,13 +10,31 @@ import {
   formatAlerts,
   formatCron,
   formatChanges,
+  formatStaged,
+  formatFailures,
+  formatPublishedWarnings,
+  formatSyncLog,
+  formatDeferred,
+  formatWatch,
 } from "./observe/format";
 import { queryEvents as realQueryEvents } from "@/lib/observe/query/events";
 import { getCronHealth as realGetCronHealth } from "@/lib/observe/query/cronHealth";
 import { queryAlerts as realQueryAlerts } from "@/lib/observe/query/alerts";
 import { queryChangeLog as realQueryChangeLog } from "@/lib/observe/query/changeLog";
+import { queryStagedParses as realQueryStagedParses } from "@/lib/observe/query/staged";
+import { queryIngestFailures as realQueryIngestFailures } from "@/lib/observe/query/failures";
+import { queryPublishedWarnings as realQueryPublishedWarnings } from "@/lib/observe/query/warnings";
+import { querySyncLog as realQuerySyncLog } from "@/lib/observe/query/syncLog";
+import { queryDeferred as realQueryDeferred } from "@/lib/observe/query/deferred";
+import { queryWatchChannels as realQueryWatchChannels } from "@/lib/observe/query/watch";
 import { clampLimit } from "@/lib/observe/query";
 import type { AppEventRow } from "@/lib/admin/telemetryTypes";
+
+// Same PII stderr warning string used by every PII-capable command (alerts +
+// the five new commands). `watch` never carries PII so it never calls this.
+function piiWarning(reveal: boolean): string {
+  return reveal ? "warning: --reveal-email shows raw canonical email (PII) in output\n" : "";
+}
 
 // Infra/usage errors: JSON object on stderr when --json (agent-parseable), else plain text.
 function fail(
@@ -76,6 +94,12 @@ type ObserveDeps = {
   getCronHealth: typeof realGetCronHealth;
   queryAlerts: typeof realQueryAlerts;
   queryChangeLog: typeof realQueryChangeLog;
+  queryStagedParses: typeof realQueryStagedParses;
+  queryIngestFailures: typeof realQueryIngestFailures;
+  queryPublishedWarnings: typeof realQueryPublishedWarnings;
+  querySyncLog: typeof realQuerySyncLog;
+  queryDeferred: typeof realQueryDeferred;
+  queryWatchChannels: typeof realQueryWatchChannels;
   env: Record<string, string | undefined>;
   nowMs: number;
 };
@@ -107,15 +131,66 @@ export async function runObserve(
   if (command === "alerts") {
     const r = await deps.queryAlerts(parsed.alertFilters);
     if (r.kind === "infra_error") return fail(r.message, parsed.json);
-    const stderr = parsed.revealEmail
-      ? "warning: --reveal-email shows raw canonical email (PII) in output\n"
-      : "";
-    return { stdout: formatAlerts(r.alerts, parsed.json), stderr, exitCode: 0 };
+    return {
+      stdout: formatAlerts(r.alerts, parsed.json),
+      stderr: piiWarning(parsed.revealEmail),
+      exitCode: 0,
+    };
   }
   if (command === "changes") {
     const r = await deps.queryChangeLog(parsed.changeFilters);
     if (r.kind === "infra_error") return fail(r.message, parsed.json);
     return { stdout: formatChanges(r.changes, parsed.json), stderr: "", exitCode: 0 };
+  }
+  if (command === "staged") {
+    const r = await deps.queryStagedParses(parsed.stagedFilters);
+    if (r.kind === "infra_error") return fail(r.message, parsed.json);
+    return {
+      stdout: formatStaged(r.rows, parsed.json, parsed.full),
+      stderr: piiWarning(parsed.revealEmail),
+      exitCode: 0,
+    };
+  }
+  if (command === "failures") {
+    const r = await deps.queryIngestFailures(parsed.failureFilters);
+    if (r.kind === "infra_error") return fail(r.message, parsed.json);
+    return {
+      stdout: formatFailures(r.rows, parsed.json),
+      stderr: piiWarning(parsed.revealEmail),
+      exitCode: 0,
+    };
+  }
+  if (command === "warnings") {
+    const r = await deps.queryPublishedWarnings(parsed.warningsFilters);
+    if (r.kind === "infra_error") return fail(r.message, parsed.json);
+    return {
+      stdout: formatPublishedWarnings(r.rows, parsed.json),
+      stderr: piiWarning(parsed.revealEmail),
+      exitCode: 0,
+    };
+  }
+  if (command === "synclog") {
+    const r = await deps.querySyncLog(parsed.syncLogFilters);
+    if (r.kind === "infra_error") return fail(r.message, parsed.json);
+    return {
+      stdout: formatSyncLog(r.rows, parsed.json),
+      stderr: piiWarning(parsed.revealEmail),
+      exitCode: 0,
+    };
+  }
+  if (command === "deferred") {
+    const r = await deps.queryDeferred(parsed.deferredFilters);
+    if (r.kind === "infra_error") return fail(r.message, parsed.json);
+    return {
+      stdout: formatDeferred(r.rows, parsed.json),
+      stderr: piiWarning(parsed.revealEmail),
+      exitCode: 0,
+    };
+  }
+  if (command === "watch") {
+    const r = await deps.queryWatchChannels(parsed.watchFilters);
+    if (r.kind === "infra_error") return fail(r.message, parsed.json);
+    return { stdout: formatWatch(r.rows, parsed.json), stderr: "", exitCode: 0 };
   }
   if (command === "events" || command === "tail") {
     // Clamp to the CLI contract (1..500; command-specific default). collectEvents
@@ -132,13 +207,19 @@ export async function runObserve(
   return fail(`unhandled command ${command}`, parsed.json);
 }
 
-const USAGE = `pnpm observe <events|alerts|cron|changes|codes|tail> [flags]
+const USAGE = `pnpm observe <events|alerts|cron|changes|codes|tail|staged|failures|warnings|synclog|deferred|watch> [flags]
   events   [--show <uuid>] [--level info,warn,error] [--code C] [--source S] [--request R] [--q text] [--since 1h|24h|7d|all] [--limit N] [--json] [--env local|validation|prod]
   alerts   [--open] [--code C] [--limit N] [--reveal-email] [--json] [--env …]
   cron     [--json] [--env …]
   changes  [--show <uuid>] [--since …] [--limit N] [--json] [--env …]
   codes    [CODE]                (offline; --env ignored)
-  tail     [--follow] [--interval S] [events filters…] [--json] [--env …]`;
+  tail     [--follow] [--interval S] [events filters…] [--json] [--env …]
+  staged   [--session <uuid>] [--file F] [--warnings-only] [--full] [--since …] [--limit N] [--reveal-email] [--json] [--env …]
+  failures [--session <uuid>] [--code C] [--since …] [--limit N] [--reveal-email] [--json] [--env …]
+  warnings [--show <uuid>] [--limit N] [--reveal-email] [--json] [--env …]
+  synclog  [--show <uuid>] [--file F] [--status S] [--since …] [--limit N] [--reveal-email] [--json] [--env …]
+  deferred [--limit N] [--reveal-email] [--json] [--env …]
+  watch    [--limit N] [--json] [--env …]`;
 
 // ---- Direct-run entry (not exercised by unit tests) ----
 const isEntry = (() => {
@@ -157,6 +238,12 @@ if (isEntry) {
     getCronHealth: realGetCronHealth,
     queryAlerts: realQueryAlerts,
     queryChangeLog: realQueryChangeLog,
+    queryStagedParses: realQueryStagedParses,
+    queryIngestFailures: realQueryIngestFailures,
+    queryPublishedWarnings: realQueryPublishedWarnings,
+    querySyncLog: realQuerySyncLog,
+    queryDeferred: realQueryDeferred,
+    queryWatchChannels: realQueryWatchChannels,
     env: process.env,
     nowMs: Date.now(),
   };
