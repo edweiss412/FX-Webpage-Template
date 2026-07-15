@@ -39,6 +39,14 @@ const READ_MODULES = [
   "lib/observe/query/cronHealth.ts",
   "lib/observe/query/alerts.ts",
   "lib/observe/query/changeLog.ts",
+  // observe CLI telemetry gaps plan Task 10: the six new observe query
+  // modules (staged/failures/warnings/synclog/deferred/watch commands).
+  "lib/observe/query/staged.ts",
+  "lib/observe/query/failures.ts",
+  "lib/observe/query/warnings.ts",
+  "lib/observe/query/syncLog.ts",
+  "lib/observe/query/deferred.ts",
+  "lib/observe/query/watch.ts",
   // Bell notification center Task 10: admin_alerts existence/tier-visibility
   // lookup ahead of the bell_mark_read write — bounded via .limit(1).
   "app/api/admin/alerts/bell/read/route.ts",
@@ -56,6 +64,10 @@ const UNBOUNDED_TABLES = [
   "app_events",
   "admin_alerts",
   "show_change_log",
+  // observe CLI telemetry gaps plan Task 10.
+  "sync_log",
+  "deferred_ingestions",
+  "drive_watch_channels",
 ];
 
 function statements(src: string): string[] {
