@@ -1,0 +1,136 @@
+<!-- SNAPSHOT of Claude Design mock "Dashboard - Auto-applied (Final).dc.html"
+     Source project: claude.ai/design/p/5e40dee1-f49c-4828-9cfe-558ff4f1fc83 ("Section rows redesign")
+     Fetched 2026-07-14 via DesignSync. Committed BEFORE UI implementation for visual grounding
+     (feedback_commit_design_mock_snapshot_for_subagents). IN SCOPE for this spec: only the inline
+     "Recently auto-applied" <section> (grouped change-review cards). The other regions
+     (AdminNav / StatStrip / ShowsTableView / NeedsAttentionCol / Ignored sheets / footer) are the
+     surrounding dashboard context and are NOT part of this redesign. Raw hex here is the mock's own
+     styling; the implementation maps every color to existing DESIGN.md status tokens (see spec §4). -->
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+</head>
+<body>
+<main style="max-width:1288px;margin:0 auto;padding:24px 32px 48px">
+  <div style="display:flex;gap:24px;align-items:flex-start;margin-top:32px">
+    <div style="flex:1;min-width:0"><!-- ShowsTableView (out of scope) --></div>
+
+    <div style="width:336px;flex-shrink:0;display:flex;flex-direction:column;gap:12px">
+      <!-- NeedsAttentionCol (out of scope) -->
+
+      <!-- ===== IN SCOPE: "Recently auto-applied" section ===== -->
+      <section style="display:flex;flex-direction:column;gap:8px">
+        <h4 style="margin:0;font-size:14px;font-weight:600;color:#0e0f12">Recently auto-applied</h4>
+
+        <!-- GROUP CARD: header = show name + count badge + Accept all / Undo all -->
+        <div style="border:1px solid #e5e4e0;border-radius:12px;background:#fff;overflow:hidden;box-shadow:0 1px 2px rgba(20,18,12,0.04)">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-bottom:1px solid #e5e4e0">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0">
+              <span style="font-size:13px;font-weight:600;color:#0e0f12;overflow-wrap:break-word;min-width:0">Fixed Income Trading Summit 2025</span>
+              <span style="flex-shrink:0;border:1px solid #e5e4e0;background:#f4f3f1;border-radius:999px;padding:0 7px;font-size:11px;font-weight:600;color:#5a5b62">3</span>
+            </div>
+            <div style="display:flex;gap:4px;flex-shrink:0">
+              <button type="button">Accept all</button>
+              <button type="button">Undo all</button>
+            </div>
+          </div>
+          <div style="padding:12px 14px;display:flex;flex-direction:column;gap:10px">
+
+            <!-- CHANGE CARD — kind "Field" (gray = status-idle), diff:none, single Accept -->
+            <div style="border:1px solid #e5e4e0;border-radius:8px;background:#fff;padding:10px 12px;display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border:1px solid #e5e4e0;border-radius:999px;background:#f4f3f1;font-size:10.5px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:#5a5b62"><span style="width:6px;height:6px;border-radius:999px;background:#8b8c92"></span>Field</span>
+                <span style="font-size:13px;font-weight:600;color:#0e0f12">Show end date</span>
+              </div>
+              <!-- NOTE: field_changed stores NO structured from/to in real data; this From/To is mock-only.
+                   Real render falls back to the summary sentence (spec §3, diff:none). -->
+              <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 10px;align-items:baseline">
+                <span style="font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:#8b8c92">From</span>
+                <span style="font-size:13px;color:#5a5b62;text-decoration:line-through">10/22/25</span>
+                <span style="font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:#8b8c92">To</span>
+                <span style="font-size:13px;font-weight:600;color:#0e0f12">10/23/25</span>
+              </div>
+              <div style="display:flex;gap:6px">
+                <button type="button" style="flex:1">Accept</button>
+              </div>
+            </div>
+
+            <!-- CHANGE CARD — kind "Renamed" (amber = status-review), diff:fromTo, Accept + Undo -->
+            <div style="border:1px solid #e5e4e0;border-radius:8px;background:#fff;padding:10px 12px;display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border:1px solid #ecd9a8;border-radius:999px;background:#faf3e2;font-size:10.5px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:#6e4e00"><span style="width:6px;height:6px;border-radius:999px;background:#a87716"></span>Renamed</span>
+                <span style="font-size:13px;font-weight:600;color:#0e0f12">Crew member</span>
+              </div>
+              <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 10px;align-items:baseline">
+                <span style="font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:#8b8c92">From</span>
+                <span style="font-size:13px;color:#5a5b62;text-decoration:line-through">Jon Clark</span>
+                <span style="font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:#8b8c92">To</span>
+                <span style="font-size:13px;font-weight:600;color:#0e0f12">John Clark</span>
+              </div>
+              <div style="display:flex;gap:6px">
+                <button type="button" style="flex:1">Accept</button>
+                <button type="button" style="flex:1">Undo</button>
+              </div>
+            </div>
+
+            <!-- CHANGE CARD — kind "Added" (teal = status-positive), diff:single (caption "Added"), Accept + Undo.
+                 Mock shows "Maria Chen · A2 · Camera" but only the NAME is backed (after_image.name);
+                 role/position is NOT stored, so real render shows the name only (spec §3). -->
+            <div style="border:1px solid #e5e4e0;border-radius:8px;background:#fff;padding:10px 12px;display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border:1px solid #bfe0da;border-radius:999px;background:#e7f1ef;font-size:10.5px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:#2c655f"><span style="width:6px;height:6px;border-radius:999px;background:#3f8a83"></span>Added</span>
+                <span style="font-size:13px;font-weight:600;color:#0e0f12">Crew member</span>
+              </div>
+              <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 10px;align-items:baseline">
+                <span style="font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:#8b8c92">Added</span>
+                <span style="font-size:13px;font-weight:600;color:#0e0f12">Maria Chen <span style="font-weight:400;color:#5a5b62">· A2 · Camera</span></span>
+              </div>
+              <div style="display:flex;gap:6px">
+                <button type="button" style="flex:1">Accept</button>
+                <button type="button" style="flex:1">Undo</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- SECOND GROUP CARD — kind "Removed" (orange = status-warn), diff:single (caption "Removed", strikethrough) -->
+        <div style="border:1px solid #e5e4e0;border-radius:12px;background:#fff;overflow:hidden;box-shadow:0 1px 2px rgba(20,18,12,0.04)">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;border-bottom:1px solid #e5e4e0">
+            <div style="display:flex;align-items:center;gap:8px;min-width:0">
+              <span style="font-size:13px;font-weight:600;color:#0e0f12">AII/III — Consultants Roundtable</span>
+              <span style="flex-shrink:0;border:1px solid #e5e4e0;background:#f4f3f1;border-radius:999px;padding:0 7px;font-size:11px;font-weight:600;color:#5a5b62">1</span>
+            </div>
+            <div style="display:flex;gap:4px;flex-shrink:0">
+              <button type="button">Accept all</button>
+              <button type="button">Undo all</button>
+            </div>
+          </div>
+          <div style="padding:12px 14px">
+            <div style="border:1px solid #e5e4e0;border-radius:8px;background:#fff;padding:10px 12px;display:flex;flex-direction:column;gap:8px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border:1px solid #eccea8;border-radius:999px;background:#f9ede0;font-size:10.5px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase;color:#7a3d00"><span style="width:6px;height:6px;border-radius:999px;background:#b26a16"></span>Removed</span>
+                <span style="font-size:13px;font-weight:600;color:#0e0f12">Crew member</span>
+              </div>
+              <div style="display:grid;grid-template-columns:auto 1fr;gap:3px 10px;align-items:baseline">
+                <span style="font-size:10.5px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:#8b8c92">Removed</span>
+                <span style="font-size:13px;color:#5a5b62;text-decoration:line-through">Devin Park</span>
+              </div>
+              <div style="display:flex;gap:6px">
+                <button type="button" style="flex:1">Accept</button>
+                <button type="button" style="flex:1">Undo</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- OVERFLOW LINE — dashed border, plain text -->
+        <p style="margin:2px 0 0;font-size:13px;color:#5a5b62;border:1px dashed #e5e4e0;border-radius:8px;padding:10px 12px">+2 older changes not shown</p>
+      </section>
+      <!-- ===== END IN SCOPE ===== -->
+    </div>
+  </div>
+</main>
+</body>
+</html>
