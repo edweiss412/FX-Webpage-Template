@@ -1,0 +1,349 @@
+# Spec — Legacy geocode-cache rows: coords refresh + reset coverage
+
+**Date:** 2026-07-15
+**Status:** Draft (autonomous ship; user review waived per AGENTS.md autonomous pipeline)
+**Owner surface:** `lib/sync/enrichVenueGeocode.ts`, `supabase/migrations/` (reset RPC)
+
+## 1. Problem
+
+Flow 8.3a (`supabase/migrations/20260709000000_geocode_cache_coords.sql`) added nullable
+`lat`/`lng` columns to `public.geocode_cache` (table created
+`supabase/migrations/20260627000001_geocode_cache.sql`). Rows geocoded before 2026-07-09
+have `city` set but `lat`/`lng` NULL, and stay fresh for the 30-day TTL
+(`GEOCODE_CACHE_TTL_MS`, `lib/geocoding/cache.ts:23`).
+
+`enrichVenueGeocode` (`lib/sync/enrichVenueGeocode.ts:115-120`) early-returns on any fresh
+cache hit: it sets `venue.city` and calls `applyTimezoneOrWarn(result, venue, cached.lat,
+cached.lng)`. With NULL coords, `coordsToTimezone` (`lib/time/coordsToTimezone.ts`) returns
+null and the parse emits the gate-exempt `VENUE_TIMEZONE_UNRESOLVED` data-gap
+(`lib/sync/enrichVenueGeocode.ts:90-94`). Because a hit never re-geocodes, the coords are
+never backfilled — every parse of that venue warns until the row expires.
+
+Observed on validation 2026-07-15: all 7 staged parses warned `VENUE_TIMEZONE_UNRESOLVED`;
+all 6 `geocode_cache` rows had `city` set, `lat`/`lng` NULL, `expires_at` 2026-07-28.
+
+Separately: the "Reset validation data" action's RPC `public.reset_validation_data()`
+(latest definition `supabase/migrations/20260622000003_validation_reset_safeupdate.sql`)
+predates the `geocode_cache` table by 5 days and does not delete it, so a reset does not
+return validation to a virgin state for this table. Omission by timing, not decision.
+
+## 2. Goals
+
+1. The next parse of any venue whose cache row predates the coords columns (NULL
+   `lat`/`lng`) re-geocodes it once via the existing cold path, backfilling coords + city
+   and setting `venue.timezone` — the warning stops without waiting out the 30-day TTL.
+2. `reset_validation_data()` also clears `public.geocode_cache`, restoring virgin state.
+3. No RUNTIME behavior change anywhere (`enrichVenueGeocode`, `readGeocodeCache`,
+   `writeGeocodeCache`, warning semantics are all untouched). Data-wise, the one-shot
+   expiry deliberately covers ALL fresh coord-less rows including `city` NULL ones
+   (pre-coords ZERO_RESULTS and OK-but-no-locality are indistinguishable, §3.1): each such
+   venue is re-geocoded ONCE on its next parse, then returns to cached-terminal behavior.
+   Coords-bearing rows are never touched.
+
+Non-goals: no new §12.4 codes; no admin UI change; no `enrichVenueGeocode` /
+`readGeocodeCache` behavior change; no change to cache TTL or breaker constants.
+
+## 3. Design
+
+### 3.1 Fix 1 — one-shot expiry of coord-less cache rows (R3 structural pivot)
+
+Rounds 1-3 of adversarial review each broke a runtime "legacy row" discriminator on the
+same vector: no value shape (`city` non-null + coords NULL), and no wall-clock cutoff
+(coords-migration prefix, this-fix prefix), can PROVE which code version wrote a cache
+row — every variant either strands a deploy-gap row (warns until TTL) or loops
+(re-queries Google every parse). Per the project's same-vector rule, the resolution is
+structural: **there is no runtime discriminator and no change to
+`lib/sync/enrichVenueGeocode.ts` at all.**
+
+Instead, the migration that ships Fix 2 (§3.2) also runs a one-shot expiry over every
+fresh coord-less row (expiry lands a full day in the PAST, not `now()`, so an app clock
+lagging the DB clock can never re-read the row as a hit — R8):
+
+```sql
+do $$
+declare
+  n integer;
+begin
+  -- Fuse atomicity (R6): fence concurrent service-role cache writes so the counted
+  -- set IS the mutated set (READ COMMITTED would otherwise let the UPDATE see rows
+  -- committed after the count). Held for the block's few milliseconds only.
+  lock table public.geocode_cache in share row exclusive mode;
+  -- Blast-radius fuse (R5): enforced IN the transaction, not by operator discipline.
+  select count(*) into n
+    from public.geocode_cache
+   where (lat is null or lng is null)
+     and expires_at > now();
+  if n > 1000 then
+    raise exception
+      'geocode_cache one-shot expiry: % coord-less rows exceeds the 1000-row fuse — batch the expiry instead of applying blind',
+      n;
+  end if;
+  update public.geocode_cache
+     set expires_at = now() - interval '1 day'
+   where (lat is null or lng is null)
+     and expires_at > now();
+  get diagnostics n = row_count;
+  raise notice 'geocode_cache one-shot expiry: % coord-less row(s) expired', n;
+end $$;
+```
+
+**Blast-radius control (R4/R5).** The fuse is enforced atomically inside the DO block:
+the transaction counts matching rows first and RAISEs (aborting the apply, zero rows
+mutated) above **1,000 rows**; below it, the UPDATE runs and the block reports the actual
+expired count via NOTICE. The threshold rationale: the table's cardinality is
+distinct-venues-scanned-per-30-days (observed: 6 on validation; the product's domain is
+one AV company's show venues, so hundreds is already implausible), and even the full
+threshold costs ~US$5 of Geocoding API quota spread across subsequent scans (successful
+cold-path calls are per-venue, once-per-30-days, and remain bounded per-scan by the
+6s/1-retry budget). The operator preflight count remains documented as a courtesy check,
+but safety does not depend on it.
+
+Effects:
+
+- `readGeocodeCache` filters on `.gt("expires_at", now)` (`lib/geocoding/cache.ts:61`),
+  so every expired row is a **miss**; the next parse of that venue takes the existing,
+  fully-tested cold path — live geocode, coords + city written by `writeGeocodeCache`
+  (upsert on `query_hash`, `lib/geocoding/cache.ts`), `venue.timezone` set via
+  `coordsToTimezone`, warning gone. No new control flow, no breaker interaction beyond
+  the cold path's existing rules, no refresh loop possible (there is no refresh).
+- Authorship is irrelevant for rows that EXIST at apply time (all expired). For rows
+  written AFTER the apply, the writer-version question is closed per environment by an
+  explicit **rollout gate** (R7), not by assumption:
+  - **Local/CI:** migrations apply to a fresh DB before any writer runs — no skew
+    possible.
+  - **Prod:** migrations apply through the deploy pipeline, atomically with promoting a
+    build of current `main` — which has contained the coords-capable writer since Flow
+    8.3a. Vercel routes all traffic to the promoted deployment, so no pre-coords bundle
+    can execute a write after the apply.
+  - **Validation (manual surgical apply):** before applying, verify the environment's
+    active deployment postdates Flow 8.3a — confirm the current Vercel deployment's
+    commit contains `supabase/migrations/20260709000000_geocode_cache_coords.sql`
+    (`git merge-base --is-ancestor <deployed-sha> ...` or the deployment list); apply
+    only then. Recorded in the PR's apply log alongside the NOTICE count.
+  Post-apply writes therefore carry coords, or carry genuine NULL coords from a
+  no-geometry/ZERO_RESULTS answer — which warn correctly and are not re-queried, exactly
+  today's intended terminal behavior.
+  **Residual risk, bounded:** if a coord-less skew row nonetheless appeared, the failure
+  mode is today's status quo (VENUE_TIMEZONE_UNRESOLVED until that row's ≤30-day TTL),
+  visible via `pnpm observe staged --warnings-only` / `observe warnings` — a bounded
+  degradation, never data corruption.
+- Null-city coord-less rows (pre-coords ZERO_RESULTS *or* OK-but-no-locality — the two
+  are indistinguishable in old rows, R3 finding 2) are expired too, so a venue that
+  actually has geometry gets its coords and timezone on the next parse instead of
+  waiting out the TTL.
+- Cost: one extra Google geocode per distinct affected venue (6 rows on validation,
+  bounded by the per-venue timeout/retry budget and circuit breaker on the cold path);
+  cached-forever behavior resumes with the fresh 30-day row.
+- One-shot execution is owned by `schema_migrations` (a migration runs once per
+  environment); the surgical validation apply (§3.3) is likewise performed once. A manual
+  RE-apply is NOT a strict no-op: rows the first apply expired no longer match
+  (`expires_at > now()`), but any coord-less row written AFTER the first apply (a genuine
+  no-geometry/ZERO_RESULTS terminal entry) would be expired and re-geocoded once —
+  harmless (one bounded Google call per such row, and the fuse still applies) but wasteful,
+  so don't re-run it casually. Safeupdate-safe: the UPDATE carries a real WHERE clause.
+- Parse-time behavior is unchanged, so already-staged parse results produced from legacy
+  cache rows still carry the ET fallback + warning until re-parsed. **Mandatory
+  validation close-out (R9/R12, ordered; each step recorded in the PR's apply log):**
+  1. Surgical apply of the migration to validation (capture the fuse NOTICE count).
+  2. **Reset-RPC proof (R12)** — the step-4 warning check alone cannot distinguish the
+     expiry fix from the RPC fix (a broken RPC would leave expired rows that the rescan
+     simply overwrites), so prove the RPC BEFORE the rescan: assert
+     `pg_get_functiondef('public.reset_validation_data()'::regprocedure)` contains
+     `delete from public.geocode_cache`; run "Reset validation data"; assert
+     `select count(*) from geocode_cache` = 0 on validation — behavioral proof seeded by
+     the expired-but-still-present legacy rows (the expiry only marks rows stale; only
+     the new RPC removes them).
+  3. Fresh onboarding rescan (re-parses every show through the cold geocode path).
+  4. **Positive recovery proof (R14)** — absence of the old warning is not enough (the
+     forced cold path can newly fail with `VENUE_GEOCODE_UNRESOLVED`, or return silently
+     breaker-open): verify `pnpm observe staged --env validation --warnings-only` shows
+     NEITHER `VENUE_TIMEZONE_UNRESOLVED` NOR `VENUE_GEOCODE_UNRESOLVED`, AND assert
+     `select count(*) from geocode_cache where lat is null or lng is null` = 0 on
+     validation (every rescanned venue actually re-cached with coords — catches the
+     silent breaker-open miss, which writes nothing). If either check fails, re-run the
+     rescan after the breaker cooldown (60s) / Google recovery and repeat until clean.
+  This guarantees no pre-fix staged row survives to be finalized as validation state AND
+  that validation's reset is proven virgin-capable (goal 2) independently of the expiry.
+  **Scope boundary (do not relitigate):** finalize semantics are untouched. A staged row
+  with `VENUE_TIMEZONE_UNRESOLVED` remains finalizable BY DESIGN — the code is a
+  gate-exempt data-gap (`lib/parser/dataGaps.ts:67`, `gateExempt: true`): staged-review
+  visible, deliberately non-blocking, with the ET fallback as the designed degraded
+  display. Making this spec block finalize on it would change a shipped product contract
+  far beyond a cache bugfix.
+  **Prod close-out gate (R10, mandatory before ship is declared done):** prod has no
+  reset button (gate disabled), so after the prod apply, enumerate affected artifacts
+  explicitly rather than waiting for an eventual sheet edit:
+  `pnpm observe warnings --env prod` (published shows' persisted warnings),
+  `pnpm observe staged --env prod --warnings-only`, and
+  `pnpm observe failures --env prod`, filtering for BOTH `VENUE_TIMEZONE_UNRESOLVED` and
+  `VENUE_GEOCODE_UNRESOLVED` (R14 — the remediation itself forces the cold path, which
+  can newly fail with the latter). If all three are empty for both codes, record the
+  zero-affected proof in the PR's apply log and stop. For any hit, trigger a per-show
+  re-sync from the admin surface (a re-parse runs the cold geocode path against the
+  now-expired cache and re-stages with coords), and confirm the re-synced venues' cache
+  rows carry coords (`lat`/`lng` non-null — catches the silent breaker-open miss, which
+  writes nothing); re-run the enumeration until empty, waiting out the 60s breaker
+  cooldown between attempts if Google is flaky. Published pages meanwhile show the
+  designed ET-fallback degradation, never corrupted data.
+
+**Guard conditions / unchanged behavior:** every path in `enrichVenueGeocode` is
+untouched — venue absent/blank name, city already set, unconfigured, cache infra_error,
+breaker semantics, VENUE_GEOCODE_UNRESOLVED vs VENUE_TIMEZONE_UNRESOLVED mutual
+exclusivity (`lib/sync/enrichVenueGeocode.ts:69-95`). `readGeocodeCache` and
+`writeGeocodeCache` are untouched. No new Supabase call sites, no new mutation surfaces,
+no §12.4 changes.
+
+### 3.2 Fix 2 — reset RPC clears `geocode_cache`
+
+New migration `supabase/migrations/20260715000000_geocode_cache_reset_and_expire.sql`
+carries BOTH fixes: the §3.1 one-shot expiry UPDATE, and
+`create or replace function public.reset_validation_data()` with the FULL body of the
+`20260622000003` definition plus one statement in the "clear-explicit" group:
+
+```sql
+  delete from public.geocode_cache where ctid is not null;
+```
+
+- `where ctid is not null` follows the safeupdate discipline established in
+  `20260622000003_validation_reset_safeupdate.sql` (bare DELETEs are rejected session-wide
+  by the preloaded `safeupdate` extension when called via PostgREST).
+- `geocode_cache` has no `drive_file_id` column and no FK to `shows`, so: the advisory-lock
+  key set is unchanged (single-holder topology preserved — the RPC remains the only holder,
+  in-RPC layer, per `tests/auth/advisoryLockRpcDeadlock.test.ts`); delete order vs `shows`
+  is unconstrained (placed with the other clear-explicit residue); the drive-keyed and FK
+  audit registries (`tests/db/resetValidationDataDriveKeyedAudit.test.ts`,
+  `tests/db/resetValidationDataFkAudit.test.ts`) need no rows.
+- **Concurrency scope (R4, accepted limitation):** venue enrichment writes `geocode_cache`
+  OUTSIDE the per-show advisory-lock window (enrichment precedes the staging mutation), so
+  a reset racing an in-flight scan can be followed by that scan re-inserting cache rows —
+  the reset's advisory locks cannot fence them. This residue is bounded to quota-cache
+  rows (never show/fixture data), is semantically harmless (a warm cache entry), and
+  self-corrects (TTL, or the next reset). The reset is a manual maintenance action on the
+  gate-enabled validation environment; requiring quiescence is its existing operational
+  posture (same as every other non-lock-fenced side effect of an in-flight scan, e.g. a
+  Drive fetch completing post-reset). A dedicated global advisory lock spanning
+  `writeGeocodeCache` and the RPC would add a new cross-surface lock topology (holder
+  analysis, deadlock meta-test, breaker interplay) to close a cosmetic race on a
+  cache — rejected as disproportionate. Documented here so reviews don't re-derive it.
+- Re-assert the function ACL exactly as `20260622000003` does (`revoke ... from public,
+  anon, authenticated; grant execute ... to service_role;`) so the migration is
+  self-contained and idempotent on any apply order.
+- Return payload unchanged: `jsonb_build_object('clearedShows', v_cleared)` — the action
+  and its tests (`app/admin/settings/_actions/validationReset.ts`,
+  `tests/admin/validationResetAction.test.ts`) read only `clearedShows`.
+- Trade-off acknowledged in the migration comment: clearing the cache costs a handful of
+  Google geocode calls on the first post-reset scan; virgin-state wins (this spec's origin:
+  a reset that silently preserved stale cache rows).
+- `tests/db/_resetRpcSource.ts` discovers the latest defining migration by filename sort,
+  so every body-reading audit test automatically validates the NEW definition.
+
+### 3.3 Migration lifecycle / parity
+
+Per AGENTS.md validation-parity rule, in the same PR: apply locally + test →
+`pnpm gen:schema-manifest` + commit regenerated manifest (no table DDL changes, so the
+manifest is expected byte-identical; run it regardless and commit if changed) → apply the
+migration surgically to the validation project (`psql "$TEST_DATABASE_URL" -f ...` then
+`notify pgrst, 'reload schema';`). The function replacement and ACL re-asserts are
+idempotent; the expiry DO block is one-shot (owned by `schema_migrations` on the normal
+path) and a manual RE-apply is bounded-but-wasteful, NOT a no-op — see §3.1. The
+surgical validation apply is performed exactly once and recorded in the PR's apply log
+(validation has no `schema_migrations` bookkeeping for surgical applies — the operator
+record is the guard). One-shot data effect: fresh coord-less rows become expired (a
+cache miss on the next read); the reset-RPC cache clear happens on the next reset
+invocation.
+
+Note: applying this to validation immediately expires its 6 legacy rows — the observed
+warning storm ends at the next scan/re-parse, no reset required.
+
+## 4. Test plan (TDD; concrete failure modes)
+
+No `lib/` code changes, so `tests/sync/enrichVenueGeocode.test.ts` is untouched — its
+existing suite (including "warns on a cache-hit with NULL coords" `:313` and cold-path
+exclusivity `:337`) continues to pin the unchanged runtime behavior.
+
+### `tests/db/resetValidationData.test.ts` (extend, realdb)
+
+1. Seed a `geocode_cache` row (include the NULL-coords shape) alongside the existing
+   graph seed; after `reset_validation_data()`, `count(geocode_cache) === 0` (catches:
+   the RPC not clearing the table — the reported bug; fails before the migration exists).
+
+### `tests/db/geocodeCacheCoordExpiry.test.ts` (new, realdb)
+
+2. **Migration-content structural pin:** read the new migration file and assert it
+   contains the one-shot UPDATE with `(lat is null or lng is null)` and a real WHERE
+   clause (safeupdate discipline) (catches: the expire statement dropped or rewritten
+   without a WHERE in a future edit; fails before the migration exists).
+3. **Over-threshold fuse abort:** seed >1,000 fresh coord-less rows (generate_series),
+   run the extracted DO block, assert it raises AND that no seeded row's `expires_at`
+   moved (catches: fuse missing/non-atomic — the R5 high; mutation-before-check
+   ordering). Also assert the block's source contains the `lock table` fence ahead of
+   the count (catches: the R6 READ COMMITTED count/update divergence regressing).
+4. **Post-apply DB invariant:** against the local all-migrations-applied DB, insert BOTH
+   coord-less shapes DIRECTLY with future `expires_at` — one `city` non-null (the
+   validation storm shape) and one `city` NULL (pre-coords ZERO_RESULTS/no-locality
+   shape) — run the migration's DO block verbatim (extracted from the file), and assert
+   both rows' `expires_at < now() - interval '12 hours'` (the past-shifted expiry
+   defeats app/DB clock skew — R8) while a coords-bearing sibling row keeps its future
+   expiry (catches: the WHERE matching too much — expiring healthy rows — or too little,
+   e.g. excluding null-city rows against the §2.3 contract; derives expectations from the
+   seeded fixtures, not hardcoded row counts).
+5. **Miss-path integration proof:** after the SUCCESSFUL expiry scenario in (4) — i.e.
+   with the coord-less row's `expires_at` asserted moved to `<= now()` — `readGeocodeCache`
+   for that row's hash returns `{ kind: "miss" }`, while the coords-bearing sibling's hash
+   still returns a hit (catches: the expiry not actually flowing through the
+   `.gt("expires_at", ...)` read filter — i.e. the fix not fixing the bug; NOT wired to
+   the abort scenario in (3), which must leave rows unchanged).
+
+### Structural/meta suites (must stay green; no new registry rows needed)
+
+- `tests/db/resetValidationDataDriveKeyedAudit.test.ts` + `resetValidationDataFkAudit.test.ts`
+  (registries unchanged; they re-parse the NEW migration body via `_resetRpcSource.ts`,
+  which auto-discovers the latest defining migration by filename sort).
+- `tests/auth/advisoryLockRpcDeadlock.test.ts` (lock topology unchanged; reads latest body).
+- `tests/db/resetValidationDataPostgrest.test.ts` (safeupdate discipline — the new DELETE
+  carries `where ctid is not null`).
+- `tests/auth/_metaInfraContract.test.ts` and observe read-only meta: untouched surfaces.
+- No new Supabase call sites; no new mutation surfaces (invariant 10 N/A: no new
+  route/action; the reset action's existing instrumentation is unchanged).
+
+## 5. Flag lifecycle / matrices (checklist disposition)
+
+- Tier×domain matrix: single table × (RPC delete path, tests) — covered in §3.2; all other
+  layers N/A (no DDL, no CHECK, no trigger, no frontend change).
+- CHECK/enum migration matrix: N/A — no CHECK or enum changes.
+- Flag lifecycle: N/A — no new flags.
+- Dimensional invariants / transition inventory: N/A — no UI.
+- Numeric sweep: 30-day TTL (`:23`), 6s/1-retry budget (`:20-21`), breaker 3-failure/60s
+  (`:22,28`) — all cited from live code, none changed.
+
+## 6. Watchpoints (do-not-relitigate preempts)
+
+- **Why a one-shot data migration instead of a runtime refresh (R1→R3 history):** three
+  review rounds broke three successive runtime discriminators on the same authorship
+  vector — value-shape loops on null-coords refresh results (R1), a coords-migration
+  cutoff strands deploy-gap rows (R2), a fix-date cutoff strands same-day old-writer rows
+  (R3). Row authorship is unprovable at runtime without a schema marker, and a marker
+  column is permanent complexity for a 30-day transitional problem. The one-shot expiry
+  sidesteps authorship entirely: it acts on rows that exist at apply time, and every
+  post-apply writer is coords-capable (Flow 8.3a shipped in every environment before this
+  fix, evidenced by later deploys `20260710000000`/`20260714000000`).
+- **Why expire rather than delete the coord-less rows:** identical read-path effect
+  (`.gt("expires_at", now)` makes both a miss), but expiry preserves the rows for
+  forensics until the next successful upsert overwrites them; delete adds nothing.
+- **Why null-city rows are expired too:** in pre-coords rows, cached ZERO_RESULTS and
+  OK-but-no-locality are indistinguishable (R3 finding 2) — expiring both lets venues
+  with real geometry recover coords/timezone; a genuine ZERO_RESULTS venue re-caches the
+  same null answer once and returns to today's terminal behavior.
+- **Why reset-vs-scan cache residue is accepted rather than locked away:** see §3.2
+  "Concurrency scope" — quota-cache rows only, self-correcting, manual-maintenance
+  context; a new global lock surface is disproportionate to a cosmetic race.
+- **Why the expiry is not batched/gated by default:** the in-transaction fuse aborts
+  above 1,000 rows with zero mutation (§3.1); the threshold exceeds any plausible
+  cardinality of this domain by an order of magnitude while costing ~US$5 of quota if
+  ever hit. Batching machinery for a table observed at 6 rows is speculative complexity.
+- **Why the reset deletes rather than expires the cache:** virgin state is the action's
+  contract (this spec's origin); expiry-bumping would leave rows visible to future audits
+  and save nothing (the next scan re-geocodes either way).
+- **Why refresh-failure/warning-code semantics are out of scope:** the runtime is
+  untouched; VENUE_GEOCODE_UNRESOLVED / VENUE_TIMEZONE_UNRESOLVED semantics are exactly
+  today's shipped contract (`lib/sync/enrichVenueGeocode.ts:69-95`).
