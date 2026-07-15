@@ -490,21 +490,35 @@ Run:
 `git show <deployed-sha>:lib/sync/enrichVenueGeocode.ts | grep -c "lat: res.data.lat"` — expected `1` (the enrichment caller passes them, `lib/sync/enrichVenueGeocode.ts:152` at HEAD).
 Record the exact commands + SHA + outputs in the apply log. If either grep returns 0, STOP — deploy validation first. (The migration-file/ancestry check may be recorded as a schema-history supplement, but it is NOT the gate.)
 
-- [ ] **Step 4: Preflight count on validation (courtesy — the in-DB fuse is the real guard).**
+- [ ] **Step 4: Fail-closed validation-target guard + preflight count.** (P-R11: every validation `psql` runs through a guard that proves the target IS the validation project BEFORE any mutation — an unset/stale/prod-valued `TEST_DATABASE_URL` must abort here, not be discovered by Step 7 after the DO block already ran.) All of Steps 4-6 run inside ONE subshell so the verified env can't drift between commands:
 
-Run (from the MAIN checkout shell that sources `.env.local`, or `set -a; source .env.local; set +a` here):
-`psql "$TEST_DATABASE_URL" -c "select count(*) from geocode_cache where (lat is null or lng is null) and expires_at > now();"`
-Expected: small count (6 at spec time). Record it.
+```bash
+( set -a; source .env.local; set +a
+  # fail-closed: set, non-local, AND the DB's project ref matches VALIDATION_SUPABASE_PROJECT_REF
+  [ -n "$TEST_DATABASE_URL" ] || { echo "ABORT: TEST_DATABASE_URL unset"; exit 1; }
+  case "$TEST_DATABASE_URL" in *127.0.0.1*|*localhost*) echo "ABORT: TEST_DATABASE_URL is local"; exit 1;; esac
+  [ -n "$VALIDATION_SUPABASE_PROJECT_REF" ] || { echo "ABORT: VALIDATION_SUPABASE_PROJECT_REF unset"; exit 1; }
+  case "$TEST_DATABASE_URL" in
+    *"$VALIDATION_SUPABASE_PROJECT_REF"*) echo "target = validation ($VALIDATION_SUPABASE_PROJECT_REF) ✓";;
+    *) echo "ABORT: TEST_DATABASE_URL does not reference the validation project ref"; exit 1;;
+  esac
 
-- [ ] **Step 5: Surgical validation apply.**
+  # Step 4 — preflight count (courtesy; the in-DB fuse is the real guard)
+  psql "$TEST_DATABASE_URL" -c "select count(*) from geocode_cache where (lat is null or lng is null) and expires_at > now();"
 
-Run: `psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction -f supabase/migrations/20260715000000_geocode_cache_reset_and_expire.sql && psql "$TEST_DATABASE_URL" -c "notify pgrst, 'reload schema';"`
-Expected: `NOTICE: geocode_cache one-shot expiry: 6 coord-less row(s) expired` (count from Step 4), CREATE FUNCTION, REVOKE, GRANT. Record the NOTICE verbatim.
+  # Step 5 — surgical apply (single transaction: a fuse abort rolls back the whole file)
+  psql "$TEST_DATABASE_URL" -v ON_ERROR_STOP=1 --single-transaction \
+    -f supabase/migrations/20260715000000_geocode_cache_reset_and_expire.sql
+  psql "$TEST_DATABASE_URL" -c "notify pgrst, 'reload schema';"
 
-- [ ] **Step 6: Reset-RPC proof on validation (spec close-out step 2 — BEFORE any rescan).**
+  # Step 6 — reset-RPC proof (spec close-out step 2 — BEFORE any rescan)
+  psql "$TEST_DATABASE_URL" -c "select pg_get_functiondef('public.reset_validation_data()'::regprocedure) like '%delete from public.geocode_cache%' as has_delete;"
+)
+```
 
-Run: `psql "$TEST_DATABASE_URL" -c "select pg_get_functiondef('public.reset_validation_data()'::regprocedure) like '%delete from public.geocode_cache%' as has_delete;"`
-Expected: `has_delete = t`. (The behavioral half — reset → `count(geocode_cache) = 0` — runs in the Stage-4 close-out when "Reset validation data" is actually pressed; the expired-but-present legacy rows are its seed.)
+Expected: guard prints `target = validation (vzakgrxqwcalbmagufjh) ✓`; Step-4 count small (6 at spec time — record it); Step-5 `NOTICE: geocode_cache one-shot expiry: 6 coord-less row(s) expired` (count from Step 4) + CREATE FUNCTION + REVOKE + GRANT (record the NOTICE verbatim); Step-6 `has_delete = t`. (The behavioral half — reset → `count(geocode_cache) = 0` — runs in the Stage-4 close-out when "Reset validation data" is actually pressed; the expired-but-still-present legacy rows are its seed.)
+
+- [ ] **Steps 5-6: folded into the Step-4 subshell above** (single verified-env block; do not run them standalone).
 
 - [ ] **Step 7: Validation-parity CI precondition check.**
 
