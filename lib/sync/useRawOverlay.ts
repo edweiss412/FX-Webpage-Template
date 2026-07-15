@@ -58,7 +58,8 @@ function normalizeTarget(raw: unknown): UseRawDecision["target"] {
   const t = raw as Record<string, unknown>;
   const out: UseRawDecision["target"] = { kind: typeof t.kind === "string" ? t.kind : "" };
   if (typeof t.name === "string") out.name = t.name;
-  if (typeof t.index === "number" && Number.isInteger(t.index)) out.index = t.index;
+  // A row index is a non-negative integer; negatives (and fractionals) are corrupt.
+  if (typeof t.index === "number" && Number.isInteger(t.index) && t.index >= 0) out.index = t.index;
   if (typeof t.field === "string") out.field = t.field;
   return out;
 }
@@ -177,8 +178,11 @@ export function applyUseRawDecisions(
  * The SINGLE validation boundary for JSONB reads of `use_raw_decisions` (spec §7).
  * jsonb is untyped at the DB boundary, so every read site (UI loaders, Phase2Args
  * builders, both actions) MUST pass raw jsonb through this before use. Non-array →
- * []; drops any entry with an out-of-scope code, a missing/blank contentHash, or an
- * invalid preference/applied shape. NEVER throws.
+ * []; drops any entry with an out-of-scope code, a missing/blank contentHash, an
+ * invalid preference/applied shape, OR the structurally-impossible
+ * `{preference:"transform", applied:true}` combo (spec §3/§9: a settled revert is
+ * written as a row-DELETION, never persisted — so its presence in jsonb is corrupt).
+ * NEVER throws.
  */
 export function normalizeUseRawDecisions(raw: unknown): UseRawDecision[] {
   if (!Array.isArray(raw)) return [];
@@ -190,6 +194,9 @@ export function normalizeUseRawDecisions(raw: unknown): UseRawDecision[] {
     if (typeof e.contentHash !== "string" || e.contentHash.trim() === "") continue; // canonicalize-exempt: contentHash blank-check (SHA-256 hex pin), never an email
     if (e.preference !== "raw" && e.preference !== "transform") continue;
     if (typeof e.applied !== "boolean") continue;
+    // A `transform` decision only ever persists as `applied:false` (§3: `{transform,true}`
+    // is GC'd to a row-deletion). An `applied:true` transform row is corrupt jsonb → drop.
+    if (e.preference === "transform" && e.applied === true) continue;
     if (typeof e.decidedAt !== "string" || typeof e.decidedBy !== "string") continue;
     out.push({
       code: e.code as UseRawCode,

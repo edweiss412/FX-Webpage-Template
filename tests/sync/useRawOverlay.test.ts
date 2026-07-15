@@ -362,4 +362,18 @@ describe("normalizeUseRawDecisions — the single JSONB validation boundary", ()
     const [out] = normalizeUseRawDecisions([bad]);
     expect(out!.target).toEqual({ kind: "rooms" });
   });
+  it("drops a negative target index (Codex R4 F2)", () => {
+    const bad = { ...valid, target: { kind: "rooms", index: -1 } };
+    const [out] = normalizeUseRawDecisions([bad]);
+    expect(out!.target).toEqual({ kind: "rooms" });
+  });
+  it("drops the impossible {transform, applied:true} state (Codex R4 F2)", () => {
+    const impossible = { ...valid, preference: "transform", applied: true };
+    expect(normalizeUseRawDecisions([impossible])).toEqual([]);
+  });
+  it("keeps the valid {transform, applied:false} and {raw, applied:true} states", () => {
+    const revertPending = { ...valid, preference: "transform" as const, applied: false };
+    const rawActive = { ...valid, preference: "raw" as const, applied: true };
+    expect(normalizeUseRawDecisions([revertPending, rawActive])).toHaveLength(2);
+  });
 });
