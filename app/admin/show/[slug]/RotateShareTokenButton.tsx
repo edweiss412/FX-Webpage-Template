@@ -165,7 +165,7 @@ export function RotateShareTokenButton({
           data-testid="admin-rotate-share-token-ok"
           role="status"
           aria-live="polite"
-          className="flex w-full max-w-md items-start gap-1.5 rounded-sm border border-border bg-surface-raised px-2 py-1 text-sm text-text-strong"
+          className="flex w-full max-w-md items-start gap-1.5 rounded-sm bg-surface-sunken px-2 py-1 text-sm text-text-strong"
         >
           <Check aria-hidden="true" size={16} className="mt-0.5 shrink-0 text-accent" />
           <span>
@@ -179,7 +179,7 @@ export function RotateShareTokenButton({
           data-testid="admin-rotate-share-token-ok-inactive"
           role="status"
           aria-live="polite"
-          className="flex w-full max-w-md items-start gap-1.5 rounded-sm border border-border bg-surface-raised px-2 py-1 text-sm text-text-strong"
+          className="flex w-full max-w-md items-start gap-1.5 rounded-sm bg-surface-sunken px-2 py-1 text-sm text-text-strong"
         >
           <Check aria-hidden="true" size={16} className="mt-0.5 shrink-0 text-accent" />
           <span>

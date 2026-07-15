@@ -26,7 +26,15 @@
  * another show's URL.
  */
 
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 
 type Ctx = { token: string | null; applyRotated: (token: string, epoch: number) => void };
 
@@ -62,11 +70,15 @@ export function ShareTokenProvider({
     });
   }, [initialToken, initialEpoch]);
 
-  return (
-    <ShareTokenContext.Provider value={{ token: state.token, applyRotated }}>
-      {children}
-    </ShareTokenContext.Provider>
+  // Stable value ref so the three consumers only re-render when the token itself
+  // changes (applyRotated is already stable). Without this, every provider render
+  // hands them a fresh object and re-renders all three.
+  const value = useMemo<Ctx>(
+    () => ({ token: state.token, applyRotated }),
+    [state.token, applyRotated],
   );
+
+  return <ShareTokenContext.Provider value={value}>{children}</ShareTokenContext.Provider>;
 }
 
 export function useShareToken(): Ctx {

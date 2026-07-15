@@ -408,3 +408,8 @@ The instant-rotate rework updates the crew URL on every surface (header ShareChi
 
 `ShareChip.tsx` uses an arbitrary `max-w-[16rem]` (pre-existing, mirrored from the prior inline chip) rather than a named width token, and `CrewPageLink.tsx` sets `min-h-tap-min` but no `min-w` (text width clears 44px in practice but is not guaranteed). Both are pre-existing patterns carried forward verbatim by the component-extraction refactor, not regressions. Deferred: token-izing the width + adding an explicit min-width is cosmetic and app-wide (the same magic appears elsewhere); batch it with a DESIGN token pass. Trigger to promote: a DESIGN.md token-discipline sweep.
 
+### BL-CREWPAGE-ROTATE-FOCUS-MGMT — restore keyboard focus across the two-tap rotate state edges
+
+**Status:** OPEN (2026-07-14, share-link-instant-rotate-dedup) · **Severity:** low · **Class:** A11Y
+
+The `RotateShareTokenButton` two-tap state machine (idle → confirm → resolving → idle) unmounts the focused button on each edge, so a keyboard user's focus drops to `<body>` after tapping Rotate and again after the action resolves. Pre-existing (the state machine + 3s auto-revert predate the instant-rotate dedup; this diff only changed the success-banner content), and impeccable-audit-rated P2 (not a WCAG-A blocker — the controls remain reachable by re-tabbing). Deferred: a correct fix moves focus to the Confirm button on entering confirm and to the idle Rotate button (or the banner) on resolve via a ref/effect, plus `waitFor`-based focus assertions (async activeElement). Out of scope for a dedup/instant-update refactor. Trigger to promote: an a11y pass on the admin per-show action rows.
