@@ -5,10 +5,18 @@ const state = vi.hoisted(() => ({
   error: null as { message: string } | null,
   calls: [] as Array<{ method: string; args: unknown[] }>,
   selectArg: "",
+  throwOnFrom: false,
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServiceRoleClient: () => {
+    if (state.throwOnFrom) {
+      return {
+        from() {
+          throw new Error("boom");
+        },
+      };
+    }
     const builder: Record<string, unknown> = {};
     const chain =
       (method: string) =>
@@ -48,6 +56,7 @@ beforeEach(() => {
   state.error = null;
   state.calls = [];
   state.selectArg = "";
+  state.throwOnFrom = false;
 });
 
 describe("queryStagedParses", () => {
@@ -71,6 +80,11 @@ describe("queryStagedParses", () => {
       limit: 7,
     });
     const names = state.calls.map((c) => c.method);
+    const eqArgs = state.calls.filter((c) => c.method === "eq").map((c) => c.args);
+    expect(eqArgs).toContainEqual(["wizard_session_id", SESSION]);
+    expect(eqArgs).toContainEqual(["drive_file_id", "1N1PK"]);
+    const gteCall = state.calls.find((c) => c.method === "gte")!;
+    expect(gteCall.args[0]).toBe("parsed_at");
     expect(names).toContain("not");
     const not = state.calls.find((c) => c.method === "not")!;
     expect(not.args).toEqual(["parse_result->warnings->0", "is", null]);
@@ -92,6 +106,12 @@ describe("queryStagedParses", () => {
   it("returned error → infra_error; throw → infra_error", async () => {
     state.error = { message: "boom" };
     expect((await queryStagedParses({})).kind).toBe("infra_error");
+
+    state.error = null;
+    state.throwOnFrom = true;
+    const r = await queryStagedParses({});
+    expect(r.kind).toBe("infra_error");
+    expect(r.kind === "infra_error" ? r.message : "").toBe("pending_syncs read threw");
   });
   it("non-array warnings jsonb → []", async () => {
     state.rows = [{ ...baseRow, warnings: "scalar" }];

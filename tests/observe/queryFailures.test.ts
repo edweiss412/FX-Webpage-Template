@@ -5,10 +5,18 @@ const state = vi.hoisted(() => ({
   error: null as { message: string } | null,
   calls: [] as Array<{ method: string; args: unknown[] }>,
   selectArg: "",
+  throwOnFrom: false,
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServiceRoleClient: () => {
+    if (state.throwOnFrom) {
+      return {
+        from() {
+          throw new Error("boom");
+        },
+      };
+    }
     const builder: Record<string, unknown> = {};
     const chain =
       (method: string) =>
@@ -49,6 +57,7 @@ beforeEach(() => {
   state.error = null;
   state.calls = [];
   state.selectArg = "";
+  state.throwOnFrom = false;
 });
 
 describe("queryIngestFailures", () => {
@@ -96,6 +105,12 @@ describe("queryIngestFailures", () => {
   it("returned error → infra_error; throw → infra_error", async () => {
     state.error = { message: "boom" };
     expect((await queryIngestFailures({})).kind).toBe("infra_error");
+
+    state.error = null;
+    state.throwOnFrom = true;
+    const r = await queryIngestFailures({});
+    expect(r.kind).toBe("infra_error");
+    expect(r.kind === "infra_error" ? r.message : "").toBe("pending_ingestions read threw");
   });
 
   it("non-array last_warnings jsonb → []", async () => {

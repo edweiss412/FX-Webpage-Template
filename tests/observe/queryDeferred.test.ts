@@ -5,10 +5,18 @@ const state = vi.hoisted(() => ({
   error: null as { message: string } | null,
   calls: [] as Array<{ method: string; args: unknown[] }>,
   selectArg: "",
+  throwOnFrom: false,
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
   createSupabaseServiceRoleClient: () => {
+    if (state.throwOnFrom) {
+      return {
+        from() {
+          throw new Error("boom");
+        },
+      };
+    }
     const builder: Record<string, unknown> = {};
     const chain =
       (method: string) =>
@@ -44,6 +52,7 @@ beforeEach(() => {
   state.error = null;
   state.calls = [];
   state.selectArg = "";
+  state.throwOnFrom = false;
 });
 
 describe("queryDeferred", () => {
@@ -77,6 +86,12 @@ describe("queryDeferred", () => {
   it("returned error → infra_error; throw → infra_error", async () => {
     state.error = { message: "boom" };
     expect((await queryDeferred({})).kind).toBe("infra_error");
+
+    state.error = null;
+    state.throwOnFrom = true;
+    const r = await queryDeferred({});
+    expect(r.kind).toBe("infra_error");
+    expect(r.kind === "infra_error" ? r.message : "").toBe("deferred_ingestions read threw");
   });
   it("deferredByEmail field absent from output by default", async () => {
     state.rows = [{ ...baseRow, deferred_by_email: "user@example.com" }];

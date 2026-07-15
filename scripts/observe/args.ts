@@ -86,10 +86,7 @@ function sinceToHours(v: string | undefined): 1 | 24 | 168 | null | undefined {
 // Fail-closed validator for the six new commands only — existing events/alerts/
 // changes/tail keep their current drop/fallback posture (see the passing
 // "existing events posture unchanged" test).
-function requireValid(
-  command: string,
-  values: Record<string, unknown>,
-): { kind: "error"; message: string } | null {
+function requireValid(values: Record<string, unknown>): { kind: "error"; message: string } | null {
   const err = (m: string) => ({ kind: "error" as const, message: m });
   const bad = (v: unknown) =>
     typeof v === "string" && (v.trim().length === 0 || v.trim().length > 200);
@@ -155,7 +152,7 @@ export function parseObserveArgs(argv: string[]): ParsedArgs {
   }
 
   if (NEW_COMMANDS.has(command)) {
-    const invalid = requireValid(command, values as Record<string, unknown>);
+    const invalid = requireValid(values as Record<string, unknown>);
     if (invalid) return invalid;
   }
 
