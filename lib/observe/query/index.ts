@@ -3,6 +3,7 @@ export { queryEvents, type QueryEventsResult } from "./events";
 export { getCronHealth, type QueryCronHealthResult } from "./cronHealth";
 export { queryAlerts } from "./alerts";
 export { queryChangeLog } from "./changeLog";
+export { queryStagedParses } from "./staged";
 export { isUuid, clampLimit } from "./types";
 export type {
   AlertFilters,
@@ -11,6 +12,9 @@ export type {
   ChangeLogFilters,
   ChangeRow,
   QueryChangeLogResult,
+  StagedFilters,
+  StagedRow,
+  QueryStagedResult,
 } from "./types";
 export {
   serializeParseWarning,

@@ -1,5 +1,6 @@
 // lib/observe/query/types.ts
 import type { SerializedAlertIdentity } from "@/lib/adminAlerts/identityTypes";
+import type { SerializedWarning } from "./serializeWarning";
 
 // Module-private UUID guard (telemetryTypes' UUID_RE is NOT exported).
 export const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -50,4 +51,30 @@ export type ChangeRow = {
 };
 export type QueryChangeLogResult =
   | { kind: "ok"; changes: ChangeRow[] }
+  | { kind: "infra_error"; message: string };
+
+export type StagedFilters = {
+  sessionId?: string;
+  driveFileId?: string;
+  warningsOnly?: boolean;
+  sinceHours?: number | null;
+  limit?: number;
+  includePii?: boolean;
+};
+export type StagedRow = {
+  id: string;
+  driveFileId: string;
+  parsedAt: string;
+  stagedModifiedTime: string;
+  sourceKind: string;
+  wizardSessionId: string | null;
+  wizardApproved: boolean;
+  warningSummary: string;
+  lastFinalizeFailureCode: string;
+  lastFinalizeFailureCodeUnrecognized: boolean;
+  warnings: SerializedWarning[];
+  wizardApprovedByEmail?: string | null;
+};
+export type QueryStagedResult =
+  | { kind: "ok"; rows: StagedRow[] }
   | { kind: "infra_error"; message: string };
