@@ -4,7 +4,7 @@ const state = vi.hoisted(() => ({
   requireAdmin: vi.fn(async () => {}),
   rpc: vi.fn(
     async (): Promise<{ data: unknown; error: unknown }> => ({
-      data: "a".repeat(64),
+      data: [{ share_token: "a".repeat(64), picker_epoch: 7 }],
       error: null,
     }),
   ),
@@ -30,7 +30,10 @@ describe("loadShowShareToken", () => {
     state.requireAdmin.mockReset();
     state.requireAdmin.mockResolvedValue(undefined);
     state.rpc.mockReset();
-    state.rpc.mockResolvedValue({ data: "a".repeat(64), error: null });
+    state.rpc.mockResolvedValue({
+      data: [{ share_token: "a".repeat(64), picker_epoch: 7 }],
+      error: null,
+    });
     state.createSupabaseServerClient.mockClear();
     state.createSupabaseServiceRoleClient.mockClear();
   });
@@ -44,8 +47,11 @@ describe("loadShowShareToken", () => {
     expect(state.rpc).not.toHaveBeenCalled();
   });
 
-  test("uses a cookie-bound client to call admin_read_share_token", async () => {
-    await expect(loadShowShareToken("show-id")).resolves.toBe("a".repeat(64));
+  test("uses a cookie-bound client to call admin_read_share_token and returns { token, epoch }", async () => {
+    await expect(loadShowShareToken("show-id")).resolves.toEqual({
+      token: "a".repeat(64),
+      epoch: 7,
+    });
 
     expect(state.createSupabaseServerClient).toHaveBeenCalledOnce();
     expect(state.createSupabaseServiceRoleClient).not.toHaveBeenCalled();
@@ -54,10 +60,28 @@ describe("loadShowShareToken", () => {
     });
   });
 
-  test("returns null when the RPC returns non-string data", async () => {
-    state.rpc.mockResolvedValueOnce({ data: null, error: null });
+  test("tolerates a non-array (single-object) RPC row shape", async () => {
+    state.rpc.mockResolvedValueOnce({
+      data: { share_token: "b".repeat(64), picker_epoch: 3 },
+      error: null,
+    });
+    await expect(loadShowShareToken("show-id")).resolves.toEqual({
+      token: "b".repeat(64),
+      epoch: 3,
+    });
+  });
 
-    await expect(loadShowShareToken("show-id")).resolves.toBeNull();
+  test("returns token null (epoch preserved) for a tokenless show row", async () => {
+    state.rpc.mockResolvedValueOnce({
+      data: [{ share_token: null, picker_epoch: 5 }],
+      error: null,
+    });
+    await expect(loadShowShareToken("show-id")).resolves.toEqual({ token: null, epoch: 5 });
+  });
+
+  test("returns token null and epoch fallback 1 when data is empty", async () => {
+    state.rpc.mockResolvedValueOnce({ data: [], error: null });
+    await expect(loadShowShareToken("show-id")).resolves.toEqual({ token: null, epoch: 1 });
   });
 
   test("distinguishes returned RPC errors from thrown RPC errors", async () => {
