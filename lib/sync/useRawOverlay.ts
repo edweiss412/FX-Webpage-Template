@@ -60,21 +60,31 @@ function resolvable(
  * (name/dimensions/floor from the SAME parse); hotels by `blockRef.index`; dates
  * rewrite exactly the four order-sensitive `show.dates` slots.
  */
-function applyReplacement(result: ParseResult, w: ParseWarning): void {
+function applyReplacement(result: ParseResult, w: ParseWarning, consumedRooms: Set<number>): void {
   if (!resolvable(w)) return;
   const rep = w.resolution.replacement;
   const parsed = w.resolution.parsed;
   if (rep.kind === "rooms" && parsed.kind === "rooms") {
-    for (const room of result.rooms) {
-      if (
+    // Each ROOM_HEADER_SPLIT_AMBIGUOUS warning identifies EXACTLY ONE ambiguous room. Rooms carry
+    // no stable per-row hash (only the warnings do), so we locate the room by the transform's parsed
+    // identity — but claim the FIRST not-yet-rewritten match and stop, rather than rewriting every
+    // row sharing that tuple. Otherwise a distinct room that happens to parse to the same
+    // {name, dimensions, floor} from a DIFFERENT raw header (no matching decision hash) would be
+    // wrongly overwritten. N matched warnings → N rooms rewritten, never all duplicates (Codex
+    // whole-diff review F3-rooms).
+    const idx = result.rooms.findIndex(
+      (room, i) =>
+        !consumedRooms.has(i) &&
         room.name === parsed.name &&
         room.dimensions === parsed.dimensions &&
-        room.floor === parsed.floor
-      ) {
-        room.name = rep.name;
-        room.dimensions = rep.dimensions;
-        room.floor = rep.floor;
-      }
+        room.floor === parsed.floor,
+    );
+    if (idx !== -1) {
+      const room = result.rooms[idx]!;
+      room.name = rep.name;
+      room.dimensions = rep.dimensions;
+      room.floor = rep.floor;
+      consumedRooms.add(idx);
     }
   } else if (rep.kind === "hotels") {
     const idx = w.blockRef?.index;
@@ -103,6 +113,9 @@ export function applyUseRawDecisions(
   const kept: UseRawDecision[] = [];
   const invalidated: UseRawDecision[] = [];
   const reverted: UseRawDecision[] = [];
+  // Rooms rewritten this pass (by result.rooms index) — one room is claimed by at most one warning
+  // across ALL decisions, so a duplicate-tuple room is never double-written or wrongly overwritten.
+  const consumedRooms = new Set<number>();
 
   for (const decision of decisions) {
     const matches = result.warnings.filter(
@@ -123,7 +136,7 @@ export function applyUseRawDecisions(
       invalidated.push(decision);
       continue;
     }
-    for (const w of matches) applyReplacement(result, w);
+    for (const w of matches) applyReplacement(result, w, consumedRooms);
     kept.push(decision);
   }
 

@@ -227,6 +227,26 @@ describe("applyUseRawDecisions — content-scoped equivalence class", () => {
     expect(out.kept).toHaveLength(1); // ONE decision, not two
     expect(out.invalidated).toHaveLength(0);
   });
+
+  it("ONE matched warning rewrites ONE room, not every same-tuple room (Codex F3-rooms)", () => {
+    // Two rooms parse to the identical {name, dimensions, floor}, but only ONE is the ambiguous
+    // use-raw target (one warning, one decision). A distinct room that happens to share the parsed
+    // tuple — from a different raw header, so no matching warning/hash — must KEEP its parsed value.
+    const warned = roomRow("LASALLE", "50x40", "2");
+    const distinct = roomRow("LASALLE", "50x40", "2"); // same tuple, different origin, no warning
+    const pr = buildParseResult({
+      rooms: [warned, distinct],
+      warnings: [
+        roomWarning(HASH_ROOM, { name: "LASALLE", dimensions: "50x40", floor: "2" }, "LASALLE RAW"),
+      ],
+    });
+    const out = applyUseRawDecisions(pr, [decision({})]);
+    // Exactly ONE room carries the raw value (before the fix, BOTH were overwritten).
+    const rawCount = out.result.rooms.filter((r) => r.name === "LASALLE RAW").length;
+    expect(rawCount).toBe(1);
+    expect(out.result.rooms[1]!.name).toBe("LASALLE"); // the distinct room is untouched
+    expect(out.kept).toHaveLength(1);
+  });
 });
 
 describe("applyUseRawDecisions — reverted partition", () => {
