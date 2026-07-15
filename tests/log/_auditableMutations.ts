@@ -350,6 +350,20 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
     fn: "setStagedUseRawDecisionAction",
     code: "USE_RAW_DECISION_CLEARED",
   },
+  // Sheet-changes feed accept pair (spec 2026-07-15 §3): per-show Accept /
+  // Accept-all. Same CHANGES_ACKNOWLEDGED code as the dashboard strip; sources
+  // admin.show.feed.accept / admin.show.feed.acceptAll. Emits are POST-COMMIT,
+  // lock-free path (invariant 2/10).
+  {
+    file: "app/admin/show/[slug]/_actions/feed.ts",
+    fn: "acceptChangeAction",
+    code: "CHANGES_ACKNOWLEDGED",
+  },
+  {
+    file: "app/admin/show/[slug]/_actions/feed.ts",
+    fn: "acceptAllAction",
+    code: "CHANGES_ACKNOWLEDGED",
+  },
 ];
 
 export const SANCTIONED_CODES: ReadonlySet<string> = new Set([

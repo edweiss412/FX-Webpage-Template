@@ -332,6 +332,8 @@ import { archiveShowAction } from "@/app/admin/show/[slug]/_actions/archive";
 import { unarchiveShowAction } from "@/app/admin/show/[slug]/_actions/unarchive";
 import { setShowPublishedAction } from "@/app/admin/show/[slug]/_actions/setPublished";
 import {
+  acceptAllAction as feedAcceptAllAction,
+  acceptChangeAction as feedAcceptChangeAction,
   mi11ApproveAction,
   mi11RejectAction,
   undoChangeAction,
@@ -1788,6 +1790,48 @@ describe("Batch 1 — grandfathered per-show server actions observe success only
     undoChangeMock.mockImplementation(async () => ({ ok: false, code: "CHANGE_ALREADY_UNDONE" }));
     const failCodes = await observeCodes(() => undoChangeAction(null, fd));
     expect(failCodes).not.toContain("CHANGE_UNDONE");
+  });
+
+  test("feed acceptChangeAction emits CHANGES_ACKNOWLEDGED on {ok:true}; nothing on a missing showId early-return", async () => {
+    // acknowledgeChangesMock is file-level and shared with the dashboard accept
+    // tests (NOT reset in beforeEach) — set success inline here.
+    acknowledgeChangesMock.mockImplementation(async () => ({ ok: true, count: 1 }));
+    const fd = new FormData();
+    fd.set("showId", "11111111-1111-1111-1111-111111111111");
+    fd.set("changeLogId", "cl-feed-1");
+    const codes = await observeSuccessCodes(() => feedAcceptChangeAction(null, fd));
+    expect(codes).toContain("CHANGES_ACKNOWLEDGED");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/show/[slug]/_actions/feed.ts",
+      fn: "acceptChangeAction",
+      code: "CHANGES_ACKNOWLEDGED",
+    });
+
+    const noShow = new FormData();
+    noShow.set("changeLogId", "cl-feed-1");
+    const failCodes = await observeCodes(() => feedAcceptChangeAction(null, noShow));
+    expect(failCodes).not.toContain("CHANGES_ACKNOWLEDGED");
+  });
+
+  test("feed acceptAllAction emits CHANGES_ACKNOWLEDGED on {ok:true}; nothing on a helper failure", async () => {
+    acknowledgeChangesMock.mockImplementation(async () => ({ ok: true, count: 2 }));
+    const fd = new FormData();
+    fd.set("showId", "11111111-1111-1111-1111-111111111111");
+    fd.set("ids", "cl-a,cl-b");
+    const codes = await observeSuccessCodes(() => feedAcceptAllAction(null, fd));
+    expect(codes).toContain("CHANGES_ACKNOWLEDGED");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/show/[slug]/_actions/feed.ts",
+      fn: "acceptAllAction",
+      code: "CHANGES_ACKNOWLEDGED",
+    });
+
+    acknowledgeChangesMock.mockImplementation(async () => ({
+      ok: false,
+      code: "SYNC_INFRA_ERROR",
+    }));
+    const failCodes = await observeCodes(() => feedAcceptAllAction(null, fd));
+    expect(failCodes).not.toContain("CHANGES_ACKNOWLEDGED");
   });
 });
 
