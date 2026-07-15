@@ -62,6 +62,13 @@ export async function setUseRawDecisionAction(
   const { email } = await requireAdminIdentity();
 
   // (1) Pre-lock: derive the lock key from the server-loaded row (never a client arg).
+  // `id` and `driveFileId` come from the SAME atomic `shows` row (resolveShowById), and
+  // `shows.drive_file_id` is an IMMUTABLE unique natural key (`text not null unique`,
+  // 20260501000000_initial_public_schema.sql:5 — never reassigned at runtime; every
+  // `update public.shows` uses it only in WHERE). So the (id ↔ driveFileId) pairing is
+  // stable and bijective: locking `show:<driveFileId>` while writing `shows_internal`
+  // by `show_id = id` always guards the SAME show, and no concurrent sync can lock a
+  // different key for it — no in-lock re-verification of the pairing is needed (spec §9b).
   const resolved = await resolveShowById(showId);
   if (resolved.kind === "infra_error") return { ok: false, code: "infra_error" };
   if (resolved.kind === "not_found") return { ok: false, code: "show_not_found" };
