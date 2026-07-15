@@ -129,4 +129,14 @@ describe("queryEvents", () => {
     const r = await queryEvents({});
     expect(r.kind).toBe("infra_error");
   });
+
+  test("plural codes/sources use .in; plural wins over singular", async () => {
+    const { queryEvents } = await import("@/lib/observe/query/events");
+    await queryEvents({ codes: ["A", "B"], sources: ["s1"], code: "ignored", source: "ignored" });
+    expect(state.captured.filters).toContainEqual(["in:code", ["A", "B"]]);
+    expect(state.captured.filters).toContainEqual(["in:source", ["s1"]]);
+    const keys = state.captured.filters.map((f) => f[0]);
+    expect(keys).not.toContain("eq:code");
+    expect(keys).not.toContain("eq:source");
+  });
 });

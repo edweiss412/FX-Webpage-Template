@@ -59,8 +59,10 @@ export async function queryEvents(filters: AppEventFilters): Promise<QueryEvents
     // count:"exact" = truthful bound (satisfies _metaBoundedReads); real page bound is .limit below.
     let query = supabase.from("app_events").select(SELECT, { count: "exact" });
     if (filters.levels?.length) query = query.in("level", filters.levels);
-    if (filters.source) query = query.eq("source", filters.source);
-    if (filters.code) query = query.eq("code", filters.code);
+    if (filters.sources?.length) query = query.in("source", filters.sources);
+    else if (filters.source) query = query.eq("source", filters.source);
+    if (filters.codes?.length) query = query.in("code", filters.codes);
+    else if (filters.code) query = query.eq("code", filters.code);
     if (filters.showId) query = query.eq("show_id", filters.showId);
     if (filters.requestId) query = query.eq("request_id", filters.requestId);
     const sinceHours = filters.sinceHours === undefined ? 24 : filters.sinceHours;

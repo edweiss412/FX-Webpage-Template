@@ -20,7 +20,9 @@ export type AppEventCursor = { occurredAt: string; id: string };
 export type AppEventFilters = {
   levels?: AppEventLevel[];
   source?: string;
+  sources?: string[];
   code?: string;
+  codes?: string[];
   showId?: string;
   requestId?: string;
   sinceHours?: 1 | 24 | 168 | null;
