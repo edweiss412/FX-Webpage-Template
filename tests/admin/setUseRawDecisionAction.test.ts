@@ -81,7 +81,10 @@ vi.mock("@/lib/sync/runManualSyncForShow", () => ({
 import { setUseRawDecisionAction } from "@/app/admin/show/[slug]/_actions/useRaw";
 
 // ── fixtures ──────────────────────────────────────────────────────────────
-const roomWarning = (contentHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", name = "GENERAL SESSION"): ParseWarning => ({
+const roomWarning = (
+  contentHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  name = "GENERAL SESSION",
+): ParseWarning => ({
   severity: "warn",
   code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
   message: "ambiguous room header",
@@ -93,12 +96,18 @@ const roomWarning = (contentHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     replacement: { kind: "rooms", name: `${name} / 40x60`, dimensions: null, floor: null },
   },
 });
-const ref = (observedContentHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", name = "GENERAL SESSION") => ({
+const ref = (
+  observedContentHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  name = "GENERAL SESSION",
+) => ({
   code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
   blockRef: { kind: "rooms" as const, name },
   observedContentHash,
 });
-const rawDecision = (applied: boolean, contentHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"): UseRawDecision => ({
+const rawDecision = (
+  applied: boolean,
+  contentHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+): UseRawDecision => ({
   code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
   contentHash,
   target: { kind: "rooms", name: "GENERAL SESSION" },
@@ -184,19 +193,40 @@ describe("state-aware write matrix (§3)", () => {
 
 describe("(code, contentHash) equivalence class (R5)", () => {
   test("one decision governs N>1 warnings sharing the hash (keyed by content, not blockRef)", async () => {
-    txScript.warnings = [roomWarning("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "ROOM A"), roomWarning("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "ROOM B")];
+    txScript.warnings = [
+      roomWarning("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "ROOM A"),
+      roomWarning("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "ROOM B"),
+    ];
     txScript.decisions = [];
-    await setUseRawDecisionAction("show-1", ref("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "ROOM A"), true);
+    await setUseRawDecisionAction(
+      "show-1",
+      ref("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "ROOM A"),
+      true,
+    );
     const d = writtenDecisions()!;
     // Exactly ONE content-scoped decision written for the shared hash — not one per cell.
     expect(d).toHaveLength(1);
-    expect(d[0]!.contentHash).toBe("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd");
+    expect(d[0]!.contentHash).toBe(
+      "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+    );
   });
 
   test("clear-pending → ON over the class writes applied:true (entity rows uniform per §3)", async () => {
-    txScript.warnings = [roomWarning("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "ROOM A"), roomWarning("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "ROOM B")];
-    txScript.decisions = [{ ...rawDecision(false, "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"), preference: "transform" }];
-    await setUseRawDecisionAction("show-1", ref("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "ROOM A"), true);
+    txScript.warnings = [
+      roomWarning("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "ROOM A"),
+      roomWarning("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "ROOM B"),
+    ];
+    txScript.decisions = [
+      {
+        ...rawDecision(false, "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"),
+        preference: "transform",
+      },
+    ];
+    await setUseRawDecisionAction(
+      "show-1",
+      ref("dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd", "ROOM A"),
+      true,
+    );
     expect(writtenDecisions()![0]!.applied).toBe(true);
   });
 });
@@ -265,15 +295,23 @@ describe("warningRef validation (three branches)", () => {
   });
 
   test("(c) stale observedContentHash → warning_stale, no write", async () => {
-    txScript.warnings = [roomWarning("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee")];
+    txScript.warnings = [
+      roomWarning("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"),
+    ];
     const r = await setUseRawDecisionAction("show-1", ref("client-saw-old"), true);
     expect(r).toEqual({ ok: false, code: "warning_stale" });
     expect(capturedWrite).toBeNull();
   });
 
   test("stored contentHash/target come from the LIVE warning (client hash is only a staleness token)", async () => {
-    txScript.warnings = [roomWarning("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee")];
-    await setUseRawDecisionAction("show-1", ref("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"), true);
+    txScript.warnings = [
+      roomWarning("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"),
+    ];
+    await setUseRawDecisionAction(
+      "show-1",
+      ref("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"),
+      true,
+    );
     const d = writtenDecisions()![0]!;
     expect(d.contentHash).toBe("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"); // the LIVE hash, server-derived
     expect(d.target).toEqual({ kind: "rooms", name: "GENERAL SESSION" });
@@ -305,8 +343,14 @@ describe("no TOCTOU — locked re-read wins", () => {
     // The ONLY pre-lock read is resolveShowById (returns just the drive_file_id). The
     // in-lock warning carries a NEW hash (a concurrent sync re-parsed), so a ref that
     // would have validated against the stale pre-lock content is rejected in-lock.
-    txScript.warnings = [roomWarning("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")];
-    const r = await setUseRawDecisionAction("show-1", ref("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"), true);
+    txScript.warnings = [
+      roomWarning("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+    ];
+    const r = await setUseRawDecisionAction(
+      "show-1",
+      ref("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"),
+      true,
+    );
     expect(r).toEqual({ ok: false, code: "warning_stale" });
     // resolveShowById never surfaced warnings — it only produced the lock key.
     expect(lockKeys).toEqual(["df-server"]);

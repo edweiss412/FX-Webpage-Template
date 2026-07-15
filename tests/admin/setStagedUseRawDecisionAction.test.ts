@@ -82,7 +82,10 @@ vi.mock("@/lib/sync/lockedShowTx", () => ({
 import { setStagedUseRawDecisionAction } from "@/app/admin/onboarding/_actions/useRawStaged";
 
 // ── fixtures ──────────────────────────────────────────────────────────────
-const roomWarning = (contentHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", resolvable = true): ParseWarning =>
+const roomWarning = (
+  contentHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  resolvable = true,
+): ParseWarning =>
   resolvable
     ? {
         severity: "warn",
@@ -108,7 +111,9 @@ const roomWarning = (contentHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         blockRef: { kind: "rooms", name: "GENERAL SESSION" },
         resolution: { resolvable: false, reason: "empty-raw" },
       };
-const ref = (observedContentHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa") => ({
+const ref = (
+  observedContentHash = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+) => ({
   code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
   blockRef: { kind: "rooms" as const, name: "GENERAL SESSION" },
   observedContentHash,
@@ -142,7 +147,11 @@ describe("staged write", () => {
     const r = await setStagedUseRawDecisionAction("wiz-1", "df-uraw", ref(), true);
     const d = writtenDecisions()!;
     expect(d).toHaveLength(1);
-    expect(d[0]).toMatchObject({ preference: "raw", applied: false, contentHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" });
+    expect(d[0]).toMatchObject({
+      preference: "raw",
+      applied: false,
+      contentHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    });
     expect(r).toEqual({ ok: true, state: "saved" });
   });
 
@@ -221,12 +230,26 @@ describe("warningRef validation (against live parse_result.warnings)", () => {
   test("resolvable:false warning → warning_not_resolvable, no write", async () => {
     preLockResult = {
       data: [
-        { drive_file_id: "df-uraw", parse_result: { warnings: [roomWarning("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", false)] } },
+        {
+          drive_file_id: "df-uraw",
+          parse_result: {
+            warnings: [
+              roomWarning(
+                "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+                false,
+              ),
+            ],
+          },
+        },
       ],
       error: null,
     };
     txScript.row = {
-      parse_result: { warnings: [roomWarning("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", false)] },
+      parse_result: {
+        warnings: [
+          roomWarning("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", false),
+        ],
+      },
       use_raw_decisions: [],
     };
     const r = await setStagedUseRawDecisionAction("wiz-1", "df-uraw", ref(), true);
