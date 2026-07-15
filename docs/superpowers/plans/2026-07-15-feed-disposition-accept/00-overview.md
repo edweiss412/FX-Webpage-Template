@@ -212,7 +212,11 @@ export async function acceptAllAction(
 - [ ] **Step 5: Run** `pnpm vitest run tests/admin/showFeedAcceptActions.test.ts tests/log/adminOutcomeBehavior.test.ts tests/log/_metaMutationSurfaceObservability.test.ts tests/auth/advisoryLockRpcDeadlock.test.ts` — PASS (walker sees registry rows; lock topology untouched).
 - [ ] **Step 6: Commit** `feat(admin): per-show feed accept/accept-all server actions with audit registry + behavioral proof`
 
-### Task 3: `ChangeFeedEntry` — Accept button + Accepted tag
+### Task 3: UI + wiring — `ChangeFeedEntry`, `ChangesFeed`, show page (ONE commit)
+
+> Tasks 3a-3c below land as a SINGLE commit: each layer's new required props break the caller one level up, so intermediate per-layer commits would not typecheck/build. TDD still applies per layer (failing test first); the commit gate runs once, after 3c, when the whole tree is green.
+
+#### Task 3a: `ChangeFeedEntry` — Accept button + Accepted tag
 
 **Files:**
 - Modify: `components/admin/ChangeFeedEntry.tsx`
@@ -259,10 +263,9 @@ Anti-tautology: assert the accept form's hidden `changeLogId` equals the fixture
 
 (Tag placement: same flex row as `ChangeFeedBadge`; match the badge's markup idiom in-file. Tokens = muted badge shape, `ChangeFeedBadge.tsx:33-43`. Tag renders REGARDLESS of status — spec §4.1 total rule.)
 
-- [ ] **Step 4: Run** file — PASS.
-- [ ] **Step 5: Commit** `feat(admin): Accept affordance + Accepted tag on Sheet-changes feed rows`
+- [ ] **Step 4: Run** file — PASS (`pnpm typecheck` will fail until 3b/3c complete — expected; do NOT commit yet).
 
-### Task 4: `ChangesFeed` — Accept-all header + "Sheet changes" heading
+#### Task 3b: `ChangesFeed` — Accept-all header + "Sheet changes" heading
 
 **Files:**
 - Modify: `components/admin/ChangesFeed.tsx` (heading `:46-47`; header row; props)
@@ -297,10 +300,9 @@ N derived from fixtures (e.g. 3 entries, 2 acceptable → label "Accept all (2)"
 
 Thread `showId` + `acceptAction` into each `ChangeFeedEntry`. No confirm gate (spec §4.2 parity with strip Accept-all).
 
-- [ ] **Step 4: Run** both files — PASS.
-- [ ] **Step 5: Commit** `feat(admin): Accept all + Sheet changes heading on per-show feed`
+- [ ] **Step 4: Run** both files — PASS (typecheck still red until 3c — expected).
 
-### Task 5: Page wiring + build proof
+#### Task 3c: Page wiring + build proof
 
 **Files:**
 - Modify: `app/admin/show/[slug]/page.tsx:832-840`
@@ -329,10 +331,10 @@ Thread `showId` + `acceptAction` into each `ChangeFeedEntry`. No confirm gate (s
 
 (import the two actions alongside the existing `:48` action imports).
 
-- [ ] **Step 4: Run** the three page-level test files — PASS. Then `pnpm build` — MUST pass (Server→Client action wiring + client-boundary import chain are build-only failures; lessons: RSC direct-ref rule, no client value-import of server modules).
-- [ ] **Step 5: Commit** `feat(admin): wire per-show feed accept actions + showId through show page`
+- [ ] **Step 4: Run** the three page-level test files + ALL Task-3 test files + `pnpm typecheck` — PASS. Then `pnpm build` — MUST pass (Server→Client action wiring + client-boundary import chain are build-only failures; lessons: RSC direct-ref rule, no client value-import of server modules).
+- [ ] **Step 5: Commit (single commit for 3a+3b+3c)** `feat(admin): Accept/Accept-all + Accepted tag + Sheet changes heading on per-show feed`
 
-### Task 6: Help copy
+### Task 4: Help copy
 
 **Files:**
 - Modify: `app/help/admin/dashboard/page.mdx:41,53`, `app/help/admin/per-show-panel/page.mdx:12,14` (+ any other "Changes feed" refs — re-grep at edit time)
@@ -342,12 +344,13 @@ Thread `showId` + `acceptAction` into each `ChangeFeedEntry`. No confirm gate (s
 - [ ] **Step 3:** `pnpm vitest run tests/help` — help meta-tests green (coverage/asset-existence walkers; no screenshot manifest change — no captured route renders the feed heading, spec §5).
 - [ ] **Step 4: Commit** `docs(help): Sheet changes rename + Accept affordance copy`
 
-### Task 7: Gates + close-out sweeps
+### Task 5: Gates + close-out sweeps
 
 - [ ] **Step 1: Class sweeps.** `rg -n '"Changes"' tests/ components/ app/` (any remaining display-text pin); `rg -ln "readShowChangeFeed" tests/` (hand-rolled mocks of the feed return missing new fields); `rg -n "change-feed-accept" tests/` (companion-file check — memory: env-bound/e2e tests excluded from `pnpm test`).
 - [ ] **Step 2: Full local gates.** `pnpm test` (FULL suite — scoped gates miss chokepoint regressions), `pnpm typecheck`, `pnpm lint`, `pnpm format:check`, `pnpm build` (if not already green in Task 5), e2e `admin-changes-feed-layout.spec.ts` if runnable locally (selector `/changes/i` tolerant — verify).
-- [ ] **Step 3: Impeccable dual-gate** (invariant 8): `/impeccable critique` + `/impeccable audit` on the UI diff (`components/admin/ChangeFeedEntry.tsx`, `ChangesFeed.tsx`, help mdx). P0/P1 fixed or `DEFERRED.md`.
-- [ ] **Step 4:** Whole-diff Codex adversarial review (Stage 4 of pipeline) → push → PR → real CI green → merge.
+- [ ] **Step 3: Impeccable dual-gate** (invariant 8): `/impeccable critique` + `/impeccable audit` on the UI diff (`components/admin/ChangeFeedEntry.tsx`, `ChangesFeed.tsx`, help mdx). P0/P1 fixed or `DEFERRED.md`. **Record every finding + disposition in `docs/superpowers/plans/2026-07-15-feed-disposition-accept/HANDOFF.md` §12** (create the handoff doc with a §12 findings table — this feature's close-out doc; invariant 8 requires the recorded dispositions, not just the passing runs).
+- [ ] **Step 4:** Whole-diff Codex adversarial review (fresh-eyes, REVIEWER ONLY) → APPROVE.
+- [ ] **Step 5: Ship + terminal verification.** Fetch/rebase onto origin/main if it moved; push; `gh pr create`; watch checks via PR NUMBER (`gh pr checks <PR#> --watch`) and confirm `mergeStateStatus == CLEAN`; `gh pr merge <PR#> --merge`; then `git checkout main && git pull --ff-only` in the MAIN checkout and verify `git rev-list --left-right --count main...origin/main` prints `0	0`. Pipeline is not done at remote merge — the local-main fast-forward check is the terminal gate.
 
 ## Self-review notes
 
