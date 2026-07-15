@@ -390,4 +390,61 @@ describe("Task 6 — use-raw overlay wired into runPhase2 + persistence + STALE 
     expect(insertCall).toBeDefined();
     expect(capture.unsafeCalls).toBeGreaterThan(0);
   });
+
+  test("6. F2 regression — a show WITH diagrams (snapshotAssetsForApply branch) still applies the raw overlay", async () => {
+    // The snapshot branch rebuilds `parseResult` for the apply. If it spreads the ORIGINAL
+    // `args.parseResult` (pre-overlay) instead of the overlaid one, every raw substitution is
+    // silently dropped for shows that have diagrams, while the decision is still kept applied:true
+    // — a crew-visible-parsed vs persisted-active-decision mismatch. This test forces the branch
+    // (one linked-folder item) and proves both the persisted rooms row AND the applyShowSnapshot
+    // parseResult carry the RAW value.
+    const { tx, capture } = makeTx();
+    const withDiagram = parseResult([roomWarning()]);
+    withDiagram.diagrams = {
+      linkedFolder: null,
+      embeddedImages: [],
+      linkedFolderItems: [
+        {
+          driveFileId: "diagram-1",
+          mimeType: "image/png",
+          drive_modified_time: "2026-05-01T00:00:00.000Z",
+          headRevisionId: "rev-diagram-1",
+          md5Checksum: "a".repeat(32),
+          snapshotPath: null,
+        },
+      ],
+    } as unknown as ParseResult["diagrams"];
+
+    const result = await run(tx, {
+      parseResult: withDiagram,
+      useRawDecisions: [rawRoomDecision()],
+      snapshotAssetsForApply: async () => ({
+        snapshotRevisionId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+        runUuid: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+        tempPrefix: "diagram-snapshots/shows/show-1/_pending/",
+        warnings: [],
+        pending: {
+          revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          snapshot_revision_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+          snapshot_status: "complete",
+          linkedFolder: null,
+          embeddedImages: [],
+          linkedFolderItems: [],
+        },
+      }),
+    });
+    expect(result).toMatchObject({ outcome: "applied" });
+
+    // Both the apply-snapshot parseResult and the persisted rooms row carry the RAW value.
+    expect(capture.showSnapshotParseResult?.rooms?.[0]?.name).toBe(RAW_ROOM_NAME);
+    expect(capture.rooms?.[0]?.name).toBe(RAW_ROOM_NAME);
+    // The decision is kept applied:true — and now actually agrees with the persisted rows.
+    const kept = capture.showsInternalPayload?.use_raw_decisions as UseRawDecision[];
+    expect(kept.map((d) => d.code)).toEqual(["ROOM_HEADER_SPLIT_AMBIGUOUS"]);
+    expect(kept[0]?.applied).toBe(true);
+    // The diagrams sub-payload was still built from the snapshot (branch actually ran).
+    expect(
+      (capture.showSnapshotParseResult?.diagrams as { pending?: unknown } | undefined)?.pending,
+    ).toBeTruthy();
+  });
 });

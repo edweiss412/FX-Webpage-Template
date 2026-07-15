@@ -297,12 +297,18 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
       ? await callTx("readCurrentDiagrams", () => tx.readCurrentDiagrams!(args.driveFileId))
       : null;
     parseResult = {
-      ...args.parseResult,
+      // Spread the CURRENT parseResult (post use-raw overlay + post reel-verify), NOT
+      // `args.parseResult` (the original pre-overlay parse) — otherwise the raw room/hotel/date
+      // substitutions from applyUseRawDecisions above are silently dropped for shows WITH diagrams
+      // while `useRawKept` still records the decision as applied:true (crew-visible parsed value vs
+      // persisted-active decision mismatch). Diagrams are not overlaid, so the snapshot input still
+      // reads args.parseResult.diagrams.
+      ...parseResult,
       diagrams: {
         current,
         pending: snapshot.pending,
       } as unknown as ParseResult["diagrams"],
-      warnings: [...args.parseResult.warnings, ...snapshot.warnings],
+      warnings: [...parseResult.warnings, ...snapshot.warnings],
     };
   }
 
