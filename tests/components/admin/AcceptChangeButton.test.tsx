@@ -68,3 +68,18 @@ it("renders NO error panel on a successful accept ({ok:true})", async () => {
   });
   expect(screen.queryByTestId("change-feed-accept-result")).toBeNull();
 });
+
+it("stretch=false (default) → button not w-full; stretch → form + button w-full", () => {
+  const action = vi.fn().mockResolvedValue({ ok: true, count: 0 });
+  const { rerender } = render(
+    <AcceptChangeButton acceptAction={action} hiddenFields={{ showId: "s", changeLogId: "c" }} />,
+  );
+  const btn = screen.getByTestId("change-feed-accept");
+  expect(btn.className).not.toMatch(/\bw-full\b/);
+  rerender(
+    <AcceptChangeButton acceptAction={action} hiddenFields={{ showId: "s", changeLogId: "c" }} stretch />,
+  );
+  const stretched = screen.getByTestId("change-feed-accept");
+  expect(stretched.className).toMatch(/\bw-full\b/);
+  expect(stretched.closest("form")!.className).toMatch(/\bw-full\b/);
+});

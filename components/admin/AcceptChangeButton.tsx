@@ -33,10 +33,12 @@ type AcceptServerAction = (
 function SubmitButton({
   disabled,
   "aria-busy": ariaBusy,
+  stretch,
   children,
 }: {
   disabled: boolean;
   "aria-busy": boolean;
+  stretch: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -45,7 +47,7 @@ function SubmitButton({
       disabled={disabled}
       aria-busy={ariaBusy}
       data-testid="change-feed-accept"
-      className="min-h-tap-min min-w-tap-min rounded-sm border border-border-strong bg-surface px-4 py-2 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+      className={`min-h-tap-min min-w-tap-min rounded-sm border border-border-strong bg-surface px-4 py-2 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60${stretch ? " w-full" : ""}`}
     >
       {children}
     </button>
@@ -56,6 +58,7 @@ export function AcceptChangeButton({
   acceptAction,
   hiddenFields,
   label = "Accept",
+  stretch = false,
 }: {
   // The bound accept server action; returns a typed AcceptButtonResult so the
   // typed failure can be surfaced post-submit.
@@ -63,17 +66,20 @@ export function AcceptChangeButton({
   // Carried verbatim as hidden form fields (single-row or Accept-all payload).
   hiddenFields: Record<string, string>;
   label?: string;
+  // When true, the form + button fill their container width (grid-cell layout).
+  // Default false preserves the intrinsic-width per-show feed rendering.
+  stretch?: boolean;
 }) {
   const [result, dispatch, pending] = useActionState(acceptAction, null);
   const failing = result && result.ok === false ? result : null;
 
   return (
     <div className="flex flex-col gap-2">
-      <form action={dispatch}>
+      <form action={dispatch} className={stretch ? "w-full" : undefined}>
         {Object.entries(hiddenFields).map(([name, value]) => (
           <input key={name} type="hidden" name={name} value={value} />
         ))}
-        <SubmitButton disabled={pending} aria-busy={pending}>
+        <SubmitButton disabled={pending} aria-busy={pending} stretch={stretch}>
           {label}
         </SubmitButton>
       </form>

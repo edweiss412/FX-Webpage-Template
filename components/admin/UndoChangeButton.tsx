@@ -28,14 +28,22 @@ type UndoServerAction = (
   formData: FormData,
 ) => UndoButtonResult | Promise<UndoButtonResult>;
 
-function SubmitButton({ pending, label }: { pending: boolean; label: string }) {
+function SubmitButton({
+  pending,
+  label,
+  stretch,
+}: {
+  pending: boolean;
+  label: string;
+  stretch: boolean;
+}) {
   return (
     <button
       type="submit"
       disabled={pending}
       aria-busy={pending}
       data-testid="change-feed-undo"
-      className="min-h-tap-min min-w-tap-min rounded-sm border border-border-strong bg-surface px-4 py-2 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+      className={`min-h-tap-min min-w-tap-min rounded-sm border border-border-strong bg-surface px-4 py-2 text-sm font-medium text-text-strong transition-colors duration-fast hover:bg-surface-sunken focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60${stretch ? " w-full" : ""}`}
     >
       {pending ? "Undoing…" : label}
     </button>
@@ -45,20 +53,24 @@ function SubmitButton({ pending, label }: { pending: boolean; label: string }) {
 export function UndoChangeButton({
   changeLogId,
   undoAction,
+  stretch = false,
 }: {
   changeLogId: string;
   // The bound undo server action; returns a typed UndoButtonResult so the typed
   // failure can be surfaced post-submit (P6-F1).
   undoAction: UndoServerAction;
+  // When true, the form + button fill their container width (grid-cell layout).
+  // Default false preserves the intrinsic-width per-show feed rendering.
+  stretch?: boolean;
 }) {
   const [result, dispatch, pending] = useActionState(undoAction, null);
   const failing = result && result.ok === false ? result : null;
 
   return (
     <div className="flex flex-col gap-2">
-      <form action={dispatch}>
+      <form action={dispatch} className={stretch ? "w-full" : undefined}>
         <input type="hidden" name="changeLogId" value={changeLogId} />
-        <SubmitButton pending={pending} label="Undo this change" />
+        <SubmitButton pending={pending} label="Undo this change" stretch={stretch} />
       </form>
       {failing ? (
         <div
