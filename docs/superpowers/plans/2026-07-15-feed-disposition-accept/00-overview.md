@@ -33,7 +33,7 @@
 **Interfaces:**
 - Produces: `FeedEntry` gains `acceptable: boolean; acknowledgedAt: string | null;` — required. Log rows: `acceptable = source==='auto_apply' && status==='applied' && acknowledged_at == null` (raw null-ness, spec §2 null-ness contract); `acknowledgedAt = toIso(acknowledged_at)`. Hold entries: `false` / `null`.
 
-- [ ] **Step 1: Write the failing test.** In `readShowChangeFeed.test.ts`, extend the existing seeded-feed test (or add a sibling test in the same describe reusing its seed helpers) — seed via `runPsql` three `show_change_log` rows on one show: (a) `source='auto_apply', status='applied', acknowledged_at NULL`; (b) same but `acknowledged_at = now()` (capture `to_char(..., 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')` of the stored value for the expectation); (c) `source='mi11_approve', status='applied', acknowledged_at NULL`. Assert:
+- [ ] **Step 1: Write the failing test.** In `readShowChangeFeed.test.ts`, extend the existing seeded-feed test (or add a sibling test in the same describe reusing its seed helpers) — seed via `runPsql` three `show_change_log` rows on one show: (a) `source='auto_apply', status='applied', acknowledged_at NULL`; (b) same but `acknowledged_at = now()` (capture the RAW stored value via `select acknowledged_at::text ...` — pg's text form carries the UTC offset, so `new Date(raw).toISOString()` is timezone-safe; do NOT `to_char` with a literal `"Z"`, which fabricates UTC from session-local time); (c) `source='mi11_approve', status='applied', acknowledged_at NULL`. Assert:
 
 ```ts
 // (a) un-acknowledged auto-apply — acceptable, no acknowledgedAt
@@ -41,7 +41,7 @@ expect(rowA!.acceptable).toBe(true);
 expect(rowA!.acknowledgedAt).toBeNull();
 // (b) acknowledged — NOT acceptable; acknowledgedAt is the toIso of the stored timestamptz
 expect(rowB!.acceptable).toBe(false);
-expect(rowB!.acknowledgedAt).toBe(new Date(storedAckRaw).toISOString());
+expect(rowB!.acknowledgedAt).toBe(new Date(storedAckRawText).toISOString()); // raw ::text carries offset — session-tz safe
 // (c) non-auto_apply source — never acceptable even when applied+unacknowledged
 expect(rowC!.acceptable).toBe(false);
 expect(rowC!.acknowledgedAt).toBeNull();
@@ -349,9 +349,12 @@ const dash = readFileSync("app/help/admin/dashboard/page.mdx", "utf8");
 const panel = readFileSync("app/help/admin/per-show-panel/page.mdx", "utf8");
 
 describe("help copy names the per-show feed 'Sheet changes' (spec 2026-07-15 §5)", () => {
-  it("no page still says 'Changes feed' (stale pre-rename copy)", () => {
-    expect(dash).not.toMatch(/\bChanges feed\b/); // case-sensitive: "Sheet changes feed" stays legal
-    expect(panel).not.toMatch(/\bChanges feed\b/); // case-sensitive: "Sheet changes feed" stays legal
+  it("no stale 'changes feed' copy survives in ANY casing (only 'Sheet changes feed' is legal)", () => {
+    // Strip every legal occurrence first, then forbid the phrase case-insensitively —
+    // catches "Changes feed", "The changes feed" (the existing per-show h2), "changes feed".
+    const stripLegal = (t: string) => t.replaceAll(/sheet changes feed/gi, "");
+    expect(stripLegal(dash)).not.toMatch(/changes feed/i);
+    expect(stripLegal(panel)).not.toMatch(/changes feed/i);
   });
   it("both pages use the new name; anchor id stays stable", () => {
     expect(dash).toMatch(/Sheet changes/);
