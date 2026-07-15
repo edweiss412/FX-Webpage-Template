@@ -13,9 +13,11 @@ import type { ParseWarning, RoomRow, HotelReservationRow } from "@/lib/parser/ty
 // Anti-tautology: assert the mutated result fields against the warning's own
 // resolution.replacement, not a container that renders both.
 
-const HASH_ROOM = "hash-room-1";
-const HASH_HOTEL = "hash-hotel-1";
-const HASH_DATE = "hash-date-1";
+// Valid content pins are 64 lowercase hex chars (sha256hex). The normalize boundary
+// now format-checks them (Codex whole-diff R9 F2), so fixtures must be real hashes.
+const HASH_ROOM = "a".repeat(64);
+const HASH_HOTEL = "b".repeat(64);
+const HASH_DATE = "c".repeat(64);
 
 function roomRow(name: string, dimensions: string | null, floor: string | null): RoomRow {
   return {
@@ -331,14 +333,31 @@ describe("normalizeUseRawDecisions — the single JSONB validation boundary", ()
   it("drops an out-of-scope code", () => {
     expect(normalizeUseRawDecisions([{ ...valid, code: "SOMETHING_ELSE" }])).toEqual([]);
   });
-  it("drops a missing/blank contentHash", () => {
+  it("drops a missing/blank/malformed contentHash (Codex R9 F2 — 64-hex pin, not nonblank)", () => {
     expect(normalizeUseRawDecisions([{ ...valid, contentHash: "" }])).toEqual([]);
     const { contentHash: _c, ...noHash } = valid;
     expect(normalizeUseRawDecisions([noHash])).toEqual([]);
+    // Nonblank but NOT a real content pin → dropped (the pre-R9 check let these survive).
+    expect(normalizeUseRawDecisions([{ ...valid, contentHash: "not-a-hash" }])).toEqual([]);
+    expect(normalizeUseRawDecisions([{ ...valid, contentHash: "a".repeat(63) }])).toEqual([]); // too short
+    expect(normalizeUseRawDecisions([{ ...valid, contentHash: "A".repeat(64) }])).toEqual([]); // uppercase
+    expect(normalizeUseRawDecisions([{ ...valid, contentHash: "g".repeat(64) }])).toEqual([]); // non-hex char
+    // A real 64-lowercase-hex pin survives.
+    expect(normalizeUseRawDecisions([{ ...valid, contentHash: "f".repeat(64) }])).toHaveLength(1);
   });
   it("drops a bad preference or applied shape", () => {
     expect(normalizeUseRawDecisions([{ ...valid, preference: "maybe" }])).toEqual([]);
     expect(normalizeUseRawDecisions([{ ...valid, applied: "yes" }])).toEqual([]);
+  });
+  it("drops a malformed decidedAt / blank decidedBy (Codex R9 F2)", () => {
+    expect(normalizeUseRawDecisions([{ ...valid, decidedAt: "x" }])).toEqual([]); // unparseable
+    expect(normalizeUseRawDecisions([{ ...valid, decidedAt: "" }])).toEqual([]);
+    expect(normalizeUseRawDecisions([{ ...valid, decidedBy: "" }])).toEqual([]); // blank decider
+    expect(normalizeUseRawDecisions([{ ...valid, decidedBy: "   " }])).toEqual([]); // whitespace-only
+    // A valid ISO timestamp + nonblank decider survives.
+    expect(
+      normalizeUseRawDecisions([{ ...valid, decidedAt: "2026-07-15T12:00:00.000Z" }]),
+    ).toHaveLength(1);
   });
   it("passes a valid array through", () => {
     expect(normalizeUseRawDecisions([valid])).toEqual([valid]);

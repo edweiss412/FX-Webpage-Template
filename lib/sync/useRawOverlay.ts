@@ -1,4 +1,5 @@
 import type { ParseResult, ParseWarning, UseRawResolution } from "@/lib/parser/types";
+import { isContentHash } from "@/lib/parser/useRawContentHash";
 
 /**
  * "Use the sheet's raw value" overlay (spec 2026-07-10-structural-transform-use-raw
@@ -191,13 +192,20 @@ export function normalizeUseRawDecisions(raw: unknown): UseRawDecision[] {
     if (entry === null || typeof entry !== "object") continue;
     const e = entry as Record<string, unknown>;
     if (typeof e.code !== "string" || !IN_SCOPE.has(e.code)) continue;
-    if (typeof e.contentHash !== "string" || e.contentHash.trim() === "") continue; // canonicalize-exempt: contentHash blank-check (SHA-256 hex pin), never an email
+    // contentHash is the MATCH KEY — validate it is a real content pin (64 lowercase
+    // hex, the exact `sha256hex` shape), not merely nonblank. A malformed hash is corrupt
+    // jsonb (the actions only ever write a parser-derived pin) → drop at the boundary.
+    if (typeof e.contentHash !== "string" || !isContentHash(e.contentHash)) continue; // canonicalize-exempt: contentHash format-check (SHA-256 hex pin), never an email
     if (e.preference !== "raw" && e.preference !== "transform") continue;
     if (typeof e.applied !== "boolean") continue;
     // A `transform` decision only ever persists as `applied:false` (§3: `{transform,true}`
     // is GC'd to a row-deletion). An `applied:true` transform row is corrupt jsonb → drop.
     if (e.preference === "transform" && e.applied === true) continue;
-    if (typeof e.decidedAt !== "string" || typeof e.decidedBy !== "string") continue;
+    // decidedAt is written as `new Date().toISOString()` — require a parseable timestamp;
+    // decidedBy is the deciding admin's email (display-only) — require nonblank. Either
+    // malformed → corrupt jsonb → drop.
+    if (typeof e.decidedAt !== "string" || Number.isNaN(Date.parse(e.decidedAt))) continue;
+    if (typeof e.decidedBy !== "string" || e.decidedBy.trim() === "") continue;
     out.push({
       code: e.code as UseRawCode,
       contentHash: e.contentHash,

@@ -21,6 +21,20 @@ function sha256hex(s: string): string {
   return createHash("sha256").update(s, "utf8").digest("hex");
 }
 
+/**
+ * The exact shape every `resolution.contentHash` takes: `sha256hex` returns
+ * `createHash("sha256").digest("hex")` — always exactly 64 lowercase hex chars.
+ * This is the SINGLE source for that format, so the JSONB validation boundary
+ * (`normalizeUseRawDecisions`) can drop any persisted row whose `contentHash` is
+ * not a real content pin (corrupt jsonb) rather than trusting a nonblank string.
+ */
+export const USE_RAW_CONTENT_HASH_RE = /^[0-9a-f]{64}$/;
+
+/** True iff `s` is a well-formed use-raw content pin (64 lowercase hex chars). */
+export function isContentHash(s: string): boolean {
+  return USE_RAW_CONTENT_HASH_RE.test(s);
+}
+
 /** Content hash for a rooms/hotels raw cell — hash of its collapsed form. */
 export function contentHashForRawSnippet(rawSnippet: string): string {
   return sha256hex(collapse(rawSnippet));

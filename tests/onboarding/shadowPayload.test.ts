@@ -64,7 +64,7 @@ describe("parseShadowPayloadForApply (fail-closed identity gate)", () => {
     // parse boundary surfaces them so applyShadow can feed them into the runPhase2 overlay.
     const decision = {
       code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
-      contentHash: "hash-xyz",
+      contentHash: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       target: { kind: "rooms", name: "GENERAL SESSION" },
       preference: "raw",
       applied: false,
@@ -77,7 +77,7 @@ describe("parseShadowPayloadForApply (fail-closed identity gate)", () => {
     expect(parsed.useRawDecisions).toHaveLength(1);
     expect(parsed.useRawDecisions[0]).toMatchObject({
       code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
-      contentHash: "hash-xyz",
+      contentHash: "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       preference: "raw",
       applied: false,
     });

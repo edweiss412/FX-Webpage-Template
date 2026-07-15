@@ -3161,7 +3161,7 @@ describe("use-raw toggle actions — post-commit forensic emit", () => {
     blockRef: { kind: "rooms", name: "GENERAL SESSION" },
     resolution: {
       resolvable: true,
-      contentHash: "hash-abc",
+      contentHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       parsed: { kind: "rooms", name: "GENERAL SESSION", dimensions: "40x60", floor: null },
       replacement: {
         kind: "rooms",
@@ -3174,11 +3174,11 @@ describe("use-raw toggle actions — post-commit forensic emit", () => {
   const REF = {
     code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
     blockRef: { kind: "rooms", name: "GENERAL SESSION" },
-    observedContentHash: "hash-abc",
+    observedContentHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
   };
   const rawDecision = (applied: boolean) => ({
     code: "ROOM_HEADER_SPLIT_AMBIGUOUS",
-    contentHash: "hash-abc",
+    contentHash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     target: { kind: "rooms", name: "GENERAL SESSION" },
     preference: "raw" as const,
     applied,
