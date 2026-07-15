@@ -1,4 +1,6 @@
 import { describe, expect, test } from "vitest";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { runObserve, tailErrorLine, isNewerEvent } from "@/scripts/observe";
 
 const okEvents = async () => ({
@@ -409,5 +411,48 @@ describe("runObserve", () => {
       expect(r.exitCode).toBe(0);
       expect(r.stderr).toBe("");
     });
+  });
+});
+
+describe("--env validation applies mapped credentials at the query boundary (Task 9)", () => {
+  const V = {
+    VALIDATION_SUPABASE_URL: "https://vzakgrxqwcalbmagufjh.supabase.co",
+    VALIDATION_SUPABASE_SECRET_KEY: "k",
+    VALIDATION_SUPABASE_PROJECT_REF: "vzakgrxqwcalbmagufjh",
+  };
+
+  test("runObserve staged --env validation → process.env.SUPABASE_URL is the VALIDATION_* URL at call time", async () => {
+    const savedUrl = process.env.SUPABASE_URL;
+    const savedKey = process.env.SUPABASE_SECRET_KEY;
+    try {
+      let capturedUrl: string | undefined;
+      const r = await runObserve(["staged", "--env", "validation"], {
+        ...deps,
+        env: V,
+        queryStagedParses: async () => {
+          capturedUrl = process.env.SUPABASE_URL;
+          return { kind: "ok" as const, rows: [] };
+        },
+      });
+      expect(r.exitCode).toBe(0);
+      expect(capturedUrl).toBe(V.VALIDATION_SUPABASE_URL);
+    } finally {
+      if (savedUrl === undefined) delete process.env.SUPABASE_URL;
+      else process.env.SUPABASE_URL = savedUrl;
+      if (savedKey === undefined) delete process.env.SUPABASE_SECRET_KEY;
+      else process.env.SUPABASE_SECRET_KEY = savedKey;
+    }
+  });
+
+  test("scripts/observe.ts: runTailFollow calls applyResolvedTarget before its first collectEvents (structural tail pin)", () => {
+    const path = fileURLToPath(new URL("../../scripts/observe.ts", import.meta.url));
+    const src = readFileSync(path, "utf8");
+    const tailFnStart = src.indexOf("async function runTailFollow");
+    expect(tailFnStart).toBeGreaterThan(-1);
+    const applyIdx = src.indexOf("applyResolvedTarget", tailFnStart);
+    const collectIdx = src.indexOf("collectEvents", tailFnStart);
+    expect(applyIdx).toBeGreaterThan(-1);
+    expect(collectIdx).toBeGreaterThan(-1);
+    expect(applyIdx).toBeLessThan(collectIdx);
   });
 });

@@ -2,8 +2,9 @@
 import { pathToFileURL } from "node:url";
 import { MESSAGE_CATALOG, isMessageCode, type MessageCatalogEntry } from "@/lib/messages/lookup";
 import { parseObserveArgs } from "./observe/args";
-import { resolveTarget } from "./observe/env";
+import { resolveTarget, applyResolvedTarget } from "./observe/env";
 import { collectEvents } from "./observe/collect";
+import { loadValidationEnv } from "./lib/validation-env";
 import {
   formatEvents,
   formatEventLineNdjson,
@@ -122,6 +123,7 @@ export async function runObserve(
   // All DB commands go through the --env guardrail first.
   const target = resolveTarget(parsed.env, deps.env);
   if (target.kind === "error") return fail(target.message, parsed.json);
+  applyResolvedTarget(target);
 
   if (command === "cron") {
     const r = await deps.getCronHealth();
@@ -233,6 +235,7 @@ const isEntry = (() => {
 })();
 
 if (isEntry) {
+  loadValidationEnv();
   const deps: ObserveDeps = {
     queryEvents: realQueryEvents,
     getCronHealth: realGetCronHealth,
@@ -273,6 +276,7 @@ async function runTailFollow(argv: string[], deps: ObserveDeps): Promise<void> {
     process.stderr.write(tailErrorLine(target.message, parsed.json) + "\n");
     process.exit(1);
   }
+  applyResolvedTarget(target);
   const seen = new Set<string>();
   let high: { occurredAt: string; id: string } | null = null;
   const intervalMs = parsed.interval * 1000;
