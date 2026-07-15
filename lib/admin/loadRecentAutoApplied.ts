@@ -21,12 +21,18 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import type { RosterShiftSummary } from "@/lib/admin/showDisplay";
 
+export type AutoAppliedDiff =
+  | { kind: "fromTo"; from: string; to: string }
+  | { kind: "single"; caption: "Added" | "Removed"; value: string }
+  | { kind: "none" };
+
 export type AutoAppliedRow = {
   id: string;
   changeKind: string;
   summary: string;
   occurredAt: string;
   undoable: boolean;
+  diff: AutoAppliedDiff;
 };
 
 export type AutoAppliedGroup = {
@@ -63,6 +69,38 @@ export const STRIP_KINDS = [
 ] as const;
 const UNDOABLE_KINDS = new Set<string>(["crew_added", "crew_removed", "crew_renamed"]);
 
+// Reads ONLY `name` from a change-log image; everything else (email/phone/id/
+// oauth/role) is deliberately never touched (PII posture, spec §3.1). Returns a
+// display-safe non-empty name or null.
+function readName(image: Record<string, unknown> | null | undefined): string | null {
+  if (!image || typeof image !== "object") return null;
+  const n = (image as { name?: unknown }).name;
+  return typeof n === "string" && n.trim() !== "" ? n : null;
+}
+
+// Derives the display-safe From→To diff from the change-log images. crew kinds
+// only; everything else → { kind:"none" } (renders the summary sentence).
+function deriveDiff(
+  changeKind: string,
+  before: Record<string, unknown> | null | undefined,
+  after: Record<string, unknown> | null | undefined,
+): AutoAppliedDiff {
+  if (changeKind === "crew_renamed") {
+    const from = readName(before);
+    const to = readName(after);
+    return from && to ? { kind: "fromTo", from, to } : { kind: "none" };
+  }
+  if (changeKind === "crew_added") {
+    const value = readName(after);
+    return value ? { kind: "single", caption: "Added", value } : { kind: "none" };
+  }
+  if (changeKind === "crew_removed") {
+    const value = readName(before);
+    return value ? { kind: "single", caption: "Removed", value } : { kind: "none" };
+  }
+  return { kind: "none" };
+}
+
 type RawEmbed = { slug?: string | null; title?: string | null };
 type RawRow = {
   id: string;
@@ -71,6 +109,8 @@ type RawRow = {
   summary: string;
   occurred_at: string;
   individually_undoable: boolean | null;
+  before_image: Record<string, unknown> | null;
+  after_image: Record<string, unknown> | null;
   shows: RawEmbed | RawEmbed[] | null;
 };
 type RosterRow = {
@@ -104,7 +144,7 @@ export async function loadRecentAutoApplied(deps: {
     const { data, count, error } = await supabase
       .from("show_change_log")
       .select(
-        "id, show_id, change_kind, summary, occurred_at, individually_undoable, shows(slug, title)",
+        "id, show_id, change_kind, summary, occurred_at, individually_undoable, before_image, after_image, shows(slug, title)",
         { count: "exact" },
       )
       .eq("source", "auto_apply")
@@ -140,6 +180,7 @@ export async function loadRecentAutoApplied(deps: {
       summary: r.summary,
       occurredAt: r.occurred_at,
       undoable,
+      diff: deriveDiff(r.change_kind, r.before_image, r.after_image),
     };
     let group = groupMap.get(r.show_id);
     if (!group) {
