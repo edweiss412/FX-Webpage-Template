@@ -983,9 +983,11 @@ export async function queryDeferred(filters: DeferredFilters): Promise<QueryDefe
 
 ```ts
 // lib/observe/query/watch.ts
-// §5.0: webhook_secret is NEVER selected (live shared secret) — structural pin
-// in tests/observe/queryWatch.test.ts scans this file. No free-text columns
-// (status is CHECK-constrained, class B) — no sanitizer needed.
+// §5.0: the channel's webhook-signing secret column is NEVER selected (live
+// shared secret) — the structural pin in tests/observe/queryWatch.test.ts
+// scans this file for the column's snake_case literal, so this comment must
+// name it only descriptively. No free-text columns (status is
+// CHECK-constrained, class B) — no sanitizer needed.
 import { createSupabaseServiceRoleClient } from "@/lib/supabase/server";
 import { clampLimit, type QueryWatchResult, type WatchFilters, type WatchRow } from "./types";
 
