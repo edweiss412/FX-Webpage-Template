@@ -370,6 +370,21 @@ describe("per-show page (§6)", () => {
     expect(screen.queryByTestId("admin-current-share-link-panel")).toBeNull();
   });
 
+  it("ineligible show (unpublished) never serializes the real token to the client — §6.6 non-exposure", async () => {
+    // The atomic read returns a REAL token, but the show is unpublished, so the
+    // ShareTokenProvider seed is `null` (initialToken = eligible ? token : null).
+    // The token string must therefore appear NOWHERE in the rendered DOM — no
+    // chip title/code, no crew href, no card URL — closing the client-exposure
+    // hole where an ineligible show still shipped its token to the browser.
+    state.show = { ...baseShow, published: false, archived: false };
+    state.token = "s3cr3ttokenvalue9f8e7d6c5b4a";
+    await renderPage();
+    expect(document.body.innerHTML).not.toContain(state.token);
+    expect(screen.getByTestId("admin-share-link-inactive")).toBeInTheDocument();
+    expect(screen.queryByTestId("admin-show-share-chip")).toBeNull();
+    expect(screen.queryByTestId("admin-show-open-crew")).toBeNull();
+  });
+
   it("token-read failure on a PUBLISHED ACTIVE show: token surfaces hidden but Share panel recovers (NOT the unpublished/archived notice) — Codex R1", async () => {
     // A transient loadShowShareToken null/throw must NOT make a published+active
     // show read as unpublished/archived. The token-dependent chip/open-crew are
