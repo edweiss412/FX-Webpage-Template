@@ -125,6 +125,24 @@ it("renders crew changes as From→To / single-value diffs and none-rows as summ
   ).toBeInTheDocument();
 });
 
+it("lays out buttons in a stretch grid: 2 cols (w-full accept+undo) when undoable, 1 col when not", () => {
+  // Pins the dimensional-invariant MECHANISM (spec §6): the full/half width comes
+  // from a CSS-grid template (grid-cols-2 = two equal 1fr cells) + w-full buttons,
+  // NOT fragile flex stretch. Real-browser width-distribution is deferred
+  // (BL-AUTOAPPLIED-CARD-LAYOUT-E2E) since 1fr columns split equally by grid spec.
+  render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
+  const undoable = screen.getByTestId("auto-applied-row-r1"); // crew_added, undoable
+  const uGrid = within(undoable).getByTestId("change-feed-accept").closest("div.grid")!;
+  expect(uGrid.className).toMatch(/grid-cols-2/);
+  expect(within(undoable).getByTestId("change-feed-accept").className).toMatch(/\bw-full\b/);
+  expect(within(undoable).getByTestId("change-feed-undo").className).toMatch(/\bw-full\b/);
+
+  const notUndoable = screen.getByTestId("auto-applied-row-r3"); // field_changed, not undoable
+  const nGrid = within(notUndoable).getByTestId("change-feed-accept").closest("div.grid")!;
+  expect(nGrid.className).toMatch(/grid-cols-1/);
+  expect(within(notUndoable).queryByTestId("change-feed-undo")).toBeNull();
+});
+
 it("shows a per-group count badge = rendered rows", () => {
   render(<RecentAutoAppliedStrip data={okData()} actions={noopActions()} />);
   expect(

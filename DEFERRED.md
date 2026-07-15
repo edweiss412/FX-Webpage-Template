@@ -505,3 +505,9 @@ Source: invariant-8 impeccable v3 dual-gate on branch `feat/flow4-auto-applied-s
 - **What:** The strip `<section>` has `aria-label="Recently auto-applied changes"` AND a matching `<h4>`; `aria-labelledby` the heading would avoid the duplication.
 - **Why deferred:** Harmless (aria-label wins for the section's accessible name; the heading still contributes to the outline). Trivial nicety, not a defect.
 - **Trigger:** bundled with any future strip edit. Backlog: none (nicety).
+
+### AUTOAPPLIED-REDESIGN-1 — [P3→deferred] Real-browser width-distribution assertion for the card button grid
+
+- **What:** The redesigned auto-applied change card lays Accept/Undo out in a CSS grid (`grid-cols-2` = two `1fr` cells, or `grid-cols-1`) with `w-full` buttons. Spec §6 called for a real-browser Playwright assertion that each button ≈ half (undoable) / full (single) card width.
+- **Why deferred:** The half/full split here comes from CSS-grid `1fr` column semantics + `w-full`, NOT the fragile flex-`items-stretch` gotcha the real-browser rule targets — `1fr 1fr` splits equally by spec regardless of content. The MECHANISM is pinned in jsdom (`RecentAutoAppliedStrip.test.tsx`: grid template `grid-cols-2`/`grid-cols-1` + `w-full` on the stretched buttons, plus the button-level `stretch` w-full tests). A standalone esbuild+Playwright harness for pixel-width distribution is disproportionate for a grid whose distribution is a CSS invariant. Pill background emission (the genuine dynamic-class risk) is verified at build + in the impeccable real-browser pass, not deferred.
+- **Trigger:** the next auto-applied-strip e2e pass, or any change that moves the button layout off CSS-grid `1fr`. Backlog: `BL-AUTOAPPLIED-CARD-LAYOUT-E2E`.
