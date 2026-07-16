@@ -126,7 +126,7 @@ git commit --no-verify -m "feat(sync): add deferPostResponse helper wrapping nex
 
 In `tests/admin/setUseRawDecisionAction.test.ts`:
 
-(a) Add the defer mock + revalidate spy access after the `runManualSyncForShowMock` block (after line 79). Replace the anonymous showCacheTag mock (line 32) so the spy is importable:
+(a) Add the defer mock + revalidate spy access. PLACEMENT IS LOAD-BEARING (plan-R1 F1): insert the block immediately after the `runManualSyncForShowMock` `vi.mock` block (line 77-79) and strictly BEFORE the `import { setUseRawDecisionAction } from …` line (line 82) — the same const-fn-then-`vi.mock`-factory pattern every other mock in this file uses (e.g. lines 16-22). If the mock lands after the action import, the action binds the REAL helper and tests hit `next/server` `after()` instead of the capture mock. `callOrder` (line 44) and `deferredTasks` must both be declared before the factory body runs. Replace the anonymous showCacheTag mock (line 32) so the spy is importable:
 
 ```ts
 // REPLACE: vi.mock("@/lib/data/showCacheTag", () => ({ revalidateShow: vi.fn() }));
@@ -167,8 +167,11 @@ vi.mock("@/lib/async/deferPostResponse", () => ({
     expect(runManualSyncForShowMock).toHaveBeenCalledWith("df-server");
 
 // :236 + :247 (R8 failure-symmetry pair): keep the hard_fail mock and the
-// durable-write assertions; result stays apply_pending; add before the result line:
+// durable-write assertions; result stays apply_pending; add before the result line
+// (length assertion FIRST — a missing schedule must fail as a contract violation,
+// not a vague "deferredTasks[0] is not a function"; plan-R1 F3):
     expect(runManualSyncForShowMock).not.toHaveBeenCalled();
+    expect(deferredTasks).toHaveLength(1);
     await deferredTasks[0]!();   // drained task runs the failing sync; result already returned
 
 // :257 thrown-fault test: the throw now happens inside the drained task
@@ -229,24 +232,39 @@ describe("background apply (spec 2026-07-16-use-raw-bg-apply)", () => {
     expect(revalidateShowMock).toHaveBeenNthCalledWith(2, "show-1");
   });
 
-  test("settled paths schedule nothing (test 4)", async () => {
-    // alreadySettled: clear-pending → ON (applied:true write, no re-sync)
+  // Split per settled path (plan-R1 F2): each proves its own no-schedule AND
+  // its settled result, with no spy state shared across action calls.
+  test("alreadySettled write (clear-pending → ON) schedules nothing and returns settled (test 4a)", async () => {
     txScript.decisions = [{ ...rawDecision(false), preference: "transform" }];
-    await setUseRawDecisionAction("show-1", ref(), true);
+    const r = await setUseRawDecisionAction("show-1", ref(), true);
+    expect(r).toEqual({ ok: true, state: "settled" });
     expect(deferredTasks).toHaveLength(0);
-    // !mutated: apply-pending → ON no-op
-    txScript.decisions = [rawDecision(false)];
-    await setUseRawDecisionAction("show-1", ref(), true);
-    expect(deferredTasks).toHaveLength(0);
+    expect(deferPostResponseMock).not.toHaveBeenCalled();
   });
 
-  test("synchronous scheduling fault is contained: apply_pending, emit + revalidate intact (test 7)", async () => {
+  test("non-mutated toggle (apply-pending → ON) schedules nothing and returns settled (test 4b)", async () => {
+    txScript.decisions = [rawDecision(false)];
+    const r = await setUseRawDecisionAction("show-1", ref(), true);
+    expect(r).toEqual({ ok: true, state: "settled" });
+    expect(deferredTasks).toHaveLength(0);
+    expect(deferPostResponseMock).not.toHaveBeenCalled();
+  });
+
+  test("synchronous scheduling fault is contained: apply_pending, emit-before-schedule ordering intact (test 7)", async () => {
+    // Ordering pin (plan-R1 F4): the scheduling attempt must come AFTER the
+    // post-commit emit and AFTER lock release — a swallowed fault must not be
+    // able to mask a reordering of the post-commit sequence.
     deferPostResponseMock.mockImplementationOnce(() => {
+      callOrder.push("defer:throw");
       throw new Error("after() called outside a request scope");
+    });
+    logAdminOutcomeMock.mockImplementationOnce(async () => {
+      callOrder.push("emit");
     });
     txScript.decisions = [];
     const r = await setUseRawDecisionAction("show-1", ref(), true);
     expect(r).toEqual({ ok: true, state: "apply_pending" });
+    expect(callOrder).toEqual(["lock:acquire", "lock:release", "emit", "defer:throw"]);
     expect(logAdminOutcomeMock).toHaveBeenCalledTimes(1);
     expect(revalidateShowMock).toHaveBeenCalledTimes(1); // synchronous pre-return call
   });
@@ -301,8 +319,11 @@ import { deferPostResponse } from "@/lib/async/deferPostResponse";
       try {
         await runManualSyncForShow(driveFileId);
       } catch {
-        // runManualSyncForShow logs its failures internally; the decision stays
-        // durable (apply-pending) and applies on the next successful sync.
+        // RETURNED sync failures are logged inside runManualSyncForShow (logSync
+        // under the pipeline lock); an unexpected THROWN fault is swallowed here
+        // at exact parity with the previous inline catch (spec 2026-07-16 §2.2).
+        // Either way the decision stays durable (apply-pending) and applies on
+        // the next successful sync.
       }
       revalidateShow(id);
     });
