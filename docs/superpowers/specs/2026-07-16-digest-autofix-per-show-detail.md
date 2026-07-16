@@ -44,10 +44,10 @@ select sl.drive_file_id, s.slug, s.title, sl.parse_warnings, sl.occurred_at
  where s.published = true
    and sl.status = 'applied'
    and sl.occurred_at > :windowStart
- order by sl.occurred_at desc, sl.drive_file_id asc
+ order by sl.occurred_at desc, sl.drive_file_id asc, sl.id asc
 ```
 
-(`sync_log.id` is a random uuid — no monotonic tiebreak available (`supabase/migrations/20260501001000_internal_and_admin.sql:221-231`); `drive_file_id` is the stable tiebreaker and is non-null on every joined row since `shows.drive_file_id` is `not null unique`.)
+(`sync_log.id` is a random uuid (`supabase/migrations/20260501001000_internal_and_admin.sql:221-231`) — not monotonic, but a STABLE per-row tiebreak: same rows always return in the same order, including multiple same-show rows sharing an `occurred_at`. `drive_file_id` orders tied rows across shows and is non-null on every joined row since `shows.drive_file_id` is `not null unique`; `id` orders tied rows within a show.)
 
 New pure function in `lib/notify/monitorDigest.ts`:
 
@@ -57,7 +57,7 @@ export function computeAutofixShows(rows: AutofixRow[]): { total: number; shows:
 
 - Per row: extract autofix items via a new `listAutoFixItems(warnings)` helper in `lib/parser/dataGaps.ts` (see §4), each `{ code, item }`.
 - **Fingerprint dedupe per show:** within a show (keyed by `drive_file_id`), an item is kept only the first time its fingerprint `` `${code} ${item}` `` is seen. Repeated syncs re-emitting the same warning collapse to one item (the reported inflation bug); distinct corrections across different in-window rows ALL survive (a 09:00 correction still reports even if the 10:00 sync no longer carries it — the section is "applied since your last digest", an event digest). Two genuinely identical corrections producing byte-identical messages also collapse — acceptable: identical text is indistinguishable to the reader anyway.
-- **Ordering (deterministic under caps):** rows arrive `occurred_at desc, drive_file_id asc` (query `ORDER BY` above). Shows are grouped in first-seen stream order — most recently synced shows first — so the 12-show cap keeps the most recent activity. Items within a show keep stream order (newest row's warnings first, in-array order preserved).
+- **Ordering (deterministic under caps):** rows arrive `occurred_at desc, drive_file_id asc, id asc` (query `ORDER BY` above — fully deterministic for a fixed row set, including same-show timestamp ties). Shows are grouped in first-seen stream order — most recently synced shows first — so the 12-show cap keeps the most recent activity. Items within a show keep stream order (newest row's warnings first, in-array order preserved), so the 5-item cap is likewise deterministic.
 - `shows`: `MonitorShowGroup[]` (`{ showTitle, slug, items }`, existing type at `lib/notify/monitorDigest.ts:27`); a show with zero autofix items is omitted.
 - `total` = sum of `items.length` across ALL shows (pre-cap SOURCE total; = count of distinct fingerprints).
 
@@ -76,7 +76,7 @@ export function listAutoFixItems(
 ```
 
 - Same iteration/gating posture as `summarizeAutoFixes` (`lib/parser/dataGaps.ts:130-144`): skip `severity === "info"`, skip codes not in `AUTO_FIX_CODES`, tolerate `null`/`undefined`/`[]` (→ `[]`), tolerate non-warning leading payload objects (no `severity`/`code` — the `sync_log.parse_warnings` array's first element is a payload row per Flow 6.2 §3.2, not a `ParseWarning`).
-- `item` is the warning's `message` when it is a non-empty string; otherwise the class label from `AUTO_FIX_CLASSES` (`lib/parser/dataGaps.ts:108-115`). `ParseWarning.message` is typed required (`lib/parser/types.ts:48-51`), but rows arrive from jsonb — defensive fallback, never an empty item.
+- `item` is the warning's `message` when it is a non-empty string that is NOT raw-code-shaped; otherwise the class label from `AUTO_FIX_CLASSES` (`lib/parser/dataGaps.ts:108-115`). **Raw-code-shaped** = the trimmed message equals the warning's `code` or matches `/^[A-Z][A-Z0-9_]*$/` (a SHOUTY catalog-token — invariant 5: a jsonb row like `{ code: "STAGE_WORD_AUTOCORRECTED", message: "STAGE_WORD_AUTOCORRECTED" }` must never render a raw code in the email; the label substitutes). `ParseWarning.message` is typed required (`lib/parser/types.ts:48-51`), but rows arrive from jsonb — defensive fallback, never an empty or code-shaped item.
 - `code` is the matched `AutoFixCode` — the caller's dedupe fingerprint is `` `${code} ${item}` `` (§3), so a label fallback in one class can never collapse with the same label text in another class.
 - One returned entry per counted warning, so `listAutoFixItems(w).length === summarizeAutoFixes(w).total` for any input (property pinned by a test).
 
@@ -103,6 +103,7 @@ Messages are parser-authored plain language (`Read likely-misspelled … 'X' as 
 | `showTitle` null | `Untitled show` (mirrors `templates/digest.ts:40`) |
 | `slug` null | link `${origin}/admin` (existing `showHref`, `templates/digest.ts:16-18`) |
 | message missing/empty/non-string in jsonb | class label substituted upstream (§4); item never empty |
+| message raw-code-shaped (`message === code` or SHOUTY token) | class label substituted upstream (§4); raw codes never render (invariant 5) |
 | show count > 12 / items > 5 | cap + overflow note (SOURCE-derived counts) |
 | N === 1 | `value` singular in the intro line |
 
@@ -135,8 +136,8 @@ Messages are parser-authored plain language (`Read likely-misspelled … 'X' as 
 
 Existing files to update:
 
-1. `tests/notify/monitorDigest.autofix.test.ts` — rewrite for `computeAutofixShows` + `listAutoFixItems`. Cases: payload-object skip; non-autofix-code skip; info-severity skip; item fallback to label (message absent / empty / non-string); property `listAutoFixItems(w).length === summarizeAutoFixes(w).total` over the fixture set; fingerprint dedupe (same code+message across two rows of one show → 1 item; two DIFFERENT messages across two rows → 2 items, both retained; same message text under two different codes → 2 items); show ordering + cap (13 shows with distinct `occurred_at` → the 12 most recent survive the cap, expected set derived from fixture timestamps). *Catches: helper counting/emitting divergence, fallback regressions, dedupe collapse of distinct corrections, event-semantics drop, nondeterministic cap.*
-2. `tests/notify/monitorDigest.autofix.db.test.ts` — currently seeds 2 in-window applied rows for ONE show and expects `total === 2` (`:73-74`), i.e. it PINS the inflation bug. Rewrite: same-show two rows carrying the SAME autofix warning → `total === 1`; same-show two rows carrying DIFFERENT warnings → both survive (`total === 2`) even though only one is the latest row; second show grouped separately with title/slug; rows returned newest-first (assert show order from fixture `occurred_at`). *Catches: dedupe regression to sum-over-rows (the exact reported bug), latest-row-only regression (dropping real corrections), title/slug drop, ORDER BY removal.*
+1. `tests/notify/monitorDigest.autofix.test.ts` — rewrite for `computeAutofixShows` + `listAutoFixItems`. Cases: payload-object skip; non-autofix-code skip; info-severity skip; item fallback to label (message absent / empty / non-string / raw-code-shaped — incl. `message === code` and an unrelated SHOUTY token, asserting no `_AUTOCORRECTED` substring in any emitted item); property `listAutoFixItems(w).length === summarizeAutoFixes(w).total` over the fixture set; fingerprint dedupe (same code+message across two rows of one show → 1 item; two DIFFERENT messages across two rows → 2 items, both retained; same message text under two different codes → 2 items); show ordering + cap (13 shows with distinct `occurred_at` → the 12 most recent survive the cap, expected set derived from fixture timestamps). *Catches: helper counting/emitting divergence, fallback regressions, raw-code leak (invariant 5), dedupe collapse of distinct corrections, event-semantics drop, nondeterministic cap.*
+2. `tests/notify/monitorDigest.autofix.db.test.ts` — currently seeds 2 in-window applied rows for ONE show and expects `total === 2` (`:73-74`), i.e. it PINS the inflation bug. Rewrite: same-show two rows carrying the SAME autofix warning → `total === 1`; same-show two rows carrying DIFFERENT warnings → both survive (`total === 2`) even though only one is the latest row; second show grouped separately with title/slug; rows returned newest-first (assert show order from fixture `occurred_at`); same-show rows with IDENTICAL `occurred_at` and >5 distinct items → identical rendered item set across two consecutive builder calls (pins the `sl.id asc` tiebreak). *Catches: dedupe regression to sum-over-rows (the exact reported bug), latest-row-only regression (dropping real corrections), title/slug drop, ORDER BY removal, tied-row nondeterminism under the item cap.*
 3. `tests/notify/renderDigest.monitor.test.ts` — sub-block 2 assertions: heading, intro line singular/plural, per-show link href derived from fixture slug, message `<li>`s HTML-escaped (fixture message containing `<` & `'`), caps/overflow with fixture sizes exceeding 12/5 (expected overflow counts derived from fixture lengths, not hardcoded), absent when `total === 0`. Assert against the model fixture values, not by re-deriving from the rendered container. *Catches: template regression, escaping, cap math.*
 4. `tests/notify/deliver.test.ts` — `monitor_totals.autofixTotal` still emitted from `input.monitor.autofix.total`; `:676` byte-parity case unchanged-green. *Catches: context shape drift.*
 5. `tests/parser/dataGaps.test.ts` — `listAutoFixItems` unit cases live here if the helper's tests fit the file's existing structure; otherwise in (1). No changes to existing `summarizeAutoFixes` cases.
