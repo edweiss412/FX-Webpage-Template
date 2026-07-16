@@ -4,8 +4,9 @@
  * components/admin/RescanSheetButton.tsx (per-sheet Re-scan — spec §9)
  *
  * A quiet secondary CTA mounted on the wizard Step-3 review card (both render
- * paths) and inside the final-publish blocker lists (only for the
- * STAGED_PARSE_OUTDATED_AT_PHASE_D rows that a re-scan can heal). It re-fetches
+ * paths) and inside the final-publish blocker lists (only for the rows a re-scan
+ * can heal: STAGED_PARSE_OUTDATED_AT_PHASE_D and ROLE_MAPPINGS_OUTDATED_AT_PUBLISH
+ * — the RESCANNABLE_CAS_CODES set in both panels). It re-fetches
  * ONE Drive file, re-parses, and re-stages it:
  *
  *   POST /api/admin/onboarding/rescan-sheet  { driveFileId, wizardSessionId }
@@ -94,7 +95,11 @@ function resultFor(body: RescanResponse): ResultState {
     }
     return {
       kind: "info",
-      copy: body.changed ? "Updated. Still ready to publish." : "No changes found.",
+      // Unchanged still closes the loop: a role-mapping heal re-derives the staged
+      // stamp without any sheet edit, so "No changes found." alone reads as failure.
+      copy: body.changed
+        ? "Updated. Still ready to publish."
+        : "No changes found. Still ready to publish.",
     };
   }
   if (body.status === "needs_attention" || body.status === "busy") {

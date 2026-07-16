@@ -61,9 +61,14 @@ import {
   type FinalizeCasPhase,
 } from "@/lib/onboarding/finalizeProgress";
 
-// The one per-row code a re-scan can heal: an outdated Phase-D shadow. Corrupt-payload
+// The per-row codes a re-scan can heal: an outdated Phase-D shadow, and a role-mapping
+// stamp gone stale at publish (spec 2026-07-16-role-vocab-staging-overlay §3.5 heal
+// step ii — the re-scan re-derives the stamp under the current vocabulary). Corrupt-payload
 // / archived-show rows keep their existing recovery (re-scan is the wrong tool there).
-const RESCANNABLE_CAS_CODE = "STAGED_PARSE_OUTDATED_AT_PHASE_D";
+const RESCANNABLE_CAS_CODES = new Set([
+  "STAGED_PARSE_OUTDATED_AT_PHASE_D",
+  "ROLE_MAPPINGS_OUTDATED_AT_PUBLISH",
+]);
 
 type FinalizeButtonProps = {
   wizardSessionId: string;
@@ -627,8 +632,8 @@ export function FinalizeStatusRegion({ run }: { run: FinalizeRun }) {
                   {lookupDougFacing(row.code) ?? GENERIC_ERROR}
                 </span>
                 <HelpAffordance code={row.code} />
-                {/* An outdated Phase-D shadow self-heals via a re-scan; offer it inline. */}
-                {row.code === RESCANNABLE_CAS_CODE ? (
+                {/* A re-scannable refusal self-heals via a re-scan; offer it inline. */}
+                {RESCANNABLE_CAS_CODES.has(row.code) ? (
                   <RescanSheetButton
                     driveFileId={row.drive_file_id}
                     wizardSessionId={wizardSessionId}

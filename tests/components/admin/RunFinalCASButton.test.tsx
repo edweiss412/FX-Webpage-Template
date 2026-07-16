@@ -164,6 +164,35 @@ describe("RunFinalCASButton", () => {
     expect(queryByTestId("run-final-cas-error")).toBeNull();
   });
 
+  test("409 per_row ROLE_MAPPINGS_OUTDATED_AT_PUBLISH row offers the inline re-scan heal (spec 2026-07-16 §3.5 heal step ii)", async () => {
+    fetchMock.mockResolvedValueOnce(
+      mockJsonResponse(
+        {
+          ok: false,
+          code: "ROLE_MAPPINGS_OUTDATED_AT_PUBLISH",
+          per_row: [
+            { drive_file_id: "drive-stale-roles-1", code: "ROLE_MAPPINGS_OUTDATED_AT_PUBLISH" },
+          ],
+        },
+        { status: 409 },
+      ),
+    );
+    const { getByTestId, queryByTestId, container } = render(
+      <RunFinalCASButton sessionId={SESSION_ID} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("run-final-cas-button"));
+    });
+    await waitFor(() => {
+      expect(queryByTestId("run-final-cas-per-row")).not.toBeNull();
+    });
+    const text = getByTestId("run-final-cas-per-row").textContent ?? "";
+    expect(text).toContain(MESSAGE_CATALOG.ROLE_MAPPINGS_OUTDATED_AT_PUBLISH.dougFacing!);
+    // The heal is the re-scan; without this button the refusal is a dead end at this stage.
+    expect(queryByTestId("rescan-sheet-button-drive-stale-roles-1")).not.toBeNull();
+    expect(container.textContent ?? "").not.toContain("ROLE_MAPPINGS_OUTDATED_AT_PUBLISH");
+  });
+
   test("cas_per_row list: shows display_name, drops the id from the label, falls back to the id when display_name is absent", async () => {
     const TITLE = "Consultants Roundtable";
     const TITLE_ID = "1AbC_opaque_id";
