@@ -3,7 +3,7 @@
 **Date:** 2026-07-16
 **Status:** Draft (brainstorm converged in-session; all design sections user-approved)
 **Autonomy:** approved — autonomous ship through merged PR (AGENTS.md brainstorming gate, 2026-07-16)
-**Design mock:** `docs/superpowers/specs/2026-07-16-consolidated-admin-show-page-mock/` — **PENDING, not yet committed.** The Claude Design pass (§13) runs in parallel with spec/plan review; its fetches are committed verbatim to that directory. This is a **blocking pre-UI gate**: the plan's first UI-rendering task (Phase 2) carries an explicit precondition step that fails the task if the directory does not exist in the tree at execution time. Phase 1 (extraction, zero visible change) does NOT require the mock.
+**Design mock:** `docs/superpowers/specs/2026-07-16-consolidated-admin-show-page-mock/` — **COMMITTED** (verbatim Claude Design snapshot + `README.md` delta notes, commit `505f7e56c`). The mock is the visual reference for Phase 2 UI tasks; its README enumerates the deltas where the spec/DESIGN.md override the mock (diagrams rail item, teal all-clear hue, truncated chip rail artifact).
 
 ---
 
