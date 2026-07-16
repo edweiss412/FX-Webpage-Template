@@ -126,54 +126,58 @@ describe("publish_show freshness gate (RPC leg)", () => {
 });
 
 describe("FOR SHARE serialization (two connections)", () => {
-  it("a settings DELETE blocks behind the gate's share lock until the gate tx commits", { timeout: 20000 }, async () => {
-    await seedMapping(sqlClient, TOKEN_B, []);
-    const a = postgres(
-      process.env.TEST_DATABASE_URL ??
-        process.env.DATABASE_URL ??
-        "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
-      { max: 1, prepare: false },
-    );
-    const b = postgres(
-      process.env.TEST_DATABASE_URL ??
-        process.env.DATABASE_URL ??
-        "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
-      { max: 1, prepare: false },
-    );
-    try {
-      let releaseA!: () => void;
-      const aHolds = new Promise<void>((r) => (releaseA = r));
-      let aResult: boolean | undefined;
-      const aTx = a.begin(async (tx) => {
-        const rows = await tx`
+  it(
+    "a settings DELETE blocks behind the gate's share lock until the gate tx commits",
+    { timeout: 20000 },
+    async () => {
+      await seedMapping(sqlClient, TOKEN_B, []);
+      const a = postgres(
+        process.env.TEST_DATABASE_URL ??
+          process.env.DATABASE_URL ??
+          "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+        { max: 1, prepare: false },
+      );
+      const b = postgres(
+        process.env.TEST_DATABASE_URL ??
+          process.env.DATABASE_URL ??
+          "postgresql://postgres:postgres@127.0.0.1:54322/postgres",
+        { max: 1, prepare: false },
+      );
+      try {
+        let releaseA!: () => void;
+        const aHolds = new Promise<void>((r) => (releaseA = r));
+        let aResult: boolean | undefined;
+        const aTx = a.begin(async (tx) => {
+          const rows = await tx`
           select public.role_mappings_stamp_satisfied(${stamp([
             { token: TOKEN_B, grants: [] },
           ])}::text::jsonb) as ok`;
-        aResult = rows[0]!.ok as boolean;
-        await aHolds; // hold the share lock until the delete has provably blocked
-      });
+          aResult = rows[0]!.ok as boolean;
+          await aHolds; // hold the share lock until the delete has provably blocked
+        });
 
-      // B's delete must BLOCK while A's tx holds FOR SHARE (statement_timeout proves it)
-      await new Promise((r) => setTimeout(r, 100)); // let A acquire the lock
-      await expect(
-        b.begin(async (tx) => {
-          await tx`set local statement_timeout = '500ms'`;
-          await tx`delete from public.role_token_mappings where token = ${TOKEN_B}`;
-        }),
-      ).rejects.toThrow(/statement timeout|canceling statement/);
+        // B's delete must BLOCK while A's tx holds FOR SHARE (statement_timeout proves it)
+        await new Promise((r) => setTimeout(r, 100)); // let A acquire the lock
+        await expect(
+          b.begin(async (tx) => {
+            await tx`set local statement_timeout = '500ms'`;
+            await tx`delete from public.role_token_mappings where token = ${TOKEN_B}`;
+          }),
+        ).rejects.toThrow(/statement timeout|canceling statement/);
 
-      releaseA();
-      await aTx;
-      expect(aResult).toBe(true); // gate saw the still-live row
+        releaseA();
+        await aTx;
+        expect(aResult).toBe(true); // gate saw the still-live row
 
-      // after A committed, the delete proceeds
-      await b`delete from public.role_token_mappings where token = ${TOKEN_B}`;
+        // after A committed, the delete proceeds
+        await b`delete from public.role_token_mappings where token = ${TOKEN_B}`;
 
-      // inverse order: delete committed first → gate read refuses
-      expect(await satisfied(stamp([{ token: TOKEN_B, grants: [] }]))).toBe(false);
-    } finally {
-      await a.end({ timeout: 5 }).catch(() => {});
-      await b.end({ timeout: 5 }).catch(() => {});
-    }
-  });
+        // inverse order: delete committed first → gate read refuses
+        expect(await satisfied(stamp([{ token: TOKEN_B, grants: [] }]))).toBe(false);
+      } finally {
+        await a.end({ timeout: 5 }).catch(() => {});
+        await b.end({ timeout: 5 }).catch(() => {});
+      }
+    },
+  );
 });

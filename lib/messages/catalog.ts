@@ -3042,7 +3042,8 @@ export const MESSAGE_CATALOG = {
     dougFacing:
       "The roles you've added changed after setup reviewed this part, so it's on hold instead of going live.",
     crewFacing: null,
-    followUp: "Doug → re-scan the sheet in setup (or run the show's sheet check), then publish again",
+    followUp:
+      "Doug → re-scan the sheet in setup (or run the show's sheet check), then publish again",
     helpfulContext:
       "Setup remembers which of your added roles shaped this show's pages. One of those roles was removed or changed after the sheet was reviewed, so publishing is on hold rather than going live with out-of-date choices. Re-scan the sheet in setup (or run the show's sheet check) to pick up your current choices, then publish again.",
     title: "Roles changed during setup",
