@@ -37,7 +37,7 @@ Two adjacent telemetry findings ride the same pass by user decision (2026-07-16)
 
 ## 3. Token changes (`app/globals.css`)
 
-Only the **light** block (`:root` defaults, `app/globals.css:266-299` region) changes. Both dark blocks (`@media (prefers-color-scheme: dark)` at `:313-331` and `[data-theme="dark"]` at `:355-372`) are untouched.
+For the two EXISTING tokens, only the **light** block (`:root` defaults, `app/globals.css:266-299` region) changes — their dark values (`@media (prefers-color-scheme: dark)` at `:313-331` and `[data-theme="dark"]` at `:355-372`) are already correct and stay as-is. The NEW `--color-accent-edge` token is different: its runtime value MUST be defined in **all three** blocks (`:root` light `#7a3d00`; the `@media` dark block AND the `[data-theme="dark"]` block both `#ffa047` — the two dark blocks must stay value-identical, pinned by test), plus the `@theme` alias below.
 
 | Token | Line (pre-change) | Old | New | Resulting ratios (measured) |
 | --- | --- | --- | --- | --- |
@@ -90,12 +90,12 @@ Thumb (`bg-bg`, `h-5 w-5` inside `h-7 w-12`) is unchanged: the component boundar
 Every touched figure is corrected to the measured value (the numeric-sweep target set):
 
 - **L31 (`--color-accent`)**: unchanged value; no figure.
-- **L33 (`--color-accent-text`)**: light hex `#FFFFFF` → `#0E0F12`; rationale rewritten — "near-black on orange in BOTH modes; light 8.23:1, dark 11.3:1 (AAA). The former white-on-orange light pairing measured 2.33:1 (the 4.07:1 figure was a luminance miscalculation) and failed every WCAG tier."
+- **L33 (`--color-accent-text`)**: light hex `#FFFFFF` → `#0E0F12`; rationale rewritten — "near-black on orange in BOTH modes; 8.23:1 in each (same hex pair; the old dark-row 11.3:1 figure was itself a miscalculation). The former white-on-orange light pairing measured 2.33:1 (the 4.07:1 figure was a luminance miscalculation) and failed every WCAG tier."
 - **L34 (`--color-accent-on-bg`)**: light hex `#C25E00` → `#B35600`; figure 4.6:1 → 4.73:1 (AA body); the "brand #FF8C1A only hits 3.0:1" side-claim corrected to its measured 2.23:1, and the "fine for a 24px+ glyph" allowance is DELETED — 2.23:1 fails the 3:1 graphical floor too. Replacement wording: "raw `--color-accent` on light bg is decorative-only; it must be redundant with an adjacent text label or shape cue (the today-pin and DayCard dots qualify: both sit beside date/label text), and any load-bearing orange-as-text/glyph use must go through `--color-accent-on-bg`."
 - **L41 (`--color-status-live`/`-text`)**: light `-text` hex updates to `#B35600` (alias follows accent-on-bg).
 - **L47 (`--color-accent-tint`)**: icon figure 3.8:1 → 4.35:1 (new accent-on-bg on tint).
 - **§1.2 table L57**: accent on bg "3.0:1" → measured 2.23:1, note reworded (AA-large claim removed; accent raw on light bg is decorative-only).
-- **§1.2 table L58**: 4.6:1 → 4.73:1.
+- **§1.2 table L58**: light 4.6:1 → 4.73:1; dark 9.8:1 → 9.39:1 (also a stale figure; L34's dark "9.8:1" corrects to 9.39:1 in the same edit).
 - **§1.2 table L59**: 4.07:1 → 8.23:1, note "AA-large+bold" → "AAA-adjacent / AA body both modes".
 - **§1.2 table L70**: 3.8:1 → 4.35:1.
 - New §1.1 row for `--color-accent-edge` (light `#7A3D00` / dark `#FFA047`): "ON-state control boundary (toggle track border). Light: 3.61:1 vs the orange track and 8.06:1 vs bg — passes WCAG 1.4.11 on both adjacent sides. Dark: decorative; the track itself clears 8.16:1 vs bg."
@@ -115,6 +115,8 @@ All other figures in §1.1/§1.2 get a one-time verification sweep during implem
   4. Toggle boundary, light mode: `accent-edge` vs `accent` ≥ 3:1 AND `accent-edge` vs `bg` ≥ 3:1 AND `accent-edge` vs `surface` ≥ 3:1 (every adjacent pair the 1px border touches)
   5. Toggle boundary, dark mode: `accent` (track) vs `bg` ≥ 3:1 AND vs `surface` ≥ 3:1 (the track itself is the boundary; the dark edge value is decorative and un-pinned)
   6. Token WIRING (not just values): the `@theme` block contains `--color-accent-edge: var(--color-accent-edge-runtime)` — pinned by the same source-scan mechanism the file already uses (a runtime value without its `@theme` alias is a dead token).
+  7. Dark-block parity: `--color-accent-edge-runtime` is defined in BOTH dark blocks (`@media (prefers-color-scheme: dark)` and `[data-theme="dark"]`) with identical values (the existing `block()` helper reads each scope independently — assert equality), so system-dark and toggled-dark users get the same edge.
+  8. **DESIGN.md figure parity**: for every §1.2 core-pair row this spec touches (accent-text-on-accent, accent-on-bg-on-bg, accent-on-bg-on-tint, accent-edge rows), parse the documented "N:1" figure out of `DESIGN.md` and assert it equals the ratio computed from the live `globals.css` hexes within ±0.05 — documented figures can no longer drift from shipped tokens (the exact failure class this whole pass repairs).
 - **Real-browser computed-style proof** (Playwright, extends `tests/e2e/developer-toggle-layout.spec.ts` or a sibling spec): with the Developer toggle ON, `getComputedStyle(track).borderColor` resolves to `rgb(122, 61, 0)` (light) — proving the `border-accent-edge` utility actually generated CSS, not merely that the class string is present. (jsdom cannot prove this; Tailwind utilities don't exist there.)
 - **Wizard eyebrow structural scan** (per §4.2): no `text-text-faint` + `text-[10px]` pairing anywhere under `components/admin/wizard/`.
   (Existing rows at `:140-145` — bell icon ≥3:1 on tint, pill text — re-run green with the new values.)
