@@ -535,7 +535,7 @@ Test list (each with the concrete assertion):
 2. **Per-member ledger rows share provider_message_id:** undo batch of 2 → `sentRows` records 2 inserts, both containing the same `messageId` value and each member's own `dedup_key`.
 3. **Mixed eligibility:** member A has ledger `sent`, member B fresh → send called once with B only (idempotency key = `baseKey(kind, "B-key", recipient)` — N=1 identity), counts `{sent:1, skipped:1}`.
 4. **Capped member drops out:** A failed at `SEND_RETRY_CAP` attempts, B fresh → batch = {B}; counts `{sent:1, skipped:1}`.
-5. **Batch failure → per-member failed rows + alerts:** batch of 2, send returns `{ok:false, kind:"infra_error", message:"boom"}` (the real `SendResult` failed arm — `lib/notify/send.ts:13-17` allows only `idempotency_conflict` | `infra_error`) → 2 `failedRows`, `upsertAdminAlert` spy called twice with each member's `contextFor` recipe, counts `{failed:2}`.
+5. **Batch failure → per-member failed rows + alerts (undo recipe pinned exactly):** batch of TWO `auto_publish_undo` candidates, send returns `{ok:false, kind:"infra_error", message:"boom"}` (the real `SendResult` failed arm — `lib/notify/send.ts:13-17` allows only `idempotency_conflict` | `infra_error`) → 2 `failedRows`, `upsertAdminAlert` spy called twice, and EACH alert's `context` is asserted with exact `toEqual({slug, title, expires_at, mintId})` derived from that candidate (four keys, no more), with `JSON.stringify` of each failed row's bound context and each alert context asserted NOT to contain the candidate's raw `token` value (R14 token hygiene). Counts `{failed:2}`.
 6. **Guard-suppressed failed write counts skipped:** batch of 2 fails; fakeSql returns `failedUpsertRows: []` (zero-row guard) for member A only → counts `{failed:1, skipped:1}`, exactly 1 alert.
 7. **retry_later:** counts `{retryLater: members.length}`, zero ledger writes.
 8. **Inactive recipient skips all candidates with ONE active check:** `active:false` → counts.skipped = candidates.length; assert the `admin_emails` select ran once for the recipient (fakeSql call count on that pattern).
@@ -775,24 +775,35 @@ import path from "node:path";
 import { fakeLockSql } from "./fakeLockSql";
 // plus the fakeSql + candidate factories copied per Task 5's harness note
 
-// tests/notify/fakeLockSql.ts (created in Task 5):
+// tests/notify/fakeLockSql.ts (created in Task 5). Structurally compatible with
+// LockClient under strict tsc: generic begin, DeliverySql-typed fake transaction.
+// STANDING RULE: any fake-SQL unit test calling deliverRealtimeCandidates with
+// non-empty inputs MUST inject this via deps.lockSql.
+import { vi } from "vitest";
+import type { DeliverySql } from "@/lib/notify/deliver";
+
 export function fakeLockSql(options: { locked?: boolean; heartbeatFailsAt?: number } = {}) {
   let heartbeats = 0;
-  const begin = vi.fn(async (fn: (sql: unknown) => Promise<unknown>) => {
-    const tx = (strings: TemplateStringsArray, ...values: unknown[]) => {
-      const text = String.raw(strings, ...values.map((_v, i) => `$${i + 1}`));
-      if (/pg_try_advisory_xact_lock/i.test(text)) {
-        return Promise.resolve([{ locked: options.locked ?? true }]);
-      }
-      heartbeats += 1;
-      if (options.heartbeatFailsAt !== undefined && heartbeats >= options.heartbeatFailsAt) {
-        return Promise.reject(new Error("lock connection lost"));
-      }
-      return Promise.resolve([]);
-    };
-    return fn(tx);
-  });
-  return { begin, end: vi.fn(async () => {}), heartbeatCount: () => heartbeats };
+  const tx = (<T extends Record<string, unknown> = Record<string, unknown>>(
+    strings: TemplateStringsArray,
+    ...values: unknown[]
+  ): Promise<T[]> => {
+    const text = String.raw(strings, ...values.map((_v, i) => `$${i + 1}`));
+    if (/pg_try_advisory_xact_lock/i.test(text)) {
+      return Promise.resolve([{ locked: options.locked ?? true } as unknown as T]);
+    }
+    heartbeats += 1;
+    if (options.heartbeatFailsAt !== undefined && heartbeats >= options.heartbeatFailsAt) {
+      return Promise.reject(new Error("lock connection lost"));
+    }
+    return Promise.resolve([] as T[]);
+  }) as DeliverySql;
+  const client = {
+    begin: vi.fn(<T,>(fn: (sql: DeliverySql) => Promise<T>): Promise<T> => fn(tx)),
+    end: vi.fn(async () => {}),
+    heartbeatCount: () => heartbeats,
+  };
+  return client;
 }
 ```
 
