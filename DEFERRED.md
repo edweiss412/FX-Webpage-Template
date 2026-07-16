@@ -589,3 +589,13 @@ Dual-gate on the `feat/use-raw-wizard-full-list` diff (`components/admin/wizard/
 - **What:** The §3.10-pinned non-blocking line sits above rows that can now grant financial access (recognize-role) or rewrite crew-visible values (use-raw) (impeccable critique P2).
 - **Why deferred:** The line remains factually true — warnings never block publishing, and the controls are optional refinements, not required actions. Copy is §3.10-pinned; qualifying it is a copy-pass decision, not a this-diff fix.
 - **Trigger:** the next wizard copy pass. Backlog: `BL-WIZARD-WARNINGS-COPY-QUALIFIER`.
+
+## Accent-contrast token pass — impeccable dual-gate (2026-07-16)
+
+Dual-gate on the `feat/accent-contrast-token-pass` diff. Critique 37/40 (dual-agent), AI-slop NO, deterministic detector CLEAN after false-positive triage (3 JSDoc `<img>` comment mentions), zero P0/P1. One P2 fixed in-diff (DESIGN.md §1.3 sentence bringing the telemetry error badge into the degraded-red scope); one P2 deferred below; P3s accepted (link hover deletion matches the ratified /help precedent; eyebrow hierarchy still distinct at 6.09:1 vs 16:1+).
+
+### ACCENT-PASS-1 — [P2→deferred] RightNowHero active show-day segment muted to accent-on-bg in light mode
+
+- **What:** the hero's active progress segment changed `bg-accent` → `bg-accent-on-bg` (`#a65000`) so the `role="img"` show-day indicator clears WCAG 1.4.11 (3:1 vs bg AND vs the inactive `bg-border` segments; raw `#ff8c1a` measured 1.46:1 vs inactive / 2.23:1 vs bg). Critique P2: this is the one surface PRODUCT.md reserves for expressive orange, and the sunlit crew glance loses brand vibrancy.
+- **Why deferred:** the darkened fill is the spec-ratified treatment (spec §4.1b class B4, adversarially mandated — the segment is load-bearing visual information, not decorative), pinned by class assertion + the bg-accent inventory registry. The critique's alternative (keep `#ff8c1a` active + get the 3:1 delta from lighter inactive segments or a hairline outline) is a real design option but needs its own contrast math for the inactive-vs-bg pair on a 6px-tall pill, a registry/treatment change, and a crew-page brand judgment — a deliberate crew-hero design pass, not a token-pass fix.
+- **Trigger:** a crew-page brand/vibrancy pass, or Doug/crew feedback that the show-day bar reads dull. Backlog: `BL-HERO-SEGMENT-VIBRANCY`.
