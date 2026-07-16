@@ -109,9 +109,16 @@ function fromCallRegexFor(table: string): RegExp {
 describe("published-review read-path pin", () => {
   test("the walk actually covers files (roots resolve; not a vacuous pass)", () => {
     const files = collectWalkedFiles();
+    const relFiles = files.map(relFromRepo);
     // At minimum the helper file + the existing per-show page are present.
     expect(files.length).toBeGreaterThan(0);
-    expect(files.map(relFromRepo)).toContain("lib/admin/readShowReviewSnapshot.ts");
+    expect(relFiles).toContain("lib/admin/readShowReviewSnapshot.ts");
+    // A typo'd root would silently skip forever (existsSync tolerance is meant
+    // for roots that don't exist YET, not a permanently misspelled path) — pin
+    // one known-existing file from each currently-present dir root so a typo
+    // in WALKED_DIR_ROOTS fails loud instead of quietly walking nothing.
+    expect(relFiles).toContain("components/admin/review/sectionData.ts");
+    expect(relFiles).toContain("app/admin/show/[slug]/page.tsx");
   });
 
   test("no walked file reads a review table via .from(), except allowlisted pre-existing reads", () => {
