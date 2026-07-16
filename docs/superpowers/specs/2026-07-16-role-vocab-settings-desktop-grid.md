@@ -47,12 +47,12 @@ No new component; no duplicated interactive subtree (a second Edit/Remove pair o
 - Full-width sub-rows at ≥760px via `min-[760px]:col-span-4` (they occupy row 2+ automatically): the `savedConfirm` status (`:177-185`), the edit panel (`:189-273`), the confirm panel (`:276-310`).
 - Edit/confirm mode note: at ≥760px, when `mode !== "view"` the chips + actions cells are not rendered (existing conditional), so row 1 holds token + meta and the panel spans the full width beneath — approved design ("edit/confirm panel spans full width below the one-line row").
 - Edit-label swap inside the SAME button (`:170-172`): the button gains `aria-label={COPY.EDIT_LABEL}` and its content becomes two `aria-hidden="true"` spans — `<span aria-hidden="true" className="min-[760px]:hidden">{COPY.EDIT_LABEL}</span>` + `<span aria-hidden="true" className="hidden min-[760px]:inline">{COPY.EDIT_LABEL_SHORT}</span>`. One button, one handler; only the visible label changes.
+- `page.tsx:30`: `max-w-2xl` → `max-w-3xl`.
+- `RolesSettingsView.tsx` is unchanged (list `ul`, empty state, error state already width-fluid). Empty and error states simply widen with the container.
 
 ### Accessible-name contract (Edit button)
 
 The button's accessible name is CONSTANT at every breakpoint: `EDIT_LABEL` ("Edit what they see"), supplied by the explicit `aria-label` (which wins over content per acc-name precedence). Rationale: (a) the existing component suite locates the button via `getByRole("button", { name: COPY.EDIT_LABEL })` (`tests/components/roleMappingSettingsRows.test.tsx:149` et al.) — without the aria-label, jsdom (no Tailwind CSS, both spans rendered) would compute the CONCATENATED name and break every one of those queries; the aria-label keeps the whole existing suite green unmodified in jsdom AND real browsers; (b) screen-reader users get the descriptive label at all widths. WCAG 2.5.3 (label-in-name) holds at desktop because the visible label "Edit" is a prefix of the accessible name "Edit what they see". The VISIBLE label swap is asserted in e2e via span visibility (`toBeVisible()` on the short span / `toBeHidden()` on the long span at 1280, inverse at 390), NOT via accessible name.
-- `page.tsx:30`: `max-w-2xl` → `max-w-3xl`.
-- `RolesSettingsView.tsx` is unchanged except no change at all is expected (list `ul`, empty state, error state already width-fluid). Empty and error states simply widen with the container.
 
 ### Flag lifecycle — `EDIT_LABEL_SHORT`
 
