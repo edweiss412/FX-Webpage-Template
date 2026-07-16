@@ -209,21 +209,44 @@ it("partial bulk-undo failure renders the aggregate alert with counts from the m
   expect(alert.textContent).toContain("The ones that failed stay in this list.");
 });
 
-it("zero failures → no alert; reopening confirm clears a visible alert", async () => { /* two renders per spec §6 F2 lifecycle */ });
-it("failure alert then a later all-success run: alert stays gone after settle (completion writes null)", async () => {
-  // run 1: one failure → alert visible; run 2: reopen confirm (clears) → all mocks ok → settle →
-  // no alert rendered (fails if completion wrongly writes a non-null outcome)
+it("zero failures → no alert", async () => {
+  // arrange: all action mocks resolve {ok:true}; act: open confirm, click confirm-go, await settle;
+  // assert: queryByTestId(`auto-applied-bulk-undo-alert-${SHOW_ID}`) is null
 });
-it("alert persists across collapse → re-expand", async () => { /* toggle disclosure twice, alert still present */ });
+it("reopening the confirm clears a visible alert", async () => {
+  // arrange: run a 1-failure bulk undo → alert visible (findByTestId);
+  // act: click the Undo-all trigger to reopen the confirm;
+  // assert: alert testid no longer in the document while the confirm panel is open
+});
+it("failure alert then a later all-success run: alert stays gone after settle (completion writes null)", async () => {
+  // arrange: run 1 with one {ok:false} mock → alert visible;
+  // act: reopen confirm (alert clears), re-mock all {ok:true}, click confirm-go, await settle;
+  // assert: alert testid absent after settle (fails if completion wrongly writes a non-null outcome)
+});
+it("alert persists across collapse → re-expand", async () => {
+  // arrange: 1-failure run → alert visible;
+  // act: click the disclosure toggle (collapse), assert alert not rendered, click again (expand);
+  // assert: alert testid visible again with the same counts
+});
 it("bulk undo completion moves focus to the group toggle when focus was inside the panel", async () => {
-  // click confirm-go (focus lands on it), await settle
+  // arrange: open confirm; act: click confirm-go (focus lands on it), await settle;
   await waitFor(() => expect(screen.getByTestId(`auto-applied-toggle-${SHOW_ID}`)).toHaveFocus());
 });
-it("keep-changes cancel moves focus to the group toggle", async () => { /* same assertion after cancel click */ });
-it("completion with focus planted outside the group does NOT move focus", async () => {
-  // focus an external button before resolving the mocked actions
+it("keep-changes cancel moves focus to the group toggle", async () => {
+  // arrange: open confirm (cancel auto-focused); act: click the cancel button;
+  await waitFor(() => expect(screen.getByTestId(`auto-applied-toggle-${SHOW_ID}`)).toHaveFocus());
 });
-it("collapse during pending: completes without throwing, no focus steal, alert on re-expand", async () => { /* spec §10 F3(d) */ });
+it("completion with focus planted outside the group does NOT move focus", async () => {
+  // arrange: open confirm; gate the action mocks on a deferred promise; click confirm-go;
+  // act: focus an external button rendered next to the strip, then resolve the deferred mocks, await settle;
+  // assert: the external button still has focus (toggle does NOT)
+});
+it("collapse during pending: completes without throwing, no focus steal, alert on re-expand", async () => {
+  // arrange: open confirm; gate mocks on a deferred promise; click confirm-go;
+  // act: click the disclosure toggle (collapse — panel unmounts, focus sits on toggle), resolve mocks
+  //      (first as {ok:false} so the outcome is non-null), await settle;
+  // assert: no thrown error/act warning; toggle still focused (no steal); expand → alert visible
+});
 ```
 
 (Write each stub fully — the four abbreviated bodies above must be real tests in the actual edit; derive expected counts from the mocked failure set, never hardcode fixture length.)
@@ -450,7 +473,7 @@ Per-surface armed rendering (label + className swap on the SAME button; the arme
   `inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-warning-text px-4 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring`
   (`self-start` preserved per spec §4; both `placement` variants get it automatically — same button.)
 
-- [ ] **Step 1:** Failing tests per surface: first click does NOT invoke the handler/fetch (assert mock not called) and swaps label+classes; second click invokes exactly once; 4s fake-timer revert restores idle label/classes; unmount clears timer (no act warnings).
+- [ ] **Step 1:** Failing tests per surface: first click does NOT invoke the handler/fetch (assert mock not called) and swaps label+classes; second click invokes exactly once; 4s fake-timer revert restores idle label/classes; after the second tap fires, advance fake timers 4s more → no state change and no act warning (proves the fire path killed the pending disarm — the stale-timer proof); unmount while armed clears the timer (no act warnings).
 - [ ] **Step 2:** Run — FAIL. **Step 3:** Implement. **Step 4:** Run + meta-test — PASS.
 - [ ] **Step 5: Commit** `feat(admin): two-tap guards on permanent-ignore, stop-showing-sheet, re-scan (G1-G3)`
 
@@ -472,17 +495,16 @@ Per-surface armed rendering (label + className swap on the SAME button; the arme
 
 ---
 
-### Task 10: DESIGN.md destructive-actions section + DEFERRED/BACKLOG close-outs
+### Task 10: DESIGN.md destructive-actions section (DESIGN-only)
 
 **Files:**
 - Modify: `DESIGN.md` (new subsection under the button/action guidance; spec §9)
-- Modify: `DEFERRED.md`, `BACKLOG.md`
 
 - [ ] **Step 1:** DESIGN.md subsection "Destructive actions" — prose for C1–C6: the recipe tokens (with the exact literal template), safe-control neutrality, focus-on-open (safe control), auto-revert for trigger-repurposing confirms, focus-on-close (cancel/auto-revert paths, two-phase guard), the guard-tier ladder (typed-confirm for environment wipes → two-tap/panel for irreversible ops → unguarded for reversible ops with a recovery path), enforcement pointer to `tests/styles/_metaDestructiveConfirm.test.ts`, and the discovery caveat (recipe-token growth only). NO §1.1/§1.2 contrast-figure edits (figure-parity untouched — verify by running `pnpm vitest run tests/styles/design-figure-parity.test.ts`).
-- [ ] **Step 2:** DEFERRED.md: FLOW4-4, FLOW4-5, FLOW4-6 → `✅ RESOLVED (this PR)` with one-line what-shipped; OVR-1..OVR-7 → `✅ STALE — surface removed (PR #382; feature teardown)`; add a section for this pass's own dual-gate deferrals placeholder ONLY if the impeccable gate later produces any (do not pre-create).
-- [ ] **Step 3:** BACKLOG.md: `BL-FLOW4-BULK-UNDO-ERROR-SURFACE` and `BL-FLOW4-CONFIRM-DANGER-STYLE` → ✅ SHIPPED (this PR). Grep for other BL refs in the touched DEFERRED entries and update consistently.
-- [ ] **Step 4:** Run `pnpm vitest run tests/styles/` — all style meta-tests green.
-- [ ] **Step 5: Commit** `docs: DESIGN destructive-actions contract; DEFERRED/BACKLOG close-outs (FLOW4-4/5/6, OVR stale, BL-FLOW4-*)`
+- [ ] **Step 2:** Run `pnpm vitest run tests/styles/` — all style meta-tests green.
+- [ ] **Step 3: Commit** `docs(design): destructive-actions contract (recipe, guard-tier ladder, focus rules)`
+
+**DEFERRED/BACKLOG close-outs are deliberately NOT here** (plan R5 review): invariant 8 means the impeccable dual-gate can still add deferrals or force UI changes. The close-out edits (DEFERRED.md: FLOW4-4/5/6 ✅ RESOLVED, OVR-1..7 ✅ STALE — surface removed PR #382; BACKLOG.md: `BL-FLOW4-BULK-UNDO-ERROR-SURFACE` + `BL-FLOW4-CONFIRM-DANGER-STYLE` ✅ SHIPPED; grep for other BL refs in touched entries) happen in the pipeline's post-dual-gate stage, in the same commit(s) as any gate-produced DEFERRED entries, before the whole-diff review.
 
 ---
 
