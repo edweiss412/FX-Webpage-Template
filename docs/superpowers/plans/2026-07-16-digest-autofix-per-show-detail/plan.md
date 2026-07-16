@@ -538,7 +538,8 @@ Replace the old `expect(r.html).toContain("corrected stage word")` line with:
 ```ts
     expect(r.html).toContain("Autocorrects applied");
     expect(r.html).toContain("We applied automatic corrections to 1 show:");
-    expect(r.html).toContain("'Sage' as 'Stage'");
+    expect(r.html).toContain("&#39;Sage&#39; as &#39;Stage&#39;"); // escapeHtml escapes apostrophes — raw 'Sage' must NOT appear in html
+    expect(r.text).toContain("'Sage' as 'Stage'"); // plain text carries the raw notice
 ```
 
 Add new tests to the describe:
