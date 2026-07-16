@@ -74,7 +74,7 @@ Out of scope (unchanged surfaces): the LIVE staging path (`lib/sync/phase1.ts` `
 
 **Convergence reality (precise window):** a published show's `role_flags`/warnings converge to the current vocabulary on its next PROCESSED sync. Cron and push process a file only when Drive `modifiedTime` advances past the show watermark (`lib/sync/perFileProcessor.ts:214-218`); editing `role_token_mappings` does not touch any sheet's `modifiedTime`, so an unmodified sheet is watermark-skipped indefinitely. Manual sync bypasses the watermark (`perFileProcessor.ts:170-172`) and always converges. So the honest window is "until the next sheet edit or manual sync", not "next cron tick". This is the parent feature's shipped semantics for every live show (parent spec §7 delete row, `:167` — "on each show's next sync"); it is not introduced or widened by this spec.
 
-- **Mapping deleted/narrowed between staging and finalize:** the staged parse has grants baked and the warning consumed; finalize publishes them. They persist until the show's next processed sync (above), where the fresh parse re-emits the warning and the overlay grants only what the current vocabulary says — `role_flags` are rebuilt from the parse each processed sync, not accumulated, so convergence is downward-capable. Same class, same window as the live-show settings-delete path (parent spec §7). Whole-feature tightening (mapping `updated_at` in the cron watermark, or targeted re-sync fan-out on settings mutations) → `BL-ROLE-VOCAB-MAPPING-CONVERGENCE` (§5).
+- **Mapping deleted/narrowed between staging and finalize:** does NOT publish — the §3.5 freshness gate refuses the row (any delete/narrow of a consumed token whose commit precedes the row's publish is seen, by the `FOR SHARE` serialization) and the rescan heal re-stages under the current vocabulary. The convergence window in this section applies only to (a) ALREADY-published shows after a settings delete/narrow (the parent-ratified class, parent spec §7) and (b) genuinely POST-publish revokes (commit lands after the row published — unpreventable by any gate). In both, the stale grants persist until the show's next processed sync, where the fresh parse re-emits the warning and the overlay grants only what the current vocabulary says — `role_flags` are rebuilt from the parse each processed sync, not accumulated, so convergence is downward-capable. Whole-feature tightening (mapping `updated_at` in the cron watermark, or targeted re-sync fan-out on settings mutations) → `BL-ROLE-VOCAB-MAPPING-CONVERGENCE` (§5).
 - **Mappings-read TOCTOU:** the vocabulary is read pre-lock; a row created/changed between the read and the staging write leaves the staged parse one step behind. Benign — the next rescan (wizard sheets are actively re-scanned during review) or the next processed post-publish sync converges, and the §3.5 gate refuses publication if a CONSUMED token was revoked/narrowed in the window. No snapshot protocol (unlike `pull_sheet_override`, staleness here cannot resurrect unauthorized content; it only delays recognition or is caught by the gate).
 
 ### 3.5 Finalize freshness gate (consumed tokens only)
@@ -82,11 +82,15 @@ Out of scope (unchanged surfaces): the LIVE staging path (`lib/sync/phase1.ts` `
 New pure helper in `lib/sync/roleMappingOverlay.ts`:
 
 ```ts
+type CurrentGateRow = { token: string; grants: GrantableFlag[] };
+normalizeGateRows(raw: unknown): CurrentGateRow[]   // the gate's OWN validated boundary
 evaluateRoleMappingsFreshnessGate(
   staged: ParseResult,
-  current: RoleTokenMapping[],
+  current: CurrentGateRow[],
 ): { ok: true } | { ok: false; code: "ROLE_MAPPINGS_OUTDATED_AT_FINALIZE" }
 ```
+
+The gate deliberately does NOT take `RoleTokenMapping[]` (adversarial R8 F1): its SELECT is scoped to `token, grants` (decision metadata is irrelevant to freshness), and feeding that shape to `normalizeRoleTokenMappings` would drop every row for missing `decided_by`/`decided_at` — falsely refusing all stamped rows. `normalizeGateRows` is a sibling validated boundary in the same module (non-array → `[]`; drops rows with non-canonical token or invalid grants via `normalizeGrants`; NEVER throws) — no unvalidated casts on a publish-critical path, and its unit tests are part of test item 10.
 
 Predicate: for every `{ token, grants }` entry in `staged.appliedRoleMappings` (absent/empty field → `{ ok: true }` — legacy rows and no-consumption rows pass vacuously), the current vocabulary must contain that token with `grants` a SUBSET of the current grants. Deleted token or narrowed grants → refuse. Broadened/equal → pass (staged publishes the smaller set; under-grant converges on the next processed sync).
 
