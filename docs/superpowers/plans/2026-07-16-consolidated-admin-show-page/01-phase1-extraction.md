@@ -77,6 +77,7 @@ Per-site rewiring table (spec §3.2 is canonical; verify each line still matches
 | `:3515` | `s.row.agendaStateKey ?? s.dfid` | staged-only: `isStaged(s) ? (s.row.agendaStateKey ?? s.dfid) : ...` — Phase 1 keeps AgendaBreakdown staged-only; render the agenda section body via `isStaged(s)` and a `null` else-branch (Phase 2 Task 9 fills the published branch) |
 | `:3536` | `s.pr.transportation` | `s.transportation` |
 | `:3557,:3566` | `s.pr.diagrams` | `s.diagrams` |
+| packlist entry (grep `PackListBreakdown` in the registry) | staged-only `wizardSessionId={s.wizardSessionId}` + archived-tab accept affordance | mode-gate: `wizardSessionId` prop becomes optional; pass it only under `isStaged(s)`. The archived-tab accept/skip affordance renders ONLY when staged (published `archivedPullSheetTabs` is always `[]`, spec §3.2, so the disclosure hides — but the CONTROL gating must be `isStaged`, not array-emptiness). Published renders the plain pull sheet |
 | `:3598` | `<OpsBreakdown dfid={s.dfid} show={s.pr.show} />` | `<OpsBreakdown dfid={s.driveFileId} billing={s.billing} />` — change `OpsBreakdown` props from `show` to the 5-field `billing` object (`:1203-1207` rows read from it) |
 | `Step3ReviewModal.tsx:831-833` | `data.pr.show.title \|\| data.row.driveFileName` etc. | `data.title` / `data.clientLabel` / `dateSummarySegments(data.dates)` — title fallback composition moves into the STAGED builder (Task 4) |
 | `:838` | `data.row.lastFinalizeFailureCode` | `isStaged(data) ? data.row.lastFinalizeFailureCode : null` |
@@ -102,13 +103,27 @@ Per-site rewiring table (spec §3.2 is canonical; verify each line still matches
 
 **Produces:**
 ```ts
+export type ExtraSection = {
+  id: string;                     // "overview" | "changes" — becomes the rail item id + hash anchor
+  label: string;
+  Icon: LucideIcon;
+  railBadge?: React.ReactNode;    // e.g. the Overview alert-count chip
+  render: () => React.ReactNode;
+};
 export function ShowReviewSurface(props: {
   data: SectionData;
   scrollerRef: React.RefObject<HTMLElement | null>; // the scroll container the SHELL owns
   layout: "modal" | "page";       // modal: current <lg chip rail + ≥lg two-pane inside dialog; page: full-page two-pane
+  extraSectionsBefore?: ExtraSection[]; // Phase 2: [Overview] — full rail items: scroll-spy + hash + chips participate
+  extraSectionsAfter?: ExtraSection[];  // Phase 2: [Changes]
   renderSectionExtras?: (id: SectionId, d: SectionData) => React.ReactNode; // Phase 2 hook: per-section warning controls
-  bottomSlot?: React.ReactNode;   // Phase 2 hook: RawUnrecognizedCallout + Changes section
+  bottomSlot?: React.ReactNode;   // Phase 2 hook: RawUnrecognizedCallout — renders AFTER the registry sections
+                                  // (incl. warnings) and BEFORE extraSectionsAfter. Not a rail item.
 }): JSX.Element;
+// Rail/panel order: extraSectionsBefore → step3Sections(data) registry → bottomSlot → extraSectionsAfter.
+// The rail model and the pure scroll-spy rule iterate over ALL rail items (before + registry + after),
+// so Overview/Changes get active-highlight, chip-rail entries, and hash navigation identically to
+// registry sections. The modal passes neither extras array — its rail model is byte-identical to today.
 ```
 What moves (from `Step3ReviewModal.tsx`): the side-rail nav, chip rail (twin navs), the pure scroll-spy rule (`:130-148` region) + its wiring effect + `handleNavClick` single-accessor (`:159-165` region), section panel column rendering via `step3Sections(d)` + `Step3SectionChromeContext`, `warningsBySection`/`deriveSectionStatuses` chips. What STAYS in the modal: dialog topology (scrim, `useDialogFocus`, Esc, body scroll lock, drag-to-dismiss, entrance hooks), result-bearing publish footer, freeze contract, header (title/deep-link/date segments).
 

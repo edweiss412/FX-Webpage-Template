@@ -26,7 +26,10 @@ stable
 security definer
 set search_path = public
 as $$
-  select case when not public.is_admin() then null else
+  select case
+    when not public.is_admin() then null
+    when not exists (select 1 from public.shows s0 where s0.id = p_show_id) then null
+    else
     jsonb_build_object(
       'show',     (select to_jsonb(s) from public.shows s where s.id = p_show_id),
       'internal', (select to_jsonb(si) from public.shows_internal si where si.show_id = p_show_id),
@@ -52,10 +55,11 @@ grant execute on function public.get_admin_show_review_snapshot(uuid) to authent
 
 - [ ] **Step 1: failing test** — `tests/db/adminShowReviewSnapshotRpc.test.ts` (postgres.js against `TEST_DATABASE_URL`/local, loopback-guarded):
   - seeds one show + 2 crew + 2 rooms + 3 hotel_reservations (ordinals 3,1,2) + shows_internal row (inside a tx rolled back after)
-  - calls the fn as service role: full payload; hotel order `1,2,3` by ordinal; arrays complete
+  - **admin-identity call:** `public.is_admin()` checks admin JWT metadata / active admin email, NOT the SQL role — copy the exact admin-claims fixture idiom from an existing admin-RPC test under `tests/db/` (`set local role authenticated; set local request.jwt.claims = '<ADMIN claims json>'`; seed the admin email row if the idiom requires it). With admin claims: full payload; hotel order `1,2,3` by ordinal; arrays complete
   - show with NO shows_internal row → `internal` is null, arrays `[]`
+  - **missing show:** admin claims + nonexistent uuid → returns SQL NULL (not a `{show: null}` object) — this is the `notFound()` carrier
   - volatility + grants: `select provolatile from pg_proc where proname='get_admin_show_review_snapshot'` = `'s'`; `has_function_privilege('authenticated', ...)` true, `('anon', ...)` false
-  - non-admin gate: `set local role authenticated; set local request.jwt.claims = '<non-admin claims json>'` → returns null (copy the claims idiom from an existing RLS test under `tests/db/`)
+  - non-admin gate: same idiom with non-admin claims → returns NULL
 - [ ] **Step 2:** run → FAIL (function does not exist)
 - [ ] **Step 3:** apply migration locally (`psql $LOCAL_DB -f supabase/migrations/<file>.sql` or `supabase db reset` per project norm), rerun → PASS
 - [ ] **Step 4:** `pnpm gen:schema-manifest`; commit regenerated manifest with the migration + test: `feat(db): add get_admin_show_review_snapshot single-statement review RPC`
@@ -114,7 +118,7 @@ Mapping = spec §3.2 table verbatim. Key concretes:
 - Modify: `components/admin/wizard/step3ReviewSections.tsx` (agenda registry entry published branch; DiagramsBreakdown src builder prop)
 - Test: `tests/components/admin/review/publishedNoStagedTraffic.test.tsx`
 
-- [ ] **Step 1: failing test** — render EVERY section def from `step3Sections(publishedFixture)` plus the modal-level callout, with a fetch spy: assert (a) no rendered `src`/`href` contains `/api/admin/onboarding/`; (b) zero `fetch` calls to that prefix; (c) agenda section renders extraction blocks from the fixture (static variant); (d) diagram imgs use `/api/asset/diagram/<show>/<rev>/<key>` shape. Clone-and-strip siblings when scanning for labels (anti-tautology rule).
+- [ ] **Step 1: failing test** — render EVERY section def from `step3Sections(publishedFixture)` plus the modal-level callout, with a fetch spy: assert (a) no rendered `src`/`href` contains `/api/admin/onboarding/`; (b) zero `fetch` calls to that prefix; (c) agenda section renders extraction blocks from the fixture (static variant); (d) diagram imgs use `/api/asset/diagram/<show>/<rev>/<key>` shape; (e) packlist published render contains NO staged identifiers (no wizard-session substring in any attribute) and NO archived-tab accept control (Task 2's `isStaged` gate). Clone-and-strip siblings when scanning for labels (anti-tautology rule).
 - [ ] **Step 2:** FAIL → implement: agenda entry renders `isStaged(s) ? <AgendaBreakdown .../> : <PublishedAgendaList items={s.agendaBaseline} />` (new small component in `step3ReviewSections.tsx` or `components/admin/review/`; static list reusing the existing block-rendering pieces, no POST/poll); `DiagramsBreakdown` gains `buildSrc: (stub) => string` prop — staged passes the existing staged-diagram URL builder, published passes the asset-route builder (crew `Gallery` pattern, `components/diagrams/Gallery.tsx:130-144`).
 - [ ] **Step 3-4:** PASS; wizard suite STILL green (staged branch untouched behaviorally).
 - [ ] **Step 5:** commit `feat(admin): published-mode agenda/diagram variants with zero onboarding traffic`
@@ -129,7 +133,7 @@ Mapping = spec §3.2 table verbatim. Key concretes:
 
 Elements + sources: spec §4 table. `data-testid="show-status-strip"`; children testids: `strip-title`, `strip-publish-toggle` (wraps existing `PublishedToggle`), `strip-live-badge`, `strip-sync-age`, `strip-alert-badge` (anchor `href="#overview"`), `strip-copy-link`. Visual reference: mock section 3 (states a/b/c) — colors via tokens only (`bg-surface`, `border-border`, `text-text-subtle`, warning pair for the alert badge; the mock's teal all-clear is OVERRIDDEN per mock README delta 2 — use neutral subtle check).
 
-- [ ] **Step 1: failing tests** — state matrix from spec §6: published+live (badge present), published+not-live (hidden), archived (read-only badge, Unarchive, toggle disabled), unpublished (copy-link hidden, inactive), alerts 0 (badge hidden). Async focus/toggle assertions use `waitFor`.
+- [ ] **Step 1: failing tests** — state matrix from spec §6: published+live (badge present), published+not-live (hidden), archived (read-only badge, Unarchive, toggle disabled), unpublished (copy-link hidden, inactive), alerts 0 (badge hidden), **`last_synced_at` null → the sync-age element is NOT rendered** (spec §11 says omit; do NOT call `formatRelative` on null — the live helper returns `"never"` (`lib/admin/showDisplay.ts:92`), which would violate the spec's omit contract). Async focus/toggle assertions use `waitFor`.
 - [ ] **Step 2-4:** implement → PASS. Sticky positioning: `sticky top-<nav-offset> z-<semantic>`; strip wraps to two rows below `sm` (mock section 2 reference).
 - [ ] **Step 5:** commit `feat(admin): pinned status strip for consolidated show page`
 
@@ -141,7 +145,9 @@ Elements + sources: spec §4 table. `data-testid="show-status-strip"`; children 
 - Create: `components/admin/showpage/OverviewSection.tsx`, `components/admin/showpage/ChangesSection.tsx`
 - Test: `tests/components/admin/showpage/overviewSection.test.tsx`
 
-Overview composition (spec §5.1, all relocated intact): `PerShowAlertSection`, share panel cluster (`CurrentShareLinkPanel`/`ShareChip`/`RotateShareTokenButton`/`CrewPageLink`/`PickerResetControl` inside `ShareTokenProvider`), sheet/sync cluster (`ReSyncButton`, `CorrectionLoopCallout mode="resync"`, open-sheet link), archive row. Changes = `ChangesFeed` + `readShowChangeFeed` data (server-fetched, passed down). Raw-unrecognized: page bottomSlot renders `RawUnrecognizedCallout raw={d.rawUnrecognized}` AFTER warnings section, BEFORE Changes (spec §5.3a).
+Overview composition (spec §5.1, all relocated intact): `PerShowAlertSection`, share panel cluster (`CurrentShareLinkPanel`/`ShareChip`/`RotateShareTokenButton`/`CrewPageLink`/`PickerResetControl` inside `ShareTokenProvider`), sheet/sync cluster (`ReSyncButton`, `CorrectionLoopCallout mode="resync"`, open-sheet link), archive row. Changes = `ChangesFeed` + `readShowChangeFeed` data (server-fetched, passed down).
+
+Wiring (Task 3's API): Overview and Changes are `ExtraSection`s — `extraSectionsBefore={[{ id: "overview", label: "Overview", Icon: <pick>, railBadge: <alert-count chip when > 0>, render: () => <OverviewSection .../> }]}`, `extraSectionsAfter={[{ id: "changes", label: "Changes", Icon: <pick>, render: () => <ChangesSection .../> }]}` — full rail items with scroll-spy + hash + chip participation. Raw-unrecognized: `bottomSlot={<RawUnrecognizedCallout raw={d.rawUnrecognized} />}` — renders after warnings, before Changes (spec §5.3a) by the surface's documented order.
 
 - [ ] **Step 1: failing tests** — overview renders each relocated cluster (presence by testid/role, not snapshot); archived → mutating controls disabled/hidden; unpublished → inactive share notice; raw-unrecognized fixture renders callout, empty renders nothing.
 - [ ] **Step 2-5:** implement → PASS → commit `feat(admin): overview + changes rail sections`
