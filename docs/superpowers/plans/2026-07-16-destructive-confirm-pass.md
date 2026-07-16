@@ -160,7 +160,7 @@ describe("META destructive-confirm recipe registry (spec §8)", () => {
 });
 ```
 
-Note on `hasToken`'s `!t.includes(":")` restriction: `PreviewBanner.tsx:117`'s `hover:bg-warning-text/90` must NOT satisfy the `bg-warning-text` half by itself (it's a variant + opacity form). If in Step 2 the exempt PreviewBanner line does NOT register as a hit under this matcher, that's CORRECT behavior for the pair rule — then drop the PreviewBanner exempt row (no hit, no row) and record in the test header that the banner never matched the scanner's unvarianted-pair signature. Follow the scanner's actual output, not the plan's guess (spec §8: fail-first output is authoritative).
+Note on `hasToken`'s `!t.includes(":")` restriction: `PreviewBanner.tsx:117`'s `hover:bg-warning-text/90` must NOT satisfy the `bg-warning-text` half by itself (it's a variant + opacity form). PreviewBanner IS EXPECTED to register as a hit regardless — its literal ALSO carries unvarianted `bg-warning-text` and `text-warning-bg` (verified at `:117`), which is exactly why it needs the exempt row. The reconciliation fallback (drop the row if the scanner somehow excludes it) is an implementation-time note only; follow the scanner's actual output (spec §8: fail-first output is authoritative).
 
 - [ ] **Step 2: Run** `pnpm vitest run tests/styles/_metaDestructiveConfirm.test.ts`
 Expected: PASS (3 conformant panels: MaintenanceReset `:298`, Cleanup `:183`, ReapStale `:137` already carry `bg-warning-text text-warning-bg font-semibold`; verify hover — Cleanup/ReapStale/MaintenanceReset use `hover:opacity-90` already; PreviewBanner exempt).
@@ -210,24 +210,38 @@ it("partial bulk-undo failure renders the aggregate alert with counts from the m
 });
 
 it("zero failures → no alert", async () => {
-  // arrange: all action mocks resolve {ok:true}; act: open confirm, click confirm-go, await settle;
-  // assert: queryByTestId(`auto-applied-bulk-undo-alert-${SHOW_ID}`) is null
+  undoFromDashboardAction.mockResolvedValue({ ok: true });
+  await openConfirmAndRunUndoAll(); // helper: expand group, click undo-all trigger, click confirm-go, await settle
+  expect(screen.queryByTestId(`auto-applied-bulk-undo-alert-${SHOW_ID}`)).toBeNull();
 });
 it("reopening the confirm clears a visible alert", async () => {
-  // arrange: run a 1-failure bulk undo → alert visible (findByTestId);
-  // act: click the Undo-all trigger to reopen the confirm;
-  // assert: alert testid no longer in the document while the confirm panel is open
+  undoFromDashboardAction.mockResolvedValueOnce({ ok: false, code: "UNDO_SUPERSEDED" }).mockResolvedValue({ ok: true });
+  await openConfirmAndRunUndoAll();
+  await screen.findByTestId(`auto-applied-bulk-undo-alert-${SHOW_ID}`);
+  fireEvent.click(screen.getByTestId(`auto-applied-undo-all-${SHOW_ID}`)); // reopen confirm
+  expect(screen.queryByTestId(`auto-applied-bulk-undo-alert-${SHOW_ID}`)).toBeNull();
 });
 it("failure alert then a later all-success run: alert stays gone after settle (completion writes null)", async () => {
-  // arrange: run 1 with one {ok:false} mock → alert visible;
-  // act: reopen confirm (alert clears), re-mock all {ok:true}, click confirm-go, await settle;
-  // assert: alert testid absent after settle (fails if completion wrongly writes a non-null outcome)
+  undoFromDashboardAction.mockResolvedValueOnce({ ok: false, code: "UNDO_SUPERSEDED" }).mockResolvedValue({ ok: true });
+  await openConfirmAndRunUndoAll();
+  await screen.findByTestId(`auto-applied-bulk-undo-alert-${SHOW_ID}`);
+  await openConfirmAndRunUndoAll(); // second run: reopen (clears) + all-success completion
+  expect(screen.queryByTestId(`auto-applied-bulk-undo-alert-${SHOW_ID}`)).toBeNull();
 });
 it("alert persists across collapse → re-expand", async () => {
-  // arrange: 1-failure run → alert visible;
-  // act: click the disclosure toggle (collapse), assert alert not rendered, click again (expand);
-  // assert: alert testid visible again with the same counts
+  undoFromDashboardAction.mockResolvedValueOnce({ ok: false, code: "UNDO_SUPERSEDED" }).mockResolvedValue({ ok: true });
+  await openConfirmAndRunUndoAll();
+  await screen.findByTestId(`auto-applied-bulk-undo-alert-${SHOW_ID}`);
+  fireEvent.click(screen.getByTestId(`auto-applied-toggle-${SHOW_ID}`)); // collapse
+  expect(screen.queryByTestId(`auto-applied-bulk-undo-alert-${SHOW_ID}`)).toBeNull();
+  fireEvent.click(screen.getByTestId(`auto-applied-toggle-${SHOW_ID}`)); // re-expand
+  expect(screen.getByTestId(`auto-applied-bulk-undo-alert-${SHOW_ID}`).textContent).toContain("Couldn't undo 1 of");
 });
+```
+
+Define `openConfirmAndRunUndoAll` as a test-local async helper in the same file (expand the group if collapsed, click `auto-applied-undo-all-<SHOW_ID>`, click `auto-applied-undo-all-confirm-go-<SHOW_ID>`, `await waitFor` settle). Adapt to the file's existing render helpers/mocks — the assertions above are the contract; the helper is plumbing.
+
+```tsx
 it("bulk undo completion moves focus to the group toggle when focus was inside the panel", async () => {
   // arrange: open confirm; act: click confirm-go (focus lands on it), await settle;
   await waitFor(() => expect(screen.getByTestId(`auto-applied-toggle-${SHOW_ID}`)).toHaveFocus());
@@ -307,13 +321,16 @@ it("collapse during pending: completes without throwing, no focus steal, alert o
 
 **Files:**
 - Modify: `app/admin/show/[slug]/RotateShareTokenButton.tsx`, `app/admin/show/[slug]/ResetPickerEpochButton.tsx`, `app/admin/show/[slug]/PickerResetControl.tsx`, `app/admin/settings/admins/RevokeRowButton.tsx`
-- Test: their existing test files (locate via `rg -l "<ComponentName>" tests/`)
+- Test (exact files, verified): `tests/components/RotateShareTokenButton.test.tsx`, `tests/components/ResetPickerEpochButton.test.tsx`, `tests/admin/pickerResetControl.test.tsx`, `tests/components/RevokeRowButton.test.tsx` — after editing each, confirm the file exercises the surface's confirm-go testid (`rg "<testid>" <file>`); a missing hit means the assertions landed in the wrong file.
 - Modify: `tests/styles/_metaDestructiveConfirm.test.ts` (+4 panel rows) and `tests/styles/_metaBgAccentInventory.test.ts` (rows shrink because each file loses one `bg-accent` literal — do NOT hand-compute indices; RUN the bg-accent test after each file's restyle and reconcile from its failure output, the only source of truth per spec §8)
 
 All four get the same three changes (repeat per file — no sharing):
 
-1. **Restyle confirm-go** (the `bg-accent … text-accent-text … hover:bg-accent-hover` literal at Rotate `:235`, ResetEpoch `:211`, PickerReset `:232`, Revoke `:284`) → recipe literal, preserving each file's existing ring-offset token (`ring-offset-surface` where present) and `min-w-tap-min`/`py-2`/`font-semibold` shape:
-   `inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60`
+1. **Restyle confirm-go** (the `bg-accent … text-accent-text … hover:bg-accent-hover` literal at Rotate `:235`, ResetEpoch `:211`, PickerReset `:232`, Revoke `:284`) → per-surface exact literals (each preserves that file's ORIGINAL focus-ring shape — verified: Rotate `:235` and Revoke `:284` have NO ring-offset; ResetEpoch `:211` and PickerReset `:232` have `focus-visible:ring-offset-2 focus-visible:ring-offset-surface`):
+   - Rotate + Revoke:
+     `inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60`
+   - ResetEpoch + PickerReset:
+     `inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface disabled:cursor-not-allowed disabled:opacity-60`
    (Deliberately NO `text-sm`: all four originals render the confirm-go at the base type scale — verified, e.g. Rotate `:235`, Revoke `:284` carry no `text-sm` — and this pass preserves each surface's existing type scale. The canonical literal's `text-sm` applies to R6/R8, whose panels are `text-sm` contexts. **No test drift:** size tokens are OUTSIDE the recipe contract — `expectDestructiveRecipe` and the meta-test assert only the C1 signature (recipe pair + font-semibold + hover:opacity-90 + negatives), never `text-sm`/padding, so the per-surface literals in this table are each authoritative for their own surface and all pass the same assertions. Append `focus-visible:ring-offset-2 focus-visible:ring-offset-surface` where the original had it; Revoke keeps `font-semibold`; its idle trigger `:211` and disabled placeholder `:169` are NOT touched.)
 2. **Open focus (C3):** `const cancelRef = useRef<HTMLButtonElement>(null);` + effect keyed on the confirm state:
    ```tsx
@@ -326,11 +343,19 @@ All four get the same three changes (repeat per file — no sharing):
    ```tsx
    const restoreFocusRef = useRef(false);
    function closeConfirm() { // used ONLY by cancel onClick and the auto-revert timer callback — never submit/result paths
-     restoreFocusRef.current = confirmRowRef.current?.contains(document.activeElement) ?? false;
+     // Capture ONLY while the confirm row is still mounted; a timer firing after the row is
+     // gone must not write anything (and the functional setUi guard below already no-ops then).
+     if (confirmRowRef.current) {
+       restoreFocusRef.current = confirmRowRef.current.contains(document.activeElement);
+     }
      // Preserve the existing functional guard — only confirm → idle, never clobber a later state
      // (the shipped auto-reverts all use this exact form, e.g. Rotate :95):
      setUi((prev) => (prev === "confirm" ? "idle" : prev));
    }
+   // Single-shot consumption: the idle-render effect below resets restoreFocusRef to false when it
+   // fires, and only one close happens per confirm episode (cancel clears the timer; the timer
+   // cannot race a consumed restore because the effect runs on the very next render, before any
+   // later macro-task timer callback).
    useEffect(() => {
      if (ui === "idle" && restoreFocusRef.current) {
        restoreFocusRef.current = false;
@@ -352,7 +377,7 @@ All four get the same three changes (repeat per file — no sharing):
 
 **Files:**
 - Modify: `components/admin/ResolveAlertButton.tsx`
-- Test: existing ResolveAlertButton test file
+- Test: `tests/components/ResolveAlertButton.test.tsx` (verified)
 - Modify: registries (+1 panel row; DELETE bg-accent row `L("components/admin/ResolveAlertButton.tsx", 0, "disabled:hover:bg-accent")` — reconcile by running that test)
 
 - [ ] **Step 1:** Failing tests: confirm-go (`admin-alert-confirm-resolve-button`) passes `expectDestructiveRecipe` and carries NO accent tokens (`bg-accent`, `hover:bg-accent-hover`, `disabled:hover:bg-accent` — the observable AccentButton signature; "not AccentButton" is proven by class absence, not element type); cancel (`admin-alert-cancel-button`) lacks recipe; open → cancel focused; cancel activation → idle trigger (`Dismiss` AccentButton) focused; auto-revert cases (3s — `ResolveAlertButton` timer) both directions.
@@ -401,7 +426,7 @@ onClick={() => {
 
 **Files:**
 - Modify: `components/admin/ArchiveShowButton.tsx` (`:196-200` ternary)
-- Test: existing ArchiveShowButton test file
+- Test: `tests/components/admin/ArchiveShowButton.test.tsx` (verified)
 - Modify: destructive-confirm registry (+2 morph rows — compact/full ternary branches are separate literals)
 
 - [ ] **Step 1:** Failing tests: `archive-show-confirm-button` in both `compact` and full renders carries recipe tokens and lacks `bg-warning-bg`/`border-status-warn`/`hover:bg-warning-bg`.
@@ -419,7 +444,7 @@ onClick={() => {
 
 **Files:**
 - Modify: `components/admin/CleanupAbandonedFinalizeButton.tsx` (`:134`)
-- Test: existing CleanupAbandonedFinalizeButton test file
+- Test: `tests/components/admin/CleanupAbandonedFinalizeButton.test.tsx` (verified)
 
 - [ ] **Step 1:** Failing test: on popover open, `cleanup-abandoned-finalize-confirm-cancel` has focus (waitFor), NOT `…-confirm-yes`. Update/replace any existing test asserting the old confirm-focus behavior.
 - [ ] **Step 2:** Run — FAIL.
@@ -433,7 +458,7 @@ onClick={() => {
 
 **Files:**
 - Modify: `components/admin/PendingPanelDiscardButtons.tsx` (G1), `components/admin/StagedReviewCard.tsx` (G2), `components/admin/RescanSheetButton.tsx` (G3)
-- Test: their existing test files
+- Test (exact files, verified): G1 `tests/components/admin/pendingIngestionActions.test.tsx`; G2 `tests/components/StagedReviewCard.test.tsx` (+ `tests/components/admin/StagedReviewCardFirstSeenAffordance.test.tsx` if it renders the ignore link); G3 `tests/components/admin/RescanSheetButton.test.tsx`
 - Modify: destructive-confirm registry (+3 morph rows)
 
 Shared morph mechanics per control (repeat in each file; 4s timer per spec §4):
@@ -489,12 +514,12 @@ Per-surface armed rendering (label + className swap on the SAME button; the arme
 
 **Files:**
 - Modify: `components/admin/BulkIgnoreControls.tsx`
-- Test: its existing test file
+- Test: `tests/components/admin/bulkIgnoreControls.test.tsx` (verified)
 - Modify: destructive-confirm registry (+1 morph row)
 
 - [ ] **Step 1:** Failing tests (spec §10 G4): first tap on X arms X (label `Confirm — ignore all N`, recipe classes; `· label` span present WITHOUT `text-text-subtle`, WITH `font-normal`); tapping armed X fires `ignoreGroup` once; tapping Y while X armed → Y armed, X idle, timer restarted (advance 4s from Y-arm → Y disarms; advancing only X's remainder does NOT disarm Y); `running` disables all and clears armed; error state clears armed; unmount while armed clears the timer (fake timers, no act warnings after unmount).
 - [ ] **Step 2:** Run — FAIL.
-- [ ] **Step 3:** Implement: `const [armedCode, setArmedCode] = useState<string | null>(null);` + single shared timer ref with a `clearArmTimer()` helper + `useEffect(() => clearArmTimer, [])` unmount cleanup (same contract as Task 8's guards); arm/re-arm resets the timer; second tap on armed group clears timer + `setArmedCode(null)` + existing `ignoreGroup(group)` (which sets `running` — also clear armed inside `ignoreGroup`'s entry for safety). EVERY `setState({ kind: "error", … })` assignment in the file (there are two: the partial-failure branch and the catch branch, `BulkIgnoreControls.tsx:60-72`) gets an adjacent `setArmedCode(null)` — enumerate them by grepping `kind: "error"` in the file during implementation. Armed className:
+- [ ] **Step 3:** Implement: `const [armedCode, setArmedCode] = useState<string | null>(null);` + single shared timer ref with a `clearArmTimer()` helper + `useEffect(() => clearArmTimer, [])` unmount cleanup (same contract as Task 8's guards); arm/re-arm resets the timer; second tap on armed group clears timer + `setArmedCode(null)` + existing `ignoreGroup(group)` (which sets `running` — also clear armed inside `ignoreGroup`'s entry for safety). EVERY `setState({ kind: "error", … })` assignment in the file (there are two: the partial-failure branch and the catch branch, `BulkIgnoreControls.tsx:60-72`) gets an adjacent `setArmedCode(null)` — enumerate them by grepping `kind: "error"` in the file during implementation. Additionally, `ignoreGroup`'s FIRST statements become `clearArmTimer(); setArmedCode(null);` immediately before/with its existing `setState({ kind: "running", code: group.code })` — the running transition itself clears armed + timer (spec: entering `running` clears `armedCode`), so the success path needs nothing further. Armed className:
   `inline-flex min-h-tap-min max-w-full items-center justify-start self-start whitespace-normal rounded-sm bg-warning-text px-3 py-1 text-left text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg`
   Armed content: `Confirm — ignore all {group.items.length}` + `{group.label ? <span className="ml-1 font-normal">· {group.label}</span> : null}`.
 - [ ] **Step 4:** Run + meta-test — PASS. **Step 5: Commit** `feat(admin): two-tap armed-state guard on bulk Ignore all N (G4)`
@@ -523,7 +548,7 @@ Per-surface armed rendering (label + className swap on the SAME button; the arme
 - [ ] `pnpm build` — green (client/server boundary check; new refs/effects are client-component-only, but the build gate is cheap insurance).
 - [ ] Re-run the two structural meta-tests LAST (format-fragility memory: `feedback_structural_metatest_comment_fragility`).
 - [ ] Commit any stragglers; do NOT push (push happens after impeccable dual-gate + whole-diff review per pipeline).
-- [ ] **Post-gate bookkeeping (after the impeccable dual-gate, before whole-diff review):** DEFERRED.md — FLOW4-4/FLOW4-5/FLOW4-6 → `✅ RESOLVED (this PR)` with one-line what-shipped; OVR-1..OVR-7 → `✅ STALE — surface removed (PR #382; feature teardown)`; plus any new dual-gate deferral entries the gate produced. BACKLOG.md — `BL-FLOW4-BULK-UNDO-ERROR-SURFACE` + `BL-FLOW4-CONFIRM-DANGER-STYLE` → ✅ SHIPPED (this PR); grep touched entries for other BL refs and update consistently. Commit as `docs: DEFERRED/BACKLOG close-outs (FLOW4-4/5/6, OVR stale)`.
+- [ ] **Post-gate bookkeeping (STRICTLY after the impeccable dual-gate has run and its P0/P1 dispositions are known — never as a pre-gate commit; this is the single place the §12 close-out edits happen, before whole-diff review):** DEFERRED.md — FLOW4-4/FLOW4-5/FLOW4-6 → `✅ RESOLVED (this PR)` with one-line what-shipped; OVR-1..OVR-7 → `✅ STALE — surface removed (PR #382; feature teardown)`; plus any new dual-gate deferral entries the gate produced. BACKLOG.md — `BL-FLOW4-BULK-UNDO-ERROR-SURFACE` + `BL-FLOW4-CONFIRM-DANGER-STYLE` → ✅ SHIPPED (this PR); grep touched entries for other BL refs and update consistently. Commit as `docs: DEFERRED/BACKLOG close-outs (FLOW4-4/5/6, OVR stale)`.
 
 ## Self-review notes (writing-plans checklist)
 
