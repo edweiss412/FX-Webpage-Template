@@ -361,6 +361,7 @@ test("ON toggle border is the accent-edge token and geometry invariants hold", a
 ### Task 5: Raw-accent TEXT migration + `_metaRawAccentText.test.ts`
 
 **Files:**
+- Create: `tests/styles/_classScanUtils.ts` (shared helpers — Task 6 imports it too)
 - Create: `tests/styles/_metaRawAccentText.test.ts`
 - Modify (per spec §4.4a, exact edits):
   - `components/crew/CrewSubNav.tsx:98` `text-accent` → `text-accent-on-bg` (and update the `:105-109` comment: active mobile tab now inherits accent-on-bg, desktop override may simplify — keep behavior identical)
@@ -369,17 +370,44 @@ test("ON toggle border is the accent-edge token and geometry invariants hold", a
 
 - [ ] **Step 1: Write the meta-test (fails against current code):**
 
-The shared helpers (`walk`, `stripComments`, `tokensOf`) are created HERE, directly in `tests/styles/_classScanUtils.ts` (exported), so Task 6 imports them without any post-green refactor of this file — no extraction step ever touches a committed test.
+First create the shared helper module (its own file — Task 6 imports it too; neither test ever redefines these):
+
+```ts
+// tests/styles/_classScanUtils.ts
+// Shared filesystem walk + comment-strip + class tokenizer for the two
+// accent scanners (_metaRawAccentText, _metaBgAccentInventory).
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join } from "node:path";
+
+export function walk(dir: string): string[] {
+  return readdirSync(dir).flatMap((e) => {
+    const p = join(dir, e);
+    if (statSync(p).isDirectory()) return walk(p);
+    return /\.(tsx|ts)$/.test(e) ? [p] : [];
+  });
+}
+
+export function stripComments(src: string): string {
+  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+}
+
+// Shared token splitter for BOTH scanners. Splits on whitespace,
+// quotes/backticks, braces, and JSX/TS punctuation — but NEVER on ":"
+// (variant separator), "-" (utility body), or "/" (opacity suffix:
+// splitting bg-accent/10 would fabricate a bare bg-accent false positive).
+export function tokensOf(line: string): string[] {
+  return line.split(/[\s"'`{}$()[\],;<>=&|]+/);
+}
+```
+
+Then the meta-test itself, which ONLY imports those helpers:
 
 ```ts
 // tests/styles/_metaRawAccentText.test.ts
 // Bans raw accent TEXT classes (2.23:1 light) and the sub-AA hover shifts
 // (spec §4.4a). Also scans the wizard for the 10px-faint eyebrow pattern
 // (spec §4.2). Filesystem-walked: NEW files fail by default.
-// walk/stripComments/tokensOf live in ./_classScanUtils (created with this
-// task) — shown inline below for completeness of the plan document.
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { walk, stripComments, tokensOf } from "./_classScanUtils";
 
@@ -387,24 +415,6 @@ const ROOTS = ["components", "app"];
 // file:reason rows; EMPTY at ship (spec §4.4a).
 const ALLOWLIST: Array<{ file: string; reason: string }> = [];
 
-function walk(dir: string): string[] {
-  return readdirSync(dir).flatMap((e) => {
-    const p = join(dir, e);
-    if (statSync(p).isDirectory()) return walk(p);
-    return /\.(tsx|ts)$/.test(e) ? [p] : [];
-  });
-}
-function stripComments(src: string): string {
-  return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
-}
-// Shared token splitter for BOTH scanners (raw-accent text + bg-accent
-// inventory). Splits on whitespace, quotes/backticks, braces, and JSX/TS
-// punctuation — but NEVER on ":" (variant separator), "-" (utility body),
-// or "/" (opacity suffix: splitting bg-accent/10 would fabricate a bare
-// bg-accent false positive).
-export function tokensOf(line: string): string[] {
-  return line.split(/[\s"'`{}$()[\],;<>=&|]+/);
-}
 // A token is banned iff, after stripping its variant chain, the final utility
 // is EXACTLY `text-accent` (raw accent as text — banned in EVERY chain, hover
 // or not), OR the chain contains `hover` and the final utility is EXACTLY
