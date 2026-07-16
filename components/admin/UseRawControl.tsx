@@ -121,6 +121,106 @@ function parsedFields(
   return fields.length > 0 ? fields : [{ label: "Dates", value: "(no dates read)" }];
 }
 
+/** One run of the raw string: `field` names the parsed field this run became,
+ *  or null for text the split left alone (kind labels, separators). */
+export type RawSegment = { text: string; field: string | null };
+
+/**
+ * Locate the parsed fields inside the raw string so the raw row can SHOW where
+ * the split boundaries landed (deferred P2 from the 2026-07-16 redesign).
+ *
+ * Ordered-anchor matching, deliberately conservative: each anchor (room name,
+ * floor, guest names) is searched case-insensitively LEFT-TO-RIGHT from the end
+ * of the previous match; the rooms Room→Floor gap is the dimensions region
+ * (the parser reassembles dims with "·" so dims itself is not a substring).
+ * Any anchor that doesn't match is skipped, and if nothing matches the whole
+ * string comes back as one plain segment — the marking can fail soft but can
+ * never claim a wrong boundary or mutate the text (reassembly is lossless).
+ * Dates never segment: the day-first reading is a reinterpretation, not a
+ * substring of the sheet.
+ */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Case-insensitive find in RAW string coordinates. Regex `i` matching never
+ *  translates indexes through a lowercased copy, so length-changing case folds
+ *  ("İ" → "i" + combining dot) can't shift a boundary (Codex R1 F1). */
+function ciFind(
+  hay: string,
+  needle: string,
+  from: number,
+  which: "first" | "last",
+): { idx: number; len: number } | null {
+  // Alphanumeric lookarounds: a short anchor like floor "2" must not match
+  // INSIDE "82" — an anchor run starts and ends at a token boundary.
+  const re = new RegExp(`(?<![a-zA-Z0-9])${escapeRegExp(needle)}(?![a-zA-Z0-9])`, "ig");
+  re.lastIndex = from;
+  let found: { idx: number; len: number } | null = null;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(hay)) !== null) {
+    found = { idx: m.index, len: m[0].length };
+    if (which === "first") break;
+    re.lastIndex = m.index + 1;
+  }
+  return found;
+}
+
+/** Alphanumeric-only comparison key: the parser reassembles dims with "·" and
+ *  spacing, so plausibility is judged on content, not separators. */
+function normalizeForCompare(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+export function segmentRawReading(
+  raw: string,
+  resolution: Extract<UseRawResolution, { resolvable: true }>,
+): RawSegment[] {
+  const p = resolution.parsed;
+  // Anchors carry a search direction: the parser takes the TRAILING floor, so a
+  // floor-looking decoy earlier in the string must not steal the run (Codex R1 F2).
+  let anchors: { label: string; value: string; which: "first" | "last" }[];
+  if (p.kind === "rooms") {
+    anchors = [{ label: "Room", value: p.name, which: "first" }];
+    if (p.floor) anchors.push({ label: "Floor", value: p.floor, which: "last" });
+  } else if (p.kind === "hotels") {
+    anchors = p.names.map((n, i) => ({ label: `Guest ${i + 1}`, value: n, which: "first" }));
+  } else {
+    return [{ text: raw, field: null }];
+  }
+  const segs: RawSegment[] = [];
+  let cursor = 0;
+  for (const a of anchors) {
+    const v = a.value.trim();
+    if (!v) continue;
+    const hit = ciFind(raw, v, cursor, a.which);
+    if (!hit) continue;
+    if (hit.idx > cursor) segs.push({ text: raw.slice(cursor, hit.idx), field: null });
+    segs.push({ text: raw.slice(hit.idx, hit.idx + hit.len), field: a.label });
+    cursor = hit.idx + hit.len;
+  }
+  if (cursor === 0) return [{ text: raw, field: null }];
+  if (cursor < raw.length) segs.push({ text: raw.slice(cursor), field: null });
+  // The Room→Floor gap is labeled Dimensions ONLY when its content actually IS
+  // the parsed dimensions (separator-insensitive compare) — never "whatever sat
+  // between the anchors" (Codex R1 F2: junk gaps stay plain).
+  if (p.kind === "rooms" && p.dimensions) {
+    const roomIdx = segs.findIndex((s) => s.field === "Room");
+    const floorIdx = segs.findIndex((s) => s.field === "Floor");
+    const middle = segs[roomIdx + 1];
+    if (
+      roomIdx !== -1 &&
+      floorIdx === roomIdx + 2 &&
+      middle?.field === null &&
+      middle.text.trim() &&
+      normalizeForCompare(middle.text) === normalizeForCompare(p.dimensions)
+    ) {
+      segs[roomIdx + 1] = { text: middle.text, field: "Dimensions" };
+    }
+  }
+  return segs;
+}
+
 /** Human rendering of the raw replacement (spec §8 — raw side). */
 function formatRaw(resolution: Extract<UseRawResolution, { resolvable: true }>): string {
   const r = resolution.replacement;
@@ -389,7 +489,23 @@ export function UseRawControl({
           buttonRef={rawRowRef}
         >
           <span data-testid="use-raw-raw" className="min-w-0 wrap-break-word text-xs text-text">
-            {raw}
+            {/* Matched runs get a dotted underline so the split boundaries read
+                as the gaps between runs — text content itself never changes
+                (the label's "exactly" claim stays true). Fail-soft: no anchor
+                match → one plain segment, no spans. */}
+            {segmentRawReading(raw, resolution).map((s, i) =>
+              s.field ? (
+                <span
+                  key={i}
+                  data-seg={s.field}
+                  className="underline decoration-text-subtle decoration-dotted decoration-1 underline-offset-2"
+                >
+                  {s.text}
+                </span>
+              ) : (
+                <Fragment key={i}>{s.text}</Fragment>
+              ),
+            )}
           </span>
         </ChoiceRow>
       </div>
@@ -414,9 +530,23 @@ export function UseRawControl({
       )}
 
       {failed && (
-        <p data-testid="use-raw-error" role="alert" className="text-xs text-warning-text">
-          That didn&rsquo;t save. The cell may have changed. Refresh and try again.
-        </p>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+          <p data-testid="use-raw-error" role="alert" className="text-xs text-warning-text">
+            That didn&rsquo;t save. The cell may have changed.
+          </p>
+          {/* Deferred P3: retry re-fires the SAME choice (pendingChoice is
+              always set once a toggle has fired, and `failed` implies one did). */}
+          <button
+            type="button"
+            data-testid="use-raw-retry"
+            onClick={() => {
+              if (pendingChoice) fire(pendingChoice === "raw");
+            }}
+            className="inline-flex min-h-tap-min items-center text-xs font-semibold underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring"
+          >
+            Try again
+          </button>
+        </div>
       )}
     </div>
   );
