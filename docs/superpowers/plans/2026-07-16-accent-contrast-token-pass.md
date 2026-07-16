@@ -279,7 +279,8 @@ const AUTOREFRESH_TRACK = (on: boolean) =>
 const AUTOREFRESH_THUMB = (on: boolean) =>
   `absolute size-4 rounded-full bg-surface shadow-tile transition-transform ${on ? "translate-x-[16px]" : "translate-x-[2px]"}`;
 
-test("ON toggle border is the accent-edge token and geometry invariants hold", async () => {
+test("ON toggle border is the accent-edge token and geometry invariants hold", async ({ page }) => {
+  await page.goto(serverUrl); // the beforeAll-served harness.html, sibling's exact pattern
   // harness renders: settings track (ON), autorefresh track ON + OFF, each with data-testid
   const track = page.getByTestId("autorefresh-track-on");
   const borderColor = await track.evaluate((el) => getComputedStyle(el).borderColor);
