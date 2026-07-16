@@ -220,7 +220,39 @@ Spec §3. One-shot migration; RLS no-policy default-deny; explicit service_role 
 - Modify: `tests/db/postgrest-dml-lockdown.test.ts` (`RPC_GATED_TABLES`, :147), `supabase/__generated__/schema-manifest.json` (regenerated)
 - Test: `tests/db/roleTokenMappingsPosture.test.ts` (new; DB-bound — follows the env-gating pattern of the other `tests/db/*` files: skip when no local DB)
 
-- [ ] **Step 1: Write the migration**
+Step order is TDD-correct (plan-R3 F2): the failing posture test is written and run FIRST (fails: relation does not exist), then the migration makes it pass.
+
+- [ ] **Step 1: Write the failing posture test**
+
+```ts
+// tests/db/roleTokenMappingsPosture.test.ts
+// Two-sided read-posture proof (spec §3, Codex R3 F2). Copy the env-gating +
+// client-construction helpers from tests/db/postgrest-dml-lockdown.test.ts
+// (same SUPABASE_URL/keys source, same describe.skipIf condition).
+import { describe, expect, test } from "vitest";
+
+describe("role_token_mappings read posture", () => {
+  test("authenticated SELECT leaks NO rows — denied (permission error) OR empty are both conforming (plan-R3 F1: SELECT privilege is revoked AND RLS is zero-policy; either layer may answer first). NEVER a row.", async () => {
+    // authenticated-role PostgREST GET /rest/v1/role_token_mappings?select=token
+    // assert: response is an error status OR an empty array; assert NO element ever.
+  });
+
+  test("service-role insert -> select -> delete round-trip succeeds", async () => {
+    // service-role client:
+    // insert { token: "POSTURE TEST", grants: [], decided_by: "posture@test.local" }
+    // select it back (1 row), delete it, expect no error at each step.
+  });
+});
+```
+
+(The bodies use the exact fetch/client helpers already present in `postgrest-dml-lockdown.test.ts`; the assertions are real code in the final file.)
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `pnpm exec vitest run tests/db/roleTokenMappingsPosture.test.ts`
+Expected: FAIL — `relation "public.role_token_mappings" does not exist` (or PostgREST 404 for the missing table) on both cases.
+
+- [ ] **Step 3: Write the migration**
 
 ```sql
 -- supabase/migrations/20260716000000_role_token_mappings.sql
@@ -254,7 +286,7 @@ grant all privileges on table public.role_token_mappings to service_role;
 revoke select, insert, update, delete on public.role_token_mappings from anon, authenticated;
 ```
 
-- [ ] **Step 2: Apply locally + regenerate the manifest**
+- [ ] **Step 4: Apply locally + regenerate the manifest**
 
 ```bash
 psql "$DATABASE_URL" -f supabase/migrations/20260716000000_role_token_mappings.sql   # or supabase db reset if that is your local loop
@@ -262,35 +294,7 @@ pnpm gen:schema-manifest
 git diff --stat supabase/__generated__/schema-manifest.json   # must show the new table
 ```
 
-- [ ] **Step 3: Write the failing posture test**
-
-```ts
-// tests/db/roleTokenMappingsPosture.test.ts
-// Two-sided read-posture proof (spec §3, Codex R3 F2): authenticated SELECT is
-// empty/denied AND a service-role round-trip succeeds — a missing service_role
-// grant can never false-pass as "denial works". Copy the env-gating +
-// client-construction helpers from tests/db/postgrest-dml-lockdown.test.ts
-// (same SUPABASE_URL/keys source, same describe.skipIf condition).
-import { describe, expect, test } from "vitest";
-
-describe("role_token_mappings read posture", () => {
-  test("authenticated SELECT is denied/empty (RLS no-policy default-deny)", async () => {
-    // authenticated-role PostgREST client (anon key + authenticated JWT, as in the lockdown test)
-    // GET /rest/v1/role_token_mappings?select=token
-    // expect: [] (RLS filters all rows) — and NEVER a row.
-  });
-
-  test("service-role insert -> select -> delete round-trip succeeds", async () => {
-    // service-role client:
-    // insert { token: "POSTURE TEST", grants: [], decided_by: "posture@test.local" }
-    // select it back (1 row), delete it, expect no error at each step.
-  });
-});
-```
-
-(The bodies use the exact fetch/client helpers already present in `postgrest-dml-lockdown.test.ts` — reuse them; the comments above are the behavioral contract, the assertions are real code in the final test.)
-
-- [ ] **Step 4: Add the lockdown registry row**
+- [ ] **Step 5: Add the lockdown registry row**
 
 In `tests/db/postgrest-dml-lockdown.test.ts` `RPC_GATED_TABLES` (:147), add:
 
@@ -307,12 +311,12 @@ In `tests/db/postgrest-dml-lockdown.test.ts` `RPC_GATED_TABLES` (:147), add:
 
 (Adjust the `closed_at` line number to the actual `revoke` line in the committed migration.)
 
-- [ ] **Step 5: Run the DB tests locally**
+- [ ] **Step 6: Run the DB tests locally (the Step 1 test now passes)**
 
 Run: `pnpm exec vitest run tests/db/roleTokenMappingsPosture.test.ts tests/db/postgrest-dml-lockdown.test.ts`
 Expected: PASS against the local stack (skip-clean without one; real CI is the arbiter).
 
-- [ ] **Step 6: Apply to the validation project (from the MAIN checkout, where `.env.local` has the validation triple)**
+- [ ] **Step 7: Apply to the validation project (from the MAIN checkout, where `.env.local` has the validation triple)**
 
 ```bash
 cd /Users/ericweiss/FX-Webpage-Template
@@ -320,7 +324,7 @@ psql "$TEST_DATABASE_URL" -f .claude/worktrees/role-vocab/supabase/migrations/20
 psql "$TEST_DATABASE_URL" -c "notify pgrst, 'reload schema';"
 ```
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
 git add supabase/migrations/20260716000000_role_token_mappings.sql supabase/__generated__/schema-manifest.json tests/db
