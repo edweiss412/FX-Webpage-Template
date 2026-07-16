@@ -111,7 +111,7 @@ All other figures in §1.1/§1.2 get a one-time verification sweep during implem
 ### 6.2 Behavioral/unit updates
 
 - Component tests pinning the old class strings are updated to the new recipes (TDD: change assertion first, watch fail, flip implementation). Known candidates from the pre-spec grep (`text-accent-text` / `bg-accent` / eyebrow / badge testids): `tests/components/atoms/AccentButton.test.tsx`, `tests/styles/accent-button-atom.test.ts`, `tests/components/admin/wizard/step3ReviewSections.test.tsx`, `tests/components/telemetry/*`, `tests/e2e/developer-toggle-layout.spec.ts`, `tests/e2e/telemetry-layout.spec.ts` + the rest of the 18-file grep list; the plan enumerates each with its exact assertion.
-- New assertions: EventLevelBadge error carries `bg-danger-bg` and NOT `bg-warning-bg`; EventFilters selected segment carries `bg-text text-bg` and no `bg-accent`; each toggle ON state carries `border-accent-on-bg`; `CELL_EYEBROW_CLASS` contains `text-text-subtle` and not `text-text-faint`.
+- New assertions: EventLevelBadge error carries `bg-status-degraded text-status-degraded-text` and carries NEITHER `bg-warning-bg` NOR the rejected `bg-danger-bg text-status-degraded` pairing; EventFilters selected segment carries `bg-text text-bg` and no `bg-accent`; each toggle ON state carries `border-accent-on-bg`; `CELL_EYEBROW_CLASS` contains `text-text-subtle` and not `text-text-faint`.
 - Anti-tautology: contrast assertions read hex out of `globals.css` and compute (never hardcode a ratio literal that can drift); class assertions target the specific element by testid/role, not container `innerHTML`.
 
 ### 6.3 What proves the failure mode
