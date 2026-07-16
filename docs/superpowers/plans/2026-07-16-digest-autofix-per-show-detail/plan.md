@@ -20,7 +20,7 @@
 - Invariant 5: no raw codes render; exact class labels on fallback.
 - No advisory-lock surface touched (read-only builder); no `pg_advisory*` anywhere in this diff.
 - Meta-test inventory (spec §8): `tests/notify/_metaInfraContract.test.ts` (registration `:23`) — no registry change, MUST pass after every `monitorDigest.ts` edit. No other registry applies; none created.
-- Run per-task scoped tests, then Task 5 runs the FULL gate set before push (`pnpm test`, typecheck via `pnpm build`, eslint, `pnpm format:check`).
+- Run per-task scoped tests, then Task 4 runs the FULL gate set before push (`pnpm test`, typecheck via `pnpm build`, eslint, `pnpm format:check`).
 - Commits: conventional, one per task, `--no-verify` (worktree hook rule), with Claude trailer lines.
 
 ---
@@ -98,6 +98,21 @@ describe("listAutoFixItems (spec 2026-07-16 §4)", () => {
     const long = `corrected 'x' as 'y' in ${"z".repeat(400)}`;
     const items = listAutoFixItems([w({ message: long })] as never);
     expect(items[0]!.item.length).toBeGreaterThan(200);
+  });
+
+  test("token deep in an overlong message is redacted in the UNCAPPED item (redaction cannot be deferred past the helper)", () => {
+    // Token placed so it would START beyond a 200-char cap — a cap-then-redact
+    // implementation would never see it. The helper's uncapped output must
+    // already carry the placeholder.
+    const msg = `corrected 'x' as 'y' in ${"p".repeat(190)} SECRETTOKEN0123456789ABCDEF tail`;
+    const items = listAutoFixItems([w({ message: msg })] as never);
+    expect(items[0]!.item).toContain("[redacted-token]");
+    expect(items[0]!.item).not.toContain("SECRETTOKEN");
+  });
+
+  test("overlong SHOUTY-token message → exact label (shape check sees the whole string, pre-cap)", () => {
+    const items = listAutoFixItems([w({ message: `${"A_".repeat(150)}Z` })] as never);
+    expect(items[0]!.item).toBe("corrected stage word");
   });
 
   test("anchor extraction: gid!a1 when both valid, else null", () => {
@@ -221,6 +236,7 @@ git commit --no-verify -m "feat(parser): listAutoFixItems — normalized, redact
 **Files:**
 - Modify: `lib/notify/monitorDigest.ts` (add types + function; do NOT touch the model/query yet — repo stays compiling)
 - Test: `tests/notify/monitorDigest.autofix.test.ts` (full rewrite)
+- Test: `tests/notify/monitorDigest.autofixAnchors.test.ts` (new — live-resolver integration, spec §9.6; written in this task's RED batch since it imports the not-yet-existing `computeAutofixShows`)
 
 **Interfaces:**
 - Consumes: `listAutoFixItems`, `AutoFixItem` from Task 1; existing `MonitorShowGroup` (`lib/notify/monitorDigest.ts:27`).
@@ -304,6 +320,16 @@ describe("computeAutofixShows", () => {
     }
   });
 
+  test("token straddling the 200-char cap boundary never leaks a partial secret into the capped item", () => {
+    // Token spans chars ~185-215: a cap-then-redact pipeline would truncate it to a
+    // sub-24-char prefix that escapes the redactor and ships in the email.
+    const msg = `corrected 'x' as 'y' ${"p".repeat(160)} STRADDLE0123456789ABCDEF0123456789 tail`;
+    const r = computeAutofixShows([row("a", [warn({ message: msg })])]);
+    const item = r.shows[0]!.items[0]!;
+    expect(item).not.toContain("STRADDLE");
+    expect(item).toContain("[redacted-token]");
+  });
+
   test("NO count capping in the model: 13 shows and >5 items all preserved, stream order kept", () => {
     const rows: AutofixRow[] = [];
     for (let i = 0; i < 13; i++) {
@@ -336,10 +362,68 @@ describe("computeAutofixShows", () => {
 });
 ```
 
+Also create `tests/notify/monitorDigest.autofixAnchors.test.ts` in the same RED batch (it imports `computeAutofixShows`, which does not exist yet — genuine failing phase). Interfaces: `attachSourceCellAnchors`, `WarningAnchorSources` (`lib/drive/showDayTimeAnchors.ts:120,100`), `CrewRoleAnchor` (`lib/drive/crewRoleAnchors.ts:8`); mirror the anchor `name` fixture idioms of `tests/drive/crewRoleAnchors.test.ts` (the resolver compares `normalizeCrewNameKey(blockRef.name)` to the stored keys).
+
+```ts
+import { describe, expect, test } from "vitest";
+import { attachSourceCellAnchors } from "@/lib/drive/showDayTimeAnchors";
+import { computeAutofixShows } from "@/lib/notify/monitorDigest";
+import type { ParseWarning } from "@/lib/parser/types";
+
+// Spec 2026-07-16 §9.6 — unique-name-only crew anchors THROUGH THE REAL RESOLVER:
+// duplicate-name crew rows anchor to null (resolveCrewRoleCell returns null on
+// multiple matches, lib/drive/crewRoleAnchors.ts:177-185), so byte-identical
+// notices from those rows collapse; a unique-name pair anchors both and stays
+// distinct. Fixture-injected sourceCell values cannot catch this class (R11).
+describe("autofix dedupe through the real anchor resolver", () => {
+  const stageWarn = (name: string): ParseWarning => ({
+    severity: "warn",
+    code: "STAGE_WORD_AUTOCORRECTED",
+    message: "Read likely-misspelled stage word(s) 'Sage' as 'Stage' in role cell: 'A1 Sage'",
+    blockRef: { kind: "crew", name },
+  });
+  const anchor = (a1: string) => ({ title: "PULL SHEET", gid: 7, a1 });
+  // NOTE: build `name` keys exactly as tests/drive/crewRoleAnchors.test.ts does
+  // (the resolver compares normalizeCrewNameKey(blockRef.name) === anchors[].name).
+  const sources = {
+    showDay: [],
+    crewRole: [
+      { name: "jane doe", anchor: anchor("C3") },
+      { name: "jane doe", anchor: anchor("C9") }, // duplicate name — resolver must null out
+      { name: "bob roe", anchor: anchor("C5") },
+      { name: "ann poe", anchor: anchor("C7") },
+    ],
+    region: {},
+  };
+
+  test("duplicate names → both unanchored → identical notices collapse to 1", () => {
+    const warnings = [stageWarn("Jane Doe"), stageWarn("Jane Doe")];
+    attachSourceCellAnchors(warnings, sources);
+    expect(warnings.every((w) => w.sourceCell == null)).toBe(true);
+    const r = computeAutofixShows([
+      { drive_file_id: "d", slug: "s", title: "T", parse_warnings: warnings, occurred_at: "2099-01-01T10:00:00Z" },
+    ]);
+    expect(r.total).toBe(1);
+  });
+
+  test("unique names → both anchored → identical notices stay distinct", () => {
+    const warnings = [stageWarn("Bob Roe"), stageWarn("Ann Poe")];
+    attachSourceCellAnchors(warnings, sources);
+    expect(warnings.map((w) => w.sourceCell?.a1)).toEqual(["C5", "C7"]);
+    const r = computeAutofixShows([
+      { drive_file_id: "d", slug: "s", title: "T", parse_warnings: warnings, occurred_at: "2099-01-01T10:00:00Z" },
+    ]);
+    expect(r.total).toBe(2);
+  });
+});
+```
+
+(If `blockRef`'s type or the anchor `name` normalization differs from the sketch, mirror the exact fixture idioms in `tests/drive/crewRoleAnchors.test.ts` — the CONTRACT under test is: dup-name → null anchors → collapse; unique-name → distinct anchors → both survive.)
+
 - [ ] **Step 2: Run to verify failure**
 
-Run: `pnpm vitest run tests/notify/monitorDigest.autofix.test.ts`
-Expected: FAIL — `computeAutofixShows` is not exported.
+Run: `pnpm vitest run tests/notify/monitorDigest.autofix.test.ts tests/notify/monitorDigest.autofixAnchors.test.ts`
+Expected: FAIL — `computeAutofixShows` is not exported (both files).
 
 - [ ] **Step 3: Implement** — in `lib/notify/monitorDigest.ts`: add to the imports from `@/lib/parser/dataGaps`: `listAutoFixItems`. Then add after `groupAutoApplied`:
 
@@ -403,13 +487,13 @@ export function computeAutofixShows(rows: AutofixRow[]): MonitorAutofix {
 
 - [ ] **Step 4: Run to verify pass**
 
-Run: `pnpm vitest run tests/notify/monitorDigest.autofix.test.ts tests/notify/_metaInfraContract.test.ts`
+Run: `pnpm vitest run tests/notify/monitorDigest.autofix.test.ts tests/notify/monitorDigest.autofixAnchors.test.ts tests/drive/crewRoleAnchors.test.ts tests/notify/_metaInfraContract.test.ts`
 Expected: PASS. (`accumulateAutoFixes` still exists — deleted in Task 3.)
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add lib/notify/monitorDigest.ts tests/notify/monitorDigest.autofix.test.ts
+git add lib/notify/monitorDigest.ts tests/notify/monitorDigest.autofix.test.ts tests/notify/monitorDigest.autofixAnchors.test.ts
 git commit --no-verify -m "feat(sync): computeAutofixShows — source-aware notice dedupe grouped per show"
 ```
 
@@ -768,87 +852,7 @@ git commit --no-verify -m "feat(sync): per-show autofix notices in digest — mo
 
 ---
 
-### Task 4: Live-resolver duplicate-name regression test
-
-**Files:**
-- Test: `tests/notify/monitorDigest.autofixAnchors.test.ts` (new — integration of the REAL `attachSourceCellAnchors` with `computeAutofixShows`; spec §9.6)
-
-**Interfaces:**
-- Consumes: `attachSourceCellAnchors`, `WarningAnchorSources` (`lib/drive/showDayTimeAnchors.ts:120,100`), `CrewRoleAnchor` (`lib/drive/crewRoleAnchors.ts:8`), `normalizeCrewNameKey` semantics (resolver normalizes `blockRef.name`; anchor rows store pre-normalized `name` keys — mirror fixtures in `tests/drive/crewRoleAnchors.test.ts` when writing them), `computeAutofixShows` (Task 2), `ParseWarning`.
-
-- [ ] **Step 1: Write the test**
-
-```ts
-import { describe, expect, test } from "vitest";
-import { attachSourceCellAnchors } from "@/lib/drive/showDayTimeAnchors";
-import { computeAutofixShows } from "@/lib/notify/monitorDigest";
-import type { ParseWarning } from "@/lib/parser/types";
-
-// Spec 2026-07-16 §9.6 — unique-name-only crew anchors THROUGH THE REAL RESOLVER:
-// duplicate-name crew rows anchor to null (resolveCrewRoleCell returns null on
-// multiple matches, lib/drive/crewRoleAnchors.ts:177-185), so byte-identical
-// notices from those rows collapse; a unique-name pair anchors both and stays
-// distinct. Fixture-injected sourceCell values cannot catch this class (R11).
-describe("autofix dedupe through the real anchor resolver", () => {
-  const stageWarn = (name: string): ParseWarning => ({
-    severity: "warn",
-    code: "STAGE_WORD_AUTOCORRECTED",
-    message: "Read likely-misspelled stage word(s) 'Sage' as 'Stage' in role cell: 'A1 Sage'",
-    blockRef: { kind: "crew", name },
-  });
-  const anchor = (a1: string) => ({ title: "PULL SHEET", gid: 7, a1 });
-  // NOTE: build `name` keys exactly as tests/drive/crewRoleAnchors.test.ts does
-  // (the resolver compares normalizeCrewNameKey(blockRef.name) === anchors[].name).
-  const sources = {
-    showDay: [],
-    crewRole: [
-      { name: "jane doe", anchor: anchor("C3") },
-      { name: "jane doe", anchor: anchor("C9") }, // duplicate name — resolver must null out
-      { name: "bob roe", anchor: anchor("C5") },
-      { name: "ann poe", anchor: anchor("C7") },
-    ],
-    region: {},
-  };
-
-  test("duplicate names → both unanchored → identical notices collapse to 1", () => {
-    const warnings = [stageWarn("Jane Doe"), stageWarn("Jane Doe")];
-    attachSourceCellAnchors(warnings, sources);
-    expect(warnings.every((w) => w.sourceCell == null)).toBe(true);
-    const r = computeAutofixShows([
-      { drive_file_id: "d", slug: "s", title: "T", parse_warnings: warnings, occurred_at: "2099-01-01T10:00:00Z" },
-    ]);
-    expect(r.total).toBe(1);
-  });
-
-  test("unique names → both anchored → identical notices stay distinct", () => {
-    const warnings = [stageWarn("Bob Roe"), stageWarn("Ann Poe")];
-    attachSourceCellAnchors(warnings, sources);
-    expect(warnings.map((w) => w.sourceCell?.a1)).toEqual(["C5", "C7"]);
-    const r = computeAutofixShows([
-      { drive_file_id: "d", slug: "s", title: "T", parse_warnings: warnings, occurred_at: "2099-01-01T10:00:00Z" },
-    ]);
-    expect(r.total).toBe(2);
-  });
-});
-```
-
-(If `blockRef`'s type or the anchor `name` normalization differs from the sketch, mirror the exact fixture idioms in `tests/drive/crewRoleAnchors.test.ts` — the CONTRACT under test is: dup-name → null anchors → collapse; unique-name → distinct anchors → both survive.)
-
-- [ ] **Step 2: Run — expect the dup-name case to pass only via the real resolver**
-
-Run: `pnpm vitest run tests/notify/monitorDigest.autofixAnchors.test.ts tests/drive/crewRoleAnchors.test.ts`
-Expected: PASS (this is a regression pin on already-landed behavior; its failure mode is a future resolver/fingerprint change).
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add tests/notify/monitorDigest.autofixAnchors.test.ts
-git commit --no-verify -m "test(sync): pin unique-name-only anchor granularity through the real crew resolver"
-```
-
----
-
-### Task 5: Full gates + spec docs in tree
+### Task 4: Full gates + spec docs in tree
 
 **Files:**
 - Verify only (no source edits expected). Spec + Flow 6.2 amendments are already committed on this branch.
