@@ -195,6 +195,16 @@ const ROWS: Array<[string, RegExp, number]> = [
   ["accent-edge vs bg (§1.1 new row)", /Light: accent-edge is [\d.]+:1 vs the orange track and ([\d.]+):1 vs bg/, contrast(L("--color-accent-edge-runtime"), L("--color-bg-runtime"))],
 ];
 
+// L41 status-live-text carries no ratio figure of its own (its rationale says
+// contrast is governed by the accent rows) — the touched value is the HEX.
+// Pin hex parity instead: the documented light -text hex must equal the live
+// accent-on-bg light hex (the alias's value), so the doc can't fork from the alias.
+it("§1.1 L41 status-live-text documented hex equals live accent-on-bg (light)", () => {
+  const m = design.match(/--color-status-live.*?`#FF8C1A` \/ `(#[0-9A-Fa-f]{6})`/);
+  expect(m, "status-live row not found").toBeTruthy();
+  expect(m![1]!.toLowerCase()).toBe(L("--color-accent-on-bg-runtime").toLowerCase());
+});
+
 // §1.2 TABLE cells — pinned directly (spec §6.1 row 8: EVERY touched figure in
 // BOTH sections; "duplicate rendering" is not an exemption).
 const TABLE_ROWS: Array<[string, string, number, number]> = [
@@ -259,7 +269,7 @@ describe("DESIGN.md figure parity (touched rows)", () => {
 **Interfaces:**
 - Consumes: `border-accent-edge` utility from Task 1.
 
-- [ ] **Step 1: Component-test-first (vitest class assertions).** Find each toggle's existing component test (grep testid). Add/extend assertions, e.g. for DeveloperToggleButton test: ON state class list contains `border-accent-edge` and NOT `border-accent`. Run: FAIL.
+- [ ] **Step 1: Component-test-first (vitest class assertions) — ALL SIX stateful fills, red before any edit.** For EACH of: NotifyToggle, AutoPublishToggle, DeveloperToggleButton, PublishedToggle, AutoRefreshControl, OnboardingWizard — locate its component test by testid grep (`notify`/`auto-publish`/`developer-toggle`/`published`/`autorefresh`/wizard step pills); if a component has NO existing test file, CREATE a minimal render test (render ON state, assert on the track/pill element's className). Assertion per component: ON/active class list contains `border-accent-edge` and does NOT contain `border-accent ` (trailing-space guard) or `border-transparent` (pill). Run all six: FAIL (red-first for every component, including AutoRefreshControl and OnboardingWizard — the transcription-based Playwright harness in Step 4 is NOT the red gate; these assertions are).
 - [ ] **Step 2: Edit the recipes:**
   - 4 settings/admin toggles: `on ? "border-accent bg-accent"` → `on ? "border-accent-edge bg-accent"`
   - `AutoRefreshControl.tsx:106`: `rounded-full transition-colors ${on ? "bg-accent" : "bg-surface-sunken"}` → `rounded-full border transition-colors ${on ? "border-accent-edge bg-accent" : "border-border-strong bg-surface-sunken"}`
@@ -550,7 +560,7 @@ describe("META bg-accent per-occurrence disposition registry (spec §4.1b)", () 
 });
 ```
 
-Indexes are seeded from the spec's generated inventory in line order per file (e.g. `AutoRefreshControl`: ping `:86`=0, dot `:90`=1, track `:106`=2; `Step3ReviewModal`: side bar `:1064`=0, CTAs `:1378`=1 / `:1464`=2). If the scan finds drift vs these seeds (tree moved since spec generation), reconcile to zero problems by updating rows — never by loosening the matcher.
+**Generation order (canonical-first, spec §4.1b):** (a) AFTER the Task 3–6 class edits land, run the scanner logic (or the equivalent `rg -nP` one-liner) against the ACTUAL tree and capture hits; (b) build `REGISTRY` from those captured hits, assigning dispositions from the spec table (the listing above is the expected outcome — indexes like `AutoRefreshControl` ping=0/dot=1/track=2 must be CONFIRMED against the capture, not assumed); (c) prove the fail-by-default property both ways before committing: temporarily append one unregistered `bg-accent` to any component → test fails UNREGISTERED; temporarily add a bogus registry row → test fails STALE REGISTRY ROW; revert both. Never reconcile by loosening the matcher.
 
 - [ ] **Step 4: Run** — PASS with exact reconciliation (post-change: EventFilters/BellPanel/RightNowHero rows must NOT be present; if the scan still finds them the earlier edits are wrong).
 - [ ] **Step 5: Commit** — `feat: bg-accent per-occurrence disposition registry; darken Bell pip + RightNow active segment to accent-on-bg`
@@ -574,9 +584,9 @@ Indexes are seeded from the spec's generated inventory in line order per file (e
 
 ### Task 8: Full-tree class-sweep + gates
 
-- [ ] **Step 1:** Re-run the spec's sweeps; expect zero unaccounted:
-  - `rg -nP '(^|[^A-Za-z0-9-])text-accent(?![A-Za-z0-9-])' components/ app/` → only comments
-  - `rg -n 'hover:text-accent(-hover)?(?![A-Za-z0-9-])' -P components/ app/` → empty
+- [ ] **Step 1:** Re-run the spec's sweeps. The META-TESTS are authoritative (they comment-strip); the raw greps are informational cross-checks:
+  - `rg -nP '(^|[^A-Za-z0-9-])text-accent(?![A-Za-z0-9-])' components/ app/` → every remaining hit must be inside a comment; verify each by eye AND confirm `tests/styles/_metaRawAccentText.test.ts` passes (zero rendered hits is the ship bar)
+  - `rg -n 'hover:text-accent(-hover)?(?![A-Za-z0-9-])' -P components/ app/` → empty (comments included — no reason for these in comments)
   - `rg -n 'text-text-faint' components/admin/wizard/` → no 10px pairings
   - Tinted-consumer audit re-run (spec §3): `rg -n 'text-accent-on-bg' components/ app/` — for each hit confirm its rendered background is in the §6.1 pinned set {bg, surface, accent/10, accent/15, accent-tint, stale-tint, surface-sunken}; any NEW background gets a pinned row or a migration before ship
 - [ ] **Step 2:** Sweep the 18 pinned-class test files (grep list from spec §6.2) — update expectations that still assert old recipes.
