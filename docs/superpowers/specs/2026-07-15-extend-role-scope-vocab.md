@@ -28,7 +28,9 @@ New migration `supabase/migrations/20260716000000_role_token_mappings.sql`:
 create table public.role_token_mappings (
   token text primary key,
   grants text[] not null default '{}',
-  decided_by text not null,
+  decided_by text not null
+    constraint role_token_mappings_decided_by_canonical
+    check (decided_by = lower(btrim(decided_by)) and decided_by <> ''),
   decided_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint role_token_mappings_token_canonical
@@ -46,7 +48,7 @@ revoke insert, update, delete on public.role_token_mappings from anon, authentic
 
 - `token` — the canonical token exactly as the parser's tokenizer produces it: the role cell is split on `/` and `-`, then `.trim().toUpperCase()` (`lib/parser/personalization.ts:344-346`). One shared normalization helper (§5.3) guarantees mapping keys can't drift from parser tokens.
 - `grants` — subset of the four grantable flags (§4). Empty array = recognize-only. The inline CHECK is the safety net; the action boundary (§8.3) and the sync-side loader (§6.2) are the primary validators (three layers, same posture as email canonicalization).
-- `decided_by` — the deciding admin's canonicalized email from the admin identity chain (same source as use-raw's `decidedBy`). Display-only.
+- `decided_by` — the deciding admin's canonicalized email from the admin identity chain (same source as use-raw's `decidedBy`). Display-only. The canonical-shape CHECK is the invariant-3 schema safety net, copied from the `admin_email` precedent (`supabase/migrations/20260705100000_bell_state_tables.sql:20`) — a fixture, bug, or manual service-role repair can't persist `Doug@Example.COM` or blank (Codex R4 F1).
 - No `show_id` — global by design (D1). Not in the advisory-lock table list (AGENTS.md invariant 2); mapping writes do NOT acquire the per-show lock (§8.4).
 - **PostgREST DML lockdown** row: `role_token_mappings` added to the lockdown meta-test (cross-cutting rule, AGENTS.md "PostgREST DML lockdown for RPC-gated tables"); mutations flow only through admin server actions using the service-role/postgres.js path.
 - **Migration parity checklist** (same PR): apply locally → `pnpm gen:schema-manifest` + commit manifest → apply surgically to validation project `vzakgrxqwcalbmagufjh` (`supabase db query --linked` + `notify pgrst, 'reload schema';`). Enforced by `validation-schema-parity`.
@@ -191,7 +193,9 @@ All four: admin-gated (`requireAdminIdentity` chain), **`AUDITABLE_MUTATIONS` re
 
 Boundary validation in every action: token canonicalized via `canonicalRoleToken` (§5.3), non-empty, ≤64 chars; reject tokens already in the built-in vocabulary (`ROLE_NORMALIZATIONS` key or multi-word token — pointless row, confusing UX); `grants` must be a subset of the four grantable flags (reject otherwise — fail-closed, not silently filtered) and is **deduplicated + stably ordered (A1, V1, L1, FINANCIALS) before write** (Codex R2 F4 — the `<@` CHECK admits duplicates; the action write path and `normalizeRoleTokenMappings` (§6.2) BOTH dedupe, so chips/audit context never render duplicates even from hand-edited rows). Set/update is an upsert keyed on token (idempotent; re-save with same grants = success no-op).
 
-Result contract for `mapRoleToken` (live): `{ ok: false, code: … }` when the upsert itself fails (nothing durable — UI error state) · `{ ok: true, state: "applied" }` when the follow-up `runManualSyncForShow` reports `outcome === "applied"` · `{ ok: true, state: "apply_pending" }` when the mapping committed but the re-sync failed, threw (caught), or returned any non-applied outcome (§7; mirrors `_actions/useRaw.ts:155-170`). `mapRoleTokenStaged` has the same shape with the re-stage in place of the re-sync. Settings-page `update`/`delete` return plain ok/error — no attached re-sync, convergence is cron-driven (§7).
+**Warning-provenance check (Codex R4 F3, mirrors use-raw's freshness protection):** before the upsert, `mapRoleToken` re-reads the show's current persisted parse warnings and requires an `UNKNOWN_ROLE_TOKEN` warning whose `roleToken` equals the submitted token; `mapRoleTokenStaged` does the same against the wizard session's staged parse. No matching warning → `{ ok: false, code: "stale" }` (nothing written). This closes create-without-warning entirely: a stale or tampered admin client cannot mint a global row for a token no sheet ever produced; the two warning-attached actions are the ONLY create paths (§8.2 — settings has no create affordance), so the §7 dormant-row class (b) shrinks to hand-crafted DB writes only.
+
+Result contract for `mapRoleToken` (live): `{ ok: false, code: … }` when provenance fails or the upsert itself fails (nothing durable — UI error state) · `{ ok: true, state: "applied" }` when the follow-up `runManualSyncForShow` reports `outcome === "applied"` · `{ ok: true, state: "apply_pending" }` when the mapping committed but the re-sync failed, threw (caught), or returned any non-applied outcome (§7; mirrors `_actions/useRaw.ts:155-170`). `mapRoleTokenStaged` has the same shape with the re-stage in place of the re-sync. Settings-page `update`/`delete` return plain ok/error — no attached re-sync, convergence is cron-driven (§7).
 
 ### 8.4 Locking
 
@@ -218,7 +222,7 @@ All strings below are pinned from the committed mocks (D6). `<TOKEN>` = the raw 
 - Remove confirm: **"Remove this role? People with it go back to 'unrecognized' the next time each show checks its sheet."** · buttons **"Yes, remove it"**/**"Removing…"** · **"Keep it"**
 - Empty state: **"Nothing here yet"** + **"When a sheet uses a role we don't recognize, you can add it from the warning — added roles show up here."**
 
-Banned Doug-facing vocabulary (D7): scope, flag, token, mapping, capability, sync, overlay, parse.
+Banned Doug-facing vocabulary (D7): scope, flag, token, mapping, capability, sync, overlay, parse. Replacement phrases (pin for ALL adjacent status/error copy, not just the exact strings above — Codex R4 F4): sync/re-sync → **"checks its sheet" / "sheet check"**; a mapped token → **"a role you added"**; role_flags/grants → **"what they see"**.
 
 ## 10. §12.4 catalog changes (3-way lockstep + the full CI touchpoint set)
 
@@ -226,7 +230,7 @@ Banned Doug-facing vocabulary (D7): scope, flag, token, mapping, capability, syn
 
 - §12.4 prose row in `docs/superpowers/specs/2026-04-30-fxav-crew-pages-v1.md` (NEVER prettier this file) + `pnpm gen:spec-codes` + matching `lib/messages/catalog.ts` row — same commit.
 - Additional gates (per the new-code checklist): `pnpm gen:internal-code-enums` (x2), help families test, full `pnpm test`. Namespace check: name must not collide with a scanner namespace (`REPORT_*` rule) — `ROLE_TOKEN_MAPPED` is clear.
-- Draft dougFacing: "_<crew-name>_'s role includes _<token>_, a role you added — we recognized it and set up their page the way you chose."
+- Draft dougFacing: "_<crew-name>_'s role includes _<token>_, a role you added — we recognized it and set up their page the way you chose." Rendering must branch on empty grants (Codex R4 F2): with grants, the grant summary reads as in §9 ("Audio and Video details"); with `grants: []` (recognize-only — a valid v1 state) the copy resolves to "the standard show page", never an empty/awkward join. Test (§13): an empty-grants `ROLE_TOKEN_MAPPED` event renders the catalog copy cleanly.
 
 **Edit `UNKNOWN_ROLE_TOKEN` row** (`lib/messages/catalog.ts:1193-1205`): dougFacing/helpfulContext/longExplanation currently end "let us know and we'll add it" — update to point at the new affordance ("you can add it right from this warning"); `followUp` becomes "Doug → recognize role (or optional Report)". Same 3-way lockstep commit discipline (§12.4 prose + gen + catalog).
 
@@ -260,7 +264,7 @@ Admin-outcome forensic codes `ROLE_TOKEN_MAPPING_SET` / `ROLE_TOKEN_MAPPING_DELE
 - **Overlay unit tests** (`tests/sync/roleMappingOverlay.test.ts`): apply/union-dedupe/recognize-only/no-`roleToken`-skip/unmapped-skip/bad-blockRef-skip/multi-member/multi-token/input-not-mutated. Anti-tautology: expected flags derived from fixture mapping rows, never hardcoded to match implementation constants.
 - **Normalize boundary tests**: corrupt rows dropped (bad token case, out-of-set grants, blank decidedBy, bad decidedAt), non-array → [].
 - **Parser test**: `UNKNOWN_ROLE_TOKEN` carries `roleToken` equal to the canonical token; absent on all other codes (walker-style assertion over emitted warnings in existing fixtures).
-- **Action tests** (all four): gate, validation rejections (built-in token, bad grants, blank token), upsert idempotency, behavioral outcome proof (sink-spy on committed-success branch); for `mapRoleToken`: re-sync failure AFTER the committed upsert returns `{ ok: true, state: "apply_pending" }` (thrown fault caught, mapping row still present), re-sync `applied` returns `state: "applied"`.
+- **Action tests** (all four): gate, validation rejections (built-in token, bad grants, blank token), warning-provenance rejection (token with no matching current `UNKNOWN_ROLE_TOKEN` warning → `stale`, nothing written — §8.3), upsert idempotency, behavioral outcome proof (sink-spy on committed-success branch); for `mapRoleToken`: re-sync failure AFTER the committed upsert returns `{ ok: true, state: "apply_pending" }` (thrown fault caught, mapping row still present), re-sync `applied` returns `state: "applied"`.
 - **Whitespace parity test** (§5.3): unknown role `DRONE   OP` (repeated internal spaces) → warning `roleToken` preserves internal spacing; action save stores it verbatim; overlay matches it. Derived from the fixture string, not a hardcoded expectation.
 - **Financials projection test** (§4.1): a FINANCIALS-only (non-LEAD, non-admin) viewer's `getShowForViewer` result includes `financials` data (read issued); a viewer with neither entitlement issues ZERO financials reads (existing contract preserved).
 - **Read-posture test** (§3, two-sided): (a) `authenticated`-role PostgREST SELECT on `role_token_mappings` is denied/empty (RLS no-policy default-deny); (b) a service-role insert → select → delete round-trip succeeds — so missing `service_role` privileges can never false-pass as "denial works".
