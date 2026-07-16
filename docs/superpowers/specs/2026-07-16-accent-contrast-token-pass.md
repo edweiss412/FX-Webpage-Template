@@ -45,6 +45,8 @@ Only the **light** block (`:root` defaults, `app/globals.css:266-299` region) ch
 | `--color-accent-on-bg-runtime` (light) | `app/globals.css:279` | `#c25e00` | `#b35600` | 4.73:1 on bg `#fafaf9`; 4.94:1 on surface `#ffffff`; 4.35:1 (≥3:1 graphical) on accent-tint `#feeede` |
 | `--color-accent-edge-runtime` (NEW, all three blocks) | added beside the accent group | — | light `#7a3d00`, dark `#ffa047` (both dark blocks) | light: 3.61:1 vs track `#ff8c1a`, 8.06:1 vs bg, 8.42:1 vs surface. Dark value is decorative (see §4.1) |
 
+The new token REQUIRES both halves of the Tailwind v4 wiring (`app/globals.css` pattern at `:56-66`): the `@theme` alias `--color-accent-edge: var(--color-accent-edge-runtime);` (which is what makes the `border-accent-edge` utility exist) AND the three runtime-value blocks. Runtime values alone generate NO utility — the class string would be dead. Proven two ways in §6.
+
 Knock-on consumers that inherit automatically (no per-surface edits): every `text-accent-text` CTA/badge (30 files — `components/shared/AccentButton.tsx`, wizard steps, nav count badges, error pages, crew interstitial, etc.), every `text-accent-on-bg` link/emphasis surface (StagedReviewCard, IdentityChip, DashboardFooter, status pills), `--color-status-live-text` (aliases `--color-accent-on-bg`, `app/globals.css:89`), and the bell info icon (`accent-on-bg` on `accent-tint`, pinned at `tests/styles/status-token-contrast.test.ts:140-142`).
 
 `--color-accent-text` becomes the same hex in both modes. It stays a **mode-scoped token** (no consolidation): the light/dark split is the token's structure, and a future brand tweak may re-diverge it.
@@ -67,7 +69,9 @@ Thumb (`bg-bg`, `h-5 w-5` inside `h-7 w-12`) is unchanged: the component boundar
 
 ### 4.2 Eyebrows (VCR-1)
 
-- `CELL_EYEBROW_CLASS` (`components/admin/wizard/step3ReviewSections.tsx:392`): `text-text-faint` → `text-text-subtle`. One constant; covers every Stage-3 card eyebrow (venue, hotel, route, check-in/out, contacts).
+- `CELL_EYEBROW_CLASS` (`components/admin/wizard/step3ReviewSections.tsx:392`): `text-text-faint` → `text-text-subtle`.
+- The constant does NOT cover everything: two HARD-CODED eyebrow literals bypass it — the Venue and Loading-dock row labels at `components/admin/wizard/step3ReviewSections.tsx:950` and `:990` (`text-[10px] font-semibold text-text-faint uppercase`). Both are replaced with `CELL_EYEBROW_CLASS` (they are the same visual role; inlining diverged, this re-unifies). Implementation runs the full class-sweep `rg 'text-\[10px\].*text-text-faint|text-text-faint.*text-\[10px\]' components/ app/` and brings every hit under the same treatment or enumerates it with a reason.
+- **Structural pin:** a new scan in the tests asserts NO file under `components/admin/wizard/` pairs `text-text-faint` with `text-[10px]` on one class string (the failing 10px-faint pattern), so re-inlined eyebrows fail by default.
 - `components/admin/wizard/VenueMapTile.tsx` "map" badge (`text-[10px] text-text-faint` on `bg-surface/85`): → `text-text-subtle`. (Badge is `aria-hidden` but sighted-legibility still applies at 10px.)
 - `--color-text-faint` token value is **unchanged**. Other `text-text-faint` consumers are out of scope (decorative/large-text uses; the auditor's recommendation was exactly this split). `BL-ADMIN-EYEBROW-FAINT-CONTRAST` closes for the Stage-3 eyebrow surface; any remaining small-text faint use found during implementation gets enumerated in the plan's class-sweep, not silently skipped.
 
@@ -110,6 +114,9 @@ All other figures in §1.1/§1.2 get a one-time verification sweep during implem
   3. `accent-on-bg` on `bg` AND on `surface` ≥ 4.5:1 (the backlog-prescribed row)
   4. Toggle boundary, light mode: `accent-edge` vs `accent` ≥ 3:1 AND `accent-edge` vs `bg` ≥ 3:1 AND `accent-edge` vs `surface` ≥ 3:1 (every adjacent pair the 1px border touches)
   5. Toggle boundary, dark mode: `accent` (track) vs `bg` ≥ 3:1 AND vs `surface` ≥ 3:1 (the track itself is the boundary; the dark edge value is decorative and un-pinned)
+  6. Token WIRING (not just values): the `@theme` block contains `--color-accent-edge: var(--color-accent-edge-runtime)` — pinned by the same source-scan mechanism the file already uses (a runtime value without its `@theme` alias is a dead token).
+- **Real-browser computed-style proof** (Playwright, extends `tests/e2e/developer-toggle-layout.spec.ts` or a sibling spec): with the Developer toggle ON, `getComputedStyle(track).borderColor` resolves to `rgb(122, 61, 0)` (light) — proving the `border-accent-edge` utility actually generated CSS, not merely that the class string is present. (jsdom cannot prove this; Tailwind utilities don't exist there.)
+- **Wizard eyebrow structural scan** (per §4.2): no `text-text-faint` + `text-[10px]` pairing anywhere under `components/admin/wizard/`.
   (Existing rows at `:140-145` — bell icon ≥3:1 on tint, pill text — re-run green with the new values.)
 - **NOT extended:** `tests/styles/_metaDesignTokenPairs.test.ts` (scoped to `app/help/_components` by its own v1 scope note; no help files change), advisory-lock/infra/mutation registries (no DB, no mutation surface, no Supabase call — this diff is CSS tokens + class strings + docs).
 
