@@ -528,6 +528,8 @@ export function renderRealtimeProblemBatch(
 
 - [ ] **Step 1: Failing tests** (new file `tests/notify/deliverBatch.test.ts`; reuse the `fakeSql`/candidate-factory patterns from `tests/notify/deliver.test.ts` — copy the `showCandidate`/`ingestionCandidate` factories and the `fakeSql` harness, extending `fakeSql` so `existingLedger` state is keyed per `(kind, dedup_key, recipient)` as it already is)
 
+**Create the shared lock-client fake NOW (this task, not Task 6):** `tests/notify/fakeLockSql.ts` exporting the `fakeLockSql(options)` helper shown in Task 6 Step 1. EVERY non-empty `deliverRealtimeCandidates` call in `tests/notify/deliverBatch.test.ts` passes `lockSql: fakeLockSql()` from day one — `deps.lockSql` is declared in this task's deps change and simply unused until Task 6 wires it, so these tests stay pure unit tests the moment the lock lands (no CI-time real-DB connection attempt, no retrofit). Standing rule (also record as a comment atop `fakeLockSql.ts`): any future fake-SQL unit test that calls `deliverRealtimeCandidates` with non-empty inputs MUST inject `lockSql`.
+
 Test list (each with the concrete assertion):
 1. **One send per group per recipient:** 3 undo candidates + 2 show candidates + 1 ingestion candidate, 1 recipient → `send` called exactly 3 times; subjects: `FXAV: 3 shows published themselves`, `FXAV: sync problems on 2 shows`, and (N=1 single-template form) `FXAV · Pending Sheet: sync problem`. Assert per-call `idempotencyKey === baseKey(kind, combinedDedupKey(memberKeys), recipient)`.
 2. **Per-member ledger rows share provider_message_id:** undo batch of 2 → `sentRows` records 2 inserts, both containing the same `messageId` value and each member's own `dedup_key`.
@@ -764,15 +766,17 @@ The old `EmailSource` semantics and the R17 comment carry over: per-recipient re
 
 - [ ] **Step 1: Failing tests**
 
-`tests/notify/singleFlightLock.test.ts` (unit, fake lock client):
+`tests/notify/singleFlightLock.test.ts` (unit; imports `fakeLockSql` from the shared `tests/notify/fakeLockSql.ts` created in Task 5 — the helper's implementation, for reference):
 
 ```ts
 import { describe, expect, test, vi } from "vitest";
 import fs from "node:fs";
 import path from "node:path";
+import { fakeLockSql } from "./fakeLockSql";
 // plus the fakeSql + candidate factories copied per Task 5's harness note
 
-function fakeLockSql(options: { locked?: boolean; heartbeatFailsAt?: number } = {}) {
+// tests/notify/fakeLockSql.ts (created in Task 5):
+export function fakeLockSql(options: { locked?: boolean; heartbeatFailsAt?: number } = {}) {
   let heartbeats = 0;
   const begin = vi.fn(async (fn: (sql: unknown) => Promise<unknown>) => {
     const tx = (strings: TemplateStringsArray, ...values: unknown[]) => {
@@ -816,7 +820,7 @@ const lockSql: LockClient =
 const ownsLock = !deps.lockSql;
 ```
 
-**Existing-test harness addition (mechanical, no assertion changes):** export the Task 6 `fakeLockSql` from a small shared helper `tests/notify/fakeLockSql.ts`; in `tests/notify/deliver.test.ts` and `tests/notify/deliver-auto-publish-undo.test.ts`, add `lockSql: fakeLockSql().client` to every `deliverRealtimeCandidates` deps object that passes a fake `sql` with non-empty inputs (the empty-input test needs nothing — the fast path returns first). Every existing expectation stays byte-identical; if any assertion needs changing, the implementation is wrong.
+**Existing-test harness addition (mechanical, no assertion changes):** using the shared `tests/notify/fakeLockSql.ts` created in Task 5, add `lockSql: fakeLockSql()` to every `deliverRealtimeCandidates` deps object that passes a fake `sql` with non-empty inputs in `tests/notify/deliver.test.ts` and `tests/notify/deliver-auto-publish-undo.test.ts` (the empty-input test needs nothing — the fast path returns first; `tests/notify/deliverBatch.test.ts` already injects it from Task 5). Every existing expectation stays byte-identical; if any assertion needs changing, the implementation is wrong.
 
 and wrap the pass:
 
