@@ -8,7 +8,7 @@
  * Pattern: functional (plain object), not a class — per Task 1.10 scope decision.
  */
 
-import type { ParseWarning, UseRawResolution } from "./types";
+import type { ParseWarning, RoomKind, UseRawResolution } from "./types";
 import { collapse, contentHashForRawSnippet, contentHashForDateTokens } from "./useRawContentHash";
 import { stripConfirmationTokens } from "./blocks/hotelConfTokens";
 
@@ -148,6 +148,10 @@ export function emitRoomSplitAmbiguity(
     // parsed-vs-raw and the overlay can restore the parsed side (spec §6).
     dimensions: string | null;
     floor: string | null;
+    // The room's kind — the split consumed the raw header's leading label
+    // ("GENERAL SESSION" → "gs") to produce it, so the resolution carries it and
+    // the UI can show the label wasn't dropped (2026-07-16 §6 extension).
+    roomKind: RoomKind;
     // Room position in the FINAL rooms array — the overlay locates the row to rewrite
     // via `blockRef.index` (spec §6/§7), the same anchor hotels use. Required because
     // two distinct rooms can parse to the same {name, dimensions, floor} from different
@@ -173,6 +177,7 @@ export function emitRoomSplitAmbiguity(
             name: params.name,
             dimensions: params.dimensions,
             floor: params.floor,
+            roomKind: params.roomKind,
           },
           replacement: { kind: "rooms", name: rawOneLine, dimensions: null, floor: null },
         };

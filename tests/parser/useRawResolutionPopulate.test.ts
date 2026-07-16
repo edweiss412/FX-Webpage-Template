@@ -50,6 +50,10 @@ describe("Task 2 — parser populates warning.resolution", () => {
     expect(res.parsed.name).toBe(rooms[0]!.name);
     expect(res.parsed.dimensions).toBe(rooms[0]!.dimensions);
     expect(res.parsed.floor).toBe(rooms[0]!.floor);
+    // 2026-07-16: the split also consumed the kind label ("GENERAL SESSION" → gs);
+    // the resolution carries it so the UI can show the label wasn't dropped.
+    expect(res.parsed.roomKind).toBe(rooms[0]!.kind);
+    expect(res.parsed.roomKind).toBe("gs");
 
     // replacement = raw header as the name, dims/floor cleared; derived from the warning's own rawSnippet
     expect(res.replacement).toEqual({

@@ -172,7 +172,12 @@ resolution?:
       // time and persist on the warning, so the UI shows parsed-vs-raw regardless of which is active
       // in the entity rows.
       parsed:
-        | { kind: "rooms"; name: string; dimensions: string | null; floor: string | null }
+        // roomKind (ratified 2026-07-16, owner-approved UI amendment): the RoomKind the split's
+        // consumed leading label produced ("GENERAL SESSION" → "gs"), so the §8 control can show
+        // the label became the room's TYPE rather than appearing dropped. Optional: absent on
+        // warnings persisted before 2026-07-16 (same jsonb backward-compat posture as
+        // `resolution` itself); the parser now always sets it on new rooms emissions.
+        | { kind: "rooms"; name: string; dimensions: string | null; floor: string | null; roomKind?: RoomKind }
         | { kind: "hotels"; names: string[]; confirmationNo: string | null } // the transform's split
         | { kind: "dates"; dates: DateOrderFields };                          // M/D/Y (mdyIso-derived)
       replacement:

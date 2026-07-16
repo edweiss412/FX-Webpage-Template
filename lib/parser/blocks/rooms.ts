@@ -500,6 +500,7 @@ export function parseRooms(
         rawHeader: amb.rawHeader,
         dimensions: room.dimensions,
         floor: room.floor,
+        roomKind: room.kind,
         index,
       });
   });
