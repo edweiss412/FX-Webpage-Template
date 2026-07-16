@@ -1,4 +1,4 @@
-# Spec — Digest autofix sub-block: per-show detail + latest-row dedupe
+# Spec — Digest autofix sub-block: per-show detail + fingerprint dedupe
 
 **Date:** 2026-07-16
 **Status:** Draft (autonomous-ship pipeline; user gates waived)
@@ -19,9 +19,9 @@ Two defects:
 
 ### In scope
 
-- Rebuild the digest model's `autofix` signal per show from each show's **latest** in-window applied `sync_log` row (dedupe), carrying show title/slug and the autofix warning **messages**.
+- Rebuild the digest model's `autofix` signal per show from **all** in-window applied `sync_log` rows, **fingerprint-deduped** per show (same correction reported once regardless of how many syncs repeat it, distinct corrections all retained), carrying show title/slug and the autofix warning **messages**.
+- Deterministic ordering: `ORDER BY occurred_at DESC` on the query; shows grouped in that stream order (most recently synced show first), stable under caps.
 - Render sub-block 2 grouped by show, mirroring sub-block 1's structure (linked show title, bulleted messages, same caps/overflow).
-- Delete the now-redundant standalone autofix query (`lib/notify/monitorDigest.ts:200-207`) — the drift query's `phase = 'current'` `rn = 1` rows ARE the latest in-window applied row per published show; derive autofix from those rows.
 - Flow 6.2 spec pointer notes at §3 signal 2 and §8 sub-block 2.
 
 ### Out of scope
@@ -35,34 +35,50 @@ Two defects:
 
 **Old:** separate query `select sl.parse_warnings from sync_log sl join shows s ... where s.published and sl.status='applied' and sl.occurred_at > :windowStart`; `accumulateAutoFixes` sums `summarizeAutoFixes(row.parse_warnings).classes` over all rows (`lib/notify/monitorDigest.ts:75-84,200-208`).
 
-**New:** no standalone autofix query. Reuse the existing drift query's result rows (`lib/notify/monitorDigest.ts:212-228`): its `phase = 'current'`, `rn = 1` rows are exactly "the latest applied `sync_log` row per published show with `occurred_at > windowStart`" — the drift CTE partitions by `(drive_file_id, phase)` ordered `occurred_at desc`, and `current` is defined as `occurred_at > :windowStart`. Those rows already select `drive_file_id, slug, title, phase, parse_warnings`.
+**New:** the standalone autofix query stays (event semantics: every correction applied in the window reports, even if a later in-window sync no longer carries it), extended to select attribution and an ordering key:
+
+```sql
+select sl.drive_file_id, s.slug, s.title, sl.parse_warnings, sl.occurred_at
+  from public.sync_log sl
+  join public.shows s on s.drive_file_id = sl.drive_file_id
+ where s.published = true
+   and sl.status = 'applied'
+   and sl.occurred_at > :windowStart
+ order by sl.occurred_at desc, sl.drive_file_id asc
+```
+
+(`sync_log.id` is a random uuid — no monotonic tiebreak available (`supabase/migrations/20260501001000_internal_and_admin.sql:221-231`); `drive_file_id` is the stable tiebreaker and is non-null on every joined row since `shows.drive_file_id` is `not null unique`.)
 
 New pure function in `lib/notify/monitorDigest.ts`:
 
 ```ts
-export function computeAutofixShows(rows: DriftRow[]): { total: number; shows: MonitorShowGroup[] }
+export function computeAutofixShows(rows: AutofixRow[]): { total: number; shows: MonitorShowGroup[] }
 ```
 
-- Considers only `phase === "current"` rows (one per show by the query's `rn = 1`; the function itself takes the first row seen per `drive_file_id` so a malformed input can't double-count).
-- Per row: extract autofix messages via a new `listAutoFixMessages(warnings)` helper in `lib/parser/dataGaps.ts` (see §4). Empty result → show omitted.
-- `shows`: `MonitorShowGroup[]` (`{ showTitle, slug, items }`, existing type at `lib/notify/monitorDigest.ts:27`), `items` = the messages. Show order = first-seen input-row order (Map insertion) — the outer drift select has no `ORDER BY`, so DB row order is technically unspecified; this matches `computeDrift`'s existing posture (`lib/notify/monitorDigest.ts:101-132`, same Map-insertion order), and tests control order via fixtures.
-- `total` = sum of `items.length` across ALL shows (pre-cap SOURCE total).
+- Per row: extract autofix items via a new `listAutoFixItems(warnings)` helper in `lib/parser/dataGaps.ts` (see §4), each `{ code, item }`.
+- **Fingerprint dedupe per show:** within a show (keyed by `drive_file_id`), an item is kept only the first time its fingerprint `` `${code} ${item}` `` is seen. Repeated syncs re-emitting the same warning collapse to one item (the reported inflation bug); distinct corrections across different in-window rows ALL survive (a 09:00 correction still reports even if the 10:00 sync no longer carries it — the section is "applied since your last digest", an event digest). Two genuinely identical corrections producing byte-identical messages also collapse — acceptable: identical text is indistinguishable to the reader anyway.
+- **Ordering (deterministic under caps):** rows arrive `occurred_at desc, drive_file_id asc` (query `ORDER BY` above). Shows are grouped in first-seen stream order — most recently synced shows first — so the 12-show cap keeps the most recent activity. Items within a show keep stream order (newest row's warnings first, in-array order preserved).
+- `shows`: `MonitorShowGroup[]` (`{ showTitle, slug, items }`, existing type at `lib/notify/monitorDigest.ts:27`); a show with zero autofix items is omitted.
+- `total` = sum of `items.length` across ALL shows (pre-cap SOURCE total; = count of distinct fingerprints).
 
-`accumulateAutoFixes` and the `WarningsRow` type are deleted. `MonitorDigestModel.autofix` changes from `AutoFixSummary` to `{ total: number; shows: MonitorShowGroup[] }`. The `AutoFixSummary` type and `summarizeAutoFixes` stay in `lib/parser/dataGaps.ts` (still used by `formatAutoFixBreakdown` + the admin chip).
+`accumulateAutoFixes` and the `WarningsRow` type are deleted (replaced by `computeAutofixShows` + `AutofixRow`). `MonitorDigestModel.autofix` changes from `AutoFixSummary` to `{ total: number; shows: MonitorShowGroup[] }`. The `AutoFixSummary` type and `summarizeAutoFixes` stay in `lib/parser/dataGaps.ts` (still used by `formatAutoFixBreakdown` + the admin chip).
 
-**Semantics change (intentional, the point of the fix):** `autofix.total` now means "autofix corrections present in each published show's latest in-window applied parse," not "sum over every applied row." A show whose latest row carries no autofix warnings contributes 0 even if earlier in-window rows did — correct: the correction is no longer present.
+**Semantics change (intentional, the point of the fix):** `autofix.total` now means "distinct autofix corrections applied in the window per show," not "sum over every applied row." Repetition across syncs no longer inflates the count; no real correction is dropped.
 
 **Empty/overall-empty check:** `buildMonitorDigestModel`'s empty gate keeps using `autofix.total === 0` (`lib/notify/monitorDigest.ts:232-239`) — unchanged shape.
 
-## 4. New helper — `listAutoFixMessages` (in `lib/parser/dataGaps.ts`)
+## 4. New helper — `listAutoFixItems` (in `lib/parser/dataGaps.ts`)
 
 ```ts
-export function listAutoFixMessages(warnings: readonly ParseWarning[] | null | undefined): string[]
+export function listAutoFixItems(
+  warnings: readonly ParseWarning[] | null | undefined,
+): { code: AutoFixCode; item: string }[]
 ```
 
 - Same iteration/gating posture as `summarizeAutoFixes` (`lib/parser/dataGaps.ts:130-144`): skip `severity === "info"`, skip codes not in `AUTO_FIX_CODES`, tolerate `null`/`undefined`/`[]` (→ `[]`), tolerate non-warning leading payload objects (no `severity`/`code` — the `sync_log.parse_warnings` array's first element is a payload row per Flow 6.2 §3.2, not a `ParseWarning`).
-- Returns the warning's `message` when it is a non-empty string; otherwise falls back to the class label from `AUTO_FIX_CLASSES` (`lib/parser/dataGaps.ts:108-115`). `ParseWarning.message` is typed required (`lib/parser/types.ts:48-51`), but rows arrive from jsonb — defensive fallback, never an empty item.
-- One returned string per counted warning, so `listAutoFixMessages(w).length === summarizeAutoFixes(w).total` for any input (property pinned by a test).
+- `item` is the warning's `message` when it is a non-empty string; otherwise the class label from `AUTO_FIX_CLASSES` (`lib/parser/dataGaps.ts:108-115`). `ParseWarning.message` is typed required (`lib/parser/types.ts:48-51`), but rows arrive from jsonb — defensive fallback, never an empty item.
+- `code` is the matched `AutoFixCode` — the caller's dedupe fingerprint is `` `${code} ${item}` `` (§3), so a label fallback in one class can never collapse with the same label text in another class.
+- One returned entry per counted warning, so `listAutoFixItems(w).length === summarizeAutoFixes(w).total` for any input (property pinned by a test).
 
 ## 5. Email content (amendment to Flow 6.2 §8 sub-block 2)
 
@@ -99,7 +115,7 @@ Messages are parser-authored plain language (`Read likely-misspelled … 'X' as 
 - **Inv 2 (advisory locks):** untouched — builder is read-only; no lock surface. No `pg_advisory*` in the diff.
 - **Inv 3 (email canonicalization):** no raw emails handled.
 - **Inv 5 (no raw codes in UI):** messages are plain language; fallback is the `AUTO_FIX_CLASSES` label, never `.code`.
-- **Inv 9 (Supabase call-boundary):** `buildMonitorDigestModel` keeps its existing typed-result posture (`ok`/`empty`/`infra_error`) and its existing registration (postgres.js direct SQL, header comment `lib/notify/monitorDigest.ts:22`); one query DELETED, none added. No new registry row needed.
+- **Inv 9 (Supabase call-boundary):** `buildMonitorDigestModel` keeps its existing typed-result posture (`ok`/`empty`/`infra_error`) and its existing registration in `tests/notify/_metaInfraContract.test.ts:23` (postgres.js direct SQL); the autofix query is modified in place, no query added or removed from the registered surface. No new registry row needed. Run `tests/notify/_metaInfraContract.test.ts` after editing `lib/notify/monitorDigest.ts` (scanner is comment/format-fragile).
 - **Inv 10 (mutation surface observability):** no new mutation surface; digest send path untouched.
 - **PR #395 N=1 byte-parity:** untouched — that contract pins `realtimeProblem` batch templates and idempotency keys (`tests/notify/realtimeProblemBatchTemplate.test.ts`, `tests/notify/idempotencyKey.test.ts`), not digest body copy. The digest-scoped parity pin is `deliver.test.ts:676` ("monitor absent → context byte-identical"), which this change preserves (no context shape change).
 
@@ -119,19 +135,20 @@ Messages are parser-authored plain language (`Read likely-misspelled … 'X' as 
 
 Existing files to update:
 
-1. `tests/notify/monitorDigest.autofix.test.ts` — rewrite for `computeAutofixShows` + `listAutoFixMessages`. Cases: payload-object skip; non-autofix-code skip; info-severity skip; message fallback to label (message absent / empty / non-string); property `listAutoFixMessages(w).length === summarizeAutoFixes(w).total` over the fixture set. *Catches: helper counting/emitting divergence, fallback regressions.*
-2. `tests/notify/monitorDigest.autofix.db.test.ts` — currently seeds 2 in-window applied rows for ONE show and expects `total === 2` (`:73-74`), i.e. it PINS the inflation bug. Rewrite: same-show two rows with 1 autofix warning each → `total === 1` and the message from the LATER row only; second show with its own row → grouped separately with title/slug. *Catches: dedupe regression to sum-over-rows (the exact reported bug), and title/slug drop.*
+1. `tests/notify/monitorDigest.autofix.test.ts` — rewrite for `computeAutofixShows` + `listAutoFixItems`. Cases: payload-object skip; non-autofix-code skip; info-severity skip; item fallback to label (message absent / empty / non-string); property `listAutoFixItems(w).length === summarizeAutoFixes(w).total` over the fixture set; fingerprint dedupe (same code+message across two rows of one show → 1 item; two DIFFERENT messages across two rows → 2 items, both retained; same message text under two different codes → 2 items); show ordering + cap (13 shows with distinct `occurred_at` → the 12 most recent survive the cap, expected set derived from fixture timestamps). *Catches: helper counting/emitting divergence, fallback regressions, dedupe collapse of distinct corrections, event-semantics drop, nondeterministic cap.*
+2. `tests/notify/monitorDigest.autofix.db.test.ts` — currently seeds 2 in-window applied rows for ONE show and expects `total === 2` (`:73-74`), i.e. it PINS the inflation bug. Rewrite: same-show two rows carrying the SAME autofix warning → `total === 1`; same-show two rows carrying DIFFERENT warnings → both survive (`total === 2`) even though only one is the latest row; second show grouped separately with title/slug; rows returned newest-first (assert show order from fixture `occurred_at`). *Catches: dedupe regression to sum-over-rows (the exact reported bug), latest-row-only regression (dropping real corrections), title/slug drop, ORDER BY removal.*
 3. `tests/notify/renderDigest.monitor.test.ts` — sub-block 2 assertions: heading, intro line singular/plural, per-show link href derived from fixture slug, message `<li>`s HTML-escaped (fixture message containing `<` & `'`), caps/overflow with fixture sizes exceeding 12/5 (expected overflow counts derived from fixture lengths, not hardcoded), absent when `total === 0`. Assert against the model fixture values, not by re-deriving from the rendered container. *Catches: template regression, escaping, cap math.*
 4. `tests/notify/deliver.test.ts` — `monitor_totals.autofixTotal` still emitted from `input.monitor.autofix.total`; `:676` byte-parity case unchanged-green. *Catches: context shape drift.*
-5. `tests/parser/dataGaps.test.ts` — `listAutoFixMessages` unit cases live here if the helper's tests fit the file's existing structure; otherwise in (1). No changes to existing `summarizeAutoFixes` cases.
+5. `tests/parser/dataGaps.test.ts` — `listAutoFixItems` unit cases live here if the helper's tests fit the file's existing structure; otherwise in (1). No changes to existing `summarizeAutoFixes` cases.
 
-Structural: run `tests/auth/_metaInfraContract.test.ts` after editing `monitorDigest.ts` (comment/format-fragile scanner — memory: `_metaInfraContract` catch-window).
+Structural: run `tests/notify/_metaInfraContract.test.ts` after editing `lib/notify/monitorDigest.ts` (comment/format-fragile scanner; registration at `:23`).
 
 ## 10. Disagreement-loop preempts (do not relitigate)
 
 - **`autofixTotal` semantics change is intentional** — it is the bug being fixed (§1.2, §3). Not a silent behavior drift.
 - **Dropping the per-class parenthetical is intentional** — per-show messages strictly dominate; class labels remain the fallback and the admin chip (`formatAutoFixBreakdown`) is untouched.
-- **Coupling autofix to the drift query is intentional** — the drift `current` rows are definitionally the dedupe target ("latest in-window applied row per published show"); a second query would re-implement the same CTE (class-sweep: one dedupe implementation, not two). Drift's own guards (baseline-required) do NOT apply to autofix: `computeAutofixShows` uses current-phase rows regardless of baseline presence, so a first-seen show's autofixes still report (unlike drift §3.1 guard 1 — different signal, different rule, both stated here).
+- **Fingerprint dedupe (not latest-row-only) is the ratified round-1 resolution** — latest-row-only was rejected in adversarial round 1 (high finding: drops a real 09:00 correction when the 10:00 sync no longer carries it). Event semantics stand: every distinct in-window correction reports once. Byte-identical messages collapsing (two identical typos in different sheet rows within the window) is the accepted residual — indistinguishable to the reader.
+- **The autofix query stays separate from the drift query** — drift needs latest-row baseline/current pairs; autofix needs ALL in-window rows for fingerprint dedupe. Different row sets, one query each.
 - **Raw-cell content in messages is accepted** — same class as sub-block 1 summaries (Flow 6.2 §8 guard table row on `summary`); admin-only recipient list.
 - **Flow 6.2 §8 "No per-show breakdown in v1" is superseded by this amendment** — that sentence gets the pointer note.
 
