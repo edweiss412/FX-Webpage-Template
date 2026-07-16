@@ -560,7 +560,9 @@ Dual-gate on the Task 13 UI diff (`RoleRecognizeControl` + boundary + `/admin/se
 
 ## Extend role-scope vocabulary — whole-diff R1 deferral (2026-07-16)
 
-### ROLE-VOCAB-2 — [P1→ratified+deferred] Wizard rescan does not run the role-mapping overlay; staged saves always resolve apply_pending
+### ROLE-VOCAB-2 — ✅ RESOLVED (2026-07-16, `feat/role-vocab-staging-overlay`) — [P1→ratified+deferred] Wizard rescan does not run the role-mapping overlay; staged saves always resolve apply_pending
+
+**Resolution (2026-07-16):** the staging pipeline now runs the overlay at the `prepareOnboardingFiles` chokepoint (spec `docs/superpowers/specs/2026-07-16-role-vocab-staging-overlay.md`): step 3 previews post-overlay state, the staged `"applied"` branch is reachable, and every `published=false→true` transition is gated on the consumed-token stamp (`role_mappings_stamp_satisfied`, refusal code `ROLE_MAPPINGS_OUTDATED_AT_PUBLISH`). The parent spec §8.3 amendment is superseded in place.
 
 - **What:** `mapRoleTokenStaged` saves the mapping and re-scans the wizard sheet, but the staging pipeline parses without the role-mapping overlay (only `runPhase2` at apply/publish runs it), so the refreshed staged parse still carries the `UNKNOWN_ROLE_TOKEN` warning and the action's `"applied"` branch is unreachable in v1 — every wizard save resolves `"apply_pending"` (whole-diff R1 F1). The saved-card copy is truthful ("saved and applies to every show… catch up on its next sheet check") and the control can reappear idle after a wizard refresh; a re-save resolves through the idempotent set-equal path.
 - **Why deferred:** No capability or data loss: the staged-apply/finalize path threads `roleTokenMappings` into `phase2`, so the mapping applies at publish (integration-tested). Wiring the overlay into the staging/rescan core is a staging-pipeline change (parse-write parity with use-raw's decision-display mechanism, step-3 preview semantics, re-stage tests) — net-new scope mid-close-out. Ratified as a spec amendment (spec §8.3, 2026-07-16) so the contract and the code agree.

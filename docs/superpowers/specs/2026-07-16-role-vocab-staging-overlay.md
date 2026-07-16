@@ -176,7 +176,7 @@ Meta-test inventory (declared per AGENTS.md writing-plans rule, decided at spec 
 - `tests/sync/roleMappingThreading.test.ts` (Phase2Args threading walker): **no change needed** — the new overlay site is not a `Phase2Args` assembly; the walker's scope is untouched and stays green.
 - `tests/observe/_metaReadOnlyQueryCore.test.ts`, `_metaInfraContract`, advisory-lock topology test: **none applies** — no observe-core file, no Supabase-builder call in auth domain, no new lock holder (the loader is pre-lock and lock-free; staging writes keep their existing single holders).
 - x1 `catalog-parity` + x2 internal-code-enums gates: exercised by the new §12.4 code (existing gates, no new meta-test authored — they fail-by-default on a missed lockstep step).
-- `validation-schema-parity` (`tests/db/validation-schema-parity.test.ts`): exercised by the new manifest column — Layer 1 trips if the schema manifest isn't regenerated, Layer 2 if the migration isn't applied to the validation project.
+- `validation-schema-parity` (`tests/db/validation-schema-parity.test.ts`): exercised by the new `shows_internal` column — Layer 1 trips if the schema manifest isn't regenerated, Layer 2 if the migration isn't applied to the validation project.
 - No new meta-test for the chokepoint: it is structural (all wizard staging producers import `prepareOnboardingFiles`); test 1 pins the behavior at the chokepoint itself. Candidate declared-and-deferred: a walker asserting every `sourceScope: "wizard"` `applyStagedCore` call site is preceded by the freshness gate — test 11 covers both existing sites behaviorally; mint the walker only if a third wizard finalize site ever appears.
 
 ## 8. Out of scope
