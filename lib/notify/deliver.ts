@@ -5,11 +5,14 @@ import { SEND_RETRY_CAP } from "@/lib/notify/constants";
 import type { RealtimeCandidate } from "@/lib/notify/detect/candidates";
 import type { DigestModel } from "@/lib/notify/digest";
 import type { MonitorDigestModel } from "@/lib/notify/monitorDigest";
-import { baseKey, reissueKey } from "@/lib/notify/idempotencyKey";
+import { baseKey, combinedDedupKey, reissueKey } from "@/lib/notify/idempotencyKey";
 import { sendEmail, type SendArgs, type SendResult } from "@/lib/notify/send";
-import { renderAutoPublishUndo } from "@/lib/notify/templates/autoPublishUndo";
+import { renderAutoPublishUndoBatch } from "@/lib/notify/templates/autoPublishUndo";
 import { renderDigest } from "@/lib/notify/templates/digest";
-import { renderRealtimeProblem } from "@/lib/notify/templates/realtimeProblem";
+import {
+  renderRealtimeProblemBatch,
+  type RealtimeInput,
+} from "@/lib/notify/templates/realtimeProblem";
 
 export type DeliverySql = {
   <T extends Record<string, unknown> = Record<string, unknown>>(
@@ -20,8 +23,23 @@ export type DeliverySql = {
 };
 
 export type DeliveryResult =
-  | { kind: "ok"; sent: number; failed: number; skipped: number; retryLater: number }
+  | {
+      kind: "ok";
+      sent: number;
+      failed: number;
+      skipped: number;
+      retryLater: number;
+      /** Present ONLY when the single-flight guard was contended (spec §2.1b). */
+      lockSkipped?: boolean;
+    }
   | { kind: "infra_error" };
+
+/** Dedicated single-flight lock client (spec §2.1b) — transaction-scoped so the
+ * advisory lock is backend-pinned under every pooling mode. */
+export type LockClient = {
+  begin: <T>(fn: (sql: DeliverySql) => Promise<T>) => Promise<T>;
+  end?: (options?: { timeout?: number }) => Promise<void>;
+};
 
 type DeliveryInput = {
   candidates: RealtimeCandidate[];
@@ -48,6 +66,7 @@ type EmailSource =
 
 type DeliveryDeps = {
   sql?: DeliverySql;
+  lockSql?: LockClient;
   sendEmail?: (args: SendArgs) => Promise<SendResult>;
   upsertAdminAlert?: typeof upsertAdminAlert;
   now?: () => Date;
@@ -281,115 +300,258 @@ async function upsertFailed(
   return rows.length > 0;
 }
 
-function rendered(candidate: RealtimeCandidate, origin: string) {
+type BatchGroup = "published" | "sync_problems" | "stuck_files";
+const GROUP_ORDER: readonly BatchGroup[] = ["published", "sync_problems", "stuck_files"];
+
+function groupFor(candidate: RealtimeCandidate): BatchGroup {
+  if (candidate.kind === "auto_publish_undo") return "published";
+  if (candidate.kind === "ingestion") return "stuck_files";
+  return "sync_problems";
+}
+
+function kindFor(candidate: RealtimeCandidate): DeliveryKind {
+  return candidate.kind === "auto_publish_undo" ? "auto_publish_undo" : "realtime_problem";
+}
+
+function toRealtimeInput(candidate: RealtimeCandidate, origin: string): RealtimeInput {
   if (candidate.kind === "show") {
-    return renderRealtimeProblem({
+    return {
       kind: "show",
       origin,
       slug: candidate.slug,
       showTitle: candidate.showTitle,
       code: candidate.code,
       contextSheetName: candidate.contextSheetName,
-    });
+    };
   }
-  if (candidate.kind === "global") return renderRealtimeProblem({ kind: "global", origin });
   if (candidate.kind === "ingestion") {
-    return renderRealtimeProblem({
+    return {
       kind: "ingestion",
       origin,
       driveFileName: candidate.driveFileName,
       lastErrorCode: candidate.lastErrorCode,
-    });
+    };
   }
-  // auto_publish_undo is NEVER rendered candidate-level: its body carries a
-  // recipient-bound r, so the live loop routes it through the per-recipient
+  if (candidate.kind === "global") return { kind: "global", origin };
+  // auto_publish_undo is NEVER rendered through the problem templates: its body
+  // carries a recipient-bound r, so the loop routes it through the per-recipient
   // EmailSource arm instead (spec §4.3 R17). Reaching here is a programmer error.
   throw new Error("auto_publish_undo rendering is per-recipient; not reachable here");
 }
 
-async function deliverOneRecipient(input: {
+type BatchMember = {
+  dedupKey: string;
+  showId: string | null;
+  triggeredCodes: string[];
+  context: Record<string, unknown>;
+};
+
+/** One provider send for ALL members of a same-kind batch (spec §2.2-§2.3); the
+ * caller has already canonicalized + active-verified the recipient and filtered
+ * members through currentness + ledger eligibility. Ledger writes stay per member. */
+async function deliverBatch(input: {
   sql: DeliverySql;
   send: (args: SendArgs) => Promise<SendResult>;
   alert: typeof upsertAdminAlert;
   clock: () => Date;
   makeReissueKey: (kind: string, dedupKey: string, recipient: string) => string;
   kind: DeliveryKind;
-  dedupKey: string;
-  showId: string | null;
-  triggeredCodes: string[];
-  context: Record<string, unknown>;
+  members: BatchMember[];
   email: EmailSource;
-  rawRecipient: string;
+  recipient: string;
   counts: DeliveryCounts;
+  /** Lock-liveness heartbeat (spec §2.1b) — awaited immediately before the send;
+   * a throw means the lock connection died and MUST abort the whole pass. */
+  heartbeat?: () => Promise<void>;
 }): Promise<void> {
-  const recipient = canonicalize(input.rawRecipient);
-  if (!recipient) {
-    input.counts.skipped += 1;
-    return;
-  }
-
-  const ledger = await existingLedger(input.sql, input.kind, input.dedupKey, recipient);
-  if (
-    ledger?.status === "sent" ||
-    (ledger?.status === "failed" && ledger.attempt_count >= SEND_RETRY_CAP)
-  ) {
-    input.counts.skipped += 1;
-    return;
-  }
-
-  const active = await isRecipientActive(input.sql, recipient);
-  if (!active) {
-    input.counts.skipped += 1;
-    return;
-  }
-
+  const combined = combinedDedupKey(input.members.map((member) => member.dedupKey));
   // Per-recipient rendering happens HERE — after canonicalization and the
   // active-recipient check — so the bound r derives from the canonical email
   // and no token-bearing body is ever rendered for a revoked recipient (R17).
   const email =
-    input.email.mode === "per-recipient" ? input.email.render(recipient) : input.email.content;
+    input.email.mode === "per-recipient" ? input.email.render(input.recipient) : input.email.content;
 
+  await input.heartbeat?.();
   const first = await input.send({
     ...email,
-    to: recipient,
-    idempotencyKey: baseKey(input.kind, input.dedupKey, recipient),
+    to: input.recipient,
+    idempotencyKey: baseKey(input.kind, combined, input.recipient),
   });
   const outcome =
     first.ok === false && first.kind === "idempotency_conflict"
       ? await input.send({
           ...email,
-          to: recipient,
-          idempotencyKey: input.makeReissueKey(input.kind, input.dedupKey, recipient),
+          to: input.recipient,
+          idempotencyKey: input.makeReissueKey(input.kind, combined, input.recipient),
         })
       : first;
 
   if (outcome.ok === true) {
-    await upsertSent(input.sql, input, recipient, outcome.messageId, input.clock());
-    input.counts.sent += 1;
+    for (const member of input.members) {
+      await upsertSent(
+        input.sql,
+        {
+          kind: input.kind,
+          dedupKey: member.dedupKey,
+          showId: member.showId,
+          triggeredCodes: member.triggeredCodes,
+          context: member.context,
+        },
+        input.recipient,
+        outcome.messageId,
+        input.clock(),
+      );
+      input.counts.sent += 1;
+    }
     return;
   }
   if (outcome.ok === "retry_later" || outcome.kind === "idempotency_conflict") {
-    input.counts.retryLater += 1;
+    input.counts.retryLater += input.members.length;
     return;
   }
 
-  const failedLedgerWritten = await upsertFailed(input.sql, input, recipient, outcome.message);
-  if (!failedLedgerWritten) {
-    input.counts.skipped += 1;
-    return;
+  for (const member of input.members) {
+    const landed = await upsertFailed(
+      input.sql,
+      {
+        kind: input.kind,
+        dedupKey: member.dedupKey,
+        showId: member.showId,
+        triggeredCodes: member.triggeredCodes,
+        context: member.context,
+      },
+      input.recipient,
+      outcome.message,
+    );
+    if (!landed) {
+      input.counts.skipped += 1;
+      continue;
+    }
+    await input.alert({
+      showId: member.showId,
+      code: "EMAIL_DELIVERY_FAILED",
+      context: member.context,
+    });
+    input.counts.failed += 1;
   }
-  await input.alert({
-    showId: input.showId,
-    code: "EMAIL_DELIVERY_FAILED",
-    context: input.context,
-  });
-  input.counts.failed += 1;
+}
+
+/** Recipient-first batch pass (spec §2.1): per recipient, per group, per-candidate
+ * eligibility collects members; each non-empty group gets exactly one send. */
+async function runDeliveryPass(input: {
+  candidates: RealtimeCandidate[];
+  recipients: string[];
+  origin: string;
+  sql: DeliverySql;
+  send: (args: SendArgs) => Promise<SendResult>;
+  alert: typeof upsertAdminAlert;
+  clock: () => Date;
+  makeReissueKey: (kind: string, dedupKey: string, recipient: string) => string;
+  counts: DeliveryCounts;
+  heartbeat?: () => Promise<void>;
+}): Promise<void> {
+  for (const rawRecipient of input.recipients) {
+    const recipient = canonicalize(rawRecipient);
+    if (!recipient) {
+      input.counts.skipped += input.candidates.length;
+      continue;
+    }
+    const active = await isRecipientActive(input.sql, recipient);
+    if (!active) {
+      input.counts.skipped += input.candidates.length;
+      continue;
+    }
+    for (const group of GROUP_ORDER) {
+      const members: RealtimeCandidate[] = [];
+      for (const candidate of input.candidates) {
+        if (groupFor(candidate) !== group) continue;
+        const current = await isCandidateCurrent(candidate, input.sql);
+        if (!current) {
+          input.counts.skipped += 1;
+          continue;
+        }
+        const ledger = await existingLedger(
+          input.sql,
+          kindFor(candidate),
+          candidate.dedupKey,
+          recipient,
+        );
+        if (
+          ledger?.status === "sent" ||
+          (ledger?.status === "failed" && ledger.attempt_count >= SEND_RETRY_CAP)
+        ) {
+          input.counts.skipped += 1;
+          continue;
+        }
+        members.push(candidate);
+      }
+      if (members.length === 0) continue;
+
+      const email: EmailSource =
+        group === "published"
+          ? {
+              mode: "per-recipient",
+              render: (canonicalRecipient) =>
+                renderAutoPublishUndoBatch({
+                  origin: input.origin,
+                  recipient: canonicalRecipient,
+                  now: input.clock(),
+                  shows: members.map((member) => {
+                    const undo = member as Extract<
+                      RealtimeCandidate,
+                      { kind: "auto_publish_undo" }
+                    >;
+                    return {
+                      slug: undo.slug,
+                      showTitle: undo.showTitle,
+                      showId: undo.showId,
+                      token: undo.token,
+                      mintId: undo.mintId,
+                      expiresAt: undo.expiresAt,
+                    };
+                  }),
+                }),
+            }
+          : {
+              mode: "static",
+              content: renderRealtimeProblemBatch(
+                group,
+                input.origin,
+                members.map((member) => toRealtimeInput(member, input.origin)),
+              ),
+            };
+
+      await deliverBatch({
+        sql: input.sql,
+        send: input.send,
+        alert: input.alert,
+        clock: input.clock,
+        makeReissueKey: input.makeReissueKey,
+        kind: kindFor(members[0]!),
+        members: members.map((member) => ({
+          dedupKey: member.dedupKey,
+          showId: showIdFor(member),
+          triggeredCodes: [triggeredCode(member)],
+          context: contextFor(member),
+        })),
+        email,
+        recipient,
+        counts: input.counts,
+        ...(input.heartbeat ? { heartbeat: input.heartbeat } : {}),
+      });
+    }
+  }
 }
 
 export async function deliverRealtimeCandidates(
   input: DeliveryInput,
   deps: DeliveryDeps = {},
 ): Promise<DeliveryResult> {
+  // Empty-input fast path (spec §2.1): no clients constructed, exact zero shape
+  // (no lockSkipped key) — pinned by the existing exact-toEqual contract test.
+  if (input.candidates.length === 0 || input.recipients.length === 0) {
+    return { kind: "ok", sent: 0, failed: 0, skipped: 0, retryLater: 0 };
+  }
   const sql =
     deps.sql ??
     (postgres(databaseUrl(), {
@@ -405,49 +567,17 @@ export async function deliverRealtimeCandidates(
   const counts = { sent: 0, failed: 0, skipped: 0, retryLater: 0 };
 
   try {
-    for (const candidate of input.candidates) {
-      for (const rawRecipient of input.recipients) {
-        const current = await isCandidateCurrent(candidate, sql);
-        if (!current) {
-          counts.skipped += 1;
-          continue;
-        }
-
-        await deliverOneRecipient({
-          sql,
-          send,
-          alert,
-          clock,
-          makeReissueKey,
-          kind: candidate.kind === "auto_publish_undo" ? "auto_publish_undo" : "realtime_problem",
-          dedupKey: candidate.dedupKey,
-          showId: showIdFor(candidate),
-          triggeredCodes: [triggeredCode(candidate)],
-          context: contextFor(candidate),
-          email:
-            candidate.kind === "auto_publish_undo"
-              ? {
-                  mode: "per-recipient",
-                  render: (canonicalRecipient) =>
-                    renderAutoPublishUndo({
-                      origin: input.origin,
-                      slug: candidate.slug,
-                      showTitle: candidate.showTitle,
-                      showId: candidate.showId,
-                      token: candidate.token,
-                      mintId: candidate.mintId,
-                      expiresAt: candidate.expiresAt,
-                      recipient: canonicalRecipient,
-                      now: clock(),
-                    }),
-                }
-              : { mode: "static", content: rendered(candidate, input.origin) },
-          rawRecipient,
-          counts,
-        });
-      }
-    }
-
+    await runDeliveryPass({
+      candidates: input.candidates,
+      recipients: input.recipients,
+      origin: input.origin,
+      sql,
+      send,
+      alert,
+      clock,
+      makeReissueKey,
+      counts,
+    });
     return { kind: "ok", ...counts };
   } catch {
     return { kind: "infra_error" };
@@ -478,33 +608,39 @@ export async function deliverDigest(
   const dedupKey = `digest:${input.model.dateET}`;
 
   try {
-    await deliverOneRecipient({
+    const recipient = canonicalize(input.model.recipient);
+    if (!recipient) {
+      counts.skipped += 1;
+      return { kind: "ok", ...counts };
+    }
+    const ledger = await existingLedger(sql, "digest", dedupKey, recipient);
+    if (
+      ledger?.status === "sent" ||
+      (ledger?.status === "failed" && ledger.attempt_count >= SEND_RETRY_CAP)
+    ) {
+      counts.skipped += 1;
+      return { kind: "ok", ...counts };
+    }
+    const active = await isRecipientActive(sql, recipient);
+    if (!active) {
+      counts.skipped += 1;
+      return { kind: "ok", ...counts };
+    }
+    await deliverBatch({
       sql,
       send,
       alert,
       clock,
       makeReissueKey,
       kind: "digest",
-      dedupKey,
-      showId: null,
-      triggeredCodes: [],
-      context: {
-        date_et: input.model.dateET,
-        source_totals: input.model.sourceTotals,
-        // Flow 6.2 §8: counts only (no crew PII). Omitted entirely when there is no
-        // monitor section so the null-monitor context stays byte-identical to pre-6.2.
-        ...(input.monitor
-          ? {
-              monitor_totals: {
-                autoAppliedShows: input.monitor.autoApplied.length,
-                autoAppliedRows: input.monitor.autoApplied.reduce((n, g) => n + g.items.length, 0),
-                autofixTotal: input.monitor.autofix.total,
-                driftShows: input.monitor.drift.length,
-                newShowGapsShows: input.monitor.newShowGaps.length,
-              },
-            }
-          : {}),
-      },
+      members: [
+        {
+          dedupKey,
+          showId: null,
+          triggeredCodes: [],
+          context: digestContextFor(input),
+        },
+      ],
       email: {
         mode: "static",
         content: renderDigest({
@@ -513,7 +649,7 @@ export async function deliverDigest(
           ...(input.monitor ? { monitor: input.monitor } : {}),
         }),
       },
-      rawRecipient: input.model.recipient,
+      recipient,
       counts,
     });
 
@@ -525,4 +661,27 @@ export async function deliverDigest(
       await sql.end?.({ timeout: 5 });
     }
   }
+}
+
+function digestContextFor(input: {
+  model: DigestModel;
+  monitor?: MonitorDigestModel | null;
+}): Record<string, unknown> {
+  return {
+    date_et: input.model.dateET,
+    source_totals: input.model.sourceTotals,
+    // Flow 6.2 §8: counts only (no crew PII). Omitted entirely when there is no
+    // monitor section so the null-monitor context stays byte-identical to pre-6.2.
+    ...(input.monitor
+      ? {
+          monitor_totals: {
+            autoAppliedShows: input.monitor.autoApplied.length,
+            autoAppliedRows: input.monitor.autoApplied.reduce((n, g) => n + g.items.length, 0),
+            autofixTotal: input.monitor.autofix.total,
+            driftShows: input.monitor.drift.length,
+            newShowGapsShows: input.monitor.newShowGaps.length,
+          },
+        }
+      : {}),
+  };
 }
