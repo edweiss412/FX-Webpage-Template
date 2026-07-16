@@ -352,6 +352,8 @@ If the logged entry carries an extra unconditional boundary field, match the ass
 
 In `tests/sync/_metaInfraContract.test.ts`, inside the `perFileProcessor` describe (`:496-511`). First read `:440-495` to identify the mock seam (`infraMock` hoisted object + `importProcessor()`); if the mock exposes no direct client slot, add `client: null as unknown` to the hoisted object and have the mocked `createSupabaseServiceRoleClient` return it when set (exactly the `supabaseMock.client` pattern in `tests/sync/perFileProcessor.test.ts:18-25`).
 
+**Mock-state hygiene (mandatory):** the file's `beforeEach` currently resets only the existing flags (`throwOnConstruct` / `throwOnFrom`); a sticky `infraMock.client` would leak the probe client into every later case in the file. Add `infraMock.client = null;` to that same `beforeEach` alongside the existing flag resets, and make the mocked factory prefer the flags, then the client slot, then the default fake.
+
 The failure injection keys on the OWNERSHIP-PROBE chain (an `.eq("wizard_session_id", …)` filter), NOT on the table alone — otherwise the `deferred_ingestions` and `pending_syncs` cases would trip the earlier live-scoped reads (`.is("wizard_session_id", null)`) and never exercise the new probes:
 
 ```ts
@@ -444,6 +446,14 @@ In `tests/sync/_partitionScopeContract.test.ts`, REPLACE the first test (`:17-24
           liveScoped !== wizardScoped,
           `${table} read at ${start} must be exactly one of live-scoped / wizard-scoped:\n${chain}`,
         ).toBe(true);
+        if (wizardScoped) {
+          // Spec §2.5 probe shape: a duplicate wizard row must not turn
+          // maybeSingle into a spurious error — .limit(1) is load-bearing.
+          expect(
+            chain.includes(".limit(1)"),
+            `${table} wizard-scoped probe at ${start} must carry .limit(1):\n${chain}`,
+          ).toBe(true);
+        }
       }
     }
   });
