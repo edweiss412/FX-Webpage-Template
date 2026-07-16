@@ -94,7 +94,11 @@ describe("META destructive-confirm recipe registry (spec §8)", () => {
     const problems: string[] = [];
     for (const h of hits) {
       if (!REGISTRY.find((r) => r.file === h.file && r.index === h.index)) {
-        problems.push(`UNREGISTERED DESTRUCTIVE CONFIRM ${h.file}:${h.lineNo} (occurrence ${h.index})`);
+        // Spec §8 failure classes: whole file unknown vs same-file occurrence growth.
+        const fileKnown = REGISTRY.some((r) => r.file === h.file);
+        problems.push(
+          `${fileKnown ? "UNREGISTERED OCCURRENCE" : "UNREGISTERED DESTRUCTIVE CONFIRM"} ${h.file}:${h.lineNo} (occurrence ${h.index})`,
+        );
       }
     }
     for (const r of REGISTRY) {
@@ -214,7 +218,13 @@ it("collapse during pending: completes without throwing, no focus steal, alert o
         for (const id of group.undoableIds) {
           const fd = new FormData();
           fd.set("changeLogId", id);
-          results.push(await actions.undoFromDashboardAction(null, fd));
+          try {
+            results.push(await actions.undoFromDashboardAction(null, fd));
+          } catch {
+            // A thrown action counts as a failed undo — completion must still
+            // write the outcome and restore focus (spec §6 F2 "completion writes").
+            results.push({ ok: false });
+          }
         }
         const total = results.length;
         const failed = results.filter((r) => r && !r.ok).length;
@@ -250,7 +260,7 @@ it("collapse during pending: completes without throwing, no focus steal, alert o
 **Files:**
 - Modify: `app/admin/show/[slug]/RotateShareTokenButton.tsx`, `app/admin/show/[slug]/ResetPickerEpochButton.tsx`, `app/admin/show/[slug]/PickerResetControl.tsx`, `app/admin/settings/admins/RevokeRowButton.tsx`
 - Test: their existing test files (locate via `rg -l "<ComponentName>" tests/`)
-- Modify: `tests/styles/_metaDestructiveConfirm.test.ts` (+4 panel rows) and `tests/styles/_metaBgAccentInventory.test.ts` (delete rows: `RotateShareTokenButton` 0, `ResetPickerEpochButton` 0, `PickerResetControl` 0, `RevokeRowButton` index 2 → renumber remaining to 0,1; reconcile by RUNNING the bg-accent test and following its failure output, per spec §8)
+- Modify: `tests/styles/_metaDestructiveConfirm.test.ts` (+4 panel rows) and `tests/styles/_metaBgAccentInventory.test.ts` (rows shrink because each file loses one `bg-accent` literal — do NOT hand-compute indices; RUN the bg-accent test after each file's restyle and reconcile from its failure output, the only source of truth per spec §8)
 
 All four get the same three changes (repeat per file — no sharing):
 
@@ -389,7 +399,10 @@ function onGuardedClick() {
   if (!armed) {
     setArmed(true);
     clearArmTimer();
-    armTimerRef.current = setTimeout(() => setArmed(false), 4_000);
+    armTimerRef.current = setTimeout(() => {
+      armTimerRef.current = null; // callback clears its own ref — no stale identity survives
+      setArmed(false);
+    }, 4_000);
     return;
   }
   clearArmTimer();
@@ -397,6 +410,8 @@ function onGuardedClick() {
   runExistingHandler(); // the surface's current one-tap handler, unchanged
 }
 ```
+
+Stale-timer note (plan R2 review): G1–G3 are SINGLE-control guards — there is no re-arm path (a second tap while armed FIRES; the fire path clears the timer). The timer callback nulling its own ref plus `clearArmTimer` on fire/unmount covers every identity. G4's multi-group re-arm class lives in Task 9. Each G1–G3 test suite includes: after the second tap fires, advance the fake timers 4s further → no state change, no act warning (proves the fire path killed the pending disarm).
 
 Per-surface armed rendering (label + className swap on the SAME button; the armed branch is the registry's morph literal):
 
