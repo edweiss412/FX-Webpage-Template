@@ -7,7 +7,7 @@
  * Later tasks (in-lock recheck, Phase 2 stale guard, tick wiring, DB-bound e2e)
  * append their own top-level `describe` blocks to this file.
  */
-import { describe, expect, test, vi } from "vitest";
+import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { DriveListedFile } from "@/lib/drive/list";
 import type { ParsedSheet, ParseResult } from "@/lib/parser/types";
 import type { Phase1Binding } from "@/lib/sync/phase1";
@@ -17,10 +17,26 @@ import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
 import {
   prepareProcessOneFile,
   processOneFile_unlocked,
+  runScheduledCronSync,
   type PreparedProcessOneFile,
   type ProcessOneFileDeps,
+  type ProcessOneFileResult,
   type SyncPipelineTx,
 } from "@/lib/sync/runScheduledCronSync";
+
+// Mock only the `log` export (spread the real module so `setCronInFlight` and any other named
+// exports the tick calls survive). The tick pre-pass emits forensic codes via `log.info` /
+// `log.warn`; these mocks let the Task 6 cases assert the emitted args object (AST-guard style).
+const logMock = vi.hoisted(() => ({
+  error: vi.fn(),
+  warn: vi.fn(),
+  info: vi.fn(),
+  debug: vi.fn(),
+}));
+vi.mock("@/lib/log", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/log")>()),
+  log: logMock,
+}));
 
 function fileMeta(id: string, modifiedTime = "2026-05-08T12:00:00.000Z"): DriveListedFile {
   return {
@@ -429,6 +445,130 @@ describe("role-vocab drift resync Phase 2 args threading (processOneFile_unlocke
   test("non-drift run: runPhase2 args omit driftResync", async () => {
     const runPhase2 = await driveToPhase2(false);
     expect(runPhase2).toHaveBeenCalledTimes(1);
-    expect(runPhase2.mock.calls[0]?.[1]).not.toHaveProperty("driftResync");
+    expect((runPhase2.mock.calls[0] as unknown[])?.[1]).not.toHaveProperty("driftResync");
+  });
+});
+
+/**
+ * Task 6: per-tick drift pre-pass wiring (spec §3.2/§3.3). The tick computes the drift-eligibility
+ * set in the `list-live-shows` region and threads it into EVERY per-file `processOneFile` deps as
+ * `roleVocabDriftEligibleIds`. Fail-open forensic telemetry: a non-empty set emits one
+ * `ROLE_VOCAB_DRIFT_RESYNC_ELIGIBLE` info; a scanner throw emits one `ROLE_VOCAB_DRIFT_SCAN_FAILED`
+ * warn (persist:true) and degrades to an empty (inert) set without failing the tick.
+ *
+ * All I/O surfaces are injected (folderId, listFolder, listLiveShows, writeSyncCronHeartbeat,
+ * processOneFile, listRoleVocabDriftEligible) so the tick touches no ambient DB. `log` is mocked at
+ * the top of the file; assertions read the emitted args object per the AST-guard lesson (code +
+ * persist live on the log call's payload arg, not the message text).
+ */
+type TickProcessDeps =
+  | Pick<ProcessOneFileDeps, "logSync" | "roleVocabDriftEligibleIds">
+  | undefined;
+
+const infoEligibleCalls = () =>
+  logMock.info.mock.calls.filter(
+    (c) => (c[1] as { code?: string } | undefined)?.code === "ROLE_VOCAB_DRIFT_RESYNC_ELIGIBLE",
+  );
+const warnScanFailedCalls = () =>
+  logMock.warn.mock.calls.filter(
+    (c) => (c[1] as { code?: string } | undefined)?.code === "ROLE_VOCAB_DRIFT_SCAN_FAILED",
+  );
+
+describe("role-vocab drift resync tick pre-pass wiring (runScheduledCronSync)", () => {
+  beforeEach(() => {
+    logMock.info.mockClear();
+    logMock.warn.mockClear();
+    logMock.error.mockClear();
+    logMock.debug.mockClear();
+  });
+
+  async function runTick(
+    listRoleVocabDriftEligible: () => Promise<ReadonlySet<string>>,
+    onDeps: (deps: TickProcessDeps) => void,
+  ) {
+    const processOneFile = async (
+      _driveFileId: string,
+      _mode: "cron",
+      _fileMeta: DriveListedFile,
+      deps?: Pick<ProcessOneFileDeps, "logSync" | "roleVocabDriftEligibleIds">,
+    ): Promise<ProcessOneFileResult> => {
+      onDeps(deps);
+      return { outcome: "skipped", reason: "up_to_date" };
+    };
+    return runScheduledCronSync({
+      folderId: "folder-1",
+      listFolder: async () => [fileMeta("file-1")],
+      listLiveShows: async () => [],
+      writeSyncCronHeartbeat: async () => ({ kind: "written" }),
+      listRoleVocabDriftEligible,
+      processOneFile,
+    } as never);
+  }
+
+  test("non-empty scanner set threads into the per-file processOneFile deps", async () => {
+    let captured: TickProcessDeps;
+    await runTick(
+      async () => new Set(["file-1"]),
+      (deps) => {
+        captured = deps;
+      },
+    );
+    expect(captured?.roleVocabDriftEligibleIds).toBeInstanceOf(Set);
+    expect(captured?.roleVocabDriftEligibleIds?.has("file-1")).toBe(true);
+  });
+
+  test("empty scanner set → deps carries an inert empty set and emits no eligibility info", async () => {
+    let captured: TickProcessDeps;
+    await runTick(
+      async () => new Set(),
+      (deps) => {
+        captured = deps;
+      },
+    );
+    expect(captured?.roleVocabDriftEligibleIds?.size).toBe(0);
+    expect(infoEligibleCalls()).toHaveLength(0);
+  });
+
+  test("scanner throws → one ROLE_VOCAB_DRIFT_SCAN_FAILED warn (persist:true), tick completes, set empty", async () => {
+    let captured: TickProcessDeps;
+    const result = await runTick(
+      async () => {
+        throw new Error("scan boom");
+      },
+      (deps) => {
+        captured = deps;
+      },
+    );
+    const warnCalls = warnScanFailedCalls();
+    expect(warnCalls).toHaveLength(1);
+    // AST-guard style: the forensic code + persist live on the log call's payload arg (args[1]).
+    expect(warnCalls[0]?.[1]).toMatchObject({
+      code: "ROLE_VOCAB_DRIFT_SCAN_FAILED",
+      persist: true,
+    });
+    // Fail-open: set degrades to empty and the file loop still runs to completion.
+    expect(captured?.roleVocabDriftEligibleIds?.size).toBe(0);
+    expect(result.processed).toHaveLength(1);
+  });
+
+  test("non-empty set → one ROLE_VOCAB_DRIFT_RESYNC_ELIGIBLE info with persist, count, and ids", async () => {
+    await runTick(
+      async () => new Set(["file-1", "file-2"]),
+      () => {},
+    );
+    const infoCalls = infoEligibleCalls();
+    expect(infoCalls).toHaveLength(1);
+    const payload = infoCalls[0]?.[1] as {
+      code?: string;
+      persist?: boolean;
+      count?: number;
+      driveFileIds?: string[];
+    };
+    expect(payload).toMatchObject({
+      code: "ROLE_VOCAB_DRIFT_RESYNC_ELIGIBLE",
+      persist: true,
+      count: 2,
+    });
+    expect(payload.driveFileIds).toEqual(expect.arrayContaining(["file-1", "file-2"]));
   });
 });

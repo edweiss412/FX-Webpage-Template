@@ -110,6 +110,7 @@ import {
 } from "@/lib/sync/perFileProcessor";
 import { normalizeUseRawDecisions } from "@/lib/sync/useRawOverlay";
 import { normalizeRoleTokenMappings, type GatedRoleMapping } from "@/lib/sync/roleMappingOverlay";
+import { listRoleVocabDriftEligibleFileIds } from "@/lib/sync/roleVocabDrift";
 import { emitRoleTokenMapped } from "@/lib/log/emitRoleTokenMapped";
 
 export const STAGED_PARSE_REVISION_RACE = "STAGED_PARSE_REVISION_RACE" as const;
@@ -578,9 +579,16 @@ export type RunScheduledCronSyncDeps = {
     driveFileId: string,
     mode: "cron",
     fileMeta: DriveListedFile,
-    deps?: Pick<ProcessOneFileDeps, "logSync">,
+    deps?: Pick<ProcessOneFileDeps, "logSync" | "roleVocabDriftEligibleIds">,
   ) => Promise<ProcessOneFileResult>;
   writeSyncCronHeartbeat?: () => Promise<HeartbeatWriteResult>;
+  /**
+   * Role-vocab drift pre-pass (Task 6, spec §3.2). Test injection point for the per-tick
+   * drift-eligibility scan; production leaves it undefined and the tick calls
+   * `listRoleVocabDriftEligibleFileIds` (unless a test-injected `listFolder` suppresses ambient
+   * DB reads). An empty result is inert — the file-loop gate treats it as "no rescue".
+   */
+  listRoleVocabDriftEligible?: () => Promise<ReadonlySet<string>>;
 };
 
 export type RunScheduledCronSyncResult = {
@@ -3715,7 +3723,6 @@ export async function runScheduledCronSync(
       deps.listFolder ??
       ((id: string) => listDriveFolder(id, { onWarning: emitUnexpectedParentWarning }));
     const runOne = deps.processOneFile ?? processOneFile;
-    const processDeps = deps.logSync ? { logSync: deps.logSync } : undefined;
     setPhase("list-folder");
     const files = await listFolder(folderId);
     const listedDriveFileIds = new Set(files.map((file) => file.driveFileId));
@@ -3729,6 +3736,43 @@ export async function runScheduledCronSync(
       (show) => show.wizardSessionId === null && !listedDriveFileIds.has(show.driveFileId),
     );
     const lockMissingShow = deps.withShowLock ?? withPostgresSyncPipelineLock;
+
+    // Role-vocab drift pre-pass (Task 6, spec §3.2/§3.3): derive the set of published
+    // drive_file_ids whose stored role vocabulary drifted from the live role_token_mappings, so the
+    // file-loop gate can rescue an at-watermark skip into a `driftResync` apply. Fail-open — a scan
+    // fault degrades to an empty (inert) set and NEVER fails the tick. A test-injected `listFolder`
+    // means this run must not touch the ambient DB: mirror the `listLiveShows` guard so the real DB
+    // scanner fires only on the un-injected production path.
+    let driftEligible: ReadonlySet<string> = new Set();
+    try {
+      driftEligible = deps.listRoleVocabDriftEligible
+        ? await deps.listRoleVocabDriftEligible()
+        : deps.listFolder
+          ? new Set()
+          : await listRoleVocabDriftEligibleFileIds();
+      if (driftEligible.size > 0) {
+        await log.info("role-vocab drift resync eligibility computed", {
+          source: "cron/sync",
+          code: "ROLE_VOCAB_DRIFT_RESYNC_ELIGIBLE",
+          persist: true,
+          count: driftEligible.size,
+          driveFileIds: [...driftEligible],
+        });
+      }
+    } catch (error) {
+      await log.warn("role-vocab drift scan failed; treating set as empty", {
+        source: "cron/sync",
+        code: "ROLE_VOCAB_DRIFT_SCAN_FAILED",
+        persist: true,
+        ...errorPayload(error),
+      });
+    }
+    // exactOptional: carry `roleVocabDriftEligibleIds` unconditionally (empty set is inert); keep
+    // `logSync` present-only so an absent injector stays absent rather than `undefined`.
+    const processDeps: Pick<ProcessOneFileDeps, "logSync" | "roleVocabDriftEligibleIds"> = {
+      roleVocabDriftEligibleIds: driftEligible,
+      ...(deps.logSync ? { logSync: deps.logSync } : {}),
+    };
 
     setPhase("missing-shows");
     for (const show of missingShows) {
