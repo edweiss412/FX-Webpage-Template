@@ -1,6 +1,7 @@
 import { messageFor, plainCatalogText, type MessageCode } from "@/lib/messages/lookup";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
 import { resolveIngestionCopy } from "@/lib/admin/needsAttention";
+import { BATCH_EMAIL_MAX_ITEMS } from "@/lib/notify/constants";
 import { escapeHtml, assertNoUnresolvedPlaceholder } from "./escapeHtml";
 
 export type RealtimeInput =
@@ -40,14 +41,12 @@ function guardTemplate(code: string): void {
  * a non-empty fallback so the slot is always filled. Dynamic values are HTML-escaped
  * in the body; subjects are em-dash-free; ALL links are ABSOLUTE via the injected origin.
  */
-export function renderRealtimeProblem(input: RealtimeInput): RenderedEmail {
-  let bodyText: string;
-  let subjectShow: string;
-  let href: string;
+type MemberLine = { label: string; bodyText: string };
 
+/** Per-member label + catalog/resolver body copy, shared by the single and batch
+ * renderers. Every path resolves through the catalog (invariant 5 — no raw codes). */
+function memberLine(input: RealtimeInput): MemberLine {
   if (input.kind === "show") {
-    href = `${input.origin}/admin/show/${input.slug}`;
-    subjectShow = input.showTitle ?? "a show";
     guardTemplate(input.code);
     // Non-empty sheet name so the <sheet-name> slot is always filled (never leaks it).
     const sheetName = input.contextSheetName ?? input.showTitle ?? "this show";
@@ -55,31 +54,85 @@ export function renderRealtimeProblem(input: RealtimeInput): RenderedEmail {
     // (`*<sheet-name>*`, `_<sheet-name>_`) off the template before filling the
     // name — email is plaintext/escaped-HTML with no Markdown renderer.
     const template = messageFor(input.code as MessageCode).dougFacing;
-    bodyText = template
+    const bodyText = template
       ? plainCatalogText(template, { sheet_name: sheetName })
-      : `${subjectShow} has a sync problem.`;
-  } else if (input.kind === "ingestion") {
-    href = `${input.origin}/admin`;
-    subjectShow = input.driveFileName ?? "a new sheet";
+      : `${input.showTitle ?? "a show"} has a sync problem.`;
+    return { label: input.showTitle ?? "a show", bodyText };
+  }
+  if (input.kind === "ingestion") {
     // Shared resolver guarantees a placeholder-free string: unknown / null-dougFacing /
     // crew-only / unresolved-placeholder codes fall back to generic copy. Never a raw
     // code; never throws.
-    bodyText = resolveIngestionCopy({
-      code: input.lastErrorCode,
-      driveFileName: input.driveFileName,
-    });
-  } else {
-    href = `${input.origin}/admin`;
-    subjectShow = "syncing";
-    guardTemplate("SYNC_STALLED");
-    const stalled = MESSAGE_CATALOG.SYNC_STALLED.dougFacing;
-    // Defensive strip for consistency with the other paths (SYNC_STALLED is
-    // marker-free today, so this is a no-op unless the copy gains emphasis).
-    bodyText = stalled ? plainCatalogText(stalled) : "Syncing is stalled.";
+    return {
+      label: input.driveFileName ?? "a new sheet",
+      bodyText: resolveIngestionCopy({
+        code: input.lastErrorCode,
+        driveFileName: input.driveFileName,
+      }),
+    };
   }
+  guardTemplate("SYNC_STALLED");
+  const stalled = MESSAGE_CATALOG.SYNC_STALLED.dougFacing;
+  // Defensive strip for consistency with the other paths (SYNC_STALLED is
+  // marker-free today, so this is a no-op unless the copy gains emphasis).
+  return {
+    label: "Syncing",
+    bodyText: stalled ? plainCatalogText(stalled) : "Syncing is stalled.",
+  };
+}
+
+export function renderRealtimeProblem(input: RealtimeInput): RenderedEmail {
+  const { bodyText } = memberLine(input);
+  const subjectShow =
+    input.kind === "show"
+      ? (input.showTitle ?? "a show")
+      : input.kind === "ingestion"
+        ? (input.driveFileName ?? "a new sheet")
+        : "syncing";
+  const href =
+    input.kind === "show" ? `${input.origin}/admin/show/${input.slug}` : `${input.origin}/admin`;
 
   const subject = `FXAV · ${subjectShow}: sync problem`;
   const text = `${bodyText}\n\nOpen the dashboard: ${href}`;
   const html = `<p>${escapeHtml(bodyText)}</p><p><a href="${escapeHtml(href)}">Open the dashboard</a></p>`;
+  return { subject, html, text };
+}
+
+export type RealtimeBatchGroup = "sync_problems" | "stuck_files";
+
+/** Batch variant (batching spec §2.4). N=1 delegates to the single template. Every
+ * member line is catalog/resolver copy — raw codes never render (invariant 5). */
+export function renderRealtimeProblemBatch(
+  group: RealtimeBatchGroup,
+  origin: string,
+  members: RealtimeInput[],
+): RenderedEmail {
+  const first = members[0];
+  if (members.length === 1 && first) return renderRealtimeProblem(first);
+
+  const shown = members.slice(0, BATCH_EMAIL_MAX_ITEMS);
+  const overflow = members.length - shown.length;
+  const subject =
+    group === "sync_problems"
+      ? `FXAV: sync problems on ${members.length} shows`
+      : `FXAV: ${members.length} new sheets need attention`;
+  const lines = shown.map(memberLine);
+  const overflowLine =
+    overflow > 0 ? `…and ${overflow} more — open the dashboard: ${origin}/admin` : null;
+  const href = `${origin}/admin`;
+
+  const text = [
+    ...lines.map((line) => `${line.label}: ${line.bodyText}`),
+    ...(overflowLine ? [overflowLine] : []),
+    `Open the dashboard: ${href}`,
+  ].join("\n\n");
+  const html =
+    lines
+      .map(
+        (line) => `<p><strong>${escapeHtml(line.label)}</strong>: ${escapeHtml(line.bodyText)}</p>`,
+      )
+      .join("") +
+    (overflowLine ? `<p>${escapeHtml(overflowLine)}</p>` : "") +
+    `<p><a href="${escapeHtml(href)}">Open the dashboard</a></p>`;
   return { subject, html, text };
 }

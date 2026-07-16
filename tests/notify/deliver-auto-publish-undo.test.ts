@@ -1,5 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import { deliverRealtimeCandidates, type DeliverySql } from "@/lib/notify/deliver";
+import { fakeLockSql } from "./fakeLockSql";
 import type { AutoPublishUndoCandidate, RealtimeCandidate } from "@/lib/notify/detect/candidates";
 import type { SendArgs, SendResult } from "@/lib/notify/send";
 import {
@@ -137,7 +138,7 @@ describe("auto_publish_undo per-recipient rendering seam (spec §4.3 R17)", () =
         recipients: [" Doug@FXAV.NET ", "amy@fxav.net"],
         origin: ORIGIN,
       },
-      { sql, sendEmail },
+      { lockSql: fakeLockSql(), sql, sendEmail },
     );
 
     expect(result).toMatchObject({ kind: "ok", sent: 2 });
@@ -180,7 +181,7 @@ describe("auto_publish_undo per-recipient rendering seam (spec §4.3 R17)", () =
         recipients: ["doug@fxav.net", "amy@fxav.net"],
         origin: ORIGIN,
       },
-      { sql, sendEmail },
+      { lockSql: fakeLockSql(), sql, sendEmail },
     );
 
     expect(sends).toHaveLength(2);
@@ -195,7 +196,7 @@ describe("auto_publish_undo per-recipient rendering seam (spec §4.3 R17)", () =
 
     await deliverRealtimeCandidates(
       { candidates: [undoCandidate()], recipients: ["doug@fxav.net"], origin: ORIGIN },
-      { sql, sendEmail },
+      { lockSql: fakeLockSql(), sql, sendEmail },
     );
 
     expect(sends[0]!.idempotencyKey).toMatch(/^fxav:auto_publish_undo:/);
@@ -210,7 +211,7 @@ describe("auto_publish_undo ledger row (spec §4.3 R14 — token hygiene both di
 
     await deliverRealtimeCandidates(
       { candidates: [candidate], recipients: ["doug@fxav.net"], origin: ORIGIN },
-      { sql, sendEmail },
+      { lockSql: fakeLockSql(), sql, sendEmail },
     );
 
     expect(state.sentRows).toHaveLength(1);
@@ -248,7 +249,7 @@ describe("auto_publish_undo ledger row (spec §4.3 R14 — token hygiene both di
 
     const result = await deliverRealtimeCandidates(
       { candidates: [undoCandidate()], recipients: ["doug@fxav.net"], origin: ORIGIN },
-      { sql, sendEmail, upsertAdminAlert },
+      { lockSql: fakeLockSql(), sql, sendEmail, upsertAdminAlert },
     );
 
     expect(result).toMatchObject({ kind: "ok", failed: 1 });
@@ -277,7 +278,7 @@ describe("auto_publish_undo deliver-time currentness guard (spec §4.3)", () => 
 
     const result = await deliverRealtimeCandidates(
       { candidates: [undoCandidate()], recipients: ["doug@fxav.net"], origin: ORIGIN },
-      { sql, sendEmail },
+      { lockSql: fakeLockSql(), sql, sendEmail },
     );
 
     expect(result).toMatchObject({ kind: "ok", skipped: 1, sent: 0, failed: 0 });
@@ -293,7 +294,7 @@ describe("auto_publish_undo deliver-time currentness guard (spec §4.3)", () => 
 
     await deliverRealtimeCandidates(
       { candidates: [candidate], recipients: ["doug@fxav.net"], origin: ORIGIN },
-      { sql, sendEmail },
+      { lockSql: fakeLockSql(), sql, sendEmail },
     );
 
     const guard = calls.find((c) => /select\s+1\s+from\s+public\.shows/i.test(c.text));

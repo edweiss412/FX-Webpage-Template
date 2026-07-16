@@ -12,4 +12,8 @@ describe("notify constants", () => {
     expect(C.DIGEST_MAX_ITEMS_PER_SHOW).toBe(5);
     expect(C.SEND_RETRY_CAP).toBe(3);
   });
+
+  test("BATCH_EMAIL_MAX_ITEMS is 20 (batching spec §2.4)", () => {
+    expect(C.BATCH_EMAIL_MAX_ITEMS).toBe(20);
+  });
 });

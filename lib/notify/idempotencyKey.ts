@@ -10,3 +10,10 @@ export function baseKey(kind: string, dedupKey: string, recipient: string): stri
 export function reissueKey(kind: string, dedupKey: string, recipient: string): string {
   return `fxav:${kind}:${sha(`${kind}:${dedupKey}:${recipient}:r:${randomUUID()}`)}`;
 }
+
+/** Batch membership identity (batching spec §2.2): sorted member dedup keys joined
+ * with "|" (no member key can contain "|"). A single member is the identity, so an
+ * N=1 batch's provider key is byte-identical to the historical per-candidate key. */
+export function combinedDedupKey(dedupKeys: string[]): string {
+  return [...dedupKeys].sort().join("|");
+}

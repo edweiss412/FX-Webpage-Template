@@ -16,3 +16,7 @@ export const DIGEST_RETRY_WINDOW_HOURS = 3;
 export const DIGEST_MAX_SHOWS = 12;
 export const DIGEST_MAX_ITEMS_PER_SHOW = 5;
 export const SEND_RETRY_CAP = 3;
+
+/** Batch emails render at most this many member items; the rest collapse into an
+ * overflow line (batching spec §2.4 — display-only, ledger covers ALL members). */
+export const BATCH_EMAIL_MAX_ITEMS = 20;
