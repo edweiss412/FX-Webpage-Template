@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 import type { DriveListedFile } from "@/lib/drive/list";
+import { ARCHIVED_SKIP_REASON } from "@/lib/sync/lifecycleGuards";
 
 type Row = Record<string, unknown>;
 
@@ -335,14 +336,22 @@ describe("perFileProcessor gating phase", () => {
     });
   });
 
-  // Role-vocab convergence-window pin (staging-overlay spec 2026-07-16 §3.4 / §7 item 9):
-  // a role_token_mappings edit never advances any sheet's Drive modifiedTime, so an
-  // unmodified sheet is watermark-skipped by cron indefinitely — the docs' honest window
-  // ("until the next sheet edit or manual sync") is only true while (a) cron skips at-or-
-  // before the watermark AND (b) manual mode bypasses the watermark unconditionally.
-  // Failure modes caught: doc claims outliving the code; breaking the manual bypass that
-  // makes downward convergence (revoked grants) reachable at all.
-  test("role-vocab drift window: unchanged modtime → cron watermark-skips, manual proceeds", async () => {
+  // Role-vocab convergence-window pin (role-vocab-mapping-convergence spec 2026-07-16 §3.3 /
+  // §6.3; staging-overlay spec §3.4). A role_token_mappings edit never advances any sheet's
+  // Drive modifiedTime, so an unmodified sheet is watermark-skipped by cron. This feature
+  // BOUNDS that window: the drift pre-pass marks affected published shows eligible, and the
+  // gate rescues exactly the plain cron watermark skip for a marked file (no live pending
+  // review). The window is now "until the next cron tick" for drift-eligible published shows,
+  // not "until the next sheet edit or manual sync." The three legs this pins:
+  //   (a) cron at-watermark WITHOUT the flag still skips (`watermark`) — the default hold, so
+  //       an unmarked/unaffected show is never re-processed for free;
+  //   (b) cron at-watermark WITH the flag proceeds and marks the run `driftResync: true` — the
+  //       bounded convergence path;
+  //   (c) manual mode still bypasses the watermark unconditionally — the deterministic lever.
+  // Failure modes caught: someone re-tightens the gate and silently reopens the indefinite
+  // drift window (leg b regresses to skip); or breaks the manual bypass that makes downward
+  // convergence (revoked grants) reachable at all (leg c).
+  test("role-vocab drift window: unchanged modtime → cron skips without flag, proceeds+driftResync with flag, manual always proceeds", async () => {
     const fake = createFakeSupabase({
       shows: [
         {
@@ -356,14 +365,147 @@ describe("perFileProcessor gating phase", () => {
     supabaseMock.client = fake.client;
     const { perFileProcessor } = await importProcessor();
 
-    // Publish happened at 12:00; a mapping narrow/delete after it changes NO sheet bytes.
+    // (a) Publish happened at 12:00; a mapping narrow/delete after it changes NO sheet bytes.
+    // Without drift eligibility, cron holds the watermark skip.
     await expect(
       perFileProcessor("file-1", "cron", fileMeta("2026-07-16T12:00:00.000Z")),
     ).resolves.toEqual({ outcome: "skip", reason: "watermark" });
-    // Manual sync is the deterministic convergence lever: unconditional proceed.
+    // (b) Marked drift-eligible → the same at-watermark file rescues into a normal cron run,
+    // flagged driftResync so the locked apply relaxes its stale guard.
+    await expect(
+      perFileProcessor("file-1", "cron", fileMeta("2026-07-16T12:00:00.000Z"), {
+        roleVocabDriftEligible: true,
+      }),
+    ).resolves.toEqual({ outcome: "proceed", mode: "cron", driftResync: true });
+    // (c) Manual sync is the deterministic convergence lever: unconditional proceed.
     await expect(
       perFileProcessor("file-1", "manual", fileMeta("2026-07-16T12:00:00.000Z")),
     ).resolves.toEqual({ outcome: "proceed", mode: "manual" });
+  });
+
+  describe("role-vocab drift rescue (spec 2026-07-16-role-vocab-mapping-convergence §3.3)", () => {
+    const publishedShowAt = (last_seen_modified_time: string) => ({
+      drive_file_id: "file-1",
+      last_sync_status: "ok",
+      last_seen_modified_time,
+      diagrams: { current: { snapshot_status: "complete" } },
+    });
+
+    test("cron + at-watermark + eligible + no live pending row → proceed with driftResync", async () => {
+      const fake = createFakeSupabase({ shows: [publishedShowAt("2026-07-16T12:00:00.000Z")] });
+      supabaseMock.client = fake.client;
+      const { perFileProcessor } = await importProcessor();
+
+      await expect(
+        perFileProcessor("file-1", "cron", fileMeta("2026-07-16T12:00:00.000Z"), {
+          roleVocabDriftEligible: true,
+        }),
+      ).resolves.toEqual({ outcome: "proceed", mode: "cron", driftResync: true });
+    });
+
+    // R1 F1: a live pending_syncs row means a staged parse awaits admin review; drift must
+    // NEVER mutate live state out from under it. modifiedTime == staged_modified_time so the
+    // effective watermark still triggers a skip, and the pendingSync != null guard blocks the
+    // rescue.
+    test("cron + eligible + live pending row at/after modifiedTime → STILL watermark skip", async () => {
+      const fake = createFakeSupabase({
+        shows: [publishedShowAt("2026-07-16T11:00:00.000Z")],
+        pending_syncs: [
+          {
+            drive_file_id: "file-1",
+            wizard_session_id: null,
+            staged_modified_time: "2026-07-16T12:00:00.000Z",
+          },
+        ],
+      });
+      supabaseMock.client = fake.client;
+      const { perFileProcessor } = await importProcessor();
+
+      await expect(
+        perFileProcessor("file-1", "cron", fileMeta("2026-07-16T12:00:00.000Z"), {
+          roleVocabDriftEligible: true,
+        }),
+      ).resolves.toEqual({ outcome: "skip", reason: "watermark" });
+    });
+
+    test("eligible flag does NOT override a live permanent deferral", async () => {
+      const fake = createFakeSupabase({
+        deferred_ingestions: [
+          { drive_file_id: "file-1", wizard_session_id: null, deferred_kind: "permanent_ignore" },
+        ],
+      });
+      supabaseMock.client = fake.client;
+      const { perFileProcessor } = await importProcessor();
+
+      await expect(
+        perFileProcessor("file-1", "cron", fileMeta("2026-07-16T12:00:00.000Z"), {
+          roleVocabDriftEligible: true,
+        }),
+      ).resolves.toEqual({ outcome: "skip", reason: "deferred_permanent" });
+    });
+
+    test("eligible flag does NOT override an archived show silent-skip", async () => {
+      const fake = createFakeSupabase({
+        shows: [{ ...publishedShowAt("2026-07-16T12:00:00.000Z"), archived: true }],
+      });
+      supabaseMock.client = fake.client;
+      const { perFileProcessor } = await importProcessor();
+
+      await expect(
+        perFileProcessor("file-1", "cron", fileMeta("2026-07-16T12:00:00.000Z"), {
+          roleVocabDriftEligible: true,
+        }),
+      ).resolves.toEqual({ outcome: "skip", reason: ARCHIVED_SKIP_REASON });
+    });
+
+    test("eligible flag does NOT override partial_failure_restage_required", async () => {
+      const fake = createFakeSupabase({
+        shows: [
+          {
+            drive_file_id: "file-1",
+            last_sync_status: "ok",
+            last_seen_modified_time: "2026-07-16T12:00:00.000Z",
+            diagrams: { current: { snapshot_status: "partial_failure_restage_required" } },
+          },
+        ],
+      });
+      supabaseMock.client = fake.client;
+      const { perFileProcessor } = await importProcessor();
+
+      await expect(
+        perFileProcessor("file-1", "cron", fileMeta("2026-07-16T12:00:00.000Z"), {
+          roleVocabDriftEligible: true,
+        }),
+      ).resolves.toEqual({ outcome: "skip", reason: "partial_failure_restage_required" });
+    });
+
+    // The flag is threaded only on the cron path; push carries it never, but even if it did the
+    // rescue is cron-only, so push keeps its canonical duplicate-watermark reason.
+    test("push mode + eligible flag ignored → WEBHOOK_NOOP_ALREADY_SYNCED", async () => {
+      const fake = createFakeSupabase({ shows: [publishedShowAt("2026-07-16T12:00:00.000Z")] });
+      supabaseMock.client = fake.client;
+      const { perFileProcessor } = await importProcessor();
+
+      await expect(
+        perFileProcessor("file-1", "push", fileMeta("2026-07-16T12:00:00.000Z"), {
+          roleVocabDriftEligible: true,
+        }),
+      ).resolves.toEqual({ outcome: "skip", reason: "WEBHOOK_NOOP_ALREADY_SYNCED" });
+    });
+
+    // Above the watermark (a genuine sheet edit), an eligible file proceeds as a normal cron
+    // run WITHOUT driftResync — the marker only rides the rescued equal-watermark path.
+    test("cron + eligible + modtime past watermark → normal proceed, no driftResync marker", async () => {
+      const fake = createFakeSupabase({ shows: [publishedShowAt("2026-07-16T12:00:00.000Z")] });
+      supabaseMock.client = fake.client;
+      const { perFileProcessor } = await importProcessor();
+
+      await expect(
+        perFileProcessor("file-1", "cron", fileMeta("2026-07-16T12:05:00.000Z"), {
+          roleVocabDriftEligible: true,
+        }),
+      ).resolves.toEqual({ outcome: "proceed", mode: "cron" });
+    });
   });
 
   test("push duplicate watermark emits canonical WEBHOOK_NOOP_ALREADY_SYNCED reason", async () => {
