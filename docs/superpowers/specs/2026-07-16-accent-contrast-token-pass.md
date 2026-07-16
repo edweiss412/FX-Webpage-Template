@@ -94,7 +94,21 @@ Raw `text-accent` (light 2.23:1 on bg) and `hover:text-accent-hover` (light `#e6
 
 **Structural pin:** new `tests/styles/_metaRawAccentText.test.ts` walks `components/**` and `app/**` (filesystem walk, fails-by-default on NEW files), TOKENIZES each class string on whitespace, and rejects a token iff it is EXACTLY `text-accent`, `hover:text-accent`, or `hover:text-accent-hover` (any variant-prefix chain ending in those, e.g. `md:hover:text-accent`) — exact-token match, not substring/word-boundary, so `text-accent-on-bg`, `hover:text-accent-on-bg`, and `text-accent-text` never match. The test includes fixture self-checks proving `hover:text-accent-on-bg` is ACCEPTED and `hover:text-accent-hover` is REJECTED (guards the matcher itself). Explicit file+line+reason allowlist (empty at ship; mechanism exists for future justified decorative uses).
 
-`bg-accent` FILLS (dots, bars, count badges, CTA surfaces) are NOT in this scan's scope — fills are governed by §4.1's boundary rules and the ≤10% coverage cap, not the text floor.
+`bg-accent` FILLS are governed by §4.1b below, not the text scan.
+
+### 4.1b `bg-accent` fill audit — every consumer, disposition per WCAG 1.4.11
+
+WCAG 1.4.11 grounding (W3C Understanding SC 1.4.11, "Non-text Contrast"): the 3:1 floor applies to **visual information required to identify the component or its state**. A control identified by its visible text label does NOT require a 3:1 boundary around the hit area ("This Success Criterion does not require that controls have a visual boundary indicating the hit area"). What DOES require 3:1: state indicators conveyed by color alone, and graphical objects needed to understand content. Complete grep-verified consumer table (excluding `-tint`/`-hover`/alpha variants):
+
+| Disposition | Surfaces | Rationale |
+| --- | --- | --- |
+| **A. Labeled control — EXEMPT** | `components/shared/AccentButton.tsx` + every CTA/submit consuming it or the recipe (wizard steps, error pages `app/global-error.tsx:28`, `app/show/[slug]/[shareToken]/error.tsx:22`, `RoleRecognizeControl.tsx:72`, `AddAdminForm`, etc.); "Lead" chip `_PickerInterstitial.tsx:150`; role chip `app/me/page.tsx:414`; count badges `AdminNav.tsx:196`, `NotifBell.tsx:79` | Component identified by its visible text, which after the R2 flip clears 8.23:1 AA on the fill. Boundary not required per the Understanding doc quote above. |
+| **B. Stateful fill — TREATED** | 5 toggles (§4.1, `border-accent-edge`); `EventFilters.tsx:90` selected segment (§4.3 re-tone to inverted neutral); `OnboardingWizard.tsx:151` ACTIVE step pill — `border-transparent bg-accent` → **`border-accent-edge bg-accent`** (active-vs-visited state was fill-color-only; the pill gains the same 1px edge treatment as the toggles) | State indicator must clear 3:1; the edge token is the uniform treatment. |
+| **B2. Stateful fill — REDUNDANT NON-COLOR CUE, exempt** | `Step3SheetCard.tsx:121` checkbox (Check glyph `opacity-0→100` at `:124` is the state cue; glyph is `text-accent-text`, 8.23:1 on the fill after the flip) | Checked state readable without color. Enumerated, not silently skipped. |
+| **B3. Conditional audit at implementation** | `BellPanel.tsx:292` unread dot (`bg-accent ring-2 ring-surface`, aria-hidden) | If the unread state has a redundant non-color cue in the row (weight/sr-text), enumerate as exempt; if color-only, the dot fill switches to `bg-accent-on-bg` (`#a65000`: 4.9:1 vs the white ring/surface). Plan records the outcome. |
+| **C. Non-interactive / decorative — EXEMPT** | `RightNowHero.tsx:498,556` (aria-hidden segments/dots beside text), `RightNowCard.tsx:629` (live dot, paired "Live" label per DESIGN.md L41), `EventVolumeSparkline.tsx:33` current-hour bar, `DayCard.tsx:100` tone dot, `Step3ReviewModal.tsx:1064` side bar, `AutoRefreshControl.tsx:86,90` ping/dot (paired with the labeled toggle + visible label) | Decorative or redundant with adjacent text; not "required to identify" anything. |
+
+**Structural pin (meta row 11):** a scan over `components/**`/`app/**` finds every CONDITIONAL class expression whose branch contains exact-token `bg-accent` (the state-indicating pattern — ternaries/`&&` inside `className`); each hit must either co-carry `border-accent-edge` in the accent branch or appear in the test's registry with a disposition (`labeled` / `redundant-glyph` / `decorative`). Fails-by-default on new conditional accent fills. Static always-on fills (class A/C) are registry-free — they are not state indicators.
 
 ### 4.4 TEL-2 badge escalation
 
