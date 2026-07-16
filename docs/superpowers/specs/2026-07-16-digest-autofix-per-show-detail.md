@@ -129,7 +129,7 @@ Messages are parser-authored plain language (`Read likely-misspelled … 'X' as 
 
 ## 8. Meta-test inventory
 
-- `tests/auth/_metaInfraContract.test.ts`: **no change** — `monitorDigest.ts` already registered (header comment cites it); surface count of Supabase/postgres call sites decreases by one query in the same function.
+- `tests/notify/_metaInfraContract.test.ts`: **no change** — `lib/notify/monitorDigest.ts` already registered (`:23`); the autofix query is modified in place, no registry change (aligns §6/§9). Run it after every edit to `monitorDigest.ts`.
 - No other registry applies (no tiles, no admin alerts, no advisory locks, no email-normalization surfaces touched). Declared: none created, none extended.
 
 ## 9. Test plan (anti-tautology; failure mode per test)
