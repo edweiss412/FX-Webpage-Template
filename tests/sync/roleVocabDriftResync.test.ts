@@ -385,3 +385,50 @@ describe("role-vocab drift resync in-lock recheck (processOneFile_unlocked)", ()
     expect(deps.runPhase1).toHaveBeenCalledOnce();
   });
 });
+
+/**
+ * Task 5: the driftResync marker is threaded from the "ready" pipeline into the Phase 2 args
+ * object so runPhase2_unlocked can relax the stale CAS to less_than_or_equal (spec §3.3). Assert
+ * the args object handed to deps.runPhase2 carries (or omits) driftResync per the pipeline flag.
+ * Uses an auto_publish_ready Phase 1 outcome so priorShow is null (no readShowForPhase1 surface
+ * needed); the tail past runPhase2 may throw on the minimal fake tx, which is irrelevant — the
+ * assertion is on the recorded runPhase2 call args.
+ */
+describe("role-vocab drift resync Phase 2 args threading (processOneFile_unlocked)", () => {
+  async function driveToPhase2(driftResync: boolean) {
+    const tx = driftLockedTx({ recheckOk: true });
+    const runPhase2 = vi.fn(async () => ({
+      outcome: "applied" as const,
+      appliedRoleMappings: [],
+      showId: "show-1",
+      parseWarnings: [],
+    }));
+    const deps = driftDeps({
+      runPhase1: vi.fn(async () => ({ outcome: "auto_publish_ready" as const })),
+      runPhase2,
+    });
+    await processOneFile_unlocked(
+      tx as unknown as LockedShowTx<SyncPipelineTx>,
+      "file-1",
+      "cron",
+      fileMeta("file-1"),
+      deps,
+      readyPrepared(driftResync),
+    ).catch(() => undefined);
+    return runPhase2;
+  }
+
+  test("driftResync run: runPhase2 args carry driftResync:true", async () => {
+    const runPhase2 = await driveToPhase2(true);
+    expect(runPhase2).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ driftResync: true }),
+    );
+  });
+
+  test("non-drift run: runPhase2 args omit driftResync", async () => {
+    const runPhase2 = await driveToPhase2(false);
+    expect(runPhase2).toHaveBeenCalledTimes(1);
+    expect(runPhase2.mock.calls[0]?.[1]).not.toHaveProperty("driftResync");
+  });
+});

@@ -3513,6 +3513,9 @@ export async function processOneFile_unlocked(
       fileMeta,
       parseResult: pipeline.parseResult,
       binding: pipeline.binding,
+      // Task 5 (spec §3.3): a drift-rescued cron run relaxes the stale CAS to less_than_or_equal
+      // so the equal-watermark re-apply over an unchanged sheet lands.
+      ...(pipeline.driftResync ? { driftResync: true } : {}),
       ...(snapshotAssetsForApply ? { snapshotAssetsForApply } : {}),
       ...(snapshotAssetsForApplyForShowId ? { snapshotAssetsForApplyForShowId } : {}),
       // Cron just captured the reel tuple during this same Drive-read pass; manual Apply
