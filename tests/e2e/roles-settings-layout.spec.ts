@@ -185,7 +185,10 @@ test.describe("roles settings — desktop one-line grid (≥760px)", () => {
         const chipsEl = el.querySelector('[data-testid="role-mapping-chips"]');
         const chipKids = chipsEl
           ? Array.from(chipsEl.children)
-              .map((c) => `${(c as HTMLElement).textContent}:w=${(c as HTMLElement).getBoundingClientRect().width}`)
+              .map(
+                (c) =>
+                  `${(c as HTMLElement).textContent}:w=${(c as HTMLElement).getBoundingClientRect().width}`,
+              )
               .join(",")
           : "";
         return `rows=${cs.gridTemplateRows} cols=${cs.gridTemplateColumns} liW=${el.getBoundingClientRect().width} chipsW=${chipsEl?.getBoundingClientRect().width} chips=[${chipKids}] display=${cs.display} kids=[${kids.join(" | ")}]`;
