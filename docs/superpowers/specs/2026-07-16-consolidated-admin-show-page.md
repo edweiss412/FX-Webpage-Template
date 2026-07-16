@@ -163,7 +163,8 @@ Rules:
 ### 3.3 Data adapters
 
 - **Staged:** unchanged — `Step3SheetCard` keeps building the staged variant from its derived values (`Step3SheetCard.tsx:16`); mechanical rename to the new type.
-- **Published:** `publishedAdapter.ts` pure function `buildPublishedSectionData(input)` where input = the `shows` row, the `shows_internal` row (nullable), and the per-show rows of the four per-domain tables: `crew_members`, `rooms`, `hotel_reservations`, `transportation`, `contacts`. The server page fetches (Supabase call-boundary discipline, invariant 9: destructure `{ data, error }`, typed infra errors, meta-test registry row) and passes plain rows; the adapter is pure and unit-testable without a DB. Column→field mapping is the §3.2 table — closed, not deferred. Missing `shows_internal` row ⇒ empty collections, never a throw (§11). The adapter reads ONLY already-persisted data — re-parsing is out of scope.
+- **Published:** `publishedAdapter.ts` pure function `buildPublishedSectionData(input)` where input = the `shows` row, the `shows_internal` row (nullable), and the per-show rows of the per-domain tables: `crew_members`, `rooms`, `hotel_reservations`, `transportation`, `contacts`. The server page fetches (Supabase call-boundary discipline, invariant 9: destructure `{ data, error }`, typed infra errors, meta-test registry row in `tests/admin/_metaInfraContract.test.ts`) and passes plain rows; the adapter is pure and unit-testable without a DB. Column→field mapping is the §3.2 table — closed, not deferred. Missing `shows_internal` row ⇒ empty collections, never a throw (§11). The adapter reads ONLY already-persisted data — re-parsing is out of scope.
+- **Read-completeness contract (child tables).** This is a verification surface — silent truncation is a correctness bug. Every per-domain child-table read (`crew_members`, `rooms`, `hotel_reservations`, `transportation`, `contacts` filtered by `show_id`) MUST **paginate until complete** via `.range()` batches (batch size a named constant); a bare unranged `.select()` is forbidden. No render-time data loss: section render caps (`CREW_CAP`/`ROOMS_CAP`/etc., `step3ReviewSections.tsx:127-137`) continue to govern display, but rail counts and warning anchoring operate on the complete row set. The new read helper registers in `tests/admin/_metaBoundedReads.test.ts` (`READ_MODULES`), and the five child tables are added to its `UNBOUNDED_TABLES` coverage so an unranged read fails structurally.
 
 ### 3.4 What published mode shows (post-overlay truth)
 
@@ -306,7 +307,7 @@ Fixture `shows` + `shows_internal` + `crew_members` rows → `SectionCore`; ever
 
 ### 14.3 Page tests
 
-- Server page: fetch error paths (invariant 9 — `{ data, error }` destructure, typed infra results, meta-test registry rows in `tests/auth/_metaInfraContract.test.ts` or inline exemption).
+- Server page: fetch error paths (invariant 9 — `{ data, error }` destructure, typed infra results, meta-test registry rows in `tests/admin/_metaInfraContract.test.ts` or inline exemption).
 - Rendering: strip elements per state matrix (§6), per-section control placement (assert the control renders INSIDE its section panel — clone tree and strip siblings per anti-tautology rule), archived read-only sweep.
 - Real-browser layout task: §8 invariants via Playwright `getBoundingClientRect` (harness precedent: `reference_step3_modal_realbrowser_harnesses` — tsx-subprocess static markup + pinned esbuild live bundle).
 - Transition audit task: §9 table, incl. both compound rows.
@@ -319,8 +320,8 @@ Fixture `shows` + `shows_internal` + `crew_members` rows → `SectionCore`; ever
 
 ### 14.5 Meta-test inventory
 
-- EXTENDS `tests/auth/_metaInfraContract.test.ts` (new published-read helper registry row).
-- EXTENDS bounded-reads meta-test (`_metaBoundedReads`) if the new read helper adds list reads.
+- EXTENDS `tests/admin/_metaInfraContract.test.ts` (the admin call-boundary registry — new published-read helper row with behavioral coverage of returned-error AND thrown-error paths). `tests/auth/_metaInfraContract.test.ts` is NOT touched (no auth helper added).
+- EXTENDS `tests/admin/_metaBoundedReads.test.ts`: new helper in `READ_MODULES`; `crew_members`, `rooms`, `hotel_reservations`, `transportation`, `contacts` added to `UNBOUNDED_TABLES` coverage (§3.3 read-completeness contract — mandatory, not conditional).
 - Sentinel-hiding registry (`tests/components/tiles/_metaSentinelHidingContract.test.ts`): panels move, registry paths update — no contract change.
 - Mutation-surface observability (`tests/log/_metaMutationSurfaceObservability.test.ts`): **no new mutation surfaces** — controls relocate with existing actions. Any incidental new action must satisfy invariant 10 (admin surfaces: `AUDITABLE_MUTATIONS` + behavioral proof).
 - Advisory locks: NOT touched (read-only adapter; write paths unchanged) — no topology change.
