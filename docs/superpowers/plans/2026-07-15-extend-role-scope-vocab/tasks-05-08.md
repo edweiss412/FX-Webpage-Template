@@ -409,9 +409,15 @@ test("every runPhase2 caller threads BOTH fields inside the call args, or is exe
       expect(region.includes("roleTokenMappings"), `${file}: roleTokenMappings missing from runPhase2 args`).toBe(true);
       expect(region.includes("priorParseWarnings"), `${file}: priorParseWarnings missing from runPhase2 args`).toBe(true);
     }
-    // Emission clause (spec §10 point 5): the same caller must emit or exempt.
-    const emits = src.includes("emitRoleTokenMapped(") || src.includes("// no-telemetry:");
-    expect(emits, `${file} applies flags telemetry-dark — emit ROLE_TOKEN_MAPPED post-commit or exempt`).toBe(true);
+    // Emission clause (spec §10 point 5), PER CALL REGION not per file (plan-R2 F6):
+    // for each runPhase2 call, the enclosing-scope window (the call index to the
+    // end of its enclosing function, brace-balanced) must contain
+    // emitRoleTokenMapped( or an adjacent `// no-telemetry:` exemption — a file
+    // with two commit surfaces cannot pass on one emit.
+    for (const window of runPhase2EnclosingFunctionWindows(src)) {
+      const emits = window.includes("emitRoleTokenMapped(") || window.includes("// no-telemetry:");
+      expect(emits, `${file}: a runPhase2 commit surface is telemetry-dark`).toBe(true);
+    }
   }
 });
 ```

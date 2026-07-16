@@ -144,7 +144,7 @@ describe("mapRoleToken (spec §8.3)", () => {
 ```ts
 "use server";
 import { requireAdmin, requireAdminIdentity } from "@/lib/auth/requireAdmin"; // exact import path per useRaw.ts
-import { canonicalize } from "@/lib/email/canonicalize";
+import { canonicalize } from "@/lib/email/canonicalize"; // real export: canonicalize(raw): string | null (canonicalize.ts:2) — the spec's "canonicalizeEmail" prose refers to THIS symbol (plan-R2 F3)
 import { canonicalRoleToken, isBuiltInRoleToken } from "@/lib/parser/roleVocabulary";
 import { normalizeGrants, GRANTABLE_FLAGS } from "@/lib/sync/roleMappingOverlay";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
@@ -233,7 +233,7 @@ export async function deleteRoleTokenMapping(token: string): Promise<DeleteRoleT
 ```
 
 Pinned behaviors the tests encode (each its own test):
-- Both skip `isBuiltInRoleToken` (guard is create-only, Codex R14 F3); both canonicalize the token param for lookup.
+- Settings token validation is LOOKUP-ONLY: `canonicalRoleToken` + non-empty/≤64, then row lookup. NO `isBuiltInRoleToken` call anywhere in this file (guard is create-only, Codex R14 F3 / plan-R2 F4) — a dormant historical row whose token later became built-in stays editable and removable; explicit test: update/delete succeed on a row whose token is now a `ROLE_NORMALIZATIONS` key.
 - `update`: grants validated + deduped; EXISTING row only — absent row → `stale`, NEVER recreates (Codex R12 F5/R14 F5); sets `grants`, `decided_by = canonicalize(identity)`, `decided_at = now()`, `updated_at = now()` (last-decided, Codex R12 F3/R13 F1); persistence test: admin B edit over admin A's row → `decided_by = B`, fresh timestamps (Codex R13 F4).
 - `delete`: absent row → idempotent `{ ok: true }`.
 - Outcomes: `ROLE_TOKEN_MAPPING_SET` (update) / `ROLE_TOKEN_MAPPING_DELETED` (delete), source `"admin.settings.roleTokenMappings"`, emitted post-write only on success; `revalidatePath("/admin/settings/roles")`.

@@ -16,7 +16,7 @@ Spec §5.3. Move the vocabulary to a dependency-free leaf; add `canonicalRoleTok
 **Interfaces (Produces):**
 - `canonicalRoleToken(raw: string): string`
 - `isBuiltInRoleToken(token: string): boolean`
-- `ROLE_NORMALIZATIONS: Record<string, RoleFlag>`, `MULTI_WORD_TOKENS: string[]` (now exported from the leaf; `personalization.ts` re-exports both so `lib/parser/stageClause.ts:18` keeps compiling unchanged)
+- `ROLE_NORMALIZATIONS: Record<string, RoleFlag>`, `MULTI_WORD_TOKENS: string[]` — exported from the LEAF ONLY. `personalization.ts` re-exports NOTHING vocabulary-shaped (spec §5.3: "nothing imports from personalization.ts for vocabulary"); instead, repoint the one existing external consumer: `lib/parser/stageClause.ts:18` changes to `import { FULL_STAGE_ONLY_PATTERN } from "./personalization"; import { ROLE_NORMALIZATIONS } from "./roleVocabulary";` (grep for any other `ROLE_NORMALIZATIONS` importer and repoint the same way — as of b54f2d0af, stageClause is the only one). (Codex plan-R2 F1 — one unambiguous topology.)
 
 - [ ] **Step 1: Write the failing test**
 
@@ -116,14 +116,13 @@ export function isBuiltInRoleToken(token: string): boolean {
 
 - [ ] **Step 4: Rewire `personalization.ts`**
 
-Replace the removed definitions with an import + re-export (keeps `stageClause.ts:18` and every other consumer compiling):
+Replace the removed definitions with a plain import (NO re-exports — leaf is the one vocabulary home):
 
 ```ts
 import { ROLE_NORMALIZATIONS, MULTI_WORD_TOKENS, canonicalRoleToken } from "./roleVocabulary";
-export { ROLE_NORMALIZATIONS };
 ```
 
-(`MULTI_WORD_TOKENS` MUST be exported from the LEAF — the Task 1 test imports it from `@/lib/parser/roleVocabulary` (Codex plan-R1 F7). It was module-private in `personalization.ts` before, so do NOT re-export it from `personalization.ts` — the leaf is its one public home. `SHORT_ROLE_CODES` at :48 derives from `ROLE_NORMALIZATIONS` and stays where it is.)
+and repoint `lib/parser/stageClause.ts:18` per the Interfaces block. (`SHORT_ROLE_CODES` at :48 derives from `ROLE_NORMALIZATIONS` and stays in `personalization.ts`.)
 
 In the tokenizer (currently `:344-346`), replace `.map((t) => t.trim().toUpperCase())` with `.map((t) => canonicalRoleToken(t))`.
 
@@ -251,7 +250,8 @@ create table public.role_token_mappings (
 -- service-role. Do NOT add an admin_only policy here.
 alter table public.role_token_mappings enable row level security;
 grant all privileges on table public.role_token_mappings to service_role;
-revoke insert, update, delete on public.role_token_mappings from anon, authenticated;
+-- SELECT revoked explicitly too — posture never rests on RLS alone (plan-R2 F2)
+revoke select, insert, update, delete on public.role_token_mappings from anon, authenticated;
 ```
 
 - [ ] **Step 2: Apply locally + regenerate the manifest**
