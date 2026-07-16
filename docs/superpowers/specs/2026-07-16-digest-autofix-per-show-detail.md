@@ -56,14 +56,14 @@ export function computeAutofixShows(rows: AutofixRow[]): { total: number; shows:
 ```
 
 - Per row: extract autofix items via a new `listAutoFixItems(warnings)` helper in `lib/parser/dataGaps.ts` (see §4), each `{ code, item }`.
-- **Fingerprint dedupe per show:** within a show (keyed by `drive_file_id`), an item is kept only the first time its fingerprint `` `${code} ${item}` `` is seen — `item` here is the UNCAPPED normalized message (§4); the 200-char display cap is applied to kept items AFTER dedupe, inside `computeAutofixShows`, so two distinct long corrections sharing a 200-char prefix both survive (they may render identical capped lines — accepted residual, the count stays honest). Repeated syncs re-emitting the same warning collapse to one item (the reported inflation bug); distinct corrections across different in-window rows ALL survive (a 09:00 correction still reports even if the 10:00 sync no longer carries it — the section is "applied since your last digest", an event digest). Two genuinely identical corrections producing byte-identical messages also collapse — acceptable: identical text is indistinguishable to the reader anyway.
+- **Fingerprint dedupe per show:** within a show (keyed by `drive_file_id`), an item is kept only the first time its fingerprint `` `${code} ${item}` `` is seen — `item` here is the UNCAPPED normalized message (§4); the 200-char display cap is applied to kept items AFTER dedupe, inside `computeAutofixShows`, so two distinct long corrections sharing a 200-char prefix both survive (they may render identical capped lines — accepted residual, the count stays honest). Repeated syncs re-emitting the same warning collapse to one item (the reported inflation bug); distinct corrections across different in-window rows ALL survive (a 09:00 correction still reports even if the 10:00 sync no longer carries it — the section is "applied since your last digest", an event digest). Two genuinely identical corrections producing byte-identical messages also collapse — and the COUNT CONTRACT matches: `total` counts **distinct corrections** (distinct fingerprints), and the rendered copy says exactly that (§5) — never "values", which would over-claim. Per-source disambiguation is not available: `blockRef` is block-level (e.g. one `crewBlockRef` shared by every warning in the block, `lib/parser/blocks/crew.ts:350`) and `sourceCell` is attached only to date-keyed warnings at scan time (`lib/parser/types.ts:52-56`), so identical messages cannot be reliably told apart across the nine emit sites.
 - **Ordering (deterministic under caps):** rows arrive `occurred_at desc, drive_file_id asc, id asc` (query `ORDER BY` above — fully deterministic for a fixed row set, including same-show timestamp ties). Shows are grouped in first-seen stream order — most recently synced shows first — so the 12-show cap keeps the most recent activity. Items within a show keep stream order (newest row's warnings first, in-array order preserved), so the 5-item cap is likewise deterministic.
 - `shows`: `MonitorShowGroup[]` (`{ showTitle, slug, items }`, existing type at `lib/notify/monitorDigest.ts:27`); a show with zero autofix items is omitted.
-- `total` = sum of `items.length` across ALL shows (pre-cap SOURCE total; = count of distinct fingerprints).
+- `total` = sum of `items.length` across ALL shows (pre-cap SOURCE total; = count of distinct fingerprints = count of distinct corrections, the §5 copy's unit).
 
 `accumulateAutoFixes` and the `WarningsRow` type are deleted (replaced by `computeAutofixShows` + `AutofixRow`). `MonitorDigestModel.autofix` changes from `AutoFixSummary` to `{ total: number; shows: MonitorShowGroup[] }`. The `AutoFixSummary` type and `summarizeAutoFixes` stay in `lib/parser/dataGaps.ts` (still used by `formatAutoFixBreakdown` + the admin chip).
 
-**Semantics change (intentional, the point of the fix):** `autofix.total` now means "distinct autofix corrections applied in the window per show," not "sum over every applied row." Repetition across syncs no longer inflates the count; no real correction is dropped.
+**Semantics change (intentional, the point of the fix):** `autofix.total` now means "distinct autofix corrections applied in the window," not "sum over every applied row." Repetition across syncs no longer inflates the count; no distinct correction is dropped; byte-identical duplicates collapse and the copy's unit ("distinct corrections") states so honestly.
 
 **Empty/overall-empty check:** `buildMonitorDigestModel`'s empty gate keeps using `autofix.total === 0` (`lib/notify/monitorDigest.ts:232-239`) — unchanged shape.
 
@@ -86,7 +86,7 @@ export function listAutoFixItems(
 Sub-block 2 becomes structurally identical to sub-block 1, with an intro line:
 
 **Heading (HTML `<h3>` / text line):** `Autocorrects applied`
-**Intro line (`<p>` / text):** `We automatically corrected N values.` (`value` when N === 1; N = `autofix.total`, the SOURCE total). The per-class parenthetical is dropped — the per-show messages carry strictly more information.
+**Intro line (`<p>` / text):** `We applied N distinct automatic corrections.` (`correction` when N === 1; N = `autofix.total`, the SOURCE total — the unit is DISTINCT corrections, matching the §3 fingerprint count: byte-identical duplicate corrections collapse and the copy never over-claims "values"). The per-class parenthetical is dropped — the per-show messages carry strictly more information.
 **Per show** (same markup as sub-block 1, `lib/notify/templates/digest.ts:38-63`): `<h4>` linked title (`showHref` — `${origin}/admin/show/${slug}`, or `${origin}/admin` when slug null; `Untitled show` when title null) + `<ul>` of message strings, HTML-escaped.
 **Caps:** `DIGEST_MAX_SHOWS` (12) shows, `DIGEST_MAX_ITEMS_PER_SHOW` (5) items/show (`lib/notify/constants.ts:16-17`); overflow `+N more on this show` / `+M more shows` linking `${origin}/admin`, counts derived from SOURCE totals — exactly the sub-block-1 pattern.
 
@@ -108,7 +108,8 @@ Messages are parser-authored plain language (`Read likely-misspelled … 'X' as 
 | message multiline / control chars / zero-width-bidi chars | normalized upstream (§4): format chars removed, controls→space, whitespace collapsed — one visual line per item |
 | message overlong (bad sheet cell) | length-capped at 200 chars + `…` upstream (§4); digest size stays bounded (12 shows × 5 items × ≤201 chars) |
 | show count > 12 / items > 5 | cap + overflow note (SOURCE-derived counts) |
-| N === 1 | `value` singular in the intro line |
+| N === 1 | `correction` singular in the intro line |
+| two identical corrections, different sheet rows | collapse to one item; count unit is "distinct corrections" so copy stays accurate (per-source identity unavailable — §3) |
 
 **Subject lines:** unchanged (`templates/digest.ts:178-181`).
 
