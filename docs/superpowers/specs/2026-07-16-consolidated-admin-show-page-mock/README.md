@@ -20,3 +20,6 @@ Spec: `docs/superpowers/specs/2026-07-16-consolidated-admin-show-page.md`
 5. **Strip variant (b) shows an Unarchive button in the strip.** Overridden: spec §4 caps the strip
    at two actions (publish toggle, copy link); `UnarchiveShowButton` renders in the Overview section
    (spec §6).
+6. **Live-now badge label uses amber `#FFA047`.** Overridden: the strip reuses the canonical
+   `StatusIndicator` treatment — hue carried by the `bg-status-live` dot + ping, label stays
+   neutral (`text-text-subtle`) per DESIGN.md color-blind floor.
