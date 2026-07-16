@@ -91,7 +91,10 @@ releases the moment EITHER side goes away:
 - **Pointer side (dominant):** finalize-cas Finish clears the pointer
   (`app/api/admin/onboarding/finalize-cas/route.ts:673-687`, `promoteSettings`
   nulls `pending_wizard_session_id`); a setup rerun / new scan rotates it
-  (`lib/onboarding/sessionLifecycle.ts:323-324`, `:645-646`); a validation
+  (`app/api/admin/onboarding/scan/route.ts:177-190`;
+  `lib/onboarding/sessionLifecycle.ts:323-324`), and
+  `cleanupAbandonedFinalize` rotates it for the mid-finalize abandoned case
+  (`lib/onboarding/sessionLifecycle.ts:645-646`); a validation
   reset clears wizard state wholesale. Any of these instantly releases EVERY
   file owned by the old session, regardless of leftover rows — leftover rows
   with a non-pointer session id never match the predicate.
@@ -116,8 +119,10 @@ releases the moment EITHER side goes away:
 **Abandoned-session wedge scope (accepted):** if the ACTIVE wizard session is
 abandoned (pointer never cleared), its owned files stay cron-skipped until an
 admin acts. Bounded and accepted because (a) only files the admin deliberately
-staged in the wizard are affected, (b) every skip writes an operator-visible
-`sync_log` row (`skipped:wizard_owned`), and (c) the escape hatches are the
+staged in the wizard are affected, (b) every skip on a non-archived file
+writes an operator-visible `sync_log` row (`skipped:wizard_owned`; see the
+§2.4 DEF-4 archived-relabel interaction for the archived exception), and (c)
+the escape hatches are the
 ordinary admin flows — finish the wizard (finalize-cas), re-run setup (the
 24h-stale takeover contract at `lib/onboarding/sessionLifecycle.ts:355`,
 `:388`, `:430` lets a new scan claim a stale pending session — EXCEPT when a
@@ -169,6 +174,17 @@ Inside `perFileProcessor`, after the live-deferral check (`:175-183`) and
   flag is free-form (`scripts/observe/args.ts:103-104`), so no catalog,
   §12.4, or CLI change is needed. `wizard_owned` is a sync_log status token,
   not an error code; nothing user-facing renders it (invariant 5 untouched).
+- **DEF-4 archived-relabel interaction (accepted):** `processOneFile` logs a
+  non-archived gate skip only after an under-lock archived re-read
+  (`lib/sync/runScheduledCronSync.ts:2658-2680`) — if the file's show became
+  archived in the gap, the skip is relabeled to the SILENT
+  `ARCHIVED_SKIP_REASON` and no sync_log row is written. A `wizard_owned`
+  skip inherits this shared behavior unchanged (DEF-4's archived-immutable
+  contract outranks the visibility contract, exactly as it does for
+  `watermark` / `deferred_*` skips). "Every skip writes a sync_log row" in
+  §2.1 is therefore scoped to non-archived files; the §4 log assertions seed
+  fixtures with no `shows` row (the incident shape), which never hit the
+  relabel branch.
 
 ### 2.5 Reads and clock
 
