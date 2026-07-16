@@ -20,7 +20,7 @@
 - Invariant 5: no raw codes render; exact class labels on fallback.
 - No advisory-lock surface touched (read-only builder); no `pg_advisory*` anywhere in this diff.
 - Meta-test inventory (spec §8): `tests/notify/_metaInfraContract.test.ts` (registration `:23`) — no registry change, MUST pass after every `monitorDigest.ts` edit. No other registry applies; none created.
-- Run per-task scoped tests, then Task 6 runs the FULL gate set before push (`pnpm test`, typecheck via `pnpm build`, eslint, `pnpm format:check`).
+- Run per-task scoped tests, then Task 5 runs the FULL gate set before push (`pnpm test`, typecheck via `pnpm build`, eslint, `pnpm format:check`).
 - Commits: conventional, one per task, `--no-verify` (worktree hook rule), with Claude trailer lines.
 
 ---
@@ -415,13 +415,16 @@ git commit --no-verify -m "feat(sync): computeAutofixShows — source-aware noti
 
 ---
 
-### Task 3: Wire model + query + template + fixture sweep
+### Task 3: Wire model + query + template + fixture sweep + DB proof (one atomic green commit)
 
 **Files:**
 - Modify: `lib/notify/monitorDigest.ts` (model type, query, delete `accumulateAutoFixes`/`WarningsRow`)
 - Modify: `lib/notify/templates/digest.ts` (sub-block 2)
-- Modify: `tests/notify/renderDigest.monitor.test.ts`, `tests/notify/renderDigest.newShowGaps.test.ts`, `tests/notify/deliver.test.ts` (fixture shape sweep + new render assertions)
+- Modify: `tests/notify/renderDigest.monitor.test.ts`, `tests/notify/renderDigest.newShowGaps.test.ts`, `tests/notify/deliver.test.ts`, `tests/notify/runDigestNotify.monitor.test.ts` (fixture shape sweep + new render assertions)
+- Modify: `tests/notify/monitorDigest.autofix.db.test.ts` (rewrite in the SAME commit — the old test pins the inflation bug and MUST flip together with the semantics; committing the model change with a known-red DB test would violate the per-task TDD invariant)
 - Test (new case): fake-sql ORDER BY shape test appended to `tests/notify/monitorDigest.autofix.test.ts`
+
+**Fixture class-sweep (mandatory):** `rg -n "autofix" tests lib --type ts | rg "classes"` — every `MonitorDigestModel` fixture using the old `{ total, classes }` shape must be updated in this commit. Known sites: `renderDigest.monitor.test.ts:9-18`, `renderDigest.newShowGaps.test.ts:10`, `deliver.test.ts:631`, `runDigestNotify.monitor.test.ts:11-20`. The sweep catches any the plan missed.
 
 **Interfaces:**
 - Consumes: `computeAutofixShows`, `MonitorAutofix`, `AutofixRow` (Task 2).
@@ -537,7 +540,7 @@ Add new tests to the describe:
   });
 ```
 
-In `tests/notify/renderDigest.newShowGaps.test.ts` and `tests/notify/deliver.test.ts` (line ~631), replace the `autofix: { total, classes: {...} }` fixture with the shape-equivalent (deliver keeps `autofixTotal: 2` expectations valid):
+In `tests/notify/renderDigest.newShowGaps.test.ts`, `tests/notify/deliver.test.ts` (line ~631), and `tests/notify/runDigestNotify.monitor.test.ts` (line ~11 — its fixture has `total: 0`, so use `autofix: { total: 0, shows: [] }` there), replace the `autofix: { total, classes: {...} }` fixture with the shape-equivalent (deliver keeps `autofixTotal: 2` expectations valid):
 
 ```ts
     autofix: {
@@ -670,26 +673,9 @@ Do NOT add `assertNoUnresolvedPlaceholder` to the digest path — it runs only o
 - [ ] **Step 4: Run to verify pass**
 
 Run: `pnpm vitest run tests/notify tests/parser/dataGaps.test.ts`
-Expected: PASS — including `tests/notify/_metaInfraContract.test.ts` and the pre-existing sub-block-1 cap test (byte-stable markup via `pushShowGroups`). `tests/notify/monitorDigest.autofix.db.test.ts` will FAIL if the local DB is up (it pins the old semantics) — that rewrite is Task 4; if it blocks this task's run, scope the run to the files above.
+Expected: PASS — including `tests/notify/_metaInfraContract.test.ts`, the pre-existing sub-block-1 cap test (byte-stable markup via `pushShowGroups`), and the rewritten `tests/notify/monitorDigest.autofix.db.test.ts` (Step 3b below — rewritten in this SAME task so the commit is green with the local DB up; it self-skips via `describe.runIf(dbUp)` when the DB is down, with real CI as arbiter).
 
-- [ ] **Step 5: Commit**
-
-```bash
-git add lib/notify/monitorDigest.ts lib/notify/templates/digest.ts tests/notify/renderDigest.monitor.test.ts tests/notify/renderDigest.newShowGaps.test.ts tests/notify/deliver.test.ts tests/notify/monitorDigest.autofix.test.ts
-git commit --no-verify -m "feat(sync): per-show autofix notices in digest — model, ordered query, grouped render"
-```
-
----
-
-### Task 4: DB-integration proof rewrite
-
-**Files:**
-- Modify: `tests/notify/monitorDigest.autofix.db.test.ts` (rewrite the assertion test; keep the connection scaffold, MARK/cleanup pattern, and the filter-proof seeds)
-
-**Interfaces:**
-- Consumes: `buildMonitorDigestModel` with `{ sql, getWatermark }` injection (existing pattern in the file).
-
-- [ ] **Step 1: Rewrite the test body** — keep the header/scaffold (probe, MARK, afterAll; extend cleanup to the new drive ids). Replace the single test with:
+- [ ] **Step 3b: Rewrite the DB proof (same commit)** — in `tests/notify/monitorDigest.autofix.db.test.ts`: keep the header/scaffold (probe, MARK, afterAll; extend cleanup to the new drive ids `${MARK}-second`, `${MARK}-tied` in both the `sync_log` and `shows` delete lists). Replace the single test with:
 
 ```ts
 describe.runIf(dbUp)("buildMonitorDigestModel — autofix DB proof (spec 2026-07-16 §3, §9.2)", () => {
@@ -741,16 +727,11 @@ describe.runIf(dbUp)("buildMonitorDigestModel — autofix DB proof (spec 2026-07
     await sql`insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
       values (${TIED}, ${MARK + "-ts"}, ${"Tied"}, ${"c"}, ${"v1"}, true)`;
     const at = "2099-06-01T10:00:00Z";
-    // 7 rows, identical occurred_at, uuids seeded in a scrambled insert order.
-    const ids = [
-      "00000000-0000-4000-8000-00000000000a",
-      "00000000-0000-4000-8000-000000000003",
-      "00000000-0000-4000-8000-000000000001",
-      "00000000-0000-4000-8000-000000000009",
-      "00000000-0000-4000-8000-000000000005",
-      "00000000-0000-4000-8000-000000000002",
-      "00000000-0000-4000-8000-000000000007",
-    ];
+    // 7 rows, identical occurred_at. RUN-UNIQUE uuids (a fixed literal id is a
+    // primary key on public.sync_log — a crashed run or sibling worktree on the
+    // shared local DB would collide on retry); the expected order is DERIVED by
+    // sorting the generated ids, so uniqueness costs nothing.
+    const ids = Array.from({ length: 7 }, () => crypto.randomUUID());
     for (const [i, id] of ids.entries()) {
       await sql!`insert into public.sync_log (id, drive_file_id, status, message, parse_warnings, occurred_at)
         values (${id}, ${TIED}, ${"applied"}, ${"applied"}, ${sql!.json([
@@ -760,8 +741,11 @@ describe.runIf(dbUp)("buildMonitorDigestModel — autofix DB proof (spec 2026-07
     const r = await build("2099-06-01T12:00:00Z");
     if (r.kind !== "ok") throw new Error(`expected ok, got ${r.kind}`);
     const tied = r.model.autofix.shows.find((s) => s.showTitle === "Tied")!;
-    // Expected order = uuid ascending (id asc), NOT insert order. Model preserves all 7
-    // (count caps are render-only); index i in the message identifies the source row.
+    // Expected order = uuid ascending (id asc), NOT insert order — derived from the
+    // run-unique generated ids. Model preserves all 7 (count caps are render-only);
+    // index i in the message identifies the source row. NOTE: Postgres orders uuid
+    // by byte value, which matches lexicographic order of the lowercase hex string
+    // crypto.randomUUID() returns, so a plain string sort is a valid oracle.
     const byIdAsc = [...ids.entries()].sort(([, a], [, b]) => (a < b ? -1 : 1)).map(([i]) => i);
     expect(tied.items).toEqual(byIdAsc.map((i) => `corrected 'x' as 'y' #${i}`));
   });
@@ -770,21 +754,21 @@ describe.runIf(dbUp)("buildMonitorDigestModel — autofix DB proof (spec 2026-07
 
 Extend `afterAll` cleanup deletes with the new ids (`${MARK}-second`, `${MARK}-tied` in both `sync_log` and `shows` delete lists).
 
-- [ ] **Step 2: Run to verify failure/pass cycle**
+- [ ] **Step 4: Run the full scoped suite to verify pass**
 
-Run: `pnpm vitest run tests/notify/monitorDigest.autofix.db.test.ts`
-Expected: PASS against the local DB (implementation landed in Task 3 — this task is proof-strengthening; the OLD test would have failed post-Task-3, which is the failing-test evidence). If the local DB is down the suite self-skips (`describe.runIf(dbUp)`); note that in the commit and rely on real CI.
+Run: `pnpm vitest run tests/notify tests/parser/dataGaps.test.ts`
+Expected: PASS with the local DB up (the rewritten DB proof flips together with the semantics — TDD evidence: the OLD db test red-on-new-code, the NEW one green). DB down → `describe.runIf(dbUp)` self-skips; real CI is the arbiter.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 5: Commit (one atomic green commit)**
 
 ```bash
-git add tests/notify/monitorDigest.autofix.db.test.ts
-git commit --no-verify -m "test(sync): autofix DB proof — dedupe, event semantics, exclusion filters, exact tied-row order"
+git add lib/notify/monitorDigest.ts lib/notify/templates/digest.ts tests/notify/renderDigest.monitor.test.ts tests/notify/renderDigest.newShowGaps.test.ts tests/notify/deliver.test.ts tests/notify/runDigestNotify.monitor.test.ts tests/notify/monitorDigest.autofix.test.ts tests/notify/monitorDigest.autofix.db.test.ts
+git commit --no-verify -m "feat(sync): per-show autofix notices in digest — model, ordered query, grouped render, DB proof"
 ```
 
 ---
 
-### Task 5: Live-resolver duplicate-name regression test
+### Task 4: Live-resolver duplicate-name regression test
 
 **Files:**
 - Test: `tests/notify/monitorDigest.autofixAnchors.test.ts` (new — integration of the REAL `attachSourceCellAnchors` with `computeAutofixShows`; spec §9.6)
@@ -864,7 +848,7 @@ git commit --no-verify -m "test(sync): pin unique-name-only anchor granularity t
 
 ---
 
-### Task 6: Full gates + spec docs in tree
+### Task 5: Full gates + spec docs in tree
 
 **Files:**
 - Verify only (no source edits expected). Spec + Flow 6.2 amendments are already committed on this branch.
