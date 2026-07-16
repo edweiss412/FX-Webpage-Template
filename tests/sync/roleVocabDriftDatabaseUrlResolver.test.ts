@@ -23,10 +23,9 @@ describe("role-vocab drift resolver identity", () => {
   });
 
   it("roleVocabDrift imports databaseUrl from the shared resolver module (no second resolver)", () => {
-    const source = readFileSync(
-      path.join(process.cwd(), "lib/sync/roleVocabDrift.ts"),
-      "utf8",
+    const source = readFileSync(path.join(process.cwd(), "lib/sync/roleVocabDrift.ts"), "utf8");
+    expect(source).toMatch(
+      /import\s*\{[^}]*\bdatabaseUrl\b[^}]*\}\s*from\s*"@\/lib\/sync\/_databaseUrl"/,
     );
-    expect(source).toMatch(/import\s*\{[^}]*\bdatabaseUrl\b[^}]*\}\s*from\s*"@\/lib\/sync\/_databaseUrl"/);
   });
 });

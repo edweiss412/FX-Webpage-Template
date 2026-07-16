@@ -3193,12 +3193,14 @@ async function clearShowPullSheetOverride_unlocked(
  * Drift-rescued cron runs ONLY (spec §3.3 "Recheck placement is load-bearing", R4/R5): re-verify
  * published + no-live-pending under the held lock as the FIRST drift step, BEFORE
  * `runPhase1_unlocked` — Phase 1 mutates durable state on non-happy paths (hard-fail marks `shows`,
- * shrink holds write hold state, review branches upsert `pending_syncs`). Returns `true` (BLOCKED)
+ * shrink holds write hold state, review branches upsert `pending_syncs` (live-partition:n/a — doc
+ * reference, no statement)). Returns `true` (BLOCKED)
  * when the show is no longer published, or a live (`wizard_session_id is null`) `pending_syncs` gate
  * row now exists, or the show row vanished. `archived = false` is kept as defense-in-depth only; the
  * archived RACE is authoritatively owned by the earlier DEF-4 re-read (`readShowArchived_unlocked`),
  * which returns ARCHIVED_SKIP_REASON first (plan R1 F1). The live-partition predicate mirrors the
- * live `pending_syncs` read at :954.
+ * live `pending_syncs` read at :954. (live-partition:n/a — doc reference above; the statement's own
+ * classification is the live-partition:live-only annotation inside the SQL below.)
  */
 async function readDriftRecheckBlocked_unlocked(
   tx: LockedShowTx<SyncPipelineTx>,
@@ -3207,6 +3209,9 @@ async function readDriftRecheckBlocked_unlocked(
   const row = await tx.queryOne<{ ok: boolean } | null>(
     `select (s.published = true and s.archived = false
              and not exists (select 1 from public.pending_syncs p
+                              -- live-partition:live-only — live pending_syncs existence probe
+                              -- (wizard_session_id is null): a drift-rescued run must never
+                              -- apply over a live pending review (spec §3.3 R1 F1/R5 F1).
                               where p.drive_file_id = s.drive_file_id
                                 and p.wizard_session_id is null)) as ok
        from public.shows s where s.drive_file_id = $1`,
