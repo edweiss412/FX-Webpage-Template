@@ -347,6 +347,18 @@ describe("computeAutofixShows", () => {
     expect(r.total).toBe(19);
   });
 
+  test("zero-autofix rows never seed show order: rank by latest NOTICE, not latest sync", () => {
+    // Stream (occurred_at desc): A's clean row, B's notice, A's older notice.
+    // Wrong (eager Map insertion on any row): A ranks first. Right: B first.
+    const r = computeAutofixShows([
+      row("a", [{ kind: "payload" }], { occurred_at: "2099-01-01T10:30:00Z" }), // clean row, no autofix
+      row("b", [warn({ message: "corrected 'b' as 'B'" })], { occurred_at: "2099-01-01T10:00:00Z" }),
+      row("a", [warn({ message: "corrected 'a' as 'A'" })], { occurred_at: "2099-01-01T09:00:00Z" }),
+    ]);
+    expect(r.shows.map((s) => s.slug)).toEqual(["slug-b", "slug-a"]);
+    expect(r.total).toBe(2);
+  });
+
   test("dedupe scope is PER SHOW: identical fingerprint on two different shows keeps both", () => {
     // A global seen-set implementation would drop the second show's notice.
     const m = "Read likely-misspelled stage word(s) 'Sage' as 'Stage' in role cell: 'A1 Sage'";
@@ -458,41 +470,36 @@ const AUTOFIX_ITEM_DISPLAY_CAP = 200;
  * first-seen stream order, items keep stream order.
  */
 export function computeAutofixShows(rows: AutofixRow[]): MonitorAutofix {
-  const groups = new Map<
-    string,
-    { showTitle: string | null; slug: string | null; seen: Set<string>; items: string[] }
-  >();
+  type Group = { showTitle: string | null; slug: string | null; seen: Set<string>; items: string[] };
+  const groups = new Map<string, Group>();
   for (const r of rows) {
-    const g =
-      groups.get(r.drive_file_id) ??
-      ({ showTitle: r.title, slug: r.slug, seen: new Set(), items: [] } as const & {
-        seen: Set<string>;
-        items: string[];
-      });
     for (const it of listAutoFixItems(r.parse_warnings as never)) {
       const fingerprint = `${it.code}|${it.anchor ?? ""}|${it.item}`;
-      if (g.seen.has(fingerprint)) continue;
+      const existing = groups.get(r.drive_file_id);
+      if (existing?.seen.has(fingerprint)) continue;
+      // LAZY group creation on the first KEPT item — a clean (zero-autofix) newer
+      // row must never seed a show's position in the Map, or the render-time
+      // 12-show cap would rank shows by latest SYNC instead of latest NOTICE.
+      const g: Group =
+        existing ?? { showTitle: r.title, slug: r.slug, seen: new Set(), items: [] };
       g.seen.add(fingerprint);
       g.items.push(
         it.item.length > AUTOFIX_ITEM_DISPLAY_CAP
           ? `${it.item.slice(0, AUTOFIX_ITEM_DISPLAY_CAP)}…`
           : it.item,
       );
+      if (!existing) groups.set(r.drive_file_id, g);
     }
-    groups.set(r.drive_file_id, g);
   }
   let total = 0;
   const shows: MonitorShowGroup[] = [];
   for (const g of groups.values()) {
-    if (g.items.length === 0) continue;
     total += g.items.length;
     shows.push({ showTitle: g.showTitle, slug: g.slug, items: g.items });
   }
   return { total, shows };
 }
 ```
-
-(If the `as const &` intersection reads awkwardly under the repo's TS config, use a plain typed object literal — the shape is what matters.)
 
 - [ ] **Step 4: Run to verify pass**
 
