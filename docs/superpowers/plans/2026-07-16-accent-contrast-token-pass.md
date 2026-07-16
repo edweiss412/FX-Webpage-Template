@@ -184,7 +184,7 @@ function tableFigures(labelRe: string): { light: number; dark: number } {
 }
 
 const ROWS: Array<[string, RegExp, number]> = [
-  ["accent-text on accent (light §1.1 L33)", /near-black on orange in BOTH modes; ([\d.]+):1 in each/, contrast(L("--color-accent-text-runtime"), L("--color-accent-runtime"))],
+  ["accent-text on accent (light §1.1 L33)", /near-black on orange in BOTH modes; ([\d.]+):1 in each/i, contrast(L("--color-accent-text-runtime"), L("--color-accent-runtime"))],
   ["accent-on-bg on bg (light, §1.1 L34)", /contrast against `#FAFAF9` reaches ([\d.]+):1/, contrast(L("--color-accent-on-bg-runtime"), L("--color-bg-runtime"))],
   ["accent raw on light bg (L34 corrected side-claim)", /The brand `#FF8C1A` itself only hits ([\d.]+):1 on light bg/, contrast(L("--color-accent-runtime"), L("--color-bg-runtime"))],
   ["accent-on-bg dark (L34)", /Dark `#FFA047` on `#0F1014` = ([\d.]+):1/, contrast(D("--color-accent-on-bg-runtime"), D("--color-bg-runtime"))],
