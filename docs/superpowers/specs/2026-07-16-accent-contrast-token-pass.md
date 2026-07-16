@@ -108,7 +108,7 @@ WCAG 1.4.11 grounding (W3C Understanding SC 1.4.11, "Non-text Contrast"): the 3:
 | **B3. Conditional audit at implementation** | `BellPanel.tsx:292` unread dot (`bg-accent ring-2 ring-surface`, aria-hidden) | If the unread state has a redundant non-color cue in the row (weight/sr-text), enumerate as exempt; if color-only, the dot fill switches to `bg-accent-on-bg` (`#a65000`: 4.9:1 vs the white ring/surface). Plan records the outcome. |
 | **C. Non-interactive / decorative — EXEMPT** | `RightNowHero.tsx:498,556` (aria-hidden segments/dots beside text), `RightNowCard.tsx:629` (live dot, paired "Live" label per DESIGN.md L41), `EventVolumeSparkline.tsx:33` current-hour bar, `DayCard.tsx:100` tone dot, `Step3ReviewModal.tsx:1064` side bar, `AutoRefreshControl.tsx:86,90` ping/dot (paired with the labeled toggle + visible label) | Decorative or redundant with adjacent text; not "required to identify" anything. |
 
-**Structural pin (meta row 11):** a scan over `components/**`/`app/**` finds every CONDITIONAL class expression whose branch contains exact-token `bg-accent` (the state-indicating pattern — ternaries/`&&` inside `className`); each hit must either co-carry `border-accent-edge` in the accent branch or appear in the test's registry with a disposition (`labeled` / `redundant-glyph` / `decorative`). Fails-by-default on new conditional accent fills. Static always-on fills (class A/C) are registry-free — they are not state indicators.
+**Structural pin (meta row 11):** a filesystem-walked scan over `components/**`/`app/**` inventories EVERY exact-token `bg-accent` occurrence (tokenized, so `bg-accent-tint`/`bg-accent-hover`/`bg-accent/10` never match) — regardless of whether it appears in a conditional class expression, a `{cond && <span …>}` subtree, a helper constant, or a static literal. Every occurrence must be accounted for in the test's per-file disposition registry: `{ file, count, disposition: 'labeled' | 'edge-treated' | 'redundant-glyph' | 'decorative' }`. A NEW occurrence anywhere (count mismatch or unregistered file) fails by default and forces an explicit disposition; an `edge-treated` file must contain `border-accent-edge`. This closes the bypass where a conditionally-RENDERED static-class accent fill (not a conditional class string) would evade a ternary-only scan.
 
 ### 4.4 TEL-2 badge escalation
 
@@ -179,7 +179,18 @@ The token rows fail TODAY against the old values (2.33 < 4.5, 4.11 < 4.5, 2.23 <
 - Raising `--color-text-faint` itself (R3 rejected it; decorative uses keep the third tier).
 - VCR-2 (dark-map double fetch), VCR-3 (link-only venue) — separate triggers.
 - Project-wide `_metaDesignTokenPairs` expansion beyond `app/help` (its own backlog item).
-- Any DB/RPC/telemetry-write change: none. **Flag lifecycle:** N/A — no flags/toggles added (existing toggle components change one class string). **Guard conditions:** N/A — no prop contracts change; `EventLevelBadge` fallback (`?? BADGE.info`) unchanged. **Dimensional invariants:** N/A — zero layout/geometry changes (border was already present on 4 of 5 toggles; the 5th gains `border` at 1px inside its existing `h-5 w-[34px]` box — plan verifies no visual shift via the existing e2e layout specs). **Transition inventory:** N/A — no new states, no animation changes; all edits are static color classes on existing states (`transition-colors` on toggles already covers the color swap).
+- Any DB/RPC/telemetry-write change: none. **Flag lifecycle:** N/A — no flags/toggles added (existing toggle components change one class string). **Guard conditions:** N/A — no prop contracts change; `EventLevelBadge` fallback (`?? BADGE.info`) unchanged. **Dimensional invariants:** see §9.1 — the AutoRefreshControl track gains a real 1px border, which is a geometry-touching change on a fixed-size parent and gets the mandatory real-browser rect assertions. **Transition inventory:** N/A — no new states, no animation changes; all edits are static color classes on existing states (`transition-colors` on toggles already covers the color swap).
+
+## 9.1 Dimensional Invariants (toggle tracks — fixed-dimension parents)
+
+Box-sizing is `border-box` (Tailwind preflight), so adding/recoloring a 1px border never changes outer geometry; absolutely-positioned thumbs position against the PADDING box (inside the border). Invariants, asserted in a real browser (Playwright `getBoundingClientRect()`, 0.5px tolerance — jsdom is NOT sufficient):
+
+| Parent | Guarantee | Child relationship |
+| --- | --- | --- |
+| AutoRefreshControl track `h-5 w-[34px]` + NEW `border` | outer rect stays 34×20 after the border lands | thumb (`size-4`, `translate-x-[2px]`/`[16px]`) rect fully inside track rect in BOTH states; ON−OFF thumb `x` delta = 14px; ON thumb right edge ≤ track inner right edge |
+| Settings/admin toggles `h-7 w-12 border` (×4, border pre-existing — color-only change) | outer rect stays 48×28 | thumb (`h-5 w-5`, `translate-x-1`/`-6`) fully inside track in both states |
+
+Assertions extend `tests/e2e/telemetry-layout.spec.ts` (AutoRefreshControl — the geometry-touching one) and `tests/e2e/developer-toggle-layout.spec.ts` (one representative of the color-only four).
 
 ## 10. Accessibility floor summary (post-change, light mode — the failing mode)
 
