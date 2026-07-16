@@ -77,7 +77,7 @@ vi.mock("next/navigation", () => ({
 function chainResult(result: unknown) {
   const node: Record<string, unknown> = {};
   const self = () => node;
-  for (const m of ["eq", "is", "not", "select", "update", "insert", "single", "limit"])
+  for (const m of ["eq", "is", "not", "select", "update", "insert", "delete", "single", "limit"])
     node[m] = self;
   node.maybeSingle = () => Promise.resolve(result);
   node.then = (onFulfilled: (v: unknown) => unknown, onRejected?: (e: unknown) => unknown) =>
@@ -510,6 +510,10 @@ import { setStagedUseRawDecisionAction } from "@/app/admin/onboarding/_actions/u
 // Extend role→scope vocabulary (spec 2026-07-15 §8.3) — the four role-mapping actions.
 import { mapRoleToken } from "@/app/admin/show/[slug]/_actions/roleToken";
 import { mapRoleTokenStaged } from "@/app/admin/onboarding/_actions/roleTokenStaged";
+import {
+  updateRoleTokenMapping,
+  deleteRoleTokenMapping,
+} from "@/app/admin/settings/_actions/roleTokenMappings";
 
 import type { DiscardStagedResult } from "@/lib/sync/discardStaged";
 import { POST as stagedDiscardPost } from "@/app/api/admin/staged/[fileId]/discard/route";
@@ -3452,6 +3456,41 @@ describe("role-mapping actions — post-commit forensic emit (spec 2026-07-15 §
       mapRoleTokenStaged("wiz-role", "df-role", "cam op", ["A1"]),
     );
     expect(failCodes).not.toContain("ROLE_TOKEN_MAPPING_SET");
+  });
+
+  test("updateRoleTokenMapping emits ROLE_TOKEN_MAPPING_SET on an existing row; nothing when stale", async () => {
+    // existing row updated (one row returned) → emit.
+    serviceRoleClientImpl.current = () =>
+      makeClient({ from: { data: [{ token: "DRONE OP" }], error: null } });
+    const codes = await observeSuccessCodes(() => updateRoleTokenMapping("DRONE OP", ["A1"]));
+    expect(codes).toContain("ROLE_TOKEN_MAPPING_SET");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/settings/_actions/roleTokenMappings.ts",
+      fn: "updateRoleTokenMapping",
+      code: "ROLE_TOKEN_MAPPING_SET",
+    });
+
+    // absent row (zero updated) → stale → no emit.
+    serviceRoleClientImpl.current = () => makeClient({ from: { data: [], error: null } });
+    const failCodes = await observeCodes(() => updateRoleTokenMapping("DRONE OP", ["A1"]));
+    expect(failCodes).not.toContain("ROLE_TOKEN_MAPPING_SET");
+  });
+
+  test("deleteRoleTokenMapping emits ROLE_TOKEN_MAPPING_DELETED on success; nothing on infra error", async () => {
+    serviceRoleClientImpl.current = () => makeClient({ from: { data: null, error: null } });
+    const codes = await observeSuccessCodes(() => deleteRoleTokenMapping("DRONE OP"));
+    expect(codes).toContain("ROLE_TOKEN_MAPPING_DELETED");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/settings/_actions/roleTokenMappings.ts",
+      fn: "deleteRoleTokenMapping",
+      code: "ROLE_TOKEN_MAPPING_DELETED",
+    });
+
+    // returned error → infra_error → no emit.
+    serviceRoleClientImpl.current = () =>
+      makeClient({ from: { data: null, error: { message: "boom" } } });
+    const failCodes = await observeCodes(() => deleteRoleTokenMapping("DRONE OP"));
+    expect(failCodes).not.toContain("ROLE_TOKEN_MAPPING_DELETED");
   });
 });
 
