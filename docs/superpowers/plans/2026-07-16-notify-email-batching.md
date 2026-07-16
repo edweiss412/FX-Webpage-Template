@@ -217,6 +217,20 @@ describe("renderAutoPublishUndoBatch (batching spec §2.4)", () => {
     expect(batch.html).toContain("Danger &lt;x&gt; &amp; Co");
     expect(batch.html).not.toContain("Danger <x>");
   });
+
+  test.each([2, 21])("text mirrors html paragraph-for-paragraph at N=%i (spec §2.4)", (n) => {
+    const shows = Array.from({ length: n }, (_, i) => show(i + 1));
+    const batch = renderAutoPublishUndoBatch({
+      origin: "https://fxav.example", shows, recipient: RECIPIENT, now: NOW,
+    });
+    const htmlParagraphs = (batch.html.match(/<p>/g) ?? []).length;
+    expect(batch.text.split("\n\n")).toHaveLength(htmlParagraphs);
+    if (n === 21) {
+      const overflowLine = "…and 1 more — manage shows from the dashboard: https://fxav.example/admin";
+      expect(batch.text).toContain(overflowLine);
+      expect(batch.html).toContain("and 1 more");
+    }
+  });
 });
 ```
 
@@ -258,7 +272,13 @@ export type AutoPublishUndoBatchInput = {
 export function renderAutoPublishUndoBatch(input: AutoPublishUndoBatchInput): RenderedEmail {
   const first = input.shows[0];
   if (input.shows.length === 1 && first) {
-    return renderAutoPublishUndo({ origin: input.origin, recipient: input.recipient, ...first });
+    return renderAutoPublishUndo({
+      origin: input.origin,
+      recipient: input.recipient,
+      // exactOptionalPropertyTypes: only pass now when supplied
+      ...(input.now ? { now: input.now } : {}),
+      ...first,
+    });
   }
   const now = input.now ?? new Date();
   const shown = input.shows.slice(0, BATCH_EMAIL_MAX_ITEMS);
@@ -393,6 +413,18 @@ describe("renderRealtimeProblemBatch (batching spec §2.4)", () => {
     expect(batch.html).toContain("Danger &lt;x&gt; &amp; Co");
     expect(batch.html).not.toContain("Danger <x>");
   });
+
+  test.each([2, 21])("text mirrors html paragraph-for-paragraph at N=%i (spec §2.4)", (n) => {
+    const members = Array.from({ length: n }, (_, i) => showMember(i + 1));
+    const batch = renderRealtimeProblemBatch("sync_problems", ORIGIN, members);
+    const htmlParagraphs = (batch.html.match(/<p>/g) ?? []).length;
+    expect(batch.text.split("\n\n")).toHaveLength(htmlParagraphs);
+    if (n === 21) {
+      const overflowLine = "…and 1 more — open the dashboard: https://fxav.example/admin";
+      expect(batch.text).toContain(overflowLine);
+      expect(batch.html).toContain("and 1 more");
+    }
+  });
 });
 ```
 
@@ -477,7 +509,9 @@ export function renderRealtimeProblemBatch(
 
 **Files:**
 - Modify: `lib/notify/deliver.ts`
-- Test: `tests/notify/deliverBatch.test.ts` (new); existing `tests/notify/deliver.test.ts`, `tests/notify/deliver-auto-publish-undo.test.ts` must stay green unmodified.
+- Test: `tests/notify/deliverBatch.test.ts` (new); existing `tests/notify/deliver.test.ts`, `tests/notify/deliver-auto-publish-undo.test.ts` keep every EXPECTATION unchanged. One mechanical harness addition is permitted in those two files at Task 6 (inject a shared fake lock client via `deps.lockSql`) — no assertion may change.
+
+**Empty-input fast path (pins the exact-shape contract at `tests/notify/deliver.test.ts:389-401`):** `deliverRealtimeCandidates` returns `{kind:"ok", sent:0, failed:0, skipped:0, retryLater:0}` (NO `lockSkipped` key — the existing test uses exact `toEqual`) immediately when `input.candidates.length === 0 || input.recipients.length === 0`, BEFORE constructing the work connection or (Task 6) the lock client. Non-contended passes likewise return `{kind:"ok", ...counts}` with no `lockSkipped` key; the key appears ONLY on the contended arm.
 
 **Interfaces:**
 - Consumes: `combinedDedupKey` (Task 1), batch templates (Tasks 3-4), existing helpers (`existingLedger`, `isRecipientActive`, `isCandidateCurrent`, `upsertSent`, `upsertFailed`, `contextFor`, `triggeredCode`, `showIdFor`).
@@ -495,7 +529,7 @@ Test list (each with the concrete assertion):
 2. **Per-member ledger rows share provider_message_id:** undo batch of 2 → `sentRows` records 2 inserts, both containing the same `messageId` value and each member's own `dedup_key`.
 3. **Mixed eligibility:** member A has ledger `sent`, member B fresh → send called once with B only (idempotency key = `baseKey(kind, "B-key", recipient)` — N=1 identity), counts `{sent:1, skipped:1}`.
 4. **Capped member drops out:** A failed at `SEND_RETRY_CAP` attempts, B fresh → batch = {B}; counts `{sent:1, skipped:1}`.
-5. **Batch failure → per-member failed rows + alerts:** batch of 2, send returns `{ok:false, kind:"provider_error", message:"boom"}` → 2 `failedRows`, `upsertAdminAlert` spy called twice with each member's `contextFor` recipe, counts `{failed:2}`.
+5. **Batch failure → per-member failed rows + alerts:** batch of 2, send returns `{ok:false, kind:"infra_error", message:"boom"}` (the real `SendResult` failed arm — `lib/notify/send.ts:13-17` allows only `idempotency_conflict` | `infra_error`) → 2 `failedRows`, `upsertAdminAlert` spy called twice with each member's `contextFor` recipe, counts `{failed:2}`.
 6. **Guard-suppressed failed write counts skipped:** batch of 2 fails; fakeSql returns `failedUpsertRows: []` (zero-row guard) for member A only → counts `{failed:1, skipped:1}`, exactly 1 alert.
 7. **retry_later:** counts `{retryLater: members.length}`, zero ledger writes.
 8. **Inactive recipient skips all candidates with ONE active check:** `active:false` → counts.skipped = candidates.length; assert the `admin_emails` select ran once for the recipient (fakeSql call count on that pattern).
@@ -754,7 +788,7 @@ Tests:
 1. **Contended lock skips everything:** `locked:false` → result `{kind:"ok", sent:0, failed:0, skipped:0, retryLater:0, lockSkipped:true}`, `send` never called, zero ledger writes.
 2. **Heartbeat cadence — one per attempted batch send:** 2 undo + 1 show candidate, 1 recipient → 2 batch sends → `heartbeatCount() === 2`.
 3. **Heartbeat failure aborts:** two groups pending, `heartbeatFailsAt: 2` → result `{kind:"infra_error"}`, `send` called exactly once (first batch), first batch's ledger rows persisted, second group untouched.
-4. **Structural single-holder pin:** walk `lib/` recursively (`fs.readdirSync` with `{recursive:true}`, filter `.ts`), assert `pg_try_advisory_xact_lock(hashtext('notify:realtime-delivery'` appears in EXACTLY one file (`lib/notify/deliver.ts`) exactly once, and that `pg_advisory_lock(hashtext('notify:realtime-delivery'`/`pg_advisory_unlock(hashtext('notify:realtime-delivery'` appear nowhere (fails-by-default if a second holder or a session-level variant lands anywhere in `lib/`).
+4. **Structural single-holder pin:** walk BOTH `lib/` (filter `.ts`) AND `supabase/` (filter `.sql`) recursively (`fs.readdirSync` with `{recursive:true}`), assert the substring `notify:realtime-delivery` appears in EXACTLY one scanned file (`lib/notify/deliver.ts`), that within it `pg_try_advisory_xact_lock(hashtext('notify:realtime-delivery'` appears exactly once, and that `pg_advisory_lock(`/`pg_advisory_unlock(` combined with the key appear nowhere in either tree (fails-by-default if a second holder — JS, RPC, or SECURITY DEFINER — or a session-level variant lands).
 
 `tests/notify/singleFlightLock-real-db.test.ts`:
 1. **Concurrency:** competing `postgres(DB_URL,{max:1})` connection runs `begin` + `select pg_try_advisory_xact_lock(hashtext('notify:realtime-delivery'))` (assert true) and HOLDS the tx open; then `deliverRealtimeCandidates` with one seeded candidate + recipient → `lockSkipped:true`, sendEmail spy not called; competitor commits.
@@ -762,14 +796,19 @@ Tests:
 
 - [ ] **Step 2: Verify fail** — `pnpm vitest run tests/notify/singleFlightLock.test.ts` (structural test fails: key absent from lib/).
 
-- [ ] **Step 3: Implement** — in `deliverRealtimeCandidates`:
+- [ ] **Step 3: Implement** — in `deliverRealtimeCandidates`, AFTER the empty-input fast path (so unit tests with empty inputs and the production zero-work case never construct a lock client):
 
 ```ts
+if (input.candidates.length === 0 || input.recipients.length === 0) {
+  return { kind: "ok", sent: 0, failed: 0, skipped: 0, retryLater: 0 };
+}
 const lockSql: LockClient =
   deps.lockSql ??
   (postgres(databaseUrl(), { max: 1, idle_timeout: 1, prepare: false }) as unknown as LockClient);
 const ownsLock = !deps.lockSql;
 ```
+
+**Existing-test harness addition (mechanical, no assertion changes):** export the Task 6 `fakeLockSql` from a small shared helper `tests/notify/fakeLockSql.ts`; in `tests/notify/deliver.test.ts` and `tests/notify/deliver-auto-publish-undo.test.ts`, add `lockSql: fakeLockSql().client` to every `deliverRealtimeCandidates` deps object that passes a fake `sql` with non-empty inputs (the empty-input test needs nothing — the fast path returns first). Every existing expectation stays byte-identical; if any assertion needs changing, the implementation is wrong.
 
 and wrap the pass:
 
