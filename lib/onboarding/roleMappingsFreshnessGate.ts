@@ -29,7 +29,7 @@ export async function assertRoleMappingsFresh(
   // $N::jsonb double-encode trap).
   const row = await queryOne<{ ok: boolean } | undefined>(
     `select public.role_mappings_stamp_satisfied($1::text::jsonb) as ok`,
-    [stamp == null ? null : JSON.stringify(stamp)],
+    [stamp == null ? null : JSON.stringify(stamp)], // jsonb-text-exempt: param is TEXT ($1::text::jsonb) — single serialization, the cast parses it; raw-value bind would double-encode under postgres.js
   );
   return row?.ok === true ? { ok: true } : { ok: false, code: "ROLE_MAPPINGS_OUTDATED_AT_PUBLISH" };
 }
