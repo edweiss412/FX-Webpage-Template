@@ -62,6 +62,10 @@ export const SETTINGS_SUBTITLE =
   "Anyone whose sheet role matches one of these gets the page you picked — on every show.";
 export const STANDARD_PAGE_CHIP = "Standard page only";
 export const EDIT_LABEL = "Edit what they see";
+// §9 edit-saved convergence confirmation (Codex R6 F4 — must NOT imply immediate
+// effect on live shows; each show picks the change up on its next sheet check).
+export const EDIT_SAVED_CONFIRM =
+  "Saved. Each show picks this up the next time it checks its sheet.";
 export const REMOVE_LABEL = "Remove";
 export const SAVE_CHANGES_LABEL = "Save changes";
 export const SAVING_CHANGES_LABEL = "Saving…";

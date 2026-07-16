@@ -67,6 +67,10 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
   // raw code). "stale" is a benign edit outcome (the row is gone) shown calm;
   // "error" is the generic infra failure shown in the warning treatment.
   const [notice, setNotice] = useState<"stale" | "error" | null>(null);
+  // Transient §9 convergence confirmation shown in the view state after a durable
+  // edit save. Cleared when the row re-enters edit/confirm (below) or is replaced by
+  // the next successful action's re-render.
+  const [savedConfirm, setSavedConfirm] = useState(false);
 
   // Focus management: when the inline edit panel opens, move focus to its heading
   // so keyboard/AT users land inside the freshly revealed controls.
@@ -77,11 +81,13 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
 
   const startEdit = () => {
     setNotice(null);
+    setSavedConfirm(false);
     setChecks(checksFromGrants(row.grants));
     setMode("edit");
   };
   const startConfirm = () => {
     setNotice(null);
+    setSavedConfirm(false);
     setMode("confirm");
   };
   const back = () => {
@@ -103,9 +109,12 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
     );
     setBusy(false);
     // On failure STAY in edit with the selections kept and a plain notice; only a
-    // durable success returns to the view (the revalidated re-render replaces us).
-    if (r.ok) setMode("view");
-    else setNotice(r.code === "stale" ? "stale" : "error");
+    // durable success returns to the view (the revalidated re-render replaces us) and
+    // shows the §9 convergence confirmation there.
+    if (r.ok) {
+      setSavedConfirm(true);
+      setMode("view");
+    } else setNotice(r.code === "stale" ? "stale" : "error");
   };
   const confirmRemove = async () => {
     setNotice(null);
@@ -165,6 +174,15 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
               {COPY.REMOVE_LABEL}
             </button>
           </div>
+          {savedConfirm ? (
+            <p
+              role="status"
+              data-testid="role-mapping-saved-confirm"
+              className="rounded-md border border-border bg-info-bg px-2.5 py-2 text-xs text-text-subtle"
+            >
+              {COPY.EDIT_SAVED_CONFIRM}
+            </p>
+          ) : null}
         </>
       ) : null}
 

@@ -157,6 +157,23 @@ describe("RoleMappingRow — edit", () => {
     expect(updateRoleTokenMapping).toHaveBeenCalledWith("DRONE OP", ["A1", "L1"]);
   });
 
+  it("successful edit → returns to view and shows the transient saved confirmation (role=status), cleared on re-edit", async () => {
+    vi.mocked(updateRoleTokenMapping).mockResolvedValue({ ok: true });
+    render(<RoleMappingRow row={row()} />);
+    fireEvent.click(screen.getByRole("button", { name: COPY.EDIT_LABEL }));
+    fireEvent.click(screen.getByRole("button", { name: COPY.SAVE_CHANGES_LABEL }));
+    // Convergence confirmation appears in the view state (async — poll per waitFor rule).
+    const confirm = await screen.findByTestId("role-mapping-saved-confirm");
+    await waitFor(() => expect(confirm).toHaveTextContent(COPY.EDIT_SAVED_CONFIRM));
+    expect(confirm).toHaveAttribute("role", "status");
+    // Back in view mode: the Edit action is present again and the checklist is gone.
+    expect(screen.getByRole("button", { name: COPY.EDIT_LABEL })).toBeInTheDocument();
+    expect(screen.queryByTestId("role-mapping-check-A1")).toBeNull();
+    // Re-entering edit clears the confirmation (transient).
+    fireEvent.click(screen.getByRole("button", { name: COPY.EDIT_LABEL }));
+    expect(screen.queryByTestId("role-mapping-saved-confirm")).toBeNull();
+  });
+
   it("shows the saving label while the edit is in flight", async () => {
     let resolve!: (v: { ok: true }) => void;
     vi.mocked(updateRoleTokenMapping).mockReturnValue(
