@@ -235,13 +235,17 @@ Today's flat `PerShowActionableWarnings` list dissolves. Each parsed section pan
 
 Server-action write paths unchanged; only render location moves. Rail chips show per-section warning counts and `sectionStatus` tint (flagged/judgment/clean) exactly as the modal does.
 
+### 5.3a Raw-unrecognized callout (published placement)
+
+`RawUnrecognizedCallout` renders OUTSIDE the `step3Sections` registry in the modal (`Step3ReviewModal.tsx:1313`) — extraction must not drop it. On the consolidated page it renders as `RawUnrecognizedCallout raw={sectionData.rawUnrecognized}` at the END of the section-panel column — after the last registry section (billing) and the `warnings` fallback section, BEFORE the Changes section — mirroring the modal's bottom-of-panel posture. It has no rail entry (same as the modal). Test: non-empty `shows_internal.raw_unrecognized` fixture renders the callout on the page; empty/null renders nothing (existing callout guard).
+
 ### 5.4 Changes (new rail section, last)
 
 `ChangesFeed` (`components/admin/ChangesFeed.tsx:35`) + `readShowChangeFeed` — relocated, not redesigned.
 
 ### 5.5 Crew section extras (published mode)
 
-Per-crew-member row gains the crew-scoped **Preview As** link (existing route `app/admin/show/[slug]/preview/[crewId]/page.tsx`). Roster read cap honored (`CREW_ROSTER_READ_CAP`, `app/admin/show/[slug]/crewLinkMailto.ts`).
+Per-crew-member row gains the crew-scoped **Preview As** link (existing route `app/admin/show/[slug]/preview/[crewId]/page.tsx`) — rendered ONLY when `show.published === true && show.archived === false`, preserving the current gate (`app/admin/show/[slug]/page.tsx:11` posture: preview/parse affordances gate on published && !archived). Unpublished or archived: no link; the row shows the existing unavailable treatment. Tests cover all three states (published, unpublished, archived). Roster read cap honored (`CREW_ROSTER_READ_CAP`, `app/admin/show/[slug]/crewLinkMailto.ts`).
 
 ## 6. Modes & edge cases
 
@@ -338,6 +342,8 @@ Fixture `shows` + `shows_internal` + `crew_members` rows → `SectionCore`; ever
 - Published agenda blocks test (§3.5): persisted `agenda_links` fixture with `extracted` payloads renders extraction blocks (not note-only rows) AND every fileId-backed href is `/api/asset/agenda/<show>/<fileId>` (never a Drive host).
 - Pagination boundary test (§3.3): child-table fixture larger than the batch constant survives pagination without loss/duplication/reorder.
 - Published no-staged-traffic test (§3.5): render all published sections; assert zero `/api/admin/onboarding/*` URLs in tree and zero fetches to those routes.
+- Raw-unrecognized page test (§5.3a): non-empty fixture renders the callout below the last section; empty renders nothing.
+- Preview As gate tests (§5.5): link present only for published && !archived; absent for unpublished and archived rows.
 
 ### 14.4 Plan-mandated audits (pre-implementation)
 
