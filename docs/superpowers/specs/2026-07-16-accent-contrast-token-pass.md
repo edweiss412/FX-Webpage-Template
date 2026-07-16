@@ -42,8 +42,10 @@ For the two EXISTING tokens, only the **light** block (`:root` defaults, `app/gl
 | Token | Line (pre-change) | Old | New | Resulting ratios (measured) |
 | --- | --- | --- | --- | --- |
 | `--color-accent-text-runtime` (light) | `app/globals.css:278` | `#ffffff` | `#0e0f12` | 8.23:1 on `#ff8c1a`; 6.53:1 on hover `#e67a0e` |
-| `--color-accent-on-bg-runtime` (light) | `app/globals.css:279` | `#c25e00` | `#b35600` | 4.73:1 on bg `#fafaf9`; 4.94:1 on surface `#ffffff`; 4.35:1 (≥3:1 graphical) on accent-tint `#feeede` |
+| `--color-accent-on-bg-runtime` (light) | `app/globals.css:279` | `#c25e00` | `#a65000` | 5.34:1 on bg `#fafaf9`; 5.57:1 on surface `#ffffff`; and — because REAL TEXT consumers sit on tinted fills (see below) — 4.92:1 on `bg-accent/10`-over-bg (`#fbefe3`), 4.74:1 on `bg-accent/15`-over-bg (`#fbead8`), 4.91:1 on accent-tint `#feeede`, 4.76:1 on stale-tint `#f4ece0`. Every pairing ≥4.5:1 text AA. (`#b35600` was evaluated and REJECTED: 4.73:1 on bg but 4.21–4.37:1 on the tinted text surfaces.) |
 | `--color-accent-edge-runtime` (NEW, all three blocks) | added beside the accent group | — | light `#7a3d00`, dark `#ffa047` (both dark blocks) | light: 3.61:1 vs track `#ff8c1a`, 8.06:1 vs bg, 8.42:1 vs surface. Dark value is decorative (see §4.1) |
+
+**Tinted-consumer audit (drives the `#a65000` choice):** `text-accent-on-bg` has ~40 consumers; most sit on `bg`/`surface`, but a grep-verified subset renders TEXT on tinted fills — `components/admin/wizard/step3ReviewSections.tsx:1590` (`bg-accent/10`), `components/crew/sections/TravelSection.tsx:596` (`bg-accent/15`, `text-[9px]` — 4.5:1 floor applies), and stale-tint chips (`--color-stale-tint` `#f4ece0`, e.g. `StagedReviewCard`/`ArchivedShowRow` surfaces — plan enumerates the full list). Repo-wide max accent alpha under text is `/15` (`bg-accent/6` at `step3ReviewSections.tsx:1577` is lighter). The plan re-runs this audit (`rg 'text-accent-on-bg'` × rendered background per site) and any consumer found on a background NOT in the §6.1 pinned set either gets its pairing pinned or is migrated to a passing pair — no unpinned text pairing ships.
 
 The new token REQUIRES both halves of the Tailwind v4 wiring (`app/globals.css` pattern at `:56-66`): the `@theme` alias `--color-accent-edge: var(--color-accent-edge-runtime);` (which is what makes the `border-accent-edge` utility exist) AND the three runtime-value blocks. Runtime values alone generate NO utility — the class string would be dead. Proven two ways in §6.
 
@@ -57,7 +59,7 @@ Knock-on consumers that inherit automatically (no per-surface edits): every `tex
 
 The shared toggle recipe `on ? "border-accent bg-accent" : "border-border-strong bg-surface-sunken"` changes to `on ? "border-accent-edge bg-accent" : "border-border-strong bg-surface-sunken"`, where `--color-accent-edge` is a NEW token whose sole job is the ON-state control boundary.
 
-**Why a dedicated token, and the dual-side requirement (WCAG 1.4.11):** a 1px border nested between the orange track and the page must clear ≥3:1 against BOTH adjacent colors, or it visually merges with one of them. `accent-on-bg` (`#b35600`) was evaluated and REJECTED for this role: 4.73:1 vs bg but only **2.12:1 vs the `#ff8c1a` track** — it would read as part of the track and the component boundary would remain the failing track-vs-bg pair. `--color-accent-edge` light `#7a3d00` measures **3.61:1 vs the track** and **8.06:1 vs bg / 8.42:1 vs surface** — the boundary passes on both sides. In dark mode the track itself IS the passing boundary (`#ff8c1a` vs `#0f1014` = 8.16:1; vs surface `#16171c` = 7.69:1), so the dark edge value `#ffa047` is decorative (a subtle lighter rim matching `accent-hover` dark) and carries no 1.4.11 load. Sites (verified identical recipe):
+**Why a dedicated token, and the dual-side requirement (WCAG 1.4.11):** a 1px border nested between the orange track and the page must clear ≥3:1 against BOTH adjacent colors, or it visually merges with one of them. `accent-on-bg` (`#a65000`) was evaluated and REJECTED for this role: 5.34:1 vs bg but only **2.39:1 vs the `#ff8c1a` track** — it would read as part of the track and the component boundary would remain the failing track-vs-bg pair. `--color-accent-edge` light `#7a3d00` measures **3.61:1 vs the track** and **8.06:1 vs bg / 8.42:1 vs surface** — the boundary passes on both sides. In dark mode the track itself IS the passing boundary (`#ff8c1a` vs `#0f1014` = 8.16:1; vs surface `#16171c` = 7.69:1), so the dark edge value `#ffa047` is decorative (a subtle lighter rim matching `accent-hover` dark) and carries no 1.4.11 load. Sites (verified identical recipe):
 
 - `components/admin/settings/NotifyToggle.tsx:134`
 - `components/admin/settings/AutoPublishToggle.tsx:126`
@@ -91,13 +93,13 @@ Every touched figure is corrected to the measured value (the numeric-sweep targe
 
 - **L31 (`--color-accent`)**: unchanged value; no figure.
 - **L33 (`--color-accent-text`)**: light hex `#FFFFFF` → `#0E0F12`; rationale rewritten — "near-black on orange in BOTH modes; 8.23:1 in each (same hex pair; the old dark-row 11.3:1 figure was itself a miscalculation). The former white-on-orange light pairing measured 2.33:1 (the 4.07:1 figure was a luminance miscalculation) and failed every WCAG tier."
-- **L34 (`--color-accent-on-bg`)**: light hex `#C25E00` → `#B35600`; figure 4.6:1 → 4.73:1 (AA body); the "brand #FF8C1A only hits 3.0:1" side-claim corrected to its measured 2.23:1, and the "fine for a 24px+ glyph" allowance is DELETED — 2.23:1 fails the 3:1 graphical floor too. Replacement wording: "raw `--color-accent` on light bg is decorative-only; it must be redundant with an adjacent text label or shape cue (the today-pin and DayCard dots qualify: both sit beside date/label text), and any load-bearing orange-as-text/glyph use must go through `--color-accent-on-bg`."
+- **L34 (`--color-accent-on-bg`)**: light hex `#C25E00` → `#A65000`; figure 4.6:1 → 5.34:1 (AA body, and ≥4.5:1 on every audited tinted text fill per §3); the "brand #FF8C1A only hits 3.0:1" side-claim corrected to its measured 2.23:1, and the "fine for a 24px+ glyph" allowance is DELETED — 2.23:1 fails the 3:1 graphical floor too. Replacement wording: "raw `--color-accent` on light bg is decorative-only; it must be redundant with an adjacent text label or shape cue (the today-pin and DayCard dots qualify: both sit beside date/label text), and any load-bearing orange-as-text/glyph use must go through `--color-accent-on-bg`."
 - **L41 (`--color-status-live`/`-text`)**: light `-text` hex updates to `#B35600` (alias follows accent-on-bg).
-- **L47 (`--color-accent-tint`)**: icon figure 3.8:1 → 4.35:1 (new accent-on-bg on tint).
+- **L47 (`--color-accent-tint`)**: icon figure 3.8:1 → 4.91:1 (new accent-on-bg on tint; now also passes the 4.5:1 TEXT floor, upgrading the tint from graphical-only).
 - **§1.2 table L57**: accent on bg "3.0:1" → measured 2.23:1, note reworded (AA-large claim removed; accent raw on light bg is decorative-only).
-- **§1.2 table L58**: light 4.6:1 → 4.73:1; dark 9.8:1 → 9.39:1 (also a stale figure; L34's dark "9.8:1" corrects to 9.39:1 in the same edit).
+- **§1.2 table L58**: light 4.6:1 → 5.34:1; dark 9.8:1 → 9.39:1 (also a stale figure; L34's dark "9.8:1" corrects to 9.39:1 in the same edit).
 - **§1.2 table L59**: 4.07:1 → 8.23:1, note "AA-large+bold" → "AAA-adjacent / AA body both modes".
-- **§1.2 table L70**: 3.8:1 → 4.35:1.
+- **§1.2 table L70**: 3.8:1 → 4.91:1.
 - New §1.1 row for `--color-accent-edge` (light `#7A3D00` / dark `#FFA047`): "ON-state control boundary (toggle track border). Light: 3.61:1 vs the orange track and 8.06:1 vs bg — passes WCAG 1.4.11 on both adjacent sides. Dark: decorative; the track itself clears 8.16:1 vs bg."
 - New §1.2 rows: `accent-edge` vs `accent` (3.61:1 light), `accent-edge` vs `bg` (8.06:1 light); `accent` vs `bg` dark (8.16:1) noted as the dark-mode toggle boundary.
 - §1.1 prose "primary CTAs" sentence gains: selected-filter segments are NOT an accent surface (inverted neutral is the selected-state recipe; accent is reserved for live/matters-now + CTAs).
@@ -112,6 +114,7 @@ All other figures in §1.1/§1.2 get a one-time verification sweep during implem
   1. `accent-text` on `accent` ≥ 4.5:1 (text floor; CTAs are body-size bold)
   2. `accent-text` on `accent-hover` ≥ 4.5:1
   3. `accent-on-bg` on `bg` AND on `surface` ≥ 4.5:1 (the backlog-prescribed row)
+  3b. `accent-on-bg` AS TEXT on every audited tinted fill ≥ 4.5:1, computed with an alpha-blend helper in the test: on `accent`@0.10-over-`bg`, `accent`@0.15-over-`bg`, on `accent-tint`, and on `stale-tint` — BOTH modes (dark side computes the same composites over the dark `bg`)
   4. Toggle boundary, light mode: `accent-edge` vs `accent` ≥ 3:1 AND `accent-edge` vs `bg` ≥ 3:1 AND `accent-edge` vs `surface` ≥ 3:1 (every adjacent pair the 1px border touches)
   5. Toggle boundary, dark mode: `accent` (track) vs `bg` ≥ 3:1 AND vs `surface` ≥ 3:1 (the track itself is the boundary; the dark edge value is decorative and un-pinned)
   6. Token WIRING (not just values): the `@theme` block contains `--color-accent-edge: var(--color-accent-edge-runtime)` — pinned by the same source-scan mechanism the file already uses (a runtime value without its `@theme` alias is a dead token).
@@ -155,11 +158,12 @@ The token rows fail TODAY against the old values (2.33 < 4.5, 4.11 < 4.5, 2.23 <
 | --- | --- | --- | --- |
 | CTA text | `#0e0f12` on `#ff8c1a` | 8.23 | 4.5 |
 | CTA hover | `#0e0f12` on `#e67a0e` | 6.53 | 4.5 |
-| Links/emphasis | `#b35600` on `#fafaf9` | 4.73 | 4.5 |
-| Links on surface | `#b35600` on `#ffffff` | 4.94 | 4.5 |
+| Links/emphasis | `#a65000` on `#fafaf9` | 5.34 | 4.5 |
+| Links on surface | `#a65000` on `#ffffff` | 5.57 | 4.5 |
+| Tinted chips (text) | `#a65000` on `bg-accent/15`-over-bg | 4.74 | 4.5 |
 | Toggle ON border vs page | `#7a3d00` vs `#fafaf9` / `#ffffff` | 8.06 / 8.42 | 3.0 |
 | Toggle ON border vs track | `#7a3d00` vs `#ff8c1a` | 3.61 | 3.0 |
-| Bell info icon | `#b35600` on `#feeede` | 4.35 | 3.0 |
+| Bell info icon | `#a65000` on `#feeede` | 4.91 | 3.0 (clears 4.5 text too) |
 | Eyebrows | `#5a5b62` on `#fafaf9`-family | ≥6.09 | 4.5 |
 | Selected filter | `#fafaf9` on `#1a1b1f` | 16.47 | 4.5 |
 | requestId chip | `#5a5b62` on `#f4f3f1` | 6.09 | 4.5 |
