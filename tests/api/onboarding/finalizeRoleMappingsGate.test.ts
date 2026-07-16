@@ -28,6 +28,13 @@ import {
 
 afterEach(() => resetLogSink());
 
+// Recoverable staleness, not an infra fault: the shared per-row severity map must classify the
+// gate refusal as warn (only DRIVE_FETCH_FAILED is error) — pins the default branch.
+test("severityForFinalizeRowCode(ROLE_MAPPINGS_OUTDATED_AT_PUBLISH) → warn", async () => {
+  const { severityForFinalizeRowCode } = await import("@/lib/onboarding/finalizeRowSeverity");
+  expect(severityForFinalizeRowCode("ROLE_MAPPINGS_OUTDATED_AT_PUBLISH")).toBe("warn");
+});
+
 const TOKEN = "NEWROLE";
 const STAMP = [{ token: TOKEN, grants: ["A1"] }];
 

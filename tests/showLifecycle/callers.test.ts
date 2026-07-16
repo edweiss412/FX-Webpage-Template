@@ -49,6 +49,19 @@ describe("lifecycle callers — default RPC binding (R-impl-1)", () => {
 });
 
 describe("lifecycle callers", () => {
+  // Publish freshness gate (staging-overlay spec 2026-07-16 §3.5 call site 3 / R15 F1): the
+  // RPC's RAISE must map to the cataloged business refusal, NEVER infra_error — an unlisted
+  // KNOWN message silently degrades every gate refusal into a generic failure toast.
+  it("publishShow maps ROLE_MAPPINGS_OUTDATED_AT_PUBLISH to the typed business refusal, never infra_error", async () => {
+    const { publishShow } = await import("@/lib/showLifecycle/publishShow");
+    const rpc = vi.fn(async () => ({
+      data: null,
+      error: { message: "ROLE_MAPPINGS_OUTDATED_AT_PUBLISH" },
+    }));
+    const result = await publishShow("00000000-0000-4000-8000-000000000001", { rpc });
+    expect(result).toEqual({ ok: false, code: "ROLE_MAPPINGS_OUTDATED_AT_PUBLISH" });
+  });
+
   it("archiveShow returns {ok:true} on RPC success", async () => {
     const rpc = vi.fn().mockResolvedValue({ data: null, error: null });
     const res = await archiveShow("show-1", { rpc });
