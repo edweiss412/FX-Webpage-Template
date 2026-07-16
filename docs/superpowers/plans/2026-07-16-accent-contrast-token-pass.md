@@ -401,6 +401,15 @@ describe("META raw accent text ban (spec 2026-07-16 §4.4a)", () => {
     expect(bannedToken("md:hover:text-accent")).toBe(true);
     expect(bannedToken("focus:text-accent-hover")).toBe(true);
     expect(bannedToken("text-accent-hover")).toBe(true);
+    // Bracketed arbitrary variants — naive ":"-split is SOUND for exact
+    // final-utility equality: a colon inside a variant bracket only splits
+    // PREFIX segments; the final segment still equals the utility. A colon
+    // inside a bracketed VALUE leaves "]" in the segment, which can never
+    // equal the exact banned strings.
+    expect(bannedToken("data-[state=open]:text-accent")).toBe(true);
+    expect(bannedToken("[&:hover]:text-accent")).toBe(true);
+    expect(bannedToken("data-[a:b]:text-accent")).toBe(true);
+    expect(bannedToken("text-[color:red]")).toBe(false);
     expect(bannedToken("text-accent-on-bg")).toBe(false);
     expect(bannedToken("bg-accent-hover")).toBe(false);
     expect(bannedToken("hover:text-accent-on-bg")).toBe(false);
@@ -560,7 +569,26 @@ describe("META bg-accent per-occurrence disposition registry (spec §4.1b)", () 
 });
 ```
 
-**Generation order (canonical-first, spec §4.1b):** (a) AFTER the Task 3–6 class edits land, run the scanner logic (or the equivalent `rg -nP` one-liner) against the ACTUAL tree and capture hits; (b) build `REGISTRY` from those captured hits, assigning dispositions from the spec table (the listing above is the expected outcome — indexes like `AutoRefreshControl` ping=0/dot=1/track=2 must be CONFIRMED against the capture, not assumed); (c) prove the fail-by-default property both ways before committing: temporarily append one unregistered `bg-accent` to any component → test fails UNREGISTERED; temporarily add a bogus registry row → test fails STALE REGISTRY ROW; revert both. Never reconcile by loosening the matcher.
+**Generation order (canonical-first, spec §4.1b) — the REGISTRY block above is EXPECTED OUTPUT for review comparison, never a paste source:** (a) AFTER the Task 3–6 class edits land, RUN the generator and capture actual rows:
+
+```bash
+node -e '
+const { readdirSync, readFileSync, statSync } = require("node:fs");
+const { join } = require("node:path");
+const walk = (d) => readdirSync(d).flatMap((e) => { const p = join(d, e);
+  return statSync(p).isDirectory() ? walk(p) : /\.tsx?$/.test(e) ? [p] : []; });
+const strip = (s) => s.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
+const isHit = (t) => { const p = t.split(":"); return p[p.length - 1].replace(/^!/, "") === "bg-accent"; };
+for (const root of ["components", "app"]) for (const f of walk(root)) {
+  let n = 0;
+  strip(readFileSync(f, "utf8")).split("\n").forEach((line, i) => {
+    for (const tok of line.split(/[\s"'"'"'`{}$]+/)) if (isHit(tok))
+      console.log(`${f}\tindex=${n++}\tline=${i + 1}\t${line.trim().slice(0, 80)}`);
+  });
+}'
+```
+
+(b) build `REGISTRY` by pasting the GENERATED rows and assigning each a disposition from the spec §4.1b table; (c) DIFF the generated registry against the expected block above — investigate any delta (tree moved, missed edit) before proceeding; (d) prove fail-by-default both ways before committing: temporarily append one unregistered `bg-accent` to any component → test fails UNREGISTERED; temporarily add a bogus registry row → test fails STALE REGISTRY ROW; revert both. Never reconcile by loosening the matcher.
 
 - [ ] **Step 4: Run** — PASS with exact reconciliation (post-change: EventFilters/BellPanel/RightNowHero rows must NOT be present; if the scan still finds them the earlier edits are wrong).
 - [ ] **Step 5: Commit** — `feat: bg-accent per-occurrence disposition registry; darken Bell pip + RightNow active segment to accent-on-bg`
