@@ -193,6 +193,7 @@ const ROWS: Array<[string, RegExp, number]> = [
   // one regex, both captures, cannot match neighboring prose.
   ["accent-edge vs track (§1.1 new row)", /Light: accent-edge is ([\d.]+):1 vs the orange track and [\d.]+:1 vs bg/, contrast(L("--color-accent-edge-runtime"), L("--color-accent-runtime"))],
   ["accent-edge vs bg (§1.1 new row)", /Light: accent-edge is [\d.]+:1 vs the orange track and ([\d.]+):1 vs bg/, contrast(L("--color-accent-edge-runtime"), L("--color-bg-runtime"))],
+  ["dark track boundary note (accent-edge §1.1 row)", /the track itself clears ([\d.]+):1 vs bg/, contrast(D("--color-accent-runtime"), D("--color-bg-runtime"))],
 ];
 
 // L41 status-live-text carries no ratio figure of its own (its rationale says
@@ -218,8 +219,13 @@ const TABLE_ROWS: Array<[string, string, number, number]> = [
 ];
 // NOTE: the new §1.2 accent-edge rows must therefore carry BOTH light and dark
 // figures (dark values are real ratios even though decorative — document them).
-// KNOWN_UNPINNED is now empty; keep the array + assertion as the future escape hatch.
-const KNOWN_UNPINNED: Array<[string, string]> = [];
+// Historical figures quoted in the corrected prose (the OLD 2.33:1 / 4.07:1 /
+// 11.3:1 values, named explicitly AS miscalculations) are not current claims
+// about live tokens — listed here so the "every touched figure" bar is met
+// with an explicit reason rather than silence.
+const KNOWN_UNPINNED: Array<[string, string]> = [
+  ["2.33:1 / 4.07:1 / 11.3:1 in L33 prose", "historical values quoted as documentation of the corrected miscalculation — not claims about live tokens"],
+];
 
 describe("DESIGN.md figure parity (touched rows)", () => {
   for (const [label, re, computed] of ROWS) {
@@ -249,7 +255,7 @@ describe("DESIGN.md figure parity (touched rows)", () => {
   - L34: light hex `#C25E00` → `#A65000`; "reaches 4.6:1" → "reaches 5.34:1 (AA body; ≥4.5:1 on every audited tinted text fill — accent/10, accent/15, accent-tint, stale-tint)"; "only hits 3.0:1 on light bg — fine for a 24px+ 'today' pin glyph but NOT for body links" → "only hits 2.23:1 on light bg — decorative-only, never load-bearing"; "Dark `#FFA047` on `#0F1014` = 9.8:1" → "= 9.39:1".
   - New row after L34 (EXACT phrase — the parity regex anchors on it): `--color-accent-edge` | `#7A3D00` | `#FFA047` | "ON-state control boundary (toggle track border, active step pill). Light: accent-edge is 3.61:1 vs the orange track and 8.06:1 vs bg — WCAG 1.4.11 passes on both adjacent sides. Dark: decorative; the track itself clears 8.16:1 vs bg."
   - L41 (status-live row): light `-text` hex `#C25E00` → `#A65000`.
-  - L47: "graphical, ≥3:1" figure "3.8:1" → "4.91:1" and drop the "only reaches ~3.8:1 as text" clause → "(and now also clears the 4.5:1 text floor at 4.91:1; the pill number stays `--color-text-strong` for hierarchy, not necessity)".
+  - L47: rewrite the clause KEEPING the exact parseable shape the parity regex anchors on — "The info icon on it uses `--color-accent-on-bg` (graphical, 4.91:1; also clears the 4.5:1 text floor)" — and replace the "only reaches ~3.8:1 as text" clause with "the pill number stays `--color-text-strong` for hierarchy, not necessity".
   - §1.2 L57: `3.0:1` → `2.23:1`, note → "decorative-only — use `--color-accent-on-bg` for any load-bearing text/glyph".
   - §1.2 L58: `4.6:1` → `5.34:1`; `9.8:1` → `9.39:1`.
   - §1.2 L59: `4.07:1` → `8.23:1` / `11.3:1` → `8.23:1`, note → "AA body both modes (same pair)".
@@ -337,7 +343,7 @@ test("ON toggle border is the accent-edge token and geometry invariants hold", a
 - Modify: `components/admin/wizard/step3ReviewSections.tsx:392` (const), `:950`, `:990` (hard-coded venue/dock eyebrows), `components/admin/wizard/VenueMapTile.tsx:52`
 - Test: assertions land in `tests/styles/_metaRawAccentText.test.ts` (created Task 5) — so HERE: extend `tests/components/admin/wizard/step3ReviewSections.test.tsx` with class assertions first.
 
-- [ ] **Step 1: Failing assertions** in `step3ReviewSections.test.tsx`: eyebrow elements (query by the rendered label text, e.g. "Venue", "Loading dock", scoped to their container per anti-tautology) have class `text-text-subtle`, not `text-text-faint`. Run: FAIL.
+- [ ] **Step 1: Failing assertions** in `step3ReviewSections.test.tsx`: eyebrow elements (query by the rendered label text, e.g. "Venue", "Loading dock", scoped to their container per anti-tautology) have class `text-text-subtle`, not `text-text-faint`. PLUS a red-first assertion for `VenueMapTile`: locate its existing test (grep `VenueMapTile` under `tests/`; if none, create a minimal render test) asserting the "map" badge element's className contains `text-text-subtle` and not `text-text-faint`. Run: FAIL (all sites red before any edit).
 - [ ] **Step 2: Edits:** `CELL_EYEBROW_CLASS` → `"text-[10px] font-semibold uppercase tracking-eyebrow text-text-subtle"`; the two hard-coded literals at `:950`/`:990` → replace the whole literal with `{CELL_EYEBROW_CLASS}` (re-unify); `VenueMapTile.tsx:52` `text-text-faint` → `text-text-subtle`.
 - [ ] **Step 3: Green** + re-run the wizard component test files + `rg 'text-\[10px\][^"]*text-text-faint|text-text-faint[^"]*text-\[10px\]' components/ app/` → expect ZERO hits.
 - [ ] **Step 4: Commit** — `fix(admin): Stage-3 eyebrows + map badge to text-subtle (AA at 10px)`
@@ -454,6 +460,8 @@ describe("META raw accent text ban (spec 2026-07-16 §4.4a)", () => {
 - [ ] **Step 5: Commit** — `fix: migrate raw accent text states to accent-on-bg; delete sub-AA hover shifts; add structural ban`
 
 ### Task 6: bg-accent inventory meta-test + B4 darkened fills + Bell pip / RightNow segment
+
+> **ORDERING (plan R7):** Execute AFTER Task 7 (TEL-1 re-tones `EventFilters.tsx:90`, which must have LEFT the scan before the registry generates, or the generator reports an unregistered EventFilters hit). Task numbering kept for diff stability; execution order is 1→2→3→4→5→**7**→**6**→8→9.
 
 **Files:**
 - Create: `tests/styles/_metaBgAccentInventory.test.ts`
