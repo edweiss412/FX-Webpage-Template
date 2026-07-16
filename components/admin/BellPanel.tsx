@@ -289,7 +289,7 @@ function ActiveRow({
           <span className="absolute -right-0.5 -top-0.5 inline-flex size-2">
             <span
               data-testid={`bell-unread-dot-${entry.alertId}`}
-              className={`size-2 rounded-full bg-accent ring-2 ring-surface motion-safe:transition-opacity motion-safe:duration-fast ${
+              className={`size-2 rounded-full bg-accent-on-bg ring-2 ring-surface motion-safe:transition-opacity motion-safe:duration-fast ${
                 dotVisible ? "opacity-100" : "opacity-0"
               }`}
             />

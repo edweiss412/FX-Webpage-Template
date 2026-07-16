@@ -553,7 +553,10 @@ export function RightNowHero({ context }: RightNowHeroProps) {
                     aria-hidden="true"
                     className={[
                       "h-1.5 flex-1 rounded-pill",
-                      active ? "bg-accent" : "bg-border",
+                      // Load-bearing graphical indicator (role="img" show-day
+                      // progress): darkened accent-on-bg clears 3:1 vs bg AND
+                      // vs the inactive segments (spec 2026-07-16 §4.1b B4).
+                      active ? "bg-accent-on-bg" : "bg-border",
                     ].join(" ")}
                   />
                 );
