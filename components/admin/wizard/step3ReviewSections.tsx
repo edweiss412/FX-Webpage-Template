@@ -532,6 +532,10 @@ function SectionFlagCallout({
   const decisionFor = (w: ParseWarning): UseRawDecision | undefined =>
     findUseRawDecision(w, useRawDecisions);
   const shown = entries.slice(0, CALLOUT_MAX_ENTRIES);
+  // spec 2026-07-16 §4.3.1 (class-sweep): identity keys, not full-array indices —
+  // an upstream insertion shifts every index and would migrate expanded role-panel
+  // state across warnings. Positional within `shown`; onJump keeps the full index.
+  const entryKeys = stableWarningKeys(shown.map((e) => e.warning));
   const extra = entries.length - shown.length;
   const isJudgment = variant === "judgment";
   const EntryIcon = isJudgment ? Info : AlertTriangle;
@@ -553,14 +557,14 @@ function SectionFlagCallout({
           We made a judgment call reading this. Worth a glance.
         </p>
       ) : null}
-      {shown.map(({ warning, index }) => {
+      {shown.map(({ warning, index }, k) => {
         const title = reviewWarningTitle(warning); // §8 hardening applies transitively
         // Entry text names the specific field when the warning carries one
         // (spec §7.3): "<title> (dimensions)". Unknown/empty field → omit the
         // phrase (fieldLabelFor returns null); raw tokens never leak (invariant 5).
         const fieldLabel = fieldLabelFor(warning.blockRef?.field);
         return (
-          <div key={index} className="flex flex-col gap-0.5">
+          <div key={entryKeys[k]} className="flex flex-col gap-0.5">
             <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
               <EntryIcon aria-hidden="true" className="size-3.5 shrink-0" />
               <span className="min-w-0 wrap-break-word font-medium">

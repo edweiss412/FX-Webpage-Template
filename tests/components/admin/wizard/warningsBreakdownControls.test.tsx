@@ -35,9 +35,11 @@ vi.mock("@/app/admin/settings/_actions/roleTokenMappings", () => ({
 }));
 
 import {
+  BreakdownSection,
   CALLOUT_MAX_ENTRIES,
   findUseRawDecision,
   step3Sections,
+  Step3SectionChromeContext,
   WarningsBreakdown,
   type SectionData,
 } from "@/components/admin/wizard/step3ReviewSections";
@@ -253,5 +255,65 @@ describe("WarningsBreakdown per-row controls (spec §4.1-§4.3, §4.5)", () => {
     // …and did NOT migrate to the inserted warning now at index 1.
     const inserted = q.getByTestId(`wizard-step3-card-${DFID}-warning-1`);
     expect(within(inserted).queryByTestId("role-recognize-panel")).toBeNull();
+  });
+});
+
+describe("SectionFlagCallout identity keys (spec §4.3.1 class-sweep)", () => {
+  // Public-surface mount: the callout renders via ModalSectionChrome when the
+  // chrome context carries calloutEntries (step3ReviewSections.tsx ~:715).
+  function chromeValue(entries: { warning: ParseWarning; index: number }[]) {
+    return {
+      Icon: (() => null) as never,
+      label: "Crew",
+      flagged: true,
+      sectionId: "crew" as const,
+      dfid: DFID,
+      calloutEntries: entries,
+      onJumpToWarning: () => {},
+      wizardSessionId: WSID,
+      useRawDecisions: [],
+    };
+  }
+  function calloutHost(entries: { warning: ParseWarning; index: number }[]) {
+    return (
+      <Step3SectionChromeContext.Provider value={chromeValue(entries)}>
+        <BreakdownSection testId="callout-host" label="Crew" count={null}>
+          <p>body</p>
+        </BreakdownSection>
+      </Step3SectionChromeContext.Provider>
+    );
+  }
+
+  test("expanded role-panel state follows the warning identity when full-array indices shift", () => {
+    const role = roleWarning("SLED DRIVER");
+    const other = roleWarning("RIGGER X");
+    const q = render(
+      calloutHost([
+        { warning: role, index: 4 },
+        { warning: other, index: 5 },
+      ]),
+    );
+    const callout = q.getByTestId(`wizard-step3-card-${DFID}-section-crew-flag-callout`);
+    // Expand the FIRST entry's role panel (belongs to `role`).
+    fireEvent.click(within(callout).getAllByTestId("role-recognize-trigger")[0]!);
+    expect(within(callout).getAllByTestId("role-recognize-panel")).toHaveLength(1);
+
+    // Upstream insertion shifts every full-array index AND swaps the entry
+    // order: `role` (whose panel is open) moves from entry 0 to entry 1.
+    // Identity keys must carry the open panel with `role`; index keys would
+    // leave it on whatever warning now sits at entry 0.
+    q.rerender(
+      calloutHost([
+        { warning: other, index: 7 },
+        { warning: role, index: 8 },
+      ]),
+    );
+    const calloutAfter = q.getByTestId(`wizard-step3-card-${DFID}-section-crew-flag-callout`);
+    const panels = within(calloutAfter).getAllByTestId("role-recognize-panel");
+    expect(panels).toHaveLength(1);
+    // Locate by durable identity (the entry containing role's token), not index.
+    const panelEntry = panels[0]!.closest("div.flex.flex-col");
+    expect(panelEntry?.textContent).toContain("SLED DRIVER");
+    expect(panelEntry?.textContent).not.toContain("RIGGER X");
   });
 });
