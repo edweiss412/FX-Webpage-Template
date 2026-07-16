@@ -48,13 +48,6 @@ A file `drive_file_id = F` is **wizard-owned** iff:
 - `app_settings.pending_wizard_session_id` is non-null (call it `S`;
   single-row settings table, columns at
   `supabase/migrations/20260501001000_internal_and_admin.sql:243-244`), AND
-- the session is **not stale**. Stale is a strict older-than, exactly mirroring
-  the `sessionLifecycle.ts` contract (`pending_wizard_session_at < now() -
-  interval '24 hours'` at `lib/onboarding/sessionLifecycle.ts:355`, `:388`,
-  `:430`): the session is active iff `pending_wizard_session_at >= now - 24h`
-  (a timestamp exactly 24h old is still ACTIVE — the boundary releases only
-  strictly past it, so the gate never releases ownership while sessionLifecycle
-  still treats the session as not stale), AND
 - at least one wizard-partition row exists for `(F, S)` in any of:
   - `pending_syncs` (staged preview awaiting step-3 review),
   - `pending_ingestions` (wizard hard-fail awaiting a sheet fix),
@@ -72,16 +65,44 @@ shows immediately, even while the wizard tab stays open. Manifest membership
 would hold ownership until session teardown and could freeze live-show syncing
 for up to the 24h reap on an abandoned session.
 
+**No gate-side staleness clock (R2 amendment).** The gate deliberately does
+NOT re-derive session staleness. The lifecycle's real staleness contract is a
+six-table freshest-activity aggregate
+(`lib/onboarding/sessionLifecycle.ts:808-820` — greatest of checkpoint
+`last_processed_at`, `shows_pending_changes.staged_at`, `pending_syncs`
+`parsed_at`/`wizard_approved_at`, manifest `observed_at`/`transitioned_at`,
+`pending_ingestions` `first_seen_at`/`last_attempt_at`,
+`deferred_ingestions.deferred_at`), and same-folder rescans reuse the session
+WITHOUT refreshing `pending_wizard_session_at`
+(`app/api/admin/onboarding/scan/route.ts:177-189`, `isMint` ternary at
+`:189`). Any simpler gate-side clock (e.g. `pending_wizard_session_at` alone)
+diverges from that contract and can release ownership while the session is
+still active — reopening the hijack (adversarial R2 finding 1). The session
+reap (`reapStaleOnboardingSessions`, admin-triggered via
+`app/api/admin/onboarding/reap-stale-sessions/route.ts` and
+`components/admin/ReapStaleSessionsButton.tsx`) is the SINGLE staleness
+authority: it deletes the session's wizard-partition rows, which releases
+ownership here as a side effect.
+
+**Abandoned-session wedge scope (accepted):** if a wizard session is abandoned
+and never reaped, its owned files stay cron-skipped indefinitely. Bounded and
+accepted because (a) only files the admin deliberately staged in the wizard are
+affected, (b) every skip writes an operator-visible `sync_log` row
+(`skipped:wizard_owned`), (c) any subsequent setup scan purges or supersedes
+the session's rows (`app/api/admin/onboarding/scan/route.ts:197-199`,
+`lib/sync/runOnboardingScan.ts:574-581`), and (d) the reap button exists
+precisely for this. A wedged cron sync is strictly safer than the alternative
+this spec fixes (cron publishing wizard-staged shows).
+
 ### 2.2 Guard-condition table (per input)
 
 | Input state | Behavior |
 | --- | --- |
 | `pending_wizard_session_id` null (steady state) | No ownership reads beyond the single `app_settings` select; gate proceeds to existing checks. |
-| `pending_wizard_session_id` set, `pending_wizard_session_at` null | Treated as **active** (fail-safe toward protecting the wizard). Cannot occur via current writers — id and at are always set together (`lib/onboarding/sessionLifecycle.ts:323-324`, `:350-351`, `:645-646`; `app/api/admin/onboarding/scan/route.ts:184-189`) and cleared together (`app/api/admin/onboarding/finalize-cas/route.ts:682-683`). |
-| Session set but stale (strictly older than 24h) | Not active → gate proceeds. The session reap owns cleanup; cron must not stay wedged behind an abandoned session. |
+| `pending_wizard_session_id` set | Session treated as active — no gate-side staleness derivation (§2.1 "No gate-side staleness clock"). `pending_wizard_session_at` is NOT read by the gate. |
 | `app_settings` `'default'` singleton row ABSENT | `SyncInfraError` (fail-loud). A missing singleton is a corrupted install, not "no session" — a benign no-session read would fail open and reopen the hijack path. Mirrors `lib/onboarding/sessionLifecycle.ts:331-334` (`OnboardingSessionInfraError` on missing default row). |
-| Session active, no wizard row for `F` | Not owned → gate proceeds. Files the wizard didn't stage (e.g. non-sheet files, files added to Drive mid-session and not yet scanned) keep today's behavior. |
-| Session active, wizard row for `F` in any of the three tables | `{ outcome: "skip", reason: "wizard_owned" }`. |
+| Session set, no wizard row for `F` | Not owned → gate proceeds. Files the wizard didn't stage (e.g. non-sheet files, files added to Drive mid-session and not yet scanned) keep today's behavior. |
+| Session set, wizard row for `F` in any of the three tables (matching `wizard_session_id = S` only — a row from a DIFFERENT session never matches) | `{ outcome: "skip", reason: "wizard_owned" }`. |
 | `app_settings` / ownership read returns or throws an error | `SyncInfraError` (fail-loud, retried next tick) — never a silent proceed or silent skip. Same contract as the existing gate reads (`lib/sync/perFileProcessor.ts:24-36`, registry row `tests/sync/_metaInfraContract.test.ts:17-20`). |
 | Non-automatic mode (`manual` / `onboarding_scan`) | Gate already returns `proceed` before any reads (`perFileProcessor.ts:170-172`); unchanged. |
 
@@ -114,17 +135,12 @@ Inside `perFileProcessor`, after the live-deferral check (`:175-183`) and
 
 ### 2.5 Reads and clock
 
-- One `app_settings` select per gated file
-  (`pending_wizard_session_id, pending_wizard_session_at`), then — only when a
-  session is active — up to three existence probes (`select drive_file_id …
-  .eq("drive_file_id", F).eq("wizard_session_id", S).limit(1).maybeSingle()`
-  shape, matching the existing gate-read helpers). Steady-state overhead:
-  +1 read per file per tick; wizard-active overhead: +4.
-- Staleness is compared **JS-side** (`Date.now()` vs the parsed
-  `pending_wizard_session_at`), consistent with the gate's existing JS-side
-  timestamp comparisons (`timestampMs` / `isAfter`,
-  `lib/sync/perFileProcessor.ts:60-78`). Clock drift between app and DB is
-  bounded by minutes against a 24-hour window — accepted.
+- One `app_settings` select per gated file (`pending_wizard_session_id`
+  only), then — only when a session is pending — up to three existence probes
+  (`select drive_file_id … .eq("drive_file_id", F).eq("wizard_session_id",
+  S).limit(1).maybeSingle()` shape, matching the existing gate-read helpers).
+  Steady-state overhead: +1 read per file per tick; wizard-active overhead:
+  +4. No timestamp is read or parsed (§2.1 — no gate-side staleness clock).
 
 ### 2.6 Single guard layer (no defense-in-depth duplicate)
 
@@ -181,28 +197,25 @@ and `pending_ingestions`):
    `pending_wizard_session_id` → proceeds to watermark logic; asserts NO
    ownership-probe queries were issued (failure mode: steady-state read
    amplification / accidental skip).
-4. **Not owned: stale session** — `pending_wizard_session_at` 25h old →
-   proceeds (failure mode: abandoned session wedges cron for good).
-5. **Not owned: rows belong to a different session** — wizard rows with a
+4. **Not owned: rows belong to a different session** — wizard rows with a
    non-matching `wizard_session_id` → proceeds (failure mode: stale sibling
    session freezing cron).
-6. **Boundary: `pending_wizard_session_at` null with id set** → treated
-   active → skip (fail-safe branch).
-7. **Live-deferral priority** — file both live-deferred (`permanent_ignore`)
+5. **Live-deferral priority** — file both live-deferred (`permanent_ignore`)
    and wizard-owned → reason stays `deferred_permanent` (ordering pin).
-7b. **Ownership beats watermark (ordering pin)** — file wizard-owned AND
+6. **Ownership beats watermark (ordering pin)** — file wizard-owned AND
    watermark-skippable (a `shows` row whose `last_seen_modified_time` is at or
    after `fileMeta.modifiedTime`) → reason is `wizard_owned`, NOT `watermark`
    (failure mode: an implementation that places the ownership check after the
    watermark reads passes the incident-shape tests but loses the ordering /
    operator-visibility contract of §2.3).
-7c. **Stale boundary is strict** — `pending_wizard_session_at` exactly 24h old
-   (relative to the fixed test clock) → still ACTIVE → skip; strictly older →
-   proceeds (failure mode: a `>=`-stale JS boundary releasing ownership while
-   `sessionLifecycle` still treats the session as not stale).
-7d. **Missing `app_settings` singleton** — empty `app_settings` table →
+7. **Missing `app_settings` singleton** — empty `app_settings` table →
    rejects with `SyncInfraError` (failure mode: corrupted install failing open
    into the hijack path).
+8. **Push mode is gated too** — `perFileProcessor(F, "push", meta)` with an
+   owned row → `{ outcome: "skip", reason: "wizard_owned" }` (failure mode:
+   an implementation gating only cron leaves the webhook path able to process
+   wizard-owned files whenever the push duplicate-preflight proceeds,
+   `lib/sync/runPushSyncForShow.ts:283-303`).
 8. **Infra contract** — extend the behavioral cases in
    `tests/sync/_metaInfraContract.test.ts:496-511`: returned-error and
    thrown-error on the `app_settings` read and on an ownership probe each
@@ -227,13 +240,18 @@ relative to a fixed `nowMs`), never hardcoded date literals.
 - `tests/sync/_partitionScopeContract.test.ts` — **extended** (mandatory).
   Its first test (`:17-24`) pins `perFileProcessor`'s `pending_syncs` SELECT
   as live-scoped via a first-occurrence `indexOf` — too weak once the file
-  gains a second, wizard-scoped `pending_syncs` read. Extend it to pin the
-  DUAL topology: enumerate every `.from("pending_syncs")` occurrence in
-  `lib/sync/perFileProcessor.ts`; assert the expected count (2) and that each
-  is followed (within its own builder chain) by exactly one of
-  `.is("wizard_session_id", null)` (the live watermark read) or
-  `.eq("wizard_session_id", <session>)` (the ownership probe). An unscoped
-  probe (neither filter) must fail the meta-test.
+  gains wizard-scoped reads. Extend it to pin the FULL partitioned-read
+  topology across all three partition-carrying tables: enumerate every
+  `.from("pending_syncs")`, `.from("pending_ingestions")`, and
+  `.from("deferred_ingestions")` occurrence in
+  `lib/sync/perFileProcessor.ts`; assert the expected counts
+  (`pending_syncs`: 2 — live watermark read + ownership probe;
+  `deferred_ingestions`: 2 — live deferral read + ownership probe;
+  `pending_ingestions`: 1 — ownership probe only) and that each occurrence is
+  followed (within its own builder chain) by exactly one of
+  `.is("wizard_session_id", null)` (live-scoped) or
+  `.eq("wizard_session_id", <session>)` (wizard-scoped ownership probe). An
+  unscoped read (neither filter) must fail the meta-test.
 - Advisory-lock topology (`tests/auth/advisoryLockRpcDeadlock.test.ts`) —
   **none applies**: the gate is pre-lock and read-only; no `pg_advisory*`
   surface touched.
@@ -248,7 +266,11 @@ relative to a fixed `nowMs`), never hardcoded date literals.
   relitigate adding a phase1 duplicate.
 - **Row-existence over manifest membership** (§2.1) is ratified; the
   abandoned-session freeze is the documented reason.
-- **JS-side staleness clock** (§2.5) follows the file's existing
-  `timestampMs` precedent; do not demand SQL `now()` here.
+- **No gate-side staleness clock** (§2.1, R2 amendment): the reap is the
+  single lifecycle authority; do not demand the gate re-derive staleness from
+  `pending_wizard_session_at` (that clock diverges from the six-table
+  freshest-activity contract and reopens the hijack) nor from a replicated
+  freshest-activity aggregate (a second holder of the lifecycle decision).
+  The abandoned-session wedge scope is documented and accepted in §2.1.
 - **`wizard_owned` logs a sync_log row** deliberately (unlike the archived
   silent skip): operator visibility requirement.
