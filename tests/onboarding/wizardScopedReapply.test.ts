@@ -50,6 +50,8 @@ class FakeWizardStagedTx {
   lockedDriveIds: string[] = [];
   async queryOne<T>(sql: string, params: unknown[]) {
     if (/pg_locks/i.test(sql)) return { held: true } as T;
+    // Publish freshness gate SQL (staging-overlay spec §3.5): fresh by default in these fakes.
+    if (sql.startsWith("select public.role_mappings_stamp_satisfied")) return { ok: true } as T;
     this.lockedDriveIds.push(params[0] as string);
     return { locked: true } as T;
   }

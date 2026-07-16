@@ -331,6 +331,8 @@ function fakeRacePipeline(
       const n = sqlText.replace(/\s+/g, " ").trim();
       // Lock-ownership assertion inside adoptShowLockHeld / assertShowLockHeld
       if (/pg_locks/i.test(n)) return { held: true };
+      // Publish freshness gate (assertRoleMappingsFresh) — fresh in this fixture.
+      if (n.includes("role_mappings_stamp_satisfied")) return { ok: true };
       // sync_audit INSERT called by defaultInsertSyncAudit
       if (n.startsWith("insert into public.sync_audit")) {
         db.auditRows.push("audit-1");

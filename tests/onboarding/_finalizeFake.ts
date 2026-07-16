@@ -78,6 +78,9 @@ export function parseResult(title: string): Record<string, unknown> {
 }
 
 export class FakeFinalizeDb implements FinalizeRouteTx {
+  // Role-mapping freshness fake (staging-overlay spec §3.5): tokens whose mapping row is stale.
+  staleRoleTokens = new Set<string>();
+
   activeSessionId: string | null = W1;
   pendingFolderId: string | null = "folder-1";
   finalizeLocked = true;
@@ -352,6 +355,13 @@ export function fakePipelineTx(db: FakeFinalizeDb): SyncPipelineTx {
     async queryOne(sqlText: string, params: unknown[]) {
       const normalized = sqlText.replace(/\s+/g, " ").trim();
       if (/pg_locks/i.test(normalized)) return { held: true };
+      if (normalized.startsWith("select public.role_mappings_stamp_satisfied")) {
+        // Apply freshness gate (staging-overlay spec §3.5 call site 1), Flow A twin.
+        const raw = params[0] as string | null;
+        const entries = raw == null ? null : (JSON.parse(raw) as Array<{ token: string }>);
+        const ok = entries === null || entries.every((e) => !db.staleRoleTokens.has(e.token));
+        return { ok };
+      }
       if (normalized.startsWith("insert into public.sync_audit")) {
         db.auditRows.push(params[1] as string);
         return { id: "audit-1" };

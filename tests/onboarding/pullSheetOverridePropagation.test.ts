@@ -27,6 +27,8 @@ function spyTxWithOverrideWrite(): SpyTx & { overrideWrites: Array<{ params: unk
     const norm = sql.replace(/\s+/g, " ").trim();
     tx.sql.push(norm);
     if (/pg_locks/i.test(sql)) return { held: true };
+    // Publish freshness gate SQL (staging-overlay spec §3.5): fresh by default in these fakes.
+    if (sql.startsWith("select public.role_mappings_stamp_satisfied")) return { ok: true };
     if (/update public\.shows set pull_sheet_override/i.test(norm)) {
       tx.overrideWrites.push({ params });
       return undefined;

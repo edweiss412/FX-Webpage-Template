@@ -286,6 +286,19 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
   // upsert (role_flags) and nonLeadRoleFlagChanges diffing. PURE (deep-clones); [] → no-op.
   const roleMappingOutcome = applyRoleTokenMappings(parseResult, args.roleTokenMappings ?? []);
   parseResult = roleMappingOutcome.result;
+  // Consumed-token stamp for shows_internal.applied_role_mappings (staging-overlay spec
+  // 2026-07-16 §3.5): the union (deduped per token — grants are per-token by construction) of the
+  // STAGED parse's stamp (wizard rows, written at prepareOnboardingFiles) and THIS pass's overlay
+  // consumption (live/cron/manual rows). Null when nothing consumed. Persisted on every apply so
+  // the stamp always describes the consumption behind the CURRENT role_flags.
+  const stampByToken = new Map<string, { token: string; grants: string[] }>();
+  for (const e of parseResult.appliedRoleMappings ?? []) {
+    stampByToken.set(e.token, { token: e.token, grants: [...e.grants] });
+  }
+  for (const a of roleMappingOutcome.applied) {
+    stampByToken.set(a.token, { token: a.token, grants: [...a.grants] });
+  }
+  const appliedRoleMappingsStamp = stampByToken.size > 0 ? [...stampByToken.values()] : null;
   let snapshotRevisionId: string | undefined;
   const verifyReelOnApply =
     args.verifyReelOnApply === false ? null : (args.verifyReelOnApply ?? defaultVerifyReelOnApply);
@@ -423,6 +436,8 @@ export async function runPhase2(tx: Phase2Tx, args: Phase2Args): Promise<Phase2R
       // Kept "use raw" decisions (applied:true) re-persisted to shows_internal.use_raw_decisions.
       // Unconditional — [] when empty.
       useRawKept,
+      // Consumed-token stamp (staging-overlay spec §3.5). Unconditional — null when empty.
+      appliedRoleMappings: appliedRoleMappingsStamp,
       ...(port ? { holds: { port, baseModifiedTime: args.binding.modifiedTime } } : {}),
       // Carry the prepare-stage region anchors so applyParseResult can re-anchor the
       // apply-only AGENDA_DAY_EMPTIED warning it appends (deep link to the schedule tab).

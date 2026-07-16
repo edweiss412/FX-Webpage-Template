@@ -62,6 +62,11 @@ export type ApplyParseResultTx = {
       // Optional so existing tx doubles that call upsertShowsInternal directly need not supply it;
       // applyParseResult ALWAYS sets it (args.useRawKept ?? []), and every impl coalesces `?? []`.
       use_raw_decisions?: UseRawDecision[];
+      // Consumed-token stamp (staging-overlay spec 2026-07-16 §3.5): the overlay consumption that
+      // produced THIS apply's role_flags — union of the staged parse's stamp and phase2's own
+      // overlay pass, null when nothing consumed. Read by role_mappings_stamp_satisfied at every
+      // published=false→true transition. Optional for direct tx doubles; runPhase2 ALWAYS sets it.
+      applied_role_mappings?: Array<{ token: string; grants: string[] }> | null;
     },
   ): Promise<void>;
   deleteLivePendingIngestion(driveFileId: string): Promise<void>;
@@ -97,6 +102,9 @@ export type ApplyParseResultArgs = {
   // Task 6: KEPT "use raw" decisions from the runPhase2 overlay. Forwarded verbatim to
   // upsertShowsInternal.use_raw_decisions (applied:true). Absent → [] (no decisions to store).
   useRawKept?: UseRawDecision[];
+  // Consumed-token stamp (staging-overlay spec 2026-07-16 §3.5). Forwarded verbatim to
+  // upsertShowsInternal.applied_role_mappings. Absent → null (nothing consumed).
+  appliedRoleMappings?: Array<{ token: string; grants: string[] }> | null;
 };
 
 function difference(left: string[], right: string[]): string[] {
@@ -256,6 +264,7 @@ export async function applyParseResult(
     raw_unrecognized: args.parseResult.raw_unrecognized,
     run_of_show: runOfShowToStore,
     use_raw_decisions: args.useRawKept ?? [],
+    applied_role_mappings: args.appliedRoleMappings ?? null,
   });
   await tx.deleteLivePendingIngestion(args.driveFileId);
   return {

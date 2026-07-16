@@ -1028,6 +1028,12 @@ export const SPEC_CODES = {
     "followUp": "none (informational)",
     "helpfulContext": "A crew member's role flags changed in a way that doesn't affect LEAD status — for example, a department designation swap (A1 → V1), or an additive flag like BO. These changes affect which scope tile the crew member sees on their own page but don't grant or remove admin/ops access, so we apply them automatically and log this entry for your audit trail. No action needed; if you want to see the prior value, the audit page captures it.",
   },
+  "ROLE_MAPPINGS_OUTDATED_AT_PUBLISH": {
+    "crewFacing": null,
+    "dougFacing": "The roles you've added changed after setup reviewed this part, so it's on hold instead of going live.",
+    "followUp": "Doug → re-scan the sheet in setup (or run the show's sheet check), then publish again",
+    "helpfulContext": "Setup remembers which of your added roles shaped this show's pages. One of those roles was removed or changed after the sheet was reviewed, so publishing is on hold rather than going live with out-of-date choices. Re-scan the sheet in setup (or run the show's sheet check) to pick up your current choices, then publish again.",
+  },
   "ROLE_TOKEN_AUTOCORRECTED": {
     "crewFacing": null,
     "dougFacing": "We read a likely-misspelled role in _<crew-name>_'s cell (for example 'Content Cretion' as 'Content Creation') and used the corrected version. If it was intentional, update the sheet.",

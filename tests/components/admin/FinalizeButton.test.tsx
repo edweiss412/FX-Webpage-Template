@@ -620,6 +620,48 @@ describe("FinalizeButton", () => {
     expect(queryByTestId("wizard-finalize-error")).toBeNull();
   });
 
+  test("finalize-cas 409 per_row ROLE_MAPPINGS_OUTDATED_AT_PUBLISH row offers the inline re-scan heal (spec 2026-07-16 §3.5 heal step ii)", async () => {
+    fetchMock
+      .mockResolvedValueOnce(
+        mockJsonResponse({
+          status: "all_batches_complete",
+          wizard_session_id: WIZARD_SESSION_ID,
+          remaining_count: 0,
+          unresolved_manifest_count: 0,
+          per_row: [],
+        }),
+      )
+      .mockResolvedValueOnce(
+        mockJsonResponse(
+          {
+            ok: false,
+            code: "ROLE_MAPPINGS_OUTDATED_AT_PUBLISH",
+            per_row: [
+              {
+                drive_file_id: "drive-stale-roles-1",
+                code: "ROLE_MAPPINGS_OUTDATED_AT_PUBLISH",
+              },
+            ],
+          },
+          { status: 409 },
+        ),
+      );
+    const { getByTestId, queryByTestId, container } = render(
+      <FinalizeButton wizardSessionId={WIZARD_SESSION_ID} />,
+    );
+    await act(async () => {
+      fireEvent.click(getByTestId("wizard-finalize-button"));
+    });
+    await waitFor(() => {
+      expect(queryByTestId("wizard-finalize-cas-per-row")).not.toBeNull();
+    });
+    const text = getByTestId("wizard-finalize-cas-per-row").textContent ?? "";
+    expect(text).toContain(MESSAGE_CATALOG.ROLE_MAPPINGS_OUTDATED_AT_PUBLISH.dougFacing!);
+    // The heal is the re-scan; without this button the refusal is a dead end at this stage.
+    expect(queryByTestId("rescan-sheet-button-drive-stale-roles-1")).not.toBeNull();
+    expect(container.textContent ?? "").not.toContain("ROLE_MAPPINGS_OUTDATED_AT_PUBLISH");
+  });
+
   test("WM-R3: finalize-cas 409 WITHOUT per_row keeps the existing top-level copy path", async () => {
     fetchMock
       .mockResolvedValueOnce(
