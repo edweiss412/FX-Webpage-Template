@@ -487,6 +487,13 @@ export type ProcessOneFileDeps = {
     options?: Parameters<typeof withShowLock<SyncPipelineTx, ProcessOneFileResult>>[2],
   ) => Promise<ProcessOneFileResult | ConcurrentSyncSkipped>;
   perFileProcessor?: typeof perFileProcessor;
+  /**
+   * Role-vocab drift pre-pass (spec 2026-07-16-role-vocab-mapping-convergence §3.3): the tick's
+   * derived set of published drive_file_ids whose stored role vocabulary drifted from the live
+   * `role_token_mappings`. Membership makes the cron gate rescue the plain watermark skip and mark
+   * the run `driftResync`. Cron-only — manual/push/onboarding callers never set it.
+   */
+  roleVocabDriftEligibleIds?: ReadonlySet<string>;
   captureBinding?: (driveFileId: string, fileMeta: DriveListedFile) => Promise<Phase1Binding>;
   fetchMarkdownAtRevision?: (driveFileId: string, revisionId: string) => Promise<string>;
   /**
@@ -2742,6 +2749,12 @@ export type PreparedProcessOneFile =
       binding: Phase1Binding;
       parseResult: ParseResult;
       /**
+       * Role-vocab drift rescue (spec 2026-07-16-role-vocab-mapping-convergence §3.3): set when the
+       * cron gate proceeded ONLY because this file was drift-eligible at/below the watermark. Drives
+       * the in-lock recheck (Task 4) and the `less_than_or_equal` Phase 2 stale guard (Task 5).
+       */
+      driftResync?: true;
+      /**
        * Task 5: source-region anchors extracted from the XLSX bytes (one pass, no extra API call).
        * audit idx12+idx63: `undefined` ONLY when the sheets-list fetch failed transiently — the
        * omit-on-undefined chain + persist coalesce then PRESERVE the stored source_anchors rather
@@ -2782,7 +2795,10 @@ export async function prepareProcessOneFile(
     | ((driveFileId: string, racedHeadRevisionId: string) => Promise<RevisionRaceCooldown | null>)
     | undefined = defaultCooldownReader(deps),
 ): Promise<PreparedProcessOneFile> {
-  const gate = await (deps.perFileProcessor ?? perFileProcessor)(driveFileId, mode, fileMeta);
+  const roleVocabDriftEligible = deps.roleVocabDriftEligibleIds?.has(driveFileId) ?? false;
+  const gate = await (deps.perFileProcessor ?? perFileProcessor)(driveFileId, mode, fileMeta, {
+    roleVocabDriftEligible,
+  });
   if (gate.outcome === "skip") {
     return { kind: "skip", result: { outcome: "skipped", reason: gate.reason } };
   }
@@ -3114,6 +3130,10 @@ export async function prepareProcessOneFile(
     resolvedMode: gate.mode as Exclude<ResolvedSyncMode, "asset_recovery">,
     binding,
     parseResult: readyParseResult,
+    // Role-vocab drift rescue (spec §3.3): the gate marks a cron proceed that only happened
+    // because this file was drift-eligible at/below the watermark. Carry it onto the ready
+    // variant so the locked pipeline runs the in-lock recheck + equal-watermark stale guard.
+    ...(gate.driftResync ? { driftResync: true as const } : {}),
     // audit idx12+idx63: OMIT on a genuine sheets-list fetch failure (exactOptionalPropertyTypes
     // forbids an explicit `undefined` on an optional field). The guarded cron spread
     // (`pipeline.sourceAnchors !== undefined`) reads an absent property identically → coalesce
