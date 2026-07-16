@@ -181,6 +181,8 @@ describe("autofix query shape (spec §3 ORDER BY pin)", () => {
     const autofixQuery = captured.find(
       (q) => q.includes("parse_warnings") && !q.includes("row_number"),
     );
-    expect(autofixQuery).toMatch(/order by sl\.occurred_at desc, sl\.drive_file_id asc, sl\.id asc/);
+    expect(autofixQuery).toMatch(
+      /order by sl\.occurred_at desc, sl\.drive_file_id asc, sl\.id asc/,
+    );
   });
 });

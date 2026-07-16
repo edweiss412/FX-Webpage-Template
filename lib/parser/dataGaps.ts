@@ -152,7 +152,10 @@ const AUTOFIX_FORMAT_RE = new RegExp(
   `[${cpRange(0x200b, 0x200d)}${String.fromCodePoint(0xfeff)}${cpRange(0x202a, 0x202e)}${cpRange(0x2066, 0x2069)}]`,
   "g",
 );
-const AUTOFIX_CONTROL_RE = new RegExp(`[${cpRange(0x0000, 0x001f)}${cpRange(0x007f, 0x009f)}]`, "g");
+const AUTOFIX_CONTROL_RE = new RegExp(
+  `[${cpRange(0x0000, 0x001f)}${cpRange(0x007f, 0x009f)}]`,
+  "g",
+);
 const AUTOFIX_TOKEN_RE = /[A-Za-z0-9+/_-]{24,}/g;
 const AUTOFIX_EMAIL_RE = /\S+@\S+/g;
 const AUTOFIX_CODE_SHAPED_RE = /^[A-Z][A-Z0-9_]*$/;
