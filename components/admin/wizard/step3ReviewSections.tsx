@@ -480,6 +480,24 @@ export const Step3SectionChromeContext = createContext<Step3SectionChrome | null
 export const CALLOUT_MAX_ENTRIES = 3;
 
 /**
+ * Spec 2026-07-16 §4.4: the ONE decision matcher both actionable render sites
+ * (§E3 callout + WarningsBreakdown) share. Matches the persisted decision by
+ * (code, resolution.contentHash) — never by target; a warning without a
+ * resolvable resolution never matches.
+ */
+export function findUseRawDecision(
+  w: ParseWarning,
+  decisions: UseRawDecision[] | undefined,
+): UseRawDecision | undefined {
+  return decisions?.find(
+    (d) =>
+      d.code === w.code &&
+      w.resolution?.resolvable === true &&
+      d.contentHash === w.resolution.contentHash,
+  );
+}
+
+/**
  * §E3 inline flag callout: a compact warning-tone block at the top of a
  * flagged section's panel card linking each mapped warning to its row in the
  * Parse-warnings section. Titles go through `reviewWarningTitle` — the §8
@@ -511,12 +529,7 @@ function SectionFlagCallout({
   // by target. The `<UseRawControl>` inside the boundary self-hides out-of-scope /
   // unresolvable warnings, so it is rendered for every entry when a session exists.
   const decisionFor = (w: ParseWarning): UseRawDecision | undefined =>
-    useRawDecisions?.find(
-      (d) =>
-        d.code === w.code &&
-        w.resolution?.resolvable === true &&
-        d.contentHash === w.resolution.contentHash,
-    );
+    findUseRawDecision(w, useRawDecisions);
   const shown = entries.slice(0, CALLOUT_MAX_ENTRIES);
   const extra = entries.length - shown.length;
   const isJudgment = variant === "judgment";
