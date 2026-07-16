@@ -233,6 +233,7 @@ const TABLE_ROWS: Array<[string, string, number, number]> = [
 // with an explicit reason rather than silence.
 const KNOWN_UNPINNED: Array<[string, string]> = [
   ["2.33:1 / 4.07:1 / 11.3:1 in L33 prose", "historical values quoted as documentation of the corrected miscalculation — not claims about live tokens"],
+  ["status-live-text ratio (L41)", "the row deliberately carries NO ratio figure — its documented contract is 'contrast governed by the accent rows above' (which ARE ratio-pinned); the touched value is the hex, pinned by the hex-parity assertion, and a no-numeric-claim assertion prevents an unpinned figure from ever appearing"],
 ];
 
 describe("DESIGN.md figure parity (touched rows)", () => {
@@ -253,6 +254,7 @@ describe("DESIGN.md figure parity (touched rows)", () => {
   it("known-unpinned exceptions are exactly the declared historical set", () => {
     expect(KNOWN_UNPINNED.map(([label]) => label)).toEqual([
       "2.33:1 / 4.07:1 / 11.3:1 in L33 prose",
+      "status-live-text ratio (L41)",
     ]);
   });
 });
@@ -290,7 +292,7 @@ describe("DESIGN.md figure parity (touched rows)", () => {
   - 4 settings/admin toggles: `on ? "border-accent bg-accent"` → `on ? "border-accent-edge bg-accent"`
   - `AutoRefreshControl.tsx:106`: `rounded-full transition-colors ${on ? "bg-accent" : "bg-surface-sunken"}` → `rounded-full border transition-colors ${on ? "border-accent-edge bg-accent" : "border-border-strong bg-surface-sunken"}`
   - `OnboardingWizard.tsx:151`: `"border-transparent bg-accent text-accent-text"` → `"border-accent-edge bg-accent text-accent-text"`
-- [ ] **Step 3: Vitest green.** Update `developer-toggle-layout.spec.ts` `TRACK_ON` verbatim string (`border-accent` → `border-accent-edge`).
+- [ ] **Step 3: Vitest green; sibling-spec string maintenance.** Vitest assertions from Step 1 now pass — Step 1 IS the red gate for the recipe change; `developer-toggle-layout.spec.ts` asserts GEOMETRY (44px tap floor, row heights), not border color, so a stale `TRACK_ON` string stays green and is NOT a TDD gate. The update is a verbatim-transcription-contract maintenance edit: verify the new string matches the component exactly (`rg -F "$(sed -n 's/.*on ? \"\(border-accent-edge bg-accent\)\".*/\1/p' components/admin/settings/DeveloperToggleButton.tsx)" tests/e2e/developer-toggle-layout.spec.ts` after the edit — or simply eyeball both), update `TRACK_ON` (`border-accent` → `border-accent-edge`), then run the spec once: green, geometry invariants unaffected by a border color swap.
 - [ ] **Step 4: Write `tests/e2e/toggle-edge-layout.spec.ts`** — the file must be COMPLETE and runnable: copy the sibling `developer-toggle-layout.spec.ts` scaffolding verbatim (imports, `REPO_ROOT`/`TOL` constants, Tailwind CLI compile step, `harness.html` writer, `createServer` HTTP serving, `test.beforeAll`/`afterAll`), then replace its harness markup + assertions with the block below. The assertion body runs inside the standard Playwright callback binding — `test("ON toggle border is the accent-edge token and geometry invariants hold", async ({ page }) => { …navigate to the served harness first… })` — never a bare `page` reference outside the callback.
 
 ```ts
