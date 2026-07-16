@@ -18,6 +18,7 @@ import {
   stripLegacyUnknownFieldAnchors,
   selectActionableForDisplay,
   summarizeAutoFixes,
+  listAutoFixItems,
   formatAutoFixBreakdown,
   AUTO_FIX_CLASSES,
   hasRecoveredToBaseline,
@@ -405,5 +406,111 @@ describe("summarizeAutoFixes (6.3 sibling)", () => {
     const out = formatAutoFixBreakdown(s, 4);
     expect(out.startsWith("3 corrected stage word")).toBe(true);
     expect(out.endsWith("+1 more")).toBe(true);
+  });
+});
+
+describe("listAutoFixItems (spec 2026-07-16 §4)", () => {
+  const w = (over: Record<string, unknown>) => ({
+    severity: "warn",
+    code: "STAGE_WORD_AUTOCORRECTED",
+    message: "Read likely-misspelled stage word(s) 'Sage' as 'Stage' in role cell: 'A1 Sage'",
+    ...over,
+  });
+
+  it("gating parity: skips payload object, info severity, non-autofix codes", () => {
+    const warnings = [
+      { kind: "delta", outcome: "applied", code: null }, // payload row — skipped
+      w({}),
+      w({ severity: "info" }), // skipped
+      w({ code: "FIELD_UNREADABLE" }), // not an autofix — skipped
+    ] as never;
+    const items = listAutoFixItems(warnings);
+    expect(items).toHaveLength(1);
+    expect(items[0]!.code).toBe("STAGE_WORD_AUTOCORRECTED");
+  });
+
+  it("null/undefined/[] → []", () => {
+    expect(listAutoFixItems(null)).toEqual([]);
+    expect(listAutoFixItems(undefined)).toEqual([]);
+    expect(listAutoFixItems([])).toEqual([]);
+  });
+
+  it("label fallback emits the EXACT class label (never [redacted-token])", () => {
+    // message === code, and an unrelated SHOUTY token — both are 24+ char tokens;
+    // a redact-before-shape-check implementation would emit "[redacted-token]" and FAIL here.
+    for (const msg of ["STAGE_WORD_AUTOCORRECTED", "SOME_OTHER_SHOUTY_TOKEN_XYZ"]) {
+      const items = listAutoFixItems([w({ message: msg })] as never);
+      expect(items[0]!.item).toBe("corrected stage word");
+    }
+    for (const msg of [undefined, "", "   ", 42]) {
+      const items = listAutoFixItems([w({ message: msg })] as never);
+      expect(items[0]!.item).toBe("corrected stage word");
+    }
+  });
+
+  it("normalization: multiline/controls/zero-width collapse to one line", () => {
+    const items = listAutoFixItems([
+      w({ message: "Read​ likely-misspelled\n stage word(s)\t 'A'  as 'B'" }),
+    ] as never);
+    expect(items[0]!.item).toBe("Read likely-misspelled stage word(s) 'A' as 'B'");
+  });
+
+  it("redaction on accepted prose: tokens and emails always", () => {
+    const items = listAutoFixItems([
+      w({ message: "cell had ABCDEF0123456789ABCDEF0123 and bob@example.com in it" }),
+    ] as never);
+    expect(items[0]!.item).toBe("cell had [redacted-token] and [redacted-email] in it");
+  });
+
+  it("returns UNCAPPED item (cap is the caller's display concern)", () => {
+    // spaced words — a bare 400-char run would itself be token-shaped and get redacted
+    const long = `corrected 'x' as 'y' in ${"zed ".repeat(100)}end`;
+    const items = listAutoFixItems([w({ message: long })] as never);
+    expect(items[0]!.item.length).toBeGreaterThan(200);
+  });
+
+  it("token deep in an overlong message is redacted in the UNCAPPED item", () => {
+    // Token placed so it would START beyond a 200-char cap — a cap-then-redact
+    // implementation would never see it. The helper's uncapped output must
+    // already carry the placeholder.
+    const msg = `corrected 'x' as 'y' in ${"p".repeat(190)} SECRETTOKEN0123456789ABCDEF tail`;
+    const items = listAutoFixItems([w({ message: msg })] as never);
+    expect(items[0]!.item).toContain("[redacted-token]");
+    expect(items[0]!.item).not.toContain("SECRETTOKEN");
+  });
+
+  it("overlong SHOUTY-token message → exact label (shape check sees the whole string, pre-cap)", () => {
+    const items = listAutoFixItems([w({ message: `${"A_".repeat(150)}Z` })] as never);
+    expect(items[0]!.item).toBe("corrected stage word");
+  });
+
+  it("anchor extraction: gid!a1 when both valid, else null", () => {
+    expect(
+      listAutoFixItems([w({ sourceCell: { title: "T", gid: 7, a1: "C3" } })] as never)[0]!.anchor,
+    ).toBe("7!C3");
+    expect(
+      listAutoFixItems([w({ sourceCell: { title: "T", gid: 7, a1: "B2:D9" } })] as never)[0]!
+        .anchor,
+    ).toBe("7!B2:D9"); // range a1 is a valid anchor at its native granularity
+    for (const sc of [
+      undefined,
+      null,
+      { title: "T", gid: 7 },
+      { title: "T", gid: "7", a1: "C3" },
+      { title: "T", gid: 7, a1: "" },
+    ]) {
+      expect(listAutoFixItems([w({ sourceCell: sc })] as never)[0]!.anchor).toBeNull();
+    }
+  });
+
+  it("property: emits exactly one entry per counted warning", () => {
+    const sets = [
+      [w({}), w({ code: "ROLE_TOKEN_AUTOCORRECTED" }), w({ severity: "info" })],
+      [{ kind: "payload" }, w({ message: "" })],
+      [],
+    ] as never[];
+    for (const s of sets) {
+      expect(listAutoFixItems(s as never)).toHaveLength(summarizeAutoFixes(s as never).total);
+    }
   });
 });

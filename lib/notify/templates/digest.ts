@@ -1,5 +1,4 @@
 import { DIGEST_MAX_SHOWS, DIGEST_MAX_ITEMS_PER_SHOW } from "@/lib/notify/constants";
-import { AUTO_FIX_CLASSES } from "@/lib/parser/dataGaps";
 import type { MonitorDigestModel } from "@/lib/notify/monitorDigest";
 import { escapeHtml } from "./escapeHtml";
 import type { RenderedEmail } from "./realtimeProblem";
@@ -15,6 +14,46 @@ export type DigestInput = {
 
 function showHref(origin: string, slug: string | null): string {
   return slug ? `${origin}/admin/show/${slug}` : `${origin}/admin`;
+}
+
+/**
+ * Shared per-show group renderer for the monitor sub-blocks (auto-applied and
+ * autocorrect notices use IDENTICAL markup + caps). Count caps live HERE, not in
+ * the model (spec 2026-07-16 §3): overflow notes derive from SOURCE totals.
+ */
+function pushShowGroups(
+  shows: { showTitle: string | null; slug: string | null; items: string[] }[],
+  origin: string,
+  dashboard: string,
+  text: string[],
+  html: string[],
+): void {
+  const shownShows = shows.slice(0, DIGEST_MAX_SHOWS);
+  for (const show of shownShows) {
+    const title = show.showTitle ?? "Untitled show";
+    const href = showHref(origin, show.slug);
+    const shownItems = show.items.slice(0, DIGEST_MAX_ITEMS_PER_SHOW);
+    const overflowItems = Math.max(0, show.items.length - DIGEST_MAX_ITEMS_PER_SHOW);
+    text.push(`${title} (${href})`);
+    html.push(`<h4><a href="${escapeHtml(href)}">${escapeHtml(title)}</a></h4>`);
+    const itemHtml: string[] = [];
+    for (const item of shownItems) {
+      text.push(`  - ${item}`);
+      itemHtml.push(`<li>${escapeHtml(item)}</li>`);
+    }
+    if (overflowItems > 0) {
+      const more = `+${overflowItems} more on this show`;
+      text.push(`  ${more}: ${dashboard}`);
+      itemHtml.push(`<li><a href="${escapeHtml(dashboard)}">${escapeHtml(more)}</a></li>`);
+    }
+    html.push(`<ul>${itemHtml.join("")}</ul>`);
+  }
+  const overflowShows = Math.max(0, shows.length - DIGEST_MAX_SHOWS);
+  if (overflowShows > 0) {
+    const more = `+${overflowShows} more shows`;
+    text.push(`${more}: ${dashboard}`);
+    html.push(`<p><a href="${escapeHtml(dashboard)}">${escapeHtml(more)}</a></p>`);
+  }
 }
 
 /**
@@ -35,42 +74,17 @@ function renderMonitorSection(
   if (monitor.autoApplied.length > 0) {
     text.push("Auto-applied changes:");
     html.push("<h3>Auto-applied changes</h3>");
-    const shownShows = monitor.autoApplied.slice(0, DIGEST_MAX_SHOWS);
-    for (const show of shownShows) {
-      const title = show.showTitle ?? "Untitled show";
-      const href = showHref(origin, show.slug);
-      const shownItems = show.items.slice(0, DIGEST_MAX_ITEMS_PER_SHOW);
-      const overflowItems = Math.max(0, show.items.length - DIGEST_MAX_ITEMS_PER_SHOW);
-      text.push(`${title} (${href})`);
-      html.push(`<h4><a href="${escapeHtml(href)}">${escapeHtml(title)}</a></h4>`);
-      const itemHtml: string[] = [];
-      for (const item of shownItems) {
-        text.push(`  - ${item}`);
-        itemHtml.push(`<li>${escapeHtml(item)}</li>`);
-      }
-      if (overflowItems > 0) {
-        const more = `+${overflowItems} more on this show`;
-        text.push(`  ${more}: ${dashboard}`);
-        itemHtml.push(`<li><a href="${escapeHtml(dashboard)}">${escapeHtml(more)}</a></li>`);
-      }
-      html.push(`<ul>${itemHtml.join("")}</ul>`);
-    }
-    const overflowShows = Math.max(0, monitor.autoApplied.length - DIGEST_MAX_SHOWS);
-    if (overflowShows > 0) {
-      const more = `+${overflowShows} more shows`;
-      text.push(`${more}: ${dashboard}`);
-      html.push(`<p><a href="${escapeHtml(dashboard)}">${escapeHtml(more)}</a></p>`);
-    }
+    pushShowGroups(monitor.autoApplied, origin, dashboard, text, html);
   }
 
-  // Sub-block 2: autocorrect roll-up (one line, labels for nonzero classes).
+  // Sub-block 2: autocorrect notices grouped by show (spec 2026-07-16 §5 — the
+  // intro renders the SHOW COUNT only; no per-correction number exists to render).
   if (monitor.autofix.total > 0) {
-    const parts = AUTO_FIX_CLASSES.filter((c) => monitor.autofix.classes[c.code] > 0).map(
-      (c) => `${c.label}: ${monitor.autofix.classes[c.code]}`,
-    );
-    const line = `We automatically corrected ${monitor.autofix.total} ${monitor.autofix.total === 1 ? "value" : "values"} (${parts.join(", ")}).`;
-    text.push(line);
-    html.push(`<p>${escapeHtml(line)}</p>`);
+    const showCount = monitor.autofix.shows.length;
+    const intro = `We applied automatic corrections to ${showCount} ${showCount === 1 ? "show" : "shows"}:`;
+    text.push("Autocorrects applied:", intro);
+    html.push("<h3>Autocorrects applied</h3>", `<p>${escapeHtml(intro)}</p>`);
+    pushShowGroups(monitor.autofix.shows, origin, dashboard, text, html);
   }
 
   // Sub-block 3: quiet drift (per show, non-alarming framing; caps at DIGEST_MAX_SHOWS).

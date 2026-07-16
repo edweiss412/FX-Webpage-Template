@@ -8,16 +8,7 @@ const NOW = new Date("2026-06-02T12:00:00.000Z"); // 8am ET — inside the diges
 const monitorModel: MonitorDigestModel = {
   windowStart: "2026-06-01T12:00:00.000Z",
   autoApplied: [{ showTitle: "East", slug: "east", items: ["Added Jane"] }],
-  autofix: {
-    total: 0,
-    classes: {
-      STAGE_WORD_AUTOCORRECTED: 0,
-      ROLE_TOKEN_AUTOCORRECTED: 0,
-      COLUMN_HEADER_AUTOCORRECTED: 0,
-      SECTION_HEADER_AUTOCORRECTED: 0,
-      FIELD_LABEL_AUTOCORRECTED: 0,
-    },
-  },
+  autofix: { total: 0, shows: [] },
   drift: [],
   newShowGaps: [],
 };
