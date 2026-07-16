@@ -187,13 +187,22 @@ vi.mock("@/lib/async/deferPostResponse", () => ({
 (d) Update the two sequential-order tests (`:361-377`, "sequential-not-nested + delegated re-sync order"):
 
 ```ts
-  test("apply is scheduled AFTER the decision lock releases; sync runs only when drained", async () => {
+  test("apply is scheduled AFTER lock release AND after the emit; sync runs only when drained", async () => {
+    logAdminOutcomeMock.mockImplementationOnce(async () => {
+      callOrder.push("emit");
+    });
     txScript.decisions = [];
     const r = await setUseRawDecisionAction("show-1", ref(), true);
-    expect(callOrder).toEqual(["lock:acquire", "lock:release", "defer:schedule"]);
+    expect(callOrder).toEqual(["lock:acquire", "lock:release", "emit", "defer:schedule"]);
     expect(r).toEqual({ ok: true, state: "apply_pending" });
     await deferredTasks[0]!();
-    expect(callOrder).toEqual(["lock:acquire", "lock:release", "defer:schedule", "resync"]);
+    expect(callOrder).toEqual([
+      "lock:acquire",
+      "lock:release",
+      "emit",
+      "defer:schedule",
+      "resync",
+    ]);
     expect(runManualSyncForShowMock).toHaveBeenCalledTimes(1);
   });
 
@@ -282,6 +291,9 @@ describe("background apply (spec 2026-07-16-use-raw-bg-apply)", () => {
       throw new Error("revalidateTag outside request scope");
     });
     await expect(deferredTasks[0]!()).resolves.toBeUndefined();
+    // The sync still ran BEFORE the throwing revalidate (plan-R4 A2 — a broken
+    // task that skips the sync must not pass this test).
+    expect(runManualSyncForShowMock).toHaveBeenCalledTimes(1);
     expect(revalidateShowMock).toHaveBeenCalledTimes(2);
   });
 
