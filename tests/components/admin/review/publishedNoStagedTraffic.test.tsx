@@ -67,10 +67,14 @@ function validExtraction() {
   };
 }
 
-/** Inner PersistedDiagrams shape (resolveCurrentDiagrams accepts it directly —
- *  see lib/data/diagrams.ts:54). One servable embedded image whose snapshotPath
- *  last segment is DIAGRAM_KEY, so the published asset URL is derivable from the
- *  fixture, not hardcoded into the component. */
+/** Inner PersistedDiagrams shape — the value persisted at `shows.diagrams.current`
+ *  by the promotion cutover (lib/sync/promoteSnapshot.ts:299). The real runtime
+ *  column carries the `{ current, pending }` wrapper, not this shape directly, so
+ *  the fixture below wraps this in `{ current: persistedDiagrams(), pending: null }`
+ *  to exercise the `resolveCurrentDiagrams` unwrap (lib/data/diagrams.ts:54) through
+ *  `PublishedDiagramsBreakdown` (step3ReviewSections.tsx:3291) rather than bypass it.
+ *  One servable embedded image whose snapshotPath last segment is DIAGRAM_KEY, so the
+ *  published asset URL is derivable from the fixture, not hardcoded into the component. */
 function persistedDiagrams() {
   return {
     snapshot_revision_id: REV,
@@ -111,7 +115,9 @@ function snapshot(): ShowReviewSnapshot {
         { label: "Ext", url: "https://ex.com/a.pdf" },
       ],
       coi_status: "received",
-      diagrams: persistedDiagrams(),
+      // Real persisted shape is the `{ current, pending }` wrapper (see
+      // persistedDiagrams() doc comment above) — never the inner shape directly.
+      diagrams: { current: persistedDiagrams(), pending: null },
       pull_sheet: [{ caseLabel: "Case 1", items: [] }],
       source_anchors: {},
       drive_file_id: DRIVE_FILE_ID,
