@@ -435,6 +435,23 @@
   }
 }
 
+/* Recognize-role control entrance (spec 2026-07-15 §8.1 transition inventory;
+   mock `Recognize Role Control.dc.html` — `rr-pop`). The panel expand
+   (collapsed→idle) and the saved-card swap (saving→saved) are the ONLY two
+   animated entrances; everything else is instant. Consumed via the arbitrary
+   `motion-safe:animate-[role-recognize-pop_…]` utility with an explicit
+   `motion-reduce:animate-none`, so reduced-motion presents both states instantly. */
+@keyframes role-recognize-pop {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 /* Telemetry auto-refresh live-pulse ring (NOT a @theme token — a local
    keyframe for the AutoRefreshControl "actively refreshing" indicator, spec
    §7.1/§9). Expanding fade ring behind the accent dot; suppressed under
