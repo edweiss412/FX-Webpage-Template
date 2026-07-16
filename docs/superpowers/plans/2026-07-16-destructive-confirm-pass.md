@@ -256,7 +256,7 @@ it("collapse during pending: completes without throwing, no focus steal, alert o
   - Confirm-go className → replace `border border-border-strong bg-surface … hover:bg-surface-sunken` literal with the recipe (keep `ring-offset-warning-bg`, disabled tokens; drop `border border-border-strong`):
     `inline-flex min-h-tap-min items-center justify-center rounded-sm bg-warning-text px-4 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60`
   - New state `const [bulkUndoOutcome, setBulkUndoOutcome] = useState<{ failed: number; total: number } | null>(null);`
-  - New refs: `groupContainerRef` on the group's still-mounted root element (an `<li>` in the current markup — attach to whatever the actual group root is, not necessarily a `<div>`), `toggleRef` on the disclosure toggle `<button>`.
+  - New refs, wired explicitly: `<li ref={groupContainerRef} …>` on the group's root element (an `<li>` in the current markup — if the root is another element, put the ref THERE; the ref must be on the outermost still-mounted group element) and `ref={toggleRef}` on the existing disclosure toggle `<button data-testid={`auto-applied-toggle-${group.showId}`}>`.
   - `confirmUndoAll` (spec §6 F3 exact 5-step sequence):
     ```tsx
     function confirmUndoAll() {
@@ -325,9 +325,11 @@ All four get the same three changes (repeat per file — no sharing):
 3. **Close focus (C5, two-phase):** `const triggerRef = useRef<HTMLButtonElement>(null);` on the idle trigger + `const confirmRowRef = useRef<HTMLDivElement>(null);` on the confirm row container + a restore flag:
    ```tsx
    const restoreFocusRef = useRef(false);
-   function closeConfirm() { // used by BOTH cancel onClick and the auto-revert timer callback
+   function closeConfirm() { // used ONLY by cancel onClick and the auto-revert timer callback — never submit/result paths
      restoreFocusRef.current = confirmRowRef.current?.contains(document.activeElement) ?? false;
-     setUi("idle"); // or the surface's own idle transition
+     // Preserve the existing functional guard — only confirm → idle, never clobber a later state
+     // (the shipped auto-reverts all use this exact form, e.g. Rotate :95):
+     setUi((prev) => (prev === "confirm" ? "idle" : prev));
    }
    useEffect(() => {
      if (ui === "idle" && restoreFocusRef.current) {
@@ -368,7 +370,7 @@ All four get the same three changes (repeat per file — no sharing):
   {pending ? "Dismissing…" : "Confirm dismiss"}
 </button>
 ```
-(The `disabled:hover:bg-accent` override and its comment die with the AccentButton. The M9-D-C4-1 stable-fill-under-pending intent is preserved: the recipe fill is state-independent.) Add C3/C5 refs exactly as Task 3's pattern (idle trigger = the `Dismiss` AccentButton at `:118` — AccentButton forwards ref, `components/shared/AccentButton.tsx:76`/`:135`).
+(The `disabled:hover:bg-accent` override and its comment die with the AccentButton. The M9-D-C4-1 stable-fill-under-pending intent is preserved: the recipe fill is state-independent.) Add C3/C5 refs as Task 3's pattern (idle trigger = the `Dismiss` AccentButton at `:118` — AccentButton forwards ref, `components/shared/AccentButton.tsx:76`/`:135`) — with the explicit boundary: `closeConfirm` is wired ONLY to the Cancel onClick and the auto-revert timer; the confirm submit and its pending/success/failure outcomes are NEVER routed through it (spec §6 F4 matrix — ResolveAlert failure silently re-enables, success re-mounts; both untouched).
 - [ ] **Step 4:** Run tests + both meta-tests — PASS.
 - [ ] **Step 5: Commit** `feat(admin): resolve-alert confirm — destructive recipe + focus-safe (R6, F4)`
 
@@ -455,7 +457,11 @@ function onGuardedClick() {
   }
   clearArmTimer();
   setArmed(false);
-  runExistingHandler(); // the surface's current one-tap handler, unchanged
+  runExistingHandler(); // the surface's current one-tap handler, invoked with its EXISTING
+  // arguments/semantics, unchanged — the guard adds only timer cleanup + armed reset around it.
+  // None of the three handlers reads armed state or event identity (G1 handleClick(kind),
+  // G2 handleDiscard("permanent_ignore"), G3 handleClick()) so the setArmed(false) preceding
+  // the call cannot reorder observable behavior; preserve each call exactly as it exists today.
 }
 ```
 
@@ -488,7 +494,7 @@ Per-surface armed rendering (label + className swap on the SAME button; the arme
 
 - [ ] **Step 1:** Failing tests (spec §10 G4): first tap on X arms X (label `Confirm — ignore all N`, recipe classes; `· label` span present WITHOUT `text-text-subtle`, WITH `font-normal`); tapping armed X fires `ignoreGroup` once; tapping Y while X armed → Y armed, X idle, timer restarted (advance 4s from Y-arm → Y disarms; advancing only X's remainder does NOT disarm Y); `running` disables all and clears armed; error state clears armed; unmount while armed clears the timer (fake timers, no act warnings after unmount).
 - [ ] **Step 2:** Run — FAIL.
-- [ ] **Step 3:** Implement: `const [armedCode, setArmedCode] = useState<string | null>(null);` + single shared timer ref with a `clearArmTimer()` helper + `useEffect(() => clearArmTimer, [])` unmount cleanup (same contract as Task 8's guards); arm/re-arm resets the timer; second tap on armed group clears timer + `setArmedCode(null)` + existing `ignoreGroup(group)` (which sets `running` — also clear armed inside `ignoreGroup`'s entry for safety); error path clears armed. Armed className:
+- [ ] **Step 3:** Implement: `const [armedCode, setArmedCode] = useState<string | null>(null);` + single shared timer ref with a `clearArmTimer()` helper + `useEffect(() => clearArmTimer, [])` unmount cleanup (same contract as Task 8's guards); arm/re-arm resets the timer; second tap on armed group clears timer + `setArmedCode(null)` + existing `ignoreGroup(group)` (which sets `running` — also clear armed inside `ignoreGroup`'s entry for safety). EVERY `setState({ kind: "error", … })` assignment in the file (there are two: the partial-failure branch and the catch branch, `BulkIgnoreControls.tsx:60-72`) gets an adjacent `setArmedCode(null)` — enumerate them by grepping `kind: "error"` in the file during implementation. Armed className:
   `inline-flex min-h-tap-min max-w-full items-center justify-start self-start whitespace-normal rounded-sm bg-warning-text px-3 py-1 text-left text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg`
   Armed content: `Confirm — ignore all {group.items.length}` + `{group.label ? <span className="ml-1 font-normal">· {group.label}</span> : null}`.
 - [ ] **Step 4:** Run + meta-test — PASS. **Step 5: Commit** `feat(admin): two-tap armed-state guard on bulk Ignore all N (G4)`
@@ -521,6 +527,6 @@ Per-surface armed rendering (label + className swap on the SAME button; the arme
 
 ## Self-review notes (writing-plans checklist)
 
-- Spec coverage: C1–C6 (Tasks 1–9), G1–G4 (8–9), R1–R8 (2–6), F1–F4 (7, 2, 3–5), §8 meta-test (1, extended throughout), §9 DESIGN (10), §12 close-outs (10). §7 exceptions = no tasks (correct).
+- Spec coverage: C1–C6 (Tasks 1–9), G1–G4 (8–9), R1–R8 (2–6), F1–F4 (7, 2, 3–5), §8 meta-test (1, extended throughout), §9 DESIGN (10), §12 close-outs (Task 11's post-gate bookkeeping item). §7 exceptions = no tasks (correct).
 - The five trigger-swap surfaces share one task deliberately: identical pattern, one reviewer gate; per-file code is repeated in the task body, not referenced.
 - Type consistency: `bulkUndoOutcome` name used in Task 2 only; `armedCode` in Task 9 only; registry Row shape defined once in Task 1 and only APPENDED later.
