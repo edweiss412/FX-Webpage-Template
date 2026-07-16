@@ -18,7 +18,9 @@
 - Saved card: client-local until unmount; summary line branches applied vs apply_pending (§9 strings); "Change what they see" reopens panel in REVISE mode → submits via `updateRoleTokenMapping` (NOT the create action), pre-filled grants; no liveness guarantee (component-level test only, actions mocked).
 - Component state keyed to warning identity (`code` + `roleToken` + `blockRef.index`) so list churn never migrates checkbox state between rows.
 
-- [ ] **Step 1: Write failing component tests** — jsdom + Testing Library, actions mocked at module level (pattern: existing `tests/components/` use-raw control tests). Required cases, each derived from the §9 strings (import nothing hardcoded twice — assert against a shared strings module if you extract one):
+- [ ] **Step 0: Extract the Doug-facing strings module** — `components/admin/roleRecognizeCopy.ts` exporting every §9-pinned string as named constants (both components import from it; single source). Then EXTEND the hygiene sweep (`tests/messages/_metaCatalogCopyHygiene.test.ts` D7 block from Task 9) with a second loop importing this module and sweeping every exported string with the same banned-regex + placeholder-stripping (Codex plan-R1 F6 — component copy gets the same structural guard as catalog copy; later UI copy edits can't reintroduce banned vocabulary silently).
+
+- [ ] **Step 1: Write failing component tests** — jsdom + Testing Library, actions mocked at module level (pattern: existing `tests/components/` use-raw control tests). Required cases, each derived from the §9 strings — assert against the `roleRecognizeCopy` constants, never retyped literals:
   - renders nothing without `roleToken`
   - collapsed trigger text "Recognize this role"; expand shows heading + scope line with the token interpolated + 4 checkboxes + financial caution + "They'll get the standard show page." when none checked
   - saving disables all inputs, label "Recognizing…"

@@ -29,6 +29,8 @@ Then edit `lib/messages/catalog.ts`: update the `UNKNOWN_ROLE_TOKEN` row (:1193-
 
 Run: `pnpm exec vitest run tests/cross-cutting/codes.test.ts tests/messages` — x1 parity green, help families green (add the `/help/errors#ROLE_TOKEN_MAPPED` anchor wherever the help error page enumerates codes — the families test will name the gap; follow it).
 
+Rendered-copy test (Codex plan-R1 F8, spec §10 point 6): a unit test renders the `ROLE_TOKEN_MAPPED` dougFacing through the real placeholder/renderer path with (a) `grants: ["A1","V1"]` context → output contains "Audio and Video details"-style summary and the interpolated token; (b) `grants: []` → output contains "the standard show page" and NEVER an empty join artifact ("see .", "and details"). Assert against the RENDERED string, not the catalog literal.
+
 - [ ] **Step 3: Jargon sweep extension**
 
 In `tests/messages/_metaCatalogCopyHygiene.test.ts`, add a block after the existing `JARGON_LEAK_PATTERNS` test:
@@ -123,6 +125,7 @@ export async function mapRoleToken(showId: string, token: string, grants: string
 
 ```ts
 describe("mapRoleToken (spec §8.3)", () => {
+  test("upsert failure → infra_error AND no ROLE_TOKEN_MAPPING_SET emitted (post-commit ordering)");
   test("validation: blank token / >64 chars / built-in token / bad grant → validation_error, nothing written");
   test("grants deduped + stable-ordered before write");
   test("existing row, set-equal grants: NO provenance check, proceeds to re-sync; state from outcome");
@@ -164,6 +167,9 @@ export async function mapRoleToken(showId: string, rawToken: string, rawGrants: 
   // 2) NO ROW: provenance — read the show's persisted parse warnings; require one
   //    UNKNOWN_ROLE_TOKEN with roleToken === token, else return stale.
   // 3) upsert { token, grants, decided_by: actor, decided_at: now, updated_at: now }
+  //    logAdminOutcome fires ONLY AFTER the upsert succeeds (post-commit forensic,
+  //    invariant 10 — Codex plan-R1 F4): a failed upsert returns infra_error and
+  //    emits NOTHING. Explicit test case: upsert failure -> no ROLE_TOKEN_MAPPING_SET.
   await logAdminOutcome({ code: "ROLE_TOKEN_MAPPING_SET", source: "admin.show.roleToken", actorEmail: actor, showId });
   // 4) follow-up re-sync, useRaw.ts:155-170 pattern VERBATIM (thrown fault caught):
   let applied = false;

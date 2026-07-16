@@ -277,6 +277,7 @@ export function gateAppliedRoleMappings(
 
 ```ts
 describe("gateAppliedRoleMappings (spec §10 point 2 — prior-persisted state only)", () => {
+  test("same-token entries carry identical grants by construction (one row per token); the grouped entry uses them verbatim — documented, not inferred (Codex plan-R1 F5)", () => {});
   test("grants branch: emits when a granted flag is newly present vs prior role_flags", () => {});
   test("grants branch: silent when the member's prior flags already include every grant (steady state)", () => {});
   test("recognize-only branch: emits when prior warnings still contained (roleToken, blockRefName)", () => {});
@@ -371,7 +372,7 @@ Integration test (`tests/sync/phase2RoleMappings.test.ts`): drive `runPhase2` tw
 Spec §6.2 loading pattern, §10 points 3/5/7. THREE surfaces: cron+manual shared core, staged apply.
 
 **Files:**
-- Modify: `lib/sync/runScheduledCronSync.ts` (the shared `processOneFile` core — the region that loads `use_raw_decisions` at :920 and assembles Phase2Args, incl. the prior-show read; `runManualSyncForShow` reuses this core per `runManualSyncForShow.ts:282,299`, so ONE load site covers cron AND manual), `lib/sync/applyStaged.ts` (:530 region) + `lib/sync/applyStagedCore.ts` (:456,583 — optional-field conditional-spread pattern already used for `useRawDecisions`)
+- Modify: `lib/sync/runScheduledCronSync.ts` (the shared `processOneFile` core — the region that loads `use_raw_decisions` at :920 and assembles Phase2Args, incl. the prior-show read). **VERIFIED (Codex plan-R1 F1): `runManualSyncForShow.ts:12-13` imports `processOneFile as defaultProcessOneFile` / `processOneFile_unlocked as defaultProcessOneFile_unlocked` FROM `runScheduledCronSync.ts` (`:2643`/`:3146`) and runs them at `:282`/`:299` — one shared core, so this single load site covers cron AND manual by construction.** Also `lib/sync/applyStaged.ts` (:530 region) + `lib/sync/applyStagedCore.ts` (:456,583 — optional-field conditional-spread pattern already used for `useRawDecisions`)
 - Create: `lib/log/emitRoleTokenMapped.ts` (or colocate the emit helper in `lib/sync` beside the existing post-commit telemetry of those callers — match whichever module the surrounding emits live in)
 - Test: `tests/sync/roleMappingThreading.test.ts` (walker) + telemetry lifecycle assertions in the Task 7 integration file
 
@@ -388,15 +389,29 @@ import { describe, expect, test } from "vitest";
 import { readFileSync } from "node:fs";
 import { execSync } from "node:child_process";
 
-test("every runPhase2 caller threads roleTokenMappings + priorParseWarnings or is exempted", () => {
+/**
+ * Extract the argument-object region of each runPhase2 CALL (from "runPhase2(" to
+ * its closing on brace-balance) so the assertion proves the fields are IN the args,
+ * not merely somewhere in the file (Codex plan-R1 F2). Same extraction serves the
+ * emission clause (plan-R1 F3): a caller that consumes an applied Phase2Result must
+ * also call emitRoleTokenMapped(...) post-commit or carry an inline exemption.
+ */
+function runPhase2CallRegions(src: string): string[] { /* brace-balanced slice from each "runPhase2(" index */ }
+
+test("every runPhase2 caller threads BOTH fields inside the call args, or is exempted", () => {
   const callers = execSync(`grep -rln "runPhase2(" lib --include='*.ts'`, { encoding: "utf8" })
     .trim().split("\n").filter((f) => f !== "lib/sync/phase2.ts");
+  expect(callers.length).toBeGreaterThan(0);
   for (const file of callers) {
     const src = readFileSync(file, "utf8");
-    const ok =
-      (src.includes("roleTokenMappings") && src.includes("priorParseWarnings")) ||
-      src.includes("// first-publish-only:");
-    expect(ok, `${file} applies flags dark — thread the fields or exempt`).toBe(true);
+    if (src.includes("// first-publish-only:")) continue;
+    for (const region of runPhase2CallRegions(src)) {
+      expect(region.includes("roleTokenMappings"), `${file}: roleTokenMappings missing from runPhase2 args`).toBe(true);
+      expect(region.includes("priorParseWarnings"), `${file}: priorParseWarnings missing from runPhase2 args`).toBe(true);
+    }
+    // Emission clause (spec §10 point 5): the same caller must emit or exempt.
+    const emits = src.includes("emitRoleTokenMapped(") || src.includes("// no-telemetry:");
+    expect(emits, `${file} applies flags telemetry-dark — emit ROLE_TOKEN_MAPPED post-commit or exempt`).toBe(true);
   }
 });
 ```

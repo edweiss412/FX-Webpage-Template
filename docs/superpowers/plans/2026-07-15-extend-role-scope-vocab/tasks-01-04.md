@@ -123,7 +123,7 @@ import { ROLE_NORMALIZATIONS, MULTI_WORD_TOKENS, canonicalRoleToken } from "./ro
 export { ROLE_NORMALIZATIONS };
 ```
 
-(`MULTI_WORD_TOKENS` was module-private before — keep it un-re-exported unless a grep shows an external consumer; `SHORT_ROLE_CODES` at :48 derives from `ROLE_NORMALIZATIONS` and stays where it is.)
+(`MULTI_WORD_TOKENS` MUST be exported from the LEAF — the Task 1 test imports it from `@/lib/parser/roleVocabulary` (Codex plan-R1 F7). It was module-private in `personalization.ts` before, so do NOT re-export it from `personalization.ts` — the leaf is its one public home. `SHORT_ROLE_CODES` at :48 derives from `ROLE_NORMALIZATIONS` and stays where it is.)
 
 In the tokenizer (currently `:344-346`), replace `.map((t) => t.trim().toUpperCase())` with `.map((t) => canonicalRoleToken(t))`.
 
