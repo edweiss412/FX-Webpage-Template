@@ -269,8 +269,17 @@ test.beforeAll(async () => {
   const { error: insErr } = await admin.from("role_token_mappings").insert(FIXTURES);
   if (insErr) {
     // Failure-atomic hygiene: if seeding fails after the delete, restore the
-    // snapshot NOW — afterAll is not guaranteed when beforeAll throws.
-    if (snapshot.length > 0) await admin.from("role_token_mappings").insert(snapshot);
+    // snapshot NOW — afterAll is not guaranteed when beforeAll throws. The
+    // restore itself follows invariant 9: a silent restore failure must never
+    // masquerade as "table left as found".
+    if (snapshot.length > 0) {
+      const { error: restoreErr } = await admin.from("role_token_mappings").insert(snapshot);
+      if (restoreErr) {
+        throw new Error(
+          `fixture insert failed AND snapshot restore failed — role_token_mappings is left EMPTY, restore manually: insert=${insErr.message}; restore=${restoreErr.message}`,
+        );
+      }
+    }
     throw new Error(`fixture insert failed: ${insErr.message}`);
   }
 });
@@ -466,7 +475,7 @@ test.describe("roles settings — stacked mobile card (<760px)", () => {
 In `playwright.config.ts:71`, add `roles-settings-layout` to the desktop-chromium alternation — change `…|admin-settings-admins-refresh|…` to `…|admin-settings-admins-refresh|roles-settings-layout|…` (one filename added; the project matches an explicit list, an unregistered spec silently never runs — spec §6.2 Registration).
 
 Run: `cd /Users/ericweiss/fxav-worktrees/feat-role-vocab-desktop-grid && pnpm exec playwright test --project=desktop-chromium roles-settings-layout`
-Expected RED, with the failures attributable to LAYOUT (not harness gaps): the cell testids (`role-mapping-token`/`-meta`/`-chips`/`-actions`/`-edit-label-*`) already exist from Task 1, so the first desktop test runs its geometry and FAILS on the vertical-center + main-width (672 ≠ 768) + token-width assertions; the label-swap test FAILS on span visibility (no responsive CSS active... both spans follow their classes — long visible, short hidden via base `hidden`, so specifically `toBeHidden()` on the long span fails); the panel tests FAIL earlier on the not-yet-added `role-mapping-edit-panel`/`role-mapping-confirm-panel` testids (harness-gap failures — acceptable ONLY for these two tests). The mobile describe should PASS already (stacked is current behavior). Confirm the geometry failures are present before proceeding.
+Expected RED, with the failures attributable to LAYOUT (not harness gaps): the cell testids (`role-mapping-token`/`-meta`/`-chips`/`-actions`/`-edit-label-*`) already exist from Task 1, so the first desktop test runs its geometry and FAILS on the vertical-center + main-width (672 ≠ 768) + token-width assertions; the label-swap test FAILS on span visibility (no responsive CSS active... both spans follow their classes — long visible, short hidden via base `hidden`, so specifically `toBeHidden()` on the long span fails); the panel tests FAIL earlier on the not-yet-added `role-mapping-edit-panel`/`role-mapping-confirm-panel` testids (harness-gap failures — acceptable ONLY for these two tests). The mobile describe should PASS already (stacked is current behavior). REQUIRED red signals: the geometry failures (vertical-center, main-width, token-width). Other failure shapes may differ in detail — do not chase exact message parity; confirm the geometry failures are present, then proceed.
 
 - [ ] **Step 3: Implement the grid**
 
