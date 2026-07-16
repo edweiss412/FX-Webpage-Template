@@ -324,6 +324,37 @@ describe("perFileProcessor gating phase", () => {
     });
   });
 
+  // Role-vocab convergence-window pin (staging-overlay spec 2026-07-16 §3.4 / §7 item 9):
+  // a role_token_mappings edit never advances any sheet's Drive modifiedTime, so an
+  // unmodified sheet is watermark-skipped by cron indefinitely — the docs' honest window
+  // ("until the next sheet edit or manual sync") is only true while (a) cron skips at-or-
+  // before the watermark AND (b) manual mode bypasses the watermark unconditionally.
+  // Failure modes caught: doc claims outliving the code; breaking the manual bypass that
+  // makes downward convergence (revoked grants) reachable at all.
+  test("role-vocab drift window: unchanged modtime → cron watermark-skips, manual proceeds", async () => {
+    const fake = createFakeSupabase({
+      shows: [
+        {
+          drive_file_id: "file-1",
+          last_sync_status: "ok",
+          last_seen_modified_time: "2026-07-16T12:00:00.000Z",
+          diagrams: { current: { snapshot_status: "complete" } },
+        },
+      ],
+    });
+    supabaseMock.client = fake.client;
+    const { perFileProcessor } = await importProcessor();
+
+    // Publish happened at 12:00; a mapping narrow/delete after it changes NO sheet bytes.
+    await expect(
+      perFileProcessor("file-1", "cron", fileMeta("2026-07-16T12:00:00.000Z")),
+    ).resolves.toEqual({ outcome: "skip", reason: "watermark" });
+    // Manual sync is the deterministic convergence lever: unconditional proceed.
+    await expect(
+      perFileProcessor("file-1", "manual", fileMeta("2026-07-16T12:00:00.000Z")),
+    ).resolves.toEqual({ outcome: "proceed", mode: "manual" });
+  });
+
   test("push duplicate watermark emits canonical WEBHOOK_NOOP_ALREADY_SYNCED reason", async () => {
     const fake = createFakeSupabase({
       shows: [
