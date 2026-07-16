@@ -214,6 +214,26 @@ describe("RoleRecognizeControl — revise", () => {
     await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
     expect(onSave.mock.calls[1]).toEqual([["A1", "V1", "FINANCIALS"], "revise"]);
   });
+
+  it("revised → saved card shows the next-sheet-check convergence copy, NOT the applied/pending summary", async () => {
+    // updateRoleTokenMapping runs NO show refresh — convergence is the next sheet
+    // check. The saved card must therefore carry EDIT_SAVED_CONFIRM, never the
+    // "People with <TOKEN> now see …" applied summary nor the apply_pending line.
+    const grants = ["A1", "V1"] as const;
+    const onSave = vi.fn(
+      async () => ({ kind: "saved", state: "revised", grants: [...grants] }) as const,
+    );
+    render(<RoleRecognizeControl roleToken={TOKEN} onSave={onSave} />);
+    expand();
+    fireEvent.click(screen.getByTestId("role-recognize-save"));
+    await waitFor(() => expect(screen.getByTestId("role-recognize-saved")).toBeInTheDocument());
+    expect(screen.getByText(COPY.EDIT_SAVED_CONFIRM)).toBeInTheDocument();
+    expect(screen.queryByText(COPY.savedSummary(TOKEN, [...grants]))).toBeNull();
+    expect(screen.queryByText(COPY.APPLY_PENDING_SUMMARY)).toBeNull();
+    // Still the teal ✓ card with the reopen affordance.
+    expect(screen.getByTestId("role-recognize-saved")).toHaveAttribute("data-state", "revised");
+    expect(screen.getByTestId("role-recognize-change")).toBeInTheDocument();
+  });
 });
 
 // ── Transition inventory audit (spec §8.1) ────────────────────────────────
@@ -365,5 +385,9 @@ describe("RoleRecognizeControlBoundary — action selection", () => {
     await waitFor(() => expect(updateRoleTokenMapping).toHaveBeenCalledTimes(1));
     expect(updateRoleTokenMapping).toHaveBeenCalledWith(TOKEN, ["A1", "FINANCIALS"]);
     expect(mapRoleToken).toHaveBeenCalledTimes(1); // the create call only, not the revise
+    // A revise runs no show refresh → the saved card shows the convergence copy, not
+    // the "now see" applied summary (which would overclaim an immediate live effect).
+    expect(screen.getByText(COPY.EDIT_SAVED_CONFIRM)).toBeInTheDocument();
+    expect(screen.queryByText(COPY.savedSummary(TOKEN, ["A1", "FINANCIALS"]))).toBeNull();
   });
 });

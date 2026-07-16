@@ -32,9 +32,19 @@ import * as COPY from "@/components/admin/roleRecognizeCopy";
 
 export type RoleRecognizeSaveMode = "create" | "revise";
 
-/** Normalized outcome the boundary returns from the surface action (spec §8.3). */
+/**
+ * Normalized outcome the boundary returns from the surface action (spec §8.3).
+ * `state`: "applied"/"apply_pending" are CREATE outcomes (the create action runs a
+ * show re-sync); "revised" is the REVISE outcome (updateRoleTokenMapping runs NO
+ * refresh — convergence is each show's next sheet check), so its saved card shows the
+ * convergence copy, never an "applied" summary that would overclaim a live effect.
+ */
 export type RoleRecognizeSaveOutcome =
-  | { kind: "saved"; state: "applied" | "apply_pending"; grants: readonly GrantableFlag[] }
+  | {
+      kind: "saved";
+      state: "applied" | "apply_pending" | "revised";
+      grants: readonly GrantableFlag[];
+    }
   | { kind: "stale" }
   | { kind: "conflict" }
   | { kind: "error" };
@@ -89,7 +99,7 @@ export function RoleRecognizeControl({
   const [checks, setChecks] = useState<Checks>(EMPTY_CHECKS);
   const [errored, setErrored] = useState(false);
   const [saved, setSaved] = useState<{
-    state: "applied" | "apply_pending";
+    state: "applied" | "apply_pending" | "revised";
     grants: readonly GrantableFlag[];
   } | null>(null);
 
@@ -203,7 +213,9 @@ export function RoleRecognizeControl({
           <span className="text-xs text-text-subtle">
             {saved.state === "applied"
               ? COPY.savedSummary(token, saved.grants)
-              : COPY.APPLY_PENDING_SUMMARY}{" "}
+              : saved.state === "revised"
+                ? COPY.EDIT_SAVED_CONFIRM
+                : COPY.APPLY_PENDING_SUMMARY}{" "}
             <button
               type="button"
               data-testid="role-recognize-change"

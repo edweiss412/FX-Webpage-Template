@@ -54,8 +54,11 @@ export function RoleRecognizeControlBoundary(
   ): Promise<RoleRecognizeSaveOutcome> => {
     if (mode === "revise") {
       // The existing mapping is edited through the sole sanctioned mutation path.
+      // `updateRoleTokenMapping` runs NO show refresh, so the outcome is "revised"
+      // (convergence = each show's next sheet check) — NOT "applied", which would
+      // overclaim an immediate live effect on the saved card.
       const r = await updateRoleTokenMapping(token, grants);
-      if (r.ok) return { kind: "saved", state: "applied", grants };
+      if (r.ok) return { kind: "saved", state: "revised", grants };
       if (r.code === "stale") return { kind: "stale" };
       return { kind: "error" };
     }
