@@ -91,10 +91,15 @@ vi.mock("@/app/admin/settings/_actions/roleTokenMappings", () => ({
 
 import { mapRoleTokenStaged } from "@/app/admin/onboarding/_actions/roleTokenStaged";
 import {
+  BreakdownSection,
   CALLOUT_MAX_ENTRIES,
   findUseRawDecision,
+  step3Sections,
+  Step3SectionChromeContext,
   WarningsBreakdown,
+  type SectionData,
 } from "@/components/admin/wizard/step3ReviewSections";
+import { buildParseResult, stagedRow } from "./_step3ReviewFixture";
 
 afterEach(() => {
   cleanup();
@@ -304,6 +309,37 @@ describe("WarningsBreakdown per-row controls (spec §4.1-§4.3, §4.5)", () => {
     );
     expect(within(row1).getByTestId("use-raw-control").getAttribute("data-state")).toBe(
       "transform-active",
+    );
+  });
+
+  test("PRODUCTION PATH: the registry's warnings def threads session + decisions (spec §4.2)", () => {
+    // Render through step3Sections — NOT a manual mount — so an implementer who
+    // skips the registry wiring fails here even though the props are optional.
+    const N = CALLOUT_MAX_ENTRIES + 1;
+    const warnings = [...Array.from({ length: N }, (_, k) => roomSplitWarning(k)), OUT_OF_SCOPE];
+    const pr = buildParseResult({ warnings });
+    const d: SectionData = {
+      pr,
+      row: stagedRow(pr),
+      dfid: DFID,
+      wizardSessionId: WSID,
+      crewMembers: pr.crewMembers,
+      rooms: pr.rooms,
+      hotels: pr.hotelReservations,
+      pullSheet: pr.pullSheet ?? [],
+      archivedPullSheetTabs: pr.archivedPullSheetTabs ?? [],
+      ros: pr.runOfShow ?? {},
+      warnings: pr.warnings,
+      agendaBaseline: [],
+      useRawDecisions: [decisionFor(roomSplitWarning(0))],
+    };
+    const def = step3Sections(d).find((s) => s.id === "warnings")!;
+    const q = render(<>{def.render(d)}</>);
+    expect(q.getAllByTestId("use-raw-control")).toHaveLength(N);
+    // The threaded decision reaches the matching row (production decisionFor path).
+    const row0 = q.getByTestId(`wizard-step3-card-${DFID}-warning-0`);
+    expect(within(row0).getByTestId("use-raw-control").getAttribute("data-state")).toBe(
+      "apply-pending",
     );
   });
 
@@ -571,14 +607,16 @@ git commit --no-verify -m "fix(admin): identity keys for stateful callout entrie
 
 ---
 
-### Task 4: Stale-sibling contract test (§4.6/§7.6 — test-only)
+### Task 4: Stale-sibling UI rendering test (§4.6/§7.6 — test-only, UI layer)
 
 **Files:**
 - Test: `tests/components/admin/wizard/warningsBreakdownControls.test.tsx`
 
+**Scope precision:** this task pins the **UI layer** of the §4.6 contract — that a stale sibling stays actionable and renders the saved card / benign conflict notice (never error styling, never a raw code) for the outcomes the action can return. The **action layer** (that `mapRoleTokenStaged`'s EXISTING-ROW branch actually returns set-equal → idempotent success and different-grants → `conflict`) is ALREADY pinned by `tests/admin/mapRoleTokenStagedAction.test.ts:160` ("existing row, set-equal grants: … proceeds to re-stage") and `:171` ("existing row, different grants: conflict, nothing written") — this task deliberately mocks the action and does NOT re-prove it.
+
 **Interfaces:**
 - Consumes: mocked `mapRoleTokenStaged` (Task 1 mock), `WarningsBreakdown` (Task 2).
-- Produces: a pin on shipped behavior; no production change. If this test FAILS, the bug is in shipped code — stop and report, do not "fix" the test.
+- Produces: a pin on shipped UI behavior; no production change. If this test FAILS, the bug is in shipped code — stop and report, do not "fix" the test.
 
 - [ ] **Step 1: Write the test** (append)
 
