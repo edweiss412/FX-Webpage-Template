@@ -33,7 +33,10 @@ import { resolveShowById } from "./shared";
 
 export type MapRoleTokenResult =
   | { ok: true; state: "applied" | "apply_pending" }
-  | { ok: false; code: "stale" | "conflict" | "infra_error" | "show_not_found" | "validation_error" };
+  | {
+      ok: false;
+      code: "stale" | "conflict" | "infra_error" | "show_not_found" | "validation_error";
+    };
 
 /** Set-equality over already-normalized (deduped, stable-ordered) grant arrays. */
 function grantsEqual(a: readonly string[], b: readonly string[]): boolean {

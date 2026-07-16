@@ -149,9 +149,7 @@ export async function mapRoleTokenStaged(
         .maybeSingle<{ parse_result: unknown }>();
       if (!error) {
         const refreshed = warningsOf(data?.parse_result);
-        applied = !refreshed.some(
-          (w) => w.code === "UNKNOWN_ROLE_TOKEN" && w.roleToken === token,
-        );
+        applied = !refreshed.some((w) => w.code === "UNKNOWN_ROLE_TOKEN" && w.roleToken === token);
       }
     }
   } catch {

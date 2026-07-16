@@ -34,7 +34,12 @@ export const ROLE_NORMALIZATIONS: Record<string, RoleFlag> = {
 };
 
 // Multi-word tokens that must be matched BEFORE splitting by / or -.
-export const MULTI_WORD_TOKENS: string[] = ["CONTENT CREATION", "SHOW CALLER", "GREEN ROOM", "CAM OP"];
+export const MULTI_WORD_TOKENS: string[] = [
+  "CONTENT CREATION",
+  "SHOW CALLER",
+  "GREEN ROOM",
+  "CAM OP",
+];
 
 /**
  * EXACTLY the tokenizer's per-token transform (split on '/'/'-' happens at the

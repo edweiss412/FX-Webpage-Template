@@ -274,7 +274,8 @@ describe("firstSeenPublished + wizardCreatedSessionId threading (R30-1 + R65-1)"
   test("core forwards firstSeenPublished + wizardCreatedSessionId into runPhase2 (wizard first-seen)", async () => {
     const tx = spyTx();
     const runPhase2Spy = vi.fn<NonNullable<ApplyStagedCoreDeps["runPhase2"]>>(async () => ({
-      outcome: "applied" as const, appliedRoleMappings: [],
+      outcome: "applied" as const,
+      appliedRoleMappings: [],
       showId: "show-9",
     }));
     await applyStagedCore(
@@ -309,7 +310,8 @@ describe("sourceAnchors threading (onboarding deep-link anchors)", () => {
 
   function runPhase2SpyApplied() {
     return vi.fn<NonNullable<ApplyStagedCoreDeps["runPhase2"]>>(async () => ({
-      outcome: "applied" as const, appliedRoleMappings: [],
+      outcome: "applied" as const,
+      appliedRoleMappings: [],
       showId: "show-anchors",
     }));
   }

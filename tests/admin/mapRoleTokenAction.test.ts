@@ -36,10 +36,12 @@ vi.mock("@/lib/log/logAdminOutcome", () => ({
   logAdminOutcome: (o: unknown) => logAdminOutcomeMock(o),
 }));
 
-const runManualSyncForShowMock = vi.fn(async (_df: string): Promise<unknown> => ({
-  outcome: "applied",
-  showId: "show-1",
-}));
+const runManualSyncForShowMock = vi.fn(
+  async (_df: string): Promise<unknown> => ({
+    outcome: "applied",
+    showId: "show-1",
+  }),
+);
 vi.mock("@/lib/sync/runManualSyncForShow", () => ({
   runManualSyncForShow: (df: string) => runManualSyncForShowMock(df),
 }));
@@ -133,7 +135,10 @@ beforeEach(() => {
     kind: "found",
     show: { id: "show-1", driveFileId: "df-server" },
   });
-  runManualSyncForShowMock.mockImplementation(async () => ({ outcome: "applied", showId: "show-1" }));
+  runManualSyncForShowMock.mockImplementation(async () => ({
+    outcome: "applied",
+    showId: "show-1",
+  }));
 });
 afterEach(() => vi.clearAllMocks());
 
@@ -207,7 +212,11 @@ describe("mapRoleToken (spec §8.3)", () => {
     requireAdminIdentityMock.mockResolvedValue({ email: "  Admin@FX.TEST " });
     const r = await mapRoleToken("show-1", "DRONE OP", ["A1"]);
     expect(r).toEqual({ ok: true, state: "applied" });
-    expect(capturedInsert).toMatchObject({ token: "DRONE OP", grants: ["A1"], decided_by: "admin@fx.test" });
+    expect(capturedInsert).toMatchObject({
+      token: "DRONE OP",
+      grants: ["A1"],
+      decided_by: "admin@fx.test",
+    });
     expect(logAdminOutcomeMock).toHaveBeenCalledWith(
       expect.objectContaining({
         code: "ROLE_TOKEN_MAPPING_SET",

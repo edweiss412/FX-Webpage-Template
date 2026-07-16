@@ -3389,7 +3389,9 @@ function roleMappingSvc(opts: {
       const writeResult = () => ({
         then: (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) =>
           Promise.resolve(
-            opts.writeError ? { data: null, error: { message: "boom" } } : { data: null, error: null },
+            opts.writeError
+              ? { data: null, error: { message: "boom" } }
+              : { data: null, error: null },
           ).then(res, rej),
       });
       b.insert = writeResult;

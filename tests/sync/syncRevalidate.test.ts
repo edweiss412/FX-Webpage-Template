@@ -74,7 +74,12 @@ describe("cron apply tail", () => {
       processOneFile: async (driveFileId) => {
         order.push(`committed:${driveFileId}`);
         if (driveFileId === appliedFile.driveFileId) {
-          return { outcome: "applied", showId: SHOW_ID, parseWarnings: [], appliedRoleMappings: [] };
+          return {
+            outcome: "applied",
+            showId: SHOW_ID,
+            parseWarnings: [],
+            appliedRoleMappings: [],
+          };
         }
         return { outcome: "skipped", reason: "watermark_unchanged" };
       },

@@ -182,7 +182,11 @@ describe("mapRoleTokenStaged (spec §8.3 staged twin)", () => {
     requireAdminIdentityMock.mockResolvedValue({ email: "  Admin@FX.TEST " });
     const r = await mapRoleTokenStaged("wiz-1", "df-1", "DRONE OP", ["A1"]);
     expect(r).toEqual({ ok: true, state: "applied" });
-    expect(capturedInsert).toMatchObject({ token: "DRONE OP", grants: ["A1"], decided_by: "admin@fx.test" });
+    expect(capturedInsert).toMatchObject({
+      token: "DRONE OP",
+      grants: ["A1"],
+      decided_by: "admin@fx.test",
+    });
     expect(logAdminOutcomeMock).toHaveBeenCalledWith(
       expect.objectContaining({
         code: "ROLE_TOKEN_MAPPING_SET",

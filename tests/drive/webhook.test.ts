@@ -374,7 +374,12 @@ describe("/api/drive/webhook", () => {
     const logSync = vi.fn(async () => undefined);
     const runPushSyncForShow = vi.fn(async (driveFileId: string, deps) => {
       await deps?.logSync?.({ driveFileId, outcome: "applied" });
-      return { outcome: "applied" as const, showId: "show-a", parseWarnings: [], appliedRoleMappings: [] };
+      return {
+        outcome: "applied" as const,
+        showId: "show-a",
+        parseWarnings: [],
+        appliedRoleMappings: [],
+      };
     });
 
     const result = await dispatchDriveWebhookFiles(activeChannel(), {
@@ -387,7 +392,12 @@ describe("/api/drive/webhook", () => {
       dispatched: [
         {
           driveFileId: "file-a",
-          result: { outcome: "applied", showId: "show-a", parseWarnings: [], appliedRoleMappings: [] },
+          result: {
+            outcome: "applied",
+            showId: "show-a",
+            parseWarnings: [],
+            appliedRoleMappings: [],
+          },
         },
       ],
     });
@@ -404,7 +414,12 @@ describe("/api/drive/webhook", () => {
       .mockRejectedValueOnce(
         new SyncInfraError("readShowGateRow", "returned_error", new Error("db offline")),
       )
-      .mockResolvedValueOnce({ outcome: "applied" as const, showId: "show-b", parseWarnings: [], appliedRoleMappings: [] });
+      .mockResolvedValueOnce({
+        outcome: "applied" as const,
+        showId: "show-b",
+        parseWarnings: [],
+        appliedRoleMappings: [],
+      });
 
     const result = await dispatchDriveWebhookFiles(activeChannel(), {
       listFolder: vi.fn(async () => [fileA, fileB]),
@@ -417,7 +432,12 @@ describe("/api/drive/webhook", () => {
         { driveFileId: "file-a", result: { outcome: "error", code: "SYNC_INFRA_ERROR" } },
         {
           driveFileId: "file-b",
-          result: { outcome: "applied", showId: "show-b", parseWarnings: [], appliedRoleMappings: [] },
+          result: {
+            outcome: "applied",
+            showId: "show-b",
+            parseWarnings: [],
+            appliedRoleMappings: [],
+          },
         },
       ],
     });
@@ -780,7 +800,12 @@ describe("runPushSyncForShow", () => {
       processOneFile,
     });
 
-    expect(result).toEqual({ outcome: "applied", showId: "show-1", parseWarnings: [], appliedRoleMappings: [] });
+    expect(result).toEqual({
+      outcome: "applied",
+      showId: "show-1",
+      parseWarnings: [],
+      appliedRoleMappings: [],
+    });
     expect(processOneFile).toHaveBeenCalledWith("file-1", "push", fileMeta, {
       logSync: syncLogMock.writeSyncLog,
     });

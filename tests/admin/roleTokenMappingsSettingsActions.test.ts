@@ -66,7 +66,9 @@ function makeSvc() {
       // `delete(...).eq(...)` awaited directly (b is thenable).
       b.then = (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) =>
         Promise.resolve(
-          script.deleteError ? { data: null, error: { message: "delete boom" } } : { data: null, error: null },
+          script.deleteError
+            ? { data: null, error: { message: "delete boom" } }
+            : { data: null, error: null },
         ).then(res, rej);
       return b;
     },
@@ -101,7 +103,9 @@ describe("updateRoleTokenMapping (spec §8.3)", () => {
     expect(r).toEqual({ ok: true });
     expect(capturedUpdate).toMatchObject({ grants: ["A1", "V1"], decided_by: "admin@fx.test" });
     // fresh server-clock timestamps.
-    expect(new Date(capturedUpdate!.decided_at as string).toISOString()).toBe(capturedUpdate!.decided_at);
+    expect(new Date(capturedUpdate!.decided_at as string).toISOString()).toBe(
+      capturedUpdate!.decided_at,
+    );
     expect(Date.parse(capturedUpdate!.updated_at as string)).toBeGreaterThanOrEqual(before);
     expect(revalidatePathMock).toHaveBeenCalledWith("/admin/settings/roles");
     expect(logAdminOutcomeMock).toHaveBeenCalledWith(
@@ -122,7 +126,10 @@ describe("updateRoleTokenMapping (spec §8.3)", () => {
   });
 
   test("blank / oversized token → validation_error", async () => {
-    expect(await updateRoleTokenMapping("   ", ["A1"])).toEqual({ ok: false, code: "validation_error" });
+    expect(await updateRoleTokenMapping("   ", ["A1"])).toEqual({
+      ok: false,
+      code: "validation_error",
+    });
     expect(await updateRoleTokenMapping("X".repeat(65), ["A1"])).toEqual({
       ok: false,
       code: "validation_error",
@@ -172,7 +179,10 @@ describe("updateRoleTokenMapping (spec §8.3)", () => {
 
   test("service-role construction throws → infra_error", async () => {
     svcThrows = true;
-    expect(await updateRoleTokenMapping("DRONE OP", ["A1"])).toEqual({ ok: false, code: "infra_error" });
+    expect(await updateRoleTokenMapping("DRONE OP", ["A1"])).toEqual({
+      ok: false,
+      code: "infra_error",
+    });
   });
 });
 

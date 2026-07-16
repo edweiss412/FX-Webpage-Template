@@ -220,7 +220,12 @@ describe("runManualSyncForShow", () => {
       },
     );
 
-    expect(result).toEqual({ outcome: "applied", showId: "show-1", parseWarnings: [], appliedRoleMappings: [] });
+    expect(result).toEqual({
+      outcome: "applied",
+      showId: "show-1",
+      parseWarnings: [],
+      appliedRoleMappings: [],
+    });
     expect(fetchDriveFileMetadata).not.toHaveBeenCalled();
     expect(processOneFile_unlocked).toHaveBeenCalledWith(
       tx,
@@ -270,7 +275,12 @@ describe("runManualSyncForShow", () => {
       events.push("process:start");
       return await processDeps?.withShowLock?.("drive-file-1", async () => {
         events.push("process:locked");
-        return { outcome: "applied" as const, showId: "show-1", parseWarnings: [], appliedRoleMappings: [] };
+        return {
+          outcome: "applied" as const,
+          showId: "show-1",
+          parseWarnings: [],
+          appliedRoleMappings: [],
+        };
       });
     });
 
@@ -312,7 +322,12 @@ describe("runManualSyncForShow", () => {
       processOneFile,
     });
 
-    expect(result).toEqual({ outcome: "applied", showId: "show-1", parseWarnings: [], appliedRoleMappings: [] });
+    expect(result).toEqual({
+      outcome: "applied",
+      showId: "show-1",
+      parseWarnings: [],
+      appliedRoleMappings: [],
+    });
     expect(getActiveWatchedFolderId).toHaveBeenCalledOnce();
     expect(fetchDriveFileMetadata).toHaveBeenCalledWith("drive-file-1");
     expect(withPipelineLock).toHaveBeenCalledTimes(2);
@@ -639,7 +654,12 @@ describe("runManualSyncForShow", () => {
 
     test("clearing a permanent_ignore that now succeeds does NOT warn", async () => {
       const { tx } = txWithDeferral("permanent_ignore");
-      await run(tx, { outcome: "applied", showId: "show-1", parseWarnings: [], appliedRoleMappings: [] });
+      await run(tx, {
+        outcome: "applied",
+        showId: "show-1",
+        parseWarnings: [],
+        appliedRoleMappings: [],
+      });
 
       expect(emitted()).toHaveLength(0);
     });

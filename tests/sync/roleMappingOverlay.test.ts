@@ -326,18 +326,16 @@ describe("gateAppliedRoleMappings (spec §10 point 2 — prior-persisted state o
       applied({ token: "DRONE OP", grants: ["A1"], blockRefName: "Lee Park" }),
     ];
     // Ada already steady-state (has A1) → excluded from count; Marcus + Lee new.
-    const out = gateAppliedRoleMappings(
-      a,
-      [{ name: "Ada Cole", role_flags: ["A1"] }],
-      [],
-    );
+    const out = gateAppliedRoleMappings(a, [{ name: "Ada Cole", role_flags: ["A1"] }], []);
     expect(out).toEqual([{ token: "DRONE OP", grants: ["A1"], newMemberCount: 2 }]);
   });
 
   test("crew reorder does not re-emit (identity is name-based, never index)", () => {
     // Same member, different index across syncs → prior lookup is by name, so
     // steady-state stays silent regardless of index.
-    const a = [applied({ token: "DRONE OP", grants: ["A1"], memberIndex: 7, blockRefName: "Marcus Webb" })];
+    const a = [
+      applied({ token: "DRONE OP", grants: ["A1"], memberIndex: 7, blockRefName: "Marcus Webb" }),
+    ];
     const out = gateAppliedRoleMappings(a, [{ name: "Marcus Webb", role_flags: ["A1"] }], []);
     expect(out).toEqual([]);
   });
