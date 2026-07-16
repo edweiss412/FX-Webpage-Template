@@ -133,7 +133,7 @@ export type SectionCore = {
 | `sourceAnchors` | `row.sourceAnchors ?? {}` (modal `:1294`) | `shows.source_anchors` |
 | `driveFileId` | `dfid` | `shows.drive_file_id` |
 
-**Staged-only fields (NOT in `SectionCore`):** `pr` itself, `row`, `wizardSessionId`, `dfid` (superseded by `driveFileId`), `row.agendaStateKey` (AgendaBreakdown state key `:3515` — published mode passes `showId` as `stateKey`), `row.lastFinalizeFailureCode` (finalize-demotion `:838`), `row.driveFileName` (title fallback).
+**Staged-only fields (NOT in `SectionCore`):** `pr` itself, `row`, `wizardSessionId`, `dfid` (superseded by `driveFileId`), `row.agendaStateKey` (AgendaBreakdown state key `:3515` — published mode renders the static agenda variant instead, §3.5, so no state key exists there), `row.lastFinalizeFailureCode` (finalize-demotion `:838`), `row.driveFileName` (title fallback).
 
 export type StagedSectionData = SectionCore & {
   mode: "staged";
@@ -165,6 +165,28 @@ Rules:
 - **Staged:** unchanged — `Step3SheetCard` keeps building the staged variant from its derived values (`Step3SheetCard.tsx:16`); mechanical rename to the new type.
 - **Published:** `publishedAdapter.ts` pure function `buildPublishedSectionData(input)` where input = the `shows` row, the `shows_internal` row (nullable), and the per-show rows of the per-domain tables: `crew_members`, `rooms`, `hotel_reservations`, `transportation`, `contacts`. The server page fetches (Supabase call-boundary discipline, invariant 9: destructure `{ data, error }`, typed infra errors, meta-test registry row in `tests/admin/_metaInfraContract.test.ts`) and passes plain rows; the adapter is pure and unit-testable without a DB. Column→field mapping is the §3.2 table — closed, not deferred. Missing `shows_internal` row ⇒ empty collections, never a throw (§11). The adapter reads ONLY already-persisted data — re-parsing is out of scope.
 - **Read-completeness contract (child tables).** This is a verification surface — silent truncation is a correctness bug. Every per-domain child-table read (`crew_members`, `rooms`, `hotel_reservations`, `transportation`, `contacts` filtered by `show_id`) MUST **paginate until complete** via `.range()` batches (batch size a named constant); a bare unranged `.select()` is forbidden. No render-time data loss: section render caps (`CREW_CAP`/`ROOMS_CAP`/etc., `step3ReviewSections.tsx:127-137`) continue to govern display, but rail counts and warning anchoring operate on the complete row set. The new read helper registers in `tests/admin/_metaBoundedReads.test.ts` (`READ_MODULES`), and the five child tables are added to its `UNBOUNDED_TABLES` coverage so an unranged read fails structurally.
+
+### 3.3a Snapshot-consistency contract (published read)
+
+Sync/finalize replaces the show's parent + child rows transactionally under the per-show lock (`lib/sync/applyStaged.ts:2004` — "row + crew/hotel/rooms/transport/contacts/shows_internal mutate" together). Separate read-committed queries can straddle that commit and assemble a hybrid page (new warnings anchored to old rooms). Contract:
+
+1. The read helper captures drift markers from the initial `shows` read: `last_synced_at` + `last_seen_modified_time`.
+2. After `shows_internal` + all child-table reads complete, it re-reads the two markers.
+3. On drift: retry the FULL read from step 1. Max 2 retries.
+4. Still drifting after retries: render the latest attempt WITH the existing "we're syncing now" info-notice treatment (`--color-info-bg` catalog copy — no new §12.4 code; this is informational UI copy, not an error).
+
+The plan verifies at extraction time that finalize bumps at least one marker in the same transaction as child replacement; if it doesn't, the plan adds the marker bump to the SAME existing transaction (no new lock surface, invariant 2 untouched). A test simulates a sync commit landing between parent and child reads and asserts the retry produces a consistent snapshot.
+
+### 3.5 Mode-specific section rendering (agenda + diagrams)
+
+Two section bodies are NOT read-only today and MUST fork by mode:
+
+| Section | Staged (unchanged) | Published (new, read-only) |
+| --- | --- | --- |
+| Agenda | `AgendaBreakdown` POSTs to `/api/admin/onboarding/extract-agenda/[wizardSessionId]/[driveFileId]` and polls (`step3ReviewSections.tsx:2502,:2767`) | Static render of `buildAdminAgendaPreview(shows.agenda_links, { validatedHrefs: true })` — persisted extraction blocks only (`link.extracted` is already persisted on `agenda_links`). NO extract POST, NO polling, NO wizard-session dependency. PDF links resolve through the published asset route `app/api/asset/agenda/[show]/[id]/route.ts`. |
+| Diagrams (rooms sub-block) | Image srcs via staged route `app/api/admin/onboarding/staged-diagram/[wizardSessionId]/[driveFileId]/[objectId]/route.ts` (`step3ReviewSections.tsx:3040-3042`) | Image srcs via the published asset route `app/api/asset/diagram/[show]/[rev]/[key]/route.ts` (the crew `Gallery` pattern, `components/diagrams/Gallery.tsx:130-144`). |
+
+Mechanism: the section body receives a mode-derived src/href builder (or branches on the §3.2 discriminated union) — staged identifiers NEVER appear in published mode, and published mode performs ZERO requests to any `/api/admin/onboarding/*` route. A test renders every published section and asserts no onboarding-route URL is present in the tree and no fetch to `/api/admin/onboarding/*` fires.
 
 ### 3.4 What published mode shows (post-overlay truth)
 
@@ -311,6 +333,8 @@ Fixture `shows` + `shows_internal` + `crew_members` rows → `SectionCore`; ever
 - Rendering: strip elements per state matrix (§6), per-section control placement (assert the control renders INSIDE its section panel — clone tree and strip siblings per anti-tautology rule), archived read-only sweep.
 - Real-browser layout task: §8 invariants via Playwright `getBoundingClientRect` (harness precedent: `reference_step3_modal_realbrowser_harnesses` — tsx-subprocess static markup + pinned esbuild live bundle).
 - Transition audit task: §9 table, incl. both compound rows.
+- Snapshot-consistency test (§3.3a): simulate sync commit between parent and child reads; assert retry yields consistent snapshot; assert max-retry fallback renders the info notice.
+- Published no-staged-traffic test (§3.5): render all published sections; assert zero `/api/admin/onboarding/*` URLs in tree and zero fetches to those routes.
 
 ### 14.4 Plan-mandated audits (pre-implementation)
 
