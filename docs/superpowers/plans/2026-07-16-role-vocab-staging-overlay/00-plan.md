@@ -12,7 +12,7 @@
 
 ## Global Constraints
 
-- TDD per task: failing test → minimal implementation → green → commit (`AGENTS.md` invariant 1). Conventional commits, one task per commit (invariant 6).
+- TDD per task: failing test → minimal implementation → green → commit (`AGENTS.md` invariant 1). Conventional commits, one task per commit (invariant 6). **Explicit red-phase carve-outs (plan-review R3):** (a) PIN tests that assert EXISTING shipped behavior (Task 9) have no implementation to redden against — their "red phase" is the stop-and-reverify rule stated in the task: if the pin unexpectedly fails, the spec claim is wrong and work halts; (b) doc-only closure tasks (Task 10) carry no test cycle — invariant 1 governs code; the repo's every `docs(...)` commit is the precedent.
 - No new advisory-lock holder anywhere (invariant 2): the predicate runs on CALLER transactions; `publish_show` keeps its existing self-lock.
 - No raw error codes in UI (invariant 5): the new code renders only via `lib/messages/lookup.ts` consumers.
 - Invariant 9 at the gate: DB fault → typed infra throw, NEVER `[]`-degrade, NEVER the business code.
@@ -265,10 +265,10 @@ export async function assertRoleMappingsFresh(
 **Files:**
 - Test: `tests/sync/perFileProcessorRoleVocabWindow.test.ts` (unit — `perFileProcessor` with mocked supabase gate rows)
 
-- [ ] **Step 1:** (spec item 9) with `fileMeta.modifiedTime` ≤ watermark: cron/push mode → `{ outcome: "skip", reason: "watermark" }`; manual mode → `{ outcome: "proceed" }` (the `:170-172` bypass). Pure pinning test — write, run (should PASS immediately against existing code; if it fails, the claim in the spec is wrong — stop and re-verify).
+- [ ] **Step 1:** (spec item 9) with `fileMeta.modifiedTime` ≤ watermark: cron/push mode → `{ outcome: "skip", reason: "watermark" }`; manual mode → `{ outcome: "proceed" }` (the `:170-172` bypass). Pure pinning test of EXISTING behavior (red-phase carve-out, Global Constraints) — write, run (should PASS immediately against existing code; if it fails, the spec claim is wrong — STOP and re-verify before proceeding).
 - [ ] **Step 2: Commit** `test(sync): pin watermark-skip vs manual-bypass convergence window for role-vocab drift`
 
-### Task 10: Doc closures
+### Task 10: Doc closures (doc-only — red-phase carve-out per Global Constraints)
 
 **Files:**
 - Modify: `docs/superpowers/specs/2026-07-15-extend-role-scope-vocab.md` (§8.3 `:209` amendment superseded per spec §5; §10 point 5 gains the wizard-staging exemption line per spec §6)
