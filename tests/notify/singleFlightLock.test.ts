@@ -123,7 +123,7 @@ describe("single-flight guard (batching spec §2.1b)", () => {
     );
 
     expect(sendEmail).toHaveBeenCalledTimes(2); // published batch + sync_problems batch
-    expect(lock.heartbeatCount()).toBe(5); // 3 eligibility checks + 2 sends
+    expect(lock.heartbeatCount()).toBe(6); // 1 active check + 3 eligibility checks + 2 sends
   });
 
   test("sends-free pass still heartbeats per candidate (lock never idles unbounded)", async () => {
@@ -142,7 +142,7 @@ describe("single-flight guard (batching spec §2.1b)", () => {
 
     expect(result).toMatchObject({ kind: "ok", sent: 0, skipped: 3 });
     expect(sendEmail).not.toHaveBeenCalled();
-    expect(lock.heartbeatCount()).toBe(3); // one per skipped candidate, zero sends
+    expect(lock.heartbeatCount()).toBe(4); // 1 active check + one per skipped candidate, zero sends
   });
 
   test("heartbeat failure during ELIGIBILITY aborts cleanly before any send", async () => {
@@ -163,8 +163,8 @@ describe("single-flight guard (batching spec §2.1b)", () => {
   test("heartbeat failure aborts the pass: infra_error, one send, later batches untouched", async () => {
     const { sql, state } = fakeSql();
     const { sendEmail } = sender();
-    // Sequence: elig undo1, elig undo2, SEND published, elig show1, SEND sync.
-    // Failing at heartbeat 5 aborts right before the second batch's send.
+    // Sequence: active check, elig undo1, elig undo2, SEND published, elig show1, SEND sync.
+    // Failing at heartbeat 5 aborts after the first batch's send, before the second's.
     const lock = fakeLockSql({ heartbeatFailsAt: 5 });
 
     const result = await deliverRealtimeCandidates(

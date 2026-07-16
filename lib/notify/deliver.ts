@@ -458,6 +458,9 @@ async function runDeliveryPass(input: {
       input.counts.skipped += input.candidates.length;
       continue;
     }
+    // Same lock-liveness bound for the per-recipient active check (class-sweep of
+    // the eligibility-idle finding — every work-connection read is heartbeat-fenced).
+    await input.heartbeat?.();
     const active = await isRecipientActive(input.sql, recipient);
     if (!active) {
       input.counts.skipped += input.candidates.length;
