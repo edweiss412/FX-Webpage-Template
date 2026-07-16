@@ -276,6 +276,40 @@ async function runWith(
 }
 
 describe("runPhase2 role-mapping overlay + delta gate (spec §6/§10)", () => {
+  // Stamp maintenance (staging-overlay spec 2026-07-16 §3.5 / §7 item 17): every apply
+  // persists shows_internal.applied_role_mappings = that apply's consumed-token stamp.
+  test("wizard-style apply (staged stamp inside parseResult, no threaded mappings) persists the staged stamp", async () => {
+    const tx = new FakePhase2Tx();
+    const pr = parseResult({ warnings: [] });
+    pr.appliedRoleMappings = [{ token: "DRONE OP", grants: ["A1"] }]; // staged at prepare
+    await runWith(tx, { modifiedTime: "2026-07-16T10:00:00.000Z", parseResult: pr });
+    expect((tx.showsInternal as { applied_role_mappings: unknown }).applied_role_mappings).toEqual([
+      { token: "DRONE OP", grants: ["A1"] },
+    ]);
+  });
+
+  test("live apply (threaded mappings consume the warning) persists phase2's own consumption", async () => {
+    const tx = new FakePhase2Tx();
+    await runWith(tx, {
+      modifiedTime: "2026-07-16T10:00:00.000Z",
+      roleTokenMappings: [MAPPING],
+    });
+    expect((tx.showsInternal as { applied_role_mappings: unknown }).applied_role_mappings).toEqual([
+      { token: MAPPING.token, grants: MAPPING.grants },
+    ]);
+  });
+
+  test("nothing consumed anywhere → applied_role_mappings persists null", async () => {
+    const tx = new FakePhase2Tx();
+    await runWith(tx, {
+      modifiedTime: "2026-07-16T10:00:00.000Z",
+      parseResult: parseResult({ warnings: [] }),
+    });
+    expect((tx.showsInternal as { applied_role_mappings: unknown }).applied_role_mappings).toBe(
+      null,
+    );
+  });
+
   test("first publish (no prior warnings): grant unioned onto crew, warning consumed, appliedRoleMappings emits once", async () => {
     const tx = new FakePhase2Tx();
     const result = await runWith(tx, {

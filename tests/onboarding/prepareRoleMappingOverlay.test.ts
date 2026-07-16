@@ -79,8 +79,9 @@ function harness(opts: {
 describe("prepareOnboardingFiles — overlay + stamp (spec §3.2)", () => {
   it("consumes the mapped warning, unions grants, and stamps the consumed token", async () => {
     const { deps } = harness({});
-    const [prepared] = await prepareOnboardingFiles("folder-1", deps);
-    if (prepared!.kind !== "sheet") throw new Error("expected sheet");
+    const [first] = await prepareOnboardingFiles("folder-1", deps);
+    if (first === undefined || first.kind !== "sheet") throw new Error("expected sheet");
+    const prepared = first;
     expect(prepared.parseResult.warnings.some((w) => w.code === "UNKNOWN_ROLE_TOKEN")).toBe(false);
     expect(prepared.parseResult.crewMembers[0]!.role_flags).toContain("A1");
     expect(prepared.parseResult.appliedRoleMappings).toEqual([{ token: TOKEN, grants: ["A1"] }]);
@@ -102,8 +103,9 @@ describe("prepareOnboardingFiles — overlay + stamp (spec §3.2)", () => {
     });
     // The DEFAULT loader catches its own faults; the dep contract mirrors it — the
     // chokepoint must also survive a throwing injected loader (belt and suspenders).
-    const [prepared] = await prepareOnboardingFiles("folder-1", deps);
-    if (prepared!.kind !== "sheet") throw new Error("expected sheet");
+    const [first] = await prepareOnboardingFiles("folder-1", deps);
+    if (first === undefined || first.kind !== "sheet") throw new Error("expected sheet");
+    const prepared = first;
     expect(prepared.parseResult.warnings.some((w) => w.code === "UNKNOWN_ROLE_TOKEN")).toBe(true);
     expect(prepared.parseResult.crewMembers[0]!.role_flags).not.toContain("A1");
     expect(prepared.parseResult.appliedRoleMappings).toEqual([]);
@@ -111,8 +113,9 @@ describe("prepareOnboardingFiles — overlay + stamp (spec §3.2)", () => {
 
   it("stamps [] (key present) when nothing is consumed", async () => {
     const { deps } = harness({ mappings: async () => [] });
-    const [prepared] = await prepareOnboardingFiles("folder-1", deps);
-    if (prepared!.kind !== "sheet") throw new Error("expected sheet");
+    const [first] = await prepareOnboardingFiles("folder-1", deps);
+    if (first === undefined || first.kind !== "sheet") throw new Error("expected sheet");
+    const prepared = first;
     expect(prepared.parseResult.appliedRoleMappings).toEqual([]);
   });
 
@@ -137,9 +140,10 @@ describe("prepareOnboardingFiles — overlay + stamp (spec §3.2)", () => {
       fingerprint: "stale-fingerprint-forcing-content-changed",
       acceptedBy: "doug@fxav.com",
       acceptedAt: "2026-07-16T00:00:00.000Z",
-    }));
-    const [prepared] = await prepareOnboardingFiles("folder-1", deps);
-    if (prepared!.kind !== "sheet") throw new Error("expected sheet");
+    })) as never;
+    const [first] = await prepareOnboardingFiles("folder-1", deps);
+    if (first === undefined || first.kind !== "sheet") throw new Error("expected sheet");
+    const prepared = first;
     // The re-parse (no-override) path produced a fresh warned parse; the overlay must
     // still have consumed it — the R13 bug shape is overlay-on-normal-branch-only.
     expect(prepared.parseResult.warnings.some((w) => w.code === "UNKNOWN_ROLE_TOKEN")).toBe(false);
@@ -161,11 +165,12 @@ describe("prepareOnboardingFiles — overlay + stamp (spec §3.2)", () => {
         return pr;
       },
     });
-    const [prepared] = await prepareOnboardingFiles("folder-1", deps);
-    if (prepared!.kind !== "sheet") throw new Error("expected sheet");
+    const [first] = await prepareOnboardingFiles("folder-1", deps);
+    if (first === undefined || first.kind !== "sheet") throw new Error("expected sheet");
+    const prepared = first;
     const [warningsArg] = attachSpy.mock.calls[0]! as unknown as [ParseWarning[]];
     expect(warningsArg.some((w) => w.code === "UNKNOWN_ROLE_TOKEN")).toBe(false);
     expect(warningsArg.some((w) => w.code === "FIELD_UNREADABLE")).toBe(true);
-    expect(warningsArg).toBe(prepared.parseResult.warnings); // same array the staged parse carries
+    expect(warningsArg).toBe(prepared!.parseResult.warnings); // same array the staged parse carries
   });
 });

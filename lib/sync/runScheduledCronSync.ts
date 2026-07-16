@@ -1763,15 +1763,16 @@ class PostgresPipelineTx implements SyncPipelineTx {
   ) {
     await this.rows(
       `
-        insert into public.shows_internal (show_id, financials, parse_warnings, raw_unrecognized, run_of_show, use_raw_decisions)
-        values ($1, $2::jsonb, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb)
+        insert into public.shows_internal (show_id, financials, parse_warnings, raw_unrecognized, run_of_show, use_raw_decisions, applied_role_mappings)
+        values ($1, $2::jsonb, $3::jsonb, $4::jsonb, $5::jsonb, $6::jsonb, $7::jsonb)
         on conflict (show_id)
         do update set
           financials = excluded.financials,
           parse_warnings = excluded.parse_warnings,
           raw_unrecognized = excluded.raw_unrecognized,
           run_of_show = excluded.run_of_show,
-          use_raw_decisions = excluded.use_raw_decisions
+          use_raw_decisions = excluded.use_raw_decisions,
+          applied_role_mappings = excluded.applied_role_mappings
       `,
       // $5/$6: pass the computed object/null/array RAW — postgres.js serializes $N::jsonb itself; a
       // manual JSON.stringify would double-encode (the postgres.js jsonb param trap).
@@ -1785,6 +1786,8 @@ class PostgresPipelineTx implements SyncPipelineTx {
         // column is NOT NULL, and postgres.js rejects an undefined bind param. applyParseResult
         // always supplies an array, so this only guards standalone upsertShowsInternal doubles.
         payload.use_raw_decisions ?? [],
+        // Nullable column; coalesce undefined → null (postgres.js rejects undefined bind params).
+        payload.applied_role_mappings ?? null,
       ],
     );
     // DQIGNORE-3 — prune ignored_warnings orphaned by this parse: any standing ignore whose content

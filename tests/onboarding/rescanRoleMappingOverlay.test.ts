@@ -97,7 +97,10 @@ describe("rescanWizardSheet — re-stage parses post-overlay (spec §3.3)", () =
       applyRescanDecisionUnderLock: applySpy as never,
     });
     expect(result.status).toBe("updated");
-    const args = applySpy.mock.calls[0]![1] as { refreshedParse: ParseResult };
+    const calls = applySpy.mock.calls as unknown as Array<
+      [unknown, { refreshedParse: ParseResult }]
+    >;
+    const args = calls[0]![1];
     expect(args.refreshedParse.warnings.some((w) => w.code === "UNKNOWN_ROLE_TOKEN")).toBe(false);
     expect(args.refreshedParse.crewMembers[0]!.role_flags).toContain("A1");
     expect(args.refreshedParse.appliedRoleMappings).toEqual([{ token: TOKEN, grants: ["A1"] }]);

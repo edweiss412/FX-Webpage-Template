@@ -622,6 +622,8 @@ describe("runPhase2 destructive snapshot", () => {
       run_of_show: null,
       // Task 6: applyParseResult always forwards the kept "use raw" decisions ([] when none).
       use_raw_decisions: [],
+      // Staging-overlay spec §3.5: consumed-token stamp, null when nothing consumed.
+      applied_role_mappings: null,
     });
   });
 
