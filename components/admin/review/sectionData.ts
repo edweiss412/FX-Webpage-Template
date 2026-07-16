@@ -73,6 +73,85 @@ export type PublishedSectionData = SectionCore & {
 
 export type SectionData = StagedSectionData | PublishedSectionData;
 
+/**
+ * The single staged-source → `StagedSectionData` mapping (spec §3.2). Every
+ * construction site — the prod card and each test/e2e fixture builder — routes
+ * through this one function so the header/section-content/billing derivation is
+ * defined exactly once. The mode-agnostic *list* fields differ per site (prod
+ * coerces via `arr()` + strips legacy anchors; fixtures pass raw arrays), so
+ * they are inputs rather than derived here — the caller owns that choice while
+ * the shared `pr`/`row`/`dfid` derivation stays mechanical and identical.
+ */
+export function buildStagedSectionData(input: {
+  pr: ParseResult;
+  row: Step3Row;
+  dfid: string;
+  wizardSessionId: string;
+  // Site-specific SectionCore list fields (prod: arr()/strip; fixtures: raw).
+  crewMembers: CrewMemberRow[];
+  rooms: RoomRow[];
+  hotels: HotelReservationRow[];
+  pullSheet: PullSheetCase[];
+  archivedPullSheetTabs: ArchivedPullSheetTab[];
+  ros: RunOfShow;
+  warnings: ParseWarning[];
+  agendaBaseline: AdminAgendaItem[];
+  useRawDecisions: UseRawDecision[];
+}): StagedSectionData {
+  const {
+    pr,
+    row,
+    dfid,
+    wizardSessionId,
+    crewMembers,
+    rooms,
+    hotels,
+    pullSheet,
+    archivedPullSheetTabs,
+    ros,
+    warnings,
+    agendaBaseline,
+    useRawDecisions,
+  } = input;
+  return {
+    mode: "staged",
+    pr,
+    row,
+    dfid,
+    wizardSessionId,
+    // ── SectionCore (spec §3.2), derived once from the staged pr/row/dfid. ──
+    title: pr.show.title || row.driveFileName || dfid,
+    clientLabel: pr.show.client_label || null,
+    dates: pr.show.dates,
+    venue: pr.show.venue,
+    eventDetails: pr.show.event_details,
+    clientContact: pr.show.client_contact,
+    contacts: pr.contacts ?? [],
+    transportation: pr.transportation,
+    diagrams: pr.diagrams,
+    billing: {
+      coiStatus: pr.show.coi_status,
+      proposal: pr.show.proposal,
+      po: pr.show.po,
+      invoice: pr.show.invoice,
+      invoiceNotes: pr.show.invoice_notes,
+    },
+    rawUnrecognized: pr.raw_unrecognized ?? null,
+    sourceAnchors: row.sourceAnchors ?? {},
+    driveFileId: dfid,
+    // ── Site-specific list fields, passed through verbatim. ──
+    crewMembers,
+    rooms,
+    hotels,
+    pullSheet,
+    archivedPullSheetTabs,
+    ros,
+    warnings,
+    agendaBaseline,
+    useRawDecisions,
+  };
+}
+
 export function isStaged(d: SectionData): d is StagedSectionData {
   return d.mode === "staged";
 }

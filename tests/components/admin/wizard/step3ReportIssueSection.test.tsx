@@ -33,6 +33,7 @@ import {
   Step3SectionChromeContext,
   type StagedSectionData,
 } from "@/components/admin/wizard/step3ReviewSections";
+import { buildStagedSectionData } from "@/components/admin/review/sectionData";
 import type { SectionId } from "@/lib/admin/step3SectionStatus";
 import { messageFor } from "@/lib/messages/lookup";
 import type { MessageCode } from "@/lib/messages/catalog";
@@ -58,41 +59,21 @@ function sectionData(
   const pr = buildParseResult();
   const row = stagedRow(pr, rowOverrides);
   return {
-    mode: "staged",
-    pr,
-    row,
-    dfid: DFID,
-    wizardSessionId: WSID,
-    // SectionCore (spec §3.2) — mechanical staged derivation (Task 4's builder
-    // will replace these literals across all construction sites).
-    title: pr.show.title || row.driveFileName || DFID,
-    clientLabel: pr.show.client_label || null,
-    dates: pr.show.dates,
-    venue: pr.show.venue,
-    eventDetails: pr.show.event_details,
-    clientContact: pr.show.client_contact,
-    contacts: pr.contacts ?? [],
-    transportation: pr.transportation,
-    diagrams: pr.diagrams,
-    billing: {
-      coiStatus: pr.show.coi_status,
-      proposal: pr.show.proposal,
-      po: pr.show.po,
-      invoice: pr.show.invoice,
-      invoiceNotes: pr.show.invoice_notes,
-    },
-    rawUnrecognized: pr.raw_unrecognized,
-    sourceAnchors: row.sourceAnchors ?? {},
-    driveFileId: DFID,
-    crewMembers: pr.crewMembers,
-    rooms: pr.rooms,
-    hotels: pr.hotelReservations,
-    pullSheet: pr.pullSheet ?? [],
-    archivedPullSheetTabs: pr.archivedPullSheetTabs ?? [],
-    ros: pr.runOfShow ?? {},
-    warnings: pr.warnings,
-    agendaBaseline: [],
-    useRawDecisions: [],
+    ...buildStagedSectionData({
+      pr,
+      row,
+      dfid: DFID,
+      wizardSessionId: WSID,
+      crewMembers: pr.crewMembers,
+      rooms: pr.rooms,
+      hotels: pr.hotelReservations,
+      pullSheet: pr.pullSheet ?? [],
+      archivedPullSheetTabs: pr.archivedPullSheetTabs ?? [],
+      ros: pr.runOfShow ?? {},
+      warnings: pr.warnings,
+      agendaBaseline: [],
+      useRawDecisions: [],
+    }),
     ...dataOverrides,
   };
 }

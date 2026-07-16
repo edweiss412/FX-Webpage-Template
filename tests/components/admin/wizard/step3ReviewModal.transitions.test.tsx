@@ -96,6 +96,7 @@ import {
   step3Sections,
   type StagedSectionData,
 } from "@/components/admin/wizard/step3ReviewSections";
+import { buildStagedSectionData } from "@/components/admin/review/sectionData";
 import { buildParseResult, stagedRow } from "./_step3ReviewFixture";
 
 const ROOT = join(__dirname, "..", "..", "..", "..");
@@ -137,41 +138,21 @@ function sectionData(
   const row = dataOverrides.row ?? stagedRow(pr);
   const dfid = dataOverrides.dfid ?? DFID;
   return {
-    mode: "staged",
-    pr,
-    row,
-    dfid,
-    wizardSessionId: WSID,
-    // SectionCore (spec §3.2) — mechanical staged derivation (Task 4's builder
-    // will replace these literals across all construction sites).
-    title: pr.show.title || row.driveFileName || dfid,
-    clientLabel: pr.show.client_label || null,
-    dates: pr.show.dates,
-    venue: pr.show.venue,
-    eventDetails: pr.show.event_details,
-    clientContact: pr.show.client_contact,
-    contacts: pr.contacts ?? [],
-    transportation: pr.transportation,
-    diagrams: pr.diagrams,
-    billing: {
-      coiStatus: pr.show.coi_status,
-      proposal: pr.show.proposal,
-      po: pr.show.po,
-      invoice: pr.show.invoice,
-      invoiceNotes: pr.show.invoice_notes,
-    },
-    rawUnrecognized: pr.raw_unrecognized,
-    sourceAnchors: row.sourceAnchors ?? {},
-    driveFileId: dfid,
-    crewMembers: pr.crewMembers,
-    rooms: pr.rooms,
-    hotels: pr.hotelReservations,
-    pullSheet: pr.pullSheet ?? [],
-    archivedPullSheetTabs: pr.archivedPullSheetTabs ?? [],
-    ros: pr.runOfShow ?? {},
-    warnings: pr.warnings,
-    agendaBaseline: [],
-    useRawDecisions: [],
+    ...buildStagedSectionData({
+      pr,
+      row,
+      dfid,
+      wizardSessionId: WSID,
+      crewMembers: pr.crewMembers,
+      rooms: pr.rooms,
+      hotels: pr.hotelReservations,
+      pullSheet: pr.pullSheet ?? [],
+      archivedPullSheetTabs: pr.archivedPullSheetTabs ?? [],
+      ros: pr.runOfShow ?? {},
+      warnings: pr.warnings,
+      agendaBaseline: [],
+      useRawDecisions: [],
+    }),
     ...dataOverrides,
   };
 }

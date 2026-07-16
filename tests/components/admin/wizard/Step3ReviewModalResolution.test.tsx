@@ -24,6 +24,7 @@ import {
   type Step3ReviewResolution,
 } from "@/components/admin/wizard/Step3ReviewModal";
 import { type StagedSectionData } from "@/components/admin/wizard/step3ReviewSections";
+import { buildStagedSectionData } from "@/components/admin/review/sectionData";
 import { buildParseResult, stagedRow } from "./_step3ReviewFixture";
 
 const DFID = "drive-abc-123";
@@ -37,33 +38,11 @@ afterEach(() => {
 function sectionData(): StagedSectionData {
   const pr = buildParseResult({});
   const row = stagedRow(pr);
-  return {
-    mode: "staged",
+  return buildStagedSectionData({
     pr,
     row,
     dfid: DFID,
     wizardSessionId: WSID,
-    // SectionCore (spec §3.2) — mechanical staged derivation (Task 4's builder
-    // will replace these literals across all construction sites).
-    title: pr.show.title || row.driveFileName || DFID,
-    clientLabel: pr.show.client_label || null,
-    dates: pr.show.dates,
-    venue: pr.show.venue,
-    eventDetails: pr.show.event_details,
-    clientContact: pr.show.client_contact,
-    contacts: pr.contacts ?? [],
-    transportation: pr.transportation,
-    diagrams: pr.diagrams,
-    billing: {
-      coiStatus: pr.show.coi_status,
-      proposal: pr.show.proposal,
-      po: pr.show.po,
-      invoice: pr.show.invoice,
-      invoiceNotes: pr.show.invoice_notes,
-    },
-    rawUnrecognized: pr.raw_unrecognized,
-    sourceAnchors: row.sourceAnchors ?? {},
-    driveFileId: DFID,
     crewMembers: pr.crewMembers,
     rooms: pr.rooms,
     hotels: pr.hotelReservations,
@@ -73,7 +52,7 @@ function sectionData(): StagedSectionData {
     warnings: pr.warnings,
     agendaBaseline: [],
     useRawDecisions: [],
-  };
+  });
 }
 
 const mi13Item = {

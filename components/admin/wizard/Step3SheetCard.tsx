@@ -57,6 +57,7 @@ import {
   Step3ReviewModal,
   type Step3ReviewResolution,
 } from "@/components/admin/wizard/Step3ReviewModal";
+import { buildStagedSectionData } from "@/components/admin/review/sectionData";
 import type { ReviewerChoice } from "@/lib/sync/applyStaged";
 import { postPublishIntent } from "@/lib/admin/publishIntent";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
@@ -587,35 +588,16 @@ export function Step3SheetCard({
       </span>
       {detailsOpen ? (
         <Step3ReviewModal
-          data={{
-            mode: "staged",
+          // The staged→SectionData mapping lives in ONE place
+          // (buildStagedSectionData, spec §3.2). The card owns only the
+          // site-specific list derivation: arr()-coerced arrays, legacy-anchor-
+          // stripped warnings, and (spec §8) the staged use-raw decisions that
+          // drive the judgment callout's per-warning toggle.
+          data={buildStagedSectionData({
             pr,
             row,
             dfid,
             wizardSessionId,
-            // ── SectionCore (spec §3.2). Phase 1: derived inline from the staged
-            //    pr/row. Task 4 replaces this literal with a single
-            //    buildStagedSectionData(pr, row, dfid, wizardSessionId, …) call —
-            //    the derivations are kept mechanical so that swap is trivial.
-            title: pr.show.title || row.driveFileName || dfid,
-            clientLabel: pr.show.client_label || null,
-            dates: pr.show.dates,
-            venue: pr.show.venue,
-            eventDetails: pr.show.event_details,
-            clientContact: pr.show.client_contact,
-            contacts: pr.contacts ?? [],
-            transportation: pr.transportation,
-            diagrams: pr.diagrams,
-            billing: {
-              coiStatus: pr.show.coi_status,
-              proposal: pr.show.proposal,
-              po: pr.show.po,
-              invoice: pr.show.invoice,
-              invoiceNotes: pr.show.invoice_notes,
-            },
-            rawUnrecognized: pr.raw_unrecognized,
-            sourceAnchors: row.sourceAnchors ?? {},
-            driveFileId: dfid,
             crewMembers,
             rooms,
             hotels,
@@ -624,10 +606,8 @@ export function Step3SheetCard({
             ros,
             warnings,
             agendaBaseline: arr(row.adminAgendaPreview),
-            // spec §8: the staged use-raw decisions drive the judgment callout's
-            // per-warning toggle (matched by code + resolution.contentHash).
             useRawDecisions: row.useRawDecisions ?? [],
-          }}
+          })}
           checked={checked}
           isDirtyRescan={isDirtyRescan}
           onRequestSetChecked={requestSetChecked}
