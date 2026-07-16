@@ -3037,6 +3037,19 @@ export const MESSAGE_CATALOG = {
       "The live first-seen retry path fetched the sheet but the parser couldn't convert it into a show payload. The previous approved version (if any) is still serving crew. Check the per-show parse panel for the specific underlying error.",
     helpHref: "/help/errors#STAGED_PARSE_FAILED",
   },
+  ROLE_MAPPINGS_OUTDATED_AT_PUBLISH: {
+    code: "ROLE_MAPPINGS_OUTDATED_AT_PUBLISH",
+    dougFacing:
+      "The roles you've added changed after setup reviewed this part, so it's on hold instead of going live.",
+    crewFacing: null,
+    followUp: "Doug → re-scan the sheet in setup (or run the show's sheet check), then publish again",
+    helpfulContext:
+      "Setup remembers which of your added roles shaped this show's pages. One of those roles was removed or changed after the sheet was reviewed, so publishing is on hold rather than going live with out-of-date choices. Re-scan the sheet in setup (or run the show's sheet check) to pick up your current choices, then publish again.",
+    title: "Roles changed during setup",
+    longExplanation:
+      "Setup remembers which of your added roles shaped this show's pages. One of those roles was removed or changed after the sheet was reviewed, so publishing is on hold rather than going live with out-of-date choices. Re-scan the sheet in setup (or run the show's sheet check) to pick up your current choices, then publish again.",
+    helpHref: "/help/errors#ROLE_MAPPINGS_OUTDATED_AT_PUBLISH",
+  },
   STAGED_PARSE_OUTDATED_AT_PHASE_D: {
     code: "STAGED_PARSE_OUTDATED_AT_PHASE_D",
     dougFacing: "This sheet changed after setup reviewed it, so its update is on hold.",
