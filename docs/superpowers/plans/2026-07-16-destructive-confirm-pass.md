@@ -34,7 +34,7 @@
 - Reference (read-only): `tests/styles/_classScanUtils.ts`, `tests/styles/_metaBgAccentInventory.test.ts`
 
 **Interfaces:**
-- Produces: `REGISTRY` rows `{ file: string; note: string; kind: "morph" | "panel" | "exempt-non-confirm" }`. Later tasks append rows here in the same commit as each new recipe literal.
+- Produces: `REGISTRY` rows `{ file: string; index: number; note: string; kind: "morph" | "panel" | "exempt-non-confirm" }` via the `R(file, index, kind, note)` helper — `index` = per-file occurrence order (0-based), exactly like the bg-accent registry. Later tasks append `R(...)` rows here in the same commit as each new recipe literal; when in doubt about an index, run the meta-test and copy the occurrence number from its failure output.
 
 - [ ] **Step 1: Write the meta-test** (initial registry = the 3 already-conformant panels + 1 exempt):
 
@@ -116,7 +116,14 @@ describe("META destructive-confirm recipe registry (spec §8)", () => {
       for (const bad of ["bg-accent", "bg-surface", "bg-bg"]) {
         if (t.some((x) => baseUtil(x) === bad)) problems.push(`${h.file}:${h.lineNo} forbidden ${bad}`);
       }
-      if (t.some((x) => x.startsWith("hover:bg-"))) problems.push(`${h.file}:${h.lineNo} forbidden hover:bg-* token`);
+      // any token whose variant chain includes `hover` and whose base utility is bg-* (catches
+      // hover:bg-x, disabled:hover:bg-x, hover:bg-warning-text/90, etc.)
+      for (const x of t) {
+        const chain = x.split(":");
+        if (chain.length > 1 && chain.slice(0, -1).includes("hover") && chain[chain.length - 1]!.replace(/^!/, "").startsWith("bg-")) {
+          problems.push(`${h.file}:${h.lineNo} forbidden hover-variant bg token: ${x}`);
+        }
+      }
     }
     expect(problems).toEqual([]);
   });
@@ -416,9 +423,9 @@ Per-surface armed rendering (label + className swap on the SAME button; the arme
 - Test: its existing test file
 - Modify: destructive-confirm registry (+1 morph row)
 
-- [ ] **Step 1:** Failing tests (spec §10 G4): first tap on X arms X (label `Confirm — ignore all N`, recipe classes; `· label` span present WITHOUT `text-text-subtle`, WITH `font-normal`); tapping armed X fires `ignoreGroup` once; tapping Y while X armed → Y armed, X idle, timer restarted (advance 4s from Y-arm → Y disarms; advancing only X's remainder does NOT disarm Y); `running` disables all and clears armed; error state clears armed.
+- [ ] **Step 1:** Failing tests (spec §10 G4): first tap on X arms X (label `Confirm — ignore all N`, recipe classes; `· label` span present WITHOUT `text-text-subtle`, WITH `font-normal`); tapping armed X fires `ignoreGroup` once; tapping Y while X armed → Y armed, X idle, timer restarted (advance 4s from Y-arm → Y disarms; advancing only X's remainder does NOT disarm Y); `running` disables all and clears armed; error state clears armed; unmount while armed clears the timer (fake timers, no act warnings after unmount).
 - [ ] **Step 2:** Run — FAIL.
-- [ ] **Step 3:** Implement: `const [armedCode, setArmedCode] = useState<string | null>(null);` + single shared timer ref; arm/re-arm resets the timer; second tap on armed group clears timer + `setArmedCode(null)` + existing `ignoreGroup(group)` (which sets `running` — also clear armed inside `ignoreGroup`'s entry for safety); error path clears armed. Armed className:
+- [ ] **Step 3:** Implement: `const [armedCode, setArmedCode] = useState<string | null>(null);` + single shared timer ref with a `clearArmTimer()` helper + `useEffect(() => clearArmTimer, [])` unmount cleanup (same contract as Task 8's guards); arm/re-arm resets the timer; second tap on armed group clears timer + `setArmedCode(null)` + existing `ignoreGroup(group)` (which sets `running` — also clear armed inside `ignoreGroup`'s entry for safety); error path clears armed. Armed className:
   `inline-flex min-h-tap-min max-w-full items-center justify-start self-start whitespace-normal rounded-sm bg-warning-text px-3 py-1 text-left text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-bg`
   Armed content: `Confirm — ignore all {group.items.length}` + `{group.label ? <span className="ml-1 font-normal">· {group.label}</span> : null}`.
 - [ ] **Step 4:** Run + meta-test — PASS. **Step 5: Commit** `feat(admin): two-tap armed-state guard on bulk Ignore all N (G4)`
