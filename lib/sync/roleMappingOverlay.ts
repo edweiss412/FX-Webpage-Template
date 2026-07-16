@@ -1,3 +1,4 @@
+import type { ParseResult, ParseWarning } from "@/lib/parser/types";
 import { canonicalRoleToken } from "@/lib/parser/roleVocabulary";
 
 export const GRANTABLE_FLAGS = ["A1", "V1", "L1", "FINANCIALS"] as const;
@@ -41,4 +42,59 @@ export function normalizeRoleTokenMappings(raw: unknown): RoleTokenMapping[] {
     out.push({ token: e.token, grants, decidedBy: e.decided_by, decidedAt: e.decided_at });
   }
   return out;
+}
+
+export type AppliedRoleMapping = {
+  token: string;
+  grants: GrantableFlag[];
+  memberIndex: number;
+  memberName: string;
+  blockRefName: string | null; // consumed warning's blockRef.name (raw NAME cell) — gate identity (§10)
+};
+export type ApplyRoleMappingsResult = { result: ParseResult; applied: AppliedRoleMapping[] };
+
+/**
+ * "Recognize this role" overlay (spec 2026-07-15-extend-role-scope-vocab §6).
+ * PURE and gate-free: consumes UNKNOWN_ROLE_TOKEN warnings whose roleToken has a
+ * mapping — unions grants onto the crew row located by blockRef, removes the
+ * warning, records the application. Everything else is fail-closed untouched.
+ */
+export function applyRoleTokenMappings(
+  parseResult: ParseResult,
+  mappings: RoleTokenMapping[],
+): ApplyRoleMappingsResult {
+  const result: ParseResult = structuredClone(parseResult);
+  const applied: AppliedRoleMapping[] = [];
+  if (mappings.length === 0) return { result, applied };
+  const byToken = new Map(mappings.map((m) => [m.token, m]));
+
+  const kept: ParseWarning[] = [];
+  for (const w of result.warnings) {
+    const mapping =
+      w.code === "UNKNOWN_ROLE_TOKEN" && typeof w.roleToken === "string"
+        ? byToken.get(w.roleToken)
+        : undefined;
+    if (!mapping) {
+      kept.push(w);
+      continue;
+    }
+    const idx = w.blockRef?.kind === "crew" ? w.blockRef.index : undefined;
+    if (typeof idx !== "number" || idx < 0 || idx >= result.crewMembers.length) {
+      kept.push(w); // corrupt/missing anchor — fail closed, warning stays
+      continue;
+    }
+    const member = result.crewMembers[idx]!;
+    for (const flag of mapping.grants) {
+      if (!member.role_flags.includes(flag)) member.role_flags.push(flag);
+    }
+    applied.push({
+      token: mapping.token,
+      grants: mapping.grants,
+      memberIndex: idx,
+      memberName: member.name,
+      blockRefName: typeof w.blockRef?.name === "string" ? w.blockRef.name : null,
+    });
+  }
+  result.warnings = kept;
+  return { result, applied };
 }

@@ -1,5 +1,11 @@
 import { describe, expect, test } from "vitest";
-import { normalizeRoleTokenMappings } from "@/lib/sync/roleMappingOverlay";
+import {
+  applyRoleTokenMappings,
+  normalizeRoleTokenMappings,
+  type RoleTokenMapping,
+} from "@/lib/sync/roleMappingOverlay";
+import { buildParseResult } from "../components/admin/wizard/_step3ReviewFixture";
+import type { CrewMemberRow, ParseResult, ParseWarning, RoleFlag } from "@/lib/parser/types";
 
 const ROW = {
   token: "DRONE OP",
@@ -47,5 +53,176 @@ describe("normalizeRoleTokenMappings (spec §6.2) — never throws, drops corrup
         },
       ]),
     ).toEqual([]);
+  });
+});
+
+// ── Task 6: applyRoleTokenMappings overlay (spec §6) ──────────────────────────
+
+const MAPPING: RoleTokenMapping = {
+  token: "DRONE OP",
+  grants: ["A1"],
+  decidedBy: "doug@fxav.com",
+  decidedAt: "2026-07-16T00:00:00.000Z",
+};
+
+function crewMember(name: string, role: string, roleFlags: RoleFlag[]): CrewMemberRow {
+  return {
+    name,
+    email: null,
+    phone: null,
+    role,
+    role_flags: roleFlags,
+    date_restriction: { kind: "none" },
+    stage_restriction: { kind: "none" },
+    flight_info: null,
+  };
+}
+
+function unknownRoleWarning(
+  roleToken: string,
+  blockRef: ParseWarning["blockRef"],
+  rawSnippet = "Drone Op",
+): ParseWarning {
+  const w: ParseWarning = {
+    severity: "warn",
+    code: "UNKNOWN_ROLE_TOKEN",
+    message: `Unrecognized role "${rawSnippet}"`,
+    rawSnippet,
+    roleToken,
+  };
+  if (blockRef !== undefined) w.blockRef = blockRef;
+  return w;
+}
+
+/**
+ * Minimal ParseResult: ONE crew member (Marcus Webb, no flags) + ONE
+ * UNKNOWN_ROLE_TOKEN warning anchored to it. Reuses buildParseResult so the
+ * surrounding shape stays realistic; overrides only crew + warnings.
+ */
+function crewFixture(
+  overrides: { roleFlags?: RoleFlag[]; warnings?: ParseWarning[] } = {},
+): ParseResult {
+  return buildParseResult({
+    crewMembers: [crewMember("Marcus Webb", "Drone Op", overrides.roleFlags ?? [])],
+    warnings: overrides.warnings ?? [
+      unknownRoleWarning("DRONE OP", { kind: "crew", index: 0, name: "Marcus Webb" }),
+    ],
+  });
+}
+
+describe("applyRoleTokenMappings (spec §6)", () => {
+  test("matched token: grants unioned (deduped) onto the crew row, warning removed, applied recorded", () => {
+    const { result, applied } = applyRoleTokenMappings(crewFixture(), [MAPPING]);
+    // Expected flag derived from MAPPING.grants, not hardcoded.
+    expect(result.crewMembers[0]!.role_flags).toEqual(MAPPING.grants);
+    expect(result.warnings.filter((w) => w.code === "UNKNOWN_ROLE_TOKEN")).toEqual([]);
+    expect(applied).toEqual([
+      {
+        token: MAPPING.token,
+        grants: MAPPING.grants,
+        memberIndex: 0,
+        memberName: "Marcus Webb",
+        blockRefName: "Marcus Webb",
+      },
+    ]);
+  });
+
+  test("never removes existing flags; union only", () => {
+    const { result } = applyRoleTokenMappings(crewFixture({ roleFlags: ["V1"] }), [MAPPING]);
+    const flags = result.crewMembers[0]!.role_flags;
+    // Pre-existing V1 retained; MAPPING.grants (A1) unioned in — both present.
+    expect(flags).toContain("V1");
+    for (const g of MAPPING.grants) expect(flags).toContain(g);
+    expect(flags).toHaveLength(1 + MAPPING.grants.length);
+  });
+
+  test("recognize-only: warning removed, flags unchanged, still recorded", () => {
+    const recognizeOnly: RoleTokenMapping = { ...MAPPING, grants: [] };
+    const { result, applied } = applyRoleTokenMappings(crewFixture(), [recognizeOnly]);
+    expect(result.crewMembers[0]!.role_flags).toEqual([]);
+    expect(result.warnings.filter((w) => w.code === "UNKNOWN_ROLE_TOKEN")).toEqual([]);
+    expect(applied).toHaveLength(1);
+    expect(applied[0]!.grants).toEqual([]);
+  });
+
+  test("legacy warning without roleToken: untouched (fail-closed)", () => {
+    const legacy = unknownRoleWarning("DRONE OP", { kind: "crew", index: 0, name: "Marcus Webb" });
+    delete legacy.roleToken;
+    const { result, applied } = applyRoleTokenMappings(crewFixture({ warnings: [legacy] }), [
+      MAPPING,
+    ]);
+    expect(result.warnings.filter((w) => w.code === "UNKNOWN_ROLE_TOKEN")).toHaveLength(1);
+    expect(result.crewMembers[0]!.role_flags).toEqual([]);
+    expect(applied).toEqual([]);
+  });
+
+  test("unmapped token: untouched", () => {
+    const { result, applied } = applyRoleTokenMappings(crewFixture(), []);
+    expect(result.warnings.filter((w) => w.code === "UNKNOWN_ROLE_TOKEN")).toHaveLength(1);
+    expect(result.crewMembers[0]!.role_flags).toEqual([]);
+    expect(applied).toEqual([]);
+  });
+
+  test("bad blockRef (index out of range / kind !== crew / missing): warning kept, nothing applied", () => {
+    const outOfRange = crewFixture({
+      warnings: [unknownRoleWarning("DRONE OP", { kind: "crew", index: 5, name: "Marcus Webb" })],
+    });
+    expect(applyRoleTokenMappings(outOfRange, [MAPPING]).applied).toEqual([]);
+    expect(
+      applyRoleTokenMappings(outOfRange, [MAPPING]).result.warnings.filter(
+        (w) => w.code === "UNKNOWN_ROLE_TOKEN",
+      ),
+    ).toHaveLength(1);
+
+    const wrongKind = crewFixture({
+      warnings: [unknownRoleWarning("DRONE OP", { kind: "rooms", index: 0, name: "Marcus Webb" })],
+    });
+    expect(applyRoleTokenMappings(wrongKind, [MAPPING]).applied).toEqual([]);
+    expect(wrongKind.crewMembers[0]!.role_flags).toEqual([]);
+
+    const missing = crewFixture({
+      warnings: [unknownRoleWarning("DRONE OP", undefined)],
+    });
+    expect(applyRoleTokenMappings(missing, [MAPPING]).applied).toEqual([]);
+  });
+
+  test("multi-member same token: each matched independently", () => {
+    const pr = buildParseResult({
+      crewMembers: [
+        crewMember("Marcus Webb", "Drone Op", []),
+        crewMember("Ada Cole", "Drone Op", []),
+      ],
+      warnings: [
+        unknownRoleWarning("DRONE OP", { kind: "crew", index: 0, name: "Marcus Webb" }),
+        unknownRoleWarning("DRONE OP", { kind: "crew", index: 1, name: "Ada Cole" }),
+      ],
+    });
+    const { result, applied } = applyRoleTokenMappings(pr, [MAPPING]);
+    expect(result.crewMembers[0]!.role_flags).toEqual(MAPPING.grants);
+    expect(result.crewMembers[1]!.role_flags).toEqual(MAPPING.grants);
+    expect(applied.map((a) => a.memberIndex)).toEqual([0, 1]);
+    expect(result.warnings.filter((w) => w.code === "UNKNOWN_ROLE_TOKEN")).toEqual([]);
+  });
+
+  test("multi-token same cell: two warnings, matched independently", () => {
+    const gaffer: RoleTokenMapping = { ...MAPPING, token: "GAFFER", grants: ["L1"] };
+    const pr = crewFixture({
+      warnings: [
+        unknownRoleWarning("DRONE OP", { kind: "crew", index: 0, name: "Marcus Webb" }, "Drone Op"),
+        unknownRoleWarning("GAFFER", { kind: "crew", index: 0, name: "Marcus Webb" }, "Gaffer"),
+      ],
+    });
+    const { result, applied } = applyRoleTokenMappings(pr, [MAPPING, gaffer]);
+    // Both grants unioned onto the shared row.
+    expect(result.crewMembers[0]!.role_flags).toEqual([...MAPPING.grants, ...gaffer.grants]);
+    expect(applied.map((a) => a.token)).toEqual([MAPPING.token, gaffer.token]);
+    expect(result.warnings.filter((w) => w.code === "UNKNOWN_ROLE_TOKEN")).toEqual([]);
+  });
+
+  test("input ParseResult is never mutated (structuredClone)", () => {
+    const input = crewFixture();
+    const snapshot = structuredClone(input);
+    applyRoleTokenMappings(input, [MAPPING]);
+    expect(input).toEqual(snapshot);
   });
 });
