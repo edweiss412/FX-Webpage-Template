@@ -12,25 +12,37 @@
 
 ## Global Constraints
 
-- Plan-wide invariants of `AGENTS.md` apply; specifically invariant 9 (Supabase call-boundary discipline — every new read maps returned AND thrown errors to `SyncInfraError`) and invariant 6 (one conventional commit per task).
-- The gate must NEVER read `pending_wizard_session_at` (spec §2.1 — no gate-side staleness clock; structurally pinned in Task 4).
+- Plan-wide invariants of `AGENTS.md` apply; specifically invariant 9 (Supabase call-boundary discipline — every new read maps returned AND thrown errors to `SyncInfraError`) and invariants 1+6 (TDD per task; one conventional commit per task).
+- The gate must NEVER read `pending_wizard_session_at` (spec §2.1 — no gate-side staleness clock; structurally pinned in Step 5's meta-test).
 - Ownership probes carry literal table names (`.from("pending_syncs")` etc.) so the partition-scope meta-test can enumerate them — do NOT factor into a generic `from(table)` helper.
+- Ownership probes use the spec §2.5 shape exactly: `select("drive_file_id").eq("drive_file_id", F).eq("wizard_session_id", S).limit(1).maybeSingle()` — the `.limit(1)` keeps a duplicate wizard row (no unique index guarantee across all three tables' wizard partitions) from turning `maybeSingle` into a spurious error.
 - Skip-order contract (spec §2.3): live-deferral skips (`deferred_permanent`, `deferred_modtime`) → wizard-ownership → watermark reads.
 - `wizard_owned` uses the existing generic logging path — no special-casing next to `ARCHIVED_SKIP_REASON`.
 - Meta-test inventory (spec §5): EXTEND `tests/sync/_metaInfraContract.test.ts` and `tests/sync/_partitionScopeContract.test.ts`. Advisory-lock topology test: none applies (gate is pre-lock, read-only). Mutation-surface observability: none applies (reads only).
-- Worktree: `/Users/ericweiss/FX-Webpage-Template-worktrees/fix-cron-wizard-owned-skip`. Commit with `--no-verify` (shared hook contention); run `pnpm format:check` + `pnpm lint` + `pnpm typecheck` before push (Task 6).
+- Worktree: `/Users/ericweiss/FX-Webpage-Template-worktrees/fix-cron-wizard-owned-skip`. Commit with `--no-verify` (shared hook contention); run `pnpm format:check` + `pnpm lint` + `pnpm typecheck` before push (Task 2).
+
+## TDD shape (why this is two tasks, not six)
+
+The gate is ONE deliverable: every spec-§4 test targets the same ~90-line change, so the whole battery is written FIRST (Steps 1–5), proven red (Step 6), then the gate is implemented once (Step 7) and proven green (Step 8) — a single honest failing-test → implementation → green cycle with one commit (invariants 1+6).
+
+Two test groups by pre-implementation expectation, enumerated in Step 6:
+
+- **MUST-BE-RED before implementation** (they specify the new behavior): the four owned-arm skips, push-mode skip, missing-singleton fail-loud, ownership-beats-watermark, no-stale-clock, all 8 infra-fault cases, the partition-topology counts + no-clock pin, and the incident-shape integration test.
+- **EXPECTED-GREEN before implementation** (regression pins on behavior that already holds and must SURVIVE the change): no-session proceeds (with the no-probes assertion), different-session proceeds, and the three deferral-priority cases. These cannot fail against pre-gate code by construction; their value is guarding the gate's PLACEMENT (a wrong implementation — gate before the deferral branches, or probing before reading the singleton — turns them red).
 
 ---
 
-### Task 1: Ownership gate — core unit tests + implementation
+### Task 1: Wizard-ownership gate — full TDD cycle
 
 **Files:**
 - Modify: `lib/sync/perFileProcessor.ts` (skip-reason union `:8-22`; new helpers after `readLivePendingSyncGateRow` `:144-163`; gate logic in `perFileProcessor` after the deferral checks `:175-183`)
-- Test: `tests/sync/perFileProcessor.test.ts` (extend `FakeDb` + add a `wizard-ownership` describe block)
+- Test: `tests/sync/perFileProcessor.test.ts` (extend `FakeDb`; new `wizard-ownership skip` + integration describes)
+- Test: `tests/sync/_metaInfraContract.test.ts` (8 behavioral cases in the `perFileProcessor` describe `:496-511`)
+- Test: `tests/sync/_partitionScopeContract.test.ts` (replace first test `:17-24`; add no-clock pin)
 
 **Interfaces:**
-- Consumes: existing `SyncInfraError`, `createSupabaseServiceRoleClient`, `isAutomaticMode`.
-- Produces (Tasks 2–5 rely on these exact names):
+- Consumes: existing `SyncInfraError`, `createSupabaseServiceRoleClient`, `isAutomaticMode`; `ProcessOneFileDeps["logSync"]` and the `lockWithArchived(false)` pattern from `tests/sync/def4-archived-skip.test.ts:25-36`.
+- Produces (Task 2 and reviewers rely on these exact names):
   - union member `"wizard_owned"` in `PerFileProcessorResult["reason"]`
   - `readPendingWizardSessionId(supabase: SyncSupabaseClient): Promise<string | null>` — throws `SyncInfraError` on returned error, thrown error, or ABSENT `'default'` row
   - `readWizardPendingSyncOwnership(supabase, driveFileId, wizardSessionId): Promise<boolean>`
@@ -58,23 +70,25 @@ type FakeDb = {
     pending_syncs: [...(seed.pending_syncs ?? [])],
     deferred_ingestions: [...(seed.deferred_ingestions ?? [])],
     pending_ingestions: [...(seed.pending_ingestions ?? [])],
-    app_settings: [...(seed.app_settings ?? [])],
-  };
-```
-
-The existing `QueryBuilder` (`select/eq/is/maybeSingle`) already covers the new reads — no builder changes. NOTE: every EXISTING test in this file seeds no `app_settings` row, and the new gate fail-louds on a missing singleton. Add a seed default so existing tests keep passing: in `createFakeSupabase`, when the caller seeds no `app_settings`, default to the no-session singleton:
-
-```ts
     app_settings: [
       ...(seed.app_settings ?? [{ id: "default", pending_wizard_session_id: null }]),
     ],
+  };
 ```
 
-(An explicitly-seeded EMPTY array — `app_settings: []` — still models the corrupted install for the missing-singleton tests; `seed.app_settings ?? …` only fills in when the key is absent.)
+Every EXISTING test in this file seeds no `app_settings` row and the new gate fail-louds on a missing singleton — the `seed.app_settings ?? [default no-session row]` default keeps them green. An explicitly-seeded EMPTY array (`app_settings: []`) still models the corrupted install for the missing-singleton tests.
 
-- [ ] **Step 2: Write the failing core tests**
+Add a no-op `limit()` to the `QueryBuilder` (`:55-97`) so the probe chain parses:
 
-Append a describe block to `tests/sync/perFileProcessor.test.ts`. Shared constants derive from the fixtures — no magic literals repeated:
+```ts
+    limit(_count: number) {
+      return this;
+    }
+```
+
+- [ ] **Step 2: Write the gate unit tests (red + pins)**
+
+Append to `tests/sync/perFileProcessor.test.ts`:
 
 ```ts
 describe("wizard-ownership skip", () => {
@@ -186,184 +200,7 @@ describe("wizard-ownership skip", () => {
       SyncInfraError,
     );
   });
-});
-```
 
-- [ ] **Step 3: Run the new tests, verify they fail**
-
-Run: `pnpm vitest run tests/sync/perFileProcessor.test.ts 2>&1 | tail -20` (from the worktree root)
-Expected: the four owned-arm tests and the missing-singleton test FAIL (gate currently proceeds to watermark logic / never reads `app_settings`); the no-session and different-session tests may pass incidentally — that is fine at this step.
-
-- [ ] **Step 4: Implement the gate**
-
-In `lib/sync/perFileProcessor.ts`:
-
-(a) Extend the skip-reason union (`:8-22`):
-
-```ts
-      reason:
-        | "deferred_permanent"
-        | "deferred_modtime"
-        | "watermark"
-        | "partial_failure_restage_required"
-        | "WEBHOOK_NOOP_ALREADY_SYNCED"
-        | "wizard_owned"
-        | typeof ARCHIVED_SKIP_REASON;
-```
-
-(b) Add the four helpers after `readLivePendingSyncGateRow` (each mirrors the existing try/catch + `SyncInfraError` shape; literal table names are load-bearing for the partition meta-test):
-
-```ts
-type AppSettingsGateRow = {
-  pending_wizard_session_id: string | null;
-};
-
-// Spec 2026-07-16 §2.1: the gate reads ONLY the session pointer. It must never
-// read pending_wizard_session_at — session staleness belongs to the lifecycle
-// (finalize-cas / setup takeover / cleanupAbandonedFinalize / reap), never here.
-async function readPendingWizardSessionId(supabase: SyncSupabaseClient): Promise<string | null> {
-  try {
-    const { data, error } = await supabase
-      .from("app_settings")
-      .select("pending_wizard_session_id")
-      .eq("id", "default")
-      .maybeSingle();
-    if (error) {
-      throw new SyncInfraError("readPendingWizardSessionId", "returned_error", error);
-    }
-    if (!data) {
-      // A missing singleton is a corrupted install, not "no session" — failing
-      // open here would reopen the wizard-hijack path (spec §2.2).
-      throw new SyncInfraError(
-        "readPendingWizardSessionId",
-        "returned_error",
-        new Error("app_settings 'default' row is missing"),
-      );
-    }
-    return (data as AppSettingsGateRow).pending_wizard_session_id ?? null;
-  } catch (cause) {
-    if (cause instanceof SyncInfraError) throw cause;
-    throw new SyncInfraError("readPendingWizardSessionId", "thrown_error", cause);
-  }
-}
-
-async function readWizardPendingSyncOwnership(
-  supabase: SyncSupabaseClient,
-  driveFileId: string,
-  wizardSessionId: string,
-): Promise<boolean> {
-  try {
-    const { data, error } = await supabase
-      .from("pending_syncs")
-      .select("drive_file_id")
-      .eq("drive_file_id", driveFileId)
-      .eq("wizard_session_id", wizardSessionId)
-      .maybeSingle();
-    if (error) {
-      throw new SyncInfraError("readWizardPendingSyncOwnership", "returned_error", error);
-    }
-    return data !== null;
-  } catch (cause) {
-    if (cause instanceof SyncInfraError) throw cause;
-    throw new SyncInfraError("readWizardPendingSyncOwnership", "thrown_error", cause);
-  }
-}
-
-async function readWizardPendingIngestionOwnership(
-  supabase: SyncSupabaseClient,
-  driveFileId: string,
-  wizardSessionId: string,
-): Promise<boolean> {
-  try {
-    const { data, error } = await supabase
-      .from("pending_ingestions")
-      .select("drive_file_id")
-      .eq("drive_file_id", driveFileId)
-      .eq("wizard_session_id", wizardSessionId)
-      .maybeSingle();
-    if (error) {
-      throw new SyncInfraError("readWizardPendingIngestionOwnership", "returned_error", error);
-    }
-    return data !== null;
-  } catch (cause) {
-    if (cause instanceof SyncInfraError) throw cause;
-    throw new SyncInfraError("readWizardPendingIngestionOwnership", "thrown_error", cause);
-  }
-}
-
-async function readWizardDeferralOwnership(
-  supabase: SyncSupabaseClient,
-  driveFileId: string,
-  wizardSessionId: string,
-): Promise<boolean> {
-  try {
-    const { data, error } = await supabase
-      .from("deferred_ingestions")
-      .select("drive_file_id")
-      .eq("drive_file_id", driveFileId)
-      .eq("wizard_session_id", wizardSessionId)
-      .maybeSingle();
-    if (error) {
-      throw new SyncInfraError("readWizardDeferralOwnership", "returned_error", error);
-    }
-    return data !== null;
-  } catch (cause) {
-    if (cause instanceof SyncInfraError) throw cause;
-    throw new SyncInfraError("readWizardDeferralOwnership", "thrown_error", cause);
-  }
-}
-```
-
-(c) Insert the gate stage in `perFileProcessor`, immediately AFTER the `defer_until_modified` block (`:179-183`) and BEFORE the `const [show, pendingSync] = await Promise.all([...])` watermark reads (`:185-188`):
-
-```ts
-  // Wizard-ownership skip (spec 2026-07-16-cron-wizard-owned-skip §2): a file
-  // the ACTIVE pending wizard session has in flight (staged preview, wizard
-  // hard-fail, or session-scoped deferral) belongs to the wizard until the
-  // session releases it. Ordering contract (§2.3): live-deferral skips above
-  // keep priority; this returns before the watermark reads so wizard_owned
-  // wins over watermark. Probes short-circuit on the first owning arm.
-  const pendingWizardSessionId = await readPendingWizardSessionId(supabase);
-  if (pendingWizardSessionId !== null) {
-    const owned =
-      (await readWizardPendingSyncOwnership(supabase, driveFileId, pendingWizardSessionId)) ||
-      (await readWizardPendingIngestionOwnership(supabase, driveFileId, pendingWizardSessionId)) ||
-      (await readWizardDeferralOwnership(supabase, driveFileId, pendingWizardSessionId));
-    if (owned) {
-      return { outcome: "skip", reason: "wizard_owned" };
-    }
-  }
-```
-
-- [ ] **Step 5: Run the file's full test suite, verify green**
-
-Run: `pnpm vitest run tests/sync/perFileProcessor.test.ts 2>&1 | tail -8`
-Expected: ALL tests pass (new block + the 15 pre-existing tests — the Step 1 default `app_settings` seed keeps them green).
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add lib/sync/perFileProcessor.ts tests/sync/perFileProcessor.test.ts
-git commit --no-verify -m "feat(sync): wizard-ownership skip in perFileProcessor gate"
-```
-
----
-
-### Task 2: Ordering, priority, and no-stale-clock pins
-
-**Files:**
-- Test: `tests/sync/perFileProcessor.test.ts` (extend the `wizard-ownership skip` describe block)
-- Possibly modify: `lib/sync/perFileProcessor.ts` (only if a pin fails)
-
-**Interfaces:**
-- Consumes: Task 1's gate (`"wizard_owned"` reason, gate placement).
-- Produces: nothing new — regression pins for spec §4 items 4b, 5(a–c), 6.
-
-- [ ] **Step 1: Write the pin tests**
-
-Append inside the `wizard-ownership skip` describe block (same `SESSION` / `MODIFIED` constants):
-
-```ts
   test("ownership beats watermark: an up-to-date show row still yields wizard_owned", async () => {
     const fake = createFakeSupabase({
       app_settings: [settingsWithSession],
@@ -464,181 +301,12 @@ Append inside the `wizard-ownership skip` describe block (same `SESSION` / `MODI
       reason: "wizard_owned",
     });
   });
+});
 ```
 
-- [ ] **Step 2: Run, verify green (fix the gate if any pin is red)**
+- [ ] **Step 3: Write the incident-shape integration test (red)**
 
-Run: `pnpm vitest run tests/sync/perFileProcessor.test.ts 2>&1 | tail -8`
-Expected: PASS. If the deferral-priority or empty-singleton pin fails, the gate is placed wrong (it must sit strictly after BOTH deferral branches); if the watermark pin fails, it sits after the watermark reads — move it per Task 1 Step 4(c) and re-run.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add tests/sync/perFileProcessor.test.ts lib/sync/perFileProcessor.ts
-git commit --no-verify -m "test(sync): pin wizard-ownership ordering, deferral priority, and no-stale-clock contracts"
-```
-
----
-
-### Task 3: Infra-contract behavioral cases (8)
-
-**Files:**
-- Test: `tests/sync/_metaInfraContract.test.ts` (extend the `perFileProcessor` describe at `:496-511`)
-
-**Interfaces:**
-- Consumes: Task 1 helpers (through `perFileProcessor`); the file's existing `infraMock` harness.
-
-- [ ] **Step 1: Read the harness**
-
-Open `tests/sync/_metaInfraContract.test.ts:440-520` and identify how `infraMock` builds failing clients (`throwOnConstruct` / `throwOnFrom`) and how `importProcessor()` resets modules. The new cases need finer-grained failure injection: a client whose builder REJECTS (thrown error) or RESOLVES `{ data: null, error: {...} }` (returned error) for one specific table while other tables succeed.
-
-- [ ] **Step 2: Write the 8 failing-path cases**
-
-Add to the `perFileProcessor` describe block. Build a targeted fake client factory local to the block:
-
-```ts
-    type TableBehavior = "ok" | "returned_error" | "thrown_error";
-
-    function gateClientWith(behaviors: Partial<Record<string, TableBehavior>>) {
-      return {
-        from(table: string) {
-          const behavior = behaviors[table] ?? "ok";
-          const builder = {
-            select: () => builder,
-            eq: () => builder,
-            is: () => builder,
-            async maybeSingle() {
-              if (behavior === "thrown_error") throw new Error(`${table} boom`);
-              if (behavior === "returned_error")
-                return { data: null, error: { message: `${table} returned error` } };
-              // "ok" rows: app_settings default with an active session so the
-              // gate always proceeds into the ownership probes.
-              if (table === "app_settings")
-                return {
-                  data: {
-                    pending_wizard_session_id: "11111111-1111-4111-8111-111111111111",
-                  },
-                  error: null,
-                };
-              return { data: null, error: null };
-            },
-          };
-          return builder;
-        },
-      };
-    }
-
-    const GATE_TABLES = [
-      "app_settings",
-      "pending_syncs",
-      "pending_ingestions",
-      "deferred_ingestions",
-    ] as const;
-
-    for (const table of GATE_TABLES) {
-      for (const failure of ["returned_error", "thrown_error"] as const) {
-        test(`wizard-ownership ${table} ${failure} → SyncInfraError`, async () => {
-          infraMock.client = gateClientWith({ [table]: failure });
-          const { perFileProcessor, SyncInfraError } = await importProcessor();
-
-          await expect(perFileProcessor("file-1", "cron", fileMeta())).rejects.toBeInstanceOf(
-            SyncInfraError,
-          );
-        });
-      }
-    }
-```
-
-ADAPT the client-injection line (`infraMock.client = ...`) to the file's actual mock seam found in Step 1 — the existing cases set flags on `infraMock`; if the mock exposes no direct `client` slot, add one to its hoisted object exactly as `tests/sync/perFileProcessor.test.ts` does with `supabaseMock.client`. NOTE the deferral read (`deferred_ingestions` "ok") returns `{ data: null }` so the gate falls through the deferral branches into the ownership stage; a `deferred_ingestions` failure case exercises whichever read hits it FIRST (the live-deferral read) — that read already maps to `SyncInfraError`, which still satisfies the contract under test (every read boundary in the gate fail-louds).
-
-- [ ] **Step 3: Run, verify all 8 pass**
-
-Run: `pnpm vitest run tests/sync/_metaInfraContract.test.ts 2>&1 | tail -8`
-Expected: PASS (Task 1 wrote the fail-loud mappings; these pin them). Any failure means a helper collapses an error into `false`/`null` — fix the helper, never the test.
-
-- [ ] **Step 4: Commit**
-
-```bash
-git add tests/sync/_metaInfraContract.test.ts
-git commit --no-verify -m "test(sync): per-table infra-fault behavioral coverage for the wizard-ownership gate"
-```
-
----
-
-### Task 4: Partition-scope meta-test — dual-topology + no-clock pins
-
-**Files:**
-- Test: `tests/sync/_partitionScopeContract.test.ts` (replace the first test `:17-24`; add two tests)
-
-**Interfaces:**
-- Consumes: Task 1's source shape (literal `.from("<table>")` occurrences; no `pending_wizard_session_at` reference).
-
-- [ ] **Step 1: Write the new structural tests**
-
-Replace the first test (`"Supabase read-side pending_syncs SELECTs are scoped to live wizard_session_id"`) with:
-
-```ts
-  test("perFileProcessor partitioned reads: every occurrence is live-scoped or wizard-scoped, counts pinned", () => {
-    const gate = source("lib/sync/perFileProcessor.ts");
-    const expectedCounts: Record<string, number> = {
-      pending_syncs: 2, // live watermark read + wizard ownership probe
-      deferred_ingestions: 2, // live deferral read + wizard ownership probe
-      pending_ingestions: 1, // wizard ownership probe only
-    };
-
-    for (const [table, expectedCount] of Object.entries(expectedCounts)) {
-      const occurrences = [...gate.matchAll(new RegExp(`\\.from\\("${table}"\\)`, "g"))];
-      expect(occurrences, `${table} .from() count`).toHaveLength(expectedCount);
-
-      for (const match of occurrences) {
-        const start = match.index ?? 0;
-        // The builder chain ends at its terminal await — bound the window there.
-        const chainEnd = gate.indexOf(".maybeSingle()", start);
-        expect(chainEnd, `${table} chain at ${start} has a terminal maybeSingle`).toBeGreaterThan(
-          start,
-        );
-        const chain = gate.slice(start, chainEnd);
-        const liveScoped = chain.includes('.is("wizard_session_id", null)');
-        const wizardScoped = chain.includes('.eq("wizard_session_id"');
-        expect(
-          liveScoped !== wizardScoped,
-          `${table} read at ${start} must be exactly one of live-scoped / wizard-scoped:\n${chain}`,
-        ).toBe(true);
-      }
-    }
-  });
-
-  test("perFileProcessor never reads the session staleness clock", () => {
-    const gate = source("lib/sync/perFileProcessor.ts");
-    // Spec 2026-07-16 §2.1: lifecycle transitions are the only release
-    // authorities; a gate-side staleness clock diverges and reopens the hijack.
-    expect(gate).not.toContain("pending_wizard_session_at");
-  });
-```
-
-- [ ] **Step 2: Run, verify green**
-
-Run: `pnpm vitest run tests/sync/_partitionScopeContract.test.ts 2>&1 | tail -6`
-Expected: PASS. A count mismatch means Task 1 factored the probes generically (forbidden — see Global Constraints) or added/removed a read.
-
-- [ ] **Step 3: Commit**
-
-```bash
-git add tests/sync/_partitionScopeContract.test.ts
-git commit --no-verify -m "test(sync): pin dual-partition read topology and no-staleness-clock in perFileProcessor"
-```
-
----
-
-### Task 5: Incident-shape integration pin through processOneFile
-
-**Files:**
-- Test: `tests/sync/perFileProcessor.test.ts` (new describe at the end; imports `processOneFile` from `@/lib/sync/runScheduledCronSync`)
-
-**Interfaces:**
-- Consumes: real `perFileProcessor` via `processOneFile` (NO `deps.perFileProcessor` injection); `ProcessOneFileDeps["logSync"]`; the `lockWithArchived(false)` pattern from `tests/sync/def4-archived-skip.test.ts:25-36`.
-
-- [ ] **Step 1: Write the integration test**
+Append to `tests/sync/perFileProcessor.test.ts` (real `perFileProcessor` through `processOneFile` — NO `deps.perFileProcessor` injection):
 
 ```ts
 describe("incident-shape integration: cron pipeline honors wizard ownership", () => {
@@ -678,33 +346,304 @@ describe("incident-shape integration: cron pipeline honors wizard ownership", ()
 });
 ```
 
-- [ ] **Step 2: Run, verify green**
+If the logged entry carries an extra unconditional boundary field, match the assertion to the REAL `SyncLogEntry` fields but keep `code: "wizard_owned"` and `outcome: "skipped"` load-bearing.
 
-Run: `pnpm vitest run tests/sync/perFileProcessor.test.ts 2>&1 | tail -8`
-Expected: PASS. If `logged` is empty, the skip was routed into a silent branch (forbidden — only `ARCHIVED_SKIP_REASON` is silent); if the entry carries extra keys, match the assertion to the REAL `SyncLogEntry` fields but keep `code: "wizard_owned"` and `outcome: "skipped"` load-bearing (use `toMatchObject` ONLY if the boundary adds an unconditional field like `payload` — prefer the exact `toEqual`).
+- [ ] **Step 4: Write the 8 infra-fault cases (red)**
 
-- [ ] **Step 3: Commit**
+In `tests/sync/_metaInfraContract.test.ts`, inside the `perFileProcessor` describe (`:496-511`). First read `:440-495` to identify the mock seam (`infraMock` hoisted object + `importProcessor()`); if the mock exposes no direct client slot, add `client: null as unknown` to the hoisted object and have the mocked `createSupabaseServiceRoleClient` return it when set (exactly the `supabaseMock.client` pattern in `tests/sync/perFileProcessor.test.ts:18-25`).
+
+The failure injection keys on the OWNERSHIP-PROBE chain (an `.eq("wizard_session_id", …)` filter), NOT on the table alone — otherwise the `deferred_ingestions` and `pending_syncs` cases would trip the earlier live-scoped reads (`.is("wizard_session_id", null)`) and never exercise the new probes:
+
+```ts
+    type GateFailure = { table: string; failure: "returned_error" | "thrown_error" };
+
+    // Fails ONLY the wizard-scoped ownership probe (.eq("wizard_session_id", …))
+    // for the given table (app_settings keyed on the table itself — it has no
+    // wizard-scoped filter). All other reads succeed with benign rows.
+    function gateClientWithProbeFailure(target: GateFailure) {
+      function builderFor(table: string) {
+        let wizardScoped = false;
+        const builder = {
+          select: () => builder,
+          limit: () => builder,
+          is: () => builder,
+          eq: (column: string) => {
+            if (column === "wizard_session_id") wizardScoped = true;
+            return builder;
+          },
+          async maybeSingle() {
+            const isTarget =
+              table === target.table && (table === "app_settings" || wizardScoped);
+            if (isTarget) {
+              if (target.failure === "thrown_error") throw new Error(`${table} boom`);
+              return { data: null, error: { message: `${table} returned error` } };
+            }
+            if (table === "app_settings")
+              return {
+                data: { pending_wizard_session_id: "11111111-1111-4111-8111-111111111111" },
+                error: null,
+              };
+            return { data: null, error: null };
+          },
+        };
+        return builder;
+      }
+      return { from: (table: string) => builderFor(table) };
+    }
+
+    const PROBE_TABLES = [
+      "app_settings",
+      "pending_syncs",
+      "pending_ingestions",
+      "deferred_ingestions",
+    ] as const;
+
+    for (const table of PROBE_TABLES) {
+      for (const failure of ["returned_error", "thrown_error"] as const) {
+        test(`wizard-ownership ${table} probe ${failure} → SyncInfraError`, async () => {
+          infraMock.client = gateClientWithProbeFailure({ table, failure });
+          const { perFileProcessor, SyncInfraError } = await importProcessor();
+
+          await expect(perFileProcessor("file-1", "cron", fileMeta())).rejects.toBeInstanceOf(
+            SyncInfraError,
+          );
+        });
+      }
+    }
+```
+
+Because ownership probes for the three row tables return `{ data: null }` when not targeted, the gate under test proceeds through every arm and each targeted case fails exactly at the NEW probe (`readWizardPendingSyncOwnership` / `readWizardPendingIngestionOwnership` / `readWizardDeferralOwnership`) — spec §4 item 10's per-probe coverage.
+
+- [ ] **Step 5: Write the partition-topology + no-clock meta-tests (red)**
+
+In `tests/sync/_partitionScopeContract.test.ts`, REPLACE the first test (`:17-24`) with:
+
+```ts
+  test("perFileProcessor partitioned reads: every occurrence is live-scoped or wizard-scoped, counts pinned", () => {
+    const gate = source("lib/sync/perFileProcessor.ts");
+    const expectedCounts: Record<string, number> = {
+      pending_syncs: 2, // live watermark read + wizard ownership probe
+      deferred_ingestions: 2, // live deferral read + wizard ownership probe
+      pending_ingestions: 1, // wizard ownership probe only
+    };
+
+    for (const [table, expectedCount] of Object.entries(expectedCounts)) {
+      const occurrences = [...gate.matchAll(new RegExp(`\\.from\\("${table}"\\)`, "g"))];
+      expect(occurrences, `${table} .from() count`).toHaveLength(expectedCount);
+
+      for (const match of occurrences) {
+        const start = match.index ?? 0;
+        const chainEnd = gate.indexOf(".maybeSingle()", start);
+        expect(chainEnd, `${table} chain at ${start} has a terminal maybeSingle`).toBeGreaterThan(
+          start,
+        );
+        const chain = gate.slice(start, chainEnd);
+        const liveScoped = chain.includes('.is("wizard_session_id", null)');
+        const wizardScoped = chain.includes('.eq("wizard_session_id"');
+        expect(
+          liveScoped !== wizardScoped,
+          `${table} read at ${start} must be exactly one of live-scoped / wizard-scoped:\n${chain}`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  test("perFileProcessor never reads the session staleness clock", () => {
+    const gate = source("lib/sync/perFileProcessor.ts");
+    // Spec 2026-07-16 §2.1: lifecycle transitions are the only release
+    // authorities; a gate-side staleness clock diverges and reopens the hijack.
+    expect(gate).not.toContain("pending_wizard_session_at");
+  });
+```
+
+(The no-clock pin is EXPECTED-GREEN pre-implementation — the string doesn't exist yet — but it is structural insurance, not a behavior test; it stays.)
+
+- [ ] **Step 6: Run all four test files, verify the red/green split**
+
+Run: `pnpm vitest run tests/sync/perFileProcessor.test.ts tests/sync/_metaInfraContract.test.ts tests/sync/_partitionScopeContract.test.ts 2>&1 | tail -25`
+
+Expected FAILURES (MUST be red — if any passes, the test is tautological; fix the test):
+- all four owned-arm tests, push-mode, missing-singleton, ownership-beats-watermark, no-stale-clock (unit)
+- the incident-shape integration test
+- all 8 infra-fault cases
+- the partition-topology counts test (`pending_syncs` 1≠2, `deferred_ingestions` 1≠2, `pending_ingestions` 0≠1)
+
+Expected PASSES (pre-existing-behavior pins per the "TDD shape" section): no-session, different-session, deferral priorities a/b/corrupted-install, the no-clock string pin, and every pre-existing test in the three files.
+
+- [ ] **Step 7: Implement the gate**
+
+In `lib/sync/perFileProcessor.ts`:
+
+(a) Extend the skip-reason union (`:8-22`):
+
+```ts
+      reason:
+        | "deferred_permanent"
+        | "deferred_modtime"
+        | "watermark"
+        | "partial_failure_restage_required"
+        | "WEBHOOK_NOOP_ALREADY_SYNCED"
+        | "wizard_owned"
+        | typeof ARCHIVED_SKIP_REASON;
+```
+
+(b) Add the four helpers after `readLivePendingSyncGateRow` (each mirrors the existing try/catch + `SyncInfraError` shape; literal table names are load-bearing for the partition meta-test):
+
+```ts
+type AppSettingsGateRow = {
+  pending_wizard_session_id: string | null;
+};
+
+// Spec 2026-07-16 §2.1: the gate reads ONLY the session pointer. It must never
+// read the session staleness timestamp — staleness belongs to the lifecycle
+// (finalize-cas / setup takeover / cleanupAbandonedFinalize / reap), never here.
+async function readPendingWizardSessionId(supabase: SyncSupabaseClient): Promise<string | null> {
+  try {
+    const { data, error } = await supabase
+      .from("app_settings")
+      .select("pending_wizard_session_id")
+      .eq("id", "default")
+      .maybeSingle();
+    if (error) {
+      throw new SyncInfraError("readPendingWizardSessionId", "returned_error", error);
+    }
+    if (!data) {
+      // A missing singleton is a corrupted install, not "no session" — failing
+      // open here would reopen the wizard-hijack path (spec §2.2).
+      throw new SyncInfraError(
+        "readPendingWizardSessionId",
+        "returned_error",
+        new Error("app_settings 'default' row is missing"),
+      );
+    }
+    return (data as AppSettingsGateRow).pending_wizard_session_id ?? null;
+  } catch (cause) {
+    if (cause instanceof SyncInfraError) throw cause;
+    throw new SyncInfraError("readPendingWizardSessionId", "thrown_error", cause);
+  }
+}
+
+async function readWizardPendingSyncOwnership(
+  supabase: SyncSupabaseClient,
+  driveFileId: string,
+  wizardSessionId: string,
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from("pending_syncs")
+      .select("drive_file_id")
+      .eq("drive_file_id", driveFileId)
+      .eq("wizard_session_id", wizardSessionId)
+      .limit(1)
+      .maybeSingle();
+    if (error) {
+      throw new SyncInfraError("readWizardPendingSyncOwnership", "returned_error", error);
+    }
+    return data !== null;
+  } catch (cause) {
+    if (cause instanceof SyncInfraError) throw cause;
+    throw new SyncInfraError("readWizardPendingSyncOwnership", "thrown_error", cause);
+  }
+}
+
+async function readWizardPendingIngestionOwnership(
+  supabase: SyncSupabaseClient,
+  driveFileId: string,
+  wizardSessionId: string,
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from("pending_ingestions")
+      .select("drive_file_id")
+      .eq("drive_file_id", driveFileId)
+      .eq("wizard_session_id", wizardSessionId)
+      .limit(1)
+      .maybeSingle();
+    if (error) {
+      throw new SyncInfraError("readWizardPendingIngestionOwnership", "returned_error", error);
+    }
+    return data !== null;
+  } catch (cause) {
+    if (cause instanceof SyncInfraError) throw cause;
+    throw new SyncInfraError("readWizardPendingIngestionOwnership", "thrown_error", cause);
+  }
+}
+
+async function readWizardDeferralOwnership(
+  supabase: SyncSupabaseClient,
+  driveFileId: string,
+  wizardSessionId: string,
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from("deferred_ingestions")
+      .select("drive_file_id")
+      .eq("drive_file_id", driveFileId)
+      .eq("wizard_session_id", wizardSessionId)
+      .limit(1)
+      .maybeSingle();
+    if (error) {
+      throw new SyncInfraError("readWizardDeferralOwnership", "returned_error", error);
+    }
+    return data !== null;
+  } catch (cause) {
+    if (cause instanceof SyncInfraError) throw cause;
+    throw new SyncInfraError("readWizardDeferralOwnership", "thrown_error", cause);
+  }
+}
+```
+
+(c) Insert the gate stage in `perFileProcessor`, immediately AFTER the `defer_until_modified` block (`:179-183`) and BEFORE the `const [show, pendingSync] = await Promise.all([...])` watermark reads (`:185-188`):
+
+```ts
+  // Wizard-ownership skip (spec 2026-07-16-cron-wizard-owned-skip §2): a file
+  // the ACTIVE pending wizard session has in flight (staged preview, wizard
+  // hard-fail, or session-scoped deferral) belongs to the wizard until the
+  // session releases it. Ordering contract (§2.3): live-deferral skips above
+  // keep priority; this returns before the watermark reads so wizard_owned
+  // wins over watermark. Probes short-circuit on the first owning arm.
+  const pendingWizardSessionId = await readPendingWizardSessionId(supabase);
+  if (pendingWizardSessionId !== null) {
+    const owned =
+      (await readWizardPendingSyncOwnership(supabase, driveFileId, pendingWizardSessionId)) ||
+      (await readWizardPendingIngestionOwnership(supabase, driveFileId, pendingWizardSessionId)) ||
+      (await readWizardDeferralOwnership(supabase, driveFileId, pendingWizardSessionId));
+    if (owned) {
+      return { outcome: "skip", reason: "wizard_owned" };
+    }
+  }
+```
+
+- [ ] **Step 8: Run all four test files, verify green**
+
+Run: `pnpm vitest run tests/sync/perFileProcessor.test.ts tests/sync/_metaInfraContract.test.ts tests/sync/_partitionScopeContract.test.ts 2>&1 | tail -10`
+Expected: ALL pass (every Step 6 red test now green; every Step 6 green pin still green).
+
+- [ ] **Step 9: Commit**
 
 ```bash
-git add tests/sync/perFileProcessor.test.ts
-git commit --no-verify -m "test(sync): incident-shape integration pin — cron pipeline skips and logs wizard-owned files"
+git add lib/sync/perFileProcessor.ts tests/sync/perFileProcessor.test.ts tests/sync/_metaInfraContract.test.ts tests/sync/_partitionScopeContract.test.ts
+git commit --no-verify -m "feat(sync): wizard-ownership skip in perFileProcessor gate"
 ```
 
 ---
 
-### Task 6: Full-suite + quality gates
+### Task 2: Full-suite + quality gates
 
 **Files:** none new — verification only (fix fallout in place if any).
+
+**Interfaces:**
+- Consumes: Task 1's committed gate.
 
 - [ ] **Step 1: Full test suite**
 
 Run: `pnpm test 2>&1 | tail -15`
-Expected: green. Watch specifically for: other tests exercising `perFileProcessor` or `processOneFile` against fakes that now need an `app_settings` row (the shared-mock class — sweep with `rg -l "perFileProcessor|processOneFile" tests/` and fix each harness by seeding the no-session singleton, mirroring Task 1 Step 1).
+Expected: green. Watch specifically for: other tests exercising `perFileProcessor` or `processOneFile` against hand-rolled fakes that now need an `app_settings` row (the shared-mock class — sweep with `rg -l "perFileProcessor|processOneFile" tests/` and fix each harness by seeding the no-session singleton, mirroring Task 1 Step 1).
 
 - [ ] **Step 2: Quality gates (CI parity)**
 
 Run: `pnpm typecheck && pnpm lint && pnpm format:check 2>&1 | tail -5`
-Expected: all green. `--no-verify` commits skipped the prettier hook — `pnpm format --` any flagged file and re-run.
+Expected: all green. `--no-verify` commits skipped the prettier hook — `pnpm format` any flagged file and re-run.
 
 - [ ] **Step 3: Commit any fallout fixes**
 
@@ -723,6 +662,6 @@ This plan touches NO `pg_advisory*` surface. The gate runs before `withPostgresS
 
 ## Meta-test inventory (declared)
 
-- EXTENDS `tests/sync/_metaInfraContract.test.ts` (Task 3 — 8 behavioral cases; module registry row `perFileProcessor` already present at `:17-20`).
-- EXTENDS `tests/sync/_partitionScopeContract.test.ts` (Task 4 — dual-topology counts + no-clock pin).
+- EXTENDS `tests/sync/_metaInfraContract.test.ts` (Task 1 Step 4 — 8 behavioral cases keyed on the ownership-probe chain; module registry row `perFileProcessor` already present at `:17-20`).
+- EXTENDS `tests/sync/_partitionScopeContract.test.ts` (Task 1 Step 5 — dual-topology counts + no-clock pin).
 - None applies: advisory-lock topology (no lock surface), auth infra registry (no auth helper), mutation-surface observability (reads only), sentinel-hiding / alert-catalog / email-normalization (no such surface touched).
