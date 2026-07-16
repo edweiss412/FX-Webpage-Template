@@ -222,6 +222,33 @@ describe("wizard-ownership skip", () => {
       outcome: "skip",
       reason: "wizard_owned",
     });
+    // §2.3 ordering: the gate must RETURN before the watermark reads — not
+    // read them and override. No shows read; no live-scoped pending_syncs read.
+    expect(fake.calls.filter((c) => c.table === "shows")).toEqual([]);
+    const liveWatermarkReads = fake.calls.filter(
+      (c) =>
+        c.table === "pending_syncs" &&
+        c.filters.some((f) => f.kind === "is" && f.column === "wizard_session_id"),
+    );
+    expect(liveWatermarkReads).toEqual([]);
+  });
+
+  test("manual and onboarding_scan modes return proceed BEFORE any wizard reads", async () => {
+    for (const mode of ["manual", "onboarding_scan"] as const) {
+      const fake = createFakeSupabase({
+        app_settings: [settingsWithSession],
+        pending_syncs: [{ drive_file_id: "file-1", wizard_session_id: SESSION }],
+      });
+      supabaseMock.client = fake.client;
+      const { perFileProcessor } = await importProcessor();
+
+      await expect(perFileProcessor("file-1", mode, fileMeta(MODIFIED))).resolves.toEqual({
+        outcome: "proceed",
+        mode,
+      });
+      // §2.2: non-automatic modes return before ANY read — zero queries issued.
+      expect(fake.calls).toEqual([]);
+    }
   });
 
   test("live permanent_ignore beats wizard ownership (deferral priority a)", async () => {
@@ -478,7 +505,7 @@ Expected FAILURES (MUST be red — if any passes, the test is tautological; fix 
 - all 8 infra-fault cases
 - the partition-topology counts test (`pending_syncs` 1≠2, `deferred_ingestions` 1≠2, `pending_ingestions` 0≠1)
 
-Expected PASSES (pre-existing-behavior pins per the "TDD shape" section): no-session, different-session, deferral priorities a/b/corrupted-install, the no-clock string pin, and every pre-existing test in the three files.
+Expected PASSES (pre-existing-behavior pins per the "TDD shape" section): no-session, different-session, deferral priorities a/b/corrupted-install, the manual/onboarding_scan zero-reads pin, the no-clock string pin, and every pre-existing test in the three files.
 
 - [ ] **Step 7: Implement the gate**
 
