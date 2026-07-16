@@ -48,10 +48,13 @@ A file `drive_file_id = F` is **wizard-owned** iff:
 - `app_settings.pending_wizard_session_id` is non-null (call it `S`;
   single-row settings table, columns at
   `supabase/migrations/20260501001000_internal_and_admin.sql:243-244`), AND
-- the session is **not stale**: `pending_wizard_session_at` is within the last
-  24 hours (mirrors the `sessionLifecycle.ts` staleness contract —
-  `pending_wizard_session_at < now() - interval '24 hours'` at
-  `lib/onboarding/sessionLifecycle.ts:355`, `:388`, `:430`), AND
+- the session is **not stale**. Stale is a strict older-than, exactly mirroring
+  the `sessionLifecycle.ts` contract (`pending_wizard_session_at < now() -
+  interval '24 hours'` at `lib/onboarding/sessionLifecycle.ts:355`, `:388`,
+  `:430`): the session is active iff `pending_wizard_session_at >= now - 24h`
+  (a timestamp exactly 24h old is still ACTIVE — the boundary releases only
+  strictly past it, so the gate never releases ownership while sessionLifecycle
+  still treats the session as not stale), AND
 - at least one wizard-partition row exists for `(F, S)` in any of:
   - `pending_syncs` (staged preview awaiting step-3 review),
   - `pending_ingestions` (wizard hard-fail awaiting a sheet fix),
@@ -75,7 +78,8 @@ for up to the 24h reap on an abandoned session.
 | --- | --- |
 | `pending_wizard_session_id` null (steady state) | No ownership reads beyond the single `app_settings` select; gate proceeds to existing checks. |
 | `pending_wizard_session_id` set, `pending_wizard_session_at` null | Treated as **active** (fail-safe toward protecting the wizard). Cannot occur via current writers — id and at are always set together (`lib/onboarding/sessionLifecycle.ts:323-324`, `:350-351`, `:645-646`; `app/api/admin/onboarding/scan/route.ts:184-189`) and cleared together (`app/api/admin/onboarding/finalize-cas/route.ts:682-683`). |
-| Session set but stale (≥ 24h) | Not active → gate proceeds. The session reap owns cleanup; cron must not stay wedged behind an abandoned session. |
+| Session set but stale (strictly older than 24h) | Not active → gate proceeds. The session reap owns cleanup; cron must not stay wedged behind an abandoned session. |
+| `app_settings` `'default'` singleton row ABSENT | `SyncInfraError` (fail-loud). A missing singleton is a corrupted install, not "no session" — a benign no-session read would fail open and reopen the hijack path. Mirrors `lib/onboarding/sessionLifecycle.ts:331-334` (`OnboardingSessionInfraError` on missing default row). |
 | Session active, no wizard row for `F` | Not owned → gate proceeds. Files the wizard didn't stage (e.g. non-sheet files, files added to Drive mid-session and not yet scanned) keep today's behavior. |
 | Session active, wizard row for `F` in any of the three tables | `{ outcome: "skip", reason: "wizard_owned" }`. |
 | `app_settings` / ownership read returns or throws an error | `SyncInfraError` (fail-loud, retried next tick) — never a silent proceed or silent skip. Same contract as the existing gate reads (`lib/sync/perFileProcessor.ts:24-36`, registry row `tests/sync/_metaInfraContract.test.ts:17-20`). |
@@ -125,10 +129,22 @@ Inside `perFileProcessor`, after the live-deferral check (`:175-183`) and
 ### 2.6 Single guard layer (no defense-in-depth duplicate)
 
 The check lives ONLY in `perFileProcessor`. phase1's `auto_publish_ready`
-branch (`lib/sync/phase1.ts:525-541`) is NOT given a second copy: both cron and
-push flow through `prepareProcessOneFile` → the gate, so a second holder of the
-same decision would only add drift risk. The regression test (§4) pins the
+branch (`lib/sync/phase1.ts:525-541`) is NOT given a second copy: every path
+that stages or applies (cron via `prepareProcessOneFile`, push via
+`processOneFile`) runs the gate before any pipeline work, so a second holder of
+the same decision would only add drift risk. The regression test (§4) pins the
 behavior end-to-end instead.
+
+**Push preflight ordering caveat:** on the push path,
+`readPushDuplicatePreflight` runs BEFORE `processOneFile`
+(`lib/sync/runPushSyncForShow.ts:283-292`) and can short-circuit with
+`WEBHOOK_NOOP_ALREADY_SYNCED`. That preflight skip performs no staging or
+apply work, so it is NOT a bypass of this guard — a wizard-owned file that the
+preflight skips is simply not processed at all. The
+`wizard_owned`-beats-`watermark` ordering claim in §2.3 is scoped to WITHIN
+`perFileProcessor`; on push, an already-synced duplicate may log
+`WEBHOOK_NOOP_ALREADY_SYNCED` instead of `wizard_owned` (accepted — reason
+labeling only, no behavioral hole).
 
 ### 2.7 Accepted race window (documented, not fixed)
 
@@ -174,6 +190,19 @@ and `pending_ingestions`):
    active → skip (fail-safe branch).
 7. **Live-deferral priority** — file both live-deferred (`permanent_ignore`)
    and wizard-owned → reason stays `deferred_permanent` (ordering pin).
+7b. **Ownership beats watermark (ordering pin)** — file wizard-owned AND
+   watermark-skippable (a `shows` row whose `last_seen_modified_time` is at or
+   after `fileMeta.modifiedTime`) → reason is `wizard_owned`, NOT `watermark`
+   (failure mode: an implementation that places the ownership check after the
+   watermark reads passes the incident-shape tests but loses the ordering /
+   operator-visibility contract of §2.3).
+7c. **Stale boundary is strict** — `pending_wizard_session_at` exactly 24h old
+   (relative to the fixed test clock) → still ACTIVE → skip; strictly older →
+   proceeds (failure mode: a `>=`-stale JS boundary releasing ownership while
+   `sessionLifecycle` still treats the session as not stale).
+7d. **Missing `app_settings` singleton** — empty `app_settings` table →
+   rejects with `SyncInfraError` (failure mode: corrupted install failing open
+   into the hijack path).
 8. **Infra contract** — extend the behavioral cases in
    `tests/sync/_metaInfraContract.test.ts:496-511`: returned-error and
    thrown-error on the `app_settings` read and on an ownership probe each
@@ -195,6 +224,16 @@ relative to a fixed `nowMs`), never hardcoded date literals.
 - `tests/sync/_metaInfraContract.test.ts` — **extended** (behavioral cases for
   the new reads; the module-level registry row `perFileProcessor` at `:17-20`
   already covers the surface).
+- `tests/sync/_partitionScopeContract.test.ts` — **extended** (mandatory).
+  Its first test (`:17-24`) pins `perFileProcessor`'s `pending_syncs` SELECT
+  as live-scoped via a first-occurrence `indexOf` — too weak once the file
+  gains a second, wizard-scoped `pending_syncs` read. Extend it to pin the
+  DUAL topology: enumerate every `.from("pending_syncs")` occurrence in
+  `lib/sync/perFileProcessor.ts`; assert the expected count (2) and that each
+  is followed (within its own builder chain) by exactly one of
+  `.is("wizard_session_id", null)` (the live watermark read) or
+  `.eq("wizard_session_id", <session>)` (the ownership probe). An unscoped
+  probe (neither filter) must fail the meta-test.
 - Advisory-lock topology (`tests/auth/advisoryLockRpcDeadlock.test.ts`) —
   **none applies**: the gate is pre-lock and read-only; no `pg_advisory*`
   surface touched.
