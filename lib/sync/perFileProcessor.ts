@@ -14,6 +14,7 @@ export type PerFileProcessorResult =
         | "watermark"
         | "partial_failure_restage_required"
         | "WEBHOOK_NOOP_ALREADY_SYNCED"
+        | "wizard_owned"
         | typeof ARCHIVED_SKIP_REASON;
     }
   | {
@@ -162,6 +163,109 @@ async function readLivePendingSyncGateRow(
   }
 }
 
+type AppSettingsGateRow = {
+  pending_wizard_session_id: string | null;
+};
+
+// Spec 2026-07-16-cron-wizard-owned-skip §2.1: the gate reads ONLY the session
+// pointer. It must never read the session staleness timestamp — staleness
+// belongs to the lifecycle (finalize-cas / setup takeover /
+// cleanupAbandonedFinalize / reap), never here.
+async function readPendingWizardSessionId(supabase: SyncSupabaseClient): Promise<string | null> {
+  try {
+    const { data, error } = await supabase
+      .from("app_settings")
+      .select("pending_wizard_session_id")
+      .eq("id", "default")
+      .maybeSingle();
+    if (error) {
+      throw new SyncInfraError("readPendingWizardSessionId", "returned_error", error);
+    }
+    if (!data) {
+      // A missing singleton is a corrupted install, not "no session" — failing
+      // open here would reopen the wizard-hijack path (spec §2.2).
+      throw new SyncInfraError(
+        "readPendingWizardSessionId",
+        "returned_error",
+        new Error("app_settings 'default' row is missing"),
+      );
+    }
+    return (data as AppSettingsGateRow).pending_wizard_session_id ?? null;
+  } catch (cause) {
+    if (cause instanceof SyncInfraError) throw cause;
+    throw new SyncInfraError("readPendingWizardSessionId", "thrown_error", cause);
+  }
+}
+
+async function readWizardPendingSyncOwnership(
+  supabase: SyncSupabaseClient,
+  driveFileId: string,
+  wizardSessionId: string,
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from("pending_syncs")
+      .select("drive_file_id")
+      .eq("drive_file_id", driveFileId)
+      .eq("wizard_session_id", wizardSessionId)
+      .limit(1)
+      .maybeSingle();
+    if (error) {
+      throw new SyncInfraError("readWizardPendingSyncOwnership", "returned_error", error);
+    }
+    return data !== null;
+  } catch (cause) {
+    if (cause instanceof SyncInfraError) throw cause;
+    throw new SyncInfraError("readWizardPendingSyncOwnership", "thrown_error", cause);
+  }
+}
+
+async function readWizardPendingIngestionOwnership(
+  supabase: SyncSupabaseClient,
+  driveFileId: string,
+  wizardSessionId: string,
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from("pending_ingestions")
+      .select("drive_file_id")
+      .eq("drive_file_id", driveFileId)
+      .eq("wizard_session_id", wizardSessionId)
+      .limit(1)
+      .maybeSingle();
+    if (error) {
+      throw new SyncInfraError("readWizardPendingIngestionOwnership", "returned_error", error);
+    }
+    return data !== null;
+  } catch (cause) {
+    if (cause instanceof SyncInfraError) throw cause;
+    throw new SyncInfraError("readWizardPendingIngestionOwnership", "thrown_error", cause);
+  }
+}
+
+async function readWizardDeferralOwnership(
+  supabase: SyncSupabaseClient,
+  driveFileId: string,
+  wizardSessionId: string,
+): Promise<boolean> {
+  try {
+    const { data, error } = await supabase
+      .from("deferred_ingestions")
+      .select("drive_file_id")
+      .eq("drive_file_id", driveFileId)
+      .eq("wizard_session_id", wizardSessionId)
+      .limit(1)
+      .maybeSingle();
+    if (error) {
+      throw new SyncInfraError("readWizardDeferralOwnership", "returned_error", error);
+    }
+    return data !== null;
+  } catch (cause) {
+    if (cause instanceof SyncInfraError) throw cause;
+    throw new SyncInfraError("readWizardDeferralOwnership", "thrown_error", cause);
+  }
+}
+
 export async function perFileProcessor(
   driveFileId: string,
   mode: SyncMode,
@@ -179,6 +283,23 @@ export async function perFileProcessor(
   if (liveDeferral?.deferred_kind === "defer_until_modified") {
     if (!isAfter(fileMeta.modifiedTime, liveDeferral.deferred_at_modified_time)) {
       return { outcome: "skip", reason: "deferred_modtime" };
+    }
+  }
+
+  // Wizard-ownership skip (spec 2026-07-16-cron-wizard-owned-skip §2): a file
+  // the ACTIVE pending wizard session has in flight (staged preview, wizard
+  // hard-fail, or session-scoped deferral) belongs to the wizard until the
+  // session releases it. Ordering contract (§2.3): live-deferral skips above
+  // keep priority; this returns before the watermark reads so wizard_owned
+  // wins over watermark. Probes short-circuit on the first owning arm.
+  const pendingWizardSessionId = await readPendingWizardSessionId(supabase);
+  if (pendingWizardSessionId !== null) {
+    const owned =
+      (await readWizardPendingSyncOwnership(supabase, driveFileId, pendingWizardSessionId)) ||
+      (await readWizardPendingIngestionOwnership(supabase, driveFileId, pendingWizardSessionId)) ||
+      (await readWizardDeferralOwnership(supabase, driveFileId, pendingWizardSessionId));
+    if (owned) {
+      return { outcome: "skip", reason: "wizard_owned" };
     }
   }
 

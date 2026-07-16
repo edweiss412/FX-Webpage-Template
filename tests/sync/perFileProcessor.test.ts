@@ -7,6 +7,8 @@ type FakeDb = {
   shows: Row[];
   pending_syncs: Row[];
   deferred_ingestions: Row[];
+  pending_ingestions: Row[];
+  app_settings: Row[];
 };
 
 type Filter = {
@@ -49,6 +51,11 @@ function createFakeSupabase(seed: Partial<FakeDb> = {}) {
     shows: [...(seed.shows ?? [])],
     pending_syncs: [...(seed.pending_syncs ?? [])],
     deferred_ingestions: [...(seed.deferred_ingestions ?? [])],
+    pending_ingestions: [...(seed.pending_ingestions ?? [])],
+    // The wizard-ownership gate fail-louds on a missing 'default' singleton, so
+    // pre-existing tests (which never seed app_settings) get the no-session
+    // default. An explicitly-seeded EMPTY array models the corrupted install.
+    app_settings: [...(seed.app_settings ?? [{ id: "default", pending_wizard_session_id: null }])],
   };
   const calls: Array<{ table: keyof FakeDb; op: "select" | "delete"; filters: Filter[] }> = [];
 
@@ -70,6 +77,10 @@ function createFakeSupabase(seed: Partial<FakeDb> = {}) {
 
     eq(column: string, value: unknown) {
       this.filters.push({ kind: "eq", column, value });
+      return this;
+    }
+
+    limit(_count: number) {
       return this;
     }
 
@@ -544,5 +555,286 @@ describe("perFileProcessor gating phase", () => {
       outcome: "proceed",
       mode: "cron",
     });
+  });
+});
+
+describe("wizard-ownership skip", () => {
+  const SESSION = "11111111-1111-4111-8111-111111111111";
+  const OTHER_SESSION = "22222222-2222-4222-8222-222222222222";
+  const MODIFIED = "2026-05-08T12:00:00.000Z";
+  const settingsWithSession = { id: "default", pending_wizard_session_id: SESSION };
+
+  test("cron skips a file the active wizard session has staged (pending_syncs arm)", async () => {
+    const fake = createFakeSupabase({
+      app_settings: [settingsWithSession],
+      pending_syncs: [{ drive_file_id: "file-1", wizard_session_id: SESSION }],
+    });
+    supabaseMock.client = fake.client;
+    const { perFileProcessor } = await importProcessor();
+
+    await expect(perFileProcessor("file-1", "cron", fileMeta(MODIFIED))).resolves.toEqual({
+      outcome: "skip",
+      reason: "wizard_owned",
+    });
+  });
+
+  test("push mode is gated too (pending_syncs arm)", async () => {
+    const fake = createFakeSupabase({
+      app_settings: [settingsWithSession],
+      pending_syncs: [{ drive_file_id: "file-1", wizard_session_id: SESSION }],
+    });
+    supabaseMock.client = fake.client;
+    const { perFileProcessor } = await importProcessor();
+
+    await expect(perFileProcessor("file-1", "push", fileMeta(MODIFIED))).resolves.toEqual({
+      outcome: "skip",
+      reason: "wizard_owned",
+    });
+  });
+
+  test("pending_ingestions arm: a wizard hard-fail row owns the file", async () => {
+    const fake = createFakeSupabase({
+      app_settings: [settingsWithSession],
+      pending_ingestions: [{ drive_file_id: "file-1", wizard_session_id: SESSION }],
+    });
+    supabaseMock.client = fake.client;
+    const { perFileProcessor } = await importProcessor();
+
+    await expect(perFileProcessor("file-1", "cron", fileMeta(MODIFIED))).resolves.toEqual({
+      outcome: "skip",
+      reason: "wizard_owned",
+    });
+  });
+
+  test("deferred_ingestions arm: a wizard-deferred row owns the file", async () => {
+    const fake = createFakeSupabase({
+      app_settings: [settingsWithSession],
+      deferred_ingestions: [
+        {
+          drive_file_id: "file-1",
+          wizard_session_id: SESSION,
+          deferred_kind: "defer_until_modified",
+        },
+      ],
+    });
+    supabaseMock.client = fake.client;
+    const { perFileProcessor } = await importProcessor();
+
+    await expect(perFileProcessor("file-1", "cron", fileMeta(MODIFIED))).resolves.toEqual({
+      outcome: "skip",
+      reason: "wizard_owned",
+    });
+  });
+
+  test("no pending session: proceeds and issues NO ownership probes", async () => {
+    const fake = createFakeSupabase({
+      app_settings: [{ id: "default", pending_wizard_session_id: null }],
+      pending_syncs: [{ drive_file_id: "file-1", wizard_session_id: SESSION }],
+    });
+    supabaseMock.client = fake.client;
+    const { perFileProcessor } = await importProcessor();
+
+    await expect(perFileProcessor("file-1", "cron", fileMeta(MODIFIED))).resolves.toEqual({
+      outcome: "proceed",
+      mode: "cron",
+    });
+    const probeCalls = fake.calls.filter((call) =>
+      call.filters.some((f) => f.kind === "eq" && f.column === "wizard_session_id"),
+    );
+    expect(probeCalls).toEqual([]);
+  });
+
+  test("rows belonging to a DIFFERENT session do not own the file", async () => {
+    const fake = createFakeSupabase({
+      app_settings: [settingsWithSession],
+      pending_syncs: [{ drive_file_id: "file-1", wizard_session_id: OTHER_SESSION }],
+      pending_ingestions: [{ drive_file_id: "file-1", wizard_session_id: OTHER_SESSION }],
+      deferred_ingestions: [
+        {
+          drive_file_id: "file-1",
+          wizard_session_id: OTHER_SESSION,
+          deferred_kind: "defer_until_modified",
+        },
+      ],
+    });
+    supabaseMock.client = fake.client;
+    const { perFileProcessor } = await importProcessor();
+
+    await expect(perFileProcessor("file-1", "cron", fileMeta(MODIFIED))).resolves.toEqual({
+      outcome: "proceed",
+      mode: "cron",
+    });
+  });
+
+  test("missing app_settings singleton → SyncInfraError (fail-loud, not fail-open)", async () => {
+    const fake = createFakeSupabase({ app_settings: [] });
+    supabaseMock.client = fake.client;
+    const { perFileProcessor, SyncInfraError } = await importProcessor();
+
+    await expect(perFileProcessor("file-1", "cron", fileMeta(MODIFIED))).rejects.toBeInstanceOf(
+      SyncInfraError,
+    );
+  });
+
+  test("ownership beats watermark: an up-to-date show row still yields wizard_owned", async () => {
+    const fake = createFakeSupabase({
+      app_settings: [settingsWithSession],
+      pending_syncs: [{ drive_file_id: "file-1", wizard_session_id: SESSION }],
+      shows: [
+        {
+          drive_file_id: "file-1",
+          last_sync_status: "synced",
+          last_seen_modified_time: MODIFIED, // watermark would skip: not isAfter
+          diagrams: null,
+          archived: false,
+        },
+      ],
+    });
+    supabaseMock.client = fake.client;
+    const { perFileProcessor } = await importProcessor();
+
+    await expect(perFileProcessor("file-1", "cron", fileMeta(MODIFIED))).resolves.toEqual({
+      outcome: "skip",
+      reason: "wizard_owned",
+    });
+    // §2.3 ordering: the gate must RETURN before the watermark reads — not
+    // read them and override. No shows read; no live-scoped pending_syncs read.
+    expect(fake.calls.filter((c) => c.table === "shows")).toEqual([]);
+    const liveWatermarkReads = fake.calls.filter(
+      (c) =>
+        c.table === "pending_syncs" &&
+        c.filters.some((f) => f.kind === "is" && f.column === "wizard_session_id"),
+    );
+    expect(liveWatermarkReads).toEqual([]);
+  });
+
+  test("manual and onboarding_scan modes return proceed BEFORE any wizard reads", async () => {
+    for (const mode of ["manual", "onboarding_scan"] as const) {
+      const fake = createFakeSupabase({
+        app_settings: [settingsWithSession],
+        pending_syncs: [{ drive_file_id: "file-1", wizard_session_id: SESSION }],
+      });
+      supabaseMock.client = fake.client;
+      const { perFileProcessor } = await importProcessor();
+
+      await expect(perFileProcessor("file-1", mode, fileMeta(MODIFIED))).resolves.toEqual({
+        outcome: "proceed",
+        mode,
+      });
+      // §2.2: non-automatic modes return before ANY read — zero queries issued.
+      expect(fake.calls).toEqual([]);
+    }
+  });
+
+  test("live permanent_ignore beats wizard ownership (deferral priority a)", async () => {
+    const fake = createFakeSupabase({
+      app_settings: [settingsWithSession],
+      pending_syncs: [{ drive_file_id: "file-1", wizard_session_id: SESSION }],
+      deferred_ingestions: [
+        { drive_file_id: "file-1", wizard_session_id: null, deferred_kind: "permanent_ignore" },
+      ],
+    });
+    supabaseMock.client = fake.client;
+    const { perFileProcessor } = await importProcessor();
+
+    await expect(perFileProcessor("file-1", "cron", fileMeta(MODIFIED))).resolves.toEqual({
+      outcome: "skip",
+      reason: "deferred_permanent",
+    });
+  });
+
+  test("live defer_until_modified (unmodified) beats wizard ownership (deferral priority b)", async () => {
+    const fake = createFakeSupabase({
+      app_settings: [settingsWithSession],
+      pending_syncs: [{ drive_file_id: "file-1", wizard_session_id: SESSION }],
+      deferred_ingestions: [
+        {
+          drive_file_id: "file-1",
+          wizard_session_id: null,
+          deferred_kind: "defer_until_modified",
+          deferred_at_modified_time: MODIFIED, // fileMeta(MODIFIED) is NOT after → deferral holds
+        },
+      ],
+    });
+    supabaseMock.client = fake.client;
+    const { perFileProcessor } = await importProcessor();
+
+    await expect(perFileProcessor("file-1", "cron", fileMeta(MODIFIED))).resolves.toEqual({
+      outcome: "skip",
+      reason: "deferred_modtime",
+    });
+  });
+
+  test("deferral priority holds even on a corrupted install (empty app_settings)", async () => {
+    const fake = createFakeSupabase({
+      app_settings: [],
+      deferred_ingestions: [
+        { drive_file_id: "file-1", wizard_session_id: null, deferred_kind: "permanent_ignore" },
+      ],
+    });
+    supabaseMock.client = fake.client;
+    const { perFileProcessor } = await importProcessor();
+
+    // Live-deferral short-circuits BEFORE the app_settings read (spec §2.3) —
+    // no SyncInfraError despite the missing singleton.
+    await expect(perFileProcessor("file-1", "cron", fileMeta(MODIFIED))).resolves.toEqual({
+      outcome: "skip",
+      reason: "deferred_permanent",
+    });
+  });
+
+  test("no stale-clock: a 25h-old pending_wizard_session_at still owns (gate reads no timestamp)", async () => {
+    const fake = createFakeSupabase({
+      app_settings: [
+        {
+          id: "default",
+          pending_wizard_session_id: SESSION,
+          // 25h before the file's modifiedTime — irrelevant to the gate by contract.
+          pending_wizard_session_at: "2026-05-07T11:00:00.000Z",
+        },
+      ],
+      pending_syncs: [{ drive_file_id: "file-1", wizard_session_id: SESSION }],
+    });
+    supabaseMock.client = fake.client;
+    const { perFileProcessor } = await importProcessor();
+
+    await expect(perFileProcessor("file-1", "cron", fileMeta(MODIFIED))).resolves.toEqual({
+      outcome: "skip",
+      reason: "wizard_owned",
+    });
+  });
+});
+
+describe("incident-shape integration: cron pipeline honors wizard ownership", () => {
+  test("wizard-staged file with no shows row → skipped:wizard_owned, sync_log entry written", async () => {
+    const SESSION = "11111111-1111-4111-8111-111111111111";
+    const MODIFIED = "2026-05-08T12:00:00.000Z";
+    const fake = createFakeSupabase({
+      app_settings: [{ id: "default", pending_wizard_session_id: SESSION }],
+      pending_syncs: [{ drive_file_id: "file-1", wizard_session_id: SESSION }],
+      // no shows row — the validation-incident shape (post-reset first-seen)
+    });
+    supabaseMock.client = fake.client;
+    vi.resetModules();
+    const { processOneFile } = await import("@/lib/sync/runScheduledCronSync");
+
+    const logged: unknown[] = [];
+    const result = await processOneFile("file-1", "cron", fileMeta(MODIFIED), {
+      logSync: async (entry: unknown) => {
+        logged.push(entry);
+      },
+      // Non-archived under-lock re-read (DEF-4 relabel branch not taken).
+      withShowLock: (async (_driveFileId: string, fn: (tx: unknown) => Promise<unknown>) =>
+        fn({
+          async queryOne(sql: string) {
+            if (/select archived from public\.shows/i.test(sql)) return { archived: false };
+            throw new Error(`unexpected SQL in lock tx: ${sql}`);
+          },
+        })) as never,
+    });
+
+    expect(result).toEqual({ outcome: "skipped", reason: "wizard_owned" });
+    // reason → SyncLogEntry.code at the boundary (runScheduledCronSync.ts:2197-2198).
+    expect(logged).toEqual([{ driveFileId: "file-1", outcome: "skipped", code: "wizard_owned" }]);
   });
 });

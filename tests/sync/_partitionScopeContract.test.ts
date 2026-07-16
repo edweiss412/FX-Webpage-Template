@@ -14,13 +14,48 @@ function windowsAround(haystack: string, needle: string, radius = 320): string[]
 }
 
 describe("M6 pending-row partition scope contract", () => {
-  test("Supabase read-side pending_syncs SELECTs are scoped to live wizard_session_id", () => {
+  test("perFileProcessor partitioned reads: every occurrence is live-scoped or wizard-scoped, counts pinned", () => {
     const gate = source("lib/sync/perFileProcessor.ts");
-    const selectOffset = gate.indexOf('.from("pending_syncs")');
-    const wizardScopeOffset = gate.indexOf('.is("wizard_session_id", null)', selectOffset);
+    const expectedCounts: Record<string, number> = {
+      pending_syncs: 2, // live watermark read + wizard ownership probe
+      deferred_ingestions: 2, // live deferral read + wizard ownership probe
+      pending_ingestions: 1, // wizard ownership probe only
+    };
 
-    expect(selectOffset).toBeGreaterThan(-1);
-    expect(wizardScopeOffset).toBeGreaterThan(selectOffset);
+    for (const [table, expectedCount] of Object.entries(expectedCounts)) {
+      const occurrences = [...gate.matchAll(new RegExp(`\\.from\\("${table}"\\)`, "g"))];
+      expect(occurrences, `${table} .from() count`).toHaveLength(expectedCount);
+
+      for (const match of occurrences) {
+        const start = match.index ?? 0;
+        const chainEnd = gate.indexOf(".maybeSingle()", start);
+        expect(chainEnd, `${table} chain at ${start} has a terminal maybeSingle`).toBeGreaterThan(
+          start,
+        );
+        const chain = gate.slice(start, chainEnd);
+        const liveScoped = chain.includes('.is("wizard_session_id", null)');
+        const wizardScoped = chain.includes('.eq("wizard_session_id"');
+        expect(
+          liveScoped !== wizardScoped,
+          `${table} read at ${start} must be exactly one of live-scoped / wizard-scoped:\n${chain}`,
+        ).toBe(true);
+        if (wizardScoped) {
+          // Spec §2.5 probe shape: a duplicate wizard row must not turn
+          // maybeSingle into a spurious error — .limit(1) is load-bearing.
+          expect(
+            chain.includes(".limit(1)"),
+            `${table} wizard-scoped probe at ${start} must carry .limit(1):\n${chain}`,
+          ).toBe(true);
+        }
+      }
+    }
+  });
+
+  test("perFileProcessor never reads the session staleness clock", () => {
+    const gate = source("lib/sync/perFileProcessor.ts");
+    // Spec 2026-07-16 §2.1: lifecycle transitions are the only release
+    // authorities; a gate-side staleness clock diverges and reopens the hijack.
+    expect(gate).not.toContain("pending_wizard_session_at");
   });
 
   test("Phase 1 uses live-scoped transaction-port methods for pending_syncs and pending_ingestions", () => {
