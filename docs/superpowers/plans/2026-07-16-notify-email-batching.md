@@ -386,6 +386,10 @@ describe("renderRealtimeProblemBatch (batching spec §2.4)", () => {
     // per-member copy is catalog copy — never a raw code (invariant 5)
     expect(batch.text).not.toContain("SHEET_UNAVAILABLE");
     expect(batch.html).not.toContain("SHEET_UNAVAILABLE");
+    // the global member renders its catalog line under the "Syncing" label — never the raw code
+    expect(batch.text).toContain("Syncing:");
+    expect(batch.text).not.toContain("SYNC_STALLED");
+    expect(batch.html).not.toContain("SYNC_STALLED");
     expect(batch.text.match(/Open the dashboard: https:\/\/fxav\.example\/admin/g)).toHaveLength(1);
   });
 
@@ -535,6 +539,8 @@ Test list (each with the concrete assertion):
 8. **Inactive recipient skips all candidates with ONE active check:** `active:false` → counts.skipped = candidates.length; assert the `admin_emails` select ran once for the recipient (fakeSql call count on that pattern).
 9. **Undo batch renders per-recipient after canonicalization:** recipient `" Doug@FXAV.net "` → rendered hrefs bind `r` for `doug@fxav.net` (compute expected via `recipientBindingFor("doug@fxav.net", showId, mintId)`).
 10. **Post-accept persistence failure (spec §2.1b residual):** batch of 3, send ok, fakeSql throws on the SECOND `upsertSent` insert → result `{kind:"infra_error"}`, exactly 1 sent row persisted, send called exactly once.
+11. **`global` co-batches with `show` in sync_problems:** one `show` + one `global` candidate → exactly ONE send; its `idempotencyKey === baseKey("realtime_problem", combinedDedupKey([showKey, globalKey]), recipient)`; TWO `sentRows` land (one per member, each with its own `dedup_key`, global's with `show_id` null). Failure mode caught: `groupFor` splitting or dropping `global`.
+12. **N=2 reissue uses the COMBINED key:** batch of 2, first send returns `{ok:false, kind:"idempotency_conflict"}`, second returns ok → second call's `idempotencyKey === reissueKey("realtime_problem", combinedDedupKey(memberKeys), recipient)` (inject a deterministic `reissueKey` spy via `deps.reissueKey` and assert it was CALLED with `(kind, combinedDedupKey(memberKeys), recipient)`); both members' sent rows land; counts `{sent:2}`. Failure mode caught: reissue falling back to a single member's dedup key.
 
 - [ ] **Step 2: Verify fail** — `pnpm vitest run tests/notify/deliverBatch.test.ts` → FAIL (send called once per candidate today; subjects single-form).
 
