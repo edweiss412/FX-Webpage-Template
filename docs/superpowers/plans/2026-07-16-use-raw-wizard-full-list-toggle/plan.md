@@ -54,6 +54,7 @@
 Create `tests/components/admin/wizard/warningsBreakdownControls.test.tsx`:
 
 ```tsx
+// @vitest-environment jsdom
 /**
  * tests/components/admin/wizard/warningsBreakdownControls.test.tsx
  *
