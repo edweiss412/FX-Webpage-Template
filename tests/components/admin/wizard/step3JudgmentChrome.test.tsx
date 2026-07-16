@@ -111,7 +111,18 @@ const PREEXISTING_TRANSITION_COUNTS: Record<string, number> = {
 describe("§7.4 transition audit — 2a static guard (all pairs instant)", () => {
   for (const [file, expected] of Object.entries(PREEXISTING_TRANSITION_COUNTS)) {
     test(`${file}: no AnimatePresence, transition-class count pinned at ${expected}`, () => {
-      const src = readFileSync(join(WIZARD_DIR, file), "utf8");
+      // Phase-1 extraction (spec 2026-07-16 §5): the Step-3 review rail/content
+      // moved to components/admin/review/ShowReviewSurface.tsx, carrying 3 of the
+      // modal's transition-colors with it. The guard FOLLOWS the moved code — for
+      // the modal entry it scans modal + surface as one body so the pinned count
+      // (9) is UNCHANGED (modal 6 + surface 3). Other files are unaffected.
+      let src = readFileSync(join(WIZARD_DIR, file), "utf8");
+      if (file === "Step3ReviewModal.tsx") {
+        src += `\n${readFileSync(
+          join(process.cwd(), "components/admin/review/ShowReviewSurface.tsx"),
+          "utf8",
+        )}`;
+      }
       expect(src.includes("AnimatePresence")).toBe(false);
       expect((src.match(/transition-(?:all|colors|opacity)/g) ?? []).length).toBe(expected);
     });

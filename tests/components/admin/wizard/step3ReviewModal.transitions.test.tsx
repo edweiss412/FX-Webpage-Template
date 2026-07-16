@@ -100,6 +100,18 @@ import { buildParseResult, stagedRow } from "./_step3ReviewFixture";
 
 const ROOT = join(__dirname, "..", "..", "..", "..");
 const MODAL_SRC = readFileSync(join(ROOT, "components/admin/wizard/Step3ReviewModal.tsx"), "utf8");
+// Phase-1 extraction (spec 2026-07-16 §5): the rail/content conditional-render
+// sites — including the sole animated railIndicator ternary — moved to
+// ShowReviewSurface.tsx. The §11 source-marker audit below scans modal + surface
+// as one body so the guard follows the moved code; its contract (14 sites,
+// exactly 1 animated) is UNCHANGED. Other MODAL_SRC assertions
+// (WARNING_HIGHLIGHT_MS, the isFinalizeDemoted chained arm) stay modal-only —
+// those elements did not move.
+const SURFACE_SRC = readFileSync(
+  join(ROOT, "components/admin/review/ShowReviewSurface.tsx"),
+  "utf8",
+);
+const MARKER_AUDIT_SRC = `${MODAL_SRC}\n${SURFACE_SRC}`;
 const GLOBALS_CSS = readFileSync(join(ROOT, "app/globals.css"), "utf8");
 
 const DFID = "drive-abc-123";
@@ -1089,13 +1101,13 @@ describe("§11 source-marker audit — every conditional-render site in Step3Rev
     // 10 pre-consolidation + 4 added by the Step-3 re-apply resolution fold
     // (spec §4.4): resolution body head, corrupt-vs-items branch, resolution
     // footer head, error note, approve-vs-corrupt. All deliberate-instant.
-    const hits = findConditionalLines(MODAL_SRC);
+    const hits = findConditionalLines(MARKER_AUDIT_SRC);
     expect(hits.length).toBe(14);
   });
 
   test("every conditional-render site carries either the §11 instant marker or an animation/transition class on the line above it", () => {
-    const lines = MODAL_SRC.split("\n");
-    const hits = findConditionalLines(MODAL_SRC);
+    const lines = MARKER_AUDIT_SRC.split("\n");
+    const hits = findConditionalLines(MARKER_AUDIT_SRC);
     const unclassified: string[] = [];
     for (const idx of hits) {
       const { classified } = isClassified(lines, idx);
@@ -1105,8 +1117,8 @@ describe("§11 source-marker audit — every conditional-render site in Step3Rev
   });
 
   test("exactly ONE site — the shared rail-indicator ternary — classifies as ANIMATED (T6′); the other 13 are INSTANT (§11 'deliberate instant' rows)", () => {
-    const lines = MODAL_SRC.split("\n");
-    const hits = findConditionalLines(MODAL_SRC);
+    const lines = MARKER_AUDIT_SRC.split("\n");
+    const hits = findConditionalLines(MARKER_AUDIT_SRC);
     const animated = hits.filter((idx) => {
       const { classified, instant } = isClassified(lines, idx);
       return classified && !instant;
