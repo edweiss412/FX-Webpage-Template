@@ -58,7 +58,7 @@ Put it in each touched test file (test-local helper, ~10 lines — duplicating b
 
 - [ ] **Step 1: Write the meta-test** (initial registry = the 3 already-conformant panels + 1 exempt):
 
-The scanner mirrors `_metaBgAccentInventory.test.ts`'s EXACT iteration idiom (verified against the live helpers: `walk(dir: string): string[]` recursing one root at a time over `.ts/.tsx`; `stripComments(src)`; `tokensOf(line)` — line-based token scan; class literals in this repo are single-line, so line ≈ literal, consistent with the sibling scanners). Rows are per-file occurrence-indexed like the bg-accent registry. (`index` is a plan-level implementation identity detail — the spec's contract is one-row-per-literal counted per file; the index is how that contract is realized with the sibling scanner's idiom.)
+The scanner mirrors `_metaBgAccentInventory.test.ts`'s EXACT iteration idiom (verified against the live helpers: `walk(dir: string): string[]` recursing one root at a time over `.ts/.tsx`; `stripComments(src)`; `tokensOf(line)` — line-based token scan; class literals in this repo are single-line, so line ≈ literal, consistent with the sibling scanners). Rows are per-file occurrence-indexed like the bg-accent registry. **Spec-conformance note:** the spec's row model is `{ file, note, kind }` with per-file hit counts; `index` is an ADDITIVE implementation field (a stable within-file sort key borrowed from the sibling scanner's idiom) that changes nothing spec-visible — per-file row count still equals per-file hit count, one row per static literal, and the spec's three failure classes are emitted verbatim. The spec does not forbid extra fields.
 
 ```ts
 // tests/styles/_metaDestructiveConfirm.test.ts
@@ -314,14 +314,14 @@ All four get the same three changes (repeat per file — no sharing):
 
 1. **Restyle confirm-go** (the `bg-accent … text-accent-text … hover:bg-accent-hover` literal at Rotate `:235`, ResetEpoch `:211`, PickerReset `:232`, Revoke `:284`) → recipe literal, preserving each file's existing ring-offset token (`ring-offset-surface` where present) and `min-w-tap-min`/`py-2`/`font-semibold` shape:
    `inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60`
-   (Deliberately NO `text-sm`: all four originals render the confirm-go at the base type scale — verified, e.g. Rotate `:235`, Revoke `:284` carry no `text-sm` — and this pass preserves each surface's existing type scale. The canonical literal's `text-sm` applies to R6/R8, whose panels are `text-sm` contexts. Append `focus-visible:ring-offset-2 focus-visible:ring-offset-surface` where the original had it; Revoke keeps `font-semibold`; its idle trigger `:211` and disabled placeholder `:169` are NOT touched.)
+   (Deliberately NO `text-sm`: all four originals render the confirm-go at the base type scale — verified, e.g. Rotate `:235`, Revoke `:284` carry no `text-sm` — and this pass preserves each surface's existing type scale. The canonical literal's `text-sm` applies to R6/R8, whose panels are `text-sm` contexts. **No test drift:** size tokens are OUTSIDE the recipe contract — `expectDestructiveRecipe` and the meta-test assert only the C1 signature (recipe pair + font-semibold + hover:opacity-90 + negatives), never `text-sm`/padding, so the per-surface literals in this table are each authoritative for their own surface and all pass the same assertions. Append `focus-visible:ring-offset-2 focus-visible:ring-offset-surface` where the original had it; Revoke keeps `font-semibold`; its idle trigger `:211` and disabled placeholder `:169` are NOT touched.)
 2. **Open focus (C3):** `const cancelRef = useRef<HTMLButtonElement>(null);` + effect keyed on the confirm state:
    ```tsx
    useEffect(() => {
      if (ui === "confirm") cancelRef.current?.focus();
    }, [ui]);
    ```
-   `ref={cancelRef}` on the cancel button. (State names differ per file — Rotate/ResetEpoch/Revoke use `ui === "confirm"`; PickerReset check its own state name and key the effect on it.)
+   `ref={cancelRef}` on the cancel button. (Verified: ALL FOUR surfaces — plus ResolveAlert in Task 4 — use the identical state machine `const [ui, setUi] = useState<UiState>("idle")` with a `"confirm"` state and the functional auto-revert `setUi((prev) => (prev === "confirm" ? "idle" : prev))`: Rotate `:66/:93/:95`, ResetEpoch `:51/:92/:94`, PickerReset `:55/:98/:100`, Revoke `:52/:105/:107`, ResolveAlert `:63/:79/:81`. The `closeConfirm`/effect code below therefore applies VERBATIM to every surface — key the effect on `ui`.)
 3. **Close focus (C5, two-phase):** `const triggerRef = useRef<HTMLButtonElement>(null);` on the idle trigger + `const confirmRowRef = useRef<HTMLDivElement>(null);` on the confirm row container + a restore flag:
    ```tsx
    const restoreFocusRef = useRef(false);
@@ -473,7 +473,7 @@ Per-surface armed rendering (label + className swap on the SAME button; the arme
   `inline-flex min-h-tap-min items-center justify-center self-start rounded-sm bg-warning-text px-4 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring`
   (`self-start` preserved per spec §4; both `placement` variants get it automatically — same button.)
 
-- [ ] **Step 1:** Failing tests per surface: first click does NOT invoke the handler/fetch (assert mock not called) and swaps label+classes; second click invokes exactly once; 4s fake-timer revert restores idle label/classes; after the second tap fires, advance fake timers 4s more → no state change and no act warning (proves the fire path killed the pending disarm — the stale-timer proof); unmount while armed clears the timer (no act warnings).
+- [ ] **Step 1:** Failing tests per surface: first click does NOT invoke the handler/fetch (assert mock not called) and swaps label+classes; second click invokes exactly once; 4s fake-timer revert restores idle label/classes; after the second tap fires, assert `vi.getTimerCount() === 0` (the fire path cleared the pending disarm — a real observable, not a no-change heuristic), then advance 4s to confirm no act warning; unmount while armed → `vi.getTimerCount() === 0` (cleanup ran).
 - [ ] **Step 2:** Run — FAIL. **Step 3:** Implement. **Step 4:** Run + meta-test — PASS.
 - [ ] **Step 5: Commit** `feat(admin): two-tap guards on permanent-ignore, stop-showing-sheet, re-scan (G1-G3)`
 
@@ -517,6 +517,7 @@ Per-surface armed rendering (label + className swap on the SAME button; the arme
 - [ ] `pnpm build` — green (client/server boundary check; new refs/effects are client-component-only, but the build gate is cheap insurance).
 - [ ] Re-run the two structural meta-tests LAST (format-fragility memory: `feedback_structural_metatest_comment_fragility`).
 - [ ] Commit any stragglers; do NOT push (push happens after impeccable dual-gate + whole-diff review per pipeline).
+- [ ] **Post-gate bookkeeping (after the impeccable dual-gate, before whole-diff review):** DEFERRED.md — FLOW4-4/FLOW4-5/FLOW4-6 → `✅ RESOLVED (this PR)` with one-line what-shipped; OVR-1..OVR-7 → `✅ STALE — surface removed (PR #382; feature teardown)`; plus any new dual-gate deferral entries the gate produced. BACKLOG.md — `BL-FLOW4-BULK-UNDO-ERROR-SURFACE` + `BL-FLOW4-CONFIRM-DANGER-STYLE` → ✅ SHIPPED (this PR); grep touched entries for other BL refs and update consistently. Commit as `docs: DEFERRED/BACKLOG close-outs (FLOW4-4/5/6, OVR stale)`.
 
 ## Self-review notes (writing-plans checklist)
 
