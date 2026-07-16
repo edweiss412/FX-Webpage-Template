@@ -68,9 +68,12 @@ import type {
   ClientContact,
   ContactRow,
   CrewMemberRow,
+  EmbeddedImageStub,
   HotelReservationRow,
   ParseResult,
   ParseWarning,
+  PersistedDiagrams,
+  PersistedEmbeddedImage,
   PullSheetCase,
   PullSheetItem,
   RoomRow,
@@ -78,6 +81,11 @@ import type {
   ShowRow,
   TransportationRow,
 } from "@/lib/parser/types";
+import {
+  diagramAssetKeyFromPath,
+  isAllowedDiagramMime,
+  resolveCurrentDiagrams,
+} from "@/lib/data/diagrams";
 import { useRouter } from "next/navigation";
 import { isStaged } from "@/components/admin/review/sectionData";
 import type { SectionData, StagedSectionData } from "@/components/admin/review/sectionData";
@@ -2993,6 +3001,49 @@ export function AgendaBreakdown({
 }
 
 /**
+ * Published-mode agenda body (spec §3.5). A STATIC render of the server-built
+ * `agendaBaseline` — the persisted `agenda_links` extraction, already validated
+ * and fresh-by-construction at finalize (adapter `buildAgendaBaseline`). Reuses
+ * the same presentational `AgendaItemRow` the staged `AgendaBreakdown` renders
+ * in its `ready` state (extraction blocks + published `/api/asset/agenda/...`
+ * PDF anchors), so there is exactly one row-rendering surface. Unlike the staged
+ * `AgendaBreakdown`, this performs NO extract POST, NO polling, and has NO
+ * wizard-session dependency — every item is pinned `ready`.
+ */
+export function PublishedAgendaList({ items }: { items: AdminAgendaItem[] }) {
+  // Modal/page chrome parity with AgendaBreakdown: inside a section chrome the
+  // §6.4 heading row replaces the card-context "Agenda" eyebrow (no double label).
+  const chrome = useContext(Step3SectionChromeContext);
+  if (items.length === 0) return null;
+  const body = (
+    <ul className="flex flex-col gap-3">
+      {items.map((item, i) => (
+        <AgendaItemRow key={`${item.label}-${i}`} item={item} state="ready" index={i} />
+      ))}
+    </ul>
+  );
+  if (chrome) {
+    return (
+      <section data-testid="published-agenda" className="flex min-w-0 flex-col">
+        <ModalSectionChrome chrome={chrome} count={null}>
+          {body}
+        </ModalSectionChrome>
+      </section>
+    );
+  }
+  return (
+    <section data-testid="published-agenda" className="flex flex-col gap-2">
+      {/* Non-heading eyebrow: the reused AgendaScheduleBlock emits its own <h3>
+          day labels, so a real <h4> here would invert the heading order. */}
+      <p className={EYEBROW_CLASS} style={EYEBROW_STYLE}>
+        Agenda
+      </p>
+      {body}
+    </section>
+  );
+}
+
+/**
  * audit idx39/#180: the minimal "needs attention — not publishable" indicator for a
  * row demoted by a NON-RESCAN finalize failure code (DRIVE_FETCH_FAILED,
  * STAGED_PARSE_SOURCE_OUT_OF_SCOPE, WIZARD_SESSION_SUPERSEDED, …). The publish
@@ -3125,11 +3176,28 @@ export function DiagramsBreakdown({
   dfid,
   wizardSessionId,
   diagrams,
+  buildSrc,
+  previewSourceFor,
 }: {
-  dfid: string;
-  wizardSessionId: string;
-  diagrams: ParseResult["diagrams"] | null | undefined;
+  dfid: string | null;
+  // Staged-only: the default src builder + preview gate below use it. Absent in
+  // published mode, which supplies `buildSrc`/`previewSourceFor` instead.
+  wizardSessionId?: string;
+  diagrams: ParseResult["diagrams"] | PersistedDiagrams | null | undefined;
+  // Mode-derived tile source (spec §3.5). Absent → the staged default: the
+  // wizard-session staged-diagram preview route. Published passes the
+  // `/api/asset/diagram/...` asset-route builder (crew Gallery pattern).
+  buildSrc?: (stub: EmbeddedImageStub) => string;
+  // Mode-derived servability gate. Absent → `hasStagedPreviewSource` (trusted
+  // legacy contentUrl OR fingerprint-addressable media). Published passes the
+  // persisted-snapshot gate (non-null snapshotPath + allowed MIME).
+  previewSourceFor?: (stub: EmbeddedImageStub) => boolean;
 }) {
+  const resolveSrc =
+    buildSrc ??
+    ((stub: EmbeddedImageStub) =>
+      `/api/admin/onboarding/staged-diagram/${wizardSessionId}/${dfid}/${encodeURIComponent(stub.objectId)}`);
+  const resolvePreviewSource = previewSourceFor ?? hasStagedPreviewSource;
   const stubs = arr(diagrams?.embeddedImages).filter(isRenderableDiagramStub);
   const folderItems = arr(diagrams?.linkedFolderItems);
   const folderHref = diagrams?.linkedFolder
@@ -3160,15 +3228,16 @@ export function DiagramsBreakdown({
             <DiagramTile
               key={`${stub.objectId}-${i}`}
               testId={`wizard-step3-card-${dfid}-diagram-tile-${i}`}
-              src={`/api/admin/onboarding/staged-diagram/${wizardSessionId}/${dfid}/${encodeURIComponent(stub.objectId)}`}
+              src={resolveSrc(stub)}
               // `?? ` only catches null/undefined — a persisted `alt: ""`
               // rendered a nameless link (impeccable audit P2); blank/space
               // alts fall back to the generic sheet-tab string too.
               alt={stub.alt?.trim() || `Diagram from ${stub.sheetTab}`}
               // Shared servability predicate (spec §A4): the tile and the
-              // preview route can never disagree on what's fetchable —
-              // trusted legacy contentUrl OR fingerprint-addressable media.
-              hasPreviewSource={hasStagedPreviewSource(stub)}
+              // serving route can never disagree on what's fetchable. Staged →
+              // trusted legacy contentUrl OR fingerprint-addressable media;
+              // published → non-null snapshotPath + allowed MIME.
+              hasPreviewSource={resolvePreviewSource(stub)}
             />
           ))}
         </div>
@@ -3197,6 +3266,52 @@ export function DiagramsBreakdown({
         </p>
       ) : null}
     </BreakdownSection>
+  );
+}
+
+/**
+ * Published-mode diagrams sub-block (spec §3.5). Resolves the persisted
+ * `shows.diagrams` `{ current }` wrapper to its live `PersistedDiagrams`
+ * (`resolveCurrentDiagrams` — the same gate the crew gallery and asset route
+ * use), gates on the shared diagram signal, and renders the shared
+ * `DiagramsBreakdown` with `/api/asset/diagram/<show>/<rev>/<key>` image srcs
+ * (crew Gallery pattern, components/diagrams/Gallery.tsx). NO wizard session,
+ * NO staged-diagram route → zero `/api/admin/onboarding/*` traffic. Owns its
+ * own §6.4 "Diagrams" sub-heading chrome so it reads as part of Rooms & scope.
+ */
+export function PublishedDiagramsBreakdown({
+  showId,
+  driveFileId,
+  diagrams,
+}: {
+  showId: string;
+  driveFileId: string | null;
+  diagrams: unknown;
+}) {
+  const persisted = resolveCurrentDiagrams(diagrams);
+  if (!hasDiagramSignal(persisted)) return null;
+  // `snapshot_revision_id` is required on PersistedDiagrams; "" only if a
+  // malformed persisted row slipped the resolver gate — the asset route 410s it.
+  const rev = persisted?.snapshot_revision_id ?? "";
+  return (
+    <Step3SectionChromeContext.Provider
+      value={{ Icon: Images, label: "Diagrams", flagged: false, headingLevel: 4 }}
+    >
+      <DiagramsBreakdown
+        dfid={driveFileId}
+        diagrams={persisted}
+        buildSrc={(stub) =>
+          `/api/asset/diagram/${showId}/${rev}/${diagramAssetKeyFromPath(
+            (stub as PersistedEmbeddedImage).snapshotPath,
+            stub.objectId,
+          )}`
+        }
+        previewSourceFor={(stub) =>
+          (stub as PersistedEmbeddedImage).snapshotPath !== null &&
+          isAllowedDiagramMime(stub.mimeType)
+        }
+      />
+    </Step3SectionChromeContext.Provider>
   );
 }
 
@@ -3496,7 +3611,9 @@ export function ReportIssueSection({ data }: { data: StagedSectionData }) {
  * sub-block agree. Diagrams are no longer their own section; this gates the
  * sub-block rendered BELOW the rooms inside the Rooms & scope section.
  */
-export function hasDiagramSignal(diagrams: ParseResult["diagrams"] | null | undefined): boolean {
+export function hasDiagramSignal(
+  diagrams: ParseResult["diagrams"] | PersistedDiagrams | null | undefined,
+): boolean {
   const count = arr(diagrams?.embeddedImages).length + arr(diagrams?.linkedFolderItems).length;
   return diagrams != null && (diagrams.linkedFolder != null || count > 0);
 }
@@ -3571,9 +3688,8 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       group: "Schedule",
       Icon: FileText,
       railCount: null,
-      // Staged-only in Phase 1: AgendaBreakdown reads the wizard session + staged
-      // row. Task 9 fills the published branch; until then it renders null (there
-      // are no published-mode consumers yet).
+      // Mode fork (spec §3.5): staged AgendaBreakdown POSTs the wizard session +
+      // polls; published renders the static baseline (no fetch, no wizard session).
       render: (s) =>
         isStaged(s) ? (
           <AgendaBreakdown
@@ -3582,7 +3698,9 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
             baseline={s.agendaBaseline}
             stateKey={s.row.agendaStateKey ?? s.dfid}
           />
-        ) : null,
+        ) : (
+          <PublishedAgendaList items={s.agendaBaseline} />
+        ),
     });
   }
   defs.push(
@@ -3622,22 +3740,31 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       render: (s) => (
         <div className="flex min-w-0 flex-col gap-4">
           <RoomsBreakdown dfid={s.driveFileId} rooms={s.rooms} />
-          {/* Diagrams sub-block is staged-only in Phase 1 (it renders staged
-              preview URLs via the wizard session). Task 9 fills the published
-              asset-route branch; until then it renders nothing when published. */}
-          {isStaged(s) && hasDiagramSignal(s.diagrams) ? (
-            // headingLevel 4 → subordinate "Diagrams" sub-heading (h4, smaller)
-            // so it reads as part of Rooms & scope, not a co-equal section.
-            <Step3SectionChromeContext.Provider
-              value={{ Icon: Images, label: "Diagrams", flagged: false, headingLevel: 4 }}
-            >
-              <DiagramsBreakdown
-                dfid={s.dfid}
-                wizardSessionId={s.wizardSessionId}
-                diagrams={s.diagrams}
-              />
-            </Step3SectionChromeContext.Provider>
-          ) : null}
+          {/* Diagrams sub-block mode fork (spec §3.5). Staged renders staged
+              preview URLs via the wizard session; published resolves the
+              persisted snapshot and renders asset-route srcs (zero onboarding
+              traffic). Both wrap the sub-block in its OWN chrome provider so it
+              keeps the subordinate "Diagrams" heading (headingLevel 4), never
+              inheriting the outer "Rooms & scope" chrome. */}
+          {isStaged(s) ? (
+            hasDiagramSignal(s.diagrams) ? (
+              <Step3SectionChromeContext.Provider
+                value={{ Icon: Images, label: "Diagrams", flagged: false, headingLevel: 4 }}
+              >
+                <DiagramsBreakdown
+                  dfid={s.dfid}
+                  wizardSessionId={s.wizardSessionId}
+                  diagrams={s.diagrams}
+                />
+              </Step3SectionChromeContext.Provider>
+            ) : null
+          ) : (
+            <PublishedDiagramsBreakdown
+              showId={s.showId}
+              driveFileId={s.driveFileId}
+              diagrams={s.diagrams}
+            />
+          )}
         </div>
       ),
     },
