@@ -17,3 +17,6 @@ Spec: `docs/superpowers/specs/2026-07-16-consolidated-admin-show-page.md`
    artifact of the mock, not a design decision: the real chip rail is a full horizontal
    scroll container with every section chip (spec §7/§8 invariant 3).
 4. **Fixture copy** (show name, alert text, crew names/phones, share URL) is illustrative only.
+5. **Strip variant (b) shows an Unarchive button in the strip.** Overridden: spec §4 caps the strip
+   at two actions (publish toggle, copy link); `UnarchiveShowButton` renders in the Overview section
+   (spec §6).

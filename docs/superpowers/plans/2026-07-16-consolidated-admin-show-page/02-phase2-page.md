@@ -86,7 +86,7 @@ export async function readShowReviewSnapshot(supabase: SupabaseServerClient, sho
 - [ ] **Step 1: failing tests** — mock supabase `.rpc` returning `{data, error}` permutations: data→ok; `data:null`→not_admin_or_missing; `error`→infra_error; thrown→infra_error. Assert no bare-data destructure (behavioral: error path never returns ok).
 - [ ] **Step 2:** FAIL → implement (destructure `{ data, error }`; try/catch thrown; `log.error` with a NON-`REPORT_*` forensic `code:` only if an existing §12.4-exempt admin code fits — otherwise no code-stamped log, this is a read path, `// no-telemetry: read-only helper, failures surface as typed result` NOT needed since not a mutation surface).
 - [ ] **Step 3:** registry row in `tests/admin/_metaInfraContract.test.ts` for the new helper; run that meta-test.
-- [ ] **Step 4:** `tests/admin/_showReviewReadPathPin.test.ts` — reads the SOURCE of `app/admin/show/[slug]/page.tsx` + `lib/admin/readShowReviewSnapshot.ts` and asserts: page contains NO `.from("crew_members"|"rooms"|"hotel_reservations"|"transportation"|"contacts")` builder call for review data (allowlist any pre-existing non-review reads by exact line-shape, e.g. share-token or alert reads keep their own tables); helper contains exactly one `.rpc("get_admin_show_review_snapshot"`.
+- [ ] **Step 4:** `tests/admin/_showReviewReadPathPin.test.ts` — filesystem-walks the WHOLE published-review read surface (fails-by-default for new files, per the class-sweep discipline): every `.ts`/`.tsx` under `app/admin/show/[slug]/` (recursive) + `components/admin/showpage/` + `components/admin/review/` + `lib/admin/readShowReviewSnapshot.ts`. Asserts NO file contains a `.from("crew_members"|"rooms"|"hotel_reservations"|"transportation"|"contacts")` builder call, except rows in an explicit in-test allowlist of pre-existing non-review reads (each allowlist row = file + table + one-line reason; populate by grepping the CURRENT tree during implementation). Also asserts `lib/admin/readShowReviewSnapshot.ts` contains exactly one `.rpc("get_admin_show_review_snapshot"` and no other module under the walked roots calls `.rpc("get_admin_show_review_snapshot"` (single entry point).
 - [ ] **Step 5:** commit `feat(admin): snapshot read helper with typed infra results + read-path pin`
 
 ---
@@ -101,7 +101,7 @@ export async function readShowReviewSnapshot(supabase: SupabaseServerClient, sho
 
 Mapping = spec §3.2 table verbatim. Key concretes:
 - `billing`: `{ coiStatus: show.coi_status ?? null, proposal: internal?.financials?.proposal ?? null, po: internal?.financials?.po ?? null, invoice: internal?.financials?.invoice ?? null, invoiceNotes: internal?.financials?.invoice_notes ?? null }` (verify financials field names against `lib/sync/applyParseResult.ts:48,:249` at implementation)
-- `agendaBaseline`: `buildAdminAgendaPreview(links, { validatedHrefs: true, freshByLinkKey: new Set(links.map((l, i) => l.extracted != null ? i : -1).filter(i => i >= 0)) })` then post-map: `items.map((it, i) => links[i]?.fileId ? { ...it, href: \`/api/asset/agenda/\${showId}/\${links[i].fileId}\` } : it)`
+- `agendaBaseline`: the builder maps over `visible = links.slice(0, AGENDA_MAX_PDFS_PER_SHEET)` 1:1 (`lib/agenda/agendaAdminPreview.ts:149` — `visible.map(...)`). The adapter mirrors that slice so the pairing is by construction, not by accidental index: `const visible = links.slice(0, AGENDA_MAX_PDFS_PER_SHEET); const items = buildAdminAgendaPreview(links, { validatedHrefs: true, freshByLinkKey }); return items.map((it, i) => visible[i]?.fileId ? { ...it, href: \`/api/asset/agenda/\${showId}/\${visible[i].fileId}\` } : it);` — import `AGENDA_MAX_PDFS_PER_SHEET` from the same module (export it if not already). Unit test keys each expected href to the FIXTURE link's `fileId` (find the item by its `label`, then assert its href embeds that link's fileId — never by output position), and includes an over-cap fixture (cap+2 links) asserting only the visible slice is mapped and lengths match.
 - `archivedPullSheetTabs: []` always; `mode: "published"`; `driveFileId: show.drive_file_id ?? null`
 - display sort in-adapter: rooms `(kind, name, id)`, contacts `(kind, name, id)`, transportation `(id)`, crew `(name, id)`; hotels keep RPC ordinal order
 - missing `internal` → empty `warnings`/`useRawDecisions`/`ros`-empty/`rawUnrecognized: null`
@@ -133,7 +133,7 @@ Mapping = spec §3.2 table verbatim. Key concretes:
 
 Elements + sources: spec §4 table. `data-testid="show-status-strip"`; children testids: `strip-title`, `strip-publish-toggle` (wraps existing `PublishedToggle`), `strip-live-badge`, `strip-sync-age`, `strip-alert-badge` (anchor `href="#overview"`), `strip-copy-link`. Visual reference: mock section 3 (states a/b/c) — colors via tokens only (`bg-surface`, `border-border`, `text-text-subtle`, warning pair for the alert badge; the mock's teal all-clear is OVERRIDDEN per mock README delta 2 — use neutral subtle check).
 
-- [ ] **Step 1: failing tests** — state matrix from spec §6: published+live (badge present), published+not-live (hidden), archived (read-only badge, Unarchive, toggle disabled), unpublished (copy-link hidden, inactive), alerts 0 (badge hidden), **`last_synced_at` null → the sync-age element is NOT rendered** (spec §11 says omit; do NOT call `formatRelative` on null — the live helper returns `"never"` (`lib/admin/showDisplay.ts:92`), which would violate the spec's omit contract). Async focus/toggle assertions use `waitFor`.
+- [ ] **Step 1: failing tests** — state matrix from spec §6: published+live (badge present), published+not-live (hidden), archived (read-only badge shown, toggle disabled, copy-link hidden — **NO Unarchive button in the strip**: spec §4 caps the strip at two actions and §6 places `UnarchiveShowButton` in Overview; the mock's strip variant (b) showing Unarchive is OVERRIDDEN, add this to the mock README deltas), unpublished (copy-link hidden, inactive), alerts 0 (badge hidden), **`last_synced_at` null → the sync-age element is NOT rendered** (spec §11 says omit; do NOT call `formatRelative` on null — the live helper returns `"never"` (`lib/admin/showDisplay.ts:92`), which would violate the spec's omit contract). Async focus/toggle assertions use `waitFor`.
 - [ ] **Step 2-4:** implement → PASS. Sticky positioning: `sticky top-<nav-offset> z-<semantic>`; strip wraps to two rows below `sm` (mock section 2 reference).
 - [ ] **Step 5:** commit `feat(admin): pinned status strip for consolidated show page`
 
@@ -143,7 +143,9 @@ Elements + sources: spec §4 table. `data-testid="show-status-strip"`; children 
 
 **Files:**
 - Create: `components/admin/showpage/OverviewSection.tsx`, `components/admin/showpage/ChangesSection.tsx`
-- Test: `tests/components/admin/showpage/overviewSection.test.tsx`
+- Test: `tests/components/admin/showpage/overviewSection.test.tsx`, `tests/components/admin/showpage/changesSection.test.tsx`
+
+Data ownership pin: `readShowChangeFeed` is called ONCE, in the server component `app/admin/show/[slug]/page.tsx` (Task 13), and its result passes into `ChangesSection` through the `extraSectionsAfter` render closure — `ChangesSection` is presentation-only (no data fetching). `changesSection.test.tsx` asserts: (a) feed entries render from a fixture; (b) mounted as an `extraSectionsAfter` item of `ShowReviewSurface`, "changes" appears LAST in the rail model and participates in hash targeting (`#changes`).
 
 Overview composition (spec §5.1, all relocated intact): `PerShowAlertSection`, share panel cluster (`CurrentShareLinkPanel`/`ShareChip`/`RotateShareTokenButton`/`CrewPageLink`/`PickerResetControl` inside `ShareTokenProvider`), sheet/sync cluster (`ReSyncButton`, `CorrectionLoopCallout mode="resync"`, open-sheet link), archive row. Changes = `ChangesFeed` + `readShowChangeFeed` data (server-fetched, passed down).
 
@@ -194,7 +196,7 @@ Dimensional invariants (spec §8 verbatim — assert with `getBoundingClientRect
 3. <lg chip rail: `scrollHeight === clientHeight` within 1px (single row, horizontal scroll only)
 4. every documented testid inside fixed-dimension parents measured (`show-status-strip`, rail, chip rail, panel column)
 
-- [ ] Steps: write spec → run (FAIL against pre-layout stub if any) → fix CSS → PASS at 1360px and 390px viewports → commit `test(admin): real-browser layout invariants for consolidated page`
+- [ ] Steps: write the Playwright spec → run at 1360px and 390px viewports → iterate CSS until PASS → **negative-regression proof (mandatory, prevents tautology):** temporarily remove `items-stretch` from the pane container → rerun → invariant 1 MUST FAIL; temporarily drop the strip's `sticky` class → invariant 2 MUST FAIL; restore both → PASS → commit `test(admin): real-browser layout invariants for consolidated page` (note the two negative proofs in the commit body)
 
 ---
 
