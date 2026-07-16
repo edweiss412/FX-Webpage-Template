@@ -142,6 +142,14 @@ async function upsertManifestLivePermanentIgnore(
     deferredByEmail: string;
   },
 ): Promise<boolean> {
+  // Re-canonicalize at the write site (idempotent; input is already canonical) so the
+  // X.5 scanner can trace the bound parameter to canonicalize() — the discardStaged
+  // defaultUpsertLiveDeferral pattern. Non-canonicalizable is unreachable: the handler
+  // 500s before calling this.
+  const deferredByEmail = canonicalize(args.deferredByEmail);
+  if (!deferredByEmail) {
+    throw new Error("manifest ignore: deferredByEmail must be canonicalizable");
+  }
   const written = await tx.queryOne<{ upserted: boolean } | null>(
     `
       insert into public.deferred_ingestions (
@@ -164,7 +172,7 @@ async function upsertManifestLivePermanentIgnore(
         deferred_at = now()
       returning true as upserted
     `,
-    [args.driveFileId, args.driveFileName, args.deferredByEmail, args.wizardSessionId],
+    [args.driveFileId, args.driveFileName, deferredByEmail, args.wizardSessionId],
   );
   return Boolean(written?.upserted);
 }
