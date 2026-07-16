@@ -25,6 +25,7 @@ import {
 } from "@/lib/sync/applyStagedCore";
 import { normalizeUseRawDecisions, type UseRawDecision } from "@/lib/sync/useRawOverlay";
 import { adoptShowLockHeld } from "@/lib/sync/lockedShowTx";
+import { assertRoleMappingsFresh } from "@/lib/onboarding/roleMappingsFreshnessGate";
 import { parseTriggeredReviewItems } from "@/lib/staging/triggeredReviewItems";
 import { asParseResult, coerceJsonbArray, coerceJsonbObject } from "@/lib/db/coerceJsonbObject";
 import { canonicalize } from "@/lib/email/canonicalize";
@@ -149,6 +150,8 @@ type PerRowResult =
         // §5.8 / I4 Flow A finalize consistency gate refusal — the existing cataloged code reused
         // for the override-snapshot mismatch class (no new §12.4 row).
         | "STAGED_PARSE_OUTDATED_AT_PHASE_D"
+        // Publish freshness gate refusal (staging-overlay spec 2026-07-16 §3.5 call site 1).
+        | "ROLE_MAPPINGS_OUTDATED_AT_PUBLISH"
         | "DRIVE_FETCH_FAILED";
       re_apply_url: string;
       display_name?: string;
@@ -1229,6 +1232,22 @@ async function processApprovedRow(input: {
       drive_file_id: row.drive_file_id,
       wizard_session_id: wizardSessionId,
       code: overrideGate.code,
+      re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
+    };
+  }
+
+  // Publish freshness gate (staging-overlay spec 2026-07-16 §3.5 call site 1, Flow A twin) —
+  // this row's locked tx, before the first-seen apply; null stamp (legacy row) passes; a query
+  // fault THROWS to the route boundary (invariant 9).
+  const roleGate = await assertRoleMappingsFresh(
+    (sql, params) => lockedTx.queryOne(sql, params),
+    coercedRow.parse_result.appliedRoleMappings ?? null,
+  );
+  if (!roleGate.ok) {
+    return {
+      drive_file_id: row.drive_file_id,
+      wizard_session_id: wizardSessionId,
+      code: roleGate.code,
       re_apply_url: reApplyUrl(wizardSessionId, row.drive_file_id),
     };
   }

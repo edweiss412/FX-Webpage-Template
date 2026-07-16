@@ -15,6 +15,7 @@ import { evaluateFinalizeOverrideGate } from "@/lib/sync/pullSheetOverride";
 import { revisionTimesMatch } from "@/lib/sync/applyStaged";
 import { SHOW_ARCHIVED_IMMUTABLE, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import { adoptShowLockHeld } from "@/lib/sync/lockedShowTx";
+import { assertRoleMappingsFresh } from "@/lib/onboarding/roleMappingsFreshnessGate";
 import { makeSyncPipelineTx, type SyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
 import { revalidateShow } from "@/lib/data/showCacheTag";
 import { severityForFinalizeRowCode } from "@/lib/onboarding/finalizeRowSeverity";
@@ -89,6 +90,8 @@ type ShadowApplyResult =
         | "STAGED_PARSE_OUTDATED_AT_PHASE_D"
         | "STAGED_REVIEW_ITEMS_CORRUPT"
         | "STAGED_PARSE_RESULT_CORRUPT"
+        // Publish freshness gate refusal (staging-overlay spec 2026-07-16 §3.5 call site 1).
+        | "ROLE_MAPPINGS_OUTDATED_AT_PUBLISH"
         | typeof SHOW_ARCHIVED_IMMUTABLE;
       display_name?: string;
     };
@@ -452,6 +455,19 @@ async function applyShadow(
   // → deleteApprovedPending) deletes the pending_syncs row right after staging, so a pending_syncs
   // re-read here would ALWAYS return [] for an existing show and silently drop the admin's toggle.
   // parseShadowPayloadForApply normalizes the payload field (absent/malformed → [] overlay no-op).
+  // Publish freshness gate (staging-overlay spec 2026-07-16 §3.5 call site 1) — on THIS row's
+  // locked tx, before the apply, evaluated unconditionally (null stamp = legacy row, passes).
+  // A query fault THROWS to the route's unexpected-failure boundary (invariant 9) — never []
+  // degrade, never the business code. Declarative refuse: nothing written, shadow retained,
+  // the per-sheet rescan heal re-derives the stamp under the current vocabulary.
+  const roleGate = await assertRoleMappingsFresh(
+    (sql, params) => lockedTx.queryOne(sql, params),
+    parsed.parseResult.appliedRoleMappings ?? null,
+  );
+  if (!roleGate.ok) {
+    return { drive_file_id: row.drive_file_id, code: roleGate.code };
+  }
+
   const core = await applyStagedCore(lockedTx, {
     sourceScope: "wizard",
     driveFileId: row.drive_file_id,
@@ -538,7 +554,7 @@ async function applyShadow(
 async function publishAppliedWizardShows(
   tx: FinalizeCasRouteTx,
   wizardSessionId: string,
-): Promise<string[]> {
+): Promise<{ published: string[]; refused: Array<{ drive_file_id: string }> }> {
   const { rows } = await tx.query<{ drive_file_id: string }>(
     `
       select drive_file_id
@@ -555,10 +571,31 @@ async function publishAppliedWizardShows(
     [wizardSessionId],
   );
   const lockedDriveFileIds = rows.map((row) => row.drive_file_id);
-  if (lockedDriveFileIds.length === 0) return [];
+  if (lockedDriveFileIds.length === 0) return { published: [], refused: [] };
   for (const driveFileId of lockedDriveFileIds) {
     await tx.query(`select pg_advisory_xact_lock(hashtext('show:' || $1))`, [driveFileId]);
   }
+  // Publish freshness gate (staging-overlay spec 2026-07-16 §3.5 call site 2): evaluate the
+  // predicate per candidate UNDER the just-taken per-show locks, on this outer tx (the FOR SHARE
+  // rows lock until the flip commits). Candidates failing the gate are NOT silently filtered —
+  // the caller blocks final-CAS completion (409 per_row BEFORE the flip), keeping the session
+  // open so the blocker-heal rescan → /finalize re-apply → re-run path stays reachable.
+  // LEFT JOIN: a missing shows_internal row (or null stamp — legacy/no consumption) passes.
+  const { rows: gateRows } = await tx.query<{ drive_file_id: string; fresh: boolean }>(
+    `
+      select m.drive_file_id,
+             public.role_mappings_stamp_satisfied(si.applied_role_mappings) as fresh
+        from public.onboarding_scan_manifest m
+        left join public.shows_internal si on si.show_id = m.created_show_id
+       where m.wizard_session_id = $1::uuid
+         and m.drive_file_id = any($2::text[])
+    `,
+    [wizardSessionId, lockedDriveFileIds],
+  );
+  const refused = gateRows
+    .filter((row) => row.fresh !== true)
+    .map((row) => ({ drive_file_id: row.drive_file_id }));
+  if (refused.length > 0) return { published: [], refused };
   // nav-perf tag-caching (Task 6): the publish flip (published=false→true) gates crew visibility
   // (getShowForViewer.ts:291) — a rendered-data change. `returning s.id` surfaces the flipped
   // show ids for the route's POST-COMMIT revalidate.
@@ -580,7 +617,7 @@ async function publishAppliedWizardShows(
     `,
     [wizardSessionId, lockedDriveFileIds],
   );
-  return published.map((row) => row.id);
+  return { published: published.map((row) => row.id), refused: [] };
 }
 
 /**
@@ -870,7 +907,31 @@ async function runFinalizeCas(
   // audit idx18 HIGH-1: the publish flip runs in the OUTER tx and can be rolled back by a later
   // throw (deleteWizardDeferrals / promoteSettings / markFinalCasDone below). Collect into the
   // SEPARATE publishedShowIds set so the handler only busts these on a committed outer tx.
-  for (const showId of await publishAppliedWizardShows(tx, wizardSessionId)) {
+  const flip = await publishAppliedWizardShows(tx, wizardSessionId);
+  if (flip.refused.length > 0) {
+    // Blocks completion exactly like the blocked-shadow branch above: 409 with per_row BEFORE
+    // deleteWizardDeferrals/promoteSettings/markFinalCasDone — session stays open, publish_intent
+    // preserved, NO row flipped this run (staging-overlay spec §3.5 call site 2, R12 F1).
+    for (const refusedRow of flip.refused) {
+      try {
+        await log.warn("finalize-cas flip refused: role mappings outdated", {
+          source: "api.admin.onboarding.finalize-cas",
+          code: "ROLE_MAPPINGS_OUTDATED_AT_PUBLISH",
+          driveFileId: refusedRow.drive_file_id,
+          wizardSessionId,
+        });
+      } catch {
+        /* best-effort */
+      }
+    }
+    return errorResponse(409, "ROLE_MAPPINGS_OUTDATED_AT_PUBLISH", {
+      per_row: flip.refused.map((refusedRow) => ({
+        ...refusedRow,
+        code: "ROLE_MAPPINGS_OUTDATED_AT_PUBLISH",
+      })),
+    });
+  }
+  for (const showId of flip.published) {
     publishedShowIds.add(showId);
   }
   await deleteWizardDeferrals(tx, wizardSessionId);

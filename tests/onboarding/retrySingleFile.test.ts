@@ -42,6 +42,8 @@ class FakeRetrySingleFileTx implements RetrySingleFileTx {
   async queryOne<T>(sql: string) {
     const normalized = sql.replace(/\s+/g, " ").trim();
     if (/pg_locks/i.test(normalized)) return { held: true } as T;
+    // Publish freshness gate SQL (staging-overlay spec §3.5): fresh by default in these fakes.
+    if (normalized.startsWith("select public.role_mappings_stamp_satisfied")) return { ok: true } as T;
     if (normalized.startsWith("select pending_wizard_session_id")) {
       return {
         pending_wizard_session_id: this.activeWizardSessionId,
