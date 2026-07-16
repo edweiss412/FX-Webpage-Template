@@ -347,6 +347,15 @@ describe("computeAutofixShows", () => {
     expect(r.total).toBe(19);
   });
 
+  test("dedupe scope is PER SHOW: identical fingerprint on two different shows keeps both", () => {
+    // A global seen-set implementation would drop the second show's notice.
+    const m = "Read likely-misspelled stage word(s) 'Sage' as 'Stage' in role cell: 'A1 Sage'";
+    const r = computeAutofixShows([row("a", [warn({ message: m })]), row("b", [warn({ message: m })])]);
+    expect(r.total).toBe(2);
+    expect(r.shows.map((s) => s.slug)).toEqual(["slug-a", "slug-b"]);
+    expect(r.shows.every((s) => s.items.length === 1)).toBe(true);
+  });
+
   test("show with zero autofix items is omitted; empty rows → total 0", () => {
     const r = computeAutofixShows([
       row("a", [{ kind: "payload" }, warn({ code: "FIELD_UNREADABLE" })]),
@@ -689,8 +698,11 @@ describe.runIf(dbUp)("buildMonitorDigestModel — autofix DB proof (spec 2026-07
     await log(PUB, "applied", "corrected 'a' as 'b'", "2099-01-01T10:00:00Z");
     await log(PUB, "applied", "corrected 'a' as 'b'", "2099-01-01T09:00:00Z");
     await log(PUB, "applied", "corrected 'p' as 'q'", "2099-01-01T09:00:00Z");
-    // SECOND: most recent activity → must group FIRST.
-    await log(SECOND, "applied", "corrected 'm' as 'n'", "2099-01-01T11:00:00Z");
+    // SECOND: most recent activity → must group FIRST. Its first notice is
+    // BYTE-IDENTICAL to PUB's (same code, no anchor) — per-show dedupe scope must
+    // keep both shows' copies (a global seen-set would drop one).
+    await log(SECOND, "applied", "corrected 'a' as 'b'", "2099-01-01T11:00:00Z");
+    await log(SECOND, "applied", "corrected 'm' as 'n'", "2099-01-01T10:45:00Z");
     // Excluded rows: non-applied / unpublished / orphan.
     await log(PUB, "drive_error", "corrected 'z' as 'w'", "2099-01-01T10:30:00Z");
     await log(UNPUB, "applied", "corrected 'z' as 'w'", "2099-01-01T10:30:00Z");
@@ -698,10 +710,12 @@ describe.runIf(dbUp)("buildMonitorDigestModel — autofix DB proof (spec 2026-07
 
     const r = await build("2099-01-01T12:00:00Z");
     if (r.kind !== "ok") throw new Error(`expected ok, got ${r.kind}`);
-    expect(r.model.autofix.total).toBe(3); // 1 collapsed + 1 distinct + second show's 1
+    expect(r.model.autofix.total).toBe(4); // PUB: 1 collapsed + 1 distinct; SECOND: identical-to-PUB notice + its own
     expect(r.model.autofix.shows.map((s) => s.showTitle)).toEqual(["Second", "Pub"]); // newest-first
-    const pub = r.model.autofix.shows[1]!;
-    expect(pub.items).toEqual(["corrected 'a' as 'b'", "corrected 'p' as 'q'"]);
+    const [second, pub] = r.model.autofix.shows;
+    // Per-show dedupe scope: SECOND keeps the notice byte-identical to PUB's.
+    expect(second!.items).toEqual(["corrected 'a' as 'b'", "corrected 'm' as 'n'"]);
+    expect(pub!.items).toEqual(["corrected 'a' as 'b'", "corrected 'p' as 'q'"]);
   });
 
   test("tied occurred_at rows: model preserves ALL items in the exact id-asc order (seeded uuids)", async () => {
