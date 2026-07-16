@@ -265,7 +265,7 @@ describe("DESIGN.md figure parity (touched rows)", () => {
   - `AutoRefreshControl.tsx:106`: `rounded-full transition-colors ${on ? "bg-accent" : "bg-surface-sunken"}` → `rounded-full border transition-colors ${on ? "border-accent-edge bg-accent" : "border-border-strong bg-surface-sunken"}`
   - `OnboardingWizard.tsx:151`: `"border-transparent bg-accent text-accent-text"` → `"border-accent-edge bg-accent text-accent-text"`
 - [ ] **Step 3: Vitest green.** Update `developer-toggle-layout.spec.ts` `TRACK_ON` verbatim string (`border-accent` → `border-accent-edge`).
-- [ ] **Step 4: Write `tests/e2e/toggle-edge-layout.spec.ts`** — copy the harness scaffolding (Tailwind CLI compile + harness.html + http server + standalone.config) from `developer-toggle-layout.spec.ts`, with body:
+- [ ] **Step 4: Write `tests/e2e/toggle-edge-layout.spec.ts`** — the file must be COMPLETE and runnable: copy the sibling `developer-toggle-layout.spec.ts` scaffolding verbatim (imports, `REPO_ROOT`/`TOL` constants, Tailwind CLI compile step, `harness.html` writer, `createServer` HTTP serving, `test.beforeAll`/`afterAll`), then replace its harness markup + assertions with the block below. The assertion body runs inside the standard Playwright callback binding — `test("ON toggle border is the accent-edge token and geometry invariants hold", async ({ page }) => { …navigate to the served harness first… })` — never a bare `page` reference outside the callback.
 
 ```ts
 // Spec §6.1 computed-style proof + §9.1 dimensional invariants.
@@ -429,7 +429,7 @@ describe("META raw accent text ban (spec 2026-07-16 §4.4a)", () => {
 ```
 
 - [ ] **Step 2: Run** — FAIL listing exactly **16 token occurrences across the 14 files** above (RotateShareTokenButton and Step1Share each carry two; 1 mobile tab + 9 hover-shift links + 4 glyph sites = 14 files). Task 4 already cleared the eyebrow scan.
-- [ ] **Step 3: Apply the 15 edits.** Note TravelSection:595's comment cites "4.6:1" for accent-on-bg — update comment to 5.34:1.
+- [ ] **Step 3: Apply the 16 token-occurrence edits across the 14 files.** Note TravelSection:595's comment cites "4.6:1" for accent-on-bg — update comment to 5.34:1.
 - [ ] **Step 4: Run** — PASS. Sweep affected component tests (`Header.test.tsx`, `SignInBrand.test.tsx`, etc. from the 18-file grep) — fix any pinned `hover:text-accent-hover` expectations.
 - [ ] **Step 5: Commit** — `fix: migrate raw accent text states to accent-on-bg; delete sub-AA hover shifts; add structural ban`
 
@@ -452,7 +452,13 @@ describe("META raw accent text ban (spec 2026-07-16 §4.4a)", () => {
 import { walk, stripComments } from "./_classScanUtils";
 // ... vitest imports, fs
 
-type Disposition = "labeled" | "edge-treated" | "redundant-glyph" | "decorative";
+// Full spec §4.1b disposition vocabulary. 'darkened-fill' currently has ZERO
+// rows by construction: the two darkened surfaces (BellPanel pip, RightNowHero
+// active segment) changed token to bg-accent-on-bg, so no exact-token bg-accent
+// occurrence remains to register — the member exists so a future surface that
+// keeps bg-accent in one branch while darkening another can be encoded without
+// widening the type.
+type Disposition = "labeled" | "edge-treated" | "darkened-fill" | "redundant-glyph" | "decorative";
 // REGISTRY: the spec §4.1b generated inventory in its POST-CHANGE state
 // (EventFilters:90, BellPanel:292, RightNowHero:556 have left the scan —
 // re-toned/darkened; comments are stripped pre-scan). `index` = nth exact-token
