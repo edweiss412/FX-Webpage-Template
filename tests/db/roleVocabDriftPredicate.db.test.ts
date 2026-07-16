@@ -9,8 +9,12 @@
  */
 import { afterEach, describe, expect, it } from "vitest";
 
-import { sqlClient, seedLiveShowWithToken, seedHeldShow } from "@/tests/db/_b2Helpers";
+import { canonicalize } from "@/lib/email/canonicalize";
+import { runPhase2 } from "@/lib/sync/phase2";
 import { listRoleVocabDriftEligibleFileIds } from "@/lib/sync/roleVocabDrift";
+import { makeSyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
+import { sqlClient, seedLiveShowWithToken, seedHeldShow } from "@/tests/db/_b2Helpers";
+import { driftArgs, driftParse } from "@/tests/sync/_roleVocabDriftApplyKit";
 
 const T = (s: string) => `RVDC ${s}`; // canonical (upper, trimmed) per role_token_mappings_token_canonical
 
@@ -45,9 +49,15 @@ async function mapping(token: string, grants: string[]): Promise<void> {
   seededTokens.add(token);
   await seedMapping(token, grants);
 }
+// Shows created by the self-clear case run a COMMITTED apply (not a rollback tx), so they must be
+// torn down explicitly; the cascade from public.shows clears crew_members/shows_internal/auth.
+const seededShowIds = new Set<string>();
 afterEach(async () => {
   for (const token of seededTokens) await deleteMapping(token);
   seededTokens.clear();
+  for (const showId of seededShowIds)
+    await sqlClient`delete from public.shows where id = ${showId}::uuid`;
+  seededShowIds.clear();
 });
 
 async function eligibleIds(): Promise<Set<string>> {
@@ -143,6 +153,49 @@ describe("listRoleVocabDriftEligibleFileIds (predicate matrix)", () => {
     await sqlClient`update public.shows set archived = true, archived_at = now() where id = ${show.showId}::uuid`;
     await setInternal(show.showId, [{ token, grants: ["A1", "V1"] }], null);
     await mapping(token, ["A1"]);
+    expect((await eligibleIds()).has(show.driveFileId)).toBe(false);
+  });
+
+  it("12. self-clear: after a REAL drift apply, the show drops out of the eligible set (spec §3.4)", async () => {
+    // NARROW drift: prior stamp grants [A1,V1] (broad) + a persisted UNKNOWN_ROLE_TOKEN warning, but
+    // the mapping now grants only [A1]. Both eligibility directions fire before convergence.
+    const token = T("SELFCLEAR");
+    const crewName = "Alice";
+    const show = await seedLiveShowWithToken();
+    seededShowIds.add(show.showId);
+    await sqlClient`
+      insert into public.crew_members
+        (show_id, name, email, phone, role, role_flags, date_restriction, stage_restriction, flight_info)
+      values (${show.showId}::uuid, ${crewName}, ${canonicalize(`${crewName}@x.example`)}, null, 'A1',
+              ${["A1"]}, ${sqlClient.json({ kind: "none" })}, ${sqlClient.json({ kind: "none" })}, null)`;
+    await setInternal(show.showId, [{ token, grants: ["A1", "V1"] }], [unknownWarning(token)]);
+    await mapping(token, ["A1"]);
+
+    // Precondition: the drifted show IS eligible.
+    expect((await eligibleIds()).has(show.driveFileId)).toBe(true);
+
+    // Run the PRODUCTION apply (committed, so the separate-connection predicate re-read sees it):
+    // the overlay consumes the warning under the CURRENT vocab and rewrites the stamp to [A1].
+    const parse = driftParse(crewName, ["A1"], token);
+    await sqlClient.begin(async (tx) => {
+      await runPhase2(
+        makeSyncPipelineTx(tx as never) as never,
+        driftArgs(show.driveFileId, "2026-06-21T12:00:00.000Z", {
+          driftResync: true,
+          token,
+          grants: ["A1"],
+          parse,
+        }),
+      );
+    });
+
+    // Guard against a false-negative: not-eligible must be convergence, NOT the show vanishing from
+    // the predicate's published+non-archived scope. It is still a live published show.
+    const [row] = await sqlClient`
+      select published, archived from public.shows where id = ${show.showId}::uuid`;
+    expect(row).toMatchObject({ published: true, archived: false });
+
+    // Neither predicate direction matches now (stamp [A1] == mapping [A1]; warning consumed).
     expect((await eligibleIds()).has(show.driveFileId)).toBe(false);
   });
 });
