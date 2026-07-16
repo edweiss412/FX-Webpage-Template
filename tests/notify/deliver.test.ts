@@ -2,6 +2,7 @@ import { describe, expect, test, vi } from "vitest";
 import { auditEmailCanonicalizationSources } from "@/lib/audit/emailCanonicalization";
 import { SEND_RETRY_CAP } from "@/lib/notify/constants";
 import { deliverDigest, deliverRealtimeCandidates, type DeliverySql } from "@/lib/notify/deliver";
+import { fakeLockSql } from "./fakeLockSql";
 import type { RealtimeCandidate } from "@/lib/notify/detect/candidates";
 import type { DigestModel } from "@/lib/notify/digest";
 import type { SendArgs, SendResult } from "@/lib/notify/send";
@@ -157,11 +158,11 @@ describe("deliverRealtimeCandidates", () => {
 
     const result1 = await deliverRealtimeCandidates(
       { candidates: [showCandidate()], recipients: [" Doug@FXAV.NET "], origin: ORIGIN },
-      { sql, sendEmail, now: () => new Date("2026-06-02T14:00:00.000Z") },
+      { lockSql: fakeLockSql(), sql, sendEmail, now: () => new Date("2026-06-02T14:00:00.000Z") },
     );
     const result2 = await deliverRealtimeCandidates(
       { candidates: [showCandidate()], recipients: [" Doug@FXAV.NET "], origin: ORIGIN },
-      { sql, sendEmail },
+      { lockSql: fakeLockSql(), sql, sendEmail },
     );
 
     expect(result1).toMatchObject({ kind: "ok", sent: 1 });
@@ -184,7 +185,7 @@ describe("deliverRealtimeCandidates", () => {
 
       const result = await deliverRealtimeCandidates(
         { candidates: [candidate], recipients: ["doug@fxav.net"], origin: ORIGIN },
-        { sql, sendEmail },
+        { lockSql: fakeLockSql(), sql, sendEmail },
       );
 
       expect(result).toMatchObject({ kind: "ok", skipped: 1 });
@@ -207,7 +208,7 @@ describe("deliverRealtimeCandidates", () => {
         recipients: ["a@example.com", "b@example.com"],
         origin: ORIGIN,
       },
-      { sql, sendEmail },
+      { lockSql: fakeLockSql(), sql, sendEmail },
     );
 
     expect(state.sentRows).toHaveLength(2);
@@ -221,7 +222,7 @@ describe("deliverRealtimeCandidates", () => {
 
     const result = await deliverRealtimeCandidates(
       { candidates: [showCandidate()], recipients: ["doug@fxav.net"], origin: ORIGIN },
-      { sql, sendEmail, upsertAdminAlert },
+      { lockSql: fakeLockSql(), sql, sendEmail, upsertAdminAlert },
     );
 
     expect(result).toMatchObject({ kind: "ok", retryLater: 1 });
@@ -239,7 +240,7 @@ describe("deliverRealtimeCandidates", () => {
 
     const result = await deliverRealtimeCandidates(
       { candidates: [showCandidate()], recipients: ["doug@fxav.net"], origin: ORIGIN },
-      { sql, sendEmail, reissueKey: () => "fresh-nonce-1" },
+      { lockSql: fakeLockSql(), sql, sendEmail, reissueKey: () => "fresh-nonce-1" },
     );
 
     expect(result).toMatchObject({ kind: "ok", sent: 1 });
@@ -261,7 +262,7 @@ describe("deliverRealtimeCandidates", () => {
 
     const result = await deliverRealtimeCandidates(
       { candidates: [showCandidate()], recipients: ["doug@fxav.net"], origin: ORIGIN },
-      { sql, sendEmail, upsertAdminAlert },
+      { lockSql: fakeLockSql(), sql, sendEmail, upsertAdminAlert },
     );
 
     expect(result).toMatchObject({ kind: "ok", retryLater: 1 });
@@ -281,7 +282,7 @@ describe("deliverRealtimeCandidates", () => {
 
     const result = await deliverRealtimeCandidates(
       { candidates: [showCandidate()], recipients: ["doug@fxav.net"], origin: ORIGIN },
-      { sql, sendEmail, upsertAdminAlert, reissueKey: () => "fresh-nonce-1" },
+      { lockSql: fakeLockSql(), sql, sendEmail, upsertAdminAlert, reissueKey: () => "fresh-nonce-1" },
     );
 
     expect(result).toEqual({ kind: "ok", sent: 0, failed: 0, skipped: 0, retryLater: 1 });
@@ -301,11 +302,11 @@ describe("deliverRealtimeCandidates", () => {
 
     await deliverRealtimeCandidates(
       { candidates: [showCandidate()], recipients: ["doug@fxav.net"], origin: ORIGIN },
-      { sql, sendEmail, upsertAdminAlert },
+      { lockSql: fakeLockSql(), sql, sendEmail, upsertAdminAlert },
     );
     await deliverRealtimeCandidates(
       { candidates: [showCandidate()], recipients: ["doug@fxav.net"], origin: ORIGIN },
-      { sql, sendEmail, upsertAdminAlert },
+      { lockSql: fakeLockSql(), sql, sendEmail, upsertAdminAlert },
     );
 
     expect(state.failedRows).toHaveLength(2);
@@ -326,7 +327,7 @@ describe("deliverRealtimeCandidates", () => {
 
     const result = await deliverRealtimeCandidates(
       { candidates: [showCandidate()], recipients: ["doug@fxav.net"], origin: ORIGIN },
-      { sql, sendEmail, upsertAdminAlert },
+      { lockSql: fakeLockSql(), sql, sendEmail, upsertAdminAlert },
     );
 
     expect(result).toEqual({ kind: "ok", sent: 0, failed: 0, skipped: 1, retryLater: 0 });
@@ -344,7 +345,7 @@ describe("deliverRealtimeCandidates", () => {
 
     const result = await deliverRealtimeCandidates(
       { candidates: [showCandidate()], recipients: ["doug@fxav.net"], origin: ORIGIN },
-      { sql, sendEmail, upsertAdminAlert },
+      { lockSql: fakeLockSql(), sql, sendEmail, upsertAdminAlert },
     );
 
     expect(result).toEqual({ kind: "ok", sent: 0, failed: 1, skipped: 0, retryLater: 0 });
@@ -364,7 +365,7 @@ describe("deliverRealtimeCandidates", () => {
 
     const result = await deliverRealtimeCandidates(
       { candidates: [showCandidate()], recipients: ["doug@fxav.net"], origin: ORIGIN },
-      { sql, sendEmail },
+      { lockSql: fakeLockSql(), sql, sendEmail },
     );
 
     expect(result).toMatchObject({ kind: "ok", skipped: 1 });
@@ -378,7 +379,7 @@ describe("deliverRealtimeCandidates", () => {
 
     const result = await deliverRealtimeCandidates(
       { candidates: [showCandidate()], recipients: ["doug@fxav.net"], origin: ORIGIN },
-      { sql, sendEmail },
+      { lockSql: fakeLockSql(), sql, sendEmail },
     );
 
     expect(result).toMatchObject({ kind: "ok", skipped: 1 });
@@ -394,13 +395,13 @@ describe("deliverRealtimeCandidates", () => {
     await expect(
       deliverRealtimeCandidates(
         { candidates: [], recipients: ["doug@fxav.net"], origin: ORIGIN },
-        { sql, sendEmail },
+        { lockSql: fakeLockSql(), sql, sendEmail },
       ),
     ).resolves.toEqual(zero);
     await expect(
       deliverRealtimeCandidates(
         { candidates: [showCandidate()], recipients: [], origin: ORIGIN },
-        { sql, sendEmail },
+        { lockSql: fakeLockSql(), sql, sendEmail },
       ),
     ).resolves.toEqual(zero);
 
@@ -418,7 +419,7 @@ describe("deliverRealtimeCandidates", () => {
         recipients: ["doug@fxav.net"],
         origin: ORIGIN,
       },
-      { sql, sendEmail },
+      { lockSql: fakeLockSql(), sql, sendEmail },
     );
 
     const currentQueries = calls.filter((c) => /floor\(extract\(epoch\s+from/i.test(c.text));
@@ -438,7 +439,7 @@ describe("deliverDigest", () => {
 
     const result = await deliverDigest(
       { model: digestModel(), origin: ORIGIN },
-      { sql, sendEmail, now: () => new Date("2026-06-02T13:00:00.000Z") },
+      { lockSql: fakeLockSql(), sql, sendEmail, now: () => new Date("2026-06-02T13:00:00.000Z") },
     );
 
     expect(result).toEqual({ kind: "ok", sent: 1, failed: 0, skipped: 0, retryLater: 0 });
@@ -473,7 +474,7 @@ describe("deliverDigest", () => {
 
     const result = await deliverDigest(
       { model: digestModel(), origin: ORIGIN },
-      { sql, sendEmail, reissueKey: () => "digest-fresh-nonce" },
+      { lockSql: fakeLockSql(), sql, sendEmail, reissueKey: () => "digest-fresh-nonce" },
     );
 
     expect(result).toMatchObject({ kind: "ok", sent: 1 });
@@ -496,7 +497,7 @@ describe("deliverDigest", () => {
 
     const result = await deliverDigest(
       { model: digestModel(), origin: ORIGIN },
-      { sql, sendEmail, upsertAdminAlert },
+      { lockSql: fakeLockSql(), sql, sendEmail, upsertAdminAlert },
     );
 
     expect(result).toMatchObject({ kind: "ok", retryLater: 1 });
@@ -517,7 +518,7 @@ describe("deliverDigest", () => {
 
     const result = await deliverDigest(
       { model: digestModel(), origin: ORIGIN },
-      { sql, sendEmail, upsertAdminAlert, reissueKey: () => "digest-fresh-nonce" },
+      { lockSql: fakeLockSql(), sql, sendEmail, upsertAdminAlert, reissueKey: () => "digest-fresh-nonce" },
     );
 
     expect(result).toEqual({ kind: "ok", sent: 0, failed: 0, skipped: 0, retryLater: 1 });
@@ -534,7 +535,7 @@ describe("deliverDigest", () => {
 
     const result = await deliverDigest(
       { model: digestModel(), origin: ORIGIN },
-      { sql, sendEmail, upsertAdminAlert },
+      { lockSql: fakeLockSql(), sql, sendEmail, upsertAdminAlert },
     );
 
     expect(result).toMatchObject({ kind: "ok", retryLater: 1 });
@@ -550,7 +551,7 @@ describe("deliverDigest", () => {
 
     const result = await deliverDigest(
       { model: digestModel(), origin: ORIGIN },
-      { sql, sendEmail, upsertAdminAlert },
+      { lockSql: fakeLockSql(), sql, sendEmail, upsertAdminAlert },
     );
 
     expect(result).toMatchObject({ kind: "ok", failed: 1 });
@@ -584,7 +585,7 @@ describe("deliverDigest", () => {
 
     const result = await deliverDigest(
       { model: digestModel(), origin: ORIGIN },
-      { sql, sendEmail },
+      { lockSql: fakeLockSql(), sql, sendEmail },
     );
 
     expect(result).toMatchObject({ kind: "ok", skipped: 1 });
@@ -602,7 +603,7 @@ describe("deliverDigest", () => {
 
     const result = await deliverDigest(
       { model: digestModel(), origin: ORIGIN },
-      { sql, sendEmail },
+      { lockSql: fakeLockSql(), sql, sendEmail },
     );
 
     expect(result).toMatchObject({ kind: "ok", skipped: 1 });
@@ -640,7 +641,7 @@ describe("deliverDigest — monitor section (flow 6.2 §5, §8)", () => {
     const { sendEmail, sends } = sender([{ ok: true, messageId: "digest-msg-1" }]);
     const result = await deliverDigest(
       { model: digestModel(), origin: ORIGIN, monitor },
-      { sql, sendEmail },
+      { lockSql: fakeLockSql(), sql, sendEmail },
     );
     expect(result).toMatchObject({ kind: "ok", sent: 1 });
     expect(sends[0]?.html).toContain("Applied automatically since your last digest");
@@ -663,7 +664,7 @@ describe("deliverDigest — monitor section (flow 6.2 §5, §8)", () => {
   test("monitor absent → context is byte-identical to today (no monitor_totals key)", async () => {
     const { sql, state } = fakeSql();
     const { sendEmail } = sender([{ ok: true, messageId: "digest-msg-2" }]);
-    await deliverDigest({ model: digestModel(), origin: ORIGIN }, { sql, sendEmail });
+    await deliverDigest({ model: digestModel(), origin: ORIGIN }, { lockSql: fakeLockSql(), sql, sendEmail });
     const contextParam = state.sentRows[0]?.values.find(
       (value): value is Record<string, unknown> =>
         typeof value === "object" && value !== null && "source_totals" in value,
@@ -675,7 +676,7 @@ describe("deliverDigest — monitor section (flow 6.2 §5, §8)", () => {
   test("dedup key stays digest:${dateET} with a monitor", async () => {
     const { sql, state } = fakeSql();
     const { sendEmail } = sender([{ ok: true, messageId: "digest-msg-3" }]);
-    await deliverDigest({ model: digestModel(), origin: ORIGIN, monitor }, { sql, sendEmail });
+    await deliverDigest({ model: digestModel(), origin: ORIGIN, monitor }, { lockSql: fakeLockSql(), sql, sendEmail });
     expect(state.sentRows[0]?.values).toEqual(expect.arrayContaining(["digest:2026-06-02"]));
   });
 });

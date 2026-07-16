@@ -560,6 +560,18 @@ export async function deliverRealtimeCandidates(
       prepare: false,
     }) as DeliverySql);
   const ownsConnection = !deps.sql;
+  // Dedicated lock client (spec §2.1b): the single-flight advisory lock is
+  // transaction-scoped on its OWN connection so it is backend-pinned under every
+  // pooling mode and auto-releases on commit/rollback/connection-drop. Work SQL
+  // stays on `sql` with per-statement autocommit.
+  const lockSql: LockClient =
+    deps.lockSql ??
+    (postgres(databaseUrl(), {
+      max: 1,
+      idle_timeout: 1,
+      prepare: false,
+    }) as unknown as LockClient);
+  const ownsLock = !deps.lockSql;
   const send = deps.sendEmail ?? sendEmail;
   const alert = deps.upsertAdminAlert ?? upsertAdminAlert;
   const clock = deps.now ?? (() => new Date());
@@ -567,23 +579,44 @@ export async function deliverRealtimeCandidates(
   const counts = { sent: 0, failed: 0, skipped: 0, retryLater: 0 };
 
   try {
-    await runDeliveryPass({
-      candidates: input.candidates,
-      recipients: input.recipients,
-      origin: input.origin,
-      sql,
-      send,
-      alert,
-      clock,
-      makeReissueKey,
-      counts,
+    const passResult = await lockSql.begin(async (ltx) => {
+      const rows = await ltx<{ locked: boolean }>`
+        select pg_try_advisory_xact_lock(hashtext('notify:realtime-delivery')) as locked
+      `;
+      if (!rows[0]?.locked) return { lockSkipped: true as const };
+      // Lock-liveness heartbeat (spec §2.1b): one statement on the LOCK
+      // transaction immediately before each batch send bounds its idle interval
+      // to a single send + one batch's ledger writes; a failed heartbeat means
+      // the lock connection (and thus the xact lock) is gone — abort by rethrowing.
+      const heartbeat = async () => {
+        await ltx`select 1`;
+      };
+      await runDeliveryPass({
+        candidates: input.candidates,
+        recipients: input.recipients,
+        origin: input.origin,
+        sql,
+        send,
+        alert,
+        clock,
+        makeReissueKey,
+        counts,
+        heartbeat,
+      });
+      return { lockSkipped: false as const };
     });
+    if (passResult.lockSkipped) {
+      return { kind: "ok", sent: 0, failed: 0, skipped: 0, retryLater: 0, lockSkipped: true };
+    }
     return { kind: "ok", ...counts };
   } catch {
     return { kind: "infra_error" };
   } finally {
     if (ownsConnection) {
       await sql.end?.({ timeout: 5 });
+    }
+    if (ownsLock) {
+      await lockSql.end?.({ timeout: 5 });
     }
   }
 }
