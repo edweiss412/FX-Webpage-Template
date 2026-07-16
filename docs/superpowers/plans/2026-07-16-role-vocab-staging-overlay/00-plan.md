@@ -210,8 +210,11 @@ export async function assertRoleMappingsFresh(
   query: (sql: string, params: unknown[]) => Promise<Array<{ ok: boolean }>>,
   stamp: unknown,
 ): Promise<{ ok: true } | { ok: false; code: "ROLE_MAPPINGS_OUTDATED_AT_PUBLISH" }> {
+  // stamp == null (absent key OR explicit null — legacy rows) MUST become SQL NULL:
+  // JSON.stringify(null) would send jsonb 'null', which the predicate fail-closes as
+  // corrupt (non-array) and would falsely refuse every legacy row (plan-review R1 F1).
   const rows = await query(`select public.role_mappings_stamp_satisfied($1::jsonb) as ok`, [
-    stamp === undefined ? null : JSON.stringify(stamp),
+    stamp == null ? null : JSON.stringify(stamp),
   ]);
   return rows[0]?.ok === true
     ? { ok: true }
@@ -224,7 +227,7 @@ export async function assertRoleMappingsFresh(
 
 **Interfaces:** consumes Task 1's SQL function; produces per-row refusals that flow into the existing `blocked` branch (`finalize-cas/route.ts:864-867`).
 
-- [ ] **Step 1: Failing tests** (spec items 11, 14, 18): (a) stamped row + narrowed mapping → per-row `ROLE_MAPPINGS_OUTDATED_AT_PUBLISH`, nothing applied, run returns the blocking 409 `per_row`; (b) legacy row (no key) applies normally; (c) mid-batch: mapping deleted between row 1 and row 2 (fake tx seam) → row 1 applied, row 2 refused; (d) infra fault (query throws / returns error) on row N → NOT the business code, route 500 `ONBOARDING_FINALIZE_INTERNAL_ERROR`, rows 1..N-1 outcome refs intact, row N staged state intact.
+- [ ] **Step 1: Failing tests** (spec items 11, 13, 14, 18): (a) stamped row + narrowed mapping → per-row `ROLE_MAPPINGS_OUTDATED_AT_PUBLISH`, nothing applied, run returns the blocking 409 `per_row`; (b) legacy row (no key → helper passes SQL NULL — exercise THROUGH `assertRoleMappingsFresh`, not by skipping it) applies normally, and a `[]`-stamp row applies normally; (c) mid-batch: mapping deleted between row 1 and row 2 (fake tx seam) → row 1 applied, row 2 refused; (d) infra fault (query throws / returns error) on row N → NOT the business code, route 500 `ONBOARDING_FINALIZE_INTERNAL_ERROR`, rows 1..N-1 outcome refs intact, row N staged state intact; (e) **apply-gate heal round-trip (spec item 13):** after (a)'s refusal, replace the row's staged parse with a re-staged shape (fresh stamp under the current vocabulary — warning back if deleted / grants re-derived if narrowed) and re-run → the SAME row now applies.
 - [ ] **Step 2:** Run → FAIL.
 - [ ] **Step 3:** Implement the helper + both route call sites (evaluate the gate INSIDE the row transaction, before `applyStagedCore`; on `{ ok: false }` return the same per-row shape the override gate returns).
 - [ ] **Step 4:** Run → PASS. Also add spec item 12's round-trip leg here: a staged `parse_result` with a stamp → through `parseShadowPayloadForApply` → assert the exact `parsed.parseResult.appliedRoleMappings` object the gate receives equals the staged stamp (pins `asParseResult` pass-through).
@@ -284,6 +287,6 @@ export async function assertRoleMappingsFresh(
 
 ## Self-review notes (run after drafting — completed)
 
-- Spec coverage: §3.1-3.2→Task 3; §3.5 predicate/RPC→Task 1; apply gate→Task 6; flip→Task 7; setPublished→Task 8; stamp persistence→Task 5; §5 lockstep→Task 2; docs→Task 10; §7 items 1-18 mapped: 1-5→T3, 6-8→T4, 9→T9, 10/15/17b(RPC)→T1, 11/12/14/18→T6, 16→T7, 13→T7 (heal leg), 17→T5, 17b(action)→T8.
+- Spec coverage: §3.1-3.2→Task 3; §3.5 predicate/RPC→Task 1; apply gate→Task 6; flip→Task 7; setPublished→Task 8; stamp persistence→Task 5; §5 lockstep→Task 2; docs→Task 10; §7 items 1-18 mapped: 1-5→T3, 6-8→T4, 9→T9, 10/15/17b(RPC)→T1, 11/12/13/14/18→T6 (13 = apply-gate heal leg; the flip-side heal is inside 16), 16→T7, 17→T5, 17b(action)→T8.
 - Type consistency: stamp entry `{ token: string; grants: string[] }` used identically in Tasks 3/5/6; `assertRoleMappingsFresh` return code matches Task 2's catalog code.
 - Advisory-lock topology: no `pg_advisory*` additions anywhere; the predicate is lock-holder-free (FOR SHARE row locks only).
