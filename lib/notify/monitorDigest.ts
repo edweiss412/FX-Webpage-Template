@@ -2,12 +2,9 @@ import postgres from "postgres";
 import { STRIP_KINDS } from "@/lib/admin/loadRecentAutoApplied";
 import {
   listAutoFixItems,
-  summarizeAutoFixes,
   summarizeDataGaps,
   isQualityRegression,
-  AUTO_FIX_CLASSES,
   GAP_CLASSES,
-  type AutoFixSummary,
   type DataGapsSummary,
 } from "@/lib/parser/dataGaps";
 import { getMonitorDigestWatermark } from "@/lib/notify/monitorWatermark";
@@ -34,7 +31,7 @@ export type MonitorDriftEntry = {
 export type MonitorDigestModel = {
   windowStart: string;
   autoApplied: MonitorShowGroup[];
-  autofix: AutoFixSummary;
+  autofix: MonitorAutofix;
   drift: MonitorDriftEntry[];
   newShowGaps: MonitorShowGroup[];
 };
@@ -68,20 +65,6 @@ export function groupAutoApplied(rows: AutoApplyRow[]): MonitorShowGroup[] {
     groups.set(r.show_id, g);
   }
   return [...groups.values()];
-}
-
-type WarningsRow = { parse_warnings: unknown[] };
-
-/** Sum summarizeAutoFixes over every applied row's parse_warnings (§3 signal 2). */
-export function accumulateAutoFixes(rows: WarningsRow[]): AutoFixSummary {
-  const classes = summarizeAutoFixes([]).classes;
-  let total = 0;
-  for (const row of rows) {
-    const s = summarizeAutoFixes(row.parse_warnings as never);
-    total += s.total;
-    for (const c of AUTO_FIX_CLASSES) classes[c.code] += s.classes[c.code];
-  }
-  return { total, classes };
 }
 
 export type AutofixRow = {
@@ -256,16 +239,19 @@ export async function buildMonitorDigestModel(
     `;
     const autoApplied = groupAutoApplied(autoRows);
 
-    // Signal 2 — autocorrects over applied sync_log rows of published shows (§3).
-    const autofixRows = await sql<WarningsRow>`
-      select sl.parse_warnings
+    // Signal 2 — autocorrect notices over ALL in-window applied rows of published
+    // shows (spec 2026-07-16 §3: event semantics + source-aware dedupe; ORDER BY
+    // is load-bearing for deterministic caps at render time).
+    const autofixRows = await sql<AutofixRow>`
+      select sl.drive_file_id, s.slug, s.title, sl.parse_warnings, sl.occurred_at
         from public.sync_log sl
         join public.shows s on s.drive_file_id = sl.drive_file_id
        where s.published = true
          and sl.status = 'applied'
          and sl.occurred_at > ${windowIso}
+       order by sl.occurred_at desc, sl.drive_file_id asc, sl.id asc
     `;
-    const autofix = accumulateAutoFixes(autofixRows);
+    const autofix = computeAutofixShows(autofixRows);
 
     // Signal 3 — sub-threshold drift across applied sync_log rows of published shows (§3.1).
     // Per show + phase, the latest row (row_number window) is the baseline/current.

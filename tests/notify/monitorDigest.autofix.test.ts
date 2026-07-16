@@ -164,3 +164,23 @@ describe("computeAutofixShows", () => {
     expect(r.shows[0]).toMatchObject({ showTitle: "Title a", slug: "slug-a" });
   });
 });
+
+describe("autofix query shape (spec §3 ORDER BY pin)", () => {
+  test("query orders by occurred_at desc, drive_file_id asc, id asc", async () => {
+    const { buildMonitorDigestModel } = await import("@/lib/notify/monitorDigest");
+    const captured: string[] = [];
+    const sqlFake = ((strings: TemplateStringsArray, ..._v: unknown[]) => {
+      captured.push(strings.join("?"));
+      return Promise.resolve([]);
+    }) as unknown as import("@/lib/notify/digest").DigestBuilderSql;
+    const r = await buildMonitorDigestModel(new Date("2099-01-01T12:00:00Z"), {
+      sql: sqlFake,
+      getWatermark: async () => ({ kind: "value", watermark: new Date("2098-01-01T00:00:00Z") }),
+    });
+    expect(r.kind).toBe("empty");
+    const autofixQuery = captured.find(
+      (q) => q.includes("parse_warnings") && !q.includes("row_number"),
+    );
+    expect(autofixQuery).toMatch(/order by sl\.occurred_at desc, sl\.drive_file_id asc, sl\.id asc/);
+  });
+});
