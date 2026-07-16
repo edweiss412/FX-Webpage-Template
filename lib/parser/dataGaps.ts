@@ -358,7 +358,11 @@ export function operatorActionableWarnings(
       // rows that share a fallback region anchor (e.g. duplicate crew names) are NOT
       // collapsed into one line. Other codes keep the a1-only key (idx32/#154).
       const rowDisc =
-        w.code === FIELD_UNREADABLE && w.blockRef?.index != null ? `\0${w.blockRef.index}` : "";
+        w.code === FIELD_UNREADABLE && w.blockRef?.index != null
+          ? `\0${w.blockRef.index}`
+          : w.code === "UNKNOWN_ROLE_TOKEN" && typeof w.roleToken === "string"
+            ? `\0${w.roleToken}`
+            : "";
       const key = `${w.code}\0${w.sourceCell!.gid}\0${a1}${rowDisc}`;
       if (seen.has(key)) continue;
       seen.add(key);

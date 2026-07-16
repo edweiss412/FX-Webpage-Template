@@ -103,4 +103,29 @@ describe("Catalog copy hygiene (Phase E meta-test after Codex R10)", () => {
     }
     expect(violations, violations.join("\n\n")).toEqual([]);
   });
+
+  // D7 banned vocabulary for the role-recognition feature (spec §9/§10):
+  // standalone words only; placeholders excluded; "role"/"refresh" allowed.
+  const D7_CODES = ["ROLE_TOKEN_MAPPED", "UNKNOWN_ROLE_TOKEN"] as const;
+  const D7_BANNED = /\b(scope|flag|token|mapping|capability|sync|overlay|parse)\b/i;
+  const D7_FIELDS = [
+    "dougFacing",
+    "crewFacing",
+    "helpfulContext",
+    "followUp",
+    "title",
+    "longExplanation",
+  ] as const;
+
+  it("role-recognition Doug-facing copy avoids D7 banned vocabulary", () => {
+    for (const code of D7_CODES) {
+      const row = MESSAGE_CATALOG[code] as Record<string, unknown>;
+      for (const field of D7_FIELDS) {
+        const v = row[field];
+        if (typeof v !== "string") continue;
+        const stripped = v.replace(/_<[^>]+>_|<[^>]+>/g, ""); // placeholder spans excluded
+        expect(D7_BANNED.test(stripped), `${code}.${field}: "${v}"`).toBe(false);
+      }
+    }
+  });
 });

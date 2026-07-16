@@ -1,7 +1,10 @@
 import type { ParseWarning } from "@/lib/parser/types";
 import { normalizeSnippet } from "./ignorableSnippet";
 
-export type IdentityFields = Pick<ParseWarning, "code" | "sourceCell" | "rawSnippet" | "blockRef">;
+export type IdentityFields = Pick<
+  ParseWarning,
+  "code" | "sourceCell" | "rawSnippet" | "blockRef" | "roleToken"
+>;
 
 export function warningIdentityKey(w: IdentityFields): string {
   const cell = w.sourceCell ? `${w.sourceCell.gid}:${w.sourceCell.a1 ?? ""}` : "";
@@ -13,7 +16,12 @@ export function warningIdentityKey(w: IdentityFields): string {
   const br = w.blockRef
     ? `${w.blockRef.kind}:${w.blockRef.index ?? ""}:${w.blockRef.iso ?? ""}:${w.blockRef.name ?? ""}`
     : "";
-  return `${w.code}|${cell}|${snippet}|${br}`;
+  // Fold roleToken into the identity for UNKNOWN_ROLE_TOKEN so two same-cell unknown
+  // tokens get distinct, reorder-stable React keys (§8.1 — otherwise expanded checkbox
+  // state can migrate between the two recognize controls). Legacy warnings without
+  // roleToken keep the token-free key (unchanged).
+  const rt = w.code === "UNKNOWN_ROLE_TOKEN" && typeof w.roleToken === "string" ? w.roleToken : "";
+  return `${w.code}|${cell}|${snippet}|${br}|${rt}`;
 }
 
 /** Per-render UNIQUE React keys; identity + occurrence suffix for perfect duplicates.

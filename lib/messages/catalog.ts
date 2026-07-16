@@ -1193,15 +1193,28 @@ export const MESSAGE_CATALOG = {
   UNKNOWN_ROLE_TOKEN: {
     code: "UNKNOWN_ROLE_TOKEN",
     dougFacing:
-      "_<crew-name>_'s role includes _<token>_, which we didn't recognize, so we left it off their page rather than guess. If that's a real role you use, let us know and we'll add it.",
+      "_<crew-name>_'s role includes _<token>_, which we didn't recognize, so we left it off their page rather than guess. If that's a real role you use, you can add it right from this warning.",
     crewFacing: null,
-    followUp: "Doug → optional Report",
+    followUp: "Doug → recognize role (or optional Report)",
     helpfulContext:
-      "One of this crew member's role labels wasn't one we recognize, so we left it off their page instead of guessing — nothing else is affected. If the label is correct, let us know and we'll add it.",
+      "One of this crew member's role labels wasn't one we recognize, so we left it off their page instead of guessing — nothing else is affected. If the label is correct, you can add it right from this warning.",
     title: "Role we didn't recognize",
     longExplanation:
-      "A crew member's role included a label we didn't recognize, so we left it off their page rather than guess. Nothing else is affected. If the label is a real role you use, let us know and we'll add it.",
+      "A crew member's role included a label we didn't recognize, so we left it off their page rather than guess. Nothing else is affected. If the label is a real role you use, you can add it right from this warning.",
     helpHref: "/help/errors#UNKNOWN_ROLE_TOKEN",
+  },
+  ROLE_TOKEN_MAPPED: {
+    code: "ROLE_TOKEN_MAPPED",
+    dougFacing:
+      "_<token>_, a role you added, matched someone on this show — we set up their page the way you chose.",
+    crewFacing: null,
+    followUp: "none — informational",
+    helpfulContext:
+      "A role you added from a warning matched a crew member during a sheet check, so their page now shows what you picked. Rendering note: with no extra choices the summary reads 'the standard show page'.",
+    title: "Recognized a role you added",
+    longExplanation:
+      "A role you added from a warning matched a crew member the next time this show checked its sheet, so their page now shows exactly what you chose. If you picked nothing extra, they see the standard show page. You can change what they see from Settings.",
+    helpHref: "/help/errors#ROLE_TOKEN_MAPPED",
   },
   UNKNOWN_STAGE_RESTRICTION: {
     code: "UNKNOWN_STAGE_RESTRICTION",
