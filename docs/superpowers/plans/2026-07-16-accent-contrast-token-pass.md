@@ -187,10 +187,12 @@ const ROWS: Array<[string, RegExp, number]> = [
   ["accent-text on accent (light §1.1 L33)", /near-black on orange in BOTH modes; ([\d.]+):1 in each/, contrast(L("--color-accent-text-runtime"), L("--color-accent-runtime"))],
   ["accent-on-bg on bg (light, §1.1 L34)", /contrast against `#FAFAF9` reaches ([\d.]+):1/, contrast(L("--color-accent-on-bg-runtime"), L("--color-bg-runtime"))],
   ["accent raw on light bg (L34 corrected side-claim)", /The brand `#FF8C1A` itself only hits ([\d.]+):1 on light bg/, contrast(L("--color-accent-runtime"), L("--color-bg-runtime"))],
-  ["accent-on-bg dark (L34)", /= ([\d.]+):1\./, contrast(D("--color-accent-on-bg-runtime"), D("--color-bg-runtime"))],
+  ["accent-on-bg dark (L34)", /Dark `#FFA047` on `#0F1014` = ([\d.]+):1/, contrast(D("--color-accent-on-bg-runtime"), D("--color-bg-runtime"))],
   ["accent-tint icon (L47)", /icon on it uses `--color-accent-on-bg` \(graphical, ([\d.]+):1/, contrast(L("--color-accent-on-bg-runtime"), L("--color-accent-tint-runtime"))],
-  ["accent-edge vs track (§1.1 new row)", /accent-edge.*?([\d.]+):1 vs the orange track/, contrast(L("--color-accent-edge-runtime"), L("--color-accent-runtime"))],
-  ["accent-edge vs bg (§1.1 new row)", /accent-edge.*?vs the orange track and ([\d.]+):1 vs bg/, contrast(L("--color-accent-edge-runtime"), L("--color-bg-runtime"))],
+  // Anchored to the exact accent-edge §1.1 row phrase written in Step 3 below —
+  // one regex, both captures, cannot match neighboring prose.
+  ["accent-edge vs track (§1.1 new row)", /Light: accent-edge is ([\d.]+):1 vs the orange track and [\d.]+:1 vs bg/, contrast(L("--color-accent-edge-runtime"), L("--color-accent-runtime"))],
+  ["accent-edge vs bg (§1.1 new row)", /Light: accent-edge is [\d.]+:1 vs the orange track and ([\d.]+):1 vs bg/, contrast(L("--color-accent-edge-runtime"), L("--color-bg-runtime"))],
 ];
 
 // §1.2 TABLE cells — pinned directly (spec §6.1 row 8: EVERY touched figure in
@@ -235,7 +237,7 @@ describe("DESIGN.md figure parity (touched rows)", () => {
   - L31 (accent row): append to rationale: "Raw `--color-accent` on light bg is decorative-only (2.23:1); it must be redundant with an adjacent text label or shape cue, and any load-bearing orange-as-text/glyph use must go through `--color-accent-on-bg`."
   - L33: light hex `#FFFFFF` → `#0E0F12`; rationale → "Text drawn ON `--color-accent` surfaces. Near-black on orange in BOTH modes; 8.23:1 in each (same hex pair; the old dark-row 11.3:1 figure was itself a miscalculation). The former white-on-orange light pairing measured 2.33:1 (the 4.07:1 figure was a luminance miscalculation) and failed every WCAG tier."
   - L34: light hex `#C25E00` → `#A65000`; "reaches 4.6:1" → "reaches 5.34:1 (AA body; ≥4.5:1 on every audited tinted text fill — accent/10, accent/15, accent-tint, stale-tint)"; "only hits 3.0:1 on light bg — fine for a 24px+ 'today' pin glyph but NOT for body links" → "only hits 2.23:1 on light bg — decorative-only, never load-bearing"; "Dark `#FFA047` on `#0F1014` = 9.8:1" → "= 9.39:1".
-  - New row after L34: `--color-accent-edge` | `#7A3D00` | `#FFA047` | "ON-state control boundary (toggle track border, active step pill). Light: accent-edge is 3.61:1 vs the orange track and 8.06:1 vs bg — WCAG 1.4.11 passes on both adjacent sides. Dark: decorative; the track itself clears 8.16:1 vs bg."
+  - New row after L34 (EXACT phrase — the parity regex anchors on it): `--color-accent-edge` | `#7A3D00` | `#FFA047` | "ON-state control boundary (toggle track border, active step pill). Light: accent-edge is 3.61:1 vs the orange track and 8.06:1 vs bg — WCAG 1.4.11 passes on both adjacent sides. Dark: decorative; the track itself clears 8.16:1 vs bg."
   - L41 (status-live row): light `-text` hex `#C25E00` → `#A65000`.
   - L47: "graphical, ≥3:1" figure "3.8:1" → "4.91:1" and drop the "only reaches ~3.8:1 as text" clause → "(and now also clears the 4.5:1 text floor at 4.91:1; the pill number stays `--color-text-strong` for hierarchy, not necessity)".
   - §1.2 L57: `3.0:1` → `2.23:1`, note → "decorative-only — use `--color-accent-on-bg` for any load-bearing text/glyph".
@@ -371,8 +373,12 @@ function stripComments(src: string): string {
 function bannedToken(tok: string): boolean {
   const parts = tok.split(":");
   const util = parts[parts.length - 1]!.replace(/^!/, "");
-  if (util === "text-accent") return true; // covers bare AND hover:/md:hover: chains
-  if (parts.length > 1 && parts.includes("hover") && util === "text-accent-hover") return true;
+  // text-accent: banned in EVERY chain (bare, hover:, md:hover:, data-[…]:).
+  // text-accent-hover: ALSO banned in every chain incl. bare — the hover-shift
+  // hue (#e67a0e light, 2.9:1) is sub-AA wherever it colors text, and no
+  // legitimate non-hover use exists. Strictly stronger than the spec's
+  // enumerated three tokens; spec §4.4a amended to match.
+  if (util === "text-accent" || util === "text-accent-hover") return true;
   return false;
 }
 
@@ -382,7 +388,10 @@ describe("META raw accent text ban (spec 2026-07-16 §4.4a)", () => {
     expect(bannedToken("hover:text-accent")).toBe(true);
     expect(bannedToken("hover:text-accent-hover")).toBe(true);
     expect(bannedToken("md:hover:text-accent")).toBe(true);
+    expect(bannedToken("focus:text-accent-hover")).toBe(true);
+    expect(bannedToken("text-accent-hover")).toBe(true);
     expect(bannedToken("text-accent-on-bg")).toBe(false);
+    expect(bannedToken("bg-accent-hover")).toBe(false);
     expect(bannedToken("hover:text-accent-on-bg")).toBe(false);
     expect(bannedToken("text-accent-text")).toBe(false);
   });
@@ -419,7 +428,7 @@ describe("META raw accent text ban (spec 2026-07-16 §4.4a)", () => {
 });
 ```
 
-- [ ] **Step 2: Run** — FAIL listing exactly the 15 sites above (Task 4 already cleared the eyebrow scan).
+- [ ] **Step 2: Run** — FAIL listing exactly **16 token occurrences across the 14 files** above (RotateShareTokenButton and Step1Share each carry two; 1 mobile tab + 9 hover-shift links + 4 glyph sites = 14 files). Task 4 already cleared the eyebrow scan.
 - [ ] **Step 3: Apply the 15 edits.** Note TravelSection:595's comment cites "4.6:1" for accent-on-bg — update comment to 5.34:1.
 - [ ] **Step 4: Run** — PASS. Sweep affected component tests (`Header.test.tsx`, `SignInBrand.test.tsx`, etc. from the 18-file grep) — fix any pinned `hover:text-accent-hover` expectations.
 - [ ] **Step 5: Commit** — `fix: migrate raw accent text states to accent-on-bg; delete sub-AA hover shifts; add structural ban`
