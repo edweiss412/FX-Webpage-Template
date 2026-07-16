@@ -98,3 +98,50 @@ export function applyRoleTokenMappings(
   result.warnings = kept;
   return { result, applied };
 }
+
+export type GatedRoleMapping = { token: string; grants: GrantableFlag[]; newMemberCount: number };
+
+/**
+ * Delta gate (spec §10 point 2). Inputs are PRIOR-PERSISTED state only — never
+ * this parse's pre-overlay output (a fresh parse always re-emits the warning;
+ * gating on it would emit every sync). Steady state must be silent.
+ */
+export function gateAppliedRoleMappings(
+  applied: AppliedRoleMapping[],
+  priorCrew: ReadonlyArray<{ name: string; role_flags: readonly string[] }> | undefined,
+  priorWarnings: readonly ParseWarning[] | undefined,
+): GatedRoleMapping[] {
+  const priorFlagsByName = new Map((priorCrew ?? []).map((m) => [m.name, m.role_flags]));
+  const priorWarnKeys = new Set(
+    (priorWarnings ?? [])
+      .filter(
+        (w) =>
+          w.code === "UNKNOWN_ROLE_TOKEN" &&
+          typeof w.roleToken === "string" &&
+          typeof w.blockRef?.name === "string",
+      )
+      .map((w) => `${w.roleToken}\0${w.blockRef!.name}`),
+  );
+  const noPrior = priorCrew === undefined && priorWarnings === undefined;
+
+  const counts = new Map<string, { grants: GrantableFlag[]; members: Set<string> }>();
+  for (const a of applied) {
+    let passes: boolean;
+    if (a.grants.length > 0) {
+      const prior = priorFlagsByName.get(a.memberName);
+      passes = noPrior || prior === undefined || a.grants.some((g) => !prior.includes(g));
+    } else {
+      if (a.blockRefName === null) continue; // no identity — fail closed (Codex R10 F2)
+      passes = noPrior || priorWarnKeys.has(`${a.token}\0${a.blockRefName}`);
+    }
+    if (!passes) continue;
+    const group = counts.get(a.token) ?? { grants: a.grants, members: new Set<string>() };
+    group.members.add(a.blockRefName ?? a.memberName);
+    counts.set(a.token, group);
+  }
+  return [...counts.entries()].map(([token, g]) => ({
+    token,
+    grants: g.grants,
+    newMemberCount: g.members.size,
+  }));
+}

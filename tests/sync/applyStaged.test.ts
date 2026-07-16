@@ -179,7 +179,7 @@ function deps(overrides: Partial<ApplyStagedDeps> = {}): ApplyStagedDeps {
       adminAlertCode: null,
       skipDiagramsWrite: false,
     },
-    runPhase2: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-1" })),
+    runPhase2: vi.fn(async () => ({ outcome: "applied" as const, appliedRoleMappings: [], showId: "show-1" })),
     insertSyncAudit: vi.fn(async () => "audit-1"),
     deleteLivePendingSync: vi.fn(async () => undefined),
     restoreShowStatus: vi.fn(async () => undefined),
@@ -227,7 +227,7 @@ describe("applyStaged live-scope", () => {
       }),
       runPhase2: vi.fn(async () => {
         events.push("phase2");
-        return { outcome: "applied" as const, showId: "show-1" };
+        return { outcome: "applied" as const, appliedRoleMappings: [], showId: "show-1" };
       }),
     });
 
@@ -365,7 +365,7 @@ describe("applyStaged live-scope", () => {
       ),
       readShowForApply: vi.fn(async () => null), // first-seen: no show row yet
       liveDriveReverify: { outcome: "ok", metadata: driveMeta() },
-      runPhase2: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-new" })),
+      runPhase2: vi.fn(async () => ({ outcome: "applied" as const, appliedRoleMappings: [], showId: "show-new" })),
       emitSuccessfulPhase2Tail: tail,
       createUnpublishToken: () => "tok-1",
       now: () => new Date("2026-05-08T12:00:00.000Z"),
@@ -428,7 +428,7 @@ describe("applyStaged live-scope", () => {
       readShowForApply: vi.fn(async () => null), // first-seen: no show row yet
       liveDriveReverify: { outcome: "ok", metadata: driveMeta() },
       runPhase2: vi.fn(async () => ({
-        outcome: "applied" as const,
+        outcome: "applied" as const, appliedRoleMappings: [],
         showId: "show-new",
         parseWarnings: [EMPTIED2],
       })),
@@ -481,7 +481,7 @@ describe("applyStaged live-scope", () => {
       ),
       readShowForApply: vi.fn(async () => null),
       liveDriveReverify: { outcome: "ok", metadata: driveMeta() },
-      runPhase2: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-new" })),
+      runPhase2: vi.fn(async () => ({ outcome: "applied" as const, appliedRoleMappings: [], showId: "show-new" })),
       createUnpublishToken: () => "tok-1",
       now: () => new Date("2026-05-08T12:00:00.000Z"),
       // emitSuccessfulPhase2Tail + firstPublishedTailDeps intentionally NOT injected → exercises BOTH the
@@ -552,7 +552,7 @@ describe("applyStaged live-scope", () => {
         adminAlertCode: null,
         skipDiagramsWrite: false,
       },
-      runPhase2: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-new" })),
+      runPhase2: vi.fn(async () => ({ outcome: "applied" as const, appliedRoleMappings: [], showId: "show-new" })),
       createUnpublishToken: () => "tok-1",
       now: () => new Date("2026-05-08T12:00:00.000Z"),
       // real tail + default tx-bound writer (production path).
@@ -589,7 +589,7 @@ describe("applyStaged live-scope", () => {
         diagrams: { snapshot_revision_id: "rev-prior" },
       })),
       liveDriveReverify: { outcome: "ok", metadata: driveMeta() },
-      runPhase2: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-1" })),
+      runPhase2: vi.fn(async () => ({ outcome: "applied" as const, appliedRoleMappings: [], showId: "show-1" })),
       emitSuccessfulPhase2Tail: tail,
     });
 
@@ -1365,7 +1365,7 @@ describe("applyStaged live-scope", () => {
     };
     const tx = fakeTx() as LockedShowTx<FakeTx>;
     const runPhase2 = vi.fn<NonNullable<ApplyStagedDeps["runPhase2"]>>(async () => ({
-      outcome: "applied" as const,
+      outcome: "applied" as const, appliedRoleMappings: [],
       showId: "show-1",
     }));
     const syncDeps = deps({
@@ -1421,7 +1421,7 @@ describe("applyStaged live-scope", () => {
     const tx = fakeTx() as LockedShowTx<FakeTx>;
     const retryEmbeddedRevisionAvailability = vi.fn(async () => false);
     const runPhase2 = vi.fn<NonNullable<ApplyStagedDeps["runPhase2"]>>(async () => ({
-      outcome: "applied" as const,
+      outcome: "applied" as const, appliedRoleMappings: [],
       showId: "show-1",
     }));
     const priorDiagrams = {
@@ -1558,7 +1558,7 @@ describe("applyStaged live-scope", () => {
       snapshot_status: "complete",
     } as unknown as ParseResult["diagrams"];
     const runPhase2 = vi.fn<NonNullable<ApplyStagedDeps["runPhase2"]>>(async () => ({
-      outcome: "applied" as const,
+      outcome: "applied" as const, appliedRoleMappings: [],
       showId: "show-1",
     }));
     const syncDeps = deps({
@@ -1617,7 +1617,7 @@ describe("applyStaged live-scope", () => {
     };
     const tx = fakeTx() as LockedShowTx<FakeTx>;
     const runPhase2 = vi.fn<NonNullable<ApplyStagedDeps["runPhase2"]>>(async () => ({
-      outcome: "applied" as const,
+      outcome: "applied" as const, appliedRoleMappings: [],
       showId: "show-1",
     }));
     const priorDiagrams = {
@@ -1699,7 +1699,7 @@ describe("applyStaged live-scope", () => {
     };
     const tx = fakeTx() as LockedShowTx<FakeTx>;
     const runPhase2 = vi.fn<NonNullable<ApplyStagedDeps["runPhase2"]>>(async () => ({
-      outcome: "applied" as const,
+      outcome: "applied" as const, appliedRoleMappings: [],
       showId: "show-1",
     }));
     const syncDeps = deps({

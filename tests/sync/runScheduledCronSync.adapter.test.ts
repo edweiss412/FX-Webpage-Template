@@ -157,7 +157,7 @@ describe("Postgres sync pipeline adapter", () => {
             unpublishToken: "11111111-1111-4111-8111-111111111111",
             unpublishTokenExpiresAt: "2026-05-09T12:00:00.000Z",
           });
-          return { outcome: "applied", showId: "show-1" };
+          return { outcome: "applied", appliedRoleMappings: [], showId: "show-1" };
         },
         createUnpublishToken: () => "11111111-1111-4111-8111-111111111111",
         now: () => new Date("2026-05-08T12:00:00.000Z"),

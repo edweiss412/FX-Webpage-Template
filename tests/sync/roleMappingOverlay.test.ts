@@ -226,3 +226,119 @@ describe("applyRoleTokenMappings (spec §6)", () => {
     expect(input).toEqual(snapshot);
   });
 });
+
+// ── Task 7: gateAppliedRoleMappings delta gate (spec §10 point 2) ──────────────
+
+import {
+  gateAppliedRoleMappings,
+  type AppliedRoleMapping,
+  type GrantableFlag,
+} from "@/lib/sync/roleMappingOverlay";
+
+function applied(
+  overrides: Partial<AppliedRoleMapping> & { token: string; grants: GrantableFlag[] },
+): AppliedRoleMapping {
+  return {
+    memberIndex: 0,
+    memberName: overrides.blockRefName ?? "Marcus Webb",
+    blockRefName: overrides.blockRefName ?? "Marcus Webb",
+    ...overrides,
+  };
+}
+
+function priorWarn(roleToken: string, name: string): ParseWarning {
+  return {
+    severity: "warn",
+    code: "UNKNOWN_ROLE_TOKEN",
+    message: "m",
+    roleToken,
+    blockRef: { kind: "crew", index: 0, name },
+  };
+}
+
+describe("gateAppliedRoleMappings (spec §10 point 2 — prior-persisted state only)", () => {
+  test("same-token entries carry identical grants by construction (one row per token); the grouped entry uses them verbatim — documented, not inferred (Codex plan-R1 F5)", () => {
+    const a = [
+      applied({ token: "DRONE OP", grants: ["A1"], blockRefName: "Marcus Webb" }),
+      applied({ token: "DRONE OP", grants: ["A1"], blockRefName: "Ada Cole" }),
+    ];
+    const out = gateAppliedRoleMappings(a, undefined, undefined);
+    expect(out).toEqual([{ token: "DRONE OP", grants: ["A1"], newMemberCount: 2 }]);
+  });
+
+  test("grants branch: emits when a granted flag is newly present vs prior role_flags", () => {
+    const a = [applied({ token: "DRONE OP", grants: ["A1", "V1"], blockRefName: "Marcus Webb" })];
+    // Prior had A1 only; V1 is newly present → emit.
+    const out = gateAppliedRoleMappings(a, [{ name: "Marcus Webb", role_flags: ["A1"] }], []);
+    expect(out).toEqual([{ token: "DRONE OP", grants: ["A1", "V1"], newMemberCount: 1 }]);
+  });
+
+  test("grants branch: silent when the member's prior flags already include every grant (steady state)", () => {
+    const a = [applied({ token: "DRONE OP", grants: ["A1"], blockRefName: "Marcus Webb" })];
+    const out = gateAppliedRoleMappings(a, [{ name: "Marcus Webb", role_flags: ["A1"] }], []);
+    expect(out).toEqual([]);
+  });
+
+  test("recognize-only branch: emits when prior warnings still contained (roleToken, blockRefName)", () => {
+    const a = [applied({ token: "DRONE OP", grants: [], blockRefName: "Marcus Webb" })];
+    const out = gateAppliedRoleMappings(a, [], [priorWarn("DRONE OP", "Marcus Webb")]);
+    expect(out).toEqual([{ token: "DRONE OP", grants: [], newMemberCount: 1 }]);
+  });
+
+  test("recognize-only branch: silent when prior warnings did not contain it (already suppressed)", () => {
+    const a = [applied({ token: "DRONE OP", grants: [], blockRefName: "Marcus Webb" })];
+    // Prior warnings present but for a different member → not matched → silent.
+    const out = gateAppliedRoleMappings(a, [], [priorWarn("DRONE OP", "Someone Else")]);
+    expect(out).toEqual([]);
+  });
+
+  test("recognize-only with blockRefName null: SKIPPED fail-closed (Codex R10 F2)", () => {
+    const a = [applied({ token: "DRONE OP", grants: [], blockRefName: null })];
+    const out = gateAppliedRoleMappings(a, [], [priorWarn("DRONE OP", "Marcus Webb")]);
+    expect(out).toEqual([]);
+  });
+
+  test("legacy prior warnings without roleToken never match (accepted carve-out, Codex R12 F4)", () => {
+    const legacy = priorWarn("DRONE OP", "Marcus Webb");
+    delete legacy.roleToken;
+    const a = [applied({ token: "DRONE OP", grants: [], blockRefName: "Marcus Webb" })];
+    // Prior warnings exist (not no-prior) but lack roleToken → no match → silent.
+    const out = gateAppliedRoleMappings(a, [], [legacy]);
+    expect(out).toEqual([]);
+  });
+
+  test("absent prior state (both undefined): everything is new -> emit", () => {
+    const a = [
+      applied({ token: "DRONE OP", grants: ["A1"], blockRefName: "Marcus Webb" }),
+      applied({ token: "GAFFER", grants: [], blockRefName: "Ada Cole" }),
+    ];
+    const out = gateAppliedRoleMappings(a, undefined, undefined);
+    expect(out).toEqual([
+      { token: "DRONE OP", grants: ["A1"], newMemberCount: 1 },
+      { token: "GAFFER", grants: [], newMemberCount: 1 },
+    ]);
+  });
+
+  test("grouping: one entry per token, newMemberCount = gate-passing members (Codex R14 F4)", () => {
+    const a = [
+      applied({ token: "DRONE OP", grants: ["A1"], blockRefName: "Marcus Webb" }),
+      applied({ token: "DRONE OP", grants: ["A1"], blockRefName: "Ada Cole" }),
+      applied({ token: "DRONE OP", grants: ["A1"], blockRefName: "Lee Park" }),
+    ];
+    // Ada already steady-state (has A1) → excluded from count; Marcus + Lee new.
+    const out = gateAppliedRoleMappings(
+      a,
+      [{ name: "Ada Cole", role_flags: ["A1"] }],
+      [],
+    );
+    expect(out).toEqual([{ token: "DRONE OP", grants: ["A1"], newMemberCount: 2 }]);
+  });
+
+  test("crew reorder does not re-emit (identity is name-based, never index)", () => {
+    // Same member, different index across syncs → prior lookup is by name, so
+    // steady-state stays silent regardless of index.
+    const a = [applied({ token: "DRONE OP", grants: ["A1"], memberIndex: 7, blockRefName: "Marcus Webb" })];
+    const out = gateAppliedRoleMappings(a, [{ name: "Marcus Webb", role_flags: ["A1"] }], []);
+    expect(out).toEqual([]);
+  });
+});

@@ -119,7 +119,7 @@ function baseDeps(overrides: Partial<ApplyStagedDeps> = {}): ApplyStagedDeps {
     })),
     readWatchedFolderId: vi.fn(async () => "watched-folder"),
     fetchDriveFileMetadata: vi.fn(async () => driveMeta()),
-    runPhase2: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-1" })),
+    runPhase2: vi.fn(async () => ({ outcome: "applied" as const, appliedRoleMappings: [], showId: "show-1" })),
     resolveAdminAlerts: vi.fn(async () => undefined),
     readLandedSnapshotStatus: vi.fn(async () => null),
     ...overrides,

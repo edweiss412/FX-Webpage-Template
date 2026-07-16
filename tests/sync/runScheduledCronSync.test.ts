@@ -477,7 +477,7 @@ function deps(overrides: Partial<ProcessOneFileDeps> = {}) {
     }),
     runPhase2: vi.fn(async (lockedTx: Phase2Tx) => {
       (lockedTx as PipelineTx).operations.push("runPhase2");
-      return { outcome: "applied" as const, showId: "show-1", parseWarnings: [] };
+      return { outcome: "applied" as const, appliedRoleMappings: [], showId: "show-1", parseWarnings: [] };
     }),
     logSync: vi.fn(async () => undefined),
     publishShowInvalidation: vi.fn(async () => undefined),
@@ -784,6 +784,7 @@ describe("processOneFile", () => {
         (lockedTx as PipelineTx).operations.push("runPhase2");
         return {
           outcome: "applied" as const,
+          appliedRoleMappings: [],
           showId: "show-1",
           roleFlagsNotice: {
             showId: "show-1",
@@ -849,7 +850,7 @@ describe("processOneFile", () => {
           unpublishToken: "11111111-1111-4111-8111-111111111111",
           unpublishTokenExpiresAt: "2026-05-09T12:00:00.000Z",
         });
-        return { outcome: "applied" as const, showId: "show-1", parseWarnings: [] };
+        return { outcome: "applied" as const, appliedRoleMappings: [], showId: "show-1", parseWarnings: [] };
       }),
     });
 
@@ -910,6 +911,7 @@ describe("processOneFile", () => {
         (lockedTx as PipelineTx).operations.push("runPhase2");
         return {
           outcome: "applied" as const,
+          appliedRoleMappings: [],
           showId: "show-1",
           parseWarnings: withWarnings.warnings,
         };
@@ -944,7 +946,7 @@ describe("processOneFile", () => {
       }),
       runPhase2: vi.fn(async (lockedTx: Phase2Tx) => {
         (lockedTx as PipelineTx).operations.push("runPhase2");
-        return { outcome: "applied" as const, showId: "show-1", parseWarnings: [] };
+        return { outcome: "applied" as const, appliedRoleMappings: [], showId: "show-1", parseWarnings: [] };
       }),
     });
 
@@ -1006,7 +1008,7 @@ describe("processOneFile", () => {
         runPhase2: vi.fn(async (lockedTx: Phase2Tx) => {
           events.push("phase2");
           (lockedTx as PipelineTx).operations.push("runPhase2");
-          return { outcome: "applied" as const, showId: "show-1", parseWarnings: [] };
+          return { outcome: "applied" as const, appliedRoleMappings: [], showId: "show-1", parseWarnings: [] };
         }),
       });
 
@@ -1224,7 +1226,7 @@ describe("processOneFile", () => {
       runPhase2: vi.fn(async (lockedTx: Phase2Tx, args) => {
         (lockedTx as PipelineTx).operations.push("runPhase2");
         capturedNotableItems = (args as { notableItems?: unknown[] }).notableItems;
-        return { outcome: "applied" as const, showId: "show-1", parseWarnings: [] };
+        return { outcome: "applied" as const, appliedRoleMappings: [], showId: "show-1", parseWarnings: [] };
       }),
     });
 
@@ -1291,7 +1293,7 @@ describe("processOneFile", () => {
           (lockedTx as PipelineTx).operations.push("runPhase2");
           capturedNotableItems = (args as { notableItems?: unknown[] }).notableItems;
           capturedParseWarnings = (args as { parseResult: ParseResult }).parseResult.warnings;
-          return { outcome: "applied" as const, showId: "show-1", parseWarnings: [] };
+          return { outcome: "applied" as const, appliedRoleMappings: [], showId: "show-1", parseWarnings: [] };
         }),
       });
       fakeTx.readShowForPhase1 = vi.fn(async () => ({
@@ -1364,7 +1366,7 @@ describe("processOneFile", () => {
       runPhase2: vi.fn(async (lockedTx: Phase2Tx, args) => {
         (lockedTx as PipelineTx).operations.push("runPhase2");
         capturedParseWarnings = (args as { parseResult: ParseResult }).parseResult.warnings;
-        return { outcome: "applied" as const, showId: "show-1", parseWarnings: [] };
+        return { outcome: "applied" as const, appliedRoleMappings: [], showId: "show-1", parseWarnings: [] };
       }),
     });
     fakeTx.readShowForPhase1 = vi.fn(async () => ({

@@ -144,7 +144,7 @@ function deps(overrides: Partial<ApplyStagedDeps> = {}): ApplyStagedDeps {
       adminAlertCode: null,
       skipDiagramsWrite: false,
     },
-    runPhase2: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-1" })),
+    runPhase2: vi.fn(async () => ({ outcome: "applied" as const, appliedRoleMappings: [], showId: "show-1" })),
     insertSyncAudit: vi.fn(async () => "audit-1"),
     deleteLivePendingSync: vi.fn(async () => undefined),
     restoreShowStatus: vi.fn(async () => undefined),

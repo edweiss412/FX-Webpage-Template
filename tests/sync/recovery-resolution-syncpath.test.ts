@@ -118,7 +118,7 @@ function deps(overrides: Partial<ProcessOneFileDeps> = {}): ProcessOneFileDeps {
     parseSheet: vi.fn(() => parseResult as never),
     enrichWithDrivePins: vi.fn(async () => parseResult),
     runPhase1: vi.fn(async () => ({ outcome: "pass" as const })),
-    runPhase2: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-1" })),
+    runPhase2: vi.fn(async () => ({ outcome: "applied" as const, appliedRoleMappings: [], showId: "show-1" })),
     ...overrides,
   };
 }
