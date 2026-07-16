@@ -657,10 +657,89 @@ describe("autofix query shape (spec §3 ORDER BY pin)", () => {
 });
 ```
 
+Also rewrite `tests/notify/monitorDigest.autofix.db.test.ts` in this SAME RED batch (the old test pins the inflation bug; the new one is red until the implementation lands): keep the header/scaffold (probe, MARK, afterAll; extend cleanup to the new drive ids `${MARK}-second`, `${MARK}-tied` in both the `sync_log` and `shows` delete lists). Replace the single test with:
+
+```ts
+describe.runIf(dbUp)("buildMonitorDigestModel — autofix DB proof (spec 2026-07-16 §3, §9.2)", () => {
+  const build = (now: string) =>
+    buildMonitorDigestModel(new Date(now), {
+      sql: sql as unknown as DigestBuilderSql,
+      getWatermark: async () => ({ kind: "value", watermark: new Date("2098-01-01T00:00:00Z") }),
+    });
+
+  test("filter + dedupe + event semantics + ordering", async () => {
+    if (!sql) throw new Error("db not up");
+    const SECOND = `${MARK}-second`;
+    await sql`insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
+      values (${PUB}, ${MARK + "-ps"}, ${"Pub"}, ${"c"}, ${"v1"}, true)`;
+    await sql`insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
+      values (${SECOND}, ${MARK + "-ss"}, ${"Second"}, ${"c"}, ${"v1"}, true)`;
+    await sql`insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
+      values (${UNPUB}, ${MARK + "-us"}, ${"Unpub"}, ${"c"}, ${"v1"}, false)`;
+
+    const fix = (msg: string) => [
+      { code: "STAGE_WORD_AUTOCORRECTED", severity: "warn", message: msg },
+    ];
+    const log = (drive: string, status: string, msg: string, at: string) => sql!`
+      insert into public.sync_log (drive_file_id, status, message, parse_warnings, occurred_at)
+      values (${drive}, ${status}, ${status}, ${sql!.json(fix(msg))}, ${at})
+    `;
+    // PUB: same notice on two rows (collapses) + a distinct notice on the older row (survives).
+    await log(PUB, "applied", "corrected 'a' as 'b'", "2099-01-01T10:00:00Z");
+    await log(PUB, "applied", "corrected 'a' as 'b'", "2099-01-01T09:00:00Z");
+    await log(PUB, "applied", "corrected 'p' as 'q'", "2099-01-01T09:00:00Z");
+    // SECOND: most recent activity → must group FIRST.
+    await log(SECOND, "applied", "corrected 'm' as 'n'", "2099-01-01T11:00:00Z");
+    // Excluded rows: non-applied / unpublished / orphan.
+    await log(PUB, "drive_error", "corrected 'z' as 'w'", "2099-01-01T10:30:00Z");
+    await log(UNPUB, "applied", "corrected 'z' as 'w'", "2099-01-01T10:30:00Z");
+    await log(ORPHAN, "applied", "corrected 'z' as 'w'", "2099-01-01T10:30:00Z");
+
+    const r = await build("2099-01-01T12:00:00Z");
+    if (r.kind !== "ok") throw new Error(`expected ok, got ${r.kind}`);
+    expect(r.model.autofix.total).toBe(3); // 1 collapsed + 1 distinct + second show's 1
+    expect(r.model.autofix.shows.map((s) => s.showTitle)).toEqual(["Second", "Pub"]); // newest-first
+    const pub = r.model.autofix.shows[1]!;
+    expect(pub.items).toEqual(["corrected 'a' as 'b'", "corrected 'p' as 'q'"]);
+  });
+
+  test("tied occurred_at rows: model preserves ALL items in the exact id-asc order (seeded uuids)", async () => {
+    if (!sql) throw new Error("db not up");
+    const TIED = `${MARK}-tied`;
+    await sql`insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
+      values (${TIED}, ${MARK + "-ts"}, ${"Tied"}, ${"c"}, ${"v1"}, true)`;
+    const at = "2099-06-01T10:00:00Z";
+    // 7 rows, identical occurred_at. RUN-UNIQUE uuids (a fixed literal id is a
+    // primary key on public.sync_log — a crashed run or sibling worktree on the
+    // shared local DB would collide on retry); the expected order is DERIVED by
+    // sorting the generated ids, so uniqueness costs nothing.
+    const ids = Array.from({ length: 7 }, () => crypto.randomUUID());
+    for (const [i, id] of ids.entries()) {
+      await sql!`insert into public.sync_log (id, drive_file_id, status, message, parse_warnings, occurred_at)
+        values (${id}, ${TIED}, ${"applied"}, ${"applied"}, ${sql!.json([
+          { code: "STAGE_WORD_AUTOCORRECTED", severity: "warn", message: `corrected 'x' as 'y' #${i}` },
+        ])}, ${at})`;
+    }
+    const r = await build("2099-06-01T12:00:00Z");
+    if (r.kind !== "ok") throw new Error(`expected ok, got ${r.kind}`);
+    const tied = r.model.autofix.shows.find((s) => s.showTitle === "Tied")!;
+    // Expected order = uuid ascending (id asc), NOT insert order — derived from the
+    // run-unique generated ids. Model preserves all 7 (count caps are render-only);
+    // index i in the message identifies the source row. NOTE: Postgres orders uuid
+    // by byte value, which matches lexicographic order of the lowercase hex string
+    // crypto.randomUUID() returns, so a plain string sort is a valid oracle.
+    const byIdAsc = [...ids.entries()].sort(([, a], [, b]) => (a < b ? -1 : 1)).map(([i]) => i);
+    expect(tied.items).toEqual(byIdAsc.map((i) => `corrected 'x' as 'y' #${i}`));
+  });
+});
+```
+
+Extend `afterAll` cleanup deletes with the new ids (`${MARK}-second`, `${MARK}-tied` in both `sync_log` and `shows` delete lists).
+
 - [ ] **Step 2: Run to verify failure**
 
-Run: `pnpm vitest run tests/notify/renderDigest.monitor.test.ts tests/notify/monitorDigest.autofix.test.ts`
-Expected: FAIL — type errors on the new fixture shape / missing template output.
+Run: `pnpm vitest run tests/notify/renderDigest.monitor.test.ts tests/notify/monitorDigest.autofix.test.ts tests/notify/monitorDigest.autofix.db.test.ts`
+Expected: FAIL — type errors on the new fixture shape / missing template output; with the local DB up, the rewritten DB proof is RED against the old sum-over-rows semantics (genuine failing phase for the query change).
 
 - [ ] **Step 3: Implement**
 
@@ -757,86 +836,7 @@ Do NOT add `assertNoUnresolvedPlaceholder` to the digest path — it runs only o
 - [ ] **Step 4: Run to verify pass**
 
 Run: `pnpm vitest run tests/notify tests/parser/dataGaps.test.ts`
-Expected: PASS — including `tests/notify/_metaInfraContract.test.ts`, the pre-existing sub-block-1 cap test (byte-stable markup via `pushShowGroups`), and the rewritten `tests/notify/monitorDigest.autofix.db.test.ts` (Step 3b below — rewritten in this SAME task so the commit is green with the local DB up; it self-skips via `describe.runIf(dbUp)` when the DB is down, with real CI as arbiter).
-
-- [ ] **Step 3b: Rewrite the DB proof (same commit)** — in `tests/notify/monitorDigest.autofix.db.test.ts`: keep the header/scaffold (probe, MARK, afterAll; extend cleanup to the new drive ids `${MARK}-second`, `${MARK}-tied` in both the `sync_log` and `shows` delete lists). Replace the single test with:
-
-```ts
-describe.runIf(dbUp)("buildMonitorDigestModel — autofix DB proof (spec 2026-07-16 §3, §9.2)", () => {
-  const build = (now: string) =>
-    buildMonitorDigestModel(new Date(now), {
-      sql: sql as unknown as DigestBuilderSql,
-      getWatermark: async () => ({ kind: "value", watermark: new Date("2098-01-01T00:00:00Z") }),
-    });
-
-  test("filter + dedupe + event semantics + ordering", async () => {
-    if (!sql) throw new Error("db not up");
-    const SECOND = `${MARK}-second`;
-    await sql`insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
-      values (${PUB}, ${MARK + "-ps"}, ${"Pub"}, ${"c"}, ${"v1"}, true)`;
-    await sql`insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
-      values (${SECOND}, ${MARK + "-ss"}, ${"Second"}, ${"c"}, ${"v1"}, true)`;
-    await sql`insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
-      values (${UNPUB}, ${MARK + "-us"}, ${"Unpub"}, ${"c"}, ${"v1"}, false)`;
-
-    const fix = (msg: string) => [
-      { code: "STAGE_WORD_AUTOCORRECTED", severity: "warn", message: msg },
-    ];
-    const log = (drive: string, status: string, msg: string, at: string) => sql!`
-      insert into public.sync_log (drive_file_id, status, message, parse_warnings, occurred_at)
-      values (${drive}, ${status}, ${status}, ${sql!.json(fix(msg))}, ${at})
-    `;
-    // PUB: same notice on two rows (collapses) + a distinct notice on the older row (survives).
-    await log(PUB, "applied", "corrected 'a' as 'b'", "2099-01-01T10:00:00Z");
-    await log(PUB, "applied", "corrected 'a' as 'b'", "2099-01-01T09:00:00Z");
-    await log(PUB, "applied", "corrected 'p' as 'q'", "2099-01-01T09:00:00Z");
-    // SECOND: most recent activity → must group FIRST.
-    await log(SECOND, "applied", "corrected 'm' as 'n'", "2099-01-01T11:00:00Z");
-    // Excluded rows: non-applied / unpublished / orphan.
-    await log(PUB, "drive_error", "corrected 'z' as 'w'", "2099-01-01T10:30:00Z");
-    await log(UNPUB, "applied", "corrected 'z' as 'w'", "2099-01-01T10:30:00Z");
-    await log(ORPHAN, "applied", "corrected 'z' as 'w'", "2099-01-01T10:30:00Z");
-
-    const r = await build("2099-01-01T12:00:00Z");
-    if (r.kind !== "ok") throw new Error(`expected ok, got ${r.kind}`);
-    expect(r.model.autofix.total).toBe(3); // 1 collapsed + 1 distinct + second show's 1
-    expect(r.model.autofix.shows.map((s) => s.showTitle)).toEqual(["Second", "Pub"]); // newest-first
-    const pub = r.model.autofix.shows[1]!;
-    expect(pub.items).toEqual(["corrected 'a' as 'b'", "corrected 'p' as 'q'"]);
-  });
-
-  test("tied occurred_at rows: model preserves ALL items in the exact id-asc order (seeded uuids)", async () => {
-    if (!sql) throw new Error("db not up");
-    const TIED = `${MARK}-tied`;
-    await sql`insert into public.shows (drive_file_id, slug, title, client_label, template_version, published)
-      values (${TIED}, ${MARK + "-ts"}, ${"Tied"}, ${"c"}, ${"v1"}, true)`;
-    const at = "2099-06-01T10:00:00Z";
-    // 7 rows, identical occurred_at. RUN-UNIQUE uuids (a fixed literal id is a
-    // primary key on public.sync_log — a crashed run or sibling worktree on the
-    // shared local DB would collide on retry); the expected order is DERIVED by
-    // sorting the generated ids, so uniqueness costs nothing.
-    const ids = Array.from({ length: 7 }, () => crypto.randomUUID());
-    for (const [i, id] of ids.entries()) {
-      await sql!`insert into public.sync_log (id, drive_file_id, status, message, parse_warnings, occurred_at)
-        values (${id}, ${TIED}, ${"applied"}, ${"applied"}, ${sql!.json([
-          { code: "STAGE_WORD_AUTOCORRECTED", severity: "warn", message: `corrected 'x' as 'y' #${i}` },
-        ])}, ${at})`;
-    }
-    const r = await build("2099-06-01T12:00:00Z");
-    if (r.kind !== "ok") throw new Error(`expected ok, got ${r.kind}`);
-    const tied = r.model.autofix.shows.find((s) => s.showTitle === "Tied")!;
-    // Expected order = uuid ascending (id asc), NOT insert order — derived from the
-    // run-unique generated ids. Model preserves all 7 (count caps are render-only);
-    // index i in the message identifies the source row. NOTE: Postgres orders uuid
-    // by byte value, which matches lexicographic order of the lowercase hex string
-    // crypto.randomUUID() returns, so a plain string sort is a valid oracle.
-    const byIdAsc = [...ids.entries()].sort(([, a], [, b]) => (a < b ? -1 : 1)).map(([i]) => i);
-    expect(tied.items).toEqual(byIdAsc.map((i) => `corrected 'x' as 'y' #${i}`));
-  });
-});
-```
-
-Extend `afterAll` cleanup deletes with the new ids (`${MARK}-second`, `${MARK}-tied` in both `sync_log` and `shows` delete lists).
+Expected: PASS — including `tests/notify/_metaInfraContract.test.ts`, the pre-existing sub-block-1 cap test (byte-stable markup via `pushShowGroups`), and the rewritten `tests/notify/monitorDigest.autofix.db.test.ts` (rewritten in this task's Step-1 RED batch; green now that the implementation landed; self-skips via `describe.runIf(dbUp)` when the DB is down, with real CI as arbiter).
 
 - [ ] **Step 4: Run the full scoped suite to verify pass**
 
