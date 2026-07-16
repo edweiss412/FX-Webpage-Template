@@ -387,7 +387,9 @@ describe("RoleRecognizeControlBoundary — action selection", () => {
     expect(mapRoleToken).toHaveBeenCalledTimes(1); // the create call only, not the revise
     // A revise runs no show refresh → the saved card shows the convergence copy, not
     // the "now see" applied summary (which would overclaim an immediate live effect).
-    expect(screen.getByText(COPY.EDIT_SAVED_CONFIRM)).toBeInTheDocument();
+    // waitFor: the action mock resolving does not mean the saving→saved state flip
+    // has flushed yet (CI run 29510981605 caught the DOM still at data-phase="saving").
+    await waitFor(() => expect(screen.getByText(COPY.EDIT_SAVED_CONFIRM)).toBeInTheDocument());
     expect(screen.queryByText(COPY.savedSummary(TOKEN, ["A1", "FINANCIALS"]))).toBeNull();
   });
 });
