@@ -265,6 +265,10 @@ describe("background apply (spec 2026-07-16-use-raw-bg-apply)", () => {
     const r = await setUseRawDecisionAction("show-1", ref(), true);
     expect(r).toEqual({ ok: true, state: "apply_pending" });
     expect(callOrder).toEqual(["lock:acquire", "lock:release", "emit", "defer:throw"]);
+    // The action really called deferPostResponse WITH a task (plan-R2 F1) —
+    // callOrder alone proves a local marker ran, not the call contract.
+    expect(deferPostResponseMock).toHaveBeenCalledTimes(1);
+    expect(deferPostResponseMock.mock.calls[0]![0]).toBeInstanceOf(Function);
     expect(logAdminOutcomeMock).toHaveBeenCalledTimes(1);
     expect(revalidateShowMock).toHaveBeenCalledTimes(1); // synchronous pre-return call
   });
@@ -319,11 +323,12 @@ import { deferPostResponse } from "@/lib/async/deferPostResponse";
       try {
         await runManualSyncForShow(driveFileId);
       } catch {
-        // RETURNED sync failures are logged inside runManualSyncForShow (logSync
-        // under the pipeline lock); an unexpected THROWN fault is swallowed here
-        // at exact parity with the previous inline catch (spec 2026-07-16 §2.2).
-        // Either way the decision stays durable (apply-pending) and applies on
-        // the next successful sync.
+        // This catch handles only an unexpected THROWN fault, swallowed at exact
+        // parity with the previous inline catch (spec 2026-07-16 §2.2). Returned
+        // failure outcomes are not inspected here at all — runManualSyncForShow
+        // records them itself (logSync under the pipeline lock). Either way the
+        // decision stays durable (apply-pending) and applies on the next
+        // successful sync.
       }
       revalidateShow(id);
     });
