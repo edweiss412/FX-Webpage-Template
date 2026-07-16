@@ -234,10 +234,14 @@ and `pending_ingestions`):
    `lib/sync/runPushSyncForShow.ts:283-303`).
 9. **`wizard_owned` writes a sync_log row (not archived-style silent)** — the
    regression case in item 11 runs through `processOneFile` with an injected
-   `logSync` and asserts it was invoked with the
-   `{ outcome: "skipped", reason: "wizard_owned" }` result for the file
-   (assert on the logged payload, not a call count — anti-tautology). Failure
-   mode: an implementation special-casing the new reason into the
+   `logSync` sink. NOTE the boundary shape: the internal `logSync` wrapper
+   converts the result's `reason` into `SyncLogEntry.code` before invoking the
+   injected sink (`lib/sync/runScheduledCronSync.ts:2183-2202`, mapping at
+   `:2190-2191`; `SyncLogEntry` type at `:431-446`). The assertion is
+   therefore on the entry object the sink receives:
+   `{ driveFileId: F, outcome: "skipped", code: "wizard_owned" }` (assert on
+   the entry payload, not a call count — anti-tautology). Failure mode: an
+   implementation special-casing the new reason into the
    `ARCHIVED_SKIP_REASON` silent branch (`lib/sync/runScheduledCronSync.ts:
    2662`) passes the gate-level tests while making the accepted
    abandoned-session wedge invisible to operators.
@@ -253,11 +257,14 @@ and `pending_ingestions`):
    `processOneFile` (which runs `prepareProcessOneFile` → the real
    `perFileProcessor`) against the fake Supabase, with an injected `logSync`:
    active wizard session + wizard-staged file + no `shows` row → the returned
-   result is `{ outcome: "skipped", reason: "wizard_owned" }` AND `logSync`
-   received that same result payload (the operator-visibility assertion of
-   item 9). Failure mode: gate bypassed by the cron pipeline plumbing, or the
-   skip silenced. Anti-tautology: asserts on the returned result object and
-   the logged payload, not on mock call counts.
+   result is `{ outcome: "skipped", reason: "wizard_owned" }` AND the injected
+   `logSync` sink received the mapped entry
+   `{ driveFileId: F, outcome: "skipped", code: "wizard_owned" }` (the
+   operator-visibility assertion of item 9 — `reason` becomes `code` at the
+   boundary, `lib/sync/runScheduledCronSync.ts:2190-2191`). Failure mode: gate
+   bypassed by the cron pipeline plumbing, or the skip silenced.
+   Anti-tautology: asserts on the returned result object and the received
+   entry object, not on mock call counts.
 
 Expected values derive from the seeded fixture rows (session UUIDs, timestamps
 relative to a fixed `nowMs`), never hardcoded date literals.
