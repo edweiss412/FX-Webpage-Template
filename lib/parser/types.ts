@@ -134,6 +134,10 @@ export type RoleFlag =
   | "GREEN_ROOM"
   | "OWNER"
   | "CONTENT_CREATION"
+  // Admin-granted financial visibility (spec 2026-07-15-extend-role-scope-vocab §4.1).
+  // Reachable ONLY via role_token_mappings grants — ROLE_NORMALIZATIONS never maps
+  // any sheet token to it; no sheet content can grant financial visibility.
+  | "FINANCIALS"
   // Restriction marker
   | "ONLY";
 

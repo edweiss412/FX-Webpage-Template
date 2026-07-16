@@ -26,13 +26,14 @@
  *    foreign crew row's flags applied.
  *
  * Defense in depth (§4.4):
- *   - Application gate: `isLead` derivation here decides whether to JOIN
- *     `shows_internal` at all. When non-LEAD, the JSONB column is never
- *     queried.
+ *   - Application gate: `financialsEntitled` derivation here (admin, LEAD, or a
+ *     FINANCIALS mapping grant — spec 2026-07-15-extend-role-scope-vocab §4.1)
+ *     decides whether to JOIN `shows_internal` at all. When not entitled, the
+ *     JSONB column is never queried.
  *   - RLS: `shows_internal` is admin-only via `is_admin()`. M5 will widen
  *     this to LEAD-aware for cookie-bound viewers; for now, we use the
- *     service-role client to bypass RLS on the LEAD branch (RLS catches
- *     what the app misses on the non-LEAD branch — the helper just doesn't
+ *     service-role client to bypass RLS on the entitled branch (RLS catches
+ *     what the app misses on the non-entitled branch — the helper just doesn't
  *     query at all).
  *   - Physical separation: financials live in `shows_internal`, NOT `shows`.
  *     A `select * from shows` cannot leak them.
@@ -72,9 +73,10 @@ import type {
   TransportationRow,
 } from "@/lib/parser/types";
 
-// LEAD-only financials JSONB shape (matches `shows_internal.financials` and
+// Entitled-only financials JSONB shape (matches `shows_internal.financials` and
 // the seed writer at supabase/seed.ts:233-238 — `invoice_notes` snake_case
-// because that's how it's persisted).
+// because that's how it's persisted). Read only for financialsEntitled viewers
+// (admin, LEAD, or a FINANCIALS grant — spec §4.1).
 export type FinancialsRow = {
   po: string | null;
   proposal: string | null;
@@ -126,7 +128,8 @@ export function hotelVisibleToViewer(
 // Crew-page-shaped projection of a show. Mirrors `ParsedSheet` from
 // lib/parser/types.ts:311 with three crew-page-specific differences:
 //   - `financials?: FinancialsRow` is OPTIONAL — present only when the
-//     viewer is admin OR the freshly-derived role flags include LEAD.
+//     viewer is admin OR the freshly-derived role flags include LEAD or
+//     FINANCIALS (spec §4.1).
 //   - `hotelReservations` is filtered by viewer name for crew /
 //     admin_preview (the projection does the filter so the LodgingTile
 //     doesn't have to). Admin viewers see ALL reservations.
@@ -363,6 +366,11 @@ async function readShowDataForViewer(
   }
 
   const isLead = isAdmin || derivedFlags.includes("LEAD");
+  // Financial-data entitlement (spec 2026-07-15-extend-role-scope-vocab §4.1): the
+  // FINANCIALS mapping grant reads financials through the same service-role path
+  // LEADs use. This is financial-specific — every OTHER `isLead` consumer in this
+  // file is NOT financial-specific and stays LEAD-only.
+  const financialsEntitled = isLead || derivedFlags.includes("FINANCIALS");
 
   // === Show row (always loaded) ===
   const showRes = await supabase.from("shows").select("*").eq("id", showId).maybeSingle();
@@ -695,10 +703,11 @@ async function readShowDataForViewer(
   };
 
   // === Financials — JOIN shows_internal ONLY when authorized ===
-  // The first-line-of-defense gate: when not LEAD, this read is NEVER issued
-  // (the wave passes Promise.resolve(undefined) instead), so the JSONB column
-  // isn't even queried. RLS on shows_internal (admin-only via is_admin()) is
-  // the second line; physical separation (financials NOT on `shows`) is third.
+  // The first-line-of-defense gate: when not financialsEntitled (admin, LEAD, or
+  // a FINANCIALS grant — spec §4.1), this read is NEVER issued (the wave passes
+  // Promise.resolve(undefined) instead), so the JSONB column isn't even queried.
+  // RLS on shows_internal (admin-only via is_admin()) is the second line; physical
+  // separation (financials NOT on `shows`) is third.
   const readFinancials = async (): Promise<FinancialsRow | undefined> => {
     try {
       const internalRes = await supabase
@@ -733,8 +742,8 @@ async function readShowDataForViewer(
 
   // === Parallel wave: every independent post-validation read fans out at once ===
   // Promise.all the query PROMISES (invariant 9 — they resolve, never reject;
-  // each read above owns its try/catch). When !isLead the financials slot is
-  // Promise.resolve(undefined) so ZERO financials reads issue. NEVER allSettled.
+  // each read above owns its try/catch). When !financialsEntitled the financials
+  // slot is Promise.resolve(undefined) so ZERO financials reads issue. NEVER allSettled.
   const [crewMembers, allHotels, rooms, transportation, contacts, runOfShowRaw, financialsResult] =
     await Promise.all([
       readCrewMembers(),
@@ -743,7 +752,7 @@ async function readShowDataForViewer(
       readTransportation(),
       readContacts(),
       readRunOfShow(),
-      isLead ? readFinancials() : Promise.resolve(undefined),
+      financialsEntitled ? readFinancials() : Promise.resolve(undefined),
     ]);
 
   const hotelReservations: HotelReservationRow[] =
