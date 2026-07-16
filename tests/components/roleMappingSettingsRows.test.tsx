@@ -282,3 +282,55 @@ describe("RoleMappingRow — per-row state isolation (compound transition)", () 
     expect(within(droneRow).queryByText(COPY.REMOVE_CONFIRM)).toBeNull();
   });
 });
+
+describe("RoleMappingRow — desktop label mechanics (spec 2026-07-16 §4)", () => {
+  it("EDIT_LABEL_SHORT is the mock's short label", () => {
+    expect(COPY.EDIT_LABEL_SHORT).toBe("Edit");
+  });
+
+  it("Edit button: constant aria-label, EXACTLY one per row, two aria-hidden label spans", () => {
+    render(
+      <ul>
+        <RoleMappingRow row={row()} />
+      </ul>,
+    );
+    // Exactly one — a duplicated (even aria-hidden) actionable subtree must fail here.
+    const buttons = screen.getAllByRole("button", { name: COPY.EDIT_LABEL });
+    expect(buttons).toHaveLength(1);
+    const button = buttons[0]!;
+    expect(button).toHaveAttribute("aria-label", COPY.EDIT_LABEL);
+    const long = screen.getByTestId("role-mapping-edit-label-long");
+    const short = screen.getByTestId("role-mapping-edit-label-short");
+    expect(button).toContainElement(long);
+    expect(button).toContainElement(short);
+    expect(long).toHaveTextContent(COPY.EDIT_LABEL);
+    expect(short).toHaveTextContent(COPY.EDIT_LABEL_SHORT);
+    expect(long).toHaveAttribute("aria-hidden", "true");
+    expect(short).toHaveAttribute("aria-hidden", "true");
+    // Responsive visibility classes (structural pin only — real visibility is e2e's job).
+    expect(long.className).toContain("min-[760px]:hidden");
+    expect(short.className).toMatch(/(?:^| )hidden(?: |$)/);
+    expect(short.className).toContain("min-[760px]:inline");
+  });
+
+  it("clicking the restructured Edit button still opens the edit panel (handler intact)", () => {
+    render(
+      <ul>
+        <RoleMappingRow row={row()} />
+      </ul>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: COPY.EDIT_LABEL }));
+    expect(screen.getByText(COPY.PANEL_HEADING)).toBeInTheDocument();
+  });
+
+  it("token renders the full value with an unconditional title attribute", () => {
+    render(
+      <ul>
+        <RoleMappingRow row={row()} />
+      </ul>,
+    );
+    const token = screen.getByTestId("role-mapping-token");
+    expect(token).toHaveTextContent("DRONE OP");
+    expect(token).toHaveAttribute("title", "DRONE OP");
+  });
+});

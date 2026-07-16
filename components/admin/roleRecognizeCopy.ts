@@ -62,6 +62,8 @@ export const SETTINGS_SUBTITLE =
   "Anyone whose sheet role matches one of these gets the page you picked — on every show.";
 export const STANDARD_PAGE_CHIP = "Standard page only";
 export const EDIT_LABEL = "Edit what they see";
+/** Desktop (≥760px) short Edit label — mock "Desktop width" section (spec 2026-07-16 §2). */
+export const EDIT_LABEL_SHORT = "Edit";
 // §9 edit-saved convergence confirmation (Codex R6 F4 — must NOT imply immediate
 // effect on live shows; each show picks the change up on its next sheet check).
 export const EDIT_SAVED_CONFIRM =
