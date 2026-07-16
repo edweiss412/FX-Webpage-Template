@@ -27,6 +27,12 @@ const R = (file: string, index: number, kind: Kind, note: string): Row => ({
 const REGISTRY: Row[] = [
   R("components/admin/MaintenanceResetButtons.tsx", 0, "panel", "validation-reset-confirm"),
   R(
+    "components/admin/RecentAutoAppliedStrip.tsx",
+    0,
+    "panel",
+    "auto-applied-undo-all-confirm-go-*",
+  ),
+  R(
     "components/admin/CleanupAbandonedFinalizeButton.tsx",
     0,
     "panel",
