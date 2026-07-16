@@ -319,6 +319,20 @@ describe("gateAppliedRoleMappings (spec §10 point 2 — prior-persisted state o
     ]);
   });
 
+  test("recognize-only first publish (real shape: prior crew [] defined, prior warnings undefined) → emits (spec §10 point 2)", () => {
+    // A real first publish threads previousCrewMembers: [] (defined, empty) with
+    // priorParseWarnings omitted (undefined) — NOT both-undefined. Absent prior
+    // warnings alone ⇒ the recognize-only surface has no prior ⇒ everything is new
+    // ⇒ emit. (Regression: the both-undefined `noPrior` gate never fired here.)
+    const a = [applied({ token: "DRONE OP", grants: [], blockRefName: "Marcus Webb" })];
+    expect(gateAppliedRoleMappings(a, [], undefined)).toEqual([
+      { token: "DRONE OP", grants: [], newMemberCount: 1 },
+    ]);
+    // A defined-but-empty prior warnings list is a genuine prior sync that carried no
+    // warnings ⇒ this recognize-only entry was already suppressed ⇒ silent.
+    expect(gateAppliedRoleMappings(a, [], [])).toEqual([]);
+  });
+
   test("grouping: one entry per token, newMemberCount = gate-passing members (Codex R14 F4)", () => {
     const a = [
       applied({ token: "DRONE OP", grants: ["A1"], blockRefName: "Marcus Webb" }),

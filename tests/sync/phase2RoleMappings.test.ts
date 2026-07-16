@@ -294,6 +294,27 @@ describe("runPhase2 role-mapping overlay + delta gate (spec §6/§10)", () => {
     ]);
   });
 
+  test("recognize-only first publish (grants []): warning consumed, appliedRoleMappings emits once despite real prior crew [] + undefined prior warnings", async () => {
+    // The real first-publish shape: applyShowSnapshot returns previousCrewMembers: []
+    // (defined, empty) and priorParseWarnings is omitted (undefined). A recognize-only
+    // mapping exercises the gate's warning branch — which the grants-branch test above
+    // never reaches — and must still emit (spec §10 point 2: absent prior ⇒ new ⇒ emit).
+    const tx = new FakePhase2Tx();
+    const recognizeOnly: RoleTokenMapping = { ...MAPPING, grants: [] };
+    const result = await runWith(tx, {
+      modifiedTime: "2026-05-08T12:00:00.000Z",
+      roleTokenMappings: [recognizeOnly],
+    });
+    expect(result.outcome).toBe("applied");
+    if (result.outcome !== "applied") throw new Error("expected applied");
+    // Recognize-only: no flags added, but the warning is consumed off the crew row.
+    expect(tx.crewFlags("Marcus Webb")).toEqual([]);
+    expect((result.parseWarnings ?? []).filter((w) => w.code === "UNKNOWN_ROLE_TOKEN")).toEqual([]);
+    expect(result.appliedRoleMappings).toEqual([
+      { token: recognizeOnly.token, grants: [], newMemberCount: 1 },
+    ]);
+  });
+
   test("steady state (second sync, prior flags already carry the grant): appliedRoleMappings is silent", async () => {
     const tx = new FakePhase2Tx();
     const first = await runWith(tx, {

@@ -122,17 +122,24 @@ export function gateAppliedRoleMappings(
       )
       .map((w) => `${w.roleToken}\0${w.blockRef!.name}`),
   );
-  const noPrior = priorCrew === undefined && priorWarnings === undefined;
+  // Branch (a) grants: a member absent from prior crew already reads as new via
+  // `prior === undefined`, so its no-prior case needs no separate flag. Branch (b)
+  // recognize-only has no member-flag delta — its ONLY "new vs prior" signal is the
+  // prior parse warnings, so absent prior warnings (undefined — the real first-publish
+  // shape, where priorCrew is a defined-but-empty []) must count as no-prior ⇒ emit
+  // (spec §10 point 2). A defined-but-empty priorWarnings is a genuine prior sync that
+  // carried no warnings ⇒ already suppressed ⇒ silent.
+  const noPriorWarnings = priorWarnings === undefined;
 
   const counts = new Map<string, { grants: GrantableFlag[]; members: Set<string> }>();
   for (const a of applied) {
     let passes: boolean;
     if (a.grants.length > 0) {
       const prior = priorFlagsByName.get(a.memberName);
-      passes = noPrior || prior === undefined || a.grants.some((g) => !prior.includes(g));
+      passes = prior === undefined || a.grants.some((g) => !prior.includes(g));
     } else {
       if (a.blockRefName === null) continue; // no identity — fail closed (Codex R10 F2)
-      passes = noPrior || priorWarnKeys.has(`${a.token}\0${a.blockRefName}`);
+      passes = noPriorWarnings || priorWarnKeys.has(`${a.token}\0${a.blockRefName}`);
     }
     if (!passes) continue;
     const group = counts.get(a.token) ?? { grants: a.grants, members: new Set<string>() };
