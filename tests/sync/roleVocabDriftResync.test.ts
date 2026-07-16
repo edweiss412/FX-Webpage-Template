@@ -12,7 +12,15 @@ import type { DriveListedFile } from "@/lib/drive/list";
 import type { ParsedSheet, ParseResult } from "@/lib/parser/types";
 import type { Phase1Binding } from "@/lib/sync/phase1";
 import type { PerFileProcessorResult, SyncMode } from "@/lib/sync/perFileProcessor";
-import { prepareProcessOneFile, type ProcessOneFileDeps } from "@/lib/sync/runScheduledCronSync";
+import { ARCHIVED_SKIP_REASON } from "@/lib/sync/lifecycleGuards";
+import type { LockedShowTx } from "@/lib/sync/lockedShowTx";
+import {
+  prepareProcessOneFile,
+  processOneFile_unlocked,
+  type PreparedProcessOneFile,
+  type ProcessOneFileDeps,
+  type SyncPipelineTx,
+} from "@/lib/sync/runScheduledCronSync";
 
 function fileMeta(id: string, modifiedTime = "2026-05-08T12:00:00.000Z"): DriveListedFile {
   return {
@@ -218,4 +226,162 @@ describe("role-vocab drift resync threading (prepareProcessOneFile)", () => {
       expect(prepared).not.toHaveProperty("driftResync");
     },
   );
+});
+
+/**
+ * Task 4: in-lock drift recheck (spec §3.3 "Recheck placement is load-bearing"). The recheck runs
+ * in `processOneFile_unlocked` as the FIRST drift step under the held lock — before
+ * `runPhase1_unlocked`, which mutates durable state on non-happy paths. A blocked recheck
+ * (unpublish / live-pending race) returns `drift_recheck_failed` with ZERO Phase 1 side effects.
+ * The archive race is owned by the pre-existing DEF-4 archived re-read (ARCHIVED_SKIP_REASON), which
+ * fires before the recheck. Non-drift runs never issue the recheck query.
+ *
+ * The fake tx routes `queryOne` by SQL: the lock-assertion probe → held, `select archived …` →
+ * configurable archived, the recheck predicate (`… as ok`) → configurable ok. Phase-1 write
+ * surfaces are recorded so "zero side effects" is asserted structurally.
+ */
+type QueryOneCall = { sql: string; params: unknown[] };
+
+const RECHECK_SQL_MARKER = "not exists (select 1 from public.pending_syncs p";
+
+function driftLockedTx(opts: { archived?: boolean; recheckOk?: boolean } = {}) {
+  const queries: QueryOneCall[] = [];
+  const writes: string[] = [];
+  const recordWrite = (name: string) => async () => {
+    writes.push(name);
+  };
+  const tx = {
+    queries,
+    writes,
+    async queryOne<T>(sql: string, params: unknown[]): Promise<T> {
+      queries.push({ sql, params });
+      if (sql.includes("pg_locks")) return { held: true } as T;
+      if (sql.includes("select archived from public.shows")) {
+        return { archived: opts.archived ?? false } as T;
+      }
+      if (sql.includes(RECHECK_SQL_MARKER)) return { ok: opts.recheckOk ?? true } as T;
+      return null as T;
+    },
+    async readLiveDeferral() {
+      return null;
+    },
+    async deleteLiveDeferral() {},
+    // Phase-1 durable-write surfaces — recorded so a blocked recheck can assert none fired.
+    upsertLivePendingSync: vi.fn(recordWrite("upsertLivePendingSync")),
+    upsertLivePendingIngestion: vi.fn(recordWrite("upsertLivePendingIngestion")),
+    updateShowParseError: vi.fn(recordWrite("updateShowParseError")),
+    updateShowShrinkHeld: vi.fn(recordWrite("updateShowShrinkHeld")),
+    updateShowPendingReview: vi.fn(recordWrite("updateShowPendingReview")),
+    applyShowSnapshot: vi.fn(recordWrite("applyShowSnapshot")),
+  };
+  return tx;
+}
+
+function readyPrepared(driftResync: boolean): PreparedProcessOneFile {
+  return {
+    kind: "ready",
+    resolvedMode: "cron",
+    binding: { bindingToken: "token-1", modifiedTime: "2026-05-08T12:00:00.000Z" },
+    parseResult: parseResult(),
+    ...(driftResync ? { driftResync: true as const } : {}),
+  };
+}
+
+function driftDeps(overrides: Partial<ProcessOneFileDeps> = {}): ProcessOneFileDeps {
+  return {
+    runPhase1: vi.fn(async () => ({ outcome: "pass" as const })),
+    runPhase2: vi.fn(async () => ({
+      outcome: "applied" as const,
+      appliedRoleMappings: [],
+      showId: "show-1",
+      parseWarnings: [],
+    })),
+    logSync: vi.fn(async () => undefined),
+    ...overrides,
+  };
+}
+
+const recheckIssued = (tx: ReturnType<typeof driftLockedTx>) =>
+  tx.queries.some((q) => q.sql.includes(RECHECK_SQL_MARKER));
+
+describe("role-vocab drift resync in-lock recheck (processOneFile_unlocked)", () => {
+  test("unpublish race: driftResync run, locked recheck blocked → drift_recheck_failed, zero Phase 1", async () => {
+    const tx = driftLockedTx({ recheckOk: false });
+    const deps = driftDeps();
+    const result = await processOneFile_unlocked(
+      tx as unknown as LockedShowTx<SyncPipelineTx>,
+      "file-1",
+      "cron",
+      fileMeta("file-1"),
+      deps,
+      readyPrepared(true),
+    );
+
+    expect(result).toEqual({ outcome: "skipped", reason: "drift_recheck_failed" });
+    expect(recheckIssued(tx)).toBe(true);
+    expect(deps.runPhase1).not.toHaveBeenCalled();
+    expect(deps.runPhase2).not.toHaveBeenCalled();
+    expect(tx.writes).toEqual([]);
+  });
+
+  test("live-pending race: driftResync run, in-lock live pending row → drift_recheck_failed, zero Phase 1", async () => {
+    // recheckOk:false models the SQL's `not exists(live pending_syncs)` leg failing.
+    const tx = driftLockedTx({ recheckOk: false });
+    const deps = driftDeps();
+    const result = await processOneFile_unlocked(
+      tx as unknown as LockedShowTx<SyncPipelineTx>,
+      "file-1",
+      "cron",
+      fileMeta("file-1"),
+      deps,
+      readyPrepared(true),
+    );
+
+    expect(result).toEqual({ outcome: "skipped", reason: "drift_recheck_failed" });
+    expect(deps.runPhase1).not.toHaveBeenCalled();
+    expect(tx.writes).toEqual([]);
+  });
+
+  test("archive race: driftResync run racing an archive → ARCHIVED_SKIP_REASON (DEF-4), not drift_recheck_failed", async () => {
+    const tx = driftLockedTx({ archived: true, recheckOk: false });
+    const deps = driftDeps();
+    const result = await processOneFile_unlocked(
+      tx as unknown as LockedShowTx<SyncPipelineTx>,
+      "file-1",
+      "cron",
+      fileMeta("file-1"),
+      deps,
+      readyPrepared(true),
+    );
+
+    expect(result).toEqual({ outcome: "skipped", reason: ARCHIVED_SKIP_REASON });
+    // The DEF-4 archived re-read fires FIRST — the drift recheck is never reached.
+    expect(recheckIssued(tx)).toBe(false);
+    expect(deps.runPhase1).not.toHaveBeenCalled();
+    expect(tx.writes).toEqual([]);
+  });
+
+  test("non-drift cron run: recheck query is NEVER issued", async () => {
+    const tx = driftLockedTx({ recheckOk: false });
+    // Short-circuit Phase 1 to a `stage` outcome so no Phase-2 apply surface is needed.
+    const deps = driftDeps({
+      runPhase1: vi.fn(async () => ({
+        outcome: "stage" as const,
+        stagedId: "staged-1",
+        triggeredReviewItems: [],
+      })),
+    });
+    const result = await processOneFile_unlocked(
+      tx as unknown as LockedShowTx<SyncPipelineTx>,
+      "file-1",
+      "cron",
+      fileMeta("file-1"),
+      deps,
+      readyPrepared(false),
+    );
+
+    expect(recheckIssued(tx)).toBe(false);
+    expect(result).toEqual({ outcome: "stage", stagedId: "staged-1" });
+    expect(deps.runPhase1).toHaveBeenCalledOnce();
+  });
 });

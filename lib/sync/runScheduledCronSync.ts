@@ -3181,6 +3181,32 @@ async function clearShowPullSheetOverride_unlocked(
   ]);
 }
 
+/**
+ * Drift-rescued cron runs ONLY (spec §3.3 "Recheck placement is load-bearing", R4/R5): re-verify
+ * published + no-live-pending under the held lock as the FIRST drift step, BEFORE
+ * `runPhase1_unlocked` — Phase 1 mutates durable state on non-happy paths (hard-fail marks `shows`,
+ * shrink holds write hold state, review branches upsert `pending_syncs`). Returns `true` (BLOCKED)
+ * when the show is no longer published, or a live (`wizard_session_id is null`) `pending_syncs` gate
+ * row now exists, or the show row vanished. `archived = false` is kept as defense-in-depth only; the
+ * archived RACE is authoritatively owned by the earlier DEF-4 re-read (`readShowArchived_unlocked`),
+ * which returns ARCHIVED_SKIP_REASON first (plan R1 F1). The live-partition predicate mirrors the
+ * live `pending_syncs` read at :954.
+ */
+async function readDriftRecheckBlocked_unlocked(
+  tx: LockedShowTx<SyncPipelineTx>,
+  driveFileId: string,
+): Promise<boolean> {
+  const row = await tx.queryOne<{ ok: boolean } | null>(
+    `select (s.published = true and s.archived = false
+             and not exists (select 1 from public.pending_syncs p
+                              where p.drive_file_id = s.drive_file_id
+                                and p.wizard_session_id is null)) as ok
+       from public.shows s where s.drive_file_id = $1`,
+    [driveFileId],
+  );
+  return row?.ok !== true;
+}
+
 export async function processOneFile_unlocked(
   tx: LockedShowTx<SyncPipelineTx>,
   driveFileId: string,
@@ -3204,6 +3230,19 @@ export async function processOneFile_unlocked(
     );
   }
   const pipeline = prepared;
+
+  // Role-vocab drift recheck (spec §3.3 R4/R5): for a drift-rescued run ONLY, re-verify
+  // published + no-live-pending under the held lock as the FIRST drift step — before
+  // recheckLiveDeferralAfterLock and runPhase1_unlocked, both of which can mutate durable state.
+  // The archived race is already owned by the DEF-4 re-read above (ARCHIVED_SKIP_REASON). A blocked
+  // recheck is a benign skip with ZERO Phase 1 side effects.
+  if (pipeline.kind === "ready" && pipeline.driftResync) {
+    if (await readDriftRecheckBlocked_unlocked(tx, driveFileId)) {
+      const result = { outcome: "skipped" as const, reason: "drift_recheck_failed" };
+      await logSync(txDeps, driveFileId, result);
+      return result;
+    }
+  }
 
   const lockedDeferralSkip = await recheckLiveDeferralAfterLock(tx, driveFileId, mode, fileMeta);
   if (lockedDeferralSkip) {
