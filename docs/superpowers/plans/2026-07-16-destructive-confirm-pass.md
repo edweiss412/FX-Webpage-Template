@@ -39,7 +39,7 @@ function expectDestructiveRecipe(el: HTMLElement) {
 }
 ```
 
-Put it in each touched test file (test-local helper, ~10 lines — duplicating beats a new shared test util for a two-week-old contract; the meta-test is the durable single source). Cancel/safe-control assertions: `expect(tokens).not.toContain("bg-warning-text")`.
+Put it in each touched test file (test-local helper, ~10 lines — duplicating beats a new shared test util for a two-week-old contract; the meta-test is the durable single source). Cancel/safe-control assertions reject BOTH recipe tokens (spec C2): `expect(tokens).not.toContain("bg-warning-text"); expect(tokens).not.toContain("text-warning-bg");`
 
 ## Execution order
 
@@ -175,7 +175,7 @@ If the 3 existing panels FAIL the C1 hover assertion (e.g. one lacks `hover:opac
 **Files:**
 - Modify: `components/admin/RecentAutoAppliedStrip.tsx` (confirm-go className; `confirmUndoAll`; group container/toggle refs; outcome state + alert block)
 - Test: `tests/components/admin/RecentAutoAppliedStrip.test.tsx`
-- Modify: `tests/styles/_metaDestructiveConfirm.test.ts` (add row `{ file: "components/admin/RecentAutoAppliedStrip.tsx", note: "auto-applied-undo-all-confirm-go-*", kind: "panel" }`)
+- Modify: `tests/styles/_metaDestructiveConfirm.test.ts` (add row `R("components/admin/RecentAutoAppliedStrip.tsx", 0, "panel", "auto-applied-undo-all-confirm-go-*")` — index reconciled from the meta-test's own failure output)
 
 **Interfaces:**
 - Consumes: Task 1 REGISTRY.
@@ -205,6 +205,8 @@ it("partial bulk-undo failure renders the aggregate alert with counts from the m
   // open confirm, click confirm-go, await settle
   const alert = await screen.findByTestId(`auto-applied-bulk-undo-alert-${SHOW_ID}`);
   expect(alert).toHaveAttribute("role", "alert");
+  // Counts derive from the ARRANGED mocks (one {ok:false} + one {ok:true} over a 2-id group),
+  // not from fixture length — change the arrangement and this assertion must change with it.
   expect(alert.textContent).toContain("Couldn't undo 1 of 2 changes.");
   expect(alert.textContent).toContain("The ones that failed stay in this list.");
 });
@@ -235,6 +237,7 @@ it("alert persists across collapse → re-expand", async () => {
   fireEvent.click(screen.getByTestId(`auto-applied-toggle-${SHOW_ID}`)); // collapse
   expect(screen.queryByTestId(`auto-applied-bulk-undo-alert-${SHOW_ID}`)).toBeNull();
   fireEvent.click(screen.getByTestId(`auto-applied-toggle-${SHOW_ID}`)); // re-expand
+  // "1 of" = the single {ok:false} arranged above; derived from the mock arrangement.
   expect(screen.getByTestId(`auto-applied-bulk-undo-alert-${SHOW_ID}`).textContent).toContain("Couldn't undo 1 of");
 });
 ```
@@ -363,7 +366,7 @@ All four get the same three changes (repeat per file — no sharing):
      }
    }, [ui]);
    ```
-   Wire the existing auto-revert `setTimeout(() => setUi(...idle...))` to go through `closeConfirm`. Submit paths (pending/success/failure) are untouched (spec §6 F4 matrix).
+   Wire the existing auto-revert `setTimeout(...)` callback to call `closeConfirm` (preserving its functional guard). Submit paths (pending/success/failure) are untouched (spec §6 F4 matrix) — and the auto-revert CANNOT fire mid-submit because every surface's existing `onConfirmClick` already calls `clearAutoRevert()` first (verified: Rotate `:104-105`, ResolveAlert `:95-96`; confirm the same in ResetEpoch/PickerReset/Revoke during implementation and add the clear if one is missing). Preserve those clears.
 
 - [ ] **Step 1:** Write failing tests per surface (4 files; same 4 cases each): recipe classes on confirm-go by testid (`admin-rotate-share-token-confirm-button`, `admin-reset-picker-epoch-confirm-button`, `picker-reset-confirm-button`, `admin-allowlist-revoke-confirm-button`); cancel lacks recipe; open → cancel focused (`waitFor`); cancel activation → trigger focused; auto-revert (fake timers) with focus inside → trigger focused; auto-revert with focus planted on an external button → that button keeps focus.
 - [ ] **Step 2:** Run — FAIL.
