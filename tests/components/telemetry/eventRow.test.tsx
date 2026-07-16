@@ -101,3 +101,16 @@ describe("EventRow", () => {
     expect(screen.getByTestId("event-full-message")).toHaveTextContent("cron sync run"); // expands to raw detail
   });
 });
+
+// Accent-contrast token pass (spec 2026-07-16 §4.3, TEL-1): the requestId chip
+// is an id affordance, not a matters-now signal — neutral text-text-subtle
+// (6.09:1 light / 6.94:1 dark on surface-sunken), never accent.
+describe("EventRow requestId chip is neutral (TEL-1)", () => {
+  test("chip carries text-text-subtle and not text-accent-on-bg", () => {
+    render(<EventRow event={base} now={now} isFirst />);
+    const chip = screen.getByTestId("event-row-request-e1");
+    const tokens = new Set((chip.getAttribute("class") ?? "").split(/\s+/));
+    expect(tokens.has("text-text-subtle")).toBe(true);
+    expect(tokens.has("text-accent-on-bg")).toBe(false);
+  });
+});
