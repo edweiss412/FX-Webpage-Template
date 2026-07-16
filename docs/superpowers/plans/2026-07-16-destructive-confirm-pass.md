@@ -58,7 +58,7 @@ Put it in each touched test file (test-local helper, ~10 lines — duplicating b
 
 - [ ] **Step 1: Write the meta-test** (initial registry = the 3 already-conformant panels + 1 exempt):
 
-The scanner mirrors `_metaBgAccentInventory.test.ts`'s EXACT iteration idiom (verified against the live helpers: `walk(dir: string): string[]` recursing one root at a time over `.ts/.tsx`; `stripComments(src)`; `tokensOf(line)` — line-based token scan; class literals in this repo are single-line, so line ≈ literal, consistent with the sibling scanners). Rows are per-file occurrence-indexed like the bg-accent registry.
+The scanner mirrors `_metaBgAccentInventory.test.ts`'s EXACT iteration idiom (verified against the live helpers: `walk(dir: string): string[]` recursing one root at a time over `.ts/.tsx`; `stripComments(src)`; `tokensOf(line)` — line-based token scan; class literals in this repo are single-line, so line ≈ literal, consistent with the sibling scanners). Rows are per-file occurrence-indexed like the bg-accent registry. (`index` is a plan-level implementation identity detail — the spec's contract is one-row-per-literal counted per file; the index is how that contract is realized with the sibling scanner's idiom.)
 
 ```ts
 // tests/styles/_metaDestructiveConfirm.test.ts
@@ -165,7 +165,7 @@ Note on `hasToken`'s `!t.includes(":")` restriction: `PreviewBanner.tsx:117`'s `
 - [ ] **Step 2: Run** `pnpm vitest run tests/styles/_metaDestructiveConfirm.test.ts`
 Expected: PASS (3 conformant panels: MaintenanceReset `:298`, Cleanup `:183`, ReapStale `:137` already carry `bg-warning-text text-warning-bg font-semibold`; verify hover — Cleanup/ReapStale/MaintenanceReset use `hover:opacity-90` already; PreviewBanner exempt).
 If the 3 existing panels FAIL the C1 hover assertion (e.g. one lacks `hover:opacity-90`), fix the literal in the component (that IS the recipe normalization) rather than loosening the test.
-- [ ] **Step 3: Negative dual proof (working-tree only, never committed):** temporarily add `className="bg-warning-text text-warning-bg"` to any unregistered component → run → expect `UNREGISTERED DESTRUCTIVE CONFIRM`; revert. Then temporarily delete the PreviewBanner row → expect `UNREGISTERED DESTRUCTIVE CONFIRM`/count mismatch; revert.
+- [ ] **Step 3: Negative dual proof (working-tree only, never committed; unconditional):** (a) temporarily add `className="bg-warning-text text-warning-bg"` to any unregistered component → run → expect `UNREGISTERED DESTRUCTIVE CONFIRM`; revert. (b) temporarily delete ONE registered row that step 2's run proved is a live hit (e.g. the MaintenanceReset row) → expect `UNREGISTERED OCCURRENCE`/`UNREGISTERED DESTRUCTIVE CONFIRM`; revert. PreviewBanner's row existence is reconciled strictly from the scanner's own output in step 2 (present if it hits, absent if the pair rule excludes it) — it is never part of the negative proof.
 - [ ] **Step 4: Commit** `test(styles): destructive-confirm recipe registry meta-test (spec §8)`
 
 ---
@@ -210,6 +210,10 @@ it("partial bulk-undo failure renders the aggregate alert with counts from the m
 });
 
 it("zero failures → no alert; reopening confirm clears a visible alert", async () => { /* two renders per spec §6 F2 lifecycle */ });
+it("failure alert then a later all-success run: alert stays gone after settle (completion writes null)", async () => {
+  // run 1: one failure → alert visible; run 2: reopen confirm (clears) → all mocks ok → settle →
+  // no alert rendered (fails if completion wrongly writes a non-null outcome)
+});
 it("alert persists across collapse → re-expand", async () => { /* toggle disclosure twice, alert still present */ });
 it("bulk undo completion moves focus to the group toggle when focus was inside the panel", async () => {
   // click confirm-go (focus lands on it), await settle
@@ -255,6 +259,7 @@ it("collapse during pending: completes without throwing, no focus steal, alert o
       });
     }
     ```
+    The body above IS spec §6 F3's five-step sequence in order — (1) loop finished + outcome computed, (2) capture `shouldRestore`, (3) guarded focus, (4) `setConfirming(false)`, (5) outcome write — implement it literally in that order; do not reorder during refactors. Tests pin the observable consequences (focus restored on the toggle even though the panel closed; alert visible after settle).
   - Cancel handler: `onClick={() => { const shouldRestore = groupContainerRef.current?.contains(document.activeElement) ?? false; if (shouldRestore) toggleRef.current?.focus(); setConfirming(false); }}`
   - Opening confirm: `onClick={() => { setBulkUndoOutcome(null); setConfirming(true); }}`
   - Alert block (JSX position: AFTER the `confirming ? … : null` conditional, BEFORE the row list — spec §6 F2):
@@ -286,7 +291,7 @@ All four get the same three changes (repeat per file — no sharing):
 
 1. **Restyle confirm-go** (the `bg-accent … text-accent-text … hover:bg-accent-hover` literal at Rotate `:235`, ResetEpoch `:211`, PickerReset `:232`, Revoke `:284`) → recipe literal, preserving each file's existing ring-offset token (`ring-offset-surface` where present) and `min-w-tap-min`/`py-2`/`font-semibold` shape:
    `inline-flex min-h-tap-min min-w-tap-min items-center justify-center rounded-sm bg-warning-text px-4 py-2 font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60`
-   (append `focus-visible:ring-offset-2 focus-visible:ring-offset-surface` where the original had it; Revoke keeps `font-semibold`, note its idle trigger `:211` and disabled placeholder `:169` are NOT touched.)
+   (Deliberately NO `text-sm`: all four originals render the confirm-go at the base type scale — verified, e.g. Rotate `:235`, Revoke `:284` carry no `text-sm` — and this pass preserves each surface's existing type scale. The canonical literal's `text-sm` applies to R6/R8, whose panels are `text-sm` contexts. Append `focus-visible:ring-offset-2 focus-visible:ring-offset-surface` where the original had it; Revoke keeps `font-semibold`; its idle trigger `:211` and disabled placeholder `:169` are NOT touched.)
 2. **Open focus (C3):** `const cancelRef = useRef<HTMLButtonElement>(null);` + effect keyed on the confirm state:
    ```tsx
    useEffect(() => {
