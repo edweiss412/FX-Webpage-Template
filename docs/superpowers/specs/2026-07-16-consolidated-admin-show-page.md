@@ -118,7 +118,7 @@ export type SectionCore = {
 | `clientContact` | `pr.show.client_contact` (`:3483,:3487`) | `shows.client_contact` |
 | `contacts` | `pr.contacts` (`:3488`) | `contacts` table rows (insert `runScheduledCronSync.ts:1752`) |
 | `ros` | already core (`SectionData.ros`) | `shows_internal.run_of_show` |
-| `agendaBaseline` | `row.adminAgendaPreview` (`Step3SheetCard.tsx:602`) | `buildAdminAgendaPreview(shows.agenda_links)` (`lib/agenda/agendaAdminPreview.ts:149`) |
+| `agendaBaseline` | `row.adminAgendaPreview` (`Step3SheetCard.tsx:602`) | `buildAdminAgendaPreview(shows.agenda_links, { validatedHrefs: true, freshByLinkKey })` with `freshByLinkKey` = indices whose `link.extracted` is non-null (`lib/agenda/agendaAdminPreview.ts:149`; §3.5 rationale), THEN href post-map: items with a `fileId` get `/api/asset/agenda/${showId}/${fileId}` (crew pattern `components/agenda/AgendaEmbed.tsx:97`; "never as a Drive host" `:20`); url-only links keep the builder's validated external URL |
 | `hotels` | already core | `hotel_reservations` table rows |
 | `transportation` | `pr.transportation` (`:3536`) | `transportation` table rows (insert `:1719`) |
 | `rooms` | already core | `rooms` table rows |
@@ -135,6 +135,7 @@ export type SectionCore = {
 
 **Staged-only fields (NOT in `SectionCore`):** `pr` itself, `row`, `wizardSessionId`, `dfid` (superseded by `driveFileId`), `row.agendaStateKey` (AgendaBreakdown state key `:3515` — published mode renders the static agenda variant instead, §3.5, so no state key exists there), `row.lastFinalizeFailureCode` (finalize-demotion `:838`), `row.driveFileName` (title fallback).
 
+```ts
 export type StagedSectionData = SectionCore & {
   mode: "staged";
   pr: ParseResult;
@@ -334,7 +335,7 @@ Fixture `shows` + `shows_internal` + `crew_members` rows → `SectionCore`; ever
 - Real-browser layout task: §8 invariants via Playwright `getBoundingClientRect` (harness precedent: `reference_step3_modal_realbrowser_harnesses` — tsx-subprocess static markup + pinned esbuild live bundle).
 - Transition audit task: §9 table, incl. both compound rows.
 - Snapshot-consistency test (§3.3a): simulate sync commit between parent and child reads; assert retry yields consistent snapshot; assert max-retry fallback renders the info notice AND disables all four section-anchored correction controls (`snapshotStable: false` fail-closed).
-- Published agenda blocks test (§3.5): persisted `agenda_links` fixture with `extracted` payloads renders extraction blocks, not note-only rows.
+- Published agenda blocks test (§3.5): persisted `agenda_links` fixture with `extracted` payloads renders extraction blocks (not note-only rows) AND every fileId-backed href is `/api/asset/agenda/<show>/<fileId>` (never a Drive host).
 - Pagination boundary test (§3.3): child-table fixture larger than the batch constant survives pagination without loss/duplication/reorder.
 - Published no-staged-traffic test (§3.5): render all published sections; assert zero `/api/admin/onboarding/*` URLs in tree and zero fetches to those routes.
 
