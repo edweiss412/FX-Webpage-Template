@@ -159,7 +159,13 @@ function sender(results: SendResult[]) {
 }
 
 function alertSpy() {
-  return vi.fn(async (_input: { showId: string | null; code: string; context: unknown }) => {});
+  return vi.fn(
+    async (_input: {
+      showId: string | null;
+      code: string;
+      context: Record<string, unknown>;
+    }): Promise<string | null> => null,
+  );
 }
 
 describe("deliverRealtimeCandidates batching (spec §2.1-§2.3)", () => {
@@ -372,11 +378,7 @@ describe("deliverRealtimeCandidates batching (spec §2.1-§2.3)", () => {
     expect(result).toMatchObject({ kind: "ok", sent: 2 });
     expect(sendEmail).toHaveBeenCalledTimes(1);
     expect(sends[0]?.idempotencyKey).toBe(
-      baseKey(
-        "realtime_problem",
-        combinedDedupKey([show.dedupKey, globalC.dedupKey]),
-        RECIPIENT,
-      ),
+      baseKey("realtime_problem", combinedDedupKey([show.dedupKey, globalC.dedupKey]), RECIPIENT),
     );
     expect(state.sentRows).toHaveLength(2);
     const globalRow = state.sentRows.find((row) => row.values.includes(globalC.dedupKey));
@@ -391,7 +393,8 @@ describe("deliverRealtimeCandidates batching (spec §2.1-§2.3)", () => {
     ]);
     const members = [showCandidate(1), showCandidate(2)];
     const reissue = vi.fn(
-      (kind: string, dedupKey: string, recipient: string) => `reissued:${kind}:${dedupKey}:${recipient}`,
+      (kind: string, dedupKey: string, recipient: string) =>
+        `reissued:${kind}:${dedupKey}:${recipient}`,
     );
 
     const result = await deliverRealtimeCandidates(

@@ -2,10 +2,11 @@
 // STANDING RULE: any fake-SQL unit test calling deliverRealtimeCandidates with
 // non-empty inputs MUST inject this via deps.lockSql — otherwise the default
 // path constructs a real postgres lock client and the test stops being a unit test.
-import { vi } from "vitest";
-import type { DeliverySql } from "@/lib/notify/deliver";
+import type { DeliverySql, LockClient } from "@/lib/notify/deliver";
 
-export function fakeLockSql(options: { locked?: boolean; heartbeatFailsAt?: number } = {}) {
+export function fakeLockSql(
+  options: { locked?: boolean; heartbeatFailsAt?: number } = {},
+): LockClient & { heartbeatCount: () => number } {
   let heartbeats = 0;
   const tx = (<T extends Record<string, unknown> = Record<string, unknown>>(
     strings: TemplateStringsArray,
@@ -22,8 +23,8 @@ export function fakeLockSql(options: { locked?: boolean; heartbeatFailsAt?: numb
     return Promise.resolve([] as T[]);
   }) as DeliverySql;
   return {
-    begin: vi.fn(<T,>(fn: (sql: DeliverySql) => Promise<T>): Promise<T> => fn(tx)),
-    end: vi.fn(async () => {}),
+    begin: <T>(fn: (sql: DeliverySql) => Promise<T>): Promise<T> => fn(tx),
+    end: async () => {},
     heartbeatCount: () => heartbeats,
   };
 }

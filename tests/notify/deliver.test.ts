@@ -282,7 +282,13 @@ describe("deliverRealtimeCandidates", () => {
 
     const result = await deliverRealtimeCandidates(
       { candidates: [showCandidate()], recipients: ["doug@fxav.net"], origin: ORIGIN },
-      { lockSql: fakeLockSql(), sql, sendEmail, upsertAdminAlert, reissueKey: () => "fresh-nonce-1" },
+      {
+        lockSql: fakeLockSql(),
+        sql,
+        sendEmail,
+        upsertAdminAlert,
+        reissueKey: () => "fresh-nonce-1",
+      },
     );
 
     expect(result).toEqual({ kind: "ok", sent: 0, failed: 0, skipped: 0, retryLater: 1 });
@@ -518,7 +524,13 @@ describe("deliverDigest", () => {
 
     const result = await deliverDigest(
       { model: digestModel(), origin: ORIGIN },
-      { lockSql: fakeLockSql(), sql, sendEmail, upsertAdminAlert, reissueKey: () => "digest-fresh-nonce" },
+      {
+        lockSql: fakeLockSql(),
+        sql,
+        sendEmail,
+        upsertAdminAlert,
+        reissueKey: () => "digest-fresh-nonce",
+      },
     );
 
     expect(result).toEqual({ kind: "ok", sent: 0, failed: 0, skipped: 0, retryLater: 1 });
@@ -664,7 +676,10 @@ describe("deliverDigest — monitor section (flow 6.2 §5, §8)", () => {
   test("monitor absent → context is byte-identical to today (no monitor_totals key)", async () => {
     const { sql, state } = fakeSql();
     const { sendEmail } = sender([{ ok: true, messageId: "digest-msg-2" }]);
-    await deliverDigest({ model: digestModel(), origin: ORIGIN }, { lockSql: fakeLockSql(), sql, sendEmail });
+    await deliverDigest(
+      { model: digestModel(), origin: ORIGIN },
+      { lockSql: fakeLockSql(), sql, sendEmail },
+    );
     const contextParam = state.sentRows[0]?.values.find(
       (value): value is Record<string, unknown> =>
         typeof value === "object" && value !== null && "source_totals" in value,
@@ -676,7 +691,10 @@ describe("deliverDigest — monitor section (flow 6.2 §5, §8)", () => {
   test("dedup key stays digest:${dateET} with a monitor", async () => {
     const { sql, state } = fakeSql();
     const { sendEmail } = sender([{ ok: true, messageId: "digest-msg-3" }]);
-    await deliverDigest({ model: digestModel(), origin: ORIGIN, monitor }, { lockSql: fakeLockSql(), sql, sendEmail });
+    await deliverDigest(
+      { model: digestModel(), origin: ORIGIN, monitor },
+      { lockSql: fakeLockSql(), sql, sendEmail },
+    );
     expect(state.sentRows[0]?.values).toEqual(expect.arrayContaining(["digest:2026-06-02"]));
   });
 });

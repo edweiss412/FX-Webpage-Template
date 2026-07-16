@@ -46,7 +46,11 @@ describe("renderRealtimeProblemBatch (batching spec §2.4)", () => {
   });
 
   test("sync_problems N=3 (2 shows + global): count subject, one catalog line per member, ONE dashboard link", () => {
-    const members: RealtimeInput[] = [showMember(1), showMember(2), { kind: "global", origin: ORIGIN }];
+    const members: RealtimeInput[] = [
+      showMember(1),
+      showMember(2),
+      { kind: "global", origin: ORIGIN },
+    ];
     const batch = renderRealtimeProblemBatch("sync_problems", ORIGIN, members);
     expect(batch.subject).toBe("FXAV: sync problems on 3 shows");
     expect(batch.text).toContain("Show 1");

@@ -1,10 +1,6 @@
 import postgres from "postgres";
 import { describe, expect, test, vi } from "vitest";
-import {
-  deliverRealtimeCandidates,
-  type DeliverySql,
-  type LockClient,
-} from "@/lib/notify/deliver";
+import { deliverRealtimeCandidates, type DeliverySql, type LockClient } from "@/lib/notify/deliver";
 import type { RealtimeCandidate } from "@/lib/notify/detect/candidates";
 import type { SendArgs, SendResult } from "@/lib/notify/send";
 
@@ -101,7 +97,8 @@ describe("single-flight guard against a real database (batching spec §2.1b)", (
         expect(probeAfterSuccess).toBe(true);
 
         // Thrown pass (work sql fails) still releases the lock.
-        const throwingSql = (() => Promise.reject(new Error("work sql down"))) as unknown as DeliverySql;
+        const throwingSql = (() =>
+          Promise.reject(new Error("work sql down"))) as unknown as DeliverySql;
         const thrown = await deliverRealtimeCandidates(
           { candidates: [candidate], recipients: [recipient], origin: "https://crew.fxav.app" },
           { sql: throwingSql },

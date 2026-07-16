@@ -172,7 +172,10 @@ describe("single-holder topology pin (batching spec §2.1b, AGENTS.md invariant-
 
   test(`exactly one holder of ${KEY}, xact-scoped, no session-level variant anywhere`, () => {
     const root = path.resolve(__dirname, "../..");
-    const files = [...walk(path.join(root, "lib"), ".ts"), ...walk(path.join(root, "supabase"), ".sql")];
+    const files = [
+      ...walk(path.join(root, "lib"), ".ts"),
+      ...walk(path.join(root, "supabase"), ".sql"),
+    ];
     const holders: string[] = [];
     for (const file of files) {
       const content = fs.readFileSync(file, "utf8");

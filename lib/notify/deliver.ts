@@ -369,7 +369,9 @@ async function deliverBatch(input: {
   // active-recipient check — so the bound r derives from the canonical email
   // and no token-bearing body is ever rendered for a revoked recipient (R17).
   const email =
-    input.email.mode === "per-recipient" ? input.email.render(input.recipient) : input.email.content;
+    input.email.mode === "per-recipient"
+      ? input.email.render(input.recipient)
+      : input.email.content;
 
   await input.heartbeat?.();
   const first = await input.send({

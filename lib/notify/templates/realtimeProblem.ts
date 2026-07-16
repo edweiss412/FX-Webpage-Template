@@ -75,7 +75,10 @@ function memberLine(input: RealtimeInput): MemberLine {
   const stalled = MESSAGE_CATALOG.SYNC_STALLED.dougFacing;
   // Defensive strip for consistency with the other paths (SYNC_STALLED is
   // marker-free today, so this is a no-op unless the copy gains emphasis).
-  return { label: "Syncing", bodyText: stalled ? plainCatalogText(stalled) : "Syncing is stalled." };
+  return {
+    label: "Syncing",
+    bodyText: stalled ? plainCatalogText(stalled) : "Syncing is stalled.",
+  };
 }
 
 export function renderRealtimeProblem(input: RealtimeInput): RenderedEmail {
@@ -86,7 +89,8 @@ export function renderRealtimeProblem(input: RealtimeInput): RenderedEmail {
       : input.kind === "ingestion"
         ? (input.driveFileName ?? "a new sheet")
         : "syncing";
-  const href = input.kind === "show" ? `${input.origin}/admin/show/${input.slug}` : `${input.origin}/admin`;
+  const href =
+    input.kind === "show" ? `${input.origin}/admin/show/${input.slug}` : `${input.origin}/admin`;
 
   const subject = `FXAV · ${subjectShow}: sync problem`;
   const text = `${bodyText}\n\nOpen the dashboard: ${href}`;
