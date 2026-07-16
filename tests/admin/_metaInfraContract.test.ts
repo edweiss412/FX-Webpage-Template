@@ -234,6 +234,12 @@ const infraRegistry = [
       "Flow-4 auto-applied strip (spec §6.1): show_change_log un-dispositioned auto-apply read (service-role; source='auto_apply', status='applied', acknowledged_at IS NULL, change_kind ∈ 5 strip kinds) + roster_shift_counts RPC keyed on publishedShowIds. Every await destructures { data, error }; service-role construction throw + show_change_log returned {error}/await throw + rpc returned {error}/await throw → { kind: 'infra_error' }.",
   },
   {
+    helper: "readShowReviewSnapshot",
+    path: "lib/admin/readShowReviewSnapshot.ts",
+    contract:
+      "consolidated admin show-page snapshot read (spec §3.3a): single get_admin_show_review_snapshot RPC over a passed-in session client. `await supabase.rpc(...)` is the sole boundary, wrapped in one try/catch. { data, error } destructure; returned {error} → { kind:'infra_error' } (logged, no §12.4 code); data:null (RPC's non-admin OR missing-show sentinel) → { kind:'not_admin_or_missing' }; thrown await → { kind:'infra_error' }. RPC returned-error/throw paths behaviorally pinned in tests/admin/readShowReviewSnapshot.test.ts (shared mock rpc() is not fn-keyed — loadTelemetryStats precedent).",
+  },
+  {
     helper: "loadIgnoredSheets",
     path: "lib/admin/loadIgnoredSheets.ts",
     contract:
