@@ -59,9 +59,12 @@ partition discriminator used throughout `lib/sync` — e.g.
 
 **Why row-existence, not `onboarding_scan_manifest` membership:** pending-row
 ownership releases naturally when the wizard finalize consumes the row
-(`app/api/admin/onboarding/finalize/route.ts:707-712` deletes approved
-`pending_syncs` rows), so cron resumes normal update syncing for published
-shows immediately, even while the wizard tab stays open. Manifest membership
+(`app/api/admin/onboarding/finalize/route.ts:707-712` deletes every FINISHABLE
+clean row — checked AND unchecked, per the selector predicate `m.status in
+('staged','applied') and (ps.wizard_approved = true or
+ps.last_finalize_failure_code is null)` at `finalize/route.ts:440-448`), so
+cron resumes normal update syncing for published shows immediately, even while
+the wizard tab stays open. Manifest membership
 would hold ownership until session teardown and could freeze live-show syncing
 for up to the 24h reap on an abandoned session.
 
@@ -92,8 +95,10 @@ releases the moment EITHER side goes away:
   reset clears wizard state wholesale. Any of these instantly releases EVERY
   file owned by the old session, regardless of leftover rows — leftover rows
   with a non-pointer session id never match the predicate.
-- **Row side:** the wizard finalize deletes approved `pending_syncs` rows
-  per-file (`app/api/admin/onboarding/finalize/route.ts:707-712`); a
+- **Row side:** the wizard finalize deletes every finishable clean
+  `pending_syncs` row per-file — checked and unchecked
+  (`app/api/admin/onboarding/finalize/route.ts:707-712`; selector predicate at
+  `:440-448`); a
   same-session rescan purges the session's `pending_syncs`,
   `pending_ingestions`, and manifest rows
   (`app/api/admin/onboarding/scan/route.ts:197-206` — NOT
@@ -115,9 +120,16 @@ staged in the wizard are affected, (b) every skip writes an operator-visible
 `sync_log` row (`skipped:wizard_owned`), and (c) the escape hatches are the
 ordinary admin flows — finish the wizard (finalize-cas), re-run setup (the
 24h-stale takeover contract at `lib/onboarding/sessionLifecycle.ts:355`,
-`:388`, `:430` lets a new scan claim a stale pending session), or reset. A
-wedged cron sync is strictly safer than the alternative this spec fixes (cron
-publishing wizard-staged shows).
+`:388`, `:430` lets a new scan claim a stale pending session — EXCEPT when a
+finalize checkpoint with `batches_completed > 0` and status not
+`final_cas_done` exists, where rotation is suppressed
+(`lib/onboarding/sessionLifecycle.ts:285-295`) and the escape is the
+dedicated abandoned-finalize cleanup (`cleanupAbandonedFinalize`,
+`lib/onboarding/sessionLifecycle.ts:413`, admin route
+`app/api/admin/onboarding/cleanup-abandoned-finalize/[sessionId]/route.ts`,
+which rotates `app_settings` itself), or reset. A wedged cron sync is
+strictly safer than the alternative this spec fixes (cron publishing
+wizard-staged shows).
 
 ### 2.2 Guard-condition table (per input)
 
@@ -200,7 +212,9 @@ cadence to the gate→lock interval of a single in-flight file. Same class as
 - Validation cleanup: re-running the Settings → validation reset after merge
   wipes the 7 cron-published shows (including the 2 unchecked ones).
 - `pending_wizard_session_id` remaining set after finalize until the Finish
-  step / reap — by design (`finalize-cas/route.ts:682-686` clears it).
+  step (finalize-cas `promoteSettings`, `finalize-cas/route.ts:673-687`), a
+  setup-rerun takeover, or `cleanupAbandonedFinalize` — by design. The reap
+  never touches the active pointer (§2.1 reap scope caveat).
 - Files added to Drive mid-wizard that the scan never staged: cron may still
   auto-publish them. Pre-existing behavior; not made worse by this change.
 - The `auto_publish_clean_first_seen` flag semantics themselves.
@@ -323,8 +337,10 @@ relative to a fixed `nowMs`), never hardcoded date literals.
   relitigate adding a phase1 duplicate.
 - **Row-existence over manifest membership** (§2.1) is ratified; the
   abandoned-session freeze is the documented reason.
-- **No gate-side staleness clock** (§2.1, R2 amendment): the reap is the
-  single lifecycle authority; do not demand the gate re-derive staleness from
+- **No gate-side staleness clock** (§2.1, R2 amendment): the session
+  lifecycle transitions (finalize-cas, setup-rerun takeover,
+  `cleanupAbandonedFinalize`, reap for non-active sessions) are the only
+  release authorities; do not demand the gate re-derive staleness from
   `pending_wizard_session_at` (that clock diverges from the six-table
   freshest-activity contract and reopens the hijack) nor from a replicated
   freshest-activity aggregate (a second holder of the lifecycle decision).
