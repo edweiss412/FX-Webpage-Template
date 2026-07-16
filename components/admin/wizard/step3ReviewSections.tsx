@@ -81,6 +81,7 @@ import type {
 import { useRouter } from "next/navigation";
 import type { Step3Row } from "@/components/admin/wizard/Step3Review";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
+import { stableWarningKeys } from "@/lib/dataQuality/warningIdentity";
 import { UseRawControlBoundary } from "@/components/admin/UseRawControlBoundary";
 import { RoleRecognizeControlBoundary } from "@/components/admin/RoleRecognizeControlBoundary";
 import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";
@@ -2396,7 +2397,23 @@ export function reviewWarningTitle(w: ParseWarning): string {
  * AFFIRMATIVE empty state (spec §3.10) — the all-clean state is a sentence,
  * not an absent panel. No publish-gate logic changes here.
  */
-export function WarningsBreakdown({ dfid, warnings }: { dfid: string; warnings: ParseWarning[] }) {
+export function WarningsBreakdown({
+  dfid,
+  warnings,
+  useRawDecisions,
+  wizardSessionId,
+}: {
+  dfid: string;
+  warnings: ParseWarning[];
+  /** spec 2026-07-16 §4.1: staged decisions + session so every in-scope row can
+   *  render the use-raw / recognize-role controls (live-page parity). Optional/
+   *  ABSENT in standalone mounts (exactOptionalPropertyTypes) → no controls. */
+  useRawDecisions?: UseRawDecision[];
+  wizardSessionId?: string;
+}) {
+  // spec §4.3.1: reorder-stable, duplicate-safe keys — index keys would migrate
+  // control state across warnings after a rescan/refresh reorders the array.
+  const keys = stableWarningKeys(warnings);
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-warnings`}
@@ -2430,7 +2447,7 @@ export function WarningsBreakdown({ dfid, warnings }: { dfid: string; warnings: 
               const isWarn = w.severity === "warn";
               return (
                 <li
-                  key={`${w.code}-${i}`}
+                  key={keys[i]}
                   data-testid={`wizard-step3-card-${dfid}-warning-${i}`}
                   // §E4 jump-target key: same FULL-array index as the testid —
                   // the modal's container-scoped query hook (no `id`s, §9.4).
@@ -2446,7 +2463,9 @@ export function WarningsBreakdown({ dfid, warnings }: { dfid: string; warnings: 
                   >
                     {isWarn ? <AlertTriangle className="size-4" /> : <Info className="size-4" />}
                   </span>
-                  <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                  {/* div, not span: the per-row controls (and helpfulContext) render
+                      block roots — block-valid container (spec §4.3). */}
+                  <div className="flex min-w-0 flex-1 flex-col gap-0.5">
                     <span className="flex flex-wrap items-baseline gap-x-1.5 text-sm text-text">
                       <span
                         aria-hidden="true"
@@ -2497,7 +2516,28 @@ export function WarningsBreakdown({ dfid, warnings }: { dfid: string; warnings: 
                         </a>
                       ) : null;
                     })()}
-                  </span>
+                    {/* spec 2026-07-16 §4.3: the complete-list render site for the
+                        use-raw + recognize-role controls (live-page parity; the §E3
+                        callout stays a capped, actionable preview). Both boundaries
+                        self-hide out-of-scope warnings. */}
+                    {wizardSessionId ? (
+                      <UseRawControlBoundary
+                        surface="wizard"
+                        wizardSessionId={wizardSessionId}
+                        driveFileId={dfid}
+                        warning={w}
+                        decision={findUseRawDecision(w, useRawDecisions)}
+                      />
+                    ) : null}
+                    {wizardSessionId ? (
+                      <RoleRecognizeControlBoundary
+                        surface="wizard"
+                        wizardSessionId={wizardSessionId}
+                        driveFileId={dfid}
+                        warning={w}
+                      />
+                    ) : null}
+                  </div>
                 </li>
               );
             })}
@@ -3617,7 +3657,16 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       Icon: AlertTriangle,
       // Both severities — the rail count counts list rows (§3.3).
       railCount: (s) => s.warnings.length,
-      render: (s) => <WarningsBreakdown dfid={s.dfid} warnings={s.warnings} />,
+      // spec 2026-07-16 §4.2: thread the staged decisions + session so the full
+      // list renders the per-warning controls (complete render site, §4.6).
+      render: (s) => (
+        <WarningsBreakdown
+          dfid={s.dfid}
+          warnings={s.warnings}
+          useRawDecisions={s.useRawDecisions}
+          wizardSessionId={s.wizardSessionId}
+        />
+      ),
     },
     {
       id: "report",
