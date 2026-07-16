@@ -43,6 +43,7 @@ Only the **light** block (`:root` defaults, `app/globals.css:266-299` region) ch
 | --- | --- | --- | --- | --- |
 | `--color-accent-text-runtime` (light) | `app/globals.css:278` | `#ffffff` | `#0e0f12` | 8.23:1 on `#ff8c1a`; 6.53:1 on hover `#e67a0e` |
 | `--color-accent-on-bg-runtime` (light) | `app/globals.css:279` | `#c25e00` | `#b35600` | 4.73:1 on bg `#fafaf9`; 4.94:1 on surface `#ffffff`; 4.35:1 (≥3:1 graphical) on accent-tint `#feeede` |
+| `--color-accent-edge-runtime` (NEW, all three blocks) | added beside the accent group | — | light `#7a3d00`, dark `#ffa047` (both dark blocks) | light: 3.61:1 vs track `#ff8c1a`, 8.06:1 vs bg, 8.42:1 vs surface. Dark value is decorative (see §4.1) |
 
 Knock-on consumers that inherit automatically (no per-surface edits): every `text-accent-text` CTA/badge (30 files — `components/shared/AccentButton.tsx`, wizard steps, nav count badges, error pages, crew interstitial, etc.), every `text-accent-on-bg` link/emphasis surface (StagedReviewCard, IdentityChip, DashboardFooter, status pills), `--color-status-live-text` (aliases `--color-accent-on-bg`, `app/globals.css:89`), and the bell info icon (`accent-on-bg` on `accent-tint`, pinned at `tests/styles/status-token-contrast.test.ts:140-142`).
 
@@ -52,7 +53,9 @@ Knock-on consumers that inherit automatically (no per-surface edits): every `tex
 
 ### 4.1 Toggle ON boundary (DEVTIER-2; WCAG 1.4.11)
 
-The shared toggle recipe `on ? "border-accent bg-accent" : "border-border-strong bg-surface-sunken"` changes to `on ? "border-accent-on-bg bg-accent" : "border-border-strong bg-surface-sunken"` — the ON border becomes the ≥3:1 boundary (new light `#b35600` = 4.73:1 vs bg, 4.94:1 vs surface; dark `#ffa047` vs `#0f1014` = 9.39:1). Sites (verified identical recipe):
+The shared toggle recipe `on ? "border-accent bg-accent" : "border-border-strong bg-surface-sunken"` changes to `on ? "border-accent-edge bg-accent" : "border-border-strong bg-surface-sunken"`, where `--color-accent-edge` is a NEW token whose sole job is the ON-state control boundary.
+
+**Why a dedicated token, and the dual-side requirement (WCAG 1.4.11):** a 1px border nested between the orange track and the page must clear ≥3:1 against BOTH adjacent colors, or it visually merges with one of them. `accent-on-bg` (`#b35600`) was evaluated and REJECTED for this role: 4.73:1 vs bg but only **2.12:1 vs the `#ff8c1a` track** — it would read as part of the track and the component boundary would remain the failing track-vs-bg pair. `--color-accent-edge` light `#7a3d00` measures **3.61:1 vs the track** and **8.06:1 vs bg / 8.42:1 vs surface** — the boundary passes on both sides. In dark mode the track itself IS the passing boundary (`#ff8c1a` vs `#0f1014` = 8.16:1; vs surface `#16171c` = 7.69:1), so the dark edge value `#ffa047` is decorative (a subtle lighter rim matching `accent-hover` dark) and carries no 1.4.11 load. Sites (verified identical recipe):
 
 - `components/admin/settings/NotifyToggle.tsx:134`
 - `components/admin/settings/AutoPublishToggle.tsx:126`
@@ -91,7 +94,8 @@ Every touched figure is corrected to the measured value (the numeric-sweep targe
 - **§1.2 table L58**: 4.6:1 → 4.73:1.
 - **§1.2 table L59**: 4.07:1 → 8.23:1, note "AA-large+bold" → "AAA-adjacent / AA body both modes".
 - **§1.2 table L70**: 3.8:1 → 4.35:1.
-- New row (or amended L57-59 note): toggle ON-track border `accent-on-bg` vs `bg`/`surface` ≥3:1 non-text (4.73 / 4.94 light; 9.39 dark).
+- New §1.1 row for `--color-accent-edge` (light `#7A3D00` / dark `#FFA047`): "ON-state control boundary (toggle track border). Light: 3.61:1 vs the orange track and 8.06:1 vs bg — passes WCAG 1.4.11 on both adjacent sides. Dark: decorative; the track itself clears 8.16:1 vs bg."
+- New §1.2 rows: `accent-edge` vs `accent` (3.61:1 light), `accent-edge` vs `bg` (8.06:1 light); `accent` vs `bg` dark (8.16:1) noted as the dark-mode toggle boundary.
 - §1.1 prose "primary CTAs" sentence gains: selected-filter segments are NOT an accent surface (inverted neutral is the selected-state recipe; accent is reserved for live/matters-now + CTAs).
 
 All other figures in §1.1/§1.2 get a one-time verification sweep during implementation (same formula); any additional stale figure found is corrected in the same commit and enumerated in the PR body.
@@ -104,14 +108,15 @@ All other figures in §1.1/§1.2 get a one-time verification sweep during implem
   1. `accent-text` on `accent` ≥ 4.5:1 (text floor; CTAs are body-size bold)
   2. `accent-text` on `accent-hover` ≥ 4.5:1
   3. `accent-on-bg` on `bg` AND on `surface` ≥ 4.5:1 (the backlog-prescribed row)
-  4. `accent-on-bg` vs `bg` AND vs `surface` ≥ 3:1 (non-text, pins the toggle border)
+  4. Toggle boundary, light mode: `accent-edge` vs `accent` ≥ 3:1 AND `accent-edge` vs `bg` ≥ 3:1 AND `accent-edge` vs `surface` ≥ 3:1 (every adjacent pair the 1px border touches)
+  5. Toggle boundary, dark mode: `accent` (track) vs `bg` ≥ 3:1 AND vs `surface` ≥ 3:1 (the track itself is the boundary; the dark edge value is decorative and un-pinned)
   (Existing rows at `:140-145` — bell icon ≥3:1 on tint, pill text — re-run green with the new values.)
 - **NOT extended:** `tests/styles/_metaDesignTokenPairs.test.ts` (scoped to `app/help/_components` by its own v1 scope note; no help files change), advisory-lock/infra/mutation registries (no DB, no mutation surface, no Supabase call — this diff is CSS tokens + class strings + docs).
 
 ### 6.2 Behavioral/unit updates
 
 - Component tests pinning the old class strings are updated to the new recipes (TDD: change assertion first, watch fail, flip implementation). Known candidates from the pre-spec grep (`text-accent-text` / `bg-accent` / eyebrow / badge testids): `tests/components/atoms/AccentButton.test.tsx`, `tests/styles/accent-button-atom.test.ts`, `tests/components/admin/wizard/step3ReviewSections.test.tsx`, `tests/components/telemetry/*`, `tests/e2e/developer-toggle-layout.spec.ts`, `tests/e2e/telemetry-layout.spec.ts` + the rest of the 18-file grep list; the plan enumerates each with its exact assertion.
-- New assertions: EventLevelBadge error carries `bg-status-degraded text-status-degraded-text` and carries NEITHER `bg-warning-bg` NOR the rejected `bg-danger-bg text-status-degraded` pairing; EventFilters selected segment carries `bg-text text-bg` and no `bg-accent`; each toggle ON state carries `border-accent-on-bg`; `CELL_EYEBROW_CLASS` contains `text-text-subtle` and not `text-text-faint`.
+- New assertions: EventLevelBadge error carries `bg-status-degraded text-status-degraded-text` and carries NEITHER `bg-warning-bg` NOR the rejected `bg-danger-bg text-status-degraded` pairing; EventFilters selected segment carries `bg-text text-bg` and no `bg-accent`; each toggle ON state carries `border-accent-edge` (and not `border-accent`); `CELL_EYEBROW_CLASS` contains `text-text-subtle` and not `text-text-faint`.
 - Anti-tautology: contrast assertions read hex out of `globals.css` and compute (never hardcode a ratio literal that can drift); class assertions target the specific element by testid/role, not container `innerHTML`.
 
 ### 6.3 What proves the failure mode
@@ -143,7 +148,8 @@ The token rows fail TODAY against the old values (2.33 < 4.5, 4.11 < 4.5, 2.23 <
 | CTA hover | `#0e0f12` on `#e67a0e` | 6.53 | 4.5 |
 | Links/emphasis | `#b35600` on `#fafaf9` | 4.73 | 4.5 |
 | Links on surface | `#b35600` on `#ffffff` | 4.94 | 4.5 |
-| Toggle ON border | `#b35600` vs `#fafaf9` / `#ffffff` | 4.73 / 4.94 | 3.0 |
+| Toggle ON border vs page | `#7a3d00` vs `#fafaf9` / `#ffffff` | 8.06 / 8.42 | 3.0 |
+| Toggle ON border vs track | `#7a3d00` vs `#ff8c1a` | 3.61 | 3.0 |
 | Bell info icon | `#b35600` on `#feeede` | 4.35 | 3.0 |
 | Eyebrows | `#5a5b62` on `#fafaf9`-family | ≥6.09 | 4.5 |
 | Selected filter | `#fafaf9` on `#1a1b1f` | 16.47 | 4.5 |
