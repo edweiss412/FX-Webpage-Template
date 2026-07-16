@@ -459,7 +459,9 @@ export async function emitRoleTokenMapped(entries: readonly GatedRoleMapping[], 
 }
 ```
 
-(Adapt the exact `log.info` signature to `lib/log`'s real API — read it first; the contract is: durable `code: "ROLE_TOKEN_MAPPED"`, context `{token, grants, newMemberCount}`, no names.) Call it at each surface's existing post-commit telemetry site with that surface's `Phase2Result.appliedRoleMappings` — cron/manual shared core AND staged apply. A rolled-back/`stale` result emits nothing (only the `outcome: "applied"` arm carries entries).
+(Adapt the exact `log.info` signature to `lib/log`'s real API — read it first; the contract is: durable `code: "ROLE_TOKEN_MAPPED"`, context `{token, grants, newMemberCount}`, no names.)
+
+**Emission LOCATION pinned (plan-R4 F3):** the cron/manual emit call goes INSIDE `processOneFile` (`runScheduledCronSync.ts:2643`), in its existing post-commit region after the phase2 transaction resolves — NOT in the cron loop that iterates files. Because `runManualSyncForShow` executes this same function (`runManualSyncForShow.ts:12,299`), the manual path emits by construction; emission in the cron LOOP would leave every `mapRoleToken` follow-up sync telemetry-dark (spec §10 point 5). The staged path emits at its own post-commit site in `applyStaged.ts`. Explicit test: a `runManualSyncForShow`-driven apply (mocked file meta, real `processOneFile` with DI'd deps per its existing test seams) emits `ROLE_TOKEN_MAPPED` — the same fixture the `mapRoleToken` integration path exercises. A rolled-back/`stale` result emits nothing (only the `outcome: "applied"` arm carries entries).
 
 - [ ] **Step 5: Telemetry lifecycle tests** (extend `tests/sync/phase2RoleMappings.test.ts`, deriving all expectations from fixtures): steady-state second sync emits zero (both branches); grants edit `[A1]`→`[A1,V1]` emits exactly once; delete → zero events + warning returns; first-publish (fields omitted) emits once then silent; rollback — structural, since ONLY the `outcome:"applied"` result arm carries `appliedRoleMappings` and emission reads the result post-commit: assert a `stale`-outcome run produces zero emissions (spec §10 point 7).
 
