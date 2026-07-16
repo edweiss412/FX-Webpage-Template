@@ -145,6 +145,27 @@ describe("single-flight guard (batching spec §2.1b)", () => {
     expect(lock.heartbeatCount()).toBe(4); // 1 active check + one per skipped candidate, zero sends
   });
 
+  test("heartbeat failure between conflict and reissue aborts with only one provider call", async () => {
+    const { sql, state } = fakeSql();
+    const sends: SendArgs[] = [];
+    const sendEmail = vi.fn(async (args: SendArgs): Promise<SendResult> => {
+      sends.push(args);
+      return { ok: false, kind: "idempotency_conflict" };
+    });
+    // Sequence: hb1 active check, hb2 elig show1, hb3 first send, hb4 reissue → fails.
+    const lock = fakeLockSql({ heartbeatFailsAt: 4 });
+
+    const result = await deliverRealtimeCandidates(
+      { candidates: [showCandidate(1)], recipients: [RECIPIENT], origin: ORIGIN },
+      { sql, sendEmail, lockSql: lock },
+    );
+
+    expect(result).toEqual({ kind: "infra_error" });
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    expect(state.sentRows).toHaveLength(0);
+    expect(state.failedRows).toHaveLength(0);
+  });
+
   test("heartbeat failure during ELIGIBILITY aborts cleanly before any send", async () => {
     const { sql, state } = fakeSql();
     const { sendEmail } = sender();

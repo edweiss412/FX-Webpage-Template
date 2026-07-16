@@ -379,14 +379,16 @@ async function deliverBatch(input: {
     to: input.recipient,
     idempotencyKey: baseKey(input.kind, combined, input.recipient),
   });
-  const outcome =
-    first.ok === false && first.kind === "idempotency_conflict"
-      ? await input.send({
-          ...email,
-          to: input.recipient,
-          idempotencyKey: input.makeReissueKey(input.kind, combined, input.recipient),
-        })
-      : first;
+  let outcome = first;
+  if (first.ok === false && first.kind === "idempotency_conflict") {
+    // The reissue is a second provider send — same lock-liveness fence (§2.1b).
+    await input.heartbeat?.();
+    outcome = await input.send({
+      ...email,
+      to: input.recipient,
+      idempotencyKey: input.makeReissueKey(input.kind, combined, input.recipient),
+    });
+  }
 
   if (outcome.ok === true) {
     for (const member of input.members) {

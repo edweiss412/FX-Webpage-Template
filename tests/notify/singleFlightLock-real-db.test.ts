@@ -58,14 +58,14 @@ describe("single-flight guard against a real database (batching spec §2.1b)", (
         const held = new Promise<void>((resolve) => {
           releaseCompetitor = resolve;
         });
-        const competitorLocked = new Promise<boolean>((resolveLocked, rejectLocked) => {
-          competitor
-            .begin(async (tx) => {
-              const rows = await tx.unsafe(LOCK_SQL);
-              resolveLocked(Boolean((rows[0] as { locked?: boolean } | undefined)?.locked));
-              await held;
-            })
-            .catch(rejectLocked);
+        let resolveLocked!: (locked: boolean) => void;
+        const competitorLocked = new Promise<boolean>((resolve) => {
+          resolveLocked = resolve;
+        });
+        const competitorTx = competitor.begin(async (tx) => {
+          const rows = await tx.unsafe(LOCK_SQL);
+          resolveLocked(Boolean((rows[0] as { locked?: boolean } | undefined)?.locked));
+          await held;
         });
         expect(await competitorLocked).toBe(true);
 
@@ -82,6 +82,9 @@ describe("single-flight guard against a real database (batching spec §2.1b)", (
           lockSkipped: true,
         });
         releaseCompetitor!();
+        // Await the actual COMMIT — resolving the held promise alone races the
+        // transaction close and would flake the next pass into lockSkipped.
+        await competitorTx;
 
         // After the competitor commits, a full pass runs and the lock frees afterwards.
         const delivered = await deliverRealtimeCandidates(
