@@ -63,7 +63,7 @@ import {
   dateSummarySegments,
   step3Sections,
   STEP3_SECTION_GROUPS,
-  type SectionData,
+  type StagedSectionData,
 } from "@/components/admin/wizard/step3ReviewSections";
 import { deriveSectionStatuses, type SectionId } from "@/lib/admin/step3SectionStatus";
 import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
@@ -98,15 +98,41 @@ function judgmentWarning(kind: string, field?: string): ParseWarning {
 /** Assemble the modal's SectionData from the shared fixture builders. */
 function sectionData(
   prOverrides: Partial<ParseResult> = {},
-  dataOverrides: Partial<SectionData> = {},
-): SectionData {
+  dataOverrides: Partial<StagedSectionData> = {},
+): StagedSectionData {
   const pr = buildParseResult(prOverrides);
-  const row = stagedRow(pr);
+  // Row/dfid may be overridden via dataOverrides (e.g. sourceAnchors injected on
+  // the row); derive the row/dfid-dependent SectionCore fields from the FINAL
+  // values so an overridden row propagates to title/sourceAnchors/driveFileId.
+  const row = dataOverrides.row ?? stagedRow(pr);
+  const dfid = dataOverrides.dfid ?? DFID;
   return {
+    mode: "staged",
     pr,
     row,
-    dfid: DFID,
+    dfid,
     wizardSessionId: WSID,
+    // SectionCore (spec §3.2) — mechanical staged derivation (Task 4's builder
+    // will replace these literals across all construction sites).
+    title: pr.show.title || row.driveFileName || dfid,
+    clientLabel: pr.show.client_label || null,
+    dates: pr.show.dates,
+    venue: pr.show.venue,
+    eventDetails: pr.show.event_details,
+    clientContact: pr.show.client_contact,
+    contacts: pr.contacts ?? [],
+    transportation: pr.transportation,
+    diagrams: pr.diagrams,
+    billing: {
+      coiStatus: pr.show.coi_status,
+      proposal: pr.show.proposal,
+      po: pr.show.po,
+      invoice: pr.show.invoice,
+      invoiceNotes: pr.show.invoice_notes,
+    },
+    rawUnrecognized: pr.raw_unrecognized,
+    sourceAnchors: row.sourceAnchors ?? {},
+    driveFileId: dfid,
     crewMembers: pr.crewMembers,
     rooms: pr.rooms,
     hotels: pr.hotelReservations,
@@ -124,7 +150,7 @@ function sectionData(
 function sectionDataWithShow(
   showOverrides: Partial<ParseResult["show"]>,
   prOverrides: Partial<ParseResult> = {},
-): SectionData {
+): StagedSectionData {
   const pr = buildParseResult(prOverrides);
   return sectionData({ ...prOverrides, show: { ...pr.show, ...showOverrides } });
 }
@@ -135,7 +161,7 @@ function tid(name: string, dfid = DFID): string {
 
 function renderModal(
   opts: {
-    d?: SectionData;
+    d?: StagedSectionData;
     checked?: boolean;
     isDirtyRescan?: boolean;
     onRequestSetChecked?: (next: boolean) => Promise<boolean>;
@@ -207,7 +233,7 @@ function OptimisticHarness(props: {
 /** flaggedCount the modal must display, computed the same way the spec derives
  *  it (deriveSectionStatuses over the data's warnings + rendered sections) —
  *  never a restated literal. */
-function expectedFlagged(d: SectionData): number {
+function expectedFlagged(d: StagedSectionData): number {
   const rendered = new Set<SectionId>(step3Sections(d).map((s) => s.id));
   return deriveSectionStatuses(d.warnings, rendered).flaggedCount;
 }
@@ -771,7 +797,7 @@ describe("Step3ReviewModal — publish click (spec §9.1)", () => {
 describe("Step3ReviewModal — footer Unpublish + demoted gate (spec §C2/§C3)", () => {
   /** SectionData whose row is finalize-demoted by `code` (dirty rescan is the
    *  RESCAN_REVIEW_REQUIRED subtype — spec §C3). */
-  function demotedData(code: string): SectionData {
+  function demotedData(code: string): StagedSectionData {
     const pr = buildParseResult();
     return sectionData({}, { row: stagedRow(pr, { lastFinalizeFailureCode: code }) });
   }
@@ -924,7 +950,7 @@ function infoWarning(kind: string): ParseWarning {
 
 /** flagged SET computed via the mapping lib over the registry's rendered ids
  *  (anti-tautology: expectations derive from the data path, not the render). */
-function flaggedSetFor(d: SectionData): ReadonlySet<SectionId> {
+function flaggedSetFor(d: StagedSectionData): ReadonlySet<SectionId> {
   const rendered = new Set<SectionId>(step3Sections(d).map((s) => s.id));
   return deriveSectionStatuses(d.warnings, rendered).flagged;
 }
@@ -1580,7 +1606,7 @@ describe("Step3ReviewModal — nav-click scroll-spy suppression (Task 10, spec �
    *  the absolute container-relative top at ANY scroll position. */
   function setup(
     opts: {
-      d?: SectionData;
+      d?: StagedSectionData;
       clientHeight?: number;
       /** scrollHeight as a function of the section count n. */
       scrollHeight?: (n: number) => number;

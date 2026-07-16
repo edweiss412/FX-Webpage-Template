@@ -588,10 +588,34 @@ export function Step3SheetCard({
       {detailsOpen ? (
         <Step3ReviewModal
           data={{
+            mode: "staged",
             pr,
             row,
             dfid,
             wizardSessionId,
+            // ── SectionCore (spec §3.2). Phase 1: derived inline from the staged
+            //    pr/row. Task 4 replaces this literal with a single
+            //    buildStagedSectionData(pr, row, dfid, wizardSessionId, …) call —
+            //    the derivations are kept mechanical so that swap is trivial.
+            title: pr.show.title || row.driveFileName || dfid,
+            clientLabel: pr.show.client_label || null,
+            dates: pr.show.dates,
+            venue: pr.show.venue,
+            eventDetails: pr.show.event_details,
+            clientContact: pr.show.client_contact,
+            contacts: pr.contacts ?? [],
+            transportation: pr.transportation,
+            diagrams: pr.diagrams,
+            billing: {
+              coiStatus: pr.show.coi_status,
+              proposal: pr.show.proposal,
+              po: pr.show.po,
+              invoice: pr.show.invoice,
+              invoiceNotes: pr.show.invoice_notes,
+            },
+            rawUnrecognized: pr.raw_unrecognized,
+            sourceAnchors: row.sourceAnchors ?? {},
+            driveFileId: dfid,
             crewMembers,
             rooms,
             hotels,

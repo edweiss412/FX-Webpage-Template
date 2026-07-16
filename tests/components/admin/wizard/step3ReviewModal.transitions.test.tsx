@@ -92,7 +92,10 @@ import {
   Step3ReviewModal,
   WARNING_HIGHLIGHT_MS,
 } from "@/components/admin/wizard/Step3ReviewModal";
-import { step3Sections, type SectionData } from "@/components/admin/wizard/step3ReviewSections";
+import {
+  step3Sections,
+  type StagedSectionData,
+} from "@/components/admin/wizard/step3ReviewSections";
 import { buildParseResult, stagedRow } from "./_step3ReviewFixture";
 
 const ROOT = join(__dirname, "..", "..", "..", "..");
@@ -114,15 +117,40 @@ function warning(kind: string): ParseWarning {
 
 function sectionData(
   prOverrides: Partial<ParseResult> = {},
-  dataOverrides: Partial<SectionData> = {},
-): SectionData {
+  dataOverrides: Partial<StagedSectionData> = {},
+): StagedSectionData {
   const pr = buildParseResult(prOverrides);
-  const row = stagedRow(pr);
+  // Row/dfid may be overridden via dataOverrides; derive the row/dfid-dependent
+  // SectionCore fields from the FINAL values so an overridden row propagates.
+  const row = dataOverrides.row ?? stagedRow(pr);
+  const dfid = dataOverrides.dfid ?? DFID;
   return {
+    mode: "staged",
     pr,
     row,
-    dfid: DFID,
+    dfid,
     wizardSessionId: WSID,
+    // SectionCore (spec §3.2) — mechanical staged derivation (Task 4's builder
+    // will replace these literals across all construction sites).
+    title: pr.show.title || row.driveFileName || dfid,
+    clientLabel: pr.show.client_label || null,
+    dates: pr.show.dates,
+    venue: pr.show.venue,
+    eventDetails: pr.show.event_details,
+    clientContact: pr.show.client_contact,
+    contacts: pr.contacts ?? [],
+    transportation: pr.transportation,
+    diagrams: pr.diagrams,
+    billing: {
+      coiStatus: pr.show.coi_status,
+      proposal: pr.show.proposal,
+      po: pr.show.po,
+      invoice: pr.show.invoice,
+      invoiceNotes: pr.show.invoice_notes,
+    },
+    rawUnrecognized: pr.raw_unrecognized,
+    sourceAnchors: row.sourceAnchors ?? {},
+    driveFileId: dfid,
     crewMembers: pr.crewMembers,
     rooms: pr.rooms,
     hotels: pr.hotelReservations,
@@ -142,7 +170,7 @@ function tid(name: string): string {
 
 function renderModal(
   opts: {
-    d?: SectionData;
+    d?: StagedSectionData;
     checked?: boolean;
     isDirtyRescan?: boolean;
     onRequestSetChecked?: (next: boolean) => Promise<boolean>;
@@ -528,7 +556,7 @@ describe("§11 C7: checked flips via the card checkbox while the modal is open �
  *  real scrolled pane reports, so `sectionTopFor` recovers the absolute
  *  container-relative top at ANY scroll position. Warning rows are mapped
  *  too (the §E4 jump target). Callers MUST call `restore()` in a finally. */
-function suppressionSetup(opts: { d?: SectionData; checked?: boolean } = {}) {
+function suppressionSetup(opts: { d?: StagedSectionData; checked?: boolean } = {}) {
   vi.useFakeTimers();
   const realRaf = window.requestAnimationFrame;
   const realCaf = window.cancelAnimationFrame;
@@ -749,7 +777,7 @@ describe("§H N5: Publish ↔ Unpublish ↔ Removing… ↔ NotPublishable slot 
     const { q } = renderModal({ d, checked: false });
     expect(q.getByTestId(tid("publish"))).toBeTruthy();
     expect(q.queryByTestId(tid("not-publishable"))).toBeNull();
-    const demoted: SectionData = {
+    const demoted: StagedSectionData = {
       ...d,
       row: { ...d.row, lastFinalizeFailureCode: "DRIVE_FETCH_FAILED" },
     };

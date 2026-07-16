@@ -24,7 +24,7 @@ import {
   type AppRouterInstance,
 } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { Step3ReviewModal } from "@/components/admin/wizard/Step3ReviewModal";
-import type { SectionData } from "@/components/admin/wizard/step3ReviewSections";
+import type { StagedSectionData } from "@/components/admin/wizard/step3ReviewSections";
 import type { CrewMemberRow, ParseResult, ParseWarning } from "@/lib/parser/types";
 import {
   buildParseResult,
@@ -125,7 +125,7 @@ function withContactableCrew(crew: CrewMemberRow[]): CrewMemberRow[] {
 export function buildSectionData(
   prOverrides: Partial<ParseResult> = {},
   showOverrides: Partial<ParseResult["show"]> = {},
-): SectionData {
+): StagedSectionData {
   // Harness defaults (diagrams + crew warnings, above) layer UNDER the
   // caller's prOverrides so existing override-driven cases stay authoritative.
   const base = buildParseResult({
@@ -140,10 +140,32 @@ export function buildSectionData(
   };
   const row = stagedRow(pr);
   return {
+    mode: "staged",
     pr,
     row,
     dfid: HARNESS_DFID,
     wizardSessionId: HARNESS_WSID,
+    // SectionCore (spec §3.2) — mechanical staged derivation (Task 4's builder
+    // will replace these literals across all construction sites).
+    title: pr.show.title || row.driveFileName || HARNESS_DFID,
+    clientLabel: pr.show.client_label || null,
+    dates: pr.show.dates,
+    venue: pr.show.venue,
+    eventDetails: pr.show.event_details,
+    clientContact: pr.show.client_contact,
+    contacts: pr.contacts ?? [],
+    transportation: pr.transportation,
+    diagrams: pr.diagrams,
+    billing: {
+      coiStatus: pr.show.coi_status,
+      proposal: pr.show.proposal,
+      po: pr.show.po,
+      invoice: pr.show.invoice,
+      invoiceNotes: pr.show.invoice_notes,
+    },
+    rawUnrecognized: pr.raw_unrecognized,
+    sourceAnchors: row.sourceAnchors ?? {},
+    driveFileId: HARNESS_DFID,
     crewMembers: pr.crewMembers,
     rooms: pr.rooms,
     hotels: pr.hotelReservations,
@@ -166,7 +188,7 @@ export function buildSectionData(
  *  ("Objects are not valid as a React child"). createElement is untouched
  *  by that transform and esbuild (Task 11) compiles it identically. */
 export function modalElement(
-  data: SectionData,
+  data: StagedSectionData,
   handlers: {
     onRequestSetChecked?: (next: boolean) => Promise<boolean>;
     onClose?: () => void;

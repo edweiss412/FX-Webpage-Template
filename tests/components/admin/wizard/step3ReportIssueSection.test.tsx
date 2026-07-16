@@ -31,7 +31,7 @@ import {
   REPORT_PARSE_WARNINGS_CAP,
   ReportIssueSection,
   Step3SectionChromeContext,
-  type SectionData,
+  type StagedSectionData,
 } from "@/components/admin/wizard/step3ReviewSections";
 import type { SectionId } from "@/lib/admin/step3SectionStatus";
 import { messageFor } from "@/lib/messages/lookup";
@@ -53,15 +53,37 @@ function expectedErrorCopy(code: MessageCode): string {
 
 function sectionData(
   rowOverrides: Partial<Step3Row> = {},
-  dataOverrides: Partial<SectionData> = {},
-): SectionData {
+  dataOverrides: Partial<StagedSectionData> = {},
+): StagedSectionData {
   const pr = buildParseResult();
   const row = stagedRow(pr, rowOverrides);
   return {
+    mode: "staged",
     pr,
     row,
     dfid: DFID,
     wizardSessionId: WSID,
+    // SectionCore (spec §3.2) — mechanical staged derivation (Task 4's builder
+    // will replace these literals across all construction sites).
+    title: pr.show.title || row.driveFileName || DFID,
+    clientLabel: pr.show.client_label || null,
+    dates: pr.show.dates,
+    venue: pr.show.venue,
+    eventDetails: pr.show.event_details,
+    clientContact: pr.show.client_contact,
+    contacts: pr.contacts ?? [],
+    transportation: pr.transportation,
+    diagrams: pr.diagrams,
+    billing: {
+      coiStatus: pr.show.coi_status,
+      proposal: pr.show.proposal,
+      po: pr.show.po,
+      invoice: pr.show.invoice,
+      invoiceNotes: pr.show.invoice_notes,
+    },
+    rawUnrecognized: pr.raw_unrecognized,
+    sourceAnchors: row.sourceAnchors ?? {},
+    driveFileId: DFID,
     crewMembers: pr.crewMembers,
     rooms: pr.rooms,
     hotels: pr.hotelReservations,
@@ -102,7 +124,7 @@ function expandReport(q: ReturnType<typeof render>) {
 
 /** Render the section inside the modal chrome provider (the production mount),
  *  expanded (§D T-D2) so the pre-existing form assertions keep their teeth. */
-function renderInChrome(d: SectionData, getActiveSection: () => SectionId) {
+function renderInChrome(d: StagedSectionData, getActiveSection: () => SectionId) {
   const q = render(
     <Step3SectionChromeContext.Provider
       value={{

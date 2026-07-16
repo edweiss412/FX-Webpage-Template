@@ -54,7 +54,7 @@ import {
   roomHasScope,
   step3Sections,
   STEP3_SECTION_GROUPS,
-  type SectionData,
+  type StagedSectionData,
   type Step3SectionDef,
 } from "@/components/admin/wizard/step3ReviewSections";
 import { buildParseResult, stagedRow, show } from "./_step3ReviewFixture";
@@ -134,15 +134,40 @@ function warning(overrides: Partial<ParseWarning> = {}): ParseWarning {
 /** Assemble the registry's SectionData from the shared fixture builders. */
 function sectionData(
   prOverrides: Partial<ParseResult> = {},
-  dataOverrides: Partial<SectionData> = {},
-): SectionData {
+  dataOverrides: Partial<StagedSectionData> = {},
+): StagedSectionData {
   const pr = buildParseResult(prOverrides);
-  const row = stagedRow(pr);
+  // Row/dfid may be overridden via dataOverrides; derive the row/dfid-dependent
+  // SectionCore fields from the FINAL values so an overridden row propagates.
+  const row = dataOverrides.row ?? stagedRow(pr);
+  const dfid = dataOverrides.dfid ?? DFID;
   return {
+    mode: "staged",
     pr,
     row,
-    dfid: DFID,
+    dfid,
     wizardSessionId: WSID,
+    // SectionCore (spec §3.2) — mechanical staged derivation (Task 4's builder
+    // will replace these literals across all construction sites).
+    title: pr.show.title || row.driveFileName || dfid,
+    clientLabel: pr.show.client_label || null,
+    dates: pr.show.dates,
+    venue: pr.show.venue,
+    eventDetails: pr.show.event_details,
+    clientContact: pr.show.client_contact,
+    contacts: pr.contacts ?? [],
+    transportation: pr.transportation,
+    diagrams: pr.diagrams,
+    billing: {
+      coiStatus: pr.show.coi_status,
+      proposal: pr.show.proposal,
+      po: pr.show.po,
+      invoice: pr.show.invoice,
+      invoiceNotes: pr.show.invoice_notes,
+    },
+    rawUnrecognized: pr.raw_unrecognized,
+    sourceAnchors: row.sourceAnchors ?? {},
+    driveFileId: dfid,
     crewMembers: pr.crewMembers,
     rooms: pr.rooms,
     hotels: pr.hotelReservations,
@@ -162,7 +187,7 @@ function defById(defs: Step3SectionDef[], id: string): Step3SectionDef {
   return def;
 }
 
-function renderBody(d: SectionData, id: string) {
+function renderBody(d: StagedSectionData, id: string) {
   const def = defById(step3Sections(d), id);
   return render(<>{def.render(d)}</>);
 }
@@ -432,7 +457,7 @@ describe("step3Sections registry (spec §6.1 + §B2/§D2)", () => {
 // ── Modal navs consume hideDot (§D2) ────────────────────────────────────────
 
 describe("Step3ReviewModal navs — hideDot (spec §D2)", () => {
-  function renderModal(d: SectionData) {
+  function renderModal(d: StagedSectionData) {
     return render(
       <Step3ReviewModal
         data={d}
@@ -942,7 +967,7 @@ describe("RoomsBreakdown — redesigned per-room cards", () => {
     notes: null,
   };
 
-  function roomsData(rooms: RoomRow[]): SectionData {
+  function roomsData(rooms: RoomRow[]): StagedSectionData {
     return sectionData({ rooms });
   }
 

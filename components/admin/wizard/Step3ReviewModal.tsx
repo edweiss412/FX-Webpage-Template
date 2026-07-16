@@ -56,8 +56,8 @@ import {
   step3Sections,
   STEP3_SECTION_GROUPS,
   Step3SectionChromeContext,
-  type SectionData,
 } from "@/components/admin/wizard/step3ReviewSections";
+import type { StagedSectionData } from "@/components/admin/review/sectionData";
 import { RescanSheetButton } from "@/components/admin/RescanSheetButton";
 import {
   allowedActionsFor,
@@ -179,7 +179,10 @@ export function Step3ReviewModal({
   resolution,
   isPublishRunActive: isPublishRunActiveProp = false,
 }: {
-  data: SectionData;
+  // Phase 1: the review modal is the staged host — it destructures the staged
+  // session/row and drives publish/unpublish/re-scan, all staged-only ops. Task 13
+  // owns published-page composition and will generalize this to the union.
+  data: StagedSectionData;
   checked: boolean;
   isDirtyRescan: boolean;
   onRequestSetChecked: (next: boolean) => Promise<boolean>;
@@ -828,9 +831,11 @@ export function Step3ReviewModal({
   }, []);
 
   // ── Header derivations (spec §9.1) ─────────────────────────────────────────
-  const title = data.pr.show.title || data.row.driveFileName || dfid;
-  const client = data.pr.show.client_label || null;
-  const segs = dateSummarySegments(data.pr.show.dates);
+  // title/clientLabel are composed in the staged builder (Task 4); the modal reads
+  // the mode-agnostic SectionCore fields.
+  const title = data.title;
+  const client = data.clientLabel;
+  const segs = dateSummarySegments(data.dates ?? undefined);
   const sheetLink = buildSheetDeepLink(dfid);
   // Finalize-demoted gate (spec §C3): derived from data the modal already
   // receives — no new prop. Dirty rescan is the RESCAN_REVIEW_REQUIRED subtype
@@ -1291,7 +1296,7 @@ export function Step3ReviewModal({
                     sectionId: s.id,
                     // Bug #316 item 3: the staged row's per-region source-sheet anchors,
                     // so each section's "In sheet" heading link opens at its cell range.
-                    sourceAnchors: data.row.sourceAnchors ?? {},
+                    sourceAnchors: data.sourceAnchors ?? {},
                     // spec §8/§9a: staged use-raw decisions + session so the §E3
                     // judgment callout can render the per-warning use-raw toggle.
                     useRawDecisions: data.useRawDecisions,
@@ -1310,7 +1315,7 @@ export function Step3ReviewModal({
             ))}
             {/* §C: content the parser captured but couldn't understand
                 (raw_unrecognized). Renders nothing when there's nothing to show. */}
-            <RawUnrecognizedCallout raw={data.pr?.raw_unrecognized} />
+            <RawUnrecognizedCallout raw={data.rawUnrecognized} />
           </div>
         </div>
 

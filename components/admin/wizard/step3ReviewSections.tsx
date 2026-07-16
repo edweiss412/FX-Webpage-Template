@@ -79,8 +79,13 @@ import type {
   TransportationRow,
 } from "@/lib/parser/types";
 import { useRouter } from "next/navigation";
-import type { Step3Row } from "@/components/admin/wizard/Step3Review";
+import { isStaged } from "@/components/admin/review/sectionData";
+import type { SectionData, StagedSectionData } from "@/components/admin/review/sectionData";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
+// Re-export so untouched callers (modal, tests, e2e harness) keep importing the
+// mode-discriminated union (and the staged variant) from this module until
+// Task 4's codemod moves them onto @/components/admin/review/sectionData directly.
+export type { SectionData, StagedSectionData };
 import { UseRawControlBoundary } from "@/components/admin/UseRawControlBoundary";
 import { RoleRecognizeControlBoundary } from "@/components/admin/RoleRecognizeControlBoundary";
 import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";
@@ -815,7 +820,7 @@ export function ContactsBreakdown({
   clientContact,
   contacts,
 }: {
-  dfid: string;
+  dfid: string | null;
   clientContact: ClientContact | null;
   contacts: ContactRow[];
 }) {
@@ -890,7 +895,7 @@ export function ContactsBreakdown({
   );
 }
 
-export function VenueBreakdown({ dfid, venue }: { dfid: string; venue: ShowRow["venue"] }) {
+export function VenueBreakdown({ dfid, venue }: { dfid: string | null; venue: ShowRow["venue"] }) {
   const rows = venue
     ? contentRows([
         ["Venue", venue.name],
@@ -988,7 +993,7 @@ export function TransportBreakdown({
   dfid,
   transportation,
 }: {
-  dfid: string;
+  dfid: string | null;
   transportation: TransportationRow | null;
 }) {
   const t = transportation;
@@ -1198,13 +1203,19 @@ function TransportBody({
   );
 }
 
-export function OpsBreakdown({ dfid, show }: { dfid: string; show: ShowRow }) {
+export function OpsBreakdown({
+  dfid,
+  billing,
+}: {
+  dfid: string | null;
+  billing: SectionData["billing"];
+}) {
   const rows = contentRows([
-    ["COI", show.coi_status],
-    ["Proposal", show.proposal],
-    ["PO#", show.po],
-    ["Invoice", show.invoice],
-    ["Invoice notes", show.invoice_notes],
+    ["COI", billing.coiStatus],
+    ["Proposal", billing.proposal],
+    ["PO#", billing.po],
+    ["Invoice", billing.invoice],
+    ["Invoice notes", billing.invoiceNotes],
   ]);
   return (
     <BreakdownSection
@@ -1221,7 +1232,13 @@ export function OpsBreakdown({ dfid, show }: { dfid: string; show: ShowRow }) {
   );
 }
 
-export function CrewBreakdown({ dfid, members }: { dfid: string; members: CrewMemberRow[] }) {
+export function CrewBreakdown({
+  dfid,
+  members,
+}: {
+  dfid: string | null;
+  members: CrewMemberRow[];
+}) {
   const shown = members.slice(0, CREW_CAP);
   const note = overflowNote(members.length, CREW_CAP, "people");
   return (
@@ -1319,7 +1336,7 @@ export function ScheduleDayRow({
   phase = null,
   label = null,
 }: {
-  dfid: string;
+  dfid: string | null;
   iso: string;
   entries: AgendaEntry[];
   showStart?: string | null;
@@ -1446,7 +1463,7 @@ export function ScheduleBreakdown({
   ros,
   dates = EMPTY_DATES,
 }: {
-  dfid: string;
+  dfid: string | null;
   ros: RunOfShow;
   dates?: ShowRow["dates"];
 }) {
@@ -1516,7 +1533,7 @@ export function ScheduleBreakdown({
   );
 }
 
-export function RoomsBreakdown({ dfid, rooms }: { dfid: string; rooms: RoomRow[] }) {
+export function RoomsBreakdown({ dfid, rooms }: { dfid: string | null; rooms: RoomRow[] }) {
   const shown = rooms.slice(0, ROOMS_CAP);
   const note = overflowNote(rooms.length, ROOMS_CAP, "rooms");
   // Count only rooms that actually carry A/V scope — a no-A/V placeholder room
@@ -1700,8 +1717,8 @@ export function EventDetailsBreakdown({
   dfid,
   eventDetails,
 }: {
-  dfid: string;
-  eventDetails: Record<string, string> | undefined;
+  dfid: string | null;
+  eventDetails: Record<string, string> | null | undefined;
 }) {
   const ed = eventDetails ?? {};
   // Render every known TEXT spec (closed-vocab EVENT_DETAILS_LABELS; `diagrams`
@@ -1881,18 +1898,23 @@ export function PackListBreakdown({
   archivedPullSheetTabs,
   overrideActive,
 }: {
-  dfid: string;
-  wizardSessionId: string;
+  dfid: string | null;
+  // Staged-only: the archived-tab accept/skip affordance posts against the wizard
+  // session. Absent (published) → the plain pull sheet renders with no affordance.
+  // Presence is the control-gate, NOT archivedPullSheetTabs emptiness (spec §3.2).
+  wizardSessionId?: string;
   cases: PullSheetCase[];
   archivedPullSheetTabs: ArchivedPullSheetTab[];
   overrideActive: boolean;
 }) {
+  const staged = wizardSessionId != null;
   // §5.6 state machine. The included tab (override applied) carries the revoke
   // note (S3); every non-included archived tab is an offer/re-confirm card (S2/S4,
   // §6 renders all, no cap). When an override is active we suppress the offers —
-  // only one override at a time (the RPC enforces it).
-  const includedTab = archivedPullSheetTabs.find((t) => t.included) ?? null;
-  const offers = overrideActive ? [] : archivedPullSheetTabs.filter((t) => !t.included);
+  // only one override at a time (the RPC enforces it). The affordance is staged-
+  // only, so both derivations gate on `staged`.
+  const includedTab = staged ? (archivedPullSheetTabs.find((t) => t.included) ?? null) : null;
+  const offers = staged && !overrideActive ? archivedPullSheetTabs.filter((t) => !t.included) : [];
   const hasCases = cases.length > 0;
   // S1: nothing parsed AND nothing to offer. A pending offer (S2/S4) or an active
   // override (S3) suppresses the empty state.
@@ -1918,22 +1940,24 @@ export function PackListBreakdown({
       >
         {isEmpty ? <p className="text-sm text-text-subtle">No pack list parsed.</p> : null}
         {hasCases ? <PackListCases dfid={dfid} cases={cases} /> : null}
-        {overrideActive && includedTab ? (
+        {overrideActive && includedTab && wizardSessionId != null ? (
           <ArchivedTabIncludedNote
             dfid={dfid}
             wizardSessionId={wizardSessionId}
             tab={includedTab}
           />
         ) : null}
-        {offers.map((tab, i) => (
-          <ArchivedTabOffer
-            key={`${tab.tabName}-${i}`}
-            dfid={dfid}
-            wizardSessionId={wizardSessionId}
-            tab={tab}
-            onDismissFocus={focusSection}
-          />
-        ))}
+        {wizardSessionId != null
+          ? offers.map((tab, i) => (
+              <ArchivedTabOffer
+                key={`${tab.tabName}-${i}`}
+                dfid={dfid}
+                wizardSessionId={wizardSessionId}
+                tab={tab}
+                onDismissFocus={focusSection}
+              />
+            ))
+          : null}
       </div>
     </BreakdownSection>
   );
@@ -1974,7 +1998,7 @@ function PackCaseItems({ items }: { items: PullSheetItem[] }) {
 /** The parsed PULL-tab case list — the disclosure body shared by the normal
  *  pack list and the S3/S4-mixed states (current gear renders even when an
  *  archived-tab offer or included note is also present). */
-function PackListCases({ dfid, cases }: { dfid: string; cases: PullSheetCase[] }) {
+function PackListCases({ dfid, cases }: { dfid: string | null; cases: PullSheetCase[] }) {
   const shown = cases.slice(0, PACK_LIST_CASES_CAP);
   const note = overflowNote(cases.length, PACK_LIST_CASES_CAP, "cases");
   return (
@@ -2067,7 +2091,7 @@ function ArchivedTabOffer({
   tab,
   onDismissFocus,
 }: {
-  dfid: string;
+  dfid: string | null;
   wizardSessionId: string;
   tab: ArchivedPullSheetTab;
   /** Focus a persistent sibling before this card unmounts on dismiss (WCAG 2.4.3). */
@@ -2171,7 +2195,7 @@ function ArchivedTabIncludedNote({
   wizardSessionId,
   tab,
 }: {
-  dfid: string;
+  dfid: string | null;
   wizardSessionId: string;
   tab: ArchivedPullSheetTab;
 }) {
@@ -2223,7 +2247,13 @@ function ArchivedTabIncludedNote({
   );
 }
 
-export function HotelsBreakdown({ dfid, hotels }: { dfid: string; hotels: HotelReservationRow[] }) {
+export function HotelsBreakdown({
+  dfid,
+  hotels,
+}: {
+  dfid: string | null;
+  hotels: HotelReservationRow[];
+}) {
   const chrome = useContext(Step3SectionChromeContext);
   const shown = hotels.slice(0, HOTELS_CAP);
   const note = overflowNote(hotels.length, HOTELS_CAP, "hotels");
@@ -2383,7 +2413,13 @@ export function reviewWarningTitle(w: ParseWarning): string {
  * AFFIRMATIVE empty state (spec §3.10) — the all-clean state is a sentence,
  * not an absent panel. No publish-gate logic changes here.
  */
-export function WarningsBreakdown({ dfid, warnings }: { dfid: string; warnings: ParseWarning[] }) {
+export function WarningsBreakdown({
+  dfid,
+  warnings,
+}: {
+  dfid: string | null;
+  warnings: ParseWarning[];
+}) {
   return (
     <BreakdownSection
       testId={`wizard-step3-card-${dfid}-breakdown-warnings`}
@@ -2948,24 +2984,10 @@ export function NotPublishableNote({ dfid, testId }: { dfid: string; testId?: st
  * (Task 4+) renders: rail items, chip rail, content-pane sections.
  * ────────────────────────────────────────────────────────────────────────── */
 
-/** Everything a section body needs, assembled once by the caller. */
-export type SectionData = {
-  pr: ParseResult;
-  row: Step3Row;
-  dfid: string;
-  wizardSessionId: string;
-  crewMembers: CrewMemberRow[];
-  rooms: RoomRow[];
-  hotels: HotelReservationRow[];
-  pullSheet: PullSheetCase[];
-  archivedPullSheetTabs: ArchivedPullSheetTab[];
-  ros: RunOfShow;
-  warnings: ParseWarning[];
-  agendaBaseline: AdminAgendaItem[];
-  // spec §8/§9a: the staged use-raw decisions (matched by code + resolution.contentHash)
-  // that drive the judgment callout's per-warning use-raw toggle.
-  useRawDecisions: UseRawDecision[];
-};
+// Everything a section body needs is now the mode-agnostic `SectionData` union
+// (SectionCore + staged/published discriminant) defined in
+// @/components/admin/review/sectionData and re-exported at the top of this file.
+// Panels render from SectionCore fields; staged-only reads sit behind isStaged().
 
 export type Step3SectionDef = {
   id: SectionId;
@@ -3275,7 +3297,7 @@ export function RawUnrecognizedCallout({ raw }: { raw: unknown }) {
   );
 }
 
-export function ReportIssueSection({ data }: { data: SectionData }) {
+export function ReportIssueSection({ data }: { data: StagedSectionData }) {
   const { dfid, wizardSessionId, row, warnings } = data;
   const chrome = useContext(Step3SectionChromeContext);
   const [draft, setDraft] = useState("");
@@ -3455,7 +3477,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       group: "The show",
       Icon: MapPin,
       railCount: null,
-      render: (s) => <VenueBreakdown dfid={s.dfid} venue={s.pr.show.venue} />,
+      render: (s) => <VenueBreakdown dfid={s.driveFileId} venue={s.venue} />,
     },
     {
       id: "event",
@@ -3463,7 +3485,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       group: "The show",
       Icon: Sparkles,
       railCount: null,
-      render: (s) => <EventDetailsBreakdown dfid={s.dfid} eventDetails={s.pr.show.event_details} />,
+      render: (s) => <EventDetailsBreakdown dfid={s.driveFileId} eventDetails={s.eventDetails} />,
     },
     {
       id: "crew",
@@ -3471,7 +3493,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       group: "People",
       Icon: Users,
       railCount: (s) => s.crewMembers.length,
-      render: (s) => <CrewBreakdown dfid={s.dfid} members={s.crewMembers} />,
+      render: (s) => <CrewBreakdown dfid={s.driveFileId} members={s.crewMembers} />,
     },
     {
       id: "contacts",
@@ -3480,12 +3502,12 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       Icon: Phone,
       // Contact-BLOCK count, exactly as the body renders it today
       // (count={blocks.length}) — shared shaping via contactBlocks.
-      railCount: (s) => contactBlocks(s.pr.show.client_contact, arr(s.pr.contacts)).length,
+      railCount: (s) => contactBlocks(s.clientContact, s.contacts).length,
       render: (s) => (
         <ContactsBreakdown
-          dfid={s.dfid}
-          clientContact={s.pr.show.client_contact}
-          contacts={arr(s.pr.contacts)}
+          dfid={s.driveFileId}
+          clientContact={s.clientContact}
+          contacts={s.contacts}
         />
       ),
     },
@@ -3497,7 +3519,9 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       // No rail count (owner decision, 2026-07-05): only Crew, Contacts, Rooms,
       // and Parse warnings show a count. Keep in lockstep with COUNT_SECTIONS.
       railCount: null,
-      render: (s) => <ScheduleBreakdown dfid={s.dfid} ros={s.ros} dates={s.pr.show.dates} />,
+      render: (s) => (
+        <ScheduleBreakdown dfid={s.driveFileId} ros={s.ros} dates={s.dates ?? EMPTY_DATES} />
+      ),
     },
   ];
   if (d.agendaBaseline.length > 0) {
@@ -3507,14 +3531,18 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       group: "Schedule",
       Icon: FileText,
       railCount: null,
-      render: (s) => (
-        <AgendaBreakdown
-          driveFileId={s.dfid}
-          wizardSessionId={s.wizardSessionId}
-          baseline={s.agendaBaseline}
-          stateKey={s.row.agendaStateKey ?? s.dfid}
-        />
-      ),
+      // Staged-only in Phase 1: AgendaBreakdown reads the wizard session + staged
+      // row. Task 9 fills the published branch; until then it renders null (there
+      // are no published-mode consumers yet).
+      render: (s) =>
+        isStaged(s) ? (
+          <AgendaBreakdown
+            driveFileId={s.dfid}
+            wizardSessionId={s.wizardSessionId}
+            baseline={s.agendaBaseline}
+            stateKey={s.row.agendaStateKey ?? s.dfid}
+          />
+        ) : null,
     });
   }
   defs.push(
@@ -3525,7 +3553,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       Icon: BedDouble,
       // No rail count (owner decision, 2026-07-05) — see COUNT_SECTIONS.
       railCount: null,
-      render: (s) => <HotelsBreakdown dfid={s.dfid} hotels={s.hotels} />,
+      render: (s) => <HotelsBreakdown dfid={s.driveFileId} hotels={s.hotels} />,
     },
     {
       id: "transport",
@@ -3533,7 +3561,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       group: "Logistics",
       Icon: Truck,
       railCount: null,
-      render: (s) => <TransportBreakdown dfid={s.dfid} transportation={s.pr.transportation} />,
+      render: (s) => <TransportBreakdown dfid={s.driveFileId} transportation={s.transportation} />,
     },
     {
       id: "rooms",
@@ -3553,8 +3581,11 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       // never inheriting the outer "Rooms & scope" chrome.
       render: (s) => (
         <div className="flex min-w-0 flex-col gap-4">
-          <RoomsBreakdown dfid={s.dfid} rooms={s.rooms} />
-          {hasDiagramSignal(s.pr.diagrams) ? (
+          <RoomsBreakdown dfid={s.driveFileId} rooms={s.rooms} />
+          {/* Diagrams sub-block is staged-only in Phase 1 (it renders staged
+              preview URLs via the wizard session). Task 9 fills the published
+              asset-route branch; until then it renders nothing when published. */}
+          {isStaged(s) && hasDiagramSignal(s.diagrams) ? (
             // headingLevel 4 → subordinate "Diagrams" sub-heading (h4, smaller)
             // so it reads as part of Rooms & scope, not a co-equal section.
             <Step3SectionChromeContext.Provider
@@ -3563,7 +3594,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
               <DiagramsBreakdown
                 dfid={s.dfid}
                 wizardSessionId={s.wizardSessionId}
-                diagrams={s.pr.diagrams}
+                diagrams={s.diagrams}
               />
             </Step3SectionChromeContext.Provider>
           ) : null}
@@ -3579,13 +3610,17 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       Icon: Package,
       // No rail count (owner decision, 2026-07-05) — see COUNT_SECTIONS.
       railCount: null,
+      // The pull sheet itself is source-agnostic; only the archived-tab accept/skip
+      // affordance is staged (it needs the wizard session). wizardSessionId is
+      // passed ONLY when staged — its presence is the control-gate inside the
+      // component, not archivedPullSheetTabs emptiness (spec §3.2).
       render: (s) => (
         <PackListBreakdown
-          dfid={s.dfid}
-          wizardSessionId={s.wizardSessionId}
+          dfid={s.driveFileId}
           cases={s.pullSheet}
           archivedPullSheetTabs={s.archivedPullSheetTabs}
           overrideActive={s.archivedPullSheetTabs.some((t) => t.included)}
+          {...(isStaged(s) ? { wizardSessionId: s.wizardSessionId } : {})}
         />
       ),
     },
@@ -3595,7 +3630,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       group: "Money",
       Icon: Receipt,
       railCount: null,
-      render: (s) => <OpsBreakdown dfid={s.dfid} show={s.pr.show} />,
+      render: (s) => <OpsBreakdown dfid={s.driveFileId} billing={s.billing} />,
     },
     {
       id: "warnings",
@@ -3604,7 +3639,7 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       Icon: AlertTriangle,
       // Both severities — the rail count counts list rows (§3.3).
       railCount: (s) => s.warnings.length,
-      render: (s) => <WarningsBreakdown dfid={s.dfid} warnings={s.warnings} />,
+      render: (s) => <WarningsBreakdown dfid={s.driveFileId} warnings={s.warnings} />,
     },
     {
       id: "report",
@@ -3613,7 +3648,10 @@ export function step3Sections(d: SectionData): Step3SectionDef[] {
       Icon: MessageSquareWarning, // design-stage-tunable (spec §L)
       railCount: null,
       hideDot: true, // spec §D2 — the only section without a status dot
-      render: (s) => <ReportIssueSection data={s} />,
+      // Staged-only in Phase 1: the report form posts the staged session + row.
+      // Task 13 revisits published-page composition; null published branch until
+      // then (no published-mode consumers exist yet).
+      render: (s) => (isStaged(s) ? <ReportIssueSection data={s} /> : null),
     },
   );
   return defs;
