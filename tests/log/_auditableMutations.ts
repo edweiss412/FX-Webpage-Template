@@ -364,6 +364,16 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
     fn: "acceptAllAction",
     code: "CHANGES_ACKNOWLEDGED",
   },
+  // Extend role→scope vocabulary (spec 2026-07-15 §8.3): the four role-mapping
+  // admin actions. All LOCKLESS (global role_token_mappings table, §8.4); emits are
+  // POST-COMMIT (invariant 10). ROLE_TOKEN_MAPPING_SET is shared by three create/edit
+  // paths (live show, wizard staged, settings update); ROLE_TOKEN_MAPPING_DELETED is
+  // the settings delete. Forensic (§12.4-exempt via logAdminOutcome strip).
+  {
+    file: "app/admin/show/[slug]/_actions/roleToken.ts",
+    fn: "mapRoleToken",
+    code: "ROLE_TOKEN_MAPPING_SET",
+  },
 ];
 
 export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
@@ -447,6 +457,12 @@ export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
   // logAdminOutcome → stripped from the producer scan); flow into NEW_FORENSIC_CODES via spread.
   "USE_RAW_DECISION_SET",
   "USE_RAW_DECISION_CLEARED",
+  // Extend role→scope vocabulary (spec 2026-07-15 §8.3/§10): forensic outcome code
+  // for the role-mapping create/edit actions (live show, wizard staged, settings
+  // update). §12.4-exempt (logAdminOutcome-stamped → stripped from the producer scan);
+  // flows into NEW_FORENSIC_CODES via spread. (ROLE_TOKEN_MAPPING_DELETED lands with
+  // the settings delete action in the same milestone.)
+  "ROLE_TOKEN_MAPPING_SET",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing

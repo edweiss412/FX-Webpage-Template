@@ -492,6 +492,8 @@ vi.mock("@/lib/sync/lockedShowTx", async (importActual) => {
 
 import { setUseRawDecisionAction } from "@/app/admin/show/[slug]/_actions/useRaw";
 import { setStagedUseRawDecisionAction } from "@/app/admin/onboarding/_actions/useRawStaged";
+// Extend role→scope vocabulary (spec 2026-07-15 §8.3) — the four role-mapping actions.
+import { mapRoleToken } from "@/app/admin/show/[slug]/_actions/roleToken";
 
 import type { DiscardStagedResult } from "@/lib/sync/discardStaged";
 import { POST as stagedDiscardPost } from "@/app/api/admin/staged/[fileId]/discard/route";
@@ -3337,6 +3339,75 @@ describe("use-raw toggle actions — post-commit forensic emit", () => {
       ),
     );
     expect(staleCodes).not.toContain("USE_RAW_DECISION_SET");
+  });
+});
+
+// ── Extend role→scope vocabulary (spec 2026-07-15 §8.3) role-mapping actions ──
+// LOCKLESS global-table writes (role_token_mappings, §8.4); the forensic
+// ROLE_TOKEN_MAPPING_SET / _DELETED codes are emitted POST-COMMIT only on the
+// committed-success branch. Service-role reads/writes dispatch by table name.
+const ROLE_UNKNOWN_WARNING = {
+  severity: "warn" as const,
+  code: "UNKNOWN_ROLE_TOKEN",
+  message: "unrecognized role",
+  blockRef: { kind: "crew" as const, index: 0, name: "Marcus Webb" },
+  roleToken: "DRONE OP",
+};
+// Table-dispatching service-role fake: role_token_mappings existing-row read,
+// shows_internal / pending_syncs warnings read, and the insert/update/delete write.
+function roleMappingSvc(opts: {
+  existing?: { grants: string[] } | null;
+  warnings?: unknown[];
+  writeError?: boolean;
+}) {
+  return {
+    from(table: string) {
+      const b: Record<string, unknown> = {};
+      const self = () => b;
+      b.select = self;
+      b.eq = self;
+      const writeResult = () => ({
+        then: (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) =>
+          Promise.resolve(
+            opts.writeError ? { data: null, error: { message: "boom" } } : { data: null, error: null },
+          ).then(res, rej),
+      });
+      b.insert = writeResult;
+      b.update = writeResult;
+      b.delete = writeResult;
+      b.maybeSingle = () =>
+        table === "role_token_mappings"
+          ? Promise.resolve({ data: opts.existing ?? null, error: null })
+          : Promise.resolve({ data: { parse_warnings: opts.warnings ?? [] }, error: null });
+      return b;
+    },
+  };
+}
+
+describe("role-mapping actions — post-commit forensic emit (spec 2026-07-15 §8.3)", () => {
+  test("mapRoleToken emits ROLE_TOKEN_MAPPING_SET on create; nothing on validation_error", async () => {
+    serverClientImpl.current = async () =>
+      makeClient({ from: { data: { id: "show-role", drive_file_id: "df-role" }, error: null } });
+    serviceRoleClientImpl.current = () =>
+      roleMappingSvc({ existing: null, warnings: [ROLE_UNKNOWN_WARNING] });
+    runManualSyncForShowMock.mockImplementation(async () => ({
+      outcome: "applied",
+      showId: "show-role",
+      parseWarnings: [],
+      appliedRoleMappings: [],
+    }));
+
+    const codes = await observeSuccessCodes(() => mapRoleToken("show-role", "DRONE OP", ["A1"]));
+    expect(codes).toContain("ROLE_TOKEN_MAPPING_SET");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/show/[slug]/_actions/roleToken.ts",
+      fn: "mapRoleToken",
+      code: "ROLE_TOKEN_MAPPING_SET",
+    });
+
+    // Built-in token → validation_error before any write → no emit.
+    const failCodes = await observeCodes(() => mapRoleToken("show-role", "cam op", ["A1"]));
+    expect(failCodes).not.toContain("ROLE_TOKEN_MAPPING_SET");
   });
 });
 
