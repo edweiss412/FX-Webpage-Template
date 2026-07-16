@@ -21,8 +21,10 @@
 //     legitimate prose may include parentheses or backticks; the regex check
 //     is intentionally narrow.
 
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import { MESSAGE_CATALOG } from "@/lib/messages/catalog";
+import * as roleRecognizeCopy from "@/components/admin/roleRecognizeCopy";
 
 const REGEX_LEAK_PATTERNS: ReadonlyArray<readonly [RegExp, string]> = [
   // Escaped forward slash (regex literal escape; not natural prose).
@@ -102,5 +104,81 @@ describe("Catalog copy hygiene (Phase E meta-test after Codex R10)", () => {
       }
     }
     expect(violations, violations.join("\n\n")).toEqual([]);
+  });
+
+  // D7 banned vocabulary for the role-recognition feature (spec §9/§10):
+  // standalone words only; placeholders excluded; "role"/"refresh" allowed.
+  const D7_CODES = ["ROLE_TOKEN_MAPPED", "UNKNOWN_ROLE_TOKEN"] as const;
+  const D7_BANNED = /\b(scope|flag|token|mapping|capability|sync|overlay|parse)\b/i;
+  const D7_FIELDS = [
+    "dougFacing",
+    "crewFacing",
+    "helpfulContext",
+    "followUp",
+    "title",
+    "longExplanation",
+  ] as const;
+
+  it("role-recognition Doug-facing copy avoids D7 banned vocabulary", () => {
+    for (const code of D7_CODES) {
+      const row = MESSAGE_CATALOG[code] as Record<string, unknown>;
+      for (const field of D7_FIELDS) {
+        const v = row[field];
+        if (typeof v !== "string") continue;
+        const stripped = v.replace(/_<[^>]+>_|<[^>]+>/g, ""); // placeholder spans excluded
+        expect(D7_BANNED.test(stripped), `${code}.${field}: "${v}"`).toBe(false);
+      }
+    }
+  });
+
+  // Step 0 / plan-R1 F6: the SAME D7 sweep over every string constant exported by
+  // the component copy module — the single source for the recognize-control and
+  // settings-page strings. Placeholder spans (<TOKEN>/<SUMMARY>) are stripped
+  // before the banned-word check; formatter exports (functions) are skipped.
+  it("roleRecognizeCopy string constants avoid D7 banned vocabulary", () => {
+    const violations: string[] = [];
+    for (const [name, value] of Object.entries(roleRecognizeCopy)) {
+      if (typeof value !== "string") continue;
+      const stripped = value.replace(/_<[^>]+>_|<[^>]+>/g, "");
+      if (D7_BANNED.test(stripped)) violations.push(`roleRecognizeCopy.${name}: "${value}"`);
+    }
+    expect(violations, violations.join("\n")).toEqual([]);
+  });
+
+  // Step 0 / plan-R2 F7: the inline-copy convention guard. Every user-visible string
+  // in the recognize-role component files MUST flow through `roleRecognizeCopy`, so
+  // the sweep above can never be bypassed by an inline JSX literal ("sync failed").
+  // We read each component source, strip comments + string/template literals
+  // (classNames, testids, ids — never user copy), then forbid any remaining raw JSX
+  // text node: `>…<` on one line containing a 3+ letter word. Single-glyph
+  // decorative nodes (✓ ⌄ ·) carry no letters and never match.
+  const ROLE_COMPONENT_FILES = [
+    "components/admin/RoleRecognizeControl.tsx",
+    "components/admin/RoleRecognizeControlBoundary.tsx",
+    "app/admin/settings/roles/page.tsx",
+    "app/admin/settings/roles/RolesSettingsView.tsx",
+    "app/admin/settings/roles/RoleMappingRow.tsx",
+  ] as const;
+  const RAW_JSX_TEXT = />[^<>{}\n]*[A-Za-z]{3,}[^<>{}\n]*</g;
+
+  function stripCodeNoise(src: string): string {
+    return src
+      .replace(/\/\*[\s\S]*?\*\//g, "") // block comments
+      .replace(/\/\/[^\n]*/g, "") // line comments
+      .replace(/"(?:[^"\\]|\\.)*"/g, '""') // double-quoted strings
+      .replace(/'(?:[^'\\]|\\.)*'/g, "''") // single-quoted strings
+      .replace(/`(?:[^`\\]|\\.)*`/g, "``") // template strings
+      .replace(/=>/g, "= "); // arrows — otherwise `=> Promise<T>` reads as a `> … <` text node
+  }
+
+  it("recognize-role components hold no raw JSX text nodes (all copy via roleRecognizeCopy)", () => {
+    const violations: string[] = [];
+    for (const file of ROLE_COMPONENT_FILES) {
+      const src = stripCodeNoise(readFileSync(file, "utf8"));
+      for (const match of src.matchAll(RAW_JSX_TEXT)) {
+        violations.push(`${file}: raw JSX text node ${JSON.stringify(match[0])}`);
+      }
+    }
+    expect(violations, violations.join("\n")).toEqual([]);
   });
 });

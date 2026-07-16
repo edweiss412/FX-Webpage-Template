@@ -547,3 +547,21 @@ Dual-gate on `git diff main -- components/admin/RecentAutoAppliedStrip.tsx` (col
 - **What:** The disclosure chevron rotates over `duration-fast`, but the panel is a mount/unmount (`{open ? … : null}`) with no height-morph, so the reveal is instant while the chevron implies a smooth expand (impeccable critique P2). DESIGN.md lists "accordion expand" at `duration-normal`.
 - **Why deferred:** This is the **established system idiom** — the sibling `components/admin/IgnoredSheetsDisclosure.tsx` (and `AddAdminDisclosure`) use the identical instant mount/unmount. Animating only this one accordion would diverge from the pattern; a height-morph is a system-wide call, not a per-component one. Consistent-with-sibling, not a regression.
 - **Trigger:** a deliberate cross-cutting "animate the disclosure family" pass adopting the `globals.css` height-morph pattern for every accordion at once. Backlog: `BL-DISCLOSURE-FAMILY-HEIGHT-MORPH`.
+
+## Extend role-scope vocabulary — impeccable dual-gate (2026-07-16)
+
+Dual-gate on the Task 13 UI diff (`RoleRecognizeControl` + boundary + `/admin/settings/roles`; commit `143e678df`). Critique 35/40, audit 18/20, deterministic detector clean, AI-slop verdict clean on both assessments. Two P1s (settings-row silent failure branches) and two P2s (live regions, focus management) were **fixed in-diff** in the follow-up commit; one P2 deferred below.
+
+### ROLE-VOCAB-1 — [P2→deferred] Settings "Roles you've added" renders the stacked mobile card at every viewport (mock's one-line desktop grid dropped)
+
+- **What:** The mock (`docs/superpowers/specs/2026-07-15-extend-role-scope-vocab-mock/Roles You've Added.dc.html`, "Desktop width" section) shows a compact one-line grid row (`150px | chips | meta | actions`, short "Edit" label) at ≥760px; the implementation renders the stacked mobile card at every width (page capped `max-w-2xl`), a density regression for Doug's desk context (impeccable critique P2). The unused `EDIT_LABEL_SHORT` constant was deleted per the flag-lifecycle rule.
+- **Why deferred:** The stacked card is fully functional and consistent at all widths; the list is expected to hold a handful of rows (novel role tokens are rare — one per unrecognized word ever seen), so desk-context scanning cost is small. The desktop grid variant is net-new responsive layout requiring its own component branch, tests, and a re-run of the dual-gate — mid-autonomous-ship scope expansion for a cosmetic density gain.
+- **Trigger:** the mappings list growing past ~8 rows in real use, or a Doug report that the settings page feels sparse/scrolly at the desk. Backlog: `BL-ROLE-VOCAB-SETTINGS-DESKTOP-GRID`.
+
+## Extend role-scope vocabulary — whole-diff R1 deferral (2026-07-16)
+
+### ROLE-VOCAB-2 — [P1→ratified+deferred] Wizard rescan does not run the role-mapping overlay; staged saves always resolve apply_pending
+
+- **What:** `mapRoleTokenStaged` saves the mapping and re-scans the wizard sheet, but the staging pipeline parses without the role-mapping overlay (only `runPhase2` at apply/publish runs it), so the refreshed staged parse still carries the `UNKNOWN_ROLE_TOKEN` warning and the action's `"applied"` branch is unreachable in v1 — every wizard save resolves `"apply_pending"` (whole-diff R1 F1). The saved-card copy is truthful ("saved and applies to every show… catch up on its next sheet check") and the control can reappear idle after a wizard refresh; a re-save resolves through the idempotent set-equal path.
+- **Why deferred:** No capability or data loss: the staged-apply/finalize path threads `roleTokenMappings` into `phase2`, so the mapping applies at publish (integration-tested). Wiring the overlay into the staging/rescan core is a staging-pipeline change (parse-write parity with use-raw's decision-display mechanism, step-3 preview semantics, re-stage tests) — net-new scope mid-close-out. Ratified as a spec amendment (spec §8.3, 2026-07-16) so the contract and the code agree.
+- **Trigger:** Doug reporting wizard confusion ("I recognized the role but the warning is still there"), or the next onboarding-wizard milestone touching the staging core. Backlog: `BL-ROLE-VOCAB-STAGING-OVERLAY`.

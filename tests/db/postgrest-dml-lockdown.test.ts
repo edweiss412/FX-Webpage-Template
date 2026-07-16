@@ -471,6 +471,18 @@ const RPC_GATED_TABLES: readonly RpcGatedTable[] = [
     postBody: { admin_email: "lockdown-test@example.com" },
     rowFilter: "?admin_email=eq.no-such-row%40example.com",
   },
+  {
+    // Global role-token -> capability mapping (spec 2026-07-15-extend-role-scope-vocab §3).
+    // Holds the global vocabulary + deciding-admin emails; NO client-session readers.
+    // Zero-policy RLS AND explicit REVOKE (SELECT too) — every reader/writer is
+    // server-side service_role via admin actions / the sync-side loader.
+    table: "role_token_mappings",
+    closed_at: "supabase/migrations/20260716000000_role_token_mappings.sql:29",
+    selectAnon: false,
+    selectAuthenticated: false,
+    postBody: { token: "LOCKDOWN TEST", grants: [], decided_by: "lockdown@test.local" },
+    rowFilter: "?token=eq.LOCKDOWN%20TEST",
+  },
 ] as const;
 
 // =============================================================================

@@ -79,6 +79,7 @@ function deps(
       outcome: "applied" as const,
       showId: "show-1",
       parseWarnings: [],
+      appliedRoleMappings: [],
     })),
     readFinalizeOwnershipGuardUnlocked: vi.fn(async () => false),
     prepareFirstSeenStage: vi.fn(async (fileMeta) => ({

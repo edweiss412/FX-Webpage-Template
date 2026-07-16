@@ -274,6 +274,13 @@
     "raced_head_revision_id",
     "retry_count"
   ],
+  "role_token_mappings": [
+    "decided_at",
+    "decided_by",
+    "grants",
+    "token",
+    "updated_at"
+  ],
   "rooms": [
     "audio",
     "digital_signage",

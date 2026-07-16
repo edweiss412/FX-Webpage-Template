@@ -549,6 +549,7 @@ describe("runPhase2 destructive snapshot", () => {
 
       expect(result).toEqual({
         outcome: "applied",
+        appliedRoleMappings: [],
         showId: "show-1",
         // §02 (FIX-3): the applied result carries the parse warnings through (the parseResult factory
         // seeds one WARN). No AGENDA → no AGENDA_DAY_EMPTIED appended.

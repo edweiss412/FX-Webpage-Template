@@ -53,6 +53,9 @@ export const PROTECTED_ROUTES: readonly RouteSpec[] = [
   { path: "app/admin/dev/telemetry-dim/page.tsx", chain: ["requireDeveloper"] },
   { path: "app/admin/settings/page.tsx", chain: ["requireAdmin"] },
   { path: "app/admin/settings/admins/page.tsx", chain: ["requireAdmin"] },
+  // spec 2026-07-15-extend-role-scope-vocab §8.2 — "Roles you've added" settings
+  // page; admin-gated by app/admin/layout.tsx like every settings sibling.
+  { path: "app/admin/settings/roles/page.tsx", chain: ["requireAdmin"] },
   // Onboarding-fixups F3 — /admin/onboarding is a redirect-only alias for the
   // wizard dispatcher at /admin; admin-gated by app/admin/layout.tsx like
   // every sibling (no sinks of its own).

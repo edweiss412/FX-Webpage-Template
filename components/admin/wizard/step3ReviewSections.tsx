@@ -82,6 +82,7 @@ import { useRouter } from "next/navigation";
 import type { Step3Row } from "@/components/admin/wizard/Step3Review";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
 import { UseRawControlBoundary } from "@/components/admin/UseRawControlBoundary";
+import { RoleRecognizeControlBoundary } from "@/components/admin/RoleRecognizeControlBoundary";
 import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";
 import { fieldLabelFor } from "@/lib/admin/step3Buckets";
 import { buildRawUnrecognizedView } from "@/lib/admin/rawUnrecognized";
@@ -570,6 +571,17 @@ function SectionFlagCallout({
                 driveFileId={dfid}
                 warning={warning}
                 decision={decisionFor(warning)}
+              />
+            ) : null}
+            {/* spec 2026-07-15 §8.1: recognize-role control for
+                UNKNOWN_ROLE_TOKEN warnings; self-hides (null) otherwise. Needs a
+                wizard session to bind the staged action. */}
+            {wizardSessionId ? (
+              <RoleRecognizeControlBoundary
+                surface="wizard"
+                wizardSessionId={wizardSessionId}
+                driveFileId={dfid}
+                warning={warning}
               />
             ) : null}
           </div>

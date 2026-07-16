@@ -141,6 +141,7 @@ function fakeTx() {
       if (/pg_locks/i.test(sql)) return { held: true } as T;
       if (/select archived from public\.shows/i.test(sql)) return { archived: false } as T;
       if (/upsert_admin_alert/i.test(sql)) return { id: "alert-row-1" } as T;
+      if (/from role_token_mappings/i.test(sql)) return { rows: [] } as T; // §6.2 global load (none)
       throw new Error(`unexpected SQL in fakeTx: ${sql}`);
     },
   } as unknown as LockedShowTx<SyncPipelineTx>;
@@ -187,7 +188,11 @@ describe("applyStaged live post-commit revalidate", () => {
           adminAlertCode: null,
           skipDiagramsWrite: false,
         },
-        runPhase2: vi.fn(async () => ({ outcome: "applied" as const, showId: "show-1" })),
+        runPhase2: vi.fn(async () => ({
+          outcome: "applied" as const,
+          appliedRoleMappings: [],
+          showId: "show-1",
+        })),
         insertSyncAudit: vi.fn(async () => "audit-1"),
         deleteLivePendingSync: vi.fn(async () => undefined),
         restoreShowStatus: vi.fn(async () => undefined),

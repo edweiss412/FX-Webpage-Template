@@ -15,7 +15,8 @@
  */
 
 import type { WorkPhase } from "./types";
-import { FULL_STAGE_ONLY_PATTERN, ROLE_NORMALIZATIONS } from "./personalization";
+import { FULL_STAGE_ONLY_PATTERN } from "./personalization";
+import { ROLE_NORMALIZATIONS } from "./roleVocabulary";
 
 /** The 5 recognized stage tokens (NEW: Show added — already a valid WorkPhase). */
 const STAGE_RESTRICTION_VOCAB = ["LOAD IN", "SET", "SHOW", "STRIKE", "LOAD OUT"] as const;

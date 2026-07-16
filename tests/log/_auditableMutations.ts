@@ -364,6 +364,31 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
     fn: "acceptAllAction",
     code: "CHANGES_ACKNOWLEDGED",
   },
+  // Extend role→scope vocabulary (spec 2026-07-15 §8.3): the four role-mapping
+  // admin actions. All LOCKLESS (global role_token_mappings table, §8.4); emits are
+  // POST-COMMIT (invariant 10). ROLE_TOKEN_MAPPING_SET is shared by three create/edit
+  // paths (live show, wizard staged, settings update); ROLE_TOKEN_MAPPING_DELETED is
+  // the settings delete. Forensic (§12.4-exempt via logAdminOutcome strip).
+  {
+    file: "app/admin/show/[slug]/_actions/roleToken.ts",
+    fn: "mapRoleToken",
+    code: "ROLE_TOKEN_MAPPING_SET",
+  },
+  {
+    file: "app/admin/onboarding/_actions/roleTokenStaged.ts",
+    fn: "mapRoleTokenStaged",
+    code: "ROLE_TOKEN_MAPPING_SET",
+  },
+  {
+    file: "app/admin/settings/_actions/roleTokenMappings.ts",
+    fn: "updateRoleTokenMapping",
+    code: "ROLE_TOKEN_MAPPING_SET",
+  },
+  {
+    file: "app/admin/settings/_actions/roleTokenMappings.ts",
+    fn: "deleteRoleTokenMapping",
+    code: "ROLE_TOKEN_MAPPING_DELETED",
+  },
 ];
 
 export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
@@ -447,6 +472,12 @@ export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
   // logAdminOutcome → stripped from the producer scan); flow into NEW_FORENSIC_CODES via spread.
   "USE_RAW_DECISION_SET",
   "USE_RAW_DECISION_CLEARED",
+  // Extend role→scope vocabulary (spec 2026-07-15 §8.3/§10): forensic outcome codes for
+  // the four role-mapping actions. SET = live/staged create + settings update; DELETED =
+  // settings delete. §12.4-exempt (logAdminOutcome-stamped → stripped from the producer
+  // scan); flow into NEW_FORENSIC_CODES via spread.
+  "ROLE_TOKEN_MAPPING_SET",
+  "ROLE_TOKEN_MAPPING_DELETED",
 ]);
 
 // Every NEW forensic-only code this feature introduces. EXCLUDES pre-existing

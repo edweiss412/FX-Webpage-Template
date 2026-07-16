@@ -61,6 +61,7 @@ import {
 } from "@/lib/parser/dataGaps";
 import { normalizeUseRawDecisions, type UseRawDecision } from "@/lib/sync/useRawOverlay";
 import { UseRawControlBoundary } from "@/components/admin/UseRawControlBoundary";
+import { RoleRecognizeControlBoundary } from "@/components/admin/RoleRecognizeControlBoundary";
 import { isMessageCode, messageFor } from "@/lib/messages/lookup";
 import type { MessageCode } from "@/lib/messages/catalog";
 import { PerShowActionableWarnings } from "@/components/admin/PerShowActionableWarnings";
@@ -954,6 +955,9 @@ export default async function AdminShowPage({
                     warning={w}
                     decision={decisionFor(w)}
                   />
+                  {/* spec 2026-07-15 §8.1: recognize-role control for
+                      UNKNOWN_ROLE_TOKEN warnings; self-hides (null) otherwise. */}
+                  <RoleRecognizeControlBoundary surface="show" showId={show.id} warning={w} />
                 </>
               )}
             />
@@ -996,6 +1000,9 @@ export default async function AdminShowPage({
                           warning={w}
                           decision={decisionFor(w)}
                         />
+                        {/* spec 2026-07-15 §8.1: recognize-role control also
+                            available on an ignored role warning; self-hides otherwise. */}
+                        <RoleRecognizeControlBoundary surface="show" showId={show.id} warning={w} />
                       </>
                     )}
                   />

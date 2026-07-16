@@ -41,6 +41,7 @@ vi.mock("postgres", () => ({
       if (/delete from public\.revision_race_cooldowns/i.test(sql)) return [];
       if (/update public\.admin_alerts/i.test(sql)) return [{ resolved: true }];
       if (/select id from public\.shows where drive_file_id/i.test(sql)) return [];
+      if (/from role_token_mappings/i.test(sql)) return [{ rows: [] }]; // §6.2 global load (none)
       if (/select public\.upsert_admin_alert/i.test(sql)) {
         // The `$3::jsonb` context param is passed as a RAW object now (postgres.js
         // serializes it once via the cast); the prior code double-encoded it with
@@ -157,14 +158,19 @@ describe("Postgres sync pipeline adapter", () => {
             unpublishToken: "11111111-1111-4111-8111-111111111111",
             unpublishTokenExpiresAt: "2026-05-09T12:00:00.000Z",
           });
-          return { outcome: "applied", showId: "show-1" };
+          return { outcome: "applied", appliedRoleMappings: [], showId: "show-1" };
         },
         createUnpublishToken: () => "11111111-1111-4111-8111-111111111111",
         now: () => new Date("2026-05-08T12:00:00.000Z"),
       },
     );
 
-    expect(result).toEqual({ outcome: "applied", showId: "show-1", parseWarnings: [] });
+    expect(result).toEqual({
+      outcome: "applied",
+      showId: "show-1",
+      parseWarnings: [],
+      appliedRoleMappings: [],
+    });
     expect(calls.defaultAdminAlerts).toEqual([]);
     expect(calls.txAdminAlerts).toEqual([
       {

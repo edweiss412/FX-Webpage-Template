@@ -117,13 +117,16 @@ export function lightingScopeVisible(flags: RoleFlag[]): boolean {
 /**
  * Financials tile visibility (§4.4, §8.1, AC-4.2).
  *
- * The viewer sees the Financials tile when EITHER:
+ * The viewer sees the Financials tile when ANY:
  *   - they are the admin viewer (kind === 'admin'), OR
- *   - their freshly-derived role_flags include LEAD.
+ *   - their freshly-derived role_flags include LEAD, OR
+ *   - their freshly-derived role_flags include FINANCIALS (admin grant via
+ *     role_token_mappings — spec 2026-07-15-extend-role-scope-vocab §4.1).
  *
  * Defense in depth: this predicate is the application-layer gate.
  * `getShowForViewer` already enforces the same rule (only joins
- * `shows_internal` when isLead === true; lib/data/getShowForViewer.ts:312).
+ * `shows_internal` when financialsEntitled === true — admin || LEAD ||
+ * FINANCIALS; lib/data/getShowForViewer.ts).
  * The FinancialsTile component then double-checks via this predicate
  * before rendering — so a future projection refactor that accidentally
  * exposes financials to a non-LEAD viewer is caught at the component
@@ -135,7 +138,7 @@ export function lightingScopeVisible(flags: RoleFlag[]): boolean {
  * the mock with cookie-bound auth; the predicate signature stays stable.
  */
 export function financialsVisible(flags: RoleFlag[], isAdmin: boolean): boolean {
-  return isAdmin || flags.includes("LEAD");
+  return isAdmin || flags.includes("LEAD") || flags.includes("FINANCIALS");
 }
 
 /**

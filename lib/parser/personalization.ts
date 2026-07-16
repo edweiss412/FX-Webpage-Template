@@ -12,37 +12,8 @@ import type { DateRestriction, StageRestriction, RoleFlag, ParseWarning } from "
 import { closedVocabMatch } from "@/lib/parser/fuzzyMatch";
 import { gatedVocabCorrect } from "@/lib/parser/typoGate";
 import { parseStageClause } from "@/lib/parser/stageClause";
+import { ROLE_NORMALIZATIONS, MULTI_WORD_TOKENS, canonicalRoleToken } from "./roleVocabulary";
 
-// ── Role normalization map ────────────────────────────────────────────────────
-// Maps cleaned token strings (trimmed uppercase) to canonical RoleFlag.
-export const ROLE_NORMALIZATIONS: Record<string, RoleFlag> = {
-  LEAD: "LEAD",
-  A1: "A1",
-  A2: "A2",
-  V1: "V1",
-  L1: "L1",
-  GS: "GS",
-  BO: "BO",
-  "CAM OP": "CAM_OP",
-  CAM_OP: "CAM_OP",
-  PTZ: "PTZ",
-  LED: "LED",
-  STREAM: "STREAM",
-  GAV: "GAV",
-  FLOATER: "FLOATER",
-  FLOOR: "FLOOR",
-  "SHOW CALLER": "SHOW_CALLER",
-  SHOW_CALLER: "SHOW_CALLER",
-  "GREEN ROOM": "GREEN_ROOM",
-  GREEN_ROOM: "GREEN_ROOM",
-  OWNER: "OWNER",
-  "CONTENT CREATION": "CONTENT_CREATION",
-  CONTENT_CREATION: "CONTENT_CREATION",
-  ONLY: "ONLY",
-};
-
-// Multi-word tokens that must be matched BEFORE splitting by / or -.
-const MULTI_WORD_TOKENS: string[] = ["CONTENT CREATION", "SHOW CALLER", "GREEN ROOM", "CAM OP"];
 // Real single-word role codes (A1/V1/LEAD/…) — excluded from the multi-word fuzz so a
 // short code is never over-corrected into a phrase (spec §8 do-not-fuzz).
 const SHORT_ROLE_CODES: readonly string[] = Object.keys(ROLE_NORMALIZATIONS).filter(
@@ -342,7 +313,7 @@ export function extractRoleFlags(roleCell: string): RoleFlagResult {
   // Tokenize by "/" and "-"
   const rawTokens = working
     .split(/[/\-]/)
-    .map((t) => t.trim().toUpperCase())
+    .map((t) => canonicalRoleToken(t))
     .filter((t) => t.length > 0);
 
   for (const tok of rawTokens) {
@@ -377,6 +348,7 @@ export function extractRoleFlags(roleCell: string): RoleFlagResult {
           code: "UNKNOWN_ROLE_TOKEN",
           message: `Unknown role token: '${tok}' in role cell: '${roleCell}'`,
           rawSnippet: roleCell,
+          roleToken: tok,
         });
       }
     }

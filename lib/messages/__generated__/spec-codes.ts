@@ -1034,6 +1034,12 @@ export const SPEC_CODES = {
     "followUp": "Doug → optional fix",
     "helpfulContext": "A multi-word role in this crew member's cell looked misspelled (e.g. 'Content Cretion'), so we read it as the closest real role ('Content Creation') and used that. If the spelling was intentional, update the sheet.",
   },
+  "ROLE_TOKEN_MAPPED": {
+    "crewFacing": null,
+    "dougFacing": "_<token>_, a role you added, matched someone on this show — we set up their page the way you chose.",
+    "followUp": "none — informational",
+    "helpfulContext": "A role you added from a warning matched a crew member during a sheet check, so their page now shows what you picked. Rendering note: with no extra choices the summary reads 'the standard show page'.",
+  },
   "ROOM_HEADER_SPLIT_AMBIGUOUS": {
     "crewFacing": null,
     "dougFacing": "We had to make a judgment call splitting a room line in _<sheet-name>_ into name and dimensions; check the rooms section against your sheet.",
@@ -1456,9 +1462,9 @@ export const SPEC_CODES = {
   },
   "UNKNOWN_ROLE_TOKEN": {
     "crewFacing": null,
-    "dougFacing": "_<crew-name>_'s role includes _<token>_, which we didn't recognize, so we left it off their page rather than guess. If that's a real role you use, let us know and we'll add it.",
-    "followUp": "Doug → optional Report",
-    "helpfulContext": "One of this crew member's role labels wasn't one we recognize, so we left it off their page instead of guessing — nothing else is affected. If the label is correct, let us know and we'll add it.",
+    "dougFacing": "_<crew-name>_'s role includes _<token>_, which we didn't recognize, so we left it off their page rather than guess. If that's a real role you use, you can add it right from this warning.",
+    "followUp": "Doug → recognize role (or optional Report)",
+    "helpfulContext": "One of this crew member's role labels wasn't one we recognize, so we left it off their page instead of guessing — nothing else is affected. If the label is correct, you can add it right from this warning.",
   },
   "UNKNOWN_SECTION_HEADER": {
     "crewFacing": null,

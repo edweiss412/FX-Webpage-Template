@@ -1,6 +1,7 @@
 import { canonicalize } from "@/lib/email/canonicalize";
 import type { DriveListedFile } from "@/lib/drive/list";
-import type { ParseResult, TriggeredReviewItem } from "@/lib/parser/types";
+import type { ParseResult, ParseWarning, TriggeredReviewItem } from "@/lib/parser/types";
+import type { GatedRoleMapping, RoleTokenMapping } from "@/lib/sync/roleMappingOverlay";
 import { assertShowLockHeld, type LockedShowTx } from "@/lib/sync/lockedShowTx";
 import type { Mi11Item } from "@/lib/sync/holds/writeMi11Holds";
 import {
@@ -454,6 +455,13 @@ export type ApplyStagedCoreArgs = {
   // pending_syncs.use_raw_decisions by each caller. Forwarded to runPhase2, which runs the overlay.
   // Absent → the overlay is a no-op ([]).
   useRawDecisions?: UseRawDecision[];
+  // §6.2: the global role-mapping vocabulary (normalized), forwarded to runPhase2's overlay so
+  // recognized tokens auto-apply on the staged apply. Absent → overlay no-op ([]).
+  roleTokenMappings?: RoleTokenMapping[];
+  // §10 point 2/3: the prior-persisted parse warnings for the delta gate. The staged path passes []
+  // (the show's prior crew flags — the grant branch's input — flow through applyShowSnapshot inside
+  // runPhase2; recognize-only stays silent here, an accepted informational under-emit). Absent → [].
+  priorParseWarnings?: ParseWarning[];
 };
 
 export type ApplyStagedCoreResult =
@@ -470,6 +478,9 @@ export type ApplyStagedCoreResult =
       // staged caller has no warnings to thread and AGENDA_DAY_EMPTIED is lost on the first-published
       // sync_log path.
       parseWarnings: ParseResult["warnings"];
+      // §10 point 5: post-gate ROLE_TOKEN_MAPPED entries surfaced to the applyStaged tail for its
+      // post-commit emit (invariant 10). REQUIRED (parseWarnings precedent) — [] when nothing gated.
+      appliedRoleMappings: GatedRoleMapping[];
     }
   | ReviewerChoiceValidationError
   | { outcome: "discarded_by_choice" } // ANY reject choice: NO Phase 2, NO audit, NO floors — the
@@ -581,6 +592,11 @@ export async function applyStagedCore(
     ...(args.mi11Items.length > 0 ? { mi11Items: args.mi11Items } : {}),
     // Task 6: forward the staged "use raw" decisions to runPhase2's overlay (staged finalize path).
     ...(args.useRawDecisions ? { useRawDecisions: args.useRawDecisions } : {}),
+    // §6.2/§10: forward the global role mappings + prior parse warnings to runPhase2's overlay + gate.
+    // no-telemetry: ROLE_TOKEN_MAPPED for the staged surface is emitted POST-COMMIT by the applyStaged
+    // tail (applyStaged.ts, outside the lock tx per invariant 10) from coreResult.appliedRoleMappings.
+    roleTokenMappings: args.roleTokenMappings ?? [],
+    priorParseWarnings: args.priorParseWarnings ?? [],
     // NOTE (deviation from the plan's literal `feedItems.length > 0` spread): the live feed
     // writer's gate is `args.notableItems !== undefined` (phase2.ts writeAutoApplyChanges block)
     // — choice_aware must pass notableItems even when the filtered list is EMPTY, otherwise an
@@ -646,6 +662,8 @@ export async function applyStagedCore(
     // §02 (FIX-3 / R16/R17): surface the apply outcome's warnings (incl. any AGENDA_DAY_EMPTIED) so
     // the staged tail caller sources sync_log's parse_warnings from coreResult.parseWarnings.
     parseWarnings: phase2.parseWarnings ?? [],
+    // §10 point 5: surface the gate-passing entries so the applyStaged tail emits post-commit.
+    appliedRoleMappings: phase2.appliedRoleMappings,
   };
   if (phase2.roleFlagsNotice) applied.roleFlagsNotice = phase2.roleFlagsNotice;
   if (phase2.snapshotRevisionId) applied.snapshotRevisionId = phase2.snapshotRevisionId;

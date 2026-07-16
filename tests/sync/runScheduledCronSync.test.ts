@@ -477,7 +477,12 @@ function deps(overrides: Partial<ProcessOneFileDeps> = {}) {
     }),
     runPhase2: vi.fn(async (lockedTx: Phase2Tx) => {
       (lockedTx as PipelineTx).operations.push("runPhase2");
-      return { outcome: "applied" as const, showId: "show-1", parseWarnings: [] };
+      return {
+        outcome: "applied" as const,
+        appliedRoleMappings: [],
+        showId: "show-1",
+        parseWarnings: [],
+      };
     }),
     logSync: vi.fn(async () => undefined),
     publishShowInvalidation: vi.fn(async () => undefined),
@@ -784,6 +789,7 @@ describe("processOneFile", () => {
         (lockedTx as PipelineTx).operations.push("runPhase2");
         return {
           outcome: "applied" as const,
+          appliedRoleMappings: [],
           showId: "show-1",
           roleFlagsNotice: {
             showId: "show-1",
@@ -800,6 +806,7 @@ describe("processOneFile", () => {
       outcome: "applied",
       showId: "show-1",
       parseWarnings: [],
+      appliedRoleMappings: [],
       roleFlagsNotice: {
         showId: "show-1",
         code: "ROLE_FLAGS_NOTICE",
@@ -849,13 +856,23 @@ describe("processOneFile", () => {
           unpublishToken: "11111111-1111-4111-8111-111111111111",
           unpublishTokenExpiresAt: "2026-05-09T12:00:00.000Z",
         });
-        return { outcome: "applied" as const, showId: "show-1", parseWarnings: [] };
+        return {
+          outcome: "applied" as const,
+          appliedRoleMappings: [],
+          showId: "show-1",
+          parseWarnings: [],
+        };
       }),
     });
 
     const result = await processOneFile("file-1", "cron", fileMeta("file-1"), syncDeps);
 
-    expect(result).toEqual({ outcome: "applied", showId: "show-1", parseWarnings: [] });
+    expect(result).toEqual({
+      outcome: "applied",
+      showId: "show-1",
+      parseWarnings: [],
+      appliedRoleMappings: [],
+    });
     expect(upsertAdminAlert).toHaveBeenCalledWith({
       showId: "show-1",
       code: "SHOW_FIRST_PUBLISHED",
@@ -910,6 +927,7 @@ describe("processOneFile", () => {
         (lockedTx as PipelineTx).operations.push("runPhase2");
         return {
           outcome: "applied" as const,
+          appliedRoleMappings: [],
           showId: "show-1",
           parseWarnings: withWarnings.warnings,
         };
@@ -944,7 +962,12 @@ describe("processOneFile", () => {
       }),
       runPhase2: vi.fn(async (lockedTx: Phase2Tx) => {
         (lockedTx as PipelineTx).operations.push("runPhase2");
-        return { outcome: "applied" as const, showId: "show-1", parseWarnings: [] };
+        return {
+          outcome: "applied" as const,
+          appliedRoleMappings: [],
+          showId: "show-1",
+          parseWarnings: [],
+        };
       }),
     });
 
@@ -1006,7 +1029,12 @@ describe("processOneFile", () => {
         runPhase2: vi.fn(async (lockedTx: Phase2Tx) => {
           events.push("phase2");
           (lockedTx as PipelineTx).operations.push("runPhase2");
-          return { outcome: "applied" as const, showId: "show-1", parseWarnings: [] };
+          return {
+            outcome: "applied" as const,
+            appliedRoleMappings: [],
+            showId: "show-1",
+            parseWarnings: [],
+          };
         }),
       });
 
@@ -1014,6 +1042,7 @@ describe("processOneFile", () => {
         outcome: "applied",
         showId: "show-1",
         parseWarnings: [],
+        appliedRoleMappings: [],
       });
 
       expect(events).toEqual([
@@ -1069,6 +1098,7 @@ describe("processOneFile", () => {
       outcome: "applied",
       showId: "show-1",
       parseWarnings: [],
+      appliedRoleMappings: [],
     });
 
     expect(events).toEqual(["lock:start", "phase1", "lock:commit"]);
@@ -1160,7 +1190,12 @@ describe("processOneFile", () => {
 
     await expect(
       processOneFile("file-1", "cron", fileMeta("file-1", "2026-05-09T03:45:00.000Z"), syncDeps),
-    ).resolves.toEqual({ outcome: "applied", showId: "show-1", parseWarnings: [] });
+    ).resolves.toEqual({
+      outcome: "applied",
+      showId: "show-1",
+      parseWarnings: [],
+      appliedRoleMappings: [],
+    });
 
     expect(fakeTx.operations).toContain("deleteLiveDeferral:file-1");
     expect(fakeTx.deferredIngestions).toEqual([]);
@@ -1178,7 +1213,12 @@ describe("processOneFile", () => {
       syncDeps,
     );
 
-    expect(result).toEqual({ outcome: "applied", showId: "show-1", parseWarnings: [] });
+    expect(result).toEqual({
+      outcome: "applied",
+      showId: "show-1",
+      parseWarnings: [],
+      appliedRoleMappings: [],
+    });
     expect(syncDeps.fetchMarkdownAtRevision).toHaveBeenCalledWith("file-1", "token-1");
     expect(vi.mocked(syncDeps.parseSheet)).toHaveBeenCalledAfter(
       vi.mocked(syncDeps.fetchMarkdownAtRevision),
@@ -1224,7 +1264,12 @@ describe("processOneFile", () => {
       runPhase2: vi.fn(async (lockedTx: Phase2Tx, args) => {
         (lockedTx as PipelineTx).operations.push("runPhase2");
         capturedNotableItems = (args as { notableItems?: unknown[] }).notableItems;
-        return { outcome: "applied" as const, showId: "show-1", parseWarnings: [] };
+        return {
+          outcome: "applied" as const,
+          appliedRoleMappings: [],
+          showId: "show-1",
+          parseWarnings: [],
+        };
       }),
     });
 
@@ -1235,7 +1280,12 @@ describe("processOneFile", () => {
       fileMeta("file-1"),
       syncDeps,
     );
-    expect(result).toEqual({ outcome: "applied", showId: "show-1", parseWarnings: [] });
+    expect(result).toEqual({
+      outcome: "applied",
+      showId: "show-1",
+      parseWarnings: [],
+      appliedRoleMappings: [],
+    });
 
     // The asset-drift item is threaded into notableItems so writeAutoApplyChanges emits asset_drift.
     expect(capturedNotableItems).toBeDefined();
@@ -1291,7 +1341,12 @@ describe("processOneFile", () => {
           (lockedTx as PipelineTx).operations.push("runPhase2");
           capturedNotableItems = (args as { notableItems?: unknown[] }).notableItems;
           capturedParseWarnings = (args as { parseResult: ParseResult }).parseResult.warnings;
-          return { outcome: "applied" as const, showId: "show-1", parseWarnings: [] };
+          return {
+            outcome: "applied" as const,
+            appliedRoleMappings: [],
+            showId: "show-1",
+            parseWarnings: [],
+          };
         }),
       });
       fakeTx.readShowForPhase1 = vi.fn(async () => ({
@@ -1311,7 +1366,12 @@ describe("processOneFile", () => {
         fileMeta("file-1"),
         syncDeps,
       );
-      expect(result).toEqual({ outcome: "applied", showId: "show-1", parseWarnings: [] });
+      expect(result).toEqual({
+        outcome: "applied",
+        showId: "show-1",
+        parseWarnings: [],
+        appliedRoleMappings: [],
+      });
 
       // (a) MI-7 fired for the hotel block — exactly one MI-7 section item, section = hotel_reservations.
       const mi7Items = (capturedNotableItems ?? []).filter(
@@ -1364,7 +1424,12 @@ describe("processOneFile", () => {
       runPhase2: vi.fn(async (lockedTx: Phase2Tx, args) => {
         (lockedTx as PipelineTx).operations.push("runPhase2");
         capturedParseWarnings = (args as { parseResult: ParseResult }).parseResult.warnings;
-        return { outcome: "applied" as const, showId: "show-1", parseWarnings: [] };
+        return {
+          outcome: "applied" as const,
+          appliedRoleMappings: [],
+          showId: "show-1",
+          parseWarnings: [],
+        };
       }),
     });
     fakeTx.readShowForPhase1 = vi.fn(async () => ({
@@ -1578,6 +1643,7 @@ describe("processOneFile", () => {
       outcome: "applied",
       showId: "show-1",
       parseWarnings: [],
+      appliedRoleMappings: [],
     });
     expect(fakeTx.revisionRaceCooldowns?.has(cooldownKey("file-1", "token-1"))).toBe(false);
     expect(fakeTx.operations).toContain("deleteRevisionRaceCooldowns:file-1");
@@ -1612,7 +1678,12 @@ describe("processOneFile", () => {
         { ...fileMeta("file-1"), headRevisionId: "token-1" },
         syncDeps,
       ),
-    ).resolves.toEqual({ outcome: "applied", showId: "show-1", parseWarnings: [] });
+    ).resolves.toEqual({
+      outcome: "applied",
+      showId: "show-1",
+      parseWarnings: [],
+      appliedRoleMappings: [],
+    });
     await expect(
       processOneFile_unlocked(
         fakeTx as LockedShowTx<PipelineTx>,
@@ -2164,6 +2235,7 @@ describe("runScheduledCronSync", () => {
       outcome: "applied" as const,
       showId: "show-a",
       parseWarnings: [],
+      appliedRoleMappings: [],
     }));
     const getActiveWatchedFolderId = vi.fn(async () => ({ folderId: "settings-folder-y" }));
 
@@ -2191,6 +2263,7 @@ describe("runScheduledCronSync", () => {
       outcome: "applied" as const,
       showId: "show-a",
       parseWarnings: [],
+      appliedRoleMappings: [],
     }));
 
     try {
@@ -2250,6 +2323,7 @@ describe("runScheduledCronSync", () => {
       outcome: "applied" as const,
       showId: "show-a",
       parseWarnings: [],
+      appliedRoleMappings: [],
     }));
 
     await runScheduledCronSync({
@@ -2317,6 +2391,7 @@ describe("runScheduledCronSync", () => {
       outcome: "applied" as const,
       showId: "show-b",
       parseWarnings: [],
+      appliedRoleMappings: [],
     }));
 
     const result = await runScheduledCronSync({
@@ -2343,7 +2418,12 @@ describe("runScheduledCronSync", () => {
       },
       {
         driveFileId: "file-b",
-        result: { outcome: "applied", showId: "show-b", parseWarnings: [] },
+        result: {
+          outcome: "applied",
+          showId: "show-b",
+          parseWarnings: [],
+          appliedRoleMappings: [],
+        },
       },
     ]);
     expect(lockEvents).toEqual(["lock:file-a"]);
@@ -2393,6 +2473,7 @@ describe("runScheduledCronSync", () => {
         outcome: "applied" as const,
         showId: "show-b",
         parseWarnings: [],
+        appliedRoleMappings: [],
       })),
       withShowLock,
       listLiveShows: vi.fn(async () => [
