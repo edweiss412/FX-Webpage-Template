@@ -172,6 +172,31 @@ describe("RoleMappingRow — edit", () => {
     );
     resolve({ ok: true });
   });
+
+  it("stale edit result → stays in edit with the benign notice (not error styling)", async () => {
+    vi.mocked(updateRoleTokenMapping).mockResolvedValue({ ok: false, code: "stale" });
+    render(<RoleMappingRow row={row()} />);
+    fireEvent.click(screen.getByRole("button", { name: COPY.EDIT_LABEL }));
+    fireEvent.click(screen.getByRole("button", { name: COPY.SAVE_CHANGES_LABEL }));
+    const notice = await screen.findByTestId("role-mapping-edit-notice");
+    expect(notice).toHaveTextContent(COPY.STALE_COPY);
+    expect(notice).toHaveAttribute("role", "alert");
+    // still in edit (checklist present), selections kept
+    expect(screen.getByTestId("role-mapping-check-A1")).toBeChecked();
+  });
+
+  it("failed edit → stays in edit with the plain error, selections kept, and clears on retry", async () => {
+    vi.mocked(updateRoleTokenMapping).mockResolvedValue({ ok: false, code: "infra_error" });
+    render(<RoleMappingRow row={row()} />);
+    fireEvent.click(screen.getByRole("button", { name: COPY.EDIT_LABEL }));
+    fireEvent.click(screen.getByRole("button", { name: COPY.SAVE_CHANGES_LABEL }));
+    const notice = await screen.findByTestId("role-mapping-edit-notice");
+    expect(notice).toHaveTextContent(COPY.ERROR_COPY);
+    expect(screen.getByTestId("role-mapping-check-A1")).toBeChecked();
+    // a fresh selection dismisses the notice
+    fireEvent.click(screen.getByTestId("role-mapping-check-L1"));
+    expect(screen.queryByTestId("role-mapping-edit-notice")).toBeNull();
+  });
 });
 
 describe("RoleMappingRow — remove (two-step)", () => {
@@ -193,6 +218,27 @@ describe("RoleMappingRow — remove (two-step)", () => {
     expect(deleteRoleTokenMapping).not.toHaveBeenCalled();
     // back to the view actions
     expect(screen.getByRole("button", { name: COPY.EDIT_LABEL })).toBeInTheDocument();
+  });
+
+  it("failed delete STAYS in confirm with a plain error — never reads as removed", async () => {
+    vi.mocked(deleteRoleTokenMapping).mockResolvedValue({ ok: false, code: "infra_error" });
+    render(<RoleMappingRow row={row()} />);
+    fireEvent.click(screen.getByRole("button", { name: COPY.REMOVE_LABEL }));
+    fireEvent.click(screen.getByRole("button", { name: COPY.REMOVE_CONFIRM_YES }));
+    const notice = await screen.findByTestId("role-mapping-remove-notice");
+    expect(notice).toHaveTextContent(COPY.ERROR_COPY);
+    expect(notice).toHaveAttribute("role", "alert");
+    // still in confirm — the confirm copy + Keep-it out are both present
+    expect(screen.getByText(COPY.REMOVE_CONFIRM)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: COPY.REMOVE_KEEP })).toBeInTheDocument();
+  });
+});
+
+describe("RoleMappingRow — focus + live regions", () => {
+  it("opening edit moves focus to the panel heading", async () => {
+    render(<RoleMappingRow row={row()} />);
+    fireEvent.click(screen.getByRole("button", { name: COPY.EDIT_LABEL }));
+    await waitFor(() => expect(screen.getByText(COPY.PANEL_HEADING)).toHaveFocus());
   });
 });
 

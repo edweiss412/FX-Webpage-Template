@@ -15,7 +15,7 @@
  * either resets to view (edit) or is dropped by the re-render (remove).
  */
 
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { GRANTABLE_FLAGS, type GrantableFlag } from "@/lib/sync/roleMappingOverlay";
 import * as COPY from "@/components/admin/roleRecognizeCopy";
@@ -63,28 +63,59 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
   const [mode, setMode] = useState<"view" | "edit" | "confirm">("view");
   const [checks, setChecks] = useState<Checks>(EMPTY_CHECKS);
   const [busy, setBusy] = useState(false);
+  // Inline failure notice for a non-ok mutation (invariant 5 — plain copy, never a
+  // raw code). "stale" is a benign edit outcome (the row is gone) shown calm;
+  // "error" is the generic infra failure shown in the warning treatment.
+  const [notice, setNotice] = useState<"stale" | "error" | null>(null);
+
+  // Focus management: when the inline edit panel opens, move focus to its heading
+  // so keyboard/AT users land inside the freshly revealed controls.
+  const editHeadingRef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (mode === "edit") editHeadingRef.current?.focus();
+  }, [mode]);
 
   const startEdit = () => {
+    setNotice(null);
     setChecks(checksFromGrants(row.grants));
     setMode("edit");
   };
-  const toggle = (flag: GrantableFlag) => setChecks((c) => ({ ...c, [flag]: !c[flag] }));
+  const startConfirm = () => {
+    setNotice(null);
+    setMode("confirm");
+  };
+  const back = () => {
+    setNotice(null);
+    setMode("view");
+  };
+  const toggle = (flag: GrantableFlag) => {
+    setNotice(null); // a fresh selection dismisses the stale/error notice
+    setChecks((c) => ({ ...c, [flag]: !c[flag] }));
+  };
   const noneChecked = GRANTABLE_FLAGS.every((f) => !checks[f]);
 
   const saveEdit = async () => {
+    setNotice(null); // retry clears the prior notice before re-attempting
     setBusy(true);
     const r = await updateRoleTokenMapping(
       row.token,
       GRANTABLE_FLAGS.filter((f) => checks[f]),
     );
     setBusy(false);
+    // On failure STAY in edit with the selections kept and a plain notice; only a
+    // durable success returns to the view (the revalidated re-render replaces us).
     if (r.ok) setMode("view");
+    else setNotice(r.code === "stale" ? "stale" : "error");
   };
   const confirmRemove = async () => {
+    setNotice(null);
     setBusy(true);
-    await deleteRoleTokenMapping(row.token);
+    const r = await deleteRoleTokenMapping(row.token);
     setBusy(false);
-    setMode("view");
+    // Only leave confirm on a real success — a failed delete must never read as
+    // "removed"; STAY in confirm with a plain error line.
+    if (r.ok) setMode("view");
+    else setNotice("error");
   };
 
   const meta = `${row.decidedByLabel} · ${row.decidedAtLabel}`;
@@ -130,7 +161,7 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
             <button type="button" onClick={startEdit} className={outlineBtn}>
               {COPY.EDIT_LABEL}
             </button>
-            <button type="button" onClick={() => setMode("confirm")} className={ghostBtn}>
+            <button type="button" onClick={startConfirm} className={ghostBtn}>
               {COPY.REMOVE_LABEL}
             </button>
           </div>
@@ -141,7 +172,13 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
         <div
           className={`flex flex-col gap-3 rounded-md border border-border bg-surface-sunken p-3 ${popIn}`}
         >
-          <span className="text-sm font-semibold text-text-strong">{COPY.PANEL_HEADING}</span>
+          <span
+            ref={editHeadingRef}
+            tabIndex={-1}
+            className="text-sm font-semibold text-text-strong outline-none"
+          >
+            {COPY.PANEL_HEADING}
+          </span>
           <div className="flex flex-col">
             {(["A1", "V1", "L1"] as const).map((flag) => (
               <label key={flag} className="flex min-h-tap-min cursor-pointer items-center gap-2.5">
@@ -182,6 +219,19 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
               {COPY.NONE_CHECKED_HELPER}
             </p>
           ) : null}
+          {notice ? (
+            <p
+              role="alert"
+              data-testid="role-mapping-edit-notice"
+              className={
+                notice === "stale"
+                  ? "rounded-md border border-border bg-info-bg px-2.5 py-2 text-xs text-text-subtle"
+                  : "rounded-md border border-border-strong bg-warning-bg px-2.5 py-2 text-xs text-warning-text"
+              }
+            >
+              {notice === "stale" ? COPY.STALE_COPY : COPY.ERROR_COPY}
+            </p>
+          ) : null}
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -196,7 +246,7 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
             <button
               type="button"
               disabled={busy}
-              onClick={() => setMode("view")}
+              onClick={back}
               className="min-h-tap-min rounded-sm px-2 text-sm font-medium text-text-subtle transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
             >
               {COPY.CANCEL_LABEL}
@@ -210,6 +260,15 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
           className={`flex flex-col gap-2.5 rounded-md border border-border-strong bg-warning-bg p-3 ${popIn}`}
         >
           <p className="text-xs text-warning-text">{COPY.REMOVE_CONFIRM}</p>
+          {notice === "error" ? (
+            <p
+              role="alert"
+              data-testid="role-mapping-remove-notice"
+              className="rounded-md border border-border-strong bg-surface px-2.5 py-2 text-xs text-warning-text"
+            >
+              {COPY.ERROR_COPY}
+            </p>
+          ) : null}
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -224,7 +283,7 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
             <button
               type="button"
               disabled={busy}
-              onClick={() => setMode("view")}
+              onClick={back}
               className="min-h-tap-min rounded-sm px-2 text-sm font-medium text-text-subtle transition-colors duration-fast hover:text-text-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring disabled:cursor-not-allowed disabled:opacity-60"
             >
               {COPY.REMOVE_KEEP}

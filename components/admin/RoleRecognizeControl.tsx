@@ -25,7 +25,7 @@
  * contract) — no persistence promise beyond that.
  */
 
-import { useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 import { GRANTABLE_FLAGS, type GrantableFlag } from "@/lib/sync/roleMappingOverlay";
 import * as COPY from "@/components/admin/roleRecognizeCopy";
@@ -92,6 +92,17 @@ export function RoleRecognizeControl({
     state: "applied" | "apply_pending";
     grants: readonly GrantableFlag[];
   } | null>(null);
+
+  // Focus management: expanding the panel (collapsed→idle, or the revise reopen)
+  // moves focus to the panel heading; a successful save moves it to the saved
+  // heading. Error keeps focus in place (the alert announces itself, selections
+  // stay visible). Keyed on phase/errored so it fires once per transition.
+  const panelHeadingRef = useRef<HTMLSpanElement>(null);
+  const savedHeadingRef = useRef<HTMLSpanElement>(null);
+  useEffect(() => {
+    if (phase === "idle" && !errored) panelHeadingRef.current?.focus();
+    else if (phase === "saved") savedHeadingRef.current?.focus();
+  }, [phase, errored]);
 
   const token = (roleToken ?? "").trim();
   if (token.length === 0) return null;
@@ -168,6 +179,7 @@ export function RoleRecognizeControl({
       <div
         data-testid="role-recognize-control"
         data-phase="saved"
+        role="status"
         className={`mt-2 flex items-start gap-2.5 rounded-md border border-border bg-surface px-3.5 py-3 ${popIn}`}
       >
         <span
@@ -181,7 +193,13 @@ export function RoleRecognizeControl({
           data-state={saved.state}
           className="flex flex-col gap-0.5"
         >
-          <span className="text-sm font-semibold text-text-strong">{COPY.SAVED_HEADING}</span>
+          <span
+            ref={savedHeadingRef}
+            tabIndex={-1}
+            className="text-sm font-semibold text-text-strong outline-none"
+          >
+            {COPY.SAVED_HEADING}
+          </span>
           <span className="text-xs text-text-subtle">
             {saved.state === "applied"
               ? COPY.savedSummary(token, saved.grants)
@@ -207,6 +225,7 @@ export function RoleRecognizeControl({
       <div data-testid="role-recognize-control" data-phase={phase} className="mt-2">
         <p
           data-testid={isStale ? "role-recognize-stale" : "role-recognize-conflict"}
+          role="status"
           className="rounded-md border border-border bg-info-bg px-3 py-2 text-xs text-text-subtle"
         >
           {isStale ? COPY.STALE_COPY : COPY.CONFLICT_COPY}
@@ -223,7 +242,13 @@ export function RoleRecognizeControl({
         className={`flex flex-col gap-3 rounded-md border border-border bg-surface p-3.5 ${popIn}`}
       >
         <div className="flex flex-col gap-0.5">
-          <span className="text-sm font-semibold text-text-strong">{COPY.PANEL_HEADING}</span>
+          <span
+            ref={panelHeadingRef}
+            tabIndex={-1}
+            className="text-sm font-semibold text-text-strong outline-none"
+          >
+            {COPY.PANEL_HEADING}
+          </span>
           <span className="text-xs text-text-subtle">{COPY.scopeLine(token)}</span>
         </div>
 

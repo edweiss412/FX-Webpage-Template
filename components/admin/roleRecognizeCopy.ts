@@ -62,7 +62,6 @@ export const SETTINGS_SUBTITLE =
   "Anyone whose sheet role matches one of these gets the page you picked — on every show.";
 export const STANDARD_PAGE_CHIP = "Standard page only";
 export const EDIT_LABEL = "Edit what they see";
-export const EDIT_LABEL_SHORT = "Edit";
 export const REMOVE_LABEL = "Remove";
 export const SAVE_CHANGES_LABEL = "Save changes";
 export const SAVING_CHANGES_LABEL = "Saving…";

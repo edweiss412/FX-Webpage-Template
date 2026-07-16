@@ -267,6 +267,36 @@ describe("RoleRecognizeControl — transition inventory", () => {
   });
 });
 
+// ── Live regions + focus management (impeccable P2) ────────────────────────
+describe("RoleRecognizeControl — live regions + focus", () => {
+  it("expanding moves focus to the panel heading", async () => {
+    render(<RoleRecognizeControl roleToken={TOKEN} onSave={vi.fn()} />);
+    expand();
+    await waitFor(() => expect(screen.getByText(COPY.PANEL_HEADING)).toHaveFocus());
+  });
+
+  it("saved card is a status live region and takes focus on save", async () => {
+    const onSave = vi.fn(
+      async () => ({ kind: "saved", state: "applied", grants: ["A1"] }) as const,
+    );
+    render(<RoleRecognizeControl roleToken={TOKEN} onSave={onSave} />);
+    expand();
+    fireEvent.click(screen.getByTestId("role-recognize-save"));
+    await waitFor(() => expect(screen.getByTestId("role-recognize-saved")).toBeInTheDocument());
+    expect(screen.getByTestId("role-recognize-control")).toHaveAttribute("role", "status");
+    await waitFor(() => expect(screen.getByText(COPY.SAVED_HEADING)).toHaveFocus());
+  });
+
+  it("stale / conflict notices are status live regions", async () => {
+    const onSave = vi.fn(async () => ({ kind: "stale" }) as const);
+    render(<RoleRecognizeControl roleToken={TOKEN} onSave={onSave} />);
+    expand();
+    fireEvent.click(screen.getByTestId("role-recognize-save"));
+    await waitFor(() => expect(screen.getByTestId("role-recognize-stale")).toBeInTheDocument());
+    expect(screen.getByTestId("role-recognize-stale")).toHaveAttribute("role", "status");
+  });
+});
+
 // ── Boundary: action selection ─────────────────────────────────────────────
 function warn(over: Partial<ParseWarning> = {}): ParseWarning {
   return {
