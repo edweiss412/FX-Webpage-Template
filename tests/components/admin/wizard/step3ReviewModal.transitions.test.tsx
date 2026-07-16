@@ -92,11 +92,11 @@ import {
   Step3ReviewModal,
   WARNING_HIGHLIGHT_MS,
 } from "@/components/admin/wizard/Step3ReviewModal";
+import { step3Sections } from "@/components/admin/wizard/step3ReviewSections";
 import {
-  step3Sections,
+  buildStagedSectionData,
   type StagedSectionData,
-} from "@/components/admin/wizard/step3ReviewSections";
-import { buildStagedSectionData } from "@/components/admin/review/sectionData";
+} from "@/components/admin/review/sectionData";
 import { buildParseResult, stagedRow } from "./_step3ReviewFixture";
 
 const ROOT = join(__dirname, "..", "..", "..", "..");

@@ -23,8 +23,10 @@ import {
   Step3ReviewModal,
   type Step3ReviewResolution,
 } from "@/components/admin/wizard/Step3ReviewModal";
-import { type StagedSectionData } from "@/components/admin/wizard/step3ReviewSections";
-import { buildStagedSectionData } from "@/components/admin/review/sectionData";
+import {
+  buildStagedSectionData,
+  type StagedSectionData,
+} from "@/components/admin/review/sectionData";
 import { buildParseResult, stagedRow } from "./_step3ReviewFixture";
 
 const DFID = "drive-abc-123";

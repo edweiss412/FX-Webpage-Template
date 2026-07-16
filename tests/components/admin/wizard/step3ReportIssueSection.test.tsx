@@ -31,9 +31,11 @@ import {
   REPORT_PARSE_WARNINGS_CAP,
   ReportIssueSection,
   Step3SectionChromeContext,
-  type StagedSectionData,
 } from "@/components/admin/wizard/step3ReviewSections";
-import { buildStagedSectionData } from "@/components/admin/review/sectionData";
+import {
+  buildStagedSectionData,
+  type StagedSectionData,
+} from "@/components/admin/review/sectionData";
 import type { SectionId } from "@/lib/admin/step3SectionStatus";
 import { messageFor } from "@/lib/messages/lookup";
 import type { MessageCode } from "@/lib/messages/catalog";

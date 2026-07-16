@@ -82,10 +82,6 @@ import { useRouter } from "next/navigation";
 import { isStaged } from "@/components/admin/review/sectionData";
 import type { SectionData, StagedSectionData } from "@/components/admin/review/sectionData";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
-// Re-export so untouched callers (modal, tests, e2e harness) keep importing the
-// mode-discriminated union (and the staged variant) from this module until
-// Task 4's codemod moves them onto @/components/admin/review/sectionData directly.
-export type { SectionData, StagedSectionData };
 import { UseRawControlBoundary } from "@/components/admin/UseRawControlBoundary";
 import { RoleRecognizeControlBoundary } from "@/components/admin/RoleRecognizeControlBoundary";
 import { SECTION_REGION_MAP, type SectionId } from "@/lib/admin/step3SectionStatus";

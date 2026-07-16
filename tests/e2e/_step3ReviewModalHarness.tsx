@@ -24,8 +24,10 @@ import {
   type AppRouterInstance,
 } from "next/dist/shared/lib/app-router-context.shared-runtime";
 import { Step3ReviewModal } from "@/components/admin/wizard/Step3ReviewModal";
-import type { StagedSectionData } from "@/components/admin/wizard/step3ReviewSections";
-import { buildStagedSectionData } from "@/components/admin/review/sectionData";
+import {
+  buildStagedSectionData,
+  type StagedSectionData,
+} from "@/components/admin/review/sectionData";
 import type { CrewMemberRow, ParseResult, ParseWarning } from "@/lib/parser/types";
 import {
   buildParseResult,

@@ -54,10 +54,12 @@ import {
   roomHasScope,
   step3Sections,
   STEP3_SECTION_GROUPS,
-  type StagedSectionData,
   type Step3SectionDef,
 } from "@/components/admin/wizard/step3ReviewSections";
-import { buildStagedSectionData } from "@/components/admin/review/sectionData";
+import {
+  buildStagedSectionData,
+  type StagedSectionData,
+} from "@/components/admin/review/sectionData";
 import { buildParseResult, stagedRow, show } from "./_step3ReviewFixture";
 
 // AgendaBreakdown (rendered by the agenda registry entry) calls fetch in an

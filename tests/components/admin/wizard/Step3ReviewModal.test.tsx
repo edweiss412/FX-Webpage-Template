@@ -63,9 +63,11 @@ import {
   dateSummarySegments,
   step3Sections,
   STEP3_SECTION_GROUPS,
-  type StagedSectionData,
 } from "@/components/admin/wizard/step3ReviewSections";
-import { buildStagedSectionData } from "@/components/admin/review/sectionData";
+import {
+  buildStagedSectionData,
+  type StagedSectionData,
+} from "@/components/admin/review/sectionData";
 import { deriveSectionStatuses, type SectionId } from "@/lib/admin/step3SectionStatus";
 import { RESCAN_REVIEW_REQUIRED } from "@/lib/onboarding/rescanReviewCode";
 import { buildSheetDeepLink } from "@/lib/sheet-links/buildSheetDeepLink";
