@@ -132,19 +132,19 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
   return (
     <li
       data-testid="role-mapping-row"
-      className="flex flex-col gap-2 rounded-md border border-border bg-surface p-3"
+      className="flex flex-col gap-2 rounded-md border border-border bg-surface p-3 min-[760px]:grid min-[760px]:grid-cols-[150px_1fr_auto_auto] min-[760px]:items-center min-[760px]:gap-x-4 min-[760px]:gap-y-2 min-[760px]:px-3.5 min-[760px]:py-2"
     >
-      <div className="flex items-baseline justify-between gap-2">
+      <div className="flex items-baseline justify-between gap-2 min-[760px]:contents">
         <span
           data-testid="role-mapping-token"
           title={row.token}
-          className="text-sm font-semibold text-text-strong"
+          className="text-sm font-semibold text-text-strong min-[760px]:col-start-1 min-[760px]:row-start-1 min-[760px]:truncate"
         >
           {row.token}
         </span>
         <span
           data-testid="role-mapping-meta"
-          className="whitespace-nowrap text-[11px] text-text-subtle"
+          className="whitespace-nowrap text-[11px] text-text-subtle min-[760px]:col-start-3 min-[760px]:row-start-1"
         >
           {meta}
         </span>
@@ -152,7 +152,10 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
 
       {mode === "view" ? (
         <>
-          <div data-testid="role-mapping-chips" className="flex flex-wrap gap-1.5">
+          <div
+            data-testid="role-mapping-chips"
+            className="flex flex-wrap gap-1.5 min-[760px]:col-start-2 min-[760px]:row-start-1"
+          >
             {row.grants.length === 0 ? (
               <span
                 data-testid="role-mapping-chip"
@@ -177,7 +180,10 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
               ))
             )}
           </div>
-          <div data-testid="role-mapping-actions" className="flex items-center gap-2">
+          <div
+            data-testid="role-mapping-actions"
+            className="flex items-center gap-2 min-[760px]:col-start-4 min-[760px]:row-start-1"
+          >
             <button
               type="button"
               onClick={startEdit}
@@ -207,7 +213,7 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
             <p
               role="status"
               data-testid="role-mapping-saved-confirm"
-              className="rounded-md border border-border bg-info-bg px-2.5 py-2 text-xs text-text-subtle"
+              className="rounded-md border border-border bg-info-bg px-2.5 py-2 text-xs text-text-subtle min-[760px]:col-span-4"
             >
               {COPY.EDIT_SAVED_CONFIRM}
             </p>
@@ -217,7 +223,8 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
 
       {mode === "edit" ? (
         <div
-          className={`flex flex-col gap-3 rounded-md border border-border bg-surface-sunken p-3 ${popIn}`}
+          data-testid="role-mapping-edit-panel"
+          className={`flex flex-col gap-3 rounded-md border border-border bg-surface-sunken p-3 min-[760px]:col-span-4 ${popIn}`}
         >
           <span
             ref={editHeadingRef}
@@ -304,7 +311,8 @@ export function RoleMappingRow({ row }: { row: RoleMappingRowData }) {
 
       {mode === "confirm" ? (
         <div
-          className={`flex flex-col gap-2.5 rounded-md border border-border-strong bg-warning-bg p-3 ${popIn}`}
+          data-testid="role-mapping-confirm-panel"
+          className={`flex flex-col gap-2.5 rounded-md border border-border-strong bg-warning-bg p-3 min-[760px]:col-span-4 ${popIn}`}
         >
           <p className="text-xs text-warning-text">{COPY.REMOVE_CONFIRM}</p>
           {notice === "error" ? (

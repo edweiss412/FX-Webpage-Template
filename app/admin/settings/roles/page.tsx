@@ -27,7 +27,7 @@ export default async function RolesSettingsPage() {
   const identity = await requireAdminIdentity();
 
   return (
-    <main className="mx-auto max-w-2xl px-tile-pad pb-section-gap">
+    <main className="mx-auto max-w-3xl px-tile-pad pb-section-gap">
       <RolesSettingsView result={result} actorEmail={canonicalize(identity.email) ?? ""} />
     </main>
   );
