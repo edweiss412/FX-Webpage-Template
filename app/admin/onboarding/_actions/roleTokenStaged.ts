@@ -108,7 +108,12 @@ export async function mapRoleTokenStaged(
     if (!hasWarning) return { ok: false, code: "stale" };
 
     // (3) Upsert (insert). A failed write → infra_error, emits NOTHING.
+    // Create-race carve-out (§8.3, mirrors roleToken.ts): the loser of a concurrent
+    // identical create trips the unique constraint (23505). Re-read the winner's row —
+    // set-equal → idempotent (no emit, fall through to re-stage); different → conflict;
+    // any non-23505 error stays infra_error.
     const nowIso = new Date().toISOString(); // not-render-side: mapping decision timestamp
+    let raceResolved = false;
     try {
       const { error } = await svc.from("role_token_mappings").insert({
         token,
@@ -117,20 +122,34 @@ export async function mapRoleTokenStaged(
         decided_at: nowIso,
         updated_at: nowIso,
       });
-      if (error) return { ok: false, code: "infra_error" };
+      if (error) {
+        if (error.code !== "23505") return { ok: false, code: "infra_error" };
+        const { data: raced, error: raceError } = await svc
+          .from("role_token_mappings")
+          .select("grants")
+          .eq("token", token)
+          .maybeSingle<{ grants: string[] }>();
+        if (raceError || !raced) return { ok: false, code: "infra_error" };
+        const racedGrants = normalizeGrants(raced.grants) ?? [];
+        if (!grantsEqual(racedGrants, grants)) return { ok: false, code: "conflict" };
+        raceResolved = true; // winner wrote the same grants — idempotent, no emit
+      }
     } catch {
       return { ok: false, code: "infra_error" };
     }
 
     // POST-COMMIT forensic outcome (invariant 10). Context: { token, grants } only.
-    await logAdminOutcome({
-      code: "ROLE_TOKEN_MAPPING_SET",
-      source: "admin.onboarding.roleTokenStaged",
-      actorEmail: actor,
-      wizardSessionId,
-      driveFileId,
-      extra: { token, grants },
-    });
+    // Skipped on a resolved race: THIS caller wrote nothing (the winner did).
+    if (!raceResolved) {
+      await logAdminOutcome({
+        code: "ROLE_TOKEN_MAPPING_SET",
+        source: "admin.onboarding.roleTokenStaged",
+        actorEmail: actor,
+        wizardSessionId,
+        driveFileId,
+        extra: { token, grants },
+      });
+    }
   }
 
   // (4) Follow-up re-stage. `applied` (§8.3 Codex R14 F1) = the re-stage COMPLETED

@@ -55,11 +55,17 @@ type SvcScript = {
   mappingReadError?: boolean;
   warningsReadError?: boolean;
   insertError?: boolean;
+  // Create-race scripting (§8.3): the insert hits a unique-constraint violation
+  // (Postgres 23505) and the POST-insert re-read returns the winner's row.
+  insertConflict?: boolean;
+  raceRow?: { grants: string[] } | null;
+  raceReadError?: boolean;
 };
 let svcScript: SvcScript;
 let fromTables: string[];
 let capturedInsert: Record<string, unknown> | null;
 let svcThrows: boolean;
+let mappingReads: number;
 
 function makeSvc() {
   return {
@@ -71,17 +77,26 @@ function makeSvc() {
       builder.eq = self;
       builder.insert = (payload: Record<string, unknown>) => {
         capturedInsert = payload;
+        const error = svcScript.insertConflict
+          ? { code: "23505", message: "duplicate key value violates unique constraint" }
+          : svcScript.insertError
+            ? { message: "insert boom" }
+            : null;
         return {
           then: (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) =>
-            Promise.resolve(
-              svcScript.insertError
-                ? { data: null, error: { message: "insert boom" } }
-                : { data: null, error: null },
-            ).then(res, rej),
+            Promise.resolve({ data: null, error }).then(res, rej),
         };
       };
       builder.maybeSingle = () => {
         if (table === "role_token_mappings") {
+          mappingReads += 1;
+          // First read = the pre-insert existing-row check; any later read = the
+          // post-23505 re-read of the winner's row.
+          if (mappingReads > 1) {
+            if (svcScript.raceReadError)
+              return Promise.resolve({ data: null, error: { message: "reread boom" } });
+            return Promise.resolve({ data: svcScript.raceRow ?? null, error: null });
+          }
           return Promise.resolve(
             svcScript.mappingReadError
               ? { data: null, error: { message: "read boom" } }
@@ -130,6 +145,7 @@ beforeEach(() => {
   fromTables = [];
   capturedInsert = null;
   svcThrows = false;
+  mappingReads = 0;
   requireAdminIdentityMock.mockResolvedValue({ email: "admin@example.com" });
   resolveShowByIdMock.mockResolvedValue({
     kind: "found",
@@ -198,6 +214,46 @@ describe("mapRoleToken (spec §8.3)", () => {
     expect(capturedInsert).toBeNull();
     expect(logAdminOutcomeMock).not.toHaveBeenCalled();
     expect(runManualSyncForShowMock).not.toHaveBeenCalled();
+  });
+
+  test("create race: insert 23505 + winner row set-equal → idempotent success, re-syncs, no emit", async () => {
+    // Two admins submit the same novel token concurrently. Both pass the no-row
+    // provenance check; the loser's insert hits the unique constraint (23505). The
+    // re-read finds the winner's set-equal row → honor idempotency, proceed to re-sync
+    // (§8.3), and emit NOTHING (the loser wrote nothing).
+    svcScript.insertConflict = true;
+    svcScript.raceRow = { grants: ["A1"] };
+    const r = await mapRoleToken("show-1", "DRONE OP", ["A1"]);
+    expect(r).toEqual({ ok: true, state: "applied" });
+    expect(logAdminOutcomeMock).not.toHaveBeenCalled();
+    expect(runManualSyncForShowMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("create race: insert 23505 + winner row with DIFFERENT grants → conflict, no emit, no re-sync", async () => {
+    svcScript.insertConflict = true;
+    svcScript.raceRow = { grants: ["FINANCIALS"] };
+    const r = await mapRoleToken("show-1", "DRONE OP", ["A1"]);
+    expect(r).toEqual({ ok: false, code: "conflict" });
+    expect(logAdminOutcomeMock).not.toHaveBeenCalled();
+    expect(runManualSyncForShowMock).not.toHaveBeenCalled();
+  });
+
+  test("create race: insert 23505 but re-read errors/returns nothing → infra_error", async () => {
+    svcScript.insertConflict = true;
+    svcScript.raceReadError = true;
+    expect(await mapRoleToken("show-1", "DRONE OP", ["A1"])).toEqual({
+      ok: false,
+      code: "infra_error",
+    });
+    // Row vanished between the constraint hit and the re-read → infra_error, not success.
+    mappingReads = 0;
+    svcScript.raceReadError = false;
+    svcScript.raceRow = null;
+    expect(await mapRoleToken("show-1", "DRONE OP", ["A1"])).toEqual({
+      ok: false,
+      code: "infra_error",
+    });
+    expect(logAdminOutcomeMock).not.toHaveBeenCalled();
   });
 
   test("no row + no matching current warning: stale, nothing written", async () => {

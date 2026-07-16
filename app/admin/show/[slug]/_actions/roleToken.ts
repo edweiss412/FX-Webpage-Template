@@ -130,7 +130,14 @@ export async function mapRoleToken(
 
     // (3) Upsert (insert — every existing-row case already returned above). A failed
     // write → infra_error and emits NOTHING (post-commit ordering, invariant 10).
+    // Create-race carve-out (§8.3): two admins submitting the same novel token both
+    // clear the no-row provenance check; the loser's insert trips the unique
+    // constraint (Postgres 23505). Re-read the winner's row and honor the same
+    // idempotent set-equal contract as the existing-row branch above — set-equal → the
+    // write already happened (emit NOTHING, fall through to re-sync); different grants →
+    // conflict. Any non-23505 error stays infra_error.
     const nowIso = new Date().toISOString(); // not-render-side: mapping decision timestamp
+    let raceResolved = false;
     try {
       const { error } = await svc.from("role_token_mappings").insert({
         token,
@@ -139,20 +146,34 @@ export async function mapRoleToken(
         decided_at: nowIso,
         updated_at: nowIso,
       });
-      if (error) return { ok: false, code: "infra_error" };
+      if (error) {
+        if (error.code !== "23505") return { ok: false, code: "infra_error" };
+        const { data: raced, error: raceError } = await svc
+          .from("role_token_mappings")
+          .select("grants")
+          .eq("token", token)
+          .maybeSingle<{ grants: string[] }>();
+        if (raceError || !raced) return { ok: false, code: "infra_error" };
+        const racedGrants = normalizeGrants(raced.grants) ?? [];
+        if (!grantsEqual(racedGrants, grants)) return { ok: false, code: "conflict" };
+        raceResolved = true; // winner wrote the same grants — idempotent, no emit
+      }
     } catch {
       return { ok: false, code: "infra_error" };
     }
 
     // POST-COMMIT forensic outcome (outside any lock tx, invariant 10). `await` is
     // load-bearing. Context carries { token, grants } only — no secrets, no crew PII.
-    await logAdminOutcome({
-      code: "ROLE_TOKEN_MAPPING_SET",
-      source: "admin.show.roleToken",
-      actorEmail: actor,
-      showId: id,
-      extra: { token, grants },
-    });
+    // Skipped on a resolved race: THIS caller wrote nothing (the winner did).
+    if (!raceResolved) {
+      await logAdminOutcome({
+        code: "ROLE_TOKEN_MAPPING_SET",
+        source: "admin.show.roleToken",
+        actorEmail: actor,
+        showId: id,
+        extra: { token, grants },
+      });
+    }
   }
 
   // (4) Follow-up re-sync (its OWN lock — sequential, never nested). A thrown fault

@@ -42,10 +42,15 @@ type SvcScript = {
   mappingReadError?: boolean;
   stagedReadError?: boolean;
   insertError?: boolean;
+  // Create-race scripting (§8.3): insert hits 23505, re-read returns the winner row.
+  insertConflict?: boolean;
+  raceRow?: { grants: string[] } | null;
+  raceReadError?: boolean;
 };
 let svcScript: SvcScript;
 let fromTables: string[];
 let capturedInsert: Record<string, unknown> | null;
+let mappingReads: number;
 
 function makeSvc() {
   return {
@@ -57,17 +62,24 @@ function makeSvc() {
       builder.eq = self;
       builder.insert = (payload: Record<string, unknown>) => {
         capturedInsert = payload;
+        const error = svcScript.insertConflict
+          ? { code: "23505", message: "duplicate key value violates unique constraint" }
+          : svcScript.insertError
+            ? { message: "insert boom" }
+            : null;
         return {
           then: (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) =>
-            Promise.resolve(
-              svcScript.insertError
-                ? { data: null, error: { message: "insert boom" } }
-                : { data: null, error: null },
-            ).then(res, rej),
+            Promise.resolve({ data: null, error }).then(res, rej),
         };
       };
       builder.maybeSingle = () => {
         if (table === "role_token_mappings") {
+          mappingReads += 1;
+          if (mappingReads > 1) {
+            if (svcScript.raceReadError)
+              return Promise.resolve({ data: null, error: { message: "reread boom" } });
+            return Promise.resolve({ data: svcScript.raceRow ?? null, error: null });
+          }
           return Promise.resolve(
             svcScript.mappingReadError
               ? { data: null, error: { message: "read boom" } }
@@ -107,6 +119,7 @@ beforeEach(() => {
   svcScript = { existingMapping: null, stagedWarnings: [unknownWarning("DRONE OP")] };
   fromTables = [];
   capturedInsert = null;
+  mappingReads = 0;
   requireAdminIdentityMock.mockResolvedValue({ email: "admin@example.com" });
   rescanWizardSheetMock.mockImplementation(async () => {
     svcScript.stagedWarnings = [];
@@ -161,6 +174,41 @@ describe("mapRoleTokenStaged (spec §8.3 staged twin)", () => {
     expect(r).toEqual({ ok: false, code: "conflict" });
     expect(capturedInsert).toBeNull();
     expect(rescanWizardSheetMock).not.toHaveBeenCalled();
+  });
+
+  test("create race: insert 23505 + winner row set-equal → idempotent success, re-stages, no emit", async () => {
+    svcScript.insertConflict = true;
+    svcScript.raceRow = { grants: ["A1"] };
+    const r = await mapRoleTokenStaged("wiz-1", "df-1", "DRONE OP", ["A1"]);
+    expect(r).toEqual({ ok: true, state: "applied" });
+    expect(logAdminOutcomeMock).not.toHaveBeenCalled();
+    expect(rescanWizardSheetMock).toHaveBeenCalledTimes(1);
+  });
+
+  test("create race: insert 23505 + winner row with DIFFERENT grants → conflict, no emit, no re-stage", async () => {
+    svcScript.insertConflict = true;
+    svcScript.raceRow = { grants: ["FINANCIALS"] };
+    const r = await mapRoleTokenStaged("wiz-1", "df-1", "DRONE OP", ["A1"]);
+    expect(r).toEqual({ ok: false, code: "conflict" });
+    expect(logAdminOutcomeMock).not.toHaveBeenCalled();
+    expect(rescanWizardSheetMock).not.toHaveBeenCalled();
+  });
+
+  test("create race: insert 23505 but re-read errors/returns nothing → infra_error", async () => {
+    svcScript.insertConflict = true;
+    svcScript.raceReadError = true;
+    expect(await mapRoleTokenStaged("wiz-1", "df-1", "DRONE OP", ["A1"])).toEqual({
+      ok: false,
+      code: "infra_error",
+    });
+    mappingReads = 0;
+    svcScript.raceReadError = false;
+    svcScript.raceRow = null;
+    expect(await mapRoleTokenStaged("wiz-1", "df-1", "DRONE OP", ["A1"])).toEqual({
+      ok: false,
+      code: "infra_error",
+    });
+    expect(logAdminOutcomeMock).not.toHaveBeenCalled();
   });
 
   test("no row + no matching staged warning (incl. absent session row): stale, nothing written", async () => {
