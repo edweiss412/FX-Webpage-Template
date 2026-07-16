@@ -87,7 +87,7 @@ export function EventFilters({ filters }: { filters: AppEventFilters }) {
               type="button"
               data-testid={`filter-level-${lvl}`}
               aria-pressed={levels.has(lvl)}
-              className={`inline-flex min-h-tap-min items-center px-3 ${i > 0 ? "border-l border-border" : ""} ${levels.has(lvl) ? "bg-accent text-accent-text" : "text-text-subtle"}`}
+              className={`inline-flex min-h-tap-min items-center px-3 ${i > 0 ? "border-l border-border" : ""} ${levels.has(lvl) ? "bg-text text-bg" : "text-text-subtle"}`}
               onClick={() => {
                 const next = new Set(levels);
                 next.has(lvl) ? next.delete(lvl) : next.add(lvl);

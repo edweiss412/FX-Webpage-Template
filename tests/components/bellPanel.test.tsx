@@ -123,6 +123,16 @@ describe("BellPanel — sections (spec §7.3)", () => {
     );
     expect(within(active).getByTestId("bell-unread-dot-a-read").className).toContain("opacity-0");
 
+    // Accent-contrast token pass (spec 2026-07-16 §4.1b B4): the pip is a
+    // load-bearing graphical unread indicator (title weight is deliberately
+    // constant), so it must clear 3:1 vs the white ring/surface — raw
+    // bg-accent is 2.33:1; the darkened bg-accent-on-bg (4.9:1) is mandated.
+    const pipTokens = new Set(
+      within(active).getByTestId("bell-unread-dot-a-unread").className.split(/\s+/),
+    );
+    expect(pipTokens.has("bg-accent-on-bg")).toBe(true);
+    expect(pipTokens.has("bg-accent")).toBe(false);
+
     // History rows have NO unread dot at all (mode boundary §7.3) and no action buttons.
     expect(within(history).queryByTestId("bell-unread-dot-h-1")).toBeNull();
     expect(within(history).queryByRole("button")).toBeNull();

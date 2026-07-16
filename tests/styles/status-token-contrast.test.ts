@@ -160,3 +160,77 @@ describe("status-token contrast floors (DESIGN.md §1.3)", () => {
     }
   });
 });
+
+// Accent-contrast token pass (spec 2026-07-16-accent-contrast-token-pass §6.1).
+// Alpha-blend helper: composite fg over bg at alpha, return hex.
+function blend(fg: string, alpha: number, bg: string): string {
+  const c = (h: string) =>
+    h
+      .replace("#", "")
+      .match(/../g)!
+      .map((x) => parseInt(x, 16));
+  const f = c(fg);
+  const b = c(bg);
+  const m = f.map((v, i) => Math.round(alpha * v + (1 - alpha) * b[i]!));
+  return "#" + m.map((v) => v.toString(16).padStart(2, "0")).join("");
+}
+
+describe("accent token contrast floors (2026-07-16 token pass)", () => {
+  const mediaDarkBlock = block("@media (prefers-color-scheme: dark)");
+
+  for (const mode of MODES) {
+    const accent = tokenIn(mode.src, "--color-accent-runtime");
+    const accentHover = tokenIn(mode.src, "--color-accent-hover-runtime");
+    const accentText = tokenIn(mode.src, "--color-accent-text-runtime");
+    const accentOnBg = tokenIn(mode.src, "--color-accent-on-bg-runtime");
+    const accentTint = tokenIn(mode.src, "--color-accent-tint-runtime");
+    const staleTint = tokenIn(mode.src, "--color-stale-tint-runtime");
+
+    it(`${mode.name}: accent-text on accent AND accent-hover clears >=4.5:1 (CTA text)`, () => {
+      expect(contrast(accentText, accent)).toBeGreaterThanOrEqual(TEXT_FLOOR);
+      expect(contrast(accentText, accentHover)).toBeGreaterThanOrEqual(TEXT_FLOOR);
+    });
+
+    it(`${mode.name}: accent-on-bg clears >=4.5:1 on bg and surface (links/emphasis)`, () => {
+      expect(contrast(accentOnBg, mode.bg)).toBeGreaterThanOrEqual(TEXT_FLOOR);
+      expect(contrast(accentOnBg, mode.surface)).toBeGreaterThanOrEqual(TEXT_FLOOR);
+    });
+
+    it(`${mode.name}: accent-on-bg AS TEXT clears >=4.5:1 on every audited tinted fill`, () => {
+      expect(contrast(accentOnBg, blend(accent, 0.1, mode.bg))).toBeGreaterThanOrEqual(TEXT_FLOOR);
+      expect(contrast(accentOnBg, blend(accent, 0.15, mode.bg))).toBeGreaterThanOrEqual(TEXT_FLOOR);
+      expect(contrast(accentOnBg, accentTint)).toBeGreaterThanOrEqual(TEXT_FLOOR);
+      expect(contrast(accentOnBg, staleTint)).toBeGreaterThanOrEqual(TEXT_FLOOR);
+    });
+  }
+
+  it("light: accent-edge clears >=3:1 vs the accent track AND vs bg AND vs surface", () => {
+    const light = MODES[0]!;
+    const edge = tokenIn(light.src, "--color-accent-edge-runtime");
+    const accent = tokenIn(light.src, "--color-accent-runtime");
+    expect(contrast(edge, accent)).toBeGreaterThanOrEqual(DOT_FLOOR);
+    expect(contrast(edge, light.bg)).toBeGreaterThanOrEqual(DOT_FLOOR);
+    expect(contrast(edge, light.surface)).toBeGreaterThanOrEqual(DOT_FLOOR);
+  });
+
+  it("dark: the accent track itself is the >=3:1 toggle boundary (edge is decorative)", () => {
+    const dark = MODES[1]!;
+    const accent = tokenIn(dark.src, "--color-accent-runtime");
+    expect(contrast(accent, dark.bg)).toBeGreaterThanOrEqual(DOT_FLOOR);
+    expect(contrast(accent, dark.surface)).toBeGreaterThanOrEqual(DOT_FLOOR);
+  });
+
+  it("accent-edge is wired: @theme alias present, runtime value in ALL three blocks, dark blocks identical", () => {
+    expect(css).toMatch(/--color-accent-edge:\s*var\(--color-accent-edge-runtime\)\s*;/);
+    const lightVal = tokenIn(block(":root {"), "--color-accent-edge-runtime");
+    const mediaVal = tokenIn(mediaDarkBlock, "--color-accent-edge-runtime");
+    const explicitVal = tokenIn(block('[data-theme="dark"] {'), "--color-accent-edge-runtime");
+    expect(lightVal).toBe("#7a3d00");
+    expect(mediaVal).toBe(explicitVal);
+    expect(mediaVal).toBe("#ffa047");
+  });
+
+  it("status-live-text still aliases accent-on-bg (spec §6.1 row 10)", () => {
+    expect(css).toMatch(/--color-status-live-text:\s*var\(--color-accent-on-bg\)\s*;/);
+  });
+});

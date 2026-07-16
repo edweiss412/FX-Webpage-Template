@@ -356,7 +356,7 @@ export function Step2Verify({ priorScan }: { priorScan?: Step2PriorScan } = {}) 
               <a
                 href="/help/admin/onboarding-wizard#step-2"
                 aria-label="Learn more about verifying your folder"
-                className="inline-flex min-h-tap-min items-center text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                className="inline-flex min-h-tap-min items-center text-accent-on-bg underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
               >
                 Learn more →
               </a>

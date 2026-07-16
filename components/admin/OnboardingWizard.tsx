@@ -148,7 +148,7 @@ export function StepIndicator({
         // (surface + strong border + a check glyph), NOT green. Accent is reserved
         // for the single active pill (≤10% accent budget).
         const pillState = isActive
-          ? "border-transparent bg-accent text-accent-text"
+          ? "border-accent-edge bg-accent text-accent-text"
           : isDone
             ? "border-border-strong bg-surface text-text-subtle"
             : isVisited

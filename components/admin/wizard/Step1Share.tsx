@@ -91,7 +91,7 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
               <a
                 href="/help/admin/onboarding-wizard#service-account"
                 aria-label="Learn more about sharing your show folder"
-                className="inline-flex min-h-tap-min items-center text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+                className="inline-flex min-h-tap-min items-center text-accent-on-bg underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
               >
                 Learn more →
               </a>
@@ -119,7 +119,7 @@ export function Step1Share({ serviceAccountEmail }: Step1ShareProps) {
             </span>
           </div>
           <details data-testid="wizard-step1-no-folder" className="group ml-9">
-            <summary className="flex min-h-tap-min w-fit cursor-pointer list-none items-center gap-1.5 rounded-sm text-sm font-medium text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden">
+            <summary className="flex min-h-tap-min w-fit cursor-pointer list-none items-center gap-1.5 rounded-sm text-sm font-medium text-accent-on-bg underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 [&::-webkit-details-marker]:hidden">
               Don&rsquo;t have a folder yet?
               <ChevronDown
                 aria-hidden="true"

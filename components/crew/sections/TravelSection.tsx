@@ -592,7 +592,7 @@ export function TravelSection({
                                   {isNext ? (
                                     <span
                                       data-testid="flight-next-chip"
-                                      // accent-on-bg (4.6:1 AA) — NOT raw text-accent (3.0:1, AA-large only) per DESIGN.md §1.1
+                                      // accent-on-bg (5.34:1 AA) — NOT raw text-accent (2.23:1, decorative-only) per DESIGN.md §1.1
                                       className="rounded-full bg-accent/15 px-1.5 py-0.5 text-[9px] font-bold tracking-normal text-accent-on-bg"
                                     >
                                       {seg.date === flightTodayIso ? "Today" : "Next"}

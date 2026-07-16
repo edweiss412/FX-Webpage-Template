@@ -389,7 +389,7 @@ function interpretBooleanValue(value: string): "yes" | "no" | null {
 }
 
 /** Uppercase eyebrow label for the redesigned spec cells / group headers. */
-const CELL_EYEBROW_CLASS = "text-[10px] font-semibold uppercase tracking-eyebrow text-text-faint";
+const CELL_EYEBROW_CLASS = "text-[10px] font-semibold uppercase tracking-eyebrow text-text-subtle";
 
 /**
  * Modal section chrome (Task 5 — spec §6.4/§5.2). The review modal wraps each
@@ -946,12 +946,7 @@ export function VenueBreakdown({ dfid, venue }: { dfid: string; venue: ShowRow["
               data-testid="venue-text-col"
               className="flex min-w-0 flex-1 flex-col gap-1 p-tile-pad"
             >
-              <span
-                className="text-[10px] font-semibold text-text-faint uppercase"
-                style={{ letterSpacing: "var(--tracking-eyebrow)" }}
-              >
-                Venue
-              </span>
+              <span className={CELL_EYEBROW_CLASS}>Venue</span>
               {name ? (
                 <span className="text-lg leading-tight font-bold wrap-break-word text-text-strong">
                   {name}
@@ -986,12 +981,7 @@ export function VenueBreakdown({ dfid, venue }: { dfid: string; venue: ShowRow["
                 <Truck className="size-3.5" />
               </span>
               <div className="min-w-0">
-                <span
-                  className="text-[10px] font-semibold text-text-faint uppercase"
-                  style={{ letterSpacing: "var(--tracking-eyebrow)" }}
-                >
-                  Loading dock
-                </span>
+                <span className={CELL_EYEBROW_CLASS}>Loading dock</span>
                 <p className="mt-0.5 text-sm/snug wrap-break-word text-text">{dock}</p>
               </div>
             </div>

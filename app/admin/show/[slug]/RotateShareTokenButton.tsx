@@ -167,7 +167,7 @@ export function RotateShareTokenButton({
           aria-live="polite"
           className="flex w-full max-w-md items-start gap-1.5 rounded-sm bg-surface-sunken px-2 py-1 text-sm text-text-strong"
         >
-          <Check aria-hidden="true" size={16} className="mt-0.5 shrink-0 text-accent" />
+          <Check aria-hidden="true" size={16} className="mt-0.5 shrink-0 text-accent-on-bg" />
           <span>
             New share-link ready. The old link no longer works and everyone will re-pick their name.
             The updated link is shown above.
@@ -181,7 +181,7 @@ export function RotateShareTokenButton({
           aria-live="polite"
           className="flex w-full max-w-md items-start gap-1.5 rounded-sm bg-surface-sunken px-2 py-1 text-sm text-text-strong"
         >
-          <Check aria-hidden="true" size={16} className="mt-0.5 shrink-0 text-accent" />
+          <Check aria-hidden="true" size={16} className="mt-0.5 shrink-0 text-accent-on-bg" />
           <span>
             Share link rotated. The crew link stays inactive while this show is unpublished or
             archived.

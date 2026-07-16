@@ -4,7 +4,10 @@ import type { AppEventLevel } from "@/lib/admin/telemetryTypes";
 const BADGE: Record<AppEventLevel, { label: string; className: string }> = {
   info: { label: "Info", className: "bg-surface-sunken text-text-subtle" },
   warn: { label: "Warn", className: "bg-warning-bg text-warning-text" },
-  error: { label: "Error", className: "bg-warning-bg text-warning-text font-semibold" },
+  error: {
+    label: "Error",
+    className: "bg-status-degraded text-status-degraded-text font-semibold",
+  },
 };
 
 export function EventLevelBadge({ level }: { level: AppEventLevel }) {

@@ -108,7 +108,7 @@ export function HelpAffordance({ code, params, route }: HelpAffordanceProps) {
           href={helpHref}
           data-testid={testidForErrorCode(code)}
           aria-label={`Learn more: ${entry.title ?? "this error"}`}
-          className="inline-flex w-fit min-h-tap-min items-center text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+          className="inline-flex w-fit min-h-tap-min items-center text-accent-on-bg underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
         >
           Learn more →
         </a>

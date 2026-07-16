@@ -485,6 +485,16 @@ describe("RightNowHero — owns the live clock (Test 5 re-derive)", () => {
     // asserted here — we only need the kind to flip).
     expect(progress(container)?.querySelectorAll("[data-segment]").length).toBe(2);
 
+    // Accent-contrast token pass (spec 2026-07-16 §4.1b B4): the show-day
+    // progress lives in a role="img" indicator — NOT decorative. Raw accent is
+    // 1.46:1 vs the inactive border segments; the ACTIVE segment must carry the
+    // darkened bg-accent-on-bg (5.34:1 vs bg, 4.38:1 vs inactive).
+    const activeSeg = progress(container)?.querySelector('[data-segment-active="true"]');
+    expect(activeSeg, "active segment not rendered").toBeTruthy();
+    const segTokens = new Set((activeSeg!.getAttribute("class") ?? "").split(/\s+/));
+    expect(segTokens.has("bg-accent-on-bg")).toBe(true);
+    expect(segTokens.has("bg-accent")).toBe(false);
+
     // Advance the wall clock to day 2, fire the minute tick + a
     // visibilitychange (the §4.3 refresh hooks), and let React re-render.
     act(() => {

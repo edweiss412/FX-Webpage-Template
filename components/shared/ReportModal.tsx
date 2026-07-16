@@ -510,7 +510,7 @@ export function ReportModal(props: ReportModalProps) {
               type="button"
               data-testid="report-modal-start-fresh"
               onClick={handleStartFresh}
-              className="font-medium text-accent-on-bg underline underline-offset-2 transition-colors duration-fast hover:text-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-sunken"
+              className="font-medium text-accent-on-bg underline underline-offset-2 transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-surface-sunken"
             >
               Start a new report anyway
             </button>
