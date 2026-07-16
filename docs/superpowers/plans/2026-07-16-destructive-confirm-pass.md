@@ -21,6 +21,26 @@
 - **Meta-test inventory (declared per project rule):** CREATES `tests/styles/_metaDestructiveConfirm.test.ts`; EXTENDS `tests/styles/_metaBgAccentInventory.test.ts` (row deletions where accent literals are removed). No other registries apply (no DB writes, no admin alerts, no email, no advisory locks).
 - **Advisory-lock topology:** N/A — no task touches `pg_advisory*` or any mutating server path.
 
+## Shared rendered assertion (every R1–R8 confirm-go test uses this exact contract)
+
+Each confirm-go rendered test asserts, on the element fetched by its own testid:
+
+```ts
+function expectDestructiveRecipe(el: HTMLElement) {
+  const tokens = el.className.split(/\s+/);
+  for (const t of ["bg-warning-text", "text-warning-bg", "font-semibold", "hover:opacity-90"]) {
+    expect(tokens).toContain(t);
+  }
+  for (const t of ["bg-accent", "bg-surface", "bg-bg"]) {
+    expect(tokens).not.toContain(t);
+  }
+  expect(tokens.filter((t) => t.includes("hover:") && /(^|:)bg-/.test(t.slice(t.indexOf("hover:"))))
+    .filter((t) => t !== "hover:opacity-90")).toEqual([]);
+}
+```
+
+Put it in each touched test file (test-local helper, ~10 lines — duplicating beats a new shared test util for a two-week-old contract; the meta-test is the durable single source). Cancel/safe-control assertions: `expect(tokens).not.toContain("bg-warning-text")`.
+
 ## Execution order
 
 1 (meta-test scaffold) → 2 (strip R1+F2+F3) → 3 (trigger-swap family R2–R5+F4) → 4 (ResolveAlert R6+F4) → 5 (ReSync R8+close) → 6 (Archive R7) → 7 (Cleanup F1) → 8 (guards G1–G3) → 9 (G4) → 10 (DESIGN.md + DEFERRED/BACKLOG) → 11 (close-out gates).
@@ -209,7 +229,7 @@ it("collapse during pending: completes without throwing, no focus steal, alert o
   - Confirm-go className → replace `border border-border-strong bg-surface … hover:bg-surface-sunken` literal with the recipe (keep `ring-offset-warning-bg`, disabled tokens; drop `border border-border-strong`):
     `inline-flex min-h-tap-min items-center justify-center rounded-sm bg-warning-text px-4 text-sm font-semibold text-warning-bg transition-colors duration-fast hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2 focus-visible:ring-offset-warning-bg disabled:cursor-not-allowed disabled:opacity-60`
   - New state `const [bulkUndoOutcome, setBulkUndoOutcome] = useState<{ failed: number; total: number } | null>(null);`
-  - New refs: `groupContainerRef` on the group card root `<div>`, `toggleRef` on the disclosure toggle `<button>`.
+  - New refs: `groupContainerRef` on the group's still-mounted root element (an `<li>` in the current markup — attach to whatever the actual group root is, not necessarily a `<div>`), `toggleRef` on the disclosure toggle `<button>`.
   - `confirmUndoAll` (spec §6 F3 exact 5-step sequence):
     ```tsx
     function confirmUndoAll() {
@@ -305,7 +325,7 @@ All four get the same three changes (repeat per file — no sharing):
 - Test: existing ResolveAlertButton test file
 - Modify: registries (+1 panel row; DELETE bg-accent row `L("components/admin/ResolveAlertButton.tsx", 0, "disabled:hover:bg-accent")` — reconcile by running that test)
 
-- [ ] **Step 1:** Failing tests: confirm-go (`admin-alert-confirm-resolve-button`) carries recipe, is a plain `<button type="submit">` (not AccentButton); cancel (`admin-alert-cancel-button`) lacks recipe; open → cancel focused; cancel activation → idle trigger (`Dismiss` AccentButton) focused; auto-revert cases (3s — `ResolveAlertButton` timer) both directions.
+- [ ] **Step 1:** Failing tests: confirm-go (`admin-alert-confirm-resolve-button`) passes `expectDestructiveRecipe` and carries NO accent tokens (`bg-accent`, `hover:bg-accent-hover`, `disabled:hover:bg-accent` — the observable AccentButton signature; "not AccentButton" is proven by class absence, not element type); cancel (`admin-alert-cancel-button`) lacks recipe; open → cancel focused; cancel activation → idle trigger (`Dismiss` AccentButton) focused; auto-revert cases (3s — `ResolveAlertButton` timer) both directions.
 - [ ] **Step 2:** Run — FAIL.
 - [ ] **Step 3:** Replace the confirm `AccentButton` (`:150-160`) with:
 ```tsx
@@ -333,7 +353,7 @@ All four get the same three changes (repeat per file — no sharing):
 - Test: `tests/components/ReSyncButton.test.tsx`
 - Modify: destructive-confirm registry (+1 panel row). (No bg-accent literal in this file — AccentButton is component-internal; verify by running the bg-accent meta-test.)
 
-- [ ] **Step 1:** Failing tests: `admin-resync-accept` carries recipe and is a plain button; clicking `admin-resync-keep-current` moves focus to `admin-resync-button` (the trigger) — assert with `waitFor`.
+- [ ] **Step 1:** Failing tests: `admin-resync-accept` passes `expectDestructiveRecipe` with no accent-class signature (class absence proves the AccentButton swap); clicking `admin-resync-keep-current` moves focus to `admin-resync-button` (the trigger) — assert with `waitFor`.
 - [ ] **Step 2:** Run — FAIL.
 - [ ] **Step 3:** Replace the accept `AccentButton` (`:176-187`) with a plain button using the canonical R6 literal (same testid/aria-busy/onClick with `expectedModifiedTime`). Add `triggerRef` passed to the trigger `AccentButton` (`:132`, ref-as-prop) and change keep-current's onClick to:
 ```tsx
