@@ -8,7 +8,7 @@
  * stale-sibling contract for duplicate role controls.
  */
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, waitFor, within } from "@testing-library/react";
 import type { ParseWarning } from "@/lib/parser/types";
 import type { UseRawDecision } from "@/lib/sync/useRawOverlay";
 
@@ -33,6 +33,8 @@ vi.mock("@/app/admin/show/[slug]/_actions/roleToken", () => ({
 vi.mock("@/app/admin/settings/_actions/roleTokenMappings", () => ({
   updateRoleTokenMapping: vi.fn(async () => ({ ok: true })),
 }));
+
+import { mapRoleTokenStaged } from "@/app/admin/onboarding/_actions/roleTokenStaged";
 
 import {
   BreakdownSection,
@@ -315,5 +317,50 @@ describe("SectionFlagCallout identity keys (spec §4.3.1 class-sweep)", () => {
     const panelEntry = panels[0]!.closest("div.flex.flex-col");
     expect(panelEntry?.textContent).toContain("SLED DRIVER");
     expect(panelEntry?.textContent).not.toContain("RIGGER X");
+  });
+});
+
+describe("duplicate role-control siblings (spec §4.6 stale-sibling contract, UI layer)", () => {
+  // Two occurrences of the same token (per-occurrence emission,
+  // lib/parser/personalization.ts:346-353) → two live create controls. The
+  // ACTION layer (set-equal idempotent / different-grants conflict) is pinned by
+  // tests/admin/mapRoleTokenStagedAction.test.ts:160,:171 — mocked here.
+  const twin = () => [roleWarning("SLED DRIVER"), roleWarning("SLED DRIVER")];
+
+  async function saveVia(row: HTMLElement) {
+    fireEvent.click(within(row).getByTestId("role-recognize-trigger"));
+    fireEvent.click(within(row).getByTestId("role-recognize-check-A1"));
+    fireEvent.click(within(row).getByTestId("role-recognize-save"));
+    await waitFor(() =>
+      expect(
+        within(row).queryByTestId("role-recognize-saved") ??
+          within(row).queryByTestId("role-recognize-conflict"),
+      ).toBeTruthy(),
+    );
+  }
+
+  test("sibling save after a set-equal save resolves idempotently (saved card)", async () => {
+    const q = renderBreakdown(twin(), { decisions: [] });
+    const rows = [0, 1].map((i) => q.getByTestId(`wizard-step3-card-${DFID}-warning-${i}`));
+    await saveVia(rows[0]!);
+    expect(within(rows[0]!).getByTestId("role-recognize-saved")).toBeTruthy();
+    // The sibling stayed mounted in create mode (no client refresh, §8.1) …
+    expect(within(rows[1]!).getByTestId("role-recognize-trigger")).toBeTruthy();
+    // … and its save resolves via the action's EXISTING-ROW branch (mock: ok).
+    await saveVia(rows[1]!);
+    expect(within(rows[1]!).getByTestId("role-recognize-saved")).toBeTruthy();
+  });
+
+  test("sibling save with different grants → benign conflict notice, never a raw code", async () => {
+    const q = renderBreakdown(twin(), { decisions: [] });
+    const rows = [0, 1].map((i) => q.getByTestId(`wizard-step3-card-${DFID}-warning-${i}`));
+    await saveVia(rows[0]!);
+    vi.mocked(mapRoleTokenStaged).mockResolvedValueOnce({ ok: false, code: "conflict" } as never);
+    await saveVia(rows[1]!);
+    expect(within(rows[1]!).getByTestId("role-recognize-conflict")).toBeTruthy();
+    expect(within(rows[1]!).queryByTestId("role-recognize-error")).toBeNull();
+    // Invariant 5: the machine token never renders.
+    expect(rows[1]!.textContent).not.toContain("conflict_code");
+    expect(rows[1]!.textContent).not.toMatch(/\bUNKNOWN_ROLE_TOKEN\b/);
   });
 });
