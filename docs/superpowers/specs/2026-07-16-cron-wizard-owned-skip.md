@@ -77,29 +77,47 @@ WITHOUT refreshing `pending_wizard_session_at`
 (`app/api/admin/onboarding/scan/route.ts:177-189`, `isMint` ternary at
 `:189`). Any simpler gate-side clock (e.g. `pending_wizard_session_at` alone)
 diverges from that contract and can release ownership while the session is
-still active — reopening the hijack (adversarial R2 finding 1). The session
-reap (`reapStaleOnboardingSessions`, admin-triggered via
-`app/api/admin/onboarding/reap-stale-sessions/route.ts` and
-`components/admin/ReapStaleSessionsButton.tsx`) is the SINGLE staleness
-authority: it deletes the session's wizard-partition rows, which releases
-ownership here as a side effect.
+still active — reopening the hijack (adversarial R2 finding 1). Session
+lifecycle transitions (finalize-cas completion, setup rerun/takeover, reset,
+reap) are the ONLY release authorities; the gate re-derives nothing.
 
-**Abandoned-session wedge scope (accepted):** if a wizard session is abandoned
-and never reaped, its owned files stay cron-skipped indefinitely. Bounded and
-accepted because (a) only files the admin deliberately staged in the wizard are
-affected, (b) every skip writes an operator-visible `sync_log` row
-(`skipped:wizard_owned`), (c) release paths exist for every ownership arm —
-a same-session rescan purges the session's `pending_syncs`,
-`pending_ingestions`, and manifest rows
-(`app/api/admin/onboarding/scan/route.ts:197-206` — note it does NOT purge
-`deferred_ingestions`, so a wizard-deferred file stays owned across
-same-session rescans by design: the admin deferred it), while a setup rerun /
-validation reset (`purgeWizardRows`,
-`lib/onboarding/sessionLifecycle.ts:164-169`), the session reap, and the
-finalize teardown all purge ALL FOUR wizard-partition tables including
-`deferred_ingestions` — and (d) the reap button exists precisely for the
-abandoned case. A wedged cron sync is strictly safer than the alternative
-this spec fixes (cron publishing wizard-staged shows).
+**Release semantics.** Ownership requires BOTH the pointer
+(`app_settings.pending_wizard_session_id = S`) AND a `(F, S)` row, so it
+releases the moment EITHER side goes away:
+
+- **Pointer side (dominant):** finalize-cas Finish clears the pointer
+  (`app/api/admin/onboarding/finalize-cas/route.ts:673-687`, `promoteSettings`
+  nulls `pending_wizard_session_id`); a setup rerun / new scan rotates it
+  (`lib/onboarding/sessionLifecycle.ts:323-324`, `:645-646`); a validation
+  reset clears wizard state wholesale. Any of these instantly releases EVERY
+  file owned by the old session, regardless of leftover rows — leftover rows
+  with a non-pointer session id never match the predicate.
+- **Row side:** the wizard finalize deletes approved `pending_syncs` rows
+  per-file (`app/api/admin/onboarding/finalize/route.ts:707-712`); a
+  same-session rescan purges the session's `pending_syncs`,
+  `pending_ingestions`, and manifest rows
+  (`app/api/admin/onboarding/scan/route.ts:197-206` — NOT
+  `deferred_ingestions`: a wizard-deferred file stays owned across
+  same-session rescans by design, the admin deferred it); finalize-cas
+  deletes the session's `deferred_ingestions`
+  (`app/api/admin/onboarding/finalize-cas/route.ts:658-664`).
+- **Reap scope caveat:** `reapStaleOnboardingSessions` explicitly EXCLUDES the
+  active pointer session from its candidates
+  (`lib/onboarding/sessionLifecycle.ts:955-966`, `is distinct from` the
+  `app_settings` pointer), so the Reap button releases only NON-active
+  sessions' rows — it is NOT the escape hatch for an abandoned active
+  session.
+
+**Abandoned-session wedge scope (accepted):** if the ACTIVE wizard session is
+abandoned (pointer never cleared), its owned files stay cron-skipped until an
+admin acts. Bounded and accepted because (a) only files the admin deliberately
+staged in the wizard are affected, (b) every skip writes an operator-visible
+`sync_log` row (`skipped:wizard_owned`), and (c) the escape hatches are the
+ordinary admin flows — finish the wizard (finalize-cas), re-run setup (the
+24h-stale takeover contract at `lib/onboarding/sessionLifecycle.ts:355`,
+`:388`, `:430` lets a new scan claim a stale pending session), or reset. A
+wedged cron sync is strictly safer than the alternative this spec fixes (cron
+publishing wizard-staged shows).
 
 ### 2.2 Guard-condition table (per input)
 
