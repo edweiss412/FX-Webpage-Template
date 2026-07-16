@@ -26,6 +26,7 @@ import {
 } from "@/lib/parser/dataGaps";
 import { warningFingerprint } from "@/lib/dataQuality/warningFingerprint";
 import { blockDisappearanceWarnings } from "@/lib/sync/blockDisappearance";
+import { databaseUrl } from "@/lib/sync/_databaseUrl";
 import { ARCHIVED_SKIP_REASON, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import {
   DRIVE_FILES_GET_TIMEOUT_MS,
@@ -645,14 +646,10 @@ export async function insertFirstSeenShowWithSlugRetry<T>(args: {
   throw new ShowSlugCollisionRetryExhaustedError(args.baseSlug, maxAttempts);
 }
 
-function databaseUrl(): string {
-  const configured = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL;
-  if (configured) return configured;
-  if (process.env.NODE_ENV === "production") {
-    throw new Error("runScheduledCronSync requires DATABASE_URL in production");
-  }
-  return "postgresql://postgres:postgres@127.0.0.1:54322/postgres";
-}
+// The DATABASE_URL resolver lives in a shared module (imported at the top of this file) so the
+// drift pre-pass (`roleVocabDrift.ts`) resolves the same url with the same precedence as this
+// pipeline (spec §3.2). Re-exported here for the resolver-identity test and any external caller.
+export { databaseUrl };
 
 /**
  * §5.3 cron default: read the durable `shows.pull_sheet_override` on a short-lived connection
