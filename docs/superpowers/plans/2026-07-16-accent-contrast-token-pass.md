@@ -198,12 +198,20 @@ const ROWS: Array<[string, RegExp, number]> = [
 
 // L41 status-live-text carries no ratio figure of its own (its rationale says
 // contrast is governed by the accent rows) — the touched value is the HEX.
+// The doc edit MUST keep it that way: Task 2 Step 3 requires the L41 row to
+// contain NO "N:1" numeric claim (asserted below), so a future numeric claim
+// cannot drift unpinned.
 // Pin hex parity instead: the documented light -text hex must equal the live
 // accent-on-bg light hex (the alias's value), so the doc can't fork from the alias.
 it("§1.1 L41 status-live-text documented hex equals live accent-on-bg (light)", () => {
   const m = design.match(/--color-status-live.*?`#FF8C1A` \/ `(#[0-9A-Fa-f]{6})`/);
   expect(m, "status-live row not found").toBeTruthy();
   expect(m![1]!.toLowerCase()).toBe(L("--color-accent-on-bg-runtime").toLowerCase());
+});
+it("§1.1 L41 status-live row carries NO numeric contrast claim (governed-by-alias contract)", () => {
+  const row = design.split("\n").find((l) => l.includes("--color-status-live"));
+  expect(row, "status-live row not found").toBeTruthy();
+  expect(row!).not.toMatch(/[\d.]+:1/);
 });
 
 // §1.2 TABLE cells — pinned directly (spec §6.1 row 8: EVERY touched figure in
@@ -256,7 +264,7 @@ describe("DESIGN.md figure parity (touched rows)", () => {
   - L33: light hex `#FFFFFF` → `#0E0F12`; rationale → "Text drawn ON `--color-accent` surfaces. Near-black on orange in BOTH modes; 8.23:1 in each (same hex pair; the old dark-row 11.3:1 figure was itself a miscalculation). The former white-on-orange light pairing measured 2.33:1 (the 4.07:1 figure was a luminance miscalculation) and failed every WCAG tier."
   - L34: light hex `#C25E00` → `#A65000`; "reaches 4.6:1" → "reaches 5.34:1 (AA body; ≥4.5:1 on every audited tinted text fill — accent/10, accent/15, accent-tint, stale-tint)"; "only hits 3.0:1 on light bg — fine for a 24px+ 'today' pin glyph but NOT for body links" → "only hits 2.23:1 on light bg — decorative-only, never load-bearing"; "Dark `#FFA047` on `#0F1014` = 9.8:1" → "= 9.39:1".
   - New row after L34 (EXACT phrase — the parity regex anchors on it): `--color-accent-edge` | `#7A3D00` | `#FFA047` | "ON-state control boundary (toggle track border, active step pill). Light: accent-edge is 3.61:1 vs the orange track and 8.06:1 vs bg — WCAG 1.4.11 passes on both adjacent sides. Dark: decorative; the track itself clears 8.16:1 vs bg."
-  - L41 (status-live row): light `-text` hex `#C25E00` → `#A65000`.
+  - L41 (status-live row): light `-text` hex `#C25E00` → `#A65000`. The row must carry NO `N:1` numeric contrast claim (its contract is "governed by the accent rows above"; the parity test asserts the absence).
   - L47: rewrite the clause KEEPING the exact parseable shape the parity regex anchors on — "The info icon on it uses `--color-accent-on-bg` (graphical, 4.91:1; also clears the 4.5:1 text floor)" — and replace the "only reaches ~3.8:1 as text" clause with "the pill number stays `--color-text-strong` for hierarchy, not necessity".
   - §1.2 L57: `3.0:1` → `2.23:1`, note → "decorative-only — use `--color-accent-on-bg` for any load-bearing text/glyph".
   - §1.2 L58: `4.6:1` → `5.34:1`; `9.8:1` → `9.39:1`.
@@ -277,7 +285,7 @@ describe("DESIGN.md figure parity (touched rows)", () => {
 **Interfaces:**
 - Consumes: `border-accent-edge` utility from Task 1.
 
-- [ ] **Step 1: Component-test-first (vitest class assertions) — ALL SIX stateful fills, red before any edit.** For EACH of: NotifyToggle, AutoPublishToggle, DeveloperToggleButton, PublishedToggle, AutoRefreshControl, OnboardingWizard — locate its component test by testid grep (`notify`/`auto-publish`/`developer-toggle`/`published`/`autorefresh`/wizard step pills); if a component has NO existing test file, CREATE a minimal render test (render ON state, assert on the track/pill element's className). Assertion per component: ON/active class list contains `border-accent-edge` and does NOT contain `border-accent ` (trailing-space guard) or `border-transparent` (pill). Run all six: FAIL (red-first for every component, including AutoRefreshControl and OnboardingWizard — the transcription-based Playwright harness in Step 4 is NOT the red gate; these assertions are).
+- [ ] **Step 1: Component-test-first (vitest class assertions) — ALL SIX stateful fills, red before any edit.** For EACH of: NotifyToggle, AutoPublishToggle, DeveloperToggleButton, PublishedToggle, AutoRefreshControl, OnboardingWizard — locate its component test by testid grep (`notify`/`auto-publish`/`developer-toggle`/`published`/`autorefresh`/wizard step pills); if a component has NO existing test file, CREATE a minimal render test (render ON state, assert on the track/pill element's className). Assertion per component, TOKENIZED (never substring — `border-accent` at end-of-string would evade a trailing-space guard): split the rendered element's `className` on whitespace (or use `element.classList`), assert the token set CONTAINS exactly `border-accent-edge` and does NOT contain exactly `border-accent` (pill also: not `border-transparent`). Run all six: FAIL (red-first for every component, including AutoRefreshControl and OnboardingWizard — the transcription-based Playwright harness in Step 4 is NOT the red gate; these assertions are).
 - [ ] **Step 2: Edit the recipes:**
   - 4 settings/admin toggles: `on ? "border-accent bg-accent"` → `on ? "border-accent-edge bg-accent"`
   - `AutoRefreshControl.tsx:106`: `rounded-full transition-colors ${on ? "bg-accent" : "bg-surface-sunken"}` → `rounded-full border transition-colors ${on ? "border-accent-edge bg-accent" : "border-border-strong bg-surface-sunken"}`
@@ -492,8 +500,9 @@ describe("META raw accent text ban (spec 2026-07-16 §4.4a)", () => {
 // Per-occurrence registry of every exact-token bg-accent fill (spec §4.1b
 // meta row 11). Variant chains normalized: disabled:hover:bg-accent MATCHES;
 // bg-accent-tint / bg-accent/10 never do. NEW occurrences fail by default.
-import { walk, stripComments } from "./_classScanUtils";
-// ... vitest imports, fs
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+import { walk, stripComments, tokensOf } from "./_classScanUtils";
 
 // Full spec §4.1b disposition vocabulary. 'darkened-fill' currently has ZERO
 // rows by construction: the two darkened surfaces (BellPanel pip, RightNowHero
