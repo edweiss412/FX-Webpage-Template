@@ -5,8 +5,10 @@
  * Full state-aware write matrix (§3), (code, contentHash) equivalence-class
  * governance, toggle-off failure symmetry, warningRef three-branch validation
  * (incl. stale observedContentHash), server-derived provenance + lock key, no-TOCTOU
- * (locked re-read wins), sequential-not-nested re-sync delegation, and infra-fault
- * typed result. All deps are injected via module mocks (no DB, no real lock).
+ * (locked re-read wins), sequential-not-nested DEFERRED re-sync delegation (spec
+ * 2026-07-16-use-raw-bg-apply: the apply is post-response; settled = no-op/
+ * already-settled only), and infra-fault typed result. All deps are injected via
+ * module mocks (no DB, no real lock).
  */
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { ParseWarning } from "@/lib/parser/types";
@@ -29,7 +31,10 @@ vi.mock("@/app/admin/show/[slug]/_actions/shared", () => ({
   resolveShowById: (id: string) => resolveShowByIdMock(id),
 }));
 
-vi.mock("@/lib/data/showCacheTag", () => ({ revalidateShow: vi.fn() }));
+const revalidateShowMock = vi.fn((_id: string) => undefined);
+vi.mock("@/lib/data/showCacheTag", () => ({
+  revalidateShow: (id: string) => revalidateShowMock(id),
+}));
 
 const logAdminOutcomeMock = vi.fn(async (_o: unknown) => undefined);
 vi.mock("@/lib/log/logAdminOutcome", () => ({
@@ -78,6 +83,19 @@ vi.mock("@/lib/sync/runManualSyncForShow", () => ({
   runManualSyncForShow: (df: string) => runManualSyncForShowMock(df),
 }));
 
+// Deferred-task capture (spec 2026-07-16-use-raw-bg-apply): the action must
+// NEVER run the sync inline. Tests drain tasks explicitly and awaited — no
+// promise may leak past teardown. Registered BEFORE the action import so the
+// action binds this capture mock, never the real next/server after().
+let deferredTasks: Array<() => Promise<void>>;
+const deferPostResponseMock = vi.fn((task: () => Promise<void>) => {
+  callOrder.push("defer:schedule");
+  deferredTasks.push(task);
+});
+vi.mock("@/lib/async/deferPostResponse", () => ({
+  deferPostResponse: (t: () => Promise<void>) => deferPostResponseMock(t),
+}));
+
 import { setUseRawDecisionAction } from "@/app/admin/show/[slug]/_actions/useRaw";
 
 // ── fixtures ──────────────────────────────────────────────────────────────
@@ -123,6 +141,7 @@ beforeEach(() => {
   capturedWrite = null;
   lockKeys = [];
   callOrder = [];
+  deferredTasks = [];
   requireAdminIdentityMock.mockResolvedValue({ email: "admin@example.com" });
   resolveShowByIdMock.mockResolvedValue({
     kind: "found",
@@ -143,7 +162,9 @@ describe("state-aware write matrix (§3)", () => {
     expect(d).toHaveLength(1);
     expect(d[0]!.preference).toBe("raw");
     expect(d[0]!.applied).toBe(false);
-    expect(r).toEqual({ ok: true, state: "settled" }); // resync applied
+    expect(runManualSyncForShowMock).not.toHaveBeenCalled(); // deferred, not inline
+    expect(deferredTasks).toHaveLength(1);
+    expect(r).toEqual({ ok: true, state: "apply_pending" }); // spec 2026-07-16 §2.3
   });
 
   test("clear-pending → ON writes {raw, applied:true} and does NOT re-sync (settled)", async () => {
@@ -158,13 +179,17 @@ describe("state-aware write matrix (§3)", () => {
     expect(r).toEqual({ ok: true, state: "settled" });
   });
 
-  test("raw-active → OFF writes {transform, applied:false} and delegates re-sync", async () => {
+  test("raw-active → OFF writes {transform, applied:false} and defers the re-sync", async () => {
     txScript.decisions = [rawDecision(true)];
     await setUseRawDecisionAction("show-1", ref(), false);
     const d = writtenDecisions()!;
     expect(d[0]!.preference).toBe("transform");
     expect(d[0]!.applied).toBe(false);
+    expect(runManualSyncForShowMock).not.toHaveBeenCalled();
+    expect(deferredTasks).toHaveLength(1);
+    await deferredTasks[0]!();
     expect(runManualSyncForShowMock).toHaveBeenCalledTimes(1);
+    expect(runManualSyncForShowMock).toHaveBeenCalledWith("df-server");
   });
 
   test("apply-pending → OFF deletes the row (GC, settled, no re-sync)", async () => {
@@ -240,6 +265,11 @@ describe("toggle-off / on failure symmetry (R8)", () => {
     txScript.decisions = [rawDecision(true)];
     const r = await setUseRawDecisionAction("show-1", ref(), false);
     expect(writtenDecisions()![0]).toMatchObject({ preference: "transform", applied: false });
+    // Length assertion FIRST — a missing schedule must fail as a contract
+    // violation, not a vague "deferredTasks[0] is not a function" (plan-R1 F3).
+    expect(runManualSyncForShowMock).not.toHaveBeenCalled();
+    expect(deferredTasks).toHaveLength(1);
+    await deferredTasks[0]!(); // drained task runs the failing sync; result already returned
     expect(r).toEqual({ ok: true, state: "apply_pending" });
   });
 
@@ -251,13 +281,16 @@ describe("toggle-off / on failure symmetry (R8)", () => {
     txScript.decisions = [];
     const r = await setUseRawDecisionAction("show-1", ref(), true);
     expect(writtenDecisions()![0]).toMatchObject({ preference: "raw", applied: false });
+    expect(runManualSyncForShowMock).not.toHaveBeenCalled();
+    expect(deferredTasks).toHaveLength(1);
+    await deferredTasks[0]!(); // drained task runs the failing sync; result already returned
     expect(r).toEqual({ ok: true, state: "apply_pending" });
   });
 
   test("a THROWN re-sync fault does NOT escape after the decision committed → apply_pending (Codex R6 F3)", async () => {
     // The decision is committed BEFORE the sync + the audit outcome already emitted, so a
-    // thrown (not returned) sync fault must surface as the durable apply_pending state the UI
-    // self-heals to (spec §9b), never a raw client error. Before the fix, the throw escaped.
+    // thrown (not returned) sync fault must stay contained: the action resolves apply_pending
+    // and the DRAINED task resolves too (spec 2026-07-16 §4 test 3), never a raw client error.
     runManualSyncForShowMock.mockImplementation(async () => {
       callOrder.push("resync");
       throw new Error("postgres connection reset mid-apply");
@@ -268,6 +301,11 @@ describe("toggle-off / on failure symmetry (R8)", () => {
     expect(writtenDecisions()![0]).toMatchObject({ preference: "raw", applied: false });
     // ...and the action resolves to apply_pending instead of rejecting.
     expect(r).toEqual({ ok: true, state: "apply_pending" });
+    // Containment: the drained task RESOLVES despite the sync throw, and the
+    // in-task revalidate still fires (regression pin on always-revalidate).
+    expect(deferredTasks).toHaveLength(1);
+    await expect(deferredTasks[0]!()).resolves.toBeUndefined();
+    expect(revalidateShowMock).toHaveBeenCalledTimes(2);
   });
 });
 
@@ -357,20 +395,124 @@ describe("no TOCTOU — locked re-read wins", () => {
   });
 });
 
-describe("sequential-not-nested + delegated re-sync order", () => {
-  test("re-sync is invoked AFTER the decision lock releases, exactly once, on the success path", async () => {
+describe("sequential-not-nested + deferred re-sync order", () => {
+  test("apply is scheduled AFTER lock release AND after the emit; sync runs only when drained", async () => {
+    logAdminOutcomeMock.mockImplementationOnce(async () => {
+      callOrder.push("emit");
+    });
     txScript.decisions = [];
     const r = await setUseRawDecisionAction("show-1", ref(), true);
-    expect(callOrder).toEqual(["lock:acquire", "lock:release", "resync"]);
+    expect(callOrder).toEqual(["lock:acquire", "lock:release", "emit", "defer:schedule"]);
+    expect(r).toEqual({ ok: true, state: "apply_pending" });
+    await deferredTasks[0]!();
+    expect(callOrder).toEqual([
+      "lock:acquire",
+      "lock:release",
+      "emit",
+      "defer:schedule",
+      "resync",
+    ]);
     expect(runManualSyncForShowMock).toHaveBeenCalledTimes(1);
-    expect(r).toEqual({ ok: true, state: "settled" });
   });
 
   test("re-sync is NOT called inside the lock (no nested double-hold)", async () => {
     txScript.decisions = [];
     await setUseRawDecisionAction("show-1", ref(), true);
+    await deferredTasks[0]!();
     // "resync" must appear strictly after "lock:release".
     expect(callOrder.indexOf("resync")).toBeGreaterThan(callOrder.indexOf("lock:release"));
+  });
+});
+
+describe("background apply (spec 2026-07-16-use-raw-bg-apply)", () => {
+  test("mutated non-settled write returns apply_pending WITHOUT running the sync inline (test 1)", async () => {
+    txScript.decisions = [];
+    const r = await setUseRawDecisionAction("show-1", ref(), true);
+    expect(r).toEqual({ ok: true, state: "apply_pending" });
+    expect(runManualSyncForShowMock).not.toHaveBeenCalled();
+    expect(deferredTasks).toHaveLength(1);
+  });
+
+  test("drained task runs the sync then revalidates; pre-return revalidate already fired (test 2)", async () => {
+    txScript.decisions = [];
+    await setUseRawDecisionAction("show-1", ref(), true);
+    // Exactly ONE revalidate before draining — the synchronous pre-return call
+    // (catches the pre-return revalidate moving into the deferred task).
+    expect(revalidateShowMock).toHaveBeenCalledTimes(1);
+    expect(revalidateShowMock).toHaveBeenCalledWith("show-1");
+    await deferredTasks[0]!();
+    expect(runManualSyncForShowMock).toHaveBeenCalledTimes(1);
+    expect(runManualSyncForShowMock).toHaveBeenCalledWith("df-server");
+    expect(revalidateShowMock).toHaveBeenCalledTimes(2);
+    expect(revalidateShowMock).toHaveBeenNthCalledWith(2, "show-1");
+  });
+
+  // Split per settled path (plan-R1 F2): each proves its own no-schedule AND
+  // its settled result, with no spy state shared across action calls.
+  test("alreadySettled write (clear-pending → ON) schedules nothing and returns settled (test 4a)", async () => {
+    txScript.decisions = [{ ...rawDecision(false), preference: "transform" }];
+    const r = await setUseRawDecisionAction("show-1", ref(), true);
+    expect(r).toEqual({ ok: true, state: "settled" });
+    expect(deferredTasks).toHaveLength(0);
+    expect(deferPostResponseMock).not.toHaveBeenCalled();
+  });
+
+  test("non-mutated toggle (apply-pending → ON) schedules nothing and returns settled (test 4b)", async () => {
+    txScript.decisions = [rawDecision(false)];
+    const r = await setUseRawDecisionAction("show-1", ref(), true);
+    expect(r).toEqual({ ok: true, state: "settled" });
+    expect(deferredTasks).toHaveLength(0);
+    expect(deferPostResponseMock).not.toHaveBeenCalled();
+  });
+
+  test("synchronous scheduling fault is contained: apply_pending, emit-before-schedule ordering intact (test 7)", async () => {
+    // Ordering pin (plan-R1 F4): the scheduling attempt must come AFTER the
+    // post-commit emit and AFTER lock release — a swallowed fault must not be
+    // able to mask a reordering of the post-commit sequence.
+    deferPostResponseMock.mockImplementationOnce(() => {
+      callOrder.push("defer:throw");
+      throw new Error("after() called outside a request scope");
+    });
+    logAdminOutcomeMock.mockImplementationOnce(async () => {
+      callOrder.push("emit");
+    });
+    txScript.decisions = [];
+    const r = await setUseRawDecisionAction("show-1", ref(), true);
+    expect(r).toEqual({ ok: true, state: "apply_pending" });
+    expect(callOrder).toEqual(["lock:acquire", "lock:release", "emit", "defer:throw"]);
+    // The action really called deferPostResponse WITH a task (plan-R2 F1) —
+    // callOrder alone proves a local marker ran, not the call contract.
+    expect(deferPostResponseMock).toHaveBeenCalledTimes(1);
+    expect(deferPostResponseMock.mock.calls[0]![0]).toBeInstanceOf(Function);
+    expect(logAdminOutcomeMock).toHaveBeenCalledTimes(1);
+    expect(revalidateShowMock).toHaveBeenCalledTimes(1); // synchronous pre-return call
+  });
+
+  test("an in-task revalidate throw is also contained — drained task resolves (plan-R3 F1)", async () => {
+    txScript.decisions = [];
+    await setUseRawDecisionAction("show-1", ref(), true);
+    // First (synchronous pre-return) revalidate already succeeded; make the
+    // SECOND (in-task) call throw — the task must still resolve, never reject.
+    revalidateShowMock.mockImplementationOnce(() => {
+      throw new Error("revalidateTag outside request scope");
+    });
+    await expect(deferredTasks[0]!()).resolves.toBeUndefined();
+    // The sync still ran BEFORE the throwing revalidate (plan-R4 A2 — a broken
+    // task that skips the sync must not pass this test).
+    expect(runManualSyncForShowMock).toHaveBeenCalledTimes(1);
+    expect(revalidateShowMock).toHaveBeenCalledTimes(2);
+  });
+
+  test("an applied sync outcome no longer upgrades the result to settled (test 8)", async () => {
+    // Suite default mock resolves { outcome: "applied" } — the action must
+    // return apply_pending BEFORE the task is drained, and draining changes
+    // nothing about the returned value (pins spec §2.3; failure mode:
+    // reintroducing the sync.outcome === "applied" → settled mapping).
+    txScript.decisions = [];
+    const r = await setUseRawDecisionAction("show-1", ref(), true);
+    expect(r).toEqual({ ok: true, state: "apply_pending" });
+    await deferredTasks[0]!();
+    expect(r).toEqual({ ok: true, state: "apply_pending" });
   });
 });
 

@@ -14,8 +14,9 @@
  *       current `use_raw_decisions` (no TOCTOU — the locked re-read wins over any
  *       stale pre-lock snapshot), validate the `warningRef`, compute the state-aware
  *       toggle (§3), write the decision, commit;
- *   (3) AFTER the lock releases, delegate to `runManualSyncForShow` (which acquires
- *       its OWN lock) to apply the decision — unless the write is already settled.
+ *   (3) AFTER the lock releases, schedule `runManualSyncForShow` (which acquires
+ *       its OWN lock) post-response via `deferPostResponse` to apply the decision —
+ *       unless the write is already settled.
  *
  * POST-COMMIT (outside the lock tx, invariant 10) it emits the forensic
  * `USE_RAW_DECISION_SET` / `USE_RAW_DECISION_CLEARED` outcome.
@@ -24,6 +25,7 @@
 
 import { revalidateShow } from "@/lib/data/showCacheTag";
 import { requireAdmin, requireAdminIdentity } from "@/lib/auth/requireAdmin";
+import { deferPostResponse } from "@/lib/async/deferPostResponse";
 import { logAdminOutcome } from "@/lib/log/logAdminOutcome";
 import type { ParseWarning } from "@/lib/parser/types";
 import { withShowLock, type LockableSyncTx } from "@/lib/sync/lockedShowTx";
@@ -149,23 +151,42 @@ export async function setUseRawDecisionAction(
     return { ok: true, state: "settled" };
   }
 
-  // (3) Non-settled write → delegate the apply to the re-sync entry (its OWN lock —
-  // sequential, not nested). On success the decision flips to its durable applied
-  // state; on a RETURNED failure the decision stays durable (apply-pending).
-  let applied = false;
+  // (3) Non-settled write → schedule the apply post-response (its OWN lock —
+  // sequential, not nested; the decision lock above fully released before this
+  // line). The decision is durable: the UI derives apply-pending from the
+  // revalidated decision and self-heals when the background sync lands (or on
+  // the next scheduled sync). Returning without awaiting the sync is the point:
+  // the admin's toggle resolves in ~200ms instead of blocking on a full Drive
+  // re-sync (spec 2026-07-16-use-raw-bg-apply §2.2). Failure observability is
+  // parity with the previous inline call: returned sync failures are logged
+  // inside runManualSyncForShow (logSync under the pipeline lock), and a THROWN
+  // fault is contained in the task body so it can never crash the invocation
+  // post-response.
   try {
-    const sync = await runManualSyncForShow(driveFileId);
-    applied =
-      sync !== null && typeof sync === "object" && "outcome" in sync && sync.outcome === "applied";
+    deferPostResponse(async () => {
+      try {
+        await runManualSyncForShow(driveFileId);
+      } catch {
+        // This catch handles only an unexpected THROWN fault, swallowed at exact
+        // parity with the previous inline catch (spec 2026-07-16 §2.2). Returned
+        // failure outcomes are not inspected here at all — runManualSyncForShow
+        // records them itself (logSync under the pipeline lock). Either way the
+        // decision stays durable (apply-pending) and applies on the next
+        // successful sync.
+      }
+      try {
+        revalidateShow(id);
+      } catch {
+        // Post-response revalidate can throw if the runtime tears down the
+        // request store; the tag's cache TTL self-heals, and the task must
+        // NEVER reject (helper contract: rejections are caught in the body).
+      }
+    });
   } catch {
-    // A THROWN infra fault from the re-sync entry (it returns typed outcomes for known
-    // faults; an unexpected throw is rare) must NOT escape after the decision has already
-    // committed and the audit outcome emitted. The decision is durable, so we surface the
-    // SAME apply_pending state the UI self-heals to (spec §9b — the decision applies on the
-    // next successful sync), never a raw client error (invariant-9 spirit: a thrown fault
-    // becomes a typed result). runManualSyncForShow logs the underlying fault internally.
-    applied = false;
+    // A synchronous scheduling fault (after() outside a request scope) must not
+    // escape after the decision committed and the outcome emitted — the durable
+    // state is identical either way; the next scheduled sync applies it.
   }
   revalidateShow(id);
-  return { ok: true, state: applied ? "settled" : "apply_pending" };
+  return { ok: true, state: "apply_pending" };
 }
