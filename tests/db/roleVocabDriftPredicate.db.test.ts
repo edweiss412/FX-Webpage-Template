@@ -13,7 +13,11 @@ import { canonicalize } from "@/lib/email/canonicalize";
 import { runPhase2 } from "@/lib/sync/phase2";
 import { listRoleVocabDriftEligibleFileIds } from "@/lib/sync/roleVocabDrift";
 import { makeSyncPipelineTx } from "@/lib/sync/runScheduledCronSync";
-import { sqlClient, seedLiveShowWithToken, seedHeldShow } from "@/tests/db/_b2Helpers";
+import {
+  sqlClient,
+  seedLiveShowWithToken as rawSeedLiveShowWithToken,
+  seedHeldShow as rawSeedHeldShow,
+} from "@/tests/db/_b2Helpers";
 import { driftArgs, driftParse } from "@/tests/sync/_roleVocabDriftApplyKit";
 
 const T = (s: string) => `RVDC ${s}`; // canonical (upper, trimmed) per role_token_mappings_token_canonical
@@ -52,6 +56,20 @@ async function mapping(token: string, grants: string[]): Promise<void> {
 // Shows created by the self-clear case run a COMMITTED apply (not a rollback tx), so they must be
 // torn down explicitly; the cascade from public.shows clears crew_members/shows_internal/auth.
 const seededShowIds = new Set<string>();
+
+// EVERY seeded show registers for teardown — leftover rows would satisfy the drift predicate
+// permanently once afterEach deletes their mapping tokens (whole-diff review finding), polluting
+// the shared local DB for sibling suites and ad-hoc scans.
+async function seedLiveShowWithToken(): ReturnType<typeof rawSeedLiveShowWithToken> {
+  const show = await rawSeedLiveShowWithToken();
+  seededShowIds.add(show.showId);
+  return show;
+}
+async function seedHeldShow(): ReturnType<typeof rawSeedHeldShow> {
+  const show = await rawSeedHeldShow();
+  seededShowIds.add(show.showId);
+  return show;
+}
 afterEach(async () => {
   for (const token of seededTokens) await deleteMapping(token);
   seededTokens.clear();
