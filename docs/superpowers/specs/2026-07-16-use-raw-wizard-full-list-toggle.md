@@ -52,7 +52,7 @@ Both fields are required on `SectionData`, so the modal path always provides the
 
 ### 4.3 Per-row controls
 
-Inside each warning `<li>`'s text column (the `flex min-w-0 flex-1 flex-col gap-0.5` span, `:2436`), after the existing label/context/"Open in Sheet" block, when `wizardSessionId` is present render:
+Inside each warning `<li>`'s text column (the `flex min-w-0 flex-1 flex-col gap-0.5` wrapper, `:2436` — **converted from `span` to `div`**: the controls render `div`/`p` roots, invalid inside a `span`; the column already holds a `<p>` today, so the conversion also repairs pre-existing invalid nesting; identical flex classes, zero visual change), after the existing label/context/"Open in Sheet" block, when `wizardSessionId` is present render:
 
 ```tsx
 {wizardSessionId ? (

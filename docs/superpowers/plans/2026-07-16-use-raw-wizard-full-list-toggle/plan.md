@@ -292,6 +292,18 @@ describe("WarningsBreakdown per-row controls (spec §4.1-§4.3, §4.5)", () => {
     expect(roleCount).toBe(1);
   });
 
+  test("no invalid-DOM-nesting errors when controls render (block-valid column)", () => {
+    const errSpy = vi.spyOn(console, "error");
+    renderBreakdown([roomSplitWarning(0), roleWarning("SLED DRIVER")], { decisions: [] });
+    const nesting = errSpy.mock.calls.filter((args) =>
+      args.some(
+        (a) => typeof a === "string" && /validateDOMNesting|cannot be a descendant|In HTML/.test(a),
+      ),
+    );
+    expect(nesting).toEqual([]);
+    errSpy.mockRestore();
+  });
+
   test("absent wizardSessionId → zero controls (existing standalone mounts protected)", () => {
     const q = renderBreakdown([roomSplitWarning(1), roleWarning("X")], { session: false });
     expect(q.queryAllByTestId("use-raw-control")).toHaveLength(0);
@@ -413,7 +425,7 @@ export function WarningsBreakdown({
                   key={keys[i]}
 ```
 
-(d) Inside the row's text column `<span className="flex min-w-0 flex-1 flex-col gap-0.5">`, after the "Open in Sheet" IIFE block and before the closing `</span>`, add:
+(d) **Convert the row's text column from `span` to `div`** — the controls render `div`/`p` roots (`use-raw-control` is a `div`/`p`, `role-recognize-control` a `div`), and a `div` inside a `span` is invalid HTML the browser may re-parent (hydration risk jsdom cannot catch). The column already holds a `<p>` (`helpfulContext`) today, so this also repairs pre-existing invalid nesting. Change the opening tag `<span className="flex min-w-0 flex-1 flex-col gap-0.5">` (line ~2436) to `<div className="flex min-w-0 flex-1 flex-col gap-0.5">` and its matching closing `</span>` to `</div>` (the inner title row `<span className="flex flex-wrap items-baseline …">` and its children stay spans — span-in-div is valid). Then, after the "Open in Sheet" IIFE block and before the new closing `</div>`, add:
 
 ```tsx
                     {/* spec 2026-07-16 §4.3: the complete-list render site for the
