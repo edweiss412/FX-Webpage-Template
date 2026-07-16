@@ -59,6 +59,11 @@ export type ParseWarning = {
   // set it explicitly (never `undefined`), so it stays exactOptionalPropertyTypes-safe.
   blockRef?: { kind: string; index?: number; iso?: string; name?: string; field?: string };
   rawSnippet?: string;
+  // The exact canonical role token that failed vocabulary lookup. ALWAYS set on
+  // UNKNOWN_ROLE_TOKEN; ABSENT on every other warning code (absence discriminates).
+  // jsonb-persisted — additive, backward-compatible, no migration (spec
+  // 2026-07-15-extend-role-scope-vocab §5.1).
+  roleToken?: string;
   // Precomputed "use the sheet's raw value" resolution payload (spec
   // 2026-07-10-structural-transform-use-raw §6). ALWAYS set for the three
   // recoverable structural-transform codes (ROOM_HEADER_SPLIT_AMBIGUOUS,

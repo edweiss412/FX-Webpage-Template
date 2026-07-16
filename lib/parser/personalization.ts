@@ -348,6 +348,7 @@ export function extractRoleFlags(roleCell: string): RoleFlagResult {
           code: "UNKNOWN_ROLE_TOKEN",
           message: `Unknown role token: '${tok}' in role cell: '${roleCell}'`,
           rawSnippet: roleCell,
+          roleToken: tok,
         });
       }
     }
