@@ -174,20 +174,40 @@ const TOL = 0.05;
 
 // Every documented figure touched by the pass: [label, documentedFigureRegex, computed].
 // The regex must match DESIGN.md exactly once; the captured number is compared.
+// §1.2 table rows are pipe-delimited: | `pair` | light | dark | note |
+// Parse a §1.2 row's light+dark figures by its pair-label prefix.
+function tableFigures(labelRe: string): { light: number; dark: number } {
+  const re = new RegExp(`\\|\\s*${labelRe}[^|]*\\|\\s*([\\d.]+):1\\s*\\|\\s*([\\d.]+):1\\s*\\|`);
+  const m = design.match(re);
+  if (!m) throw new Error(`§1.2 row not found: ${labelRe}`);
+  return { light: parseFloat(m[1]!), dark: parseFloat(m[2]!) };
+}
+
 const ROWS: Array<[string, RegExp, number]> = [
-  ["accent-text on accent (light)", /near-black on orange in BOTH modes; ([\d.]+):1 in each/, contrast(L("--color-accent-text-runtime"), L("--color-accent-runtime"))],
+  ["accent-text on accent (light §1.1 L33)", /near-black on orange in BOTH modes; ([\d.]+):1 in each/, contrast(L("--color-accent-text-runtime"), L("--color-accent-runtime"))],
   ["accent-on-bg on bg (light, §1.1 L34)", /contrast against `#FAFAF9` reaches ([\d.]+):1/, contrast(L("--color-accent-on-bg-runtime"), L("--color-bg-runtime"))],
   ["accent raw on light bg (L34 corrected side-claim)", /The brand `#FF8C1A` itself only hits ([\d.]+):1 on light bg/, contrast(L("--color-accent-runtime"), L("--color-bg-runtime"))],
-  ["accent-on-bg dark (L34/L58)", /Dark `#FFA047` on `#0F1014` = ([\d.]+):1/, contrast(D("--color-accent-on-bg-runtime"), D("--color-bg-runtime"))],
-  ["accent-tint icon (L47/L70)", /icon on it uses `--color-accent-on-bg` \(graphical, ([\d.]+):1/, contrast(L("--color-accent-on-bg-runtime"), L("--color-accent-tint-runtime"))],
-  ["accent-edge vs track (new row)", /accent-edge.*?([\d.]+):1 vs the orange track/, contrast(L("--color-accent-edge-runtime"), L("--color-accent-runtime"))],
-  ["accent-edge vs bg (new row)", /accent-edge.*?vs the orange track and ([\d.]+):1 vs bg/, contrast(L("--color-accent-edge-runtime"), L("--color-bg-runtime"))],
+  ["accent-on-bg dark (L34)", /= ([\d.]+):1\./, contrast(D("--color-accent-on-bg-runtime"), D("--color-bg-runtime"))],
+  ["accent-tint icon (L47)", /icon on it uses `--color-accent-on-bg` \(graphical, ([\d.]+):1/, contrast(L("--color-accent-on-bg-runtime"), L("--color-accent-tint-runtime"))],
+  ["accent-edge vs track (§1.1 new row)", /accent-edge.*?([\d.]+):1 vs the orange track/, contrast(L("--color-accent-edge-runtime"), L("--color-accent-runtime"))],
+  ["accent-edge vs bg (§1.1 new row)", /accent-edge.*?vs the orange track and ([\d.]+):1 vs bg/, contrast(L("--color-accent-edge-runtime"), L("--color-bg-runtime"))],
 ];
 
-// Touched figures the row-parser deliberately does not pin, with reason.
-const KNOWN_UNPINNED: Array<[string, string]> = [
-  ["§1.2 table cells L57-L59/L70", "same values as the §1.1 prose rows pinned above — one figure, two renderings; §1.2 cells verified by the numeric sweep in review"],
+// §1.2 TABLE cells — pinned directly (spec §6.1 row 8: EVERY touched figure in
+// BOTH sections; "duplicate rendering" is not an exemption).
+const TABLE_ROWS: Array<[string, string, number, number]> = [
+  // [name, row-label regex fragment, computedLight, computedDark]
+  ["L57 accent on bg", "`--color-accent` on `--color-bg`", contrast(L("--color-accent-runtime"), L("--color-bg-runtime")), contrast(D("--color-accent-runtime"), D("--color-bg-runtime"))],
+  ["L58 accent-on-bg on bg", "`--color-accent-on-bg` on `--color-bg`", contrast(L("--color-accent-on-bg-runtime"), L("--color-bg-runtime")), contrast(D("--color-accent-on-bg-runtime"), D("--color-bg-runtime"))],
+  ["L59 accent-text on accent", "`--color-accent-text` on `--color-accent`", contrast(L("--color-accent-text-runtime"), L("--color-accent-runtime")), contrast(D("--color-accent-text-runtime"), D("--color-accent-runtime"))],
+  ["L70 accent-on-bg icon on tint", "`--color-accent-on-bg` icon on `--color-accent-tint`", contrast(L("--color-accent-on-bg-runtime"), L("--color-accent-tint-runtime")), contrast(D("--color-accent-on-bg-runtime"), D("--color-accent-tint-runtime"))],
+  ["accent-edge vs accent (new §1.2 row)", "`--color-accent-edge` vs `--color-accent`", contrast(L("--color-accent-edge-runtime"), L("--color-accent-runtime")), contrast(D("--color-accent-edge-runtime"), D("--color-accent-runtime"))],
+  ["accent-edge vs bg (new §1.2 row)", "`--color-accent-edge` vs `--color-bg`", contrast(L("--color-accent-edge-runtime"), L("--color-bg-runtime")), contrast(D("--color-accent-edge-runtime"), D("--color-bg-runtime"))],
 ];
+// NOTE: the new §1.2 accent-edge rows must therefore carry BOTH light and dark
+// figures (dark values are real ratios even though decorative — document them).
+// KNOWN_UNPINNED is now empty; keep the array + assertion as the future escape hatch.
+const KNOWN_UNPINNED: Array<[string, string]> = [];
 
 describe("DESIGN.md figure parity (touched rows)", () => {
   for (const [label, re, computed] of ROWS) {
@@ -197,8 +217,15 @@ describe("DESIGN.md figure parity (touched rows)", () => {
       expect(Math.abs(parseFloat(m![1]!) - computed)).toBeLessThanOrEqual(TOL);
     });
   }
-  it("known-unpinned list is explicit", () => {
-    expect(KNOWN_UNPINNED.length).toBeGreaterThan(0);
+  for (const [name, label, light, dark] of TABLE_ROWS) {
+    it(`§1.2 table ${name}: documented light+dark figures equal computed ±${TOL}`, () => {
+      const fig = tableFigures(label.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+      expect(Math.abs(fig.light - light)).toBeLessThanOrEqual(TOL);
+      expect(Math.abs(fig.dark - dark)).toBeLessThanOrEqual(TOL);
+    });
+  }
+  it("known-unpinned list stays empty unless a parser limitation is documented", () => {
+    for (const [, reason] of KNOWN_UNPINNED) expect(reason.length).toBeGreaterThan(10);
   });
 });
 ```
@@ -215,7 +242,7 @@ describe("DESIGN.md figure parity (touched rows)", () => {
   - §1.2 L58: `4.6:1` → `5.34:1`; `9.8:1` → `9.39:1`.
   - §1.2 L59: `4.07:1` → `8.23:1` / `11.3:1` → `8.23:1`, note → "AA body both modes (same pair)".
   - §1.2 L70: `3.8:1` → `4.91:1`.
-  - §1.2 new rows: `--color-accent-edge` vs `--color-accent` 3.61:1 / vs bg 8.06:1 (light); `--color-accent` vs bg 8.16:1 (dark toggle boundary).
+  - §1.2 new rows (BOTH columns, since the parity parser reads light AND dark): `--color-accent-edge` vs `--color-accent` | 3.61:1 | 1.15:1 | note "light = the load-bearing 1.4.11 boundary; dark edge is decorative (the track itself is the boundary, next row)"; `--color-accent-edge` vs `--color-bg` | 8.06:1 | 9.39:1 |; plus a note line (not a table row) that dark's toggle boundary is `--color-accent` vs bg = 8.16:1, already pinned by the contrast meta-test row 5.
   - §1.1 prose (single-accent paragraph): add "Selected-filter segments are NOT an accent surface — the selected-state recipe is inverted neutral (`bg-text text-bg`); accent stays reserved for live/matters-now signals and CTAs."
 - [ ] **Step 4: Re-run** — PASS. Also re-run Task 1 file — still PASS.
 - [ ] **Step 5: Commit** — `docs: correct DESIGN.md contrast figures to measured values; pin with figure-parity meta-test`
@@ -270,8 +297,11 @@ test("ON toggle border is the accent-edge token and geometry invariants hold", a
     expect(th!.y).toBeGreaterThanOrEqual(tr!.y - TOL);
     expect(th!.y + th!.height).toBeLessThanOrEqual(tr!.y + tr!.height + TOL);
   }
-  // ON−OFF travel = 14px (16px − 2px offsets)
-  expect(Math.abs(thumbOn!.x - trackOff!.x - (thumbOff!.x - trackOff!.x) - 14)).toBeLessThanOrEqual(TOL);
+  // ON−OFF travel = 14px (16px − 2px offsets) — each thumb measured against
+  // ITS OWN track origin so harness layout position cancels out.
+  const onOffset = thumbOn!.x - t!.x;
+  const offOffset = thumbOff!.x - trackOff!.x;
+  expect(Math.abs(onOffset - offOffset - 14)).toBeLessThanOrEqual(TOL);
 
   const settings = await page.getByTestId("settings-track-on").boundingBox();
   expect(Math.abs(settings!.width - 48)).toBeLessThanOrEqual(TOL);
@@ -320,7 +350,6 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 const ROOTS = ["components", "app"];
-const BANNED = new Set(["text-accent", "hover:text-accent", "hover:text-accent-hover"]);
 // file:reason rows; EMPTY at ship (spec §4.4a).
 const ALLOWLIST: Array<{ file: string; reason: string }> = [];
 
@@ -335,12 +364,14 @@ function stripComments(src: string): string {
   return src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:])\/\/[^\n]*/g, "$1");
 }
 // A token is banned iff, after stripping its variant chain, the final utility
-// is EXACTLY text-accent — or the token is a hover: chain ending in
-// text-accent / text-accent-hover. text-accent-on-bg / text-accent-text never match.
+// is EXACTLY `text-accent` (raw accent as text — banned in EVERY chain, hover
+// or not), OR the chain contains `hover` and the final utility is EXACTLY
+// `text-accent-hover` (the sub-AA hover shift). `text-accent-on-bg` /
+// `text-accent-text` never match (suffixed utilities are different tokens).
 function bannedToken(tok: string): boolean {
   const parts = tok.split(":");
   const util = parts[parts.length - 1]!.replace(/^!/, "");
-  if (util === "text-accent") return true;
+  if (util === "text-accent") return true; // covers bare AND hover:/md:hover: chains
   if (parts.length > 1 && parts.includes("hover") && util === "text-accent-hover") return true;
   return false;
 }
@@ -413,14 +444,48 @@ import { walk, stripComments } from "./_classScanUtils";
 // ... vitest imports, fs
 
 type Disposition = "labeled" | "edge-treated" | "redundant-glyph" | "decorative";
-// REGISTRY: seeded from the spec §4.1b generated inventory (post-change state).
-// One row per occurrence: file + nth occurrence + context + disposition.
-const REGISTRY: Array<{ file: string; index: number; context: string; disposition: Disposition }> = [
-  { file: "app/admin/error.tsx", index: 0, context: "rounded-sm bg-accent px-4", disposition: "labeled" },
-  // ... every row from the spec table (37 labeled — minus none; 6 edge-treated:
-  // 5 toggles + OnboardingWizard, each context containing "border-accent-edge bg-accent";
-  // 1 redundant-glyph Step3SheetCard; 7 decorative). EventFilters, BellPanel pip,
-  // RightNowHero:556 have LEFT the scan (re-toned / darkened) — no rows.
+// REGISTRY: the spec §4.1b generated inventory in its POST-CHANGE state
+// (EventFilters:90, BellPanel:292, RightNowHero:556 have left the scan —
+// re-toned/darkened; comments are stripped pre-scan). `index` = nth exact-token
+// bg-accent occurrence within the file, 0-based, in line order after
+// comment-stripping. `context` must be a substring of the matched line.
+const L = (file: string, index: number, context = "bg-accent"): Row => ({ file, index, context, disposition: "labeled" });
+type Row = { file: string; index: number; context: string; disposition: Disposition };
+const REGISTRY: Row[] = [
+  // labeled (37): the shared CTA/labeled-control recipe or count badges
+  L("app/admin/error.tsx", 0), L("app/admin/settings/admins/AddAdminForm.tsx", 0), L("app/admin/settings/admins/AddAdminForm.tsx", 1),
+  L("app/admin/settings/admins/error.tsx", 0), L("app/admin/settings/admins/RevokeRowButton.tsx", 0), L("app/admin/settings/admins/RevokeRowButton.tsx", 1),
+  L("app/admin/settings/admins/RevokeRowButton.tsx", 2), L("app/admin/settings/error.tsx", 0), L("app/admin/settings/roles/RoleMappingRow.tsx", 0),
+  L("app/admin/show/[slug]/PickerResetControl.tsx", 0), L("app/admin/show/[slug]/ResetPickerEpochButton.tsx", 0),
+  L("app/admin/show/[slug]/RotateShareTokenButton.tsx", 0), L("app/admin/show/[slug]/ShareLinkCopyButton.tsx", 0),
+  L("app/global-error.tsx", 0), L("app/me/page.tsx", 0), L("app/show/[slug]/[shareToken]/_PickerInterstitial.tsx", 0),
+  L("app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx", 0), L("app/show/[slug]/[shareToken]/_SignInOrSkipGate.tsx", 1),
+  L("app/show/[slug]/[shareToken]/error.tsx", 0), L("app/show/[slug]/unpublish/ConfirmUnpublishForm.tsx", 0),
+  L("components/admin/Mi11GateActions.tsx", 0), L("components/admin/RoleRecognizeControl.tsx", 0),
+  L("components/admin/settings/AddAdminDisclosure.tsx", 0), L("components/admin/nav/AdminNav.tsx", 0), L("components/admin/nav/NotifBell.tsx", 0),
+  L("components/admin/wizard/Step1Share.tsx", 0), L("components/admin/wizard/Step2Verify.tsx", 0),
+  L("components/admin/wizard/Step3ReviewModal.tsx", 1), L("components/admin/wizard/Step3ReviewModal.tsx", 2),
+  L("components/shared/AccentButton.tsx", 0), L("components/shared/ReportButton.tsx", 0),
+  L("components/shared/ReportModal.tsx", 0), L("components/shared/ReportModal.tsx", 1), L("components/shared/ReportModal.tsx", 2),
+  L("components/shared/ReportModal.tsx", 3), L("components/shared/ReportModal.tsx", 4),
+  L("components/admin/ResolveAlertButton.tsx", 0, "disabled:hover:bg-accent"),
+  // edge-treated (6): context must show the edge border beside the fill
+  { file: "components/admin/PublishedToggle.tsx", index: 0, context: "border-accent-edge bg-accent", disposition: "edge-treated" },
+  { file: "components/admin/settings/AutoPublishToggle.tsx", index: 0, context: "border-accent-edge bg-accent", disposition: "edge-treated" },
+  { file: "components/admin/settings/DeveloperToggleButton.tsx", index: 0, context: "border-accent-edge bg-accent", disposition: "edge-treated" },
+  { file: "components/admin/settings/NotifyToggle.tsx", index: 0, context: "border-accent-edge bg-accent", disposition: "edge-treated" },
+  { file: "components/admin/telemetry/AutoRefreshControl.tsx", index: 2, context: "border-accent-edge bg-accent", disposition: "edge-treated" },
+  { file: "components/admin/OnboardingWizard.tsx", index: 0, context: "border-accent-edge bg-accent", disposition: "edge-treated" },
+  // redundant-glyph (1)
+  { file: "components/admin/wizard/Step3SheetCard.tsx", index: 0, context: "border-accent bg-accent text-accent-text", disposition: "redundant-glyph" },
+  // decorative (7)
+  { file: "components/crew/RightNowHero.tsx", index: 0, context: "bg-accent", disposition: "decorative" },
+  { file: "components/right-now/RightNowCard.tsx", index: 0, context: "bg-accent", disposition: "decorative" },
+  { file: "components/admin/telemetry/EventVolumeSparkline.tsx", index: 0, context: "bg-accent", disposition: "decorative" },
+  { file: "components/crew/primitives/DayCard.tsx", index: 0, context: "bg-accent", disposition: "decorative" },
+  { file: "components/admin/wizard/Step3ReviewModal.tsx", index: 0, context: "rounded-r-pill bg-accent", disposition: "decorative" },
+  { file: "components/admin/telemetry/AutoRefreshControl.tsx", index: 0, context: "telemetry-ping", disposition: "decorative" },
+  { file: "components/admin/telemetry/AutoRefreshControl.tsx", index: 1, context: "size-2 rounded-full", disposition: "decorative" },
 ];
 
 function bgAccentToken(tok: string): boolean {
@@ -429,23 +494,47 @@ function bgAccentToken(tok: string): boolean {
   return util === "bg-accent";
 }
 
-it("matcher self-check", () => {
-  expect(bgAccentToken("bg-accent")).toBe(true);
-  expect(bgAccentToken("disabled:hover:bg-accent")).toBe(true);
-  expect(bgAccentToken("data-[state=active]:bg-accent")).toBe(true);
-  expect(bgAccentToken("bg-accent-tint")).toBe(false);
-  expect(bgAccentToken("bg-accent/10")).toBe(false);
-});
+describe("META bg-accent per-occurrence disposition registry (spec §4.1b)", () => {
+  it("matcher self-check", () => {
+    expect(bgAccentToken("bg-accent")).toBe(true);
+    expect(bgAccentToken("disabled:hover:bg-accent")).toBe(true);
+    expect(bgAccentToken("data-[state=active]:bg-accent")).toBe(true);
+    expect(bgAccentToken("bg-accent-tint")).toBe(false);
+    expect(bgAccentToken("bg-accent/10")).toBe(false);
+  });
 
-it("every bg-accent occurrence is registered with a disposition", () => {
-  // walk components/ + app/, tokenize lines, collect {file, nth, line}
-  // for each hit: find REGISTRY row with same file+index; assert line.includes(row.context);
-  // 'edge-treated' rows additionally assert the line (or same class string) contains border-accent-edge.
-  // Collect unregistered hits AND registered-but-missing rows; expect both lists empty.
+  it("every bg-accent occurrence is registered; every registry row exists", () => {
+    const hits: Array<{ file: string; index: number; line: string; lineNo: number }> = [];
+    for (const root of ["components", "app"]) {
+      for (const file of walk(root)) {
+        let n = 0;
+        stripComments(readFileSync(file, "utf8")).split("\n").forEach((line, i) => {
+          for (const tok of line.split(/[\s"'`{}$]+/)) {
+            if (bgAccentToken(tok)) hits.push({ file, index: n++, line, lineNo: i + 1 });
+          }
+        });
+      }
+    }
+    const problems: string[] = [];
+    for (const h of hits) {
+      const row = REGISTRY.find((r) => r.file === h.file && r.index === h.index);
+      if (!row) { problems.push(`UNREGISTERED ${h.file}:${h.lineNo} (occurrence ${h.index})`); continue; }
+      if (!h.line.includes(row.context)) problems.push(`CONTEXT MISMATCH ${h.file}:${h.lineNo} expected "${row.context}"`);
+      if (row.disposition === "edge-treated" && !h.line.includes("border-accent-edge")) {
+        problems.push(`EDGE MISSING ${h.file}:${h.lineNo}`);
+      }
+    }
+    for (const r of REGISTRY) {
+      if (!hits.some((h) => h.file === r.file && h.index === r.index)) {
+        problems.push(`STALE REGISTRY ROW ${r.file} occurrence ${r.index}`);
+      }
+    }
+    expect(problems, problems.join("\n")).toEqual([]);
+  });
 });
 ```
 
-(Write the full scan body — it mirrors Task 5's violation loop with an index counter per file. Seed all rows from the spec table; regenerate the scan with `rg -nP '(^|[^A-Za-z0-9-])((?:[A-Za-z0-9!\[\]=/_-]+:)*)bg-accent(?![A-Za-z0-9/-])'` and reconcile to zero unaccounted, updating counts if the tree moved since spec generation.)
+Indexes are seeded from the spec's generated inventory in line order per file (e.g. `AutoRefreshControl`: ping `:86`=0, dot `:90`=1, track `:106`=2; `Step3ReviewModal`: side bar `:1064`=0, CTAs `:1378`=1 / `:1464`=2). If the scan finds drift vs these seeds (tree moved since spec generation), reconcile to zero problems by updating rows — never by loosening the matcher.
 
 - [ ] **Step 4: Run** — PASS with exact reconciliation (post-change: EventFilters/BellPanel/RightNowHero rows must NOT be present; if the scan still finds them the earlier edits are wrong).
 - [ ] **Step 5: Commit** — `feat: bg-accent per-occurrence disposition registry; darken Bell pip + RightNow active segment to accent-on-bg`
