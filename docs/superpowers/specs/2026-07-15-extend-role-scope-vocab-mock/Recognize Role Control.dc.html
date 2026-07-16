@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body { margin:0; background:#efeeec; font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI','Helvetica Neue',sans-serif; color:#1a1b1f; font-size:16px; line-height:1.55; letter-spacing:-0.005em; }
+a { color:#0e0f12; text-decoration:underline; text-underline-offset:2px; }
+a:hover { color:#1a1b1f; }
+@keyframes rr-spin { to { transform: rotate(360deg); } }
+@keyframes rr-pop { from { opacity:0; transform: translateY(3px); } to { opacity:1; transform: translateY(0); } }
+</style>
+</helmet>
+<section style="padding:40px 48px 80px; display:flex; flex-direction:column; gap:28px; max-width:2200px;">
+  <div style="display:flex; flex-direction:column; gap:4px;">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <span style="background:#0e0f12; color:#fff; font-size:12px; font-weight:700; padding:2px 8px; border-radius:999px;">1a</span>
+      <h1 style="margin:0; font-size:24px; font-weight:700; letter-spacing:-0.012em; color:#0e0f12;">Recognize this role — inline control</h1>
+    </div>
+    <p style="margin:0 0 0 44px; font-size:14px; color:#5a5b62; max-width:64ch;">Lives inside the amber data-quality warning card on the per-show admin page. Left: interactive prototype (tap through). Right: every state, pinned. FXAV tokens throughout — warm neutrals, one orange accent, 44px tap targets, no modal.</p>
+  </div>
+
+  <div style="display:flex; gap:40px; align-items:flex-start; flex-wrap:wrap;">
+
+    <!-- ══ Interactive prototype: mobile 360 ══ -->
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      <div style="font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.12em; color:#5a5b62;">Interactive · mobile 360</div>
+      <div style="width:360px; background:#fafaf9; border:1px solid #e5e4e0; border-radius:16px; padding:16px; box-shadow:0 1px 2px rgba(20,18,12,0.04); display:flex; flex-direction:column; gap:12px;">
+        <div style="display:flex; align-items:baseline; gap:8px;">
+          <h2 style="margin:0; font-size:18px; font-weight:600; letter-spacing:-0.005em; color:#0e0f12;">Data quality</h2>
+          <span style="font-size:12px; color:#8b8c92;">Fitzgerald Corporate Summit</span>
+        </div>
+        <!-- unrelated warning for context -->
+        <div style="display:flex; flex-direction:column; gap:2px; border:1px solid #e5e4e0; background:#fff3d6; border-radius:6px; padding:12px; font-size:14px; color:#5c3f00;">
+          <span style="font-weight:500; color:#0e0f12;">Schedule time we couldn't read</span>
+          <span style="font-size:12px; color:#5a5b62;">Day 2 — "Doors ±5" isn't a time we can put on a schedule, so we left that slot blank rather than guess.</span>
+          <a href="#" style="align-self:flex-start; font-size:12px; font-weight:500; color:#0e0f12;">Open in Sheet <span aria-hidden="true">↗</span></a>
+        </div>
+        <!-- the role warning: interactive -->
+        <div style="display:flex; flex-direction:column; gap:6px; border:1px solid #e5e4e0; background:#fff3d6; border-radius:6px; padding:12px; font-size:14px; color:#5c3f00;">
+          <span style="font-weight:500; color:#0e0f12;">Role we didn't recognize</span>
+          <span style="font-size:12px; color:#5a5b62;">Marcus Webb's role includes <strong style="font-weight:600; color:#0e0f12;">DRONE OP</strong>, which we didn't recognize — so for now, Marcus gets the standard show page.</span>
+          <sc-if value="{{ demoCollapsed }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-top:4px;">
+              <button onClick="{{ demoExpand }}" style="display:inline-flex; min-height:44px; align-items:center; gap:6px; border:1px solid #cfcdc7; background:#fafaf9; border-radius:6px; padding:0 12px; font-size:14px; font-weight:500; color:#0e0f12; font-family:inherit; cursor:pointer;" style-hover="background:#f4f3f1;">Recognize this role <span aria-hidden="true" style="font-size:12px; color:#8b8c92;">⌄</span></button>
+              <a href="#" style="font-size:12px; font-weight:500;">Open in Sheet <span aria-hidden="true">↗</span></a>
+            </div>
+          </sc-if>
+          <sc-if value="{{ demoOpen }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex; flex-direction:column; gap:12px; background:#ffffff; border:1px solid #e5e4e0; border-radius:6px; padding:14px; margin-top:6px; animation:rr-pop 120ms cubic-bezier(0.25,1,0.5,1);">
+              <div style="display:flex; flex-direction:column; gap:2px;">
+                <span style="font-size:14px; font-weight:600; color:#0e0f12;">What should people with this role see?</span>
+                <span style="font-size:12px; color:#5a5b62;">Applies to anyone whose role says DRONE OP — this show and every show after.</span>
+              </div>
+              <div style="display:flex; flex-direction:column;">
+                <label style="display:flex; align-items:center; gap:10px; min-height:44px; cursor:pointer;">
+                  <input type="checkbox" checked="{{ ckAudio }}" onChange="{{ toggleAudio }}" disabled="{{ demoBusy }}" style="width:20px; height:20px; accent-color:#ff8c1a; margin:0;">
+                  <span style="font-size:14px; color:#1a1b1f;">Audio details</span>
+                </label>
+                <label style="display:flex; align-items:center; gap:10px; min-height:44px; cursor:pointer;">
+                  <input type="checkbox" checked="{{ ckVideo }}" onChange="{{ toggleVideo }}" disabled="{{ demoBusy }}" style="width:20px; height:20px; accent-color:#ff8c1a; margin:0;">
+                  <span style="font-size:14px; color:#1a1b1f;">Video details</span>
+                </label>
+                <label style="display:flex; align-items:center; gap:10px; min-height:44px; cursor:pointer;">
+                  <input type="checkbox" checked="{{ ckLight }}" onChange="{{ toggleLight }}" disabled="{{ demoBusy }}" style="width:20px; height:20px; accent-color:#ff8c1a; margin:0;">
+                  <span style="font-size:14px; color:#1a1b1f;">Lighting details</span>
+                </label>
+                <label style="display:flex; align-items:flex-start; gap:10px; min-height:44px; cursor:pointer; padding:8px 0;">
+                  <input type="checkbox" checked="{{ ckMoney }}" onChange="{{ toggleMoney }}" disabled="{{ demoBusy }}" style="width:20px; height:20px; accent-color:#ff8c1a; margin:2px 0 0;">
+                  <span style="display:flex; flex-direction:column; gap:2px;">
+                    <span style="font-size:14px; color:#1a1b1f;">Financial details</span>
+                    <span style="font-size:12px; color:#7a3d00;">Includes budgets and rates. Only grant this if people with this role should see money.</span>
+                  </span>
+                </label>
+              </div>
+              <sc-if value="{{ noneChecked }}" hint-placeholder-val="{{ false }}">
+                <p style="margin:0; font-size:12px; color:#5a5b62; background:#f4f3f1; border-radius:6px; padding:8px 10px;">They'll get the standard show page.</p>
+              </sc-if>
+              <sc-if value="{{ demoError }}" hint-placeholder-val="{{ false }}">
+                <p role="alert" style="margin:0; font-size:12px; color:#5c3f00; background:#fff3d6; border:1px solid #cfcdc7; border-radius:6px; padding:8px 10px;">That didn't save, so nothing has changed yet. Check your connection and try again.</p>
+              </sc-if>
+              <div style="display:flex; align-items:center; gap:12px;">
+                <button onClick="{{ demoSave }}" disabled="{{ demoBusy }}" style="display:inline-flex; min-height:44px; align-items:center; justify-content:center; gap:8px; border:none; background:{{ saveBg }}; color:#ffffff; border-radius:6px; padding:0 16px; font-size:14px; font-weight:600; font-family:inherit; cursor:pointer;" style-hover="background:#e67a0e;">
+                  <sc-if value="{{ demoBusy }}" hint-placeholder-val="{{ false }}"><span aria-hidden="true" style="width:14px; height:14px; border:2px solid rgba(255,255,255,0.45); border-top-color:#ffffff; border-radius:50%; display:inline-block; animation:rr-spin 700ms linear infinite;"></span></sc-if>
+                  {{ saveLabel }}
+                </button>
+                <button onClick="{{ demoCancel }}" disabled="{{ demoBusy }}" style="min-height:44px; border:none; background:none; font-size:14px; font-weight:500; color:#5a5b62; font-family:inherit; cursor:pointer; padding:0 8px;" style-hover="color:#0e0f12;">Cancel</button>
+              </div>
+            </div>
+          </sc-if>
+          <sc-if value="{{ demoDone }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex; align-items:flex-start; gap:10px; background:#ffffff; border:1px solid #e5e4e0; border-radius:6px; padding:12px 14px; margin-top:6px; animation:rr-pop 120ms cubic-bezier(0.25,1,0.5,1);">
+              <span aria-hidden="true" style="flex:none; width:22px; height:22px; border-radius:50%; background:#3f8a83; color:#ffffff; display:inline-flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; margin-top:1px;">✓</span>
+              <span style="display:flex; flex-direction:column; gap:2px;">
+                <span style="font-size:14px; font-weight:600; color:#0e0f12;">Got it — anyone with this role is recognized from now on, on every show.</span>
+                <span style="font-size:12px; color:#5a5b62;">People with DRONE OP now see {{ doneSummary }}. <button onClick="{{ demoReset }}" style="border:none; background:none; padding:0; font:inherit; font-size:12px; font-weight:500; color:#0e0f12; text-decoration:underline; text-underline-offset:2px; cursor:pointer;">Change what they see</button></span>
+              </span>
+            </div>
+          </sc-if>
+          <sc-if value="{{ demoCollapsed }}" hint-placeholder-val="{{ true }}"><span></span></sc-if>
+        </div>
+        <p style="margin:0; font-size:11px; color:#8b8c92;">Demo: saving takes ~1.2s; every 3rd save fails so you can see the error state. <button onClick="{{ demoFullReset }}" style="border:none; background:none; padding:0; font:inherit; font-size:11px; color:#5a5b62; text-decoration:underline; cursor:pointer;">Reset</button></p>
+      </div>
+    </div>
+
+    <!-- ══ State gallery ══ -->
+    <div style="display:flex; flex-direction:column; gap:10px; flex:1; min-width:740px;">
+      <div style="font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.12em; color:#5a5b62;">State gallery · pinned</div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); gap:20px;">
+
+        <!-- 1 collapsed -->
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <span style="font-size:12px; color:#5a5b62;"><strong style="color:#0e0f12; font-weight:600;">1 · Collapsed trigger</strong> — neutral outline, sits with the card's existing quiet links</span>
+          <div style="width:328px; display:flex; flex-direction:column; gap:6px; border:1px solid #e5e4e0; background:#fff3d6; border-radius:6px; padding:12px; font-size:14px; color:#5c3f00;">
+            <span style="font-weight:500; color:#0e0f12;">Role we didn't recognize</span>
+            <span style="font-size:12px; color:#5a5b62;">Marcus Webb's role includes <strong style="font-weight:600; color:#0e0f12;">DRONE OP</strong>, which we didn't recognize — so for now, Marcus gets the standard show page.</span>
+            <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-top:4px;">
+              <button style="display:inline-flex; min-height:44px; align-items:center; gap:6px; border:1px solid #cfcdc7; background:#fafaf9; border-radius:6px; padding:0 12px; font-size:14px; font-weight:500; color:#0e0f12; font-family:inherit; cursor:pointer;">Recognize this role <span aria-hidden="true" style="font-size:12px; color:#8b8c92;">⌄</span></button>
+              <a href="#" style="font-size:12px; font-weight:500;">Open in Sheet <span aria-hidden="true">↗</span></a>
+            </div>
+          </div>
+        </div>
+
+        <!-- 2 expanded empty -->
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <span style="font-size:12px; color:#5a5b62;"><strong style="color:#0e0f12; font-weight:600;">2 · Expanded, nothing checked</strong> — helper line explains the default outcome</span>
+          <div style="width:328px; display:flex; flex-direction:column; gap:6px; border:1px solid #e5e4e0; background:#fff3d6; border-radius:6px; padding:12px; font-size:14px; color:#5c3f00;">
+            <span style="font-weight:500; color:#0e0f12;">Role we didn't recognize</span>
+            <span style="font-size:12px; color:#5a5b62;">Marcus Webb's role includes <strong style="font-weight:600; color:#0e0f12;">DRONE OP</strong>, which we didn't recognize.</span>
+            <div style="display:flex; flex-direction:column; gap:12px; background:#ffffff; border:1px solid #e5e4e0; border-radius:6px; padding:14px; margin-top:6px;">
+              <div style="display:flex; flex-direction:column; gap:2px;">
+                <span style="font-size:14px; font-weight:600; color:#0e0f12;">What should people with this role see?</span>
+                <span style="font-size:12px; color:#5a5b62;">Applies to anyone whose role says DRONE OP — this show and every show after.</span>
+              </div>
+              <div style="display:flex; flex-direction:column;">
+                <label style="display:flex; align-items:center; gap:10px; min-height:44px;"><input type="checkbox" style="width:20px; height:20px; accent-color:#ff8c1a; margin:0;"><span style="font-size:14px; color:#1a1b1f;">Audio details</span></label>
+                <label style="display:flex; align-items:center; gap:10px; min-height:44px;"><input type="checkbox" style="width:20px; height:20px; accent-color:#ff8c1a; margin:0;"><span style="font-size:14px; color:#1a1b1f;">Video details</span></label>
+                <label style="display:flex; align-items:center; gap:10px; min-height:44px;"><input type="checkbox" style="width:20px; height:20px; accent-color:#ff8c1a; margin:0;"><span style="font-size:14px; color:#1a1b1f;">Lighting details</span></label>
+                <label style="display:flex; align-items:flex-start; gap:10px; min-height:44px; padding:8px 0;"><input type="checkbox" style="width:20px; height:20px; accent-color:#ff8c1a; margin:2px 0 0;"><span style="display:flex; flex-direction:column; gap:2px;"><span style="font-size:14px; color:#1a1b1f;">Financial details</span><span style="font-size:12px; color:#7a3d00;">Includes budgets and rates. Only grant this if people with this role should see money.</span></span></label>
+              </div>
+              <p style="margin:0; font-size:12px; color:#5a5b62; background:#f4f3f1; border-radius:6px; padding:8px 10px;">They'll get the standard show page.</p>
+              <div style="display:flex; align-items:center; gap:12px;">
+                <button style="display:inline-flex; min-height:44px; align-items:center; justify-content:center; border:none; background:#ff8c1a; color:#ffffff; border-radius:6px; padding:0 16px; font-size:14px; font-weight:600; font-family:inherit;">Recognize role</button>
+                <button style="min-height:44px; border:none; background:none; font-size:14px; font-weight:500; color:#5a5b62; font-family:inherit; padding:0 8px;">Cancel</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3 expanded with money checked -->
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <span style="font-size:12px; color:#5a5b62;"><strong style="color:#0e0f12; font-weight:600;">3 · Selections made</strong> — financial caution reads inline, not as an alarm</span>
+          <div style="width:328px; display:flex; flex-direction:column; gap:12px; background:#ffffff; border:1px solid #e5e4e0; border-radius:6px; padding:14px;">
+            <div style="display:flex; flex-direction:column; gap:2px;">
+              <span style="font-size:14px; font-weight:600; color:#0e0f12;">What should people with this role see?</span>
+              <span style="font-size:12px; color:#5a5b62;">Applies to anyone whose role says DRONE OP — this show and every show after.</span>
+            </div>
+            <div style="display:flex; flex-direction:column;">
+              <label style="display:flex; align-items:center; gap:10px; min-height:44px;"><input type="checkbox" checked="{{ true }}" style="width:20px; height:20px; accent-color:#ff8c1a; margin:0;"><span style="font-size:14px; color:#1a1b1f;">Audio details</span></label>
+              <label style="display:flex; align-items:center; gap:10px; min-height:44px;"><input type="checkbox" checked="{{ true }}" style="width:20px; height:20px; accent-color:#ff8c1a; margin:0;"><span style="font-size:14px; color:#1a1b1f;">Video details</span></label>
+              <label style="display:flex; align-items:center; gap:10px; min-height:44px;"><input type="checkbox" style="width:20px; height:20px; accent-color:#ff8c1a; margin:0;"><span style="font-size:14px; color:#1a1b1f;">Lighting details</span></label>
+              <label style="display:flex; align-items:flex-start; gap:10px; min-height:44px; padding:8px 0;"><input type="checkbox" checked="{{ true }}" style="width:20px; height:20px; accent-color:#ff8c1a; margin:2px 0 0;"><span style="display:flex; flex-direction:column; gap:2px;"><span style="font-size:14px; color:#1a1b1f;">Financial details</span><span style="font-size:12px; color:#7a3d00;">Includes budgets and rates. Only grant this if people with this role should see money.</span></span></label>
+            </div>
+            <div style="display:flex; align-items:center; gap:12px;">
+              <button style="display:inline-flex; min-height:44px; align-items:center; justify-content:center; border:none; background:#ff8c1a; color:#ffffff; border-radius:6px; padding:0 16px; font-size:14px; font-weight:600; font-family:inherit;">Recognize role</button>
+              <button style="min-height:44px; border:none; background:none; font-size:14px; font-weight:500; color:#5a5b62; font-family:inherit; padding:0 8px;">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 4 saving -->
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <span style="font-size:12px; color:#5a5b62;"><strong style="color:#0e0f12; font-weight:600;">4 · Saving</strong> — everything disabled, spinner + label change (never color alone)</span>
+          <div style="width:328px; display:flex; flex-direction:column; gap:12px; background:#ffffff; border:1px solid #e5e4e0; border-radius:6px; padding:14px;">
+            <div style="display:flex; flex-direction:column; gap:2px;">
+              <span style="font-size:14px; font-weight:600; color:#0e0f12;">What should people with this role see?</span>
+              <span style="font-size:12px; color:#5a5b62;">Applies to anyone whose role says DRONE OP — this show and every show after.</span>
+            </div>
+            <div style="display:flex; flex-direction:column; opacity:0.6;">
+              <label style="display:flex; align-items:center; gap:10px; min-height:44px;"><input type="checkbox" checked="{{ true }}" disabled="{{ true }}" style="width:20px; height:20px; accent-color:#ff8c1a; margin:0;"><span style="font-size:14px; color:#1a1b1f;">Audio details</span></label>
+              <label style="display:flex; align-items:center; gap:10px; min-height:44px;"><input type="checkbox" checked="{{ true }}" disabled="{{ true }}" style="width:20px; height:20px; accent-color:#ff8c1a; margin:0;"><span style="font-size:14px; color:#1a1b1f;">Video details</span></label>
+              <label style="display:flex; align-items:center; gap:10px; min-height:44px;"><input type="checkbox" disabled="{{ true }}" style="width:20px; height:20px; accent-color:#ff8c1a; margin:0;"><span style="font-size:14px; color:#1a1b1f;">Lighting details</span></label>
+              <label style="display:flex; align-items:flex-start; gap:10px; min-height:44px; padding:8px 0;"><input type="checkbox" disabled="{{ true }}" style="width:20px; height:20px; accent-color:#ff8c1a; margin:2px 0 0;"><span style="display:flex; flex-direction:column; gap:2px;"><span style="font-size:14px; color:#1a1b1f;">Financial details</span><span style="font-size:12px; color:#7a3d00;">Includes budgets and rates. Only grant this if people with this role should see money.</span></span></label>
+            </div>
+            <div style="display:flex; align-items:center; gap:12px;">
+              <button disabled="{{ true }}" style="display:inline-flex; min-height:44px; align-items:center; justify-content:center; gap:8px; border:none; background:#ff8c1a; color:#ffffff; border-radius:6px; padding:0 16px; font-size:14px; font-weight:600; font-family:inherit; opacity:0.6; cursor:not-allowed;"><span aria-hidden="true" style="width:14px; height:14px; border:2px solid rgba(255,255,255,0.45); border-top-color:#ffffff; border-radius:50%; display:inline-block; animation:rr-spin 700ms linear infinite;"></span>Recognizing…</button>
+              <button disabled="{{ true }}" style="min-height:44px; border:none; background:none; font-size:14px; font-weight:500; color:#8b8c92; font-family:inherit; padding:0 8px; cursor:not-allowed;">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 5 saved -->
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <span style="font-size:12px; color:#5a5b62;"><strong style="color:#0e0f12; font-weight:600;">5 · Saved</strong> — teal check + words carry the state; card settles calm (warning tint gone)</span>
+          <div style="width:328px; display:flex; flex-direction:column; gap:6px; border:1px solid #e5e4e0; background:#f4f3f1; border-radius:6px; padding:12px; font-size:14px; color:#5a5b62;">
+            <span style="font-weight:500; color:#0e0f12;">Role we didn't recognize</span>
+            <div style="display:flex; align-items:flex-start; gap:10px; background:#ffffff; border:1px solid #e5e4e0; border-radius:6px; padding:12px 14px; margin-top:4px;">
+              <span aria-hidden="true" style="flex:none; width:22px; height:22px; border-radius:50%; background:#3f8a83; color:#ffffff; display:inline-flex; align-items:center; justify-content:center; font-size:13px; font-weight:700; margin-top:1px;">✓</span>
+              <span style="display:flex; flex-direction:column; gap:2px;">
+                <span style="font-size:14px; font-weight:600; color:#0e0f12;">Got it — anyone with this role is recognized from now on, on every show.</span>
+                <span style="font-size:12px; color:#5a5b62;">People with DRONE OP now see Audio and Video details. <a href="#">Change what they see</a></span>
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 6 error -->
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <span style="font-size:12px; color:#5a5b62;"><strong style="color:#0e0f12; font-weight:600;">6 · Error</strong> — plain words, selections kept, one obvious retry</span>
+          <div style="width:328px; display:flex; flex-direction:column; gap:12px; background:#ffffff; border:1px solid #e5e4e0; border-radius:6px; padding:14px;">
+            <div style="display:flex; flex-direction:column; gap:2px;">
+              <span style="font-size:14px; font-weight:600; color:#0e0f12;">What should people with this role see?</span>
+              <span style="font-size:12px; color:#5a5b62;">Applies to anyone whose role says DRONE OP — this show and every show after.</span>
+            </div>
+            <div style="display:flex; flex-direction:column;">
+              <label style="display:flex; align-items:center; gap:10px; min-height:44px;"><input type="checkbox" checked="{{ true }}" style="width:20px; height:20px; accent-color:#ff8c1a; margin:0;"><span style="font-size:14px; color:#1a1b1f;">Audio details</span></label>
+              <label style="display:flex; align-items:center; gap:10px; min-height:44px;"><input type="checkbox" checked="{{ true }}" style="width:20px; height:20px; accent-color:#ff8c1a; margin:0;"><span style="font-size:14px; color:#1a1b1f;">Video details</span></label>
+              <label style="display:flex; align-items:center; gap:10px; min-height:44px;"><input type="checkbox" style="width:20px; height:20px; accent-color:#ff8c1a; margin:0;"><span style="font-size:14px; color:#1a1b1f;">Lighting details</span></label>
+              <label style="display:flex; align-items:flex-start; gap:10px; min-height:44px; padding:8px 0;"><input type="checkbox" style="width:20px; height:20px; accent-color:#ff8c1a; margin:2px 0 0;"><span style="display:flex; flex-direction:column; gap:2px;"><span style="font-size:14px; color:#1a1b1f;">Financial details</span><span style="font-size:12px; color:#7a3d00;">Includes budgets and rates. Only grant this if people with this role should see money.</span></span></label>
+            </div>
+            <p role="alert" style="margin:0; font-size:12px; color:#5c3f00; background:#fff3d6; border:1px solid #cfcdc7; border-radius:6px; padding:8px 10px;">That didn't save, so nothing has changed yet. Check your connection and try again.</p>
+            <div style="display:flex; align-items:center; gap:12px;">
+              <button style="display:inline-flex; min-height:44px; align-items:center; justify-content:center; border:none; background:#ff8c1a; color:#ffffff; border-radius:6px; padding:0 16px; font-size:14px; font-weight:600; font-family:inherit;">Try again</button>
+              <button style="min-height:44px; border:none; background:none; font-size:14px; font-weight:500; color:#5a5b62; font-family:inherit; padding:0 8px;">Cancel</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- trigger explorations -->
+      <div style="margin-top:16px; display:flex; flex-direction:column; gap:10px;">
+        <div style="font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.12em; color:#5a5b62;">Trigger explorations</div>
+        <div style="display:flex; gap:20px; flex-wrap:wrap;">
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <span style="font-size:12px; color:#5a5b62;"><strong style="color:#0e0f12; font-weight:600;">A · Neutral outline</strong> — matches Ignore; my recommendation</span>
+            <div style="width:328px; border:1px solid #e5e4e0; background:#fff3d6; border-radius:6px; padding:12px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+              <button style="display:inline-flex; min-height:44px; align-items:center; gap:6px; border:1px solid #cfcdc7; background:#fafaf9; border-radius:6px; padding:0 12px; font-size:14px; font-weight:500; color:#0e0f12; font-family:inherit;">Recognize this role <span aria-hidden="true" style="font-size:12px; color:#8b8c92;">⌄</span></button>
+              <a href="#" style="font-size:12px; font-weight:500;">Open in Sheet <span aria-hidden="true">↗</span></a>
+            </div>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <span style="font-size:12px; color:#5a5b62;"><strong style="color:#0e0f12; font-weight:600;">B · Accent fill</strong> — loudest; competes with the page's real primaries</span>
+            <div style="width:328px; border:1px solid #e5e4e0; background:#fff3d6; border-radius:6px; padding:12px; display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+              <button style="display:inline-flex; min-height:44px; align-items:center; justify-content:center; border:none; background:#ff8c1a; color:#ffffff; border-radius:6px; padding:0 14px; font-size:14px; font-weight:600; font-family:inherit;">Recognize this role</button>
+              <a href="#" style="font-size:12px; font-weight:500;">Open in Sheet <span aria-hidden="true">↗</span></a>
+            </div>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <span style="font-size:12px; color:#5a5b62;"><strong style="color:#0e0f12; font-weight:600;">C · Text link</strong> — quietest; easy to miss the one action that fixes the warning</span>
+            <div style="width:328px; border:1px solid #e5e4e0; background:#fff3d6; border-radius:6px; padding:12px; display:flex; align-items:center; gap:16px; flex-wrap:wrap;">
+              <button style="display:inline-flex; min-height:44px; align-items:center; gap:4px; border:none; background:none; padding:0; font-size:13px; font-weight:600; color:#0e0f12; font-family:inherit; text-decoration:underline; text-underline-offset:2px;">Recognize this role <span aria-hidden="true" style="font-size:11px;">⌄</span></button>
+              <a href="#" style="font-size:12px; font-weight:500;">Open in Sheet <span aria-hidden="true">↗</span></a>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- desktop width -->
+      <div style="margin-top:16px; display:flex; flex-direction:column; gap:10px;">
+        <div style="font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.12em; color:#5a5b62;">Desktop width · panel capped, checkboxes go two-up</div>
+        <div style="width:720px; max-width:100%; display:flex; flex-direction:column; gap:6px; border:1px solid #e5e4e0; background:#fff3d6; border-radius:6px; padding:12px; font-size:14px; color:#5c3f00;">
+          <span style="font-weight:500; color:#0e0f12;">Role we didn't recognize</span>
+          <span style="font-size:12px; color:#5a5b62;">Marcus Webb's role includes <strong style="font-weight:600; color:#0e0f12;">DRONE OP</strong>, which we didn't recognize — so for now, Marcus gets the standard show page.</span>
+          <div style="display:flex; flex-direction:column; gap:12px; background:#ffffff; border:1px solid #e5e4e0; border-radius:6px; padding:16px; margin-top:6px; max-width:560px;">
+            <div style="display:flex; flex-direction:column; gap:2px;">
+              <span style="font-size:14px; font-weight:600; color:#0e0f12;">What should people with this role see?</span>
+              <span style="font-size:12px; color:#5a5b62;">Applies to anyone whose role says DRONE OP — this show and every show after.</span>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; column-gap:24px;">
+              <label style="display:flex; align-items:center; gap:10px; min-height:44px;"><input type="checkbox" checked="{{ true }}" style="width:20px; height:20px; accent-color:#ff8c1a; margin:0;"><span style="font-size:14px; color:#1a1b1f;">Audio details</span></label>
+              <label style="display:flex; align-items:center; gap:10px; min-height:44px;"><input type="checkbox" style="width:20px; height:20px; accent-color:#ff8c1a; margin:0;"><span style="font-size:14px; color:#1a1b1f;">Video details</span></label>
+              <label style="display:flex; align-items:center; gap:10px; min-height:44px;"><input type="checkbox" style="width:20px; height:20px; accent-color:#ff8c1a; margin:0;"><span style="font-size:14px; color:#1a1b1f;">Lighting details</span></label>
+              <label style="grid-column:1 / -1; display:flex; align-items:flex-start; gap:10px; min-height:44px; padding:8px 0;"><input type="checkbox" style="width:20px; height:20px; accent-color:#ff8c1a; margin:2px 0 0;"><span style="display:flex; flex-direction:column; gap:2px;"><span style="font-size:14px; color:#1a1b1f;">Financial details</span><span style="font-size:12px; color:#7a3d00;">Includes budgets and rates. Only grant this if people with this role should see money.</span></span></label>
+            </div>
+            <p style="margin:0; font-size:12px; color:#5a5b62; background:#f4f3f1; border-radius:6px; padding:8px 10px; align-self:flex-start;">They'll get the standard show page.</p>
+            <div style="display:flex; align-items:center; gap:12px;">
+              <button style="display:inline-flex; min-height:44px; align-items:center; justify-content:center; border:none; background:#ff8c1a; color:#ffffff; border-radius:6px; padding:0 16px; font-size:14px; font-weight:600; font-family:inherit;">Recognize role</button>
+              <button style="min-height:44px; border:none; background:none; font-size:14px; font-weight:500; color:#5a5b62; font-family:inherit; padding:0 8px;">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;1900px&quot;}}">
+class Component extends DCLogic {
+  state = { phase: "collapsed", audio: false, video: false, light: false, money: false, attempts: 0 };
+  renderVals() {
+    const s = this.state;
+    const none = !s.audio && !s.video && !s.light && !s.money;
+    const parts = [];
+    if (s.audio) parts.push("Audio");
+    if (s.video) parts.push("Video");
+    if (s.light) parts.push("Lighting");
+    if (s.money) parts.push("Financial");
+    const doneSummary = parts.length === 0 ? "the standard show page" :
+      parts.length === 1 ? parts[0] + " details" :
+      parts.slice(0, -1).join(", ") + " and " + parts[parts.length - 1] + " details";
+    const busy = s.phase === "saving";
+    return {
+      demoCollapsed: s.phase === "collapsed",
+      demoOpen: s.phase === "open" || s.phase === "saving" || s.phase === "error",
+      demoDone: s.phase === "done",
+      demoBusy: busy,
+      demoError: s.phase === "error",
+      noneChecked: none && s.phase !== "error",
+      ckAudio: s.audio, ckVideo: s.video, ckLight: s.light, ckMoney: s.money,
+      toggleAudio: () => this.setState({ audio: !s.audio }),
+      toggleVideo: () => this.setState({ video: !s.video }),
+      toggleLight: () => this.setState({ light: !s.light }),
+      toggleMoney: () => this.setState({ money: !s.money }),
+      saveLabel: busy ? "Recognizing…" : (s.phase === "error" ? "Try again" : "Recognize role"),
+      saveBg: busy ? "#e67a0e" : "#ff8c1a",
+      doneSummary,
+      demoExpand: () => this.setState({ phase: "open" }),
+      demoCancel: () => this.setState({ phase: "collapsed" }),
+      demoSave: () => {
+        const attempt = s.attempts + 1;
+        this.setState({ phase: "saving", attempts: attempt });
+        clearTimeout(this._t);
+        this._t = setTimeout(() => {
+          this.setState({ phase: attempt % 3 === 0 ? "error" : "done" });
+        }, 1200);
+      },
+      demoReset: () => this.setState({ phase: "open" }),
+      demoFullReset: () => this.setState({ phase: "collapsed", audio: false, video: false, light: false, money: false, attempts: 0 }),
+    };
+  }
+  componentWillUnmount() { clearTimeout(this._t); }
+}
+</script>
+</body>
+</html>

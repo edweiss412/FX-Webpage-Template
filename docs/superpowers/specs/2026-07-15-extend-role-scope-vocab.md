@@ -17,7 +17,7 @@ This feature gives the admin (Doug) the first in-app mechanism: **map a novel ro
 | D3 | Financials | **Included** as a grantable capability, with strong warning copy (§9). Implemented as a NEW `RoleFlag` member `FINANCIALS` — never via `LEAD` (which would silently unlock every scope). |
 | D4 | UI scope v1 | Warning-attached affordance (both admin surfaces) **plus** a global settings list page to view/edit/remove mappings. |
 | D5 | Application mechanism | **Post-parse overlay** (approach A) at the existing sync seam — parser untouched except one additive warning payload field (§5). Rejected: parser-time DB injection (breaks parser purity, mutation-harness blast radius); read-time join (violates the `role_flags`-column visibility contract, `lib/visibility/scopeTiles.ts:12-31`). |
-| D6 | UI mocks | Claude Design session (user-driven) between spec draft and adversarial review; mock snapshots committed verbatim to `docs/superpowers/specs/2026-07-15-extend-role-scope-vocab-mock/` BEFORE any UI task dispatch; kickoff prompts in §13. |
+| D6 | UI mocks | **Committed** — `docs/superpowers/specs/2026-07-15-extend-role-scope-vocab-mock/` (`Recognize Role Control.dc.html`, `Roles You've Added.dc.html`, README), fetched verbatim from Claude Design project `8658e1ec-fa7d-4ff7-9776-9df9f10b7405`. The mocks are the visual source of truth for §8; §9 pins their copy. Trigger style = neutral-outline (mock exploration A). |
 | D7 | Doug-facing copy | Plain language only. The words "scope", "flag", "token", "mapping" never appear Doug-facing. Copy pinned in §9. |
 
 ## 3. Data model
@@ -157,17 +157,17 @@ Dormant mappings (token later added to the built-in vocabulary in code): warning
 
 `UNKNOWN_ROLE_TOKEN` is operator-actionable (`OPERATOR_ACTIONABLE_ANCHORED`, `lib/parser/dataGaps.ts:307-310`) and renders through `PerShowActionableWarnings` (`components/admin/PerShowActionableWarnings.tsx:22`), which already exposes the `renderItemControls?: (w: ParseWarning, i: number) => ReactNode` slot (`:25,:31,:103`) used by use-raw on both the per-show page and wizard step-3. The new control mounts in that same slot for `UNKNOWN_ROLE_TOKEN` entries.
 
-New presentational component `components/admin/RoleRecognizeControl.tsx` (+ client boundary glue, use-raw pattern): shows the unrecognized word, "Recognize this role" affordance, capability checkboxes, save. Exact copy §9; exact visual design from the committed mocks (D6).
+New presentational component `components/admin/RoleRecognizeControl.tsx` (+ client boundary glue, use-raw pattern): shows the unrecognized word, "Recognize this role" affordance, capability checkboxes, save. Exact copy §9; exact visual design from the committed mock `…-mock/Recognize Role Control.dc.html` (D6): neutral-outline trigger with ⌄ chevron beside the existing "Open in Sheet" link; expanded white panel inside the amber warning card; 20px checkboxes with `accent` color; financial caution as amber sub-text under its checkbox; save = accent-filled button with spinner+label swap when saving ("Recognizing…"); error = amber inline `role="alert"` box, selections kept, button relabels "Try again"; saved = teal ✓ badge + confirmation copy inside a card that settles to neutral tint, with a "Change what they see" link that reopens the panel (re-save is an idempotent upsert, §8.3). Desktop (≥~560px panel width): checkboxes two-up grid, financial row spanning both columns.
 
 **Guard conditions (per prop):** warning without `roleToken` → control does NOT render (legacy warning, §5.2). Token already mapped (race: mapped in another tab, this page stale) → action returns the idempotent success path (§8.3). Empty/blank token after canonicalization → control does not render.
 
 **Control states (5):** collapsed (trigger only) · idle (panel expanded, checkboxes default unchecked) · saving (pending, inputs disabled) · saved-confirmation (transient, then the surface refreshes: live page via `runManualSyncForShow` outcome, wizard via re-stage) · error (plain-language failure copy via `lib/messages/lookup.ts` — never a raw code, invariant 5).
 
-**Transition inventory (all 10 pairs):** collapsed↔idle (expand/collapse — animation per mock, else instant); idle→saving (instant disable); saving→saved (instant); saving→error (instant); error→saving (retry, instant disable); error→idle (edit inputs clears error, instant); collapsed↔saving, collapsed↔saved, collapsed↔error (unreachable — panel cannot collapse mid-flight; saved exits via surface refresh, not collapse); idle→saved, idle→error (unreachable — only saving reaches terminal states); saved→any (unreachable — surface refresh unmounts the control with the resolved warning). Compound: warning list re-sorts/removes entries while a sibling control is expanded — each control's state is keyed to its warning identity (`code` + `roleToken` + `blockRef.index`), so unrelated list churn never migrates state between rows. If the committed mock adds animated transitions, the plan's transition-audit task enumerates them against this table.
+**Transition inventory (all 10 pairs, reconciled with the mock):** collapsed→idle (expand — mock: 120ms `rr-pop` fade/translate-in, ease-out); idle→collapsed (Cancel — instant); idle→saving (instant disable + spinner, save label → "Recognizing…"); saving→saved (instant swap to confirmation card, `rr-pop` in); saving→error (instant, error box appears, button relabels "Try again", selections kept); error→saving (retry, instant disable); error→collapsed (Cancel from error — instant; abandons nothing, no row was written); saved→idle ("Change what they see" reopens panel — instant, checkboxes pre-filled from the just-saved grants); collapsed↔saving, collapsed↔saved (unreachable — Cancel is disabled while saving; saved replaces the trigger); idle→saved, idle→error (unreachable — only saving reaches terminal states). Saved ultimately exits via surface refresh (live: sync outcome; wizard: re-stage) unmounting the control with the resolved warning. Compound: warning list re-sorts/removes entries while a sibling control is expanded — each control's state is keyed to its warning identity (`code` + `roleToken` + `blockRef.index`), so unrelated list churn never migrates state between rows. The plan's transition-audit task enumerates the two `rr-pop` entrances + spinner against this table.
 
 ### 8.2 Settings list page
 
-`app/admin/settings/roles/page.tsx` (precedent: `app/admin/settings/admins/`). Server component lists all mappings (token, plain-language grants, decided_by, decided_at) with per-row edit (checkboxes) + remove. Remove confirmation copy states the consequence (§9). New admin route → auth-chain audit touchpoints (`lib/audit/protectedRoutes.ts` TRUST_DOMAINS registration per the auth-chain audit test `tests/cross-cutting/auth-chain-audit.test.ts`).
+`app/admin/settings/roles/page.tsx` (precedent: `app/admin/settings/admins/`). Server component lists all mappings; visual design from `…-mock/Roles You've Added.dc.html` (D6): white row cards — token label + "who · when" meta line, grants as plain-language pill chips (financial chip amber-tinted; empty grants = single dashed muted "Standard page only" chip) — with two quiet actions per row: "Edit what they see" (reopens the same checkbox set INLINE, save label "Save changes"/"Saving…") and "Remove" (two-step INLINE confirm, amber wash: "Remove this role? …" with "Yes, remove it"/"Keep it", spinner label "Removing…"). No modals. Empty state: dashed card, "Nothing here yet" + pointer copy (§9). Desktop: one-line grid rows (label | chips | meta | actions). New admin route → auth-chain audit touchpoints (`lib/audit/protectedRoutes.ts` TRUST_DOMAINS registration per the auth-chain audit test `tests/cross-cutting/auth-chain-audit.test.ts`).
 
 ### 8.3 Server actions
 
@@ -188,15 +188,25 @@ Boundary validation in every action: token canonicalized via `canonicalRoleToken
 
 ## 9. Doug-facing copy (pinned; the impeccable dual-gate may refine wording, not vocabulary)
 
-- Control trigger: **"Recognize this role"**
-- Panel heading: **"What should people with this role see?"**
-- Checkboxes: **"Audio details"**, **"Video details"**, **"Lighting details"**, **"Financial details"** — financials carries inline warning text: **"Includes budgets and rates. Only grant this if people with this role should see money."**
-- Nothing checked (default) helper text: **"They'll get the standard show page."**
-- Save button: **"Recognize role"**
-- Saved confirmation: **"Got it — anyone with this role is recognized from now on, on every show."**
-- Settings page title: **"Roles you've added"**; empty state: **"When a sheet uses a role we don't recognize, you can add it from the warning — added roles show up here."**
-- Remove confirmation: **"Remove this role? People with it go back to 'unrecognized' the next time each show checks its sheet."**
-- Banned Doug-facing vocabulary (D7): scope, flag, token, mapping, capability, sync, overlay, parse.
+All strings below are pinned from the committed mocks (D6). `<TOKEN>` = the raw unrecognized word (e.g. DRONE OP).
+
+**Warning control:**
+- Trigger: **"Recognize this role"** (neutral-outline button, ⌄ chevron)
+- Panel heading: **"What should people with this role see?"** · scope line: **"Applies to anyone whose role says `<TOKEN>` — this show and every show after."**
+- Checkboxes: **"Audio details"**, **"Video details"**, **"Lighting details"**, **"Financial details"** — financials inline caution: **"Includes budgets and rates. Only grant this if people with this role should see money."**
+- Nothing checked (default) helper: **"They'll get the standard show page."**
+- Buttons: **"Recognize role"** · saving label **"Recognizing…"** · **"Cancel"** · error retry **"Try again"**
+- Error: **"That didn't save, so nothing has changed yet. Check your connection and try again."** (generic infra failure; specific catalog-backed failures still route through `lib/messages/lookup.ts`)
+- Saved: **"Got it — anyone with this role is recognized from now on, on every show."** + summary line **"People with `<TOKEN>` now see `<grants summary>`."** (grants summary = "Audio and Video details" style join; empty grants = "the standard show page") + link **"Change what they see"**
+
+**Settings page:**
+- Title: **"Roles you've added"** · subtitle: **"Anyone whose sheet role matches one of these gets the page you picked — on every show."**
+- Chips: grant names as above; empty grants chip: **"Standard page only"**
+- Row actions: **"Edit what they see"** (desktop short form "Edit") · **"Remove"** · edit save **"Save changes"**/**"Saving…"**
+- Remove confirm: **"Remove this role? People with it go back to 'unrecognized' the next time each show checks its sheet."** · buttons **"Yes, remove it"**/**"Removing…"** · **"Keep it"**
+- Empty state: **"Nothing here yet"** + **"When a sheet uses a role we don't recognize, you can add it from the warning — added roles show up here."**
+
+Banned Doug-facing vocabulary (D7): scope, flag, token, mapping, capability, sync, overlay, parse.
 
 ## 10. §12.4 catalog changes (3-way lockstep + the full CI touchpoint set)
 
@@ -253,9 +263,11 @@ Admin-outcome forensic codes `ROLE_TOKEN_MAPPING_SET` / `ROLE_TOKEN_MAPPING_DELE
 - Autocorrect interplay changes — autocorrect still wins first (§5.2).
 - Crew-facing rendering changes beyond tiles unlocking (role display string stays the raw sheet value, `CrewMemberRow.role`).
 
-## 15. Claude Design kickoff prompts (D6 deliverable)
+## 15. Claude Design kickoff prompts (D6 deliverable — COMPLETED)
 
-Session order: prompt A then B (shared visual language). Fetched mocks → `docs/superpowers/specs/2026-07-15-extend-role-scope-vocab-mock/` verbatim, then this spec's §8/§9 gain mock references before adversarial review.
+Status: session ran 2026-07-15; both mocks fetched and committed to `docs/superpowers/specs/2026-07-15-extend-role-scope-vocab-mock/`; §8/§9 updated from them. Prompts retained below for provenance only.
+
+Session order: prompt A then B (shared visual language).
 
 **Prompt A — "Recognize this role" control:**
 > Design an inline admin control for a mobile-first admin tool (existing product: FXAV Crew Pages — warm, plain-spoken, non-technical admin named Doug). Context: a warnings list on an admin page; one warning says a crew member's role label (e.g. "DRONE OP") wasn't recognized, so that person gets the standard page. The control lets Doug "Recognize this role": expands to a short panel — heading "What should people with this role see?", four checkboxes ("Audio details", "Video details", "Lighting details", "Financial details" — the financial one carries an inline caution: "Includes budgets and rates. Only grant this if people with this role should see money."), helper text when nothing is checked ("They'll get the standard show page."), primary button "Recognize role". States to design: collapsed trigger inside the warning row; expanded panel; saving (disabled); saved confirmation ("Got it — anyone with this role is recognized from now on, on every show."); error state (plain-language). Constraints: fits inside an existing warning card on mobile (360px) and desktop; no modal; no red/green as sole state carrier; tap targets ≥44px; matches a clean, quiet admin aesthetic (neutral surfaces, one accent). Never use the words: scope, flag, token, mapping, sync.

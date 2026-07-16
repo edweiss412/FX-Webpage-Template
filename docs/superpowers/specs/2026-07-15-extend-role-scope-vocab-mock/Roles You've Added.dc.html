@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+body { margin:0; background:#efeeec; font-family:'Inter',ui-sans-serif,system-ui,-apple-system,'Segoe UI','Helvetica Neue',sans-serif; color:#1a1b1f; font-size:16px; line-height:1.55; letter-spacing:-0.005em; }
+a { color:#0e0f12; text-decoration:underline; text-underline-offset:2px; }
+a:hover { color:#1a1b1f; }
+@keyframes rr-spin { to { transform: rotate(360deg); } }
+@keyframes rr-pop { from { opacity:0; transform: translateY(3px); } to { opacity:1; transform: translateY(0); } }
+</style>
+</helmet>
+<section style="padding:40px 48px 80px; display:flex; flex-direction:column; gap:28px; max-width:2200px;">
+  <div style="display:flex; flex-direction:column; gap:4px;">
+    <div style="display:flex; align-items:center; gap:10px;">
+      <span style="background:#0e0f12; color:#fff; font-size:12px; font-weight:700; padding:2px 8px; border-radius:999px;">1a</span>
+      <h1 style="margin:0; font-size:24px; font-weight:700; letter-spacing:-0.012em; color:#0e0f12;">Settings · Roles you've added</h1>
+    </div>
+    <p style="margin:0 0 0 44px; font-size:14px; color:#5a5b62; max-width:64ch;">The durable home for roles Doug taught the app from warnings. Left: interactive prototype — edit reopens the same checkbox set inline, remove is a two-step inline confirm, remove everything to see the empty state. Right: pinned states + desktop width.</p>
+  </div>
+
+  <div style="display:flex; gap:40px; align-items:flex-start; flex-wrap:wrap;">
+
+    <!-- ══ Interactive prototype: mobile 360 ══ -->
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      <div style="font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.12em; color:#5a5b62;">Interactive · mobile 360</div>
+      <div style="width:360px; background:#fafaf9; border:1px solid #e5e4e0; border-radius:16px; padding:16px; box-shadow:0 1px 2px rgba(20,18,12,0.04); display:flex; flex-direction:column; gap:12px;">
+        <div style="display:flex; flex-direction:column; gap:2px;">
+          <span style="font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.12em; color:#8b8c92;">Settings</span>
+          <h2 style="margin:0; font-size:20px; font-weight:600; letter-spacing:-0.01em; color:#0e0f12;">Roles you've added</h2>
+          <p style="margin:2px 0 0; font-size:13px; color:#5a5b62;">Anyone whose sheet role matches one of these gets the page you picked — on every show.</p>
+        </div>
+        <sc-if value="{{ hasRoles }}" hint-placeholder-val="{{ true }}">
+          <ul style="list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px;">
+            <sc-for list="{{ rows }}" as="r" hint-placeholder-count="3">
+              <li style="display:flex; flex-direction:column; gap:8px; background:#ffffff; border:1px solid #e5e4e0; border-radius:6px; padding:12px;">
+                <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px;">
+                  <span style="font-size:14px; font-weight:600; color:#0e0f12;">{{ r.label }}</span>
+                  <span style="font-size:11px; color:#8b8c92; white-space:nowrap;">{{ r.meta }}</span>
+                </div>
+                <sc-if value="{{ r.isView }}" hint-placeholder-val="{{ true }}">
+                  <div style="display:flex; flex-wrap:wrap; gap:6px;">
+                    <sc-for list="{{ r.chips }}" as="c" hint-placeholder-count="2">
+                      <span style="font-size:12px; font-weight:500; color:{{ c.fg }}; background:{{ c.bg }}; border:1px solid #e5e4e0; border-radius:999px; padding:3px 10px;">{{ c.text }}</span>
+                    </sc-for>
+                  </div>
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <button onClick="{{ r.onEdit }}" style="display:inline-flex; min-height:44px; align-items:center; border:1px solid #cfcdc7; background:#fafaf9; border-radius:6px; padding:0 12px; font-size:14px; font-weight:500; color:#0e0f12; font-family:inherit; cursor:pointer;" style-hover="background:#f4f3f1;">Edit what they see</button>
+                    <button onClick="{{ r.onAskRemove }}" style="min-height:44px; border:none; background:none; font-size:14px; font-weight:500; color:#5a5b62; font-family:inherit; cursor:pointer; padding:0 8px; text-decoration:underline; text-underline-offset:2px;" style-hover="color:#0e0f12;">Remove</button>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ r.isEdit }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex; flex-direction:column; gap:12px; background:#fafaf9; border:1px solid #e5e4e0; border-radius:6px; padding:12px; animation:rr-pop 120ms cubic-bezier(0.25,1,0.5,1);">
+                    <span style="font-size:14px; font-weight:600; color:#0e0f12;">What should people with this role see?</span>
+                    <div style="display:flex; flex-direction:column;">
+                      <label style="display:flex; align-items:center; gap:10px; min-height:44px; cursor:pointer;"><input type="checkbox" checked="{{ r.ckA }}" onChange="{{ r.tgA }}" disabled="{{ r.busy }}" style="width:20px; height:20px; accent-color:#ff8c1a; margin:0;"><span style="font-size:14px; color:#1a1b1f;">Audio details</span></label>
+                      <label style="display:flex; align-items:center; gap:10px; min-height:44px; cursor:pointer;"><input type="checkbox" checked="{{ r.ckV }}" onChange="{{ r.tgV }}" disabled="{{ r.busy }}" style="width:20px; height:20px; accent-color:#ff8c1a; margin:0;"><span style="font-size:14px; color:#1a1b1f;">Video details</span></label>
+                      <label style="display:flex; align-items:center; gap:10px; min-height:44px; cursor:pointer;"><input type="checkbox" checked="{{ r.ckL }}" onChange="{{ r.tgL }}" disabled="{{ r.busy }}" style="width:20px; height:20px; accent-color:#ff8c1a; margin:0;"><span style="font-size:14px; color:#1a1b1f;">Lighting details</span></label>
+                      <label style="display:flex; align-items:flex-start; gap:10px; min-height:44px; cursor:pointer; padding:8px 0;"><input type="checkbox" checked="{{ r.ckM }}" onChange="{{ r.tgM }}" disabled="{{ r.busy }}" style="width:20px; height:20px; accent-color:#ff8c1a; margin:2px 0 0;"><span style="display:flex; flex-direction:column; gap:2px;"><span style="font-size:14px; color:#1a1b1f;">Financial details</span><span style="font-size:12px; color:#7a3d00;">Includes budgets and rates. Only grant this if people with this role should see money.</span></span></label>
+                    </div>
+                    <sc-if value="{{ r.noneChecked }}" hint-placeholder-val="{{ false }}">
+                      <p style="margin:0; font-size:12px; color:#5a5b62; background:#f4f3f1; border-radius:6px; padding:8px 10px;">They'll get the standard show page.</p>
+                    </sc-if>
+                    <div style="display:flex; align-items:center; gap:12px;">
+                      <button onClick="{{ r.onSave }}" disabled="{{ r.busy }}" style="display:inline-flex; min-height:44px; align-items:center; justify-content:center; gap:8px; border:none; background:#ff8c1a; color:#ffffff; border-radius:6px; padding:0 16px; font-size:14px; font-weight:600; font-family:inherit; cursor:pointer;" style-hover="background:#e67a0e;">
+                        <sc-if value="{{ r.busy }}" hint-placeholder-val="{{ false }}"><span aria-hidden="true" style="width:14px; height:14px; border:2px solid rgba(255,255,255,0.45); border-top-color:#ffffff; border-radius:50%; display:inline-block; animation:rr-spin 700ms linear infinite;"></span></sc-if>
+                        {{ r.saveLabel }}
+                      </button>
+                      <button onClick="{{ r.onCancel }}" disabled="{{ r.busy }}" style="min-height:44px; border:none; background:none; font-size:14px; font-weight:500; color:#5a5b62; font-family:inherit; cursor:pointer; padding:0 8px;" style-hover="color:#0e0f12;">Cancel</button>
+                    </div>
+                  </div>
+                </sc-if>
+                <sc-if value="{{ r.isConfirm }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex; flex-direction:column; gap:10px; background:#fff3d6; border:1px solid #e5e4e0; border-radius:6px; padding:12px; animation:rr-pop 120ms cubic-bezier(0.25,1,0.5,1);">
+                    <p style="margin:0; font-size:13px; color:#5c3f00;"><strong style="font-weight:600; color:#0e0f12;">Remove this role?</strong> People with it go back to "unrecognized" the next time each show checks its sheet.</p>
+                    <div style="display:flex; align-items:center; gap:12px;">
+                      <button onClick="{{ r.onRemove }}" disabled="{{ r.busy }}" style="display:inline-flex; min-height:44px; align-items:center; justify-content:center; gap:8px; border:1px solid #cfcdc7; background:#fafaf9; border-radius:6px; padding:0 12px; font-size:14px; font-weight:600; color:#0e0f12; font-family:inherit; cursor:pointer;" style-hover="background:#f4f3f1;">
+                        <sc-if value="{{ r.busy }}" hint-placeholder-val="{{ false }}"><span aria-hidden="true" style="width:14px; height:14px; border:2px solid #cfcdc7; border-top-color:#0e0f12; border-radius:50%; display:inline-block; animation:rr-spin 700ms linear infinite;"></span></sc-if>
+                        {{ r.removeLabel }}
+                      </button>
+                      <button onClick="{{ r.onCancel }}" disabled="{{ r.busy }}" style="min-height:44px; border:none; background:none; font-size:14px; font-weight:500; color:#5a5b62; font-family:inherit; cursor:pointer; padding:0 8px;" style-hover="color:#0e0f12;">Keep it</button>
+                    </div>
+                  </div>
+                </sc-if>
+              </li>
+            </sc-for>
+          </ul>
+        </sc-if>
+        <sc-if value="{{ noRoles }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex; flex-direction:column; gap:6px; background:#ffffff; border:1px dashed #cfcdc7; border-radius:6px; padding:20px 16px; text-align:center;">
+            <span style="font-size:14px; font-weight:600; color:#0e0f12;">Nothing here yet</span>
+            <p style="margin:0; font-size:13px; color:#5a5b62;">When a sheet uses a role we don't recognize, you can add it from the warning — added roles show up here.</p>
+          </div>
+        </sc-if>
+        <p style="margin:0; font-size:11px; color:#8b8c92;">Demo: saves take ~1s. <button onClick="{{ demoReset }}" style="border:none; background:none; padding:0; font:inherit; font-size:11px; color:#5a5b62; text-decoration:underline; cursor:pointer;">Reset</button></p>
+      </div>
+    </div>
+
+    <!-- ══ Pinned states ══ -->
+    <div style="display:flex; flex-direction:column; gap:10px; flex:1; min-width:740px;">
+      <div style="font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.12em; color:#5a5b62;">Pinned states</div>
+      <div style="display:grid; grid-template-columns:repeat(auto-fill, minmax(340px, 1fr)); gap:20px;">
+
+        <!-- row, view -->
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <span style="font-size:12px; color:#5a5b62;"><strong style="color:#0e0f12; font-weight:600;">1 · Role row</strong> — label, plain chips, who/when, quiet actions</span>
+          <div style="width:328px; display:flex; flex-direction:column; gap:8px; background:#ffffff; border:1px solid #e5e4e0; border-radius:6px; padding:12px;">
+            <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px;">
+              <span style="font-size:14px; font-weight:600; color:#0e0f12;">DRONE OP</span>
+              <span style="font-size:11px; color:#8b8c92; white-space:nowrap;">You · Jun 12</span>
+            </div>
+            <div style="display:flex; flex-wrap:wrap; gap:6px;">
+              <span style="font-size:12px; font-weight:500; color:#1a1b1f; background:#f4f3f1; border:1px solid #e5e4e0; border-radius:999px; padding:3px 10px;">Audio details</span>
+              <span style="font-size:12px; font-weight:500; color:#1a1b1f; background:#f4f3f1; border:1px solid #e5e4e0; border-radius:999px; padding:3px 10px;">Video details</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <button style="display:inline-flex; min-height:44px; align-items:center; border:1px solid #cfcdc7; background:#fafaf9; border-radius:6px; padding:0 12px; font-size:14px; font-weight:500; color:#0e0f12; font-family:inherit;">Edit what they see</button>
+              <button style="min-height:44px; border:none; background:none; font-size:14px; font-weight:500; color:#5a5b62; font-family:inherit; padding:0 8px; text-decoration:underline; text-underline-offset:2px;">Remove</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- row, standard page only -->
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <span style="font-size:12px; color:#5a5b62;"><strong style="color:#0e0f12; font-weight:600;">2 · Standard page only</strong> — muted single chip; financial chip keeps its amber tint</span>
+          <div style="width:328px; display:flex; flex-direction:column; gap:8px; background:#ffffff; border:1px solid #e5e4e0; border-radius:6px; padding:12px;">
+            <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px;">
+              <span style="font-size:14px; font-weight:600; color:#0e0f12;">STAGE RIGGER</span>
+              <span style="font-size:11px; color:#8b8c92; white-space:nowrap;">Priya · May 30</span>
+            </div>
+            <div style="display:flex; flex-wrap:wrap; gap:6px;">
+              <span style="font-size:12px; font-weight:500; color:#5a5b62; background:#fafaf9; border:1px dashed #cfcdc7; border-radius:999px; padding:3px 10px;">Standard page only</span>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <button style="display:inline-flex; min-height:44px; align-items:center; border:1px solid #cfcdc7; background:#fafaf9; border-radius:6px; padding:0 12px; font-size:14px; font-weight:500; color:#0e0f12; font-family:inherit;">Edit what they see</button>
+              <button style="min-height:44px; border:none; background:none; font-size:14px; font-weight:500; color:#5a5b62; font-family:inherit; padding:0 8px; text-decoration:underline; text-underline-offset:2px;">Remove</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- remove confirm -->
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <span style="font-size:12px; color:#5a5b62;"><strong style="color:#0e0f12; font-weight:600;">3 · Remove confirmation</strong> — inline, amber wash + words; "Keep it" is the easy out</span>
+          <div style="width:328px; display:flex; flex-direction:column; gap:8px; background:#ffffff; border:1px solid #e5e4e0; border-radius:6px; padding:12px;">
+            <div style="display:flex; align-items:baseline; justify-content:space-between; gap:8px;">
+              <span style="font-size:14px; font-weight:600; color:#0e0f12;">SOUND TECH</span>
+              <span style="font-size:11px; color:#8b8c92; white-space:nowrap;">You · Apr 3</span>
+            </div>
+            <div style="display:flex; flex-direction:column; gap:10px; background:#fff3d6; border:1px solid #e5e4e0; border-radius:6px; padding:12px;">
+              <p style="margin:0; font-size:13px; color:#5c3f00;"><strong style="font-weight:600; color:#0e0f12;">Remove this role?</strong> People with it go back to "unrecognized" the next time each show checks its sheet.</p>
+              <div style="display:flex; align-items:center; gap:12px;">
+                <button style="display:inline-flex; min-height:44px; align-items:center; justify-content:center; border:1px solid #cfcdc7; background:#fafaf9; border-radius:6px; padding:0 12px; font-size:14px; font-weight:600; color:#0e0f12; font-family:inherit;">Yes, remove it</button>
+                <button style="min-height:44px; border:none; background:none; font-size:14px; font-weight:500; color:#5a5b62; font-family:inherit; padding:0 8px;">Keep it</button>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- empty state -->
+        <div style="display:flex; flex-direction:column; gap:8px;">
+          <span style="font-size:12px; color:#5a5b62;"><strong style="color:#0e0f12; font-weight:600;">4 · Empty state</strong> — points back to where adding happens</span>
+          <div style="width:328px; display:flex; flex-direction:column; gap:6px; background:#ffffff; border:1px dashed #cfcdc7; border-radius:6px; padding:20px 16px; text-align:center;">
+            <span style="font-size:14px; font-weight:600; color:#0e0f12;">Nothing here yet</span>
+            <p style="margin:0; font-size:13px; color:#5a5b62;">When a sheet uses a role we don't recognize, you can add it from the warning — added roles show up here.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- desktop width -->
+      <div style="margin-top:16px; display:flex; flex-direction:column; gap:10px;">
+        <div style="font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.12em; color:#5a5b62;">Desktop width · same rows, one line each; actions right-aligned</div>
+        <div style="width:760px; max-width:100%; display:flex; flex-direction:column; gap:12px; background:#fafaf9; border:1px solid #e5e4e0; border-radius:16px; padding:24px;">
+          <div style="display:flex; flex-direction:column; gap:2px;">
+            <span style="font-size:12px; font-weight:600; text-transform:uppercase; letter-spacing:0.12em; color:#8b8c92;">Settings</span>
+            <h3 style="margin:0; font-size:20px; font-weight:600; letter-spacing:-0.01em; color:#0e0f12;">Roles you've added</h3>
+            <p style="margin:2px 0 0; font-size:13px; color:#5a5b62;">Anyone whose sheet role matches one of these gets the page you picked — on every show.</p>
+          </div>
+          <ul style="list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:10px;">
+            <li style="display:grid; grid-template-columns:150px 1fr auto auto; align-items:center; gap:16px; background:#ffffff; border:1px solid #e5e4e0; border-radius:6px; padding:8px 14px;">
+              <span style="font-size:14px; font-weight:600; color:#0e0f12;">DRONE OP</span>
+              <span style="display:flex; flex-wrap:wrap; gap:6px;">
+                <span style="font-size:12px; font-weight:500; color:#1a1b1f; background:#f4f3f1; border:1px solid #e5e4e0; border-radius:999px; padding:3px 10px;">Audio details</span>
+                <span style="font-size:12px; font-weight:500; color:#1a1b1f; background:#f4f3f1; border:1px solid #e5e4e0; border-radius:999px; padding:3px 10px;">Video details</span>
+              </span>
+              <span style="font-size:11px; color:#8b8c92; white-space:nowrap;">You · Jun 12</span>
+              <span style="display:flex; align-items:center; gap:8px;">
+                <button style="display:inline-flex; min-height:44px; align-items:center; border:1px solid #cfcdc7; background:#fafaf9; border-radius:6px; padding:0 12px; font-size:14px; font-weight:500; color:#0e0f12; font-family:inherit;">Edit</button>
+                <button style="min-height:44px; border:none; background:none; font-size:14px; font-weight:500; color:#5a5b62; font-family:inherit; padding:0 8px; text-decoration:underline; text-underline-offset:2px;">Remove</button>
+              </span>
+            </li>
+            <li style="display:grid; grid-template-columns:150px 1fr auto auto; align-items:center; gap:16px; background:#ffffff; border:1px solid #e5e4e0; border-radius:6px; padding:8px 14px;">
+              <span style="font-size:14px; font-weight:600; color:#0e0f12;">SOUND TECH</span>
+              <span style="display:flex; flex-wrap:wrap; gap:6px;">
+                <span style="font-size:12px; font-weight:500; color:#1a1b1f; background:#f4f3f1; border:1px solid #e5e4e0; border-radius:999px; padding:3px 10px;">Audio details</span>
+                <span style="font-size:12px; font-weight:500; color:#1a1b1f; background:#f4f3f1; border:1px solid #e5e4e0; border-radius:999px; padding:3px 10px;">Financial details</span>
+              </span>
+              <span style="font-size:11px; color:#8b8c92; white-space:nowrap;">You · Apr 3</span>
+              <span style="display:flex; align-items:center; gap:8px;">
+                <button style="display:inline-flex; min-height:44px; align-items:center; border:1px solid #cfcdc7; background:#fafaf9; border-radius:6px; padding:0 12px; font-size:14px; font-weight:500; color:#0e0f12; font-family:inherit;">Edit</button>
+                <button style="min-height:44px; border:none; background:none; font-size:14px; font-weight:500; color:#5a5b62; font-family:inherit; padding:0 8px; text-decoration:underline; text-underline-offset:2px;">Remove</button>
+              </span>
+            </li>
+            <li style="display:grid; grid-template-columns:150px 1fr auto auto; align-items:center; gap:16px; background:#ffffff; border:1px solid #e5e4e0; border-radius:6px; padding:8px 14px;">
+              <span style="font-size:14px; font-weight:600; color:#0e0f12;">STAGE RIGGER</span>
+              <span style="display:flex; flex-wrap:wrap; gap:6px;">
+                <span style="font-size:12px; font-weight:500; color:#5a5b62; background:#fafaf9; border:1px dashed #cfcdc7; border-radius:999px; padding:3px 10px;">Standard page only</span>
+              </span>
+              <span style="font-size:11px; color:#8b8c92; white-space:nowrap;">Priya · May 30</span>
+              <span style="display:flex; align-items:center; gap:8px;">
+                <button style="display:inline-flex; min-height:44px; align-items:center; border:1px solid #cfcdc7; background:#fafaf9; border-radius:6px; padding:0 12px; font-size:14px; font-weight:500; color:#0e0f12; font-family:inherit;">Edit</button>
+                <button style="min-height:44px; border:none; background:none; font-size:14px; font-weight:500; color:#5a5b62; font-family:inherit; padding:0 8px; text-decoration:underline; text-underline-offset:2px;">Remove</button>
+              </span>
+            </li>
+          </ul>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:&quot;1900px&quot;}}">
+class Component extends DCLogic {
+  state = {
+    roles: [
+      { id: "drone", label: "DRONE OP", a: true, v: true, l: false, m: false, meta: "You · Jun 12" },
+      { id: "sound", label: "SOUND TECH", a: true, v: false, l: false, m: true, meta: "You · Apr 3" },
+      { id: "rigger", label: "STAGE RIGGER", a: false, v: false, l: false, m: false, meta: "Priya · May 30" },
+    ],
+    openId: null, mode: null, draft: null, busy: false,
+  };
+  renderVals() {
+    const s = this.state;
+    const rows = s.roles.map((role) => {
+      const isOpen = s.openId === role.id;
+      const isEdit = isOpen && s.mode === "edit";
+      const isConfirm = isOpen && s.mode === "confirm";
+      const d = isEdit && s.draft ? s.draft : role;
+      const chips = [];
+      if (role.a) chips.push({ text: "Audio details", fg: "#1a1b1f", bg: "#f4f3f1" });
+      if (role.v) chips.push({ text: "Video details", fg: "#1a1b1f", bg: "#f4f3f1" });
+      if (role.l) chips.push({ text: "Lighting details", fg: "#1a1b1f", bg: "#f4f3f1" });
+      if (role.m) chips.push({ text: "Financial details", fg: "#7a3d00", bg: "#fff3d6" });
+      if (chips.length === 0) chips.push({ text: "Standard page only", fg: "#5a5b62", bg: "#fafaf9" });
+      const setDraft = (k) => () => this.setState({ draft: { ...d, [k]: !d[k] } });
+      return {
+        label: role.label, meta: role.meta, chips,
+        isView: !isOpen, isEdit, isConfirm,
+        busy: isOpen && s.busy,
+        ckA: d.a, ckV: d.v, ckL: d.l, ckM: d.m,
+        tgA: setDraft("a"), tgV: setDraft("v"), tgL: setDraft("l"), tgM: setDraft("m"),
+        noneChecked: isEdit && !d.a && !d.v && !d.l && !d.m,
+        saveLabel: isOpen && s.busy && s.mode === "edit" ? "Saving…" : "Save changes",
+        removeLabel: isOpen && s.busy && s.mode === "confirm" ? "Removing…" : "Yes, remove it",
+        onEdit: () => this.setState({ openId: role.id, mode: "edit", draft: { a: role.a, v: role.v, l: role.l, m: role.m }, busy: false }),
+        onAskRemove: () => this.setState({ openId: role.id, mode: "confirm", draft: null, busy: false }),
+        onCancel: () => this.setState({ openId: null, mode: null, draft: null, busy: false }),
+        onSave: () => {
+          this.setState({ busy: true });
+          clearTimeout(this._t);
+          this._t = setTimeout(() => {
+            this.setState({
+              roles: this.state.roles.map((r) => (r.id === role.id ? { ...r, ...this.state.draft } : r)),
+              openId: null, mode: null, draft: null, busy: false,
+            });
+          }, 1000);
+        },
+        onRemove: () => {
+          this.setState({ busy: true });
+          clearTimeout(this._t);
+          this._t = setTimeout(() => {
+            this.setState({
+              roles: this.state.roles.filter((r) => r.id !== role.id),
+              openId: null, mode: null, draft: null, busy: false,
+            });
+          }, 1000);
+        },
+      };
+    });
+    return {
+      rows,
+      hasRoles: s.roles.length > 0,
+      noRoles: s.roles.length === 0,
+      demoReset: () => this.setState({
+        roles: [
+          { id: "drone", label: "DRONE OP", a: true, v: true, l: false, m: false, meta: "You · Jun 12" },
+          { id: "sound", label: "SOUND TECH", a: true, v: false, l: false, m: true, meta: "You · Apr 3" },
+          { id: "rigger", label: "STAGE RIGGER", a: false, v: false, l: false, m: false, meta: "Priya · May 30" },
+        ],
+        openId: null, mode: null, draft: null, busy: false,
+      }),
+    };
+  }
+  componentWillUnmount() { clearTimeout(this._t); }
+}
+</script>
+</body>
+</html>
