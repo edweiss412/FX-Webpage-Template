@@ -467,6 +467,11 @@ async function runDeliveryPass(input: {
       const members: RealtimeCandidate[] = [];
       for (const candidate of input.candidates) {
         if (groupFor(candidate) !== group) continue;
+        // Lock-liveness (spec §2.1b): heartbeat before EACH candidate's eligibility
+        // queries as well as before each send, so the lock transaction never idles
+        // longer than one eligibility check or one send — including sends-free
+        // passes where every candidate skips.
+        await input.heartbeat?.();
         const current = await isCandidateCurrent(candidate, input.sql);
         if (!current) {
           input.counts.skipped += 1;

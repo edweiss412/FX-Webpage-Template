@@ -40,7 +40,7 @@ function undoCandidate(i: number): AutoPublishUndoCandidate {
   };
 }
 
-function fakeSql() {
+function fakeSql(options: { current?: boolean } = {}) {
   const state = {
     sentRows: [] as Array<{ values: unknown[] }>,
     failedRows: [] as Array<{ values: unknown[] }>,
@@ -52,7 +52,7 @@ function fakeSql() {
       /select\s+1\s+from\s+public\.admin_alerts/i.test(text) ||
       /select\s+1\s+from\s+public\.pending_ingestions/i.test(text)
     ) {
-      return Promise.resolve([{ current: true }]);
+      return Promise.resolve((options.current ?? true) ? [{ current: true }] : []);
     }
     if (/from\s+public\.admin_emails/i.test(text)) {
       return Promise.resolve([{ active: true }]);
@@ -108,7 +108,7 @@ describe("single-flight guard (batching spec §2.1b)", () => {
     expect(state.failedRows).toHaveLength(0);
   });
 
-  test("heartbeat cadence: one heartbeat per attempted batch send", async () => {
+  test("heartbeat cadence: one per candidate eligibility check plus one per batch send", async () => {
     const { sql } = fakeSql();
     const { sendEmail } = sender();
     const lock = fakeLockSql();
@@ -123,13 +123,49 @@ describe("single-flight guard (batching spec §2.1b)", () => {
     );
 
     expect(sendEmail).toHaveBeenCalledTimes(2); // published batch + sync_problems batch
-    expect(lock.heartbeatCount()).toBe(2);
+    expect(lock.heartbeatCount()).toBe(5); // 3 eligibility checks + 2 sends
+  });
+
+  test("sends-free pass still heartbeats per candidate (lock never idles unbounded)", async () => {
+    const { sql } = fakeSql({ current: false });
+    const { sendEmail } = sender();
+    const lock = fakeLockSql();
+
+    const result = await deliverRealtimeCandidates(
+      {
+        candidates: [showCandidate(1), showCandidate(2), showCandidate(3)],
+        recipients: [RECIPIENT],
+        origin: ORIGIN,
+      },
+      { sql, sendEmail, lockSql: lock },
+    );
+
+    expect(result).toMatchObject({ kind: "ok", sent: 0, skipped: 3 });
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(lock.heartbeatCount()).toBe(3); // one per skipped candidate, zero sends
+  });
+
+  test("heartbeat failure during ELIGIBILITY aborts cleanly before any send", async () => {
+    const { sql, state } = fakeSql();
+    const { sendEmail } = sender();
+    const lock = fakeLockSql({ heartbeatFailsAt: 1 });
+
+    const result = await deliverRealtimeCandidates(
+      { candidates: [showCandidate(1)], recipients: [RECIPIENT], origin: ORIGIN },
+      { sql, sendEmail, lockSql: lock },
+    );
+
+    expect(result).toEqual({ kind: "infra_error" });
+    expect(sendEmail).not.toHaveBeenCalled();
+    expect(state.sentRows).toHaveLength(0);
   });
 
   test("heartbeat failure aborts the pass: infra_error, one send, later batches untouched", async () => {
     const { sql, state } = fakeSql();
     const { sendEmail } = sender();
-    const lock = fakeLockSql({ heartbeatFailsAt: 2 });
+    // Sequence: elig undo1, elig undo2, SEND published, elig show1, SEND sync.
+    // Failing at heartbeat 5 aborts right before the second batch's send.
+    const lock = fakeLockSql({ heartbeatFailsAt: 5 });
 
     const result = await deliverRealtimeCandidates(
       {
