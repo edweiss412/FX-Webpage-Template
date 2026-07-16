@@ -369,14 +369,19 @@ test("ON toggle border is the accent-edge token and geometry invariants hold", a
 
 - [ ] **Step 1: Write the meta-test (fails against current code):**
 
+The shared helpers (`walk`, `stripComments`, `tokensOf`) are created HERE, directly in `tests/styles/_classScanUtils.ts` (exported), so Task 6 imports them without any post-green refactor of this file — no extraction step ever touches a committed test.
+
 ```ts
 // tests/styles/_metaRawAccentText.test.ts
 // Bans raw accent TEXT classes (2.23:1 light) and the sub-AA hover shifts
 // (spec §4.4a). Also scans the wizard for the 10px-faint eyebrow pattern
 // (spec §4.2). Filesystem-walked: NEW files fail by default.
+// walk/stripComments/tokensOf live in ./_classScanUtils (created with this
+// task) — shown inline below for completeness of the plan document.
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { walk, stripComments, tokensOf } from "./_classScanUtils";
 
 const ROOTS = ["components", "app"];
 // file:reason rows; EMPTY at ship (spec §4.4a).
@@ -493,7 +498,7 @@ describe("META raw accent text ban (spec 2026-07-16 §4.4a)", () => {
 
 - [ ] **Step 1: Failing component assertions** — unread pip class contains `bg-accent-on-bg`; active segment ternary yields `bg-accent-on-bg`. Run: FAIL.
 - [ ] **Step 2: Apply the two class edits.** Green.
-- [ ] **Step 3: Write the inventory meta-test** — same walk/stripComments/tokenizer helpers as Task 5 (import from a small shared `tests/styles/_classScanUtils.ts` extracted in this task — move Task 5's helpers there):
+- [ ] **Step 3: Write the inventory meta-test** — imports the SAME `tests/styles/_classScanUtils.ts` helpers Task 5 already created there (no refactor of Task 5's committed test; sanity-run `_metaRawAccentText.test.ts` once before starting to confirm green baseline):
 
 ```ts
 // tests/styles/_metaBgAccentInventory.test.ts
@@ -648,7 +653,7 @@ for (const root of ["components", "app"]) for (const f of walk(root)) {
   - `rg -nP '(^|[^A-Za-z0-9-])text-accent(?![A-Za-z0-9-])' components/ app/` → every remaining hit must be inside a comment; verify each by eye AND confirm `tests/styles/_metaRawAccentText.test.ts` passes (zero rendered hits is the ship bar)
   - `rg -n 'hover:text-accent(-hover)?(?![A-Za-z0-9-])' -P components/ app/` → empty (comments included — no reason for these in comments)
   - `rg -n 'text-text-faint' components/admin/wizard/` → no 10px pairings
-  - Tinted-consumer audit re-run (spec §3): `rg -n 'text-accent-on-bg' components/ app/` — for each hit confirm its rendered background is in the §6.1 pinned set {bg, surface, accent/10, accent/15, accent-tint, stale-tint, surface-sunken}; any NEW background gets a pinned row or a migration before ship
+  - Tinted-consumer audit re-run (spec §3) WITH ARTIFACT: `rg -n 'text-accent-on-bg' components/ app/` — for each hit confirm its rendered background is in the §6.1 pinned set {bg, surface, accent/10, accent/15, accent-tint, stale-tint, surface-sunken}; any NEW background gets a pinned row or a migration before ship. Record the COMPLETE audit table (every consumer file:line | rendered background | disposition, incl. the stale-tint consumers — expected: `StagedReviewCard`, `ArchivedShowRow`; confirm by grep for `bg-stale-tint`) in the PR body under "Tinted text-accent-on-bg consumer audit" — the handoff artifact the spec's audit clause requires.
 - [ ] **Step 2:** Sweep the 18 pinned-class test files (grep list from spec §6.2) — update expectations that still assert old recipes.
 - [ ] **Step 3:** `pnpm test` (full), `pnpm exec playwright test --config tests/e2e/standalone.config.ts tests/e2e/toggle-edge-layout.spec.ts tests/e2e/developer-toggle-layout.spec.ts`, `pnpm lint`, `pnpm format:check`, `pnpm build`. All green. (Structural meta-tests are comment/format-fragile — re-run `tests/styles/` after any prettier pass.)
 - [ ] **Step 4:** Commit any sweep fixes — `test: sweep pinned accent/toggle/badge class expectations for the token pass`
