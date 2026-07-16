@@ -1,9 +1,7 @@
 {
   "detector": {
     "ignoreRules": [],
-    "ignoreFiles": [
-      "docs/superpowers/specs/*-mock/**"
-    ],
+    "ignoreFiles": ["docs/superpowers/specs/*-mock/**"],
     "ignoreValues": []
   }
 }

@@ -28,12 +28,26 @@ const core = {
 
 describe("sectionData mode guards", () => {
   it("narrows published", () => {
-    const d = { ...core, mode: "published", showId: "s", slug: "x", archived: false, published: true } as SectionData;
+    const d = {
+      ...core,
+      mode: "published",
+      showId: "s",
+      slug: "x",
+      archived: false,
+      published: true,
+    } as SectionData;
     expect(isPublished(d)).toBe(true);
     expect(isStaged(d)).toBe(false);
   });
   it("narrows staged", () => {
-    const d = { ...core, mode: "staged", pr: {} as never, row: {} as never, dfid: "d", wizardSessionId: "w" } as SectionData;
+    const d = {
+      ...core,
+      mode: "staged",
+      pr: {} as never,
+      row: {} as never,
+      dfid: "d",
+      wizardSessionId: "w",
+    } as SectionData;
     expect(isStaged(d)).toBe(true);
   });
 });
