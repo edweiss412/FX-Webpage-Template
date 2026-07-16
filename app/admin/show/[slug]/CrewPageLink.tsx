@@ -25,7 +25,7 @@ export function CrewPageLink({ slug, isEligible }: { slug: string; isEligible: b
       target="_blank"
       rel="noreferrer"
       aria-label="Open crew page"
-      className="inline-flex min-h-tap-min items-center text-sm font-semibold text-accent-on-bg underline underline-offset-2 hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+      className="inline-flex min-h-tap-min items-center text-sm font-semibold text-accent-on-bg underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
     >
       Open crew page →
     </a>

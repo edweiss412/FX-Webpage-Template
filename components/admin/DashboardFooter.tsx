@@ -32,7 +32,7 @@ export function DashboardFooter() {
         href="/help/tour"
         aria-label="New here?"
         data-testid="help-affordance--dashboard-footer--tour"
-        className="inline-flex w-fit min-h-tap-min items-center justify-center rounded-sm text-sm font-medium text-accent-on-bg underline underline-offset-4 transition-colors duration-fast hover:text-accent-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
+        className="inline-flex w-fit min-h-tap-min items-center justify-center rounded-sm text-sm font-medium text-accent-on-bg underline underline-offset-4 transition-colors duration-fast focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus-ring focus-visible:ring-offset-2"
       >
         New here? →
       </Link>

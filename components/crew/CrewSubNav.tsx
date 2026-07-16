@@ -95,14 +95,14 @@ export function CrewSubNav({ activeSection, budgetVisible, onSelect }: CrewSubNa
     // tabs come out unequal. `min-w-0` lets every tab collapse to a true `1fr`
     // track. (Pinned by the §4.9 invariant-5 equal-width assertion.)
     const mobile = isActive
-      ? "min-w-0 flex-1 flex-col text-accent"
+      ? "min-w-0 flex-1 flex-col text-accent-on-bg"
       : "min-w-0 flex-1 flex-col text-text-subtle";
 
     // Per-section glyph (Task 8.5). The glyph inherits `currentColor`, so it
     // tracks the tab's text color by default. The ONLY place that needs an
     // explicit override is the ACTIVE DESKTOP tab: its text is `text-text-strong`
     // (a near-black), but the active icon should read in the accent — so we tint
-    // it `text-accent-on-bg`. The active MOBILE tab is already `text-accent`, so
+    // it `text-accent-on-bg`. The active MOBILE tab is already `text-accent-on-bg`, so
     // the inherited color is correct and no override is needed.
     const Icon = SECTION_ICON[id];
     const iconSize = variant === "desktop" ? "size-4" : "size-5.5";
