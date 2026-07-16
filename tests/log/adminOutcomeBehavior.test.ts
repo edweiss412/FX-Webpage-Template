@@ -445,6 +445,21 @@ vi.mock("@/lib/sync/runManualSyncForShow", async (importActual) => ({
   runManualSyncForShow: (...a: unknown[]) => runManualSyncForShowMock(...a),
 }));
 
+// Role→scope vocab staged action re-stage follow-up (spec 2026-07-15 §8.3). Default
+// "updated"; existing tests inject `deps.rescanWizardSheet` locally and are unaffected.
+const rescanWizardSheetMock = vi.fn(
+  async (..._a: unknown[]): Promise<unknown> => ({
+    status: "updated",
+    needsReview: false,
+    changed: true,
+    demoted: false,
+  }),
+);
+vi.mock("@/lib/onboarding/rescanWizardSheet", async (importActual) => ({
+  ...(await importActual<typeof import("@/lib/onboarding/rescanWizardSheet")>()),
+  rescanWizardSheet: (...a: unknown[]) => rescanWizardSheetMock(...a),
+}));
+
 // ── Structural-transform use-raw (spec 2026-07-10 §9) behavioral proof plumbing ──
 // The two toggle actions read/write under withShowLock via a raw postgres tx. Mock
 // withShowLock to run the callback with a scripted fake tx (no DB) — the real one
@@ -494,6 +509,7 @@ import { setUseRawDecisionAction } from "@/app/admin/show/[slug]/_actions/useRaw
 import { setStagedUseRawDecisionAction } from "@/app/admin/onboarding/_actions/useRawStaged";
 // Extend role→scope vocabulary (spec 2026-07-15 §8.3) — the four role-mapping actions.
 import { mapRoleToken } from "@/app/admin/show/[slug]/_actions/roleToken";
+import { mapRoleTokenStaged } from "@/app/admin/onboarding/_actions/roleTokenStaged";
 
 import type { DiscardStagedResult } from "@/lib/sync/discardStaged";
 import { POST as stagedDiscardPost } from "@/app/api/admin/staged/[fileId]/discard/route";
@@ -3378,7 +3394,14 @@ function roleMappingSvc(opts: {
       b.maybeSingle = () =>
         table === "role_token_mappings"
           ? Promise.resolve({ data: opts.existing ?? null, error: null })
-          : Promise.resolve({ data: { parse_warnings: opts.warnings ?? [] }, error: null });
+          : // live reads shows_internal.parse_warnings; staged reads pending_syncs.parse_result.
+            Promise.resolve({
+              data: {
+                parse_warnings: opts.warnings ?? [],
+                parse_result: { warnings: opts.warnings ?? [] },
+              },
+              error: null,
+            });
       return b;
     },
   };
@@ -3407,6 +3430,27 @@ describe("role-mapping actions — post-commit forensic emit (spec 2026-07-15 §
 
     // Built-in token → validation_error before any write → no emit.
     const failCodes = await observeCodes(() => mapRoleToken("show-role", "cam op", ["A1"]));
+    expect(failCodes).not.toContain("ROLE_TOKEN_MAPPING_SET");
+  });
+
+  test("mapRoleTokenStaged emits ROLE_TOKEN_MAPPING_SET on create; nothing on validation_error", async () => {
+    serviceRoleClientImpl.current = () =>
+      roleMappingSvc({ existing: null, warnings: [ROLE_UNKNOWN_WARNING] });
+
+    const codes = await observeSuccessCodes(() =>
+      mapRoleTokenStaged("wiz-role", "df-role", "DRONE OP", ["A1"]),
+    );
+    expect(codes).toContain("ROLE_TOKEN_MAPPING_SET");
+    recordAdminOutcomeBehavior({
+      file: "app/admin/onboarding/_actions/roleTokenStaged.ts",
+      fn: "mapRoleTokenStaged",
+      code: "ROLE_TOKEN_MAPPING_SET",
+    });
+
+    // Built-in token → validation_error before any write → no emit.
+    const failCodes = await observeCodes(() =>
+      mapRoleTokenStaged("wiz-role", "df-role", "cam op", ["A1"]),
+    );
     expect(failCodes).not.toContain("ROLE_TOKEN_MAPPING_SET");
   });
 });

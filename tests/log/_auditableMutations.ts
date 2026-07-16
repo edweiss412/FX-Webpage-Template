@@ -374,6 +374,11 @@ export const AUDITABLE_MUTATIONS: readonly AuditableMutation[] = [
     fn: "mapRoleToken",
     code: "ROLE_TOKEN_MAPPING_SET",
   },
+  {
+    file: "app/admin/onboarding/_actions/roleTokenStaged.ts",
+    fn: "mapRoleTokenStaged",
+    code: "ROLE_TOKEN_MAPPING_SET",
+  },
 ];
 
 export const SANCTIONED_CODES: ReadonlySet<string> = new Set([
