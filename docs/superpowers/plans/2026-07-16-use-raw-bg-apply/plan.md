@@ -273,6 +273,18 @@ describe("background apply (spec 2026-07-16-use-raw-bg-apply)", () => {
     expect(revalidateShowMock).toHaveBeenCalledTimes(1); // synchronous pre-return call
   });
 
+  test("an in-task revalidate throw is also contained — drained task resolves (plan-R3 F1)", async () => {
+    txScript.decisions = [];
+    await setUseRawDecisionAction("show-1", ref(), true);
+    // First (synchronous pre-return) revalidate already succeeded; make the
+    // SECOND (in-task) call throw — the task must still resolve, never reject.
+    revalidateShowMock.mockImplementationOnce(() => {
+      throw new Error("revalidateTag outside request scope");
+    });
+    await expect(deferredTasks[0]!()).resolves.toBeUndefined();
+    expect(revalidateShowMock).toHaveBeenCalledTimes(2);
+  });
+
   test("an applied sync outcome no longer upgrades the result to settled (test 8)", async () => {
     // Suite default mock resolves { outcome: "applied" } — the action must
     // return apply_pending BEFORE the task is drained, and draining changes
@@ -330,7 +342,13 @@ import { deferPostResponse } from "@/lib/async/deferPostResponse";
         // decision stays durable (apply-pending) and applies on the next
         // successful sync.
       }
-      revalidateShow(id);
+      try {
+        revalidateShow(id);
+      } catch {
+        // Post-response revalidate can throw if the runtime tears down the
+        // request store; the tag's cache TTL self-heals, and the task must
+        // NEVER reject (helper contract: rejections are caught in the body).
+      }
     });
   } catch {
     // A synchronous scheduling fault (after() outside a request scope) must not
