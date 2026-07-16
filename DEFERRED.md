@@ -565,3 +565,25 @@ Dual-gate on the Task 13 UI diff (`RoleRecognizeControl` + boundary + `/admin/se
 - **What:** `mapRoleTokenStaged` saves the mapping and re-scans the wizard sheet, but the staging pipeline parses without the role-mapping overlay (only `runPhase2` at apply/publish runs it), so the refreshed staged parse still carries the `UNKNOWN_ROLE_TOKEN` warning and the action's `"applied"` branch is unreachable in v1 — every wizard save resolves `"apply_pending"` (whole-diff R1 F1). The saved-card copy is truthful ("saved and applies to every show… catch up on its next sheet check") and the control can reappear idle after a wizard refresh; a re-save resolves through the idempotent set-equal path.
 - **Why deferred:** No capability or data loss: the staged-apply/finalize path threads `roleTokenMappings` into `phase2`, so the mapping applies at publish (integration-tested). Wiring the overlay into the staging/rescan core is a staging-pipeline change (parse-write parity with use-raw's decision-display mechanism, step-3 preview semantics, re-stage tests) — net-new scope mid-close-out. Ratified as a spec amendment (spec §8.3, 2026-07-16) so the contract and the code agree.
 - **Trigger:** Doug reporting wizard confusion ("I recognized the role but the warning is still there"), or the next onboarding-wizard milestone touching the staging core. Backlog: `BL-ROLE-VOCAB-STAGING-OVERLAY`.
+
+## Wizard use-raw full-list controls — impeccable dual-gate (2026-07-16)
+
+Dual-gate on the `feat/use-raw-wizard-full-list` diff (`components/admin/wizard/step3ReviewSections.tsx`; spec `docs/superpowers/specs/2026-07-16-use-raw-wizard-full-list-toggle.md`). Critique 27/40 (dual-agent), audit 19/20; deterministic detector clean — the single `broken-image` hit is a false positive on JSDoc comment text, pre-existing. One P1 and two P2s deferred below; no P0.
+
+### USE-RAW-FULL-LIST-1 — [P1→ratified+deferred] Callout + list both render live controls; role-control siblings can diverge until navigation
+
+- **What:** A warning in the first 3 of its section's callout now has two live control instances (callout preview + complete list). Use-raw converges via `router.refresh()` on every save; the recognize-role control deliberately performs no client refresh (2026-07-15 §8.1 timing contract), so recognizing a role via one instance leaves the sibling in create mode until navigation — Doug could re-submit from the sibling (impeccable critique P1).
+- **Why deferred:** This is the **ratified spec contract**, not an oversight: keep-both was the user-approved resolved decision (spec §2.1, 2026-07-16) and §4.6 ratifies the stale-sibling class as accepted — it is pre-existing (per-occurrence `UNKNOWN_ROLE_TOKEN` emission already mounts duplicate live create controls for one token today), and the stale-sibling save resolves deterministically via the action's EXISTING-ROW-first branch: set-equal grants → idempotent success, different grants → benign conflict notice, never a raw code (pinned by the new sibling test in `tests/components/admin/wizard/warningsBreakdownControls.test.tsx`). No data corruption is possible; the cost is momentary confusion, bounded by the §8.1 contract this diff deliberately does not alter.
+- **Trigger:** a Doug report of double-recognizing roles from the two sites, or a future decision to demote the callout to a pure preview (title + jump only) — which would revisit the ratified keep-both decision. Backlog: `BL-USE-RAW-CALLOUT-PREVIEW-DEMOTION`.
+
+### USE-RAW-FULL-LIST-2 — [P2→deferred] Duplicate testids/aria labels across the two render sites
+
+- **What:** Both instances of a flagged warning's controls emit the same `data-testid` values (`use-raw-control`, `role-recognize-control`, toggle ids) and identical radiogroup `aria-label`s, so screen-reader users hear the same group twice per warning with no disambiguation, and unscoped `getByTestId` queries would multi-match (impeccable critique P2).
+- **Why deferred:** The fix lives inside the shared `UseRawControl` / `RoleRecognizeControl` components (site-scoped testids, warning-title-qualified aria-labels) — blast radius across the live page and every existing control test, well beyond this diff. All in-repo queries are container-scoped, so no test breakage exists today.
+- **Trigger:** the next accessibility pass over the wizard modal, or any diff already touching the shared controls. Backlog: `BL-USE-RAW-CONTROL-SITE-SCOPED-A11Y`.
+
+### USE-RAW-FULL-LIST-3 — [P2→noted] "These are informational and don't block publishing" now headlines consequential controls
+
+- **What:** The §3.10-pinned non-blocking line sits above rows that can now grant financial access (recognize-role) or rewrite crew-visible values (use-raw) (impeccable critique P2).
+- **Why deferred:** The line remains factually true — warnings never block publishing, and the controls are optional refinements, not required actions. Copy is §3.10-pinned; qualifying it is a copy-pass decision, not a this-diff fix.
+- **Trigger:** the next wizard copy pass. Backlog: `BL-WIZARD-WARNINGS-COPY-QUALIFIER`.
