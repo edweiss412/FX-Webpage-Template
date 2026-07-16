@@ -14,6 +14,7 @@ import {
   type Phase1Result,
 } from "@/lib/sync/phase1";
 import { runPhase2, type Phase2Tx } from "@/lib/sync/phase2";
+import { normalizeRoleTokenMappings } from "@/lib/sync/roleMappingOverlay";
 import {
   emitSuccessfulPhase2Tail,
   evaluateQualityRegression_unlocked,
@@ -94,12 +95,26 @@ async function toResult(
       ? (showId: string) =>
           makeSnapshotAssetsForApply(showId, tx as Parameters<typeof makeSnapshotAssetsForApply>[1])
       : undefined;
+    // §6.2 loader: the GLOBAL role_token_mappings vocabulary (normalized). Threaded so a first-seen
+    // auto-publish applies pre-existing global mappings IMMEDIATELY — behavioral parity with the cron
+    // first-seen path (_phase2ArgsParityContract).
+    // first-publish-only: priorParseWarnings is NOT threaded — a genuine first publish has no prior;
+    // ROLE_TOKEN_MAPPED is not emitted on this path (not one of §10 point 5's three surfaces), but any
+    // applied flag delta still surfaces via the ROLE_FLAGS_NOTICE changes feed inside runPhase2.
+    const roleMappingAgg = await tx.queryOne<{ rows: unknown }>(
+      `select coalesce(jsonb_agg(jsonb_build_object(
+          'token', token, 'grants', grants, 'decided_by', decided_by, 'decided_at', decided_at)), '[]'::jsonb) as rows
+         from role_token_mappings`,
+      [],
+    );
+    const roleTokenMappings = normalizeRoleTokenMappings(roleMappingAgg?.rows ?? []);
     const phase2 = await (deps.runPhase2 ?? runPhase2)(tx, {
       driveFileId,
       mode: "manual",
       fileMeta: args.fileMeta,
       parseResult: args.parseResult,
       binding: args.binding,
+      roleTokenMappings,
       ...(snapshotAssetsForApply ? { snapshotAssetsForApply } : {}),
       ...(snapshotAssetsForApplyForShowId ? { snapshotAssetsForApplyForShowId } : {}),
       verifyReelOnApply: false,
@@ -118,6 +133,8 @@ async function toResult(
       // §02 (FIX-3 / R16): source the sync_log parse_warnings from this apply's outcome (manual
       // first-seen caller #2). tsc-FORCED by the required ProcessOneFileResult.applied.parseWarnings.
       parseWarnings: phase2.parseWarnings ?? [],
+      // first-publish-only (§6.2): no mappings threaded on this path → always [] (tsc-required).
+      appliedRoleMappings: phase2.appliedRoleMappings,
     };
     if (phase2.roleFlagsNotice) applied.roleFlagsNotice = phase2.roleFlagsNotice;
     if (phase2.snapshotRevisionId) applied.snapshotRevisionId = phase2.snapshotRevisionId;

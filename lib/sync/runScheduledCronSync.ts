@@ -108,6 +108,8 @@ import {
   type SyncMode,
 } from "@/lib/sync/perFileProcessor";
 import { normalizeUseRawDecisions } from "@/lib/sync/useRawOverlay";
+import { normalizeRoleTokenMappings, type GatedRoleMapping } from "@/lib/sync/roleMappingOverlay";
+import { emitRoleTokenMapped } from "@/lib/log/emitRoleTokenMapped";
 
 export const STAGED_PARSE_REVISION_RACE = "STAGED_PARSE_REVISION_RACE" as const;
 export const STAGED_PARSE_REVISION_RACE_COOLDOWN = "STAGED_PARSE_REVISION_RACE_COOLDOWN" as const;
@@ -395,6 +397,12 @@ export type ProcessOneFileResult =
       // coreResult.parseWarnings). [] is a valid empty value; the per-caller runtime tests pin
       // correct SOURCING.
       parseWarnings: ParseResult["warnings"];
+      // §10 points 4/5: post-gate, emission-ready ROLE_TOKEN_MAPPED entries carried out of the
+      // locked apply so processOneFile's post-commit region emits them (invariant 10). REQUIRED
+      // (parseWarnings precedent) so every applied-result builder — cron/manual core AND the
+      // staged tail — must supply it; a future caller cannot silently drop the telemetry channel.
+      // [] is a valid empty value (nothing gate-passing / no mappings).
+      appliedRoleMappings: GatedRoleMapping[];
     }
   | { outcome: "stale"; code: string }
   | { outcome: "revision_race"; code: typeof STAGED_PARSE_REVISION_RACE }
@@ -2691,6 +2699,16 @@ export async function processOneFile(
     await (deps.promoteSnapshotUpload ?? defaultPromoteSnapshotUpload)(result.snapshotRevisionId);
   }
   await emitDeferredRoleFlagsNotice(result, deps);
+  // §10 point 5: ROLE_TOKEN_MAPPED emission — POST-COMMIT, outside the show-lock tx (invariant 10).
+  // Reads the committed apply outcome; a skipped / rolled-back / non-applied result carries no
+  // entries, so nothing is emitted. This wrapper covers cron AND manual (runManualSyncForShow runs
+  // processOneFile); emitting in the cron file-loop instead would leave every manual re-sync dark.
+  if (!("skipped" in result) && result.outcome === "applied") {
+    await emitRoleTokenMapped(result.appliedRoleMappings, {
+      showId: result.showId,
+      source: "sync.roleMapping",
+    });
+  }
   return result;
 }
 
@@ -3416,6 +3434,18 @@ export async function processOneFile_unlocked(
     deps.acceptShrink === true && deps.expectedModifiedTime === pipeline.binding.modifiedTime;
   const identityLinkRenames = computeIdentityLinkRenames(notableItems, acceptedShrinkThisVersion);
 
+  // §6.2 loader: the GLOBAL role_token_mappings vocabulary, normalized at the single JSONB
+  // boundary. Read read-only inside the existing pipeline tx (postgres.js `unsafe`, not a
+  // supabase-js call site → outside _metaInfraContract scope by construction). This shared core
+  // covers cron AND manual (runManualSyncForShow runs processOneFile, runScheduledCronSync.ts:12).
+  const roleMappingAgg = await tx.queryOne<{ rows: unknown }>(
+    `select coalesce(jsonb_agg(jsonb_build_object(
+        'token', token, 'grants', grants, 'decided_by', decided_by, 'decided_at', decided_at)), '[]'::jsonb) as rows
+       from role_token_mappings`,
+    [],
+  );
+  const roleTokenMappings = normalizeRoleTokenMappings(roleMappingAgg?.rows ?? []);
+
   const phase2 = await runPhase2_unlocked(
     tx,
     {
@@ -3439,6 +3469,11 @@ export async function processOneFile_unlocked(
       // Task 6: thread the prior show's stored "use raw" decisions into the runPhase2 overlay.
       // Only an EXISTING show (pass / auto_apply_with_holds) has a priorShow; first-seen → [].
       ...(priorShow?.useRawDecisions ? { useRawDecisions: priorShow.useRawDecisions } : {}),
+      // §6.2/§10: the global role-mapping overlay input (always threaded) + the prior persisted
+      // parse_warnings the delta gate reads (§10 point 2). priorParseWarnings is threaded ONLY when
+      // a priorShow exists; its absence at genuine first publish is the emit-everything-new signal.
+      roleTokenMappings,
+      ...(priorShow ? { priorParseWarnings: priorShow.priorParseResult.warnings } : {}),
       // Task 5: thread source-region anchors into applyShowSnapshot (Task 6 persists them).
       ...(pipeline.sourceAnchors !== undefined ? { sourceAnchors: pipeline.sourceAnchors } : {}),
     },
@@ -3456,6 +3491,8 @@ export async function processOneFile_unlocked(
     showId: phase2.showId,
     // §02 (FIX-3): source the sync_log parse_warnings from this apply's outcome (cron caller #1).
     parseWarnings: phase2.parseWarnings ?? [],
+    // §10 point 5: carry the gate-passing entries to processOneFile's post-commit emit region.
+    appliedRoleMappings: phase2.appliedRoleMappings,
   };
   if (phase2.roleFlagsNotice) result.roleFlagsNotice = phase2.roleFlagsNotice;
   if (phase2.snapshotRevisionId) result.snapshotRevisionId = phase2.snapshotRevisionId;

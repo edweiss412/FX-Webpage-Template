@@ -21,6 +21,8 @@ import { isStructurallyValidReviewItem } from "@/lib/staging/reviewPayloadGuards
 import { SHOW_ARCHIVED_IMMUTABLE, readShowArchived_unlocked } from "@/lib/sync/lifecycleGuards";
 import { asParseResult, JsonbCoercionError } from "@/lib/db/coerceJsonbObject";
 import { normalizeUseRawDecisions, type UseRawDecision } from "@/lib/sync/useRawOverlay";
+import { normalizeRoleTokenMappings, type GatedRoleMapping } from "@/lib/sync/roleMappingOverlay";
+import { emitRoleTokenMapped } from "@/lib/log/emitRoleTokenMapped";
 import {
   assertShowLockHeld,
   type ConcurrentSyncSkipped,
@@ -261,6 +263,9 @@ export type ApplyStagedResult =
       adminAlertCodes?: LiveAssetReviewEffects["adminAlertCodes"];
       roleFlagsNotice?: RoleFlagsNotice;
       snapshotRevisionId?: string;
+      // §10 point 5: gate-passing ROLE_TOKEN_MAPPED entries carried to the live post-commit emit
+      // region. Optional — only the applied path sets it; absent = nothing gated.
+      appliedRoleMappings?: GatedRoleMapping[];
     }
   | { outcome: "not_found"; code: typeof PENDING_SYNC_NOT_FOUND }
   | { outcome: "superseded"; code: typeof STAGED_PARSE_SUPERSEDED }
@@ -1359,6 +1364,17 @@ export async function applyStaged_unlocked(
   // apply, floors, audit (with source provenance), and live staged-row delete all run inside
   // applyStagedCore. Caller-level semantics (preflights, reject branch, P2-F7, asset effects,
   // first-published tail) stay here unchanged.
+  // §6.2 loader: the GLOBAL role_token_mappings vocabulary (normalized at the single JSONB
+  // boundary). Read read-only inside the held apply tx (postgres.js `unsafe`, not a supabase-js
+  // call site → outside _metaInfraContract scope). Forwarded to applyStagedCore → runPhase2's overlay.
+  const roleMappingAgg = await tx.queryOne<{ rows: unknown }>(
+    `select coalesce(jsonb_agg(jsonb_build_object(
+        'token', token, 'grants', grants, 'decided_by', decided_by, 'decided_at', decided_at)), '[]'::jsonb) as rows
+       from role_token_mappings`,
+    [],
+  );
+  const roleTokenMappings = normalizeRoleTokenMappings(roleMappingAgg?.rows ?? []);
+
   const coreResult = await applyStagedCore(
     tx,
     {
@@ -1366,6 +1382,7 @@ export async function applyStaged_unlocked(
       driveFileId: pending.driveFileId,
       show,
       parseResult: assetAdjusted.parseResult,
+      roleTokenMappings,
       triggeredReviewItems: pending.triggeredReviewItems,
       reviewerChoices: args.reviewerChoices,
       stagedId: pending.stagedId,
@@ -1425,6 +1442,8 @@ export async function applyStaged_unlocked(
     derivedSideEffects: coreResult.derivedSideEffects,
     adminAlertCode: assetAdjusted.adminAlertCode,
     adminAlertCodes: assetAdjusted.adminAlertCodes,
+    // §10 point 5: carry the gate-passing entries to the live post-commit emit region.
+    appliedRoleMappings: coreResult.appliedRoleMappings,
   };
   if (coreResult.roleFlagsNotice) applied.roleFlagsNotice = coreResult.roleFlagsNotice;
   if (coreResult.snapshotRevisionId) applied.snapshotRevisionId = coreResult.snapshotRevisionId;
@@ -1443,6 +1462,7 @@ export async function applyStaged_unlocked(
         outcome: "applied",
         showId: coreResult.showId,
         parseWarnings: coreResult.parseWarnings,
+        appliedRoleMappings: coreResult.appliedRoleMappings,
       },
       // R3 fix: write SHOW_FIRST_PUBLISHED through THIS apply tx (via tx.queryOne → upsert_admin_alert
       // RPC) so the alert lands in the SAME transaction as the just-created show. The standalone
@@ -1971,6 +1991,14 @@ export async function applyStaged(
     if (!("skipped" in result) && result.outcome === "applied" && result.roleFlagsNotice) {
       const upsertAdminAlert = deps.upsertAdminAlert ?? defaultUpsertAdminAlert;
       await upsertAdminAlert(result.roleFlagsNotice);
+    }
+    // §10 point 5: ROLE_TOKEN_MAPPED emission — POST-COMMIT, outside the held lock tx (invariant 10;
+    // the withPipelineLock resolved before this point). A non-applied outcome carries no entries.
+    if (!("skipped" in result) && result.outcome === "applied") {
+      await emitRoleTokenMapped(result.appliedRoleMappings ?? [], {
+        showId: result.showId,
+        source: "sync.roleMapping",
+      });
     }
     // nav-perf tag-caching (Task 7): the LIVE staged-apply `applied` path ran runPhase2 — the show
     // row + crew/hotel/rooms/transport/contacts/shows_internal mutate. Revalidate the show's

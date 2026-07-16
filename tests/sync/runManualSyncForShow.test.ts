@@ -206,6 +206,7 @@ describe("runManualSyncForShow", () => {
       outcome: "applied" as const,
       showId: "show-1",
       parseWarnings: [],
+      appliedRoleMappings: [],
     }));
 
     const result = await runManualSyncForShow_unlocked(
@@ -219,7 +220,7 @@ describe("runManualSyncForShow", () => {
       },
     );
 
-    expect(result).toEqual({ outcome: "applied", showId: "show-1", parseWarnings: [] });
+    expect(result).toEqual({ outcome: "applied", showId: "show-1", parseWarnings: [], appliedRoleMappings: [] });
     expect(fetchDriveFileMetadata).not.toHaveBeenCalled();
     expect(processOneFile_unlocked).toHaveBeenCalledWith(
       tx,
@@ -242,6 +243,7 @@ describe("runManualSyncForShow", () => {
           outcome: "applied",
           showId: "show-1",
           parseWarnings: [],
+          appliedRoleMappings: [],
         }),
       }),
     ).rejects.toMatchObject({ code: "LOCK_OWNERSHIP_ASSERTION_FAILED" });
@@ -268,7 +270,7 @@ describe("runManualSyncForShow", () => {
       events.push("process:start");
       return await processDeps?.withShowLock?.("drive-file-1", async () => {
         events.push("process:locked");
-        return { outcome: "applied" as const, showId: "show-1", parseWarnings: [] };
+        return { outcome: "applied" as const, showId: "show-1", parseWarnings: [], appliedRoleMappings: [] };
       });
     });
 
@@ -298,6 +300,7 @@ describe("runManualSyncForShow", () => {
         outcome: "applied" as const,
         showId: "show-1",
         parseWarnings: [],
+        appliedRoleMappings: [],
       })),
     );
 
@@ -309,7 +312,7 @@ describe("runManualSyncForShow", () => {
       processOneFile,
     });
 
-    expect(result).toEqual({ outcome: "applied", showId: "show-1", parseWarnings: [] });
+    expect(result).toEqual({ outcome: "applied", showId: "show-1", parseWarnings: [], appliedRoleMappings: [] });
     expect(getActiveWatchedFolderId).toHaveBeenCalledOnce();
     expect(fetchDriveFileMetadata).toHaveBeenCalledWith("drive-file-1");
     expect(withPipelineLock).toHaveBeenCalledTimes(2);
@@ -414,6 +417,7 @@ describe("runManualSyncForShow", () => {
       outcome: "applied" as const,
       showId: "show-1",
       parseWarnings: [],
+      appliedRoleMappings: [],
     }));
 
     const result = await runManualSyncForShow("drive-file-1", "manual", {
@@ -470,6 +474,7 @@ describe("runManualSyncForShow", () => {
       outcome: "applied" as const,
       showId: "show-1",
       parseWarnings: [],
+      appliedRoleMappings: [],
     }));
     const gone = Object.assign(new Error("Drive file not found"), { code: 404 });
 
@@ -516,6 +521,7 @@ describe("runManualSyncForShow", () => {
       outcome: "applied" as const,
       showId: "show-1",
       parseWarnings: [],
+      appliedRoleMappings: [],
     }));
 
     const result = await runManualSyncForShow("drive-file-1", "manual", {
@@ -633,7 +639,7 @@ describe("runManualSyncForShow", () => {
 
     test("clearing a permanent_ignore that now succeeds does NOT warn", async () => {
       const { tx } = txWithDeferral("permanent_ignore");
-      await run(tx, { outcome: "applied", showId: "show-1", parseWarnings: [] });
+      await run(tx, { outcome: "applied", showId: "show-1", parseWarnings: [], appliedRoleMappings: [] });
 
       expect(emitted()).toHaveLength(0);
     });

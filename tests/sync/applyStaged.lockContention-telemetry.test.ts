@@ -119,7 +119,11 @@ function baseDeps(overrides: Partial<ApplyStagedDeps> = {}): ApplyStagedDeps {
     })),
     readWatchedFolderId: vi.fn(async () => "watched-folder"),
     fetchDriveFileMetadata: vi.fn(async () => driveMeta()),
-    runPhase2: vi.fn(async () => ({ outcome: "applied" as const, appliedRoleMappings: [], showId: "show-1" })),
+    runPhase2: vi.fn(async () => ({
+      outcome: "applied" as const,
+      appliedRoleMappings: [],
+      showId: "show-1",
+    })),
     resolveAdminAlerts: vi.fn(async () => undefined),
     readLandedSnapshotStatus: vi.fn(async () => null),
     ...overrides,
@@ -184,6 +188,7 @@ describe("applyStaged lock-contention durable emit (finding #12)", () => {
       async queryOne<T>(sql: string) {
         if (/pg_locks/i.test(sql)) return { held: true } as T;
         if (/select archived from public\.shows/i.test(sql)) return { archived: false } as T;
+        if (/from role_token_mappings/i.test(sql)) return { rows: [] } as T; // §6.2 global load (none)
         throw new Error(`unexpected SQL: ${sql}`);
       },
     } as unknown as LockedShowTx<SyncPipelineTx>;

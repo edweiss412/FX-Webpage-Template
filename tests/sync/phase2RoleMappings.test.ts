@@ -25,7 +25,11 @@ type FakeCrewAuth = {
   revoked_below_version: number;
 };
 
-function crew(name: string, roleFlags: CrewMemberRow["role_flags"] = [], role = "Drone Op"): CrewMemberRow {
+function crew(
+  name: string,
+  roleFlags: CrewMemberRow["role_flags"] = [],
+  role = "Drone Op",
+): CrewMemberRow {
   return {
     name,
     email: `${name.toLowerCase().replace(/\s+/g, ".")}@example.com`,
@@ -320,5 +324,71 @@ describe("runPhase2 role-mapping overlay + delta gate (spec §6/§10)", () => {
       (result.parseWarnings ?? []).filter((w) => w.code === "UNKNOWN_ROLE_TOKEN"),
     ).toHaveLength(1);
     expect(result.appliedRoleMappings).toEqual([]);
+  });
+
+  // ── §10 point 7 lifecycle: emission = one event per appliedRoleMappings entry ──
+
+  test("grants edit [A1] → [A1,V1]: next sync emits exactly once (V1 newly present)", async () => {
+    const tx = new FakePhase2Tx();
+    const first = await runWith(tx, {
+      modifiedTime: "2026-05-08T12:00:00.000Z",
+      roleTokenMappings: [MAPPING], // grants ["A1"]
+    });
+    if (first.outcome !== "applied") throw new Error("expected applied");
+    expect(tx.crewFlags("Marcus Webb")).toEqual(["A1"]);
+
+    const edited: RoleTokenMapping = { ...MAPPING, grants: ["A1", "V1"] };
+    const second = await runWith(tx, {
+      modifiedTime: "2026-05-08T13:00:00.000Z",
+      roleTokenMappings: [edited],
+      priorParseWarnings: first.parseWarnings ?? [],
+    });
+    if (second.outcome !== "applied") throw new Error("expected applied");
+    // Prior flags already had A1; V1 is the newly-present grant → exactly one gate-passing entry.
+    expect(second.appliedRoleMappings).toEqual([
+      { token: edited.token, grants: edited.grants, newMemberCount: 1 },
+    ]);
+    expect(tx.crewFlags("Marcus Webb")).toEqual(["A1", "V1"]);
+  });
+
+  test("delete: next sync reverts the flag, the UNKNOWN_ROLE_TOKEN warning returns, appliedRoleMappings empty", async () => {
+    const tx = new FakePhase2Tx();
+    const first = await runWith(tx, {
+      modifiedTime: "2026-05-08T12:00:00.000Z",
+      roleTokenMappings: [MAPPING],
+    });
+    if (first.outcome !== "applied") throw new Error("expected applied");
+    expect(tx.crewFlags("Marcus Webb")).toEqual(["A1"]);
+
+    // Mapping deleted → no roleTokenMappings threaded. Flags recompute-from-sheet (revert to []),
+    // the consumed warning re-surfaces, and nothing is gate-passing.
+    const second = await runWith(tx, {
+      modifiedTime: "2026-05-08T13:00:00.000Z",
+      priorParseWarnings: first.parseWarnings ?? [],
+    });
+    if (second.outcome !== "applied") throw new Error("expected applied");
+    expect(tx.crewFlags("Marcus Webb")).toEqual([]);
+    expect(
+      (second.parseWarnings ?? []).filter((w) => w.code === "UNKNOWN_ROLE_TOKEN"),
+    ).toHaveLength(1);
+    expect(second.appliedRoleMappings).toEqual([]);
+  });
+
+  test("stale outcome carries NO appliedRoleMappings (rollback emits nothing — §10 point 7)", async () => {
+    const tx = new FakePhase2Tx();
+    const first = await runWith(tx, {
+      modifiedTime: "2026-05-08T13:00:00.000Z",
+      roleTokenMappings: [MAPPING],
+    });
+    if (first.outcome !== "applied") throw new Error("expected applied");
+
+    // A stale (older modifiedTime) re-run short-circuits before the applied arm — only the applied
+    // arm carries appliedRoleMappings, so the emit surface reads nothing.
+    const stale = await runWith(tx, {
+      modifiedTime: "2026-05-08T12:00:00.000Z",
+      roleTokenMappings: [MAPPING],
+    });
+    expect(stale.outcome).toBe("stale");
+    expect("appliedRoleMappings" in stale).toBe(false);
   });
 });

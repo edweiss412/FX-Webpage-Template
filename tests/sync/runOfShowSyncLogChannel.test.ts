@@ -36,6 +36,7 @@ describe("D-7 sync_log channel — AGENDA_DAY_EMPTIED reaches sync_log via emitS
       outcome: "applied",
       showId: "show-1",
       parseWarnings: [EMPTIED],
+      appliedRoleMappings: [],
     };
     await emitSuccessfulPhase2Tail({
       tx: fakeTailTx,
@@ -56,6 +57,7 @@ describe("D-7 sync_log channel — AGENDA_DAY_EMPTIED reaches sync_log via emitS
       outcome: "applied",
       showId: "show-1",
       parseWarnings: [],
+      appliedRoleMappings: [],
     };
     await emitSuccessfulPhase2Tail({
       tx: fakeTailTx,

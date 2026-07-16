@@ -3102,6 +3102,7 @@ describe("Batch 3 — final grandfathered surfaces graduate to inline proof", ()
           outcome: "applied",
           showId: "show-1",
           parseWarnings: [],
+          appliedRoleMappings: [],
         }));
         return syncSlugPost(req(), ctx());
       },
@@ -3256,6 +3257,7 @@ describe("use-raw toggle actions — post-commit forensic emit", () => {
       outcome: "applied",
       showId: "show-uraw",
       parseWarnings: [],
+      appliedRoleMappings: [],
     }));
 
     // toggle ON from transform-active → writes {raw,false} → emits SET.

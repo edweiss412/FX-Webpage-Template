@@ -74,7 +74,7 @@ describe("cron apply tail", () => {
       processOneFile: async (driveFileId) => {
         order.push(`committed:${driveFileId}`);
         if (driveFileId === appliedFile.driveFileId) {
-          return { outcome: "applied", showId: SHOW_ID, parseWarnings: [] };
+          return { outcome: "applied", showId: SHOW_ID, parseWarnings: [], appliedRoleMappings: [] };
         }
         return { outcome: "skipped", reason: "watermark_unchanged" };
       },
@@ -214,7 +214,7 @@ describe("push runner", () => {
       readPushDuplicatePreflight: async () => ({ outcome: "proceed" }),
       processOneFile: async (driveFileId) => {
         order.push(`committed:${driveFileId}`);
-        return { outcome: "applied", showId: SHOW_ID, parseWarnings: [] };
+        return { outcome: "applied", showId: SHOW_ID, parseWarnings: [], appliedRoleMappings: [] };
       },
       logSync: async () => undefined,
     });
